@@ -57,6 +57,30 @@ export interface WaterfallColors {
   fallInk: string;
   neutralInk: string;
   primaryInk: string;
+  /**
+   * 极小值柱标注条的底色（`--bg-card`）。
+   *
+   * 标注条是**压在绘图区上**的一块文字，背后可能是网格线或相邻柱体的边缘；
+   * 给它垫一层卡片底色，它才不会看起来像「浮在柱子上的脏字」。
+   * 同样必须是解析值：canvas 不认 `var(--x)`（见上面 `riseInk` 那段）。
+   */
+  surface: string;
+}
+
+/**
+ * 绘图区的实际尺寸（px），由宿主从容器 DOM 读出后传入。
+ *
+ * 为什么几何要由外面喂：本模块是纯计算，不读 DOM；而「柱高多少像素」「标注条放不放得下」
+ * 这类判定**只能按像素**做（5px 在 376 万与 1 亿两种量级下含义完全一样，占总量的比例
+ * 却差 27 倍）。宿主把 `el.clientHeight` 递进来，几何就在本模块内一次算清。
+ *
+ * **只收高度，不收宽度**：宽度随容器变，但 `chart.resize()` 只重排、不会重跑本模块——
+ * 任何「按宽度算出来」的结论在窗口缩放后都会失真。标注条被刻意做成两行窄条
+ * （宽 ≈ 46px，窄断点下类目带宽 ≈ 37px，相邻两根再靠行错位错开），因此不需要宽度信息。
+ */
+export interface WaterfallLayout {
+  /** 图表容器高度（px）。取不到时按锁高 280 兜底 */
+  height: number;
 }
 
 /** echarts 回调里只用到 dataIndex，声明最小结构即可，不必引入 any */
@@ -134,6 +158,142 @@ function formatExact(value: number): string {
  * 所以不是「信息没了」，只是不再和图抢注意力。终点柱（净资产）恒显示。
  */
 const LABEL_MIN_RATIO = 0.08;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 极小值柱的引线标注
+ *
+ * 要解决的问题：「保险 5.05 万」在 376 万量级下柱高只有约 3px，比 `barMinHeight`
+ * 高不到哪去，视觉上就是一条粗虚线——用户既认不出是哪一类，也读不出值。
+ *
+ * **柱高一个像素都不动**：柱高严格等于金额（那是这张图的契约）。当柱高不足以承载
+ * 信息时，只能**在柱子上叠加一层标注**去说「这是谁 + 多少」，而不是把柱子拔高。
+ * 拔高 3px 的柱子会让它看起来和 20 万的柱子一样高，那是改数据。
+ *
+ * 叠加层分三件：标注条（label，两行：名称 / 金额）+ 引线（markLine，1px）+ 卡片底色
+ * 垫底。三者全部 `silent`、不进 tooltip（tooltip 仍由轴触发，值仍是完整精度）。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 判定为「极小值柱」的柱高上限（px）。**按像素判，不按占总量的比例判**：
+ *
+ * 比例阈值在不同量级下说的不是同一件事 —— 5px 在 376 万和 1 亿两张图里都是「一条虚线」，
+ * 而它占总量的比例会差 27 倍，用比例当阈值必然一边漏一边误伤。
+ *
+ * 为什么是 12px（三条都指向同一个量级）：
+ *   · 柱体 `borderRadius: 4` 吃掉上下各 4px，柱高 ≤ 12px 时几乎整根都是圆角，
+ *     没有直边可比长短，长度信息本就失效；
+ *   · 柱标签字号 11px —— 柱子比一行字还矮时，标签会比柱子显眼得多，
+ *     「谁在标注谁」读不出来；
+ *   · 引线 1px，柱高再矮下去两者宽度接近，会被读成同一根断掉的虚线。
+ *
+ * **边界（什么情况会漏）**：
+ *   · 12px 以上、但仍够不上普通标签（`LABEL_MIN_RATIO`）的柱依旧不写标签 —— 那是原有
+ *     行为，不在本次范围里；本层只接住「连柱高都读不出来」的那一档。这条空隙只在
+ *     「某一步独大、几乎顶满轴高」时出现（阈值 8% × 最大单步 ≈ 轴高的 8%，而 12px
+ *     约占轴高 5.4%，两个区间只在最大单步接近轴高时重叠），故意不为此抬高阈值；
+ *   · 容器高度取不到时按锁高 280 兜底，阈值照旧成立（本卡高度是锁死的，不随断点变）；
+ *   · `barMinHeight: 2` 会让 < 2px 的柱子实际画成 2px，所以极低端的像素只是估值 ——
+ *     但 2px 远在阈值之下，不影响判定方向；
+ *   · 终点柱（净资产）永不改挂标注：它恒有普通标签，且它是结论、不该被降级成注解；
+ *   · 金额为 0 的档位不看（`change === 0`），它今天就是不可见的。
+ */
+export const TINY_BAR_PX = 12;
+
+/** 网格内边距（px）。与 `grid` 选项共用同一组常量 —— 分开写会让像素换算与实际布局脱拍 */
+const GRID_INSET = { left: 8, right: 12, top: 30, bottom: 4 } as const;
+
+/** x 轴类目文字吃掉的高度（fontSize 11 + margin 10，实测约 22px） */
+const X_AXIS_BAND_PX = 22;
+
+/** 容器高度取不到时的兜底：与宿主 `.overview-card__body` 的锁高一致 */
+const FALLBACK_CONTAINER_HEIGHT = 280;
+
+/**
+ * 标注条的排版尺寸（px）。**必须与下面 label 里用的值同源**——
+ * 引线终点是按 `CHIP_HEIGHT` 算的，改了字号却不改这里，引线会插进字里。
+ */
+const CHIP_FONT_PX = 10;
+const CHIP_LINE_HEIGHT = 11;
+const CHIP_PADDING_Y = 2;
+const CHIP_PADDING_X = 3;
+const CHIP_HEIGHT_PX = CHIP_LINE_HEIGHT * 2 + CHIP_PADDING_Y * 2; // 26
+
+/** 名称截断长度：4 个汉字 + 金额 ≈ 46px，与窄断点的类目带宽同量级，见 `WaterfallLayout` 注释 */
+const CHIP_NAME_MAX_CHARS = 4;
+
+/** 引线与柱顶之间留的空隙：贴上去会和柱顶的圆角、连接线糊成一团 */
+const LEADER_GAP_PX = 2;
+
+/** 第一行标注条离柱顶的距离（含引线长度）；第二行再往下压一整个标注条 */
+const CALLOUT_ROW0_DISTANCE = 10;
+const CALLOUT_ROW_OFFSET = CHIP_HEIGHT_PX + 6;
+
+interface TinyCallout {
+  index: number;
+  /** label.distance：标注条底边到柱顶的像素距离 */
+  distance: number;
+  /** 引线两端的数据坐标 y；放不下（顶部空间不足）时为 null，只留标注条 */
+  leader: [number, number] | null;
+  /** rich 文本（两行） */
+  text: string;
+  /** 金额那一行的字色：与柱自身语义一致 */
+  ink: string;
+}
+
+/**
+ * 取一个「整数档」的刻度步长（1 / 2 / 2.5 / 5 × 10ⁿ）。
+ *
+ * 轴上限自己算而不是交给 echarts 自动，是为了让**像素换算可复现**：自动上限会随着
+ * 「多一分钱」换档，阈值随之忽大忽小，同一张图两次刷新可能一次标注一次不标注。
+ */
+function niceStep(raw: number): number {
+  if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const normalized = raw / magnitude; // [1, 10)
+  const multiplier =
+    normalized <= 1
+      ? 1
+      : normalized <= 2
+        ? 2
+        : normalized <= 2.5
+          ? 2.5
+          : normalized <= 5
+            ? 5
+            : 10;
+  return multiplier * magnitude;
+}
+
+/** 名称截断：超出 4 字按「前 3 字 + …」，标注条宽度才不会越过类目带宽 */
+function truncateChipName(name: string): string {
+  const chars = Array.from(name);
+  return chars.length <= CHIP_NAME_MAX_CHARS
+    ? name
+    : `${chars.slice(0, CHIP_NAME_MAX_CHARS - 1).join("")}…`;
+}
+
+/**
+ * 标注条里的金额：不足 1 万的省掉角分（`¥5,000` 比 `¥5,000.00` 窄三成），
+ * 1 万以上沿用柱标签同一套万 / 亿缩写。完整精度仍在 tooltip 里。
+ */
+function formatChipValue(value: number): string {
+  return Math.abs(value) < 1e4
+    ? formatAmount(value, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      })
+    : formatLabel(value);
+}
+
+/** rich 文本的语法字符要剔除，否则名称里的 `{` / `|` 会把标注条解析成乱码 */
+function safeRichText(raw: string): string {
+  return raw.replace(/[{}|\r\n]/g, "");
+}
+
+function chipText(bar: WaterfallBar): string {
+  const name = safeRichText(truncateChipName(bar.name));
+  const value = safeRichText(formatChipValue(bar.change));
+  return `{n|${name}}\n{v|${value}}`;
+}
 
 /**
  * 由 distributions 构造柱序列。
@@ -217,14 +377,110 @@ function inkColor(b: WaterfallBar, c: WaterfallColors): string {
  */
 export function buildWaterfallOption(
   bars: WaterfallBar[],
-  colors: WaterfallColors
+  colors: WaterfallColors,
+  layout?: WaterfallLayout
 ) {
   // Y 轴下限必须把 0 与所有柱的**最低点**都圈进来：截断的柱状图会夸大差距。
   // 最低点取 `base`（柱底）而不是 `base + delta`（柱顶）：负增柱的柱底才是它
   // 落到的最低处，用柱顶算等于只看上半截 —— 净值转负时柱子会被轴裁掉一截，
   // 而且画面上看不出来（图还画得出来，只是矮了）。
-  const axisMin = Math.min(0, ...bars.map(b => b.base));
-  const maxAbsChange = Math.max(0, ...bars.map(b => Math.abs(b.change)));
+  const dataMin = Math.min(0, ...bars.map(b => b.base));
+  const dataMax = Math.max(0, ...bars.map(b => b.base + b.delta));
+  const axisMin = dataMin;
+  // 轴上限**自己算**，不再交给 echarts 自动取：极小值判定按像素高度做，而自动上限
+  // 会随数据抖动换档（多一分钱就可能换一档），同一份数据两次刷新可能一次标注、
+  // 一次不标注。这里用「整数档步长 × 4~5 段」把它钉死，像素换算才可复现。
+  const step = niceStep((dataMax - dataMin) / 4);
+  const axisMax = Math.max(
+    axisMin + step,
+    axisMin + Math.ceil((dataMax - axisMin) / step) * step
+  );
+  /** 绘图区高度：容器高 − 上下内边距 − x 轴类目文字那一条 */
+  const plotHeight = Math.max(
+    80,
+    (layout && layout.height > 0 ? layout.height : FALLBACK_CONTAINER_HEIGHT) -
+      GRID_INSET.top -
+      GRID_INSET.bottom -
+      X_AXIS_BAND_PX
+  );
+  /** 1px 代表多少金额 —— 极小值判定的唯一单位换算 */
+  const unitsPerPx = (axisMax - axisMin) / plotHeight;
+  /**
+   * `LABEL_MIN_RATIO` 的母体：**单笔变动**里的最大者。
+   *
+   * ⚠️ 必须排除终点柱（净资产）。它的 `change` 是全部步骤的**合计**、不是一次变动，
+   * 拿它当母体会把阈值抬到「8% × 净资产」，中小档位被整批误判成「不值得标」：
+   * 实测 376 万净资产 + 30 万现金档 ⇒ 阈值 30.004 万，现金差 40 元落榜，
+   * 而 20 万的负债档因为矮于 `TINY_BAR_PX` 反而拿到了标注条 —— 同一张图上
+   * 「30 万没数字、20 万有数字」，比不标更费解。
+   */
+  const maxAbsChange = Math.max(
+    0,
+    ...bars.filter(b => !b.isEndpoint).map(b => Math.abs(b.change))
+  );
+
+  /**
+   * 挑出「柱高读不出来、又没有普通标签」的那几档，改挂引线标注。
+   *
+   * 与普通标签**互斥**（`plainLabel` 一票否决）：两者都画会在同一根柱顶上叠两个数字。
+   * 相邻的两根交替向上错一行（`CALLOUT_ROW_OFFSET`），因为标注条比类目带宽略宽，
+   * 同一行并排会互相压字；不相邻的回到第一行，避免整排标注条被无谓地抬高。
+   */
+  const callouts = new Map<number, TinyCallout>();
+  {
+    let previous = -2; // 哨兵：保证第 0 根一定落在第一行
+    let row = 0;
+    bars.forEach((b, i) => {
+      const heightPx = b.delta / unitsPerPx;
+      const plainLabel =
+        b.isEndpoint ||
+        (maxAbsChange > 0 &&
+          Math.abs(b.change) >= maxAbsChange * LABEL_MIN_RATIO);
+      if (
+        b.isEndpoint ||
+        b.change === 0 ||
+        plainLabel ||
+        heightPx >= TINY_BAR_PX
+      ) {
+        return;
+      }
+      row = i === previous + 1 ? 1 - row : 0;
+      previous = i;
+
+      const top = b.base + b.delta;
+      // 柱上方的可用空间 = 绘图区里柱顶以上的高度 + `grid.top` 那段留白
+      // （标签画得进留白里，不会被绘图区裁掉）。顶部附近的柱靠压缩引线长度让位，
+      // 而不是把标注条推到画布外。
+      const roomPx = (axisMax - top) / unitsPerPx + GRID_INSET.top;
+      const wanted = CALLOUT_ROW0_DISTANCE + row * CALLOUT_ROW_OFFSET;
+      const distance = Math.max(
+        LEADER_GAP_PX + 2,
+        Math.min(wanted, roomPx - CHIP_HEIGHT_PX)
+      );
+      const leaderLength = distance - LEADER_GAP_PX;
+      callouts.set(i, {
+        index: i,
+        distance,
+        // 短于 3px 的引线不画：它画出来只是柱顶多一个点，不如让标注条自己说
+        leader:
+          leaderLength >= 3
+            ? [
+                top + LEADER_GAP_PX * unitsPerPx,
+                top + (distance - 1) * unitsPerPx
+              ]
+            : null,
+        text: chipText(b),
+        ink: inkColor(b, colors)
+      });
+    });
+  }
+
+  const leaderSegments = Array.from(callouts.values())
+    .filter(c => c.leader !== null)
+    .map(c => {
+      const [from, to] = c.leader as [number, number];
+      return [{ coord: [c.index, from] }, { coord: [c.index, to] }];
+    });
 
   /**
    * 相邻柱之间的连接线：从上一根柱的收尾水位，横着连到下一根柱的起点。
@@ -233,10 +489,12 @@ export function buildWaterfallOption(
    * 一笔笔累加出来的（观感上像散点）。标准瀑布图的「台阶」就是这条线。
    * `cumulative` 正是上一根柱收尾的水位，也等于下一根柱的起点之一。
    */
-  const connectors = bars.slice(0, -1).map((b, i) => [
-    { coord: [i, b.cumulative] },
-    { coord: [i + 1, b.cumulative] }
-  ]);
+  const connectors = bars
+    .slice(0, -1)
+    .map((b, i) => [
+      { coord: [i, b.cumulative] },
+      { coord: [i + 1, b.cumulative] }
+    ]);
 
   return {
     backgroundColor: "transparent",
@@ -268,7 +526,13 @@ export function buildWaterfallOption(
         return `<div style="font-weight:600;margin-bottom:4px">${escapeHtml(bar.name)}</div>${body}`;
       }
     },
-    grid: { left: 8, right: 12, top: 30, bottom: 4, containLabel: true },
+    grid: {
+      left: GRID_INSET.left,
+      right: GRID_INSET.right,
+      top: GRID_INSET.top,
+      bottom: GRID_INSET.bottom,
+      containLabel: true
+    },
     xAxis: {
       type: "category" as const,
       data: bars.map(b => b.name),
@@ -288,7 +552,10 @@ export function buildWaterfallOption(
     yAxis: {
       type: "value" as const,
       min: axisMin,
-      splitNumber: 4,
+      max: axisMax,
+      // 刻度步长显式给定：上限是我们算的，若再让 echarts 自选刻度，会出现
+      // 「最后一格落在 max 之外」的缝隙（4 段装 5 段的数据）。步长与上限同源就不会走样。
+      interval: step,
       splitLine: { lineStyle: { color: colors.border } },
       axisLabel: {
         color: colors.axis,
@@ -337,15 +604,48 @@ export function buildWaterfallOption(
         barMaxWidth: 40,
         // 极小金额仍留一丝可见高度，否则该柱完全消失、看不出「有这一项」
         barMinHeight: 2,
-        data: bars.map(b => ({
-          value: b.delta,
-          itemStyle: { color: barColor(b, colors), borderRadius: 4 },
-          // 标签字色按**柱自己的语义**取（终点=主文字、涨=rise-ink、跌=fall-ink），
-          // 逐条覆盖而不是在 series.label 里写死一个灰：文件头那套 -ink 口径
-          // 与 design.md「柱体用 rise/fall 填充、柱上文字用 -ink 级」是同一件事，
-          // 写死灰等于把这条约定留在了注释里。
-          label: { color: inkColor(b, colors) }
-        })),
+        data: bars.map((b, i) => {
+          const callout = callouts.get(i);
+          return {
+            value: b.delta,
+            itemStyle: { color: barColor(b, colors), borderRadius: 4 },
+            // 标签字色按**柱自己的语义**取（终点=主文字、涨=rise-ink、跌=fall-ink），
+            // 逐条覆盖而不是在 series.label 里写死一个灰：文件头那套 -ink 口径
+            // 与 design.md「柱体用 rise/fall 填充、柱上文字用 -ink 级」是同一件事，
+            // 写死灰等于把这条约定留在了注释里。
+            //
+            // 极小值柱的标签升级成「两行标注条 + 引线」（见文件内 TINY_BAR_PX 那段）：
+            // 名称走 --text-tertiary-ink（它是索引，不是数字），金额走柱自己的 -ink；
+            // 垫一层卡片底色，压在网格线上也不脏。`distance` 由几何算出，不是写死的 6。
+            label: callout
+              ? {
+                  distance: callout.distance,
+                  backgroundColor: colors.surface,
+                  padding: [CHIP_PADDING_Y, CHIP_PADDING_X],
+                  borderRadius: 3,
+                  align: "center" as const,
+                  fontSize: CHIP_FONT_PX,
+                  lineHeight: CHIP_LINE_HEIGHT,
+                  color: colors.axis,
+                  rich: {
+                    n: {
+                      fontSize: CHIP_FONT_PX,
+                      lineHeight: CHIP_LINE_HEIGHT,
+                      color: colors.axis,
+                      align: "center" as const
+                    },
+                    v: {
+                      fontSize: CHIP_FONT_PX,
+                      lineHeight: CHIP_LINE_HEIGHT,
+                      color: callout.ink,
+                      align: "center" as const,
+                      fontWeight: 600
+                    }
+                  }
+                }
+              : { color: inkColor(b, colors) }
+          };
+        }),
         markLine: {
           // 连接线：不进 tooltip、不响应鼠标、不参与图例
           silent: true,
@@ -371,6 +671,10 @@ export function buildWaterfallOption(
           formatter: (params: BarParam) => {
             const b = bars[params.dataIndex];
             if (!b || b.change === 0) return "";
+            // 极小值柱走「两行标注条」，普通柱走单行金额。两者互斥由 callouts 保证，
+            // 这里再按它分流一次：同一根柱顶不会出现两个数字。
+            const callout = callouts.get(params.dataIndex);
+            if (callout) return callout.text;
             const bigEnough =
               b.isEndpoint ||
               (maxAbsChange > 0 &&
@@ -380,7 +684,42 @@ export function buildWaterfallOption(
             return formatLabel(b.change);
           }
         }
-      }
+      },
+      // 引线层：**只承载 markLine**，没有任何数据、不画线、不进 tooltip。
+      // 单独一条 series 是因为一个 series 只能挂一条 markLine，而
+      // 「资产大类」上那条已经被连接线占用了（两者的线型 / 透明度也不同）。
+      ...(leaderSegments.length > 0
+        ? [
+            {
+              name: "极小值引线",
+              type: "line" as const,
+              // 全 null 而不是空数组：空数组会让部分 echarts 版本跳过该 series 的
+              // 布局，markLine 跟着不画（这条 series 存在的唯一理由就是它的 markLine）
+              data: bars.map(() => null),
+              showSymbol: false,
+              silent: true,
+              tooltip: { show: false },
+              animation: false,
+              emphasis: { disabled: true },
+              markLine: {
+                silent: true,
+                symbol: "none" as const,
+                animation: false,
+                label: { show: false },
+                emphasis: { disabled: true },
+                lineStyle: {
+                  // 与连接线同色（--text-tertiary 的解析值），但更淡、且是实线：
+                  // 虚线在这里会被读成「又一条台阶」，实线才像一根引出的小钉。
+                  color: colors.connector,
+                  width: 1,
+                  opacity: 0.45,
+                  type: "solid" as const
+                },
+                data: leaderSegments
+              }
+            }
+          ]
+        : [])
     ]
   };
 }
