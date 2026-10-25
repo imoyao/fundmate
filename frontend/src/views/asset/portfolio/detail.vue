@@ -89,9 +89,13 @@
             <PnlAttribution :portfolio-id="portfolioId" />
           </div>
 
-          <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股） -->
+          <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股）。
+               #2595：显式传 portfolio-id —— 此前不传 scope，实际拉的是家庭级数据。 -->
           <div class="mb-6">
-            <PenetrationPanel id="nav-penetration" />
+            <PenetrationPanel
+              id="nav-penetration"
+              :portfolio-id="portfolioId"
+            />
           </div>
 
           <!-- 组合风格构成（#2603：按市值加权的 8 分类风格暴露）。
@@ -162,10 +166,10 @@ import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageNav from "@/components/PageNav/index.vue";
 import PageToc from "@/components/PageToc/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
+import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
 import { usePageNav } from "@/composables/usePageNav";
-import PenetrationPanel from "./PenetrationPanel.vue";
 import PortfolioStylePanel from "./PortfolioStylePanel.vue";
 import PortfolioReturnCard from "./PortfolioReturnCard.vue";
 import PortfolioMoneyFundCard from "./portfolioDetail/PortfolioMoneyFundCard.vue";
@@ -194,6 +198,9 @@ import {
  *
  * 区间超额（#2134）的五段派生文案进 `usePortfolioExcess`，接口信封解包、
  * 排序分页、账户类型文案进 `portfolioDetailModel.ts`（纯函数）。
+ *
+ * 穿透面板 `PenetrationPanel` 已上移 `components/`（#2595：三级口径共享），
+ * 本页传 `portfolio-id` 走组合口径。
  */
 defineOptions({ name: "PortfolioDetail" });
 

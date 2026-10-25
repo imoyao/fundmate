@@ -65,6 +65,7 @@ from app.services.fund_utils import (
     resolve_money_fund_flags_strict,
 )
 from app.services.position_valuation import market_value_cents
+from app.services.scope import filter_positions_by_scope, resolve_scope_label
 
 # 复用 summary_service 的持仓加载器（同一过滤口径：active only）。
 # 跨模块引用「私有」函数是刻意的：口径只有一份，比各自查一遍更不容易漂。
@@ -311,20 +312,29 @@ def build_penetration(
     *,
     scheme: str = DEFAULT_SCHEME,
     top_n: int = 20,
+    ledger_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
 ) -> dict[str, Any]:
-    """构建家庭级的基金穿透视图。
+    """构建基金穿透视图（家庭 / 账户 / 组合三级口径，#2595）。
 
     Args:
         db: 数据库会话。
         family_id: 家庭 ID（数据隔离维度）。
         scheme: 主聚合口径（`csrc` / `gics`），默认证监会门类。其余体系单列透传。
         top_n: 个股分布截断条数，超出部分合并为一条 `其他`（`top_n <= 0` 表示不截断）。
+        ledger_id: 账户级口径；与 `portfolio_id` 互斥（冲突抛 `ValueError`）。
+        portfolio_id: 组合级口径（显式归属 + 成员账本继承，解析唯一出口
+            `services/scope.py`）；不存在 / 非本家庭抛 `ValueError`。
 
     Returns:
         分层穿透结果，见模块头注释与 `docs/working-notes/fund-penetration-design-2026-10-01.md`。
         金额字段统一 `*_cny`（元，2 位小数）；比率为 `ratio_*`（4 位小数）。
+        出参带 `scope` / `ledger_id` / `portfolio_id` 标明本次口径。
     """
     positions, _assets = _load_user_assets(db, family_id)
+    # 三级口径唯一解析出口（#2595）：与归因 / 超额同一条组合语义（显式归属 +
+    # 成员账本继承），禁止在本模块内手写成员账本查询——口径漂移会破坏「Σ 账户 ≡ 家庭」。
+    positions = filter_positions_by_scope(db, family_id, positions, ledger_id=ledger_id, portfolio_id=portfolio_id)
 
     # 场内货币 ETF（如 511990 华宝添益）以 asset_type='etf' 录入时 is_money_fund
     # 为 False（写路径 #1661：显式 etf 类型一律 False，绝不落回名录），分流只看
@@ -606,6 +616,10 @@ def build_penetration(
         'as_of': today_shanghai().isoformat(),
         'scheme': scheme,
         'scheme_label': SCHEME_LABELS.get(scheme, scheme),
+        # #2595 三级口径出参：本次穿透统计的作用域（family / ledger / portfolio）
+        'scope': resolve_scope_label(ledger_id, portfolio_id),
+        'ledger_id': ledger_id,
+        'portfolio_id': portfolio_id,
         'total_value_cny': _cny(total_cents),
         'coverage': {
             'penetrated_cny': _cny(penetrated_cents),

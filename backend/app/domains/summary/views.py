@@ -95,16 +95,20 @@ def distributions():
 
 @bp.get('/summary/penetration/')
 def penetration():
-    """返回基金持仓穿透（行业 / 个股真实暴露，#870 Step 2）。
+    """返回基金持仓穿透（行业 / 个股真实暴露，#870 Step 2；#2595 三级口径）。
 
     查询参数：
     - `scheme`：主聚合口径，`csrc`（默认，证监会门类）/ `gics`（GICS 板块）。
       两套体系**不可相加**，非主口径的结果在 `other_schemes` 单列返回。
     - `top_n`：个股分布截断条数，默认 20；`<=0` 表示不截断（超出部分合并为「其他」）。
+    - `ledger_id` / `portfolio_id`：可选，账户级 / 组合级口径（#2595，互斥，
+      同时传 400；均不传=家庭级）。组合级语义同归因（#2135）：显式归属 +
+      成员账本继承，解析唯一出口 `services/scope.py`。
 
     覆盖率有硬上限（本机实测约 53%）：直持股票无「个股→行业」映射、场内 ETF 无
     底层持仓数据、货基债基本身无股票敞口。`unpenetrated` 逐条带 `reason`，区分
-    「真缺口」与「本质无敞口」，前端不得把两者混为一谈。
+    「真缺口」与「本质无敞口」，前端不得把两者混为一谈。注意：按账户 / 组合
+    拆分后，小作用域的覆盖率波动会更明显（持仓基数变小）。
     """
     scheme = (request.args.get('scheme') or 'csrc').strip().lower()
     if scheme not in SCHEME_LABELS:
@@ -118,10 +122,18 @@ def penetration():
     except (TypeError, ValueError):
         return jsonify({'data': {}, 'message': f'top_n 必须为整数: {raw_top_n!r}', 'error_code': 1001}), 400
 
+    ledger_id = request.args.get('ledger_id', type=int)
+    portfolio_id = request.args.get('portfolio_id', type=int)
+
     try:
         with get_db() as db:
-            data = build_penetration(db, get_family_id(), scheme=scheme, top_n=top_n)
+            data = build_penetration(
+                db, get_family_id(), scheme=scheme, top_n=top_n, ledger_id=ledger_id, portfolio_id=portfolio_id
+            )
         return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        # scope 参数冲突 / 组合不存在（services/scope.py 约定），与归因端点同款 400
+        return jsonify({'data': {}, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         # 标准错误信封 {data, message, error_code}（AGENTS.md 接口契约）
         return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500

@@ -65,11 +65,15 @@ GATEWAY_CALL_TOOL = 'market_call_tool'
 #: 人工探针用的自然语言检索工具（生产链路不用它，§6.3）
 MARKET_SEARCH_TOOL = 'market_search_tools'
 
-#: 能力名 → 上游工具名（**只登记实测确认过工具名的能力**；生产链路不做自然语言检索，§6.3）
+#: 能力名 → 上游工具名（**只登记实测确认过工具名的能力**；生产链路不做自然语言检索，§6.3）。
+#: EDB 双工具 2026-10-25 真机实测（search 列清单 / query 取时间序列，
+#: 返回 ``metrics`` 形状与表格不同，解析在 :mod:`app.services.adapters.wind_edb`）。
 _CAPABILITY_TOOLS: Dict[str, str] = {
     'index_kline': 'get_index_kline',
     'index_basicinfo': 'get_index_basicinfo',
     'index_technicals': 'get_index_technicals',
+    'edb_search': 'search_economic_indicator',
+    'edb_query': 'query_economic_indicator_data',
     'market_search': MARKET_SEARCH_TOOL,
 }
 

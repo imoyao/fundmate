@@ -6,8 +6,6 @@
  */
 
 import type { LedgerItem } from "@/api/ledger";
-import type { BenchmarkExcessResult } from "@/api/summary";
-import { excessDegradHint, formatSignedPct } from "@/utils/benchmarkExcess";
 
 /** 组合持仓（后端 /api/portfolios/{id}/holdings/ 返回，字段按现有代码使用为准） */
 export interface PortfolioHolding {
@@ -88,57 +86,13 @@ export function ledgerTypeLabel(type: string): string {
   return "通用账户";
 }
 
-/** 基准名：优先后端归一后的宽基名；未加载 / 未识别时回落用户所设原文 */
-export function benchmarkLabelOf(
-  excess: BenchmarkExcessResult | null,
-  portfolioBenchmark: string | null | undefined
-): string | null {
-  const b = excess?.benchmark;
-  return b?.name ?? b?.code ?? portfolioBenchmark ?? null;
-}
-
-/** 基准卡说明：同期基准收益 + 区间；拿不到时降级说明 */
-export function benchmarkCaptionOf(
-  excess: BenchmarkExcessResult | null,
-  rangeLabel: string
-): string {
-  const b = excess?.benchmark;
-  if (b?.range_return != null) {
-    return `同期 ${formatSignedPct(b.range_return)} · ${rangeLabel}`;
-  }
-  const hint = excessDegradHint(excess);
-  return hint ? `${hint} · ${rangeLabel}` : rangeLabel;
-}
-
-/** 超额收益值：MetricCard 空值显示「--」，故 toFixed 前判 null，绝不上 0 占位 */
-export function excessValueText(
-  excess: BenchmarkExcessResult | null
-): string | null {
-  const v = excess?.excess_return;
-  return v == null ? null : v.toFixed(2);
-}
-
-/** 超额收益配色：正涨负跌，0 与空值不上色（不着任何颜色，交给默认文本色） */
-export function excessColorOf(excess: BenchmarkExcessResult | null): string {
-  const v = excess?.excess_return;
-  if (v == null || v === 0) return "";
-  return v > 0 ? "var(--color-rise)" : "var(--color-fall)";
-}
-
-/** 超额收益卡说明：三条数据齐全才给对比式，否则降级说明 */
-export function excessCaptionOf(
-  excess: BenchmarkExcessResult | null,
-  rangeLabel: string
-): string {
-  const d = excess;
-  if (!d) return rangeLabel;
-  if (
-    d.excess_return != null &&
-    d.range_rate != null &&
-    d.benchmark?.range_return != null
-  ) {
-    return `${rangeLabel} · ${formatSignedPct(d.range_rate)} vs ${formatSignedPct(d.benchmark.range_return)}`;
-  }
-  const hint = excessDegradHint(d);
-  return hint || rangeLabel;
-}
+// #2595：超额五段派生（benchmarkLabelOf / benchmarkCaptionOf / excessValueText /
+// excessColorOf / excessCaptionOf）上移到 `utils/benchmarkExcess.ts`（容器无关，
+// 持仓分析聚合页共用）；此处 re-export 维持既有 import 与测试不变。
+export {
+  benchmarkLabelOf,
+  benchmarkCaptionOf,
+  excessValueText,
+  excessColorOf,
+  excessCaptionOf
+} from "@/utils/benchmarkExcess";

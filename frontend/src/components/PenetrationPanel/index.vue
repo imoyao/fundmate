@@ -5,7 +5,9 @@
       :info="
         '你的钱最终压在哪些行业与个股上（' +
         (data?.scheme_label ?? '') +
-        '口径）。穿透仅覆盖持仓，不含房产/现金等通用资产。'
+        '口径' +
+        scopeSuffix +
+        '）。穿透仅覆盖持仓，不含房产/现金等通用资产。'
       "
     >
       <template #action>
@@ -62,23 +64,7 @@
         >
           暂无可用的行业配置数据。
         </p>
-        <ul v-else class="bar-list">
-          <li v-for="row in data.industries" :key="row.code" class="bar-row">
-            <span
-              class="bar-name"
-              :title="`${row.name}（${row.code}）· ${row.fund_count} 只基金持有`"
-            >
-              {{ row.name }}
-            </span>
-            <span class="bar-track">
-              <span
-                class="bar-fill"
-                :style="{ width: barWidth(row.ratio_of_penetrated) }"
-              />
-            </span>
-            <span class="bar-value">{{ percent(row.ratio_of_total) }}</span>
-          </li>
-        </ul>
+        <PenetrationBarList v-else :rows="industryRows" />
       </CardBlock>
 
       <!-- 个股层：季报只披露前十大，故标明口径强度 -->
@@ -92,27 +78,7 @@
             （{{ basisText }}）
           </span>
         </h4>
-        <ul v-if="data.stocks.length" class="bar-list">
-          <li v-for="row in data.stocks" :key="row.code" class="bar-row">
-            <span
-              class="bar-name"
-              :title="
-                row.holder_fund_count
-                  ? `${row.holder_fund_count} 只基金持有`
-                  : '其余个股合计'
-              "
-            >
-              {{ row.name }}
-            </span>
-            <span class="bar-track">
-              <span
-                class="bar-fill bar-fill--alt"
-                :style="{ width: barWidth(row.ratio_of_total) }"
-              />
-            </span>
-            <span class="bar-value">{{ percent(row.ratio_of_total) }}</span>
-          </li>
-        </ul>
+        <PenetrationBarList v-if="data.stocks.length" :rows="stockRows" />
         <p v-else class="text-sm" :style="{ color: 'var(--text-secondary)' }">
           暂无可穿透的个股持仓。
         </p>
@@ -198,14 +164,33 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import PenetrationBarList from "./PenetrationBarList.vue";
 import { getPenetration, type PenetrationData } from "@/api/summary";
 import { formatAmount } from "@/utils/currency";
+
+/**
+ * 持仓穿透面板（#870 B2；#2595 三级口径化）。
+ *
+ * 从 `views/asset/portfolio/` 上移到共享组件：穿透是三级口径（家庭 / 账户 /
+ * 组合）都能消费的面板，而非组合详情页私产。原实现在组合详情页**不传 scope**，
+ * 实际展示的是家庭级数据（口径错位，#2595 修复）——现在由父页显式传：
+ *
+ * - 不传 props：家庭级（既有行为，向后兼容）；
+ * - `portfolio-id`：组合级（组合详情页应传这个）；
+ * - `ledger-id`：账户级；两者互斥（后端 400），父页自行保证。
+ */
+const props = defineProps<{
+  /** 账户级口径；与 portfolioId 互斥 */
+  ledgerId?: number;
+  /** 组合级口径；与 ledgerId 互斥 */
+  portfolioId?: number;
+}>();
 
 /** 穿透口径档位（#2339：字符串维度的「多选一」，走 SegmentedControl 而非实底 radio） */
 const SCHEME_OPTIONS = [
@@ -222,7 +207,10 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const res = await getPenetration(scheme.value);
+    const scope: { ledger_id?: number; portfolio_id?: number } = {};
+    if (props.ledgerId != null) scope.ledger_id = props.ledgerId;
+    if (props.portfolioId != null) scope.portfolio_id = props.portfolioId;
+    const res = await getPenetration(scheme.value, scope);
     data.value = res?.data ?? null;
     if (!data.value) error.value = "穿透数据为空。";
   } catch {
@@ -232,6 +220,16 @@ async function load() {
     loading.value = false;
   }
 }
+
+watch(() => [props.ledgerId, props.portfolioId], load);
+
+/** 口径后缀：家庭级不缀词，账户 / 组合级明示作用域（与出参 scope 字段同源） */
+const scopeSuffix = computed(() => {
+  const s = data.value?.scope;
+  if (s === "ledger") return "·账户级";
+  if (s === "portfolio") return "·组合级";
+  return "";
+});
 
 /** 比率一律按后端给的 0~1 值格式化；分母口径由后端决定，前端不重算 */
 function percent(ratio: number) {
@@ -243,6 +241,31 @@ function barWidth(ratio: number) {
   const r = Math.max(0, Math.min(1, ratio ?? 0));
   return `${(r * 100).toFixed(2)}%`;
 }
+
+/** 行业行：条形以「已穿透」为分母，右侧数值仍按总市值占比（两个分母不同，别混） */
+const industryRows = computed(() =>
+  (data.value?.industries ?? []).map(row => ({
+    key: row.code,
+    name: row.name,
+    title: `${row.name}（${row.code}）· ${row.fund_count} 只基金持有`,
+    width: barWidth(row.ratio_of_penetrated),
+    value: percent(row.ratio_of_total)
+  }))
+);
+
+/** 个股行：季报只披露前十大、故用第二色与行业层区分；条形与数值同用总市值占比 */
+const stockRows = computed(() =>
+  (data.value?.stocks ?? []).map(row => ({
+    key: row.code,
+    name: row.name,
+    title: row.holder_fund_count
+      ? `${row.holder_fund_count} 只基金持有`
+      : "其余个股合计",
+    width: barWidth(row.ratio_of_total),
+    value: percent(row.ratio_of_total),
+    alt: true
+  }))
+);
 
 /** 个股口径强度：季报只披露前十大，半年报是全量，两者不可混看 */
 const basisText = computed(() => {
@@ -277,53 +300,6 @@ onMounted(load);
   font-size: var(--text-small);
   font-weight: 400;
   color: var(--text-tertiary);
-}
-
-.bar-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact);
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.bar-row {
-  display: grid;
-  grid-template-columns: minmax(96px, 168px) 1fr 56px;
-  gap: var(--space-compact);
-  align-items: center;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-}
-
-.bar-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bar-track {
-  height: 8px;
-  overflow: hidden;
-  background: var(--bg-muted);
-  border-radius: 4px;
-}
-
-.bar-fill {
-  display: block;
-  height: 100%;
-  background: var(--color-primary);
-  border-radius: 4px;
-}
-
-.bar-fill--alt {
-  background: var(--color-info);
-}
-
-.bar-value {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 .unpen-table {
