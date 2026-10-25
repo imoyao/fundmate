@@ -21,7 +21,7 @@
 
 | 模型 | 注册面 | 实测 | 消费点 / 说明 |
 |---|---|---|---|
-| `doubao-seed-2-0-mini-260428` | 在售 | ✅ OK | 账本精灵 / OCR 默认（`llm.py` `ARK_MODEL` 缺省值） |
+| `doubao-seed-2-0-mini-260428` | 在售 | ✅ OK | OCR 默认（`llm.py` `ARK_MODEL` 缺省值，视觉档） |
 | `doubao-seed-2-0-lite-260428` | 在售 | ✅ OK | lite 候选（本日指定核验①） |
 | `doubao-seed-2-1-lite-260915` | 在售 | ✅ OK | lite 候选（本日指定核验②） |
 | `doubao-seed-2-0-pro-260215` | Retiring | ❌ 404 | 本日指定核验③——**退役中不可调**；404 报文误导（把 Retiring 说成「不存在或无权」） |
@@ -29,6 +29,7 @@
 | `doubao-seed-2-1-turbo-260628` | 在售 | ❌ 429 | deep-review cheap 兜底，同账号限额暂停 |
 | `deepseek-v4-pro-ga-260813` | 在售 | ✅ OK | deep-review pro——⚠️ **09-27 曾 429 暂停，09-28 实测已恢复** |
 | `deepseek-v4-1-flash-260910` | 在售 | ❌ 429 | deep-review cheap，账号限额暂停 |
+| `deepseek-v4-1-flash-economy-261017` | 在售 | ✅ OK | **账本精灵默认**（`llm.py` `ARK_MODEL_AGENT` 缺省值，2026-10-25 复测）——纯文本推理模型，见下方「注意事项」 |
 | `deepseek-v4-flash-ga-260731` | 在售 | ✅ OK | deep-review cheap——⚠️ **曾暂停，已恢复** |
 | `glm-5-3-flash-260828` | 在售 | ✅ OK | deep-review cheap（方舟托管 GLM） |
 
@@ -36,12 +37,27 @@
 `deepseek-v4-pro-ga` 已恢复可顶）；若要豆包 Pro 参与，需到方舟控制台调高 / 取消账号用量上限（分钟级动作）。
 
 **当前健康集（实测 OK，可直接选用）**：`2-0-mini`、`2-0-lite`、`2-1-lite`、
-`deepseek-v4-pro-ga`、`deepseek-v4-flash-ga`、`glm-5-3-flash`。
+`deepseek-v4-pro-ga`、`deepseek-v4-flash-ga`、`glm-5-3-flash`、
+`deepseek-v4-1-flash-economy-261017`（2026-10-25 补测）。
+
+## 注意事项：`deepseek-v4-1-flash-economy` 是「纯文本推理模型」（2026-10-25）
+
+注册面元数据与实际调用共同确认三点，换模型/排查时必须记得：
+
+1. `modalities.input_modalities = ['text']`——**不能吃图片**。故它只能挂 `ARK_MODEL_AGENT`；
+   若误挂到 `ARK_MODEL`（OCR 档），图片识别会直接 400。
+2. 有 `reasoning_content`：首条 `max_tokens=5/30` 的 ping 里 `content` 为空、token 全被
+   reasoning 吃掉。**判断可用性不能只看 content 是否非空**；`call_llm` 不传 `max_tokens`，
+   正常链路不受影响，但**同等问答的 token 消耗会高于豆包 mini**（护栏 `ARK_DAILY_TOKEN_BUDGET` 会更快见底）。
+3. 注册面 `structured_outputs.json_object = false`，但实测带 `response_format={'type':'json_object'}`
+   返回 200（不报 400）——该字段只是「不保证强约束」，解析仍靠 `parse_agent_action` 的容错兜底。
 
 ## 消费点（改模型先看这里）
 
-1. `backend/app/services/ai_recognizer/llm.py`——`ARK_MODEL` 缺省 `doubao-seed-2-0-mini-260428`
-   （账本精灵对话与 OCR 共用，`.env` 可覆盖）。
+1. `backend/app/services/ai_recognizer/llm.py`——**两档**（2026-10-25 拆分，`.env` 均可覆盖）：
+   - `ARK_MODEL` 缺省 `doubao-seed-2-0-mini-260428`：OCR / 结构化识别，**必须支持图片输入**；
+   - `ARK_MODEL_AGENT` 缺省 `deepseek-v4-1-flash-economy-261017`：账本精灵（对话 / 工具决策 /
+     摘要 / 叙事），纯文本即可。
 2. `scripts/llm_health_probe.py`——`CANDIDATES` 池（deep-review 自动选型；CI 用
    `ARK_API_KEY_CODEREVIEW`，pro / cheap 两档轮询 + 轮换兜底）。
 3. `.github/workflows/ai-review.yml`——顶部注释是候选池的人读版。

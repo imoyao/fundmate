@@ -29,9 +29,15 @@ load_dotenv()  # 独立脚本直接 import 时也能读到 .env（main.py 已 lo
 # ── 环境配置 ──
 ARK_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
 ARK_API_KEY = os.getenv('ARK_API_KEY', '')
+# OCR / 结构化识别档（默认档）：必须**支持图片输入**，故保留 doubao 视觉模型。
 # 默认用便宜的 doubao mini（文本/图片都支持，成本约为旗舰 pro 的 1/10，识别基金/股票
 # 代码+名称这类简单结构化任务是杀鸡用牛刀，无需顶级模型；如需提精度可在 .env 覆盖 ARK_MODEL。
+# ⚠️ 换成纯文本模型（如 deepseek 系）会让图片识别直接 400，OCR 请勿走这一档。
 ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-0-mini-260428')
+# 账本精灵（对话 Agent）档：与 OCR 解耦的独立档（2026-10-25 用户指定切换）。
+# 该模型为纯文本推理模型（input_modalities=text，reasoning 会额外烧 token），
+# 只用于对话/工具决策/摘要/叙事，不得用于图片识别。
+ARK_MODEL_AGENT = os.getenv('ARK_MODEL_AGENT', 'deepseek-v4-1-flash-economy-261017')
 # LLM 单次请求超时（秒）：图片/长文本识别较慢，30s 在数据量大时易 ReadTimeout → 503
 ARK_TIMEOUT = int(os.getenv('ARK_TIMEOUT', '60'))
 # 可重试类失败（429/5xx/超时/响应体异常）的最大重试次数（0 = 不重试）
@@ -94,6 +100,7 @@ def call_llm(
     timeout: Optional[int] = None,
     response_format: Optional[dict] = None,
     usage_sink: Optional[dict] = None,
+    model: Optional[str] = None,
 ) -> str:
     """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
 
@@ -106,6 +113,8 @@ def call_llm(
         usage_sink: 可选 token 汇出槽（#1736 S4 trace）——传 dict 则每次成功调用
             累加 {'tokens': int}，供调用方按轮汇总；缺省 None 零影响。
             重试路径不累加（失败响应无 usage），与 _record_tokens 口径一致。
+        model: 覆盖默认档（缺省 ARK_MODEL）。**图片输入必须留在默认档**；
+            账本精灵等纯文本对话传 ARK_MODEL_AGENT（见该常量注释）。
 
     兜底设计（用户反馈 503 直报问题）：
     - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
@@ -121,8 +130,9 @@ def call_llm(
             status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
         )
     timeout = timeout or ARK_TIMEOUT
+    used_model = model or ARK_MODEL
     payload = {
-        'model': ARK_MODEL,
+        'model': used_model,
         'messages': [
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': content},
@@ -158,7 +168,7 @@ def call_llm(
             logger.info(
                 '[llm.call] ok attempt={} model={} tokens={} elapsed={:.2f}s',
                 attempt + 1,
-                ARK_MODEL,
+                used_model,
                 tokens,
                 time.monotonic() - started,
             )

@@ -23,7 +23,7 @@
 （学习计划 §S4：没有评估集的 prompt 迭代是盲改）。CI 侧的静态判据
 （30 条 / 对抗 8 / 工具名合法）由 tests/agent_eval/test_cases.py 覆盖，不依赖模型。
 
-环境：backend/.env 的 ARK_API_KEY（真实模型 doubao-mini）；库表经 init_db 幂等补齐
+环境：backend/.env 的 ARK_API_KEY（真实模型走 ARK_MODEL_AGENT）；库表经 init_db 幂等补齐
 （含新表 agent_trace）。评估会话默认跑完即删，不污染 dev 库。
 """
 
@@ -66,7 +66,7 @@ import app.models.sync_log  # noqa: E402,F401
 from app.core.database import init_db, user_session  # noqa: E402
 from app.domains.agent.models import AgentSession, AgentTrace  # noqa: E402
 from app.services.ai_recognizer import agent_loop, session_store  # noqa: E402
-from app.services.ai_recognizer.llm import ARK_MODEL  # noqa: E402
+from app.services.ai_recognizer.llm import ARK_MODEL_AGENT  # noqa: E402
 
 DEFAULT_CASES = BACKEND_DIR / 'tests' / 'agent_eval' / 'cases.yaml'
 # 评估专用假身份：行跑完即删（--keep 时也只是一次性 eval_* 会话，不含真实账本数据）
@@ -164,7 +164,7 @@ def main():
     results = []
     session_ids = []
 
-    print(f'=== 账本精灵评估（#1736 S4）：{len(cases)} 条 | model={ARK_MODEL} ===')
+    print(f'=== 账本精灵评估（#1736 S4）：{len(cases)} 条 | model={ARK_MODEL_AGENT} ===')
     with user_session() as db:
         for i, case in enumerate(cases, 1):
             t0 = time.time()
@@ -188,7 +188,7 @@ def main():
     passed = sum(1 for r in results if r['ok'])
     bad = [r for r in results if not r['ok']]
     report = {
-        'model': ARK_MODEL,
+        'model': ARK_MODEL_AGENT,
         'total': total,
         'passed': passed,
         'pass_rate': round(passed / total, 4),
@@ -205,7 +205,7 @@ def main():
     print(f'平均轮次 : {report["avg_turns"]}')
     print(f'平均 token : {report["avg_tokens"]}')
     print(f'被拦截数 : {report["blocked_count"]}')
-    print(f'耗时     : {report["elapsed_s"]}s | model={ARK_MODEL} | 会话{"保留" if args.keep else "已清理"}')
+    print(f'耗时     : {report["elapsed_s"]}s | model={ARK_MODEL_AGENT} | 会话{"保留" if args.keep else "已清理"}')
     if bad:
         print('---- Bad Case（归因三选一：prompt / 工具 schema / 工具实现）----')
         for r in bad:

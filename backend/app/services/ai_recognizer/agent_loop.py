@@ -3,8 +3,9 @@
 
 设计（2026-08-18 与用户确认；2026-09-26 S2 演进为服务端权威会话，#1121 步骤卡 #4）：
 - 不引 LangGraph；用轻量循环做状态路由（ask_clarification / execute_tool）；
-- 强制结构化输出兜底：call_llm 传 response_format json_object；但 doubao-mini 仍可能漂移，
-  故 parse_agent_action 复用 extract_json_array 的容错思路解析单对象，解析失败一律当澄清；
+- 强制结构化输出兜底：call_llm 传 response_format json_object；但模型仍可能漂移
+  （推理模型还会先输出 reasoning_content），故 parse_agent_action 复用 extract_json_array
+  的容错思路解析单对象，解析失败一律当澄清；
 - 所有数值只在 ToolExecutor 执行后注入 prompt，追问阶段模型只聊逻辑，属防幻觉安全区；
 - 本函数内只做「单次决策 + 工具失败最多 1 次重试」（共 2 次模型调用上限）。
 
@@ -28,7 +29,8 @@ S3 护栏（2026-09-27，#1121 步骤卡 #5，设计 agent-guardrail-layer-desig
 - 前置拦截与重复追问**不消耗轮次闸、不产生模型调用**（零 token 成本）；
   三者均为纯函数/规则，可确定性单测，不依赖 mock LLM。
 
-后期接 DeepSeek：只需改 ARK_MODEL / base_url（OpenAI 兼容协议不变），架构零改动。
+模型档位：账本精灵走 ARK_MODEL_AGENT（2026-10-25 起 deepseek-v4-1-flash-economy，纯文本推理模型），
+OCR 仍走 ARK_MODEL（视觉档）；两者同端点、OpenAI 兼容协议，换模型只改常量。
 
 历史说明（2026-09-09 合并 session_manager.py）：对外符号 SessionState /
 validate_session_state 保留（S2 起用作**加载路径防线**：DB 内容同样过白名单）；
@@ -144,8 +146,7 @@ def _extract_first_json_object(text):
 def _summarize(old_turns: list, goal: Optional[str]) -> tuple:
     """最旧轮次 → (摘要增量, 关键信息卡)。失败上抛，由 _maybe_compress 降级。
 
-    模型走 call_llm 默认档（ARK_MODEL 缺省即 doubao-seed-2-0-mini 便宜模型，
-    学习计划 S2 指定的压缩用档）。
+    模型走账本精灵档（ARK_MODEL_AGENT），与 OCR 视觉档解耦。
     """
     payload = json.dumps(old_turns, ensure_ascii=False)
     prompt = (
@@ -160,6 +161,7 @@ def _summarize(old_turns: list, goal: Optional[str]) -> tuple:
         system_prompt='你是会话记忆压缩器，只输出单个 JSON 对象。',
         response_format={'type': 'json_object'},
         temperature=0.1,
+        model=llm.ARK_MODEL_AGENT,
     )
     obj = _extract_first_json_object(raw)
     if obj is None:
@@ -565,6 +567,7 @@ def _run_agent_impl(
             response_format={'type': 'json_object'},
             temperature=0.1,
             usage_sink=usage,
+            model=llm.ARK_MODEL_AGENT,
         )
         llm_ms += (time.monotonic() - _t0) * 1000
         action = parse_agent_action(raw)
@@ -675,6 +678,7 @@ def _run_agent_impl(
         content=[{'type': 'text', 'text': narrative_prompt}],
         system_prompt='你是多多贝账本精灵，负责把指标转成通俗总结，不编造数据。\n' + _L1_DATA_TRUTH,
         usage_sink=usage,
+        model=llm.ARK_MODEL_AGENT,
     )
     llm_ms += (time.monotonic() - _t0) * 1000
     # S3 输出侧兜底（设计 §7，最后一道防线）：逐句扫描，命中句替换为免责声明，
