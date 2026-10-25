@@ -139,7 +139,16 @@ def test_every_registered_tool_is_a_real_upstream_tool():
     实测：上游只有两类工具 —— 检索入口与网关入口；数据工具是网关的**参数**，
     不是 ``tools/list`` 里的条目。所以能力表里的每个值都必须是我们实测过的具体工具。
     """
-    known = {'get_index_kline', 'get_index_basicinfo', 'get_index_technicals', MARKET_SEARCH_TOOL}
+    known = {
+        'get_index_kline',
+        'get_index_basicinfo',
+        'get_index_technicals',
+        # #1502 步骤 1：EDB 双工具在 2026-10-25 真机 tools/list 实测确认（精确指标名
+        # 逐行业查换手率走这条路）。仍守「只许登记实测过的工具名」这条判据。
+        'search_economic_indicator',
+        'query_economic_indicator_data',
+        MARKET_SEARCH_TOOL,
+    }
 
     assert set(get_provider('wind').read_only_tool_names()) == known
 
