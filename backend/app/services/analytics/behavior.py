@@ -33,11 +33,24 @@
 6. 金额单位：流水侧 `amount` / `fee` 以**分**存储（列注释），出参一律**元**（round 2 位）；
    份额出参保持 0.0001 份整数原形态。
 
+## #2619 增补指标（口径写死，便于手工复算）
+
+| 指标 | 公式 / 边界 |
+|---|---|
+| `holding_days_p25/p50/p75` | 样本 = **每笔卖出**的份额加权持有天数（`Σ份额×天数 / 配对份额`）；`statistics.quantiles(n=4, method='inclusive')` 线性插值后**统一保留 1 位小数**（与 `avg_holding_days` 同精度，故 1.25 会显示 1.2）；样本 < 2 回 `None` |
+| `avg_holding_days` | 全局份额加权（`Σ份额×天数 / Σ配对份额`），**不是**分位数的均值——两处分母不同，别互相校验 |
+| `consecutive_add_count` | 同一标的**相邻两笔均为买入**（中间无卖出）且**不同一天**的对数；再投 `dividend_reinvest` 视为买入；**同日多笔视为一次建仓的拆单，不计加仓** |
+| `rebuy_after_loss_count` | 某标的**全额配对且盈亏 < 0** 的卖出之后，该标的再次买入的次数；每次亏损卖出最多记一次（回补后标志清除，不重复计） |
+
+⚠️ 两个「不做好坏评价」的边界：本模块只出统计量，**不输出**「换手过高」「追涨」这类
+价值判断；也不做跨用户对比。
+
 ## 范围
 
 本模块出**指标**；API 端点（Pro 面板模块一）由 Phase 2 后续卡接入 views。
 """
 
+import statistics
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -76,6 +89,16 @@ def _empty_stats() -> Dict[str, Any]:
         'avg_loss': None,
         'profit_loss_ratio': None,
         'avg_holding_days': None,
+        # #2619 持有期分位数：样本 = 每笔卖出（份额加权天数），与 avg_holding_days
+        # 的「全局份额加权」口径不同——一个答「平均拿多久」，一个答「拿得久的有多久」。
+        'holding_days_p25': None,
+        'holding_days_p50': None,
+        'holding_days_p75': None,
+        'holding_days_samples': 0,
+        # #2619 交易结构：连续加仓 = 同标的相邻两笔均买入的对数；
+        # 割肉回补 = 亏损卖出之后同一标的再次买入的次数（每次亏损卖出最多记一次）。
+        'consecutive_add_count': 0,
+        'rebuy_after_loss_count': 0,
         'realized_pnl_total': None,  # Σ 配对盈亏（元），仅全额配对的卖出笔
         'cash_dividend_total': None,
         'buy_count': 0,
@@ -86,7 +109,11 @@ def _empty_stats() -> Dict[str, Any]:
     }
 
 
-def compute_behavior_stats(transactions: Sequence[Any]) -> Dict[str, Any]:
+def compute_behavior_stats(
+    transactions: Sequence[Any],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Dict[str, Any]:
     """由已收敛的流水序列计算行为画像（纯函数，不碰 db、不做资产类型过滤）。
 
     Args:
@@ -94,10 +121,27 @@ def compute_behavior_stats(transactions: Sequence[Any]) -> Dict[str, Any]:
             confirm_date / trade_date / is_income / symbol`` 属性（Transaction
             或同形态 duck-type）。收敛键（symbol 变体 + family）由调用方保证。
             内部按交易日升序重排，乱序输入安全。
+        start_date / end_date: 可选统计窗口（YYYY-MM-DD，含边界）。**必须传全量
+            流水**：窗口只决定「哪些事件计入统计」，FIFO 配对始终在全量序列上做
+            ——否则窗口内卖出找不到窗口前的买入批次，持有期会整批丢失。
 
     Returns:
         见模块 docstring 口径 v2 与 :func:`_empty_stats` 结构。
     """
+    win_start = date.fromisoformat(start_date) if start_date else None
+    win_end = date.fromisoformat(end_date) if end_date else None
+
+    def _in_window(d: Optional[date]) -> bool:
+        if win_start is None and win_end is None:
+            return True
+        if d is None:
+            return False  # 区间统计下无日期事件无法归位（全期模式仍纳入）
+        if win_start is not None and d < win_start:
+            return False
+        if win_end is not None and d > win_end:
+            return False
+        return True
+
     # 按交易日升序：FIFO 依赖时间序，不信任调用方给的顺序（同日买卖次序不影响周期=0）
     ordered = sorted(
         (t for t in (transactions or []) if not _is_income_row(t) and getattr(t, 'txn_type', None)),
@@ -117,6 +161,12 @@ def compute_behavior_stats(transactions: Sequence[Any]) -> Dict[str, Any]:
     closed_pnls: List[int] = []  # 全额配对卖出笔的盈亏（分）
     weighted_days = 0  # Σ(配对份额 × 持有天数)
     matched_shares = 0  # Σ 配对份额
+    holding_samples: List[float] = []  # 每笔卖出一个样本（份额加权天数，#2619）
+    last_was_buy: Dict[str, bool] = {}  # 同标的上一次成交是否买入（连续加仓）
+    last_buy_date: Dict[str, Optional[date]] = {}  # 同标的上一次买入日（排除同日拆单）
+    loss_pending_rebuy: Dict[str, bool] = {}  # 该标的上一次全额配对是亏损（待回补）
+    consecutive_add_count = 0
+    rebuy_after_loss_count = 0
     dividend_total = 0
     has_dividend = False
 
@@ -129,10 +179,27 @@ def compute_behavior_stats(transactions: Sequence[Any]) -> Dict[str, Any]:
             continue
 
         if txn_type in _BUY_LOT_TYPES:
-            buy_count += 1
+            key = getattr(txn, 'symbol', None) or ''
+            d = _txn_date(txn)
+            in_window = _in_window(d)
+            if in_window:
+                buy_count += 1
+            # 连续加仓：上一笔也是买入（中间没有卖出）且**不是同一天**⇒ 记一次。
+            # 为什么排除同日：渠道导入常把一笔建仓拆成多条流水（真库实测同日多笔极多），
+            # 不排除会把「一次建仓的拆单」读成「反复加仓」，指标直接失去信息量
+            # （真库 812 笔买入曾算出 565 次加仓）。状态标志无条件维护。
+            if in_window and last_was_buy.get(key) and last_buy_date.get(key) != d:
+                consecutive_add_count += 1
+            last_was_buy[key] = True
+            last_buy_date[key] = d
+            # 割肉回补：亏损卖出之后再次买入；每次亏损卖出最多记一次。
+            # 无论是否在窗口内，这次买入都已消费掉「待回补」状态。
+            if loss_pending_rebuy.get(key):
+                if in_window:
+                    rebuy_after_loss_count += 1
+                loss_pending_rebuy[key] = False
             shares = int(getattr(txn, 'quantity', None) or 0)
             if shares > 0:
-                key = getattr(txn, 'symbol', None) or ''
                 lots.setdefault(key, []).append(
                     {'date': _txn_date(txn), 'shares': shares, 'cost': int(getattr(txn, 'amount', None) or 0)}
                 )
@@ -140,10 +207,13 @@ def compute_behavior_stats(transactions: Sequence[Any]) -> Dict[str, Any]:
         if txn_type != _SELL_TYPE:
             continue
 
-        sell_count += 1
         sell_shares = abs(int(getattr(txn, 'quantity', None) or 0))
         d = _txn_date(txn)
         key = getattr(txn, 'symbol', None) or ''
+        in_window = _in_window(d)
+        last_was_buy[key] = False
+        if in_window:
+            sell_count += 1
         queue = lots.get(key, [])
 
         matched = 0  # 本笔已配对份额
@@ -169,18 +239,27 @@ def compute_behavior_stats(transactions: Sequence[Any]) -> Dict[str, Any]:
             if lot['shares'] == 0:
                 queue.pop(0)
 
-        unmatched_sell_shares += sell_shares - matched
-        if matched > 0:
+        if in_window:
+            unmatched_sell_shares += sell_shares - matched
+        if matched > 0 and in_window:
             weighted_days += days_weighted
             matched_shares += matched
+            # 分位数样本：本笔卖出的份额加权持有天数（每笔一个样本）
+            holding_samples.append(days_weighted / matched)
 
         if sell_shares == 0 or matched < sell_shares or not fully_matched:
-            unmatched_sell_count += 1
+            if in_window:
+                unmatched_sell_count += 1
             continue
 
         proceeds = int(getattr(txn, 'amount', None) or 0)
-        closed_pnls.append(proceeds - cost)
-        closed_count += 1
+        pnl = proceeds - cost
+        # 亏损卖出 ⇒ 该标的进入「待回补」状态（下次买入计一次割肉回补）。
+        # 状态无条件更新：窗口外的亏损卖出同样是真实发生的「割肉」。
+        loss_pending_rebuy[key] = pnl < 0
+        if in_window:
+            closed_pnls.append(pnl)
+            closed_count += 1
 
     out = _empty_stats()
     out['buy_count'] = buy_count
@@ -207,6 +286,17 @@ def compute_behavior_stats(transactions: Sequence[Any]) -> Dict[str, Any]:
 
     if matched_shares > 0:
         out['avg_holding_days'] = round(weighted_days / matched_shares, 1)
+
+    # #2619 持有期分位数：样本 ≥ 2 才算（单样本分位数无意义，回 None 不造假）
+    out['holding_days_samples'] = len(holding_samples)
+    if len(holding_samples) >= 2:
+        q25, q50, q75 = statistics.quantiles(holding_samples, n=4, method='inclusive')
+        out['holding_days_p25'] = round(q25, 1)
+        out['holding_days_p50'] = round(q50, 1)
+        out['holding_days_p75'] = round(q75, 1)
+
+    out['consecutive_add_count'] = consecutive_add_count
+    out['rebuy_after_loss_count'] = rebuy_after_loss_count
 
     logger.debug(
         f'行为画像：平仓 {closed_count} 笔 / 胜率 {out["win_rate"]} / '
