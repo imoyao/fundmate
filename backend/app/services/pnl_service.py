@@ -34,6 +34,7 @@ unrealized 的市值与成本基数则同乘 `rate` 折算为 CNY，与仪表盘
 """
 
 from decimal import ROUND_HALF_UP, Decimal
+from typing import List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -72,39 +73,49 @@ def compute_sell_realized_cents(
     return int(gross) - int(fee_cents or 0)
 
 
-def realized_pnl_by_position(db: Session, family_id: int) -> dict[int, int]:
+def realized_pnl_by_position(db: Session, family_id: int, ledger_ids: Optional[List[int]] = None) -> dict[int, int]:
     """按持仓归集的已实现盈亏（分）。
 
     以**流水**为事实源而非持仓：清仓后持仓行被删除，但卖出流水仍在，
     盈亏不能随之消失。孤儿流水（position_id 为 NULL）统一归到哨兵键 0。
+
+    ``ledger_ids``（#1173）：按家庭成员切片时传入该成员名下账户集合。``None`` = 全家庭；
+    ``[]`` = 该成员无账户 ⇒ 返回空表（调用方据此得到 0，而不是全家庭的值）。
     """
-    rows = (
-        db.query(Transaction.position_id, func.sum(Transaction.realized_pnl))
-        .filter(Transaction.family_id == family_id)
-        .group_by(Transaction.position_id)
-        .all()
+    query = db.query(Transaction.position_id, func.sum(Transaction.realized_pnl)).filter(
+        Transaction.family_id == family_id
     )
+    if ledger_ids is not None:
+        query = query.filter(Transaction.ledger_id.in_(ledger_ids))
+    rows = query.group_by(Transaction.position_id).all()
     return {(pid or 0): int(total or 0) for pid, total in rows}
 
 
-def family_realized_pnl_cents(db: Session, family_id: int) -> int:
-    """家庭级已实现盈亏合计（分），含已清仓持仓的结转盈亏与孤儿分红。"""
-    total = db.query(func.sum(Transaction.realized_pnl)).filter(Transaction.family_id == family_id).scalar()
-    return int(total or 0)
+def family_realized_pnl_cents(db: Session, family_id: int, ledger_ids: Optional[List[int]] = None) -> int:
+    """家庭级已实现盈亏合计（分），含已清仓持仓的结转盈亏与孤儿分红。
+
+    ``ledger_ids`` 语义同 :func:`realized_pnl_by_position`。
+    """
+    query = db.query(func.sum(Transaction.realized_pnl)).filter(Transaction.family_id == family_id)
+    if ledger_ids is not None:
+        query = query.filter(Transaction.ledger_id.in_(ledger_ids))
+    return int(query.scalar() or 0)
 
 
-def net_invested_by_position(db: Session, family_id: int) -> dict[int, int]:
+def net_invested_by_position(db: Session, family_id: int, ledger_ids: Optional[List[int]] = None) -> dict[int, int]:
     """按持仓归集的净投入（分）= Σ买入/存入金额 − Σ卖出/取出金额。
 
     balance 模式（无份额可乘）的成本基数取这里的值。分红**不**冲减成本基数：
     分红已在 realized 侧按全额计过，再冲减会重复计算（见模块 docstring 的恒等式）。
+
+    ``ledger_ids`` 语义同 :func:`realized_pnl_by_position`。
     """
-    rows = (
-        db.query(Transaction.position_id, Transaction.txn_type, func.sum(Transaction.amount))
-        .filter(Transaction.family_id == family_id)
-        .group_by(Transaction.position_id, Transaction.txn_type)
-        .all()
+    query = db.query(Transaction.position_id, Transaction.txn_type, func.sum(Transaction.amount)).filter(
+        Transaction.family_id == family_id
     )
+    if ledger_ids is not None:
+        query = query.filter(Transaction.ledger_id.in_(ledger_ids))
+    rows = query.group_by(Transaction.position_id, Transaction.txn_type).all()
     net: dict[int, int] = {}
     for pid, txn_type, amount in rows:
         key = pid or 0

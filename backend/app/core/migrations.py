@@ -1726,3 +1726,100 @@ def migrate_transaction_fee_breakdown(engine: Engine) -> str:
         logger.info(f'[OK] transactions 增加费用拆分列: {added}（#2137，存量留 NULL=未拆分）')
         return f'[OK] transactions 增加费用拆分列 {added}'
     return '[SKIP] transactions 费用拆分四列已存在'
+
+
+# ── #1173 家庭成员档案（family_members）+ 账户归属列 ──────────────────────────
+# 刻意**不** import ``app.domains.families.models``：core 层不得依赖 domains 层
+# （`tests/core/test_layer_direction.py` R1 守卫：core → 上层一律违规）。
+# 代价是表结构可能随模型漂移，故迁移末尾**自校验**两件事：
+# 表是否真的建出来、账户的归属列是否真的在（`_validate_schema` 只查
+# 「模型有列而库没列」，查不出「库多列」与「少表」）。
+#
+# DDL 逐列对齐模型：``family_members`` 的列类型与
+# ``app/domains/families/models.py`` 的 ``FamilyMember`` 一一对应。
+_FAMILY_MEMBERS_DDL = """
+CREATE TABLE IF NOT EXISTS family_members (
+    id INTEGER NOT NULL,
+    family_id INTEGER NOT NULL DEFAULT 1,
+    name VARCHAR(50) NOT NULL,
+    role VARCHAR(20) DEFAULT 'other',
+    user_id INTEGER,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+    updated_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+    PRIMARY KEY (id)
+)
+"""
+_FAMILY_MEMBERS_INDEXES = (
+    'CREATE INDEX IF NOT EXISTS ix_family_members_family_id ON family_members (family_id)',
+    'CREATE INDEX IF NOT EXISTS ix_ledgers_owner_member_id ON ledgers (owner_member_id)',
+)
+
+
+def migrate_family_members_ownership(engine: Engine) -> str:
+    """建 ``family_members`` 表 + 给 ``ledgers`` 补 ``owner_member_id`` 列（#1173）。
+
+    ## 为什么需要
+
+    账户（``ledgers``）此前无法归属到具体家庭成员——多账户只能靠起名
+    「老婆的招行」区分，系统层面无法按人切片 / 汇总 / 看走势。定位级缺口：
+    产品主打家庭资产管理，而「谁的钱」这一维度缺失。
+
+    ## 为什么成员档案独立成表（而不是复用 ``users``）
+
+    - ``users`` 是**登录账号**：``supabase_id`` 唯一非空，成员很可能没有 App 账号，
+      硬塞就得造一个假 supabase_id；
+    - ``users.role``（admin/member/viewer）是**权限角色**，
+      「谁能改账本」与「这笔钱是谁的」是两件事，复用会让「角色」一词两义。
+
+    故成员档案另立 ``family_members``，``user_id`` 可空（纯档案成员无账号）、
+    **不加外键**（SQLite 的 ``ALTER TABLE ADD COLUMN`` 不支持带约束的列定义，
+    存量表加不上 FK；本文件亦无存量表加 FK 先例）。
+
+    ## 加列而不回填
+
+    ``owner_member_id`` 是**当期归属事实**：历史账户归属谁不可考（多数本就是
+    家庭共有），回填等于编造归属。保持 NULL = 「未归属/家庭共有」，
+    与 UI 上「不选成员即共有」一致。
+
+    幂等：表/列已存在则跳过。两种引擎都由本迁移负责（PG 用
+    ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres。
+    """
+    if not _table_exists(engine, 'ledgers'):
+        return '[SKIP] ledgers 表不存在（空库，init_db 将按新模型建表）'
+
+    is_pg = _is_postgres(engine)
+    notes: List[str] = []
+
+    # 1. 建 family_members 表（表不存在才建）
+    if 'family_members' not in set(inspect(engine).get_table_names()):
+        with engine.connect() as conn:
+            conn.execute(text(_FAMILY_MEMBERS_DDL))
+            conn.commit()
+        notes.append('family_members 表已建')
+    else:
+        notes.append('family_members 表已存在')
+
+    # 2. ledgers 补归属列（走唯一允许的加列通道）
+    added = _add_columns_if_missing(engine, 'ledgers', [('owner_member_id', 'INTEGER')])
+    if added:
+        notes.append(f'ledgers 新增列 {added}（存量留 NULL=未归属/家庭共有）')
+    else:
+        notes.append('ledgers.owner_member_id 已存在')
+
+    # 3. 索引（owner_member_id 是筛选热路径）
+    for ddl in _FAMILY_MEMBERS_INDEXES:
+        with engine.connect() as conn:
+            conn.execute(text(ddl))
+            conn.commit()
+
+    # 收尾自校验：表与列都要真的在（PG 上 DDL 若被静默忽略，这里必须让调用方看到）
+    names = set(inspect(engine).get_table_names())
+    if 'family_members' not in names:
+        raise RuntimeError(f'family_members 建表失败（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
+    ledger_cols = {c['name'] for c in inspect(engine).get_columns('ledgers')}
+    if 'owner_member_id' not in ledger_cols:
+        raise RuntimeError(f'ledgers 补 owner_member_id 失败（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
+
+    logger.info(f'[OK] #1173 家庭成员档案与账户归属：{"；".join(notes)}')
+    return '[OK] ' + '；'.join(notes)

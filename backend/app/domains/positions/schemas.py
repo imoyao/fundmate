@@ -16,6 +16,8 @@ class PositionListRequest(BaseModel):
       故 `SZ000001` 与 `000001.SZ` 视为同一只产品（详见 service 内注释）。
     - `market`：市场过滤，与 symbol 组合用于同码跨市场消歧。
     - `ledger_id`：传字符串 `'null'` 表示仅查未归档持仓（`ledger_id IS NULL`）。
+    - `member_id`：按家庭成员筛选（#1173），经账户间接归属
+      （`Position.ledger_id → Ledger.owner_member_id`）；未绑定账户的持仓不命中。
     - `group_by`：目前仅支持 `'account'`（按账户分组）。
     """
 
@@ -25,6 +27,7 @@ class PositionListRequest(BaseModel):
     ledger_id: str = Field('', description="账户 ID；'null' 表示仅未归档持仓")
     symbol: str = Field('', description='产品代码过滤（#1966）')
     market: str = Field('', description='市场过滤（#1966），与 symbol 组合消歧')
+    member_id: str = Field('', description='家庭成员 ID 过滤（#1173），经账户间接归属')
 
 
 class PositionCreate(BaseModel):

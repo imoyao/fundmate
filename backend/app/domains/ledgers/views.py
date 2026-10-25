@@ -4,8 +4,6 @@
 # File : views.py
 """资金容器 API — 基本 CRUD"""
 
-import json
-
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
@@ -22,6 +20,8 @@ from app.services import ledger_migration_service as migration_svc
 from app.services import ledger_write_service as ledger_write_svc
 
 # #1132 场内证券聚合：与 #1101 基金聚合并列，纯 position 级聚合，零 schema 迁移。
+from app.services.family_member_service import member_name_map
+from app.services.ledger_presenter import ledger_to_dict
 from app.services.ledger_service import LedgerService  # noqa: E402
 from app.services.position_aggregation import (
     DEFAULT_PAGE_SIZE,
@@ -36,52 +36,6 @@ from app.services.position_presenter import enrich_position_dict
 from app.services.transaction_service import transaction_edit_payload
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
-
-
-def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
-    """将 Ledger 模型实例转为字典"""
-    # 处理 fee_config：数据库中是字符串，需要反序列化
-    fee_config = None
-    if ledger.fee_config:
-        try:
-            fee_config = json.loads(ledger.fee_config)
-        except (json.JSONDecodeError, TypeError):
-            fee_config = None
-
-    return {
-        'id': ledger.id,
-        'name': ledger.name,
-        'ledger_type': ledger.ledger_type,
-        'default_allocation': ledger.default_allocation,
-        'default_allocation_label': ALLOCATION_LABELS.get(ledger.default_allocation, '未配置'),
-        'fee_config': fee_config,
-        'notes': ledger.notes,
-        'portfolio_id': ledger.portfolio_id,
-        'linked_cash_ledger_id': ledger.linked_cash_ledger_id,
-        # 类现金产品绑定（#1137）：绑定 funds 标的（余额宝概念）。
-        # 入参用基金代码（前端搜索结果即 code），存储用 funds.id；出参附带 code/name 便于回显。
-        'linked_money_fund_id': ledger.linked_money_fund_id,
-        'linked_money_fund_code': ledger.linked_money_fund.fund_code if ledger.linked_money_fund else None,
-        'linked_money_fund_name': ledger.linked_money_fund.name if ledger.linked_money_fund else None,
-        'auto_purchase_money_fund': bool(ledger.auto_purchase_money_fund),
-        # 关联的销售机构（AMAC 名录），可选；前端回显与编辑依赖该字段
-        'sales_institution_id': ledger.sales_institution_id,
-        # 聚合/系统账本标记与交易前端标签（#1101，前端展示/编辑用）
-        'is_aggregation': ledger.is_aggregation,
-        'frontend_app': ledger.frontend_app,
-        'is_active': ledger.is_active,
-        # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：用户可见分组/类型标签，只读本字段做展示。
-        'channel_category': ledger.channel_category,
-        # 外部资金账户/凭证标识（#1100/#1101，物理隔离维度，默认 MAIN；导入取真实资金账号）。
-        'external_account_code': ledger.external_account_code,
-        # 组内手动排序序号；null 表示用户尚未手动排序（前端回退按持仓金额降序）。
-        'display_order': ledger.display_order,
-        'created_at': ledger.created_at.isoformat() if ledger.created_at else None,
-        'updated_at': ledger.updated_at.isoformat() if ledger.updated_at else None,
-        # 最近使用时间：取该账户最后一笔交易的确认日期（无交易则为 null），
-        # 用于导入向导步骤一下拉的"最近使用优先"排序。
-        'last_used_at': last_used_at.isoformat() if last_used_at else None,
-    }
 
 
 @ledgers_bp.get('/overview/')
@@ -197,7 +151,7 @@ def create_ledger():
             if e.error_code is None:
                 abort(e.status_code, e.message)
             return jsonify({'data': None, 'message': e.message, 'error_code': e.error_code}), e.status_code
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': ledger_to_dict(ledger), 'message': 'ok'})
 
 
 @ledgers_bp.get('/')
@@ -230,9 +184,11 @@ def list_ledgers():
             .all()
         )
         last_used_map = {row.ledger_id: row.last_date for row in last_used_rows}
+        # 归属成员称谓映射（#1173）：一次查全量贴名字，避免逐账户 join
+        member_names = member_name_map(db, get_family_id())
         result = []
         for ledger in ledgers:
-            item = _ledger_to_dict(ledger, last_used_map.get(ledger.id))
+            item = ledger_to_dict(ledger, last_used_map.get(ledger.id), member_names)
             item['total_market_value'] = 0.0
             item['pnl'] = 0.0
             item['position_count'] = 0
@@ -283,7 +239,7 @@ def get_ledger(ledger_id: int):
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': ledger_to_dict(ledger), 'message': 'ok'})
 
 
 @ledgers_bp.patch('/<int:ledger_id>/')
@@ -301,7 +257,7 @@ def update_ledger(ledger_id: int):
             if e.error_code is None:
                 abort(e.status_code, e.message)
             return jsonify({'data': None, 'message': e.message, 'error_code': e.error_code}), e.status_code
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': ledger_to_dict(ledger), 'message': 'ok'})
 
 
 @ledgers_bp.delete('/<int:ledger_id>/')
@@ -334,7 +290,7 @@ def archive_ledger(ledger_id: int):
         ledger.is_active = False
         db.flush()
         db.refresh(ledger)
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': ledger_to_dict(ledger), 'message': 'ok'})
 
 
 @ledgers_bp.post('/<int:ledger_id>/unarchive/')
@@ -347,7 +303,7 @@ def unarchive_ledger(ledger_id: int):
         ledger.is_active = True
         db.flush()
         db.refresh(ledger)
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': ledger_to_dict(ledger), 'message': 'ok'})
 
 
 # ────────────────────────── 账本批量迁移（两段式：预览 → 提交） ──────────────────────────
