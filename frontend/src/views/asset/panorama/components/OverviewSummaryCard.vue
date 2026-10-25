@@ -104,23 +104,21 @@
       <div class="summary-card rounded-2xl p-6 h-full">
         <div class="flex justify-between items-center mb-4">
           <!-- ⓘ 有两枚，按卡片体两态各给一枚，且**都与本行标题同行**：
-               · 瀑布图态（#2034）：口径 = 各大类累加后扣负债落到净资产；
-               · 日历态（#2050）：口径 = 收益日历自己的口径与图例说明，
-                 由 `PnlCalendarCaliberIcon` 提供（视觉契约与 SectionHeader 的
-                 `.section-header__info` 完全一致，满宽容器里的 ⓘ 也是它）。
+               · 构成图态：口径 = 只统计资产端各类金额，负债与净资产见左卡；
+               · 日历态（#2050）：口径 = 收益日历自己的口径与图例说明，由
+                 `PnlCalendarCaliberIcon` 提供（契约同 SectionHeader 的 ⓘ）。
 
-               #2034 收尾（二轮）注：标题原先写成「资产大类构成」，那正好撞上
-               `AssetInsightPanel` 切换按钮的字面——按钮态（「资产构成」）与标题态
-               （「资产大类构成」）几乎同名，切过去像按住没反应。改成「资产大类」：
-               与 (i) 口径说明分工互补（标题给维度，tooltip 给口径），
-               也不再与按钮上的字同长。 -->
+               口径文案只守一条：**图说什么，ⓘ 就说什么**。#2034 那句「逐项累加，
+               扣除负债后落到净资产」是瀑布图的口径，改成构成图后负债已不在图内，
+               必须同步改。标题也不再叫「资产大类构成」——与切换按钮「资产构成」
+               几乎同名，切过去像按住没反应（#2034 二轮）。 -->
           <div class="flex items-center gap-1.5">
             <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
               {{ calendarMode ? "收益日历" : "资产大类" }}
             </h3>
             <el-tooltip
               v-if="!calendarMode"
-              content="口径：各大类金额逐项累加，扣除负债后落到净资产"
+              content="口径：只统计资产端各大类金额，负债与净资产见左侧卡片"
               placement="top"
             >
               <IconifyIconOffline
@@ -133,7 +131,7 @@
           </div>
           <!-- #1812：这个日历图标自设计起就是「资产月历」的预留入口
                （tooltip 曾写「后续版本推出」）。#1925 把它从「唤起弹窗」改成
-               **原地开关**：右列卡片体在瀑布图与收益日历之间切换，左列摘要卡
+               **原地开关**：右列卡片体在构成图与收益日历之间切换，左列摘要卡
                不动，页面不再被遮罩盖住。
                标题 / tooltip / aria-label / 图标四者必须同步变——只换标题会让
                用户找不到回去的路（这正是「关闭要先于关闭之前问」的老问题的镜像）。
@@ -186,7 +184,7 @@
           <div v-if="calendarMode" class="h-full">
             <PnlCalendar host-header :granularities="PANORAMA_GRANULARITIES" />
           </div>
-          <div v-else ref="waterfallChartRef" class="h-full" />
+          <div v-else ref="compositionChartRef" class="h-full" />
         </div>
       </div>
     </el-col>
@@ -207,8 +205,8 @@ import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
-import { hasWaterfallData } from "./assetWaterfall";
-import { buildWaterfallViewOption } from "./waterfallView";
+import { hasCompositionData } from "./assetComposition";
+import { buildCompositionViewOption } from "./compositionView";
 
 /**
  * 本卡允许的收益日历粒度（#2033）：**只有月 / 年，没有日**。
@@ -231,9 +229,9 @@ const props = defineProps<{
   distributions: DistributionsData | null;
 }>();
 
-const waterfallChartRef = ref<HTMLElement | null>(null);
+const compositionChartRef = ref<HTMLElement | null>(null);
 /**
- * #1925：右列卡片体的原地开关——false = 资产大类瀑布图，true = 收益日历。
+ * #1925：右列卡片体的原地开关——false = 资产大类构成图，true = 收益日历。
  * （#1812 的 `calendarVisible` 弹窗形态已随本卡移除。）
  */
 const calendarMode = ref(false);
@@ -244,18 +242,16 @@ const calendarMode = ref(false);
 const { render, charts } = useEchartsLifecycle(
   [
     {
-      ref: waterfallChartRef,
+      ref: compositionChartRef,
       build: el => {
         const chart = echarts.init(el);
-        if (!drawableWaterfall()) {
+        if (!drawableComposition()) {
           chart.dispose();
           return chart;
         }
-        // 取色与 option 组装在 `waterfallView.ts`（本文件在 #980 的页面规模基线内，
-        // 只减不增）；高度只有容器自己知道，故由这里读出来递进去。
-        chart.setOption(
-          buildWaterfallViewOption(props.distributions!, el.clientHeight)
-        );
+        // 取色与 option 组装在 `compositionView.ts`（本文件在 #980 的页面规模基线内，
+        // 只减不增）。**不传高度**：构成图没有按像素判定的几何，容器尺寸交给 resize。
+        chart.setOption(buildCompositionViewOption(props.distributions!));
         return chart;
       }
     }
@@ -281,45 +277,46 @@ async function toggleCalendar() {
     charts.length = 0;
     return;
   }
-  initWaterfallChart();
+  initCompositionChart();
 }
 
-function initWaterfallChart() {
+function initCompositionChart() {
   // 日历态下容器不存在（v-else 已摘掉），交给 toggleCalendar 统一处理；
   // distributions / 主题的 watcher 可能在日历态下触发，这里必须短路
   if (calendarMode.value) return;
-  if (!waterfallChartRef.value) return;
+  if (!compositionChartRef.value) return;
   if (!props.distributions) return;
-  // 消费后端 distributions：资产大类瀑布（真实数据，非模拟）。
+  // 消费后端 distributions：资产大类构成（真实数据，非模拟）。
   // 无可画的数据时直接返回，保留空白绘图区而不是画一张全 0 的空图。
-  if (!hasWaterfallData(props.distributions)) return;
+  if (!hasCompositionData(props.distributions)) return;
 
   render();
 }
 
 /*
- * 柱几何与 option 构造已抽到 `assetWaterfall.ts`（纯计算，不碰 DOM / 实例）。
- * 本文件只保留「什么时候画、画在哪个 DOM 上」——那部分与 `toggleCalendar` 的两态
- * 时序耦合，不能搬走；「什么时候 dispose」已移交 useEchartsLifecycle。
+ * 数据整形与 option 构造在 `assetComposition.ts`（纯计算，不碰 DOM / 实例），
+ * 取色在 `compositionView.ts`。本文件只保留「什么时候画、画在哪个 DOM 上」——
+ * 那部分与 `toggleCalendar` 的两态时序耦合，不能搬走；「什么时候 dispose」
+ * 已移交 useEchartsLifecycle。
  */
 
-// 瀑布图在日历态下没有任何可画数据（容器已被 v-else 摘掉），build 里直接交回收，
+// 日历态下没有任何可画数据（容器已被 v-else 摘掉），build 里直接交回收，
 // 避免画出一张全 0 的空图。返回的实例已是 disposed，composable 下次 render 会重建。
-function drawableWaterfall(): boolean {
+function drawableComposition(): boolean {
   return (
     !calendarMode.value &&
-    !!waterfallChartRef.value &&
+    !!compositionChartRef.value &&
     !!props.distributions &&
-    hasWaterfallData(props.distributions)
+    hasCompositionData(props.distributions)
   );
 }
 
-// distributions 异步到达 / 刷新时重绘瀑布图（容器常驻，无需等待挂载）
+// distributions 异步到达 / 刷新时重绘（容器常驻，无需等待挂载）
 watch(
   () => props.distributions,
   async () => {
     await nextTick();
-    initWaterfallChart();
+    initCompositionChart();
   }
 );
 
@@ -327,7 +324,7 @@ watch(
 // 不再在本文件重复写一遍。
 
 onMounted(() => {
-  if (props.distributions) initWaterfallChart();
+  if (props.distributions) initCompositionChart();
 });
 </script>
 
@@ -348,10 +345,10 @@ onMounted(() => {
   box-shadow: var(--shadow-float);
 }
 
-/* 卡片体锁高 280px（#2033）：瀑布图态与日历态共用同一个高度，切换零跳变，
+/* 卡片体锁高 280px（#2033）：构成图态与日历态共用同一个高度，切换零跳变，
    两卡底边恒对齐。**是 height，不是 min-height**——min-height 在内容更高时
-   会把卡片顶高，两态高度不同的问题原封不动地回来了。数字沿用瀑布图原有的
-   280，不新增常量；内部两个内容容器都用 h-full 填满它，高度约束只由宿主
+   会把卡片顶高，两态高度不同的问题原封不动地回来了。数字沿用构成图前身（瀑布图）
+   的 280，不新增常量；内部两个内容容器都用 h-full 填满它，高度约束只由宿主
    （本卡）施加。 */
 .overview-card__body {
   height: 280px;

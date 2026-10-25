@@ -938,8 +938,8 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 | 文件 | 读法 | 处置 |
 |---|---|---|
-| `panorama/.../OverviewSummaryCard.vue` | 瀑布图 | 保留（本卡之后**唯一**的资产大类构成图） |
-| `panorama/.../CategoryBalanceTable.vue` | 与瀑布图同区块的**表格** | 保留（同一区块的两种读法，非第二个「图」） |
+| `panorama/.../OverviewSummaryCard.vue` | 构成柱状图 | 保留（本卡之后**唯一**的资产大类构成图） |
+| `panorama/.../CategoryBalanceTable.vue` | 与构成图同区块的**表格** | 保留（同一区块的两种读法，非第二个「图」） |
 | `asset/IntelligentAnalysis.vue` | 「资产分布」环形图 + 同口径卡片 | **开口项**，见下 |
 | `asset/inventory/useInventoryData.ts` | 只取「投资理财」切片做盘点，不画构成图 | 保留 |
 
