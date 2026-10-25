@@ -484,6 +484,13 @@ export type PenetrationOtherScheme = {
   industry_ratio_of_covered: number;
   note: string;
   industries: PenetrationIndustry[];
+  /** 直持腿在该体系下的行业分布（#1981）；与 `industries`（基金部分）互补不重叠 */
+  direct_industries: Array<{
+    code: string;
+    name: string;
+    value_cny: number;
+    ratio_of_total: number;
+  }>;
 };
 
 /** 个股层一项（code 为 __other__ 时name 为「其他」，是截断的聚合行） */
@@ -516,6 +523,40 @@ export type PenetrationCoverage = {
   unpenetrated_fund_cny: number;
 };
 
+/**
+ * #2617 直接持有口径（穿透面板「直接持有」档）。
+ *
+ * 与 `PenetrationData.industries`（穿透后）共用同一批持仓：本结构里基金整块
+ * 不拆底层，`industries` 只含直持腿。各项合计 = `total_cny`。
+ */
+export type PenetrationDirectView = {
+  industries: Array<{
+    code: string;
+    name: string;
+    value_cny: number;
+    ratio_of_total: number | null;
+  }>;
+  /** 基金整块市值（不拆底层） */
+  fund_cny: number;
+  /** 基金整块占持仓总市值（0–1，与 industries[].ratio_of_total 同量纲） */
+  fund_ratio: number;
+  /** 命中「个股→行业」映射的直持金额（等于 industries 各项之和，单列便于算缺口） */
+  mapped_cny: number;
+  mapped_ratio: number;
+  /** 无行业映射的直持腿（进「其他」，不凭空补 0 值行业）；**不含现金等价物** */
+  unmapped_cny: number;
+  unmapped_ratio: number;
+  /** 现金等价物（货基/逆回购）单列：本质无股票敞口，不是映射缺口 */
+  cash_equivalent_cny: number;
+  cash_equivalent_ratio: number;
+  /** 当前口径下是否至少有一条直持映射；false 时直持图必然为空（映射数据源缺口，非缺陷） */
+  mapping_available: boolean;
+  /** 未映射成因说明；无缺口时为 null。界面须原样展示，不得自行改写 */
+  unmapped_reason: string | null;
+  total_cny: number;
+  note: string;
+};
+
 export type PenetrationData = {
   as_of: string;
   scheme: string;
@@ -527,6 +568,8 @@ export type PenetrationData = {
   total_value_cny: number;
   coverage: PenetrationCoverage;
   industries: PenetrationIndustry[];
+  /** #2617 直接持有口径（图 A）：基金整块不拆底层，用于与穿透后对照 */
+  direct_view: PenetrationDirectView;
   /** 行业合计不足 100% 的差额＝该基金的债券/现金/其他，**不是缺失数据** */
   industry_non_equity_cny: number;
   other_schemes: Record<string, PenetrationOtherScheme>;
@@ -556,6 +599,69 @@ export function getPenetration(
     "get",
     BASE_URL + "penetration/",
     { params: { scheme, ...(scope ?? {}) } }
+  );
+}
+
+/**
+ * #2617 持仓结构：资产类别占比 + 股基分列 Top N + 集中度。
+ *
+ * 股票与基金**分开排名**（份额与价格不可比）；同一标的跨账户已由后端合并，
+ * `accounts` 是合并了几个账户。前端不再二次计算占比与排名（D5 唯一出口）。
+ */
+export type PositionStructureItem = {
+  symbol: string | null;
+  name: string | null;
+  asset_type: string | null;
+  value_cny: number;
+  ratio_of_total: number | null;
+  ratio_of_group: number | null;
+  accounts: number;
+};
+
+export type PositionStructureGroup = {
+  label: string;
+  count: number;
+  total_cny: number;
+  ratio_of_total: number | null;
+  top: PositionStructureItem[];
+  top5_ratio_of_group: number | null;
+  top5_ratio_of_total: number | null;
+};
+
+export type PositionStructureData = {
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  total_cny: number;
+  position_count: number;
+  by_asset_class: Array<{
+    key: string;
+    label: string;
+    value_cny: number;
+    ratio_of_total: number | null;
+  }>;
+  groups: Record<"stock" | "fund", PositionStructureGroup>;
+  concentration: {
+    top5_ratio_of_total: number | null;
+    top5_ratio_of_stock: number | null;
+    top5_ratio_of_fund: number | null;
+  };
+  notes: string[];
+};
+
+/**
+ * 获取持仓结构（#2617）。
+ * @param scope `ledger_id` / `portfolio_id` 互斥（后端 400），均不传 = 家庭级
+ * @param topN 每组榜单条数，默认 5（后端夹取 1–50）
+ */
+export function getPositionStructure(
+  scope?: { ledger_id?: number; portfolio_id?: number },
+  topN = 5
+) {
+  return http.request<ApiResponse<PositionStructureData>>(
+    "get",
+    BASE_URL + "position-structure/",
+    { params: { top_n: topN, ...(scope ?? {}) } }
   );
 }
 

@@ -113,7 +113,17 @@
       />
     </div>
 
-    <!-- #870 持仓穿透（#2595 三级口径化） -->
+    <!-- #2617 持仓结构（资产类别 / 股基分列 Top N / 集中度） -->
+    <div class="mb-6">
+      <PositionStructurePanel
+        :ledger-id="scopeKind === 'ledger' ? (scopeId ?? undefined) : undefined"
+        :portfolio-id="
+          scopeKind === 'portfolio' ? (scopeId ?? undefined) : undefined
+        "
+      />
+    </div>
+
+    <!-- #870 持仓穿透（#2595 三级口径化；#2617 直接持有 / 穿透后双口径） -->
     <PenetrationPanel
       :ledger-id="scopeKind === 'ledger' ? (scopeId ?? undefined) : undefined"
       :portfolio-id="
@@ -131,6 +141,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
+import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
 import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
