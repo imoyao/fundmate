@@ -3,10 +3,11 @@
   探市页（免登录沙盒，站点唯一市场入口，D4）。
 
   方案 D（2026-09-12）：原独立温度计页收敛为本页「深度」档，页内以胶囊 Tab 切换
-  「概览 / 深度」，档位与 ?view= 查询参数双向同步。
+  「概览 / 深度 / 行业情绪」，档位与 ?view= 查询参数双向同步。
 
-  本文件**只做编排**（#980）：数据与列表行为收口在 useExploreWatchlist，
-  温度数据收口在 useTemperatureOverview（单例），核心指标清单收口在 useCoreMetrics。
+  本文件**只做编排**（#980）：档位切换收口在 usePanelSwitch，数据与列表行为收口在
+  useExploreWatchlist，温度数据收口在 useTemperatureOverview（单例），
+  三块提示卡片（转化区 / 已登录引导 / 大类资产入口）拆成 exploreView/ 下的片段组件。
 -->
 <template>
   <div class="explore-page">
@@ -27,31 +28,7 @@
     />
 
     <!-- ===== 档位切换（分组胶囊 Tab，design.md 规范） ===== -->
-    <!-- ARIA tabs 模式（#1549 T4.4）：容器 role=tablist、子项 role=tab + aria-selected +
-         roving tabindex（只有选中项可被 Tab 键到达），←/→/Home/End 切换并把焦点交给新选中项。
-         Enter / Space 不在此绑定：<button> 原生 click 已覆盖，重复绑定会触发两次切换。 -->
-    <nav class="panel-switch">
-      <div class="panel-switch__inner" role="tablist" aria-label="探市视图切换">
-        <button
-          v-for="(tab, index) in panelTabs"
-          :id="`panel-tab-${tab.key}`"
-          :key="tab.key"
-          :ref="el => setTabRef(el, index)"
-          type="button"
-          role="tab"
-          class="panel-tab"
-          :class="{ 'panel-tab--active': activePanel === tab.key }"
-          :aria-selected="activePanel === tab.key ? 'true' : 'false'"
-          :aria-controls="`panel-${tab.key}`"
-          :tabindex="activePanel === tab.key ? 0 : -1"
-          @click="switchPanel(tab.key)"
-          @keydown="onTabKeydown($event, index)"
-        >
-          {{ tab.label }}
-        </button>
-        <span class="panel-switch__hint">{{ activeHint }}</span>
-      </div>
-    </nav>
+    <ExplorePanelSwitch :active-panel="activePanel" @switch="switchPanel" />
 
     <!-- ============================================================ -->
     <!-- 概览档：温度锚点 + 指数快照 + 观察列表（漏斗主体）            -->
@@ -95,50 +72,15 @@
 
       <!-- 匿名用户转化区（#822 todo1）：注册 CTA / 损失厌恶文案 -->
       <!-- #1546 T2.2：位置从「观察列表之前」移到之后——访客先看目的内容，再看注册转化 -->
-      <section v-if="!isAuthenticated" class="conv-banner">
-        <div class="conv-banner__inner">
-          <div class="conv-banner__text">
-            <div class="conv-banner__title">免费注册，解锁完整投资账本</div>
-            <div class="conv-banner__desc">
-              注册后观察列表跨设备同步，并可在自选页管理分组、标签与 AI
-              批量导入——当前为本地临时观察，清除浏览器数据会丢失。
-            </div>
-          </div>
-          <el-button type="primary" @click="goToLogin">
-            立即注册 / 登录
-            <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
-          </el-button>
-        </div>
-      </section>
+      <ExploreConvBanner v-if="!isAuthenticated" @login="goToLogin" />
 
       <!-- 已登录：引导去自选页（探市只做展示与观察，管理能力收敛到登录后的自选） -->
       <!-- 可关闭且关闭后永久生效（localStorage）——避免常驻提示反复打扰 -->
-      <section v-if="isAuthenticated && !authGuideDismissed" class="auth-guide">
-        <div class="auth-guide__inner">
-          <div class="auth-guide__text">
-            <div class="auth-guide__title">已登录，可前往自选页管理资产</div>
-            <div class="auth-guide__desc">
-              探市页仅用于浏览市场数据；分组、标签、AI
-              批量导入等功能已迁移至自选页统一管理。
-            </div>
-          </div>
-          <div class="auth-guide__actions">
-            <el-button type="primary" @click="goToWatchlist">
-              前往自选页
-              <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
-            </el-button>
-            <button
-              type="button"
-              class="auth-guide__close"
-              title="不再提示"
-              aria-label="不再提示"
-              @click="dismissAuthGuide"
-            >
-              <IconifyIconOffline icon="ep:close" />
-            </button>
-          </div>
-        </div>
-      </section>
+      <ExploreAuthGuide
+        v-if="isAuthenticated && !authGuideDismissed"
+        @watchlist="goToWatchlist"
+        @dismiss="dismissAuthGuide"
+      />
 
       <!-- ============================================================ -->
       <!-- 大类资产观察入口（#1671 方案 b，决策见该 issue）                -->
@@ -146,33 +88,7 @@
       <!-- 既让概览档聚焦（温度锚点 + 观察列表），又不丢这个能力的发现性。 -->
       <!-- 点击后切到深度档、滚动定位到该区块，并直接以展开态渲染。        -->
       <!-- ============================================================ -->
-      <section class="asset-entry">
-        <div class="asset-entry__inner">
-          <div class="asset-entry__text">
-            <div class="asset-entry__title">大类资产观察</div>
-            <div class="asset-entry__cats">
-              <span
-                v-for="cat in ASSET_CATEGORIES"
-                :key="cat"
-                class="asset-entry__cat"
-              >
-                <i
-                  class="asset-entry__dot"
-                  :style="{ background: ASSET_CATEGORY_TOKEN[cat] }"
-                />{{ cat }}
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            class="asset-entry__btn"
-            @click="goAssetOverview"
-          >
-            去深度档查看
-            <IconifyIconOffline icon="ep:arrow-right" />
-          </button>
-        </div>
-      </section>
+      <ExploreAssetEntry @open="goAssetOverview" />
     </div>
 
     <!-- ============================================================ -->
@@ -219,7 +135,6 @@
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useLocalStorage } from "@vueuse/core";
-import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MarketHeader from "@/components/MarketHeader/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageFooter from "@/components/PageFooter/index.vue";
@@ -231,10 +146,14 @@ import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { useAuthState } from "@/composables/useAuthState";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
-import { ASSET_CATEGORIES, ASSET_CATEGORY_TOKEN } from "@/constants/market";
 import ExploreDetailPanel from "./components/ExploreDetailPanel.vue";
 import ExploreIndustryEmotionPanel from "./components/ExploreIndustryEmotionPanel.vue";
 import { useExploreWatchlist } from "./composables/useExploreWatchlist";
+import { usePanelSwitch } from "./exploreView/usePanelSwitch";
+import ExplorePanelSwitch from "./exploreView/ExplorePanelSwitch.vue";
+import ExploreConvBanner from "./exploreView/ExploreConvBanner.vue";
+import ExploreAuthGuide from "./exploreView/ExploreAuthGuide.vue";
+import ExploreAssetEntry from "./exploreView/ExploreAssetEntry.vue";
 
 defineOptions({
   name: "ExplorePage"
@@ -261,86 +180,9 @@ const route = useRoute();
 const router = useRouter();
 
 // ================================================================
-// 档位切换：概览 / 深度 / 行业情绪，与 ?view= 查询参数双向同步
+// 档位切换：概览 / 深度 / 行业情绪，与 ?view= 查询参数双向同步（见 usePanelSwitch）
 // ================================================================
-type PanelKey = "overview" | "detail" | "emotion";
-
-const panelTabs: Array<{ key: PanelKey; label: string }> = [
-  { key: "overview", label: "概览" },
-  { key: "detail", label: "深度" },
-  { key: "emotion", label: "行业情绪" }
-];
-
-const PANEL_HINTS: Record<PanelKey, string> = {
-  overview: "一屏看懂市场冷热，并建立自己的观察列表",
-  detail: "行业维度、趋势与全部指标明细",
-  emotion: "韭圈儿行业恐贪快照，辅助判断行业冷热（标注韭圈儿行业口径）"
-};
-
-const normalizePanel = (raw: unknown): PanelKey => {
-  if (raw === "detail") return "detail";
-  if (raw === "emotion") return "emotion";
-  return "overview";
-};
-
-const activePanel = ref<PanelKey>(normalizePanel(route.query.view));
-const activeHint = computed(() => PANEL_HINTS[activePanel.value]);
-
-// URL 变化（含 /temperature 重定向过来、浏览器前进后退）时同步档位
-watch(
-  () => route.query.view,
-  raw => {
-    activePanel.value = normalizePanel(raw);
-  }
-);
-
-const switchPanel = (key: PanelKey) => {
-  activePanel.value = key;
-  // replace 而非 push：切换档位不应污染历史栈，避免返回键在档位间循环
-  router.replace({
-    path: "/explore",
-    query: key === "overview" ? {} : { view: key }
-  });
-};
-
-// ================================================================
-// 档位 Tab 的键盘可达性（ARIA tabs 模式，见 #1549 T4.4）
-// ================================================================
-/** Tab 按钮元素引用表：roving tabindex 下用于把焦点交给新选中项 */
-const tabRefs = ref<HTMLButtonElement[]>([]);
-
-const setTabRef = (el: unknown, index: number) => {
-  if (el instanceof HTMLButtonElement) tabRefs.value[index] = el;
-};
-
-/**
- * ← / → 循环切换，Home / End 跳首尾；切换后焦点跟随选中项。
- * Enter / Space 不处理：<button> 原生 click 已经触发 switchPanel，
- * 再在此绑定会切两次（router.replace 幂等不影响结果，但没必要）。
- */
-const onTabKeydown = (event: KeyboardEvent, index: number) => {
-  const last = panelTabs.length - 1;
-  let next: number;
-  switch (event.key) {
-    case "ArrowRight":
-      next = index === last ? 0 : index + 1;
-      break;
-    case "ArrowLeft":
-      next = index === 0 ? last : index - 1;
-      break;
-    case "Home":
-      next = 0;
-      break;
-    case "End":
-      next = last;
-      break;
-    default:
-      return;
-  }
-  event.preventDefault();
-  switchPanel(panelTabs[next].key);
-  nextTick(() => tabRefs.value[next]?.focus());
-};
+const { activePanel, switchPanel } = usePanelSwitch({ route, router });
 
 /**
  * 档位内容「常驻」策略（见 #980「页面只做编排、数据不重复取」）：
@@ -352,16 +194,17 @@ const onTabKeydown = (event: KeyboardEvent, index: number) => {
  * 用户从不进深度档就不该产生这批请求；概览档是首屏，直接常驻。
  */
 const detailMounted = ref(activePanel.value === "detail");
-watch(activePanel, val => {
-  if (val === "detail") detailMounted.value = true;
-  if (val === "emotion") emotionMounted.value = true;
-});
 
 /**
  * 「行业情绪」档同样用懒挂载（emotionMounted）：它只打一个轻量端点，但用户从不进
  * 该档就不该产生这次请求；首次进入才挂载、之后常驻只切显示（v-show）。
  */
 const emotionMounted = ref(activePanel.value === "emotion");
+
+watch(activePanel, val => {
+  if (val === "detail") detailMounted.value = true;
+  if (val === "emotion") emotionMounted.value = true;
+});
 
 // ================================================================
 // 观察列表：数据与行为收口在 composable（见 #980 第三步）
@@ -450,273 +293,8 @@ onMounted(startRealtime);
 </script>
 
 <style lang="scss" scoped>
-@use "@/style/breakpoints" as bp;
-
 .explore-page {
   min-height: 100vh;
   background: var(--bg-page);
-}
-
-/* ============================================================
-   档位切换：分组胶囊 Tab（design.md「分组胶囊 Tab」规范）
-   选中态 = 软按钮语义（brand 底 + brand 字），非涨跌色
-   ============================================================ */
-.panel-switch {
-  max-width: var(--layout-content-width);
-  padding: var(--space-standard) 24px 0;
-  margin: 0 auto;
-
-  &__inner {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding-bottom: 12px;
-    overflow-x: auto;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  &__hint {
-    margin-left: auto;
-    font-size: var(--text-label);
-    color: var(--text-tertiary-ink);
-    white-space: nowrap;
-  }
-}
-
-.panel-tab {
-  flex-shrink: 0;
-  height: 32px;
-  padding: 0 16px;
-  font-family: inherit;
-  font-size: var(--text-label);
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-
-  &:hover {
-    background: var(--bg-hover);
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
-  }
-
-  &--active {
-    color: var(--color-rise-ink);
-    background: var(--brand-100);
-    border-color: var(--brand-400);
-
-    &:hover {
-      background: var(--brand-200);
-    }
-  }
-}
-
-@media (width <= 768px) {
-  .panel-switch {
-    padding: 16px 16px 0;
-
-    &__hint {
-      display: none;
-    }
-  }
-}
-
-/* ============================================================
-   匿名用户注册转化区（#822 todo1）
-   ============================================================ */
-.conv-banner {
-  max-width: var(--layout-content-width);
-  padding: 0 24px 16px;
-  margin: 0 auto;
-
-  &__inner {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 24px;
-    background: linear-gradient(135deg, var(--brand-100), var(--bg-card));
-    border: 1px solid var(--brand-400);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-raised);
-  }
-
-  &__title {
-    font-size: var(--text-body);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  &__desc {
-    max-width: 860px;
-    margin-top: 4px;
-    font-size: var(--text-label);
-    line-height: 1.6;
-    color: var(--text-secondary);
-  }
-}
-
-/* ============================================================
-   已登录引导区
-   ============================================================ */
-.auth-guide {
-  max-width: var(--layout-content-width);
-  padding: 0 24px 16px;
-  margin: 0 auto;
-
-  &__inner {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 24px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-raised);
-  }
-
-  &__title {
-    font-size: var(--text-body);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  &__desc {
-    max-width: 860px;
-    margin-top: 4px;
-    font-size: var(--text-label);
-    line-height: 1.6;
-    color: var(--text-secondary);
-  }
-
-  &__actions {
-    display: flex;
-    flex-shrink: 0;
-    gap: 8px;
-    align-items: center;
-  }
-
-  &__close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    font-size: var(--text-body);
-
-    /* audit-text-contrast: exempt 非文本图形（图标字形），按 WCAG 1.4.11 需 3:1，本令牌在页底 / 卡片底实测 3.57~3.69:1，达标；
-       若改用 -ink 会与相邻正文同权，反而压平层级。登记见 docs/spec/tech-debt.md（#1586） */
-    color: var(--text-tertiary);
-    cursor: pointer;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    transition:
-      color 0.15s ease,
-      background 0.15s ease;
-
-    &:hover {
-      color: var(--text-primary);
-      background: var(--bg-soft);
-    }
-  }
-}
-
-/* ============================================================
-   大类资产观察入口（#1671 方案 b）
-   区块本体已移入深度档，此处只做一行轻量引导；样式对齐转化区的卡片，
-   分类圆点直接复用 --asset-cat-* 令牌，与深度档区块同貌。
-   ============================================================ */
-.asset-entry {
-  max-width: var(--layout-content-width);
-  padding: 0 24px 16px;
-  margin: 0 auto;
-
-  &__inner {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 24px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-raised);
-  }
-
-  &__title {
-    font-size: var(--text-body);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  &__cats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 6px;
-  }
-
-  &__cat {
-    display: inline-flex;
-    gap: 4px;
-    align-items: center;
-    font-size: var(--text-label);
-    color: var(--text-secondary);
-  }
-
-  &__dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-
-  &__btn {
-    display: inline-flex;
-    flex-shrink: 0;
-    gap: 4px;
-    align-items: center;
-    height: 32px;
-    padding: 0 14px;
-    font-family: inherit;
-    font-size: var(--text-label);
-    color: var(--brand-700);
-    cursor: pointer;
-    background: var(--brand-100);
-    border: 1px solid var(--brand-400);
-    border-radius: var(--radius-pill);
-    transition: background-color 150ms ease;
-
-    &:hover {
-      background: var(--brand-200);
-    }
-
-    &:focus-visible {
-      outline: none;
-      box-shadow: var(--focus-ring);
-    }
-  }
-}
-
-@include bp.below("md") {
-  .asset-entry {
-    padding: 0 16px 16px;
-
-    &__inner {
-      flex-direction: column;
-      gap: 12px;
-      align-items: stretch;
-    }
-  }
 }
 </style>
