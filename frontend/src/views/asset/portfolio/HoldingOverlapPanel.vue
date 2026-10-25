@@ -189,8 +189,8 @@ onMounted(load);
 
   &__value {
     font-size: var(--text-body);
-    color: var(--color-danger);
     font-variant-numeric: tabular-nums;
+    color: var(--color-danger);
   }
 
   &__meta {
