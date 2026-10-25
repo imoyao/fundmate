@@ -76,8 +76,17 @@
       >。
     </p>
 
+    <!-- 页内导航：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail（PageToc）接管。
+         条目由 usePageNav 按 DOM 里真实渲染的 nav-* 锚点动态生成，不留死链。 -->
+    <PageNav
+      v-if="navItems.length > 1"
+      :items="navItems"
+      :active-id="navActiveId"
+      @navigate="goToNavSection"
+    />
+
     <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
-         为「收益概览 / 清仓周期复盘 / 货币基金收益 / 资产净值走势」四段
+         为「收益概览 / 货币基金收益 / 清仓周期复盘 / 资产净值走势」四段
          （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配）。 -->
     <PageSkeleton
       v-if="initialLoading"
@@ -86,70 +95,81 @@
       :table-rows="5"
     />
 
-    <template v-else>
-      <!-- 收益概览（真实 XIRR，无预测）#871：拆为 ReturnOverviewSection，
-            自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
-      <ReturnOverviewSection ref="returnOverview" />
+    <div v-else class="analysis-body">
+      <div ref="pageMain" class="analysis-main">
+        <!-- 收益概览（真实 XIRR，无预测）#871：拆为 ReturnOverviewSection，
+              自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
+        <ReturnOverviewSection id="nav-overview" ref="returnOverview" />
 
-      <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
-      <section v-if="moneyFundIncome">
-        <SectionHeader
-          title="货币基金收益"
-          info="按「万份收益 × 持有份额」估算，与上方 XIRR 口径不同（XIRR 衡量交易现金流的时间价值），两者不可相加；本项已计入总资产"
-        />
-        <MetricGrid>
-          <MetricCard
-            title="今日收益"
-            :value="mfTodayLabel"
-            value-color="var(--brand-ink)"
-            :caption="mfTodayCaption"
-            featured
+        <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
+        <section v-if="moneyFundIncome" id="nav-money-fund">
+          <SectionHeader
+            title="货币基金收益"
+            info="按「万份收益 × 持有份额」估算，与上方 XIRR 口径不同（XIRR 衡量交易现金流的时间价值），两者不可相加；本项已计入总资产"
           />
-          <MetricCard
-            title="累计收益"
-            :value="mfTotalLabel"
-            value-color="var(--brand-ink)"
-            caption="持有期累计（万份收益 × 份额）"
+          <MetricGrid>
+            <MetricCard
+              title="今日收益"
+              :value="mfTodayLabel"
+              value-color="var(--brand-ink)"
+              :caption="mfTodayCaption"
+              featured
+            />
+            <MetricCard
+              title="累计收益"
+              :value="mfTotalLabel"
+              value-color="var(--brand-ink)"
+              caption="持有期累计（万份收益 × 份额）"
+            />
+          </MetricGrid>
+        </section>
+
+        <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
+             自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与下方净值走势。 -->
+        <ClearedCyclesSection id="nav-cycles" />
+
+        <!-- 资产净值走势：本页的**独占项**（welcome 让出、panorama 只取快照做环比同比）。
+             原先与「资产分布」环形图并排成两列，环形图删掉后满宽 —— 时间序列本来就
+             该宽（横轴是日期），挤在半屏里读不出趋势。 -->
+        <section id="nav-net-worth">
+          <SectionHeader
+            title="资产净值走势"
+            info="来自每日资产快照记录，未打卡则无曲线"
           />
-        </MetricGrid>
-      </section>
+          <CardBlock>
+            <div class="relative h-72">
+              <canvas ref="netWorthChartRef" />
+              <p
+                v-if="!netWorthSeries.length"
+                class="absolute inset-0 flex items-center justify-center text-sm"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
+              >
+                暂无资产快照数据
+              </p>
+            </div>
+          </CardBlock>
+        </section>
+      </div>
 
-      <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
-           自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与下方净值走势。 -->
-      <ClearedCyclesSection />
-
-      <!-- 资产净值走势：本页的**独占项**（welcome 让出、panorama 只取快照做环比同比）。
-           原先与「资产分布」环形图并排成两列，环形图删掉后满宽 —— 时间序列本来就
-           该宽（横轴是日期），挤在半屏里读不出趋势。 -->
-      <section>
-        <SectionHeader
-          title="资产净值走势"
-          info="来自每日资产快照记录，未打卡则无曲线"
-        />
-        <CardBlock>
-          <div class="relative h-72">
-            <canvas ref="profitTrendChartRef" />
-            <p
-              v-if="!profitTrendData.length"
-              class="absolute inset-0 flex items-center justify-center text-sm"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            >
-              暂无资产快照数据
-            </p>
-          </div>
-        </CardBlock>
-      </section>
-    </template>
+      <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
+      <PageToc
+        v-if="navItems.length > 1"
+        :items="navItems"
+        :active-id="navActiveId"
+        @navigate="goToNavSection"
+      />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
-import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import GhostDuplicateBanner from "@/components/GhostDuplicateBanner/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
+import PageNav from "@/components/PageNav/index.vue";
+import PageToc from "@/components/PageToc/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
@@ -157,26 +177,30 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
 import ReturnOverviewSection from "./ReturnOverviewSection.vue";
-import { getSnapshots, type AssetSnapshotItem } from "@/api/summary";
+import { useNetWorthTrend } from "./composables/useNetWorthTrend";
 import {
   getMoneyFundIncome,
   type MoneyFundIncomeData
 } from "@/api/performance";
-import { getCssVar, getCssVarWithAlpha } from "@/composables/echarts/theme";
-import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
+import { usePageNav } from "@/composables/usePageNav";
 import { formatAmount } from "@/utils/currency";
 
 defineOptions({ name: "AssetAnalysis" });
 
 const router = useRouter();
 
-const profitTrendChartRef = ref<HTMLElement | null>(null);
-
 // 真实数据源：#2150 删掉 distribution / positions 两条链路后，本页只读两处 ——
 // 净值走势 /summary/snapshots/、货基 /performance/money-fund-income/；
 // 收益 /performance/xirr/ 改由 #871 拆出的 ReturnOverviewSection 自含读取（#980）。
-const profitTrendData = ref<Array<{ date: string; net: number }>>([]);
-const latestSnapshot = ref<AssetSnapshotItem | null>(null);
+// 净值走势的取数 / 绘图 / 图表生命周期已收口进 useNetWorthTrend（2026-10-25，
+// 本页接页内导航后逼近 400 行门禁，拆 composable 让文件净减少）。
+const {
+  chartRef: netWorthChartRef,
+  series: netWorthSeries,
+  latestSnapshot,
+  load: loadProfitTrend,
+  renderChart: initCharts
+} = useNetWorthTrend();
 const moneyFundIncome = ref<MoneyFundIncomeData | null>(null);
 
 const initialLoading = ref(true);
@@ -212,85 +236,21 @@ const mfTodayCaption = computed(() => {
   return days > 0 ? `近${days}天有收益记录` : "暂无收益记录";
 });
 
-const paintProfitTrendChart = (chart: echarts.ECharts) => {
-  chart.setOption({
-    tooltip: { trigger: "axis" },
-    grid: { right: "4%", bottom: "8%", containLabel: true, left: "4%" },
-    xAxis: {
-      type: "category",
-      boundaryGap: false,
-      data: profitTrendData.value.map(d => d.date),
-      axisLabel: { fontSize: 10 }
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { fontSize: 10, formatter: "¥{value}" }
-    },
-    series: [
-      {
-        name: "净资产",
-        type: "line",
-        smooth: true,
-        data: profitTrendData.value.map(d => d.net),
-        // 面积渐变按折线主色 --brand-700 派生透明度（#2156：原硬编码
-        // rgba(255,107,0,…) 与 --brand-700(#e34f38) 不是同色，暗色更明显）。
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            {
-              offset: 0,
-              color: getCssVarWithAlpha("--brand-700", 0.3, "#e34f38")
-            },
-            {
-              offset: 1,
-              color: getCssVarWithAlpha("--brand-700", 0.05, "#e34f38")
-            }
-          ])
-        },
-        // 主色走语义变量（--brand-700），避免硬编码 hex（design.md 红线）
-        itemStyle: { color: getCssVar("--brand-700", "#e34f38") },
-        lineStyle: { width: 2 },
-        symbol: "circle",
-        symbolSize: 4
-      }
-    ]
-  });
+// ---------- 页内导航（2026-10-25）----------
+// 纵向区块 4 个（收益概览 / 货基 / 清仓周期 / 净值走势），符合 components.md
+// 的 PageToc 接入判据；标签与各 SectionHeader 标题逐字一致。
+const pageMain = ref<HTMLElement>();
+const NAV_LABELS: Record<string, string> = {
+  "nav-overview": "收益概览",
+  "nav-money-fund": "货币基金收益",
+  "nav-cycles": "清仓周期复盘",
+  "nav-net-worth": "资产净值走势"
 };
-
-// #2164：图表实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
-// keepAlive 恢复时 resize）统一交给 useEchartsLifecycle；本文件只负责「往给定实例
-// setOption」。`reuse: true` 保留原先 `chart ?? echarts.init()` 的复用语义——
-// 否则每次刷新都重建实例，动画状态丢失且肉眼可见地闪一下。
-// #2156 / #2150：风险热力图整卡下线、「资产分布」环形图随 #2150 删除后，
-// 本文件只剩「资产净值走势」一张 ECharts 图，故下方 specs 只登记这一处。
-const { render: initCharts } = useEchartsLifecycle(
-  [
-    {
-      ref: profitTrendChartRef,
-      build: el => {
-        const chart = echarts.init(el);
-        paintProfitTrendChart(chart);
-        return chart;
-      },
-      update: paintProfitTrendChart
-    }
-  ],
-  { keepAlive: true, reuse: true, autoRenderOnMount: false }
-);
-
-const loadProfitTrend = async () => {
-  try {
-    const res = await getSnapshots();
-    const list = res?.data ?? [];
-    profitTrendData.value = list.map(i => ({
-      date: i.snapshot_date,
-      net: i.net_worth
-    }));
-    latestSnapshot.value = list.length ? list[list.length - 1] : null;
-  } catch {
-    profitTrendData.value = [];
-    latestSnapshot.value = null;
-  }
-};
+const {
+  items: navItems,
+  activeId: navActiveId,
+  goTo: goToNavSection
+} = usePageNav(pageMain, { labels: NAV_LABELS });
 
 /** 货币基金收益（#947）：接口异常时置 null，页面隐藏该区块而不是显示 0 */
 const loadMoneyFundIncome = async () => {
@@ -342,6 +302,18 @@ onMounted(async () => {
   max-width: var(--layout-content-width);
   padding: 0 var(--space-standard);
   margin: 0 auto;
+}
+
+/* 页内导航两级布局（components.md PageToc）：<xl 单列（胶囊在正文上方）；
+   xl+ 主列 + 160px 右目录 rail，列间距 20px（产品详情页同款宽度账）。 */
+.analysis-body {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.analysis-main {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 跨页指路条：与区块同宽、不抢视线，靠 el-button text 承接跳转。
