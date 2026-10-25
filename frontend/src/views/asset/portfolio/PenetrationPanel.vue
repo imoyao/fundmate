@@ -181,18 +181,19 @@
         </p>
       </CardBlock>
 
-      <!-- 口径说明：后端写死的 notes，原样展示（前端不改写、不隐藏） -->
-      <CardBlock class="mt-4">
-        <h4 class="panel-subtitle">口径说明</h4>
+      <!-- 口径说明：后端写死的 notes，原样展示（前端不改写、不隐藏）。
+           2026-10-25 由独立 CardBlock 降为区块尾注：口径是元信息不是内容，
+           单独成卡会与「行业分布 / 个股层 / 未穿透」抢同一层视觉层级，
+           还把正文往下顶；降权小字 + 无卡片壳，可见性不变。 -->
+      <div class="penetration-footnote mt-4">
+        <span class="penetration-footnote__label">口径说明</span>
         <ul class="notes-list">
           <li v-for="(note, i) in data.notes" :key="i">
             {{ note }}
           </li>
         </ul>
-        <p class="text-sm mt-2" :style="{ color: 'var(--text-tertiary)' }">
-          数据日期 {{ data.as_of }}
-        </p>
-      </CardBlock>
+        <p class="penetration-footnote__meta">数据日期 {{ data.as_of }}</p>
+      </div>
     </template>
   </div>
 </template>
@@ -361,13 +362,32 @@ onMounted(load);
   background: var(--color-warning-20, var(--bg-muted));
 }
 
+/* 口径说明尾注：与产品详情页「口径脚注」同款降权——小字 + 次级墨色，
+   不再用卡片壳与 h4（否则与内容区块同级，元信息抢内容的层级）。 */
+.penetration-footnote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-compact);
+  color: var(--text-tertiary);
+}
+
+.penetration-footnote__label {
+  font-size: var(--text-label);
+  font-weight: 600;
+}
+
+.penetration-footnote__meta {
+  margin: 0;
+  font-size: var(--text-label);
+}
+
 .notes-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-compact);
   padding-left: var(--space-standard);
   margin: 0;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
 }
 </style>
