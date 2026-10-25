@@ -343,6 +343,40 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     draggable: true
   },
+  {
+    // 下修历史三列（#2585 PR2）：判断「下修意愿」——离触发线越近、下修概率越高，
+    // 频繁下修的发行人后续再下修概率更高。数据来自 convertible_bond_adjust_logs
+    // 落库快照（集思录 adj_logs，免 cookie）；job 未抓过 / 确无下修记录显 `—`。
+    // 日期与底价均取**最近一次**下修（底价随每股净资产逐次变化，非固定条款）。
+    key: "bond_adjust_count",
+    label: "下修次数",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 88,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    key: "bond_last_adjust_date",
+    label: "最近下修日",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 104,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    key: "bond_adjust_floor_price",
+    label: "下修底价",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 92,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
   // ── 指数品类专属列（#1285 消费侧「指数」/ #1394）──
   // 来源中证指数官方估值文件（免 cookie）。官方只下发近约 20 个交易日，
   // 故「历史分位」暂不提供（见 #1394 讨论）；估值日期挂在 title 上，口径透明。
@@ -890,6 +924,10 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   bond_rating: "bond",
   bond_stock_pb: "bond",
   bond_ytm: "bond",
+  // 下修历史三列（#2585 PR2）
+  bond_adjust_count: "bond",
+  bond_last_adjust_date: "bond",
+  bond_adjust_floor_price: "bond",
   // 指数估值
   index_pe: "index",
   index_dividend_yield: "index",

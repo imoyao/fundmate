@@ -35,7 +35,7 @@ from app.domains.funds.models import AdvisorHolding, AdvisorPortfolio, ChannelLi
 from app.domains.indices.models import IndexCatalog, IndexValuation
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
-from app.domains.securities.models import ConvertibleBondTerm, Security
+from app.domains.securities.models import ConvertibleBondAdjustLog, ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
 from app.domains.watchlist.schemas import WatchlistItemOut
 from app.services.fund_metrics import compute_max_drawdown, load_nav_points
@@ -151,6 +151,8 @@ class BatchContext:
         self._group_names: dict[int, str] = {}
         # display fields（仅 need_display_fields=True 时填充）
         self._bond_terms: dict[str, ConvertibleBondTerm] = {}
+        # 下修历史聚合（#2585 PR2）：symbol → {'count': 条数, 'last': 最近一条记录}
+        self._bond_adjust: dict[str, dict] = {}
         self._index_valuations: dict[str, IndexValuation] = {}
         self._fund_drawdowns: dict[str, dict] = {}
         self._channel_links: dict[str, list[ChannelLink]] = {}
@@ -394,6 +396,21 @@ class BatchContext:
         for b in bond_rows:
             self._bond_terms[b.symbol] = b
 
+        # 8a'. 下修历史聚合（#2585 PR2）：一次 IN 查询取全部记录，内存按 symbol 聚合
+        #      为「次数 + 最近一条」。按股东大会日降序扫，首个即最近一次（下修底价
+        #      随每股净资产逐次变化，展示口径固定取最近一次）。
+        adj_rows = (
+            self.db.query(ConvertibleBondAdjustLog)
+            .filter(ConvertibleBondAdjustLog.symbol.in_(self.symbols))
+            .order_by(ConvertibleBondAdjustLog.shareholder_meeting_date.desc())
+            .all()
+        )
+        for r in adj_rows:
+            agg = self._bond_adjust.setdefault(r.symbol, {'count': 0, 'last': None})
+            agg['count'] += 1
+            if agg['last'] is None:
+                agg['last'] = r
+
         # 8b. 指数估值
         bare_codes = [_bare_code(s) for s in self.symbols if _bare_code(s)]
         if bare_codes:
@@ -551,6 +568,10 @@ class BatchContext:
     def get_bond_term(self, symbol: str) -> Optional[ConvertibleBondTerm]:
         return self._bond_terms.get(symbol)
 
+    def get_bond_adjust(self, symbol: str) -> Optional[dict]:
+        """下修历史聚合（#2585）：{'count': 条数, 'last': 最近一条记录}，未抓过为 None。"""
+        return self._bond_adjust.get(symbol)
+
     def get_index_valuation(self, symbol: str) -> Optional[IndexValuation]:
         code = _bare_code(symbol)
         return self._index_valuations.get(code) if code else None
@@ -584,6 +605,13 @@ def _apply_bond_fields(out: dict, symbol: str, db) -> None:
     """
     term = db.query(ConvertibleBondTerm).filter_by(symbol=symbol).first()
     if term is None:
+        _apply_bond_adjust_fields(
+            out,
+            db.query(ConvertibleBondAdjustLog)
+            .filter_by(symbol=symbol)
+            .order_by(ConvertibleBondAdjustLog.shareholder_meeting_date.desc())
+            .all(),
+        )
         return
     out['bond_convert_price'] = _to_float(term.convert_price)
     out['bond_convert_value'] = _to_float(term.convert_value)
@@ -602,6 +630,29 @@ def _apply_bond_fields(out: dict, symbol: str, db) -> None:
     # ytm 尤其要注意：深度价内债的 YTM 是 -500% 这类无意义数，**宁缺勿滥**。
     out['bond_stock_pb'] = _to_float(term.stock_pb)
     out['bond_ytm'] = _to_float(term.ytm)
+    # 下修历史三列（#2585 PR2）——独立于条款表命中与否（下修记录与条款快照
+    # 来源不同步，只查条款表会漏掉「有下修史但条款未落库」的券）。
+    _apply_bond_adjust_fields(
+        out,
+        db.query(ConvertibleBondAdjustLog)
+        .filter_by(symbol=symbol)
+        .order_by(ConvertibleBondAdjustLog.shareholder_meeting_date.desc())
+        .all(),
+    )
+
+
+def _apply_bond_adjust_fields(out: dict, rows: list) -> None:
+    """下修历史三列（#2585 PR2）填充：次数 / 最近下修日 / 最近一次下修的底价。
+
+    `rows` 为该 symbol 的全部下修记录（建议按股东大会日降序）；空列表 = job
+    未抓过或确无下修记录，三个字段保持 None，前端显 `—`（不用 0 兜底，
+    避免「确有下修但尚未抓取」与「抓过确认为 0」两种口径在前端混淆）。
+    """
+    if not rows:
+        return
+    out['bond_adjust_count'] = len(rows)
+    out['bond_last_adjust_date'] = rows[0].shareholder_meeting_date.isoformat()
+    out['bond_adjust_floor_price'] = _to_float(rows[0].adjust_floor_price)
 
 
 def _apply_index_valuation_fields(out: dict, symbol: str, db) -> None:
@@ -688,25 +739,30 @@ def _apply_channel_link_fields(out: dict, symbol: str, db) -> None:
 
 def _apply_bond_fields_cached(out: dict, symbol: str, ctx: BatchContext) -> None:
     term = ctx.get_bond_term(symbol)
-    if term is None:
-        return
-    out['bond_convert_price'] = _to_float(term.convert_price)
-    out['bond_convert_value'] = _to_float(term.convert_value)
-    out['bond_premium_rate'] = _to_float(term.premium_rate)
-    out['bond_force_redeem_price'] = _to_float(term.force_redeem_price)
-    out['bond_redeem_count'] = term.redeem_count
-    out['bond_redeem_required'] = term.redeem_required
-    out['bond_redeem_status'] = term.redeem_status
-    out['bond_rating'] = term.rating
-    out['bond_maturity_date'] = term.maturity_date
-    out['bond_remain_size'] = _to_float(term.remain_size)
-    out['bond_issue_size'] = _to_float(term.issue_size)
-    out['bond_stock_name'] = term.stock_name
-    # 条款增强两列（#1400 / #2575）：正股 PB / YTM。
-    # 均为**当期快照值**，未落库或本期无意义时保持 None（前端显 `—`）。
-    # ytm 尤其要注意：深度价内债的 YTM 是 -500% 这类无意义数，**宁缺勿滥**。
-    out['bond_stock_pb'] = _to_float(term.stock_pb)
-    out['bond_ytm'] = _to_float(term.ytm)
+    if term is not None:
+        out['bond_convert_price'] = _to_float(term.convert_price)
+        out['bond_convert_value'] = _to_float(term.convert_value)
+        out['bond_premium_rate'] = _to_float(term.premium_rate)
+        out['bond_force_redeem_price'] = _to_float(term.force_redeem_price)
+        out['bond_redeem_count'] = term.redeem_count
+        out['bond_redeem_required'] = term.redeem_required
+        out['bond_redeem_status'] = term.redeem_status
+        out['bond_rating'] = term.rating
+        out['bond_maturity_date'] = term.maturity_date
+        out['bond_remain_size'] = _to_float(term.remain_size)
+        out['bond_issue_size'] = _to_float(term.issue_size)
+        out['bond_stock_name'] = term.stock_name
+        # 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+        # 均为**当期快照值**，未落库或本期无意义时保持 None（前端显 `—`）。
+        # ytm 尤其要注意：深度价内债的 YTM 是 -500% 这类无意义数，**宁缺勿滥**。
+        out['bond_stock_pb'] = _to_float(term.stock_pb)
+        out['bond_ytm'] = _to_float(term.ytm)
+    # 下修历史三列（#2585 PR2）——与条款表命中与否解耦（理由同非缓存路径）。
+    agg = ctx.get_bond_adjust(symbol)
+    if agg:
+        out['bond_adjust_count'] = agg['count']
+        out['bond_last_adjust_date'] = agg['last'].shareholder_meeting_date.isoformat()
+        out['bond_adjust_floor_price'] = _to_float(agg['last'].adjust_floor_price)
 
 
 def _apply_index_valuation_fields_cached(out: dict, symbol: str, ctx: BatchContext) -> None:
