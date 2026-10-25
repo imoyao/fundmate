@@ -104,6 +104,12 @@
           <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
           <PortfolioHoldingsCard id="nav-holdings" :holdings="holdings" />
 
+          <!-- 持仓重叠度（#2604：组合内基金重仓股重合程度）。
+               紧跟明细：先看买了什么，再看这些基金之间重不重。 -->
+          <div class="mb-6">
+            <HoldingOverlapPanel id="nav-overlap" />
+          </div>
+
           <!-- 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合账户 -->
           <PortfolioUnarchivedCard
             id="nav-unarchived"
@@ -165,6 +171,7 @@ import PortfolioReturnCard from "./PortfolioReturnCard.vue";
 import PortfolioMoneyFundCard from "./portfolioDetail/PortfolioMoneyFundCard.vue";
 import PortfolioHoldingsCard from "./portfolioDetail/PortfolioHoldingsCard.vue";
 import PortfolioUnarchivedCard from "./portfolioDetail/PortfolioUnarchivedCard.vue";
+import HoldingOverlapPanel from "./HoldingOverlapPanel.vue";
 import PortfolioLinkedLedgersCard from "./portfolioDetail/PortfolioLinkedLedgersCard.vue";
 import { usePortfolioExcess } from "./portfolioDetail/usePortfolioExcess";
 import {
@@ -177,8 +184,8 @@ import {
  * 组合详情页（/asset/portfolios/:id）。
  *
  * #980 拆分后只留「页面骨架」：PageHeaderBar 页头、四张指标卡、页内导航
- * （PageNav / PageToc，2026-10-25 接入）与八个纵向区块（收益 / 货基 / 归因 /
- * 穿透 / 风格 / 明细 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
+ * （PageNav / PageToc，2026-10-25 接入）与九个纵向区块（收益 / 货基 / 归因 /
+ * 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
  *
  * - `PortfolioHoldingsCard`：持仓明细（排序 + 前端分页 + 盈亏双线估值接线）
  * - `PortfolioUnarchivedCard`：未归档持仓 + 归档对话框（自含取数）
@@ -206,7 +213,7 @@ const holdings = ref<PortfolioHolding[]>([]);
 const editVisible = ref(false);
 
 // ---------- 页内导航（2026-10-25）----------
-// 纵向区块 8 个、明显超一屏，符合 components.md 的 PageToc 接入判据。
+// 纵向区块 9 个、明显超一屏，符合 components.md 的 PageToc 接入判据。
 // state / scroll-spy 全在共享 usePageNav 里，本文件只给锚点 → 标签映射。
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
@@ -216,6 +223,7 @@ const NAV_LABELS: Record<string, string> = {
   "nav-penetration": "持仓穿透",
   "nav-style": "组合风格",
   "nav-holdings": "持仓明细",
+  "nav-overlap": "持仓重叠度",
   "nav-unarchived": "未归档持仓",
   "nav-ledgers": "关联账户"
 };
