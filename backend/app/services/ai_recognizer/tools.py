@@ -351,7 +351,10 @@ register_tool('get_watchlist_overview', _tool_get_watchlist_overview)
 TOOLS_METADATA = [
     {
         'name': 'get_assets_overview',
-        'description': '获取家庭资产总览：总资产/总负债/净资产/已实现与未实现盈亏（单位：元）',
+        'description': '获取家庭资产总览：总资产/总负债/净资产/已实现与未实现盈亏（单位：元）。'
+        '当用户问「我有多少资产」「净资产多少」「负债多少」这类**存量**问题时使用。'
+        '本工具的盈亏是账面存量（已实现+未实现之和），不做时间加权；'
+        '问「赚了多少 / 收益率 / 年化」时用 get_portfolio_performance（XIRR 口径），不要用本工具',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -364,7 +367,10 @@ TOOLS_METADATA = [
     },
     {
         'name': 'get_portfolio_performance',
-        'description': '计算整个投资组合的年化收益率 XIRR：总投入/当前市值/总收益（单位：元）',
+        'description': '计算整个投资组合的年化收益率 XIRR：总投入/当前市值/总收益（单位：元）。'
+        '当用户问「赚了多少钱」「收益率多少」「年化多少」「总共赚了多少」时使用——'
+        '凡问法里带「赚 / 收益 / 收益率」的，优先本工具；'
+        '问「我有多少资产 / 净资产 / 负债」用 get_assets_overview（那是资产存量总览，不是收益口径）',
         'parameters': {
             'type': 'object',
             'properties': {
