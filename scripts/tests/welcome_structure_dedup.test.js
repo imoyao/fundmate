@@ -325,14 +325,24 @@ test('#2150：判据非空转——把四块任意一块注回去必须报红', 
 });
 
 test('#2150：复盘页的独占项（净值走势）必须还在——删重复不等于删自己', () => {
+  // 2026-10-25：净值走势的取数/绘图拆进了 composables/useNetWorthTrend.ts
+  //（页内导航接入后按 #980 拆 composable 让页面净减少），独占项的判据随迁：
+  // 页面必须仍消费该 composable 并持有 canvas，取数必须仍在复盘页专属文件里。
   const code = readCode(ANALYSIS);
   assert.ok(
-    /getSnapshots/.test(code),
-    '资产净值走势是复盘页唯一的独占项（welcome 已让出、panorama 只取最新快照做环比），删了页面就没有存在理由'
+    /useNetWorthTrend/.test(code),
+    '复盘页必须仍接入净值走势 composable（useNetWorthTrend）——它是本页唯一的独占项（welcome 已让出、panorama 只取最新快照做环比），删了页面就没有存在理由'
   );
   assert.ok(
-    /profitTrendChartRef/.test(code),
+    /netWorthChartRef/.test(code),
     '净值走势的 canvas 必须还在'
+  );
+  const trend = readCode(
+    'frontend/src/views/asset/composables/useNetWorthTrend.ts'
+  );
+  assert.ok(
+    trend && /getSnapshots/.test(trend),
+    'useNetWorthTrend 必须仍读 /summary/snapshots/（资产净值走势独占数据源）'
   );
 });
 
