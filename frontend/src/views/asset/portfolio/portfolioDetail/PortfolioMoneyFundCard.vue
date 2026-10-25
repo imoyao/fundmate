@@ -11,7 +11,8 @@ import {
 } from "@/api/performance";
 
 /**
- * 货基收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加）。
+ * 货币基金收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加）。
+ * 标题与复盘页「货币基金收益」同词（2026-10-25 由「货基收益」改名统一叫法）。
  *
  * 自含取数：进入详情页即自动拉一次，卡片头部的「刷新」重拉。父层只传 portfolioId，
  * 因此 `v-if="moneyFundData || moneyFundLoading"` 也留在本组件根节点上——数据没回来
@@ -38,7 +39,7 @@ async function fetchMoneyFund() {
     });
     moneyFundData.value = res.data;
   } catch {
-    ElMessage.error("获取货基收益失败");
+    ElMessage.error("获取货币基金收益失败");
   } finally {
     moneyFundLoading.value = false;
   }
@@ -49,7 +50,7 @@ onMounted(fetchMoneyFund);
 
 <template>
   <CardBlock v-if="moneyFundData || moneyFundLoading" class="mb-6">
-    <SectionHeader title="货基收益">
+    <SectionHeader title="货币基金收益">
       <template #action>
         <el-button
           size="small"
@@ -75,7 +76,7 @@ onMounted(fetchMoneyFund);
       </div>
     </div>
     <div v-else-if="!moneyFundLoading" class="xirr-empty">
-      点击刷新获取货基收益
+      点击刷新获取货币基金收益
     </div>
     <div v-else class="xirr-empty">计算中...</div>
   </CardBlock>
