@@ -26,17 +26,19 @@ from pathlib import Path
 API_BASE = "https://ark.cn-beijing.volces.com/api/v3"
 
 # 待实测清单 = 仓内全部消费点（改动任一消费点时同步本清单）：
-#   - 账本精灵 / OCR 默认档（backend/app/services/ai_recognizer/llm.py ARK_MODEL）
+#   - OCR 默认档（backend/app/services/ai_recognizer/llm.py ARK_MODEL，需视觉能力）
+#   - 账本精灵默认档（同文件 ARK_MODEL_AGENT，纯文本即可）
 #   - deep-review 候选池（scripts/llm_health_probe.py CANDIDATES，pro + cheap 两档）
 #   - lite 档候选（2026-09-28 用户指定核验，暂未接入消费点）
 CANDIDATES = [
-    "doubao-seed-2-0-mini-260428",  # agent/OCR 默认（ARK_MODEL 缺省值）
+    "doubao-seed-2-0-mini-260428",  # OCR 默认（ARK_MODEL 缺省值，视觉档）
     "doubao-seed-2-0-lite-260428",  # lite 候选
     "doubao-seed-2-1-lite-260915",  # lite 候选
     "doubao-seed-2-0-pro-260215",  # 用户询问（注册面 Retiring，实测 404）
     "doubao-seed-2-1-pro-260915",  # deep-review pro 首选
     "doubao-seed-2-1-turbo-260628",  # deep-review cheap 兜底
     "deepseek-v4-pro-ga-260813",  # deep-review pro
+    "deepseek-v4-1-flash-economy-261017",  # 账本精灵 agent 默认（ARK_MODEL_AGENT 缺省值）
     "deepseek-v4-1-flash-260910",  # deep-review cheap
     "deepseek-v4-flash-ga-260731",  # deep-review cheap
     "glm-5-3-flash-260828",  # deep-review cheap（方舟托管 GLM）
