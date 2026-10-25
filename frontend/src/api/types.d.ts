@@ -280,6 +280,13 @@ export interface WatchlistItem {
   // 到期税前收益 YTM（%）：**单利年化持有到期总回报**，口径同集思录（非 IRR）。
   // 深度价内债后端**不出此值**（持有到期不成立，算出来是 -500% 这类无意义数）→ null。
   bond_ytm?: number | null; // 到期税前收益 YTM（%）
+  // ── 可转债下修历史（#2585 PR2）──
+  // 仅 asset_type=bond 且后端 convertible_bond_adjust_logs 命中时有值
+  // （job 已抓过该券且确有下修记录）；未落库 / 确无下修记录均为 null → 显 `—`。
+  // 「日期 / 底价」取自**最近一次**下修——底价随每股净资产逐次变化，只随最新事件下发。
+  bond_adjust_count?: number | null; // 下修次数（落库记录条数）
+  bond_last_adjust_date?: string | null; // 最近下修日（最近一次股东大会日，YYYY-MM-DD）
+  bond_adjust_floor_price?: number | null; // 最近一次下修的底价（元）
   // ── 指数估值（#1285 消费侧「指数」品类 / #1394）──
   // 仅 asset_type=index 且后端 index_valuations 命中时有值；来源中证官方（免 cookie）。
   index_pe?: number | null; // 市盈率（官方列「市盈率1」）
