@@ -286,3 +286,38 @@ export function getFundStyleHistory(fundCode: string, limit?: number) {
     { params: limit ? { limit } : undefined }
   );
 }
+
+/**
+ * 组合加权风格暴露（家庭作用域，#2478 组合透视口子 / #2603 前端消费）。
+ *
+ * 口径（后端 `services/fund_style_service.portfolio_style_exposure` 定死，前端不二次推导）：
+ * - 按持仓市值加权，每只基金取**各自最新时点**的风格箱；
+ * - 无风格箱的持仓**不计入加权**，但全额计入分母 → `coverage_pct` 是覆盖率不是权重；
+ * - `styles` 为空数组表示「算不出来」，**不等于「全部为 0」**。
+ */
+export interface PortfolioStyleExposure {
+  /** 各风格暴露值（0-100，合计 100）；算不出来时为空数组 */
+  styles: FundStyleItem[];
+  /** 有风格箱的持仓基金数 */
+  fund_count: number;
+  covered_market_value_cents: number;
+  total_market_value_cents: number;
+  /** 风格数据覆盖率（0-100）：有箱体的持仓市值 / 全部持仓市值 */
+  coverage_pct: number;
+  /** 箱体时点区间（各基金取各自最新，故可能跨月） */
+  period_from: string | null;
+  period_to: string | null;
+  /** 无风格箱的持仓（覆盖率不足时如实在此列出，不藏起来） */
+  uncovered: { symbol: string; name: string; market_value_cents: number }[];
+  /** 是否含 QDII 持仓：其风格分类为上游原值，口径存疑，展示层须注明 */
+  has_qdii: boolean;
+  source: string;
+}
+
+/** 获取组合加权风格暴露。无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0 */
+export function getPortfolioStyle() {
+  return http.request<ApiResponse<PortfolioStyleExposure>>(
+    "get",
+    `/api/funds/style/portfolio/`
+  );
+}

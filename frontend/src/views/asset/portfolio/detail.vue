@@ -94,6 +94,13 @@
             <PenetrationPanel id="nav-penetration" />
           </div>
 
+          <!-- 组合风格构成（#2603：按市值加权的 8 分类风格暴露）。
+               与穿透同属「结构」段：穿透说钱压在哪些行业/个股，风格说这些持仓
+               在风格维度上的偏斜。 -->
+          <div class="mb-6">
+            <PortfolioStylePanel id="nav-style" />
+          </div>
+
           <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
           <PortfolioHoldingsCard id="nav-holdings" :holdings="holdings" />
 
@@ -153,6 +160,7 @@ import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
 import { usePageNav } from "@/composables/usePageNav";
 import PenetrationPanel from "./PenetrationPanel.vue";
+import PortfolioStylePanel from "./PortfolioStylePanel.vue";
 import PortfolioReturnCard from "./PortfolioReturnCard.vue";
 import PortfolioMoneyFundCard from "./portfolioDetail/PortfolioMoneyFundCard.vue";
 import PortfolioHoldingsCard from "./portfolioDetail/PortfolioHoldingsCard.vue";
@@ -169,8 +177,8 @@ import {
  * 组合详情页（/asset/portfolios/:id）。
  *
  * #980 拆分后只留「页面骨架」：PageHeaderBar 页头、四张指标卡、页内导航
- * （PageNav / PageToc，2026-10-25 接入）与七个纵向区块（收益 / 货基 / 归因 /
- * 穿透 / 明细 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
+ * （PageNav / PageToc，2026-10-25 接入）与八个纵向区块（收益 / 货基 / 归因 /
+ * 穿透 / 风格 / 明细 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
  *
  * - `PortfolioHoldingsCard`：持仓明细（排序 + 前端分页 + 盈亏双线估值接线）
  * - `PortfolioUnarchivedCard`：未归档持仓 + 归档对话框（自含取数）
@@ -198,7 +206,7 @@ const holdings = ref<PortfolioHolding[]>([]);
 const editVisible = ref(false);
 
 // ---------- 页内导航（2026-10-25）----------
-// 纵向区块 7 个、明显超一屏，符合 components.md 的 PageToc 接入判据。
+// 纵向区块 8 个、明显超一屏，符合 components.md 的 PageToc 接入判据。
 // state / scroll-spy 全在共享 usePageNav 里，本文件只给锚点 → 标签映射。
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
@@ -206,6 +214,7 @@ const NAV_LABELS: Record<string, string> = {
   "nav-money-fund": "货币基金收益",
   "nav-attribution": "收益归因",
   "nav-penetration": "持仓穿透",
+  "nav-style": "组合风格",
   "nav-holdings": "持仓明细",
   "nav-unarchived": "未归档持仓",
   "nav-ledgers": "关联账户"

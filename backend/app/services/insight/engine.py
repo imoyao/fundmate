@@ -10,6 +10,7 @@
 | `holdings` / `total_cents` | `position_aggregation.get_fund_aggregation` + `get_securities_aggregation` | 与持仓页同一个聚合入口，过滤规则（类现金排除、ownership 等）不重写 |
 | `top_industry` / `penetration_ratio` | `penetration.build_penetration`（主口径 `csrc`） | 行业数据只有这一条链路，自己 join 会造第二套口径 |
 | `latest_day` | `pnl_calendar.build_daily_pnl_series` 的最近有效日 | 组合级日收益率，与收益日历同源 |
+| `style_exposure` | `fund_style_service.portfolio_style_exposure` | 组合风格暴露只有这一条链路（按市值加权、各取各自最新时点、无箱体持仓不计入加权但全额计入分母）；面板与提示共用同一个值，否则会出现「面板 38%、提示 35%」的自相矛盾 |
 
 **只读、不落库**：提示是派生结果，没有「历史上的提示」这种语义（同一账户同一时点结果必然相同），
 落库只会带来过期数据与同步负担。
@@ -27,6 +28,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from app.services.fund_style_service import portfolio_style_exposure
 from app.services.insight.rules import evaluate
 from app.services.penetration import build_penetration
 from app.services.pnl_calendar import build_daily_pnl_series
@@ -88,6 +90,35 @@ def _load_latest_day(db: Session, family_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _load_style_exposure(db: Session, family_id: int) -> Optional[Dict[str, Any]]:
+    """组合加权风格暴露（#2603）。
+
+    取数复用 `fund_style_service.portfolio_style_exposure`——口径（按市值加权、
+    每只基金取各自最新时点、无风格箱的持仓不计入加权但全额计入分母、`coverage_pct`
+    是结果的一部分、QDII 标记）已在该服务里定死，此处不自造第二套。
+
+    取不到就返回 None（风格规则降级不触发），**不拿 0 冒充「风格均衡」**：
+    「算不出来」与「算出来很均衡」是两件事，前者不该被读成后者。
+    """
+    try:
+        data = portfolio_style_exposure(db, family_id)
+    except Exception as e:
+        logger.warning(f'诊断取数失败(组合风格暴露)，风格规则降级不触发: {e}')
+        return None
+    styles = data.get('styles') or []
+    if not styles:
+        return None
+    return {
+        'styles': styles,
+        'coverage_pct': float(data.get('coverage_pct') or 0),
+        'fund_count': int(data.get('fund_count') or 0),
+        'period_from': data.get('period_from'),
+        'period_to': data.get('period_to'),
+        # QDII 标记由风格服务判定（提示与面板共用同一个值，不在这里另判一次）
+        'has_qdii': bool(data.get('has_qdii')),
+    }
+
+
 def build_snapshot(db: Session, family_id: int = 1) -> Dict[str, Any]:
     """构造规则读数所需的一次性快照（各数据源各查一次）。"""
     holdings = _load_holdings(db, family_id)
@@ -101,6 +132,7 @@ def build_snapshot(db: Session, family_id: int = 1) -> Dict[str, Any]:
         'top_industry': top_industry,
         'penetration_ratio': penetration_ratio,
         'latest_day': _load_latest_day(db, family_id),
+        'style_exposure': _load_style_exposure(db, family_id),
     }
 
 
@@ -109,6 +141,7 @@ def build_tips(db: Session, family_id: int = 1) -> Dict[str, Any]:
     snapshot = build_snapshot(db, family_id)
     tips = evaluate(snapshot)
     logger.info(f'诊断提示完成(family_id={family_id}): 命中 {len(tips)} 条')
+    style_exposure = snapshot.get('style_exposure') or {}
     return {
         'items': tips,
         'count': len(tips),
@@ -117,5 +150,7 @@ def build_tips(db: Session, family_id: int = 1) -> Dict[str, Any]:
             'total_value_cents': snapshot['total_cents'],
             'penetration_ratio': round(snapshot['penetration_ratio'], 4),
             'latest_day': snapshot['latest_day'],
+            # 风格覆盖率单独下发：前端空态要能区分「体检过了没问题」与「风格数据不够算不出」
+            'style_coverage_pct': round(float(style_exposure.get('coverage_pct') or 0), 2),
         },
     }
