@@ -75,13 +75,13 @@
         <p v-if="activeGroup.count === 0" class="group-empty">
           该作用域没有{{ activeGroup.label }}持仓。
         </p>
-        <table v-else class="structure-table">
+        <table v-else class="detail-table">
           <thead>
             <tr>
               <th>标的</th>
-              <th class="num">市值</th>
-              <th class="num">占组合</th>
-              <th class="num">占{{ activeGroup.label }}</th>
+              <th class="detail-table__num">市值</th>
+              <th class="detail-table__num">占组合</th>
+              <th class="detail-table__num">占{{ activeGroup.label }}</th>
             </tr>
           </thead>
           <tbody>
@@ -93,9 +93,11 @@
                   {{ row.accounts }} 个账户合并
                 </span>
               </td>
-              <td class="num">{{ formatAmount(row.value_cny) }}</td>
-              <td class="num">{{ pct(row.ratio_of_total) }}</td>
-              <td class="num">{{ pct(row.ratio_of_group) }}</td>
+              <td class="detail-table__num">
+                {{ formatAmount(row.value_cny) }}
+              </td>
+              <td class="detail-table__num">{{ pct(row.ratio_of_total) }}</td>
+              <td class="detail-table__num">{{ pct(row.ratio_of_group) }}</td>
             </tr>
           </tbody>
         </table>
@@ -222,30 +224,6 @@ watch(() => [props.ledgerId, props.portfolioId], load);
   margin: var(--space-standard) 0 0;
   font-size: var(--text-small);
   color: var(--text-tertiary);
-}
-
-.structure-table {
-  width: 100%;
-  margin-top: var(--space-compact);
-  font-size: var(--text-small);
-  border-collapse: collapse;
-}
-
-.structure-table th,
-.structure-table td {
-  padding: var(--space-compact) 0;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.structure-table th {
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
-
-.structure-table .num {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 .cell-name {

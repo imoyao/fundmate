@@ -16,22 +16,28 @@
     >
       全部持仓均已穿透。
     </p>
-    <table v-else class="unpen-table">
+    <table v-else class="detail-table">
       <thead>
         <tr>
           <th>标的</th>
-          <th class="num">市值</th>
-          <th class="num">占比</th>
+          <th class="detail-table__num">市值</th>
+          <th class="detail-table__num">占比</th>
           <th>原因</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="`${row.asset_type}-${row.symbol}`">
           <td>{{ row.name }}</td>
-          <td class="num" :style="{ color: 'var(--text-primary)' }">
+          <td
+            class="detail-table__num"
+            :style="{ color: 'var(--text-primary)' }"
+          >
             {{ formatAmount(row.value_cny) }}
           </td>
-          <td class="num" :style="{ color: 'var(--text-secondary)' }">
+          <td
+            class="detail-table__num"
+            :style="{ color: 'var(--text-secondary)' }"
+          >
             {{ percent(row.ratio_of_total) }}
           </td>
           <td>
@@ -62,29 +68,6 @@ defineProps<{ rows: PenetrationUnpenetrated[] }>();
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
-}
-
-.unpen-table {
-  width: 100%;
-  font-size: var(--text-small);
-  border-collapse: collapse;
-}
-
-.unpen-table th,
-.unpen-table td {
-  padding: var(--space-compact) 0;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.unpen-table th {
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
-
-.unpen-table .num {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 .reason-tag {
