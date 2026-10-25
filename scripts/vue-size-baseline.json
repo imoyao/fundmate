@@ -24,7 +24,6 @@
     "views/asset/ledgers/components/PositionTransactionsDrawer.vue": 494,
     "views/asset/panorama/components/OverviewSummaryCard.vue": 463,
     "views/asset/watchlist/WatchlistFilterBar.vue": 498,
-    "views/asset/watchlist/components/WatchlistQuickViewDrawer.vue": 651,
     "views/asset/watchlist/index.vue": 404,
     "views/explore/components/ExploreWatchlistTable.vue": 491,
     "views/explore/components/detail/CrowdingTable.vue": 508,

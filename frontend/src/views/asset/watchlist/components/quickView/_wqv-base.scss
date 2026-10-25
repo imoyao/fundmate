@@ -1,0 +1,89 @@
+// 速览抽屉的**共用**骨架样式（#980 拆分）。
+// 为什么单独成文件：这些类名被头部 / 行情 / 持有 / 信息 / 投顾 / 备注多个区块共用，
+// 而 scoped 样式只作用于本组件的元素（子组件的**内部**元素拿不到父组件的 scopeId，
+// 只有子组件根节点能拿到）。于是每个区块组件都要自带一份——与其在 6 个文件里各抄一遍，
+// 不如抽成 partial 让它们 `@use`。
+// 注意：partial 名带下划线，引用时写 `@use "./wqv-base";`（不写下划线、不写扩展名）。
+
+.wqv-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wqv-sec__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wqv-sec__title {
+  margin: 0;
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.wqv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.wqv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.wqv-cell,
+.wqv-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.wqv-row {
+  justify-content: space-between;
+}
+
+.wqv-label {
+  flex-shrink: 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+.wqv-value {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.wqv-empty {
+  color: var(--text-tertiary-ink);
+}
+
+.wqv-hint {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+.wqv-link {
+  color: var(--brand-ink);
+  text-decoration: none;
+}
+
+.wqv-link:hover {
+  text-decoration: underline;
+}
+
+/* 策略简介可能上百字，右对齐 + 换行阅读（默认 .wqv-value 是 text-align:right） */
+.wqv-value--wrap {
+  max-width: 260px;
+  line-height: 1.6;
+  text-align: left;
+  white-space: pre-wrap;
+}
