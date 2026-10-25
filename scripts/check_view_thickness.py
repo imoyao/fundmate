@@ -408,7 +408,11 @@ BASELINE: dict[str, dict[str, int]] = {
         # #2617 新增 GET /summary/position-structure/（持仓结构）后 346 → 379：
         # 该端点只做入参解析 + 调 services，无 ORM 查询、无 commit；
         # 业务口径全部在 services/position_structure.py，故只重取 lines。
-        "lines": 379,
+        # 2026-10-26 重取（#2616，**新增端点**，非放宽）：379 → 403。新增
+        # `GET /summary/cash-flow/`——`ledger_id` 必填校验、异常→HTTP 信封，业务口径
+        # 全在 `services/cash_flow_service.py`；`orm_queries` / `commits` 仍为 0，
+        # `max_func` 43 不动（新端点函数体 21 行 ≤ 60）。与 #2134 / #2135 / #2617 同先例。
+        "lines": 403,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,
