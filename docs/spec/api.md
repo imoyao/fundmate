@@ -42,7 +42,7 @@ title: 核心 API 端点清单（api）
 |DELETE|/api/watchlist/tags/{tag_id}/|删除标签|
 |POST/DELETE|/api/watchlist/items/{item_id}/tags/{tag_id}/|资产绑定/解绑标签|
 |POST|/api/funds/nav/|基金净值批量查询（响应格式为数组）|
-|GET|/api/performance/xirr/|年化收益率查询（扩展 `portfolio_id` 参数，支持组合维度 XIRR）|
+|GET|/api/performance/xirr/|年化收益率查询（扩展 `portfolio_id` 参数，支持组合维度 XIRR；响应含 `cashflow_basis` 口径标识，见 `cashflow-layers.md`）|
 |**GET/POST**|**/api/portfolios/**|**组合列表（返回 id/name/purpose/created_at）、创建组合**|
 |**GET/PATCH**|**/api/portfolios/{id}/**|**获取详情、更新组合**|
 |**DELETE**|**/api/portfolios/{id}/**|**软删除组合（自动解绑关联账户）**|

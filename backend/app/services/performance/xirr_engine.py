@@ -35,6 +35,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
+from app.services.performance import cashflow_layers
 
 
 def _safe_return(value: float) -> float:
@@ -278,42 +279,12 @@ def _exclude_internal_transfers(
     transfer_candidates: list[dict],
     portfolio_ledger_ids: set[int],
 ) -> set[int]:
-    """
-    识别并返回应排除的内部划转交易索引集合。
+    """兼容入口（历史名）：实现已迁到 `cashflow_layers.pair_internal_transfers`。
 
-    配对条件：同日、金额相等（分精度）、方向相反、分属本组合内不同账户
-    （按 ledger_id 判定，避免 account_name 同名串味的历史 bug）。
+    保留别名是因为 `tests/services/performance/test_xirr_engine.py` 有一整套配对用例
+    直接打它；真正被消费方使用的是 `cashflow_layers` 里的同名函数。
     """
-    excluded = set()
-    deposit_code = BusinessType.DEPOSIT.code
-    withdraw_code = BusinessType.WITHDRAW.code
-
-    for i, a in enumerate(transfer_candidates):
-        if i in excluded:
-            continue
-        for j, b in enumerate(transfer_candidates):
-            if j <= i or j in excluded:
-                continue
-            if a['date'] != b['date']:
-                continue
-            if a['amount_cents'] != b['amount_cents']:
-                continue
-            # 同一账户内的存取不算内部划转（按 ID 判定）
-            if a['ledger_id'] == b['ledger_id']:
-                continue
-            # 方向相反
-            a_out = a['txn_type'] == deposit_code and b['txn_type'] == withdraw_code
-            b_out = b['txn_type'] == deposit_code and a['txn_type'] == withdraw_code
-            if not (a_out or b_out):
-                continue
-            if a['ledger_id'] not in portfolio_ledger_ids or b['ledger_id'] not in portfolio_ledger_ids:
-                continue
-            excluded.update([i, j])
-            logger.debug(
-                f'内部划转已排除: {a["date"]} ledger#{a["ledger_id"]}↔#{b["ledger_id"]} 金额={a["amount"]:.2f}'
-            )
-            break
-    return excluded
+    return cashflow_layers.pair_internal_transfers(transfer_candidates, portfolio_ledger_ids)
 
 
 def generate_portfolio_cashflows(
@@ -323,6 +294,7 @@ def generate_portfolio_cashflows(
     end_date: Optional[dt.date] = None,
     family_id: int = 1,
     include_cash_equivalents: bool = False,
+    basis_sink: Optional[dict] = None,
 ) -> List[Tuple[dt.date, float]]:
     """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。
 
@@ -330,6 +302,17 @@ def generate_portfolio_cashflows(
     「分」，本函数曾直接 `float(amount)` 当元用，导致组合级现金流比市值大 100 倍
     （线上表现为总投入 1.68 亿、总收益 -1886 万，XIRR 恒为 0）。改动此处前先看
     `tests/services/performance/test_portfolio_xirr_units.py`。
+
+    口径（#2615）：分类与内部划转判定统一走 `cashflow_layers`，本函数只做「按账户
+    口径组装现金流」：
+
+    - 账户有真实外部入金/出金（L1）⇒ **账户口径**：只有 L1 进出算投入/回收，
+      买卖属于账户内换形态（L2），不进现金流；
+    - 账户只导过交易、没有入金流水 ⇒ **持仓口径**（历史行为，降级）：买入算投入、
+      卖出/分红算回收。整组合按账户口径一刀切会让这类老账户丢掉本金（年化 0%）。
+
+    `basis_sink` 传 dict 时回填实际口径：`{'basis': 'account'|'position'|'mixed',
+    'by_ledger': {ledger_id: 'account'|'position'}}`，供响应层如实透出「按什么估的」。
     """
     if end_date is None:
         end_date = dt.date.today()
@@ -362,64 +345,53 @@ def generate_portfolio_cashflows(
 
     ledger_set = set(ledger_ids)
 
-    # 2. 查询所有相关交易（按 ledger_id 集合过滤）
-    transactions = (
-        db_session.query(Transaction)
-        .filter(Transaction.ledger_id.in_(ledger_ids), Transaction.family_id == family_id)
-        .all()
+    # 2. 分层取流水（金额已是元，见 cashflow_layers 的单位纪律）
+    flows = cashflow_layers.collect_flows(
+        db_session,
+        ledger_ids,
+        family_id=family_id,
+        end_date=end_date,
+        include_cash_equivalents=include_cash_equivalents,
     )
+    internal = cashflow_layers.pair_internal_transfers(flows, ledger_set)
+    basis_map = cashflow_layers.basis_by_ledger(flows, internal)
 
-    # 3. 分类交易
-    outflow_types = {BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code}
-    inflow_types = {BusinessType.SELL.code, BusinessType.DIVIDEND_CASH.code}
-
+    # 3. 按账户口径组装现金流（4 类：账户口径只看 L1；持仓口径看 L2/L3）
     investment_cf: List[Tuple[dt.date, float]] = []
-    transfer_candidates: List[dict] = []
-
-    for txn in transactions:
-        txn_date = txn.confirm_date
-        if isinstance(txn_date, dt.datetime):
-            txn_date = txn_date.date()
-        if txn_date is None:
+    for flow in flows:
+        if flow['index'] in internal:
+            # 家庭内账户互转：一进一出净额为 0，任何口径都不该出现（#2615 修的正是
+            # 此前「配对结果被 `_ =` 丢弃」的空操作）
             continue
-
-        if not include_cash_equivalents and getattr(txn, 'asset_type', None) in EXCLUDED_ASSET_TYPES:
+        if basis_map.get(flow['ledger_id']) == 'account':
+            if flow['layer'] == cashflow_layers.L1_EXTERNAL:
+                investment_cf.append((flow['date'], flow['signed_amount']))
             continue
+        # 持仓口径（降级）：沿用历史行为
+        if flow['layer'] == cashflow_layers.L2_TRANSFER:
+            if flow['txn_type'] in (BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code):
+                investment_cf.append((flow['date'], -flow['amount']))
+            elif flow['txn_type'] == BusinessType.SELL.code:
+                investment_cf.append((flow['date'], flow['amount']))
+        elif flow['layer'] == cashflow_layers.L3_REALIZED and flow['txn_type'] in (
+            BusinessType.DIVIDEND.code,
+            BusinessType.DIVIDEND_CASH.code,
+            BusinessType.BOND_REDEEM.code,
+        ):
+            investment_cf.append((flow['date'], flow['amount']))
 
-        amount = getattr(txn, 'amount', None)
-        if amount is None:
-            continue
-        # `transactions.amount` 的单位是**分**（见 models.Transaction.amount 注释），
-        # 而当前市值 / 终端虚拟卖出是**元**。这里必须与 `generate_cashflows` 走同一
-        # 换算（Money.cents_to_yuan），否则现金流序列比市值大 100 倍：
-        # XIRR 解崩、`total_invested` 显示成 1.68 亿、`total_return` 显示成 -1886 万。
-        try:
-            amount_f = Money.cents_to_yuan(int(amount))
-        except (TypeError, ValueError):
-            continue
-        if abs(amount_f) < 1e-8:
-            continue
+    if basis_sink is not None:
+        used = set(basis_map.values())
+        if used == {'account'}:
+            overall = 'account'
+        elif used <= {'position'}:
+            overall = 'position'
+        else:
+            overall = 'mixed'
+        basis_sink['basis'] = overall
+        basis_sink['by_ledger'] = dict(basis_map)
 
-        txn_type = txn.txn_type
-        if txn_type in (BusinessType.DEPOSIT.code, BusinessType.WITHDRAW.code):
-            transfer_candidates.append(
-                {
-                    'date': txn_date,
-                    'amount': amount_f,
-                    'amount_cents': round(amount_f * 100),
-                    'txn_type': txn_type,
-                    'ledger_id': txn.ledger_id,
-                }
-            )
-        elif txn_type in outflow_types:
-            investment_cf.append((txn_date, -amount_f))
-        elif txn_type in inflow_types:
-            investment_cf.append((txn_date, amount_f))
-
-    # 4. 剔除内部划转（按 ledger_id 判定）
-    _ = _exclude_internal_transfers(transfer_candidates, ledger_set)
-
-    # 5. 添加虚拟卖出
+    # 4. 添加虚拟卖出（当前市值按元计，与上面同单位）
     if current_value > 1e-8:
         investment_cf.append((end_date, current_value))
 
