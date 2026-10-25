@@ -54,17 +54,12 @@
           caption="行业内合计不足 100% 的差额＝债券/现金，不是缺失"
         />
       </MetricGrid>
-      <!-- 行业分布：横向条，不用饼图（行业数多，饼图读不出量级差） -->
+      <!-- 行业分布：横向条，不用饼图（行业数多，饼图读不出量级差）。
+           #2617：两档口径必须分开看——「直接持有」基金整块不拆底层，
+           「穿透后」基金与直持合并。合并成一张图会得出「基金是制造业」的假结论。
+           切换逻辑在子组件里（本文件已触到 check_vue_size 的 400 行阈值，#980）。 -->
       <CardBlock class="mt-4">
-        <h4 class="panel-subtitle">行业分布</h4>
-        <p
-          v-if="!data.industries.length"
-          class="text-sm"
-          :style="{ color: 'var(--text-secondary)' }"
-        >
-          暂无可用的行业配置数据。
-        </p>
-        <PenetrationBarList v-else :rows="industryRows" />
+        <PenetrationIndustryBlock :data="data" />
       </CardBlock>
 
       <!-- 个股层：季报只披露前十大，故标明口径强度 -->
@@ -83,51 +78,9 @@
           暂无可穿透的个股持仓。
         </p>
       </CardBlock>
-      <!-- 未穿透清单：**逐条带 reason**，把「本质无股票敞口」与「待补真缺口」分开呈现。
-           不做归一化、不摊到行业上——那会把 86% 仓位的基金显示成满仓。 -->
+      <!-- 未穿透清单：逐条带 reason（「本质无股票敞口」与「待补真缺口」分开） -->
       <CardBlock class="mt-4">
-        <h4 class="panel-subtitle">未穿透构成</h4>
-        <p
-          v-if="!data.unpenetrated.length"
-          class="text-sm"
-          :style="{ color: 'var(--text-secondary)' }"
-        >
-          全部持仓均已穿透。
-        </p>
-        <table v-else class="unpen-table">
-          <thead>
-            <tr>
-              <th>标的</th>
-              <th class="num">市值</th>
-              <th class="num">占比</th>
-              <th>原因</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in data.unpenetrated"
-              :key="`${row.asset_type}-${row.symbol}`"
-            >
-              <td>{{ row.name }}</td>
-              <td class="num" :style="{ color: 'var(--text-primary)' }">
-                {{ formatAmount(row.value_cny) }}
-              </td>
-              <td class="num" :style="{ color: 'var(--text-secondary)' }">
-                {{ percent(row.ratio_of_total) }}
-              </td>
-              <td>
-                <span
-                  class="reason-tag"
-                  :class="{
-                    'reason-tag--gap': row.reason !== 'cash_equivalent'
-                  }"
-                >
-                  {{ row.reason_label }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <PenetrationGapTable :rows="data.unpenetrated" />
       </CardBlock>
       <!-- 非主口径：单列且**明写它不是另一套等价分类**（实测 GICS 只标注港股） -->
       <CardBlock
@@ -145,6 +98,23 @@
           行业合计 {{ formatAmount(info.industry_total_cny) }}， 不可与
           {{ data.scheme_label }} 主口径并列或相加。
         </p>
+        <!-- #2617：直持腿在该体系下的分布（后端 #1981 早已返回、此前未展示）。
+             主口径无直持映射时，这里就是用户唯一能看到「直持压在哪些行业」的地方。 -->
+        <div v-if="info.direct_industries.length" class="other-direct">
+          <p class="other-direct__title">
+            直持行业（本体系有「个股→行业」映射）
+          </p>
+          <div class="other-direct__tags">
+            <span
+              v-for="row in info.direct_industries"
+              :key="row.code"
+              class="other-direct__tag"
+            >
+              {{ row.name }}
+              <em>{{ percent(row.ratio_of_total) }}</em>
+            </span>
+          </div>
+        </div>
       </CardBlock>
 
       <!-- 口径说明：后端写死的 notes，原样展示（前端不改写、不隐藏）。
@@ -171,6 +141,9 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import PenetrationBarList from "./PenetrationBarList.vue";
+import PenetrationIndustryBlock from "./PenetrationIndustryBlock.vue";
+import PenetrationGapTable from "./PenetrationGapTable.vue";
+import { barWidth, percent } from "./format";
 import { getPenetration, type PenetrationData } from "@/api/summary";
 import { formatAmount } from "@/utils/currency";
 
@@ -199,6 +172,7 @@ const SCHEME_OPTIONS = [
 ] as const;
 
 const scheme = ref<"csrc" | "gics">("csrc");
+
 const data = ref<PenetrationData | null>(null);
 const loading = ref(false);
 const error = ref("");
@@ -231,28 +205,8 @@ const scopeSuffix = computed(() => {
   return "";
 });
 
-/** 比率一律按后端给的 0~1 值格式化；分母口径由后端决定，前端不重算 */
-function percent(ratio: number) {
-  return `${((ratio ?? 0) * 100).toFixed(1)}%`;
-}
-
-/** 条形宽度：以「已穿透比例」为分母（行业行），否则条形会随口径跳变 */
-function barWidth(ratio: number) {
-  const r = Math.max(0, Math.min(1, ratio ?? 0));
-  return `${(r * 100).toFixed(2)}%`;
-}
-
-/** 行业行：条形以「已穿透」为分母，右侧数值仍按总市值占比（两个分母不同，别混） */
-const industryRows = computed(() =>
-  (data.value?.industries ?? []).map(row => ({
-    key: row.code,
-    name: row.name,
-    title: `${row.name}（${row.code}）· ${row.fund_count} 只基金持有`,
-    width: barWidth(row.ratio_of_penetrated),
-    value: percent(row.ratio_of_total)
-  }))
-);
-
+/** 比率一律按后端给的 0~1 值格式化；分母口径由后端决定，前端不重算。
+ *  `percent` / `barWidth` 与两个子组件共用同一份实现（见 ./format.ts）。 */
 /** 个股行：季报只披露前十大、故用第二色与行业层区分；条形与数值同用总市值占比 */
 const stockRows = computed(() =>
   (data.value?.stocks ?? []).map(row => ({
@@ -295,47 +249,46 @@ onMounted(load);
   color: var(--text-primary);
 }
 
+/* #2617 非主口径里的直持行业：标签流，不画条——它只是「另一块敞口」，
+   不是可与主口径比较的量级，画条会被误读成两套并列分类 */
+.other-direct {
+  margin-top: var(--space-compact);
+}
+
+.other-direct__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
+}
+
+.other-direct__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.other-direct__tag {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  padding: 2px var(--space-2);
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+
+  em {
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+  }
+}
+
 .panel-subtitle-note {
   margin-left: var(--space-compact);
   font-size: var(--text-small);
   font-weight: 400;
   color: var(--text-tertiary);
-}
-
-.unpen-table {
-  width: 100%;
-  font-size: var(--text-small);
-  border-collapse: collapse;
-}
-
-.unpen-table th,
-.unpen-table td {
-  padding: var(--space-compact) 0;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.unpen-table th {
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
-
-.unpen-table .num {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.reason-tag {
-  display: inline-block;
-  padding: 1px var(--space-compact);
-  color: var(--text-secondary);
-  background: var(--bg-muted);
-  border-radius: var(--radius-button);
-}
-
-.reason-tag--gap {
-  color: var(--color-warning, var(--text-secondary));
-  background: var(--color-warning-20, var(--bg-muted));
 }
 
 /* 口径说明尾注：与产品详情页「口径脚注」同款降权——小字 + 次级墨色，
