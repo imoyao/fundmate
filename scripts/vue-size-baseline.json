@@ -28,7 +28,6 @@
     "views/explore/components/detail/CrowdingTable.vue": 508,
     "views/login/reset-password.vue": 538,
     "views/product/components/ProductAdvisorSection.vue": 414,
-    "views/product/components/ProductEtfCompare.vue": 611,
     "views/product/components/ProductManagerSection.vue": 540,
     "views/product/components/ProductPerformanceSection.vue": 570,
     "views/product/components/ProductPositionSection.vue": 592,
