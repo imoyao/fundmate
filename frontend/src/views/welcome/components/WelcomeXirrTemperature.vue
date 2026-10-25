@@ -113,13 +113,9 @@
             <span
               class="text-xs mb-1"
               :style="{ color: 'var(--text-tertiary-ink)' }"
-              >总投入</span
+              >净投入</span
             >
-            <MoneyDisplay
-              :value="portfolioXirr?.total_invested ?? 0"
-              size="md"
-              :show-sign="false"
-            />
+            <MoneyDisplay :value="netInvested" size="md" :show-sign="false" />
           </div>
         </div>
       </CardBlock>
@@ -177,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { getTwr, type TwrData, type XirrData } from "@/api/performance";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -192,7 +188,7 @@ import type {
 
 defineOptions({ name: "WelcomeXirrTemperature" });
 
-defineProps<{
+const props = defineProps<{
   portfolioXirr: XirrData | null;
   includeCashEquivalents: boolean;
   compositeTemperature: CompositeTemperature | null;
@@ -211,6 +207,16 @@ const emit = defineEmits<{
   change: [];
   retry: [];
 }>();
+
+/**
+ * 净投入 = 累计买入 − 累计卖出/分红（后端 `net_invested`）。
+ * 不再展示 `total_invested` 毛额：反复买卖会把同一笔钱重复累加，数字会离谱。
+ */
+const netInvested = computed(() => {
+  const d = props.portfolioXirr;
+  if (!d) return 0;
+  return d.net_invested ?? d.total_invested - d.total_withdrawn;
+});
 
 // el-radio-group 的 modelValue 类型为宽联合（bool | string | number），
 // 本页语义固定为布尔；先收宽参数再收窄，保持与拆分前 v-model 相同的事件时序

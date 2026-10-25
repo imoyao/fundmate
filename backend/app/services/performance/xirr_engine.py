@@ -324,7 +324,13 @@ def generate_portfolio_cashflows(
     family_id: int = 1,
     include_cash_equivalents: bool = False,
 ) -> List[Tuple[dt.date, float]]:
-    """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。"""
+    """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。
+
+    **金额单位必须与 `generate_cashflows` 一致（元）**：`transactions.amount` 存的是
+    「分」，本函数曾直接 `float(amount)` 当元用，导致组合级现金流比市值大 100 倍
+    （线上表现为总投入 1.68 亿、总收益 -1886 万，XIRR 恒为 0）。改动此处前先看
+    `tests/services/performance/test_portfolio_xirr_units.py`。
+    """
     if end_date is None:
         end_date = dt.date.today()
     elif isinstance(end_date, dt.datetime):
@@ -383,9 +389,15 @@ def generate_portfolio_cashflows(
         amount = getattr(txn, 'amount', None)
         if amount is None:
             continue
+        # `transactions.amount` 的单位是**分**（见 models.Transaction.amount 注释），
+        # 而当前市值 / 终端虚拟卖出是**元**。这里必须与 `generate_cashflows` 走同一
+        # 换算（Money.cents_to_yuan），否则现金流序列比市值大 100 倍：
+        # XIRR 解崩、`total_invested` 显示成 1.68 亿、`total_return` 显示成 -1886 万。
         try:
-            amount_f = float(amount)
+            amount_f = Money.cents_to_yuan(int(amount))
         except (TypeError, ValueError):
+            continue
+        if abs(amount_f) < 1e-8:
             continue
 
         txn_type = txn.txn_type

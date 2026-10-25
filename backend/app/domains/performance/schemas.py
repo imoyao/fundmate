@@ -72,10 +72,14 @@ class XirrResponse(BaseModel):
     dietz: Optional[float] = Field(None, description='区间收益率，不年化（method=dietz）')
     twr: Optional[float] = Field(None, description='时间加权区间收益率（method=twr；无数据时为 None）')
     twr_annualized: Optional[float] = Field(None, description='时间加权年化收益率（method=twr）')
-    total_invested: float = Field(..., description='总投入金额')
+    total_invested: float = Field(..., description='累计买入金额（毛额，同一笔钱反复买卖会重复累加）')
+    total_withdrawn: float = Field(..., description='历史收回金额（卖出 + 分红，不含当前市值）')
+    net_invested: float = Field(
+        ...,
+        description='净投入 = 累计买入 − 历史收回，即当前还压在里面的本金；展示口径应优先用它，而非毛额 total_invested',
+    )
     current_value: float = Field(..., description='当前市值')
-    total_withdrawn: float = Field(..., description='历史收回金额（不含当前市值）')
-    total_return: float = Field(..., description='总收益')
+    total_return: float = Field(..., description='总收益 = 当前市值 − 净投入（含已实现 + 未实现 + 分红）')
     cashflow_count: int = Field(..., description='参与计算的现金流笔数')
     days_used: Optional[int] = Field(None, description='TWR 参与连乘的天数（method=twr）')
     days_skipped: Optional[int] = Field(None, description='TWR 因缺数据被跳过的天数（method=twr；跳过而非当 0）')
