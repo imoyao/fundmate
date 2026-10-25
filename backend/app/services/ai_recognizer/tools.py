@@ -33,6 +33,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.analytics.benchmark_comparison import build_benchmark_comparison
+from app.services.analytics.trading_behavior import build_trading_behavior
 from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.nav_service import NavService
 from app.services.performance.calculators import calculate_portfolio_xirr
@@ -146,6 +147,29 @@ def _tool_list_position_pnl(params: dict) -> dict:
     # 盈亏率降序（赚在前、亏在后）；无成本价的 None 沉底，不参与排序
     items.sort(key=lambda r: (r['pnl_rate'] is not None, r['pnl_rate'] or 0), reverse=True)
     return {'items': items, 'count': len(items)}
+
+
+def _tool_get_trading_behavior(params: dict) -> dict:
+    """交易行为画像（#2619）：持有期分布 / 换手 / 买卖结构 / 买点分位。
+
+    与 `list_position_pnl`（盈亏明细）、`get_return_attribution`（收益归因）的区别：
+    本工具回答的是**操作习惯**，不涉及盈亏。
+
+    消费方必须守住的三条（否则会误读或幻觉）：
+    - 只给客观统计，**不做好坏评价**：不要据此说「你换手太高/爱追涨」；
+    - `buy_price_percentile.coverage_pct` 可能很低（真库仅部分标的有历史价格），
+      低覆盖时不得把均值当作全样本结论；
+    - `holding.samples` 是分位数样本量，为 0/1 时分位数无意义（None）；
+      `trading.buy_sell_ratio` 在零卖出时为 None（不是 0）。
+    """
+    with database.get_session() as db:
+        return build_trading_behavior(
+            db,
+            family_id=_server_family_id(params),
+            start_date=params.get('start_date'),
+            end_date=params.get('end_date'),
+            symbol=params.get('symbol'),
+        )
 
 
 def _tool_get_portfolio_vs_benchmark(params: dict) -> dict:
@@ -314,6 +338,7 @@ register_tool('get_assets_overview', _tool_get_assets_overview)
 register_tool('get_portfolio_performance', _tool_get_portfolio_performance)
 register_tool('get_portfolio_vs_benchmark', _tool_get_portfolio_vs_benchmark)
 register_tool('list_position_pnl', _tool_list_position_pnl)
+register_tool('get_trading_behavior', _tool_get_trading_behavior)
 register_tool('get_return_attribution', _tool_get_return_attribution)
 register_tool('get_fund_nav', _tool_get_fund_nav)
 register_tool('get_market_temperature', _tool_get_market_temperature)
@@ -399,6 +424,36 @@ TOOLS_METADATA = [
                 'family_id': {
                     'type': 'integer',
                     'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+            },
+        },
+    },
+    {
+        'name': 'get_trading_behavior',
+        'description': '交易行为画像：平均持有天数与 25/50/75 分位、区间买卖笔数与买卖比、'
+        '换手率、连续加仓次数、割肉后回补次数、买入时点价格分位均值。'
+        '当用户问「我平均一只基金拿多久」「我是不是爱加仓/爱割肉回补」「我换手高不高」'
+        '「我是不是跌了才买」等操作习惯问题时使用。只给客观统计，不做好坏评价',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'family_id': {
+                    'type': 'integer',
+                    'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+                'start_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '统计窗口起始日 YYYY-MM-DD，缺省为全期',
+                },
+                'end_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '统计窗口结束日 YYYY-MM-DD，缺省为今日',
+                },
+                'symbol': {
+                    'type': 'string',
+                    'description': '限定单个标的代码，缺省统计全部标的',
                 },
             },
         },
