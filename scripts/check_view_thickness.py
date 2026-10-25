@@ -395,11 +395,20 @@ BASELINE: dict[str, dict[str, int]] = {
     # 以为筛了成员、实际看的是全量。
     # 解析语句必须放在 `try` **之外**：这 4 个端点的 `except Exception` 会把 abort(422)
     # 吞成 500（HTTPException 是 Exception 子类）。
+    # 2026-10-25 重取（#2595，**新增查询参数 + 口径 docstring**，非放宽）：给
+    # `GET /summary/penetration/` 加 `ledger_id` / `portfolio_id` 两个可选参数（互斥，
+    # 均不传=家庭级）——口径解析、归属校验、成员账本继承全在
+    # `services/scope.py`（唯一出口，穿透与归因共用），视图侧增量只有
+    # 「两行入参解析 + 3 行 ValueError→400（与 pnl-attribution 同款，冲突参数必须
+    # 回 400 而不是 500）+ 6 行 docstring 写清互斥与继承语义」。
+    # `orm_queries` / `commits` 仍为 **0**——没有任何查询或事务边界回到视图，
+    # 没有可下沉的业务规则。按 --report 实测回写：334 → 346、max_func 31 → 43
+    # （穿透端点自身 span 43 ≤ 硬上限 60）。同 #2134 / #2135 先例。
     "backend/app/domains/summary/views.py": {
-        "lines": 334,
+        "lines": 346,
         "orm_queries": 0,
         "commits": 0,
-        "max_func": 31,
+        "max_func": 43,
     },
     "backend/app/domains/temperature/views.py": {
         "lines": 140,
