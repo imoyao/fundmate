@@ -16,7 +16,7 @@ Pro 面板四模块（#994）的指标分两类：
 与触发条件满足后自建的基金级替代模块（#1986 检查单）都进这里；既有基金级实现
 （fund_risk_metrics 等）保持原址，不搬家。
 
-## 模块现状映射（2026-10-17 盘点，改动后请同步更新）
+## 模块现状映射（2026-10-25 更新：correlation 实测已接线）
 
 | 设计模块 | 现状 | 位置 |
 |---|---|---|
@@ -29,7 +29,7 @@ Pro 面板四模块（#994）的指标分两类：
 | **cleared_cycles（清仓周期统计）** | ✅ **本包**（#2131 账本对齐 A'，周期级汇总） | `analytics/cleared_cycles.py` |
 | **benchmark_excess（基准超额收益）** | ✅ **本包**（#2134 账本对齐 D，账户/组合 vs 宽基指数） | `analytics/benchmark_excess.py` |
 | **var（风险价值 VaR 95%）** | ✅ **本包**（#994 模块二，基金级：吃净值/价格序列，自建不走盈米） | `analytics/var.py` |
-| correlation（相关性矩阵） | ❌ 未建——Phase 3 实质实现时落这里，**不放占位桩** | （待建） |
+| correlation（相关性矩阵） | ✅ 已实现（#994 Phase 2 提前接线，`pro_allocation` 消费） | `analytics/correlation.py` |
 
 ## 纪律
 

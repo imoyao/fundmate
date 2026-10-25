@@ -26,6 +26,8 @@ pip-log.txt
 nosetests.xml
 # 忽略生成的报告
 htmlcov
+# pytest 会话输出快照曾被误跟踪（3,090 行，#2622），一律忽略
+test_output.txt
 
 # Translations
 *.mo
