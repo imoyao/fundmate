@@ -4,8 +4,8 @@
 
 用法（在 backend/ 目录下）：
     pdm run python scripts/agent_eval.py                    # 全量 45 条
-    pdm run python scripts/agent_eval.py --tag adversarial  # 只跑对抗 12 条
-    pdm run python scripts/agent_eval.py --tag confusion    # 只跑跨工具混淆 4 条
+    pdm run python scripts/agent_eval.py --tag adversarial  # 只跑对抗 8 条
+    pdm run python scripts/agent_eval.py --tag confusion    # 只跑跨工具混淆 3 条
     pdm run python scripts/agent_eval.py --limit 5          # 冒烟前 5 条
     pdm run python scripts/agent_eval.py --id basic-03      # 单条复跑（Bad Case 归因）
     pdm run python scripts/agent_eval.py --keep             # 保留全部评估会话/trace
@@ -21,22 +21,42 @@
 - 平均 token = 各案例 trace token 合计的均值；
 - 被拦截数 = 全程 blocked=True 的 trace 行数。
 
-**429 与重试口径（#2621）**：ARK 对连续调用有 RPM 限制，实测 2026-10-25 跑到第 14 条
-起全部 429（`turns=0`），17 条假 FAIL。故：
-- 案例间默认休眠 `--delay 2.5` 秒节流；
-- `turns==0`（一行 trace 都没落）视为**设施故障**，指数退避重试 `--retries 2` 次；
+**429 与重试口径（#2621）**：实测 2026-10-25 跑到第 14 条起全部 429（`turns=0`），17 条假 FAIL。
+429 有两种来源，处置不同：
+- **RPM 限流**（响应头带 ratelimit）→ 加 delay 有效：案例间默认休眠 `--delay 2.5` 秒节流；
+- **账号额度上限**（body 为 `SetLimitExceeded ... model service has been paused`，多见于
+  「安全体验模式」）→ 加 delay/重试都无效，只能换模型档或控制台提额；此时应 `--retries 0`
+  快速暴露，而不是用重试刷出 17 条假 PASS。
+- `turns==0`（一行 trace 都没落）在处理上视为**设施故障**，指数退避重试 `--retries 2` 次；
 - **选错工具不重试** —— 重试等于用采样次数掩盖真实退化。
 
 设计取舍：**这不是 CI 门禁**（退出码恒 0）——bad case 是信号不是红灯，
 报告的用法是「改 prompt / 改工具 schema / 换模型前后各跑一遍，看通过率漂移」
 （学习计划 §S4：没有评估集的 prompt 迭代是盲改）。CI 侧的静态判据
-（45 条 / 对抗 12 / 混淆 4 / 工具名合法）由 tests/agent_eval/test_cases.py 覆盖，不依赖模型。
+（45 条 / 对抗 8 / 混淆 3 / 工具名合法）由 tests/agent_eval/test_cases.py 覆盖，不依赖模型。
 
 会话清理：默认只清 PASS 的会话，**Bad Case 会话保留**（否则报告里给的 agent_replay
 命令回放不出东西）；`--purge-bad` 连 Bad Case 一起清，`--keep` 全留。
+清理排在报告与 `--json` 之后、走独立 session —— cleanup 曾是这条链上唯一会抛
+StaleDataError 的点（未提交的 delete 撞 still-persistent 行），异常会把四指标与
+JSON 一起吞掉。
 
 环境：backend/.env 的 ARK_API_KEY（真实模型走 ARK_MODEL_AGENT）；库表经 init_db 幂等补齐
-（含新表 agent_trace）。评估会话默认跑完即删，不污染 dev 库。
+（含新表 agent_trace）。评估会话默认不污染 dev 库。
+
+**token 预算（实测 2026-10-25）**：护栏 `ARK_DAILY_TOKEN_BUDGET` 默认 300k，是**进程级**
+计数（每次运行从 0 起算）。推理模型单案例约 10k token（决策 2.5k + 叙事最高 19k），
+45 条 ≈ 450k，跑到 30 条左右会被熔断，余下全变 `turns=0` 的假 FAIL。全量跑批**必须**
+显式抬高：
+
+    ARK_DAILY_TOKEN_BUDGET=1500000 pdm run python scripts/agent_eval.py --json out.json
+
+熔断特征：日志出现「今日 AI 识别费用额度已耗尽」，且该案例 turns=0 —— 属于预算问题，
+不是模型退化，别把它记成 bad case。
+
+**假 FAIL 防线（#2621）**：`--max-blank N`（默认 3）—— 连续 N 条零 trace 即中止跑批，
+剩余用例记 `skipped` 且**不计入通过率分母**，报告的 `aborted` 字段写明原因。额度耗尽时
+继续跑只会产出几十条假 FAIL，那种"通过率"比没有更糟。
 """
 
 import argparse
@@ -169,7 +189,12 @@ def run_case_with_retry(db, case, delay, retries):
 
 
 def cleanup(db, session_ids):
-    """评估会话与 trace 跑完即删（默认），保持 dev 库干净。"""
+    """删除指定评估会话与其 trace，保持 dev 库干净。
+
+    调用方在**独立 session** 里调用（见 main 的清理段）：早期版本与跑批共用
+    session，`delete(synchronize_session=False)` 后 commit 会撞上 identity map 里
+    仍为 persistent 的 AgentSession 行，抛 StaleDataError 把四指标与 --json 一起吞掉。
+    """
     if not session_ids:
         return
     db.query(AgentTrace).filter(AgentTrace.session_id.in_(session_ids)).delete(synchronize_session=False)
@@ -204,6 +229,12 @@ def main():
         action='store_true',
         help='连 Bad Case 的会话一起清理（默认保留，便于 agent_replay 归因）',
     )
+    parser.add_argument(
+        '--max-blank',
+        type=int,
+        default=3,
+        help='连续 N 条零 trace 即中止跑批（默认 3）：额度耗尽/服务暂停时不再产出假 FAIL',
+    )
     args = parser.parse_args()
 
     cases = load_cases(args.cases, tag=args.tag, limit=args.limit, ids=args.ids)
@@ -217,6 +248,8 @@ def main():
     session_ids = []
 
     print(f'=== 账本精灵评估（#1736 S4）：{len(cases)} 条 | model={ARK_MODEL_AGENT} ===')
+    aborted = ''
+    consecutive_blank = 0
     with user_session() as db:
         for i, case in enumerate(cases, 1):
             if i > 1 and args.delay > 0:
@@ -231,6 +264,20 @@ def main():
                 f'[{i}/{len(cases)}] {mark} {r["id"]} turns={r["turns"]} '
                 f'tokens={r["tokens"]} blocked={r["blocked"]} {r["elapsed_s"]}s'
             )
+            # 连续零 trace = 链路整体不可用（多为账号额度 SetLimitExceeded / 服务暂停），
+            # 不是模型退化。继续跑只会把剩余用例全部记成假 FAIL（实测两次：17 条、21 条），
+            # 那种"通过率"比没有更糟——故此处直接中止，剩余用例标记 skipped 且不计入分母。
+            if r['turns'] == 0:
+                consecutive_blank += 1
+                if consecutive_blank >= args.max_blank:
+                    aborted = (
+                        f'连续 {consecutive_blank} 条零 trace（最近一条：{r["why"]}）；'
+                        '多为账号额度/模型服务暂停，非模型退化'
+                    )
+                    print(f'\n⚠️ 跑批中止：{aborted}')
+                    break
+            else:
+                consecutive_blank = 0
         # 先落库：清理走独立 session（见下方），不 commit 的话 close 时静默丢弃（#1640 口径）。
         db.commit()
 
@@ -240,6 +287,9 @@ def main():
     report = {
         'model': ARK_MODEL_AGENT,
         'total': total,
+        'planned': len(cases),
+        'skipped': len(cases) - total,
+        'aborted': aborted,
         'passed': passed,
         'pass_rate': round(passed / total, 4),
         'avg_turns': round(sum(r['turns'] for r in results) / total, 2),
@@ -251,6 +301,8 @@ def main():
 
     print()
     print('===== 评估报告（四指标）=====')
+    if aborted:
+        print(f'⚠️ 本次不完整：{report["skipped"]}/{len(cases)} 条未跑（不计入分母）')
     print(f'通过率   : {passed}/{total} = {report["pass_rate"] * 100:.1f}%')
     print(f'平均轮次 : {report["avg_turns"]}')
     print(f'平均 token : {report["avg_tokens"]}')
