@@ -19,7 +19,6 @@ import ProductProSection from "./components/ProductProSection.vue";
 import ProductFundSection from "./components/ProductFundSection.vue";
 import ProductIdentityCard from "./components/ProductIdentityCard.vue";
 import ProductIndexSection from "./components/ProductIndexSection.vue";
-// 页内导航展示组件为共享版（2026-10-25 上提，组合详情 / 复盘同款）
 import PageNav from "@/components/PageNav/index.vue";
 import PageToc from "@/components/PageToc/index.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
