@@ -20,6 +20,7 @@ from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series, compute_range_attribution
+from app.services.position_structure import build_position_structure
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
@@ -89,6 +90,38 @@ def distributions():
         with get_db() as db:
             data = get_distributions(db, get_family_id(), member_id)
         return jsonify({'data': data, 'message': 'ok'})
+    except Exception as e:
+        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/position-structure/')
+def position_structure():
+    """#2617 持仓结构（资产类别占比 / 股基分列 Top N / 集中度）。
+
+    查询参数：`ledger_id` / `portfolio_id`（互斥，同时传 400；均不传=家庭级）、
+    `top_n`（每组榜单条数，默认 5，夹取 1–50）。股票与基金**分开排名**
+    （份额与价格不可比）；同一标的跨账户先合并再排序。口径见
+    `services/position_structure.py`。
+    """
+    raw_top_n = request.args.get('top_n')
+    try:
+        top_n = int(raw_top_n) if raw_top_n not in (None, '') else 5
+    except (TypeError, ValueError):
+        return jsonify({'data': {}, 'message': f'top_n 必须为整数: {raw_top_n!r}', 'error_code': 1001}), 400
+
+    try:
+        with get_db() as db:
+            data = build_position_structure(
+                db,
+                get_family_id(),
+                ledger_id=request.args.get('ledger_id', type=int),
+                portfolio_id=request.args.get('portfolio_id', type=int),
+                top_n=top_n,
+            )
+        return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        # scope 参数冲突 / 组合不存在（services 约定），与穿透 / 归因端点同款 400
+        return jsonify({'data': {}, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 

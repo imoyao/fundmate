@@ -257,6 +257,23 @@ def _other_scheme_note(scheme_key: str, label: str) -> str:
     return f'{label} 覆盖范围有限，不可当作独立穿透口径与主口径并列展示。'
 
 
+def _direct_view_unmapped_reason(label: str, mapped_cents: int, unmapped_cents: int) -> str | None:
+    """直持视图的「未映射」成因说明（#2617）。
+
+    真实库上 ``security_industry_maps`` 只有申万一级、没有证监会门类，于是默认
+    ``csrc`` 口径下**所有**直持腿都落进未映射，行业列表为空。此时若只给一个
+    空列表 + 一笔「未映射」金额，用户会误判成计算缺陷；故把成因如实带出。
+    """
+    if unmapped_cents <= 0:
+        return None
+    if mapped_cents <= 0:
+        return (
+            f'当前口径（{label}）下没有直持标的的「个股→行业」映射，直持部分全部计入未映射。'
+            '这是映射数据源缺口、不是计算缺陷——可切换到有直持映射的口径查看（见「非主口径」）。'
+        )
+    return f'部分直持标的在 {label} 口径下无「个股→行业」映射，已计入未映射。'
+
+
 def _load_holding_map(db: Session, codes: Iterable[str]) -> dict[str, _HoldingRecord]:
     """加载各基金**自身最新报告期**的个股持仓：`{fund_code: _HoldingRecord}`。
 
@@ -449,10 +466,17 @@ def build_penetration(
     # 它不进 period_funds（那是「多少只基金用的哪一期报告」的语义，直持腿不是基金、
     # 也没有报告期），改用 direct_counts 单独计数。
     direct_counts: dict[str, int] = defaultdict(int)
+    # #2617 直接持有口径（图 A）：直持腿按行业聚合的**金额**，只服务展示层，
+    # 不参与主口径任何比率计算——主口径的行业分布已在上面合并完成。
+    direct_industry_cents: dict[str, int] = defaultdict(int)
+    direct_industry_names: dict[str, str] = {}
     for leg in mapped_direct:
         industry_code, industry_name = direct_map[leg.code]
         industry_cents[industry_code] += leg.value_cents
         penetrated_cents += leg.value_cents
+        direct_industry_cents[industry_code] += leg.value_cents
+        if industry_name and industry_code not in direct_industry_names:
+            direct_industry_names[industry_code] = industry_name
         direct_counts[industry_code] += 1
         if industry_name and industry_code not in industry_names:
             industry_names[industry_code] = industry_name
@@ -633,6 +657,38 @@ def build_penetration(
             'unpenetrated_fund_cny': _cny(unpenetrated_fund_cents),
         },
         'industries': industries,
+        # #2617 直接持有口径（图 A）：基金整块不拆底层。各项合计 = 持仓总市值，
+        # 与「穿透后」`industries` 对照即可看出「基金把敞口带到了哪些行业」。
+        'direct_view': {
+            'industries': [
+                {
+                    'code': code,
+                    'name': direct_industry_names.get(code) or code,
+                    'value_cny': _cny(value),
+                    'ratio_of_total': _ratio(value, total_cents),
+                }
+                for code, value in sorted(direct_industry_cents.items(), key=lambda kv: -kv[1])
+            ],
+            'mapped_cny': _cny(mapped_direct_cents),
+            'mapped_ratio': _ratio(mapped_direct_cents, total_cents),
+            'fund_cny': _cny(fund_cents),
+            'fund_ratio': _ratio(fund_cents, total_cents),
+            # 现金等价物**从 unmapped 里拆出来单列**：货基/逆回购本质无股票敞口，
+            # 与「有待补数据源的映射缺口」不是一回事，混在一起会让缺口看起来更大。
+            'cash_equivalent_cny': _cny(cash_equiv_cents),
+            'cash_equivalent_ratio': _ratio(cash_equiv_cents, total_cents),
+            'unmapped_cny': _cny(direct_cents),
+            'unmapped_ratio': _ratio(direct_cents, total_cents),
+            # #2617 诚实降级：主口径没有「个股→行业」映射时，直持图必然为空。
+            # 这不是计算缺陷，把原因显式带出去，避免用户把空图读成 bug。
+            'mapping_available': mapped_direct_cents > 0,
+            'unmapped_reason': _direct_view_unmapped_reason(
+                SCHEME_LABELS.get(scheme, scheme), mapped_direct_cents, direct_cents
+            ),
+            'total_cny': _cny(total_cents),
+            'note': '直接持有口径：基金整块显示为「基金」不拆底层；各项合计 = 持仓总市值，'
+            '与穿透后图对照才看得出基金的行业敞口',
+        },
         'industry_non_equity_cny': _cny(residual_cents),
         'other_schemes': other_schemes,
         'stocks': stocks,
