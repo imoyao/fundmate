@@ -46,7 +46,11 @@
         <div ref="pageMain" class="portfolio-detail__main">
           <!-- 基础信息指标卡（hero 概览，不进目录） -->
           <MetricGrid class="mb-6">
-            <MetricCard title="关联账户" :value="linkedLedgers.length" unit="个" />
+            <MetricCard
+              title="关联账户"
+              :value="linkedLedgers.length"
+              unit="个"
+            />
             <MetricCard
               title="目标收益率"
               :value="portfolio.target_return ?? null"

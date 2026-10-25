@@ -99,7 +99,7 @@
       <div ref="pageMain" class="analysis-main">
         <!-- 收益概览（真实 XIRR，无预测）#871：拆为 ReturnOverviewSection，
               自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
-        <ReturnOverviewSection ref="returnOverview" id="nav-overview" />
+        <ReturnOverviewSection id="nav-overview" ref="returnOverview" />
 
         <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
         <section v-if="moneyFundIncome" id="nav-money-fund">
