@@ -32,13 +32,15 @@ export interface XirrData {
   twr?: number | null;
   /** 时间加权年化收益率（method=twr；无数据时为 null） */
   twr_annualized?: number | null;
-  /** 总投入金额 */
+  /** 累计买入金额（毛额：同一笔钱反复买卖会重复累加，**不要**当「投入本金」展示） */
   total_invested: number;
   /** 当前市值 */
   current_value: number;
-  /** 历史收回金额（不含当前市值） */
+  /** 历史收回金额（卖出 + 分红，不含当前市值） */
   total_withdrawn: number;
-  /** 总收益 */
+  /** 净投入 = 累计买入 − 历史收回；当前还压在里面的本金，展示口径优先用它 */
+  net_invested?: number;
+  /** 累计收益 = 当前市值 − 净投入（含已实现 + 未实现 + 分红，赚亏一起算） */
   total_return: number;
   /** 参与计算的现金流笔数 */
   cashflow_count: number;
