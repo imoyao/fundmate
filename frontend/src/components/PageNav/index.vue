@@ -1,17 +1,19 @@
 <!--
-  ProductPageNav · 详情页页内导航·顶部锚点胶囊（#1968 子卡）
+  PageNav · 长页面页内导航·顶部锚点胶囊（通用版）
 
-  形态登记：调研结论 docs/working-notes/product-detail-research-2026-10-12.md §5.3 ——
+  自产品详情页 #1968 子卡上提（2026-10-25 通用化）。形态登记：
+  docs/working-notes/product-detail-research-2026-10-12.md §5.3 ——
   `< xl` 内容区顶部胶囊（横向可滑、sticky 在页头下）；`xl+` 让位给右侧目录 rail
-  （ProductPageToc）。**刻意不挂 tablist 语义角色**：guard_segmented 只登记两类
+  （PageToc）。**刻意不挂 tablist 语义角色**：guard_segmented 只登记两类
   例外（分组胶囊 Tab / 二级筛选栏），页内导航是「跳转」不是「切换视图」，
   不往白名单里塞第三条。视觉语言对齐已登记的 `.road-pill--soft`
   （软胶囊 + --brand-100 选中底），不另造一套。
 
   视觉规范见 docs/design/components.md「相邻多选一语言」表。
+  接入判据与 state 来源见 composables/usePageNav.ts。
 -->
 <script setup lang="ts">
-import type { PageNavItem } from "../composables/useProductPageNav";
+import type { PageNavItem } from "@/composables/usePageNav";
 
 defineProps<{
   items: PageNavItem[];

@@ -48,7 +48,7 @@ lg 以下不画）——#2157。
 ===================  ==========================================================
 处（origin/dev）      为什么保留
 ===================  ==========================================================
-``ProductPageToc``    该 1px 线**同时是选中指示条（2px）的轨道**——
+``PageToc``           该 1px 线**同时是选中指示条（2px）的轨道**——
   ``.vue``            同文件 ``.page-toc__link`` 的 ``margin-left: -1px`` 注释写着
                       「让选中指示条压在 1px 轨道上，不留双线」。换成
                       ``.soft-col-divider``（给 24px padding）会让指示条脱离轨道。
@@ -107,7 +107,7 @@ BASELINE: dict[str, int] = {
     "border-right: 1px solid var(--border-light)": 1,
     "frontend/src/views/asset/watchlist/components/FilterPanelBody.vue::"
     "border-right: 1px solid var(--border-light)": 1,
-    "frontend/src/views/product/components/ProductPageToc.vue::"
+    "frontend/src/components/PageToc/index.vue::"
     "border-left: 1px solid var(--border-light)": 1,
 }
 
