@@ -34,13 +34,13 @@
         </div>
       </div>
       <div class="xirr-item">
-        <span class="xirr-label">总投入</span>
+        <span class="xirr-label">净投入</span>
         <div class="xirr-value">
-          <MoneyDisplay :value="xirrData.total_invested" :show-sign="false" />
+          <MoneyDisplay :value="netInvested" :show-sign="false" />
         </div>
       </div>
       <div class="xirr-item">
-        <span class="xirr-label">总收益</span>
+        <span class="xirr-label">累计收益</span>
         <div class="xirr-value">
           <MoneyDisplay :value="xirrData.total_return" />
         </div>
@@ -48,6 +48,8 @@
     </div>
     <div v-else-if="!xirrLoading" class="xirr-empty">点击刷新获取收益数据</div>
     <div v-else class="xirr-empty">计算中...</div>
+    <!-- 口径小字：把「资金流水」和「盈亏」分开讲清，避免用户把累计买入毛额当成投入本金 -->
+    <div v-if="metricsNote" class="xirr-note">{{ metricsNote }}</div>
     <!-- #871：TWR 口径下部分持仓无历史价格序列时的诚实提示（不缺数据画成 0） -->
     <div v-if="unvaluedHint" class="xirr-note">{{ unvaluedHint }}</div>
   </CardBlock>
@@ -57,6 +59,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getPortfolioXirr, type XirrData } from "@/api/performance";
+import { formatAmount } from "@/utils/currency";
 import {
   RETURN_METHOD_TIP,
   useReturnMethod
@@ -91,7 +94,35 @@ const {
   daysSkipped
 } = useReturnMethod(xirrData);
 
-const sectionTitle = computed(() => `组合收益（${methodName}）`);
+// 注意 `methodName` 是 computed ref：在模板里会自动解包，但在 script 的模板字符串里
+// 不解包 —— 少写 `.value` 会把 ref 对象拼成 `[object Object]`（曾上线为
+// 「组合收益（[object Object]）」）。
+const sectionTitle = computed(() => `组合收益（${methodName.value}）`);
+
+/**
+ * 净投入 = 累计买入 − 累计卖出/分红（后端 `net_invested`）。
+ *
+ * 为什么不展示 `total_invested`（累计买入毛额）：同一笔钱反复买卖会被重复累加，
+ * 一个本金十几万的账户交易几年后可显示成上亿，用户会误以为「投了这么多钱」。
+ * 旧响应没有该字段时按同一定义兜底，保持不显示错数。
+ */
+const netInvested = computed(() => {
+  const d = xirrData.value;
+  if (!d) return 0;
+  return d.net_invested ?? d.total_invested - d.total_withdrawn;
+});
+
+/** 口径小字：把资金流水与盈亏分开讲清楚（用户反馈「描述不清晰」） */
+const metricsNote = computed(() => {
+  const d = xirrData.value;
+  if (!d || d.cashflow_count <= 0) return "";
+  const fmt = (n: number) => `¥${formatAmount(n || 0, 2)}`;
+  return (
+    `净投入 = 累计买入 ${fmt(d.total_invested)} − 累计卖出/分红 ${fmt(d.total_withdrawn)}；` +
+    "累计收益 = 当前市值 − 净投入（已实现 + 未实现一起算）"
+  );
+});
+
 /** TWR 口径下缺数据跳过天数的提示（诚实降级，不缺数据画成 0） */
 const unvaluedHint = computed(() =>
   daysSkipped.value > 0
