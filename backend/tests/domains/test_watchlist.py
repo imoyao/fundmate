@@ -11,6 +11,7 @@ from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import ChannelLink, FundCompany, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
+from app.domains.securities.models import ConvertibleBondAdjustLog
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup
 from app.services.watchlist_service import lookup_manager, resolve_display_name
 
@@ -1608,6 +1609,88 @@ class TestListItemsDeferredDisplayEnrich:
         calls.clear()
         _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 1, 'fields': 'lite'})
         assert calls == []
+
+
+class TestBondAdjustDisplayFields:
+    """下修历史三列（#2585 PR2）：API 下发口径 / 缺值口径 / 多次记录取最近一次。
+
+    真值锚点沿用集思录 adj_logs 实测的洪涛转债 128013（3 次下修：底价
+    2.320 / 3.120 / 3.100，与 test_bond_adjust_log_job.py 的源侧回归同源）。
+    """
+
+    @staticmethod
+    def _seed_hongtao(db):
+        """洪涛转债自选行 + 3 条实测下修记录（股东大会日升序写入，读侧须按日取最近）。"""
+        db.add(WatchlistItem(symbol='SZ128013', market='SZ', asset_type='bond', status='WATCHING'))
+        db.add_all(
+            [
+                ConvertibleBondAdjustLog(
+                    symbol='SZ128013',
+                    bond_code='128013',
+                    name='洪涛转债',
+                    shareholder_meeting_date=date(2019, 11, 20),
+                    convert_price_before=9.970,
+                    convert_price_after=8.000,
+                    effective_date=date(2019, 11, 21),
+                    adjust_floor_price=3.100,
+                    source='jsl',
+                ),
+                ConvertibleBondAdjustLog(
+                    symbol='SZ128013',
+                    bond_code='128013',
+                    name='洪涛转债',
+                    shareholder_meeting_date=date(2020, 6, 29),
+                    convert_price_before=8.000,
+                    convert_price_after=3.120,
+                    effective_date=date(2020, 6, 30),
+                    adjust_floor_price=3.120,
+                    source='jsl',
+                ),
+                ConvertibleBondAdjustLog(
+                    symbol='SZ128013',
+                    bond_code='128013',
+                    name='洪涛转债',
+                    shareholder_meeting_date=date(2021, 2, 23),
+                    convert_price_before=3.100,
+                    convert_price_after=2.320,
+                    effective_date=date(2021, 2, 24),
+                    adjust_floor_price=2.320,
+                    source='jsl',
+                ),
+            ]
+        )
+        db.commit()
+
+    def test_adjust_fields_delivered_with_latest_event(self, client, db):
+        """有下修史：次数 = 落库条数，日期 / 底价取**最近一次**（写入顺序无关）。"""
+        self._seed_hongtao(db)
+
+        body = _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 20}).get_json()
+        row = next(d for d in body['data'] if d['symbol'] == 'SZ128013')
+        assert row['bond_adjust_count'] == 3
+        assert row['bond_last_adjust_date'] == '2021-02-23'
+        assert row['bond_adjust_floor_price'] == 2.32
+
+    def test_adjust_fields_stay_null_without_logs(self, client, db):
+        """job 未抓过 / 确无下修记录：三列保持 null（前端显 `—`，不用 0 兜底）。"""
+        db.add(WatchlistItem(symbol='SH113050', market='SH', asset_type='bond', status='WATCHING'))
+        db.commit()
+
+        body = _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 20}).get_json()
+        row = next(d for d in body['data'] if d['symbol'] == 'SH113050')
+        assert row['bond_adjust_count'] is None
+        assert row['bond_last_adjust_date'] is None
+        assert row['bond_adjust_floor_price'] is None
+
+    def test_adjust_fields_independent_of_terms_table(self, client, db):
+        """下修记录与条款表**解耦**：条款未落库的券只要有下修史，三列照常下发。"""
+        self._seed_hongtao(db)
+        # 不造 convertible_bond_terms 行（_seed_hongtao 也没有）——上面两个用例已覆盖
+        # 「有条款无下修」「都无」两种，这里显式断言「无条款有下修」不下发条款字段。
+        body = _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 20}).get_json()
+        row = next(d for d in body['data'] if d['symbol'] == 'SZ128013')
+        assert row['bond_premium_rate'] is None
+        assert row['bond_adjust_count'] == 3
 
 
 class TestApplyUserSort:

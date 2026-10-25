@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <!-- 总览大卡片（含资产大类瀑布图） -->
+    <!-- 总览大卡片（含资产大类构成柱状图） -->
     <OverviewSummaryCard
       class="mb-6"
       :total-assets="totalAssets"

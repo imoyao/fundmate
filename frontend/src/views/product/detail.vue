@@ -19,8 +19,8 @@ import ProductProSection from "./components/ProductProSection.vue";
 import ProductFundSection from "./components/ProductFundSection.vue";
 import ProductIdentityCard from "./components/ProductIdentityCard.vue";
 import ProductIndexSection from "./components/ProductIndexSection.vue";
-import ProductPageNav from "./components/ProductPageNav.vue";
-import ProductPageToc from "./components/ProductPageToc.vue";
+import PageNav from "@/components/PageNav/index.vue";
+import PageToc from "@/components/PageToc/index.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
 import ProductHoldingsSections from "./components/ProductHoldingsSections.vue";
 import ProductSimilarSection from "./components/ProductSimilarSection.vue";
@@ -176,9 +176,9 @@ watch(productRef, loadProduct, { immediate: true });
 
     <template v-else-if="product">
       <!-- 页内导航（#1968 子卡）：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail
-           接管（见 .product-detail__body 内的 ProductPageToc）。两级互斥，
+           接管（见 .product-detail__body 内的 PageToc）。两级互斥，
            导航项由 composable 按 DOM 里真实渲染的锚点动态生成，不留死链。 -->
-      <ProductPageNav
+      <PageNav
         v-if="navItems.length > 1"
         :items="navItems"
         :active-id="navActiveId"
@@ -360,7 +360,7 @@ watch(productRef, loadProduct, { immediate: true });
         <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（父级 composable 下发）。
              宽度账：xl（1280）视口下侧边栏展开 240px，内容区约 1040px，让出 160+20
              后卡片仍有约 860px——图表与内部横向滚动表格都够用（调研 §5.3 的取舍）。 -->
-        <ProductPageToc
+        <PageToc
           v-if="navItems.length > 1"
           :items="navItems"
           :active-id="navActiveId"

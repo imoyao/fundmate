@@ -36,6 +36,7 @@ from app.core.migrations import (
     migrate_channel_link_indexes,
     migrate_conversion_in_leg_snapshot,
     migrate_convertible_bond_enhanced_columns,
+    migrate_family_members_ownership,
     migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
@@ -651,6 +652,9 @@ def init_db():
     # 与既有 watchlist 迁移不同：这条**管 PG 侧**（生产 user 域就是 Postgres，
     # 而仓内既有迁移全是 SQLite-only —— 那正是漂移一直没人补上的原因）。
     migrate_watchlist_user_domain_columns(user_eng)
+    # 家庭成员档案表 + 账户归属列（#1173）：建 family_members 表、给 ledgers 补
+    # owner_member_id（只加列不回填——历史账户归属谁不可考，NULL=未归属/家庭共有）。
+    migrate_family_members_ownership(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -760,6 +764,8 @@ def init_db_split():
         # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
         # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
         migrate_watchlist_user_domain_columns(user_eng)
+        # 家庭成员档案表 + 账户归属列（#1173）：与单库模式同口径，双库模式也必须建
+        migrate_family_members_ownership(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。

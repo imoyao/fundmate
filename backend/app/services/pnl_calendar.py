@@ -1609,9 +1609,7 @@ def compute_range_attribution(
     elif portfolio_id is not None:
         # #2595：组合级解析收敛到唯一出口（显式归属 + 成员账本继承，语义不变），
         # 此前的内联实现已抽到 services/scope.py，供穿透等端点共用同一口径。
-        positions = filter_positions_by_scope(
-            db, family_id, decision_positions, portfolio_id=portfolio_id
-        )
+        positions = filter_positions_by_scope(db, family_id, decision_positions, portfolio_id=portfolio_id)
     else:
         positions = decision_positions
 

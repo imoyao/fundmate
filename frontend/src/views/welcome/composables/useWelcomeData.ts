@@ -46,7 +46,7 @@ export function useWelcomeData() {
   const summary = ref<SummaryData | null>(null);
   /*
    * #2034：本页曾并行拉 `/api/summary/distributions/` 供资产看板的「资产构成分布」
-   * 环形图使用。该图与资产总览瀑布图同字段同口径（结构拆解归资产总览），已整体移除，
+   * 环形图使用。该图与资产总览构成图同字段同口径（结构拆解归资产总览），已整体移除，
    * 那次请求也随之删掉——首页少一次无消费方的请求。
    */
   const portfolioXirr = ref<XirrData | null>(null);

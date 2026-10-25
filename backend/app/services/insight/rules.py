@@ -41,6 +41,15 @@ INDUSTRY_MIN_COVERAGE = 0.30
 MIN_HOLDINGS = 3
 # 组合最近一个交易日的跌幅（百分比，负数）
 DAY_DROP_LIMIT_PCT = -2.0
+# 单一风格暴露占组合风格暴露的上限（百分点，不是比例）
+# 风格箱是晨星式 8 分类，单类 40 个百分点已属明显偏斜；
+# 与「单标的 25%」「单行业 60%」不是同一量纲——那些是**比例**分母为组合总市值，
+# 风格值本身就是「占已覆盖风格市值」的百分比，直接用 0~100 比较。
+STYLE_LIMIT_PCT = 40.0
+# 风格规则的最低覆盖率（%）：有风格箱的持仓市值占全部持仓市值的比例。
+# 风格覆盖率天然低于行业穿透率（只有持仓基金里有风格箱的才覆盖），
+# 门槛太低时「某风格占 45%」可能只是样本少造成的假象，宁可不提示。
+STYLE_MIN_COVERAGE_PCT = 50.0
 
 
 @dataclass(frozen=True)
@@ -135,6 +144,48 @@ def _check_day_drop(snapshot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+def _check_style_concentration(snapshot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """组合风格偏斜：单一风格暴露超过 STYLE_LIMIT_PCT 个百分点。
+
+    风格暴露是**分类事实**而非收益预测：组合 60% 压在「大盘成长」上，说明它在
+    成长/价值这条轴上几乎没有分散可言——这正是「看起来分散、实际同涨同跌」的
+    一种典型形态（与个股重叠度互补：那条看个股，这条看风格桶）。
+
+    数据不足时不提示：风格覆盖率低于门槛时，「某风格占 45%」可能只是样本少造成的
+    假象，而不是真的偏斜。
+    """
+    style = snapshot.get('style_exposure')
+    if not style:
+        return None
+    coverage = float(style.get('coverage_pct') or 0)
+    if coverage < STYLE_MIN_COVERAGE_PCT:
+        return None
+    styles = style.get('styles') or []
+    if not styles:
+        return None
+    top = max(styles, key=lambda row: float(row.get('value') or 0))
+    value = float(top.get('value') or 0)
+    if value < STYLE_LIMIT_PCT:
+        return None
+    has_qdii = bool(style.get('has_qdii'))
+    qdii_note = (
+        '；组合含 QDII 持仓，其风格分类为上游原值（韭圈儿对海外资产映射存疑，实测纳指100 被判「固收风格」）'
+        if has_qdii
+        else ''
+    )
+    return {
+        'style_name': top.get('style_name'),
+        'value_pct': round(value, 2),
+        'limit_pct': STYLE_LIMIT_PCT,
+        'coverage_pct': round(coverage, 2),
+        'has_qdii': has_qdii,
+        'message': (
+            f'组合风格「{top.get("style_name")}」占 {value:.1f}%，超过 {STYLE_LIMIT_PCT:.0f}% 的偏斜线'
+            f'（风格数据覆盖率 {coverage:.1f}%）{qdii_note}'
+        ),
+    }
+
+
 # ── 注册表：顺序即展示顺序（风险在前）──────────────────────────────
 RULES: List[Rule] = [
     Rule(
@@ -150,6 +201,13 @@ RULES: List[Rule] = [
         title='行业集中度偏高',
         rationale='主口径最大行业占已穿透市值 ≥60%，且穿透率 ≥30%（穿透率低时占比不可信，宁可不提示）。',
         check=_check_industry,
+    ),
+    Rule(
+        code='style_concentration',
+        severity=SEVERITY_WARN,
+        title='组合风格偏斜',
+        rationale='单一风格暴露 ≥40 个百分点，且风格数据覆盖率 ≥50%（覆盖不足时风格结论不可信，宁可不提示）。',
+        check=_check_style_concentration,
     ),
     Rule(
         code='low_diversification',

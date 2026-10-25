@@ -34,10 +34,10 @@
         :caption="xirrCaption"
       />
       <MetricCard
-        title="总收益"
+        title="累计收益"
         :value="xirrReturnLabel"
         value-color="var(--brand-ink)"
-        caption="含已赎回部分"
+        caption="当前市值 − 净投入（含已实现）"
       />
       <MetricCard
         title="当前市值"
@@ -46,10 +46,10 @@
         caption="在投本金的当前价值"
       />
       <MetricCard
-        title="总投入"
-        :value="xirrInvestedLabel"
+        title="净投入"
+        :value="xirrNetInvestedLabel"
         value-color="var(--brand-ink)"
-        caption="累计投入本金"
+        caption="累计买入 − 累计卖出/分红"
       />
     </MetricGrid>
   </section>
@@ -107,9 +107,12 @@ const xirrCurrentValueLabel = computed(() => {
   const d = xirr.value;
   return d && d.cashflow_count > 0 ? formatYuan(d.current_value) : null;
 });
-const xirrInvestedLabel = computed(() => {
+// 展示「净投入」而不是「累计买入毛额」：同一笔钱反复买卖会重复累加，
+// 毛额会把十几万本金的账户显示成上百万甚至上亿（用户会误读为投入规模）。
+const xirrNetInvestedLabel = computed(() => {
   const d = xirr.value;
-  return d && d.cashflow_count > 0 ? formatYuan(d.total_invested) : null;
+  if (!d || d.cashflow_count <= 0) return null;
+  return formatYuan(d.net_invested ?? d.total_invested - d.total_withdrawn);
 });
 const xirrCaption = computed(() => {
   const d = xirr.value;

@@ -150,8 +150,9 @@ def _empty_xirr_result() -> Dict[str, Any]:
     return {
         'xirr': 0.0,
         'total_invested': 0.0,
-        'current_value': 0.0,
         'total_withdrawn': 0.0,
+        'net_invested': 0.0,
+        'current_value': 0.0,
         'total_return': 0.0,
         'cashflow_count': 0,
     }
@@ -170,14 +171,20 @@ def _calculate_xirr_for_cashflows(
         current_market_value: 当前持仓总市值（由调用方传入，不从现金流反推）
         method: 'xirr'（默认，年化资金加权）/ 'dietz'（Modified Dietz 区间，不年化，#871）
     """
-    # 总投入：所有负现金流的绝对值之和
+    # 累计买入：所有负现金流的绝对值之和（**毛额**，买卖一次就累加一次，含再投入）
     total_invested = sum(abs(a) for _, a in cashflows if a < 0)
     # 总收回：所有正现金流之和（包含虚拟卖出）
     total_withdrawn = sum(a for _, a in cashflows if a > 0)
     # 历史收回（不含虚拟卖出）：从 total_withdrawn 中减去虚拟卖出的部分
     historical_withdrawn = total_withdrawn - current_market_value
-    # 总收益 = 当前市值 + 历史收回 - 总投入
-    total_return = current_market_value + historical_withdrawn - total_invested
+    # 净投入（口径 = 累计买入 − 累计卖出/分红）：当前**还压在里面的本金**。
+    # 毛额 `total_invested` 对展示是误导——反复买卖会把同一笔钱算很多遍
+    # （一个本金 20 万的账户交易几年可以累加成 168 万），故对外展示与
+    # 「总收益」都基于净投入。
+    net_invested = total_invested - historical_withdrawn
+    # 总收益 = 当前市值 + 历史收回 - 累计买入 = 当前市值 - 净投入
+    # （含已实现 + 未实现 + 分红，赚的亏的一起算，不是只算亏损）
+    total_return = current_market_value - net_invested
 
     if method == 'dietz':
         dietz_val = calculate_modified_dietz(cashflows)
@@ -185,8 +192,9 @@ def _calculate_xirr_for_cashflows(
             'method': 'dietz',
             'dietz': round(dietz_val, 4),
             'total_invested': round(total_invested, 2),
-            'current_value': round(current_market_value, 2),
             'total_withdrawn': round(historical_withdrawn, 2),
+            'net_invested': round(net_invested, 2),
+            'current_value': round(current_market_value, 2),
             'total_return': round(total_return, 2),
             'cashflow_count': len(cashflows),
         }
@@ -200,8 +208,9 @@ def _calculate_xirr_for_cashflows(
         'method': 'xirr',
         'xirr': round(xirr_val, 4),
         'total_invested': round(total_invested, 2),
-        'current_value': round(current_market_value, 2),
         'total_withdrawn': round(historical_withdrawn, 2),
+        'net_invested': round(net_invested, 2),
+        'current_value': round(current_market_value, 2),
         'total_return': round(total_return, 2),
         'cashflow_count': len(cashflows),
     }
@@ -424,10 +433,12 @@ def calculate_portfolio_xirr_by_id(
     logger.debug(
         f'组合 XIRR 计算(portfolio_id={portfolio_id}): '
         f'账户数={len(ledger_ids)}, 持仓数={len(positions)}, '
-        f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}'
+        f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}, method={method}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value)
+    # `method` 必须透传：此前漏传，`method=dietz` 在组合级被静默当成 xirr 计算
+    # （前端切到「区间」仍回 xirr 字段，页面显示 0.00%）。
+    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
 
 
 def calculate_xirr_by_scope(

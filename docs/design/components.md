@@ -28,6 +28,7 @@ title: 组件使用规范（设计语言实现层）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
+- `PageNav` / `PageToc` — 长页面页内导航两级形态（<xl 顶部锚点胶囊 / xl+ 右侧目录 rail），state 收口在共享 `usePageNav`；**接入判据与接线模式见「长页面页内导航」章节**
 - `SegmentedControl` — 分段控制器（`role="tablist"` 的「多选一、选项少 2–6」**一律**走此组件：视图 / 维度 / 档位 / 筛选 / 排序；`default` / `small` 两档 + `block` 铺满 + 可选 `count` 数量徽章；#1717 收敛、#1731 扩边到「全部手写 tablist 按钮组」，禁再用 `el-segmented`、页面自写 `.xxx-segmented` 样式块、或手写 `role="tablist"` 按钮组——**仅两类登记例外**：「分组胶囊 Tab」与「水平滑动胶囊栏」，判别见 `frontend/design.md`「Segmented（分段控制器）」的「语言边界」）
 - `PnlCalendar` — 收益日历卡（**唯一**实现，welcome 嵌入卡 / 账户详情 / panorama「资产大类」三处容器共用；#1925 起带日 / 月 / 年三粒度；#1942 起**三粒度各有两形态**：`PnlCalendarGrid`（日·日历图）/ `PnlCalendarPeriodGrid`（月·12 格 / 年·投资以来每年一格，可点击下钻）与 `PnlCalendarBars`（三粒度共用的柱状几何）。格子的**七态**视觉与文案只有 `PnlCalendarTile` 一处实现，区间 / 文案 / 色深规则在 `helpers.ts`——禁止各页重写格子、柱或另起一套配色。第二轮（同日）：日历图**默认 5 列（一~五）**，周末不占格（该月有周末日不是 `closed` 时自动回 7 列）；表头多一个**金额 / 收益率**口径开关（两个口径的数都由后端下发，切换不发请求）；悬浮提示由原生 `title` 换成两个共享卡片——`PnlCalendarUnitTip`（单格：日期含星期 + 金额与收益率同显 + 态说明）与 `PnlCalendarCaliberTip`（标题行 (i)：口径 3 条 + 七态图例），气泡样式走全局 `style/el-tooltip.css` 的 `rich-tip`；`SectionHeader` 因此多了 `#info` 富内容插槽与 `infoLabel`）
 
@@ -71,6 +72,19 @@ title: 组件使用规范（设计语言实现层）
 - props：`title`（区块标题）、`info`（信息图标 tooltip 文案，缺省则不显示图标）、`icon`（信息图标名，默认 `ep:info-filled`）。
 - 与 `MetricCard` / `TemperatureGaugeCard` 标题行视觉一致（16px / 600 / `--text-primary`，右侧操作槽垂直居中）。
 - **`#action` 收缩契约（#2039）**：`__action` 是 `flex-shrink: 1; min-width: 0` 的 flex 项，窄容器下**会收缩到自身 min-content 以下**。因此 `#action` 里若有**多枚控件**（最典型的反例是 `PnlCalendar`——那排粒度 / 范围 / 币种控件实测宽 588px），调用方**必须**在内层套一个 `flex-wrap: wrap` 容器承接折行，否则收缩只会把控件压扁 / 压溢出卡片，叠到左侧 ⓘ 上。反向约束：**禁止给 `__action` 写回 `flex-shrink: 0`**——那会让它恒为 max-content，把负空间全甩给 `min-width: 0` 的 title-group（正是 #2039 的根因）。宽容器下负空间为 0，两条声明均不生效，宽屏排版逐像素不变。
+
+## 长页面页内导航（PageNav / PageToc + usePageNav）
+
+自产品详情页 #1968 上提（2026-10-25 通用化），给「纵向区块多、一屏装不下」
+的页面提供位置感——解决「往下滚不知道滑到哪」：
+
+- **形态（两级互斥）**：`< xl` 用 `PageNav`（`frontend/src/components/PageNav/index.vue`，内容区顶部锚点胶囊，sticky 于页头下、横向可滑不换行）；`xl+`（≥1280）用 `PageToc`（`frontend/src/components/PageToc/index.vue`，右侧 sticky 目录 rail，宽 160px）。两者共用同一份 `items / activeId`，由父页面调用 `usePageNav` 下发。
+- **state 来源**：`src/composables/usePageNav.ts`——锚点**不是静态清单**，而是扫描容器内真实存在的 `nav-*` id（DOM 存在性过滤，异步到位的区块由 MutationObserver 补扫），`v-if` 整块消失的区块自动不留死链；scroll-spy / 跳转动画（每帧重读目标 rect + 末段吸附 + 停摆看门狗）/ 用户接管 / keep-alive 清理全在 composable 内（踩坑推导见该文件头）。页面只提供 `labels`（锚点 → 标签映射，**与区块 SectionHeader 标题逐字一致**——读屏与视觉同一套词汇）。
+- **接入判据（防止无脑全站挂）**：纵向独立区块 ≥ 4 且页面明显超过一屏才接；横向 tabs / 视图切换页（如账户详情的 el-tabs、资产总览的多维视图）**不接**。
+- **接线模式**（参考 `views/asset/portfolio/detail.vue`、`views/asset/IntelligentAnalysis.vue`）：`PageNav` 放页头（及跨页指路条）之后；正文包一层 `__body`（`display:flex; gap: var(--space-5)`）+ `__main`（`flex:1; min-width:0`）+ `PageToc`；锚点 id 经 attribute fallthrough 挂在区块根元素上（根节点是 template 分片的组件——如 `PnlAttribution`——由调用方包一层 div 承接）。
+- **为什么右栏不做左栏**：全局 NavVertical 已在左（240px），双左栏视觉打架且随折叠宽度抖动（调研 `docs/working-notes/product-detail-research-2026-10-12.md` §5.2/§5.3，Agent 页 session-history 是反面先例）；右侧补空不抢宽（xl 视口下卡片仍有约 860px，图表与横向滚动表格都够用）。
+- **语义**：胶囊 / rail 是「跳转」不是「切换视图」，**不挂 tablist 角色**（guard_segmented 白名单不收第三类）；rail 无视觉标题，可访问名由 `aria-label="本页目录"` 提供。
+- **已接入**：产品详情页（#1968）、组合详情页、复盘页（2026-10-25）。
 
 ## 设置页 · 单栏居中布局（D13）
 

@@ -209,6 +209,15 @@ const AssetRouteConfig = {
       component: () => import("@/views/asset/ledgers/index.vue"),
       meta: { title: "账户管理", icon: "ep:wallet", rank: 3 }
     },
+    // 家庭成员（#1173）：账户归属维度——「这笔钱是谁的」的档案与维护入口
+    // rank 3.5：夹在「账户管理」(3) 与「策略分析」(4) 之间——它管的是账户归属，
+    // 紧挨账户管理最合语义；直接子级的整数位已被占满，故用小数（同孙级「同类优选」5.5 之例）。
+    {
+      path: "/asset/family",
+      name: "AssetFamilyMembers",
+      component: () => import("@/views/asset/family/index.vue"),
+      meta: { title: "家庭成员", icon: "ep:user", rank: 3.5 }
+    },
     // 账户详情（作为 Asset 的子路由，继承 Layout 布局）
     {
       path: "/asset/ledgers/:id",

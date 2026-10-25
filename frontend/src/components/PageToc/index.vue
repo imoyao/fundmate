@@ -1,16 +1,17 @@
 <!--
-  ProductPageToc · 详情页页内导航·右侧目录 rail（#1968 子卡）
+  PageToc · 长页面页内导航·右侧目录 rail（通用版）
 
-  形态登记：调研结论 docs/working-notes/product-detail-research-2026-10-12.md §5.3 ——
+  自产品详情页 #1968 子卡上提（2026-10-25 通用化）。形态登记：
+  docs/working-notes/product-detail-research-2026-10-12.md §5.3 ——
   `xl+`（>=1280）右侧 sticky 目录，宽 160px，锚点列表（无视觉标题，理由见 template 注释）。
   为什么不做左栏：全局 NavVertical 已在左（240px），双左栏视觉打架且随折叠
   宽度抖动（调研 §5.2，Agent 页 session-history 是反面先例）。右侧补空不抢宽。
 
-  与顶部胶囊（ProductPageNav）共用同一份 items / activeId（父级经 composable 下发），
+  与顶部胶囊（PageNav）共用同一份 items / activeId（父级经 usePageNav 下发），
   两级互斥呈现：<xl 胶囊、xl+ rail，`display` 由断点切换。
 -->
 <script setup lang="ts">
-import type { PageNavItem } from "../composables/useProductPageNav";
+import type { PageNavItem } from "@/composables/usePageNav";
 
 defineProps<{
   items: PageNavItem[];
@@ -23,7 +24,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <!-- 无视觉标题：产品页的 rail 语义是「快捷跳转」不是「内容大纲」，
+  <!-- 无视觉标题：rail 的语义是「快捷跳转」不是「内容大纲」，
        条目自己会说话（我的持仓/走势/交易记录），再加一个「本页目录」
        小标题只会多占 20px 垂直空间 + 一次视觉停顿。文档站 TOC 带标题
        是文档语境的惯例，不适用于产品详情页。可访问名称由 aria-label

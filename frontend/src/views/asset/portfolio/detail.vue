@@ -7,26 +7,16 @@
       </el-button>
     </div>
 
-    <div
-      v-if="loading"
-      class="text-center py-20"
-      style="color: var(--text-tertiary-ink)"
-    >
-      <p>加载中...</p>
-    </div>
+    <PageSkeleton v-if="loading" :cards="3" :chart-cols="1" :table-rows="4" />
 
     <template v-else-if="portfolio">
-      <!-- 标题与操作 -->
-      <div class="flex justify-between items-start mb-6">
-        <div>
-          <h2 class="text-2xl font-bold" style="color: var(--text-primary)">
-            {{ portfolio.name }}
-          </h2>
-          <p class="text-sm mt-1" style="color: var(--text-tertiary-ink)">
-            {{ portfolio.purpose || "未设定投资目的" }}
-          </p>
-        </div>
-        <div class="flex gap-2">
+      <!-- 页头统一走 PageHeaderBar（2026-10-25 前是手写 h2 + tailwind，
+           与全站页头规格 --text-display/300 不一致） -->
+      <PageHeaderBar
+        :title="portfolio.name"
+        :subtitle="portfolio.purpose || '未设定投资目的'"
+      >
+        <template #action>
           <el-button @click="editVisible = true">编辑</el-button>
           <el-popconfirm
             title="确定删除此组合？关联账户将自动解绑。"
@@ -39,57 +29,113 @@
               <el-button type="danger" text>删除</el-button>
             </template>
           </el-popconfirm>
-        </div>
-      </div>
+        </template>
+      </PageHeaderBar>
 
-      <!-- 基础信息指标卡 -->
-      <MetricGrid class="mb-6">
-        <MetricCard title="关联账户" :value="linkedLedgers.length" unit="个" />
-        <MetricCard
-          title="目标收益率"
-          :value="portfolio.target_return ?? null"
-          unit="%"
-        />
-        <MetricCard
-          title="基准指数"
-          :value="benchmarkLabel"
-          :caption="benchmarkCaption"
-        />
-        <!-- #2134：区间超额（近 90 天 vs 基准同期）；缺数据由 MetricCard 显示「--」，不造 0 -->
-        <MetricCard
-          title="超额收益"
-          :value="excessValue"
-          unit="%"
-          :caption="excessCaption"
-          :value-color="excessColor"
-        />
-      </MetricGrid>
-
-      <!-- 组合收益（#871 三口径卡，#980 拆出）；v-if=portfolio 复刻拆出前「组合存在才拉」 -->
-      <PortfolioReturnCard v-if="portfolio" :portfolio-id="portfolioId" />
-
-      <!-- 货基收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加） -->
-      <PortfolioMoneyFundCard :portfolio-id="portfolioId" />
-
-      <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股；#2595 组合级口径） -->
-      <div class="mb-6">
-        <PenetrationPanel :portfolio-id="portfolioId" />
-      </div>
-
-      <!-- #2135：收益归因（组合口径 = 成员账本继承 + 持仓显式归属） -->
-      <PnlAttribution :portfolio-id="portfolioId" />
-
-      <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
-      <PortfolioHoldingsCard :holdings="holdings" />
-
-      <!-- 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合账户 -->
-      <PortfolioUnarchivedCard
-        :ledgers="linkedLedgers"
-        @archived="fetchHoldings"
+      <!-- 页内导航：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail（PageToc）接管。
+           两级互斥，条目由 usePageNav 按 DOM 里真实渲染的 nav-* 锚点动态生成，
+           v-if 整块消失的区块（如无货基数据）自动不留死链。 -->
+      <PageNav
+        v-if="navItems.length > 1"
+        :items="navItems"
+        :active-id="navActiveId"
+        @navigate="goToNavSection"
       />
 
-      <!-- 关联账户 -->
-      <PortfolioLinkedLedgersCard :ledgers="linkedLedgers" />
+      <div class="portfolio-detail__body">
+        <div ref="pageMain" class="portfolio-detail__main">
+          <!-- 基础信息指标卡（hero 概览，不进目录） -->
+          <MetricGrid class="mb-6">
+            <MetricCard
+              title="关联账户"
+              :value="linkedLedgers.length"
+              unit="个"
+            />
+            <MetricCard
+              title="目标收益率"
+              :value="portfolio.target_return ?? null"
+              unit="%"
+            />
+            <MetricCard
+              title="基准指数"
+              :value="benchmarkLabel"
+              :caption="benchmarkCaption"
+            />
+            <!-- #2134：区间超额（近 90 天 vs 基准同期）；缺数据由 MetricCard 显示「--」，不造 0 -->
+            <MetricCard
+              title="超额收益"
+              :value="excessValue"
+              unit="%"
+              :caption="excessCaption"
+              :value-color="excessColor"
+            />
+          </MetricGrid>
+
+          <!-- 组合收益（#871 三口径卡，#980 拆出） -->
+          <PortfolioReturnCard id="nav-return" :portfolio-id="portfolioId" />
+
+          <!-- 货币基金收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加） -->
+          <PortfolioMoneyFundCard
+            id="nav-money-fund"
+            :portfolio-id="portfolioId"
+          />
+
+          <!-- #2135 收益归因（组合口径 = 成员账本继承 + 持仓显式归属）。
+               2026-10-25 自「持仓穿透」之后上移：动线收敛为「表现（收益 / 货基）
+               → 归因（收益从哪来）→ 结构（穿透）→ 明细」，与产品详情页
+               「表现 → 归因」的既有口径一致。根节点是 template 分片
+               （SectionHeader + CardBlock），fallthrough 落不上 id，故包一层。 -->
+          <div id="nav-attribution">
+            <PnlAttribution :portfolio-id="portfolioId" />
+          </div>
+
+          <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股）。
+               #2595：显式传 portfolio-id —— 此前不传 scope，实际拉的是家庭级数据。 -->
+          <div class="mb-6">
+            <PenetrationPanel
+              id="nav-penetration"
+              :portfolio-id="portfolioId"
+            />
+          </div>
+
+          <!-- 组合风格构成（#2603：按市值加权的 8 分类风格暴露）。
+               与穿透同属「结构」段：穿透说钱压在哪些行业/个股，风格说这些持仓
+               在风格维度上的偏斜。 -->
+          <div class="mb-6">
+            <PortfolioStylePanel id="nav-style" />
+          </div>
+
+          <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
+          <PortfolioHoldingsCard id="nav-holdings" :holdings="holdings" />
+
+          <!-- 持仓重叠度（#2604：组合内基金重仓股重合程度）。
+               紧跟明细：先看买了什么，再看这些基金之间重不重。 -->
+          <div class="mb-6">
+            <HoldingOverlapPanel id="nav-overlap" />
+          </div>
+
+          <!-- 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合账户 -->
+          <PortfolioUnarchivedCard
+            id="nav-unarchived"
+            :ledgers="linkedLedgers"
+            @archived="fetchHoldings"
+          />
+
+          <!-- 关联账户 -->
+          <PortfolioLinkedLedgersCard
+            id="nav-ledgers"
+            :ledgers="linkedLedgers"
+          />
+        </div>
+
+        <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
+        <PageToc
+          v-if="navItems.length > 1"
+          :items="navItems"
+          :active-id="navActiveId"
+          @navigate="goToNavSection"
+        />
+      </div>
     </template>
 
     <!-- 编辑对话框（拆出的共有组件） -->
@@ -116,13 +162,20 @@ import {
 import { getLedgers } from "@/api/ledger";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
+import PageNav from "@/components/PageNav/index.vue";
+import PageToc from "@/components/PageToc/index.vue";
+import PageSkeleton from "@/components/PageSkeleton/index.vue";
+import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
-import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
+import { usePageNav } from "@/composables/usePageNav";
+import PortfolioStylePanel from "./PortfolioStylePanel.vue";
 import PortfolioReturnCard from "./PortfolioReturnCard.vue";
 import PortfolioMoneyFundCard from "./portfolioDetail/PortfolioMoneyFundCard.vue";
 import PortfolioHoldingsCard from "./portfolioDetail/PortfolioHoldingsCard.vue";
 import PortfolioUnarchivedCard from "./portfolioDetail/PortfolioUnarchivedCard.vue";
+import HoldingOverlapPanel from "./HoldingOverlapPanel.vue";
 import PortfolioLinkedLedgersCard from "./portfolioDetail/PortfolioLinkedLedgersCard.vue";
 import { usePortfolioExcess } from "./portfolioDetail/usePortfolioExcess";
 import {
@@ -134,8 +187,9 @@ import {
 /**
  * 组合详情页（/asset/portfolios/:id）。
  *
- * #980 拆分后只留「页面骨架」：标题与操作、四张指标卡、两个自有子页面区块
- * （收益卡 / 穿透）、收益归因、编辑对话框。四张表与两块取数各自成组件：
+ * #980 拆分后只留「页面骨架」：PageHeaderBar 页头、四张指标卡、页内导航
+ * （PageNav / PageToc，2026-10-25 接入）与九个纵向区块（收益 / 货基 / 归因 /
+ * 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
  *
  * - `PortfolioHoldingsCard`：持仓明细（排序 + 前端分页 + 盈亏双线估值接线）
  * - `PortfolioUnarchivedCard`：未归档持仓 + 归档对话框（自含取数）
@@ -144,6 +198,9 @@ import {
  *
  * 区间超额（#2134）的五段派生文案进 `usePortfolioExcess`，接口信封解包、
  * 排序分页、账户类型文案进 `portfolioDetailModel.ts`（纯函数）。
+ *
+ * 穿透面板 `PenetrationPanel` 已上移 `components/`（#2595：三级口径共享），
+ * 本页传 `portfolio-id` 走组合口径。
  */
 defineOptions({ name: "PortfolioDetail" });
 
@@ -161,6 +218,27 @@ const holdings = ref<PortfolioHolding[]>([]);
 
 // 编辑相关
 const editVisible = ref(false);
+
+// ---------- 页内导航（2026-10-25）----------
+// 纵向区块 9 个、明显超一屏，符合 components.md 的 PageToc 接入判据。
+// state / scroll-spy 全在共享 usePageNav 里，本文件只给锚点 → 标签映射。
+const pageMain = ref<HTMLElement>();
+const NAV_LABELS: Record<string, string> = {
+  "nav-return": "组合收益",
+  "nav-money-fund": "货币基金收益",
+  "nav-attribution": "收益归因",
+  "nav-penetration": "持仓穿透",
+  "nav-style": "组合风格",
+  "nav-holdings": "持仓明细",
+  "nav-overlap": "持仓重叠度",
+  "nav-unarchived": "未归档持仓",
+  "nav-ledgers": "关联账户"
+};
+const {
+  items: navItems,
+  activeId: navActiveId,
+  goTo: goToNavSection
+} = usePageNav(pageMain, { labels: NAV_LABELS });
 
 // #871：组合收益（三口径）已拆为 PortfolioReturnCard——自含取数与口径切换，
 // 父页只传 portfolioId（#980 上帝页面拆分）。
@@ -243,6 +321,18 @@ onMounted(async () => {
 
   /* 数字等宽对齐：消除金额/收益率宽度抖动（design.md「数字等宽对齐」） */
   font-variant-numeric: tabular-nums;
+}
+
+/* 页内导航两级布局（components.md PageToc）：<xl 单列（胶囊在正文上方整条横跨）；
+   xl+ 主列 + 160px 右目录 rail，列间距 20px（产品详情页同款宽度账）。 */
+.portfolio-detail__body {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.portfolio-detail__main {
+  flex: 1;
+  min-width: 0;
 }
 
 /* XIRR 指标区：组合收益卡与组合货基卡共用——两张卡都已拆为子组件（#980），

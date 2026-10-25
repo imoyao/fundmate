@@ -82,13 +82,30 @@ def test_穿透_组合口径_显式归属与继承归属都算(db, make_position
     _alloc(db, '000301', 'C39', '制造业', 100.0)
 
     # 继承路径：成员账本甲的基金 ⇒ 进组合
-    pos_a = make_position(symbol='000301', name='继承基金', quantity=1000, current_price=2.0, asset_type='fund', account_name='组合甲账户')
+    pos_a = make_position(
+        symbol='000301', name='继承基金', quantity=1000, current_price=2.0, asset_type='fund', account_name='组合甲账户'
+    )
     _attach_ledger_to_portfolio(db, pos_a.ledger_id, pf.id)
     # 显式路径：非成员账本乙、但持仓显式归属 ⇒ 进组合
-    make_position(symbol='000302', name='显式基金', quantity=1000, current_price=1.0, asset_type='fund', account_name='组合乙账户', portfolio_id=pf.id)
+    make_position(
+        symbol='000302',
+        name='显式基金',
+        quantity=1000,
+        current_price=1.0,
+        asset_type='fund',
+        account_name='组合乙账户',
+        portfolio_id=pf.id,
+    )
     _alloc(db, '000302', 'C39', '制造业', 100.0)
     # 组合外：账本乙的另一只基金 ⇒ 不出现
-    make_position(symbol='000303', name='组合外基金', quantity=1000, current_price=3.0, asset_type='fund', account_name='组合乙账户')
+    make_position(
+        symbol='000303',
+        name='组合外基金',
+        quantity=1000,
+        current_price=3.0,
+        asset_type='fund',
+        account_name='组合乙账户',
+    )
     db.commit()
 
     data = build_penetration(db, 1, portfolio_id=pf.id)
@@ -104,8 +121,12 @@ def test_穿透_组合口径_显式归属与继承归属都算(db, make_position
 
 def test_穿透_账户口径_只含该账本持仓(db, make_position):
     _alloc(db, '000401', 'C39', '制造业', 100.0)
-    make_position(symbol='000401', name='甲账户基金', quantity=1000, current_price=2.0, asset_type='fund', account_name='账户A')
-    make_position(symbol='000402', name='乙账户基金', quantity=1000, current_price=5.0, asset_type='fund', account_name='账户B')
+    make_position(
+        symbol='000401', name='甲账户基金', quantity=1000, current_price=2.0, asset_type='fund', account_name='账户A'
+    )
+    make_position(
+        symbol='000402', name='乙账户基金', quantity=1000, current_price=5.0, asset_type='fund', account_name='账户B'
+    )
     db.commit()
 
     ledger_id = db.query(Ledger).filter_by(name='账户A', family_id=1).first().id
@@ -117,8 +138,12 @@ def test_穿透_账户口径_只含该账本持仓(db, make_position):
 
 def test_穿透_可加性_Σ账户等于家庭(db, make_position):
     """同一持仓集合：家庭级 total ≡ Σ 各账户级 total（视图可加，算法唯一）。"""
-    make_position(symbol='000501', name='A基金', quantity=1000, current_price=2.0, asset_type='fund', account_name='可加A')
-    make_position(symbol='000502', name='B基金', quantity=1000, current_price=3.0, asset_type='fund', account_name='可加B')
+    make_position(
+        symbol='000501', name='A基金', quantity=1000, current_price=2.0, asset_type='fund', account_name='可加A'
+    )
+    make_position(
+        symbol='000502', name='B基金', quantity=1000, current_price=3.0, asset_type='fund', account_name='可加B'
+    )
     db.commit()
 
     family_total = build_penetration(db, 1)['total_value_cny']

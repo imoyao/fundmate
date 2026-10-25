@@ -177,3 +177,16 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         default='MAIN',
         comment='外部资金账户/凭证标识(物理隔离维度): 默认 MAIN；导入取真实资金账号(普通/两融等)',
     )
+
+    # ── 归属家庭成员（#1173）──
+    # 表达「这笔钱是谁的」：多账户可按家庭成员切片 / 汇总 / 看走势。
+    # 指向 `family_members.id`（家庭成员档案，非登录账号）。
+    # **不声明 ForeignKey**：SQLite 的 `ALTER TABLE ADD COLUMN` 不支持带约束的列定义，
+    # 存量表加不上 FK（migrations.py 全文件无存量表加 FK 先例）——一致性由应用层校验。
+    # 持仓按成员筛选经 `ledger_id` 间接归属，不在本表冗余成员列。
+    owner_member_id = Column(
+        Integer,
+        nullable=True,
+        comment='归属家庭成员 ID（family_members.id，可空=未归属/家庭共有）。'
+        '无外键约束：SQLite 存量表无法 ALTER 加 FK，由应用层校验同家庭归属',
+    )

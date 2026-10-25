@@ -334,9 +334,7 @@ def build_penetration(
     positions, _assets = _load_user_assets(db, family_id)
     # 三级口径唯一解析出口（#2595）：与归因 / 超额同一条组合语义（显式归属 +
     # 成员账本继承），禁止在本模块内手写成员账本查询——口径漂移会破坏「Σ 账户 ≡ 家庭」。
-    positions = filter_positions_by_scope(
-        db, family_id, positions, ledger_id=ledger_id, portfolio_id=portfolio_id
-    )
+    positions = filter_positions_by_scope(db, family_id, positions, ledger_id=ledger_id, portfolio_id=portfolio_id)
 
     # 场内货币 ETF（如 511990 华宝添益）以 asset_type='etf' 录入时 is_money_fund
     # 为 False（写路径 #1661：显式 etf 类型一律 False，绝不落回名录），分流只看

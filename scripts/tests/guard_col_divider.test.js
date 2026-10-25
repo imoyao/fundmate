@@ -31,7 +31,8 @@ const STYLE_ENTRY = join(ROOT, "frontend/src/style/index.scss");
 const BASELINE_FILES = [
   "frontend/src/components/Watchlist/ColumnSettingsModal.vue",
   "frontend/src/views/asset/watchlist/components/FilterPanelBody.vue",
-  "frontend/src/views/product/components/ProductPageToc.vue"
+  // PageToc 2026-10-25 自 views/product/components/ProductPageToc.vue 上提改名
+  "frontend/src/components/PageToc/index.vue"
 ].map((rel) => join(ROOT, rel));
 
 const OVERVIEW_CARD = join(

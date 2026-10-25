@@ -4,7 +4,7 @@
     "frontend/src/views/agent/components/AgentMessageItem.vue": "存量：自有样式里手抄了一份表格基线（#980 拆分时随 .msg__table 样式从 views/agent/index.vue 搬来，同一个表，未新增违例；收编前先判定该表语义——它是聊天气泡里的行级盈亏表，密度与详情页 dense 表格不同）",
     "frontend/src/views/asset/investment/eaccount-import/components/EaccountManualPanel.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）",
     "frontend/src/views/asset/ledgers/components/LedgerCashLikeCard.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）",
-    "frontend/src/views/asset/portfolio/PenetrationPanel.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）",
+    "frontend/src/components/PenetrationPanel/index.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）；#2595 该面板自 views/asset/portfolio/ 上移到共享组件，键随文件改名，表格本体未变",
     "frontend/src/views/explore/components/ExploreTemperatureDashboard.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）"
   }
 }

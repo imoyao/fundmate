@@ -64,23 +64,7 @@
         >
           暂无可用的行业配置数据。
         </p>
-        <ul v-else class="bar-list">
-          <li v-for="row in data.industries" :key="row.code" class="bar-row">
-            <span
-              class="bar-name"
-              :title="`${row.name}（${row.code}）· ${row.fund_count} 只基金持有`"
-            >
-              {{ row.name }}
-            </span>
-            <span class="bar-track">
-              <span
-                class="bar-fill"
-                :style="{ width: barWidth(row.ratio_of_penetrated) }"
-              />
-            </span>
-            <span class="bar-value">{{ percent(row.ratio_of_total) }}</span>
-          </li>
-        </ul>
+        <PenetrationBarList v-else :rows="industryRows" />
       </CardBlock>
 
       <!-- 个股层：季报只披露前十大，故标明口径强度 -->
@@ -94,27 +78,7 @@
             （{{ basisText }}）
           </span>
         </h4>
-        <ul v-if="data.stocks.length" class="bar-list">
-          <li v-for="row in data.stocks" :key="row.code" class="bar-row">
-            <span
-              class="bar-name"
-              :title="
-                row.holder_fund_count
-                  ? `${row.holder_fund_count} 只基金持有`
-                  : '其余个股合计'
-              "
-            >
-              {{ row.name }}
-            </span>
-            <span class="bar-track">
-              <span
-                class="bar-fill bar-fill--alt"
-                :style="{ width: barWidth(row.ratio_of_total) }"
-              />
-            </span>
-            <span class="bar-value">{{ percent(row.ratio_of_total) }}</span>
-          </li>
-        </ul>
+        <PenetrationBarList v-if="data.stocks.length" :rows="stockRows" />
         <p v-else class="text-sm" :style="{ color: 'var(--text-secondary)' }">
           暂无可穿透的个股持仓。
         </p>
@@ -183,18 +147,19 @@
         </p>
       </CardBlock>
 
-      <!-- 口径说明：后端写死的 notes，原样展示（前端不改写、不隐藏） -->
-      <CardBlock class="mt-4">
-        <h4 class="panel-subtitle">口径说明</h4>
+      <!-- 口径说明：后端写死的 notes，原样展示（前端不改写、不隐藏）。
+           2026-10-25 由独立 CardBlock 降为区块尾注：口径是元信息不是内容，
+           单独成卡会与「行业分布 / 个股层 / 未穿透」抢同一层视觉层级，
+           还把正文往下顶；降权小字 + 无卡片壳，可见性不变。 -->
+      <div class="penetration-footnote mt-4">
+        <span class="penetration-footnote__label">口径说明</span>
         <ul class="notes-list">
           <li v-for="(note, i) in data.notes" :key="i">
             {{ note }}
           </li>
         </ul>
-        <p class="text-sm mt-2" :style="{ color: 'var(--text-tertiary)' }">
-          数据日期 {{ data.as_of }}
-        </p>
-      </CardBlock>
+        <p class="penetration-footnote__meta">数据日期 {{ data.as_of }}</p>
+      </div>
     </template>
   </div>
 </template>
@@ -205,6 +170,7 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import PenetrationBarList from "./PenetrationBarList.vue";
 import { getPenetration, type PenetrationData } from "@/api/summary";
 import { formatAmount } from "@/utils/currency";
 
@@ -276,6 +242,31 @@ function barWidth(ratio: number) {
   return `${(r * 100).toFixed(2)}%`;
 }
 
+/** 行业行：条形以「已穿透」为分母，右侧数值仍按总市值占比（两个分母不同，别混） */
+const industryRows = computed(() =>
+  (data.value?.industries ?? []).map(row => ({
+    key: row.code,
+    name: row.name,
+    title: `${row.name}（${row.code}）· ${row.fund_count} 只基金持有`,
+    width: barWidth(row.ratio_of_penetrated),
+    value: percent(row.ratio_of_total)
+  }))
+);
+
+/** 个股行：季报只披露前十大、故用第二色与行业层区分；条形与数值同用总市值占比 */
+const stockRows = computed(() =>
+  (data.value?.stocks ?? []).map(row => ({
+    key: row.code,
+    name: row.name,
+    title: row.holder_fund_count
+      ? `${row.holder_fund_count} 只基金持有`
+      : "其余个股合计",
+    width: barWidth(row.ratio_of_total),
+    value: percent(row.ratio_of_total),
+    alt: true
+  }))
+);
+
 /** 个股口径强度：季报只披露前十大，半年报是全量，两者不可混看 */
 const basisText = computed(() => {
   const byBasis = data.value?.stocks_coverage.fund_count_by_basis;
@@ -309,53 +300,6 @@ onMounted(load);
   font-size: var(--text-small);
   font-weight: 400;
   color: var(--text-tertiary);
-}
-
-.bar-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact);
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.bar-row {
-  display: grid;
-  grid-template-columns: minmax(96px, 168px) 1fr 56px;
-  gap: var(--space-compact);
-  align-items: center;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-}
-
-.bar-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bar-track {
-  height: 8px;
-  overflow: hidden;
-  background: var(--bg-muted);
-  border-radius: 4px;
-}
-
-.bar-fill {
-  display: block;
-  height: 100%;
-  background: var(--color-primary);
-  border-radius: 4px;
-}
-
-.bar-fill--alt {
-  background: var(--color-info);
-}
-
-.bar-value {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 .unpen-table {
@@ -394,13 +338,32 @@ onMounted(load);
   background: var(--color-warning-20, var(--bg-muted));
 }
 
+/* 口径说明尾注：与产品详情页「口径脚注」同款降权——小字 + 次级墨色，
+   不再用卡片壳与 h4（否则与内容区块同级，元信息抢内容的层级）。 */
+.penetration-footnote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-compact);
+  color: var(--text-tertiary);
+}
+
+.penetration-footnote__label {
+  font-size: var(--text-label);
+  font-weight: 600;
+}
+
+.penetration-footnote__meta {
+  margin: 0;
+  font-size: var(--text-label);
+}
+
 .notes-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-compact);
   padding-left: var(--space-standard);
   margin: 0;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
 }
 </style>

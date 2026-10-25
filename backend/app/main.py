@@ -25,8 +25,10 @@ from app.domains.agent.views import agent_bp  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
 from app.domains.dividends.views import dividends_bp  # noqa: E402
+from app.domains.families.member_views import member_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
 from app.domains.feedlog.views import feedlog_bp  # noqa: E402
+from app.domains.funds.overlap_views import overlap_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.e_account_views import e_account_bp  # noqa: E402
@@ -110,6 +112,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(securities_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(funds_bp)
+    app.register_blueprint(overlap_bp)
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
@@ -127,6 +130,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(thermometer_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(families_bp)
+    app.register_blueprint(member_bp)
     app.register_blueprint(feedlog_bp)
     app.register_blueprint(reconciliation_bp)
     app.register_blueprint(agent_bp)

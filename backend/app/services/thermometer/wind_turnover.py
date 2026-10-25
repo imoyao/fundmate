@@ -127,9 +127,7 @@ def wind_turnover_hist(code: str, name: str) -> Optional[pd.DataFrame]:
         {'turnover': list(series.values())},
         index=pd.to_datetime(list(series.keys())),
     )
-    merged = fresh if cached is None else (
-        pd.concat([cached[~cached.index.isin(fresh.index)], fresh]).sort_index()
-    )
+    merged = fresh if cached is None else (pd.concat([cached[~cached.index.isin(fresh.index)], fresh]).sort_index())
     _save_cache(code, merged)
     return merged
 

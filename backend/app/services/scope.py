@@ -41,9 +41,7 @@ def _member_ledger_ids(db: Session, family_id: int, portfolio_id: int) -> Set[in
     """组合成员账本 id 集合（`Ledger.portfolio_id` 显式挂靠）。"""
     return {
         row[0]
-        for row in db.query(Ledger.id)
-        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
-        .all()
+        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
     }
 
 
