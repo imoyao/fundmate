@@ -21,6 +21,8 @@ export interface TipSnapshot {
   holding_count: number;
   total_value_cents: number;
   penetration_ratio: number;
+  /** 风格数据覆盖率（0~100）。低覆盖时风格规则不触发；前端据此区分「体检过了没问题」与「风格数据不够算不出」 */
+  style_coverage_pct: number;
   latest_day: { date: string; rate_pct: number } | null;
 }
 

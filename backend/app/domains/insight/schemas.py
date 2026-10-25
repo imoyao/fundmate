@@ -29,6 +29,9 @@ class TipSnapshot(BaseModel):
     holding_count: int = Field(0, description='参与统计的投资持仓标的数')
     total_value_cents: int = Field(0, description='投资持仓总市值（分）')
     penetration_ratio: float = Field(0, description='行业穿透率（0~1），低穿透率时行业规则不触发')
+    style_coverage_pct: float = Field(
+        0, description='风格数据覆盖率（0~100），低覆盖时风格规则不触发；也用于前端区分「没算出来」与「没问题」'
+    )
     latest_day: Optional[Dict[str, Any]] = Field(None, description='最近有效交易日 {date, rate_pct}')
 
 

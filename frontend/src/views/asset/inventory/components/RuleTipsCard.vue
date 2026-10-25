@@ -8,7 +8,7 @@
   <div class="rule-tips">
     <SectionHeader
       title="持仓小贴士"
-      info="这些提示由固定规则在本地算出（集中度、分散度、行业敞口、单日回撤），不调用大模型、不构成操作建议。规则与阈值集中维护在 services/insight/rules.py。"
+      info="这些提示由固定规则在本地算出（集中度、分散度、行业敞口、风格偏斜、单日回撤），不调用大模型、不构成操作建议。规则与阈值集中维护在 services/insight/rules.py。"
       info-label="持仓小贴士口径说明"
     />
 
@@ -27,8 +27,8 @@
 
       <ul v-else class="rule-tips__list">
         <li
-          v-for="tip in data.items"
-          :key="tip.code"
+          v-for="tip in tipViews"
+          :key="tip.key"
           class="rule-tips__item"
           :class="`rule-tips__item--${tip.severity}`"
         >
@@ -48,6 +48,7 @@ import { computed, onMounted, ref } from "vue";
 import { getInsightTips, type TipListData } from "@/api/insight";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import { describeEmptyTips, toTipViews } from "./ruleTipsModel";
 
 defineOptions({ name: "RuleTipsCard" });
 
@@ -56,16 +57,13 @@ const loading = ref(false);
 const error = ref(false);
 
 /**
- * 无提示时的文案必须区分两种情况：
- * - 有持仓但没触发 → 「没发现值得提醒的问题」，是结论；
- * - 没有持仓 / 没有穿透数据 → 「还算不出来」，是缺数据。
- * 混成一句「暂无提示」会让人以为已经体检过了。
+ * 提示项直接由后端给定的 code/severity/title/message 渲染，**不按 code 分支**：
+ * 新增一条规则（含 #2603 的风格偏斜）不需要改前端。
  */
-const emptyText = computed(() => {
-  const count = data.value?.snapshot?.holding_count ?? 0;
-  if (count === 0) return "还没有投资持仓，暂无可体检的对象。";
-  return `已检查 ${count} 只持仓、${data.value?.snapshot?.penetration_ratio ? "行业穿透数据可用" : "行业数据覆盖不足"}，当前没有触发提醒。`;
-});
+const tipViews = computed(() => toTipViews(data.value?.items));
+
+/** 空态文案必须区分「已体检没问题」与「数据不足算不出」，判定逻辑见 ruleTipsModel */
+const emptyText = computed(() => describeEmptyTips(data.value?.snapshot));
 
 const load = async () => {
   loading.value = true;

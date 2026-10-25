@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
-from app.domains.funds.models import FundStyleExposure
+from app.domains.funds.models import Fund, FundStyleExposure
 from app.domains.positions.models import Position
 from app.services.fund_utils import normalize_fund_code
 from app.services.nav_service import NavService
@@ -59,7 +59,30 @@ PORTFOLIO_STYLE_ASSET_TYPES = ('fund', 'money_fund', 'etf')
 HISTORY_DEFAULT_LIMIT = 60
 HISTORY_MAX_LIMIT = 500
 
+# QDII 的判定特征。上游**无结构化 QDII 字段**（东财/同花顺基金档案都没有），
+# 既有做法是按名称特征判定（见 `services/fund_benchmark.py` 的同名关键词表）。
+QDII_NAME_MARKERS = ('QDII', '海外')
+
 STYLE_SOURCE = 'jiucaishuo_style'
+
+
+def _has_qdii(db: Session, fund_codes: List[str]) -> bool:
+    """持仓基金里是否含 QDII（风格分类口径存疑，消费方需要能标注出来）。
+
+    查 `funds` 表取**基金官方简称**而不是持仓录入名——用户可能把持仓命名为
+    「老婆的纳指基金」，按录入名判会漏检。
+
+    判不出来时返回 False（按「不含 QDII」处理）：QDII 只影响展示层的口径说明，
+    不影响风格数值本身，误判为「有」会让每条提示都挂一句无关警告。
+    """
+    codes = [code for code in fund_codes if code]
+    if not codes:
+        return False
+    try:
+        rows = db.query(Fund.fund_code, Fund.name).filter(Fund.fund_code.in_(codes)).all()
+    except Exception:
+        return False
+    return any(any(marker in (name or '') for marker in QDII_NAME_MARKERS) for _, name in rows)
 
 
 def _to_float(value: Any) -> Optional[float]:
@@ -246,10 +269,15 @@ def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
         'period_from': None,
         'period_to': None,
         'uncovered': [],
+        # QDII 标记：风格分类对 QDII 不可靠（见模块头第 3 条），
+        # 由本服务判定一次，**提示与面板共用同一个值**，避免两处口径打架
+        'has_qdii': False,
         'source': STYLE_SOURCE,
     }
     if not positions:
         return result
+    fund_codes = sorted({normalize_fund_code(p.symbol) or '' for p in positions if p.symbol} - {''})
+    result['has_qdii'] = _has_qdii(db, fund_codes)
 
     # 1) 按 symbol 聚合市值（分，折 CNY）——先合并多账户，再定权重
     symbols = [p.symbol for p in positions if p.symbol]
