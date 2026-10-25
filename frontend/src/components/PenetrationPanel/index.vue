@@ -54,17 +54,37 @@
           caption="行业内合计不足 100% 的差额＝债券/现金，不是缺失"
         />
       </MetricGrid>
-      <!-- 行业分布：横向条，不用饼图（行业数多，饼图读不出量级差） -->
+      <!-- 行业分布：横向条，不用饼图（行业数多，饼图读不出量级差）。
+           #2617：两档口径必须分开看——「直接持有」基金整块不拆底层，
+           「穿透后」基金与直持合并。合并成一张图会得出「基金是制造业」的假结论。 -->
       <CardBlock class="mt-4">
-        <h4 class="panel-subtitle">行业分布</h4>
+        <div class="panel-head">
+          <h4 class="panel-subtitle">行业分布</h4>
+          <SegmentedControl
+            v-model="industryView"
+            :options="VIEW_OPTIONS"
+            size="small"
+            aria-label="行业口径"
+          />
+        </div>
+        <p class="panel-view-hint">{{ viewHint }}</p>
+        <!-- #2617 诚实降级：主口径没有「个股→行业」映射时直持图必然为空，
+             把后端给的成因原样透出，避免用户把空图读成计算缺陷 -->
+        <el-alert
+          v-if="directMappingHint"
+          class="mb-2"
+          type="info"
+          :closable="false"
+          :title="directMappingHint"
+        />
         <p
-          v-if="!data.industries.length"
+          v-if="!activeIndustryRows.length"
           class="text-sm"
           :style="{ color: 'var(--text-secondary)' }"
         >
           暂无可用的行业配置数据。
         </p>
-        <PenetrationBarList v-else :rows="industryRows" />
+        <PenetrationBarList v-else :rows="activeIndustryRows" />
       </CardBlock>
 
       <!-- 个股层：季报只披露前十大，故标明口径强度 -->
@@ -145,6 +165,23 @@
           行业合计 {{ formatAmount(info.industry_total_cny) }}， 不可与
           {{ data.scheme_label }} 主口径并列或相加。
         </p>
+        <!-- #2617：直持腿在该体系下的分布（后端 #1981 早已返回、此前未展示）。
+             主口径无直持映射时，这里就是用户唯一能看到「直持压在哪些行业」的地方。 -->
+        <div v-if="info.direct_industries.length" class="other-direct">
+          <p class="other-direct__title">
+            直持行业（本体系有「个股→行业」映射）
+          </p>
+          <div class="other-direct__tags">
+            <span
+              v-for="row in info.direct_industries"
+              :key="row.code"
+              class="other-direct__tag"
+            >
+              {{ row.name }}
+              <em>{{ percent(row.ratio_of_total) }}</em>
+            </span>
+          </div>
+        </div>
       </CardBlock>
 
       <!-- 口径说明：后端写死的 notes，原样展示（前端不改写、不隐藏）。
@@ -199,6 +236,15 @@ const SCHEME_OPTIONS = [
 ] as const;
 
 const scheme = ref<"csrc" | "gics">("csrc");
+
+/** #2617 行业口径两档：直接持有（基金整块）/ 穿透后（基金并入行业）。
+ *  默认穿透后 = 既有行为，不改变旧用户的阅读习惯。 */
+const VIEW_OPTIONS = [
+  { label: "直接持有", value: "direct" },
+  { label: "穿透后", value: "penetrated" }
+] as const;
+
+const industryView = ref<"direct" | "penetrated">("penetrated");
 const data = ref<PenetrationData | null>(null);
 const loading = ref(false);
 const error = ref("");
@@ -253,6 +299,70 @@ const industryRows = computed(() =>
   }))
 );
 
+/**
+ * #2617 直接持有口径：直持行业 + 基金整块 + 未映射直持。
+ * 三项合计 = 持仓总市值；比率与金额都由后端算好（含 `fund_ratio` / `unmapped_ratio`），
+ * 前端不做除法——否则与「穿透后」图的口径会各算各的。
+ */
+const directRows = computed(() => {
+  const dv = data.value?.direct_view;
+  if (!dv) return [];
+  const rows = dv.industries.map(row => ({
+    key: row.code,
+    name: row.name,
+    title: `直持 ${row.name}（${row.code}）`,
+    width: barWidth(row.ratio_of_total),
+    value: percent(row.ratio_of_total)
+  }));
+  if (dv.fund_cny > 0) {
+    rows.push({
+      key: "__fund__",
+      name: "基金（未拆底层）",
+      title: "基金整块市值；其底层行业敞口见「穿透后」口径",
+      width: barWidth(dv.fund_ratio),
+      value: percent(dv.fund_ratio)
+    });
+  }
+  if (dv.unmapped_cny > 0) {
+    rows.push({
+      key: "__unmapped__",
+      name: "未映射直持",
+      title: "没有行业映射的直持证券（不凭空补 0 值行业）",
+      width: barWidth(dv.unmapped_ratio),
+      value: percent(dv.unmapped_ratio)
+    });
+  }
+  // 现金等价物单列：与「未映射」不是一回事（无股票敞口 ≠ 数据缺口）
+  if (dv.cash_equivalent_cny > 0) {
+    rows.push({
+      key: "__cash__",
+      name: "现金等价物",
+      title: "货基/逆回购，本质无股票敞口（非缺口）",
+      width: barWidth(dv.cash_equivalent_ratio),
+      value: percent(dv.cash_equivalent_ratio)
+    });
+  }
+  return rows;
+});
+
+/** 直持视图缺映射时的成因提示；无缺口或不在直持视图时为空 */
+const directMappingHint = computed(() => {
+  const dv = data.value?.direct_view;
+  if (!dv || industryView.value !== "direct") return "";
+  if (dv.mapping_available) return "";
+  return dv.unmapped_reason ?? "";
+});
+
+const activeIndustryRows = computed(() =>
+  industryView.value === "direct" ? directRows.value : industryRows.value
+);
+
+const viewHint = computed(() =>
+  industryView.value === "direct"
+    ? "直接持有：基金整块显示为「基金」不拆底层——这张图回答「我自己直接买了什么」。"
+    : "穿透后：基金按底层持仓并入行业——这张图回答「我的钱最终押在哪些行业」。"
+);
+
 /** 个股行：季报只披露前十大、故用第二色与行业层区分；条形与数值同用总市值占比 */
 const stockRows = computed(() =>
   (data.value?.stocks ?? []).map(row => ({
@@ -293,6 +403,55 @@ onMounted(load);
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* #2617 行业口径切换：标题与分段控件同一行，提示语单独一行降权 */
+.panel-head {
+  display: flex;
+  gap: var(--space-standard);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-view-hint {
+  margin: 0 0 var(--space-compact);
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
+}
+
+/* #2617 非主口径里的直持行业：标签流，不画条——它只是「另一块敞口」，
+   不是可与主口径比较的量级，画条会被误读成两套并列分类 */
+.other-direct {
+  margin-top: var(--space-compact);
+}
+
+.other-direct__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
+}
+
+.other-direct__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.other-direct__tag {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  padding: 2px var(--space-2);
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+
+  em {
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+  }
 }
 
 .panel-subtitle-note {

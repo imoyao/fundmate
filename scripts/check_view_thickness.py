@@ -405,7 +405,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # 没有可下沉的业务规则。按 --report 实测回写：334 → 346、max_func 31 → 43
     # （穿透端点自身 span 43 ≤ 硬上限 60）。同 #2134 / #2135 先例。
     "backend/app/domains/summary/views.py": {
-        "lines": 346,
+        # #2617 新增 GET /summary/position-structure/（持仓结构）后 346 → 379：
+        # 该端点只做入参解析 + 调 services，无 ORM 查询、无 commit；
+        # 业务口径全部在 services/position_structure.py，故只重取 lines。
+        "lines": 379,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,
