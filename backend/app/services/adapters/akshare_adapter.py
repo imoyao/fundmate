@@ -21,6 +21,7 @@ from app.core.symbol_utils import (
     split_symbol,
 )
 from app.services.adapters.base import DataSourceAdapter
+from app.services.adapters.contract import UpstreamContractError, assert_columns
 
 # 基金经理全量接口（东财 fund_manager_em）偶发抖动，首次拉取的有限重试策略
 _FUND_MANAGER_RETRY = 3
@@ -176,6 +177,22 @@ _FR_PROBES = ('000001', '110011', '161725')
 # 规模下限（无历史存储时的「分布漂移」等价物）：低于经验值即 WARNING 人工复核
 _FR_MIN_RECORDS = 10000
 _FR_MIN_RATED = 5000
+
+# ── 上游列名契约：ak.fund_scale_open_sina（#2543） ──
+# 快照取自 2026-10-23 生产 run ``39971621884`` 的报错原文（akshare 抛出的期望列全集）。
+# 上游改列名会以「静默空数据」的形态落地（见 fetch_fund_scale docstring），故钉成常量：
+# **必填列缺失即抛错**，未知列只告警（上游加列不是漂移，但说明该更新这份快照了）。
+FUND_SCALE_REQUIRED_COLUMNS = ('基金代码', '最近总份额', '单位净值')
+FUND_SCALE_KNOWN_COLUMNS = (
+    '基金代码',
+    '基金简称',
+    '单位净值',
+    '总募集规模',
+    '最近总份额',
+    '成立日期',
+    '基金经理',
+    '更新日期',
+)
 
 
 class AkshareAdapter(DataSourceAdapter):
@@ -1101,6 +1118,15 @@ class AkshareAdapter(DataSourceAdapter):
 
         接口仅给「最近总份额」与「单位净值」，不直接给规模列；规模由调用方按
         shares×nav 估算（亿元）。返回 [{fund_code, shares, nav}]。
+
+        **列名契约（#2543）**：先校验上游列覆盖 ``FUND_SCALE_REQUIRED_COLUMNS``
+        再逐行取值。上游改列名时，``row.get`` 会静默返回 None → 每行都被
+        ``continue`` 跳过 → 返回 ``[]``，与「上游今天没数据」无法区分；2026-10-23
+        就是这么红的（生产 run ``39971621884``）。现在改为**当场抛
+        ``UpstreamContractError``**，把缺哪些列、现有哪些列一并写进异常。
+
+        **异常不吞**：网络/上游异常原样抛出（与 fetch_fund_rating 同口径），
+        不再伪装成「返回空数据」——「空」与「没拿到」必须区分（#1179 同族）。
         """
         from app.core.akshare_lazy import get_akshare
 
@@ -1109,10 +1135,20 @@ class AkshareAdapter(DataSourceAdapter):
             df = ak.fund_scale_open_sina()
             if df is None or df.empty:
                 return []
+
+            assert_columns(
+                df.columns,
+                required=FUND_SCALE_REQUIRED_COLUMNS,
+                known=FUND_SCALE_KNOWN_COLUMNS,
+                source='akshare.fund_scale_open_sina',
+            )
+
             out = []
+            skipped = 0
             for _, row in df.iterrows():
                 code = str(row.get('基金代码', '')).strip()
                 if not code or len(code) != 6 or not code.isdigit():
+                    skipped += 1
                     continue
                 out.append(
                     {
@@ -1121,11 +1157,25 @@ class AkshareAdapter(DataSourceAdapter):
                         'nav': self._to_ratio(row.get('单位净值')),
                     }
                 )
+
+            # 契约已过（列都在）却一行都解析不出 ⇒ 列**语义**变了（如代码列塞进了
+            # 带后缀的写法）。这在旧实现里同样表现为静默的 []，故一并显性化。
+            if not out and skipped:
+                raise UpstreamContractError(
+                    'akshare.fund_scale_open_sina 上游列语义漂移：'
+                    f'{skipped}/{len(df)} 行的「基金代码」均非 6 位数字，'
+                    '契约列名在但取值对不上（上游改了代码列写法？）'
+                )
+
             self.logger.info(f'获取到 {len(out)} 只基金规模数据')
             return out
+        except UpstreamContractError:
+            # 契约漂移是**要人处理**的信号，不降级、不吞：job 层按上游异常判 failed。
+            self.logger.error('获取基金规模失败：上游列名/列语义与契约不符')
+            raise
         except Exception as e:
             self.logger.error(f'获取基金规模失败: {e}')
-            return []
+            raise
 
     # ── 晨星星级评级（#1440，3 年期口径，自写解析） ──
 
