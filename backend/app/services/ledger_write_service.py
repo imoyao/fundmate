@@ -34,6 +34,11 @@ from app.domains.ledgers.constants import (
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services.family_member_service import (
+    FamilyMemberError,
+    get_member,
+    resolve_owner_member,
+)
 from app.services.fund_service import FundService
 from app.services.position_service import PositionService
 from app.services.trading import TransactionService
@@ -263,6 +268,19 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         if not cash_ledger or cash_ledger.family_id != family_id:
             raise LedgerWriteError('关联的现金账户不存在或类型不是现金账户', 400, 1001)
 
+    # 归属家庭成员（#1173）：校验成员存在且属同一家庭；不传 = 未归属/家庭共有。
+    # 停用成员不可被**新**账户指派（历史账户保留原归属不动）。
+    owner_member_id = None
+    raw_owner_member_id = data.get('owner_member_id')
+    if raw_owner_member_id is not None:
+        try:
+            owner_member_id = resolve_owner_member(db, family_id, raw_owner_member_id)
+        except FamilyMemberError as e:
+            raise LedgerWriteError(e.message, e.status_code, e.error_code)
+        member = get_member(db, family_id, owner_member_id)
+        if member is not None and not member.is_active:
+            raise LedgerWriteError('不能把账户归属给已停用的成员', 400, 1001)
+
     # 派生 channel_category / ledger_type（#1101 渠道分类重设计）：
     #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
     #   - 否则有销售机构 → 以 org_type 映射为准（权威，覆盖 ledger_type 的展示语义）；
@@ -303,6 +321,7 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         linked_money_fund_id=linked_money_fund_id,
         auto_purchase_money_fund=auto_purchase_money_fund,
         sales_institution_id=sales_institution_id,
+        owner_member_id=owner_member_id,
         family_id=family_id,
     )
 
@@ -373,6 +392,26 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
     # 更新 portfolio_id（允许设置为 None）
     if 'portfolio_id' in data:
         ledger.portfolio_id = data['portfolio_id']
+
+    # 归属家庭成员（#1173）：允许设为 None（解绑 → 回到「未归属/家庭共有」）。
+    # ⚠️ 必须显式在白名单里加这一分支——本函数用 `if 'X' in data:` 逐字段处理，
+    # **未列出的键被静默忽略**：不写这行，前端传了成员、后端会静默丢弃，
+    # 表现为「保存了但没生效」。
+    if 'owner_member_id' in data:
+        raw_owner_member_id = data['owner_member_id']
+        if raw_owner_member_id is None:
+            ledger.owner_member_id = None
+        else:
+            try:
+                resolved = resolve_owner_member(db, family_id, raw_owner_member_id)
+            except FamilyMemberError as e:
+                raise LedgerWriteError(e.message, e.status_code, e.error_code)
+            member = get_member(db, family_id, resolved)
+            # 停用成员：允许**继续绑定已有账户**（历史归属要留住），
+            # 但不允许把账户**改绑**给停用成员。
+            if member is not None and not member.is_active and resolved != ledger.owner_member_id:
+                raise LedgerWriteError('不能把账户归属给已停用的成员', 400, 1001)
+            ledger.owner_member_id = resolved
 
     # 更新 linked_cash_ledger_id（允许设置为 None）
     if 'linked_cash_ledger_id' in data:

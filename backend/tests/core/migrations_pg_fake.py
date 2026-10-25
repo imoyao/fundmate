@@ -38,6 +38,9 @@ from typing import Dict, List, Optional
 
 _ADD_COL_RE = re.compile(r'ALTER TABLE (\w+) ADD COLUMN (?:IF NOT EXISTS )?(\w+)', re.IGNORECASE)
 _CREATE_INDEX_RE = re.compile(r'CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?(\w+) ON (\w+)', re.IGNORECASE)
+# 建表：表名 + 列名列表（够 fake 维护「表在不在、哪些列」即可，不必真解析约束）
+_CREATE_TABLE_RE = re.compile(r'CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\((.*?)\)', re.IGNORECASE | re.DOTALL)
+_CREATE_TABLE_COL_RE = re.compile(r'^\s*(\w+)\s+[A-Z]', re.IGNORECASE | re.MULTILINE)
 
 
 class _Result:
@@ -141,3 +144,22 @@ class PgFake:
             self.indexes.setdefault(table, [])
             if name not in self.indexes[table]:
                 self.indexes[table].append(name)
+            return
+        # 建表（#1173）：把表登记进去，列名从 DDL 里逐行抽出来
+        # （只取「列名 + 类型」形态的行，跳过 PRIMARY KEY / CONSTRAINT 之类的约束行）。
+        m = _CREATE_TABLE_RE.search(sql)
+        if m:
+            table, body = m.group(1), m.group(2)
+            cols = self.columns.setdefault(table, [])
+            for line in body.split(','):
+                cm = _CREATE_TABLE_COL_RE.match(line)
+                if cm and cm.group(1).upper() not in (
+                    'PRIMARY',
+                    'FOREIGN',
+                    'CONSTRAINT',
+                    'UNIQUE',
+                    'CHECK',
+                ):
+                    name = cm.group(1)
+                    if name not in cols:
+                        cols.append(name)

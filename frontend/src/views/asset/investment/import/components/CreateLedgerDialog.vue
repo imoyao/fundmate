@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import AccountFormFields from "@/views/asset/ledgers/components/AccountFormFields.vue";
+import OwnerMemberSelect from "@/views/asset/ledgers/components/OwnerMemberSelect.vue";
 import { ALLOCATION_OPTIONS } from "@/constants";
 
 const {
@@ -12,6 +13,7 @@ const {
   newLedgerPortfolioId,
   newLedgerFeeConfig,
   newLedgerSalesInstitutionId,
+  newLedgerOwnerMemberId,
   salesInstitutionsForImport,
   newLedgerAllocation,
   cashLedgersForImport
@@ -45,6 +47,9 @@ const {
         :sales-institutions="salesInstitutionsForImport"
         :advanced-collapsed="true"
       />
+
+      <!-- 归属成员（#1173）：导入向导里新建的账户同样要能指定归属 -->
+      <OwnerMemberSelect v-model="newLedgerOwnerMemberId" />
 
       <el-form-item label="默认配置目标">
         <el-select v-model="newLedgerAllocation" class="w-full" clearable>

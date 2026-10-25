@@ -124,6 +124,24 @@ function onReorderKey(
           {{ ledger.name }}
         </span>
         <AssetTypeBadge :type="ledger.ledger_type" />
+        <!-- 归属家庭成员（#1173）：只在有归属时显示——「家庭共有」是常态，
+             占位反而让每个卡片都多一个无信息量的标签 -->
+        <el-tooltip
+          v-if="ledger.owner_member_id"
+          :content="`归属：${ledger.owner_member_name || '未知成员'}`"
+          placement="top"
+          effect="light"
+        >
+          <el-tag
+            size="small"
+            type="info"
+            effect="plain"
+            class="ledger-owner-tag"
+          >
+            <IconifyIconOffline icon="ep:user" class="ledger-owner-tag__icon" />
+            {{ ledger.owner_member_name || "未知成员" }}
+          </el-tag>
+        </el-tooltip>
         <!-- 温柔提醒角标（#1133 §4）：中性信息色，不红不阻断；hover 提示建议核对 -->
         <el-tooltip
           v-if="showStaleBadge(staleCount)"

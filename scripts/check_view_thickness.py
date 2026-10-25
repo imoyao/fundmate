@@ -221,11 +221,19 @@ BASELINE: dict[str, dict[str, int]] = {
     # 视图里必然变厚（lines 701 → 704 已被守卫拦），而组装属展示职责、本就该在
     # services；顺带删除 `_ymd` 闭包与 10 字段字典。orm_queries / commits 不动
     # （10/0），lines 701 → 679、max_func 60 → 44。按 `--report` 实测回写。
+    # 2026-10-24 收紧（#1173，**非放宽**）：把 `_ledger_to_dict`（出参序列化口径）整体下沉到
+    # 新增的 `services/ledger_presenter.py::ledger_to_dict`——与既有
+    # `services/position_presenter.py`（`enrich_position_dict`）同构：展示层序列化属
+    # 「展示口径」，不是 HTTP 编排，留在视图里只会让账户域视图随字段增长持续变厚。
+    # 本次顺带加了两个归属字段（`owner_member_id` / `owner_member_name`），
+    # 若不下沉就得让 `_ledger_to_dict` 再涨 11 行（max_func 44 → 55，越 60 的硬上限虽未破，
+    # 但基线已被顶破）。下沉后 ledgers 679 → 635 行、max_func 44 → 43，
+    # `orm_queries` / `commits` 不动（10/0）。按 `--report` 实测**收紧**。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 679,
+        "lines": 635,
         "orm_queries": 10,
         "commits": 0,
-        "max_func": 44,
+        "max_func": 43,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
@@ -373,8 +381,22 @@ BASELINE: dict[str, dict[str, int]] = {
     # 视图侧只有「入参解析 + 互斥校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍 **0**、
     # `max_func` 不变（31）。含 #2134 端点在内按 `--report` 实测回写（rebase 两卡叠加后重测）。
     # 同 #2131 先例：新增端点但纯 HTTP 编排，按 `--report` 实测回写基线。
+    # 2026-10-24 重取（#1173，**新增过滤参数**，非放宽）：给 summary 的 4 个端点
+    # （`/summary/` `/summary/sankey/` `/summary/distributions/` `/summary/groups/`）
+    # 加 `member_id` 查询参数——按家庭成员档案切片持仓与汇总。切片口径全在
+    # `services/summary_service.py`（「成员 → 账户集合」收口在
+    # `services/family_member_service.ledger_ids_for_member`，持仓/资产/盈亏同一份集合），
+    # 视图侧只有「入参解析 + 调服务 + 信封」，`orm_queries` / `commits` 仍 **0**、
+    # `max_func` 不变（31）。
+    # 增量构成：summary 327 → 334（+7 = import 2 + `MemberSliceQuery` 解析 4 + 注释 1）。
+    # 参数校验走新增的 `domains/summary/schemas.py::MemberSliceQuery` + `parse_query`
+    # （pydantic，非法值 → 422），与 positions 域 `PositionListRequest` 同一套惯例——
+    # **不**在视图里手写 `int(request.args.get(...))`：非法值静默变成「不筛」会让用户
+    # 以为筛了成员、实际看的是全量。
+    # 解析语句必须放在 `try` **之外**：这 4 个端点的 `except Exception` 会把 abort(422)
+    # 吞成 500（HTTPException 是 Exception 子类）。
     "backend/app/domains/summary/views.py": {
-        "lines": 327,
+        "lines": 334,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,
