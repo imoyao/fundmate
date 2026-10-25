@@ -171,9 +171,9 @@ onMounted(load);
   &__value {
     flex: 0 0 56px;
     font-size: var(--text-small);
-    text-align: right;
-    color: var(--text-primary);
     font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    text-align: right;
   }
 
   &__meta {
