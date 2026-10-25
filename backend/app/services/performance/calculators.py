@@ -426,19 +426,31 @@ def calculate_portfolio_xirr_by_id(
     value_map = _batch_get_position_values(db, positions)
     total_value = sum(value_map.values())
 
+    # 口径回填（#2615）：account = 有入金流水、按外部资金流算；position = 只导过交易、
+    # 沿用「买入算投入」的降级口径；mixed = 组合内两种账户混着。页面需要据此提示
+    # 「未记录入金，按买入成本估算」，不能把两种口径的数字并排展示却不说。
+    basis_info: Dict[str, Any] = {}
     cashflows = generate_portfolio_cashflows(
-        db, portfolio_id, total_value, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+        db,
+        portfolio_id,
+        total_value,
+        family_id=family_id,
+        include_cash_equivalents=include_cash_equivalents,
+        basis_sink=basis_info,
     )
 
     logger.debug(
         f'组合 XIRR 计算(portfolio_id={portfolio_id}): '
         f'账户数={len(ledger_ids)}, 持仓数={len(positions)}, '
-        f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}, method={method}'
+        f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}, '
+        f'method={method}, basis={basis_info.get("basis")}'
     )
 
     # `method` 必须透传：此前漏传，`method=dietz` 在组合级被静默当成 xirr 计算
     # （前端切到「区间」仍回 xirr 字段，页面显示 0.00%）。
-    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
+    result = _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
+    result['cashflow_basis'] = basis_info.get('basis', 'position')
+    return result
 
 
 def calculate_xirr_by_scope(
