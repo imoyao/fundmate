@@ -13,7 +13,15 @@ from sqlalchemy.schema import CreateIndex
 
 from app.core.migrations import migrate_fee_unique_indexes
 from app.core.money import Money
-from app.domains.funds.models import DailyWorth, FeeRatio, Fund, Manager, PurchaseRule, RedeemRule
+from app.domains.funds.models import (
+    DailyWorth,
+    FeeRatio,
+    Fund,
+    FundHolding,
+    Manager,
+    PurchaseRule,
+    RedeemRule,
+)
 from app.services.fund_service import FundService
 
 #: 费率三表的唯一约束（2026-10-18）。与 app.core.migrations / 模型 __table_args__ 同名。
@@ -822,3 +830,79 @@ class TestFeeUniqueConstraints:
         )
         # 此时会进入业务逻辑，发现没有买入记录返回 400，不是参数错误
         assert resp3.status_code == 400
+
+
+# ── #2604 组合内基金持仓重叠度端点契约 ──────────────────────────────────
+
+
+def test_重叠度端点契约(client, db, make_position):
+    """端点只做「取值 → 调 service → 组响应信封」，出参字段由 service 定死。
+
+    三种「pairs 为空」的成因必须在出参上可区分（``degraded`` / ``fund_count`` /
+    ``pairs``），否则前端无法区分「算不出来」与「确实不重叠」——那会给用户
+    「查过了、零重合」的错误安心。
+    """
+    make_position(symbol='000001', asset_type='fund', name='基金甲', quantity=1000, current_price=2.0)
+    make_position(symbol='000002', asset_type='fund', name='基金乙', quantity=500, current_price=3.0)
+    db.add(
+        FundHolding(
+            fund_code='000001',
+            report_period='2026Q2',
+            report_date=date(2026, 6, 30),
+            holding_basis='full',
+            stock_code='600519',
+            stock_name='贵州茅台',
+            ratio=10.0,
+            source='eastmoney',
+        )
+    )
+    db.add(
+        FundHolding(
+            fund_code='000002',
+            report_period='2026Q2',
+            report_date=date(2026, 6, 30),
+            holding_basis='full',
+            stock_code='600519',
+            stock_name='贵州茅台股份',  # 名称写法不同，按 stock_code 配对
+            ratio=6.0,
+            source='eastmoney',
+        )
+    )
+    db.commit()
+
+    resp = client.get('/api/funds/overlap/')
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload['message'] == 'ok'
+    data = payload['data']
+    assert set(data) == {
+        'pairs',
+        'fund_count',
+        'skipped_basis_mismatch',
+        'skipped_null_ratio',
+        'total_market_value_cents',
+        'coverage_pct',
+        'uncovered',
+        'degraded',
+        'source',
+    }
+    assert data['degraded'] is False
+    assert data['fund_count'] == 2
+    assert len(data['pairs']) == 1
+    pair = data['pairs'][0]
+    assert {pair['fund_code_a'], pair['fund_code_b']} == {'000001', '000002'}
+    # 共同持仓只有 600519：加权 = min(10.0, 6.0) = 6.0 个百分点，集合口径 = 1/1
+    assert pair['weighted_overlap'] == pytest.approx(6.0)
+    assert pair['jaccard'] == pytest.approx(1.0)
+    assert pair['common_holdings'][0]['stock_code'] == '600519'
+
+
+def test_重叠度端点无持仓时返回空结构而非报错(client):
+    resp = client.get('/api/funds/overlap/')
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['pairs'] == []
+    assert data['fund_count'] == 0
+    # 不是取数失败（degraded），是真的没有持仓 —— 两者含义不同，前端要分开渲染
+    assert data['degraded'] is False
+    assert data['source'] == 'fund_holdings'
