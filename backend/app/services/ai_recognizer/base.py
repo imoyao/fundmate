@@ -95,7 +95,7 @@ class BaseRecognizer(ABC):
 
         分层策略（用户建议「正则优先，便宜模型兜底」，2026-08-13）：
         1. 正则层：简单排版（「代码 名称」/「代码 名称 买卖 金额」）直接提取，零成本、零延迟；
-        2. LLM 层：复杂文本（自然语言夹杂、名称在代码前等）才调便宜模型（默认 mini）。
+        2. LLM 层：复杂文本（自然语言夹杂、名称在代码前等）才调便宜模型（默认 2-1-lite）。
         """
         if not text or not text.strip():
             raise SBException(code=ErrorCode.INVALID_PARAMS.code, message='文本内容为空', status_code=400)
@@ -105,12 +105,12 @@ class BaseRecognizer(ABC):
             return self.enrich(regex_items)
         # 第 2 层：便宜模型兜底（复杂排版）
         content = [{'type': 'text', 'text': f'请从以下文本中提取结构化记录：\n\n{text[: self.MAX_TEXT_LEN]}'}]
-        raw = llm.call_llm(content, self.system_prompt)
+        raw = llm.call_llm(content, self.system_prompt, thinking=llm.ARK_OCR_THINKING)
         items = self.validate(self.extract(raw))
         return self.enrich(items)
 
     def recognize_image(self, image_bytes: bytes, mime: str = 'image/jpeg') -> List[dict]:  # 同上
-        """图片识别：LLM vision（便宜模型）→ extract → validate → enrich。"""
+        """图片识别：LLM vision（默认档 2-1-lite，关深度思考）→ extract → validate → enrich。"""
         import base64
 
         if not image_bytes:
@@ -124,7 +124,7 @@ class BaseRecognizer(ABC):
             {'type': 'text', 'text': '请识别图片中的所有基金/股票信息。'},
             {'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}},
         ]
-        raw = llm.call_llm(content, self.system_prompt)
+        raw = llm.call_llm(content, self.system_prompt, thinking=llm.ARK_OCR_THINKING)
         items = self.validate(self.extract(raw))
         return self.enrich(items)
 

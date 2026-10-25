@@ -30,10 +30,17 @@ load_dotenv()  # 独立脚本直接 import 时也能读到 .env（main.py 已 lo
 ARK_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
 ARK_API_KEY = os.getenv('ARK_API_KEY', '')
 # OCR / 结构化识别档（默认档）：必须**支持图片输入**，故保留 doubao 视觉模型。
-# 默认用便宜的 doubao mini（文本/图片都支持，成本约为旗舰 pro 的 1/10，识别基金/股票
-# 代码+名称这类简单结构化任务是杀鸡用牛刀，无需顶级模型；如需提精度可在 .env 覆盖 ARK_MODEL。
+# 2026-10-25 起缺省换 2-1-lite：原 2-0-mini 实测 429 SetLimitExceeded（账号用量上限暂停），
+# 报错文案指向方舟控制台「安全体验模式」，不是 key 失效。
 # ⚠️ 换成纯文本模型（如 deepseek 系）会让图片识别直接 400，OCR 请勿走这一档。
-ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-0-mini-260428')
+ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-1-lite-260915')
+# OCR 档的深度思考开关：'disabled' / 'enabled' / 'none'（none = 不传该参数）。
+# 实测（2026-10-25，2-1-lite 识一张 260x80 的代码图）：
+#   默认（不传，服务端开思考）→ 112.2s / 9002 token，且漏识别一个代码；
+#   thinking=disabled          →   5.9s / 1367 token，三个代码全对。
+# 不关思考会超过 ARK_TIMEOUT(60s) 直接 ReadTimeout→503，故默认 disabled；
+# 若换回不支持该参数的模型（如 doubao-seed-2-0 系）置 none。
+ARK_OCR_THINKING = os.getenv('ARK_OCR_THINKING', 'disabled').strip().lower()
 # 账本精灵（对话 Agent）档：与 OCR 解耦的独立档（2026-10-25 用户指定切换）。
 # 该模型为纯文本推理模型（input_modalities=text，reasoning 会额外烧 token），
 # 只用于对话/工具决策/摘要/叙事，不得用于图片识别。
@@ -101,6 +108,7 @@ def call_llm(
     response_format: Optional[dict] = None,
     usage_sink: Optional[dict] = None,
     model: Optional[str] = None,
+    thinking: Optional[str] = None,
 ) -> str:
     """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
 
@@ -115,6 +123,9 @@ def call_llm(
             重试路径不累加（失败响应无 usage），与 _record_tokens 口径一致。
         model: 覆盖默认档（缺省 ARK_MODEL）。**图片输入必须留在默认档**；
             账本精灵等纯文本对话传 ARK_MODEL_AGENT（见该常量注释）。
+        thinking: 深度思考开关，仅取 'enabled' / 'disabled'（其余值一律不传该参数）。
+            OCR 链路传 `thinking=ARK_OCR_THINKING`——开着思考时单张图 112s、9000 token，
+            远超 60s 超时，务必关掉（实测数据见 ARK_OCR_THINKING 注释）。
 
     兜底设计（用户反馈 503 直报问题）：
     - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
@@ -141,6 +152,8 @@ def call_llm(
     }
     if response_format:
         payload['response_format'] = response_format
+    if thinking in ('enabled', 'disabled'):
+        payload['thinking'] = {'type': thinking}
 
     attempts = ARK_RETRIES + 1
     last_err: Optional[Exception] = None

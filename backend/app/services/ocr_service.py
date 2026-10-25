@@ -59,7 +59,7 @@ _RECOGNIZER = WatchlistRecognizer()
 
 # ── 兼容入口（委托默认场景识别器）──
 def recognize(image_bytes: bytes) -> list:
-    """图片 → 火山方舟 vision（默认 mini 便宜模型）→ 基金/股票代码列表。"""
+    """图片 → 火山方舟 vision（默认 2-1-lite，关深度思考）→ 基金/股票代码列表。"""
     return _RECOGNIZER.recognize_image(image_bytes)
 
 

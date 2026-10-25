@@ -31,9 +31,9 @@ API_BASE = "https://ark.cn-beijing.volces.com/api/v3"
 #   - deep-review 候选池（scripts/llm_health_probe.py CANDIDATES，pro + cheap 两档）
 #   - lite 档候选（2026-09-28 用户指定核验，暂未接入消费点）
 CANDIDATES = [
-    "doubao-seed-2-0-mini-260428",  # OCR 默认（ARK_MODEL 缺省值，视觉档）
+    "doubao-seed-2-1-lite-260915",  # OCR 默认（ARK_MODEL 缺省值，视觉档 + 关思考）
+    "doubao-seed-2-0-mini-260428",  # OCR 旧档（2026-10-25 实测 429 无额度，留作对照）
     "doubao-seed-2-0-lite-260428",  # lite 候选
-    "doubao-seed-2-1-lite-260915",  # lite 候选
     "doubao-seed-2-0-pro-260215",  # 用户询问（注册面 Retiring，实测 404）
     "doubao-seed-2-1-pro-260915",  # deep-review pro 首选
     "doubao-seed-2-1-turbo-260628",  # deep-review cheap 兜底
