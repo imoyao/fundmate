@@ -32,7 +32,9 @@ from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.analytics.benchmark_comparison import build_benchmark_comparison
 from app.services.analytics.trading_behavior import build_trading_behavior
+from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.nav_service import NavService
 from app.services.performance.calculators import calculate_portfolio_xirr
 from app.services.pnl_calendar import compute_range_attribution
@@ -167,6 +169,31 @@ def _tool_get_trading_behavior(params: dict) -> dict:
             start_date=params.get('start_date'),
             end_date=params.get('end_date'),
             symbol=params.get('symbol'),
+        )
+
+
+def _tool_get_portfolio_vs_benchmark(params: dict) -> dict:
+    """组合同期基准对比（#2620）：区间收益 / 基准收益 / 超额 / 回撤 / 相关系数。
+
+    与 `get_portfolio_performance`（绝对年化 XIRR）的分工：本工具回答「跑赢了吗」，
+    即「收益是本事还是市场给的」。全部字段复用既有基准链路
+    （`analytics.benchmark_comparison` → `build_scope_excess` / `index_daily`），
+    零新表、零外部请求。
+
+    口径要点（消费方须知道，否则会误读）：
+    - 超额 = 组合区间收益 − 基准区间涨跌幅（百分点），**同期、同复权**，不是年化；
+    - 最大回撤用日收益连乘（TWR 链式），缺口日跳过不填 0；
+    - 相关系数按**对齐后的日收益**算，样本数一并返回（< 3 或零波动回 None）；
+    - `available=False` 时**不许**用近似值补：读 `unavailable_reason` 与
+      `coverage_gaps`（基准缺哪段）如实告知用户。
+    """
+    with database.get_session() as db:
+        return build_benchmark_comparison(
+            db,
+            family_id=_server_family_id(params),
+            start_date=params.get('start_date'),
+            end_date=params.get('end_date'),
+            benchmark_code=params.get('benchmark'),
         )
 
 
@@ -309,6 +336,7 @@ def _tool_get_watchlist_overview(params: dict) -> dict:
 
 register_tool('get_assets_overview', _tool_get_assets_overview)
 register_tool('get_portfolio_performance', _tool_get_portfolio_performance)
+register_tool('get_portfolio_vs_benchmark', _tool_get_portfolio_vs_benchmark)
 register_tool('list_position_pnl', _tool_list_position_pnl)
 register_tool('get_trading_behavior', _tool_get_trading_behavior)
 register_tool('get_return_attribution', _tool_get_return_attribution)
@@ -347,6 +375,40 @@ TOOLS_METADATA = [
                 'include_cash_equivalents': {
                     'type': 'boolean',
                     'description': '是否把现金/货基/逆回购并入分母，默认 false（仅投资类资产）',
+                },
+            },
+        },
+    },
+    {
+        'name': 'get_portfolio_vs_benchmark',
+        'description': '组合同期基准对比：组合区间收益、基准（默认沪深300）同期涨跌幅、'
+        '超额（百分点）、组合与基准最大回撤、日收益相关系数。当用户问「我跑赢沪深300了吗」'
+        '「今年比大盘好还是差」「收益是本事还是市场给的」时使用。'
+        '返回 available=false 时必须如实告知口径不可用及缺口区间，不得用近似值代替；'
+        'unavailable_reason=no_baseline 表示区间起点时账户还没有资产（收益率无分母），'
+        '此时应建议用户指定一个更晚的起始日期',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'family_id': {
+                    'type': 'integer',
+                    'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+                'start_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '区间起始日 YYYY-MM-DD，缺省为全期（最早一笔流水确认日）',
+                },
+                'end_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '区间结束日 YYYY-MM-DD，缺省为今日',
+                },
+                'benchmark': {
+                    'type': 'string',
+                    'enum': sorted(BENCHMARK_INDICES),
+                    'description': '基准指数代码，缺省沪深300（000300.SH）。'
+                    '可选值：' + '、'.join(f'{code}={name}' for code, name in sorted(BENCHMARK_INDICES.items())),
                 },
             },
         },
