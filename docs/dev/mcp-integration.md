@@ -559,14 +559,22 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 迁移时**不许变**的东西（与 §10 三条判据同源）：`McpProvider` 契约与 `capability → tool` 静态映射；
 8 类 `McpErrorKind` 与 `mcp_call_logs` 表结构；`resolve_token` 的 `DataScope` 分级路由。
 
-判据：**换实现时，`backend/tests/services/mcp/` 下 7 个测试文件 + `tests/domains/test_health_mcp.py`
-一行不改仍全绿。**
+判据**分两层**——不能笼统说「一行不改」：
+
+| 层 | 覆盖 | 迁 SDK 时 |
+|---|---|---|
+| **契约层** | `test_mcp_registry` / `test_mcp_credentials` / `test_mcp_errors` / `test_mcp_call_log` 四份；`test_wind_provider` 里 `capabilities` · `map_args` · `extract` · `_wire` 那批；`tests/domains/test_health_mcp.py` | **一行不改** |
+| **传输层** | `test_mcp_transport` + `test_mcp_transport_errors` 共 **21 例**（SSE 解析、`initialized` 通知失败、请求报文形状、`Mcp-Session-Id` 失效重握、400 双语义）；`test_wind_provider` 里 `test_wind_call_goes_through_unmodified_transport` / `test_wind_call_maps_is_error_to_typed_error` / `test_transport_stays_provider_agnostic` 3 例 | **随实现整体重写** |
+
+为什么不能一刀切：握手与会话复用一旦变成 SDK 内部行为，那些断言「发了什么报文」的用例
+**在实现里已经不存在对应物**，硬要保留等于把 SDK 内部实现钉死。
+**「可替换」的判据是契约层不变，不是全部测试不变。**
 
 ### 13.5 迁移前先付的一笔便宜费用
 
 | 动作 | 成本 | 为什么值得 |
 |---|---|---|
-| 补一条**契约测试**：给定 fixture 报文，`McpTransport` 输出必须等于 X | 半天 | §13.4 判据的实现基础；没有它，「可替换」只是口号 |
+| 补齐**provider 层契约覆盖**：每个 capability 的 `map_args → _wire → extract` 三段都有断言，**不碰 HTTP 报文** | 半天 | 这才是 §13.4「契约层」那张表的实现基础。报文级断言迁移时必然重写，撑不起「可替换」 |
 | 保留 `mcp_probe --save-body` 作为**协议探针** | 0（已在用） | SDK 把报文层打包掉了，采样现场的能力反而更弱；上游报错形态未知阶段，这条比 SDK 值钱 |
 | §13 本身 | — | 现在不做决定，但不让决定变成「忘了」 |
 
