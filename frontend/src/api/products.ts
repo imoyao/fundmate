@@ -83,7 +83,14 @@ export interface FundProfileResult {
   fee_rates: {
     fund_code: string;
     currency: string | null;
-    purchase: { start_quota: number; end_quota: number | null; rate: number }[];
+    /** 申购档：`rate` 为比例档（0.015 = 1.5%），`fee_amount` 为固定金额档（元/笔，
+     *  与 rate 互斥；大额档常见「1000 元/笔」）。两者都要读，否则固定档会被当成 0%。 */
+    purchase: {
+      start_quota: number;
+      end_quota: number | null;
+      rate: number;
+      fee_amount: number | null;
+    }[];
     redeem: { start_day: number; end_day: number | null; rate: number }[];
   } | null;
   /** 数据来源站点名（如「天天基金」）；#1969 前脚注写的是 daily_worth 这类表名 */

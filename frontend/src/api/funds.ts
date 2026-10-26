@@ -53,6 +53,8 @@ export interface FundPurchaseRateItem {
   start_quota: number;
   end_quota: number | null;
   rate: number;
+  /** 固定金额档（元/笔），与 rate 互斥；大额档常见「1000 元/笔」 */
+  fee_amount: number | null;
 }
 
 /** 赎回费率阶梯（对齐 FundService.get_fund_fee_rates；end_day 为 null 表示正无穷） */
