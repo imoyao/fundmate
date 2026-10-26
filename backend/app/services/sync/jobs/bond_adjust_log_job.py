@@ -10,13 +10,18 @@
 池里混着股票与 ETF，故**非转债目标静默跳过**但计入 `not_bond`（不进 `errors`：
 那不是失败，只是「这个目标不归本 job 管」）。
 
-统计口径（四个数**必须**加总等于本轮目标数，否则说明有目标被静默吃掉）：
+统计口径（五个数**必须**加总等于本轮目标数，否则说明有目标被静默吃掉）：
 
-    with_records + no_records + not_bond + failed == total
+    with_records + no_records + no_adjust + not_bond + failed == total
 
 `no_records`（源侧「暂无数据」）与 `failed`（抓取/解析失败）是**两件事**，不得合并
 —— 前者是「这只债从没下修过」，后者是「我们没拿到」，合起来会让下修列静默显示
 「无记录」（#2543 / #171 同族：空 ≠ 没拿到）。
+
+`no_adjust` 是第三件事（#2585 全市场实测后补）：源侧**有行**，但没有一条是**已生效**
+下修 —— 行形态是「股东大会未通过 / 取消 / 无需调整 / 均退市」的合并行，或尚未生效的
+预估值行。它们不落库（不是历史下修），但必须单独计数：混进 `no_records` 会让人
+以为源侧没数据，混进 `with_records` 又会让「下修次数」把没发生的事算进去。
 """
 
 from typing import Any, Dict, List, Optional
@@ -24,7 +29,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from app.domains.securities.models import ConvertibleBondAdjustLog
-from app.services.adapters.jsl_bond_adjust_adapter import SOURCE
+from app.services.adapters.jsl_bond_adjust_adapter import ROW_ADJUSTED, ROW_PENDING, SOURCE
 from app.services.job_base import SyncJob
 from app.services.sync.bulk_ops import set_if_changed, values_equal
 
@@ -66,9 +71,9 @@ def _symbol_of(bond_code: str) -> str:
 class BondAdjustLogSyncJob(SyncJob):
     """可转债下修历史同步（逐只抓取，按目标池限量）。"""
 
-    #: 本轮目标的分桶计数。四个桶**始终存在**（初值 0），这样 `stats` 自带口径，
+    #: 本轮目标的分桶计数。五个桶**始终存在**（初值 0），这样 `stats` 自带口径，
     #: 读结果的人不必猜「缺这个键是不是没跑」。
-    _BUCKETS = ('with_records', 'no_records', 'not_bond')
+    _BUCKETS = ('with_records', 'no_records', 'no_adjust', 'not_bond')
 
     def __init__(self, adapter, db):
         super().__init__(adapter, db)
@@ -104,8 +109,19 @@ class BondAdjustLogSyncJob(SyncJob):
             if not items:
                 self._bump('no_records')
                 continue
+            # 只有**已生效**下修算历史事件：预估（未生效）与合并行（未通过/取消/
+            # 无需调整/退市）都不是发生过的事实，落库会把「下修次数」写虚。
+            adjusted = [it for it in items if it.get('kind') == ROW_ADJUSTED]
+            pending = sum(1 for it in items if it.get('kind') == ROW_PENDING)
+            if pending:
+                # 不落库，但条数必须可见：否则「源侧有 3 行、库里 1 行」无从对账
+                self.stats['pending_rows'] = self.stats.get('pending_rows', 0) + pending
+                logger.debug(f'{target}: {pending} 条下修预估未生效，跳过落库')
+            if not adjusted:
+                self._bump('no_adjust')
+                continue
             self._bump('with_records')
-            for item in items:
+            for item in adjusted:
                 rows.append(
                     {
                         'symbol': symbol,
@@ -118,8 +134,10 @@ class BondAdjustLogSyncJob(SyncJob):
         logger.info(
             f'下修历史抓取：有记录 {self.stats.get("with_records", 0)} 只 / '
             f'暂无数据 {self.stats.get("no_records", 0)} 只 / '
+            f'有行但无已生效下修 {self.stats.get("no_adjust", 0)} 只 / '
             f'非转债 {self.stats.get("not_bond", 0)} 个 / '
-            f'失败 {self.stats.get("failed", 0)} 只（明细 {len(rows)} 行）'
+            f'失败 {self.stats.get("failed", 0)} 只（明细 {len(rows)} 行；'
+            f'跳过未生效预估 {self.stats.get("pending_rows", 0)} 条）'
         )
         return rows
 
@@ -195,8 +213,8 @@ class BondAdjustLogSyncJob(SyncJob):
 
     def _build_result(self) -> Dict[str, Any]:
         result = super()._build_result()
-        # 四个分桶与 total 加总必须相等；不等说明有目标既没进桶也没记失败
-        buckets = ('with_records', 'no_records', 'not_bond', 'failed')
+        # 五个分桶与 total 加总必须相等；不等说明有目标既没进桶也没记失败
+        buckets = ('with_records', 'no_records', 'no_adjust', 'not_bond', 'failed')
         result['stats']['bucket_sum'] = sum(self.stats.get(k, 0) for k in buckets)
         if result['stats']['bucket_sum'] != result['stats'].get('total', 0):
             logger.warning(
