@@ -76,6 +76,10 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         comment='关联账户ID (冗余account_name快照，此为真外键)',
     )
     account_name = Column(String(100))
+    # #2138 定投计划关联：哪几笔 buy 由某个计划产生。
+    # 只用「计划 → 流水」单向弱引用（不建 FK）：计划可被删除/停用，历史流水必须保留；
+    # 立 FK 会让删计划连带卡住流水，而 ON DELETE SET NULL 又要改 PG 侧约束。
+    plan_id = Column(Integer, nullable=True, index=True, comment='来源定投计划ID（#2138，NULL=非定投）')
     import_hash = Column(String(64), nullable=True, comment='导入去重哈希值')
     extra = Column(Text, nullable=True)  # 用来存 JSON 字符串
     notes = Column(Text)

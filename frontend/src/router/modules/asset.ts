@@ -218,6 +218,15 @@ const AssetRouteConfig = {
       component: () => import("@/views/asset/family/index.vue"),
       meta: { title: "家庭成员", icon: "ep:user", rank: 3.5 }
     },
+    // 定投计划（#2138）：账本能力的「计划层」——先有计划，再有流水。
+    // rank 3.6：与账户管理(3)/家庭成员(3.5)同属「钱放在哪、谁的钱」这一簇，
+    // 整数位已占满，故用小数（同家庭成员之例）。
+    {
+      path: "/asset/recurring",
+      name: "AssetRecurring",
+      component: () => import("@/views/asset/recurring/index.vue"),
+      meta: { title: "定投计划", icon: "ep:calendar", rank: 3.6 }
+    },
     // 账户详情（作为 Asset 的子路由，继承 Layout 布局）
     {
       path: "/asset/ledgers/:id",
