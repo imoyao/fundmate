@@ -17,6 +17,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Mapping, Sequence
 
+from loguru import logger
+
 from app.services.strategy_engine import strategies  # noqa: F401  —— 导入即完成策略注册
 from app.services.strategy_engine.behavior_profile import (
     BehaviorProfile,
@@ -167,6 +169,9 @@ def behavior_profiles(
 
     trades = provider.trades(family_id, symbols=target_symbols)
     grouped = provider.group_trades_by_symbol(trades)
+    # 同类分位一次性取回（#2639）：按类型归并后每个类型只扫一次并集区间，
+    # 不能等到循环里逐个买入日调——那样就退回「N 个买入日各扫一遍窗口」。
+    peer_maps = _peer_year_returns_by_symbol(provider, target_symbols, grouped)
 
     profiles: list[dict] = []
     series_by_symbol: dict[str, tuple[SeriesPoint, ...]] = {}
@@ -174,12 +179,11 @@ def behavior_profiles(
         symbol_trades = grouped.get(symbol, [])
         series = provider.nav_series(symbol, limit=limit, start=_nav_start_for(symbol_trades))
         series_by_symbol[symbol] = series
-        peer_map = _peer_year_returns_for_symbol(provider, symbol, symbol_trades)
         profile = build_behavior_profile(
             symbol=symbol,
             trades=symbol_trades,
             series=series,
-            peer_year_returns=peer_map,
+            peer_year_returns=peer_maps.get(symbol),
         )
         payload = profile.to_dict()
         payload['name'] = name_by_symbol.get(symbol, '')
@@ -197,28 +201,54 @@ def behavior_profiles(
     }
 
 
-def _peer_year_returns_for_symbol(
+def _peer_year_returns_by_symbol(
     provider: DataProvider,
-    symbol: str,
-    trades: Sequence[TradeRecord],
-) -> dict[date, tuple[float, ...]]:
-    """逐**唯一买入日**取同类近 1 年收益率（#2382）。
+    symbols: Sequence[str],
+    grouped: dict[str, list[TradeRecord]],
+) -> dict[str, dict[date, tuple[float, ...]]]:
+    """一次请求的同类近 1 年收益率：按 `{symbol: {买入日: 同类集合}}` 返回（#2382 / #2639）。
 
-    去重键 = (symbol, 买入日)：同一 symbol 同一天的多笔买入共享一次查库。
-    取数失败（库异常等）按「无同类数据」降级，不阻断画像其余字段。
+    去重键 = `(裸码, 买入日)`：同一 symbol 同一天的多笔买入共享一次取数。
+    全部标的的需求**合并成一批**交给 provider——provider 内部再按 `fund_type_id`
+    归并、每个类型只扫一次并集区间。逐标的调用的写法在真库上要多读十几倍的行
+    （见 `DataProvider.peer_year_returns_for` 的说明），别再改回循环里单点取。
+
+    取数失败（库异常等）整体按「无同类数据」降级，不阻断画像其余字段。
+    批量化把失败面从「一个键」放大到「整个请求」，所以失败要**留下日志**——
+    否则 `buy_percentile` 整列变 None 时无从判断是「同类不足」还是「取数挂了」。
     """
-    code = extract_fund_code(symbol)
-    if not code:
+    wanted: list[tuple[str, date]] = []
+    buy_days_by_symbol: dict[str, tuple[date, ...]] = {}
+    for symbol in symbols:
+        code = extract_fund_code(symbol)
+        if not code:
+            continue
+        days = tuple(sorted({t.trade_date for t in grouped.get(symbol, []) if t.side == 'buy'}))
+        if not days:
+            continue
+        buy_days_by_symbol[symbol] = days
+        wanted.extend((code, day) for day in days)
+    if not wanted:
         return {}
-    buy_dates = sorted({t.trade_date for t in trades if t.side == 'buy'})
-    out: dict[date, tuple[float, ...]] = {}
-    for day in buy_dates:
-        try:
-            peers = provider.peer_year_returns(code, day)
-        except Exception:  # 取数失败不阻断画像（诚实降级）
-            peers = None
-        if peers:
-            out[day] = peers
+
+    try:
+        fetched = provider.peer_year_returns_for(wanted)
+    except Exception as exc:  # 取数失败不阻断画像（诚实降级），但要留痕
+        logger.warning(f'[行为画像] 同类分位取数失败，本请求降级为无同类数据：{exc!r}')
+        return {}
+
+    out: dict[str, dict[date, tuple[float, ...]]] = {}
+    for symbol, days in buy_days_by_symbol.items():
+        code = extract_fund_code(symbol)
+        if not code:
+            continue
+        peers_by_day: dict[date, tuple[float, ...]] = {}
+        for day in days:
+            peers = fetched.get((code, day))
+            if peers:
+                peers_by_day[day] = peers
+        if peers_by_day:
+            out[symbol] = peers_by_day
     return out
 
 
