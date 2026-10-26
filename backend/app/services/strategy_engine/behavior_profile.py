@@ -22,7 +22,9 @@ WHY 这是首批里最该做的一件
     - `forward_return_metrics`：买点质量。每笔买入持有到第 20/60/120 个**净值日**
       的收益率，输出均值 / 中位数 / 胜率。口径：买入价取**成交价**（用户真实付出），
       期末取**买入日之后**第 h 个净值日（「买入后持有 h 个净值日」语义）；
-      未来净值不足 h 个的买入不计入该窗口，计入 `missing_nav_count`，不插值。
+      未来净值不足 h 个的买入不计入该窗口，计入 `missing_count`，不插值。
+      **序列未覆盖买入日**（买入日早于序列首日）同样计缺失——此时「第 h 个净值日」
+      无从定位，任何取值都是错位索引（#2637），绝不凑一个数。
     - `percentile_rank`：买入时点该基金近 1 年收益率在同类基金中的分位
       （中位秩，ties 折半）。同类样本 < `_PERCENTILE_MIN_PEERS` 返回 None（诚实降级）。
     - `account_actual_vs_hold`：账户层实际收益 vs「每笔买入后持有到期末」的差额。
@@ -34,6 +36,7 @@ WHY 这是首批里最该做的一件
 from __future__ import annotations
 
 import statistics
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Mapping, Sequence
@@ -136,26 +139,41 @@ def forward_return_metrics(
         - 买入价取**成交价** `buy.price`（用户真实付出的成本，可能与当日净值有折溢价）；
         - 期末取**买入日之后**第 h 个净值日（`d > buy_date` 中第 h 个），
           即「买入后持有 h 个净值日」的语义；
-        - 未来净值不足 h 个的买入**不计入**该窗口统计，汇总到 `missing_count`，
-          不插值、不用最近值兜底；
+        - 序列**未覆盖买入日**（`buy_date < 序列首日`）或未来净值不足 h 个的买入
+          **不计入**该窗口统计，汇总到 `missing_count`，不插值、不用最近值兜底；
         - 收益率为 %；胜率 = 收益率 > 0 的占比（%）。
 
+    为何要显式判「序列未覆盖买入日」（#2637 修复留痕）
+        取点若直接写 `[d for d in dates if d > buy_date][horizon-1]`，当买入日早于
+        序列首日时该列表等于**整个序列**，下标 horizon-1 取到的是序列第 horizon 个点
+        而非买入后第 horizon 个点：h20/h60/h120 会挤在同一段净值上（实测三值几近相等），
+        且 `len(future) < horizon` 永不为真 ⇒ `missing_count` 恒为 0，
+        把「错」伪装成「数据完备」。这是最难被发现的一类失真，故在此设硬不变式。
+
     返回 `{'h20': {...}, 'h60': {...}, 'h120': {...}}`；某窗口零样本则**不出现该键**
-    （调用方按缺失降级），完全无买入返回 None。
+    （调用方按缺失降级），完全无买入 / 无净值返回 None。
     """
     if not buys:
         return None
     sorted_dates = sorted(mapping)
+    if not sorted_dates:
+        return None
+    first_date = sorted_dates[0]
     out: dict[str, dict[str, object]] = {}
     for horizon in horizons:
         returns: list[float] = []
         missing = 0
         for b in buys:
-            future = [d for d in sorted_dates if d > b.trade_date]
-            if len(future) < horizon:
+            if b.trade_date < first_date:
+                # 不变式：序列没覆盖买入日 → 「第 h 个净值日」无从定位，一律缺失
                 missing += 1
                 continue
-            end_nav = mapping[future[horizon - 1]]
+            # bisect_right(a, x) = 第一个 > x 的下标，即「买入日之后第一个净值日」
+            end_idx = bisect_right(sorted_dates, b.trade_date) + horizon - 1
+            if end_idx >= len(sorted_dates):
+                missing += 1
+                continue
+            end_nav = mapping[sorted_dates[end_idx]]
             if b.price == 0 or end_nav is None:
                 missing += 1
                 continue
@@ -405,6 +423,11 @@ def build_behavior_profile(
     if forward:
         missing_forward = sum(int(w.get('missing_count', 0)) for w in forward.values())
 
+    # 序列未覆盖的买入笔数（#2637）：`forward` 为 None 时无法从各窗口的
+    # missing_count 反映，必须单列，否则「全不覆盖」会被读成「数据完备」。
+    first_nav_date = min(mapping) if mapping else None
+    uncovered_buys = sum(1 for b in buys if first_nav_date is None or b.trade_date < first_nav_date)
+
     return BehaviorProfile(
         symbol=symbol,
         trade_count=len(trades),
@@ -422,7 +445,9 @@ def build_behavior_profile(
             'closed_pairs': len(pairs),
             'last_nav': round(last_nav, 6) if last_nav is not None else None,
             'last_nav_date': last_date.isoformat() if last_date else None,
+            'first_nav_date': first_nav_date.isoformat() if first_nav_date else None,
             'chase_lookback_days': _CHASE_LOOKBACK,
             'forward_missing_count': missing_forward,
+            'forward_uncovered_buys': uncovered_buys,
         },
     )
