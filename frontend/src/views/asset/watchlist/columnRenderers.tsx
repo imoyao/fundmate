@@ -39,6 +39,8 @@ import { pricePrecision } from "@/utils/pricePrecision";
 import type { IntradayTrend } from "@/utils/realtimeDataSources";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
 import { bondNumberText, bondYtmClass } from "./bondFormats";
+// #2651：走势列 title 口径（含 `--` 无数据分支），纯函数便于单测
+import { resolveSparklineTitle } from "./sparklineTitle";
 // #2503：关联列的分组 / 措辞整形（纯模块，不牵动本文件的组件依赖链）
 import {
   buildLinkTip,
@@ -224,6 +226,9 @@ function resolveValue(
  * 就画当日分时，否则回落近 60 日收盘——**同一根折线换口径**，不新增列。
  * 分时的着色基准是**昨收**（`prevClose`）而非首点：当日分时的首点是 09:30 开盘价，
  * 拿它当基准会把「跳空高开」画成一条全绿的上行线，而用户要看的是「相对昨收赚没赚」。
+ *
+ * #2651：`title` 改由 `resolveSparklineTitle` 统一产出，`--` 降级分支同样带说明
+ * （场外基金「无盘中估值分时」原先只在有折线时才说得出来）。
  */
 const renderSparkline: FunctionalComponent<{
   row: WatchlistRow;
@@ -233,13 +238,23 @@ const renderSparkline: FunctionalComponent<{
   const { row, ctx } = props;
   const intraday = ctx.intraday[row.symbol];
   // 少于 2 点画不出线（刚开盘 / 该码无分时），按「无分时」处理而不是画一个点
+  const intradayPoints = intraday?.points.length ?? 0;
   const intradaySeries =
     intraday && intraday.points.length >= 2 ? intraday.points : null;
-  const series = intradaySeries ?? ctx.trends[row.symbol];
+  const trendPoints = ctx.trends[row.symbol];
+  const series = intradaySeries ?? trendPoints;
+  // title 说明**这一格是什么口径**，`--` 的分支也必须带（#2651）：无数据的行最需要
+  // 解释，而原先那句话写在「有折线」的分支里，场外基金的说明根本走不到。
+  // 文案口径全部收敛在 sparklineTitle.ts（纯函数，可单测）。
+  const title = resolveSparklineTitle({
+    isOtc: field(row, "venue") === "OTC",
+    intradayPoints,
+    trendPoints: trendPoints?.length ?? 0
+  });
   if (!series || series.length < 2) {
     return h(
       "span",
-      { class: "text-xs", style: { color: "var(--text-tertiary)" } },
+      { class: "text-xs", style: { color: "var(--text-tertiary)" }, title },
       "--"
     );
   }
@@ -276,14 +291,6 @@ const renderSparkline: FunctionalComponent<{
     })
   ]);
 
-  // title 说明**这一根线是什么口径**。场外基金盘中拿不到分时（无源），
-  // 不写清楚会被当成「分时没动」——这是本次唯一无法用数据自证的降级点。
-  const isOtc = field(row, "venue") === "OTC";
-  const title = intradaySeries
-    ? "当日分时走势（盘中实时）"
-    : isOtc
-      ? "场外基金无盘中估值分时，显示近 60 日净值走势"
-      : "近 60 日收盘价走势";
   return h("span", { title }, [svg]);
 };
 
