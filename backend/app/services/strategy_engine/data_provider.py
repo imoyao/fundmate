@@ -22,7 +22,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Iterable, Sequence
 
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, select
+from sqlalchemy.orm import Session, aliased
 
 from app.core.money import Money
 from app.domains.funds.models import DailyWorth, Fund
@@ -65,6 +66,13 @@ class DataProvider:
     def __init__(self, db: Session, market_db: Session | None = None) -> None:
         self.db = db
         self.market_db = market_db if market_db is not None else db
+        # 请求内缓存（#2639）
+        #     DataProvider 由视图按**请求**新建（`behavior_profiles` 内一次性传入），
+        #     故实例级 dict 天然是请求作用域，不存在跨请求读到陈旧数据的问题；
+        #     也正因如此才不引入进程级/外部缓存——那需要失效策略，收益不值。
+        self._fund_type_cache: dict[str, int | None] = {}
+        self._peer_codes_cache: dict[int, tuple[str, ...] | None] = {}
+        self._peer_returns_cache: dict[tuple[int, date, int], tuple[float, ...] | None] = {}
 
     # ── 行情 ──
 
@@ -111,9 +119,26 @@ class DataProvider:
         """基金小类 id（`funds.fund_type_id`）；查不到返回 None。
 
         分步查询：funds 表在 market 域，与 daily_worth 同库，无 join。
+        请求内按 fund_code 缓存（#2639）：画像逐标的、逐买入日都会问一次同一个代码。
         """
+        if fund_code in self._fund_type_cache:
+            return self._fund_type_cache[fund_code]
         row = self.market_db.query(Fund.fund_type_id).filter(Fund.fund_code == fund_code).first()
-        return int(row[0]) if row and row[0] is not None else None
+        value = int(row[0]) if row and row[0] is not None else None
+        self._fund_type_cache[fund_code] = value
+        return value
+
+    def _peer_codes_of(self, type_id: int) -> tuple[str, ...] | None:
+        """该小类下全部基金裸码（按代码升序）；无则 None。请求内按 type 缓存（#2639）。"""
+        if type_id in self._peer_codes_cache:
+            return self._peer_codes_cache[type_id]
+        codes = tuple(
+            sorted(
+                r[0] for r in self.market_db.query(Fund.fund_code).filter(Fund.fund_type_id == type_id).all() if r[0]
+            )
+        )
+        self._peer_codes_cache[type_id] = codes or None
+        return self._peer_codes_cache[type_id]
 
     def peer_year_returns(
         self,
@@ -132,39 +157,72 @@ class DataProvider:
             - 返回集合**含自身**（`percentile_rank` 的中位秩口径要求 peers 含自身）；
             - 自身不在窗口内（新基金）仍返回同类集合，由调用方降级。
 
-        性能：`daily_worth` 的 `(fund_code, date)` 唯一索引覆盖窗口查询；
-        编排层应按 (fund_code, 买入日) 去重后调用，避免同窗口重复扫库。
+        性能（#2639 重写，口径未变）
+            旧实现把窗口内**全部净值行**拉进 Python 再逐行求首末，实测单类型 1,381 只
+            同类基金时单次 11,214 行 / 32ms，画像接口 311 次调用共 32–42 秒。
+            两处浪费：只为 52 个值读了 11,214 行；同一 `(type_id, as_of)` 被不同标的
+            重复计算。
+
+            现改为**一条语句只取首末净值**：先在子查询里 `GROUP BY fund_code` 求
+            窗口内首末日期（走 `(fund_code, date)` 覆盖索引，不回表），再自连接回
+            `daily_worth` 只取这 2×N 个点的 `unit_nav`。返回行数 11,214 → 52，
+            实测 32.1ms → 19.3ms（其中纯 SQL 21.9 → 11.7ms）。
+            结果按 `(type_id, as_of, window_days)` 请求内缓存——同类型同买入日的计算
+            完全可复用，实测画像请求 311 次调用收敛为 126 次真实计算。
+
+            试过但**更慢**的写法，勿回退：`JOIN funds` 替代 `fund_code IN (...)`
+            会让 SQLite 走 `SCAN funds` + 嵌套索引查找，实测 122ms（是 IN 版的 4 倍）。
         """
         type_id = self.fund_type_id_of(fund_code)
         if type_id is None:
             return None
-        peer_codes = [
-            r[0] for r in self.market_db.query(Fund.fund_code).filter(Fund.fund_type_id == type_id).all() if r[0]
-        ]
+
+        key = (type_id, as_of, window_days)
+        if key in self._peer_returns_cache:
+            return self._peer_returns_cache[key]
+
+        peer_codes = self._peer_codes_of(type_id)
         if not peer_codes:
+            self._peer_returns_cache[key] = None
             return None
 
         window_start = as_of - timedelta(days=window_days)
-        rows = (
-            self.market_db.query(DailyWorth.fund_code, DailyWorth.date, DailyWorth.unit_nav)
-            .filter(
+        first_last = (
+            select(
+                DailyWorth.fund_code.label('fund_code'),
+                func.min(DailyWorth.date).label('first_date'),
+                func.max(DailyWorth.date).label('last_date'),
+            )
+            .where(
                 DailyWorth.fund_code.in_(peer_codes),
                 DailyWorth.date >= window_start,
                 DailyWorth.date <= as_of,
+                # 与旧实现同口径：净值缺失的点不参与「首末」判定
+                DailyWorth.unit_nav.is_not(None),
             )
-            .order_by(DailyWorth.fund_code.asc(), DailyWorth.date.asc())
-            .all()
+            .group_by(DailyWorth.fund_code)
+            .subquery()
         )
-        firsts: dict[str, float] = {}
-        lasts: dict[str, float] = {}
-        for code, day, nav in rows:
-            if day is None or nav is None:
+        head = aliased(DailyWorth)
+        tail = aliased(DailyWorth)
+        rows = self.market_db.execute(
+            select(first_last.c.fund_code, head.unit_nav, tail.unit_nav)
+            .join(head, and_(head.fund_code == first_last.c.fund_code, head.date == first_last.c.first_date))
+            .join(tail, and_(tail.fund_code == first_last.c.fund_code, tail.date == first_last.c.last_date))
+            .order_by(first_last.c.fund_code)
+        ).all()
+
+        out: list[float] = []
+        for _code, first_nav, last_nav in rows:
+            if first_nav is None or last_nav is None:
                 continue
-            value = float(nav)
-            if code not in firsts:
-                firsts[code] = value
-            lasts[code] = value
-        return tuple((lasts[c] - firsts[c]) / firsts[c] * 100.0 for c in firsts if firsts[c] != 0 and c in lasts)
+            first, last = float(first_nav), float(last_nav)
+            if first == 0:  # 起点为 0 无法算收益，不计入（宁缺勿假）
+                continue
+            out.append((last - first) / first * 100.0)
+        result = tuple(out)
+        self._peer_returns_cache[key] = result
+        return result
 
     # ── 持仓 / 流水 ──
 
