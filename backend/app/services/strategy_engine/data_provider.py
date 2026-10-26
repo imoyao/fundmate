@@ -68,8 +68,20 @@ class DataProvider:
 
     # ── 行情 ──
 
-    def nav_series(self, symbol: str, limit: int = 260) -> tuple[SeriesPoint, ...]:
-        """取标的的净值 / 收盘价序列（升序，最多 `limit` 条最近的）。
+    def nav_series(
+        self,
+        symbol: str,
+        limit: int = 260,
+        start: date | None = None,
+    ) -> tuple[SeriesPoint, ...]:
+        """取标的的净值 / 收盘价序列（升序）。
+
+        `start`（#2637）
+            - **默认 `None`**：返回**最近 `limit` 条**。诊断路径用——趋势策略只需近端，
+              260 个净值日足够，不必读全量；
+            - **给定日期**：返回 `date >= start` 的**全量**，此时 `limit` 不生效。
+              行为画像用——「买入后第 h 个净值日」的定位要求序列**覆盖最早买入日**，
+              取近端会把窗口整体错位（见 `forward_return_metrics` 的不变式说明）。
 
         先查场外 `daily_worth`（基金净值），再回落场内 `price_history`（收盘价）。
         两者都是**分步查询**，无 join。取不到返回空元组——由策略层降级成 WATCH，
@@ -77,27 +89,21 @@ class DataProvider:
         """
         code = extract_fund_code(symbol)
         if code:
-            rows = (
-                self.market_db.query(DailyWorth.date, DailyWorth.unit_nav)
-                .filter(DailyWorth.fund_code == code)
-                .order_by(DailyWorth.date.desc())
-                .limit(limit)
-                .all()
-            )
-            points = tuple(
-                SeriesPoint(date=r[0], value=float(r[1])) for r in reversed(rows) if r[0] and r[1] is not None
-            )
+            query = self.market_db.query(DailyWorth.date, DailyWorth.unit_nav).filter(DailyWorth.fund_code == code)
+            if start is None:
+                rows = list(reversed(query.order_by(DailyWorth.date.desc()).limit(limit).all()))
+            else:
+                rows = query.filter(DailyWorth.date >= start).order_by(DailyWorth.date.asc()).all()
+            points = tuple(SeriesPoint(date=r[0], value=float(r[1])) for r in rows if r[0] and r[1] is not None)
             if points:
                 return points
 
-        rows = (
-            self.market_db.query(PriceHistory.trade_date, PriceHistory.close)
-            .filter(PriceHistory.symbol == symbol)
-            .order_by(PriceHistory.trade_date.desc())
-            .limit(limit)
-            .all()
-        )
-        return tuple(SeriesPoint(date=r[0], value=float(r[1])) for r in reversed(rows) if r[0] and r[1] is not None)
+        query = self.market_db.query(PriceHistory.trade_date, PriceHistory.close).filter(PriceHistory.symbol == symbol)
+        if start is None:
+            rows = list(reversed(query.order_by(PriceHistory.trade_date.desc()).limit(limit).all()))
+        else:
+            rows = query.filter(PriceHistory.trade_date >= start).order_by(PriceHistory.trade_date.asc()).all()
+        return tuple(SeriesPoint(date=r[0], value=float(r[1])) for r in rows if r[0] and r[1] is not None)
 
     # ── 同类分组（#2382 buy_percentile 用） ──
 

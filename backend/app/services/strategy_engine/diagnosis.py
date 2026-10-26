@@ -14,7 +14,7 @@ P0 不落库的原因（避免过度工程）
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Mapping, Sequence
 
 from app.services.strategy_engine import strategies  # noqa: F401  —— 导入即完成策略注册
@@ -30,6 +30,11 @@ from app.services.strategy_engine.registry import registry
 
 #: 诊断默认只用「数据已具备」的策略：P0 只供 nav，故估值型/配置型策略不会出现在结果里
 DEFAULT_DATA_SUPPLY = ('nav',)
+
+#: 行为画像取净值序列时，从最早买入日回退的自然日数（#2637）。
+#: 需覆盖两处**买入前**回看：`chase_buy_ratio` 的 20 个净值日、`buy_percentile`
+#: 的 365 自然日窗口；取 400 天留足非交易日与数据缺口的余量。
+_NAV_LOOKBACK_DAYS = 400
 
 
 def list_strategies(available: Sequence[str] = DEFAULT_DATA_SUPPLY) -> list[dict]:
@@ -115,6 +120,24 @@ def diagnose_holdings(
     }
 
 
+def _nav_start_for(trades: Sequence[TradeRecord]) -> date | None:
+    """行为画像取净值序列的起点（#2637）：最早**买入日**回退 `_NAV_LOOKBACK_DAYS`。
+
+    为何不是「从最早买入日开始取」（只补未来、不补过去）
+        `chase_buy_ratio` 要看买入**前** 20 个净值日的涨幅，`buy_percentile` 要看
+        买入日往前 365 自然日的同类收益；从买入日起取会让这两项在最早一笔买入上
+        恒缺，等于用「修一半」的方式制造新的静默降级。
+
+    为何只在有买入流水时才回退
+        无买入流水的标的用不上 `forward_return` / `buy_percentile`，沿用默认的近端
+        `limit` 即可，避免为它们做全量读。
+    """
+    buy_days = [t.trade_date for t in trades if t.side == 'buy']
+    if not buy_days:
+        return None
+    return min(buy_days) - timedelta(days=_NAV_LOOKBACK_DAYS)
+
+
 def behavior_profiles(
     provider: DataProvider,
     family_id: int,
@@ -129,6 +152,12 @@ def behavior_profiles(
         - `forward_return`（买点质量）与 `buy_percentile`（是否追高）逐标的计算；
           同类分位需要同类型基金净值，由 provider 分步查询（本地库，无外部请求）；
         - 账户层 `actual_vs_hold` 进 summary：实际收益 vs「每笔买入后持有到期末」。
+
+    净值窗口覆盖（#2637）
+        逐标的按 `_nav_start_for` 回退到**最早买入日之前**再取全量，而不是固定取
+        最近 `limit` 条。固定近端会让早于窗口的买入在 `forward_return` 里被错位索引，
+        产出一个不报错的错误值——修复前实测 016600 的 h20 报 +77.93%（7 笔全胜），
+        真实值为 −9.19%（7 笔全负），连正负号都是反的。
     """
     holdings = provider.holdings(family_id)
     target_symbols = list(symbols) if symbols else [h.symbol for h in holdings]
@@ -142,9 +171,9 @@ def behavior_profiles(
     profiles: list[dict] = []
     series_by_symbol: dict[str, tuple[SeriesPoint, ...]] = {}
     for symbol in target_symbols:
-        series = provider.nav_series(symbol, limit=limit)
-        series_by_symbol[symbol] = series
         symbol_trades = grouped.get(symbol, [])
+        series = provider.nav_series(symbol, limit=limit, start=_nav_start_for(symbol_trades))
+        series_by_symbol[symbol] = series
         peer_map = _peer_year_returns_for_symbol(provider, symbol, symbol_trades)
         profile = build_behavior_profile(
             symbol=symbol,

@@ -86,6 +86,75 @@ def test_forward_return_no_buys_returns_none():
     assert forward_return_metrics([], {D0: 1.0}) is None
 
 
+# ── #2637 回归：序列未覆盖买入日时不得错位取点 ──
+
+
+def test_forward_return_buy_before_series_start_is_missing():
+    """买入日早于序列首日 → 整笔计缺失，绝不产出数值（#2637 主修）。
+
+    修复前的实现用 `[d for d in dates if d > buy_date][h-1]`，该列表此时等于
+    **整个序列**，取到的是「序列第 h 个点」而非「买入后第 h 个净值日」，
+    且永远通不过 `len(future) < horizon` 的缺失判定。
+    """
+    series = _series([1.0 + i * 0.01 for i in range(260)])
+    buys = [_trade(-854, 'buy', 100.0, 1.0)]
+    assert forward_return_metrics(buys, {p.date: p.value for p in series}) is None
+
+
+def test_forward_return_mixed_coverage_counts_missing():
+    """一笔覆盖、一笔不覆盖：不覆盖的进 missing_count，覆盖的产出真值。"""
+    series = _series([1.0 + i * 0.01 for i in range(40)])  # day0..day39
+    buys = [
+        _trade(-500, 'buy', 100.0, 1.0),  # 序列未覆盖 → 缺失
+        _trade(0, 'buy', 100.0, 1.0),  # day0，之后第 20 个净值日 = day20 → 1.20
+    ]
+    metrics = forward_return_metrics(buys, {p.date: p.value for p in series})
+    assert metrics['h20']['sample_count'] == 1
+    assert metrics['h20']['missing_count'] == 1
+    assert metrics['h20']['mean'] == pytest.approx(20.0)
+
+
+def test_forward_return_index_alignment_mid_series():
+    """买入日位于序列中段：第 h 个净值日从买入日后一位起算（#2637 索引不变式）。
+
+    序列 400 点、买入在下标 100（净值 2.00），h20 应取下标 120（2.20 → +10%）；
+    若错取成「序列第 20 个点」（下标 19，1.19）会得出 -40.5%，两者相差一个量级。
+    """
+    series = _series([1.0 + i * 0.01 for i in range(400)])
+    buys = [_trade(100, 'buy', 100.0, 2.0)]
+    metrics = forward_return_metrics(buys, {p.date: p.value for p in series}, horizons=(20,))
+    assert metrics['h20']['mean'] == pytest.approx(10.0)
+    assert metrics['h20']['missing_count'] == 0
+
+
+def test_forward_return_reproduces_2637_scene():
+    """复刻 016600 现场：260 点近端序列 + 多笔早于序列起点的买入（#2637）。
+
+    修复前输出 h20≈h60≈h120≈77.9%（三窗口挤在同一段净值）且 missing_count=0；
+    修复后三窗口均无样本，`forward_return` 为 None，不再伪造完备。
+    """
+    series = _series([1.0] * 200 + [1.1 + i * 0.001 for i in range(60)])
+    buys = [_trade(-854 + i * 20, 'buy', 100.0, 1.0) for i in range(7)]
+    assert forward_return_metrics(buys, {p.date: p.value for p in series}) is None
+
+
+def test_profile_evidence_reports_uncovered_buys():
+    """`forward_return` 为 None 时，evidence 必须能区分「未覆盖」与「数据完备」（#2637）。"""
+    series = _series([1.0 + i * 0.01 for i in range(30)])
+    profile = build_behavior_profile('000001', [_trade(-700, 'buy', 100.0, 1.0)], series)
+    assert profile.forward_return is None
+    assert profile.evidence['forward_uncovered_buys'] == 1
+    assert profile.evidence['forward_missing_count'] == 0
+    assert profile.evidence['first_nav_date'] == D0.isoformat()
+
+
+def test_profile_evidence_uncovered_zero_when_covered():
+    """买入日落在序列内 → uncovered 为 0（正向对照，防止该字段恒非零的假通过）。"""
+    series = _series([1.0 + i * 0.01 for i in range(150)])
+    profile = build_behavior_profile('000001', [_trade(0, 'buy', 100.0, 1.0)], series)
+    assert profile.evidence['forward_uncovered_buys'] == 0
+
+
 # ── percentile_rank：买入时点同类分位 ──
 
 
