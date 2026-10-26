@@ -283,7 +283,7 @@ watch([() => props.ledgerId, rangeDays], fetchCashFlow);
 }
 
 .metric__label {
-  font-size: var(--text-caption);
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -312,7 +312,7 @@ watch([() => props.ledgerId, rangeDays], fetchCashFlow);
 .cash-flow__error,
 .cash-flow__caliber {
   margin: 8px 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
@@ -342,7 +342,7 @@ watch([() => props.ledgerId, rangeDays], fetchCashFlow);
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 4px;
-  font-size: var(--text-caption);
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
