@@ -463,6 +463,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
     'ghost_duplicate_ignores': DOMAIN_USER,  # 幽灵重复忽略（域 D；FamilyScopedMixin 含 family_id）
     'entitlements': DOMAIN_USER,  # 家庭级 Pro 功能权益（含 family_id，随 user 域）
+    'recurring_plans': DOMAIN_USER,  # 定投计划（#2138）：含 family_id、外键引 ledgers（同 user 域）
 }
 
 # 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。

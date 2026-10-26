@@ -1728,6 +1728,42 @@ def migrate_transaction_fee_breakdown(engine: Engine) -> str:
     return '[SKIP] transactions 费用拆分四列已存在'
 
 
+def migrate_transaction_plan_id(engine: Engine) -> str:
+    """transactions 补 ``plan_id``（#2138）：把一笔买入归到产生它的定投计划。
+
+    ## 为什么需要
+
+    定投计划与流水的关联只能落在流水侧（计划可停用/删除，历史流水必须保留），
+    否则「累计投入 / 已执行几期」只能靠日期区间猜——补录一笔同标的的手动买入
+    就会被误算成计划执行。加一列显式引用，口径才有唯一答案。
+
+    ## 方言（#2534 的纪律）
+
+    走 ``_add_columns_if_missing`` 单一通道：SQLite / libsql 直接加列，
+    Postgres 用 ``ADD COLUMN IF NOT EXISTS``，幂等且收尾自校验。
+    **不写「非 SQLite 就跳过」**——生产 user 域就是 Postgres，
+    跳过等于让 ``_validate_schema`` 在下次启动时拒绝启动（#2469 / #2532 同形态）。
+
+    索引同步补（模型声明 ``index=True``）：``create_all`` 只建缺失的表，
+    不给存量表建索引，故这里按名幂等补 ``ix_transactions_plan_id``。
+
+    只加列不回填：历史流水是否由定投产生已不可考，NULL = 非定投（正确语义）。
+    """
+    if not _table_exists(engine, 'transactions'):
+        return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
+    added = _add_columns_if_missing(engine, 'transactions', [('plan_id', 'INTEGER')])
+    indexed = _ensure_index(
+        engine,
+        'ix_transactions_plan_id',
+        'CREATE INDEX IF NOT EXISTS ix_transactions_plan_id ON transactions (plan_id)',
+        table='transactions',
+    )
+    if added or indexed:
+        logger.info(f'[OK] transactions 增加定投计划关联列/索引（#2138）：added={added} indexed={indexed}')
+        return f'[OK] transactions 增加 plan_id={added} indexed={indexed}'
+    return '[SKIP] transactions.plan_id 与索引已存在'
+
+
 # ── #1173 家庭成员档案（family_members）+ 账户归属列 ──────────────────────────
 # 刻意**不** import ``app.domains.families.models``：core 层不得依赖 domains 层
 # （`tests/core/test_layer_direction.py` R1 守卫：core → 上层一律违规）。

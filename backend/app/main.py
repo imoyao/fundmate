@@ -44,6 +44,7 @@ from app.domains.portfolios.views import portfolios_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
 from app.domains.products.views import bp as products_bp  # noqa: E402
 from app.domains.reconciliation.views import bp as reconciliation_bp  # noqa: E402
+from app.domains.recurring.views import recurring_bp  # noqa: E402
 from app.domains.search.views import bp as search_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
 from app.domains.strategy.allocation.views import allocation_bp  # noqa: E402
@@ -133,6 +134,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(member_bp)
     app.register_blueprint(feedlog_bp)
     app.register_blueprint(reconciliation_bp)
+    app.register_blueprint(recurring_bp)
     app.register_blueprint(agent_bp)
     app.register_blueprint(usage_bp)
 
