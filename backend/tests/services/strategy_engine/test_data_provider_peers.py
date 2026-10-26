@@ -271,3 +271,128 @@ def test_peer_year_returns_window_days_is_part_of_cache_key(provider, market_db)
     # 365 天窗口：起点 1.0 → +20%；150 天窗口：起点 1.5 → -20%
     assert long_window[0] == pytest.approx(20.0)
     assert short_window[0] == pytest.approx(-20.0)
+
+
+# ── #2639 二次优化：按类型「并集区间」一次预取 ──
+
+
+class _CountingSession:
+    """只数 `execute` 次数的 Session 桩（确定性判据）。
+
+    为什么不用 `before_cursor_execute` 事件
+        内存引擎在整个测试进程里共享，监听器会把别的会话的语句一并捕获进来
+        （见 `test_peer_year_returns_cached_per_type_and_as_of` 的说明）。
+        这里数的就是 provider 自己持有的那个会话对象，与全局状态无关。
+    只数 `execute`：批量取数走 `execute`，而 `_peer_codes_of` / `fund_type_id_of`
+    走 `query`，两者不混淆。
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.execute_calls = 0
+
+    def execute(self, *args, **kwargs):
+        self.execute_calls += 1
+        return self._inner.execute(*args, **kwargs)
+
+    def query(self, *args, **kwargs):
+        return self._inner.query(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+def test_peer_year_returns_for_matches_single_calls(market_db, app):
+    """批量结果与逐键单点调用**完全相等**（新失败面：并集区间的边界算术）。
+
+    构造刻意让三个买入日的窗口互不相同：
+        - A 只在最早买入日的窗口里有净值；
+        - B 在两个买入日之间才开始有净值（晚窗口能取到、早窗口取不到）；
+        - C 全程有净值，但在中间有一段长达 200 天的缺口。
+    逐键对拍时，任何「用并集区间的最小起点当所有 as_of 的起点」「取到窗口外的点」
+    的写法都会立刻暴露。
+    """
+    from app.services.strategy_engine.data_provider import DataProvider
+
+    type_id = _mk_fund_type(market_db, '股票型')
+    for code in ('000001', '000002', '000003'):
+        _mk_fund(market_db, code, type_id)
+
+    early = D0 + timedelta(days=400)
+    mid = D0 + timedelta(days=600)
+    late = D0 + timedelta(days=800)
+
+    # A：只在 early 窗口内有净值
+    _mk_worth(market_db, '000001', early - timedelta(days=200), 1.0)
+    _mk_worth(market_db, '000001', early, 1.5)
+    # B：mid 之前没有任何净值
+    _mk_worth(market_db, '000002', mid - timedelta(days=10), 2.0)
+    _mk_worth(market_db, '000002', mid, 2.2)
+    # C：全程有净值，但 mid 前后有 200 天缺口
+    _mk_worth(market_db, '000003', early - timedelta(days=100), 1.0)
+    _mk_worth(market_db, '000003', early, 1.2)
+    _mk_worth(market_db, '000003', mid + timedelta(days=150), 1.8)
+    _mk_worth(market_db, '000003', late, 2.0)
+
+    provider = DataProvider(db=market_db, market_db=market_db)
+    batch = provider.peer_year_returns_for([('000001', early), ('000002', mid), ('000003', late), ('000003', early)])
+    for (code, as_of), got in batch.items():
+        want = DataProvider(db=market_db, market_db=market_db).peer_year_returns(code, as_of)
+        assert got == want, f'{code} @ {as_of}：批量与单点取数不一致'
+
+
+def test_peer_year_returns_for_does_not_use_points_of_other_as_of(market_db, app):
+    """后一个买入日**晚于**前一个窗口右界时，不得把那些点算进前一个买入日。
+
+    这是并集区间预取最容易写错的地方：一次扫回的区间横跨两个买入日，
+    若边界算术写成「所有 as_of 共用同一个右界」，早的那个买入日就会取到
+    它之后才发生的净值，得到一个看起来合理、实际是未来数据的结果。
+    """
+    from app.services.strategy_engine.data_provider import DataProvider
+
+    type_id = _mk_fund_type(market_db, '混合型')
+    _mk_fund(market_db, '000001', type_id)
+    early = D0 + timedelta(days=400)
+    late = early + timedelta(days=100)
+    _mk_worth(market_db, '000001', early - timedelta(days=100), 1.0)
+    _mk_worth(market_db, '000001', early, 1.2)
+    _mk_worth(market_db, '000001', late, 1.5)
+
+    batch = DataProvider(db=market_db, market_db=market_db).peer_year_returns_for([('000001', early), ('000001', late)])
+    # early：窗口 [early-365, early] → 首点 1.0、末点 1.2 → +20%。
+    #   若把右界错写成并集的右界（late），末点会取到 1.5 → +50%，即用了「未来净值」。
+    assert batch[('000001', early)] == (pytest.approx(20.0),)
+    # late：窗口 [early-265, early+100]，early-100 的 1.0 仍在窗口内 → 首点 1.0、末点 1.5 → +50%
+    assert batch[('000001', late)] == (pytest.approx(50.0),)
+
+
+def test_peer_year_returns_for_scans_once_per_type(market_db, app):
+    """同类型多个买入日只扫一次库（#2639 二次优化的判据）。
+
+    判据是 `execute` 调用次数：3 个买入日 + 2 只基金 → 1 次；若退回「逐买入日各查
+    一遍」则是 3 次。用计数桩而非数 SQL 监控，避免共享内存引擎带来的顺序依赖。
+    """
+    from app.services.strategy_engine.data_provider import DataProvider
+
+    type_id = _mk_fund_type(market_db, '指数型')
+    for code in ('000001', '000002'):
+        _mk_fund(market_db, code, type_id)
+    for offset in (100, 300, 500):
+        day = D0 + timedelta(days=offset)
+        for code in ('000001', '000002'):
+            _mk_worth(market_db, code, day - timedelta(days=50), 1.0)
+            _mk_worth(market_db, code, day, 1.1)
+
+    counting = _CountingSession(market_db)
+    provider = DataProvider(db=counting, market_db=counting)
+    result = provider.peer_year_returns_for([('000001', D0 + timedelta(days=o)) for o in (100, 300, 500)])
+
+    assert len(result) == 3
+    assert all(v is not None for v in result.values())
+    assert counting.execute_calls == 1, f'同类型多个买入日应只扫一次库，实际 {counting.execute_calls} 次'
+
+
+def test_peer_year_returns_for_unknown_and_empty(provider):
+    """未知代码 → None 且不抛；空请求 → 空映射（编排层无需特判）。"""
+    assert provider.peer_year_returns_for([]) == {}
+    assert provider.peer_year_returns_for([('999999', D0)]) == {('999999', D0): None}

@@ -199,3 +199,27 @@ def test_behavior_profiles_nav_window_covers_earliest_buy(app, db, make_position
     assert forward['h20']['missing_count'] == 0
     assert profile['evidence']['forward_uncovered_buys'] == 0
     assert profile['evidence']['first_nav_date'] == start.isoformat()
+
+
+def test_behavior_profiles_degrades_when_peer_fetch_fails(app, db, make_position, make_transaction, monkeypatch):
+    """同类取数整体失败时只降级同类分位，画像其余字段与请求本身不得一起挂。
+
+    批量化（#2639）把失败面从一个键放大到整个请求，本用例钉住放大之后的影响范围：
+    `buy_percentile` 变 None，而 `forward_return` 等其它指标照常。
+    """
+    type_id = _mk_fund_type(db, '股票型')
+    _mk_fund(db, '000001', type_id)
+    for i in range(150):
+        _mk_worth(db, '000001', D0 + timedelta(days=i), 1.0 + i * 0.01)
+    _seed_holding(db, make_position, make_transaction)
+
+    def _boom(self, requests, window_days: int = 365):
+        raise RuntimeError('取数模拟失败')
+
+    monkeypatch.setattr(DataProvider, 'peer_year_returns_for', _boom)
+
+    data = behavior_profiles(DataProvider(db), family_id=1)
+    profile = data['profiles'][0]
+    assert profile['buy_percentile'] is None
+    assert profile['forward_return'] is not None
+    assert data['summary']['avg_buy_percentile'] is None
