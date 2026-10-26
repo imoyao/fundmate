@@ -97,7 +97,9 @@ export function useRealtimeQuotes(
   getHoldings: () => Holding[],
   getStaticPrice: (
     symbol: string
-  ) => { currentPrice?: number; changePct?: number } | undefined
+  ) =>
+    | { currentPrice?: number; changePct?: number; prevClose?: number | null }
+    | undefined
 ): RealtimeQuotesReturn {
   const enabled = ref(localStorage.getItem(STORAGE_KEY) === "true");
   const status = ref<"idle" | "trading" | "closed" | "error">("idle");

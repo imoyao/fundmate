@@ -1027,16 +1027,20 @@ def enrich_item(
 
     # 最新价 / 涨跌幅（#1104）：优先「最近交易日收盘价（场内）/ 确认净值（场外基金）」，
     # 二者都没有才兜底到持仓快照 positions.current_price。
+    # prev_close（当日盈亏分母）：只在 quote 存在时有值——兜底路径下没有「上一价点」，
+    # 编一个出来会让「当日盈亏」变成假数字，故留 None 由前端降级 `—`。
     if ctx:
         quote = ctx.get_latest_quote(item.symbol)
         if quote:
             out['current_price'] = round(quote['close'], 4)
             out['change_pct'] = quote['change_pct']
+            out['prev_close'] = quote.get('prev_close')
             out['price_as_of'] = quote['trade_date'].isoformat() if quote['trade_date'] else None
         else:
             current_price = ctx.get_avg_current_price(item.symbol)
             out['current_price'] = round(current_price, 2) if current_price else None
             out['change_pct'] = None
+            out['prev_close'] = None
             out['price_as_of'] = None
         out['position_market_value'] = ctx.get_position_market_value(item.symbol)
 
@@ -1059,11 +1063,13 @@ def enrich_item(
         if quote:
             out['current_price'] = round(quote['close'], 4)
             out['change_pct'] = quote['change_pct']
+            out['prev_close'] = quote.get('prev_close')
             out['price_as_of'] = quote['trade_date'].isoformat() if quote['trade_date'] else None
         else:
             current_price = _compute_avg_current_price(item.symbol, db, family_id)
             out['current_price'] = round(current_price, 2) if current_price else None
             out['change_pct'] = None
+            out['prev_close'] = None
             out['price_as_of'] = None
         out['position_market_value'] = round(position_value, 2)
 
@@ -1293,6 +1299,8 @@ def _build_holding_row(
         # 无 ctx 的兜底路径：与 enrich_item 的 else 分支同源（逐 symbol 静态行情）
         quote = compute_latest_quote(db, symbol)
     change_pct = quote['change_pct'] if quote else None
+    # 当日盈亏分母（#2640）：与 enrich_item 同源，缺 quote 时为 None（前端渲染 `—`）
+    prev_close = quote.get('prev_close') if quote else None
     row = {
         'id': None,
         'symbol': symbol,
@@ -1320,6 +1328,7 @@ def _build_holding_row(
         # compute_latest_quote 的最新两价点变化），见 #2211；此前写死 None 导致
         # 持仓分组整列渲染 --。价格点不足时仍为 None → 前端 --。
         'change_pct': change_pct,
+        'prev_close': prev_close,
         'position_market_value': round(position_market_value, 2),
         'holding_quantity': stats['quantity'] if stats else None,
         'holding_cost_price': round(stats['cost_price'], 4) if stats else None,

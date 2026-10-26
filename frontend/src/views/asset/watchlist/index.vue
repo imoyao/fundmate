@@ -70,6 +70,7 @@
           :realtime="realtime"
           :refreshing="refreshing"
           :fallback-summary="staticSummary"
+          :day-pnl="daySummary"
           @interval-change="onRefreshIntervalChange"
           @manual-refresh="handleManualRefresh"
         />
@@ -214,6 +215,7 @@ const {
   toggleBtnText,
   refreshing,
   staticSummary,
+  daySummary,
   handleManualRefresh,
   onRefreshIntervalChange
 } = valuation;
@@ -315,10 +317,6 @@ onMounted(async () => {
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
 }
-
-/* 自选卡片沿用 design.md「表格/列表/筛选栏：--space-compact(16px)」，
-   仅本页生效。留白规范与吸顶/min-height 的机制说明见
-   composables/useWatchlistStickyLayout.ts（#980 P0-b 拆分）。 */
 
 /* 自选页容器：任何祖先/自身都不设 overflow:hidden/auto，否则会创建新的滚动
    容器、截断 .filter-bar / 表头的 sticky 上溯到布局滚动容器。

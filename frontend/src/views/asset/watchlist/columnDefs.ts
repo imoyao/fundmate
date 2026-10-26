@@ -31,11 +31,11 @@
  *    余量分配（flexColumns），全列固定宽会让表格实体宽度恒等于 Σ列宽，容器再宽也
  *    铺不满，右侧留大片空白。改用 minWidth 后：容器有余量 → 按 minWidth 比例拉伸
  *    铺满；容器不足 → 各列回到 minWidth 并在**表格内部**横向滚动。
- * 2) **混合视图通用列集 = 名称 / 添加自选日 / 最新价 / 涨跌幅 / 持有数量 / 持仓市值 /
- *    持仓收益 / 操作（≈1010px）**：即「对所有品类都成立」+「对所有可交易品类都成立」的
+ * 2) **混合视图通用列集 = 名称 / 最新价 / 涨跌幅 / 走势 / 持有数量 / 持仓市值 /
+ *    持仓收益 / 当日盈亏 / 操作**：即「对所有品类都成立」+「对所有可交易品类都成立」的
  *    列。真品类专属列（bond_* / index_* / fund_max_drawdown / links / advisor_* /
- *    return_*）留品类视图；走势 / 添加后涨幅 / 成本价 因预算不足，改为
- *    「品类视图 + 列设置可选」。
+ *    return_*）留品类视图；添加自选日（#2640 起）/ 添加后涨幅 / 成本价 因预算不足，
+ *    改为「品类视图 + 列设置可选」。
  *
  * ── 表格宽度铁律（#1285 立，2026-09-11 #1425 重申：改本文件前先读完这三条）──
  * 1. **默认可见列总宽 ≤ 1040px**（design.md「冻结列与横向滚动规范」）：按最受约束的
@@ -138,9 +138,9 @@ export interface ColumnDef {
   props?: Record<string, unknown>;
   /**
    * 派生值来源（非 row 直接字段，由 index.vue 注入计算函数）。
-   * 如「添加后涨幅」「持仓市值比例」是组合计算，renderer 经 ctx.derived 取。
+   * 如「添加后涨幅」「持仓市值比例」「当日盈亏」是组合计算，renderer 经 ctx.derived 取。
    */
-  derived?: "addedReturn" | "marketValue";
+  derived?: "addedReturn" | "marketValue" | "dayPnl";
 }
 
 /**
@@ -233,7 +233,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "center",
     sortable: "custom",
     hideable: true,
-    draggable: true
+    draggable: true,
+    // #2640 降为可选列：默认集要腾出等量宽度给「当日盈亏」（铁律 1「加一列必须减一列」）。
+    // 选它而不是别的：添加日期是**一次性历史**，看完即不再变化；当日盈亏是每日变动的主数据。
+    defaultHidden: true
   },
   {
     key: "current_price",
@@ -517,6 +520,32 @@ export const watchlistColumnDefs: ColumnDef[] = [
     // 列宽**不加**：副行是「16px 徽章 + 金额」，128px 内放得下；而默认列集本就卡着
     // 1040px 预算（#1425），加宽会触发横向滚动。
     props: { ratioKey: "holding_pnl_percent", estimatePnl: true }
+  },
+  {
+    /**
+     * 当日盈亏（#2640）：金额 + 当日涨跌幅两行，盘中随实时价跳动。
+     *
+     * 口径收口在 `dayPnl.ts`（(现价 − 昨收) × 持仓数量；比例 = (现价 − 昨收) / 昨收），
+     * 与顶部汇总条**共用同一份**——两处各写一遍迟早算出两个数。
+     *
+     * 为什么它是**默认可见**列：这是「今天赚了多少」的主数据，天天要看；
+     * 为此把 `created_at`（一次性历史）降为可选列，默认列总宽不变。
+     *
+     * 不加 `sortable`：日盈亏是前端派生值（需要实时价 × 持仓数量），后端没有这个字段，
+     * 交给后端排序会按不存在的列静默失效；客户端排序又只能排当前页，跨页不一致。
+     * 要排序得先在后端落 `prev_close` 口径，属另一张卡。
+     */
+    key: "day_pnl",
+    label: "当日盈亏",
+    renderer: "moneyRatio",
+    appliesTo: TRADABLE_TYPES,
+    scope: "mixed",
+    // 与 created_at 等宽（104）：本次「进一出一」，默认预算不变
+    minWidth: 104,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    derived: "dayPnl" // value=当日盈亏(元), ratio=当日涨跌幅(%)
   },
 
   // ── #993(a) 新增候选列 ──
@@ -917,6 +946,7 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   position_market_value: "general",
   added_return: "general",
   holding_pnl: "general",
+  day_pnl: "general",
   // 可转债条款
   bond_premium_rate: "bond",
   bond_redeem: "bond",

@@ -47,7 +47,14 @@ def compute_latest_quote(db: Session, symbol: str) -> Optional[dict]:
     完全没有价；且场内那份长期不被刷新（导入当天的快照）。本函数让「最新价」对任何
     已回补行情的标的都有值，并附带数据日期供前端判断新鲜度。
 
-    返回 {'trade_date': date, 'close': float, 'change_pct': float | None}。
+    返回 {'trade_date': date, 'close': float, 'change_pct': float | None,
+    'prev_close': float | None}。
+
+    `prev_close` 是**同一口径下的前一个价点**（场内 = 上一交易日收盘价，场外 = 上一
+    交易日单位净值），供前端算「当日盈亏」的分母。它本来就是算 `change_pct` 时的中间
+    量，此前算完即弃；现在下发，前端未开实时 / 收盘后也能算当日盈亏，不必等实时通道
+    （与 #2007 持仓页 `prev_close` 同义，但来源不同：那边来自 `position_price` job
+    写入的 positions 快照，这边是最近两根历史价）。
     """
     rows = (
         db.query(PriceHistory.trade_date, PriceHistory.close)
@@ -75,7 +82,11 @@ def compute_latest_quote(db: Session, symbol: str) -> Optional[dict]:
 
 
 def _build_quote(trade_date, close, prev_close) -> Optional[dict]:
-    """组装行情项：价格无效返回 None；涨跌幅样本不足（只有一根 K 线）时为 None。"""
+    """组装行情项：价格无效返回 None；涨跌幅样本不足（只有一根 K 线）时为 None。
+
+    `prev_close` 无论涨跌幅是否成立都照实下发——只关心「上一价点」的调用方（当日盈亏）
+    不必自己重算；样本不足时它是 None，前端据此降级为 `—`。
+    """
     close_value = _to_float(close)
     if close_value is None or close_value <= 0:
         return None
@@ -83,7 +94,12 @@ def _build_quote(trade_date, close, prev_close) -> Optional[dict]:
     prev_value = _to_float(prev_close)
     if prev_value:
         change_pct = round((close_value - prev_value) / prev_value * 100, 2)
-    return {'trade_date': trade_date, 'close': close_value, 'change_pct': change_pct}
+    return {
+        'trade_date': trade_date,
+        'close': close_value,
+        'change_pct': change_pct,
+        'prev_close': prev_value if prev_value else None,
+    }
 
 
 def _to_float(value) -> Optional[float]:

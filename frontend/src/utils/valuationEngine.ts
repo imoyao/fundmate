@@ -15,6 +15,12 @@ export interface ValuationItem extends Holding {
   marketValue: number;
   pnl: number;
   pnlPercent: number;
+  /**
+   * 上一价点（实时源优先：腾讯昨收 / 天天 `dwjz` / 批量 `NAV`；缺失取后端静态价
+   * 的 `prev_close`）。`null` = 两处都没有，前端「当日盈亏」降级 `—`
+   * ——不要用 `currentPrice` 顶替，那会把当日盈亏算成恒 0（#2640 修的就是这个）。
+   */
+  prevClose: number | null;
 }
 
 export interface ValuationSummary {
@@ -33,7 +39,11 @@ export interface ValuationResult {
 
 // 静态兜底数据（由外部注入，可以从后端已加载的数据中获取）
 export interface StaticPriceProvider {
-  (symbol: string): { currentPrice?: number; changePct?: number } | undefined;
+  (
+    symbol: string
+  ):
+    | { currentPrice?: number; changePct?: number; prevClose?: number | null }
+    | undefined;
 }
 
 export async function calculateHoldingsValuation(
@@ -54,11 +64,13 @@ export async function calculateHoldingsValuation(
     const quote = quoteMap.get(h.symbol);
     let currentPrice: number;
     let changePct: number;
+    let prevClose: number | null = null;
     let source: "realtime" | "static" = "static";
 
     if (quote && quote.currentPrice > 0) {
       currentPrice = quote.currentPrice;
       changePct = quote.changePct;
+      prevClose = quote.prevClose ?? null;
       source = "realtime";
       hasRealtime = true;
       if (!lastUpdateTime) lastUpdateTime = quote.updateTime;
@@ -67,7 +79,16 @@ export async function calculateHoldingsValuation(
       const staticData = staticPriceProvider(h.symbol);
       currentPrice = staticData?.currentPrice ?? 0;
       changePct = staticData?.changePct ?? 0;
+      prevClose = staticData?.prevClose ?? null;
     }
+
+    // 实时价 + 静态昨收的混合口径只在「实时源不提供昨收」时出现（如腾讯基金格式），
+    // 此时补一次静态昨收，避免当日盈亏因为半个来源缺失而整列变 `—`。
+    if (prevClose == null && source === "realtime") {
+      prevClose = staticPriceProvider(h.symbol)?.prevClose ?? null;
+    }
+    // 「当日盈亏」分母为 0 / 负数没有意义（0 会算出 Infinity），一律降到 null
+    if (prevClose != null && !(prevClose > 0)) prevClose = null;
 
     const marketValue = currentPrice * h.quantity;
     const cost = h.costPrice * h.quantity;
@@ -85,7 +106,8 @@ export async function calculateHoldingsValuation(
       source,
       marketValue,
       pnl,
-      pnlPercent
+      pnlPercent,
+      prevClose
     });
   }
 
