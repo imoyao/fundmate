@@ -171,6 +171,33 @@ def _summarize(old_turns: list, goal: Optional[str]) -> tuple:
     return digest, facts if isinstance(facts, dict) else {}
 
 
+def _merge_summary(summary: str, digest: str) -> str:
+    """把本次 digest 并入滚动摘要，保持 ≤ SUMMARY_CAP：**满额时丢最旧、保最新**。
+
+    旧实现 `(summary + '\\n' + digest)[:SUMMARY_CAP]` 是头截断——追加在尾、截断也在尾，
+    触顶后切掉的正是刚压进来的那段（实测第 14 次起整段丢失、日志仍报「压缩完成」，
+    见 #2657）。这里改为保留尾部，并在段落边界切开，避免把一句摘要劈成半个残句。
+
+    边界：早期约束仍可能被丢（例如首轮的「只看沪深300」）。补偿机制只有 `key_facts`
+    关键信息卡，而它是「当前焦点」不是「历史约束全集」；彻底解决需独立长期事实通道。
+    """
+    merged = f'{summary}\n{digest}'.strip() if summary else digest
+    if len(merged) <= SUMMARY_CAP:
+        return merged
+    tail = merged[-SUMMARY_CAP:]
+    cut = tail.find('\n')
+    if 0 <= cut < len(tail) - 1:  # 首段是被截断的残句 → 整段丢掉，别留半句
+        tail = tail[cut + 1 :]
+    logger.warning(
+        '[agent.memory] 摘要满 {} 字，丢弃最旧 {} 字（本次新增 {} 字已保留），摘要 {} 字',
+        SUMMARY_CAP,
+        len(merged) - len(tail),
+        len(digest),
+        len(tail),
+    )
+    return tail
+
+
 def _maybe_compress(session: AgentSession) -> None:
     """轮次过阈且原文超窗 → 最旧轮次压进摘要层 + 关键信息卡（替换式，当前焦点优先）。
 
@@ -188,8 +215,7 @@ def _maybe_compress(session: AgentSession) -> None:
             session.messages = msgs[-HARD_RAW_CAP:]
             return
         summary = (session.summary or '').strip()
-        summary = f'{summary}\n{digest}'.strip() if summary else digest
-        session.summary = summary[:SUMMARY_CAP]
+        session.summary = _merge_summary(summary, digest)
         if facts:
             session.key_facts = facts  # 关键卡 = 当前焦点，整体替换（永不压进摘要）
         session.messages = recent
