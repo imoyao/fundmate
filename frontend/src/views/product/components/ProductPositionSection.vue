@@ -1,23 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { getPositions } from "@/api/positions";
 import { getSymbolXirr } from "@/api/performance";
 import type { Position } from "@/api/types";
-import { pricePrecision } from "@/utils/pricePrecision";
-import { formatQuantity } from "@/utils/format";
 // 计算口径单独成模块，由 __tests__/productPositionMetrics.spec.ts 钉住：
 // 尤其「盈亏率必须是百分数」这条——旧实现给了比值却拼上 "%"，小了 100 倍
-import {
-  dayPnlRate,
-  daysText,
-  pnlRate,
-  sumUp,
-  type ChannelTotals
-} from "./productPositionMetrics";
+import { sumUp } from "./productPositionMetrics";
+import { groupByLedger } from "./positionSection/positionGrouping";
+import PositionChannelTable from "./positionSection/PositionChannelTable.vue";
+import PositionMetricGrid from "./positionSection/PositionMetricGrid.vue";
+import type { ChannelGroup } from "./positionSection/positionTypes";
 
 /**
  * 详情页「我的持仓」区块（#1966 · 设计 §4.2；#2005 重做信息密度；持有年化由 #1972 补齐）。
@@ -67,6 +62,13 @@ import {
  * 后端能诚实供给的口径仍是一张网格放得下的量（分红方式与卖出费率不在 `positions` 表，
  * 见 #2007 卡的取证结论）。抽屉是为「放不下」准备的方案，而持仓是用户自己的钱、
  * 是打开「我的」产品页的唯一理由，不该多一次点击才能看到。
+ *
+ * ## #980 拆分（本文件职责）
+ *
+ * 这里只做**取数 + 聚合 + 形态分流**，两种形态的渲染分别落在
+ * `positionSection/PositionMetricGrid.vue` 与 `positionSection/PositionChannelTable.vue`；
+ * 账户名（两种形态共用）落在 `positionSection/PositionAccountLink.vue`。
+ * 纯搬运，类名、文案、样式声明一律不变。
  */
 
 const props = defineProps<{
@@ -85,36 +87,7 @@ const rows = ref<Position[]>([]);
 /** 产品级持有年化（XIRR，小数）；`null` = 无数据 / 拉取失败，模板显示 `—` */
 const xirr = ref<number | null>(null);
 
-interface ChannelGroup extends ChannelTotals {
-  key: string;
-  name: string;
-  /** 未归档持仓为 null：**没有落点**，渲染时不得给它套跳转 */
-  ledgerId: number | null;
-  rows: Position[];
-}
-
-const groups = computed<ChannelGroup[]>(() => {
-  const map = new Map<number | null, Position[]>();
-  for (const row of rows.value) {
-    const ledgerId = row.ledger_id ?? null;
-    const bucket = map.get(ledgerId);
-    if (bucket) {
-      bucket.push(row);
-    } else {
-      map.set(ledgerId, [row]);
-    }
-  }
-
-  return Array.from(map.entries()).map(([ledgerId, groupRows]) => ({
-    key: String(ledgerId ?? "ungrouped"),
-    name:
-      groupRows[0]?.account_name ||
-      (ledgerId ? `账户 #${ledgerId}` : "未归档持仓"),
-    ledgerId,
-    rows: groupRows,
-    ...sumUp(groupRows)
-  }));
-});
+const groups = computed<ChannelGroup[]>(() => groupByLedger(rows.value));
 
 /** 只有一个渠道时不渲染合计行——它与那一行完全相同，是纯冗余 */
 const single = computed<ChannelGroup | null>(() =>
@@ -124,19 +97,6 @@ const single = computed<ChannelGroup | null>(() =>
 const totals = computed(() => sumUp(rows.value));
 
 const hasRows = computed(() => !!rows.value.length);
-
-const accountPath = (ledgerId: number | null) =>
-  ledgerId ? `/asset/ledgers/${ledgerId}` : "";
-
-/**
- * `YYYY-MM-DD` → `MM-DD`（#2007）。
- *
- * 当日盈亏的基准日只在「当日」这个标签旁边做注脚，年份在这里是噪声——
- * 完整日期由列说明给出，指标标签上留太长的串会把版面挤歪。
- */
-function shortDate(iso: string): string {
-  return iso.length === 10 ? iso.slice(5) : iso;
-}
 
 async function load() {
   if (!props.symbol) return;
@@ -210,248 +170,19 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
       </p>
 
       <!-- 单账户：不进表格、不重复表头，走紧凑指标网格 -->
-      <template v-else-if="single">
-        <div class="product-position__channel">
-          <router-link
-            v-if="single.ledgerId"
-            class="product-position__account"
-            :to="accountPath(single.ledgerId)"
-          >
-            {{ single.name }}
-          </router-link>
-          <span
-            v-else
-            class="product-position__account product-position__account--plain"
-          >
-            {{ single.name }}
-          </span>
-        </div>
-
-        <div class="product-position__grid">
-          <!-- 盈亏两项是用户打开这一页真正要看的，字号提一档；其余保持同级 -->
-          <div class="metric metric--hero">
-            <span class="metric__label">持有盈亏</span>
-            <span class="metric__value">
-              <MoneyDisplay :value="single.pnl" :precision="2" size="lg" />
-            </span>
-          </div>
-          <div class="metric metric--hero">
-            <span class="metric__label">持有盈亏率</span>
-            <span class="metric__value">
-              <RiseFallText :value="pnlRate(single)" suffix="%" />
-            </span>
-          </div>
-          <!-- 当日盈亏（#2007）：与上面两项同级——它是「今天赚了多少」，不是补充信息。
-               无基准时显示「—」而不是 0（0 会被读成「今天没涨没跌」，那是结论不是数据）。 -->
-          <div class="metric metric--hero">
-            <span class="metric__label">
-              当日盈亏
-              <span v-if="single.dayBasisDate" class="metric__hint">
-                截至 {{ shortDate(single.dayBasisDate) }}
-              </span>
-            </span>
-            <span class="metric__value">
-              <MoneyDisplay
-                v-if="single.dayPnl != null"
-                :value="single.dayPnl"
-                :precision="2"
-                size="lg"
-              />
-              <span v-else class="metric__empty">—</span>
-            </span>
-          </div>
-          <div class="metric metric--hero">
-            <span class="metric__label">当日盈亏率</span>
-            <span class="metric__value">
-              <RiseFallText
-                v-if="dayPnlRate(single) !== null"
-                :value="dayPnlRate(single) ?? 0"
-                suffix="%"
-              />
-              <span v-else class="metric__empty">—</span>
-            </span>
-          </div>
-          <div class="metric">
-            <span class="metric__label">持有金额</span>
-            <span class="metric__value">
-              <MoneyDisplay
-                :value="single.marketValue"
-                :auto-color="false"
-                :show-sign="false"
-              />
-            </span>
-          </div>
-          <div class="metric">
-            <span class="metric__label">持有份额</span>
-            <span class="metric__value">{{
-              formatQuantity(single.quantity)
-            }}</span>
-          </div>
-          <div class="metric">
-            <span class="metric__label">持仓成本</span>
-            <span class="metric__value">
-              <MoneyDisplay
-                :value="single.cost"
-                :auto-color="false"
-                :show-sign="false"
-              />
-            </span>
-          </div>
-          <div class="metric">
-            <span class="metric__label">单位成本</span>
-            <span class="metric__value">
-              <MoneyDisplay
-                :value="single.avgPrice"
-                :auto-color="false"
-                :show-sign="false"
-                :precision="pricePrecision(props.assetType)"
-              />
-            </span>
-          </div>
-          <div class="metric">
-            <span class="metric__label">持仓天数</span>
-            <span class="metric__value">{{
-              daysText(single.holdingDays)
-            }}</span>
-          </div>
-        </div>
-      </template>
+      <PositionMetricGrid
+        v-else-if="single"
+        :group="single"
+        :asset-type="props.assetType"
+      />
 
       <!-- 多账户：一个表头管全部行；产品列与每组表头都已去掉 -->
-      <!-- 表口径见 `_detail-table.scss`（#553）：分隔 / 表头 / 表尾 / 数字列不由本组件决定。
-           多列且列宽固定 → 加 `--fixed`，窄屏横滚（`.product-position__scroll`）。 -->
-      <div v-else class="product-position__scroll">
-        <table class="detail-table detail-table--fixed product-position__table">
-          <thead>
-            <tr>
-              <th class="detail-table__product">账户</th>
-              <th class="detail-table__num">持有份额</th>
-              <th class="detail-table__num">持仓成本</th>
-              <th class="detail-table__num">持有金额</th>
-              <th class="detail-table__num">持有盈亏</th>
-              <th class="detail-table__num">盈亏率</th>
-              <th class="detail-table__num">当日盈亏</th>
-              <th class="detail-table__num">当日盈亏率</th>
-              <th class="detail-table__num">持仓天数</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="g in groups" :key="g.key">
-              <td class="detail-table__product">
-                <router-link
-                  v-if="g.ledgerId"
-                  class="product-position__account"
-                  :to="accountPath(g.ledgerId)"
-                >
-                  {{ g.name }}
-                </router-link>
-                <span
-                  v-else
-                  class="product-position__account product-position__account--plain"
-                >
-                  {{ g.name }}
-                </span>
-              </td>
-              <td class="detail-table__num">
-                {{ formatQuantity(g.quantity) }}
-              </td>
-              <td class="detail-table__num">
-                <MoneyDisplay
-                  :value="g.cost"
-                  :auto-color="false"
-                  :show-sign="false"
-                />
-              </td>
-              <td class="detail-table__num">
-                <MoneyDisplay
-                  :value="g.marketValue"
-                  :auto-color="false"
-                  :show-sign="false"
-                />
-              </td>
-              <td class="detail-table__num">
-                <MoneyDisplay :value="g.pnl" :precision="2" />
-              </td>
-              <td class="detail-table__num">
-                <RiseFallText :value="pnlRate(g)" suffix="%" />
-              </td>
-              <td class="detail-table__num">
-                <MoneyDisplay
-                  v-if="g.dayPnl != null"
-                  :value="g.dayPnl"
-                  :precision="2"
-                />
-                <span v-else class="product-position__empty">—</span>
-              </td>
-              <td class="detail-table__num">
-                <RiseFallText
-                  v-if="dayPnlRate(g) !== null"
-                  :value="dayPnlRate(g) ?? 0"
-                  suffix="%"
-                />
-                <span v-else class="product-position__empty">—</span>
-              </td>
-              <td class="detail-table__num">{{ daysText(g.holdingDays) }}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td class="detail-table__product">合计</td>
-              <td class="detail-table__num" />
-              <td class="detail-table__num">
-                <MoneyDisplay
-                  :value="totals.cost"
-                  :auto-color="false"
-                  :show-sign="false"
-                />
-              </td>
-              <td class="detail-table__num">
-                <MoneyDisplay
-                  :value="totals.marketValue"
-                  :auto-color="false"
-                  :show-sign="false"
-                />
-              </td>
-              <td class="detail-table__num">
-                <MoneyDisplay :value="totals.pnl" :precision="2" />
-              </td>
-              <td class="detail-table__num">
-                <RiseFallText :value="pnlRate(totals)" suffix="%" />
-              </td>
-              <td class="detail-table__num">
-                <MoneyDisplay
-                  v-if="totals.dayPnl != null"
-                  :value="totals.dayPnl"
-                  :precision="2"
-                />
-                <span v-else class="product-position__empty">—</span>
-              </td>
-              <td class="detail-table__num">
-                <RiseFallText
-                  v-if="dayPnlRate(totals) !== null"
-                  :value="dayPnlRate(totals) ?? 0"
-                  suffix="%"
-                />
-                <span v-else class="product-position__empty">—</span>
-              </td>
-              <td class="detail-table__num" />
-            </tr>
-          </tfoot>
-        </table>
-        <!-- 「当日」到底指哪一天要写出来（#2007）：场外基金是 T-1 净值、场内是最近收盘日，
-             不总是今天。多账户各自基准日可能不同，故给最新那一天，并说明口径。 -->
-        <p v-if="totals.dayBasisDate" class="product-position__asof">
-          当日盈亏 =（现价 − 上一确认价）× 数量；最新基准日
-          {{ totals.dayBasisDate }}（场外基金为 T-1 净值，与平台披露节奏一致）
-        </p>
-      </div>
+      <PositionChannelTable v-else :groups="groups" :totals="totals" />
     </div>
   </CardBlock>
 </template>
 
 <style lang="scss" scoped>
-@use "@/style/breakpoints" as bp;
-
 .product-position {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -464,105 +195,6 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 .product-position__body {
   font-size: var(--text-label);
 }
-
-/* 账户名：可点击时给链接态，未归档持仓只读——那里没有落点，链过去是坏的 */
-.product-position__account {
-  font-weight: 500;
-  color: var(--text-primary);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-}
-
-.product-position__account:not(.product-position__account--plain):hover {
-  color: var(--color-primary-ink);
-  border-bottom-color: currentColor;
-}
-
-.product-position__account--plain {
-  color: var(--text-primary);
-  cursor: default;
-}
-
-/* ===== 单账户：指标网格 ===== */
-.product-position__channel {
-  display: flex;
-  gap: var(--space-1);
-  align-items: center;
-  margin-bottom: var(--space-compact);
-  font-size: var(--text-label);
-}
-
-.product-position__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3) var(--space-compact);
-}
-
-/* 断点走单一来源（#1571，`_breakpoints.scss`）：md = 48rem = 768px，
-   与模板里的 Tailwind `md:` 前缀同阈值同语义，禁止另写裸 @media。 */
-@include bp.above("md") {
-  .product-position__grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.metric__label {
-  font-size: var(--text-label);
-  line-height: 1.3;
-  color: var(--text-tertiary-ink);
-}
-
-.metric__value {
-  font-size: var(--text-mono-small);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.4;
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-
-/* 盈亏两项是这一页的核心，字号提一档；不改颜色，颜色仍由 RiseFallText / MoneyDisplay 按语义变量给 */
-.metric--hero .metric__value {
-  font-size: var(--text-num-strong);
-}
-
-/* 当日盈亏的基准日注脚（#2007）：它说明「这个『当日』是哪一天」，属标签的一部分，
-   故弱化，不与数值争注意力 */
-.metric__hint {
-  margin-left: var(--space-1);
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-/* 「—」占位统一样式：保持字号但走弱色，避免被读成一个真值 */
-.metric__empty,
-.product-position__empty {
-  color: var(--text-tertiary-ink);
-}
-
-/* 多账户表格下方的基准日说明：把「当日」的日期口径说在表格外，不额外占一列 */
-.product-position__asof {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-label);
-  line-height: 1.5;
-  color: var(--text-tertiary-ink);
-}
-
-/* ===== 多账户：紧凑表格 ===== */
-.product-position__scroll {
-  overflow-x: auto;
-}
-
-/* 表格自身的 padding / 分隔线 / 表头 / 表尾 / 数字列已全部由共享约定
-   `.detail-table` 提供（#553，#2320 同一条延长线），此处不保留任何覆盖——
-   原先那份把 `tabular-nums` 加在整张表上（含中文列），既无意义，
-   又让「数字列唯一写法」失去单一来源。 */
 
 /* 产品级持有年化（#1972）：挂在区块标题右侧，不占表格列 */
 .product-position__xirr {
