@@ -59,6 +59,12 @@
 
       <template v-else>
         <LedgerDetailOverview :page="page" />
+        <!-- #2616 资金流动：入金/出金/净投入/期末资产（未分类账户没有真实归属，不展示） -->
+        <LedgerCashFlowCard
+          v-if="!isUnclassified && ledgerId"
+          :ledger-id="Number(ledgerId)"
+          class="mt-4"
+        />
         <!-- Tab 切换 + 搜索同行（#982）：左 Tab 右搜索，共用一个输入框按当前 Tab 绑定 -->
         <el-card shadow="never">
           <div class="tabs-toolbar">
@@ -149,6 +155,7 @@ import EditAccountDialog from "./components/EditAccountDialog.vue";
 import MigrateDialog from "./components/MigrateDialog.vue";
 import MigrationResolvePanel from "./components/MigrationResolvePanel.vue";
 import LedgerDetailOverview from "./components/LedgerDetailOverview.vue";
+import LedgerCashFlowCard from "./components/LedgerCashFlowCard.vue";
 import LedgerDetailHoldingsPane from "./components/LedgerDetailHoldingsPane.vue";
 import LedgerDetailTransactionsPane from "./components/LedgerDetailTransactionsPane.vue";
 import { useLedgerDetailPage } from "./composables/useLedgerDetailPage";

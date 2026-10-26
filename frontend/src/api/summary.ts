@@ -21,6 +21,83 @@ export type SankeyData = {
   links: Array<{ source: string; target: string; value: number }>;
 };
 
+/**
+ * 账户级资金流动（#2616，金额一律**元**）。
+ *
+ * 口径（`docs/spec/cashflow-layers.md`）：
+ * - L1 只有 `deposit` / `withdraw`（钱跨出账户）；买入/卖出是账户内部换形态，**不**计入；
+ * - `net_invested = deposit − withdraw`，恒为「自开户以来」，**不随区间变化**——
+ *   切区间就看「累计 0」会把累计语义毁掉；
+ * - `end_asset = market_value + cash_residual`，`cash_residual` 是**推导值**（不是对账单）；
+ * - `has_deposit_record = false` 时净投入恒 0，页面必须提示「未录入金」而不是展示成「没赚钱」。
+ */
+export type LedgerCashFlowTotals = {
+  deposit: number;
+  withdraw: number;
+  net_invested: number;
+  cash_residual: number;
+  /** 期末持仓市值（净值线末值，持仓市值口径） */
+  market_value: number;
+  /** 期末资产 = 期末市值 + 现金残差 */
+  end_asset: number;
+  /** 累计收益 = 期末资产 − 净投入 */
+  total_return: number;
+  has_deposit_record: boolean;
+};
+
+export type LedgerCashFlowPoint = {
+  date: string;
+  /** 缺价日为 null——**不得补 0**，曲线断开比画成持平诚实 */
+  net_worth: number | null;
+  cum_net_invested: number;
+  state?: string;
+};
+
+export type LedgerCashFlowItem = {
+  date: string;
+  direction: "in" | "out";
+  amount: number;
+  asset_type?: string | null;
+  symbol?: string | null;
+};
+
+export type LedgerCashFlowMonth = {
+  month: string;
+  deposit: number;
+  withdraw: number;
+  net: number;
+};
+
+export type LedgerCashFlow = {
+  ledger_id: number;
+  start_date: string;
+  end_date: string;
+  totals: LedgerCashFlowTotals;
+  external_flows: LedgerCashFlowItem[];
+  monthly: LedgerCashFlowMonth[];
+  net_worth_series: LedgerCashFlowPoint[];
+  coverage: {
+    has_any_price: boolean;
+    days: number;
+    missing_nav_days: number;
+    amount_unit: "yuan";
+    cash_residual_is_derived: boolean;
+  };
+};
+
+/** 查询账户级资金流动（`ledger_id` 必填；区间只影响列表/月度/曲线，累计指标不受影响） */
+export function getLedgerCashFlow(params: {
+  ledger_id: number;
+  start_date?: string;
+  end_date?: string;
+}) {
+  return http.request<ApiResponse<LedgerCashFlow>>(
+    "get",
+    BASE_URL + "cash-flow/",
+    { params }
+  );
+}
+
 /** 获取桑基图节点与链接数据 */
 export function getSankeyData() {
   return http.request<ApiResponse<SankeyData>>("get", BASE_URL + "sankey/");
