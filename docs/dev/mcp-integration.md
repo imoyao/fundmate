@@ -467,8 +467,12 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 
 ## 11. 已知不做
 
-- 不做 MCP 服务端；
-- 不引入官方 `mcp` SDK（理由见 §3）；
+> **2026-10-26 更正**：本节原有两条已过时，保留更正痕迹以便追溯——
+> ①「不做 MCP 服务端」在 S5（#1751，2026-09-28）已被突破，现有 `services/ai_recognizer/mcp_server.py`，
+> 用官方 `mcp.server.lowlevel.Server` + `stdio` 传输，与内置循环共用同一份 `TOOLS_METADATA`；
+> ②「不引入官方 `mcp` SDK」只对**客户端**成立，且已补到期条件（见 §13）。
+
+- 客户端不引入官方 `mcp` SDK（理由见 §3），迁移触发条件与路线见 §13；服务端方向**已在用**官方 SDK；
 - 不允许用户自带 MCP URL（SSRF 面；表结构不提供该列）；
 - 不做全市场历史回填（属重活，需用户 Token 或不做）。
 
@@ -483,3 +487,86 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 - 额度用量 / 上限（原计划的 `quota_used / quota_limit`）**尚未纳入 health 段**：
   且慢无额度语义、Wind 待 S3 采样，现在建字段就是「没有读者的列」；
 - `core/data_sources.DATA_SOURCE_LABELS` 暂无 `qieman`，若且慢数据上屏带来源脚注需补登。
+
+## 13. 客户端选型：为什么手写、什么条件下换官方 SDK
+
+> §3 只回答了「不用官方 SDK」，没有回答「什么时候必须用」。没有到期日的技术决定，
+> 三年后会被当成技术债翻出来重议一遍——本节补上那个到期条件。
+
+### 13.1 一句话结论
+
+**服务端用官方 SDK，客户端手写。** 这不是双标，是两侧负载形态不同：
+
+| 方向 | 形态 | 选型 |
+|---|---|---|
+| 服务端（对外暴露 9 个只读工具） | 常驻、要跟随协议演进、天然复用 SDK 的会话与能力协商 | `mcp.server.lowlevel.Server` + `stdio_server`（`services/ai_recognizer/mcp_server.py:27-28`） |
+| 客户端（接入且慢 / Wind） | 批量 RPC（夜跑 111 只组合）、要能采样上游原始报文、调用侧全同步 | 手写 `McpTransport`（`services/mcp/transport.py`，369 行） |
+
+### 13.2 现在换的代价：异步错配，落在调用侧而非协议侧
+
+| 事实 | 证据（本仓可查） |
+|---|---|
+| 官方 2.0 客户端**只有 async** | `mcp/client/client.py` 的 `Client` 是 async context manager；`call_tool` / `list_tools` 均为 `async def`；`mcp.__all__` 里**没有**同步客户端 |
+| 本仓是同步栈 | 23 个模块 `import requests`；job 跑 `ThreadPoolExecutor`（`services/fund_service.py:150`）；5 处 `call_tool` 调用点全同步（`qieman_fetcher.py:338` / `wind_edb.py:127` / `wind_index.py:135` / `call_log.py:61` / `mcp_probe.py:183`） |
+| 依赖不是障碍 | `httpx2 2.13.1` 已在 `pdm.lock`（`mcp` 的传递依赖），换 SDK **不新增依赖** |
+
+三条迁移路径，代价都在调用侧：
+
+| 路径 | 做法 | 代价 |
+|---|---|---|
+| A | 每个调用点 `anyio.run` / `asyncio.run` | 每次新建事件循环 + `AsyncClient` + 握手 = **每次调用 3 个 HTTP 请求**。`transport.py:170-171` 记录的正是被优化掉的旧状态（且慢 111 只组合 → 333 请求） |
+| B | job 链全 async 化 | 跨 Flask 同步世界改造，`qieman_fetcher` / `wind_index` / `wind_edb` 及其 job 调用链全动 |
+| **C** | 常驻 loop 线程 + `run_coroutine_threadsafe` | 自写约 100 行桥，需管超时、异常跨线程传播、多 worker 各自一个 loop。**未来真迁移时走这条** |
+
+而且 SDK 只替得掉 `transport.py` 那 369 行——8 类 `McpErrorKind` 分类、`mcp_call_logs` 审计、`DataScope` 分级 Token 路由、两个 provider 的常量与 `_wire` 网关形状（`services/mcp/` 其余 1129 行）**原样保留**。
+
+### 13.3 但协议世代已经换代了（本节最重要）
+
+`mcp-types 2.0.0` 的版本常量（实测）：
+
+| 常量 | 值 |
+|---|---|
+| `LATEST_PROTOCOL_VERSION` | `2026-07-28` |
+| `MODERN_PROTOCOL_VERSIONS` | `('2026-07-28',)` |
+| `HANDSHAKE_PROTOCOL_VERSIONS` | `2024-11-05` / `2025-03-26` / `2025-06-18` / `2025-11-25` |
+
+对照本仓两家上游：
+
+| provider | 声明版本 | 世代 | 依据 |
+|---|---|---|---|
+| 且慢 | `2024-11-05` | **legacy（握手世代）** | `providers/qieman.py:25` |
+| Wind | `2025-06-18` | **legacy（握手世代）** | `providers/wind.py:59` |
+
+按 SDK 源码注释，`2026-07-28`（modern）已经**取消了 initialize 握手**：`initialized` 与
+`roots/list_changed` 一并移除、取消改为结构性（anyio scope cancel），改成 `discover` + 每请求直连，
+**无流、无 JSON-RPC framing、无握手**（`mcp/client/client.py` 的 `_connect_inproc` 与
+`_no_inbound_client_notifications` 注释）。
+
+由此两条结论：
+
+1. **今天换 SDK，只能 `mode='legacy'` 走兼容层**（`Client.mode` 默认 `'auto'`，协商降级）。
+   换掉的是维护方，不是能力；而兼容层是 SDK 为过渡保留的，将来会被弱化维护。
+2. **上游一旦升到 modern，本仓手写的 `initialize` + `tools/call` 会真断**（「会话」这个概念消失），
+   而 SDK 只需删掉 `mode` 参数。**这才是迁移的真正理由**——不是 SDK 更优雅，
+   而是协议会变、SDK 跟着协议变，我们不会。
+
+### 13.4 迁移触发条件（满足任一即迁）
+
+1. 任一上游公告或实测支持 `2026-07-28`（modern）；
+2. 官方 SDK 提供同步客户端；
+3. 要接第三家 provider，且它是 modern 服务。
+
+迁移时**不许变**的东西（与 §10 三条判据同源）：`McpProvider` 契约与 `capability → tool` 静态映射；
+8 类 `McpErrorKind` 与 `mcp_call_logs` 表结构；`resolve_token` 的 `DataScope` 分级路由。
+
+判据：**换实现时，`backend/tests/services/mcp/` 下 7 个测试文件 + `tests/domains/test_health_mcp.py`
+一行不改仍全绿。**
+
+### 13.5 迁移前先付的一笔便宜费用
+
+| 动作 | 成本 | 为什么值得 |
+|---|---|---|
+| 补一条**契约测试**：给定 fixture 报文，`McpTransport` 输出必须等于 X | 半天 | §13.4 判据的实现基础；没有它，「可替换」只是口号 |
+| 保留 `mcp_probe --save-body` 作为**协议探针** | 0（已在用） | SDK 把报文层打包掉了，采样现场的能力反而更弱；上游报错形态未知阶段，这条比 SDK 值钱 |
+| §13 本身 | — | 现在不做决定，但不让决定变成「忘了」 |
+
