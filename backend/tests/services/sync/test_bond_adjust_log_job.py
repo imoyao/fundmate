@@ -26,6 +26,56 @@ REAL_HTML_128013 = (
     '</tbody></table>'
 )
 
+#: `bond_id=110060`（2026-10-26 全市场实测原样）：**已生效行 + 合并行同表**。
+#: 这是首版解析器「整响应抛错」导致成功记录被一起丢掉的真实样本。
+REAL_HTML_110060 = (
+    '<table class="tablesorter" style="width:440px;"><thead><tr><th>转债名称</th>'
+    '<th>股东大会日</th><th>下修前<br>转股价</th><th>下修后<br>转股价</th>'
+    '<th>新转股价<br>生效日期</th><th>下修底价</th></tr></thead><tbody>'
+    '<tr><td>天路转债</td><td>2022-08-12</td><td>6.990</td><td>5.420</td><td>2022-08-16</td><td>5.420</td></tr>'
+    '<tr><td>天路转债</td><td>2022-05-31</td><td colspan="4" style="text-align:center">股东大会未通过</td></tr>'
+    '</tbody></table>'
+)
+
+#: `bond_id=110095`（2026-10-26 实测原样）：**未生效预估行 + 已生效行同表**。
+#: 预估行的下修后转股价与底价带灰色斜体，生效日是 `-`（股东大会日在未来）。
+REAL_HTML_110095 = (
+    '<table class="tablesorter" style="width:440px;"><thead><tr><th>转债名称</th>'
+    '<th>股东大会日</th><th>下修前<br>转股价</th><th>下修后<br>转股价</th>'
+    '<th>新转股价<br>生效日期</th><th>下修底价</th></tr></thead><tbody>'
+    '<tr><td>双良转债</td><td>2026-11-10</td><td>6.180</td>'
+    '<td style="color:#999;font-style:italic;">3.96</td><td>-</td>'
+    '<td style="color:#999;font-style:italic;">3.96</td></tr>'
+    '<tr><td>双良转债</td><td>2025-03-25</td><td>7.200</td><td>6.180</td><td>2025-03-27</td><td>5.950</td></tr>'
+    '<tr><td>双良转债</td><td>2024-10-25</td><td>11.810</td><td>7.200</td><td>2024-10-29</td><td>4.510</td></tr>'
+    '</tbody></table>'
+)
+
+#: `bond_id=123099`（2026-10-26 实测原样）：1 条合并行（均退市）+ 5 条已生效。
+#: 首版会因合并行抛错，把这 5 条真实下修全部丢掉。
+REAL_HTML_123099 = (
+    '<table class="tablesorter" style="width:440px;"><thead><tr><th>转债名称</th>'
+    '<th>股东大会日</th><th>下修前<br>转股价</th><th>下修后<br>转股价</th>'
+    '<th>新转股价<br>生效日期</th><th>下修底价</th></tr></thead><tbody>'
+    '<tr><td>普利转退</td><td>2025-05-22</td><td colspan="4" style="text-align:center">正股转债均退市</td></tr>'
+    '<tr><td>普利转债</td><td>2025-03-10</td><td>4.890</td><td>3.000</td><td>2025-03-11</td><td>3.000</td></tr>'
+    '<tr><td>普利转债</td><td>2025-01-22</td><td>11.220</td><td>4.890</td><td>2025-01-23</td><td>4.890</td></tr>'
+    '<tr><td>普利转债</td><td>2024-11-19</td><td>19.760</td><td>11.220</td><td>2024-11-20</td><td>11.220</td></tr>'
+    '<tr><td>普利转债</td><td>2023-06-02</td><td>27.100</td><td>19.850</td><td>2023-06-05</td><td>19.840</td></tr>'
+    '<tr><td>普利转债</td><td>2022-12-26</td><td>45.870</td><td>27.100</td><td>2022-12-27</td><td>27.090</td></tr>'
+    '</tbody></table>'
+)
+
+#: 只有合并行的响应（取 `110060` 真实响应的合并行，去掉已生效行）——
+#: 用来钉住「有行但无已生效下修 ⇒ no_adjust」这条分桶。
+REAL_HTML_NOT_PASSED_ONLY = (
+    '<table class="tablesorter" style="width:440px;"><thead><tr><th>转债名称</th>'
+    '<th>股东大会日</th><th>下修前<br>转股价</th><th>下修后<br>转股价</th>'
+    '<th>新转股价<br>生效日期</th><th>下修底价</th></tr></thead><tbody>'
+    '<tr><td>天路转债</td><td>2022-05-31</td><td colspan="4" style="text-align:center">股东大会未通过</td></tr>'
+    '</tbody></table>'
+)
+
 #: 无下修记录的唯一合法空态（12 字节，无 <table>）
 EMPTY_BODY = '暂无数据'
 
@@ -37,6 +87,8 @@ def test_parse_adjust_logs_real_sample():
     rows = parse_adjust_logs(REAL_HTML_128013)
 
     assert len(rows) == 3
+    # 三行都是**已生效**下修（生效日期可解析）——只有这种才允许落库
+    assert {r['kind'] for r in rows} == {'adjusted'}
     first = rows[0]
     assert first['name'] == '洪涛转债'
     assert first['shareholder_meeting_date'] == date(2021, 2, 23)
@@ -105,21 +157,99 @@ def test_parse_adjust_logs_rejects_bad_date():
         parse_adjust_logs(html)
 
 
-def test_parse_adjust_logs_keeps_missing_prices_as_none():
+def test_parse_adjust_logs_missing_prices_are_none():
     """**非唯一键**的空单元格保留为 None（不是 0，也不抛错）。
 
-    生效日期可能尚未公布（决议已过、生效待定），把它当结构异常会让整只债抓取失败。
+    下修前转股价 / 下修底价在源侧偶尔留空；把它们当结构异常会让整只债抓取失败。
+    生效日期可解析 ⇒ 仍是 ``adjusted``（已生效），只是个别列缺值。
     """
     html = (
         '<table><thead><tr><th>股东大会日</th></tr></thead><tbody>'
-        '<tr><td>洪涛转债</td><td>2021-02-23</td><td></td><td>2.320</td><td></td><td>--</td></tr>'
+        '<tr><td>洪涛转债</td><td>2021-02-23</td><td></td><td>2.320</td>'
+        '<td>2021-02-24</td><td>--</td></tr>'
         '</tbody></table>'
     )
     rows = parse_adjust_logs(html)
     assert len(rows) == 1
+    assert rows[0]['kind'] == 'adjusted'
     assert rows[0]['convert_price_before'] is None
-    assert rows[0]['effective_date'] is None
+    assert rows[0]['effective_date'] == date(2021, 2, 24)
     assert rows[0]['adjust_floor_price'] is None
+
+
+def test_parse_adjust_logs_pending_when_effective_missing():
+    """生效日期是 ``-`` ⇒ ``pending``（源侧预估值，股东大会日在未来）。
+
+    判据是**有没有生效日**，不是「数值看起来像不像」：预估值被否掉就不会生效，
+    计入「下修次数」等于把未发生的事写成事实。
+    """
+    rows = parse_adjust_logs(REAL_HTML_110095)
+
+    assert [r['kind'] for r in rows] == ['pending', 'adjusted', 'adjusted']
+    pending = rows[0]
+    assert pending['shareholder_meeting_date'] == date(2026, 11, 10)
+    assert pending['effective_date'] is None
+    # 预估值本身仍被解析出来（保留原值，供排查「源侧到底报了什么」）
+    assert pending['convert_price_after'] == Decimal('3.96')
+
+
+def test_parse_adjust_logs_colspan_row_is_not_passed():
+    """``<td colspan="4">股东大会未通过</td>`` ⇒ ``not_passed``，且**不丢同表的已生效行**。
+
+    实测 110060 天路转债：2022-08-12 已生效 + 2022-05-31 未通过。首版把合并行
+    当「单元格数 3 != 6」整响应抛错，成功记录一起丢掉（列表显示 `—`，
+    与「从未下修」无法区分）。
+    """
+    rows = parse_adjust_logs(REAL_HTML_110060)
+
+    assert [r['kind'] for r in rows] == ['adjusted', 'not_passed']
+    assert rows[0]['shareholder_meeting_date'] == date(2022, 8, 12)
+    assert rows[0]['adjust_floor_price'] == Decimal('5.420')
+    assert rows[1]['shareholder_meeting_date'] == date(2022, 5, 31)
+    assert rows[1]['status_text'] == '股东大会未通过'
+
+
+def test_parse_adjust_logs_not_passed_text_is_not_enumerated():
+    """结论文本**不作为判据**：源侧至少 5 种写法（未通过/不通过/取消/无需调整/均退市）。
+
+    判据是结构（末格 colspan >= 2）。拿文本枚举当判据，源侧多一种写法就漏。
+    """
+    for text in ('股东大会未通过', '股东大会不通过', '股价上涨，股东大会取消', '无需调整', '正股转债均退市'):
+        html = (
+            '<table><thead><tr><th>股东大会日</th></tr></thead><tbody>'
+            f'<tr><td>某转债</td><td>2025-01-02</td><td colspan="4">{text}</td></tr>'
+            '</tbody></table>'
+        )
+        rows = parse_adjust_logs(html)
+        assert len(rows) == 1
+        assert rows[0]['kind'] == 'not_passed'
+        assert rows[0]['status_text'] == text
+
+
+def test_parse_adjust_logs_123099_keeps_five_adjusted_rows():
+    """真实样本 123099：1 条「均退市」合并行 + **5 条已生效**下修，一条都不许丢。"""
+    rows = parse_adjust_logs(REAL_HTML_123099)
+
+    assert len(rows) == 6
+    kinds = [r['kind'] for r in rows]
+    assert kinds.count('adjusted') == 5
+    assert kinds.count('not_passed') == 1
+    assert [r['adjust_floor_price'] for r in rows if r['kind'] == 'adjusted'] == [
+        Decimal('3.000'),
+        Decimal('4.890'),
+        Decimal('11.220'),
+        Decimal('19.840'),
+        Decimal('27.090'),
+    ]
+
+
+def test_parse_adjust_logs_not_passed_only():
+    """只有合并行 ⇒ 有行但无已生效下修（job 侧计 ``no_adjust``，不是「暂无数据」）。"""
+    rows = parse_adjust_logs(REAL_HTML_NOT_PASSED_ONLY)
+
+    assert len(rows) == 1
+    assert rows[0]['kind'] == 'not_passed'
+    assert rows[0]['status_text'] == '股东大会未通过'
 
 
 def test_adapter_get_name():
@@ -168,6 +298,7 @@ def test_bond_adjust_log_job_writes_rows(db):
     stats = result['stats']
     assert stats['with_records'] == 1
     assert stats['no_records'] == 0
+    assert stats['no_adjust'] == 0
     assert stats['failed'] == 0
     # success 数的是**落库行数**：3 条下修事件一条都不许丢
     assert stats['success'] == 3
@@ -204,6 +335,62 @@ def test_bond_adjust_log_job_updates_changed_effective_date(db):
     assert row.effective_date == date(2021, 2, 25)
 
 
+def test_bond_adjust_log_job_only_stores_effective_rows(db):
+    """预估（未生效）行**不落库**，但条数进 ``pending_rows``（不静默）。
+
+    实测 110095 双良转债：1 条预估（2026-11-10，生效日 `-`）+ 2 条已生效。
+    """
+    job = BondAdjustLogSyncJob(_FakeAdapter({'110095': REAL_HTML_110095}), db)
+    result = job.run(targets=['SH110095'])
+
+    rows = db.query(ConvertibleBondAdjustLog).order_by(ConvertibleBondAdjustLog.shareholder_meeting_date).all()
+    assert len(rows) == 2
+    assert [r.shareholder_meeting_date for r in rows] == [date(2024, 10, 25), date(2025, 3, 25)]
+
+    stats = result['stats']
+    assert stats['with_records'] == 1
+    assert stats['pending_rows'] == 1
+    assert stats['success'] == 2
+    assert stats['bucket_sum'] == stats['total'] == 1
+
+
+def test_bond_adjust_log_job_no_adjust_bucket(db):
+    """源侧有行但无已生效下修 ⇒ ``no_adjust``（不是 ``no_records``，也不是 ``with_records``）。
+
+    混进 ``no_records`` 会让人以为源侧没数据；混进 ``with_records`` 会让
+    「下修次数」把未通过/取消/退市算成下修。
+    """
+    job = BondAdjustLogSyncJob(_FakeAdapter({'110060': REAL_HTML_NOT_PASSED_ONLY}), db)
+    result = job.run(targets=['SH110060'])
+
+    assert db.query(ConvertibleBondAdjustLog).count() == 0
+    stats = result['stats']
+    assert result['status'] == 'success'
+    assert stats['no_adjust'] == 1
+    assert stats['no_records'] == 0
+    assert stats['with_records'] == 0
+    assert stats['failed'] == 0
+    assert stats['bucket_sum'] == stats['total'] == 1
+
+
+def test_bond_adjust_log_job_keeps_adjusted_row_next_to_not_passed(db):
+    """合并行与已生效行同表 ⇒ 已生效那条**必须落库**（首版会整响应丢掉的真实样本）。"""
+    job = BondAdjustLogSyncJob(_FakeAdapter({'110060': REAL_HTML_110060}), db)
+    result = job.run(targets=['SH110060'])
+
+    rows = db.query(ConvertibleBondAdjustLog).all()
+    assert len(rows) == 1
+    assert rows[0].shareholder_meeting_date == date(2022, 8, 12)
+    assert rows[0].convert_price_before == Decimal('6.990')
+    assert rows[0].convert_price_after == Decimal('5.420')
+    assert rows[0].adjust_floor_price == Decimal('5.420')
+
+    stats = result['stats']
+    assert stats['with_records'] == 1
+    assert stats['no_adjust'] == 0
+    assert stats['success'] == 1
+
+
 def test_bond_adjust_log_job_skips_non_bond_targets(db):
     """目标池混着股票/ETF：跳过但不计入失败（那不是本 job 的活）。"""
     adapter = _FakeAdapter(_sample_rows())
@@ -214,6 +401,7 @@ def test_bond_adjust_log_job_skips_non_bond_targets(db):
     assert adapter.calls == ['128013']  # 只在真转债上发请求
     assert result['stats']['not_bond'] == 2
     assert result['stats']['with_records'] == 1
+    assert result['stats']['no_adjust'] == 0
     assert result['stats']['failed'] == 0
     assert result['stats']['bucket_sum'] == result['stats']['total'] == 3
 
