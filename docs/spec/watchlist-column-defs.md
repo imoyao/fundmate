@@ -70,13 +70,14 @@ export interface ColumnDef {
 | `_selection` | （多选） | 内置 selection | `v-if="batchMode"` |
 | `_marker` | （置顶/关注图标） | 自定义 marker | 44px，class marker-column |
 | `product` | 代码/名称 | product | fixed left，含标签 chips |
-| `created_at` | 添加自选日 | date | sortStr |
+| `created_at` | 添加自选日 | date | sortStr；**#2640 起默认隐藏**（腾宽度给当日盈亏） |
 | `current_price` | 最新价 | money | **realtimeField: currentPrice**（实时覆盖静态） |
 | `change_pct` | 涨跌幅 | riseFall | **realtimeField: changePct**（实时覆盖静态） |
 | `holding_quantity` | 持有数量 | qty | 单位按 venue |
 | `position_market_value` | 持仓市值 | moneyRatio | ratio = marketValueRatio |
 | `added_return` | 添加后涨幅 | moneyRatio | sortAddedReturn |
 | `holding_pnl` | 持仓收益 | moneyRatio | auto-color |
+| `day_pnl` | 当日盈亏 | moneyRatio | **derived: dayPnl**（口径见 `views/asset/watchlist/dayPnl.ts`） |
 | `_actions` | 操作 | actions | fixed right，120px |
 
 > 现有"最新价""涨跌幅"的 `v-if realtimeEnabled` 双分支，统一收进 `money`/`riseFall` renderer 内部，由 `realtimeField` 驱动；**模板不再出现双分支**。
@@ -155,7 +156,7 @@ export interface ColumnDef {
 引入列「视图作用域」，解决「混合视图把所有品类列并集导致默认超宽」：
 
 - `ColumnDef.scope`：
-  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `created_at` / `current_price` / `change_pct` / `holding_quantity` / `position_market_value` / `holding_pnl` / `_actions`（**#1421/#1422/#1425 修订**：原集只有 4 列、默认视图信息量过低；#1422 一度扩到 11 列 ≈1338px，实测整表超出 1040px 设计宽度，#1425 收敛回 8 列 ≈1010px —— 走势 / 添加后涨幅 / 成本价 改为「品类视图 + 列设置可选」）；
+  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `current_price` / `change_pct` / `trend` / `holding_quantity` / `position_market_value` / `holding_pnl` / `day_pnl` / `_actions`（**#1421/#1422/#1425 修订**：原集只有 4 列、默认视图信息量过低；#1422 一度扩到 11 列 ≈1338px，#1425 收敛回 8 列；**#2640 起** `created_at` 降为默认隐藏、`day_pnl` 升为默认可见，见下方「默认列预算实测」）；
   - `"category"`（默认）：**品类专属列**，仅当「类型筛选命中单一品类」时显示。
   - **通用列判定标准（#1421）**：该列对「**全部品类**」或「**全部可交易品类**（`TRADABLE_TYPES` 7 类）」都成立、不会恒为 `—` → 归 `"mixed"`；只有**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）留 `"category"`。
 - `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类），如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）。
@@ -166,4 +167,19 @@ export interface ColumnDef {
 - `isHidden(key)` 语义 = 「**当前视图下是否可见**」，设置面板勾选框与表格所见一致（勾上即任何视图都显示）。
 - 列宽表达（#1421）：非固定列一律用 `ColumnDef.minWidth`，`ColumnDef.width` 只给固定列（`product` / `_actions` / `_selection`）。原因：EP 只把「无数字 `width`」的列纳入容器余量分配（`flexColumns`），全列固定宽会让表格宽度恒等于 Σ 列宽、容器再宽也不铺满。
 - **默认可见列总宽 ≤ 1040px（#1285 立，#1425 重申）**：要加默认列必须同时从默认集里拿掉等量宽度，**不接受「加了列导致默认视图开始滚动」**；横向滚动只发生在**表格内部**（`.el-table` 外框 = 容器宽，页面级横滚禁止），且 `product`（左冻结）与 `_actions`（右冻结）恒定不滚。见 `frontend/design.md`「冻结列与横向滚动规范」§4/§5（已同步）。
+
+#### 默认列预算实测（2026-10-26，源 #2640）
+
+按 `visibleColumns` 的真实判据（`hideable && !defaultHidden && scope==="mixed"`）逐列相加，混合视图默认集**实测 1132px**：
+
+| 列 | product | current_price | change_pct | trend | holding_quantity | position_market_value | holding_pnl | day_pnl | _actions |
+|---|---|---|---|---|---|---|---|---|---|
+| px | 232 | 96 | 96 | 92 | 104 | 140 | 128 | 104 | 140 |
+
+两点必须写清楚，否则下一个人会把账算错：
+
+1. **超出的 92px 不是 #2640 引入的**，而是 `trend`：它是 `scope:"mixed"` 且**没有** `defaultHidden`，与本节 #1425 那句「走势改为品类视图专属」不一致——注释与代码在这一点上早就分叉了。本次**没有**动它：给它补 `defaultHidden` 会让用户当前看得见的走势列凭空消失，而走势列恰恰是本次要改造的对象。
+2. **#2640 做的是「进一出一」等量交换**：`created_at`（104，一次性历史）降为默认隐藏、`day_pnl`（104，每日变动的主数据）升为默认可见，总宽与改动前**逐字节一致**（1132 → 1132）。
+
+待决（需产品口径，不在 #2640 范围）：要么给 `trend` 补 `defaultHidden: true` 让默认集回落到 1040，要么承认 1132 并把本节口径改成 1132 —— 两者都是**显式决定**，不要靠「反正一直这样」糊过去。
 - **品类视图的列集由 `appliesTo` 决定，与 `scope` 无关**（`scope` 只决定「混合视图要不要出现」）：新增 `mixed` 列时必须检查它在**经理 / 投顾组合**等无行情、无持仓语义的品类视图里是否也需要 `appliesTo` 收窄（#1425：最新价/涨跌幅 → `QUOTE_TYPES`）。

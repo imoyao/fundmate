@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { ArrowDown, ArrowUp, Refresh } from "@element-plus/icons-vue";
 import type { RealtimeQuotesReturn } from "@/composables/useRealtimeQuotes";
 import type { ValuationSummary } from "@/utils/valuationEngine";
+import type { DayPnlSummary } from "./dayPnl";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 
 /**
@@ -23,6 +24,14 @@ const props = defineProps<{
    * 就把「总市值 / 总成本 / 总盈亏」整块抹掉（2026-09-22 用户反馈）。
    */
   fallbackSummary?: ValuationSummary | null;
+  /**
+   * 当日盈亏（#2640）：金额 + 当日涨跌幅，与表格「当日盈亏」列**同源**
+   * （口径在 `dayPnl.ts`，比例按昨日市值加权，不是各行涨跌幅的算术平均）。
+   *
+   * `value == null` 表示一条都算不出（无昨收 / 无持仓）→ 整块不渲染：
+   * 显示 `0.00` 会让人以为「今天没赚没亏」，那正是本次要消灭的假象。
+   */
+  dayPnl?: DayPnlSummary | null;
 }>();
 
 const emit = defineEmits<{
@@ -67,6 +76,18 @@ const profitClass = computed(() => {
 });
 const profitArrow = computed(() =>
   (summary.value?.totalPnl ?? 0) >= 0 ? ArrowUp : ArrowDown
+);
+
+/** 当日盈亏（#2640）：与总盈亏同一套涨跌配色/箭头，避免同一屏两套语义 */
+const hasDayPnl = computed(() => props.dayPnl?.value != null);
+const dayPnlClass = computed(() => {
+  const v = props.dayPnl?.value ?? 0;
+  if (v > 0) return "text-up";
+  if (v < 0) return "text-down";
+  return "text-flat";
+});
+const dayPnlArrow = computed(() =>
+  (props.dayPnl?.value ?? 0) >= 0 ? ArrowUp : ArrowDown
 );
 const intervalOptions = [
   { label: "15s", value: 15 },
@@ -146,6 +167,21 @@ const intervalOptions = [
           <span class="metric-value">{{ summary?.totalCost?.toFixed(2) }}</span>
         </div>
         <span class="metric-divider" />
+        <!-- 当日盈亏（#2640）：与表格同名同口径；「今日 / 累计」成对呈现，
+             故与下面的总盈亏共用同一档字重与涨跌配色 -->
+        <template v-if="hasDayPnl">
+          <div class="metric-group metric-group--pnl">
+            <span class="metric-label">当日盈亏</span>
+            <span class="metric-value metric-value--pnl" :class="dayPnlClass">
+              <el-icon><component :is="dayPnlArrow" /></el-icon>
+              {{ dayPnl?.value?.toFixed(2) }}
+              <span v-if="dayPnl?.ratio != null" class="pct"
+                >({{ dayPnl?.ratio?.toFixed(2) }}%)</span
+              >
+            </span>
+          </div>
+          <span class="metric-divider" />
+        </template>
         <!-- 主指标（总盈亏）：放大加粗 + 红涨绿跌（design.md 视觉锚点，规范 595） -->
         <div class="metric-group metric-group--pnl">
           <span class="metric-label">总盈亏</span>

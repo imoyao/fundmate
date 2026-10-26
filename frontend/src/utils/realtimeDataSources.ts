@@ -34,6 +34,16 @@ export interface Quote {
   source: "tiantian" | "sina" | "tencent" | "tiantian-batch";
   /** 基金名称（批量估值接口返回，可选；用于阶段 B 展示） */
   name?: string;
+  /**
+   * 上一价点（昨收 / 上一交易日净值），当日盈亏的分母（#2640）。
+   *
+   * 之前三个解析器都**拿到了但没往下传**：腾讯股票 `parts[4]`、天天 `dwjz`、
+   * 批量接口 `NAV`（请求 FIELDS 里就带着它）。于是探市页「当日盈亏」
+   * （`useExploreWatchlist.ts`）取 `quote.prevClose` 恒 undefined → 回退成
+   * `prevClose = price` → **金额恒 ¥0.00**，而列看起来完全正常。
+   * 缺失时（源不提供）留 undefined，由调用方降级，不要拿现价顶替。
+   */
+  prevClose?: number;
 }
 
 /**
@@ -83,10 +93,11 @@ function parseTencentQuote(
       }
     }
   } else {
-    // 股票格式：52 个字段，索引 3=当前价，32=涨跌幅，30=时间
+    // 股票格式：52 个字段，索引 3=当前价，4=昨收，32=涨跌幅，30=时间
     if (parts.length > 33) {
       const price = parseFloat(parts[3]);
       const changePct = parseFloat(parts[32]);
+      const prevClose = parseFloat(parts[4]);
       if (!isNaN(price)) {
         const timeStr = parts[30] || "";
         // 腾讯时间戳 YYYYMMDDHHMMSS：统一取 HH:mm（不带秒），与全站日期时间规范一致
@@ -99,6 +110,7 @@ function parseTencentQuote(
           type: "stock",
           currentPrice: price,
           changePct: !isNaN(changePct) ? changePct : 0,
+          prevClose: !isNaN(prevClose) && prevClose > 0 ? prevClose : undefined,
           updateTime: timeFormatted
             ? // 日期用本地时区（toISOString 取 UTC 日期凌晨会跨日），时间不带秒
               formatDate(new Date()) + " " + timeFormatted
@@ -144,11 +156,14 @@ async function fetchTiantian(code: string): Promise<Quote | null> {
         cleanup();
         tiantianQueue = null; // 释放队列
         if (data && data.fundcode && data.gsz) {
+          // dwjz = 最近一个已确认交易日的单位净值，正是估算净值 gsz 的基准价
+          const prevNav = parseFloat(data.dwjz);
           resolve({
             symbol: code,
             type: "fund",
             currentPrice: parseFloat(data.gsz),
             changePct: parseFloat(data.gszzl || 0),
+            prevClose: !isNaN(prevNav) && prevNav > 0 ? prevNav : undefined,
             updateTime: data.gztime,
             source: "tiantian"
           });
@@ -321,12 +336,16 @@ export async function fetchFundValuationLastBatch(
               got.add(code);
               const price = parseFloat(it.GSZ);
               const changePct = parseFloat(it.GSZZL);
+              // NAV = 上一确认日单位净值（请求 FIELDS 里本来就带着，此前解析时丢掉了）
+              const prevNav = parseFloat(it.NAV);
               if (!isNaN(price)) {
                 result.set(code, {
                   symbol: code,
                   type: "fund",
                   currentPrice: price,
                   changePct: !isNaN(changePct) ? changePct : 0,
+                  prevClose:
+                    !isNaN(prevNav) && prevNav > 0 ? prevNav : undefined,
                   updateTime: it.GZTIME || formatDate(new Date()) + " 00:00",
                   source: "tiantian-batch",
                   name: it.SHORTNAME
@@ -352,6 +371,126 @@ export async function fetchFundValuationLastBatch(
 
   valuationBatchCache.set(key, { time: Date.now(), map: result });
   return { map: result, missing: [...missing] };
+}
+
+// ──────────────────────────────────────────────
+// 盘中分时（#2640）：自选「走势」列盘中画当日分时，收盘后回落日线
+// ──────────────────────────────────────────────
+/**
+ * 东财分时（`push2his.eastmoney.com/api/qt/stock/trends2/get`）产物。
+ *
+ * 为什么不用腾讯 `web.ifzq.gtimg.cn/appstock/app/minute/query`：两者实测都可用，
+ * 但东财**同一个响应里直接给 `preClose`**，而腾讯分时只给「分钟价 + 累计量额」，
+ * 昨收得再拼一次 `qt.gtimg.cn`；分时线着色恰恰需要昨收（涨跌基准），
+ * 一次请求拿全比两次请求拼装稳。
+ *
+ * ⚠️ 场外基金**没有**可用的估值分时源（2026-10-26 实测三家均失败：新浪
+ * `getEstimateNetworthPic` 已下线、东财 mobapi `FundValuationDetail` 返回
+ * `Datas: null`、天天只给「当前 GSZ 一个值」）。基金行盘中只能继续显示日线，
+ * 由 renderer 在 title 里说明，不要在此处拿日线冒充分时。
+ */
+export interface IntradayTrend {
+  /** 分时收盘价序列（按时间升序，09:30 → 最新） */
+  points: number[];
+  /** 昨收：分时线的涨跌基准（着色按「现价 vs 昨收」，不是「现价 vs 开盘」） */
+  prevClose: number;
+}
+
+/**
+ * 分时缓存 TTL = 60s。
+ *
+ * 分时是**单码一请求**，N 行 = N 请求/轮；调用方已限定「当前页 + 已开实时」，
+ * 这里再按 symbol 钉 60s，保证同一标的在一分钟内的多次轮询 tick 只打一枪
+ * （页面默认刷新档位 15/30s 都比它短）。
+ */
+const INTRADAY_CACHE_TTL = 60 * 1000;
+const intradayCache = new Map<string, { time: number; trend: IntradayTrend }>();
+
+/** 去掉 SH/SZ 前缀，只留 6 位数字码 */
+function bareCode(symbol: string): string {
+  return symbol.replace(/^(SH|SZ)/i, "");
+}
+
+/**
+ * 内部代码 → 东财 secid（`<market>.<code>`，1=沪 / 0=深）。
+ *
+ * 优先用后端下发的 `market`（SH/SZ，交易所维度，`MARKET_LABELS` 里的口径）；
+ * 缺失时按代码首位兜底：6/9=沪A/沪B、5=沪基金、11=沪可转债；
+ * 0/3=深A、1x=深基金/深可转债、2=深B。
+ */
+export function toEastmoneySecid(
+  symbol: string,
+  market?: string | null
+): string | null {
+  const code = bareCode(symbol);
+  if (!/^\d{6}$/.test(code)) return null;
+  const m = (market || "").toUpperCase();
+  if (m === "SH") return `1.${code}`;
+  if (m === "SZ") return `0.${code}`;
+  return /^(6|9|5|11)/.test(code) ? `1.${code}` : `0.${code}`;
+}
+
+/**
+ * 取单只场内标的的当日分时。失败（无源 / 网络 / 该码无分时）返回 null，
+ * 由调用方回落日线 sparkline —— 不抛错、不阻塞列表。
+ */
+export async function fetchIntradayTrend(
+  symbol: string,
+  market?: string | null
+): Promise<IntradayTrend | null> {
+  const key = `${(market || "").toUpperCase()}:${symbol}`;
+  const cached = intradayCache.get(key);
+  if (cached && Date.now() - cached.time < INTRADAY_CACHE_TTL) {
+    return cached.trend;
+  }
+  const secid = toEastmoneySecid(symbol, market);
+  if (!secid) return null;
+
+  return new Promise(resolve => {
+    const cb = "__emTrend" + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, JSONP_TIMEOUT);
+
+    function cleanup() {
+      clearTimeout(timeoutId);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      delete (window as any)[cb];
+    }
+
+    (window as any)[cb] = (json: any) => {
+      cleanup();
+      const data = json?.data;
+      const lines: string[] = data?.trends ?? [];
+      const points: number[] = [];
+      for (const line of lines) {
+        // fields2 顺序：f51 时间, f52 开, f53 收, f54 高, f55 低, f56 量, f57 额, f58 均价
+        const close = parseFloat(String(line).split(",")[2]);
+        if (!isNaN(close) && close > 0) points.push(close);
+      }
+      const prevClose = parseFloat(data?.preClose);
+      if (points.length < 2 || !(prevClose > 0)) {
+        resolve(null);
+        return;
+      }
+      const trend: IntradayTrend = { points, prevClose };
+      intradayCache.set(key, { time: Date.now(), trend });
+      resolve(trend);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+    script.src =
+      "https://push2his.eastmoney.com/api/qt/stock/trends2/get" +
+      `?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8` +
+      "&fields2=f51,f52,f53,f54,f55,f56,f57,f58" +
+      `&ndays=1&iscr=0&cb=${cb}&_=${Date.now()}`;
+    document.body.appendChild(script);
+  });
 }
 
 // 历史净值走势（pingzhongdata / 东方财富底层）：统一 Sparkline 历史源，

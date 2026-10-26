@@ -231,6 +231,12 @@ export interface WatchlistItem {
   current_price?: number;
   change_pct?: number;
   /**
+   * 当日盈亏的分母：同一口径下的上一个价点（场内 = 上一交易日收盘价，
+   * 场外基金 = 上一交易日单位净值）。后端 `compute_latest_quote` 下发（#2640）；
+   * null = 历史价点不足两根，前端「当日盈亏」列降级 `—`（不是 0）。
+   */
+  prev_close?: number | null;
+  /**
    * 最新价 / 涨跌幅的数据日期（YYYY-MM-DD，后端 enrich，#1104）。
    * 有值 = 该价格来自「最近交易日收盘价 / 确认净值」；null = 无行情、回退持仓快照。
    */

@@ -36,6 +36,7 @@ import {
 } from "@/constants/advisorPlatform";
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
+import type { IntradayTrend } from "@/utils/realtimeDataSources";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
 import { bondNumberText, bondYtmClass } from "./bondFormats";
 // #2503：关联列的分组 / 措辞整形（纯模块，不牵动本文件的组件依赖链）
@@ -88,7 +89,7 @@ export interface RenderCtx {
   groupNames: Record<number, string>;
   /** 派生计算列的取值函数（注入 index.vue 的 addedReturnAmount 等） */
   derived: (
-    kind: "addedReturn" | "marketValue",
+    kind: "addedReturn" | "marketValue" | "dayPnl",
     row: WatchlistRow
   ) => DerivedValue;
   /** 打开标签编辑弹窗（product 列 add-tag 按钮） */
@@ -136,6 +137,11 @@ export interface RenderCtx {
   };
   /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
   trends: Record<string, number[]>;
+  /**
+   * 当日分时（sparkline 列盘中态，#2640）：symbol → { points, prevClose }。
+   * 缺省 = 无分时（未开实时 / 收盘后 / 场外基金 / 该码无分时），走势列回落 `trends`。
+   */
+  intraday: Record<string, IntradayTrend>;
 }
 
 /** 安全地从 row 取任意字段（WatchlistItem 无索引签名，需经 unknown 中转） */
@@ -213,13 +219,23 @@ function resolveValue(
  * - 颜色随涨跌：首尾比较，涨 --color-rise / 跌 --color-fall（禁止硬编码 hex）；
  * - 数据缺失（未回填/场外基金/新标的）降级显示 --，不影响行高与布局；
  * - 不逐格实例化 ECharts：40 行同屏 40 个图表实例必卡（issue #990 决策）。
+ *
+ * #2640 双态：有分时（`ctx.intraday`，仅「当前页 + 已开实时 + 盘中 + 场内」才有）
+ * 就画当日分时，否则回落近 60 日收盘——**同一根折线换口径**，不新增列。
+ * 分时的着色基准是**昨收**（`prevClose`）而非首点：当日分时的首点是 09:30 开盘价，
+ * 拿它当基准会把「跳空高开」画成一条全绿的上行线，而用户要看的是「相对昨收赚没赚」。
  */
 const renderSparkline: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
   ctx: RenderCtx;
 }> = props => {
-  const series = props.ctx.trends[props.row.symbol];
+  const { row, ctx } = props;
+  const intraday = ctx.intraday[row.symbol];
+  // 少于 2 点画不出线（刚开盘 / 该码无分时），按「无分时」处理而不是画一个点
+  const intradaySeries =
+    intraday && intraday.points.length >= 2 ? intraday.points : null;
+  const series = intradaySeries ?? ctx.trends[row.symbol];
   if (!series || series.length < 2) {
     return h(
       "span",
@@ -244,9 +260,12 @@ const renderSparkline: FunctionalComponent<{
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
-  const rising = series[series.length - 1] >= series[0];
+  const last = series[series.length - 1];
+  const rising = intradaySeries
+    ? last >= (intraday as IntradayTrend).prevClose
+    : last >= series[0];
   const stroke = rising ? "var(--color-rise)" : "var(--color-fall)";
-  return h("svg", { width, height, viewBox: `0 0 ${width} ${height}` }, [
+  const svg = h("svg", { width, height, viewBox: `0 0 ${width} ${height}` }, [
     h("polyline", {
       points,
       fill: "none",
@@ -256,6 +275,16 @@ const renderSparkline: FunctionalComponent<{
       "stroke-linecap": "round"
     })
   ]);
+
+  // title 说明**这一根线是什么口径**。场外基金盘中拿不到分时（无源），
+  // 不写清楚会被当成「分时没动」——这是本次唯一无法用数据自证的降级点。
+  const isOtc = field(row, "venue") === "OTC";
+  const title = intradaySeries
+    ? "当日分时走势（盘中实时）"
+    : isOtc
+      ? "场外基金无盘中估值分时，显示近 60 日净值走势"
+      : "近 60 日收盘价走势";
+  return h("span", { title }, [svg]);
 };
 
 const renderDate: FunctionalComponent<{
@@ -421,12 +450,12 @@ const renderMoneyRatio: FunctionalComponent<{
       ratio: d.ratio,
       moneySize: "sm",
       // 持仓市值：金额是余额不是涨跌 → 不带 +/- 号、保留 ¥ 符号
-      // 添加后收益：金额由 price_at_added 差值计算，是真盈亏 → 带 +/- 号、不带 ¥
+      // 添加后收益 / 当日盈亏：都是真盈亏 → 带 +/- 号、不带 ¥
       showSign: !isMarketValue,
       showCurrency: isMarketValue,
       // 「持仓市值」的比例是市值占比（恒为正的仓位权重），非涨跌语义：必须中性色，
       // 且不带 +/- 号（showRatioSign 默认 true 会让 RiseFallText 拼出无意义的「+」，#2209）；
-      // 「添加后涨幅」的 % 是真涨跌，保留符号与默认涨红跌绿
+      // 「添加后涨幅」「当日盈亏」的 % 是真涨跌，保留符号与默认涨红跌绿
       // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
       ratioAutoColor: !isMarketValue,
       showRatioSign: !isMarketValue

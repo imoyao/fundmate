@@ -38,8 +38,10 @@ export function useWatchlistTable(options: TableRenderOptions) {
     getValuationItem,
     addedReturnPct,
     addedReturnAmount,
+    dayPnlOf,
     marketValueRatio,
-    trendMap
+    trendMap,
+    intradayMap
   } = valuation;
 
   // ── 行 hover 状态（供 fixed 列操作按钮淡入）──
@@ -126,6 +128,10 @@ export function useWatchlistTable(options: TableRenderOptions) {
           ratio: addedReturnPct(row as WatchlistItem)
         };
       }
+      if (kind === "dayPnl") {
+        // 当日盈亏（#2640）：口径与汇总条同源（dayPnl.ts），缺失同样是 null 而非 0
+        return dayPnlOf(row);
+      }
       // marketValue
       return {
         value: (row.position_market_value as number | null) ?? null,
@@ -167,7 +173,9 @@ export function useWatchlistTable(options: TableRenderOptions) {
         });
       }
     },
-    trends: trendMap.value
+    trends: trendMap.value,
+    // 当日分时（#2640）：走势列盘中态的唯一数据源；缺省 → 回落 trends
+    intraday: intradayMap.value
   }));
 
   return {
