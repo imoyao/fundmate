@@ -27,11 +27,11 @@ import {
 } from "@/composables/watchlistColumnPrefs";
 import {
   watchlistColumnDefs,
-  COLUMN_GROUP_META,
-  getColumnGroup,
   type ColumnDef,
   type ColumnGroup
 } from "@/views/asset/watchlist/columnDefs";
+// 分组口径（通用组按 group 归属收列，与 scope 无关）与判据都在该纯模块内
+import { buildColumnGroups } from "@/views/asset/watchlist/columnGroups";
 
 const STORAGE_KEY = "watchlist-column-settings";
 
@@ -192,25 +192,16 @@ export function useWatchlistColumnVisibility(
 
   /**
    * 按「品类视图」分组（设置面板「表格列显示」分导航渲染，2026-09-12 修订）：
-   * 每个非「通用」视图 = 通用列（scope:"mixed"）+ 该品类专属列合并呈现，
-   * 让用户在「基金」视图下一屏配齐基金相关的所有列，不必跨两个分组跳。
-   * 通用列因同一 key 共享，跨视图显隐状态天然同步；UI 以配色区分「通用/专属」。
-   * 「通用」视图只装通用列；无列的组剔除，避免空标题。
+   * 每个非「通用」视图 = 通用列 + 该品类专属列合并呈现，让用户在「基金」视图下
+   * 一屏配齐基金相关的所有列，不必跨两个分组跳。通用列因同一 key 共享，跨视图显隐
+   * 状态天然同步；UI 以配色区分「通用/专属」。无列的组剔除，避免空标题。
+   *
+   * ⚠️ 通用列**只能按 `COLUMN_GROUP_MAP` 的归类取**，不能按 `scope === "mixed"` 取：
+   * 后者会让 scope=category 但语义属通用的列（#2650 的 `trend`）在设置面板里消失。
+   * 口径与回归判据见 `views/asset/watchlist/columnGroups.ts` 与其单测。
    */
-  const generalCols = computed(() =>
-    hideableColumns.value.filter(c => c.scope === "mixed")
-  );
   const groupedHideableColumns = computed(() =>
-    COLUMN_GROUP_META.map(g => {
-      const specific = hideableColumns.value.filter(
-        c => getColumnGroup(c.key) === g.key
-      );
-      const cols =
-        g.key === "general"
-          ? generalCols.value
-          : [...generalCols.value, ...specific];
-      return { ...g, cols };
-    }).filter(g => g.cols.length > 0)
+    buildColumnGroups(hideableColumns.value)
   );
 
   /**
