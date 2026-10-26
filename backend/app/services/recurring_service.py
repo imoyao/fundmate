@@ -234,11 +234,7 @@ def list_plans(db: Session, family_id: int, status: Optional[str] = None, today:
 
 def get_plan(db: Session, family_id: int, plan_id: int) -> Optional[RecurringPlan]:
     """按家庭 + id 取计划（越权/不存在都返回 None，由视图统一 404）。"""
-    return (
-        db.query(RecurringPlan)
-        .filter(RecurringPlan.family_id == family_id, RecurringPlan.id == plan_id)
-        .first()
-    )
+    return db.query(RecurringPlan).filter(RecurringPlan.family_id == family_id, RecurringPlan.id == plan_id).first()
 
 
 def _resolve_account_name(db: Session, family_id: int, ledger_id, fallback=None):
