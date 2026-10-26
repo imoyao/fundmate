@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **205** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **212** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -198,6 +198,13 @@ title: 核心 API 端点清单（api）
 | DELETE | `/api/reconciliation/ghost-duplicates/ignored/<int:ignore_id>/` | `undo_ghost_duplicate_ignore` |
 | GET | `/api/reconciliation/ledger-consistency/` | `ledger_consistency` |
 | POST | `/api/reconciliation/run/` | `run_reconciliation` |
+| GET | `/api/recurring-plans/` | `list_plans` |
+| POST | `/api/recurring-plans/` | `create_plan` |
+| GET | `/api/recurring-plans/<int:plan_id>/` | `get_plan` |
+| PATCH | `/api/recurring-plans/<int:plan_id>/` | `update_plan` |
+| POST | `/api/recurring-plans/<int:plan_id>/end/` | `end_plan` |
+| POST | `/api/recurring-plans/<int:plan_id>/pause/` | `pause_plan` |
+| POST | `/api/recurring-plans/<int:plan_id>/resume/` | `resume_plan` |
 | GET | `/api/search/assets/` | `search_assets` |
 | GET | `/api/securities/<symbol>/price-range/` | `get_price_range` |
 | GET | `/api/securities/search/` | `search_securities` |
