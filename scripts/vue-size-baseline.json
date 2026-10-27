@@ -6,7 +6,6 @@
   "files": {
     "components/Charts/SankeyChart.vue": 448,
     "components/DiscrepancyBanner/index.vue": 408,
-    "views/login/reset-password.vue": 538,
     "views/product/detail.vue": 428,
     "views/status/index.vue": 442,
     "views/welcome/index.vue": 441

@@ -2,56 +2,14 @@
   <div
     class="login-page relative min-h-screen w-full select-none overflow-x-hidden"
   >
-    <!-- 深海氛围背景装饰（与登录页同款视觉） -->
-    <div
-      class="login-bg-decor pointer-events-none fixed inset-0 z-0"
-      aria-hidden="true"
-    >
-      <span class="login-ripple login-ripple--1" />
-      <span class="login-ripple login-ripple--2" />
-      <span class="login-ripple login-ripple--3" />
-      <span class="login-ripple login-ripple--4" />
-      <span class="login-bubble login-bubble--1" />
-      <span class="login-bubble login-bubble--2" />
-      <span class="login-bubble login-bubble--3" />
-    </div>
+    <!-- 深海氛围背景装饰（与登录页同款视觉），纯 CSS、无交互 -->
+    <ResetPasswordBackdrop />
 
     <div
       class="login-container relative z-10 grid min-h-screen w-full grid-cols-1 min-[969px]:grid-cols-[1.12fr_0.88fr]"
     >
       <!-- 左侧：品牌叙事区（桌面端展示；≤968px 隐藏） -->
-      <aside
-        class="login-brand relative hidden flex-col overflow-hidden px-10 py-14 min-[969px]:flex xl:px-16"
-      >
-        <div class="login-brand-bg" v-html="nautilusSvg" />
-
-        <div class="relative z-10 flex items-center gap-3">
-          <BrandLogo :size="44" />
-          <span class="login-wordmark text-xl font-semibold">
-            多多贝
-            <span class="login-wordmark-sub ml-2 text-sm font-normal"
-              >投资账本</span
-            >
-          </span>
-        </div>
-
-        <div
-          class="login-brand-body relative z-10 flex flex-1 flex-col justify-center gap-5"
-        >
-          <h1
-            class="login-slogan max-w-[14ch] text-[clamp(2.2rem,3.4vw,3.1rem)] font-bold leading-[1.15] tracking-[-0.02em]"
-          >
-            <span class="coral">重置密码</span>
-          </h1>
-          <p class="login-sub max-w-[30ch] text-base leading-relaxed">
-            通过邮件链接安全地设置新密码
-          </p>
-        </div>
-
-        <p class="login-tagline relative z-10 text-sm">
-          潮有涨落，壳有深浅。算得清，才无患。
-        </p>
-      </aside>
+      <ResetPasswordBrandAside />
 
       <!-- 右侧：表单区 -->
       <div
@@ -137,11 +95,26 @@
   </div>
 </template>
 
+<!--
+  重置密码页（#980 批 B7 拆分后只剩「外壳 + 三态表单」）
+
+  拆分前的三块各自独立，已分别抽出：
+  - 深海背景装饰（4 圈涟漪 + 3 颗气泡 + 5 组 keyframes）→ `ResetPasswordBackdrop`
+  - 左侧品牌叙事区（鹦鹉螺插画 + 标题 / 副标题 / 落款）→ `ResetPasswordBrandAside`
+  - 状态机 / 表单校验 / 提交（含错误文案中文化）→ `composables/useResetPassword`
+
+  留在本文件的是「两列 grid 外壳」与三态表单。表单没有单独成组件，因为它
+  依赖 `useResetPassword` 的状态与 `formRef`，且样式末尾那条 968px 媒体查询与模板里的
+  `max-[968px]:` 是**成对**的（`guard_breakpoints.py` 的存量基线按「文件::媒体条件」
+  记账，搬到子组件会让基线对不上）。
+-->
+
 <script setup lang="ts">
 import BrandLogo from "@/components/BrandLogo/index.vue";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
-import nautilusSvg from "@/assets/login/nautilus-light.svg?raw";
 import Lock from "~icons/ri/lock-fill";
+import ResetPasswordBackdrop from "./components/ResetPasswordBackdrop.vue";
+import ResetPasswordBrandAside from "./components/ResetPasswordBrandAside.vue";
 import { useResetPassword } from "./composables/useResetPassword";
 
 defineOptions({
@@ -153,235 +126,10 @@ const { state, loading, formRef, form, rules, onSubmit } = useResetPassword();
 </script>
 
 <style lang="scss" scoped>
-@use "@/style/breakpoints" as bp;
-
-@keyframes bg-breathe {
-  0%,
-  100% {
-    filter: hue-rotate(0deg) saturate(1);
-  }
-
-  50% {
-    filter: hue-rotate(-4deg) saturate(1.05);
-  }
-}
-
-@keyframes login-ripple {
-  0% {
-    opacity: 0.3;
-    transform: scale(1) rotate(0deg);
-  }
-
-  33% {
-    opacity: 0.55;
-    transform: scale(1.05) rotate(1deg);
-  }
-
-  66% {
-    opacity: 0.7;
-    transform: scale(1.09) rotate(-0.6deg);
-  }
-
-  100% {
-    opacity: 0.3;
-    transform: scale(1) rotate(0deg);
-  }
-}
-
-@keyframes login-bubble-rise {
-  0%,
-  100% {
-    opacity: var(--bubble-opacity-min, 0.1);
-    transform: translateY(0);
-  }
-
-  50% {
-    opacity: var(--bubble-opacity-max, 0.2);
-    transform: translateY(-40px);
-  }
-}
-
-@keyframes coral-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-
-  30% {
-    transform: translateY(-3px);
-  }
-
-  60% {
-    transform: translateY(0);
-  }
-}
-
-@keyframes nautilus-breathe {
-  0%,
-  100% {
-    opacity: var(--nautilus-opacity-min, 0.12);
-    transform: translate(-50%, -50%) scale(1) rotate(0deg);
-  }
-
-  50% {
-    opacity: var(--nautilus-opacity-max, 0.18);
-    transform: translate(-50%, -50%) scale(1.06) rotate(3deg);
-  }
-}
-
 .login-page {
   font-family: var(--font-sans);
   color: var(--text-primary);
   background: linear-gradient(135deg, var(--bg-warm) 0%, var(--bg-page) 60%);
-}
-
-/* ---------- 深海氛围背景 ---------- */
-.login-bg-decor {
-  background: transparent;
-  animation: bg-breathe 10s ease-in-out infinite;
-}
-
-.login-ripple {
-  position: absolute;
-  border: 1px solid var(--brand-200);
-  border-radius: 50%;
-  box-shadow: 0 0 0 6px var(--brand-200);
-  animation: login-ripple 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-
-.login-ripple--1 {
-  right: -90px;
-  bottom: -100px;
-  width: 300px;
-  height: 300px;
-}
-
-.login-ripple--2 {
-  right: -170px;
-  bottom: -200px;
-  width: 460px;
-  height: 460px;
-  animation-duration: 13s;
-  animation-delay: -2s;
-}
-
-.login-ripple--3 {
-  right: -250px;
-  bottom: -290px;
-  width: 640px;
-  height: 640px;
-  animation-duration: 17s;
-  animation-delay: -5s;
-}
-
-.login-ripple--4 {
-  right: -330px;
-  bottom: -390px;
-  width: 840px;
-  height: 840px;
-  animation-duration: 21s;
-  animation-delay: -9s;
-}
-
-/* 气泡上浮 */
-.login-bubble {
-  position: absolute;
-  pointer-events: none;
-  background: var(--brand-700);
-  border-radius: 50%;
-  animation: login-bubble-rise 8s ease-in-out infinite;
-}
-
-.login-bubble--1 {
-  top: 20%;
-  right: 15%;
-  width: 8px;
-  height: 8px;
-  opacity: 0.15;
-}
-
-.login-bubble--2 {
-  top: 35%;
-  right: 22%;
-  width: 5px;
-  height: 5px;
-  opacity: 0.1;
-  animation-duration: 10s;
-  animation-delay: 2s;
-}
-
-.login-bubble--3 {
-  top: 50%;
-  right: 12%;
-  width: 6px;
-  height: 6px;
-  opacity: 0.12;
-  animation-duration: 9s;
-  animation-delay: 4s;
-}
-
-/* ---------- 品牌叙事面板 ---------- */
-.login-brand {
-  position: relative;
-  overflow: hidden;
-  background: transparent;
-}
-
-.login-brand::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 35%;
-  pointer-events: none;
-  content: "";
-  background: linear-gradient(to top, var(--brand-100), transparent);
-  opacity: 0.6;
-}
-
-.login-wordmark {
-  color: var(--text-primary);
-}
-
-.login-wordmark-sub {
-  color: var(--text-tertiary-ink);
-}
-
-.login-slogan {
-  color: var(--text-primary);
-}
-
-.coral {
-  display: inline-block;
-  color: var(--brand-700);
-  animation: coral-bob 3.4s ease-in-out infinite;
-}
-
-.login-sub {
-  color: var(--text-secondary);
-}
-
-.login-tagline {
-  color: var(--text-tertiary-ink);
-  letter-spacing: 0.04em;
-}
-
-/* ---------- 品牌视觉锚点（鹦鹉螺插画） ---------- */
-.login-brand-bg {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 1;
-  width: 80%;
-  max-width: 480px;
-  height: auto;
-  pointer-events: none;
-  opacity: var(--nautilus-opacity-min, 0.12);
-  transform: translate(-50%, -50%);
-  animation: nautilus-breathe 7s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-
-  :deep(svg) {
-    width: 100%;
-    height: auto;
-  }
 }
 
 /* ---------- 表单卡片 ---------- */
@@ -453,65 +201,14 @@ const { state, loading, formRef, form, rules, onSubmit } = useResetPassword();
   text-align: center;
 }
 
-/* =====================================================================
-   暗色模式独立视觉适配（与登录页同款，design.dark.md v1.5）
-   ===================================================================== */
-
-.dark .login-bg-decor {
-  background: transparent;
-}
-
-.dark .login-ripple {
-  border-color: color-mix(in srgb, var(--brand-700) 30%, transparent);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand-700) 10%, transparent);
-}
-
-.dark .login-bubble {
-  --bubble-opacity-min: 0.15;
-  --bubble-opacity-max: 0.25;
-
-  background: color-mix(in srgb, var(--brand-700) 60%, transparent);
-}
-
-.dark .login-brand {
-  background: transparent;
-}
-
-.dark .login-brand::after {
-  height: 35%;
-  background: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--brand-700) 7%, transparent),
-    transparent
-  );
-  opacity: 0.6;
-}
-
-:global(.dark) .login-brand-bg {
-  --nautilus-opacity-min: 0.16;
-  --nautilus-opacity-max: 0.22;
-}
-
 .dark .login-form {
   border-color: var(--border-default);
   box-shadow: var(--shadow-modal);
 }
 
-/* =====================================================================
-   重置密码页 · 品牌深海鹦鹉螺主题（与登录页同款视觉语言，精简版）
-   色值一律取自 design.md 既有令牌（--brand-* / --bg-* / --text-* 等）
-   ===================================================================== */
-
 /* ============ 响应式 ============
-   ⚠️ 以下三块原先都排在各自的基础声明**之前**，覆盖被后面同选择器的声明压掉、
-   **从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
-
-/* 移动端：品牌区压淡（<969px 时 aside 已隐藏） */
-@include bp.below("md") {
-  .login-brand-bg {
-    opacity: 0.04;
-  }
-}
+   ⚠️ 这条原先排在基础声明**之前**，覆盖被后面同选择器的声明压掉、**从未生效**
+   （2026-09-18 修复，见 #1576 同类台账）。现在它排在 `.login-form` 基础声明之后。 */
 
 /* 移动端表单卡片回归「页面本体」；阈值与模板的 `max-[968px]:` / `min-[969px]:` 成对 */
 @media (width <= 968px) /* breakpoint-allow: 与模板 max-[968px] 配对 */ {
@@ -521,17 +218,6 @@ const { state, loading, formRef, form, rules, onSubmit } = useResetPassword();
     background: transparent;
     border: none;
     box-shadow: none;
-  }
-}
-
-/* 动效偏好：减弱动态 */
-@media (prefers-reduced-motion: reduce) {
-  .login-ripple,
-  .login-bg-decor,
-  .login-brand-bg,
-  .login-bubble,
-  .coral {
-    animation: none;
   }
 }
 </style>
