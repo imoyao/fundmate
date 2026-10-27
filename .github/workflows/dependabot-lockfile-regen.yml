@@ -1,4 +1,4 @@
-# Dependabot 的 pnpm 锁重生成（#2434）
+# Dependabot 的 pnpm 锁重生成 + 分支重建（#2434）
 #
 # ## 为什么需要它
 #
@@ -8,21 +8,42 @@
 # 2026-10-20 一天内三连踩（#2394 / #2395 / #2397），每次都靠人工 15 分钟救火。
 # 上游同族问题：dependabot-core #11135 / #12244 / #10758（不是本仓配置错）。
 #
+# ## 两种故障形态，两条处理路径
+#
+# | 形态 | 表现 | 走哪条 |
+# |---|---|---|
+# | 锁坏了 | `frozen-lockfile` 报 MISSING_DEPENDENCY，门禁红 | 「只重生成锁」：分支上追加一个重生成提交 |
+# | **撞锁**（第二阶段，2026-10-26 实测 #2646 / #2648） | 同批两个 bump PR 各自重写同一份锁 ⇒ `mergeable=CONFLICTING`，且**冲突下 pull_request 类工作流不触发**（连红灯都没有） | **重建分支**：以 dev 为底、只搬 manifest 的 spec 变更、锁按 dev 基线重算 ⇒ 分支是 dev 的后代，冲突在构造上不存在 |
+#
+# 撞锁为什么必须单独治：只做重生成时，锁被修好了、分支却仍落后 dev，GitHub 照判冲突；
+# 人能看到的唯一信号是 PR 列表里那个灰色「This branch has conflicts」。于是每次同族批量发布
+# （`typescript-eslint` 三个包同时发版就是典型）都要人开一张汇总 PR 收口（#2659 即此）。
+# 本文件的 `push: dev` 触发就是为这种形态补的：一个合入后 dev 前进，其余同批 PR 被甩在后面
+# ——由推送事件回头把它们逐个重建。
+#
 # ## 怎么修
 #
-# 以 `dev` 上那份 **pnpm 认可的锁**为基线，按 PR 的 manifest 用 pnpm 自己重生成，
-# 再把结果作为**一个追加提交**推回 dependabot 的分支。逻辑全在
-# `scripts/regen_pnpm_lockfile.mjs`（纯函数 + 失败态可测 + 本地可跑），
-# 本文件只是薄封装：检出分支 → 跑脚本 → 推回 → 批准新 runs。
+# - **锁重生成**（`scripts/regen_pnpm_lockfile.mjs`）：以 `dev` 上那份 **pnpm 认可的锁**
+#   为基线，按 PR 的 manifest 用 pnpm 自己重生成，再作为**追加提交**推回；
+# - **分支重建**（`scripts/rebuild_dependabot_branch.py`）：以 `origin/dev` 为底重建分支，
+#   只把 PR 的 `package.json` spec 变更搬过去，锁重算后压成**一个**提交 —— 这正是
+#   #2394 / #2395 / #2397 三次人工救火验证过的配方，本卡把它机器化。
 #
-# 把逻辑放脚本而不是内联在 YAML 里，是为了让「重生成能修好坏锁」这件事**能在本地验证**
-# （2026-10-20 实测：坏锁复现红 → 重生成 → frozen 自证通过；dev 基线下重生成字节级幂等）。
+# 逻辑都在脚本里（纯函数 + 失败态可测 + 本地可跑），本文件只是薄封装：
+# 检出 → 跑脚本 → 推回 → 批准新 runs。
+#
+# 把逻辑放脚本而不是内联在 YAML 里，是为了让「重生成能修好坏锁」「重建能消掉冲突」
+# 这两件事**都能在本地验证**（前者 2026-10-20 实测；后者见
+# `scripts/tests/test_rebuild_dependabot_branch.py` 用真 git 仓库复现撞锁形态）。
 #
 # ## 边界（每条都对应一次真实事故形态）
 #
 # - **只处理 dependabot 作者 + base=dev**：本仓只有 `dev` 是集成分支；
+#   `push: dev` 下按 gh 查到的 base=dev open PR 逐个处理，作者过滤同样生效；
 # - **运行 dev 上的那一版脚本**（`git show origin/dev:...` 落盘再跑）：不在 PR 分支上执行未评审内容；
-# - **脚本自跑 `--frozen-lockfile` 自证**：过不去就退 1，**绝不推送坏锁**
+# - **重建只认 manifest / 锁**：改动里出现任何别的文件即判「不适用」，退回只重生成锁
+#   ——不替 PR 决定源码内容；
+# - **脚本自跑 `--frozen-lockfile` 自证**：过不去就退非零，**绝不推送坏锁**
 #   （宁可这一步红，不可把更坏的状态推回去）；
 # - **`|| true` 一律不用**：吞掉失败态会让「重生成失败」以绿灯消失（#171 / #450 同族）；
 # - **推回后的 runs 会进 approval-required**（GITHUB_TOKEN 递归防护，见 #2289）：
@@ -32,15 +53,20 @@
 # ## 判据
 #
 # `scripts/guard_dependabot_lockfile_regen.py`（并入 `ci.yml` 的 `scripts_test`，阻断）：
-# 本文件必须真的调用脚本、必须带 `--apply`、必须 `git push`、不得 `|| true`、
-# 必须按 dependabot 作者与 base=dev 设闸。回归网
-# `scripts/tests/test_dependabot_lockfile_regen.py` 用变异探针验证守卫真的会红。
+# 本文件必须真的调用两个脚本、必须带 `--apply`、必须 `git push`、不得 `|| true`、
+# 必须按 dependabot 作者与 base=dev 设闸、必须保留「dev 前进后重扫」的 `push: dev`。
+# 回归网 `scripts/tests/test_dependabot_lockfile_regen.py`（守卫的变异探针）+
+# `scripts/tests/test_rebuild_dependabot_branch.py`（真 git 仓库复现撞锁 → 重建后不冲突）。
 
 name: Dependabot 锁重生成
 
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
+  # 撞锁的补位触发：一个 bot PR 合入 ⇒ dev 前进 ⇒ 其余同批 PR 立刻变成冲突态，
+  # 而冲突下 pull_request 类工作流不触发。没有这一条，重建永远慢半拍。
+  push:
+    branches: [dev]
 
 permissions:
   contents: write
@@ -49,7 +75,8 @@ permissions:
 
 concurrency:
   # 同一 PR 只留一个在跑：两个 run 同时重生成会互相覆盖（后推的覆盖先推的）。
-  group: dependabot-lockfile-${{ github.event.pull_request.number }}
+  # `push: dev` 那次没有 PR 号，用 run_id 兜底，避免所有推送事件挤进同一个组。
+  group: dependabot-lockfile-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -57,8 +84,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: >-
-      github.event.pull_request.user.login == 'dependabot[bot]' &&
-      github.event.pull_request.base.ref == 'dev'
+      github.event_name == 'push' ||
+      (github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.base.ref == 'dev')
     steps:
       - uses: actions/checkout@v5
         with:
@@ -75,62 +103,81 @@ jobs:
         with:
           node-version: "22.x"
 
-      - name: 重生成锁并推回
+      - name: 重建 / 重生成锁并推回
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ⚠️ 表达式一律先落 env 再引用：`head.ref` 由外部控制，
           # 直接内插进 `run:` 会被 CodeQL 判 critical 注入（同 pr-auto-rebase.yml 的处理）。
+          EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin dev "$PR_HEAD_REF"
-          git checkout -B "$PR_HEAD_REF" "origin/$PR_HEAD_REF"
+          git fetch origin dev
 
-          # 上一轮已经是本工作流推的锁：跳过，避免「推回 → synchronize → 再跑」空转。
-          if [ "$(git log -1 --format=%ae)" = "github-actions[bot]@users.noreply.github.com" ]; then
-            echo "最新提交已是锁重生成，跳过"
-            exit 0
-          fi
-
-          # 跑 **dev 上**那一版脚本，而不是 PR 分支上的（后者未评审）。
-          git show origin/dev:scripts/regen_pnpm_lockfile.mjs > /tmp/regen_pnpm_lockfile.mjs
-
-          # 本 PR 改过哪些 pnpm-lock.yaml：frontend/ 与仓库根各有一份。
-          DIRS=$(git diff --name-only origin/dev...HEAD -- '*pnpm-lock.yaml' \
-            | sed -E 's#/?pnpm-lock.yaml$##' \
-            | sed -E 's#^$#.#' \
-            | sort -u)
-          if [ -z "$DIRS" ]; then
-            echo "本 PR 未改 pnpm-lock.yaml，无需重生成"
-            exit 0
-          fi
-          echo "待重生成的目录: $DIRS"
-
-          rc_total=0
-          for d in $DIRS; do
-            echo "::group::regen $d"
-            set +e
-            node /tmp/regen_pnpm_lockfile.mjs --dir "$d" --base-ref origin/dev --apply
-            rc=$?
-            set -e
-            echo "::endgroup::"
-            if [ "$rc" -ne 0 ]; then
-              # 不推送：脚本已在内部回滚锁文件（失败态不留半成品）。
-              echo "::error::锁重生成失败（dir=$d rc=$rc）——不推送坏锁"
-              rc_total=$rc
+          # 三个脚本一律取 **dev 上那一版**：任一缺失都是「机制完全没跑」，显式红，
+          # 不静默降级（空 ≠ 没拿到，见 AGENTS.md）。
+          for f in regen_pnpm_lockfile.mjs rebuild_dependabot_branch.py pr_autorebase_approve.py; do
+            if ! git show "origin/dev:scripts/$f" > "/tmp/$f" 2>/dev/null; then
+              echo "::error::origin/dev 上缺 scripts/$f —— 本工作流无法执行"
+              exit 1
             fi
           done
-          if [ "$rc_total" -ne 0 ]; then
-            exit "$rc_total"
-          fi
 
-          if git diff --quiet -- '*pnpm-lock.yaml'; then
-            echo "重生成后无差异：PR 的锁本来就可用"
-            exit 0
-          fi
+          approve() {
+            local sha="$1" rc=0
+            set +e
+            python3 /tmp/pr_autorebase_approve.py --repo "$REPO" --sha "$sha"
+            rc=$?
+            set -e
+            if [ "$rc" -ne 0 ]; then
+              echo "::warning::推送后的自动批准未完成（rc=$rc）——该 PR 的 CI 可能挂死，请人工批准"
+            fi
+          }
 
-          git add -- '*pnpm-lock.yaml'
+          # 只重生成锁（旧路径）：分支已包含 dev，或重建不适用时走这里。
+          regen_only() {
+            local b="$1" rc_total=0 d rc=0
+            git fetch origin "$b"
+            git checkout -B "$b" "origin/$b"
+            # 上一轮已经是本工作流推的锁：跳过，避免「推回 → synchronize → 再跑」空转。
+            if [ "$(git log -1 --format=%ae)" = "github-actions[bot]@users.noreply.github.com" ]; then
+              echo "最新提交已是锁重生成，跳过"
+              return 0
+            fi
+            DIRS=$(git diff --name-only origin/dev..."$b" -- '*pnpm-lock.yaml' \
+              | sed -E 's#/?pnpm-lock.yaml$##' | sed -E 's#^$#.#' | sort -u)
+            if [ -z "$DIRS" ]; then
+              echo "本 PR 未改 pnpm-lock.yaml，无需重生成"
+              return 0
+            fi
+            echo "待重生成的目录: $DIRS"
+            for d in $DIRS; do
+              echo "::group::regen $d"
+              set +e
+              node /tmp/regen_pnpm_lockfile.mjs --dir "$d" --base-ref origin/dev --apply
+              rc=$?
+              set -e
+              echo "::endgroup::"
+              if [ "$rc" -ne 0 ]; then
+                # 不推送：脚本已在内部回滚锁文件（失败态不留半成品）。
+                echo "::error::锁重生成失败（dir=$d rc=$rc）——不推送坏锁"
+                rc_total=$rc
+              fi
+            done
+            [ "$rc_total" -eq 0 ] || return "$rc_total"
+            if git diff --quiet -- '*pnpm-lock.yaml'; then
+              echo "重生成后无差异：PR 的锁本来就可用"
+              return 0
+            fi
+            git add -- '*pnpm-lock.yaml'
+            git commit -F /tmp/commit-msg.txt
+            git push origin "HEAD:$b"
+            approve "$(git rev-parse HEAD)"
+          }
+
           cat > /tmp/commit-msg.txt <<'MSG'
           chore(deps): 重生成 pnpm 锁（dependabot 重写丢 peer 条目，#2434）
 
@@ -141,16 +188,62 @@ jobs:
           以 dev 上那份 pnpm 认可的锁为基线，按本 PR 的 package.json 重生成，
           并把改动过的依赖钉回 manifest 声明的版本；收尾已跑 --frozen-lockfile 自证。
           MSG
-          # 用文件传提交信息（中文内联进 `-m` 在部分控制台会被按本地代码页编码，见 AGENTS.md）
-          git commit -F /tmp/commit-msg.txt
-          git push origin "HEAD:$PR_HEAD_REF"
 
-          # 推回由 GITHUB_TOKEN 发出 ⇒ 新 runs 进 approval-required，不批准则 CI 挂死零 job。
-          NEW_SHA=$(git rev-parse HEAD)
-          set +e
-          python3 scripts/pr_autorebase_approve.py --sha "$NEW_SHA"
-          APPROVE_RC=$?
-          set -e
-          if [ "$APPROVE_RC" -ne 0 ]; then
-            echo "::warning::推送后的自动批准未完成（rc=$APPROVE_RC）——该 PR 的 CI 可能挂死，请人工批准"
+          if [ "$EVENT_NAME" = "push" ]; then
+            # dev 前进后的重扫：只认 base=dev、作者是 dependabot 的 open PR。
+            BRANCHES=$(gh pr list --base dev --state open --author "app/dependabot" \
+              --json headRefName --jq '.[].headRefName')
+            SWEEP=1
+          else
+            BRANCHES="$PR_HEAD_REF"
+            SWEEP=0
+          fi
+          if [ -z "${BRANCHES:-}" ]; then
+            echo "无待处理的 dependabot 分支"
+            exit 0
+          fi
+
+          failures=0
+          for b in $BRANCHES; do
+            echo "---- 处理 $b ----"
+            git fetch origin "$b"
+            OLD_SHA=$(git rev-parse "origin/$b")
+
+            # ① 重建分支：把「落后 dev」与「锁冲突」一起消掉（撞锁的唯一正解）。
+            set +e
+            python3 /tmp/rebuild_dependabot_branch.py \
+              --branch "$b" --base origin/dev --regen-script /tmp/regen_pnpm_lockfile.mjs --apply
+            RB=$?
+            set -e
+            if [ "$RB" -eq 0 ]; then
+              NEW_SHA=$(git rev-parse HEAD)
+              if [ "$NEW_SHA" = "$OLD_SHA" ]; then
+                echo "$b 无需重建（内容已是最新）"
+                continue
+              fi
+              # `--force-with-lease` 带确切旧值：并发推送时宁可失败，也不覆盖别人的提交。
+              git push --force-with-lease="refs/heads/$b:$OLD_SHA" origin "HEAD:refs/heads/$b"
+              approve "$NEW_SHA"
+              continue
+            fi
+            if [ "$RB" -eq 3 ]; then
+              # ② 重建不适用（改了 manifest/锁之外的文件、或 dev 动过同一份 manifest）：
+              # 退回「只重生成锁」。冲突仍需人看，但锁至少是好的，红灯原因不会被锁污染。
+              echo "::warning::$b 不适用重建（见上一行 reason）——退回只重生成锁"
+              if ! regen_only "$b"; then
+                failures=$((failures + 1))
+              fi
+              continue
+            fi
+            echo "::error::$b 重建失败（rc=$RB）——未推送任何内容"
+            failures=$((failures + 1))
+          done
+
+          if [ "$failures" -ne 0 ]; then
+            if [ "$SWEEP" -eq 0 ]; then
+              exit 1
+            fi
+            # 重扫模式不把整条 dev 推送判红（分支已逐个处理），但必须浮到 run 页面上，
+            # 别只躺在日志里（只进日志等于没写）。
+            echo "::warning::重扫中有 $failures 个分支未能自动处理，见上方 ::error:: 行"
           fi
