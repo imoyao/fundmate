@@ -83,7 +83,14 @@ test('真实仓库 + 真实基线：exit 0（存量不误伤）', () => {
 test('真实基线里的 key 一律是 POSIX 分隔符（否则 CI 上假绿）', () => {
   const b = JSON.parse(readFileSync(realBaseline, 'utf8'));
   const keys = Object.keys(b.files);
-  assert.ok(keys.length > 0, '基线不应为空');
+  // 空基线是**合法终点**：#980 把所有超阈文件都降到 400 行以下后，基线就该是空的
+  // （2026-10-27 批 B11 起如此）。这里不再要求非空——但那也不等于门禁失效：
+  // 「新增超阈文件」与「基线内文件回涨」两条变异探针在下面各自钉着，
+  // 清空基线能绕过的是「存量记账」，绕不过「新文件必须 ≤400」。
+  assert.ok(
+    b.files !== null && typeof b.files === 'object' && !Array.isArray(b.files),
+    'baseline.files 必须是对象'
+  );
   const backslashed = keys.filter(k => k.includes('\\'));
   assert.deepEqual(backslashed, [], `基线 key 混入反斜杠：${backslashed.slice(0, 3).join(' | ')}`);
   assert.equal(b.threshold, 400);

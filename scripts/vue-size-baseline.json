@@ -3,7 +3,5 @@
   "issue": 980,
   "threshold": 400,
   "generatedAt": "2026-10-27",
-  "files": {
-    "views/product/detail.vue": 428
-  }
+  "files": {}
 }
