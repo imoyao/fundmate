@@ -90,7 +90,32 @@ def test_unknown_job_with_target_file_stays_none(orch):
 
 def test_db_pool_jobs_scope_is_explicit():
     """锁住范围：这份表只放「`None` 会被当成显式跳过」的 job，值为池键（str 或元组）。"""
-    assert DB_POOL_JOBS == {'fund_position': ('fund', 'etf'), 'bond_adjust_log': 'stock'}
+    assert DB_POOL_JOBS == {
+        'fund_position': ('fund', 'etf'),
+        'bond_adjust_log': 'stock',
+        'fund_style': ('fund', 'etf'),
+    }
+
+
+def test_fund_style_cli_takes_core_pool(orch):
+    """#2628：风格箱 job 与 fund_position 同形——裸调用取库内核心池（fund + etf）。
+
+    漏登记的后果不是「少一个池」而是**整条 CLI 入口失效**：`--targets` 会被
+    静默忽略、跑成 `total=0 / status=success`（2026-10-27 实测）。
+    """
+    assert resolve_job_targets(orch, 'fund_style', None, None) == FUND_CODES + ETF_CODES
+
+
+def test_fund_style_cli_honors_explicit_targets(orch):
+    """显式 `--targets` 必须优先于库内核心池，且能逗号分隔。"""
+    assert resolve_job_targets(orch, 'fund_style', '110011, 000001 ', None) == ['110011', '000001']
+    orch.resolve_targets.assert_not_called()
+
+
+def test_fund_style_cli_honors_target_file(orch):
+    """`--target-file` 同样走 fund + etf 两池（与 daily_scheduler 同源覆盖）。"""
+    assert resolve_job_targets(orch, 'fund_style', None, 'codes.csv') == FUND_CODES + ETF_CODES
+    assert 'fund_style' not in FUND_TARGET_JOBS, '风格箱不按日期回填，不该混进 FUND_TARGET_JOBS'
 
 
 def test_bond_adjust_log_takes_stock_pool_and_filters_nothing(orch):
