@@ -89,6 +89,16 @@
             <PnlAttribution :portfolio-id="portfolioId" />
           </div>
 
+          <!-- 持仓结构（#2617：资产类别占比 + 股基分列 Top N + 前 5 集中度）。
+               放在穿透之前：先看「大类压了多少」，再看「穿透后压了哪些行业」，
+               最后才是风格——由粗到细，不跳级。面板自带三级作用域，本页传组合口径。 -->
+          <div class="mb-6">
+            <PositionStructurePanel
+              id="nav-structure"
+              :portfolio-id="portfolioId"
+            />
+          </div>
+
           <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股）。
                #2595：显式传 portfolio-id —— 此前不传 scope，实际拉的是家庭级数据。 -->
           <div class="mb-6">
@@ -170,6 +180,7 @@ import PageToc from "@/components/PageToc/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
+import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
 import { usePageNav } from "@/composables/usePageNav";
 import PortfolioStylePanel from "./PortfolioStylePanel.vue";
@@ -190,8 +201,8 @@ import {
  * 组合详情页（/asset/portfolios/:id）。
  *
  * #980 拆分后只留「页面骨架」：PageHeaderBar 页头、四张指标卡、页内导航
- * （PageNav / PageToc，2026-10-25 接入）与九个纵向区块（收益 / 货基 / 归因 /
- * 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
+ * （PageNav / PageToc，2026-10-25 接入）与十个纵向区块（收益 / 货基 / 归因 /
+ * 结构 / 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
  *
  * - `PortfolioHoldingsCard`：持仓明细（排序 + 前端分页 + 盈亏双线估值接线）
  * - `PortfolioUnarchivedCard`：未归档持仓 + 归档对话框（自含取数）
@@ -201,8 +212,9 @@ import {
  * 区间超额（#2134）的五段派生文案进 `usePortfolioExcess`，接口信封解包、
  * 排序分页、账户类型文案进 `portfolioDetailModel.ts`（纯函数）。
  *
- * 穿透面板 `PenetrationPanel` 已上移 `components/`（#2595：三级口径共享），
- * 本页传 `portfolio-id` 走组合口径。
+ * 结构段三个面板口径共享：`PositionStructurePanel`（大类占比 / Top N / 集中度）、
+ * `PenetrationPanel`（行业穿透）、`PortfolioStylePanel`（风格构成）都上移/落到
+ * `components/` 或本目录，且都收 `portfolio-id` 走组合口径（#2595 / #2617）。
  */
 defineOptions({ name: "PortfolioDetail" });
 
@@ -229,6 +241,7 @@ const NAV_LABELS: Record<string, string> = {
   "nav-return": "组合收益",
   "nav-money-fund": "货币基金收益",
   "nav-attribution": "收益归因",
+  "nav-structure": "持仓结构",
   "nav-penetration": "持仓穿透",
   "nav-style": "组合风格",
   "nav-holdings": "持仓明细",
