@@ -4,8 +4,6 @@
   "threshold": 400,
   "generatedAt": "2026-10-27",
   "files": {
-    "components/Charts/SankeyChart.vue": 448,
-    "components/DiscrepancyBanner/index.vue": 408,
     "views/product/detail.vue": 428,
     "views/status/index.vue": 442,
     "views/welcome/index.vue": 441
