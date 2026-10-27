@@ -56,6 +56,22 @@ def _ensure_portfolio(db: Session, family_id: int, portfolio_id: int) -> None:
         raise ValueError(ERR_NO_PORTFOLIO)
 
 
+def member_ledger_ids(db: Session, family_id: int, portfolio_id: int) -> Set[int]:
+    """组合成员账本 id 集合（含组合存在性 / 归属校验，校验失败抛 `ValueError`）。
+
+    ⚠️ 这是「组合有哪些账本」的唯一出口：任何按组合取数的调用方都走这里，别各自
+    `query(Ledger).filter(portfolio_id=...)` —— 少写一次 family 校验，别人家的
+    `portfolio_id` 就能取到数据。
+
+    注意与 :func:`filter_positions_by_scope` 的差别：持仓有「显式归属覆盖继承」
+    两个维度（`positions.portfolio_id` / `ledger.portfolio_id`），而**只挂在账本上的
+    实体**（交易流水等，表里没有 portfolio_id 字段）只有继承这一个维度，
+    组合级就是本集合。别把持仓那套语义硬套到资金流上。
+    """
+    _ensure_portfolio(db, family_id, portfolio_id)
+    return _member_ledger_ids(db, family_id, portfolio_id)
+
+
 def filter_positions_by_scope(
     db: Session,
     family_id: int,
@@ -87,8 +103,7 @@ def filter_positions_by_scope(
         return [p for p in positions if p.ledger_id == ledger_id]
 
     if portfolio_id is not None:
-        _ensure_portfolio(db, family_id, portfolio_id)
-        member_ids = _member_ledger_ids(db, family_id, portfolio_id)
+        member_ids = member_ledger_ids(db, family_id, portfolio_id)
         # 显式归属覆盖继承，与 portfolio_service.build_portfolio_holdings 口径一致。
         return [
             p
