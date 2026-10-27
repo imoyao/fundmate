@@ -245,10 +245,10 @@ def build_layers(
     返回结构::
 
         {
-          'l1': [...], 'l2': [...], 'l3': [...], 'unknown': [...],
-          'internal_transfer_indexes': [...],       # 被内部划转抵消的流水下标
+          'l1': [...], 'l2': [...], 'l3': [...], 'unknown': [...],  # 每条带 internal_transfer 标记
+          'internal_transfer_indexes': [...],       # 被内部划转抵消的流水下标（totals 已剔除）
           'totals': {
-              'deposit', 'withdraw', 'net_invested',       # L1 汇总（元）
+              'deposit', 'withdraw', 'net_invested',       # L1 汇总（元，已剔除内部互转）
               'buy', 'sell', 'dividend_cash', 'fees',      # 明细口径（元）
               'cash_residual',                             # 推导现金残差（元）
           },
@@ -257,6 +257,10 @@ def build_layers(
 
     `net_invested = 累计入金 − 累计出金`：这是**用户视角「我一共压进去多少」**。
     刻意不把已实现盈亏混进来——那是收益，不是投入（见 `docs/spec/cashflow-layers.md`）。
+
+    内部互转（#2681）：一次传入多个成员账本时，同日同额反向的两笔被配对并在 totals 中
+    剔除（`internal_transfer=True`），但**仍留在 `l1` 桶里**便于诊断；消费方要展示逐笔
+    流水时须自行按该标记过滤，否则会出现「列表里有、总额里没有」的对不上。
     """
     flows = collect_flows(
         db_session,
@@ -280,10 +284,18 @@ def build_layers(
         'fees': 0.0,
         'cash_residual': 0.0,
     }
-    for flow in flows:
+    for idx, flow in enumerate(flows):
+        # 家庭内互转（#2681）：流水仍留在 L1 桶里便于诊断（`internal_transfer_indexes`
+        # 与 `internal_transfer` 标记都能定位它），但**不进 totals**——
+        # 「我一共投进去多少」不该被 A→B 的搬运抬高：真实外部入金 5 万 + A→B 划转 1 万，
+        # 用户看到的累计入金必须是 5 万，不是 6 万。账户级（单账本传入）配不上对，
+        # 行为不变；只有一次传入多个成员账本（组合级）才会命中。
+        flow['internal_transfer'] = idx in internal
         layer = flow['layer']
         bucket = layers[layer] if layer in (L1_EXTERNAL, L2_TRANSFER, L3_REALIZED) else layers['unknown']
         bucket.append(flow)
+        if flow['internal_transfer']:
+            continue
 
         txn_type = flow['txn_type']
         amount = flow['amount']

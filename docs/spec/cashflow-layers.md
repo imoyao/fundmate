@@ -46,6 +46,13 @@ title: 资金流水分层口径（L1/L2/L3）
 - **账户级**仍是真实的资金进出（对 A 是出金、对 B 是入金），账户页照常展示；
 - 按 `ledger_id` 判定，不按账户名——同名账户串味会把外部入金误当划转剔掉（历史 bug）。
 
+**2026-10-27 落地（#2681）**：`cashflow_layers.build_layers` 在 `totals` 累加时跳过被配对的流水
+（每条 flow 带 `internal_transfer=True` 标记，`l1` 桶仍保留以便诊断）；消费方展示逐笔流水 /
+月度柱状 / 累计净投入曲线时须同样按该标记过滤，否则出现「列表里有、总额里没有」。
+此前本规范已规定「组合级不应出现在总额里」，但实现只把配对标进了 `basis_by_ledger`，
+`totals` 照旧累加——组合级接入时才暴露成「外部入金 5 万 + 组合内划转 1 万 = 显示 6 万」。
+账户级（单账本传入）配不上对，行为不变。
+
 > 2026-10-25 修复：`xirr_engine.generate_portfolio_cashflows` 此前把配对结果赋给 `_` **丢弃**
 > （`_ = _exclude_internal_transfers(...)`），看起来过滤了、实际什么都没做。现由
 > `cashflow_layers.pair_internal_transfers` 统一判定，配对结果真正参与现金流构造。

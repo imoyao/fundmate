@@ -418,7 +418,12 @@ BASELINE: dict[str, dict[str, int]] = {
         # `GET /summary/cash-flow/`——`ledger_id` 必填校验、异常→HTTP 信封，业务口径
         # 全在 `services/cash_flow_service.py`；`orm_queries` / `commits` 仍为 0，
         # `max_func` 43 不动（新端点函数体 21 行 ≤ 60）。与 #2134 / #2135 / #2617 同先例。
-        "lines": 403,
+        # 2026-10-27 重取（#2681，**给既有端点补作用域**，非放宽）：403 → 407。
+        # `GET /summary/cash-flow/` 增加 `portfolio_id`（与 `ledger_id` 二选一），视图侧
+        # 增量只有「把必填校验换成两个可选参数 + docstring 写清互斥」；成员账本解析在
+        # `services/scope.py::member_ledger_ids`、互转抵消在
+        # `services/performance/cashflow_layers.py`，视图仍零查询、零事务。
+        "lines": 407,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

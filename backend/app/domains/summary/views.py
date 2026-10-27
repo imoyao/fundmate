@@ -18,7 +18,7 @@ from app.core.validation import parse_query
 from app.domains.summary.schemas import MemberSliceQuery
 from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
-from app.services.cash_flow_service import build_ledger_cash_flow
+from app.services.cash_flow_service import build_cash_flow
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series, compute_range_attribution
 from app.services.position_structure import build_position_structure
@@ -253,20 +253,24 @@ def pnl_calendar():
 
 @bp.get('/summary/cash-flow/')
 def cash_flow():
-    """#2616 账户级资金流动（入金/出金/净投入/期末资产 + 净值与累计净投入双线）。
+    """#2616 / #2681 资金流动（入金/出金/净投入/期末资产 + 净值与累计净投入双线）。
 
-    `ledger_id` 必填（出入金挂在账户上，组合只是账户集合；组合级合并视图不在本卡范围）。
+    `ledger_id` 与 `portfolio_id` 二选一（同传 400、都不传也 400，不设隐式默认）。
+    组合级 = 成员账本集合一次聚合（`services/scope.member_ledger_ids`），组合内互转由
+    `cashflow_layers.pair_internal_transfers` 配对抵消为 0，与「Σ 账户 ≡ 家庭」同一条可加性。
     累计指标恒为「自开户以来」，`start_date`/`end_date` 只影响逐笔流水、月度柱状与曲线。
     口径与现金残差推导见 `docs/spec/cashflow-layers.md`。
     """
-    ledger_id = request.args.get('ledger_id', type=int)
-    if not ledger_id:
-        return jsonify({'data': None, 'message': 'ledger_id 必填', 'error_code': 1001}), 400
     try:
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
         with get_db() as db:
-            data = build_ledger_cash_flow(db, get_family_id(), ledger_id, start_date, end_date)
+            data = build_cash_flow(
+                db,
+                get_family_id(),
+                ledger_id=request.args.get('ledger_id', type=int),
+                portfolio_id=request.args.get('portfolio_id', type=int),
+                start_date=request.args.get('start_date'),
+                end_date=request.args.get('end_date'),
+            )
         return jsonify({'data': data, 'message': 'ok'})
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
