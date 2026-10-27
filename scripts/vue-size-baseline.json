@@ -6,8 +6,6 @@
   "files": {
     "components/Charts/SankeyChart.vue": 448,
     "components/DiscrepancyBanner/index.vue": 408,
-    "components/PnlAttribution/index.vue": 402,
-    "components/PnlCalendar/index.vue": 580,
     "views/asset/favorites/components/RoadCard.vue": 509,
     "views/asset/panorama/components/OverviewSummaryCard.vue": 460,
     "views/explore/components/ExploreWatchlistTable.vue": 491,
