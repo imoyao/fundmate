@@ -26,13 +26,18 @@
 4. 某个 `run:` 真的调用 `scripts/regen_pnpm_lockfile.mjs`；
 5. 该调用带 `--apply`；
 6. workflow 里有 `git push`（重生成必须推回去）；
-7. 调用脚本的那一行不得带 `|| true`（失败态不许吞）。
+7. 调用脚本的那一行不得带 `|| true`（失败态不许吞）；
+8. **撞锁第二阶段**（#2646 / #2648 实测）：真的调用 `scripts/rebuild_dependabot_branch.py`
+   且带 `--apply` —— 只重生成锁修不了「分支落后 dev ⇒ CONFLICTING」；
+9. 重建推送必须 `--force-with-lease`（并发时宁可失败，不许覆盖别人的提交）；
+10. 必须有 `push: branches: [dev]` 的重扫触发 —— 同批第二个 PR 是在**第一个合入之后**
+    才变冲突的，那时没有任何 pull_request 事件可依赖（冲突下它压根不触发）。
 
 ## 边界（刻意不查）
 
-- 不验证脚本产出的锁是否正确——那需要 pnpm + 网络，属端到端验证，
-  由 PR #2441 的实测记录与 `scripts/tests/test_dependabot_lockfile_regen.py`
-  的纯函数单测分担；
+- 不验证脚本产出的锁 / 重建结果是否真的正确——那需要 pnpm + 网络，属端到端验证，
+  由 PR #2441 的实测记录、`scripts/tests/test_dependabot_lockfile_regen.py` 的纯函数单测、
+  以及 `scripts/tests/test_rebuild_dependabot_branch.py`（真 git 仓库复现撞锁）分担；
 - 不检查 `pnpm/action-setup` 的版本号（它读根 `packageManager`，改版本是另一件事）。
 
 ## 用法
@@ -51,6 +56,22 @@ from typing import Any, Dict, List
 
 WORKFLOW_REL = '.github/workflows/dependabot-lockfile-regen.yml'
 SCRIPT_REL = 'scripts/regen_pnpm_lockfile.mjs'
+REBUILD_REL = 'scripts/rebuild_dependabot_branch.py'
+
+
+def _logical_lines(text: str) -> List[str]:
+    """把 `\\` 续行拼成一条：调用可能跨行，逐物理行判会漏掉参数。"""
+    joined = text.replace('\\\n', ' ')
+    return [line.strip() for line in joined.splitlines() if line.strip()]
+
+
+def _code_lines(text: str) -> List[str]:
+    """只留**真会执行**的行。
+
+    shell 注释里提到 `git push` / `--force-with-lease` 也算命中——那会让判据被自己的
+    说明文字骗过去（「写了但不会发生」的另一种形态）。故先拼续行，再剔注释行。
+    """
+    return [line for line in _logical_lines(text) if not line.startswith('#')]
 
 
 def _triggers(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -121,13 +142,13 @@ def check(repo: Path) -> List[str]:
         problems.append('job 的 if 未限定 base=dev（本仓只有 dev 是集成分支）')
 
     runs = _run_texts(doc)
+    code = [line for text in runs for line in _code_lines(text)]
     # 只认**执行**行：`git show origin/dev:scripts/regen_pnpm_lockfile.mjs > /tmp/x`
     # 也含脚本名，但那是「取一份副本」，删掉后面的 `node` 调用它照样命中——
     # 若按「文本里出现脚本名」判，守卫会被自己的备份行骗过去（本文件首版即如此）。
     invocations = [
         line
-        for text in runs
-        for line in text.splitlines()
+        for line in code
         if 'regen_pnpm_lockfile.mjs' in line and 'node ' in line
     ]
     if not invocations:
@@ -140,8 +161,37 @@ def check(repo: Path) -> List[str]:
         for line in invocations:
             if '|| true' in line:
                 problems.append('调用行带 `|| true`：失败态被吞成绿灯（#171）')
-    if not any('git push' in r for r in runs):
+    if not any('git push' in line for line in code):
         problems.append('workflow 里没有 git push：重生成写了却不推回，PR 的锁仍然是坏的')
+
+    # ---- 第二阶段：撞锁（#2646 / #2648 实测：锁已修好、分支仍 CONFLICTING）----
+    if not (repo / REBUILD_REL).is_file():
+        problems.append(f'{REBUILD_REL} 不存在——撞锁形态没有处理代码')
+
+    rebuild_calls = [line for line in code if 'rebuild_dependabot_branch.py' in line and 'python3 ' in line]
+    if not rebuild_calls:
+        problems.append(
+            'workflow 未执行 scripts/rebuild_dependabot_branch.py——只重生成锁修不了'
+            '「分支落后 dev ⇒ CONFLICTING」（#2646 / #2648 的形态）'
+        )
+    else:
+        if not any('--apply' in line for line in rebuild_calls):
+            problems.append('重建调用未带 --apply：默认 dry-run，通道会「每次都成功、每次都什么都不写」')
+        for line in rebuild_calls:
+            if '|| true' in line:
+                problems.append('重建调用行带 `|| true`：失败态被吞成绿灯（#171）')
+
+    if not any('--force-with-lease' in line for line in code):
+        problems.append('重建推送未用 --force-with-lease：并发推送会静默覆盖别人的提交')
+
+    push_trig = trig.get('push') if isinstance(trig, dict) else None
+    branches = push_trig.get('branches') if isinstance(push_trig, dict) else None
+    branches = branches if isinstance(branches, list) else [branches] if branches else []
+    if 'dev' not in branches:
+        problems.append(
+            '缺少 `push: branches: [dev]` 的重扫触发——同批第二个 PR 是在第一个**合入之后**才'
+            '变冲突的，那时冲突状态下 pull_request 事件不触发，没有别的时机能补'
+        )
 
     return problems
 
@@ -169,6 +219,8 @@ def main(argv: List[str]) -> int:
         print('✓ workflow 存在且按 dependabot + base=dev 设闸')
         print('✓ 触发为 pull_request_target，覆盖 opened / synchronize')
         print('✓ 真的调用脚本、带 --apply、有 git push、无 `|| true`')
+        print('✓ 撞锁走分支重建（带 --apply）、推回用 --force-with-lease')
+        print('✓ 有 push: dev 的重扫触发（同批第二个 PR 在第一个合入后才冲突）')
     else:
         print('OK: dependabot 锁重生成通道成立。')
     return 0

@@ -39,9 +39,10 @@ def _fake_repo(tmp: Path, workflow_text: str) -> Path:
     wf = tmp / _WORKFLOW_REL
     wf.parent.mkdir(parents=True, exist_ok=True)
     wf.write_text(workflow_text, encoding='utf-8')
-    script = tmp / 'scripts' / 'regen_pnpm_lockfile.mjs'
-    script.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(_SCRIPT_PATH, script)
+    for name in ('regen_pnpm_lockfile.mjs', 'rebuild_dependabot_branch.py'):
+        script = tmp / 'scripts' / name
+        script.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(_REPO_ROOT / 'scripts' / name, script)
     return tmp
 
 
@@ -83,7 +84,10 @@ class TestGuardCatchesRegressions(unittest.TestCase):
 
     def test_probe3_dropping_push_is_caught(self):
         """探针 3：重生成却不推回 ⇒ PR 的锁仍然是坏的。"""
-        mutated = self.real.replace('git push origin "HEAD:$PR_HEAD_REF"', 'true')
+        mutated = self.real
+        for line in ('git push origin "HEAD:$b"',
+                     'git push --force-with-lease="refs/heads/$b:$OLD_SHA" origin "HEAD:refs/heads/$b"'):
+            mutated = mutated.replace(line, 'true')
         self.assertNotEqual(mutated, self.real, '探针未命中')
         problems = self._problems_after(mutated)
         self.assertTrue(any('git push' in p for p in problems), problems)
@@ -101,7 +105,7 @@ class TestGuardCatchesRegressions(unittest.TestCase):
     def test_probe5_dropping_dependabot_gate_is_caught(self):
         """探针 5：去掉 dependabot 作者闸 ⇒ 对任意人开写权限。"""
         mutated = self.real.replace(
-            "      github.event.pull_request.user.login == 'dependabot[bot]' &&\n", ''
+            "      (github.event.pull_request.user.login == 'dependabot[bot]' &&\n", ''
         )
         self.assertNotEqual(mutated, self.real, '探针未命中')
         problems = self._problems_after(mutated)
@@ -118,6 +122,36 @@ class TestGuardCatchesRegressions(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             problems = _load_guard().check(Path(tmp))
         self.assertTrue(any('不存在' in p for p in problems), problems)
+
+    # ---- 撞锁第二阶段（#2646 / #2648）：三条「重建被悄悄摘掉」的形态 ----
+
+    def test_probe7_dropping_rebuild_call_is_caught(self):
+        """探针 7：删掉重建调用 ⇒ 又只剩「重生成锁」，撞锁永远要人收口。"""
+        mutated = self.real.replace(
+            'python3 /tmp/rebuild_dependabot_branch.py \\\n'
+            '              --branch "$b" --base origin/dev --regen-script /tmp/regen_pnpm_lockfile.mjs --apply',
+            'echo "跳过重建"',
+        )
+        self.assertNotEqual(mutated, self.real, '探针未命中：workflow 结构已变')
+        problems = self._problems_after(mutated)
+        self.assertTrue(any('分支重建' in p or 'rebuild_dependabot_branch' in p for p in problems), problems)
+
+    def test_probe8_force_instead_of_lease_is_caught(self):
+        """探针 8：强推退化成 `--force` ⇒ 并发推送会静默覆盖别人的提交。"""
+        mutated = self.real.replace(
+            'git push --force-with-lease="refs/heads/$b:$OLD_SHA" origin "HEAD:refs/heads/$b"',
+            'git push --force origin "HEAD:refs/heads/$b"',
+        )
+        self.assertNotEqual(mutated, self.real, '探针未命中')
+        problems = self._problems_after(mutated)
+        self.assertTrue(any('force-with-lease' in p for p in problems), problems)
+
+    def test_probe9_dropping_dev_sweep_is_caught(self):
+        """探针 9：摘掉 `push: dev` ⇒ 同批第二个 PR 在第一个合入后无人重建。"""
+        mutated = self.real.replace('  push:\n    branches: [dev]\n', '')
+        self.assertNotEqual(mutated, self.real, '探针未命中')
+        problems = self._problems_after(mutated)
+        self.assertTrue(any('push: branches' in p or '重扫' in p for p in problems), problems)
 
 
 _JS_PROBE = """

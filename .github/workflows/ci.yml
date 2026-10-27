@@ -746,11 +746,14 @@ jobs:
       - name: 安装 pyyaml + pytest
         run: python -m pip install pyyaml pytest
 
-      # dependabot 锁重生成通道（#2434）：dependabot 不跑 pnpm，文本级重写锁会丢
-      # peer-suffixed 条目 ⇒ `--frozen-lockfile` 报 MISSING_DEPENDENCY（一天三连踩）。
-      # 判据只查「通道会不会真的发生」：workflow 是否执行脚本、带 --apply、推回、
-      # 不吞失败态、按 dependabot + base=dev 设闸。放在 pyyaml 安装之后（守卫要解 YAML）。
-      # 回归网 scripts/tests/test_dependabot_lockfile_regen.py（6 个变异探针）。
+      # dependabot 锁重生成 + 分支重建通道（#2434）：dependabot 不跑 pnpm，文本级重写锁会丢
+      # peer-suffixed 条目 ⇒ `--frozen-lockfile` 报 MISSING_DEPENDENCY（一天三连踩）；
+      # 同批两个 bump PR 还会各自重写同一份锁 ⇒ CONFLICTING（#2646 / #2648 实测）。
+      # 判据只查「通道会不会真的发生」：workflow 是否执行两个脚本、带 --apply、推回、
+      # --force-with-lease、push: dev 重扫、不吞失败态、按 dependabot + base=dev 设闸。
+      # 放在 pyyaml 安装之后（守卫要解 YAML）。
+      # 回归网：scripts/tests/test_dependabot_lockfile_regen.py（9 个变异探针）+
+      # scripts/tests/test_rebuild_dependabot_branch.py（真 git 仓库复现撞锁，随 discover 收进来）。
       - name: dependabot 锁重生成通道（阻断）
         run: python scripts/guard_dependabot_lockfile_regen.py
 
