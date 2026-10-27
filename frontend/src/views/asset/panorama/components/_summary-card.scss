@@ -1,0 +1,21 @@
+/* 资产全景摘要卡两卡共用的壳（#980 批 B6 从 `OverviewSummaryCard.vue` 抽出）。
+ *
+ * 两张卡各自 scoped 块 `@use` 本文件一份 —— 声明会在产物里出现两次，这是
+ * scoped 样式的必然结果，不是冗余；换成父组件 `:deep()` 反而会让两张卡
+ * 的 hover 行为重新分叉。
+ *
+ * 历史（原先的写法值得记住）：两张卡各自写了一份**内联 style**
+ * （backgroundColor / border / boxShadow），而 hover 的 `--shadow-float` 写在
+ * `.summary-card:hover` 这个 class 规则里 —— 内联样式优先级高于任何 class 规则，
+ * 于是 hover 一直是段死代码。现在全部下沉到这里，两卡 hover 行为一致。
+ */
+.summary-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.summary-card:hover {
+  box-shadow: var(--shadow-float);
+}
