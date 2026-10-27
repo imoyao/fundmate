@@ -428,7 +428,8 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 颜色红线：必须经 CSS 语义变量（`colorMap` 传变量名，组件内 `getCssVar` 读取）；不传或缺失回退 `--chart-01~08` 循环。
 - 参考实现：`frontend/src/views/asset/ledgers/detail.vue`（`typeColorMap` + `allocationData`）。
 - **机器化拦截**：`scripts/guard_no_duplicate_pie.py` 扫 `type: "pie"`，除本组件与下述白名单外一律 CI 变红。新增例外必须同时更新该脚本 `WHITELIST` 与本小节，否则这道拦截会退化成「谁熟谁加」的橡皮图章。
-- **已登记的例外**（#2164）：`frontend/src/components/Aggregation/AggregationHero.vue`。
+- **已登记的例外**（#2164）：`frontend/src/components/Aggregation/AggregationBreakdownDonut.vue`
+  （#2664 前内联在 `AggregationHero.vue`，`#980` 瘦身时整块搬出、白名单随之迁移）。
   按判据它本该走表内嵌条（基金侧 `fund_type` 常 > 6 类），但 hero 是**横向概览锚点**、
   空间放不下表格；它把 echarts 原生图例换成「HTML top5 + 其他 N 类」折叠，属
   **信息分层**而非「重新实现一套资产分布」——「读全分类」的诉求由聚合页下方的
