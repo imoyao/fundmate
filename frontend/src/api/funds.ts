@@ -316,10 +316,19 @@ export interface PortfolioStyleExposure {
   source: string;
 }
 
-/** 获取组合加权风格暴露。无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0 */
-export function getPortfolioStyle() {
+/**
+ * 获取组合加权风格暴露。无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0。
+ *
+ * @param scope 三级口径（不传 = 家庭级）：`portfolio_id` 组合级 / `ledger_id` 账户级，
+ * 两者互斥（后端 400）。组合详情页必须传 `portfolio_id`，否则拿到的是**全家**风格
+ * ——标题写「组合风格构成」而数据是家庭级，属口径错误（同类问题 #2595）。
+ */
+export function getPortfolioStyle(
+  scope: { ledger_id?: number; portfolio_id?: number } = {}
+) {
   return http.request<ApiResponse<PortfolioStyleExposure>>(
     "get",
-    `/api/funds/style/portfolio/`
+    `/api/funds/style/portfolio/`,
+    { params: scope }
   );
 }

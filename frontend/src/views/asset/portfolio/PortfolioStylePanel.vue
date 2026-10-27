@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { getPortfolioStyle, type PortfolioStyleExposure } from "@/api/funds";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -76,6 +76,20 @@ import {
 } from "./portfolioStyleModel";
 
 defineOptions({ name: "PortfolioStylePanel" });
+
+/**
+ * 三级口径（2026-10-27 收口）：
+ * - 不传 props：家庭级（既有行为）；
+ * - `portfolio-id`：组合级——**组合详情页必须传**。此前不传，后端只支持家庭级，
+ *   于是标题「组合风格构成」下展示的是全家风格（同类问题 #2595 在穿透面板修过）；
+ * - `ledger-id`：账户级；两者互斥，父页自行保证（后端同传回 400）。
+ */
+const props = defineProps<{
+  /** 账户级口径；与 portfolioId 互斥 */
+  ledgerId?: number;
+  /** 组合级口径；与 ledgerId 互斥 */
+  portfolioId?: number;
+}>();
 
 const data = ref<PortfolioStyleExposure | null>(null);
 const loading = ref(false);
@@ -98,7 +112,10 @@ const load = async () => {
   loading.value = true;
   error.value = false;
   try {
-    const res = await getPortfolioStyle();
+    const scope: { ledger_id?: number; portfolio_id?: number } = {};
+    if (props.ledgerId != null) scope.ledger_id = props.ledgerId;
+    if (props.portfolioId != null) scope.portfolio_id = props.portfolioId;
+    const res = await getPortfolioStyle(scope);
     data.value = res.data;
   } catch (e) {
     console.error("[portfolio-style] 风格数据加载失败", e);
@@ -109,6 +126,8 @@ const load = async () => {
 };
 
 onMounted(load);
+// 路由参数变化（组合 A → 组合 B）时组件被复用，必须重取，否则显示上一个组合的风格
+watch(() => [props.ledgerId, props.portfolioId], load);
 </script>
 
 <style scoped lang="scss">
