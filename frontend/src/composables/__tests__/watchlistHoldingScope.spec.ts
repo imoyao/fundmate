@@ -230,15 +230,24 @@ describe("#2329 持仓分组允许的资产类型只有一份真相源", () => {
     // ⚠️ 前两版静态守卫写成「文件里出现常量名」，而**光一条 import 就能让它通过**，
     // 于是「导入了却没真正用」的回退完全咬不住（探针 P2/P3/P4 全 MISS）。
     // 现在统一断言**调用点**：`narrowToHolding(` 带括号，import 行匹配不到。
+    //
+    // #980 批 B2 后 ①③ 换了落点（都是纯搬运，调用语义不变）：
+    //   ① 从 index.vue 的 onMounted 搬进 composables/useWatchlistPageInit.ts；
+    //   ③ 从 WatchlistFilterBar.vue 的 computed 搬进 quickTypeModel.ts。
+    // 守卫跟着落点走——**断言的是「谁在调用」，不是「住在哪个文件」**，
+    // 否则一次纯结构拆分就会把守卫打成红。
     const callers: Array<[string, string]> = [
-      ["① index.vue 唯一写入点", "views/asset/watchlist/index.vue"],
+      [
+        "① 唯一写入点（useWatchlistPageInit）",
+        "views/asset/watchlist/composables/useWatchlistPageInit.ts"
+      ],
       [
         "② FilterPanelBody 弹层可选集",
         "views/asset/watchlist/components/FilterPanelBody.vue"
       ],
       [
-        "③ WatchlistFilterBar 快捷胶囊",
-        "views/asset/watchlist/WatchlistFilterBar.vue"
+        "③ 快捷胶囊选项（quickTypeModel）",
+        "views/asset/watchlist/quickTypeModel.ts"
       ]
     ];
     for (const [label, rel] of callers) {
@@ -252,11 +261,20 @@ describe("#2329 持仓分组允许的资产类型只有一份真相源", () => {
       );
     }
 
-    // index.vue 另有两处不得回退：非法 key convertible / 失效的分组回退值
-    const index = stripComments(readSource("views/asset/watchlist/index.vue"));
-    expect(index).not.toMatch(/"convertible"/);
-    expect(index).toMatch(/await\s+groups\.fetchGroups\(\)/);
-    expect(index).toMatch(/if\s*\(!groupsOk\)/);
+    // 写入点另有两处不得回退：非法 key convertible / 失效的分组回退值
+    const init = stripComments(
+      readSource("views/asset/watchlist/composables/useWatchlistPageInit.ts")
+    );
+    expect(init).not.toMatch(/"convertible"/);
+    expect(init).toMatch(/await\s+groups\.fetchGroups\(\)/);
+    expect(init).toMatch(/if\s*\(!groupsOk\)/);
+
+    // 「唯一写入点」的唯一性：index.vue 只做装配，不得再自己拷一份收窄逻辑
+    // （两处各写一份正是 #2329 之前的口径漂移来源）
+    expect(
+      stripComments(readSource("views/asset/watchlist/index.vue")),
+      "index.vue 又出现了收窄调用，写入点被分裂成两处"
+    ).not.toContain("narrowToHolding(");
 
     // FilterPanelBody 不得再持有本地 HOLDING_ALLOWED_TYPES
     expect(
