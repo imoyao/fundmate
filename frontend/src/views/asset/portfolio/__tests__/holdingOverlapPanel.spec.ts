@@ -10,8 +10,12 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  countSameSeriesPairs,
   describeBasis,
+  describeCaveats,
   describeCoverage,
+  describeDuplicateSummary,
+  describeOverlapLevel,
   describePeriodMismatch,
   describeSkipped,
   formatJaccard,
@@ -30,6 +34,8 @@ const pair = (over: Partial<OverlapPair> = {}): OverlapPair => ({
   holding_basis: "top10",
   jaccard: 0.42,
   weighted_overlap: 18.6,
+  overlap_level: "watch",
+  overlap_reason: "共同重仓 1 只、18.6% 仓位重叠",
   common_holdings: [
     {
       stock_code: "600519",
@@ -50,6 +56,8 @@ const data = (over: Partial<HoldingOverlapData> = {}): HoldingOverlapData => ({
   total_market_value_cents: 1_000_000,
   coverage_pct: 82.5,
   uncovered: [],
+  duplicate_count: 0,
+  caveats: ["重叠度基于基金定期报告披露的持仓快照，两次报告之间的调仓看不到。"],
   degraded: false,
   source: "fund_holdings",
   ...over
@@ -99,6 +107,13 @@ describe("重叠度数值展示（#2604）", () => {
     expect(formatJaccard(undefined)).toBe("—");
     expect(formatJaccard(Number.NaN)).toBe("—");
   });
+
+  it("极小正数不渲染成「0.0%」——列在重叠里却显示 0 会自相矛盾", () => {
+    // 后端只下发 weighted_overlap > 0 的对，故 0.04 这种值只该显示下限，不该显示 0.0%
+    expect(formatWeightedOverlap(0.04)).toBe("<0.1%");
+    expect(formatWeightedOverlap(0.05)).toBe("0.1%");
+    expect(formatWeightedOverlap(1.24)).toBe("1.2%");
+  });
 });
 
 describe("重叠度口径说明（#2604）", () => {
@@ -134,5 +149,80 @@ describe("重叠度口径说明（#2604）", () => {
 
   it("没有跳过项时不给空文案", () => {
     expect(describeSkipped(data())).toBe("");
+  });
+});
+
+describe("配置重复提示（#866）", () => {
+  it("duplicate 显示「配置重复」，watch 显示「需留意」，low 不占版面", () => {
+    expect(describeOverlapLevel(pair({ overlap_level: "duplicate" }))).toEqual({
+      label: "配置重复",
+      tone: "danger"
+    });
+    expect(describeOverlapLevel(pair({ overlap_level: "watch" }))).toEqual({
+      label: "需留意",
+      tone: "warning"
+    });
+    expect(describeOverlapLevel(pair({ overlap_level: "low" }))).toBeNull();
+  });
+
+  it("同一基金的不同份额不得显示成「配置重复」", () => {
+    // 同一只基金的 A/C 份额持仓逐行相同 ⇒ 算出来必然近 100% 重叠。
+    // 若标成「配置重复」，用户会去卖掉本来正常持有的份额。
+    const badge = describeOverlapLevel(pair({ overlap_level: "same-series" }));
+    expect(badge?.label).not.toContain("配置重复");
+    expect(badge?.label).toContain("份额");
+    expect(badge?.tone).toBe("info");
+  });
+
+  it("汇总只数真重复，份额重复单独说", () => {
+    const text = describeDuplicateSummary(
+      data({
+        pairs: [
+          pair({ overlap_level: "duplicate" }),
+          pair({ overlap_level: "same-series" })
+        ],
+        duplicate_count: 1
+      })
+    );
+    expect(text).toContain("1 对配置重复");
+    expect(text).toContain("1 对是同一基金的不同份额");
+  });
+
+  it("没有重复时不给汇总文案", () => {
+    expect(
+      describeDuplicateSummary(
+        data({ pairs: [pair({ overlap_level: "low" })], duplicate_count: 0 })
+      )
+    ).toBe("");
+  });
+
+  it("份额重复的对数可单独统计（不混进配置重复）", () => {
+    const payload = data({
+      pairs: [
+        pair({ overlap_level: "duplicate" }),
+        pair({ overlap_level: "same-series" }),
+        pair({ overlap_level: "same-series" })
+      ]
+    });
+    expect(countSameSeriesPairs(payload)).toBe(2);
+  });
+});
+
+describe("口径声明（#866 换手率约束）", () => {
+  it("原样透传后端的口径声明", () => {
+    const caveats = describeCaveats(
+      data({ caveats: ["持仓是快照", "高换手基金失真"] })
+    );
+    expect(caveats).toEqual(["持仓是快照", "高换手基金失真"]);
+  });
+
+  it("空串项被滤掉，不渲染空行", () => {
+    expect(describeCaveats(data({ caveats: ["有内容", "   ", ""] }))).toEqual([
+      "有内容"
+    ]);
+  });
+
+  it("缺字段时返回空数组而不是崩", () => {
+    expect(describeCaveats(null)).toEqual([]);
   });
 });

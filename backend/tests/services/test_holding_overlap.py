@@ -29,7 +29,7 @@ from datetime import date
 import pytest
 
 from app.domains.funds.models import FundHolding
-from app.services.holding_overlap import portfolio_holding_overlap
+from app.services.holding_overlap import _classify_overlap, _empty_result, portfolio_holding_overlap
 
 REPORT_DATE = date(2026, 6, 30)
 
@@ -380,3 +380,124 @@ def test_明细查询失败时降级而不抛异常(db, make_position, monkeypat
     # 市值已知就如实保留（前端据此说明「不是没有持仓，是明细取不到」）
     assert result['total_market_value_cents'] == 200000
     assert [item['symbol'] for item in result['uncovered']] == ['000001']
+
+
+# ── 10. 配置重复提示（#866）：双口径阈值分级 ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ('jaccard', 'weighted', 'expected'),
+    [
+        (0.10, 20.00, 'duplicate'),  # 加权口径正好踩线：阈值是 >=，边界必须命中
+        (0.50, 0.00, 'duplicate'),  # 只靠集合口径越线（同一指数的两只基金）
+        (0.10, 19.99, 'watch'),  # 差 0.01 就降档——档位边界不许含糊
+        (0.30, 0.00, 'watch'),  # 只靠集合口径到 watch
+        (0.29, 9.99, 'low'),  # 两个口径都没到
+        (0.00, 0.00, 'low'),
+    ],
+)
+def test_重叠定级按双口径阈值(jaccard, weighted, expected):
+    """任一口径越线即提示，但两档阈值都必须踩准。
+
+    只用单一口径会漏：jaccard 只看「重合几只股票」（同指数的两只基金恒为 1.0），
+    weighted 只看「重合多少仓位」（前十大里重合 2 只但都很重也能很高）。
+    """
+    level, _reason = _classify_overlap(jaccard, weighted, 3)
+
+    assert level == expected
+
+
+def test_定级理由区分仓位重叠与标的重复():
+    """两种越线必须给不同理由，否则用户不知道是「仓位重」还是「股票重」。"""
+    _, reason_weighted = _classify_overlap(0.10, 25.0, 6)
+    assert '仓位' in reason_weighted
+    assert '6' in reason_weighted
+
+    # 仅集合口径越线：必须点明「仓位有差异」，否则用户看到 weighted 很低却被判重复会困惑
+    _, reason_jaccard = _classify_overlap(0.60, 2.0, 6)
+    assert '重仓股' in reason_jaccard
+    assert '仓位有差异' in reason_jaccard
+
+    # low 不给理由：理由要占版面，没结论就不占
+    assert _classify_overlap(0.01, 1.0, 1) == ('low', '')
+
+
+# ── 11. 同一基金不同份额：不是配置重复（#866 的假警报闸门）──────────────────
+
+
+def test_同一基金的不同份额标记为份额重复而非配置重复(db, make_position):
+    """A/C 份额持仓逐行相同 ⇒ ``same-series``，**不进** ``duplicate_count``。
+
+    真实库里就有这种对（161725 / 012414 招商中证白酒 A/C，实测 weighted 86.48）。
+    不摘出来，配置重复提示的第一屏就是假警报——用户只买了同一只基金的两个份额。
+    """
+    make_position(symbol='161725', asset_type='fund', name='招商中证白酒A', quantity=1000, current_price=1.0)
+    make_position(symbol='012414', asset_type='fund', name='招商中证白酒C', quantity=1000, current_price=1.0)
+    for fund_code in ('161725', '012414'):
+        _holding(db, fund_code, '600519', '贵州茅台', 15.0)
+        _holding(db, fund_code, '000858', '五粮液', 12.0)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    pair = _find_pair(result['pairs'], '161725', '012414')
+    assert pair is not None
+    assert pair['overlap_level'] == 'same-series'
+    assert '份额' in pair['overlap_reason']
+    assert result['duplicate_count'] == 0
+    # 数值本身仍如实给出：用户也该知道这两笔买的是同一只基金
+    assert pair['weighted_overlap'] == pytest.approx(27.0)
+
+
+def test_同指数不同公司不被误判成份额重复(db, make_position):
+    """持仓集合相同但占比不同 ⇒ **不是**同一只基金，必须照常走阈值判定。
+
+    参照实测：017513 广发北证50 / 023887 永赢北证50 集合完全相同、占比只差 0.07。
+    若用「``jaccard == 1`` 即为同份额」当判据，就会把这种**真重复**藏起来。
+    """
+    make_position(symbol='017513', asset_type='fund', name='广发北证50C', quantity=1000, current_price=1.0)
+    make_position(symbol='023887', asset_type='fund', name='永赢北证50C', quantity=1000, current_price=1.0)
+    _holding(db, '017513', '600519', '贵州茅台', 15.0)
+    _holding(db, '017513', '000858', '五粮液', 12.0)
+    _holding(db, '023887', '600519', '贵州茅台', 14.93)  # 与 15.0 只差 0.07
+    _holding(db, '023887', '000858', '五粮液', 12.0)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    pair = _find_pair(result['pairs'], '017513', '023887')
+    assert pair is not None
+    assert pair['overlap_level'] != 'same-series'
+    # 同一指数的两只基金确实是重复配置，必须判出来（weighted = 14.93 + 12 = 26.93）
+    assert pair['overlap_level'] == 'duplicate'
+    assert result['duplicate_count'] == 1
+
+
+# ── 12. 换手率口径：如实声明，不假装判定 ────────────────────────────────────
+
+
+def test_口径声明交代换手率局限(db, make_position):
+    """卡面 #866 的硬约束：「只对低换手基金有效」必须交代，且不许假装做了基金级判定。
+
+    基金级换手率并未入库（现有 turnover 全是市场/行业拥挤度与用户交易换手），
+    所以只能声明局限——**输出「哪只高换手」才是错的**。
+    """
+    _seed_two_funds(db, make_position)
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    text = ' '.join(result['caveats'])
+    assert '高换手' in text
+    assert '换手率' in text  # 明说没接入，而不是含糊过去
+    assert '快照' in text  # 报告期滞后这层也要说
+    # 只声明、不判定：出参里不许出现「哪只基金高换手」这类无数据支撑的字段
+    assert not any('turnover' in key.lower() for key in result)
+
+
+def test_空结果的骨架也带口径声明():
+    """口径声明描述的是**固有**局限，与取数成败无关——降级时也不能丢。"""
+    result = _empty_result()
+
+    assert result['caveats']
+    assert result['duplicate_count'] == 0
+    assert result['pairs'] == []
