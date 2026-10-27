@@ -1,0 +1,14 @@
+/* 补充信息卡片列表容器。
+ *
+ * 两处共用同一份：ResultStep（「无新增数据」分支里只放错误汇总）与
+ * ResultSupplements（成功分支的整组补充卡片）。此前两边各写一遍，改间距时
+ * 要记得改两处；抽成 partial 后源只有一份（#980 批 B3）。
+ */
+.result-supplements {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-compact);
+  width: 100%;
+  padding-top: var(--space-loose);
+  border-top: 1px solid var(--border-light);
+}

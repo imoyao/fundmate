@@ -9,8 +9,6 @@
     "components/PnlAttribution/index.vue": 402,
     "components/PnlCalendar/index.vue": 580,
     "views/asset/favorites/components/RoadCard.vue": 509,
-    "views/asset/investment/import/components/ResultStep.vue": 440,
-    "views/asset/investment/reconcile-workbench/index.vue": 406,
     "views/asset/panorama/components/OverviewSummaryCard.vue": 460,
     "views/explore/components/ExploreWatchlistTable.vue": 491,
     "views/explore/components/detail/CrowdingTable.vue": 508,

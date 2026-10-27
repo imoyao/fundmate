@@ -1,29 +1,11 @@
 <template>
   <div class="recon-workbench-page">
-    <!-- 页头 -->
-    <header class="workbench-head">
-      <div class="workbench-head__text">
-        <h1 class="workbench-head__title">对账工作台</h1>
-        <p class="workbench-head__subtitle">
-          统一处理 E账户对账、持仓快照一致性、对账单导入的差异与补充
-        </p>
-      </div>
-      <div class="workbench-head__actions">
-        <el-button size="small" @click="recognizerVisible = true">
-          <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
-          AI 识别
-        </el-button>
-        <el-button
-          size="small"
-          type="primary"
-          :loading="running"
-          @click="handleRun"
-        >
-          <IconifyIconOffline icon="ep:refresh-right" class="mr-1" />
-          运行对账
-        </el-button>
-      </div>
-    </header>
+    <!-- 页头（拆分见 WorkbenchHead）：标题 + AI 识别 / 运行对账 -->
+    <WorkbenchHead
+      :running="running"
+      @recognize="recognizerVisible = true"
+      @run="handleRun"
+    />
 
     <!-- 柔性 Warning Banner（§6.3）：中性信息色，非红非弹窗；点击切换到待处理域（#1259） -->
     <div
@@ -69,14 +51,10 @@
       <el-tabs v-model="activeDomain" class="workbench-tabs__inner">
         <el-tab-pane v-for="tab in domainTabs" :key="tab.key" :name="tab.key">
           <template #label>
-            <span class="domain-tab-label">
-              {{ tab.label }}
-              <span
-                v-if="domainPending(tab.key) > 0"
-                class="domain-tab-count"
-                >{{ domainPending(tab.key) }}</span
-              >
-            </span>
+            <DomainTabLabel
+              :label="tab.label"
+              :count="domainPending(tab.key)"
+            />
           </template>
           <CardBlock :title="tab.title" :description="tab.description">
             <template #action>
@@ -184,9 +162,12 @@ import RecognizerCandidatesPanel from "./components/RecognizerCandidatesPanel.vu
 import DomainDGhostTable from "./components/DomainDGhostTable.vue";
 import DomainEDividendTaxTable from "./components/DomainEDividendTaxTable.vue";
 import DomainPlaceholder from "./components/DomainPlaceholder.vue";
+import WorkbenchHead from "./components/WorkbenchHead.vue";
+import DomainTabLabel from "./components/DomainTabLabel.vue";
 import SupplementDialog from "./components/SupplementDialog.vue";
 import { domainTabs, type WorkbenchDomainKey } from "./constants/domainTabs";
 import { normalizeDomain } from "./utils/domainQuery";
+import { pickFirstPendingDomain } from "./utils/domainFocus";
 import { useWorkbenchDomains } from "./composables/useWorkbenchDomains";
 
 defineOptions({ name: "ReconcileWorkbench" });
@@ -264,8 +245,8 @@ function goTo(to: string | { name: string }): void {
 
 /** Banner 点击：切换到第一个有待处理差异的域并定位到表格区（#1259） */
 function focusFirstPendingDomain(): void {
-  const order: WorkbenchDomainKey[] = ["B", "C", "A", "D", "E"];
-  const target = order.find(k => domainPending(k) > 0);
+  // 选域顺序与「为什么是固定顺序」见 utils/domainFocus.ts
+  const target = pickFirstPendingDomain(domainPending);
   if (!target) return;
   activeDomain.value = target;
   nextTick(() => {
@@ -308,34 +289,6 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* 页头 */
-.workbench-head {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.workbench-head__title {
-  margin: 0 0 6px;
-  font-size: var(--text-display);
-  font-weight: 300;
-  color: var(--text-primary);
-}
-
-.workbench-head__subtitle {
-  margin: 0;
-  font-size: var(--text-small);
-  color: var(--text-tertiary-ink);
-}
-
-.workbench-head__actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 /* 柔性 Warning Banner（§6.3）：中性信息色，非红非弹窗 */
 .workbench-banner {
   display: flex;
@@ -361,27 +314,6 @@ onMounted(() => {
 .workbench-banner--clickable:hover {
   background: color-mix(in srgb, var(--brand-100) 40%, var(--bg-soft));
   border-color: var(--brand-400);
-}
-
-/* Tab 标签内的各域待处理数角标（#1259） */
-.domain-tab-label {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.domain-tab-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  font-size: var(--text-label);
-  line-height: 1;
-  color: var(--text-inverse);
-  background: var(--brand-600, #d98b2b);
-  border-radius: 999px;
 }
 
 .workbench-banner__icon {
