@@ -8,8 +8,6 @@
     "components/DiscrepancyBanner/index.vue": 408,
     "views/asset/favorites/components/RoadCard.vue": 509,
     "views/asset/panorama/components/OverviewSummaryCard.vue": 460,
-    "views/explore/components/ExploreWatchlistTable.vue": 491,
-    "views/explore/components/detail/CrowdingTable.vue": 508,
     "views/login/reset-password.vue": 538,
     "views/product/detail.vue": 428,
     "views/status/index.vue": 442,
