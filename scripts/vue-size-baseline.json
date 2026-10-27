@@ -5,7 +5,6 @@
   "generatedAt": "2026-10-27",
   "files": {
     "views/product/detail.vue": 428,
-    "views/status/index.vue": 442,
     "views/welcome/index.vue": 441
   }
 }
