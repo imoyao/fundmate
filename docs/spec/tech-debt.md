@@ -1007,3 +1007,15 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 **验收对应**：#2131 三项验收——周期级盈亏/胜率可查（端点 + 复盘页「清仓周期复盘」区块）、不新增写入方（纯读聚合）、`ClearedPosition` 去留结论落代码 docstring + 本条登记。
 | **资产快照四列（`realized_pnl` / `unrealized_pnl` / `total_pnl` / `money_fund_income`）API 暴露但无 UI 消费者，且与 FIFO 自算口径并存** | 中 | `asset_snapshots` 的这四列读的是**流水 `transactions.realized_pnl`**（存量库该列全 0，与真零盈亏不可区分），而「已落袋表现」等页面用的是 **FIFO 配对自算**（#994 Phase 0 口径 v2）——**两套口径并存且不等价**。此前流传的说法「这四列写而不读」**不准确**：`GET /api/summary/snapshots/` 经 `_snapshot_payload` **确实返回**它们，准确表述是「API 暴露但无 UI 消费者」 | **不展示，先统一口径**。把这四列直接接到 UI 上会给出与「已落袋表现」**互相矛盾**的两个已实现盈亏——比不展示更糟。处理顺序：① 先定「已实现盈亏」唯一口径（流水列 vs FIFO 自算，二选一，倾向 FIFO 自算并把流水列标为「不可用」）；② 口径统一后，这四列若仍有展示价值，再在 `pnl_snapshot_store` 侧重建（可回溯、有失效机制），而不是复活 `asset_snapshots` 的旧列；③ 在此之前，`AssetSnapshotItem` 刻意不声明这四个字段（前端 `api/summary.ts` 已注明）。来源：#2132（2026-10-21 核实代码后登记）。 |
 | **`asset_snapshots.snapshot_date` 只是标签（= 落库日），回填等于把今天的值贴到历史日期** | 中 | 取数链无日期过滤、全仓无失效/重算钩子，故 `write_asset_snapshot(..., snapshot_date=<过去某日>)` 产出的是「今天那一刻的账面值」却挂在历史日期上——**看起来有历史、实则不可信**。#1812 当初为此**否掉了整张 `asset_snapshots`**（改做 `pnl_snapshot_store`），#1926 又在 `PnlDailySnapshot` docstring 重述了一遍区别，但**后端没有权威落点** | **不回填**（已落档：#2132 → `docs/spec/decisions.md` D62，并在 `AssetSnapshot` / `write_asset_snapshot` / `get_snapshots` 的 docstring 与前端 `AssetSnapshotItem` 注释四处写明）。要「截至某日」的可回溯时点序列，**用 `pnl_snapshot_store`（`PnlDailySnapshot`，#1926）**：按日物化 + 三道失效机制 + 改持仓后历史自动跟着变。**若确需资产曲线**：要么改用收益日历那条链，要么新采真时点（新增「数据时点 / 入库时点」两列区分），**不得靠回填伪造**。**已体检（2026-10-21，`backend/scripts/audit_asset_snapshot_gaps.py` 只读跑真库）**：`asset_snapshots` 真库共 575 行 / **44 个日期**（区间 2026-08-10 ~ 2026-10-18，家庭级 44 / 账户级 531），**缺 26 天、其中 19 天是工作日** ⇒ 现有历史**不是日历连续**的；**无任何事后补写痕迹**（标签日 ≈ 落库日，阈值 2 天）⇒ 已有历史是可信的，缺的是「没写」而不是「写错」。下一步：按 #2132 的推荐方案决定是否纳回每日调度（改动前先补 D21 的决策口径）。来源：#2132（2026-10-21 核实代码 + 真库体检后登记）。
+
+## 2026-10-27 风格分布覆盖率的**分母**含「永远无箱体」资产，指标有天花板（#2628）
+
+**现状**：`GET /api/funds/style/portfolio/` 的 `coverage_pct` = 有箱体持仓市值 / **全部持仓市值**，分母包含货币基金、现金、部分上游无箱体的指数/QDII。这些资产再跑多少次 `fund_style` 也不会产生箱体，于是覆盖率有一个**永远到不了 100% 的天花板**。
+
+实测（2026-10-27，本地库）：121 只持仓仅 2 只有箱体 → 8.35%，未覆盖清单里明确有「银河水星现金添利货币市场基金」这类货基。后果是面板上的低覆盖率会被误读成「同步没在跑」，而实际是口径如此——这正是 #2628 落地后用户第一反应会问的问题。
+
+**为什么没在本卡改**：`coverage_pct` 是 #2478 定下的契约（`frontend/src/api/funds.ts` 的类型注释也写死「覆盖率不是权重」），换分母属口径变更，会影响既有消费方与 `api.md` 文档；#2628 只做前端消费，不擅自改后端口径。
+
+**处理策略**：`portfolio_style_exposure` **新增** `eligible_coverage_pct`（分母只算场外基金/ETF，剔除现金/货基/QDII），`coverage_pct` 原样保留以兼容；前端主数字改用 eligible，全量覆盖率降为提示。判据须覆盖：① 分母只含 fund/etf；② **无合格资产时返回 `null` 而不是 0**（「0% 覆盖」与「没有可覆盖资产」不是一回事）；③ 与旧字段并存不破坏现有契约与 `api.md` 自动段。
+
+**顺带核实（同日）**：**提升覆盖率本身不需要开发**——目标池 `resolve_targets()` 取「持仓 + 自选」（`orchestrator.resolve_targets`），`fund_style` 已在日调度（`SCHEDULER_FUND_STYLE_ENABLED` 默认启用，cron `30 22 2 * *` 月度增量），CI `daily-snapshot.yml` 每天跑 `pdm run scheduler` 并 catch-up，手工补数入口（`--targets` / `--target-file`）已由 #2662 修好。故本条债只针对**指标口径**，不针对数据通路——不要把它当成「数据没在同步」去排查。
