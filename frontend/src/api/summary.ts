@@ -22,16 +22,17 @@ export type SankeyData = {
 };
 
 /**
- * 账户级资金流动（#2616，金额一律**元**）。
+ * 资金流动汇总（#2616 账户级 / #2681 组合级，金额一律**元**）。
  *
  * 口径（`docs/spec/cashflow-layers.md`）：
  * - L1 只有 `deposit` / `withdraw`（钱跨出账户）；买入/卖出是账户内部换形态，**不**计入；
  * - `net_invested = deposit − withdraw`，恒为「自开户以来」，**不随区间变化**——
  *   切区间就看「累计 0」会把累计语义毁掉；
+ * - 组合级 = Σ 成员账本 L1，**组合内互转已由后端抵消为 0**（否则累计入金会被搬运抬高）；
  * - `end_asset = market_value + cash_residual`，`cash_residual` 是**推导值**（不是对账单）；
  * - `has_deposit_record = false` 时净投入恒 0，页面必须提示「未录入金」而不是展示成「没赚钱」。
  */
-export type LedgerCashFlowTotals = {
+export type CashFlowTotals = {
   deposit: number;
   withdraw: number;
   net_invested: number;
@@ -45,7 +46,7 @@ export type LedgerCashFlowTotals = {
   has_deposit_record: boolean;
 };
 
-export type LedgerCashFlowPoint = {
+export type CashFlowPoint = {
   date: string;
   /** 缺价日为 null——**不得补 0**，曲线断开比画成持平诚实 */
   net_worth: number | null;
@@ -53,7 +54,7 @@ export type LedgerCashFlowPoint = {
   state?: string;
 };
 
-export type LedgerCashFlowItem = {
+export type CashFlowItem = {
   date: string;
   direction: "in" | "out";
   amount: number;
@@ -61,21 +62,26 @@ export type LedgerCashFlowItem = {
   symbol?: string | null;
 };
 
-export type LedgerCashFlowMonth = {
+export type CashFlowMonth = {
   month: string;
   deposit: number;
   withdraw: number;
   net: number;
 };
 
-export type LedgerCashFlow = {
-  ledger_id: number;
+/** 资金流动汇总（账户级 / 组合级同一份结构，用 `scope` 区分） */
+export type CashFlow = {
+  scope: "ledger" | "portfolio";
+  /** 组合级为 null */
+  ledger_id: number | null;
+  /** 账户级为 null */
+  portfolio_id: number | null;
   start_date: string;
   end_date: string;
-  totals: LedgerCashFlowTotals;
-  external_flows: LedgerCashFlowItem[];
-  monthly: LedgerCashFlowMonth[];
-  net_worth_series: LedgerCashFlowPoint[];
+  totals: CashFlowTotals;
+  external_flows: CashFlowItem[];
+  monthly: CashFlowMonth[];
+  net_worth_series: CashFlowPoint[];
   coverage: {
     has_any_price: boolean;
     days: number;
@@ -85,17 +91,21 @@ export type LedgerCashFlow = {
   };
 };
 
-/** 查询账户级资金流动（`ledger_id` 必填；区间只影响列表/月度/曲线，累计指标不受影响） */
-export function getLedgerCashFlow(params: {
-  ledger_id: number;
+/**
+ * 查询资金流动（账户级 / 组合级）。
+ *
+ * `ledger_id` 与 `portfolio_id` **二选一**（同传后端 400、都不传也 400）；
+ * 区间只影响逐笔 / 月度 / 曲线，累计指标恒为「自开户以来」。
+ */
+export function getCashFlow(params: {
+  ledger_id?: number;
+  portfolio_id?: number;
   start_date?: string;
   end_date?: string;
 }) {
-  return http.request<ApiResponse<LedgerCashFlow>>(
-    "get",
-    BASE_URL + "cash-flow/",
-    { params }
-  );
+  return http.request<ApiResponse<CashFlow>>("get", BASE_URL + "cash-flow/", {
+    params
+  });
 }
 
 /** 获取桑基图节点与链接数据 */
