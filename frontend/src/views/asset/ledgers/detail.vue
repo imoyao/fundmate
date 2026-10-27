@@ -59,8 +59,9 @@
 
       <template v-else>
         <LedgerDetailOverview :page="page" />
-        <!-- #2616 资金流动：入金/出金/净投入/期末资产（未分类账户没有真实归属，不展示） -->
-        <LedgerCashFlowCard
+        <!-- #2616 资金流动：入金/出金/净投入/期末资产（未分类账户没有真实归属，不展示）。
+             组件已上移 components/CashFlowPanel（#2681：账户级 / 组合级共享同一份口径）。 -->
+        <CashFlowPanel
           v-if="!isUnclassified && ledgerId"
           :ledger-id="Number(ledgerId)"
           class="mt-4"
@@ -155,7 +156,7 @@ import EditAccountDialog from "./components/EditAccountDialog.vue";
 import MigrateDialog from "./components/MigrateDialog.vue";
 import MigrationResolvePanel from "./components/MigrationResolvePanel.vue";
 import LedgerDetailOverview from "./components/LedgerDetailOverview.vue";
-import LedgerCashFlowCard from "./components/LedgerCashFlowCard.vue";
+import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
 import LedgerDetailHoldingsPane from "./components/LedgerDetailHoldingsPane.vue";
 import LedgerDetailTransactionsPane from "./components/LedgerDetailTransactionsPane.vue";
 import { useLedgerDetailPage } from "./composables/useLedgerDetailPage";

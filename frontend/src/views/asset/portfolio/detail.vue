@@ -80,6 +80,12 @@
             :portfolio-id="portfolioId"
           />
 
+          <!-- 资金流动（#2681）：收益率回答「赚了多少」，这里回答「投进去多少」，
+               两者并列才看得出高收益是不是因为投得少。与账户页共用 CashFlowPanel。 -->
+          <div class="mb-6">
+            <CashFlowPanel id="nav-cash-flow" :portfolio-id="portfolioId" />
+          </div>
+
           <!-- #2135 收益归因（组合口径 = 成员账本继承 + 持仓显式归属）。
                2026-10-25 自「持仓穿透」之后上移：动线收敛为「表现（收益 / 货基）
                → 归因（收益从哪来）→ 结构（穿透）→ 明细」，与产品详情页
@@ -89,9 +95,8 @@
             <PnlAttribution :portfolio-id="portfolioId" />
           </div>
 
-          <!-- 持仓结构（#2617：资产类别占比 + 股基分列 Top N + 前 5 集中度）。
-               放在穿透之前：先看「大类压了多少」，再看「穿透后压了哪些行业」，
-               最后才是风格——由粗到细，不跳级。面板自带三级作用域，本页传组合口径。 -->
+          <!-- 持仓结构（#2617）：大类占比 → 行业穿透 → 风格，由粗到细，不跳级。
+               面板自带三级作用域，本页传组合口径。 -->
           <div class="mb-6">
             <PositionStructurePanel
               id="nav-structure"
@@ -108,11 +113,8 @@
             />
           </div>
 
-          <!-- 组合风格构成（#2603：按市值加权的 8 分类风格暴露）。
-               与穿透同属「结构」段：穿透说钱压在哪些行业/个股，风格说这些持仓
-               在风格维度上的偏斜。2026-10-27：显式传 portfolio-id —— 此前不传
-               scope，后端只支持家庭级，标题「组合风格构成」下展示的是全家风格
-               （与 #2595 穿透面板同型问题）。 -->
+          <!-- 组合风格构成（#2603）：组合口径的 8 分类风格暴露。
+               2026-10-27 显式传 portfolio-id——此前不传，展示的是全家风格（#2595 同型）。 -->
           <div class="mb-6">
             <PortfolioStylePanel id="nav-style" :portfolio-id="portfolioId" />
           </div>
@@ -172,6 +174,7 @@ import {
   type PortfolioDetail
 } from "@/api/portfolio";
 import { getLedgers } from "@/api/ledger";
+import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
@@ -201,8 +204,8 @@ import {
  * 组合详情页（/asset/portfolios/:id）。
  *
  * #980 拆分后只留「页面骨架」：PageHeaderBar 页头、四张指标卡、页内导航
- * （PageNav / PageToc，2026-10-25 接入）与十个纵向区块（收益 / 货基 / 归因 /
- * 结构 / 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
+ * （PageNav / PageToc，2026-10-25 接入）与十一个纵向区块（收益 / 货基 / 资金流动 /
+ * 归因 / 结构 / 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
  *
  * - `PortfolioHoldingsCard`：持仓明细（排序 + 前端分页 + 盈亏双线估值接线）
  * - `PortfolioUnarchivedCard`：未归档持仓 + 归档对话框（自含取数）
@@ -240,6 +243,7 @@ const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-return": "组合收益",
   "nav-money-fund": "货币基金收益",
+  "nav-cash-flow": "资金流动",
   "nav-attribution": "收益归因",
   "nav-structure": "持仓结构",
   "nav-penetration": "持仓穿透",

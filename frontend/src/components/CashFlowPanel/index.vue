@@ -1,8 +1,12 @@
 <!--
-  账户详情页「资金流动」区块（#2616，后端 GET /api/summary/cash-flow/）。
+  「资金流动」区块（#2616 账户级 / #2681 组合级，后端 GET /api/summary/cash-flow/）。
 
-  回答的是收益率回答不了的那个问题：「这个账户我一共投进去多少、取出来多少、
+  回答的是收益率回答不了的那个问题：「这个账户 / 组合我一共投进去多少、取出来多少、
   现在值多少、到底赚了多少」。收益率高不代表投入规模合适，只有资金流动能回答。
+
+  三级作用域：不传 props = 不取数（本面板没有家庭级用法）；`ledger-id` = 账户级；
+  `portfolio-id` = 组合级（成员账本 Σ，组合内互转由后端抵消为 0）。两者互斥，
+  父页自行保证（后端同传回 400）。
 
   口径纪律（docs/spec/cashflow-layers.md，禁止在本组件里改口径）：
   - 入金/出金（L1）才是资金进出；买入/卖出是账户内换形态（L2），不计入这两个数；
@@ -15,8 +19,9 @@
     <SectionHeader title="资金流动">
       <template #info>
         <p>
-          入金 /
-          出金只统计**跨出本账户**的钱；买入、卖出是账户内部换形态，不算。
+          入金 / 出金只统计**跨出{{
+            scopeWord
+          }}**的钱；买入、卖出是内部换形态，不算。
         </p>
         <p>净投入 = 累计入金 − 累计出金，自开户以来统计，不随时间区间变化。</p>
         <p>
@@ -62,7 +67,8 @@
         v-if="data && totals && !totals.has_deposit_record"
         class="cash-flow__hint"
       >
-        该账户还没有入金记录，净投入按 0 展示——补录入金后，这里的收益才有意义。
+        {{ scopeWord }}还没有入金记录，净投入按 0
+        展示——补录入金后，这里的收益才有意义。
       </p>
 
       <div class="cash-flow__chart">
@@ -104,13 +110,23 @@ import dayjs from "dayjs";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
-import { getLedgerCashFlow, type LedgerCashFlow } from "@/api/summary";
+import { getCashFlow, type CashFlow } from "@/api/summary";
 import { formatAmount } from "@/utils/currency";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
-defineOptions({ name: "LedgerCashFlowCard" });
+defineOptions({ name: "CashFlowPanel" });
 
-const props = defineProps<{ ledgerId: number }>();
+const props = defineProps<{
+  /** 账户级口径；与 portfolioId 互斥 */
+  ledgerId?: number;
+  /** 组合级口径；与 ledgerId 互斥 */
+  portfolioId?: number;
+}>();
+
+/** 文案口径词：账户页说「本账户」，组合页说「本组合」（同一条口径，两种说法） */
+const scopeWord = computed(() =>
+  props.portfolioId != null ? "本组合" : "本账户"
+);
 
 const RANGE_OPTIONS = [
   { label: "半年", value: 180 },
@@ -119,7 +135,7 @@ const RANGE_OPTIONS = [
 ] as const;
 
 const rangeDays = ref<(typeof RANGE_OPTIONS)[number]["value"]>(365);
-const data = ref<LedgerCashFlow | null>(null);
+const data = ref<CashFlow | null>(null);
 const loadError = ref("");
 
 const totals = computed(() => data.value?.totals ?? null);
@@ -131,19 +147,23 @@ function money(value?: number | null): string {
 }
 
 async function fetchCashFlow() {
-  if (!props.ledgerId) return;
+  if (props.ledgerId == null && props.portfolioId == null) return;
+  const scope: { ledger_id?: number; portfolio_id?: number } = {};
+  if (props.ledgerId != null) scope.ledger_id = props.ledgerId;
+  if (props.portfolioId != null) scope.portfolio_id = props.portfolioId;
   loadError.value = "";
   try {
-    const res = await getLedgerCashFlow({
-      ledger_id: props.ledgerId,
+    const res = await getCashFlow({
+      ...scope,
       start_date: dayjs().subtract(rangeDays.value, "day").format("YYYY-MM-DD")
     });
     data.value = res.data;
   } catch (e: any) {
-    // 端点 400（账户不存在/跨家庭）或网络错误：如实报，不留旧图（旧图 = 假数据）
+    // 端点 400（账户/组合不存在、跨家庭、作用域参数冲突）或网络错误：
+    // 如实报，不留旧图（旧图 = 假数据）
     data.value = null;
     loadError.value = e?.response?.data?.message || "资金流动数据加载失败";
-    console.error("获取账户资金流动失败:", e);
+    console.error("获取资金流动失败:", e);
   }
 }
 
@@ -265,7 +285,11 @@ const barOption = computed(() => {
 });
 
 onMounted(fetchCashFlow);
-watch([() => props.ledgerId, rangeDays], fetchCashFlow);
+// 作用域或区间变化都要重取：路由参数切换（账户 A → B、组合 A → B）时组件会被复用
+watch(
+  [() => props.ledgerId, () => props.portfolioId, rangeDays],
+  fetchCashFlow
+);
 </script>
 
 <style scoped>
