@@ -71,6 +71,13 @@
             />
           </MetricGrid>
 
+          <!-- 超额走势（#2685）：曲线与上方「超额收益」卡同口径，末点相等 -->
+          <PortfolioExcessTrend
+            class="mb-6"
+            :portfolio-id="portfolioId"
+            @updated="fetchExcess"
+          />
+
           <!-- 组合收益（#871 三口径卡，#980 拆出） -->
           <PortfolioReturnCard id="nav-return" :portfolio-id="portfolioId" />
 
@@ -80,17 +87,13 @@
             :portfolio-id="portfolioId"
           />
 
-          <!-- 资金流动（#2681）：收益率回答「赚了多少」，这里回答「投进去多少」，
-               两者并列才看得出高收益是不是因为投得少。与账户页共用 CashFlowPanel。 -->
+          <!-- 资金流动（#2681）：与上面的收益率并列看，才分得清「赚得多」还是「投得多」 -->
           <div class="mb-6">
             <CashFlowPanel id="nav-cash-flow" :portfolio-id="portfolioId" />
           </div>
 
-          <!-- #2135 收益归因（组合口径 = 成员账本继承 + 持仓显式归属）。
-               2026-10-25 自「持仓穿透」之后上移：动线收敛为「表现（收益 / 货基）
-               → 归因（收益从哪来）→ 结构（穿透）→ 明细」，与产品详情页
-               「表现 → 归因」的既有口径一致。根节点是 template 分片
-               （SectionHeader + CardBlock），fallthrough 落不上 id，故包一层。 -->
+          <!-- #2135 收益归因（动线：表现 → 归因 → 结构 → 明细，与产品详情页一致）。
+               根节点是 template 分片，fallthrough 落不上 id，故包一层。 -->
           <div id="nav-attribution">
             <PnlAttribution :portfolio-id="portfolioId" />
           </div>
@@ -104,8 +107,7 @@
             />
           </div>
 
-          <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股）。
-               #2595：显式传 portfolio-id —— 此前不传 scope，实际拉的是家庭级数据。 -->
+          <!-- 持仓穿透（#870 / #2595）：显式传 portfolio-id，否则拉到的是家庭级数据 -->
           <div class="mb-6">
             <PenetrationPanel
               id="nav-penetration"
@@ -113,8 +115,7 @@
             />
           </div>
 
-          <!-- 组合风格构成（#2603）：组合口径的 8 分类风格暴露。
-               2026-10-27 显式传 portfolio-id——此前不传，展示的是全家风格（#2595 同型）。 -->
+          <!-- 组合风格构成（#2603 / #2595 同型）：不传 portfolio-id 会展示全家风格 -->
           <div class="mb-6">
             <PortfolioStylePanel id="nav-style" :portfolio-id="portfolioId" />
           </div>
@@ -185,6 +186,7 @@ import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
+import PortfolioExcessTrend from "./portfolioDetail/PortfolioExcessTrend.vue";
 import { usePageNav } from "@/composables/usePageNav";
 import PortfolioStylePanel from "./PortfolioStylePanel.vue";
 import PortfolioReturnCard from "./PortfolioReturnCard.vue";
@@ -212,8 +214,7 @@ import {
  * - `PortfolioLinkedLedgersCard`：关联账户
  * - `PortfolioMoneyFundCard`：货基收益（自含取数）
  *
- * 区间超额（#2134）的五段派生文案进 `usePortfolioExcess`，接口信封解包、
- * 排序分页、账户类型文案进 `portfolioDetailModel.ts`（纯函数）。
+ * 派生文案进 `usePortfolioExcess`，信封解包 / 排序分页 / 账户类型文案进 `portfolioDetailModel.ts`。
  *
  * 结构段三个面板口径共享：`PositionStructurePanel`（大类占比 / Top N / 集中度）、
  * `PenetrationPanel`（行业穿透）、`PortfolioStylePanel`（风格构成）都上移/落到

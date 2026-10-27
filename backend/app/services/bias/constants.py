@@ -54,6 +54,7 @@ SW_LEVEL1_INDUSTRIES: Dict[str, str] = {
 BENCHMARK_INDICES: Dict[str, str] = {
     '000300.SH': '沪深300',
     '000905.SH': '中证500',
+    '000906.SH': '中证800',
     '399006.SZ': '创业板指',
     '000688.SH': '科创50',
     '000016.SH': '上证50',

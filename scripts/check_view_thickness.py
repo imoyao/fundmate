@@ -423,7 +423,11 @@ BASELINE: dict[str, dict[str, int]] = {
         # 增量只有「把必填校验换成两个可选参数 + docstring 写清互斥」；成员账本解析在
         # `services/scope.py::member_ledger_ids`、互转抵消在
         # `services/performance/cashflow_layers.py`，视图仍零查询、零事务。
-        "lines": 407,
+        # 2026-10-27 重取（#2685，**新增只读清单端点**，非放宽）：407 → 421。新增
+        # `GET /summary/benchmarks/` 只把常量 `BENCHMARK_INDICES` 摊平成 `[{code,name}]`，
+        # 不含查询 / 事务 / 业务判断（前端下拉改为从这里取，删掉两处硬编码）；
+        # 曲线计算在 `services/analytics/benchmark_excess.py::_build_cum_series`。
+        "lines": 421,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

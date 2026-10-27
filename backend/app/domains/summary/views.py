@@ -18,6 +18,7 @@ from app.core.validation import parse_query
 from app.domains.summary.schemas import MemberSliceQuery
 from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
+from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.cash_flow_service import build_cash_flow
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series, compute_range_attribution
@@ -324,6 +325,19 @@ def cleared_cycles():
         return jsonify(
             {'data': {'cycles': [], 'summary': {}}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}
         ), 500
+
+
+@bp.get('/summary/benchmarks/')
+def benchmarks():
+    """可选基准清单（#2685）：唯一出口 `BENCHMARK_INDICES`，前端下拉不再各自硬编码。
+
+    历史上前端把选项写死成 `CSI300/CSI500/SPX`，而 `SPX` 不在清单里 ⇒ 选中必走
+    `unrecognized_benchmark` 降级、永远显示「--」。返回顺序 = 常量声明顺序（稳定，
+    前端不做二次排序）。值一律为指数代码（`000300.SH`），旧的 `CSI300` 文本仍由
+    `_BENCHMARK_TEXT_ALIASES` 解析，存量不迁移。
+    """
+    data = [{'code': code, 'name': name} for code, name in BENCHMARK_INDICES.items()]
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.get('/summary/benchmark-excess/')
