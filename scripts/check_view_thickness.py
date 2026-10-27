@@ -189,8 +189,14 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 22,
     },
+    # 2026-10-27 重取（**口径修复**，非放宽）：`GET /api/funds/style/portfolio/` 补
+    # `portfolio_id` / `ledger_id` 三级作用域（组合详情页此前复用家庭级结果，标题却写
+    # 「组合风格构成」，属口径错误，与 #2595 同类）。视图侧只增加「解析两个 query 参数 +
+    # ValueError → 400 信封」与作用域 docstring，作用域解析本身按纪律下沉在
+    # `services/scope.py`（组合语义 = 显式归属 + 成员账本继承，不在此手写成员账本查询）。
+    # 三项实测量未动（orm_queries 2 / commits 0 / max_func 39），唯 lines 263 → 277（+14）。
     "backend/app/domains/funds/views.py": {
-        "lines": 263,
+        "lines": 277,
         "orm_queries": 2,
         "commits": 0,
         "max_func": 39,

@@ -167,14 +167,28 @@ def sync_fund_fees(fund_code: str):
 
 @bp.get('/style/portfolio/')
 def get_portfolio_style():
-    """组合加权风格暴露（持仓透视，家庭作用域）。
+    """组合加权风格暴露（持仓透视，家庭 / 组合 / 账户三级口径）。
 
-    无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0——
-    前端据此显示「暂无数据」，不显示全零箱体（「0 暴露」与「没有数据」是两件事）。
+    作用域（2026-10-27）：不传 = 家庭级；``?portfolio_id=`` = 组合口径（显式归属 +
+    成员账本继承，唯一出口 ``services/scope.py``）；``?ledger_id=`` = 单账户；同传 400
+    （``error_code=1001``，与穿透 / 归因同款）。加这两个参数是因为组合详情页此前直接
+    复用家庭级结果却标题「组合风格构成」（同类问题 #2595 在穿透面板修过）。
+
+    无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0——前端据此显示
+    「暂无数据」，不显示全零箱体（「0 暴露」与「没有数据」是两件事）。
     """
-    with get_db() as db:
-        data = portfolio_style_exposure(db, get_family_id())
-    return jsonify({'data': data, 'message': 'ok'})
+    try:
+        with get_db() as db:
+            data = portfolio_style_exposure(
+                db,
+                get_family_id(),
+                portfolio_id=request.args.get('portfolio_id', type=int),
+                ledger_id=request.args.get('ledger_id', type=int),
+            )
+        return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        # scope 参数冲突 / 组合不存在（services/scope.py 约定），与穿透 / 归因端点同款 400
+        return jsonify({'data': {}, 'message': str(e), 'error_code': 1001}), 400
 
 
 @bp.get('/<string:fund_code>/style/latest/')

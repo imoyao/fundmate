@@ -100,9 +100,11 @@
 
           <!-- 组合风格构成（#2603：按市值加权的 8 分类风格暴露）。
                与穿透同属「结构」段：穿透说钱压在哪些行业/个股，风格说这些持仓
-               在风格维度上的偏斜。 -->
+               在风格维度上的偏斜。2026-10-27：显式传 portfolio-id —— 此前不传
+               scope，后端只支持家庭级，标题「组合风格构成」下展示的是全家风格
+               （与 #2595 穿透面板同型问题）。 -->
           <div class="mb-6">
-            <PortfolioStylePanel id="nav-style" />
+            <PortfolioStylePanel id="nav-style" :portfolio-id="portfolioId" />
           </div>
 
           <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->

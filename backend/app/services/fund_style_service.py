@@ -38,6 +38,7 @@ from app.domains.positions.models import Position
 from app.services.fund_utils import normalize_fund_code
 from app.services.nav_service import NavService
 from app.services.position_valuation import market_value_cents
+from app.services.scope import filter_positions_by_scope
 
 # 8 分类展示顺序（晨星式）。上游顺序确定，但读取侧自持一份固定序，
 # 上游调整顺序时 API 响应不变；上游增删分类时未知名追加在末尾（排序稳定）。
@@ -239,7 +240,12 @@ def get_fund_style_history(db: Session, fund_code: str, limit: Optional[int] = N
     return {'fund_code': fund_code, 'points': points, 'count': len(points)}
 
 
-def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
+def portfolio_style_exposure(
+    db: Session,
+    family_id: int,
+    portfolio_id: Optional[int] = None,
+    ledger_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """组合加权风格暴露（持仓透视）：按市值加权汇总持仓基金的风格箱。
 
     口径（与 ``strategy_engine/allocation.py`` 一致，勿在此重写市值逻辑）：
@@ -254,12 +260,26 @@ def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
 
     QDII 口径存疑（见模块 docstring）：加权结果包含 QDII 持仓的原样箱体，
     由消费方决定是否提示。
+
+    ## 作用域（2026-10-27 收口）
+
+    - 默认（两个参数都不传）= 家庭级；
+    - ``ledger_id`` = 单账户；``portfolio_id`` = 该组合口径；
+    - 作用域解析**委托** ``services.scope.filter_positions_by_scope``（组合语义 =
+      显式 ``positions.portfolio_id`` + 成员账本继承），不在此手写成员账本查询——
+      否则会漏掉「持仓显式归属」，与穿透 / 归因 / 持仓结构口径不一致。
+    - 两者互斥：同时传抛 ``ValueError``（与其余分析类端点同文案，视图层转 400）；
+      组合不存在 / 非本家庭同样抛 ``ValueError``。
+    - 作用域内没有持仓时返回**空结构**，不退回家庭级。这条是刻意的：
+      #2595 修过「组合详情页穿透面板不传 scope、实际拉的是家庭数据」，
+      「传了但过滤为空」若静默放大成全家数据，就是同一个错误的复活。
     """
     positions = (
         db.query(Position)
         .filter(Position.family_id == family_id, Position.asset_type.in_(PORTFOLIO_STYLE_ASSET_TYPES))
         .all()
     )
+    positions = filter_positions_by_scope(db, family_id, positions, ledger_id=ledger_id, portfolio_id=portfolio_id)
     result: Dict[str, Any] = {
         'styles': [],
         'fund_count': 0,
