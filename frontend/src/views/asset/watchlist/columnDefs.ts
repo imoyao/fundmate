@@ -64,7 +64,6 @@ export type ColumnRenderer =
   | "product" // 代码/名称 + 标签 chips（ProductDisplay + TagChips）
   | "date" // 格式化日期（formatDate）
   | "money" // MoneyDisplay（精度按 asset_type）
-  | "riseFall" // RiseFallText（涨跌幅，支持实时覆盖）
   | "qty" // 持有数量 + 单位（份/股）
   | "moneyRatio" // MoneyWithRatio（金额 + 比率）
   | "sparkline" // 迷你走势图（纯 SVG 折线，#990）
@@ -107,7 +106,23 @@ export interface ColumnDef {
   fixed?: "left" | "right";
   /** 排序模式：固定 "custom"（#991 后端排序透传，EP 不做页内排序） */
   sortable?: "custom";
-  /** 开启实时且存在估值项时，用估值项的该字段覆盖静态值 */
+  /**
+   * 排序代理字段（#2641）：点击本列表头时交给后端的 `sort_by`。
+   *
+   * 用于**前端派生列**——它在 `row` 上没有同名字段（如 `day_pnl` 由实时价 × 持仓
+   * 数量现算），直接拿 `key` 去查后端白名单会「查不到就静默失效」。指定本字段后，
+   * 排序语义是「按这个后端字段排」，**与列里展示的数值不必是同一个数**
+   * （`day_pnl` 按涨跌幅排 ≠ 按金额排，取决于持仓量）。
+   *
+   * 缺省 = 用 `key` 本身。
+   */
+  sortBy?: string;
+  /**
+   * 开启实时且存在估值项时，用估值项的该字段覆盖静态值。
+   * 同时决定「客户端实时排序」用哪个字段（见 `useWatchlistTable.onSortChange`）——
+   * 派生列（`day_pnl`）也借此在实时路径按同一口径排序，故它此处的值是**排序口径**
+   * 而非渲染覆盖（`moneyRatio` 渲染器不读它）。
+   */
   realtimeField?: RealtimeField;
   /** #993 预留：用户是否可隐藏 */
   hideable?: boolean;
@@ -123,11 +138,12 @@ export interface ColumnDef {
   /**
    * 视图作用域（#1285 品类差异化；混合视图列集于 #1421/#1422 修订）：
    * - `"mixed"`：混合视图（未按品类筛选）也显示的「通用列」——名称 / 最新价 /
-   *   涨跌幅 / 走势 / 持有数量 / 持仓市值 / 持仓收益 / 当日盈亏 / 操作（= 1132px）。
+   *   走势 / 持有数量 / 持仓市值 / 持仓收益 / 当日盈亏 / 操作（#2641 起 1036px）。
    *   判定标准：**该列对「全部品类」或「全部可交易品类」都成立**且不会恒为 `—`，
-   *   同时**放得进 1132px 预算**——两者取交集才是 mixed（见文件头「表格宽度铁律」）。
+   *   同时**放得进预算**——两者取交集才是 mixed（见文件头「表格宽度铁律」）。
    *   走势（`trend`，92px）曾因 1040 预算退到 `"category"`（#2650），2026-10-26
-   *   预算放宽到 1132 后恢复 `"mixed"`。
+   *   预算放宽到 1132 后恢复 `"mixed"`；#2641 删掉 96px 的「今日涨跌幅」列后实测回到
+   *   1036（owner 对 1132 上限的拍板不因此收紧，余量留给列宽增长）。
    * - `"category"`（默认）：仅在「品类视图」（类型筛选命中单一品类）显示；
    *   用户若在「列设置」显式开启，则任何视图都显示（当前标的不适用时渲染 `—`）。
    *   本档只留**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）。
@@ -135,8 +151,10 @@ export interface ColumnDef {
   scope?: "mixed" | "category";
   /**
    * 适用的资产类型（`asset_type` 小写枚举）；缺省 = 全部类型。
-   * 仅对 `scope="category"` 生效：品类视图下只展示命中品类的列
-   * （如持仓 / 市值类列只对可交易标的，指数 / 经理 / 组合不出现）。
+   *
+   * 判据是**品类视图**：命中单一品类时，该列只在 `appliesTo` 含它时出现（与 `scope`
+   * 无关——`scope` 只回答「混合视图要不要出现」）。缺省会在品类视图里被判为「全品类适用」，
+   * 故无行情 / 无持仓语义的列必须显式收敛（见 `QUOTE_TYPES` / `TRADABLE_TYPES` 注释）。
    */
   appliesTo?: string[];
   /** 名称超长时省略并 hover 显示完整内容（对应 el-table-column show-overflow-tooltip） */
@@ -179,7 +197,7 @@ export const TRADABLE_TYPES = [
 ];
 
 /**
- * 有「行情」的品类：最新价 / 涨跌幅这两列只对它们有意义。
+ * 有「行情」的品类：最新价 / 当日盈亏（涨跌幅）这类列只对它们有意义。
  *
  * 为什么不能缺省（appliesTo 不写）就等于「全品类适用」：品类视图的列集由 appliesTo 决定，
  * 缺省会被判为「对基金经理也适用」，于是经理视图里会冒出「最新价 / 涨跌幅」这类无意义列
@@ -263,24 +281,13 @@ export const watchlistColumnDefs: ColumnDef[] = [
     // 静态价来自最近交易日收盘价 / 确认净值时，renderer 用 price_as_of 标注数据日期。
     props: { nullable: true }
   },
-  {
-    key: "change_pct",
-    // 口径 = 当日/最新行情涨跌幅（最新两个价点的变化），与非 HOLDING 行的
-    // enrich_item 同源同义（#2211）；基金净值发布滞后 T-1，展示的是最近交易日涨跌。
-    // 持仓区间口径由「持仓收益」列承担，此处不混入区间涨幅。
-    label: "今日涨跌幅",
-    renderer: "riseFall",
-    appliesTo: QUOTE_TYPES,
-    minWidth: 96,
-    align: "right",
-    sortable: "custom",
-    realtimeField: "changePct",
-    scope: "mixed",
-    hideable: true,
-    draggable: true,
-    // 同「最新价」：后端只在能算出前后两根收盘价（或净值）时才下发，否则为 null
-    props: { nullable: true }
-  },
+  // ── 「今日涨跌幅」列已并入「当日盈亏」（#2641）──
+  // 两者是**同一个数**：`(现价 − 昨收) / 昨收`，只是当日盈亏多了「× 持仓数量」那一行。
+  // 并排摆着等于同一列画两遍，代价是 96px——删掉它，默认列宽从 1132px 回到 1036px。
+  // 「按今日涨跌幅排序」的能力**没有丢**：当日盈亏列用 `sortBy: "change_pct"` 把排序
+  // 代理到后端既有白名单字段（见该列注释）。
+  // 依赖 `row.change_pct` 的渲染器不受影响：`holding_pnl` 列的 `props.ratioKey` 默认值
+  // 仍是它，读的是行字段而非列定义。
   // ── 可转债品类专属列（#1285 消费侧 / #1393）──
   // 决策核心是「条款博弈」：强赎状态优先于行情，故紧随涨跌幅之后。
   // scope 缺省 = "category"：仅「可转债」品类视图显示；appliesTo=["bond"] 保证其他
@@ -546,18 +553,33 @@ export const watchlistColumnDefs: ColumnDef[] = [
      * 为什么它是**默认可见**列：这是「今天赚了多少」的主数据，天天要看；
      * 为此把 `created_at`（一次性历史）降为可选列，默认列总宽不变。
      *
-     * 不加 `sortable`：日盈亏是前端派生值（需要实时价 × 持仓数量），后端没有这个字段，
-     * 交给后端排序会按不存在的列静默失效；客户端排序又只能排当前页，跨页不一致。
-     * 要排序得先在后端落 `prev_close` 口径，属另一张卡。
+     * ## 排序（#2641）
+     *
+     * 后端**没有** `day_pnl` 字段（它是「实时价 × 持仓数量」的前端派生值），但后端
+     * **有** `change_pct` 且已开放用户排序。故此处**代理**到它：
+     * `sortBy: "change_pct"` 让非实时路径把 `sort_by=change_pct` 发给后端
+     * （跨页一致）；`realtimeField: "changePct"` 让实时路径由 `onSortChange` 走客户端
+     * 按实时涨跌幅排（与原来点「今日涨跌幅」表头完全一致）。
+     *
+     * ⚠️ 排序口径是**涨跌幅，不是金额**：两者的顺序不同（同样涨 1%，一万仓与
+     * 百万仓的当日盈亏差两个数量级）。要按金额排得后端先落一个派生字段，属另一张卡。
+     *
+     * ## 指数行为什么也在 appliesTo 里
+     *
+     * 指数没有持仓 → 金额行渲染 `—`，但**涨跌幅成立**（有现价与昨收）。原来这半截由
+     * 「今日涨跌幅」列承担，该列删除后必须由本列接住，否则指数行会连涨跌都看不到。
      */
     key: "day_pnl",
     label: "当日盈亏",
     renderer: "moneyRatio",
-    appliesTo: TRADABLE_TYPES,
+    appliesTo: QUOTE_TYPES,
     scope: "mixed",
-    // 与 created_at 等宽（104）：本次「进一出一」，默认预算不变
+    // 与 created_at 等宽（104）：#2640「进一出一」时定下，此后未变
     minWidth: 104,
     align: "right",
+    sortable: "custom",
+    sortBy: "change_pct",
+    realtimeField: "changePct",
     hideable: true,
     draggable: true,
     derived: "dayPnl" // value=当日盈亏(元), ratio=当日涨跌幅(%)
@@ -955,7 +977,6 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   // 通用（混合视图基础列 / 行情 / 持仓类）
   created_at: "general",
   current_price: "general",
-  change_pct: "general",
   trend: "general",
   holding_quantity: "general",
   position_market_value: "general",

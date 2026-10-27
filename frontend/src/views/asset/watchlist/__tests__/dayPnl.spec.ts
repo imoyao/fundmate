@@ -13,6 +13,10 @@
  * 4. **缺数据的行同时从分子分母剔除**——让它以 0 参与分子，等于把「缺数据」
  *    稀释成「没涨没跌」。
  * 5. **列定义**：当日盈亏默认可见，且与降为可选的 `created_at` 等宽（进一出一）。
+ * 6. **排序能力不随列删除而丢失**（#2641）：「今日涨跌幅」独立列已删，排序由当日盈亏列
+ *    代理到后端 `change_pct`；口径是**涨跌幅而非金额**（两者顺序不同，见列定义注释）。
+ * 7. **指数行仍有涨跌幅**：指数无持仓 → 金额 `—`，但百分比成立，故它必须留在
+ *    `appliesTo` 里——否则删列后指数行连涨跌都看不到。
  *
  * ⚠️ 为什么测纯模块而不是直接调渲染器：vitest 环境是 node（无 DOM），
  * `columnRenderers.tsx` 会一路 import `.vue` 组件（见 `bondFormats.spec.ts` 的说明）。
@@ -168,7 +172,9 @@ describe("列定义：当日盈亏默认可见，且与添加自选日等宽交�
     expect(colDef("day_pnl").minWidth).toBe(colDef("created_at").minWidth);
   });
 
-  it("当日盈亏只对可交易品类出现（指数 / 经理 / 组合算不出来）", () => {
+  it("当日盈亏只对「有行情」的品类出现，且**包含指数**（无持仓 → 只有百分比）", () => {
+    // 指数不可买，但有点位与昨收：金额渲染 `—`、涨跌幅成立。
+    // #2641 删掉「今日涨跌幅」独立列后，指数行的涨跌全靠这一列，故必须留在 appliesTo。
     expect(colDef("day_pnl").appliesTo).toEqual([
       "stock",
       "etf",
@@ -176,8 +182,30 @@ describe("列定义：当日盈亏默认可见，且与添加自选日等宽交�
       "money_fund",
       "bond",
       "crypto",
-      "reverse_repo"
+      "reverse_repo",
+      "index"
     ]);
+  });
+});
+
+describe("列定义：删掉「今日涨跌幅」列后，排序能力仍在（#2641）", () => {
+  it("独立列已不存在（它的百分比行并入当日盈亏）", () => {
+    expect(watchlistColumnDefs.some(d => d.key === "change_pct")).toBe(false);
+  });
+
+  it("当日盈亏可排序，并把 sort_by 代理到后端既有白名单字段 change_pct", () => {
+    const def = colDef("day_pnl");
+    expect(def.sortable).toBe("custom");
+    expect(def.sortBy).toBe("change_pct");
+    // 实时路径要按实时涨跌幅排（客户端、仅当前页），故也带 realtimeField
+    expect(def.realtimeField).toBe("changePct");
+  });
+
+  it("代理字段必须是可交易的「行字段」，不是派生列 key", () => {
+    // 反例守卫：写成 sortBy: "day_pnl" 会让后端按不存在的列静默失效——
+    // 这正是 #1331「标了 sortable 却查不到白名单」的形态。
+    const def = colDef("day_pnl");
+    expect(def.sortBy).not.toBe(def.key);
   });
 });
 

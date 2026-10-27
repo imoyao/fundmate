@@ -11,11 +11,12 @@
  * ⚠️ 这类「文档/注释里有、机器上无」的约束，失效时不产生任何信号。
  * 本文件把它变成判据：改列宽 / 加列 / 改 scope 都会在这里被挡。
  *
- * ## 口径（2026-10-26 修订）
+ * ## 口径（2026-10-27 修订，源 #2641）
  *
- * 预算从 **1040 放宽到 1132**：owner 拍板「走势列是持仓场景的必看信息，不能为了
- * 不横滚而拿掉」，1366×768 下允许表格内部横向滚动（两端冻结列常驻）。
- * 因此本文件钉的是**上限 1132**，不再断言「默认视图不滚动」。
+ * 上限回到 **1040**：2026-10-26 曾为把走势列留在混合视图而放宽到 1132（owner 拍板
+ * 「走势是持仓场景的必看信息，宁可横滚也不拿掉」）。#2641 删掉 96px 的「今日涨跌幅」
+ * 列后实测 1036 —— 走势列留在混合视图的同时**不再需要横滚**，于是口径复位到设计规范值。
+ * 判据是「两件事同时成立」：走势列在默认集（下方 describe）**且**总宽 ≤ 1040。
  *
  * 「混合视图默认可见」= `scope === "mixed"` 且 `!defaultHidden`（`_selection` 除外，
  * 它由模板按 batchMode 条件注入，不计入默认宽度）。
@@ -28,11 +29,11 @@ import { TRADABLE_TYPES, watchlistColumnDefs } from "../columnDefs";
 /**
  * design.md「冻结列与横向滚动规范」：默认可见列总宽上限。
  *
- * 1132 = 232(product) + 96(最新价) + 96(涨跌幅) + 92(走势) + 104(持有数量)
- *        + 140(持仓市值) + 128(持仓收益) + 104(当日盈亏) + 140(操作)。
+ * 1036 = 232(product) + 96(最新价) + 92(走势) + 104(持有数量) + 140(持仓市值)
+ *        + 128(持仓收益) + 104(当日盈亏) + 140(操作)。
  * 想加默认列，先改这个值与 columnDefs 文件头，并说明宽度从哪来——不允许静默加宽。
  */
-const BUDGET = 1132;
+const BUDGET = 1040;
 
 function mixedDefaultColumns() {
   return watchlistColumnDefs.filter(
@@ -45,10 +46,10 @@ function widthOf(d: { width?: number; minWidth?: number }): number {
 }
 
 describe("默认列宽预算（铁律 1）", () => {
-  it("混合视图默认可见列总宽 ≤ 1132px", () => {
+  it("混合视图默认可见列总宽 ≤ 1040px", () => {
     const cols = mixedDefaultColumns();
     const total = cols.reduce((s, d) => s + widthOf(d), 0);
-    // 失败时把账目打出来，否则只看到「1132 !== 1132」不知道该删哪列
+    // 失败时把账目打出来，否则只看到「1040 !== 1040」不知道该删哪列
     const ledger = cols.map(d => `${d.key}=${widthOf(d)}`).join(" + ");
     expect(total, `${total}px > ${BUDGET}px：${ledger}`).toBeLessThanOrEqual(
       BUDGET
