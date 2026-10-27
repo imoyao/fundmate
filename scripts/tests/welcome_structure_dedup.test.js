@@ -64,7 +64,10 @@ function collectVueCodes(rel) {
 }
 
 const WELCOME_BOARD = 'frontend/src/views/welcome/components/WelcomeAssetBoard.vue';
-const COMPOSITION = 'frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue';
+// 2026-10-27（#980 批 B6）：摘要卡拆成左右两张组件，构成图态（标题 / 口径 tooltip /
+// PnlCalendar 宿主）搬到 `OverviewInsightCard.vue`。判据跟着搬家——被检查的代码换了
+// 文件，指针不动就成假绿。
+const COMPOSITION = 'frontend/src/views/asset/panorama/components/OverviewInsightCard.vue';
 // #2093：图的几何与 option 构造被抽到此模块（纯计算，不碰 DOM / 实例），
 // `category_distribution` 的消费随之搬来这里；组件侧只留「何时画 / 画在哪 / 何时 dispose」。
 // 2026-10-25：卡片从瀑布图改为「资产大类构成柱状图」，本模块随之更名
@@ -175,7 +178,7 @@ test('#2032/#2034：把区块注回 panorama 必须报红（判据非空转）',
 
 test('#2034：标题不得与切换按钮上的字同名（切过去像没切）', () => {
   const chartCard = readCode(COMPOSITION);
-  assert.ok(chartCard, 'OverviewSummaryCard.vue 应存在');
+  assert.ok(chartCard, 'OverviewInsightCard.vue 应存在');
   // 构成图态标题：维度词，不是「资产构成」「资产大类构成」这类与按钮文字同长的名字。
   assert.ok(
     /"资产大类"/.test(chartCard),
@@ -193,7 +196,7 @@ test('#2034：标题不得与切换按钮上的字同名（切过去像没切）
 
 test('#2034：口径 tooltip 不得再用「按 X 拆解」这种像控件的措辞', () => {
   const chartCard = readCode(COMPOSITION);
-  assert.ok(chartCard, 'OverviewSummaryCard.vue 应存在');
+  assert.ok(chartCard, 'OverviewInsightCard.vue 应存在');
   assert.ok(
     !/按资产大类/.test(chartCard),
     '「按资产大类…」正是原卡病灶措辞（位置 + 维度词 = 像可切换控件），应改为「口径：…」'
@@ -230,8 +233,8 @@ test('#2034：全站只有 panorama 构成图一处画「资产大类构成」�
     if (/category_distribution/.test(code)) hits.push(file.replace(ROOT, '').replace(/\\/g, '/'));
   }
   const allowed = [
-    // 资产大类构成图（本卡之后**唯一**的资产大类构成出口）
-    '/frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue',
+    // 资产大类构成图（本卡之后**唯一**的资产大类构成出口；#980 批 B6 起在图卡组件里）
+    '/frontend/src/views/asset/panorama/components/OverviewInsightCard.vue',
     // 大类余额明细表：与构成图同口径的**表格**表达（同一区块的两种读法，非第二个「图」）
     '/frontend/src/views/asset/panorama/components/CategoryBalanceTable.vue',
     // 复盘页（原「智能分析」）已在 #2150 删掉大类卡片 + 环形图，此处**不再豁免**。
@@ -261,8 +264,8 @@ test('#2150：全站不再有第四处消费 category_distribution（复盘页�
     }
   }
   const allowed = [
-    // 资产大类构成图（全站唯一的「资产大类构成」图出口）
-    '/frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue',
+    // 资产大类构成图（全站唯一的「资产大类构成」图出口；#980 批 B6 起在图卡组件里）
+    '/frontend/src/views/asset/panorama/components/OverviewInsightCard.vue',
     // 大类余额明细表：与构成图同口径的**表格**表达（同一区块的两种读法）
     '/frontend/src/views/asset/panorama/components/CategoryBalanceTable.vue',
     // 构成图的数据整形 + option 计算模块（#2093 从组件抽出）
@@ -282,7 +285,7 @@ test('#2150：复盘页不得再出现与 panorama 同字段同接口同算法�
   const code = readCode(ANALYSIS);
   assert.ok(code, `${ANALYSIS} 应存在`);
 
-  // ① 总资产 + 环比/同比 ← panorama OverviewSummaryCard 首卡
+  // ① 总资产 + 环比/同比 ← panorama 摘要卡左卡（OverviewAssetsCard，2026-10-27 拆分前在 OverviewSummaryCard 里）
   assert.ok(
     !/monthly_change_pct|yearly_change_pct/.test(code),
     '总资产环比/同比归 panorama 首卡（同字段同接口），复盘页不得再画一遍'

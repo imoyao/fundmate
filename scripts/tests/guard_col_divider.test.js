@@ -35,9 +35,11 @@ const BASELINE_FILES = [
   "frontend/src/components/PageToc/index.vue"
 ].map((rel) => join(ROOT, rel));
 
+// 2026-10-27（#980 批 B6）：摘要卡拆成左右两张组件，三列竖线随左卡搬到
+// `OverviewAssetsCard.vue`。判据跟着搬家——被检查的代码换了文件，指针不动就成假绿。
 const OVERVIEW_CARD = join(
   ROOT,
-  "frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue"
+  "frontend/src/views/asset/panorama/components/OverviewAssetsCard.vue"
 );
 
 /**
@@ -357,7 +359,7 @@ test("真实文件：3 处存量基线文件必须静默（在预算内不算新
   );
 });
 
-test("真实文件：OverviewSummaryCard 三列竖线走 --border-subtle（故已从基线移出）", () => {
+test("真实文件：OverviewAssetsCard 三列竖线走 --border-subtle（故已从基线移出）", () => {
   // 2026-10-23 基线 4→3 的依据：这道竖线降成「卡片内并列列的降权分割」。
   // 只删基线条目不足以说明理由，故把「为什么删」也钉住：它若被改回 --border-light，
   // 预算已为 0 ⇒ 全仓扫描会红，而这条先给出可读的原因。
