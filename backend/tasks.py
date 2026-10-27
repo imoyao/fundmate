@@ -6,7 +6,7 @@ fundmate 开发任务集合（invoke + rich）
   - 数据抓取（复用 app.tools.sync_cli）
   - 本机每日调度状态（sched.status，只读）
   - 测试（pytest，默认单进程；按模块/全量）
-  - 后端启动（uvicorn）
+  - 后端启动（flask dev server）
   - 文档（前端 docs 站点，需到 frontend 目录）
 
 用法：
@@ -15,7 +15,7 @@ fundmate 开发任务集合（invoke + rich）
     pdm run invoke sched.status        # 查看本机每日调度状态（只读）
     pdm run invoke test                # 跑全部后端测试
     pdm run invoke test --path backend/tests/services
-    pdm run invoke serve               # 启动 API（默认 :5000）
+    pdm run invoke serve               # 启动 API（默认 :8000）
     pdm run invoke docs.dev            # 本地文档预览
 
 说明：
@@ -69,7 +69,7 @@ def _list_tasks() -> None:
         ('grab.verify-jisilu', '只读诊断：确认 jisilu_indicator 已含 level 字段'),
         ('sched.status', '只读查看本机每日调度：开关 / 单实例锁 / 各任务上次成功时间'),
         ('test', '跑后端 pytest（默认全量、单进程；可用 --path 限定）'),
-        ('serve', '启动 API（uvicorn，默认 0.0.0.0:5000）'),
+        ('serve', '启动 API（flask dev server，默认 0.0.0.0:8000）'),
         ('docs.dev', '本地文档预览（vuepress dev，需 frontend 环境）'),
         ('docs.build', '构建静态文档（vuepress build）'),
         ('help', '打印本速查表'),
@@ -159,12 +159,26 @@ def test(c, path='tests', k=''):
 # 启动任务
 # --------------------------------------------------------------------------- #
 @task
-def serve(c, host='0.0.0.0', port=5000, reload=True):
-    """启动 API（uvicorn，默认 0.0.0.0:5000，开发模式热重载）。"""
-    watch = '--reload' if reload else ''
+def serve(c, host='0.0.0.0', port=8000, reload=True):
+    """启动 API（flask dev server，默认 0.0.0.0:8000，开发模式热重载）。
+
+    为什么不是 uvicorn（2026-10-27 修）：本项目是 APIFlask/Flask，即 **WSGI** 应用，
+    而 uvicorn 只跑 ASGI。旧命令 `uvicorn app:app --app-dir backend` 三重错误：
+      1. 模块路径错——真正的应用在 `app.main:app`，`app` 包里没有名为 `app` 的属性，
+         启动即报 `Attribute "app" not found in module "app"`；
+      2. 即便指对模块，WSGI 可调用体交给 ASGI 服务器也只能在首个请求上炸；
+      3. `--app-dir backend` 与「cwd 已经是 backend」叠加，等于把 `backend/backend`
+         塞进 sys.path，解析到哪个 `app` 全凭运气。
+    `flask run --debug` 走 werkzeug dev server（自带重载），与 AGENTS.md / README 的
+    「手工启动」命令完全同一条路径；单实例守门（core/instance_guard.py）也只在
+    werkzeug 这条路上被 main.py 的 `BaseWSGIServer.allow_reuse_address = False` 覆盖。
+    默认端口 8000 而不是 5000：前端 `/api` 代理与 README/Swagger 文档都指向 :8000，
+    两处不一致时最容易出现「服务起来了但前端全 502」。
+    """
+    debug = '--debug' if reload else ''
     return _run(
         c,
-        f'pdm run uvicorn app:app --app-dir backend --host {host} --port {port} {watch}',
+        f'pdm run flask --app app.main:app run --host {host} --port {port} {debug}',
         f'启动 API ({host}:{port})',
     )
 
