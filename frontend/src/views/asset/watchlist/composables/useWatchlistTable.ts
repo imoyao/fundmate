@@ -68,12 +68,16 @@ export function useWatchlistTable(options: TableRenderOptions) {
   }
 
   /**
-   * 表头排序分发（issue #1333 修正）。
-   * 带 realtimeField 的列（change_pct 涨跌幅 / current_price 最新价）其「有意义的值」来自
-   * 前端实时行情引擎，后端只有 None / positions 静态快照——若走后端 sort_by 会按错值排，
-   * 故这两列改为前端按实时估值项做客户端排序。
+   * 表头排序分发（issue #1333 修正，#2641 扩展）。
+   * 带 `realtimeField` 的列（`current_price` 最新价 / `day_pnl` 当日盈亏）其「有意义的值」
+   * 来自前端实时行情引擎，后端只有 None / positions 静态快照——若走后端 sort_by 会按错值排，
+   * 故这几列改为前端按实时估值项做客户端排序。
    * 限制：后端无实时值，跨页一致排序本就不成立，因此只排当前页（items）；
    * 其余列维持原 handleSortChange → 后端 sort_by/sort_order（跨页一致）。
+   *
+   * 派生列（`day_pnl`）不靠 `realtimeField` 渲染也不在 `row` 上，故两处都要用它的
+   * **排序代理**：实时分支的兜底值读 `sortBy`（`change_pct`），落后端时把 `sortBy`
+   * 当作 `sort_by` 发出去。缺省仍是列 `key` 本身。
    */
   function onSortChange({
     prop,
@@ -87,6 +91,7 @@ export function useWatchlistTable(options: TableRenderOptions) {
           d => d.key === String(prop)
         )
       : undefined;
+    const sortKey = def?.sortBy ?? (prop ? String(prop) : undefined);
     if (def?.realtimeField && order) {
       const field = def.realtimeField; // "currentPrice" | "changePct"
       const dir = order === "descending" ? -1 : 1;
@@ -98,7 +103,9 @@ export function useWatchlistTable(options: TableRenderOptions) {
       const sortVal = (row: (typeof items.value)[number]): number => {
         const rv = rtMap.get(row.symbol);
         if (typeof rv === "number") return rv;
-        const sv = (row as Record<string, unknown>)[def.key];
+        const sv = sortKey
+          ? (row as Record<string, unknown>)[sortKey]
+          : undefined;
         return typeof sv === "number" ? sv : 0;
       };
       items.value = [...items.value].sort(
@@ -106,7 +113,7 @@ export function useWatchlistTable(options: TableRenderOptions) {
       );
       return;
     }
-    data.handleSortChange({ prop, order });
+    data.handleSortChange({ prop: sortKey, order });
   }
 
   // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件

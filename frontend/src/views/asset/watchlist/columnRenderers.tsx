@@ -6,7 +6,7 @@
  *
  * 核心职责（设计文档 §4）：把 index.vue 模板里散落的
  *   v-if="realtimeEnabled && getValuationItem(row.symbol)"
- * 双分支「实时覆盖静态」逻辑，内聚进 money/riseFall renderer，模板不再出现双分支。
+ * 双分支「实时覆盖静态」逻辑，内聚进 money renderer，模板不再出现双分支。
  *
  * 约束（AGENTS.md / realtime-data-sources.md）：不得在此新开 JSONP 通道；
  * 实时数据一律来自 ctx.getValuationItem（useRealtimeQuotes 链路）。
@@ -334,30 +334,6 @@ const renderMoney: FunctionalComponent<{
     { title: `数据日期 ${asOf}（最近交易日收盘价 / 确认净值）` },
     [node]
   );
-};
-
-const renderRiseFall: FunctionalComponent<{
-  row: WatchlistRow;
-  def: ColumnDef;
-  ctx: RenderCtx;
-}> = props => {
-  const raw = field(props.row, props.def.key);
-  if (props.def.props?.nullable && (raw === null || raw === undefined)) {
-    return h(
-      "span",
-      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
-      "--"
-    );
-  }
-  const { staticVal, realtimeVal, useRealtime } = resolveValue(
-    props.row,
-    props.def,
-    props.ctx
-  );
-  return h(RiseFallText, {
-    value: useRealtime ? realtimeVal! : staticVal,
-    size: "sm"
-  });
 };
 
 const renderQty: FunctionalComponent<{
@@ -1251,7 +1227,6 @@ const REGISTRY: Record<
   product: renderProduct as never,
   date: renderDate as never,
   money: renderMoney as never,
-  riseFall: renderRiseFall as never,
   qty: renderQty as never,
   moneyRatio: renderMoneyRatio as never,
   text: renderText as never,
