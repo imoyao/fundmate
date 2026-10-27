@@ -27,7 +27,12 @@ def get_holding_overlap():
     - ``pairs``：有重叠的基金对，按 ``weighted_overlap`` 降序；每对带双方各自的
       ``report_period``（报告期**不强制对齐**，各取各自最新）、``holding_basis``、
       ``jaccard``（集合口径）与 ``weighted_overlap``（加权口径，百分点），以及共同
-      重仓股明细 ``common_holdings``；
+      重仓股明细 ``common_holdings``；另有 ``overlap_level``（``duplicate`` 配置重复 /
+      ``watch`` 需留意 / ``low`` 一般 / ``same-series`` 同一基金不同份额）与
+      ``overlap_reason``（触发原因的人话解释，``low`` 时为空串）；
+    - ``duplicate_count``：判为配置重复的对数（**不含** ``same-series`` 的份额重复）；
+    - ``caveats``：口径声明（持仓快照滞后、高换手基金失真、未接入基金级换手率），
+      前端应与结论同屏展示——它决定这些百分比能被信到什么程度；
     - ``fund_count`` / ``skipped_basis_mismatch`` / ``skipped_null_ratio``：
       参与计算的基金数、因披露口径不同被跳过的对数、因占比缺失被排除的持仓行数；
     - ``total_market_value_cents`` / ``coverage_pct`` / ``uncovered``：

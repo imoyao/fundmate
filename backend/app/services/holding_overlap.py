@@ -29,6 +29,18 @@
    ``stock_name`` 写法可能不一致（如「贵州茅台」vs「贵州茅台股份」），按名字比对会漏配。
 6. **同基金多账户先合并再参与计算**（避免同一只基金在多账户下被算成多只、互相算出
    100% 的假重叠）。
+7. **超阈值给「配置重复」提示**（卡面 #866）：每对带 ``overlap_level``——
+   ``weighted_overlap >= 20`` 或 ``jaccard >= 0.5`` 判 ``duplicate``；
+   ``>= 10`` 或 ``>= 0.3`` 判 ``watch``；其余 ``low``。阈值取值有实证依据，
+   见 ``DUPLICATE_WEIGHTED_PCT`` 上方注释（**改阈值前先重跑那份实测**，
+   否则就是拿感觉替掉分布）。
+8. **同一只基金的不同份额不算配置重复**：持仓集合与占比逐行相同 ⇒
+   ``overlap_level='same-series'``，**不计入** ``duplicate_count``。判据与不判
+   「``jaccard == 1``」的原因见 ``_is_identical_holdings``。
+9. **换手率口径如实声明、不假装判定**（卡面 #866 的硬约束）：卡面指出「持仓重叠度
+   只对低换手基金有效」，但基金级换手率**并未入库**（现有 turnover 全是市场/行业
+   拥挤度与用户自身的交易换手）。故本模块只在 ``caveats`` 里声明该局限，**不输出**
+   「哪只基金高换手」这类没有数据支撑的结论。
 
 ## 复用既有口径（不自造第二份）
 
@@ -87,6 +99,38 @@ KNOWN_BASES = (BASIS_FULL, BASIS_TOP10)
 #: 百分比换算基数（``ratio`` 已是 %，算覆盖率时乘 100 与之对齐）。
 _PERCENT_SCALE = 100
 
+# ── 「配置重复」阈值（卡面 #866）──────────────────────────────────────────────
+#
+# 取值依据：2026-10-27 用本地真实库实测（97 只可比基金、1884 对有共同持仓）——
+# ``weighted_overlap`` p50=0.09 / max=94.83，``jaccard`` p50=0.021 / max=1.0；
+# 阈值都落在分布尾部，既能捞出真重复（广发北证50 vs 永赢北证50：weighted 94.83、
+# jaccard 1.0），又不至于把列表淹掉（weighted>=20 命中 55 对、jaccard>=0.5 命中 8 对）。
+#
+# **不能只用一个口径**：jaccard 只看「重合几只股票」——两家公司跟踪同一指数的基金
+# jaccard 恒为 1.0，却可能只差 0.07 个百分点的仓位；weighted 只看「重合多少仓位」——
+# 前十大中重合 2 只但每只都重仓，weighted 也能很高而 jaccard 只有 0.2。任一越线都
+# 值得提示，但**理由必须分开写**（见 ``_classify_overlap``），否则用户不知道该看哪一面。
+DUPLICATE_WEIGHTED_PCT = 20.0
+#: 集合口径「配置重复」阈值（0~1）：两者重仓股有一半以上重合。
+DUPLICATE_JACCARD = 0.5
+#: 加权口径「需留意」阈值（百分点）。
+WATCH_WEIGHTED_PCT = 10.0
+#: 集合口径「需留意」阈值（0~1）。
+WATCH_JACCARD = 0.3
+
+#: 浮点比较容差：``ratio`` 落库是 REAL，同一份额的同一行可能带极小误差。
+_RATIO_EPS = 1e-9
+
+#: 口径声明（随出参下发，前端原样展示）。**不是**每对的具体结论，而是
+#: 「这个数字在什么条件下会失真」——卡面 #866 明确要求交代换手率口径，
+#: 而基金级换手率数据并未入库（现有 turnover 全是市场/行业拥挤度与用户交易换手），
+#: 故只能如实声明局限、**不假装做了基金级判定**。
+_CAVEATS = [
+    '重叠度基于基金定期报告披露的持仓快照，两次报告之间的调仓看不到；各基金报告期见每一对下方。',
+    '高换手基金的季报持仓是滞后快照，季报之间可能已换掉大半持仓，此时重叠度参考价值下降。'
+    '系统未接入基金级换手率，无法自动标出哪只属于高换手——看到季报前十大（top10）口径的对，请自行掂量。',
+]
+
 
 @dataclass
 class _Fund:
@@ -128,6 +172,9 @@ def _empty_result() -> Dict[str, Any]:
         'total_market_value_cents': 0,
         'coverage_pct': 0.0,
         'uncovered': [],
+        'duplicate_count': 0,
+        # 口径声明与数据无关：它描述的是本模块**固有**的失真条件，取不到数也照样成立。
+        'caveats': list(_CAVEATS),
         'degraded': False,
         'source': SOURCE,
     }
@@ -233,8 +280,9 @@ def _pair_detail(a: _Fund, b: _Fund) -> Dict[str, Any]:
         b: 第二只基金。
 
     Returns:
-        ``{jaccard, weighted_overlap, common_holdings}``。``common_holdings`` 按
-        ``min_ratio`` 降序（重合仓位重的排前面），同值按 ``stock_code`` 升序保证稳定。
+        ``{jaccard, weighted_overlap, common_holdings, identical_holdings}``。
+        ``common_holdings`` 按 ``min_ratio`` 降序（重合仓位重的排前面），同值按
+        ``stock_code`` 升序保证稳定。
     """
     codes_a = a.codes
     codes_b = b.codes
@@ -264,7 +312,53 @@ def _pair_detail(a: _Fund, b: _Fund) -> Dict[str, Any]:
         'jaccard': round(jaccard, 4),
         'weighted_overlap': round(weighted, 2),
         'common_holdings': holdings,
+        'identical_holdings': _is_identical_holdings(codes_a, codes_b, a, b),
     }
+
+
+def _is_identical_holdings(codes_a: Set[str], codes_b: Set[str], a: _Fund, b: _Fund) -> bool:
+    """两只基金是不是**同一只基金的不同份额**（如 A/C 类，口径 8）。
+
+    这类对持仓集合与占比逐行相同，算出来必然接近 100% 重叠——但那是「同一只基金
+    买了两次」，不是「两只基金买重了」。若不给它们单独定性，阈值提示的第一屏就会是
+    假警报（实测：``161725 招商中证白酒A`` / ``012414 招商中证白酒C``，weighted 86.48）。
+
+    判据取「集合完全相同 **且** 占比全等」，不查 ``funds`` 表也不做名称模糊匹配：
+    - 实测真实库全库只有 1 对满足（就是上面那对 A/C 份额）；
+    - 不同公司跟踪同一指数（``017513 广发北证50`` / ``023887 永赢北证50``）集合相同、
+      但占比差 0.07 个百分点，**不会**被误判成份额重复——这正是不用「``jaccard == 1``」
+      当判据的原因。
+    """
+    if not codes_a or codes_a != codes_b:
+        return False
+    return all(abs(a.ratios[code] - b.ratios[code]) <= _RATIO_EPS for code in codes_a)
+
+
+def _classify_overlap(jaccard: float, weighted: float, common_count: int) -> tuple[str, str]:
+    """按双口径阈值给一对基金定级（卡面 #866 的「超过阈值给配置重复提示」）。
+
+    两个口径谁越线都提示，但**理由分开写**：只说「配置重复」用户不知道是「重合的
+    股票多」还是「重合的仓位重」，而这两种情况的处置并不一样。
+
+    Args:
+        jaccard: 集合口径重叠度（0~1）。
+        weighted: 加权口径重叠度（百分点）。
+        common_count: 共同重仓股只数。
+
+    Returns:
+        ``(level, reason)``。``level`` ∈ ``{'duplicate', 'watch', 'low'}``；
+        ``low`` 时 ``reason`` 为空串（不占版面）。
+    """
+    jaccard_pct = jaccard * _PERCENT_SCALE
+    if weighted >= DUPLICATE_WEIGHTED_PCT:
+        return 'duplicate', f'共同重仓 {common_count} 只、{weighted:.1f}% 仓位重叠'
+    if jaccard >= DUPLICATE_JACCARD:
+        return 'duplicate', f'重仓股重合 {jaccard_pct:.0f}%（{common_count} 只），标的重复但仓位有差异'
+    if weighted >= WATCH_WEIGHTED_PCT:
+        return 'watch', f'共同重仓 {common_count} 只、{weighted:.1f}% 仓位重叠'
+    if jaccard >= WATCH_JACCARD:
+        return 'watch', f'重仓股重合 {jaccard_pct:.0f}%（{common_count} 只）'
+    return 'low', ''
 
 
 def _build_pairs(funds: List[_Fund]) -> tuple[List[Dict[str, Any]], int]:
@@ -273,6 +367,8 @@ def _build_pairs(funds: List[_Fund]) -> tuple[List[Dict[str, Any]], int]:
     Returns:
         ``(pairs, skipped_basis_mismatch)``。``pairs`` 按 ``weighted_overlap`` 降序，
         只含 ``weighted_overlap > 0`` 的对（无重合的基金对不占版面，也没信息量）。
+        每对带 ``overlap_level``（``duplicate`` / ``watch`` / ``low`` / ``same-series``）
+        与 ``overlap_reason``（人话解释触发点，``low`` 时为空）。
     """
     pairs: List[Dict[str, Any]] = []
     skipped_basis_mismatch = 0
@@ -285,6 +381,13 @@ def _build_pairs(funds: List[_Fund]) -> tuple[List[Dict[str, Any]], int]:
             detail = _pair_detail(fund_a, fund_b)
             if detail['weighted_overlap'] <= 0:
                 continue
+            if detail['identical_holdings']:
+                # 同一只基金的不同份额：不参与阈值判定，否则第一屏全是假警报（口径 8）。
+                level, reason = 'same-series', '同一只基金的不同份额（持仓与占比完全相同），属份额重复而非配置重复'
+            else:
+                level, reason = _classify_overlap(
+                    detail['jaccard'], detail['weighted_overlap'], len(detail['common_holdings'])
+                )
             pairs.append(
                 {
                     'fund_code_a': fund_a.fund_code,
@@ -296,6 +399,8 @@ def _build_pairs(funds: List[_Fund]) -> tuple[List[Dict[str, Any]], int]:
                     'holding_basis': fund_a.basis,
                     'jaccard': detail['jaccard'],
                     'weighted_overlap': detail['weighted_overlap'],
+                    'overlap_level': level,
+                    'overlap_reason': reason,
                     'common_holdings': detail['common_holdings'],
                 }
             )
@@ -370,4 +475,7 @@ def portfolio_holding_overlap(db: Session, family_id: int = 1) -> Dict[str, Any]
     pairs, skipped_basis_mismatch = _build_pairs(comparable)
     result['pairs'] = pairs
     result['skipped_basis_mismatch'] = skipped_basis_mismatch
+    # 只数真·配置重复：``same-series``（同一基金不同份额）不计——那是份额重复，
+    # 计进来会让「你有 N 对配置重复」这个汇总数字说谎。
+    result['duplicate_count'] = sum(1 for pair in pairs if pair['overlap_level'] == 'duplicate')
     return result

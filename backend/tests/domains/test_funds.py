@@ -883,6 +883,8 @@ def test_重叠度端点契约(client, db, make_position):
         'total_market_value_cents',
         'coverage_pct',
         'uncovered',
+        'duplicate_count',
+        'caveats',
         'degraded',
         'source',
     }
@@ -895,6 +897,13 @@ def test_重叠度端点契约(client, db, make_position):
     assert pair['weighted_overlap'] == pytest.approx(6.0)
     assert pair['jaccard'] == pytest.approx(1.0)
     assert pair['common_holdings'][0]['stock_code'] == '600519'
+    # 配置重复定性（#866）：jaccard=1.0 但加权只有 6 个百分点 ⇒ 靠集合口径越线，
+    # 理由必须点明「标的重复」而不是「仓位重叠」，否则用户会被 6% 这个数字绕晕
+    assert pair['overlap_level'] == 'duplicate'
+    assert '重仓股' in pair['overlap_reason']
+    assert data['duplicate_count'] == 1
+    # 口径声明随接口下发（前端与结论同屏展示），不能在视图层被裁掉
+    assert data['caveats']
 
 
 def test_重叠度端点无持仓时返回空结构而非报错(client):

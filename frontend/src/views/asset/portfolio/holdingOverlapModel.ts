@@ -36,8 +36,19 @@ export interface OverlapPair {
   jaccard: number;
   /** 加权口径重叠度（百分点），按共同持仓的 min(占净值比例) 求和 */
   weighted_overlap: number;
+  /** 后端按双口径阈值定性，前端不二次推导 */
+  overlap_level: OverlapLevel;
+  /** 触发原因说明（`low` 时为空串） */
+  overlap_reason: string;
   common_holdings: OverlapCommonHolding[];
 }
+
+/**
+ * 重叠定性（后端 `_classify_overlap` 判定）：
+ * `duplicate` 配置重复 / `watch` 需留意 / `low` 一般 /
+ * `same-series` 同一只基金的不同份额（份额重复，非配置重复）。
+ */
+export type OverlapLevel = "duplicate" | "watch" | "low" | "same-series";
 
 /** 无持仓明细的持仓 */
 export interface OverlapUncovered {
@@ -59,6 +70,10 @@ export interface HoldingOverlapData {
   /** 有持仓明细的基金市值 / 全部持仓市值 * 100 */
   coverage_pct: number;
   uncovered: OverlapUncovered[];
+  /** 判为「配置重复」的基金对数（不含份额重复） */
+  duplicate_count: number;
+  /** 口径声明（持仓快照滞后 / 高换手失真 / 无基金级换手率） */
+  caveats: string[];
   /** 取数失败时为 true */
   degraded: boolean;
   source: string;
@@ -82,6 +97,10 @@ export function formatWeightedOverlap(
   value: number | null | undefined
 ): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  // 后端只保留 weighted_overlap > 0 的对，但 0.04 这类极小值 toFixed(1) 会渲染成
+  // 「0.0%」——列在「有重叠」里却显示 0%，既自相矛盾，也会让人怀疑整列数值。
+  // 显示下限比假精确有用：真为 0 的对后端根本不会下发。
+  if (value > 0 && value < 0.05) return "<0.1%";
   return `${value.toFixed(1)}%`;
 }
 
@@ -134,4 +153,73 @@ export function describeSkipped(
     parts.push(`${nullRatio} 条持仓因占比缺失未计入`);
   }
   return parts.join("；");
+}
+
+/** 重叠定性的展示标签 */
+export interface OverlapLevelBadge {
+  label: string;
+  /** element-plus el-tag 的 type */
+  tone: "danger" | "warning" | "info";
+}
+
+/**
+ * 把后端的 `overlap_level` 翻成标签。
+ *
+ * `low` 返回 null（不占版面）；`same-series` **不得**显示成「配置重复」——
+ * 同一只基金的 A/C 份额持仓逐行相同，算出来必然是 100% 重叠，但它不是
+ * 「两只基金买重了」，标错会让用户去卖本来正常持有的份额。
+ */
+export function describeOverlapLevel(
+  pair: OverlapPair | null | undefined
+): OverlapLevelBadge | null {
+  if (!pair) return null;
+  switch (pair.overlap_level) {
+    case "duplicate":
+      return { label: "配置重复", tone: "danger" };
+    case "watch":
+      return { label: "需留意", tone: "warning" };
+    case "same-series":
+      return { label: "同一基金不同份额", tone: "info" };
+    default:
+      return null;
+  }
+}
+
+/** 被判为「同一只基金不同份额」的对数（份额重复，不计入配置重复） */
+export function countSameSeriesPairs(
+  data: HoldingOverlapData | null | undefined
+): number {
+  return (data?.pairs ?? []).filter(
+    pair => pair.overlap_level === "same-series"
+  ).length;
+}
+
+/**
+ * 配置重复的汇总文案。
+ *
+ * 两种「看着重复」必须分开说：真·配置重复（不同基金重仓撞车）值得处置；
+ * 同一基金的不同份额只是买了两次同一只基金，混在一起会让汇总数字说谎。
+ */
+export function describeDuplicateSummary(
+  data: HoldingOverlapData | null | undefined
+): string {
+  const parts: string[] = [];
+  const duplicates = data?.duplicate_count ?? 0;
+  const sameSeries = countSameSeriesPairs(data);
+  if (duplicates > 0) {
+    parts.push(`检出 ${duplicates} 对配置重复（两只基金重仓高度重合）`);
+  }
+  if (sameSeries > 0) {
+    parts.push(`${sameSeries} 对是同一基金的不同份额，不计入重复`);
+  }
+  return parts.join("；");
+}
+
+/** 口径声明（后端下发，原样展示）：空串项一律滤掉，避免渲染出空行 */
+export function describeCaveats(
+  data: HoldingOverlapData | null | undefined
+): string[] {
+  return (data?.caveats ?? []).filter(
+    text => typeof text === "string" && text.trim().length > 0
+  );
 }

@@ -33,6 +33,11 @@
       </p>
 
       <template v-else>
+        <!-- 配置重复的汇总：只数真重复，份额重复单独说，否则这个数字会说谎 -->
+        <p v-if="duplicateSummary" class="overlap-panel__summary" role="status">
+          {{ duplicateSummary }}
+        </p>
+
         <ul class="overlap-panel__list">
           <li
             v-for="pair in data?.pairs ?? []"
@@ -49,6 +54,22 @@
                 {{ formatWeightedOverlap(pair.weighted_overlap) }}
               </span>
             </div>
+            <p
+              v-if="describeOverlapLevel(pair) || pair.overlap_reason"
+              class="overlap-panel__verdict"
+            >
+              <el-tag
+                v-if="describeOverlapLevel(pair)"
+                :type="describeOverlapLevel(pair)?.tone"
+                size="small"
+                effect="light"
+              >
+                {{ describeOverlapLevel(pair)?.label }}
+              </el-tag>
+              <span v-if="pair.overlap_reason" class="overlap-panel__reason">
+                {{ pair.overlap_reason }}
+              </span>
+            </p>
             <p class="overlap-panel__meta">
               集合口径 {{ formatJaccard(pair.jaccard) }} ·
               {{ describeBasis(pair.holding_basis) }}
@@ -82,6 +103,11 @@
 
         <p class="overlap-panel__meta">{{ coverageText }}</p>
         <p v-if="skippedText" class="overlap-panel__warn">{{ skippedText }}</p>
+
+        <!-- 口径声明必须与结论同屏：字数不多，但决定了这些百分比能被信到什么程度 -->
+        <ul v-if="caveatList.length" class="overlap-panel__caveats">
+          <li v-for="(text, index) in caveatList" :key="index">{{ text }}</li>
+        </ul>
       </template>
     </CardBlock>
   </div>
@@ -97,7 +123,10 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
   describeBasis,
+  describeCaveats,
   describeCoverage,
+  describeDuplicateSummary,
+  describeOverlapLevel,
   describePeriodMismatch,
   describeSkipped,
   formatJaccard,
@@ -116,6 +145,8 @@ const state = computed(() => resolveOverlapPanelState(data.value));
 const fundCount = computed(() => data.value?.fund_count ?? 0);
 const coverageText = computed(() => describeCoverage(data.value));
 const skippedText = computed(() => describeSkipped(data.value));
+const duplicateSummary = computed(() => describeDuplicateSummary(data.value));
+const caveatList = computed(() => describeCaveats(data.value));
 
 const load = async () => {
   loading.value = true;
@@ -162,6 +193,36 @@ onMounted(load);
     padding: 0;
     margin: 0;
     list-style: none;
+  }
+
+  &__summary {
+    padding: 8px 12px;
+    margin: 0 0 var(--space-standard);
+    font-size: var(--text-small);
+    color: var(--text-primary);
+    background: var(--bg-muted);
+    border-radius: var(--radius-button);
+  }
+
+  &__verdict {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin: 6px 0 0;
+  }
+
+  &__reason {
+    font-size: var(--text-small);
+    color: var(--text-secondary);
+  }
+
+  &__caveats {
+    padding-left: 1em;
+    margin: var(--space-standard) 0 0;
+    font-size: var(--text-small);
+    line-height: 1.6;
+    color: var(--text-tertiary);
   }
 
   &__pair {
