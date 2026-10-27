@@ -69,9 +69,14 @@ LENGTH_RE = re.compile(r"\b\d*\.?\d+(?:px|rem|em)\b")
 # 全部来自 #1571 之前的历史写法（2026-09-17 冻结）。**只允许删，不允许加**：
 # 新增断点请 `@use "@/style/breakpoints" as bp;` 后用 bp.below()/bp.above()。
 BASELINE: dict[str, int] = {
+    # #980 拆分：环形图整块搬到 AggregationBreakdownDonut，环形图侧的断点随之搬家；
+    # Hero 自身的 768 断点（竖排 + 统计块均分）仍留在 AggregationHero
     "frontend/src/components/Aggregation/AggregationHero.vue::(width <= 768px)": 1,
+    "frontend/src/components/Aggregation/AggregationBreakdownDonut.vue::(width <= 768px)": 1,
     "frontend/src/components/Aggregation/AggregationInstitutionCard.vue::(width <= 520px)": 1,
     "frontend/src/components/Aggregation/AggregationPage.vue::(width <= 640px)": 1,
+    # #980 拆分：搜索框小屏满宽规则随工具条搬到 AggregationToolbar
+    "frontend/src/components/Aggregation/AggregationToolbar.vue::(width <= 640px)": 1,
     "frontend/src/components/Aggregation/AggregationProductCard.vue::(width <= 520px)": 1,
     "frontend/src/components/MetricCard/index.vue::(width <= 480px)": 1,
     "frontend/src/components/MetricGrid/index.vue::(width <= 560px)": 1,

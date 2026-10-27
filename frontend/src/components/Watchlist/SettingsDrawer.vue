@@ -15,179 +15,41 @@
         资产管理
       </p>
 
-      <!-- 管理分组 -->
-      <div
-        class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
-        role="button"
-        tabindex="0"
-        @keydown.enter="emit('manage-groups')"
-        @click="emit('manage-groups')"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--bg-soft)' }"
-          >
-            <IconifyIconOffline
-              icon="ep:folder"
-              class="text-lg"
-              :style="{ color: 'var(--brand-700)' }"
-            />
-          </div>
-          <div class="flex-1">
-            <h4
-              class="text-sm font-medium mb-1"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              管理分组
-            </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              创建、重命名或删除自定义分组
-            </p>
-          </div>
-          <IconifyIconOffline
-            icon="ep:arrow-right"
-            class="text-sm"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </div>
-      </div>
+      <SettingsActionCard
+        icon="ep:folder"
+        icon-color="var(--brand-700)"
+        title="管理分组"
+        description="创建、重命名或删除自定义分组"
+        @activate="emit('manage-groups')"
+      />
 
-      <!-- 管理标签 -->
-      <div
-        class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
-        role="button"
-        tabindex="0"
-        @keydown.enter="emit('manage-tags')"
-        @click="emit('manage-tags')"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--bg-soft)' }"
-          >
-            <IconifyIconOffline
-              icon="ep:price-tag"
-              class="text-lg"
-              :style="{ color: 'var(--text-secondary)' }"
-            />
-          </div>
-          <div class="flex-1">
-            <h4
-              class="text-sm font-medium mb-1"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              管理标签
-            </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              编辑、新建或删除资产标签
-            </p>
-          </div>
-          <IconifyIconOffline
-            icon="ep:arrow-right"
-            class="text-sm"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </div>
-      </div>
+      <SettingsActionCard
+        icon="ep:price-tag"
+        icon-color="var(--text-secondary)"
+        title="管理标签"
+        description="编辑、新建或删除资产标签"
+        @activate="emit('manage-tags')"
+      />
 
-      <!-- 批量管理 -->
-      <div
-        class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
-        role="button"
-        tabindex="0"
-        @keydown.enter="emit('manage-batch')"
-        @click="emit('manage-batch')"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--bg-soft)' }"
-          >
-            <IconifyIconOffline
-              icon="ep:operation"
-              class="text-lg"
-              :style="{ color: 'var(--color-warning-ink)' }"
-            />
-          </div>
-          <div class="flex-1">
-            <h4
-              class="text-sm font-medium mb-1"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              批量管理自选
-            </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              批量移动、删除自选资产
-            </p>
-          </div>
-          <IconifyIconOffline
-            icon="ep:arrow-right"
-            class="text-sm"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </div>
-      </div>
+      <SettingsActionCard
+        icon="ep:operation"
+        icon-color="var(--color-warning-ink)"
+        title="批量管理自选"
+        description="批量移动、删除自选资产"
+        @activate="emit('manage-batch')"
+      />
 
-      <!-- 导入探市数据 -->
-      <div
+      <!-- 导入探市数据：有待迁移数据时才出现，描边走品牌色强调 -->
+      <SettingsActionCard
         v-if="hasPendingExploreData"
-        class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--brand-400)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
-        role="button"
-        tabindex="0"
-        @keydown.enter="handleImportExploreData"
-        @click="handleImportExploreData"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--bg-soft)' }"
-          >
-            <IconifyIconOffline
-              icon="ep:download"
-              class="text-lg"
-              :style="{ color: 'var(--brand-700)' }"
-            />
-          </div>
-          <div class="flex-1">
-            <h4
-              class="text-sm font-medium mb-1"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              导入探市数据
-              <el-badge :value="'!'" type="danger" class="ml-1" />
-            </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              将「探市」中的观察资产迁移到自选列表
-            </p>
-          </div>
-          <IconifyIconOffline
-            icon="ep:arrow-right"
-            class="text-sm"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </div>
-      </div>
+        icon="ep:download"
+        icon-color="var(--brand-700)"
+        title="导入探市数据"
+        description="将「探市」中的观察资产迁移到自选列表"
+        border-color="var(--brand-400)"
+        badge
+        @activate="handleImportExploreData"
+      />
 
       <!-- 分组小标题：系统设置（组二：排序设置 / 刷新频率） -->
       <p
@@ -198,95 +60,28 @@
       </p>
 
       <!-- 列显示设置（#993）：点击打开宽模态框，按品类导航分别控制（方案三，2026-09-12） -->
-      <div
-        class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
-        role="button"
-        tabindex="0"
-        @keydown.enter="columnDialogVisible = true"
-        @click="columnDialogVisible = true"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--bg-soft)' }"
-          >
-            <IconifyIconOffline
-              icon="ep:grid"
-              class="text-lg"
-              :style="{ color: 'var(--brand-700)' }"
-            />
-          </div>
-          <div class="flex-1">
-            <h4
-              class="text-sm font-medium mb-1"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              表格列显示
-            </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              按品类分组设置展示列（本机自动保存）
-            </p>
-          </div>
-          <IconifyIconOffline
-            icon="ep:arrow-right"
-            class="text-sm"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </div>
-      </div>
+      <SettingsActionCard
+        icon="ep:grid"
+        icon-color="var(--brand-700)"
+        title="表格列显示"
+        description="按品类分组设置展示列（本机自动保存）"
+        @activate="columnDialogVisible = true"
+      />
 
       <ColumnSettingsModal
         v-model="columnDialogVisible"
         :column-settings="columnSettings"
       />
 
-      <!-- 排序设置（预留） -->
-      <div
-        class="settings-card rounded-xl p-4 opacity-50 cursor-not-allowed"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--bg-soft)' }"
-          >
-            <IconifyIconOffline
-              icon="ep:sort"
-              class="text-lg"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            />
-          </div>
-          <div class="flex-1">
-            <h4
-              class="text-sm font-medium mb-1"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            >
-              排序设置
-            </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              自定义列表排序规则（开发中）
-            </p>
-          </div>
-          <span
-            class="px-2 py-0.5 text-[10px] rounded-full"
-            :style="{
-              backgroundColor: 'var(--bg-soft)',
-              color: 'var(--text-tertiary-ink)'
-            }"
-          >
-            即将推出
-          </span>
-        </div>
-      </div>
+      <!-- 排序设置（预留）：不可点占位卡 -->
+      <SettingsActionCard
+        icon="ep:sort"
+        icon-color="var(--text-tertiary-ink)"
+        title="排序设置"
+        description="自定义列表排序规则（开发中）"
+        :clickable="false"
+        trailing-text="即将推出"
+      />
 
       <!-- 刷新频率 -->
       <div
@@ -350,8 +145,16 @@ import {
 } from "@/composables/useRealtimeQuotes";
 import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumnVisibility";
 import ColumnSettingsModal from "@/components/Watchlist/ColumnSettingsModal.vue";
+import SettingsActionCard from "@/components/Watchlist/SettingsActionCard.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 
+/**
+ * 「管理自选」设置抽屉（#993 / #980）。
+ *
+ * 两组入口：资产管理（分组 / 标签 / 批量 / 导入探市）+ 系统设置（列显示 / 排序占位 / 刷新频率）。
+ * 五张同构入口卡已抽为 `SettingsActionCard`（#980），本文件只负责分组标题、
+ * 刷新频率这种「卡片内嵌控件」的特例，以及对外事件。
+ */
 const { hasPendingExploreData, manualMigrate } = useSupabaseAuth();
 
 const handleImportExploreData = async () => {
@@ -421,6 +224,7 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
   transition: all 0.15s ease;
 }
 
+/* 子组件根节点同样带父作用域属性，这条 hover 对 SettingsActionCard 依旧生效 */
 .settings-card:hover {
   box-shadow: var(--shadow-float) !important;
 }
