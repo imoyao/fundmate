@@ -627,6 +627,32 @@ static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；F
 - `node scripts/check_css_vars.mjs`：通过（364 定义 / 278 引用，无幽灵令牌）
 - 前端：`pnpm lint`（eslint + prettier + stylelint）/ `pnpm typecheck` / `pnpm build` **全绿**
 
+## 2026-10-27 PG 约束 / 重建类迁移仍跳过（4 项 · 承接 #2534 · 跟踪 #2689）
+
+#2534 把「加列迁移写成『非 SQLite 就跳过』」这条系统性风险收口：22 处 → 4 处，并落地守卫
+`scripts/guard_migrations_pg_aware.py`（指纹基线 + `--self-test` 变异探针 + 接入 `ci.yml` 的
+`scripts_test`），登记在 `guard_rule_registry.py` 的 `RULE_REGISTRY`。
+
+**剩下的 4 项不是加列迁移**（AST 实测：函数体均不含 `add_column`，只做整表重建或改约束），
+所以没有随 #2534 一起做，单独跟踪在 **#2689**：
+
+| 函数 | 类型 | 跳过 PG 的后果 |
+|---|---|---|
+| `migrate_watchlist_unique_key` | 整表重建（唯一键） | PG 无唯一键 ⇒ 重复自选进得来（#2469 同族） |
+| `migrate_watchlist_family_scoped_unique_key` | 整表重建（家庭维度唯一键） | 同上 |
+| `migrate_positions_symbol_norm` | SQLite 专属 SQL（symbol 归一） | `600000` 与 `600000.SH` 在 PG 共存，口径分裂 |
+| `migrate_fund_managers_split_tenures` | SQLite 专属 SQL（任期拆分） | PG 任期模型与 SQLite 不同源 |
+
+为什么允许暂时不清零（风险性质已降级，别按「加列漂移」估优先级）：
+
+- **不阻塞启动**：`_validate_schema` 只比对缺列、容忍多余列，不校验约束 ⇒ 这 4 项不跑，`init_db()` 照常起；
+- 这不是靠人肉记忆兜底：改到某个函数时守卫会要求**同一 PR 内**删掉它的基线条目，
+  「代码已修、基线还挂着」同样报红，不会出现「以为做完了其实没做」；
+- 代价是**静默的**：约束 / 归一化缺失不报错，只在数据层慢慢不一致。所以它必须留在本台账里——
+  #2534 关闭后没人会天天看 `BASELINE_SKIP_FUNCTIONS`。
+
+复跑：`python scripts/guard_migrations_pg_aware.py`（基线应稳定 4 项，每修一项递减一项）。
+
 ### 遗留（登记，交真机 axe）
 - 「静态不可判定（品牌 / 彩色实底）」桶 **27 → 34 处** —— 正是本批改为 `--text-inverse` 的那些实底位置，**只能真机判定**
 - 「内联样式不可静态解析」**15 处**（`:style` 绑运行时颜色）
