@@ -110,7 +110,9 @@ async function stubAggregation(page: Page): Promise<() => string[]> {
             total_market_value_cents: 98800,
             dimension,
             groups:
-              dimension === "institution" ? INSTITUTION_GROUPS : [GROUP_MULTI, GROUP_SINGLE],
+              dimension === "institution"
+                ? INSTITUTION_GROUPS
+                : [GROUP_MULTI, GROUP_SINGLE],
             total: dimension === "institution" ? 1 : 2,
             page: 1,
             page_size: 18,
@@ -210,7 +212,9 @@ test.describe("聚合视图拆分回归（#980 批 A）", () => {
     await expect(cards.first().locator(".sub-icon")).toBeVisible();
   });
 
-  test("产品卡：份额 / 净值精度 / 收益率胶囊 / 多渠道提示", async ({ page }) => {
+  test("产品卡：份额 / 净值精度 / 收益率胶囊 / 多渠道提示", async ({
+    page
+  }) => {
     await stubAggregation(page);
     await page.goto("/#/funds");
 
@@ -249,6 +253,8 @@ test.describe("聚合视图拆分回归（#980 批 A）", () => {
     await expect(single.locator(".return-badge")).toHaveClass(
       /return-badge--flat/
     );
-    await expect(single.locator(".secondary-value").nth(1)).toHaveText("4.4400");
+    await expect(single.locator(".secondary-value").nth(1)).toHaveText(
+      "4.4400"
+    );
   });
 });
