@@ -63,6 +63,9 @@
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
     </div>
 
+    <!-- 基金风格分布（#2628）：家庭级、按持仓市值加权；无箱体的持仓进「未覆盖」不补 0 -->
+    <StyleDistributionCard />
+
     <!-- 「资产透视」区块（原 `AssetInsightPanel`）已于 #2034 收尾时**删除**：
          它的两张环形图，标题与数据字段各有对不上的地方（#2032）——
          左图写「资产分布」而画的是产品类型（`type_distribution`），
@@ -119,6 +122,7 @@ import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import OverviewSummaryCard from "./components/OverviewSummaryCard.vue";
 import CategoryBalanceTable from "./components/CategoryBalanceTable.vue";
 import DetailGroupList from "./components/DetailGroupList.vue";
+import StyleDistributionCard from "./components/StyleDistributionCard.vue";
 import {
   getSummary,
   getSankeyData,
