@@ -69,11 +69,18 @@ export function useWatchlistTable(options: TableRenderOptions) {
 
   /**
    * 表头排序分发（issue #1333 修正，#2641 扩展）。
-   * 带 `realtimeField` 的列（`current_price` 最新价 / `day_pnl` 当日盈亏）其「有意义的值」
-   * 来自前端实时行情引擎，后端只有 None / positions 静态快照——若走后端 sort_by 会按错值排，
-   * 故这几列改为前端按实时估值项做客户端排序。
-   * 限制：后端无实时值，跨页一致排序本就不成立，因此只排当前页（items）；
-   * 其余列维持原 handleSortChange → 后端 sort_by/sort_order（跨页一致）。
+   *
+   * 两个维度各管一段：
+   *
+   * | 状态 | 走哪 | 为什么 |
+   * |---|---|---|
+   * | **实时开启**（`realtimeEnabled`）且列带 `realtimeField` | 客户端排序，**仅当前页** | 后端只有 None / positions 静态快照，按 `sort_by` 会按**错值**排（#1333）；而实时值不进后端，跨页一致本就不成立 |
+   * | **其余情况**（含实时关闭时点这两列） | `handleSortChange` → 后端 `sort_by/sort_order`，**跨页一致** | 实时关闭时列里显示的就是后端静态值，交给后端按同一值排即可，没有理由退化成只排当前页 |
+   *
+   * ⚠️ #2641 前这里是 `if (def?.realtimeField && order)`——**不看实时开关**，
+   * 于是「实时关闭」时点「最新价 / 涨跌幅」也只排当前页，后端一次都没被调用。
+   * 这与「排序调后端接口」的预期不符，且用户看不出差别（顺序看着对，翻页即错）。
+   * 判据见 `__tests__/sortDispatch.spec.ts`。
    *
    * 派生列（`day_pnl`）不靠 `realtimeField` 渲染也不在 `row` 上，故两处都要用它的
    * **排序代理**：实时分支的兜底值读 `sortBy`（`change_pct`），落后端时把 `sortBy`
@@ -91,8 +98,10 @@ export function useWatchlistTable(options: TableRenderOptions) {
           d => d.key === String(prop)
         )
       : undefined;
+    // 排序代理：派生列（day_pnl）在 row 上没有同名字段，后端白名单里也没有它，
+    // 必须代理到语义对应的行字段（change_pct），否则 sort_by=day_pnl 会静默失效（#1331）。
     const sortKey = def?.sortBy ?? (prop ? String(prop) : undefined);
-    if (def?.realtimeField && order) {
+    if (def?.realtimeField && order && realtimeEnabled.value) {
       const field = def.realtimeField; // "currentPrice" | "changePct"
       const dir = order === "descending" ? -1 : 1;
       const rtMap = new Map<string, number>();
