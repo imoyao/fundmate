@@ -73,7 +73,18 @@ STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy', 'bond_adjust_log')
 # #2585 `bond_adjust_log`：它的 `targets=None` 语义是「**空目标池 ⇒ 跳过**」
 # （逐只抓取、按用户触达范围限量）。CLI 不给它解析核心池，就等于 `pdm run sync
 # --job bond_adjust_log` 抓 0 只、报 success —— 也就是本段上方那个 ⚠️ 说的静默坑。
-DB_POOL_JOBS = {'fund_position': ('fund', 'etf'), 'bond_adjust_log': 'stock'}
+#
+# #2628 `fund_style`（风格箱）：与 `fund_position` 完全同形——逐只 1 次 HTTP、
+# `targets=None` 即显式跳过、目标池同为 fund + etf（`daily_scheduler` 侧
+# target_kind=('fund','etf')）。漏登记的代价比「裸调用 0 只」更重：
+# **连显式 `--targets` 也会被吞掉**——因为 else 分支只在 `DB_POOL_JOBS` 内解析
+# 显式目标，未登记时 `job_targets` 恒为 None。2026-10-27 实测
+# `--job fund_style --targets 110011` 返回 `total=0 / status=success`。
+DB_POOL_JOBS = {
+    'fund_position': ('fund', 'etf'),
+    'bond_adjust_log': 'stock',
+    'fund_style': ('fund', 'etf'),
+}
 
 
 def _combine_pools(resolved: dict, keys) -> list:
@@ -144,6 +155,10 @@ def resolve_job_targets(orch, job: str, targets: str | None, target_file: str | 
         if job in STOCK_TARGET_JOBS:
             # stock 分支（price_history 等）
             return resolved.get('stock', [])
+        # #2628：只在 DB_POOL_JOBS 登记、不属上面两类的逐标的 job（fund_style）。
+        # 漏这条时 `--target-file` 会落进「未知 job → None」，跑成 0 只且报 success。
+        if job in DB_POOL_JOBS:
+            return _combine_pools(resolved, DB_POOL_JOBS[job])
         # 未知 job：不处理 target-file，返回 None
         return None
 
