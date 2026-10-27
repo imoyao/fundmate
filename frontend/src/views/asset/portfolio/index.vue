@@ -153,16 +153,20 @@
           />
         </el-form-item>
         <el-form-item label="基准指数">
+          <!-- #2685：选项来自后端 BENCHMARK_INDICES，不再硬编码（旧写死的 SPX 必降级） -->
           <el-select
             v-model="form.benchmark"
             class="w-full"
             clearable
             filterable
-            allow-create
+            placeholder="选择基准指数"
           >
-            <el-option label="沪深300" value="CSI300" />
-            <el-option label="中证500" value="CSI500" />
-            <el-option label="标普500" value="SPX" />
+            <el-option
+              v-for="item in benchmarkOptions"
+              :key="item.code"
+              :label="item.name"
+              :value="item.code"
+            />
           </el-select>
         </el-form-item>
       </el-form>
@@ -186,9 +190,23 @@ import {
   deletePortfolio,
   type PortfolioItem
 } from "@/api/portfolio";
+import { getBenchmarks, type BenchmarkOption } from "@/api/summary";
 import { formatDate } from "@/utils/date";
 
 defineOptions({ name: "PortfolioList" });
+
+/** 可选基准清单（#2685）：唯一出口是后端 `BENCHMARK_INDICES` */
+const benchmarkOptions = ref<BenchmarkOption[]>([]);
+
+async function loadBenchmarks() {
+  if (benchmarkOptions.value.length) return;
+  try {
+    const res = await getBenchmarks();
+    benchmarkOptions.value = res.data ?? [];
+  } catch {
+    benchmarkOptions.value = [];
+  }
+}
 
 const portfolios = ref<PortfolioItem[]>([]);
 const loading = ref(true);
@@ -209,6 +227,7 @@ const form = ref({ ...defaultForm });
 function openCreateDialog() {
   form.value = { ...defaultForm };
   dialogVisible.value = true;
+  void loadBenchmarks();
 }
 
 async function handleSave() {

@@ -310,3 +310,60 @@ def test_端点_ledger与portfolio同传返回400(client):
 
     assert resp.status_code == 400
     assert resp.get_json()['error_code'] == 1001
+
+
+# ── 6. 逐日曲线（#2685）──────────────────────────────────────────
+def test_曲线末点等于卡片单值(db, make_position, make_transaction):
+    """分母固定为区间前一日净资产 ⇒ 末点必须与 `range_rate` 严格相等。"""
+    pos = _seed_account(db, make_position, make_transaction, nav3=1.1)
+    _add_index(db, '000300.SH', D2, 4000.0)
+    _add_index(db, '000300.SH', D3, 4200.0)
+
+    out = build_scope_excess(db, 1, '2026-01-06', '2026-01-07', ledger_id=pos.ledger_id)
+
+    series = out['series']
+    assert [p['date'] for p in series] == ['2026-01-06', '2026-01-07']
+    assert series[0]['scope_cum_pct'] == pytest.approx(0.0)
+    assert series[0]['benchmark_cum_pct'] == pytest.approx(0.0)
+    # 关键：曲线末点 ≡ 卡片上的两个数（不因「复利连乘」差几个 bp）
+    assert series[-1]['scope_cum_pct'] == pytest.approx(out['range_rate'])
+    assert series[-1]['benchmark_cum_pct'] == pytest.approx(out['benchmark']['range_return'])
+
+
+def test_曲线_基准未识别不画0线(db, make_position, make_transaction):
+    """基准认不出时只画组合线：基准点全 None，不拿 0 线冒充基准。"""
+    pf = _seed_portfolio(db, make_position, make_transaction)
+    pf.benchmark = 'SPX'  # 不在 BENCHMARK_INDICES（历史前端下拉里的那个坏选项）
+    db.commit()
+
+    out = build_scope_excess(db, 1, '2026-01-06', '2026-01-07', portfolio_id=pf.id)
+
+    assert out['benchmark']['reason'] == 'unrecognized_benchmark'
+    assert [p['benchmark_cum_pct'] for p in out['series']] == [None, None]
+    assert out['series'][-1]['scope_cum_pct'] == pytest.approx(out['range_rate'])
+
+
+def test_曲线_基准缺价日断线(db, make_position, make_transaction):
+    """基准当日无报价 ⇒ 该点 None（断线），不用前值伪装成「走平」。"""
+    pos = _seed_account(db, make_position, make_transaction)
+    d4 = dt.date(2026, 1, 8)
+    _add_nav(db, '000031', d4, 1.1)
+    _add_index(db, '000300.SH', D2, 4000.0)
+    _add_index(db, '000300.SH', d4, 4400.0)  # 刻意跳过 D3
+
+    out = build_scope_excess(db, 1, '2026-01-06', '2026-01-08', ledger_id=pos.ledger_id)
+
+    by_date = {p['date']: p for p in out['series']}
+    assert by_date['2026-01-07']['benchmark_cum_pct'] is None
+    assert by_date['2026-01-08']['benchmark_cum_pct'] == pytest.approx(10.0)
+
+
+def test_基准清单端点_含中证800(client):
+    """清单唯一出口 = BENCHMARK_INDICES，顺序稳定；中证800 必须在内（#2685）。"""
+    resp = client.get('/api/summary/benchmarks/')
+
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data[0] == {'code': '000300.SH', 'name': '沪深300'}
+    assert {'code': '000906.SH', 'name': '中证800'} in data
+    assert all(item['name'] for item in data)

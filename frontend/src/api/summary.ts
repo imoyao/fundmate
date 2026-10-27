@@ -427,7 +427,33 @@ export type BenchmarkExcessResult = {
   } | null;
   /** 超额（百分点）= range_rate − benchmark.range_return；任一侧为 null 则为 null */
   excess_return: number | null;
+  /**
+   * 逐日累计曲线（#2685）：`scope_cum_pct` 分母固定为区间前一日净资产，
+   * 故**末点 ≡ range_rate**；`benchmark_cum_pct` 末点 ≡ benchmark.range_return，
+   * 基准不可算时全程 null（前端只画组合线，不画 0 线冒充基准）。
+   * 某日无报价 ⇒ 该字段 null，前端断线，不用前值伪装成走平。
+   */
+  series: Array<{
+    date: string;
+    scope_cum_pct: number | null;
+    benchmark_cum_pct: number | null;
+  }>;
 };
+
+/** 可选基准（#2685）：唯一出口 = 后端 BENCHMARK_INDICES，前端不再硬编码 */
+export type BenchmarkOption = {
+  /** 指数代码（如 `000300.SH`）；写入 `Portfolio.benchmark` 用这个 */
+  code: string;
+  name: string;
+};
+
+/** 查询可选基准清单（顺序由后端常量声明顺序决定，前端不二次排序） */
+export function getBenchmarks() {
+  return http.request<ApiResponse<BenchmarkOption[]>>(
+    "get",
+    BASE_URL + "benchmarks/"
+  );
+}
 
 /** 收益归因的品种行（#2135）：区间盈亏 + 占比 */
 export type PnlAttributionRow = {

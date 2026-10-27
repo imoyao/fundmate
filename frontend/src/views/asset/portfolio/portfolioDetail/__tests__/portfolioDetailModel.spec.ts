@@ -40,6 +40,8 @@ function excess(
       ...bench
     },
     excess_return: null,
+    // #2685：曲线是接口必出字段（空数组 = 没有可画的日数据），夹具给默认值
+    series: [],
     ...patch
   };
 }

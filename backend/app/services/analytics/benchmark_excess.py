@@ -134,6 +134,25 @@ def resolve_benchmark_code(
     return DEFAULT_BENCHMARK_CODE, None
 
 
+def _index_close_rows(db: Session, index_code: str, start: dt.date, end: dt.date):
+    """`[start, end]` 内可得收盘点（按日期升序）。
+
+    单值（`interval_benchmark_return`）与逐日曲线共用这一处取数，
+    避免两处 filter 各自演化出「一个要 not null、一个不要」的漂移。
+    """
+    return (
+        db.query(IndexDaily.trade_date, IndexDaily.close)
+        .filter(
+            IndexDaily.index_code == index_code,
+            IndexDaily.trade_date >= start,
+            IndexDaily.trade_date <= end,
+            IndexDaily.close.isnot(None),
+        )
+        .order_by(IndexDaily.trade_date)
+        .all()
+    )
+
+
 def interval_benchmark_return(
     db: Session,
     index_code: str,
@@ -148,17 +167,7 @@ def interval_benchmark_return(
       区间边界超过 `_COVERAGE_TOLERANCE_DAYS`（该指数在区间边界没有报价，
       涨跌幅覆盖的不是「同期」整段）。
     """
-    rows = (
-        db.query(IndexDaily.trade_date, IndexDaily.close)
-        .filter(
-            IndexDaily.index_code == index_code,
-            IndexDaily.trade_date >= start,
-            IndexDaily.trade_date <= end,
-            IndexDaily.close.isnot(None),
-        )
-        .order_by(IndexDaily.trade_date)
-        .all()
-    )
+    rows = _index_close_rows(db, index_code, start, end)
     name = BENCHMARK_INDICES.get(index_code, index_code)
 
     def _result(range_return, reason, first=None, last=None):
@@ -206,7 +215,66 @@ def _empty_scope_result(
         'range_reason': reason,
         'benchmark': None,
         'excess_return': None,
+        'series': [],
     }
+
+
+def _build_cum_series(
+    db: Session,
+    payload_by_id: Dict[int, dict],
+    range_baseline: Optional[float],
+    code: Optional[str],
+    bench: Dict[str, Any],
+    start: dt.date,
+    end: dt.date,
+) -> List[Dict[str, Any]]:
+    """逐日累计收益曲线（#2685；账户 / 组合同一份，**末点 ≡ 卡片上的单值**）。
+
+    - **分母固定**为区间前一日净资产（`range_baseline`），分子是逐日累计盈亏：
+      `cum = 累计盈亏 / |baseline| * 100`，故末点 ≡ `range_rate`。刻意**不用**
+      「日收益复利连乘」——那会让末点与单值差几个 bp，被当成 bug 反复解释。
+    - 组合级：成员逐日 `daily_pnl` 按日期求和（某成员该日缺值就跳过，**不补 0**），
+      与 `range_pnl = Σ month_total` 同源。
+    - 基准线只在 `bench['range_return']` 可算时填（与卡片同判据）：未识别 / 覆盖不足
+      ⇒ `benchmark_cum_pct` 全 None，前端只画组合线并给降级文案，
+      **不画一条 0 线冒充基准**。
+    """
+    if not payload_by_id or not range_baseline:
+        return []
+    denom = abs(float(range_baseline))
+    if not denom:
+        return []
+
+    pnl_by_date: Dict[str, float] = {}
+    for payload in payload_by_id.values():
+        for day in payload.get('days') or []:
+            if day.get('daily_pnl') is None:
+                continue
+            key = day['date']
+            pnl_by_date[key] = pnl_by_date.get(key, 0.0) + float(day['daily_pnl'])
+    if not pnl_by_date:
+        return []
+
+    series: List[Dict[str, Any]] = []
+    acc = 0.0
+    for date_key in sorted(pnl_by_date):
+        acc += pnl_by_date[date_key]
+        series.append({'date': date_key, 'scope_cum_pct': round(acc / denom * 100, 2), 'benchmark_cum_pct': None})
+
+    if code is None or bench.get('range_return') is None:
+        return series
+
+    rows = _index_close_rows(db, code, start, end)
+    if not rows or not rows[0][1]:
+        return series
+    base = float(rows[0][1])
+    bench_by_date = {
+        trade_date.isoformat(): round((float(close) / base - 1) * 100, 2) for trade_date, close in rows if close
+    }
+    for point in series:
+        # 基准当日无报价（停牌 / 未收录）留 None 断线，不用前值伪装成「走平」
+        point['benchmark_cum_pct'] = bench_by_date.get(point['date'])
+    return series
 
 
 def build_scope_excess(
@@ -281,6 +349,7 @@ def build_scope_excess(
                     range_reason = None
     else:
         payload = build_daily_pnl_series(db, family_id, start_date, end_date, ledger_id=ledger_id)
+        payload_by_id: Dict[int, dict] = {0: payload}  # 单一作用域也装进同一结构，曲线只写一份
         range_rate = payload['range_rate']
         range_pnl = payload['month_total']
         range_baseline = payload['range_baseline']
@@ -310,6 +379,8 @@ def build_scope_excess(
     if range_rate is not None and bench['range_return'] is not None:
         excess = round(range_rate - bench['range_return'], 2)
 
+    series = _build_cum_series(db, payload_by_id, range_baseline, code, bench, start, end)
+
     result = {
         'scope': scope,
         'ledger_id': ledger_id,
@@ -322,6 +393,8 @@ def build_scope_excess(
         'range_reason': range_reason,
         'benchmark': bench,
         'excess_return': excess,
+        # 逐日累计曲线（#2685）：末点 ≡ range_rate / benchmark.range_return，前端画双线用
+        'series': series,
     }
     logger.info(
         '基准超额计算 scope={} 区间={}~{} range_rate={} bench={}({}) excess={}',

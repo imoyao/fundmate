@@ -55,11 +55,20 @@
           class="w-full"
           clearable
           filterable
-          allow-create
+          placeholder="选择基准指数"
         >
-          <el-option label="沪深300" value="CSI300" />
-          <el-option label="中证500" value="CSI500" />
-          <el-option label="标普500" value="SPX" />
+          <el-option
+            v-for="item in benchmarkOptions"
+            :key="item.code"
+            :label="item.name"
+            :value="item.code"
+          />
+          <!-- 存量值（如旧的 CSI300）不在清单里：保留可选，避免一进弹窗就被清空 -->
+          <el-option
+            v-if="legacyBenchmark"
+            :label="`${legacyBenchmark}（旧值）`"
+            :value="legacyBenchmark"
+          />
         </el-select>
       </el-form-item>
       <el-form-item label="关联账户">
@@ -105,13 +114,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getPortfolios,
   updatePortfolio,
   type PortfolioDetail
 } from "@/api/portfolio";
+import { getBenchmarks, type BenchmarkOption } from "@/api/summary";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 
 /** 关联账户选项：账户 + 所属组合名（用于展示"已关联：XX"） */
@@ -154,12 +164,37 @@ const editForm = ref<EditForm>({
   benchmark: ""
 });
 
+/**
+ * 可选基准清单（#2685）：唯一出口是后端 `BENCHMARK_INDICES`，前端不再硬编码。
+ * 历史写死的 `SPX` 不在清单里 ⇒ 选中必走 `unrecognized_benchmark` 降级、永远显示「--」。
+ */
+const benchmarkOptions = ref<BenchmarkOption[]>([]);
+
+/** 存量值不在清单里（如旧的 `CSI300`）时保留一个可选项，避免一进弹窗就被清空 */
+const legacyBenchmark = computed(() => {
+  const value = editForm.value.benchmark;
+  if (!value) return "";
+  return benchmarkOptions.value.some(item => item.code === value) ? "" : value;
+});
+
+async function loadBenchmarks() {
+  if (benchmarkOptions.value.length) return;
+  try {
+    const res = await getBenchmarks();
+    benchmarkOptions.value = res.data ?? [];
+  } catch {
+    // 清单拉不到时只留「旧值」选项，不阻断编辑其它字段
+    benchmarkOptions.value = [];
+  }
+}
+
 watch(
   () => props.modelValue,
   visible => {
     if (visible && props.portfolio) {
       initForm();
       void loadLedgers();
+      void loadBenchmarks();
     }
   }
 );
