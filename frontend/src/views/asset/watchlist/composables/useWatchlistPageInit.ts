@@ -1,5 +1,5 @@
 import { onMounted, watch, type Ref } from "vue";
-import { REALTIME_BANNER_DISMISS_KEY } from "@/components/RealtimeWarningBanner/index.vue";
+import { REALTIME_BANNER_DISMISS_KEY } from "@/components/RealtimeWarningBanner/constants";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { useWatchlistData } from "@/composables/useWatchlistData";

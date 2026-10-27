@@ -30,15 +30,10 @@
   </div>
 </template>
 
-<script lang="ts">
-// 横幅「已关闭」标记键。由外层 watchlist 页在实时估值功能「关→开」时清除，
-// 使横幅重新出现；横幅自身只在挂载时读取该标记决定初始显隐。
-export const REALTIME_BANNER_DISMISS_KEY = "realtime-warning-banner-dismissed";
-</script>
-
 <script setup lang="ts">
 import { ref } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import { REALTIME_BANNER_DISMISS_KEY } from "./constants";
 
 // 横幅显隐：实时估值功能开启（外层 v-if）且用户未关闭时才显示。
 // 关闭动作持久化到 localStorage——关掉后刷新页面不再弹出（修复纯内存变量
