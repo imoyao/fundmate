@@ -230,7 +230,7 @@ pdm run invoke grab.verify-jisilu  # 只读诊断：jisilu_indicator 是否含 l
 pdm run invoke test                # 跑全部后端测试
 pdm run invoke test --path tests/services   # 限定目录
 pdm run invoke test --path tests/services/foo.py --k test_x  # 限定用例（-k）
-pdm run invoke serve               # 启动 API（uvicorn，默认 :5000，热重载）
+pdm run invoke serve               # 启动 API（flask dev server，默认 :8000，热重载）
 pdm run invoke docs.dev            # 本地文档预览（需 frontend 依赖已装）
 pdm run invoke help                # 打印任务速查表
 ```
