@@ -6,6 +6,8 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import TransactionTable from "@/components/TransactionTable/index.vue";
 import { getTransactions, type TransactionRecord } from "@/api/transactions";
 import { getTradeTimeline, type TradeContribution } from "@/api/products";
+import TransactionCountLine from "./transactionSection/TransactionCountLine.vue";
+import TransactionMoreControls from "./transactionSection/TransactionMoreControls.vue";
 import {
   PREVIEW_SIZE,
   EXPAND_SIZE,
@@ -243,12 +245,12 @@ function goAllTransactions() {
     <template v-else>
       <!-- 总数与表同屏、不藏脚注：首版的静默截断让用户以为「这就是全部」（#2160）。
            有更多时才提示「最近 10 条」，否则「共 N 条」本身就是完整信息。 -->
-      <p class="transaction-section__count">
-        共 {{ total }} 条
-        <span v-if="needToggleBtn && !expanded">
-          （当前显示最近 {{ PREVIEW_SIZE }} 条）
-        </span>
-      </p>
+      <TransactionCountLine
+        :total="total"
+        :preview-size="PREVIEW_SIZE"
+        :need-toggle="needToggleBtn"
+        :expanded="expanded"
+      />
 
       <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件」：
            此前详情页 / 账本 Tab / 持仓抽屉三套表格，字段与口径全不一致）。
@@ -297,35 +299,25 @@ function goAllTransactions() {
         卖出净回款 − 释放成本，分红按 +金额，买入记 0（建仓未实现）。
       </p>
 
-      <button
+      <!-- 第二 / 三级出口：就地展开（表内滚动）与「查看全部流水」跳转。
+           只在总量超过折叠态时挂载——恰好 10 条时不该出现这个按钮。 -->
+      <TransactionMoreControls
         v-if="needToggleBtn"
-        type="button"
-        class="transaction-section__more"
-        :aria-expanded="expanded"
-        aria-controls="transaction-detail-table"
-        :disabled="expanding"
-        @click="toggleExpanded"
-      >
-        {{ expanding ? "加载中…" : expanded ? "收起" : `展开全部 ${total} 条` }}
-      </button>
-
-      <!-- 第 3 级出口：展开后仍看不全时，把「查全部」交给本就是为查明细设计的流水页。
-           只在展开态出现——折叠态就摆这条链接，是在给一个多数用不到的出口加噪声。 -->
-      <p v-if="showsPartialWhenExpanded" class="transaction-section__footnote">
-        仅显示最近 {{ transactions.length }} 条 ·
-        <button
-          type="button"
-          class="transaction-section__link"
-          @click="goAllTransactions"
-        >
-          查看全部流水
-        </button>
-      </p>
+        :total="total"
+        :expanded="expanded"
+        :expanding="expanding"
+        :shows-partial="showsPartialWhenExpanded"
+        :taken="transactions.length"
+        @toggle="toggleExpanded"
+        @go-all="goAllTransactions"
+      />
     </template>
   </CardBlock>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "./transactionSection/transaction-base";
+
 .transaction-section {
   display: flex;
   flex-direction: column;
@@ -350,52 +342,5 @@ function goAllTransactions() {
   padding: 24px;
   color: var(--text-tertiary);
   text-align: center;
-}
-
-.transaction-section__count,
-.transaction-section__footnote {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
-}
-
-/* 展开/收起是主操作，给品牌色；「查看全部流水」是次级出口，弱化成普通链接 */
-.transaction-section__more {
-  align-self: flex-start;
-  padding: 0;
-  font-size: var(--text-label);
-  color: var(--brand-700, var(--brand-500));
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-.transaction-section__more:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.transaction-section__more:disabled {
-  color: var(--text-tertiary);
-  cursor: default;
-}
-
-.transaction-section__more:focus-visible,
-.transaction-section__link:focus-visible {
-  outline: 2px solid var(--brand-500);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm, 4px);
-}
-
-.transaction-section__link {
-  padding: 0;
-  font-size: var(--text-label);
-  color: var(--brand-700, var(--brand-500));
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-.transaction-section__link:hover {
-  text-decoration: underline;
 }
 </style>

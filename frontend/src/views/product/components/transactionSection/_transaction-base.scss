@@ -1,0 +1,10 @@
+// 「交易记录」区块的共用文本样式（#980 拆分）。
+// `__count` 与 `__footnote` 在原文里就是一条分组规则；拆成子件后两处都要用
+// （计数行 / 展开控件 / 口径脚注），scoped 不跨组件，故抽 partial 各 @use。
+// 引用写 `@use "./transaction-base";`。
+.transaction-section__count,
+.transaction-section__footnote {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
+}
