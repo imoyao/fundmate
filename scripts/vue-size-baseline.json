@@ -12,8 +12,6 @@
     "views/asset/investment/import/components/ResultStep.vue": 440,
     "views/asset/investment/reconcile-workbench/index.vue": 406,
     "views/asset/panorama/components/OverviewSummaryCard.vue": 460,
-    "views/asset/watchlist/WatchlistFilterBar.vue": 498,
-    "views/asset/watchlist/index.vue": 402,
     "views/explore/components/ExploreWatchlistTable.vue": 491,
     "views/explore/components/detail/CrowdingTable.vue": 508,
     "views/login/reset-password.vue": 538,

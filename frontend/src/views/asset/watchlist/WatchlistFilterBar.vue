@@ -2,15 +2,21 @@
 /* eslint-disable vue/no-mutating-props -- 状态注入模式：groups/tags/toolbar 为 composable 实例 prop，
    经 computed get/set 桥接修改其内部 ref 属有意设计（与 WatchlistToolbar 同模式） */
 import { computed, ref } from "vue";
-import { Close, Files, Folder, Plus } from "@element-plus/icons-vue";
+import { Close } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistToolbarState } from "@/composables/useWatchlistData";
 import { assetTypeLabel } from "@/composables/useEnumLabels";
 import { useWatchlistQuickFilters } from "@/composables/useWatchlistQuickFilters";
-import { narrowToHolding } from "@/views/asset/watchlist/watchlistAssetTypes";
+import {
+  buildQuickTypeOptions,
+  nextQuickSelection,
+  resolveQuickActiveValue,
+  QUICK_TYPE_ALL
+} from "@/views/asset/watchlist/quickTypeModel";
 import FilterGroupTabs from "@/views/asset/watchlist/components/FilterGroupTabs.vue";
+import FilterGroupActions from "@/views/asset/watchlist/components/FilterGroupActions.vue";
 import QuickTypePills from "@/views/asset/watchlist/components/QuickTypePills.vue";
 import FilterPanelPopover from "@/views/asset/watchlist/components/FilterPanelPopover.vue";
 import QuickFilterConfigDialog from "@/views/asset/watchlist/components/QuickFilterConfigDialog.vue";
@@ -27,6 +33,8 @@ import QuickFilterConfigDialog from "@/views/asset/watchlist/components/QuickFil
  * #2199 修订：类型快捷由 SegmentedControl 胶囊化为 QuickTypePills（选项用户
  * 自定义外显后可达 11 项，超分段器适用域，见 design.md「Filter & Selection」），
  * 并从右段抽出与分组区并列为两个弹性区（各限 max-width 50%，打架各自横滑兜底）。
+ * 2026-10 拆分（#980 批 B2）：分组操作三按钮 → FilterGroupActions；类型快捷的
+ * 两条派生规则（持仓收窄 / 单选覆盖式切换）→ quickTypeModel.ts 纯函数。
  * 纯展示 + 事件转发：状态全部在 groups / tags / toolbar 三个 composable，本组件不持有业务状态。
  */
 const props = defineProps<{
@@ -78,54 +86,28 @@ const selectedAssetTypesModel = computed({
 // 「可转债」对应资产类型 bond（useEnumLabels 已映射）。
 const { quickFilters } = useWatchlistQuickFilters();
 
-/** 当前是否处于「持仓」分组（#2329）。 */
-const isHoldingGroup = computed(
-  () => props.groups.activeGroup.value === "holding"
+/**
+ * 快捷胶囊选项：**持仓分组下收窄一层**（#2329）+「全部」恒为首项。
+ * 收窄口径与「为什么收窄」的完整来龙去脉见 quickTypeModel.buildQuickTypeOptions
+ * 与本目录 watchlistAssetTypes.ts 的 HOLDING_ASSET_TYPES。
+ * 分工不变：本处只收窄可见选项，不改已生效的筛选状态（唯一写入点是 index.vue
+ * 的 applyHoldingTypeConstraint）。
+ */
+const QUICK_TYPE_OPTIONS = computed(() =>
+  buildQuickTypeOptions(
+    quickFilters.value,
+    props.groups.activeGroup.value === "holding",
+    assetTypeLabel
+  )
 );
 
-/**
- * 快捷胶囊选项：「全部」+ 用户外露类型，**持仓分组下再收窄一层**。
- *
- * #2329 用户实测：持仓分组下胶囊栏出现了「基金经理」。根因是本 computed 此前**完全
- * 不看 activeGroup** —— 外露列表来自用户偏好（`useWatchlistQuickFilters` 是模块级
- * 单例、跨设备同步），用户一旦把 `manager` 配进去，所有分组下都会露出它。而
- * `manager` / `portfolio` 按后端 `core/asset_types.py` 的定义是「可自选观察的非交易
- * 实体，不进 positions」，在持仓视图下永远筛不出东西，点了只得到空列表。
- *
- * 与另两处的分工（口径统一到 watchlistAssetTypes.ts 的 HOLDING_ASSET_TYPES）：
- * - 本文件：**只收窄可见选项**，不改已生效的筛选状态；
- * - FilterPanelBody：收窄弹层内可选列表；
- * - index.vue 的 applyHoldingTypeConstraint：把已生效的非持仓类型真正剔除（唯一写入点）。
- * 三处都不互相写状态，故不会互相触发、也不会成环。
- *
- * 注意 `stock` / `fund` 是 PINNED 常驻外露项，收窄不会把它们摘掉。
- */
-const QUICK_TYPE_OPTIONS = computed(() => {
-  const exposed = isHoldingGroup.value
-    ? narrowToHolding(quickFilters.value)
-    : quickFilters.value;
-  return [
-    { label: "全部", value: "all" },
-    ...exposed.map(v => ({ label: assetTypeLabel(v), value: v }))
-  ];
-});
-
-/**
- * 当前单选激活项派生：
- * - 无类型筛选 → 'all'（高亮「全部」）；
- * - 恰好单选一个**当前可见**的胶囊 → 该类型；
- * - 多选 / 选了不可见（未外露或已被持仓分组收窄掉）的类型 → ''（无高亮，组合态，看「筛选」角标）。
- *
- * #2329：判据改为对 `QUICK_TYPE_OPTIONS`（实际渲染的那一串）求值，而非裸 `quickFilters`
- * ——否则可能出现「高亮了一个根本不渲染的胶囊」这种高亮与可见性对不上的状态。
- */
-const quickActive = computed<string>(() => {
-  const t = selectedAssetTypesModel.value;
-  if (t.length === 0) return "all";
-  const visible = QUICK_TYPE_OPTIONS.value.map(o => o.value);
-  if (t.length === 1 && visible.includes(t[0])) return t[0];
-  return "";
-});
+/** 当前单选激活项派生（多选 / 选了不可见类型 → '' 无高亮，见模型层注释） */
+const quickActive = computed(() =>
+  resolveQuickActiveValue(
+    selectedAssetTypesModel.value,
+    QUICK_TYPE_OPTIONS.value
+  )
+);
 
 /**
  * 主界面类型快捷入口（单选覆盖式）：点击即设置该类型为唯一生效筛选并刷新列表；
@@ -138,17 +120,14 @@ const quickActive = computed<string>(() => {
  * 可见行为与原先一致，故不再跨组件写草稿。
  */
 function selectQuickType(value: string) {
-  if (value === "all") {
-    if (selectedAssetTypesModel.value.length === 0) return;
-    selectedAssetTypesModel.value = [];
-  } else if (
-    selectedAssetTypesModel.value.length === 1 &&
-    selectedAssetTypesModel.value[0] === value
-  ) {
-    selectedAssetTypesModel.value = [];
-  } else {
-    selectedAssetTypesModel.value = [value];
+  // 「全部」在已无类型筛选时是空操作：不写状态也不刷新（原实现的早退，勿删）
+  if (value === QUICK_TYPE_ALL && selectedAssetTypesModel.value.length === 0) {
+    return;
   }
+  selectedAssetTypesModel.value = nextQuickSelection(
+    selectedAssetTypesModel.value,
+    value
+  );
   emit("filter-apply");
 }
 
@@ -191,48 +170,14 @@ const hasActiveQuickFilters = computed(
            #1281 + max-width 50% 上限 #2199），此处不重复声明。 -->
       <FilterGroupTabs :groups="groups" />
 
-      <!-- 分组操作：新建分组「+」+ 管理分组「📁」+ 管理本组产品「🗂」——放在分组列表之后，
-           符合「分组列表 → 分组的图标 → 筛选条件 → 筛选入口」的认知顺序（issue #2354）。
-           三个入口管的都是「分组」，故同区同规格；此前「管理本组产品」挂在右段筛选区，
-           与它自己的语义（分组维度）分离，是 #2354 顺序诉求里剩下的最后一项错位。 -->
-      <div class="group-actions">
-        <el-tooltip content="新建分组" placement="bottom">
-          <el-button
-            class="group-tab-add"
-            circle
-            aria-label="新建分组"
-            @click="addDialogVisible = true"
-          >
-            <el-icon><Plus /></el-icon>
-          </el-button>
-        </el-tooltip>
-        <el-tooltip content="管理分组" placement="bottom">
-          <el-button
-            class="manage-groups-btn"
-            circle
-            aria-label="管理分组"
-            @click="emit('manage-groups')"
-          >
-            <el-icon><Folder /></el-icon>
-          </el-button>
-        </el-tooltip>
-        <!-- 「管理本组产品」（issue #987）：仅当前选中**自定义**分组时出现——
-             与「管理分组」是两件事：后者管分组本身（新建/改名/删除），本入口管
-             「这个组里有哪些产品」；系统分组由后端规律维护，故不提供。
-             显隐沿用「常驻 DOM + .is-hidden」：分组操作区紧邻弹性横滑的分组 Tab，
-             条件渲染会让该区宽度随选中分组变化，切换分组时整行抖动（同 .clear-filters-btn）。 -->
-        <el-tooltip content="管理本组产品" placement="bottom">
-          <el-button
-            class="manage-group-items-btn"
-            :class="{ 'is-hidden': !groups.currentIsCustom.value }"
-            circle
-            aria-label="管理本组产品"
-            @click="emit('manage-group-items')"
-          >
-            <el-icon><Files /></el-icon>
-          </el-button>
-        </el-tooltip>
-      </div>
+      <!-- 分组操作三按钮（新建 / 管理分组 / 管理本组产品，拆分见 FilterGroupActions）：
+           三个入口管的都是「分组」，同区同规格，紧接分组列表之后（#2354）。 -->
+      <FilterGroupActions
+        :can-manage-items="groups.currentIsCustom.value"
+        @add="addDialogVisible = true"
+        @manage-groups="emit('manage-groups')"
+        @manage-group-items="emit('manage-group-items')"
+      />
 
       <!-- 分区分隔线：分组导航（主导航）与类型快捷（筛选维度）之间的分区语言
            （design.md 分组胶囊 Tab「与筛选行用分割线分区」同款处理） -->
@@ -317,16 +262,7 @@ const hasActiveQuickFilters = computed(
   min-width: 0;
 }
 
-/* 分组操作区：新建分组「+」+ 管理分组「📁」——紧跟分组 Tab 之后，
-   与分组区同一垂直基线，不参与左右两大弹性区的宽度争夺。 */
-.group-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-  align-items: center;
-}
-
-/* 右段：管理本组产品 / 清除筛选 / 「筛选」入口，固定不参与左侧两区滚动；
+/* 右段：清除筛选 / 「筛选」入口，固定不参与左侧两区滚动；
    子项统一 32px 高并垂直居中，保证下拉浮层弹出前后行内元素始终同一条直线 */
 .filter-bar__right {
   display: flex;
@@ -402,91 +338,6 @@ const hasActiveQuickFilters = computed(
    visibility:hidden 同时把它移出焦点序列与无障碍树，键盘不会聚焦到隐形按钮。
    ⚠️ 禁止改回 v-if / display:none——那会让槽位宽度塌缩，正是要修的整行重排。 */
 .clear-filters-btn.is-hidden {
-  visibility: hidden;
-  pointer-events: none;
-  opacity: 0;
-  transition:
-    opacity 150ms ease,
-    visibility 0s linear 150ms;
-}
-
-/* 新建分组按钮：原文字按钮简化为「+」图标（2026-08-21）。
-   尺寸规范（2026-09-05）：纯图标按钮统一 28×28，与文字按钮（32）区分层级 */
-.group-tab-add {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--text-tertiary-ink);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: 50%;
-  transition:
-    color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease;
-}
-
-.group-tab-add:hover {
-  color: var(--text-secondary);
-  background-color: var(--bg-hover);
-}
-
-/* 管理分组按钮：文件夹图标 = 分组管理语义（非通用齿轮）。
-   尺寸规范（2026-09-05）：纯图标按钮统一 28×28 */
-.manage-groups-btn {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--text-tertiary-ink);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease;
-}
-
-.manage-groups-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--bg-hover);
-}
-
-/* 管理本组产品按钮（#987）：与「管理分组」同尺寸同语言（28×28 圆形线框），
-   仅图标不同（多文件 = 组内产品清单，文件夹 = 分组本身），避免两个入口混淆。
-   #2354：随语义从「右段筛选区」移入「分组操作区」，与 + / 📁 同排。 */
-.manage-group-items-btn {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--text-tertiary-ink);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-
-  /* 含 opacity / visibility：与下方 .is-hidden 配成双向过渡（同 .clear-filters-btn），
-     否则从隐藏恢复时走的是本条（无 opacity 过渡），淡入不生效 */
-  transition:
-    opacity 150ms ease,
-    color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease,
-    visibility 0s linear 0s;
-}
-
-.manage-group-items-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--bg-hover);
-  border-color: var(--brand-400);
-}
-
-/* 非自定义分组（系统分组 / 全部）下的隐藏态：与 .clear-filters-btn.is-hidden
-   同机制（常驻 DOM、只隐不撤）——切换分组时分组操作区宽度恒定，整行不抖。
-   ⚠️ 禁止改回 v-if / display:none：槽位塌缩会让右侧类型胶囊区整体左移。 */
-.manage-group-items-btn.is-hidden {
   visibility: hidden;
   pointer-events: none;
   opacity: 0;
