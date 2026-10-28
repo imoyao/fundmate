@@ -67,7 +67,23 @@ class TestLedgerExternalAccount:
         assert ledger.channel_category == 'fund_platform'
 
     def test_bank_org_type_maps_to_bank_category(self, db):
-        """org_type=商业银行 → channel_category=bank，而 ledger_type 仍是 fund（两者正交）。"""
+        """org_type=商业银行 → channel_category=bank，且 ledger_type 由它派生为 bank。
+
+        2026-10-28 修正（#2713）：原断言是 `ledger_type == 'fund'`，docstring 称「两者正交」。
+        正交只是当时实现的写法，与三处权威依据全部冲突：
+
+        1. 模型注释（`Ledger.ledger_type`）：**「ledger_type 由系统维护/派生（创建时据
+           channel_category 或销售机构 org_type 推导）」**；
+        2. `constants.py` 的 `CHANNEL_CATEGORY_TO_LEDGER_TYPE`：`'bank' → 'bank'`，
+           且文件头写明这是「唯一映射源，禁止在别处硬编码」；
+        3. 同仓的手工建号路径 `ledger_write_service`：`ledger_type =
+           map_channel_category_to_ledger_type(channel_category)`。
+
+        只有导入路径写死 fund，于是同一个微众银行出现两种建号结果 —— 用户手工建的
+        「微众银行」是 bank、E账户导入建的「深圳前海微众银行」是 fund，在账户列表里
+        并排成两个账户，后者的徽标永远显示「基」（ledger_type 编辑时 409 不可变）。
+        这就是 owner 报的那个 bug，故断言改为派生结果，与手工路径同口径。
+        """
         db.add(_inst('深圳前海微众银行股份有限公司', '微众银行', org_type='商业银行'))
         db.commit()
 
@@ -75,7 +91,7 @@ class TestLedgerExternalAccount:
         ledger = orch._get_or_create_channel_ledger('深圳前海微众银行')
 
         assert ledger.channel_category == 'bank'
-        assert ledger.ledger_type == 'fund'
+        assert ledger.ledger_type == 'bank', '银行渠道必须派生出 bank 类型，不再写死 fund'
 
     def test_normalized_name_other_display_name_still_matches(self, db):
         """display_name 精确命中的别名路径不受归一化改动影响。"""

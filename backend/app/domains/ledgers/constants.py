@@ -14,19 +14,31 @@
   或机构 org_type 派生；编辑带数据账户时不可变（改类型返回 409）。
 """
 
+# 键必须是 AMAC 名录里 ``sales_institutions.org_type`` 的**实际取值**，不是想当然的同类词。
+# 2026-10-28 实测：本地名录 400 家机构共 11 种 org_type，原表只对上 7 种，
+# 99 家落进 other —— 其中「城市商业银行」75 家、「在华外资法人银行」11 家本应按 bank
+# 归组，结果 E账户导入把它们建进「其他」分组。新增机构类型前先跑一次
+# ``select distinct org_type from sales_institutions`` 对齐，别再凭直觉命名。
 ORG_TYPE_TO_CHANNEL_CATEGORY = {
     '商业银行': 'bank',
     '全国性商业银行': 'bank',
+    '股份制商业银行': 'bank',
+    '国有大型商业银行': 'bank',
+    '城市商业银行': 'bank',
     '农村商业银行': 'bank',
+    '农村合作银行': 'bank',
     '外资银行': 'bank',
+    '在华外资法人银行': 'bank',
     '证券公司': 'securities',
     '证券投资咨询机构': 'securities',
     '独立基金销售机构': 'fund_platform',
     '基金销售支付结算机构': 'fund_platform',
     '保险公司': 'insurance',
+    '保险代理公司和保险经纪公司': 'insurance',
     '期货公司': 'futures',
     '基金公司': 'other',
     '基金管理公司子公司': 'other',
+    '公募基金管理公司销售子公司': 'other',
 }
 
 CHANNEL_CATEGORY_TO_LEDGER_TYPE = {
