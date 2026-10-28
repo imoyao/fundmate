@@ -6,7 +6,8 @@
   `flex + icon + border + radius` 壳，间距、圆角、a11y 语义（role/tabindex）持续漂移。
 
   职责边界（刻意做薄）：
-  - 管：壳布局、variant 配色（全令牌，暗色经 dark.scss 同名覆盖自动成立）、
+  - 管：壳布局、variant 配色（全令牌；文字色走 text-* 与 -ink 体系，危险语义由图标 +
+        边框 + 底色表达，不染红正文——见下方 danger 注释与 #2726）、
         role="alert"、可点击交互（hover 提亮 + Enter）、统一关闭按钮、紧凑档。
   - 不管：dismiss 显隐状态（Discrepancy/Ghost 是会话级 sessionStorage、Realtime 是
         localStorage 持久——语义不同，只 emit('close') 交消费方自理）；
@@ -126,10 +127,17 @@ function onClick(): void {
   color: var(--color-warning-ink);
 }
 
-/* danger：警示红（原 GhostDuplicateBanner 族）。ink 用 --color-danger-ink
-   （白底 4.74:1），不再借「涨」语义的 --color-rise-ink（设计文档 §4 决策） */
+/* danger：警示红（原 GhostDuplicateBanner 族）。
+   正文刻意走 --text-primary，**不把文字染红**（#2726 实测修正，替换原「ink 用
+   --color-danger-ink，白底 4.74:1」的裁决）：
+   底色 --color-danger-10 是 rgba(212,54,74,.1) 半透明，与本组件同底合成后
+   --color-danger-ink 只剩 4.11:1（--bg-card）/ 3.98:1（--bg-page）/ 3.65:1（--bg-soft），
+   低于正文 AA 门槛 4.5 —— 那个「白底 4.74」不适用于有底色的场景。
+   改 --text-primary 后同底为 12.39 / 12.01 / 11.01（暗色 10.63 / 11.71 / 9.71）。
+   危险语义由图标（--color-danger-ink，图形门槛 3:1 已达标）+ 边框 + 底色承担，
+   与 warning 档做法一致（两档都不靠染色文字表达语义）。 */
 .soft-banner--danger {
-  color: var(--color-danger-ink);
+  color: var(--text-primary);
   background: var(--color-danger-10);
   border: 1px solid var(--color-danger-30);
 }
