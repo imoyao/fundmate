@@ -12,6 +12,8 @@ WHY 下沉
     - 对外 API 契约零变更（``conventions.md`` §2.4）：返回字段名、嵌套结构与下沉前逐字一致。
 """
 
+import csv
+import io
 from datetime import date, timedelta
 
 from sqlalchemy import String, cast, func
@@ -46,11 +48,13 @@ def fee_breakdown_yuan(txn: Transaction):
     return {key: Money.cents_to_yuan(v) for (_col, key), v in zip(_FEE_BREAKDOWN_FIELDS, values)}
 
 
-def order_by_effective_day(query):
-    """按**有效交易日**倒序（`COALESCE(trade_date, confirm_date) DESC, id DESC`）。
+def order_by_effective_day(query, *, descending: bool = True):
+    """按**有效交易日**排序（`COALESCE(trade_date, confirm_date)`，并列用 `id` 兜底）。
 
     #2171 / #2712 起这是全站**唯一**的流水排序口径——`/api/transactions`、账本 Tab、
     持仓抽屉三处都走这里，不再各写一份（写三份必然漂，已经漂过一次）。
+    默认倒序（列表口径）；CSV 导出按时间**正序**读，传 `descending=False`
+    ——**同一个函数出两个方向，而不是在导出里再复制一份 `coalesce` 排序**。
 
     WHY 不是 `created_at`：那是**写入时间**。批量导入的历史流水会让整张表退化成
     「导入批次顺序」，真机实测 `SZ000638` 的 24 笔排出来是
@@ -75,6 +79,8 @@ def order_by_effective_day(query):
         cast(Transaction.trade_date, String),
         cast(Transaction.confirm_date, String),
     )
+    if not descending:
+        return query.order_by(effective_day.asc(), Transaction.id.asc())
     return query.order_by(effective_day.desc(), Transaction.id.desc())
 
 
@@ -209,3 +215,75 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
         )
 
     return {'data': results, 'total': total, 'page': page, 'per_page': per_page}
+
+
+# CSV 导出列（与导入模板列对齐，导出的文件可直接再导入）
+_EXPORT_HEADERS = (
+    '交易日期',
+    '确认日期',
+    '资产类型',
+    '代码',
+    '名称',
+    '业务类型',
+    '账户',
+    '数量',
+    '价格',
+    '手续费',
+    '金额',
+    '状态',
+    '备注',
+)
+
+
+def _csv_day(value) -> str:
+    """CSV 日期单元格：None 为空串（如实缺示，不兜底成别的日期）。
+
+    只做格式归一（`date` / `datetime` 都出 `YYYY-MM-DD`），**不做** trade_date →
+    confirm_date 的兜底——兜底是排序键的事（见 `order_by_effective_day`），
+    单元格里替换日期会让用户以为原始交易日就是确认日。
+    """
+    if value is None:
+        return ''
+    return value.strftime('%Y-%m-%d')
+
+
+def _csv_money(cents) -> str:
+    """分 → 元的 CSV 友好格式化（沿用 Money 换算，空值输出 0）。"""
+    return f'{Money.cents_to_yuan(cents or 0):.2f}'
+
+
+def build_transactions_csv(db, family_id: int) -> str:
+    """家庭全部交易流水的 CSV 文本（#2720 从 `transactions/views.py` 下沉）。
+
+    视图只留「取会话 → 调本函数 → 包 Response」，取数/排序/逐行换算都在这里，
+    可脱离 HTTP 栈单测。排序复用 `order_by_effective_day(descending=False)`：
+    导出按时间正序读，且与列表页共用同一份「有效交易日」口径——两边各写一份
+    `coalesce` 必然漂（#2720 初版即如此，且顺手把兜底写回 trade_date 单列）。
+    """
+    items = order_by_effective_day(
+        db.query(Transaction).filter(Transaction.family_id == family_id),
+        descending=False,
+    ).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(_EXPORT_HEADERS)
+    for t in items:
+        writer.writerow(
+            [
+                _csv_day(t.trade_date),
+                _csv_day(t.confirm_date),
+                t.asset_type or '',
+                t.symbol or '',
+                t.position_name or '',
+                t.txn_type or '',
+                t.account_name or '',
+                Money.min_unit_to_shares(t.quantity),
+                f'{Money.price_units_to_yuan(t.price or 0):.2f}',
+                _csv_money(t.fee),
+                _csv_money(t.amount),
+                t.status or '',
+                t.notes or '',
+            ]
+        )
+    return output.getvalue()

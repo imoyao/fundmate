@@ -6,7 +6,7 @@
 
 import csv
 import io
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
@@ -45,6 +45,7 @@ from app.services.watchlist_service import (
     ensure_watchlist_for_positions,
     get_holding_gaps,
     reconcile_watchlist_status,
+    smart_prompt_conditions,
 )
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
@@ -537,35 +538,7 @@ def get_smart_prompt_conditions(item_id):
             .all()
         )
 
-        buy_txns = [t for t in transactions if t.txn_type == 'buy']
-        sell_txns = [t for t in transactions if t.txn_type == 'sell']
-        trade_count = len(buy_txns) + len(sell_txns)
-
-        holding_days = 0
-        if buy_txns and sell_txns:
-            # trade_date 缺失（通用 CSV 导入历史批次全 NULL）时回退 confirm_date
-            # （与 pnl_calendar._effective_date / dividend_service._event_date 同口径）；
-            # 直接对生成器 min()/max() 在「该侧流水全缺 trade_date」时会对空序列
-            # 抛 ValueError → 500，故先物化列表再取值。
-            def _dates(txns):
-                vals = [t.trade_date for t in txns if t.trade_date]
-                if vals:
-                    return [v.date() if isinstance(v, datetime) else v for v in vals]
-                return [t.confirm_date for t in txns if t.confirm_date]
-
-            buy_dates = _dates(buy_txns)
-            sell_dates = _dates(sell_txns)
-            if buy_dates and sell_dates:
-                holding_days = (max(sell_dates) - min(buy_dates)).days
-
-        conditions = {
-            'holding_days_gt_180': holding_days > 180,
-            'trade_count_gt_6': trade_count > 6,
-            'has_notes': bool(item.notes),
-            'holding_days': holding_days,
-            'trade_count': trade_count,
-            'should_prompt': (holding_days > 180) or (trade_count > 6) or bool(item.notes),
-        }
+        conditions = smart_prompt_conditions(item, transactions)
         return jsonify({'data': conditions, 'message': 'ok'})
 
 
