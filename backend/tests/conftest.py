@@ -2,6 +2,9 @@
 # Author : imoyao
 # Date : 2026/5/10 23:00
 # File : conftest.py
+import os
+import sqlite3
+import tempfile
 from datetime import date, datetime
 
 import pytest
@@ -9,25 +12,43 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 
-import app.domains.assets.models  # noqa: F401
-import app.domains.families.models  # noqa: F401
-import app.domains.funds.models  # noqa: F401
-import app.domains.indices.models  # noqa: F401
-import app.domains.market.models  # noqa: F401
-import app.domains.positions.models  # noqa: F401
-import app.domains.price_history.models  # noqa: F401
-import app.domains.securities.models  # noqa: F401
-import app.domains.summary.models  # noqa: F401
-import app.domains.transactions.models  # noqa: F401
-import app.domains.users.models  # noqa: F401
-import app.domains.watchlist.models  # noqa: F401
-from app.core.database import Base
-from app.core.money import Money
-from app.domains.assets.models import Asset
-from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position
-from app.domains.transactions.models import Transaction
-from app.main import create_app
+# ── 测试环境数据库安全网（必须先于任何 app.* 导入执行）─────────────────────
+# 背景（2026-10-28，test_product_resolve 全量跑红牵出）：测试文件若在 import 期
+# 早绑定 ``from app.core.db_factory import market_session_factory``，conftest 的
+# monkeypatch 对它无效，工厂调用会按环境变量解析并**落到真实 dev 库 invest.db**。
+# 当日实锤：_isolate_product_rows 清理 funds '159857' 撞上真实 daily_worth 外键
+# （该基金 2026-05-30 就在库里、挂 1376 条净值）——若非 FK 拦截，测试会把真实
+# 基金和净值删掉；securities 里至今留着 2026-10-13 测试种下的目录行。
+# 这里在 app 模块导入前把 dev 两个 URL 重定向到会话级临时空库：任何早绑定路径
+# 最多写进这个一次性文件，永远碰不到真实数据。load_dotenv 默认 override=False，
+# 先设的环境变量不会被 .env 覆盖；已正确打补丁的 app 夹具路径（显式指 tmp_path）
+# 完全不受影响。
+_TEST_GUARD_DIR = tempfile.mkdtemp(prefix='fundmate_test_db_guard_')
+os.environ.setdefault('APP_ENV', 'development')
+os.environ['DEV_DATABASE_URL'] = f'sqlite:///{_TEST_GUARD_DIR}/guard.db'
+os.environ.pop('DEV_USER_DATABASE_URL', None)
+# 库文件必须先存在（DatabaseConfig 对「配置了但不存在」的文件会直接报错）
+sqlite3.connect(f'{_TEST_GUARD_DIR}/guard.db').close()
+
+import app.domains.assets.models  # noqa: E402,F401
+import app.domains.families.models  # noqa: E402,F401
+import app.domains.funds.models  # noqa: E402,F401
+import app.domains.indices.models  # noqa: E402,F401
+import app.domains.market.models  # noqa: E402,F401
+import app.domains.positions.models  # noqa: E402,F401
+import app.domains.price_history.models  # noqa: E402,F401
+import app.domains.securities.models  # noqa: E402,F401
+import app.domains.summary.models  # noqa: E402,F401
+import app.domains.transactions.models  # noqa: E402,F401
+import app.domains.users.models  # noqa: E402,F401
+import app.domains.watchlist.models  # noqa: E402,F401
+from app.core.database import Base  # noqa: E402
+from app.core.money import Money  # noqa: E402
+from app.domains.assets.models import Asset  # noqa: E402
+from app.domains.ledgers.models import Ledger  # noqa: E402
+from app.domains.positions.models import Position  # noqa: E402
+from app.domains.transactions.models import Transaction  # noqa: E402
+from app.main import create_app  # noqa: E402
 
 
 def _make_file_engine(db_path):
@@ -151,6 +172,25 @@ def app(monkeypatch, tmp_path):
 
     monkeypatch.setattr(_db_factory, 'user_session_factory', lambda: TestSessionLocal)
     monkeypatch.setattr(_db_factory, 'market_session_factory', lambda: TestMarketSessionLocal)
+
+    # ── 早绑定安全网（2026-10-28）────────────────────────────────────────
+    # ``monkeypatch.setattr`` 只对「调用期经模块属性解析」的代码生效；任何在
+    # import 期早绑定的调用方（``from app.core.db_factory import
+    # market_session_factory``）拿到的仍是原函数 → DatabaseFactory.create() →
+    # 真实库。这类调用方不止测试文件，**应用代码也有**（如 products/views.py
+    # 的 25 处工厂调用）。这里直接预置工厂的引擎缓存，让早绑定路径落到与
+    # monkeypatch 同一对 tmp 引擎上，测试彻底密闭：
+    # - DOMAIN_APP / DOMAIN_MARKET → market_engine（与 market_session_factory 一致）
+    # - DOMAIN_USER → test_engine（与 get_db / user_session_factory 一致）
+    # 生产语义不变：development 单库下 market 域本来就与 app 同库（见
+    # market_session_factory 的 create(DOMAIN_APP)），这里只是把同一映射搬进测试。
+    from app.core.db_factory import DOMAIN_APP, DOMAIN_MARKET, DOMAIN_USER, DatabaseFactory
+
+    monkeypatch.setattr(
+        DatabaseFactory,
+        '_engines',
+        {DOMAIN_APP: market_engine, DOMAIN_MARKET: market_engine, DOMAIN_USER: test_engine},
+    )
 
     if from_template:
         # #1722：模板已是 create_all + init_db（10+ migrations x2 引擎 + seed）完成态，
