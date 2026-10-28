@@ -1150,3 +1150,45 @@ def test_场内停牌跨窗口仍按锚点冻结出数(db, make_position, make_t
         state = _state_of(result, day)
         assert state == STATE_ZERO, f'{day} 停牌冻结日应出 0 收益（zero），实得 {state}'
         assert _pnl_of(result, day) == 0
+
+
+def test_国庆长假后场外净值沿用前值_不归零(db, make_position, make_transaction):
+    """#2733：国庆 8 天假超过旧的 7 天回填窗 ⇒ 假后首日场外持仓市值被算成 0。
+
+    真实库实测 2025-10-08 净值 −8,458.78、次日 +8,870.50 反弹。根因是场外仍走
+    `_price_for` 的 7 天硬回填窗（场内 #2277 早已改成「≤ 当日的最后已知价」）。
+    修复后取价统一走最后已知价，**是否陈旧改按开盘日距离判定**：长假里一个开盘日
+    都没有 ⇒ 不算陈旧；真停更 5 个开盘日 ⇒ 照旧落回 `no_price`
+    （见 `test_pnl_snapshot_store.py::test_净值停更后沿用到期_之后正确判为no_price`）。
+
+    这一段就是本卡的**反向探针**：把 `_is_stale` / `last_known` 换回旧的 7 天
+    自然日回填窗，`worth_of(2025-10-08)` 会掉成 0.0 与本用例转红。
+    """
+    buy_day = dt.date(2025, 9, 25)
+    pos = make_position(symbol='000001', name='长假测试基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=buy_day,
+        symbol='000001',
+    )
+    _add_nav(db, '000001', dt.date(2025, 9, 29), 1.0)
+    _add_nav(db, '000001', dt.date(2025, 9, 30), 1.0)  # 长假前最后一个净值
+    _add_nav(db, '000001', dt.date(2025, 10, 9), 1.1)  # 假后首日才更新，涨 10%
+    _add_nav(db, '000001', dt.date(2025, 10, 10), 1.1)
+
+    result = build_daily_pnl_series(db, 1, '2025-10-01', '2025-10-14')
+
+    def worth_of(day):
+        return next(x['net_worth'] for x in result['days'] if x['date'] == day.isoformat())
+
+    holiday = dt.date(2025, 10, 8)  # 长假最后一天（休市）
+    assert worth_of(holiday) == 1000.0, '长假期间应沿用 9/30 的净值，市值不得归零'
+    assert _state_of(result, holiday) == STATE_CLOSED
+
+    first_day_back = dt.date(2025, 10, 9)
+    assert _pnl_of(result, first_day_back) == 100.0, '假后首日才是真涨：1000 份 ×（1.1 − 1.0）'
+    assert _state_of(result, first_day_back) == STATE_UPDOWN
