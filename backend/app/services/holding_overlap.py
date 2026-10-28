@@ -211,6 +211,9 @@ def _empty_result() -> Dict[str, Any]:
     """空结果骨架（降级 / 无持仓时返回，字段与正常路径完全一致）。"""
     return {
         'pairs': [],
+        #: 参与比较的基金清单（#2686 矩阵用）：`pairs` 只含有重叠的对，矩阵需要
+        #: **全体**成员才能画满行列；只有 `pairs` 时，3 只基金只有 1 对重叠就只剩两个格子。
+        'funds': [],
         'fund_count': 0,
         'skipped_basis_mismatch': 0,
         'skipped_null_ratio': 0,
@@ -530,8 +533,10 @@ def portfolio_holding_overlap(db: Session, family_id: int = 1) -> Dict[str, Any]
 
     Returns:
         见模块 docstring 的出参结构。``pairs`` 按 ``weighted_overlap`` 降序；只含
-        ``weighted_overlap > 0`` 的基金对。``coverage_pct`` = 有持仓明细的基金市值 /
-        全部持仓市值 * 100；``uncovered`` 列出无持仓明细的持仓（市值降序）。
+        ``weighted_overlap > 0`` 的基金对。``funds`` 是**参与比较的全体基金**
+        （市值降序、含彼此零重叠的成员），矩阵视图靠它铺满行列（#2686）。
+        ``coverage_pct`` = 有持仓明细的基金市值 / 全部持仓市值 * 100；
+        ``uncovered`` 列出无持仓明细的持仓（市值降序）。
 
         注：``uncovered`` 里会包含货基等**本质无股票持仓**的标的（无持仓明细不等于
         数据缺口），覆盖率因此天然偏低——这是口径事实，不是取数失败。
@@ -572,6 +577,20 @@ def portfolio_holding_overlap(db: Session, family_id: int = 1) -> Dict[str, Any]
     covered_codes = {fund.fund_code for fund in comparable}
     covered_market_value = sum(fund.market_value_cents for fund in comparable)
     result['fund_count'] = len(comparable)
+    # #2686 矩阵的数据面：`pairs` 只有「有重叠」的对，矩阵缺一行一列就画不出来；
+    # 这里下发**全体可比基金**（含彼此零重叠的成员），口径字段（report_period / basis）
+    # 一并给出 —— 前端据此把「披露口径不同」的格子标成不可比，而不是标成 0%。
+    result['funds'] = [
+        {
+            'fund_code': fund.fund_code,
+            'symbol': fund.symbol,
+            'name': fund.name,
+            'market_value_cents': fund.market_value_cents,
+            'report_period': fund.report_period,
+            'basis': fund.basis,
+        }
+        for fund in sorted(comparable, key=lambda f: (-f.market_value_cents, f.fund_code))
+    ]
     result['coverage_pct'] = (
         round(covered_market_value / result['total_market_value_cents'] * _PERCENT_SCALE, 2)
         if result['total_market_value_cents'] > 0

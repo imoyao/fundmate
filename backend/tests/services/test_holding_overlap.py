@@ -617,6 +617,57 @@ def test_几块钱的观察仓不报配置重复(db, make_position):
     assert result['weak_count'] == 1
 
 
+# ── 10. 矩阵数据面（#2686）：必须下发「全体可比基金」而不只是有重叠的对 ──────
+
+
+def test_矩阵需要全体可比基金清单(db, make_position):
+    """`pairs` 只含有重叠的对，矩阵缺一行一列就画不出来（#2686）。
+
+    三只基金、只有甲/乙重叠：矩阵若只按 `pairs` 生成，就只剩 2×2 的两个格子，
+    另外两只「确实不重叠」的基金凭空消失——那正是这张卡要修的体验问题。
+    """
+    make_position(symbol='000001', asset_type='fund', name='基金甲', quantity=1000, current_price=2.0)
+    make_position(symbol='000002', asset_type='fund', name='基金乙', quantity=500, current_price=3.0)
+    make_position(symbol='000003', asset_type='fund', name='基金丙', quantity=100, current_price=1.0)
+    for stock_code, stock_name, ratio in _A_HOLDINGS:
+        _holding(db, '000001', stock_code, stock_name, ratio)
+    for stock_code, stock_name, ratio in _B_HOLDINGS:
+        _holding(db, '000002', stock_code, stock_name, ratio)
+    # 丙与甲乙**零共同重仓股** ⇒ 不会出现在 pairs 里，但必须是矩阵的一行
+    _holding(db, '000003', '002594', '比亚迪', 9.0)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    assert result['fund_count'] == 3
+    assert [f['fund_code'] for f in result['funds']] == ['000001', '000002', '000003']
+    # 市值降序：2000 元 > 1500 元 > 100 元（分：200000 / 150000 / 10000）
+    assert [f['market_value_cents'] for f in result['funds']] == [200000, 150000, 10000]
+    # 口径字段随行下发：矩阵要靠 basis 判断「不可比」，靠 report_period 交代快照日期
+    for fund in result['funds']:
+        assert set(fund) == {
+            'fund_code',
+            'symbol',
+            'name',
+            'market_value_cents',
+            'report_period',
+            'basis',
+        }
+        assert fund['basis'] == 'full'
+        assert fund['report_period'] == '2026Q2'
+    # 丙确实不在 pairs 里（零重叠配对不出现）——矩阵必须靠 funds + 0 补齐
+    assert _find_pair(result['pairs'], '000001', '000003') is None
+    assert _find_pair(result['pairs'], '000002', '000003') is None
+
+
+def test_矩阵清单在降级与空结果里也保持同构(db):
+    """降级 / 空组合都要有 `funds` 键（空数组）：消费方不必写两套取值分支。"""
+    assert _empty_result()['funds'] == []
+
+    result = portfolio_holding_overlap(db, family_id=1)
+    assert result['funds'] == []
+
+
 def test_大仓位重复照常提示(db, make_position):
     """两只各投 ¥20,000、持仓高度重合 ⇒ 必须照常报 duplicate。
 

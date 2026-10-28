@@ -65,9 +65,28 @@ export interface OverlapUncovered {
   market_value_cents: number;
 }
 
+/**
+ * 参与比较的一只基金（#2686 矩阵用）。
+ *
+ * 与 `api/holdingOverlap.ts` 的同名接口保持一致——两处各有一份类型是 #2604 时期的
+ * 遗留（面板取 api 那份、单测取这份），改字段时两处都要动。
+ */
+export interface OverlapFund {
+  fund_code: string;
+  symbol: string;
+  name: string;
+  market_value_cents: number;
+  /** 该基金自身最新报告期（各取各的，不强制对齐） */
+  report_period: string | null;
+  /** 该报告期的披露口径：`full` / `top10` */
+  basis: string | null;
+}
+
 /** 重叠度接口出参 */
 export interface HoldingOverlapData {
   pairs: OverlapPair[];
+  /** 参与比较的**全体**基金（市值降序），矩阵铺行列用；`pairs` 只是结论 */
+  funds: OverlapFund[];
   /** 参与计算的基金数 */
   fund_count: number;
   /** 因披露口径不同被跳过的对数 */

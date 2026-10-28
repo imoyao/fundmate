@@ -60,6 +60,8 @@ const pair = (over: Partial<OverlapPair> = {}): OverlapPair => ({
 
 const data = (over: Partial<HoldingOverlapData> = {}): HoldingOverlapData => ({
   pairs: [pair()],
+  // 矩阵数据面（#2686）在这份单测里不参与断言，给空数组保持类型完整
+  funds: [],
   fund_count: 3,
   skipped_basis_mismatch: 0,
   skipped_null_ratio: 0,
