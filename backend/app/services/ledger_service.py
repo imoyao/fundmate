@@ -20,7 +20,7 @@ from app.domains.transactions.models import Transaction
 from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
 from app.services.pnl_settle import is_settled_today
-from app.services.position_scope import exclude_cleared
+from app.services.position_scope import active_holdings, exclude_cleared
 from app.services.summary_service import (
     orphan_cash_like_breakdown,
     orphan_money_fund_totals_by_ledger,
@@ -110,8 +110,12 @@ class LedgerService:
     def get_overview_stats(db: Session, family_id: int) -> dict:
         """账户资金全景：按类型分组市值、负债、净资产（覆盖游离数据）"""
         # 轻量列加载（避免全量 ORM 实体）；持仓市值聚合必须保留逐行 ROUND_HALF_UP 语义（tech-debt §13，#911 M4）
+        # 只统计 active 持仓（2026-10-28 修复）：`shadow` 是 E账户导入写下的**对账镜像行**，
+        # 与真身同 (symbol, 份额)，按 `position_scope` 的口径本就不该进总资产。此前这里
+        # 没有过滤，镜像行因 `ledger_id` 为 NULL 走「孤儿」通道**二次计入**总资产 ——
+        # 本地库实测虚增 ¥253,916.91（93 条镜像 + 1 条带账户的镜像）。
         all_positions = (
-            db.query(Position.ledger_id, Position.current_price, Position.quantity)
+            active_holdings(db.query(Position.ledger_id, Position.current_price, Position.quantity))
             .filter(Position.family_id == family_id)
             .all()
         )
@@ -161,7 +165,11 @@ class LedgerService:
             type_groups[t]['count'] += 1
             type_groups[t]['total'] += Money.cents_to_yuan(total_cents)
 
-        # 处理已删除账户和游离数据（ledger_id 无效或为 None）
+        # 处理「未归属」数据：ledger_id 为 None（游离）或指向已删除账户。
+        # 两者语义不同但同属「账户归属缺失」，故合并为一组展示；`count` 是**来源组数**
+        # （None 记 1 组 + 每个悬空 ledger_id 各 1 组），**不是账户个数** ——
+        # 2026-10-28 前前端把它读成「N 个已删除账户」，把 LEDGER_ID 为 NULL 的游离数据
+        # 也说成了已删除账户（本地库实测：93 条 E账户镜像行被如此误报）。
         orphan_cents = 0
         orphan_ledger_ids = set()
         for lid in set(list(pos_map.keys()) + list(asset_map.keys()) + list(orphan_map.keys())):
@@ -177,7 +185,7 @@ class LedgerService:
         if orphan_ledger_ids:
             type_groups['deleted'] = {
                 'type': 'deleted',
-                'label': '已删除账户',
+                'label': '未归属数据',
                 'count': len(orphan_ledger_ids),
                 'total': Money.cents_to_yuan(orphan_cents),
             }
