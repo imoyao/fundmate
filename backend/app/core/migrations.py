@@ -626,28 +626,39 @@ def migrate_positions_symbol_norm(engine: Engine) -> str:
     与本模块「失败显式抛错，避免带病启动」的约定一致。
 
     幂等：列已存在则跳过加列、无空值则跳过回填、索引已存在则跳过创建。
-    非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
 
-    重复检测**排除 `ledger_id IS NULL` 的行**：SQLite 的唯一索引把 NULL 视为互不相等，
+    ## 两种引擎都执行（#2689 / #2534）
+
+    生产 user 域是 Supabase Postgres，本仓没有 Alembic、`create_all()` 又不给存量表加列，
+    「非 SQLite 就跳过」等于 PG 侧**永远没有** `symbol_norm` 与那条唯一键 —— 正是 #2469 同族
+    事故的根因形态（本地 SQLite 全绿、生产两库静默不一致）。方言差异只有三处，
+    且都不改变判定口径：
+
+    1. 加列：PG 用 `ADD COLUMN IF NOT EXISTS`（见 `_add_column_sql`）；SQLite 不支持该语法，
+       靠 `inspect` 判存在；
+    2. 重复行明细的聚合：SQLite `GROUP_CONCAT(col)` / PG `STRING_AGG(col, ',')`；
+    3. `HAVING` 只写聚合表达式（`COUNT(*) > 1`），**不引用 select 别名** —— PG 不允许。
+
+    唯一索引在两库都靠 `CREATE UNIQUE INDEX IF NOT EXISTS`，NULL 语义也一致（唯一索引把
+    NULL 视为互不相等），故无需第四处分叉。
+
+    重复检测**排除 `ledger_id IS NULL` 的行**：SQLite / PG 的唯一索引都把 NULL 视为互不相等，
     这类行本就不参与约束（与旧的字面量约束同语义），`GROUP BY` 却会把它们归到一组 ——
     不排除就会误报、进而无谓地阻断启动。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列与索引由 ORM 模型/迁移工具负责'
-
-    if 'positions' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'positions'):
         return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
 
     from app.core.symbol_utils import symbol_identity
 
     actions: list[str] = []
+    is_pg = _is_postgres(engine)
     with engine.connect() as conn:
         existing = {c['name'] for c in inspect(engine).get_columns('positions')}
         if 'symbol_norm' not in existing:
             # NOT NULL 必须带常量默认值，SQLite 才允许 ADD COLUMN；随后立即回填真实身份，
             # 空串只是过渡态（空串行会被下面的重复检测当成同一身份报出来，不会静默放过）。
-            conn.execute(text("ALTER TABLE positions ADD COLUMN symbol_norm VARCHAR(64) NOT NULL DEFAULT ''"))
+            conn.execute(text(_add_column_sql('positions', 'symbol_norm', "VARCHAR(64) NOT NULL DEFAULT ''", is_pg)))
             actions.append('加列 symbol_norm')
 
         rows = conn.execute(text('SELECT id, symbol, type, symbol_norm FROM positions')).fetchall()
@@ -660,11 +671,14 @@ def migrate_positions_symbol_norm(engine: Engine) -> str:
         if pending:
             actions.append(f'回填 {len(pending)} 行')
 
+        # 方言差异只在这一处：SQLite 没有 STRING_AGG、PG 没有 GROUP_CONCAT。
+        # `HAVING` 写聚合表达式而**不引用 select 别名**（`HAVING n > 1`）：PG 不允许别名。
+        concat = "STRING_AGG(symbol, ',')" if is_pg else 'GROUP_CONCAT(symbol)'
         dupes = conn.execute(
             text(
-                'SELECT ledger_id, symbol_norm, COUNT(*) AS n, GROUP_CONCAT(symbol) AS syms '
+                f'SELECT ledger_id, symbol_norm, COUNT(*) AS n, {concat} AS syms '
                 'FROM positions WHERE ledger_id IS NOT NULL '
-                'GROUP BY ledger_id, symbol_norm HAVING n > 1'
+                'GROUP BY ledger_id, symbol_norm HAVING COUNT(*) > 1'
             )
         ).fetchall()
         if dupes:

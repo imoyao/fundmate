@@ -37,7 +37,7 @@ import re
 from typing import Dict, List, Optional
 
 _ADD_COL_RE = re.compile(r'ALTER TABLE (\w+) ADD COLUMN (?:IF NOT EXISTS )?(\w+)', re.IGNORECASE)
-_CREATE_INDEX_RE = re.compile(r'CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?(\w+) ON (\w+)', re.IGNORECASE)
+_CREATE_INDEX_RE = re.compile(r'CREATE (UNIQUE )?INDEX (?:IF NOT EXISTS )?(\w+) ON (\w+)', re.IGNORECASE)
 # 建表：表名 + 列名列表（够 fake 维护「表在不在、哪些列」即可，不必真解析约束）
 _CREATE_TABLE_RE = re.compile(r'CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\((.*?)\)', re.IGNORECASE | re.DOTALL)
 _CREATE_TABLE_COL_RE = re.compile(r'^\s*(\w+)\s+[A-Z]', re.IGNORECASE | re.MULTILINE)
@@ -111,7 +111,8 @@ class _Inspector:
         return [{'name': c} for c in self._fake.columns.get(table, [])]
 
     def get_indexes(self, table):
-        return [{'name': n} for n in self._fake.indexes.get(table, [])]
+        uniques = self._fake.unique_indexes.get(table, [])
+        return [{'name': n, 'unique': n in uniques} for n in self._fake.indexes.get(table, [])]
 
 
 class PgFake:
@@ -120,6 +121,9 @@ class PgFake:
     def __init__(self, columns: Dict[str, List[str]], *, rows: Optional[list] = None, apply_ddl: bool = True):
         self.columns = {t: list(c) for t, c in columns.items()}
         self.indexes: Dict[str, List[str]] = {}
+        #: 唯一索引单独记一份：`get_indexes()` 要能回 `unique: True`，否则迁移末尾
+        #: 「按 unique 过滤后校验索引是否建成」的逻辑在假引擎上永远判失败（假红）。
+        self.unique_indexes: Dict[str, List[str]] = {}
         self.rows = rows or []
         self.apply_ddl = apply_ddl
         self.sql: List[str] = []
@@ -140,10 +144,14 @@ class PgFake:
             return
         m = _CREATE_INDEX_RE.search(sql)
         if m:
-            name, table = m.group(1), m.group(2)
+            is_unique, name, table = bool(m.group(1)), m.group(2), m.group(3)
             self.indexes.setdefault(table, [])
             if name not in self.indexes[table]:
                 self.indexes[table].append(name)
+            if is_unique:
+                self.unique_indexes.setdefault(table, [])
+                if name not in self.unique_indexes[table]:
+                    self.unique_indexes[table].append(name)
             return
         # 建表（#1173）：把表登记进去，列名从 DDL 里逐行抽出来
         # （只取「列名 + 类型」形态的行，跳过 PRIMARY KEY / CONSTRAINT 之类的约束行）。

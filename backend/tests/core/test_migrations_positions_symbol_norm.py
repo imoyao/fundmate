@@ -6,7 +6,8 @@
 - 存量已有「同账户同归一身份」重复行时**显式抛错并给出修复命令**（不静默跳过、不自动合并）；
 - 跨账户同码（同一基金在多个账户各持一份）是正常业务，**不得**被误判为重复；
 - 幂等：重复执行不报错、不重复加列 / 建索引；
-- 空库（表不存在）与非 SQLite 引擎安全 skip。
+- 空库（表不存在）安全 skip；
+- **PG（生产 user 域）不再早退**，且发出的 SQL 是 PG 能吃的形态（#2689）。
 
 回填值的构造口径见 `app/core/symbol_utils.py::symbol_identity`，判据与
 `scripts/audit_symbol_venue_conformance.py` 共用 `app/core/venues.py::venue_of_row`。
@@ -18,6 +19,8 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 
 from app.core.migrations import migrate_positions_symbol_norm
+
+from .migrations_pg_fake import PgFake
 
 INDEX_NAME = 'uq_positions_ledger_symbol_norm'
 
@@ -187,13 +190,45 @@ def test_missing_table_skipped(tmp_path):
     assert migrate_positions_symbol_norm(engine).startswith('[SKIP]')
 
 
-class _FakeEngine:
-    """只需 url 属性的假引擎：非 SQLite 分支在读 url 后即返回，不会真正连库。"""
+# ── PG 分支（#2689）─────────────────────────────────────────────────────────
+#
+# 生产 user 域是 Supabase Postgres，本机没有 PG 可连：用 `PgFake` 钉住两件事——
+# 「不再早退」与「SQL 是 PG 能吃的形态」（本地全绿、生产炸的同族事故就是这么来的）。
+#
+# 旧的 `test_non_sqlite_skipped`（只给 url 的假引擎断言 `[SKIP] 非 SQLite`）已删除：
+# 那是在钉 bug 本身（#2469 / #2532 两次生产停摆的根因形态）。
 
-    def __init__(self, url: str):
-        self.url = url
+
+def test_pg_branch_adds_column_and_unique_index(monkeypatch):
+    fake = PgFake({'positions': ['id', 'symbol', 'type', 'ledger_id']})
+    fake.install(monkeypatch)
+
+    result = migrate_positions_symbol_norm(fake.engine)
+
+    assert result.startswith('[OK]'), result
+    assert 'symbol_norm' in fake.columns['positions']
+    assert INDEX_NAME in fake.indexes.get('positions', [])
+    assert INDEX_NAME in fake.unique_indexes.get('positions', [])
+
+    # 加列必须带 IF NOT EXISTS（PG 语法；SQLite 不支持，故走 inspect 判存在）
+    assert any('ADD COLUMN IF NOT EXISTS symbol_norm' in s for s in fake.sql), fake.sql
+
+    joined = '\n'.join(fake.sql)
+    assert 'GROUP_CONCAT' not in joined, joined
+    dup_sql = [s for s in fake.sql if 'GROUP BY' in s]
+    assert dup_sql, fake.sql
+    # 聚合换 STRING_AGG（PG 无 GROUP_CONCAT）；HAVING 只写聚合表达式（PG 不允许别名）
+    assert 'STRING_AGG(symbol' in dup_sql[0], dup_sql[0]
+    assert 'HAVING COUNT(*) > 1' in dup_sql[0], dup_sql[0]
 
 
-def test_non_sqlite_skipped():
-    assert migrate_positions_symbol_norm(_FakeEngine('postgresql://u:p@host/db')).startswith('[SKIP]')
-    assert migrate_positions_symbol_norm(_FakeEngine('mysql+pymysql://u:p@host/db')).startswith('[SKIP]')
+def test_pg_idempotent(monkeypatch):
+    """第二次跑不得重复加列（INSERT 侧不会因 IF NOT EXISTS 报错，但重复 ALTER 会白跑 DDL）。"""
+    fake = PgFake({'positions': ['id', 'symbol', 'type', 'ledger_id', 'symbol_norm']})
+    fake.indexes['positions'] = [INDEX_NAME]
+    fake.unique_indexes['positions'] = [INDEX_NAME]
+    fake.install(monkeypatch)
+
+    assert migrate_positions_symbol_norm(fake.engine).startswith('[SKIP]')
+    assert not any('ALTER TABLE' in s for s in fake.sql), fake.sql
+    assert fake.indexes['positions'].count(INDEX_NAME) == 1
