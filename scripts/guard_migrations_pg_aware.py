@@ -63,15 +63,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_REL = 'backend/app/core/migrations.py'
 
 #: 仍允许「非 SQLite 就跳过」的函数（2026-10-23，#2534 首批收敛 18 个后冻结）。
-#: 这四个的 SQLite 路径是**整表重建 / SQLite 专属 SQL**，PG 分支需另写，不能
+#: 这三个的 SQLite 路径是**整表重建 / SQLite 专属 SQL**，PG 分支需另写，不能
 #: 机械转换；收敛一个就从这里删一个（守卫第 2 条会拦「已无早退但条目还在」）。
 #: 删条目必须与「删早退」同一个 PR——分开就会有一段「代码已修、基线还挂着」的
 #: 窗口，那时任何新早退都能拿旧条目当掩护。
+#:
+#: `migrate_positions_symbol_norm` 已收敛（#2689）：PG 侧只差三处方言——加列走
+#: `_add_column_sql`、聚合 `STRING_AGG`、`HAVING` 只写聚合表达式——两侧都有测试
+#: （SQLite 真库 / `migrations_pg_fake.PgFake`），故条目已删。
 BASELINE_SKIP_FUNCTIONS = frozenset(
     {
         'migrate_watchlist_unique_key',
         'migrate_watchlist_family_scoped_unique_key',
-        'migrate_positions_symbol_norm',
         'migrate_fund_managers_split_tenures',
     }
 )
