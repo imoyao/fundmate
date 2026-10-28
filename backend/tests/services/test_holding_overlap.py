@@ -29,7 +29,13 @@ from datetime import date
 import pytest
 
 from app.domains.funds.models import FundHolding
-from app.services.holding_overlap import _classify_overlap, _empty_result, portfolio_holding_overlap
+from app.services.holding_overlap import (
+    MIN_OVERLAP_AMOUNT_CENTS,
+    _apply_amount_gate,
+    _classify_overlap,
+    _empty_result,
+    portfolio_holding_overlap,
+)
 
 REPORT_DATE = date(2026, 6, 30)
 
@@ -454,9 +460,12 @@ def test_同指数不同公司不被误判成份额重复(db, make_position):
 
     参照实测：017513 广发北证50 / 023887 永赢北证50 集合完全相同、占比只差 0.07。
     若用「``jaccard == 1`` 即为同份额」当判据，就会把这种**真重复**藏起来。
+
+    仓位刻意给到各 ¥5,000：金额闸门（¥1,000）之下，这一对本来该被降级成 ``trivial``，
+    就测不到「比例定级是否正确」了。闸门与定级是两层，这里测的是定级那一层。
     """
-    make_position(symbol='017513', asset_type='fund', name='广发北证50C', quantity=1000, current_price=1.0)
-    make_position(symbol='023887', asset_type='fund', name='永赢北证50C', quantity=1000, current_price=1.0)
+    make_position(symbol='017513', asset_type='fund', name='广发北证50C', quantity=5000, current_price=1.0)
+    make_position(symbol='023887', asset_type='fund', name='永赢北证50C', quantity=5000, current_price=1.0)
     _holding(db, '017513', '600519', '贵州茅台', 15.0)
     _holding(db, '017513', '000858', '五粮液', 12.0)
     _holding(db, '023887', '600519', '贵州茅台', 14.93)  # 与 15.0 只差 0.07
@@ -470,6 +479,8 @@ def test_同指数不同公司不被误判成份额重复(db, make_position):
     assert pair['overlap_level'] != 'same-series'
     # 同一指数的两只基金确实是重复配置，必须判出来（weighted = 14.93 + 12 = 26.93）
     assert pair['overlap_level'] == 'duplicate'
+    # 重复金额 = 5000×14.93% + 5000×12% = 746.5 + 600 = ¥1,346.5
+    assert pair['overlap_amount_cents'] == 134650
     assert result['duplicate_count'] == 1
 
 
@@ -500,4 +511,167 @@ def test_空结果的骨架也带口径声明():
 
     assert result['caveats']
     assert result['duplicate_count'] == 0
+    assert result['trivial_count'] == 0
+    # 提示线下发在出参里，前端不必自己再写一个数（两处各写一份迟早不一致）
+    assert result['min_overlap_amount_cents'] == MIN_OVERLAP_AMOUNT_CENTS
     assert result['pairs'] == []
+
+
+# ── 13. 仓位闸门：几块钱的观察仓不该报重复（#866 追加）──────────────────────
+
+
+@pytest.mark.parametrize(
+    ('level', 'amount_cents', 'expected'),
+    [
+        ('duplicate', MIN_OVERLAP_AMOUNT_CENTS, 'duplicate'),  # 正好踩线：判据是 >=
+        ('duplicate', MIN_OVERLAP_AMOUNT_CENTS - 1, 'trivial'),  # 差 1 分就不过闸
+        ('watch', 0, 'trivial'),
+        ('low', 0, 'trivial'),
+        ('same-series', 0, 'same-series'),  # 份额重复是定性事实，与金额无关
+    ],
+)
+def test_金额闸门只降级不升级(level, amount_cents, expected):
+    """闸门只把「比例达标但金额不足」的对降成 ``trivial``，绝不把低比例抬上去。
+
+    边界必须踩准：``MIN_OVERLAP_AMOUNT_CENTS - 1`` 分就得降级——否则「多少钱才算」
+    这件事会变成「差一点也行」，门槛等于没有。
+    """
+    got, _reason = _apply_amount_gate(level, '原理由', 25.0, amount_cents)
+
+    assert got == expected
+
+
+def test_金额不足时理由保留比例信息():
+    """降级不等于「没重叠」：理由里必须说清「比例多高、只是钱太少」。
+
+    只说「金额不足」会让用户以为系统没算出重叠；把 86.5% 摆出来，他才知道
+    「确实重叠，只是我在这只基金上只放了 5 毛钱」。
+    """
+    level, reason = _apply_amount_gate('duplicate', '共同重仓 3 只、86.5% 仓位重叠', 86.5, 46)
+
+    assert level == 'trivial'
+    assert '86.5%' in reason
+    assert '0' in reason  # ¥0（46 分四舍五入到元）
+    assert '提示线' in reason
+
+
+def test_重复金额取两侧较小敞口(db, make_position):
+    """重复金额 = Σ min(市值A×占比A, 市值B×占比B)，**取小**，不是求和。
+
+    一只投 ¥100、一只投 ¥10,000，同一只股票各占 20%：真实重复的是那 ¥20，
+    不是 ¥2,000。这条是「观察仓不该报」的数学基础——不取小就永远截不住。
+
+    两只基金的占比刻意错开 2 个百分点（20.0 vs 18.0）：占比若逐行全等，会被
+    ``_is_identical_holdings`` 正确定性成 ``same-series``（口径 8），那测的是同份额
+    判据，不是金额口径。
+    """
+    make_position(symbol='000001', asset_type='fund', name='观察仓', quantity=100, current_price=1.0)
+    make_position(symbol='000002', asset_type='fund', name='重仓', quantity=10000, current_price=1.0)
+    for fund_code, ratio in (('000001', 20.0), ('000002', 18.0)):
+        _holding(db, fund_code, '600519', '贵州茅台', ratio)
+        _holding(db, fund_code, '000858', '五粮液', ratio)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    pair = _find_pair(result['pairs'], '000001', '000002')
+    assert pair is not None
+    # min(100元×20%, 10000元×18%) × 2 只 = 20 + 20 = ¥40 = 4000 分
+    # 若误用「求和」会是 (20+1800)+(20+1800)=3640 元，相差 91 倍——取小才挡得住观察仓
+    assert pair['overlap_amount_cents'] == 4000
+    # 比例照样达标（weighted = min(20,18)×2 = 36、jaccard 1），但金额只有 ¥40 ⇒ 不提示
+    assert pair['weighted_overlap'] == pytest.approx(36.0)
+    assert pair['overlap_level'] == 'trivial'
+    assert result['duplicate_count'] == 0
+    assert result['trivial_count'] == 1
+
+
+def test_几块钱的观察仓不报配置重复(db, make_position):
+    """真实场景：广发北证50 投 ¥12.57、永赢北证50 投 ¥22,450，持仓几乎一模一样。
+
+    比例上判 duplicate（weighted 26.93、jaccard 1.0），但重复的只有 ¥3 上下——
+    这正是用户说的「小实验仓位，重复也没什么意义」。
+    """
+    make_position(symbol='017513', asset_type='fund', name='广发北证50C', quantity=1257, current_price=0.01)
+    make_position(symbol='023887', asset_type='fund', name='永赢北证50C', quantity=2245, current_price=10.0)
+    _holding(db, '017513', '600519', '贵州茅台', 15.0)
+    _holding(db, '017513', '000858', '五粮液', 12.0)
+    _holding(db, '023887', '600519', '贵州茅台', 14.93)
+    _holding(db, '023887', '000858', '五粮液', 12.0)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    pair = _find_pair(result['pairs'], '017513', '023887')
+    assert pair is not None
+    assert pair['overlap_level'] == 'trivial'
+    assert '26.9%' in pair['overlap_reason']  # 比例照样摆出来，只是不提示
+    assert result['duplicate_count'] == 0
+    assert result['trivial_count'] == 1
+
+
+def test_大仓位重复照常提示(db, make_position):
+    """两只各投 ¥20,000、持仓高度重合 ⇒ 必须照常报 duplicate。
+
+    这是闸门存在的意义：不是把提示关掉，是把「不值得管的」滤掉之后，
+    让「值得管的」浮上来。
+    """
+    make_position(symbol='000001', asset_type='fund', name='基金甲', quantity=20000, current_price=1.0)
+    make_position(symbol='000002', asset_type='fund', name='基金乙', quantity=20000, current_price=1.0)
+    _holding(db, '000001', '600519', '贵州茅台', 15.0)
+    _holding(db, '000001', '000858', '五粮液', 12.0)
+    _holding(db, '000002', '600519', '贵州茅台', 14.93)
+    _holding(db, '000002', '000858', '五粮液', 12.0)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    pair = _find_pair(result['pairs'], '000001', '000002')
+    assert pair is not None
+    assert pair['overlap_level'] == 'duplicate'
+    # 20000×14.93% + 20000×12% = 2986 + 2400 = ¥5,386
+    assert pair['overlap_amount_cents'] == 538600
+    assert result['duplicate_count'] == 1
+    assert result['trivial_count'] == 0
+
+
+# ── 14. 排序：大仓位重复必须在第一屏 ──────────────────────────────────────
+
+
+def test_排序按档位优先再按金额降序(db, make_position):
+    """``pairs`` 首位必须是「档位最高 + 金额最大」的那对，不能是观察仓。
+
+    旧排序只看 ``weighted_overlap``：一对投了几毛钱、比例 90% 的观察仓会排第 1，
+    用户第一眼看到的就是噪音。档位优先、档内金额降序，才对得上「提醒该提醒的」。
+    """
+    # 大仓位重复：两只各 ¥20,000，持仓高度重合（占比错开 0.07，避免被判成同份额）
+    for code, name, ratio in (
+        ('000001', '大甲', 15.0),
+        ('000002', '大乙', 14.93),
+    ):
+        make_position(symbol=code, asset_type='fund', name=name, quantity=20000, current_price=1.0)
+        _holding(db, code, '600519', '贵州茅台', ratio)
+        _holding(db, code, '000858', '五粮液', 12.0)
+    # 小仓位观察仓：两只各 ¥5，比例与大仓位那对一样高（weighted 26.93），金额却只有 ¥1.3
+    for code, name, ratio in (
+        ('000003', '小甲', 15.0),
+        ('000004', '小乙', 14.93),
+    ):
+        make_position(symbol=code, asset_type='fund', name=name, quantity=100, current_price=0.05)
+        _holding(db, code, '300750', '宁德时代', ratio)
+        _holding(db, code, '002594', '比亚迪', 12.0)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    levels = [pair['overlap_level'] for pair in result['pairs']]
+    assert 'duplicate' in levels and 'trivial' in levels
+    assert result['duplicate_count'] == 1
+    assert result['trivial_count'] == 1
+    # 档位优先：第一个 trivial 之后不许再出现 duplicate
+    first_trivial = levels.index('trivial')
+    assert 'duplicate' not in levels[first_trivial:]
+    # 首位是那对大仓位，不是比例同样高但只投了 ¥5 的观察仓
+    head = result['pairs'][0]
+    assert {head['fund_code_a'], head['fund_code_b']} == {'000001', '000002'}
+    assert head['overlap_amount_cents'] == 538600

@@ -33,14 +33,15 @@
       </p>
 
       <template v-else>
-        <!-- 配置重复的汇总：只数真重复，份额重复单独说，否则这个数字会说谎 -->
+        <!-- 配置重复的汇总：只数真重复，份额重复与「金额不足未提示」各自单独说，
+             否则这个数字会说谎——用户会去找那 N 对，却发现一部分根本不用管 -->
         <p v-if="duplicateSummary" class="overlap-panel__summary" role="status">
           {{ duplicateSummary }}
         </p>
 
         <ul class="overlap-panel__list">
           <li
-            v-for="pair in data?.pairs ?? []"
+            v-for="pair in visiblePairs"
             :key="`${pair.fund_code_a}-${pair.fund_code_b}`"
             class="overlap-panel__pair"
           >
@@ -71,7 +72,8 @@
               </span>
             </p>
             <p class="overlap-panel__meta">
-              集合口径 {{ formatJaccard(pair.jaccard) }} ·
+              集合口径 {{ formatJaccard(pair.jaccard) }} · 重复投入
+              {{ formatAmountCents(pair.overlap_amount_cents) }} ·
               {{ describeBasis(pair.holding_basis) }}
             </p>
             <p v-if="describePeriodMismatch(pair)" class="overlap-panel__warn">
@@ -101,6 +103,15 @@
           </li>
         </ul>
 
+        <!-- 折叠：真实组合能配出 1800+ 对，绝大多数是观察仓之间的几毛钱重叠。
+             全渲染既拖页面，也让真正的重复淹在噪音里（实测金额中位数 ¥0.68） -->
+        <p v-if="foldedCount > 0" class="overlap-panel__meta">
+          {{ foldHint }}
+          <el-button text size="small" @click="showAll = !showAll">
+            {{ showAll ? "只看要点" : "展开折叠项" }}
+          </el-button>
+        </p>
+
         <p class="overlap-panel__meta">{{ coverageText }}</p>
         <p v-if="skippedText" class="overlap-panel__warn">{{ skippedText }}</p>
 
@@ -126,12 +137,16 @@ import {
   describeCaveats,
   describeCoverage,
   describeDuplicateSummary,
+  describeFoldHint,
   describeOverlapLevel,
   describePeriodMismatch,
   describeSkipped,
+  formatAmountCents,
   formatJaccard,
   formatWeightedOverlap,
-  resolveOverlapPanelState
+  pageFoldedPairs,
+  resolveOverlapPanelState,
+  splitOverlapPairs
 } from "./holdingOverlapModel";
 
 defineOptions({ name: "HoldingOverlapPanel" });
@@ -139,6 +154,8 @@ defineOptions({ name: "HoldingOverlapPanel" });
 const data = ref<HoldingOverlapData | null>(null);
 const loading = ref(false);
 const error = ref(false);
+/** 默认只显示要点；1800+ 对的完整列表按需展开 */
+const showAll = ref(false);
 
 /** 四态：取不到 / 算不出 / 确实不重叠 / 有重叠 */
 const state = computed(() => resolveOverlapPanelState(data.value));
@@ -147,6 +164,28 @@ const coverageText = computed(() => describeCoverage(data.value));
 const skippedText = computed(() => describeSkipped(data.value));
 const duplicateSummary = computed(() => describeDuplicateSummary(data.value));
 const caveatList = computed(() => describeCaveats(data.value));
+const pairSplit = computed(() => splitOverlapPairs(data.value));
+/** 折叠区展开后的首页（最多 50 对）：1834 对全渲染会卡住标签页 */
+const foldedPage = computed(() => pageFoldedPairs(pairSplit.value.folded));
+const visiblePairs = computed(() =>
+  showAll.value
+    ? [...pairSplit.value.highlighted, ...foldedPage.value.visible]
+    : pairSplit.value.highlighted
+);
+const foldedCount = computed(() => pairSplit.value.foldedCount);
+/** 提示线文案（后端下发，不在前端另写一个数） */
+const gateText = computed(() =>
+  formatAmountCents(data.value?.min_overlap_amount_cents)
+);
+const foldHint = computed(() =>
+  describeFoldHint({
+    expanded: showAll.value,
+    foldedCount: foldedCount.value,
+    visibleCount: foldedPage.value.visible.length,
+    hiddenCount: foldedPage.value.hiddenCount,
+    gateText: gateText.value
+  })
+);
 
 const load = async () => {
   loading.value = true;
