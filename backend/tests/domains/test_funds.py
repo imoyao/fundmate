@@ -886,7 +886,7 @@ def test_重叠度端点契约(client, db, make_position):
         'coverage_pct',
         'uncovered',
         'duplicate_count',
-        'trivial_count',
+        'weak_count',
         'min_overlap_amount_cents',
         'caveats',
         'degraded',
@@ -909,7 +909,7 @@ def test_重叠度端点契约(client, db, make_position):
     assert pair['overlap_level'] == 'duplicate'
     assert '重仓股' in pair['overlap_reason']
     assert data['duplicate_count'] == 1
-    assert data['trivial_count'] == 0
+    assert data['weak_count'] == 0
     # 口径声明随接口下发（前端与结论同屏展示），不能在视图层被裁掉
     assert data['caveats']
 

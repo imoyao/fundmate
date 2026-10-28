@@ -41,15 +41,15 @@ export interface OverlapPair {
    * 重叠定性（后端按双口径阈值 + 金额闸门判定，前端**不**二次推导）：
    * - `duplicate` 配置重复（weighted≥20 或 jaccard≥0.5，且金额过提示线）；
    * - `watch` 需留意（weighted≥10 或 jaccard≥0.3，且金额过提示线）；
-   * - `low` 比例未达提示线；
-   * - `trivial` 比例可能很高，但重复投入金额低于提示线（观察仓，**不提示**）；
+   * - `low` 比例未达提示线（进弱提醒区）；
+   * - `trivial` 比例可能很高，但重复投入金额低于分档线（观察仓，进弱提醒区）；
    * - `same-series` 同一只基金的不同份额（如 A/C 类），属份额重复、**不计入**
    *   `duplicate_count`。
    */
   overlap_level: "duplicate" | "watch" | "low" | "same-series" | "trivial";
   /**
    * 触发原因的说明（如「共同重仓 15 只、86.5% 仓位重叠」）；
-   * `low` 为空串，`trivial` 说明为什么没提示（如「重叠 94.8% 但重复投入约 ¥12」）。
+   * `low` 为空串（前端补一句兜底），`trivial` 说明为什么降档（如「重叠 94.8% 但重复投入约 ¥12」）。
    */
   overlap_reason: string;
   common_holdings: OverlapCommonHolding[];
@@ -74,11 +74,11 @@ export interface HoldingOverlapData {
   /** 有持仓明细的基金市值 / 全部持仓市值 * 100 */
   coverage_pct: number;
   uncovered: OverlapUncovered[];
-  /** 判为「配置重复」的基金对数（不含 `same-series`，也不含金额不足未提示的） */
+  /** 判为「配置重复」的基金对数（不含 `same-series`，也不含弱提醒档） */
   duplicate_count: number;
-  /** 被金额闸门挡下的对数：比例可能很高，但重复的只是几毛钱（观察仓） */
-  trivial_count: number;
-  /** 金额提示线（分），文案里的「不足 ¥X 未提示」用它，前端不另写一个数 */
+  /** 弱提醒条数（`low` + `trivial`）：比例未达强提醒线，或重复金额不足分档线 */
+  weak_count: number;
+  /** 金额分档线（分），弱提醒区文案里的「不足 ¥X」用它，前端不另写一个数 */
   min_overlap_amount_cents: number;
   /**
    * 口径声明（后端下发，前端原样展示）：持仓快照滞后、高换手基金失真、

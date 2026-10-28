@@ -33,16 +33,35 @@
       </p>
 
       <template v-else>
-        <!-- 配置重复的汇总：只数真重复，份额重复与「金额不足未提示」各自单独说，
-             否则这个数字会说谎——用户会去找那 N 对，却发现一部分根本不用管 -->
-        <p v-if="duplicateSummary" class="overlap-panel__summary" role="status">
-          {{ duplicateSummary }}
-        </p>
+        <!-- 汇总用分档计数而不是一句话：四个数字并排，一眼能分出「要处理的 10 对」
+             和「可以先不管的 1817 对」；一句话在窄屏会折成三行，像免责声明 -->
+        <div
+          v-if="tallyChips.length"
+          class="overlap-panel__tally-bar"
+          role="status"
+          aria-label="重叠度分档汇总"
+        >
+          <ul class="overlap-panel__tally">
+            <li
+              v-for="chip in tallyChips"
+              :key="chip.key"
+              class="overlap-panel__tally-item"
+            >
+              <span
+                class="overlap-panel__tally-count"
+                :class="`is-${chip.tone}`"
+              >
+                {{ chip.count }}
+              </span>
+              <span class="overlap-panel__tally-label">{{ chip.label }}</span>
+            </li>
+          </ul>
+        </div>
 
         <ul class="overlap-panel__list">
           <li
-            v-for="pair in visiblePairs"
-            :key="`${pair.fund_code_a}-${pair.fund_code_b}`"
+            v-for="pair in primaryPairs"
+            :key="pairKey(pair)"
             class="overlap-panel__pair"
           >
             <div class="overlap-panel__head">
@@ -59,8 +78,17 @@
               v-if="describeOverlapLevel(pair) || pair.overlap_reason"
               class="overlap-panel__verdict"
             >
+              <!-- 中性档（同一基金份额）用描边徽标而不是 el-tag：EP 的 info 标签
+                   文字 #909399 在浅底上只有 2.8:1，过不了 AA；而彩色档位继续用
+                   el-tag——「要处置的」有颜色、「只是说明的」只有描边，层级正好 -->
+              <span
+                v-if="describeOverlapLevel(pair)?.tone === 'info'"
+                class="overlap-panel__neutral-badge"
+              >
+                {{ describeOverlapLevel(pair)?.label }}
+              </span>
               <el-tag
-                v-if="describeOverlapLevel(pair)"
+                v-else-if="describeOverlapLevel(pair)"
                 :type="describeOverlapLevel(pair)?.tone"
                 size="small"
                 effect="light"
@@ -103,14 +131,119 @@
           </li>
         </ul>
 
-        <!-- 折叠：真实组合能配出 1800+ 对，绝大多数是观察仓之间的几毛钱重叠。
-             全渲染既拖页面，也让真正的重复淹在噪音里（实测金额中位数 ¥0.68） -->
-        <p v-if="foldedCount > 0" class="overlap-panel__meta">
-          {{ foldHint }}
-          <el-button text size="small" @click="showAll = !showAll">
-            {{ showAll ? "只看要点" : "展开折叠项" }}
-          </el-button>
-        </p>
+        <!-- 弱提醒：小仓位不是「不提醒」，是「不占第一屏」。默认折叠、标题带条数，
+             展开后可按基金筛选、逐对看共同重仓股——用户想核对时随时能看到，
+             不想看时也不会被 1817 条噪音淹掉（实测金额中位数 ¥0.68） -->
+        <el-collapse
+          v-if="weakPairs.length"
+          v-model="weakOpen"
+          class="overlap-panel__weak"
+        >
+          <el-collapse-item name="weak">
+            <template #title>
+              <span class="overlap-panel__weak-head">
+                <span class="overlap-panel__weak-title">
+                  弱提醒 · {{ weakPairs.length }} 对
+                </span>
+                <span class="overlap-panel__weak-note"
+                  >金额小或重合度不高，默认折叠</span
+                >
+              </span>
+            </template>
+
+            <p class="overlap-panel__weak-hint">{{ weakHint }}</p>
+
+            <div class="overlap-panel__weak-tools">
+              <el-input
+                v-model="weakKeyword"
+                class="overlap-panel__weak-search"
+                size="small"
+                clearable
+                placeholder="按基金代码或名称筛选"
+                aria-label="筛选弱提醒中的基金"
+              />
+              <span v-if="weakKeyword" class="overlap-panel__meta">
+                筛出 {{ filteredWeak.length }} 对
+              </span>
+            </div>
+
+            <p v-if="!filteredWeak.length" class="overlap-panel__meta">
+              没有匹配「{{ weakKeyword }}」的基金对
+            </p>
+
+            <ul v-else class="overlap-panel__list">
+              <li
+                v-for="pair in weakPage.visible"
+                :key="pairKey(pair)"
+                class="overlap-panel__pair overlap-panel__pair--weak"
+              >
+                <div class="overlap-panel__head">
+                  <span class="overlap-panel__funds overlap-panel__funds--weak">
+                    {{ pair.fund_name_a }}
+                    <span class="overlap-panel__vs">↔</span>
+                    {{ pair.fund_name_b }}
+                  </span>
+                  <span class="overlap-panel__value overlap-panel__value--weak">
+                    {{ formatWeightedOverlap(pair.weighted_overlap) }}
+                  </span>
+                </div>
+                <p class="overlap-panel__verdict">
+                  <span class="overlap-panel__weak-badge">弱提醒</span>
+                  <span class="overlap-panel__reason">
+                    {{ describeWeakReason(pair) }}
+                  </span>
+                </p>
+                <p class="overlap-panel__meta">
+                  集合口径 {{ formatJaccard(pair.jaccard) }} · 重复投入
+                  {{ formatAmountCents(pair.overlap_amount_cents) }} ·
+                  {{ describeBasis(pair.holding_basis) }}
+                  <el-button
+                    text
+                    size="small"
+                    class="overlap-panel__detail-toggle"
+                    :aria-expanded="isWeakOpen(pair)"
+                    @click="toggleWeakDetail(pair)"
+                  >
+                    {{ isWeakOpen(pair) ? "收起明细" : "查看明细" }}
+                  </el-button>
+                </p>
+                <template v-if="isWeakOpen(pair)">
+                  <p
+                    v-if="describePeriodMismatch(pair)"
+                    class="overlap-panel__warn"
+                  >
+                    {{ describePeriodMismatch(pair) }}
+                  </p>
+                  <ul class="overlap-panel__stocks">
+                    <li
+                      v-for="stock in pair.common_holdings"
+                      :key="stock.stock_code"
+                      class="overlap-panel__stock"
+                    >
+                      <span class="overlap-panel__stock-name">{{
+                        stock.stock_name
+                      }}</span>
+                      <span class="overlap-panel__stock-ratio">
+                        {{ stock.ratio_a.toFixed(1) }}% /
+                        {{ stock.ratio_b.toFixed(1) }}%
+                      </span>
+                    </li>
+                  </ul>
+                </template>
+              </li>
+            </ul>
+
+            <div v-if="weakPage.hasMore" class="overlap-panel__more">
+              <el-button size="small" @click="loadMoreWeak">
+                再显示 {{ nextWeakBatch }} 对（还有
+                {{ weakPage.remaining }} 对）
+              </el-button>
+            </div>
+            <p v-else-if="filteredWeak.length" class="overlap-panel__meta">
+              已显示全部 {{ filteredWeak.length }} 对
+            </p>
+          </el-collapse-item>
+        </el-collapse>
 
         <p class="overlap-panel__meta">{{ coverageText }}</p>
         <p v-if="skippedText" class="overlap-panel__warn">{{ skippedText }}</p>
@@ -125,7 +258,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   getHoldingOverlap,
   type HoldingOverlapData
@@ -136,56 +269,84 @@ import {
   describeBasis,
   describeCaveats,
   describeCoverage,
-  describeDuplicateSummary,
-  describeFoldHint,
   describeOverlapLevel,
+  describeOverlapTally,
   describePeriodMismatch,
   describeSkipped,
+  describeWeakHint,
+  describeWeakReason,
+  filterWeakPairs,
   formatAmountCents,
   formatJaccard,
   formatWeightedOverlap,
-  pageFoldedPairs,
   resolveOverlapPanelState,
-  splitOverlapPairs
+  sliceWeakPairs,
+  splitOverlapPairs,
+  WEAK_PAGE_SIZE
 } from "./holdingOverlapModel";
+import type { OverlapPair } from "./holdingOverlapModel";
 
 defineOptions({ name: "HoldingOverlapPanel" });
 
 const data = ref<HoldingOverlapData | null>(null);
 const loading = ref(false);
 const error = ref(false);
-/** 默认只显示要点；1800+ 对的完整列表按需展开 */
-const showAll = ref(false);
+
+/** 弱提醒区：默认折叠（空数组 = 收起）；用户展开过就记住 */
+const weakOpen = ref<string[]>([]);
+/** 弱提醒筛选关键词（1817 对里找一个特定基金，靠滚动不现实） */
+const weakKeyword = ref("");
+/** 已加载的弱提醒条数（分页而非一次渲染 1817 条） */
+const weakLoaded = ref(WEAK_PAGE_SIZE);
+/** 逐对展开「查看明细」的 key 集合 */
+const openWeakDetails = ref<string[]>([]);
 
 /** 四态：取不到 / 算不出 / 确实不重叠 / 有重叠 */
 const state = computed(() => resolveOverlapPanelState(data.value));
 const fundCount = computed(() => data.value?.fund_count ?? 0);
 const coverageText = computed(() => describeCoverage(data.value));
 const skippedText = computed(() => describeSkipped(data.value));
-const duplicateSummary = computed(() => describeDuplicateSummary(data.value));
 const caveatList = computed(() => describeCaveats(data.value));
+const tallyChips = computed(() => describeOverlapTally(data.value));
+
 const pairSplit = computed(() => splitOverlapPairs(data.value));
-/** 折叠区展开后的首页（最多 50 对）：1834 对全渲染会卡住标签页 */
-const foldedPage = computed(() => pageFoldedPairs(pairSplit.value.folded));
-const visiblePairs = computed(() =>
-  showAll.value
-    ? [...pairSplit.value.highlighted, ...foldedPage.value.visible]
-    : pairSplit.value.highlighted
-);
-const foldedCount = computed(() => pairSplit.value.foldedCount);
-/** 提示线文案（后端下发，不在前端另写一个数） */
+const primaryPairs = computed(() => pairSplit.value.primary);
+const weakPairs = computed(() => pairSplit.value.weak);
+
+/** 分档线文案（后端下发，不在前端另写一个数） */
 const gateText = computed(() =>
   formatAmountCents(data.value?.min_overlap_amount_cents)
 );
-const foldHint = computed(() =>
-  describeFoldHint({
-    expanded: showAll.value,
-    foldedCount: foldedCount.value,
-    visibleCount: foldedPage.value.visible.length,
-    hiddenCount: foldedPage.value.hiddenCount,
-    gateText: gateText.value
-  })
+const weakHint = computed(() => describeWeakHint(gateText.value));
+
+const filteredWeak = computed(() =>
+  filterWeakPairs(weakPairs.value, weakKeyword.value)
 );
+const weakPage = computed(() =>
+  sliceWeakPairs(filteredWeak.value, weakLoaded.value)
+);
+const nextWeakBatch = computed(() =>
+  Math.min(WEAK_PAGE_SIZE, weakPage.value.remaining)
+);
+
+/** 换了关键词就回到第一页，否则「筛出 3 对」却还挂着上次翻到的 150 条 */
+watch(weakKeyword, () => {
+  weakLoaded.value = WEAK_PAGE_SIZE;
+});
+
+const pairKey = (pair: OverlapPair) =>
+  `${pair.fund_code_a}-${pair.fund_code_b}`;
+const isWeakOpen = (pair: OverlapPair) =>
+  openWeakDetails.value.includes(pairKey(pair));
+const toggleWeakDetail = (pair: OverlapPair) => {
+  const key = pairKey(pair);
+  openWeakDetails.value = isWeakOpen(pair)
+    ? openWeakDetails.value.filter(item => item !== key)
+    : [...openWeakDetails.value, key];
+};
+const loadMoreWeak = () => {
+  weakLoaded.value += WEAK_PAGE_SIZE;
+};
 
 const load = async () => {
   loading.value = true;
@@ -193,6 +354,11 @@ const load = async () => {
   try {
     const res = await getHoldingOverlap();
     data.value = res.data;
+    // 换一批数据就重置展开/筛选状态：否则旧 key 会残留在新列表里
+    weakOpen.value = [];
+    weakKeyword.value = "";
+    weakLoaded.value = WEAK_PAGE_SIZE;
+    openWeakDetails.value = [];
   } catch (e) {
     console.error("[holding-overlap] 重叠度数据加载失败", e);
     error.value = true;
@@ -210,7 +376,7 @@ onMounted(load);
     padding: 12px 0;
     margin: 0;
     font-size: var(--text-small);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__error {
@@ -234,13 +400,55 @@ onMounted(load);
     list-style: none;
   }
 
-  &__summary {
-    padding: 8px 12px;
-    margin: 0 0 var(--space-standard);
-    font-size: var(--text-small);
-    color: var(--text-primary);
-    background: var(--bg-muted);
+  /* 分档计数：四个数字并排，比一句话更快分辨「要处理的」与「可不管的」 */
+  &__tally {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  &__tally-bar {
+    margin-bottom: var(--space-standard);
+  }
+
+  &__tally-item {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 4px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-button);
+  }
+
+  &__tally-count {
+    font-size: var(--text-body);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+
+    &.is-danger {
+      color: var(--color-danger-ink);
+    }
+
+    &.is-warning {
+      color: var(--color-warning-ink);
+    }
+
+    &.is-info {
+      color: var(--color-info-ink);
+    }
+
+    &.is-muted {
+      color: var(--text-secondary);
+    }
+  }
+
+  &__tally-label {
+    font-size: var(--text-small);
+    color: var(--text-secondary);
   }
 
   &__verdict {
@@ -261,12 +469,15 @@ onMounted(load);
     margin: var(--space-standard) 0 0;
     font-size: var(--text-small);
     line-height: 1.6;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
+  /* 白底 + 描边而不是灰底：灰底上 --color-danger 只有 4.42:1，
+     刚好卡在 AA 线下方（#d4364a on #f5f7fa）；白底 4.74 才过 */
   &__pair {
     padding: var(--space-standard);
-    background: var(--bg-muted);
+    background: var(--bg-card);
+    border: 1px solid var(--divider-default);
     border-radius: var(--radius-button);
   }
 
@@ -284,26 +495,29 @@ onMounted(load);
 
   &__vs {
     margin: 0 4px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
+  /* 文字级用 --color-danger-ink：暗底上 --color-danger 只有 3.36:1（axe 实测），
+     -ink 是给文字用的那一档（亮 4.74 / 暗 4.9） */
   &__value {
     font-size: var(--text-body);
     font-variant-numeric: tabular-nums;
-    color: var(--color-danger);
+    color: var(--color-danger-ink);
   }
 
   &__meta {
     margin: 4px 0 0;
     font-size: var(--text-small);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
+  /* 文字级用 --color-warning-ink（白底 5.71）；--color-warning-fill 是底色级（3.57） */
   &__warn {
     margin: 4px 0 0;
     font-size: var(--text-small);
     line-height: 1.55;
-    color: var(--color-warning-fill);
+    color: var(--color-warning-ink);
   }
 
   &__stocks {
@@ -325,7 +539,111 @@ onMounted(load);
   }
 
   &__stock--more {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
+  }
+
+  /* ── 弱提醒区 ─────────────────────────────────────────────── */
+  &__weak {
+    margin-top: var(--space-standard);
+    border-top: 1px solid var(--divider-default);
+    border-bottom: none;
+
+    :deep(.el-collapse-item__header) {
+      height: auto;
+      padding: 10px 0;
+      line-height: 1.5;
+      background: transparent;
+      border-bottom: none;
+    }
+
+    :deep(.el-collapse-item__wrap) {
+      background: transparent;
+      border-bottom: none;
+    }
+
+    :deep(.el-collapse-item__content) {
+      padding-bottom: 4px;
+    }
+  }
+
+  &__weak-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: baseline;
+  }
+
+  &__weak-title {
+    font-size: var(--text-body);
+    color: var(--text-secondary);
+  }
+
+  &__weak-note {
+    font-size: var(--text-small);
+    color: var(--text-tertiary-ink);
+  }
+
+  &__weak-hint {
+    margin: 0 0 8px;
+    font-size: var(--text-small);
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+
+  &__weak-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: var(--space-standard);
+  }
+
+  &__weak-search {
+    max-width: 260px;
+  }
+
+  /* 弱提醒条目压一档：去掉卡片底与描边，只用分隔线 + 次要文字色——
+     它已经在折叠区里，再套一层卡片就和「配置重复」一样重了 */
+  &__pair--weak {
+    padding: 10px 0;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--divider-default);
+    border-radius: 0;
+  }
+
+  &__funds--weak {
+    font-size: var(--text-small);
+    color: var(--text-secondary);
+  }
+
+  &__value--weak {
+    font-size: var(--text-small);
+    color: var(--text-secondary);
+  }
+
+  /* 中性档自绘徽标：EP 的 info 标签文字 #909399 在浅底上只有 2.8～3.1:1（axe 实测），
+     而它对 --el-tag-text-color 的层叠优先级高于组件样式，改不动。描边徽标既能过 AA，
+     又天然比彩色 el-tag 轻一档。 */
+  &__neutral-badge,
+  &__weak-badge {
+    display: inline-block;
+    padding: 0 6px;
+    font-size: var(--text-small);
+    line-height: 1.6;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+  }
+
+  &__detail-toggle {
+    margin-left: 4px;
+    vertical-align: baseline;
+  }
+
+  &__more {
+    margin-top: var(--space-standard);
+    text-align: center;
   }
 }
 </style>

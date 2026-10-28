@@ -78,11 +78,11 @@ export interface HoldingOverlapData {
   /** 有持仓明细的基金市值 / 全部持仓市值 * 100 */
   coverage_pct: number;
   uncovered: OverlapUncovered[];
-  /** 判为「配置重复」的基金对数（不含份额重复，也不含金额不足未提示的） */
+  /** 判为「配置重复」的基金对数（不含份额重复，也不含弱提醒档） */
   duplicate_count: number;
-  /** 被金额闸门挡下的对数（比例可能很高，但重复的只是几毛钱） */
-  trivial_count: number;
-  /** 金额提示线（分），文案里的「不足 ¥X 未提示」用它，不在前端另写一个数 */
+  /** 弱提醒条数（`low` + `trivial`），与折叠区里列出的条数一致 */
+  weak_count: number;
+  /** 金额分档线（分），弱提醒区文案里的「不足 ¥X」用它，不在前端另写一个数 */
   min_overlap_amount_cents: number;
   /** 口径声明（持仓快照滞后 / 高换手失真 / 金额为保守下界） */
   caveats: string[];
@@ -195,10 +195,11 @@ export interface OverlapLevelBadge {
 }
 
 /**
- * 把后端的 `overlap_level` 翻成标签。
+ * 把后端的 `overlap_level` 翻成标签（只用于「要点」列表）。
  *
- * `low` / `trivial` 返回 null（不占版面）：`low` 是「比例不够」，`trivial` 是
- * 「比例可能很高但只重复了几毛钱」——提示它们等于把噪音重新贴回列表。
+ * `low` / `trivial` 返回 null：它们不进要点列表，而是统一收进「弱提醒」区，
+ * 由区块标题与 `弱提醒` 标签表达档位——在要点列表里给它们贴标签，
+ * 等于把已经被分档过滤掉的噪音重新贴回来。
  * `same-series` **不得**显示成「配置重复」——同一只基金的 A/C 份额持仓逐行相同，
  * 算出来必然是 100% 重叠，但它不是「两只基金买重了」，标错会让用户去卖本来正常持有的份额。
  */
@@ -227,112 +228,198 @@ export function countSameSeriesPairs(
   ).length;
 }
 
-/**
- * 配置重复的汇总文案。
- *
- * 三种「看着重复」必须分开说：真·配置重复（不同基金重仓撞车）值得处置；
- * 同一基金的不同份额只是买了两次同一只基金；而**重复金额不足提示线**的那些
- * （一只基金只投了几块钱的观察仓）如果混进「N 对重复」，这个数字就是假的——
- * 用户会去找那 N 对，却发现一部分根本不用管。
- */
-export function describeDuplicateSummary(
-  data: HoldingOverlapData | null | undefined
-): string {
-  const parts: string[] = [];
-  const duplicates = data?.duplicate_count ?? 0;
-  const sameSeries = countSameSeriesPairs(data);
-  const trivial = data?.trivial_count ?? 0;
-  if (duplicates > 0) {
-    parts.push(`检出 ${duplicates} 对配置重复（两只基金重仓高度重合）`);
-  }
-  if (sameSeries > 0) {
-    parts.push(`${sameSeries} 对是同一基金的不同份额，不计入重复`);
-  }
-  if (trivial > 0) {
-    const gate = formatAmountCents(data?.min_overlap_amount_cents);
-    parts.push(`${trivial} 对重复投入不足 ${gate}，不计入提示`);
-  }
-  if (!parts.length) return "";
-  return `${parts.join("；")}。`;
-}
+/** 「要点」档位：进主列表，值得处置或至少值得知道 */
+const PRIMARY_LEVELS: OverlapLevel[] = ["duplicate", "watch", "same-series"];
 
-/** 值得占据版面的档位：其余（`low` / `trivial`）默认折叠 */
-const HIGHLIGHT_LEVELS: OverlapLevel[] = ["duplicate", "watch", "same-series"];
-
-/** 展开折叠区时最多渲染多少对——1834 对全渲染会让标签页直接卡住 */
-export const FOLDED_PAGE_SIZE = 50;
+/** 每页展示多少条弱提醒——1834 对一次渲染会让标签页直接卡住 */
+export const WEAK_PAGE_SIZE = 50;
 
 export interface OverlapPairSplit {
-  /** 默认展示的「要点」：真需要处置的档位 */
-  highlighted: OverlapPair[];
-  /** 默认折叠的对（`low` / `trivial`），展开时才有用 */
-  folded: OverlapPair[];
-  /** 折叠了多少对 */
-  foldedCount: number;
+  /** 主列表：配置重复 / 需留意 / 同一基金不同份额 */
+  primary: OverlapPair[];
+  /** 弱提醒：`low`（比例未达线）+ `trivial`（金额不足），默认折叠但**可见** */
+  weak: OverlapPair[];
 }
 
 /**
- * 把 pairs 拆成「要点」与「折叠」两堆。
+ * 把 pairs 拆成「要点」与「弱提醒」两堆。
  *
- * 为什么必须折叠：真实组合里 96 只基金能配出 1800+ 对，其中绝大多数是
- * 观察仓之间的几毛钱重叠（实测 1834 对里金额中位数 ¥0.68、过 ¥1,000 闸门的
- * 只有 16 对）。全部渲染既拖慢页面，也让真正的重复淹没在噪音里。
+ * 为什么弱提醒既不能删也不能混进要点：真实组合里 96 只基金能配出 1800+ 对，
+ * 绝大多数是观察仓之间的几毛钱重叠（实测 1834 对里金额中位数 ¥0.68）。
+ * 混进主列表 → 噪音淹没真重复；直接丢掉 → 用户以为系统没算到（他明明买了重复的基金）。
+ * 所以是**分档**：要点直接列，弱提醒折叠可展开。
  * 后端已按档位排好序，这里只做切分，不重排。
  */
 export function splitOverlapPairs(
   data: HoldingOverlapData | null | undefined
 ): OverlapPairSplit {
   const pairs = data?.pairs ?? [];
-  const highlighted: OverlapPair[] = [];
-  const folded: OverlapPair[] = [];
+  const primary: OverlapPair[] = [];
+  const weak: OverlapPair[] = [];
   for (const pair of pairs) {
-    (HIGHLIGHT_LEVELS.includes(pair.overlap_level) ? highlighted : folded).push(
-      pair
-    );
+    (PRIMARY_LEVELS.includes(pair.overlap_level) ? primary : weak).push(pair);
   }
-  return { highlighted, folded, foldedCount: folded.length };
+  return { primary, weak };
+}
+
+/** 汇总用的四类计数（互斥，加起来等于 pairs 长度） */
+export interface OverlapTally {
+  duplicate: number;
+  watch: number;
+  sameSeries: number;
+  weak: number;
+}
+
+export type OverlapTallyKey = keyof OverlapTally;
+
+export interface OverlapTallyChip {
+  key: OverlapTallyKey;
+  label: string;
+  count: number;
+  /** 数字的语义色：danger 红 / warning 橙 / info 蓝 / muted 灰 */
+  tone: "danger" | "warning" | "info" | "muted";
 }
 
 /**
- * 展开时只取前 `pageSize` 对折叠项。
+ * 按档位统计对数。
  *
- * 折叠区在真实数据里是四位数：全量渲染 = 几千个 `<li>` 加持仓标签，点击「显示全部」
- * 时标签页会僵住几秒。截断并如实告知「还有多少没显示」，比假装能全看更有用。
+ * **四类必须互斥**：如果「弱提醒」被并进「配置重复」，第一屏的 N 就会是假的
+ * （用户会去找那 N 对，却发现一千多对只是观察仓）；反过来，「同一基金不同份额」
+ * 也不是配置重复——那是买了两次同一只基金。所以这里逐对归类，不重复计数。
+ *
+ * 计数从 `pairs` 现算而不是读 `duplicate_count` / `weak_count`：页面渲染的就是
+ * `pairs`，两个来源一旦漂移，就会出现「标题说 10 对、列表只有 9 对」。
  */
-export function pageFoldedPairs(
-  folded: OverlapPair[],
-  pageSize: number = FOLDED_PAGE_SIZE
-): { visible: OverlapPair[]; hiddenCount: number } {
-  const limited = folded.slice(0, Math.max(0, pageSize));
-  return { visible: limited, hiddenCount: folded.length - limited.length };
-}
-
-export interface FoldHintInput {
-  /** 是否已展开折叠区 */
-  expanded: boolean;
-  /** 折叠了多少对 */
-  foldedCount: number;
-  /** 展开后实际渲染了多少对 */
-  visibleCount: number;
-  /** 展开后仍被截断的有多少对 */
-  hiddenCount: number;
-  /** 金额提示线文案（后端下发，已格式化） */
-  gateText: string;
+export function tallyOverlap(
+  data: HoldingOverlapData | null | undefined
+): OverlapTally {
+  const tally: OverlapTally = {
+    duplicate: 0,
+    watch: 0,
+    sameSeries: 0,
+    weak: 0
+  };
+  for (const pair of data?.pairs ?? []) {
+    switch (pair.overlap_level) {
+      case "duplicate":
+        tally.duplicate += 1;
+        break;
+      case "watch":
+        tally.watch += 1;
+        break;
+      case "same-series":
+        tally.sameSeries += 1;
+        break;
+      default:
+        tally.weak += 1;
+    }
+  }
+  return tally;
 }
 
 /**
- * 折叠区的说明文案。
+ * 汇总条要展示的 chip（只给非零项）。
  *
- * 两个数字都不能省：不展开时说「折了多少对」，展开后必须说「还有多少对没显示」——
- * 只写「已展开」会让用户以为看到的就是全部，而截断只是为了性能。
+ * 用 chip 而不是一句话：四个数字并排，用户一眼就能分出「要处理的 10 对」
+ * 和「可以不管的 1817 对」；长句子在窄屏会折成三行，读起来像免责声明。
  */
-export function describeFoldHint(input: FoldHintInput): string {
-  if (!input.expanded) {
-    return `另有 ${input.foldedCount} 对未达提示线（比例不够，或重复投入不足 ${input.gateText}），已折叠`;
-  }
-  const base = `已展开前 ${input.visibleCount} 对未达提示线的重叠`;
-  if (input.hiddenCount <= 0) return base;
-  return `${base}，另有 ${input.hiddenCount} 对金额更低的未显示`;
+export function describeOverlapTally(
+  data: HoldingOverlapData | null | undefined
+): OverlapTallyChip[] {
+  const tally = tallyOverlap(data);
+  const chips: OverlapTallyChip[] = [
+    {
+      key: "duplicate",
+      label: "配置重复",
+      count: tally.duplicate,
+      tone: "danger"
+    },
+    { key: "watch", label: "需留意", count: tally.watch, tone: "warning" },
+    {
+      key: "sameSeries",
+      label: "同一基金份额",
+      count: tally.sameSeries,
+      tone: "info"
+    },
+    { key: "weak", label: "弱提醒", count: tally.weak, tone: "muted" }
+  ];
+  return chips.filter(chip => chip.count > 0);
+}
+
+/**
+ * 弱提醒区的说明文案。
+ *
+ * 必须同时交代「为什么被降档」和「怎么看到全部」：只说「都是小仓位」会让用户
+ * 以为系统把它们藏了；只说「默认折叠」又不解释折叠的原因。
+ */
+export function describeWeakHint(gateText: string): string {
+  return (
+    `重复投入不足 ${gateText}，或重合度还没到「需留意」的线，多为观察仓。` +
+    "默认折叠但仍可查看：展开后可筛选基金、逐对查看共同重仓股。"
+  );
+}
+
+/**
+ * 弱提醒条目的一句话解释。
+ *
+ * 后端对 `low` 不下发理由（它原本不占版面，写理由是浪费），但弱提醒区里每条
+ * 都得说清「为什么在这里」——否则用户看到一条没有理由的「弱提醒」只会困惑。
+ */
+export function describeWeakReason(
+  pair: OverlapPair | null | undefined
+): string {
+  if (!pair) return "";
+  if (pair.overlap_reason) return pair.overlap_reason;
+  return `重合 ${pair.weighted_overlap.toFixed(1)}%，未达「需留意」的仓位线`;
+}
+
+/**
+ * 按关键词筛弱提醒（基金代码或名称）。
+ *
+ * 1817 对里找一个特定的基金，靠滚动是不现实的。筛选只做包含匹配、大小写不敏感：
+ * 用户输入「白酒」「012414」都能命中，不需要教他正则。
+ */
+export function filterWeakPairs(
+  pairs: OverlapPair[],
+  keyword: string
+): OverlapPair[] {
+  const needle = keyword.trim().toLowerCase();
+  if (!needle) return pairs;
+  return pairs.filter(pair =>
+    [
+      pair.fund_code_a,
+      pair.fund_code_b,
+      pair.fund_name_a,
+      pair.fund_name_b
+    ].some(field =>
+      String(field ?? "")
+        .toLowerCase()
+        .includes(needle)
+    )
+  );
+}
+
+export interface WeakPairPage {
+  visible: OverlapPair[];
+  /** 还没展示的条数 */
+  remaining: number;
+  hasMore: boolean;
+}
+
+/**
+ * 弱提醒分页（按已加载条数切片）。
+ *
+ * 不用「展开全部」：1817 条 DOM 会让标签页僵住几秒。分页 + 明确剩余条数，
+ * 用户想找的基金靠筛选，而不是靠翻完 1817 条。
+ */
+export function sliceWeakPairs(
+  pairs: OverlapPair[],
+  loaded: number
+): WeakPairPage {
+  const limit = Math.max(0, loaded);
+  const visible = pairs.slice(0, limit);
+  const remaining = Math.max(0, pairs.length - visible.length);
+  return { visible, remaining, hasMore: remaining > 0 };
 }
 
 /** 口径声明（后端下发，原样展示）：空串项一律滤掉，避免渲染出空行 */
