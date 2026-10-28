@@ -24,6 +24,7 @@ import {
   formatAmountCents,
   formatJaccard,
   formatWeightedOverlap,
+  pairKey,
   resolveOverlapPanelState,
   sliceWeakPairs,
   splitOverlapPairs,
@@ -419,5 +420,21 @@ describe("口径声明（#866 换手率约束）", () => {
 
   it("缺字段时返回空数组而不是崩", () => {
     expect(describeCaveats(null)).toEqual([]);
+  });
+});
+
+describe("条目 key（拆分组件后主列表与弱提醒区共用）", () => {
+  it("用基金代码拼接而不是名称或下标", () => {
+    // 名称会带「A」「C」后缀且会变；下标在筛选后会串位，展开状态会跟错行
+    expect(pairKey(pair())).toBe("110011-005827");
+    expect(
+      pairKey(pair({ fund_name_a: "换个名字", fund_name_b: "再换" }))
+    ).toBe("110011-005827");
+  });
+
+  it("同一对基金反过来仍是两条（A↔B 与 B↔A 各自一条）", () => {
+    const ab = pairKey(pair({ fund_code_a: "110011", fund_code_b: "005827" }));
+    const ba = pairKey(pair({ fund_code_a: "005827", fund_code_b: "110011" }));
+    expect(ab).not.toBe(ba);
   });
 });

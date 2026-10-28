@@ -262,6 +262,16 @@ export function splitOverlapPairs(
   return { primary, weak };
 }
 
+/**
+ * 一对基金的稳定 key（列表渲染 / 明细展开共用）。
+ *
+ * 用代码而不是名称：同一基金不同份额的名称会变（「A」「C」后缀），代码不会；
+ * 也不用 index——筛选后 index 会串位，展开状态会跟错行。
+ */
+export function pairKey(pair: OverlapPair): string {
+  return `${pair.fund_code_a}-${pair.fund_code_b}`;
+}
+
 /** 汇总用的四类计数（互斥，加起来等于 pairs 长度） */
 export interface OverlapTally {
   duplicate: number;
