@@ -50,7 +50,7 @@ from app.services.import_records import compute_position_hash
 from app.services.institution_resolver import resolve_sales_institution_id
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
-from app.services.position_scope import exclude_cleared
+from app.services.position_scope import active_holdings
 from app.services.symbol_scope import build_position_symbol_conditions
 from app.services.trading import TransactionService, validate_buy, validate_sell
 from app.services.watchlist_service import (
@@ -2225,11 +2225,18 @@ class PositionService:
         冗余列要跟着导入/转换/清仓等所有写路径双写，一处漏了就出「同一笔持仓在两个
         成员名下」的矛盾账。过滤同样**下推 SQL**（``ledger_id IN (子查询)``）。
         注意：未绑定账户的持仓（``ledger_id IS NULL``）不属于任何成员，不会被命中。
+
+        ``ownership_status``：只要 ``active``。``shadow`` 是 E账户导入写下的**对账镜像行**
+        （``ledger_id`` 恒为 NULL、``account_name`` 恒为「基金E账户」），它表示「E账户说有这笔、
+        系统还没认领」，不是用户持有的账户，也不是可买卖的账户。放进这里会以「基金E账户」
+        的名义凭空多出一组持仓：本地库实测 021180 因此显示两个渠道（基金E账户 3,421.96 份 +
+        微众银行 3,421.9622 份），市值翻倍。镜像行的归宿只有对账工作台
+        （``get_reconciliation``），那边直接查 ``ownership_status='shadow'``，不依赖本接口。
         """
         query = db.query(Position).filter(Position.family_id == family_id)
-        # 已清仓行保留在表里（锚点/成本基线不灭），但不属于「当前持仓」视图。
-        # 库里还没有 cleared 行时这是恒等变换，见 services/position_scope.py。
-        query = exclude_cleared(query)
+        # 只要真实持仓：同时排掉 `cleared`（已清仓，行保留作锚点）与 `shadow`
+        # （E账户对账镜像行）。见 services/position_scope.py。
+        query = active_holdings(query)
         # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
         if ledger_id_raw == 'null':
             query = query.filter(Position.ledger_id.is_(None))
