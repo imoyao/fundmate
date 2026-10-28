@@ -37,6 +37,9 @@ import re
 from typing import Dict, List, Optional
 
 _ADD_COL_RE = re.compile(r'ALTER TABLE (\w+) ADD COLUMN (?:IF NOT EXISTS )?(\w+)', re.IGNORECASE)
+# 删列（#2689）：`fund_managers` 拆分在 PG 上走 `DROP COLUMN IF EXISTS`，假引擎要能跟上，
+# 否则迁移末尾的「任期列必须已删」自校验永远假红。
+_DROP_COL_RE = re.compile(r'ALTER TABLE (\w+) DROP COLUMN (?:IF EXISTS )?(\w+)', re.IGNORECASE)
 _CREATE_INDEX_RE = re.compile(r'CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?(\w+) ON (\w+)', re.IGNORECASE)
 # 建表：表名 + 列名列表（够 fake 维护「表在不在、哪些列」即可，不必真解析约束）
 _CREATE_TABLE_RE = re.compile(r'CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\((.*?)\)', re.IGNORECASE | re.DOTALL)
@@ -132,6 +135,12 @@ class PgFake:
         monkeypatch.setattr(migrations_mod, 'inspect', lambda _engine: _Inspector(self))
 
     def _apply_ddl(self, sql: str) -> None:
+        m = _DROP_COL_RE.search(sql)
+        if m:
+            table, name = m.group(1), m.group(2)
+            if name in self.columns.get(table, []):
+                self.columns[table].remove(name)
+            return
         m = _ADD_COL_RE.search(sql)
         if m:
             table, name = m.group(1), m.group(2)
