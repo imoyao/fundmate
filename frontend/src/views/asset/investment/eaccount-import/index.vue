@@ -12,15 +12,9 @@
           识别或手动录入，逐行核对后写入对应账户，不生成交易流水
         </p>
       </div>
-      <el-button
-        v-if="currentStep === 1"
-        text
-        :style="{ color: 'var(--text-secondary)' }"
-        @click="goToReconcileCenter"
-      >
-        <IconifyIconOffline icon="ep:files" class="mr-1" />
-        前往对账中心
-      </el-button>
+      <!-- 页头刻意不放「前往对账中心」：对账结果页的底部操作栏已是唯一主入口。
+           同屏三个同名入口（页头文字链接 / 冲突提示条里的按钮 / 底栏按钮）指向同一个路由，
+           用户无从判断该点哪个——入口收敛后，页头只留标题与说明。 -->
     </header>
 
     <!-- #1239 草稿层：同域（A）导入持仓快照的草稿恢复 Banner，不弹窗打断 -->
@@ -79,7 +73,6 @@
 </template>
 
 <script setup lang="ts">
-import { IconifyIconOffline } from "@/components/ReIcon";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import EaccountDraftBanner from "./components/EaccountDraftBanner.vue";
 import EaccountAiPanel from "./components/EaccountAiPanel.vue";
@@ -111,8 +104,7 @@ const {
   importMode,
   previewRows,
   result,
-  switchMode,
-  goToReconcileCenter
+  switchMode
 } = imp;
 </script>
 
@@ -123,12 +115,10 @@ const {
   font-variant-numeric: tabular-nums;
 }
 
-/* ===== 页头 ===== */
+/* ===== 页头 =====
+   只承载标题与说明（右侧曾有一条「前往对账中心」文字链接，与结果页底部主 CTA 重复，已删），
+   故不再需要两端对齐的 flex 布局。 */
 .import-head {
-  display: flex;
-  gap: var(--space-3);
-  align-items: flex-start;
-  justify-content: space-between;
   margin-bottom: var(--space-standard);
 }
 
