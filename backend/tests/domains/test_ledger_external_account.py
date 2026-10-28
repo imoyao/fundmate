@@ -136,9 +136,7 @@ class TestLedgerExternalAccount:
 
         from app.domains.ledgers.models import Ledger
 
-        empty = Ledger(
-            name='招商银行', ledger_type='fund', family_id=1, sales_institution_id=inst.id
-        )
+        empty = Ledger(name='招商银行', ledger_type='fund', family_id=1, sales_institution_id=inst.id)
         used = Ledger(name='招商银行', ledger_type='fund', family_id=1, sales_institution_id=inst.id)
         db.add_all([empty, used])
         db.flush()
