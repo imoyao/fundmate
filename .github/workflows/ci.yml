@@ -278,6 +278,17 @@ jobs:
       - name: 扫描裸栏间分割线回潮（阻断）
         run: python scripts/guard_col_divider.py
 
+      # 自绘提示条守卫（#2725，源 #2716 批次 3）：#2716 抽出了 SoftBanner 并迁了 5 处，
+      # 但**没有任何机制拦住第 6 份手写**。本仓已有前车之鉴（视图层 .commit() 收敛过一拨，
+      # 无守卫时又长回来，#1606/#1620）。判据：样式选择器含 banner + 同块内
+      # display:flex + 真实背景或边框。迁移后的消费方保留 `class="recon-banner"` 这类
+      # e2e 锚点类名不受影响（它们样式里只剩排版）。
+      # 已知不覆盖：壳与配色分块写的（含 SoftBanner 自身）、不叫 banner 的块——
+      # 边界与理由见脚本 docstring；回归样本在 scripts/tests/guard_soft_banner.test.js。
+      # 同属「前端设计语言回潮」一类，故并入本 job（不新增 job 就不必改 gate.needs）。
+      - name: 扫描自绘提示条回潮（阻断）
+        run: python scripts/guard_soft_banner.py
+
       # 密钥引用位置守卫（源 CNB #148，2026-10-12，两个形态都踩过）：
       # git-sync 凭据必须挂**插件任务级 `imports`**（与 image 平级），
       # ① 挂流水线级 imports ⇒ 死在 Prepare（`declares allow_images … plugin tasks`）；

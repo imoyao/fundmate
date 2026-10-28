@@ -144,6 +144,19 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_col_divider.test.js',
         'covered': '只认 1px + --border-light 的形态；3px 语义强调条有意放行',
     },
+    'scripts/guard_soft_banner.py': {
+        'rule': '柔性提示条唯一走 SoftBanner（禁止新写自绘 flex + 背景/边框的 banner 壳）',
+        # 只挂 CI：本守卫扫**整文件样式**，而 pre-commit 传的是改动文件列表——
+        # 两者能对上，但「文件级基线」在局部扫描下无法判僵尸（脚本已按此分叉）。
+        # 上线初期先在 CI 兜底，本地反馈由 `python scripts/guard_soft_banner.py <改动的文件>` 手工跑。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_soft_banner.test.js',
+        'covered': (
+            '只认「选择器含 banner + 同块 display:flex + 真实背景/边框」；'
+            '壳与配色分块写的（含 SoftBanner 自身）、不叫 banner 的块不命中；'
+            '模板内联 style 与 el-alert 包壳不参与判定'
+        ),
+    },
     'scripts/guard_font_glyph_coverage.py': {
         'rule': 'MiSans 子集必须覆盖 GB2312 一级（100%）与 GBK 汉字（≥98%），不许退回仅一级',
         'runner': 'ci',

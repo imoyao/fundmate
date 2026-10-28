@@ -7,11 +7,11 @@ import PreviewStep from "./components/PreviewStep.vue";
 import ResultStep from "./components/ResultStep.vue";
 import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
 import LeaveGuardDialog from "./components/LeaveGuardDialog.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { ref } from "vue";
 import { useImportWizard } from "./composables/useImportWizard";
 import { useImportLeaveGuard } from "./composables/useImportLeaveGuard";
 import { provideWizard } from "./composables/useImportWizardContext";
-import { Edit } from "@element-plus/icons-vue";
 
 const wizard = useImportWizard();
 provideWizard(wizard);
@@ -56,28 +56,30 @@ const withMock = ref(false);
       </p>
     </header>
 
-    <!-- #1239 草稿层：同域（C）草稿恢复 Banner，不弹窗打断 -->
-    <div
+    <!-- #1239 草稿层：同域（C）草稿恢复 Banner，不弹窗打断。
+         #2724 起壳由 SoftBanner 承担（与 EaccountDraftBanner 同构）；
+         class 保留 e2e 锚点（import-draft spec 的 `.draft-banner`） -->
+    <SoftBanner
       v-if="draftBannerVisible && pendingDraftMeta"
       class="draft-banner"
-      role="alert"
+      variant="info"
+      icon="ep:edit-pen"
     >
-      <el-icon class="draft-banner-icon"><Edit /></el-icon>
       <div class="draft-banner-text">
         发现{{ pendingDraftMeta.savedAt ? "未完成" : "" }}的导入草稿（{{
           pendingDraftMeta.rowCount
         }}
         条记录），是否继续？
       </div>
-      <div class="draft-banner-actions">
+      <template #actions>
         <el-button size="small" type="primary" @click="restoreDraft">
           恢复草稿
         </el-button>
         <el-button size="small" text @click="discardCurrentDraft">
           丢弃
         </el-button>
-      </div>
-    </div>
+      </template>
+    </SoftBanner>
 
     <el-steps
       :active="currentStep"
@@ -164,32 +166,13 @@ const withMock = ref(false);
   color: var(--text-tertiary-ink);
 }
 
-/* #1239 草稿恢复 Banner：中性信息色，非红非弹窗（柔性原则 §2.5） */
-.draft-banner {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 16px;
-  margin: 0 0 16px;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.draft-banner-icon {
-  font-size: var(--text-body);
-  color: var(--brand-700);
-}
-
+/* #1239 草稿恢复 Banner：壳由 SoftBanner info 承担（#2724），只保留正文排版。
+   删除的本地壳样式：display/gap/align-items/padding/margin/background/border/radius
+   以及 `.draft-banner-icon`（--brand-700 直调，属 tech-debt 违规项，随壳一并消除）。 */
 .draft-banner-text {
   flex: 1;
-}
-
-.draft-banner-actions {
-  display: flex;
-  gap: 8px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
 }
 
 .import-steps {

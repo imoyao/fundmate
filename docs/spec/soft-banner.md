@@ -21,7 +21,9 @@
 | `ExploreConvBanner` | 匿名转化**营销卡**（品牌渐变底 + 大 CTA），不是警示 |
 | `RecognizerUsageBanner` / `OcrUsageBanner` | 额度**纯文字行**（作者注释明确「无背景无边框、用空间代替色块、弱化存在感」） |
 | el-alert ×11 | 按 issue 约定由 axe/对比度守卫判定，达标处不强求迁移；本轮不动 |
-| import/ledgers 页内零散 banner 块 | 非独立组件，留给后续批次按需收敛 |
+| import/ledgers 页内零散 banner 块 | **已迁 3 处**（#2724：`draft-banner` / `usage-banner` / `cash-binding-banner`），见 §5 |
+| import/ledgers 剩余 3 处（`.conflict-banner` / `.soft-reconcile-banner` / `.orphan-banner`） | **形态属本家族，但超出组件现有表达力**：前者是 `brand-100` 品牌色底、无边框；中间者还带 `border-left: 3px` 语义色条（组件结构里没有这个位）。归一是**组件能力缺口**而非「忘了迁」，需先补档位并做设计裁决 → #2730，守卫里按 `path::selector` 精确冻结 |
+| `AiImportModal` 的 `.recognition-hint` | 弹窗内**行内提示行**（`padding: 8px 12px`、无边框，紧凑是有意的），迁成提示条会撑大弹窗。**不迁**，但其 `strong` 原用 `--brand-700`（#e34f38 在 `--bg-soft` 上仅 3.41:1，文字级不达标）已就地改为 `--text-primary` |
 
 **本轮迁移 5 处**：DiscrepancyBanner（warning）、GhostDuplicateBanner（danger）、WorkbenchBanner（info）、EaccountDraftBanner（info）、RealtimeWarningBanner（warning + dense）。
 
@@ -81,6 +83,9 @@ Ghost 内部元素样式保留原类名与显式色（`--color-rise-ink`），�
 | WorkbenchBanner | 全壳 → SoftBanner info + clickable；`class="workbench-banner"` 保留 | icon `--brand-700` → `--color-info-ink`（顺带消除 tech-debt 的 `--brand-*` 直调违规）；hover 品牌混色 → 同族加深 |
 | EaccountDraftBanner | 全壳 → SoftBanner info；actions 走 `#actions` slot；`class="draft-banner"` 保留 | icon `--brand-700` → `--color-info-ink`（同上） |
 | RealtimeWarningBanner | 全壳 → SoftBanner warning + dense；localStorage 持久 dismiss 逻辑原地保留 | el-button「关闭」文字按钮 → 统一 × 图标按钮（aria-label 保留）；内联 style 三色 → variant 类 |
+| `import/index.vue` `.draft-banner` | 壳 → SoftBanner info；actions 走 `#actions` slot；`class="draft-banner"` 保留（e2e 锚点） | icon `--brand-700` → info 档图标；`align-items: center` → `flex-start`；删除 `.draft-banner-icon` |
+| `AiImportModal` `.usage-banner` | 壳 → SoftBanner，**三态配色映射为 `variant`**（正常 info / 紧张 warning / 用尽 danger）；`#actions` 承载右侧提示语 | padding 10/14 → 12/16；radius-md → radius-sm；用尽态底 `--color-danger-20` → `--color-danger-10`；额度数字补 `tabular-nums`（原实现未声明）；数字与提示语由 `--brand-700`/`--color-danger` 改中性档（原两处 3.41:1 / 3.17:1 均不达 4.5） |
+| `PreviewStep` `.cash-binding-banner` | 壳 → SoftBanner info；`el-select` 与「新建现金账户」按钮走 `#actions` slot；`class` 保留 | padding 10/14 → 12/16；原 `flex-wrap: wrap` 不再需要（文字区 `flex: 1 1 auto` 自行换行）；`margin: 12px 16px 0` → `12px 16px 16px`；warning 图标 → info 档图标 |
 
 ## 6. 验证口径
 
@@ -88,8 +93,13 @@ Ghost 内部元素样式保留原类名与显式色（`--color-rise-ink`），�
 - 门禁：vue-tsc / eslint / prettier / 页面规模门禁 / CSS 令牌守卫。
 - 对比度复核口径（#2726 起）：半透明底令牌（`--color-warning-20` / `--color-danger-10` / `--color-danger-30`）**不得**直接拿「白底 X:1」的数字下结论——必须 `over(fg, alpha, 底层)` 合成后再算 WCAG 比，且底层取 `--bg-card` / `--bg-page` / `--bg-soft` 三者中**最差**的那个。当前实测值见 §4 表。
 
-## 7. 后续批次（不在本 PR）
+## 7. 后续批次
 
-1. el-alert ×11 的 axe 实测与按需替换；
-2. import/ledgers 页内零散 banner 块收敛；
-3. 防回归：新自绘 banner 样式拦截（守卫或 lint，待守卫方案讨论）。
+1. el-alert ×11 的 axe 实测与按需替换 —— **已转 #2723**（未做：需 dev server + 会话注入跑 axe，且 `frontend` 无 axe 依赖）；
+2. import/ledgers 页内零散 banner 块收敛 —— **已完成 3 处**（#2724，2026-10-28）：`draft-banner` / `usage-banner` / `cash-binding-banner` 全部改走 SoftBanner，本域不再有自绘 banner 壳；剩余 3 处（`.conflict-banner` / `.soft-reconcile-banner` / `.orphan-banner`）属**组件能力缺口**（brand 档 / 左语义条），转 #2730；
+3. 防回归：新自绘 banner 样式拦截 —— **已落地**（#2725）：`scripts/guard_soft_banner.py`，接进 `ci.yml` 的 `layout_guard` job 并登记 `RULE_REGISTRY`。
+   - **判据**：样式选择器含 `banner` + **同一规则块内**有 `display: flex` + 真实背景或边框（`none`/`transparent`/`0` 不算）。
+     迁移后的消费方保留 `class="recon-banner"` 这类 e2e 锚点类名**不会**被判红——它们样式里只剩排版声明。
+   - **误判面**（全仓 502 个 `.vue`/`.scss` 实测）：命中 6 处，其中 2 处是 §2 已定性排除的营销卡 / 状态大卡（`ALLOWLIST` 逐条登记理由），3 处是 #2730 的待归一块（`BASELINE` 按 `path::selector` 精确冻结），**真阳性 3 / 假阳性 2，登记后阻断 0**。
+   - **已知不覆盖**：壳与配色**分块写**的（`.soft-banner { display:flex }` + `.soft-banner--info { background }`）不命中，含 SoftBanner 自身；不叫 `banner` 的块（`.notice-bar` 等）不命中；模板内联 `:style` 与 `el-alert` 包壳不参与。理由见脚本 docstring——判据宁窄勿宽，误判即弃用。
+   - **豁免**：`ALLOWLIST`（永久，逐条理由）/ `BASELINE`（待清，精确到块）/ 行内 `banner-guard-allow`（本行或相邻行）。BASELINE 里出现**已无对应命中的条目**会报红（防基线僵化失效）。
