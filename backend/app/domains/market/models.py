@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
-"""探市 · 大类资产观察的数据底座（#1460 P1）。
+"""探市 · 大类资产观察的数据底座（#1460 P1 / P2）。
 
 落库对象：探市「大类资产观察」的 20 个**固定**资产品种（见 market_service.ASSET_CONFIG），
 不是「用户触达资产」——探市是免登录沙盒，访客没有 positions / watchlist，
 若按持仓∪自选去重会漏掉几乎所有品种，落库也就失去了首屏加速的意义。
 
-存什么：每日一行**日频快照**，含当日涨跌、相对位置分位、⚡ 异动判定结果。
-分位与 σ 由同步任务在后台算好后入库，接口读库直接组装（毫秒级），
-不再每次请求实时拉全量历史现算（原冷启动 42.2s 串行 / 12.4s 并发 6）。
+存什么，两张表分工不同：
 
-不存什么：**长历史日线序列不落库**（#1460 第 2 步，需另行拍板）。
-历史序列仅在同步任务内临时使用、算完即弃；按数据策略「按需存」，
-确有需要时再按品种按需回填。
+- ``market_asset_daily``：每日一行**日频快照**，含当日涨跌、相对位置分位、⚡ 异动结果。
+  分位与 σ 由同步任务在后台算好后入库，接口读库直接组装（毫秒级）。
+- ``market_asset_history``（P2）：**长历史日线收盘价序列**，按品种**按需回填**。
+  首次查看某个资产时拉一次全历史并落库，此后只补缺失日期（见
+  ``services/market_history_service.py``）；分位与 σ 将来可完全离线复算。
+
+为什么不把历史塞进 ``market_asset_daily.close``：两张表的写入者与语义不同。历史行没有
+指标列，若与快照同表，历史行可能先把某个品种的 trade_date 顶到比快照更新的日期，
+``load_overview_from_db`` 的「最新日期必须覆盖全部品种」判据就会误判为不完整、退化成实时取数。
 """
 
 from sqlalchemy import Boolean, Column, Date, Integer, String, UniqueConstraint
@@ -51,6 +55,26 @@ class MarketAssetDaily(Base, PrimaryKeyMixin, TimestampMixin):
     source = Column(String(20), default='akshare', comment='数据来源')
 
     __table_args__ = (UniqueConstraint('asset_key', 'trade_date', name='uk_market_asset_daily_key_date'),)
+
+
+class MarketAssetHistory(Base, PrimaryKeyMixin, TimestampMixin):
+    """大类资产日线历史（market 域，#1460 P2）。
+
+    逐日累积的收盘价序列，供「相对位置分位（近 500 日）」「⚡ 异动 σ（近 250 日）」
+    离线复算与资产详情曲线使用。**按需回填**：某品种第一次被查看时才拉全历史，
+    此后每次只补缺失日期（唯一键 (asset_key, trade_date)，重复回填幂等）。
+
+    与 MarketAssetDaily 的区别见本模块 docstring：那张表存「当日结论」，本表存「原始序列」。
+    """
+
+    __tablename__ = 'market_asset_history'
+
+    asset_key = Column(String(30), nullable=False, comment='资产键（ASSET_CONFIG.key，如 sh000001）')
+    trade_date = Column(Date, nullable=False, comment='交易日（源侧日线日期）')
+    close = Column(SafeNumeric(18, 6), nullable=False, comment='收盘价/点位')
+    source = Column(String(20), default='akshare', comment='数据来源')
+
+    __table_args__ = (UniqueConstraint('asset_key', 'trade_date', name='uk_market_asset_history_key_date'),)
 
 
 class MarketBondYieldDaily(Base, PrimaryKeyMixin, TimestampMixin):
