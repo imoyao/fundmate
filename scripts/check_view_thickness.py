@@ -290,9 +290,15 @@ BASELINE: dict[str, dict[str, int]] = {
     # `query_transactions_by_identity` 按 (ledger_id, symbol) 收敛，两处共用同一份判据；
     # 视图层因此少了 2 处 `db.query(Transaction)` ⇒ orm_queries 6 → 4（**收紧**）。
     # lines 320、commits 0、max_func 57 均不动。按本文件既有先例以 `--report` 实测回写。
+    # 2026-10-28 重取（#2712，**再次下沉**）：持仓流水端点原在视图里做两段
+    # `order_by(...) + 逐行组 dict`（含日期归一 / 资产类型兜底），已整体下沉为
+    # `position_service.list_position_transactions` + `serialize_position_transaction`，
+    # 与 `/api/transactions` 共用同一套排序与序列化口径。
+    # 视图因此 lines 320 → 288、orm_queries 4 → 2（**收紧**），按既有先例以 `--report`
+    # 实测回写；max_func 仍为 57（未动）。
     "backend/app/domains/positions/views.py": {
-        "lines": 320,
-        "orm_queries": 4,
+        "lines": 288,
+        "orm_queries": 2,
         "commits": 0,
         "max_func": 57,
     },

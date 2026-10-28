@@ -6,7 +6,7 @@
 """账户业务逻辑服务层"""
 
 from loguru import logger
-from sqlalchemy import String, cast, desc, func, or_
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.asset_types import MAJOR_CATEGORY_CASH
@@ -26,6 +26,7 @@ from app.services.summary_service import (
     orphan_cash_like_breakdown,
     orphan_money_fund_totals_by_ledger,
 )
+from app.services.transaction_service import order_by_effective_day
 from app.services.txn_name_resolver import (
     resolve_transaction_asset_types,
     resolve_transaction_display_names,
@@ -640,21 +641,11 @@ class LedgerService:
             like = f'%{search}%'
             query = query.filter(or_(Transaction.position_name.ilike(like), Transaction.symbol.ilike(like)))
         total = query.count()
-        # 排序口径与 `/api/transactions`（`build_transaction_list`）同源：#2171 起一律按
-        # **有效交易日** `COALESCE(trade_date, confirm_date)` 倒序，而不是 `confirm_date`
-        # 单列 + `created_at` 兜底。两者差别是用户可见的：
-        # - 只有交易日、确认日为空的行，单列排序会被整体甩到末尾（与详情页顺序相反）；
-        # - `created_at` 是写入时间，批量导入的历史流水会按「导入批次」排，看起来像正序。
-        # 转成文本再排：SQLite 会把「年份开头的日期」当数字（→ 2025.0），数字恒排于文本之前。
-        effective_day = func.coalesce(
-            cast(Transaction.trade_date, String),
-            cast(Transaction.confirm_date, String),
-        )
+        # 排序与 `/api/transactions` 同源（`order_by_effective_day`）：此前这里是
+        # `confirm_date DESC NULLS LAST, created_at DESC`——只有交易日的行被甩到末尾，
+        # 批量导入又按「导入批次」排，与详情页顺序相反（#2171 / #2712）。
         txn_list = (
-            query.order_by(effective_day.desc(), Transaction.id.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
+            order_by_effective_day(query).offset((page - 1) * per_page).limit(per_page).all()
         )
 
         # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」

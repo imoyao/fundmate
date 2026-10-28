@@ -24,47 +24,26 @@ confirm_date，同一笔交易两端显示可以不同天）； * - 类型着色
 涨红，卖出/取出 = 跌绿，分红等中性 = info * （原 getTxnTypeClass 判据，自
 useLedgerTransactions 上收）； * - 数量：formatQuantity（2 位小数 +
 千分位，份额不是货币不参与涨跌语义）。 */
+<script lang="ts">
+// 类型再导出：容器统一从 SFC 处 `import { type TransactionRow }`，真源在 `./model`
+// （结构与格式化拆出去是为了守住 `check_vue_size.mjs` 的 400 行门禁）。
+export type { TransactionRow } from "./model";
+</script>
+
 <script setup lang="ts">
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import { txnTypeLabel } from "@/constants";
-import { formatDate } from "@/utils/date";
 import { formatQuantity } from "@/utils/format";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { txnStatusLabel, txnStatusTag } from "@/utils/transactionStatus";
-
-/**
- * 交易行（三端容器的最大公约数）。容器负责把各自接口返回映射到本结构：
- * - 详情页 TransactionRecord：字段同名（type/trade_date/quantity/price/amount/fee），可直接传；
- * - 账本 Tab LedgerTxnRow：txn_type → type；
- * - 持仓抽屉 getPositionTransactions 行：txn_type → type（spread 保留原字段，
- *   编辑弹窗所需的 notes/import_hash 运行时仍在，仅类型层面不收）。
- */
-export interface TransactionRow {
-  id: number;
-  /** 交易类型：buy/sell/dividend/dividend_reinvest/deposit/withdraw/split */
-  type: string;
-  trade_date?: string | null;
-  confirm_date?: string | null;
-  price?: number | null;
-  quantity?: number | null;
-  amount?: number | null;
-  fee?: number | null;
-  asset_type?: string | null;
-  position_name?: string;
-  symbol?: string;
-  account_name?: string;
-  /** 账户 ID：非空时账户名可点击跳转账户详情（/asset/ledgers/:id）；
-      空 = 未归档（如探市录入），保持纯文本——那里没有落点，链过去是坏的 */
-  ledger_id?: number | null;
-  /** 关联持仓 id；`null` = 持仓已删（行仍保留），资产列据此打「已删除」标记 */
-  position_id?: number | null;
-  /** 交易状态（success / failed / cancelled / pending）：资产流水页的状态列（#2712） */
-  status?: string | null;
-  /** 备注：资产流水页的备注列（#2712） */
-  notes?: string | null;
-}
+import {
+  compareTradeDate,
+  formatTradeDate,
+  typeClass,
+  type TransactionRow
+} from "./model";
 
 const props = withDefaults(
   defineProps<{
@@ -114,40 +93,6 @@ const emit = defineEmits<{
 }>();
 
 const hasActions = computed(() => props.showEdit || props.showDelete);
-
-/**
- * 日期口径：交易日优先、确认日兜底（详见文件头），**一律格式化成 `YYYY-MM-DD`**。
- *
- * 为什么不能直接印接口值（#2712）：`Transaction.trade_date` 是 DateTime，账本 / 持仓
- * 两个出口曾经 `.isoformat()`，屏幕上就出现 `2026-06-03T00:00:00`；而资产流水页那份
- * 接口早就 `strftime` 过，同一批流水在两张表里长得不一样。后端已统一（`iso_date_only`），
- * 这里再兜一层——格式化是展示层的事，不能指望每个出口都记得。
- */
-function formatTradeDate(row: TransactionRow): string {
-  return formatDate(row.trade_date || row.confirm_date || "");
-}
-
-/**
- * 客户端排序口径：与后端 `COALESCE(trade_date, confirm_date) DESC, id DESC` 对齐。
- *
- * el-table 默认拿列的 `prop`（`trade_date`）原始值比较，**只有确认日的行**会被当成空值
- * 沉到末尾，与后端列表顺序相反；用户点开账本 Tab 翻页时看到的就是「顺序对不上」。
- * `sort-method` 收到整行，所以这里比较「有效交易日」，与展示列同一口径。
- * 值都是 `YYYY-MM-DD`，字典序即时间序，不必转 Date。
- */
-function compareTradeDate(a: TransactionRow, b: TransactionRow): number {
-  const left = a.trade_date || a.confirm_date || "";
-  const right = b.trade_date || b.confirm_date || "";
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
-}
-
-/** 类型着色：买入/存入 = 涨红，卖出/取出 = 跌绿，分红等中性 = info */
-function typeClass(type: string): string {
-  if (type === "buy" || type === "deposit") return "txn-type--rise";
-  if (type === "sell" || type === "withdraw") return "txn-type--fall";
-  return "txn-type--info";
-}
 </script>
 
 <template>

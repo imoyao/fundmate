@@ -13,7 +13,6 @@ from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.retry import retry_on_db_locked
-from app.core.utils import iso_date_only
 from app.core.validation import parse_body, parse_query
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
@@ -27,7 +26,13 @@ from app.domains.positions.schemas import (
 from app.domains.transactions.models import Transaction
 from app.services.conversion_service import ConversionService
 from app.services.position_presenter import enrich_position_dict
-from app.services.position_service import PositionService, query_transactions_by_identity, resolve_ledger_change
+from app.services.position_service import (
+    PositionService,
+    list_position_transactions,
+    query_transactions_by_identity,
+    resolve_ledger_change,
+    serialize_position_transaction,
+)
 from app.services.position_valuation import allocate_value
 from app.services.price_range_service import resolve_security_price_range
 from app.services.trading import TradeService
@@ -52,58 +57,16 @@ def list_positions():
 
 @bp.get('/<int:id>/transactions/')
 def get_position_transactions(id: int):
+    """某持仓的交易流水（持仓抽屉数据源）。
+
+    取数、排序、行序列化全部下沉到 `position_service`（#2712）：视图只做 HTTP 编排，
+    与 `/api/transactions` 共用同一套「有效交易日倒序 + 日期粒度 + 资产类型兜底」口径。
+    """
     with get_db() as db:
         position = get_owned_or_404(db, Position, id)
         if not position:
             abort(404, '持仓不存在')
-
-        # 优先用 position_id；兜底走身份键 (ledger_id, symbol)（#2372）。
-        # 排序：确认日倒序（NULL 沉底）+ 创建时间倒序——用户最关注最近交易（#982）
-        if position.id and db.query(Transaction).filter(Transaction.position_id == position.id).first() is not None:
-            transactions = (
-                db.query(Transaction)
-                .filter(Transaction.position_id == position.id)
-                .order_by(
-                    Transaction.confirm_date.desc().nullslast(),
-                    Transaction.created_at.desc(),
-                    Transaction.id.desc(),  # 同刻插入的最终 tie-breaker，保证排序确定
-                )
-                .all()
-            )
-        else:
-            transactions = (
-                query_transactions_by_identity(db, position)
-                .order_by(
-                    Transaction.confirm_date.desc().nullslast(),
-                    Transaction.created_at.desc(),
-                    Transaction.id.desc(),  # 同刻插入的最终 tie-breaker，保证排序确定
-                )
-                .all()
-            )
-
-        data = []
-        for t in transactions:
-            # 优先使用 confirm_date，为空时回退 trade_date（口径与 TransactionTable 一致）
-            display_date = t.confirm_date or t.trade_date
-            data.append(
-                {
-                    'id': t.id,
-                    'ledger_id': t.ledger_id,
-                    'symbol': t.symbol,
-                    # 日期一律 YYYY-MM-DD（#2712）：trade_date 是 DateTime，isoformat 会带
-                    # `T00:00:00`，与 /api/transactions 口径分裂
-                    'trade_date': iso_date_only(display_date),
-                    'txn_type': t.txn_type,
-                    # 抽屉价格列同样走 pricePrecision；持仓自身的 asset_type 一定可信，
-                    # 用它兜住「流水快照为空」的历史行（#2712）
-                    'asset_type': t.asset_type or position.asset_type,
-                    'quantity': Money.min_unit_to_shares(t.quantity),
-                    'price': Money.price_units_to_yuan(t.price),
-                    'amount': Money.cents_to_yuan(t.amount),
-                    'fee': Money.cents_to_yuan(t.fee),
-                    'notes': t.notes,
-                }
-            )
+        data = [serialize_position_transaction(t, position) for t in list_position_transactions(db, position)]
         return jsonify({'data': data, 'message': 'ok'})
 
 
