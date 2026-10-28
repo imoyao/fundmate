@@ -405,3 +405,17 @@ backend/logs/
 # 该目录不再承载唯一数据，但仍可能因 `git add -A` 被误入库，故显式忽略。
 # 恢复姿势见 docs/ops/worktree-gitdir-recovery.md §3。
 .git.corrupt.safe/
+
+# 环境变量快照备份：`.env` 已被忽略，但手工备份常写成 `.env.bak-<日期>`，
+# 里面是**明文密钥**（SUPABASE_SERVICE_ROLE_KEY / TURSO_AUTH_TOKEN / ARK_API_KEY 等）。
+# 2026-10-28 实测本地库有 2 份未被任何规则覆盖，`git add -A` 会直接泄密。
+.env.bak*
+**/.env.bak*
+
+# 本地临时工作目录：PR 正文草稿、对比截图、调试输出等一次性产物
+.tmp/
+.playwright-cli/
+
+# uv 生成的可复现锁文件：仓库从不跟踪（`git ls-files` 无 uv.lock），
+# 每次 `uv run` 都会重新生成，留着只会污染工作区状态
+uv.lock
