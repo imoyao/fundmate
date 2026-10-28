@@ -138,7 +138,7 @@ async function handleOrphanCleanup() {
         :style="{ color: 'var(--brand-700)' }"
       />
       <span class="text-sm" :style="{ color: 'var(--brand-700)' }">
-        存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计
+        存在 {{ orphanGroup.count }} 组未归属持仓（原账户已删除或未指定），合计
         <MoneyDisplay
           :value="orphanGroup.total || 0"
           :show-sign="false"
@@ -173,7 +173,8 @@ async function handleOrphanCleanup() {
     destroy-on-close
   >
     <p class="mb-4 text-sm" :style="{ color: 'var(--text-secondary)' }">
-      当前有 {{ orphanGroup?.count || 0 }} 个已删除账户的持仓，合计
+      当前有
+      {{ orphanGroup?.count || 0 }} 组未归属持仓（原账户已删除或未指定），合计
       <MoneyDisplay
         :value="orphanGroup?.total || 0"
         :show-sign="false"

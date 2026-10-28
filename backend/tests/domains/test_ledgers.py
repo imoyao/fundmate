@@ -1000,6 +1000,49 @@ class TestLedgerOverview:
         assert deleted_group['count'] == 1
         assert deleted_group['total'] == 5000.0
 
+    def test_overview_excludes_shadow_positions(self, client, db, make_position):
+        """对账影子行不参与总资产，也不冒充「未归属」分组（2026-10-28）。
+
+        真实形态：E账户导入写的 shadow 镜像与真身**同 symbol、同份额**，`ledger_id`
+        恒为 NULL —— `uq_positions_ledger_symbol` 不允许它与真身同 (ledger_id, symbol)
+        共存，归因记在 `PositionImportMeta.attributed_to_ledger_id`。
+
+        按 `position_scope` 口径 shadow 不参与总资产。此前 overview 未过滤，镜像行
+        因 ledger_id 为空走「未归属」通道**二次计入**：本地库实测持仓市值
+        853,714.66 中虚增 253,916.91（含本用例这种 93 条镜像）。
+        """
+        client.post('/api/ledgers/', json={'name': '微众', 'ledger_type': 'fund'})
+
+        # 真身：归属账户
+        make_position(
+            symbol='004011',
+            name='华泰柏瑞鼎利C',
+            account_name='微众',
+            quantity=6507.45,
+            avg_price=1.4,
+            current_price=1.5,
+        )
+        # 镜像：同 symbol 同份额，ledger 留空、状态 shadow
+        make_position(
+            symbol='004011',
+            name='华泰柏瑞鼎利C',
+            ledger_id=None,
+            account_name='基金E账户',
+            quantity=6507.45,
+            avg_price=1.4,
+            current_price=1.5,
+            ownership_status='shadow',
+        )
+
+        data = client.get('/api/ledgers/overview/').get_json()['data']
+        groups = {g['type']: g for g in data['groups']}
+
+        # 镜像行不得凑出 deleted 分组（这正是横幅「已删除账户的持仓」的来源）
+        assert 'deleted' not in groups
+        # 市值只按真身算一次：6507.45 × 1.5 = 9761.18
+        assert groups['fund']['total'] == 9761.18
+        assert data['net_worth'] == 9761.18
+
 
 class TestLedgerBatchMigrate:
     """测试账户批量迁移两段式接口（preview 只读分类 → commit 单事务提交）"""

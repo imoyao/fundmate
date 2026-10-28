@@ -633,3 +633,82 @@ def test_commit_holdings_records_observation(db):
     rows = db.query(FundCompanyObservation).all()
     assert len(rows) == 1
     assert rows[0].company_name == FUND_MANAGER
+
+
+# ── 同机构多账本不得重复计数（#2706） ──
+
+
+def _make_ledger(db, name, ledger_type, source_broker):
+    """预置任意类型的账本（用户手工建的 bank 账本走这条）。"""
+    inst = db.query(SalesInstitution).filter_by(org_name=source_broker, is_active=True).first()
+    ledger = Ledger(
+        name=name,
+        ledger_type=ledger_type,
+        family_id=1,
+        sales_institution_id=inst.id if inst else None,
+    )
+    db.add(ledger)
+    db.commit()
+    return ledger
+
+
+def test_same_institution_other_ledger_verifies_without_duplicating(db):
+    """同机构下另一个账本（用户手工建的 bank 账本）已持有该 symbol 且份额一致：
+    应判「已核对」，**不得**在新解析出的 fund 账本下再建一份。
+
+    实测来源（#2706）：用户账本 id=3「微众银行」(bank, 机构 72) 与 id=18
+    「深圳前海微众银行」(fund, 机构 72) 并存，E账户行按机构匹配到 18、18 名下无该 symbol，
+    于是走自动归因新建 —— 同一笔持仓记两遍，系统份额 3,421.96 → 6,843.92（正好 2 倍）。
+    """
+    bank_ledger = _make_ledger(db, '微众银行', 'bank', SOURCE_ALIPAY)
+    _make_channel_position(db, bank_ledger, quantity=1000.0)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    result = orch.reconcile_holdings([_row()])
+
+    assert result['verified'] == 1
+    assert result['auto_attributed'] == 0
+    assert result['conflicts'] == 0
+
+    active = db.query(Position).filter_by(symbol=SYMBOL, ownership_status='active', family_id=1).all()
+    assert len(active) == 1, '不得新增第二份持仓'
+    assert active[0].ledger_id == bank_ledger.id
+    assert sum(p.quantity for p in active) == Money.shares_to_min_unit(1000.0), '系统份额不得翻倍'
+
+
+def test_same_institution_other_ledger_quantity_diff_goes_conflict(db):
+    """同机构另一个账本份额不一致：落「冲突」交用户裁决，同样不得新建第二份。"""
+    bank_ledger = _make_ledger(db, '微众银行', 'bank', SOURCE_ALIPAY)
+    _make_channel_position(db, bank_ledger, quantity=500.0)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    result = orch.reconcile_holdings([_row(quantity=1000.0)])
+
+    assert result['conflicts'] == 1
+    assert result['auto_attributed'] == 0
+
+    active = db.query(Position).filter_by(symbol=SYMBOL, ownership_status='active', family_id=1).all()
+    assert len(active) == 1, '冲突分支也不得新建持仓'
+
+    conflict = result['conflict_list'][0]
+    assert conflict['current_quantity'] == 500.0
+    # 冲突项要指向真正持有它的账本，否则用户按提示去「覆盖」会改错账户
+    assert conflict['target_ledger_id'] == bank_ledger.id
+
+    shadow_meta = _shadow_meta(db)
+    assert shadow_meta.is_attributed is False
+    assert shadow_meta.attributed_to_ledger_id is None
+
+
+def test_different_institution_position_still_auto_attributed(db):
+    """不同机构持有同一基金 = 两笔真实持仓，仍应照旧自动归因新建（防修复过宽）。"""
+    tiantian_ledger = _make_channel_ledger(db, name='天天基金', source_broker=SOURCE_TIANTIAN)
+    _make_channel_position(db, tiantian_ledger, quantity=1000.0)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    result = orch.reconcile_holdings([_row(source_broker=SOURCE_ALIPAY)])
+
+    assert result['auto_attributed'] == 1
+    active = db.query(Position).filter_by(symbol=SYMBOL, ownership_status='active', family_id=1).all()
+    assert len(active) == 2
+    assert {p.ledger_id for p in active} != {tiantian_ledger.id}

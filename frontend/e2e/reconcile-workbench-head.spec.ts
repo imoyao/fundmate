@@ -177,6 +177,35 @@ async function openWorkbench(page: Page) {
   });
 }
 
+/**
+ * 切域后等页面「该动的东西都动完」再断言。
+ *
+ * 为什么必须有这个等待：本页断言的是**不重挂载**（一个「没发生」的事实）。
+ * 重挂载要经过 `router.replace` → 路由状态更新 → `transitionMain` 的 out-in
+ * 离场动画（约 300–500ms）→ 新实例 mount。早于这个窗口断言，必然抢在
+ * 重挂载之前通过——初版就是这么假绿的（用 `networkidle` 也不够，因为它
+ * 只看网络、不看离场动画）。1000ms 已远大于该窗口。
+ */
+async function settleAfterSwitch(page: Page) {
+  await page.waitForTimeout(1000);
+}
+
+/**
+ * 重挂载探针：在页面组件内部的一枚元素上打标记。
+ * 组件被销毁重建时该元素是新节点、不带标记——比"看起来没闪"更硬的判据。
+ */
+async function probeSurvivesRemount(page: Page) {
+  await page
+    .locator(".workbench-head")
+    .evaluate(el => el.setAttribute("data-mount-probe", "kept"));
+}
+
+async function expectMountProbeKept(page: Page) {
+  await expect(
+    page.locator('.workbench-head[data-mount-probe="kept"]')
+  ).toHaveCount(1);
+}
+
 test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () => {
   test.setTimeout(240_000);
 
@@ -270,11 +299,47 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
       page.locator(".workbench-tabs .el-tabs__item", { hasText: "跨账本重复" })
     ).toContainText("1");
 
-    // 点击横幅 → 切到域 D，并把域写回 URL（域寻址入口）
+    // 点击横幅 → 切到域 D。这是**页内**切换，只该换下半屏内容，
+    // 不得重挂载整个页面组件，更不得把域写进 URL（#2706）。
+    await probeSurvivesRemount(page);
     await banner.click();
     await expect(
       page.locator(".workbench-tabs .el-tabs__item.is-active")
     ).toContainText("跨账本重复");
-    await expect.poll(() => new URL(page.url()).hash).toContain("domain=D");
+    // ⚠️ 必须先等过渡结束：Vue 的重渲染在 nextTick，out-in 离场动画还要再占几百毫秒，
+    // 点击后立刻断言"标记还在"会抢在重挂载之前通过——那是竞态，不是判据（初版即栽在这里）。
+    await settleAfterSwitch(page);
+    await expectMountProbeKept(page);
+    // 不写回 URL：布局层以 route.fullPath 作 router-view 的 key，
+    // query 一动就整页重建（onMounted 五个加载器全跑 = 用户看到的「整页刷新」）。
+    expect(new URL(page.url()).hash).not.toContain("domain=");
+  });
+
+  test("切 tab 不重挂载页面：URL 不变、首屏加载器不重跑（#2706）", async ({
+    page
+  }) => {
+    const calls = await mockApis(page, { ghostGroups: 1 });
+    await openWorkbench(page);
+    // 等首屏请求收敛再取基线。不锁具体次数：布局层横幅与本页各拉一次差异，
+    // 写死次数等于把"谁发的"冻结进断言，改动无关代码就会误报。
+    await page.waitForLoadState("networkidle");
+    await probeSurvivesRemount(page);
+    const before = calls.length;
+
+    // ⚠️ 必须点一个**非默认域**的 tab：默认落在域 B，点「持仓快照」等于原地不动，
+    // `activeDomain` 不变化就不会触发下文的写回——用例会变成空转（初版即栽在这里）。
+    await page
+      .locator(".workbench-tabs .el-tabs__item", { hasText: "分红未扣税" })
+      .click();
+
+    await expect(
+      page.locator(".workbench-tabs .el-tabs__item.is-active")
+    ).toContainText("分红未扣税");
+    // 等过渡结束再看：重挂载 ⇒ onMounted 跑五个加载器 ⇒ 请求数必然增长
+    await settleAfterSwitch(page);
+    // 组件实例没被销毁（重挂载会连 `.workbench-head` 一起重建，标记随之消失）
+    await expectMountProbeKept(page);
+    expect(calls.length).toBe(before);
+    expect(new URL(page.url()).hash).not.toContain("domain=");
   });
 });
