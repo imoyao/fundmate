@@ -53,8 +53,10 @@ describe("coverageScopeHint：只在两个口径不同时提示", () => {
   });
 
   it("口径不同时写明全量值", () => {
+    // 用 8.4 而不是 8.35：8.35 在二进制里是 8.3499…，toFixed(1) 得 8.3，
+    // 断言写成 8.4% 会红（首版即踩中，CI 抓到）
     expect(
-      coverageScopeHint({ coverage_pct: 8.35, eligible_coverage_pct: 100 })
+      coverageScopeHint({ coverage_pct: 8.4, eligible_coverage_pct: 100 })
     ).toBe("含货基/现金的全量口径 8.4%");
   });
 
