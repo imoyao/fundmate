@@ -1,38 +1,22 @@
 <template>
-  <div
+  <!-- 一次性告知横幅：实时估值免责说明；关闭持久化到 localStorage，刷新不再弹出。
+       #2716 起壳由 SoftBanner（warning + dense）承担，持久 dismiss 语义留在本组件 -->
+  <SoftBanner
     v-if="visible"
     class="realtime-warning-banner"
-    :style="{
-      backgroundColor: 'var(--color-warning-20)',
-      color: 'var(--text-primary)',
-      border: '1px solid var(--color-warning)'
-    }"
+    variant="warning"
+    icon="ep:warning-filled"
+    dense
+    dismissible
+    @close="dismiss"
   >
-    <!-- 文本区：图标 + 提示文字 左对齐 -->
-    <div class="realtime-warning-banner__text">
-      <IconifyIconOffline
-        icon="ep:warning-filled"
-        class="mr-2 text-sm shrink-0"
-        :style="{ color: 'var(--color-warning-ink)' }"
-      />
-      <span>实时估值基于历史季报计算，不代表最终净值，仅供参考。</span>
-    </div>
-
-    <!-- 关闭按钮：隐藏本横幅并持久化，刷新不再弹出；重新开启实时估值功能时横幅再次出现 -->
-    <el-button
-      class="realtime-warning-banner__close"
-      size="small"
-      @click="dismiss"
-    >
-      <IconifyIconOffline icon="ep:close" class="mr-1" />
-      关闭
-    </el-button>
-  </div>
+    <span>实时估值基于历史季报计算，不代表最终净值，仅供参考。</span>
+  </SoftBanner>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { REALTIME_BANNER_DISMISS_KEY } from "./constants";
 
 // 横幅显隐：实时估值功能开启（外层 v-if）且用户未关闭时才显示。
@@ -55,47 +39,3 @@ function dismiss() {
   }
 }
 </script>
-
-<style scoped>
-/* 紧凑化（#1281 多轮）：纵向 8→6→4、下外边距 16→8→4、字号 13→12。
-   本横幅是「一次性告知」，用户看完即关，不该长期压占首屏——压缩后只占约 30px，
-   把首屏高度让给表格。 */
-.realtime-warning-banner {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
-  margin-bottom: 4px;
-  font-size: var(--text-label);
-  border-radius: 8px;
-}
-
-/* 文本区左对齐：图标 + 文案靠左排布 */
-.realtime-warning-banner__text {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  min-width: 0;
-  text-align: left;
-}
-
-/* 关闭按钮：带边框的明确按钮，点击区域清晰 */
-.realtime-warning-banner__close {
-  flex-shrink: 0;
-  color: var(--text-secondary);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  transition:
-    color 150ms ease,
-    border-color 150ms ease,
-    background-color 150ms ease;
-}
-
-.realtime-warning-banner__close:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-hover);
-  border-color: var(--border-default);
-}
-</style>

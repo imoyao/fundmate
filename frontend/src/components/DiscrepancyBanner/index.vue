@@ -8,6 +8,7 @@
   - 取数、会话级 dismiss、路由监听 → `useDiscrepancyBanner.ts`
 -->
 <script setup lang="ts">
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { COLLAPSED_LIMIT } from "./helpers";
 import { useDiscrepancyBanner } from "./useDiscrepancyBanner";
 import DiscrepancyList from "./DiscrepancyList.vue";
@@ -30,29 +31,14 @@ const {
 </script>
 
 <template>
-  <div
+  <SoftBanner
     v-if="routeAllowed && !loading && !dismissed && count > 0"
     class="recon-banner"
-    role="alert"
+    variant="warning"
+    icon="ep:warning-filled"
+    dismissible
+    @close="dismiss"
   >
-    <div class="recon-banner__icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
-        <path
-          d="M12 4.5L21 19.5H3L12 4.5Z"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linejoin="round"
-        />
-        <path
-          d="M12 10v4"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-        <circle cx="12" cy="16.6" r="1" fill="currentColor" />
-      </svg>
-    </div>
-
     <div class="recon-banner__body">
       <!-- 唯一的强调数字：待处理条数。字号走 --text-num-hero 字阶令牌（不写死 24px），
            其余数字一律用次级墨色，避免整屏都在喊。 -->
@@ -97,50 +83,14 @@ const {
         差异意味着账上的数量或成本与流水推演对不上，可能影响持仓市值与收益。请到对账工作台核对处理。
       </p>
     </div>
-
-    <button
-      type="button"
-      class="recon-banner__close"
-      title="本次会话不再提示（刷新后恢复）"
-      aria-label="本次会话不再提示"
-      @click="dismiss"
-    >
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
-        <path
-          d="M6 6l12 12M18 6L6 18"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-        />
-      </svg>
-    </button>
-  </div>
+  </SoftBanner>
 </template>
 
 <style scoped>
 /*
-  语义色：pending 差异是「需关注」而非「错误」，故取 warning 色族而非 danger。
-  --color-warning 仅作底色/边框（白底仅 1.68:1，不可作前景），文字走
-  --color-warning-ink（白底 5.71:1）。
+  #2716 起壳（底色/边框/图标/close 按钮）由 SoftBanner warning variant 承担，
+  本文件只保留正文排版：标题 / 强调数字 / 行动排 / 说明句。
 */
-.recon-banner {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 12px 14px;
-  margin-bottom: 16px;
-  color: var(--text-primary);
-  background: var(--color-warning-20);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-sm, 8px);
-}
-
-.recon-banner__icon {
-  flex: none;
-  margin-top: 2px;
-  color: var(--color-warning-ink);
-}
-
 .recon-banner__body {
   flex: 1 1 auto;
   min-width: 0;
@@ -216,24 +166,5 @@ const {
   font-size: var(--text-label, 13px);
   line-height: 20px;
   color: var(--text-tertiary-ink);
-}
-
-.recon-banner__close {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm, 8px);
-  transition: background-color 0.15s ease;
-}
-
-.recon-banner__close:hover {
-  background: var(--color-warning-20);
 }
 </style>

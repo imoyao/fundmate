@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import {
   listGhostDuplicates,
   type GhostDuplicateGroupItem
@@ -130,30 +131,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div
+  <SoftBanner
     v-if="!loading && !dismissed && groups.length > 0"
     class="ghost-dup-banner"
-    role="alert"
+    variant="danger"
+    icon="ep:warning-filled"
+    dismissible
+    @close="dismiss"
   >
-    <div class="ghost-dup-banner__icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
-        <circle
-          cx="12"
-          cy="12"
-          r="9"
-          stroke="currentColor"
-          stroke-width="1.6"
-        />
-        <path
-          d="M12 7.5v5"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-        <circle cx="12" cy="15.6" r="1.1" fill="currentColor" />
-      </svg>
-    </div>
-
     <div class="ghost-dup-banner__body">
       <p class="ghost-dup-banner__title">
         检测到
@@ -221,50 +206,12 @@ onMounted(async () => {
         另有 {{ ignoredCount }} 组已忽略，可在对账工作台域 D 撤销。
       </p>
     </div>
-
-    <button
-      type="button"
-      class="ghost-dup-banner__close"
-      title="本次会话不再提示（刷新后恢复）"
-      aria-label="本次会话不再提示"
-      @click="dismiss"
-    >
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
-        <path
-          d="M6 6l12 12M18 6L6 18"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-        />
-      </svg>
-    </button>
-  </div>
+  </SoftBanner>
 </template>
 
 <style scoped>
-.ghost-dup-banner {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 12px 14px;
-  margin-bottom: 16px;
-  color: var(--color-rise-ink);
-
-  /* #2156 残留5：背景由品牌直调 --brand-100 改为语义错误框令牌
-     --color-danger-10（底色）/ --color-danger-30（描边），与 UploadArea、
-     SummaryPanel 的错误框先例一致；文字沿用 #1599 已裁决的 --color-rise-ink
-     （色相 8° 同族、对比度更优）。暗色下这俩 alpha 令牌在暗底合成，轮廓不丢。 */
-  background: var(--color-danger-10);
-  border: 1px solid var(--color-danger-30);
-  border-radius: var(--radius-sm, 8px);
-}
-
-.ghost-dup-banner__icon {
-  flex: none;
-  margin-top: 2px;
-  color: var(--color-rise-ink);
-}
-
+/* #2716 起壳（danger-10 底 / danger-30 边 / 图标 / close）由 SoftBanner danger
+   variant 承担；本文件保留正文排版与显式文字色（--color-rise-ink 系）。 */
 .ghost-dup-banner__body {
   flex: 1 1 auto;
   min-width: 0;
@@ -371,24 +318,5 @@ onMounted(async () => {
   line-height: 20px;
   color: var(--color-rise-ink);
   opacity: 0.8;
-}
-
-.ghost-dup-banner__close {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  color: var(--color-rise-ink);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm, 8px);
-  transition: background-color 0.15s ease;
-}
-
-.ghost-dup-banner__close:hover {
-  background: var(--color-danger-20);
 }
 </style>
