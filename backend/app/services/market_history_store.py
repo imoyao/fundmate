@@ -88,9 +88,7 @@ def save_series(
 
     existing = {
         r.trade_date
-        for r in db.query(MarketAssetHistory.trade_date)
-        .filter(MarketAssetHistory.asset_key == asset_key)
-        .all()
+        for r in db.query(MarketAssetHistory.trade_date).filter(MarketAssetHistory.asset_key == asset_key).all()
     }
 
     added = 0
