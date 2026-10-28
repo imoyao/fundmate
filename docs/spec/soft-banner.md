@@ -48,15 +48,29 @@ slots: default（正文自由内容）、actions（右侧水平行动区，Eacco
 - class/attrs 透传根元素：消费方传 `class="recon-banner"` 可**保留 e2e 锚点类名**（4 个既有 spec 零改动）。
 - 明确**不做**的事：dismiss 状态管理（各消费方语义不同）、`success` variant（暂无消费方，首个 success banner 出现时补 `--color-success-20` 类令牌再启用）、title/count props（数字在句中的拼接用 slot 自由排版，组件提供 slotted 样式类）。
 
-## 4. variant 色表（全令牌，暗色经 dark.scss 同名覆盖自动成立）
+## 4. variant 色表（全令牌；暗色经 dark.scss 同名覆盖，两个半透明底令牌除外，见下）
 
 | variant | 背景 | 边框 | 图标 | 正文默认色 |
 |---|---|---|---|---|
 | info | `--bg-soft` | `--border-default` | `--color-info-ink` | `--text-secondary` |
 | warning | `--color-warning-20` | `--color-warning` | `--color-warning-ink` | `--text-primary` |
-| danger | `--color-danger-10` | `--color-danger-30` | `--color-danger-ink` | `--color-danger-ink` |
+| danger | `--color-danger-10` | `--color-danger-30` | `--color-danger-ink` | `--text-primary` |
 
-关键决策：**danger 的 ink 用 `--color-danger-ink`**，不再借用 GhostDuplicateBanner 原来的 `--color-rise-ink`（「涨」语义的文字级令牌借作警示，语义误用；#d4364a 白底 4.74:1 达标）。Ghost 内部元素样式保留原类名与显式色，视觉零变化，仅壳层文字基准换正。
+关键决策（2026-10-28 修正，源 #2726）：**danger 的正文走 `--text-primary`，不把文字染红**。
+
+原裁决是「danger 的 ink 用 `--color-danger-ink`，不借 GhostDuplicateBanner 原来的 `--color-rise-ink`（语义误用），且 `#d4364a` **白底** 4.74:1 达标」——语义那半句成立，对比度那半句**不成立**：`--color-danger-10` 是 `rgba(212,54,74,.1)` 半透明底，正文并不在白底上。按令牌真值 alpha 合成重算（亮色）：
+
+| 正文色 | danger-10 over `--bg-card` | over `--bg-page` | over `--bg-soft` |
+|---|---|---|---|
+| `--color-danger-ink` #d4364a（原） | 4.11:1 ❌ | 3.98:1 ❌ | 3.65:1 ❌ |
+| `--color-rise-ink` #c0341f（它替掉的） | 4.85:1 ✅ | 4.70:1 ✅ | 4.31:1 ❌ |
+| `--text-primary` #2d2a24（现） | 12.39:1 ✅ | 12.01:1 ✅ | 11.01:1 ✅ |
+
+即：原裁决在**语义**上纠正了借用，却在**对比度**上退了一步（4.70 → 3.98）。改为 `--text-primary` 后，危险语义由**图标**（`--color-danger-ink`，图形门槛 3:1，实测 4.11/3.98 达标）+ 边框 + 底色承担，与 `warning` 档同一做法——两档都不靠染色文字表达语义。
+
+**口径（必须记住）**：`--color-warning-20` / `--color-danger-10` 是半透明色，**引用任何「白底 X:1 达标」的数字前必须先合成**，否则结论会偏 0.5~0.9。暗色侧这两个底令牌**未在 `dark.scss` 覆盖**（沿用亮色 rgba），但正文 `--text-primary` 合成后为 10.63 / 11.71 / 9.71，图标 `--color-danger-ink` 为 5.04 / 5.58 / 4.57，均达标。
+
+Ghost 内部元素样式保留原类名与显式色（`--color-rise-ink`），视觉零变化；只有壳层默认文字基准变了，而 Ghost 内部全部显式着色，故其渲染不受本次修正影响。
 
 ## 5. 迁移映射与视觉 delta
 
@@ -72,6 +86,7 @@ slots: default（正文自由内容）、actions（右侧水平行动区，Eacco
 
 - 组件为纯壳（无派生逻辑），本仓 vitest 为 node 环境无 DOM（无 @vue/test-utils，见 quickTypeModel.spec.ts 头注约定），**不写 mount 单测**；行为由消费方既有 e2e 覆盖：`discrepancy-banner-slim.spec.ts`（recon-banner 系列）、`eaccount-draft.spec.ts` + `import-draft.spec.ts`（draft-banner）、`reconcile-workbench-head.spec.ts`（workbench-banner）——类名全保留，断言零改动。
 - 门禁：vue-tsc / eslint / prettier / 页面规模门禁 / CSS 令牌守卫。
+- 对比度复核口径（#2726 起）：半透明底令牌（`--color-warning-20` / `--color-danger-10` / `--color-danger-30`）**不得**直接拿「白底 X:1」的数字下结论——必须 `over(fg, alpha, 底层)` 合成后再算 WCAG 比，且底层取 `--bg-card` / `--bg-page` / `--bg-soft` 三者中**最差**的那个。当前实测值见 §4 表。
 
 ## 7. 后续批次（不在本 PR）
 
