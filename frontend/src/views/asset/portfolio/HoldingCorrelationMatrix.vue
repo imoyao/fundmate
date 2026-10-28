@@ -124,8 +124,8 @@ const ratioText = computed(() => computedRatioText(props.matrix));
 
   &__index,
   &__weight {
-    color: var(--text-tertiary-ink);
     font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary-ink);
   }
 
   &__weight {
@@ -141,8 +141,8 @@ const ratioText = computed(() => computedRatioText(props.matrix));
 
   &__cell {
     font-weight: 600;
-    text-align: center;
     font-variant-numeric: tabular-nums;
+    text-align: center;
 
     &.is-self {
       color: var(--text-disabled);

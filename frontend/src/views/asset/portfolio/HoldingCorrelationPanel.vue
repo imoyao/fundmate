@@ -146,8 +146,8 @@ onMounted(load);
 
   &__error {
     display: flex;
-    align-items: center;
     gap: 8px;
+    align-items: center;
   }
 
   &__tally {
@@ -168,8 +168,8 @@ onMounted(load);
   &__tally-count {
     font-size: var(--text-num-strong);
     font-weight: 600;
-    color: var(--text-primary);
     font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
 
     &.is-high {
       color: var(--color-danger-ink);
