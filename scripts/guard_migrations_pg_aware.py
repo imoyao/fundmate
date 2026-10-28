@@ -63,18 +63,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_REL = 'backend/app/core/migrations.py'
 
 #: 仍允许「非 SQLite 就跳过」的函数（2026-10-23，#2534 首批收敛 18 个后冻结）。
-#: 这三个的 SQLite 路径是**整表重建 / SQLite 专属 SQL**，PG 分支需另写，不能
+#: 这些函数的 SQLite 路径是**整表重建 / SQLite 专属 SQL**，PG 分支需另写，不能
 #: 机械转换；收敛一个就从这里删一个（守卫第 2 条会拦「已无早退但条目还在」）。
 #: 删条目必须与「删早退」同一个 PR——分开就会有一段「代码已修、基线还挂着」的
 #: 窗口，那时任何新早退都能拿旧条目当掩护。
 #:
-#: `migrate_positions_symbol_norm` 已收敛（#2689）：PG 侧只差三处方言——加列走
-#: `_add_column_sql`、聚合 `STRING_AGG`、`HAVING` 只写聚合表达式——两侧都有测试
-#: （SQLite 真库 / `migrations_pg_fake.PgFake`），故条目已删。
+#: 收敛记录（#2689）：
+#:   - `migrate_positions_symbol_norm`：PG 侧只差三处方言（加列走 `_add_column_sql`、
+#:     聚合 `STRING_AGG`、`HAVING` 只写聚合表达式），两侧均有用例（#2695）；
+#:   - `migrate_watchlist_unique_key` / `migrate_watchlist_family_scoped_unique_key`：
+#:     PG 侧不重建 —— 中间形态 (symbol, market, venue) 直接跳过，终态由
+#:     `_ensure_watchlist_family_unique_key_pg` 建**同名**唯一索引（幂等，
+#:     `CREATE UNIQUE INDEX IF NOT EXISTS`，先查重复行并给修复口径）。
 BASELINE_SKIP_FUNCTIONS = frozenset(
     {
-        'migrate_watchlist_unique_key',
-        'migrate_watchlist_family_scoped_unique_key',
+        # 最后一条：由 fund_managers 任期拆分的 PR 收敛（三者进 dev 后本集合为空）
         'migrate_fund_managers_split_tenures',
     }
 )
@@ -167,22 +170,25 @@ def _inject_new_skip(source: str) -> str:
     raise AssertionError('探针未命中：migrate_transaction_fee_breakdown 不在文件中')
 
 
-def _drop_baseline_skip(source: str) -> str:
-    """变异探针：把基线内函数的早退 return 改成普通内容（模拟「收敛了但没收紧基线」）。
+def _probe_baseline_drift(source: str) -> list[str]:
+    """变异探针：模拟「代码已收敛、基线还挂着条目」（守卫第 2 条）。
 
-    刻意不删行：删掉 return 会留下空 if 体，ast.parse 直接语法错，测到的就不是
-    「基线漂移」而是「语法坏」——探针必须只动一个变量。
+    早先的实现是「把某个基线内函数的早退改坏」，但那要求基线里至少有一个函数 ——
+    基线被删空（#2689 的目标状态）时，探针会退化成「找不到对象」的断言失败，
+    看上去像守卫坏了。这里改成往基线**临时塞一条本身没有早退的函数**，
+    守卫第 2 条必须报「已无早退」；跑完还原，不留全局副作用。
     """
-    lines = source.splitlines()
-    target = 'def migrate_watchlist_unique_key('
-    for idx, line in enumerate(lines):
-        if line.startswith(target):
-            for j in range(idx + 1, len(lines)):
-                if _SKIP_MARKER in lines[j] and lines[j].lstrip().startswith('return'):
-                    lines[j] = lines[j].replace(_SKIP_MARKER, '该引擎无需重建')
-                    return '\n'.join(lines) + '\n'
-            raise AssertionError('探针未命中：基线函数内找不到早退 return')
-    raise AssertionError('探针未命中：migrate_watchlist_unique_key 不在文件中')
+    saved = globals()['BASELINE_SKIP_FUNCTIONS']
+    names, skips = _parse_migrations(source)
+    clean = sorted(n for n in names if n not in skips)
+    if not clean:
+        raise AssertionError('探针失效：文件里没有「无早退」的函数可当基线漂移样本')
+    try:
+        # 既有的早退照旧放行，只多挂一条已收敛的条目 ⇒ 唯一的违规来源就是「基线漂移」
+        globals()['BASELINE_SKIP_FUNCTIONS'] = frozenset(set(skips) | {clean[0]})
+        return check_source(source)
+    finally:
+        globals()['BASELINE_SKIP_FUNCTIONS'] = saved
 
 
 def _self_test() -> int:
@@ -202,7 +208,7 @@ def _self_test() -> int:
         ('注入新早退（基线外函数）必须报红', any('不在' in p and '基线' in p for p in injected), f'未报红：{injected}')
     )
 
-    dropped = check_source(_drop_baseline_skip(real))
+    dropped = _probe_baseline_drift(real)
     probes.append(('基线内函数删掉早退必须提示收紧基线', any('已无' in p for p in dropped), f'未报红：{dropped}'))
 
     phantom = sorted(BASELINE_SKIP_FUNCTIONS - set(_parse_migrations(real)[0]))

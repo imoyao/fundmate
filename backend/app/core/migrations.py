@@ -56,6 +56,10 @@ _WATCHLIST_GROUP_COLUMNS = (
 #: watchlist_groups.family_id 的索引（模型声明 index=True → 默认名 ix_<表>_<列>）
 _WATCHLIST_GROUP_FAMILY_INDEX = 'ix_watchlist_groups_family_id'
 
+#: watchlist 终态唯一键的名字，与模型 `UniqueConstraint(..., name=...)` 完全一致
+#: （PG 侧建的是同名唯一索引，SQLite 侧重建后表内是同名约束；两条路径因此同名可查）。
+_WATCHLIST_FAMILY_UNIQUE_INDEX = 'uk_watchlist_family_symbol_market_venue'
+
 
 def _is_postgres(engine: Engine) -> bool:
     url = str(getattr(engine, 'url', '') or '')
@@ -319,12 +323,19 @@ def migrate_watchlist_unique_key(engine: Engine) -> str:
     防 000001 上证指数 vs 平安银行跨市场同码冲突。SQLite 不支持直接改约束，
     走「建新表→拷贝→删旧→改名」标准重建流程。
 
-    仅 SQLite 需要此重建（Postgres 等由 ORM 模型 / 迁移工具负责唯一键，无 sqlite_master
-    概念）；非 SQLite 引擎直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+    ## PG 侧跳过的理由（#2689）
+
+    本函数的目标 `(symbol, market, venue)` 是 SQLite 重建路径上的**中间形态**：紧随其后的
+    :func:`migrate_watchlist_family_scoped_unique_key` 会再把它换成模型声明的终态
+    `(family_id, symbol, market, venue)`。PG 支持 `ALTER TABLE ADD CONSTRAINT`，
+    先在 PG 上建一遍中间键、下一条再删掉重建，纯属白跑 DDL，且两步之间若有并发写入，
+    中间键反而会误伤（跨家庭同标的被拦）。故 PG 侧**直接由下一个迁移建终态**，
+    这里只报一句可读的状态，不做任何 DDL —— 与「非 SQLite 就跳过」的区别在于：
+    那条路径下**没人**建终态，这里有人建（见 helper
+    :func:`_ensure_watchlist_family_unique_key_pg`）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎（如 Supabase Postgres），唯一键由 ORM 模型/迁移工具负责，无需重建'
+    if _is_postgres(engine):
+        return '[SKIP] PG 侧跳过中间形态唯一键 (symbol, market, venue)，终态由 family 维度迁移直接建'
 
     with engine.connect() as conn:
         ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'")).scalar()
@@ -375,6 +386,81 @@ def migrate_watchlist_unique_key(engine: Engine) -> str:
     raise RuntimeError('watchlist 唯一键迁移后校验失败')
 
 
+def _ensure_watchlist_family_unique_key_pg(engine: Engine) -> str:
+    """PG 侧建 watchlist 终态唯一键（幂等）：`CREATE UNIQUE INDEX IF NOT EXISTS`（#2689）。
+
+    ## 为什么不复刻 SQLite 的整表重建
+
+    PG 不需要重建：`ALTER TABLE ... ADD CONSTRAINT` 就能加约束。但它**没有
+    `IF NOT EXISTS`** —— 重复执行报 `constraint already exists`，于是每次启动都得先
+    反射再决定发不发 DDL，比一条幂等 DDL 更脆、也更难读。`CREATE UNIQUE INDEX IF NOT
+    EXISTS` 语义等价（SQLAlchemy 在 PG 上把 `UniqueConstraint` 落地的也是一条唯一索引），
+    天然幂等；索引名沿用模型里的约束名 `uk_watchlist_family_symbol_market_venue`，
+    两条路径（SQLite 重建 / PG 建索引）因此「唯一键叫什么」一致。
+
+    ## 为什么要先查重复行
+
+    PG 上这个键**可能从未存在过**（两条迁移此前都在非 SQLite 上早退）。直接
+    `CREATE UNIQUE INDEX` 会抛 `duplicate key value violates unique constraint`，
+    只说「有重复」、不说哪几组各几行，运维还得自己写聚合 SQL。故先用标准 SQL 查出
+    分组明细、显式抛错并给修复口径（与 `positions.symbol_norm` 同款处理）。
+
+    ## NULL 口径
+
+    唯一索引把 NULL 视为互不相等 ⇒ 键列含 NULL 的行本就不受该约束，检测时排除，
+    只在日志里报数（这类行通常来自 venue 未回填的历史数据，由前一步
+    :func:`migrate_watchlist_venue_not_null` 处理）。
+    """
+    if not _table_exists(engine, 'watchlist'):
+        return '[SKIP] watchlist 表不存在（空库，init_db 将按新约束建表）'
+
+    cols = {c['name'] for c in inspect(engine).get_columns('watchlist')}
+    missing = [c for c in ('family_id', 'symbol', 'market', 'venue') if c not in cols]
+    if missing:
+        raise RuntimeError(
+            f'watchlist 缺列 {missing}，无法建家庭维度唯一键；'
+            '应由 migrate_watchlist_user_domain_columns 先补 family_id（init_db 的调用顺序已保证）'
+        )
+
+    key_cols = '(family_id, symbol, market, venue)'
+    key_names = ('family_id', 'symbol', 'market', 'venue')
+    not_null = ' AND '.join(f'{c} IS NOT NULL' for c in key_names)
+    with engine.connect() as conn:
+        nulls = conn.execute(text(f'SELECT COUNT(*) FROM watchlist WHERE NOT ({not_null})')).scalar() or 0
+        dupes = conn.execute(
+            text(
+                'SELECT family_id, symbol, market, venue, COUNT(*) AS n FROM watchlist '
+                f'WHERE {not_null} '
+                'GROUP BY family_id, symbol, market, venue HAVING COUNT(*) > 1'
+            )
+        ).fetchall()
+
+    if nulls:
+        logger.warning(f'[watchlist 唯一键] {nulls} 行键列含 NULL，唯一索引对它们不生效（先跑 venue 回填）')
+    if dupes:
+        detail = '\n'.join(
+            f'  - family_id={d[0]} symbol={d[1]!r} market={d[2]!r} venue={d[3]!r} 共 {d[4]} 行' for d in dupes
+        )
+        raise RuntimeError(
+            f'watchlist 存在 {len(dupes)} 组「同家庭同标的」重复行，唯一键无法建立：\n{detail}\n'
+            '修复（自选条目没有份额/成本口径，不需要合并计算，保留每组 id 最小的一行即可）：\n'
+            '  SELECT family_id, symbol, market, venue, MIN(id) AS keep, COUNT(*) '
+            'FROM watchlist GROUP BY family_id, symbol, market, venue HAVING COUNT(*) > 1;\n'
+            '  -- 核对后删掉 keep 以外的行，再重启（迁移会重跑）'
+        )
+
+    created = _ensure_index(
+        engine,
+        _WATCHLIST_FAMILY_UNIQUE_INDEX,
+        f'CREATE UNIQUE INDEX IF NOT EXISTS {_WATCHLIST_FAMILY_UNIQUE_INDEX} ON watchlist {key_cols}',
+        table='watchlist',
+    )
+    if created:
+        logger.info(f'[OK] watchlist 唯一键已建为 {key_cols}（PG）')
+        return f'[OK] watchlist 唯一键已建为 {key_cols}（PG）'
+    return '[SKIP] 家庭维度唯一键已存在，无需迁移'
+
+
 def migrate_watchlist_family_scoped_unique_key(engine: Engine) -> str:
     """自选表唯一键补 family_id：(symbol, market, venue) → (family_id, symbol, market, venue)（#1491 评审阻断项）。
 
@@ -384,12 +470,12 @@ def migrate_watchlist_family_scoped_unique_key(engine: Engine) -> str:
     INSERT 却撞 DB 唯一约束 → IntegrityError(500)。即一个家庭关注过的标的，其他家庭再也加不进来。
 
     与前一个迁移同法：SQLite 不支持改约束，走「建新表→拷贝→删旧→改名」标准重建流程；
-    非 SQLite（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    **PG 侧走另一条路**（#2689）：不重建、直接建终态唯一索引，见
+    :func:`_ensure_watchlist_family_unique_key_pg`。
     兼容两种前序形态：(symbol, market, venue) 与更旧的 (symbol, venue)。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎（如 Supabase Postgres），唯一键由 ORM 模型/迁移工具负责，无需重建'
+    if _is_postgres(engine):
+        return _ensure_watchlist_family_unique_key_pg(engine)
 
     with engine.connect() as conn:
         ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'")).scalar()

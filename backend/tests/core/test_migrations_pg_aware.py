@@ -41,7 +41,9 @@ from app.core.migrations import (
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
     migrate_positions_snapshot_anchor,
+    migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
+    migrate_watchlist_unique_key,
     migrate_watchlist_venue_not_null,
 )
 
@@ -311,6 +313,77 @@ def test_index_exists_uses_reflection_on_pg(monkeypatch):
     assert _index_exists(fake.engine, 't', 'ix_t_c') is False
     fake.indexes.setdefault('t', []).append('ix_t_c')
     assert _index_exists(fake.engine, 't', 'ix_t_c') is True
+
+
+# ── 约束类（#2689）：PG 不重建，直接建同名唯一索引且幂等 ─────────────────
+
+
+def test_pg_watchlist_intermediate_unique_key_skipped_without_ddl(monkeypatch):
+    """中间形态 `(symbol, market, venue)`：PG 上不建，且不误发 SQLite 专属 SQL。
+
+    钉的是「跳过有理由、有人接盘」——终态由下一个迁移直接建，不是旧契约那种
+    「谁也不管」的早退。
+    """
+    fake = PgFake({'watchlist': ['id', 'symbol', 'market', 'venue', 'family_id']})
+    fake.install(monkeypatch)
+
+    result = migrate_watchlist_unique_key(fake.engine)
+
+    assert result.startswith('[SKIP]'), result
+    assert '非 SQLite' not in result
+    assert 'family' in result, f'跳过必须说明谁负责建终态：{result}'
+    assert fake.sql == [], f'PG 上不该发任何 DDL / 不该查 sqlite_master：{fake.sql}'
+
+
+def test_pg_watchlist_family_unique_key_created_and_idempotent(monkeypatch):
+    """终态唯一键：PG 上建成同名唯一索引；第二次跑不再发 DDL。"""
+    fake = PgFake({'watchlist': ['id', 'symbol', 'market', 'venue', 'family_id']})
+    fake.install(monkeypatch)
+
+    result = migrate_watchlist_family_scoped_unique_key(fake.engine)
+
+    assert result.startswith('[OK]'), result
+    assert '非 SQLite' not in result
+    assert 'uk_watchlist_family_symbol_market_venue' in fake.indexes['watchlist']
+    assert (
+        'CREATE UNIQUE INDEX IF NOT EXISTS uk_watchlist_family_symbol_market_venue '
+        'ON watchlist (family_id, symbol, market, venue)' in fake.sql
+    ), fake.sql
+
+    fake.sql.clear()
+    assert migrate_watchlist_family_scoped_unique_key(fake.engine).startswith('[SKIP]')
+    assert not any('CREATE' in s for s in fake.sql), f'索引已存在时不该再发 DDL：{fake.sql}'
+
+
+def test_pg_watchlist_family_unique_key_blocks_on_duplicates(monkeypatch):
+    """存量有「同家庭同标的」重复行时：显式抛错 + 修复口径，而不是让 CREATE INDEX 炸一句空话。
+
+    注：`PgFake` 对每条 SELECT 都返回同一份 `rows`，故它同时充当 COUNT 与分组查询的结果；
+    这里只有 `rows[0][0]`（family_id）与分组明细被真实读取，够钉判定逻辑。
+    """
+    fake = PgFake(
+        {'watchlist': ['id', 'symbol', 'market', 'venue', 'family_id']},
+        rows=[(1, '600519', 'CN_A', 'EXCHANGE', 2)],
+    )
+    fake.install(monkeypatch)
+
+    with pytest.raises(RuntimeError) as exc:
+        migrate_watchlist_family_scoped_unique_key(fake.engine)
+
+    msg = str(exc.value)
+    assert "'600519'" in msg and 'CN_A' in msg and '共 2 行' in msg
+    assert 'MIN(id)' in msg
+    # 抛错时不得留下半成品索引
+    assert 'uk_watchlist_family_symbol_market_venue' not in fake.indexes.get('watchlist', [])
+
+
+def test_pg_watchlist_unique_keys_missing_table_skips(monkeypatch):
+    """空库（表还没建）：两条迁移都安全 skip，不抛错阻断启动。"""
+    fake = PgFake({})
+    fake.install(monkeypatch)
+
+    assert migrate_watchlist_unique_key(fake.engine).startswith('[SKIP]')
+    assert migrate_watchlist_family_scoped_unique_key(fake.engine).startswith('[SKIP]')
 
 
 def test_no_bare_alter_table_in_converted_migrations():
