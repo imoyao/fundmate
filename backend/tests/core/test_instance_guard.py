@@ -277,3 +277,149 @@ def test_enforce_passes_through_when_free(tmp_path, guard_active):
 
     assert instance_guard._held_fd is not None
     assert lock.exists()
+
+
+# ─────────── #2728：`.env` 的 FLASK_DEBUG 也是重载开关 ───────────
+
+
+def _as_flask_run(monkeypatch, debug_value):
+    """复刻 `flask run` 下 `create_app()` 期的环境。
+
+    `FLASK_RUN_FROM_CLI` 由 flask CLI 的 `make_context` 设置；`FLASK_DEBUG` 由
+    `main.py` 的 `load_dotenv()`（`.env`）或 `_set_debug` 回调（`--debug/--no-debug`）
+    写入——两者都在工厂函数执行前就位。
+    """
+    monkeypatch.setenv('FLASK_RUN_FROM_CLI', 'true')
+    monkeypatch.delenv('WERKZEUG_RUN_MAIN', raising=False)
+    if debug_value is None:
+        monkeypatch.delenv('FLASK_DEBUG', raising=False)
+    else:
+        monkeypatch.setenv('FLASK_DEBUG', debug_value)
+    monkeypatch.setattr(instance_guard, '_in_test_process', lambda: False)
+
+
+@pytest.mark.parametrize(
+    'argv',
+    [
+        ['flask', 'run', '--port', '8000'],
+        ['python.exe', '-m', 'flask', '--app', 'app.main:app', 'run', '--port', '8000'],
+    ],
+)
+def test_env_debug_counts_as_reloader_switch(tmp_path, monkeypatch, argv):
+    """`.env` 的 `FLASK_DEBUG=1` 下 `flask run` 照样有父/子进程，父进程不得持锁（#2728）。
+
+    只查 argv 会让父进程被判成服务进程去持锁，真正服务的子进程随即 `exit 4`，且文案
+    报「持有者 pid=<自己的父进程>」——把人往「有僵尸实例」方向带。修复前本用例在
+    第一个断言处即转红（实测：父进程 `_held_fd=5`、子进程 exit 4）。
+    """
+    _as_flask_run(monkeypatch, '1')
+    monkeypatch.setattr(sys, 'argv', argv)
+    lock = tmp_path / 'app_instance.lock'
+
+    assert instance_guard.is_reloader_parent() is True
+
+    ok, reason = instance_guard.acquire_web_instance_lock(lock)
+
+    assert ok
+    assert '重载父进程' in reason
+    assert instance_guard._held_fd is None, '父进程持锁会让服务子进程拿不到锁（exit 4）'
+
+    held, fd = acquire_lock(lock)
+    assert held, '父进程探查后必须真释放，否则热重载子进程起不来'
+    release_lock(fd)
+
+
+def test_env_debug_without_flask_run_cli_still_guards(tmp_path, monkeypatch):
+    """没有 `flask run` 上下文时，`.env` 的 `FLASK_DEBUG=1` **不得**被当成重载开关。
+
+    `app/main.py` 第 9 行无条件 `load_dotenv()`，所以 pytest / `flask db upgrade` /
+    脚本 / scheduler 里同样能看到 `FLASK_DEBUG=1`。若无条件采信，这些进程会被判成
+    「重载父进程」→ 只探查不持锁 → 守门在这些路径上静默失效，**比 #2728 本身更糟**。
+    """
+    monkeypatch.delenv('FLASK_RUN_FROM_CLI', raising=False)
+    monkeypatch.delenv('WERKZEUG_RUN_MAIN', raising=False)
+    monkeypatch.setenv('FLASK_DEBUG', '1')
+    monkeypatch.setattr(instance_guard, '_in_test_process', lambda: False)
+    monkeypatch.setattr(sys, 'argv', ['pytest', '-q'])
+    lock = tmp_path / 'app_instance.lock'
+
+    assert instance_guard.is_reloader_parent() is False
+
+    ok, reason = instance_guard.acquire_web_instance_lock(lock)
+
+    assert ok
+    assert '重载父进程' not in reason
+    assert instance_guard._held_fd is not None, '守门必须真持锁，不能被 .env 的 debug 开关放宽'
+    assert lock.exists()
+
+
+def test_env_debug_ignored_for_non_run_subcommand(tmp_path, monkeypatch):
+    """`flask db upgrade` 等子命令同样带 `FLASK_RUN_FROM_CLI=true`，但不拉 reloader。"""
+    _as_flask_run(monkeypatch, '1')
+    monkeypatch.setattr(sys, 'argv', ['flask', 'db', 'upgrade'])
+    lock = tmp_path / 'app_instance.lock'
+
+    assert instance_guard.is_reloader_parent() is False
+
+    ok, reason = instance_guard.acquire_web_instance_lock(lock)
+
+    assert ok
+    assert '重载父进程' not in reason
+    assert instance_guard._held_fd is not None
+
+
+@pytest.mark.parametrize('debug_value', ['0', 'false', 'no', ''])
+def test_env_debug_falsy_means_no_reloader(tmp_path, monkeypatch, debug_value):
+    """`FLASK_DEBUG` 为假值 → flask 不起 reloader，当前进程就是服务进程，必须真持锁。"""
+    _as_flask_run(monkeypatch, debug_value)
+    monkeypatch.setattr(sys, 'argv', ['flask', 'run', '--port', '8000'])
+    lock = tmp_path / 'app_instance.lock'
+
+    assert instance_guard.is_reloader_parent() is False
+
+    ok, reason = instance_guard.acquire_web_instance_lock(lock)
+
+    assert ok
+    assert '重载父进程' not in reason
+    assert instance_guard._held_fd is not None
+
+
+def test_env_debug_off_string_matches_flask_semantics(tmp_path, monkeypatch):
+    """`FLASK_DEBUG=off` 在 flask 眼里仍是「开」（`get_debug_flag` 只排除 0/false/no）。
+
+    判据必须与 flask **同源**：若按「更合理」的语义把 `off` 判成关，就会漏判父进程，
+    回到 #2728 的现场；这条用例正是防止后人「顺手把集合补全」。
+    """
+    _as_flask_run(monkeypatch, 'off')
+    monkeypatch.setattr(sys, 'argv', ['flask', 'run', '--port', '8000'])
+
+    assert instance_guard.is_reloader_parent() is True
+
+
+def test_env_debug_respects_no_reload(tmp_path, monkeypatch):
+    """`--no-reload` 压过 `.env` 的 `FLASK_DEBUG=1`：没有子进程，当前进程必须持锁。"""
+    _as_flask_run(monkeypatch, '1')
+    monkeypatch.setattr(sys, 'argv', ['flask', 'run', '--no-reload'])
+    lock = tmp_path / 'app_instance.lock'
+
+    assert instance_guard.is_reloader_parent() is False
+
+    ok, reason = instance_guard.acquire_web_instance_lock(lock)
+
+    assert ok
+    assert '重载父进程' not in reason
+    assert instance_guard._held_fd is not None
+
+
+def test_reloader_child_under_env_debug_is_guarded(tmp_path, monkeypatch):
+    """`.env FLASK_DEBUG=1` 起的重载**子进程**必须真守门（`WERKZEUG_RUN_MAIN` 优先）。"""
+    _as_flask_run(monkeypatch, '1')
+    monkeypatch.setenv('WERKZEUG_RUN_MAIN', 'true')
+    monkeypatch.setattr(sys, 'argv', ['flask', 'run', '--port', '8000'])
+    lock = tmp_path / 'app_instance.lock'
+
+    ok, _ = instance_guard.acquire_web_instance_lock(lock)
+
+    assert ok
+    assert lock.exists(), '服务子进程应当真正持有锁'
+    assert instance_guard._held_fd is not None
