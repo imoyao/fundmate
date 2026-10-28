@@ -24,6 +24,12 @@ confirm_date，同一笔交易两端显示可以不同天）； * - 类型着色
 涨红，卖出/取出 = 跌绿，分红等中性 = info * （原 getTxnTypeClass 判据，自
 useLedgerTransactions 上收）； * - 数量：formatQuantity（2 位小数 +
 千分位，份额不是货币不参与涨跌语义）。 */
+<script lang="ts">
+// 类型再导出：容器统一从 SFC 处 `import { type TransactionRow }`，真源在 `./model`
+// （结构与格式化拆出去是为了守住 `check_vue_size.mjs` 的 400 行门禁）。
+export type { TransactionRow } from "./model";
+</script>
+
 <script setup lang="ts">
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -31,32 +37,13 @@ import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import { txnTypeLabel } from "@/constants";
 import { formatQuantity } from "@/utils/format";
 import { pricePrecision } from "@/utils/pricePrecision";
-
-/**
- * 交易行（三端容器的最大公约数）。容器负责把各自接口返回映射到本结构：
- * - 详情页 TransactionRecord：字段同名（type/trade_date/quantity/price/amount/fee），可直接传；
- * - 账本 Tab LedgerTxnRow：txn_type → type；
- * - 持仓抽屉 getPositionTransactions 行：txn_type → type（spread 保留原字段，
- *   编辑弹窗所需的 notes/import_hash 运行时仍在，仅类型层面不收）。
- */
-export interface TransactionRow {
-  id: number;
-  /** 交易类型：buy/sell/dividend/dividend_reinvest/deposit/withdraw/split */
-  type: string;
-  trade_date?: string | null;
-  confirm_date?: string | null;
-  price?: number | null;
-  quantity?: number | null;
-  amount?: number | null;
-  fee?: number | null;
-  asset_type?: string | null;
-  position_name?: string;
-  symbol?: string;
-  account_name?: string;
-  /** 账户 ID：非空时账户名可点击跳转账户详情（/asset/ledgers/:id）；
-      空 = 未归档（如探市录入），保持纯文本——那里没有落点，链过去是坏的 */
-  ledger_id?: number | null;
-}
+import { txnStatusLabel, txnStatusTag } from "@/utils/transactionStatus";
+import {
+  compareTradeDate,
+  formatTradeDate,
+  typeClass,
+  type TransactionRow
+} from "./model";
 
 const props = withDefaults(
   defineProps<{
@@ -69,6 +56,10 @@ const props = withDefaults(
     showFee?: boolean;
     /** 账户列。仅 compact（详情页）使用 */
     showAccount?: boolean;
+    /** 状态列（成功 / 失败 / 已撤单 / 可撤单）：资产流水页使用（#2712 收编） */
+    showStatus?: boolean;
+    /** 备注列：资产流水页使用（#2712 收编） */
+    showNotes?: boolean;
     /** 操作列：编辑 / 删除按钮（hover 淡入）。删除需确认由容器负责 */
     showEdit?: boolean;
     showDelete?: boolean;
@@ -87,6 +78,8 @@ const props = withDefaults(
     showAsset: false,
     showFee: false,
     showAccount: false,
+    showStatus: false,
+    showNotes: false,
     showEdit: false,
     showDelete: false,
     sortable: false,
@@ -100,18 +93,6 @@ const emit = defineEmits<{
 }>();
 
 const hasActions = computed(() => props.showEdit || props.showDelete);
-
-/** 日期口径：交易日优先、确认日兜底（详见文件头） */
-function formatDate(row: TransactionRow): string {
-  return row.trade_date || row.confirm_date || "--";
-}
-
-/** 类型着色：买入/存入 = 涨红，卖出/取出 = 跌绿，分红等中性 = info */
-function typeClass(type: string): string {
-  if (type === "buy" || type === "deposit") return "txn-type--rise";
-  if (type === "sell" || type === "withdraw") return "txn-type--fall";
-  return "txn-type--info";
-}
 </script>
 
 <template>
@@ -129,7 +110,22 @@ function typeClass(type: string): string {
          而非手写两行 span。 -->
     <el-table-column v-if="showAsset" label="资产名称" width="200" fixed="left">
       <template #default="{ row }">
-        <ProductDisplay :name="row.position_name" :symbol="row.symbol" />
+        <!-- `position_id === null` = 持仓已删，流水仍在（#980 的「已删除」标记）。
+             标记收进共享组件后，资产流水页 / 账本 Tab 的语义一致，不必各写一段 slot。 -->
+        <div
+          class="txn-table__asset"
+          :class="{
+            'txn-table__asset--orphan':
+              (row as TransactionRow).position_id === null
+          }"
+        >
+          <ProductDisplay :name="row.position_name" :symbol="row.symbol" />
+          <span
+            v-if="(row as TransactionRow).position_id === null"
+            class="txn-table__deleted"
+            >已删除</span
+          >
+        </div>
       </template>
     </el-table-column>
     <el-table-column
@@ -137,9 +133,10 @@ function typeClass(type: string): string {
       label="交易日期"
       min-width="100"
       :sortable="sortable"
+      :sort-method="compareTradeDate"
     >
       <template #default="{ row }">{{
-        formatDate(row as TransactionRow)
+        formatTradeDate(row as TransactionRow)
       }}</template>
     </el-table-column>
     <el-table-column label="类型" min-width="60">
@@ -149,16 +146,21 @@ function typeClass(type: string): string {
         }}</span>
       </template>
     </el-table-column>
+    <!-- 价格 / 数量：**没有就不画 0**（#2712）。存入 / 取出 / 分红这类行本来没有成交价
+         与份额，此前渲染成 `0.0000` / `0.00`，用户读成「这笔交易价格是 0」。
+         零 = 无此语义而不是「值是 0」，统一显示 `—`。 -->
     <el-table-column :label="priceLabel || '价格'" min-width="90" align="right">
       <template #default="{ row }">
         <MoneyDisplay
-          :value="row.price ?? 0"
+          v-if="row.price"
+          :value="row.price"
           :precision="pricePrecision(row.asset_type)"
           :show-sign="false"
           :show-currency="false"
           :auto-color="false"
           size="sm"
         />
+        <span v-else class="txn-table__empty">—</span>
       </template>
     </el-table-column>
     <el-table-column
@@ -166,9 +168,10 @@ function typeClass(type: string): string {
       min-width="80"
       align="right"
     >
-      <template #default="{ row }">{{
-        formatQuantity(row.quantity ?? 0)
-      }}</template>
+      <template #default="{ row }">
+        <span v-if="row.quantity">{{ formatQuantity(row.quantity) }}</span>
+        <span v-else class="txn-table__empty">—</span>
+      </template>
     </el-table-column>
     <el-table-column label="金额" min-width="100" align="right">
       <template #default="{ row }">
@@ -190,6 +193,19 @@ function typeClass(type: string): string {
         />
       </template>
     </el-table-column>
+    <!-- 状态列（#2712）：资产流水页的「成功/失败/已撤单」在别处看不到，但列序与配色
+         必须与其它口径同语言，故收进共享组件而不是页面自建 -->
+    <el-table-column v-if="showStatus" label="状态" min-width="80">
+      <template #default="{ row }">
+        <el-tag
+          :type="txnStatusTag((row as TransactionRow).status)"
+          size="small"
+          effect="plain"
+        >
+          {{ txnStatusLabel((row as TransactionRow).status) }}
+        </el-tag>
+      </template>
+    </el-table-column>
     <el-table-column
       v-if="showAccount"
       label="账户"
@@ -208,6 +224,19 @@ function typeClass(type: string): string {
         </router-link>
         <span v-else class="txn-table__account txn-table__account--plain">{{
           row.account_name || "未知账户"
+        }}</span>
+      </template>
+    </el-table-column>
+    <!-- 备注列（#2712）：资产流水页原本自建表格里才有，收进共享组件后各表列序一致 -->
+    <el-table-column
+      v-if="showNotes"
+      label="备注"
+      min-width="120"
+      show-overflow-tooltip
+    >
+      <template #default="{ row }">
+        <span class="txn-table__notes">{{
+          (row as TransactionRow).notes || "-"
         }}</span>
       </template>
     </el-table-column>
@@ -276,6 +305,25 @@ function typeClass(type: string): string {
 
 .txn-table__account--plain {
   cursor: default;
+}
+
+/* 无此语义（价格/数量为 0）与大段空白的备注：弱色，不与真实数字抢注意力 */
+.txn-table__empty,
+.txn-table__notes {
+  color: var(--text-tertiary-ink);
+}
+
+/* 已删除持仓的流水：整格置灰（用户扫一眼就知道这条对应的资产没了），
+   「已删除」小字与名称同列左对齐，不额外占一列 */
+.txn-table__asset--orphan {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.txn-table__deleted {
+  display: block;
+  font-size: var(--text-small);
+  color: var(--text-tertiary-ink);
 }
 
 /* 行内操作 hover 淡入（design.md「行内操作交互规范」：默认 opacity 0，

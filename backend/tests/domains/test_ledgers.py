@@ -1757,6 +1757,124 @@ class TestLedgerTransactions:
         assert item['txn_type'] == 'buy'
         assert isinstance(item['fee'], (int, float))
 
+    def test_trade_date_is_date_only_and_asset_type_backfilled(self, client, db, make_position):
+        """#2712：日期不带 `T00:00:00`；`asset_type` 快照为空时按持仓回解析。
+
+        两件事都是「同一批流水在不同页面长得不一样」的根因：
+        - `trade_date` 是 DateTime 列，`.isoformat()` 会给出 `2026-06-03T00:00:00`，
+          而 `/api/transactions` 早就 `strftime` 过；
+        - 前端价格列走 `pricePrecision(asset_type)`（基金 4 位 / 其余 2 位），
+          类型快照为空时按证券口径 2 位 ⇒ 基金净值 1.2200 显示成 1.22。
+        """
+        from app.domains.transactions.models import Transaction
+
+        pos = make_position(
+            symbol='110011',
+            name='易方达优质精选',
+            asset_type='fund',
+            quantity=100,
+            avg_price=1.22,
+        )
+        ledger = Ledger(name='基金账户', ledger_type='fund', family_id=1)
+        db.add(ledger)
+        db.commit()
+
+        txn = Transaction(
+            txn_type='buy',
+            symbol='110011',
+            position_id=pos.id,
+            ledger_id=ledger.id,
+            position_name='易方达优质精选',
+            account_name='基金账户',
+            trade_date=datetime(2026, 6, 3),
+            quantity=1000000,
+            price=12200,
+            amount=1220000,
+            fee=0,
+            asset_type=None,  # 历史导入漏写快照
+        )
+        db.add(txn)
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/transactions/?page=1&per_page=10')
+        assert resp.status_code == 200
+        item = resp.get_json()['data']['items'][0]
+        assert item['trade_date'] == '2026-06-03'
+        assert item['asset_type'] == 'fund'
+
+    def test_position_transactions_date_and_asset_type(self, client, db, make_position):
+        """#2712：持仓抽屉接口同样要日期粒度 + 资产类型（它此前连 asset_type 都不返回）。"""
+        from app.domains.transactions.models import Transaction
+
+        pos = make_position(
+            symbol='110011',
+            name='易方达优质精选',
+            asset_type='fund',
+            quantity=100,
+            avg_price=1.22,
+        )
+        txn = Transaction(
+            txn_type='buy',
+            symbol='110011',
+            position_id=pos.id,
+            trade_date=datetime(2026, 6, 3),
+            quantity=1000000,
+            price=12200,
+            amount=1220000,
+            fee=0,
+            asset_type=None,
+        )
+        db.add(txn)
+        db.commit()
+
+        resp = client.get(f'/api/positions/{pos.id}/transactions/')
+        assert resp.status_code == 200
+        item = resp.get_json()['data'][0]
+        assert item['trade_date'] == '2026-06-03'
+        assert item['asset_type'] == 'fund'
+
+    def test_transactions_sorted_by_effective_day_not_created_at(self, client, db):
+        """#2712：账本 Tab 的排序与详情页 / 资产流水页同一口径。
+
+        历史实现在这里用 `confirm_date DESC NULLS LAST, created_at DESC`：
+        - 只有交易日（确认日待定）的行被整体甩到末尾，与详情页顺序相反；
+        - `created_at` 兜底 ⇒ 批量导入的历史流水按「导入批次」排，看起来像正序（#2171）。
+        现在统一 `COALESCE(trade_date, confirm_date) DESC, id DESC`。
+        """
+        from app.domains.transactions.models import Transaction
+
+        ledger = Ledger(name='排序账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+
+        def mk(trade_date, confirm_date, created_at):
+            return Transaction(
+                txn_type='buy',
+                symbol='000001',
+                position_name='平安银行',
+                ledger_id=ledger.id,
+                quantity=100,
+                price=1000,
+                amount=10000,
+                fee=0,
+                trade_date=trade_date,
+                confirm_date=confirm_date,
+                created_at=created_at,
+            )
+
+        # 较新的流水只有交易日（确认日待定），created_at 却很旧
+        db.add(mk(datetime(2026, 6, 10), None, datetime(2026, 6, 1)))
+        # 较旧的流水交易日/确认日都有，created_at 反而更新（confirm_date 是 Date 列，传 date）
+        db.add(mk(datetime(2026, 6, 1), date(2026, 6, 2), datetime(2026, 6, 20)))
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/transactions/?page=1&per_page=10')
+        assert resp.status_code == 200
+        items = resp.get_json()['data']['items']
+        assert [i['trade_date'] for i in items] == ['2026-06-10', '2026-06-01']
+        # 只有确认日的行按确认日参与排序（有效交易日口径），不受 confirm_date 单列影响
+        assert items[0]['confirm_date'] is None
+
 
 class TestLedgerListSummaryFields:
     """测试列表接口返回的摘要字段完整性（新增字段）"""
@@ -1885,13 +2003,16 @@ class TestOrphanDetail:
         assert asset['amount'] == 5000.0
         assert asset['major_category'] == 'cash'
 
-        # 交易明细：txn_type 保持后端原始枚举值，confirm_date 为纯日期
+        # 交易明细：txn_type 保持后端原始枚举值，日期均为纯日期
         assert len(data['transactions']) == 1
         txn = data['transactions'][0]
         assert txn['position_name'] == '沪深300ETF'
         assert txn['txn_type'] == 'buy'
         assert txn['amount'] == 100.0
         assert txn['confirm_date'] == '2026-08-01'
+        # #2712：两个日期都给，前端才能按「交易日优先、确认日兜底」展示（只给确认日
+        # 会让同一笔流水在别处与这里显示不同天）；trade_date 也必须是不带时间的日期。
+        assert txn['trade_date'] and 'T' not in txn['trade_date']
 
         # 汇总：total_market_value = 持仓市值 + 资产金额（交易为流水不计入，避免重复计算）
         assert data['summary'] == {

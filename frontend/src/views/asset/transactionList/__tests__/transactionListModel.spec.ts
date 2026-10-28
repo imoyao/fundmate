@@ -117,6 +117,15 @@ describe("groupByDate", () => {
   it("空列表返回空对象", () => {
     expect(groupByDate([])).toEqual({});
   });
+
+  it("交易日优先、确认日兜底（只有确认日的行也进正确的分组）", () => {
+    const groups = groupByDate([
+      txn({ id: 1, trade_date: "2026-03-11", confirm_date: "2026-03-12" }),
+      txn({ id: 2, trade_date: null, confirm_date: "2026-03-12" })
+    ]);
+    expect(Object.keys(groups)).toEqual(["2026-03-11", "2026-03-12"]);
+    expect(groups["2026-03-12"].map(t => t.id)).toEqual([2]);
+  });
 });
 
 describe("dayBalanceOf", () => {

@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.constants import OwnershipStatus
 from app.core.money import Money
+from app.core.utils import iso_date_only
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
@@ -662,8 +663,10 @@ def build_orphan_detail(db, family_id: int) -> dict:
                 # txn_type 保持后端原始枚举值（buy/sell/dividend…），翻译交给前端
                 'txn_type': t.txn_type,
                 'amount': Money.cents_to_yuan(t.amount),
-                # 纯日期（YYYY-MM-DD），不带时间
-                'confirm_date': t.confirm_date.isoformat()[:10] if t.confirm_date else None,
+                # 日期一律 `YYYY-MM-DD`（#2712）：此前只给确认日、且自己 `.isoformat()[:10]`，
+                # 于是同一笔流水在别处（交易日优先）与这里（只认确认日）可能显示不同天。
+                'trade_date': iso_date_only(t.trade_date),
+                'confirm_date': iso_date_only(t.confirm_date),
             }
         )
 

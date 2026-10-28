@@ -7,6 +7,7 @@
  * - 「近 30 天默认展开」的判定把当天算不算在内。
  */
 import type { TransactionRecord } from "@/api/transactions";
+import { txnStatusLabel, txnStatusTag } from "@/utils/transactionStatus";
 
 export type TagType = "primary" | "success" | "warning" | "info" | "danger";
 
@@ -61,13 +62,19 @@ export function buildTransactionParams(
   return params;
 }
 
-/** 按交易日分组（Map 保持插入顺序，等价于原对象字面量的 key 顺序） */
+/**
+ * 按交易日分组（Map 保持插入顺序，等价于原对象字面量的 key 顺序）。
+ *
+ * 日期口径与表格列一致：**交易日优先、确认日兜底**。只认 `trade_date` 时，只有确认日的
+ * 行会落进 `undefined` 这个 key（时间线里出现一个没名字的分组），而同一批流水在表格里
+ * 显示的是确认日——同一页两套口径。
+ */
 export function groupByDate(
   list: TransactionRecord[]
 ): Record<string, TransactionRecord[]> {
   const group: Record<string, TransactionRecord[]> = {};
   list.forEach(item => {
-    const date = item.trade_date;
+    const date = item.trade_date || item.confirm_date || "";
     if (!group[date]) group[date] = [];
     group[date].push(item);
   });
@@ -159,22 +166,13 @@ export function typeTag(type: string): TagType {
   return map[type] || "primary";
 }
 
-export function statusTag(status: string): TagType {
-  const map: Record<string, TagType> = {
-    success: "success",
-    failed: "danger",
-    cancelled: "info",
-    pending: "warning"
-  };
-  return map[status] || "primary";
-}
+/**
+ * 状态标签 / 配色：真源已上收到 `@/utils/transactionStatus`（#2712）——共享表格组件
+ * `components/TransactionTable` 也要显示状态列，不能反过来 import 页面 model。
+ * 这里保留同名导出，页面与既有单测不必改 import。
+ */
+export const statusLabel = txnStatusLabel;
 
-export function statusLabel(status: string): string {
-  const map: Record<string, string> = {
-    success: "成功",
-    failed: "失败",
-    cancelled: "已撤单",
-    pending: "可撤单"
-  };
-  return map[status] || status;
+export function statusTag(status: string): TagType {
+  return txnStatusTag(status);
 }

@@ -37,7 +37,7 @@ from app.core.constants import (
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol, strip_exchange_prefix
-from app.core.utils import get_confirm_date, paginate
+from app.core.utils import get_confirm_date, iso_date_only, paginate
 from app.core.venues import asset_types_of_venue, resolve_venue
 from app.domains.funds.models import DailyWorth, Fund
 from app.domains.ledgers.models import Ledger
@@ -53,6 +53,7 @@ from app.services.position_presenter import enrich_position_dict
 from app.services.position_scope import active_holdings
 from app.services.symbol_scope import build_position_symbol_conditions
 from app.services.trading import TransactionService, validate_buy, validate_sell
+from app.services.transaction_service import order_by_effective_day
 from app.services.watchlist_service import (
     ensure_watchlist_for_positions,
     reconcile_watchlist_status,
@@ -258,6 +259,49 @@ def query_transactions_by_identity(db: Session, position: Position):
     if position.ledger_id is not None:
         return query.filter(Transaction.ledger_id == position.ledger_id)
     return query.filter(Transaction.ledger_id.is_(None))
+
+
+def list_position_transactions(db: Session, position: Position) -> list[Transaction]:
+    """某持仓的交易流水（持仓抽屉数据源）。
+
+    取数口径：#2372 的「优先 ``position_id``、悬空时按身份键兜底」保持不变；
+    排序统一走 ``order_by_effective_day``（#2712）——此前这里是
+    ``confirm_date DESC NULLS LAST, created_at DESC``，只有交易日的行被甩到末尾，
+    批量导入又退化成「导入批次顺序」（#2171），与详情页顺序对不上。
+    """
+    if position.id:
+        rows = db.query(Transaction).filter(Transaction.position_id == position.id).first()
+        if rows is not None:
+            return order_by_effective_day(db.query(Transaction).filter(Transaction.position_id == position.id)).all()
+    return order_by_effective_day(query_transactions_by_identity(db, position)).all()
+
+
+def serialize_position_transaction(txn: Transaction, position: Optional[Position] = None) -> dict:
+    """持仓抽屉的流水行（唯一出口，#2712）。
+
+    与 ``/api/transactions`` 同口径：
+
+    - 日期给**两个真字段**（``trade_date`` / ``confirm_date``），由前端按「交易日优先、
+      确认日兜底」展示。此前这里把 ``confirm_date or trade_date`` 塞进 ``trade_date``：
+      字段名与语义错位，同一笔流水在抽屉与详情页可以显示不同天。
+    - ``asset_type`` 在流水快照为空时用持仓自身类型兜底：前端价格列按
+      ``pricePrecision(asset_type)`` 取位数（基金 4 位 / 其余 2 位），缺失会把
+      净值 ``1.2200`` 印成 ``1.22``。
+    """
+    return {
+        'id': txn.id,
+        'ledger_id': txn.ledger_id,
+        'symbol': txn.symbol,
+        'trade_date': iso_date_only(txn.trade_date),
+        'confirm_date': iso_date_only(txn.confirm_date),
+        'txn_type': txn.txn_type,
+        'asset_type': txn.asset_type or (position.asset_type if position else None),
+        'quantity': Money.min_unit_to_shares(txn.quantity),
+        'price': Money.price_units_to_yuan(txn.price),
+        'amount': Money.cents_to_yuan(txn.amount),
+        'fee': Money.cents_to_yuan(txn.fee),
+        'notes': txn.notes,
+    }
 
 
 def resolve_ledger_change(

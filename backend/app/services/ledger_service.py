@@ -13,6 +13,7 @@ from app.core.asset_types import MAJOR_CATEGORY_CASH
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
+from app.core.utils import iso_date_only
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -25,7 +26,11 @@ from app.services.summary_service import (
     orphan_cash_like_breakdown,
     orphan_money_fund_totals_by_ledger,
 )
-from app.services.txn_name_resolver import resolve_transaction_display_names
+from app.services.transaction_service import order_by_effective_day
+from app.services.txn_name_resolver import (
+    resolve_transaction_asset_types,
+    resolve_transaction_display_names,
+)
 
 
 class LedgerService:
@@ -636,28 +641,28 @@ class LedgerService:
             like = f'%{search}%'
             query = query.filter(or_(Transaction.position_name.ilike(like), Transaction.symbol.ilike(like)))
         total = query.count()
-        txn_list = (
-            query.order_by(
-                Transaction.confirm_date.desc().nullslast(),
-                Transaction.created_at.desc(),
-            )
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
+        # 排序与 `/api/transactions` 同源（`order_by_effective_day`）：此前这里是
+        # `confirm_date DESC NULLS LAST, created_at DESC`——只有交易日的行被甩到末尾，
+        # 批量导入又按「导入批次」排，与详情页顺序相反（#2171 / #2712）。
+        txn_list = order_by_effective_day(query).offset((page - 1) * per_page).limit(per_page).all()
 
         # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」
         pos_names, _ledger_names = resolve_transaction_display_names(db, txn_list)
+        # #2712：asset_type 快照为 NULL 时按持仓/基金名录回解析——前端价格列靠它决定
+        # 位数（基金 4 位 / 其余 2 位），缺失会把净值 1.2200 显示成 1.22。
+        asset_types = resolve_transaction_asset_types(db, txn_list)
 
         items = []
         for t in txn_list:
             items.append(
                 {
                     'id': t.id,
-                    'confirm_date': t.confirm_date.isoformat() if t.confirm_date else None,
-                    'trade_date': t.trade_date.isoformat() if t.trade_date else None,
+                    # 日期一律 `YYYY-MM-DD`（#2712）：trade_date 是 DateTime，isoformat 会带
+                    # `T00:00:00`，与 /api/transactions 的 strftime 口径分裂
+                    'confirm_date': iso_date_only(t.confirm_date),
+                    'trade_date': iso_date_only(t.trade_date),
                     'txn_type': t.txn_type,
-                    'asset_type': t.asset_type,
+                    'asset_type': t.asset_type or asset_types.get(t.id),
                     'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
                     'symbol': t.symbol or '',
                     'price': Money.price_units_to_yuan(t.price),

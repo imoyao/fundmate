@@ -317,8 +317,10 @@ async function handleOrphanCleanup() {
             </template>
           </el-table-column>
           <el-table-column label="交易日期" width="110" align="right">
+            <!-- 与全站同一日期口径：交易日优先、确认日兜底（此前只认确认日，
+                 同一笔流水在别处按交易日显示，这里可能差一天） -->
             <template #default="{ row }">
-              {{ formatDate(row.confirm_date) }}
+              {{ formatDate(row.trade_date || row.confirm_date) }}
             </template>
           </el-table-column>
         </el-table>
