@@ -256,16 +256,25 @@ function focusFirstPendingDomain(): void {
   });
 }
 
-/** 切域时把域写回 URL（`replace` 而非 `push`：切 tab 不该在浏览器历史里堆一层）。
- *  URL 是本页的「域寻址」入口——横幅从别处跳 `?domain=D` 靠它落地，两者必须一致。 */
-watch(activeDomain, key => {
-  const current = normalizeDomain(route.query.domain);
-  if (current === key) return;
-  router.replace({ query: { ...route.query, domain: key } });
-});
+/* 切域只改本地状态，**刻意不写回 URL**。
+ *
+ * WHY：布局层 `layout/components/lay-content/index.vue` 以 `route.fullPath` 作
+ * `<component :key>`。任何 query 改写 ⇒ fullPath 变 ⇒ 整页组件销毁重建，
+ * `onMounted` 里五个加载器全部重跑——用户看到的就是「点一下 tab 整页刷新」：
+ * 旧页面组件被移除、`recon-workbench-page` 重新挂载、六个请求重发（#2706 实测）。
+ * 同一个坑在 `views/agent/index.vue` 已留过注（对话页改写 query 会把会话消息清空）。
+ *
+ * 那 `?domain=` 还留不留？留，但只作**入站寻址**：横幅从别处跳过来时带 query，
+ * 初值读它落地（见上方 `activeDomain`），落地后域状态由 tab 自己持有。
+ * 代价是刷新/分享不再保留当前 tab——与仓内惯例一致（`inventory` 的 `?tab=`
+ * 同样「只读不摘」）。要同时满足两边，只能改布局层 key 粒度，那是全局改动，
+ * 会波及 iframe 多页签（`lay-frame` 按 fullPath 管理），不值得为单个页面动。
+ */
 
-/** 反向同步：用户在地址栏改 `?domain=`（或从横幅再跳一次）时，tab 跟着走。
- *  只处理合法值——非法值不动 tab，避免把用户从有效域弹走。 */
+/** 反向同步：`?domain=` 变化时 tab 跟着走。
+ *  只处理合法值——非法值不动 tab，避免把用户从有效域弹走。
+ *  注：当前布局 key 粒度下 query 变化必伴随重挂载，故本 watch 极少触发；
+ *  保留它是因为一旦布局层 key 改为 path，这条入站契约仍需成立。 */
 watch(
   () => route.query.domain,
   raw => {
