@@ -6,7 +6,7 @@
 
 import csv
 import io
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
@@ -543,9 +543,20 @@ def get_smart_prompt_conditions(item_id):
 
         holding_days = 0
         if buy_txns and sell_txns:
-            first_buy = min(t.trade_date for t in buy_txns if t.trade_date)
-            last_sell = max(t.trade_date for t in sell_txns if t.trade_date)
-            holding_days = (last_sell - first_buy).days
+            # trade_date 缺失（通用 CSV 导入历史批次全 NULL）时回退 confirm_date
+            # （与 pnl_calendar._effective_date / dividend_service._event_date 同口径）；
+            # 直接对生成器 min()/max() 在「该侧流水全缺 trade_date」时会对空序列
+            # 抛 ValueError → 500，故先物化列表再取值。
+            def _dates(txns):
+                vals = [t.trade_date for t in txns if t.trade_date]
+                if vals:
+                    return [v.date() if isinstance(v, datetime) else v for v in vals]
+                return [t.confirm_date for t in txns if t.confirm_date]
+
+            buy_dates = _dates(buy_txns)
+            sell_dates = _dates(sell_txns)
+            if buy_dates and sell_dates:
+                holding_days = (max(sell_dates) - min(buy_dates)).days
 
         conditions = {
             'holding_days_gt_180': holding_days > 180,

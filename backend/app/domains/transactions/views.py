@@ -7,10 +7,11 @@
 
 import csv
 import io
-from datetime import date
+from datetime import date, datetime
 
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
+from sqlalchemy import func
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
@@ -21,6 +22,15 @@ from app.services.position_service import PositionService
 from app.services.transaction_service import build_transaction_list
 
 bp = APIBlueprint('transactions', __name__, url_prefix='/api/transactions')
+
+
+def _txn_day(value) -> str:
+    """流水日期的 CSV 展示值：None 为空串（如实缺示，不兜底混义），日期统一 ISO。"""
+    if value is None:
+        return ''
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d')
+    return value.strftime('%Y-%m-%d')
 
 
 @bp.get('/')
@@ -54,7 +64,12 @@ def export_transactions():
         items = (
             db.query(Transaction)
             .filter(Transaction.family_id == get_family_id())
-            .order_by(Transaction.trade_date.asc(), Transaction.id.asc())
+            # trade_date 缺失（通用 CSV 导入无「交易日期」列）时退回 confirm_date，
+            # 避免 SQLite NULL 参与排序导致整列退化为 id 序
+            .order_by(
+                func.coalesce(Transaction.trade_date, Transaction.confirm_date).asc(),
+                Transaction.id.asc(),
+            )
             .all()
         )
 
@@ -80,8 +95,8 @@ def export_transactions():
         for t in items:
             writer.writerow(
                 [
-                    t.trade_date.strftime('%Y-%m-%d') if t.trade_date else '',
-                    t.confirm_date.strftime('%Y-%m-%d') if t.confirm_date else '',
+                    _txn_day(t.trade_date),
+                    _txn_day(t.confirm_date),
                     t.asset_type or '',
                     t.symbol or '',
                     t.position_name or '',
