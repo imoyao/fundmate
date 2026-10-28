@@ -96,6 +96,12 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.services.fund_utils import normalize_fund_code
+from app.services.matrix_members import (
+    MATRIX_COVERAGE_TARGET,
+    MATRIX_MAX_MEMBERS,
+    MATRIX_MIN_MEMBERS,
+    select_matrix_members,
+)
 from app.services.penetration import BASIS_FULL, BASIS_TOP10, _load_holding_map
 from app.services.position_aggregation import get_fund_aggregation
 
@@ -207,6 +213,30 @@ class _Fund:
         return set(self.ratios)
 
 
+def _fund_brief(fund: _Fund) -> Dict[str, Any]:
+    """成员清单里的一只基金（矩阵与全量 `funds` 共用同一形状，避免两处字段漂移）。"""
+    return {
+        'fund_code': fund.fund_code,
+        'symbol': fund.symbol,
+        'name': fund.name,
+        'market_value_cents': fund.market_value_cents,
+        'report_period': fund.report_period,
+        'basis': fund.basis,
+    }
+
+
+def _empty_matrix() -> Dict[str, Any]:
+    """矩阵裁剪结果的空骨架（与正常路径同构，前端不必判字段存在与否）。"""
+    return {
+        'funds': [],
+        'truncated_count': 0,
+        'truncated_market_value_pct': 0.0,
+        'coverage_target': MATRIX_COVERAGE_TARGET,
+        'max_members': MATRIX_MAX_MEMBERS,
+        'min_members': MATRIX_MIN_MEMBERS,
+    }
+
+
 def _empty_result() -> Dict[str, Any]:
     """空结果骨架（降级 / 无持仓时返回，字段与正常路径完全一致）。"""
     return {
@@ -214,6 +244,8 @@ def _empty_result() -> Dict[str, Any]:
         #: 参与比较的基金清单（#2686 矩阵用）：`pairs` 只含有重叠的对，矩阵需要
         #: **全体**成员才能画满行列；只有 `pairs` 时，3 只基金只有 1 对重叠就只剩两个格子。
         'funds': [],
+        #: 矩阵成员裁剪结果（#2686）：`funds` 是全量，`matrix.funds` 是按市值覆盖裁过的。
+        'matrix': _empty_matrix(),
         'fund_count': 0,
         'skipped_basis_mismatch': 0,
         'skipped_null_ratio': 0,
@@ -234,7 +266,7 @@ def _empty_result() -> Dict[str, Any]:
     }
 
 
-def _merge_positions(groups: List[Dict[str, Any]]) -> List[_Fund]:
+def merge_fund_positions(groups: List[Dict[str, Any]]) -> List[_Fund]:
     """把 ``get_fund_aggregation`` 的分组按**业务码**合并成一只只基金（口径 6）。
 
     ``get_fund_aggregation`` 已按 ``symbol`` 跨渠道合并；这里再按 6 位业务码二次合并，
@@ -554,7 +586,7 @@ def portfolio_holding_overlap(db: Session, family_id: int = 1) -> Dict[str, Any]
         result['degraded'] = True
         return result
 
-    funds = _merge_positions(groups)
+    funds = merge_fund_positions(groups)
     result['total_market_value_cents'] = sum(fund.market_value_cents for fund in funds)
     if not funds:
         return result
@@ -580,17 +612,21 @@ def portfolio_holding_overlap(db: Session, family_id: int = 1) -> Dict[str, Any]
     # #2686 矩阵的数据面：`pairs` 只有「有重叠」的对，矩阵缺一行一列就画不出来；
     # 这里下发**全体可比基金**（含彼此零重叠的成员），口径字段（report_period / basis）
     # 一并给出 —— 前端据此把「披露口径不同」的格子标成不可比，而不是标成 0%。
-    result['funds'] = [
-        {
-            'fund_code': fund.fund_code,
-            'symbol': fund.symbol,
-            'name': fund.name,
-            'market_value_cents': fund.market_value_cents,
-            'report_period': fund.report_period,
-            'basis': fund.basis,
-        }
-        for fund in sorted(comparable, key=lambda f: (-f.market_value_cents, f.fund_code))
-    ]
+    ordered = sorted(comparable, key=lambda f: (-f.market_value_cents, f.fund_code))
+    result['funds'] = [_fund_brief(fund) for fund in ordered]
+
+    # 矩阵成员裁剪（#2686 与相关性矩阵共用一条规则）：`funds` 保持全量（列表视图与
+    # 契约测试依赖它），矩阵只取这里裁好的 members —— 固定的「12 只」已证伪：
+    # 本地真实库排除个股后 top12 只覆盖 49.6% 市值，等于把一半仓位挡在结论之外。
+    matrix_members, matrix_truncated, matrix_truncated_pct = select_matrix_members(ordered)
+    result['matrix'] = {
+        'funds': [_fund_brief(fund) for fund in matrix_members],
+        'truncated_count': matrix_truncated,
+        'truncated_market_value_pct': matrix_truncated_pct,
+        'coverage_target': MATRIX_COVERAGE_TARGET,
+        'max_members': MATRIX_MAX_MEMBERS,
+        'min_members': MATRIX_MIN_MEMBERS,
+    }
     result['coverage_pct'] = (
         round(covered_market_value / result['total_market_value_cents'] * _PERCENT_SCALE, 2)
         if result['total_market_value_cents'] > 0

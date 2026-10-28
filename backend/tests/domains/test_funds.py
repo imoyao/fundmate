@@ -881,6 +881,8 @@ def test_重叠度端点契约(client, db, make_position):
         'pairs',
         # #2686 矩阵数据面：全体可比基金（不只是有重叠的对）
         'funds',
+        # #2686 矩阵成员裁剪（与相关性矩阵共用同一规则）
+        'matrix',
         'fund_count',
         'skipped_basis_mismatch',
         'skipped_null_ratio',
@@ -916,6 +918,13 @@ def test_重叠度端点契约(client, db, make_position):
     assert [f['fund_code'] for f in data['funds']] == ['000001', '000002']
     assert data['funds'][0]['market_value_cents'] == 4000000  # 20,000 份 × 2.0 元
     assert data['funds'][0]['basis'] == 'full'
+    # 矩阵成员裁剪（#2686）：2 只基金全展开，规则字段随值下发（前端文案不另写数字）
+    assert [f['fund_code'] for f in data['matrix']['funds']] == ['000001', '000002']
+    assert data['matrix']['truncated_count'] == 0
+    assert data['matrix']['truncated_market_value_pct'] == 0.0
+    assert data['matrix']['max_members'] == 20
+    assert data['matrix']['min_members'] == 8
+    assert data['matrix']['coverage_target'] == 0.9
     # 口径声明随接口下发（前端与结论同屏展示），不能在视图层被裁掉
     assert data['caveats']
 
