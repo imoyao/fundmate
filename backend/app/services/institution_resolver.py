@@ -9,7 +9,7 @@
 display_name 等值」的两步精确匹配：
 
 - `importer/orchestrator_holdings._get_or_create_channel_ledger`（建渠道 Ledger）
-- `domains/positions/models.resolve_sales_institution_id`（影子记录派生机构 id）
+- 影子记录派生机构 id（本模块的 `resolve_sales_institution_id`）
 
 于是只要名字少「有限公司」几个字就必然落空：前者静默走「不关联机构」的回退，
 建出一堆 `sales_institution_id=NULL` 的孤儿渠道账户（2026-10-28 实测 13 个渠道 8 个落空）；
@@ -165,3 +165,15 @@ class SalesInstitutionResolver:
 def resolve_sales_institution(db, source_broker: Optional[str]) -> Optional[SalesInstitution]:
     """一次性解析（供单条调用方使用；批量场景请自行复用 `SalesInstitutionResolver`）。"""
     return SalesInstitutionResolver(db).resolve(source_broker)
+
+
+def resolve_sales_institution_id(db, source_broker: Optional[str]) -> Optional[int]:
+    """同 `resolve_sales_institution`，只取 id（`PositionImportMeta.sales_institution_id` 用）。
+
+    **为什么它在这里而不在 `domains/positions/models.py`**：分层依赖方向是
+    `core ← domains.{models,schemas} ← services ← domains.views`，models 属叶子层，
+    反向 import `app.services.*` 会踩 R3（`scripts/guard_layer_direction.py` 判红）。
+    这个函数本身只是一个 `.id` 取值，语义上就是机构解析的一部分，故与判据同住 services 层。
+    """
+    institution = SalesInstitutionResolver(db).resolve(source_broker)
+    return institution.id if institution else None

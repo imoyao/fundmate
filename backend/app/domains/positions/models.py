@@ -495,22 +495,8 @@ class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
     pinyin_short = Column(String(100), nullable=True, comment='名称拼音首字母简拼（同步 job 派生，供前端检索过滤）')
 
 
-def resolve_sales_institution_id(db, source_broker):
-    """按销售机构名（source_broker）匹配 AMAC 权威名录，返回机构 id；无匹配返回 None。
-
-    匹配判据**只有一份**：`app/services/institution_resolver`（原文精确 → 别名精确 →
-    手工别名 → 归一化名 + 业务族唯一命中）。本函数只是「只取 id」的薄封装，不建 Ledger，
-    仅供导入时派生 `PositionImportMeta.sales_institution_id` 使用。
-
-    历史教训：本函数此前自己写了一份「org_name 等值 → display_name 等值」的两步精确匹配，
-    与 `orchestrator_holdings._get_or_create_channel_ledger` 各写一份 → 导入侧给的是渠道简称
-    （「珠海盈米基金销售」）而名录是法人全称（「珠海盈米基金销售有限公司」），两边同时落空，
-    建出一批不关联机构的孤儿渠道账户（2026-10-28）。同一判据两处实现必然漂移，故收口。
-    """
-    if not source_broker:
-        return None
-    # 延迟导入：institution_resolver 反向依赖本模块的 SalesInstitution，模块级 import 会成环
-    from app.services.institution_resolver import resolve_sales_institution
-
-    institution = resolve_sales_institution(db, source_broker)
-    return institution.id if institution else None
+# 注：`resolve_sales_institution_id` 已迁至 `app.services.institution_resolver`。
+# 分层依赖方向 `core ← domains.{models,schemas} ← services ← domains.views`
+# （`scripts/guard_layer_direction.py` R3）禁止 models 反向 import services，
+# 而机构匹配的判据只有一份、住在 services 层；本文件不再保留同名转发函数，
+# 以免留下第二个入口。

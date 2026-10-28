@@ -25,7 +25,6 @@ from app.domains.positions.models import (
     FundCompanyObservation,
     Position,
     PositionImportMeta,
-    resolve_sales_institution_id,
 )
 from app.services.import_records import (
     SBImportError,
@@ -34,6 +33,7 @@ from app.services.import_records import (
 )
 from app.services.importer.orchestrator_commit import refresh_prices_best_effort
 from app.services.importer.registry import get_holding_parser
+from app.services.institution_resolver import resolve_sales_institution_id
 from app.services.position_service import PositionService
 
 
