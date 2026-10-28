@@ -27,8 +27,9 @@ defineProps<{
       featured
       caption="需要归因覆盖或忽略，优先处理"
     />
+    <!-- 「已处理」而非「已归因」：attribution 是内部术语（2026-10-28 用户反馈），与筛选器同口径 -->
     <MetricCard
-      title="已归因"
+      title="已处理"
       :value="summary?.attributed_count ?? null"
       caption="快照已覆盖至对应渠道"
     />

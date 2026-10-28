@@ -18,9 +18,10 @@ import {
 import { deleteTransaction } from "@/api/transaction";
 import {
   getEaccountReconciliation,
-  attributeEaccount,
   type ReconciliationItem
 } from "@/api/eaccount";
+import { useEaccountActions } from "@/components/EaccountReconcilePanel/useActions";
+import type { Acting } from "@/components/EaccountReconcilePanel/model";
 import { confirmImport, confirmHoldingImport } from "@/api/importer";
 import type { OcrHoldingRow, OcrTxnRow } from "@/api/ocr";
 import {
@@ -67,12 +68,17 @@ export function useWorkbenchDomains() {
   /** 域 A：E账户对账数据（P2 迁入） */
   const eItems = ref<ReconciliationItem[]>([]);
   const eLoading = ref(false);
-  const actingRecordId = ref<number | null>(null);
-  const actingAction = ref<"cover" | "ignore" | null>(null);
 
   /** 域 B 差异：仅展示待处理（pending）行，使下方表格与顶部「待裁决差异」口径一致（#1259） */
   const bDiscs = computed(() =>
     discs.value.filter(d => d.domain === "B" && d.status === "pending")
+  );
+
+  /** 域 C 差异：导入后自动对账产出的孤儿持仓（有仓位、没有对应流水）。
+   *  后端域 C 目前只做孤儿检测、不做数量比对（`reconciliation_service.py` §6.2），
+   *  所以这里拿到的 `discrepancy_type` 只会是 `orphan`。 */
+  const cDiscs = computed(() =>
+    discs.value.filter(d => d.domain === "C" && d.status === "pending")
   );
 
   /** 全局待处理总数，仅用于 Banner 提醒（不要求与单表对齐） */
@@ -226,60 +232,29 @@ export function useWorkbenchDomains() {
     }
   }
 
-  /** 归因覆盖（危险操作：删除渠道原记录，P2 迁入工作台） */
-  async function handleEAccountCover(row: ReconciliationItem): Promise<void> {
-    actingRecordId.value = row.record_id;
-    actingAction.value = "cover";
-    try {
-      const res = await attributeEaccount([
-        {
-          symbol: row.symbol,
-          source_broker: row.source_broker || "",
-          fund_manager: row.fund_manager || "",
-          action: "cover"
-        }
-      ]);
-      const result = (res as any).data ?? {};
-      if (result.failed > 0) {
-        ElMessage.warning(`归因覆盖完成，但有 ${result.failed} 条未成功`);
-      } else {
-        ElMessage.success("已归因覆盖");
-      }
-      await loadEAccount();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "归因覆盖失败");
-    } finally {
-      actingRecordId.value = null;
-      actingAction.value = null;
-    }
+  /**
+   * 域 A 归因 / 忽略：复用共用 composable，**不在本文件本地实现**。
+   *
+   * 此前这里手写了两个几乎相同的函数，且漏了 `ElMessageBox.confirm`——
+   * 「归因覆盖」会删除渠道原记录（不可撤销），不确认等于单击即毁数据。
+   * 收敛到 `useEaccountActions` 后与独立对账中心走同一条确认链路。
+   * `loadEAccount` 是函数声明（提升），此处引用安全。
+   */
+  const { actingRecordId, actingAction, runAttribution } =
+    useEaccountActions(loadEAccount);
+
+  /** 传给域 A 面板的「哪个按钮在转圈」快照 */
+  const eActing = computed<Acting>(() => ({
+    recordId: actingRecordId.value,
+    action: actingAction.value
+  }));
+
+  function handleEAccountCover(row: ReconciliationItem): void {
+    void runAttribution(row, "cover");
   }
 
-  /** 忽略（E账户，导入自动跳过，可重新对账恢复） */
-  async function handleEAccountIgnore(row: ReconciliationItem): Promise<void> {
-    actingRecordId.value = row.record_id;
-    actingAction.value = "ignore";
-    try {
-      const res = await attributeEaccount([
-        {
-          symbol: row.symbol,
-          source_broker: row.source_broker || "",
-          fund_manager: row.fund_manager || "",
-          action: "ignore"
-        }
-      ]);
-      const result = (res as any).data ?? {};
-      if (result.failed > 0) {
-        ElMessage.warning(`忽略完成，但有 ${result.failed} 条未成功`);
-      } else {
-        ElMessage.success("已忽略");
-      }
-      await loadEAccount();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "忽略失败");
-    } finally {
-      actingRecordId.value = null;
-      actingAction.value = null;
-    }
+  function handleEAccountIgnore(row: ReconciliationItem): void {
+    void runAttribution(row, "ignore");
   }
 
   /** 运行对账（域 B） */
@@ -393,8 +368,10 @@ export function useWorkbenchDomains() {
     running,
     discs,
     bDiscs,
+    cDiscs,
     eItems,
     eLoading,
+    eActing,
     recognizerCandidates,
     committing,
     totalPending,

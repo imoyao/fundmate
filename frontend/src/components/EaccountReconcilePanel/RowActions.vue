@@ -1,11 +1,15 @@
 <script setup lang="ts">
 /**
- * 操作列（#980 拆分）。
+ * 操作列（迁移自 reconcile/reconcileView/ReconcileRowActions.vue）。
  *
- * 三种非待处理状态只回显去向、不给操作；待处理的两颗按钮常显——本页操作即页面主题，
+ * 三种非待处理状态只回显去向、不给操作；待处理的两颗按钮常显——操作即本表主题，
  * 不做 hover 隐藏（触屏无 hover 态时入口会彻底不可达）。
+ *
+ * 回显文案由 `model.resolveHint` 统一给出：状态列说「处理完了」，这里说「处理到哪儿」。
+ * 此前工作台把三种状态压成一个「已处理」，与状态列互为同义词，等于没写。
  */
 import type { ReconciliationItem } from "@/api/eaccount";
+import { resolveHint } from "./model";
 
 defineProps<{
   row: ReconciliationItem;
@@ -21,7 +25,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="row-actions">
-    <!-- 待处理：核心操作常显（本页操作即页面主题，不做 hover 隐藏） -->
+    <!-- 待处理：核心操作常显（本表操作即页面主题，不做 hover 隐藏） -->
     <template v-if="row.status === 'pending'">
       <el-button
         link
@@ -41,14 +45,8 @@ const emit = defineEmits<{
         忽略
       </el-button>
     </template>
-    <!-- 已归因：展示去向，操作禁用 -->
-    <span v-else-if="row.status === 'attributed'" class="row-actions__readonly">
-      已归因至 {{ row.attributed_to || "对应渠道" }}
-    </span>
-    <span v-else-if="row.status === 'verified'" class="row-actions__readonly">
-      已核对一致
-    </span>
-    <span v-else class="row-actions__readonly">已忽略</span>
+    <!-- 已处理 / 已核对 / 已忽略：写出去向，不给操作 -->
+    <span v-else class="row-actions__readonly">{{ resolveHint(row) }}</span>
   </div>
 </template>
 

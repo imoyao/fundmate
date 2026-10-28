@@ -140,7 +140,7 @@ test.describe("E账户对账页（#980 拆分后的接线判据）", () => {
     // 四态计数卡：数字来自 summary，不是前端算的
     const grid = page.locator(".summary-grid");
     await expect(grid).toContainText("待处理");
-    await expect(grid).toContainText("已归因");
+    await expect(grid).toContainText("已处理");
     await expect(grid).toContainText("已忽略");
     await expect(grid).toContainText("已核对");
 
@@ -160,8 +160,8 @@ test.describe("E账户对账页（#980 拆分后的接线判据）", () => {
     await expect(
       rowOf(page, "招商中证白酒").getByText("归因覆盖")
     ).toBeVisible();
-    await expect(rowOf(page, "景顺长城沪深300")).toContainText("已归因至");
-    await expect(rowOf(page, "易方达中小盘")).toContainText("已核对一致");
+    await expect(rowOf(page, "景顺长城沪深300")).toContainText("已对应到");
+    await expect(rowOf(page, "易方达中小盘")).toContainText("份额一致");
   });
 
   test("状态筛选：切到「待处理」只留待处理行，切到空态档给提示文案", async ({

@@ -1,5 +1,13 @@
 /**
- * E账户对账页的纯函数层（#980 拆分）。
+ * E账户对账表纯函数层（EaccountReconcilePanel）。
+ *
+ * 迁移自 `views/asset/investment/reconcile/reconcileView/reconcileModel.ts`（原 #980 拆分），
+ * 2026-10-28 上提到 `components/`：工作台域 A 与独立对账中心现在共用同一张表。
+ *
+ * 为什么必须收敛成一份：工作台 P2 迁入时手抄了这张表，抄错了三处且都没被拦住——
+ * 系统份额绑成 `current_quantity`（该字段属于 reconcile 冲突清单，对账中心接口叫
+ * `system_quantity`，于是整列恒空）、丢掉「差异」列与分页、危险操作「归因覆盖」
+ * 直接执行而不弹确认框。两份实现只要还在，就会第三次漂移。
  *
  * 收进来的三类东西，都是「改一处漏一处会静默出错」的：
  * 1. 状态枚举（`STATUS_OPTIONS` / `STATUS_META`）——筛选器和状态标签各用一份字段，
@@ -20,13 +28,20 @@ export type AttributionAction = "cover" | "ignore";
 /** 筛选器的「全部」哨兵值——后端没有这个状态，只存在于前端筛选 */
 export const STATUS_ALL = "all";
 
-/** 一级状态筛选选项（SegmentedControl） */
+/**
+ * 一级状态筛选选项（SegmentedControl）。
+ *
+ * 文案口径（2026-10-28 用户反馈「已归因/已处理看不懂」）：界面上一律不用
+ * `attributed` 这个内部术语。四个状态说的是「这条记录还要不要我管」——
+ * 待处理 / 已处理 / 已核对 / 已忽略；「处理到哪儿去了」由操作列回答
+ * （`已对应到 微众银行` / `份额一致` / `已跳过`），两列合起来才是一条完整句子。
+ */
 export const STATUS_OPTIONS: { label: string; value: string }[] = [
   { label: "全部", value: STATUS_ALL },
   { label: "待处理", value: "pending" },
-  { label: "已归因", value: "attributed" },
-  { label: "已忽略", value: "ignored" },
-  { label: "已核对", value: "verified" }
+  { label: "已处理", value: "attributed" },
+  { label: "已核对", value: "verified" },
+  { label: "已忽略", value: "ignored" }
 ];
 
 /** 状态标签元信息：标签文字 + 自定义色类（四态语义区分） */
@@ -35,10 +50,31 @@ export const STATUS_META: Record<
   { label: string; className: string }
 > = {
   pending: { label: "待处理", className: "status-tag--pending" },
-  attributed: { label: "已归因", className: "status-tag--attributed" },
+  attributed: { label: "已处理", className: "status-tag--attributed" },
   ignored: { label: "已忽略", className: "status-tag--ignored" },
   verified: { label: "已核对", className: "status-tag--verified" }
 };
+
+/**
+ * 非待处理行在「操作」列的回显文案。
+ *
+ * 这里承载的是**状态列说不完的那半句**：状态只说「处理完了」，去向在这里。
+ * 老版工作台把三种状态统一写成「已处理」，既与状态列重复又不回答「对到哪儿」，
+ * 用户读到的是两个同义词（2026-10-28 反馈原文：「这些对用户来说可能有点理解不了」）。
+ */
+export function resolveHint(row: ReconciliationItem): string {
+  switch (row.status) {
+    case "attributed":
+      // 后端 `attributed_to` 是账本名（渠道侧账户），缺省兜底成中性词而非留空
+      return `已对应到 ${row.attributed_to || "对应渠道"}`;
+    case "verified":
+      return "份额一致";
+    case "ignored":
+      return "已跳过";
+    default:
+      return "";
+  }
+}
 
 /** 兼容「信封 {data}」与「直接返回」两种响应形态（并行 lane 契约以直接返回为准） */
 export function unwrap<T>(res: unknown): T {

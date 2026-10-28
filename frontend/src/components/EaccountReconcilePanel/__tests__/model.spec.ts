@@ -12,9 +12,10 @@ import {
   errMsg,
   filterByStatus,
   isActingOf,
+  resolveHint,
   slicePage,
   unwrap
-} from "../reconcileModel";
+} from "../model";
 import type { ReconciliationItem } from "@/api/eaccount";
 
 function item(patch: Partial<ReconciliationItem> = {}): ReconciliationItem {
@@ -73,8 +74,8 @@ describe("状态枚举：筛选器与标签必须同构", () => {
       "all",
       "pending",
       "attributed",
-      "ignored",
-      "verified"
+      "verified",
+      "ignored"
     ]);
   });
 
@@ -91,6 +92,48 @@ describe("状态枚举：筛选器与标签必须同构", () => {
   it("四态各有一条自定义色类，不共用", () => {
     const classes = Object.values(STATUS_META).map(m => m.className);
     expect(new Set(classes).size).toBe(classes.length);
+  });
+
+  /**
+   * 界面文案守卫（2026-10-28 用户反馈「状态里的已归因、操作里的已处理是什么意思」）：
+   * `attributed` 是后端状态机的内部名，不该出现在用户面前；而状态列与操作列
+   * 也不能出现同一句话——那等于占了两列说一件事。
+   */
+  it("界面不出现「已归因」这一内部术语", () => {
+    const labels = [
+      ...STATUS_OPTIONS.map(o => o.label),
+      ...Object.values(STATUS_META).map(m => m.label)
+    ];
+    expect(labels).not.toContain("已归因");
+  });
+
+  it("「已处理」只作为状态列文案，不重复出现在操作列回显里", () => {
+    for (const status of ["attributed", "verified", "ignored"] as const) {
+      expect(resolveHint(item({ status }))).not.toBe(STATUS_META[status].label);
+    }
+  });
+});
+
+describe("resolveHint：非待处理行写出去向", () => {
+  it("已处理给出对应到的渠道账本", () => {
+    expect(
+      resolveHint(item({ status: "attributed", attributed_to: "微众银行" }))
+    ).toBe("已对应到 微众银行");
+  });
+
+  it("缺 attributed_to 时兜底成中性词，不留空", () => {
+    expect(
+      resolveHint(item({ status: "attributed", attributed_to: null }))
+    ).toBe("已对应到 对应渠道");
+  });
+
+  it("已核对说份额一致，已忽略说已跳过", () => {
+    expect(resolveHint(item({ status: "verified" }))).toBe("份额一致");
+    expect(resolveHint(item({ status: "ignored" }))).toBe("已跳过");
+  });
+
+  it("待处理没有回显文案（那一行给的是操作按钮）", () => {
+    expect(resolveHint(item({ status: "pending" }))).toBe("");
   });
 });
 
