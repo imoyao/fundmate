@@ -395,6 +395,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'index_valuations': DOMAIN_MARKET,  # 指数估值（#1285/#1394：市盈率/股息率，中证官方）
     'index_valuation_baselines': DOMAIN_MARKET,  # 指数估值分位基线（#1407：乐咕月频滚动 PE，近 5 年）
     'market_asset_daily': DOMAIN_MARKET,  # 探市大类资产日频快照（#1460 P1：20 资产，供读库组装）
+    'market_asset_history': DOMAIN_MARKET,  # 探市大类资产日线历史（#1460 P2：按需回填的收盘价序列）
     'market_bond_yield_daily': DOMAIN_MARKET,  # 探市债券 10Y 收益率日频快照（#1460 P1）
     'channel_links': DOMAIN_MARKET,  # 跨渠道关联（#1285 §3.8：指数↔ETF / ETF↔联接）
     'advisor_holdings': DOMAIN_MARKET,  # 投顾组合当前基金级持仓（#1167）

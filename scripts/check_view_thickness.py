@@ -247,11 +247,16 @@ BASELINE: dict[str, dict[str, int]] = {
     # commits / max_func 三项实测不动（0/0/21），唯 lines 61 → 85（+24，新增
     # /industry-emotion/ 端点，纯 HTTP 编排：开 db → 调 service → jsonify，无内联
     # 业务逻辑；增长来自端点签名与口径 docstring）。按 `--report` 实测回写。
+    # 2026-10-28 重取（#1460 P2，**新增端点**，非放宽）：加
+    # `GET /api/market/asset/<asset_key>/history/`（资产日线历史，按需回填在
+    # services/market_history_service 内完成）——视图仍是「解析参数 → 调 service → 信封」，
+    # 实测 orm_queries / commits 均为 0，max_func 21 → 34、lines 85 → 124，增长全部
+    # 来自新端点的签名与口径 docstring（含错误码 400/404/503 的说明）。
     "backend/app/domains/market/views.py": {
-        "lines": 85,
+        "lines": 124,
         "orm_queries": 0,
         "commits": 0,
-        "max_func": 21,
+        "max_func": 34,
     },
     "backend/app/domains/ocr/views.py": {
         "lines": 214,
