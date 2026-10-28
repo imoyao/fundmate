@@ -81,8 +81,8 @@ defineProps<{ matrix: OverlapMatrix }>();
 
   &__table {
     width: 100%;
-    border-collapse: collapse;
     font-variant-numeric: tabular-nums;
+    border-collapse: collapse;
   }
 
   &__caption {
@@ -165,8 +165,8 @@ defineProps<{ matrix: OverlapMatrix }>();
 
     /* 不可比用斜纹而不是纯色：它既不是 0，也不是一个「量」 */
     &.is-incomparable {
-      font-weight: 500;
       font-size: var(--text-label);
+      font-weight: 500;
       color: var(--text-tertiary-ink);
       background: repeating-linear-gradient(
         45deg,
@@ -183,8 +183,8 @@ defineProps<{ matrix: OverlapMatrix }>();
     padding: 0;
     margin: var(--space-standard) 0 0;
     font-size: var(--text-small);
-    list-style: none;
     color: var(--text-tertiary-ink);
+    list-style: none;
   }
 
   &__legend-item.is-mid {
