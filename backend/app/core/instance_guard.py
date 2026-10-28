@@ -38,6 +38,13 @@ POSIX `flock`，**非阻塞**、进程退出（含崩溃）由内核释放、无
 2. 重载父进程从「整段放行」改为「探查不持锁」——放行会让它在守门覆盖之外跑 `init_db()`；
 3. `main.py` 导入期把 `BaseWSGIServer.allow_reuse_address` 置 `False`——Windows 的
    `SO_REUSEADDR` 会让第二个实例**静默绑上同一端口**，把「又起一个」伪装成「重启成功」。
+
+**#2728：判据漏了 `.env` 里的 debug 开关**
+
+`flask run` 是否起 reloader，只由「生效的 debug」决定（`reload = debug = get_debug_flag()`），
+而 debug 除命令行 `--debug` 外还可以来自 `.env` 的 `FLASK_DEBUG`——本仓 `backend/.env`
+第 18 行就是 `FLASK_DEBUG=1`。原判据只查 argv，于是**父进程被判成服务进程去持锁**，
+真正服务的子进程 `exit 4`，报「持有者 pid=<自己的父进程>」，把人往「有僵尸实例」方向带。
 """
 
 from __future__ import annotations
@@ -87,23 +94,58 @@ def _disabled_by_env() -> bool:
     return os.getenv(ENV_DISABLE, '').strip().lower() in _FALSY
 
 
+# flask `get_debug_flag()`（flask/helpers.py）的假值集合。
+#
+# 刻意**不扩展**成含 `off` / `disabled`：flask 眼里 `FLASK_DEBUG=off` 仍算「开」，
+# 照样会拉起 reloader 父子进程。我们若按「更合理」的语义判成关，就会漏判父进程 →
+# 父进程真去持锁 → 子进程 exit 4（#2728）。判据必须与 flask 同源，不自创口径。
+_DEBUG_FALSY = {'0', 'false', 'no'}
+
+
+def _flask_debug_enabled() -> bool:
+    """生效的 debug 开关（与 flask `get_debug_flag()` 同义；来源 `.env` 或 `--debug`）。"""
+    value = os.environ.get('FLASK_DEBUG')
+    return bool(value and value.strip().lower() not in _DEBUG_FALSY)
+
+
+def _is_flask_run_command() -> bool:
+    """本进程是否由 `flask run` 启动。
+
+    `FLASK_RUN_FROM_CLI` 由 flask CLI 的 `make_context` 对**所有**子命令设置，故还要
+    限定 argv 里真有 `run` 子命令（`flask db upgrade` / `flask shell` 同样会设它）。
+    """
+    return os.environ.get('FLASK_RUN_FROM_CLI') == 'true' and 'run' in sys.argv
+
+
 def is_reloader_parent() -> bool:
     """当前是否是 werkzeug **重载父进程**（会执行 create_app，但不真正服务）。
 
     判据：`WERKZEUG_RUN_MAIN` 未被设置（该变量只由重载器注入**子进程**），
-    且命令行带着重载开关（`--debug` / `--reload`）。两者同时成立才判定为父进程——
-    宁可漏判（退回「不跳过」，让父进程也去抢锁）也不误判成非服务进程而放宽守门。
+    且重载确实开启——命令行带 `--debug` / `--reload`，**或** `.env` 里 `FLASK_DEBUG`
+    生效（#2728）。宁可漏判（退回「不跳过」，让父进程也去抢锁）也不误判成非服务进程
+    而放宽守门。
 
     `--no-reload` 必须**优先于** `--debug`：它是 Click 成对布尔的关断位，
     `flask run --debug --no-reload` 下根本不产生子进程，**当前进程就是服务进程**——
     此时若仍判成父进程，`main.py` 的 `init_db()` 会被整个跳过、库永远不建（#1816）。
     同理 `--reload --no-reload`（后写者胜）也算关断。
+
+    `--no-debug` 无需特判：flask 的 `_set_debug` 回调在参数解析期就把 `FLASK_DEBUG`
+    改写成 `0`，这里读到的一定是最终值。
     """
     if os.environ.get('WERKZEUG_RUN_MAIN'):
         return False
     if '--no-reload' in sys.argv:
         return False
-    return '--debug' in sys.argv or '--reload' in sys.argv
+    if '--debug' in sys.argv or '--reload' in sys.argv:
+        return True
+    # 命令行没写开关也要看 `.env`：`run_command` 的 `reload = debug = get_debug_flag()`
+    # 意味着 `FLASK_DEBUG=1` 照样起 reloader 父子进程（#2728 的实际触发路径）。
+    #
+    # **必须**限定 `flask run`：`app/main.py` 无条件 `load_dotenv()`，`.env` 的
+    # `FLASK_DEBUG=1` 在 pytest / `flask db upgrade` / 脚本 / scheduler 里同样可见；
+    # 无条件采信会把这些进程误判成父进程 → 只探查不持锁 → 守门静默失效，比漏判更糟。
+    return _is_flask_run_command() and _flask_debug_enabled()
 
 
 def _owner_file(lock_file: Path) -> Path:
