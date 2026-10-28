@@ -58,10 +58,12 @@ class TestGuardCatchesRegressions(unittest.TestCase):
         self.assertTrue(any('不在' in p and '基线' in p for p in problems), problems)
 
     def test_probe2_converged_but_baseline_not_tightened_is_caught(self):
-        """探针 2：基线内函数的早退已改掉、条目还在 → 红（防基线漂移）。"""
-        mutated = self.guard._drop_baseline_skip(self.real)
-        self.assertNotEqual(mutated, self.real, '探针未命中：文件结构已变')
-        problems = self.guard.check_source(mutated)
+        """探针 2：基线上挂着已收敛（无早退）的函数 → 红（防基线漂移）。
+
+        #2689 起基线会被删空，「改坏某个基线内函数」不再总有对象可改，故探针改成
+        往基线临时塞一条已收敛的条目（`_probe_baseline_drift` 负责还原）。
+        """
+        problems = self.guard._probe_baseline_drift(self.real)
         self.assertTrue(any('已无' in p for p in problems), f'未提示收紧基线：{problems}')
 
     def test_probe3_phantom_baseline_entry_is_caught(self):
