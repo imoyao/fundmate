@@ -16,7 +16,7 @@
       <MetricCard
         title="冲突"
         :value="p.result.conflicts"
-        caption="需人工决策，前往对账中心处理"
+        caption="需逐条决策"
       />
       <MetricCard
         title="跳过"
@@ -26,26 +26,22 @@
       <MetricCard
         title="失败"
         :value="p.result.failed_rows.length"
-        caption="解析或落库失败，见下方明细"
+        caption="解析或落库失败的行"
       />
     </MetricGrid>
 
-    <!-- 有冲突：品牌色提示 banner（提示性信息，非危险操作）+ 跳转对账中心 -->
+    <!-- 有冲突：品牌色提示条（提示性信息，非危险操作）。它只陈述事实与两条决策口径
+         （「归因覆盖」/「忽略」），不放按钮——唯一主入口是底部操作栏；此前提示条里的同名
+         按钮与底栏按钮、页头链接三处指向同一路由，用户无从判断该点哪个。 -->
     <div v-if="p.result.conflicts > 0" class="conflict-banner" role="alert">
-      <div class="conflict-banner__text">
-        <IconifyIconOffline
-          icon="ep:warning-filled"
-          class="conflict-banner__icon"
-        />
-        <span>
-          存在 {{ p.result.conflicts }} 条冲突：渠道已有持仓但份额与
-          E账户不一致， 需要逐条决策「归因覆盖」或「忽略」
-        </span>
-      </div>
-      <el-button type="primary" @click="p.goToReconcileCenter">
-        前往对账中心处理
-        <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
-      </el-button>
+      <IconifyIconOffline
+        icon="ep:warning-filled"
+        class="conflict-banner__icon"
+      />
+      <p class="conflict-banner__text">
+        存在 {{ p.result.conflicts }} 条冲突：渠道已有持仓但份额与
+        E账户不一致，需逐条决策「归因覆盖」或「忽略」
+      </p>
     </div>
 
     <!-- 无冲突：完成态 -->
@@ -57,8 +53,9 @@
       </p>
     </div>
 
-    <!-- 冲突明细：简要清单（symbol + 渠道 + 份额差异） -->
-    <div v-if="p.conflictList.length > 0" class="detail-card">
+    <!-- 冲突明细：简要清单（symbol + 渠道 + 份额差异）。
+         区块卡容器走 CardBlock（区块自身带 SectionHeader ⇒ 属页面级区块，必须复用）。 -->
+    <CardBlock v-if="p.conflictList.length > 0" class="detail-block">
       <SectionHeader
         title="冲突明细"
         :info="'共 ' + p.conflictList.length + ' 条，可在对账中心逐条决策'"
@@ -84,10 +81,10 @@
           </span>
         </li>
       </ul>
-    </div>
+    </CardBlock>
 
-    <!-- 失败行：原因列表 -->
-    <div v-if="p.failedList.length > 0" class="detail-card">
+    <!-- 失败行：原因列表（同为带 SectionHeader 的页面级区块，容器同样走 CardBlock） -->
+    <CardBlock v-if="p.failedList.length > 0" class="detail-block">
       <SectionHeader
         title="失败明细"
         :info="'共 ' + p.failedList.length + ' 条，多为缺净值或成本数据'"
@@ -103,9 +100,11 @@
           <span class="failed-list__reason">{{ item.reason }}</span>
         </li>
       </ul>
-    </div>
+    </CardBlock>
 
-    <!-- 底部操作 -->
+    <!-- 底部操作：本页唯一的主入口。
+         冲突提示条只描述「有什么问题」，动作一律落在这一处：
+         主按钮「前往对账中心」是全页唯一实底主按钮，左侧「重新导入」是次级动作。 -->
     <div class="result-actions">
       <el-button @click="p.resetFlow">
         <IconifyIconOffline icon="ep:refresh-left" class="mr-1" />
@@ -121,6 +120,7 @@
 <script setup lang="ts">
 import { reactive } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -145,12 +145,12 @@ const p = reactive(props.page);
   margin-bottom: var(--space-standard);
 }
 
-/* 冲突提示 banner：品牌色态（design.md「提示性 Banner 品牌色规范」） */
+/* 冲突提示条：品牌色态（design.md「提示性 Banner 品牌色规范」）。
+   无按钮 ⇒ 图标与文字顶端对齐，文字换行时图标仍贴着第一行。 */
 .conflict-banner {
   display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: flex-start;
   padding: var(--space-3) var(--space-compact);
   margin-bottom: var(--space-standard);
   background: var(--brand-100);
@@ -158,16 +158,15 @@ const p = reactive(props.page);
 }
 
 .conflict-banner__text {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  min-width: 0;
+  margin: 0;
   font-size: var(--text-small);
+  line-height: 1.5;
   color: var(--brand-700);
 }
 
 .conflict-banner__icon {
   flex-shrink: 0;
+  margin-top: 2px;
 }
 
 /* 无冲突完成态 */
@@ -199,14 +198,9 @@ const p = reactive(props.page);
   color: var(--text-secondary);
 }
 
-/* 明细卡片：冲突 + 失败 */
-.detail-card {
-  padding: var(--space-standard);
+/* 明细区块（冲突 / 失败）：卡片容器由 CardBlock 提供，此处只补区块间距 */
+.detail-block {
   margin-bottom: var(--space-standard);
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
 }
 
 .conflict-list,
@@ -275,9 +269,15 @@ const p = reactive(props.page);
   color: var(--text-primary);
 }
 
+/* 操作栏：一条细线把它与正文分开，读作「页脚动作」而不是又一行内容。
+   主次不靠堆颜色——全页只有这一枚实底主按钮，「重新导入」是默认次按钮。 */
 .result-actions {
   display: flex;
   gap: var(--space-2);
+  align-items: center;
   justify-content: flex-end;
+  padding-top: var(--space-standard);
+  margin-top: var(--space-loose);
+  border-top: 1px solid var(--border-subtle);
 }
 </style>
