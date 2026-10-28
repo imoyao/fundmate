@@ -7,7 +7,9 @@
     **不可比绝不能画成 0%**——那是 #2604 明确要挡的错误安心。
   -->
   <div class="overlap-matrix">
-    <table class="overlap-matrix__table">
+    <!-- 表格骨架走共享约定 .detail-table（frontend/src/style/_detail-table.scss）：
+         宽度/字号/分隔线/单元格间距不在组件里重写，否则调一次对齐要改两处 -->
+    <table class="detail-table">
       <caption class="overlap-matrix__caption">
         行与列是同一批基金（按持仓市值降序），格子是该对的重叠加权比例（百分点）。
         对角线是自比；「不可比」= 两只基金的披露口径不同（半年报全量 vs
@@ -15,12 +17,12 @@
       </caption>
       <thead>
         <tr>
-          <th scope="col" class="overlap-matrix__corner">基金</th>
+          <th scope="col">基金</th>
           <th
             v-for="(fund, index) in matrix.funds"
             :key="fund.fund_code"
             scope="col"
-            class="overlap-matrix__head"
+            class="detail-table__num overlap-matrix__head"
             :title="`${fund.name}（${fund.fund_code}）`"
           >
             {{ index + 1 }}
@@ -40,7 +42,7 @@
           <td
             v-for="(cell, colIndex) in row.cells"
             :key="colIndex"
-            class="overlap-matrix__cell"
+            class="detail-table__num overlap-matrix__cell"
             :class="`is-${cell.tone}`"
             :title="cell.title"
           >
@@ -79,12 +81,6 @@ defineProps<{ matrix: OverlapMatrix }>();
 .overlap-matrix {
   overflow-x: auto;
 
-  &__table {
-    width: 100%;
-    font-variant-numeric: tabular-nums;
-    border-collapse: collapse;
-  }
-
   &__caption {
     padding: 0 0 var(--space-standard);
     font-size: var(--text-small);
@@ -93,29 +89,15 @@ defineProps<{ matrix: OverlapMatrix }>();
     text-align: left;
   }
 
-  &__corner,
+  /* 表头行号：矩阵的列头只放序号（名字太长会把格子撑变形），居中与下方数值对齐 */
   &__head {
-    padding: 6px 4px;
-    font-size: var(--text-small);
-    font-weight: 600;
-    color: var(--text-secondary);
     text-align: center;
-    border-bottom: 1px solid var(--border-default);
-  }
-
-  &__corner {
-    text-align: left;
   }
 
   &__row-head {
-    display: flex;
-    gap: 6px;
-    align-items: baseline;
-    padding: 6px 8px 6px 0;
-    font-size: var(--text-small);
+    font-size: var(--text-label);
     font-weight: 500;
     color: var(--text-secondary);
-    text-align: left;
     white-space: nowrap;
   }
 
@@ -131,13 +113,8 @@ defineProps<{ matrix: OverlapMatrix }>();
   }
 
   &__cell {
-    min-width: 56px;
-    padding: 6px 4px;
-    font-size: var(--text-small);
     font-weight: 600;
     text-align: center;
-    border: 1px solid var(--border-subtle);
-    border-radius: 4px;
 
     &.is-self {
       color: var(--text-disabled);
