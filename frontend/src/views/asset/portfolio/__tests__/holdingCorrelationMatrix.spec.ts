@@ -168,13 +168,17 @@ describe("截断与可算出比例", () => {
   });
 
   it("全量展开时文案说明覆盖全部", () => {
-    const matrix = buildCorrelationMatrix(data({ funds: threeFunds, fund_count: 3 }));
+    const matrix = buildCorrelationMatrix(
+      data({ funds: threeFunds, fund_count: 3 })
+    );
 
     expect(matrix.coverageText).toContain("全部 3 只");
   });
 
   it("不足 2 只时说明算不出而不是「不相关」", () => {
-    const matrix = buildCorrelationMatrix(data({ funds: [fund()], fund_count: 1 }));
+    const matrix = buildCorrelationMatrix(
+      data({ funds: [fund()], fund_count: 1 })
+    );
 
     expect(matrix.coverageText).toContain("不足 2 只");
     expect(canRenderCorrelation(matrix)).toBe(false);

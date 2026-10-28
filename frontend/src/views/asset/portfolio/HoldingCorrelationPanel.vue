@@ -48,7 +48,10 @@
             :key="chip.key"
             class="correlation-panel__tally-item"
           >
-            <span class="correlation-panel__tally-count" :class="`is-${chip.tone}`">
+            <span
+              class="correlation-panel__tally-count"
+              :class="`is-${chip.tone}`"
+            >
               {{ chip.count }}
             </span>
             <span class="correlation-panel__tally-label">{{ chip.label }}</span>
@@ -96,9 +99,24 @@ const matrix = computed(() =>
 const tally = computed(() => tallyCorrelation(data.value?.cells ?? []));
 const chips = computed(() => [
   { key: "ok", count: tally.value.ok, label: "可算出（对）", tone: "ok" },
-  { key: "high", count: tally.value.high, label: "ρ≥0.8 几乎同步", tone: "high" },
-  { key: "negative", count: tally.value.negative, label: "ρ<−0.3 反向", tone: "negative" },
-  { key: "unavailable", count: tally.value.unavailable, label: "算不出", tone: "muted" }
+  {
+    key: "high",
+    count: tally.value.high,
+    label: "ρ≥0.8 几乎同步",
+    tone: "high"
+  },
+  {
+    key: "negative",
+    count: tally.value.negative,
+    label: "ρ<−0.3 反向",
+    tone: "negative"
+  },
+  {
+    key: "unavailable",
+    count: tally.value.unavailable,
+    label: "算不出",
+    tone: "muted"
+  }
 ]);
 
 async function load() {

@@ -67,7 +67,9 @@
     <p v-if="matrix.truncatedCount > 0" class="overlap-matrix__hint">
       仅显示持仓市值前 {{ matrix.funds.length }} 只（覆盖
       {{ (100 - matrix.truncatedMarketValuePct).toFixed(1) }}% 基金市值），另有
-      {{ matrix.truncatedCount }} 只（{{ matrix.truncatedMarketValuePct }}%）未展开（列表视图可看全量）。
+      {{ matrix.truncatedCount }} 只（{{
+        matrix.truncatedMarketValuePct
+      }}%）未展开（列表视图可看全量）。
     </p>
   </div>
 </template>

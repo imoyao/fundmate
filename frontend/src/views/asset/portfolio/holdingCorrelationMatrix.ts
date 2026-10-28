@@ -23,12 +23,7 @@ import type {
 } from "@/api/holdingOverlap";
 
 export type CorrelationTone =
-  | "self"
-  | "high"
-  | "mid"
-  | "low"
-  | "negative"
-  | "unavailable";
+  "self" | "high" | "mid" | "low" | "negative" | "unavailable";
 
 export interface CorrelationCellView {
   /** 格子里的文字：`0.46` / `—` / `样本不足` / `无净值` / `无波动` */
@@ -72,7 +67,8 @@ const STATUS_HINT: Record<CorrelationStatus, string> = {
   ok: "",
   no_series: "该基金没有净值/价格序列（新成立或未入库），不是「不相关」",
   short_overlap: "同期交易日不足，样本太少算不出稳定相关系数，不是「不相关」",
-  zero_variance: "净值长期不变（货基/停牌），相关系数在数学上未定义，不是「不相关」"
+  zero_variance:
+    "净值长期不变（货基/停牌），相关系数在数学上未定义，不是「不相关」"
 };
 
 /**
@@ -81,7 +77,9 @@ const STATUS_HINT: Record<CorrelationStatus, string> = {
  * 语义：正相关高 = 一起涨一起跌 = 「以为分散、其实没有」，用警示色；负相关是天然对冲，
  * 用相反的色。阈值 0.8 / 0.5 / -0.3 取整是为了让 96 对里能分出层次（实测中位 0.46）。
  */
-export function correlationTone(rho: number | null | undefined): CorrelationTone {
+export function correlationTone(
+  rho: number | null | undefined
+): CorrelationTone {
   if (rho === null || rho === undefined || Number.isNaN(rho)) {
     return "unavailable";
   }
@@ -133,7 +131,10 @@ function buildCell(
 }
 
 /** 覆盖说明：把「未展开多少、占多少市值」说清楚，不许只留一个矩阵就跑 */
-function coverageTextOf(data: HoldingCorrelationData, funds: CorrelationFund[]): string {
+function coverageTextOf(
+  data: HoldingCorrelationData,
+  funds: CorrelationFund[]
+): string {
   if (data.fund_count < 2) return "可比基金不足 2 只，无法两两比较";
   if (!data.truncated.count) {
     return `已展开全部 ${funds.length} 只基金，覆盖全部基金持仓市值`;

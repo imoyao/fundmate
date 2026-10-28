@@ -12,9 +12,15 @@
   <div class="correlation-matrix">
     <table class="detail-table">
       <caption class="correlation-matrix__caption">
-        行与列是同一批基金（按持仓市值降序），格子是近 {{ matrix.window }} 日收益的
-        皮尔逊相关系数（同期交易日不少于 {{ matrix.minOverlap }} 天）。对角线是自比；
-        ρ 越高说明「一起涨一起跌」——分散效果越差。
+        行与列是同一批基金（按持仓市值降序），格子是近
+        {{
+          matrix.window
+        }}
+        日收益的 皮尔逊相关系数（同期交易日不少于
+        {{
+          matrix.minOverlap
+        }}
+        天）。对角线是自比； ρ 越高说明「一起涨一起跌」——分散效果越差。
       </caption>
       <thead>
         <tr>
@@ -57,7 +63,9 @@
     </table>
 
     <ul class="correlation-matrix__legend">
-      <li class="correlation-matrix__legend-item is-high">ρ ≥ 0.8（几乎同步）</li>
+      <li class="correlation-matrix__legend-item is-high">
+        ρ ≥ 0.8（几乎同步）
+      </li>
       <li class="correlation-matrix__legend-item is-mid">0.5 ≤ ρ &lt; 0.8</li>
       <li class="correlation-matrix__legend-item is-low">−0.3 ≤ ρ &lt; 0.5</li>
       <li class="correlation-matrix__legend-item is-negative">

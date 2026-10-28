@@ -167,10 +167,7 @@ export function getHoldingOverlap() {
  * `0` 的含义是「无关」，而它们是「无信息」——两者天差地别。
  */
 export type CorrelationStatus =
-  | "ok"
-  | "no_series"
-  | "short_overlap"
-  | "zero_variance";
+  "ok" | "no_series" | "short_overlap" | "zero_variance";
 
 /** 相关性矩阵成员（市值降序，后端已按覆盖规则截断） */
 export interface CorrelationFund {

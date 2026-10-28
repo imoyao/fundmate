@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **214** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **215** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -104,6 +104,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/funds/managers/search/` | `search_managers` |
 | POST | `/api/funds/nav/` | `get_fund_nav_by_date` |
 | GET | `/api/funds/overlap/` | `get_holding_overlap` |
+| GET | `/api/funds/overlap/correlation/` | `get_holding_correlation` |
 | POST | `/api/funds/redeem-fee/estimate/` | `estimate_redeem_fee` |
 | GET | `/api/funds/search/` | `search_funds` |
 | GET | `/api/funds/style/portfolio/` | `get_portfolio_style` |
