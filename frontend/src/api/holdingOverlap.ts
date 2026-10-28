@@ -32,15 +32,25 @@ export interface OverlapPair {
   jaccard: number;
   weighted_overlap: number;
   /**
-   * 重叠定性（后端按双口径阈值判定，前端**不**二次推导）：
-   * - `duplicate` 配置重复（weighted≥20 或 jaccard≥0.5）；
-   * - `watch` 需留意（weighted≥10 或 jaccard≥0.3）；
-   * - `low` 一般；
+   * 重复投入金额（分）：Σ min(持仓市值A × 占比A, 持仓市值B × 占比B)。
+   * 与 `weighted_overlap` 互补——后者说「两只基金像不像」，前者说「这笔重复值多少钱」。
+   * 取 `min` 是关键：一只投 ¥0.53、一只投 ¥19,404 的同一只基金，重复的只是那 5 毛 3。
+   */
+  overlap_amount_cents: number;
+  /**
+   * 重叠定性（后端按双口径阈值 + 金额闸门判定，前端**不**二次推导）：
+   * - `duplicate` 配置重复（weighted≥20 或 jaccard≥0.5，且金额过提示线）；
+   * - `watch` 需留意（weighted≥10 或 jaccard≥0.3，且金额过提示线）；
+   * - `low` 比例未达提示线；
+   * - `trivial` 比例可能很高，但重复投入金额低于提示线（观察仓，**不提示**）；
    * - `same-series` 同一只基金的不同份额（如 A/C 类），属份额重复、**不计入**
    *   `duplicate_count`。
    */
-  overlap_level: "duplicate" | "watch" | "low" | "same-series";
-  /** 触发原因的说明（如「共同重仓 15 只、86.5% 仓位重叠」；`low` 时为空串） */
+  overlap_level: "duplicate" | "watch" | "low" | "same-series" | "trivial";
+  /**
+   * 触发原因的说明（如「共同重仓 15 只、86.5% 仓位重叠」）；
+   * `low` 为空串，`trivial` 说明为什么没提示（如「重叠 94.8% 但重复投入约 ¥12」）。
+   */
   overlap_reason: string;
   common_holdings: OverlapCommonHolding[];
 }
@@ -52,7 +62,7 @@ export interface OverlapUncovered {
 }
 
 export interface HoldingOverlapData {
-  /** 有重叠的基金对，按加权口径降序；无重合的对不出现（没信息量） */
+  /** 有重叠的基金对：先按档位、档内按重复金额降序；无重合的对不出现（没信息量） */
   pairs: OverlapPair[];
   /** 参与计算的基金数 */
   fund_count: number;
@@ -64,11 +74,15 @@ export interface HoldingOverlapData {
   /** 有持仓明细的基金市值 / 全部持仓市值 * 100 */
   coverage_pct: number;
   uncovered: OverlapUncovered[];
-  /** 判为「配置重复」的基金对数（不含 `same-series` 的份额重复） */
+  /** 判为「配置重复」的基金对数（不含 `same-series`，也不含金额不足未提示的） */
   duplicate_count: number;
+  /** 被金额闸门挡下的对数：比例可能很高，但重复的只是几毛钱（观察仓） */
+  trivial_count: number;
+  /** 金额提示线（分），文案里的「不足 ¥X 未提示」用它，前端不另写一个数 */
+  min_overlap_amount_cents: number;
   /**
-   * 口径声明（后端下发，前端原样展示）：持仓快照滞后、高换手基金失真，
-   * 以及「未接入基金级换手率，无法自动标出高换手」。
+   * 口径声明（后端下发，前端原样展示）：持仓快照滞后、高换手基金失真、
+   * 未接入基金级换手率，以及「重复金额是按披露持仓估算的保守下界」。
    */
   caveats: string[];
   /** 取数失败时为 true；此时不得渲染成「重叠 0%」 */

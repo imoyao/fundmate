@@ -41,6 +41,16 @@
    只对低换手基金有效」，但基金级换手率**并未入库**（现有 turnover 全是市场/行业
    拥挤度与用户自身的交易换手）。故本模块只在 ``caveats`` 里声明该局限，**不输出**
    「哪只基金高换手」这类没有数据支撑的结论。
+10. **重复投入金额是提示的前置闸门**：``overlap_amount_cents`` = Σ min(市值A×占比A,
+    市值B×占比B)，即「两侧各自在这批共同持仓上的实际敞口取小」之和——它才有资格回答
+    「这笔重复值不值得管」。只投几块钱的观察仓与重仓基金比例再高也只重复几毛钱，
+    低于 ``MIN_OVERLAP_AMOUNT_CENTS`` 一律判 ``trivial``（**不提示**），但仍保留比例
+    信息在 ``overlap_reason`` 里。**取 ``min`` 而非求和**：小仓位那侧决定真实影响上限，
+    一只 ¥0.53、一只 ¥19,404 的同一只基金，重复的是那 5 毛 3 对应的钱。
+    金额是**保守下界**（季报只披露前十大，未披露的持仓看不见）。
+11. **排序先按档位、档内按金额降序**：第一屏必须是「花最多钱重复的地方」。若仍按
+    ``weighted_overlap`` 排，第 1 名会是一对只投了几毛钱、比例 90% 的观察仓——
+    那正是这张卡要消除的噪音。
 
 ## 复用既有口径（不自造第二份）
 
@@ -99,12 +109,18 @@ KNOWN_BASES = (BASIS_FULL, BASIS_TOP10)
 #: 百分比换算基数（``ratio`` 已是 %，算覆盖率时乘 100 与之对齐）。
 _PERCENT_SCALE = 100
 
+#: 分 → 元（金额展示用；与 ``_PERCENT_SCALE`` 数值相同但语义不同，不合并）。
+_CENTS_PER_YUAN = 100
+
 # ── 「配置重复」阈值（卡面 #866）──────────────────────────────────────────────
 #
-# 取值依据：2026-10-27 用本地真实库实测（97 只可比基金、1884 对有共同持仓）——
+# **这一组只回答「算不算重复」，不回答「值不值得提示」**——后者由下方
+# ``MIN_OVERLAP_AMOUNT_CENTS`` 的金额闸门把关。两层缺一不可：只判比例会先炸出
+# 一屏观察仓的假警报（实测 55 对里 45 对重复金额不到 1 元）。
+#
+# 取值依据：2026-10-27 用本地真实库实测（96 只可比基金、1834 对有共同持仓）——
 # ``weighted_overlap`` p50=0.09 / max=94.83，``jaccard`` p50=0.021 / max=1.0；
-# 阈值都落在分布尾部，既能捞出真重复（广发北证50 vs 永赢北证50：weighted 94.83、
-# jaccard 1.0），又不至于把列表淹掉（weighted>=20 命中 55 对、jaccard>=0.5 命中 8 对）。
+# 阈值都落在分布尾部（weighted>=20 命中 55 对、jaccard>=0.5 命中 8 对）。
 #
 # **不能只用一个口径**：jaccard 只看「重合几只股票」——两家公司跟踪同一指数的基金
 # jaccard 恒为 1.0，却可能只差 0.07 个百分点的仓位；weighted 只看「重合多少仓位」——
@@ -118,6 +134,25 @@ WATCH_WEIGHTED_PCT = 10.0
 #: 集合口径「需留意」阈值（0~1）。
 WATCH_JACCARD = 0.3
 
+# ── 「重复投入金额」提示线 ───────────────────────────────────────────────────
+#
+# 只看比例会炸出一屏假警报：真实的组合里通常躺着几十只**观察仓**（买几块到几十块
+# 试试水），它们的持仓比例与重仓基金完全一样，但重复的只是几毛钱。
+#
+# 2026-10-27 用本地真实库实测（96 只可比基金、1834 对有重叠）：
+#   重复投入金额 p50=¥0.68 / p75=¥3.42 / p95=¥65.66 / p99=¥837.97 / max=¥7,279.57
+# 可见按纯比例判出的 55 对「配置重复」里，绝大多数是**金额不到 1 元**的噪音。
+#
+# 取 ¥1,000 的理由：本组合总市值 ¥285,694，¥1,000 约 0.35%；低于这个数的重复敞口
+# 对组合波动的影响远小于一次正常调仓，提示它只会让人学会忽略提示。
+# 该门槛是**绝对值、不随组合市值缩放**——相对门槛会让提示列表随每日市值抖动，
+# 用户无法理解「昨天报了今天没报」。命中数：¥1,000 → 10 对 duplicate（无门槛时 55 对）。
+# **改这个数前先重跑那份分布**，不要凭感觉调。
+MIN_OVERLAP_AMOUNT_CENTS = 1000 * 100
+
+#: 档位展示优先级（前端按此顺序折叠；``duplicate`` 永远排第一）。
+LEVEL_ORDER = {'duplicate': 0, 'watch': 1, 'same-series': 2, 'low': 3, 'trivial': 4}
+
 #: 浮点比较容差：``ratio`` 落库是 REAL，同一份额的同一行可能带极小误差。
 _RATIO_EPS = 1e-9
 
@@ -129,6 +164,8 @@ _CAVEATS = [
     '重叠度基于基金定期报告披露的持仓快照，两次报告之间的调仓看不到；各基金报告期见每一对下方。',
     '高换手基金的季报持仓是滞后快照，季报之间可能已换掉大半持仓，此时重叠度参考价值下降。'
     '系统未接入基金级换手率，无法自动标出哪只属于高换手——看到季报前十大（top10）口径的对，请自行掂量。',
+    '重复投入金额按「各基金披露持仓比例 × 你的持仓市值、两侧取小」估算，是保守下界：'
+    '季报只披露前十大，未披露的持仓看不到，真实重复只会更多。',
 ]
 
 
@@ -173,6 +210,11 @@ def _empty_result() -> Dict[str, Any]:
         'coverage_pct': 0.0,
         'uncovered': [],
         'duplicate_count': 0,
+        #: 被金额闸门挡下的对数（比例可能很高，但重复的只是几毛钱）。前端据此折叠，
+        #: 并与 ``duplicate_count`` 分开陈述——「忽略了多少」本身是信息。
+        'trivial_count': 0,
+        #: 下发的金额提示线（分），前端展示「低于 ¥X 未提示」时用，避免两端各写一个数。
+        'min_overlap_amount_cents': MIN_OVERLAP_AMOUNT_CENTS,
         # 口径声明与数据无关：它描述的是本模块**固有**的失真条件，取不到数也照样成立。
         'caveats': list(_CAVEATS),
         'degraded': False,
@@ -280,9 +322,9 @@ def _pair_detail(a: _Fund, b: _Fund) -> Dict[str, Any]:
         b: 第二只基金。
 
     Returns:
-        ``{jaccard, weighted_overlap, common_holdings, identical_holdings}``。
-        ``common_holdings`` 按 ``min_ratio`` 降序（重合仓位重的排前面），同值按
-        ``stock_code`` 升序保证稳定。
+        ``{jaccard, weighted_overlap, overlap_amount_cents, common_holdings,
+        identical_holdings}``。``common_holdings`` 按 ``min_ratio`` 降序（重合仓位重的
+        排前面），同值按 ``stock_code`` 升序保证稳定。
     """
     codes_a = a.codes
     codes_b = b.codes
@@ -291,12 +333,21 @@ def _pair_detail(a: _Fund, b: _Fund) -> Dict[str, Any]:
     jaccard = (len(common) / len(union)) if union else 0.0
 
     weighted = 0.0
+    #: 重复投入金额（分）：共同持仓上「两侧各自的实际敞口取小」求和。
+    #: 取 ``min`` 是因为小仓位那侧才决定真实影响上限——一只投 ¥0.53、一只投 ¥19,404
+    #: 的同一只基金（招商白酒 A/C 实测），重复的只是那 5 毛 3 对应的钱，不是 1.9 万。
+    #: 语义是**保守下界**：季报只披露前十大，未披露的持仓看不到，真实重复只会更多。
+    amount_cents = 0.0
     holdings: List[Dict[str, Any]] = []
     for stock_code in common:
         ratio_a = a.ratios[stock_code]
         ratio_b = b.ratios[stock_code]
         min_ratio = min(ratio_a, ratio_b)
         weighted += min_ratio
+        amount_cents += min(
+            a.market_value_cents * ratio_a / _PERCENT_SCALE,
+            b.market_value_cents * ratio_b / _PERCENT_SCALE,
+        )
         holdings.append(
             {
                 'stock_code': stock_code,
@@ -311,6 +362,7 @@ def _pair_detail(a: _Fund, b: _Fund) -> Dict[str, Any]:
     return {
         'jaccard': round(jaccard, 4),
         'weighted_overlap': round(weighted, 2),
+        'overlap_amount_cents': int(round(amount_cents)),
         'common_holdings': holdings,
         'identical_holdings': _is_identical_holdings(codes_a, codes_b, a, b),
     }
@@ -361,14 +413,48 @@ def _classify_overlap(jaccard: float, weighted: float, common_count: int) -> tup
     return 'low', ''
 
 
+def _apply_amount_gate(level: str, reason: str, weighted: float, amount_cents: int) -> tuple[str, str]:
+    """按「重复投入金额」给比例定级做二次过滤（观察仓不该报重复）。
+
+    只看比例的致命问题：组合里通常躺着几十只**观察仓**（买几块到几十块试水），
+    它们的持仓与重仓基金完全一致，比例能到 90%+，但重复的只有几毛钱。
+    实测本地库 1834 对里，金额中位数是 ¥0.68——不设闸门时 55 对「配置重复」
+    绝大多数是这种噪音，用户很快就会学会无视整条提示。
+
+    闸门只降级、不升级：金额不足时无论比例多高都判 ``trivial``，但**理由里保留
+    比例信息**（「重叠 94.8% 但重复投入约 ¥12」），让用户知道「不是没重叠，
+    是这笔钱不值得管」。``same-series`` 不参与闸门——它是定性事实（你买的是
+    同一只基金的两个份额），与金额无关，且不计入 ``duplicate_count``。
+
+    Args:
+        level: ``_classify_overlap`` 给出的比例档位。
+        reason: 对应的理由（``low`` 时为空）。
+        weighted: 加权口径重叠度（百分点），仅在理由里回显。
+        amount_cents: 重复投入金额（分）。
+
+    Returns:
+        ``(level, reason)``。未过闸时 ``level='trivial'``。
+    """
+    if level == 'same-series' or amount_cents >= MIN_OVERLAP_AMOUNT_CENTS:
+        return level, reason
+    head = f'重叠 {weighted:.1f}% 但' if level in ('duplicate', 'watch') else ''
+    return (
+        'trivial',
+        f'{head}重复投入约 ¥{amount_cents / _CENTS_PER_YUAN:,.0f}，'
+        f'低于 ¥{MIN_OVERLAP_AMOUNT_CENTS / _CENTS_PER_YUAN:,.0f} 提示线',
+    )
+
+
 def _build_pairs(funds: List[_Fund]) -> tuple[List[Dict[str, Any]], int]:
     """两两配对并计算重叠度（口径 2/4）。
 
     Returns:
-        ``(pairs, skipped_basis_mismatch)``。``pairs`` 按 ``weighted_overlap`` 降序，
+        ``(pairs, skipped_basis_mismatch)``。``pairs`` **先按档位、档内按重复金额降序**：
+        第一屏永远是「花最多钱重复的地方」，而不是「比例最高但只投了 5 毛钱」的观察仓。
         只含 ``weighted_overlap > 0`` 的对（无重合的基金对不占版面，也没信息量）。
-        每对带 ``overlap_level``（``duplicate`` / ``watch`` / ``low`` / ``same-series``）
-        与 ``overlap_reason``（人话解释触发点，``low`` 时为空）。
+        每对带 ``overlap_amount_cents``（重复投入金额，分）与 ``overlap_level``
+        （``duplicate`` / ``watch`` / ``same-series`` / ``low`` / ``trivial``）
+        及 ``overlap_reason``（人话解释触发点，``low`` / ``trivial`` 只讲为什么没提示）。
     """
     pairs: List[Dict[str, Any]] = []
     skipped_basis_mismatch = 0
@@ -388,6 +474,10 @@ def _build_pairs(funds: List[_Fund]) -> tuple[List[Dict[str, Any]], int]:
                 level, reason = _classify_overlap(
                     detail['jaccard'], detail['weighted_overlap'], len(detail['common_holdings'])
                 )
+                # 比例达标也可能只是观察仓：把钱的门槛套在比例之上（口径 10）。
+                level, reason = _apply_amount_gate(
+                    level, reason, detail['weighted_overlap'], detail['overlap_amount_cents']
+                )
             pairs.append(
                 {
                     'fund_code_a': fund_a.fund_code,
@@ -399,12 +489,21 @@ def _build_pairs(funds: List[_Fund]) -> tuple[List[Dict[str, Any]], int]:
                     'holding_basis': fund_a.basis,
                     'jaccard': detail['jaccard'],
                     'weighted_overlap': detail['weighted_overlap'],
+                    'overlap_amount_cents': detail['overlap_amount_cents'],
                     'overlap_level': level,
                     'overlap_reason': reason,
                     'common_holdings': detail['common_holdings'],
                 }
             )
-    pairs.sort(key=lambda item: (-item['weighted_overlap'], item['fund_code_a'], item['fund_code_b']))
+    pairs.sort(
+        key=lambda item: (
+            LEVEL_ORDER.get(item['overlap_level'], 9),
+            -item['overlap_amount_cents'],
+            -item['weighted_overlap'],
+            item['fund_code_a'],
+            item['fund_code_b'],
+        )
+    )
     return pairs, skipped_basis_mismatch
 
 
@@ -476,6 +575,8 @@ def portfolio_holding_overlap(db: Session, family_id: int = 1) -> Dict[str, Any]
     result['pairs'] = pairs
     result['skipped_basis_mismatch'] = skipped_basis_mismatch
     # 只数真·配置重复：``same-series``（同一基金不同份额）不计——那是份额重复，
-    # 计进来会让「你有 N 对配置重复」这个汇总数字说谎。
+    # 计进来会让「你有 N 对配置重复」这个汇总数字说谎；``trivial``（金额不足提示线）
+    # 也不计——它压根没被提示，计进「重复」等于把没报的算成报了。
     result['duplicate_count'] = sum(1 for pair in pairs if pair['overlap_level'] == 'duplicate')
+    result['trivial_count'] = sum(1 for pair in pairs if pair['overlap_level'] == 'trivial')
     return result

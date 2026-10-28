@@ -842,8 +842,10 @@ def test_重叠度端点契约(client, db, make_position):
     ``pairs``），否则前端无法区分「算不出来」与「确实不重叠」——那会给用户
     「查过了、零重合」的错误安心。
     """
-    make_position(symbol='000001', asset_type='fund', name='基金甲', quantity=1000, current_price=2.0)
-    make_position(symbol='000002', asset_type='fund', name='基金乙', quantity=500, current_price=3.0)
+    # 仓位给到 ¥40,000 / ¥30,000：金额闸门（¥1,000）之上，本用例才测得到「比例定级」
+    # 那一层；闸门本身的行为由 services/test_holding_overlap.py 的分级用例覆盖。
+    make_position(symbol='000001', asset_type='fund', name='基金甲', quantity=20000, current_price=2.0)
+    make_position(symbol='000002', asset_type='fund', name='基金乙', quantity=10000, current_price=3.0)
     db.add(
         FundHolding(
             fund_code='000001',
@@ -884,6 +886,8 @@ def test_重叠度端点契约(client, db, make_position):
         'coverage_pct',
         'uncovered',
         'duplicate_count',
+        'trivial_count',
+        'min_overlap_amount_cents',
         'caveats',
         'degraded',
         'source',
@@ -897,11 +901,15 @@ def test_重叠度端点契约(client, db, make_position):
     assert pair['weighted_overlap'] == pytest.approx(6.0)
     assert pair['jaccard'] == pytest.approx(1.0)
     assert pair['common_holdings'][0]['stock_code'] == '600519'
+    # 重复投入金额 = min(40000×10%, 30000×6%) = min(4000, 1800) = ¥1,800（180000 分）
+    assert pair['overlap_amount_cents'] == 180000
+    assert data['min_overlap_amount_cents'] == 1000 * 100
     # 配置重复定性（#866）：jaccard=1.0 但加权只有 6 个百分点 ⇒ 靠集合口径越线，
     # 理由必须点明「标的重复」而不是「仓位重叠」，否则用户会被 6% 这个数字绕晕
     assert pair['overlap_level'] == 'duplicate'
     assert '重仓股' in pair['overlap_reason']
     assert data['duplicate_count'] == 1
+    assert data['trivial_count'] == 0
     # 口径声明随接口下发（前端与结论同屏展示），不能在视图层被裁掉
     assert data['caveats']
 
