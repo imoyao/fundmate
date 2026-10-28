@@ -262,3 +262,76 @@ class TestEndpoint:
         assert data['cashflow_count'] == 2
         assert data['current_value'] == 1200.0
         assert not math.isnan(data['xirr'])
+
+
+class TestShadowMirrorExcluded:
+    """E账户对账镜像行不得贡献期末市值（2026-10-28 实测事故）。
+
+    事故形态：021180 在 E账户导入后同时存在真身（ledger 3，3,421.9622 份）与镜像行
+    （`ledger_id=NULL`、`account_name='基金E账户'`、3,421.96 份）。镜像行没有自己的流水，
+    但 `quantity > 0`，旧口径 `query_positions_by_symbol` 不过滤状态 → 期末市值翻倍，
+    产品级持有年化被算歪。这里用「市值翻倍会得到明显不同的 XIRR」把口径钉住。
+    """
+
+    def test_shadow_row_does_not_inflate_current_value(self, db, make_position, make_transaction):
+        pos = _bond_position(make_position, '000001', '账户A', quantity=1000, current_price=1.2)
+        make_transaction(
+            pos.id,
+            pos.ledger_id,
+            txn_type='buy',
+            asset_type='bond',
+            amount=1000,
+            confirm_date=ONE_YEAR_AGO,
+            account_name='账户A',
+            symbol='000001',
+        )
+        # 镜像行：同 symbol、同份额、同价，但 ledger 为空、状态 shadow
+        make_position(
+            symbol='000001',
+            name='测试标的000001',
+            account_name='基金E账户',
+            ledger_id=None,
+            asset_type='bond',
+            quantity=1000,
+            current_price=1.2,
+            ownership_status='shadow',
+            source='e_account_holding',
+        )
+
+        r = calculate_symbol_xirr(db, '000001', family_id=1)
+
+        assert r['current_value'] == 1200.0, f'镜像行把期末市值算成了 {r["current_value"]}'
+        assert abs(r['xirr'] - 0.20) < 0.005, f'年化应为 0.20，实际 {r["xirr"]}'
+        assert r['total_return'] == 200.0
+
+    def test_cleared_row_still_counts_cashflows(self, db, make_position, make_transaction):
+        """防修复过宽：只排 shadow，已清仓行的流水仍参与年化（口径不能被顺手改掉）。"""
+        pos = _bond_position(make_position, '000002', '账户A', quantity=0, current_price=1.0)
+        make_transaction(
+            pos.id,
+            pos.ledger_id,
+            txn_type='buy',
+            asset_type='bond',
+            amount=1000,
+            confirm_date=ONE_YEAR_AGO,
+            account_name='账户A',
+            symbol='000002',
+        )
+        make_transaction(
+            pos.id,
+            pos.ledger_id,
+            txn_type='sell',
+            asset_type='bond',
+            amount=1100,
+            confirm_date=date.today() - timedelta(days=1),
+            account_name='账户A',
+            symbol='000002',
+        )
+        pos.ownership_status = 'cleared'
+        db.commit()
+
+        r = calculate_symbol_xirr(db, '000002', family_id=1)
+
+        # 买入 -1000、卖出 +1100（清仓行市值 0）→ 约 +10%
+        assert r['total_invested'] == 1000.0
+        assert abs(r['xirr'] - 0.10) < 0.01, f'清仓行流水应仍参与年化，实际 xirr={r["xirr"]}'

@@ -6,7 +6,9 @@
 `positions.ownership_status` 有三种取值（见 `app.core.constants.OwnershipStatus`）：
 
 - `active`  —— 真实持有，参与持仓列表 / 总资产 / 收益日历；
-- `shadow`  —— E账户未归属的快照记录，只用于对账，不参与总资产；
+- `shadow`  —— E账户导入写下的**对账镜像行**（`ledger_id` 恒为 NULL、`account_name`
+  恒为「基金E账户」）。只在对账视图可见，不参与持仓列表 / 总资产 / 交易流水——
+  它是「E账户说有这笔、系统还没认领」的待核对项，不是用户开的户，也不是可买卖的账户；
 - `cleared` —— **已清仓，行保留**（份额归零，快照锚点与成本基线原样留存）。
 
 在 `cleared` 出现之前，全仓 68 处 `query(Position)` 里只有 6 处显式过滤了
@@ -61,12 +63,41 @@ def exclude_cleared(query: Query) -> Query:
 
 
 def active_holdings(query: Query) -> Query:
-    """只要 `active`：同时排除 `shadow`（未归属）与 `cleared`（已清仓）。
+    """只要 `active`：同时排除 `shadow`（对账镜像）与 `cleared`（已清仓）。
 
-    用于「参与总资产 / 收益」的计算口径，与 `exclude_cleared` 的差别是对 `shadow`
-    的处理：`shadow` 在持仓列表里要看得见（等用户归属），但不能进总资产。
+    **这是所有「当前持仓」视图的默认口径**，包括持仓列表（`position_service`
+    `build_position_list`）、总资产 / 收益计算。
+
+    ## `shadow` 为什么必须一起排掉（2026-10-28 修正）
+
+    `exclude_cleared` 的旧约定是「`shadow` 在持仓列表里要看得见（等用户归属）」，
+    那是**归属动作还长在持仓列表里**的年代。归属后来搬进对账工作台
+    （`get_reconciliation` 直接查 `ownership_status='shadow'`），列表侧再留着它就只有副作用：
+
+    - `shadow` 行的 `ledger_id` 恒为 NULL、`account_name` 恒为「基金E账户」，
+      前端 `groupByLedger` 按 `account_name` 落组，于是**凭空多出一个叫「基金E账户」的渠道**；
+    - 本地库实测（2026-10-28）：021180 在产品详情「我的持仓」显示两组
+      （基金E账户 3,421.96 份 + 微众银行 3,421.9622 份），市值 9,350.85 + 9,254.70 = 翻倍；
+    93 条镜像行全部落在「未归档持仓」分组里，而那 93 条里没有一条是真实的未归档持仓。
+
+    E账户是**对账用的持仓快照来源**，不是用户的交易账户——持仓与交易流水是两个概念，
+    镜像行既不该进持仓视图，也不该被当成可记账的账户。
     """
     return query.filter(Position.ownership_status == OwnershipStatus.ACTIVE.value)
 
 
-__all__ = ['exclude_cleared', 'active_holdings']
+def exclude_shadow(query: Query) -> Query:
+    """排除 `shadow`（对账镜像行），**保留已清仓**。
+
+    用于「持仓行本身要全、但镜像行不算持仓」的场景——典型是 XIRR 现金流：
+    已清仓行的市值是 0，可它名下的买卖 / 分红流水仍要参与年化计算
+    （`services/symbol_scope.query_positions_by_symbol` 的既有口径），
+    而镜像行既没有自己的流水、也不该贡献市值，留在结果里只会把期末市值算大。
+
+    `active_holdings` 比它更严（连 `cleared` 一起排），两者不可互相替代：
+    持仓列表用 `active_holdings`，年度化 / 时间线用 `exclude_shadow`。
+    """
+    return query.filter(Position.ownership_status != OwnershipStatus.SHADOW.value)
+
+
+__all__ = ['exclude_cleared', 'active_holdings', 'exclude_shadow']

@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.core.symbol_utils import symbol_identity
 from app.domains.positions.models import Position
+from app.services.position_scope import exclude_shadow
 
 
 def build_position_symbol_conditions(symbol: str) -> list:
@@ -53,15 +54,21 @@ def build_position_symbol_conditions(symbol: str) -> list:
 
 
 def query_positions_by_symbol(db: Session, symbol: str, family_id: int = 1) -> List[Position]:
-    """取该产品在**全部账户**下的持仓行。
+    """取该产品在**全部账户**下的持仓行（**不含 E账户对账镜像行**）。
 
     **不过滤数量**：清仓（`quantity=0`）的历史持仓没有市值，但它名下的买卖 / 分红流水
     仍是「持有年化」的现金流，这里滤掉会让已清仓产品的 XIRR 凭空变成 0。市值口径由
     调用方自行按 `quantity > 0` 收敛。
+
+    **过滤 `shadow`（2026-10-28）**：镜像行是「E账户说有、系统还没认领」的待核对项，
+    不是持仓。它没有自己的流水，却带着一份与真身等量的 `quantity`——留在结果里会让
+    期末市值翻倍（本地库实测 021180：真身 3,421.9622 份 + 镜像 3,421.96 份），
+    直接把产品级持有年化算歪。这里只排 `shadow`、不动 `cleared`，理由见
+    `services/position_scope.exclude_shadow`。
     """
-    return (
-        db.query(Position).filter(Position.family_id == family_id, or_(*build_position_symbol_conditions(symbol))).all()
-    )
+    return exclude_shadow(
+        db.query(Position).filter(Position.family_id == family_id, or_(*build_position_symbol_conditions(symbol)))
+    ).all()
 
 
 def collect_transaction_symbol_variants(symbol: str, positions: Iterable[Position]) -> Set[str]:
