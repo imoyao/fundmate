@@ -19,13 +19,17 @@ from app.core.constants import PositionSource
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.venues import resolve_venue
-from app.domains.ledgers.constants import map_org_type_to_channel_category
+from app.domains.ledgers.constants import (
+    map_channel_category_to_ledger_type,
+    map_org_type_to_channel_category,
+)
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import (
     FundCompanyObservation,
     Position,
     PositionImportMeta,
 )
+from app.domains.transactions.models import Transaction
 from app.services.import_records import (
     SBImportError,
     StandardHoldingRecord,
@@ -484,12 +488,12 @@ class HoldingsMixin:
         return position, meta
 
     def _get_or_create_channel_ledger(self, source_broker: str, external_account_code: str = 'MAIN') -> Ledger:
-        """按销售机构匹配渠道 Ledger（ledger_type='fund'）；找不到则自动创建（§3.3）。
+        """按销售机构匹配渠道 Ledger；找不到则自动创建（§3.3）。
 
         ## 账户粒度（2026-10-28 修正：一个渠道 = 一个账户）
 
-        查/建键为 **(family_id, ledger_type='fund', sales_institution_id)**（名录未命中时退化为
-        (family_id, ledger_type='fund', name)）。`external_account_code` **不再参与匹配**。
+        查/建键为 **(family_id, sales_institution_id)**（名录未命中时退化为
+        (family_id, name)）。`external_account_code` **不再参与匹配**。
 
         为什么改：导入侧传进来的其实是**交易账号**，而同一渠道下不同基金 / 不同绑定卡各有不同
         交易账号（实测珠海盈米 2 个、招商银行 2 个、蚂蚁 2 个、腾安 2 个、富国 2 个）。按它查/建
@@ -498,8 +502,30 @@ class HoldingsMixin:
         渠道被拆成一堆账户。交易账号 / 基金账号是**持仓级**属性，逐行记在
         `position_import_meta.trade_account / fund_account`，渠道账户这一层不需要它。
 
+        ## 查重不得带 ledger_type（2026-10-28 二次修正，#2710 后续）
+
+        原先的查重条件里含 `ledger_type='fund'`，等于认定「这个渠道的账户一定是我建的 fund 类型」。
+        但用户手工建的银行 / 券商账户是 `bank` / `stock` 类型，于是**永远查不到**，每次导入都
+        新建一个幽灵账户。实测（本地库）：机构 72（微众）下有 ledger 3「微众银行」(bank，416 条
+        流水，用户 2026-05-29 手工建) 与 ledger 18「深圳前海微众银行」(fund，0 流水，2026-08-17
+        导入建)；机构 203（银河）下有 ledger 12「同花顺（银河证券）」(stock，1211 条流水) 与
+        ledger 14「中国银河证券」(fund，0 流水)，两对幽灵的 `created_at` 精确到同一次导入。
+
+        渠道 ↔ 账户是一对一的：一个销售机构下就该只有一个账户，与它装的是现金还是基金无关
+        （`ledger_type` 只是内部计算口径键，见 `constants.py` 文件头的双字段铁律）。所以查重
+        只看 `sales_institution_id`，让任何类型的既有账户都能被复用。
+
+        ## 新建时 ledger_type 必须派生，不得硬编码
+
+        原实现写死 `ledger_type='fund'`，而同一处却用 `map_org_type_to_channel_category()` 正确
+        推导了 `channel_category` —— 两个字段从建号那一刻就自相矛盾：微众是银行，`channel_category`
+        算出 bank（早先因映射表缺「城市商业银行」落成 other），`ledger_type` 却写死 fund，于是
+        账户卡在「银行」分组里挂着「基」徽标。现改为与手工建号路径
+        （`ledger_write_service`）共用 `map_channel_category_to_ledger_type()`，
+        `constants.py` 要求的「唯一映射源」才真正唯一。
+
         同名账户去重（`_pick_channel_ledger`）是为历史数据兜底：已存在的重复账户不会被自动删除
-        （删账户要让用户决定），但新导入一律复用持仓最多的那一条，不再继续分裂。
+        （删账户要让用户决定），但新导入一律复用"真正在用"的那一条，不再继续分裂。
 
         匹配链路（2026-08-17 重构，AMAC 权威名录为唯一基准；判据见
         `app/services/institution_resolver.py`，与 `resolve_sales_institution_id` 共用一份）：
@@ -514,12 +540,11 @@ class HoldingsMixin:
         """
         institution = self._sales_institution_resolver().resolve(source_broker)
 
-        # 名录命中：按机构关联找/建渠道 Ledger
+        # 名录命中：按机构关联找/建渠道 Ledger（不限 ledger_type —— 见 docstring「查重不得带」）
         if institution is not None:
             candidates = (
                 self.db.query(Ledger)
                 .filter_by(
-                    ledger_type='fund',
                     family_id=self.family_id,
                     sales_institution_id=institution.id,
                 )
@@ -531,22 +556,25 @@ class HoldingsMixin:
 
             display_name = institution.display_name or institution.org_name
             # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：命中销售机构时，
-            # channel_category 由 org_type 映射写入（权威），与 ledger_type(资产类) 正交。
-            # 例：微众银行 org_type=商业银行 → channel_category=bank，ledger_type 仍为 fund。
+            # channel_category 由 org_type 映射写入（权威），ledger_type 再由它派生——
+            # 两个字段同源，不会再出现「银行分组里的基金类型账户」。
+            # 例：微众银行 org_type=城市商业银行 → channel_category=bank → ledger_type=bank。
+            channel_category = map_org_type_to_channel_category(institution.org_type)
             ledger = Ledger(
                 name=display_name,
-                ledger_type='fund',
+                ledger_type=map_channel_category_to_ledger_type(channel_category),
                 default_allocation='longterm',
                 family_id=self.family_id,
                 sales_institution_id=institution.id,
                 external_account_code='MAIN',  # 渠道主账户；交易账号属持仓级，见 docstring
-                channel_category=map_org_type_to_channel_category(institution.org_type),
+                channel_category=channel_category,
             )
             self.db.add(ledger)
             self.db.flush()
             logger.info(
                 f'对账自动创建渠道账户: name={display_name} (机构={institution.org_name}, '
-                f'id={institution.id}, 导入侧交易账号={external_account_code})'
+                f'id={institution.id}, 渠道分类={channel_category}, 资产类={ledger.ledger_type}, '
+                f'导入侧交易账号={external_account_code})'
             )
             return ledger
 
@@ -555,7 +583,6 @@ class HoldingsMixin:
             self.db.query(Ledger)
             .filter_by(
                 name=source_broker,
-                ledger_type='fund',
                 family_id=self.family_id,
             )
             .order_by(Ledger.id.asc())
@@ -590,22 +617,41 @@ class HoldingsMixin:
     def _pick_channel_ledger(self, ledgers: list, label: str) -> Ledger:
         """同一渠道存在多条 Ledger 时择一（历史重复账户的收敛点，不删数据）。
 
-        选「持仓最多、其次 id 最小」的那条：持仓多的才是真正在用的账户；按 id 最小可能选中
-        一条空壳账户，让用户看到「账户里没钱」——那是更坏的失败形态。
+        判据（2026-10-28 二次修正）：**有流水 > 持仓多 > id 小**。
+
+        为什么把「有流水」提到首位：原判据「持仓最多、其次 id 最小」是按「用户手工建了个空壳
+        账户」设计的；但重复账户的另一来源是**导入自动建**（旧 `_get_or_create_channel_ledger`
+        的 bug），这类幽灵恰好持仓最多、流水恒为 0。实测机构 72：ledger 3「微众银行」416 条
+        流水 / 1 条持仓，ledger 18「深圳前海微众银行」0 条流水 / 18 条持仓 —— 只看持仓数会选中
+        幽灵，让后续每次导入继续往空壳里灌数据。**流水是「这个账户真的被用过」的铁证**，持仓则
+        可能是自动化产物。同分时按 id 小（先建的通常是用户自己建的那本）。
+
         重复账户本身留给用户决定是否合并（`scripts/dedupe_channel_ledgers.py`）。
         """
         if len(ledgers) == 1:
             return ledgers[0]
-        counts = dict(
+        ids = [led.id for led in ledgers]
+        pos_counts = dict(
             self.db.query(Position.ledger_id, func.count(Position.id))
-            .filter(Position.ledger_id.in_([led.id for led in ledgers]))
+            .filter(Position.ledger_id.in_(ids))
             .group_by(Position.ledger_id)
             .all()
         )
-        ordered = sorted(ledgers, key=lambda led: (-counts.get(led.id, 0), led.id))
+        txn_counts = dict(
+            self.db.query(Transaction.ledger_id, func.count(Transaction.id))
+            .filter(Transaction.ledger_id.in_(ids))
+            .group_by(Transaction.ledger_id)
+            .all()
+        )
+        ordered = sorted(
+            ledgers,
+            key=lambda led: (-txn_counts.get(led.id, 0), -pos_counts.get(led.id, 0), led.id),
+        )
         logger.warning(
             f'渠道「{label}」存在 {len(ordered)} 个重复账户'
-            f'（ids={[led.id for led in ordered]}, 持仓数={[counts.get(led.id, 0) for led in ordered]}），'
+            f'（ids={[led.id for led in ordered]}, '
+            f'流水数={[txn_counts.get(led.id, 0) for led in ordered]}, '
+            f'持仓数={[pos_counts.get(led.id, 0) for led in ordered]}），'
             f'本次使用 id={ordered[0].id}；重复账户需人工合并'
         )
         return ordered[0]

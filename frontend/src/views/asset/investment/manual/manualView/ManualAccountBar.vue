@@ -12,11 +12,14 @@ import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 
 import { useManualQuickAdd } from "./useManualQuickAdd";
 
-/** 下拉项只需要这三个字段，不引入 Ledger 全量类型（`useQuickEntry` 给的是 any[]） */
+/** 下拉项只需要这几个字段，不引入 Ledger 全量类型（`useQuickEntry` 给的是 any[]）。
+ *  `channel_category` 是标签展示的唯一来源（渠道类别），`ledger_type` 只作兜底——
+ *  后端模型注释 §2.3：类型标签一律只读 channel_category。 */
 export interface ManualLedgerOption {
   id: number;
   name: string;
   ledger_type: string;
+  channel_category?: string;
 }
 
 withDefaults(
@@ -91,7 +94,11 @@ function submit() {
         >
           <div class="flex items-center justify-between w-full">
             <span>{{ ledger.name }}</span>
-            <AssetTypeBadge :type="ledger.ledger_type" variant="tag" />
+            <!-- 账户标签读渠道类别，不读 ledger_type（后者是内部口径键且不可变，见 AssetTypeBadge 注释） -->
+            <AssetTypeBadge
+              :channel-category="ledger.channel_category"
+              variant="tag"
+            />
           </div>
         </el-option>
       </el-select>

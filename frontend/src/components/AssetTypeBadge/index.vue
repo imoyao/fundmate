@@ -14,12 +14,21 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { LEDGER_TYPE_SHORT } from "@/constants";
-import { getLedgerColor } from "@/utils/ledger";
+import { resolveLedgerBadge } from "@/utils/ledger";
 
 const props = withDefaults(
   defineProps<{
-    type: string;
+    /** 内部资产类键（ledger_type）。**新代码不要传它做展示**——用 channelCategory。 */
+    type?: string;
+    /**
+     * 用户可见的渠道类别（channel_category）。传了它就以它为准。
+     *
+     * 后端模型注释与设计文档 §2.3 的铁律：账户列表分组、类型标签、排序、筛选一律只读
+     * channel_category，绝不读 ledger_type 当展示。此前调用方传的是 ledger_type，
+     * 导致「银行」分组里出现「基」徽标（微众银行 ledger_type 被导入写成 fund），
+     * 且 ledger_type 编辑时不可变（409）——用户永远改不掉这个错标签。
+     */
+    channelCategory?: string;
     label?: string;
     variant?: "tag" | "light";
   }>(),
@@ -28,12 +37,18 @@ const props = withDefaults(
   }
 );
 
-const displayLabel = computed(() => {
-  if (props.label) return props.label;
-  return LEDGER_TYPE_SHORT[props.type] || props.type;
-});
+/** 字与色的优先级收在 `resolveLedgerBadge`（渠道类别优先），组件这里只管样式。 */
+const badge = computed(() =>
+  resolveLedgerBadge({
+    channelCategory: props.channelCategory,
+    type: props.type,
+    label: props.label
+  })
+);
 
-const baseColor = computed(() => getLedgerColor(props.type));
+const displayLabel = computed(() => badge.value.label);
+
+const baseColor = computed(() => badge.value.color);
 
 /** 同色相透明底。
  *  ⚠️ #1602 修复：原实现是 `baseColor.value + "20"` 拼字符串 —— 当 getLedgerColor

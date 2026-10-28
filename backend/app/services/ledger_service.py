@@ -435,9 +435,13 @@ class LedgerService:
             .scalar()
         )
         # 2. 理财/基金持仓
-        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
-        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
-        fund_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in positions)
+        # 口径复用 get_portfolio_stats：基金按最新净值、非基金按 current_price。
+        # 为什么不再自己按 current_price 累加（2026-10-28）：银行账户也能持有基金（微众等），
+        # 而 fund 类型账户走的是净值口径。两套口径并存时，把导入产生的幽灵基金账户合并回
+        # 银行账户，卡片总资产会平白变动 1,224.97 元（本地库 021180 等 18 只基金），
+        # 用户看到的是「合并把数据改了」。统一到净值口径后合并前后数字一致。
+        portfolio = LedgerService.get_portfolio_stats(db, ledger_id)
+        fund_mv = Money.yuan_to_cents(portfolio['total_market_value'])
         total_balance = current_amount + fund_mv
 
         # 🔥 3. 新增：查询该银行卡下关联的负债（房贷）
@@ -451,8 +455,9 @@ class LedgerService:
             'total_market_value': Money.cents_to_yuan(total_balance),
             'current_balance': Money.cents_to_yuan(current_amount),
             'cash_balance': Money.cents_to_yuan(current_amount),
-            'fund_value': Money.cents_to_yuan(fund_mv),
-            'position_count': len(positions),
+            'fund_value': portfolio['total_market_value'],
+            'position_pnl': portfolio['position_pnl'],
+            'position_count': portfolio['position_count'],
             # 🔥 新增字段，直接暴露给视图层
             'linked_liability': Money.cents_to_yuan(liability_cents) if liability_cents else 0.0,
         }
@@ -492,7 +497,9 @@ class LedgerService:
         elif ledger.ledger_type == 'bank':
             stats = LedgerService.get_bank_stats(db, ledger.id)
             item['total_market_value'] = stats['total_market_value']
-            item['pnl'] = 0.0  # bank 不直接显示盈亏
+            # 银行账户也可能持有基金（微众等：现金 + 自购基金同账户），持仓盈亏照实报，
+            # 不再写死 0 —— 否则合并账户后用户会以为盈亏凭空消失。
+            item['pnl'] = stats['position_pnl']
             item['position_count'] = stats.get('position_count', 0)
             item['cash_balance'] = stats['current_balance']
             # 🔥 负债必须从 stats 拿，视图层不做 SQL 聚合

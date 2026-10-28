@@ -123,7 +123,10 @@ function onReorderKey(
         >
           {{ ledger.name }}
         </span>
-        <AssetTypeBadge :type="ledger.ledger_type" />
+        <!-- 类型标签读 channel_category（用户可见渠道类别），不读 ledger_type：
+             后者是内部计算口径键，且编辑时不可变（409），拿它当标签会让用户
+             永远改不掉错误显示（微众银行曾长期在「银行」组里挂「基」徽标）。 -->
+        <AssetTypeBadge :channel-category="ledger.channel_category" />
         <!-- 归属家庭成员（#1173）：只在有归属时显示——「家庭共有」是常态，
              占位反而让每个卡片都多一个无信息量的标签 -->
         <el-tooltip

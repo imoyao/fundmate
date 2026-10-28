@@ -96,10 +96,21 @@ def _make_channel_position(db, ledger, quantity=500.0, source='manual', symbol=S
 
 @pytest.fixture(autouse=True)
 def _seed_sales_institutions(db):
-    """seed 内置销售机构（§3.3，替代旧 seed_sales_broker_mappings）：蚂蚁（杭州）→ 支付宝、天天基金。"""
+    """seed 内置销售机构（§3.3，替代旧 seed_sales_broker_mappings）：蚂蚁（杭州）→ 支付宝、天天基金。
+
+    ``org_type`` 必须给：导入侧据它推导 channel_category → ledger_type（2026-10-28 起不再硬编码
+    fund）。留空会走 ``map_org_type_to_channel_category(None) = 'other'``，进而派生 ledger_type=bank，
+    与真实名录数据不符 —— 真实机构都带 AMAC 的 org_type，夹具要跟数据同形。
+    """
     if not db.query(SalesInstitution).filter_by(org_name=SOURCE_ALIPAY).first():
-        db.add(SalesInstitution(org_name=SOURCE_ALIPAY, display_name='支付宝', is_active=True))
-        db.add(SalesInstitution(org_name=SOURCE_TIANTIAN, display_name='天天基金', is_active=True))
+        db.add(
+            SalesInstitution(org_name=SOURCE_ALIPAY, display_name='支付宝', org_type='独立基金销售机构', is_active=True)
+        )
+        db.add(
+            SalesInstitution(
+                org_name=SOURCE_TIANTIAN, display_name='天天基金', org_type='独立基金销售机构', is_active=True
+            )
+        )
         db.commit()
 
 
@@ -712,3 +723,126 @@ def test_different_institution_position_still_auto_attributed(db):
     active = db.query(Position).filter_by(symbol=SYMBOL, ownership_status='active', family_id=1).all()
     assert len(active) == 2
     assert {p.ledger_id for p in active} != {tiantian_ledger.id}
+
+
+class TestOneAccountPerInstitution:
+    """一个销售机构只能对应一个账户（2026-10-28 事故：微众被拆成两个账户）。
+
+    事故形态：机构 72「深圳前海微众银行」(org_type=城市商业银行) 下有
+    ledger 3「微众银行」(bank，用户 2026-05-29 手工建，416 条流水) 与
+    ledger 18「深圳前海微众银行」(fund，2026-08-17 导入建，0 流水)。
+    根因有两条，都在 `_get_or_create_channel_ledger`：
+
+    1. 查重条件带 `ledger_type='fund'` —— 用户的 bank 账户被过滤掉，永远查不到；
+    2. 新建时 `ledger_type='fund'` 硬编码 —— node 出来的账户自称基金，`channel_category`
+       却按 org_type 算成 bank，两个字段从建号起就打架。
+
+    结果：账户列表「银行」分组里并排两个账户，其中一个是「基」徽标；用户把渠道类别
+    改成银行也没用，因为徽标读的是 `ledger_type`，而它编辑时不可变（409）。
+    """
+
+    def test_reuses_existing_bank_ledger_of_same_institution(self, db):
+        """已有同机构 bank 账户 → 复用它，绝不另建第二个。"""
+        inst = db.query(SalesInstitution).filter_by(org_name=SOURCE_ALIPAY).first()
+        bank_ledger = Ledger(
+            name='支付宝',
+            ledger_type='bank',
+            family_id=1,
+            sales_institution_id=inst.id,
+            channel_category='bank',
+            external_account_code='MAIN',
+        )
+        db.add(bank_ledger)
+        db.commit()
+        ledger_id = bank_ledger.id
+
+        orch = ImportOrchestrator(db, family_id=1)
+        result = orch.reconcile_holdings([_row()])
+
+        assert [led.id for led in db.query(Ledger).filter_by(family_id=1).all()] == [ledger_id], (
+            '同机构只应有一个账户，导入不得再建幽灵'
+        )
+        pos = db.query(Position).filter_by(ledger_id=ledger_id, symbol=SYMBOL).first()
+        assert pos is not None, '持仓应落在既有账户上'
+        assert result['auto_attributed'] == 1
+
+    def test_new_ledger_type_derived_from_org_type(self, db):
+        """新建账户的 ledger_type 必须由 org_type 派生，不得硬编码 fund。
+
+        微众 = 城市商业银行 → channel_category=bank → ledger_type=bank。
+        （原实现写死 fund，正是徽标一直是「基」的原因。）
+        """
+        inst = SalesInstitution(org_name='深圳前海微众银行', org_type='城市商业银行', is_active=True)
+        db.add(inst)
+        db.commit()
+
+        orch = ImportOrchestrator(db, family_id=1)
+        orch.reconcile_holdings([_row(source_broker='深圳前海微众银行')])
+
+        ledger = db.query(Ledger).filter_by(sales_institution_id=inst.id).one()
+        assert ledger.channel_category == 'bank', '城市商业银行必须归入银行分组（映射表曾缺这个键）'
+        assert ledger.ledger_type == 'bank', '微众本质是银行，不得建成基金类型'
+
+    def test_picks_ledger_with_transactions_over_ghost_with_more_positions(self, db):
+        """渠道下已有重复账户时，选「真正在用」的（有流水），不是持仓最多的幽灵。
+
+        实测数据：ledger 3 有 416 条流水 / 1 条持仓，ledger 18 有 0 条流水 / 18 条持仓。
+        旧判据「持仓最多」会选中幽灵，让后续导入继续往空壳里灌。
+        """
+        from app.core.money import Money as _Money
+        from app.domains.transactions.models import Transaction
+
+        inst = db.query(SalesInstitution).filter_by(org_name=SOURCE_ALIPAY).first()
+        real = Ledger(
+            name='支付宝',
+            ledger_type='fund',
+            family_id=1,
+            sales_institution_id=inst.id,
+            channel_category='fund_platform',
+        )
+        ghost = Ledger(
+            name='支付宝-幽灵',
+            ledger_type='fund',
+            family_id=1,
+            sales_institution_id=inst.id,
+            channel_category='fund_platform',
+        )
+        db.add_all([real, ghost])
+        db.commit()
+
+        db.add(
+            Transaction(
+                ledger_id=real.id,
+                family_id=1,
+                symbol=SYMBOL,
+                asset_type='fund',
+                txn_type='buy',
+                confirm_date=date(2026, 8, 1),
+                amount=150000,
+                quantity=_Money.shares_to_min_unit(1000.0),
+                price=_Money.yuan_to_price_units(1.5),
+                account_name='支付宝',
+            )
+        )
+        # 幽灵：持仓多但零流水
+        for i in range(3):
+            db.add(
+                Position(
+                    symbol=f'00000{i}',
+                    name=f'幽灵持仓{i}',
+                    ledger_id=ghost.id,
+                    quantity=_Money.shares_to_min_unit(1000.0),
+                    avg_price=_Money.yuan_to_price_units(1.0),
+                    current_price=_Money.yuan_to_price_units(1.0),
+                    ownership_status='active',
+                    source='e_account_holding',
+                    family_id=1,
+                )
+            )
+        db.commit()
+
+        orch = ImportOrchestrator(db, family_id=1)
+        orch.reconcile_holdings([_row(symbol='999999')])
+
+        assert db.query(Position).filter_by(ledger_id=real.id, symbol='999999').first() is not None
+        assert db.query(Position).filter_by(ledger_id=ghost.id, symbol='999999').first() is None

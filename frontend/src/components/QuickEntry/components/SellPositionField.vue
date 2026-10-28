@@ -18,7 +18,10 @@
         >
           <div class="flex items-center justify-between w-full">
             <span>{{ acc.name }}</span>
-            <AssetTypeBadge :type="acc.ledger_type" variant="tag" />
+            <AssetTypeBadge
+              :channel-category="acc.channel_category"
+              variant="tag"
+            />
           </div>
         </el-option>
       </el-select>
