@@ -627,36 +627,40 @@ static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；F
 - `node scripts/check_css_vars.mjs`：通过（364 定义 / 278 引用，无幽灵令牌）
 - 前端：`pnpm lint`（eslint + prettier + stylelint）/ `pnpm typecheck` / `pnpm build` **全绿**
 
-## 2026-10-27 PG 约束 / 重建类迁移（承接 #2534 · 跟踪 #2689 · 4 项，现余 3 项）
+## 2026-10-27 PG 约束 / 重建类迁移（承接 #2534 · 跟踪 #2689 · 4 项已全部清零 2026-10-28）
 
 #2534 把「加列迁移写成『非 SQLite 就跳过』」这条系统性风险收口：22 处 → 4 处，并落地守卫
 `scripts/guard_migrations_pg_aware.py`（指纹基线 + `--self-test` 变异探针 + 接入 `ci.yml` 的
 `scripts_test`），登记在 `guard_rule_registry.py` 的 `RULE_REGISTRY`。
 
 **剩下的 4 项不是加列迁移**（AST 实测：函数体均不含 `add_column`，只做整表重建或改约束），
-所以没有随 #2534 一起做，单独跟踪在 **#2689**：
+没有随 #2534 一起做，单独跟踪在 **#2689**；2026-10-28 全部补上 PG 分支，基线清零：
 
 | 函数 | 类型 | 跳过 PG 的后果 | 状态 |
 |---|---|---|---|
-| `migrate_watchlist_unique_key` | 整表重建（唯一键） | PG 无唯一键 ⇒ 重复自选进得来（#2469 同族） | 待做 |
-| `migrate_watchlist_family_scoped_unique_key` | 整表重建（家庭维度唯一键） | 同上 | 待做 |
-| `migrate_fund_managers_split_tenures` | SQLite 专属 SQL（任期拆分） | PG 任期模型与 SQLite 不同源 | 待做 |
-| ~~`migrate_positions_symbol_norm`~~ | SQLite 专属 SQL（symbol 归一） | `600000` 与 `600000.SH` 在 PG 共存，口径分裂 | **已收敛 2026-10-28** |
+| `migrate_watchlist_unique_key` | 整表重建（唯一键） | PG 无唯一键 ⇒ 重复自选进得来（#2469 同族） | **已收敛**（PG 侧跳过中间形态，#2699） |
+| `migrate_watchlist_family_scoped_unique_key` | 整表重建（家庭维度唯一键） | 同上 | **已收敛**（建同名唯一索引 + 重复行报错，#2699） |
+| `migrate_fund_managers_split_tenures` | SQLite 专属 SQL（任期拆分） | PG 任期模型与 SQLite 不同源 | **已收敛**（原地搬任期/去重/删列，#2698） |
+| `migrate_positions_symbol_norm` | SQLite 专属 SQL（symbol 归一） | `600000` 与 `600000.SH` 在 PG 共存，口径分裂 | **已收敛**（commit `301916487`，#2695） |
 
-`migrate_positions_symbol_norm` 的收敛口径（commit `301916487`）：门禁从「按方言早退」改成
-「表是否存在」，PG 侧只差三处方言——加列走 `_add_column_sql`（`ADD COLUMN IF NOT EXISTS`）、
-聚合 `STRING_AGG`、`HAVING` 只写聚合表达式；守卫基线条目同 PR 删除，PG 用例由
-`tests/core/test_migrations_positions_symbol_norm.py` 的 `PgFake` 两条钉住（不早退 + SQL 形态）。
+收敛口径各有分工，共同点是**不复刻 SQLite 的整表重建**：
 
-为什么允许暂时不清零（风险性质已降级，别按「加列漂移」估优先级）：
+- `positions_symbol_norm`：门禁从「按方言早退」改成「表是否存在」，PG 侧只差三处方言——
+  加列走 `_add_column_sql`（`ADD COLUMN IF NOT EXISTS`）、聚合 `STRING_AGG`、
+  `HAVING` 只写聚合表达式；
+- `watchlist` 两条：中间形态 `(symbol, market, venue)` 在 PG 上直接跳过（终态是
+  `(family_id, symbol, market, venue)`），终态由 `_ensure_watchlist_family_unique_key_pg`
+  建**与模型同名**的唯一索引（`CREATE UNIQUE INDEX IF NOT EXISTS`，建前先查重复组并给修复口径）；
+- `fund_managers`：PG 原地改造——`ON CONFLICT DO NOTHING` 搬任期 → 一条 `DELETE ... USING`
+  物理去重 → `DROP COLUMN IF EXISTS` 删任期列 → 建同名唯一索引；去重/任期口径与 SQLite
+  共用 `_plan_manager_tenure_split`。
 
-- **不阻塞启动**：`_validate_schema` 只比对缺列、容忍多余列，不校验约束 ⇒ 这 3 项不跑，`init_db()` 照常起；
-- 这不是靠人肉记忆兜底：改到某个函数时守卫会要求**同一 PR 内**删掉它的基线条目，
-  「代码已修、基线还挂着」同样报红，不会出现「以为做完了其实没做」；
-- 代价是**静默的**：约束 / 归一化缺失不报错，只在数据层慢慢不一致。所以它必须留在本台账里——
-  #2534 关闭后没人会天天看 `BASELINE_SKIP_FUNCTIONS`。
+每个函数都有 `PgFake` 用例钉住「不早退 + PG 形态 SQL + 幂等」
+（`backend/tests/core/test_migrations_pg_aware.py`），SQLite 侧行为零变化。
 
-复跑：`python scripts/guard_migrations_pg_aware.py`（2026-10-28 实测基线 3 项，每修一项递减一项）。
+**清零后的判据**：`python scripts/guard_migrations_pg_aware.py` 输出「基线 0 个函数」——
+此后任何新写的「非 SQLite 就跳过」早退直接红，不再有存量兜底；「代码已收敛、条目还挂着」
+那条反向判据仍保留（`_probe_baseline_drift`），防止把清零做成关掉判据。
 
 ### 遗留（登记，交真机 axe）
 - 「静态不可判定（品牌 / 彩色实底）」桶 **27 → 34 处** —— 正是本批改为 `--text-inverse` 的那些实底位置，**只能真机判定**

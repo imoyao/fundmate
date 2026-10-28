@@ -68,19 +68,20 @@ MIGRATIONS_REL = 'backend/app/core/migrations.py'
 #: 删条目必须与「删早退」同一个 PR——分开就会有一段「代码已修、基线还挂着」的
 #: 窗口，那时任何新早退都能拿旧条目当掩护。
 #:
-#: 收敛记录（#2689）：
+#: 收敛记录（#2689，2026-10-28 清零）：
 #:   - `migrate_positions_symbol_norm`：PG 侧只差三处方言（加列走 `_add_column_sql`、
 #:     聚合 `STRING_AGG`、`HAVING` 只写聚合表达式），两侧均有用例（#2695）；
 #:   - `migrate_watchlist_unique_key` / `migrate_watchlist_family_scoped_unique_key`：
 #:     PG 侧不重建 —— 中间形态 (symbol, market, venue) 直接跳过，终态由
 #:     `_ensure_watchlist_family_unique_key_pg` 建**同名**唯一索引（幂等，
-#:     `CREATE UNIQUE INDEX IF NOT EXISTS`，先查重复行并给修复口径）。
-BASELINE_SKIP_FUNCTIONS = frozenset(
-    {
-        # 最后一条：由 fund_managers 任期拆分的 PR 收敛（三者进 dev 后本集合为空）
-        'migrate_fund_managers_split_tenures',
-    }
-)
+#:     `CREATE UNIQUE INDEX IF NOT EXISTS`，先查重复行并给修复口径）（#2699）；
+#:   - `migrate_fund_managers_split_tenures`：PG 原地搬任期（`ON CONFLICT DO NOTHING`）
+#:     / 物理去重（`DELETE ... USING`）/ 删列 / 建同名唯一索引（#2698）。
+#:
+#: **基线已清零** ⇒ 之后任何新写的「非 SQLite 就跳过」早退直接红，不再有存量兜底。
+#: 「代码已收敛、条目还挂着」这条反向判据（第 2 条）仍保留：清零靠的是逐条收敛，
+#: 而不是把这套判据关掉（见 `_probe_baseline_drift`）。
+BASELINE_SKIP_FUNCTIONS = frozenset()
 
 _SKIP_MARKER = '非 SQLite'
 

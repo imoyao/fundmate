@@ -33,6 +33,7 @@ from app.core.migrations import (
     migrate_conversion_in_leg_snapshot,
     migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
+    migrate_fund_managers_split_tenures,
     migrate_fund_rating_columns,
     migrate_fund_risk_metrics_period_returns,
     migrate_fund_style_columns,
@@ -384,6 +385,102 @@ def test_pg_watchlist_unique_keys_missing_table_skips(monkeypatch):
 
     assert migrate_watchlist_unique_key(fake.engine).startswith('[SKIP]')
     assert migrate_watchlist_family_scoped_unique_key(fake.engine).startswith('[SKIP]')
+
+
+# ── 表重建类（#2689）：PG 原地拆表，不整表重建 ───────────────────────────
+
+#: 拆分前的 fund_managers 列（含两个待搬走的任期列）
+_MANAGERS_LEGACY_COLS = ['id', 'fund_id', 'mgr_id', 'is_classic', 'start_date', 'end_date']
+
+
+def test_pg_fund_managers_split_moves_tenures_and_drops_columns(monkeypatch):
+    """PG 上不重建：搬任期（`ON CONFLICT`）→ `DELETE ... USING` 去重 → 删列 → 建唯一索引。"""
+    fake = PgFake(
+        {
+            'fund_managers': list(_MANAGERS_LEGACY_COLS),
+            'manager_tenures': ['id', 'fund_id', 'mgr_id', 'start_date', 'end_date'],
+        },
+        rows=[
+            # 同一 (fund_id, mgr_id) 两行：去重应保留 is_classic=True 的那行（id=2）
+            {
+                'id': 1,
+                'fund_id': 10,
+                'mgr_id': 100,
+                'is_classic': False,
+                'start_date': '2020-01-01',
+                'end_date': None,
+            },
+            {
+                'id': 2,
+                'fund_id': 10,
+                'mgr_id': 100,
+                'is_classic': True,
+                'start_date': '2020-01-01',
+                'end_date': '2021-01-01',
+            },
+        ],
+    )
+    fake.install(monkeypatch)
+
+    result = migrate_fund_managers_split_tenures(fake.engine)
+
+    assert result.startswith('[OK]'), result
+    assert '非 SQLite' not in result
+    assert '去重 2 → 1 行' in result, f'去重口径应优先 is_classic=True：{result}'
+
+    # 任期列真的删掉了、唯一索引真的建了
+    assert set(fake.columns['fund_managers']) == {'id', 'fund_id', 'mgr_id', 'is_classic'}
+    assert 'uq_fund_managers_fund_mgr' in fake.indexes['fund_managers']
+
+    joined = '\n'.join(fake.sql)
+    assert 'ON CONFLICT (fund_id, mgr_id, start_date) DO NOTHING' in joined, joined
+    assert 'DELETE FROM fund_managers a USING fund_managers b' in joined, joined
+    assert 'DROP COLUMN IF EXISTS start_date' in joined, joined
+    assert 'DROP COLUMN IF EXISTS end_date' in joined, joined
+    assert 'CREATE UNIQUE INDEX IF NOT EXISTS uq_fund_managers_fund_mgr ON fund_managers (fund_id, mgr_id)' in joined, (
+        joined
+    )
+    # 不许出现 SQLite 整表重建的痕迹（那套在 PG 上既没必要也多一次 DROP 风险）
+    assert 'PRAGMA' not in joined, joined
+    assert 'RENAME TO' not in joined, joined
+
+
+def test_pg_fund_managers_split_idempotent(monkeypatch):
+    """已拆分完成（无任期列 + 唯一索引在）：直接 SKIP，不发任何 DDL。"""
+    fake = PgFake(
+        {
+            'fund_managers': ['id', 'fund_id', 'mgr_id', 'is_classic'],
+            'manager_tenures': ['id', 'fund_id', 'mgr_id', 'start_date'],
+        }
+    )
+    fake.indexes['fund_managers'] = ['uq_fund_managers_fund_mgr']
+    fake.install(monkeypatch)
+
+    assert migrate_fund_managers_split_tenures(fake.engine).startswith('[SKIP]')
+    assert not any('ALTER' in s or 'CREATE' in s or 'DELETE' in s for s in fake.sql), fake.sql
+
+
+def test_pg_fund_managers_split_creates_missing_unique_index(monkeypatch):
+    """半完成态（任期列已删、唯一索引没建）：PG 上补建索引并返回 OK。"""
+    fake = PgFake(
+        {
+            'fund_managers': ['id', 'fund_id', 'mgr_id', 'is_classic'],
+            'manager_tenures': ['id'],
+        }
+    )
+    fake.install(monkeypatch)
+
+    assert migrate_fund_managers_split_tenures(fake.engine).startswith('[OK]')
+    assert 'uq_fund_managers_fund_mgr' in fake.indexes['fund_managers']
+
+
+def test_pg_fund_managers_split_requires_manager_tenures(monkeypatch):
+    """`manager_tenures` 不在（单独跑迁移 / 手修库）：显式抛错，不自建 PG 方言表。"""
+    fake = PgFake({'fund_managers': list(_MANAGERS_LEGACY_COLS)})
+    fake.install(monkeypatch)
+
+    with pytest.raises(RuntimeError, match='manager_tenures 不存在'):
+        migrate_fund_managers_split_tenures(fake.engine)
 
 
 def test_no_bare_alter_table_in_converted_migrations():

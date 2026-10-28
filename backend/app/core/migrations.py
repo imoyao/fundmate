@@ -1023,6 +1023,57 @@ _MANAGER_TENURES_INDEXES = (
     'CREATE INDEX IF NOT EXISTS ix_manager_tenures_fund_id ON manager_tenures (fund_id)',
 )
 
+#: fund_managers 的唯一键名，与模型 `UniqueConstraint(..., name=...)` 一致
+#: （PG 侧建的是同名唯一索引；SQLite 侧重建后表内是同名约束）。
+_FUND_MANAGERS_UNIQUE_INDEX = 'uq_fund_managers_fund_mgr'
+
+
+def _plan_manager_tenure_split(rows: list[dict]) -> 'tuple[dict, list[dict], int]':
+    """把 ``fund_managers`` 的旧行拆成「保留的关联行」与「待写入的任期行」。
+
+    **两引擎同源口径**（#2689）：SQLite 的整表重建分支与 PG 的原位改造分支都调这一份，
+    避免「同一个迁移在两种引擎上去重口径不同」这种最难发现的分叉。
+
+    返回 ``(best, tenures, invalid)``：
+
+    - ``best``：按 ``(fund_id, mgr_id)`` 去重后的保留行，**优先 ``is_classic=True``**；
+      同优先级时保留先遍历到的那行（SQLite 侧 SELECT 未排序，等价于按 id 升序；
+      PG 侧的物理删除用的是「id 最小」，两者在实测数据上一致 —— 卡内记录：重复组内
+      除 id 外三列完全相同，所以取哪一行只影响 id）。
+    - ``tenures``：``start_date`` 非空才写（空起始日无法定位一段任期）；``start > end``
+      属脏行，跳过并计入 ``invalid``；``current`` 按 ``end_date IS NULL`` 落，
+      **不是**无条件 True（否则历史段全被标成「在任」，读侧会选错代表作）。
+    - ``invalid``：被丢弃的倒挂脏行数（用于回报）。
+    """
+    best: dict = {}
+    for r in rows:
+        key = (r['fund_id'], r['mgr_id'])
+        cur = best.get(key)
+        if cur is None or (r.get('is_classic') and not cur.get('is_classic')):
+            best[key] = r
+
+    tenures: list[dict] = []
+    invalid = 0
+    for r in best.values():
+        start = r.get('start_date')
+        end = r.get('end_date')
+        if not start:
+            continue
+        if end and str(start) > str(end):
+            invalid += 1
+            continue
+        tenures.append(
+            {
+                'fund_id': r['fund_id'],
+                'mgr_id': r['mgr_id'],
+                'start_date': str(start),
+                'end_date': str(end) if end else None,
+                'current': 1 if not end else 0,
+                'source': 'legacy_split',
+            }
+        )
+    return best, tenures, invalid
+
 
 def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     """拆分 ``fund_managers``：关联（+唯一约束）归本表，任期归 ``manager_tenures``（#2239）。
@@ -1052,15 +1103,22 @@ def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     ``current`` 按 ``end_date IS NULL`` 落 —— **不是**无条件 True：无条件为真等于
     把所有历史段都标成「在任」，读侧按 ``current`` 筛选代表作时会跨轮次选错人。
 
+    ## 两种引擎都执行（#2689）
+
+    SQLite 只能整表重建；PG 不需要（既能 `ADD CONSTRAINT` 又能 `DROP COLUMN`），走
+    :func:`_split_fund_managers_tenures_pg`：搬任期（`ON CONFLICT DO NOTHING`）→
+    物理去重（`DELETE ... USING`）→ 删列 → 建同名唯一索引。两条路径的去重 / 任期口径
+    共用 :func:`_plan_manager_tenure_split`，不分叉。
+
     ## 幂等
 
-    三种「已完成」形态都直接跳过：非 SQLite 引擎；``fund_managers`` 不存在（空库，
-    ``create_all`` 会按新模型建）；已无任期列且 ``manager_tenures`` 已存在。
-    任期写入用 ``INSERT OR IGNORE`` 依赖 ``uq_manager_tenures_fund_mgr_start``。
+    三种「已完成」形态都直接跳过：``fund_managers`` 不存在（空库，``create_all`` 会按
+    新模型建）；已无任期列且唯一键/表都已就绪；重复执行时任期写入靠
+    ``uq_manager_tenures_fund_mgr_start``（SQLite ``INSERT OR IGNORE`` /
+    PG ``ON CONFLICT DO NOTHING``）天然幂等。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，结构由 ORM 模型/迁移工具负责'
+    if _is_postgres(engine):
+        return _split_fund_managers_tenures_pg(engine)
 
     insp = inspect(engine)
     tables = set(insp.get_table_names())
@@ -1086,34 +1144,8 @@ def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     with engine.connect() as conn:
         rows = [dict(r) for r in conn.execute(text(f'SELECT {", ".join(select_cols)} FROM fund_managers')).mappings()]
 
-    # 按 (fund_id, mgr_id) 去重，优先保留 is_classic=True 的那行
-    best: dict = {}
-    for r in rows:
-        key = (r['fund_id'], r['mgr_id'])
-        cur = best.get(key)
-        if cur is None or (r.get('is_classic') and not cur.get('is_classic')):
-            best[key] = r
-
-    tenures, invalid = [], 0
-    for r in best.values():
-        start = r.get('start_date')
-        end = r.get('end_date')
-        if not start:
-            continue
-        if end and str(start) > str(end):
-            # 起始晚于结束属脏行：宁可少一段任期，也不把倒挂的区间写进库
-            invalid += 1
-            continue
-        tenures.append(
-            {
-                'fund_id': r['fund_id'],
-                'mgr_id': r['mgr_id'],
-                'start_date': str(start),
-                'end_date': str(end) if end else None,
-                'current': 1 if not end else 0,
-                'source': 'legacy_split',
-            }
-        )
+    # 去重 + 任期规划：口径见 `_plan_manager_tenure_split`（PG 分支共用同一份）
+    best, tenures, invalid = _plan_manager_tenure_split(rows)
 
     with engine.connect() as conn:
         if tenures:
@@ -1171,6 +1203,103 @@ def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     msg = (
         f'[OK] fund_managers 去重 {len(rows)} → {len(best)} 行（合并 {merged} 行）；'
         f'manager_tenures 迁入 {len(tenures)} 段任期' + (f'（跳过倒挂脏行 {invalid}）' if invalid else '')
+    )
+    logger.info(msg)
+    return msg
+
+
+def _split_fund_managers_tenures_pg(engine: Engine) -> str:
+    """PG 侧拆分 ``fund_managers``（#2689）：搬任期 → 去重 → 删列 → 建同名唯一索引。
+
+    ## 为什么不像 SQLite 那样整表重建
+
+    PG 两步都能原地做：``ALTER TABLE ... DROP COLUMN IF EXISTS`` 删任期列、
+    ``CREATE UNIQUE INDEX IF NOT EXISTS`` 补唯一键。照抄 SQLite 的「建新表 → 拷贝 →
+    删旧 → 改名」只会多一次全表拷贝、多一次 DROP 丢数据的窗口，而且那套
+    ``PRAGMA foreign_keys`` 在 PG 上根本不存在。
+
+    ## 顺序：先搬任期，后删列
+
+    与 SQLite 分支同理 —— ``start_date`` / ``end_date`` 是每次 F10 抓取（每只基金一次
+    HTTP）才有的数据，先删列就再也补不回来。先搬（幂等）再删，重跑时源数据仍在。
+
+    ## ``manager_tenures`` 由谁建
+
+    ``init_db()`` 里 ``create_all()`` 先跑、按模型建好该表（含
+    ``uq_manager_tenures_fund_mgr_start`` 与两个索引）。单独跑迁移（手工修库 / 单测）
+    时若表不在，这里**显式抛错**而不是自建：模块顶部那份手写 DDL 是 SQLite 方言
+    （``INTEGER NOT NULL`` 主键），在 PG 上会建出自增语义不同的表，等于埋一个
+    「两个引擎结构不同」的坑。
+    """
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    if 'fund_managers' not in tables:
+        return '[SKIP] fund_managers 不存在（空库，init_db 将按新模型建表）'
+
+    cols = {c['name'] for c in insp.get_columns('fund_managers')}
+    tenure_cols = {'start_date', 'end_date'} & cols
+    if not tenure_cols and _index_exists(engine, 'fund_managers', _FUND_MANAGERS_UNIQUE_INDEX):
+        return '[SKIP] 已拆分完成（fund_managers 无任期列，唯一约束已存在）'
+    if 'manager_tenures' not in tables:
+        raise RuntimeError(
+            'manager_tenures 不存在：该表由模型建（init_db 的 create_all），'
+            '迁移不自建 PG 版表结构（手写 DDL 是 SQLite 方言）'
+        )
+
+    select_cols = ['id', 'fund_id', 'mgr_id', 'is_classic']
+    select_cols += [c for c in ('start_date', 'end_date') if c in cols]
+    with engine.connect() as conn:
+        rows = [dict(r) for r in conn.execute(text(f'SELECT {", ".join(select_cols)} FROM fund_managers')).mappings()]
+
+    best, tenures, invalid = _plan_manager_tenure_split(rows)
+
+    with engine.connect() as conn:
+        # ── 1. 搬任期（幂等：撞 uq_manager_tenures_fund_mgr_start 即跳过）────────
+        if tenures:
+            conn.execute(
+                text(
+                    'INSERT INTO manager_tenures '
+                    '(fund_id, mgr_id, start_date, end_date, current, source) '
+                    'VALUES (:fund_id, :mgr_id, :start_date, :end_date, :current, :source) '
+                    'ON CONFLICT (fund_id, mgr_id, start_date) DO NOTHING'
+                ),
+                tenures,
+            )
+
+        # ── 2. 物理去重：每个 (fund_id, mgr_id) 只留一行 ───────────────────────
+        # 交给 PG 一条 `DELETE ... USING`，不把几万行 id 搬进 Python（本机实测 69,684 行）。
+        # 保留顺序与 `_plan_manager_tenure_split` 同口径：is_classic=True 优先，其次 id 最小。
+        conn.execute(
+            text(
+                'DELETE FROM fund_managers a USING fund_managers b '
+                'WHERE a.fund_id = b.fund_id AND a.mgr_id = b.mgr_id AND a.id <> b.id '
+                'AND (COALESCE(a.is_classic, FALSE) < COALESCE(b.is_classic, FALSE) '
+                '     OR (COALESCE(a.is_classic, FALSE) = COALESCE(b.is_classic, FALSE) AND a.id > b.id))'
+            )
+        )
+
+        # ── 3. 删任期列（顺序理由见 docstring）────────────────────────────────
+        for col in sorted(tenure_cols):
+            conn.execute(text(f'ALTER TABLE fund_managers DROP COLUMN IF EXISTS {col}'))
+        conn.commit()
+
+    # ── 4. 唯一键（同名索引，幂等）+ 自校验 ──────────────────────────────────
+    created = _ensure_index(
+        engine,
+        _FUND_MANAGERS_UNIQUE_INDEX,
+        f'CREATE UNIQUE INDEX IF NOT EXISTS {_FUND_MANAGERS_UNIQUE_INDEX} ON fund_managers (fund_id, mgr_id)',
+        table='fund_managers',
+    )
+    leftover = {'start_date', 'end_date'} & {c['name'] for c in inspect(engine).get_columns('fund_managers')}
+    if leftover:
+        raise RuntimeError(f'fund_managers 删除任期列后仍存在 {sorted(leftover)}，迁移失败')
+
+    merged = len(rows) - len(best)
+    msg = (
+        f'[OK] fund_managers 去重 {len(rows)} → {len(best)} 行（合并 {merged} 行）；'
+        f'manager_tenures 迁入 {len(tenures)} 段任期'
+        + (f'（跳过倒挂脏行 {invalid}）' if invalid else '')
+        + ('；唯一索引新建' if created else '；唯一索引已存在')
     )
     logger.info(msg)
     return msg
