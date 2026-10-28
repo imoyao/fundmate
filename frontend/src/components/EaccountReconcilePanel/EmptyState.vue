@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
- * 表格空状态（#980 拆分）。
+ * 表格空状态（迁移自 reconcile/reconcileView/ReconcileEmpty.vue）。
  *
  * 鹦鹉螺插画资产未入库前先用文案版 + 品牌收尾文案（与 watchlist 空状态同一策略）。
  * 文案分「全量无记录」与「当前筛选无记录」两种——后者要多给一句出路，
  * 否则用户只会以为数据没了。
  */
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { STATUS_ALL } from "./reconcileModel";
+import { STATUS_ALL } from "./model";
 
 defineProps<{ statusFilter: string }>();
 </script>
@@ -20,7 +20,7 @@ defineProps<{ statusFilter: string }>();
     </p>
     <p class="reconcile-empty__copy">潮有涨落，壳有深浅。算得清，才无患。</p>
     <p v-if="statusFilter !== STATUS_ALL" class="reconcile-empty__hint">
-      试试切换其他状态，或点击右上角「刷新」
+      试试切换其他状态，或点右上角刷新
     </p>
   </div>
 </template>

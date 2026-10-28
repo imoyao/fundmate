@@ -83,6 +83,7 @@
               <EAccountDomainPanel
                 :items="eItems"
                 :loading="eLoading"
+                :acting="eActing"
                 @cover="handleEAccountCover"
                 @ignore="handleEAccountIgnore"
               />
@@ -112,8 +113,12 @@
               @recorded="loadDividendTax"
             />
 
-            <!-- 域 C：占位内容 -->
-            <template v-else>
+            <!-- 域 C：对账单/交割单导入（2026-10-28 接入真实列表）。
+                 这一域的用户动作是「去导入」，所以入口放在这个 Tab 里、做成正式按钮；
+                 导入提交后后端自动跑一次对账，孤儿持仓（有仓位无流水）回到这里。
+                 ⚠️ 后端域 C 只做孤儿检测，不做数量比对——数量差异在域 B，
+                 故文案只说「孤儿」不说「差异全在这里」。 -->
+            <template v-else-if="tab.key === 'C'">
               <!-- 识别候选（txn → 域 C，#1251）：AI 识别结果落草稿，确认后入库并触发域 C 对账 -->
               <RecognizerCandidatesPanel
                 kind="txn"
@@ -122,8 +127,35 @@
                 @discard="discardCandidates"
                 @commit="commitCandidates"
               />
-              <DomainPlaceholder :tab="tab" @go="goTo" />
+              <div v-if="tab.entry" class="domain-entry">
+                <div class="domain-entry__text">
+                  <p class="domain-entry__title">{{ tab.entry.title }}</p>
+                  <p class="domain-entry__hint">{{ tab.entry.hint }}</p>
+                </div>
+                <div class="domain-entry__actions">
+                  <el-button
+                    v-for="(link, i) in tab.entry.links"
+                    :key="i"
+                    size="small"
+                    :type="i === 0 ? 'primary' : 'default'"
+                    :plain="i === 0"
+                    @click="goTo(link.to)"
+                  >
+                    {{ link.label }}
+                  </el-button>
+                </div>
+              </div>
+              <DomainBDiscTable
+                :items="cDiscs"
+                :loading="loading"
+                empty-text="暂无孤儿持仓"
+                @supplement="openSupplement"
+                @ignore="handleIgnore"
+              />
             </template>
+
+            <!-- 兜底：新增域忘了写视图时给一句话，而不是静默空白 -->
+            <el-empty v-else description="该域暂未提供内容" :image-size="80" />
           </CardBlock>
         </el-tab-pane>
       </el-tabs>
@@ -161,7 +193,6 @@ import EAccountDomainPanel from "./components/EAccountDomainPanel.vue";
 import RecognizerCandidatesPanel from "./components/RecognizerCandidatesPanel.vue";
 import DomainDGhostTable from "./components/DomainDGhostTable.vue";
 import DomainEDividendTaxTable from "./components/DomainEDividendTaxTable.vue";
-import DomainPlaceholder from "./components/DomainPlaceholder.vue";
 import WorkbenchHead from "./components/WorkbenchHead.vue";
 import DomainTabLabel from "./components/DomainTabLabel.vue";
 import SupplementDialog from "./components/SupplementDialog.vue";
@@ -179,8 +210,10 @@ const {
   loading,
   running,
   bDiscs,
+  cDiscs,
   eItems,
   eLoading,
+  eActing,
   ghostGroups,
   ghostIgnored,
   ghostLoading,
@@ -342,5 +375,45 @@ onMounted(() => {
 /* 三域 Tab */
 .workbench-tabs__inner {
   padding: 4px;
+}
+
+/* ===== 域内引导区（域 C：导入入口） =====
+   这一域唯一的前置动作是「去导入」，所以入口做成正式按钮而不是 text 链接——
+   无边框小字在卡片里读起来像临时占位，用户不确定能不能点（2026-10-28 反馈）。 */
+.domain-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-compact);
+  margin-bottom: var(--space-compact);
+  background: var(--bg-soft);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.domain-entry__text {
+  min-width: 0;
+}
+
+.domain-entry__title {
+  margin: 0 0 2px;
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.domain-entry__hint {
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.domain-entry__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
 }
 </style>

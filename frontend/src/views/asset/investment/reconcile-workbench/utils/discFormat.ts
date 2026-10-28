@@ -21,17 +21,6 @@ export function statusLabel(s: string): string {
   return map[s] || s;
 }
 
-/** E账户记录状态中文（四态） */
-export function eStatusLabel(s: string): string {
-  const map: Record<string, string> = {
-    pending: "待处理",
-    attributed: "已归因",
-    ignored: "已忽略",
-    verified: "已核对"
-  };
-  return map[s] || s;
-}
-
 /** 差异值格式：份额（已由后端 Money.min_unit_to_shares 转换） */
 export function formatDiff(diff: number | null): string {
   if (diff === null) return "—";

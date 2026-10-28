@@ -3,10 +3,10 @@
   <template v-if="p.result">
     <MetricGrid class="result-grid">
       <MetricCard
-        title="自动归因"
+        title="自动对应"
         :value="p.result.auto_attributed"
         featured
-        caption="已归因至对应销售渠道"
+        caption="已对应到销售渠道"
       />
       <MetricCard
         title="已核对"
