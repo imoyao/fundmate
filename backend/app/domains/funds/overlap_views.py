@@ -14,6 +14,7 @@ from flask import jsonify
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.services.holding_correlation import portfolio_holding_correlation
 from app.services.holding_overlap import portfolio_holding_overlap
 
 overlap_bp = APIBlueprint('fund_overlap', __name__, url_prefix='/api/funds/overlap')
@@ -50,4 +51,35 @@ def get_holding_overlap():
     """
     with get_db() as db:
         data = portfolio_holding_overlap(db, get_family_id())
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@overlap_bp.get('/correlation/')
+def get_holding_correlation():
+    """组合内基金两两相关性矩阵（#2686 第二交付，家庭作用域）。
+
+    出参（服务层直出，视图不改字段）：
+
+    - ``funds``：**已截断**的矩阵成员（市值降序）。截断规则与重叠度矩阵共用
+      ``services/matrix_members.py``：累计市值覆盖 ≥90%、上限 20 只、下限 8 只；
+    - ``cells``：成员内两两结果（上三角，``fund_code_a/b`` 无序）：
+      ``correlation``（-1~1，``None`` = 算不出来）、``overlap_days``、
+      ``status``（``ok`` / ``no_series`` / ``short_overlap`` / ``zero_variance``）、
+      ``reason``（人话原因）；
+    - ``fund_count``：**截断前**的成员总数——前端据此区分「组合里只有 3 只」与
+      「有 96 只但只展开 20 只」，后者必须显示未覆盖只数与市值占比；
+    - ``truncated``：被折叠的只数 + 市值占比（``market_value_pct``）；
+    - ``matrix_rule``：当前生效的截断规则（前端文案不另写数字）；
+    - ``computed_pairs`` / ``total_pairs``：可算出比例（卡面要求「先给可算出比例」）；
+    - ``caveats``：口径声明，与结论同屏；
+    - ``degraded``：持仓聚合失败时为 ``True``，前端显示「暂时取不到」，
+      **不得**渲染成「相关性 0」的真结论。
+
+    三种「没有值」的含义完全不同，前端不得一律画成 0：
+    ``no_series``（无净值序列）/ ``short_overlap``（同期交易日不足）/
+    ``zero_variance``（净值无波动，Pearson 未定义）。``0`` 的意思是「无关」，
+    与「无信息」天差地别。
+    """
+    with get_db() as db:
+        data = portfolio_holding_correlation(db, get_family_id())
     return jsonify({'data': data, 'message': 'ok'})

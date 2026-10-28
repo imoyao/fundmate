@@ -78,6 +78,30 @@ export interface OverlapUncovered {
   market_value_cents: number;
 }
 
+/**
+ * 矩阵成员裁剪结果（#2686 第二期）。
+ *
+ * 规则在后端 `services/matrix_members.py` 唯一实现：累计市值覆盖 ≥90%、上限 20 只、
+ * 下限 8 只。前端**只读结果**，不自己算——两张矩阵（重叠度 / 相关性）必须共用同一份
+ * 成员，否则切换视图会「少了几只」，用户没法对照。
+ *
+ * 为什么不再是固定 12 只：2026-10-28 实测本地真实库（排除个股后 140 只基金/ETF/债），
+ * top12 只覆盖 49.6% 市值、top20 覆盖 67%、top30 才 83%——固定只数在分散组合里会把
+ * 一半仓位挡在矩阵外，而矩阵结论会被当成「整体分散度」来读。
+ */
+export interface OverlapMatrixMembers {
+  /** 参与矩阵的成员（市值降序，已按覆盖规则裁剪） */
+  funds: OverlapFund[];
+  /** 被折叠的只数（0 = 全量展示） */
+  truncated_count: number;
+  /** 被折叠部分占总市值的百分比（0 = 无未覆盖部分，或市值不可用） */
+  truncated_market_value_pct: number;
+  /** 覆盖率目标（0~1），前端文案里的「90%」读这里，不另写数字 */
+  coverage_target: number;
+  max_members: number;
+  min_members: number;
+}
+
 export interface HoldingOverlapData {
   /** 有重叠的基金对：先按档位、档内按重复金额降序；无重合的对不出现（没信息量） */
   pairs: OverlapPair[];
@@ -86,6 +110,11 @@ export interface HoldingOverlapData {
    * 与 `pairs` 的区别：`pairs` 是结论（只列有重叠的对），这里是成员清单（不做结论过滤）。
    */
   funds: OverlapFund[];
+  /**
+   * 矩阵成员裁剪结果（#2686 第二期）：`funds` 是全量，`matrix.funds` 是裁剪后的。
+   * 矩阵视图只读这里；列表/结论视图仍用 `pairs`。
+   */
+  matrix: OverlapMatrixMembers;
   /** 参与计算的基金数 */
   fund_count: number;
   /** 因披露口径不同被跳过的对数 */
@@ -124,5 +153,86 @@ export function getHoldingOverlap() {
   return http.request<ApiResponse<HoldingOverlapData>>(
     "get",
     "/api/funds/overlap/"
+  );
+}
+
+/**
+ * 相关性格子的状态（后端 `holding_correlation._STATUS_BY_REASON` 映射）。
+ *
+ * 三种「没有值」**必须分开渲染**，都不许画成 0：
+ * - `no_series`：该基金没有净值/价格序列（新成立、未入库）；
+ * - `short_overlap`：同期交易日不足 `min_overlap`（披露日历不同、上市不足一季度）；
+ * - `zero_variance`：净值长期不变（货基、长期停牌），Pearson 未定义。
+ *
+ * `0` 的含义是「无关」，而它们是「无信息」——两者天差地别。
+ */
+export type CorrelationStatus =
+  "ok" | "no_series" | "short_overlap" | "zero_variance";
+
+/** 相关性矩阵成员（市值降序，后端已按覆盖规则截断） */
+export interface CorrelationFund {
+  fund_code: string;
+  symbol: string;
+  name: string;
+  market_value_cents: number;
+  /** 占**全部**基金持仓市值的比例（%），已截断成员之外的部分不计入 */
+  market_value_pct: number;
+}
+
+/** 一对基金的相关性（上三角，`fund_code_a/b` 无序） */
+export interface CorrelationCell {
+  fund_code_a: string;
+  fund_code_b: string;
+  /** -1 ~ 1；`null` = 算不出来（看 `status`，**不是 0**） */
+  correlation: number | null;
+  /** 日期交集内的日收益个数（`short_overlap` 时是「差多少」的证据） */
+  overlap_days: number;
+  status: CorrelationStatus;
+  /** 人话原因（如「同期交易日不足（12 < 60）」），用于悬停说明 */
+  reason: string;
+}
+
+/** 矩阵截断规则（后端下发，前端文案不另写数字） */
+export interface CorrelationMatrixRule {
+  /** 目标市值覆盖率（0~1） */
+  coverage_target: number;
+  max_members: number;
+  min_members: number;
+}
+
+export interface HoldingCorrelationData {
+  /** 序列窗口（如 `1Y`） */
+  window: string;
+  /** 同期交易日下限（后端 `MIN_OVERLAP`，与 #994 联动分析同值） */
+  min_overlap: number;
+  /** 矩阵成员（已截断，市值降序） */
+  funds: CorrelationFund[];
+  /** 成员内两两结果（上三角） */
+  cells: CorrelationCell[];
+  /** **截断前**的成员总数：区分「组合里只有 3 只」与「96 只里只展开 20 只」 */
+  fund_count: number;
+  /** 可算出的对数（卡面要求的「先给可算出比例」） */
+  computed_pairs: number;
+  total_pairs: number;
+  /** 被折叠的只数与市值占比（`count=0` 表示全量展开） */
+  truncated: { count: number; market_value_pct: number };
+  matrix_rule: CorrelationMatrixRule;
+  /** 口径声明（矩阵截断、窗口敏感性、相关性固有失真），与结论同屏展示 */
+  caveats: string[];
+  /** 取数失败：显示「暂时取不到」，**不得**渲染成「相关性 0」 */
+  degraded: boolean;
+  source: string;
+}
+
+/**
+ * 组合内基金两两相关性矩阵（#2686 第二交付，家庭作用域）。
+ *
+ * 与重叠度矩阵**同源**：成员来自同一份持仓聚合，截断规则同一个实现。相关性本身
+ * 不需要持仓明细，但成员一致更重要——否则切换视图会「少了几只」。
+ */
+export function getHoldingCorrelation() {
+  return http.request<ApiResponse<HoldingCorrelationData>>(
+    "get",
+    "/api/funds/overlap/correlation/"
   );
 }

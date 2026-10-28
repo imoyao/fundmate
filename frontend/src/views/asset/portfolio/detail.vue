@@ -123,11 +123,9 @@
           <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
           <PortfolioHoldingsCard id="nav-holdings" :holdings="holdings" />
 
-          <!-- 持仓重叠度（#2604：组合内基金重仓股重合程度）。
-               紧跟明细：先看买了什么，再看这些基金之间重不重。 -->
-          <div class="mb-6">
-            <HoldingOverlapPanel id="nav-overlap" />
-          </div>
+          <!-- 持仓重合度（#2604 重叠度 / #2686 相关性）。
+               紧跟明细：先看买了什么，再看这些基金之间重不重、涨跌同不同步。 -->
+          <PortfolioFundMatrixSection />
 
           <!-- 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合账户 -->
           <PortfolioUnarchivedCard
@@ -193,7 +191,7 @@ import PortfolioReturnCard from "./PortfolioReturnCard.vue";
 import PortfolioMoneyFundCard from "./portfolioDetail/PortfolioMoneyFundCard.vue";
 import PortfolioHoldingsCard from "./portfolioDetail/PortfolioHoldingsCard.vue";
 import PortfolioUnarchivedCard from "./portfolioDetail/PortfolioUnarchivedCard.vue";
-import HoldingOverlapPanel from "./HoldingOverlapPanel.vue";
+import PortfolioFundMatrixSection from "./portfolioDetail/PortfolioFundMatrixSection.vue";
 import PortfolioLinkedLedgersCard from "./portfolioDetail/PortfolioLinkedLedgersCard.vue";
 import { usePortfolioExcess } from "./portfolioDetail/usePortfolioExcess";
 import {

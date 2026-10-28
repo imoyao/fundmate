@@ -38,18 +38,19 @@ export interface MatrixRow {
 }
 
 export interface OverlapMatrix {
-  /** 参与展示的基金（市值降序；已按上限截断） */
+  /** 参与展示的基金（市值降序；后端已按覆盖规则截断） */
   funds: OverlapFund[];
   rows: MatrixRow[];
-  /** 超出上限被折叠的只数（0 = 全量展示） */
-  truncated: number;
+  /** 按覆盖规则被折叠的只数（0 = 全量展示） */
+  truncatedCount: number;
+  /**
+   * 被折叠部分占总市值的百分比（0 = 没有未覆盖部分，或市值不可用）。
+   *
+   * 必须与矩阵同屏显示：「只展开 20 只」在小组合里等于全量，在分散组合里可能只代表
+   * 六成仓位——不写出来，用户会把「已展开部分」的结论当成整体结论。
+   */
+  truncatedMarketValuePct: number;
 }
-
-/**
- * 矩阵上限：卡内实测真实组合 ≤ 8 只，12 只是安全边界。
- * 上限存在的意义不是省 DOM，而是避免「大组合铺成 96×96」这种读不出结论的视图。
- */
-export const MATRIX_MAX_FUNDS = 12;
 
 /** 后端档位 → 矩阵三档视觉（`low` 档包含 same-series / trivial，都是弱提醒） */
 const LEVEL_TONE: Record<OverlapPair["overlap_level"], MatrixCellTone> = {
@@ -104,20 +105,25 @@ function buildCell(
 /**
  * 把后端出参铺成矩阵。
  *
+ * 成员**不由前端截断**：后端按「累计市值覆盖 ≥90%、上限 20、下限 8」裁好放在
+ * `matrix.funds`（`services/matrix_members.py`，与相关性矩阵共用）。前端若自己再截
+ * 一次，两张矩阵就可能在同一個组合上给出不同的行列——「切换视图少了 8 只」比
+ * 「矩阵格子多一点」难解释得多。
+ *
  * 入参缺失 / 基金不足 2 只时返回空矩阵（调用方据此回退到列表视图），**不抛异常**——
  * 这是个展示增强，不该让整个面板挂掉。
  */
 export function buildOverlapMatrix(
-  data: HoldingOverlapData | null | undefined,
-  maxFunds: number = MATRIX_MAX_FUNDS
+  data: HoldingOverlapData | null | undefined
 ): OverlapMatrix {
-  const all = data?.funds ?? [];
-  const limit = Math.max(0, maxFunds);
-  const funds = all.slice(0, limit);
+  // 旧响应没有 `matrix`（回滚 / 缓存）：退回全量成员，宁可格子多也不凭空少行
+  const members = data?.matrix?.funds?.length
+    ? data.matrix.funds
+    : (data?.funds ?? []);
   const index = indexPairs(data?.pairs ?? []);
-  const rows: MatrixRow[] = funds.map(rowFund => ({
+  const rows: MatrixRow[] = members.map(rowFund => ({
     fund: rowFund,
-    cells: funds.map(colFund =>
+    cells: members.map(colFund =>
       buildCell(
         rowFund,
         colFund,
@@ -125,7 +131,12 @@ export function buildOverlapMatrix(
       )
     )
   }));
-  return { funds, rows, truncated: Math.max(0, all.length - funds.length) };
+  return {
+    funds: members,
+    rows,
+    truncatedCount: data?.matrix?.truncated_count ?? 0,
+    truncatedMarketValuePct: data?.matrix?.truncated_market_value_pct ?? 0
+  };
 }
 
 /** 矩阵能否呈现：至少 2 只可比基金（1 只没有「两两」可言） */

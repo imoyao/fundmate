@@ -72,10 +72,15 @@ def _identity(symbol: str, asset_type: Optional[str]) -> str:
     return (symbol_identity(symbol, asset_type) or '').strip()
 
 
-def _trend_points(
+def trend_points(
     db: Session, symbol: str, asset_type: Optional[str]
 ) -> Tuple[List[Tuple[dt.date, float]], Optional[str]]:
-    """取 1Y 序列 → ``([(日期, 价格)], 口径说明)``；无序列返回空列表。"""
+    """取 1Y 序列 → ``([(日期, 价格)], 口径说明)``；无序列返回空列表。
+
+    #2686 起**跨模块共用**（相关性矩阵也用它）：矩阵与「单标的 vs 其他持仓」必须取
+    同一条序列（同一窗口、同一复权/累计净值口径），否则同一对基金在两个视图里会算出
+    两个相关系数。
+    """
     trend = fetch_product_trend(db, symbol, asset_type=asset_type, range_key=_RANGE)
     if not trend or not trend.get('values'):
         return [], None
@@ -142,7 +147,7 @@ def build_symbol_pro_allocation(
         'caveats': correlation_caveats(),
     }
 
-    base_points, basis = _trend_points(db, symbol, asset_type)
+    base_points, basis = trend_points(db, symbol, asset_type)
     result['basis'] = basis
     if not base_points:
         result['reason'] = '该标的近一年无净值/价格序列（未同步或品类不适用），无法计算相关性'
@@ -157,7 +162,7 @@ def build_symbol_pro_allocation(
     ranked: List[Dict[str, Any]] = []
     skipped = 0
     for peer in peers[:_MAX_SCAN]:
-        peer_points, _ = _trend_points(db, peer['symbol'], peer['asset_type'])
+        peer_points, _ = trend_points(db, peer['symbol'], peer['asset_type'])
         if not peer_points:
             skipped += 1
             continue
