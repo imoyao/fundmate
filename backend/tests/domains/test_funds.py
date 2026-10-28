@@ -879,6 +879,8 @@ def test_重叠度端点契约(client, db, make_position):
     data = payload['data']
     assert set(data) == {
         'pairs',
+        # #2686 矩阵数据面：全体可比基金（不只是有重叠的对）
+        'funds',
         'fund_count',
         'skipped_basis_mismatch',
         'skipped_null_ratio',
@@ -910,6 +912,10 @@ def test_重叠度端点契约(client, db, make_position):
     assert '重仓股' in pair['overlap_reason']
     assert data['duplicate_count'] == 1
     assert data['weak_count'] == 0
+    # 矩阵需要全体成员：不做去重/过滤，市值降序（前端按此顺序排行列）
+    assert [f['fund_code'] for f in data['funds']] == ['000001', '000002']
+    assert data['funds'][0]['market_value_cents'] == 4000000  # 20,000 份 × 2.0 元
+    assert data['funds'][0]['basis'] == 'full'
     # 口径声明随接口下发（前端与结论同屏展示），不能在视图层被裁掉
     assert data['caveats']
 

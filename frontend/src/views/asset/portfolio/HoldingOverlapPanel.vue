@@ -62,19 +62,34 @@
           </ul>
         </div>
 
-        <ul class="overlap-panel__list">
-          <HoldingOverlapPairItem
-            v-for="pair in primaryPairs"
-            :key="pairKey(pair)"
-            :pair="pair"
-          />
-        </ul>
-
-        <HoldingOverlapWeakList
-          v-if="weakPairs.length"
-          :pairs="weakPairs"
-          :gate-text="gateText"
+        <!-- 列表答「哪几对重复、值多少钱」，矩阵答「这 8 只里到底哪几只像同一只」（#2686）。
+             可比基金不足 2 只时矩阵没有意义，直接不给切换入口 -->
+        <SegmentedControl
+          v-if="matrixAvailable"
+          v-model="view"
+          class="overlap-panel__view-switch"
+          size="small"
+          aria-label="重叠度视图切换"
+          :options="viewOptions"
         />
+
+        <HoldingOverlapMatrix v-if="view === 'matrix'" :matrix="matrix" />
+
+        <template v-else>
+          <ul class="overlap-panel__list">
+            <HoldingOverlapPairItem
+              v-for="pair in primaryPairs"
+              :key="pairKey(pair)"
+              :pair="pair"
+            />
+          </ul>
+
+          <HoldingOverlapWeakList
+            v-if="weakPairs.length"
+            :pairs="weakPairs"
+            :gate-text="gateText"
+          />
+        </template>
 
         <p class="overlap-panel__meta">{{ coverageText }}</p>
         <p v-if="skippedText" class="overlap-panel__warn">{{ skippedText }}</p>
@@ -96,8 +111,11 @@ import {
 } from "@/api/holdingOverlap";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import HoldingOverlapMatrix from "./HoldingOverlapMatrix.vue";
 import HoldingOverlapPairItem from "./HoldingOverlapPairItem.vue";
 import HoldingOverlapWeakList from "./HoldingOverlapWeakList.vue";
+import { buildOverlapMatrix, canRenderMatrix } from "./holdingOverlapMatrix";
 import {
   describeCaveats,
   describeCoverage,
@@ -126,6 +144,15 @@ const tallyChips = computed(() => describeOverlapTally(data.value));
 const pairSplit = computed(() => splitOverlapPairs(data.value));
 const primaryPairs = computed(() => pairSplit.value.primary);
 const weakPairs = computed(() => pairSplit.value.weak);
+
+/** 视图切换（#2686）：列表是默认（回答「哪几对重复」），矩阵回答「哪几只像同一只」 */
+const view = ref<"list" | "matrix">("list");
+const viewOptions = [
+  { label: "列表", value: "list" },
+  { label: "矩阵", value: "matrix" }
+] as const;
+const matrix = computed(() => buildOverlapMatrix(data.value));
+const matrixAvailable = computed(() => canRenderMatrix(matrix.value));
 
 /** 分档线文案（后端下发，不在前端另写一个数） */
 const gateText = computed(() =>
@@ -168,6 +195,10 @@ onMounted(load);
   &__error-text {
     font-size: var(--text-small);
     color: var(--text-secondary);
+  }
+
+  &__view-switch {
+    margin-bottom: var(--space-standard);
   }
 
   &__list {

@@ -55,6 +55,23 @@ export interface OverlapPair {
   common_holdings: OverlapCommonHolding[];
 }
 
+/**
+ * 参与比较的一只基金（#2686）。
+ *
+ * `pairs` 只有「有重叠」的对，矩阵要铺满行列就必须有**全体**成员：
+ * 三只基金只有一对重叠时，缺了它矩阵就只剩 2 个格子。
+ */
+export interface OverlapFund {
+  fund_code: string;
+  symbol: string;
+  name: string;
+  market_value_cents: number;
+  /** 该基金自身最新报告期（各取各的，不强制对齐） */
+  report_period: string | null;
+  /** 该报告期的披露口径：`full`=半年报/年报全量，`top10`=季报前十大 */
+  basis: string | null;
+}
+
 export interface OverlapUncovered {
   symbol: string;
   name: string;
@@ -64,6 +81,11 @@ export interface OverlapUncovered {
 export interface HoldingOverlapData {
   /** 有重叠的基金对：先按档位、档内按重复金额降序；无重合的对不出现（没信息量） */
   pairs: OverlapPair[];
+  /**
+   * 参与比较的**全体**基金（市值降序，含彼此零重叠的成员）——矩阵视图铺行列用（#2686）。
+   * 与 `pairs` 的区别：`pairs` 是结论（只列有重叠的对），这里是成员清单（不做结论过滤）。
+   */
+  funds: OverlapFund[];
   /** 参与计算的基金数 */
   fund_count: number;
   /** 因披露口径不同被跳过的对数 */
