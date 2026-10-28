@@ -610,6 +610,43 @@ class HoldingsMixin:
         )
         return ordered[0]
 
+    def _find_same_institution_position(self, symbol: str, ledger: Ledger) -> Optional[Tuple[Position, Ledger]]:
+        """同机构**其它账本**下是否已有该 symbol 的 active 持仓，返回 (持仓, 账本)。
+
+        WHY：`_get_or_create_channel_ledger` 只按 (sales_institution_id, ledger_type='fund',
+        external_account_code) 查/建账本，`_pick_channel_ledger` 的收敛也只在 fund 类型内部生效 ——
+        它们的视野里都没有用户自己建的**非 fund 类型**账本。典型场景（#2706 实测）：机构 72（微众）下
+          - id=3  「微众银行」        ledger_type=bank（用户手工录，持有 021180）
+          - id=18 「深圳前海微众银行」 ledger_type=fund（E账户导入建，18 条持仓）
+        E账户行按机构匹配到 18，18 名下没有 021180 ⇒ 走「渠道无持仓 → 自动归因新建」，
+        于是同一笔持仓在 3 和 18 各存一份，系统份额 3,421.96 → 6,843.92（**正好翻倍**）。
+
+        所以：同机构任一账本已有该 symbol，就认它是这笔持仓的落点——份额一致走「已核对」，
+        不一致落「冲突」交用户裁决。两条分支都不会再新建第二份。
+        """
+        if ledger.sales_institution_id is None:
+            return None
+        row = (
+            self.db.query(Position, Ledger)
+            .join(Ledger, Ledger.id == Position.ledger_id)
+            .filter(
+                Position.family_id == self.family_id,
+                Position.symbol == symbol,
+                Position.ownership_status == 'active',
+                Ledger.family_id == self.family_id,
+                Ledger.sales_institution_id == ledger.sales_institution_id,
+                Ledger.id != ledger.id,
+            )
+            .order_by(Position.id)
+            .first()
+        )
+        if row is None:
+            return None
+        logger.info(
+            f'同机构其它账本已持有 {symbol}（账本={row[1].id}/{row[1].name}）：跳过自动归因新建，避免同一笔持仓重复计数'
+        )
+        return row
+
     def _auto_attribute(
         self, shadow_pos: Position, shadow_meta: PositionImportMeta, ledger: Ledger, row: dict
     ) -> Position:
@@ -751,6 +788,13 @@ class HoldingsMixin:
                         .filter_by(symbol=symbol, ledger_id=ledger.id, family_id=self.family_id)
                         .first()
                     )
+                    channel_ledger = ledger
+                    if channel_pos is None:
+                        # 同机构另有一个账本已持有该 symbol（如手工建的 bank 账本）⇒ 认它是落点，
+                        # 不再新建，否则同一笔持仓记两遍（#2706）
+                        sibling = self._find_same_institution_position(symbol, ledger)
+                        if sibling is not None:
+                            channel_pos, channel_ledger = sibling
                     if channel_pos is None:
                         # 自动归因：渠道新建 active Position（E账户快照数据）
                         self._auto_attribute(shadow_pos, shadow_meta, ledger, row)
@@ -765,7 +809,7 @@ class HoldingsMixin:
                             shadow_meta.is_attributed = False
                             summary['conflicts'] += 1
                             summary['conflict_list'].append(
-                                self._build_conflict_item(shadow_pos, shadow_meta, ledger, channel_pos)
+                                self._build_conflict_item(shadow_pos, shadow_meta, channel_ledger, channel_pos)
                             )
             except Exception as e:
                 logger.exception(f'E账户对账单条失败: symbol={symbol}')
