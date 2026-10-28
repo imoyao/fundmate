@@ -370,6 +370,8 @@ export interface OrphanTransactionItem {
   position_name: string;
   txn_type: string;
   amount: number;
+  /** 交易日（`YYYY-MM-DD`）：展示口径交易日优先、确认日兜底（#2712） */
+  trade_date: string | null;
   confirm_date: string | null;
 }
 

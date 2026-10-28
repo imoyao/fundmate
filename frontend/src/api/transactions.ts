@@ -9,6 +9,8 @@ export interface TransactionRecord {
   /** 关联持仓 id；账户级流水（存入/税费等）为 null */
   position_id: number | null;
   position_name: string;
+  /** 资产代码（后端 `transactions.symbol` 快照；账户级流水可能为 null） */
+  symbol?: string | null;
   type: string;
   asset_type: string | null;
   trade_date: string | null;

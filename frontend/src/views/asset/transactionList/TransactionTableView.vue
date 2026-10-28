@@ -1,13 +1,18 @@
 <script setup lang="ts">
-// 交易流水·表格视图（含分页与空态）。
-// 状态与取数都在父层，这里只渲染 + 上抛翻页与编辑。
+// 交易流水·表格视图（含分页与空态）。状态与取数都在父层，这里只渲染 + 上抛翻页与编辑。
+//
+// #2712 收编：此前这里是**第四套**交易表格 —— 表头「操作」既指交易类型又指行操作、
+// 日期原样打印接口值（`2026-06-03T00:00:00`）、金额/手续费的对齐与账本 Tab 各写各的。
+// 用户看到的是「同一批流水在不同页面长得不一样」。现在表格骨架、列序、对齐、
+// 日期与价格精度全部交给 `components/TransactionTable`，本组件只留容器职责。
+import { computed } from "vue";
 import type { TransactionRecord } from "@/api/transactions";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { txnTypeLabel } from "@/constants";
-import { statusLabel, statusTag, typeTag } from "./transactionListModel";
+import TransactionTable, {
+  type TransactionRow
+} from "@/components/TransactionTable/index.vue";
 
-defineProps<{
+const props = defineProps<{
   transactions: TransactionRecord[];
   loading: boolean;
   total: number;
@@ -18,73 +23,40 @@ defineProps<{
 const emit = defineEmits<{
   "page-change": [page: number];
   "size-change": [size: number];
-  edit: [row: any];
+  edit: [row: TransactionRow];
 }>();
+
+/**
+ * 行适配：`/api/transactions` 的字段名与 `TransactionRow` 同名（type / trade_date /
+ * price / quantity / amount / fee / status / notes / symbol），只把 `null` 归一成
+ * `undefined`（`TransactionRow.symbol` 是可选字符串，ProductDisplay 收到 null 会渲染 `# --`）。
+ * 页面已由后端按「交易日优先、确认日兜底」排序，这里不再重排。
+ */
+const rows = computed<TransactionRow[]>(() =>
+  props.transactions.map(t => ({ ...t, symbol: t.symbol ?? undefined }))
+);
+
+/** 编辑弹窗需要原始记录（含 ledger_id / source 等），按 id 回查 */
+function onEdit(row: TransactionRow) {
+  const original = props.transactions.find(t => t.id === row.id);
+  emit("edit", (original ?? row) as unknown as TransactionRow);
+}
 </script>
 
 <template>
-  <el-card shadow="never">
-    <el-table
-      v-loading="loading"
-      :data="transactions"
-      stripe
-      size="default"
-      :default-sort="{ prop: 'created_at', order: 'descending' }"
-    >
-      <el-table-column prop="position_name" label="资产名称" min-width="150">
-        <template #default="{ row }">
-          <div :class="{ 'opacity-50 grayscale': row.position_id === null }">
-            <p class="font-medium text-gray-800">{{ row.position_name }}</p>
-            <p v-if="row.position_id === null" class="text-xs text-gray-400">
-              已删除
-            </p>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="type" label="操作" width="90">
-        <template #default="{ row }">
-          <el-tag :type="typeTag(row.type)" size="small" effect="plain">
-            {{ txnTypeLabel(row.type) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="amount" label="金额" width="120" align="right">
-        <template #default="{ row }">
-          <MoneyDisplay :value="row.amount" :show-sign="false" size="sm" />
-        </template>
-      </el-table-column>
-      <el-table-column prop="fee" label="手续费" width="90" align="right">
-        <template #default="{ row }">
-          <MoneyDisplay :value="row.fee" :show-sign="false" size="sm" />
-        </template>
-      </el-table-column>
-      <el-table-column prop="status" label="状态" width="90">
-        <template #default="{ row }">
-          <el-tag :type="statusTag(row.status)" size="small" effect="plain">
-            {{ statusLabel(row.status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="trade_date" label="交易日期" width="110" />
-      <el-table-column prop="account_name" label="账户/渠道" width="110" />
-      <el-table-column prop="notes" label="备注" min-width="120">
-        <template #default="{ row }">
-          <span class="text-gray-400">{{ row.notes || "-" }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="64" align="center">
-        <template #default="{ row }">
-          <el-button
-            size="small"
-            text
-            type="primary"
-            @click="emit('edit', row)"
-          >
-            编辑
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+  <!-- 加载态留在容器（原表格自带 v-loading，收编到共享组件后不能丢） -->
+  <el-card v-loading="loading" shadow="never">
+    <TransactionTable
+      :rows="rows"
+      mode="full"
+      show-asset
+      show-fee
+      show-status
+      show-notes
+      show-edit
+      sortable
+      @edit="onEdit"
+    />
 
     <!-- 分页 -->
     <div v-if="total > 0" class="flex justify-end mt-4">
