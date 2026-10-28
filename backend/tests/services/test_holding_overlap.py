@@ -31,6 +31,7 @@ import pytest
 from app.domains.funds.models import FundHolding
 from app.services.holding_overlap import (
     MIN_OVERLAP_AMOUNT_CENTS,
+    WATCH_WEIGHTED_PCT,
     _apply_amount_gate,
     _classify_overlap,
     _empty_result,
@@ -424,8 +425,12 @@ def test_定级理由区分仓位重叠与标的重复():
     assert '重仓股' in reason_jaccard
     assert '仓位有差异' in reason_jaccard
 
-    # low 不给理由：理由要占版面，没结论就不占
-    assert _classify_overlap(0.01, 1.0, 1) == ('low', '')
+    # low 也要给理由：它现在会出现在弱提醒区里，没有理由用户不知道它为什么在那。
+    # 措辞必须点明是「仓位线」而不是金额线——弱提醒里也有金额上万、只是比例低的对。
+    level_low, reason_low = _classify_overlap(0.01, 1.0, 1)
+    assert level_low == 'low'
+    assert '1.0%' in reason_low
+    assert f'{WATCH_WEIGHTED_PCT:.0f}% 仓位线' in reason_low
 
 
 # ── 11. 同一基金不同份额：不是配置重复（#866 的假警报闸门）──────────────────
@@ -511,13 +516,13 @@ def test_空结果的骨架也带口径声明():
 
     assert result['caveats']
     assert result['duplicate_count'] == 0
-    assert result['trivial_count'] == 0
-    # 提示线下发在出参里，前端不必自己再写一个数（两处各写一份迟早不一致）
+    assert result['weak_count'] == 0
+    # 分档线下发在出参里，前端不必自己再写一个数（两处各写一份迟早不一致）
     assert result['min_overlap_amount_cents'] == MIN_OVERLAP_AMOUNT_CENTS
     assert result['pairs'] == []
 
 
-# ── 13. 仓位闸门：几块钱的观察仓不该报重复（#866 追加）──────────────────────
+# ── 13. 金额分档：几块钱的观察仓降为「弱提醒」（#866 追加）────────────────────
 
 
 @pytest.mark.parametrize(
@@ -542,17 +547,19 @@ def test_金额闸门只降级不升级(level, amount_cents, expected):
 
 
 def test_金额不足时理由保留比例信息():
-    """降级不等于「没重叠」：理由里必须说清「比例多高、只是钱太少」。
+    """降档不等于「没重叠」：理由里必须说清「比例多高、只是钱太少」。
 
     只说「金额不足」会让用户以为系统没算出重叠；把 86.5% 摆出来，他才知道
-    「确实重叠，只是我在这只基金上只放了 5 毛钱」。
+    「确实重叠，只是我在这只基金上只放了 5 毛钱」。措辞必须是「弱提醒」而不是
+    「不提示」——这一类在前端是**折叠但可见**的，说成不提示等于骗人。
     """
     level, reason = _apply_amount_gate('duplicate', '共同重仓 3 只、86.5% 仓位重叠', 86.5, 46)
 
     assert level == 'trivial'
     assert '86.5%' in reason
     assert '0' in reason  # ¥0（46 分四舍五入到元）
-    assert '提示线' in reason
+    assert '弱提醒' in reason
+    assert '不提示' not in reason
 
 
 def test_重复金额取两侧较小敞口(db, make_position):
@@ -583,7 +590,7 @@ def test_重复金额取两侧较小敞口(db, make_position):
     assert pair['weighted_overlap'] == pytest.approx(36.0)
     assert pair['overlap_level'] == 'trivial'
     assert result['duplicate_count'] == 0
-    assert result['trivial_count'] == 1
+    assert result['weak_count'] == 1
 
 
 def test_几块钱的观察仓不报配置重复(db, make_position):
@@ -607,14 +614,14 @@ def test_几块钱的观察仓不报配置重复(db, make_position):
     assert pair['overlap_level'] == 'trivial'
     assert '26.9%' in pair['overlap_reason']  # 比例照样摆出来，只是不提示
     assert result['duplicate_count'] == 0
-    assert result['trivial_count'] == 1
+    assert result['weak_count'] == 1
 
 
 def test_大仓位重复照常提示(db, make_position):
     """两只各投 ¥20,000、持仓高度重合 ⇒ 必须照常报 duplicate。
 
-    这是闸门存在的意义：不是把提示关掉，是把「不值得管的」滤掉之后，
-    让「值得管的」浮上来。
+    这是分档线存在的意义：不是把弱提醒一关了之，而是把两类分开，
+    让「值得管的」浮到第一屏、「只值得看一眼的」收进折叠区。
     """
     make_position(symbol='000001', asset_type='fund', name='基金甲', quantity=20000, current_price=1.0)
     make_position(symbol='000002', asset_type='fund', name='基金乙', quantity=20000, current_price=1.0)
@@ -632,7 +639,37 @@ def test_大仓位重复照常提示(db, make_position):
     # 20000×14.93% + 20000×12% = 2986 + 2400 = ¥5,386
     assert pair['overlap_amount_cents'] == 538600
     assert result['duplicate_count'] == 1
-    assert result['trivial_count'] == 0
+    assert result['weak_count'] == 0
+
+
+def test_弱提醒条数含低比例但金额不小的对(db, make_position):
+    """弱提醒 = ``low`` + ``trivial``，不只是金额不足的那些。
+
+    一只基金重仓 20 只股票、和另一只只重 1 只时，比例永远到不了 10%（→ ``low``），
+    但两只都投了 ¥100,000 时那只共同持仓仍重复了 ¥5,000。这类**不能**算进
+    「配置重复」（比例确实不高），也**不该**从弱提醒里消失（钱是真的）。
+    若只数 ``trivial``，前端「弱提醒 N 对」会比折叠区里实际列出的少。
+    """
+    make_position(symbol='000001', asset_type='fund', name='宽基甲', quantity=100000, current_price=1.0)
+    make_position(symbol='000002', asset_type='fund', name='宽基乙', quantity=100000, current_price=1.0)
+    # 共同持仓只有 600519（各 5%），其余各不相同 ⇒ jaccard = 1/5 = 0.2、weighted = 5.0
+    _holding(db, '000001', '600519', '贵州茅台', 5.0)
+    _holding(db, '000001', '000858', '五粮液', 4.0)
+    _holding(db, '000001', '000001', '平安银行', 3.0)
+    _holding(db, '000002', '600519', '贵州茅台', 5.0)
+    _holding(db, '000002', '300750', '宁德时代', 4.0)
+    _holding(db, '000002', '300760', '迈瑞医疗', 3.0)
+    db.commit()
+
+    result = portfolio_holding_overlap(db, family_id=1)
+
+    pair = _find_pair(result['pairs'], '000001', '000002')
+    assert pair is not None
+    assert pair['overlap_level'] == 'low'
+    # min(100000×5%, 100000×5%) = ¥5,000：金额过线，但比例没到「需留意」
+    assert pair['overlap_amount_cents'] == 500000
+    assert result['duplicate_count'] == 0
+    assert result['weak_count'] == 1
 
 
 # ── 14. 排序：大仓位重复必须在第一屏 ──────────────────────────────────────
@@ -667,7 +704,7 @@ def test_排序按档位优先再按金额降序(db, make_position):
     levels = [pair['overlap_level'] for pair in result['pairs']]
     assert 'duplicate' in levels and 'trivial' in levels
     assert result['duplicate_count'] == 1
-    assert result['trivial_count'] == 1
+    assert result['weak_count'] == 1
     # 档位优先：第一个 trivial 之后不许再出现 duplicate
     first_trivial = levels.index('trivial')
     assert 'duplicate' not in levels[first_trivial:]

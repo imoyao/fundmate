@@ -2,6 +2,10 @@
   <!--
     组合内基金持仓重叠度（#2604）：两只基金重仓同一批股票 = 看着分散、实际同涨同跌。
     与「持仓穿透」的分工：穿透看「钱压在哪些行业/个股」，本面板看「我的基金之间有多重合」。
+
+    本文件只做面板骨架（取数四态 + 分档汇总 + 主列表 + 尾部口径）。条目与弱提醒区
+    分别拆到 HoldingOverlapPairItem / HoldingOverlapWeakList —— 三者各自控制在
+    400 行以内（#980 页面规模门禁只减不增，单文件 649 行会被判红）。
   -->
   <div class="overlap-panel">
     <SectionHeader
@@ -33,84 +37,44 @@
       </p>
 
       <template v-else>
-        <!-- 配置重复的汇总：只数真重复，份额重复与「金额不足未提示」各自单独说，
-             否则这个数字会说谎——用户会去找那 N 对，却发现一部分根本不用管 -->
-        <p v-if="duplicateSummary" class="overlap-panel__summary" role="status">
-          {{ duplicateSummary }}
-        </p>
+        <!-- 汇总用分档计数而不是一句话：四个数字并排，一眼能分出「要处理的 10 对」
+             和「可以先不管的 1817 对」；一句话在窄屏会折成三行，像免责声明 -->
+        <div
+          v-if="tallyChips.length"
+          class="overlap-panel__tally-bar"
+          role="status"
+          aria-label="重叠度分档汇总"
+        >
+          <ul class="overlap-panel__tally">
+            <li
+              v-for="chip in tallyChips"
+              :key="chip.key"
+              class="overlap-panel__tally-item"
+            >
+              <span
+                class="overlap-panel__tally-count"
+                :class="`is-${chip.tone}`"
+              >
+                {{ chip.count }}
+              </span>
+              <span class="overlap-panel__tally-label">{{ chip.label }}</span>
+            </li>
+          </ul>
+        </div>
 
         <ul class="overlap-panel__list">
-          <li
-            v-for="pair in visiblePairs"
-            :key="`${pair.fund_code_a}-${pair.fund_code_b}`"
-            class="overlap-panel__pair"
-          >
-            <div class="overlap-panel__head">
-              <span class="overlap-panel__funds">
-                {{ pair.fund_name_a }}
-                <span class="overlap-panel__vs">↔</span>
-                {{ pair.fund_name_b }}
-              </span>
-              <span class="overlap-panel__value">
-                {{ formatWeightedOverlap(pair.weighted_overlap) }}
-              </span>
-            </div>
-            <p
-              v-if="describeOverlapLevel(pair) || pair.overlap_reason"
-              class="overlap-panel__verdict"
-            >
-              <el-tag
-                v-if="describeOverlapLevel(pair)"
-                :type="describeOverlapLevel(pair)?.tone"
-                size="small"
-                effect="light"
-              >
-                {{ describeOverlapLevel(pair)?.label }}
-              </el-tag>
-              <span v-if="pair.overlap_reason" class="overlap-panel__reason">
-                {{ pair.overlap_reason }}
-              </span>
-            </p>
-            <p class="overlap-panel__meta">
-              集合口径 {{ formatJaccard(pair.jaccard) }} · 重复投入
-              {{ formatAmountCents(pair.overlap_amount_cents) }} ·
-              {{ describeBasis(pair.holding_basis) }}
-            </p>
-            <p v-if="describePeriodMismatch(pair)" class="overlap-panel__warn">
-              {{ describePeriodMismatch(pair) }}
-            </p>
-            <ul class="overlap-panel__stocks">
-              <li
-                v-for="stock in pair.common_holdings.slice(0, 5)"
-                :key="stock.stock_code"
-                class="overlap-panel__stock"
-              >
-                <span class="overlap-panel__stock-name">{{
-                  stock.stock_name
-                }}</span>
-                <span class="overlap-panel__stock-ratio">
-                  {{ stock.ratio_a.toFixed(1) }}% /
-                  {{ stock.ratio_b.toFixed(1) }}%
-                </span>
-              </li>
-              <li
-                v-if="pair.common_holdings.length > 5"
-                class="overlap-panel__stock overlap-panel__stock--more"
-              >
-                还有 {{ pair.common_holdings.length - 5 }} 只共同重仓股
-              </li>
-            </ul>
-          </li>
+          <HoldingOverlapPairItem
+            v-for="pair in primaryPairs"
+            :key="pairKey(pair)"
+            :pair="pair"
+          />
         </ul>
 
-        <!-- 折叠：真实组合能配出 1800+ 对，绝大多数是观察仓之间的几毛钱重叠。
-             全渲染既拖页面，也让真正的重复淹在噪音里（实测金额中位数 ¥0.68） -->
-        <p v-if="foldedCount > 0" class="overlap-panel__meta">
-          {{ foldHint }}
-          <el-button text size="small" @click="showAll = !showAll">
-            {{ showAll ? "只看要点" : "展开折叠项" }}
-          </el-button>
-        </p>
+        <HoldingOverlapWeakList
+          v-if="weakPairs.length"
+          :pairs="weakPairs"
+          :gate-text="gateText"
+        />
 
         <p class="overlap-panel__meta">{{ coverageText }}</p>
         <p v-if="skippedText" class="overlap-panel__warn">{{ skippedText }}</p>
@@ -132,19 +96,15 @@ import {
 } from "@/api/holdingOverlap";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import HoldingOverlapPairItem from "./HoldingOverlapPairItem.vue";
+import HoldingOverlapWeakList from "./HoldingOverlapWeakList.vue";
 import {
-  describeBasis,
   describeCaveats,
   describeCoverage,
-  describeDuplicateSummary,
-  describeFoldHint,
-  describeOverlapLevel,
-  describePeriodMismatch,
+  describeOverlapTally,
   describeSkipped,
   formatAmountCents,
-  formatJaccard,
-  formatWeightedOverlap,
-  pageFoldedPairs,
+  pairKey,
   resolveOverlapPanelState,
   splitOverlapPairs
 } from "./holdingOverlapModel";
@@ -154,37 +114,22 @@ defineOptions({ name: "HoldingOverlapPanel" });
 const data = ref<HoldingOverlapData | null>(null);
 const loading = ref(false);
 const error = ref(false);
-/** 默认只显示要点；1800+ 对的完整列表按需展开 */
-const showAll = ref(false);
 
 /** 四态：取不到 / 算不出 / 确实不重叠 / 有重叠 */
 const state = computed(() => resolveOverlapPanelState(data.value));
 const fundCount = computed(() => data.value?.fund_count ?? 0);
 const coverageText = computed(() => describeCoverage(data.value));
 const skippedText = computed(() => describeSkipped(data.value));
-const duplicateSummary = computed(() => describeDuplicateSummary(data.value));
 const caveatList = computed(() => describeCaveats(data.value));
+const tallyChips = computed(() => describeOverlapTally(data.value));
+
 const pairSplit = computed(() => splitOverlapPairs(data.value));
-/** 折叠区展开后的首页（最多 50 对）：1834 对全渲染会卡住标签页 */
-const foldedPage = computed(() => pageFoldedPairs(pairSplit.value.folded));
-const visiblePairs = computed(() =>
-  showAll.value
-    ? [...pairSplit.value.highlighted, ...foldedPage.value.visible]
-    : pairSplit.value.highlighted
-);
-const foldedCount = computed(() => pairSplit.value.foldedCount);
-/** 提示线文案（后端下发，不在前端另写一个数） */
+const primaryPairs = computed(() => pairSplit.value.primary);
+const weakPairs = computed(() => pairSplit.value.weak);
+
+/** 分档线文案（后端下发，不在前端另写一个数） */
 const gateText = computed(() =>
   formatAmountCents(data.value?.min_overlap_amount_cents)
-);
-const foldHint = computed(() =>
-  describeFoldHint({
-    expanded: showAll.value,
-    foldedCount: foldedCount.value,
-    visibleCount: foldedPage.value.visible.length,
-    hiddenCount: foldedPage.value.hiddenCount,
-    gateText: gateText.value
-  })
 );
 
 const load = async () => {
@@ -210,7 +155,7 @@ onMounted(load);
     padding: 12px 0;
     margin: 0;
     font-size: var(--text-small);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__error {
@@ -234,26 +179,69 @@ onMounted(load);
     list-style: none;
   }
 
-  &__summary {
-    padding: 8px 12px;
-    margin: 0 0 var(--space-standard);
-    font-size: var(--text-small);
-    color: var(--text-primary);
-    background: var(--bg-muted);
+  /* 分档计数：四个数字并排，比一句话更快分辨「要处理的」与「可不管的」 */
+  &__tally {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  &__tally-bar {
+    margin-bottom: var(--space-standard);
+  }
+
+  &__tally-item {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 4px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-button);
   }
 
-  &__verdict {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-    margin: 6px 0 0;
+  &__tally-count {
+    font-size: var(--text-body);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+
+    &.is-danger {
+      color: var(--color-danger-ink);
+    }
+
+    &.is-warning {
+      color: var(--color-warning-ink);
+    }
+
+    &.is-info {
+      color: var(--color-info-ink);
+    }
+
+    &.is-muted {
+      color: var(--text-secondary);
+    }
   }
 
-  &__reason {
+  &__tally-label {
     font-size: var(--text-small);
     color: var(--text-secondary);
+  }
+
+  &__meta {
+    margin: 4px 0 0;
+    font-size: var(--text-small);
+    color: var(--text-tertiary-ink);
+  }
+
+  /* 文字级用 --color-warning-ink（白底 5.71）；--color-warning-fill 是底色级（3.57） */
+  &__warn {
+    margin: 4px 0 0;
+    font-size: var(--text-small);
+    line-height: 1.55;
+    color: var(--color-warning-ink);
   }
 
   &__caveats {
@@ -261,71 +249,7 @@ onMounted(load);
     margin: var(--space-standard) 0 0;
     font-size: var(--text-small);
     line-height: 1.6;
-    color: var(--text-tertiary);
-  }
-
-  &__pair {
-    padding: var(--space-standard);
-    background: var(--bg-muted);
-    border-radius: var(--radius-button);
-  }
-
-  &__head {
-    display: flex;
-    gap: var(--space-standard);
-    align-items: baseline;
-    justify-content: space-between;
-  }
-
-  &__funds {
-    font-size: var(--text-body);
-    color: var(--text-primary);
-  }
-
-  &__vs {
-    margin: 0 4px;
-    color: var(--text-tertiary);
-  }
-
-  &__value {
-    font-size: var(--text-body);
-    font-variant-numeric: tabular-nums;
-    color: var(--color-danger);
-  }
-
-  &__meta {
-    margin: 4px 0 0;
-    font-size: var(--text-small);
-    color: var(--text-tertiary);
-  }
-
-  &__warn {
-    margin: 4px 0 0;
-    font-size: var(--text-small);
-    line-height: 1.55;
-    color: var(--color-warning-fill);
-  }
-
-  &__stocks {
-    padding: 0;
-    margin: 8px 0 0;
-    list-style: none;
-  }
-
-  &__stock {
-    display: flex;
-    gap: var(--space-standard);
-    justify-content: space-between;
-    font-size: var(--text-small);
-    color: var(--text-secondary);
-  }
-
-  &__stock-ratio {
-    font-variant-numeric: tabular-nums;
-  }
-
-  &__stock--more {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 </style>

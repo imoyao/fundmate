@@ -14,18 +14,22 @@ import {
   describeBasis,
   describeCaveats,
   describeCoverage,
-  describeDuplicateSummary,
-  describeFoldHint,
   describeOverlapLevel,
+  describeOverlapTally,
   describePeriodMismatch,
   describeSkipped,
-  FOLDED_PAGE_SIZE,
+  describeWeakHint,
+  describeWeakReason,
+  filterWeakPairs,
   formatAmountCents,
   formatJaccard,
   formatWeightedOverlap,
-  pageFoldedPairs,
+  pairKey,
   resolveOverlapPanelState,
-  splitOverlapPairs
+  sliceWeakPairs,
+  splitOverlapPairs,
+  tallyOverlap,
+  WEAK_PAGE_SIZE
 } from "../holdingOverlapModel";
 import type { HoldingOverlapData, OverlapPair } from "../holdingOverlapModel";
 
@@ -63,7 +67,7 @@ const data = (over: Partial<HoldingOverlapData> = {}): HoldingOverlapData => ({
   coverage_pct: 82.5,
   uncovered: [],
   duplicate_count: 0,
-  trivial_count: 0,
+  weak_count: 0,
   min_overlap_amount_cents: 100000,
   caveats: ["重叠度基于基金定期报告披露的持仓快照，两次报告之间的调仓看不到。"],
   degraded: false,
@@ -182,26 +186,22 @@ describe("配置重复提示（#866）", () => {
     expect(badge?.tone).toBe("info");
   });
 
-  it("汇总只数真重复，份额重复单独说", () => {
-    const text = describeDuplicateSummary(
+  it("汇总按档位分开计数，份额重复不被算成配置重复", () => {
+    const chips = describeOverlapTally(
       data({
         pairs: [
           pair({ overlap_level: "duplicate" }),
-          pair({ overlap_level: "same-series" })
-        ],
-        duplicate_count: 1
+          pair({ overlap_level: "same-series" }),
+          pair({ overlap_level: "low" })
+        ]
       })
     );
-    expect(text).toContain("1 对配置重复");
-    expect(text).toContain("1 对是同一基金的不同份额");
-  });
-
-  it("没有重复时不给汇总文案", () => {
-    expect(
-      describeDuplicateSummary(
-        data({ pairs: [pair({ overlap_level: "low" })], duplicate_count: 0 })
-      )
-    ).toBe("");
+    const byKey = Object.fromEntries(chips.map(chip => [chip.key, chip.count]));
+    expect(byKey.duplicate).toBe(1);
+    expect(byKey.sameSeries).toBe(1);
+    expect(byKey.weak).toBe(1);
+    // 没有 watch 就不占一个「0」位置——空档位只会让汇总条变长
+    expect(byKey.watch).toBeUndefined();
   });
 
   it("份额重复的对数可单独统计（不混进配置重复）", () => {
@@ -216,11 +216,12 @@ describe("配置重复提示（#866）", () => {
   });
 });
 
-describe("仓位闸门：观察仓不提示（#866 追加）", () => {
-  it("trivial 不占版面——不能标成「配置重复」，也不该有任何标签", () => {
+describe("分档：小仓位进弱提醒而不是消失（#866 追加）", () => {
+  it("trivial 不进要点列表，也不贴「配置重复」标签", () => {
     // 实测场景：一只投 ¥0.53、一只投 ¥19,404，weighted 86.5%。
-    // 比例上是重复，但重复的只有 4 毛 6；给标签就是把噪音贴回列表。
+    // 比例上是重复，但重复的只有 4 毛 6；贴标签就是把噪音贴回第一屏。
     expect(describeOverlapLevel(pair({ overlap_level: "trivial" }))).toBeNull();
+    expect(describeOverlapLevel(pair({ overlap_level: "low" }))).toBeNull();
   });
 
   it("金额格式化保留小额精度，大额加千分位", () => {
@@ -232,25 +233,72 @@ describe("仓位闸门：观察仓不提示（#866 追加）", () => {
     expect(formatAmountCents(null)).toBe("—");
   });
 
-  it("汇总把「金额不足未提示」单独说，不混进配置重复数", () => {
-    const text = describeDuplicateSummary(
-      data({ duplicate_count: 3, trivial_count: 42 })
-    );
-    expect(text).toContain("3 对配置重复");
-    // 提示线来自后端字段（分 → 元），前端不另写一个数
-    expect(text).toContain("42 对重复投入不足 ¥1,000");
-    expect(text).toContain("不计入提示");
+  it("四类计数互斥，加起来正好等于 pairs 条数", () => {
+    const payload = data({
+      pairs: [
+        pair({ overlap_level: "duplicate" }),
+        pair({ overlap_level: "duplicate" }),
+        pair({ overlap_level: "watch" }),
+        pair({ overlap_level: "same-series" }),
+        pair({ overlap_level: "low" }),
+        pair({ overlap_level: "trivial" })
+      ]
+    });
+    const tally = tallyOverlap(payload);
+    expect(tally).toEqual({ duplicate: 2, watch: 1, sameSeries: 1, weak: 2 });
+    const total = tally.duplicate + tally.watch + tally.sameSeries + tally.weak;
+    expect(total).toBe(payload.pairs.length);
   });
 
-  it("只有 trivial 时不能给出「检出 N 对配置重复」——那是假的", () => {
-    const text = describeDuplicateSummary(
-      data({ duplicate_count: 0, trivial_count: 9 })
+  it("计数从 pairs 现算，不读摘要字段（否则会出现标题与列表不一致）", () => {
+    // 后端字段与列表漂移时（缓存/版本错配），页面必须以「看到的列表」为准
+    const tally = tallyOverlap(
+      data({
+        pairs: [
+          pair({ overlap_level: "trivial" }),
+          pair({ overlap_level: "trivial" })
+        ],
+        weak_count: 99,
+        duplicate_count: 7
+      })
     );
-    expect(text).not.toContain("配置重复");
-    expect(text).toContain("9 对重复投入不足");
+    expect(tally.weak).toBe(2);
+    expect(tally.duplicate).toBe(0);
   });
 
-  it("折叠只保留要点档位，low / trivial 归入折叠区", () => {
+  it("弱提醒不混进「配置重复」：那 10 对是 10 对，不是 1827 对", () => {
+    const chips = describeOverlapTally(
+      data({
+        pairs: [
+          ...Array.from({ length: 3 }, () =>
+            pair({ overlap_level: "duplicate" as const })
+          ),
+          ...Array.from({ length: 42 }, () =>
+            pair({ overlap_level: "trivial" as const })
+          )
+        ]
+      })
+    );
+    const duplicateChip = chips.find(chip => chip.key === "duplicate");
+    const weakChip = chips.find(chip => chip.key === "weak");
+    expect(duplicateChip?.count).toBe(3);
+    expect(weakChip?.count).toBe(42);
+    // 弱提醒是灰档，不能借用「配置重复」的红
+    expect(weakChip?.tone).toBe("muted");
+  });
+
+  it("只有弱提醒时，汇总里根本不该出现「配置重复」", () => {
+    const chips = describeOverlapTally(
+      data({
+        pairs: Array.from({ length: 9 }, () =>
+          pair({ overlap_level: "trivial" as const })
+        )
+      })
+    );
+    expect(chips.map(chip => chip.label)).toEqual(["弱提醒"]);
+  });
+
+  it("拆堆：要点是 duplicate/watch/same-series，弱提醒是 low/trivial", () => {
     const payload = data({
       pairs: [
         pair({ overlap_level: "duplicate" }),
@@ -261,74 +309,98 @@ describe("仓位闸门：观察仓不提示（#866 追加）", () => {
         pair({ overlap_level: "trivial" })
       ]
     });
-    const { highlighted, folded, foldedCount } = splitOverlapPairs(payload);
-    expect(highlighted.map(p => p.overlap_level)).toEqual([
+    const { primary, weak } = splitOverlapPairs(payload);
+    expect(primary.map(p => p.overlap_level)).toEqual([
       "duplicate",
       "watch",
       "same-series"
     ]);
-    expect(folded.map(p => p.overlap_level)).toEqual([
+    // 弱提醒**保留**而不是丢弃：用户想核对「我是不是买重了」时必须找得到
+    expect(weak.map(p => p.overlap_level)).toEqual([
       "low",
       "trivial",
       "trivial"
     ]);
-    expect(foldedCount).toBe(3);
   });
 
-  it("全部是要点时不给折叠计数", () => {
+  it("缺数据时不崩，两堆都是空", () => {
+    expect(splitOverlapPairs(null)).toEqual({ primary: [], weak: [] });
+    expect(tallyOverlap(null)).toEqual({
+      duplicate: 0,
+      watch: 0,
+      sameSeries: 0,
+      weak: 0
+    });
+  });
+
+  it("弱提醒说明同时交代「为什么降档」和「怎么看全部」", () => {
+    const hint = describeWeakHint("¥1,000");
+    expect(hint).toContain("¥1,000"); // 分档线来自后端，前端不另写一个数
+    expect(hint).toContain("观察仓");
+    expect(hint).toContain("折叠");
+    expect(hint).toContain("查看"); // 折叠 ≠ 藏起来，必须告诉用户能看到
+  });
+
+  it("low 没有后端理由时补一句兜底，否则用户不知道它为什么在这", () => {
     expect(
-      splitOverlapPairs(data({ pairs: [pair({ overlap_level: "duplicate" })] }))
-    ).toEqual({
-      highlighted: [pair({ overlap_level: "duplicate" })],
-      folded: [],
-      foldedCount: 0
-    });
+      describeWeakReason(
+        pair({
+          overlap_level: "low",
+          overlap_reason: "",
+          weighted_overlap: 6.4
+        })
+      )
+    ).toBe("重合 6.4%，未达「需留意」的仓位线");
+    // 后端给了理由就原样用——它比前端拼的更准（含触发点）
+    expect(
+      describeWeakReason(
+        pair({
+          overlap_reason: "重叠 94.8% 但重复投入约 ¥12，低于 ¥1,000，仅作弱提醒"
+        })
+      )
+    ).toContain("仅作弱提醒");
   });
 
-  it("缺数据时不崩，折叠计数为 0", () => {
-    expect(splitOverlapPairs(null)).toEqual({
-      highlighted: [],
-      folded: [],
-      foldedCount: 0
-    });
+  it("筛选命中基金代码或名称，大小写不敏感", () => {
+    const weak = [
+      pair({ fund_code_a: "012414", fund_name_a: "招商中证白酒C" }),
+      pair({ fund_code_a: "017513", fund_name_a: "广发北证50C" }),
+      pair({ fund_code_a: "161725", fund_name_a: "招商中证白酒A" }),
+      pair({ fund_code_a: "000001", fund_name_a: "华夏上证50ETF" })
+    ];
+    expect(filterWeakPairs(weak, "白酒").map(p => p.fund_code_a)).toEqual([
+      "012414",
+      "161725"
+    ]);
+    expect(filterWeakPairs(weak, "017513").map(p => p.fund_code_a)).toEqual([
+      "017513"
+    ]);
+    expect(filterWeakPairs(weak, "etf").map(p => p.fund_code_a)).toEqual([
+      "000001"
+    ]);
+    // 空关键词 = 不筛选（返回全量，而不是空数组）
+    expect(filterWeakPairs(weak, "   ")).toHaveLength(4);
   });
 
-  it("展开只渲染前 50 对，并如实报出没显示的条数", () => {
-    // 真实库 1817 对折叠项：全量渲染 = 几千个 <li>，点一下「展开」标签页要僵住
-    const folded = Array.from({ length: 120 }, () =>
+  it("分页：默认一页 50 条，剩余条数如实报", () => {
+    // 真实库 1817 对弱提醒：全量渲染 = 几千个 <li>，标签页会僵住
+    const weak = Array.from({ length: 120 }, () =>
       pair({ overlap_level: "trivial" as const })
     );
-    const { visible, hiddenCount } = pageFoldedPairs(folded);
-    expect(visible).toHaveLength(FOLDED_PAGE_SIZE);
-    expect(hiddenCount).toBe(70);
-  });
+    const first = sliceWeakPairs(weak, WEAK_PAGE_SIZE);
+    expect(first.visible).toHaveLength(WEAK_PAGE_SIZE);
+    expect(first.remaining).toBe(70);
+    expect(first.hasMore).toBe(true);
 
-  it("折叠项不足一页时全部显示，没有隐藏计数", () => {
-    const folded = [pair({ overlap_level: "trivial" as const })];
-    expect(pageFoldedPairs(folded)).toEqual({
-      visible: folded,
-      hiddenCount: 0
-    });
-  });
+    const all = sliceWeakPairs(weak, 120);
+    expect(all.visible).toHaveLength(120);
+    expect(all.remaining).toBe(0);
+    expect(all.hasMore).toBe(false);
 
-  it("折叠说明：未展开时给条数，展开后给「还有多少没显示」", () => {
-    // 实测文案：1817 对折叠 → 展开只渲染 50 对，必须说清 1767 对没显示，
-    // 否则用户以为「已展开」= 看到全部
-    const base = {
-      foldedCount: 1817,
-      visibleCount: 50,
-      gateText: "¥1,000"
-    };
-    expect(describeFoldHint({ ...base, expanded: false, hiddenCount: 0 })).toBe(
-      "另有 1817 对未达提示线（比例不够，或重复投入不足 ¥1,000），已折叠"
-    );
-    expect(
-      describeFoldHint({ ...base, expanded: true, hiddenCount: 1767 })
-    ).toBe("已展开前 50 对未达提示线的重叠，另有 1767 对金额更低的未显示");
-    // 折叠项不足一页：不能凭空冒出「另有 0 对」
-    expect(describeFoldHint({ ...base, expanded: true, hiddenCount: 0 })).toBe(
-      "已展开前 50 对未达提示线的重叠"
-    );
+    // 加载数超过总数也不能越界报负数
+    const over = sliceWeakPairs(weak, 200);
+    expect(over.visible).toHaveLength(120);
+    expect(over.remaining).toBe(0);
   });
 });
 
@@ -348,5 +420,21 @@ describe("口径声明（#866 换手率约束）", () => {
 
   it("缺字段时返回空数组而不是崩", () => {
     expect(describeCaveats(null)).toEqual([]);
+  });
+});
+
+describe("条目 key（拆分组件后主列表与弱提醒区共用）", () => {
+  it("用基金代码拼接而不是名称或下标", () => {
+    // 名称会带「A」「C」后缀且会变；下标在筛选后会串位，展开状态会跟错行
+    expect(pairKey(pair())).toBe("110011-005827");
+    expect(
+      pairKey(pair({ fund_name_a: "换个名字", fund_name_b: "再换" }))
+    ).toBe("110011-005827");
+  });
+
+  it("同一对基金反过来仍是两条（A↔B 与 B↔A 各自一条）", () => {
+    const ab = pairKey(pair({ fund_code_a: "110011", fund_code_b: "005827" }));
+    const ba = pairKey(pair({ fund_code_a: "005827", fund_code_b: "110011" }));
+    expect(ab).not.toBe(ba);
   });
 });
