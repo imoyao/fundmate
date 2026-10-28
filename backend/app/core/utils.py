@@ -70,6 +70,28 @@ def paginate(query: Query, page: int = 1, per_page: int = 20) -> Tuple[List[Any]
     return items, total
 
 
+def iso_date_only(value) -> Optional[str]:
+    """把 ``date`` / ``datetime`` 统一序列化成 ``YYYY-MM-DD``（#2712）。
+
+    WHY：交易流水有三个出口（``/api/transactions``、``/api/ledgers/<id>/transactions``、
+    ``/api/positions/<id>/transactions``），每个都自己 ``.isoformat()``。而
+    ``Transaction.trade_date`` 是 **DateTime**（秒级）——``isoformat()`` 会给出
+    ``2026-06-03T00:00:00``，只有 ``confirm_date``（Date 列）才是 ``2026-06-03``。
+    ``/api/transactions`` 恰好写了 ``strftime('%Y-%m-%d')``，于是同一批流水在不同页面
+    一处正常、一处带 ``T00:00:00``；用户看到的是「日期显示不统一」，根因是三个出口
+    各写一遍。
+
+    日期就是日期：秒级时刻只出现在 ``created_at`` 这类真·时间戳字段上，
+    ``trade_date`` / ``confirm_date`` 一律日期粒度。
+    """
+    if value is None:
+        return None
+    if hasattr(value, 'strftime'):
+        return value.strftime('%Y-%m-%d')
+    # 宽容处理已是字符串的入参（个别路径先转成了 str）
+    return str(value)[:10]
+
+
 def get_confirm_date(trade_date: date, fund_type: str = 'domestic', is_after_15: bool = False) -> date:
     """
     计算场外基金确认日。

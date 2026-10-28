@@ -95,3 +95,51 @@ def resolve_transaction_display_names(
                 ledger_by_txn[t.id] = name
 
     return pos_by_txn, ledger_by_txn
+
+
+def resolve_transaction_asset_types(db: Session, txns: Iterable[Transaction]) -> Dict[int, str]:
+    """回解析流水行的**资产类型**（#2712）——快照为 NULL 时价格精度无从判断。
+
+    WHY：``transactions.asset_type`` 与 ``position_name`` 一样是**冗余快照**
+    （``Column(String(20), nullable=True, default=None)``），历史导入 / 基金转换流水
+    常漏写。前端价格列走 ``pricePrecision(asset_type)``：基金 4 位、其余 2 位，
+    **缺失时按证券口径 2 位**（``utils/pricePrecision.ts`` 的刻意取舍）。于是基金申购
+    净值 ``1.2200`` 在「类型快照为空」的流水上显示成 ``1.22``——用户报的是
+    「申购价格只有 2 位小数」，根因是类型缺失，不是格式化写错。
+
+    口径与名称回解析一致：只处理缺失行，``position_id`` 点查持仓，悬空时按 ``symbol``
+    查基金名录（命中即为 ``fund``）。纯读，不写库。
+
+    Returns:
+        ``{txn_id: asset_type}``——仅含回解析出的键；调用方写法
+        ``t.asset_type or resolved.get(t.id)``。
+    """
+    txn_list = [t for t in txns if not t.asset_type]
+    if not txn_list:
+        return {}
+
+    resolved: Dict[int, str] = {}
+    pos_ids = {t.position_id for t in txn_list if t.position_id}
+    if pos_ids:
+        id_to_type = {
+            pid: ptype
+            for pid, ptype in db.query(Position.id, Position.asset_type).filter(Position.id.in_(pos_ids)).all()
+            if ptype
+        }
+        for t in txn_list:
+            ptype = id_to_type.get(t.position_id) if t.position_id else None
+            if ptype:
+                resolved[t.id] = ptype
+
+    # 持仓已删（position_id 悬空）：按代码查基金名录，命中即 fund。
+    dangling = [t for t in txn_list if t.id not in resolved and t.symbol]
+    if dangling:
+        codes = {strip_exchange_prefix(str(t.symbol)) for t in dangling}
+        codes.discard('')
+        if codes:
+            known = {code for (code,) in db.query(Fund.fund_code).filter(Fund.fund_code.in_(codes)).all()}
+            for t in dangling:
+                if strip_exchange_prefix(str(t.symbol)) in known:
+                    resolved[t.id] = 'fund'
+
+    return resolved

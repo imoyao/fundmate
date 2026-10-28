@@ -13,6 +13,7 @@ from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.retry import retry_on_db_locked
+from app.core.utils import iso_date_only
 from app.core.validation import parse_body, parse_query
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
@@ -82,21 +83,25 @@ def get_position_transactions(id: int):
 
         data = []
         for t in transactions:
-            # 优先使用 confirm_date，为空时回退 trade_date
+            # 优先使用 confirm_date，为空时回退 trade_date（口径与 TransactionTable 一致）
             display_date = t.confirm_date or t.trade_date
             data.append(
                 {
                     'id': t.id,
                     'ledger_id': t.ledger_id,
                     'symbol': t.symbol,
-                    'trade_date': display_date.isoformat() if display_date else None,
+                    # 日期一律 YYYY-MM-DD（#2712）：trade_date 是 DateTime，isoformat 会带
+                    # `T00:00:00`，与 /api/transactions 口径分裂
+                    'trade_date': iso_date_only(display_date),
                     'txn_type': t.txn_type,
+                    # 抽屉价格列同样走 pricePrecision；持仓自身的 asset_type 一定可信，
+                    # 用它兜住「流水快照为空」的历史行（#2712）
+                    'asset_type': t.asset_type or position.asset_type,
                     'quantity': Money.min_unit_to_shares(t.quantity),
                     'price': Money.price_units_to_yuan(t.price),
                     'amount': Money.cents_to_yuan(t.amount),
                     'fee': Money.cents_to_yuan(t.fee),
                     'notes': t.notes,
-                    'asset_type': t.asset_type,
                 }
             )
         return jsonify({'data': data, 'message': 'ok'})

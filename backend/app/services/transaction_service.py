@@ -17,11 +17,14 @@ from datetime import date, timedelta
 from sqlalchemy import String, cast, func
 
 from app.core.money import Money
-from app.core.utils import paginate
+from app.core.utils import iso_date_only, paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
-from app.services.txn_name_resolver import resolve_transaction_display_names
+from app.services.txn_name_resolver import (
+    resolve_transaction_asset_types,
+    resolve_transaction_display_names,
+)
 
 # #2137 费用拆分：Transaction 列名 → 输出键（元）
 _FEE_BREAKDOWN_FIELDS = (
@@ -165,6 +168,8 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     # （position_id→持仓名 / ledger_id→账户名，悬空 position_id 再按 symbol 兜底），
     # 不再把「快照没写」直接显示成「未知资产/未知账户」。
     pos_names, ledger_names = resolve_transaction_display_names(db, items)
+    # #2712：asset_type 快照为空时回解析（价格列精度依赖它，详见 txn_name_resolver）
+    asset_types = resolve_transaction_asset_types(db, items)
 
     results = []
     for t in items:
@@ -175,10 +180,10 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
                 'position_id': t.position_id,
                 'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
                 'type': t.txn_type,
-                'asset_type': t.asset_type,
+                'asset_type': t.asset_type or asset_types.get(t.id),
                 'symbol': t.symbol,
-                'trade_date': t.trade_date.strftime('%Y-%m-%d') if t.trade_date else None,
-                'confirm_date': t.confirm_date.strftime('%Y-%m-%d') if t.confirm_date else None,
+                'trade_date': iso_date_only(t.trade_date),
+                'confirm_date': iso_date_only(t.confirm_date),
                 'quantity': Money.min_unit_to_shares(t.quantity),
                 'price': Money.price_units_to_yuan(t.price),
                 'fee': Money.cents_to_yuan(t.fee),
