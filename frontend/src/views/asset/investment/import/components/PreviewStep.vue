@@ -3,6 +3,7 @@ import { computed } from "vue";
 import SummaryPanel from "./SummaryPanel.vue";
 import PreviewTable from "./PreviewTable.vue";
 import BatchFixPanel from "./BatchFixPanel.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
 const {
@@ -66,38 +67,45 @@ const pendingFixCount = computed(
       </div>
     </div>
 
-    <!-- #2281 引导态：能力宣告 + 关联入口（未关联现金账户时；不可关闭，tooltip 指向此处） -->
-    <div v-if="showCashBindingBanner" class="cash-binding-banner">
-      <IconifyIconOffline icon="ep:warning" class="banner-icon" />
+    <!-- #2281 引导态：能力宣告 + 关联入口（未关联现金账户时；不可关闭，tooltip 指向此处）。
+         #2724 起壳由 SoftBanner 承担，select 与跳转按钮走 #actions slot -->
+    <SoftBanner
+      v-if="showCashBindingBanner"
+      class="cash-binding-banner"
+      variant="info"
+      icon="ep:warning"
+    >
       <span class="banner-text">
         检测到银证转账交易，支持导入：勾选转账行后，现金账户将自动生成反向流水（银行↔证券两本账自动配平）。请先为当前账户「{{
           selectedLedgerName
         }}」关联现金账户：
       </span>
-      <el-select
-        v-model="bannerCashLedgerId"
-        class="banner-select"
-        size="small"
-        clearable
-        placeholder="选择现金账户"
-        @change="linkCashAccount"
-      >
-        <el-option
-          v-for="c in cashLedgersForImport"
-          :key="c.id"
-          :label="c.name"
-          :value="c.id"
-        />
-      </el-select>
-      <el-button
-        class="banner-create-btn"
-        size="small"
-        link
-        type="primary"
-        @click="openCreateCashFromBanner"
-        >+ 新建现金账户</el-button
-      >
-    </div>
+      <template #actions>
+        <el-select
+          v-model="bannerCashLedgerId"
+          class="banner-select"
+          size="small"
+          clearable
+          placeholder="选择现金账户"
+          @change="linkCashAccount"
+        >
+          <el-option
+            v-for="c in cashLedgersForImport"
+            :key="c.id"
+            :label="c.name"
+            :value="c.id"
+          />
+        </el-select>
+        <el-button
+          class="banner-create-btn"
+          size="small"
+          link
+          type="primary"
+          @click="openCreateCashFromBanner"
+          >+ 新建现金账户</el-button
+        >
+      </template>
+    </SoftBanner>
 
     <!-- #2281 轻量提示态：已关联仍告知能力存在（默认不勾选，由用户决定），可关闭 -->
     <div v-else-if="showCashTransferHint" class="cash-transfer-hint">
@@ -184,22 +192,14 @@ const pendingFixCount = computed(
   border-bottom: 1px solid var(--border-default);
 }
 
-/* 步骤3 智能体检：未关联现金账户的银证转账提示横幅 */
+/* 步骤3 智能体检：未关联现金账户的银证转账提示横幅。
+   #2724 起壳由 SoftBanner info 承担，只保留「页面内位置」与内部控件尺寸：
+   删除的本地壳样式：display/flex-wrap/gap/align-items/padding/background/border/
+   radius，以及 `.banner-icon`（--color-warning-ink 图标改由 variant 的 info 图标承担）。 */
 .cash-binding-banner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 14px;
-  margin: 12px 16px 0;
-  background: var(--bg-soft);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.banner-icon {
-  font-size: var(--text-body);
-  color: var(--color-warning-ink);
+  /* 位置：位于 header 与 step3-body 之间，左右与 header 对齐（12px 16px 0）。
+     组件默认 margin-bottom 16px，这里补齐上方 12px 与左右 16px。 */
+  margin: 12px 16px 16px;
 }
 
 .banner-text {

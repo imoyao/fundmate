@@ -7,21 +7,19 @@
     destroy-on-close
     :close-on-click-modal="false"
   >
-    <!-- 顶部：剩余次数提示（三态：正常 / 紧张 / 用尽，feature 独立限次） -->
-    <div class="usage-banner" :class="usageStateClass">
-      <span class="usage-banner__icon">
-        <IconifyIconOffline :icon="usageIcon" />
-      </span>
+    <!-- 顶部：剩余次数提示（三态：正常 / 紧张 / 用尽，feature 独立限次）。
+         #2724 起壳由 SoftBanner 承担：三态配色本就与 info/warning/danger 一一对应 -->
+    <SoftBanner class="usage-banner" :variant="usageVariant" :icon="usageIcon">
       <div class="usage-banner__main">
         <span class="usage-banner__label">今日持仓识别额度</span>
         <span class="usage-banner__count">
           剩余 <strong>{{ remaining }}</strong> / {{ quota }} 次
         </span>
       </div>
-      <span v-if="remainingText" class="usage-banner__hint">{{
-        remainingText
-      }}</span>
-    </div>
+      <template v-if="remainingText" #actions>
+        <span class="usage-banner__hint">{{ remainingText }}</span>
+      </template>
+    </SoftBanner>
 
     <el-tabs v-model="activeTab" class="ai-tabs" @tab-change="handleTabChange">
       <!-- ── 图片识别 ── -->
@@ -73,6 +71,7 @@ import { ref, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import ImageUploader from "@/components/ImageUploader/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
 import type { OcrTxnRow } from "@/api/ocr";
 
@@ -106,10 +105,12 @@ const remainingText = computed(() => {
   if (remaining.value <= 2) return "额度紧张，谨慎使用";
   return "";
 });
-const usageStateClass = computed(() => {
-  if (occupied.value) return "is-used-up";
-  if (remaining.value <= 2) return "is-low";
-  return "";
+// #2724：三态配色映射到 SoftBanner 的 variant（原 `is-low`/`is-used-up` 两个状态类
+// 已删除——它们的唯一职责就是换底色/边框/文字色，现在由 variant 承担）
+const usageVariant = computed<"info" | "warning" | "danger">(() => {
+  if (occupied.value) return "danger";
+  if (remaining.value <= 2) return "warning";
+  return "info";
 });
 const usageIcon = computed(() => {
   if (occupied.value) return "ep:warning";
@@ -244,77 +245,43 @@ watch(
 <!-- lang="scss" 必须保留：本文件使用 &__block 嵌套拼接语法，原生 CSS 嵌套不支持该写法，
      缺失会导致全部嵌套规则静默失效 -->
 <style scoped lang="scss">
-.usage-banner {
+/* #2724：壳（display/gap/align-items/padding/margin/background/border/radius）
+   由 SoftBanner 承担，此处只保留正文排版。
+   `&__icon` 一并删除——图标改由 SoftBanner 的 icon prop 渲染，`--brand-700`
+   （#e34f38 在 --bg-soft 上仅 3.41:1，文字级不达标；且属 tech-debt 的 --brand-*
+   直调违规）随之消除。
+   文字色统一回中性档：原用尽态 `--color-danger` #d4364a 在 --color-danger-20 底上
+   仅 3.17:1，紧张态 `--color-warning-ink` 4.68:1 也只是勉强；改为
+   --text-primary（12.99~12.39:1）/ --text-secondary（5.24~4.99:1）后均达标。
+   语义由 variant 的底色 + 图标 + 边框承担，不染正文（#2726 口径）。 */
+.usage-banner__main {
   display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
 
-  &__icon {
-    display: flex;
-    align-items: center;
-    font-size: var(--text-num-strong);
-    color: var(--brand-700);
-  }
+.usage-banner__label {
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+}
 
-  &__main {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    gap: 2px;
-  }
+/* 额度数字等宽：数字在 5→1 变化时不左右抖动（原实现未声明，本卡补齐）。
+   颜色不再染品牌色——字重已足够强调，状态语义交给 variant 的底色 + 图标 + 边框。 */
+.usage-banner__count {
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
 
-  &__label {
-    font-size: var(--text-label);
-    color: var(--text-tertiary-ink);
-  }
+.usage-banner__count strong {
+  font-size: var(--text-body);
+  color: var(--text-primary);
+}
 
-  &__count {
-    font-size: var(--text-body);
-    color: var(--text-primary);
-
-    strong {
-      font-size: var(--text-body);
-      color: var(--brand-700);
-    }
-  }
-
-  &__hint {
-    font-size: var(--text-label);
-    color: var(--text-tertiary-ink);
-  }
-
-  &.is-low {
-    background: var(--color-warning-20);
-    border-color: var(--color-warning);
-
-    .usage-banner__icon,
-    .usage-banner__count strong {
-      color: var(--color-warning-ink);
-    }
-
-    .usage-banner__hint {
-      color: var(--color-warning-ink);
-    }
-  }
-
-  &.is-used-up {
-    background: var(--color-danger-20);
-    border-color: var(--color-danger);
-
-    .usage-banner__icon,
-    .usage-banner__count strong {
-      color: var(--color-danger);
-    }
-
-    .usage-banner__hint {
-      color: var(--color-danger);
-    }
-  }
+.usage-banner__hint {
+  font-size: var(--text-label);
+  color: var(--text-secondary);
 }
 
 .recognition-hint {
@@ -329,7 +296,9 @@ watch(
   border-radius: var(--radius-md);
 
   strong {
-    color: var(--brand-700);
+    /* #2724：原为 --brand-700（#e34f38）——在 --bg-soft 上仅 3.41:1，**文字级不达标**；
+       且属 tech-debt 的 --brand-* 直调违规。强调靠字重，不靠染色。 */
+    color: var(--text-primary);
   }
 }
 
