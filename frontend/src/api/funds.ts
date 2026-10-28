@@ -304,8 +304,19 @@ export interface PortfolioStyleExposure {
   fund_count: number;
   covered_market_value_cents: number;
   total_market_value_cents: number;
-  /** 风格数据覆盖率（0-100）：有箱体的持仓市值 / 全部持仓市值 */
+  /**
+   * 全量持仓口径覆盖率（0-100）：有箱体的持仓市值 / **全部**持仓市值。
+   * 分母含货基/现金（它们永远不会有箱体），故有天花板 —— 判断「算得全不全」请用
+   * `eligible_coverage_pct`（见 `utils/styleCoverage`）。
+   */
   coverage_pct: number;
+  /** 可覆盖资产市值（分）：只含可能带箱体的持仓（场外基金 / ETF，剔除 QDII） */
+  eligible_market_value_cents: number;
+  /**
+   * 可覆盖资产口径覆盖率（0-100）。**`null` = 没有可覆盖的资产**（不是 0% 覆盖）：
+   * 「全是货基/现金」与「一只都没同步到」是两种结论，展示层必须分开写。
+   */
+  eligible_coverage_pct: number | null;
   /** 箱体时点区间（各基金取各自最新，故可能跨月） */
   period_from: string | null;
   period_to: string | null;

@@ -330,6 +330,87 @@ def test_portfolio_no_positions_or_zero_value(db):
     assert [u['symbol'] for u in result['uncovered']] == ['000001']
 
 
+# ── 2b. 可覆盖口径（#2628）：分母只含可能拿到箱体的持仓 ──
+
+
+def _add_position(db, symbol, name, asset_type, mv, **kw):
+    from app.domains.positions.models import Position
+
+    db.add(
+        Position(
+            family_id=1,
+            symbol=symbol,
+            name=name,
+            asset_type=asset_type,
+            quantity=100,
+            market_value_override=mv,
+            **kw,
+        )
+    )
+
+
+def test_portfolio_eligible_coverage_excludes_money_fund(db):
+    """货基再大也不进可覆盖分母（#2628）：121 只持仓→8.35% 那个天花板就是这么来的。
+
+    `coverage_pct` 保持 #2478 契约不变（全量持仓），两个口径并存、互不覆盖。
+    """
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 100.0})
+    _add_position(db, '000001', '场外基金', 'fund', 1000)
+    _add_position(db, '970164', '货币基金', 'money_fund', 9000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['total_market_value_cents'] == 10000
+    # 旧口径：1000/10000 = 10%（含永远无箱体的货基）
+    assert result['coverage_pct'] == pytest.approx(10.0)
+    # 可覆盖口径：分母只剩那只场外基金
+    assert result['eligible_market_value_cents'] == 1000
+    assert result['eligible_coverage_pct'] == 100.0
+
+
+def test_portfolio_eligible_coverage_null_when_no_eligible_asset(db):
+    """没有任何可能带箱体的品种 → `None`，**不是 0%**（两种结论对用户意义不同）。"""
+    _add_position(db, '970164', '货币基金', 'money_fund', 5000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['eligible_market_value_cents'] == 0
+    assert result['eligible_coverage_pct'] is None
+    assert result['coverage_pct'] == 0.0
+
+
+def test_portfolio_eligible_coverage_excludes_qdii(db):
+    """QDII 从可覆盖分母里摘掉：它的箱体口径存疑（韭圈儿实测把纳指100 判成固收风格），
+    不该让它把「覆盖率」拉低，也不该让它拉高。"""
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 100.0})
+    db.add(Fund(fund_code='270042', name='广发纳斯达克100ETF联接(QDII)'))
+    db.commit()
+    _add_position(db, '000001', '场外基金', 'fund', 1000)
+    _add_position(db, '270042', '纳指联接', 'fund', 3000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['has_qdii'] is True
+    assert result['total_market_value_cents'] == 4000
+    assert result['coverage_pct'] == pytest.approx(25.0)
+    assert result['eligible_market_value_cents'] == 1000
+    assert result['eligible_coverage_pct'] == 100.0
+
+
+def test_portfolio_eligible_coverage_zero_when_eligible_but_uncovered(db):
+    """有合格品种但一个都没箱体 → 0.0%（与「没有可覆盖资产」的 None 必须分得开）。"""
+    _add_position(db, '000001', '无箱体基金', 'fund', 2000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['eligible_market_value_cents'] == 2000
+    assert result['eligible_coverage_pct'] == 0.0
+
+
 # ── 3b. 作用域（2026-10-27）：组合 / 账户 / 互斥 / 空作用域不回退 ──
 
 

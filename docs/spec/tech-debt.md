@@ -1051,6 +1051,8 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 **为什么没在本卡改**：`coverage_pct` 是 #2478 定下的契约（`frontend/src/api/funds.ts` 的类型注释也写死「覆盖率不是权重」），换分母属口径变更，会影响既有消费方与 `api.md` 文档；#2628 只做前端消费，不擅自改后端口径。
 
-**处理策略**：`portfolio_style_exposure` **新增** `eligible_coverage_pct`（分母只算场外基金/ETF，剔除现金/货基/QDII），`coverage_pct` 原样保留以兼容；前端主数字改用 eligible，全量覆盖率降为提示。判据须覆盖：① 分母只含 fund/etf；② **无合格资产时返回 `null` 而不是 0**（「0% 覆盖」与「没有可覆盖资产」不是一回事）；③ 与旧字段并存不破坏现有契约与 `api.md` 自动段。
+**处理策略（2026-10-28 已收敛）**：`portfolio_style_exposure` 新增 `eligible_market_value_cents` + `eligible_coverage_pct`（分母只算场外基金/ETF，剔除货基/现金与 QDII），`coverage_pct` 原样保留以兼容；前端主数字改用 eligible，全量覆盖率降为括号提示。判据：① 分母只含 `ELIGIBLE_COVERAGE_ASSET_TYPES`（fund/etf）且非 QDII；② **无合格资产时返回 `null` 而不是 0**（「0% 覆盖」与「没有可覆盖资产」是两件事）；③ 与旧字段并存，既有断言（66.67% / 100% / 0%）全部不变；④ 前端两个面板共用 `frontend/src/utils/styleCoverage.ts` 的 `effectiveCoveragePct` / `coverageScopeHint`，不在各视图各写一份口径。
+
+**判据（测试）**：`backend/tests/services/test_fund_style.py` 的 `test_portfolio_eligible_coverage_*` 四条（货基不入分母 / 无合格资产回 null / QDII 剔除 / 有合格品种但未覆盖 = 0.0）；`frontend/src/utils/__tests__/styleCoverage.spec.ts` 钉「null ≠ 0」与口径提示只在两数不同时出现。
 
 **顺带核实（同日）**：**提升覆盖率本身不需要开发**——目标池 `resolve_targets()` 取「持仓 + 自选」（`orchestrator.resolve_targets`），`fund_style` 已在日调度（`SCHEDULER_FUND_STYLE_ENABLED` 默认启用，cron `30 22 2 * *` 月度增量），CI `daily-snapshot.yml` 每天跑 `pdm run scheduler` 并 catch-up，手工补数入口（`--targets` / `--target-file`）已由 #2662 修好。故本条债只针对**指标口径**，不针对数据通路——不要把它当成「数据没在同步」去排查。
