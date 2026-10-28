@@ -644,9 +644,7 @@ class LedgerService:
         # 排序与 `/api/transactions` 同源（`order_by_effective_day`）：此前这里是
         # `confirm_date DESC NULLS LAST, created_at DESC`——只有交易日的行被甩到末尾，
         # 批量导入又按「导入批次」排，与详情页顺序相反（#2171 / #2712）。
-        txn_list = (
-            order_by_effective_day(query).offset((page - 1) * per_page).limit(per_page).all()
-        )
+        txn_list = order_by_effective_day(query).offset((page - 1) * per_page).limit(per_page).all()
 
         # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」
         pos_names, _ledger_names = resolve_transaction_display_names(db, txn_list)
