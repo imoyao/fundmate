@@ -14,7 +14,7 @@ from contextlib import closing
 from apiflask import APIBlueprint
 from flask import abort, g, jsonify, request
 
-from app.core import db_factory
+from app.core import db_factory as db_f  # 短别名：`db_factory.` 会把双会话 with 行顶过 120 → 拆行顶穿视图基线
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.entitlements import get_pro_status_for_family, require_pro_feature
@@ -91,10 +91,7 @@ def resolve_product():
 
     # 双域会话：watchlist/positions 在 user 域，funds/securities/… 在 market 域，
     # 生产下是独立引擎，必须分别取（详见 services/product_identity 模块 docstring）。
-    with (
-        closing(db_factory.user_session_factory()()) as user_db,
-        closing(db_factory.market_session_factory()()) as market_db,
-    ):
+    with closing(db_f.user_session_factory()()) as user_db, closing(db_f.market_session_factory()()) as market_db:
         try:
             result = resolve_product_identity(
                 user_db,
@@ -131,7 +128,7 @@ def fund_profile():
     只是把它读出来的出口）。详见 ``services/fund_profile.py`` 模块 docstring。
     """
     fund_code = (request.args.get('code') or '').strip()
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_fund_profile(db, fund_code)
         except ValueError as e:
@@ -155,7 +152,7 @@ def fund_performance():
     字段缺失一律回 ``null``，前端降级「—」（设计 §6 诚实降级，不编造）。
     """
     fund_code = (request.args.get('code') or '').strip()
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_fund_performance(db, fund_code)
         except ValueError as e:
@@ -181,7 +178,7 @@ def fund_holdings_detail():
     是不同语义，前端据此分别渲染 404 页与空态卡。
     """
     fund_code = (request.args.get('code') or '').strip()
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_fund_holdings_detail(db, fund_code)
         except ValueError as e:
@@ -212,7 +209,7 @@ def stock_profile():
     """
     query: StockProfileRequest = parse_query(StockProfileRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_stock_profile(db, query.symbol, market=query.market)
         except ValueError as e:
@@ -237,7 +234,7 @@ def index_profile():
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_index_profile(db, query.symbol)
         except ValueError as e:
@@ -259,7 +256,7 @@ def index_returns():
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_index_returns(db, query.symbol)
         except ValueError as e:
@@ -280,7 +277,7 @@ def index_weights():
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_index_weights(db, query.symbol)
         except ValueError as e:
@@ -304,7 +301,7 @@ def index_etf_compare():
     """
     query: IndexEtfCompareRequest = parse_query(IndexEtfCompareRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_etf_compare(db, query.symbol)
         except ValueError as e:
@@ -336,7 +333,7 @@ def manager_profile():
     """
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_manager_profile(db, query.mgr_code, fund_limit=query.fund_limit)
         except ValueError as e:
@@ -369,7 +366,7 @@ def manager_holdings():
     """
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_manager_holdings(db, query.mgr_code, fund_limit=query.fund_limit)
         except ValueError as e:
@@ -399,7 +396,7 @@ def advisor_profile():
     """
     query: AdvisorProfileRequest = parse_query(AdvisorProfileRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_advisor_profile(db, query.code)
         except ValueError as e:
@@ -426,7 +423,7 @@ def related_symbols():
     """
     query: RelatedSymbolsRequest = parse_query(RelatedSymbolsRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         data = build_related_symbols(db, query.symbol)
 
     return jsonify({'data': data, 'message': 'ok'})
@@ -445,7 +442,7 @@ def product_trend():
     """
     query: ProductTrendRequest = parse_query(ProductTrendRequest)
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             result = fetch_product_trend(
                 db,
@@ -473,7 +470,7 @@ def _family_ranking_flags() -> tuple[set, set]:
     """
     if not _is_authenticated():
         return set(), set()
-    with closing(db_factory.user_session_factory()()) as user_db:
+    with closing(db_f.user_session_factory()()) as user_db:
         return user_flags_for_codes(user_db, family_id=get_family_id())
 
 
@@ -496,7 +493,7 @@ def fund_risk_ranking():
 
     holding_codes, watchlist_codes = _family_ranking_flags()
 
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         data = list_by_metric(
             db,
             fund_type_id=query.fund_type_id,
@@ -515,7 +512,7 @@ def fund_risk_types():
     """列出**当前有榜**的基金小类（#167）。为什么单开端点见
     `services/fund_risk_ranking.list_fund_types` 的 docstring。"""
     query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
-    with closing(db_factory.market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         data = list_fund_types(db, caliber_version=query.caliber_version)
     return jsonify({'data': data, 'message': 'ok'})
 
@@ -534,7 +531,7 @@ def product_trade_timeline():
     if not _is_authenticated():
         return jsonify({'data': empty_trade_timeline(symbol), 'message': 'ok'})
 
-    with closing(db_factory.user_session_factory()()) as db:
+    with closing(db_f.user_session_factory()()) as db:
         try:
             data = build_trade_timeline(db, symbol=symbol, family_id=get_family_id(), ledger_id=ledger_id)
         except ValueError as e:
