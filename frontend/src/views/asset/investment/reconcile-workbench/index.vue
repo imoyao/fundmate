@@ -7,20 +7,12 @@
       @run="handleRun"
     />
 
-    <!-- 柔性 Warning Banner（§6.3）：中性信息色，非红非弹窗；点击切换到待处理域（#1259） -->
-    <div
+    <!-- 柔性 Warning Banner（§6.3）：点击切换到待处理域（#1259），形态见 WorkbenchBanner -->
+    <WorkbenchBanner
       v-if="hasPending"
-      class="workbench-banner workbench-banner--clickable"
-      role="alert"
-      tabindex="0"
-      @keydown.enter="focusFirstPendingDomain"
-      @click="focusFirstPendingDomain"
-    >
-      <IconifyIconOffline icon="ep:warning" class="workbench-banner__icon" />
-      <div class="workbench-banner__text">
-        有 {{ totalPending }} 项差异待处理，点击切换到对应域处理
-      </div>
-    </div>
+      :total="totalPending"
+      @go="focusFirstPendingDomain"
+    />
 
     <!-- 顶部状态栏（真实数据：P1 接入 discrepancies 统计） -->
     <div class="workbench-metrics">
@@ -181,7 +173,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { IconifyIconOffline } from "@/components/ReIcon";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
@@ -194,6 +185,7 @@ import RecognizerCandidatesPanel from "./components/RecognizerCandidatesPanel.vu
 import DomainDGhostTable from "./components/DomainDGhostTable.vue";
 import DomainEDividendTaxTable from "./components/DomainEDividendTaxTable.vue";
 import WorkbenchHead from "./components/WorkbenchHead.vue";
+import WorkbenchBanner from "./components/WorkbenchBanner.vue";
 import DomainTabLabel from "./components/DomainTabLabel.vue";
 import SupplementDialog from "./components/SupplementDialog.vue";
 import { domainTabs, type WorkbenchDomainKey } from "./constants/domainTabs";
@@ -329,42 +321,6 @@ onMounted(() => {
 .recon-workbench-page {
   font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
-}
-
-/* 柔性 Warning Banner（§6.3）：中性信息色，非红非弹窗 */
-.workbench-banner {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-/* Banner 可点击：点击切换到待处理域（#1259） */
-.workbench-banner--clickable {
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease;
-}
-
-.workbench-banner--clickable:hover {
-  background: color-mix(in srgb, var(--brand-100) 40%, var(--bg-soft));
-  border-color: var(--brand-400);
-}
-
-.workbench-banner__icon {
-  font-size: var(--text-body);
-  color: var(--brand-700);
-}
-
-.workbench-banner__text {
-  flex: 1;
 }
 
 /* 状态栏 */
