@@ -36,6 +36,9 @@ const DATA: PortfolioStyleExposure = {
   covered_market_value_cents: 3173034,
   total_market_value_cents: 37990734,
   coverage_pct: 8.35,
+  // 真实场景（#2628）：8.35% 是全量口径被货基稀释的结果，可覆盖口径其实 100%
+  eligible_market_value_cents: 3173034,
+  eligible_coverage_pct: 100,
   period_from: "2026-10-23",
   period_to: "2026-10-23",
   uncovered: [

@@ -125,6 +125,11 @@ import { getPortfolioStyle } from "@/api/funds";
 import type { PortfolioStyleExposure } from "@/api/funds";
 import { formatAmount } from "@/utils/currency";
 import {
+  NO_ELIGIBLE_COVERAGE_TEXT,
+  coverageScopeHint,
+  effectiveCoveragePct
+} from "@/utils/styleCoverage";
+import {
   buildStyleBars,
   formatCoverage,
   isStyleEmpty,
@@ -148,6 +153,8 @@ const DEFAULT_DATA: PortfolioStyleExposure = {
   covered_market_value_cents: 0,
   total_market_value_cents: 0,
   coverage_pct: 0,
+  eligible_market_value_cents: 0,
+  eligible_coverage_pct: null,
   period_from: null,
   period_to: null,
   uncovered: [],
@@ -157,9 +164,18 @@ const DEFAULT_DATA: PortfolioStyleExposure = {
 
 const empty = computed(() => isStyleEmpty(data.value));
 const bars = computed(() => buildStyleBars(data.value?.styles));
-const coverageText = computed(() =>
-  formatCoverage(data.value?.coverage_pct ?? 0)
-);
+/**
+ * 覆盖率主数字用**可覆盖口径**（#2628）：全量口径的分母含永远无箱体的货基/现金，
+ * 数字有天花板（实测 8.35%），直接展示会被读成「同步没在跑」。
+ * 两个口径不同时把全量值作为括号提示带上，避免用户对不上「未覆盖清单」里的货基。
+ */
+const coverageText = computed(() => {
+  const pct = effectiveCoveragePct(data.value);
+  if (pct === null) return NO_ELIGIBLE_COVERAGE_TEXT;
+  const main = formatCoverage(pct);
+  const hint = coverageScopeHint(data.value);
+  return hint ? `${main}（${hint}）` : main;
+});
 const periodText = computed(() => periodLabel(data.value));
 
 const toYuan = (cents: number) => `¥${formatAmount((cents || 0) / 100, 0)}`;
