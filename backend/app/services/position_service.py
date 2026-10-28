@@ -41,12 +41,13 @@ from app.core.utils import get_confirm_date, paginate
 from app.core.venues import asset_types_of_venue, resolve_venue
 from app.domains.funds.models import DailyWorth, Fund
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
+from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.transactions.models import Transaction
 from app.services import async_backfill
 from app.services.family_member_service import ledger_ids_for_member
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
+from app.services.institution_resolver import resolve_sales_institution_id
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_scope import exclude_cleared
