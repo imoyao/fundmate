@@ -45,6 +45,7 @@ from app.services.watchlist_service import (
     ensure_watchlist_for_positions,
     get_holding_gaps,
     reconcile_watchlist_status,
+    smart_prompt_conditions,
 )
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
@@ -537,24 +538,7 @@ def get_smart_prompt_conditions(item_id):
             .all()
         )
 
-        buy_txns = [t for t in transactions if t.txn_type == 'buy']
-        sell_txns = [t for t in transactions if t.txn_type == 'sell']
-        trade_count = len(buy_txns) + len(sell_txns)
-
-        holding_days = 0
-        if buy_txns and sell_txns:
-            first_buy = min(t.trade_date for t in buy_txns if t.trade_date)
-            last_sell = max(t.trade_date for t in sell_txns if t.trade_date)
-            holding_days = (last_sell - first_buy).days
-
-        conditions = {
-            'holding_days_gt_180': holding_days > 180,
-            'trade_count_gt_6': trade_count > 6,
-            'has_notes': bool(item.notes),
-            'holding_days': holding_days,
-            'trade_count': trade_count,
-            'should_prompt': (holding_days > 180) or (trade_count > 6) or bool(item.notes),
-        }
+        conditions = smart_prompt_conditions(item, transactions)
         return jsonify({'data': conditions, 'message': 'ok'})
 
 

@@ -5,8 +5,6 @@
 
 """交易流水相关 API."""
 
-import csv
-import io
 from datetime import date
 
 from apiflask import APIBlueprint
@@ -14,11 +12,10 @@ from flask import Response, abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.core.money import Money
 from app.core.retry import retry_on_db_locked
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
-from app.services.transaction_service import build_transaction_list
+from app.services.transaction_service import build_transaction_list, build_transactions_csv
 
 bp = APIBlueprint('transactions', __name__, url_prefix='/api/transactions')
 
@@ -51,57 +48,12 @@ def export_transactions():
     filename = f'transactions_{date.today().isoformat()}.csv'
 
     with get_db() as db:
-        items = (
-            db.query(Transaction)
-            .filter(Transaction.family_id == get_family_id())
-            .order_by(Transaction.trade_date.asc(), Transaction.id.asc())
-            .all()
-        )
-
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(
-            [
-                '交易日期',
-                '确认日期',
-                '资产类型',
-                '代码',
-                '名称',
-                '业务类型',
-                '账户',
-                '数量',
-                '价格',
-                '手续费',
-                '金额',
-                '状态',
-                '备注',
-            ]
-        )
-        for t in items:
-            writer.writerow(
-                [
-                    t.trade_date.strftime('%Y-%m-%d') if t.trade_date else '',
-                    t.confirm_date.strftime('%Y-%m-%d') if t.confirm_date else '',
-                    t.asset_type or '',
-                    t.symbol or '',
-                    t.position_name or '',
-                    t.txn_type or '',
-                    t.account_name or '',
-                    Money.min_unit_to_shares(t.quantity),
-                    f'{Money.price_units_to_yuan(t.price or 0):.2f}',
-                    _fmt(t.fee),
-                    _fmt(t.amount),
-                    t.status or '',
-                    t.notes or '',
-                ]
-            )
-
-        output.seek(0)
-        return Response(
-            output,
-            mimetype='text/csv; charset=utf-8',
-            headers={'Content-Disposition': f'attachment; filename={filename}'},
-        )
+        content = build_transactions_csv(db, get_family_id())
+    return Response(
+        content,
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename={filename}'},
+    )
 
 
 @bp.delete('/<int:transaction_id>/')
@@ -131,8 +83,3 @@ def delete_transaction(transaction_id: int):
             PositionService.recompute_position_from_transactions(db, tid)
         db.flush()
         return jsonify({'message': 'ok', 'data': None})
-
-
-def _fmt(cents: int) -> str:
-    """分 → 元 的 CSV 友好格式化（沿用 Money 换算，金额≤0 输出 0）。"""
-    return f'{Money.cents_to_yuan(cents or 0):.2f}'

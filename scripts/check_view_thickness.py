@@ -449,11 +449,17 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 38,
     },
+    # 2026-10-28 收紧（#2720，**下沉**而非放宽）：CSV 导出的取数 / 有效交易日排序 /
+    # 逐行金额换算下沉到 `services/transaction_service.build_transactions_csv`，视图只留
+    # 「取会话 → 调服务 → 包 Response」。顺带复用 `order_by_effective_day(descending=False)`，
+    # 让导出与列表页共享同一份「有效交易日」口径——初版在导出里手抄了一份 coalesce，
+    # 且单元格兜底写成 trade_date 单列，空交易日的行整批沉底（守卫之外的口径漂移）。
+    # lines 138 → 85、max_func 60 → 25、orm_queries 2 → 1。
     "backend/app/domains/transactions/views.py": {
-        "lines": 138,
-        "orm_queries": 2,
+        "lines": 85,
+        "orm_queries": 1,
         "commits": 0,
-        "max_func": 60,
+        "max_func": 25,
     },
     "backend/app/domains/usage/views.py": {
         "lines": 68,
@@ -473,8 +479,12 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 38,
     },
+    # 2026-10-28 收紧（#2720，**下沉**而非放宽）：清仓「特别关注」的条件判定
+    # （180 天 / 6 笔阈值 + 有效日期兜底）下沉到
+    # `services/watchlist_service.smart_prompt_conditions`，视图只留取数 + 组信封。
+    # lines 622 → 606（orm_queries 14 / max_func 53 不动）。
     "backend/app/domains/watchlist/views.py": {
-        "lines": 622,
+        "lines": 606,
         "orm_queries": 14,
         "commits": 0,
         "max_func": 53,

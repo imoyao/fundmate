@@ -5,7 +5,7 @@
 # -*- coding: utf-8 -*-
 """自选模块服务层：分组数据构建"""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -950,3 +950,48 @@ def get_filtered_items_query(
         total = query.count()
 
     return query, total
+
+
+# ─────────── 清仓智能提示条件（#2720 从 watchlist/views.py 下沉）───────────
+
+
+def _effective_dates(txns) -> List[Any]:
+    """一组流水的「有效日期」：优先 trade_date，整组都缺时回退 confirm_date。
+
+    与 `pnl_calendar._effective_date` / `dividend_service._event_date` 同口径。
+    返回空列表表示该侧两个日期都缺——调用方必须按「算不出持有天数」处理，
+    **不能**拿空序列去 `min()` / `max()`（会抛 ValueError → 500）。
+    """
+    vals = [t.trade_date for t in txns if t.trade_date]
+    if vals:
+        return [v.date() if isinstance(v, datetime) else v for v in vals]
+    return [t.confirm_date for t in txns if t.confirm_date]
+
+
+def smart_prompt_conditions(item: WatchlistItem, transactions: List[Any]) -> Dict[str, Any]:
+    """清仓时「特别关注」的智能提示条件判定。
+
+    #2720 从 `watchlist/views.py` 下沉（该文件受 `check_view_thickness.py` 冻结）：
+    180 天 / 6 笔的阈值判定与「有效日期」兜底属业务口径，视图只留
+    「取数 → 调服务 → 组信封」。阈值刻意留字面量在本函数——前端与文档一律以
+    返回的 `should_prompt` 与各 `*_gt_*` 布尔为准，不另抄一份。
+    """
+    buy_txns = [t for t in transactions if t.txn_type == 'buy']
+    sell_txns = [t for t in transactions if t.txn_type == 'sell']
+    trade_count = len(buy_txns) + len(sell_txns)
+
+    holding_days = 0
+    if buy_txns and sell_txns:
+        buy_dates = _effective_dates(buy_txns)
+        sell_dates = _effective_dates(sell_txns)
+        if buy_dates and sell_dates:
+            holding_days = (max(sell_dates) - min(buy_dates)).days
+
+    return {
+        'holding_days_gt_180': holding_days > 180,
+        'trade_count_gt_6': trade_count > 6,
+        'has_notes': bool(item.notes),
+        'holding_days': holding_days,
+        'trade_count': trade_count,
+        'should_prompt': (holding_days > 180) or (trade_count > 6) or bool(item.notes),
+    }
