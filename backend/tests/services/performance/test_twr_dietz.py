@@ -129,6 +129,43 @@ class TestMergeMemberSeries(unittest.TestCase):
         self.assertIsNone(merged['days'][1]['daily_pnl'])
         self.assertIsNone(merged['days'][1]['net_worth'])
 
+    def test_closed_day_keeps_net_worth(self):
+        """休市日：`daily_pnl` 不可算，但水平值在 ⇒ 组合 `net_worth` 必须照常给出。
+
+        组合页资金流动曲线直接吃这串 `net_worth`。两者若被绑在同一个 complete 上，
+        每个周末 / 节假日都会断线（一年 100 多天），用户看到的是「到处都是没数据」。
+        `pnl_calendar` 对非开盘日本就推进水平值，`_day_to_api` 也从不返回 None。
+        """
+        merged = _merge_member_series(
+            [
+                _ledger_payload([_day('2025-01-04', None, 1000.0)]),  # 周六
+                _ledger_payload([_day('2025-01-04', None, 2000.0)]),
+            ]
+        )
+        self.assertIsNone(merged['days'][0]['daily_pnl'])
+        self.assertEqual(merged['days'][0]['net_worth'], 3000.0)
+
+    def test_closed_day_still_skipped_by_chain_twr(self):
+        """水平值连续不等于盈亏可算：休市日仍不进 TWR 连乘（口径没被顺手放松）。"""
+        from app.services.performance.twr import chain_twr
+
+        member = [
+            _day('2025-01-02', 0.0, 1000.0),  # 播种日（无前值基准，chain_twr 本就不计）
+            _day('2025-01-03', 10.0, 1010.0),
+            _day('2025-01-04', None, 1010.0),  # 周六
+            _day('2025-01-05', None, 1010.0),  # 周日
+            _day('2025-01-06', 10.0, 1020.0),
+        ]
+        merged = _merge_member_series([_ledger_payload(member), _ledger_payload(member)])
+        # 水平值每个休市日都在，且等于前值（前值回填）——曲线连续
+        self.assertEqual([d['net_worth'] for d in merged['days']], [2000.0, 2020.0, 2020.0, 2020.0, 2040.0])
+        # 当日盈亏仍只在开盘日可算
+        self.assertEqual([d['daily_pnl'] for d in merged['days']], [0.0, 20.0, None, None, 20.0])
+        result = chain_twr(merged)
+        self.assertEqual(result['days_used'], 2)  # 只有 01-03 / 01-06
+        self.assertEqual(result['days_skipped'], 3)  # 播种日 + 两个休市日
+        self.assertAlmostEqual(result['twr'], 0.02, places=6)  # 1.01 × 1.01 − 1
+
     def test_short_member_series_marks_day_missing(self):
         """成员整天无行（序列更短）⇒ 组合该日同样置缺，不按「有的成员」算。"""
         merged = _merge_member_series(
