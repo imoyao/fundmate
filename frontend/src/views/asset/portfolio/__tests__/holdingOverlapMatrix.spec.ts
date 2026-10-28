@@ -10,14 +10,11 @@
 import { describe, it, expect } from "vitest";
 import type {
   HoldingOverlapData,
+  OverlapMatrixMembers,
   OverlapFund,
   OverlapPair
 } from "@/api/holdingOverlap";
-import {
-  MATRIX_MAX_FUNDS,
-  buildOverlapMatrix,
-  canRenderMatrix
-} from "../holdingOverlapMatrix";
+import { buildOverlapMatrix, canRenderMatrix } from "../holdingOverlapMatrix";
 
 const fund = (over: Partial<OverlapFund> = {}): OverlapFund => ({
   fund_code: "110011",
@@ -46,9 +43,22 @@ const pair = (over: Partial<OverlapPair> = {}): OverlapPair => ({
   ...over
 });
 
+const matrixMembers = (
+  over: Partial<OverlapMatrixMembers> = {}
+): OverlapMatrixMembers => ({
+  funds: [],
+  truncated_count: 0,
+  truncated_market_value_pct: 0,
+  coverage_target: 0.9,
+  max_members: 20,
+  min_members: 8,
+  ...over
+});
+
 const data = (over: Partial<HoldingOverlapData> = {}): HoldingOverlapData => ({
   pairs: [],
   funds: [],
+  matrix: matrixMembers(),
   fund_count: 0,
   skipped_basis_mismatch: 0,
   skipped_null_ratio: 0,
@@ -153,16 +163,34 @@ describe("档位映射：只认后端 overlap_level", () => {
   });
 });
 
-describe("上限与降级", () => {
-  it("超过上限时截断并如实告知被折叠的只数", () => {
-    const many = Array.from({ length: MATRIX_MAX_FUNDS + 3 }, (_, i) =>
+describe("成员裁剪与降级", () => {
+  it("成员只认后端裁剪结果：前端不再自己按固定只数截断", () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
       fund({ fund_code: String(i).padStart(6, "0"), name: `基金${i}` })
     );
 
-    const matrix = buildOverlapMatrix(data({ funds: many }));
+    const matrix = buildOverlapMatrix(
+      data({
+        funds: many,
+        matrix: matrixMembers({
+          funds: many.slice(0, 20),
+          truncated_count: 5,
+          truncated_market_value_pct: 20
+        })
+      })
+    );
 
-    expect(matrix.funds).toHaveLength(MATRIX_MAX_FUNDS);
-    expect(matrix.truncated).toBe(3);
+    expect(matrix.funds).toHaveLength(20);
+    expect(matrix.truncatedCount).toBe(5);
+    // 未覆盖占比必须一起带出来：只说「另有 5 只」会被读成「剩下都是小仓位」
+    expect(matrix.truncatedMarketValuePct).toBe(20);
+  });
+
+  it("旧响应没有 matrix 时退回全量成员，不凭空少行", () => {
+    const matrix = buildOverlapMatrix(data({ funds: threeFunds }));
+
+    expect(matrix.funds).toHaveLength(3);
+    expect(matrix.truncatedCount).toBe(0);
   });
 
   it("没有资金/数据时返回空矩阵，不抛异常", () => {

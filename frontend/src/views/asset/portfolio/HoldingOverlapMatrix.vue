@@ -62,9 +62,12 @@
       </li>
     </ul>
 
-    <p v-if="matrix.truncated > 0" class="overlap-matrix__hint">
-      仅显示持仓市值前 {{ matrix.funds.length }} 只，另有
-      {{ matrix.truncated }} 只未展开（列表视图可看全量）。
+    <!-- 截断必须带未覆盖市值占比（#2686 第二期）：只说「另有 N 只」会被读成
+         「剩下的是小仓位，不影响结论」——实测分散组合里前 20 只可能只占 67% 市值 -->
+    <p v-if="matrix.truncatedCount > 0" class="overlap-matrix__hint">
+      仅显示持仓市值前 {{ matrix.funds.length }} 只（覆盖
+      {{ (100 - matrix.truncatedMarketValuePct).toFixed(1) }}% 基金市值），另有
+      {{ matrix.truncatedCount }} 只（{{ matrix.truncatedMarketValuePct }}%）未展开（列表视图可看全量）。
     </p>
   </div>
 </template>
