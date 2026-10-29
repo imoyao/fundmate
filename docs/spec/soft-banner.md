@@ -109,18 +109,26 @@ Ghost 内部元素样式保留原类名与显式色（`--color-rise-ink`），�
 | `AiImportModal` `.usage-banner` | 壳 → SoftBanner，**三态配色映射为 `variant`**（正常 info / 紧张 warning / 用尽 danger）；`#actions` 承载右侧提示语 | padding 10/14 → 12/16；radius-md → radius-sm；用尽态底 `--color-danger-20` → `--color-danger-10`；额度数字补 `tabular-nums`（原实现未声明）；数字与提示语由 `--brand-700`/`--color-danger` 改中性档（原两处 3.41:1 / 3.17:1 均不达 4.5） |
 | `PreviewStep` `.cash-binding-banner` | 壳 → SoftBanner info；`el-select` 与「新建现金账户」按钮走 `#actions` slot；`class` 保留 | padding 10/14 → 12/16；原 `flex-wrap: wrap` 不再需要（文字区 `flex: 1 1 auto` 自行换行）；`margin: 12px 16px 0` → `12px 16px 16px`；warning 图标 → info 档图标 |
 
-### 5.2 el-alert ×12（#2723，2026-10-28）
+### 5.2 el-alert ×12（#2723，实测定案 2026-10-29）
 
-先取数再判定：12 处 `<el-alert>` **全部不达标，无一处可豁免**。本仓对 `el-alert` 零覆盖、`--el-color-*` 也沿用 EP 默认，故用 Playwright 注入三个 type 读 computed style 即可定死（真机色与静态推算完全一致）：
+先取数再判定：12 处 `<el-alert>` **全部不达标，无一处可豁免**。本仓对 `el-alert` 零覆盖、`--el-color-*` 也沿用 EP 默认，故在真机上读 computed style 即可定死。
 
-| type | 文字 | 底色 | 对比度 |
-|---|---|---|---|
-| info | `#909399` | `#f4f4f5` | **2.80:1** |
-| success | `#67c23a` | `#f0f9eb` | **2.08:1** |
-| warning | `#e6a23c` | `#fdf6ec` | **2.04:1** |
-| error | `#f56c6c` | `#fef0f0` | **2.61:1** |
+**取数方式（可复现）**：在 dev server 真页面上按各 `type` 构造 `el-alert` DOM 节点，读 `getComputedStyle` 的前景/背景后按 WCAG 相对亮度公式算比值。
 
-这与 `colors.css` 的既有注释自洽（「EP 默认 danger 仅 2.70:1，文字改用本仓语义色」）——el-alert 恰恰是没改的那一类。迁移后各档正文 4.44~12.24（info 取 `--text-secondary` 最低 4.44 在 `--bg-soft` 上，仍过 4.5 的例外见下），warning/danger/success 一律 `--text-primary` ≥ 11。
+| type | 文字 | 底色（亮色） | 亮色对比度 | 底色（暗色） | 暗色对比度 |
+|---|---|---|---|---|---|
+| info | `#909399` | `#f4f4f5` | **2.80:1** | `#202121` | 5.24:1 |
+| warning | `#e6a23c` | `#fdf6ec` | **2.04:1** | `#292218` | 7.18:1 |
+| success | `#67c23a` | `#f0f9eb` | **2.08:1** | `#1c2518` | 7.05:1 |
+| error | `#f56c6c` | `#fef0f0` | **2.61:1** | `#2a1d1d` | 5.61:1 |
+
+判据：正文需 **4.5:1**。⇒ **亮色四档全部不达标**（2.04~2.80），**暗色四档全部达标**（5.24~7.18）。
+
+这与 `colors.css` 的既有注释自洽（「EP 默认 danger 仅 2.70:1，文字改用本仓语义色」）——el-alert 恰恰是没改的那一类。**亮色不达标是迁移动机；暗色达标说明「EP 内部色不达标」是档位相关而非全盘失效，故不必连暗色一起重写。**
+
+> 迁移后实测：info 档正文 `#6b655c` on `#f5f0eb` = **5.09:1**（达标）；warning / danger / success 一律 `--text-primary`，均 ≥ 11:1。
+>
+> 12 处逐处档位：
 
 | 原处 | 迁移 |
 |---|---|
@@ -130,6 +138,23 @@ Ghost 内部元素样式保留原类名与显式色（`--color-rise-ink`），�
 | ImportErrorSummary 错误汇总（标题 + 分组列表） | warning；标题下沉为 `<p class="import-error-summary__title">`（组件不提供 title prop，§3） |
 | HoldingGapBanner（标题 + 说明 + 明细列表 + 操作） | warning |
 | FundMatchDrawer「所有基金已匹配完成」/ LoginFormPanel「注册成功」 | success（+ FundMatchDrawer 用 `dense`：单行回执） |
+
+**axe 复测（验收标准第 5 条）**：`scripts/axe_contrast_audit.mjs`，亮/暗各一次，路由集 `/watchlist,/asset/position-analysis,/inventory/investment/import,/asset/ledgers,/login`，`--settle-ms 20000`。
+
+| | 亮色 AA 违规 | 暗色 AA 违规 |
+|---|---|---|
+| 迁移前（`origin/dev` @ `dd7784fc5`） | 5 处 | 1 处 |
+| 迁移后 | 5 处 | 1 处 |
+
+**违规集合逐条相同（零回归、零新增）**，且两版节点数对齐（2861/2358/1072/1674/346），说明「量到的是同一批 DOM」。残留违规全部**与 el-alert 无关**，属既有欠账：
+
+- 亮色 5 处：`el-radio-button__inner`（EP 组件内部色，`#ffffff` on `#e34f38` = 3.85:1）、`MetricCard` 数字（`#7bc49a` on `#fff` = 2.05:1）、`el-step__title.is-wait` ×3（`#a8abb2` on `#faf6f0` = 2.13:1）；
+- 暗色 1 处：`el-radio-button__inner` 同上。
+
+> 取数注意（两条踩过的坑，勿重犯）：
+> 1. **`--settle-ms` 必须两边一致**。默认 5000 在 Vite 冷启动时不足以等数据渲染完，会量到半截 DOM —— 实测因此把「迁移后」误读成 23 处违规（基线 155 节点 vs 迁移后 1270 节点）。统一 `--settle-ms 20000` 后两边节点数逐路由对齐。
+> 2. **`axe_contrast_audit.mjs` 的 `--supabase-url` 必须显式传**。脚本默认值是硬编码的**生产** project ref（`owhbssypqaghpnjoxlkx`），与 dev ref（`zhfiyyupbegeyvnigenk`）不同 ⇒ cookie 名对不上 ⇒ 受保护路由被守卫重定向到 `#/login` ⇒ 页面只渲染 20 个节点却报「0 违规」（**假绿灯**）。
+
 
 **e2e 锚点迁移**：`import-result-supplements.spec.ts` 原依赖 `.el-alert__title`（×2）与 `.el-alert` 计数（×1），已改为 `.import-error-summary__title` / `.import-error-summary`。其余 11 处原本无 e2e 覆盖。
 
@@ -163,7 +188,9 @@ Ghost 内部元素样式保留原类名与显式色（`--color-rise-ink`），�
 
 ## 7. 后续批次
 
-1. el-alert ×12 的 axe 实测与按需替换 —— **已完成**（#2723，2026-10-28）：真机取 computed style 实测四型全部不达标（2.04~2.80:1），12 处全部迁完 + 补 `success` 档，见 §5.2；
+1. el-alert ×12 的 axe 实测与按需替换 —— **已完成**（#2723，取数定案 2026-10-29）：真机读 computed style 实测四型**亮色**全部不达标（2.04~2.80:1）、**暗色**全部达标（5.24~7.18:1），12 处全部迁完 + 补 `success` 档，见 §5.2；
+   - **axe 复测**：亮/暗各一次，迁移前后违规集合**逐条相同**（亮 5 / 暗 1，零回归零新增），残留违规全属 EP 组件内部色与 `MetricCard`，与 el-alert 无关；
+   - **取数两个坑**（详见 §5.2 末）：`--settle-ms` 两边须一致（默认 5000 会量到半截 DOM，把 5 处误读成 23 处）；`axe_contrast_audit.mjs` 的 `--supabase-url` 须显式传 dev ref（脚本默认值是硬编码的**生产** ref，对不上则受保护路由被踢到 `#/login`，页面只剩 20 节点却报「0 违规」——**假绿灯**）；
 2. import/ledgers 页内零散 banner 块收敛 —— **已完成 6 处**：#2724 迁 3 处（`draft-banner` / `usage-banner` / `cash-binding-banner`），#2730 迁剩余 3 处（`.conflict-banner` / `.soft-reconcile-banner` / `.orphan-banner`，含补 `brand` 档与 `role` prop），见 §5 / §5.3；
 3. 防回归：新自绘 banner 样式拦截 —— **已落地**（#2725）：`scripts/guard_soft_banner.py`，接进 `ci.yml` 的 `layout_guard` job 并登记 `RULE_REGISTRY`。
    - **判据**：样式选择器含 `banner` + **同一规则块内**有 `display: flex` + 真实背景或边框（`none`/`transparent`/`0` 不算）。
