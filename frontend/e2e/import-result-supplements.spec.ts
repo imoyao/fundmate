@@ -203,9 +203,11 @@ test.describe("导入结果页补充信息卡片（#980 批 B3 拆分后的接�
     await expect(supplements).toContainText("重复行已按勾选保留");
     await expect(supplements).toContainText("部分交易数据不完整");
     await expect(supplements).toContainText("持仓市价已自动更新");
-    await expect(supplements.locator(".el-alert__title")).toContainText(
-      "导入过程中部分记录因以下原因被跳过"
-    );
+    // #2723：错误汇总从 el-alert 换成 SoftBanner，标题改由消费方显式渲染
+    // （.import-error-summary__title），锚点随之更换
+    await expect(
+      supplements.locator(".import-error-summary__title")
+    ).toContainText("导入过程中部分记录因以下原因被跳过");
 
     // 计数落到文案里：漏传 prop 会先在这里露馅
     await expect(supplements).toContainText("已为 1 笔转账生成现金侧记录");
@@ -231,7 +233,7 @@ test.describe("导入结果页补充信息卡片（#980 批 B3 拆分后的接�
     // 关键回退点：若判空从父级挪进子组件并写错，这里会出现一个只有 border-top 的空块
     await expect(page.locator(".result-supplements")).toHaveCount(0);
     await expect(page.locator(".supplement-card")).toHaveCount(0);
-    await expect(page.locator(".el-alert")).toHaveCount(0);
+    await expect(page.locator(".import-error-summary")).toHaveCount(0);
   });
 
   test("无新增数据分支：独立的错误汇总块仍在（不走 ResultSupplements）", async ({
@@ -259,9 +261,9 @@ test.describe("导入结果页补充信息卡片（#980 批 B3 拆分后的接�
     // 该分支的汇总块是 ResultStep 自己的 .result-supplements + title="跳过原因"
     const supplements = page.locator(".result-supplements");
     await expect(supplements).toHaveCount(1);
-    await expect(supplements.locator(".el-alert__title")).toHaveText(
-      "跳过原因"
-    );
+    await expect(
+      supplements.locator(".import-error-summary__title")
+    ).toHaveText("跳过原因");
     // 五张补充卡一张都不该出现
     await expect(supplements.locator(".supplement-card")).toHaveCount(0);
   });

@@ -95,13 +95,9 @@
         :ledger-id="scopeKind === 'ledger' ? (scopeId ?? undefined) : undefined"
       />
     </div>
-    <el-alert
-      v-else
-      class="mb-6"
-      type="info"
-      :closable="false"
-      title="收益日历暂不支持组合口径——日/月/年三视图见「复盘」页家庭与账户档。"
-    />
+    <SoftBanner v-else class="mb-6" variant="info" icon="ep:info-filled">
+      收益日历暂不支持组合口径——日/月/年三视图见「复盘」页家庭与账户档。
+    </SoftBanner>
 
     <!-- #2135 区间收益归因（原生支持三级口径） -->
     <div class="mb-6">
@@ -143,6 +139,7 @@ import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
 import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
 import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";

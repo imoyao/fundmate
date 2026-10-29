@@ -4,6 +4,7 @@
 //
 // 逆回购分区与三个问题分区同屏，但它是信息型（不可点击筛选），所以 `info` 打开。
 import { computed } from "vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import type { FixSectionKey } from "../composables/batchFixLogic";
 import BatchFixSection from "./BatchFixSection.vue";
@@ -76,16 +77,13 @@ function gotoFullTable() {
   >
     <template v-if="activeFixMode === 'batch'">
       <!-- 混合不可批量问题提示（§4 第 4 条：批量处理可批量部分，错误行引导 + 跳过） -->
-      <el-alert
+      <SoftBanner
         v-if="errorRowCount > 0"
-        type="warning"
-        :closable="false"
-        show-icon
         class="bf-alert bf-alert--inline"
+        variant="warning"
+        icon="ep:warning-filled"
       >
-        <template #title>
-          另有 {{ errorRowCount }} 条解析错误不支持批量修正。
-        </template>
+        <p>另有 {{ errorRowCount }} 条解析错误不支持批量修正。</p>
         <div class="bf-alert-actions">
           <el-button size="small" @click="skipCategory(fixSectionRows.error)">
             跳过这 {{ errorRowCount }} 条
@@ -94,7 +92,7 @@ function gotoFullTable() {
             去完整表格
           </el-button>
         </div>
-      </el-alert>
+      </SoftBanner>
 
       <!-- 分区一：代码未匹配 -->
       <BatchFixSection

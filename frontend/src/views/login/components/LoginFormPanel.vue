@@ -73,12 +73,9 @@
         v-if="!p.isRegisterMode && p.showRegisterSuccess"
         class="register-success mt-3"
       >
-        <el-alert
-          title="注册成功！请查收验证邮件激活账户"
-          type="success"
-          :closable="false"
-          show-icon
-        />
+        <SoftBanner variant="success" icon="ep:circle-check-filled">
+          注册成功！请查收验证邮件激活账户
+        </SoftBanner>
       </div>
     </div>
   </div>
@@ -89,6 +86,7 @@ import { reactive } from "vue";
 import Motion from "../utils/motion";
 import BrandLogo from "@/components/BrandLogo/index.vue";
 import LoginFormFields from "./LoginFormFields.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import type { useLogin } from "../composables/useLogin";
 
 defineOptions({ name: "LoginFormPanel" });
