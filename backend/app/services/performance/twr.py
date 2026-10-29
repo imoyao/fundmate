@@ -215,10 +215,24 @@ def _portfolio_member_ledger_ids(db: Session, family_id: int, portfolio_id: int)
 def _merge_member_series(payloads: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Σ 成员日序列 → 组合日序列（纯函数，便于单测）。
 
-    按日期对齐求和 `daily_pnl` / `net_worth`。**None 传播**：某日只要有一个成员
-    缺（整天无行，或当日两字段任一为 None），组合该日两字段整体置 None——
-    `chain_twr` 会把它计入 `days_skipped` 跳过。这与 `benchmark_excess`
-    「分母任一成员取不到 ⇒ 整组不报」是同一条纪律：组合基线宁缺勿假。
+    按日期对齐求和 `daily_pnl` / `net_worth`。**两个字段的可缺性各自独立**：
+
+    - `daily_pnl`（当日盈亏）可能「不可算」——休市 / 无价 / 无持仓 / 未同步；
+    - `net_worth`（当日水平值）只要各成员都出得来就**一直有值**：`pnl_calendar`
+      对非开盘日照样推进水平值（前值回填），`_day_to_api` 里 `net_worth` 从不返回
+      None，只有「行整条缺失」才可能缺。
+
+    早先把两者绑在同一个 `complete` 上，于是**休市日 `daily_pnl` 为 None 就把
+    `net_worth` 也置 None**——组合页资金流动曲线因此在每个周末 / 节假日断线，
+    一年 365 天里断掉 100 多天，看起来像「到处都是没数据」（#2681 的实际观感）。
+    账户级没有这个问题（那条路径直接吃 `pnl_calendar` 的每日行），只有组合级的
+    合并把它丢了。
+
+    因此 `net_worth` 的完整性只要求「每个成员当天都有行、且都有水平值」，
+    与当日盈亏是否可算无关；`daily_pnl` 仍按严格口径传播（任一成员不可算 ⇒ 组合
+    该日不可算），`chain_twr` / `benchmark_excess` 的「组合基线宁缺勿假」纪律不变
+    ——`chain_twr` 的参与条件本就要求 `daily_pnl` 非 None，故本改动不动 TWR 的
+    连乘结果，只让「水平值」这条线恢复连续。
     """
     per_date: Dict[str, List[Dict[str, Any]]] = {}
     for payload in payloads:
@@ -228,19 +242,16 @@ def _merge_member_series(payloads: List[Dict[str, Any]]) -> Dict[str, Any]:
     days: List[Dict[str, Any]] = []
     for date in sorted(per_date):
         entries = per_date[date]
-        complete = len(entries) == len(payloads) and all(
-            e.get('daily_pnl') is not None and e.get('net_worth') is not None for e in entries
+        row_count_ok = len(entries) == len(payloads)
+        worth_ok = row_count_ok and all(e.get('net_worth') is not None for e in entries)
+        pnl_ok = row_count_ok and all(e.get('daily_pnl') is not None for e in entries)
+        days.append(
+            {
+                'date': date,
+                'daily_pnl': round(sum(float(e['daily_pnl']) for e in entries), 2) if pnl_ok else None,
+                'net_worth': round(sum(float(e['net_worth']) for e in entries), 2) if worth_ok else None,
+            }
         )
-        if complete:
-            days.append(
-                {
-                    'date': date,
-                    'daily_pnl': round(sum(float(e['daily_pnl']) for e in entries), 2),
-                    'net_worth': round(sum(float(e['net_worth']) for e in entries), 2),
-                }
-            )
-        else:
-            days.append({'date': date, 'daily_pnl': None, 'net_worth': None})
     return {'scope': 'portfolio', 'ledger_id': None, 'days': days}
 
 
