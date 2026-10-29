@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   cycleRowKey,
   fmtHoldingDays,
+  fmtHoldingDaysValue,
   fmtRatio,
   pnlTotalCaption,
   sampleNote
@@ -64,6 +65,34 @@ describe("fmtHoldingDays", () => {
   it("null → '--'；有值带单位", () => {
     expect(fmtHoldingDays(null)).toBe("--");
     expect(fmtHoldingDays(365)).toBe("365 天");
+  });
+
+  it("小数天取整：后端份额加权平均会带一位小数，展示不保留", () => {
+    // 真机数据（2026-10-29 复盘页）：109.1 / 27.9 / 39.6 / 89.5 / 120.3
+    expect(fmtHoldingDays(109.1)).toBe("109 天");
+    expect(fmtHoldingDays(27.9)).toBe("28 天");
+    expect(fmtHoldingDays(39.6)).toBe("40 天");
+    expect(fmtHoldingDays(120.3)).toBe("120 天");
+  });
+
+  it(".5 天向上取整（half-up），不能用 Python round 的银行家舍入口径", () => {
+    // Python round(89.5) == 88，会出现「89.5 天显示 88 天」的诡异结果；
+    // 取整放在展示层（Math.round）即天然 half-up。
+    expect(fmtHoldingDays(89.5)).toBe("90 天");
+    expect(fmtHoldingDays(546.5)).toBe("547 天");
+  });
+
+  it("0 天是合法值（当日买卖），画 0 而非占位", () => {
+    expect(fmtHoldingDays(0)).toBe("0 天");
+  });
+});
+
+describe("fmtHoldingDaysValue", () => {
+  it("汇总卡不要单位：返回整数，null 透传", () => {
+    expect(fmtHoldingDaysValue(null)).toBeNull();
+    expect(fmtHoldingDaysValue(undefined)).toBeNull();
+    expect(fmtHoldingDaysValue(132.7)).toBe(133);
+    expect(fmtHoldingDaysValue(31)).toBe(31);
   });
 });
 
