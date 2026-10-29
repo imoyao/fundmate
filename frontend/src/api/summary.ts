@@ -274,8 +274,12 @@ export type PnlCalendarDay = {
   date: string;
   /** 当日盈亏（元）；`null` = 不可算（无价格序列 / 休市 / 区间首日），**不是 0** */
   daily_pnl: number | null;
-  /** 当日净资产（元） */
-  net_worth: number;
+  /**
+   * 当日净资产（元）；`null` = **有持仓但一笔都取不到价**（#2733 C）。
+   * 与 0 不是一回事：0 表示当天没有持仓，`null` 表示「不知道」——
+   * 绘图时必须断开（`connectNulls: false`），补 0 就是画一条假的地板线。
+   */
+  net_worth: number | null;
   /** 当日收益率（%）；分母为前一日净资产，`null` = 首日或分母为 0 */
   rate: number | null;
   state: PnlCalendarState;
@@ -308,8 +312,8 @@ export type PnlCalendarPeriod = {
   period: string;
   /** 期间盈亏（元）；`null` = 该期间一天都算不出来（无价 / 休市），**不是 0** */
   pnl: number | null;
-  /** 期间末净资产（元） */
-  net_worth: number;
+  /** 期间末净资产（元）；`null` = 该期末有持仓却取不到价（#2733 C，同 `PnlCalendarDay`） */
+  net_worth: number | null;
   /** 期间收益率（%）；分母为**上一期间末**净资产，`null` = 无基线或基线为 0 */
   rate: number | null;
   state: PnlCalendarState;

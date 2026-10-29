@@ -690,7 +690,10 @@ def _day_to_api(date: dt.date, meta: dict) -> dict:
     api = {
         'date': date.isoformat(),
         'daily_pnl': None if pnl is None else round(Money.cents_to_yuan(pnl), 2),
-        'net_worth': round(Money.cents_to_yuan(meta['net_worth_cents']), 2),
+        # NULL 直通：前端据此断线 / 显示「无数据」，绝不折算成 0.00（#2733 C）
+        'net_worth': (
+            None if meta['net_worth_cents'] is None else round(Money.cents_to_yuan(meta['net_worth_cents']), 2)
+        ),
         'rate': rate,
         'state': meta['state'],
     }
@@ -1101,6 +1104,10 @@ def _compute_days(
         day_total_pnl = 0
         day_net_worth = 0
         opening_pnl = 0
+        # 当天**真被计进市值**的持仓数（有份额 + 取得到价）。它是「净资产这个数
+        # 有没有输入」的唯一判据：`day_net_worth` 从 0 起累加，一笔都没加上去时
+        # 它仍是 0——那个 0 是**缺省值**，不是「账户归零」（#2733 C）。
+        day_valued_count = 0
 
         for state in value_per_pos.values():
             pos: Position = state['pos']
@@ -1128,6 +1135,7 @@ def _compute_days(
             level = market_value - cost + state['realized']
             day_total_pnl += level
             day_net_worth += market_value + state['realized']
+            day_valued_count += 1
             if state['is_opening']:
                 # 建仓持仓的浮盈是「今天新出现的」，不是「今天赚的」。
                 # 记进水平值（次日差分的基准要用），但从当日差分里剔掉。
@@ -1373,6 +1381,16 @@ def _compute_days(
         # 才起的，`loop_start > start` 时首轮 `prev_net_worth` 还是 None——捕出来会
         # 变成 None 或锚到错误的某天。改由 `build_daily_pnl_series` 从物化行取
         # `start - 1` 的 `net_worth_cents`，与取数窗口无关。
+        # ── 净资产：把「缺输入」与「真归零」分开（#2733 C）──
+        # 判据挂在**状态**上而不是「份额 > 0」：
+        #   · `no_position` = 当天压根没有持仓（建仓前 / 清仓后）⇒ 0 是事实；
+        #   · 其余状态（no_price / no_data / closed / partial …）都是「应该有钱、
+        #     但一笔都没计进市值」⇒ 累加器的初值 0 会被读成「账户归零」，记 NULL。
+        # 为什么不用份额：balance 模式（银行理财 / 投顾 / 实物）份额恒 0，市值来自
+        # 单值 `market_value_override`，本就无历史序列——它们的净资产同样是
+        # 「不知道」，不能因为份额是 0 就当成「没有持仓」。
+        net_worth_cents = None if day_valued_count == 0 and state_code != STATE_NO_POSITION else day_net_worth
+
         if day >= loop_start:
             # 这里出的是**存储形态**（整数分 / 整数基点），不是 API 形态：
             # `daily_pnl`/`day_net_worth` 本来就是分，`Money` 换算挪到 `_day_to_api`
@@ -1381,7 +1399,10 @@ def _compute_days(
             row = {
                 'date': day.isoformat(),
                 'daily_pnl_cents': daily_pnl,
-                'net_worth_cents': day_net_worth,
+                # 有持仓却一笔都没计进市值 ⇒ 这个「0」是累加器的初值，不是账户
+                # 真归零，写 NULL（#2733 C）。当天压根没持仓（建仓前 / 清仓后）
+                # 照旧写 0：那时的 0 是事实。
+                'net_worth_cents': net_worth_cents,
                 'rate_bp': None if rate_pct is None else int(Decimal(str(rate_pct)) * 100),
                 'state': state_code,
             }
@@ -1417,7 +1438,11 @@ def _compute_days(
         #     算成当日盈利（实测 1/5 建仓当天冒出等于全部市值−成本的假盈亏）。
         if trading_today or prev_total_pnl is None or day_opening:
             prev_total_pnl = day_total_pnl
-            prev_net_worth = day_net_worth
+            # 净资产基准只在**当天真有净值**时前进（#2733 C）：NULL 是「缺输入」，
+            # 拿它当基准等于把「不知道」记成 0，次日的 `rate` 又得靠 `not in (None, 0)`
+            # 兜底。冻结在上一有效净值上，与「非开盘日冻结」同一条纪律。
+            if net_worth_cents is not None:
+                prev_net_worth = net_worth_cents
             if collect:
                 # 归因基准与 scope 基准**同一时刻、同一条件**冻结 / 前进——
                 # 两套基准一旦分叉，逐笔差分与 daily_pnl 就错位了。
@@ -1497,8 +1522,11 @@ def _aggregate_periods(
 
         # 期间末净资产：取最后一日。周末 / 无持仓日会是 0，向前回溯最近一个非零值，
         # 否则下一个期间的收益率分母会莫名变成 0、rate 恒 null。
+        # `net_worth` 为 NULL（当日有仓却无价，#2733 C）与 0 一样不可作分母，
+        # 一并跳过；整期都没有正数时如实给最后一日（可能是 0 或 NULL），
+        # 不拿更早的旧值冒充「期末」。
         net_worth = next(
-            (r['net_worth'] for r in reversed(rows) if r['net_worth'] > 0),
+            (r['net_worth'] for r in reversed(rows) if (r['net_worth'] or 0) > 0),
             rows[-1]['net_worth'],
         )
 
