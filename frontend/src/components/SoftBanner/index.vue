@@ -7,8 +7,10 @@
 
   职责边界（刻意做薄）：
   - 管：壳布局、variant 配色（全令牌；文字色走 text-* 与 -ink 体系，危险语义由图标 +
-        边框 + 底色表达，不染红正文——见下方 danger 注释与 #2726）、
-        role="alert"、可点击交互（hover 提亮 + Enter）、统一关闭按钮、紧凑档。
+        边框 + 底色表达，不染红正文——见下方 danger / brand 注释与 #2726 / #2730）、
+        实时区角色（按色族分派：#2723 起 info/success=status 礼貌播报、
+        warning/danger=alert 打断播报，brand 随 warning；可用 role prop 显式覆盖）、
+        可点击交互（hover 提亮 + Enter）、统一关闭按钮、紧凑档。
   - 不管：dismiss 显隐状态（Discrepancy/Ghost 是会话级 sessionStorage、Realtime 是
         localStorage 持久——语义不同，只 emit('close') 交消费方自理）；
         正文排版（default slot 自由内容）。
@@ -16,16 +18,22 @@
   class/attrs 透传根元素：消费方可保留 e2e 锚点类名（如 class="recon-banner"）。
 -->
 <script setup lang="ts">
+import { computed } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
 defineOptions({ name: "SoftBanner" });
 
 const props = withDefaults(
   defineProps<{
-    /** 色族：info=中性信息（bg-soft）/ warning=暖沙金 / danger=警示红 */
-    variant?: "info" | "warning" | "danger";
+    /** 色族：info=中性信息（bg-soft）/ warning=暖沙金 / danger=警示红 /
+     *  success=鼠尾草绿 / brand=品牌色态（提示性信息用品牌色，危险色只留给破坏性操作） */
+    variant?: "info" | "warning" | "danger" | "success" | "brand";
     /** iconify 图标名（图标语义由消费方定，组件不猜） */
     icon: string;
+    /** 显式指定实时区角色，覆盖按色族推导的默认值。
+     *  只有一种真实用途：**原文就是 `role="note"`** 的静态注记（既非 live region
+     *  的 status、也非打断式的 alert），迁入时不能被无意识升格。 */
+    role?: "alert" | "status" | "note";
     /** 整条可点击：cursor + hover 提亮 + Enter 触发 click */
     clickable?: boolean;
     /** 显示右侧关闭按钮；点击仅 emit('close')，显隐状态由消费方管理 */
@@ -33,13 +41,35 @@ const props = withDefaults(
     /** 紧凑档：单行一次性告知条（padding 4px 12px、margin-bottom 4px） */
     dense?: boolean;
   }>(),
-  { variant: "info", clickable: false, dismissible: false, dense: false }
+  {
+    variant: "info",
+    role: undefined,
+    clickable: false,
+    dismissible: false,
+    dense: false
+  }
 );
 
 const emit = defineEmits<{
   (e: "click"): void;
   (e: "close"): void;
 }>();
+
+/**
+ * 实时区角色按色族分派（#2723；此前一律 `role="alert"`）：
+ * - info / success = 中性告知（"该记录为手工编辑""注册成功"），用 `role="status"`
+ *   （`aria-live=polite`），插进 DOM 时排队播报，不打断用户正在听的内容；
+ * - warning / danger / brand = 需要立刻知道，才用 `role="alert"`（assertive，打断播报）。
+ * 迁完 el-alert 12 处后 info/success 占 6 处，若继续无条件 alert，
+ * 「礼貌告知」会全变成打断式播报 —— 这是 a11y 语义的滥用，不是"更保险"。
+ */
+const resolvedRole = computed(
+  () =>
+    props.role ??
+    (props.variant === "info" || props.variant === "success"
+      ? "status"
+      : "alert")
+);
 
 function onClick(): void {
   if (props.clickable) emit("click");
@@ -56,7 +86,7 @@ function onClick(): void {
         'soft-banner--dense': props.dense
       }
     ]"
-    role="alert"
+    :role="resolvedRole"
     :tabindex="props.clickable ? 0 : undefined"
     @click="onClick"
     @keydown.enter="onClick"
@@ -146,6 +176,44 @@ function onClick(): void {
   color: var(--color-danger-ink);
 }
 
+/* success：鼠尾草绿（#2723 首批 success 提示出现时按 §3 约定启用，底色令牌
+   --color-success-20 与本档同批新增）。正文同样走 --text-primary，不把文字染绿：
+   半透明底 alpha 合成后 --text-primary 为 12.24 / 11.90 / 11.02（暗色 8.06 / 8.96 / 7.34），
+   图标 --color-success-ink 为 5.02 / 4.88 / 4.52（暗 5.38 / 6.02 / 4.88），均过 AA。 */
+.soft-banner--success {
+  color: var(--text-primary);
+  background: var(--color-success-20);
+  border: 1px solid var(--color-success);
+}
+
+.soft-banner--success .soft-banner__icon {
+  color: var(--color-success-ink);
+}
+
+/* brand：品牌色态（原 `.conflict-banner` / `.orphan-banner` 族，#2730）。
+   口径来自这两处消费方原本的注释：**提示性信息用品牌色，危险色只留给删除/清理类
+   破坏性操作** —— 所以它既不是 info（中性灰），也不是 warning/danger（警示），
+   是第四条语义，组件必须承载，否则下一个人还会手写第 4 份。
+
+   正文刻意走 --brand-ink，**不是** --brand-700（同 #2726 的 danger 教训）：
+   --brand-700 是底色级令牌，作文字落在 --brand-100 底上实测亮 3.60:1 / 暗 4.33:1，
+   正文 AA 4.5 不达 —— 「白底 3.73:1」这类数字在有底色场景一律不适用，必须先合成再算。
+   --brand-ink（#b8361f / 暗 #f08a75）同底为 5.47 / 6.96，达标。
+   图标仍用 --brand-700：图形门槛 3:1，实测 3.60 / 4.33 达标，保留品牌主色的识别度。
+
+   边框 --brand-300 只作轮廓：--brand-100 落在 --bg-card 上仅 1.03:1，没有轮廓时
+   提示条几乎「看不见」（原实现就是无边框，靠图标与文字识别）。1.22:1 不足以表达
+   任何语义，语义仍由图标 + 底色承担。 */
+.soft-banner--brand {
+  color: var(--brand-ink);
+  background: var(--brand-100);
+  border: 1px solid var(--brand-300);
+}
+
+.soft-banner--brand .soft-banner__icon {
+  color: var(--brand-700);
+}
+
 /* ===== 结构位 ===== */
 
 .soft-banner__icon {
@@ -189,6 +257,14 @@ function onClick(): void {
 
 .soft-banner--danger.soft-banner--clickable:hover {
   background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+}
+
+.soft-banner--brand.soft-banner--clickable:hover {
+  background: var(--brand-200);
+}
+
+.soft-banner--success.soft-banner--clickable:hover {
+  background: color-mix(in srgb, var(--color-success) 32%, transparent);
 }
 
 .soft-banner--clickable:focus-visible {

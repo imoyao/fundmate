@@ -132,6 +132,12 @@
   --color-primary-20: rgba(122, 127, 168, 0.2);
   --color-warning-20: rgba(212, 200, 152, 0.2);
   --color-danger-20: rgba(212, 54, 74, 0.2);
+  --color-success-20: rgba(
+    129,
+    178,
+    154,
+    0.2
+  ); /* 成功色 20% 透明（SoftBanner success 档底色，#2723 首批 success 提示出现时启用） */
   --color-danger-10: rgba(
     212,
     54,
