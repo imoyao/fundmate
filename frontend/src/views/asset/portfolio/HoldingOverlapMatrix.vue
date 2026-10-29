@@ -13,7 +13,8 @@
       <caption class="overlap-matrix__caption">
         行与列是同一批基金（按持仓市值降序），格子是该对的重叠加权比例（百分点）。
         对角线是自比；「不可比」= 两只基金的披露口径不同（半年报全量 vs
-        季报前十大），混算会低估重叠。
+        季报前十大），混算会低估重叠；带 ※
+        的格子是同一只基金的不同份额，比例再高也 不算配置重复。
       </caption>
       <thead>
         <tr>
@@ -43,10 +44,21 @@
             v-for="(cell, colIndex) in row.cells"
             :key="colIndex"
             class="detail-table__num overlap-matrix__cell"
-            :class="`is-${cell.tone}`"
+            :class="[`is-${cell.tone}`, { 'is-same-series': cell.sameSeries }]"
             :title="cell.title"
+            :aria-label="
+              cell.sameSeries
+                ? `${cell.text}，同一基金的不同份额，不算配置重复`
+                : undefined
+            "
           >
-            {{ cell.text }}
+            {{ cell.text
+            }}<span
+              v-if="cell.sameSeries"
+              class="overlap-matrix__same-mark"
+              aria-hidden="true"
+              >※</span
+            >
           </td>
         </tr>
       </tbody>
@@ -59,6 +71,9 @@
       <li class="overlap-matrix__legend-item is-high">高（配置重复）</li>
       <li class="overlap-matrix__legend-item is-incomparable">
         不可比（口径不同）
+      </li>
+      <li class="overlap-matrix__legend-item is-same-series">
+        ※ 同一基金的不同份额（不算配置重复）
       </li>
     </ul>
 
@@ -118,6 +133,7 @@ defineProps<{ matrix: OverlapMatrix }>();
   }
 
   &__cell {
+    position: relative;
     font-weight: 600;
     text-align: center;
 
@@ -156,6 +172,21 @@ defineProps<{ matrix: OverlapMatrix }>();
         transparent 4px 8px
       );
     }
+  }
+
+  /* 同一基金不同份额：颜色仍是弱提醒档（结论是「不用管」），靠角标说明「为什么不用管」。
+     不用第七种颜色——低档出现两个色阶，读图的人分不清哪个才要看 */
+  &__same-mark {
+    position: absolute;
+    top: 2px;
+    right: 3px;
+
+    /* 相对单元格字号（0.75em ≈ 10px）：角标要小于数值本身，但不能自造一个 px 字号
+       （stylelint 禁裸 px，字号只认 token + 相对单位） */
+    font-size: 0.75em;
+    font-weight: 400;
+    line-height: 1;
+    color: var(--text-tertiary-ink);
   }
 
   &__legend {

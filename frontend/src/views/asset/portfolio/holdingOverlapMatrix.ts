@@ -12,6 +12,18 @@
  *   `duplicate`）—— 档位阈值只在后端定义，前端不二次推导；
  * - `incomparable` **披露口径不同**（半年报全量 vs 季报前十大）：「不可比」，不是 0%
  *   —— 混算会系统性低估重叠，把「不可比」显示成 0% 正是 #2604 要挡的那种错误安心。
+ *
+ * ## 为什么 `same-series` 不另造一种颜色，而是加「※」角标
+ *
+ * 卡面验收要求「同一基金不同份额有**独立标记**，不与 `duplicate` 同色：否则用户会去卖
+ * 本来正常持有的份额」。
+ *
+ * - **颜色不能分**：同一基金不同份额的重叠比例天然接近 100%，但它是**伪重复**——占比
+ *   再高也不该提示「配置重复」。它的数值档位只能落在 `low`（弱提醒），硬给它一个色阶
+ *   会让「低档」出现两种颜色，读图的人无从判断哪个才要看。
+ * - **标记必须独立**：光靠 `low` 档的颜色，用户会以为它是「重叠度低」，而真相是
+ *   「这两格压根不是两只基金」。故在格子右上角加 `※`、并在图例写明含义——颜色说
+ *   「不用管」，角标说「为什么不用管」。
  */
 
 import type {
@@ -28,6 +40,13 @@ export interface MatrixCell {
   /** 格子里的文字：百分比 / `—`（自比）/ `0%` / `不可比` */
   text: string;
   tone: MatrixCellTone;
+  /**
+   * 同一只基金的不同份额（后端 `overlap_level='same-series'`）。
+   *
+   * 与 `tone` 正交：`tone` 说的是「这个数该不该管」，本字段说的是「这两格算不算两只
+   * 基金」。占比可能 100%，但结论是「不用管」，所以它是弱提醒色 + 独立角标。
+   */
+  sameSeries: boolean;
   /** 悬停说明：这个数字为什么是这样（尤其「不可比」必须解释原因） */
   title: string;
 }
@@ -80,25 +99,41 @@ function buildCell(
   pair: OverlapPair | undefined
 ): MatrixCell {
   if (rowFund.fund_code === colFund.fund_code) {
-    return { text: "—", tone: "self", title: "同一只基金，不参与比较" };
+    return {
+      text: "—",
+      tone: "self",
+      sameSeries: false,
+      title: "同一只基金，不参与比较"
+    };
   }
   // 口径不同优先于「无重叠」：这类对后端根本不计算，显示 0% 就是造假
   if ((rowFund.basis ?? "") !== (colFund.basis ?? "")) {
     return {
       text: "不可比",
       tone: "incomparable",
+      sameSeries: false,
       title: `披露口径不同（${rowFund.basis || "未知"} vs ${colFund.basis || "未知"}），混算会低估重叠，故不比较`
     };
   }
   if (!pair) {
-    return { text: "0%", tone: "none", title: "没有共同重仓股" };
+    return {
+      text: "0%",
+      tone: "none",
+      sameSeries: false,
+      title: "没有共同重仓股"
+    };
   }
+  const sameSeries = pair.overlap_level === "same-series";
+  const amountText = `共同重仓 ${pair.common_holdings.length} 只，加权 ${formatWeightedOverlap(pair.weighted_overlap)}`;
   return {
     text: formatWeightedOverlap(pair.weighted_overlap),
     tone: LEVEL_TONE[pair.overlap_level] ?? "low",
-    title:
-      pair.overlap_reason ||
-      `共同重仓 ${pair.common_holdings.length} 只，加权 ${formatWeightedOverlap(pair.weighted_overlap)}`
+    sameSeries,
+    // same-series 的说明必须自带含义：不能指望后端 reason 的措辞永远提到「份额」，
+    // 否则角标就成了一个没有解释的符号（用户会当成「重要」而不是「不用管」）
+    title: sameSeries
+      ? `同一只基金的不同份额，持仓完全相同，不算配置重复（${pair.overlap_reason || amountText}）`
+      : pair.overlap_reason || amountText
   };
 }
 
