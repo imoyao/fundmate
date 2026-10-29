@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import {
   deleteOrphanPositions,
   getOrphanDetail,
@@ -128,26 +128,26 @@ async function handleOrphanCleanup() {
 </script>
 
 <template>
-  <!-- 未归置持仓提示 banner（品牌色态：brand-100 底 + brand-700 图标/文字；
-       提示性信息用品牌色而非危险色，危险色仅留给删除/清理类破坏性操作） -->
-  <div v-if="orphanGroup?.count > 0" class="orphan-banner mb-6">
-    <div class="flex items-center gap-2 min-w-0">
-      <IconifyIconOffline
-        icon="ep:warning-filled"
-        class="shrink-0"
-        :style="{ color: 'var(--brand-700)' }"
-      />
-      <span class="text-sm" :style="{ color: 'var(--brand-700)' }">
-        存在 {{ orphanGroup.count }} 组未归属持仓（原账户已删除或未指定），合计
-        <MoneyDisplay
-          :value="orphanGroup.total || 0"
-          :show-sign="false"
-          :auto-color="false"
-          size="sm"
-        />。 建议将这些持仓归入现有账户或手动清理。
-      </span>
-    </div>
-    <div class="flex gap-2 shrink-0">
+  <!-- 未归置持仓提示 banner（品牌色态：brand-100 底 + brand-700 图标；
+       提示性信息用品牌色而非危险色，危险色仅留给删除/清理类破坏性操作）。
+       #2730 起壳由 SoftBanner 的 brand 档承担；原内联 `:style` 直调 --brand-700
+       随之消除（前景色由组件按 --brand-ink 给出，5.47 / 6.96 达标）。 -->
+  <SoftBanner
+    v-if="orphanGroup?.count > 0"
+    class="orphan-banner"
+    variant="brand"
+    icon="ep:warning-filled"
+  >
+    <span class="text-sm">
+      存在 {{ orphanGroup.count }} 组未归属持仓（原账户已删除或未指定），合计
+      <MoneyDisplay
+        :value="orphanGroup.total || 0"
+        :show-sign="false"
+        :auto-color="false"
+        size="sm"
+      />。 建议将这些持仓归入现有账户或手动清理。
+    </span>
+    <template #actions>
       <!-- 查看明细：次要按钮，弹出孤儿数据清单，恢复「具体是哪些数据」的可见性 -->
       <el-button size="small" @click="openDetailDialog"> 查看明细 </el-button>
       <el-button size="small" type="primary" @click="openMigrateDialog">
@@ -162,8 +162,8 @@ async function handleOrphanCleanup() {
       >
         清理
       </el-button>
-    </div>
-  </div>
+    </template>
+  </SoftBanner>
 
   <!-- 归入未归置持仓对话框 -->
   <el-dialog
@@ -346,22 +346,12 @@ async function handleOrphanCleanup() {
 </template>
 
 <style scoped>
-@media (prefers-reduced-motion: reduce) {
-  .orphan-banner {
-    transition: none;
-  }
-}
-
-/* ===== 未归置持仓提示 banner（品牌色态：brand-100 底 + brand-700 图标/文字） ===== */
-.orphan-banner {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-compact);
-  background: var(--brand-100);
-  border-radius: var(--radius-lg);
-}
+/* 未归置持仓提示 banner 的壳已移交 SoftBanner（#2730，brand 档）。
+   随壳删除：display/gap/align-items/justify-content/padding/background/border-radius，
+   以及模板里两处内联 `:style` 直调 `--brand-700`（tech-debt 明令的品牌色直调违规，
+   且 #e34f38 在 brand-100 上作正文仅 3.60:1 / 暗 4.33:1，不达 AA）。
+   `.orphan-banner` 类名保留作锚点；原 `mb-6`（Tailwind 24px）被组件默认 16px 取代，
+   此处下方无相邻内容，间距归一化无视觉影响。 */
 
 /* ===== 明细对话框分区列表 ===== */
 .orphan-section {

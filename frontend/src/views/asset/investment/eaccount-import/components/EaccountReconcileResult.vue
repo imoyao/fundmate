@@ -32,17 +32,20 @@
 
     <!-- 有冲突：品牌色提示条（提示性信息，非危险操作）。它只陈述事实与两条决策口径
          （「归因覆盖」/「忽略」），不放按钮——唯一主入口是底部操作栏；此前提示条里的同名
-         按钮与底栏按钮、页头链接三处指向同一路由，用户无从判断该点哪个。 -->
-    <div v-if="p.result.conflicts > 0" class="conflict-banner" role="alert">
-      <IconifyIconOffline
-        icon="ep:warning-filled"
-        class="conflict-banner__icon"
-      />
+         按钮与底栏按钮、页头链接三处指向同一路由，用户无从判断该点哪个。
+         #2730 起壳由 SoftBanner 的 brand 档承担（组件此前只有 info/warning/danger，
+         无处安放「品牌色态」这条语义）；class 保留锚点。 -->
+    <SoftBanner
+      v-if="p.result.conflicts > 0"
+      class="conflict-banner"
+      variant="brand"
+      icon="ep:warning-filled"
+    >
       <p class="conflict-banner__text">
         存在 {{ p.result.conflicts }} 条冲突：渠道已有持仓但份额与
         E账户不一致，需逐条决策「归因覆盖」或「忽略」
       </p>
-    </div>
+    </SoftBanner>
 
     <!-- 无冲突：完成态 -->
     <div v-else-if="p.result.failed_rows.length === 0" class="done-card">
@@ -124,6 +127,7 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { formatQuantity } from "@/utils/format";
 import type { useEaccountImport } from "../composables/useEaccountImport";
 
@@ -145,28 +149,16 @@ const p = reactive(props.page);
   margin-bottom: var(--space-standard);
 }
 
-/* 冲突提示条：品牌色态（design.md「提示性 Banner 品牌色规范」）。
-   无按钮 ⇒ 图标与文字顶端对齐，文字换行时图标仍贴着第一行。 */
-.conflict-banner {
-  display: flex;
-  gap: var(--space-2);
-  align-items: flex-start;
-  padding: var(--space-3) var(--space-compact);
-  margin-bottom: var(--space-standard);
-  background: var(--brand-100);
-  border-radius: var(--radius-lg);
-}
-
+/* 冲突提示条：壳由 SoftBanner 的 brand 档承担（#2730），此处只留正文排版。
+   已删除的本地壳：display/gap/align-items/padding/margin/background/border-radius
+   以及 `.conflict-banner__icon`（图标位置由组件统一）。
+   正文色随壳移交组件（`--brand-ink`）：原来写死 `--brand-700`，在 `--brand-100`
+   底上实测 3.60:1（暗 4.33:1），正文 AA 不达；组件基准 5.47 / 6.96 达标。
+   下间距 24px（--space-standard）→ 组件默认 16px，属归一化。 */
 .conflict-banner__text {
   margin: 0;
   font-size: var(--text-small);
   line-height: 1.5;
-  color: var(--brand-700);
-}
-
-.conflict-banner__icon {
-  flex-shrink: 0;
-  margin-top: 2px;
 }
 
 /* 无冲突完成态 */

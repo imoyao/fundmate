@@ -286,17 +286,43 @@ test("真实文件：全仓扫描必须通过（白名单 + 基线覆盖了全�
   assert.match(out, /\[ALLOW\] views\/explore\/exploreView\/ExploreConvBanner\.vue/);
 });
 
-test("真实文件：基线里的 3 处被逐条登记（不是整文件放行）", () => {
-  const { out } = run([], ["--report"]);
-  for (const key of [
-    "EaccountReconcileResult.vue:150  .conflict-banner",
-    "LedgerDetailOverview.vue:350  .soft-reconcile-banner",
-    "OrphanCleanupDialogs.vue:356  .orphan-banner"
+test("真实文件：基线已清空（#2730 迁完最后三处后不再命中，不许留僵尸条目）", () => {
+  // 基线纪律是「只减不增」，#2730 把最后 3 条存量迁完 ⇒ BASELINE 必须为空。
+  // 这条用例同时守住两件事：① 已迁走的块不许再出现在命中清单里（迁了却没删干净，
+  // 或守卫把它们误判回红）；② 不许留 `[BASE ]` 行（基线僵化 = 守卫对那几行永久失明）。
+  const { status, out } = run([], ["--report"]);
+  assert.equal(status, 0, `基线清空后全仓扫描必须通过：\n${out}`);
+  for (const selector of [
+    ".conflict-banner",
+    ".soft-reconcile-banner",
+    ".orphan-banner"
   ]) {
     assert.ok(
-      out.includes(`[BASE ] ${key}`.replace("[BASE ] ", "")) ||
-        out.includes(key),
-      `基线条目未被命中（可能已改形状，需删除该条）：${key}\n${out}`
+      !out.includes(selector),
+      `该块已迁走，不该再出现在命中清单里：${selector}\n${out}`
     );
   }
+  assert.ok(!/\[BASE \]/.test(out), `基线应为空，不该再有 [BASE] 行：\n${out}`);
+});
+
+test("真实文件：迁移后若有人把壳写回去，守卫必须转红（基线清空≠判据失效）", () => {
+  // 反向探针：上一条「不再命中」是因为真的迁干净了，不是因为守卫看不见这个文件。
+  // 拿迁移后的真实文件原文，往 style 块末尾塞回一段壳 —— 必须命中。
+  const target = join(
+    ROOT,
+    "frontend/src/views/asset/ledgers/components/OrphanCleanupDialogs.vue"
+  );
+  const src = readFileSync(target, "utf8");
+  const reverted = src.replace(
+    "</style>",
+    `.orphan-banner {
+  display: flex;
+  background: var(--brand-100);
+}
+</style>`
+  );
+  assert.notEqual(reverted, src, "探针构造失败：没找到 </style>");
+  const { status, out } = guard([reverted]);
+  assert.equal(status, 1, `把壳写回去必须命中：\n${out}`);
+  assert.match(out, /\.orphan-banner/);
 });

@@ -16,39 +16,38 @@
     </div>
   </div>
 
-  <!-- 温柔提醒（#1133 §4）：中性信息色、拟人化、非阻断；可选「去对账/忽略」，绝不强制 -->
+  <!-- 温柔提醒（#1133 §4）：中性信息色、拟人化、非阻断；可选「去对账/忽略」，绝不强制。
+       #2730 起壳由 SoftBanner 的 info 档承担；`role="note"` **显式传入** —— 组件默认按色族
+       推导（info→status 礼貌播报 / warning·danger→alert 打断播报），而这里原文就是
+       `role="note"` 的静态注记（不排队播报），迁入时不能被无意识升格成 live region。 -->
   <transition name="el-fade-in">
-    <div
+    <SoftBanner
       v-if="p.visibleConsistencyItems.length > 0"
       class="soft-reconcile-banner"
+      variant="info"
       role="note"
+      icon="ep:info-filled"
     >
-      <IconifyIconOffline
-        icon="ep:info-filled"
-        class="soft-reconcile-banner__icon"
-      />
-      <div class="soft-reconcile-banner__body">
-        <p class="soft-reconcile-banner__title">
-          这本账本的持仓快照截至
-          {{
-            p.visibleConsistencyItems[0].snapshot_date
-          }}，快照日之后仍有交易记录；如与流水对不上，请去对账工作台核对是否需要补录。
-        </p>
-        <p class="soft-reconcile-banner__detail">
-          共
-          {{ p.visibleConsistencyItems.length }}
-          笔持仓可能滞后，去对账工作台可统一核对。
-        </p>
-      </div>
-      <div class="soft-reconcile-banner__actions">
+      <p class="soft-reconcile-banner__title">
+        这本账本的持仓快照截至
+        {{
+          p.visibleConsistencyItems[0].snapshot_date
+        }}，快照日之后仍有交易记录；如与流水对不上，请去对账工作台核对是否需要补录。
+      </p>
+      <p class="soft-reconcile-banner__detail">
+        共
+        {{ p.visibleConsistencyItems.length }}
+        笔持仓可能滞后，去对账工作台可统一核对。
+      </p>
+      <template #actions>
         <el-button size="small" type="primary" plain @click="p.goReconcile">
           去对账
         </el-button>
         <el-button size="small" text @click="p.dismissAllConsistency">
           忽略
         </el-button>
-      </div>
-    </div>
+      </template>
+    </SoftBanner>
   </transition>
 
   <!-- 账本概览（对齐「家庭资产看板」范式：SectionHeader + CardBlock，左指标 / 右资产构成） -->
@@ -293,6 +292,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
@@ -346,31 +346,14 @@ watch(
 </script>
 
 <style scoped>
-/* 温柔提醒 banner（#1133 §4）：中性信息色，非涨跌色 / 非危险红；轻量、不制造心理压力 */
-.soft-reconcile-banner {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: var(--space-3) var(--space-compact);
-  margin-bottom: var(--space-compact);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--el-color-info);
-  border-radius: var(--radius-md);
-}
-
-.soft-reconcile-banner__icon {
-  flex: none;
-  margin-top: 2px;
-  font-size: var(--text-num-strong);
-  color: var(--el-color-info);
-}
-
-.soft-reconcile-banner__body {
-  flex: 1;
-  min-width: 0;
-}
-
+/* 温柔提醒 banner（#1133 §4）：中性信息色，非涨跌色 / 非危险红；轻量、不制造心理压力。
+   #2730 起壳由 SoftBanner info 档承担，此处只留两级正文排版。
+   已删除的本地壳：display/gap/align-items/padding/margin/background/border/border-radius
+   以及 `.soft-reconcile-banner__icon` / `__body` / `__actions`（图标位与动作区由组件提供）。
+   随壳一起去掉的是 `border-left: 3px solid var(--el-color-info)` —— 判为**冗余装饰**：
+   它的语义（中性信息）与 info 档图标 `--color-info-ink` 完全重合，且 `--el-color-info`
+   是 Element Plus 直调（tech-debt 明令的颜色直调），链路里唯一用处就是这道 3px 条。
+   不加 `accent` prop 的理由见 docs/spec/soft-banner.md §3（单消费方不值得把壳变成可拼装结构）。 */
 .soft-reconcile-banner__title {
   margin: 0;
   font-size: var(--text-small);
@@ -382,12 +365,5 @@ watch(
   margin: 4px 0 0;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-}
-
-.soft-reconcile-banner__actions {
-  display: flex;
-  flex: none;
-  gap: 8px;
-  align-items: center;
 }
 </style>
