@@ -142,6 +142,56 @@ describe("buildOverlapMatrix：铺满行列", () => {
   });
 });
 
+describe("同一基金不同份额（same-series）：独立标记，不与配置重复同色", () => {
+  const sameSeriesPair = (over: Partial<OverlapPair> = {}) =>
+    pair({
+      overlap_level: "same-series",
+      overlap_reason: "持仓完全相同",
+      jaccard: 1,
+      weighted_overlap: 100,
+      ...over
+    });
+
+  it("角标独立于颜色：仍是弱提醒档，但带 sameSeries 标记", () => {
+    const matrix = buildOverlapMatrix(
+      data({ funds: threeFunds, pairs: [sameSeriesPair()] })
+    );
+    const cell = matrix.rows[0].cells[1];
+
+    // 颜色：不能与 duplicate 同色（否则用户会去卖掉正常持有的份额）
+    expect(cell.tone).toBe("low");
+    // 标记：必须能与「真正的低重叠」区分开，否则只是一个低档格子
+    expect(cell.sameSeries).toBe(true);
+    expect(matrix.rows[1].cells[0].sameSeries).toBe(true);
+  });
+
+  it("说明文字自带「不同份额」，不依赖后端 reason 的措辞", () => {
+    const withReason = buildOverlapMatrix(
+      data({ funds: threeFunds, pairs: [sameSeriesPair()] })
+    );
+    expect(withReason.rows[0].cells[1].title).toContain("不同份额");
+    expect(withReason.rows[0].cells[1].title).toContain("不算配置重复");
+
+    // 后端 reason 为空 / 换措辞时，角标背后仍有解释
+    const withoutReason = buildOverlapMatrix(
+      data({
+        funds: threeFunds,
+        pairs: [sameSeriesPair({ overlap_reason: "" })]
+      })
+    );
+    expect(withoutReason.rows[0].cells[1].title).toContain("不同份额");
+  });
+
+  it("普通低档 / trivial 不会冒充 same-series", () => {
+    for (const level of ["low", "trivial"] as const) {
+      const matrix = buildOverlapMatrix(
+        data({ funds: threeFunds, pairs: [pair({ overlap_level: level })] })
+      );
+      expect(matrix.rows[0].cells[1].sameSeries).toBe(false);
+    }
+  });
+});
+
 describe("档位映射：只认后端 overlap_level", () => {
   it.each([
     ["duplicate", "high"],
