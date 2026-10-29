@@ -1192,3 +1192,61 @@ def test_国庆长假后场外净值沿用前值_不归零(db, make_position, ma
     first_day_back = dt.date(2025, 10, 9)
     assert _pnl_of(result, first_day_back) == 100.0, '假后首日才是真涨：1000 份 ×（1.1 − 1.0）'
     assert _state_of(result, first_day_back) == STATE_UPDOWN
+
+
+def _worth_of(result, day):
+    return next((d['net_worth'] for d in result['days'] if d['date'] == day.isoformat()), 'NO_ROW')
+
+
+def test_有持仓但一笔都取不到价_净资产为None而非0(db, make_position):
+    """#2733 C：净资产 0 只表示「当天没持仓」，不能同时表示「算不出来」。
+
+    旧实现里 `day_net_worth` 从 0 起累加，一笔都加不上去时仍是 0 ⇒ 净值曲线
+    掉到地板再弹回。本用例是**反向探针**：把 row 的 net_worth 改回恒写
+    `day_net_worth`，这里立刻从 None 变成 0.0 而转红。
+    """
+    make_position(
+        symbol='ZH0001',
+        name='银行理财',
+        quantity=0,
+        avg_price=0,
+        asset_type='portfolio',
+        valuation_mode='balance',
+        market_value_override=Money.yuan_to_cents(50000),
+    )
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    for day in (dt.date(2026, 1, 5), dt.date(2026, 1, 6), dt.date(2026, 1, 7)):
+        assert _state_of(result, day) == STATE_NO_PRICE
+        # 有仓位（份额/估值都在），只是取不到价 ⇒ 净值未知，不是 0 元
+        assert _worth_of(result, day) is None, f'{day} 有持仓却零贡献时必须报 None；0.00 会被读成「账户归零」'
+
+
+def test_当天没有持仓时净资产仍为0(db, make_position, make_transaction):
+    """对照组：真正没有持仓的日子（建仓前）净资产就是 0，不能被 NULL 吞掉。
+
+    这一条守的是 C 的**边界**——修「假归零」很容易顺手把「真 0」也改没了，
+    那会让「开户但还没买」的区间在图上凭空消失。
+    """
+    d_buy = dt.date(2026, 1, 8)
+    pos = make_position(symbol='000001', name='测试基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d_buy,
+        symbol='000001',
+    )
+    _add_nav(db, '000001', d_buy, 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-09')
+
+    before = dt.date(2026, 1, 6)  # 建仓前
+    assert _state_of(result, before) == STATE_NO_POSITION
+    assert _worth_of(result, before) == 0.0, '没持仓时的 0 是真值，不是缺数据'
+
+    after = dt.date(2026, 1, 8)
+    assert _worth_of(result, after) == 1000.0, '有价的持仓日照常给出市值'

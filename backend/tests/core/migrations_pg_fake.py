@@ -37,6 +37,9 @@ import re
 from typing import Dict, List, Optional
 
 _ADD_COL_RE = re.compile(r'ALTER TABLE (\w+) ADD COLUMN (?:IF NOT EXISTS )?(\w+)', re.IGNORECASE)
+# 解除 NOT NULL（#2733 C）：PG 侧唯一的写法，SQLite 侧不支持（走整表重建）。
+# 假引擎要跟着改 `not_null`，否则迁移末尾的「反射必须已可空」自校验假红。
+_DROP_NOT_NULL_RE = re.compile(r'ALTER TABLE (\w+) ALTER COLUMN (\w+) DROP NOT NULL', re.IGNORECASE)
 # 删列（#2689）：`fund_managers` 拆分在 PG 上走 `DROP COLUMN IF EXISTS`，假引擎要能跟上，
 # 否则迁移末尾的「任期列必须已删」自校验永远假红。
 _DROP_COL_RE = re.compile(r'ALTER TABLE (\w+) DROP COLUMN (?:IF EXISTS )?(\w+)', re.IGNORECASE)
@@ -111,7 +114,8 @@ class _Inspector:
         return list(self._fake.columns)
 
     def get_columns(self, table):
-        return [{'name': c} for c in self._fake.columns.get(table, [])]
+        not_null = self._fake.not_null.get(table, [])
+        return [{'name': c, 'nullable': c not in not_null} for c in self._fake.columns.get(table, [])]
 
     def get_indexes(self, table):
         uniques = self._fake.unique_indexes.get(table, [])
@@ -121,8 +125,18 @@ class _Inspector:
 class PgFake:
     """PG 形态假引擎 + 假 inspect（见模块 docstring）。"""
 
-    def __init__(self, columns: Dict[str, List[str]], *, rows: Optional[list] = None, apply_ddl: bool = True):
+    def __init__(
+        self,
+        columns: Dict[str, List[str]],
+        *,
+        rows: Optional[list] = None,
+        apply_ddl: bool = True,
+        not_null: Optional[Dict[str, List[str]]] = None,
+    ):
         self.columns = {t: list(c) for t, c in columns.items()}
+        #: 哪些列是 NOT NULL。`get_columns()` 的可空性由此推出；`DROP NOT NULL`
+        #: 执行后要同步移除，否则「解除 NOT NULL」类迁移的收尾自校验永远假红。
+        self.not_null: Dict[str, List[str]] = {t: list(c) for t, c in (not_null or {}).items()}
         self.indexes: Dict[str, List[str]] = {}
         #: 唯一索引单独记一份：`get_indexes()` 要能回 `unique: True`，否则迁移末尾
         #: 「按 unique 过滤后校验索引是否建成」的逻辑在假引擎上永远判失败（假红）。
@@ -139,6 +153,12 @@ class PgFake:
         monkeypatch.setattr(migrations_mod, 'inspect', lambda _engine: _Inspector(self))
 
     def _apply_ddl(self, sql: str) -> None:
+        m = _DROP_NOT_NULL_RE.search(sql)
+        if m:
+            table, name = m.group(1), m.group(2)
+            if name in self.not_null.get(table, []):
+                self.not_null[table].remove(name)
+            return
         m = _DROP_COL_RE.search(sql)
         if m:
             table, name = m.group(1), m.group(2)

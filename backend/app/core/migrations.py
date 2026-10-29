@@ -2088,3 +2088,106 @@ def migrate_family_members_ownership(engine: Engine) -> str:
 
     logger.info(f'[OK] #1173 家庭成员档案与账户归属：{"；".join(notes)}')
     return '[OK] ' + '；'.join(notes)
+
+
+# ── pnl_daily_snapshots.net_worth_cents 解除 NOT NULL（#2733 C）─────────────
+#
+# 旧结构把「净资产」定成 NOT NULL，于是「当天有持仓、但一笔都取不到价」只能写 0
+# ——与「账户真归零」在库里长得一模一样。净值曲线因此掉到地板再弹回，读数上根本
+# 分不清是数据缺口还是计算 bug（实测 2025-10-08 −8,458.78，次日 +8,870.50）。
+# 口径改法是：缺输入记 NULL，真无持仓才记 0。列表里已有 `daily_pnl_cents` /
+# `rate_bp` 两列用 NULL 表达「算不出来」，本条只是把这套语义补齐到第三条。
+#
+# 两种引擎都得改：SQLite 不支持 ALTER 改约束（走重建），PG 用 ALTER COLUMN。
+
+
+def _sqlite_drop_not_null(table: str, column: str, engine: Engine) -> str:
+    """SQLite：把 ``table.column`` 的 NOT NULL 去掉（标准重建流程，幂等）。
+
+    从 ``sqlite_master`` 取现表 DDL，只改目标列那一段（不手写整张表的列清单——
+    模型以后加减列不会让这个迁移变成「按旧结构重建」的定时炸弹），然后
+    建新表 → 拷贝 → 删旧 → 改名 → 重建索引。
+    """
+    with engine.connect() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:t"), {'t': table}).scalar()
+        if ddl is None:
+            return f'[SKIP] {table} 表不存在（空库，create_all 将按新模型建表）'
+        index_sql = [
+            r[0]
+            for r in conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL AND tbl_name=:t"),
+                {'t': table},
+            )
+        ]
+        if not re.search(rf'\b{column}\b', ddl):
+            raise RuntimeError(f'{table} 的 DDL 里没有 {column} 列，迁移失败：\n{ddl}')
+
+        new_ddl = re.sub(
+            rf'(\b{column}\b\s+[A-Z]+)\s+NOT\s+NULL',
+            r'\1',
+            ddl,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if new_ddl == ddl:
+            # 已经是可空（模型改过之后重建过的库）或 DDL 形态出乎意料，交给上层判定
+            return f'[SKIP] {table}.{column} 在 DDL 中已无 NOT NULL'
+        new_ddl = re.sub(
+            rf'CREATE TABLE\s+"?{table}"?',
+            f'CREATE TABLE {table}_new',
+            new_ddl,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if f'CREATE TABLE {table}_new' not in new_ddl:
+            raise RuntimeError(f'{table} 重建 DDL 拼装失败：\n{ddl}')
+
+        cols = [c['name'] for c in inspect(engine).get_columns(table)]
+        col_list = ', '.join(cols)
+        conn.execute(text('PRAGMA foreign_keys=OFF'))
+        conn.execute(text(new_ddl))
+        conn.execute(text(f'INSERT INTO {table}_new ({col_list}) SELECT {col_list} FROM {table}'))
+        conn.execute(text(f'DROP TABLE {table}'))
+        conn.execute(text(f'ALTER TABLE {table}_new RENAME TO {table}'))
+        # DROP TABLE 会带走索引 ⇒ 按原 DDL 重建（写在改名之后，表名不用改写）
+        for sql in index_sql:
+            conn.execute(text(sql))
+        conn.commit()
+    return f'[OK] {table}.{column} 已解除 NOT NULL（SQLite 重建）'
+
+
+def migrate_pnl_snapshot_net_worth_nullable(engine: Engine) -> str:
+    """`pnl_daily_snapshots.net_worth_cents` 允许 NULL（#2733 C）。
+
+    语义：**有持仓、但当天一笔都取不到价 ⇒ NULL**（缺输入）；**当天没有持仓
+    ⇒ 0**（真值）。这两件事此前都落成 0，净值曲线上的「假归零」因此无法与
+    「账户真的清空」区分。
+
+    幂等：列已可空即跳过（`inspect` 反射的可空性，与 DDL 文本无关）。
+    """
+    table, column = 'pnl_daily_snapshots', 'net_worth_cents'
+    if not _table_exists(engine, table):
+        return f'[SKIP] {table} 表不存在（空库，create_all 将按新模型建表）'
+    cols = {c['name']: c for c in inspect(engine).get_columns(table)}
+    if column not in cols:
+        raise RuntimeError(f'{table} 缺列 {column}，迁移失败')
+    if cols[column]['nullable']:
+        return f'[SKIP] {table}.{column} 已是可空'
+
+    is_pg = _is_postgres(engine)
+    if is_pg:
+        with engine.connect() as conn:
+            conn.execute(text(f'ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL'))
+            conn.commit()
+    else:
+        note = _sqlite_drop_not_null(table, column, engine)
+        if note.startswith('[SKIP]'):
+            # DDL 里没有 NOT NULL 但反射说不可空 ⇒ 两种判据打架，不能静默继续
+            raise RuntimeError(f'{table}.{column} 可空性判定冲突：{note}')
+
+    # 收尾自校验：反射必须真的变成可空（DDL 被静默忽略时不让它蒙混过关）
+    after = {c['name']: c for c in inspect(engine).get_columns(table)}
+    if not after[column]['nullable']:
+        raise RuntimeError(f'{table}.{column} 仍为 NOT NULL（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
+    logger.info(f'[OK] #2733 C {table}.{column} 已允许 NULL（{after[column].get("type", "?")}）')
+    return f'[OK] {table}.{column} 已允许 NULL'

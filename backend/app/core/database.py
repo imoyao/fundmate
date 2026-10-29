@@ -44,6 +44,7 @@ from app.core.migrations import (
     migrate_fund_risk_metrics_period_returns,
     migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
+    migrate_pnl_snapshot_net_worth_nullable,
     migrate_positions_cleared_at,
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
@@ -658,6 +659,10 @@ def init_db():
     # 家庭成员档案表 + 账户归属列（#1173）：建 family_members 表、给 ledgers 补
     # owner_member_id（只加列不回填——历史账户归属谁不可考，NULL=未归属/家庭共有）。
     migrate_family_members_ownership(user_eng)
+    # pnl_daily_snapshots.net_worth_cents 解除 NOT NULL（#2733 C）：有持仓却一笔都
+    # 取不到价的日子要能记 NULL，与「真归零」分开。SQLite 走整表重建、PG 走
+    # ALTER COLUMN，两侧都在迁移函数里，幂等。
+    migrate_pnl_snapshot_net_worth_nullable(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -771,6 +776,8 @@ def init_db_split():
         migrate_watchlist_user_domain_columns(user_eng)
         # 家庭成员档案表 + 账户归属列（#1173）：与单库模式同口径，双库模式也必须建
         migrate_family_members_ownership(user_eng)
+        # net_worth_cents 解除 NOT NULL（#2733 C）：与单库模式同口径，双库模式也必须改
+        migrate_pnl_snapshot_net_worth_nullable(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
