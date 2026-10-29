@@ -50,6 +50,10 @@ export function buildBuyPayload(input: {
   feeMode: FeeMode;
 }): BuyPositionPayload {
   const { form } = input;
+  // 投顾组合（D70 / #2740）：只记金额，没有份额与净值。
+  // 必须**显式**发 valuation_mode='balance' —— 后端对 portfolio + nav 直接报错，
+  // 那种形态不会失败在写入，而是失败在之后：市值恒 0、详情页照常渲染一张 0 元卡。
+  const isPortfolio = form.type === "portfolio";
 
   const confirm_date =
     form.type === "fund"
@@ -72,16 +76,20 @@ export function buildBuyPayload(input: {
     type: form.type,
     ledger_id: form.ledger_id,
     account_name: input.accountName,
-    quantity: input.quantity,
-    avg_price: form.price || 0,
+    quantity: isPortfolio ? 0 : input.quantity,
+    avg_price: isPortfolio ? 0 : form.price || 0,
     amount: form.buyAmount || 0,
     currency: form.currency,
     trade_date: form.trade_date,
     confirm_date,
-    fee,
+    // 投顾组合的申购费不适用（收的是投顾服务费，且在组合侧扣），手续费一律 0：
+    // 表单里手续费字段对组合是隐藏的，`applyFeePreset` 仍会按账户申购费率算出
+    // 一个用户看不见的数字，若不在这里归零就会静默记进流水。
+    fee: isPortfolio ? 0 : fee,
     notes: form.notes,
     allocation: form.allocation,
     isAfter15: form.isAfter15,
+    ...(isPortfolio ? { valuation_mode: "balance" as const } : {}),
     ...(input.navPending
       ? {
           nav_pending: true,

@@ -169,6 +169,14 @@ export interface PositionCreate {
   nav_date?: string;
   /** 份额由用户手动填写（回填只校正净值与成本，不覆盖份额） */
   shares_manual?: boolean;
+  /**
+   * 计价模式（#1174 双态）：nav=份额×净值（默认）/ balance=直接余额。
+   * 投顾组合（type='portfolio'）**必须** balance —— 它没有份额与净值，
+   * 市值只能靠人工录入金额（D70 / #2740）；后端对 nav 直接报错。
+   */
+  valuation_mode?: "nav" | "balance";
+  /** 交易金额（元）：balance 模式下即本次记账的市值增量 */
+  amount?: number;
 }
 
 /** 更新持仓请求体 (PATCH，所有字段可选) */

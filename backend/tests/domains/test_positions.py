@@ -1556,6 +1556,120 @@ class TestBalanceModeBuild:
         assert p2.market_value_override == Money.yuan_to_cents(50000.0)
 
 
+class TestPortfolioBalanceMode:
+    """投顾组合持仓：**只允许 balance**（D70 / #2740）。
+
+    为什么这条要被测住：`portfolio` 以前既没有「进 positions」的正面实现，也没有拦截——
+    建仓时 `validate_buy` 对未知品类放行，于是能落成 `nav` 模式的持仓。那一行的
+    市值由 `position_price` job 派生的份额×净值算出，而投顾组合**永远没有净值**
+    ⇒ 市值恒 0，但 `has_position` 仍为 true、详情页照常渲染。失败形态是静默的 0 元。
+    """
+
+    def _make_ledger(self, db, name='投顾账户A'):
+        ledger = db.query(Ledger).filter_by(name=name).first()
+        if ledger is None:
+            ledger = Ledger(name=name, ledger_type='fund', family_id=1)
+            db.add(ledger)
+            db.flush()
+        return ledger.id
+
+    def _buy_portfolio(self, db, ledger_id, amount, mode=ValuationMode.BALANCE.value, symbol='ZH012926'):
+        data = {
+            'symbol': symbol,
+            'name': '远足',
+            'asset_type': 'portfolio',
+            'market': '',
+            'ledger_id': ledger_id,
+            'family_id': 1,
+            'valuation_mode': mode,
+            'amount': amount,
+            'op_type': 'buy',
+            'source': 'manual',
+        }
+        return PositionService.process_buy_or_deposit(db, data)
+
+    def test_balance_build_succeeds_and_keeps_no_shares(self, db):
+        """balance 建仓：不传份额/净值，只传金额；市值落 override，身份键为 NO_VENUE。"""
+        ledger_id = self._make_ledger(db)
+        pos = self._buy_portfolio(db, ledger_id, amount=20000.0)
+        db.commit()
+        assert pos.valuation_mode == ValuationMode.BALANCE.value
+        assert pos.quantity == 0 and pos.avg_price == 0
+        assert pos.market_value_override == Money.yuan_to_cents(20000.0)
+        # 投顾组合没有交易所归属（core/venues._NO_VENUE_ASSET_TYPES）→ 身份键 NO_VENUE
+        assert pos.symbol_norm == 'NO_VENUE:ZH012926'
+
+    def test_nav_mode_is_rejected(self, db):
+        """nav 模式建投顾组合必须当场报错，而不是静默建出一个市值恒 0 的行。"""
+        ledger_id = self._make_ledger(db)
+        with pytest.raises(ValueError, match='投顾组合'):
+            self._buy_portfolio(db, ledger_id, amount=20000.0, mode=ValuationMode.NAV.value)
+        db.rollback()
+
+    def test_repeat_buy_merges_into_single_row(self, db):
+        """同一组合重复买入 → 合并为一行、市值累加（NO_VENUE 身份唯一约束生效）。"""
+        ledger_id = self._make_ledger(db)
+        p1 = self._buy_portfolio(db, ledger_id, amount=10000.0)
+        db.commit()
+        p2 = self._buy_portfolio(db, ledger_id, amount=5000.0)
+        db.commit()
+        assert p2.id == p1.id
+        assert p2.market_value_override == Money.yuan_to_cents(15000.0)
+        assert db.query(Position).filter_by(ledger_id=ledger_id, asset_type='portfolio').count() == 1
+
+    def test_legacy_nav_row_self_heals_on_next_buy(self, db, make_position):
+        """存量 nav 行（写入约束落地前建的）在下一次买入时被纠正为 balance。
+
+        只改模式不改金额：自愈的目的是让「同一组合两种计价模式并存」不永久留库，
+        市值仍由本次及后续 balance 买入累加（D70）。
+        """
+        pos = make_position(
+            symbol='ZH012926',
+            name='远足',
+            asset_type='portfolio',
+            account_name='存量投顾账户',
+            valuation_mode=ValuationMode.NAV.value,
+            market_value_override=0,
+        )
+        p2 = self._buy_portfolio(db, pos.ledger_id, amount=8000.0)
+        db.commit()
+        assert p2.id == pos.id
+        assert p2.valuation_mode == ValuationMode.BALANCE.value
+        assert p2.market_value_override == Money.yuan_to_cents(8000.0)
+
+    def test_portfolio_does_not_merge_into_other_asset_type(self, db):
+        """组合码与既有证券同码时**报错**，不合并进那一行（否则会串账）。
+
+        `NO_VENUE` 的 venue 查重按设计不做品类过滤（对空串套用「无场所实体」集合
+        会误伤 crypto 等未知品类），故这条防线只能放在写入侧。
+        """
+        ledger_id = self._make_ledger(db)
+        PositionService.process_buy_or_deposit(
+            db,
+            {
+                'symbol': 'SH600519',
+                'name': '贵州茅台',
+                'asset_type': 'stock',
+                'market': 'CN_A',
+                'ledger_id': ledger_id,
+                'family_id': 1,
+                'quantity': 100,
+                'avg_price': 1800.0,
+                'op_type': 'buy',
+                'source': 'manual',
+            },
+        )
+        db.commit()
+        with pytest.raises(ValueError, match='不能按投顾组合记账'):
+            self._buy_portfolio(db, ledger_id, amount=1000.0, symbol='SH600519')
+        db.rollback()
+
+        stock = db.query(Position).filter_by(ledger_id=ledger_id, asset_type='stock').one()
+        # 股票行没被 balance 记账污染（override 仍为空，市值仍走份额×净值）
+        assert stock.valuation_mode == ValuationMode.NAV.value
+        assert stock.market_value_override is None
+
+
 class TestSymbolNormAutoFill:
     """#1662 后续（#1677）：`symbol_norm` 由 ORM 事件自动填充 —— 唯一约束「永不静默失效」的保证。
 

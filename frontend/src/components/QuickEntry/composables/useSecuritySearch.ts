@@ -3,6 +3,8 @@ import { ElMessage } from "element-plus";
 import { searchSecurities } from "@/api/securities";
 import { searchFunds } from "@/api/funds";
 import type { FundSearchItem } from "@/api/funds";
+import { searchAssets } from "@/api/search";
+import { getAdvisorPlatformLabel } from "@/constants/advisorPlatform";
 import { DEFAULT_SUB_RATE } from "@/utils/trading";
 
 /** 证券/基金搜索结果项（原 BuyForm.vue 局部 interface，#980 拆出供子组件共用） */
@@ -66,6 +68,39 @@ function buildManualOption(query: string, ledgerType: string): SecurityOption {
 }
 
 /**
+ * 投顾组合并入买入候选（D70 / #2740）。
+ *
+ * 组合是**可记账**的实体（进 positions、强制 balance 模式），所以它必须能在买入表单被搜到
+ * ——否则「支持记账投顾组合」只是个后端能力。但它没有份额与净值，品类与基金完全不同，
+ * 故只并 `portfolio`：`manager` / `index` 仍不进 positions（D70），不进买入候选。
+ *
+ * 走聚合搜索 `/api/search/assets/`（`useAssetSearch` 的注释里早已写明其用途包含
+ * 「组合购买记账录入」），**不是** `/api/funds/search/`——后者只查 funds 名录，永远搜不到组合
+ * （`services/asset_search._search_advisor_portfolios` 才是组合的 Provider）。
+ */
+async function fetchPortfolioOptions(query: string): Promise<SecurityOption[]> {
+  try {
+    const res = await searchAssets(query);
+    return (res?.data ?? [])
+      .filter(d => d.asset_type === "portfolio")
+      .map(d => {
+        const platform = getAdvisorPlatformLabel(d.extra?.platform);
+        return {
+          symbol: d.code,
+          name: d.name,
+          // 组合无市场/场所归属（后端 market/venue 均为空串，venue 推断为 NO_VENUE）
+          market: d.market ?? "",
+          type: "portfolio",
+          type_label: platform ? `投顾组合 · ${platform}` : "投顾组合"
+        };
+      });
+  } catch {
+    // 聚合搜索失败不让整条搜索链路失败：组合候选缺席，用户仍能正常记基金/证券
+    return [];
+  }
+}
+
+/**
  * 远程搜索：按账户类型分流到基金 / 证券接口，空结果降级为手填项。
  * @param getLedgerType 当前账户类型（调用时读取，账户切换后立即生效）
  */
@@ -96,6 +131,8 @@ export function useSecuritySearch(getLedgerType: () => string) {
             subscription_rate: f.subscription_rate || DEFAULT_SUB_RATE
           };
         });
+        // 投顾组合只在基金/银行账户下可买（股票账户不陈列组合）
+        opts = [...opts, ...(await fetchPortfolioOptions(query))];
       } else {
         const res = await searchSecurities(query);
         const arr = Array.isArray(res) ? res : (res?.data ?? []);

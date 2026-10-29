@@ -41,6 +41,7 @@ from app.core.utils import get_confirm_date, iso_date_only, paginate
 from app.core.venues import asset_types_of_venue, resolve_venue
 from app.domains.funds.models import DailyWorth, Fund
 from app.domains.ledgers.models import Ledger
+from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.transactions.models import Transaction
 from app.services import async_backfill
@@ -304,6 +305,30 @@ def serialize_position_transaction(txn: Transaction, position: Optional[Position
     }
 
 
+def resolve_portfolio_change(
+    db: Session,
+    update_data: dict,
+    family_id: int,
+) -> Optional[str]:
+    """校验持仓改派的目标组合存在且归属本家庭（禁止跨家庭串仓）。
+
+    返回 ``None`` 表示通过；返回字符串是**给调用方 abort(404) 的文案**（HTTP 语义留在
+    视图层，本方法不 import flask）。
+
+    与 `resolve_ledger_change` 同一形态、同一个理由：这类「目标资源存在性 + 归属」
+    校验是业务规则，留在视图里会让每个新增的可改派字段都往 views 里再加一段 query
+    （#1606 视图层职责边界；本文件 positions/views.py 早已在冻结基线内，只减不增）。
+    `portfolio_id` 未传 / 显式置空（解除关联）均直接放行，不查库。
+    """
+    portfolio_id = update_data.get('portfolio_id')
+    if portfolio_id is None:
+        return None
+    target = db.query(Portfolio).filter(Portfolio.id == portfolio_id, Portfolio.family_id == family_id).first()
+    if not target:
+        return '目标组合不存在或无权访问'
+    return None
+
+
 def resolve_ledger_change(
     db: Session,
     position: Position,
@@ -415,7 +440,7 @@ def auto_purchase_money_fund(
 
 
 # 录入阶段已显式给出的具体类型，直接信任，不再做代码推断（避免误伤基金等）
-_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash'}
+_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash', 'portfolio'}
 
 
 def _get_asset_type(data: dict, default: str = 'stock') -> str:
@@ -1369,6 +1394,31 @@ class PositionService:
         is_balance = mode == ValuationMode.BALANCE.value
         amount = data.get('amount', 0) or 0
 
+        # ── 投顾组合：只允许 balance（D70 / #2740）──
+        # portfolio 没有份额、没有净值，市值只能来自 `market_value_override`（D2 双态计价）。
+        # 落成 nav 模式的后果**不是报错而是静默 0 元**：`position_price` job 不会给它定价，
+        # 市值恒为 0，但 has_position 仍为 true，详情页照常渲染一张「持仓 0 元」的卡
+        # ——用户看到的是一个说不通的数字，没有任何提示。
+        # 历史上这条约束只写在 `core/asset_types.py` 的注释里（「不进 positions」），
+        # 没有任何代码执行它，于是「能记进去但记了是坏的」。故在写入侧显式拒绝。
+        if asset_type == 'portfolio' and not is_balance:
+            raise ValueError(
+                '投顾组合只能以 balance（直接余额）模式记账：'
+                '它没有份额与净值，市值靠人工录入金额（valuation_mode 须传 balance）'
+            )
+
+        # 同一条 symbol 已有**别的品类**的持仓时不许合并（#2740）：
+        # 投顾组合的 venue 是 NO_VENUE，`_find_existing_position` 对空 venue 按设计不做
+        # 品类过滤（见其注释：对空串套用「无场所实体」集合会误伤 crypto 等未知品类），
+        # 于是「组合码恰好与某只证券同码」时会合并进那只证券的行——balance 分支只往
+        # `market_value_override` 上加钱，用户看到的是「一只股票凭空多了钱」。
+        # 真实组合码是平台原生码（ZHxxxx / tgcode），撞码概率极低，但静默串账比报错贵。
+        if same is not None and asset_type == 'portfolio' and same.asset_type != 'portfolio':
+            raise ValueError(
+                f'该账户下 {symbol} 已存在一条 asset_type={same.asset_type} 的持仓，'
+                '不能按投顾组合记账；请核对代码或换一个账户'
+            )
+
         # 校验数量/价格
         qty = data.get('quantity', 0) or 0
         price = data.get('avg_price', 0) or 0
@@ -1479,6 +1529,12 @@ class PositionService:
                     # 只累加可写市值并刷新覆写时间
                     same.market_value_override = (same.market_value_override or 0) + amount_cents
                     same.value_override_at = datetime.now()
+                    # 投顾组合自愈（D70）：存量行可能是在写入约束落地前按 nav 建出来的，
+                    # 那一行没有净值、市值恒 0。再次买入时顺手把模式纠正过来，让「同一组合
+                    # 两种计价模式并存」不至于永久留在库里。只对 portfolio 做——其他品类
+                    # 若被以 balance 入参合并，擅自改模式会把份额口径静默作废。
+                    if asset_type == 'portfolio':
+                        same.valuation_mode = ValuationMode.BALANCE.value
                 elif covered_by_anchor:
                     # 这笔交易已包含在快照里（confirm_date <= 锚点日）：**只写流水，不动份额**。
                     # 快照本身已经反映了它，再加一次就是本次修复要解决的重复累加。
