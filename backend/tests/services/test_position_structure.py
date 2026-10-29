@@ -10,11 +10,23 @@
 
 import pytest
 
+from app.domains.ledgers.models import Ledger
 from app.services.position_structure import build_position_structure
 
 
-def _pos(make_position, *, symbol, price, quantity, asset_type='stock', account='账户甲', name=None):
-    return make_position(
+def _pos(
+    make_position,
+    *,
+    symbol,
+    price,
+    quantity,
+    asset_type='stock',
+    account='账户甲',
+    name=None,
+    ledger_id=None,
+    is_money_fund=None,
+):
+    kwargs = dict(
         symbol=symbol,
         name=name or symbol,
         quantity=quantity,
@@ -23,6 +35,12 @@ def _pos(make_position, *, symbol, price, quantity, asset_type='stock', account=
         asset_type=asset_type,
         account_name=account,
     )
+    # 仅在显式指定时传 ledger_id —— 传 None 会让 fixture 跳过自动建账本
+    if ledger_id is not None:
+        kwargs['ledger_id'] = ledger_id
+    if is_money_fund is not None:
+        kwargs['is_money_fund'] = is_money_fund
+    return make_position(**kwargs)
 
 
 def _seed_mixed(make_position):
@@ -130,6 +148,197 @@ def test_空库诚实回空(db):
     assert d['total_cny'] == 0
     assert all(row['ratio_of_total'] is None for row in d['by_asset_class'])
     assert d['concentration']['top5_ratio_of_total'] is None
+
+
+# ── 视角由账户类型决定（#2739）────────────────────────────────────────────
+
+
+def _ledger_of(db, name, ledger_type):
+    """按名字取/建指定类型的账本（fixture 默认建 bank，故这里显式指定）。"""
+    ledger = db.query(Ledger).filter_by(name=name, family_id=1).first()
+    if ledger is None:
+        ledger = Ledger(name=name, ledger_type=ledger_type, family_id=1)
+        db.add(ledger)
+        db.flush()
+    else:
+        ledger.ledger_type = ledger_type
+        db.flush()
+    return ledger
+
+
+def test_组合与家庭级无固定视角(db, make_position):
+    """组合/家庭级跨类型账户混合 ⇒ view=None，前端据此保留切换控件。"""
+    _pos(make_position, symbol='600001', price=10.0, quantity=100, account='账户甲')
+
+    fam = build_position_structure(db, family_id=1)
+    assert fam['view'] is None
+    assert fam['ledger_type'] is None
+    assert fam['cash_like_cny'] == pytest.approx(0.0)
+
+
+def test_证券账户固定股票视角且ETF归权益侧(db, make_position):
+    """证券账户 ⇒ view='stock'；ETF 与股票同榜（否则 ETF 市值会被固定视角藏起来）。"""
+    ledger = _ledger_of(db, '证券账户', 'stock')
+    _pos(make_position, symbol='600001', price=10.0, quantity=100, ledger_id=ledger.id)
+    _pos(
+        make_position, symbol='510300', price=4.0, quantity=100, asset_type='etf',
+        name='沪深300ETF', ledger_id=ledger.id,
+    )
+    _pos(
+        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
+        name='场外基金', ledger_id=ledger.id,
+    )
+
+    d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
+
+    assert d['view'] == 'stock'
+    assert d['ledger_type'] == 'stock'
+    # ETF 进股票组（与股票同榜）
+    assert d['groups']['stock']['count'] == 2
+    assert {row['symbol'] for row in d['groups']['stock']['top']} == {'600001', '510300'}
+    assert d['groups']['fund']['count'] == 1
+    # 场外基金仍归基金侧（不因固定视角被改写），但视角固定为股票故它不在主榜
+    assert _by_class(d)['fund']['value_cny'] == pytest.approx(500.0)
+    assert _by_class(d)['stock']['value_cny'] == pytest.approx(1400.0)
+
+
+def test_基金账户固定基金视角(db, make_position):
+    ledger = _ledger_of(db, '基金账户', 'fund')
+    _pos(
+        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
+        name='混合基金', ledger_id=ledger.id,
+    )
+    _pos(make_position, symbol='600001', price=10.0, quantity=100, ledger_id=ledger.id)
+
+    d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
+
+    assert d['view'] == 'fund'
+    assert d['ledger_type'] == 'fund'
+    assert d['groups']['fund']['count'] == 1
+    # 股票仍在股票侧，但不进主榜（视角固定为基金）
+    assert d['groups']['stock']['count'] == 1
+
+
+def test_银行账户固定基金视角(db, make_position):
+    """银行账户除现金外按基金视角处理（owner 裁定）。"""
+    ledger = _ledger_of(db, '银行账户', 'bank')
+    _pos(
+        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
+        name='银行理财', ledger_id=ledger.id,
+    )
+
+    d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
+
+    assert d['view'] == 'fund'
+    assert d['ledger_type'] == 'bank'
+
+
+def test_账户级货基走类现金排除出持仓榜(db, make_position):
+    """货基是现金等价物，不是持仓：排除出榜且不进集中度分母，但金额要如实报出。
+
+    真实数据形态是 `type='fund'` + `is_money_fund=True`（实测基金账户 11 只）。
+    """
+    ledger = _ledger_of(db, '基金账户', 'fund')
+    _pos(
+        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
+        name='混合基金', ledger_id=ledger.id,
+    )
+    _pos(
+        make_position, symbol='000198', price=1.0, quantity=1000, asset_type='fund',
+        name='场内货基', ledger_id=ledger.id, is_money_fund=True,
+    )
+
+    d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
+
+    assert d['cash_like_cny'] == pytest.approx(1000.0)
+    assert d['total_cny'] == pytest.approx(500.0)  # 货基不在持仓总额内
+    assert d['groups']['fund']['count'] == 1
+    assert d['concentration']['top5_ratio_of_total'] == pytest.approx(100.0, abs=0.01)
+
+
+def test_账户级asset_type为money_fund同样走类现金(db, make_position):
+    """另一条判定路径：`asset_type='money_fund'`（逆回购等现金等价物同族）。"""
+    ledger = _ledger_of(db, '基金账户', 'fund')
+    _pos(
+        make_position, symbol='511990', price=100.0, quantity=10, asset_type='money_fund',
+        name='场内货基', ledger_id=ledger.id,
+    )
+
+    d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
+
+    assert d['cash_like_cny'] == pytest.approx(1000.0)
+    assert d['total_cny'] == pytest.approx(0.0)
+    assert d['groups']['fund']['count'] == 0
+
+
+def test_组合级货基不排除维持现状(db, make_position):
+    """组合级保留切换 ⇒ 货基沿用原口径（不排除），避免误伤已上线的组合页。
+
+    真实数据形态是 `type='fund'` + `is_money_fund=True`（实测 20 只），
+    它在原实现里进「基金」桶、参与 Top 榜 —— 本次不得改动这一点。
+    """
+    _pos(
+        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
+        name='混合基金', account='账户甲',
+    )
+    _pos(
+        make_position, symbol='000198', price=1.0, quantity=1000, asset_type='fund',
+        name='场内货基', account='账户甲', is_money_fund=True,
+    )
+
+    d = build_position_structure(db, family_id=1)
+
+    assert d['view'] is None
+    assert d['cash_like_cny'] == pytest.approx(0.0)
+    assert d['total_cny'] == pytest.approx(1500.0)
+    # 货基仍在基金桶、参与 Top（维持原口径）
+    assert d['groups']['fund']['count'] == 2
+    assert {row['symbol'] for row in d['groups']['fund']['top']} == {'110011', '000198'}
+
+
+def test_组合级asset_type为money_fund归其他桶(db, make_position):
+    """`asset_type='money_fund'`（另一条判定路径）在原实现里归「其他」桶、只出总额。"""
+    _pos(
+        make_position, symbol='511990', price=100.0, quantity=10, asset_type='money_fund',
+        name='场内货基', account='账户甲',
+    )
+
+    d = build_position_structure(db, family_id=1)
+
+    assert d['view'] is None
+    assert _by_class(d)['other']['value_cny'] == pytest.approx(1000.0)
+    assert d['groups']['fund']['count'] == 0
+
+
+def test_账户级三类占比仍然守恒(db, make_position):
+    """排除货基后，三类之和 = 持仓总额（不重不漏）。"""
+    ledger = _ledger_of(db, '证券账户', 'stock')
+    _pos(make_position, symbol='600001', price=10.0, quantity=100, ledger_id=ledger.id)
+    _pos(
+        make_position, symbol='019547', price=1.0, quantity=200, asset_type='bond',
+        name='国债', ledger_id=ledger.id,
+    )
+    _pos(
+        make_position, symbol='511990', price=100.0, quantity=10, asset_type='money_fund',
+        name='场内货基', ledger_id=ledger.id,
+    )
+
+    d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
+
+    assert sum(row['value_cny'] for row in d['by_asset_class']) == pytest.approx(d['total_cny'])
+    assert d['total_cny'] == pytest.approx(1200.0)
+
+
+def test_账户级说明含视角与口径提示(db, make_position):
+    """口径说明必须写清「视角已固定」与货基处理，否则用户无从判断数字含义。"""
+    ledger = _ledger_of(db, '证券账户', 'stock')
+    _pos(make_position, symbol='600001', price=10.0, quantity=100, ledger_id=ledger.id)
+
+    d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
+
+    assert d['notes'][0].startswith('本账户是证券账户')
+    assert 'ETF' in d['notes'][0]
+    assert '货币基金走类现金' in d['notes'][0]
 
 
 # ── 接口契约（#2617）──────────────────────────────────────────────────────
