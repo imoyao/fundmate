@@ -181,12 +181,22 @@ def test_证券账户固定股票视角且ETF归权益侧(db, make_position):
     ledger = _ledger_of(db, '证券账户', 'stock')
     _pos(make_position, symbol='600001', price=10.0, quantity=100, ledger_id=ledger.id)
     _pos(
-        make_position, symbol='510300', price=4.0, quantity=100, asset_type='etf',
-        name='沪深300ETF', ledger_id=ledger.id,
+        make_position,
+        symbol='510300',
+        price=4.0,
+        quantity=100,
+        asset_type='etf',
+        name='沪深300ETF',
+        ledger_id=ledger.id,
     )
     _pos(
-        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
-        name='场外基金', ledger_id=ledger.id,
+        make_position,
+        symbol='110011',
+        price=5.0,
+        quantity=100,
+        asset_type='fund',
+        name='场外基金',
+        ledger_id=ledger.id,
     )
 
     d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
@@ -205,8 +215,13 @@ def test_证券账户固定股票视角且ETF归权益侧(db, make_position):
 def test_基金账户固定基金视角(db, make_position):
     ledger = _ledger_of(db, '基金账户', 'fund')
     _pos(
-        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
-        name='混合基金', ledger_id=ledger.id,
+        make_position,
+        symbol='110011',
+        price=5.0,
+        quantity=100,
+        asset_type='fund',
+        name='混合基金',
+        ledger_id=ledger.id,
     )
     _pos(make_position, symbol='600001', price=10.0, quantity=100, ledger_id=ledger.id)
 
@@ -223,8 +238,13 @@ def test_银行账户固定基金视角(db, make_position):
     """银行账户除现金外按基金视角处理（owner 裁定）。"""
     ledger = _ledger_of(db, '银行账户', 'bank')
     _pos(
-        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
-        name='银行理财', ledger_id=ledger.id,
+        make_position,
+        symbol='110011',
+        price=5.0,
+        quantity=100,
+        asset_type='fund',
+        name='银行理财',
+        ledger_id=ledger.id,
     )
 
     d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
@@ -240,12 +260,23 @@ def test_账户级货基走类现金排除出持仓榜(db, make_position):
     """
     ledger = _ledger_of(db, '基金账户', 'fund')
     _pos(
-        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
-        name='混合基金', ledger_id=ledger.id,
+        make_position,
+        symbol='110011',
+        price=5.0,
+        quantity=100,
+        asset_type='fund',
+        name='混合基金',
+        ledger_id=ledger.id,
     )
     _pos(
-        make_position, symbol='000198', price=1.0, quantity=1000, asset_type='fund',
-        name='场内货基', ledger_id=ledger.id, is_money_fund=True,
+        make_position,
+        symbol='000198',
+        price=1.0,
+        quantity=1000,
+        asset_type='fund',
+        name='场内货基',
+        ledger_id=ledger.id,
+        is_money_fund=True,
     )
 
     d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
@@ -260,8 +291,13 @@ def test_账户级asset_type为money_fund同样走类现金(db, make_position):
     """另一条判定路径：`asset_type='money_fund'`（逆回购等现金等价物同族）。"""
     ledger = _ledger_of(db, '基金账户', 'fund')
     _pos(
-        make_position, symbol='511990', price=100.0, quantity=10, asset_type='money_fund',
-        name='场内货基', ledger_id=ledger.id,
+        make_position,
+        symbol='511990',
+        price=100.0,
+        quantity=10,
+        asset_type='money_fund',
+        name='场内货基',
+        ledger_id=ledger.id,
     )
 
     d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
@@ -278,12 +314,23 @@ def test_组合级货基不排除维持现状(db, make_position):
     它在原实现里进「基金」桶、参与 Top 榜 —— 本次不得改动这一点。
     """
     _pos(
-        make_position, symbol='110011', price=5.0, quantity=100, asset_type='fund',
-        name='混合基金', account='账户甲',
+        make_position,
+        symbol='110011',
+        price=5.0,
+        quantity=100,
+        asset_type='fund',
+        name='混合基金',
+        account='账户甲',
     )
     _pos(
-        make_position, symbol='000198', price=1.0, quantity=1000, asset_type='fund',
-        name='场内货基', account='账户甲', is_money_fund=True,
+        make_position,
+        symbol='000198',
+        price=1.0,
+        quantity=1000,
+        asset_type='fund',
+        name='场内货基',
+        account='账户甲',
+        is_money_fund=True,
     )
 
     d = build_position_structure(db, family_id=1)
@@ -299,8 +346,13 @@ def test_组合级货基不排除维持现状(db, make_position):
 def test_组合级asset_type为money_fund归其他桶(db, make_position):
     """`asset_type='money_fund'`（另一条判定路径）在原实现里归「其他」桶、只出总额。"""
     _pos(
-        make_position, symbol='511990', price=100.0, quantity=10, asset_type='money_fund',
-        name='场内货基', account='账户甲',
+        make_position,
+        symbol='511990',
+        price=100.0,
+        quantity=10,
+        asset_type='money_fund',
+        name='场内货基',
+        account='账户甲',
     )
 
     d = build_position_structure(db, family_id=1)
@@ -315,12 +367,22 @@ def test_账户级三类占比仍然守恒(db, make_position):
     ledger = _ledger_of(db, '证券账户', 'stock')
     _pos(make_position, symbol='600001', price=10.0, quantity=100, ledger_id=ledger.id)
     _pos(
-        make_position, symbol='019547', price=1.0, quantity=200, asset_type='bond',
-        name='国债', ledger_id=ledger.id,
+        make_position,
+        symbol='019547',
+        price=1.0,
+        quantity=200,
+        asset_type='bond',
+        name='国债',
+        ledger_id=ledger.id,
     )
     _pos(
-        make_position, symbol='511990', price=100.0, quantity=10, asset_type='money_fund',
-        name='场内货基', ledger_id=ledger.id,
+        make_position,
+        symbol='511990',
+        price=100.0,
+        quantity=10,
+        asset_type='money_fund',
+        name='场内货基',
+        ledger_id=ledger.id,
     )
 
     d = build_position_structure(db, family_id=1, ledger_id=ledger.id)
