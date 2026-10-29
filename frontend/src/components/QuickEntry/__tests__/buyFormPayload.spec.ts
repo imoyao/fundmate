@@ -131,6 +131,59 @@ describe("buildBuyPayload 净值缺失先记账三件套", () => {
   });
 });
 
+describe("buildBuyPayload 投顾组合（D70 / #2740）", () => {
+  const portfolioForm = (overrides: Partial<BuyPayloadForm> = {}) =>
+    mkForm({
+      type: "portfolio",
+      symbol: "ZH123456",
+      price: undefined,
+      ...overrides
+    });
+
+  it("必须显式带 valuation_mode='balance'", () => {
+    const body = buildBuyPayload({
+      ...base,
+      form: portfolioForm(),
+      quantity: 0
+    });
+    expect(body.valuation_mode).toBe("balance");
+  });
+
+  it("普通标的不得带 valuation_mode：不传由后端按默认 nav 处理", () => {
+    const body = buildBuyPayload({ ...base, form: mkForm() });
+    expect("valuation_mode" in body).toBe(false);
+  });
+
+  it("份额与均价恒为 0：组合没有份额、也没有单价", () => {
+    const body = buildBuyPayload({
+      ...base,
+      form: portfolioForm(),
+      quantity: 285.2857
+    });
+    expect(body.quantity).toBe(0);
+    expect(body.avg_price).toBe(0);
+  });
+
+  it("手续费恒为 0：费率模式下也不按申购费率换算", () => {
+    // applyFeePreset 仍会为账户填上一个费率，用户看不到该字段 → 必须归零，
+    // 否则一笔 10 万买入会静默记进 150 元手续费。
+    const body = buildBuyPayload({
+      ...base,
+      feeMode: "rate",
+      form: portfolioForm({ fee: 0.15, buyAmount: 100000 })
+    });
+    expect(body.fee).toBe(0);
+  });
+
+  it("金额原样提交：balance 模式靠 amount 记账", () => {
+    const body = buildBuyPayload({
+      ...base,
+      form: portfolioForm({ buyAmount: 8000 })
+    });
+    expect(body.amount).toBe(8000);
+  });
+});
+
 describe("buildBuyPayload 其余字段", () => {
   it("market 缺失回退 CN_A，price 缺失回退 0", () => {
     const body = buildBuyPayload({

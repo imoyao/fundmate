@@ -813,6 +813,9 @@ if code == 1:
 ### 持仓与资产
 
 - 可交易持仓（股票/基金/ETF/可转债）入 `positions` 表。
+- 投顾组合（`portfolio`）入 `positions` 表，且 **`valuation_mode` 必须为 `balance`**（D70 / #2740；判据：`scripts/guard_portfolio_balance_mode.py`），
+  因为组合没有份额也没有净值，落成默认的 `nav` 模式会让市值恒为 0，而页面照常渲染一张「持仓 0 元」的卡。
+  写入侧 `process_buy_or_deposit` 显式拒绝非 balance，`manager` / `index` 仍不进 `positions`。
 - 静态资产（现金/房产等）入 `assets` 表。
 
 ### 数据分级与登录门禁

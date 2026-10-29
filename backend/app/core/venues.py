@@ -36,7 +36,10 @@ r"""交易场所（venue）的单一权威定义（#1662）。
     fund       → OTC                 （场外公募申购；场内 LOF 走 etf）
     money_fund → OTC                 （**缺省取场外**：场外货基是主流；场内货基见下）
     stock / etf / bond / reverse_repo → EXCHANGE（交易所撮合）
-    manager / portfolio / index → ''  （无交易场所，不进 positions）
+    manager / portfolio / index → ''  （无交易场所：不以交易所撮合）
+                                       （manager / index 不进 positions；
+                                        portfolio **进** positions，见 D70 / #2740 ——
+                                        但它同样没有交易所归属，故仍是 NO_VENUE）
 
 ⚠️ **asset_type → venue 不是全函数**（本模块最容易踩的坑），已证的例外：
 

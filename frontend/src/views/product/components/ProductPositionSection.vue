@@ -12,6 +12,7 @@ import { sumUp } from "./productPositionMetrics";
 import { groupByLedger } from "./positionSection/positionGrouping";
 import PositionChannelTable from "./positionSection/PositionChannelTable.vue";
 import PositionMetricGrid from "./positionSection/PositionMetricGrid.vue";
+import PositionAdvisorAdjusts from "./positionSection/PositionAdvisorAdjusts.vue";
 import type { ChannelGroup } from "./positionSection/positionTypes";
 
 /**
@@ -98,6 +99,17 @@ const totals = computed(() => sumUp(rows.value));
 
 const hasRows = computed(() => !!rows.value.length);
 
+/**
+ * 投顾组合持仓 id（#2740）：有它才挂「主理人最近调仓」。
+ *
+ * 组合持仓按 `symbol` 查、跨账户可能有多行，但调仓明细是**组合级**的（与哪个账户无关），
+ * 取任意一行即可；这里取第一行，稳定且不额外发请求。
+ */
+const portfolioPositionId = computed<number | null>(() => {
+  if (props.assetType !== "portfolio") return null;
+  return rows.value[0]?.id ?? null;
+});
+
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
@@ -136,53 +148,73 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 </script>
 
 <template>
-  <!-- SectionHeader 必须是 CardBlock 的**直接子节点**：CardBlock 只有一个匿名
+  <!-- 外层只是「持仓 + 主理人调仓」两张卡的排版壳：详情页正文靠 `.product-detail__main`
+       的 flex gap 控制节奏，本组件若返回多根就继承不到 `id="nav-position"`（导航胶囊会失去锚点），
+       故保留单根、由本壳承担间距。 -->
+  <div class="product-position-shell">
+    <!-- SectionHeader 必须是 CardBlock 的**直接子节点**：CardBlock 只有一个匿名
        <slot />，没有 header 具名插槽，写 <template #header> 会被 Vue 静默丢弃——
        本组件曾这么写，结果标题、info 口径说明与持有年化整段不渲染。 -->
-  <CardBlock class="product-position">
-    <SectionHeader
-      title="我的持仓"
-      info="按渠道（账户）分列；盈亏率 = 盈亏 ÷ 持仓成本。未归档持仓单独一组。持有年化为跨账户合并现金流后的 XIRR。"
-      info-label="关于持仓口径"
-    >
-      <template #action>
-        <!-- 持有年化挂在标题右侧，不占表格列（#1972）。区块已由 detail.vue 的
+    <CardBlock class="product-position">
+      <SectionHeader
+        title="我的持仓"
+        info="按渠道（账户）分列；盈亏率 = 盈亏 ÷ 持仓成本。未归档持仓单独一组。持有年化为跨账户合并现金流后的 XIRR。"
+        info-label="关于持仓口径"
+      >
+        <template #action>
+          <!-- 持有年化挂在标题右侧，不占表格列（#1972）。区块已由 detail.vue 的
              has_position 门槛保证「确有持仓」才挂载，故不再判 rows.length。 -->
-        <p class="product-position__xirr">
-          <span class="product-position__xirr-label">持有年化</span>
-          <RiseFallText
-            v-if="xirr !== null"
-            :value="xirr"
-            size="sm"
-            :precision="2"
-          />
-          <span v-else class="product-position__xirr-empty">—</span>
-        </p>
-      </template>
-    </SectionHeader>
+          <p class="product-position__xirr">
+            <span class="product-position__xirr-label">持有年化</span>
+            <RiseFallText
+              v-if="xirr !== null"
+              :value="xirr"
+              size="sm"
+              :precision="2"
+            />
+            <span v-else class="product-position__xirr-empty">—</span>
+          </p>
+        </template>
+      </SectionHeader>
 
-    <div v-loading="loading" class="product-position__body">
-      <!-- 拉取中 / 拉不到时 hasRows 为假：给一句明确的空态，而不是让整块凭空消失。
+      <div v-loading="loading" class="product-position__body">
+        <!-- 拉取中 / 拉不到时 hasRows 为假：给一句明确的空态，而不是让整块凭空消失。
            原先 CardBlock 挂 v-if="hasRows"，连带让这里的 v-loading 永远不触发——
            加载中 hasRows 必为假、整块不渲染，遮罩自然无处可挂，故改为空态接管。 -->
-      <p v-if="!loading && !hasRows" class="product-position__hint">
-        当前产品暂无持仓记录。
-      </p>
+        <p v-if="!loading && !hasRows" class="product-position__hint">
+          当前产品暂无持仓记录。
+        </p>
 
-      <!-- 单账户：不进表格、不重复表头，走紧凑指标网格 -->
-      <PositionMetricGrid
-        v-else-if="single"
-        :group="single"
-        :asset-type="props.assetType"
-      />
+        <!-- 单账户：不进表格、不重复表头，走紧凑指标网格 -->
+        <PositionMetricGrid
+          v-else-if="single"
+          :group="single"
+          :asset-type="props.assetType"
+        />
 
-      <!-- 多账户：一个表头管全部行；产品列与每组表头都已去掉 -->
-      <PositionChannelTable v-else :groups="groups" :totals="totals" />
-    </div>
-  </CardBlock>
+        <!-- 多账户：一个表头管全部行；产品列与每组表头都已去掉 -->
+        <PositionChannelTable v-else :groups="groups" :totals="totals" />
+      </div>
+    </CardBlock>
+
+    <!-- 主理人最近调仓（#2740 / D70）：仅投顾组合、且确有持仓时挂载。
+       文案与降级口径见该组件头注释——重点是别让人误读成「我自己的调仓」。 -->
+    <PositionAdvisorAdjusts
+      v-if="portfolioPositionId !== null"
+      :position-id="portfolioPositionId"
+    />
+  </div>
 </template>
 
 <style lang="scss" scoped>
+/* 排版壳：与详情页正文同一套节奏（`.product-detail__main` 的 gap = --space-5） */
+.product-position-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
 .product-position {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);

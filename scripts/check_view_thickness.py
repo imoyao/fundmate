@@ -301,9 +301,19 @@ BASELINE: dict[str, dict[str, int]] = {
     # 与 `/api/transactions` 共用同一套排序与序列化口径。
     # 视图因此 lines 320 → 288、orm_queries 4 → 2（**收紧**），按既有先例以 `--report`
     # 实测回写；max_func 仍为 57（未动）。
+    # 2026-10-29 重取（#2740 / D70，**新增端点，非放宽**）：新增
+    # `GET /api/positions/<id>/advisor-context/`（投顾组合的主理人调仓提示，只读）。
+    # 该端点体只做「取持仓 → 品类校验 → 调 `services/advisor_position` → 组信封」，
+    # limit 夹取与调仓口径都在服务层——**不含任何业务规则**，正是本守卫要保住的形态。
+    # 同 PR 顺手把 `portfolio_id` 改派的「目标存在 + 归属本家庭」校验下沉为
+    # `position_service.resolve_portfolio_change`（与 #2372 的 `resolve_ledger_change` 同形态），
+    # 于是 lines 288 → 307（**净 +19 = 端点编排 +19**）、orm_queries 2 → 1（**收紧**）、
+    # max_func 57 / commits 0 不动。之所以不做净零：本文件其余部分是价格区间拦截 / 货基归一
+    # 等既有规则，动它们属另一件事（范围外），换行数的正当路径是**下沉规则**而不是
+    # 把无关重构塞进这张卡；端点本身已无进一步下沉空间（服务不再拥有 HTTP 语义）。
     "backend/app/domains/positions/views.py": {
-        "lines": 288,
-        "orm_queries": 2,
+        "lines": 307,
+        "orm_queries": 1,
         "commits": 0,
         "max_func": 57,
     },

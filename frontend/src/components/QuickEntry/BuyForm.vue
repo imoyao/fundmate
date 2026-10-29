@@ -57,23 +57,11 @@
 
     <!-- ===== 核心三兄弟 ===== -->
 
-    <!-- 1. 买入金额 -->
-    <el-form-item label="买入金额" prop="buyAmount">
-      <div class="flex flex-col w-full">
-        <el-input-number
-          v-model="form.buyAmount"
-          style="width: 100%"
-          class="w-full"
-          :controls="false"
-          :precision="2"
-          :min="0"
-          placeholder="输入买入金额"
-        />
-        <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-          买入金额将包含手续费，系统自动计算份额
-        </div>
-      </div>
-    </el-form-item>
+    <!-- 1. 买入金额（投顾组合的提示语文案在组件内部分叉） -->
+    <BuyAmountField
+      v-model:amount="form.buyAmount"
+      :is-portfolio="form.type === 'portfolio'"
+    />
 
     <!-- 2. 手续费（带有金额/费率切换） -->
     <BuyFeeField
@@ -85,8 +73,12 @@
       @discount-change="onFundFeeDiscountChange"
     />
 
-    <!-- 3. 确认份额（字号放大，用户可编辑微调） -->
-    <el-form-item label="确认份额" prop="shares">
+    <!-- 3. 确认份额（字号放大，用户可编辑微调）；投顾组合无份额概念，整块隐藏（D70） -->
+    <el-form-item
+      v-if="form.type !== 'portfolio'"
+      label="确认份额"
+      prop="shares"
+    >
       <el-input-number
         v-model="form.shares"
         style="width: 100%"
@@ -107,7 +99,9 @@
 
     <!-- 4. 确认净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
     <TradeNavPriceRow
-      v-if="selectedSecurityOption?.type === 'fund'"
+      v-if="
+        selectedSecurityOption?.type === 'fund' && form.type !== 'portfolio'
+      "
       :price="form.price"
       :nav-date="actualNavDate"
       :fallback-date="form.trade_date"
@@ -158,6 +152,7 @@ import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import { ALLOCATION_OPTIONS } from "@/constants";
 import { disabledTradeDate } from "@/utils/date";
 import BuyAccountField from "./components/BuyAccountField.vue";
+import BuyAmountField from "./components/BuyAmountField.vue";
 import BuySecuritySearchField from "./components/BuySecuritySearchField.vue";
 import BuyFeeField from "./components/BuyFeeField.vue";
 import TradeNavPriceRow from "./components/TradeNavPriceRow.vue";

@@ -542,6 +542,26 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '`PUBLIC_PRO_ROUTES` 的豁免是**逐条带理由**的，不是按目录/前缀批量放行。'
         ),
     },
+    'scripts/guard_portfolio_balance_mode.py': {
+        'rule': '投顾组合进 positions 必须 balance 模式（D70 / #2740）',
+        # 源 #2740（#1205 切片 A）。`core/asset_types.py` 曾写「manager / portfolio
+        # **不进 positions**」，但**没有任何代码执行那句话** ⇒ portfolio 记进 positions 后
+        # 落在默认 `nav` 模式，没有份额也没有净值、`position_price` 不给它定价
+        # ⇒ 市值恒为 0，而详情页照常渲染一张「持仓 0 元」的卡。失败形态是静默的
+        # （无报错、无日志），所以判据必须钉在写入路径上，而不是靠「约定没人这么写」。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_portfolio_balance_mode.py',
+        # 边界写清楚，避免下一个人以为它保证「portfolio 一定记得对」。
+        'covered': (
+            '只判三件事的**存在与位置**：`process_buy_or_deposit` 里那段约束还在（AST 认'
+            '「portfolio 字面量 + 非 balance 判定 + 分支体内 raise」）；`asset_types.py` 的'
+            '旧表述没回归、新口径写在注释里；`decisions.md` 有 D70 行。'
+            '**不判运行时行为**（真的拒绝由 test_positions.py::TestPortfolioBalanceMode 管）；'
+            '**不判前端**（买入表单提交 balance 由 buyFormPayload.spec.ts 管）；'
+            '**不判 assets 表**（D70 只谈 positions）；'
+            '**只认这一条写入入口**——将来出现不经它的第二条写入路径，先扩判据再合并'
+        ),
+    },
     'scripts/guard_bridge_machine_branch_single_writer.py': {
         'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
         'runner': 'ci',

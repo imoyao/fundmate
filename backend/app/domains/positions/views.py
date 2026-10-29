@@ -14,7 +14,6 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.retry import retry_on_db_locked
 from app.core.validation import parse_body, parse_query
-from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import (
     ConversionEstimate,
@@ -24,6 +23,7 @@ from app.domains.positions.schemas import (
     PositionUpdate,
 )
 from app.domains.transactions.models import Transaction
+from app.services.advisor_position import build_advisor_context, parse_adjust_limit
 from app.services.conversion_service import ConversionService
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_service import (
@@ -31,6 +31,7 @@ from app.services.position_service import (
     list_position_transactions,
     query_transactions_by_identity,
     resolve_ledger_change,
+    resolve_portfolio_change,
     serialize_position_transaction,
 )
 from app.services.position_valuation import allocate_value
@@ -67,6 +68,28 @@ def get_position_transactions(id: int):
         if not position:
             abort(404, '持仓不存在')
         data = [serialize_position_transaction(t, position) for t in list_position_transactions(db, position)]
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/<int:id>/advisor-context/')
+def get_position_advisor_context(id: int):
+    """投顾组合持仓的主理人调仓（只读，**仅提示**）。
+
+    与 `/api/funds/advisors/<code>/adjusts/` 的分工：那个按**组合码**取（还没持仓也能看），
+    本接口按**持仓 id** 取，回答「我持有的这个组合，主理人最近动过什么」。
+
+    `data=null` + `error_code=0` 是「本地暂未收录该组合」这个**可降级**状态，不是错误
+    （组合属市场域，缺它不影响记账 / 市值 / 盈亏的算法）；非组合持仓直接 400——
+    否则「查不到数据」与「调用点写错」会共用同一个 null，前端分不清。
+    """
+    with get_db() as db:
+        position = get_owned_or_404(db, Position, id)  # 越权与不存在统一 404
+        if position.asset_type != 'portfolio':
+            abort(400, '该持仓不是投顾组合，没有主理人调仓信息')
+        data = build_advisor_context(db, position, parse_adjust_limit(request.args.get('limit')))
+        if data is None:
+            # error_code=0 沿用 search/ledgers 视图「ok 但无内容」的既有约定。
+            return jsonify({'data': None, 'message': '本地暂未收录该投顾组合的调仓数据', 'error_code': 0})
         return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -195,15 +218,11 @@ def update_position(id):
 
         update_data = json_data.model_dump(exclude_unset=True)
 
-        # 持仓所属组合改派：校验目标组合存在且归属本家庭（禁止跨家庭串仓）
-        if 'portfolio_id' in update_data and update_data['portfolio_id'] is not None:
-            target = (
-                db.query(Portfolio)
-                .filter(Portfolio.id == update_data['portfolio_id'], Portfolio.family_id == get_family_id())
-                .first()
-            )
-            if not target:
-                abort(404, description='目标组合不存在或无权访问')
+        # 持仓所属组合改派 + 账户变更的校验都下沉到 service（#2372 / #2740）：
+        # 视图只留「校验不通过就 abort」这条 HTTP 语义。
+        portfolio_err = resolve_portfolio_change(db, update_data, get_family_id())
+        if portfolio_err:
+            abort(404, description=portfolio_err)
 
         # #2372：ledger_id 变更的账户存在性校验与 account_name 快照同步下沉到 service
         ledger_err = resolve_ledger_change(db, position, update_data, get_family_id())

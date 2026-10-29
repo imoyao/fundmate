@@ -942,6 +942,22 @@ jobs:
       - name: 校验 Pro 端点权益接线（阻断）
         run: python scripts/guard_pro_endpoint_registry.py
 
+      # 投顾组合必须 balance 模式记账（D70 / #2740，源 #1205 切片 A）。
+      #
+      # WHY：`core/asset_types.py` 曾写「manager / portfolio **不进 positions**，仅 watchlist
+      # 引用」——而那句话**没有任何代码执行它**。于是现状是「能记进去、但记了是坏的」：
+      # portfolio 落在默认 `nav` 模式，组合没有份额也没有净值 ⇒ `position_price` job 不给它
+      # 定价 ⇒ **市值恒为 0**，详情页却照常渲染一张「持仓 0 元」的卡。
+      # 失败形态是**静默**的（无异常、无日志、无红灯），所以判据不能靠「约定没人这么写」，
+      # 必须钉在写入路径上：`process_buy_or_deposit` 里「portfolio 且非 balance ⇒ raise」
+      # 那段还在、位置没搬；`asset_types.py` 的旧表述不许回归；`decisions.md` 的 D70 行必须在。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界（不判运行时行为、不判前端、不判 assets 表、只认一条写入入口）见脚本 docstring；
+      # 回归网在 scripts/tests/test_guard_portfolio_balance_mode.py（14 条，含真实代码回退探针：
+      # 删整段约束 / 删 `and not is_balance` / `raise` 换日志 / 函数改名退 2，均须转红）。
+      - name: 校验投顾组合 balance 口径（阻断）
+        run: python scripts/guard_portfolio_balance_mode.py
+
       # 规则登记与生命周期守卫（源：用户问「写进 AGENTS.md 的规则，别的 Agent 不遵守怎么办」）。
       #
       # WHY：本仓有 30+ 个守门脚本，但**从没有人问过「AGENTS.md 里那些『强制 / 禁止』

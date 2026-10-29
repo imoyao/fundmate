@@ -1,5 +1,6 @@
 import type { WatchlistItem } from "@/api/watchlist";
 import type { AdvisorAdjustItem } from "@/api/funds";
+import { advisorOpTone, advisorRatioText } from "@/utils/advisorAdjust";
 
 /** 非交易实体（组合 / 经理）：不展示代码、不展示「持有」区 */
 export const COMPOSITE_TYPES = new Set(["manager", "portfolio"]);
@@ -86,21 +87,21 @@ export function tagTextOf(
   return names.length ? names.join("、") : "—";
 }
 
-/** 加仓/减仓用涨跌语义色，新增/持平/建仓用中性色（不是「行情」，别误导） */
+/**
+ * 加仓/减仓用涨跌语义色，新增/持平/建仓用中性色（不是「行情」，别误导）。
+ * 方向判定与比例文案收口在 `@/utils/advisorAdjust`（#2740：详情页持仓区块也要用同一口径），
+ * 这里只负责映射成本抽屉自己的类名。
+ */
 export function opClassOf(op: string | null): string {
-  if (op === "加仓") return "wqv-op wqv-op--add";
-  if (op === "减仓") return "wqv-op wqv-op--cut";
+  const tone = advisorOpTone(op);
+  if (tone === "add") return "wqv-op wqv-op--add";
+  if (tone === "cut") return "wqv-op wqv-op--cut";
   return "wqv-op";
 }
 
 /** 调仓比例：只有一侧有值时也要说清是哪一侧（「→ —」而不是空） */
 export function ratioTextOf(it: AdvisorAdjustItem): string {
-  const pre = it.pre_ratio;
-  const after = it.after_ratio;
-  if (pre == null && after == null) return "";
-  if (pre == null) return `${after?.toFixed(2)}%`;
-  if (after == null) return `${pre.toFixed(2)}% → —`;
-  return `${pre.toFixed(2)}% → ${after.toFixed(2)}%`;
+  return advisorRatioText(it);
 }
 
 /** 有行情价才算「最新价」（0 是脏值，与缺失同处理） */

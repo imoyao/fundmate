@@ -176,3 +176,77 @@ def test_no_holdings_returns_empty_not_error(client, db):
     resp = client.get('/api/funds/advisors/EMPTY_ONE/adjusts/')
     assert resp.status_code == 200
     assert resp.get_json()['data']['adjusts'] == []
+
+
+# ── 持仓视角：GET /api/positions/<id>/advisor-context/（#2740 / D70）──
+#
+# 组合持仓在 user 域（positions）、组合与调仓在 market 域（advisor_*）。本接口是
+# 「应用层两步法」（按 symbol 关联，禁 SQL join）的唯一出口，故要守住三条边界：
+# 品类鉴权（非投顾组合 → 400）、可降级（组合不在本地库 → data=null 而非 500）、
+# 口径复用（不另写一套调仓判定）。
+
+
+def _make_advisor_position(make_position, code='ZH012926'):
+    return make_position(
+        symbol=code,
+        name='远足',
+        asset_type='portfolio',
+        account_name='投顾账户',
+        valuation_mode='balance',
+        market_value_override=2000000,
+    )
+
+
+def test_advisor_context_returns_recent_adjusts(client, db, make_position):
+    """持有投顾组合 → 返回组合元信息 + 最近调仓（默认 3 个调仓日）。"""
+    _seed(db)
+    pos = _make_advisor_position(make_position)
+
+    resp = client.get(f'/api/positions/{pos.id}/advisor-context/')
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+
+    assert data['position_id'] == pos.id
+    assert data['code'] == 'ZH012926'
+    assert data['name'] == '远足'
+    assert data['platform'] == 'QIEMAN'
+    # 复用 build_advisor_adjusts 的分组口径：按日倒序、同日聚合
+    assert [a['adjust_date'] for a in data['adjusts']] == ['2026-09-11', '2026-08-20']
+    assert len(data['adjusts'][0]['items']) == 2
+
+
+def test_advisor_context_limit_param(client, db, make_position):
+    """limit 截断调仓日数；非法 limit 退回缺省 3 而不是 500。"""
+    _seed(db)
+    pos = _make_advisor_position(make_position)
+
+    one = client.get(f'/api/positions/{pos.id}/advisor-context/?limit=1').get_json()['data']['adjusts']
+    assert len(one) == 1
+    bad = client.get(f'/api/positions/{pos.id}/advisor-context/?limit=abc').get_json()['data']['adjusts']
+    assert len(bad) == 2  # 缺省 3 ≥ 实际 2 个调仓日
+
+
+def test_advisor_context_missing_portfolio_degrades_to_null(client, db, make_position):
+    """组合不在本地 market 域 → data=null、error_code=0（可降级，不判 500）。
+
+    这是产品口径：主数据是否已同步不影响记账正确性，缺了只是少一张提示卡。
+    """
+    pos = _make_advisor_position(make_position, code='ZH_NOT_SYNCED')
+    resp = client.get(f'/api/positions/{pos.id}/advisor-context/')
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['data'] is None
+    assert body['error_code'] == 0
+
+
+def test_advisor_context_rejects_non_portfolio(client, db, make_position):
+    """非投顾组合持仓 → 400（与「组合不在本地库」的 data=null 必须可区分）。"""
+    pos = make_position(symbol='004369', name='场外基金', asset_type='fund', account_name='基金账户')
+    resp = client.get(f'/api/positions/{pos.id}/advisor-context/')
+    assert resp.status_code == 400
+    assert resp.get_json()['data'] is None
+
+
+def test_advisor_context_unknown_position_404(client, db):
+    resp = client.get('/api/positions/999999/advisor-context/')
+    assert resp.status_code == 404

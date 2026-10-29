@@ -100,6 +100,11 @@ export function useBuySubmit(deps: {
           value: unknown,
           callback: (err?: Error) => void
         ) => {
+          // 投顾组合（D70）：没有份额概念，校验必须放行，否则用户永远提交不了
+          if (deps.form.type === "portfolio") {
+            callback();
+            return;
+          }
           // 净值缺失先记账：份额允许留空（后端按金额/占位价暂算，官方净值到位后回填）
           if (
             deps.navMissing.value &&
@@ -138,7 +143,9 @@ export function useBuySubmit(deps: {
     // 官方净值落库后由 nav_backfill 回填份额与成本
     const navPending = form.type === "fund" && deps.navMissing.value;
     const quantity = form.shares ?? 0;
-    if (!navPending && quantity <= 0) {
+    // 投顾组合没有份额（D70 / #2740）：它的校验是「金额 > 0」，由 buildBuyPayload
+    // 传 quantity=0 + valuation_mode='balance'，后端只校验 amount。
+    if (!navPending && form.type !== "portfolio" && quantity <= 0) {
       ElMessage.error("确认份额必须大于0");
       return;
     }

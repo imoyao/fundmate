@@ -33,8 +33,16 @@ ASSET_TYPE_LABELS: dict[str, str] = {
     'bond': '可转债',
     'index': '指数',
     'crypto': '加密货币',
-    # #1286 品种差异化维度：可自选观察的非交易实体（不进 positions，仅 watchlist 引用）。
-    # manager/portfolio 无市场与交易场所属性，watchlist 行的 market/venue 以空串 '' 存储。
+    # #1286 品种差异化维度：可自选观察的非交易实体。三者都无市场与交易场所属性，
+    # watchlist 行的 market/venue 以空串 '' 存储（`core/venues._NO_VENUE_ASSET_TYPES`）。
+    #
+    # 是否进 positions **按品类分档**（D70，2026-10-29，推翻 #1286 时「一律不进」的表述）：
+    # - manager / index：**不进 positions**——没有「我花了多少钱买它」的语义，
+    #   进持仓只会造出一笔不存在的资产；
+    # - portfolio：**进 positions，且必须 `valuation_mode='balance'`**——投顾组合是用户
+    #   真实付钱买的一篮子产品，只是没有份额 / 净值，市值靠人工录入（D2 双态计价）。
+    #   旧表述「不进 positions」从未被代码执行，副作用是落成 nav 模式后市值恒为 0
+    #   （`services/position_service` 的写入约束现在会显式拒绝，见 D70）。
     'manager': '基金经理',
     'portfolio': '投顾组合',
     'money_fund': '货币基金',
