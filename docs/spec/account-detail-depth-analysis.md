@@ -1,6 +1,6 @@
 # 账户详情页「持仓集中度 / 行业分布」占位卡处置（#2739）
 
-> 状态：**已实现**（2026-10-29 owner 裁定后落地，分支 `feat/2739-ledger-depth-analysis`）。相关卡：#2739（占位卡处置）、#2595（持仓分析聚合页）、#2617（持仓结构 / 穿透）。
+> 状态：**已实现**（2026-10-29 owner 裁定后落地，PR #2745，分支 `feat/2739-ledger-depth-analysis`）。相关卡：#2739（占位卡处置）、#2595（持仓分析聚合页）、#2617（持仓结构 / 穿透）。
 > 证据附录：`docs/spec/account-detail-depth-analysis-eval.md`（四页面分析块对照矩阵 + 独立冗余评估）。
 > 前置事实：`docs/working-notes/ledger-detail-info-redesign-plan-2026-08-27.md`（2026-08-27 账户详情页重构计划，本文是其 P1 段落的收尾）。
 
@@ -239,7 +239,7 @@ props: { ledgerId?: number }
 | 文档 | 动作 | 状态 |
 |---|---|---|
 | `docs/working-notes/ledger-detail-info-redesign-plan-2026-08-27.md` | P1 段落补「落库记录」：集中度 ← #2617、行业分布 ← #870/#2595、账户详情内嵌 ← #2739 本 PR；并注明「P1 其余项（当前持仓 / 投资风格 / 股票分布 / 资金流向）仍未做」 | ✅ 已补 |
-| 本文档 + 附录 | 状态改为「已实现」并回填裁定结果 | ✅ 已改（PR 号见分支 `feat/2739-ledger-depth-analysis`） |
+| 本文档 + 附录 | 状态改为「已实现」并回填裁定结果 | ✅ 已改（PR #2745） |
 | `docs/design/components.md` | 登记「账户详情页已接入页内导航」，并改写 tabs 接入判据 | ✅ 已改 |
 | `frontend/src/views/asset/position-analysis/index.vue` | 更正 `:7-12` 分工表的歧义措辞（「聚合视图」→「同源同口径」） | ✅ 已改（口径与端点一字未动） |
 | `docs/spec/index.md` | 登记本文档与附录 | 见 §5.5 |
