@@ -627,6 +627,10 @@ class LedgerService:
                     'holding_days': (today_shanghai() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,
                     'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未配置'),
+                    # 所属组合（D20 持仓级组合）：账户详情页「所属组合」列据此区分
+                    # 「显式指派」与「随账户继承」。``None`` = 未指派、归到本账户默认组合。
+                    # 只增不改：本键缺失会让前端把「继承」误渲染成「未归属」。
+                    'portfolio_id': p.portfolio_id,
                     'position_ratio': ratio,  # 绝对为 float
                     'back_to_cost_rate': back,
                     'fund_category': None,

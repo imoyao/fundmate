@@ -133,7 +133,12 @@ import {
   type ClearedCycle,
   type ClearedCyclesSummary
 } from "@/api/summary";
-import { fmtHoldingDays, fmtRatio, pnlTotalCaption } from "./helpers";
+import {
+  fmtHoldingDays,
+  fmtHoldingDaysValue,
+  fmtRatio,
+  pnlTotalCaption
+} from "./helpers";
 
 defineOptions({ name: "ClearedCyclesSection" });
 
@@ -176,11 +181,10 @@ const pnlTotalLabel = computed(() =>
 );
 const winRateLabel = computed(() => fmtRatio(summary.value.win_rate));
 const ratioLabel = computed(() => fmtRatio(summary.value.profit_loss_ratio));
-const avgHoldingLabel = computed(() =>
-  summary.value.avg_holding_days === null
-    ? null
-    : String(summary.value.avg_holding_days)
-);
+const avgHoldingLabel = computed(() => {
+  const days = fmtHoldingDaysValue(summary.value.avg_holding_days);
+  return days === null ? null : String(days);
+});
 const winRateCaption = computed(() => {
   const s = summary.value;
   if (s.sample_count === 0) return "暂无已完结周期";
