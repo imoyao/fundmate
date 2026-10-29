@@ -27,6 +27,38 @@ from app.services.fund_utils import should_exclude_from_investment
 from app.services.pnl_settle import is_settled_today
 
 
+def portfolio_ledger_ids(db, family_id: int, portfolio_id: int) -> list[int]:
+    """组合的关联账户集合（``ledgers.portfolio_id`` 指向本组合的账户）。
+
+    注意：这套集合**不再决定组合是否可见**——组合可以只靠``positions.portfolio_id``
+    显式指派持仓而存在（A0）。它只用于两件事：持仓的**继承**路径、账户级资产（现金）归属。
+    """
+    return [
+        row[0]
+        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
+    ]
+
+
+def portfolio_position_conditions(portfolio_id: int, ledger_ids: list[int]) -> list:
+    """组合持仓的归属条件（**唯一口径**，持仓视图与组合收益共用）。
+
+    - 主路径：``positions.portfolio_id == portfolio_id``（显式指派，永远优先）
+    - 继承路径：仅当持仓未显式指定组合时，继承其账户(ledger)的默认组合
+
+    显式指派必须压过继承，否则改派后的持仓会同时出现在「账户默认组合」里
+    （D20 一期回归测试 ``test_position_explicit_portfolio_id_takes_precedence``）。
+    `ledger_ids` 为空时只保留显式条件——这正是「组合不绑任何账户、纯靠持仓归属可见」的场景。
+
+    **等价实现**：``services/scope.filter_positions_by_scope`` 是同一语义的内存版
+    （对已取出的持仓列表过滤，供穿透 / 收益日历 / 策略视图复用）。两者必须同步修改，
+    改任一处前先看另一处的注释。
+    """
+    conds = [Position.portfolio_id == portfolio_id]
+    if ledger_ids:
+        conds.append(and_(Position.portfolio_id.is_(None), Position.ledger_id.in_(ledger_ids)))
+    return conds
+
+
 def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict]:
     """组合下所有关联账户的持仓/资产明细（#1642 B 块，从视图层下沉）。
 
@@ -34,10 +66,16 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
     - 组合不存在 / 已删除 / 非本家庭 → 抛 ``ValueError('投资组合不存在')``，由视图转 404；
     - 主路径 ``positions.portfolio_id == portfolio_id``；继承路径仅当持仓未显式指定组合时
       继承其账户(ledger)的默认组合（显式 portfolio_id 必须覆盖 ledger 继承）；
+    - **组合可以不关联任何账户**（A0）：此时仍返回显式指派的持仓，只是没有继承路径与账户级资产。
+      历史实现以 ``if not ledger_ids: return []`` 提前返回，等于要求组合必须先绑账户，
+      与 D20「组合成员是持仓」的定义冲突——A 账户默认组合是固收+时，成长组合绑不上该账户，
+      结果整个组合为空；
     - 类现金由 ``should_exclude_from_investment`` 排除（尊重 count_as_investment 覆盖）；
     - 账户级资产（现金，非负债）并入同一 holdings 列表，以 ``asset.id + 100000`` 区分；
     - holdings 行为 **dict 直出**（无视图 Out schema），#2210 起持仓行增发
-      ``price_date`` / ``settled_today``（只增不改，原字段逐字不变）。
+      ``price_date`` / ``settled_today``，D20 二期 UI 起增发 ``portfolio_id``
+      （只增不改，原字段逐字不变）；资产行**不含** ``portfolio_id``——现金沿用账户归属，
+      没有持仓级组合概念，前端不得把它当成「继承态」渲染。
     """
     portfolio = (
         db.query(Portfolio)
@@ -52,28 +90,14 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
         raise ValueError('投资组合不存在')
 
     # 关联账户 ID 列表（组合 = 默认组合指向本组合的账户集合）
-    ledger_ids = [
-        row[0]
-        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
-    ]
-    if not ledger_ids:
-        return []
+    # 允许为空：组合可以只靠显式持仓归属存在，不要求先绑账户（A0）。
+    ledger_ids = portfolio_ledger_ids(db, family_id, portfolio_id)
 
     # 查询持仓（仅用 portfolio_id / ledger_id 关联，杜绝 account_name 字符串匹配）
-    #   - 主路径：持仓显式归属本组合（positions.portfolio_id == P）
-    #   - 继承路径：仅当持仓未显式指定组合时，继承其账户(ledger)的默认组合
-    #   注意：显式 portfolio_id 必须覆盖 ledger 继承，否则改派后会同时出现在账户默认组合
-    pos_conds = [
-        Position.portfolio_id == portfolio_id,
-        and_(
-            Position.portfolio_id.is_(None),
-            Position.ledger_id.in_(ledger_ids),
-        ),
-    ]
     positions = (
         db.query(Position)
         .filter(
-            or_(*pos_conds),
+            or_(*portfolio_position_conditions(portfolio_id, ledger_ids)),
             Position.quantity > 0,
         )
         .all()
@@ -82,6 +106,7 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
     positions = [p for p in positions if not should_exclude_from_investment(p)]
 
     # 账户级资产仍按 ledger_id 关联（现金不进持仓级组合，沿用账户归属）
+    # 无关联账户时自然没有账户级资产可并入，跳过查询（空 in_ 会生成无意义 SQL）
     assets = (
         db.query(Asset)
         .filter(
@@ -90,6 +115,8 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
             Asset.major_category != 'liability',
         )
         .all()
+        if ledger_ids
+        else []
     )
 
     # 构造持仓列表（包含市值和盈亏）
@@ -119,6 +146,11 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
                 # 本查询是全量 ORM 实体（db.query(Position)），price_date 未被 select 裁剪，可直接取。
                 'price_date': pos.price_date.isoformat() if pos.price_date else None,
                 'settled_today': is_settled_today(pos.price_date),
+                # 归属方式原样透出（D20 二期 UI）：``None`` = 本行是被账户继承路径带进来的
+                # （``ledger.portfolio_id`` 默认组合），非 ``None`` = 用户显式指派到本组合。
+                # 前端据此区分「随账户」与「本组合独有」——两种状态在库里语义不同，
+                # 展示层若都渲染成组合名，用户无法判断改派是否真的生效。
+                'portfolio_id': pos.portfolio_id,
             }
         )
 

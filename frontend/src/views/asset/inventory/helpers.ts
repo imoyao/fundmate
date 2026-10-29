@@ -12,7 +12,11 @@ import {
   majorCategoryLabel
 } from "@/constants";
 import type { AssetRecord } from "@/api/assets";
-import { INVENTORY_CATEGORIES } from "./constants";
+import {
+  ASSET_TYPE_MAP,
+  INVENTORY_CATEGORIES,
+  type AssetTypeOption
+} from "./constants";
 
 /** 后端 `GET /api/summary/groups/?dimension=type` 的单个分组 */
 export interface AssetGroupRaw {
@@ -54,6 +58,21 @@ export function getColorWithAlpha(colorVar: string, alpha: number): string {
 export function getCategoryLabel(key: string): string {
   const cat = INVENTORY_CATEGORIES.find(c => c.key === key);
   return cat ? cat.label : majorCategoryLabel(key);
+}
+
+/**
+ * 大类 key → 说明文案。
+ *
+ * 大类目录（`INVENTORY_CATEGORIES`）是唯一真相源，页面不再自己 `find` 一遍；
+ * 找不到给空串（`CategoryDescBar` 会自行隐藏），不返回 `undefined`。
+ */
+export function getCategoryDesc(key: string): string {
+  return INVENTORY_CATEGORIES.find(c => c.key === key)?.desc || "";
+}
+
+/** 大类 key → 该大类下的快捷录入入口；无对应项给空数组（`QuickActionGrid` 据此整块不渲染） */
+export function getCategoryAssetTypes(key: string): AssetTypeOption[] {
+  return ASSET_TYPE_MAP[key] || [];
 }
 
 /** 投资理财明细的细分标签：优先 `minor_category`，存量数据回退到历史大类标签 */

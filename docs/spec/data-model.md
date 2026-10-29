@@ -193,17 +193,21 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 > 注：原计划中的 `risk_level` 字段已移除，`purpose` 已能表达风险偏好，避免概念重叠。
 
-#### 5.11.2 持仓与账户的组合绑定（🚧 一期实施中）
+#### 5.11.2 持仓与账户的组合绑定（✅ 已实现：一期归属 + 二期收益口径）
 
 | 表.字段 | 类型 | 说明 |
 |--------|------|------|
-| `positions.portfolio_id` | Integer (FK)，nullable | 持仓所属组合；NULL = 继承账户默认组合（🚧 一期新增，存量回填 = 所属账户的组合） |
+| `positions.portfolio_id` | Integer (FK)，nullable | 持仓所属组合；NULL = 继承账户默认组合（✅ 已实现，存量回填 = 所属账户的组合） |
 | `ledgers.portfolio_id` | Integer (FK) | 语义调整为「默认组合」：新建持仓未显式指派时继承；`ON DELETE SET NULL`（已实现） |
 | `ledgers.linked_cash_ledger_id` | Integer (FK) | 关联的现金账户（仅 stock/fund 类型可用），`ON DELETE SET NULL`（已实现，不变） |
 
 **注**：原计划添加的 `objective` 字段已移除，语义与 `Portfolio.purpose` 重叠，精简模型。
 
 **聚合口径变更（一期）**：组合持仓聚合从「按关联账户取全部持仓（历史实现按 `account_name` 字符串匹配，存在改名断链/重名串仓隐患）」切换为「按 `positions.portfolio_id` 直接归属」，账户名匹配隐患随一期修复。
+
+**组合可见性（D20 二期 A0，2026-10-29）**：组合**不要求先关联账户**。只要存在显式 `positions.portfolio_id` 指向该组合，组合详情即可见；`ledger_ids` 为空时只失去「继承路径」与「账户级资产（现金）」，不再整块返回空。历史实现 `if not ledger_ids: return []` 会让「成长组合」这类不绑账户的组合彻底看不见——而 `ledgers.portfolio_id` 是单值，一个账户只能有一个默认组合，绑不了第二个。
+
+**收益口径（D20 二期 A1，2026-10-29）**：组合 XIRR 的市值与现金流统一按持仓归属取（显式 `portfolio_id` 优先，未指派继承账户默认组合），**组合口径恒为持仓口径**：买入 = 投入，卖出/分红 = 回收，入金/出金（L1）不进组合现金流。D67 曾定的「有入金走账户口径 / 无入金降级」随「组合 = 账户集合」前提作废。取持仓算现金流时**不筛** `quantity > 0`——已清仓持仓的历史流水仍属本组合；市值端只统计 `quantity > 0`。详见 `decisions.md` D71。
 
 #### 5.11.3 策略标签（持仓风格分析）（已实现，定位微调 D20）
 

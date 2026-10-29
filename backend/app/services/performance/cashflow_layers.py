@@ -146,13 +146,21 @@ def pair_internal_transfers(flows: Sequence[dict], ledger_ids: Set[int]) -> Set[
 
 def collect_flows(
     db_session,
-    ledger_ids: Sequence[int],
+    ledger_ids: Optional[Sequence[int]] = None,
     family_id: int = 1,
     start_date: Optional[dt.date] = None,
     end_date: Optional[dt.date] = None,
     include_cash_equivalents: bool = False,
+    *,
+    position_ids: Optional[Sequence[int]] = None,
 ) -> List[dict]:
-    """按账户集合读取交易，打上层标签，返回**元**单位的流水列表。
+    """按账户集合（或持仓集合）读取交易，打上层标签，返回**元**单位的流水列表。
+
+    两种作用域二选一（**都传时 ``position_ids`` 优先**，用于持仓级组合的收益归因）：
+
+    - ``ledger_ids``：账户口径。账户 XIRR / 资金流动视图走这条。
+    - ``position_ids``：持仓口径。持仓级组合的 XIRR 走这条——因为组合成员是持仓，
+      而账户集合表达不了「同一账户里不同持仓分属不同组合」。
 
     参数与 `xirr_engine` 同口径：
     - `include_cash_equivalents=False` 时排除货币基金 / 逆回购 / 现金（`EXCLUDED_ASSET_TYPES`），
@@ -166,11 +174,17 @@ def collect_flows(
     # 延迟导入：EXCLUDED_ASSET_TYPES 归 xirr_engine 所有（历史位置），避免循环导入
     from app.services.performance.xirr_engine import EXCLUDED_ASSET_TYPES
 
-    if not ledger_ids:
-        return []
+    if position_ids is not None:
+        if not position_ids:
+            return []
+        scope_filter = Transaction.position_id.in_(list(position_ids))
+    else:
+        if not ledger_ids:
+            return []
+        scope_filter = Transaction.ledger_id.in_(list(ledger_ids))
 
     query = db_session.query(Transaction).filter(
-        Transaction.ledger_id.in_(list(ledger_ids)),
+        scope_filter,
         Transaction.family_id == family_id,
     )
     if start_date is not None:

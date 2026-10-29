@@ -1055,4 +1055,44 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 **判据（测试）**：`backend/tests/services/test_fund_style.py` 的 `test_portfolio_eligible_coverage_*` 四条（货基不入分母 / 无合格资产回 null / QDII 剔除 / 有合格品种但未覆盖 = 0.0）；`frontend/src/utils/__tests__/styleCoverage.spec.ts` 钉「null ≠ 0」与口径提示只在两数不同时出现。
 
+## 2026-10-29 D20 二期 UI：持仓改派组合的四个开口项
+
+**已落地范围**（先划清，避免与下面的开口项混淆）：盘点页持仓表新增「所属组合」列，区分「显式指派」与「账户继承（随账户）」，行内浮层可改派到任一组合或退回账户默认组合；组合详情页持仓表在「所属账户」列加「随账户」标记（**只读**，无操作入口）。
+
+后端**零新增端点**——复用 `PATCH /api/positions/{id}/` + `position_service.resolve_portfolio_change`（传 `null` = 退回继承）；唯一改动是 `build_portfolio_holdings` 的持仓行**增发** `portfolio_id`（只增不改，资产行刻意不下发）。
+
+| # | 开口项 | 现状与为何没做 | 处理策略 |
+|---|---|---|---|
+| 1 | **批量改派** | 现有端点只有单条语义。前端若循环 N 次 PATCH，中途失败会留下「改了一半」的中间态（前几条已提交、后几条未改），且无回滚、无事务边界 | 后端补 `PATCH /api/positions/portfolio/`（body `{ids: [], portfolio_id}`）走单事务后再做前端批量。**不要先做前端循环兜着**——那会把数据一致性问题伪装成 UI 问题。触发条件：实际使用频率证明「一次要改 3 条以上」是常态 |
+| 2 | **组合详情页「移出本组合」动作** | 该动作本质是 `portfolio_id = NULL`（退回账户默认组合）。但若账户默认组合**就是**当前组合，移出等于什么都没发生——直接给按钮会造成「点了没反应」的假象 | 若要加，二选一：① 改为「改派到其他组合」并跨页面复用 `PortfolioAssignCell`；② 保留单向动作但确认文案必须写清落点（「移出后归入账户默认组合『固收+』，若二者相同则无变化」）。**禁止**只做一个裸的 null 动作 |
+| 3 | **买入 / 记账时直接选组合（根治）** | 当前持仓默认 `portfolio_id = NULL` → 继承账户默认组合，于是每买一只成长类标的都要回盘点页改一次派。事后改派只是补丁 | 记账抽屉（`manual` 流程）+ 导入向导 + 快速记账快捷键统一加「所属组合」字段，默认值 = 账户默认组合。牵动面大（`ManualOpSwitch` / 导入映射 / 快捷键链路），需独立设计文档，不宜搭在 UI 改动里 |
+| 4 | **货基 / 逆回购行仍提供改派入口**（本卡实施时发现） | `EXCLUDED_ASSET_TYPES = ('money_fund', 'reverse_repo', 'cash')`（`backend/app/core/asset_types.py:121`）的持仓在盘点页也会显示「所属组合」并可点开改派，但 `build_portfolio_holdings` 经 `should_exclude_from_investment` 把它们过滤掉 ⇒ **改派成功但组合视图永远看不到，是无效交互**。前端无法拦：该集合的单一真相源在后端常量，`GET /api/utils/enums` 不下发，硬编码三个值等于抄第二份真相源（与 #1171 枚举一致性纪律冲突） | 后端在持仓行增发 `in_portfolio: bool`（= `not should_exclude_from_investment(pos)`），前端据此把该列渲染成「— 不进组合」并禁用改派。成本小，但属独立契约变更，本卡未做 |
+
+**判据（测试）**：`frontend/src/views/asset/inventory/__tests__/portfolioAssignModel.spec.ts` 13 条钉住归属四态（显式 / 继承 / 无归属 / 未知）以及「`undefined` 不得当成 `null`」；`backend/tests/domains/test_d20_portfolio_phase2.py::TestHoldingsAssignmentMode` 钉住持仓行透出 `portfolio_id` 且显式指派压过账户继承。
+
+**为什么第 4 条值得单列**：它不会报错、不会丢数据，只会让用户「改了但看不到效果」，进而怀疑整个改派功能是坏的——这类静默无效比崩溃更难排查。
+
+### 走查实测（2026-10-29，真机 Edge + 真实前端渲染）
+
+**环境**：worktree 内独立 dev server（`:8850`，临时 `cacheDir`），`/api/**` 全 mock（本 worktree 无真实库，`portfolio_id` 是否真透出由 pytest 覆盖）。16 项断言全 PASS：
+
+| 断言 | 证据 |
+|---|---|
+| 表头含「所属组合」 | `['产品信息','归属账户','所属组合','市值','盈亏','操作']` |
+| 继承态 | `['固收+\n随账户', '固收+\n随账户']` |
+| 显式态 | `['成长策略', '成长策略']`（同账户内混入成长类，正是本卡要解决的场景） |
+| 无归属 / 未知 | `['未归属', '—']` |
+| 触发按钮具名 | `改派组合：易方达裕祥回报，当前归入「固收+」（随账户）` |
+| 改派提交 | `PATCH /api/positions/1/` body `{"portfolio_id":5}`，该行即时变显式态（局部更新，未整页重取） |
+| 退回继承 | `PATCH` body `{"portfolio_id":null}`，该行恢复「固收+ 随账户」 |
+| console | 无 error |
+
+**走查抓到一个真缺陷（已修）**：点「当前已选中的那一项」时浮层不关、也不提交，点击完全无响应。
+
+根因不在本组件，而在 Element Plus：`el-radio` 的变更事件来自原生 `<input type=radio>` 的 `change`（`radio.vue` 里只挂了 `onChange`），而**原生 radio 在已选中状态下再点不触发 `change`** ⇒ `onPick` 从不被调用 ⇒ `visible` 从未被置 false。`onPick` 里那句「未变化不提交」的守卫因此成了永远走不到的死分支。
+
+修法：给每个选项补 `@click="onPickSame(value)"`，点当前项时只收起浮层（不提交）。值真变化时该函数不做事，提交仍走 `change → onPick`，不会一次点击提交两遍。**这类「点了没反应」只有真机能抓**——`vue-tsc`、单测、lint 全绿，代码读起来也毫无破绽。
+
+**顺带记录（不改）**：`el-popover` 的浮层内容对每一行都常驻 DOM（10 行 = 10 份 radio-group），仅一份可见。当前页大小 10，开销可忽略；若将来持仓表上到百行且有明显内存/首屏压力，再评估 `:teleported` + 懒渲染。
+
 **顺带核实（同日）**：**提升覆盖率本身不需要开发**——目标池 `resolve_targets()` 取「持仓 + 自选」（`orchestrator.resolve_targets`），`fund_style` 已在日调度（`SCHEDULER_FUND_STYLE_ENABLED` 默认启用，cron `30 22 2 * *` 月度增量），CI `daily-snapshot.yml` 每天跑 `pdm run scheduler` 并 catch-up，手工补数入口（`--targets` / `--target-file`）已由 #2662 修好。故本条债只针对**指标口径**，不针对数据通路——不要把它当成「数据没在同步」去排查。

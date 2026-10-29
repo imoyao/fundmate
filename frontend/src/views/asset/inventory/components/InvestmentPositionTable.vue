@@ -18,6 +18,22 @@
         </template>
       </el-table-column>
       <el-table-column prop="account_name" label="归属账户" width="120" />
+      <!-- 所属组合（D20 二期 UI）：账户维度与组合维度是正交两轴，故与「归属账户」并列而非合并。
+           单元格自带改派浮层，归属解析由页面数据层注入——表格不实现「显式压过继承」的推导，
+           那是服务端口径（portfolio_service.portfolio_position_conditions）的投影。 -->
+      <el-table-column label="所属组合" width="180">
+        <template #default="{ row }">
+          <PortfolioAssignCell
+            :row="row as Position"
+            :portfolios="portfolios"
+            :mode="resolvePortfolio(row as Position).mode"
+            :label-text="resolvePortfolio(row as Position).labelText"
+            @select="
+              portfolioId => emit('reassign', row as Position, portfolioId)
+            "
+          />
+        </template>
+      </el-table-column>
       <el-table-column label="市值" width="130" align="right">
         <template #default="{ row }">
           <MoneyDisplay
@@ -90,13 +106,20 @@
  *
  * #1104：盈亏列改为「已确认 / 预估」双线（`PnlDualLine`）。估值实例由页面注入
  * （`valuation` prop，与自选页注入 `realtime` 同模式），本组件仍不持业务状态。
+ *
+ * D20 二期 UI：新增「所属组合」列（`PortfolioAssignCell`），显示归属方式并提供改派入口。
+ * 该列的**归属解析与提交都在页面数据层**（`useInventoryData.resolvePortfolioOf` /
+ * `reassignPosition`）——本组件只接收 `resolvePortfolio` 回调和 `portfolios` 选项，
+ * 再把用户选择以 `reassign` 事件抛回，仍未破坏「不发请求、不持业务状态」的原有边界。
  */
 import type { Position } from "@/api/types";
+import type { PortfolioItem } from "@/api/portfolio";
 import { ChatDotSquare } from "@element-plus/icons-vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
+import PortfolioAssignCell from "./PortfolioAssignCell.vue";
 import {
   confirmedPnl,
   type PositionValuation
@@ -118,12 +141,24 @@ defineProps<{
   page: number;
   /** 盈亏双线的估值接线（页面注入；组件不取数） */
   valuation: PositionValuation;
+  /** 可改派的目标组合（「所属组合」列浮层选项） */
+  portfolios: PortfolioItem[];
+  /**
+   * 归属解析（页面数据层注入，D20 继承语义的唯一前端实现）。
+   * 表格与单元格都不自行推导——复制一份「显式压过继承」的规则必然与服务端漂移。
+   */
+  resolvePortfolio: (row: Position) => {
+    mode: "explicit" | "inherited" | "none" | "unknown";
+    labelText: string | null;
+  };
 }>();
 
 const emit = defineEmits<{
   "update:page": [page: number];
   /** 「问这个」（#1764）：携带该行上下文跳账本精灵页（纯展示组件不持路由） */
   ask: [row: Position];
+  /** 改派组合（D20 二期 UI）：`portfolioId = null` 表示退回账户默认组合 */
+  reassign: [row: Position, portfolioId: number | null];
 }>();
 
 /**

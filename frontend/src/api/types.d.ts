@@ -34,6 +34,16 @@ export interface Position {
   allocation_label?: string;
   /** 所属账户 ID：后端 PositionOut 会输出（group_by 路径必含），分页路径可能缺失 */
   ledger_id?: number | null;
+  /**
+   * 所属组合 ID（D20 持仓级组合）：后端 `PositionOut.portfolio_id` 输出。
+   *
+   * **语义分三态，展示层必须区分**：
+   * - 具体数字 = 用户显式指派到该组合；
+   * - `null` = 未指派，归到哪个组合由**账户默认组合继承**决定（改派前的常态）；
+   * - `undefined` = 响应里没有这个字段（接口未升级 / 旧缓存）→ 视为「未知」，
+   *   **不得当成 `null` 渲染成「随账户」**，否则会把「不知道」谎报成「继承」。
+   */
+  portfolio_id?: number | null;
   /** 配置目标：后端 PositionOut 可能输出，前端不保证 */
   allocation?: string | null;
   /** 首次确认日期：group_by 路径必含，分页路径可能缺失 */
@@ -184,6 +194,13 @@ export interface PositionUpdate {
   name?: string;
   account_name?: string;
   ledger_id?: number | null;
+  /**
+   * 改派持仓所属组合（D20）。后端 `PositionUpdate.portfolio_id` + `resolve_portfolio_change`。
+   * 传具体 ID = 指派；传 `null` = 解除指派、退回账户默认组合继承。
+   * **不传该键与传 `null` 语义不同**（前者不动，后者显式清空）——后端按
+   * `exclude_unset` 区分，所以「跟随账户」必须显式传 `null`，不能省略。
+   */
+  portfolio_id?: number | null;
   quantity?: number;
   avg_price?: number;
   current_price?: number;
