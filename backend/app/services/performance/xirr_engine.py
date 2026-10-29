@@ -27,12 +27,14 @@ except ImportError:
     PYXIRR_AVAILABLE = False
     logger.warning('pyxirr 不可用，将使用纯 Python 实现作为兜底')
 
+from sqlalchemy import or_
+
 # EXCLUDED_ASSET_TYPES 唯一来源为 app.core.asset_types（#1171 枚举一致性）；
 # 原 services/performance/constants.py 只是 12 行 re-export 转发层，已删除。
 from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
-from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
+from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
 from app.services.performance import cashflow_layers
@@ -296,23 +298,28 @@ def generate_portfolio_cashflows(
     include_cash_equivalents: bool = False,
     basis_sink: Optional[dict] = None,
 ) -> List[Tuple[dt.date, float]]:
-    """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。
+    """为指定投资组合生成 XIRR 现金流列表（**持仓口径**，D20 二期）。
 
     **金额单位必须与 `generate_cashflows` 一致（元）**：`transactions.amount` 存的是
     「分」，本函数曾直接 `float(amount)` 当元用，导致组合级现金流比市值大 100 倍
     （线上表现为总投入 1.68 亿、总收益 -1886 万，XIRR 恒为 0）。改动此处前先看
     `tests/services/performance/test_portfolio_xirr_units.py`。
 
-    口径（#2615）：分类与内部划转判定统一走 `cashflow_layers`，本函数只做「按账户
-    口径组装现金流」：
+    ## 为什么是持仓口径，而不是「逐账户口径」
 
-    - 账户有真实外部入金/出金（L1）⇒ **账户口径**：只有 L1 进出算投入/回收，
-      买卖属于账户内换形态（L2），不进现金流；
-    - 账户只导过交易、没有入金流水 ⇒ **持仓口径**（历史行为，降级）：买入算投入、
-      卖出/分红算回收。整组合按账户口径一刀切会让这类老账户丢掉本金（年化 0%）。
+    D20 定稿「组合成员是持仓」（`positions.portfolio_id`）。组合的成员不再是账户集合，
+    因此「哪笔钱属于本组合的本金」只能由**持仓的买卖**回答：买入 = 投入，卖出/分红 = 回收。
+    入金/出金（L1）是账户级事实，没有持仓归属，天然不进组合现金流——这不是遗漏，
+    而是持仓级组合的必然结果。
 
-    `basis_sink` 传 dict 时回填实际口径：`{'basis': 'account'|'position'|'mixed',
-    'by_ledger': {ledger_id: 'account'|'position'}}`，供响应层如实透出「按什么估的」。
+    历史实现（#2615/D67）按「账户口径 + 无入金时降级为持仓口径」组装，前提是
+    「组合 = 账户集合」。该前提被 D20 取代后，逐账户口径会让同一账户里分属两个组合的
+    持仓互相串味（A 账户有入金时，两个组合都会把整账户的本金算成自己的）。
+
+    分类仍统一走 `cashflow_layers`（L2 资产转换 / L3 收益实现），本函数只做组装。
+
+    `basis_sink` 传 dict 时回填 `{'basis': 'position', 'by_ledger': {}}`——
+    组合口径只可能是持仓口径，保留该键是为了不破坏响应契约（`cashflow_basis` 只增不改）。
     """
     if end_date is None:
         end_date = dt.date.today()
@@ -332,42 +339,37 @@ def generate_portfolio_cashflows(
     if not portfolio:
         raise ValueError(f'投资组合不存在: {portfolio_id}')
 
-    # 组合聚合统一按 ledger_id（外键维度），不用冗余的 account_name —— 同名账户
-    # 会造成口径串味（历史 bug）。未归档持仓 ledger_id 为 NULL 自然不计入组合。
-    ledger_ids = [
+    # 2. 组合的持仓集合（归属口径与持仓视图同源：portfolio_service 的显式指派 + 账户继承）
+    #    **刻意不筛 quantity > 0**：已清仓持仓的买卖流水仍属本组合的历史，筛掉会让清仓
+    #    即丢失整段收益（市值端由调用方只统计 quantity > 0，两端口径各自正确）。
+    #    延迟导入：portfolio_service 依赖 fund_utils / pnl_settle，避免模块加载期互相拉扯。
+    from app.services.portfolio_service import portfolio_ledger_ids, portfolio_position_conditions
+
+    ledger_ids = portfolio_ledger_ids(db_session, family_id, portfolio_id)
+    position_ids = [
         row[0]
-        for row in db_session.query(Ledger.id)
-        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
+        for row in db_session.query(Position.id)
+        .filter(or_(*portfolio_position_conditions(portfolio_id, ledger_ids)))
         .all()
     ]
-    if not ledger_ids:
+    if not position_ids:
         return []
 
-    ledger_set = set(ledger_ids)
-
-    # 2. 分层取流水（金额已是元，见 cashflow_layers 的单位纪律）
+    # 3. 分层取流水（按持仓取；金额已是元，见 cashflow_layers 的单位纪律）
     flows = cashflow_layers.collect_flows(
         db_session,
         ledger_ids,
         family_id=family_id,
         end_date=end_date,
         include_cash_equivalents=include_cash_equivalents,
+        position_ids=position_ids,
     )
-    internal = cashflow_layers.pair_internal_transfers(flows, ledger_set)
-    basis_map = cashflow_layers.basis_by_ledger(flows, internal)
 
-    # 3. 按账户口径组装现金流（4 类：账户口径只看 L1；持仓口径看 L2/L3）
+    # 4. 持仓口径组装：买入 = 投入，卖出/分红 = 回收
+    #    L1（入金/出金）是账户级事实、没有持仓归属，故不消费——这也意味着本函数不再需要
+    #    内部划转配对：配对解决的是「账户间转账被当成一进一出」，而这里根本不看 L1。
     investment_cf: List[Tuple[dt.date, float]] = []
     for flow in flows:
-        if flow['index'] in internal:
-            # 家庭内账户互转：一进一出净额为 0，任何口径都不该出现（#2615 修的正是
-            # 此前「配对结果被 `_ =` 丢弃」的空操作）
-            continue
-        if basis_map.get(flow['ledger_id']) == 'account':
-            if flow['layer'] == cashflow_layers.L1_EXTERNAL:
-                investment_cf.append((flow['date'], flow['signed_amount']))
-            continue
-        # 持仓口径（降级）：沿用历史行为
         if flow['layer'] == cashflow_layers.L2_TRANSFER:
             if flow['txn_type'] in (BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code):
                 investment_cf.append((flow['date'], -flow['amount']))
@@ -381,15 +383,9 @@ def generate_portfolio_cashflows(
             investment_cf.append((flow['date'], flow['amount']))
 
     if basis_sink is not None:
-        used = set(basis_map.values())
-        if used == {'account'}:
-            overall = 'account'
-        elif used <= {'position'}:
-            overall = 'position'
-        else:
-            overall = 'mixed'
-        basis_sink['basis'] = overall
-        basis_sink['by_ledger'] = dict(basis_map)
+        # 组合口径只可能是持仓口径；保留键名是为了不破坏 `cashflow_basis` 响应契约
+        basis_sink['basis'] = 'position'
+        basis_sink['by_ledger'] = {}
 
     # 4. 添加虚拟卖出（当前市值按元计，与上面同单位）
     if current_value > 1e-8:

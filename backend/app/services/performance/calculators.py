@@ -11,14 +11,13 @@ import datetime as dt
 from typing import Any, Dict, List, Tuple
 
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 # EXCLUDED_ASSET_TYPES 唯一来源为 app.core.asset_types（#1171 枚举一致性）；
 # 原 services/performance/constants.py 只是 12 行 re-export 转发层，已删除。
 from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
-from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -390,8 +389,8 @@ def calculate_portfolio_xirr_by_id(
 
     步骤：
     1. 校验组合存在且归属当前家庭
-    2. 获取组合关联的所有 Ledger
-    3. 计算这些 Ledger 下合规资产的持仓总市值
+    2. 按持仓归属取本组合持仓（显式 portfolio_id 优先，未指派时继承账户默认组合）
+    3. 计算这些持仓的总市值（仅 quantity > 0）
     4. 生成组合现金流（含内部划转过滤）
     5. 送入 XIRR 引擎计算
     """
@@ -402,20 +401,17 @@ def calculate_portfolio_xirr_by_id(
     if not portfolio:
         raise ValueError('投资组合不存在')
 
-    # 获取组合关联的所有 Ledger ID（家庭维度）。统一按 ledger_id（外键维度）聚合，
-    # 不用冗余的 account_name —— 同名账户会造成口径串味（历史 bug）；未归档持仓
-    # ledger_id 为 NULL 自然不计入组合。
-    ledger_ids = [
-        row[0]
-        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
-    ]
+    # 组合持仓归属（**与持仓视图同源**，`portfolio_service.portfolio_position_conditions`）：
+    # 显式 portfolio_id 优先，未指派时继承账户默认组合。
+    # 为什么必须同源：历史实现这里按 ledger_ids 取市值、而持仓列表按 portfolio_id 取，
+    # 同一账户下分属两个组合时会算出两套数（市值含整账户、列表只含本组合持仓）。
+    from app.services.portfolio_service import portfolio_ledger_ids, portfolio_position_conditions
 
-    if not ledger_ids:
-        return _empty_xirr_result()
+    ledger_ids = portfolio_ledger_ids(db, family_id, portfolio_id)
 
-    # 获取这些账户下的持仓总市值（按 ledger_id 集合过滤）
+    # 获取本组合的持仓总市值
     pos_filter = [
-        Position.ledger_id.in_(ledger_ids),
+        or_(*portfolio_position_conditions(portfolio_id, ledger_ids)),
         Position.quantity > 0,
         Position.family_id == family_id,
     ]

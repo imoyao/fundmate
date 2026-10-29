@@ -498,13 +498,17 @@ class TestMoneyFundIncomeEndpoint:
 class TestPortfolioXirrLedgerId:
     """#1929 配套：组合 XIRR 聚合统一按 ledger_id（修复 account_name 同名串味）。"""
 
-    def test_same_name_ledgers_no_cross_contamination(self, db):
+    def test_same_name_ledgers_no_cross_contamination(self, db, make_position, make_transaction):
         """两账户同名（account_name 相同）分属不同组合，组合 A 的 XIRR 现金流不得串入 B。
 
-        旧逻辑按 account_name.in_() 过滤，两笔交易 account_name 都等于 '同名账户' 会被
-        两个组合同时匹配 → 串味（cashflow_count 各 = 2）。新逻辑按 ledger_id，各 = 1。
+        口径变更（D20 二期，2026-10-29）
+            原用例造的是 `position_id=None` 的裸流水——那是「组合 = 账户集合」时代的形态，
+            按 ledger_id 过滤即可命中。组合成员改成持仓后，裸流水没有持仓归属、不属于任何组合
+            （这是刻意的：入金/无持仓流水不该被某个组合认领），故本用例补上各自持仓再断言。
+            被验证的意图不变：**同名账户不得因字符串匹配而互相串味**。
+
+        旧 bug 形态：按 `account_name.in_()` 过滤时两笔都被两个组合同时匹配（各 = 2）。
         """
-        from app.domains.transactions.models import Transaction as Txn
         from app.services.performance.calculators import calculate_portfolio_xirr_by_id
 
         ledger_a = _make_ledger(db, name='同名账户')
@@ -518,27 +522,37 @@ class TestPortfolioXirrLedgerId:
         db.flush()
 
         day = dt.date(2026, 8, 1)
-        # 两笔交易 account_name 都等于 '同名账户'（模拟旧快照/同名），ledger_id 分别指向 a / b
-        for lid in (ledger_a.id, ledger_b.id):
-            db.add(
-                Txn(
-                    position_id=None,
-                    ledger_id=lid,
-                    txn_type='buy',
-                    symbol='600519',
-                    amount=Money.yuan_to_cents(1000.0),
-                    confirm_date=day,
-                    trade_date=dt.datetime.combine(day, dt.time(10, 0)),
-                    asset_type='stock',
-                    account_name='同名账户',
-                    family_id=1,
-                    status='success',
-                )
-            )
-        db.flush()
+        # 各造一个持仓并显式归属本组合；quantity=0 使市值为 0，cashflow_count 只数买入这一笔
+        pos_a = make_position(
+            ledger_id=ledger_a.id,
+            portfolio_id=portfolio_a.id,
+            symbol='600519',
+            name='同名标的',
+            asset_type='bond',
+            quantity=0,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+        pos_b = make_position(
+            ledger_id=ledger_b.id,
+            portfolio_id=portfolio_b.id,
+            symbol='600519',
+            name='同名标的',
+            asset_type='bond',
+            quantity=0,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+        make_transaction(
+            pos_a.id, ledger_a.id, txn_type='buy', asset_type='bond', amount=1000, confirm_date=day, symbol='600519'
+        )
+        make_transaction(
+            pos_b.id, ledger_b.id, txn_type='buy', asset_type='bond', amount=1000, confirm_date=day, symbol='600519'
+        )
+        db.commit()
 
         res_a = calculate_portfolio_xirr_by_id(db, portfolio_a.id, family_id=1)
         res_b = calculate_portfolio_xirr_by_id(db, portfolio_b.id, family_id=1)
-        # 新逻辑按 ledger_id：各自只计入本组合的 1 笔
+        # 各自只计入本组合持仓的 1 笔
         assert res_a['cashflow_count'] == 1
         assert res_b['cashflow_count'] == 1
