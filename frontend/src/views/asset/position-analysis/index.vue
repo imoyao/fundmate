@@ -100,9 +100,7 @@
 
     <!-- 收益日历：后端仅支持家庭 / 账户级（设计文档 §3），组合档隐藏不造假口径 -->
     <div v-if="scopeKind !== 'portfolio'" class="mb-6">
-      <PnlCalendar
-        :ledger-id="scopeKind === 'ledger' ? (scopeId ?? undefined) : undefined"
-      />
+      <PnlCalendar :ledger-id="scopeProps.ledgerId" />
     </div>
     <SoftBanner v-else class="mb-6" variant="info" icon="ep:info-filled">
       收益日历暂不支持组合口径——日/月/年三视图见「复盘」页家庭与账户档。
@@ -110,31 +108,16 @@
 
     <!-- #2135 区间收益归因（原生支持三级口径） -->
     <div class="mb-6">
-      <PnlAttribution
-        :ledger-id="scopeKind === 'ledger' ? (scopeId ?? undefined) : undefined"
-        :portfolio-id="
-          scopeKind === 'portfolio' ? (scopeId ?? undefined) : undefined
-        "
-      />
+      <PnlAttribution v-bind="scopeProps" />
     </div>
 
     <!-- #2617 持仓结构（资产类别 / 股基分列 Top N / 集中度） -->
     <div class="mb-6">
-      <PositionStructurePanel
-        :ledger-id="scopeKind === 'ledger' ? (scopeId ?? undefined) : undefined"
-        :portfolio-id="
-          scopeKind === 'portfolio' ? (scopeId ?? undefined) : undefined
-        "
-      />
+      <PositionStructurePanel v-bind="scopeProps" />
     </div>
 
     <!-- #870 持仓穿透（#2595 三级口径化；#2617 直接持有 / 穿透后双口径） -->
-    <PenetrationPanel
-      :ledger-id="scopeKind === 'ledger' ? (scopeId ?? undefined) : undefined"
-      :portfolio-id="
-        scopeKind === 'portfolio' ? (scopeId ?? undefined) : undefined
-      "
-    />
+    <PenetrationPanel v-bind="scopeProps" />
   </div>
 </template>
 
@@ -161,16 +144,24 @@ import {
   EXCESS_RANGE_DAYS
 } from "@/utils/benchmarkExcess";
 import { formatAmount } from "@/utils/currency";
+import { toScopeProps, type ScopeKind } from "./scope";
 
 defineOptions({ name: "PositionAnalysis" });
 
 /** 超额/区间展示口径与组合详情页保持一致（同一 util 出口） */
 const RANGE_LABEL = `近 ${EXCESS_RANGE_DAYS} 天`;
 
-type ScopeKind = "family" | "ledger" | "portfolio";
-
 const scopeKind = ref<ScopeKind>("family");
 const scopeId = ref<number | null>(null);
+
+/**
+ * 口径 → 面板 props 的唯一出口（`./scope.ts`）。
+ *
+ * 不在这里各写一遍三元表达式：#2595 的事故就是「组合详情页复用面板时漏传 scope」，
+ * 而漏传不报错、不红，只会安静显示家庭级数据。收敛成一处后，四个面板共用同一个
+ * 计算结果，漏传只能漏在 `toScopeProps` 里（有单测钉住）。
+ */
+const scopeProps = computed(() => toScopeProps(scopeKind.value, scopeId.value));
 
 const ledgers = ref<LedgerItem[]>([]);
 const portfolios = ref<{ id: number; name: string }[]>([]);

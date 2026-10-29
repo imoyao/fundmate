@@ -51,6 +51,10 @@
           caption="行业内合计不足 100% 的差额＝债券/现金，不是缺失"
         />
       </MetricGrid>
+      <!-- 覆盖率的作用域口径（#2595 验收第 3 条）：拆到账户 / 组合后分母变小、
+           波动更大，不给这句话，用户会拿两个不可比的覆盖率比大小。
+           家庭级不渲染（它是基准线本身）——文案见 ./coverageNote.ts -->
+      <p v-if="scopeNote" class="coverage-scope-note">{{ scopeNote }}</p>
       <!-- 行业分布：横向条，不用饼图（行业数多，饼图读不出量级差）。
            #2617：两档口径必须分开看——「直接持有」基金整块不拆底层，
            「穿透后」基金与直持合并。合并成一张图会得出「基金是制造业」的假结论。
@@ -144,6 +148,7 @@ import PenetrationBarList from "./PenetrationBarList.vue";
 import PenetrationIndustryBlock from "./PenetrationIndustryBlock.vue";
 import PenetrationGapTable from "./PenetrationGapTable.vue";
 import { barWidth, percent } from "./format";
+import { coverageScopeNote } from "./coverageNote";
 import { getPenetration, type PenetrationData } from "@/api/summary";
 import { formatAmount } from "@/utils/currency";
 
@@ -157,6 +162,10 @@ import { formatAmount } from "@/utils/currency";
  * - 不传 props：家庭级（既有行为，向后兼容）；
  * - `portfolio-id`：组合级（组合详情页应传这个）；
  * - `ledger-id`：账户级；两者互斥（后端 400），父页自行保证。
+ *
+ * 账户 / 组合级时，覆盖率下方会多一句作用域提示（`./coverageNote.ts`）：拆小作用域后
+ * 覆盖率波动更大且**不可跨作用域比大小**，这是 #2595 验收第 3 条。提示只认后端回显的
+ * `scope`，不从 props 推断——props 恰恰是最容易漏传的那一环。
  */
 const props = defineProps<{
   /** 账户级口径；与 portfolioId 互斥 */
@@ -205,6 +214,9 @@ const scopeSuffix = computed(() => {
   return "";
 });
 
+/** 覆盖率作用域提示：只认后端回显的 scope，不从 props 猜（props 可能是组合页漏传前的默认值） */
+const scopeNote = computed(() => coverageScopeNote(data.value?.scope));
+
 /** 比率一律按后端给的 0~1 值格式化；分母口径由后端决定，前端不重算。
  *  `percent` / `barWidth` 与两个子组件共用同一份实现（见 ./format.ts）。 */
 /** 个股行：季报只披露前十大、故用第二色与行业层区分；条形与数值同用总市值占比 */
@@ -240,6 +252,15 @@ onMounted(load);
 <style scoped lang="scss">
 .penetration-panel {
   width: 100%;
+}
+
+/* 覆盖率作用域提示：小字、不套卡片壳——它是读数的**前提**，不是又一块内容。
+   用 -ink 文字级墨色（--text-tertiary 是图形级，正文里用会过淡）。 */
+.coverage-scope-note {
+  margin: var(--space-compact) 0 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
 }
 
 .panel-subtitle {
