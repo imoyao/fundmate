@@ -64,6 +64,8 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |
 | [fund-nav-retention.md](./fund-nav-retention.md) | 基金净值数据保留期与瘦身（冷热分层保留：热集留全历史 / 冷集留 1 年；自算 vs 上游拉的承重关系；先补后清的执行顺序） | 数据策略决策（**已拍板**，现状数字易腐烂待核实） |
 | [soft-banner.md](./soft-banner.md) | 「柔性提示条」（页面顶部非阻断警示）通用组件 `SoftBanner` 的 API、variant 色表、迁移映射与**未完成批次**（#2716；v1 实现已落地，§7 三项仍待做） | 设计依据 + 事实标准（迁移进度列易腐烂，引用前回 `origin/dev` 复核） |
+| [account-detail-depth-analysis.md](./account-detail-depth-analysis.md) | 账户详情页「持仓集中度 / 行业分布」占位卡处置（#2739）：能力已上线的事实取证、四页面对照矩阵、独立冗余评估与方案对比（B′ 就地内嵌缺失两块 vs 入口卡 vs 删除 vs 照搬整页） | 设计依据（**待 owner 裁定后实现**，§6 有 3 个待裁决策点） |
+| [account-detail-depth-analysis-eval.md](./account-detail-depth-analysis-eval.md) | 上述文档的证据附录：聚合页 / 账户详情页 / 组合详情页 / 复盘页的分析块对照矩阵与「同源组件 ≠ 功能冗余」的独立评估 | 事实标准（矩阵易腐烂，引用前回 `origin/dev` 复核） |
 | [internal-index.md](./internal-index.md) | 内部资产 / 备忘索引（钩子清单） | 索引页（`srcExclude`，不参与构建） |
 
 ## 视觉设计语言（权威入口）
