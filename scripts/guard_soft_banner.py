@@ -105,24 +105,14 @@ ALLOWLIST: dict[str, str] = {
 # 为什么精确到选择器而不是只写文件：只写文件等于「这个文件里随便再加几处都放行」，
 # 那才是真放松。精确到块后，同一文件新增第 2 处仍然会红。
 #
-# 这 3 处不是 #2724 点名的 draft/usage/cash-binding（那 3 处已迁移），而是本守卫
-# 全仓普查时**新发现**的存量——#2724 的人工普查漏了它们。形态上三者都属「柔性提示条」
-# 家族，但都超出 SoftBanner 现有三档的表达力：
-#   · `brand-100` 品牌色底 + `brand-700` 前景（无 brand variant）；
-#   · `.soft-reconcile-banner` 还带 `border-left: 3px` 语义色条（组件结构里没有这个位）。
-# 归一是**组件能力缺口**，不是「忘了迁」，需要先补 variant 并做设计裁决。
-# 跟踪：issue #2730（补 brand 档 / 左语义条形态，再迁这 3 处）。
-BASELINE: dict[str, str] = {
-    "views/asset/investment/eaccount-import/components/EaccountReconcileResult.vue::.conflict-banner": (
-        "brand-100 品牌色底、无边框，SoftBanner 无 brand 档（#2730）"
-    ),
-    "views/asset/ledgers/components/LedgerDetailOverview.vue::.soft-reconcile-banner": (
-        "bg-soft + border-subtle + border-left:3px 语义条，组件无左条位（#2730）"
-    ),
-    "views/asset/ledgers/components/OrphanCleanupDialogs.vue::.orphan-banner": (
-        "brand-100 品牌色底，且前景色用内联 :style 直调 --brand-700（#2730）"
-    ),
-}
+# **当前为空（#2730 已清空，2026-10-29）**：曾有 3 处存量，是 #2725 全仓普查时新发现的
+# （#2724 的人工普查漏了它们），形态属本家族但超出 SoftBanner 当时的表达力：
+#   · `.conflict-banner` / `.orphan-banner`：`brand-100` 品牌色底（组件无 brand 档）；
+#   · `.soft-reconcile-banner`：还带 `border-left: 3px` 语义色条。
+# #2730 已给组件补 `brand` 档与 `role` prop，三处全部迁完，基线条目随之删除。
+# 纪律不变：日后若要暂存存量，仍须按 `path::selector` 逐条枚举 + 写明理由；
+# 条目「已无对应命中」会报 STALE 红灯（防基线僵化）。
+BASELINE: dict[str, str] = {}
 
 _INLINE_ALLOW = "banner-guard-allow"
 

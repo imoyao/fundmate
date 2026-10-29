@@ -65,12 +65,9 @@
       </div>
 
       <div v-if="allMatched" class="all-matched-tip">
-        <el-alert
-          title="所有基金已匹配完成"
-          type="success"
-          :closable="false"
-          show-icon
-        />
+        <SoftBanner variant="success" icon="ep:circle-check-filled" dense>
+          所有基金已匹配完成
+        </SoftBanner>
       </div>
     </div>
   </el-drawer>
@@ -80,6 +77,7 @@
 import { ref, reactive, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { searchFunds } from "@/api/funds";
 import { navCache } from "@/composables/useNavCache";
 

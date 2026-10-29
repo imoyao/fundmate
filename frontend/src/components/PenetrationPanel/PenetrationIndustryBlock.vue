@@ -22,13 +22,14 @@
     <p class="panel-view-hint">{{ viewHint }}</p>
     <!-- 诚实降级：主口径没有「个股→行业」映射时直持图必然为空，
          把后端给的成因原样透出，避免用户把空图读成计算缺陷 -->
-    <el-alert
+    <SoftBanner
       v-if="mappingHint"
       class="mb-2"
-      type="info"
-      :closable="false"
-      :title="mappingHint"
-    />
+      variant="info"
+      icon="ep:info-filled"
+    >
+      {{ mappingHint }}
+    </SoftBanner>
     <p
       v-if="!rows.length"
       class="text-sm"
@@ -43,6 +44,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import PenetrationBarList from "./PenetrationBarList.vue";
 import { barWidth, percent } from "./format";
 import type { PenetrationData } from "@/api/summary";

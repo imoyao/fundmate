@@ -5,6 +5,7 @@
 // （table / batch / single / none）、逐条卡片列表、两个附属弹窗的开关。
 // 四分区在 BatchFixBatchSections 里，分区外壳、卡片、弹窗各自成组件。
 import { computed, reactive, ref } from "vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import BatchFixBatchSections from "./BatchFixBatchSections.vue";
 import BatchFixCard from "./BatchFixCard.vue";
@@ -135,16 +136,15 @@ const showRepoDialog = ref(false);
     </div>
 
     <!-- table 模式：全部为解析错误，面板内无可批量项（§4 第 4 条引导 + 跳过） -->
-    <el-alert
+    <SoftBanner
       v-if="activeFixMode === 'table' && errorRowCount > 0"
-      type="warning"
-      :closable="false"
-      show-icon
       class="bf-alert"
+      variant="warning"
+      icon="ep:warning-filled"
     >
-      <template #title>
+      <p>
         {{ errorRowCount }} 条解析错误无法在面板内修正，请到完整表格手动处理。
-      </template>
+      </p>
       <div class="bf-alert-actions">
         <el-button size="small" @click="skipCategory(fixSectionRows.error)">
           跳过这 {{ errorRowCount }} 条
@@ -153,7 +153,7 @@ const showRepoDialog = ref(false);
           去完整表格
         </el-button>
       </div>
-    </el-alert>
+    </SoftBanner>
 
     <!-- 分类批量修正：四分区（§5） -->
     <BatchFixBatchSections

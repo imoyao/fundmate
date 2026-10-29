@@ -22,12 +22,9 @@
     </SectionHeader>
 
     <el-skeleton v-if="loading" :rows="4" animated />
-    <el-alert
-      v-else-if="error"
-      type="warning"
-      :closable="false"
-      :title="error"
-    />
+    <SoftBanner v-else-if="error" variant="warning" icon="ep:warning-filled">
+      {{ error }}
+    </SoftBanner>
 
     <template v-else-if="data">
       <!-- 覆盖率：已穿透 / 未穿透，两栏分开说，不给「穿透率」一个孤立数字 -->
@@ -92,7 +89,9 @@
           {{ info.label }}
           <span class="panel-subtitle-note">非主口径</span>
         </h4>
-        <el-alert type="info" :closable="false" :title="info.note" />
+        <SoftBanner variant="info" icon="ep:info-filled">
+          {{ info.note }}
+        </SoftBanner>
         <p class="text-sm mt-2" :style="{ color: 'var(--text-secondary)' }">
           该体系仅覆盖参与基金市值的 {{ percent(info.covered_ratio_of_fund) }}，
           行业合计 {{ formatAmount(info.industry_total_cny) }}， 不可与
@@ -140,6 +139,7 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import PenetrationBarList from "./PenetrationBarList.vue";
 import PenetrationIndustryBlock from "./PenetrationIndustryBlock.vue";
 import PenetrationGapTable from "./PenetrationGapTable.vue";

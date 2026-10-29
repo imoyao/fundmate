@@ -35,8 +35,12 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+
+/** 仓库根目录（本脚本在 scripts/ 下，故上溯一级）。 */
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ---------------------------------------------------------------- 参数
 
@@ -60,8 +64,41 @@ const NO_COOKIE = flag('--no-cookie');
 const SHOT_DIR = arg('--shot', null);
 const SETTLE_MS = Number(arg('--settle-ms', '5000'));
 const PORT = Number(arg('--cdp-port', '9333'));
-/** 与 frontend/.env 的 VITE_SUPABASE_URL 一致；仅用于推算 cookie 名，不需要真凭据。 */
-const SUPABASE_URL = arg('--supabase-url', 'https://owhbssypqaghpnjoxlkx.supabase.co');
+/**
+ * Supabase project URL：仅用于推算 cookie 名（`sb-<project-ref>-auth-token`），不需要真凭据。
+ *
+ * 取值顺序（#2723 取数踩坑后的修正）：
+ *   1. `--supabase-url` 显式传参；
+ *   2. `frontend/.env.development` 的 `VITE_SUPABASE_URL`（**dev 的真实 ref**）；
+ *   3. `frontend/.env` 的 `VITE_SUPABASE_URL`；
+ *   4. 兜底旧默认值（生产 ref）。
+ *
+ * WHY 不能只留硬编码默认值（实测踩过，务必别回退）：
+ *   脚本原先把**生产** project ref 写死为默认值，而 dev server 用的是**另一个** ref。
+ *   cookie 名 = `sb-<ref>-auth-token`，ref 对不上 ⇒ 守卫认为未登录 ⇒ 受保护路由被重定向
+ *   到 `#/login` ⇒ 页面只渲染出 20 个节点却报「0 违规」——**假绿灯**，比报错更危险
+ *   （它让人以为「亮/暗都干净」，实际一个受保护路由都没扫到）。
+ */
+function resolveSupabaseUrl() {
+  const explicit = arg('--supabase-url', null);
+  if (explicit) return { url: explicit, source: '--supabase-url' };
+  for (const rel of ['frontend/.env.development', 'frontend/.env']) {
+    const p = join(REPO_ROOT, rel);
+    if (!existsSync(p)) continue;
+    try {
+      const m = readFileSync(p, 'utf8').match(/^\s*VITE_SUPABASE_URL\s*=\s*(\S+)/m);
+      if (m?.[1]) return { url: m[1], source: rel };
+    } catch {
+      /* 读不到就试下一个 */
+    }
+  }
+  return {
+    url: 'https://owhbssypqaghpnjoxlkx.supabase.co',
+    source: '兜底默认值（未找到 frontend/.env.development）'
+  };
+}
+
+const { url: SUPABASE_URL, source: SUPABASE_URL_SOURCE } = resolveSupabaseUrl();
 
 const EDGE_CANDIDATES = [
   process.env.AXE_BROWSER,
@@ -408,8 +445,30 @@ try {
     console.log(`\n=== ${THEME} ${route}  (落在 ${finalUrl}) ===`);
     console.log(`  页面自证: title="${ctx.title}" url=${ctx.url}`);
     console.log(`  渲染来源: ${(ctx.inspFiles ?? []).join(' | ') || '（无 data-insp-path，可能非 dev 构建）'}  节点数=${ctx.nodes}`);
+    // 假绿灯防护（#2723 取数踩坑）：受保护路由未登录时会被重定向到 #/login，
+    // 此时扫到的其实是登录页 ——「0 违规」不是干净，是**根本没扫到目标页**。
+    //
+    // 判据用「落点是否等于期望路由」而不是「节点数多少」：登录页本身有 300+ 节点
+    // （表单、侧栏、协议栏），节点数阈值根本区分不出来；而 URL 落点是确凿的。
+    // `location.href` 形如 `http://host/#/watchlist`，`ctx.url` 取的是 href；
+    // split('#')[1] 得到 `/watchlist`（无 `#`），而路由期望值带 `#` 前缀——
+    // 两边都剥掉 `#` 再比，否则永远不相等（会把正常路由误判成「未覆盖」）。
+    const landedHash = ((ctx.url ?? '').split('#')[1] ?? '').replace(/^#/, '');
+    const expectedHash = route.replace(/^#/, '').replace(/\/$/, '');
+    const redirected = landedHash !== expectedHash && !landedHash.startsWith(expectedHash + '/');
+    const thin = (ctx.nodes ?? 0) < 120;
+    const uncovered = redirected || thin;
+    if (uncovered) {
+      const why = redirected
+        ? `落点 ${landedHash || '(无 hash)'} ≠ 期望 ${expectedHash}（未登录被重定向？或路由名写错）`
+        : `节点数仅 ${ctx.nodes}（页面未渲染完整）`;
+      console.log(
+        `  ⚠️ 未覆盖：${why}。此处「0 违规」**不成立**，请检查会话 cookie` +
+          `（--supabase-url / SUPABASE_URL 来源是否与 dev ref 一致）与 --settle-ms。`
+      );
+    }
     if (!aa.length) {
-      console.log(`  ✅ color-contrast（AA）无违规`);
+      console.log(uncovered ? `  ❔ color-contrast（AA）未覆盖，不作「通过」结论` : `  ✅ color-contrast（AA）无违规`);
     } else {
       for (const v of aa) {
         console.log(`  ✗ ${v.id} [${v.impact}] ${v.help} — ${v.nodes.length} 个节点`);
@@ -436,7 +495,8 @@ try {
 }
 
 console.log(
-  `\n浏览器: ${bin}\naxe-core: ${AXE_VERSION}\nbase: ${BASE_URL}\ntheme: ${THEME}\nroute: ${ROUTES.join(', ')}`
+  `\n浏览器: ${bin}\naxe-core: ${AXE_VERSION}\nbase: ${BASE_URL}\ntheme: ${THEME}\nroute: ${ROUTES.join(', ')}\n` +
+    `supabase-url: ${SUPABASE_URL}（来源：${SUPABASE_URL_SOURCE}）——cookie 名由它推算，与 dev ref 不符则受保护路由会被踢到 #/login（假绿灯）`
 );
 
 const total = results.reduce(

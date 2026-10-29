@@ -18,14 +18,14 @@
       :disabled="saving"
     >
       <!-- 手工编辑提示：作为弹窗内常驻提示，避免保存后弹出警告框干扰用户 -->
-      <el-alert
+      <SoftBanner
         v-if="isManual"
-        type="info"
-        :closable="false"
-        show-icon
         class="mb-1"
-        title="该记录为手工编辑，重新导入时需按新内容对账"
-      />
+        variant="info"
+        icon="ep:info-filled"
+      >
+        该记录为手工编辑，重新导入时需按新内容对账
+      </SoftBanner>
       <!-- 数量/份额：基金按份额(支持小数)，股票/可转债按股|张(整数) -->
       <el-form-item :label="isFund ? '份额' : '数量'" prop="quantity">
         <el-input-number
@@ -161,6 +161,7 @@
 // 联动与保存逻辑在 transactionEdit/useTransactionEditForm.ts，
 // 纯口径（反算 / 类型兜底 / 快照）在 transactionEdit/transactionEditModel.ts。
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useTransactionEditForm } from "./transactionEdit/useTransactionEditForm";
 
 const props = defineProps<{

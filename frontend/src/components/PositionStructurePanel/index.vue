@@ -29,12 +29,9 @@
     </SectionHeader>
 
     <el-skeleton v-if="loading" :rows="4" animated />
-    <el-alert
-      v-else-if="error"
-      type="warning"
-      :closable="false"
-      :title="error"
-    />
+    <SoftBanner v-else-if="error" variant="warning" icon="ep:warning-filled">
+      {{ error }}
+    </SoftBanner>
 
     <template v-else-if="data">
       <MetricGrid>
@@ -120,6 +117,7 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import {
   getPositionStructure,
   type PositionStructureData
