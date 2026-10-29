@@ -80,11 +80,11 @@ title: 组件使用规范（设计语言实现层）
 
 - **形态（两级互斥）**：`< xl` 用 `PageNav`（`frontend/src/components/PageNav/index.vue`，内容区顶部锚点胶囊，sticky 于页头下、横向可滑不换行）；`xl+`（≥1280）用 `PageToc`（`frontend/src/components/PageToc/index.vue`，右侧 sticky 目录 rail，宽 160px）。两者共用同一份 `items / activeId`，由父页面调用 `usePageNav` 下发。
 - **state 来源**：`src/composables/usePageNav.ts`——锚点**不是静态清单**，而是扫描容器内真实存在的 `nav-*` id（DOM 存在性过滤，异步到位的区块由 MutationObserver 补扫），`v-if` 整块消失的区块自动不留死链；scroll-spy / 跳转动画（每帧重读目标 rect + 末段吸附 + 停摆看门狗）/ 用户接管 / keep-alive 清理全在 composable 内（踩坑推导见该文件头）。页面只提供 `labels`（锚点 → 标签映射，**与区块 SectionHeader 标题逐字一致**——读屏与视觉同一套词汇）。
-- **接入判据（防止无脑全站挂）**：纵向独立区块 ≥ 4 且页面明显超过一屏才接；横向 tabs / 视图切换页（如账户详情的 el-tabs、资产总览的多维视图）**不接**。
-- **接线模式**（参考 `views/asset/portfolio/detail.vue`、`views/asset/IntelligentAnalysis.vue`）：`PageNav` 放页头（及跨页指路条）之后；正文包一层 `__body`（`display:flex; gap: var(--space-5)`）+ `__main`（`flex:1; min-width:0`）+ `PageToc`；锚点 id 经 attribute fallthrough 挂在区块根元素上（根节点是 template 分片的组件——如 `PnlAttribution`——由调用方包一层 div 承接）。
+- **接入判据（防止无脑全站挂）**：纵向独立区块 ≥ 4 且页面明显超过一屏才接；**纯**横向 tabs / 视图切换页不接（资产总览的多维视图）。但**主体是纵向区块、tabs 在末端**的长页**可以**接——账户详情页即此形态（正文 7 个纵向分析区块，末端才是持仓明细 / 交易记录的 `el-tabs`）：tabs 区本身**不进目录**（一个锚点指不到两个 tab 中的哪一个，硬挂一个必然指错），且它是页面最后一屏，自然滚动即达。
+- **接线模式**（参考 `views/asset/portfolio/detail.vue`、`views/asset/ledgers/detail.vue`、`views/asset/IntelligentAnalysis.vue`）：`PageNav` 放页头（及跨页指路条）之后；正文包一层 `__body`（`display:flex; gap: var(--space-5)`）+ `__main`（`flex:1; min-width:0`）+ `PageToc`；锚点 id 经 attribute fallthrough 挂在区块根元素上（根节点是 template 分片的组件——如 `PnlAttribution`——由调用方包一层 div 承接；多根且整块条件渲染的组件——如 `LedgerCashLikeCard`——走 `anchor-id` prop，把锚点挂在**块内**，块不渲染即消失）。
 - **为什么右栏不做左栏**：全局 NavVertical 已在左（240px），双左栏视觉打架且随折叠宽度抖动（调研 `docs/working-notes/product-detail-research-2026-10-12.md` §5.2/§5.3，Agent 页 session-history 是反面先例）；右侧补空不抢宽（xl 视口下卡片仍有约 860px，图表与横向滚动表格都够用）。
 - **语义**：胶囊 / rail 是「跳转」不是「切换视图」，**不挂 tablist 角色**（guard_segmented 白名单不收第三类）；rail 无视觉标题，可访问名由 `aria-label="本页目录"` 提供。
-- **已接入**：产品详情页（#1968）、组合详情页、复盘页（2026-10-25）。
+- **已接入**：产品详情页（#1968）、组合详情页、复盘页（2026-10-25）、账户详情页（#2739，2026-10-29）。
 
 ## 设置页 · 单栏居中布局（D13）
 

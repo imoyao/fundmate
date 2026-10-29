@@ -17,10 +17,19 @@
   ⚠️ 本卡片**刻意不进环形图**。环形图两片是「持仓市值的划分」（合计 = 总市值），
   把账外类现金并进去就会重演 `总市值 − cash_like_amount = -180,909` 的负数 bug。
   两者口径解耦（decisions.md D59），故页面上必须有一句话说明「环形图合计 ≠ 总资产」。
+
+  #2739 页内导航锚点：本组件是**多根**（`<template v-if>` 下两个根），
+  父级挂 `id` 会被 Vue 丢弃并告警，故由 `anchorId` prop 显式下发，
+  落在块内标题行（SectionHeader 根节点）上——与本页其余锚点同一手法
+  （锚点 = 区块标题行的顶边，跳转后标题正好停在吸顶导航下方）。
+  锚点挂在**块内**而非块外：本块整块不渲染时锚点随之消失，
+  导航项被 usePageNav 的 DOM 存在性过滤收走，不留死链
+  （类现金为 0 的普通基金账户占绝大多数，不挂准就会留下一个点不动的导航项）。
 -->
 <template>
   <template v-if="visible">
     <SectionHeader
+      :id="anchorId"
       title="类现金"
       info="类现金 = 随时可变现、不承担净值波动的资金。含四部分：持仓内货基、账外孤儿货基/逆回购流水、账户现金。"
     />
@@ -154,7 +163,11 @@ import type { LedgerSummaryData } from "@/composables/useLedgerDetail";
 
 defineOptions({ name: "LedgerCashLikeCard" });
 
-const props = defineProps<{ summary: LedgerSummaryData | null }>();
+const props = defineProps<{
+  summary: LedgerSummaryData | null;
+  /** #2739 页内导航锚点 id（落在块内标题行上，见文件头注释）。可空 = 不挂锚点。 */
+  anchorId?: string;
+}>();
 
 const expanded = ref(false);
 
