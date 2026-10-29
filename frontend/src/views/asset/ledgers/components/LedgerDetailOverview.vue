@@ -50,8 +50,10 @@
     </SoftBanner>
   </transition>
 
-  <!-- 账本概览（对齐「家庭资产看板」范式：SectionHeader + CardBlock，左指标 / 右资产构成） -->
-  <SectionHeader title="账本概览" />
+  <!-- 账本概览（对齐「家庭资产看板」范式：SectionHeader + CardBlock，左指标 / 右资产构成）。
+       #2739：锚点挂在标题行上（SectionHeader 单根 ⇒ id 经 fallthrough 落下），
+       与本页其余锚点同一手法——锚点 = 区块标题行的顶边。 -->
+  <SectionHeader id="nav-overview" title="账本概览" />
   <CardBlock class="mb-6">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
       <!-- 左栏：核心指标（总资产 + 持仓盈亏 / 持仓与余额） -->
@@ -259,33 +261,35 @@
   <!-- #2155 / CNB #479：账外类现金出口。
        它必须**独立成块、并列展示**，不能并进上面的环形图：环形图两片是
        「持仓市值的划分」（合计 = 总资产），账外类现金不建持仓、不在其中
-       （并进去会重演 #1606 的「投资资产 -63.2%」负数 bug，口径解耦见 D59）。 -->
-  <LedgerCashLikeCard :summary="p.summaryData" />
+       （并进去会重演 #1606 的「投资资产 -63.2%」负数 bug，口径解耦见 D59）。
+       #2739：anchor-id 让本块在有内容时挂上页内导航锚点（整块不渲染时
+       锚点随之消失，导航项不留死链）。 -->
+  <LedgerCashLikeCard anchor-id="nav-cash-like" :summary="p.summaryData" />
 
   <!-- #1812：收益日历已落地（账户级，传 ledgerId 走该账户的 as-of 派生序列）。
        与 welcome 第三排 / panorama「资产大类 ⇄ 收益日历」原地切换是**同一组件的三处容器**，
-       口径唯一；#1925 起三处都带日 / 月 / 年粒度切换。 -->
+       口径唯一；#1925 起三处都带日 / 月 / 年粒度切换。
+       #2739：id 经 fallthrough 落在面板根（单根元素）＝ 锚点即标题行顶边。 -->
   <div class="mb-6">
-    <PnlCalendar :ledger-id="p.ledgerId ? Number(p.ledgerId) : undefined" />
+    <PnlCalendar id="nav-calendar" :ledger-id="p.ledgerIdNum" />
   </div>
 
   <!-- #2135：收益归因（区间逐品种 / 大类贡献）——复用 pnl 引擎唯一盈亏口径，
-       Σ品种 ≡ 同窗收益日历月合计由后端构造保证，前端只展示。 -->
-  <PnlAttribution :ledger-id="p.ledgerId ? Number(p.ledgerId) : undefined" />
+       Σ品种 ≡ 同窗收益日历月合计由后端构造保证，前端只展示。
+       #2739：PnlAttribution 是多根组件（吃不到父级 fallthrough），故由调用方
+       包一层 div 承接锚点（与组合详情页同一手法）。 -->
+  <div id="nav-attribution">
+    <PnlAttribution :ledger-id="p.ledgerIdNum" />
+  </div>
 
-  <!-- 账户深度分析其余项（持仓集中度 / 行业分布）仍规划中，
-       详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27 -->
-  <CardBlock class="mb-6">
-    <div
-      class="flex min-h-[120px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
-      :style="{
-        borderColor: 'var(--border-subtle)',
-        color: 'var(--text-tertiary-ink)'
-      }"
-    >
-      持仓集中度 / 行业分布规划中，敬请期待
-    </div>
-  </CardBlock>
+  <!-- #2739：账户深度分析（持仓结构 / 集中度 + 持仓穿透 / 行业分布）。
+       这两项能力早已上线（#2617 / #870 + #2595），原先此处是一块写着
+       「规划中，敬请期待」的占位卡——那是在把**已存在**的功能说成不存在。
+       组件与端点现成、口径与组合详情页 / 持仓分析页同源，本页只补它独缺
+       的这两块，不搬聚合页其余块（详见 docs/spec/account-detail-depth-analysis.md）。
+       **必须显式传账户口径**：不传 = 全家庭档，会显示别的账户的数据；
+       未归置持仓伪账户没有数字账户 id，整块不展示（与资金流动同一处置）。 -->
+  <LedgerDepthAnalysis v-if="showDepthAnalysis" :ledger-id="p.ledgerIdNum" />
 </template>
 
 <script setup lang="ts">
@@ -299,6 +303,7 @@ import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
+import LedgerDepthAnalysis from "./LedgerDepthAnalysis.vue";
 import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
 import { excessDateRange, excessDegradHint } from "@/utils/benchmarkExcess";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
@@ -310,6 +315,17 @@ defineOptions({ name: "LedgerDetailOverview" });
 const props = defineProps<{ page: ReturnType<typeof useLedgerDetailPage> }>();
 const p = reactive(props.page);
 
+/**
+ * 是否展示账户深度分析（持仓结构 / 持仓穿透）。
+ *
+ * 未归置持仓页**不展示**：那个页面是「把散落资产关联到账户」的归置台，
+ * 它没有数字账户 id，深度分析对它没有账户口径可言（传家庭级会展示别的
+ * 账户的数据）。处置与同页的资金流动区块一致（`!isUnclassified && ledgerIdNum`）。
+ */
+const showDepthAnalysis = computed(
+  () => !p.isUnclassified && p.ledgerIdNum != null
+);
+
 // ---------- #2134：近 90 天区间收益 vs 基准（缺数据诚实降级 null → 模板「--」）----------
 const excess = ref<BenchmarkExcessResult | null>(null);
 const rangeRate = computed(() => excess.value?.range_rate ?? null);
@@ -320,7 +336,7 @@ const excessReturn = computed(() => excess.value?.excess_return ?? null);
 const excessHint = computed(() => excessDegradHint(excess.value));
 
 async function fetchExcess() {
-  const ledgerId = p.ledgerId ? Number(p.ledgerId) : undefined;
+  const ledgerId = p.ledgerIdNum;
   if (!ledgerId) {
     excess.value = null;
     return;

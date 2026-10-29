@@ -141,6 +141,7 @@ interface LedgerTransactionsBinding {
 
 export interface LedgerDetailApi {
   ledgerId: ComputedRef<string>;
+  ledgerIdNum: ComputedRef<number | undefined>;
   isUnclassified: ComputedRef<boolean>;
   loading: Ref<boolean>;
   showSkeleton: Ref<boolean>;
@@ -211,6 +212,24 @@ export function useLedgerDetail(): LedgerDetailApi {
   const isUnclassified = computed(
     () => ledgerId.value === "unclassified" || !!route.query.name
   );
+  /**
+   * 账户 id（数字口径）。
+   *
+   * ⚠️ 不要用 `Number(ledgerId.value)` 顶替：「未归置持仓」伪账户的路由参数是
+   * `"unclassified"`，Number 之后是 **NaN**；NaN 会被 axios 序列化成
+   * `ledger_id=NaN`，后端 `request.args.get('ledger_id', type=int)` 解析失败
+   * 一律回 None（＝「不传」＝家庭级）——于是页面拿**全家庭**的数据当本页展示，
+   * 而面板的口径标签还写着「账户」。数据与标签同时错，比单错更坏。
+   *
+   * 故只认**有限数字**：非数字（未归置伪账户 / 空值）一律 undefined，
+   * 即「显式不传」，由各消费方自己落到家庭级或整块不展示。
+   */
+  const ledgerIdNum = computed<number | undefined>(() => {
+    const raw = ledgerId.value;
+    if (!raw) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
+  });
   const targetAccountName = computed(
     () => route.query.name as string | undefined
   );
@@ -624,6 +643,7 @@ export function useLedgerDetail(): LedgerDetailApi {
 
   return {
     ledgerId,
+    ledgerIdNum,
     isUnclassified,
     loading,
     showSkeleton,
