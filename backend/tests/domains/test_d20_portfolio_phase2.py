@@ -157,6 +157,47 @@ class TestHoldingsAssignmentMode:
         assert rows, '分页路径应返回刚建的持仓'
         assert rows[0]['portfolio_id'] == pf.id, '分页路径必须透出 portfolio_id（否则前端只能显示「—」）'
 
+    def test_ledger_positions_expose_portfolio_id(self, client, db, make_position):
+        """账户详情页持仓表走 ``GET /api/ledgers/<id>/positions/`` **第三条**序列化路径。
+
+        它有别于前两条：既不是 dict 直出（holdings），也不经过 ``PositionOut``
+        （``/api/positions/``），而是 ``LedgerService.get_positions_paginated``
+        手工拼列表。三条路径各自独立声明字段，任一处漏掉都会让该页的「所属组合」
+        列永远显示「—」——功能没坏，但用户看不出归类生效，等同于坏。
+
+        这里同时锁住两种状态：显式指派（具体 id）与账户继承（None）。
+        """
+        income = _portfolio(db, '固收+')
+        growth = _portfolio(db, '成长策略')
+        ledger = _ledger(db, '微众银行', portfolio_id=income.id)
+
+        make_position(
+            ledger_id=ledger.id,
+            portfolio_id=None,
+            symbol='BOND',
+            name='债基',
+            asset_type='bond',
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.1,
+        )
+        make_position(
+            ledger_id=ledger.id,
+            portfolio_id=growth.id,
+            symbol='GROWTH',
+            name='成长基金',
+            asset_type='bond',
+            quantity=500,
+            avg_price=2.0,
+            current_price=2.2,
+        )
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/positions/')
+        assert resp.status_code == 200, resp.get_json()
+        rows = {row['symbol']: row for row in resp.get_json()['data']['items']}
+        assert rows['BOND']['portfolio_id'] is None, '账户持仓接口必须透出继承态 None'
+        assert rows['GROWTH']['portfolio_id'] == growth.id, '账户持仓接口必须透出显式指派 id'
+
 
 class TestPortfolioXirrByPosition:
     """A1：组合收益按持仓归因，不再按账户批量吸走。"""

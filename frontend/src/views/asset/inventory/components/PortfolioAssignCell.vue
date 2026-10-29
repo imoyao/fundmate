@@ -22,11 +22,17 @@
  * 6 次点击。代价是必须给足反馈：成功 toast 里点名目标组合，并说明年化会重算——
  * 组合收益按持仓买卖流水计算（决策 D71），改派会让两端组合的本金序列同时变，
  * 不提示的话，用户看到年化数字跳变会当成 bug。
+ *
+ * ## 触发按钮必须 `@click.stop`
+ * 本组件同时用于两张表：盘点页（表格无行点击）与账户详情页（`@row-click` 打开
+ * 持仓明细抽屉）。在后者里，一次未阻断的点击会**先改派、再顺手弹出抽屉**——
+ * 用户想选组合，却看到抽屉盖上来把浮层挡在下面。单元格里的可交互控件不吞掉
+ * 冒泡，是表格类界面的通病，故在按钮上就地收口；浮层本体 teleport 到 body，
+ * 天然不在行的冒泡链上，不必额外处理。
  */
 
 import { computed, ref } from "vue";
 import type { PortfolioItem } from "@/api/portfolio";
-import type { Position } from "@/api/types";
 
 defineOptions({ name: "PortfolioAssignCell" });
 
@@ -40,8 +46,20 @@ defineOptions({ name: "PortfolioAssignCell" });
 const FOLLOW_LEDGER = "__follow_ledger__";
 
 const props = defineProps<{
-  /** 当前持仓行 */
-  row: Position;
+  /**
+   * 当前持仓行。
+   *
+   * 只声明本组件**实际读取**的三个字段（组合 id + 两个用于文案的名称），而不是
+   * 直接要求 `Position`：账户详情页的持仓行是 `LedgerHoldingRow`（后端
+   * `get_positions_paginated` 手工拼的字典，字段集与 `Position` 不同），
+   * 若按整型 `Position` 约束，那边只能靠 `as Position` 强转——类型检查就再也
+   * 拦不住真实的字段错配了。
+   */
+  row: {
+    name?: string | null;
+    symbol?: string | null;
+    portfolio_id?: number | null;
+  };
   /** 可改派的目标组合列表 */
   portfolios: PortfolioItem[];
   /**
@@ -128,6 +146,7 @@ function onPick(value: string | number | boolean) {
         :aria-label="triggerLabel"
         aria-haspopup="dialog"
         :aria-expanded="visible"
+        @click.stop
       >
         <span v-if="mode === 'unknown'" class="own own-muted">—</span>
         <span v-else-if="mode === 'none'" class="own own-muted">未归属</span>
