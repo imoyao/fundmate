@@ -119,10 +119,28 @@ STATE_NO_POSITION = 'no_position'
 # `no_data` = 一条真报价都没有（**不出数**）。两者都不可与 `closed`（真休市）混用。
 STATE_PARTIAL = 'partial'
 
-# 某标的当天没价格时，最多向前沿用最近多少天的价格（#1812）。
-# 太大：一个月没更新的标的会被当成「价格不变」而画出 0 收益，掩盖数据缺失；
-# 太小：单日数据抖动就会让市值归零、差分出现假跳空。7 天覆盖周末与节假日。
-_STALE_CARRY_DAYS = 7
+# 前值回填的**取数前扩天数**（#1812 引入，语义在 #2733 改过一次）。
+#
+# 历史：这里原本是「最多向前沿用 7 天价格」的**硬上限**。7 天刚够覆盖普通周末，
+# 覆盖不了春节 / 国庆这类 8~10 天的长假——假后首日取不到前值，那笔持仓市值按 0 计，
+# 净值曲线掉到地板再弹回（实测 2025-10-08 −8,458.78、次日 +8,870.50）。
+#
+# 现在：#2733 起取价改成「≤ 当日的最后已知净值」，**没有回看上限**——节假日 carry
+# 本来就该诚实，基金真停发净值由 `no_price` 状态单独表达，不该用「归零」冒充。
+# 这个常量因此只剩两个职责：
+#   ① 取数窗口向前扩这么多天，保证**区间首日**也能取到前值（否则首日的答案取决于
+#      查询起点，物化读与现算读会分叉，见 `fetch_start` 处的注释）；
+#   ② 作为物化新鲜窗的基数：新价格的影响半径 = 到下一个已知净值的那一天，最长就是
+#      一个长假。
+# 16 天 = 春节 / 国庆最长 10 天 + 前后各一个周末，留余量。
+_STALE_CARRY_DAYS = 16
+
+# 陈旧阈值（#2733）：某标的最后已知价之后**走过了几个开盘日**还没出新价，就判它陈旧
+# ⇒ 该持仓当天按缺价处理（回 `no_price` / `partial`，市值不计入）。
+# 5 个开盘日 ≈ 一周的交易时间：足够容纳「净值晚发布一两天」的常态，又能在一周没有
+# 新净值时把信号交还给状态码。与 `_STALE_CARRY_DAYS` 分工明确：
+# 前者管**取数前扩 / 新鲜窗**（自然日），后者管**要不要继续采信这条旧价**（交易日）。
+_STALE_TRADING_DAYS = 5
 
 # ── 物化新鲜窗（#1926）────────────────────────────────────────────────────────
 # `>= 今天 - PRICE_FRESH_DAYS` 的日期**永不落库**、读时恒现算，其行也就从不被写出去。
@@ -397,8 +415,46 @@ def _price_series_of(
     return None
 
 
+def _last_known_price(day: dt.date, dates: List[dt.date], prices: List[int]) -> Optional[int]:
+    """「≤ 当日的最后已知价」——价格序列须已按日期升序排好（热路径用预排序数组）。
+
+    场内与场外**同一套取价语义**（#2277 先给场内，2026-10-28 #2733 推广到全部）：
+    某标的当天没出价，就用它最近一次已知的价，**没有回看上限**。
+
+    为什么不该设上限：场外基金的「当天没净值」绝大多数是**节假日**（不发布），
+    少数才是真停发。设 7 天上限的结果是把国庆 8 天假当成「没数据」→ 市值计 0 →
+    净值曲线掉到地板再弹回（实测 2025-10-08）。而真停发这件事，`no_price` 状态
+    本来就能单独表达（整窗无价格序列 ⇒ 该持仓永不进 `last_known`），不需要用
+    「归零」来冒充「没数据」。
+    """
+    i = bisect_right(dates, day) - 1
+    return prices[i] if i >= 0 else None
+
+
+def _trading_days_between(start: dt.date, end: dt.date) -> List[dt.date]:
+    """`[start, end]` 内所有 A 股开盘日（升序）。判据唯一出口 `is_trading_day`（#1217）。"""
+    out: List[dt.date] = []
+    day = start
+    while day <= end:
+        if is_trading_day(day):
+            out.append(day)
+        day += dt.timedelta(days=1)
+    return out
+
+
+def _is_stale(last_known_day: dt.date, day: dt.date, trading_days: List[dt.date]) -> bool:
+    """`last_known_day` 之后到 `day` 为止**走过几个开盘日**，超过阈值即视为陈旧。
+
+    阈值按**交易日**而不是自然日：长假（春节 / 国庆）里一个开盘日都没有，所以假后
+    首日照样是「刚更新过」，不该被当成陈旧而归零；反过来，一只真停发净值的基金
+    每过一个开盘日就累加一天，5 个开盘日没动静就落回 `no_price`——信号没丢。
+    """
+    passed = bisect_right(trading_days, day) - bisect_right(trading_days, last_known_day)
+    return passed > _STALE_TRADING_DAYS
+
+
 def _price_for(day: dt.date, series: Optional[Dict[dt.date, int]]) -> Optional[int]:
-    """该标在 day 的 0.0001 元单价；`series` 为 None/空表示整段无价格序列。
+    """该标的在 day 的 0.0001 元单价；`series` 为 None/空表示整段无价格序列。
 
     前值回填（#1812 修复）：某只基金当天没发布净值时，若直接跳过它，
     等价于「市值归零」，日差分会出现巨额假跳空——实测 2026-09-30 只有
@@ -406,18 +462,15 @@ def _price_for(day: dt.date, series: Optional[Dict[dt.date, int]]) -> Optional[i
     回填**只保证市值不跳空**，不代表「价格没变」这个事实：周末 / 全市场没同步时
     所有标的都回填不出，差分虽恰为 0，也不出数（状态由 `is_trading_day` 分派成
     `closed` 休市 / `no_data` 没同步，见下方状态判定），不会被填成「0 收益」。
+
+    **回看无上限**（#2733）：见 `_last_known_price`。本函数是字典入参的便捷入口，
+    每次都要排一次序，故日循环热路径不走它（那里用 `last_known` 里的预排序数组）；
+    用例与冷路径用它，保证两边的取价语义只有一份。
     """
     if not series:
         return None
-    price = series.get(day)
-    if price is not None:
-        return price
-    # 当日无价 → 沿用最近一次已知价格（最多回溯 _STALE_CARRY_DAYS 天）
-    for back in range(1, _STALE_CARRY_DAYS + 1):
-        prev = series.get(day - dt.timedelta(days=back))
-        if prev is not None:
-            return prev
-    return None
+    ordered = sorted(series)
+    return _last_known_price(day, ordered, [series[d] for d in ordered])
 
 
 def _positions(
@@ -926,19 +979,36 @@ def _compute_days(
     # （账户级的价值集是它的子集）；coverage 诊断按本作用域报。
     price_series = {p.id: _price_series_of(p, fund_nav, exchange_prices) for p in decision_positions}
 
-    # 场内（EXCHANGE）取价预解析（#2277 停牌冻结）：把每笔场内持仓的价格序列
-    # 排成有序数组，取价退化为「≤ 当日的最后已知价」（bisect，O(log n)）。
-    # 为什么场内不做 7 天截断：场内「没有报价」的唯一常态是**停牌**——最后成交价
-    # 就是当前价（券商 App 同款口径），冻结比缺席诚实；OTC 净值断档才是真
-    # 「没数据」（基金可能停发净值），维持 7 天前值回填 + partial 的旧口径。
-    # 序列为空的场内持仓（从未有过报价）不进 `ex_levels`，照旧走 `_price_for`
-    # 返回 None ⇒ 计入 no_price，与「整段无价格序列」的语义一致。
-    ex_levels: Dict[int, Tuple[List[dt.date], List[int]]] = {}
+    # 交易日索引（#2733 的陈旧判定用）：窗口内所有 A 股开盘日，升序。
+    # 为什么按**交易日**数而不是自然日数判陈旧：节假日和「基金停发净值」在自然日历上
+    # 长得一样，但在交易日历上完全不同——国庆 8 天假里一个开盘日都没有，而一只
+    # 停发净值的基金每过一个开盘日就多加一天。用自然日当阈值，要么误伤长假
+    # （7 天窗掉 8 天假 ⇒ 市值归零，这正是本卡要修的 bug），要么放过真停更。
+    trading_days = _trading_days_between(fetch_start, end)
+
+    # 取价预解析（#2277 场内 → #2733 全量）：把每笔持仓的价格序列排成升序数组，
+    # 取价退化为「≤ 当日的最后已知价」（`bisect`，O(log n)）。
+    #
+    # 过去只有场内走这条路，场外仍吃 `_price_for` 的 7 天硬回填窗。分叉的代价是
+    # 国庆 / 春节这类长假之后，场外那部分市值计 0 ——净值曲线掉到地板再弹回
+    # （实测 2025-10-08 −8,458.78、次日 +8,870.50，#2733）。现在两边统一：
+    # 「当天没出价」一律沿用最后已知价；是不是「已经不能算数」改由**交易日**
+    # 距离判定（见 `_is_stale`），长假不再被误伤。
+    #
+    # 序列为空的持仓（balance 模式 / 从未有过报价 / 无场所判定）不进 `last_known`，
+    # `price_of` 返回 None ⇒ 计入 no_price，与「整段无价格序列」的语义一致。
+    last_known: Dict[int, Tuple[List[dt.date], List[int]]] = {}
+    exchange_ids = set()
     for p in decision_positions:
         s = price_series.get(p.id)
-        if s and venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE:
-            ordered = sorted(s)
-            ex_levels[p.id] = (ordered, [s[d] for d in ordered])
+        if not s:
+            continue
+        ordered = sorted(s)
+        last_known[p.id] = (ordered, [s[d] for d in ordered])
+        # 场所判定在这里做一次（原本在日循环里每天每笔重算，55 万次正则）；
+        # 它只影响「停牌冻结」与「陈旧判定」这两处，不影响基础取价。
+        if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE:
+            exchange_ids.add(p.id)
     # 整段无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益。
     # `no_price_ids` 由调用方按**原始窗口**注入（见 `_price_presence`），刻意不在这里
     # 从 `price_series` 推：本函数的取价窗口已前扩 `_STALE_CARRY_DAYS`，推出来的集合
@@ -952,13 +1022,23 @@ def _compute_days(
     def price_of(pos: Position, day: dt.date) -> Optional[int]:
         key = pos.id
         if key not in price_cache:
-            if key in ex_levels:
-                # 场内：≤ 当日的最后已知价（含停牌冻结，见上方 `ex_levels` 注释）。
-                dates, unit_prices = ex_levels[key]
-                i = bisect_right(dates, day) - 1
-                price_cache[key] = unit_prices[i] if i >= 0 else None
+            levels = last_known.get(key)
+            if levels is None:
+                # 整段没有价格序列：不是「今天没价」，是「从来没有价」⇒ 不出数
+                price_cache[key] = None
             else:
-                price_cache[key] = _price_for(day, price_series.get(key))
+                dates, unit_prices = levels
+                i = bisect_right(dates, day) - 1
+                if i < 0:
+                    price_cache[key] = None
+                elif key not in exchange_ids and _is_stale(dates[i], day, trading_days):
+                    # 场外且已陈旧（超过 `_STALE_TRADING_DAYS` 个开盘日没出新净值）
+                    # ⇒ 不再采信这条旧价，交回状态链报 no_price / partial。
+                    # 场内不判陈旧：停牌期间最后成交价**就是**当前价（券商 App 同款），
+                    # 冻结是事实而不是缺数据（#2277）。
+                    price_cache[key] = None
+                else:
+                    price_cache[key] = unit_prices[i]
         return price_cache[key]
 
     # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
@@ -1119,7 +1199,7 @@ def _compute_days(
             if held:
                 day_held_count += 1
             if held and pos.id not in no_price_ids:
-                if pos.id in ex_levels:
+                if pos.id in exchange_ids and pos.id in last_known:
                     # 场内（#2277）：有价格水平即「在场」。停牌期间价格冻结在最后
                     # 成交价（`price_of` 的 bisect 分支），市值不缺席、差分贡献为 0，
                     # 不再日复一日地报 partial——停牌是市场事实，不是数据缺口。
@@ -1129,7 +1209,7 @@ def _compute_days(
                     # 冻结判据不得前伸——否则未来日会因「场内在场 + OTC 缺席」
                     # 变成带值的 partial（实测 2026-10 未来周日报出 +4889 假盈利：
                     # OTC 市值跌出总额被当成了当日收益）。
-                    dates, _unit_prices = ex_levels[pos.id]
+                    dates, _unit_prices = last_known[pos.id]
                     if day <= today and bisect_right(dates, day) > 0:
                         day_present_count += 1
                     else:
@@ -1137,6 +1217,10 @@ def _compute_days(
                 elif day in (series or {}):
                     day_present_count += 1
                 else:
+                    # 场外当天没出真净值：**值照常 carry**（#2733，市值不再归零），
+                    # 但这里仍记「缺席」——`partial` 表达的是「今天的数不是今天的」。
+                    # carry 只解决「别把节假日画成归零」，不代表价格是新鲜事实；
+                    # 基金真停发净值同样靠这条被标出来，不必再靠 7 天上限去误伤长假。
                     day_missing_ids.add(pos.id)
 
             price = price_of(pos, day)
