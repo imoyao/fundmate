@@ -66,6 +66,7 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [soft-banner.md](./soft-banner.md) | 「柔性提示条」（页面顶部非阻断警示）通用组件 `SoftBanner` 的 API、variant 色表、迁移映射与**未完成批次**（#2716；v1 实现已落地，§7 三项仍待做） | 设计依据 + 事实标准（迁移进度列易腐烂，引用前回 `origin/dev` 复核） |
 | [account-detail-depth-analysis.md](./account-detail-depth-analysis.md) | 账户详情页「持仓集中度 / 行业分布」占位卡处置（#2739）：能力已上线的事实取证、四页面对照矩阵、独立冗余评估与方案对比（B′ 就地内嵌缺失两块 vs 入口卡 vs 删除 vs 照搬整页） | 设计依据（**已实现**，§0 有 owner 裁定与落地摘要，§6 记录裁定过程） |
 | [account-detail-depth-analysis-eval.md](./account-detail-depth-analysis-eval.md) | 上述文档的证据附录：聚合页 / 账户详情页 / 组合详情页 / 复盘页的分析块对照矩阵与「同源组件 ≠ 功能冗余」的独立评估 | 事实标准（§1 是实现前快照，落地后状态见文末 §5；矩阵易腐烂，引用前回 `origin/dev` 复核） |
+| [position-structure-view-by-ledger-type.md](./position-structure-view-by-ledger-type.md) | 持仓结构视角由账户类型（`ledger_type`）决定、不由用户切换：两个账户类型字段的职责边界、ETF 归权益侧与货基走类现金的口径细则、组合/家庭级为何保留切换 | 口径依据（**已实现**，§2 的字段选择与 §3 的实测数据是判据依据） |
 | [internal-index.md](./internal-index.md) | 内部资产 / 备忘索引（钩子清单） | 索引页（`srcExclude`，不参与构建） |
 
 ## 视觉设计语言（权威入口）

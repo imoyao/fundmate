@@ -23,6 +23,11 @@
 - 未归置持仓伪账户（没有数字账户 id）**整块不展示**深度分析（与同页资金流动一致）。
 - 新增回归网 `frontend/src/views/asset/ledgers/__tests__/ledgerDepthAnalysisGuard.spec.ts`（6 条）：占位卡不许回来 / 深度分析真接线 / 口径走有限数字 / 未归置页不展示 / 类现金锚点随块消失 / 锚点与标签一一对应。
 
+**后续口径变更（PR #2746）**：owner 在验收时提出「账户类型本就确定，持仓结构里的股基双视角切换是多余的」。
+已按 `docs/spec/position-structure-view-by-ledger-type.md` 收敛：账户级下视角由
+`ledgers.ledger_type` 决定（证券账户只看股票、基金/银行账户只看基金），**不渲染切换控件**；
+组合/家庭级保留切换。ETF 归权益侧、货基走类现金**仅账户级生效**，组合/家庭级口径零改动。
+
 
 ---
 

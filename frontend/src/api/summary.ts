@@ -751,6 +751,17 @@ export type PositionStructureData = {
   portfolio_id: number | null;
   total_cny: number;
   position_count: number;
+  /**
+   * 账户级固定视角（#2739）：`stock` / `fund` / `null`。
+   *
+   * `null` = 组合级或家庭级 ⇒ 前端**保留**股基切换控件（跨类型账户混合，
+   * 切换才有意义）。非 null = 账户级 ⇒ 视角由账户类型决定，**不提供切换**。
+   */
+  view: "stock" | "fund" | null;
+  /** 账户的内部资产类口径键（stock/fund/bank/property/e_account），非账户级为 null */
+  ledger_type: string | null;
+  /** 走类现金口径的市值（账户级下排除出持仓榜的货基等）；非账户级恒为 0 */
+  cash_like_cny: number;
   by_asset_class: Array<{
     key: string;
     label: string;
