@@ -57,6 +57,11 @@ export interface PortfolioHoldingItem {
   account_name: string | null;
   /** 仅资产行下发（持仓行无此字段） */
   ledger_id?: number | null;
+  /**
+   * 归属方式（D20 二期 UI）：`null` = 靠所属账户默认组合继承而来；数字 = 用户显式指派。
+   * **仅持仓行下发**——资产行（现金）不带该键，「未下发」不得当成 `null`（继承）渲染。
+   */
+  portfolio_id?: number | null;
   quantity: number;
   current_price: number;
   avg_price: number;

@@ -35,6 +35,18 @@ export interface PortfolioHolding {
    * **状态 = 后端字段契约**，前端禁止拿 price_date 自己跟今天比对推断。
    */
   settled_today?: boolean | null;
+  /**
+   * 归属方式（D20 二期 UI，**只读**）。
+   *
+   * 组合持仓有两条来源路径（`portfolio_service.portfolio_position_conditions`）：
+   * - 显式指派：`portfolio_id` 等于本组合 id；
+   * - 账户继承：`portfolio_id` 为 `null`，靠所属账户的默认组合带进来。
+   *
+   * **`undefined` ≠ `null`**：资产行（现金，id = asset.id + 100000）压根不带这个字段
+   * （现金沿用账户归属，没有持仓级组合概念），必须与「继承态」分开判断——
+   * 否则每一条现金都会被错标成「随账户」。
+   */
+  portfolio_id?: number | null;
 }
 
 /** 关联账户：账户 + 组合关联字段 */

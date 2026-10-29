@@ -55,7 +55,10 @@
             :total="investmentTotal"
             :loading="investmentLoading"
             :valuation="investmentValuation"
+            :portfolios="portfolios"
+            :resolve-portfolio="resolvePortfolioOf"
             @ask="askAbout"
+            @reassign="reassignPosition"
           />
         </section>
 
@@ -167,11 +170,8 @@ import { INVESTMENT_MAJOR_KEYS } from "@/constants";
 import { agentAskQuery } from "@/utils/agentAsk";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import {
-  ASSET_TYPE_MAP,
-  INVENTORY_CATEGORIES,
-  type QuickActionItem
-} from "./constants";
+import { INVENTORY_CATEGORIES, type QuickActionItem } from "./constants";
+import { getCategoryAssetTypes, getCategoryDesc } from "./helpers";
 import { useInventoryData, useStrategyInsight } from "./useInventoryData";
 import {
   PNL_DUAL_SCOPE_TIP,
@@ -209,6 +209,9 @@ const {
   cashLikeTotal,
   cashLikeLoading,
   currentAssets,
+  portfolios,
+  resolvePortfolioOf,
+  reassignPosition,
   getCategoryTotal,
   fetchData,
   removeAsset
@@ -250,15 +253,12 @@ const {
  */
 const investmentValuation = usePositionValuation(investmentPositions);
 
-/** 当前大类的说明文案 */
-const activeCategoryDesc = computed(
-  () =>
-    INVENTORY_CATEGORIES.find(c => c.key === activeCategory.value)?.desc || ""
+/** 当前大类的说明文案 / 快捷录入入口（均由大类目录映射，见 helpers） */
+const activeCategoryDesc = computed(() =>
+  getCategoryDesc(activeCategory.value)
 );
-
-/** 其他大类下的快捷录入入口（由大类目录映射） */
-const activeAssetTypes = computed(
-  () => ASSET_TYPE_MAP[activeCategory.value] || []
+const activeAssetTypes = computed(() =>
+  getCategoryAssetTypes(activeCategory.value)
 );
 
 /**

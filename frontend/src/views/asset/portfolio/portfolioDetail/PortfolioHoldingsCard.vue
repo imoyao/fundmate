@@ -18,6 +18,9 @@ import {
   slicePage,
   sortHoldings
 } from "./portfolioDetailModel";
+// 归属判断与盘点页持仓表共用同一实现：`undefined`（资产行）与 `null`（继承态）必须分开，
+// 这个坑只在一处写清楚，避免两个页面各写一份 `!row.portfolio_id` 而把现金标成「随账户」。
+import { isInheritedFromLedger } from "@/views/asset/inventory/portfolioAssignModel";
 import PortfolioTableEmpty from "./PortfolioTableEmpty.vue";
 
 /**
@@ -82,6 +85,12 @@ function handleSortChange(sort: {
   holdingsPage.value = 1; // 排序后重置到第一页
 }
 
+/**
+ * 该行是否靠「账户默认组合」继承而来（D20 二期 UI）。
+ *
+ * 判据收在 `portfolioAssignModel.isInheritedFromLedger`——**严格 `=== null`**，
+ * 不能用 `!row.portfolio_id`：资产行（现金）压根不带该字段，`undefined` 会被错判成继承。
+ */
 onMounted(() => void ensureEnums());
 </script>
 
@@ -173,10 +182,22 @@ onMounted(() => void ensureEnums());
           <span v-else style="color: var(--text-tertiary-ink)">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="所属账户" width="120">
-        <template #default="{ row }">{{
-          row.account_name || "未归档"
-        }}</template>
+      <!-- 归属方式（D20 二期 UI，**只读**）：标明这行是「本组合显式指派」还是「随账户继承」。
+           本页不提供改派入口——这里语义是「按组合看持仓」，改派动作放在盘点页持仓表。
+           在此给完整浮层会诱导误读：用户看得见的是「它在这个组合里」，想做的事往往是
+           「把某条弄出去」，而不是「在这里给它挑新家」，两者操作路径不同。 -->
+      <el-table-column label="所属账户 / 归属" min-width="170">
+        <template #default="{ row }">
+          <span class="ledger-cell">
+            <span class="ledger-name">{{ row.account_name || "未归档" }}</span>
+            <span
+              v-if="isInheritedFromLedger(row as PortfolioHolding)"
+              class="inherit-chip"
+              title="该持仓未显式指派组合，靠所属账户的默认组合归入本组合"
+              >随账户</span
+            >
+          </span>
+        </template>
       </el-table-column>
     </el-table>
     <PortfolioTableEmpty v-else>
@@ -193,3 +214,31 @@ onMounted(() => void ensureEnums());
     </div>
   </CardBlock>
 </template>
+
+<style lang="scss" scoped>
+/* 归属标记（D20 二期 UI）：账户名 + 「随账户」小标签。
+   标签刻意用中性底 + 辅助字色，不用品牌红——「继承」是常态而非异常，
+   用强调色会让大多数行看起来像在报警，反而失去提示价值。 */
+.ledger-cell {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  max-width: 100%;
+}
+
+.ledger-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inherit-chip {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-size: 0.8em;
+  line-height: 16px;
+  color: var(--text-tertiary-ink);
+  background: var(--bg-soft);
+  border-radius: 3px;
+}
+</style>
