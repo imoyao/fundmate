@@ -143,3 +143,9 @@ channel_category 分布：fund_platform 8 / bank 4 / securities 1 / other 1 / NU
 - 不给聚合页加 `?scope=ledger&id=` 深链（#2739 已裁定）。
 - 不改组合/家庭级的任何既有分类与口径（避免误伤已上线的组合页与持仓分析页）。
 - 不把 `ledger_type` 用作展示标签（铁律：它是内部计算口径键，用户不可见）。
+- **不改 `PenetrationPanel` 的切换**：它的 `SegmentedControl` 切的是**分类体系**
+  （证监会门类 / GICS），即「用哪套标准看行业分布」，两套标准都有意义，与账户类型无关。
+  本次收敛的只是「资产类别视角」（股票 / 基金）——**同样是 `SegmentedControl`，
+  但语义不同**：前者是「换标准看同一件事」，后者是「看账户的哪一面」，
+  而账户类型已经把后者唯一确定了。判据见 `docs/design/components.md`
+  「什么时候不该有切换」。
