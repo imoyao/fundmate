@@ -35,7 +35,7 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
     // 缓存清洗（2026-10-30）：历史版本写进缓存的「无标题条目」会渲染成空白标签块，
     // 且只存在用户本地，干净的 CI/新装环境永远复现不到（用户反馈「好久了」）。
     // 清洗结果**写回缓存**：脏数据只清一次，不会每次刷新又长回来。
-    const tags = cached ? sanitizeTags(cached) : defaultTags();
+    const tags: any[] = cached ? sanitizeTags(cached) : defaultTags();
     if (cached && tags.length !== cached.length) {
       storageLocal().setItem(tagsKey, tags);
     }
@@ -72,11 +72,16 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
           multiTags
         );
     },
-    handleTags<T>(
-      mode: string,
-      value?: T | multiType,
-      position?: positionType
-    ): T {
+    /**
+     * 注意：这里不再用 `handleTags<T>(...): T` 的泛型签名。
+     *
+     * 旧签名在 `multiTags` 状态没有明确类型时靠 `any` 蒙混过关；一旦 state 被
+     * 标注成数组（缓存清洗后是 `any[]`），`T | multiType` 就无法赋给数组类型
+     * （TS 无法证明未约束的 T 是数组），`splice`/`slice` 分支的返回值同理。
+     * 本函数各分支返回类型本来就不同（多数分支返回 `undefined`），
+     * 泛型只是假安全感，收成 `any` 更诚实。
+     */
+    handleTags(mode: string, value?: any, position?: positionType): any {
       switch (mode) {
         case "equal":
           this.multiTags = value;
