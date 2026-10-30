@@ -316,6 +316,29 @@ def portfolio_to_dict(portfolio: Portfolio) -> dict:
     }
 
 
+def collect_family_map_symbols(db, family_id: int) -> list[str]:
+    """家庭当前持有的股票 / 可转债代码（去重保序，喂行业映射 job 用）。
+
+    **纪律**：行业映射 job 属 market 域，自己不跨域查 user 域的持仓——symbol
+    的收集是 user 域（本函数）的职责，收集完由视图喂给 job（``targets``）。
+    只收 ``asset_type in ('stock', 'bond')``（bond 即可转债，#1171 收口口径）：
+    基金 / ETF 的行业缺口走持仓穿透链路（``fund_holdings``），不归这张映射表。
+    可交换债（132 前缀）按 owner 2026-10-30 拍板计入股票敞口，一并收集。
+    """
+    rows = (
+        db.query(Position.symbol)
+        .filter(
+            Position.family_id == family_id,
+            Position.quantity > 0,
+            Position.asset_type.in_(('stock', 'bond')),
+        )
+        .distinct()
+        .all()
+    )
+    # 去重保序：同一代码多账户持有时只问一次上游
+    return list(dict.fromkeys(str(row[0] or '').strip() for row in rows if row[0]))
+
+
 def list_portfolio_cards(db, family_id: int) -> list[dict]:
     """组合列表卡片聚合（列表页一次请求拿全，前端零逐卡请求）。
 
@@ -381,8 +404,7 @@ def _aggregate_portfolio_stats(db, family_id: int, portfolios: list[Portfolio]) 
         account_counts[pid] = account_counts.get(pid, 0) + 1
 
     totals = {
-        pid: {'market_value_cents': 0, 'pnl_cents': 0, 'cost_cents': 0, 'position_count': 0}
-        for pid in portfolio_ids
+        pid: {'market_value_cents': 0, 'pnl_cents': 0, 'cost_cents': 0, 'position_count': 0} for pid in portfolio_ids
     }
 
     positions = (

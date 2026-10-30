@@ -281,11 +281,18 @@ BASELINE: dict[str, dict[str, int]] = {
     # `create_portfolio_record` / `update_portfolio_record`，视图回到
     # 「parse → 调 service → 组信封」，错误码只留一张 `_NAME_ERROR_STATUS` 映射。
     "backend/app/domains/portfolios/views.py": {
-        "lines": 123,
+        "lines": 150,
         "orm_queries": 0,
         "commits": 0,
-        "max_func": 19,
+        "max_func": 22,
     },
+    # 2026-10-30 重取（**新增端点**，非放宽）：手动补齐行业映射
+    # POST /industry-map/refresh/ 落地（+27 行 / max_func 19→22：symbol 收集在
+    # portfolio_service.collect_family_map_symbols，「用户动作触发 job」按 R6
+    # 属视图层编排——领域服务不得反向调 DataSyncOrchestrator，故编排调用留在
+    # 视图（ocr/views.py 调 ImportOrchestrator 同款先例），视图只有
+    # 收集 → 调编排器 → 组信封；orm_queries / commits 仍为 0。
+    # 此前 133 → 123 是 #2754 收敛（name 校验下沉）。
     # 2026-10-18 重取（#2326，**新增端点**，非放宽）：基金转换 P0/P1 落地——
     # 试算 POST /api/positions/conversion/estimate/ 与提交 POST /api/positions/conversion/
     # （设计 docs/working-notes/fund-conversion-design-2026-10-17.md）。视图侧只有
