@@ -75,8 +75,8 @@ function onCommand(command: string | number | object) {
 <style scoped>
 .dp-header {
   display: inline-flex;
-  align-items: center;
   gap: 2px;
+  align-items: center;
 }
 
 /* 12px：表头可用宽度只够一个「第二行数字口径」的提示点，不做成按钮样式，
@@ -84,8 +84,8 @@ function onCommand(command: string | number | object) {
 .dp-header__more {
   width: 12px;
   height: 12px;
-  cursor: pointer;
   color: var(--text-secondary);
+  cursor: pointer;
   outline: none;
 }
 

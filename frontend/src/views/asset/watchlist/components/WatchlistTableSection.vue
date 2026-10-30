@@ -336,8 +336,8 @@ onMounted(() => {
    把该列左右内边距从 12px 收到 4px 腾出 16px。不这么做箭头会被 nowrap 挤出列宽、被裁掉
    ——「功能存在但点不到」比没有更糟。其余列保持 12px，视觉基线不受影响。 */
 :deep(.el-table__header th.col-day-pnl-head .cell) {
-  padding-left: 4px;
   padding-right: 4px;
+  padding-left: 4px;
 }
 
 /* 表头行高 ≈36px（EP 默认 th padding 8px ≈ 40px 高）。
