@@ -34,14 +34,14 @@
       </el-form-item>
     </Motion>
 
-    <!-- 昵称（仅注册模式） -->
+    <!-- 用户名（仅注册模式，登录标识 D10；注册后个人中心可改） -->
     <Motion v-if="p.isRegisterMode" class="w-full" :delay="150">
       <el-form-item prop="username" class="w-full">
         <el-input
           v-model="p.ruleForm.username"
           clearable
-          maxlength="16"
-          placeholder="昵称（用于展示）"
+          maxlength="20"
+          placeholder="用户名（登录标识）"
           :prefix-icon="useRenderIcon(User)"
         />
       </el-form-item>
