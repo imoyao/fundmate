@@ -26,6 +26,7 @@
  * 防线：router/index.ts 的 glob 已加 `!` 开头的 __tests__ / spec / test 负向模式。
  */
 import { describe, it, expect } from "vitest";
+import { buildBreadcrumb } from "@/utils/breadcrumb";
 import home from "../modules/home";
 import asset from "../modules/asset";
 import record from "../modules/record";
@@ -336,6 +337,56 @@ describe("路由 rank 守卫（#2152）", () => {
     };
     walk(asArray(asset));
     expect(dups, "同一 path/name 声明两次会让侧边栏渲染出两个条目").toEqual([]);
+  });
+
+  it("面包屑：每个可达页面的末项必须是页面自己的标题（含隐藏页与下钻页）", () => {
+    // 2026-10-30 实机盘查（Edge，27 个页面）：面包屑把 showLink:false 的页面整段
+    // 丢弃后，末项要么消失、要么塌回 `route.matched` 的首级「资产概览」。
+    // 判据：任何**绝对路径**的可达页面，面包屑末项 === 该页面 meta.title。
+    const tree = ascending(topLevelRoutes.map(cloneRoute));
+    const offenders: string[] = [];
+
+    const visit = (nodes: RouteNode[]) => {
+      for (const n of nodes) {
+        const p = n.path ?? "";
+        const title = n.meta?.title;
+        // 跳过容器（相对 path）与带参路由（单独用 `/fund/004369` 那条用例覆盖）
+        if (p.startsWith("/") && p !== "/" && !p.includes(":") && title) {
+          const crumbs = buildBreadcrumb(tree as any, p, title);
+          const last = crumbs[crumbs.length - 1];
+          if (!last) offenders.push(`${p} → 面包屑为空`);
+          else if (last.title !== title) {
+            offenders.push(
+              `${p} → 末项「${last.title}」≠ 页面标题「${title}」`
+            );
+          }
+        }
+        if (n.children?.length) visit(n.children);
+      }
+    };
+    visit(tree);
+    expect(offenders).toEqual([]);
+  });
+
+  it("面包屑：隐藏页/下钻页不得塌回「资产概览 / 某页」（实机盘查回归）", () => {
+    const tree = ascending(topLevelRoutes.map(cloneRoute));
+    const chain = (p: string, title?: string) =>
+      buildBreadcrumb(tree as any, p, title).map(c => c.title);
+
+    // 这些页面 showLink:false 或 hidden，不在侧边栏，但用户能直达：
+    // 它们的父级必须来自路由结构（资产管理 / 记账中心），不是路径前缀猜的。
+    expect(chain("/stocks")).toEqual(["资产管理", "股票"]);
+    expect(chain("/funds")).toEqual(["资产管理", "基金"]);
+    expect(chain("/investment/holding-import")).toEqual([
+      "记账中心",
+      "导入持仓"
+    ]);
+    expect(chain("/investment/manual")).toEqual(["记账中心", "手动记账"]);
+    expect(chain("/investment/reconcile")).toEqual(["记账中心", "E账户对账"]);
+    // 反例：它的 path 以 /asset 开头，但结构上归「记账中心」——前缀法会答错
+    expect(chain("/asset/asset-entry")).toEqual(["记账中心", "录入资产"]);
+    // 带参路由（/fund/004369 → /:assetType/:symbol）：单级，不虚构父级
+    expect(chain("/fund/004369", "产品详情")).toEqual(["产品详情"]);
   });
 
   it("#2150：判据非空转——把重复声明注回去必须报红", () => {
