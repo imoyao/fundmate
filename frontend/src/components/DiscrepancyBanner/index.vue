@@ -59,7 +59,7 @@ const {
           class="recon-banner__primary"
           @click="goToWorkbench"
         >
-          去对账工作台处理
+          去对账中心处理
         </button>
         <button
           v-if="hiddenCount > 0"
@@ -80,7 +80,7 @@ const {
       </div>
 
       <p class="recon-banner__hint">
-        差异意味着账上的数量或成本与流水推演对不上，可能影响持仓市值与收益。请到对账工作台核对处理。
+        差异意味着账上的数量或成本与流水推演对不上，可能影响持仓市值与收益。请到对账中心核对处理。
       </p>
     </div>
   </SoftBanner>

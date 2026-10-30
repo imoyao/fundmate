@@ -45,7 +45,7 @@ const needsScroll = computed(() => expanded.value && groups.value.length > 12);
  *
  * 原实现是单一永久 key，且 `onMounted` 命中后连请求都不发 —— 于是「关掉一次」
  * 等于「这条告警从此不存在」，换家庭还共用同一个开关（语义错误）。
- * 现在告警有了真正的落点（对账工作台域 D），关闭只是「这次先不看」：
+ * 现在告警有了真正的落点（对账中心域 D），关闭只是「这次先不看」：
  * 刷新/重进页面即恢复检查，不写持久层。
  *
  * 用 `sessionStorage` 而非组件内 `ref`：多标签页之间共享一次会话的「我已看过」意图，
@@ -100,7 +100,7 @@ function dismiss(): void {
   });
 }
 
-/** 去对账工作台域 D 处理（#2151）：跳转带上 `?domain=D`，工作台按 query 落地该域 */
+/** 去对账中心域 D 处理（#2151）：跳转带上 `?domain=D`，工作台按 query 落地该域 */
 function goToWorkbench(): void {
   router.push({
     path: "/investment/reconcile-workbench",
@@ -179,7 +179,7 @@ onMounted(async () => {
           class="ghost-dup-banner__primary"
           @click="goToWorkbench"
         >
-          去对账工作台处理
+          去对账中心处理
         </button>
         <button
           v-if="hiddenCount > 0"
@@ -203,7 +203,7 @@ onMounted(async () => {
         重复记录（保留你认为真实的那一笔，另一份删除）。
       </p>
       <p v-if="ignoredCount > 0" class="ghost-dup-banner__ignored">
-        另有 {{ ignoredCount }} 组已忽略，可在对账工作台域 D 撤销。
+        另有 {{ ignoredCount }} 组已忽略，可在对账中心域 D 撤销。
       </p>
     </div>
   </SoftBanner>

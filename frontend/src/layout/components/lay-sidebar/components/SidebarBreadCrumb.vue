@@ -1,114 +1,122 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
-import {
-  ref,
-  watch,
-  onMounted,
-  TransitionGroup,
-  type Component,
-  type FunctionalComponent
-} from "vue";
+import { ref, watch, onMounted } from "vue";
+import { storeToRefs } from "pinia";
+import { usePermissionStoreHook } from "@/store/modules/permission";
+import { buildBreadcrumb, type BreadcrumbCrumb } from "@/utils/breadcrumb";
 
 const route = useRoute();
-const levelList = ref([]);
 const router = useRouter();
+const levelList = ref<BreadcrumbCrumb[]>([]);
+const { wholeMenus } = storeToRefs(usePermissionStoreHook());
 
-const getBreadcrumb = (): void => {
-  // 直接基于 vue-router 已解析的 matched 链生成面包屑。
-  // matched 包含完整的嵌套父级，且 path 已被解析为绝对路径，
-  // 不受静态路由经 formatTwoStageRoutes 拍平的影响，
-  // 因此绝对/相对 path 的页面（含 :id 动态详情页）都能正确显示多级面包屑，
-  // 避免此前相对 path 子页因 findRouteByPath 精确匹配失败而整条消失的问题。
+/**
+ * 兜底：菜单树不可用（首屏尚未组装 wholeMenus）时退回 `route.matched`。
+ *
+ * 注意这条路经**必然**得到「资产概览 / 当前页」两级——因为静态路由被
+ * `formatTwoStageRoutes` 拍平挂到根 `/` 下（见 `utils/breadcrumb.ts` 头注释）。
+ * 它只用于过渡期，正常情况下菜单树那条才是权威层级。
+ */
+function matchedFallback(): BreadcrumbCrumb[] {
   const matched = router.currentRoute.value.matched.filter(
     item => item?.meta?.title
   );
+  if (!matched.length) return [];
 
-  // 去除相邻重复的 title（如父级 redirect 到子级导致「投资管理 / 投资管理」）
-  const deduped = [];
+  // 去除相邻重复 title（父级 redirect 到子级会导致「投资组合 / 投资组合」）
+  const deduped: typeof matched = [];
   matched.forEach(item => {
     const last = deduped[deduped.length - 1];
     if (last && last.meta?.title === item.meta?.title) return;
     deduped.push(item);
   });
 
-  levelList.value = deduped;
+  return deduped.map((item, index) => {
+    const isLast = index === deduped.length - 1;
+    return {
+      title: item.meta.title as string,
+      to: isLast ? null : item.redirect ? String(item.redirect) : item.path,
+      key: item.path
+    };
+  });
+}
+
+/**
+ * 生成面包屑。
+ *
+ * 优先用侧边栏菜单树（层级与用户看到的一致）；取不到再退回 matched；
+ * 两级都空时**至少渲染当前页标题**——宁可少一级，也不能让面包屑位置空着。
+ */
+const getBreadcrumb = (): void => {
+  const path = route.path;
+  const currentTitle = route.meta?.title as string | undefined;
+
+  const fromMenu = buildBreadcrumb(wholeMenus.value as any, path, currentTitle);
+  if (fromMenu.length) {
+    levelList.value = fromMenu;
+    return;
+  }
+
+  const fallback = matchedFallback();
+  if (fallback.length) {
+    levelList.value = fallback;
+    return;
+  }
+
+  levelList.value = currentTitle
+    ? [{ title: currentTitle, to: null, key: path }]
+    : [];
 };
 
-const handleLink = item => {
-  const { redirect, name, path } = item;
-  if (redirect) {
-    router.push(redirect as any);
-  } else {
-    if (name) {
-      if (item.query) {
-        router.push({
-          name,
-          query: item.query
-        });
-      } else if (item.params) {
-        router.push({
-          name,
-          params: item.params
-        });
-      } else {
-        router.push({ name });
-      }
-    } else {
-      router.push({ path });
-    }
-  }
+const handleLink = (item: BreadcrumbCrumb) => {
+  if (!item.to) return;
+  router.push(item.to);
 };
 
 /**
- * 后台（隐藏）标签页改用无动画渲染：Chrome 对 hidden 页面暂停 rAF，而 Vue 过渡
- * 的 enter/leave 依赖 nextFrame（双 rAF）推进——后台导航会把 transition-group
- * 卡死在半程（面包屑残留旧页面标题，如「总览/资产总览/个人中心/」叠在一起，
- * 且恢复可见前不会清理）。隐藏时用户本就看不到动画，直接渲染子项即可；
- * 恢复可见后的下一次导航自动切回 transition-group，动画照常。
- * 注意：仅把 name 置空无效——卡点在 rAF 而非 CSS，Vue 仍会等 nextFrame。
- * 用方法而非 computed——visibility 无响应式依赖，computed 会缓存首次求值；
- * 方法在每次渲染时执行，取到导航发生时的实时 visibility。
- * （同类修复见 lay-content 的 transitionMain。）
+ * 这里**不再包 transition-group**（2026-10-30 移除）。
+ *
+ * 旧实现用 `<TransitionGroup name="breadcrumb">` 给每一级做进出过渡，配套 CSS
+ * 里 `.breadcrumb-leave-active { position: absolute }`——离场的面包屑被绝对定位
+ * 留在 DOM 里等 0.3s 过渡收尾，而 Vue 过渡靠 double-rAF 推进：标签页在后台、
+ * 或连续导航让两次过渡重叠时，leave 回调不会执行，旧面包屑就永久留在列表里。
+ *
+ * 实测证据（Playwright 逐个点击侧边栏 19 个叶子，dev :8850）：
+ *   移除前 → 点「我的自选」读到
+ *            `资产管理/品类持仓/同类优选/观察名单/我的自选`
+ *            ——前三级是上一页残留，正是「面包屑不对」的真身；
+ *            19 项里 1 项失败。
+ *   移除后 → 同一脚本 19/19 全对，且只改 `location.hash` 导航时 0 控制台报错。
+ *
+ * 面包屑是 2~3 个短词的位置指示，本来就不需要动画。去掉过渡后渲染与路由同步，
+ * 顺带解决了「后台标签页里面包屑卡住不更新」的老问题（此前用 PlainGroup 绕）。
  */
-const PlainGroup: FunctionalComponent = (_props, { slots }) =>
-  slots.default ? slots.default() : [];
-
-const getBreadcrumbTransition = (): Component =>
-  typeof document !== "undefined" && document.hidden
-    ? PlainGroup
-    : TransitionGroup;
-
 onMounted(() => {
   getBreadcrumb();
 });
 
 watch(
-  () => route.path,
+  // 同时盯 path 与菜单树：首屏 wholeMenus 是异步就绪的，只盯 path 会让
+  // 先到的那一帧用 matched 兜底，等菜单组装好后**不会再刷新**。
+  () => [route.path, wholeMenus.value.length] as const,
   () => {
     getBreadcrumb();
   },
-  {
-    deep: true
-  }
+  { deep: true, immediate: false }
 );
 </script>
 
 <template>
   <el-breadcrumb class="leading-[50px]! select-none" separator="/">
-    <component :is="getBreadcrumbTransition()" name="breadcrumb">
-      <el-breadcrumb-item
-        v-for="(item, index) in levelList"
-        :key="item.path"
-        class="inline! items-stretch!"
-      >
-        <a
-          v-if="index !== levelList.length - 1"
-          @click.prevent="handleLink(item)"
-        >
-          {{ item.meta.title }}
-        </a>
-        <span v-else>{{ item.meta.title }}</span>
-      </el-breadcrumb-item>
-    </component>
+    <el-breadcrumb-item
+      v-for="item in levelList"
+      :key="item.key"
+      class="inline! items-stretch!"
+    >
+      <a v-if="item.to" @click.prevent="handleLink(item)">
+        {{ item.title }}
+      </a>
+      <span v-else>{{ item.title }}</span>
+    </el-breadcrumb-item>
   </el-breadcrumb>
 </template>

@@ -2,7 +2,7 @@ import { localForage } from "@/utils/localforage";
 import type { OcrTxnRow, OcrHoldingRow } from "@/api/ocr";
 
 /**
- * 统一对账工作台草稿层（#1232 P0-B / #1239）。
+ * 统一对账中心草稿层（#1232 P0-B / #1239）。
  *
  * 设计（对齐 docs/working-notes/reconciliation-framework-design-2026-08-31.md §5.7）：
  * - **导入草稿全局单槽**：key = `recon-draft`（前端当前无 familyId 暴露，localforage 本身

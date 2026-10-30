@@ -1,27 +1,35 @@
 const Layout = () => import("@/layout/index.vue");
 const EmptyLayout = () => import("@/layout/components/EmptyLayout.vue");
 
-// 1. 将资产管理模块的基础 Rank 设置为 100，彻底隔离 home.ts
+// 1. 「资产管理」占 rank 100 段，与 home.ts（0 段）、record.ts、agent.ts 彻底隔离
 const BASE_RANK = 100;
 
-// #2152：/asset 直接子级与「投资管理」孙级曾共用 BASE_RANK 段——两组排序键完全相等
-// （贵金属≡账户管理、房产≡策略分析、智能分析≡投资组合），菜单次序只能靠数组先后兜底，
-// 改数组顺序就会跳位置。孙级改占 200+ 段：直接子级相对 rank 用 0~99（→100~199）、
-// 孙级相对 rank 用 0~99（→200~299），两段永不相交；守卫见 __tests__/routeRankGuard.spec.ts。
-const GRANDCHILD_RANK_BASE = 200;
+// #2152：/asset 直接子级与孙级曾共用排序键段——两组 rank 完全相等
+// （贵金属 ≡ 账户管理、房产 ≡ 策略分析、智能分析 ≡ 投资组合），菜单次序只能靠
+// 数组先后兜底，改数组顺序就会跳位置。孙级改占 200+ 段：直接子级相对 rank 用
+// 0~99（→100~199），孙级用 200~299，两段永不相交。
+// 守卫见 __tests__/routeRankGuard.spec.ts。
+//
+// 2026-10-29 侧边栏重组：直接子级由「一堆平级页面」改为 **4 个语义分组目录**，
+// 孙级数量从 3 增到 10。工厂函数因此**不再**给孙级自动加 200 偏移——各分组的
+// 孙级 rank 手写为最终值（201/202/... 每 10 个一组），否则四个分组会全部从
+// 201 起算、彼此撞键。守卫已同步扩展为「asset 全部孙级 ∈[200,299] 且全树唯一」。
+const GRANDCHILD_MIN = 200;
+const GRANDCHILD_MAX = 300;
 
-// 2. 工厂函数
+// 2. 工厂函数：只处理直接子级（+100）；孙级 rank 已是最终值，原样保留
 const createAssetRoutes = (routeConfig: any) => {
   const children = routeConfig.children.map((child: any) => {
-    // 如果子路由还有 children（如投资管理），需递归处理
-    if (child.children) {
-      child.children = child.children.map((grandChild: any) => ({
-        ...grandChild,
-        meta: {
-          ...grandChild.meta,
-          rank: (grandChild.meta?.rank || 0) + GRANDCHILD_RANK_BASE
-        }
-      }));
+    if (typeof child.meta?.rank === "number") {
+      const isGrandchild =
+        child.meta.rank >= GRANDCHILD_MIN && child.meta.rank < GRANDCHILD_MAX;
+      // 孙级（含分组目录的 children）手写 2xx，不再叠加偏移
+      if (isGrandchild) {
+        throw new Error(
+          `[router] ${child.name ?? child.path} 的 rank=${child.meta.rank} 落在孙级段，` +
+            `但它声明在 /asset 直接子级上——请改为 0~99 的相对值`
+        );
+      }
     }
     return {
       ...child,
@@ -38,46 +46,91 @@ const createAssetRoutes = (routeConfig: any) => {
 };
 
 // 3. 定义原始配置
+//
+// 分组口径（2026-10-29，按「我在摆布这笔钱」的四个对象切）：
+//   组合策略 = 按目标/方法组织（组合、策略、定投）
+//   品类持仓 = 按资产类别组织（贵金属、房产、同类优选）
+//   观察名单 = 还没买、在盯的（自选、特别关注）
+//   账户家庭 = 钱放在哪、是谁的（账户、成员）
+//
+// 此前这 10 项平铺在一个顶级下，扫读成本高且「投资管理」目录里只有三个品类页
+// （股票/基金是隐藏路由），名实不符——点进去想看"我的投资"，看到的是三个边缘品类。
+// 现更名为「品类持仓」，只装品类，不再暗示它涵盖全部投资。
+//
+// ⚠️ 只放**配置与档案**。凡是「把事实录进来」的页面（全面盘点 / 各类导入 /
+// 对账单）一律归 record.ts；纯净的读页面（复盘 / 持仓分析）归 home.ts。
 const AssetRouteConfig = {
   path: "/asset",
   name: "Asset",
   component: Layout,
-  redirect: "/panorama",
   meta: {
     icon: "ep:coin",
     title: "资产管理",
-    rank: 1, // 只要写模块内的相对位置即可（0, 1, 2...）
+    rank: 1, // 模块内相对位置
     showLink: true
   },
   children: [
+    // ── 分组 1：组合策略 ──────────────────────────────────────
     {
-      // 统一为绝对 path：路由经 formatTwoStageRoutes 拍平后实际注册为根下
-      // 「/the-road-not-taken」，加 / 前缀使其与真实 URL 一致且声明清晰。
-      path: "/the-road-not-taken",
-      name: "Favourites",
-      component: () => import("@/views/asset/favorites/index.vue"),
-      meta: { title: "特别关注", icon: "ep:opportunity", rank: 1 }
-    },
-    // ── 投资管理（可折叠）──
-    {
-      // 目录型父路由：保留相对写法，拍平后父级自身注册为「/investment」，children 已统一为绝对 path。
-      // redirect 指向可见子级中排序第一者（贵金属）；原指向 /investment/reconcile-workbench——
-      // #2152 已把对账工作台与智能分析移出本目录（见下方「分析与对账」段），投资管理现只余品类页
-      // 与隐藏流程页。redirect 任何时刻都必须落在可见子级上，否则会复现 #1699 的「点父级跳空白页」。
-      path: "investment",
-      name: "InvestmentManage",
+      // 目录型父路由：redirect 必须落在**可见**子级上，否则复现 #1699「点父级跳空白页」
+      path: "portfolio-group",
+      name: "AssetPortfolioGroup",
       component: EmptyLayout,
-      redirect: "/asset/precious",
-      meta: { title: "投资管理", icon: "ep:folder-opened", rank: 2 },
+      redirect: "/asset/portfolios",
+      meta: { title: "组合策略", icon: "ep:collection", rank: 1 },
       children: [
         {
+          path: "/asset/portfolios",
+          name: "PortfolioList",
+          component: () => import("@/views/asset/portfolio/index.vue"),
+          meta: { title: "投资组合", icon: "ep:collection", rank: 201 }
+        },
+        {
+          path: "/asset/strategies",
+          name: "Strategies",
+          component: () => import("@/views/asset/strategies/index.vue"),
+          meta: {
+            title: "策略分析",
+            icon: "ep:data-analysis",
+            rank: 202,
+            showLink: true
+          }
+        },
+        {
+          // #2138：账本能力的「计划层」——先有计划，再有流水。
+          // 归「组合策略」而不是「记账」：定投是**决策/执行**，不是记账事实。
+          path: "/asset/recurring",
+          name: "AssetRecurring",
+          component: () => import("@/views/asset/recurring/index.vue"),
+          meta: { title: "定投计划", icon: "ep:calendar", rank: 203 }
+        }
+      ]
+    },
+    // ── 分组 2：品类持仓 ──────────────────────────────────────
+    {
+      // 原「投资管理」。改名理由：目录内只有贵金属/房产/同类优选，而股票/基金
+      // 是 showLink:false 的隐藏路由——叫「投资管理」会让用户以为这里是全部投资入口。
+      path: "investment",
+      name: "AssetCategoryGroup",
+      component: EmptyLayout,
+      redirect: "/asset/precious",
+      meta: { title: "品类持仓", icon: "ep:folder-opened", rank: 2 },
+      children: [
+        {
+          // #1133 路由归并：场外基金 / 场内证券的聚合下钻页收敛为 /funds 与 /stocks，
+          // 与「资产总览 → 产品类型」的下钻目标合一。
+          // 这两条 `showLink: false` 隐藏路由**不是**可选装饰——`useLedgerList.ts`
+          // （点账户里的股票/基金持仓）和 `ResultSupplements.vue`（导入结果补录）
+          // 都按 `{ name: "AssetStocks" }` / `{ name: "AssetFunds" }` 跳转，
+          // 删掉即静默死链（`check_router_links.mjs` 会报）。2026-10-29 重组时曾漏掉，
+          // 已补回并保留在本分组内（rank 204/205 排在品类页之前，隐藏不影响展示）。
           path: "/stocks",
           name: "AssetStocks",
           component: () => import("@/views/asset/stocks/index.vue"),
           meta: {
             title: "股票",
             icon: "ep:trend-charts",
-            rank: 1,
+            rank: 204,
             showLink: false
           }
         },
@@ -85,149 +138,104 @@ const AssetRouteConfig = {
           path: "/funds",
           name: "AssetFunds",
           component: () => import("@/views/asset/funds/index.vue"),
-          meta: { title: "基金", icon: "ep:box", rank: 2, showLink: false }
+          meta: { title: "基金", icon: "ep:box", rank: 205, showLink: false }
         },
         {
-          // 路径带 /asset 前缀，与同层兄弟（/asset/ledgers 等）一致。
-          // 原为 "/precious"：vue-router 4 里子路由 path 以 / 开头即**绝对路径**、不拼父级前缀，
-          // 于是它注册在根下、真实 URL 是 /precious——功能上能用，但同一 children 数组里
-          // 5 个带前缀、2 个不带，两套写法并存最容易让人误以为「拼了父级」（#1849 路径统一）。
+          // 路径带 /asset 前缀，与同层兄弟一致。
+          // 原为 "/precious"：vue-router 4 里子路由 path 以 / 开头即**绝对路径**、
+          // 不拼父级前缀（#1849 路径统一）。
           path: "/asset/precious",
-          // #1798 入口：侧边栏 showLink + 全景页「资产构成」贵金属行直跳（CategoryBalanceTable）；
-          // 此前的 router-orphan-allow 盲区标记已摘（页面接真实数据后转正）
+          // #1798 入口：侧边栏 + 全景页「资产构成」贵金属行直跳（CategoryBalanceTable）
           name: "AssetPrecious",
           component: () => import("@/views/asset/precious/index.vue"),
-          meta: { title: "贵金属", icon: "ep:medal", rank: 3, showLink: true }
+          meta: { title: "贵金属", icon: "ep:medal", rank: 211, showLink: true }
         },
         {
-          // 同上：原为 "/realestate"（绝对路径 ⇒ 注册在根下），现与兄弟路由统一带 /asset 前缀
           path: "/asset/realestate",
-          // #1798 入口：侧边栏 showLink + 全景页「资产构成」房产行直跳（CategoryBalanceTable）；
-          // 此前的 router-orphan-allow 标记已摘（页面接真实数据后转正）
+          // #1798 入口：侧边栏 + 全景页「资产构成」房产行直跳
           name: "AssetRealEstate",
           component: () => import("@/views/asset/realestate/index.vue"),
-          meta: { title: "房产", icon: "ep:house", rank: 4, showLink: true }
+          meta: { title: "房产", icon: "ep:house", rank: 212, showLink: true }
         },
-        // #2150 清除：此处原有一份重复的 `/analysis` 声明（#2152 把它移出「投资管理」时
-        // 只在新位置加了一份，旧的没删）。两个同名路由都会被 filterTree 保留，
-        // 侧边栏因此渲染出两个「智能分析」条目。改名/改标题时只改一处会让两者分叉，
-        // 故连根删掉，只留下方「分析与对账」段那一份（唯一真相）。
         {
           // #167 收尾：按风险指标横向筛的列表页。端点（fund-risk-types /
           // fund-risk-ranking）早已上线，缺的是这个入口——能力在、用户看不到。
-          // rank 5.5 插在「智能分析」与「对账单导入」之间；名字与组件
-          // `defineOptions({ name })` 逐字一致（keep-alive 判据）。
           path: "/asset/fund-ranking",
           name: "AssetFundRanking",
           component: () => import("@/views/asset/fund-ranking/index.vue"),
           meta: {
             title: "同类优选",
             icon: "ep:histogram",
-            rank: 6,
+            rank: 213,
             showLink: true,
             keepAlive: true
           }
-        },
-        {
-          path: "/inventory/investment/import",
-          name: "InvestmentImport",
-          component: () => import("@/views/asset/investment/import/index.vue"),
-          meta: {
-            title: "对账单导入",
-            icon: "ep:document",
-            rank: 7,
-            showLink: false,
-            hideQuickEntry: true
-          }
-        },
-        // 投资理财 → 手动录入
-        {
-          path: "/investment/manual",
-          name: "InvestmentManual",
-          component: () => import("@/views/asset/investment/manual/index.vue"),
-          meta: {
-            title: "手动记账",
-            icon: "ep:edit",
-            rank: 8,
-            showLink: false,
-            hideQuickEntry: true
-          }
-        },
-        // 通用资产录入
-        {
-          path: "/asset/asset-entry",
-          name: "AssetEntry",
-          component: () => import("@/views/asset/AssetEntry.vue"),
-          meta: {
-            title: "录入通用资产",
-            icon: "ep:plus",
-            rank: 9,
-            showLink: false,
-            hideQuickEntry: true
-          }
-        },
-        // E账户对账中心（从导入流程/菜单进入，不在侧边栏展示）
-        {
-          path: "/investment/reconcile",
-          name: "InvestmentReconcile",
-          component: () =>
-            import("@/views/asset/investment/reconcile/index.vue"),
-          meta: {
-            title: "E账户对账",
-            icon: "ep:document-checked",
-            rank: 10,
-            showLink: false,
-            hideQuickEntry: true
-          }
-        },
-        // 持仓快照导入（落 positions 不建流水；#1788 由「E账户导入」改名对齐三处入口文案。
-        // 目录名仍为 eaccount-import/ —— 卡片只约定 path，且 api/eaccount.ts 等同族标识沿用，避免无谓 churn）
-        {
-          path: "/investment/holding-import",
-          name: "InvestmentHoldingImport",
-          component: () =>
-            import("@/views/asset/investment/eaccount-import/index.vue"),
-          meta: {
-            title: "导入持仓快照",
-            icon: "ep:upload",
-            rank: 11,
-            showLink: false,
-            hideQuickEntry: true
-          }
         }
-        // #2152：原在此处的「对账工作台」（rank 12）与更前的「智能分析」（rank 5）已移出
-        // 本目录、挂到 /asset 直接子级（见下方「分析与对账」段），与组合/策略聚类。
-        // #1133 路由归并：场外基金 / 场内证券的聚合下钻页已收敛为 /funds（AssetFunds）
-        // 与 /stocks（AssetStocks），与「资产总览 → 产品类型」的下钻目标合一。
-        // 原 /asset/fund-aggregation、/asset/securities-aggregation 两个隐藏路由已删除，
-        // 避免同品类存在两套页面（此前一个接真数据、另一个是硬编码假数据）。
       ]
     },
+    // ── 分组 3：观察名单 ──────────────────────────────────────
     {
-      path: "/asset/ledgers",
-      name: "AssetLedgers",
-      component: () => import("@/views/asset/ledgers/index.vue"),
-      meta: { title: "账户管理", icon: "ep:wallet", rank: 3 }
+      // 「我的自选」原在 home.ts 的「总览」下，「特别关注」在「资产管理」下——
+      // 同一件心事（还没买、在盯）隔着两个顶级，这是上一轮最典型的劈裂。
+      path: "watch",
+      name: "AssetWatchGroup",
+      component: EmptyLayout,
+      redirect: "/watchlist",
+      meta: { title: "观察名单", icon: "ep:star", rank: 3 },
+      children: [
+        {
+          path: "/watchlist",
+          name: "Watchlist",
+          component: () => import("@/views/asset/watchlist/index.vue"),
+          meta: {
+            title: "我的自选",
+            icon: "ep:star",
+            rank: 221,
+            keepAlive: true,
+            // 高密度列表页：隐藏布局级页脚，把整块垂直空间交给表格（#1281）
+            hideFooter: true,
+            // 隐藏右下角「记一笔」FAB：它会压住表格右下角固定操作列（置顶/关注/移除），
+            // 入口改由快捷键 N 承担（useQuickEntryHotkey，首次进页自动提示一次）
+            hideQuickEntry: true
+          }
+        },
+        {
+          // 未竟之蹊：看「私有思考 + 资产变迁」的卡片流，与 /watchlist 的
+          // 「实时数据表格」是两个产品（分工见 docs/features/watchlist.md §1.5.7）。
+          path: "/the-road-not-taken",
+          name: "Favourites",
+          component: () => import("@/views/asset/favorites/index.vue"),
+          meta: { title: "特别关注", icon: "ep:opportunity", rank: 222 }
+        }
+      ]
     },
-    // 家庭成员（#1173）：账户归属维度——「这笔钱是谁的」的档案与维护入口
-    // rank 3.5：夹在「账户管理」(3) 与「策略分析」(4) 之间——它管的是账户归属，
-    // 紧挨账户管理最合语义；直接子级的整数位已被占满，故用小数（同孙级「同类优选」5.5 之例）。
+    // ── 分组 4：账户家庭 ──────────────────────────────────────
     {
-      path: "/asset/family",
-      name: "AssetFamilyMembers",
-      component: () => import("@/views/asset/family/index.vue"),
-      meta: { title: "家庭成员", icon: "ep:user", rank: 3.5 }
+      // 这一组的共同点是「钱放在哪、是谁的钱」——账户归属维度。
+      // 此前账户管理(3)、家庭成员(3.5)、定投计划(3.6) 靠小数 rank 挤在一起，
+      // 小数补位本身就是「已无序可插」的病征。
+      path: "household",
+      name: "AssetHouseholdGroup",
+      component: EmptyLayout,
+      redirect: "/asset/ledgers",
+      meta: { title: "账户家庭", icon: "ep:wallet", rank: 4 },
+      children: [
+        {
+          path: "/asset/ledgers",
+          name: "AssetLedgers",
+          component: () => import("@/views/asset/ledgers/index.vue"),
+          meta: { title: "账户管理", icon: "ep:wallet", rank: 231 }
+        },
+        {
+          // #1173：账户归属维度——「这笔钱是谁的」的档案与维护入口
+          path: "/asset/family",
+          name: "AssetFamilyMembers",
+          component: () => import("@/views/asset/family/index.vue"),
+          meta: { title: "家庭成员", icon: "ep:user", rank: 232 }
+        }
+      ]
     },
-    // 定投计划（#2138）：账本能力的「计划层」——先有计划，再有流水。
-    // rank 3.6：与账户管理(3)/家庭成员(3.5)同属「钱放在哪、谁的钱」这一簇，
-    // 整数位已占满，故用小数（同家庭成员之例）。
-    {
-      path: "/asset/recurring",
-      name: "AssetRecurring",
-      component: () => import("@/views/asset/recurring/index.vue"),
-      meta: { title: "定投计划", icon: "ep:calendar", rank: 3.6 }
-    },
-    // 账户详情（作为 Asset 的子路由，继承 Layout 布局）
+    // ── 隐藏详情页（不进菜单，但保留在 /asset 直接子级以维持面包屑锚点）──
     {
       path: "/asset/ledgers/:id",
       name: "LedgerDetail",
@@ -238,78 +246,6 @@ const AssetRouteConfig = {
         rank: 31,
         showLink: false,
         hidden: true
-      }
-    },
-    {
-      path: "/asset/strategies",
-      name: "Strategies",
-      component: () => import("@/views/asset/strategies/index.vue"),
-      meta: {
-        title: "策略分析",
-        icon: "ep:data-analysis",
-        rank: 4,
-        showLink: true
-      }
-    },
-    // 投资组合
-    {
-      path: "/asset/portfolios",
-      name: "PortfolioList",
-      component: () => import("@/views/asset/portfolio/index.vue"),
-      meta: {
-        title: "投资组合",
-        icon: "ep:collection",
-        rank: 5
-      }
-    },
-    // ── 分析与对账（#2152：自「投资管理」移出）──
-    // 聚类顺序：品类（投资管理内）→ 组合/策略 → 分析 → 对账，分析与对账相邻成组；
-    // 移出后不再与「投资管理」孙级共用排序键段（孙级占 200+，见文件头 GRANDCHILD_RANK_BASE）。
-    {
-      path: "/analysis",
-      // #1798 入口：侧边栏 showLink + 全景页头入口按钮（panorama/index.vue）；
-      // 原假数据页已与 AssetOverview.vue（#1195 真实数据版，原为无路由死文件）合体。
-      // #2150：标题「智能分析」→「复盘」。原名的「智能」二字既没有 AI 能力支撑
-      // （页面全是有数据源的真实计算），又暗示「比别人多算了点什么」；
-      // 而 #2150 重定义后的定位是「时间维度的表现」，中文里对应的词就是「复盘」。
-      // ⚠️ 路由 path 保持 `/analysis` 不动——它是外部可达 URL 与既有书签的锚点，
-      // 改名属另一件事（若要做，须配 301/别名，不在本卡范围）。
-      name: "AssetAnalysis",
-      component: () => import("@/views/asset/IntelligentAnalysis.vue"),
-      meta: {
-        title: "复盘",
-        icon: "ep:data-analysis",
-        rank: 6,
-        showLink: true
-      }
-    },
-    // 持仓分析聚合页（#2595）：全家庭 / 单账户 / 组合三级口径切换，
-    // 复用归因（#2135）/ 穿透（#870）/ 日历（#1812）/ 超额（#2134）既有端点。
-    // 与「复盘」（时间维度表现）的分工见页面头注释——本页回答「三级口径下的
-    // 持仓表现与结构」，复盘回答「净值怎么走、收益从哪来」。
-    {
-      path: "/asset/position-analysis",
-      name: "PositionAnalysis",
-      component: () => import("@/views/asset/position-analysis/index.vue"),
-      meta: {
-        title: "持仓分析",
-        icon: "ep:pie-chart",
-        rank: 7,
-        showLink: true
-      }
-    },
-    // 统一对账工作台（#1240 P0-C）：三域 Tab 入口，P1/P2 逐域接入
-    {
-      path: "/investment/reconcile-workbench",
-      name: "ReconcileWorkbench",
-      component: () =>
-        import("@/views/asset/investment/reconcile-workbench/index.vue"),
-      meta: {
-        title: "对账工作台",
-        icon: "ep:finished",
-        rank: 8,
-        showLink: true,
-        hideQuickEntry: true
       }
     },
     {

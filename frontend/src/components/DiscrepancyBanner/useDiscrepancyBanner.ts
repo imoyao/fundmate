@@ -137,7 +137,7 @@ export function useDiscrepancyBanner(
   /** 当前路由是否该展示（工作台页自带提醒，不重复） */
   const routeAllowed = computed(() => shouldShowOnRoute(route.name as string));
 
-  /** 去对账工作台域 B 处理：横幅上的数字与落地后的「待裁决差异」一致 */
+  /** 去对账中心域 B 处理：横幅上的数字与落地后的「待裁决差异」一致 */
   function goToWorkbench(): void {
     router.push({
       path: "/investment/reconcile-workbench",
