@@ -116,7 +116,8 @@
       <PositionStructurePanel v-bind="scopeProps" />
     </div>
 
-    <!-- #870 持仓穿透（#2595 三级口径化；#2617 直接持有 / 穿透后双口径） -->
+    <!-- #870 持仓穿透（#2595 三级口径化；#2617 两档视图，2026-10-30 更名
+         「持仓结构 / 穿透持仓」并让持仓结构改环形图） -->
     <PenetrationPanel v-bind="scopeProps" />
   </div>
 </template>

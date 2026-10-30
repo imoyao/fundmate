@@ -686,8 +686,8 @@ def build_penetration(
                 SCHEME_LABELS.get(scheme, scheme), mapped_direct_cents, direct_cents
             ),
             'total_cny': _cny(total_cents),
-            'note': '直接持有口径：基金整块显示为「基金」不拆底层；各项合计 = 持仓总市值，'
-            '与穿透后图对照才看得出基金的行业敞口',
+            'note': '持仓结构口径：基金整块显示为「基金」不拆底层；各项合计 = 持仓总市值，'
+            '与穿透持仓图对照才看得出基金的行业敞口',
         },
         'industry_non_equity_cny': _cny(residual_cents),
         'other_schemes': other_schemes,
