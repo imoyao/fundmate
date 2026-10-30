@@ -349,23 +349,77 @@ test('#2150：复盘页的独占项（净值走势）必须还在——删重复
   );
 });
 
-test('#2150：页面标题与入口文案一致（复盘），且路由声明只有一份', () => {
-  const router = readCode('frontend/src/router/modules/asset.ts');
-  assert.ok(router, 'asset.ts 应存在');
-  const analysisRoute = router.match(/path: "\/analysis"[\s\S]{0,600}?title: "([^"]+)"/);
-  assert.ok(analysisRoute, '应有 /analysis 路由声明');
+test('#2150：页面标题与入口文案一致（投资复盘），且路由声明只有一份', () => {
+  // 2026-10-30：`/analysis` 的声明从 asset.ts 迁到 home.ts（侧边栏按财务动作重组，
+  // 复盘属「看结果」故归资产概览），标题按「菜单标题统一 4 字」由「复盘」改「投资复盘」。
+  //
+  // 原判据把**位置**（asset.ts）和**字面**（复盘）都写死了：位置会随 IA 调整搬家，
+  // 字面会随命名收紧变化，两者一漂移守卫就报「应有 /analysis 路由声明」——
+  // 报的是搬家，不是回归。真正的不变式只有一句：
+  // **全站只有一份 `/analysis` 声明，且路由标题 == 总览入口按钮 == 复盘页 h1。**
+  // 三处逐字比对，任何一处单独改名都咬得住；比原来「锚死 asset.ts + 复盘」更严。
+  const modulesDir = join(ROOT, 'frontend/src/router/modules');
+  const modules = readdirSync(modulesDir)
+    .filter(n => n.endsWith('.ts'))
+    .map(n => stripComments(readFileSync(join(modulesDir, n), 'utf8')));
+  const routerAll = modules.join('\n');
+
+  const declCount = (routerAll.match(/path:\s*"\/analysis"/g) || []).length;
   assert.strictEqual(
-    analysisRoute[1],
-    '复盘',
-    '路由标题应为「复盘」（#2150 重定义定位后的命名）'
+    declCount,
+    1,
+    `/analysis 路由声明必须恰好一份（重复声明会渲染两遍），实际 ${declCount} 份`
   );
+  const decl = routerAll.match(
+    /path:\s*"\/analysis"[\s\S]{0,600}?title:\s*"([^"]+)"/
+  );
+  assert.ok(decl, '/analysis 路由必须声明 title');
+  const routeTitle = decl[1];
+
   assert.ok(
-    !/"智能分析"/.test(router),
+    !/"智能分析"/.test(routerAll),
     '「智能分析」作为**标题字面量**不应再出现在路由表里（可用作历史沿革注释）'
   );
+
+  // 目标页 h1：读 PageHeaderBar 的 title，不认文件名（页面文件叫
+  // IntelligentAnalysis.vue 是历史遗留，判据不该被文件名牵着走）。
+  const page = readCode(ANALYSIS);
+  assert.ok(page, '复盘页文件应存在');
+  const h1 = page.match(/<PageHeaderBar\s+title="([^"]+)"/);
+  assert.ok(h1, '复盘页必须有 PageHeaderBar 且声明 title');
+  assert.strictEqual(
+    h1[1],
+    routeTitle,
+    '复盘页 h1 必须与路由标题同字——侧边栏与页头两个名字，用户会以为走错页'
+  );
+
+  // 总览页入口按钮：锚在 `push({ name: 'AssetAnalysis' })` 这个跳转上取**按钮内容**
+  // （`">` 之后到 `</el-button>` 之间），而不是「页面里第一个 el-button」
+  // （同排还有「刷新」），也不是整段开标签（属性里的 push 表达式不是文案）。
+  const extractEntryText = src => {
+    const m = src.match(
+      /\$router\.push\(\{\s*name:\s*['"]AssetAnalysis['"]\s*\}\)\s*"[^>]*>([\s\S]{0,200}?)<\/el-button>/
+    );
+    return m ? m[1].replace(/<[^>]*>/g, '').replace(/[\s\u00a0]+/g, '') : null;
+  };
   const panorama = readCode('frontend/src/views/asset/panorama/index.vue');
-  assert.ok(
-    />\s*复盘\s*</.test(panorama),
-    'panorama 页头入口按钮文案应随页面标题改为「复盘」，否则点过去标题对不上'
+  assert.ok(panorama, '资产总览页应存在');
+  const entryText = extractEntryText(panorama);
+  assert.ok(entryText, '资产总览页应有跳往 /analysis 的入口按钮');
+  assert.strictEqual(
+    entryText,
+    routeTitle,
+    'panorama 入口按钮文案必须与目标页标题同字，否则点过去标题对不上'
+  );
+
+  // 判据非空转：喂一段入口文案与路由标题不一致的样本，三处比对必须能区分出来。
+  const drift = extractEntryText(
+    '<el-button @click="$router.push({ name: \'AssetAnalysis\' })"> 复盘 </el-button>'
+  );
+  assert.strictEqual(drift, '复盘', '入口文案提取器本身应能工作');
+  assert.notStrictEqual(
+    drift,
+    routeTitle,
+    '入口与路由标题不同字时判据必须报红——否则这条断言是装饰'
   );
 });

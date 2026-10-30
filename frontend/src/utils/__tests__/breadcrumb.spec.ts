@@ -3,7 +3,7 @@
  *
  * 背景（2026-10-29 实机走查证据）：静态路由被 `formatTwoStageRoutes` 拍平挂到根 `/`
  * 下，`route.matched` 恒为 `[Home, 页面]`，面包屑因此永远渲染成「总览 / 某页」——
- * 哪怕该页在侧边栏里属于「资产管理 → 品类持仓」。改读菜单树后，上面的层级才是真的。
+ * 哪怕该页在侧边栏里属于「资产管理 → 我的关注」。改读菜单树后，上面的层级才是真的。
  *
  * vitest 的 environment 是 `node`（无 DOM），组件挂载测不了，故把「树里找路径」
  * 抽成纯函数。这些用例同时是**结构契约**：改路由层级时这里必须跟着红。
@@ -42,12 +42,26 @@ const menus: BreadcrumbNode[] = [
       {
         path: "investment",
         name: "AssetCategoryGroup",
-        meta: { title: "品类持仓" },
+        meta: { title: "实物资产" },
         children: [
           {
             path: "/asset/precious",
             name: "AssetPrecious",
             meta: { title: "贵金属" }
+          }
+        ]
+      },
+      {
+        // 2026-10-30：同类优选从「实物资产」（原「品类持仓」）移到「我的关注」——
+        // 它是基金筛选页不是持仓，夹具跟真实树走，否则用例对着旧结构自证。
+        path: "watch",
+        name: "AssetWatchGroup",
+        meta: { title: "我的关注" },
+        children: [
+          {
+            path: "/watchlist",
+            name: "Watchlist",
+            meta: { title: "我的自选" }
           },
           {
             path: "/asset/fund-ranking",
@@ -59,7 +73,7 @@ const menus: BreadcrumbNode[] = [
       {
         path: "household",
         name: "AssetHouseholdGroup",
-        meta: { title: "账户家庭" },
+        meta: { title: "账户成员" },
         children: [
           {
             path: "/asset/ledgers",
@@ -91,7 +105,7 @@ describe("buildBreadcrumb", () => {
   it("精确命中：返回从顶级到当前页的完整链（不再是「总览 / 某页」）", () => {
     const crumbs = buildBreadcrumb(menus, "/asset/fund-ranking");
     // 真机旧行为是 ['总览','同类优选']——父级错成根目录
-    expect(titles(crumbs)).toEqual(["资产管理", "品类持仓", "同类优选"]);
+    expect(titles(crumbs)).toEqual(["资产管理", "我的关注", "同类优选"]);
   });
 
   it("末项不可点击，中间项可点击", () => {
@@ -102,9 +116,9 @@ describe("buildBreadcrumb", () => {
 
   it("中间目录点击落在它的第一个可达子项，而不是空目录路径", () => {
     const crumbs = buildBreadcrumb(menus, "/asset/fund-ranking");
-    // 「品类持仓」自身没有组件（EmptyLayout），直接 push 会跳到空白页
-    expect(crumbs[1].title).toBe("品类持仓");
-    expect(crumbs[1].to).toBe("/asset/precious");
+    // 「我的关注」自身没有组件（EmptyLayout），直接 push 会跳到空白页
+    expect(crumbs[1].title).toBe("我的关注");
+    expect(crumbs[1].to).toBe("/watchlist");
   });
 
   it("showLink:false 的顶级仍出现在链里（它是用户看到的目录标题）", () => {
@@ -119,7 +133,7 @@ describe("buildBreadcrumb", () => {
     // `/asset/ledgers/:id` 是隐藏路由，不作为展示节点；靠前缀命中 `/asset/ledgers`
     expect(titles(crumbs)).toEqual([
       "资产管理",
-      "账户家庭",
+      "账户成员",
       "账户管理",
       "账户详情"
     ]);
@@ -127,7 +141,7 @@ describe("buildBreadcrumb", () => {
 
   it("当前页标题与末级菜单项同名时不重复追加", () => {
     const crumbs = buildBreadcrumb(menus, "/asset/ledgers", "账户管理");
-    expect(titles(crumbs)).toEqual(["资产管理", "账户家庭", "账户管理"]);
+    expect(titles(crumbs)).toEqual(["资产管理", "账户成员", "账户管理"]);
   });
 
   it("隐藏节点（hidden:true）不作为菜单项出现，当前页标题只追加一次", () => {

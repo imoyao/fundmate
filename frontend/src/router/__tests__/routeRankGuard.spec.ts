@@ -193,29 +193,32 @@ describe("路由 rank 守卫（#2152）", () => {
   });
 
   it("资产管理：四个分组，各自可见项逐个钉住", () => {
+    // 2026-10-30 二次修订：分组名要能被直接读懂（用户否掉了「品类持仓 / 观察名单 /
+    // 账户家庭」三个硬凑的名词拼接），判断依据是**这一组装的是什么样的页面**。
     expect(visibleTitlesOf(asset)).toEqual([
       "组合策略",
-      "品类持仓",
-      "观察名单",
-      "账户家庭"
+      "实物资产",
+      "我的关注",
+      "账户成员"
     ]);
     expect(visibleTitlesOf(asset, "AssetPortfolioGroup")).toEqual([
       "投资组合",
       "策略分析",
       "定投计划"
     ]);
-    // 「品类持仓」原叫「投资管理」，改名理由：目录内只有三个品类页，而股票/基金
-    // 是 showLink:false 的隐藏路由——旧名会让用户以为这里是全部投资入口。
+    // 只装「要手动登记、手动估值」的线下资产。
+    // 「同类优选」曾在此组（旧名「品类持仓」），但它是**基金筛选页**不是持仓，
+    // 输入是你的持仓与自选——名字与成员互相否定，故移到「我的关注」。
     expect(visibleTitlesOf(asset, "AssetCategoryGroup")).toEqual([
       "贵金属",
-      "房产",
-      "同类优选"
+      "房产"
     ]);
-    // 「我的自选」原在 home 的「总览」下、「特别关注」在「资产管理」下，
-    // 同一件心事隔着两个顶级。归到同一分组是本轮重组的核心修正之一。
+    // 三个成员的共同点：还没买、在挑、在盯。「我的自选」原在 home 的「总览」下、
+    // 「特别关注」在「资产管理」下，同一件心事隔着两个顶级——归到一起是本轮核心修正。
     expect(visibleTitlesOf(asset, "AssetWatchGroup")).toEqual([
       "我的自选",
-      "特别关注"
+      "特别关注",
+      "同类优选"
     ]);
     expect(visibleTitlesOf(asset, "AssetHouseholdGroup")).toEqual([
       "账户管理",
@@ -296,12 +299,15 @@ describe("路由 rank 守卫（#2152）", () => {
       const kids = (n.children ?? []).filter(
         c => c.meta?.showLink !== false && !c.meta?.hidden
       );
-      if (kids.length === 1 && !kids[0].meta?.showParent) hit.push(labelOf(kids[0]));
+      if (kids.length === 1 && !kids[0].meta?.showParent) {
+        hit.push(labelOf(kids[0]));
+      }
     }
     expect(hit, "摘掉 showParent 后判据必须命中").toEqual(["账本精灵"]);
   });
 
-  // #2150：把「同一个 path / name 在 asset 模块里声明两次」机械化拦下——  // 上一条断言咬得住是因为它刚好列全了可见项；换个人加一条别的重复路由，
+  // #2150：把「同一个 path / name 在 asset 模块里声明两次」机械化拦下。
+  // 上一条断言咬得住是因为它刚好列全了可见项；换个人加一条别的重复路由，
   // 只要不在 /asset 直接子级的可见项里，就没人看得见。此条与排序无关，只管重复。
   it("#2150：asset 模块内不得出现重复的 path / name 声明（同名条目会渲染两遍）", () => {
     // ⚠️ `seen` 必须跨**整棵子树**共享，不能每个 children 数组各自一份：

@@ -52,7 +52,7 @@
     <GhostDuplicateBanner />
 
     <PageHeaderBar
-      title="复盘"
+      title="投资复盘"
       subtitle="时间维度上的表现：净值怎么走、收益从哪来"
       :updated-at="updatedAtLabel"
     >
