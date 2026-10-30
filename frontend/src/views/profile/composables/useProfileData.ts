@@ -226,8 +226,8 @@ export function useProfileData() {
   // ============================================
   async function onSaveNickname() {
     const value = profileForm.nickname.trim();
-    if (value.length < 5) {
-      ElMessage.warning("昵称至少 5 个字符");
+    if (value.length < 2) {
+      ElMessage.warning("昵称至少 2 个字");
       return;
     }
     if (containsSensitiveHint(value)) {

@@ -481,17 +481,20 @@ def test_update_me_partial(client, db):
 
 
 def test_update_me_min_length(client, db):
-    """用户名/昵称最短 5 字符；带空格的短值 strip 后不足也拦截（防绕过）。"""
+    """用户名最短 5 字符、昵称最短 2 字；带空格的短值 strip 后不足也拦截（防绕过）。"""
     _create_user(db, username='partial', email='me@example.com')
-    # 纯短昵称
+    # 纯短昵称：1 字仍拦截（下限 2）
     resp = client.patch('/api/users/me', json={'nickname': '短'})
     assert resp.status_code == 422
-    # 含空格凑够 5 字符，strip 后不足 5 —— 必须仍 422（min_length 在 strip 后生效）
+    # 含空格凑长度，strip 后不足下限 —— 必须仍 422（min_length 在 strip 后生效）
     resp = client.patch('/api/users/me', json={'username': '  a  '})
     assert resp.status_code == 422
-    resp = client.patch('/api/users/me', json={'nickname': '  ab  '})
+    resp = client.patch('/api/users/me', json={'nickname': '  a  '})
     assert resp.status_code == 422
     # 合规值正常通过
+    resp = client.patch('/api/users/me', json={'nickname': '阿宝'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['nickname'] == '阿宝'
     resp = client.patch('/api/users/me', json={'username': 'abcde'})
     assert resp.status_code == 200
     assert resp.get_json()['data']['username'] == 'abcde'
