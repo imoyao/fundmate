@@ -16,6 +16,7 @@ WHY 下沉
 """
 
 from sqlalchemy import and_, func, or_, update
+from sqlalchemy.exc import IntegrityError
 
 from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.money import Money
@@ -285,3 +286,87 @@ def assert_portfolio_name_available(db, family_id: int, name: object, *, exclude
     if query.first() is not None:
         raise PortfolioNameConflict(f'组合「{normalized}」已存在，请换一个名字')
     return normalized
+
+
+# ── 写路径（2026-10-30 从 views 下沉：视图层厚度守卫 #1606）──────────────────
+#
+# 建/改组合的三件事——名字归一与判重、字段落值、并发撞唯一索引的翻译——都是业务规则，
+# 留在视图里会让 `portfolios/views.py` 越过冻结基线（161 行 / 单函数 25 行）。下沉后
+# 视图只剩「解析入参 → 调服务 → 组信封 → 异常转 HTTP」，判据本身可脱离 HTTP 栈单测。
+
+
+#: PATCH 允许直接赋值的字段（name 单独处理：要过唯一校验）
+_PORTFOLIO_PATCH_FIELDS = ('description', 'purpose', 'target_return', 'target_amount', 'target_date', 'benchmark')
+
+
+def portfolio_to_dict(portfolio: Portfolio) -> dict:
+    """组合模型 → 响应字典（字段名与既有契约逐字一致，只增不改）。"""
+    return {
+        'id': portfolio.id,
+        'name': portfolio.name,
+        'description': portfolio.description,
+        'purpose': portfolio.purpose,
+        'target_return': float(portfolio.target_return) if portfolio.target_return else None,
+        'target_amount': float(portfolio.target_amount) if portfolio.target_amount else None,
+        'target_date': portfolio.target_date.isoformat() if portfolio.target_date else None,
+        'benchmark': portfolio.benchmark,
+        'is_deleted': portfolio.is_deleted,
+        'created_at': portfolio.created_at.isoformat() if portfolio.created_at else None,
+        'updated_at': portfolio.updated_at.isoformat() if portfolio.updated_at else None,
+    }
+
+
+def _flush_or_conflict(db, name: str) -> None:
+    """flush 并把「撞唯一索引」翻译成重名冲突。
+
+    应用层已经判过一次重名，能走到这里的只有两种：两个请求同时通过了校验（并发），
+    或旁路写入（导入脚本 / 手工 SQL）抢先。让用户看到 500 等于把「换个名字就行」
+    报成「服务故障」。
+    """
+    try:
+        db.flush()
+    except IntegrityError as e:
+        db.rollback()
+        raise PortfolioNameConflict(f'组合「{name}」已存在，请换一个名字') from e
+
+
+def create_portfolio_record(db, family_id: int, schema) -> Portfolio:
+    """建组合：名字归一 + 判重 → 落库。重名抛 :class:`PortfolioNameConflict`。"""
+    name = assert_portfolio_name_available(db, family_id, schema.name)
+    portfolio = Portfolio(
+        name=name,
+        description=schema.description,
+        purpose=schema.purpose,
+        target_return=schema.target_return,
+        target_amount=schema.target_amount,
+        target_date=schema.target_date,
+        benchmark=schema.benchmark,
+        family_id=family_id,
+    )
+    db.add(portfolio)
+    _flush_or_conflict(db, name)
+    db.refresh(portfolio)
+    return portfolio
+
+
+def update_portfolio_record(db, portfolio: Portfolio, schema, family_id: int) -> Portfolio:
+    """改组合：字段落值 + 改名判重（排除自身）+ 账户关联原子替换。
+
+    异常约定：重名 → :class:`PortfolioNameConflict`（视图转 409）；
+    关联账户不存在/越权 → ``ValueError``（视图转 404）。两者都在**任何写之前**判定，
+    故失败时零部分更新。
+    """
+    for field in _PORTFOLIO_PATCH_FIELDS:
+        value = getattr(schema, field)
+        if value is not None:
+            setattr(portfolio, field, value)
+
+    if schema.name is not None:
+        portfolio.name = assert_portfolio_name_available(db, family_id, schema.name, exclude_id=portfolio.id)
+
+    if schema.ledger_ids is not None:
+        replace_portfolio_ledger_links(db, portfolio.id, family_id, schema.ledger_ids)
+
+    _flush_or_conflict(db, portfolio.name)
+    db.refresh(portfolio)
+    return portfolio

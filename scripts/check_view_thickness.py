@@ -276,11 +276,15 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 31,
     },
+    # 2026-10-30 收紧（PR #2754，组合重名）：名称唯一性校验与写路径下沉
+    # `services/portfolio_service.py` 的 `assert_portfolio_name_available` /
+    # `create_portfolio_record` / `update_portfolio_record`，视图回到
+    # 「parse → 调 service → 组信封」，错误码只留一张 `_NAME_ERROR_STATUS` 映射。
     "backend/app/domains/portfolios/views.py": {
-        "lines": 161,
+        "lines": 133,
         "orm_queries": 1,
         "commits": 0,
-        "max_func": 25,
+        "max_func": 20,
     },
     # 2026-10-18 重取（#2326，**新增端点**，非放宽）：基金转换 P0/P1 落地——
     # 试算 POST /api/positions/conversion/estimate/ 与提交 POST /api/positions/conversion/
