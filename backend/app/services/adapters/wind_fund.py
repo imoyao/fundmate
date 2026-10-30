@@ -38,6 +38,7 @@
 
 import json
 import re
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -270,6 +271,37 @@ def _fetch_asset_alloc(fund_code: str, period_phrase: str, provider: Any, transp
     return alloc
 
 
+def candidate_report_periods(today: date) -> List[str]:
+    """按披露**窗口开启时间**倒序列出「可能已有数据」的报告期（中文短语）。
+
+    为什么需要这个：``fetch_fund_holdings`` 只有拿到具体报告期才能给出可落库的
+    ``report_period``；问「最新报告期」时上游不给期次（见模块 docstring ④），
+    而 ``fund_holdings`` 的版本键必须带期次，猜一个就等于写假数据。
+
+    本函数给的是**确定性**候选：公募基金法定披露窗口分别是
+    一季报 4/1 起、中报 7/1 起、三季报 10/1 起、年报次年 1/1 起
+    （中报 8/31、三季报 10/31 是**截止日**，不是起始日——披露可以更早，
+    故按「窗口已开启」而不是「已过截止日」判断，否则 10 月中旬的三季报会漏掉）。
+
+    调用方按返回顺序逐个试，取第一个真有数据的即可；空结果不算错误。
+    """
+    candidates: List[str] = []
+    for year in (today.year, today.year - 1):
+        # 同年内由近及远；年份降序保证跨年时「2025年年报」排在「2025年三季报」之前
+        windows = (
+            (f'{year}年三季报', date(year, 10, 1)),
+            (f'{year}年中报', date(year, 7, 1)),
+            (f'{year}年一季报', date(year, 4, 1)),
+        )
+        if year == today.year:
+            # 上一年的年报窗口在**今年** 1/1 开启，故挂在今年这一轮里，位置排在季报之后
+            candidates.extend(phrase for phrase, opened in windows if today >= opened)
+            candidates.append(f'{year - 1}年年报')
+        else:
+            candidates.extend(phrase for phrase, opened in windows if today >= opened)
+    return candidates
+
+
 # ── 档案 ──────────────────────────────────────────────────────────────
 
 
@@ -314,6 +346,7 @@ __all__ = [
     'HOLDING_BASIS_TOP10',
     'PROVIDER',
     'SOURCE_WIND',
+    'candidate_report_periods',
     'fetch_fund_holdings',
     'fetch_fund_profile',
     'is_available',
