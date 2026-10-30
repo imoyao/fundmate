@@ -76,7 +76,7 @@ export interface ColumnDef {
 | `position_market_value` | 持仓市值 | moneyRatio | ratio = marketValueRatio |
 | `added_return` | 添加后涨幅 | moneyRatio | sortAddedReturn |
 | `holding_pnl` | 持仓收益 | moneyRatio | auto-color |
-| `day_pnl` | 当日盈亏 | moneyRatio | **derived: dayPnl**（口径见 `views/asset/watchlist/dayPnl.ts`）；**sortable: custom + sortBy: change_pct**（按涨跌幅排，非金额） |
+| `day_pnl` | 当日盈亏 | moneyRatio | **derived: dayPnl**（口径见 `views/asset/watchlist/dayPnl.ts`）；**sortable: custom + 客户端整组排序**（金额 / 涨幅两口径可选，见 §9；不设 `sortBy`——后端只有上一交易日收盘） |
 | `_actions` | 操作 | actions | fixed right，120px |
 
 > 现有"最新价"的 `v-if realtimeEnabled` 双分支，统一收进 `money` renderer 内部，由 `realtimeField` 驱动；**模板不再出现双分支**。（`riseFall` renderer 曾承担同一职责，随 `change_pct` 列在 #2641 删除后一并移除——`RiseFallText` 组件本身仍被 `return_*` 等收益类列使用。）
@@ -159,8 +159,18 @@ export interface ColumnDef {
   - `"category"`（默认）：**品类专属列**，仅当「类型筛选命中单一品类」时显示。
   - **通用列判定标准（#1421）**：该列对「**全部品类**」或「**全部可交易品类**（`TRADABLE_TYPES` 7 类）」都成立、不会恒为 `—` → 归 `"mixed"`；只有**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）留 `"category"`。
 - `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类）。**它是品类视图的判据，与 `scope` 无关**：`scope` 只回答「混合视图要不要出现」。如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）；`current_price` 与 `day_pnl` 用 `QUOTE_TYPES`（含 `index`——指数无持仓、金额 `—`，但涨跌幅成立）。
-- `ColumnDef.sortBy`（#2641）：**排序代理字段**。前端派生列（`day_pnl`）在 `row` 上没有同名字段，直接拿 `key` 去查后端白名单会「查不到就静默失效」（#1331 的形态）。指定 `sortBy` 后，点击该列表头会把 `sortBy` 当作 `sort_by` 发给后端；缺省用 `key`。⚠️ `day_pnl.sortBy = "change_pct"` 意味着**按涨跌幅排而非按金额排**（同样涨 1%，一万仓与百万仓的当日盈亏差两个数量级）——要按金额排得后端先落派生字段，属另一张卡。
-- **排序走哪条路（`useWatchlistTable.onSortChange`，#2641 修正）**：`realtimeField` 只在**实时开启**时才接管排序——实时值不进后端，按 `sort_by` 会按静态快照排（#1333），故客户端排当前页；**实时关闭时一律落后端**（跨页一致），因为此时列里显示的就是后端静态值。`current_price` / `day_pnl` 是唯一两个带 `realtimeField` 的列。判据：`__tests__/sortDispatch.spec.ts`（含「实时关闭时最新价也落后端」一条——修正前它永远客户端排，翻页即错，且没有任何信号）。
+- `ColumnDef.sortBy`：**排序代理字段**，用于前端派生列（在 `row` 上没有同名字段）把排序交给后端。⚠️ **吃实时价的列不用它**（见下条）：后端只有上一交易日收盘，代理到后端等于「按昨天的数排」。
+- `ColumnDef.sortOrders`（2026-10-30）：表头点击的排序档位循环（EP `sort-orders`）。涨跌/金额类列写 `["descending","ascending",null]`，第一次点击即降序——默认的「升序优先」会先给用户看一遍亏得最多的。
+- **排序走哪条路（`useWatchlistTable.onSortChange`，2026-10-30 整组化）**：
+
+  | 列 | 走哪 | 为什么 |
+  |---|---|---|
+  | `day_pnl`（当日盈亏）/ `current_price`（最新价） | **客户端整组排序**：`data.setClientSort(key, order, valueOf)` → 对**全量** `allItems` 排 → 本地分页 | 后端 `current_price` / `change_pct` 来自 `price_history` 最近一根收盘（job 每天 17:30 跑），盘中就是**上一交易日**的数。按它排 = 按昨天的涨幅排，与列里显示的今日实时值不是同一个数 |
+  | 其余列 | `handleSortChange` → 后端 `sort_by/sort_order` | 这些值后端就有，跨页一致由后端保证 |
+
+  ⚠️ **不再有「只排当前页」这一档**。#1333/#2641 时代的实时分支只排当前页，第 2 页重新从最大/最小开始，用户看到的就是「点了排序但顺序乱」（2026-10-30 用户实测）。整组排序的三条对齐规则（置顶前置 / 缺值垫底 / 稳定排序）见 `views/asset/watchlist/clientSort.ts` 文件头。
+
+- **当日盈亏的两种排序口径（2026-10-30）**：这一列是复合列（金额 + 涨跌幅），两行数**各排各的**——「今天谁赚得最多」（金额）与「今天谁涨得最凶」（涨幅）是两个问题，同样涨 1%，一万仓与百万仓的金额差两个数量级。口径由 `DayPnlMetric`（`dayPnl.ts`）定义，表头下拉（`components/DayPnlSortHeader.vue`）切换，本地记忆（localforage `watchlist-day-pnl-metric`，不上云）。#2641 曾把排序代理到 `change_pct`，等于「按金额排序」在实现上并不存在。判据：`__tests__/sortDispatch.spec.ts`（含两个口径取不同数）与 `__tests__/clientSort.spec.ts`。
 - `useWatchlistColumnVisibility(activeCategory)`：`activeCategory` = 类型筛选命中单一品类时为其 `asset_type`，否则 `null`（混合视图）。可见列 = 顺序 × 用户显隐偏好 × 视图作用域：
   - 用户显式开启（`shown`）→ **任何视图都显示**（覆盖视图作用域与默认隐藏）；
   - 默认隐藏且未开启 → 隐藏；

@@ -115,19 +115,27 @@ export interface ColumnDef {
   /**
    * 排序代理字段（#2641）：点击本列表头时交给后端的 `sort_by`。
    *
-   * 用于**前端派生列**——它在 `row` 上没有同名字段（如 `day_pnl` 由实时价 × 持仓
-   * 数量现算），直接拿 `key` 去查后端白名单会「查不到就静默失效」。指定本字段后，
-   * 排序语义是「按这个后端字段排」，**与列里展示的数值不必是同一个数**
-   * （`day_pnl` 按涨跌幅排 ≠ 按金额排，取决于持仓量）。
+   * 用于**前端派生列**——它在 `row` 上没有同名字段，直接拿 `key` 去查后端白名单会
+   * 「查不到就静默失效」（#1331 的形态）。指定本字段后，排序语义是「按这个后端字段排」，
+   * **与列里展示的数值不必是同一个数**。
    *
-   * 缺省 = 用 `key` 本身。
+   * 缺省 = 用 `key` 本身。⚠️ 吃实时价的列（`day_pnl` / `current_price`）**不用它**：
+   * 它们走客户端整组排序（见 `clientSort.ts`），代理到后端只会按上一交易日收盘排。
    */
   sortBy?: string;
   /**
-   * 开启实时且存在估值项时，用估值项的该字段覆盖静态值。
-   * 同时决定「客户端实时排序」用哪个字段（见 `useWatchlistTable.onSortChange`）——
-   * 派生列（`day_pnl`）也借此在实时路径按同一口径排序，故它此处的值是**排序口径**
-   * 而非渲染覆盖（`moneyRatio` 渲染器不读它）。
+   * 表头点击时的排序档位循环（EP `sort-orders`，2026-10-30）。
+   *
+   * 默认档位是「升序 → 降序 → 取消」，对涨跌/金额这类指标反直觉：用户点「当日盈亏」
+   * 想看的是今天赚得最多的，默认升序先把亏得最多的摆上来。这类列写
+   * `["descending", "ascending", null]` 让第一次点击即降序。
+   */
+  sortOrders?: ("ascending" | "descending" | null)[];
+  /**
+   * 开启实时且存在估值项时，用估值项的该字段覆盖静态值（**渲染口径**）。
+   *
+   * ⚠️ 它**不再决定排序**（2026-10-30）：吃实时价的列一律走客户端整组排序，
+   * 取值由 `useWatchlistTable` 里的取数函数决定（当日盈亏还要看 `dayPnlMetric`）。
    */
   realtimeField?: RealtimeField;
   /** #993 预留：用户是否可隐藏 */
@@ -257,16 +265,20 @@ export const watchlistColumnDefs: ColumnDef[] = [
      * 为什么它是**默认可见**列：这是「今天赚了多少」的主数据，天天要看；
      * 为此把 `created_at`（一次性历史）降为可选列，默认列总宽不变。
      *
-     * ## 排序（#2641）
+     * ## 排序（2026-10-30 整组化，取代 #2641 的 change_pct 代理）
      *
-     * 后端**没有** `day_pnl` 字段（它是「实时价 × 持仓数量」的前端派生值），但后端
-     * **有** `change_pct` 且已开放用户排序。故此处**代理**到它：
-     * `sortBy: "change_pct"` 让非实时路径把 `sort_by=change_pct` 发给后端
-     * （跨页一致）；`realtimeField: "changePct"` 让实时路径由 `onSortChange` 走客户端
-     * 按实时涨跌幅排（与原来点「今日涨跌幅」表头完全一致）。
+     * 这一列有**两行数**：金额（主行）与涨跌幅（副行），是**两个不同的量**
+     * （同样涨 1%，一万仓与百万仓的当日盈亏差两个数量级）。所以两行各自要能排序：
+     * 表头下拉切换口径（`DayPnlMetric`：amount / pct，见 `dayPnl.ts`），
+     * 由 `useWatchlistTable.onSortChange` → `data.setClientSort` 对**全量**结果排。
      *
-     * ⚠️ 排序口径是**涨跌幅，不是金额**：两者的顺序不同（同样涨 1%，一万仓与
-     * 百万仓的当日盈亏差两个数量级）。要按金额排得后端先落一个派生字段，属另一张卡。
+     * 为什么不用后端 `sort_by`：后端 `current_price` / `change_pct` 来自 `price_history`
+     * 最近一根收盘（job 每天 17:30 跑），盘中就是**上一交易日**的数——按它排等于
+     * 「按昨天的涨跌幅排」，与列里显示的今日实时值不是同一个数。完整推导见
+     * `clientSort.ts` 文件头。
+     *
+     * 旧行为（#2641）把排序代理到 `change_pct` 且实时开启时**只排当前页**，
+     * 于是「按金额排序」在实现上并不存在，跨页顺序也乱（2026-10-30 用户实测）。
      *
      * ## 指数行为什么也在 appliesTo 里
      *
@@ -282,8 +294,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 104,
     align: "right",
     sortable: "custom",
-    sortBy: "change_pct",
-    realtimeField: "changePct",
+    // 涨/亏类指标默认「从大到小」：第一次点表头就该看到涨得最多的，
+    // 而不是先看一遍亏得最多的（EP 默认升序优先，会多一次点击）
+    sortOrders: ["descending", "ascending", null],
     hideable: true,
     draggable: true,
     derived: "dayPnl" // value=当日盈亏(元), ratio=当日涨跌幅(%)
@@ -327,6 +340,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 96,
     align: "right",
     sortable: "custom",
+    // 价格同样「高的在前」更符合直觉；且它走客户端整组排序（实时价，见 clientSort.ts）
+    sortOrders: ["descending", "ascending", null],
     realtimeField: "currentPrice",
     scope: "mixed",
     hideable: true,

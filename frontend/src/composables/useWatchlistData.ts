@@ -11,6 +11,11 @@ import {
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import { localForage } from "@/utils/localforage";
+import {
+  sortRowsForClient,
+  type ClientSortOrder
+} from "@/views/asset/watchlist/clientSort";
+import type { DayPnlMetric } from "@/views/asset/watchlist/dayPnl";
 
 /** 每页条数可选档位（issue #1335）：与后端 per_page 限幅 [1,200] 对齐，不超出范围 */
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
@@ -47,6 +52,40 @@ function persistPageSize(): void {
     .setItem<number>(PAGE_SIZE_STORAGE_KEY, pageSize.value)
     .catch(() => {
       /* 持久化失败不影响会话内生效（IndexedDB 不可用时库内部降级 localStorage） */
+    });
+}
+
+/**
+ * 「当日盈亏」列的排序口径（金额 / 涨跌幅，2026-10-30 用户反馈）。
+ *
+ * 纯本地记忆（与 pageSize 同模式，不上云）：它是「我怎么看这张表」的偏好，
+ * 跨设备同步的价值低于实现成本；服务端的 user_preferences 里也还没有这一项。
+ * 模块级单例：表头下拉与数据层共享同一份，切换即时生效。
+ */
+const DAY_PNL_METRIC_STORAGE_KEY = "watchlist-day-pnl-metric";
+const dayPnlMetric = ref<DayPnlMetric>("amount");
+let dayPnlMetricLoadStarted = false;
+
+async function loadDayPnlMetric(): Promise<void> {
+  if (dayPnlMetricLoadStarted) return;
+  dayPnlMetricLoadStarted = true;
+  try {
+    const saved = await localForage().getItem<DayPnlMetric>(
+      DAY_PNL_METRIC_STORAGE_KEY
+    );
+    if (saved === "amount" || saved === "pct") dayPnlMetric.value = saved;
+  } catch {
+    /* 读取失败按默认（金额，与列主行一致） */
+  }
+}
+
+function setDayPnlMetric(metric: DayPnlMetric): void {
+  if (dayPnlMetric.value === metric) return;
+  dayPnlMetric.value = metric;
+  localForage()
+    .setItem(DAY_PNL_METRIC_STORAGE_KEY, metric)
+    .catch(() => {
+      /* 持久化失败不影响本次会话 */
     });
 }
 
@@ -90,6 +129,9 @@ export function useWatchlistData(
     batchMoveGroupId
   } = toolbar;
 
+  // 口径偏好首屏前恢复（幂等；失败静默回默认「金额」）
+  void loadDayPnlMetric();
+
   const loading = ref(false);
   const items = ref<WatchlistItem[]>([]);
   // 全量过滤结果（忽略分页）：供实时估值汇总条使用（#1245）。
@@ -101,6 +143,20 @@ export function useWatchlistData(
   // 用户列内排序状态（#991）：空串表示未排序（后端走默认置顶+更新时间）
   const sortBy = ref("");
   const sortOrder = ref<"asc" | "desc">("asc");
+
+  /**
+   * 整组客户端排序（2026-10-30）：非空 = 当前排序由前端对**全量** allItems 算，
+   * 后端 `sort_by` 不参与。
+   *
+   * 为什么这两列不能走后端：后端 `current_price` / `change_pct` 是**上一交易日收盘**
+   * 算出来的（job 每天 17:30 跑），按它排等于「按昨天的涨跌幅排」，与列里显示的今日
+   * 实时值不是同一个数。完整推导见 `views/asset/watchlist/clientSort.ts`。
+   */
+  const clientSortKey = ref<"" | "day_pnl" | "current_price">("");
+  const clientSortOrder = ref<ClientSortOrder>("desc");
+  const clientSortValueOf = ref<((row: WatchlistItem) => number | null) | null>(
+    null
+  );
 
   /** 拼后端请求参数：分页 + 分组过滤 + 标签筛选 + 场内/场外 + 搜索。 */
   const fetchParams = computed(() => {
@@ -135,36 +191,72 @@ export function useWatchlistData(
       params.asset_types = selectedAssetTypes.value.join(",");
     }
     if (searchKeyword.value) params.q = searchKeyword.value;
-    // 用户列内排序（#991）：仅白名单字段由后端校验，跨页排序一致
-    if (sortBy.value) {
+    // 用户列内排序（#991）：仅白名单字段由后端校验，跨页排序一致。
+    // 客户端整组排序期间不传 sort_by：后端只能按 T-1 快照排（见 clientSortKey 注释），
+    // 传了反而让「拉全量的那一份」带上一层无关的服务端顺序。
+    if (sortBy.value && !clientSortKey.value) {
       params.sort_by = sortBy.value;
       params.sort_order = sortOrder.value;
     }
     return params;
   });
 
+  /**
+   * 全量结果最多翻几页（后端 per_page 限幅 200）。
+   *
+   * 4 页 = 800 行，个人自选的规模远小于此。上限存在的原因：`fields=lite` 的全量拉取
+   * 本来只为汇总条与客户端排序服务，真到上千行时应改为「后端排序 + 服务端分页」，
+   * 而不是无限翻页把浏览器拖死（那时前端拿不到实时价的问题也会变成次要问题）。
+   */
+  const ALL_ITEMS_MAX_PAGES = 4;
+
+  /** 拉全量结果（`fields=lite`：不含可转债条款/基金回撤等展示字段，但**含**
+   *  prev_close / holding_quantity / current_price——客户端排序与汇总条都靠这三样）。 */
+  async function fetchAllItems(
+    base: Record<string, string | number | boolean>
+  ): Promise<WatchlistItem[]> {
+    const perPage = 200;
+    const rows: WatchlistItem[] = [];
+    for (let page = 1; page <= ALL_ITEMS_MAX_PAGES; page += 1) {
+      const res = await getWatchlistItems({
+        ...base,
+        page,
+        per_page: perPage,
+        fields: "lite"
+      });
+      const batch = res.data ?? [];
+      rows.push(...batch);
+      const total = res.total ?? rows.length;
+      if (batch.length < perPage || rows.length >= total) break;
+    }
+    return rows;
+  }
+
   /** 拉取列表（分页切片由后端完成，前端只消费 data/total）。
    * @param refreshAll 是否顺带刷新全量结果 allItems（供估值汇总条）。
    *        筛选/排序/搜索/分组变化时应传 true；纯翻页传 false（汇总保持稳定）。
-   *        全量结果用 fields=lite 单请求取回（per_page=200 覆盖全量）。
+   *        全量结果用 fields=lite 拉取（必要时循环翻页，见 fetchAllItems）。
    */
   async function fetchData(refreshAll = true) {
+    // 客户端整组排序期间，翻页是纯本地切片（见下面的 watch），不请求后端——
+    // 否则会把已排好的本地顺序覆盖回服务端顺序（「翻页后排序失效」的典型症状）。
+    if (!refreshAll && clientSortKey.value) return;
     loading.value = true;
     try {
       if (refreshAll) {
-        // 并行发起：当前页 + 全量 lite（后端 per_page=200 已覆盖全量，单次请求即可）
-        const [pageRes, allRes] = await Promise.all([
-          getWatchlistItems(fetchParams.value),
-          getWatchlistItems({
-            ...fetchParams.value,
-            page: 1,
-            per_page: 200,
-            fields: "lite"
-          })
-        ]);
-        items.value = pageRes.data ?? [];
-        totalItems.value = pageRes.total ?? items.value.length;
-        allItems.value = allRes.data ?? [];
+        if (clientSortKey.value) {
+          // 整组排序只认全量这一份：当前页那份会被本地切片覆盖，不必发
+          allItems.value = await fetchAllItems(fetchParams.value);
+          totalItems.value = allItems.value.length;
+        } else {
+          const [pageRes, all] = await Promise.all([
+            getWatchlistItems(fetchParams.value),
+            fetchAllItems(fetchParams.value)
+          ]);
+          items.value = pageRes.data ?? [];
+          totalItems.value = pageRes.total ?? items.value.length;
+          allItems.value = all;
+        }
       } else {
         const res = await getWatchlistItems(fetchParams.value);
         items.value = res.data ?? [];
@@ -178,9 +270,70 @@ export function useWatchlistData(
     }
   }
 
+  /**
+   * 客户端整组排序的全量结果（null = 未启用）。
+   *
+   * 用 computed 而不是「排序函数」：`valueOf` 的闭包会读实时行情（`realtime.items`），
+   * 30s 一次的 tick 到达时它必须**自动重排**——普通函数只在调用时算一次，
+   * 排完就停在旧价上，看起来又是「顺序乱」。
+   */
+  const clientSortedItems = computed(() => {
+    const valueOf = clientSortValueOf.value;
+    if (!clientSortKey.value || !valueOf) return null;
+    return sortRowsForClient(allItems.value, {
+      order: clientSortOrder.value,
+      valueOf
+    });
+  });
+
+  /** 本地分页：把整组排序结果切到当前页（只在客户端排序启用时生效） */
+  function applyClientSlice() {
+    const sorted = clientSortedItems.value;
+    if (!sorted) return;
+    totalItems.value = sorted.length;
+    const maxPage = Math.max(1, Math.ceil(sorted.length / pageSize.value));
+    if (currentPage.value > maxPage) {
+      // 越界页（筛选变窄 / 条数变小）回到末页；写 currentPage 会再触发本 watch 一次
+      currentPage.value = maxPage;
+      return;
+    }
+    const start = (currentPage.value - 1) * pageSize.value;
+    items.value = sorted.slice(start, start + pageSize.value);
+  }
+
+  watch([clientSortedItems, currentPage, pageSize], applyClientSlice, {
+    immediate: true
+  });
+
   // ─────────────────────────────────────────────
   // 排序 / 分页切换辅助
   // ─────────────────────────────────────────────
+
+  /**
+   * 客户端整组排序（当日盈亏 / 最新价）：交给 data 层统一算，表头只报「排什么、怎么排」。
+   *
+   * @param key     排序的列
+   * @param order   升/降
+   * @param valueOf 取值函数（可以读实时行情；day_pnl 还按口径选金额或涨跌幅）
+   */
+  function setClientSort(
+    key: "day_pnl" | "current_price",
+    order: ClientSortOrder,
+    valueOf: (row: WatchlistItem) => number | null
+  ) {
+    clientSortKey.value = key;
+    clientSortOrder.value = order;
+    clientSortValueOf.value = valueOf;
+    // 服务端排序同时清掉：两套顺序叠在一起时，谁生效取决于「有没有请求」，无法推理
+    sortBy.value = "";
+    currentPage.value = 1;
+  }
+
+  /** 退出客户端整组排序（切到服务端可排的列 / 取消排序时） */
+  function clearClientSort() {
+    clientSortKey.value = "";
+    clientSortValueOf.value = null;
+  }
 
   /**
    * 表头排序（#991）：列已切 sortable="custom"，EP 不做页内排序，
@@ -194,6 +347,9 @@ export function useWatchlistData(
     prop?: string | number;
     order: "ascending" | "descending" | null;
   }) {
+    // 服务端排序接管：必须先退出客户端模式，否则 fetchParams 不传 sort_by、
+    // 而本地切片又会把返回的页覆盖掉 —— 两条路径互相抹掉对方的结果。
+    clearClientSort();
     if (order && prop) {
       sortBy.value = String(prop);
       sortOrder.value = order === "descending" ? "desc" : "asc";
@@ -499,6 +655,12 @@ export function useWatchlistData(
     fetchParams,
     fetchData,
     handleSortChange,
+    // 客户端整组排序（当日盈亏 / 最新价，2026-10-30）：由 useWatchlistTable 的表头分发调用
+    setClientSort,
+    clearClientSort,
+    // 「当日盈亏」列的排序口径（金额 / 涨跌幅）：表头下拉切换，本地记忆
+    dayPnlMetric,
+    setDayPnlMetric,
     handleViewChange,
     debounceSearch,
     refresh,

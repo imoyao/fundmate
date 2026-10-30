@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { Plus } from "@element-plus/icons-vue";
+import { nextTick, onMounted, ref } from "vue";
 import type { WatchlistItem } from "@/api/watchlist";
 import type { ColumnDef } from "@/views/asset/watchlist/columnDefs";
+import type { DayPnlMetric } from "@/views/asset/watchlist/dayPnl";
 import WatchlistTableSkeleton from "@/views/asset/watchlist/WatchlistTableSkeleton.vue";
+import WatchlistEmptyState from "@/views/asset/watchlist/components/WatchlistEmptyState.vue";
+import DayPnlSortHeader from "@/views/asset/watchlist/components/DayPnlSortHeader.vue";
 import {
   resolveRenderer,
   type RenderCtx
@@ -27,6 +29,8 @@ const props = defineProps<{
   activeGroupLabel: string;
   /** 是否叠加了标签筛选（空态文案分支） */
   hasTagFilter: boolean;
+  /** 「当日盈亏」列的排序口径（金额 / 涨跌幅，2026-10-30） */
+  dayPnlMetric: DayPnlMetric;
 }>();
 
 const emit = defineEmits<{
@@ -38,6 +42,8 @@ const emit = defineEmits<{
   /** el-table 实例上抛（表头列拖拽用，见 useWatchlistStickyLayout） */
   (e: "table-ready", instance: unknown): void;
   (e: "open-group-items"): void;
+  /** 「当日盈亏」排序口径切换（金额 / 涨幅）→ 由 index 写回 data 层并持久化 */
+  (e: "day-pnl-metric-change", metric: DayPnlMetric): void;
 }>();
 
 type SortPayload = {
@@ -74,6 +80,21 @@ function onRowClick(row: WatchlistItem, column: unknown, event: Event) {
 }
 function openGroupItems() {
   emit("open-group-items");
+}
+
+/**
+ * 「当日盈亏」口径切换：先切口径，再按新口径**降序**重排一次。
+ *
+ * 排序由本组件 emit 出去（走 index → useWatchlistTable 的同一条分发），
+ * 表头箭头另用 EP 的 `sort()` 同步——只 emit 不调 sort 的话，数据已按新口径排好，
+ * 箭头却还停在「未排序」，用户会以为没生效（正是这次要修的那种「看着乱」）。
+ * 两次触发是幂等的（同一口径 + 同一方向），不会多请求。
+ */
+function onDayPnlMetricChange(metric: DayPnlMetric) {
+  if (metric === props.dayPnlMetric) return;
+  emit("day-pnl-metric-change", metric);
+  emit("sort-change", { prop: "day_pnl", order: "descending" });
+  void nextTick(() => tableRef.value?.sort?.("day_pnl", "descending"));
 }
 
 // 子组件 mounted 早于页面 mounted，index 的 onMounted 调 initHeaderDrag 前
@@ -148,9 +169,23 @@ onMounted(() => {
         :align="def.align"
         :fixed="def.fixed"
         :sortable="def.sortable"
+        :sort-orders="def.sortOrders"
         :class-name="def.draggable ? undefined : 'col-no-drag'"
+        :label-class-name="
+          def.key === 'day_pnl' ? 'col-day-pnl-head' : undefined
+        "
         :show-overflow-tooltip="def.showOverflowTooltip"
       >
+        <!-- 列头：只有「当日盈亏」需要自定义（复合列 → 可切排序口径，见 DayPnlSortHeader），
+             其余列仍渲染 def.label，与 EP 默认行为一致 -->
+        <template #header>
+          <DayPnlSortHeader
+            v-if="def.key === 'day_pnl'"
+            :metric="dayPnlMetric"
+            @change="onDayPnlMetricChange"
+          />
+          <template v-else>{{ def.label }}</template>
+        </template>
         <template #default="{ row }">
           <component
             :is="resolveRenderer(def.renderer)"
@@ -166,28 +201,13 @@ onMounted(() => {
          不复用 el-table #empty（其 empty-block 高度由 EP 撑到 280px 封顶，
          无法在整段空表格区内垂直居中）；隐藏 el-table 自带空态文字
          （empty-text=""）避免穿透。表头吸顶保留（30px，见 overlay top）。 -->
-    <div v-if="!loading && items.length === 0" class="watchlist-empty-overlay">
-      <!-- 空白自定义分组：虚线「+ 从全部自选添加」快捷入口（#987）。
-           空白组是可填充的占位区，给可点入口而非阻断性文案；系统分组为空、
-           以及标签筛选无匹配的场景，仍走下方纯文案空态。 -->
-      <template v-if="isEmptyCustomGroup">
-        <button type="button" class="empty-add-btn" @click="openGroupItems">
-          <el-icon><Plus /></el-icon>
-          从全部自选添加
-        </button>
-        <p class="watchlist-empty__hint">
-          把已有自选归入「{{ activeGroupLabel }}」
-        </p>
-      </template>
-      <template v-else>
-        <p class="watchlist-empty__title">
-          {{ hasTagFilter ? "暂无匹配所选标签的持仓" : "暂无自选资产" }}
-        </p>
-        <p v-if="hasTagFilter" class="watchlist-empty__hint">
-          试试调整或清空标签筛选条件
-        </p>
-      </template>
-    </div>
+    <WatchlistEmptyState
+      v-if="!loading && items.length === 0"
+      :is-empty-custom-group="isEmptyCustomGroup"
+      :active-group-label="activeGroupLabel"
+      :has-tag-filter="hasTagFilter"
+      @open-group-items="openGroupItems"
+    />
     <!-- 骨架屏覆盖层：仅数据加载期间渲染（分组切换/首屏/搜索/翻页），
          随 .watchlist-table-wrap 定位，top 对齐表头底部。 -->
     <WatchlistTableSkeleton v-if="loading" />
@@ -226,8 +246,8 @@ onMounted(() => {
    关键：el-table 默认 overflow:hidden 会成为 header-wrapper 的「最近滚动祖先」，
    导致 sticky 相对表格自身（不随页面滚）而非布局滚动容器——这是吸顶反复失效的根因。
    本页表格无内部滚动，改为 overflow:visible 让 sticky 正确吸附到布局滚动容器。
-   （el-table 不需要 flex 拉伸：空态文案已由 .watchlist-empty-overlay 覆盖层承载，
-   见下；有数据时表格按内容高度自然展开，外层滚动接管。） */
+   （el-table 不需要 flex 拉伸：空态文案由 WatchlistEmptyState 覆盖层承载，
+   见该组件；有数据时表格按内容高度自然展开，外层滚动接管。） */
 .watchlist-table-wrap :deep(.el-table) {
   min-width: 0;
 
@@ -250,73 +270,8 @@ onMounted(() => {
   background: var(--bg-card);
 }
 
-/* 表格空状态覆盖层（2026-09-05 问题 1 修复）：
-   覆盖在 .watchlist-table-wrap 上、表头（约 30px）之下，铺满表格剩余区并让文案垂直
-   居中。空态时表格仍渲染表头（吸顶正常），数据行为 0，下方整段区域由本层占住——
-   视觉上"暂无自选资产"位于卡片中部，footer 经 .watchlist-card flex:1 + margin-top:auto
-   沉到视口底，不再出现"文案靠上 + footer 悬在中间"的空分组观感。
-   注：不再使用 el-table #empty（empty-text="" 已隐藏 EP 默认占位）。 */
-.watchlist-empty-overlay {
-  /* 覆盖整张 el-table（含表头）：空态时没有数据行，列名与表头底边框没有意义，
-     反而会在文案上方形成一条"怪异分割线"。overlay 从 top:0 铺满并用卡片色背景
-     盖住表头/空体，文案在整卡区内垂直居中，视觉干净。
-     注意 z-index 需高于表头（header z-index:3）才能盖住其底边线。 */
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 0;
-  background-color: var(--bg-card);
-}
-
-.watchlist-empty__title {
-  margin: 0;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-}
-
-.watchlist-empty__hint {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-/* 空白自定义分组的虚线「+ 从全部自选添加」入口（issue #987）。
-   虚线框表达「可填充的占位区」而非阻断性空态，与表格内「＋ 标签」
-   虚线按钮（columnRenderers.css .add-tag-btn）同一视觉语言。
-   选中态/hover 转为品牌色实线，明确可点。 */
-.empty-add-btn {
-  display: inline-flex;
-  gap: var(--space-2);
-  align-items: center;
-  padding: 8px 16px;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: transparent;
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease;
-}
-
-.empty-add-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-400);
-  border-style: solid;
-}
-
-.empty-add-btn:focus-visible {
-  outline: 1px solid var(--brand-400);
-  outline-offset: 2px;
-}
+/* 空态覆盖层的样式随组件搬进 WatchlistEmptyState.vue（2026-10-30 拆件，
+   让本文件回到 #980 的 .vue 行数门禁以内）。 */
 
 /* 操作列按钮默认弱化可见，行悬停时全亮（150ms ease）。
    说明：不采用 opacity:0 完全隐藏——操作列/产品列是 fixed 列，EP 固定列独立 DOM，
@@ -375,6 +330,14 @@ onMounted(() => {
    各列 width 已预留足够空间容纳文字+图标，此处仅作双保险防止意外折行。 */
 :deep(.el-table__header th.el-table__cell .cell) {
   white-space: nowrap;
+}
+
+/* 「当日盈亏」列头（2026-10-30）：列宽 104px 要同时放「当日盈亏」+ 口径箭头 + 排序三角，
+   把该列左右内边距从 12px 收到 4px 腾出 16px。不这么做箭头会被 nowrap 挤出列宽、被裁掉
+   ——「功能存在但点不到」比没有更糟。其余列保持 12px，视觉基线不受影响。 */
+:deep(.el-table__header th.col-day-pnl-head .cell) {
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 /* 表头行高 ≈36px（EP 默认 th padding 8px ≈ 40px 高）。

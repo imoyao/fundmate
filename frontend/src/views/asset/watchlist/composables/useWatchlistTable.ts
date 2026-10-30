@@ -10,6 +10,7 @@ import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumn
 import type { useWatchlistValuation } from "@/views/asset/watchlist/composables/useWatchlistValuation";
 import type { useWatchlistPageActions } from "@/views/asset/watchlist/composables/useWatchlistPageActions";
 import type { RenderCtx } from "@/views/asset/watchlist/columnRenderers";
+import { pickDayPnlMetric } from "@/views/asset/watchlist/dayPnl";
 
 interface TableRenderOptions {
   groups: ReturnType<typeof useWatchlistGroups>;
@@ -25,15 +26,14 @@ interface TableRenderOptions {
 /**
  * 自选页表格渲染域（#980 P0-b 拆分自 index.vue，零行为变更）：
  * renderCtx 组装（把页面级状态/方法注入 renderer 注册表）、行 hover 状态
- * （fixed 列操作按钮淡入用）、表头排序分发（#1333 实时列客户端排序）。
+ * （fixed 列操作按钮淡入用）、表头排序分发（吃实时价的列走客户端**整组**排序，
+ * 见 `views/asset/watchlist/clientSort.ts`）。
  */
 export function useWatchlistTable(options: TableRenderOptions) {
   const { groups, tags, toolbar, data, valuation, actions } = options;
   const router = useRouter(); // 「问这个」跳转用（#1764）
-  const { items } = data;
   const { batchMode } = toolbar;
   const {
-    realtime,
     realtimeEnabled,
     getValuationItem,
     addedReturnPct,
@@ -67,24 +67,35 @@ export function useWatchlistTable(options: TableRenderOptions) {
     }, 100);
   }
 
+  /** 最新价取值：真拿到行情才用实时价，否则回落后端静态价（同 money renderer 口径） */
+  function livePriceOf(row: WatchlistItem): number | null {
+    const quote = getValuationItem(row.symbol ?? "");
+    const live =
+      quote && quote.source === "realtime" ? quote.currentPrice : null;
+    const value = live ?? row.current_price;
+    return typeof value === "number" && value > 0 ? value : null;
+  }
+
+  /** 当日盈亏取值：按当前口径选「金额」或「涨跌幅」——复合列两行数各有各的排序 */
+  function dayPnlSortValueOf(): (row: WatchlistItem) => number | null {
+    return row => pickDayPnlMetric(dayPnlOf(row), data.dayPnlMetric.value);
+  }
+
   /**
-   * 表头排序分发（issue #1333 修正，#2641 扩展）。
+   * 表头排序分发（#1333 → #2641 → 2026-10-30 整组化）。
    *
-   * 两个维度各管一段：
-   *
-   * | 状态 | 走哪 | 为什么 |
+   * | 列 | 走哪 | 为什么 |
    * |---|---|---|
-   * | **实时开启**（`realtimeEnabled`）且列带 `realtimeField` | 客户端排序，**仅当前页** | 后端只有 None / positions 静态快照，按 `sort_by` 会按**错值**排（#1333）；而实时值不进后端，跨页一致本就不成立 |
-   * | **其余情况**（含实时关闭时点这两列） | `handleSortChange` → 后端 `sort_by/sort_order`，**跨页一致** | 实时关闭时列里显示的就是后端静态值，交给后端按同一值排即可，没有理由退化成只排当前页 |
+   * | 当日盈亏 / 最新价 | **客户端整组排序**（`data.setClientSort`，对全量 allItems 排 + 本地分页） | 这两列吃实时价，后端只有上一交易日收盘（job 17:30 跑）⇒ 按 `sort_by` 排等于「按昨天的涨幅排」，与列里显示的今日值不是同一个数 |
+   * | 其余列 | `handleSortChange` → 后端 `sort_by/sort_order` | 这些列的值后端就有，跨页一致由后端保证 |
    *
-   * ⚠️ #2641 前这里是 `if (def?.realtimeField && order)`——**不看实时开关**，
-   * 于是「实时关闭」时点「最新价 / 涨跌幅」也只排当前页，后端一次都没被调用。
-   * 这与「排序调后端接口」的预期不符，且用户看不出差别（顺序看着对，翻页即错）。
-   * 判据见 `__tests__/sortDispatch.spec.ts`。
+   * ⚠️ 旧实现（含 #2641 版）在实时开启时**只排当前页**——第 2 页重新从最大/最小开始，
+   * 用户看到的就是「点了排序但顺序很乱」（2026-10-30 用户实测反馈）。现在要么整组排
+   * （本文件的两列），要么整组排（后端），没有「页内排」这一档。
    *
-   * 派生列（`day_pnl`）不靠 `realtimeField` 渲染也不在 `row` 上，故两处都要用它的
-   * **排序代理**：实时分支的兜底值读 `sortBy`（`change_pct`），落后端时把 `sortBy`
-   * 当作 `sort_by` 发出去。缺省仍是列 `key` 本身。
+   * ⚠️ 当日盈亏是**复合列**（金额 + 涨跌幅），排序指标由表头下拉决定
+   * （`data.dayPnlMetric`）；#2641 曾把它代理到 `change_pct`，于是「按金额排序」
+   * 这个诉求在实现上根本不存在。
    */
   function onSortChange({
     prop,
@@ -93,36 +104,24 @@ export function useWatchlistTable(options: TableRenderOptions) {
     prop?: string | number;
     order: "ascending" | "descending" | null;
   }) {
-    const def = prop
-      ? options.columnSettings.visibleColumns.value.find(
-          d => d.key === String(prop)
-        )
+    const key = prop ? String(prop) : "";
+    const def = key
+      ? options.columnSettings.visibleColumns.value.find(d => d.key === key)
       : undefined;
-    // 排序代理：派生列（day_pnl）在 row 上没有同名字段，后端白名单里也没有它，
-    // 必须代理到语义对应的行字段（change_pct），否则 sort_by=day_pnl 会静默失效（#1331）。
-    const sortKey = def?.sortBy ?? (prop ? String(prop) : undefined);
-    if (def?.realtimeField && order && realtimeEnabled.value) {
-      const field = def.realtimeField; // "currentPrice" | "changePct"
-      const dir = order === "descending" ? -1 : 1;
-      const rtMap = new Map<string, number>();
-      for (const it of realtime.items.value ?? []) {
-        const v = it[field];
-        if (typeof v === "number") rtMap.set(it.symbol, v);
-      }
-      const sortVal = (row: (typeof items.value)[number]): number => {
-        const rv = rtMap.get(row.symbol);
-        if (typeof rv === "number") return rv;
-        const sv = sortKey
-          ? (row as Record<string, unknown>)[sortKey]
-          : undefined;
-        return typeof sv === "number" ? sv : 0;
-      };
-      items.value = [...items.value].sort(
-        (a, b) => (sortVal(a) - sortVal(b)) * dir
-      );
+    const dir = order === "descending" ? "desc" : "asc";
+
+    if (order && key === "day_pnl") {
+      data.setClientSort("day_pnl", dir, dayPnlSortValueOf());
       return;
     }
-    data.handleSortChange({ prop: sortKey, order });
+    if (order && key === "current_price") {
+      data.setClientSort("current_price", dir, livePriceOf);
+      return;
+    }
+    // 其余情况（普通列 / 取消排序）一律退出客户端模式再交给后端：
+    // 取消排序时若只清本地状态，items 会停在上一轮本地切片上（表格「卡住不动」）。
+    data.clearClientSort();
+    data.handleSortChange({ prop: def?.sortBy ?? key, order });
   }
 
   // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件

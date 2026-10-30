@@ -13,8 +13,9 @@
  * 4. **缺数据的行同时从分子分母剔除**——让它以 0 参与分子，等于把「缺数据」
  *    稀释成「没涨没跌」。
  * 5. **列定义**：当日盈亏默认可见，且与降为可选的 `created_at` 等宽（进一出一）。
- * 6. **排序能力不随列删除而丢失**（#2641）：「今日涨跌幅」独立列已删，排序由当日盈亏列
- *    代理到后端 `change_pct`；口径是**涨跌幅而非金额**（两者顺序不同，见列定义注释）。
+ * 6. **排序能力不随列删除而丢失**（#2641 → 2026-10-30 修正）：「今日涨跌幅」独立列已删，
+ *    排序由当日盈亏列承担，**两行数各排各的**（金额 / 涨幅，口径见 `pickDayPnlMetric`），
+ *    且走客户端整组排序——后端只有上一交易日收盘，按它排等于按昨天的涨幅排。
  * 7. **指数行仍有涨跌幅**：指数无持仓 → 金额 `—`，但百分比成立，故它必须留在
  *    `appliesTo` 里——否则删列后指数行连涨跌都看不到。
  *
@@ -25,6 +26,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeDayPnl,
+  pickDayPnlMetric,
   resolveDayPnl,
   resolveDayPnlInput,
   sumDayPnl
@@ -188,24 +190,43 @@ describe("列定义：当日盈亏默认可见，且与添加自选日等宽交�
   });
 });
 
-describe("列定义：删掉「今日涨跌幅」列后，排序能力仍在（#2641）", () => {
+describe("列定义：当日盈亏可排序，且不再靠后端代理（2026-10-30）", () => {
   it("独立列已不存在（它的百分比行并入当日盈亏）", () => {
     expect(watchlistColumnDefs.some(d => d.key === "change_pct")).toBe(false);
   });
 
-  it("当日盈亏可排序，并把 sort_by 代理到后端既有白名单字段 change_pct", () => {
+  it("可排序，但**不设** sortBy：后端只有上一交易日收盘，按它排等于按昨天的涨幅排", () => {
     const def = colDef("day_pnl");
     expect(def.sortable).toBe("custom");
-    expect(def.sortBy).toBe("change_pct");
-    // 实时路径要按实时涨跌幅排（客户端、仅当前页），故也带 realtimeField
-    expect(def.realtimeField).toBe("changePct");
+    // 反例守卫：#2641 曾写 sortBy: "change_pct"，于是「按金额排序」在实现上不存在，
+    // 且实时开启时只排当前页（跨页顺序乱）。现在排序走客户端整组（clientSort.ts）。
+    expect(def.sortBy).toBeUndefined();
+    // 实时价由 derived 链路（dayPnlOf → 实时估值）取，不走 realtimeField 覆盖；
+    // 后者只服务「静态字段 + 实时覆盖」的 money renderer（如最新价）
+    expect(def.derived).toBe("dayPnl");
+    expect(def.realtimeField).toBeUndefined();
   });
 
-  it("代理字段必须是可交易的「行字段」，不是派生列 key", () => {
-    // 反例守卫：写成 sortBy: "day_pnl" 会让后端按不存在的列静默失效——
-    // 这正是 #1331「标了 sortable 却查不到白名单」的形态。
-    const def = colDef("day_pnl");
-    expect(def.sortBy).not.toBe(def.key);
+  it("默认降序优先：第一次点表头看到的是涨得最多的", () => {
+    // EP 默认「升序 → 降序 → 取消」，对涨跌指标反直觉（第一眼是亏得最多的）
+    expect(colDef("day_pnl").sortOrders).toEqual([
+      "descending",
+      "ascending",
+      null
+    ]);
+  });
+});
+
+describe("pickDayPnlMetric：复合列两行数各排各的", () => {
+  it("金额口径取 value，涨幅口径取 ratio", () => {
+    const result = { value: 1234.5, ratio: 2.34 };
+    expect(pickDayPnlMetric(result, "amount")).toBe(1234.5);
+    expect(pickDayPnlMetric(result, "pct")).toBe(2.34);
+  });
+
+  it("缺值原样透传 null（交给排序函数垫底，不当 0）", () => {
+    expect(pickDayPnlMetric({ value: null, ratio: 1 }, "amount")).toBeNull();
+    expect(pickDayPnlMetric({ value: 1, ratio: null }, "pct")).toBeNull();
   });
 });
 
