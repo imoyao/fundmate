@@ -45,29 +45,30 @@ function onCommand(command: string | number | object) {
 <template>
   <span class="dp-header">
     <span class="dp-header__label">当日盈亏</span>
-    <el-tooltip :content="hint" placement="top" :show-after="200">
-      <el-dropdown trigger="click" @command="onCommand" @click.stop>
-        <el-icon class="dp-header__more" :title="hint" @click.stop>
-          <ArrowDown />
-        </el-icon>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item
-              command="amount"
-              :class="{ 'is-active': metric === 'amount' }"
-            >
-              按金额排序
-            </el-dropdown-item>
-            <el-dropdown-item
-              command="pct"
-              :class="{ 'is-active': metric === 'pct' }"
-            >
-              按涨幅排序
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-    </el-tooltip>
+    <!-- 不用 el-tooltip 包 el-dropdown：两层 popper 叠在 th 里，tooltip 的悬浮层会
+         干扰下拉的展开/点击（表头本身还在 EP 的 click 排序监听之下）。原生 title
+         的提示效果足够，且零层级风险。 -->
+    <el-dropdown trigger="click" @command="onCommand" @click.stop>
+      <el-icon class="dp-header__more" :title="hint" @click.stop>
+        <ArrowDown />
+      </el-icon>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item
+            command="amount"
+            :class="{ 'is-active': metric === 'amount' }"
+          >
+            按金额排序
+          </el-dropdown-item>
+          <el-dropdown-item
+            command="pct"
+            :class="{ 'is-active': metric === 'pct' }"
+          >
+            按涨幅排序
+          </el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
   </span>
 </template>
 
