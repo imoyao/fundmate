@@ -109,7 +109,14 @@
     >
       <el-form :model="form" label-width="90px">
         <el-form-item label="组合名称" required>
-          <el-input v-model="form.name" placeholder="如：养老计划" />
+          <!-- 重名由后端判定（同家庭未删除组合不允许同名，409 带具体名字）。
+               这里只做长度约束——把校验规则复制到前端必然与后端漂移。 -->
+          <el-input
+            v-model="form.name"
+            placeholder="如：养老计划"
+            maxlength="100"
+            show-word-limit
+          />
         </el-form-item>
         <el-form-item label="投资目的">
           <el-input v-model="form.purpose" placeholder="如：长期增值" />
@@ -231,14 +238,15 @@ function openCreateDialog() {
 }
 
 async function handleSave() {
-  if (!form.value.name.trim()) {
+  const name = form.value.name.trim();
+  if (!name) {
     ElMessage.warning("请输入组合名称");
     return;
   }
   saving.value = true;
   try {
     await createPortfolio({
-      name: form.value.name,
+      name,
       purpose: form.value.purpose || undefined,
       description: form.value.description || undefined,
       target_return: form.value.target_return,
@@ -250,6 +258,7 @@ async function handleSave() {
     dialogVisible.value = false;
     await fetchList();
   } catch (e: any) {
+    // 409 = 重名，后端已给出「组合「xxx」已存在」，直接透出，不再包一层泛化文案
     ElMessage.error(e?.response?.data?.message || "创建失败");
   } finally {
     saving.value = false;

@@ -13,7 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class PortfolioCreate(BaseModel):
-    name: str = Field(..., description='组合名称')
+    # max_length 与库列 portfolios.name 的 String(100) 对齐：此前没有长度约束，
+    # SQLite 静默截断/接受、Postgres 直接 500——同一份输入两种结果。
+    name: str = Field(..., min_length=1, max_length=100, description='组合名称（同家庭内唯一）')
     description: Optional[str] = Field(None, description='组合描述')
     purpose: Optional[str] = Field(None, description='投资目的（如"养老金"）')
     target_return: Optional[float] = Field(None, description='年化目标收益率（%）')
@@ -23,7 +25,7 @@ class PortfolioCreate(BaseModel):
 
 
 class PortfolioUpdate(BaseModel):
-    name: Optional[str] = Field(None, description='组合名称')
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description='组合名称（同家庭内唯一，排除自身）')
     description: Optional[str] = Field(None, description='组合描述')
     purpose: Optional[str] = Field(None, description='投资目的（如"养老金"）')
     target_return: Optional[float] = Field(None, description='年化目标收益率（%）')

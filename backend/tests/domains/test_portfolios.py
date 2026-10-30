@@ -1,10 +1,16 @@
 from datetime import date
 
+import pytest
+
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
+from app.services.portfolio_service import (
+    PortfolioNameConflict,
+    assert_portfolio_name_available,
+)
 
 
 def test_portfolio_holdings_empty(client, db):
@@ -189,3 +195,102 @@ def test_update_portfolio_ledger_ids_foreign_family_rejected(client, db):
     db.expire_all()
     assert db.get(Ledger, own.id).portfolio_id == portfolio.id
     assert db.get(Ledger, foreign.id).portfolio_id is None
+
+
+# ── 组合名唯一（2026-10-30）──────────────────────────────────────────────────
+#
+# 此前这里一条用例都没有，因为**校验压根不存在**：同家庭可以建出两个「养老计划」，
+# 而列表卡片的主标题就是 name。下面把口径逐条钉住：重名拒绝、空白/大小写折叠后
+# 仍算重名、软删除后名字可复用、改名排除自身。
+
+
+def test_create_portfolio_rejects_duplicate_name(client, db):
+    """同家庭同名 → 409，且不落库"""
+    db.add(Portfolio(name='养老计划'))
+    db.commit()
+
+    resp = client.post('/api/portfolios/', json={'name': '养老计划'})
+
+    assert resp.status_code == 409
+    assert '养老计划' in resp.json['message']
+    db.expire_all()
+    assert db.query(Portfolio).filter(Portfolio.is_deleted.is_(False)).count() == 1
+
+
+def test_create_portfolio_trims_name_and_rejects_padded_duplicate(client, db):
+    """首尾空白 / 内部连续空白 / 大小写都不构成「新名字」——归一化后仍判重名
+
+    卡片标题渲染的是 name，`养老  计划` 与 `养老 计划` 在界面上完全一样，
+    放过它们等于把重名问题换个写法留着。
+    """
+    resp1 = client.post('/api/portfolios/', json={'name': '  Retire  2026  '})
+    assert resp1.status_code == 200
+    assert resp1.json['data']['name'] == 'Retire 2026'  # 写库前已归一化
+
+    resp2 = client.post('/api/portfolios/', json={'name': 'retire 2026'})
+    assert resp2.status_code == 409
+
+
+def test_create_portfolio_allows_name_of_soft_deleted(client, db):
+    """软删除的组合不占名字——否则删了也建不回来"""
+    old = Portfolio(name='旧组合', is_deleted=True)
+    db.add(old)
+    db.commit()
+
+    resp = client.post('/api/portfolios/', json={'name': '旧组合'})
+
+    assert resp.status_code == 200
+    assert resp.json['data']['id'] != old.id
+
+
+def test_portfolio_name_unique_is_family_scoped(client, db):
+    """不同家庭各自命名：家庭 2 建「家庭一组合」不该被家庭 1 的同名挡住
+
+    直接测服务层——HTTP 侧 family_id 来自登录态（`get_family_id()`），
+    请求体里塞 family_id 是无效的，用接口测这件事只会测出「默认家庭」。
+    """
+    db.add(Portfolio(name='家庭一组合', family_id=1))
+    db.commit()
+
+    with pytest.raises(PortfolioNameConflict):
+        assert_portfolio_name_available(db, 1, '家庭一组合')
+    # 家庭 2 无同名 → 返回归一化后的名字，不抛错
+    assert assert_portfolio_name_available(db, 2, ' 家庭一组合 ') == '家庭一组合'
+
+
+def test_update_portfolio_rejects_duplicate_name(client, db):
+    """改成一个已存在的名字 → 409，且原名不变"""
+    a = Portfolio(name='组合A')
+    b = Portfolio(name='组合B')
+    db.add_all([a, b])
+    db.commit()
+
+    resp = client.patch(f'/api/portfolios/{b.id}/', json={'name': ' 组合a '})
+
+    assert resp.status_code == 409
+    db.expire_all()
+    assert db.get(Portfolio, b.id).name == '组合B'
+
+
+def test_update_portfolio_keeps_own_name(client, db):
+    """保存表单时不改名（name 原样回传）不能被自己判成重名"""
+    portfolio = Portfolio(name='组合A')
+    db.add(portfolio)
+    db.commit()
+
+    resp = client.patch(f'/api/portfolios/{portfolio.id}/', json={'name': '组合A', 'purpose': '长期增值'})
+
+    assert resp.status_code == 200
+    assert resp.json['data']['purpose'] == '长期增值'
+
+
+def test_update_portfolio_without_name_field_skips_check(client, db):
+    """只改其它字段时不触发名字校验（exclude_unset 语义）"""
+    portfolio = Portfolio(name='组合A')
+    db.add(portfolio)
+    db.commit()
+
+    resp = client.patch(f'/api/portfolios/{portfolio.id}/', json={'description': '备注'})
+
+    assert resp.status_code == 200
+    assert resp.json['data']['name'] == '组合A'

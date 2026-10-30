@@ -2191,3 +2191,119 @@ def migrate_pnl_snapshot_net_worth_nullable(engine: Engine) -> str:
         raise RuntimeError(f'{table}.{column} 仍为 NOT NULL（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
     logger.info(f'[OK] #2733 C {table}.{column} 已允许 NULL（{after[column].get("type", "?")}）')
     return f'[OK] {table}.{column} 已允许 NULL'
+
+
+# ── 组合名唯一：部分唯一索引 + 存量重名去冲突（2026-10-30）───────────────────
+#
+# 问题：`portfolios` 自建表以来**没有任何唯一约束**，`POST /api/portfolios/` 也不查重，
+# 于是同一家庭下可以存在两个「养老计划」。列表卡片的主标题就是这个 name —— 两个一模
+# 一样的标题等于让用户在两个同名对象间猜。
+#
+# 用**部分**唯一索引而不是普通唯一索引：组合是软删除（`is_deleted`），已删除的名字
+# 应当能重新使用；普通唯一索引会让「删了也建不回来」，比不放索引更糟。
+#
+# 索引键是**表达式** `lower(trim(name))`，与应用层判据（portfolio_service.
+# assert_portfolio_name_available）同口径：大小写、首尾空白都不构成新名字。
+# 两者不能只留一个——应用层给用户一句能看懂的 409，索引层挡并发与旁路写入（导入脚本）。
+_PORTFOLIO_NAME_INDEX = 'uq_portfolios_family_name_alive'
+#: 组合名列宽（与 models.Portfolio.name 的 String(100) 对齐，去重命名时不能超）
+_PORTFOLIO_NAME_MAX = 100
+
+
+def _portfolios_alive_predicate(is_pg: bool) -> str:
+    """「未删除」的 SQL 谓词。PG 的 boolean 不接受 ``= 0``，故按方言给字面量。"""
+    return 'is_deleted = FALSE' if is_pg else 'is_deleted = 0'
+
+
+def _normalize_portfolio_names(conn, is_pg: bool) -> List[str]:
+    """把存量组合名折叠掉多余空白（``'养老  计划'`` → ``'养老 计划'``），返回改动清单。
+
+    为什么必须先做这一步：索引键与应用层判据都只能是 ``lower(trim(name))``——SQL 里
+    没有跨方言的「折叠内部连续空白」。存量行若带着双空格，它既躲过索引、也躲过应用层
+    校验（用户输入会被折叠成单空格，两边就差这一个空格）。把存量行归一化之后，
+    「库里的名字都是归一形态」成为不变量，两侧判据才真正等价。
+
+    只动空白，不动语义；软删除行不处理（它们不进索引，也永远不会被展示）。
+    """
+    rows = conn.execute(text(f'SELECT id, name FROM portfolios WHERE {_portfolios_alive_predicate(is_pg)}')).fetchall()
+    changes: List[str] = []
+    for row_id, name in rows:
+        normalized = ' '.join((name or '').split())
+        if normalized and normalized != name:
+            conn.execute(text('UPDATE portfolios SET name = :n WHERE id = :i'), {'n': normalized, 'i': row_id})
+            changes.append(f'id={row_id}: 「{name}」→「{normalized}」（空白归一）')
+    return changes
+
+
+def _dedupe_portfolio_names(conn, is_pg: bool) -> List[str]:
+    """把存量重名的组合改成「原名（2）」「原名（3）」…，返回改动清单（供日志）。
+
+    为什么是重命名而不是删行：组合底下挂着账户与持仓归属，删一条等于丢用户数据；
+    重命名保留两者，且**最早**建的那条保留原名（``ORDER BY id``），后建的加序号。
+    为什么不 fail closed：重名是本次要修的历史数据，若启动即拒绝，用户连进页面改名的
+    机会都没有（对比 fee 三表：那里重复行是计算冗余，删掉无损，故可以 fail closed）。
+
+    调用前必须先跑 :func:`_normalize_portfolio_names`，否则 ``lower(trim())`` 分组
+    与用户看到的「同名」不完全一致。
+    """
+    alive = _portfolios_alive_predicate(is_pg)
+    rows = conn.execute(
+        text(f'SELECT id, family_id, name FROM portfolios WHERE {alive} ORDER BY family_id, lower(trim(name)), id')
+    ).fetchall()
+
+    taken = {(row[1], (row[2] or '').strip().lower()) for row in rows}
+    seen: set = set()
+    changes: List[str] = []
+    for row_id, family_id, name in rows:
+        key = (family_id, (name or '').strip().lower())
+        if key not in seen:
+            seen.add(key)
+            continue
+        base = (name or '').strip() or '组合'
+        suffix_no = 2
+        while True:
+            suffix = f'（{suffix_no}）'
+            candidate = f'{base[: _PORTFOLIO_NAME_MAX - len(suffix)]}{suffix}'
+            candidate_key = (family_id, candidate.lower())
+            if candidate_key not in taken:
+                break
+            suffix_no += 1
+        conn.execute(text('UPDATE portfolios SET name = :n WHERE id = :i'), {'n': candidate, 'i': row_id})
+        taken.add(candidate_key)
+        changes.append(f'id={row_id} family={family_id}: 「{name}」→「{candidate}」（重名）')
+    return changes
+
+
+def migrate_portfolios_unique_name(engine: Engine) -> str:
+    """给 ``portfolios`` 建「家庭内未删除组合名唯一」的部分唯一索引（幂等）。
+
+    SQLite 与 PG 都支持表达式 + 部分索引，DDL 只差布尔字面量（见
+    :func:`_portfolios_alive_predicate`），故不按方言分支整个函数——与
+    ``guard_migrations_pg_aware`` 的要求一致：两侧都真的执行，不是「非 SQLite 就跳过」。
+
+    步骤：① 存量名空白归一 → ② 重名加序号 → ③ 建部分唯一索引（已存在则跳过）。
+    幂等：跑第二遍时 ①② 无改动、③ 按名判定已存在。
+    """
+    if not _table_exists(engine, 'portfolios'):
+        return '[SKIP] portfolios 表不存在（空库，create_all 将按新模型建表）'
+
+    is_pg = _is_postgres(engine)
+    with engine.connect() as conn:
+        normalization = _normalize_portfolio_names(conn, is_pg)
+        renames = _dedupe_portfolio_names(conn, is_pg)
+        conn.commit()
+    for line in normalization + renames:
+        # 改了用户数据的名字就必须留痕：这条日志是「为什么我的组合名多了个（2）」的唯一答案
+        logger.warning(f'[MIGRATE] 组合名规整：{line}')
+
+    ddl = (
+        f'CREATE UNIQUE INDEX IF NOT EXISTS {_PORTFOLIO_NAME_INDEX} '
+        f'ON portfolios (family_id, lower(trim(name))) '
+        f'WHERE {_portfolios_alive_predicate(is_pg)}'
+    )
+    created = _ensure_index(engine, _PORTFOLIO_NAME_INDEX, ddl, table='portfolios')
+    head = '已重建' if created else '已存在'
+    touched = len(normalization) + len(renames)
+    if touched:
+        return f'[OK] 组合名唯一索引{head}，存量规整 {len(normalization)} 条、重名改名 {len(renames)} 条'
+    return f'[OK] 组合名唯一索引{head}，无存量重名'

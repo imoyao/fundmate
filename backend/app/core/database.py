@@ -45,6 +45,7 @@ from app.core.migrations import (
     migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
     migrate_pnl_snapshot_net_worth_nullable,
+    migrate_portfolios_unique_name,
     migrate_positions_cleared_at,
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
@@ -663,6 +664,10 @@ def init_db():
     # 取不到价的日子要能记 NULL，与「真归零」分开。SQLite 走整表重建、PG 走
     # ALTER COLUMN，两侧都在迁移函数里，幂等。
     migrate_pnl_snapshot_net_worth_nullable(user_eng)
+    # 组合名唯一（2026-10-30）：portfolios 建表以来无唯一约束，同家庭可有同名组合，
+    # 而列表卡片标题就是组合名。建**部分**唯一索引（只约束未删除行，软删除后可复用名字），
+    # 存量重名按「保留最早一条、其余加（2）（3）」去冲突并打 WARNING 留痕。
+    migrate_portfolios_unique_name(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库

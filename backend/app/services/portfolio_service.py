@@ -15,7 +15,7 @@ WHY 下沉
       （此后按需**只增不改**追加行级字段——#2210 的 ``price_date`` / ``settled_today``）；
 """
 
-from sqlalchemy import and_, or_, update
+from sqlalchemy import and_, func, or_, update
 
 from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.money import Money
@@ -221,3 +221,67 @@ def replace_portfolio_ledger_links(db, portfolio_id: int, family_id: int, new_id
             .where(Ledger.id.in_(to_link), Ledger.family_id == family_id)
             .values(portfolio_id=portfolio_id)
         )
+
+
+# ── 组合命名唯一（2026-10-30 补齐）──────────────────────────────────────────
+#
+# 背景：``POST /api/portfolios/`` 与 PATCH 此前**没有任何重名检查**，同一家庭下可以
+# 建出两个「养老计划」，而列表卡片的标题就是这个 name —— 两个一模一样的标题等于让
+# 用户在两个同名对象之间猜。库里也没有唯一约束，任何新入口（导入脚本、迁移）都能再塞
+# 一条。故此处补应用层判据，库层由 ``migrate_portfolios_unique_name`` 建部分唯一索引兜底。
+#
+# 口径三点（都是「用户眼里的同一个名字」而不是「字符串完全相等」）：
+#   1. **去首尾空白 + 折叠内部连续空白**：``养老  计划`` 与 ``养老 计划`` 在列表里长得
+#      一模一样，只 strip 会让它们绕过校验；
+#   2. **忽略大小写**：``Retire`` 与 ``retire`` 同上（SQLite 的 ``lower()`` 只折 ASCII，
+#      中文不受影响，英文名足够；PG 侧按 UTF-8 折，两侧对本需求等价）；
+#   3. **只看未删除的行**：软删除的组合不该永久占着名字，否则删了也建不回来。
+
+
+class PortfolioNameConflict(ValueError):
+    """同家庭内已存在同名（未删除）的组合 —— 由视图转 409，不写库。"""
+
+
+class PortfolioNameEmpty(ValueError):
+    """归一化后为空（纯空白）—— 由视图转 422。"""
+
+
+def normalize_portfolio_name(raw: object) -> str:
+    """组合名归一化：去首尾空白 + 折叠内部连续空白（含全角空格）。
+
+    ``str.split()`` 按 ``isspace()`` 切分，``\\u3000``（中文全角空格）也在其中，
+    故粘贴来的「养老　计划」与手打的「养老 计划」会归一成同一个名字。
+    """
+    return ' '.join(str(raw or '').split())
+
+
+def assert_portfolio_name_available(db, family_id: int, name: object, *, exclude_id: int | None = None) -> str:
+    """校验组合名在本家庭内可用，返回**归一化后**的名字（调用方应写回该值）。
+
+    Args:
+        db: 当前会话（只读查询，不 commit）。
+        family_id: 家庭维度隔离（组合按家庭独立命名，不同家庭可以同名）。
+        name: 原始输入（可带空白）。
+        exclude_id: 改名场景排除自身，避免「改成自己现在的名字」被判冲突。
+
+    Raises:
+        PortfolioNameEmpty: 归一化后为空。
+        PortfolioNameConflict: 已存在同名（未删除）组合。
+    """
+    normalized = normalize_portfolio_name(name)
+    if not normalized:
+        raise PortfolioNameEmpty('组合名称不能为空')
+
+    # 同时拿「原样去空白」比对：存量行可能带着从未归一化的双空格（本判据上线前建的），
+    # 只比折叠后的形态会把它判成「不重名」，而两者在卡片上一模一样。
+    candidates = {normalized.lower(), str(name or '').strip().lower()}
+    query = db.query(Portfolio.id).filter(
+        Portfolio.family_id == family_id,
+        Portfolio.is_deleted.is_(False),
+        func.lower(func.trim(Portfolio.name)).in_(candidates),
+    )
+    if exclude_id is not None:
+        query = query.filter(Portfolio.id != exclude_id)
+    if query.first() is not None:
+        raise PortfolioNameConflict(f'组合「{normalized}」已存在，请换一个名字')
+    return normalized
