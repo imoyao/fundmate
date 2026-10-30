@@ -281,10 +281,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # `create_portfolio_record` / `update_portfolio_record`，视图回到
     # 「parse → 调 service → 组信封」，错误码只留一张 `_NAME_ERROR_STATUS` 映射。
     "backend/app/domains/portfolios/views.py": {
-        "lines": 133,
-        "orm_queries": 1,
+        "lines": 123,
+        "orm_queries": 0,
         "commits": 0,
-        "max_func": 20,
+        "max_func": 19,
     },
     # 2026-10-18 重取（#2326，**新增端点**，非放宽）：基金转换 P0/P1 落地——
     # 试算 POST /api/positions/conversion/estimate/ 与提交 POST /api/positions/conversion/

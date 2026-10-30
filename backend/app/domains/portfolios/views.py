@@ -24,6 +24,7 @@ from app.services.portfolio_service import (
     PortfolioNameEmpty,
     build_portfolio_holdings,
     create_portfolio_record,
+    list_portfolio_cards,
     portfolio_to_dict,
     update_portfolio_record,
 )
@@ -50,25 +51,14 @@ def create_portfolio():
 
 @portfolios_bp.get('/')
 def list_portfolios():
-    """获取所有投资组合（不含已删除）"""
+    """获取所有投资组合（不含已删除）。
+
+    返回在基础字段上**只增**卡片统计（market_value / pnl / pnl_rate /
+    account_count / position_count / target_progress），组装全在
+    ``list_portfolio_cards``（视图层厚度冻结，聚合不下沉就会越线）。
+    """
     with get_db() as db:
-        portfolios = (
-            db.query(Portfolio)
-            .filter(Portfolio.is_deleted.is_(False), Portfolio.family_id == get_family_id())
-            .order_by(Portfolio.created_at.asc())
-            .all()
-        )
-        # MVP 列表返回: id, name, purpose, created_at
-        result = [
-            {
-                'id': p.id,
-                'name': p.name,
-                'purpose': p.purpose,
-                'created_at': p.created_at.isoformat() if p.created_at else None,
-            }
-            for p in portfolios
-        ]
-        return jsonify({'data': result, 'message': 'ok'})
+        return jsonify({'data': list_portfolio_cards(db, get_family_id()), 'message': 'ok'})
 
 
 @portfolios_bp.get('/<int:portfolio_id>/')
