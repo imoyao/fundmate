@@ -6,13 +6,15 @@
  * 2. **asset 模块段隔离**：/asset 直接子级占 100~199、全部孙级占 200~299，
  *    两段不得相交、asset 全树 rank 唯一；
  * 3. **侧边栏结构钉住产品决策**（2026-10-29 重组）：按财务动作切四个顶级
- *    （资产概览 / 资产管理 / 记账中心 / 智能助手），资产管理下四个语义分组，
+ *    （资产概览 / 资产管理 / 记账中心 / 账本精灵），资产管理下四个语义分组，
  *    每个分组的可见项逐个钉死。
  * 4. **菜单标题统一 4 字**（用户明确要求）：除资产品类名（「贵金属」「房产」）
  *    这类无法用 4 字准确描述的外，一律 4 个汉字。
- * 5. **单子项分组必须设 `showParent: true`**：`SidebarItem.hasOneShowingChild`
- *    会把只有一个可见子项的父级拍平成菜单项（父级名消失），而面包屑读的是菜单树、
- *    不会拍平——不设就出现「侧边栏 1 级 / 面包屑 2 级」的层级错位。
+ * 5. **单子项目录一律拍平，禁止用 `showParent` 硬撑一层**：只有一页的模块不该有
+ *    目录层——`SidebarItem.hasOneShowingChild` 本来就把它拍平，点击直达页面。
+ *    面包屑已对「单可见子项目录」同步折叠（`utils/breadcrumb.ts` 的
+ *    `isFlattenedDir`），两侧天然一致。2026-10-30 曾为让面包屑有两级而给账本精灵
+ *    加 `showParent`，属因果倒置：多一层 = 多一次点击 + 多一个名字。
  *
  * 边界：只检查**声明了** rank 的节点；rank 缺失时 router/utils.ts 的 ascending
  * 按数组序兜底补值，属既有框架行为，不在本守卫范围。
@@ -24,6 +26,7 @@
  * 防线：router/index.ts 的 glob 已加 `!` 开头的 __tests__ / spec / test 负向模式。
  */
 import { describe, it, expect } from "vitest";
+import { buildBreadcrumb } from "@/utils/breadcrumb";
 import home from "../modules/home";
 import asset from "../modules/asset";
 import record from "../modules/record";
@@ -189,7 +192,7 @@ describe("路由 rank 守卫（#2152）", () => {
     // 顶级只剩「看 / 管 / 记 / 助手」四种财务动作。
     // 旧结构是「总览 + 资产管理」两套分组逻辑并存（总览按使用频次、资产管理按
     // 资产类型），同一动作被劈到两个顶级下，这是「没有层次感」的机械成因。
-    expect(order).toEqual(["资产概览", "资产管理", "记账中心", "智能助手"]);
+    expect(order).toEqual(["资产概览", "资产管理", "记账中心", "账本精灵"]);
   });
 
   it("资产管理：四个分组，各自可见项逐个钉住", () => {
@@ -267,43 +270,46 @@ describe("路由 rank 守卫（#2152）", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("单子项分组必须设 showParent，否则侧边栏被拍平、与面包屑层级错位", () => {
-    // SidebarItem.hasOneShowingChild：父级只有 1 个可见子项时，侧边栏直接渲染该
-    // 子项（父级标题消失）；唯一逃生口是 `showingChildren[0]?.meta?.showParent`。
-    // 而面包屑读的是菜单树，不拍平 —— 于是「智能助手 / 账本精灵」2 级面包屑
-    // 对上的是侧边栏里一个孤零零的顶级「账本精灵」。
-    // 只查**可见**节点（hidden / showLink:false 的分组本来就只当容器用）。
+  it("单子项目录一律拍平：账本精灵在侧边栏只有 1 级，不许靠 showParent 撑层级", () => {
+    // 判据一：全静态路由里**不得**出现 `showParent`。它唯一的用途是把单子项目录
+    // 强行渲染成可折叠分组——而这正是「一个页面的模块凭空多一层」的来源。
     const offenders: string[] = [];
-    const walk = (nodes: RouteNode[]) => {
-      for (const n of nodes) {
-        const visibleKids = (n.children ?? []).filter(
-          c => c.meta?.showLink !== false && !c.meta?.hidden
-        );
-        if (visibleKids.length === 1 && !visibleKids[0].meta?.showParent) {
-          offenders.push(`${labelOf(n)} → ${labelOf(visibleKids[0])}`);
-        }
-        if (n.children?.length) walk(n.children);
+    const walk = (nodes: RouteNode[] | undefined): void => {
+      for (const n of nodes ?? []) {
+        if (n.meta?.showParent) offenders.push(labelOf(n));
+        walk(n.children);
       }
     };
-    const visibleTop = topLevelRoutes.filter(
-      n => n.meta?.showLink !== false && !n.meta?.hidden
-    );
-    walk(visibleTop);
-    expect(offenders, "单子项父级会拍平，父级名在侧边栏消失").toEqual([]);
+    walk(topLevelRoutes);
+    expect(
+      offenders,
+      "showParent 把单子项目录撑成一层，而面包屑已折叠 → 两侧层级打架"
+    ).toEqual([]);
 
-    // 判据非空转：把 agent 那份 showParent 摘掉，必须报红（否则守卫是装饰）
-    const without = cloneRoute(asArray(agent)[0]);
-    delete without.children[0].meta.showParent;
-    const hit: string[] = [];
-    for (const n of [without]) {
-      const kids = (n.children ?? []).filter(
-        c => c.meta?.showLink !== false && !c.meta?.hidden
-      );
-      if (kids.length === 1 && !kids[0].meta?.showParent) {
-        hit.push(labelOf(kids[0]));
+    // 判据二：账本精灵的侧边栏形态 = 顶层只有一个「账本精灵」，点击直达 /agent/chat。
+    // 路由仍是两级（Layout 容器 + 页面），但**菜单深度为 1**。
+    const [agentRoot] = filterTree(ascending([cloneRoute(asArray(agent)[0])]));
+    expect(labelOf(agentRoot)).toBe("账本精灵");
+    expect(agentRoot.meta?.showLink).toBe(false);
+    const visibleKids = (agentRoot.children ?? []).filter(
+      c => c.meta?.showLink !== false && !c.meta?.hidden
+    );
+    expect(visibleKids.map(labelOf)).toEqual(["账本精灵"]);
+    expect(visibleKids[0].path).toBe("/agent/chat");
+  });
+
+  it("判据非空转：把 showParent 注回去必须报红", () => {
+    const regressed = cloneRoute(asArray(agent)[0]);
+    regressed.children[0].meta.showParent = true;
+    const offenders: string[] = [];
+    const walk = (nodes: RouteNode[] | undefined): void => {
+      for (const n of nodes ?? []) {
+        if (n.meta?.showParent) offenders.push(labelOf(n));
+        walk(n.children);
       }
-    }
-    expect(hit, "摘掉 showParent 后判据必须命中").toEqual(["账本精灵"]);
+    };
+    walk([regressed]);
+    expect(offenders, "注回 showParent 后判据必须命中").toEqual(["账本精灵"]);
   });
 
   // #2150：把「同一个 path / name 在 asset 模块里声明两次」机械化拦下。
@@ -331,6 +337,56 @@ describe("路由 rank 守卫（#2152）", () => {
     };
     walk(asArray(asset));
     expect(dups, "同一 path/name 声明两次会让侧边栏渲染出两个条目").toEqual([]);
+  });
+
+  it("面包屑：每个可达页面的末项必须是页面自己的标题（含隐藏页与下钻页）", () => {
+    // 2026-10-30 实机盘查（Edge，27 个页面）：面包屑把 showLink:false 的页面整段
+    // 丢弃后，末项要么消失、要么塌回 `route.matched` 的首级「资产概览」。
+    // 判据：任何**绝对路径**的可达页面，面包屑末项 === 该页面 meta.title。
+    const tree = ascending(topLevelRoutes.map(cloneRoute));
+    const offenders: string[] = [];
+
+    const visit = (nodes: RouteNode[]) => {
+      for (const n of nodes) {
+        const p = n.path ?? "";
+        const title = n.meta?.title;
+        // 跳过容器（相对 path）与带参路由（单独用 `/fund/004369` 那条用例覆盖）
+        if (p.startsWith("/") && p !== "/" && !p.includes(":") && title) {
+          const crumbs = buildBreadcrumb(tree as any, p, title);
+          const last = crumbs[crumbs.length - 1];
+          if (!last) offenders.push(`${p} → 面包屑为空`);
+          else if (last.title !== title) {
+            offenders.push(
+              `${p} → 末项「${last.title}」≠ 页面标题「${title}」`
+            );
+          }
+        }
+        if (n.children?.length) visit(n.children);
+      }
+    };
+    visit(tree);
+    expect(offenders).toEqual([]);
+  });
+
+  it("面包屑：隐藏页/下钻页不得塌回「资产概览 / 某页」（实机盘查回归）", () => {
+    const tree = ascending(topLevelRoutes.map(cloneRoute));
+    const chain = (p: string, title?: string) =>
+      buildBreadcrumb(tree as any, p, title).map(c => c.title);
+
+    // 这些页面 showLink:false 或 hidden，不在侧边栏，但用户能直达：
+    // 它们的父级必须来自路由结构（资产管理 / 记账中心），不是路径前缀猜的。
+    expect(chain("/stocks")).toEqual(["资产管理", "股票"]);
+    expect(chain("/funds")).toEqual(["资产管理", "基金"]);
+    expect(chain("/investment/holding-import")).toEqual([
+      "记账中心",
+      "导入持仓"
+    ]);
+    expect(chain("/investment/manual")).toEqual(["记账中心", "手动记账"]);
+    expect(chain("/investment/reconcile")).toEqual(["记账中心", "E账户对账"]);
+    // 反例：它的 path 以 /asset 开头，但结构上归「记账中心」——前缀法会答错
+    expect(chain("/asset/asset-entry")).toEqual(["记账中心", "录入资产"]);
+    // 带参路由（/fund/004369 → /:assetType/:symbol）：单级，不虚构父级
+    expect(chain("/fund/004369", "产品详情")).toEqual(["产品详情"]);
   });
 
   it("#2150：判据非空转——把重复声明注回去必须报红", () => {

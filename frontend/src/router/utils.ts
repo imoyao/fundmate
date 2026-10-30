@@ -61,7 +61,8 @@ function ascending(arr: any[]) {
  * 但只要其下仍有可见子项，就应保留该父级以渲染子菜单，而非整棵删除；
  * hidden 为 true 的节点（如「个人中心」）语义是「不进侧边栏但保留标签页/面包屑」，
  * 与 showLink 对称处理——自身不可见，但若有可见子项仍保留父级渲染子菜单
- * （面包屑读原始路由表、multiTags 只拦 showLink，均不受 filterTree 影响）。
+ * （面包屑读 `breadcrumbMenus`——未经本函数剪枝的完整路由树，见 `filterNoPermissionMenus`；
+ * multiTags 只拦 showLink，均不受 filterTree 影响）。
  *
  * 隐藏标记选用约定（#1797 固化——两个字段语义不同，同一意图只打一个，禁止混用）：
  * - 不进菜单且不进标签页 → showLink:false（全屏页默认：/login、/explore、/status…）；
@@ -100,6 +101,35 @@ function isOneOfArray(a: Array<string>, b: Array<string>) {
       ? true
       : false
     : true;
+}
+
+/**
+ * 面包屑专用：只按角色过滤，**不**按 showLink / hidden 剪枝（对比 `filterNoPermissionTree`）。
+ *
+ * 为什么需要第二棵树：面包屑回答「我在哪」，凡是用户能直达的页面都必须在链上——
+ * 包括 showLink:false 的录入流程页（导入持仓 / 手动记账 / 录入资产）与 hidden 的
+ * 详情页。而侧边栏树 `wholeMenus` 被 `filterTree` 剪掉了它们，面包屑拿它当数据源时
+ * 只能「按路径前缀猜父级」或塌回 `route.matched`（首级恒为根 Layout「资产概览」），
+ * 2026-10-30 实机盘查出 7 条错链：
+ *
+ *   /stocks                    → 资产概览 / 股票     （应：资产管理 / 股票）
+ *   /investment/manual         → 资产概览 / 手动记账 （应：记账中心 / 手动记账）
+ *   /asset/asset-entry         → 资产管理 / 录入资产 （应：记账中心 / 录入资产）
+ *   /fund/004369               → 资产概览 / 产品详情 （应：产品详情）
+ *   …
+ *
+ * 权限维度仍必须过滤：低权限账号不该从面包屑里看到自己无权访问的页面名。
+ */
+function filterNoPermissionMenus(data: RouteComponent[]) {
+  const currentRoles =
+    storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [];
+  const newTree = cloneDeep(data).filter((v: any) =>
+    isOneOfArray(v.meta?.roles, currentRoles)
+  );
+  newTree.forEach((v: any) => {
+    if (v.children) v.children = filterNoPermissionMenus(v.children);
+  });
+  return newTree;
 }
 
 /** 从localStorage里取出当前登录用户的角色roles，过滤无权限的菜单 */
@@ -419,5 +449,6 @@ export {
   handleAliveRoute,
   formatTwoStageRoutes,
   formatFlatteningRoutes,
-  filterNoPermissionTree
+  filterNoPermissionTree,
+  filterNoPermissionMenus
 };

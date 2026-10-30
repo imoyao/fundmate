@@ -8,18 +8,21 @@ import { buildBreadcrumb, type BreadcrumbCrumb } from "@/utils/breadcrumb";
 const route = useRoute();
 const router = useRouter();
 const levelList = ref<BreadcrumbCrumb[]>([]);
-const { wholeMenus } = storeToRefs(usePermissionStoreHook());
+// 面包屑读「完整路由树」（含 hidden / showLink:false），不是侧边栏的 wholeMenus——
+// 后者被 filterTree 剪过，隐藏页在树里根本不存在，只能靠前缀猜父级（详见组件外层注释）
+const { breadcrumbMenus } = storeToRefs(usePermissionStoreHook());
 
 /**
- * 兜底：菜单树不可用（首屏尚未组装 wholeMenus）时退回 `route.matched`。
+ * 兜底：路由树不可用（首屏尚未组装 `breadcrumbMenus`）时退回 `route.matched`。
  *
- * 注意这条路经**必然**得到「资产概览 / 当前页」两级——因为静态路由被
- * `formatTwoStageRoutes` 拍平挂到根 `/` 下（见 `utils/breadcrumb.ts` 头注释）。
- * 它只用于过渡期，正常情况下菜单树那条才是权威层级。
+ * 这条路经**必须**剔掉根 Layout（`path === "/"`）：静态路由被 `formatTwoStageRoutes`
+ * 拍平挂到根下，matched 恒为 `[/, 当前页]`，而根节点的 title 是「资产概览」——
+ * 留着它，任何页面都会显示成「资产概览 / 某页」，这正是 2026-10-30 实机盘查里
+ * 「导入持仓」「股票」「产品详情」等页面的错父级。
  */
 function matchedFallback(): BreadcrumbCrumb[] {
   const matched = router.currentRoute.value.matched.filter(
-    item => item?.meta?.title
+    item => item?.meta?.title && item.path !== "/"
   );
   if (!matched.length) return [];
 
@@ -51,7 +54,11 @@ const getBreadcrumb = (): void => {
   const path = route.path;
   const currentTitle = route.meta?.title as string | undefined;
 
-  const fromMenu = buildBreadcrumb(wholeMenus.value as any, path, currentTitle);
+  const fromMenu = buildBreadcrumb(
+    breadcrumbMenus.value as any,
+    path,
+    currentTitle
+  );
   if (fromMenu.length) {
     levelList.value = fromMenu;
     return;
@@ -96,9 +103,9 @@ onMounted(() => {
 });
 
 watch(
-  // 同时盯 path 与菜单树：首屏 wholeMenus 是异步就绪的，只盯 path 会让
+  // 同时盯 path 与路由树：首屏 breadcrumbMenus 是异步就绪的，只盯 path 会让
   // 先到的那一帧用 matched 兜底，等菜单组装好后**不会再刷新**。
-  () => [route.path, wholeMenus.value.length] as const,
+  () => [route.path, breadcrumbMenus.value.length] as const,
   () => {
     getBreadcrumb();
   },
