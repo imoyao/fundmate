@@ -74,6 +74,10 @@ _CAPABILITY_TOOLS: Dict[str, str] = {
     'index_technicals': 'get_index_technicals',
     'edb_search': 'search_economic_indicator',
     'edb_query': 'query_economic_indicator_data',
+    # 注意：个股档案（`get_stock_basicinfo`）**不在这里**——它属于
+    # `/vserver_stock_data` 那个**独立 vserver**，走标准 tools/call 而不是本域的
+    # `market_call_tool` 二级网关。硬塞进来只会得到「工具不存在: market_call_tool」
+    # （实测 2026-10-30）。见 `providers/wind_stock_data.py`。
     'market_search': MARKET_SEARCH_TOOL,
 }
 
