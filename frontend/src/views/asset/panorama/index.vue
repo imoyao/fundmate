@@ -20,9 +20,11 @@
         <!-- #1798：/analysis 的静态入口（路由名跳转，拍平后最稳妥）。
              #2150：文案随页面标题改名（智能分析 → 复盘）——两页的跳转关系是
              双向的（本页按钮 → 复盘页；复盘页指路条 → 本页），文案必须对齐，
-             否则用户点「智能分析」过去的页面标题写着「复盘」，会以为自己走错了。 -->
+             否则用户点「智能分析」过去的页面标题写着「复盘」，会以为自己走错了。
+             2026-10-30：随侧边栏「菜单标题统一 4 字」再改一次（复盘 → 投资复盘），
+             三处（路由 title / 本按钮 / 目标页 h1）必须同步，否则侧边栏与页头两个名字。 -->
         <el-button @click="$router.push({ name: 'AssetAnalysis' })">
-          <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 复盘
+          <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 投资复盘
         </el-button>
         <el-button :loading="loading" @click="fetchData">
           <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新

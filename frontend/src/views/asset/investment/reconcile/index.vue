@@ -10,7 +10,7 @@
     <!-- 四态计数指标卡（MetricGrid 均分，待处理 featured 放大锚点） -->
     <ReconcileSummaryGrid :summary="summary" />
 
-    <!-- 对账明细：筛选 + 表格 + 分页收在面板组件里，与对账工作台域 A 共用同一份实现
+    <!-- 对账明细：筛选 + 表格 + 分页收在面板组件里，与对账中心域 A 共用同一份实现
          （2026-10-28 反馈：两份手抄实现已经漂移过一次——工作台抄错系统份额字段、丢差异列与分页） -->
     <EaccountReconcilePanel
       :items="items"

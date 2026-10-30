@@ -39,7 +39,7 @@
 
   ── 已迁出 / 待迁出 ──────────────────────────────────────────────
   - 幽灵重复告警（`GhostDuplicateBanner`）本质属**对账**范畴（后端注释自带定性：
-    `summary_service.py:1045-1066`），待对账工作台开出「跨账本重复交易」域后迁走
+    `summary_service.py:1045-1066`），待对账中心开出「跨账本重复交易」域后迁走
     （#2151）。在域 D 存在之前留在本页，是「异常要看得见」的权宜。
 -->
 <template>
@@ -47,12 +47,12 @@
     class="analysis-shell min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 幽灵重复告警：属对账范畴（#2151 迁往对账工作台「跨账本重复交易」域）。
+    <!-- 幽灵重复告警：属对账范畴（#2151 迁往对账中心「跨账本重复交易」域）。
          域 D 存在之前留在本页，因为「异常要看得见」优先于「归属洁癖」。 -->
     <GhostDuplicateBanner />
 
     <PageHeaderBar
-      title="复盘"
+      title="投资复盘"
       subtitle="时间维度上的表现：净值怎么走、收益从哪来"
       :updated-at="updatedAtLabel"
     >

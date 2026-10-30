@@ -179,7 +179,7 @@ export function txnTypeLabel(type: string): string {
 
 /** 对账差异类型标签（quantity/cost/cash/orphan）
  *
- * 单一来源：对账工作台（`reconcile-workbench/utils/discFormat.ts`）与全局差异提醒
+ * 单一来源：对账中心（`reconcile-workbench/utils/discFormat.ts`）与全局差异提醒
  * （`components/DiscrepancyBanner`）都要用这张表。此前各自维护一份，类型一旦新增
  * 就会一边有中文、一边露出英文原值（`map[t] || t` 的兜底），用户看到的是两种语言。
  */

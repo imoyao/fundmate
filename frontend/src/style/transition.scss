@@ -25,21 +25,15 @@
   transform: translateX(30px);
 }
 
-/* breadcrumb transition */
-.breadcrumb-enter-active {
-  transition: all 0.4s;
-}
-
-.breadcrumb-leave-active {
-  position: absolute;
-  transition: all 0.3s;
-}
-
-.breadcrumb-enter-from,
-.breadcrumb-leave-active {
-  opacity: 0;
-  transform: translateX(20px);
-}
+/**
+ * 面包屑过渡样式已于 2026-10-30 移除，与 SidebarBreadCrumb.vue 去掉
+ * transition-group 的改动配套。
+ *
+ * 原 `.breadcrumb-leave-active { position: absolute }` 让离场节点留在 DOM 等
+ * 过渡结束时，rAF 一旦被节流（后台标签页、连续导航）就永不清理，旧面包屑
+ * 会累积成「资产管理/品类持仓/同类优选/观察名单/我的自选」这种串行结果。
+ * 面包屑只有 2~3 个短词，不需要动画，直接同步渲染。
+ */
 
 /**
  * @description 重置el-menu的展开收起动画时长

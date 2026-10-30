@@ -4,7 +4,7 @@
        composable、不碰路由。 -->
   <header class="workbench-head">
     <div class="workbench-head__text">
-      <h1 class="workbench-head__title">对账工作台</h1>
+      <h1 class="workbench-head__title">对账中心</h1>
       <p class="workbench-head__subtitle">
         统一处理 E账户对账、持仓快照一致性、对账单导入的差异与补充
       </p>
@@ -31,7 +31,7 @@
 import { IconifyIconOffline } from "@/components/ReIcon";
 
 /**
- * 对账工作台页头（#980 批 B3 拆分自 reconcile-workbench/index.vue，
+ * 对账中心页头（#980 批 B3 拆分自 reconcile-workbench/index.vue，
  * 零视觉/行为变更）：标题 / 副标题 / 「AI 识别」/「运行对账」两枚按钮，
  * 四个 style 块随模板一并迁入，scoped 作用域不变。
  */

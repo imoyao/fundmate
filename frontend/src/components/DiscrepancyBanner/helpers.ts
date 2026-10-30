@@ -10,7 +10,7 @@
  * 恰恰是最容易在重构中被顺手改坏的部分。放成纯函数才能被单测钉住。
  */
 
-/** 对账工作台路由名：该页自带 banner + 指标卡 + Tab 角标，站外提醒不重复展示。 */
+/** 对账中心路由名：该页自带 banner + 指标卡 + Tab 角标，站外提醒不重复展示。 */
 export const WORKBENCH_ROUTE_NAME = "ReconcileWorkbench";
 
 /** 收起态最多展示几条（与域 D 的 `GhostDuplicateBanner` 同一量级）。 */

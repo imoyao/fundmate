@@ -30,7 +30,7 @@ import {
 } from "@/composables/useReconDraft";
 
 /**
- * 对账工作台三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
+ * 对账中心三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
  *
  * - 域 B：持仓快照差异（discrepancies）加载 / 运行对账 / 忽略 / 就地补充后的刷新；
  * - 域 A：E账户对账（eaccount）加载 / 归因覆盖 / 忽略；

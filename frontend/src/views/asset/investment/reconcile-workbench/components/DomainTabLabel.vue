@@ -10,7 +10,7 @@
 
 <script setup lang="ts">
 /**
- * 对账工作台域 Tab 的标签（#980 批 B3 拆分自 reconcile-workbench/index.vue，
+ * 对账中心域 Tab 的标签（#980 批 B3 拆分自 reconcile-workbench/index.vue，
  * 零视觉/行为变更）：`<template #label>` 槽内的「域名 + 待处理数角标」。
  */
 defineProps<{

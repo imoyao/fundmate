@@ -32,12 +32,12 @@
         这本账本的持仓快照截至
         {{
           p.visibleConsistencyItems[0].snapshot_date
-        }}，快照日之后仍有交易记录；如与流水对不上，请去对账工作台核对是否需要补录。
+        }}，快照日之后仍有交易记录；如与流水对不上，请去对账中心核对是否需要补录。
       </p>
       <p class="soft-reconcile-banner__detail">
         共
         {{ p.visibleConsistencyItems.length }}
-        笔持仓可能滞后，去对账工作台可统一核对。
+        笔持仓可能滞后，去对账中心可统一核对。
       </p>
       <template #actions>
         <el-button size="small" type="primary" plain @click="p.goReconcile">
