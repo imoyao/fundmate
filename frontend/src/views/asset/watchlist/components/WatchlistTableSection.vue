@@ -2,10 +2,13 @@
 import { nextTick, onMounted, ref } from "vue";
 import type { WatchlistItem } from "@/api/watchlist";
 import type { ColumnDef } from "@/views/asset/watchlist/columnDefs";
-import type { DayPnlMetric } from "@/views/asset/watchlist/dayPnl";
+import {
+  DEFAULT_SORT_METRIC,
+  type SortMetric
+} from "@/views/asset/watchlist/sortMetric";
 import WatchlistTableSkeleton from "@/views/asset/watchlist/WatchlistTableSkeleton.vue";
 import WatchlistEmptyState from "@/views/asset/watchlist/components/WatchlistEmptyState.vue";
-import DayPnlSortHeader from "@/views/asset/watchlist/components/DayPnlSortHeader.vue";
+import CompositeSortHeader from "@/views/asset/watchlist/components/CompositeSortHeader.vue";
 import {
   resolveRenderer,
   type RenderCtx
@@ -29,8 +32,11 @@ const props = defineProps<{
   activeGroupLabel: string;
   /** 是否叠加了标签筛选（空态文案分支） */
   hasTagFilter: boolean;
-  /** 「当日盈亏」列的排序口径（金额 / 涨跌幅，2026-10-30） */
-  dayPnlMetric: DayPnlMetric;
+  /**
+   * 复合列的排序口径（按列 key 记忆，2026-10-30 二次优化）：
+   * 只有声明了 `ColumnDef.sortMetrics` 的列才会用到（当日盈亏 / 持仓市值 / 持仓收益）。
+   */
+  sortMetrics: Record<string, SortMetric>;
 }>();
 
 const emit = defineEmits<{
@@ -42,8 +48,8 @@ const emit = defineEmits<{
   /** el-table 实例上抛（表头列拖拽用，见 useWatchlistStickyLayout） */
   (e: "table-ready", instance: unknown): void;
   (e: "open-group-items"): void;
-  /** 「当日盈亏」排序口径切换（金额 / 涨幅）→ 由 index 写回 data 层并持久化 */
-  (e: "day-pnl-metric-change", metric: DayPnlMetric): void;
+  /** 复合列口径切换（金额 / 比例）→ 由 index 写回 data 层并持久化 */
+  (e: "metric-change", payload: { key: string; metric: SortMetric }): void;
 }>();
 
 type SortPayload = {
@@ -82,19 +88,40 @@ function openGroupItems() {
   emit("open-group-items");
 }
 
+/** 该列当前口径（未记忆过 → 金额，与列主行一致） */
+function metricOf(key: string): SortMetric {
+  return props.sortMetrics[key] ?? DEFAULT_SORT_METRIC;
+}
+
 /**
- * 「当日盈亏」口径切换：先切口径，再按新口径**降序**重排一次。
+ * 复合列的表头类名（EP 的 `label-class-name` 落到 th 上）。
+ * `--tight` 只给 104px 的「当日盈亏」：把内边距收到 4px，给口径徽标腾位置。
+ */
+function headerClassOf(def: ColumnDef): string | undefined {
+  if (!def.sortMetrics) return undefined;
+  return def.key === "day_pnl"
+    ? "col-metric-head col-metric-head--tight"
+    : "col-metric-head";
+}
+
+/**
+ * 复合列切口径：先写回口径，再按新口径**降序**重排一次。
+ *
+ * 为什么必然重排（而不是「只改口径、等用户自己点列名」）：切口径的动机就是
+ * 「换个维度看头部」（谁赚得多 → 谁涨得凶），只改不排会让人以为没生效——
+ * 正是首版「看着乱」的那类问题。
  *
  * 排序由本组件 emit 出去（走 index → useWatchlistTable 的同一条分发），
  * 表头箭头另用 EP 的 `sort()` 同步——只 emit 不调 sort 的话，数据已按新口径排好，
- * 箭头却还停在「未排序」，用户会以为没生效（正是这次要修的那种「看着乱」）。
- * 两次触发是幂等的（同一口径 + 同一方向），不会多请求。
+ * 箭头却还停在旧方向。两条路不会各发一次请求：EP 的 `table.sort()` 只 commit
+ * 内部排序状态（`store.commit("sort")`），**不 emit `sort-change`**；发请求的只有
+ * 上面那个 emit。
  */
-function onDayPnlMetricChange(metric: DayPnlMetric) {
-  if (metric === props.dayPnlMetric) return;
-  emit("day-pnl-metric-change", metric);
-  emit("sort-change", { prop: "day_pnl", order: "descending" });
-  void nextTick(() => tableRef.value?.sort?.("day_pnl", "descending"));
+function onMetricChange(key: string, metric: SortMetric) {
+  if (metric === metricOf(key)) return;
+  emit("metric-change", { key, metric });
+  emit("sort-change", { prop: key, order: "descending" });
+  void nextTick(() => tableRef.value?.sort?.(key, "descending"));
 }
 
 // 子组件 mounted 早于页面 mounted，index 的 onMounted 调 initHeaderDrag 前
@@ -129,7 +156,7 @@ onMounted(() => {
          旧行高度会把页面撑长，滚到底部时骨架只盖到 wrap 高度、下方露出大片空白。 -->
     <!-- 表格宽度铁律（#1285 / #1341 / #1421 / #1425，2026-10-26 预算放宽；
          改这里前先读 design.md「冻结列与横向滚动规范」§4/§5）：
-         ① 默认可见列总宽 ≤ 1132px —— 列集在 columnDefs.ts，超预算须显式说明并改
+         ① 默认可见列总宽 ≤ 1040px —— 列集在 columnDefs.ts，超预算须显式说明并改
             columnBudget.spec.ts 的 BUDGET（1366 屏允许表格内部横滚）；
          ② 横向滚动**只允许发生在表格内部**：页面级横向滚动条由本页 flex
             min-width:0 链（.watchlist-page / .watchlist-scroll / .watchlist-card /
@@ -171,18 +198,18 @@ onMounted(() => {
         :sortable="def.sortable"
         :sort-orders="def.sortOrders"
         :class-name="def.draggable ? undefined : 'col-no-drag'"
-        :label-class-name="
-          def.key === 'day_pnl' ? 'col-day-pnl-head' : undefined
-        "
+        :label-class-name="headerClassOf(def)"
         :show-overflow-tooltip="def.showOverflowTooltip"
       >
-        <!-- 列头：只有「当日盈亏」需要自定义（复合列 → 可切排序口径，见 DayPnlSortHeader），
+        <!-- 列头：复合列（声明了 sortMetrics）渲染「列名 + 口径徽标」，见 CompositeSortHeader；
              其余列仍渲染 def.label，与 EP 默认行为一致 -->
         <template #header>
-          <DayPnlSortHeader
-            v-if="def.key === 'day_pnl'"
-            :metric="dayPnlMetric"
-            @change="onDayPnlMetricChange"
+          <CompositeSortHeader
+            v-if="def.sortMetrics"
+            :label="def.label"
+            :metric="metricOf(def.key)"
+            :labels="def.sortMetrics.labels"
+            @change="onMetricChange(def.key, $event)"
           />
           <template v-else>{{ def.label }}</template>
         </template>
@@ -332,13 +359,9 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-/* 「当日盈亏」列头（2026-10-30）：列宽 104px 要同时放「当日盈亏」+ 口径箭头 + 排序三角，
-   把该列左右内边距从 12px 收到 4px 腾出 16px。不这么做箭头会被 nowrap 挤出列宽、被裁掉
-   ——「功能存在但点不到」比没有更糟。其余列保持 12px，视觉基线不受影响。 */
-:deep(.el-table__header th.col-day-pnl-head .cell) {
-  padding-right: 4px;
-  padding-left: 4px;
-}
+/* 复合列列头的几何样式（flex 横排 / 当日盈亏收紧内边距 / 排序三角收窄）已拆到
+   `compositeSortHeader.css`，由本文件末尾的 `<style scoped src>` 引入——
+   留在本文件会把组件顶过 400 行页面规模门禁（scripts/check_vue_size.mjs）。 */
 
 /* 表头行高 ≈36px（EP 默认 th padding 8px ≈ 40px 高）。
    #1281 第四轮曾收到 3px（≈30px）为数据行让出高度，实测表头过薄：与下方 52px
@@ -349,3 +372,5 @@ onMounted(() => {
   padding: 6px 0;
 }
 </style>
+
+<style src="./compositeSortHeader.css"></style>

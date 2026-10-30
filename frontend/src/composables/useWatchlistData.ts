@@ -13,9 +13,14 @@ import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import { localForage } from "@/utils/localforage";
 import {
   sortRowsForClient,
+  type ClientSortKey,
   type ClientSortOrder
 } from "@/views/asset/watchlist/clientSort";
-import type { DayPnlMetric } from "@/views/asset/watchlist/dayPnl";
+import {
+  DEFAULT_SORT_METRIC,
+  normalizeSortMetric,
+  type SortMetric
+} from "@/views/asset/watchlist/sortMetric";
 
 /** 每页条数可选档位（issue #1335）：与后端 per_page 限幅 [1,200] 对齐，不超出范围 */
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
@@ -56,34 +61,62 @@ function persistPageSize(): void {
 }
 
 /**
- * 「当日盈亏」列的排序口径（金额 / 涨跌幅，2026-10-30 用户反馈）。
+ * 复合列的排序口径（按列 key 记忆，2026-10-30 二次优化）。
+ *
+ * 三个复合列各有各的两行数（当日盈亏：金额/涨幅；持仓市值：金额/占比；
+ * 持仓收益：金额/收益率），故记忆的是 `{ [列 key]: SortMetric }` 而不是单个值——
+ * 首版只服务当日盈亏，用的是单值 ref，扩到三列后必须按列存，否则切一列会把
+ * 另一列的口径一起改掉。
  *
  * 纯本地记忆（与 pageSize 同模式，不上云）：它是「我怎么看这张表」的偏好，
  * 跨设备同步的价值低于实现成本；服务端的 user_preferences 里也还没有这一项。
- * 模块级单例：表头下拉与数据层共享同一份，切换即时生效。
+ * 模块级单例：表头徽标与数据层共享同一份，切换即时生效。
  */
-const DAY_PNL_METRIC_STORAGE_KEY = "watchlist-day-pnl-metric";
-const dayPnlMetric = ref<DayPnlMetric>("amount");
-let dayPnlMetricLoadStarted = false;
+const SORT_METRICS_STORAGE_KEY = "watchlist-sort-metrics";
+/** 首版的单值键（只存当日盈亏，取值 amount/pct）：读一次做迁移，之后不再写 */
+const LEGACY_DAY_PNL_METRIC_STORAGE_KEY = "watchlist-day-pnl-metric";
+const sortMetrics = ref<Record<string, SortMetric>>({});
+let sortMetricsLoadStarted = false;
 
-async function loadDayPnlMetric(): Promise<void> {
-  if (dayPnlMetricLoadStarted) return;
-  dayPnlMetricLoadStarted = true;
+async function loadSortMetrics(): Promise<void> {
+  if (sortMetricsLoadStarted) return;
+  sortMetricsLoadStarted = true;
   try {
-    const saved = await localForage().getItem<DayPnlMetric>(
-      DAY_PNL_METRIC_STORAGE_KEY
+    const saved = await localForage().getItem<Record<string, unknown>>(
+      SORT_METRICS_STORAGE_KEY
     );
-    if (saved === "amount" || saved === "pct") dayPnlMetric.value = saved;
+    const next: Record<string, SortMetric> = {};
+    if (saved && typeof saved === "object") {
+      for (const [key, raw] of Object.entries(saved)) {
+        const metric = normalizeSortMetric(raw);
+        if (metric) next[key] = metric;
+      }
+    }
+    // 迁移：老用户存过「按涨幅排序」，不读旧键会静默回落成「按金额」
+    if (!next.day_pnl) {
+      const legacy = await localForage().getItem<unknown>(
+        LEGACY_DAY_PNL_METRIC_STORAGE_KEY
+      );
+      const migrated = normalizeSortMetric(legacy);
+      if (migrated) next.day_pnl = migrated;
+    }
+    sortMetrics.value = next;
   } catch {
     /* 读取失败按默认（金额，与列主行一致） */
   }
 }
 
-function setDayPnlMetric(metric: DayPnlMetric): void {
-  if (dayPnlMetric.value === metric) return;
-  dayPnlMetric.value = metric;
+/** 取某列的当前口径；未存过 → 金额（与列主行一致） */
+function sortMetricOf(key: string): SortMetric {
+  return sortMetrics.value[key] ?? DEFAULT_SORT_METRIC;
+}
+
+function setSortMetric(key: string, metric: SortMetric): void {
+  if (sortMetricOf(key) === metric) return;
+  // 换新对象而不是改属性：引用变化让读它的 computed（整组排序）稳定重算
+  sortMetrics.value = { ...sortMetrics.value, [key]: metric };
   localForage()
-    .setItem(DAY_PNL_METRIC_STORAGE_KEY, metric)
+    .setItem(SORT_METRICS_STORAGE_KEY, sortMetrics.value)
     .catch(() => {
       /* 持久化失败不影响本次会话 */
     });
@@ -130,7 +163,7 @@ export function useWatchlistData(
   } = toolbar;
 
   // 口径偏好首屏前恢复（幂等；失败静默回默认「金额」）
-  void loadDayPnlMetric();
+  void loadSortMetrics();
 
   const loading = ref(false);
   const items = ref<WatchlistItem[]>([]);
@@ -152,7 +185,7 @@ export function useWatchlistData(
    * 算出来的（job 每天 17:30 跑），按它排等于「按昨天的涨跌幅排」，与列里显示的今日
    * 实时值不是同一个数。完整推导见 `views/asset/watchlist/clientSort.ts`。
    */
-  const clientSortKey = ref<"" | "day_pnl" | "current_price">("");
+  const clientSortKey = ref<"" | ClientSortKey>("");
   const clientSortOrder = ref<ClientSortOrder>("desc");
   const clientSortValueOf = ref<((row: WatchlistItem) => number | null) | null>(
     null
@@ -312,12 +345,12 @@ export function useWatchlistData(
   /**
    * 客户端整组排序（当日盈亏 / 最新价）：交给 data 层统一算，表头只报「排什么、怎么排」。
    *
-   * @param key     排序的列
+   * @param key     排序的列（名单只在 `clientSort.ts` 的 `CLIENT_SORT_KEYS` 维护）
    * @param order   升/降
-   * @param valueOf 取值函数（可以读实时行情；day_pnl 还按口径选金额或涨跌幅）
+   * @param valueOf 取值函数（可以读实时行情；day_pnl 还按口径选金额或涨幅）
    */
   function setClientSort(
-    key: "day_pnl" | "current_price",
+    key: ClientSortKey,
     order: ClientSortOrder,
     valueOf: (row: WatchlistItem) => number | null
   ) {
@@ -658,9 +691,11 @@ export function useWatchlistData(
     // 客户端整组排序（当日盈亏 / 最新价，2026-10-30）：由 useWatchlistTable 的表头分发调用
     setClientSort,
     clearClientSort,
-    // 「当日盈亏」列的排序口径（金额 / 涨跌幅）：表头下拉切换，本地记忆
-    dayPnlMetric,
-    setDayPnlMetric,
+    // 复合列的排序口径（按列 key 记忆：当日盈亏 / 持仓市值 / 持仓收益）：
+    // 表头徽标常驻显示 + 点击切换，本地记忆（见 sortMetric.ts / useWatchlistTable）
+    sortMetrics,
+    sortMetricOf,
+    setSortMetric,
     handleViewChange,
     debounceSearch,
     refresh,

@@ -14,7 +14,7 @@
  *    稀释成「没涨没跌」。
  * 5. **列定义**：当日盈亏默认可见，且与降为可选的 `created_at` 等宽（进一出一）。
  * 6. **排序能力不随列删除而丢失**（#2641 → 2026-10-30 修正）：「今日涨跌幅」独立列已删，
- *    排序由当日盈亏列承担，**两行数各排各的**（金额 / 涨幅，口径见 `pickDayPnlMetric`），
+ *    排序由当日盈亏列承担，**两行数各排各的**（金额 / 涨幅，口径见 `sortMetric.ts`），
  *    且走客户端整组排序——后端只有上一交易日收盘，按它排等于按昨天的涨幅排。
  * 7. **指数行仍有涨跌幅**：指数无持仓 → 金额 `—`，但百分比成立，故它必须留在
  *    `appliesTo` 里——否则删列后指数行连涨跌都看不到。
@@ -26,7 +26,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeDayPnl,
-  pickDayPnlMetric,
   resolveDayPnl,
   resolveDayPnlInput,
   sumDayPnl
@@ -209,24 +208,17 @@ describe("列定义：当日盈亏可排序，且不再靠后端代理（2026-10
 
   it("默认降序优先：第一次点表头看到的是涨得最多的", () => {
     // EP 默认「升序 → 降序 → 取消」，对涨跌指标反直觉（第一眼是亏得最多的）
-    expect(colDef("day_pnl").sortOrders).toEqual([
-      "descending",
-      "ascending",
-      null
-    ]);
-  });
-});
-
-describe("pickDayPnlMetric：复合列两行数各排各的", () => {
-  it("金额口径取 value，涨幅口径取 ratio", () => {
-    const result = { value: 1234.5, ratio: 2.34 };
-    expect(pickDayPnlMetric(result, "amount")).toBe(1234.5);
-    expect(pickDayPnlMetric(result, "pct")).toBe(2.34);
+    expect(colDef("day_pnl").sortOrders).toEqual(["descending", "ascending"]);
   });
 
-  it("缺值原样透传 null（交给排序函数垫底，不当 0）", () => {
-    expect(pickDayPnlMetric({ value: null, ratio: 1 }, "amount")).toBeNull();
-    expect(pickDayPnlMetric({ value: 1, ratio: null }, "pct")).toBeNull();
+  it("口径徽标挂在列定义上（金额 / 涨幅；2026-10-30 二次优化）", () => {
+    // 首版是表头下拉（DayPnlSortHeader），口径要点开才看得见；现在徽标常驻。
+    // 判据的「常驻/一点即切」在 sortMetric.spec.ts + sortDispatch.spec.ts。
+    expect(colDef("day_pnl").sortMetrics).toEqual({
+      labels: { amount: "金额", ratio: "涨幅" }
+    });
+    // 不设 ratioSortBy：两种口径都必须走客户端整组排序（后端只有 T-1 收盘）
+    expect(colDef("day_pnl").sortMetrics?.ratioSortBy).toBeUndefined();
   });
 });
 

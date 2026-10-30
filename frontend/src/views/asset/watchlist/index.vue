@@ -84,8 +84,8 @@
           :is-empty-custom-group="isEmptyCustomGroup"
           :active-group-label="activeGroupLabel"
           :has-tag-filter="selectedFilterTagIds.length > 0"
-          :day-pnl-metric="data.dayPnlMetric.value"
-          @day-pnl-metric-change="data.setDayPnlMetric"
+          :sort-metrics="data.sortMetrics.value"
+          @metric-change="onMetricChange"
           @sort-change="onSortChange"
           @selection-change="data.handleSelectionChange"
           @cell-mouse-enter="handleCellMouseEnter"
@@ -145,6 +145,7 @@ import { useWatchlistStickyLayout } from "@/views/asset/watchlist/composables/us
 import { useWatchlistPageActions } from "@/views/asset/watchlist/composables/useWatchlistPageActions";
 import { useWatchlistTable } from "@/views/asset/watchlist/composables/useWatchlistTable";
 import { useWatchlistPageInit } from "@/views/asset/watchlist/composables/useWatchlistPageInit";
+import type { SortMetric } from "@/views/asset/watchlist/sortMetric";
 
 defineOptions({ name: "Watchlist" });
 
@@ -197,6 +198,17 @@ const table = useWatchlistTable({
 });
 const { renderCtx, onSortChange, handleCellMouseEnter, handleCellMouseLeave } =
   table;
+
+/**
+ * 复合列口径切换（当日盈亏 / 持仓市值 / 持仓收益）：只负责写回口径并持久化。
+ *
+ * 重排由表格区自己 emit `sort-change` 触发（见 WatchlistTableSection 的
+ * `onMetricChange`）——这里不能再排一次，否则同一次点会发两轮请求。
+ * 口径先落地是必须的：`sort-change` 紧接着读 `data.sortMetricOf(key)` 决定字段。
+ */
+function onMetricChange(payload: { key: string; metric: SortMetric }) {
+  data.setSortMetric(payload.key, payload.metric);
+}
 
 const { activeGroupLabel } = groups;
 const { selectedFilterTagIds } = tags;
