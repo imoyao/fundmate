@@ -22,7 +22,13 @@ from enum import StrEnum
 from typing import Optional
 
 #: provider → 中文显示名（只用于人话文案与审计，不参与任何逻辑分支）
-_PROVIDER_DISPLAY = {'qieman': '且慢', 'wind': 'Wind', 'wind_stock': 'Wind（股票域）'}
+_PROVIDER_DISPLAY = {
+    'qieman': '且慢',
+    'wind': 'Wind',
+    'wind_stock': 'Wind（股票域）',
+    'wind_fund': 'Wind（基金域）',
+    'wind_index': 'Wind（指数域）',
+}
 
 #: 报文里出现这些词 ⇒ 额度用尽（不可重试，等额度恢复）
 _QUOTA_WORDS = ('额度', '配额', 'quota', 'exceed', 'limit reached', '超出限制')

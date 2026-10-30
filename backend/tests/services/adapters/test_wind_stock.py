@@ -246,14 +246,19 @@ def test_bond_returns_none_when_upstream_gives_nothing():
 # ── 可用性判据 ───────────────────────────────────────────────────────────
 
 
-def test_is_available_requires_both_token_and_url(monkeypatch):
-    monkeypatch.setattr(wind_stock, 'is_configured', lambda provider: True)
-    monkeypatch.setenv('WIND_STOCK_MCP_URL', 'https://example.invalid/mcp')
-    assert wind_stock.is_available() is True
+def test_is_available_requires_only_token(monkeypatch):
+    """判据只有 Token（2026-10-30 契约变更，**不是放宽断言**）。
 
+    变更前：Token + ``WIND_STOCK_MCP_URL`` 都配了才算可用。变更后
+    ``WindDirectProvider.base_url()`` 有了已实测的默认地址，地址不再是部署必填项。
+
+    旧判据在新基类下会自相矛盾：地址能解析、但 ``is_available()`` 说不可用 ——
+    后果是行业映射永远不回落到 Wind，且现场看不出原因。故这里断言的是新契约：
+    只要 Token 在就可发起调用；Token 不在仍为不可用（凭据是唯一必须人工提供的东西）。
+    """
+    monkeypatch.setattr(wind_stock, 'is_configured', lambda provider: True)
     monkeypatch.delenv('WIND_STOCK_MCP_URL', raising=False)
-    assert wind_stock.is_available() is False
+    assert wind_stock.is_available() is True, '未配 URL 也应可用：地址有已实测的默认值'
 
     monkeypatch.setattr(wind_stock, 'is_configured', lambda provider: False)
-    monkeypatch.setenv('WIND_STOCK_MCP_URL', 'https://example.invalid/mcp')
-    assert wind_stock.is_available() is False
+    assert wind_stock.is_available() is False, '没有 Token 时必须不可用'

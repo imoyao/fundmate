@@ -36,7 +36,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -45,7 +44,6 @@ from loguru import logger
 from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT
 from app.services.mcp import get_provider
 from app.services.mcp.credentials import is_configured, resolve_token
-from app.services.mcp.providers.wind_stock_data import WIND_STOCK_MCP_URL_ENV
 
 #: 上游工具名（实测：``get_stock_basicinfo`` 是唯一给行业分类的档案工具）
 STOCK_BASICINFO_TOOL = 'get_stock_basicinfo'
@@ -80,8 +78,17 @@ _STOCK_PREFIX_EXCHANGE = {
 
 
 def is_available() -> bool:
-    """Wind 股票域是否可用（Token + 股票域地址都配了才算），判据与 :mod:`wind_index` 一致。"""
-    return is_configured(PROVIDER) and bool((os.getenv(WIND_STOCK_MCP_URL_ENV) or '').strip())
+    """Wind 股票域是否可用。
+
+    **判据只有 Token**（2026-10-30 起）：服务地址由 ``WIND_MCP_BASE`` + 固定路径
+    ``/vserver_stock_data/mcp/`` 给出，已真机验证，不再是部署必填项。
+
+    改判据的原因不是"放宽"：``WindDirectProvider.base_url()`` 有了默认值之后，
+    若这里仍要求 ``WIND_STOCK_MCP_URL``，就会出现「地址解析成功、但作业判定不可用」——
+    结果是行业映射永远不回落到 Wind，且日志里看不出任何原因。判据必须与实际能否发起
+    调用一致，否则它保护的不是稳定性，而是死代码。
+    """
+    return is_configured(PROVIDER)
 
 
 def is_bond_code(symbol: str) -> bool:

@@ -39,6 +39,8 @@ _TOKEN_ENV = {
     'qieman': 'QIEMAN_API_KEY',
     'wind': 'WIND_MCP_TOKEN',
     'wind_stock': 'WIND_MCP_TOKEN',
+    'wind_fund': 'WIND_MCP_TOKEN',
+    'wind_index': 'WIND_MCP_TOKEN',
 }
 
 
