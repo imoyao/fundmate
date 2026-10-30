@@ -1,0 +1,40 @@
+/**
+ * 复合列列头的几何样式（2026-10-30 二次优化）。
+ *
+ * 为什么单独成文件：这些规则打的是 el-table 的 th / .cell / .caret-wrapper（列头容器），
+ * 逻辑上归「表头口径控件」，但写在 WatchlistTableSection.vue 里会把该组件顶过 400 行
+ * （scripts/check_vue_size.mjs 的页面规模门禁）。由该组件以 style src 引入。
+ *
+ * 为什么不 scoped + :deep：scoped 的 :deep 不是标准 CSS，stylelint 单独检查本文件时
+ * 会按语法错误判红。这里改用**类前缀作用域**（.watchlist-table-wrap，只出现在自选表格），
+ * 等价于只作用于本页，同时对标准 CSS 检查友好。
+ *
+ * 三条规则解决的都是同一件事：「104px 的当日盈亏列要同时放下列名 + 口径徽标 + 排序三角」。
+ * 1. 列头改 flex 横排，放不下时**只省略列名**（徽标与三角是操作入口，被裁掉等于点不到）；
+ * 2. 当日盈亏列内边距 12px → 4px，腾 16px 给徽标（其余复合列宽度充足，保持 12px 基线，
+ *    否则表头会比右对齐的数据行偏右 8px）；
+ * 3. 排序三角容器 24px → 16px（三角本身 10px 不变，水平居中随之左移 3px）。
+ */
+
+/* 三列都是 align: right，故 flex-end */
+.watchlist-table-wrap .el-table__header th.col-metric-head .cell {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.watchlist-table-wrap .el-table__header th.col-metric-head--tight .cell {
+  padding-right: 4px;
+  padding-left: 4px;
+}
+
+/* flex: none 防止三角被列名挤压 —— 被挤掉的排序入口等于不可用 */
+.watchlist-table-wrap .el-table__header .caret-wrapper {
+  flex: none;
+  width: 16px;
+}
+
+.watchlist-table-wrap .el-table__header .sort-caret {
+  left: 3px;
+}

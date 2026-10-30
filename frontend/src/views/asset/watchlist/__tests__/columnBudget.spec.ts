@@ -90,6 +90,37 @@ describe("走势列默认可见（2026-10-26 口径修订）", () => {
   });
 });
 
+/**
+ * 复合列的「口径徽标 + 两档排序」（2026-10-30 二次优化）。
+ *
+ * 这两条都是**体验约束而非视觉偏好**：徽标不声明 → 用户永远不知道当前按哪一行数排；
+ * 排序留三档 → 升/降切换要多点一次、中间还会整表跳回默认序。
+ * 宽度不动是本组的隐含前提：上面「总宽 ≤ 1040」那条仍是唯一宽度判据，
+ * 徽标必须塞进现有列宽（见 `sortMetric.ts` 为什么用单字符）。
+ */
+describe("复合列：口径徽标与两档排序", () => {
+  const compositeKeys = ["day_pnl", "position_market_value", "holding_pnl"];
+
+  it("三个复合列都声明了 sortMetrics（表头常驻口径徽标）", () => {
+    for (const key of compositeKeys) {
+      const def = watchlistColumnDefs.find(d => d.key === key);
+      expect(def?.sortMetrics, `${key} 缺 sortMetrics`).toBeTruthy();
+      expect(def?.sortMetrics?.labels.amount).toBeTruthy();
+      expect(def?.sortMetrics?.labels.ratio).toBeTruthy();
+    }
+  });
+
+  it("复合列排序只有两档：每次点击都换方向，不夹「取消」", () => {
+    for (const key of compositeKeys) {
+      const def = watchlistColumnDefs.find(d => d.key === key);
+      expect(def?.sortOrders, `${key} 的 sortOrders`).toEqual([
+        "descending",
+        "ascending"
+      ]);
+    }
+  });
+});
+
 describe("当日盈亏列（#2640）", () => {
   const dayPnl = watchlistColumnDefs.find(d => d.key === "day_pnl")!;
   const createdAt = watchlistColumnDefs.find(d => d.key === "created_at")!;

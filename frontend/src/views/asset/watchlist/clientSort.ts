@@ -31,6 +31,20 @@
 /** 升/降序（与后端 `sort_order` 同词，避免又一套 asc/descending 词汇） */
 export type ClientSortOrder = "asc" | "desc";
 
+/**
+ * 走客户端整组排序的列（**唯一名单**）。
+ *
+ * 判据只有一条：**列里的数是前端实时算的，后端那份是上一交易日快照**。
+ * 目前只有 `current_price`（最新价）与 `day_pnl`（当日盈亏，2026-10-30 整组化）。
+ *
+ * 2026-10-30 二次优化时复核过「持仓市值 / 持仓收益」两列：它们的主行取自
+ * positions 快照 + 库内行情，后端 `sort_by` 排的就是列里显示的那个数，
+ * 故仍走后端排序（跨页一致由后端保证），不扩这份名单。
+ */
+export const CLIENT_SORT_KEYS = ["day_pnl", "current_price"] as const;
+
+export type ClientSortKey = (typeof CLIENT_SORT_KEYS)[number];
+
 export interface ClientSortOptions<T> {
   order: ClientSortOrder;
   /** 排序取值；返回 null 表示该行缺数据（恒排末尾） */

@@ -10,7 +10,11 @@ import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumn
 import type { useWatchlistValuation } from "@/views/asset/watchlist/composables/useWatchlistValuation";
 import type { useWatchlistPageActions } from "@/views/asset/watchlist/composables/useWatchlistPageActions";
 import type { RenderCtx } from "@/views/asset/watchlist/columnRenderers";
-import { pickDayPnlMetric } from "@/views/asset/watchlist/dayPnl";
+import {
+  CLIENT_SORT_KEYS,
+  type ClientSortKey
+} from "@/views/asset/watchlist/clientSort";
+import { pickSortMetric } from "@/views/asset/watchlist/sortMetric";
 
 interface TableRenderOptions {
   groups: ReturnType<typeof useWatchlistGroups>;
@@ -76,26 +80,37 @@ export function useWatchlistTable(options: TableRenderOptions) {
     return typeof value === "number" && value > 0 ? value : null;
   }
 
-  /** 当日盈亏取值：按当前口径选「金额」或「涨跌幅」——复合列两行数各有各的排序 */
+  /**
+   * 当日盈亏取值：按当前口径选「金额」或「涨幅」——复合列两行数各有各的排序。
+   *
+   * 口径在**调用时**读（`data.sortMetricOf`），所以表头切口径后，客户端整组排序
+   * （`clientSortedItems` 是 computed）会立刻重算，不需要再手动触发一次排序。
+   */
   function dayPnlSortValueOf(): (row: WatchlistItem) => number | null {
-    return row => pickDayPnlMetric(dayPnlOf(row), data.dayPnlMetric.value);
+    return row => pickSortMetric(dayPnlOf(row), data.sortMetricOf("day_pnl"));
+  }
+
+  /** 该列是否走客户端整组排序（名单只在 `clientSort.ts` 维护，不在此另立一份） */
+  function isClientSortKey(key: string): key is ClientSortKey {
+    return (CLIENT_SORT_KEYS as readonly string[]).includes(key);
   }
 
   /**
-   * 表头排序分发（#1333 → #2641 → 2026-10-30 整组化）。
+   * 表头排序分发（#1333 → #2641 → 2026-10-30 整组化 → 2026-10-30 复合列口径）。
    *
    * | 列 | 走哪 | 为什么 |
    * |---|---|---|
    * | 当日盈亏 / 最新价 | **客户端整组排序**（`data.setClientSort`，对全量 allItems 排 + 本地分页） | 这两列吃实时价，后端只有上一交易日收盘（job 17:30 跑）⇒ 按 `sort_by` 排等于「按昨天的涨幅排」，与列里显示的今日值不是同一个数 |
+   * | 持仓市值 / 持仓收益 | `handleSortChange` → 后端 `sort_by/sort_order`，**字段随口径切换** | 两列主行取自 positions 快照 + 库内行情，后端排的就是列里显示的数；「金额 / 比例」是库里两个不同的排序键（`position_market_value` / `holding_pnl` / `holding_pnl_percent`，均在后端白名单内） |
    * | 其余列 | `handleSortChange` → 后端 `sort_by/sort_order` | 这些列的值后端就有，跨页一致由后端保证 |
    *
    * ⚠️ 旧实现（含 #2641 版）在实时开启时**只排当前页**——第 2 页重新从最大/最小开始，
    * 用户看到的就是「点了排序但顺序很乱」（2026-10-30 用户实测反馈）。现在要么整组排
-   * （本文件的两列），要么整组排（后端），没有「页内排」这一档。
+   * （客户端），要么整组排（后端），没有「页内排」这一档。
    *
-   * ⚠️ 当日盈亏是**复合列**（金额 + 涨跌幅），排序指标由表头下拉决定
-   * （`data.dayPnlMetric`）；#2641 曾把它代理到 `change_pct`，于是「按金额排序」
-   * 这个诉求在实现上根本不存在。
+   * ⚠️ 复合列（`ColumnDef.sortMetrics`）的排序指标由表头徽标决定，**不再拿一个口径
+   * 代理另一个**：#2641 把当日盈亏代理到 `change_pct`，于是「按金额排序」这个诉求
+   * 在实现上根本不存在。
    */
   function onSortChange({
     prop,
@@ -108,20 +123,37 @@ export function useWatchlistTable(options: TableRenderOptions) {
     const def = key
       ? options.columnSettings.visibleColumns.value.find(d => d.key === key)
       : undefined;
+
+    // 取消排序（普通列的第三档；复合列只有两档，不会走到这里）：先退出客户端模式
+    // 再让后端回默认序。只清本地状态的话，items 会停在上一轮本地切片上（表格「卡住」）。
+    if (!order) {
+      data.clearClientSort();
+      data.handleSortChange({ prop: def?.sortBy ?? key, order });
+      return;
+    }
+
     const dir = order === "descending" ? "desc" : "asc";
 
-    if (order && key === "day_pnl") {
-      data.setClientSort("day_pnl", dir, dayPnlSortValueOf());
+    // ① 客户端整组排序：吃实时价的两列（当日盈亏还要看口径）
+    if (isClientSortKey(key)) {
+      data.setClientSort(
+        key,
+        dir,
+        key === "current_price" ? livePriceOf : dayPnlSortValueOf()
+      );
       return;
     }
-    if (order && key === "current_price") {
-      data.setClientSort("current_price", dir, livePriceOf);
-      return;
-    }
-    // 其余情况（普通列 / 取消排序）一律退出客户端模式再交给后端：
-    // 取消排序时若只清本地状态，items 会停在上一轮本地切片上（表格「卡住不动」）。
+
+    // ② 复合列走后端时，排序字段随口径切换：金额 / 比例在库里是两个不同的列。
+    //    只认列定义声明的 `ratioSortBy`（当日盈亏没声明 → 两种口径都走客户端，见 ①）。
+    const ratioField = def?.sortMetrics?.ratioSortBy;
+    const field =
+      ratioField && data.sortMetricOf(key) === "ratio"
+        ? ratioField
+        : (def?.sortBy ?? key);
+
     data.clearClientSort();
-    data.handleSortChange({ prop: def?.sortBy ?? key, order });
+    data.handleSortChange({ prop: field, order });
   }
 
   // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件

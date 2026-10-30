@@ -129,13 +129,39 @@ export interface ColumnDef {
    * 默认档位是「升序 → 降序 → 取消」，对涨跌/金额这类指标反直觉：用户点「当日盈亏」
    * 想看的是今天赚得最多的，默认升序先把亏得最多的摆上来。这类列写
    * `["descending", "ascending", null]` 让第一次点击即降序。
+   *
+   * **复合列（带 `sortMetrics`）写两档 `["descending", "ascending"]`**（2026-10-30 二次优化）：
+   * 三档循环里「取消」夹在升降之间，于是 `升 → 降` 要先经过「取消」——点一次整表
+   * 跳回默认序、再点一次才降序，用户看到的是「顺序乱了一下」。两档循环每次点击都
+   * 是换方向，一次到位。代价是这几列不能再点回「默认序」：**这是刻意的取舍**——
+   * 涨跌/金额排序是这页的主用法，回默认（置顶 + 更新时间）改用刷新页面或点其它列。
    */
   sortOrders?: ("ascending" | "descending" | null)[];
+  /**
+   * 复合列的两行数口径（2026-10-30 二次优化）：声明本列有「金额 / 比例」两行数，
+   * 表头常驻显示当前口径徽标（`components/CompositeSortHeader.vue`），点击即切换。
+   *
+   * 缺省 = 普通列（表头只渲染 label）。两行数的**取值**由 `useWatchlistTable`
+   * 按列 key 派发（当日盈亏走 `dayPnlOf`、持仓市值走 `marketValueRatio`…），
+   * 本字段只声明「叫什么、按哪个后端字段排」。
+   */
+  sortMetrics?: {
+    /** 两个口径在表头/提示里的叫法（列与列不同：涨幅 / 占比 / 收益率） */
+    labels: { amount: string; ratio: string };
+    /**
+     * 「比例」口径交给后端的排序字段。
+     *
+     * 缺省 = 该列走客户端整组排序（吃实时价的列，如当日盈亏）；给了就走后端 `sort_by`
+     * （值来自库里的静态快照，跨页一致由后端保证）。
+     */
+    ratioSortBy?: string;
+  };
   /**
    * 开启实时且存在估值项时，用估值项的该字段覆盖静态值（**渲染口径**）。
    *
    * ⚠️ 它**不再决定排序**（2026-10-30）：吃实时价的列一律走客户端整组排序，
-   * 取值由 `useWatchlistTable` 里的取数函数决定（当日盈亏还要看 `dayPnlMetric`）。
+   * 取值由 `useWatchlistTable` 里的取数函数决定（当日盈亏还要看当前口径，
+   * 见 `data.sortMetricOf("day_pnl")`）。
    */
   realtimeField?: RealtimeField;
   /** #993 预留：用户是否可隐藏 */
@@ -269,8 +295,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
      *
      * 这一列有**两行数**：金额（主行）与涨跌幅（副行），是**两个不同的量**
      * （同样涨 1%，一万仓与百万仓的当日盈亏差两个数量级）。所以两行各自要能排序：
-     * 表头下拉切换口径（`DayPnlMetric`：amount / pct，见 `dayPnl.ts`），
-     * 由 `useWatchlistTable.onSortChange` → `data.setClientSort` 对**全量**结果排。
+     * 表头口径徽标常驻显示当前口径、点一下即切（`SortMetric`：amount / ratio，
+     * 见 `sortMetric.ts`），由 `useWatchlistTable.onSortChange` → `data.setClientSort`
+     * 对**全量**结果排。
      *
      * 为什么不用后端 `sort_by`：后端 `current_price` / `change_pct` 来自 `price_history`
      * 最近一根收盘（job 每天 17:30 跑），盘中就是**上一交易日**的数——按它排等于
@@ -295,8 +322,12 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "right",
     sortable: "custom",
     // 涨/亏类指标默认「从大到小」：第一次点表头就该看到涨得最多的，
-    // 而不是先看一遍亏得最多的（EP 默认升序优先，会多一次点击）
-    sortOrders: ["descending", "ascending", null],
+    // 而不是先看一遍亏得最多的（EP 默认升序优先，会多一次点击）；
+    // 只要两档 → 之后每次点击都是换方向，一次到位（见 ColumnDef.sortOrders 注释）
+    sortOrders: ["descending", "ascending"],
+    // 口径徽标常驻表头（¥ = 按金额 / % = 按涨幅），点一下就换 —— 不设 ratioSortBy：
+    // 本列吃实时价，两种口径都必须走客户端整组排序（后端只有 T-1 收盘）
+    sortMetrics: { labels: { amount: "金额", ratio: "涨幅" } },
     hideable: true,
     draggable: true,
     derived: "dayPnl" // value=当日盈亏(元), ratio=当日涨跌幅(%)
@@ -568,6 +599,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 140,
     align: "right",
     sortable: "custom",
+    sortOrders: ["descending", "ascending"],
+    // 与当日盈亏同一套「口径」机制（2026-10-30 二次优化）：金额（¥）/ 占比（%）。
+    // ⚠️ 两种口径的**顺序恒等**：占比 = 市值 ÷ 投资类总市值，分母对全表是同一个常数
+    // （`useInvestmentTotalMv`，跨分组稳定），故按占比排与按金额排必然同序。
+    // 仍然提供切换是为了三列口径交互一致；真要说区别，只有「分母取不到」时
+    // 占比整列为 null（全部垫底），而金额仍能排 —— 这是缺值语义，不是口径差异。
+    sortMetrics: {
+      labels: { amount: "金额", ratio: "占比" },
+      ratioSortBy: "position_market_value"
+    },
     hideable: true,
     draggable: true,
     derived: "marketValue" // value=position_market_value, ratio=marketValueRatio(row)
@@ -591,6 +632,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     defaultHidden: true,
     draggable: true,
+    // 也是「金额 + 涨幅」两行数，但**不挂 sortMetrics**（2026-10-30）：后端只有
+    // `added_return`（金额口径）一个排序键，没有 added_return_pct；挂上口径徽标
+    // 就会出现「切到涨幅但顺序不变」的假控件。要补齐需后端加排序键，另开卡。
     derived: "addedReturn" // value=addedReturnAmount(row), ratio=addedReturnPct(row)
   },
   {
@@ -604,6 +648,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 128,
     align: "right",
     sortable: "custom",
+    sortOrders: ["descending", "ascending"],
+    // 与当日盈亏同一套「口径」机制（2026-10-30 二次优化）：金额（¥）/ 收益率（%）。
+    // 这两行是**真正的两个量**：同样赚 1 万，五万本金是 +20%、百万本金是 +1%，
+    // 「谁赚得多」与「谁赚得高效」必须各排各的。
+    // 两个字段后端都在 `USER_SORTABLE_FIELDS` 里，故走后端排序（跨页一致），
+    // 不像当日盈亏那样需要客户端整组（本列主行取自 positions 快照，不吃实时价）。
+    sortMetrics: {
+      labels: { amount: "金额", ratio: "收益率" },
+      ratioSortBy: "holding_pnl_percent"
+    },
     hideable: true,
     draggable: true,
     // value=holding_pnl, ratio=holding_pnl_percent（renderer 内对持仓量为 0 时置 null）
