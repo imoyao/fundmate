@@ -53,13 +53,25 @@
         class="portfolio-card"
         @click="$router.push(`/asset/portfolios/${item.id}`)"
       >
-        <div class="flex items-center justify-between mb-3">
-          <h3
-            class="font-semibold text-base"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            {{ item.name }}
-          </h3>
+        <!-- 行1：名称 + 目的 chip（删除按钮同排，保留原 a11y 注释见上） -->
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <h3
+              class="font-semibold text-base truncate"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              {{ item.name }}
+            </h3>
+            <span
+              class="text-xs px-2 py-0.5 rounded-full shrink-0"
+              :style="{
+                backgroundColor: 'var(--bg-page)',
+                color: 'var(--text-secondary)'
+              }"
+            >
+              {{ item.purpose || "未设定目的" }}
+            </span>
+          </div>
           <el-popconfirm
             title="确定删除此组合？关联账户将自动解绑。"
             confirm-button-text="删除"
@@ -81,22 +93,32 @@
             </template>
           </el-popconfirm>
         </div>
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2">
-            <span
-              class="text-xs px-2 py-0.5 rounded-full"
-              :style="{
-                backgroundColor: 'var(--bg-page)',
-                color: 'var(--text-secondary)'
-              }"
-            >
-              {{ item.purpose || "未设定目的" }}
-            </span>
-          </div>
-          <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-            创建于 {{ formatDate(item.created_at ?? "") }}
-          </p>
+        <!-- 行2：市值主数字（含账户级现金，与详情页 holdings 口径一致） -->
+        <MoneyDisplay
+          :value="item.market_value ?? 0"
+          size="lg"
+          :show-sign="false"
+          :auto-color="false"
+        />
+        <!-- 行3：持有盈亏（金额 + 相对成本的比例），红涨绿跌走 MoneyDisplay -->
+        <div class="flex items-baseline gap-2 mt-1">
+          <MoneyDisplay :value="item.pnl ?? 0" size="sm" />
+          <MoneyDisplay
+            :value="item.pnl_rate"
+            size="sm"
+            :show-currency="false"
+            suffix="%"
+          />
         </div>
+        <!-- 行4：元信息（目标达成率仅设过目标金额时显示；创建时间移出卡片） -->
+        <p class="text-xs mt-3" :style="{ color: 'var(--text-tertiary-ink)' }">
+          {{ item.account_count ?? 0 }} 个账户 ·
+          {{ item.position_count ?? 0 }} 只持仓<template
+            v-if="item.target_progress != null"
+          >
+            · 目标达成 {{ item.target_progress }}%</template
+          >
+        </p>
       </div>
     </div>
 
@@ -191,6 +213,7 @@
 import { ref, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import {
   getPortfolios,
   createPortfolio,
@@ -198,7 +221,6 @@ import {
   type PortfolioItem
 } from "@/api/portfolio";
 import { getBenchmarks, type BenchmarkOption } from "@/api/summary";
-import { formatDate } from "@/utils/date";
 
 defineOptions({ name: "PortfolioList" });
 

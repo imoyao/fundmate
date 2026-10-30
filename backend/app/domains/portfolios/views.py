@@ -23,10 +23,13 @@ from app.services.portfolio_service import (
     PortfolioNameConflict,
     PortfolioNameEmpty,
     build_portfolio_holdings,
+    collect_family_map_symbols,
     create_portfolio_record,
+    list_portfolio_cards,
     portfolio_to_dict,
     update_portfolio_record,
 )
+from app.services.sync.orchestrator import DataSyncOrchestrator
 
 portfolios_bp = APIBlueprint('portfolios', __name__, url_prefix='/api/portfolios')
 
@@ -50,25 +53,14 @@ def create_portfolio():
 
 @portfolios_bp.get('/')
 def list_portfolios():
-    """获取所有投资组合（不含已删除）"""
+    """获取所有投资组合（不含已删除）。
+
+    返回在基础字段上**只增**卡片统计（market_value / pnl / pnl_rate /
+    account_count / position_count / target_progress），组装全在
+    ``list_portfolio_cards``（视图层厚度冻结，聚合不下沉就会越线）。
+    """
     with get_db() as db:
-        portfolios = (
-            db.query(Portfolio)
-            .filter(Portfolio.is_deleted.is_(False), Portfolio.family_id == get_family_id())
-            .order_by(Portfolio.created_at.asc())
-            .all()
-        )
-        # MVP 列表返回: id, name, purpose, created_at
-        result = [
-            {
-                'id': p.id,
-                'name': p.name,
-                'purpose': p.purpose,
-                'created_at': p.created_at.isoformat() if p.created_at else None,
-            }
-            for p in portfolios
-        ]
-        return jsonify({'data': result, 'message': 'ok'})
+        return jsonify({'data': list_portfolio_cards(db, get_family_id()), 'message': 'ok'})
 
 
 @portfolios_bp.get('/<int:portfolio_id>/')
@@ -131,3 +123,28 @@ def get_portfolio_holdings(portfolio_id: int):
         except ValueError as e:
             abort(404, str(e))
         return jsonify({'data': holdings, 'message': 'ok'})
+
+
+@portfolios_bp.post('/industry-map/refresh/')
+def refresh_industry_map():
+    """手动补齐行业映射：收集本家庭股票/转债持仓 symbol，喂给映射 job。
+
+    symbol 收集在组合域 service（``collect_family_map_symbols``），job 侧不跨域
+    查 user 域（market/user 纪律）。同步执行——映射 job 只对缺口逐只补，典型
+    几秒，前端按钮以 loading 呈现。
+    """
+    with get_db() as db:
+        symbols = collect_family_map_symbols(db, get_family_id())
+        if not symbols:
+            data = {'skipped': True, 'reason': 'no_stock_positions', 'symbols': []}
+        else:
+            # 「用户动作触发 job」是视图层编排（R6：领域服务不得反向依赖编排层；
+            # ocr/views.py 开会话调 ImportOrchestrator 同款先例）。
+            result = DataSyncOrchestrator(db).run_job('security_industry_maps', full_sync=False, targets=symbols)
+            data = {
+                'skipped': False,
+                'symbols': symbols,
+                'status': str(result.get('status', '')),
+                'stats': result.get('stats') or {},
+            }
+        return jsonify({'data': data, 'message': 'ok'})

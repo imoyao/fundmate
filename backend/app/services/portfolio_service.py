@@ -316,6 +316,154 @@ def portfolio_to_dict(portfolio: Portfolio) -> dict:
     }
 
 
+def collect_family_map_symbols(db, family_id: int) -> list[str]:
+    """家庭当前持有的股票 / 可转债代码（去重保序，喂行业映射 job 用）。
+
+    **纪律**：行业映射 job 属 market 域，自己不跨域查 user 域的持仓——symbol
+    的收集是 user 域（本函数）的职责，收集完由视图喂给 job（``targets``）。
+    只收 ``asset_type in ('stock', 'bond')``（bond 即可转债，#1171 收口口径）：
+    基金 / ETF 的行业缺口走持仓穿透链路（``fund_holdings``），不归这张映射表。
+    可交换债（132 前缀）按 owner 2026-10-30 拍板计入股票敞口，一并收集。
+    """
+    rows = (
+        db.query(Position.symbol)
+        .filter(
+            Position.family_id == family_id,
+            Position.quantity > 0,
+            Position.asset_type.in_(('stock', 'bond')),
+        )
+        .distinct()
+        .all()
+    )
+    # 去重保序：同一代码多账户持有时只问一次上游
+    return list(dict.fromkeys(str(row[0] or '').strip() for row in rows if row[0]))
+
+
+def list_portfolio_cards(db, family_id: int) -> list[dict]:
+    """组合列表卡片聚合（列表页一次请求拿全，前端零逐卡请求）。
+
+    在 ``portfolio_to_dict`` 基础上**只增**四个统计字段：
+    ``market_value``（组合市值，含账户级现金，与详情页 holdings 口径一致）、
+    ``pnl`` / ``pnl_rate``（持有盈亏金额 / 相对成本的比例）、
+    ``account_count`` / ``position_count``（账户数 / 持仓只数）、
+    ``target_progress``（目标达成率 %，未设 target_amount 为 ``None``）。
+
+    批量：3 次查询算完全部组合（账户表 / 持仓表 / 资产表），不做逐组合 N 次。
+    归属口径 = ``portfolio_position_conditions`` 的内存版（显式 portfolio_id 优先，
+    未指派时继承 ``ledger.portfolio_id``）；与 ``services/scope.filter_positions_by_scope``
+    同源，改任一处须同步核对另两处。
+    """
+    portfolios = (
+        db.query(Portfolio)
+        .filter(Portfolio.is_deleted.is_(False), Portfolio.family_id == family_id)
+        .order_by(Portfolio.created_at.asc())
+        .all()
+    )
+    if not portfolios:
+        return []
+    stats = _aggregate_portfolio_stats(db, family_id, portfolios)
+    cards = []
+    for p in portfolios:
+        card = portfolio_to_dict(p)
+        card.pop('description', None)  # 描述可能极长，不上列表卡片（owner 拍板）
+        card.pop('is_deleted', None)
+        agg = stats.get(p.id, {})
+        market_value = agg.get('market_value', 0.0)
+        target_amount = float(p.target_amount) if p.target_amount else None
+        card.update(
+            {
+                'market_value': market_value,
+                'pnl': agg.get('pnl', 0.0),
+                'pnl_rate': agg.get('pnl_rate'),
+                'account_count': agg.get('account_count', 0),
+                'position_count': agg.get('position_count', 0),
+                # 达成率 = 市值 / 目标金额 × 100，不封顶（超 100% 是真实信号，前端再决定怎么显示）
+                'target_progress': round(market_value / target_amount * 100, 1) if target_amount else None,
+            }
+        )
+        cards.append(card)
+    return cards
+
+
+def _aggregate_portfolio_stats(db, family_id: int, portfolios: list[Portfolio]) -> dict[int, dict]:
+    """逐组合聚合市值 / 盈亏 / 计数（内部函数，键 = 组合 id）。
+
+    - 持仓行与 ``build_portfolio_holdings`` 同口径：``quantity > 0``、
+      类现金由 ``should_exclude_from_investment`` 排除；
+    - 账户级资产（现金，非负债）计入组合市值（沿用账户归属），与详情页一致；
+    - 盈亏 = Σ市值 − Σ成本（只对有成本价的持仓行），比例的分母是成本而非市值；
+      零成本（无成本价持仓）时比例为 ``None`` 而不是 0——「不知道」与「没赚没亏」不同。
+    """
+    portfolio_ids = [p.id for p in portfolios]
+    # 账户归属：一次拿全家庭账户，id → portfolio_id（只留指向本批组合的）
+    ledger_rows = db.query(Ledger.id, Ledger.portfolio_id).filter(Ledger.family_id == family_id).all()
+    family_ledger_ids = [lid for lid, _ in ledger_rows]
+    ledger_portfolio = {lid: pid for lid, pid in ledger_rows if pid in portfolio_ids}
+    account_counts: dict[int, int] = {}
+    for _, pid in ledger_portfolio.items():
+        account_counts[pid] = account_counts.get(pid, 0) + 1
+
+    totals = {
+        pid: {'market_value_cents': 0, 'pnl_cents': 0, 'cost_cents': 0, 'position_count': 0} for pid in portfolio_ids
+    }
+
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.family_id == family_id,
+            Position.quantity > 0,
+            or_(
+                Position.portfolio_id.in_(portfolio_ids),
+                and_(Position.portfolio_id.is_(None), Position.ledger_id.in_(family_ledger_ids)),
+            ),
+        )
+        .all()
+        if family_ledger_ids
+        else db.query(Position)
+        .filter(Position.family_id == family_id, Position.quantity > 0, Position.portfolio_id.in_(portfolio_ids))
+        .all()
+    )
+    for pos in positions:
+        if should_exclude_from_investment(pos):
+            continue
+        # 显式指派优先；未指派才继承账户默认组合（口径见 portfolio_position_conditions）
+        pid = pos.portfolio_id if pos.portfolio_id is not None else ledger_portfolio.get(pos.ledger_id)
+        if pid not in totals:
+            continue
+        market_value = Money.multiply_price_quantity(pos.current_price, pos.quantity)
+        row = totals[pid]
+        row['market_value_cents'] += market_value
+        row['position_count'] += 1
+        if pos.avg_price:
+            cost = Money.multiply_price_quantity(pos.avg_price, pos.quantity)
+            row['cost_cents'] += cost
+            row['pnl_cents'] += market_value - cost
+
+    # 账户级资产（现金等，非负债）并入组合市值；无关联账户的资产不落到任何卡片
+    if family_ledger_ids:
+        asset_rows = (
+            db.query(Asset.ledger_id, Asset.amount)
+            .filter(Asset.ledger_id.in_(family_ledger_ids), Asset.major_category != 'liability')
+            .all()
+        )
+        for ledger_id, amount in asset_rows:
+            pid = ledger_portfolio.get(ledger_id)
+            if pid in totals and amount:
+                totals[pid]['market_value_cents'] += amount
+
+    out: dict[int, dict] = {}
+    for pid, row in totals.items():
+        cost_cents = row['cost_cents']
+        out[pid] = {
+            'market_value': Money.cents_to_yuan(row['market_value_cents']),
+            'pnl': Money.cents_to_yuan(row['pnl_cents']),
+            'pnl_rate': round(row['pnl_cents'] / cost_cents * 100, 2) if cost_cents else None,
+            'account_count': account_counts.get(pid, 0),
+            'position_count': row['position_count'],
+        }
+    return out
+
+
 def _flush_or_conflict(db, name: str) -> None:
     """flush 并把「撞唯一索引」翻译成重名冲突。
 

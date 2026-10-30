@@ -7,6 +7,15 @@ export interface PortfolioItem {
   name: string;
   purpose?: string | null;
   created_at?: string | null;
+  /** 卡片聚合（后端只增字段，2026-10-30）：市值含账户级现金，与详情页 holdings 口径一致 */
+  market_value?: number;
+  /** 持有盈亏金额（元）；比例分母是成本，零成本时 pnl_rate 为 null（「不知道」≠「没赚没亏」） */
+  pnl?: number;
+  pnl_rate?: number | null;
+  account_count?: number;
+  position_count?: number;
+  /** 目标达成率 %（市值/目标金额×100，不封顶）；未设 target_amount 为 null */
+  target_progress?: number | null;
 }
 
 /** 组合详情（对齐后端 _portfolio_to_dict 全量字段） */

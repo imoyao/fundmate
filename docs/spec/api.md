@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **216** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **217** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -158,6 +158,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/portfolios/<int:portfolio_id>/` | `get_portfolio` |
 | PATCH | `/api/portfolios/<int:portfolio_id>/` | `update_portfolio` |
 | GET | `/api/portfolios/<int:portfolio_id>/holdings/` | `get_portfolio_holdings` |
+| POST | `/api/portfolios/industry-map/refresh/` | `refresh_industry_map` |
 | GET | `/api/positions/` | `list_positions` |
 | POST | `/api/positions/` | `create_position` |
 | DELETE | `/api/positions/<int:id>/` | `delete_position` |
