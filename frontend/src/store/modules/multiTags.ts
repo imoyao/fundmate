@@ -13,26 +13,41 @@ import {
   responsiveStorageNameSpace
 } from "../utils";
 import { usePermissionStoreHook } from "./permission";
+import { sanitizeTags, isRenderableTag } from "@/utils/tagCache";
+
+/** 固定标签（首页等）：缓存为空/全是脏数据时用它兜底 */
+function defaultTags(): any[] {
+  return sanitizeTags([
+    ...routerArrays,
+    ...usePermissionStoreHook().flatteningRoutes.filter(v => v?.meta?.fixedTag)
+  ] as any);
+}
 
 export const useMultiTagsStore = defineStore("pure-multiTags", {
-  state: () => ({
-    // 存储标签页信息（路由信息）
-    multiTags: storageLocal().getItem<StorageConfigs>(
+  state: () => {
+    const tagsKey = `${responsiveStorageNameSpace()}tags`;
+    const cached = storageLocal().getItem<StorageConfigs>(
       `${responsiveStorageNameSpace()}configure`
     )?.multiTagsCache
-      ? storageLocal().getItem<StorageConfigs>(
-          `${responsiveStorageNameSpace()}tags`
-        )
-      : ([
-          ...routerArrays,
-          ...usePermissionStoreHook().flatteningRoutes.filter(
-            v => v?.meta?.fixedTag
-          )
-        ] as any),
-    multiTagsCache: storageLocal().getItem<StorageConfigs>(
-      `${responsiveStorageNameSpace()}configure`
-    )?.multiTagsCache
-  }),
+      ? (storageLocal().getItem<StorageConfigs>(tagsKey) as any)
+      : null;
+
+    // 缓存清洗（2026-10-30）：历史版本写进缓存的「无标题条目」会渲染成空白标签块，
+    // 且只存在用户本地，干净的 CI/新装环境永远复现不到（用户反馈「好久了」）。
+    // 清洗结果**写回缓存**：脏数据只清一次，不会每次刷新又长回来。
+    const tags = cached ? sanitizeTags(cached) : defaultTags();
+    if (cached && tags.length !== cached.length) {
+      storageLocal().setItem(tagsKey, tags);
+    }
+
+    return {
+      // 存储标签页信息（路由信息）
+      multiTags: tags.length ? tags : defaultTags(),
+      multiTagsCache: storageLocal().getItem<StorageConfigs>(
+        `${responsiveStorageNameSpace()}configure`
+      )?.multiTagsCache
+    };
+  },
   getters: {
     getMultiTagsCache(state) {
       return state.multiTagsCache;
@@ -74,8 +89,10 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
             if (tagVal?.meta?.hiddenTag) return;
             // 如果是外链无需添加信息到标签页
             if (isUrl(tagVal?.name)) return;
-            // 如果title为空拒绝添加空信息到标签页
-            if (tagVal?.meta?.title.length === 0) return;
+            // 没有可用标题一律拒绝：旧写法 `tagVal?.meta?.title.length` 只保护了 `meta`，
+            // `title` 为 undefined 时会在 `.length` 上抛 TypeError（控制台红色报错、
+            // 标签静默丢失）；空字符串则会被渲染成一个没有文字的空白标签块。
+            if (!isRenderableTag(tagVal)) return;
             // showLink:false 不添加到标签页
             if (isBoolean(tagVal?.meta?.showLink) && !tagVal?.meta?.showLink)
               return;

@@ -3,7 +3,8 @@ import { emitter } from "@/utils/mitt";
 import { useTags } from "../../hooks/useTag";
 import { onClickOutside } from "@vueuse/core";
 import TagChrome from "./components/TagChrome.vue";
-import { ref, watch, unref, onBeforeUnmount } from "vue";
+import { ref, watch, unref, computed, onBeforeUnmount } from "vue";
+import { isRenderableTag } from "@/utils/tagCache";
 import { useTagScroll } from "./tagView/useTagScroll";
 import { useTagMenu } from "./tagView/useTagMenu";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
@@ -44,6 +45,16 @@ const {
 } = useTags();
 
 const contextmenuRef = ref();
+
+/**
+ * 只渲染「能显示文字」的标签。
+ *
+ * 缓存里的历史条目可能没有 `meta.title`（`multiTagsCache` 开启时跨版本存活），
+ * 直接渲染会得到一个没有文字的空白标签块：宽度只剩关闭按钮、能点但没有任何信息
+ * （用户反馈：「标签块存在但里面是空的」）。store 初始化时已清洗缓存，这里是
+ * **当前会话**的兜底——用户不刷新也立刻看不到空白块。
+ */
+const visibleTags = computed(() => multiTags.value.filter(isRenderableTag));
 
 const {
   tabDom,
@@ -179,7 +190,7 @@ onBeforeUnmount(() => {
     >
       <div ref="tabDom" class="tab select-none" :style="getTabStyle">
         <div
-          v-for="(item, index) in multiTags"
+          v-for="(item, index) in visibleTags"
           :ref="'dynamic' + index"
           :key="index"
           :class="[
