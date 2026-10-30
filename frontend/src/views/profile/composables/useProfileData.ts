@@ -16,6 +16,7 @@ import {
   isAvatarUrl
 } from "@/utils/avatar";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
+import { textLength } from "@/utils/textLength";
 
 /**
  * 个人中心页面状态单体（#980 P1-A 结构拆分）：
@@ -226,7 +227,7 @@ export function useProfileData() {
   // ============================================
   async function onSaveNickname() {
     const value = profileForm.nickname.trim();
-    if (value.length < 2) {
+    if (textLength(value) < 2) {
       ElMessage.warning("昵称至少 2 个字");
       return;
     }
@@ -254,7 +255,7 @@ export function useProfileData() {
 
   async function onSaveUsername() {
     const value = profileForm.username.trim();
-    if (value.length < 5) {
+    if (textLength(value) < 5) {
       ElMessage.warning("用户名至少 5 个字符");
       return;
     }

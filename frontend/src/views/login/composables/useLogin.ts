@@ -8,6 +8,7 @@ import { initRouter } from "@/router/utils";
 import { supabase } from "@/utils/supabase";
 import { resolveIdentifier } from "@/api/auth";
 import { toAuthErrorMessage } from "@/utils/authError";
+import { textLength } from "@/utils/textLength";
 import { buildAppUrl, DOCS_SITE_URL } from "@/utils/appUrl";
 
 /**
@@ -58,11 +59,23 @@ export function useLogin() {
       { type: "email", message: "请输入有效的邮箱地址", trigger: "blur" }
     ],
     username: [
-      { required: true, message: "请输入昵称", trigger: "blur" },
-      { min: 5, max: 16, message: "昵称长度 5-16 个字符", trigger: "blur" },
+      { required: true, message: "请输入用户名", trigger: "blur" },
+      {
+        // 码点口径（与后端 len() 一致，D73）：async-validator 的 min/max
+        // 按 UTF-16 .length 计，emoji 下与后端不一致，故手写校验
+        validator: (_rule, value: string, callback) => {
+          const len = textLength(value);
+          if (len < 5 || len > 20) {
+            callback(new Error("用户名长度 5-20 个字符"));
+            return;
+          }
+          callback();
+        },
+        trigger: "blur"
+      },
       {
         pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/,
-        message: "昵称只能包含中文、字母、数字和下划线",
+        message: "用户名只能包含中文、字母、数字和下划线",
         trigger: "blur"
       }
     ],
