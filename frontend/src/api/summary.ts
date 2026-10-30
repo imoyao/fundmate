@@ -641,9 +641,9 @@ export type PenetrationCoverage = {
 };
 
 /**
- * #2617 直接持有口径（穿透面板「直接持有」档）。
+ * #2617 持仓结构口径（穿透面板「持仓结构」档，2026-10-30 由「直接持有」改名）。
  *
- * 与 `PenetrationData.industries`（穿透后）共用同一批持仓：本结构里基金整块
+ * 与 `PenetrationData.industries`（穿透持仓）共用同一批持仓：本结构里基金整块
  * 不拆底层，`industries` 只含直持腿。各项合计 = `total_cny`。
  */
 export type PenetrationDirectView = {
@@ -660,7 +660,7 @@ export type PenetrationDirectView = {
   /** 命中「个股→行业」映射的直持金额（等于 industries 各项之和，单列便于算缺口） */
   mapped_cny: number;
   mapped_ratio: number;
-  /** 无行业映射的直持腿（进「其他」，不凭空补 0 值行业）；**不含现金等价物** */
+  /** 无行业映射的直持腿（环形图里单列「未映射直持」扇区，不凭空补 0 值行业）；**不含现金等价物** */
   unmapped_cny: number;
   unmapped_ratio: number;
   /** 现金等价物（货基/逆回购）单列：本质无股票敞口，不是映射缺口 */
@@ -685,7 +685,7 @@ export type PenetrationData = {
   total_value_cny: number;
   coverage: PenetrationCoverage;
   industries: PenetrationIndustry[];
-  /** #2617 直接持有口径（图 A）：基金整块不拆底层，用于与穿透后对照 */
+  /** #2617 持仓结构口径（图 A）：基金整块不拆底层，用于与穿透持仓对照 */
   direct_view: PenetrationDirectView;
   /** 行业合计不足 100% 的差额＝该基金的债券/现金/其他，**不是缺失数据** */
   industry_non_equity_cny: number;

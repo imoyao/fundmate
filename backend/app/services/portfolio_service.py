@@ -15,7 +15,8 @@ WHY 下沉
       （此后按需**只增不改**追加行级字段——#2210 的 ``price_date`` / ``settled_today``）；
 """
 
-from sqlalchemy import and_, or_, update
+from sqlalchemy import and_, func, or_, update
+from sqlalchemy.exc import IntegrityError
 
 from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.money import Money
@@ -221,3 +222,151 @@ def replace_portfolio_ledger_links(db, portfolio_id: int, family_id: int, new_id
             .where(Ledger.id.in_(to_link), Ledger.family_id == family_id)
             .values(portfolio_id=portfolio_id)
         )
+
+
+# ── 组合命名唯一（2026-10-30 补齐）──────────────────────────────────────────
+#
+# 背景：``POST /api/portfolios/`` 与 PATCH 此前**没有任何重名检查**，同一家庭下可以
+# 建出两个「养老计划」，而列表卡片的标题就是这个 name —— 两个一模一样的标题等于让
+# 用户在两个同名对象之间猜。库里也没有唯一约束，任何新入口（导入脚本、迁移）都能再塞
+# 一条。故此处补应用层判据，库层由 ``migrate_portfolios_unique_name`` 建部分唯一索引兜底。
+#
+# 口径三点（都是「用户眼里的同一个名字」而不是「字符串完全相等」）：
+#   1. **去首尾空白 + 折叠内部连续空白**：``养老  计划`` 与 ``养老 计划`` 在列表里长得
+#      一模一样，只 strip 会让它们绕过校验；
+#   2. **忽略大小写**：``Retire`` 与 ``retire`` 同上（SQLite 的 ``lower()`` 只折 ASCII，
+#      中文不受影响，英文名足够；PG 侧按 UTF-8 折，两侧对本需求等价）；
+#   3. **只看未删除的行**：软删除的组合不该永久占着名字，否则删了也建不回来。
+
+
+class PortfolioNameConflict(ValueError):
+    """同家庭内已存在同名（未删除）的组合 —— 由视图转 409，不写库。"""
+
+
+class PortfolioNameEmpty(ValueError):
+    """归一化后为空（纯空白）—— 由视图转 422。"""
+
+
+def normalize_portfolio_name(raw: object) -> str:
+    """组合名归一化：去首尾空白 + 折叠内部连续空白（含全角空格）。
+
+    ``str.split()`` 按 ``isspace()`` 切分，``\\u3000``（中文全角空格）也在其中，
+    故粘贴来的「养老　计划」与手打的「养老 计划」会归一成同一个名字。
+    """
+    return ' '.join(str(raw or '').split())
+
+
+def assert_portfolio_name_available(db, family_id: int, name: object, *, exclude_id: int | None = None) -> str:
+    """校验组合名在本家庭内可用，返回**归一化后**的名字（调用方应写回该值）。
+
+    Args:
+        db: 当前会话（只读查询，不 commit）。
+        family_id: 家庭维度隔离（组合按家庭独立命名，不同家庭可以同名）。
+        name: 原始输入（可带空白）。
+        exclude_id: 改名场景排除自身，避免「改成自己现在的名字」被判冲突。
+
+    Raises:
+        PortfolioNameEmpty: 归一化后为空。
+        PortfolioNameConflict: 已存在同名（未删除）组合。
+    """
+    normalized = normalize_portfolio_name(name)
+    if not normalized:
+        raise PortfolioNameEmpty('组合名称不能为空')
+
+    # 同时拿「原样去空白」比对：存量行可能带着从未归一化的双空格（本判据上线前建的），
+    # 只比折叠后的形态会把它判成「不重名」，而两者在卡片上一模一样。
+    candidates = {normalized.lower(), str(name or '').strip().lower()}
+    query = db.query(Portfolio.id).filter(
+        Portfolio.family_id == family_id,
+        Portfolio.is_deleted.is_(False),
+        func.lower(func.trim(Portfolio.name)).in_(candidates),
+    )
+    if exclude_id is not None:
+        query = query.filter(Portfolio.id != exclude_id)
+    if query.first() is not None:
+        raise PortfolioNameConflict(f'组合「{normalized}」已存在，请换一个名字')
+    return normalized
+
+
+# ── 写路径（2026-10-30 从 views 下沉：视图层厚度守卫 #1606）──────────────────
+#
+# 建/改组合的三件事——名字归一与判重、字段落值、并发撞唯一索引的翻译——都是业务规则，
+# 留在视图里会让 `portfolios/views.py` 越过冻结基线（161 行 / 单函数 25 行）。下沉后
+# 视图只剩「解析入参 → 调服务 → 组信封 → 异常转 HTTP」，判据本身可脱离 HTTP 栈单测。
+
+
+#: PATCH 允许直接赋值的字段（name 单独处理：要过唯一校验）
+_PORTFOLIO_PATCH_FIELDS = ('description', 'purpose', 'target_return', 'target_amount', 'target_date', 'benchmark')
+
+
+def portfolio_to_dict(portfolio: Portfolio) -> dict:
+    """组合模型 → 响应字典（字段名与既有契约逐字一致，只增不改）。"""
+    return {
+        'id': portfolio.id,
+        'name': portfolio.name,
+        'description': portfolio.description,
+        'purpose': portfolio.purpose,
+        'target_return': float(portfolio.target_return) if portfolio.target_return else None,
+        'target_amount': float(portfolio.target_amount) if portfolio.target_amount else None,
+        'target_date': portfolio.target_date.isoformat() if portfolio.target_date else None,
+        'benchmark': portfolio.benchmark,
+        'is_deleted': portfolio.is_deleted,
+        'created_at': portfolio.created_at.isoformat() if portfolio.created_at else None,
+        'updated_at': portfolio.updated_at.isoformat() if portfolio.updated_at else None,
+    }
+
+
+def _flush_or_conflict(db, name: str) -> None:
+    """flush 并把「撞唯一索引」翻译成重名冲突。
+
+    应用层已经判过一次重名，能走到这里的只有两种：两个请求同时通过了校验（并发），
+    或旁路写入（导入脚本 / 手工 SQL）抢先。让用户看到 500 等于把「换个名字就行」
+    报成「服务故障」。
+    """
+    try:
+        db.flush()
+    except IntegrityError as e:
+        db.rollback()
+        raise PortfolioNameConflict(f'组合「{name}」已存在，请换一个名字') from e
+
+
+def create_portfolio_record(db, family_id: int, schema) -> Portfolio:
+    """建组合：名字归一 + 判重 → 落库。重名抛 :class:`PortfolioNameConflict`。"""
+    name = assert_portfolio_name_available(db, family_id, schema.name)
+    portfolio = Portfolio(
+        name=name,
+        description=schema.description,
+        purpose=schema.purpose,
+        target_return=schema.target_return,
+        target_amount=schema.target_amount,
+        target_date=schema.target_date,
+        benchmark=schema.benchmark,
+        family_id=family_id,
+    )
+    db.add(portfolio)
+    _flush_or_conflict(db, name)
+    db.refresh(portfolio)
+    return portfolio
+
+
+def update_portfolio_record(db, portfolio: Portfolio, schema, family_id: int) -> Portfolio:
+    """改组合：字段落值 + 改名判重（排除自身）+ 账户关联原子替换。
+
+    异常约定：重名 → :class:`PortfolioNameConflict`（视图转 409）；
+    关联账户不存在/越权 → ``ValueError``（视图转 404）。两者都在**任何写之前**判定，
+    故失败时零部分更新。
+    """
+    for field in _PORTFOLIO_PATCH_FIELDS:
+        value = getattr(schema, field)
+        if value is not None:
+            setattr(portfolio, field, value)
+
+    if schema.name is not None:
+        portfolio.name = assert_portfolio_name_available(db, family_id, schema.name, exclude_id=portfolio.id)
+
+    if schema.ledger_ids is not None:
+        replace_portfolio_ledger_links(db, portfolio.id, family_id, schema.ledger_ids)
+
+    _flush_or_conflict(db, portfolio.name)
+    db.refresh(portfolio)
+    return portfolio

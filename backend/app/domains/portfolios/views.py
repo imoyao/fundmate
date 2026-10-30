@@ -2,14 +2,16 @@
 # Author : imoyao
 # Date : 2026/6/13 18:04
 # File : views.py
-# -*- coding: utf-8 -*-
 """
 投资组合 API — CRUD + 软删除
+
+组合名唯一（2026-10-30）：同家庭内、未删除的组合之间不允许同名。判据全在
+``portfolio_service``（名字归一 + 查重 + 并发撞索引的翻译），本文件只做
+「异常 → HTTP」——视图层厚度是冻结基线（#1606），业务规则不下沉就会越线。
 """
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
-from loguru import logger
 from sqlalchemy import update
 
 from app.core.auth import get_family_id, get_owned_or_404
@@ -17,54 +19,33 @@ from app.core.database import get_db
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.portfolios.schemas import PortfolioCreate, PortfolioUpdate
-from app.services.portfolio_service import build_portfolio_holdings, replace_portfolio_ledger_links
+from app.services.portfolio_service import (
+    PortfolioNameConflict,
+    PortfolioNameEmpty,
+    build_portfolio_holdings,
+    create_portfolio_record,
+    portfolio_to_dict,
+    update_portfolio_record,
+)
 
 portfolios_bp = APIBlueprint('portfolios', __name__, url_prefix='/api/portfolios')
 
-
-def _portfolio_to_dict(portfolio: Portfolio) -> dict:
-    """将 Portfolio 模型实例转为字典"""
-    return {
-        'id': portfolio.id,
-        'name': portfolio.name,
-        'description': portfolio.description,
-        'purpose': portfolio.purpose,
-        'target_return': float(portfolio.target_return) if portfolio.target_return else None,
-        'target_amount': float(portfolio.target_amount) if portfolio.target_amount else None,
-        'target_date': portfolio.target_date.isoformat() if portfolio.target_date else None,
-        'benchmark': portfolio.benchmark,
-        'is_deleted': portfolio.is_deleted,
-        'created_at': portfolio.created_at.isoformat() if portfolio.created_at else None,
-        'updated_at': portfolio.updated_at.isoformat() if portfolio.updated_at else None,
-    }
+#: 命名类异常的 HTTP 状态：空名 = 入参不合法（422），重名 = 冲突（409）。
+#: 用表而不是 if/elif：两个分支共用一个 except，视图里只留一行 abort。
+_NAME_ERROR_STATUS = {PortfolioNameEmpty: 422, PortfolioNameConflict: 409}
 
 
 @portfolios_bp.post('/')
 def create_portfolio():
-    """创建投资组合"""
-    data = request.get_json() or {}
-    schema = PortfolioCreate(**data)  # Pydantic 自动校验
+    """创建投资组合（同家庭内重名 → 409）"""
+    schema = PortfolioCreate(**(request.get_json() or {}))  # Pydantic 自动校验
 
     with get_db() as db:
         try:
-            portfolio = Portfolio(
-                name=schema.name,
-                description=schema.description,
-                purpose=schema.purpose,
-                target_return=schema.target_return,
-                target_amount=schema.target_amount,
-                target_date=schema.target_date,
-                benchmark=schema.benchmark,
-                family_id=get_family_id(),
-            )
-            db.add(portfolio)
-            db.flush()
-            db.refresh(portfolio)
-            return jsonify({'data': _portfolio_to_dict(portfolio), 'message': 'ok'})
-        except Exception as e:
-            db.rollback()
-            logger.exception('创建投资组合失败')
-            abort(500, description=str(e))
+            portfolio = create_portfolio_record(db, get_family_id(), schema)
+        except (PortfolioNameEmpty, PortfolioNameConflict) as e:
+            abort(_NAME_ERROR_STATUS[type(e)], description=str(e))
+        return jsonify({'data': portfolio_to_dict(portfolio), 'message': 'ok'})
 
 
 @portfolios_bp.get('/')
@@ -97,34 +78,25 @@ def get_portfolio(portfolio_id: int):
         portfolio = get_owned_or_404(db, Portfolio, portfolio_id)
         if not portfolio:
             abort(404, '投资组合不存在')
-        return jsonify({'data': _portfolio_to_dict(portfolio), 'message': 'ok'})
+        return jsonify({'data': portfolio_to_dict(portfolio), 'message': 'ok'})
 
 
 @portfolios_bp.patch('/<int:portfolio_id>/')
 def update_portfolio(portfolio_id: int):
-    """更新投资组合"""
-    data = request.get_json() or {}
-    schema = PortfolioUpdate(**data)
+    """更新投资组合（改名同样要过唯一校验，排除自身）"""
+    schema = PortfolioUpdate(**(request.get_json() or {}))
 
     with get_db() as db:
         portfolio = get_owned_or_404(db, Portfolio, portfolio_id)
-
-        # 仅更新传入的字段（None = 未传，不动）
-        for field in ('name', 'description', 'purpose', 'target_return', 'target_amount', 'target_date', 'benchmark'):
-            value = getattr(schema, field)
-            if value is not None:
-                setattr(portfolio, field, value)
-
-        # 账户关联原子替换（#981）：diff/归属校验/批量写在 service，视图只做「异常 → HTTP」
-        if schema.ledger_ids is not None:
-            try:
-                replace_portfolio_ledger_links(db, portfolio_id, get_family_id(), schema.ledger_ids)
-            except ValueError as e:
-                abort(404, str(e))
-
-        db.flush()
-        db.refresh(portfolio)
-        return jsonify({'data': _portfolio_to_dict(portfolio), 'message': 'ok'})
+        try:
+            # 传 ledger_ids 即原子替换关联（#981）；不传 = 本次不动关联
+            portfolio = update_portfolio_record(db, portfolio, schema, get_family_id())
+        except (PortfolioNameEmpty, PortfolioNameConflict) as e:
+            abort(_NAME_ERROR_STATUS[type(e)], description=str(e))
+        except ValueError as e:
+            # 关联账户不存在 / 越权（校验发生在任何写之前，零部分更新）
+            abort(404, str(e))
+        return jsonify({'data': portfolio_to_dict(portfolio), 'message': 'ok'})
 
 
 @portfolios_bp.delete('/<int:portfolio_id>/')
