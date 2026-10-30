@@ -30,6 +30,8 @@ import {
   type ColumnDef,
   type ColumnGroup
 } from "@/views/asset/watchlist/columnDefs";
+// 列序重建算法（纯函数，含「部分顺序不可当全量用」的推导与回归判据）
+import { rebuildColumnOrder } from "@/views/asset/watchlist/columnOrder";
 // 分组口径（通用组按 group 归属收列，与 scope 无关）与判据都在该纯模块内
 import { buildColumnGroups } from "@/views/asset/watchlist/columnGroups";
 
@@ -207,18 +209,15 @@ export function useWatchlistColumnVisibility(
   /**
    * 全量列按自定义顺序重排：非拖拽列（固定列/内置列）保持默认锚点位置，
    * 拖拽列按保存顺序依次填入原拖拽区槽位——固定列左右包夹的布局不被破坏。
+   *
+   * ⚠️ 重建算法必须由 `rebuildColumnOrder` 负责（2026-10-30）：持久化的 `order`
+   * 只含「当时可见」的列（7~8 个），而可拖拽槽位约 50 个。曾在此就地实现「按槽位
+   * shift、队列空则保留原位」，于是同一列既占了别人的槽位、又留在自己的原生槽位，
+   * 表头整段重复（走势/持有数量/持仓市值/持仓收益 各两遍）。详见 columnOrder.ts。
    */
-  const orderedColumns = computed(() => {
-    if (customOrder.value.length === 0) return watchlistColumnDefs;
-    const orderIndex = new Map(customOrder.value.map((k, i) => [k, i]));
-    const draggables = watchlistColumnDefs
-      .filter(d => d.draggable && orderIndex.has(d.key))
-      .sort((a, b) => orderIndex.get(a.key)! - orderIndex.get(b.key)!);
-    const queue = [...draggables];
-    return watchlistColumnDefs.map(d =>
-      d.draggable ? (queue.shift() ?? d) : d
-    );
-  });
+  const orderedColumns = computed(() =>
+    rebuildColumnOrder(watchlistColumnDefs, customOrder.value)
+  );
 
   /**
    * 实际渲染的列 = 自定义顺序 × 用户显隐偏好 × **视图作用域**（#1285）：

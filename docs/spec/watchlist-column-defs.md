@@ -68,8 +68,7 @@ export interface ColumnDef {
 | key | label | renderer | 备注 |
 |---|---|---|---|
 | `_selection` | （多选） | 内置 selection | `v-if="batchMode"` |
-| `_marker` | （置顶/关注图标） | 自定义 marker | 44px，class marker-column |
-| `product` | 代码/名称 | product | fixed left，含标签 chips |
+| `product` | 代码/名称 | product | fixed left，含标签 chips（原独立 `_marker` 列已于 2026-09-04 删除：置顶/关注图标内联进本列名称前） |
 | `created_at` | 添加自选日 | date | sortStr；**#2640 起默认隐藏**（腾宽度给当日盈亏） |
 | `current_price` | 最新价 | money | **realtimeField: currentPrice**（实时覆盖静态） |
 | `change_pct` | 涨跌幅 | ~~riseFall~~ | **已删除（#2641）**：与「当日盈亏」的百分比行是同一个数（`(现价−昨收)/昨收`），并排摆着等于画两遍；排序能力由 `day_pnl` 的 `sortBy: change_pct` 接住 |
@@ -156,7 +155,7 @@ export interface ColumnDef {
 引入列「视图作用域」，解决「混合视图把所有品类列并集导致默认超宽」：
 
 - `ColumnDef.scope`：
-  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `current_price` / `trend` / `holding_quantity` / `position_market_value` / `holding_pnl` / `day_pnl` / `_actions`（**#1421/#1422/#1425 修订**：原集只有 4 列、默认视图信息量过低；#1422 一度扩到 11 列 ≈1338px，#1425 收敛回 8 列；**#2640 起** `created_at` 降为默认隐藏、`day_pnl` 升为默认可见；**2026-10-26 起**预算放宽到 1132px，`trend` 恢复默认可见；**#2641** 删掉 96px 的 `change_pct` 列，其百分比并入 `day_pnl`。见下方「默认列预算」）；
+  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `day_pnl` / `current_price` / `trend` / `holding_quantity` / `position_market_value` / `holding_pnl` / `_actions`（**顺序即默认展示顺序**，2026-10-30 重排：当日盈亏前移到第二个数据列，口径见 §9「列序重建与默认列序」；**#1421/#1422/#1425 修订**：原集只有 4 列、默认视图信息量过低；#1422 一度扩到 11 列 ≈1338px，#1425 收敛回 8 列；**#2640 起** `created_at` 降为默认隐藏、`day_pnl` 升为默认可见；**2026-10-26 起**预算放宽到 1132px，`trend` 恢复默认可见；**#2641** 删掉 96px 的 `change_pct` 列，其百分比并入 `day_pnl`。见下方「默认列预算」）；
   - `"category"`（默认）：**品类专属列**，仅当「类型筛选命中单一品类」时显示。
   - **通用列判定标准（#1421）**：该列对「**全部品类**」或「**全部可交易品类**（`TRADABLE_TYPES` 7 类）」都成立、不会恒为 `—` → 归 `"mixed"`；只有**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）留 `"category"`。
 - `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类）。**它是品类视图的判据，与 `scope` 无关**：`scope` 只回答「混合视图要不要出现」。如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）；`current_price` 与 `day_pnl` 用 `QUOTE_TYPES`（含 `index`——指数无持仓、金额 `—`，但涨跌幅成立）。
@@ -174,13 +173,19 @@ export interface ColumnDef {
 
 按 `visibleColumns` 的真实判据（`hideable && !defaultHidden && scope==="mixed"`）逐列相加（`columnDefs.ts` 经 esbuild 打包后取 `width ?? minWidth` 求和，不是手算）：
 
-| 列 | product | current_price | trend | holding_quantity | position_market_value | holding_pnl | day_pnl | _actions |
+| 列 | product | day_pnl | current_price | trend | holding_quantity | position_market_value | holding_pnl | _actions |
 |---|---|---|---|---|---|---|---|---|
-| px | 232 | 96 | 92 | 104 | 140 | 128 | 104 | 140 |
+| px | 232 | 104 | 96 | 92 | 104 | 140 | 128 | 140 |
 
 合计 **1036px**（上限 1040，余量 4px）。三点必须写清楚，否则下一个人会把账算错：
 
 1. **走势列默认可见是 owner 的明确要求**：`trend` 曾因 1040 预算退到 `scope:"category"`（#2650），导致自选页默认的「持仓」分组看不到走势列；2026-10-26 改回 `"mixed"` 并把预算放宽到 1132。#2641 删掉 `change_pct`（96px）后，`trend` 留在混合视图的同时总宽回到 1040 以内——**不需要再放宽预算**，故上限复位。
 2. **#2640 的「进一出一」仍然成立**：`created_at`（104，一次性历史）默认隐藏、`day_pnl`（104，每日主数据）默认可见，两者等宽。
 3. **不得再静默加宽**：再加默认列必须同步改 `columnBudget.spec.ts` 的 `BUDGET` 与本表；超限时该用例会打印逐列账目。余量只有 4px，等于没有余量。
+
+#### 列序重建与默认列序（2026-10-30）
+
+- **默认列序** = `columnDefs.ts` 数组顺序（改序不影响宽度，预算口径不变）。口径：**越靠左＝今天越需要知道**——当日变动 → 价格 → 走势 → 持仓规模。据 owner 反馈「当日盈亏默认排得太后」而重排：`day_pnl` 由倒数第二前移到第二个数据列。
+- **用户拖拽顺序优先**于默认序；重建收敛在纯函数 `views/asset/watchlist/columnOrder.ts` 的 `rebuildColumnOrder(defs, order)`。
+- ⚠️ **持久化的 `order` 只含「当时可见」的列**（写入侧 `useWatchlistStickyLayout.headerKeys()` 取的是过滤后的 `dataColumns`，通常 7~8 个 key），而可拖拽槽位约 50 个。**它不能当全量顺序用**：旧实现「按槽位 shift、队列空后保留原位」，于是同一列既占了别人的槽位、又留在自己的原生槽位 ⇒ **表头同一列出现两次**（2026-10-30 用户实测：走势 / 持有数量 / 持仓市值 / 添加后涨幅 / 持仓收益 各两遍，当日盈亏一前一后）。现口径是「先凑齐全量可拖拽列（排过的按 `order`，没排过的按默认序补到队尾）再填槽位」，老用户的坏缓存**无需「恢复默认」即自愈**。判据：`__tests__/columnOrder.spec.ts`（含旧算法的变异探针，防修复被回退而测试仍绿）。
 - **品类视图的列集由 `appliesTo` 决定，与 `scope` 无关**（`scope` 只决定「混合视图要不要出现」）：新增 `mixed` 列时必须检查它在**经理 / 投顾组合**等无行情、无持仓语义的品类视图里是否也需要 `appliesTo` 收窄（#1425：最新价 → `QUOTE_TYPES`；#2641：当日盈亏 → `QUOTE_TYPES`，删列后指数行的涨跌幅靠它承担）。
