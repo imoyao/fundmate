@@ -55,6 +55,41 @@ async function crumbsOf(
   );
 }
 
+test("面包屑当前项带底部品牌色指示条（选中态可辨）", async ({
+  context,
+  page,
+  baseURL
+}) => {
+  await injectSupabaseSession(context, baseURL!);
+  await page.goto("/#/asset/strategies");
+  // 面包屑等路由树就绪后才渲染，首屏懒加载较慢，这里给足等待
+  await expect(page.locator(".el-breadcrumb__item").first()).toBeVisible({
+    timeout: 30_000
+  });
+  await expect(page.locator(".el-breadcrumb .crumb-current")).toHaveCount(1, {
+    timeout: 20_000
+  });
+
+  const styled = await page.evaluate(() => {
+    const el = document.querySelector(
+      ".el-breadcrumb .crumb-current"
+    ) as HTMLElement;
+    const s = getComputedStyle(el);
+    return {
+      text: el.textContent?.trim(),
+      decoration: s.textDecorationLine,
+      thickness: s.textDecorationThickness,
+      color: s.color
+    };
+  });
+
+  // 末项（当前页）才有指示条，且必须有下划线 + 主题色
+  expect(styled.text).toBe("策略分析");
+  expect(styled.decoration).toContain("underline");
+  expect(parseFloat(styled.thickness)).toBeGreaterThanOrEqual(2);
+  expect(styled.color).toMatch(/^rgb/);
+});
+
 test.describe("面包屑层级与页面归属一致", () => {
   for (const c of CASES) {
     test(`${c.path} → ${c.crumbs.join(" / ")}`, async ({

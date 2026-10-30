@@ -116,14 +116,42 @@ watch(
 <template>
   <el-breadcrumb class="leading-[50px]! select-none" separator="/">
     <el-breadcrumb-item
-      v-for="item in levelList"
+      v-for="(item, index) in levelList"
       :key="item.key"
       class="inline! items-stretch!"
     >
-      <a v-if="item.to" @click.prevent="handleLink(item)">
+      <a
+        v-if="item.to"
+        :class="{ 'crumb-current': index === levelList.length - 1 }"
+        @click.prevent="handleLink(item)"
+      >
         {{ item.title }}
       </a>
-      <span v-else>{{ item.title }}</span>
+      <span v-else :class="{ 'crumb-current': index === levelList.length - 1 }">
+        {{ item.title }}
+      </span>
     </el-breadcrumb-item>
   </el-breadcrumb>
 </template>
+
+<style scoped lang="scss">
+/**
+ * 当前页（面包屑末项）：文字底部一条品牌色指示条。
+ *
+ * 为什么用 `text-decoration` 而不是 `border-bottom` / 伪元素：面包屑这一行
+ * `leading-[50px]`，末项的盒子高度就是 50px，任何「贴在盒子底部」的画法都会
+ * 落到行盒下沿（离文字十几像素，视觉上像贴着顶栏分隔线）。`text-decoration`
+ * 天然跟着基线走，`text-underline-offset` 只调间距，不会被行高带偏。
+ *
+ * 颜色取 `currentColor`（同一行的 `color` 是主题 primary = --brand-700），
+ * 暗色模式自动跟随，不需要另外写 `.dark` 覆盖。
+ */
+.crumb-current {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 5px;
+}
+</style>
