@@ -19,6 +19,10 @@
  *    （`/asset/ledgers`）的链，再由调用方追加当前页标题；
  * 3. 都没有 → 返回 `[]`，调用方退回 `route.matched` 过滤。
  *
+ * 取到链后还要做一次**拍平**：侧边栏会被 `hasOneShowingChild` 拍平的目录
+ * （只有一个可见子项）不作为一级出现，详见 `isFlattenedDir`。
+ * 层级必须与用户看到的侧边栏一致，不能各说各话。
+ *
  * ## 为什么这一层是纯函数
  *
  * vitest 的 `environment` 是 `node`（无 DOM），组件挂载测不了；把「树里找路径」
@@ -51,6 +55,22 @@ export interface BreadcrumbCrumb {
 /** 节点自身是否会在侧边栏里显示（供「跳过纯隐藏节点」用） */
 function isVisible(node: BreadcrumbNode): boolean {
   return node.meta?.showLink !== false && !node.meta?.hidden;
+}
+
+/**
+ * 该目录在侧边栏里是否**会被拍平**——即它根本不会作为一个菜单层出现。
+ *
+ * 判据与 `SidebarItem.hasOneShowingChild` 逐字对齐：只有 1 个可见子项、
+ * 且该子项没有 `meta.showParent` 时，侧边栏直接渲染子项，目录层消失。
+ *
+ * 为什么面包屑必须跟着折叠：面包屑是「我在哪」的位置指示，其层级要与用户
+ * **看到的**一致。若菜单已把目录层拍平、面包屑却仍渲染它，就出现「侧边栏 1 级 /
+ * 面包屑 2 级」——2026-10-30 曾反过来给菜单强加 `showParent` 来凑齐两级，
+ * 属于因果倒置（只有一个页面的模块凭空多一层，多一次点击零信息增益）。
+ */
+function isFlattenedDir(node: BreadcrumbNode): boolean {
+  const kids = (node.children ?? []).filter(isVisible);
+  return kids.length === 1 && !kids[0].meta?.showParent;
 }
 
 /**
@@ -113,10 +133,13 @@ function toCrumbs(trail: BreadcrumbNode[]): BreadcrumbCrumb[] {
     if (!title) return;
     // 纯隐藏节点（如 `hidden: true` 的详情页父级）不进面包屑
     if (!isVisible(node) && !node.children?.length) return;
+    // 侧边栏已拍平的目录（单可见子项）不作为一级出现，否则层级对不上。
+    // 末项不折叠：它本身就是当前页，折叠掉会把面包屑变成空的。
+    const isLast = index === trail.length - 1;
+    if (!isLast && isFlattenedDir(node)) return;
 
     const path = node.path ?? "";
     keys.push(path || `#${index}`);
-    const isLast = index === trail.length - 1;
     crumbs.push({
       title,
       // 末端由调用方决定是否可点（当前页通常不可点）

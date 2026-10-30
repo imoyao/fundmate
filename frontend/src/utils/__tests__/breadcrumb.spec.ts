@@ -36,6 +36,16 @@ const menus: BreadcrumbNode[] = [
             path: "/asset/portfolios",
             name: "PortfolioList",
             meta: { title: "投资组合" }
+          },
+          {
+            path: "/asset/strategies",
+            name: "Strategies",
+            meta: { title: "策略分析" }
+          },
+          {
+            path: "/asset/recurring",
+            name: "AssetRecurring",
+            meta: { title: "定投计划" }
           }
         ]
       },
@@ -48,6 +58,11 @@ const menus: BreadcrumbNode[] = [
             path: "/asset/precious",
             name: "AssetPrecious",
             meta: { title: "贵金属" }
+          },
+          {
+            path: "/asset/realestate",
+            name: "AssetRealEstate",
+            meta: { title: "房产" }
           }
         ]
       },
@@ -79,6 +94,11 @@ const menus: BreadcrumbNode[] = [
             path: "/asset/ledgers",
             name: "AssetLedgers",
             meta: { title: "账户管理" }
+          },
+          {
+            path: "/asset/family",
+            name: "AssetFamilyMembers",
+            meta: { title: "家庭成员" }
           }
         ]
       },
@@ -94,7 +114,32 @@ const menus: BreadcrumbNode[] = [
     name: "Record",
     meta: { title: "记账中心" },
     children: [
-      { path: "/inventory", name: "Inventory", meta: { title: "全面盘点" } }
+      { path: "/inventory", name: "Inventory", meta: { title: "全面盘点" } },
+      {
+        path: "/transactions",
+        name: "TransactionList",
+        meta: { title: "交易流水" }
+      },
+      { path: "/dividends", name: "Dividends", meta: { title: "分红股息" } },
+      {
+        path: "/investment/reconcile-workbench",
+        name: "ReconcileWorkbench",
+        meta: { title: "对账中心" }
+      }
+    ]
+  },
+  {
+    // 账本精灵：路由两级（Layout 容器 + 页面），但菜单层只有一级——
+    // 唯一可见子项会被侧边栏拍平，面包屑必须跟着拍平（见下方用例）。
+    path: "/agent",
+    name: "Agent",
+    meta: { title: "账本精灵", showLink: false },
+    children: [
+      {
+        path: "/agent/chat",
+        name: "AgentChat",
+        meta: { title: "账本精灵" }
+      }
     ]
   }
 ];
@@ -184,5 +229,34 @@ describe("buildBreadcrumb", () => {
     const crumbs = buildBreadcrumb(menus, "/asset/fund-ranking");
     const keys = crumbs.map(c => c.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("单子项目录（账本精灵）在面包屑里同样拍平：只剩 1 级，与侧边栏一致", () => {
+    // 侧边栏 hasOneShowingChild 只显示「账本精灵」，若面包屑仍渲染「账本精灵 /
+    // 账本精灵」两级，就等于逼着菜单加 `showParent` 来凑（2026-10-30 的错误方向）。
+    expect(titles(buildBreadcrumb(menus, "/agent/chat"))).toEqual(["账本精灵"]);
+  });
+
+  it("判据非空转：子项显式 showParent 时目录层必须保留（旧写法仍能渲染两级）", () => {
+    const withParent: BreadcrumbNode[] = [
+      {
+        path: "/x",
+        meta: { title: "分组X" },
+        children: [
+          { path: "/x/1", meta: { title: "页面一", showParent: true } }
+        ]
+      }
+    ];
+    expect(titles(buildBreadcrumb(withParent, "/x/1"))).toEqual([
+      "分组X",
+      "页面一"
+    ]);
+  });
+
+  it("多子项目录不折叠：记账中心仍是 2 级（拍平只针对单可见子项）", () => {
+    expect(titles(buildBreadcrumb(menus, "/dividends"))).toEqual([
+      "记账中心",
+      "分红股息"
+    ]);
   });
 });
