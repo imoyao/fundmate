@@ -43,83 +43,15 @@
       <p class="text-lg">暂无投资组合，点击上方按钮创建</p>
     </div>
 
-    <!-- 卡片列表 -->
+    <!-- 卡片列表（卡片本体见 components/PortfolioCard.vue，2026-10-30 重设计） -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-      <!-- a11y-allow 组合卡：卡片本身是跳转热区，但右上角有 el-popconfirm 删除按钮；
-           补 role=button 会让删除按钮被整卡的 button 语义吞掉 -->
-      <div
+      <PortfolioCard
         v-for="item in portfolios"
         :key="item.id"
-        class="portfolio-card"
-        @click="$router.push(`/asset/portfolios/${item.id}`)"
-      >
-        <!-- 行1：名称 + 目的 chip（删除按钮同排，保留原 a11y 注释见上） -->
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center gap-2 min-w-0">
-            <h3
-              class="font-semibold text-base truncate"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              {{ item.name }}
-            </h3>
-            <span
-              class="text-xs px-2 py-0.5 rounded-full shrink-0"
-              :style="{
-                backgroundColor: 'var(--bg-page)',
-                color: 'var(--text-secondary)'
-              }"
-            >
-              {{ item.purpose || "未设定目的" }}
-            </span>
-          </div>
-          <el-popconfirm
-            title="确定删除此组合？关联账户将自动解绑。"
-            confirm-button-text="删除"
-            cancel-button-text="取消"
-            popper-class="danger-popconfirm"
-            @confirm="handleDelete(item.id)"
-            @click.stop
-          >
-            <template #reference>
-              <el-button
-                type="danger"
-                size="small"
-                circle
-                aria-label="删除此组合"
-                @click.stop
-              >
-                <IconifyIconOffline icon="ep:delete" />
-              </el-button>
-            </template>
-          </el-popconfirm>
-        </div>
-        <!-- 行2：市值主数字（含账户级现金，与详情页 holdings 口径一致） -->
-        <MoneyDisplay
-          :value="item.market_value ?? 0"
-          size="lg"
-          :show-sign="false"
-          :auto-color="false"
-        />
-        <!-- 行3：持有盈亏（金额 + 相对成本的比例），红涨绿跌走 MoneyDisplay -->
-        <div class="flex items-baseline gap-2 mt-1">
-          <MoneyDisplay :value="item.pnl ?? 0" size="sm" />
-          <MoneyDisplay
-            :value="item.pnl_rate"
-            size="sm"
-            :show-currency="false"
-            suffix="%"
-          />
-        </div>
-        <!-- 行4：元信息（目标达成率仅设过目标金额时显示；创建时间移出卡片） -->
-        <p class="text-xs mt-3" :style="{ color: 'var(--text-tertiary-ink)' }">
-          {{ item.account_count ?? 0 }} 个账户 ·
-          {{ item.position_count ?? 0 }} 只持仓<template
-            v-if="item.target_progress != null"
-          >
-            · 目标达成 {{ item.target_progress }}%</template
-          >
-        </p>
-      </div>
+        :item="item"
+        @open="openPortfolio"
+        @delete="handleDelete"
+      />
     </div>
 
     <!-- 仅保留创建对话框 -->
@@ -211,9 +143,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import PortfolioCard from "@/views/asset/portfolio/components/PortfolioCard.vue";
 import {
   getPortfolios,
   createPortfolio,
@@ -223,6 +156,13 @@ import {
 import { getBenchmarks, type BenchmarkOption } from "@/api/summary";
 
 defineOptions({ name: "PortfolioList" });
+
+const router = useRouter();
+
+/** 整卡点击 → 组合详情（路由留在页面，卡片组件只 emit id，便于单测） */
+function openPortfolio(id: number) {
+  router.push(`/asset/portfolios/${id}`);
+}
 
 /** 可选基准清单（#2685）：唯一出口是后端 `BENCHMARK_INDICES` */
 const benchmarkOptions = ref<BenchmarkOption[]>([]);
@@ -324,17 +264,6 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-.portfolio-card {
-  padding: 20px;
-  cursor: pointer;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: 16px;
-  transition: all 0.2s;
-}
-
-.portfolio-card:hover {
-  box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
-  transform: translateY(-2px);
-}
+/* 卡片外观已随卡片组件迁到 components/PortfolioCard.vue（2026-10-30 重设计，
+   样式与结构同处一文件，页面只负责栅格） */
 </style>

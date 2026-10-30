@@ -290,6 +290,27 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 说明：账户关联 diff（unlink/link 逐个调接口）当前仍在前端实现，已记技术债务（后端应提供原子化更新接口），见对应 issue。
 - 参考实现：`frontend/src/views/asset/portfolio/detail.vue`。
 
+## PortfolioCard · 组合列表卡（强制复用，2026-10-30 重设计）
+
+- 用途：投资组合页（`/asset/portfolios`）栅格里的单个组合卡。**禁止页面再手写这批样式**（重设计前就是内联在 `index.vue` 里的一段 Tailwind 拼装）。
+- 路径：`src/views/asset/portfolio/components/PortfolioCard.vue`（展示口径 `portfolioCardModel.ts`）。
+- props：`item`(`PortfolioItem`，后端 `list_portfolio_cards` 聚合字段)；emits：`open`(id)、`delete`(id)。路由留在页面，卡片不碰 router。
+- 结构与字阶（每一层都要有 label——「只有数字」是重设计前的核心问题）：
+
+  | 区块 | 内容 | 字阶 / 颜色 |
+  |---|---|---|
+  | 卡头 | 组合名（截断 + `title` 全名）+ 目的徽章 | 名 16px/600 `--text-primary`；徽章 13px/500 `--text-secondary` on `--bg-soft` + `--radius-pill` |
+  | 主指标 | label「持仓市值」+ 金额 | label 13px/500 `--text-secondary`；金额 24px/600 `--text-primary`（`MoneyDisplay size="lg"` + `.number` 覆写 600） |
+  | 次指标 | label「累计盈亏」+ 金额 + 比例胶囊 | 金额 16px 涨跌语义色（`--color-rise-ink` / `--color-fall-ink`）；比例 14px 同色，胶囊底 `--bg-soft` |
+  | 分隔线 | 1px `--border-light` | — |
+  | 元信息 | `N 个账户 · M 只持仓` | 13px/400 `--text-tertiary-ink` |
+  | 目标达成 | label + 百分比 + 4px 进度条（仅 `target_progress != null` 渲染） | label 13px `--text-tertiary-ink`；百分比 13px/600 `--text-primary`；填充 `--brand-500` |
+
+- **主数字为什么不是品牌色**（owner 问过）：品牌暖红在本站同时是涨色（design.md 设计原则 4），拿它当金额主色会被读成「这个组合在涨」；金额是陈述句，颜色只留给涨跌语义。主数字的权重由 24px/600 + 独立成行 + 上下留白承担，卡片里唯一的彩色是盈亏，反而是它更「主」的原因。需要品牌色时走 `--brand-ink`（白底 5.86:1 达 AA），**不要**用 `--brand-700` 作文字。
+- **达成率两条口径**：数字不封顶（144% 就说 144%），进度条封顶 100%（条只答「满没满」）。`null` 不是 0（没设目标 ≠ 达成 0%），整块不渲染。
+- 删除按钮：默认 `opacity: 0`，hover / `:focus-within` 显现，`@media (hover: none)` 常显。常驻红色圆钮会抢主数字的注意力，且删除是低频破坏性动作。
+- 卡片容器：`--bg-card` + `--border-light` + `--radius-card` + `--shadow-raised`；hover 换 `--border-default` + `--shadow-float` + `translateY(-2px)`；内边距 `--space-standard`，块间距 `--space-compact`（重设计前是 20px 内边距 + 8/4/12px 混排，观感「挤」）。
+
 ## 自选标签弹窗（业务共有组件）
 
 ### TagManagerDialog · 标签管理弹窗（GitHub Labels 风格）
