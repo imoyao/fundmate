@@ -84,6 +84,8 @@
           :is-empty-custom-group="isEmptyCustomGroup"
           :active-group-label="activeGroupLabel"
           :has-tag-filter="selectedFilterTagIds.length > 0"
+          :day-pnl-metric="data.dayPnlMetric.value"
+          @day-pnl-metric-change="data.setDayPnlMetric"
           @sort-change="onSortChange"
           @selection-change="data.handleSelectionChange"
           @cell-mouse-enter="handleCellMouseEnter"

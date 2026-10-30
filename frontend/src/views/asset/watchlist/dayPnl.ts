@@ -45,6 +45,24 @@ export interface DayPnlResult {
   ratio: number | null;
 }
 
+/**
+ * 「当日盈亏」列的排序口径（2026-10-30，用户反馈「盈亏率也要能排」）。
+ *
+ * 这一列是**复合列**：金额（主行）+ 涨跌幅（副行），两行是**两个不同的量**——
+ * 同样涨 1%，一万仓与百万仓的当日盈亏差两个数量级。所以「今天谁赚得最多」与
+ * 「今天谁涨得最凶」必须能各排各的，不能拿一个代理另一个（#2641 以前是代理到
+ * `change_pct`，等于金额列永远排不出金额序）。
+ */
+export type DayPnlMetric = "amount" | "pct";
+
+/** 按口径取列里的可比数（金额 / 涨跌幅）；用于表头排序，不参与渲染 */
+export function pickDayPnlMetric(
+  result: DayPnlResult,
+  metric: DayPnlMetric
+): number | null {
+  return metric === "amount" ? result.value : result.ratio;
+}
+
 /** 行里参与当日盈亏的字段（`WatchlistItem` 的子集，便于单测直接构造） */
 export interface DayPnlRow {
   symbol?: string | null;
