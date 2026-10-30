@@ -149,8 +149,8 @@ watch(
 .crumb-current {
   color: var(--el-color-primary);
   text-decoration: underline;
-  text-decoration-color: currentColor;
   text-decoration-thickness: 2px;
+  text-decoration-color: currentColor;
   text-decoration-skip-ink: none;
   text-underline-offset: 5px;
 }
