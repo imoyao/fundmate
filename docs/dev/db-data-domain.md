@@ -107,6 +107,7 @@
 2. **`init_db` 按域分别 `create_all` 到对应 engine**，并启动断言「声明域 == 实际建到的 engine」，不一致直接 fail（防表建错库导致静默错误）。
 3. **Session 入口只有 `market_session()` / `user_session()`**，service 层只能从这两个取会话，禁止混用。
 4. **开发期迁移点**：本地 SQLite 文件当前已含全部 30 张表（含本该去 Supabase 的用户表）。迁双库后 SQLite 只建 `market` 域表，用户表不再建在本地 SQLite，避免「用户表既在 dev Supabase 又有本地残留」。
+5. **`SUPABASE_URL` 与 `SUPABASE_DATABASE_URL` 必须是同一个 Supabase 项目**（2026-10-31，#2764）。两者是**独立配置**：前者供 GoTrue 签/验 token（决定 `claims.sub` 是谁签的），后者是 user 域真正落库的地方。指向不同项目时，登录验签通过、但 `sub` 在目标库里查不到 → JIT 建号把同一个人的账号复制到另一个库，于是**同一邮箱/用户名在同一个库里出现两行**（`resolve` 命中多行）。启动期由 `validate_supabase_project_alignment()`（`app/core/db_factory.py`，在 `create_app()` 里调用）比对两侧的 project ref，不一致直接 `RuntimeError`；只配一侧、或不是 Supabase 域名（Neon 灾备、本地 SQLite）时跳过。**判据只在两侧都抽得出 ref 时生效**——不要把它当成「必须配 Supabase」的强制校验。
 
 ## 6. 已识别的坑（设计阶段已规避，记录备查）
 

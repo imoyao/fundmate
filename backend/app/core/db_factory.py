@@ -318,6 +318,91 @@ def _normalize_db_url(url: str) -> tuple[str, Dict]:
     return url, extra_connect_args
 
 
+# ── Supabase 项目一致性自检（#2764）─────────────────────────────────────────
+#
+# Auth（GoTrue）与 user 域数据库是**两个独立环境变量**：`SUPABASE_URL` 决定 JWT
+# 验签用哪个项目的 JWKS，`SUPABASE_DATABASE_URL` 决定 users / ledgers 落在哪个项目。
+# 配成不同项目时系统**不会报任何错**——验签通过、写库也成功，只是「认证主体在这个
+# 项目、业务映射在另一个项目」：#2764 里「同一个邮箱两条 users 记录、跨项目混住」
+# 就是这么来的。前端侧已有两道守卫（入库 env 完整性 / dev 与 prod 的 ref 不得相同），
+# 后端此前一道都没有。这里补上：启动时比对两边的 project ref，不一致直接拒绝启动。
+
+
+def supabase_project_ref(url: str) -> Optional[str]:
+    """从 Supabase 的连接串 / 项目 URL 里抽出 project ref；抽不出返回 ``None``（不猜）。
+
+    三种真实形态（都在本仓出现过）：
+    - 项目 URL：``https://<ref>.supabase.co``（`SUPABASE_URL`，前端 VITE 同名变量）；
+    - 直连串：``postgresql://postgres:pwd@db.<ref>.supabase.co:5432/postgres``；
+    - pooler 串：``postgresql://postgres.<ref>:pwd@aws-1-xxx.pooler.supabase.com:5432/postgres``
+      —— host 里没有 ref，但用户名固定是 ``postgres.<ref>``。
+
+    非 Supabase 的 PG（Neon 灾备等）返回 ``None``：调用方据此跳过自检，而不是误报。
+    """
+    if not url:
+        return None
+    try:
+        parsed = make_url(url)
+    except Exception:  # noqa: BLE001 - 形态不认识就不判定，交给调用方降级
+        return None
+
+    host = (parsed.host or '').strip().lower()
+    username = (parsed.username or '').strip()
+
+    if host.endswith('.pooler.supabase.com'):
+        prefix = 'postgres.'
+        if username.startswith(prefix):
+            ref = username[len(prefix) :].strip()
+            return ref or None
+        return None
+
+    if not host.endswith(_SUPABASE_DIRECT_SUFFIX):
+        return None
+    label = host[: -len(_SUPABASE_DIRECT_SUFFIX)]
+    if label.startswith(_SUPABASE_DIRECT_PREFIX):
+        label = label[len(_SUPABASE_DIRECT_PREFIX) :]
+    return label or None
+
+
+def validate_supabase_project_alignment() -> Optional[str]:
+    """启动自检：``SUPABASE_URL``（Auth）与 ``SUPABASE_DATABASE_URL``（user 域库）必须同项目。
+
+    返回一致的 project ref（供日志）；两边不一致时抛 ``RuntimeError``（fail fast）。
+
+    刻意不判定的情况（返回 ``None``，不报错）：
+    - 只配了其中一个 —— 本地单库 / 只开 Auth 都属正常，没有可比对象；
+    - 有一侧不是 Supabase（Neon 灾备换连接串，见 db-data-domain.md §7）——
+      抽不出 ref 就不猜，只打一条 WARNING 说明「本次跳过」。
+    """
+    auth_url = (os.getenv('SUPABASE_URL') or '').strip()
+    db_url = (os.getenv('SUPABASE_DATABASE_URL') or '').strip()
+    if not auth_url or not db_url:
+        return None
+
+    auth_ref = supabase_project_ref(auth_url)
+    db_ref = supabase_project_ref(db_url)
+    if not auth_ref or not db_ref:
+        logger.warning(
+            'Supabase 项目一致性自检跳过：连接串里抽不出 project ref（auth={} db={}）；'
+            '若 user 域用的是 Neon 等非 Supabase PG，这是预期行为',
+            bool(auth_ref),
+            bool(db_ref),
+        )
+        return None
+
+    if auth_ref != db_ref:
+        raise RuntimeError(
+            'SUPABASE_URL 与 SUPABASE_DATABASE_URL 指向不同的 Supabase 项目：'
+            f'auth={auth_ref} / db={db_ref}。\n'
+            '这会让「认证主体」与「users 映射表」分居两个项目：登录能过、写库也成功，'
+            '但用户名解析会读到另一个项目的账号（#2764 的跨项目幽灵行就是这么来的）。'
+            '请把两者改成同一个项目，或确认这是你有意为之（改完再启动）。'
+        )
+
+    logger.info('Supabase 项目一致性自检通过：{}', auth_ref)
+    return auth_ref
+
+
 # SQLite(pysqlite) 专有的 connect_args：只有本地文件/内存库接受。
 # libSQL(Turso) 与 psycopg2 的 DBAPI 签名不接受 `timeout`，无条件注入会在建连时
 # TypeError（#1519）——见 _sqlite_connect_args 与 build() 的兜底闸门。

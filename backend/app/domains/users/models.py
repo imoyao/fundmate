@@ -7,7 +7,7 @@
 - `role`：admin 主理人 / member 成员 / viewer 只读。
 """
 
-from sqlalchemy import Column, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
@@ -39,6 +39,18 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     email = Column(String(200), nullable=True, comment='邮箱')
     role = Column(String(20), default=ROLE_MEMBER, comment='admin/member/viewer')
     is_active = Column(Integer, default=1, comment='是否启用（0 停用）')
+
+    # 登录标识（username）必须**大小写不敏感唯一**（D10 / #2764）。
+    #
+    # 为什么不能只靠应用层 409：`update_me` 与 `provision` 是两条写入路径，
+    # 任何一条漏判就会落下 `devyao` 与 `Devyao` 两行；而 `resolve_identifier`
+    # 按 `lower(username)` 匹配、取 id 最小那条，于是**后注册的人会把先注册的人
+    # 顶掉**（登录解析到别人的邮箱，原主从此用用户名登不进去）。
+    # 判据必须下沉到库：应用层判重只是「给人看的提示」，唯一索引才是兜底。
+    #
+    # 用表达式索引而非列级 `unique=True`：SQLite 与 Postgres 都支持
+    # `lower(col)` 索引；`username` 可空，两边都允许多个 NULL，不影响种子/测试用户。
+    __table_args__ = (Index('uq_users_username_lower', func.lower(username), unique=True),)
 
 
 class UserPreference(Base, PrimaryKeyMixin, TimestampMixin):

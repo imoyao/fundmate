@@ -4,19 +4,33 @@
 # File : views.py
 # 认证模块 API（退出登录统一入口）
 
-import os
-
-import requests
 from apiflask import APIBlueprint
 from flask import abort, g, request
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import func
 
+from app.core import supabase_admin
+from app.core.exceptions import ErrorCode, SBException
 from app.domains.families.models import Family
 from app.domains.users.models import ROLE_LABELS, User
 
 auth_bp = APIBlueprint('auth', __name__, url_prefix='/api/auth')
+
+#: `resolve` 的单来源限流（次 / 分钟 / 进程）。见 `app/core/ratelimit.py` 的能力边界说明。
+RESOLVE_RATE_LIMIT_PER_MINUTE = 20
+
+
+def _client_ip() -> str:
+    """取调用方 IP 作为限流键。
+
+    优先 `X-Forwarded-For` 第一跳：后端实际部署在反向代理（容器平台）后面时，
+    `remote_addr` 是**代理**的地址，全站共用一个桶会把正常用户一起卡死。
+    代价是伪造该头即可绕过限流——但绕过限流只是「枚举得更快」，不扩大数据暴露面，
+    比「所有人共享配额」可接受得多。若将来配了 `ProxyFix`，这里应改回 `remote_addr`。
+    """
+    forwarded = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    return forwarded or (request.remote_addr or 'unknown')
 
 
 class ResolveRequest(BaseModel):
@@ -36,10 +50,31 @@ def resolve_identifier():
     2. 否则按 `username`（不区分大小写）匹配；
     3. 仍无匹配 → 404，表示该标识不存在（不泄露任何邮箱信息）。
 
+    **歧义不静默**（#2764）：用户名命中多行时返回 409，而不是取 id 最小那条。
+    旧行为把「同一用户名指向两个账号」这件事藏了起来——被顶掉的那个人只会看到
+    「密码错误」，永远查不到原因。邮箱命中多行则按 id 最小解析并打 WARNING：
+    同一个邮箱无论取哪行，最终登录的都是同一个 Supabase 账号，不存在顶号。
+
+    大小写口径：邮箱与用户名都按 `lower()` 匹配。Supabase 侧邮箱一律小写，
+    本地可能留着注册时的原始大小写，按字面量比较会 404（同一份数据两种口径）。
+
     本接口免登录（PUBLIC_EXACT），因为登录前必须能调用它。
+
+    限流（#2764 遗留项）：按来源 IP 每分钟 20 次。免登录 + 返回规范邮箱，等于把
+    「用户名 ↔ 邮箱」映射开放给任何脚本枚举——不限流就是一条现成的采集通道。
+    超限返回 429（`RATE_LIMIT_EXCEEDED`），前端按「稍后再试」处理。
     """
+    from app.core import ratelimit  # 调用期解析，便于测试替换
     from app.core.database import get_db  # 延迟导入，与测试 monkeypatch 对齐
     from app.core.validation import parse_body
+
+    if not ratelimit.check(f'resolve:{_client_ip()}', limit=RESOLVE_RATE_LIMIT_PER_MINUTE):
+        logger.warning('resolve 限流触发：ip={}', _client_ip())
+        raise SBException(
+            code=ErrorCode.RATE_LIMIT_EXCEEDED.code,
+            message=ErrorCode.RATE_LIMIT_EXCEEDED.msg,
+            status_code=ErrorCode.RATE_LIMIT_EXCEEDED.http_status,
+        )
 
     data = parse_body(ResolveRequest)
     identifier = data.identifier.strip()
@@ -49,14 +84,25 @@ def resolve_identifier():
     is_email = '@' in identifier
     with get_db() as db:
         if is_email:
-            user = db.query(User).filter(User.email == identifier).order_by(User.id.asc()).first()
+            users = db.query(User).filter(func.lower(User.email) == identifier.lower()).order_by(User.id.asc()).all()
         else:
-            user = (
-                db.query(User).filter(func.lower(User.username) == identifier.lower()).order_by(User.id.asc()).first()
-            )
-        if user is None:
+            users = db.query(User).filter(func.lower(User.username) == identifier.lower()).order_by(User.id.asc()).all()
+        if not users:
             abort(404, description='未找到该邮箱或用户名，请检查后重试')
-        return {'data': {'email': user.email}, 'message': 'ok'}
+        if len(users) > 1 and not is_email:
+            logger.warning(
+                '登录标识歧义：username={} 命中 {} 行（id={}），拒绝解析（#2764）',
+                identifier,
+                len(users),
+                [u.id for u in users],
+            )
+            abort(409, description='该用户名对应多个账号，请改用邮箱登录')
+        if len(users) > 1:
+            logger.warning(
+                '同一邮箱命中多行（id={}），按 id 最小解析；建议清理跨项目幽灵行（#2764）',
+                [u.id for u in users],
+            )
+        return {'data': {'email': users[0].email}, 'message': 'ok'}
 
 
 @auth_bp.get('/me/', strict_slashes=False)
@@ -100,38 +146,16 @@ def logout():
     成功，由前端清理本地 token 完成退出。
 
     这样无论是否接入 Supabase 管理服务，退出链路都统一收敛到后端入口。
-    """
-    supabase_url = os.getenv('SUPABASE_URL')
-    service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
+    Admin API 调用已收口到 `app/core/supabase_admin.py`（#2764 遗留项）：凭证只在
+    该模块内出现，且「作废失败不阻断退出」的语义在那里统一实现。
+    """
     auth_header = request.headers.get('Authorization', '')
     user_token = ''
     if auth_header.lower().startswith('bearer '):
         user_token = auth_header[7:].strip()
 
-    if supabase_url and service_role_key and user_token:
-        try:
-            # 服务端作废指定会话，使用 service_role key（仅后端持有，不暴露给前端）
-            resp = requests.post(
-                f'{supabase_url.rstrip("/")}/auth/v1/logout',
-                headers={
-                    'apikey': service_role_key,
-                    'Authorization': f'Bearer {service_role_key}',
-                    'Content-Type': 'application/json',
-                },
-                json={'access_token': user_token},
-                timeout=10,
-            )
-            if resp.status_code >= 400:
-                logger.warning(
-                    'Supabase 服务端登出返回非预期状态码 {}: {}',
-                    resp.status_code,
-                    resp.text,
-                )
-        except Exception as e:  # noqa: BLE001
-            # 服务端作废失败不影响前端退出流程
-            logger.warning('调用 Supabase 服务端登出失败: {}', e)
-    else:
-        logger.debug('未配置 Supabase 服务端凭证，跳过服务端会话作废')
+    if user_token:
+        supabase_admin.revoke_session(user_token)
 
     return {'success': True, 'message': '已退出登录'}

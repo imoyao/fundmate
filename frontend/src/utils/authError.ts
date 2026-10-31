@@ -17,6 +17,14 @@
  *   4. 自带中文的 message 直接透传（如调用方自己 `throw new Error("未找到该用户名…")`）；
  *   5. 都不命中 → 通用中文兜底，**原始错误仍 console.warn**，避免修文案把线索修没了。
  *
+ * ## 后端信封（2026-10-31，#2764）
+ *
+ * 本模块吃的不只是 Supabase 的 `AuthError`，还包括**后端接口**经 axios 抛出的错误。
+ * 后者 `message` 是英文的 `Request failed with status code 404`，真正给人看的中文在
+ * `response.data.message`（统一信封 `{data, message, error_code}`）。故
+ * {@link normalizeAuthError} 优先取信封里的 message——否则 `POST /api/auth/resolve`
+ * 的 404（用户名不存在）会退化成「操作失败，请稍后再试」，用户拿不到任何有效信息。
+ *
  * 边界：本模块只管「文案」，不判断是否该重试、是否该跳转。
  */
 
@@ -94,11 +102,23 @@ export function normalizeAuthError(err: unknown): AuthErrorLike {
   if (!err) return {};
   if (typeof err === "string") return { message: err };
   if (typeof err === "object") {
-    const e = err as AuthErrorLike & { error_description?: string };
+    const e = err as AuthErrorLike & {
+      error_description?: string;
+      response?: { status?: number; data?: { message?: string } };
+    };
+    // 后端（axios 拦截器）抛的是 AxiosError：`message` 是英文的
+    // 「Request failed with status code 404」，真正给人看的中文在
+    // `response.data.message`（本仓统一信封 {data, message, error_code}）。
+    // 不读这一层的话，resolve 的 404 会一路掉到「操作失败，请稍后再试」——
+    // 用户输错用户名时得不到任何有效信息（#2764）。
+    const backendMessage =
+      typeof e.response?.data?.message === "string"
+        ? e.response.data.message
+        : "";
     return {
       code: typeof e.code === "string" ? e.code : undefined,
-      message: e.message || e.error_description || undefined,
-      status: typeof e.status === "number" ? e.status : undefined,
+      message: backendMessage || e.message || e.error_description || undefined,
+      status: typeof e.status === "number" ? e.status : e.response?.status,
       name: typeof e.name === "string" ? e.name : undefined
     };
   }

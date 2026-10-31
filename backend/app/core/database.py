@@ -53,6 +53,7 @@ from app.core.migrations import (
     migrate_positions_symbol_norm,
     migrate_transaction_fee_breakdown,
     migrate_transaction_plan_id,
+    migrate_users_username_unique_lower,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
@@ -668,6 +669,11 @@ def init_db():
     # 而列表卡片标题就是组合名。建**部分**唯一索引（只约束未删除行，软删除后可复用名字），
     # 存量重名按「保留最早一条、其余加（2）（3）」去冲突并打 WARNING 留痕。
     migrate_portfolios_unique_name(user_eng)
+    # 登录标识唯一（#2764）：users.username 建 lower(username) 唯一索引。此前只有
+    # update_me 的应用层 409（且区分大小写），而 resolve 按 lower() 匹配取 id 最小那条
+    # ⇒ 后注册的人能把先注册的人顶掉。存量重名时 fail closed（用户名是登录标识，
+    # 不静默改名），迁移函数里给出重名清单与修复方式。
+    migrate_users_username_unique_lower(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -783,6 +789,9 @@ def init_db_split():
         migrate_family_members_ownership(user_eng)
         # net_worth_cents 解除 NOT NULL（#2733 C）：与单库模式同口径，双库模式也必须改
         migrate_pnl_snapshot_net_worth_nullable(user_eng)
+        # 登录标识唯一（#2764）：与单库模式同口径。双库模式下 user 引擎可能真是
+        # Supabase PG，索引由本迁移补（create_all 只给新表建索引，不给存量表补）。
+        migrate_users_username_unique_lower(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
