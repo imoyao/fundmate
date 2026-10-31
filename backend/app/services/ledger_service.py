@@ -631,6 +631,11 @@ class LedgerService:
                     # 「显式指派」与「随账户继承」。``None`` = 未指派、归到本账户默认组合。
                     # 只增不改：本键缺失会让前端把「继承」误渲染成「未归属」。
                     'portfolio_id': p.portfolio_id,
+                    # 是否计入组合（D20 二期开口项 4）：类现金资产会被
+                    # `build_portfolio_holdings` 滤掉，该行即便改派也不会出现在组合里。
+                    # 判据与聚合层同一个函数——前端不许按 asset_type 自己判（那等于抄
+                    # 第二份 `EXCLUDED_ASSET_TYPES`）。本键缺失会让货基行的改派入口复活。
+                    'in_portfolio': not should_exclude_from_investment(p),
                     'position_ratio': ratio,  # 绝对为 float
                     'back_to_cost_rate': back,
                     'fund_category': None,

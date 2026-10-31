@@ -199,6 +199,101 @@ class TestHoldingsAssignmentMode:
         assert rows['GROWTH']['portfolio_id'] == growth.id, '账户持仓接口必须透出显式指派 id'
 
 
+class TestInPortfolioFlag:
+    """D20 二期开口项 4：持仓行必须下发 `in_portfolio`（货基/逆回购/现金不进组合）。
+
+    病根：盘点页给**所有**持仓行提供改派入口，但 `build_portfolio_holdings` 经
+    `should_exclude_from_investment` 把类现金资产滤掉 ⇒ 货基行改派成功、组合页永远
+    看不到。不报错、不丢数据，只是「改了没反应」——比崩溃更难排查。
+
+    前端**不能自己判**：判据是 `core/asset_types.EXCLUDED_ASSET_TYPES`，硬编码那三个
+    值等于抄第二份真相源（#1171 枚举一致性纪律）。故由后端下发，本类钉住三件事：
+    ① 类现金 → False；② 普通投资 → True；③ 显式覆盖 `count_as_investment=True` 的货基
+    → True（与聚合层同一个函数，不许两处判据打架）。
+    """
+
+    def test_money_fund_row_is_marked_out_of_portfolio(self, client, db, make_position):
+        """货基在盘点页仍可见（用户要看到这笔钱），但必须标成「不进组合」。"""
+        ledger = _ledger(db, '微众银行')
+        make_position(
+            ledger_id=ledger.id,
+            symbol='MONEYFUND',
+            name='银河水星现金添利',
+            asset_type='money_fund',
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+
+        resp = client.get('/api/positions/')
+        assert resp.status_code == 200, resp.get_json()
+        row = next(r for r in resp.get_json()['data'] if r['symbol'] == 'MONEYFUND')
+        assert row['in_portfolio'] is False, '货基必须下发 in_portfolio=False，前端据此禁用改派'
+
+    def test_regular_position_is_in_portfolio(self, client, db, make_position):
+        """普通投资品种必须是 True——否则所有持仓都会被标成「不进组合」。"""
+        ledger = _ledger(db, '微众银行')
+        make_position(
+            ledger_id=ledger.id,
+            symbol='BOND',
+            name='债基',
+            asset_type='bond',
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.1,
+        )
+
+        resp = client.get('/api/positions/')
+        assert resp.status_code == 200, resp.get_json()
+        row = next(r for r in resp.get_json()['data'] if r['symbol'] == 'BOND')
+        assert row['in_portfolio'] is True
+
+    def test_count_as_investment_override_flips_the_flag(self, client, db, make_position):
+        """`count_as_investment=True` 的货基：聚合层算投资，标记也必须跟着翻。
+
+        这一条防的是「两处各写一份判据」：若 `in_portfolio` 自己按 `asset_type` 判，
+        就会与 `should_exclude_from_investment` 的显式覆盖分支不一致——盘点页说
+        「不进组合」、组合页却真的能看到它，比原来的静默无效更让人懵。
+        """
+        ledger = _ledger(db, '微众银行')
+        make_position(
+            ledger_id=ledger.id,
+            symbol='MFCOUNT',
+            name='当作投资的货基',
+            asset_type='money_fund',
+            count_as_investment=True,
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+
+        resp = client.get('/api/positions/')
+        assert resp.status_code == 200, resp.get_json()
+        row = next(r for r in resp.get_json()['data'] if r['symbol'] == 'MFCOUNT')
+        assert row['in_portfolio'] is True, '显式覆盖为投资时，不得再标「不进组合」'
+
+    def test_ledger_positions_also_carry_the_flag(self, client, db, make_position):
+        """账户详情页持仓表是另一条序列化路径，同样要带 `in_portfolio`。
+
+        漏了不会报错：那一页的「所属组合」列会退回「—」，用户以为货基也能改派。
+        """
+        ledger = _ledger(db, '微众银行')
+        make_position(
+            ledger_id=ledger.id,
+            symbol='MONEYFUND',
+            name='银河水星现金添利',
+            asset_type='money_fund',
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/positions/')
+        assert resp.status_code == 200, resp.get_json()
+        row = next(r for r in resp.get_json()['data']['items'] if r['symbol'] == 'MONEYFUND')
+        assert row['in_portfolio'] is False
+
+
 class TestPortfolioXirrByPosition:
     """A1：组合收益按持仓归因，不再按账户批量吸走。"""
 
