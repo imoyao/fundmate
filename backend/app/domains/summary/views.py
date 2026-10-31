@@ -310,10 +310,7 @@ def cleared_cycles():
     `start_date` / `end_date`（#2774）按**末卖日**裁剪，缺省 = 投资以来；格式错 400
     而不是静默当成「不过滤」——静默降级会让用户以为筛选生效了。
 
-    `include_post_clear`（#2773）开启后每个周期多两个字段：`post_clear_pct` 与
-    `post_clear_status`。默认关闭：它要额外查 `daily_worth`（锚点 + 最新净值），
-    对不需要该指标的调用方是纯开销。算不出时 `post_clear_pct` 为 None **而不是 0**，
-    原因见状态码（`services/analytics/cleared_cycles.py`）。
+    `include_post_clear`（#2773）口径与四个状态码见 services/analytics/cleared_cycles.py。
     """
     try:
         ledger_id = request.args.get('ledger_id', type=int)
