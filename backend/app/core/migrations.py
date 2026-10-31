@@ -1957,6 +1957,158 @@ def migrate_transaction_fee_breakdown(engine: Engine) -> str:
     return '[SKIP] transactions 费用拆分四列已存在'
 
 
+def _backfill_transaction_asset_type(conn, engine: Engine) -> tuple[int, int]:
+    """按**确定性判据**回填 ``transactions.asset_type``，返回 (已回填行数, 无法判定行数)。
+
+    为什么必须先补 asset_type：``symbol_identity`` 靠 ``asset_type`` 判 venue（见
+    ``core/venues``）。``asset_type`` 为 NULL 时身份退化成 ``NO_VENUE:{字面量}``，
+    与持仓侧的 ``OTC:001937`` / ``EXCHANGE:SZ000638`` 永不相等 —— 于是同标的跨表
+    匹配必然落空。光加 ``symbol_norm`` 列而不补这一列，等于把坏身份写进新列。
+
+    判据按可靠性排序，**全部是查询事实，不做代码段推断**：
+
+    1. ``position_id`` 可关联到持仓 → 取 ``positions.type``（同一笔交易自己的持仓类型，
+       最强信号）；
+    2. 否则裸码在 ``funds`` 名录命中，**且**流水 ``position_name`` 快照与名录名一致
+       → 按 ``fund_types.name == '货币型'`` 判 ``money_fund`` / 其余 ``fund``。
+
+    第 2 条的「名称必须一致」不是多余的保险，是本卡最硬的一条：``000638`` 在场外基金是
+    「富国富钱包货币A」、在深市证券是「*ST万方」。只看代码段，无论判成哪边都会错一半；
+    而 ``position_name`` 是交易发生时的快照，它是唯一能区分「这串数字当时指谁」的字段。
+
+    判不出来的**保持 NULL 并计数返回**，由调用方告警 —— 宁可留空让审计暴露，也不猜。
+    """
+    from app.core.symbol_utils import strip_exchange_prefix
+
+    rows = conn.execute(
+        text('SELECT id, symbol, position_name, position_id FROM transactions WHERE asset_type IS NULL')
+    ).fetchall()
+    targets = [r for r in rows if (r[1] or '').strip()]
+    if not targets:
+        return 0, 0
+
+    pos_types: dict[int, str] = {}
+    if _table_exists(engine, 'positions'):
+        # 只取需要的那批 id，避免把整张持仓表读进内存（PG 上尤其）
+        for pid, ptype in conn.execute(text('SELECT id, type FROM positions')).fetchall():
+            if ptype:
+                pos_types[pid] = ptype
+
+    fund_names: dict[str, tuple[str, bool]] = {}
+    if _table_exists(engine, 'funds'):
+        # funds 主键即裸 6 位码；fund_type 名称取自 fund_types（'货币型' → money_fund）
+        for code, fname, tname in conn.execute(
+            text(
+                'SELECT f.fund_code, f.name, ft.name FROM funds f '
+                'LEFT JOIN fund_types ft ON ft.id = f.fund_type_id'
+            )
+        ).fetchall():
+            fund_names[code] = (fname, tname == '货币型')
+
+    filled = 0
+    unresolved = 0
+    for tid, sym, name, pid in targets:
+        atype = pos_types.get(pid) if pid else None
+        if not atype:
+            code = strip_exchange_prefix(sym)
+            hit = fund_names.get(code)
+            if hit and name and hit[0] == name:
+                atype = 'money_fund' if hit[1] else 'fund'
+        if not atype:
+            unresolved += 1
+            continue
+        conn.execute(text('UPDATE transactions SET asset_type = :a WHERE id = :i'), {'a': atype, 'i': tid})
+        filled += 1
+    return filled, unresolved
+
+
+def migrate_transactions_symbol_norm(engine: Engine) -> str:
+    """transactions 补归一身份列 `symbol_norm` + 回填 `asset_type`（#1662 遗留项）。
+
+    ## 为什么流水表被漏掉了
+
+    #1662 的结论是「唯一约束挂在**身份**而非字面量」，实现（#1677 / PR #1680）只落在
+    `positions`：加 `symbol_norm` 列、`uq_positions_ledger_symbol_norm`、 mapper 事件回填。
+    `transactions` 当时没有同步 —— 而流水侧的读法普遍是
+    `Transaction.symbol == position.symbol`（**字面量等值**），一旦两侧形态不同就漏算。
+
+    本机实测（投资库 1512 条流水）：
+
+    - 持仓侧 `011341` / `016462` 已被 #1677 收敛成裸码，**流水侧仍是 `SZ011341` / `SZ016462`**；
+    - 同类污染共 51 条（`SZ000638`×24、`SZ001937`×13、`SZ003474`×11、`SZ011341`×2、`SZ016462`×1），
+      经 `funds` 名录逐条核对，全部是场外基金/货基被套上了深交所前缀；
+    - `asset_type` 为 NULL 且有 symbol 的流水 190 条，其中 153 条靠 position 关联、
+      37 条靠名录+名称一致，**无一需要推断**。
+
+    ## 为什么不改 `symbol` 字面量
+
+    `symbol` 是**交易发生时的快照**，改它等于改写历史。而且真正需要修的读侧匹配只要有一个
+    共同身份键即可 —— 改字面量是「把历史改成看起来对」，加列是「让读法对」。
+
+    ## 为什么不建唯一索引
+
+    `positions` 的场景是「同账户同标的只能有一行」，流水恰恰相反：同一标的天经地义有多笔。
+    唯一化会把第二笔买入打回。故本列仅作查询键，导入幂等仍由 `uq_txn_import_hash` 负责。
+    （`symbol` 上保留既有的 `idx_txn_symbol`，本列同样只加普通索引用不着 —— 查询走
+    `position_id` 或 `ledger_id` 组合已有索引，故不新增索引，避免无用的写入放大。）
+
+    幂等：列已存在则跳过加列；`asset_type` / `symbol_norm` 均只补空值，二次运行 `[SKIP]`。
+    """
+    if not _table_exists(engine, 'transactions'):
+        return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
+
+    from app.core.symbol_utils import symbol_identity
+
+    is_pg = _is_postgres(engine)
+    actions: list[str] = []
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('transactions')}
+        if 'symbol_norm' not in existing:
+            # NOT NULL 带常量默认值，两种引擎都能直接 ADD COLUMN；空串只是过渡态，
+            # 紧随其后的回填会逐行写真实身份。
+            conn.execute(
+                text(_add_column_sql('transactions', 'symbol_norm', "VARCHAR(64) NOT NULL DEFAULT ''", is_pg))
+            )
+            actions.append('加列 symbol_norm')
+        conn.commit()
+
+        # 先补 asset_type —— 它是 symbol_identity 判 venue 的唯一依据，顺序不能反。
+        filled, unresolved = _backfill_transaction_asset_type(conn, engine)
+        if filled:
+            actions.append(f'回填 asset_type {filled} 行')
+        conn.commit()
+
+        rows = conn.execute(text('SELECT id, symbol, asset_type, symbol_norm FROM transactions')).fetchall()
+        # 比对**期望值**而非「是否为空」：symbol 为 NULL 的现金流水期望值就是 ''（列默认值），
+        # 按空值判断会让这 551 行每次都被重算一遍、迁移永远报「回填 551 行」而不幂等。
+        pending = []
+        for rid, sym, atype, norm in rows:
+            expected = symbol_identity(sym, atype)
+            if (norm or '') != expected:
+                pending.append((rid, expected))
+        for rid, expected in pending:
+            conn.execute(
+                text('UPDATE transactions SET symbol_norm = :n WHERE id = :i'),
+                {'n': expected, 'i': rid},
+            )
+        if pending:
+            actions.append(f'回填 symbol_norm {len(pending)} 行')
+        conn.commit()
+
+    if unresolved:
+        # 不抛错阻断启动（流水不像持仓那样有唯一约束要建），但必须出声：
+        # 这些行的 symbol_norm 是 NO_VENUE 降级形态，读侧匹配仍会漏。
+        logger.warning(
+            f'[WARN] transactions.asset_type 有 {unresolved} 行无法按确定性判据回填，'
+            '其 symbol_norm 为 NO_VENUE 降级形态（读侧跨表匹配会漏算），需人工确认'
+        )
+
+    if actions:
+        logger.info(f'[OK] transactions.symbol_norm 迁移完成：{"、".join(actions)}')
+        return f'[OK] {"、".join(actions)}' + (f'；{unresolved} 行 asset_type 待人工确认' if unresolved else '')
+    return '[SKIP] transactions.symbol_norm 列与回填均已就绪'
+
+
 def migrate_transaction_plan_id(engine: Engine) -> str:
     """transactions 补 ``plan_id``（#2138）：把一笔买入归到产生它的定投计划。
 

@@ -53,6 +53,7 @@ from app.core.migrations import (
     migrate_positions_symbol_norm,
     migrate_transaction_fee_breakdown,
     migrate_transaction_plan_id,
+    migrate_transactions_symbol_norm,
     migrate_users_username_unique_lower,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
@@ -652,6 +653,10 @@ def init_db():
     migrate_transaction_fee_breakdown(user_eng)
     # transactions.plan_id（#2138）：定投计划与流水的关联列 + 索引，同上须先于结构校验
     migrate_transaction_plan_id(user_eng)
+    # transactions.symbol_norm 归一身份列 + asset_type 回填（#1662 遗留项）：#1677 只给
+    # positions 做了这件事，流水侧被漏掉，导致 `SZ001937` 与 `001937` 各算各的。
+    # 与 positions 同因同法，须先于结构校验（模型已加列，库表不同步会拒绝启动）。
+    migrate_transactions_symbol_norm(user_eng)
     # watchlist 三表补模型列（#2469）：生产 user 域（Supabase Postgres）上的
     # watchlist_groups / watchlist_item_tags 是旧结构，缺列会让 _validate_schema
     # 判「库结构与模型不一致」并**拒绝启动** → 每日调度（#1490）全线停摆。
@@ -782,6 +787,8 @@ def init_db_split():
         migrate_transaction_fee_breakdown(user_eng)
         # transactions.plan_id（#2138）：与单库模式同口径，双库模式也必须补
         migrate_transaction_plan_id(user_eng)
+        # transactions.symbol_norm + asset_type 回填（#1662 遗留项）：与单库模式同口径
+        migrate_transactions_symbol_norm(user_eng)
         # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
         # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
         migrate_watchlist_user_domain_columns(user_eng)

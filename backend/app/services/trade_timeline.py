@@ -57,15 +57,11 @@ from __future__ import annotations
 import datetime as dt
 from typing import Dict, List, Optional
 
-from sqlalchemy import String, cast, func
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
-from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
-from app.services.symbol_scope import (
-    collect_transaction_symbol_variants,
-    query_positions_by_symbol,
-)
+from app.services.symbol_scope import build_transaction_symbol_conditions
 
 # 参与成本重放但**不作为买卖点**展示的类型：转入 / 取出 / 红利再投 改变份额与成本，
 # 却不是用户的买卖决策（#2171 定稿：叠加层只画 buy/sell 决策点）。
@@ -177,14 +173,13 @@ def build_trade_timeline(
     if not code:
         raise ValueError('缺少 symbol 参数')
 
-    # 两步读（数据策略 §3）：先用持仓侧拿真实 symbol 写法，再对交易表做 IN。
+    # 身份键匹配（#1662 遗留项）：原先走「两步读」——先用持仓侧拿真实写法、再对交易表 IN。
+    # 该前提是「持仓与流水写法一致」，而实测持仓 `001937`、流水 `SZ001937`，`IN` 一条也命中
+    # 不了，正是「历轮买卖」薄数据的成因。现两侧都有符号身份，直接在同一口径上判定。
     # 不过滤 quantity——清仓行的流水同样是重放对象（#2171「历轮买卖」）。
-    positions: List[Position] = query_positions_by_symbol(db, code, family_id)
-    variants = collect_transaction_symbol_variants(code, positions)
-
     query = db.query(Transaction).filter(
         Transaction.family_id == family_id,
-        Transaction.symbol.in_(sorted(variants)),
+        or_(*build_transaction_symbol_conditions(code)),
     )
     if ledger_id is not None:
         query = query.filter(Transaction.ledger_id == ledger_id)

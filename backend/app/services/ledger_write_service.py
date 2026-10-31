@@ -21,7 +21,7 @@ import json
 from datetime import datetime
 
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.money import Money
 from app.domains.assets.models import Asset
@@ -41,6 +41,7 @@ from app.services.family_member_service import (
 )
 from app.services.fund_service import FundService
 from app.services.position_service import PositionService
+from app.services.symbol_scope import build_transaction_symbol_conditions
 from app.services.trading import TransactionService
 
 
@@ -164,7 +165,9 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
             Transaction.ledger_id == ledger.id,
             Transaction.family_id == family_id,
             Transaction.asset_type == 'money_fund',
-            Transaction.symbol == old_fund.fund_code,
+            # 身份键匹配（#1662 遗留项）：货基流水的 symbol 快照可能是带前缀形态，
+            # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
+            or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
             Transaction.position_id.is_(None),
             Transaction.txn_type.in_(('buy', 'deposit')),
         )
@@ -177,7 +180,9 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
             Transaction.ledger_id == ledger.id,
             Transaction.family_id == family_id,
             Transaction.asset_type == 'money_fund',
-            Transaction.symbol == old_fund.fund_code,
+            # 身份键匹配（#1662 遗留项）：货基流水的 symbol 快照可能是带前缀形态，
+            # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
+            or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
             Transaction.position_id.is_(None),
             Transaction.txn_type.in_(('sell', 'withdraw')),
         )

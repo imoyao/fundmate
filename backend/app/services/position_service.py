@@ -52,7 +52,7 @@ from app.services.institution_resolver import resolve_sales_institution_id
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_scope import active_holdings
-from app.services.symbol_scope import build_position_symbol_conditions
+from app.services.symbol_scope import build_position_symbol_conditions, build_transaction_symbol_conditions
 from app.services.trading import TransactionService, validate_buy, validate_sell
 from app.services.transaction_service import order_by_effective_day
 from app.services.watchlist_service import (
@@ -256,7 +256,9 @@ def query_transactions_by_identity(db: Session, position: Position):
     ``scripts/check_view_thickness.py`` 会按行数拦截视图层变厚。同一段兜底过滤在
     ``get_position_transactions`` 与 ``delete_position`` 两处都需要，下沉后一处定义、两处复用。
     """
-    query = db.query(Transaction).filter(Transaction.symbol == position.symbol)
+    # 匹配口径走 symbol_scope（#1662 遗留项）：此前是字面量 `Transaction.symbol == position.symbol`，
+    # 而流水快照与持仓写法可以不同（实测流水 `SZ001937`、持仓 `001937`），字面量等值会漏掉整批流水。
+    query = db.query(Transaction).filter(or_(*build_transaction_symbol_conditions(position.symbol)))
     if position.ledger_id is not None:
         return query.filter(Transaction.ledger_id == position.ledger_id)
     return query.filter(Transaction.ledger_id.is_(None))
