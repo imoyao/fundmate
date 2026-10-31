@@ -120,6 +120,7 @@ import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
 import PortfolioAssignCell from "./PortfolioAssignCell.vue";
+import type { PortfolioAssignment } from "../portfolioAssignModel";
 import {
   confirmedPnl,
   type PositionValuation
@@ -146,11 +147,12 @@ defineProps<{
   /**
    * 归属解析（页面数据层注入，D20 继承语义的唯一前端实现）。
    * 表格与单元格都不自行推导——复制一份「显式压过继承」的规则必然与服务端漂移。
+   *
+   * 返回类型直接引用 `portfolioAssignModel.PortfolioAssignment`（而不是在props里
+   * 再抄一遍 mode 的字面量联合）：D20 二期开口项 4 新增 `excluded` 时，抄一份的写法
+   * 会让表格与纯函数各说一套，且 TS 不会报错——只会渲染成「有归属」的样子。
    */
-  resolvePortfolio: (row: Position) => {
-    mode: "explicit" | "inherited" | "none" | "unknown";
-    labelText: string | null;
-  };
+  resolvePortfolio: (row: Position) => PortfolioAssignment;
 }>();
 
 const emit = defineEmits<{

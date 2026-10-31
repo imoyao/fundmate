@@ -98,6 +98,59 @@ describe("resolvePortfolioOf（归属四态）", () => {
   });
 });
 
+describe("resolvePortfolioOf（不进组合 · D20 二期开口项 4）", () => {
+  /**
+   * 这组钉的是「能不能归」压过「归到哪」：`in_portfolio === false` 的品种
+   * （货基 / 逆回购 / 现金）在盘点页照样有一行，但 `build_portfolio_holdings`
+   * 会把它们滤掉——改派成功后组合页永远看不到，是静默无效的交互。
+   */
+  it("后端说 in_portfolio=false 时一律渲染成 excluded，不管有没有显式指派", () => {
+    // 即便 portfolio_id 有值（历史数据 / 用户先改派再被标记），也不展示组合名：
+    // 显示「固收+」会让用户以为它真的在固收+里
+    const result = resolvePortfolioOf(
+      { portfolio_id: 5, ledger_id: 11, in_portfolio: false },
+      lookup
+    );
+    expect(result).toEqual({ mode: "excluded", labelText: null });
+  });
+
+  it("in_portfolio=false 且未指派时不得退化成继承态", () => {
+    // 退化成 inherited 会显示「固收+ 随账户」，与「不进组合」直接矛盾
+    const result = resolvePortfolioOf(
+      { portfolio_id: null, ledger_id: 11, in_portfolio: false },
+      lookup
+    );
+    expect(result.mode).toBe("excluded");
+    expect(result.mode).not.toBe("inherited");
+  });
+
+  it("in_portfolio=true 走原有归属判断，四态不变", () => {
+    expect(
+      resolvePortfolioOf(
+        { portfolio_id: 5, ledger_id: 11, in_portfolio: true },
+        lookup
+      )
+    ).toEqual({ mode: "explicit", labelText: "成长策略" });
+    expect(
+      resolvePortfolioOf(
+        { portfolio_id: null, ledger_id: 11, in_portfolio: true },
+        lookup
+      )
+    ).toEqual({ mode: "inherited", labelText: "固收+" });
+  });
+
+  it("字段缺失不等于不进组合", () => {
+    // 旧缓存 / 未升级接口的行没有该字段。把 undefined 当 false 会让**所有**持仓
+    // 都渲染成「— 不进组合」，改派入口全灭——这是本卡最容易写出的反向 bug
+    const result = resolvePortfolioOf(
+      { portfolio_id: 5, ledger_id: 11 },
+      lookup
+    );
+    expect(result.mode).toBe("explicit");
+    expect(result.mode).not.toBe("excluded");
+  });
+});
+
 describe("isInheritedFromLedger", () => {
   it("null 才是继承态", () => {
     expect(isInheritedFromLedger({ portfolio_id: null })).toBe(true);

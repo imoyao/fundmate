@@ -11,6 +11,10 @@
  * 故本单元格的核心职责**不是显示组合名，而是显示归属方式**：
  * 显式指派（实心点 + 常规字色）vs 账户继承（灰点 + 常规字色 + 「随账户」标签）。
  *
+ * 第四种渲染是「— 不进组合」（`mode === 'excluded'`）：货基 / 逆回购 / 现金会被后端
+ * `should_exclude_from_investment` 从组合持仓里滤掉，改派了也永远不生效。这一格
+ * **不提供可点入口**——判断依据由后端 `in_portfolio` 下发，本组件不认品种、不抄常量。
+ *
  * ## 纯展示 + 事件（与父表格同一纪律）
  * 本组件不发请求：改派由页面数据层 `useInventoryData.reassignPosition` 执行。
  * 归属解析（`ledger_id` → 账户默认组合 → 组合名）也**不在本组件做**——
@@ -68,9 +72,11 @@ const props = defineProps<{
    * - `inherited`：未指派，按账户默认组合归属；
    * - `none`：既未指派、账户也没有默认组合 → 不属于任何组合；
    * - `unknown`：响应里没有 `portfolio_id` 字段（接口未升级），**不能当成「继承」渲染**，
-   *   否则会把「不知道」谎报成「随账户」。
+   *   否则会把「不知道」谎报成「随账户」；
+   * - `excluded`：该品种不计入组合（货基 / 逆回购 / 现金），改派不会生效 →
+   *   渲染成「— 不进组合」并**关掉改派入口**（D20 二期开口项 4）。
    */
-  mode: "explicit" | "inherited" | "none" | "unknown";
+  mode: "explicit" | "inherited" | "none" | "unknown" | "excluded";
   /** 当前归属的组合名（`explicit` / `inherited` 时有值） */
   labelText: string | null;
 }>();
@@ -98,6 +104,16 @@ const triggerLabel = computed(() => {
     : "当前未归入任何组合";
   return `改派组合：${who}，${where}`;
 });
+
+/**
+ * 「不进组合」的说明文案（挂在 title 上）。
+ *
+ * 必须说清**为什么**没有改派入口，而不是只写「不可改派」：用户看到货基这一格
+ * 与其他行不一样，第一反应就是「是不是坏了」。把原因（类现金资产不计入组合）
+ * 和结论（改派也不会出现在组合里）一起给出，才不会退化成一条待排查的疑点。
+ */
+const excludedHint =
+  "类现金资产（货币基金 / 逆回购 / 现金）不计入投资组合，无需也无法改派";
 
 /**
  * 点击「当前已选中的那一项」。
@@ -138,9 +154,21 @@ function onPick(value: string | number | boolean) {
     trigger="click"
     placement="bottom-start"
     :width="292"
+    :disabled="mode === 'excluded'"
   >
     <template #reference>
+      <!-- 不进组合（D20 二期开口项 4）：渲染成纯文本而非按钮——这是个不可交互的
+           结论，给个能点开浮层的按钮等于邀请用户去点，点了改派也不会在组合页出现。
+           `title` 承载原因，`aria-label` 不必再写（没有可执行的动作用一句话描述）。 -->
+      <span
+        v-if="mode === 'excluded'"
+        class="own own-muted"
+        :title="excludedHint"
+      >
+        — 不进组合
+      </span>
       <button
+        v-else
         type="button"
         class="own-btn"
         :aria-label="triggerLabel"
