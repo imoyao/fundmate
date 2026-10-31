@@ -75,9 +75,9 @@ test("激活标签的文字清晰可读（对比度 ≥ 4.5:1）", async ({
 }) => {
   await injectSupabaseSession(context, baseURL!);
   await page.goto("/#/welcome");
-  await expect(page.locator(".scroll-container .scroll-item").first()).toBeVisible(
-    { timeout: 30_000 }
-  );
+  await expect(
+    page.locator(".scroll-container .scroll-item").first()
+  ).toBeVisible({ timeout: 30_000 });
 
   // 多走几页，确保「当前页」换过（缺陷的表现就是空白跟着当前页跑）
   for (const p of ["/asset/position-analysis", "/asset/strategies"]) {
