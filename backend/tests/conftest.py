@@ -278,6 +278,11 @@ def clean_db(app):
     也可能落在被重定向到无表内存库的引擎上（部分 DB 内部单测），避免 NoSuchTableError；
     若引擎被重定向为非连接对象（如单测用 sentinel），跳过清理。
     """
+    # 限流计数是**进程级**状态，不随库清空而重置：`/api/auth/resolve/` 每个用例都打
+    # 同一个来源 IP，累计到阈值会让后续用例莫名 429（顺序依赖的 flaky）。每个用例前清空。
+    from app.core import ratelimit
+
+    ratelimit.reset_all()
     yield
     from sqlalchemy import inspect
 

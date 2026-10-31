@@ -564,3 +564,201 @@ def test_update_me_clean_username_allowed(client, db):
     resp = client.patch('/api/users/me', json={'username': 'trade_master2026'})
     assert resp.status_code == 200
     assert resp.get_json()['data']['username'] == 'trade_master2026'
+
+
+# ────────────────────── 用户名唯一性（#2764：大小写口径 / 歧义 / 建号撞名） ──────────────────────
+
+
+def test_username_unique_index_blocks_case_variant(db):
+    """库里必须有 lower(username) 唯一索引：`Devyao` 不能与 `devyao` 并存。
+
+    这是「应用层 409」之外的兜底——`provision` 与 `update_me` 是两条写入路径，
+    任何一条漏判都会落下同名两行，而 resolve 按 lower() 取 id 最小那条 ⇒ 顶号。
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    _create_user(db, username='devyao', email='first@example.com')
+    with pytest.raises(IntegrityError):
+        _create_user(db, username='Devyao', email='second@example.com')
+    db.rollback()
+
+
+def test_update_me_username_conflict_case_insensitive(client, db):
+    """改名校验与登录解析同口径：大小写变体也算占用。
+
+    旧实现按字面量比较（`User.username == new`），于是把名字改成 `TakenName` 的
+    大小写变体可以绕过 409，落库后与 `takenname` 共用同一个登录标识。
+    """
+    _create_user(db, username='TakenName', email='taken@example.com')
+    _create_user(db, username='me_user', email='me@example.com')
+
+    resp = client.patch('/api/users/me', json={'username': 'takenname'})
+    assert resp.status_code == 409
+
+
+def test_resolve_username_ambiguous_returns_409(client, db):
+    """存量重名（唯一索引建立之前的历史数据）不得静默取 id 最小那条。
+
+    造数据要先摘掉唯一索引——否则插不进第二行。这正是「迁移前的老库」形态：
+    索引缺失时重名是可能的，解析就必须显式暴露，而不是把一个人导向另一个账号。
+    """
+    from sqlalchemy import text
+
+    db.execute(text('DROP INDEX IF EXISTS uq_users_username_lower'))
+    db.commit()
+    _create_user(db, username='legacy', email='old@example.com')
+    _create_user(db, username='Legacy', email='new@example.com')
+
+    resp = client.post('/api/auth/resolve', json={'identifier': 'legacy'})
+    assert resp.status_code == 409
+    assert '多个账号' in resp.get_json()['message']
+
+
+def test_provision_username_collision_gets_suffix(client, db, supabase_jwks):
+    """JIT 建号撞上已有用户名时追加后缀，而不是落成同名两行（更不能 500）。"""
+    make_token = supabase_jwks
+
+    from app.core.database import SessionLocal
+    from app.domains.users.models import User
+
+    _create_user(db, username='collide', email='first@example.com')
+
+    token = make_token({'sub': 'sub-collide', 'email': 'collide@example.com', 'exp': 9999999999})
+    resp = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['username'] == 'collide_2'
+
+    with SessionLocal() as s:
+        assert s.query(User).filter_by(supabase_id='sub-collide').first().username == 'collide_2'
+
+
+def test_x_user_id_bypass_rejected_outside_development(client, db, monkeypatch):
+    """`X-User-Id` 等价于免密指定身份，production / staging 必须忽略（#2764 评审）。
+
+    此前该旁路没有任何环境判断：线上任何人带 `X-User-Id: 1` 就是主理人。
+    """
+    monkeypatch.setenv('AUTH_ENABLED', 'true')
+    monkeypatch.setenv('APP_ENV', 'production')
+
+    resp = client.get('/api/auth/me', headers={'X-User-Id': '1'})
+    assert resp.status_code == 401
+
+
+# ──────────────── 遗留项（#2764）：resolve 限流 / 改名同步 GoTrue / logout 收口 ────────────────
+
+
+def test_resolve_rate_limited_per_ip(client, db):
+    """匿名 resolve 必须限流：否则「用户名 → 邮箱」可被脚本批量枚举（#2764 遗留项）。
+
+    阈值 20 次/分钟/来源：前 20 次正常解析，第 21 次 429 且 error_code=3005
+    （前端据此提示「稍后再试」，而不是当成「用户不存在」）。
+    """
+    from app.domains.auth.views import RESOLVE_RATE_LIMIT_PER_MINUTE
+
+    _create_user(db, username='ratelimit_user', email='rl@example.com')
+
+    codes = []
+    last = None
+    for _ in range(RESOLVE_RATE_LIMIT_PER_MINUTE + 1):
+        last = client.post('/api/auth/resolve', json={'identifier': 'ratelimit_user'})
+        codes.append(last.status_code)
+
+    assert codes[:RESOLVE_RATE_LIMIT_PER_MINUTE] == [200] * RESOLVE_RATE_LIMIT_PER_MINUTE
+    assert codes[-1] == 429
+    assert last.get_json()['error_code'] == 3005
+
+
+def test_resolve_rate_limit_is_per_source(client, db, monkeypatch):
+    """限流按来源分桶：一个 IP 打满不应牵连另一个 IP（否则反向代理后会全站误伤）。"""
+    from app.domains.auth.views import RESOLVE_RATE_LIMIT_PER_MINUTE
+
+    _create_user(db, username='per_ip_user', email='perip@example.com')
+
+    for _ in range(RESOLVE_RATE_LIMIT_PER_MINUTE):
+        client.post(
+            '/api/auth/resolve',
+            json={'identifier': 'per_ip_user'},
+            headers={'X-Forwarded-For': '203.0.113.7'},
+        )
+    blocked = client.post(
+        '/api/auth/resolve',
+        json={'identifier': 'per_ip_user'},
+        headers={'X-Forwarded-For': '203.0.113.7'},
+    )
+    assert blocked.status_code == 429
+
+    other = client.post(
+        '/api/auth/resolve',
+        json={'identifier': 'per_ip_user'},
+        headers={'X-Forwarded-For': '198.51.100.9'},
+    )
+    assert other.status_code == 200
+
+
+def test_update_me_syncs_username_to_gotrue_metadata(client, db, monkeypatch):
+    """改名成功后把新 username 写回 GoTrue `user_metadata`（#2764 遗留项）。
+
+    不同步的后果：注册时写进 metadata 的旧名一直留在 token 里，新设备 JIT 建号会
+    拿旧名建行，与本地权威值不一致。
+    """
+    calls = []
+
+    def _fake_sync(supabase_id, metadata, **_kw):
+        calls.append((supabase_id, metadata))
+        return True
+
+    monkeypatch.setattr('app.core.supabase_admin.update_user_metadata', _fake_sync)
+    _create_user(db, username='sync_user', email='sync@example.com')
+
+    resp = client.patch('/api/users/me', json={'username': 'sync_user_renamed'})
+    assert resp.status_code == 200
+    assert len(calls) == 1
+    assert calls[0][1] == {'username': 'sync_user_renamed'}
+
+
+def test_update_me_nickname_only_skips_metadata_sync(client, db, monkeypatch):
+    """只改昵称/头像不碰 GoTrue——没改名就没必要多打一次外部请求。"""
+    calls = []
+    monkeypatch.setattr(
+        'app.core.supabase_admin.update_user_metadata',
+        lambda supabase_id, metadata, **_kw: calls.append((supabase_id, metadata)) or True,
+    )
+
+    resp = client.patch('/api/users/me', json={'nickname': '新昵称'})
+    assert resp.status_code == 200
+    assert calls == []
+
+
+def test_update_me_succeeds_when_metadata_sync_fails(client, db, monkeypatch):
+    """GoTrue 同步失败不得让改名失败：本地 `users` 才是权威（失败语义见 supabase_admin）。"""
+    monkeypatch.setattr('app.core.supabase_admin.update_user_metadata', lambda *a, **k: False)
+
+    resp = client.patch('/api/users/me', json={'username': 'sync_fail_user'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['username'] == 'sync_fail_user'
+
+
+def test_logout_delegates_to_admin_helper(client, monkeypatch):
+    """退出登录的服务端作废收口到 `supabase_admin.revoke_session`（凭证只在该模块出现）。"""
+    seen = []
+    monkeypatch.setattr(
+        'app.core.supabase_admin.revoke_session',
+        lambda token, **_kw: seen.append(token) or True,
+    )
+
+    resp = client.post('/api/auth/logout', headers={'Authorization': 'Bearer abc.def.ghi'})
+    assert resp.status_code == 200
+    assert seen == ['abc.def.ghi']
+
+
+def test_logout_without_token_still_succeeds(client, monkeypatch):
+    """没带 token 时不该去调 Admin API，也不该失败（前端清本地会话即可）。"""
+    seen = []
+    monkeypatch.setattr(
+        'app.core.supabase_admin.revoke_session',
+        lambda token, **_kw: seen.append(token) or True,
+    )
+
+    resp = client.post('/api/auth/logout')
+    assert resp.status_code == 200
+    assert seen == []

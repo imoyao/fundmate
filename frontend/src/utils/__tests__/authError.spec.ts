@@ -113,3 +113,43 @@ describe("normalizeAuthError", () => {
     ).toBe("Invalid login credentials");
   });
 });
+
+describe("后端信封（axios）错误：#2764 用户名解析 404 不得退化成兜底文案", () => {
+  /** 模拟 http 拦截器抛出的 AxiosError：message 是英文，中文在 response.data.message。 */
+  const axiosError = (status: number, backendMessage: string) =>
+    Object.assign(new Error(`Request failed with status code ${status}`), {
+      response: { status, data: { data: null, message: backendMessage } }
+    });
+
+  it("resolve 404 → 透出后端中文，而不是「操作失败，请稍后再试」", () => {
+    const msg = toAuthErrorMessage(
+      axiosError(404, "未找到该邮箱或用户名，请检查后重试")
+    );
+    expect(msg).toBe("未找到该邮箱或用户名，请检查后重试");
+    expect(msg).not.toBe(AUTH_ERROR_FALLBACK);
+  });
+
+  it("resolve 409（用户名歧义）→ 透出后端中文", () => {
+    expect(
+      toAuthErrorMessage(
+        axiosError(409, "该用户名对应多个账号，请改用邮箱登录")
+      )
+    ).toBe("该用户名对应多个账号，请改用邮箱登录");
+  });
+
+  it("信封为空时仍回落到状态码归类，不吞掉英文原文", () => {
+    const err = Object.assign(
+      new Error("Request failed with status code 500"),
+      { response: { status: 500, data: {} } }
+    );
+    expect(toAuthErrorMessage(err)).toBe("服务暂时不可用，请稍后再试");
+  });
+
+  it("normalizeAuthError 把 response.status 与信封 message 一起收敛", () => {
+    const normalized = normalizeAuthError(
+      axiosError(404, "未找到该邮箱或用户名")
+    );
+    expect(normalized.status).toBe(404);
+    expect(normalized.message).toBe("未找到该邮箱或用户名");
+  });
+});

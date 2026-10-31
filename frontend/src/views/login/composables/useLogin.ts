@@ -6,7 +6,7 @@ import { useEventListener } from "@vueuse/core";
 import type { FormInstance, FormRules } from "element-plus";
 import { initRouter } from "@/router/utils";
 import { supabase } from "@/utils/supabase";
-import { resolveIdentifier } from "@/api/auth";
+import { ensureLocalProfile, resolveIdentifier } from "@/api/auth";
 import { toAuthErrorMessage } from "@/utils/authError";
 import { textLength } from "@/utils/textLength";
 import { buildAppUrl, DOCS_SITE_URL } from "@/utils/appUrl";
@@ -227,7 +227,7 @@ export function useLogin() {
       try {
         if (isRegisterMode.value) {
           // 🔥 注册（原 .vue 内解构出的 data 从未使用，迁入 .ts 后触 lint，直接不取）
-          const { error } = await supabase.auth.signUp({
+          const { data, error } = await supabase.auth.signUp({
             email: ruleForm.email.trim(),
             password: ruleForm.password,
             options: {
@@ -240,6 +240,28 @@ export function useLogin() {
           });
 
           if (error) throw error;
+
+          // 注册即建号（#2764 遗留项）：项目关闭邮箱验证时 signUp 直接返回 session，
+          // 此刻立即让后端建出本地映射行；否则用户随后用「用户名」登录，
+          // 匿名 resolve 查不到行 → 404（登录页只能提示「未找到」）。
+          // 开启邮箱验证时没有 session，建号发生在「点邮件回跳后的首个带 token 请求」。
+          if (data.session) {
+            const desired = ruleForm.username.trim();
+            const profile = await ensureLocalProfile();
+            // 后端遇到同名会加后缀（`_2`）而不是报错——不告诉用户，他会以为名字没生效
+            if (
+              profile?.username &&
+              desired &&
+              profile.username.toLowerCase() !== desired.toLowerCase()
+            ) {
+              message(
+                `用户名「${desired}」已被占用，已为你分配「${profile.username}」`,
+                {
+                  type: "warning"
+                }
+              );
+            }
+          }
 
           showRegisterSuccess.value = true;
           message("注册成功！请查收验证邮件", { type: "success" });
@@ -271,6 +293,10 @@ export function useLogin() {
           });
 
           if (error) throw error;
+
+          // 幂等建号（#2764 遗留项）：老账号在本地可能还没映射行（注册时未走过带
+          // token 的请求）。失败不阻断登录——下一次带 token 的请求会自动补建。
+          await ensureLocalProfile();
 
           message("登录成功", { type: "success" });
           await initRouter();

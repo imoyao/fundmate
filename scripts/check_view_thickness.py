@@ -178,10 +178,10 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 44,
     },
     "backend/app/domains/auth/views.py": {
-        "lines": 137,
-        "orm_queries": 3,
+        "lines": 113,
+        "orm_queries": 1,
         "commits": 0,
-        "max_func": 45,
+        "max_func": 28,
     },
     "backend/app/domains/families/views.py": {
         "lines": 72,
@@ -489,10 +489,10 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 27,
     },
     "backend/app/domains/users/views.py": {
-        "lines": 160,
-        "orm_queries": 6,
+        "lines": 137,
+        "orm_queries": 5,
         "commits": 0,
-        "max_func": 38,
+        "max_func": 35,
     },
     "backend/app/domains/utils/views.py": {
         "lines": 128,

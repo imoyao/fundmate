@@ -19,6 +19,7 @@ from werkzeug.serving import BaseWSGIServer  # noqa: E402
 
 from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
 from app.core.database import init_db, teardown_request_session  # noqa: E402
+from app.core.db_factory import validate_supabase_project_alignment  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
 from app.core.instance_guard import enforce_web_instance_or_exit  # noqa: E402
 from app.domains.agent.views import agent_bp  # noqa: E402
@@ -92,6 +93,13 @@ def create_app() -> APIFlask:
     # DEBUG 读环境变量，默认关闭；开发用 `flask run --debug` 或 .env 设 FLASK_DEBUG=1
     app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'false').lower() in ('1', 'true', 'yes', 'on')
     app.config['PROPAGATE_EXCEPTIONS'] = True
+
+    # Supabase 项目一致性自检（#2764）：`SUPABASE_URL`（Auth/JWKS）与
+    # `SUPABASE_DATABASE_URL`（user 域库）必须是同一个项目。配错时系统不会自己报错——
+    # 验签通过、写库也成功，只是「认证主体在 A 项目、users 映射在 B 项目」，
+    # 表现为同一个邮箱两条 users 记录、用户名解析串到另一个项目。
+    # 放在建表之前：配错就不该建表，更不该接流量。
+    validate_supabase_project_alignment()
 
     # ✅ 启用 CORS，允许前端跨域访问
     # 默认收紧为本地前端 dev 地址；生产环境通过 CORS_ORIGINS 环境变量指定（逗号分隔）

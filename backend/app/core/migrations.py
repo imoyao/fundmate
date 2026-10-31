@@ -2307,3 +2307,78 @@ def migrate_portfolios_unique_name(engine: Engine) -> str:
     if touched:
         return f'[OK] 组合名唯一索引{head}，存量规整 {len(normalization)} 条、重名改名 {len(renames)} 条'
     return f'[OK] 组合名唯一索引{head}，无存量重名'
+
+
+# ── user 域 users.username 大小写不敏感唯一（#2764）─────────────────────────────
+#
+# 登录标识 username 此前只靠应用层判重（`update_me` 的 409），且**判重区分大小写**，
+# 而登录解析 `resolve_identifier` 却按 `lower(username)` 匹配、取 id 最小那条：
+#
+#   users: id=5 'devyao' / id=2 'Devyao'   → 输入 'devyao' 解析到 id=2 的邮箱
+#
+# 于是「后注册的人把先注册的人顶掉」——原主用用户名登不进去（密码对不上别人的邮箱）。
+# `provision`（JIT 建号）又是第三条写入路径，它根本不判重。
+#
+# 唯一性必须下沉到库：应用层判重只是给人看的提示，唯一索引才是兜底。索引是
+# `lower(username)` 表达式索引（不是列级 unique）——SQLite 与 PG 都支持，
+# 且 `username` 可空，两边都允许多个 NULL，不影响种子/测试用户。
+#
+# **存量重名时 fail closed（不自动改名）**：组合名重名可以自动加「（2）」（那只是展示名），
+# 用户名是**登录标识**，静默改名等于替用户换了一把钥匙且不告诉他。故这里直接拒绝启动，
+# 把重名清单与修复方式打出来，由人来决定留哪个。
+
+_USERS_USERNAME_INDEX = 'uq_users_username_lower'
+
+
+def migrate_users_username_unique_lower(engine: Engine) -> str:
+    """给 ``users.username`` 建大小写不敏感唯一索引（幂等，SQLite / PG 同一条 DDL）。
+
+    步骤：① 查存量重名（按 ``lower(username)`` 分组）→ 有则显式抛错并给出清单；
+    ② ``CREATE UNIQUE INDEX IF NOT EXISTS ... ON users (lower(username))``。
+
+    判据（为什么是「抛错」而不是「跳过建索引」）：跳过等于把「同一用户名指向两个账号」
+    这个事实留在库里继续生效——登录会解析到 id 最小那条，另一人永远登不进去，
+    而日志里什么都不会说。宁可不启动。
+    """
+    if not _table_exists(engine, 'users'):
+        return '[SKIP] users 表不存在（空库，init_db 将按新模型建表）'
+
+    with engine.connect() as conn:
+        dup_names = (
+            conn.execute(
+                text(
+                    'SELECT lower(username) AS name FROM users '
+                    'WHERE username IS NOT NULL '
+                    'GROUP BY lower(username) HAVING COUNT(*) > 1 '
+                    'ORDER BY lower(username)'
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if dup_names:
+            detail = []
+            for name in dup_names:
+                ids = (
+                    conn.execute(
+                        text('SELECT id FROM users WHERE lower(username) = :name ORDER BY id'),
+                        {'name': name},
+                    )
+                    .scalars()
+                    .all()
+                )
+                detail.append(f'  - {name}：users.id = {list(ids)}')
+            raise RuntimeError(
+                'users.username 存在大小写不敏感的重名，无法建立唯一索引（#2764）。\n'
+                '登录解析按 lower(username) 匹配并取 id 最小那条，重名会让其中一人'
+                '永远无法用用户名登录。请先决定保留哪一个，把其余改成别的用户名'
+                '（个人中心改用户名，或直接 UPDATE users SET username=... WHERE id=...），'
+                '然后重启。当前重名：\n' + '\n'.join(detail)
+            )
+
+    ddl = f'CREATE UNIQUE INDEX IF NOT EXISTS {_USERS_USERNAME_INDEX} ON users (lower(username))'
+    created = _ensure_index(engine, _USERS_USERNAME_INDEX, ddl, table='users')
+    if created:
+        logger.info('[OK] users.username 大小写不敏感唯一索引已建立（#2764）')
+        return '[OK] 新建唯一索引 uq_users_username_lower'
+    return '[SKIP] 唯一索引 uq_users_username_lower 已存在'

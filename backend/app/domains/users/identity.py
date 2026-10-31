@@ -14,7 +14,10 @@ core.auth 依赖的接口（改动这里等于改 core 侧契约，须两边同�
 - ``sync_email(db, user, claims)``        → ``None``
 """
 
+from uuid import uuid4
+
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from app.domains.users.models import ROLE_MEMBER, User
@@ -34,6 +37,32 @@ class UserIdentity:
         return db.query(User).filter_by(supabase_id=supabase_id).first()
 
     @staticmethod
+    def _available_username(db, desired: str) -> str:
+        """在「大小写不敏感」口径下取一个尚未占用的用户名（撞名追加 `_2` / `_3`…）。
+
+        为什么必须做：`users.username` 是登录标识且现在有唯一索引（#2764）。
+        provision 是**第三条**写入路径（另外两条是注册与个人中心改名），它拿到的
+        候选名来自 `user_metadata.username` 或邮箱前缀——两者都可能与已有用户撞车
+        （同邮箱前缀、或注册时填了别人的名字）。撞车若直接落库，要么 500，
+        要么退化成「静默重名 + resolve 取 id 最小」，等于把一个人顶掉。
+
+        为什么不报错让用户重填：JIT 建号发生在「已通过 Supabase 验签的请求」里，
+        此刻没有表单可回填；能做的只有换一个可用名并留日志（用户可在个人中心改）。
+        """
+        base = (desired or '').strip() or 'user'
+        # username 列宽 100，预留后缀空间；超长时截断而不是让 INSERT 失败
+        if len(base) > 90:
+            base = base[:90]
+        candidate = base
+        for suffix in range(2, 52):
+            taken = db.query(User.id).filter(func.lower(User.username) == candidate.lower()).first()
+            if taken is None:
+                return candidate
+            candidate = f'{base}_{suffix}'
+        # 极端情况（连续 50 个都占用）：退回随机后缀，保证不撞唯一索引
+        return f'{base}_{uuid4().hex[:8]}'
+
+    @staticmethod
     def provision(db, claims: dict):
         """首次登录自动创建本地用户（JIT provisioning）。
 
@@ -43,33 +72,48 @@ class UserIdentity:
         否则新用户将永远 401，无法使用任何受保护功能。
 
         角色默认 member（普通成员），归属默认家庭 1，后续可经家庭管理调整。
+
+        用户名：候选名撞车时由 :meth:`_available_username` 追加后缀（#2764）。
+        不这样做的话，两个邮箱前缀相同的用户会落下同名两行，而 `resolve_identifier`
+        按 lower(username) 取 id 最小那条 ⇒ 后注册的人永远登不进去。
         """
         sub = claims.get('sub')
         email = claims.get('email') or ''
         user_metadata = claims.get('user_metadata') or {}
-        username = user_metadata.get('username') or email.split('@')[0] or f'user_{sub[:8]}'
+        base_username = user_metadata.get('username') or email.split('@')[0] or f'user_{sub[:8]}'
+        username = UserIdentity._available_username(db, base_username)
+        if username != base_username:
+            logger.warning('首次登录建号：用户名 {} 已被占用，改用 {}（sub={}）', base_username, username, sub)
 
-        user = User(
-            supabase_id=sub,
-            family_id=1,
-            username=username,
-            nickname=username,
-            email=email,
-            role=ROLE_MEMBER,
-            is_active=1,
-        )
-        db.add(user)
-        try:
-            db.commit()
-        except IntegrityError:
-            # 并发首次登录：另一请求已抢建，回查即可
-            db.rollback()
-            user = db.query(User).filter_by(supabase_id=sub).first()
-            if user is None:
-                raise
-        db.refresh(user)
-        logger.info('首次登录自动创建本地用户 sub={} username={}', sub, username)
-        return user
+        for _attempt in range(3):
+            user = User(
+                supabase_id=sub,
+                family_id=1,
+                username=username,
+                nickname=username,
+                email=email,
+                role=ROLE_MEMBER,
+                is_active=1,
+            )
+            db.add(user)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                # 并发首次登录：另一请求已按同一个 sub 抢建，回查即可
+                existing = db.query(User).filter_by(supabase_id=sub).first()
+                if existing is not None:
+                    logger.info('首次登录建号并发命中：回查已建行 sub={}', sub)
+                    return existing
+                # 否则撞的是 username 唯一索引（并发抢注同名）——换名重试
+                username = UserIdentity._available_username(db, base_username)
+                logger.warning('首次登录建号撞名，改用 {} 重试（sub={}）', username, sub)
+                continue
+            db.refresh(user)
+            logger.info('首次登录自动创建本地用户 sub={} username={}', sub, username)
+            return user
+
+        raise RuntimeError(f'首次登录建号失败：sub={sub} 连续撞名（用户名唯一索引）')
 
     @staticmethod
     def sync_email(db, user, claims: dict):
