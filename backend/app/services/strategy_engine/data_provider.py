@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Iterable, Sequence
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, or_, text
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
@@ -33,6 +33,7 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
 from app.services.strategy_engine.behavior_profile import TradeRecord
 from app.services.strategy_engine.contracts import SeriesPoint
+from app.services.symbol_scope import build_transaction_symbol_conditions
 
 #: 场内/场外都可能出现的前缀形态；取数字尾部 6 位作为基金裸码
 _FUND_CODE_RE = re.compile(r'\d+')
@@ -325,9 +326,11 @@ class DataProvider:
             Transaction.txn_type.in_(('buy', 'sell')),
         )
         if symbol:
-            query = query.filter(Transaction.symbol == symbol)
+            # 身份键匹配（#1662 遗留项）：流水快照与调用方传的写法可能不同，
+            # FIFO 配对按字面量等值会漏掉整批买卖 → 持有天数/胜率凭空失真。
+            query = query.filter(or_(*build_transaction_symbol_conditions(symbol)))
         elif symbols:
-            query = query.filter(Transaction.symbol.in_(list(symbols)))
+            query = query.filter(or_(*[cond for s in symbols for cond in build_transaction_symbol_conditions(s)]))
 
         rows = query.order_by(Transaction.trade_date.asc(), Transaction.id.asc()).all()
         out: list[TradeRecord] = []

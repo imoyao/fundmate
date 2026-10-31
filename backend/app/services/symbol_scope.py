@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.core.symbol_utils import symbol_identity
 from app.domains.positions.models import Position
+from app.domains.transactions.models import Transaction
 from app.services.position_scope import exclude_shadow
 
 
@@ -50,6 +51,44 @@ def build_position_symbol_conditions(symbol: str) -> list:
     except Exception:  # noqa: BLE001 — 归一失败不应让查询整体失败
         identities = set()
     conditions += [Position.symbol_norm == ident for ident in identities if ident]
+    return conditions
+
+
+def build_transaction_symbol_conditions(symbol: str) -> list:
+    """构造「同一产品」的流水匹配条件：字面量 + 三种 venue 的归一身份键。
+
+    与 `build_position_symbol_conditions` 同构，用途是把两边的口径钉在同一套判据上。
+
+    ## 为什么流水侧此前只能「两步法」
+
+    本模块原先写着「`transactions` 表没有 `symbol_norm` 列，故先在持仓侧做归一匹配拿到
+    真实写法，再对交易表做 `IN`」（`collect_transaction_symbol_variants`）。两步法的
+    前提是「持仓与流水的 symbol 写法一致」——而它**恰恰不成立**：本机实测持仓是裸码
+    `001937`、流水是 `SZ001937`，两步法拿到 `001937` 后对流水 `IN` 一条也命中不了。
+
+    现 `transactions.symbol_norm` 已由迁移回填、并由 mapper 事件在写入时保证，
+    两侧可以直接在同一列上做同等判定。
+
+    ## 为什么仍要 OR 上字面量
+
+    两个理由，都不是冗余：
+
+    - 迁移前写入的 `NO_VENUE:` 降级行（`asset_type` 当时为空的现金/边角流水）；
+    - 调用方传入的 symbol 可能本身就是流水里的写法变体（如 `00700.HK` 与 `HK00700`），
+      此时三种 identity 已能覆盖；但若传入值与某行的字面量恰好相等，直配零成本且更直观。
+
+    「多一个 OR，远便宜于漏命中」——与 positions 版同一条取舍。
+    """
+    conditions = [Transaction.symbol == symbol]
+    try:
+        identities = {
+            symbol_identity(symbol),
+            symbol_identity(symbol, venue='EXCHANGE'),
+            symbol_identity(symbol, venue='OTC'),
+        }
+    except Exception:  # noqa: BLE001 — 归一失败不应让查询整体失败
+        identities = set()
+    conditions += [Transaction.symbol_norm == ident for ident in identities if ident]
     return conditions
 
 
@@ -74,14 +113,17 @@ def query_positions_by_symbol(db: Session, symbol: str, family_id: int = 1) -> L
 def collect_transaction_symbol_variants(symbol: str, positions: Iterable[Position]) -> Set[str]:
     """该产品在 `transactions.symbol`（字面量快照）里可能出现的写法集合。
 
-    **为什么不能在 SQL 里归一**：`transactions` 表只有字面量 `symbol` 快照，
-    没有 `symbol_norm` 列（#1662 的归一身份键只落在 `positions` 上）。故改走「两步法」
-    （数据策略硬约束 §3 的应用层两步读）：先用持仓侧的归一匹配拿到**真实写法**，
-    再用它们对交易表做 `IN`。交易与持仓共用同一份写法——写入侧建流水时按
-    `Transaction.symbol == position.symbol` 对齐（见 `domains/positions/views.py`）。
+    **⚠️ 已被 `build_transaction_symbol_conditions` 取代，新代码不要再走两步法。**
 
-    原始 `symbol` 参数本身也保留在集合里：产品已清仓、持仓行数量归零或写法变体
-    未被归一命中时，它仍是交易表里最可能的写法。
+    历史原因：`transactions` 表此前只有字面量 `symbol` 快照，没有 `symbol_norm` 列
+    （#1662 的归一身份键只落在 `positions` 上），故只能在应用层先用持仓侧的归一匹配
+    拿到「真实写法」，再对交易表做 `IN`。而这一步的前提「持仓与流水写法一致」
+    **恰恰不成立** —— 本机实测持仓 `001937`、流水 `SZ001937`，两步法对交易表
+    `IN ('001937')` 一条也命中不了，正是本卡要修的那个漏算。
+
+    现 `transactions.symbol_norm` 已具备（迁移回填 + 写入时 mapper 事件保证），
+    调用方应直接用 `build_transaction_symbol_conditions`。本函数**暂时保留**给
+    尚未迁移的调用方，其返回值仍包含原始 `symbol`（产品已清仓、写法变体未命中时的兜底）。
     """
     variants: Set[str] = {symbol}
     variants.update(p.symbol for p in positions if p.symbol)

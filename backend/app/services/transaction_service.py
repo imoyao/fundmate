@@ -16,13 +16,13 @@ import csv
 import io
 from datetime import date, timedelta
 
-from sqlalchemy import String, cast, func
+from sqlalchemy import String, cast, func, or_
 
 from app.core.money import Money
 from app.core.utils import iso_date_only, paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
-from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
+from app.services.symbol_scope import build_transaction_symbol_conditions
 from app.services.txn_name_resolver import (
     resolve_transaction_asset_types,
     resolve_transaction_display_names,
@@ -164,16 +164,13 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
         query = query.filter(Transaction.position_id.in_(pids))
 
     # 筛选：产品代码（产品详情页「交易记录」区块，#2104）。
-    # 复用 `symbol_scope` 的「同一产品」口径（与持仓列表 #1966 / 持有年化 #1972 一致）：
-    # `transactions.symbol` 是字面量快照、无 norm 列，故先按 symbol 取该产品持仓行、
-    # 收集真实写法再做 `IN`（数据策略硬约束 §3 应用层两步法），`SZ000001` 与
-    # `000001.SZ`、`SZ159915` 与 `159915` 视为同一只产品——字面量等值会让详情页
-    # URL 写法与流水快照写法不一致时显示「暂无交易记录」假阴性。
+    # 匹配口径与持仓列表 #1966 / 持有年化 #1972 同源（`symbol_scope`）。
+    # 原先走「两步法」：先按 symbol 取该产品持仓行、收集真实写法再对流水 IN —— 其前提
+    # 「持仓与流水写法一致」并不成立（实测持仓 `001937`、流水 `SZ001937`），字面量 IN
+    # 会显示「暂无交易记录」假阴性。现 `transactions.symbol_norm` 已具备，直接判定。
     symbol = filters.get('symbol')
     if symbol:
-        positions = query_positions_by_symbol(db, symbol, family_id)
-        variants = collect_transaction_symbol_variants(symbol, positions)
-        query = query.filter(Transaction.symbol.in_(variants))
+        query = query.filter(or_(*build_transaction_symbol_conditions(symbol)))
 
     # 排序与分页：有效交易日倒序（口径与 WHY 全在 `order_by_effective_day`，三处共用）
     query = order_by_effective_day(query)

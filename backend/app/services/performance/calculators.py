@@ -29,7 +29,7 @@ from app.services.performance.xirr_engine import (
     generate_cashflows,
     generate_portfolio_cashflows,
 )
-from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
+from app.services.symbol_scope import build_transaction_symbol_conditions, query_positions_by_symbol
 
 
 class XirrScopeParameterError(ValueError):
@@ -218,14 +218,13 @@ def _calculate_xirr_for_cashflows(
 def _position_scope_transactions(db: Session, position: Position, include_cash_equivalents: bool) -> List[Transaction]:
     """该持仓**行**名下的流水（#2009）。
 
-    收敛键 = `symbol`（写法变体）+ `ledger_id`，依据见 `calculate_position_xirr` 的说明。
+    收敛键 = `symbol`（身份键，含写法变体）+ `ledger_id`，依据见 `calculate_position_xirr` 的说明。
     `ledger_id` 走 NULL-safe 相等：未归属持仓（`ledger_id` 为空）退化为「按 symbol」——
     这类持仓本身就没有账户维度可用，退化是唯一合理选择。
     """
-    symbols = collect_transaction_symbol_variants(position.symbol, [position])
     txn_q = db.query(Transaction).filter(
         Transaction.family_id == position.family_id,
-        Transaction.symbol.in_(symbols),
+        or_(*build_transaction_symbol_conditions(position.symbol)),
     )
     if position.ledger_id is None:
         txn_q = txn_q.filter(Transaction.ledger_id.is_(None))
@@ -296,8 +295,9 @@ def calculate_symbol_xirr(
 
     - 持仓匹配与详情页「我的持仓」区块**同一口径**（`services/symbol_scope.py`，#1966），
       否则会出现「列表有三行、年化只算了两行」的自相矛盾页面；
-    - `transactions.symbol` 只有字面量快照、无归一列，故先取持仓拿到真实写法再 `IN`
-      （两步法，见 `collect_transaction_symbol_variants`）；
+    - 流水匹配走 `symbol_norm` 身份键（`build_transaction_symbol_conditions`）：
+      **不再**先取持仓拿真实写法再 `IN`（两步法的前提「持仓与流水写法一致」不成立，
+      持仓 `001937` / 流水 `SZ001937` 时 `IN` 一条也命中不了）；
     - 无成交且无市值时返回全 0 结构（与 `calculate_portfolio_xirr_by_id` 的空账户同构），
       前端据此降级为 `—`，不显示 NaN。
 
@@ -308,9 +308,10 @@ def calculate_symbol_xirr(
         raise ValueError('缺少 symbol 参数')
 
     positions = query_positions_by_symbol(db, symbol, family_id=family_id)
-    symbols = collect_transaction_symbol_variants(symbol, positions)
 
-    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id, Transaction.symbol.in_(symbols))
+    txn_q = db.query(Transaction).filter(
+        Transaction.family_id == family_id, or_(*build_transaction_symbol_conditions(symbol))
+    )
     if not include_cash_equivalents:
         # NULL 的 asset_type 默认视为投资类资产，纳入计算（与其余两个 scope 同口径）
         txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))

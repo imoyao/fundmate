@@ -313,21 +313,24 @@ def build_symbol_behavior(
 ) -> Dict[str, Any]:
     """产品级行为画像：跨账户按 symbol 收敛流水（与 ``calculate_symbol_xirr`` 同口径）。
 
-    收敛键 = 持仓真实写法变体（``symbol_scope.collect_transaction_symbol_variants``，
+    收敛键 = 流水身份键（``symbol_scope.build_transaction_symbol_conditions``，
     #1966/#1972 同一真相源）；资产类型过滤与 XIRR 三个 scope 同一套
     ``EXCLUDED_ASSET_TYPES``。symbol 级口径不做市场消歧（与 XIRR 同边界）。
     """
+    from sqlalchemy import or_
+
     from app.core.asset_types import EXCLUDED_ASSET_TYPES
     from app.domains.transactions.models import Transaction
-    from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
+    from app.services.symbol_scope import build_transaction_symbol_conditions, query_positions_by_symbol
 
     if not symbol:
         raise ValueError('缺少 symbol 参数')
 
     positions = query_positions_by_symbol(db, symbol, family_id=family_id)
-    symbols = collect_transaction_symbol_variants(symbol, positions)
 
-    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id, Transaction.symbol.in_(symbols))
+    txn_q = db.query(Transaction).filter(
+        Transaction.family_id == family_id, or_(*build_transaction_symbol_conditions(symbol))
+    )
     if not include_cash_equivalents:
         # NULL 的 asset_type 默认视为投资类资产，纳入计算（与 XIRR 同口径）
         txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))

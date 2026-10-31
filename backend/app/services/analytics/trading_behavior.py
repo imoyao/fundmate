@@ -33,7 +33,7 @@ import datetime as dt
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.asset_types import EXCLUDED_ASSET_TYPES
@@ -44,6 +44,7 @@ from app.domains.transactions.models import Transaction
 from app.services.analytics.behavior import compute_behavior_stats
 from app.services.position_scope import exclude_cleared
 from app.services.position_valuation import market_value_cents
+from app.services.symbol_scope import build_transaction_symbol_conditions
 
 # 买点分位的回看窗口（自然日）与最小样本：低于 20 个交易日的分位没有意义
 PRICE_LOOKBACK_DAYS = 365
@@ -178,7 +179,9 @@ def build_trading_behavior(
 
     txn_query = db.query(Transaction).filter(Transaction.family_id == family_id)
     if symbol:
-        txn_query = txn_query.filter(Transaction.symbol == symbol)
+        # 身份键匹配（#1662 遗留项）：流水快照写法与传入值可能不同，
+        # 字面量等值会让换手/胜率只统计到一半的交易。
+        txn_query = txn_query.filter(or_(*build_transaction_symbol_conditions(symbol)))
     if not include_cash_equivalents:
         txn_query = txn_query.filter(
             Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES)
