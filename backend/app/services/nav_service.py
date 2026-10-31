@@ -206,6 +206,79 @@ class NavService:
         return {code: float(val) for code, val in raw_map.items()}
 
     @staticmethod
+    def get_navs_at_or_before(
+        db: Session,
+        fund_codes: List[str],
+        target_date: date,
+    ) -> Dict[str, Tuple[float, date]]:
+        """批量取每只基金在 ``target_date`` **当日或之前最近一条**净值（#2773）。
+
+        与 :meth:`get_navs_by_date` 的关键差异：后者要求 ``daily_worth.date`` 与
+        ``target_date`` **精确相等**，非净值日（周末 / 节假日 / 停牌）一律 miss。
+        清仓后涨跌幅的锚点是「卖出日净值」，而卖出日不保证是净值日——精确匹配会把
+        周末卖出的周期全打成「查无净值」，指标直接失去意义。故按
+        ``date <= target_date`` 取**最近一条**，并把实际命中的日期一并返回，
+        让调用方能判断锚点是否离卖出日太远。
+
+        **不做远程兜底**（无 ``allow_remote`` 参数）：这是批量复盘计算，
+        不允许在请求路径内触网（与既有 ``allow_remote=False`` 约束同源）；
+        且历史锚点本就补不回来——远程只提供近期净值。
+
+        Returns:
+            ``{fund_code: (unit_nav, acc_nav, nav_date)}``，未取到的列为 ``None``。
+            ``nav_date`` 是**实际命中的净值日**，可能早于 ``target_date``；
+            无任何可用净值的基金直接缺席，由调用方降级。
+
+        为什么同时返回 unit_nav 与 acc_nav：区间涨跌幅必须用**同一口径**的前后两点，
+        而分红会让单位净值下跳。清仓后涨跌幅要回答「卖掉之后这只基涨了多少」，
+        用单位净值会把分红当成下跌。调用方优先取 ``acc_nav``、缺失时回落
+        ``unit_nav``（与 `fund_metrics` 的最大回撤口径一致）。
+        """
+        if not fund_codes:
+            return {}
+
+        try:
+            max_dates = (
+                db.query(
+                    DailyWorth.fund_code,
+                    func.max(DailyWorth.date).label('max_date'),
+                )
+                .filter(
+                    DailyWorth.fund_code.in_(fund_codes),
+                    DailyWorth.date <= target_date,
+                )
+                .group_by(DailyWorth.fund_code)
+                .subquery()
+            )
+            rows = (
+                db.query(
+                    DailyWorth.fund_code,
+                    DailyWorth.unit_nav,
+                    DailyWorth.acc_nav,
+                    DailyWorth.date,
+                )
+                .join(
+                    max_dates,
+                    (DailyWorth.fund_code == max_dates.c.fund_code) & (DailyWorth.date == max_dates.c.max_date),
+                )
+                .all()
+            )
+        except Exception:
+            logger.exception('NavService: 查询 daily_worth 历史锚点净值失败')
+            return {}
+
+        result: Dict[str, Tuple[Optional[float], Optional[float], date]] = {}
+        for code, unit_nav, acc_nav, nav_date in rows:
+            if not code or nav_date is None:
+                continue
+            unit = float(unit_nav) if unit_nav and float(unit_nav) > 0 else None
+            acc = float(acc_nav) if acc_nav and float(acc_nav) > 0 else None
+            if unit is None and acc is None:
+                continue  # 两列都无效 = 这条净值不可用，等于没查到
+            result[code] = (unit, acc, nav_date)
+        return result
+
+    @staticmethod
     def get_single_latest_nav(db: Session, fund_code: str) -> float:
         """获取单只基金最新净值（便捷封装，内部走批量路径）。
 

@@ -472,6 +472,10 @@ class DataSyncOrchestrator:
         codes = set()
 
         # 持仓标的
+        # ⚠️ 不要加 ownership_status 过滤（#2773）：清仓行因 #2343「清仓不删行」仍留在表里，
+        # 而「清仓后涨跌幅」要求清仓标的的净值继续被拉取。加一句
+        # filter(Position.ownership_status == 'active') 会让该指标静默退化成 no_nav_after
+        # ——不报错、不告警。守卫：tests/services/sync/test_sync_pool_includes_cleared.py
         positions = self.db.query(Position.symbol).distinct().all()
         for (symbol,) in positions:
             if symbol:

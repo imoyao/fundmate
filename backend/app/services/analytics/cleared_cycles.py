@@ -49,7 +49,7 @@ WHY
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from loguru import logger
 
@@ -370,6 +370,134 @@ def filter_cycles_by_sell_date(
     return kept
 
 
+# ── 清仓后涨跌幅（#2773）────────────────────────────────────────────────────
+# 四个状态码互斥且穷尽；**算不出一律回 None + 状态**，禁止回 0 ——
+# 「卖掉之后没涨没跌」和「根本没有净值可算」是两件事，混成 0 会让复盘结论
+# 系统性地偏向「卖得都对」。
+POST_CLEAR_OK = 'ok'
+POST_CLEAR_NO_ANCHOR = 'no_nav_at_sell'
+POST_CLEAR_NO_AFTER = 'no_nav_after'
+POST_CLEAR_NOT_SUPPORTED = 'not_supported'
+
+
+def _aligned_pair(
+    anchor: Optional[Tuple[Optional[float], Optional[float], date]],
+    latest: Optional[Tuple[Optional[float], Optional[float], date]],
+) -> Optional[Tuple[float, float, date, date]]:
+    """取**同口径**的前后两点：两边都有 acc_nav 就用 acc，否则两边都用 unit_nav。
+
+    混用会直接算错：acc_nav 含分红再投、unit_nav 不含，一边 acc 一边 unit 时，
+    中间只要分过红，看起来就像凭空涨了一截。宁可返回 None（降级成「算不出」），
+    也不混口径凑一个数出来。
+    """
+    if not anchor or not latest:
+        return None
+    a_unit, a_acc, a_date = anchor
+    l_unit, l_acc, l_date = latest
+    if a_acc is not None and l_acc is not None:
+        return (a_acc, l_acc, a_date, l_date)
+    if a_unit is not None and l_unit is not None:
+        return (a_unit, l_unit, a_date, l_date)
+    return None
+
+
+def attach_post_clear_performance(
+    cycles: Sequence[Dict[str, Any]],
+    anchor_navs: Dict[Tuple[str, str], Tuple[Optional[float], Optional[float], date]],
+    latest_navs: Dict[str, Tuple[Optional[float], Optional[float], date]],
+) -> List[Dict[str, Any]]:
+    """给每个已清仓周期补「清仓后涨跌幅」（#2773，原地写入并返回该批 dict）。
+
+    这个指标回答的是**卖出决策对不对**：卖掉之后它涨了还是跌了。它只对已清仓
+    有意义，故不放进 `compute_cleared_cycles` 的通用出参，而是单独一趟补齐——
+    取数要碰 `daily_worth`，纯聚合函数不该有 db 依赖。
+
+    Args:
+        cycles: `compute_cleared_cycles` 的产物（元素被原地修改）。
+        anchor_navs: ``{(code, 'YYYY-MM-DD'): (unit, acc, nav_date)}``。键里带日期，
+            是因为同一标的可以清仓多轮，每轮锚点各不相同。
+        latest_navs: ``{code: (unit, acc, nav_date)}``，库中最新一条。
+
+    Returns:
+        同一批周期 dict 组成的新列表（元素对象是同一批，便于链式调用）。
+
+    状态语义（**禁止把算不出回成 0**）：
+        - ``ok``：算出来了；
+        - ``no_nav_at_sell``：卖出日及之前没有可用净值。多为 #2343 之前清仓的周期
+          （持仓行被物理删除、历史净值从没拉过），要一次性回填才可能有值；
+        - ``no_nav_after``：有锚点，但卖出之后没有更新的净值（净值停更）。
+          此时涨跌幅恒为 0，那是「没数据」不是「没涨」；
+        - ``not_supported``：场内标的。当前只做场外，场内要另一套价格源
+          （`price_history.adj_close`），接上之前不假装能算。
+    """
+    for c in cycles or []:
+        identity = c.get('identity') or ''
+        c['post_clear_pct'] = None
+        c['post_clear_status'] = POST_CLEAR_NOT_SUPPORTED
+
+        if not identity.startswith('OTC:'):
+            continue  # 场内 / 无场所：暂不支持，不猜
+        code = identity.split(':', 1)[1]
+        sold = c.get('last_sell_date')
+        if not sold:
+            c['post_clear_status'] = POST_CLEAR_NO_ANCHOR
+            continue
+
+        pair = _aligned_pair(anchor_navs.get((code, sold)), latest_navs.get(code))
+        if pair is None:
+            c['post_clear_status'] = POST_CLEAR_NO_ANCHOR
+            continue
+        a_nav, l_nav, a_date, l_date = pair
+        if l_date <= a_date:
+            c['post_clear_status'] = POST_CLEAR_NO_AFTER
+            continue
+
+        c['post_clear_pct'] = round((l_nav / a_nav - 1) * 100, 2)
+        c['post_clear_status'] = POST_CLEAR_OK
+
+    return list(cycles or [])
+
+
+def _attach_post_clear(db, cycles: Sequence[Dict[str, Any]]) -> None:
+    """取锚点与最新净值，补齐「清仓后涨跌幅」（#2773 的 db 侧，原地写入）。
+
+    查询次数 = 不同的清仓日数量（+1 次取最新净值）。同一天清仓的多只标的合并成
+    一次批量查询。为什么不一次 SQL 全取：每轮周期的锚点日期各不相同，而
+    「每只基金取 <= 各自日期的最近一条」在一条 SQL 里表达不出来（得用变日期
+    子查询），退化成 N 次轻量查询反而更简单可靠——周期量级是几十条，
+    且这条路径只在用户打开复盘页时走一次。
+    """
+    from app.services.nav_service import NavService
+
+    codes_by_day: Dict[date, set] = {}
+    all_codes: set = set()
+    for c in cycles or []:
+        identity = c.get('identity') or ''
+        sold = c.get('last_sell_date')
+        if not identity.startswith('OTC:') or not sold:
+            continue
+        all_codes.add(identity.split(':', 1)[1])
+        d = _parse_iso_date(sold, 'last_sell_date')
+        if d is not None:
+            codes_by_day.setdefault(d, set()).add(identity.split(':', 1)[1])
+
+    if not all_codes:
+        attach_post_clear_performance(cycles, {}, {})
+        return
+
+    anchor_navs: Dict[Tuple[str, str], Tuple[Optional[float], Optional[float], date]] = {}
+    for d, codes in codes_by_day.items():
+        found = NavService.get_navs_at_or_before(db, sorted(codes), d)
+        for code, triple in found.items():
+            anchor_navs[(code, d.isoformat())] = triple
+
+    # 最新净值：以今天为上界的「最近一条」。走同一方法是为了口径一致——
+    # 两边都带 acc_nav，下游才能配对；单开一个「只返回 unit_nav」的查询
+    # 会让 `_aligned_pair` 全部退化成 unit 口径，分红再投的标的就被算小。
+    latest_navs = NavService.get_navs_at_or_before(db, sorted(all_codes), date.today())
+    attach_post_clear_performance(cycles, anchor_navs, latest_navs)
+
+
 def build_cleared_cycles(
     db,
     family_id: int = 1,
@@ -379,6 +507,7 @@ def build_cleared_cycles(
     include_cash_equivalents: bool = False,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    include_post_clear: bool = False,
 ) -> Dict[str, Any]:
     """db 入口：按家庭取流水，聚合清仓周期 + 汇总。
 
@@ -393,6 +522,10 @@ def build_cleared_cycles(
         include_cash_equivalents: 是否纳入类现金资产（默认排除，同 behavior/XIRR）。
         start_date / end_date: 可选区间（YYYY-MM-DD），按**末卖日**裁剪。缺省 = 投资以来
             （与 #2131 上线时的行为完全一致，老调用方零改动）。
+        include_post_clear: 是否补「清仓后涨跌幅」（#2773）。默认 False——它要额外查
+            `daily_worth`（锚点 + 最新），对不需要该指标的调用方是纯开销。开启后每个
+            周期多两个字段：`post_clear_pct` 与 `post_clear_status`（语义见
+            `attach_post_clear_performance`）。
 
     Returns:
         ``{'cycles': [...], 'summary': {...}}``。
@@ -433,4 +566,7 @@ def build_cleared_cycles(
     cycles = compute_cleared_cycles(transactions)
     # 先聚合、后按末卖日裁剪（#2774 口径，见 filter_cycles_by_sell_date）
     cycles = filter_cycles_by_sell_date(cycles, lo, hi)
+    if include_post_clear:
+        # 只对**裁剪后**的周期取数：窗口外的不必查净值，省掉无谓查询
+        _attach_post_clear(db, cycles)
     return {'cycles': cycles, 'summary': summarize_cycles(cycles)}
