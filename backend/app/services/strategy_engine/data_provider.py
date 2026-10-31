@@ -330,9 +330,7 @@ class DataProvider:
             # FIFO 配对按字面量等值会漏掉整批买卖 → 持有天数/胜率凭空失真。
             query = query.filter(or_(*build_transaction_symbol_conditions(symbol)))
         elif symbols:
-            query = query.filter(
-                or_(*[cond for s in symbols for cond in build_transaction_symbol_conditions(s)])
-            )
+            query = query.filter(or_(*[cond for s in symbols for cond in build_transaction_symbol_conditions(s)]))
 
         rows = query.order_by(Transaction.trade_date.asc(), Transaction.id.asc()).all()
         out: list[TradeRecord] = []

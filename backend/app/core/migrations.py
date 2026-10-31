@@ -1998,10 +1998,7 @@ def _backfill_transaction_asset_type(conn, engine: Engine) -> tuple[int, int]:
     if _table_exists(engine, 'funds'):
         # funds 主键即裸 6 位码；fund_type 名称取自 fund_types（'货币型' → money_fund）
         for code, fname, tname in conn.execute(
-            text(
-                'SELECT f.fund_code, f.name, ft.name FROM funds f '
-                'LEFT JOIN fund_types ft ON ft.id = f.fund_type_id'
-            )
+            text('SELECT f.fund_code, f.name, ft.name FROM funds f LEFT JOIN fund_types ft ON ft.id = f.fund_type_id')
         ).fetchall():
             fund_names[code] = (fname, tname == '货币型')
 
@@ -2066,9 +2063,7 @@ def migrate_transactions_symbol_norm(engine: Engine) -> str:
         if 'symbol_norm' not in existing:
             # NOT NULL 带常量默认值，两种引擎都能直接 ADD COLUMN；空串只是过渡态，
             # 紧随其后的回填会逐行写真实身份。
-            conn.execute(
-                text(_add_column_sql('transactions', 'symbol_norm', "VARCHAR(64) NOT NULL DEFAULT ''", is_pg))
-            )
+            conn.execute(text(_add_column_sql('transactions', 'symbol_norm', "VARCHAR(64) NOT NULL DEFAULT ''", is_pg)))
             actions.append('加列 symbol_norm')
         conn.commit()
 

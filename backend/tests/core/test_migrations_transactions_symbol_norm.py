@@ -69,7 +69,9 @@ def _make_old_db(path, txn_rows, pos_rows=(), fund_rows=()):
     if fund_rows:
         conn.executemany('INSERT INTO funds(fund_code, name, fund_type_id) VALUES (?, ?, ?)', fund_rows)
     if pos_rows:
-        conn.executemany('INSERT INTO positions(id, symbol, type, ledger_id, family_id) VALUES (?, ?, ?, ?, ?)', pos_rows)
+        conn.executemany(
+            'INSERT INTO positions(id, symbol, type, ledger_id, family_id) VALUES (?, ?, ?, ?, ?)', pos_rows
+        )
     conn.executemany(
         'INSERT INTO transactions(id, symbol, asset_type, position_name, position_id, ledger_id, family_id) '
         'VALUES (?, ?, ?, ?, ?, ?, ?)',
