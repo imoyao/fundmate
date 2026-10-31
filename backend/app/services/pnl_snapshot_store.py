@@ -52,6 +52,9 @@ from loguru import logger
 from sqlalchemy import delete as _sa_delete
 from sqlalchemy import event
 from sqlalchemy import inspect as _sa_inspect
+from sqlalchemy import text as _sa_text
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
+from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import get_history
 
@@ -165,6 +168,24 @@ def save_days(
     `max_date`：**永不落库晚于该日**的行——物化新鲜窗（`pnl_calendar.PRICE_FRESH_DAYS`）。
     传了它，日常价格同步就完全不需要失效钩子：新鲜窗内的日期读时恒现算，
     永远不会有一行「带着过期价格的快照」被读出去。
+
+    为什么是**一条原子 upsert 语句**，而不是「先 SELECT 再 INSERT」（2026-10-30）
+    --------------------------------------------------------------------------
+    旧实现先查 `existing` 再 `db.add()`，是典型的 TOCTOU：两个并发请求（页面一加载
+    就有收益日历 / 资金流动 / 基准超额 / TWR / insight 多路同时打 `build_daily_pnl_series`）
+    都会算出同一段缺口，而**事务边界在请求 teardown**（`core/database.py` #1632），
+    先跑完的那个请求此时**尚未提交**——后来者的 SELECT 根本看不见它，于是也 INSERT，
+    到写锁释放、提交生效时撞唯一索引 `uq_pnl_daily_snapshots_scope`（`IntegrityError`）。
+
+    实测（2026-10-29，D69 把 `CALIBER_VERSION` 提到 5 之后）：一次页面加载里
+    另一个请求在 13:51:35.717 写下 `(family=1, ledger=12, 2026-07-31)`，同一请求
+    还在按作用域顺序写 16 / 20 / 21；第二个请求 13:51:38.077 重算同一天后 INSERT
+    ⇒ `UNIQUE constraint failed`，且该请求整笔事务被 teardown 回滚。
+
+    **retry 在这里不成立**：`save_days` 只 flush，事务归调用方，回滚重试会把同一请求
+    里别的写一起丢掉；而对端那行在重试瞬间仍可能未可见（SQLite 的读快照在事务开始时
+    就定下）。故改用数据库原生冲突解决——一次语句既判重又写入，不存在「查与写之间
+    被人插队」的窗口。语义仍是后写覆盖（与 `asset_snapshots` 的 upsert 一致）。
     """
     # `entries` 的 `date` 是 ISO 字符串（`_compute_days` 的输出形态）；统一成 `date`
     # 再比较——字符串与 `date` 直接比会 TypeError，而一旦有人顺手改成字符串比较，
@@ -177,34 +198,56 @@ def save_days(
     rows = [(d, e) for d, e in normalized if max_date is None or d <= max_date]
     if not rows:
         return 0
-    dates = [d for d, _ in rows]
-    existing = {
-        r.date: r
-        for r in _scope(db.query(PnlDailySnapshot), family_id, ledger_id).filter(PnlDailySnapshot.date.in_(dates)).all()
-    }
 
-    touched = 0
-    for d, e in rows:
-        row = existing.get(d)
-        if row is None:
-            row = PnlDailySnapshot(
-                family_id=family_id,
-                ledger_id=ledger_id,
-                date=d,
-                caliber_version=CALIBER_VERSION,
-            )
-            db.add(row)
-        row.daily_pnl_cents = e.get('daily_pnl_cents')
-        row.net_worth_cents = e['net_worth_cents']
-        row.rate_bp = e.get('rate_bp')
-        row.state = e['state']
-        touched += 1
+    payload = [
+        {
+            'family_id': family_id,
+            'ledger_id': ledger_id,
+            'date': d,
+            'daily_pnl_cents': e.get('daily_pnl_cents'),
+            'net_worth_cents': e['net_worth_cents'],
+            'rate_bp': e.get('rate_bp'),
+            'state': e['state'],
+            'caliber_version': CALIBER_VERSION,
+        }
+        for d, e in rows
+    ]
+    _upsert_days(db, payload)
+    return len(payload)
 
-    # 只 flush 不 commit（`BaseRepository` 同款约定）：事务边界归调用方。
-    # flush 还让同一会话内后续的 `load_days` 看得见本次写入——`SessionLocal`
-    # 是 `autoflush=False`，不显式 flush 会读到自己的旧结果。
-    db.flush()
-    return touched
+
+# 冲突目标与模型上的唯一索引 `uq_pnl_daily_snapshots_scope` 逐字对应：
+# `(family_id, COALESCE(ledger_id, -1), date)`。`ledger_id` 为 NULL 时索引里是哨兵
+# -1，故必须用**同一个表达式**做冲突目标，写 `'ledger_id'` 推不出该索引。
+# 两方言共用：SQLite 3.24+ 的 `ON CONFLICT` 同样接受表达式目标（本机实测进程内
+# 建表 + upsert 可命中表达式唯一索引）。
+_CONFLICT_TARGET = ('family_id', _sa_text('COALESCE(ledger_id, -1)'), 'date')
+
+# 冲突时**不改写**的列：主键、唯一键三列、创建时间——upsert 是「更新这一天」，
+# 不是「删掉重建」，故 id 与 created_at 必须原样保留（两方言行为一致）。
+_UPSERT_KEEP = frozenset({'id', 'family_id', 'ledger_id', 'date', 'created_at'})
+
+
+def _upsert_days(db: Session, payload: List[dict]) -> None:
+    """一批逐日行的原生 upsert（不 commit：事务边界仍归调用方）。
+
+    **方言必须按「这张表」的 bind 解析，不能用无参 `db.get_bind()`**：
+    `_RoutingSession.get_bind(None)` 判不出域会回落**应用域**引擎（见
+    `core/database.py::_domain_for_statement`），而 `pnl_daily_snapshots` 属
+    user 域。生产双库下应用域是 Turso（dialect 仍报 `sqlite`）、user 域是
+    Supabase PG ⇒ 无参会把 SQLite 分支的语句发给 PG。本机单库两个域同一条
+    SQLite 连接，**看不出这个错**（与 #1662「只在本机绿」同款陷阱）。
+    """
+    table = PnlDailySnapshot.__table__
+    dialect = getattr(db.get_bind(PnlDailySnapshot), 'dialect', None)
+    insert_fn = _pg_insert if getattr(dialect, 'name', 'sqlite') == 'postgresql' else _sqlite_insert
+
+    stmt = insert_fn(table).values(payload)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=list(_CONFLICT_TARGET),
+        set_={c.name: getattr(stmt.excluded, c.name) for c in table.columns if c.name not in _UPSERT_KEEP},
+    )
+    db.execute(stmt)
 
 
 # ────────────────────────────── 删 ──────────────────────────────
