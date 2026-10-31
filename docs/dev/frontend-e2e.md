@@ -88,11 +88,20 @@ header.right=1027`），恢复修复后 2/2 通过。
 
 ## 6. CI 编排与成本边界
 
-- `.github/workflows/e2e.yml`：**`workflow_dispatch` + 每夜 19:00 UTC**（北京 03:00），
-  **不进 per-PR 门禁**（理由：Chromium ~130MB + 完整 dev server，per-PR 性价比低，
-  而 merge 门禁 `ci.yml` 的定位是快速红灯）；
-- 浏览器走 `actions/cache`（key 跟 `@playwright/test` 版本），命中后不再下载；
-- 若将来要把某类 PR 纳入，建议**按 label 触发**（如 `e2e`）而非全量开——改工作流时把理由写进注释。
+两条通道，按「全量」与「看得见」分工：
+
+| 通道 | 触发 | 跑什么 | 是否拦合并 |
+|---|---|---|---|
+| `.github/workflows/e2e.yml` | `workflow_dispatch` + 每夜 19:00 UTC | **全量** E2E | 否（不挂 PR） |
+| `ci.yml` 的 `nav_visibility` job | PR 改动命中 `frontend/src/{layout,style,router,store}/**`、`utils/{breadcrumb,tagCache}.ts`、`frontend/e2e/**` | 只跑 `e2e/nav-visibility.spec.ts` + `e2e/tag-active-contrast.spec.ts` | **是**（并入 `gate`，required check） |
+
+- 为什么不把全量 E2E 挂 PR：Chromium ~130MB + 完整 dev server，per-PR 性价比低，
+  而 `ci.yml` 的定位是快速红灯；
+- 为什么可见性巡检**必须**进 `ci.yml` 而不是给 `e2e.yml` 挂 `pull_request`：
+  后者只会在 PR 页上标红，**不是** required check，拦不住合并。真拦人只能并入 `gate`；
+- 成本控制：`changes` 用 `dorny/paths-filter` 算 `nav_visibility`，**命中才跑**（约 2–3 分钟），
+  不命中则 job `skipped`，而 `gate` 把 skipped 视为通过 ⇒ 不会卡住无关 PR；
+- 浏览器走 `actions/cache`（key 跟 `@playwright/test` 版本），两条通道共用同一份缓存。
 
 ## 7. 加新用例的约定
 

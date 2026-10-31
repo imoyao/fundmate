@@ -54,6 +54,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      nav_visibility: ${{ steps.filter.outputs.nav_visibility }}
     steps:
       - uses: dorny/paths-filter@v3
         id: filter
@@ -70,6 +71,18 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            # 导航区可见性巡检（2026-10-31）：只有改动「导航/布局/样式/store」的 PR
+            # 才付费跑浏览器。命中才跑，不命中 skipped —— gate 把 skipped 视为通过，
+            # 所以不会把「没改前端的 PR」卡死（改 ci.yml 自身也算命中，便于验证接线）。
+            nav_visibility:
+              - 'frontend/src/layout/**'
+              - 'frontend/src/style/**'
+              - 'frontend/src/router/**'
+              - 'frontend/src/store/**'
+              - 'frontend/src/utils/breadcrumb.ts'
+              - 'frontend/src/utils/tagCache.ts'
+              - 'frontend/e2e/**'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -542,6 +555,81 @@ jobs:
 
       - name: 构建
         run: pnpm build
+
+  # 导航区文字可见性（2026-10-31，阻断）
+  #
+  # 背景：「激活标签白字白底」这个缺陷存在了很久，所有既有判据都是**结构断言**
+  #   （面包屑文字对不对、标签有没有生成、层级是否对齐）。DOM 里文字确实在、
+  #   `innerText` 读得到，于是一路绿灯，用户界面上只剩一个 × 按钮 —— 用户连着
+  #   两轮追问「没做可见性测试吗」。结论：**DOM 里有文字 ≠ 屏幕上看得到**。
+  #
+  # 判据（`frontend/e2e/nav-visibility.spec.ts` + `tag-active-contrast.spec.ts`）：
+  #   10 个页面 × 侧边栏全部菜单项 / 面包屑每一项 / 标签栏每个标签，逐个查
+  #   ① 宽度 > 0（被 flex 压扁或溢出裁剪会是 0）② 不被裁出视口
+  #   ③ 文字与其**实际渲染背景**的对比度 ≥ 4.5:1（WCAG AA）。
+  #   反证：把 `.tag-title` 还原成 `var(--text-inverse)` 时逐条报「对比度 1:1」。
+  #
+  # 成本边界：只在**改动命中导航/布局/样式/store 路径**时跑（changes.nav_visibility），
+  #   且只跑上述 2 个 spec（约 2–3 分钟），不跑全量 E2E —— 全量仍留给夜间 e2e.yml。
+  #   不命中时本 job skipped，gate 把 skipped 视为通过，不会卡住无关 PR。
+  #
+  # 为什么不用 e2e.yml 挂 `pull_request`：那样只会在 PR 页上标红，**不是** required
+  #   check，拦不住合并；要真拦住必须并入本 workflow 的 gate（required 是 gate 本身）。
+  nav_visibility:
+    name: 前端可见性（导航区文字 / 对比度）
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.nav_visibility == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖（frozen-lockfile）
+        run: pnpm install --frozen-lockfile
+
+      # 浏览器缓存 key 跟 @playwright/test 版本（与 e2e.yml 同一策略），未命中才下载
+      - name: 解析 Playwright 版本
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: 安装 Chromium（缓存未命中时）
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: 可见性巡检（宽度 / 视口 / 对比度 ≥ 4.5:1）
+        run: |
+          pnpm exec playwright test \
+            e2e/nav-visibility.spec.ts \
+            e2e/tag-active-contrast.spec.ts
+
+      - name: 上传失败现场（报告 + 截图 + trace）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nav-visibility-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
 
   # 合并门禁汇总（2026-09-11 新增）：把上面各 job 的结论收敛为**单一** required status check。
   #
@@ -1028,7 +1116,7 @@ jobs:
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard, scripts_test]
+    needs: [changes, backend, frontend, nav_visibility, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard, scripts_test]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）

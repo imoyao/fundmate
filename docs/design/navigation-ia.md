@@ -210,6 +210,12 @@ title: 导航信息架构（侧边栏 + 面包屑）
 （自身透明就向上找第一个不透明祖先）的对比度 ≥ 4.5:1。坏味道的典型是
 `color: var(--text-inverse)` 配了一个没有背景色的元素——反色文字必须有实底配对。
 
+**已并入合并门禁**（2026-10-31）：`ci.yml` 的 `nav_visibility` job 在 PR 改动命中
+`frontend/src/{layout,style,router,store}/**`、`utils/{breadcrumb,tagCache}.ts`、
+`frontend/e2e/**` 时自动跑 `e2e/nav-visibility.spec.ts` 与
+`e2e/tag-active-contrast.spec.ts`，并计入 `gate`（required check）。不命中则 skipped，
+不拖慢无关 PR；全量 E2E 仍留给夜间 `e2e.yml`。
+
 ## 七、反向约束（什么不许放进来）
 
 - **读**的页面不许进「记账中心」，**配置**的页面不许进「资产概览」——否则又回到
