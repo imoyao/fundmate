@@ -8,6 +8,8 @@
 from enum import Enum
 from typing import Dict, Optional
 
+from loguru import logger
+
 
 class SBException(Exception):
     """所有业务异常的基类。"""
@@ -89,3 +91,21 @@ class ErrorCode(Enum):
             if item.code == code:
                 return item
         return None
+
+
+def internal_error_message(exc: Optional[BaseException] = None, context: str = '') -> str:
+    """500 响应的**固定文案**，并顺手把完整堆栈落日志（2026-10-29）。
+
+    为什么必须有它：视图里写
+    ``except Exception as e: jsonify({'message': f'服务器内部错误: {str(e)}'})``
+    会把 ``str(e)`` 原样送到浏览器——实测一次 ``IntegrityError`` 就泄漏了 INSERT
+    全文、绑定参数（含 ``family_id`` / ``ledger_id`` / 金额）与 ``sqlalche.me`` 链接。
+    更糟的是异常被视图吞掉后，``main.py::handle_unexpected`` 那一层（固定文案 +
+    ``logger.opt(exception=True)``）**永远不会执行** ⇒ 既不脱敏也不留痕，事后连
+    排查线索都没有。
+
+    本函数把「脱敏」与「留痕」绑成同一个动作：调用方只写一次，就不可能只做一半。
+    堆栈走 loguru（``logger.exception`` 同效），对外只有 ``ErrorCode.INTERNAL_ERROR.msg``。
+    """
+    logger.opt(exception=exc).error('未捕获的系统异常（{}）', context or '未标注')
+    return ErrorCode.INTERNAL_ERROR.msg

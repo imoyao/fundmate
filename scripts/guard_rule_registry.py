@@ -189,11 +189,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '静态匹配装饰器名；`getattr(bp, "input")` 一类动态写法拦不住',
     },
     'scripts/guard_error_envelope.py': {
-        'rule': '错误响应三字段信封 {data, message, error_code}',
+        'rule': '错误响应三字段信封 {data, message, error_code}；5xx message 不得拼接异常对象',
         'runner': 'both',
         'stage': 'default',
-        'tests': 'scripts/tests/test_rule_registry_guard.py',
-        'covered': '只扫 backend/app 的视图内字面量 dict；从 service 透传的残缺响应不追',
+        'tests': 'backend/tests/test_error_envelope.py',
+        'covered': (
+            '只扫 backend/app 的视图内字面量 dict；从 service 透传的残缺响应不追。'
+            '5xx 泄漏判据只认 f-string 的 `{}` 与直接 `str(x)` 两种形态，'
+            '`message=变量` 这类间接拼接拦不住'
+        ),
     },
     'scripts/check_api_conventions.py': {
         'rule': 'API 端点尾斜杠 + api.md 全量端点段一致',

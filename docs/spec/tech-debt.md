@@ -841,7 +841,7 @@ cd backend && pdm run pytest tests/test_company_resolver.py \
 
 | # | 事项 | 说明 |
 |---|---|---|
-| 1 | `summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛 | 仍重复实现全局处理器职责、绕过 `logger.opt(exception=True)` 留痕。收敛会让 500 响应体由 `data: {空结构}` / `message: '服务器内部错误: <内部细节>'` 变为 `data: None` / 泛化 message（**对外可观察变化**），需单独拍板 |
+| 1 | ~~`summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛~~ **已收敛（2026-10-30，D71）** | 用户已拍板：**保留各视图原有 `data` 形状，只换 `message`**（不采纳「统一改成 `data: None`」——那会把一次脱敏顺带变成前端契约变更）。实测同类分支共 20 处（summary 16 / importers 2 / temperature 2），全部改走 `core/exceptions.py::internal_error_message`（固定文案 + 堆栈留痕）；另加 `scripts/guard_error_envelope.py` 的第二条判据（5xx message 不得拼接异常对象）。详见 `decisions.md` D71 |
 | 2 | 前端尚未消费 `error_code` | 契约已可用（三字段 + int），前端 `api/search.ts` 目前仅声明类型未分支处理；接入错误分类时可直接用 |
 
 
