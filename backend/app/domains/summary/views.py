@@ -13,7 +13,7 @@ from flask import jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.core.exceptions import internal_error_message
+from app.core.exceptions import internal_error_payload
 from app.core.time_utils import today_shanghai
 from app.core.validation import parse_query
 from app.domains.summary.schemas import MemberSliceQuery
@@ -53,7 +53,7 @@ def summary():
             data['account_groups'] = account_groups
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': {}, 'message': internal_error_message(e, 'summary'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'summary', {})), 500
 
 
 @bp.get('/summary/cash-like/')
@@ -68,9 +68,7 @@ def cash_like():
             data = orphan_cash_like_payload(db, get_family_id())
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify(
-            {'data': {'items': []}, 'message': internal_error_message(e, 'cash_like'), 'error_code': 5004}
-        ), 500
+        return jsonify(internal_error_payload(e, 'cash_like', {'items': []})), 500
 
 
 @bp.get('/summary/sankey/')
@@ -82,9 +80,7 @@ def sankey():
             data = get_sankey_data(db, get_family_id(), member_id)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify(
-            {'data': {'nodes': [], 'links': []}, 'message': internal_error_message(e, 'sankey'), 'error_code': 5004}
-        ), 500
+        return jsonify(internal_error_payload(e, 'sankey', {'nodes': [], 'links': []})), 500
 
 
 @bp.get('/summary/distributions/')
@@ -96,7 +92,7 @@ def distributions():
             data = get_distributions(db, get_family_id(), member_id)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': {}, 'message': internal_error_message(e, 'distributions'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'distributions', {})), 500
 
 
 @bp.get('/summary/position-structure/')
@@ -128,9 +124,7 @@ def position_structure():
         # scope 参数冲突 / 组合不存在（services 约定），与穿透 / 归因端点同款 400
         return jsonify({'data': {}, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify(
-            {'data': {}, 'message': internal_error_message(e, 'position_structure'), 'error_code': 5004}
-        ), 500
+        return jsonify(internal_error_payload(e, 'position_structure', {})), 500
 
 
 @bp.get('/summary/penetration/')
@@ -176,7 +170,7 @@ def penetration():
         return jsonify({'data': {}, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         # 标准错误信封 {data, message, error_code}（AGENTS.md 接口契约）
-        return jsonify({'data': {}, 'message': internal_error_message(e, 'penetration'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'penetration', {})), 500
 
 
 @bp.get('/summary/groups/')
@@ -191,7 +185,7 @@ def position_groups():
             data = get_position_groups(db, get_family_id(), dimension, member_id)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': [], 'message': internal_error_message(e, 'position_groups'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'position_groups', [])), 500
 
 
 @bp.post('/summary/snapshots/')
@@ -210,7 +204,7 @@ def create_snapshot():
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify({'data': None, 'message': internal_error_message(e, 'create_snapshot'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'create_snapshot', None)), 500
 
 
 @bp.get('/summary/snapshots/')
@@ -233,7 +227,7 @@ def list_snapshots():
     except ValueError as e:
         return jsonify({'data': [], 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify({'data': [], 'message': internal_error_message(e, 'list_snapshots'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'list_snapshots', [])), 500
 
 
 @bp.get('/summary/pnl-calendar/')
@@ -254,7 +248,7 @@ def pnl_calendar():
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify({'data': None, 'message': internal_error_message(e, 'pnl_calendar'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'pnl_calendar', None)), 500
 
 
 @bp.get('/summary/cash-flow/')
@@ -281,7 +275,7 @@ def cash_flow():
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify({'data': None, 'message': internal_error_message(e, 'cash_flow'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'cash_flow', None)), 500
 
 
 @bp.get('/summary/pnl-attribution/')
@@ -303,7 +297,7 @@ def pnl_attribution():
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify({'data': None, 'message': internal_error_message(e, 'pnl_attribution'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'pnl_attribution', None)), 500
 
 
 @bp.get('/summary/cleared-cycles/')
@@ -327,13 +321,7 @@ def cleared_cycles():
             )
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify(
-            {
-                'data': {'cycles': [], 'summary': {}},
-                'message': internal_error_message(e, 'cleared_cycles'),
-                'error_code': 5004,
-            }
-        ), 500
+        return jsonify(internal_error_payload(e, 'cleared_cycles', {'cycles': [], 'summary': {}})), 500
 
 
 @bp.get('/summary/benchmarks/')
@@ -378,9 +366,7 @@ def benchmark_excess():
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify(
-            {'data': None, 'message': internal_error_message(e, 'benchmark_excess'), 'error_code': 5004}
-        ), 500
+        return jsonify(internal_error_payload(e, 'benchmark_excess', None)), 500
 
 
 @bp.get('/summary/fund-valuation/')
@@ -407,7 +393,7 @@ def fund_valuation():
             data = list_fund_valuation_rows(db, query_date, fund_code=fund_code)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': [], 'message': internal_error_message(e, 'fund_valuation'), 'error_code': 5004}), 500
+        return jsonify(internal_error_payload(e, 'fund_valuation', [])), 500
 
 
 @bp.get('/summary/ghost-duplicates/')
@@ -423,10 +409,4 @@ def ghost_duplicates():
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         # 标准错误信封 {data, message, error_code}（AGENTS.md 接口契约）
-        return jsonify(
-            {
-                'data': [],
-                'message': internal_error_message(e, 'ghost_duplicates'),
-                'error_code': 5004,
-            }
-        ), 500
+        return jsonify(internal_error_payload(e, 'ghost_duplicates', [])), 500

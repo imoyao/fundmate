@@ -2,7 +2,6 @@
 # Author : imoyao
 # Date : 2026/7/23 20:42
 # File : views.py
-# -*- coding: utf-8 -*-
 """
 市场温度 API 路由
 """
@@ -12,7 +11,7 @@ from datetime import datetime
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
-from app.core.exceptions import internal_error_message
+from app.core.exceptions import internal_error_payload
 from app.services.thermometer.service import TemperatureService
 
 thermometer_bp = APIBlueprint('temperature', __name__, url_prefix='/api/temperature')
@@ -80,9 +79,7 @@ def get_temperature_history():
         data = TemperatureService.get_history(source, days)
         return jsonify({'data': data, 'message': 'success'})
     except Exception as e:
-        return jsonify(
-            {'message': internal_error_message(e, 'temperature.history'), 'error_code': 5004, 'data': None}
-        ), 500
+        return jsonify(internal_error_payload(e, 'temperature.history', None)), 500
 
 
 @thermometer_bp.get('/multi')
@@ -102,9 +99,7 @@ def get_multi_items():
         data = TemperatureService.get_multi_items(source, target_date)
         return jsonify({'data': data, 'message': 'success'})
     except Exception as e:
-        return jsonify(
-            {'message': internal_error_message(e, 'temperature.multi'), 'error_code': 5004, 'data': None}
-        ), 500
+        return jsonify(internal_error_payload(e, 'temperature.multi', None)), 500
 
 
 @thermometer_bp.get('/crowding-history')
