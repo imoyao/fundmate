@@ -445,9 +445,9 @@ def auto_purchase_money_fund(
 _SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash', 'portfolio'}
 
 
-def _get_asset_type(data: dict, default: str = 'stock') -> str:
+def _get_asset_type(data: dict, default: str = 'stock', *, fallback: Optional[str] = None) -> str:
     """
-    录入阶段确定资产类型：显式具体类型 > 代码前缀推断 > 默认 stock。
+    录入阶段确定资产类型：显式具体类型 > 代码前缀推断 > ``fallback`` > 默认 stock。
 
     历史债背景：PositionCreate.asset_type 使用 validation_alias='type'，
     model_dump() 输出的是字段名 `asset_type`，而 importer 路径直接构造 `type` key，
@@ -456,10 +456,22 @@ def _get_asset_type(data: dict, default: str = 'stock') -> str:
     分类下沉到录入阶段（#1264 / #1266）：仅当显式类型缺失，或显式为泛化默认 'stock' 时，
     才按代码前缀推断（沪 51/56/58、深 15/16 → ETF；11/12 → 可转债），
     以免把已正确标注为 fund/money_fund 的基金（代码前缀可能与股票/可转债重合）误判成股票。
+
+    ``fallback``（#2773 附带修）：**已知持仓**时的品种来源。卖出/取出等「操作的是既有持仓」
+    的路径，请求体可以不带 ``type``（导入器、脚本、老客户端都不带），而默认兜底是
+    ``'stock'`` —— 于是场外基金的卖出流水落成 ``asset_type='stock'``，身份键从
+    ``OTC:004369`` 变成 ``EXCHANGE:SZ004369``，与买入那条**分裂成两个分组**：
+    清仓周期永远闭合不上，卖出被记成「无周期可归集」。品种本来就该以持仓为准，
+    请求体只是它的冗余副本，故 ``fallback`` 排在代码前缀推断**之前**。
     """
     explicit = data.get('asset_type') or data.get('type')
     if explicit and explicit in _SPECIFIC_ASSET_TYPES:
         return explicit
+    # 已知持仓的品种**优先于**代码前缀推断：`derive_security_type` 在缺少场所信息时
+    # 对任何 6 位数字码都返回 'stock'（实测 004369 → stock），而它其实是场外基金。
+    # 推导不可信时以持仓为准，请求体里的品种只是持仓的冗余副本。
+    if fallback:
+        return fallback
     symbol = data.get('symbol') or ''
     market, code = split_symbol(symbol)
     derived = derive_security_type(code, market)
@@ -1828,6 +1840,10 @@ class PositionService:
                 )
             db.flush()
 
+            # 品种以**持仓**为准（理由见 `_get_asset_type` 的 `fallback` 说明）：
+            # 卖出请求不带 type 时若兜底成 'stock'，场外基金的卖出流水会与买入
+            # 分属两个身份键，清仓周期永远闭合不上。
+            sell_asset_type = _get_asset_type(data, fallback=existing.asset_type)
             TransactionService.create(
                 db=db,
                 position_id=position_id,
@@ -1835,7 +1851,7 @@ class PositionService:
                 txn_type=op_type,
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
-                asset_type=_get_asset_type(data),
+                asset_type=sell_asset_type,
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
                 price=price_units,
@@ -1860,7 +1876,11 @@ class PositionService:
             # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
             # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
             # 基金转换传 auto_purchase=False：退款腿由转换服务按用户选择显式落账（见 docstring）。
-            if auto_purchase and _get_asset_type(data) not in ('money_fund', 'reverse_repo'):
+            # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
+            # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
+            # 判据用 `sell_asset_type`（持仓品种）而非 `_get_asset_type(data)`：请求体没带 type 时
+            # 后者会把货基赎回判成股票卖出去自动申购，正是它要防的那个死循环。
+            if auto_purchase and sell_asset_type not in ('money_fund', 'reverse_repo'):
                 gross_cents = Money.multiply_price_quantity(price_units, qty_units)
                 auto_purchase_money_fund(
                     db,

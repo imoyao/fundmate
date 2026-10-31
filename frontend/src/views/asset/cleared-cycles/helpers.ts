@@ -160,3 +160,99 @@ export function pickTop(
     )
     .slice(0, Math.max(0, limit));
 }
+
+/* ─────────────────── 清仓后涨跌幅（#2773） ─────────────────── */
+
+export type PostClearCell = {
+  /** 涨跌幅（%）；null = 算不出，模板画占位。**不是 0** */
+  pct: number | null;
+  /** 算不出时的占位文案（算得出时为 null，数值交给 RiseFallText 着色） */
+  placeholder: string | null;
+  /** 必给的说明：算得出 → 截至哪天 + 什么口径；算不出 → 为什么算不出 */
+  title: string;
+};
+
+const POST_CLEAR_REASON: Record<string, string> = {
+  no_nav_at_sell:
+    "卖出日及之前没有可用价格（场外缺净值 / 场内缺前复权收盘价），多为早期清仓、历史数据从未拉取过",
+  no_nav_after:
+    "卖出之后没有更新的价格（净值或行情已停更）。这不是「没涨没跌」",
+  not_supported:
+    "无交易场所的标的（经理 / 投顾组合 / 指数）没有可信市价，或场内缺前复权价——不拿未复权收盘价顶替"
+};
+
+/**
+ * 「清仓后」单元格：数值 + 必须存在的说明。
+ *
+ * 三条纪律（都是 #2773 的验收口径）：
+ *
+ * 1. **算不出回 `--` 且带原因**：`post_clear_pct` 为 null 时状态码解释了是「没锚点」
+ *    还是「净值停更」，两者对用户的含义完全不同，不能都画成一个空格。
+ * 2. **颜色按涨跌，不按好坏**：红=涨（卖飞了）、绿=跌（躲过一刀）。好坏只写在
+ *    `title` 里。反过来编码会让同一列出现两种解读（同一条红既可能表示「赚了」
+ *    也可能表示「卖早了」）。
+ * 3. **「截至哪天」跟数一起给**：净值可能停在几个月前，不标日期等于把旧数当实时值。
+ */
+export function postClearCell(cycle: ClearedCycle): PostClearCell {
+  const status = cycle.post_clear_status;
+  const pct = cycle.post_clear_pct;
+
+  if (status === "ok" && typeof pct === "number") {
+    const basis =
+      cycle.post_clear_basis === "unit_nav"
+        ? "单位净值口径（不含分红再投）"
+        : cycle.post_clear_basis === "adj_close"
+          ? "前复权收盘价口径（除权不虚跌）"
+          : "累计净值口径（含分红再投）";
+    const asOf = cycle.post_clear_as_of
+      ? `截至 ${cycle.post_clear_as_of}`
+      : "截至最新净值";
+    const meaning =
+      pct > 0
+        ? "卖出后继续上涨（卖飞）"
+        : pct < 0
+          ? "卖出后下跌（躲过）"
+          : "卖出后持平";
+    return {
+      pct,
+      placeholder: null,
+      title: `清仓后至${asOf}，${basis}；${meaning}`
+    };
+  }
+
+  if (!status) {
+    // 没传 `include_post_clear` 才会走到这里：如实说「没算」，别让它看起来像「算出来是空」
+    return {
+      pct: null,
+      placeholder: "--",
+      title: "本次请求未计算清仓后涨跌幅"
+    };
+  }
+
+  return {
+    pct: null,
+    placeholder: "--",
+    title: POST_CLEAR_REASON[status] ?? "清仓后涨跌幅不可算"
+  };
+}
+
+/**
+ * 胜率卡的说明：**必须**把「还有几只浮亏没算进来」并列写出来（#2773）。
+ *
+ * 胜率只统计已清仓周期，套牢不卖的浮亏不在分母里 ⇒ 这个数天然偏乐观。把
+ * `unrealized_count` 降级成一条 caveat（或干脆不显示）等于让用户拿被挑过的样本
+ * 下结论。所以它这里不是「附加信息」，是与胜率绑定的限定条件。
+ */
+export function winRateCaption(summary: ClearedCyclesSummary): string {
+  const base =
+    summary.sample_count === 0
+      ? "暂无已完结周期"
+      : `胜 ${summary.win_count} / 负 ${summary.loss_count}（样本 ${summary.sample_count}）`;
+  const unrealized = summary.unrealized_count;
+  if (unrealized === null || unrealized === undefined) {
+    // 后端没算（降级）≠ 没有浮亏，不能省略不提
+    return `${base}；浮亏标的数不可用`;
+  }
+  if (unrealized === 0) return `${base}；当前无浮亏持仓`;
+  return `${base}；另有 ${unrealized} 只持仓浮亏未计入`;
+}

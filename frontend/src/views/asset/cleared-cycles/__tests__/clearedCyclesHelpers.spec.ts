@@ -13,9 +13,11 @@ import {
   fmtRatio,
   pickTop,
   pnlTotalCaption,
+  postClearCell,
   rangeStartDate,
   sampleNote,
-  subtractMonths
+  subtractMonths,
+  winRateCaption
 } from "../helpers";
 import type { ClearedCycle, ClearedCyclesSummary } from "@/api/summary";
 
@@ -30,6 +32,7 @@ const emptySummary: ClearedCyclesSummary = {
   avg_holding_days: null,
   realized_pnl_total: null,
   total_trade_count: 0,
+  unrealized_count: null,
   caveats: []
 };
 
@@ -229,5 +232,160 @@ describe("pickTop", () => {
 
   it("空列表 → 空数组", () => {
     expect(pickTop([], "win")).toEqual([]);
+  });
+});
+
+/* ── 清仓后涨跌幅（#2773）────────────────────────────────────────
+ * 核心纪律：算不出 → pct=null + 有原因；颜色按涨跌不按好坏（交给模板）；
+ * 「截至哪天」必须跟数一起给。
+ */
+
+describe("postClearCell", () => {
+  it("ok：给出数值，title 带截至日与口径", () => {
+    const cell = postClearCell(
+      cycle({
+        post_clear_pct: 12.3,
+        post_clear_status: "ok",
+        post_clear_as_of: "2026-10-30",
+        post_clear_basis: "acc_nav"
+      })
+    );
+
+    expect(cell.pct).toBe(12.3);
+    expect(cell.placeholder).toBeNull();
+    expect(cell.title).toContain("2026-10-30");
+    expect(cell.title).toContain("累计净值");
+  });
+
+  it("ok 且为负：数值原样透出（颜色由 RiseFallText 按涨跌判定，不在这里翻转）", () => {
+    const cell = postClearCell(
+      cycle({
+        post_clear_pct: -8.5,
+        post_clear_status: "ok",
+        post_clear_as_of: "2026-10-30",
+        post_clear_basis: "acc_nav"
+      })
+    );
+
+    expect(cell.pct).toBe(-8.5);
+    expect(cell.title).toContain("躲过");
+  });
+
+  it("unit_nav 口径要在 title 里标出来（否则用户以为分红算进去了）", () => {
+    const cell = postClearCell(
+      cycle({
+        post_clear_pct: 3,
+        post_clear_status: "ok",
+        post_clear_as_of: "2026-10-30",
+        post_clear_basis: "unit_nav"
+      })
+    );
+
+    expect(cell.title).toContain("单位净值");
+    expect(cell.title).toContain("不含分红");
+  });
+
+  it("场内 adj_close 口径要标「前复权」，否则用户会以为是未复权价", () => {
+    const cell = postClearCell(
+      cycle({
+        post_clear_pct: 5.5,
+        post_clear_status: "ok",
+        post_clear_as_of: "2026-10-30",
+        post_clear_basis: "adj_close"
+      })
+    );
+
+    expect(cell.title).toContain("前复权");
+    expect(cell.title).toContain("除权不虚跌");
+  });
+
+  it("0% 是合法值（卖出后持平），不能当占位", () => {
+    const cell = postClearCell(
+      cycle({
+        post_clear_pct: 0,
+        post_clear_status: "ok",
+        post_clear_as_of: "2026-10-30",
+        post_clear_basis: "acc_nav"
+      })
+    );
+
+    expect(cell.pct).toBe(0);
+    expect(cell.placeholder).toBeNull();
+    expect(cell.title).toContain("持平");
+  });
+
+  it("四种「算不出」各有各的原因，不是一个 -- 了事", () => {
+    const reasons = (
+      ["no_nav_at_sell", "no_nav_after", "not_supported"] as const
+    ).map(status =>
+      postClearCell(cycle({ post_clear_pct: null, post_clear_status: status }))
+    );
+
+    reasons.forEach(cell => {
+      expect(cell.pct).toBeNull();
+      expect(cell.placeholder).toBe("--");
+      expect(cell.title.length).toBeGreaterThan(8);
+    });
+    // 三条原因互不相同：能区分才会去查对地方
+    expect(new Set(reasons.map(c => c.title)).size).toBe(3);
+  });
+
+  it("没传 include_post_clear（字段缺失）→ 说「未计算」，不冒充「算出来是空」", () => {
+    const cell = postClearCell(cycle());
+
+    expect(cell.pct).toBeNull();
+    expect(cell.title).toContain("未计算");
+  });
+
+  it("no_nav_after 的 title 必须点明「不是没涨没跌」", () => {
+    const cell = postClearCell(
+      cycle({ post_clear_pct: null, post_clear_status: "no_nav_after" })
+    );
+
+    expect(cell.title).toContain("不是「没涨没跌」");
+  });
+});
+
+describe("winRateCaption", () => {
+  it("有浮亏持仓：与胜率并列写出来（样本偏差不许藏）", () => {
+    const caption = winRateCaption({
+      ...emptySummary,
+      sample_count: 5,
+      win_count: 4,
+      loss_count: 1,
+      unrealized_count: 3
+    });
+
+    expect(caption).toContain("胜 4 / 负 1");
+    expect(caption).toContain("另有 3 只持仓浮亏未计入");
+  });
+
+  it("0 只浮亏：明确说「当前无浮亏」，而不是省略", () => {
+    const caption = winRateCaption({
+      ...emptySummary,
+      sample_count: 2,
+      win_count: 2,
+      unrealized_count: 0
+    });
+
+    expect(caption).toContain("当前无浮亏持仓");
+  });
+
+  it("null（后端没算）不能显示成 0，也不能沉默", () => {
+    const caption = winRateCaption({
+      ...emptySummary,
+      sample_count: 2,
+      unrealized_count: null
+    });
+
+    expect(caption).toContain("浮亏标的数不可用");
+    expect(caption).not.toContain("当前无浮亏");
+  });
+
+  it("无已完结周期时仍带上浮亏说明（浮亏不是周期样本的产物）", () => {
+    const caption = winRateCaption({ ...emptySummary, unrealized_count: 2 });
+
+    expect(caption).toContain("暂无已完结周期");
+    expect(caption).toContain("另有 2 只");
   });
 });

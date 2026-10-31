@@ -49,7 +49,7 @@
         :value="winRateLabel"
         unit="%"
         value-color="var(--brand-ink)"
-        :caption="winRateCaption"
+        :caption="winRateCaptionText"
       />
       <MetricCard
         title="盈亏比"
@@ -130,6 +130,14 @@
             <span v-else class="cleared-cycles__na">--</span>
           </template>
         </el-table-column>
+
+        <!-- 清仓后（#2773）：回答「这笔卖得对不对」。算不出时给 -- + title 说明原因，
+             绝不回 0——0 的含义是「卖掉之后不涨不跌」 -->
+        <el-table-column label="清仓后" width="112" align="right">
+          <template #default="{ row }">
+            <ClearedPostClearCell :cycle="asCycle(row)" />
+          </template>
+        </el-table-column>
       </el-table>
     </CardBlock>
   </section>
@@ -158,9 +166,11 @@ import {
   fmtRatio,
   pnlTotalCaption,
   rangeStartDate,
+  winRateCaption,
   type ClearedRangeKey
 } from "./helpers";
 import ClearedRankList from "./ClearedRankList.vue";
+import ClearedPostClearCell from "./ClearedPostClearCell.vue";
 
 defineOptions({ name: "ClearedCyclesSection" });
 
@@ -176,6 +186,8 @@ const emptySummary = (): ClearedCyclesSummary => ({
   avg_holding_days: null,
   realized_pnl_total: null,
   total_trade_count: 0,
+  // null = 没算（不是「一只都没亏」）；请求失败也退回「没算」，不假装健康
+  unrealized_count: null,
   caveats: []
 });
 
@@ -194,7 +206,9 @@ const load = async () => {
   const seq = ++reqSeq;
   try {
     const res = await getClearedCycles({
-      start_date: rangeStartDate(range.value) ?? undefined
+      start_date: rangeStartDate(range.value) ?? undefined,
+      // 清仓后涨跌幅要额外查净值（锚点 + 最新），复盘页要看这列故显式开启（#2773）
+      include_post_clear: true
     });
     if (seq !== reqSeq) return;
     const data = res?.data;
@@ -212,6 +226,13 @@ const load = async () => {
 
 onMounted(load);
 
+/**
+ * el-table 的插槽 `row` 只被标注成 `DefaultRow`（`Record<string, any>`），
+ * 传给类型化子组件时 tsc 会报「缺 15 个属性」。这里做一次显式断言，
+ * 而不是把子组件的 props 放宽成 any —— 放宽等于放弃「字段名写错能报错」。
+ */
+const asCycle = (row: unknown) => row as ClearedCycle;
+
 const formatYuan = (n: number) => `¥${formatAmount(n || 0)}`;
 const formatSignedYuan = (n: number) =>
   `${n >= 0 ? "+" : "-"}${formatYuan(Math.abs(n || 0))}`;
@@ -227,16 +248,13 @@ const avgHoldingLabel = computed(() => {
   const days = fmtHoldingDaysValue(summary.value.avg_holding_days);
   return days === null ? null : String(days);
 });
-const winRateCaption = computed(() => {
-  const s = summary.value;
-  if (s.sample_count === 0) return "暂无已完结周期";
-  return `胜 ${s.win_count} / 负 ${s.loss_count}（样本 ${s.sample_count}）`;
-});
+/** 胜率的限定条件（当前浮亏标的数）与胜率绑在一起，见 helpers.winRateCaption */
+const winRateCaptionText = computed(() => winRateCaption(summary.value));
 
 const sectionInfo = computed(() => {
   const s = summary.value;
   const base =
-    "按「首买→末卖」周期统计已落袋表现：盈亏由 FIFO 配对自算（不读流水 realized_pnl 列，存量库该列全 0）；默认剔除货币基金/逆回购/现金；时间范围按末卖日裁剪";
+    "按「首买→末卖」周期统计已落袋表现：盈亏由 FIFO 配对自算（不读流水 realized_pnl 列，存量库该列全 0）；默认剔除货币基金/逆回购/现金；时间范围按末卖日裁剪；清仓后涨跌幅取累计净值（缺失回落单位净值），「--」表示算不出而非 0；胜率只含已清仓周期，套牢未卖的浮亏见胜率卡说明";
   if (s.cycle_count > s.sample_count) {
     return `${base}；${s.cycle_count - s.sample_count} 个周期因部分配对（先卖后买/无买入流水）不可算，未计入汇总`;
   }
