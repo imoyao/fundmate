@@ -874,6 +874,10 @@ export function getCashLikeBreakdown() {
  * 且该周期不进汇总的胜率/盈亏比样本（pnl_known=false）。
  */
 
+/** 清仓后涨跌幅的四种状态（#2773）：互斥且穷尽，`post_clear_pct` 只有 `ok` 时非空 */
+export type PostClearStatus =
+  "ok" | "no_nav_at_sell" | "no_nav_after" | "not_supported";
+
 /** 单个清仓周期（首买 → 末卖；金额单位元，日期 ISO） */
 export type ClearedCycle = {
   symbol: string;
@@ -900,6 +904,21 @@ export type ClearedCycle = {
   /** false = 部分配对，不进汇总胜率/盈亏比样本 */
   pnl_known: boolean;
   caveats: string[];
+  /**
+   * 清仓后涨跌幅（%）（#2773）——**仅在传 `include_post_clear` 时下发**。
+   * null = 算不出（看 `post_clear_status` 是哪一种「算不出」），**不是 0**：
+   * 0 的含义是「卖掉之后不涨不跌」，与「没有净值可算」必须分开。
+   */
+  post_clear_pct?: number | null;
+  /** 状态码；不传 include_post_clear 时字段不存在 */
+  post_clear_status?: PostClearStatus;
+  /**
+   * 最新净值日（YYYY-MM-DD），仅 `ok` 时有值。**必须与涨跌幅一起展示**——
+   * 不标「截至哪天」，一个停在几个月前的数会被当实时值读。
+   */
+  post_clear_as_of?: string | null;
+  /** 实际使用的净值口径：acc_nav（含分红再投）/ unit_nav（不含） */
+  post_clear_basis?: "acc_nav" | "unit_nav" | null;
 };
 
 /** 跨周期汇总（样本仅含 pnl_known 周期；零盈亏计样本不计胜负） */
@@ -921,6 +940,16 @@ export type ClearedCyclesSummary = {
   /** 累计已实现盈亏（元，仅样本周期） */
   realized_pnl_total: number | null;
   total_trade_count: number;
+  /**
+   * 当前持仓中**仍浮亏**的标的数（#2773），必须与胜率并列展示。
+   *
+   * 为什么它是必需项而不是彩蛋：胜率只统计已清仓周期，套牢不卖的浮亏不在分母里，
+   * 于是胜率天然偏乐观。只看胜率而不看这个数，等于只看被挑过的样本。
+   *
+   * `null` = 后端没算（未实现/降级），与 `0`（算了，一只都不亏）必须区分——
+   * 混成 0 会在界面上显示成「持仓全部健康」，那是编数字。
+   */
+  unrealized_count: number | null;
   caveats: string[];
 };
 
@@ -935,6 +964,8 @@ export type ClearedCyclesData = {
  * 不传 `ledger_id` = 家庭全部账户合并（产品级口径，与 XIRR/行为画像一致）；
  * `include_cash_equivalents` 默认 false（剔除货基/逆回购/cash，与复盘页 XIRR 同默认）。
  * `start_date` / `end_date`（#2774）按**末卖日**裁剪，缺省 = 投资以来。
+ * `include_post_clear`（#2773）补「清仓后涨跌幅」，每个周期多出 4 个字段；
+ * 默认 false 是因为它要额外查 `daily_worth`（锚点 + 最新），复盘页要这列就显式开。
  */
 export function getClearedCycles(params?: {
   ledger_id?: number;
@@ -944,6 +975,8 @@ export function getClearedCycles(params?: {
   start_date?: string;
   /** YYYY-MM-DD；缺省不限制上界 */
   end_date?: string;
+  /** 补「清仓后涨跌幅」（#2773）；默认不开 */
+  include_post_clear?: boolean;
 }) {
   return http.request<ApiResponse<ClearedCyclesData>>(
     "get",

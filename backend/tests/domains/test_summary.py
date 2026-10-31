@@ -991,3 +991,121 @@ class TestClearedCyclesEndpoint:
     def test_start_after_end_returns_400(self, client):
         resp = client.get('/api/summary/cleared-cycles/?start_date=2026-07-01&end_date=2026-06-01')
         assert resp.status_code == 400
+
+    # ── 清仓后涨跌幅 + 浮亏标的数（#2773）────────────────────────────
+
+    def _seed_otc_cycle(self, client, code='004369', sell_date='2026-06-01') -> None:
+        """场外基金一轮完整周期：买 1000 份 @1.0 → 卖 1000 份 @1.1。
+
+        **卖出请求故意不带 ``type``**：导入器/脚本/老客户端都不带，而缺失时若兜底成
+        ``'stock'``，卖出流水与买入会分属两个身份键（``EXCHANGE:`` vs ``OTC:``），
+        清仓周期永远闭合不上。这条同时守住 `_get_asset_type(fallback=持仓品种)`。
+
+        代码取 ``004369`` 而非 ``000001``：后者与平安银行同码，后端成交价区间校验
+        会按股票的真实区间把 1.1 拦下来（`_validate_price_within_range`）。
+        """
+        buy = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': code,
+                'name': '测试场外基',
+                'type': 'fund',
+                'asset_type': 'fund',
+                'market': 'CN_A',
+                'account_name': '天天基金',
+                'quantity': 1000,
+                'avg_price': 1.0,
+                'currency': 'CNY',
+                'trade_date': '2026-05-01',
+                'op_type': 'buy',
+            },
+        )
+        assert buy.status_code == 200, buy.get_json()
+        pos_id = client.get('/api/positions/').get_json()['data'][0]['id']
+        sell = _post(
+            client,
+            '/api/positions/',
+            {
+                'position_id': pos_id,
+                'op_type': 'sell',
+                'symbol': code,
+                'quantity': 1000,
+                'avg_price': 1.1,
+                'trade_date': sell_date,
+            },
+        )
+        assert sell.status_code == 200, sell.get_json()
+
+    def test_post_clear_fields_absent_by_default(self, client):
+        """不传 include_post_clear → 周期里没有 post_clear_* 字段（老调用方零改动）。"""
+        self._seed_cleared_cycle(client)
+
+        data = client.get('/api/summary/cleared-cycles/').get_json()['data']
+
+        assert 'post_clear_pct' not in data['cycles'][0]
+        assert 'post_clear_status' not in data['cycles'][0]
+
+    def test_include_post_clear_computes_pct_with_as_of_and_basis(self, client, db):
+        """场外周期：给出涨跌幅 + **截至日** + **口径**（三者缺一，这个数就会被误读）。"""
+        from datetime import date
+
+        from app.domains.funds.models import DailyWorth
+
+        self._seed_otc_cycle(client)
+        db.add_all(
+            [
+                # 锚点：卖出日当日净值
+                DailyWorth(fund_code='004369', date=date(2026, 6, 1), unit_nav=1.2, acc_nav=1.2),
+                # 最新：卖出之后
+                DailyWorth(fund_code='004369', date=date(2026, 9, 30), unit_nav=1.4, acc_nav=1.5),
+            ]
+        )
+        db.commit()
+
+        data = client.get('/api/summary/cleared-cycles/?include_post_clear=1').get_json()['data']
+        c = data['cycles'][0]
+
+        assert c['post_clear_status'] == 'ok'
+        assert c['post_clear_pct'] == 25.0  # 1.5 / 1.2 − 1，用 acc 口径
+        assert c['post_clear_as_of'] == '2026-09-30'
+        assert c['post_clear_basis'] == 'acc_nav'
+
+    def test_include_post_clear_without_nav_reports_reason_not_zero(self, client):
+        """无净值可算时回 null + 状态码，**绝不回 0**（0 的含义是「没涨没跌」）。"""
+        self._seed_otc_cycle(client)
+
+        data = client.get('/api/summary/cleared-cycles/?include_post_clear=1').get_json()['data']
+        c = data['cycles'][0]
+
+        assert c['post_clear_pct'] is None
+        assert c['post_clear_status'] == 'no_nav_at_sell'
+        assert c['post_clear_as_of'] is None
+
+    def test_unrealized_count_lists_underwater_holdings(self, client, db, make_position):
+        """浮亏标的数与胜率并列下发，且**不随**时间窗口变化（它是当前持仓的点位事实）。"""
+        from datetime import date
+
+        from app.domains.funds.models import DailyWorth
+
+        self._seed_cleared_cycle(client)
+        make_position(
+            symbol='000002', asset_type='fund', name='浮亏基', quantity=1000, avg_price=1.0
+        )
+        db.add(DailyWorth(fund_code='000002', date=date(2026, 9, 30), unit_nav=0.9, acc_nav=0.9))
+        db.commit()
+
+        data = client.get('/api/summary/cleared-cycles/').get_json()['data']
+        assert data['summary']['unrealized_count'] == 1
+        assert data['summary']['cycle_count'] == 1
+
+        # 把窗口推到未来：周期被裁掉，但浮亏数不变（不许随筛选一起归零）
+        windowed = client.get('/api/summary/cleared-cycles/?start_date=2030-01-01').get_json()['data']
+        assert windowed['summary']['cycle_count'] == 0
+        assert windowed['summary']['unrealized_count'] == 1
+
+    def test_unrealized_count_is_zero_not_none_when_no_holdings(self, client):
+        """算了但没有持仓 → 0；不是 null（null 表示「没算」，两者不能混）。"""
+        data = client.get('/api/summary/cleared-cycles/').get_json()['data']
+
+        assert data['summary']['unrealized_count'] == 0
