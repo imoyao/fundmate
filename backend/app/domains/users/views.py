@@ -11,16 +11,14 @@ from datetime import date, datetime
 from apiflask import APIBlueprint
 from flask import abort, g, jsonify
 from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
 
-from app.core import supabase_admin
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.core.sensitive_word_guard import contains_sensitive
 from app.core.validation import parse_body
 from app.domains.transactions.models import Transaction
 from app.domains.users.models import ROLE_LABELS, User, UserPreference
 from app.domains.users.schemas import PreferenceOut, PreferenceUpsert, ProfileUpdate, UserOut
+from app.services.user_profile import update_profile
 
 users_bp = APIBlueprint('users', __name__, url_prefix='/api/users')
 
@@ -43,64 +41,17 @@ def list_family_members():
 def update_me():
     """更新当前登录用户资料（昵称 / 用户名 / 头像）。
 
-    用户名作为登录标识必须全局唯一：与其他用户冲突返回 409；
-    用户名只允许修改且不可置空（置空则保持原值）。
-    头像仅存生成式 URL（D9：不落盘、不上传，由 DiceBear 之类生成）。
-
-    **写时同步 GoTrue metadata**（#2764 遗留项）：本地改名成功后，把新 `username`
-    写回 Supabase `user_metadata`。不这样做的话，注册时写进 metadata 的旧名会一直
-    留在 token 里——新设备 / 新库 JIT 建号（`identity.provision` 读 metadata）会拿
-    旧名建号，与本地权威值不一致。同步失败**不回滚改名**（本地才是权威，见
-    `app/core/supabase_admin.py` 的失败语义说明）。
+    业务规则（敏感词 / 用户名唯一性 / GoTrue metadata 同步）在
+    `app/services/user_profile.py`；本视图只做「取当前用户 → 调服务 → 组响应」。
+    用户名作为登录标识必须全局唯一，冲突返回 409；头像仅存生成式 URL（D9）。
     """
     data = parse_body(ProfileUpdate)
-    renamed_to = None
     with get_db() as db:
         user = db.query(User).filter_by(id=g.current_user.id).first()
         if user is None:
             abort(401, description='未登录')
-
-        if data.username is not None:
-            new_username = data.username
-            if contains_sensitive(new_username):
-                abort(400, description='用户名包含不当词汇，请更换')
-            # 判重必须与「登录解析」同口径（大小写不敏感）：resolve 用 lower() 匹配，
-            # 这里若按字面量比较，`Devyao` 就能绕过 `devyao` 的占用检查，
-            # 落库后两人共用同一个登录标识（#2764）。
-            conflict = (
-                db.query(User)
-                .filter(
-                    func.lower(User.username) == new_username.lower(),
-                    User.id != user.id,
-                )
-                .first()
-            )
-            if conflict is not None:
-                abort(409, description='该用户名已被占用，请换一个')
-            user.username = new_username
-            renamed_to = new_username
-        if data.nickname is not None:
-            if contains_sensitive(data.nickname):
-                abort(400, description='昵称包含不当词汇，请更换')
-            user.nickname = data.nickname
-        if data.avatar is not None:
-            user.avatar = data.avatar
-
-        try:
-            db.flush()
-        except IntegrityError:
-            # 并发改名：两个请求同时通过上面的判重，落库时由 users 的唯一索引
-            # `uq_users_username_lower` 兜住。这里必须转成 409 而不是让它冒成 500——
-            # 对用户来说「名字被抢了」是可操作的（换一个），500 不是。
-            db.rollback()
-            abort(409, description='该用户名已被占用，请换一个')
-        db.refresh(user)
+        update_profile(db, user, data)
         payload = _user_to_dict(user)
-        # 在会话内取出，避免块外访问 detached 实例（非请求上下文会关会话）
-        supabase_id = user.supabase_id
-    # 落库成功之后再做外部同步：DB 事务已提交，失败只留日志（见函数 docstring）
-    if renamed_to is not None:
-        supabase_admin.update_user_metadata(supabase_id, {'username': renamed_to})
     return jsonify({'data': payload, 'message': 'ok'})
 
 
