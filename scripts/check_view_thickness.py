@@ -209,10 +209,15 @@ BASELINE: dict[str, dict[str, int]] = {
     # commits / max_func 三项实测不动（2/0/39），唯 lines 197 → 263（+66，含端点签名与
     # 口径 docstring）。无可下沉的业务规则，按 `--report` 实测回写。
     "backend/app/domains/importers/views.py": {
-        "lines": 249,
+        # 2026-10-30 收紧（#2777 脱敏改造，**非放宽**）：两处
+        # `except Exception → f'服务器内部错误: {str(e)}'` 改走
+        # `core.exceptions.internal_error_message`，顺手删掉重复的
+        # `logger.exception`（helper 已把留痕绑进同一次调用）——
+        # lines 249 → 247、max_func 53 → 52，其余两维不动。
+        "lines": 247,
         "orm_queries": 1,
         "commits": 0,
-        "max_func": 53,
+        "max_func": 52,
     },
     # 2026-10-22 收紧（#2497，**下沉**而非放宽）：删除账户的「有数据不可删 + 级联删除
     # 关联数据 + 清理 position_import_meta 引用」下沉到
@@ -459,7 +464,10 @@ BASELINE: dict[str, dict[str, int]] = {
         # `GET /summary/benchmarks/` 只把常量 `BENCHMARK_INDICES` 摊平成 `[{code,name}]`，
         # 不含查询 / 事务 / 业务判断（前端下拉改为从这里取，删掉两处硬编码）；
         # 曲线计算在 `services/analytics/benchmark_excess.py::_build_cum_series`。
-        "lines": 421,
+        # 2026-10-30 收紧（#2777 脱敏改造，**非放宽**）：16 处 5xx 分支改走
+        # `core.exceptions.internal_error_payload`——信封组装属契约实现、不属视图职责，
+        # 每处从 1~7 行压回 1 行，421 → 412；`orm_queries` / `commits` / `max_func` 不动。
+        "lines": 412,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

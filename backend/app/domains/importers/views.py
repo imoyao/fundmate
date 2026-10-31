@@ -10,7 +10,7 @@ from loguru import logger
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.core.exceptions import SBException
+from app.core.exceptions import SBException, internal_error_message
 from app.domains.ledgers.models import Ledger
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.importer.template_config import get_template_filepath, get_template_info
@@ -160,8 +160,7 @@ def parse_file():
     except (SBException, ValueError) as e:
         return _txn_parse_error(getattr(e, 'message', str(e)), 400)
     except Exception as e:
-        logger.exception(f'文件解析未知异常: {e}')
-        return _txn_parse_error(f'服务器内部错误: {str(e)}', 500)
+        return _txn_parse_error(internal_error_message(e, 'parse_file'), 500)
 
 
 # ── 确认导入 ──
@@ -228,8 +227,7 @@ def parse_holding_file():
     except (SBException, ValueError) as e:
         return _holding_parse_error(getattr(e, 'message', str(e)), 400)
     except Exception as e:
-        logger.exception(f'持仓文件解析未知异常: {e}')
-        return _holding_parse_error(f'服务器内部错误: {str(e)}', 500)
+        return _holding_parse_error(internal_error_message(e, 'parse_holding_file'), 500)
 
 
 @importers_bp.post('/holdings/confirm/', strict_slashes=False)

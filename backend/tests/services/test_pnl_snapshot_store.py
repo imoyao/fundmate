@@ -542,3 +542,69 @@ def test_full_sync回填后整表作废(db):
     db.commit()
     orch.run_job('temperature', full_sync=True)
     assert _snapshot_count(db) == 1, '非价格 job 不得清表'
+
+
+def test_重复保存同一天是覆盖而非插行(db):
+    """同一天被重算是常规路径（多路并发算缺口 / 失效后回填）。
+
+    旧实现「先 SELECT 再 INSERT」在并发下双双看不见对方**未提交**的行 ⇒
+    双双 INSERT ⇒ 撞 `uq_pnl_daily_snapshots_scope`。这里钉住三件事：
+    行数不增、值被后写覆盖、`id` 与 `created_at` 原样保留（upsert 是「更新
+    这一天」，不是「删掉重建」）。
+    """
+    day = dt.date(2026, 1, 5)
+    base = {
+        'date': day,
+        'daily_pnl_cents': 111,
+        'net_worth_cents': 100000,
+        'rate_bp': 11,
+        'state': 'updown',
+    }
+    pnl_snapshot_store.save_days(db, 1, None, [base])
+    db.commit()
+    first = db.query(PnlDailySnapshot).one()
+    first_id, first_created = first.id, first.created_at
+
+    pnl_snapshot_store.save_days(
+        db,
+        1,
+        None,
+        [{**base, 'daily_pnl_cents': 222, 'net_worth_cents': 120000, 'rate_bp': 22}],
+    )
+    db.commit()
+    db.expire_all()
+
+    rows = db.query(PnlDailySnapshot).all()
+    assert len(rows) == 1, '同一天被插成两行：upsert 没走冲突分支'
+    assert (rows[0].id, rows[0].created_at) == (first_id, first_created), 'upsert 不该换主键 / 重置创建时间'
+    assert (rows[0].daily_pnl_cents, rows[0].net_worth_cents, rows[0].rate_bp) == (222, 120000, 22)
+
+    # 账户级行与家庭级行互不冲突：冲突目标里的 `COALESCE(ledger_id, -1)` 必须
+    # 让 NULL 参与去重，但不能把 NULL 与任一真实账户 ID 合并成同一行。
+    pnl_snapshot_store.save_days(db, 1, 7, [base])
+    db.commit()
+    assert _snapshot_count(db) == 2, '家庭级与账户级被合并成一行：冲突目标写错了'
+
+
+def test_方言按本表的bind解析而非无参回落应用域(db, monkeypatch):
+    """`db.get_bind()` **无参**会回落应用域引擎，而本表属 user 域。
+
+    生产双库下应用域是 Turso（dialect 报 `sqlite`）、user 域是 Supabase PG——
+    无参取到前者就会把 SQLite 分支的语句发给 PG。本机单库两域同一条 SQLite
+    连接，功能测试**永远绿**，故只能从调用形态上钉住（同 #1662 的陷阱）。
+    """
+    spies = []
+    real_get_bind = db.get_bind
+
+    def _spy(mapper=None, **kw):
+        spies.append(mapper)
+        return real_get_bind(mapper, **kw)
+
+    monkeypatch.setattr(db, 'get_bind', _spy)
+    pnl_snapshot_store.save_days(
+        db,
+        1,
+        None,
+        [{'date': dt.date(2026, 1, 5), 'daily_pnl_cents': 1, 'net_worth_cents': 100, 'rate_bp': 1, 'state': 'updown'}],
+    )
+    assert PnlDailySnapshot in spies, f'方言解析没用本表 bind（实际收到：{spies}）'
