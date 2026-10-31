@@ -44,6 +44,22 @@ export interface Position {
    *   **不得当成 `null` 渲染成「随账户」**，否则会把「不知道」谎报成「继承」。
    */
   portfolio_id?: number | null;
+  /**
+   * 该持仓是否计入组合（D20 二期开口项 4）：由后端 `enrich_position_dict` 现算下发，
+   * `= not should_exclude_from_investment(position)`。
+   *
+   * **为什么必须由后端下发**：判据是 `core/asset_types.EXCLUDED_ASSET_TYPES`
+   * （货基 / 逆回购 / 现金），该集合的单一真相源在后端常量；前端硬编码三个值等于抄
+   * 第二份真相源，集合一变就漂移（与 #1171 枚举一致性纪律冲突）。
+   *
+   * 语义：`false` = 类现金资产，`build_portfolio_holdings` 会把它从组合持仓里滤掉，
+   * 故「所属组合」列即便显示组合名也永远在组合页看不到——**改派是无效交互**，
+   * 前端据此渲染「— 不进组合」并禁用改派。
+   *
+   * `undefined` = 响应里没有该字段（旧缓存 / 其他接口的行），**不得当成 `false`**：
+   * 那会把所有持仓都标成「不进组合」。
+   */
+  in_portfolio?: boolean;
   /** 配置目标：后端 PositionOut 可能输出，前端不保证 */
   allocation?: string | null;
   /** 首次确认日期：group_by 路径必含，分页路径可能缺失 */

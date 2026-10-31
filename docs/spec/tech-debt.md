@@ -1066,11 +1066,25 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 | 1 | **批量改派** | 现有端点只有单条语义。前端若循环 N 次 PATCH，中途失败会留下「改了一半」的中间态（前几条已提交、后几条未改），且无回滚、无事务边界 | 后端补 `PATCH /api/positions/portfolio/`（body `{ids: [], portfolio_id}`）走单事务后再做前端批量。**不要先做前端循环兜着**——那会把数据一致性问题伪装成 UI 问题。触发条件：实际使用频率证明「一次要改 3 条以上」是常态 |
 | 2 | **组合详情页「移出本组合」动作** | 该动作本质是 `portfolio_id = NULL`（退回账户默认组合）。但若账户默认组合**就是**当前组合，移出等于什么都没发生——直接给按钮会造成「点了没反应」的假象 | 若要加，二选一：① 改为「改派到其他组合」并跨页面复用 `PortfolioAssignCell`；② 保留单向动作但确认文案必须写清落点（「移出后归入账户默认组合『固收+』，若二者相同则无变化」）。**禁止**只做一个裸的 null 动作 |
 | 3 | **买入 / 记账时直接选组合（根治）** | 当前持仓默认 `portfolio_id = NULL` → 继承账户默认组合，于是每买一只成长类标的都要回盘点页改一次派。事后改派只是补丁 | 记账抽屉（`manual` 流程）+ 导入向导 + 快速记账快捷键统一加「所属组合」字段，默认值 = 账户默认组合。牵动面大（`ManualOpSwitch` / 导入映射 / 快捷键链路），需独立设计文档，不宜搭在 UI 改动里 |
-| 4 | **货基 / 逆回购行仍提供改派入口**（本卡实施时发现） | `EXCLUDED_ASSET_TYPES = ('money_fund', 'reverse_repo', 'cash')`（`backend/app/core/asset_types.py:121`）的持仓在盘点页也会显示「所属组合」并可点开改派，但 `build_portfolio_holdings` 经 `should_exclude_from_investment` 把它们过滤掉 ⇒ **改派成功但组合视图永远看不到，是无效交互**。前端无法拦：该集合的单一真相源在后端常量，`GET /api/utils/enums` 不下发，硬编码三个值等于抄第二份真相源（与 #1171 枚举一致性纪律冲突） | 后端在持仓行增发 `in_portfolio: bool`（= `not should_exclude_from_investment(pos)`），前端据此把该列渲染成「— 不进组合」并禁用改派。成本小，但属独立契约变更，本卡未做 |
+| 4 | ~~**货基 / 逆回购行仍提供改派入口**~~（**2026-11-01 已收口**，见下方「开口项 4 收口」） | `EXCLUDED_ASSET_TYPES = ('money_fund', 'reverse_repo', 'cash')`（`backend/app/core/asset_types.py:121`）的持仓在盘点页也会显示「所属组合」并可点开改派，但 `build_portfolio_holdings` 经 `should_exclude_from_investment` 把它们过滤掉 ⇒ **改派成功但组合视图永远看不到，是无效交互**。前端无法拦：该集合的单一真相源在后端常量，`GET /api/utils/enums` 不下发，硬编码三个值等于抄第二份真相源（与 #1171 枚举一致性纪律冲突） | 后端在持仓行增发 `in_portfolio: bool`（= `not should_exclude_from_investment(pos)`），前端据此把该列渲染成「— 不进组合」并禁用改派。成本小，但属独立契约变更，本卡未做 |
 
-**判据（测试）**：`frontend/src/views/asset/inventory/__tests__/portfolioAssignModel.spec.ts` 13 条钉住归属四态（显式 / 继承 / 无归属 / 未知）以及「`undefined` 不得当成 `null`」；`backend/tests/domains/test_d20_portfolio_phase2.py::TestHoldingsAssignmentMode` 钉住持仓行透出 `portfolio_id` 且显式指派压过账户继承。
+**判据（测试）**：`frontend/src/views/asset/inventory/__tests__/portfolioAssignModel.spec.ts` 17 条钉住归属五态（显式 / 继承 / 无归属 / 未知 / 不进组合）以及「`undefined` 不得当成 `null`」「`in_portfolio` 缺失不得当成 `false`」；`backend/tests/domains/test_d20_portfolio_phase2.py::TestHoldingsAssignmentMode` 钉住持仓行透出 `portfolio_id` 且显式指派压过账户继承。
 
 **为什么第 4 条值得单列**：它不会报错、不会丢数据，只会让用户「改了但看不到效果」，进而怀疑整个改派功能是坏的——这类静默无效比崩溃更难排查。
+
+### 开口项 4 收口（2026-11-01）
+
+**做法**（按上表「处理策略」原样落地，未改口径）：
+
+| 层 | 改动 | 说明 |
+|---|---|---|
+| 后端 | `services/position_presenter.enrich_position_dict` 增发 `in_portfolio` | `= not should_exclude_from_investment(p)`，判据与聚合层**同一个函数**，不按 `asset_type` 重写一遍 |
+| 后端 | `services/ledger_service.get_positions_paginated` 增发 `in_portfolio` | 「三条序列化路径」的老坑：holdings / `PositionOut` / 账户持仓手工拼字典各写一份，漏一处该页就永远显示「—」。**这条是测试逼出来的**——先只改 presenter 时 `test_ledger_positions_also_carry_the_flag` 直接 `KeyError` |
+| 前端 | `portfolioAssignModel.PortfolioMode` 加 `excluded` 态 | `resolvePortfolioOf` 里**优先于** `portfolio_id` 判断：先答「能不能归」再答「归到哪」 |
+| 前端 | `PortfolioAssignCell` 渲染「— 不进组合」+ `el-popover :disabled` | 渲染成 `<span title>` 而非按钮：不可交互的结论不该长得像入口；`title` 写清原因，避免被当成 bug 待查 |
+| 前端 | `InvestmentPositionTable` 的 `resolvePortfolio` 改引用 `PortfolioAssignment` 类型 | 原先在 props 里抄了一份 mode 字面量联合，加 `excluded` 时表格与纯函数会各说一套**且 TS 不报错** |
+
+**关键判据**：① `in_portfolio === false` 才是 `excluded`，`undefined`（旧缓存 / 未升级接口）**不得**当 `false`，否则所有持仓都会被标成「不进组合」；② 显式覆盖 `count_as_investment=True` 的货基必须回 `True`（`test_count_as_investment_override_flips_the_flag`），否则盘点页说「不进组合」、组合页真能看到它，比原来的静默无效更懵。
 
 ### 走查实测（2026-10-29，真机 Edge + 真实前端渲染）
 
