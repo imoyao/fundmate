@@ -68,3 +68,95 @@ export function pnlTotalCaption(summary: ClearedCyclesSummary): string {
     ? `共 ${summary.total_trade_count} 笔交易`
     : "暂无可算周期";
 }
+
+/* ─────────────────── 时间范围（#2774） ───────────────────
+ * 只负责「档位 → start_date」，**不在前端裁剪数据**：区间由后端按末卖日裁，
+ * 前端再算一遍就是第二口径（且会与汇总数字打架）。
+ */
+
+export type ClearedRangeKey = "1m" | "6m" | "1y" | "all";
+
+/** 档位顺序由近到远，「投资以来」垫底且为默认（与 #2131 上线时的行为一致） */
+export const CLEARED_RANGE_OPTIONS: readonly {
+  label: string;
+  value: ClearedRangeKey;
+}[] = [
+  { label: "近一月", value: "1m" },
+  { label: "近半年", value: "6m" },
+  { label: "近一年", value: "1y" },
+  { label: "投资以来", value: "all" }
+] as const;
+
+const RANGE_MONTHS: Record<Exclude<ClearedRangeKey, "all">, number> = {
+  "1m": 1,
+  "6m": 6,
+  "1y": 12
+};
+
+/** 按本地时区拼 YYYY-MM-DD；**不用** toISOString——它按 UTC 截断，东八区会差一天 */
+function toIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 往前推 N 个**日历月**，日号超界时夹到当月最后一天。
+ *
+ * 为什么不用「30 × N 天」：近一月/近半年这类说法在用户心里是日历月，
+ * 而 3-31 减一个月必须落在 2-28（`setMonth` 直接减会溢出成 3-03）。
+ */
+export function subtractMonths(base: Date, months: number): Date {
+  const d = new Date(base.getTime());
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d;
+}
+
+/** 档位 → 后端 `start_date`；「投资以来」返回 null（不传参 = 全量） */
+export function rangeStartDate(
+  range: ClearedRangeKey,
+  today: Date = new Date()
+): string | null {
+  if (range === "all") return null;
+  return toIsoDate(subtractMonths(today, RANGE_MONTHS[range]));
+}
+
+/* ─────────────────── 盈亏排行（#2774） ─────────────────── */
+
+export type RankDirection = "win" | "loss";
+
+export const RANK_LIMIT = 5;
+
+/**
+ * 取盈亏排行前 N（含方向过滤）。
+ *
+ * 三条纪律：
+ * 1. **只收 `pnl_known` 周期**——部分配对的盈亏是 null，排进榜单等于把「不可算」当 0；
+ * 2. 盈利榜只收 `> 0`、亏损榜只收 `< 0`：零盈亏既不是「最赚」也不是「最亏」，混进去会挤掉真样本；
+ * 3. 排序用副本，不改动调用方数组（表格仍按末卖日倒序展示）。
+ */
+export function pickTop(
+  cycles: readonly ClearedCycle[],
+  direction: RankDirection,
+  limit: number = RANK_LIMIT
+): ClearedCycle[] {
+  const known = (cycles || []).filter(
+    c => c.pnl_known && typeof c.realized_pnl === "number"
+  );
+  const sorted = [...known].sort((a, b) => {
+    const diff = (b.realized_pnl as number) - (a.realized_pnl as number);
+    return direction === "win" ? diff : -diff;
+  });
+  return sorted
+    .filter(c =>
+      direction === "win"
+        ? (c.realized_pnl as number) > 0
+        : (c.realized_pnl as number) < 0
+    )
+    .slice(0, Math.max(0, limit));
+}

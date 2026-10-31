@@ -1,11 +1,11 @@
 <!--
-  ClearedCyclesSection · 清仓周期复盘（#2131 · 账本对齐 A'）
+  ClearedCyclesSection · 清仓周期复盘（#2131 · 账本对齐 A' / #2774 补排行与时间范围）
 
   挂在「复盘」页（route /analysis）：该页定位是「时间维度上的表现：净值怎么走、
   收益从哪来」，而清仓周期回答的正是「已落袋的那部分表现从哪来」——同页不另开路由。
 
-  数据：GET /api/summary/cleared-cycles/（只读现算）。本组件不排序、不计算，
-  只做单位与占位展示；null 一律 "--"（部分配对周期不可算，不是 0）。
+  数据：GET /api/summary/cleared-cycles/（只读现算）。本组件不算盈亏，只做
+  「null 占位 + 排行取前 N + 档位转日期」；null 一律 "--"（部分配对周期不可算，不是 0）。
 
   与产品详情页 Pro 卡（ProductProPerformance · analytics/behavior.py）的分工：
   那边观察单位是 FIFO 卖出笔（单标的），这边是清仓周期（全账户列表+汇总），
@@ -15,11 +15,25 @@
   <section>
     <SectionHeader title="清仓周期复盘" :info="sectionInfo">
       <template #action>
-        <span class="cleared-cycles__count">
-          {{ summary.cycle_count }} 个周期
+        <!-- 空态不写「0 只 · 0 个周期」：表里已经写了「暂无已清仓周期」，
+             页头再报一次 0 只是噪音；而窗口筛到 0 时，页头那个 0 还会被误读成
+             「一共就没清过仓」，掩盖了「换个范围就有」这个事实 -->
+        <span v-if="summary.cycle_count > 0" class="cleared-cycles__count">
+          {{ summary.product_count }} 只 · {{ summary.cycle_count }} 个周期
         </span>
       </template>
     </SectionHeader>
+
+    <!-- 时间范围：切换后整块重算（汇总 / 排行 / 明细同一口径），故放在最上方统管全节 -->
+    <div class="cleared-cycles__range">
+      <SegmentedControl
+        v-model="range"
+        :options="CLEARED_RANGE_OPTIONS"
+        size="small"
+        aria-label="清仓周期时间范围"
+        @change="load"
+      />
+    </div>
 
     <MetricGrid>
       <!-- 主数字统一 --brand-ink（WCAG AA：白底 5.86:1）；不用 --brand-700（3.73:1 不达标） -->
@@ -51,6 +65,57 @@
         caption="按周期简单平均"
       />
     </MetricGrid>
+
+    <!-- 盈亏排行：两栏并置而非切换 —— 桌面端宽度足够，
+         「最赚」与「最亏」同时可见才能看出盈亏是否对称；点一下才看得到另一栏纯属白花一次操作 -->
+    <CardBlock>
+      <div class="rank-grid">
+        <section
+          v-for="col in rankColumns"
+          :key="col.direction"
+          class="rank-col"
+          :aria-label="col.title"
+        >
+          <header class="rank-col__head">
+            <h3 class="rank-col__title">{{ col.title }}</h3>
+            <span class="rank-col__meta">按已实现盈亏</span>
+          </header>
+
+          <ol v-if="col.rows.length" class="rank-list">
+            <li
+              v-for="(row, i) in col.rows"
+              :key="cycleRowKey(row)"
+              class="rank-row"
+            >
+              <span class="rank-row__no" :class="{ 'is-top': i < 3 }">
+                {{ i + 1 }}
+              </span>
+              <span
+                class="rank-row__name"
+                :title="row.name || row.symbol || ''"
+              >
+                {{ row.name || row.symbol || "--" }}
+              </span>
+              <MoneyDisplay
+                :value="row.realized_pnl"
+                show-sign
+                auto-color
+                size="sm"
+                class="rank-row__pnl"
+              />
+              <RiseFallText
+                v-if="row.pnl_pct !== null"
+                :value="row.pnl_pct"
+                size="sm"
+                class="rank-row__pct"
+              />
+              <span v-else class="rank-row__pct is-na">--</span>
+            </li>
+          </ol>
+          <p v-else class="rank-empty">{{ col.empty }}</p>
+        </section>
+      </div>
+    </CardBlock>
 
     <CardBlock>
       <el-table
@@ -122,6 +187,7 @@
 import { computed, onMounted, ref } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -134,17 +200,24 @@ import {
   type ClearedCyclesSummary
 } from "@/api/summary";
 import {
+  CLEARED_RANGE_OPTIONS,
+  cycleRowKey,
   fmtHoldingDays,
   fmtHoldingDaysValue,
   fmtRatio,
-  pnlTotalCaption
+  pickTop,
+  pnlTotalCaption,
+  rangeStartDate,
+  type ClearedRangeKey,
+  type RankDirection
 } from "./helpers";
 
 defineOptions({ name: "ClearedCyclesSection" });
 
-const cycles = ref<ClearedCycle[]>([]);
-const summary = ref<ClearedCyclesSummary>({
+/** 零值汇总：初始态与请求失败态共用一份，避免两处字面量漂移（漏字段时 tsc 会报） */
+const emptySummary = (): ClearedCyclesSummary => ({
   cycle_count: 0,
+  product_count: 0,
   sample_count: 0,
   win_count: 0,
   loss_count: 0,
@@ -156,15 +229,34 @@ const summary = ref<ClearedCyclesSummary>({
   caveats: []
 });
 
+const cycles = ref<ClearedCycle[]>([]);
+const range = ref<ClearedRangeKey>("all");
+const summary = ref<ClearedCyclesSummary>(emptySummary());
+
+/**
+ * 请求序号：切档位比接口快时，慢返回的旧请求不能覆盖新结果
+ * （否则「近一月」点完再点「投资以来」，可能停在近一月的数上）。
+ */
+let reqSeq = 0;
+
 /** 接口失败：区块照常渲染空态（各区块独立降级，不阻塞复盘页其余内容） */
 const load = async () => {
+  const seq = ++reqSeq;
   try {
-    const res = await getClearedCycles();
+    const res = await getClearedCycles({
+      start_date: rangeStartDate(range.value) ?? undefined
+    });
+    if (seq !== reqSeq) return;
     const data = res?.data;
     cycles.value = data?.cycles ?? [];
     if (data?.summary) summary.value = data.summary;
   } catch {
+    if (seq !== reqSeq) return;
+    // 汇总必须一起清：只清明细会让「0 只 · 0 个周期」的卡片与空表并存，
+    // 更糟的是切档位失败时卡片仍停在上一个档位的数字上——数字与筛选标签对不上，
+    // 比空态更容易被当成真结论。宁可两者一致为空。
     cycles.value = [];
+    summary.value = emptySummary();
   }
 };
 
@@ -191,10 +283,33 @@ const winRateCaption = computed(() => {
   return `胜 ${s.win_count} / 负 ${s.loss_count}（样本 ${s.sample_count}）`;
 });
 
+/** 两栏排行：同一次筛选结果里各取前 5，null 盈亏不参与（见 helpers.pickTop 纪律） */
+const rankColumns = computed<
+  {
+    direction: RankDirection;
+    title: string;
+    empty: string;
+    rows: ClearedCycle[];
+  }[]
+>(() => [
+  {
+    direction: "win",
+    title: "最赚 5 笔",
+    empty: "当前范围内没有盈利清仓",
+    rows: pickTop(cycles.value, "win")
+  },
+  {
+    direction: "loss",
+    title: "最亏 5 笔",
+    empty: "当前范围内没有亏损清仓",
+    rows: pickTop(cycles.value, "loss")
+  }
+]);
+
 const sectionInfo = computed(() => {
   const s = summary.value;
   const base =
-    "按「首买→末卖」周期统计已落袋表现：盈亏由 FIFO 配对自算（不读流水 realized_pnl 列，存量库该列全 0）；默认剔除货币基金/逆回购/现金";
+    "按「首买→末卖」周期统计已落袋表现：盈亏由 FIFO 配对自算（不读流水 realized_pnl 列，存量库该列全 0）；默认剔除货币基金/逆回购/现金；时间范围按末卖日裁剪";
   if (s.cycle_count > s.sample_count) {
     return `${base}；${s.cycle_count - s.sample_count} 个周期因部分配对（先卖后买/无买入流水）不可算，未计入汇总`;
   }
@@ -209,6 +324,96 @@ const sectionInfo = computed(() => {
 }
 
 .cleared-cycles__na {
+  color: var(--text-tertiary-ink);
+}
+
+.cleared-cycles__range {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-compact, 12px);
+}
+
+/* 两栏并置：窄屏折成一栏（排行与明细同宽，折行不影响可读性） */
+.rank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-standard);
+}
+
+.rank-col__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.rank-col__title {
+  margin: 0;
+  font-size: var(--text-label, 13px);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.rank-col__meta {
+  font-size: 11px;
+  color: var(--text-tertiary-ink);
+}
+
+.rank-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.rank-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto 56px;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.rank-row:last-child {
+  border-bottom: 0;
+}
+
+.rank-row__no {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary-ink);
+}
+
+/* 前三名只加权重、不加奖牌图标：这一节读的是金额，不是比赛 */
+.rank-row__no.is-top {
+  font-weight: 600;
+  color: var(--brand-ink);
+}
+
+.rank-row__name {
+  overflow: hidden;
+  font-size: var(--text-body, 13px);
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-row__pnl,
+.rank-row__pct {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-row__pct.is-na {
+  color: var(--text-tertiary-ink);
+}
+
+.rank-empty {
+  padding: 18px 0;
+  margin: 0;
+  font-size: var(--text-small, 12px);
   color: var(--text-tertiary-ink);
 }
 </style>

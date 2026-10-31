@@ -16,7 +16,14 @@
 from datetime import date
 from types import SimpleNamespace
 
-from app.services.analytics.cleared_cycles import build_cleared_cycles, compute_cleared_cycles, summarize_cycles
+import pytest
+
+from app.services.analytics.cleared_cycles import (
+    build_cleared_cycles,
+    compute_cleared_cycles,
+    filter_cycles_by_sell_date,
+    summarize_cycles,
+)
 
 
 def _txn(
@@ -480,3 +487,111 @@ class TestBuildClearedCycles:
         assert len(merged['cycles']) == 1
         assert merged['cycles'][0]['realized_pnl'] == 40.0
         assert merged['cycles'][0]['trade_count'] == 4
+
+
+def _cycle_dict(**over):
+    """构造 `compute_cleared_cycles` 出参形态的周期 dict（纯函数层过滤测试用）。"""
+    base = {
+        'symbol': '000001',
+        'identity': '000001',
+        'name': '华夏成长',
+        'cycle_number': 1,
+        'first_buy_date': '2025-12-01',
+        'last_sell_date': '2026-02-01',
+        'buy_count': 1,
+        'sell_count': 1,
+        'trade_count': 2,
+        'total_buy_amount': 1000.0,
+        'total_sell_amount': 1050.0,
+        'realized_pnl': 50.0,
+        'pnl_pct': 5.0,
+        'avg_holding_days': 62.0,
+        'dividend_total': None,
+        'pnl_known': True,
+        'caveats': [],
+    }
+    base.update(over)
+    return base
+
+
+class TestRangeFilter:
+    """区间筛选（#2774）：按**末卖日**裁剪，且必须「先聚合、后裁剪」。"""
+
+    def test_no_bounds_keeps_all(self):
+        cycles = [_cycle_dict(), _cycle_dict(symbol='000002', last_sell_date='2025-06-01')]
+        assert len(filter_cycles_by_sell_date(cycles, None, None)) == 2
+
+    def test_bounds_are_inclusive(self):
+        """边界日含端点：用户选「近一年」到今天的末卖日不该被排除。"""
+        cycles = [_cycle_dict(last_sell_date='2026-02-01')]
+        assert len(filter_cycles_by_sell_date(cycles, date(2026, 2, 1), date(2026, 2, 1))) == 1
+
+    def test_out_of_window_excluded(self):
+        cycles = [
+            _cycle_dict(symbol='A', last_sell_date='2025-01-10'),
+            _cycle_dict(symbol='B', last_sell_date='2026-02-01'),
+        ]
+        kept = filter_cycles_by_sell_date(cycles, date(2026, 1, 1), None)
+        assert [c['symbol'] for c in kept] == ['B']
+
+    def test_cycle_crossing_window_keeps_pnl_known(self):
+        """跨窗口周期不得降级——这是「先截流水」写法会踩的坑。
+
+        周期首买 2025-12-01、末卖 2026-02-01，窗口从 2026-01-01 起：
+        末卖日在窗口内 ⇒ 保留，且 `pnl_known` 仍为 True、盈亏仍可算。
+        对照：若先按日期截流水再聚合，买入流水被切掉，卖出成了「无买入成本」的部分配对，
+        该周期掉出胜率样本——同一轮周期换个窗口看，可算性就变了。
+        """
+        txns = _closed_cycle(buy_d=date(2025, 12, 1), sell_d=date(2026, 2, 1))
+        kept = filter_cycles_by_sell_date(compute_cleared_cycles(txns), date(2026, 1, 1), None)
+        assert len(kept) == 1
+        assert kept[0]['pnl_known'] is True
+        assert kept[0]['realized_pnl'] == 50.0
+
+        # 反证：先截流水（丢掉窗口外的买入）确实会算不出这个周期
+        truncated = compute_cleared_cycles([t for t in txns if t.confirm_date >= date(2026, 1, 1)])
+        assert truncated == []
+
+    def test_missing_sell_date_excluded_when_bounded(self):
+        """末卖日缺失：有边界时不猜、直接排除（无法判断落在哪个窗口）。"""
+        cycles = [_cycle_dict(last_sell_date=None)]
+        assert filter_cycles_by_sell_date(cycles, date(2026, 1, 1), None) == []
+        # 无边界时保持原样（不因缺字段丢数据）
+        assert len(filter_cycles_by_sell_date(cycles, None, None)) == 1
+
+    def test_bad_format_raises(self):
+        """格式错抛 ValueError（视图层转 400），不静默当成「不过滤」。"""
+        with pytest.raises(ValueError):
+            build_cleared_cycles(None, family_id=1, start_date='2026/01/01')
+
+    def test_start_after_end_raises(self):
+        with pytest.raises(ValueError):
+            build_cleared_cycles(None, family_id=1, start_date='2026-02-01', end_date='2026-01-01')
+
+
+class TestProductCount:
+    """产品数（#2774）：按归一身份键去重，与「清仓次数」是两个数。"""
+
+    def test_same_symbol_two_cycles_counts_one_product(self):
+        cycles = [
+            _cycle_dict(cycle_number=1, identity='000001'),
+            _cycle_dict(cycle_number=2, identity='000001'),
+        ]
+        s = summarize_cycles(cycles)
+        assert s['cycle_count'] == 2
+        assert s['product_count'] == 1
+
+    def test_symbol_variants_count_one_product(self):
+        """写法变体（HK00700 / 00700.HK）身份键相同 ⇒ 算一个产品。
+
+        这里直接喂 identity，验证的是「汇总按身份键去重」这条契约；
+        identity 的生成在 `_group_key`（#1662），另有计算层用例覆盖。
+        """
+        cycles = [
+            _cycle_dict(symbol='HK00700', identity='HK:00700'),
+            _cycle_dict(symbol='00700.HK', identity='HK:00700', cycle_number=2),
+        ]
+        assert summarize_cycles(cycles)['product_count'] == 1
+
+    def test_empty_summary_product_count_zero(self):
+        assert summarize_cycles([])['product_count'] == 0

@@ -877,6 +877,8 @@ export function getCashLikeBreakdown() {
 /** 单个清仓周期（首买 → 末卖；金额单位元，日期 ISO） */
 export type ClearedCycle = {
   symbol: string;
+  /** 归一身份键（#2774）：产品数按它去重，写法变体（HK00700 / 00700.HK）算同一只 */
+  identity?: string;
   name: string | null;
   /** 该标的第几次清仓（同一标的可有多轮周期） */
   cycle_number: number;
@@ -903,6 +905,11 @@ export type ClearedCycle = {
 /** 跨周期汇总（样本仅含 pnl_known 周期；零盈亏计样本不计胜负） */
 export type ClearedCyclesSummary = {
   cycle_count: number;
+  /**
+   * 清仓产品数（#2774）：按归一身份键去重，与 `cycle_count`（清仓次数）含义不同——
+   * 同一只标的可能被清仓多轮（`cycle_number`），「清过 3 轮」≠「清过 3 只」。
+   */
+  product_count: number;
   sample_count: number;
   win_count: number;
   loss_count: number;
@@ -927,11 +934,16 @@ export type ClearedCyclesData = {
  *
  * 不传 `ledger_id` = 家庭全部账户合并（产品级口径，与 XIRR/行为画像一致）；
  * `include_cash_equivalents` 默认 false（剔除货基/逆回购/cash，与复盘页 XIRR 同默认）。
+ * `start_date` / `end_date`（#2774）按**末卖日**裁剪，缺省 = 投资以来。
  */
 export function getClearedCycles(params?: {
   ledger_id?: number;
   symbol?: string;
   include_cash_equivalents?: boolean;
+  /** YYYY-MM-DD；缺省不限制下界 */
+  start_date?: string;
+  /** YYYY-MM-DD；缺省不限制上界 */
+  end_date?: string;
 }) {
   return http.request<ApiResponse<ClearedCyclesData>>(
     "get",

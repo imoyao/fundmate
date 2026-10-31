@@ -11,13 +11,17 @@ import {
   fmtHoldingDays,
   fmtHoldingDaysValue,
   fmtRatio,
+  pickTop,
   pnlTotalCaption,
-  sampleNote
+  rangeStartDate,
+  sampleNote,
+  subtractMonths
 } from "../helpers";
 import type { ClearedCycle, ClearedCyclesSummary } from "@/api/summary";
 
 const emptySummary: ClearedCyclesSummary = {
   cycle_count: 0,
+  product_count: 0,
   sample_count: 0,
   win_count: 0,
   loss_count: 0,
@@ -137,5 +141,93 @@ describe("pnlTotalCaption", () => {
         total_trade_count: 7
       })
     ).toBe("共 7 笔交易");
+  });
+});
+
+/* ── 时间范围（#2774）──────────────────────────────────────────────
+ * 只测「档位 → start_date」，不测后端裁剪（那是后端单测的事）。
+ * 固定 `today` 传入，避免用例随真实日期漂移。
+ */
+
+describe("subtractMonths", () => {
+  it("日号超界夹到当月最后一天（3-31 减 1 月 → 2-28）", () => {
+    expect(subtractMonths(new Date(2026, 2, 31), 1).getDate()).toBe(28);
+  });
+
+  it("闰年 2 月：3-31 减 1 月 → 2-29", () => {
+    expect(subtractMonths(new Date(2024, 2, 31), 1).getDate()).toBe(29);
+  });
+
+  it("跨年回退（2026-01-15 减 1 月 → 2025-12-15）", () => {
+    const d = subtractMonths(new Date(2026, 0, 15), 1);
+    expect(d.getFullYear()).toBe(2025);
+    expect(d.getMonth()).toBe(11);
+    expect(d.getDate()).toBe(15);
+  });
+});
+
+describe("rangeStartDate", () => {
+  const today = new Date(2026, 5, 15); // 2026-06-15 本地时区
+
+  it("投资以来 → null（不传参 = 全量，与 #2131 行为一致）", () => {
+    expect(rangeStartDate("all", today)).toBeNull();
+  });
+
+  it("近一月 / 近半年 / 近一年 → 日历月回退", () => {
+    expect(rangeStartDate("1m", today)).toBe("2026-05-15");
+    expect(rangeStartDate("6m", today)).toBe("2025-12-15");
+    expect(rangeStartDate("1y", today)).toBe("2025-06-15");
+  });
+
+  it("输出本地日期而非 UTC（东八区 00:30 不能退成前一天）", () => {
+    // 本地 2026-06-15 00:30 = UTC 2026-06-14 16:30，用 toISOString 会得到 06-14
+    const earlyMorning = new Date(2026, 5, 15, 0, 30);
+    expect(rangeStartDate("1m", earlyMorning)).toBe("2026-05-15");
+  });
+});
+
+/* ── 盈亏排行（#2774）────────────────────────────────────────────── */
+
+describe("pickTop", () => {
+  it("盈利榜取金额最大的前 N，且只收 > 0", () => {
+    const rows = [
+      cycle({ symbol: "A", realized_pnl: 30 }),
+      cycle({ symbol: "B", realized_pnl: 120 }),
+      cycle({ symbol: "C", realized_pnl: -80 }),
+      cycle({ symbol: "D", realized_pnl: 0 }),
+      cycle({ symbol: "E", realized_pnl: 75 })
+    ];
+    expect(pickTop(rows, "win", 2).map(r => r.symbol)).toEqual(["B", "E"]);
+  });
+
+  it("亏损榜取金额最小的前 N，且只收 < 0", () => {
+    const rows = [
+      cycle({ symbol: "A", realized_pnl: 30 }),
+      cycle({ symbol: "C", realized_pnl: -80 }),
+      cycle({ symbol: "D", realized_pnl: -5 })
+    ];
+    expect(pickTop(rows, "loss", 5).map(r => r.symbol)).toEqual(["C", "D"]);
+  });
+
+  it("部分配对周期（pnl_known=false / realized_pnl=null）不进榜单", () => {
+    const rows = [
+      cycle({ symbol: "A", realized_pnl: null, pnl_known: false }),
+      cycle({ symbol: "B", realized_pnl: 10 })
+    ];
+    expect(pickTop(rows, "win", 5).map(r => r.symbol)).toEqual(["B"]);
+    expect(pickTop(rows, "loss", 5)).toEqual([]);
+  });
+
+  it("不修改入参数组（表格仍按末卖日倒序）", () => {
+    const rows = [
+      cycle({ symbol: "A", realized_pnl: 30 }),
+      cycle({ symbol: "B", realized_pnl: 120 })
+    ];
+    pickTop(rows, "win", 2);
+    expect(rows.map(r => r.symbol)).toEqual(["A", "B"]);
+  });
+
+  it("空列表 → 空数组", () => {
+    expect(pickTop([], "win")).toEqual([]);
   });
 });

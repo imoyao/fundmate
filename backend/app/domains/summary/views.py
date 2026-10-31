@@ -304,8 +304,11 @@ def pnl_attribution():
 def cleared_cycles():
     """#2131 清仓周期统计（只读现算）：从流水聚合「首买→末卖」周期 + 跨周期汇总。
 
-    参数 ledger_id / symbol / include_cash_equivalents、返回结构与口径详见
-    services/analytics/cleared_cycles.py（视图层不重复口径说明）。
+    参数 ledger_id / symbol / include_cash_equivalents / start_date / end_date，
+    返回结构与口径详见 services/analytics/cleared_cycles.py（视图层不重复口径说明）。
+
+    `start_date` / `end_date`（#2774）按**末卖日**裁剪，缺省 = 投资以来；格式错 400
+    而不是静默当成「不过滤」——静默降级会让用户以为筛选生效了。
     """
     try:
         ledger_id = request.args.get('ledger_id', type=int)
@@ -318,8 +321,12 @@ def cleared_cycles():
                 ledger_id=ledger_id,
                 symbol=symbol,
                 include_cash_equivalents=include_cash,
+                start_date=request.args.get('start_date'),
+                end_date=request.args.get('end_date'),
             )
         return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify(internal_error_payload(e, 'cleared_cycles', {'cycles': [], 'summary': {}})), 500
 
