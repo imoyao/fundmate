@@ -467,7 +467,13 @@ BASELINE: dict[str, dict[str, int]] = {
         # 2026-10-30 收紧（#2777 脱敏改造，**非放宽**）：16 处 5xx 分支改走
         # `core.exceptions.internal_error_payload`——信封组装属契约实现、不属视图职责，
         # 每处从 1~7 行压回 1 行，421 → 412；`orm_queries` / `commits` / `max_func` 不动。
-        "lines": 412,
+        # 2026-10-31 重取（#2774，**给既有端点补区间参数**，非放宽）：412 → 419。
+        # `GET /summary/cleared-cycles/` 增加 `start_date` / `end_date`（按末卖日裁剪），
+        # 视图侧增量只有 2 行 kwargs、2 行 `ValueError`→400（格式错 / 起止倒置必须回
+        # 400，不能静默当作「不过滤」）与 docstring；聚合与裁剪全在
+        # `services/analytics/cleared_cycles.py`，`orm_queries` / `commits` 仍为 0，
+        # `max_func` 43 不动（该端点函数体仍在 60 行硬上限内）。
+        "lines": 419,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

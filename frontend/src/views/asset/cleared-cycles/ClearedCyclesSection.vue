@@ -66,56 +66,8 @@
       />
     </MetricGrid>
 
-    <!-- 盈亏排行：两栏并置而非切换 —— 桌面端宽度足够，
-         「最赚」与「最亏」同时可见才能看出盈亏是否对称；点一下才看得到另一栏纯属白花一次操作 -->
-    <CardBlock>
-      <div class="rank-grid">
-        <section
-          v-for="col in rankColumns"
-          :key="col.direction"
-          class="rank-col"
-          :aria-label="col.title"
-        >
-          <header class="rank-col__head">
-            <h3 class="rank-col__title">{{ col.title }}</h3>
-            <span class="rank-col__meta">按已实现盈亏</span>
-          </header>
-
-          <ol v-if="col.rows.length" class="rank-list">
-            <li
-              v-for="(row, i) in col.rows"
-              :key="cycleRowKey(row)"
-              class="rank-row"
-            >
-              <span class="rank-row__no" :class="{ 'is-top': i < 3 }">
-                {{ i + 1 }}
-              </span>
-              <span
-                class="rank-row__name"
-                :title="row.name || row.symbol || ''"
-              >
-                {{ row.name || row.symbol || "--" }}
-              </span>
-              <MoneyDisplay
-                :value="row.realized_pnl"
-                show-sign
-                auto-color
-                size="sm"
-                class="rank-row__pnl"
-              />
-              <RiseFallText
-                v-if="row.pnl_pct !== null"
-                :value="row.pnl_pct"
-                size="sm"
-                class="rank-row__pct"
-              />
-              <span v-else class="rank-row__pct is-na">--</span>
-            </li>
-          </ol>
-          <p v-else class="rank-empty">{{ col.empty }}</p>
-        </section>
-      </div>
-    </CardBlock>
+    <!-- 盈亏排行（#2774）：拆到 ClearedRankList —— 页面曾因它越过 400 行门槛 -->
+    <ClearedRankList :cycles="cycles" />
 
     <CardBlock>
       <el-table
@@ -201,16 +153,14 @@ import {
 } from "@/api/summary";
 import {
   CLEARED_RANGE_OPTIONS,
-  cycleRowKey,
   fmtHoldingDays,
   fmtHoldingDaysValue,
   fmtRatio,
-  pickTop,
   pnlTotalCaption,
   rangeStartDate,
-  type ClearedRangeKey,
-  type RankDirection
+  type ClearedRangeKey
 } from "./helpers";
+import ClearedRankList from "./ClearedRankList.vue";
 
 defineOptions({ name: "ClearedCyclesSection" });
 
@@ -283,29 +233,6 @@ const winRateCaption = computed(() => {
   return `胜 ${s.win_count} / 负 ${s.loss_count}（样本 ${s.sample_count}）`;
 });
 
-/** 两栏排行：同一次筛选结果里各取前 5，null 盈亏不参与（见 helpers.pickTop 纪律） */
-const rankColumns = computed<
-  {
-    direction: RankDirection;
-    title: string;
-    empty: string;
-    rows: ClearedCycle[];
-  }[]
->(() => [
-  {
-    direction: "win",
-    title: "最赚 5 笔",
-    empty: "当前范围内没有盈利清仓",
-    rows: pickTop(cycles.value, "win")
-  },
-  {
-    direction: "loss",
-    title: "最亏 5 笔",
-    empty: "当前范围内没有亏损清仓",
-    rows: pickTop(cycles.value, "loss")
-  }
-]);
-
 const sectionInfo = computed(() => {
   const s = summary.value;
   const base =
@@ -331,89 +258,5 @@ const sectionInfo = computed(() => {
   display: flex;
   justify-content: flex-end;
   margin-bottom: var(--space-compact, 12px);
-}
-
-/* 两栏并置：窄屏折成一栏（排行与明细同宽，折行不影响可读性） */
-.rank-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-standard);
-}
-
-.rank-col__head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding-bottom: 8px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.rank-col__title {
-  margin: 0;
-  font-size: var(--text-label, 13px);
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.rank-col__meta {
-  font-size: 11px;
-  color: var(--text-tertiary-ink);
-}
-
-.rank-list {
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.rank-row {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto 56px;
-  gap: 10px;
-  align-items: center;
-  min-height: 34px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.rank-row:last-child {
-  border-bottom: 0;
-}
-
-.rank-row__no {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary-ink);
-}
-
-/* 前三名只加权重、不加奖牌图标：这一节读的是金额，不是比赛 */
-.rank-row__no.is-top {
-  font-weight: 600;
-  color: var(--brand-ink);
-}
-
-.rank-row__name {
-  overflow: hidden;
-  font-size: var(--text-body, 13px);
-  color: var(--text-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rank-row__pnl,
-.rank-row__pct {
-  justify-self: end;
-  font-variant-numeric: tabular-nums;
-}
-
-.rank-row__pct.is-na {
-  color: var(--text-tertiary-ink);
-}
-
-.rank-empty {
-  padding: 18px 0;
-  margin: 0;
-  font-size: var(--text-small, 12px);
-  color: var(--text-tertiary-ink);
 }
 </style>
