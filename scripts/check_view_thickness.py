@@ -473,7 +473,13 @@ BASELINE: dict[str, dict[str, int]] = {
         # 400，不能静默当作「不过滤」）与 docstring；聚合与裁剪全在
         # `services/analytics/cleared_cycles.py`，`orm_queries` / `commits` 仍为 0，
         # `max_func` 43 不动（该端点函数体仍在 60 行硬上限内）。
-        "lines": 419,
+        # 2026-10-31 重取（#2773，**给既有端点补可选参数**，非放宽）：419 → 423。
+        # 同一个 `GET /summary/cleared-cycles/` 再加 `include_post_clear` 布尔参数，
+        # 视图侧增量只有「多解 1 个 query 参数 + 多传 1 个 kwarg + docstring 一行指向
+        # 服务层」；涨跌幅计算与四个状态码在 `services/analytics/cleared_cycles.py`，
+        # 净值取数在 `NavService.get_navs_at_or_before`，视图零 ORM 查询、零事务，
+        # `max_func` 43 不动。与 #2774 / #2681 同先例。
+        "lines": 423,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

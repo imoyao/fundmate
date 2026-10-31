@@ -309,11 +309,14 @@ def cleared_cycles():
 
     `start_date` / `end_date`（#2774）按**末卖日**裁剪，缺省 = 投资以来；格式错 400
     而不是静默当成「不过滤」——静默降级会让用户以为筛选生效了。
+
+    `include_post_clear`（#2773）口径与四个状态码见 services/analytics/cleared_cycles.py。
     """
     try:
         ledger_id = request.args.get('ledger_id', type=int)
         symbol = (request.args.get('symbol') or '').strip() or None
         include_cash = str(request.args.get('include_cash_equivalents') or '').lower() in ('1', 'true', 'yes')
+        include_post_clear = str(request.args.get('include_post_clear') or '').lower() in ('1', 'true', 'yes')
         with get_db() as db:
             data = build_cleared_cycles(
                 db,
@@ -323,6 +326,7 @@ def cleared_cycles():
                 include_cash_equivalents=include_cash,
                 start_date=request.args.get('start_date'),
                 end_date=request.args.get('end_date'),
+                include_post_clear=include_post_clear,
             )
         return jsonify({'data': data, 'message': 'ok'})
     except ValueError as e:
