@@ -285,6 +285,20 @@ describe("postClearCell", () => {
     expect(cell.title).toContain("不含分红");
   });
 
+  it("场内 adj_close 口径要标「前复权」，否则用户会以为是未复权价", () => {
+    const cell = postClearCell(
+      cycle({
+        post_clear_pct: 5.5,
+        post_clear_status: "ok",
+        post_clear_as_of: "2026-10-30",
+        post_clear_basis: "adj_close"
+      })
+    );
+
+    expect(cell.title).toContain("前复权");
+    expect(cell.title).toContain("除权不虚跌");
+  });
+
   it("0% 是合法值（卖出后持平），不能当占位", () => {
     const cell = postClearCell(
       cycle({

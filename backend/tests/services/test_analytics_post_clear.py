@@ -39,8 +39,8 @@ def _cycle(identity='OTC:001937', sold='2026-05-20'):
 def test_ok_computes_pct_from_aligned_acc_nav():
     """两边都有 acc_nav 时用 acc：2.75 / 2.5 - 1 = 10%。"""
     cycles = [_cycle()]
-    anchors = {('001937', '2026-05-20'): (2.0, 2.5, date(2026, 5, 20))}
-    latest = {'001937': (2.2, 2.75, date(2026, 10, 30))}
+    anchors = {('OTC:001937', '2026-05-20'): (2.0, 2.5, date(2026, 5, 20))}
+    latest = {'OTC:001937': (2.2, 2.75, date(2026, 10, 30))}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -51,8 +51,8 @@ def test_ok_computes_pct_from_aligned_acc_nav():
 def test_unit_nav_used_when_acc_missing_on_both_sides():
     """两边都没有 acc → 退到 unit 口径：2.4 / 2.0 - 1 = 20%。"""
     cycles = [_cycle()]
-    anchors = {('001937', '2026-05-20'): (2.0, None, date(2026, 5, 20))}
-    latest = {'001937': (2.4, None, date(2026, 10, 30))}
+    anchors = {('OTC:001937', '2026-05-20'): (2.0, None, date(2026, 5, 20))}
+    latest = {'OTC:001937': (2.4, None, date(2026, 10, 30))}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -67,8 +67,8 @@ def test_mixed_nav_basis_is_never_guessed():
     凭空多出一截涨幅。宁可给 None。
     """
     cycles = [_cycle()]
-    anchors = {('001937', '2026-05-20'): (None, 2.5, date(2026, 5, 20))}
-    latest = {'001937': (2.4, None, date(2026, 10, 30))}
+    anchors = {('OTC:001937', '2026-05-20'): (None, 2.5, date(2026, 5, 20))}
+    latest = {'OTC:001937': (2.4, None, date(2026, 10, 30))}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -90,8 +90,8 @@ def test_latest_not_after_anchor_is_no_nav_after():
     """最新净值没越过卖出日：恒等于 0 涨幅是「没数据」，不是「没涨」。"""
     cycles = [_cycle()]
     same_day = date(2026, 5, 20)
-    anchors = {('001937', '2026-05-20'): (2.0, 2.0, same_day)}
-    latest = {'001937': (2.0, 2.0, same_day)}
+    anchors = {('OTC:001937', '2026-05-20'): (2.0, 2.0, same_day)}
+    latest = {'OTC:001937': (2.0, 2.0, same_day)}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -99,11 +99,37 @@ def test_latest_not_after_anchor_is_no_nav_after():
     assert cycles[0]['post_clear_pct'] is None
 
 
-def test_exchange_traded_is_not_supported():
-    """场内标的不假装能算（要另一套价格源 price_history.adj_close）。"""
-    cycles = [{'identity': 'SH600519', 'symbol': 'SH600519', 'last_sell_date': '2026-05-20'}]
-    anchors = {('600519', '2026-05-20'): (10.0, None, date(2026, 5, 20))}
-    latest = {'600519': (12.0, None, date(2026, 10, 30))}
+def test_exchange_traded_uses_adj_close_basis():
+    """场内用前复权收盘价，且 basis 必须标 adj_close（#2773 场内收口）。"""
+    cycles = [{'identity': 'EXCHANGE:SH600519', 'symbol': 'SH600519', 'last_sell_date': '2026-05-20'}]
+    anchors = {('EXCHANGE:SH600519', '2026-05-20'): (10.0, None, date(2026, 5, 20))}
+    latest = {'EXCHANGE:SH600519': (12.0, None, date(2026, 10, 30))}
+
+    attach_post_clear_performance(cycles, anchors, latest)
+
+    assert cycles[0]['post_clear_status'] == POST_CLEAR_OK
+    assert cycles[0]['post_clear_pct'] == 20.0
+    assert cycles[0]['post_clear_basis'] == 'adj_close'
+
+
+def test_exchange_without_adj_close_is_not_guessed():
+    """场内缺前复权价 → 「算不出」，**不回落**未复权 close（会把除权算成亏损）。"""
+    cycles = [{'identity': 'EXCHANGE:SH600519', 'symbol': 'SH600519', 'last_sell_date': '2026-05-20'}]
+    # 备位（原本留给 close）即便给了值也不能被采用
+    anchors = {('EXCHANGE:SH600519', '2026-05-20'): (None, 10.0, date(2026, 5, 20))}
+    latest = {'EXCHANGE:SH600519': (None, 12.0, date(2026, 10, 30))}
+
+    attach_post_clear_performance(cycles, anchors, latest)
+
+    assert cycles[0]['post_clear_status'] == POST_CLEAR_NO_ANCHOR
+    assert cycles[0]['post_clear_pct'] is None
+
+
+def test_no_venue_entity_is_not_supported():
+    """无交易场所的实体（经理 / 投顾组合 / 指数）：没有可信市价，不假装能算。"""
+    cycles = [{'identity': 'NO_VENUE:MGR_001', 'symbol': 'MGR_001', 'last_sell_date': '2026-05-20'}]
+    anchors = {('NO_VENUE:MGR_001', '2026-05-20'): (10.0, None, date(2026, 5, 20))}
+    latest = {'NO_VENUE:MGR_001': (12.0, None, date(2026, 10, 30))}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -114,14 +140,14 @@ def test_exchange_traded_is_not_supported():
 def test_multi_round_same_code_uses_per_date_anchor():
     """同一标的两轮清仓：各用各的锚点，不能被后一轮覆盖。
 
-    这正是 `anchor_navs` 的键要带日期、而不是只用 code 的原因。
+    这正是 `anchors` 的键要带日期、而不是只用身份键的原因。
     """
     cycles = [_cycle(sold='2026-03-10'), _cycle(sold='2026-07-15')]
     anchors = {
-        ('001937', '2026-03-10'): (1.0, 1.0, date(2026, 3, 10)),
-        ('001937', '2026-07-15'): (2.0, 2.0, date(2026, 7, 15)),
+        ('OTC:001937', '2026-03-10'): (1.0, 1.0, date(2026, 3, 10)),
+        ('OTC:001937', '2026-07-15'): (2.0, 2.0, date(2026, 7, 15)),
     }
-    latest = {'001937': (2.4, 2.4, date(2026, 10, 30))}
+    latest = {'OTC:001937': (2.4, 2.4, date(2026, 10, 30))}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -146,8 +172,8 @@ def test_ok_reports_as_of_date_and_basis():
     同一列里 acc / unit 混着也看不出为什么某行和别人不一样（#2773 验收口径）。
     """
     cycles = [_cycle()]
-    anchors = {('001937', '2026-05-20'): (2.0, 2.5, date(2026, 5, 20))}
-    latest = {'001937': (2.2, 2.75, date(2026, 10, 30))}
+    anchors = {('OTC:001937', '2026-05-20'): (2.0, 2.5, date(2026, 5, 20))}
+    latest = {'OTC:001937': (2.2, 2.75, date(2026, 10, 30))}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -158,8 +184,8 @@ def test_ok_reports_as_of_date_and_basis():
 def test_unit_basis_is_reported_when_acc_missing():
     """退到 unit 口径时 basis 必须标 unit_nav，不能默认写 acc。"""
     cycles = [_cycle()]
-    anchors = {('001937', '2026-05-20'): (2.0, None, date(2026, 5, 20))}
-    latest = {'001937': (2.4, None, date(2026, 10, 30))}
+    anchors = {('OTC:001937', '2026-05-20'): (2.0, None, date(2026, 5, 20))}
+    latest = {'OTC:001937': (2.4, None, date(2026, 10, 30))}
 
     attach_post_clear_performance(cycles, anchors, latest)
 
@@ -170,7 +196,7 @@ def test_unsolved_statuses_never_carry_as_of_or_basis():
     """算不出时 as_of / basis 必须为空：留一个日期会让「--」看起来像有数据。"""
     cycles = [
         _cycle(identity='OTC:001937'),  # 无锚点
-        {'identity': 'SH600519', 'symbol': 'SH600519', 'last_sell_date': '2026-05-20'},  # 场内
+        {'identity': 'EXCHANGE:SH600519', 'symbol': 'SH600519', 'last_sell_date': '2026-05-20'},  # 场内无锚点
     ]
 
     attach_post_clear_performance(cycles, {}, {})
@@ -185,9 +211,9 @@ def test_no_nav_after_keeps_anchor_but_reports_no_as_of():
     """净值停更：有锚点但没有「之后的点」，故 as_of 仍为空、状态如实标 no_nav_after。"""
     same_day = date(2026, 5, 20)
     cycles = [_cycle()]
-    anchors = {('001937', '2026-05-20'): (2.0, 2.0, same_day)}
+    anchors = {('OTC:001937', '2026-05-20'): (2.0, 2.0, same_day)}
 
-    attach_post_clear_performance(cycles, anchors, {'001937': (2.0, 2.0, same_day)})
+    attach_post_clear_performance(cycles, anchors, {'OTC:001937': (2.0, 2.0, same_day)})
 
     assert cycles[0]['post_clear_status'] == POST_CLEAR_NO_AFTER
     assert cycles[0]['post_clear_as_of'] is None

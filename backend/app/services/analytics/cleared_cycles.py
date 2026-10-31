@@ -424,35 +424,61 @@ def _aligned_pair(
     return None
 
 
+def _exchange_pair(
+    anchor: Optional[Tuple[Optional[float], Optional[float], date]],
+    latest: Optional[Tuple[Optional[float], Optional[float], date]],
+) -> Optional[Tuple[float, float, date, date, str]]:
+    """场内：取前复权收盘价（``adj_close``），**不用**未复权 ``close``。
+
+    跨分红除权时未复权价会向下跳一个分红台阶，于是「卖出后跌了 5%」可能纯属除权——
+    那是把分红记成亏损，方向都错了。故场内只认前复权，缺了就报「算不出」。
+    """
+    if not anchor or not latest:
+        return None
+    a_adj, _, a_date = anchor
+    l_adj, _, l_date = latest
+    if a_adj is None or l_adj is None or a_adj <= 0:
+        return None
+    return (a_adj, l_adj, a_date, l_date, 'adj_close')
+
+
 def attach_post_clear_performance(
     cycles: Sequence[Dict[str, Any]],
-    anchor_navs: Dict[Tuple[str, str], Tuple[Optional[float], Optional[float], date]],
-    latest_navs: Dict[str, Tuple[Optional[float], Optional[float], date]],
+    anchors: Dict[Tuple[str, str], Tuple[Optional[float], Optional[float], date]],
+    latest: Dict[str, Tuple[Optional[float], Optional[float], date]],
 ) -> List[Dict[str, Any]]:
     """给每个已清仓周期补「清仓后涨跌幅」（#2773，原地写入并返回该批 dict）。
 
     这个指标回答的是**卖出决策对不对**：卖掉之后它涨了还是跌了。它只对已清仓
     有意义，故不放进 `compute_cleared_cycles` 的通用出参，而是单独一趟补齐——
-    取数要碰 `daily_worth`，纯聚合函数不该有 db 依赖。
+    取数要碰 `daily_worth` / `price_history`，纯聚合函数不该有 db 依赖。
+
+    场所决定口径（`identity` 前缀，与周期分组同一个键）：
+
+    - ``OTC:`` 场外基金 → `daily_worth`，acc_nav 优先、缺失回落 unit_nav；
+    - ``EXCHANGE:`` 场内 → `price_history.adj_close`（前复权）；
+    - ``NO_VENUE:`` 无场所实体（经理 / 投顾组合 / 指数）→ ``not_supported``，
+      没有可信市价就不假装能算。
 
     Args:
         cycles: `compute_cleared_cycles` 的产物（元素被原地修改）。
-        anchor_navs: ``{(code, 'YYYY-MM-DD'): (unit, acc, nav_date)}``。键里带日期，
-            是因为同一标的可以清仓多轮，每轮锚点各不相同。
-        latest_navs: ``{code: (unit, acc, nav_date)}``，库中最新一条。
+        anchors: ``{(identity, 'YYYY-MM-DD'): (主, 备, 日期)}``。键里带日期，是因为
+            同一标的可以清仓多轮，每轮锚点各不相同。场外主/备是 ``(unit, acc)``，
+            场内主是 ``adj_close``、备恒为 None。
+        latest: ``{identity: (主, 备, 日期)}``，库中最新一条。
 
     Returns:
         同一批周期 dict 组成的新列表（元素对象是同一批，便于链式调用）。
 
     状态语义（**禁止把算不出回成 0**）：
-        - ``ok``：算出来了，同时给 ``post_clear_as_of``（最新净值日）与
+        - ``ok``：算出来了，同时给 ``post_clear_as_of``（最新净值日 / 交易日）与
           ``post_clear_basis``（用了哪个口径）；
-        - ``no_nav_at_sell``：卖出日及之前没有可用净值。多为 #2343 之前清仓的周期
-          （持仓行被物理删除、历史净值从没拉过），要一次性回填才可能有值；
-        - ``no_nav_after``：有锚点，但卖出之后没有更新的净值（净值停更）。
+        - ``no_nav_at_sell``：卖出日及之前没有可用价（场外无净值 / 场内无前复权价）。
+          多为 #2343 之前清仓的周期（持仓行被物理删除、历史数据从没拉过）；
+        - ``no_nav_after``：有锚点，但卖出之后没有更新的数据（净值停更 / 行情停更）。
           此时涨跌幅恒为 0，那是「没数据」不是「没涨」；
-        - ``not_supported``：场内标的。当前只做场外，场内要另一套价格源
-          （`price_history.adj_close`），接上之前不假装能算。
+        - ``not_supported``：无交易场所的实体（经理 / 投顾组合 / 指数），或场内缺
+          前复权价——不动用未复权 ``close`` 顶替。
 
     ``post_clear_as_of`` 只在 ``ok`` 时有值。不返回这个日期，用户会把一个可能停在
     几个月前的数当成实时值——「截至」必须跟着数一起走（#2773 验收口径）。
@@ -464,24 +490,28 @@ def attach_post_clear_performance(
         c['post_clear_basis'] = None
         c['post_clear_status'] = POST_CLEAR_NOT_SUPPORTED
 
-        if not identity.startswith('OTC:'):
-            continue  # 场内 / 无场所：暂不支持，不猜
-        code = identity.split(':', 1)[1]
+        is_otc = identity.startswith('OTC:')
+        is_exchange = identity.startswith('EXCHANGE:')
+        if not (is_otc or is_exchange):
+            continue  # 无场所实体：没有可信市价，不猜
+
         sold = c.get('last_sell_date')
         if not sold:
             c['post_clear_status'] = POST_CLEAR_NO_ANCHOR
             continue
 
-        pair = _aligned_pair(anchor_navs.get((code, sold)), latest_navs.get(code))
+        anchor = anchors.get((identity, sold))
+        latest_row = latest.get(identity)
+        pair = _aligned_pair(anchor, latest_row) if is_otc else _exchange_pair(anchor, latest_row)
         if pair is None:
             c['post_clear_status'] = POST_CLEAR_NO_ANCHOR
             continue
-        a_nav, l_nav, a_date, l_date, basis = pair
+        a_val, l_val, a_date, l_date, basis = pair
         if l_date <= a_date:
             c['post_clear_status'] = POST_CLEAR_NO_AFTER
             continue
 
-        c['post_clear_pct'] = round((l_nav / a_nav - 1) * 100, 2)
+        c['post_clear_pct'] = round((l_val / a_val - 1) * 100, 2)
         c['post_clear_as_of'] = l_date.isoformat()
         c['post_clear_basis'] = basis
         c['post_clear_status'] = POST_CLEAR_OK
@@ -490,43 +520,67 @@ def attach_post_clear_performance(
 
 
 def _attach_post_clear(db, cycles: Sequence[Dict[str, Any]]) -> None:
-    """取锚点与最新净值，补齐「清仓后涨跌幅」（#2773 的 db 侧，原地写入）。
+    """取锚点与最新价，补齐「清仓后涨跌幅」（#2773 的 db 侧，原地写入）。
 
-    查询次数 = 不同的清仓日数量（+1 次取最新净值）。同一天清仓的多只标的合并成
-    一次批量查询。为什么不一次 SQL 全取：每轮周期的锚点日期各不相同，而
-    「每只基金取 <= 各自日期的最近一条」在一条 SQL 里表达不出来（得用变日期
-    子查询），退化成 N 次轻量查询反而更简单可靠——周期量级是几十条，
-    且这条路径只在用户打开复盘页时走一次。
+    查询次数：场外 = 不同清仓日数量 + 1（最新净值）；场内 = 不同清仓日数量 + 1
+    （最新交易日）。同一天清仓的多只标的合并成一次批量查询。为什么不一次 SQL
+    全取：每轮周期的锚点日期各不相同，而「每只取 <= 各自日期的最近一条」在一条
+    SQL 里表达不出来（得用变日期子查询），退化成 N 次轻量查询反而更简单可靠——
+    周期量级是几十条，且这条路径只在用户打开复盘页时走一次。
+
+    场外与场内**分两路取数**：一个读 `daily_worth`（净值），一个读 `price_history`
+    （前复权收盘价）。口径互不相通，故不能合成一次查询，也不能互相顶替。
     """
+    from app.services.adj_close_lookup import get_adj_close_at_or_before, symbol_of_exchange_identity
     from app.services.nav_service import NavService
 
-    codes_by_day: Dict[date, set] = {}
-    all_codes: set = set()
+    otc_by_day: Dict[date, set] = {}
+    otc_all: set = set()
+    ex_by_day: Dict[date, set] = {}
+    ex_all: set = set()
     for c in cycles or []:
         identity = c.get('identity') or ''
         sold = c.get('last_sell_date')
-        if not identity.startswith('OTC:') or not sold:
+        if not sold:
             continue
-        all_codes.add(identity.split(':', 1)[1])
         d = _parse_iso_date(sold, 'last_sell_date')
-        if d is not None:
-            codes_by_day.setdefault(d, set()).add(identity.split(':', 1)[1])
+        if d is None:
+            continue
+        if identity.startswith('OTC:'):
+            code = identity.split(':', 1)[1]
+            otc_all.add(code)
+            otc_by_day.setdefault(d, set()).add(code)
+        else:
+            symbol = symbol_of_exchange_identity(identity)
+            if symbol:
+                ex_all.add(symbol)
+                ex_by_day.setdefault(d, set()).add(symbol)
 
-    if not all_codes:
+    if not otc_all and not ex_all:
         attach_post_clear_performance(cycles, {}, {})
         return
 
-    anchor_navs: Dict[Tuple[str, str], Tuple[Optional[float], Optional[float], date]] = {}
-    for d, codes in codes_by_day.items():
-        found = NavService.get_navs_at_or_before(db, sorted(codes), d)
-        for code, triple in found.items():
-            anchor_navs[(code, d.isoformat())] = triple
+    anchors: Dict[Tuple[str, str], Tuple[Optional[float], Optional[float], date]] = {}
+    for d, codes in otc_by_day.items():
+        for code, triple in NavService.get_navs_at_or_before(db, sorted(codes), d).items():
+            anchors[(f'OTC:{code}', d.isoformat())] = triple
+    for d, symbols in ex_by_day.items():
+        for symbol, pair in get_adj_close_at_or_before(db, sorted(symbols), d).items():
+            # 场内的「备」恒为 None：只有前复权一种口径，没有可回落的东西
+            anchors[(f'EXCHANGE:{symbol}', d.isoformat())] = (pair[0], None, pair[1])
 
-    # 最新净值：以今天为上界的「最近一条」。走同一方法是为了口径一致——
-    # 两边都带 acc_nav，下游才能配对；单开一个「只返回 unit_nav」的查询
-    # 会让 `_aligned_pair` 全部退化成 unit 口径，分红再投的标的就被算小。
-    latest_navs = NavService.get_navs_at_or_before(db, sorted(all_codes), date.today())
-    attach_post_clear_performance(cycles, anchor_navs, latest_navs)
+    latest: Dict[str, Tuple[Optional[float], Optional[float], date]] = {}
+    if otc_all:
+        # 最新净值：以今天为上界的「最近一条」。走同一方法是为了口径一致——
+        # 两边都带 acc_nav，下游才能配对；单开一个「只返回 unit_nav」的查询
+        # 会让 `_aligned_pair` 全部退化成 unit 口径，分红再投的标的就被算小。
+        for code, triple in NavService.get_navs_at_or_before(db, sorted(otc_all), date.today()).items():
+            latest[f'OTC:{code}'] = triple
+    if ex_all:
+        for symbol, pair in get_adj_close_at_or_before(db, sorted(ex_all), date.today()).items():
+            latest[f'EXCHANGE:{symbol}'] = (pair[0], None, pair[1])
+
+    attach_post_clear_performance(cycles, anchors, latest)
 
 
 def _position_identity(position: Any) -> str:

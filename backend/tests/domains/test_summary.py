@@ -1089,9 +1089,7 @@ class TestClearedCyclesEndpoint:
         from app.domains.funds.models import DailyWorth
 
         self._seed_cleared_cycle(client)
-        make_position(
-            symbol='000002', asset_type='fund', name='浮亏基', quantity=1000, avg_price=1.0
-        )
+        make_position(symbol='000002', asset_type='fund', name='浮亏基', quantity=1000, avg_price=1.0)
         db.add(DailyWorth(fund_code='000002', date=date(2026, 9, 30), unit_nav=0.9, acc_nav=0.9))
         db.commit()
 
@@ -1109,3 +1107,102 @@ class TestClearedCyclesEndpoint:
         data = client.get('/api/summary/cleared-cycles/').get_json()['data']
 
         assert data['summary']['unrealized_count'] == 0
+
+    def test_exchange_cycle_uses_adj_close(self, client, db):
+        """场内周期用**前复权**收盘价：除权日 close 会跳台阶，adj_close 不会。
+
+        造一组跨分红的数据：close 10.0 → 9.5（−5%），adj_close 10.0 → 10.55（+5.5%）。
+        接口必须给出 +5.5% 且 basis 标 adj_close —— 用 close 会把分红记成亏损，
+        方向都反了。这条就是 #2773 验收里「能挡住随手取 close」的那条。
+        """
+        from datetime import date
+
+        from app.domains.price_history.models import PriceHistory
+
+        db.add_all(
+            [
+                # 买入日之前：同样给出区间，否则后端价格校验会去拉真实行情
+                PriceHistory(
+                    security_id=1,
+                    symbol='SZ000001',
+                    trade_date=date(2026, 5, 5),
+                    open=10.0,
+                    high=10.2,
+                    low=9.8,
+                    close=10.0,
+                    adj_close=10.0,
+                ),
+                # 卖出日之前：价格区间 9.8~10.2，让 10.0 的成交价通过区间校验
+                PriceHistory(
+                    security_id=1,
+                    symbol='SZ000001',
+                    trade_date=date(2026, 5, 29),
+                    open=10.0,
+                    high=10.2,
+                    low=9.8,
+                    close=10.0,
+                    adj_close=10.0,
+                ),
+                # 除权日：close 下跳，adj_close 连续
+                PriceHistory(
+                    security_id=1,
+                    symbol='SZ000001',
+                    trade_date=date(2026, 7, 15),
+                    open=9.0,
+                    high=9.1,
+                    low=8.9,
+                    close=9.0,
+                    adj_close=10.0,
+                ),
+                PriceHistory(
+                    security_id=1,
+                    symbol='SZ000001',
+                    trade_date=date(2026, 10, 30),
+                    open=9.5,
+                    high=9.6,
+                    low=9.4,
+                    close=9.5,
+                    adj_close=10.55,
+                ),
+            ]
+        )
+        db.commit()
+
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '000001',
+                'name': '平安银行',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '券商',
+                'quantity': 100,
+                'avg_price': 10.0,
+                'currency': 'CNY',
+                'trade_date': '2026-05-06',
+                'op_type': 'buy',
+            },
+        )
+        pos_id = client.get('/api/positions/').get_json()['data'][0]['id']
+        sell = _post(
+            client,
+            '/api/positions/',
+            {
+                'position_id': pos_id,
+                'op_type': 'sell',
+                'symbol': '000001',
+                'quantity': 100,
+                'avg_price': 10.0,
+                'trade_date': '2026-06-01',
+            },
+        )
+        assert sell.status_code == 200, sell.get_json()
+
+        data = client.get('/api/summary/cleared-cycles/?include_post_clear=1').get_json()['data']
+        c = data['cycles'][0]
+
+        assert c['post_clear_status'] == 'ok'
+        assert c['post_clear_pct'] == 5.5  # 10.55 / 10.0 − 1，而非 close 口径的 −5%
+        assert c['post_clear_basis'] == 'adj_close'
+        assert c['post_clear_as_of'] == '2026-10-30'

@@ -174,10 +174,11 @@ export type PostClearCell = {
 
 const POST_CLEAR_REASON: Record<string, string> = {
   no_nav_at_sell:
-    "卖出日及之前没有净值记录（多为早期清仓，历史净值从未拉取过），无法计算",
-  no_nav_after: "卖出之后没有更新的净值（净值已停更）。这不是「没涨没跌」",
+    "卖出日及之前没有可用价格（场外缺净值 / 场内缺前复权收盘价），多为早期清仓、历史数据从未拉取过",
+  no_nav_after:
+    "卖出之后没有更新的价格（净值或行情已停更）。这不是「没涨没跌」",
   not_supported:
-    "场内标的暂不支持——需要另一套价格源（前复权收盘价），未接入前不假装能算"
+    "无交易场所的标的（经理 / 投顾组合 / 指数）没有可信市价，或场内缺前复权价——不拿未复权收盘价顶替"
 };
 
 /**
@@ -200,7 +201,9 @@ export function postClearCell(cycle: ClearedCycle): PostClearCell {
     const basis =
       cycle.post_clear_basis === "unit_nav"
         ? "单位净值口径（不含分红再投）"
-        : "累计净值口径（含分红再投）";
+        : cycle.post_clear_basis === "adj_close"
+          ? "前复权收盘价口径（除权不虚跌）"
+          : "累计净值口径（含分红再投）";
     const asOf = cycle.post_clear_as_of
       ? `截至 ${cycle.post_clear_as_of}`
       : "截至最新净值";

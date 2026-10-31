@@ -917,8 +917,8 @@ export type ClearedCycle = {
    * 不标「截至哪天」，一个停在几个月前的数会被当实时值读。
    */
   post_clear_as_of?: string | null;
-  /** 实际使用的净值口径：acc_nav（含分红再投）/ unit_nav（不含） */
-  post_clear_basis?: "acc_nav" | "unit_nav" | null;
+  /** 实际使用的价格口径：场外 acc_nav（含分红再投）/ unit_nav（不含）；场内 adj_close（前复权） */
+  post_clear_basis?: "acc_nav" | "unit_nav" | "adj_close" | null;
 };
 
 /** 跨周期汇总（样本仅含 pnl_known 周期；零盈亏计样本不计胜负） */
