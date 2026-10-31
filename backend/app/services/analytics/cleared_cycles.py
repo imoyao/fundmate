@@ -39,6 +39,11 @@ WHY
 
 单位：流水侧 amount/fee 为**分**、份额为 0.0001 份整数；出参一律**元**（round 2）、
 日期 ISO 字符串。
+
+区间筛选（#2774）：`start_date` / `end_date` 按 **`last_sell_date`（末卖日）** 裁剪，
+且**必须在周期聚合之后**滤——先截流水会把「首买在窗口外、末卖在窗口内」的周期
+算成 partial（`pnl_known=False`），胜率样本凭空少一截。这条不是优化取舍，
+是口径正确性问题：同一份数据换窗口看，周期本身的可算性不该变。
 """
 
 from __future__ import annotations
@@ -103,9 +108,10 @@ def _yuan(cents: Optional[int]) -> Optional[float]:
     return round(cents / _CENTS_PER_YUAN, 2)
 
 
-def _new_cycle(symbol: str, name: Optional[str], first_buy: date, number: int) -> Dict[str, Any]:
+def _new_cycle(symbol: str, name: Optional[str], first_buy: date, number: int, identity: str) -> Dict[str, Any]:
     return {
         'symbol': symbol,
+        'identity': identity,
         'name': name,
         'cycle_number': number,
         'first_buy_date': first_buy,
@@ -168,7 +174,9 @@ def compute_cleared_cycles(transactions: Sequence[Any]) -> List[Dict[str, Any]]:
             if cycle is None:
                 # 开周期：首买日、序号按该 group 已关闭周期数递增
                 number = len(cycles.get(key, [])) + 1
-                cycle = _new_cycle(getattr(txn, 'symbol', None) or key, getattr(txn, 'position_name', None), d, number)
+                cycle = _new_cycle(
+                    getattr(txn, 'symbol', None) or key, getattr(txn, 'position_name', None), d, number, key
+                )
                 open_cycle[key] = cycle
             cycle['buy_count'] += 1
             cycle['trade_count'] += 1
@@ -247,6 +255,9 @@ def compute_cleared_cycles(transactions: Sequence[Any]) -> List[Dict[str, Any]]:
             result.append(
                 {
                     'symbol': c['symbol'],
+                    # 归一身份键（#2774）：产品数按它去重。不能用 symbol 字面量——
+                    # 同一标的的写法变体（HK00700 / 00700.HK）会被数成两个产品。
+                    'identity': c['identity'],
                     'name': c['name'],
                     'cycle_number': c['cycle_number'],
                     'first_buy_date': c['first_buy_date'].isoformat() if c['first_buy_date'] else None,
@@ -294,8 +305,15 @@ def summarize_cycles(cycles: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         avg_loss = abs(sum(c['realized_pnl'] for c in losses) / len(losses))
         profit_loss_ratio = round(avg_win / avg_loss, 4) if avg_loss > 0 else None
 
+    # 产品数（#2774）：按归一身份键去重，而非 symbol 字面量——同一标的的写法变体
+    # （HK00700 / 00700.HK）在流水里真实并存，按字面量数会把 1 只数成 2 只。
+    # 与 `cycle_count` 是两个不同的问题：「清过 3 轮」和「清过 3 只」不是一回事。
+    identities = {(c.get('identity') or c.get('symbol') or '') for c in (cycles or [])}
+    identities.discard('')
+
     return {
         'cycle_count': len(cycles or []),
+        'product_count': len(identities),
         'sample_count': len(known),
         'win_count': len(wins),
         'loss_count': len(losses),
@@ -308,6 +326,50 @@ def summarize_cycles(cycles: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _parse_iso_date(value: Optional[str], field: str) -> Optional[date]:
+    """解析 YYYY-MM-DD；空值返回 None，格式错抛 ValueError（视图层转 400）。"""
+    raw = (value or '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        raise ValueError(f'{field} 格式应为 YYYY-MM-DD，收到 {raw!r}') from None
+
+
+def filter_cycles_by_sell_date(
+    cycles: Sequence[Dict[str, Any]],
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> List[Dict[str, Any]]:
+    """按**末卖日**裁剪已聚合好的周期（#2774）。
+
+    必须在 `compute_cleared_cycles` **之后**调用。先按日期截流水再聚合是错的：
+    「首买在窗口外、末卖在窗口内」的周期会被算成部分配对（卖出找不到买入成本），
+    于是 `pnl_known=False`、掉出胜率样本——同一轮周期，换个窗口看可算性就变了。
+    先聚后滤则保证「周期怎么算」与「看哪一段」互不影响。
+
+    `last_sell_date` 为 None 的周期（理论上不存在：周期关闭时必然写入）在任一
+    边界存在时被排除——无法判断它落在窗口内，不猜。
+    """
+    if start_date is None and end_date is None:
+        return list(cycles or [])
+    lo = start_date.isoformat() if start_date else None
+    hi = end_date.isoformat() if end_date else None
+    kept: List[Dict[str, Any]] = []
+    for c in cycles or []:
+        sold = c.get('last_sell_date')
+        if not sold:
+            continue
+        # ISO 日期字符串可直接字典序比较（零填充定长），不必再转回 date
+        if lo and sold < lo:
+            continue
+        if hi and sold > hi:
+            continue
+        kept.append(c)
+    return kept
+
+
 def build_cleared_cycles(
     db,
     family_id: int = 1,
@@ -315,6 +377,8 @@ def build_cleared_cycles(
     ledger_id: Optional[int] = None,
     symbol: Optional[str] = None,
     include_cash_equivalents: bool = False,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """db 入口：按家庭取流水，聚合清仓周期 + 汇总。
 
@@ -327,12 +391,20 @@ def build_cleared_cycles(
             在 Python 侧过滤而非 SQL——``transactions`` 只有字面量 symbol、
             没有 symbol_norm 列，SQL 里做不了归一（#1662 同款约束）。
         include_cash_equivalents: 是否纳入类现金资产（默认排除，同 behavior/XIRR）。
+        start_date / end_date: 可选区间（YYYY-MM-DD），按**末卖日**裁剪。缺省 = 投资以来
+            （与 #2131 上线时的行为完全一致，老调用方零改动）。
 
     Returns:
         ``{'cycles': [...], 'summary': {...}}``。
     """
     from app.core.asset_types import EXCLUDED_ASSET_TYPES
     from app.domains.transactions.models import Transaction
+
+    # 入参校验先做：格式错在查库前就 400，不白跑一次全量流水
+    lo = _parse_iso_date(start_date, 'start_date')
+    hi = _parse_iso_date(end_date, 'end_date')
+    if lo and hi and lo > hi:
+        raise ValueError(f'start_date 不能晚于 end_date（{lo} > {hi}）')
 
     query = db.query(Transaction).filter(Transaction.family_id == family_id)
     if ledger_id is not None:
@@ -359,4 +431,6 @@ def build_cleared_cycles(
         ]
     logger.debug(f'清仓周期聚合(family={family_id}, ledger={ledger_id})：候选流水 {len(transactions)} 笔')
     cycles = compute_cleared_cycles(transactions)
+    # 先聚合、后按末卖日裁剪（#2774 口径，见 filter_cycles_by_sell_date）
+    cycles = filter_cycles_by_sell_date(cycles, lo, hi)
     return {'cycles': cycles, 'summary': summarize_cycles(cycles)}

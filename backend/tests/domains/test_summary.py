@@ -922,3 +922,72 @@ class TestClearedCyclesEndpoint:
         assert data['summary']['cycle_count'] == 1
         assert data['summary']['win_rate'] == 100.0
         assert data['summary']['realized_pnl_total'] == 5000.0
+        # 产品数（#2774）：1 只标的、1 轮周期 → 两个数都是 1
+        assert data['summary']['product_count'] == 1
+
+    def _seed_cleared_cycle(self, client) -> None:
+        """买 100 股 → 全部卖出，造一轮已完结周期（末卖日 2026-06-01）。"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 100,
+                'avg_price': 350,
+                'currency': 'HKD',
+                'trade_date': '2026-05-01',
+            },
+        )
+        pos_id = client.get('/api/positions/').get_json()['data'][0]['id']
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'position_id': pos_id,
+                'op_type': 'sell',
+                'symbol': '00700.HK',
+                'quantity': 100,
+                'avg_price': 400,
+                'trade_date': '2026-06-01',
+            },
+        )
+
+    def test_start_date_filters_by_last_sell_date(self, client):
+        """start_date 含端点：末卖日 == start_date 的周期保留，晚一天则被裁掉（#2774）。"""
+        self._seed_cleared_cycle(client)
+
+        inside = client.get('/api/summary/cleared-cycles/?start_date=2026-06-01')
+        assert inside.status_code == 200
+        assert len(inside.get_json()['data']['cycles']) == 1
+
+        outside = client.get('/api/summary/cleared-cycles/?start_date=2026-06-02')
+        assert outside.status_code == 200
+        data = outside.get_json()['data']
+        assert data['cycles'] == []
+        # 窗口内无周期时汇总归零（不是沿用全量结果）
+        assert data['summary']['cycle_count'] == 0
+        assert data['summary']['product_count'] == 0
+        assert data['summary']['win_rate'] is None
+
+    def test_range_keeps_cycle_crossing_window(self, client):
+        """跨窗口周期仍可算：首买在窗口外、末卖在窗口内（先聚合后裁剪的口径保证）。"""
+        self._seed_cleared_cycle(client)
+        resp = client.get('/api/summary/cleared-cycles/?start_date=2026-06-01&end_date=2026-06-30')
+        data = resp.get_json()['data']
+        assert len(data['cycles']) == 1
+        assert data['cycles'][0]['pnl_known'] is True
+        assert data['cycles'][0]['realized_pnl'] == 5000.0
+
+    def test_invalid_date_returns_400(self, client):
+        """格式错 400，不静默当成「不过滤」——静默降级会让用户以为筛选生效了。"""
+        resp = client.get('/api/summary/cleared-cycles/?start_date=2026/06/01')
+        assert resp.status_code == 400
+        assert resp.get_json()['error_code'] == 1001
+
+    def test_start_after_end_returns_400(self, client):
+        resp = client.get('/api/summary/cleared-cycles/?start_date=2026-07-01&end_date=2026-06-01')
+        assert resp.status_code == 400
