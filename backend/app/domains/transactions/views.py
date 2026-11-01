@@ -15,9 +15,23 @@ from app.core.database import get_db
 from app.core.retry import retry_on_db_locked
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
-from app.services.transaction_service import build_transaction_detail, build_transaction_list, build_transactions_csv
+from app.services.transaction_service import (
+    build_transaction_detail,
+    build_transaction_list,
+    build_transaction_summary,
+    build_transactions_csv,
+    filters_from_args,
+)
 
 bp = APIBlueprint('transactions', __name__, url_prefix='/api/transactions')
+
+
+@bp.get('/summary/')
+def get_transaction_summary():
+    """汇总条（跟随筛选；公式见 ``build_transaction_summary``，前端不二次求和）。"""
+    with get_db() as db:
+        data = build_transaction_summary(db, get_family_id(), filters_from_args(request.args))
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.get('/<int:transaction_id>/')
@@ -33,18 +47,9 @@ def get_transaction(transaction_id: int):
 @bp.get('/')
 def list_transactions():
     """获取交易流水列表，支持多维筛选与分页."""
-    filters = {
-        'op_type': request.args.get('type'),
-        'time_range': request.args.get('time_range'),
-        'start_date': request.args.get('start_date'),
-        'end_date': request.args.get('end_date'),
-        'status': request.args.get('status'),
-        'asset_type': request.args.get('asset_type'),
-        'symbol': request.args.get('symbol'),
-    }
     page, per_page = request.args.get('page', 1, type=int), request.args.get('per_page', 20, type=int)
     with get_db() as db:
-        payload = build_transaction_list(db, get_family_id(), page, per_page, filters)
+        payload = build_transaction_list(db, get_family_id(), page, per_page, filters_from_args(request.args))
         return jsonify({**payload, 'message': 'ok'})
 
 

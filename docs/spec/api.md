@@ -24,6 +24,7 @@ title: 核心 API 端点清单（api）
 |**GET**|**/api/positions/{id}/transactions/**|**获取持仓的关联交易明细**|
 |GET|/api/transactions/|交易流水分页筛选查询（行内附 `position_state`：`held`/`cleared`/`account`，由后端按 `ownership_status` + 持仓行是否存在判定，前端不自行按 `position_id` 推断）|
 |**GET**|**/api/transactions/{id}/**|**单条流水详情**（交易流水页「行展开详情」**按需取用**）：在列表行全部字段之上追加 `import_hash` / `updated_at` / `plan_id` / `position`（当前份额、清仓时间）；`position_id` 悬空或为资金流水时 `position` 为 `null`。跨家庭与不存在同返 404（不区分「无权访问」，避免泄漏行是否存在）。**不要并进列表**——那些字段一次只看一行，并进列表等于每页 20 行各算一遍。|
+|**GET**|**/api/transactions/summary/**|**交易流水汇总（汇总条数据源）**：与列表**同一组筛选参数**（`type` / `time_range` / `start_date` / `end_date` / `status` / `asset_type` / `symbol`），但**无分页**。返回 `{buy:{count,amount}, sell:{…}, dividend:{…}, fee, net_invested}`（金额单位元）。口径固定：`净投入 = 买入 + 手续费 − 卖出 − 分红`（手续费不摊进买入，四个数各自可核）；**分红按 `dividend` + `dividend_cash` 两码合计**（真机两码并存，只认一个会少算现金分红，且列表与汇总少的是同一批、看起来自洽）。与列表共用同一套 WHERE 与**独立聚合查询**——不要拿列表 `data` 求和：那是「这一页的 20 条」，会得到一个像总计的错数。|
 |**GET**|**/api/transactions/export/**|**交易记录一键导出 CSV**（P2-15）：全家庭交易流水，列与导入模板对齐（交易日期/确认日期/资产类型/代码/名称/业务类型/账户/数量/价格/手续费/金额/状态/备注）；金额用 `Money` 精度换算分→元；响应 `Content-Type: text/csv` + `Content-Disposition: attachment; filename="transactions_{YYYY-MM-DD}.csv"`；需鉴权（JWT），非探市公开端点。|
 |GET/POST|/api/assets/|通用资产负债查询（支持 `exclude` 参数排除负债）、新增|
 |PATCH/DELETE|/api/assets/{id}/|更新、删除通用资产|
@@ -62,7 +63,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **220** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **221** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -254,6 +255,7 @@ title: 核心 API 端点清单（api）
 | DELETE | `/api/transactions/<int:transaction_id>/` | `delete_transaction` |
 | GET | `/api/transactions/<int:transaction_id>/` | `get_transaction` |
 | GET | `/api/transactions/export/` | `export_transactions` |
+| GET | `/api/transactions/summary/` | `get_transaction_summary` |
 | GET | `/api/usage/<feature>/` | `get_usage` |
 | GET | `/api/users/` | `list_family_members` |
 | PATCH | `/api/users/me/` | `update_me` |

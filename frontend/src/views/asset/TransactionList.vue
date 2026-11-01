@@ -6,22 +6,28 @@
 // TransactionTimelineView（按月分组 + 触底加载）。纯展示口径集中在 transactionListModel.ts。
 //
 // 页面骨架按 docs/design/transaction-flow-redesign.md §二 的三条横带：
-// 页头（我是谁）→ 列表卡（筛选 + 具体哪一笔）。**汇总条暂不渲染**——它依赖后端
-// `GET /api/transactions/summary`（尚不存在），按设计拆两步：先用当页数据凑数会骗人。
-import { onMounted, ref, watch } from "vue";
+// 页头（我是谁）→ 汇总条（这段时间发生了什么）→ 列表卡（具体哪一笔）。
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Download } from "@element-plus/icons-vue";
-import { getTransactions, exportTransactions } from "@/api/transactions";
-import type { TransactionRecord } from "@/api/transactions";
+import {
+  getTransactionSummary,
+  getTransactions,
+  exportTransactions
+} from "@/api/transactions";
+import type { TransactionRecord, TransactionSummary } from "@/api/transactions";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { ElMessage } from "element-plus";
 import TransactionEditDialog from "./ledgers/components/TransactionEditDialog.vue";
+import TransactionSummaryBar from "./transactionList/TransactionSummaryBar.vue";
 import TransactionToolbar from "./transactionList/TransactionToolbar.vue";
 import TransactionTableView from "./transactionList/TransactionTableView.vue";
 import TransactionTimelineView from "./transactionList/TransactionTimelineView.vue";
 import {
+  buildFilterParams,
   buildTransactionParams,
   defaultFilters,
+  summaryRangeLabel,
   type TransactionFilters
 } from "./transactionList/transactionListModel";
 
@@ -81,11 +87,40 @@ async function fetchData(isLoadMore = false) {
   }
 }
 
-// 重置刷新
+/**
+ * 汇总条数据（设计 §四）。它只跟**筛选**走，不跟分页——翻页、触底加载都不该重取：
+ * 汇总回答的是「这段时间怎么样」，与当前看到第几页无关。
+ *
+ * 失败**静默**：列表接口失败已经弹过 toast，汇总再弹一个就是两条噪声；而汇总未取到时
+ * 汇总条整块不渲染，页面照常可用。
+ */
+const summary = ref<TransactionSummary | null>(null);
+const summaryLoading = ref(false);
+const summaryLabel = computed(() => summaryRangeLabel(filters.value));
+/** 请求序号：快速连点筛选时，先发出的慢响应不许覆盖后发的结果（否则数字会对不上筛选） */
+let summarySeq = 0;
+
+async function fetchSummary() {
+  const seq = ++summarySeq;
+  summaryLoading.value = true;
+  try {
+    const res = await getTransactionSummary(buildFilterParams(filters.value));
+    if (seq !== summarySeq) return;
+    summary.value = res?.data ?? null;
+  } catch {
+    // 保持上一次的数字（若已有）；没有就继续不渲染。切筛选失败时不硬造 0。
+    if (seq === summarySeq && !summary.value) summary.value = null;
+  } finally {
+    if (seq === summarySeq) summaryLoading.value = false;
+  }
+}
+
+// 重置刷新（筛选变化 / 清空筛选 / 清 symbol 都走这里）
 const resetAndFetch = () => {
   currentPage.value = 1;
   hasMore.value = true;
   fetchData();
+  fetchSummary();
 };
 
 /**
@@ -141,6 +176,8 @@ function handleSaved(data: any) {
   }
   // 展开详情是「取一次就缓存」的：不清掉的话，改完备注再展开那一行仍显示改前的内容。
   tableViewRef.value?.clearDetails();
+  // 金额 / 手续费可能被改过，汇总要跟着变——否则改完一笔，上面那行数字还说旧话。
+  fetchSummary();
 }
 
 // 导出全部交易流水
@@ -172,6 +209,7 @@ onMounted(() => {
   // #2160：先按 query 定筛选再取数，否则会先用「无 symbol」的参数拉一次全量再改
   applySymbolFromQuery();
   fetchData();
+  fetchSummary();
 });
 
 /**
@@ -207,6 +245,14 @@ watch(
     </PageHeaderBar>
 
     <div class="transaction-list__shell">
+      <!-- 汇总条：跟随筛选，一行读完（设计 §二 第二带）。数据未就绪时自身不渲染，
+           所以这里不需要再造一个「加载中」的壳。 -->
+      <TransactionSummaryBar
+        :summary="summary"
+        :label="summaryLabel"
+        :loading="summaryLoading"
+      />
+
       <!-- 筛选卡头与列表同处一张卡（设计 §六）。body padding 归零：卡头自带内边距，
            再叠一层 EL 默认的 20px 会让「卡头贴边、列表缩进」两处对不齐。 -->
       <el-card shadow="never" :body-style="{ padding: '0' }">

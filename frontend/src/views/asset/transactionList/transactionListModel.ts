@@ -91,13 +91,16 @@ export function monthLabel(month: string): string {
   return `${year} 年 ${Number(mon)} 月`;
 }
 
-/** 列表请求参数：空筛选项一律不下发（后端把空串当「筛空」，与「不筛」不同） */
-export function buildTransactionParams(
-  filters: TransactionFilters,
-  page: number,
-  pageSize: number
+/**
+ * 筛选参数（不含分页）：列表与**汇总条**共用同一份映射。
+ *
+ * 为什么抽出来：汇总条必须跟随同一组筛选，否则「列表 3 条、汇总按全量算」——
+ * 这种不一致不会报错，只会让用户拿汇总条去核列表时永远差一截。
+ */
+export function buildFilterParams(
+  filters: TransactionFilters
 ): Record<string, any> {
-  const params: any = { page, per_page: pageSize };
+  const params: any = {};
   if (filters.type) params.type = filters.type;
   if (filters.assetType) params.asset_type = filters.assetType;
   if (filters.status) params.status = filters.status;
@@ -110,6 +113,53 @@ export function buildTransactionParams(
     params.end_date = end.toISOString().slice(0, 10);
   }
   return params;
+}
+
+/** 列表请求参数：空筛选项一律不下发（后端把空串当「筛空」，与「不筛」不同） */
+export function buildTransactionParams(
+  filters: TransactionFilters,
+  page: number,
+  pageSize: number
+): Record<string, any> {
+  return { page, per_page: pageSize, ...buildFilterParams(filters) };
+}
+
+const TIME_RANGE_LABELS: Record<string, string> = {
+  "1m": "近一个月",
+  "3m": "近三个月",
+  "6m": "近半年",
+  "1y": "近一年"
+};
+
+/**
+ * 汇总条的时间范围文案（「近一年 · 买入 …」里那个「近一年」）。
+ *
+ * 为什么必须显示：同一个「买入 ¥86,320」在「全部时间」和「近一个月」下是两个完全
+ * 不同的判断，不写范围时读者会默认它等于全部历史。symbol 预筛也要带上——从产品详情页
+ * 进来时汇总只覆盖那一个产品，不标出来的话看起来像全家庭数据。
+ */
+export function summaryRangeLabel(filters: TransactionFilters): string {
+  const parts: string[] = [];
+  if (filters.symbol) parts.push(filters.symbol);
+  if (filters.timeRange === "custom") {
+    parts.push(
+      filters.customDate
+        ? `${formatLocalDate(filters.customDate[0])} 至 ${formatLocalDate(
+            filters.customDate[1]
+          )}`
+        : "自定义时段"
+    );
+  } else {
+    parts.push(TIME_RANGE_LABELS[filters.timeRange] ?? "全部时间");
+  }
+  return parts.join(" · ");
+}
+
+/** 本地日期（`YYYY-MM-DD`）：`toISOString()` 是 UTC，东八区会差一天 */
+function formatLocalDate(value: Date): string {
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${value.getFullYear()}-${month}-${day}`;
 }
 
 /**

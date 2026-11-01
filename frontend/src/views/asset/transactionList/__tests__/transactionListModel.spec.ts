@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  buildFilterParams,
   buildTransactionParams,
   defaultFilters,
   groupByMonth,
@@ -15,6 +16,7 @@ import {
   signedAmount,
   statusLabel,
   statusTag,
+  summaryRangeLabel,
   timelineDotClass,
   timelineIcon,
   typeTag,
@@ -100,6 +102,68 @@ describe("buildTransactionParams", () => {
     );
     expect(params.start_date).toBe("2026-01-05");
     expect(params.end_date).toBe("2026-02-06");
+  });
+});
+
+describe("buildFilterParams", () => {
+  it("只出筛选字段，不带分页（汇总条用同一份）", () => {
+    const params = buildFilterParams({
+      ...defaultFilters(),
+      type: "sell",
+      timeRange: "1y"
+    });
+    expect(params).toEqual({ type: "sell", time_range: "1y" });
+    expect(params.page).toBeUndefined();
+    expect(params.per_page).toBeUndefined();
+  });
+
+  it("buildTransactionParams = 筛选字段 + 分页（两个函数不能各写一份映射）", () => {
+    const filters = { ...defaultFilters(), status: "success" };
+    expect(buildTransactionParams(filters, 3, 50)).toEqual({
+      page: 3,
+      per_page: 50,
+      ...buildFilterParams(filters)
+    });
+  });
+});
+
+describe("summaryRangeLabel", () => {
+  it("没选时间范围时写「全部时间」——不写范围会被读成全历史", () => {
+    expect(summaryRangeLabel(defaultFilters())).toBe("全部时间");
+  });
+
+  it("四个预设范围各自成文", () => {
+    expect(summaryRangeLabel({ ...defaultFilters(), timeRange: "1m" })).toBe(
+      "近一个月"
+    );
+    expect(summaryRangeLabel({ ...defaultFilters(), timeRange: "1y" })).toBe(
+      "近一年"
+    );
+  });
+
+  it("自定义范围按**本地日期**成文（不是 UTC：东八区会差一天）", () => {
+    const label = summaryRangeLabel({
+      ...defaultFilters(),
+      timeRange: "custom",
+      customDate: [new Date(2026, 0, 5), new Date(2026, 5, 30)]
+    });
+    expect(label).toBe("2026-01-05 至 2026-06-30");
+  });
+
+  it("选了自定义却没填日期时如实写「自定义时段」，不冒充全部时间", () => {
+    expect(
+      summaryRangeLabel({ ...defaultFilters(), timeRange: "custom" })
+    ).toBe("自定义时段");
+  });
+
+  it("symbol 预筛必须进文案：从产品详情进来时汇总只覆盖那一个产品", () => {
+    expect(
+      summaryRangeLabel({
+        ...defaultFilters(),
+        symbol: "001937",
+        timeRange: "1y"
+      })
+    ).toBe("001937 · 近一年");
   });
 });
 
