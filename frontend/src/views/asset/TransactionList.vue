@@ -1,12 +1,19 @@
 <script setup lang="ts">
 // 交易流水列表：状态与取数留在这一层，渲染与滚动细节交给三个子组件。
 //
-// 子组件分工：TransactionToolbar（筛选 + 视图开关）、TransactionTableView（表格 + 分页）、
-// TransactionTimelineView（按日折叠 + 触底加载）。纯展示口径集中在 transactionListModel.ts。
+// 子组件分工：TransactionToolbar（卡头：视图切换 + 一级/二级筛选）、
+// TransactionTableView（表格 + 分页 + 行展开详情按需取）、
+// TransactionTimelineView（按月分组 + 触底加载）。纯展示口径集中在 transactionListModel.ts。
+//
+// 页面骨架按 docs/design/transaction-flow-redesign.md §二 的三条横带：
+// 页头（我是谁）→ 列表卡（筛选 + 具体哪一笔）。**汇总条暂不渲染**——它依赖后端
+// `GET /api/transactions/summary`（尚不存在），按设计拆两步：先用当页数据凑数会骗人。
 import { onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { Download } from "@element-plus/icons-vue";
 import { getTransactions, exportTransactions } from "@/api/transactions";
 import type { TransactionRecord } from "@/api/transactions";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { ElMessage } from "element-plus";
 import TransactionEditDialog from "./ledgers/components/TransactionEditDialog.vue";
 import TransactionToolbar from "./transactionList/TransactionToolbar.vue";
@@ -29,6 +36,11 @@ const total = ref(0);
 const currentPage = ref(1);
 const pageSize = ref(10);
 const filters = ref<TransactionFilters>(defaultFilters());
+
+/** 表格视图的实例：编辑保存后要清它的展开详情缓存（否则展开行还显示改之前的备注） */
+const tableViewRef = ref<InstanceType<typeof TransactionTableView> | null>(
+  null
+);
 
 const route = useRoute();
 const router = useRouter();
@@ -127,6 +139,8 @@ function handleSaved(data: any) {
       import_hash: data.import_hash
     });
   }
+  // 展开详情是「取一次就缓存」的：不清掉的话，改完备注再展开那一行仍显示改前的内容。
+  tableViewRef.value?.clearDetails();
 }
 
 // 导出全部交易流水
@@ -176,46 +190,60 @@ watch(
 </script>
 
 <template>
-  <div class="transaction-list p-4 md:p-6 bg-[#f5f7fa] min-h-full">
-    <!-- 页面标题 -->
-    <div class="mb-6">
-      <h2 class="text-2xl font-bold text-gray-800">交易流水</h2>
-      <p class="text-gray-500 mt-1 text-sm">所有交易操作的历史记录</p>
+  <div
+    class="transaction-list min-h-full"
+    :style="{ background: 'var(--bg-page)' }"
+  >
+    <!-- 页头：一层就够。此前是 h2 + 副标题，下面再起一张筛选卡——同一屏两个头顶 -->
+    <PageHeaderBar
+      title="交易流水"
+      subtitle="买入、卖出、转入转出的完整记录，按交易日倒序排列"
+    >
+      <template #action>
+        <el-button :icon="Download" :loading="exporting" @click="handleExport">
+          导出 CSV
+        </el-button>
+      </template>
+    </PageHeaderBar>
+
+    <div class="transaction-list__shell">
+      <!-- 筛选卡头与列表同处一张卡（设计 §六）。body padding 归零：卡头自带内边距，
+           再叠一层 EL 默认的 20px 会让「卡头贴边、列表缩进」两处对不齐。 -->
+      <el-card shadow="never" :body-style="{ padding: '0' }">
+        <TransactionToolbar
+          v-model:view-mode="viewMode"
+          v-model:filters="filters"
+          :total-count="total"
+          :loading="loading"
+          @change="onFilterChange"
+          @reset="resetAndFetch"
+          @clear-symbol="clearSymbolFilter"
+        />
+
+        <TransactionTableView
+          v-if="viewMode === 'table'"
+          ref="tableViewRef"
+          :transactions="transactions"
+          :loading="loading"
+          :total="total"
+          :current-page="currentPage"
+          :page-size="pageSize"
+          @page-change="onPageChange"
+          @size-change="onSizeChange"
+          @edit="openEdit"
+        />
+
+        <TransactionTimelineView
+          v-if="viewMode === 'timeline'"
+          :transactions="transactions"
+          :loading="loading"
+          :loading-more="loadingMore"
+          :has-more="hasMore"
+          @edit="openEdit"
+          @load-more="onLoadMore"
+        />
+      </el-card>
     </div>
-
-    <TransactionToolbar
-      v-model:view-mode="viewMode"
-      v-model:filters="filters"
-      :total-count="total"
-      :loading="loading"
-      :exporting="exporting"
-      @change="onFilterChange"
-      @reset="resetAndFetch"
-      @export="handleExport"
-      @clear-symbol="clearSymbolFilter"
-    />
-
-    <TransactionTableView
-      v-if="viewMode === 'table'"
-      :transactions="transactions"
-      :loading="loading"
-      :total="total"
-      :current-page="currentPage"
-      :page-size="pageSize"
-      @page-change="onPageChange"
-      @size-change="onSizeChange"
-      @edit="openEdit"
-    />
-
-    <TransactionTimelineView
-      v-if="viewMode === 'timeline'"
-      :transactions="transactions"
-      :loading="loading"
-      :loading-more="loadingMore"
-      :has-more="hasMore"
-      @edit="openEdit"
-      @load-more="onLoadMore"
-    />
 
     <!-- 行内编辑弹窗 -->
     <TransactionEditDialog
@@ -227,3 +255,12 @@ watch(
     />
   </div>
 </template>
+
+<style scoped>
+/* 与 PageHeaderBar 的 max-width / 横向内边距对齐（同 dividends 页的 shell 口径） */
+.transaction-list__shell {
+  max-width: var(--layout-content-width);
+  padding: 0 var(--space-standard);
+  margin: 0 auto;
+}
+</style>

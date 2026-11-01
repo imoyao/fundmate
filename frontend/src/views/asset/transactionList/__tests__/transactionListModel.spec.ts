@@ -1,23 +1,24 @@
 /**
  * TransactionList 拆分时抽出的纯函数口径（#980）。
  *
- * 重点盯三处容易静默出错的地方：日汇总的正负号、自定义时间范围的 UTC 取日、
- * 「近 30 天默认展开」的边界与基准日是否被改写。
+ * 重点盯四处容易静默出错的地方：月汇总的正负号、自定义时间范围的 UTC 取日、
+ * 「默认展开最近两个月」数的是有记录的月还是日历月、月归属的日期兜底口径。
  */
 import { describe, expect, it } from "vitest";
 import {
   buildTransactionParams,
-  dayBalanceOf,
   defaultFilters,
-  groupByDate,
-  isDateInLast30Days,
-  recentDatesOf,
+  groupByMonth,
+  monthLabel,
+  monthSummaryOf,
+  recentMonthsOf,
   signedAmount,
   statusLabel,
   statusTag,
   timelineDotClass,
   timelineIcon,
-  typeTag
+  typeTag,
+  TXN_TYPE_OPTIONS
 } from "../transactionListModel";
 
 const txn = (over: Record<string, any> = {}) =>
@@ -102,104 +103,132 @@ describe("buildTransactionParams", () => {
   });
 });
 
-describe("groupByDate", () => {
-  it("按 trade_date 分组并保持首次出现顺序", () => {
-    const groups = groupByDate([
+describe("groupByMonth", () => {
+  it("按月份分组并保持首次出现顺序（后端已按有效交易日倒序返回）", () => {
+    const groups = groupByMonth([
       txn({ id: 1, trade_date: "2026-03-11" }),
-      txn({ id: 2, trade_date: "2026-03-10" }),
-      txn({ id: 3, trade_date: "2026-03-11" })
+      txn({ id: 2, trade_date: "2026-02-10" }),
+      txn({ id: 3, trade_date: "2026-03-02" })
     ]);
-    expect(Object.keys(groups)).toEqual(["2026-03-11", "2026-03-10"]);
-    expect(groups["2026-03-11"].map(t => t.id)).toEqual([1, 3]);
-    expect(groups["2026-03-10"].map(t => t.id)).toEqual([2]);
+    expect(groups.map(g => g.month)).toEqual(["2026-03", "2026-02"]);
+    expect(groups[0].records.map(t => t.id)).toEqual([1, 3]);
+    expect(groups[1].records.map(t => t.id)).toEqual([2]);
   });
 
-  it("空列表返回空对象", () => {
-    expect(groupByDate([])).toEqual({});
+  it("空列表返回空数组", () => {
+    expect(groupByMonth([])).toEqual([]);
   });
 
-  it("交易日优先、确认日兜底（只有确认日的行也进正确的分组）", () => {
-    const groups = groupByDate([
-      txn({ id: 1, trade_date: "2026-03-11", confirm_date: "2026-03-12" }),
-      txn({ id: 2, trade_date: null, confirm_date: "2026-03-12" })
+  it("交易日优先、确认日兜底（只有确认日的行也进正确的月份）", () => {
+    const groups = groupByMonth([
+      txn({ id: 1, trade_date: "2026-03-11", confirm_date: "2026-04-12" }),
+      txn({ id: 2, trade_date: null, confirm_date: "2026-04-12" })
     ]);
-    expect(Object.keys(groups)).toEqual(["2026-03-11", "2026-03-12"]);
-    expect(groups["2026-03-12"].map(t => t.id)).toEqual([2]);
+    expect(groups.map(g => g.month)).toEqual(["2026-03", "2026-04"]);
+    expect(groups[1].records.map(t => t.id)).toEqual([2]);
+  });
+
+  it("日期全缺的行进「未标注日期」桶，并沉到最后", () => {
+    const groups = groupByMonth([
+      txn({ id: 1, trade_date: null, confirm_date: null }),
+      txn({ id: 2, trade_date: "2026-01-05" })
+    ]);
+    expect(groups.map(g => g.month)).toEqual(["2026-01", ""]);
+    expect(groups[1].label).toBe("未标注日期");
   });
 });
 
-describe("dayBalanceOf", () => {
-  it("卖出 / 分红 / 存入算流入，其余算流出", () => {
-    const groups = groupByDate([
-      txn({ id: 1, type: "sell", amount: 300 }),
-      txn({ id: 2, type: "dividend", amount: 20 }),
-      txn({ id: 3, type: "deposit", amount: 1000 }),
-      txn({ id: 4, type: "buy", amount: 200 }),
-      txn({ id: 5, type: "withdraw", amount: 50 })
+describe("monthSummaryOf", () => {
+  const make = (id, type, amount, trade_date = "2026-03-10") =>
+    txn({ id, type, amount, trade_date });
+
+  it("笔数 / 买入 / 卖出 各自累加，净额按方向求和", () => {
+    const summary = monthSummaryOf([
+      make(1, "sell", 300),
+      make(2, "dividend", 20),
+      make(3, "deposit", 1000),
+      make(4, "buy", 200),
+      make(5, "withdraw", 50)
     ]);
-    expect(dayBalanceOf(groups)["2026-03-10"]).toBe(300 + 20 + 1000 - 200 - 50);
+    expect(summary).toEqual({
+      count: 5,
+      buy: 200,
+      sell: 300,
+      // 卖出 300 + 分红 20 + 存入 1000 − 买入 200 − 取出 50
+      net: 1070
+    });
   });
 
   it("金额是字符串也按数值累加", () => {
-    const groups = groupByDate([
-      txn({ id: 1, type: "sell", amount: "123.45" }),
-      txn({ id: 2, type: "buy", amount: "23.45" })
+    const summary = monthSummaryOf([
+      make(1, "sell", "123.45"),
+      make(2, "buy", "23.45")
     ]);
-    expect(dayBalanceOf(groups)["2026-03-10"]).toBeCloseTo(100, 6);
+    expect(summary.net).toBeCloseTo(100, 6);
+    expect(summary.buy).toBeCloseTo(23.45, 6);
+    expect(summary.sell).toBeCloseTo(123.45, 6);
   });
 
-  it("按日期分别汇总", () => {
-    const groups = groupByDate([
-      txn({ id: 1, type: "buy", amount: 10, trade_date: "2026-03-11" }),
-      txn({ id: 2, type: "sell", amount: 30, trade_date: "2026-03-10" })
+  it("金额缺失或非数值时按 0 处理，不产出 NaN", () => {
+    const summary = monthSummaryOf([
+      make(1, "buy", null),
+      make(2, "sell", "abc")
     ]);
-    expect(dayBalanceOf(groups)).toEqual({
-      "2026-03-11": -10,
-      "2026-03-10": 30
-    });
+    expect(summary.buy).toBe(0);
+    expect(summary.sell).toBe(0);
+    expect(Number.isNaN(summary.net)).toBe(false);
+  });
+
+  it("空数组产出零值（月头不显示 NaN）", () => {
+    expect(monthSummaryOf([])).toEqual({ count: 0, buy: 0, sell: 0, net: 0 });
   });
 });
 
-describe("isDateInLast30Days", () => {
-  // 基准日与日期串都用 UTC 零点，避免本地时区把边界挪走一天
-  const now = new Date("2026-03-31T00:00:00Z");
-
-  it("当天算在范围内", () => {
-    expect(isDateInLast30Days("2026-03-31", now)).toBe(true);
-  });
-
-  it("第 30 天算在范围内（含边界）", () => {
-    expect(isDateInLast30Days("2026-03-01", now)).toBe(true);
-  });
-
-  it("第 31 天不算", () => {
-    expect(isDateInLast30Days("2026-02-28", now)).toBe(false);
-  });
-
-  it("不修改调用方传入的基准日（原实现在此处每调一次就前移 30 天）", () => {
-    const base = new Date("2026-03-31T00:00:00Z");
-    const before = base.getTime();
-    isDateInLast30Days("2026-01-01", base);
-    isDateInLast30Days("2026-01-01", base);
-    expect(base.getTime()).toBe(before);
-  });
-});
-
-describe("recentDatesOf", () => {
-  it("只挑最近 30 天的日期，并保持原有顺序", () => {
-    const groups = groupByDate([
+describe("recentMonthsOf", () => {
+  it("取最近 N 个有记录的月，默认两个", () => {
+    const groups = groupByMonth([
       txn({ id: 1, trade_date: "2026-03-31" }),
       txn({ id: 2, trade_date: "2026-02-01" }),
-      txn({ id: 3, trade_date: "2026-03-15" })
+      txn({ id: 3, trade_date: "2026-01-15" })
     ]);
-    expect(recentDatesOf(groups, new Date("2026-03-31T00:00:00Z"))).toEqual([
-      "2026-03-31",
-      "2026-03-15"
+    expect(recentMonthsOf(groups)).toEqual(["2026-03", "2026-02"]);
+    expect(recentMonthsOf(groups, 1)).toEqual(["2026-03"]);
+  });
+
+  it("「未标注日期」桶不占名额（它不是一个月）", () => {
+    const groups = groupByMonth([
+      txn({ id: 1, trade_date: null, confirm_date: null }),
+      txn({ id: 2, trade_date: "2026-01-15" })
     ]);
+    expect(recentMonthsOf(groups, 2)).toEqual(["2026-01"]);
   });
 
   it("空分组返回空数组", () => {
-    expect(recentDatesOf({}, new Date("2026-03-31T00:00:00Z"))).toEqual([]);
+    expect(recentMonthsOf([])).toEqual([]);
+  });
+});
+
+describe("monthLabel", () => {
+  it("去掉补零（03 月要读成 3 月，不能出现「2026 年 03 月」）", () => {
+    expect(monthLabel("2026-03")).toBe("2026 年 3 月");
+    expect(monthLabel("2026-10")).toBe("2026 年 10 月");
+  });
+
+  it("空月份读作未标注日期", () => {
+    expect(monthLabel("")).toBe("未标注日期");
+  });
+});
+
+describe("TXN_TYPE_OPTIONS", () => {
+  it("一级筛选是「全部 + 五种业务类型」，值是后端 txn_type 原值", () => {
+    expect(TXN_TYPE_OPTIONS.map(o => o.value)).toEqual([
+      "",
+      "buy",
+      "sell",
+      "dividend",
+      "deposit",
+      "withdraw"
+    ]);
   });
 });
 

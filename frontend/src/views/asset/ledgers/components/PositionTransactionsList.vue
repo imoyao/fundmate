@@ -68,9 +68,8 @@
 import { computed, onMounted, ref } from "vue";
 import { Loading } from "@element-plus/icons-vue";
 import { getPositionTransactions } from "@/api/positions";
-import TransactionTable, {
-  type TransactionRow
-} from "@/components/TransactionTable/index.vue";
+import TransactionTable from "@/components/TransactionTable/index.vue";
+import type { TransactionRow } from "@/components/TransactionTable/model";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
 
 /**

@@ -23,7 +23,51 @@ export interface TransactionRecord {
   account_name: string;
   notes: string | null;
   source: string | null;
+  /**
+   * 持仓状态（`held` / `cleared` / `account`），由后端按 `ownership_status` +
+   * 「持仓行是否还在」判定后下发。
+   *
+   * ⚠️ 不要退回「`position_id === null` 就是已清仓」：#2343 起清仓不删行，
+   * 已清仓的流水 `position_id` 仍然有值，那个判据会让「已清仓」胶囊几乎永不出现。
+   */
+  position_state?: "held" | "cleared" | "account" | null;
   created_at: string | null;
+}
+
+/** #2137 费用拆分（元）。后端未拆分时整块为 `null`（四列全 NULL），不存在「拆了一半」。 */
+export interface TransactionFeeBreakdown {
+  commission: number;
+  stamp_duty: number;
+  transfer_fee: number;
+  other_fee: number;
+}
+
+/** 展开详情里的持仓现状摘要（后端 `_position_brief`）。 */
+export interface TransactionPositionBrief {
+  id: number;
+  name: string;
+  symbol: string;
+  asset_type: string | null;
+  /** 当前份额（份，已从万分之一份换算） */
+  quantity: number;
+  /** 最近一次清仓时间（ISO）；未清仓过为 `null` */
+  cleared_at: string | null;
+}
+
+/**
+ * 单条流水详情（`GET /api/transactions/<id>/`）。
+ *
+ * **只在行被展开时请求**：这里的 `import_hash` / `plan_id` / `updated_at` / `position`
+ * 列表都没有，为整页 20 行各算一遍纯属「一次性全拿到」，而绝大多数行不会被展开。
+ */
+export interface TransactionDetail extends TransactionRecord {
+  fee_breakdown: TransactionFeeBreakdown | null;
+  import_hash: string | null;
+  updated_at: string | null;
+  /** 来源定投计划（#2138）；`null` = 非定投 */
+  plan_id: number | null;
+  /** 持仓现状；`position_id` 为空或持仓行已被删（历史数据）时为 `null` */
+  position: TransactionPositionBrief | null;
 }
 
 /** 交易流水查询参数（对齐后端 list_transactions 的 query args） */
@@ -58,6 +102,20 @@ const BASE_URL = "/api/transactions";
 /** 获取交易流水列表 */
 export function getTransactions(params?: TransactionListParams) {
   return http.request<TransactionListResponse>("get", BASE_URL, { params });
+}
+
+/**
+ * 单条流水详情（行展开详情按需取）。
+ *
+ * 为什么不并进列表：`import_hash` / `plan_id` / `updated_at` / `position`（当前份额、
+ * 清仓时间）只有展开某一行才需要。列表为每页 20 行各算一遍是纯粹的浪费，而其中
+ * 绝大多数行永远不会被展开。
+ */
+export function getTransactionDetail(id: number) {
+  return http.request<{ data: TransactionDetail; message: string }>(
+    "get",
+    `${BASE_URL}/${id}/`
+  );
 }
 
 /** 导出全部交易流水为 CSV（携带鉴权头，blob 下载） */

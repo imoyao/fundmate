@@ -1,5 +1,8 @@
 <script setup lang="ts">
-// 交易流水·时间线视图（按交易日折叠，当日收支汇总）。
+// 交易流水 · 流水线视图（**按月**分组，月内一行一笔）。行的渲染在 `TransactionTimelineRow`。
+//
+// 设计 §五：桌面上一日通常只有一两笔，按日分组就是一屏空折叠头，节奏感被切碎。
+// 月头 sticky + 月内合计（笔数 / 买入 / 卖出 / 净额），默认展开最近**两个有记录的**月。
 //
 // 滚动懒加载收在组件内部：容器随视图挂载/卸载，用模板 `@scroll` 就自动跟着生命周期走，
 // 不必像原来那样在父层手动 addEventListener + watch(viewMode) 解绑重绑。
@@ -7,17 +10,11 @@ import { computed, ref, watch } from "vue";
 import type { TransactionRecord } from "@/api/transactions";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { txnTypeLabel } from "@/constants";
+import TransactionTimelineRow from "./TransactionTimelineRow.vue";
 import {
-  dayBalanceOf,
-  groupByDate,
-  recentDatesOf,
-  signedAmount,
-  statusLabel,
-  statusTag,
-  timelineDotClass,
-  timelineIcon,
-  typeTag
+  groupByMonth,
+  recentMonthsOf,
+  type MonthGroup
 } from "./transactionListModel";
 
 const props = defineProps<{
@@ -29,20 +26,33 @@ const props = defineProps<{
 
 const emit = defineEmits<{ edit: [row: any]; "load-more": [] }>();
 
-const activeDates = ref<string[]>([]);
+const openMonths = ref<string[]>([]);
 const scrollEl = ref<HTMLElement | null>(null);
 
-const grouped = computed(() => groupByDate(props.transactions));
-const dayBalance = computed(() => dayBalanceOf(grouped.value));
+const groups = computed(() => groupByMonth(props.transactions));
 
-/** 默认展开最近 30 天（数据每次变化都重算，与原实现一致） */
+/** 默认展开最近两个月（有记录的月）；数据每次变化都重算，与列表刷新同步 */
 watch(
   () => props.transactions,
   () => {
-    activeDates.value = recentDatesOf(grouped.value);
+    openMonths.value = recentMonthsOf(groups.value, 2);
   },
   { immediate: true, flush: "post" }
 );
+
+function isOpen(month: string): boolean {
+  return openMonths.value.includes(month);
+}
+
+function toggle(month: string) {
+  openMonths.value = isOpen(month)
+    ? openMonths.value.filter(item => item !== month)
+    : [...openMonths.value, month];
+}
+
+function sectionId(group: MonthGroup): string {
+  return `txn-month-${group.month || "unknown"}`;
+}
 
 /** 触底 100px 内加载下一页 */
 function onScroll() {
@@ -55,208 +65,187 @@ function onScroll() {
 </script>
 
 <template>
-  <el-card shadow="never" class="overflow-hidden">
+  <div
+    ref="scrollEl"
+    v-loading="loading"
+    class="txn-timeline"
+    @scroll="onScroll"
+  >
+    <!-- 空状态 -->
     <div
-      ref="scrollEl"
-      v-loading="loading"
-      class="timeline-container"
-      @scroll="onScroll"
+      v-if="transactions.length === 0 && !loading"
+      class="txn-timeline__empty"
     >
-      <!-- 空状态 -->
-      <div
-        v-if="transactions.length === 0 && !loading"
-        class="text-center py-12 text-gray-400"
-      >
-        <IconifyIconOffline icon="ep:folder-opened" class="text-4xl mb-2" />
-        <p>暂无交易记录</p>
-      </div>
-
-      <!-- 按日期分组的时间线 -->
-      <el-collapse v-else v-model="activeDates" class="border-none">
-        <el-collapse-item
-          v-for="(group, date) in grouped"
-          :key="date"
-          :title="`${date}`"
-          class="border-b border-gray-100"
-        >
-          <!-- 当日汇总 -->
-          <div class="day-summary text-xs text-gray-500 mb-3 flex gap-3">
-            <span>笔数：{{ group.length }} 笔</span>
-            <span>收支：</span>
-            <MoneyDisplay :value="dayBalance[date] || 0" size="sm" />
-          </div>
-
-          <!-- 时间线 -->
-          <el-timeline class="ml-1">
-            <el-timeline-item v-for="txn in group" :key="txn.id" class="mb-3">
-              <!-- 自定义时间节点：Iconify 图标 -->
-              <template #dot>
-                <div
-                  class="custom-timeline-dot"
-                  :class="timelineDotClass(txn.type)"
-                >
-                  <IconifyIconOffline
-                    :icon="timelineIcon(txn.type)"
-                    width="12"
-                  />
-                </div>
-              </template>
-
-              <!-- 交易卡片 -->
-              <el-card class="transaction-card" shadow="hover">
-                <div class="card-header">
-                  <div class="left">
-                    <span
-                      class="font-medium"
-                      :class="{
-                        'opacity-50 grayscale': txn.position_id === null
-                      }"
-                    >
-                      {{ txn.position_name }}
-                    </span>
-                    <el-tag :type="typeTag(txn.type)" size="small" class="ml-2">
-                      {{ txnTypeLabel(txn.type) }}
-                    </el-tag>
-                    <el-tag
-                      :type="statusTag(txn.status)"
-                      size="small"
-                      effect="plain"
-                      class="ml-1"
-                    >
-                      {{ statusLabel(txn.status) }}
-                    </el-tag>
-                  </div>
-                  <div class="right flex items-center">
-                    <MoneyDisplay :value="signedAmount(txn)" size="sm" />
-                    <el-button
-                      size="small"
-                      text
-                      type="primary"
-                      class="ml-2"
-                      @click="emit('edit', txn)"
-                    >
-                      编辑
-                    </el-button>
-                  </div>
-                </div>
-
-                <div
-                  class="card-body text-xs text-gray-500 mt-2 flex flex-wrap gap-x-4 gap-y-1"
-                >
-                  <span>账户：{{ txn.account_name }}</span>
-                  <span
-                    >手续费：
-                    <MoneyDisplay
-                      :value="txn.fee"
-                      :show-sign="false"
-                      size="xs"
-                    />
-                  </span>
-                </div>
-
-                <div
-                  v-if="txn.notes"
-                  class="card-footer text-xs text-gray-400 mt-2"
-                >
-                  备注：{{ txn.notes }}
-                </div>
-              </el-card>
-            </el-timeline-item>
-          </el-timeline>
-        </el-collapse-item>
-      </el-collapse>
-
-      <!-- 加载更多提示 -->
-      <div v-if="hasMore" class="text-center py-4 text-gray-400 text-sm">
-        <span>下滑加载更多数据</span>
-      </div>
+      <IconifyIconOffline icon="ep:folder-opened" class="text-4xl mb-2" />
+      <p>没有符合条件的流水</p>
+      <p class="txn-timeline__empty-hint">
+        当前筛选下没有任何记录。放宽时间范围，或清空筛选重新看。
+      </p>
     </div>
-  </el-card>
+
+    <section v-for="group in groups" :key="group.month || 'unknown'">
+      <!-- 月头：sticky，点整行折叠。用原生 button 而不是 div＋@click——可聚焦、可回车、
+           读屏能播报 aria-expanded，这三点加一堆兜底属性才追得上按钮。 -->
+      <button
+        type="button"
+        class="txn-month__head"
+        :aria-expanded="isOpen(group.month)"
+        :aria-controls="sectionId(group)"
+        @click="toggle(group.month)"
+      >
+        <span class="txn-month__label">{{ group.label }}</span>
+        <span class="txn-month__summary">
+          <span>{{ group.summary.count }} 笔</span>
+          <span class="txn-month__metric">
+            买入
+            <MoneyDisplay
+              :value="group.summary.buy"
+              :show-sign="false"
+              :auto-color="false"
+              size="xs"
+            />
+          </span>
+          <span class="txn-month__metric">
+            卖出
+            <MoneyDisplay
+              :value="group.summary.sell"
+              :show-sign="false"
+              :auto-color="false"
+              size="xs"
+            />
+          </span>
+          <span class="txn-month__metric">
+            净额
+            <MoneyDisplay
+              :value="group.summary.net"
+              :auto-color="false"
+              size="xs"
+            />
+          </span>
+        </span>
+        <span class="txn-month__caret" aria-hidden="true" />
+      </button>
+
+      <ul
+        v-show="isOpen(group.month)"
+        :id="sectionId(group)"
+        class="txn-month__body"
+      >
+        <TransactionTimelineRow
+          v-for="txn in group.records"
+          :key="txn.id"
+          :txn="txn"
+          @edit="emit('edit', $event)"
+        />
+      </ul>
+    </section>
+
+    <!-- 加载更多提示 -->
+    <div v-if="hasMore" class="txn-timeline__more">下滑加载更多数据</div>
+  </div>
 </template>
 
 <style scoped>
-.timeline-container {
-  max-width: 800px;
+.txn-timeline {
   max-height: 75vh;
-  padding: 16px 0;
-  margin: 0 auto;
+  padding: 0 0 var(--space-2);
   overflow-y: auto;
 }
 
-/* 自定义时间线节点 */
-:deep(.el-timeline-item__dot) {
-  display: none;
+.txn-timeline__empty {
+  padding: var(--space-section) 0;
+  color: var(--text-tertiary-ink);
+  text-align: center;
 }
 
-.custom-timeline-dot {
+.txn-timeline__empty-hint {
+  margin-top: 4px;
+  font-size: var(--text-small);
+}
+
+.txn-timeline__more {
+  padding: var(--space-3) 0;
+  font-size: var(--text-small);
+  color: var(--text-tertiary-ink);
+  text-align: center;
+}
+
+.txn-month + .txn-month {
+  border-top: 1px solid var(--border-light);
+}
+
+/* 月头 sticky：滚动时当前月始终可见，回答「我现在看的是哪个月」 */
+.txn-month__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  color: var(--text-inverse);
-  border-radius: 50%;
-  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+  gap: var(--space-3);
+  align-items: baseline;
+  width: 100%;
+  padding: 10px var(--space-compact);
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: var(--bg-page);
+  border: none;
+  border-bottom: 1px solid var(--border-light);
 }
 
-.dot-buy {
-  background: #00b42a;
+.txn-month__head:hover {
+  background: var(--bg-soft);
 }
 
-.dot-sell {
-  background: #f53f3f;
+.txn-month__head:focus-visible {
+  outline: 2px solid var(--color-primary-ink);
+  outline-offset: -2px;
 }
 
-.dot-dividend {
-  background: #ff7d00;
+.txn-month__label {
+  font-size: var(--text-body);
+  font-weight: 600;
 }
 
-.dot-deposit {
-  background: #4080ff;
-}
-
-.dot-withdraw {
-  background: #86909c;
-}
-
-.dot-default {
-  background: #ccc;
-}
-
-/* 卡片样式 */
-.transaction-card {
-  border: 1px solid #f0f0f0;
-  transition: all 0.2s ease;
-}
-
-.transaction-card:hover {
-  border-color: #e5e6eb;
-  transform: translateY(-2px);
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.left {
+.txn-month__summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+  gap: 4px 12px;
+  font-size: var(--text-small);
+  color: var(--text-tertiary-ink);
 }
 
-/* 折叠面板 */
-:deep(.el-collapse-item__header) {
-  font-weight: 500;
-  color: #333;
-  background: #fafafa;
-  border-radius: 4px;
+.txn-month__metric {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
 }
 
-:deep(.el-collapse-item__content) {
-  padding: 12px 0 0 !important;
-  background: var(--bg-card);
+/* 折叠指示：纯 CSS 三角，不用图标字体（emoji 当图标是明令禁止的）。 */
+.txn-month__caret {
+  width: 0;
+  height: 0;
+  margin-left: auto;
+  border-top: 5px solid var(--text-tertiary-ink);
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  transition: transform 200ms ease-out;
+}
+
+.txn-month__head[aria-expanded="false"] .txn-month__caret {
+  transform: rotate(-90deg);
+}
+
+.txn-month__body {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+/* 减少动效偏好：压到 0.01ms 而不是删掉过渡——直接删会让状态切换在某些浏览器里跳变 */
+@media (prefers-reduced-motion: reduce) {
+  .txn-month__caret {
+    transition-duration: 0.01ms;
+  }
 }
 </style>
