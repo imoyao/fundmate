@@ -60,10 +60,7 @@ const dayText = computed(() => {
     }}</span>
     <span class="txn-row__asset">
       <span class="txn-row__name">{{ txn.position_name }}</span>
-      <span
-        v-if="cleared"
-        class="txn-row__badge"
-        :title="CLEARED_BADGE_TITLE"
+      <span v-if="cleared" class="txn-row__badge" :title="CLEARED_BADGE_TITLE"
         >已清仓</span
       >
       <span v-if="txn.notes" class="txn-row__notes">{{ txn.notes }}</span>
@@ -134,9 +131,9 @@ const dayText = computed(() => {
 .txn-row__date,
 .txn-row__notes {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-small);
   color: var(--text-tertiary-ink);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -161,7 +158,7 @@ const dayText = computed(() => {
   color: var(--text-tertiary-ink);
   white-space: nowrap;
   background: var(--bg-soft);
-  border-radius: var(--radius-small, 4px);
+  border-radius: var(--radius-xs);
 }
 
 .txn-row__account {
@@ -179,9 +176,9 @@ const dayText = computed(() => {
 /* 状态：与表格同一套声量语义（成功静默、只有异常态出声） */
 .txn-status {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-small);
   color: var(--text-tertiary-ink);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -196,7 +193,7 @@ const dayText = computed(() => {
 .txn-status--outline {
   padding: 0 5px;
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-small, 4px);
+  border-radius: var(--radius-xs);
 }
 
 /* 类型色：**-ink 档**（原值作文字 3.86:1 / 2.0:1，白底不达 AA）。

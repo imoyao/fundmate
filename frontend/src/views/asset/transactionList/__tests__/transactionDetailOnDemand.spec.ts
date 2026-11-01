@@ -80,7 +80,9 @@ describe("展开详情 · 按需请求", () => {
 
 describe("展开详情 · 收起不请求", () => {
   it("expand-change 在收起（第二个参数为空数组）时提前返回", () => {
-    const fn = tableScript.slice(tableScript.indexOf("function onExpandChange"));
+    const fn = tableScript.slice(
+      tableScript.indexOf("function onExpandChange")
+    );
     expect(fn).toContain("expanded.length === 0");
     expect(fn).toContain("return");
   });
@@ -96,7 +98,7 @@ describe("展开详情 · 默认关闭（账本 Tab / 持仓抽屉零影响）",
       table.indexOf("\n<template>"),
       table.indexOf("<style")
     );
-    const expandColumn = template.slice(template.indexOf('<el-table-column'));
+    const expandColumn = template.slice(template.indexOf("<el-table-column"));
     expect(expandColumn.slice(0, 200)).toContain(`v-if="showExpand"`);
     expect(expandColumn.slice(0, 200)).toContain(`type="expand"`);
   });

@@ -126,10 +126,19 @@ const detailStateOf = (
 /**
  * 只在「展开」时通知容器取数。`el-table` 的 `expand-change` 在**收起**时也会触发
  * （第二个参数变为空数组），无脑请求会让每次收起都白跑一次接口。
+ *
+ * 第二个参数为什么要接两种形态：`el-table` 把该事件的类型声明成
+ * `((row, expandedRows: Row[]) => void) & ((row, expanded: boolean) => void)`
+ * ——树的展开事件给 boolean，表格的给数组。只接数组会在类型检查里报
+ * 「`boolean` 不能赋给 `Row[]`」，所以这里按联合类型收下再判。
  */
-function onExpandChange(row: TransactionRow, expanded: TransactionRow[]) {
+function onExpandChange(
+  row: TransactionRow,
+  expanded: TransactionRow[] | boolean
+) {
   if (!props.showExpand) return;
-  if (!expanded || expanded.length === 0) return;
+  // 数组形态：空数组 = 这一行被收起；boolean 形态：false = 收起
+  if (Array.isArray(expanded) ? expanded.length === 0 : !expanded) return;
   emit("expand", row);
 }
 </script>
@@ -346,7 +355,7 @@ function onExpandChange(row: TransactionRow, expanded: TransactionRow[]) {
   padding: 0 5px;
   color: var(--text-tertiary-ink);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-small, 4px);
+  border-radius: var(--radius-xs);
 }
 
 /* 行内操作 hover 淡入（design.md「行内操作交互规范」：默认 opacity 0，

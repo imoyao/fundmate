@@ -185,7 +185,7 @@ const emit = defineEmits<{
   color: var(--text-tertiary-ink);
 }
 
-@media (width <= 768px) {
+@media (width <= 768px) /* breakpoint-allow: 含 768 本身（iPad 竖屏即 768 宽）；bp.below("md") 不含断点本身，会把 iPad 竖屏判进桌面档，三个下拉 + 日期区间在 768 上横排挤爆 */ {
   .txn-toolbar__filters {
     flex-direction: column;
     align-items: stretch;

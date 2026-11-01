@@ -71,7 +71,7 @@ const accountLevel = computed(() => isAccountLevel(props.row));
   color: var(--text-tertiary-ink);
   white-space: nowrap;
   background: var(--bg-soft);
-  border-radius: var(--radius-small, 4px);
+  border-radius: var(--radius-xs);
 }
 
 /* 资金流水：比标签更弱——它只是「这一行没有标的」，不是状态 */
