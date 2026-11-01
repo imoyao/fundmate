@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.core import supabase_admin
 from app.core.exceptions import ErrorCode, SBException
+from app.core.request_context import client_ip
 from app.domains.families.models import Family
 from app.domains.users.models import ROLE_LABELS, User
 
@@ -18,18 +19,6 @@ auth_bp = APIBlueprint('auth', __name__, url_prefix='/api/auth')
 
 #: `resolve` 的单来源限流（次 / 分钟 / 进程）。见 `app/core/ratelimit.py` 的能力边界说明。
 RESOLVE_RATE_LIMIT_PER_MINUTE = 20
-
-
-def _client_ip() -> str:
-    """取调用方 IP 作为限流键。
-
-    优先 `X-Forwarded-For` 第一跳：后端实际部署在反向代理（容器平台）后面时，
-    `remote_addr` 是**代理**的地址，全站共用一个桶会把正常用户一起卡死。
-    代价是伪造该头即可绕过限流——但绕过限流只是「枚举得更快」，不扩大数据暴露面，
-    比「所有人共享配额」可接受得多。若将来配了 `ProxyFix`，这里应改回 `remote_addr`。
-    """
-    forwarded = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
-    return forwarded or (request.remote_addr or 'unknown')
 
 
 class ResolveRequest(BaseModel):
@@ -52,7 +41,7 @@ def resolve_identifier():
     from app.core.validation import parse_body
     from app.services.login_identifier import resolve_login_identifier
 
-    ip = _client_ip()
+    ip = client_ip()
     if not ratelimit.check(f'resolve:{ip}', limit=RESOLVE_RATE_LIMIT_PER_MINUTE):
         logger.warning('resolve 限流触发：ip={}', ip)
         raise SBException(
