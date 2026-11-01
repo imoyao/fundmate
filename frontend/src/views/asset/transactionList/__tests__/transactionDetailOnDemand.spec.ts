@@ -79,12 +79,27 @@ describe("展开详情 · 按需请求", () => {
 });
 
 describe("展开详情 · 收起不请求", () => {
-  it("expand-change 在收起（第二个参数为空数组）时提前返回", () => {
-    const fn = tableScript.slice(
-      tableScript.indexOf("function onExpandChange")
+  it("收起分支在通知容器之前就返回（不白跑一次接口）", () => {
+    // 判据随实现一起搬了家：手风琴逻辑从 `TransactionTable/index.vue` 抽到了
+    // `components/TransactionTable/expandAccordion.ts`（那里才能被真跑起来测）。
+    //
+    // 旧判据是「`index.vue` 里有 `expanded.length === 0` 就 return」——它只认
+    // 「全部行都收起」这一种情形：若还有别的行开着，收起这一行走不到那个 early return，
+    // 照样会通知容器。新判据按**这一行是否还在展开列表里**判断，覆盖得更全。
+    //
+    // 断言因此从「有没有某个字面量」升级为「结构顺序」：收起分支的 return 必须
+    // 出现在 `options.onExpand(row)` **之前**——顺序反了照样会白跑接口，
+    // 而字面量在不在根本证明不了这件事。
+    const src = read(
+      "../../../../components/TransactionTable/expandAccordion.ts"
     );
-    expect(fn).toContain("expanded.length === 0");
-    expect(fn).toContain("return");
+    const guardIndex = src.indexOf("if (!plan.isExpanded) return;");
+    expect(guardIndex, "找不到收起分支的提前返回").toBeGreaterThan(-1);
+    // 从守卫往后找通知调用：守卫之前还有一个「树形态」分支的 onExpand，
+    // 那是另一条路径（布尔语义），不能拿来判「表格路径有没有提前返回」。
+    const notifyIndex = src.indexOf("options.onExpand(row)", guardIndex);
+    expect(notifyIndex, "找不到通知容器的调用").toBeGreaterThan(-1);
+    expect(guardIndex).toBeLessThan(notifyIndex);
   });
 });
 

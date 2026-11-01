@@ -29,7 +29,12 @@ import { useEnumLabels } from "@/composables/useEnumLabels";
 import { formatDate, formatDateTime } from "@/utils/date";
 import { formatQuantity } from "@/utils/format";
 import type { TransactionDetail } from "@/api/transactions";
-import { positionStateOf, type TransactionRow } from "./model";
+import MigrationNoteTag from "./MigrationNoteTag.vue";
+import {
+  parseMigrationNote,
+  positionStateOf,
+  type TransactionRow
+} from "./model";
 
 const props = withDefaults(
   defineProps<{
@@ -103,6 +108,9 @@ const shortHash = computed(() => {
   if (!hash) return "";
   return hash.length > 12 ? `${hash.slice(0, 12)}…` : hash;
 });
+
+/** 备注是否为「迁移占位」：是则渲染安静徽标 + 人话，否则原样显示 */
+const noteView = computed(() => parseMigrationNote(props.detail?.notes));
 </script>
 
 <template>
@@ -114,99 +122,116 @@ const shortHash = computed(() => {
       <el-button text size="small" @click="emit('retry', row)">重试</el-button>
     </div>
 
-    <template v-else-if="detail">
-      <dl class="txn-detail__grid">
-        <div class="txn-detail__cell">
-          <dt>确认日</dt>
-          <dd>{{ confirmDateText }}</dd>
-        </div>
-        <div class="txn-detail__cell">
-          <dt>来源</dt>
-          <dd>{{ sourceText }}</dd>
-        </div>
-        <div v-if="detail.plan_id" class="txn-detail__cell">
-          <dt>定投计划</dt>
-          <dd>#{{ detail.plan_id }}</dd>
-        </div>
-        <div class="txn-detail__cell">
-          <dt>持仓现状</dt>
-          <dd>{{ positionText }}</dd>
-        </div>
+    <div v-else-if="detail" class="txn-detail__body">
+      <!-- 交易信息：确认日 / 来源 / 定投计划 / 持仓现状 -->
+      <section class="txn-detail__group">
+        <h4 class="txn-detail__group-title">交易信息</h4>
+        <dl class="txn-detail__fields">
+          <div class="txn-detail__field">
+            <dt>确认日</dt>
+            <dd>{{ confirmDateText }}</dd>
+          </div>
+          <div class="txn-detail__field">
+            <dt>来源</dt>
+            <dd>{{ sourceText }}</dd>
+          </div>
+          <div v-if="detail.plan_id" class="txn-detail__field">
+            <dt>定投计划</dt>
+            <dd>#{{ detail.plan_id }}</dd>
+          </div>
+          <div class="txn-detail__field txn-detail__field--wide">
+            <dt>持仓现状</dt>
+            <dd>{{ positionText }}</dd>
+          </div>
+        </dl>
+      </section>
 
-        <div class="txn-detail__cell txn-detail__cell--wide">
-          <dt>费用明细</dt>
-          <dd>
-            <template v-if="feeParts">
-              <span
-                v-for="(part, index) in feeParts"
-                :key="part.label"
-                class="txn-detail__fee"
-              >
-                <span v-if="index > 0" class="txn-detail__sep">·</span>
-                {{ part.label }}
+      <!-- 费用明细 -->
+      <section class="txn-detail__group">
+        <h4 class="txn-detail__group-title">费用明细</h4>
+        <dl class="txn-detail__fields">
+          <div class="txn-detail__field txn-detail__field--wide">
+            <dd class="txn-detail__fee-list">
+              <template v-if="feeParts">
+                <span
+                  v-for="(part, index) in feeParts"
+                  :key="part.label"
+                  class="txn-detail__fee"
+                >
+                  <span v-if="index > 0" class="txn-detail__sep">·</span>
+                  {{ part.label }}
+                  <MoneyDisplay
+                    :value="part.value"
+                    :show-sign="false"
+                    :show-currency="false"
+                    :auto-color="false"
+                    size="xs"
+                  />
+                </span>
+              </template>
+              <span v-else>
+                未拆分（只有合计
                 <MoneyDisplay
-                  :value="part.value"
+                  :value="detail.fee"
                   :show-sign="false"
-                  :show-currency="false"
                   :auto-color="false"
                   size="xs"
                 />
+                ）
               </span>
-            </template>
-            <span v-else>
-              未拆分（只有合计
-              <MoneyDisplay
-                :value="detail.fee"
-                :show-sign="false"
-                :auto-color="false"
-                size="xs"
-              />
-              ）
-            </span>
-          </dd>
-        </div>
+            </dd>
+          </div>
+        </dl>
+      </section>
 
-        <div class="txn-detail__cell txn-detail__cell--wide">
-          <dt>备注全文</dt>
-          <dd class="txn-detail__notes">{{ detail.notes || "无备注" }}</dd>
+      <!-- 备注：迁移占位渲染成安静徽标 + 人话，不再把内部标记甩给用户 -->
+      <section class="txn-detail__group">
+        <h4 class="txn-detail__group-title">备注</h4>
+        <div class="txn-detail__notes-block">
+          <MigrationNoteTag v-if="noteView.isMigration" :note="noteView" />
+          <p v-else class="txn-detail__notes">{{ detail.notes || "无备注" }}</p>
         </div>
+      </section>
 
-        <div class="txn-detail__cell txn-detail__cell--wide">
-          <dt>记录</dt>
-          <dd class="txn-detail__meta">
-            <span v-if="detail.import_hash" :title="detail.import_hash">
-              由导入写入（哈希 {{ shortHash }}）
-            </span>
-            <span>创建于 {{ createdText }}</span>
-            <span
-              v-if="
-                detail.updated_at && detail.updated_at !== detail.created_at
-              "
-            >
-              · 最后修改 {{ formatDateTime(detail.updated_at) }}
-            </span>
-          </dd>
-        </div>
-      </dl>
+      <!-- 记录：导入哈希 / 创建 / 最后修改 -->
+      <section class="txn-detail__group">
+        <h4 class="txn-detail__group-title">记录</h4>
+        <dl class="txn-detail__fields">
+          <div class="txn-detail__field txn-detail__field--wide">
+            <dd class="txn-detail__meta">
+              <span v-if="detail.import_hash" :title="detail.import_hash">
+                由导入写入（哈希 {{ shortHash }}）
+              </span>
+              <span>创建于 {{ createdText }}</span>
+              <span
+                v-if="
+                  detail.updated_at && detail.updated_at !== detail.created_at
+                "
+              >
+                · 最后修改 {{ formatDateTime(detail.updated_at) }}
+              </span>
+            </dd>
+          </div>
+        </dl>
+      </section>
 
       <div v-if="showEdit" class="txn-detail__actions">
         <el-button text size="small" @click="emit('edit', row)">
           编辑这笔流水
         </el-button>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
 /* 展开区底色比页面浅一档：它属于行内部，不该看起来像又一张卡片 */
 .txn-detail {
-  padding: var(--space-compact) var(--space-standard);
+  padding: var(--space-2) var(--space-standard) var(--space-standard);
   background: var(--bg-soft);
 }
 
-.txn-detail__hint,
-.txn-detail__meta {
+.txn-detail__hint {
   margin: 0;
   font-size: var(--text-small);
   color: var(--text-tertiary-ink);
@@ -220,45 +245,76 @@ const shortHash = computed(() => {
   color: var(--color-danger-ink);
 }
 
-/* 两列栅格：确认日 / 来源 / 定投 / 持仓现状 走短格，费用 / 备注 / 溯源 通栏 */
-.txn-detail__grid {
+.txn-detail__body {
+  max-width: 760px;
+}
+
+/* 把堆在一起的字段拆成带小标题的分组：标签在上、值在下的「指标块」，
+   比「标签—值同行空格分隔」更不挤，也更容易扫读（#2749 关联反馈：详情页太粗糙）。 */
+.txn-detail__group {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.txn-detail__group:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.txn-detail__group-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--text-tertiary-ink);
+}
+
+.txn-detail__fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2) var(--space-standard);
   margin: 0;
 }
 
-.txn-detail__cell {
+.txn-detail__field {
   display: flex;
-  gap: var(--space-2);
-  align-items: baseline;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
-  font-size: var(--text-small);
 }
 
-.txn-detail__cell--wide {
+.txn-detail__field--wide {
   grid-column: 1 / -1;
 }
 
-.txn-detail__cell dt {
-  flex: 0 0 auto;
+.txn-detail__field dt {
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
-.txn-detail__cell dd {
-  min-width: 0;
+.txn-detail__field dd {
   margin: 0;
+  font-size: var(--text-small);
   color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
-/* 备注全文：保留用户自己敲的换行，超长可滚（不截断——展开的意义就是看全文） */
+/* 备注：保留用户自己敲的换行，超长可滚（不截断——展开的意义就是看全文） */
+.txn-detail__notes-block {
+  min-width: 0;
+}
+
 .txn-detail__notes {
-  display: block;
-  max-height: 160px;
-  overflow-y: auto;
+  margin: 0;
   line-height: 1.7;
+  color: var(--text-primary);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.txn-detail__fee-list {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--text-primary);
 }
 
 .txn-detail__fee {
@@ -274,11 +330,16 @@ const shortHash = computed(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 8px;
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--text-tertiary-ink);
 }
 
 .txn-detail__actions {
   display: flex;
   justify-content: flex-end;
+  padding-top: var(--space-2);
   margin-top: var(--space-2);
+  border-top: 1px solid var(--border-light);
 }
 </style>

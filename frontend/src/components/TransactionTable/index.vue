@@ -38,7 +38,7 @@ confirm_date，同一笔交易两端显示可以不同天）； * - 类型着色
      vue-tsc 生成的 d.ts 会丢掉这个导出，消费方全部报「has no exported member」。
      类型从真源拿，少一层转发就少一处会坏的地方。 -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { txnTypeLabel } from "@/constants";
 import { formatQuantity } from "@/utils/format";
@@ -47,6 +47,8 @@ import { txnStatusLabel } from "@/utils/transactionStatus";
 import TransactionAccountCell from "./TransactionAccountCell.vue";
 import TransactionAssetCell from "./TransactionAssetCell.vue";
 import TransactionDetailPanel from "./TransactionDetailPanel.vue";
+import TransactionNotesCell from "./TransactionNotesCell.vue";
+import { createExpandAccordion, type ExpandableTable } from "./expandAccordion";
 import {
   compareTradeDate,
   formatTradeDate,
@@ -123,35 +125,32 @@ const detailStateOf = (
   row: TransactionRow
 ): TransactionDetailState | undefined => props.detailOf?.(row.id);
 
+/** `el-table` 实例：手风琴收起其它行时要用它的 `toggleRowExpansion` */
+const tableRef = ref<ExpandableTable | null>(null);
+
 /**
- * 只在「展开」时通知容器取数。`el-table` 的 `expand-change` 在**收起**时也会触发
- * （第二个参数变为空数组），无脑请求会让每次收起都白跑一次接口。
+ * 行展开走**手风琴**：同时只留一个详情面板展开，打开新的旧的自动关闭
+ * （否则两三个面板同时摊开，屏幕被占满、还互相抢「哪行被展开」的注意力）。
  *
- * 第二个参数为什么要接两种形态：`el-table` 把该事件的类型声明成
- * `((row, expandedRows: Row[]) => void) & ((row, expanded: boolean) => void)`
- * ——树的展开事件给 boolean，表格的给数组。只接数组会在类型检查里报
- * 「`boolean` 不能赋给 `Row[]`」，所以这里按联合类型收下再判。
+ * 判定与「element-plus 同步重入」的解法在 `./expandAccordion` 的文件头注释里，
+ * 那里写清了为什么**不能**在回调里直接 `toggleRowExpansion` 收旧行。
  */
-function onExpandChange(
-  row: TransactionRow,
-  expanded: TransactionRow[] | boolean
-) {
-  if (!props.showExpand) return;
-  // 数组形态：空数组 = 这一行被收起；boolean 形态：false = 收起
-  if (Array.isArray(expanded) ? expanded.length === 0 : !expanded) return;
-  emit("expand", row);
-}
+const { handleExpandChange } = createExpandAccordion({
+  getTable: () => tableRef.value,
+  onExpand: (row: TransactionRow) => emit("expand", row)
+});
 </script>
 
 <template>
   <el-table
     :id="tableId"
+    ref="tableRef"
     :data="rows"
     :max-height="maxHeight"
     :default-sort="
       sortable ? { prop: 'trade_date', order: 'descending' } : undefined
     "
-    @expand-change="onExpandChange"
+    @expand-change="handleExpandChange"
   >
     <!-- 展开详情列（设计 §十二 第 4 条）：确认日 / 来源 / 备注全文 / 费用明细 /
          持仓现状 / 编辑。默认不渲染——账本 Tab 与持仓抽屉不传 showExpand。 -->
@@ -263,7 +262,8 @@ function onExpandChange(
         <TransactionAccountCell :row="row as TransactionRow" />
       </template>
     </el-table-column>
-    <!-- 备注列（#2712）：资产流水页原本自建表格里才有，收进共享组件后各表列序一致 -->
+    <!-- 备注列（#2712）：资产流水页原本自建表格里才有，收进共享组件后各表列序一致。
+         迁移占位备注渲染成安静徽标 + 人话，不再把「（L3，2026-08-14）」这种内部标记甩给用户。 -->
     <el-table-column
       v-if="showNotes"
       label="备注"
@@ -271,9 +271,7 @@ function onExpandChange(
       show-overflow-tooltip
     >
       <template #default="{ row }">
-        <span class="txn-table__notes">{{
-          (row as TransactionRow).notes || "-"
-        }}</span>
+        <TransactionNotesCell :notes="(row as TransactionRow).notes" />
       </template>
     </el-table-column>
     <!-- 扩展列 slot（#2171 P2）：调用方注入**完整的 el-table-column**（如详情页的
@@ -328,9 +326,8 @@ function onExpandChange(
   color: var(--color-info);
 }
 
-/* 无此语义（价格/数量为 0）与大段空白的备注：弱色，不与真实数字抢注意力 */
-.txn-table__empty,
-.txn-table__notes {
+/* 无此语义（价格/数量为 0）：弱色，不与真实数字抢注意力 */
+.txn-table__empty {
   color: var(--text-tertiary-ink);
 }
 

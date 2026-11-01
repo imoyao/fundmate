@@ -15,8 +15,10 @@
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import TransactionAccountCell from "@/components/TransactionTable/TransactionAccountCell.vue";
+import MigrationNoteTag from "@/components/TransactionTable/MigrationNoteTag.vue";
 import {
   CLEARED_BADGE_TITLE,
+  parseMigrationNote,
   positionStateOf,
   statusTone,
   typeClass,
@@ -39,6 +41,9 @@ const row = computed<TransactionRow>(() => ({
 }));
 
 const cleared = computed(() => positionStateOf(row.value) === "cleared");
+
+/** 备注是否为「系统迁移占位」：是则渲染安静徽标 + 人话，否则原样显示 */
+const noteView = computed(() => parseMigrationNote(props.txn.notes));
 
 /** 月内只显示「月-日」：年份已在月头，行内再印一遍是重复信息 */
 const dayText = computed(() => {
@@ -63,7 +68,10 @@ const dayText = computed(() => {
       <span v-if="cleared" class="txn-row__badge" :title="CLEARED_BADGE_TITLE"
         >已清仓</span
       >
-      <span v-if="txn.notes" class="txn-row__notes">{{ txn.notes }}</span>
+      <span v-if="txn.notes" class="txn-row__notes">
+        <MigrationNoteTag v-if="noteView.isMigration" :note="noteView" />
+        <template v-else>{{ txn.notes }}</template>
+      </span>
     </span>
     <span class="txn-row__account">
       <TransactionAccountCell :row="row" />
@@ -82,16 +90,15 @@ const dayText = computed(() => {
 </template>
 
 <style scoped>
-/* 7 列固定栅格：圆点 │ 日期 │ 类型 │ 资产 │ 账户 │ 金额 │ 状态
-   同一账户的流水上下对齐——扫一眼就是「这个账户最近在干什么」。
+/* 行内顺序：圆点 │ 日期 │ 类型 │ 资产 │ 账户 │ 金额 │ 状态。
+   用 flex + 金额 `margin-left:auto` 右对齐：账户紧贴资产列左侧（不再被贪吃的 1fr 资产列
+   挤到右侧），金额 / 状态恒右对齐、跨行对齐便于扫读。
    字号按设计 §二 字阶：行内主信息 14/500、元信息 13/400（不引入第四档）。
    行高用 padding 撑出呼吸感，不靠压缩行内信息。 */
 .txn-row {
   position: relative;
-  display: grid;
-  grid-template-columns:
-    16px 52px 56px minmax(0, 1fr) minmax(0, 100px)
-    108px 56px;
+  display: flex;
+  flex-wrap: nowrap;
   gap: var(--space-2);
   align-items: center;
   padding: 11px var(--space-compact);
@@ -104,6 +111,7 @@ const dayText = computed(() => {
 
 .txn-row__dot {
   display: inline-flex;
+  flex: 0 0 8px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -130,8 +138,9 @@ const dayText = computed(() => {
   background: var(--text-tertiary-ink);
 }
 
-.txn-row__date,
-.txn-row__notes {
+.txn-row__date {
+  flex: 0 0 auto;
+  width: 52px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: var(--text-label);
@@ -140,26 +149,43 @@ const dayText = computed(() => {
 }
 
 .txn-row__type {
+  flex: 0 0 auto;
+  width: 56px;
   font-weight: 500;
 }
 
 .txn-row__asset {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
   gap: 2px 6px;
   align-items: baseline;
   min-width: 0;
+  max-width: 46%;
 }
 
 .txn-row__name {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
   white-space: nowrap;
 }
 
+.txn-row__notes {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  white-space: nowrap;
+}
+
 /* 已清仓：安静的胶囊（软底 + 次要字色），不是警告色 */
 .txn-row__badge {
+  flex: 0 0 auto;
   padding: 1px 6px;
   font-size: var(--text-small);
   color: var(--text-tertiary-ink);
@@ -169,12 +195,19 @@ const dayText = computed(() => {
 }
 
 .txn-row__account {
+  flex: 0 0 auto;
+  max-width: 180px;
   overflow: hidden;
   font-size: var(--text-small);
   white-space: nowrap;
 }
 
+/* 金额右对齐、且用 margin-left:auto 把账户/金额/状态整组推到最右——
+   账户因此紧贴资产列左侧，中间的空白被收掉（不再被 1fr 资产列挤到 72% 处）。 */
 .txn-row__amount {
+  flex: 0 0 auto;
+  width: 108px;
+  margin-left: auto;
   overflow: hidden;
   text-align: right;
   white-space: nowrap;
@@ -182,10 +215,13 @@ const dayText = computed(() => {
 
 /* 状态：与表格同一套声量语义（成功静默、只有异常态出声） */
 .txn-status {
+  flex: 0 0 auto;
+  width: 56px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: var(--text-small);
   color: var(--text-tertiary-ink);
+  text-align: right;
   white-space: nowrap;
 }
 

@@ -87,13 +87,13 @@ const items = computed<SummaryItem[]>(() => {
     :aria-busy="loading ? 'true' : undefined"
     aria-label="交易汇总"
   >
-    <span class="txn-summary__range">{{ label }}</span>
-    <ul class="txn-summary__list">
+    <p class="txn-summary__range">{{ label }}</p>
+    <ul class="txn-summary__cards">
       <li
         v-for="item in items"
         :key="item.key"
-        class="txn-summary__item"
-        :class="{ 'txn-summary__item--emphasized': item.emphasized }"
+        class="txn-summary__card"
+        :class="{ 'txn-summary__card--emphasized': item.emphasized }"
         :title="item.title"
       >
         <span class="txn-summary__key">{{ item.key }}</span>
@@ -107,16 +107,11 @@ const items = computed<SummaryItem[]>(() => {
 </template>
 
 <style scoped>
-/* 一行横带：压到 13px 是为了让「列表」保持唯一视觉焦点（设计 §二 原则 1）。
-   横向内边距归页面 shell 管，这里只管纵向节奏。 */
+/* 卡片式汇总：数字从「一行 13px 小字」升级为「每张卡一个 hero 数字」，
+   让「这段时间发生了什么」一眼可读（设计 §二 第二带）。
+   仍不求和——数字全部来自后端 `GET /api/transactions/summary/`。 */
 .txn-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
-  align-items: baseline;
   padding: var(--space-3) 0;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
   transition: opacity 0.15s ease;
 }
 
@@ -125,51 +120,66 @@ const items = computed<SummaryItem[]>(() => {
 }
 
 .txn-summary__range {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-  white-space: nowrap;
 }
 
-.txn-summary__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2);
-  align-items: baseline;
+/* 自适应卡片网格：宽屏一排 5 张，窄屏自动换行。gap 用 space-2 保持紧凑。 */
+.txn-summary__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: var(--space-2);
   padding: 0;
   margin: 0;
   list-style: none;
 }
 
-.txn-summary__item {
-  display: inline-flex;
-  gap: var(--space-1);
-  align-items: baseline;
-}
-
-/* 分隔点用伪元素：它是排版装饰，不该进无障碍名（读屏会把「·」读成「点」） */
-.txn-summary__item + .txn-summary__item::before {
-  margin-right: var(--space-2);
-  color: var(--text-disabled);
-  content: "·";
+.txn-summary__card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
 }
 
 .txn-summary__key {
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
+/* hero 数字：等宽 + tabular-nums 保证右对齐对齐，18px（--text-num-strong「指标网格值」
+   档）比正文跳一档。字阶一律走令牌——手写 px 即第 N 种自造档位（#2323）。 */
 .txn-summary__value {
   font-family: var(--font-mono);
-  font-size: var(--text-mono-small);
+  font-size: var(--text-num-strong);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
   color: var(--text-primary);
 }
 
 .txn-summary__count {
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
 
-/* 净投入是这条横带里唯一的结论数字：给它一档重量，其余保持同级 */
-.txn-summary__item--emphasized .txn-summary__value {
-  font-weight: 500;
+/* 净投入是唯一的结论数字：用主色左侧 accent + 主色字，把它从一排里拎出来。
+   不染红绿——金额只回答「进/出」，涨跌色留给方向列（与流水页口径一致）。 */
+.txn-summary__card--emphasized {
+  background: var(--color-primary-10);
+  border-color: var(--color-primary-ink);
+}
+
+.txn-summary__card--emphasized .txn-summary__key {
+  color: var(--color-primary-ink);
+}
+
+.txn-summary__card--emphasized .txn-summary__value {
+  font-weight: 700;
+  color: var(--color-primary-ink);
 }
 </style>
