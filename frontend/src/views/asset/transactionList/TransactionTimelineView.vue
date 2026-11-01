@@ -13,7 +13,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import TransactionTimelineRow from "./TransactionTimelineRow.vue";
 import {
   groupByMonth,
-  recentMonthsOf,
+  resolveOpenMonths,
   type MonthGroup
 } from "./transactionListModel";
 
@@ -28,14 +28,31 @@ const emit = defineEmits<{ edit: [row: any]; "load-more": [] }>();
 
 const openMonths = ref<string[]>([]);
 const scrollEl = ref<HTMLElement | null>(null);
+/** 上一次首条 id：用于在「重置」（首条变了 / 长度变短）时回到默认展开，而非「加载更多」（追加）。 */
+const prevFirstId = ref<number | null>(null);
 
 const groups = computed(() => groupByMonth(props.transactions));
 
-/** 默认展开最近两个月（有记录的月）；数据每次变化都重算，与列表刷新同步 */
+/**
+ * 展开态：首次进入或**重置**（换筛选）回到「最近两月」；**加载更多**（追加同月数据）
+ * 保留用户手动展开 / 折叠的状态——否则滑到底触发加载，刚才展开的那个月会被重新折叠，
+ * 看起来就像「月份没了 / 数据没更新」（v1.3 修的感知 bug）。
+ */
 watch(
   () => props.transactions,
-  () => {
-    openMonths.value = recentMonthsOf(groups.value, 2);
+  (next, prev) => {
+    const firstId = next[0]?.id ?? null;
+    const isReset =
+      !prev ||
+      prev.length === 0 ||
+      next.length < prev.length ||
+      firstId !== prevFirstId.value;
+    openMonths.value = resolveOpenMonths(
+      openMonths.value,
+      groups.value,
+      isReset
+    );
+    prevFirstId.value = firstId;
   },
   { immediate: true, flush: "post" }
 );
@@ -140,15 +157,31 @@ function onScroll() {
       </ul>
     </section>
 
-    <!-- 加载更多提示 -->
-    <div v-if="hasMore" class="txn-timeline__more">下滑加载更多数据</div>
+    <!-- 加载更多提示：loadingMore 时给出明确的旋转 + 文案，给「无限加载」的视觉反馈；
+         否则只放一行静态提示，用户触底后看不到任何动静，会以为卡了 / 数据没更新。 -->
+    <div
+      v-if="hasMore"
+      class="txn-timeline__more"
+      :class="{ 'txn-timeline__more--loading': loadingMore }"
+      aria-live="polite"
+    >
+      <span
+        v-if="loadingMore"
+        class="txn-timeline__spinner"
+        aria-hidden="true"
+      />
+      <span>{{ loadingMore ? "加载中…" : "下滑加载更多数据" }}</span>
+    </div>
+    <div v-else-if="transactions.length > 0" class="txn-timeline__end">
+      已经到底了
+    </div>
   </div>
 </template>
 
 <style scoped>
 .txn-timeline {
   max-height: 75vh;
-  padding: 0 0 var(--space-2);
+  padding: var(--space-1) 0 var(--space-3);
   overflow-y: auto;
 }
 
@@ -160,17 +193,46 @@ function onScroll() {
 
 .txn-timeline__empty-hint {
   margin-top: 4px;
-  font-size: var(--text-small);
+  font-size: var(--text-label);
 }
 
 .txn-timeline__more {
-  padding: var(--space-3) 0;
-  font-size: var(--text-small);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4) 0;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }
 
+/* 旋转环：纯 CSS，不用图标字体（emoji / 图标字体当 loading 是明令禁止的）。
+   给「无限加载」明确的视觉反馈——否则触底后没动静会像卡死。 */
+.txn-timeline__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--color-primary-ink);
+  border-radius: 50%;
+  animation: txn-spin 0.7s linear infinite;
+}
+
+.txn-timeline__end {
+  padding: var(--space-4) 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  text-align: center;
+}
+
+@keyframes txn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .txn-month + .txn-month {
+  margin-top: var(--space-1);
   border-top: 1px solid var(--border-light);
 }
 
@@ -183,7 +245,7 @@ function onScroll() {
   gap: var(--space-3);
   align-items: baseline;
   width: 100%;
-  padding: 10px var(--space-compact);
+  padding: 12px var(--space-compact);
   font: inherit;
   color: var(--text-primary);
   text-align: left;
@@ -203,15 +265,16 @@ function onScroll() {
 }
 
 .txn-month__label {
-  font-size: var(--text-body);
+  flex: none;
+  font-size: var(--text-small);
   font-weight: 600;
 }
 
 .txn-month__summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  font-size: var(--text-small);
+  gap: 4px 14px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -237,7 +300,7 @@ function onScroll() {
 }
 
 .txn-month__body {
-  padding: 0;
+  padding: 0 0 var(--space-1);
   margin: 0;
   list-style: none;
 }
@@ -246,6 +309,10 @@ function onScroll() {
 @media (prefers-reduced-motion: reduce) {
   .txn-month__caret {
     transition-duration: 0.01ms;
+  }
+
+  .txn-timeline__spinner {
+    animation-duration: 0.01ms;
   }
 }
 </style>

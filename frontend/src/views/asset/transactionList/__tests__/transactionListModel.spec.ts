@@ -13,6 +13,7 @@ import {
   monthLabel,
   monthSummaryOf,
   recentMonthsOf,
+  resolveOpenMonths,
   signedAmount,
   statusLabel,
   statusTag,
@@ -245,6 +246,43 @@ describe("monthSummaryOf", () => {
 
   it("空数组产出零值（月头不显示 NaN）", () => {
     expect(monthSummaryOf([])).toEqual({ count: 0, buy: 0, sell: 0, net: 0 });
+  });
+});
+
+describe("resolveOpenMonths", () => {
+  const grp = (m: string) => ({
+    month: m,
+    label: m,
+    records: [],
+    summary: { count: 0, buy: 0, sell: 0, net: 0 }
+  });
+
+  it("首次进入（prevOpen 为空）→ 默认展开最近两月", () => {
+    const groups = [grp("2026-10"), grp("2026-09"), grp("2026-08")];
+    expect(resolveOpenMonths([], groups, true)).toEqual(["2026-10", "2026-09"]);
+  });
+
+  it("重置（换筛选）→ 回到默认，丢掉手动展开", () => {
+    // 用户手动展开了 2026-08，但重置后应回到最近两月
+    const groups = [grp("2026-10"), grp("2026-09")];
+    expect(resolveOpenMonths(["2026-08"], groups, true)).toEqual([
+      "2026-10",
+      "2026-09"
+    ]);
+  });
+
+  it("加载更多（追加）→ 保留用户手动展开 / 折叠，不碰它", () => {
+    // 这是 v1.3 修的感知 bug：原来这里会无脑重算，把手动展开的旧月折叠
+    const groups = [grp("2026-10"), grp("2026-09"), grp("2026-08")];
+    expect(resolveOpenMonths(["2026-10", "2026-08"], groups, false)).toEqual([
+      "2026-10",
+      "2026-08"
+    ]);
+  });
+
+  it("加载更多时，原本折叠的月保持折叠（不会因追加被强制展开）", () => {
+    const groups = [grp("2026-10"), grp("2026-09"), grp("2026-08")];
+    expect(resolveOpenMonths(["2026-10"], groups, false)).toEqual(["2026-10"]);
   });
 });
 

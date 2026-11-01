@@ -83,17 +83,19 @@ const dayText = computed(() => {
 
 <style scoped>
 /* 7 列固定栅格：圆点 │ 日期 │ 类型 │ 资产 │ 账户 │ 金额 │ 状态
-   同一账户的流水上下对齐——扫一眼就是「这个账户最近在干什么」 */
+   同一账户的流水上下对齐——扫一眼就是「这个账户最近在干什么」。
+   字号按设计 §二 字阶：行内主信息 14/500、元信息 13/400（不引入第四档）。
+   行高用 padding 撑出呼吸感，不靠压缩行内信息。 */
 .txn-row {
   position: relative;
   display: grid;
   grid-template-columns:
-    16px 48px 56px minmax(0, 1fr) minmax(0, 96px)
-    104px 56px;
+    16px 52px 56px minmax(0, 1fr) minmax(0, 100px)
+    108px 56px;
   gap: var(--space-2);
   align-items: center;
-  padding: 8px var(--space-compact);
-  font-size: var(--text-body);
+  padding: 11px var(--space-compact);
+  font-size: var(--text-small);
 }
 
 .txn-row:hover {
@@ -132,9 +134,13 @@ const dayText = computed(() => {
 .txn-row__notes {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: var(--text-small);
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
+}
+
+.txn-row__type {
+  font-weight: 500;
 }
 
 .txn-row__asset {
@@ -148,6 +154,7 @@ const dayText = computed(() => {
 .txn-row__name {
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 500;
   white-space: nowrap;
 }
 
