@@ -514,6 +514,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'users': DOMAIN_USER,
     'family_members': DOMAIN_USER,  # 家庭成员档案（#1173，含 family_id；与 users 登录账号解耦）
     'user_preferences': DOMAIN_USER,  # 用户私有偏好键值（#1337，按 user_id，非 family）
+    'auth_audit': DOMAIN_USER,  # 身份类事件审计台账（D76 / #2780；Supabase 侧 auth.users 触发器同库写入）
     'ledgers': DOMAIN_USER,
     'portfolios': DOMAIN_USER,
     'positions': DOMAIN_USER,
