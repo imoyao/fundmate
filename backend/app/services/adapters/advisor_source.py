@@ -66,6 +66,20 @@ CANONICAL_OVERVIEW_COLUMNS: tuple[str, ...] = (
     'return_1y',
     'return_ytd',
     'return_since_incep',
+    # ── 投顾详情页 P0（2026-10-29）：2/3 年区间 + 业绩基准同区间收益 ──
+    # 基准收益与 `return_*` **配对命名**（`return_1m` ↔ `benchmark_return_1m`）而不是合成一个
+    # `excess_return` 列：超额是纯派生值（读取侧现算），基准则是**上游事实**、必须原样存下来
+    # ——否则「组合 25.39% / 基准 6.12%」这类判断依据就再也无法复核。
+    'return_2y',
+    'return_3y',
+    'benchmark_return_1m',
+    'benchmark_return_1q',
+    'benchmark_return_6m',
+    'benchmark_return_ytd',
+    'benchmark_return_1y',
+    'benchmark_return_2y',
+    'benchmark_return_3y',
+    'benchmark_return_since_incep',
 )
 
 #: canonical 概览里需要按日期解析的键（字符串 → date 由落库层统一处理）

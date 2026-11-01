@@ -20,6 +20,7 @@ from app.core.money import Money
 from app.domains.funds.models import (
     AdvisorAdjustHistory,
     AdvisorHolding,
+    AdvisorIndustryAlloc,
     AdvisorPortfolio,
     DailyWorth,
     FeeRatio,
@@ -788,39 +789,36 @@ class FundService:
             logger.exception(f'同步基金 {fund_code} 费率失败')
             return False
 
+    #: 持仓来源 → 「这份数据怎么来的」。`source` 保留原值（`tiantian` / `qieman` /
+    #: `qieman_manual`），`kind` 是给前端做展示区分用的粗粒度标签：
+    #: 官方接口直接给的 vs. 我们按快照抓下来的 vs. 人工导入的。
+    #: ⚠️ 设计稿 §6.1 写的是 `source: 'official' | 'derived'`，实做改为「原值 + kind」两个字段——
+    #: 持仓快照没有「derived」这种东西（调仓记录才是从两个快照推导的），硬套会让
+    #: 「且慢快照」与「且慢自动同步」都被压成同一个 derived，反而丢掉信息。
+    ADVISOR_SOURCE_KIND = {
+        'tiantian': 'official',
+        'qieman': 'captured',
+        'qieman_manual': 'manual',
+    }
+
     @staticmethod
-    def build_advisor_holdings(db, code: str) -> dict:
-        """投顾组合当前持仓（只读）组装（#1642 B 块，从 views 下沉）。
+    def _advisor_source_kind(sources: List[str]) -> tuple:
+        """一组持仓行的 source 集合 → ``(source, kind)``。同一快照本应同源，多源时标 mixed。"""
+        uniq = sorted({s for s in sources if s})
+        if not uniq:
+            return None, None
+        if len(uniq) > 1:
+            return 'mixed', 'mixed'
+        src = uniq[0]
+        return src, FundService.ADVISOR_SOURCE_KIND.get(src, 'other')
 
-        与下沉前逐字段一致：返回最新快照日的成分基金与占比，每只带 ``in_local_db``
-        （是否已收录进本地 funds 表）。组合不存在 → 抛 ``ValueError``，由视图转 404/1002；
-        无快照日 → 返回 as_of_date=None 的空持仓。
-        """
-        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
-        if portfolio is None:
-            raise ValueError('投顾组合不存在')
-
-        as_of = db.query(func.max(AdvisorHolding.as_of_date)).filter_by(portfolio_id=portfolio.id).scalar()
-        if as_of is None:
-            return {
-                'code': portfolio.code,
-                'name': portfolio.name,
-                'platform': portfolio.platform,
-                'as_of_date': None,
-                'holdings': [],
-            }
-
-        rows = (
-            db.query(AdvisorHolding)
-            .filter_by(portfolio_id=portfolio.id, as_of_date=as_of)
-            .order_by(AdvisorHolding.after_ratio.desc())
-            .all()
-        )
+    @staticmethod
+    def _advisor_holding_items(db, rows: List[AdvisorHolding]) -> List[dict]:
+        """持仓行 → 接口项（带 ``in_local_db`` 两步法标注）。"""
         codes = [r.fund_code for r in rows]
         # 两步法关联（模型注释：组合成分不建硬外键，避免暂缺基金阻塞写入）
         known = {c for (c,) in db.query(Fund.fund_code).filter(Fund.fund_code.in_(codes)).all() if c}
-
-        holdings = [
+        return [
             {
                 'fund_code': r.fund_code,
                 'fund_name': r.fund_name,
@@ -831,12 +829,153 @@ class FundService:
             }
             for r in rows
         ]
+
+    @staticmethod
+    def build_advisor_holdings(db, code: str, as_of: Optional[date] = None) -> dict:
+        """投顾组合持仓（只读）组装（#1642 B 块，从 views 下沉；投顾详情页 P0 加 ``as_of``）。
+
+        默认返回**最新快照日**的成分基金与占比，每只带 ``in_local_db``（是否已收录进
+        本地 funds 表）。``as_of`` 指定时取该快照日（历史持仓区块用）。
+
+        组合不存在 → 抛 ``ValueError``，由视图转 404/1002；无快照日 → ``as_of_date=None``
+        + 空持仓。``as_of`` 指向一个**没有快照的日期**时同样返回空持仓，但 ``as_of_date``
+        回显**请求的日期**——否则调用方分不清「那天没数据」与「这个组合没数据」。
+        """
+        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
+        if portfolio is None:
+            raise ValueError('投顾组合不存在')
+
+        if as_of is not None:
+            wanted = as_of
+        else:
+            wanted = db.query(func.max(AdvisorHolding.as_of_date)).filter_by(portfolio_id=portfolio.id).scalar()
+        if wanted is None:
+            return {
+                'code': portfolio.code,
+                'name': portfolio.name,
+                'platform': portfolio.platform,
+                'as_of_date': None,
+                'holdings': [],
+            }
+
+        rows = (
+            db.query(AdvisorHolding)
+            .filter_by(portfolio_id=portfolio.id, as_of_date=wanted)
+            .order_by(AdvisorHolding.after_ratio.desc())
+            .all()
+        )
+        return {
+            'code': portfolio.code,
+            'name': portfolio.name,
+            'platform': portfolio.platform,
+            'as_of_date': wanted.isoformat(),
+            'holdings': FundService._advisor_holding_items(db, rows),
+        }
+
+    @staticmethod
+    def build_advisor_industries(db, code: str) -> dict:
+        """投顾组合行业配置（只读）组装（投顾详情页 P0）。
+
+        天天 ``getHoldWarehouseIndustryRatio`` 落的快照，按占比倒序。**当前只有天天有**，
+        且全库只有 3 行（本机实测）⇒ 绝大多数组合会得到 ``as_of_date=None`` + 空列表，
+        前端据此整块隐藏，不要渲染空表。
+
+        组合不存在 → ``ValueError`` → 视图 404/1002。
+        """
+        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
+        if portfolio is None:
+            raise ValueError('投顾组合不存在')
+
+        as_of = db.query(func.max(AdvisorIndustryAlloc.as_of_date)).filter_by(portfolio_id=portfolio.id).scalar()
+        if as_of is None:
+            return {
+                'code': portfolio.code,
+                'name': portfolio.name,
+                'platform': portfolio.platform,
+                'as_of_date': None,
+                'source': None,
+                'industries': [],
+            }
+        rows = (
+            db.query(AdvisorIndustryAlloc)
+            .filter_by(portfolio_id=portfolio.id, as_of_date=as_of)
+            .order_by(AdvisorIndustryAlloc.ratio.desc())
+            .all()
+        )
+        source, _kind = FundService._advisor_source_kind([r.source for r in rows])
         return {
             'code': portfolio.code,
             'name': portfolio.name,
             'platform': portfolio.platform,
             'as_of_date': as_of.isoformat(),
-            'holdings': holdings,
+            'source': source,
+            'industries': [{'industry_name': r.industry_name, 'ratio': _safe_float(r.ratio)} for r in rows],
+        }
+
+    @staticmethod
+    def build_advisor_holdings_history(db, code: str, as_of: Optional[date] = None) -> dict:
+        """投顾组合历史持仓时点 + 指定时点明细（只读，投顾详情页 P0）。
+
+        ## 粒度与来源（别读成「逐日持仓」）
+
+        ``as_of_date`` 是**调仓时点**，不是逐日。且慢的持仓快照是我们按日抓的，只有
+        「与上一份快照差异超过 :data:`ADVISOR_ADJUST_MIN_DELTA_PCT`」时才产生一个有意义的
+        时点；天天直接给历次调仓。故 ``dates`` 的横轴是**离散时点列表**，前端必须显式写明
+        「数据点 = N 个调仓时点」，不得画成连续日线（设计稿 §1 的口径）。
+
+        ## 返回
+
+        ``dates``：全部时点（倒序，ISO 字符串）；``as_of_date`` / ``holdings``：
+        请求时点（缺省 = 最新）的明细。时点存在但组合不存在 → ``ValueError`` → 404。
+
+        ``source`` 保留库内原值（``tiantian`` / ``qieman`` / ``qieman_manual``），
+        ``kind`` 是粗粒度标签（``official`` / ``captured`` / ``manual``）——见
+        :data:`ADVISOR_SOURCE_KIND` 的注释，口径与设计稿 §6.1 的偏差在那里说明。
+        """
+        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
+        if portfolio is None:
+            raise ValueError('投顾组合不存在')
+
+        dates = [
+            d
+            for (d,) in (
+                db.query(AdvisorHolding.as_of_date)
+                .filter_by(portfolio_id=portfolio.id)
+                .distinct()
+                .order_by(AdvisorHolding.as_of_date.desc())
+                .all()
+            )
+            if d is not None
+        ]
+        if not dates:
+            return {
+                'code': portfolio.code,
+                'name': portfolio.name,
+                'platform': portfolio.platform,
+                'dates': [],
+                'as_of_date': None,
+                'source': None,
+                'kind': None,
+                'holdings': [],
+            }
+
+        wanted = as_of if as_of is not None else dates[0]
+        rows = (
+            db.query(AdvisorHolding)
+            .filter_by(portfolio_id=portfolio.id, as_of_date=wanted)
+            .order_by(AdvisorHolding.after_ratio.desc())
+            .all()
+        )
+        source, kind = FundService._advisor_source_kind([r.source for r in rows])
+        return {
+            'code': portfolio.code,
+            'name': portfolio.name,
+            'platform': portfolio.platform,
+            'dates': [d.isoformat() for d in dates],
+            'as_of_date': wanted.isoformat(),
+            'source': source,
+            'kind': kind,
+            'holdings': FundService._advisor_holding_items(db, rows),
         }
 
     @staticmethod

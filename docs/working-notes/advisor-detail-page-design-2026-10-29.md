@@ -195,7 +195,7 @@ ExternalLinks                     (现有)
 | **A. 已有数据未暴露** | 行业配置（`advisor_industry_allocs` 3 行）、历史持仓（`advisor_holdings` 40322 行 / 105 只；`advisor_adjust_histories` 1363 行） | 新增 2 个只读端点 | 低 |
 | **B. 能取但没请求** | 天天：`SYL_2N` / `SYL_3N` / `SYL_3Y` / `SYL_6Y` / `MAXRETRA_LN` / `SHARPE_LN` / `ANNSYL_LN` / `BENCHSYL_LN` / `BENCHSYL_1N` / `RUN_DATE`（运行天数） | 扩 `FIELDS` + 扩 canonical 列 | 低 |
 | **C1. 有列但 0% 填充** | `strategy_type` / `cum_return` / `running_days` / `benchmark` / `excess_return` | B 级落地后 `running_days` 有写者；其余三个明确「谁写」或**从表中移除**（数据策略硬约束 1：新列必须当场指定读者） | 低 |
-| **C2. 连列都没有** | `return_2y` / `return_3y` / 基准收益数值 / 超额收益数值（`excess_return` 列在但 `benchmark` 只是文本描述） | 新增列（走 `migrate_advisor_tables.py` 范式） | 中 |
+| **C2. 连列都没有** | `return_2y` / `return_3y` / 基准收益数值 / 超额收益数值（`excess_return` 列在但 `benchmark` 只是文本描述） | 新增列（走 `migrations.py` 的 `migrate_advisor_portfolio_perf_columns`，**10 列**：`return_2y` / `return_3y` + 8 个 `benchmark_return_*`）。⚠️ 设计稿 v2 估的「3 列」已被 2026-10-29 复测推翻，见 §4.2 尾注 | 中 |
 | **D. 确实没有** | 净值序列（且慢可经 MCP 工具取、好买实测可取、天天未知） | 分期：先接且慢 + 好买，天天单独 spike | 中 |
 
 ### 4.2 B 级实证（2026-10-29 实网探测，均返回成功）
@@ -206,6 +206,19 @@ ExternalLinks                     (现有)
 返回（节选）：`SYL_D 1.10 / SYL_Z -1.28 / SYL_Y -5.79 / SYL_3Y -5.85 / SYL_6Y -9.46 / SYL_JN -3.83 / SYL_1N -3.02 / SYL_2N 25.39 / SYL_3N 35.12 / SYL_LN 18.46 / MAXRETRA_LN 24.33 / SHARPE_LN 0.16 / ANNSYL_LN 4.19 / RUN_DATE 1556 / ESTABDATE 2022-07-26 / JZRQ=SYRQ=2026-10-28`。
 
 `GET https://dataapi.1234567.com.cn/dataapi/IAAGGR/FundIATGInfoAggr`（扩 `FIELDS` 后）额外给 `BENCHSYL_LN 1.17`、`BENCHSYL_1N -10.4`；**不含** `MAXRETRA_LN` / `SHARPE_LN`。
+
+> 🔁 **2026-10-29 实现期复测（推翻本节两处估计，已按实测落地）**
+>
+> ① **`BENCHSYL_*` 覆盖 9 个区间全有值**：`D 1.03 / Z -1.14 / Y -6.37 / 3Y -9.51 / 6Y -13.79 / JN -9.99 / 1N -10.4 / 2N 6.12 / 3N 16.87 / LN 1.17`。
+> 设计稿当时只探了 `LN` / `1N` 两个键，据此估「3 列」。**实际建 8 列**（`D` / `Z` 不建：业绩表不展示这两行，存下来没有读者）。
+> 少建列 = 让表格几行永远只能渲染 `—`，而数据明明取得到。
+>
+> ② **`FundIATGInfoAggr` 还返回 `NAV` 1.18 / `JZRQ` 2026-10-28 / `ANNSYL_LN` 4.19**（净值与净值日不必另找接口），
+> 但 `RUN_DATE` 是**空串**；`MAXRETRA_LN` / `SHARPE_LN` 仍只在 `getTGQuoteByFavor`。
+>
+> ③ **`ESTABDATE` 在 AGGR 是毫秒时间戳字符串**（`"1658764800000"`），在 QUOTE 是 `"2022-07-26 00:00:00"`。
+> 落库层 `_parse_date` 只认 `YYYY-MM-DD` 前 10 位 ⇒ 天天组合 `estab_date` 长期 0% 的**根因就在这一处**。
+> 平台日期方言的翻译归适配器（`_to_date_str`），**不放宽落库层去猜**。
 
 **结论**：天天侧 2~3 年收益、最大回撤、夏普、年化、基准收益、运行天数**全都拿得到**，属「适配器没请求」，不是数据源缺失。这解释了 §1.4 里天天 3 只全 0% 的现象。
 
@@ -253,7 +266,7 @@ product_trend.py: 从 _NO_SERIES_TYPES(L72) 移除 'portfolio' + 加 elif portfo
 | 行业配置端点 | 行业分布卡 | 打开详情页看穿透 | 卡不渲染 | 0 新增存储（已存） |
 | 历史持仓时点端点 | 历史持仓表 | 追溯仓位变化 | 只显示当前持仓 | 0 新增存储（已存） |
 | 天天 10 个字段 | 业绩表 / 风险卡 | 首屏 | 一堆 `—` | 0 新增存储（10 个里有 6 个列已存在；2y/3y/基准收益需新增列） |
-| `return_2y` / `return_3y` / 基准收益数值列 | 业绩表「本组合 / 基准 / 超额」 | 首屏 | 该 3 行显示 `—` | 3 列 × 114 行，可忽略 |
+| `return_2y` / `return_3y` / 基准收益数值列 | 业绩表「本组合 / 基准 / 超额」 | 首屏 | 该 8 行显示 `—` | **10 列**（2 区间 + 8 基准）× 114 行，可忽略 |
 
 > C1 的 5 个 0% 字段已按 §12.1 逐条处置：3 条本期闭环（`running_days` 写入、`cum_return` 复用 `SYL_LN`、`excess_return` 现算不落库），2 条（`benchmark` / `strategy_type`）登记 `docs/spec/tech-debt.md`「无写者」并**保留列**——不允许继续沉默存在。「列在表里但永远为空」会让下一个人以为「只是还没同步」。
 
@@ -296,15 +309,21 @@ product_trend.py: 从 _NO_SERIES_TYPES(L72) 移除 'portfolio' + 加 elif portfo
 
 | 方法 | 路径 | 说明 | 降级 |
 |---|---|---|---|
-| `GET` | `/api/funds/advisors/<code>/industries/` | 行业配置 | 无数据返回 `data: []` |
-| `GET` | `/api/funds/advisors/<code>/holdings-history/` | 历史持仓时点列表 + 指定时点明细 | 无数据返回 `data: {dates: [], holdings: []}` |
+| `GET` | `/api/funds/advisors/<code>/industries/` | 行业配置 | 无数据返回 `data.industries: []` + `as_of_date: null` |
+| `GET` | `/api/funds/advisors/<code>/holdings-history/` | 历史持仓时点列表 + 指定时点明细 | 无数据返回 `data: {dates: [], as_of_date: null, holdings: []}` |
 | `GET` | `/api/funds/advisors/<code>/nav-history/?range=` | 净值序列（D 级完成后） | 无序列返回 `data: []` |
 
 约束：
 
 - 一律 `APIBlueprint` + `{data, message, error_code}` 三字段信封（`scripts/guard_error_envelope.py`）；
 - 改路由后必须重跑 `python scripts/check_api_conventions.py --write` 刷新 `docs/spec/api.md` 自动段；
-- `holdings-history` 的时点来源**必须显式标注推导/官方**（`source: 'official' | 'derived'`），不得混成一个字段。
+- ~~`holdings-history` 的时点来源**必须显式标注推导/官方**（`source: 'official' | 'derived'`），不得混成一个字段。~~
+  ⚠️ **实现期修正（2026-10-29）**：改为**两个字段** —— `source` 保留库内原值
+  （`tiantian` / `qieman` / `qieman_manual`）+ `kind` 粗粒度标签（`official` / `captured` / `manual`）。
+  原方案不可行的原因很直接：**持仓快照没有「derived」这一档**（从两个快照推导出来的是
+  `advisor_adjust_histories` 的调仓明细，不是持仓本身）。硬套两值会把「且慢自动同步」与
+  「且慢手动导入」压成同一个 `derived`，恰好丢掉用户最需要在界面上区分的那个差异
+  （设计 §1 已实测 `qieman_manual` 与 `qieman` 是两回事）。多源混杂时两个字段都给 `mixed`。
 
 ### 6.2 变更端点
 
@@ -353,7 +372,7 @@ product_trend.py: 从 _NO_SERIES_TYPES(L72) 移除 'portfolio' + 加 elif portfo
 1. `/portfolio/<symbol>` 打开后，`AdvisorSection` 按 §3.1 渲染 7 项（其中第 4 项「净值走势」由 `TrendSection` 承载，不在本区块内重复），**其中至少 4 项有实质数据**；其余因无数据不渲染而非空壳；
 2. 任一新增字段缺失时显示 `—`，页面无报错、无 console error；
 3. 走势卡：有序列时渲染（且区间档可切换），无序列时整卡不渲染——**两种情况都不得出现空图**；
-4. 历史持仓：时点选择器列出的每个日期点开，持仓权重合计 = 100%（±0.5pp），且标注 `official` / `derived`；
+4. 历史持仓：时点选择器列出的每个日期点开，持仓权重合计 = 100%（±0.5pp），且标注 `kind`（`official` / `captured` / `manual`，见 §6.1 的实现期修正）；
 5. 调仓记录：天天组合显示 reason，且慢组合显示「据持仓变化推导」；两者不得混用同一措辞；
 6. 新端点均返回三字段信封；`docs/spec/api.md` 自动段已刷新；
 7. `pnpm typecheck` / `pnpm lint` 零错误；`ProductAdvisorSection.vue` 及新组件均 < 400 行（`scripts/check_vue_size.mjs`）；
@@ -435,3 +454,4 @@ product_trend.py: 从 _NO_SERIES_TYPES(L72) 移除 'portfolio' + 加 elif portfo
 |---|---|---|
 | v1 | 2026-10-29 | 首版。基于 #1205 + 两张移动端截图 + 代码测绘 + 本地库填充率实测 + 天平接口实网探测 |
 | v2 | 2026-10-29 | owner 拍板 6 项（§12 改为决策记录）：Q1 区块 / Q2 先接且慢+好买 / Q3 写入侧不做 / Q4 先 spike / Q5 环形图延后 / Q6 能取到的闭环。据此新增 §12.1 逐字段处置（3 条闭环 + 2 条登记 tech-debt）、否决合成降级（§4.3）、P0 范围加「修正过时注释」 |
+| v3 | 2026-10-29 | **P0 实现期按实网复测回改三处**：① `BENCHSYL_*` 实测 9 档全有值 ⇒ 基准列由 3 列改为 **8 列**（§4.1 C2 / §4.4 同步改）；② `ESTABDATE` 毫秒时间戳是天天 `estab_date` 0% 的根因，新增归适配器的日期方言转换（§4.2 尾注）；③ `holdings-history` 的 `source: 'official' \| 'derived'` 改为 `source`（原值）+ `kind`（粗粒度），理由见 §6.1 实现期修正。另：`advisor_profile.excess_return` 改为读取侧现算并**不读库列** |

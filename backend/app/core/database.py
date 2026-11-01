@@ -31,6 +31,7 @@ from app.core.migrations import (
     migrate_account_name_snapshot,
     migrate_advisor_portfolio_metadata,
     migrate_advisor_portfolio_metrics,
+    migrate_advisor_portfolio_perf_columns,
     migrate_advisor_portfolio_provenance,
     migrate_asset_major_category_current_to_cash,
     migrate_channel_link_indexes,
@@ -589,6 +590,8 @@ def init_db():
     migrate_advisor_portfolio_metadata(app_eng)
     # 投顾组合来历列（#1392）：source 来源标记 + extra 平台特有字段，同上须先于结构校验
     migrate_advisor_portfolio_provenance(app_eng)
+    # 投顾详情页 P0（2026-10-29）：return_2y/3y + 8 个基准区间收益列，同上须先于结构校验
+    migrate_advisor_portfolio_perf_columns(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）：create_all 只建新表、不给存量表加索引
     migrate_channel_link_indexes(app_eng)
     # 费率三表唯一约束（2026-10-18）：同理只补存量；库里有重复行时迁移会 fail closed
@@ -732,6 +735,8 @@ def init_db_split():
     migrate_advisor_portfolio_metadata(app_eng)
     # 投顾组合来历列（#1392）：source 来源标记 + extra 平台特有字段，同上须先于结构校验
     migrate_advisor_portfolio_provenance(app_eng)
+    # 投顾详情页 P0（2026-10-29）：return_2y/3y + 8 个基准区间收益列，同上须先于结构校验
+    migrate_advisor_portfolio_perf_columns(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）
     migrate_channel_link_indexes(app_eng)
     # 费率三表唯一约束（2026-10-18）：与上方同理只补存量；重复行存在时 fail closed

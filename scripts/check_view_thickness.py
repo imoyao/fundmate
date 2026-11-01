@@ -195,8 +195,15 @@ BASELINE: dict[str, dict[str, int]] = {
     # ValueError → 400 信封」与作用域 docstring，作用域解析本身按纪律下沉在
     # `services/scope.py`（组合语义 = 显式归属 + 成员账本继承，不在此手写成员账本查询）。
     # 三项实测量未动（orm_queries 2 / commits 0 / max_func 39），唯 lines 263 → 277（+14）。
+    # 2026-10-31 重取（**新增端点**，非放宽）：投顾详情页 P0 加 `GET /advisors/<code>/industries/`
+    # 与 `GET /advisors/<code>/holdings-history/`，另给 `/holdings/` 补可选 `as_of`。
+    # 视图侧只有「解析 as_of + 非法日期 → 400/1001 + 调服务 + 信封」——聚合、时点筛选、
+    # `source`/`kind` 归一全在 `services/fund_service`，故 `orm_queries` / `commits` /
+    # `max_func` 三项实测不动（2/0/39），唯 lines 277 → 343（+66 = 2 个端点 + as_of 解析器
+    # 与哨兵）。**400 与 404 必须分开**：服务层用 `ValueError` 表达「组合不存在」，
+    # 若把 as_of 解析也塞进同一个 try 里，拼错日期会显示成「组合没了」。
     "backend/app/domains/funds/views.py": {
-        "lines": 277,
+        "lines": 343,
         "orm_queries": 2,
         "commits": 0,
         "max_func": 39,
@@ -370,8 +377,11 @@ BASELINE: dict[str, dict[str, int]] = {
     # 行数两笔：610 → 645（本端点 + import + ValueError→400 防御），再因
     # rebase 到合并后的 dev（#2314 / #2318 等同期改动）落到 **639**——后者不是
     # 本卡的生长，取 `--report` 实测值，不手工倒推。
+    # 2026-10-31 收紧（**非放宽**）：`product_trend` 的「降级品类」docstring 更正口径
+    # （指数有独立 `index_daily` 分支，不再误列为「无序列数据源」），顺手把同段说明压到
+    # 原有行数——lines 639 → 638，`orm_queries` / `commits` / `max_func` 不动（0/0/30）。
     "backend/app/domains/products/views.py": {
-        "lines": 639,
+        "lines": 638,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 30,

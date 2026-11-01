@@ -31,10 +31,23 @@
 ``sharpe_ratio`` / ``nav`` / ``source_url`` 92~96%    展示
 **``host``（主理人）**                       **1.9%**  返回，多为 None
 **``return_ytd``**                           **2.9%**  返回 None
-**``strategy_type`` / ``cum_return`` /        **0%**  返回 None（固定契约，前端「—」）
-``running_days`` / ``benchmark`` /
-``excess_return``
+~~``strategy_type`` / ``cum_return`` /        ~~0%~~    2026-10-29 起：``cum_return`` /
+``running_days`` / ``benchmark`` /                     ``running_days`` 由适配器补写；
+``excess_return``~~                                    ``excess_return`` 读取侧现算；
+                                                       ``strategy_type`` / ``benchmark``(名称)
+                                                       仍无写者（tech-debt）
 =========================================  =========  ==================================
+
+> ⚠️ 上表是 **2026-10-10 本机库快照**，不要当成实时事实：2026-10-29 复测时
+> ``max_drawdown`` / ``sharpe_ratio`` / ``running_days`` / ``return_2y`` / ``return_3y`` /
+> ``benchmark_return_*`` 在天天侧**已有数据源**（适配器此前没请求），下一次同步后才会填充；
+> 这里不改数字，只记录「为什么它当时是 0%」——否则下一个人会把 0% 当成数据源缺失。
+
+## 派生字段的处理
+
+``excess_return`` **不读库列**（该列没有写者），由本模块用
+``return_since_incep − benchmark_return_since_incep`` 现算；任一缺失给 ``None``，
+**不把缺失当 0**（否则「基准还没披露」会渲染成「跑赢 25 个百分点」）。
 
 ⚠️ 设计 §2.6 要求组合类标的靠「名称 + 品类 + **平台/主理人**」识别，但主理人实测几乎
 全空（2/105）。故识别信息实际由「**名称 + 平台 + 机构**（``org_name``，100%）」承担，
@@ -64,12 +77,34 @@ _NUMERIC_FIELDS = (
     'return_1q',
     'return_6m',
     'return_1y',
+    'return_2y',
+    'return_3y',
     'return_ytd',
     'return_since_incep',
     'max_drawdown',
     'volatility',
     'sharpe_ratio',
+    # 投顾详情页 P0（2026-10-29）：业绩基准同区间收益，与上面 return_* 逐区间配对。
+    # 前端「业绩表现」表每行三列（本组合 / 业绩基准 / 超额），基准列直接读这些键。
+    'benchmark_return_1m',
+    'benchmark_return_1q',
+    'benchmark_return_6m',
+    'benchmark_return_ytd',
+    'benchmark_return_1y',
+    'benchmark_return_2y',
+    'benchmark_return_3y',
+    'benchmark_return_since_incep',
 )
+
+
+def _excess(nav: Optional[float], bench: Optional[float]) -> Optional[float]:
+    """区间超额 = 组合收益 − 基准收益；任一缺失 → None（不把缺失当 0 参与减法）。
+
+    「把 None 当 0」会让「基准还没披露」渲染成「跑赢基准 25 个百分点」——宁可显示「—」。
+    """
+    if nav is None or bench is None:
+        return None
+    return round(nav - bench, 2)
 
 
 def _iso(value) -> Optional[str]:
@@ -128,7 +163,7 @@ def build_advisor_profile(db: Session, code: str) -> Optional[Dict[str, Any]]:
         'estab_date': _iso(portfolio.estab_date),
         'running_days': portfolio.running_days,
         'benchmark': portfolio.benchmark,
-        'excess_return': _num(portfolio.excess_return),
+        'excess_return': None,  # 见下方「读取侧现算」，先占位保证 key 恒存在
         'nav': _num(portfolio.nav),
         'nav_date': _iso(portfolio.nav_date),
         'source_url': portfolio.source_url,
@@ -137,4 +172,9 @@ def build_advisor_profile(db: Session, code: str) -> Optional[Dict[str, Any]]:
         'adjust_count': adjust_count,
     }
     profile.update({field: _num(getattr(portfolio, field)) for field in _NUMERIC_FIELDS})
+    # 超额收益：**读取侧现算**，不读库内 ``excess_return`` 列（该列无写者，见 models 注释）。
+    # 取「成立以来」这一组，因为它是唯一在天天两个数据面都稳定有值的同区间对
+    # （组合 SYL_LN ↔ 基准 BENCHSYL_LN）；其余区间的超额由前端按同一公式
+    # `return_x - benchmark_return_x` 自算 —— 派生值多一个后端出口，就多一处会算错的地方。
+    profile['excess_return'] = _excess(profile.get('return_since_incep'), profile.get('benchmark_return_since_incep'))
     return profile

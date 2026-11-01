@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **217** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **219** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -100,7 +100,9 @@ title: 核心 API 端点清单（api）
 | GET | `/api/funds/<string:fund_code>/style/history/` | `get_fund_style_history_view` |
 | GET | `/api/funds/<string:fund_code>/style/latest/` | `get_fund_style_latest` |
 | GET | `/api/funds/advisors/<string:code>/adjusts/` | `get_advisor_adjusts` |
+| GET | `/api/funds/advisors/<string:code>/holdings-history/` | `get_advisor_holdings_history` |
 | GET | `/api/funds/advisors/<string:code>/holdings/` | `get_advisor_holdings` |
+| GET | `/api/funds/advisors/<string:code>/industries/` | `get_advisor_industries` |
 | GET | `/api/funds/managers/search/` | `search_managers` |
 | POST | `/api/funds/nav/` | `get_fund_nav_by_date` |
 | GET | `/api/funds/overlap/` | `get_holding_overlap` |

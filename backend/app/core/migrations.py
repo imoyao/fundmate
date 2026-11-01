@@ -683,6 +683,52 @@ def migrate_advisor_portfolio_provenance(engine: Engine) -> str:
     return '[SKIP] advisor_portfolios 来历列已存在'
 
 
+def migrate_advisor_portfolio_perf_columns(engine: Engine) -> str:
+    """advisor_portfolios 补 2/3 年区间 + 业绩基准同区间收益列（投顾详情页 P0，2026-10-29）。
+
+    10 列一次补齐：`return_2y` / `return_3y` + 8 个 `benchmark_return_*`。
+
+    ## 为什么是 8 个基准列，而不是设计稿估的 3 个
+
+    设计稿（`docs/working-notes/advisor-detail-page-design-2026-10-29.md`）当初只探到
+    `BENCHSYL_LN` / `BENCHSYL_1N` 两个键，据此保守估了 3 列。2026-10-29 把
+    `BENCHSYL_D/Z/Y/3Y/6Y/JN/1N/2N/3N/LN` 一次性要回，**全部有值**
+    （如 `Y` -6.37 / `2N` 6.12 / `3N` 16.87）⇒ 业绩表 8 个区间每行都对得上一个格子。
+    少建列 = 让几行永远只能渲染 `—`，而数据明明取得到。
+
+    `D` / `Z`（日 / 周）两档**刻意不建列**：业绩表不展示这两行，存下来没有读者
+    （`docs/spec/data-strategy.md` 数据准入第 1 问）。
+
+    ## 超额不建列
+
+    超额 = `return_x − benchmark_return_x`，是纯派生值，读取侧现算（见
+    `services/advisor_profile.py`）；既有 `excess_return` 列保留但不写。
+
+    与同族迁移同源同法：走 `_add_columns_if_missing`（PG 用 `ADD COLUMN IF NOT EXISTS`，
+    SQLite 靠 inspect 判存在），幂等，两种引擎都执行（#2534：非 SQLite 就跳过等于 PG 永远没这些列）。
+    """
+    if not _table_exists(engine, 'advisor_portfolios'):
+        return '[SKIP] advisor_portfolios 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('return_2y', 'NUMERIC(7,2)'),
+        ('return_3y', 'NUMERIC(7,2)'),
+        ('benchmark_return_1m', 'NUMERIC(7,2)'),
+        ('benchmark_return_1q', 'NUMERIC(7,2)'),
+        ('benchmark_return_6m', 'NUMERIC(7,2)'),
+        ('benchmark_return_ytd', 'NUMERIC(7,2)'),
+        ('benchmark_return_1y', 'NUMERIC(7,2)'),
+        ('benchmark_return_2y', 'NUMERIC(7,2)'),
+        ('benchmark_return_3y', 'NUMERIC(7,2)'),
+        ('benchmark_return_since_incep', 'NUMERIC(7,2)'),
+    ]
+    added = _add_columns_if_missing(engine, 'advisor_portfolios', cols)
+    if added:
+        logger.info(f'[OK] advisor_portfolios 增加列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] advisor_portfolios 业绩区间列已存在'
+
+
 def migrate_positions_symbol_norm(engine: Engine) -> str:
     """positions 补归一身份列 `symbol_norm` + 唯一索引（#1662 后续）。
 
