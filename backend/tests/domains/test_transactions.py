@@ -966,3 +966,113 @@ class TestTransactionPositionState:
         txn = make_transaction(position_id=None, ledger_id=None, txn_type='buy', symbol='004369')
         db.commit()
         assert _detail(client, txn.id)['position_state'] == 'cleared'
+
+
+def _summary(client, **params) -> dict:
+    """取汇总条数据（`GET /api/transactions/summary/`），非 200 直接失败并带上原因。"""
+    resp = client.get('/api/transactions/summary/', query_string=params)
+    assert resp.status_code == 200, f'汇总接口返回 {resp.status_code}: {resp.get_json()}'
+    return resp.get_json()['data']
+
+
+class TestTransactionSummary:
+    """汇总条（设计 §四 口径）：净投入 = 买入 + 手续费 − 卖出 − 分红。
+
+    这批用例存在的理由：汇总条是全页**唯一**的聚合数字，算错了页面不会报错——
+    它只会安静地给出一个和列表对不上的数。所以判据全写死成可手算的已知数据。
+    """
+
+    def test_net_invested_formula_from_spec_fixture(self, client, db):
+        """规格里的已知数据：买入 100 / 卖出 40 / 分红 5 / 手续费 1 → 净投入 **56**。
+
+        手续费**不摊进买入**（否则「买入」不再等于成交额，拿汇总条去核表格会差一笔），
+        所以四个数各自可核：100 / 40 / 5 / 1。
+        """
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='buy', amount=10000, fee=100)),
+                Transaction(**_txn_kwargs(txn_type='sell', amount=4000)),
+                Transaction(**_txn_kwargs(txn_type='dividend', amount=500)),
+            ]
+        )
+        db.commit()
+
+        s = _summary(client)
+        assert s['buy'] == {'count': 1, 'amount': 100.0}
+        assert s['sell'] == {'count': 1, 'amount': 40.0}
+        assert s['dividend'] == {'count': 1, 'amount': 5.0}
+        assert s['fee'] == 1.0
+        assert s['net_invested'] == 56.0
+        # 公式本身也断一遍：日后改结构（比如加字段）时这条仍能抓住口径漂移
+        assert s['net_invested'] == pytest.approx(
+            s['buy']['amount'] + s['fee'] - s['sell']['amount'] - s['dividend']['amount']
+        )
+
+    def test_summary_counts_every_row_not_just_one_page(self, client, db):
+        """汇总覆盖**全部**命中行，不是当页 20 条——拿列表数据求和是最坏的一种错。
+
+        这条用例的作用是钉住「独立聚合查询」：一旦有人图省事改成对列表 `data`
+        求和，25 条会变成 10 条（或 20 条），而页面照样渲染得漂漂亮亮。
+        """
+        db.add_all([Transaction(**_txn_kwargs(txn_type='buy', amount=1000)) for _ in range(25)])
+        db.commit()
+
+        page = _get(client, '/api/transactions', {'per_page': 10}).get_json()
+        assert len(page['data']) == 10, '前提：列表分页只返回 10 条'
+
+        s = _summary(client)
+        assert s['buy']['count'] == 25
+        assert s['buy']['amount'] == 250.0
+
+    def test_summary_follows_same_filters_as_list(self, client, db):
+        """同一组筛选下，汇总的笔数与列表的 total 必须一致（两条路径共用 WHERE）。"""
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='buy', amount=1000)),
+                Transaction(**_txn_kwargs(txn_type='buy', amount=2000)),
+                Transaction(**_txn_kwargs(txn_type='sell', amount=500)),
+            ]
+        )
+        db.commit()
+
+        s = _summary(client, type='buy')
+        listed = _get(client, '/api/transactions', {'type': 'buy'}).get_json()
+        assert s['buy']['count'] == 2
+        assert s['sell']['count'] == 0, 'type=buy 时卖出不该混进来'
+        assert s['buy']['count'] == listed['total']
+        # 净投入随筛选变化：只剩两笔买入、无手续费 → 30
+        assert s['net_invested'] == 30.0
+
+    def test_summary_scoped_to_own_family(self, client, db):
+        """别的家庭的流水不进汇总（跨家庭泄漏在这里同样是「数字对不上」）。"""
+        db.add(Transaction(**_txn_kwargs(txn_type='buy', amount=99999)))
+        db.add(Transaction(**_txn_kwargs(family_id=2, txn_type='buy', amount=88888)))
+        db.commit()
+
+        s = _summary(client)
+        assert s['buy'] == {'count': 1, 'amount': 999.99}
+
+    def test_fee_covers_all_types_but_net_only_uses_four(self, client, db):
+        """手续费取**全类型**求和（含存入），但净投入公式只认买入/卖出/分红。
+
+        存入 1000 + 手续费 3：手续费要算进来，存入本身不进净投入——它是资金搬运，
+        不是「为持仓投进去的钱」。这条差异必须被钉住，否则下次会把存入也算进净投入。
+        """
+        db.add(Transaction(**_txn_kwargs(txn_type='deposit', amount=100000, fee=300)))
+        db.commit()
+
+        s = _summary(client)
+        assert s['fee'] == 3.0
+        assert s['buy']['count'] == 0
+        assert s['net_invested'] == 3.0
+
+    def test_empty_range_returns_zeros_not_none(self, client, db):
+        """无命中行时四个数都是 0（不是 None）：前端要直接渲染，不该在这做空值判断。"""
+        s = _summary(client, time_range='custom', start_date='2099-01-01', end_date='2099-12-31')
+        assert s == {
+            'buy': {'count': 0, 'amount': 0.0},
+            'sell': {'count': 0, 'amount': 0.0},
+            'dividend': {'count': 0, 'amount': 0.0},
+            'fee': 0.0,
+            'net_invested': 0.0,
+        }

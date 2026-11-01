@@ -511,8 +511,17 @@ BASELINE: dict[str, dict[str, int]] = {
     # 「调 build_transaction_detail + 404 + 组信封」，行组装与持仓现状查询全在 services；
     # orm_queries / commits / max_func 三项**实测不动**（1 / 0 / 25），无业务规则可下沉。
     # 按本文件既有先例以 `--report` 实测回写：lines 85 → 95。
+    # 2026-11-01 再回写（**新增端点**，非放宽）：`GET /api/transactions/summary/` 是汇总条
+    # 的数据源（设计 §四，净投入公式在 `services.build_transaction_summary`）。视图侧只
+    # 「调服务 + 组信封」；筛选参数解析**下沉**为 `services.filters_from_args`（列表与汇总
+    # 共用一份字段映射），views 因此净减 9 行。剩下 +14 = 端点 4 行 + `import` 从 1 行拆成
+    # 6 行（ruff 行长限制，第五个符号放不下）。orm_queries / commits / max_func 三项
+    # **实测不动**（1 / 0 / 25）。
+    # ⚠️ 这已是同一文件两次因「再加一个只读端点」而回写基线。**下次再加端点前先拆模块**
+    # （如 `transactions/read_views.py`），别再让 100 变成 110——基线只减不增的前提是
+    # 「厚度来自业务规则」，而连续加薄端点会让它变成「视图像个收纳箱」。
     "backend/app/domains/transactions/views.py": {
-        "lines": 95,
+        "lines": 100,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 25,

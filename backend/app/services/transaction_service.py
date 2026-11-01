@@ -119,14 +119,26 @@ def transaction_edit_payload(txn: Transaction) -> dict:
     }
 
 
-def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
-    """交易流水列表：多维筛选 + 分页 + 行组装（#1642 B 块，从视图层下沉）。
+def filters_from_args(args) -> dict:
+    """从请求 query 解析筛选参数（列表与汇总**共用一份**字段名映射）。
 
-    与下沉前逐字段一致：type→txn_type；time_range(1m/3m/6m/1y) 按 trade_date 阈值过滤，
-    custom 用 start_date/end_date 做 [start, end] 边界；status→status 等值过滤；asset_type
-    经 positions 表关联（position_id.in_(...)）过滤。返回原 jsonify 的内层 data 字典
-    （视图负责补 message）。
+    为什么抽出来：汇总条与列表必须跟随**同一组**筛选，否则「列表 3 条、汇总却按全量算」
+    ——这类不一致不会报错，只会让用户拿着汇总条去核列表时永远差一截。字段名到后端
+    参数的映射只写一处，加筛选项时两边同时生效。
     """
+    return {
+        'op_type': args.get('type'),
+        'time_range': args.get('time_range'),
+        'start_date': args.get('start_date'),
+        'end_date': args.get('end_date'),
+        'status': args.get('status'),
+        'asset_type': args.get('asset_type'),
+        'symbol': args.get('symbol'),
+    }
+
+
+def _filtered_transaction_query(db, family_id: int, filters: dict):
+    """按筛选条件构造流水查询（列表 / 汇总 / 后续任何读路径共用同一套 WHERE）。"""
     query = db.query(Transaction).filter(Transaction.family_id == family_id)
 
     op_type = filters.get('op_type')
@@ -174,6 +186,19 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     if symbol:
         query = query.filter(or_(*build_transaction_symbol_conditions(symbol)))
 
+    return query
+
+
+def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
+    """交易流水列表：多维筛选 + 分页 + 行组装（#1642 B 块，从视图层下沉）。
+
+    与下沉前逐字段一致：type→txn_type；time_range(1m/3m/6m/1y) 按 trade_date 阈值过滤，
+    custom 用 start_date/end_date 做 [start, end] 边界；status→status 等值过滤；asset_type
+    经 positions 表关联（position_id.in_(...)）过滤。返回原 jsonify 的内层 data 字典
+    （视图负责补 message）。筛选条件本身在 `_filtered_transaction_query`，与汇总条共用。
+    """
+    query = _filtered_transaction_query(db, family_id, filters)
+
     # 排序与分页：有效交易日倒序（口径与 WHY 全在 `order_by_effective_day`，三处共用）
     query = order_by_effective_day(query)
     items, total = paginate(query, page=page, per_page=per_page)
@@ -200,6 +225,69 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     ]
 
     return {'data': results, 'total': total, 'page': page, 'per_page': per_page}
+
+
+def build_transaction_summary(db, family_id: int, filters: dict) -> dict:
+    """汇总条数据（跟随筛选；口径见 docs/design/transaction-flow-redesign.md §四）。
+
+    ## 公式（文档与实现必须逐字一致，前端不做二次求和）
+
+       买入    = Σ amount WHERE type='buy'        （成交额，**不含**手续费）
+       卖出    = Σ amount WHERE type='sell'
+       分红    = Σ amount WHERE type='dividend'
+       手续费  = Σ fee（全类型）
+       净投入  = 买入 + 手续费 − 卖出 − 分红
+
+    ## 为什么手续费不摊进买入
+
+    摊进去后「买入金额」就不再等于成交额，用户拿汇总条去核表格的金额列会差一笔，
+    而差在哪儿看不出来。四个数各自可核，比少一个数更重要。
+
+    ## 为什么在这里一次 `GROUP BY`，而不是复用列表逐行累加
+
+    列表是分页的（每页 20 条），拿它求和得到的是「这一页的汇总」——一个看起来很
+    像总计、实际只覆盖 20 行的数字，这是最坏的一种错：不会报错，只会骗人。
+    所以汇总走独立查询，且**全程用分做整数运算**，只在出口换算成元
+    （浮点累加在几百行上就会出现 0.01 的漂移，而这是要印在屏幕上的钱）。
+
+    Returns:
+        ``{'buy': {'count', 'amount'}, 'sell': …, 'dividend': …, 'fee', 'net_invested'}``
+        ——金额单位元、``fee`` / ``net_invested`` 为标量。``net_invested`` 保留符号
+        （负数＝净取出），前端必须显示正负号。
+    """
+    rows = (
+        _filtered_transaction_query(db, family_id, filters)
+        .with_entities(
+            Transaction.txn_type,
+            func.count(Transaction.id),
+            func.coalesce(func.sum(Transaction.amount), 0),
+            func.coalesce(func.sum(Transaction.fee), 0),
+        )
+        .group_by(Transaction.txn_type)
+        .all()
+    )
+
+    cents_by_type = {}
+    fee_cents = 0
+    for txn_type, count, amount_cents, fee_sum_cents in rows:
+        cents_by_type[txn_type] = (int(count), int(amount_cents or 0))
+        fee_cents += int(fee_sum_cents or 0)
+
+    def bucket(txn_type: str) -> dict:
+        count, amount_cents = cents_by_type.get(txn_type, (0, 0))
+        return {'count': count, 'amount': Money.cents_to_yuan(amount_cents)}
+
+    buy_cents = cents_by_type.get('buy', (0, 0))[1]
+    sell_cents = cents_by_type.get('sell', (0, 0))[1]
+    dividend_cents = cents_by_type.get('dividend', (0, 0))[1]
+
+    return {
+        'buy': bucket('buy'),
+        'sell': bucket('sell'),
+        'dividend': bucket('dividend'),
+        'fee': Money.cents_to_yuan(fee_cents),
+        'net_invested': Money.cents_to_yuan(buy_cents + fee_cents - sell_cents - dividend_cents),
+    }
 
 
 def transaction_row(
