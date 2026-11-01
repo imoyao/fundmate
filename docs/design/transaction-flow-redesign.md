@@ -1,6 +1,6 @@
 # 交易流水 · 桌面端重设计
 
-**状态**：设计定稿 v1.1（2026-11-01 落实施，见 §十三）· 视觉与语义已落地，汇总条待后端端点
+**状态**：设计定稿 v1.2（2026-11-01 落实施，见 §十三）· 三条横带全部落地（汇总条含后端端点）
 **原型**：`docs/design/transaction-flow-redesign-prototype.html`（可交互，单文件离线可开）
 **范围**：`/asset/transactionList` 桌面端（表格视图 + 流水线视图）· 边界见文末「不做」
 
@@ -119,6 +119,12 @@
 
 ⚠️ **原型里的数字是示意，不等于本公式**：原型页汇总条显示「净投入 +¥23,381.14」，恰为 `50,541.76 − 27,160.62`，未计手续费与分红。实施时以本节公式为准，**不要照抄原型的数值**。
 
+> **实施（v1.2）**：`GET /api/transactions/summary/` → `services.build_transaction_summary`。
+> 一次 `GROUP BY txn_type` 取齐四个数，**分做整数运算**、只在出口换算元（浮点累加在几百行上
+> 就会出现 0.01 漂移，而这是印在屏幕上的钱）。筛选与列表**共用**同一套 WHERE；前端零求和。
+> 两条判据钉在测试里：公式（56）与「25 笔不分页」。存款/取款不计入净投入（资金搬运不是
+> 为持仓投进去的钱），但它们的**手续费计入**——这一差异由 `test_fee_covers_all_types_but_net_only_uses_four` 守。
+
 ---
 
 ## 五、月分组
@@ -188,7 +194,8 @@
 | `TransactionTableView.vue` | 传 `show-account`；列序与列宽按本文档；去 stripe（`el-table` 的 `stripe` 现有 `:102`） | 判据是**无横向滚动**（1366 视口 `scrollWidth === clientWidth`），不是「合计 ≤ 1086」——1086 只是列宽下限预算 |
 | `TransactionTimelineView.vue` | 日折叠 → 月分组 + sticky 月头 + 月内合计；7 列栅格；账户列；金额不染色 | `el-collapse` 的 sticky 头在 `el-scrollbar` 内**需实测**；触底加载逻辑不变 |
 | `views/asset/TransactionList.vue` | 页头换 `PageHeaderBar` + `#action`（导出）；插入汇总条；传参给两个视图 | keepAlive 与 `?symbol=` 预筛逻辑保持原样，不动 |
-| 后端 `GET /api/transactions/summary`（**尚不存在**，已核实） | 与列表同筛选参数，返回买入/卖出/分红的笔数与金额、手续费合计、净投入（分转元） | **汇总条依赖它**。接口未就绪前整块不渲染（不留空容器），**不能用当页数据凑数**——当页只有 20 条，凑出来的数会骗人 |
+| 后端 `GET /api/transactions/summary` | 与列表同筛选参数，返回买入/卖出/分红的笔数与金额、手续费合计、净投入（分转元） | **已实现（v1.2）**，路径 `/api/transactions/summary/`。要点：与列表**共用** `filters_from_args` + `_filtered_transaction_query`，独立 `GROUP BY` 聚合（不拿分页数据求和），分做整数运算。整块未就绪时前端不渲染（不留空容器），**不用当页数据凑数** |
+| `TransactionSummaryBar.vue`（v1.2 新增） | 一行横带：范围 · 买入 · 卖出 · 分红 · 手续费 · 净投入（带符号） | 纯展示组件，**零求和**；`v-if="summary"`（未取到不渲染）；净投入 `title` 写明公式 |
 | **新增** `components/TransactionTable/TransactionAssetCell.vue` | 资产单元格：名称 + 代码位 + 已清仓胶囊 / 资金流水弱化字 | 三态各一条渲染路径，**没有一条会把整行置灰** |
 | **新增** `components/TransactionTable/TransactionAccountCell.vue` | 账户单元格：可点胶囊（带 `›`）/ 未归属虚线（无箭头 + `title`） | 判据只看 `ledger_id` 有没有值 |
 | **新增** `components/TransactionTable/TransactionDetailPanel.vue` | 展开详情：确认日 / 来源 / 备注全文 / 费用明细 / 持仓现状 / 溯源 / 编辑入口 | 只渲染不取数；三态（loading / error+重试 / data）分开，不合并成一个 `null` |
@@ -228,7 +235,7 @@
 
 | # | 问题 | 结论 | 落地 |
 |---|---|---|---|
-| 1 | 汇总条要不要做？它需要新后端端点 | **拆两步**：本批先落视觉与语义；`GET /api/transactions/summary` 就绪后再接，**整块未就绪时不渲染**（不留空容器，不用当页数据凑数） | 汇总条本期未渲染；端点仍未实现 |
+| 1 | 汇总条要不要做？它需要新后端端点 | **拆两步**：v1.1 先落视觉与语义；端点就绪后再接，**整块未就绪时不渲染**（不留空容器，不用当页数据凑数）。**v1.2 已按此接上** | `GET /api/transactions/summary/`（`services.build_transaction_summary`）+ `TransactionSummaryBar.vue`；公式与筛选共用已钉死（见 §四、§十三） |
 | 2 | 行高 48px | **不需要改全局基线**：实测 `tr` 的 `height` 是**最小高度**语义，两行产品单元 + 胶囊会自然撑高；改全局 44px 会连带影响账本 Tab 与持仓抽屉 | `src/style/el-table.css` 未动 |
 | 3 | 「已清仓」是否够准？`position_id IS NULL` 有两种成因 | **判据整体改为后端下发 `position_state`**——初稿的 null 判据在 #2343「清仓不删行」之后几乎永不命中（已清仓的流水 `position_id` 仍有值）；同时把 `position_id` 非空但持仓行已删的历史数据判成 `cleared`。两种成因的区分（用户清仓 vs 导入合并）仍不做，`title` 里并列说明 | `txn_name_resolver.resolve_transaction_position_states` |
 | 4 | 是否需要行展开详情（确认日 / 来源 / 备注全文 / 编辑） | **做，且按需请求**：展开哪行取哪行（`GET /api/transactions/<id>/`），取过即缓存；列表**不预取**详情字段。收起不请求、已取不重复请求都有守卫钉住 | `TransactionDetailPanel.vue` + `TransactionTableView.loadDetail` + `transactionDetailOnDemand.spec.ts`（7 条，含变异验证） |
@@ -244,23 +251,33 @@
 - **行展开详情**：确认日 / 来源 / 费用明细 / 备注全文 / 持仓现状 / 导入溯源 / 编辑入口，**按需请求**。
 - **流水线视图**：日折叠 → 月分组（sticky 月头 + 月内合计 + 默认展开最近两个**有记录的**月）、7 列栅格、账户列、金额 ± 不染色。
 - **筛选**：类型升为一级分段控制器（6 项），资产 / 状态 / 时间留二级下拉；页头换 `PageHeaderBar` + 导出按钮，筛选卡头与列表同处一张卡。
-- **后端**：新增单条详情端点；列表行增发 `position_state`。
+- **后端**：新增单条详情端点；列表行增发 `position_state`；**汇总条端点**（v1.2）——`GET /api/transactions/summary/` 与列表共用同一套 WHERE（筛选参数解析下沉为 `filters_from_args`，两条路径不再各写一份）。
+
+### 汇总条落地（v1.2，2026-11-01）
+
+- **口径**：严格按 §四 公式，后端一次 `GROUP BY txn_type` 聚合，**全程用分做整数运算**，只在出口换算元；前端零求和。
+- **为什么不复用列表数据**：列表分页 20 条，对它求和得到的是「这一页的汇总」——看起来像总计、实际只覆盖 20 行。用例 `test_summary_counts_every_row_not_just_one_page`（25 笔 + `per_page=10`）就是钉这个。
+- **跟随筛选**：`buildFilterParams` 是列表与汇总**共用**的映射；汇总不跟分页，翻页与触底加载不重取（守卫 `transactionSummaryWiring.spec.ts`）。
+- **未取到时不渲染**：`v-if="summary"`，不留空容器；重取时保留旧数字 + 降透明度（`aria-busy`），不闪成空白。
+- **范围必须显式**：「全部时间 / 近一年 / 2026-01-01 至 2026-06-30」，且 symbol 预筛要进文案——从产品详情页进来时汇总只覆盖那一个产品，不标出来会被读成全家庭。
+- **净投入带符号**：正＝净投入、负＝净取出；两者是相反的事，都印成正数等于说谎。
 
 ### 未做（明确边界）
 
-- **汇总条**：依赖 `GET /api/transactions/summary`（仍未实现）。按 §十二-1 的结论，未就绪时整块不渲染。
 - **「确认日 vs 交易日的差异提醒」**：展开行只如实显示确认日，不判断「是否 T+1」——那需要按产品类型查申赎规则，属另一个功能面。
 
 ### 验证
 
 | 项 | 结果 |
 |---|---|
-| 后端 `tests/domains/test_transactions.py` | 35 passed（新增 `TestTransactionDetail` 3 条 + `TestTransactionPositionState` 5 条） |
-| 前端单测 | `model.spec.ts` 17 + `transactionListModel.spec.ts` 24 + `transactionDetailOnDemand.spec.ts` 7 = 48 passed |
+| 后端 `tests/domains/test_transactions.py` | **41 passed**（v1.1 的详情 3 条 + 三态 5 条，v1.2 新增 `TestTransactionSummary` 6 条） |
+| 汇总条公式 | `TestTransactionSummary::test_net_invested_formula_from_spec_fixture`：买入 100 / 卖出 40 / 分红 5 / 手续费 1 → 净投入 **56**（并逐项断言四个数各自可核） |
+| 汇总条不拿当页凑数 | `test_summary_counts_every_row_not_just_one_page`：25 笔 + `per_page=10` → 汇总 count 仍 25 |
+| 前端单测 | `model.spec.ts` 17 + `transactionListModel.spec.ts` **31** + `transactionDetailOnDemand.spec.ts` 7 + `transactionSummaryWiring.spec.ts` **8** = 63 passed |
 | 变异验证（守卫有效） | 删「已取不重复请求」短路 → 对应用例红；删「收起提前返回」→ 对应用例红；两处已还原 |
 | `vue-tsc` / eslint / prettier / stylelint | 干净 |
 | 守卫脚本 | `guard_a11y_interaction` / `guard_segmented` / `guard_mojibake` / `guard_layout_widths` / `guard_col_divider` / `guard_detail_tables` / `guard_error_envelope` 全绿 |
-| 门禁 | `check_vue_size` 无超限（484 个 .vue）；`check_view_thickness` 通过（transactions/views.py 按 `--report` 实测回写 85 → 95，理由见脚本注释） |
+| 门禁 | `check_vue_size` 无超限；`check_view_thickness` 通过（`transactions/views.py` 按 `--report` 实测回写 85 → 95 → 100，两次都是「再加一个只读端点」，理由见脚本注释）；`check_api_conventions` 通过（221 条端点） |
 
 ---
 
