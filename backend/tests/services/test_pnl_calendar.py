@@ -639,6 +639,119 @@ def test_周末有估值行也报休市_不再触发前端7列兜底(db, make_po
     assert _pnl_of(result, mon) == pytest.approx(10.0, abs=0.01)
 
 
+def test_区间右端越过今天时不出未来日(db, make_position, make_transaction):
+    """#2793：未来日不是历史——区间右端必须截到今天。
+
+    真实库 2026-11-01 的形态（163 笔持仓）：前端按整月请求 `[11-01, 11-30]`，
+    后端不截断，未来日照算。场外取价靠前值 carry，而 carry 有寿命
+    （`_is_stale` 超过 5 个交易日判陈旧、把持仓剔出市值），虚拟日期每推一天
+    就有一批「过期」：被剔持仓的**浮亏从累计水平值里消失**，差分把它读成当日
+    盈利 ⇒ 11/06 报 +197.34、11/09 报 +8,909.18，全月合计 9,106.52 全是编的。
+
+    用例按「今天」构造函数化日期（不写死月份），复刻真实库的出数路径：
+
+    · **A：场外浮亏持仓**。最后净值日早于判定窗左端 ⇒ 进 `no_price_ids`
+      （状态判定集被整段短路），但 `_collect_fund_nav` 的前扩窗口仍取得到它 ⇒
+      会 carry，并在若干开盘日后越界被剔；
+    · **B：场内停牌持仓**。停牌价冻结、不判陈旧 ⇒ 提供「当天有价」，
+      让状态链不会落到 `no_price` 上把假值兜住——真实库 11/09 正是这条路径
+      （场外被剔 + 场内 carry ⇒ `updown` 带着假盈利出数）。
+
+    ⚠️ **变异验证**：把 `_clamp_to_today` 改成恒等（原样返回入参），本用例必须
+    转红——`month_total` 会变成 A 的浮亏 200.00，末日也会越过今天。
+    """
+    from app.core.time_utils import now_shanghai
+    from app.domains.price_history.models import PriceHistory
+    from app.domains.securities.models import Security
+
+    today = now_shanghai().date()
+    start = today - dt.timedelta(days=3)
+    end = today + dt.timedelta(days=12)
+
+    # A：场外浮亏。最后净值日 = start−2，落在 `_price_presence` 窗口 [start−1, end]
+    # 之外（⇒ 进 no_price_ids），但在 `_collect_fund_nav` 的前扩窗口之内（⇒ 取得到价）。
+    pos_a = make_position(symbol='000001', name='浮亏基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos_a.id,
+        ledger_id=pos_a.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=start - dt.timedelta(days=30),
+        symbol='000001',
+    )
+    _add_nav(db, '000001', start - dt.timedelta(days=2), 0.8)
+
+    # B：场内停牌，报价只到建仓日 —— 之后全靠 carry 冻结，不判陈旧
+    sec = Security(symbol='SH600100', name='停牌测试股', market='CN_A', type='stock')
+    db.add(sec)
+    db.commit()
+    pos_b = make_position(symbol='SH600100', name='停牌测试股', quantity=1000, avg_price=10.0, asset_type='stock')
+    make_transaction(
+        position_id=pos_b.id,
+        ledger_id=pos_b.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=10.0,
+        confirm_date=start - dt.timedelta(days=30),
+        symbol='SH600100',
+    )
+    db.add(PriceHistory(security_id=sec.id, symbol='SH600100', trade_date=start - dt.timedelta(days=30), close=10.0))
+    db.commit()
+
+    result = build_daily_pnl_series(db, family_id=1, start_date=start.isoformat(), end_date=end.isoformat())
+
+    dates = [d['date'] for d in result['days']]
+    assert dates, '今天之前的行必须照常给出（截断不能把已发生的日子也砍掉）'
+    # 先断言「不出假盈利」：这是本卡的核心症状。非零 = 持仓越界被剔、
+    # 浮亏被读成当日盈利（真实库 11/06 +197.34、11/09 +8,909.18）。
+    assert result['month_total'] == 0.0, (
+        f'净值全程未变，区间合计必须是 0，实得 {result["month_total"]}'
+        '（非零 = 持仓越界被剔、浮亏被读成当日盈利，#2793）'
+    )
+    assert dates[-1] == today.isoformat(), f'日序列必须停在今天，实得末日 {dates[-1]}'
+    assert result['end_date'] == today.isoformat(), f'响应区间右端应为今天，实得 {result["end_date"]}'
+    assert all(d <= today.isoformat() for d in dates), '不得出现未来日'
+
+
+def test_月粒度不产出未来月份(db, make_position, make_transaction):
+    """#2793 的聚合侧：期间视图也不得越过今天。
+
+    不截断时月粒度会为今年剩余月份各生成一个期间格（`zero` / 0.00），
+    读起来像「未来每个月都已经确定不赚不亏」；年粒度的各年格子同理。
+    截断后期间序列必须止于**今天所在月**。
+    """
+    from app.core.time_utils import now_shanghai
+
+    today = now_shanghai().date()
+    pos = make_position(symbol='000002', name='当期基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        # 建仓在上一年年末：今年全年都在持有期内，任何月份都该占一个期间格
+        confirm_date=dt.date(today.year - 1, 12, 1),
+        symbol='000002',
+    )
+    _add_nav(db, '000002', today, 1.0)
+
+    result = build_pnl_series(
+        db,
+        family_id=1,
+        start_date=f'{today.year}-01-01',
+        end_date=f'{today.year}-12-31',
+        granularity=GRANULARITY_MONTH,
+    )
+
+    keys = [p['period'] for p in result['periods']]
+    current = f'{today.year}-{today.month:02d}'
+    assert keys, '至少要有到本月为止的期间'
+    assert keys[-1] == current, f'期间序列必须止于今天所在月 {current}，实得末日 {keys[-1]}'
+    assert all(k <= current for k in keys), f'不得出现未来月份，实得 {keys}'
+
+
 def test_建仓前的日子报无持仓而不是休市(db, make_position, make_transaction):
     """没有持仓 ≠ 休市，也 ≠ 没数据（#1942）。建仓前的一整段应能自证原因。"""
     buy = dt.date(2026, 1, 8)

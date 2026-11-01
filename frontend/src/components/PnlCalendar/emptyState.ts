@@ -34,6 +34,49 @@ export function emptyScopeFor(granularity: PnlCalendarGranularity): string {
 }
 
 /**
+ * 区间里**还没有「已经发生」的交易日**（#2793）——「还没到」，不是故障。
+ *
+ * 未来日与周末同待遇、不占格之后，月初打开日历常常只剩下极少格子、甚至一格不剩
+ * （2026-11-01 是周日 ⇒ 11 月暂时 0 格），`has_any_price` 随之必然为 false。
+ * 若沿用数据缺口的文案（「通常是每日快照任务未运行所致」），就把「还没到」说成了
+ * 「出故障了」——用户会去查一个根本不用跑的同步任务。
+ *
+ * 判据只看日历、不看数据：
+ *   · 年粒度区间是「投资以来 → 今年」，恒有已过去的交易日 ⇒ false；
+ *   · 月粒度看今年 1 月 1 日起，日粒度看游标所在月 1 日起；
+ *   · 起点到现在之间有任何一个工作日 ⇒ 已经「开始」了。周末固定休市，
+ *     所以按周一~周五判；节假日会让它比真实交易日早一天结束，但方向是
+ *     「已开始」，不会把「还没到」误判成「已开始」。
+ */
+export function isNotStartedYet(
+  granularity: PnlCalendarGranularity,
+  cursor: Date
+): boolean {
+  if (granularity === "year") return false;
+  const today = new Date();
+  const from =
+    granularity === "day"
+      ? new Date(cursor.getFullYear(), cursor.getMonth(), 1)
+      : new Date(today.getFullYear(), 0, 1);
+  if (from > today) return true; // 整段区间都在未来
+  for (const d = new Date(from); d <= today; d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay();
+    if (wd >= 1 && wd <= 5) return false;
+  }
+  return true;
+}
+
+/** 「还没开始」的空态正文：说清是日历事实，别指去同步任务 */
+export function emptyNotStartedHint(
+  granularity: PnlCalendarGranularity
+): string {
+  return (
+    `${emptyScopeFor(granularity)}还没有已发生的交易日。` +
+    "未来的日期与周末同待遇、不占格，每个交易日结束后才会有当日收益。"
+  );
+}
+
+/**
  * 是否属于**数据缺口**（而非「持仓本身没有估值序列」）。
  *
  * 完全没有覆盖 ⇒ 缺口；有覆盖但 priced=0 ⇒ 持仓按日无估值序列。
@@ -45,11 +88,19 @@ export function isDataGap(series: PnlCalendarSeries | null): boolean {
   return cov.priced_positions === 0 && !series?.latest_price_date;
 }
 
-/** 空态正文：缺口说缺口，否则说产品属性 */
+/**
+ * 空态正文：**还没开始**说还没开始，缺口说缺口，否则说产品属性。
+ *
+ * 优先判「还没开始」（#2793）：它由日历决定，与数据无关。放在最前面是因为
+ * 月初的 `coverage` 必然是 0/0（窗口里还没净值行），会被 `isDataGap` 误判成
+ * 数据缺口——那正是本次要避免的误导。
+ */
 export function emptyHintFor(
   series: PnlCalendarSeries | null,
-  granularity: PnlCalendarGranularity
+  granularity: PnlCalendarGranularity,
+  cursor: Date
 ): string {
+  if (isNotStartedYet(granularity, cursor)) return emptyNotStartedHint(granularity);
   if (!isDataGap(series)) return EMPTY_NO_VALUATION;
   return emptyDataGapHint(
     series?.latest_price_date ?? "—",
