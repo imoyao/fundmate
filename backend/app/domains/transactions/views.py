@@ -15,9 +15,19 @@ from app.core.database import get_db
 from app.core.retry import retry_on_db_locked
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
-from app.services.transaction_service import build_transaction_list, build_transactions_csv
+from app.services.transaction_service import build_transaction_detail, build_transaction_list, build_transactions_csv
 
 bp = APIBlueprint('transactions', __name__, url_prefix='/api/transactions')
+
+
+@bp.get('/<int:transaction_id>/')
+def get_transaction(transaction_id: int):
+    """单条流水详情（列表行「展开详情」按需取；为什么单开端点见 ``build_transaction_detail``）。"""
+    with get_db() as db:
+        detail = build_transaction_detail(db, get_family_id(), transaction_id)
+    if detail is None:
+        abort(404, '交易不存在或无权访问')
+    return jsonify({'data': detail, 'message': 'ok'})
 
 
 @bp.get('/')

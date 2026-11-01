@@ -24,11 +24,20 @@ from typing import Dict, Iterable, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.core.constants import OwnershipStatus
 from app.core.symbol_utils import strip_exchange_prefix
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+
+# 账户级流水（存入 / 取出）：本来就没有持仓行，不属于「已清仓」
+ACCOUNT_LEVEL_TXN_TYPES = ('deposit', 'withdraw')
+
+# 流水行的持仓状态（设计口径，见 docs/design/transaction-flow-redesign.md §三）
+POSITION_STATE_HELD = 'held'
+POSITION_STATE_CLEARED = 'cleared'
+POSITION_STATE_ACCOUNT = 'account'
 
 
 def resolve_transaction_display_names(
@@ -143,3 +152,63 @@ def resolve_transaction_asset_types(db: Session, txns: Iterable[Transaction]) ->
                     resolved[t.id] = 'fund'
 
     return resolved
+
+
+def resolve_transaction_position_states(db: Session, txns: Iterable[Transaction]) -> Dict[int, str]:
+    """流水行的持仓状态：``held`` / ``cleared`` / ``account``（单一判据出处）。
+
+    ## 为什么不是「`position_id` 是不是 null」
+
+    设计 v1.0 初稿按 ``position_id === null`` 判「已清仓」，这在今天的库上是**错的**：
+    #2343 起清仓**不再删行**（``ownership_status='cleared'``，锚点四列原样留存），
+    所以「已清仓」的流水 ``position_id`` 依然有值。只看 null 会让「已清仓」胶囊
+    几乎永不出现——而它比不显示更糟：用户会以为这个标记坏了，进而怀疑整列数据。
+
+    反过来的假阳性也在：``position_id`` 非空但持仓行确实已被删（#2343 之前的
+    历史数据，真库实测 621 笔悬空 id），那些流水**就是**已清仓，判成 held 会让
+    「持仓还在、只是这笔流水看着怪」的错觉长期留存。
+
+    ## 判据（顺序即优先级）
+
+    1. 有 ``position_id`` → 查持仓 ``ownership_status``：``cleared`` → ``cleared``；
+       ``active`` / ``shadow`` → ``held``；**id 悬空**（行已删）→ ``cleared``；
+    2. 无 ``position_id`` 且 ``txn_type ∈ (deposit, withdraw)`` → ``account``
+       （资金流水本来没有持仓行，不是「被删了」）；
+    3. 无 ``position_id`` 其余 → ``cleared``（历史「清仓即删行」时期的孤儿流水）。
+
+    ## 为什么必须服务端下发
+
+    判据依赖 ``ownership_status`` 与「行是否存在」两件事，前端只有 ``position_id``。
+    让前端按 null 猜，就是把「清仓不删行」这条后端决策抄成第二份真相源——它已经在
+    #2343 变过一次口径，前端那份必然滞后。
+
+    Returns:
+        ``{txn_id: 'held' | 'cleared' | 'account'}``——**每行都有一项**（含无持仓的），
+        调用方直接 ``states[t.id]``，不要再用 ``.get()`` 兜底猜默认值。
+    """
+    txn_list = list(txns)
+    if not txn_list:
+        return {}
+
+    pos_ids = {t.position_id for t in txn_list if t.position_id}
+    status_by_position: Dict[int, str] = {}
+    if pos_ids:
+        # 批量一次 IN：与命名解析同法（双库规则下不做跨域 JOIN，点查/批查安全）
+        status_by_position = {
+            pid: (status or OwnershipStatus.ACTIVE.value)
+            for pid, status in db.query(Position.id, Position.ownership_status).filter(Position.id.in_(pos_ids)).all()
+        }
+
+    states: Dict[int, str] = {}
+    for t in txn_list:
+        if t.position_id:
+            status = status_by_position.get(t.position_id)
+            # status is None = 持仓行不存在（悬空 id）：历史删行的清仓，归 cleared
+            states[t.id] = (
+                POSITION_STATE_CLEARED if status in (None, OwnershipStatus.CLEARED.value) else POSITION_STATE_HELD
+            )
+        elif t.txn_type in ACCOUNT_LEVEL_TXN_TYPES:
+            states[t.id] = POSITION_STATE_ACCOUNT
+        else:
+            states[t.id] = POSITION_STATE_CLEARED
+    return states

@@ -506,8 +506,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # 让导出与列表页共享同一份「有效交易日」口径——初版在导出里手抄了一份 coalesce，
     # 且单元格兜底写成 trade_date 单列，空交易日的行整批沉底（守卫之外的口径漂移）。
     # lines 138 → 85、max_func 60 → 25、orm_queries 2 → 1。
+    # 2026-11-01 重取（**新增端点**，非放宽）：给 transactions 加 `GET /api/transactions/<id>/`
+    # （交易流水页「行展开详情」按需取；列表页不再为每行预取溯源与持仓现状）。视图侧只有
+    # 「调 build_transaction_detail + 404 + 组信封」，行组装与持仓现状查询全在 services；
+    # orm_queries / commits / max_func 三项**实测不动**（1 / 0 / 25），无业务规则可下沉。
+    # 按本文件既有先例以 `--report` 实测回写：lines 85 → 95。
     "backend/app/domains/transactions/views.py": {
-        "lines": 85,
+        "lines": 95,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 25,
