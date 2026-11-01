@@ -55,6 +55,8 @@ from app.domains.summary.views import bp as summary_bp  # noqa: E402
 from app.domains.temperature.views import thermometer_bp  # noqa: E402
 from app.domains.transactions.views import bp as transactions_bp  # noqa: E402
 from app.domains.usage.views import usage_bp  # noqa: E402
+from app.domains.users.auth_audit import capture as capture_auth_audit  # noqa: E402
+from app.domains.users.auth_audit import flush as flush_auth_audit  # noqa: E402
 from app.domains.users.identity import UserIdentity  # noqa: E402
 from app.domains.users.seed import seed_default_identity  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
@@ -155,6 +157,15 @@ def create_app() -> APIFlask:
 
     # 请求级会话收尾兜底（#1632）：`get_db()` 最外层通常已提交/关闭，
     # 这里兜底清理异常路径残留的请求级会话，避免连接泄漏。
+    #
+    # 认证端点流水（D76 / #2780）分两段接力：响应前只采集（`after_request`），
+    # 落库放在会话收尾**之后**（`teardown_request`）。
+    # **注册顺序是硬约束**：Flask 的 teardown 钩子按「后注册先执行」运行，所以
+    # `flush_auth_audit` 必须写在 `teardown_request_session` 上面，才能排在它之后执行；
+    # 反过来的话，写请求（`PATCH /api/users/me/`）尚未提交的事务还握着写锁，审计用的
+    # 独立连接会等满 SQLite timeout 后 OperationalError——台账变成随机丢行。
+    app.after_request(capture_auth_audit)
+    app.teardown_request(flush_auth_audit)
     app.teardown_request(teardown_request_session)
 
     # 单实例守门（#1809）：同一 DB 只允许一个 web 实例，且**必须排在 init_db()/迁移之前**——

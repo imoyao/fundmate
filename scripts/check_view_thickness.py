@@ -178,7 +178,7 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 44,
     },
     "backend/app/domains/auth/views.py": {
-        "lines": 113,
+        "lines": 102,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 28,
