@@ -1,6 +1,6 @@
 # 交易流水 · 桌面端重设计
 
-**状态**：设计定稿 v1.2（2026-11-01 落实施，见 §十三）· 三条横带全部落地（汇总条含后端端点）
+**状态**：设计定稿 v1.4（2026-11-01 落实施，见 §十三）· 汇总卡片化 + 内部标记人话化 + 详情面板重做 + 行展开手风琴
 **原型**：`docs/design/transaction-flow-redesign-prototype.html`（可交互，单文件离线可开）
 **范围**：`/asset/transactionList` 桌面端（表格视图 + 流水线视图）· 边界见文末「不做」
 
@@ -203,7 +203,7 @@
 | `TransactionTimelineView.vue` | 日折叠 → 月分组 + sticky 月头 + 月内合计；7 列栅格；账户列；金额不染色 | `el-collapse` 的 sticky 头在 `el-scrollbar` 内**需实测**；触底加载逻辑不变 |
 | `views/asset/TransactionList.vue` | 页头换 `PageHeaderBar` + `#action`（导出）；插入汇总条；传参给两个视图 | keepAlive 与 `?symbol=` 预筛逻辑保持原样，不动 |
 | 后端 `GET /api/transactions/summary` | 与列表同筛选参数，返回买入/卖出/分红的笔数与金额、手续费合计、净投入（分转元） | **已实现（v1.2）**，路径 `/api/transactions/summary/`。要点：与列表**共用** `filters_from_args` + `_filtered_transaction_query`，独立 `GROUP BY` 聚合（不拿分页数据求和），分做整数运算。整块未就绪时前端不渲染（不留空容器），**不用当页数据凑数** |
-| `TransactionSummaryBar.vue`（v1.2 新增） | 一行横带：范围 · 买入 · 卖出 · 分红 · 手续费 · 净投入（带符号） | 纯展示组件，**零求和**；`v-if="summary"`（未取到不渲染）；净投入 `title` 写明公式 |
+| `TransactionSummaryBar.vue`（v1.2 新增，v1.4 改卡片式） | 每指标一张卡：范围 · 买入 · 卖出 · 分红 · 手续费 · 净投入（带符号） | 纯展示组件，**零求和**；`v-if="summary"`（未取到不渲染）；净投入 `title` 写明公式 |
 | **新增** `components/TransactionTable/TransactionAssetCell.vue` | 资产单元格：名称 + 代码位 + 已清仓胶囊 / 资金流水弱化字 | 三态各一条渲染路径，**没有一条会把整行置灰** |
 | **新增** `components/TransactionTable/TransactionAccountCell.vue` | 账户单元格：可点胶囊（带 `›`）/ 未归属虚线（无箭头 + `title`） | 判据只看 `ledger_id` 有没有值 |
 | **新增** `components/TransactionTable/TransactionDetailPanel.vue` | 展开详情：确认日 / 来源 / 备注全文 / 费用明细 / 持仓现状 / 溯源 / 编辑入口 | 只渲染不取数；三态（loading / error+重试 / data）分开，不合并成一个 `null` |
@@ -227,6 +227,10 @@
 10. 键盘 Tab 序列覆盖：分段控制器 → 三个下拉 → 重置 → 视图切换 → 每行账户胶囊 → 每行编辑；`prefers-reduced-motion: reduce` 下无过渡。
 11. 汇总条：后端按 §四 公式返回；**一组已知数据单测**断言 `净投入 === 买入 + 手续费 − 卖出 − 分红`（构造 `买入 100、卖出 40、分红 5、手续费 1` → 净投入 **56**）。前端不得自行求和。
 12. **行展开详情按需取**：列表请求体里不含 `import_hash` / `plan_id` / `position`；展开某行才发 `GET /api/transactions/<id>/`，收起不发、已取过不重复发。三条判据由 `transactionDetailOnDemand.spec.ts` 钉住（源码判据 + 变异验证）。
+13. **汇总卡片**：每个指标一张独立卡片，hero 数字走 `--text-num-strong`（18px）+ `--font-mono` + `tabular-nums`；卡片栅格 `repeat(auto-fit, minmax(132px, 1fr))`；净投入卡片用主色 accent 拎出。**不得出现裸 px 字号**（stylelint `declaration-property-value-disallowed-list` 会拦）。
+14. **内部标记人话化**：`货基持仓迁移为孤儿流水（L3，2026-08-14）` 在表格与流水线两处都渲染为「系统迁移货基持仓时自动生成的记录」+ 徽标（含日期与批次）；**存储层原样不动**，只在展示层转译。普通备注**原样输出**，一条都不能被吞掉或改写。
+15. **行展开手风琴**：任何时刻最多一行处于展开态；展开 B 行时 A 行自动收起；展开的行**不得**被同步重入误关（这是真实 bug，见 §十三 v1.4 的实现记录）。
+16. **折叠态可翻页**：时间线处于折叠态（内容不满一屏）时，点底部「加载更多」**必须**能加载下一页——此前 `@scroll` 触底依赖容器溢出，折叠态下不溢出 → 事件永不触发 → 加载更多失效。判据：底部是真正的 `<button>`，走 `@click` 而非只靠 `@scroll`。
 
 ---
 
@@ -284,7 +288,39 @@
 
 > 行为锁定：`transactionListModel.spec.ts` 新增 `resolveOpenMonths` 4 条（首次默认 / 重置回默认 / 追加保留展开 / 追加保留折叠）；`TransactionTimelineView` 的渲染与守卫不变量未变。
 
-### 验证
+### 汇总卡片化 + 人话化 + 手风琴（v1.4，2026-11-01）
+
+v1.3 上线后的实测反馈，本轮一次收口六项：
+
+**1. 汇总条 → 卡片式。** 一行 13px 小字横带里，六个数字全是同一视觉权重，扫时哪个是结论看不出来。改为**每指标一张卡**：hero 数字走 `--text-num-strong`（18px / 600，即 `design.md` 的「指标网格值」档）+ `--font-mono` + `tabular-nums`（右对齐时数字不错位）；净投入是唯一的结论数字，用主色左边框 + `--color-primary-10` 底拎出来。卡片栅格 `repeat(auto-fit, minmax(132px, 1fr))`，窄屏自动折行。
+
+> 字阶一律走令牌：手写 `font-size: 20px` 会被 stylelint 的 `declaration-property-value-disallowed-list` 拦下（#2323），因为 20px 是第 N 种自造档位。
+
+**2. 时间线行布局：grid → flex，消除大片空白。** 原 7 列 `grid` 里资产列是 `minmax(0, 1fr)`，贪吃全部剩余宽度，把账户 / 金额 / 状态整组挤到约 72% 处，账户名前留下一大片没人用的空白。改为 flex：资产列 `flex: 1 1 auto; max-width: 46%`，金额列 `margin-left: auto; width: 108px; text-align: right`——账户名紧贴资产列左侧，金额与状态恒右对齐。
+
+**3. 折叠态「加载更多」失效（真 bug）。** 现象：只有展开的月份能下滑加载，折叠态下拉到底就不动了。根因：触底加载挂在容器的 `@scroll` 上，而容器 `max-height: 75vh`；**折叠态内容不满一屏 → 容器不溢出 → `scroll` 事件永不触发**。修复：底部「加载更多」改成真正的 `<button>`（`@click` → `emit("load-more")`），滚动触底保留（两条路径都能翻页）。加载态保留旋转环 +「加载中…」（`aria-live="polite"`）。
+
+**4. 内部标记人话化。** 备注原文 `货基持仓迁移为孤儿流水（L3，2026-08-14）` 是内部标记，用户读不懂。转译成「系统迁移货基持仓时自动生成的记录」，原标记收进一枚安静徽标（含日期与批次），`title` 里写全「系统迁移产生的占位记录 · 2026-08-14 · 批次 L3」。
+
+> **`L3` 是什么**：来自 `docs/working-notes/money-fund-income-plan-2026-08-09.md` §6.6 的 **L3 数据操作 lane**（备份 → 清空重建 `money_fund_daily_worth` → 4 只货基持仓迁移为孤儿流水）。**与 `docs/spec/cashflow-layers.md` 里的 L3 不是一回事**——后者是资金流水的「收益实现」分层，两者同名不同义，必须区分。
+>
+> **存储层不动，只在展示层转译**：解析在 `model.ts` 的纯函数 `parseMigrationNote()` 里，返回 `{ isMigration, human, batchDate, batchLevel }`；普通备注原样返回，绝不吞掉用户内容。真实数据核对：开发库 1512 笔里命中迁移正则的 distinct 备注**只有 1 条**（共 10 行，`id 1641-1650`，全部 `type=buy` / `asset_type=money_fund` / `entry_status=orphan`）；全库带括号的 distinct 备注同样只有这 1 条 → 当前正则不会误伤用户手写备注。
+
+**5. 详情面板重做。** 原 `TransactionDetailPanel.vue` 是一张扁平字段表，读起来像数据库 dump。改为**分组 section**：「交易信息 / 费用明细 / 备注 / 记录」，每组有小标题，字段改为标签在上、值在下（`max-width: 760px`，不再铺满整行）。费用未拆分时**如实显示**「未拆分（只有合计 ¥X）」，不假装有明细。
+
+**6. 行展开手风琴（同时只展开一行）。** `el-table` 的展开列**没有** `accordion` 属性（element-plus 2.14.7 全库无此 prop），只能手写；且手写时踩到一个必须记下来的坑：
+
+> **同步重入陷阱**：`store/expand.mjs:27` 里 `toggleRowStatus(...)` 成功后**立即**同步 `instance.emit("expand-change", row, expandRows.value.slice())`。于是「收起旧行 A」这一步会**重入**展开事件处理器；若处理器此时用「有行被收起就全都收掉」的直觉写法，会把**刚展开的新行 B 一起关掉**——表现为「点开一行，它自己立刻关上了」。
+>
+> **解法**：不看「谁被收起了」，而看「**这一行现在在不在已展开列表里**」。`expand-change` 的第二参数语义就是「当前**全部**已展开的行」（状态变更**之后**求值），所以「刚展开 / 刚收起」有唯一判据：在列表里 = 刚展开（其余是残留，要收）；不在 = 刚收起（什么都不做）。于是「收起旧行」触发的同步重入事件正好落进「刚收起」这一支，**自动成为空操作**——不需要任何标志位，也不需要防重入计数。
+>
+> 另外：`expand-change` 是联合签名（表格给 `T[]`、树形给 `boolean`），处理器必须判 `Array.isArray` 分流；无 `rowKey` 时 element-plus 用**引用相等**匹配行，所以匹配逻辑要同时支持 `a === b` 与 `a.id === b.id`。
+
+手风琴逻辑抽成 **不依赖 Vue 运行时** 的纯模块 `expandAccordion.ts`（`planAccordion` + `createExpandAccordion`）——因为前端单测跑在 `environment: "node"` 下挂不了组件，行为逻辑必须能被直测。
+
+> **为什么 `index.vue` 要拆**：手风琴 + 备注单元格渲染一起塞进去会让 `TransactionTable/index.vue` 涨到 **425 行**，触发 400 行页面规模门禁（新增超阈文件直接判红）。拆出 `expandAccordion.ts`（逻辑）+ `TransactionNotesCell.vue`（备注单元格渲染）后回到 **386 行**。
+
+### 验证（v1.4 补充）
 
 | 项 | 结果 |
 |---|---|
@@ -296,6 +332,14 @@
 | 变异验证（守卫有效） | 删「已取不重复请求」短路 → 对应用例红；删「收起提前返回」→ 对应用例红；两处已还原 |
 | `vue-tsc` / eslint / prettier / stylelint | 干净 |
 | 守卫脚本 | `guard_a11y_interaction` / `guard_segmented` / `guard_mojibake` / `guard_layout_widths` / `guard_col_divider` / `guard_detail_tables` / `guard_error_envelope` 全绿 |
+| **手风琴行为（v1.4）** | `expandAccordion.spec.ts` **10 条**（`planAccordion` 4 + `createExpandAccordion` 6）。其中的 `createFakeTable()` **忠实复刻 element-plus**：改完 `expandRows` 状态后**同步** emit `expand-change`、第二参数传 `expandRows.slice()`——不忠实复刻就测不出重入 bug |
+| **手风琴变异验证（v1.4）** | 用**旧实现**（凭「谁被收起」判断）跑同一份用例 → `expandRows === []`（刚展开的新行被误关），**复现了「点开即关」的真 bug**；换新实现 → `expandRows === [2]`，正确 |
+| **手风琴收起不重取（v1.4）** | 收起一行 → `onExpand` **不**被调用（否则每次收起都白跑一次详情接口）；由 `expandAccordion.spec.ts` 的「收起不通知容器取详情」钉住 |
+| **内部标记转译（v1.4）** | `parseMigrationNote` **7 条**（`model.spec.ts`）：迁移备注 → 人话 + 日期 + 批次；普通备注原样；带括号但不匹配的普通备注**不被误判** |
+| **详情按需取守卫重指向（v1.4）** | `transactionDetailOnDemand.spec.ts` 的「收起不请求」断言从 grep `index.vue` 字面量改为**结构顺序断言**（守卫位置 < 通知位置），并重指向 `expandAccordion.ts`——旧断言因实现搬家而指向失效（字面量在不在证明不了顺序），行为契约由 `expandAccordion.spec.ts` 的真行为测试接管 |
+| **页面规模门禁（v1.4）** | `check_vue_size --threshold 400`：`TransactionTable/index.vue` 425 → **386 行**（拆出 `expandAccordion.ts` + `TransactionNotesCell.vue`），无新增超阈文件 |
+| **全量前端单测（v1.4）** | `pnpm test:unit` → **131 files / 1769 tests passed** |
+| **CSS 令牌复核（v1.4）** | 汇总卡片改用 `--text-tertiary-ink`（白底 5.34:1）；`--text-tertiary`（3.69:1）只允许作底色 / 描边 / 图形，改动文件内 `color: var(--text-tertiary)` **零残留** |
 | 门禁 | `check_vue_size` 无超限；`check_view_thickness` 通过（`transactions/views.py` 按 `--report` 实测回写 85 → 95 → 100，两次都是「再加一个只读端点」，理由见脚本注释）；`check_api_conventions` 通过（221 条端点） |
 
 ---
@@ -305,7 +349,7 @@
 | 手机端做法 | 这里 | 为什么 |
 |---|---|---|
 | 按月/按日分节的纵向流水 | **拿**：月分组 + 月内合计，落在流水线视图 | 分节回答的是节奏，与屏宽无关 |
-| 顶部「交易汇总」四宫格大数字 | **改造**：压成一行汇总条 | 手机竖屏没横向空间只能用大卡片；桌面 40px 一行就够，列表才是主角 |
+| 顶部「交易汇总」四宫格大数字 | **改造**：压成一行卡片（v1.2 一行横带 → v1.4 每指标一张卡，hero 数字 18px 等宽） | 手机竖屏没横向空间只能用大卡片；桌面把结论数字放大、把次要数字收进卡片，同样是「一眼看到结论」 |
 | 每行右侧「›」进详情 | **不拿**：hover 出「编辑」 | 桌面没有「进入详情页」的空间成本 |
 | 「清仓分析」卡 | **不拿** | 另一个功能面 |
 | 「已撤单」跟在金额后 | **改造**：金额划线 + 状态列写「已撤单」 | 桌面状态有独立列，标两遍是冗余 |

@@ -17,6 +17,7 @@ import {
   formatTradeDate,
   isAccountLevel,
   isInternalSymbol,
+  parseMigrationNote,
   positionStateOf,
   statusTone,
   typeClass,
@@ -164,5 +165,58 @@ describe("CLEARED_BADGE_TITLE", () => {
   it("说明为什么保留而不是删除（用户看到胶囊会问这句）", () => {
     expect(CLEARED_BADGE_TITLE).toContain("清仓");
     expect(CLEARED_BADGE_TITLE).toContain("保留");
+  });
+});
+
+describe("parseMigrationNote", () => {
+  it("命中迁移标记：认出批次级别与日期，并把内部标记收进徽标而非正文", () => {
+    const r = parseMigrationNote("货基持仓迁移为孤儿流水（L3，2026-08-14）");
+    expect(r.isMigration).toBe(true);
+    expect(r.batchLevel).toBe("L3");
+    expect(r.batchDate).toBe("2026-08-14");
+  });
+
+  it("迁移类人话转译：不再把「货基持仓迁移为孤儿流水」甩给用户", () => {
+    const r = parseMigrationNote("货基持仓迁移为孤儿流水（L3，2026-08-14）");
+    expect(r.displayText).toBe("系统迁移货基持仓时自动生成的记录");
+    expect(r.displayText).not.toContain("L3");
+    expect(r.displayText).not.toContain("2026-08-14");
+  });
+
+  it("全角/半角括号、逗号都容得下", () => {
+    expect(
+      parseMigrationNote("货基持仓迁移为孤儿流水(L3,2026-08-14)").isMigration
+    ).toBe(true);
+    expect(
+      parseMigrationNote("货基持仓迁移为孤儿流水（L3，2026-08-14）").batchDate
+    ).toBe("2026-08-14");
+  });
+
+  it("没有批次级别的迁移标记（只有日期）也能识别", () => {
+    const r = parseMigrationNote("某迁移备注（2026-08-14）");
+    expect(r.isMigration).toBe(true);
+    expect(r.batchDate).toBe("2026-08-14");
+    expect(r.batchLevel).toBeUndefined();
+  });
+
+  it("普通备注原样返回，isMigration=false，绝不吞掉用户自己的内容", () => {
+    const normal = "初始买入";
+    const r = parseMigrationNote(normal);
+    expect(r.isMigration).toBe(false);
+    expect(r.displayText).toBe("初始买入");
+  });
+
+  it("空 / null / 纯空白不报错，displayText 为空", () => {
+    expect(parseMigrationNote("").isMigration).toBe(false);
+    expect(parseMigrationNote(null).displayText).toBe("");
+    expect(parseMigrationNote(undefined).displayText).toBe("");
+    expect(parseMigrationNote("   ").displayText).toBe("");
+  });
+
+  it("含日期但不是迁移形态的正文不被误判", () => {
+    // 「2026-08-14 买入」没有迁移括号，不该被当成迁移
+    const r = parseMigrationNote("2026-08-14 买入");
+    expect(r.isMigration).toBe(false);
+    expect(r.displayText).toBe("2026-08-14 买入");
   });
 });

@@ -163,3 +163,56 @@ export function compareTradeDate(a: TransactionRow, b: TransactionRow): number {
   if (left === right) return 0;
   return left < right ? -1 : 1;
 }
+
+/**
+ * 系统迁移产生的「占位备注」解析。
+ *
+ * 历史数据里有一类备注是迁移脚本盖的章，长这样：
+ * `货基持仓迁移为孤儿流水（L3，2026-08-14）`。用户完全读不懂——`L3` 是内部迁移批次级别，
+ * 日期是那次迁移的锚定日。这类备注必须「存储层不动、展示层转译」（见 worktree 约束）：
+ * 这里只解析，**绝不写回** notes 字段。
+ *
+ * 解析结果：
+ * - `isMigration`：是否命中迁移标记；
+ * - `displayText`：去掉括号后的「人话」——迁移类把 `货基持仓迁移为孤儿流水` 转成
+ *   `系统迁移货基持仓时自动生成的记录`，普通备注原样返回；
+ * - `batchLevel` / `batchDate`：内部批次与日期，**只在徽标 tooltip 里出现**，不当作正文。
+ *
+ * 健壮性：括号用全角/半角都认，分隔逗号 `，`/`,` 都认；正文即使偶有多余空格也能容。
+ * 没命中迁移形态时 `isMigration=false`，`displayText` 退回原始备注——绝不吞掉用户自己的备注。
+ */
+export interface MigrationNote {
+  isMigration: boolean;
+  displayText: string;
+  batchLevel?: string;
+  batchDate?: string;
+}
+
+const MIGRATION_NOTE_RE =
+  /^(.*?)\s*[（(]\s*((?:L\d+\s*[，,]?\s*)?\d{4}-\d{2}-\d{2})\s*[）)]\s*$/;
+
+const MIGRATION_LEAD_HUMAN: Record<string, string> = {
+  货基持仓迁移为孤儿流水: "系统迁移货基持仓时自动生成的记录"
+};
+
+export function parseMigrationNote(raw?: string | null): MigrationNote {
+  const text = (raw ?? "").trim();
+  if (!text) return { isMigration: false, displayText: "" };
+
+  const m = MIGRATION_NOTE_RE.exec(text);
+  if (!m) return { isMigration: false, displayText: text };
+
+  const lead = m[1].trim();
+  const inner = m[2];
+  const levelMatch = inner.match(/L\d+/);
+  const dateMatch = inner.match(/\d{4}-\d{2}-\d{2}/);
+  const displayText =
+    MIGRATION_LEAD_HUMAN[lead] ?? (lead || "系统迁移产生的占位记录");
+
+  return {
+    isMigration: true,
+    displayText,
+    batchLevel: levelMatch ? levelMatch[0] : undefined,
+    batchDate: dateMatch ? dateMatch[0] : undefined
+  };
+}

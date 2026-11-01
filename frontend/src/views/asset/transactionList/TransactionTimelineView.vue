@@ -71,13 +71,22 @@ function sectionId(group: MonthGroup): string {
   return `txn-month-${group.month || "unknown"}`;
 }
 
-/** 触底 100px 内加载下一页 */
+/** 触底 100px 内加载下一页（容器可滚时） */
 function onScroll() {
   const el = scrollEl.value;
   if (!el || props.loadingMore || !props.hasMore) return;
   if (el.scrollTop + el.clientHeight + 100 >= el.scrollHeight) {
     emit("load-more");
   }
+}
+
+/**
+ * 折叠态下容器高度不足、滚动条不出现，触底加载永远触不到——
+ * 所以「加载更多」同时是可点按钮：折叠也能翻下一页（修 v1.3 后暴露的死路）。
+ */
+function onLoadMoreClick() {
+  if (!props.hasMore || props.loadingMore) return;
+  emit("load-more");
 }
 </script>
 
@@ -157,20 +166,21 @@ function onScroll() {
       </ul>
     </section>
 
-    <!-- 加载更多提示：loadingMore 时给出明确的旋转 + 文案，给「无限加载」的视觉反馈；
-         否则只放一行静态提示，用户触底后看不到任何动静，会以为卡了 / 数据没更新。 -->
-    <div
-      v-if="hasMore"
-      class="txn-timeline__more"
-      :class="{ 'txn-timeline__more--loading': loadingMore }"
-      aria-live="polite"
-    >
-      <span
-        v-if="loadingMore"
-        class="txn-timeline__spinner"
-        aria-hidden="true"
-      />
-      <span>{{ loadingMore ? "加载中…" : "下滑加载更多数据" }}</span>
+    <!-- 加载更多：滚动到底（容器可滚时）与点击按钮（折叠不可滚时）都能触发——
+         否则折叠态下内容没填满 75vh、滚动条不出现，触底加载就永远触不到。 -->
+    <div v-if="hasMore" class="txn-timeline__more" aria-live="polite">
+      <button
+        v-if="!loadingMore"
+        type="button"
+        class="txn-timeline__load-btn"
+        @click="onLoadMoreClick"
+      >
+        加载更多数据
+      </button>
+      <span v-else class="txn-timeline__loading">
+        <span class="txn-timeline__spinner" aria-hidden="true" />
+        <span>加载中…</span>
+      </span>
     </div>
     <div v-else-if="transactions.length > 0" class="txn-timeline__end">
       已经到底了
@@ -198,13 +208,42 @@ function onScroll() {
 
 .txn-timeline__more {
   display: flex;
+  justify-content: center;
+  padding: var(--space-3) 0 var(--space-4);
+  text-align: center;
+}
+
+/* 折叠态下触底加载触不到，按钮是唯一的翻页入口——所以它是真按钮：
+   可聚焦、可回车、读屏播报，而不是一段装饰文字。 */
+.txn-timeline__load-btn {
+  padding: 6px 16px;
+  font-size: var(--text-label);
+  color: var(--color-primary-ink);
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.txn-timeline__load-btn:hover {
+  background: var(--bg-soft);
+  border-color: var(--color-primary);
+}
+
+.txn-timeline__load-btn:focus-visible {
+  outline: 2px solid var(--color-primary-ink);
+  outline-offset: 2px;
+}
+
+.txn-timeline__loading {
+  display: inline-flex;
   gap: 8px;
   align-items: center;
-  justify-content: center;
-  padding: var(--space-4) 0;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-  text-align: center;
 }
 
 /* 旋转环：纯 CSS，不用图标字体（emoji / 图标字体当 loading 是明令禁止的）。
