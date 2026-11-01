@@ -1,74 +1,103 @@
 <template>
-  <el-drawer
-    v-model="drawerVisible"
-    size="680px"
-    direction="rtl"
-    destroy-on-close
-    title="持仓明细"
+  <ProductDrawer
+    :model-value="visible"
+    :name="positionData?.name"
+    :symbol="positionData?.symbol"
+    :asset-type="positionData?.asset_type"
+    :type-label="positionData?.type_label"
+    :detail-available="detailAvailable"
+    :detail-hint="
+      detailAvailable ? '查看完整资料、持仓与历史记录' : '该品类暂无详情页'
+    "
+    :detail-loading="detailLoading"
+    :disclaimer="PRODUCT_DISCLAIMER"
+    @update:model-value="emit('update:visible', $event)"
+    @detail="goDetail"
   >
-    <!-- 1. 顶部：持仓名称与信息 -->
-    <PositionDrawerHeader
-      :position-data="positionData"
-      :detail-loading="detailLoading"
-      @detail="goDetail"
-    />
-
-    <!-- 2. 核心摘要卡片 -->
-    <PositionSummaryGrid
-      :position-data="positionData"
-      :xirr="xirr"
-      :loading-xirr="loadingXirr"
-    />
-
-    <!-- 3. 走势图区 -->
-    <div
-      class="mb-5 p-4 bg-gray-50 rounded-lg border border-dashed flex items-center justify-center"
-      :style="{ borderColor: 'var(--border-default)' }"
-    >
-      <div
-        class="text-xs text-center leading-relaxed"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
-        <IconifyIconOffline
-          icon="ep:trend-charts"
-          class="text-lg block mx-auto mb-1"
-        />
-        历史价格与成本曲线<br />
-        <span class="text-[10px]">(数据依赖 P1-20 定时任务同步)</span>
+    <!-- 锚点：持仓市值（24/600），副行是持仓盈亏 + 盈亏率（同一件事的绝对值与比率） -->
+    <template #anchor>
+      <MoneyDisplay
+        :value="anchor.value"
+        size="lg"
+        :show-sign="false"
+        :auto-color="false"
+      />
+      <div v-if="anchor.hasSub" class="pd-anchor__sub">
+        <template v-if="anchor.pnl != null || anchor.pnlRate != null">
+          <span>持仓盈亏</span>
+          <MoneyDisplay
+            v-if="anchor.pnl != null"
+            :value="anchor.pnl"
+            size="sm"
+          />
+          <RiseFallText
+            v-if="anchor.pnlRate != null"
+            :value="anchor.pnlRate"
+            size="sm"
+          />
+        </template>
+        <template v-else-if="anchor.xirrLoading">
+          <span>年化收益率 计算中…</span>
+        </template>
+        <template v-else>
+          <span>年化收益率</span>
+          <span :style="{ color: xirrColor(anchor.xirr) }">
+            {{ formatXirr(anchor.xirr) }}
+          </span>
+        </template>
       </div>
-    </div>
+    </template>
 
-    <!-- 4. 交易明细列表（抽屉 destroy-on-close：打开即取数，关闭即重置） -->
+    <!-- 键值网格：份额 / 成本 / 净值 / 时长 / 年化（市值与盈亏已升到锚点） -->
+    <DrawerSection title="持仓概况">
+      <PositionSummaryGrid
+        :position-data="positionData"
+        :xirr="xirr"
+        :loading-xirr="loadingXirr"
+      />
+    </DrawerSection>
+
+    <!-- 交易明细（抽屉 destroy-on-close：打开即取数，关闭即重置） -->
     <PositionTransactionsList
       :position-id="positionData?.id"
       :asset-type="positionData?.asset_type"
       :symbol="positionData?.symbol"
       :is-fund="isFund"
     />
-  </el-drawer>
+  </ProductDrawer>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionXirr } from "@/api/performance";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
+import ProductDrawer from "@/components/ProductDrawer/index.vue";
+import DrawerSection from "@/components/ProductDrawer/DrawerSection.vue";
+import { PRODUCT_DISCLAIMER } from "@/components/ProductDrawer/disclaimer";
 import { resolveDetailPath } from "@/utils/productDetailNav";
-import PositionDrawerHeader from "./PositionDrawerHeader.vue";
+import { isDetailAssetType } from "@/utils/productIdentity";
 import PositionSummaryGrid from "./PositionSummaryGrid.vue";
 import PositionTransactionsList from "./PositionTransactionsList.vue";
-import { isFundPosition, type PositionLike } from "./positionSummaryModel";
+import {
+  buildAnchor,
+  formatXirr,
+  isFundPosition,
+  xirrColor,
+  type PositionLike
+} from "./positionSummaryModel";
 
 /**
  * 持仓明细抽屉（#980 拆分）。
  *
- * 原 494 行里约 300 行是模板：头部、8 张摘要卡、走势图占位、交易明细各段
- * 结构互不相干。现在按段拆为三个子件：
- * - `PositionDrawerHeader.vue`：名称 / 代码 / 品类 + 查看详情入口；
- * - `PositionSummaryGrid.vue`：8 张卡片（数据由 `positionSummaryModel.ts` 产出）；
- * - `PositionTransactionsList.vue`：交易明细与行内编辑弹窗（自管取数与重置）。
- * 本文件只保留抽屉外壳、跳详情的路由副作用与 XIRR 取数。
+ * 骨架（宽度 / 两条线 / 区块标题 / 唯一出口）全部由 `ProductDrawer` 承担；
+ * 头部原先由 `PositionDrawerHeader.vue` 自绘，职责已并入外壳，该文件已删除。
+ * 本文件只剩：跳详情的路由副作用、XIRR 取数、锚点与区块的编排。
+ *
+ * 已删除（设计 §6.1）：「历史价格与成本曲线（数据依赖 P1-20 定时任务同步）」
+ * 空壳块——它把内部工单号写进界面，读起来像「图坏了」。
  */
 const props = defineProps<{
   visible: boolean;
@@ -81,6 +110,11 @@ const emit = defineEmits<{
 
 const router = useRouter();
 const detailLoading = ref(false);
+
+/** 品类白名单单点判定：没有详情页就不渲染按钮，只留原因（§5） */
+const detailAvailable = computed(() =>
+  isDetailAssetType(props.positionData?.asset_type)
+);
 
 /**
  * 跳详情页（#1965）。
@@ -96,7 +130,7 @@ async function goDetail() {
     const path = await resolveDetailPath({
       symbol: pos.symbol,
       assetType: pos.asset_type,
-      market: (pos as any).market
+      market: pos.market
     });
     if (!path) {
       ElMessage.warning("该品类详情页暂未开放");
@@ -115,15 +149,14 @@ async function goDetail() {
 /** 基金类型判断（基金/货币基金） */
 const isFund = computed(() => isFundPosition(props.positionData?.asset_type));
 
-// 抽屉双向绑定
-const drawerVisible = computed({
-  get: () => props.visible,
-  set: val => emit("update:visible", val)
-});
-
 // 年化收益率（XIRR，#862 / #796）：单持仓维度，开抽屉时拉取
 const loadingXirr = ref(false);
 const xirr = ref<number | null>(null);
+
+/** 锚点模型：主数值 + 副行（盈亏 / 盈亏率 / 年化兜底） */
+const anchor = computed(() =>
+  buildAnchor(props.positionData, xirr.value, loadingXirr.value)
+);
 
 async function fetchXirr() {
   const id = props.positionData?.id;
@@ -134,7 +167,7 @@ async function fetchXirr() {
   loadingXirr.value = true;
   try {
     const res = await getPositionXirr(id as number);
-    const data = (res as any)?.data;
+    const data = res?.data;
     // xirr 为小数（0.1234=12.34%）；无现金流/无法计算时后端可能不返回该字段
     xirr.value = typeof data?.xirr === "number" ? data.xirr : null;
   } catch {

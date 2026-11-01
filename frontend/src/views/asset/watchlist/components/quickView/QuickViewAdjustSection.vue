@@ -1,7 +1,14 @@
 <script setup lang="ts">
+import DrawerSection from "@/components/ProductDrawer/DrawerSection.vue";
 import type { AdvisorAdjustGroup } from "@/api/funds";
 import { opClassOf, ratioTextOf } from "./quickViewModel";
 
+/**
+ * 「成分与调仓」区块（#1468）：抽屉打开时按需拉取，不进列表主请求。
+ *
+ * `.wqv-row` / `.wqv-adjust` / `.wqv-op*` 是既有 e2e 的定位钩子；样式只保留本区块
+ * 独有的调仓明细部分（`.wqv-adjust*` / `.wqv-li*` / `.wqv-op*`），骨架走 `.pd-*`。
+ */
 defineProps<{
   loading: boolean;
   error: string;
@@ -14,20 +21,17 @@ defineProps<{
 </script>
 
 <template>
-  <!-- 投顾组合成分与调仓（#1468）：抽屉打开时按需拉取，不进列表主请求 -->
-  <section class="wqv-sec">
-    <h4 class="wqv-sec__title">成分与调仓</h4>
-
-    <div v-if="loading" class="wqv-hint">加载中…</div>
-    <div v-else-if="error" class="wqv-empty">{{ error }}</div>
+  <DrawerSection title="成分与调仓">
+    <p v-if="loading" class="pd-hint">加载中…</p>
+    <p v-else-if="error" class="pd-hint">{{ error }}</p>
     <template v-else>
-      <dl class="wqv-list">
-        <div class="wqv-row">
-          <dt class="wqv-label">成分基金</dt>
-          <dd class="wqv-value">
+      <dl class="pd-list">
+        <div class="pd-row wqv-row">
+          <dt class="pd-row__label">成分基金</dt>
+          <dd class="pd-row__value">
             <span v-if="holdingsCount">{{ holdingsCount }} 只</span>
-            <span v-else class="wqv-empty">—</span>
-            <span v-if="missingCount" class="wqv-hint">
+            <span v-else>—</span>
+            <span v-if="missingCount" class="pd-hint">
               · {{ missingCount }} 只未收录本地
             </span>
           </dd>
@@ -38,7 +42,7 @@ defineProps<{
         <div v-for="g in adjustGroups" :key="g.adjust_date" class="wqv-adjust">
           <div class="wqv-adjust__head">
             <span class="wqv-adjust__date">{{ g.adjust_date }}</span>
-            <span class="wqv-hint">{{ g.items.length }} 只调整</span>
+            <span class="pd-hint">{{ g.items.length }} 只调整</span>
           </div>
           <ul class="wqv-adjust__list">
             <li v-for="it in g.items" :key="it.fund_code" class="wqv-li">
@@ -53,29 +57,27 @@ defineProps<{
           </ul>
         </div>
       </div>
-      <div v-else class="wqv-empty">
+      <p v-else class="pd-hint">
         暂无调仓记录{{ isQieman ? "（需累积 ≥2 次持仓快照后自动推导）" : "" }}
-      </div>
+      </p>
     </template>
-  </section>
+  </DrawerSection>
 </template>
 
 <style scoped lang="scss">
-@use "./wqv-base";
-
 /* 调仓明细：按调仓日分组的紧凑列表 */
 .wqv-adjusts {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .wqv-adjust__head {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: baseline;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 .wqv-adjust__date {
@@ -92,7 +94,7 @@ defineProps<{
 
 .wqv-li {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: baseline;
   justify-content: space-between;
   padding: 2px 0;
@@ -113,7 +115,7 @@ defineProps<{
 }
 
 .wqv-op {
-  margin-right: 4px;
+  margin-right: var(--space-1);
   color: var(--text-tertiary-ink);
 }
 

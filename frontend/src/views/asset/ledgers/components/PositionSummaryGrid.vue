@@ -1,68 +1,40 @@
 <template>
-  <div class="grid grid-cols-3 gap-3 mb-5">
-    <div
-      v-for="cell in cells"
-      :key="cell.key"
-      class="p-3 rounded-lg border"
-      :style="{ borderColor: 'var(--border-default)' }"
-    >
-      <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-        {{ cell.label
-        }}<span v-if="cell.labelHint" class="ml-1 opacity-60">{{
-          cell.labelHint
-        }}</span>
-      </div>
-      <div
-        class="text-base font-semibold mt-1"
-        :style="{ color: cell.color || 'var(--text-primary)' }"
+  <dl class="pd-facts">
+    <div v-for="fact in facts" :key="fact.key" class="pd-fact">
+      <dt class="pd-fact__label">{{ fact.label }}</dt>
+      <dd
+        class="pd-fact__value"
+        :style="fact.color ? { color: fact.color } : undefined"
       >
-        <span
-          v-if="cell.pending"
-          class="text-sm font-normal"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-          >{{ cell.pending }}</span
-        >
+        <span v-if="fact.pending">{{ fact.pending }}</span>
         <template v-else>
           <MoneyDisplay
-            v-if="cell.money != null"
-            :value="cell.money"
-            :precision="cell.precision"
-            :show-sign="cell.showSign"
-            :auto-color="cell.autoColor"
-            size="md"
+            v-if="fact.money != null"
+            :value="fact.money"
+            :precision="fact.precision"
+            :show-sign="fact.showSign"
+            :auto-color="fact.autoColor"
+            size="sm"
           />
-          <span v-else>{{ cell.text }}</span>
-          <span
-            v-if="cell.unit"
-            class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          >
-            {{ cell.unit }}
-          </span>
+          <span v-else>{{ fact.text }}</span>
+          <span v-if="fact.unit" class="pd-fact__unit">{{ fact.unit }}</span>
         </template>
-      </div>
-      <div
-        v-if="cell.hint"
-        class="text-[11px] mt-0.5"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
-        {{ cell.hint }}
-      </div>
+      </dd>
     </div>
-  </div>
+  </dl>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { buildSummaryCells, type PositionLike } from "./positionSummaryModel";
+import { buildFacts, type PositionLike } from "./positionSummaryModel";
 
 /**
- * 持仓抽屉的核心摘要卡（#980 拆分自 `PositionTransactionsDrawer.vue`）。
+ * 持仓抽屉的键值网格（设计 §4：两列、单元无边框无底色，行间不画线）。
  *
- * 8 张卡片改由 `buildSummaryCells` 产出数据、模板统一渲染：
- * 标签（持有份额 / 持有数量）、单位（份 / 股/张）、精度（基金 4 位 / 股票 2 位）、
- * 涨跌色三条规则都收在模型层，模板不再逐个手写。
+ * 与旧版的差别只有「形状」：8 张描边卡 → 5 项键值，字号从三套手写 Tailwind
+ * （`text-base` / `text-xs` / `text-[11px]`）收到 14/13 两档（`_pd.scss`）。
+ * 文案、单位、精度、涨跌色规则仍由 `buildFacts` 单点决定。
  */
 defineOptions({ name: "PositionSummaryGrid" });
 
@@ -77,7 +49,7 @@ const props = withDefaults(
   { positionData: null, xirr: null, loadingXirr: false }
 );
 
-const cells = computed(() =>
-  buildSummaryCells(props.positionData, props.xirr ?? null, props.loadingXirr)
+const facts = computed(() =>
+  buildFacts(props.positionData, props.xirr ?? null, props.loadingXirr)
 );
 </script>

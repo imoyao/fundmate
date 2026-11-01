@@ -416,6 +416,13 @@
      否则发送按钮会被 FAB 压住（见 design.md「两条硬约定」第 ③ 条）。 */
   --layout-fab-safe: 88px;
 
+  /* 产品详情抽屉宽度（唯一来源，docs/design/product-detail-drawer.md §2）。
+     三处抽屉（自选速览 / 持仓明细 / 聚合产品详情）此前各写 420/420/680，
+     同一个动作三种形状。720 − 48（左右各 24 的内边距）恰好放下一条 7 列紧凑
+     交易表；<768 视口按 100vw 满宽，不做第二套断点。
+     组件内禁止再写字面量 720px（外壳 `:size="'var(--drawer-width)'"`）。 */
+  --drawer-width: min(720px, 100vw);
+
   /* ===== 圆角 ===== */
   --radius-sm: 6px;
   --radius-md: 12px;

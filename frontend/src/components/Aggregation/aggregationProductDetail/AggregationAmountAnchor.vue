@@ -19,7 +19,8 @@ import {
  *
  * 多根片段（`.amount-anchor` + `.cash-flow-hint`）：两者在父层本是并列兄弟，
  * 包一层 wrapper 会多出一个 DOM 层级，而资金进出提示的 `margin-top` 与
- * `.amount-anchor` 的 `border-bottom` 是相邻关系，多一层会改变盒模型。
+ * `.amount-anchor` 之间的相邻关系会随盒模型变化。锚点自身不再画下划线
+ * （设计 §8.3：header 下沿与 footer 上沿之外，抽屉内 1px 横线数必须为 0）。
  */
 defineOptions({ name: "AggregationAmountAnchor" });
 
@@ -147,7 +148,7 @@ async function save() {
     <MoneyDisplay
       v-if="!editing"
       :value="totalYuan"
-      size="xl"
+      size="lg"
       :show-sign="false"
       :auto-color="false"
     />
@@ -213,9 +214,7 @@ async function save() {
 .amount-anchor {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-bottom: var(--space-5, 24px);
-  border-bottom: 1px solid var(--border-light);
+  gap: var(--space-1);
 }
 
 /* 标签与「更新总价」入口同一行，右侧对齐 */
@@ -328,7 +327,7 @@ async function save() {
   flex: none;
   margin-top: 2px;
   font-size: var(--text-label);
-  color: var(--brand-500, #f69988);
+  color: var(--brand-500);
 }
 
 .hint-text {

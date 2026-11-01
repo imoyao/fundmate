@@ -1,24 +1,10 @@
 <template>
-  <div class="flex-1 overflow-y-auto">
-    <div class="flex justify-between items-center mb-3">
-      <span
-        class="text-sm font-medium"
-        :style="{ color: 'var(--text-secondary)' }"
-        >交易记录</span
-      >
-      <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }"
-        >共 {{ transactionsTotal }} 条</span
-      >
-    </div>
+  <DrawerSection title="交易记录">
+    <template #action>共 {{ transactionsTotal }} 条</template>
 
-    <!-- 加载状态 -->
-    <div
-      v-if="loadingTransactions"
-      class="text-center py-8"
-      :style="{ color: 'var(--text-tertiary-ink)' }"
-    >
-      <el-icon class="is-loading" :size="20"><Loading /></el-icon>
-      <p class="mt-2 text-xs">加载交易记录中...</p>
+    <!-- 加载态：3 行骨架（纯装饰，`aria-hidden` 让读屏只念一次状态即可） -->
+    <div v-if="loadingTransactions" class="pt-skeleton" aria-hidden="true">
+      <div v-for="row in 3" :key="row" class="pt-skeleton__row" />
     </div>
 
     <template v-else>
@@ -35,22 +21,9 @@
         @edit="openEdit"
       />
 
-      <!-- 🔥 修复3：明确加载完成的提示 -->
-      <div
-        v-if="!loadingTransactions && transactionsList.length > 0"
-        class="text-center text-xs mt-4 pb-2"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
-        已加载全部交易记录
-      </div>
-
-      <div
-        v-if="transactionsList.length === 0"
-        class="text-center py-6 text-xs"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
+      <p v-if="transactionsList.length === 0" class="pd-hint pt-empty">
         暂无交易记录
-      </div>
+      </p>
     </template>
 
     <!-- 行内编辑弹窗 -->
@@ -61,13 +34,13 @@
       :symbol="symbol"
       @saved="handleSaved"
     />
-  </div>
+  </DrawerSection>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Loading } from "@element-plus/icons-vue";
 import { getPositionTransactions } from "@/api/positions";
+import DrawerSection from "@/components/ProductDrawer/DrawerSection.vue";
 import TransactionTable from "@/components/TransactionTable/index.vue";
 import type { TransactionRow } from "@/components/TransactionTable/model";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
@@ -76,7 +49,11 @@ import TransactionEditDialog from "./TransactionEditDialog.vue";
  * 持仓抽屉的交易明细列表（#980 拆分自 `PositionTransactionsDrawer.vue`）。
  *
  * 抽屉是 `destroy-on-close` 的，所以「每次打开重取、关闭即重置」由挂载/销毁天然满足，
- * 不再需要父级那个 `watch(visible)` + `resetState()` 的组合。
+ * 不需要父级的 `watch(visible)` + `resetState()` 组合。
+ *
+ * 设计变更（§6.1 / §6.2）：「共 N 条」从独立一行并进区块标题右侧；
+ * 「已加载全部交易记录」删除（运行时自证不是内容）；加载态从一行文案换成 3 行骨架，
+ * 免得表格出现前抽屉高度先塌再弹。
  */
 defineOptions({ name: "PositionTransactionsList" });
 
@@ -109,13 +86,14 @@ async function fetchTransactions() {
   loadingTransactions.value = true;
   try {
     const res = await getPositionTransactions(props.positionId as number);
-    // 根据后端实际返回格式解析
-    const data = (res as any)?.data;
+    // 根据后端实际返回格式解析（分页信封 / 裸数组两种都在线上出现过，
+    // 故这里按 unknown 收窄，不用 any）
+    const data: unknown = res?.data;
 
-    // 兼容处理
     if (data && typeof data === "object" && "items" in data) {
-      transactionsList.value = data.items || [];
-      transactionsTotal.value = data.total || 0;
+      const page = data as { items?: unknown; total?: unknown };
+      transactionsList.value = Array.isArray(page.items) ? page.items : [];
+      transactionsTotal.value = typeof page.total === "number" ? page.total : 0;
     } else {
       transactionsList.value = Array.isArray(data) ? data : [];
       transactionsTotal.value = transactionsList.value.length;
@@ -155,3 +133,23 @@ function handleSaved(data: any) {
 
 onMounted(() => fetchTransactions());
 </script>
+
+<style scoped lang="scss">
+/* 加载骨架：3 行等宽假表格行，纯装饰 */
+.pt-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pt-skeleton__row {
+  height: var(--space-loose);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+}
+
+.pt-empty {
+  margin-top: var(--space-3);
+  text-align: center;
+}
+</style>

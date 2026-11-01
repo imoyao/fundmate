@@ -156,15 +156,22 @@ async function stubAggregation(page: Page): Promise<{
   };
 }
 
-/** 打开第 n 张产品卡的详情抽屉 */
+/**
+ * 打开第 n 张产品卡的详情抽屉。
+ *
+ * 定位器用**外壳契约** `[data-testid="product-drawer"]`（三处抽屉同一组件产物），
+ * 同时保留 `.product-detail-drawer` 断言：它是调用方透传的 class，e2e 与外部脚本
+ * 都在依赖，改外壳时不能丢。
+ */
 async function openDetail(page: Page, index: 0 | 1) {
   await page.goto("/#/funds");
   const cards = page.locator(".card-grid .product-card");
   await expect(cards).toHaveCount(2, { timeout: 90_000 });
   await cards.nth(index).click();
-  await expect(
-    page.locator(".product-detail-drawer .detail-body")
-  ).toBeVisible();
+  const drawer = page.locator('[data-testid="product-drawer"]');
+  await expect(drawer).toBeVisible();
+  await expect(drawer.locator(".pd-name")).toBeVisible();
+  return drawer;
 }
 
 test.describe("产品详情抽屉（#980 拆分）", () => {
@@ -175,37 +182,46 @@ test.describe("产品详情抽屉（#980 拆分）", () => {
     await injectSupabaseSession(context, baseURL!);
   });
 
-  test("多渠道：四格信息的单位换算与日期口径、渠道明细与角标", async ({
+  test("多渠道：三格信息的单位换算与日期口径、渠道明细与角标", async ({
     page
   }) => {
     await stubAggregation(page);
-    await openDetail(page, 0);
+    const drawer = await openDetail(page, 0);
 
-    const drawer = page.locator(".product-detail-drawer");
+    // 唯一外壳：data-testid 与调用方透传的 class 指向同一个抽屉
+    await expect(page.locator('[data-testid="product-drawer"]')).toHaveCount(1);
+    await expect(page.locator(".product-detail-drawer")).toHaveCount(1);
 
-    // 头部：名称 + 代码
-    await expect(drawer.locator(".detail-name")).toHaveText("易方达中小盘混合");
-    await expect(drawer.locator(".detail-code")).toHaveText("110011");
+    // 头部：名称 + 代码（代码带 # 前缀）
+    await expect(drawer.locator(".pd-name")).toHaveText("易方达中小盘混合");
+    await expect(drawer.locator(".pd-meta__code")).toHaveText("#110011");
 
-    // 大数字锚点：分 → 元（10000 分 = ¥100.00）
+    // 锚点恰好一个；分 → 元（10000 分 = ¥100.00）
+    await expect(drawer.locator('[data-testid="num-anchor"]')).toHaveCount(1);
     await expect(drawer.locator(".amount-anchor .money-display")).toContainText(
       "100.00"
     );
 
-    // 四格：份额是「份×10000」，净值 4 位，日期截成 MM-DD
+    // 三格（份额日期 + 净值日期合并为「快照日期」）：份额「份×10000」、
+    // 净值 4 位、日期截成 MM-DD
     const cells = drawer.locator(".info-cell");
-    await expect(cells).toHaveCount(4);
+    await expect(cells).toHaveCount(3);
     await expect(cells.nth(0)).toContainText("持有份额");
     await expect(cells.nth(0).locator(".cell-value")).toHaveText("2,500.00");
-    await expect(cells.nth(1).locator(".cell-value")).toHaveText("10-20");
-    await expect(cells.nth(2).locator(".cell-value")).toHaveText("1.2346");
-    await expect(cells.nth(3).locator(".cell-value")).toHaveText("10-20");
+    await expect(cells.nth(1)).toContainText("参考净值");
+    await expect(cells.nth(1).locator(".cell-value")).toHaveText("1.2346");
+    await expect(cells.nth(2)).toContainText("快照日期");
+    await expect(cells.nth(2).locator(".cell-value")).toHaveText("10-20");
+    await expect(cells.nth(2)).toContainText("份额与净值同期");
 
-    // 基金管理人
+    // 基金管理人：纯文本（假链接的箭头与手型光标已去掉）
     await expect(drawer.getByText("基金管理人：")).toBeVisible();
+    await expect(drawer.locator(".meta-link")).toHaveCount(0);
 
     // 多渠道 ⇒ 分渠道持仓详情，两行，角标取各自分红方式
-    await expect(drawer.locator(".section-title")).toHaveText("分渠道持仓详情");
+    await expect(drawer.locator(".pd-sec__title").first()).toHaveText(
+      "分渠道持仓详情"
+    );
     const rows = drawer.locator(".channel-row");
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toContainText("蚂蚁（杭州）基金销售有限公司");
@@ -221,16 +237,31 @@ test.describe("产品详情抽屉（#980 拆分）", () => {
 
     // 多渠道不渲染单渠道扩展字段
     await expect(drawer.locator(".single-channel-info")).toHaveCount(0);
+
+    // 出口唯一且在 footer 内；免责声明降为单行；被删文案计数为 0
+    const footer = drawer.locator('[data-testid="drawer-footer"]');
+    await expect(footer.getByRole("button", { name: "查看详情" })).toHaveCount(
+      1
+    );
+    await expect(drawer.getByRole("button", { name: "查看详情" })).toHaveCount(
+      1
+    );
+    await expect(drawer.locator(".pd-disclaimer")).toContainText("基金有风险");
+    const drawerText = (await drawer.innerText()) || "";
+    expect(drawerText).not.toMatch(/定时任务|P1-20|已加载全部交易记录|速览/);
   });
 
   test("单渠道：销售机构别名、账本名与基金/交易账户", async ({ page }) => {
     await stubAggregation(page);
-    await openDetail(page, 1);
+    const drawer = await openDetail(page, 1);
 
-    const drawer = page.locator(".product-detail-drawer");
-    await expect(drawer.locator(".detail-name")).toHaveText("华夏成长混合");
+    await expect(drawer.locator(".pd-name")).toHaveText("华夏成长混合");
     await expect(drawer.locator(".channel-row")).toHaveCount(0);
 
+    // 单渠道走「账户信息」区块：补账的唯一线索，字段一个不少
+    await expect(drawer.locator(".pd-sec__title").first()).toHaveText(
+      "账户信息"
+    );
     const single = drawer.locator(".single-channel-info");
     await expect(single).toBeVisible();
     await expect(single.getByText("销售机构：")).toBeVisible();
@@ -247,9 +278,7 @@ test.describe("产品详情抽屉（#980 拆分）", () => {
     page
   }) => {
     const stub = await stubAggregation(page);
-    await openDetail(page, 0);
-
-    const drawer = page.locator(".product-detail-drawer");
+    const drawer = await openDetail(page, 0);
     const callsBefore = stub.aggregationCalls();
 
     // 进入编辑态：预填当前总价（¥100.00 → 100）

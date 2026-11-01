@@ -111,6 +111,23 @@ const INDEX_ROW = {
   tags: []
 };
 
+/** 无行情行：既无最新价也不是组合 ⇒ 抽屉不得有锚点（空锚点会白占 32px 节奏） */
+const NO_QUOTE_ROW = {
+  id: 5,
+  symbol: "999999",
+  name: "未取到行情标的",
+  display_name: "未取到行情标的",
+  asset_type: "bond",
+  type_label: "可转债",
+  created_at: "2026-06-01T00:00:00Z",
+  group_names: [],
+  tag_ids: [],
+  notes: "",
+  is_pinned: false,
+  favorite: false,
+  tags: []
+};
+
 /** 可转债行：一期未开放详情页 ⇒ 「查看详情」必须禁用并说明原因，不静默失败 */
 const BOND_ROW = {
   id: 4,
@@ -201,9 +218,15 @@ function rowOf(page: import("@playwright/test").Page, text: string) {
   return page.locator(".el-table__row").filter({ hasText: text }).first();
 }
 
-/** 抽屉容器：页面里还有 SettingsDrawer 等，按标题「速览」收窄 */
+/**
+ * 抽屉容器：用**外壳契约** `[data-testid="product-drawer"]` 定位。
+ *
+ * 原实现按标题文本「速览」收窄——泛化标题已按设计删除（产品名就是标题），
+ * 而且读文案当定位器一改文案就红。页面里另有 SettingsDrawer 等，
+ * data-testid 只加在三处产品抽屉的外壳上，天然唯一。
+ */
 function drawerOf(page: import("@playwright/test").Page) {
-  return page.locator(".el-drawer").filter({ hasText: "速览" });
+  return page.locator('[data-testid="product-drawer"]');
 }
 
 /**
@@ -221,7 +244,8 @@ async function openQuickView(
   await row.getByText(text).first().click();
   const drawer = drawerOf(page);
   await expect(drawer).toBeVisible({ timeout: 30_000 });
-  await expect(drawer.locator(".wqv")).toBeVisible({ timeout: 30_000 });
+  // 外壳头部渲染完成 = 抽屉内容就绪（产品名即标题）
+  await expect(drawer.locator(".pd-name")).toBeVisible({ timeout: 30_000 });
   return drawer;
 }
 
@@ -283,7 +307,7 @@ async function gotoWatchlist(page: import("@playwright/test").Page) {
 }
 
 test.describe("自选行速览抽屉（#980 拆分回归）", () => {
-  test("基金行：七个区块文案齐全，备注「编辑」跨层生效，查看详情可跳", async ({
+  test("基金行：锚点与四个区块文案齐全，备注「编辑」跨层生效，查看详情可跳", async ({
     context,
     page,
     baseURL
@@ -297,24 +321,25 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
 
     const drawer = await openQuickView(page, "023887");
 
-    // ── 头部：名称 / 代码 / 类型 / 组合分层（基金非组合 ⇒ 显示代码、无分层）──
-    await expect(drawer.locator(".wqv-head")).toContainText("某某混合A");
-    await expect(drawer.locator(".wqv-head")).toContainText("023887");
-    await expect(drawer.locator(".wqv-head")).toContainText("混合型");
+    // ── 头部（外壳渲染）：名称 / 代码（带 # 前缀）/ 品类胶囊 ──
+    await expect(drawer.locator(".pd-name")).toHaveText("某某混合A");
+    await expect(drawer.locator(".pd-meta__code")).toHaveText("#023887");
+    await expect(drawer.locator(".pd-type")).toHaveText("混合型");
 
-    // ── 行情：最新价 / 涨跌幅（基金 4 位精度、涨红跌绿由组件自带）──
-    await expect(
-      drawer.locator(".wqv-cell").filter({ hasText: "最新价" })
-    ).toContainText("0.95");
-    await expect(
-      drawer.locator(".wqv-cell").filter({ hasText: "涨跌幅" })
-    ).toContainText("1.05");
+    // ── 锚点：原「行情」区块并入（最新价 4 位精度 + 涨跌幅副行）──
+    //    同一个问题不答两遍：锚点必须唯一，且「行情」标题不再作为区块出现
+    const anchor = drawer.locator('[data-testid="num-anchor"]');
+    await expect(anchor).toHaveCount(1);
+    await expect(anchor).toContainText("0.95");
+    await expect(anchor).toContainText("1.05");
+    await expect(drawer.getByText("行情", { exact: true })).toHaveCount(0);
 
     // ── 持有：数量 / 市值 / 成本价 / 收益（fund 可持有 ⇒ 必须出现）──
-    await expect(drawer.getByText("持有", { exact: true })).toBeVisible();
+    //    数量带千分位（与持仓明细抽屉同一写法）：份额会被逐位核对，位数要一眼可数
+    await expect(drawer.locator(".pd-sec__title").first()).toHaveText("持有");
     await expect(
       drawer.locator(".wqv-cell").filter({ hasText: "持有数量" })
-    ).toContainText("12000");
+    ).toContainText("12,000");
     await expect(
       drawer.locator(".wqv-cell").filter({ hasText: "持仓市值" })
     ).toContainText("960");
@@ -325,13 +350,13 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
       drawer.locator(".wqv-cell").filter({ hasText: "持仓收益" })
     ).toContainText("144");
 
-    // ── 信息：添加自选日 / 所属分组 / 标签（tag_ids → 名称映射走 allTags）──
-    await expect(
-      drawer.locator(".wqv-row").filter({ hasText: "所属分组" })
-    ).toContainText("核心仓");
-    await expect(
-      drawer.locator(".wqv-row").filter({ hasText: "标签" })
-    ).toContainText("定投");
+    // ── 「信息」区块已删除：添加自选日 / 分组 / 标签降为备注区末行 13px 元信息 ──
+    //    标签与分组是管理元数据，不是决策信息（设计 §6.2），但文案仍须能读到
+    await expect(drawer.getByText("信息", { exact: true })).toHaveCount(0);
+    const notesMeta = drawer.locator(".wqv-note__meta");
+    await expect(notesMeta).toContainText("已添加 2026-09-01");
+    await expect(notesMeta).toContainText("所属分组 核心仓");
+    await expect(notesMeta).toContainText("标签 定投");
 
     // ── 备注：有内容则显示全文 ──
     await expect(drawer.getByText("每月 8 日定投")).toBeVisible();
@@ -347,10 +372,16 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
       page.locator(".el-dialog").filter({ hasText: "编辑备注" })
     ).toBeHidden({ timeout: 30_000 });
 
-    // ── 详情页入口：一期 fund 已开放 ⇒ 可点且真跳（先关抽屉再跳）──
-    const detailBtn = drawer.getByRole("button", { name: "查看详情" });
+    // ── 详情页入口：唯一出口在 footer 内；fund 已开放 ⇒ 可点且真跳 ──
+    const footer = drawer.locator('[data-testid="drawer-footer"]');
+    const detailBtn = footer.getByRole("button", { name: "查看详情" });
+    await expect(detailBtn).toHaveCount(1);
     await expect(detailBtn).toBeEnabled();
-    await expect(drawer).toContainText("查看完整资料与持仓");
+    // 全抽屉只有这一个「查看详情」（header / 内容区都不再放）
+    await expect(drawer.getByRole("button", { name: "查看详情" })).toHaveCount(
+      1
+    );
+    await expect(footer).toContainText("查看完整业绩、持仓与历史记录");
     await detailBtn.click();
     await page.waitForURL(/#\/fund\/023887/, { timeout: 30_000 });
     await expect(drawerOf(page)).toBeHidden({ timeout: 30_000 });
@@ -371,18 +402,24 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
 
     const drawer = await openQuickView(page, "稳健增长组合");
 
-    // ── 头部：组合类不展示代码，改展示「平台 · 主理人 · 策略」分层 ──
-    await expect(drawer.locator(".wqv-head")).toContainText("稳健增长组合");
-    await expect(drawer.locator(".wqv-head")).toContainText(
-      "且慢 · 主理人A · 股债平衡"
-    );
-    await expect(drawer.locator(".wqv-head").getByText("PF0001")).toHaveCount(
-      0
-    );
+    // ── 头部：组合类不展示代码，识别信息行给「品类 · 平台 · 主理人 · 策略」──
+    await expect(drawer.locator(".pd-name")).toHaveText("稳健增长组合");
+    await expect(drawer.locator(".pd-meta__code")).toHaveCount(0);
+    await expect(drawer.locator(".pd-meta")).toContainText("投顾组合");
+    await expect(drawer.locator(".pd-meta")).toContainText("且慢");
+    await expect(drawer.locator(".pd-meta")).toContainText("主理人A");
+    await expect(drawer.locator(".pd-meta")).toContainText("股债平衡");
+    await expect(drawer.locator(".pd-meta")).not.toContainText("PF0001");
     // 组合不可持有 ⇒ 无「持有」区
     await expect(drawer.getByText("持有", { exact: true })).toHaveCount(0);
 
-    // ── 投顾信息：配置目标 / 产品类型 / 净值（含截至日）/ 策略简介 / 官方页面 ──
+    // ── 锚点：组合净值（原「投顾信息」里的净值行并入锚点，不再答两遍）──
+    const anchor = drawer.locator('[data-testid="num-anchor"]');
+    await expect(anchor).toHaveCount(1);
+    await expect(anchor).toContainText("1.2345");
+    await expect(anchor).toContainText("截至 2026-09-11");
+
+    // ── 投顾信息：配置目标 / 产品类型 / 策略简介 / 官方页面 ──
     await expect(drawer.getByText("投顾信息")).toBeVisible();
     await expect(
       drawer.locator(".wqv-row").filter({ hasText: "配置目标" })
@@ -392,7 +429,7 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
     ).toContainText("基金组合");
     await expect(
       drawer.locator(".wqv-row").filter({ hasText: "组合净值" })
-    ).toContainText("1.2345（截至 2026-09-11）");
+    ).toHaveCount(0);
     await expect(drawer.getByText("以股债 3:7 为中枢")).toBeVisible();
     const link = drawer.locator(".wqv-link");
     await expect(link).toHaveAttribute(
@@ -426,12 +463,16 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
     await expect(adjust.locator(".wqv-op--cut")).toHaveCount(1);
   });
 
-  test("品类分支：指数无「持有」区、可转债「查看详情」禁用并说明原因", async ({
+  test("品类分支：指数无「持有」区、无可转债出口、无行情时不出锚点", async ({
     context,
     page,
     baseURL
   }) => {
-    await stubBackend(context, page, baseURL!, [INDEX_ROW, BOND_ROW]);
+    await stubBackend(context, page, baseURL!, [
+      INDEX_ROW,
+      BOND_ROW,
+      NO_QUOTE_ROW
+    ]);
     await gotoWatchlist(page);
     await expect(page.getByText("000300").first()).toBeVisible({
       timeout: 120_000
@@ -440,24 +481,48 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
       timeout: 120_000
     });
 
-    // ── 指数：不可持有 ⇒ 不出现「持有」区；行情/信息照旧 ──
+    // ── 指数：不可持有 ⇒ 不出现「持有」区 ──
     const idxDrawer = await openQuickView(page, "000300");
-    await expect(idxDrawer.getByText("行情")).toBeVisible();
+    // 「行情」「信息」两个区块已删除：行情并进锚点，信息降为备注末行元信息。
+    // 指数行仍有最新价，锚点必须还在——否则并区后就凭空丢了主数值。
+    await expect(idxDrawer.locator('[data-testid="num-anchor"]')).toHaveCount(
+      1
+    );
+    await expect(idxDrawer.locator('[data-testid="num-anchor"]')).toContainText(
+      "4,010.25"
+    );
+    await expect(idxDrawer.getByText("行情", { exact: true })).toHaveCount(0);
     await expect(idxDrawer.getByText("持有", { exact: true })).toHaveCount(0);
-    await expect(idxDrawer.getByText("信息")).toBeVisible();
-    // 指数一期已开放详情页 ⇒ 按钮可用
+    await expect(idxDrawer.getByText("信息", { exact: true })).toHaveCount(0);
+    // 指数已开放详情页 ⇒ footer 里有且只有一个出口
     await expect(
-      idxDrawer.getByRole("button", { name: "查看详情" })
-    ).toBeEnabled();
+      idxDrawer
+        .locator('[data-testid="drawer-footer"]')
+        .getByRole("button", { name: "查看详情" })
+    ).toHaveCount(1);
 
     await page.keyboard.press("Escape");
     await expect(drawerOf(page)).toBeHidden({ timeout: 30_000 });
 
-    // ── 可转债：一期未开放 ⇒ 禁用 + 文案说明，不静默失败 ──
+    // ── 可转债：品类无详情页 ⇒ footer **不渲染**按钮，只留原因文案 ──
+    //    （灰按钮会制造「即将可用」的假期待，且读屏不解释原因）
     const bondDrawer = await openQuickView(page, "113050");
     await expect(
-      bondDrawer.getByRole("button", { name: "查看详情" })
-    ).toBeDisabled();
-    await expect(bondDrawer).toContainText("该品类详情页暂未开放");
+      bondDrawer.locator('[data-testid="drawer-footer"]').getByRole("button")
+    ).toHaveCount(0);
+    await expect(bondDrawer).toContainText("该品类暂无详情页");
+    // 被删的泛化标题不再出现：产品名就是标题
+    await expect(bondDrawer.getByText("速览", { exact: true })).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await expect(drawerOf(page)).toBeHidden({ timeout: 30_000 });
+
+    // ── 无行情：既非组合也没有最新价 ⇒ 锚点整块不渲染（不是渲染个空块）──
+    const noQuoteDrawer = await openQuickView(page, "999999");
+    await expect(
+      noQuoteDrawer.locator('[data-testid="num-anchor"]')
+    ).toHaveCount(0);
+    // 抽屉本身仍在（骨架不依赖锚点）
+    await expect(noQuoteDrawer.locator(".pd-name")).toBeVisible();
   });
 });
