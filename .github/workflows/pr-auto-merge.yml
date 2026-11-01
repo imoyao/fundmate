@@ -15,6 +15,42 @@
 # - 仅当 PR 挂有 `automerge` 标签时启用自动合并（opt-in，避免误合）。
 # - 启用是幂等的：重复调用 `gh pr merge --auto` 不会报错。
 #
+# ## 为什么用用户 PAT 而不是 GITHUB_TOKEN（#2799）
+#
+# **合并归因 = 启用 auto-merge 的那个凭据**；而归因决定后续事件是否被投递。
+#
+# GitHub 的规则：除 `workflow_dispatch` / `repository_dispatch` 外，**由 GITHUB_TOKEN
+# 触发的事件不创建 workflow run**。native auto-merge 是「排队 → 门禁转绿后由 GitHub
+# 执行合并」，**合并时携带的是最后启用 auto-merge 的那个凭据的归因**——
+# 于是用 GITHUB_TOKEN 启用出来的合并，其 `pull_request: closed` 与 `push` 事件全部被抑制。
+#
+# 2026-11-01 实测（PR #2797，本仓史上第一次 native auto-merge 合并）：
+#
+# | 合并归因 | `pull_request: closed` | `push` 到 dev | 后果 |
+# |---|---|---|---|
+# | `github-actions`（GITHUB_TOKEN） | 不产生 run | 不产生 run | issue 不自动关闭；乱码守卫 / lockfile 守卫被静默跳过 |
+# | `imoyao`（用户凭据） | 产生 run | 产生 run | 正常 |
+#
+# 门禁本身照常 success（`质量门禁汇总` 是绿的），但**门禁下游的守卫在这条路径上是哑的**
+# ——这正是「假绿」最典型的形态（#2799）。
+#
+# 故本步骤用**用户 PAT**（secret `AUTO_MERGE_PAT`）而不是 GITHUB_TOKEN：
+# PAT 让合并归因到用户，事件随之被投递。
+#
+# 外部独立实证（ebi-agent-chat-relay，2026-09-22，16 次合并 1:1 相关无例外）同结论：
+# "A merge attributed to GITHUB_TOKEN fires no push or pull_request event. A merge
+# attributed to a real user does. The token that last enables auto-merge determines the
+# eventual actor."
+#
+# ## PAT 缺失时为什么必须失败而不是回落
+#
+# 若写成 `${{ secrets.AUTO_MERGE_PAT || secrets.GITHUB_TOKEN }}`，PAT 没配时会**静默**
+# 退回 GITHUB_TOKEN ⇒ 事件又被抑制 ⇒ 假绿原样复现，而且没有任何人看得见。
+# 故本步骤在 PAT 为空时**显式失败**并说明原因——把「没配 PAT」与「PR 有冲突」分开，
+# 否则前者会被当成后者一直重试，直到有人发现合并从不发生。
+#
+# 守卫：`scripts/guard_auto_merge_user_attribution.py`（并入 ci.yml 的 scripts_test，阻断）。
+#
 # ## 与 Layer 1（自动变基）配合
 #
 # 自动变基让分支始终基于最新 dev，冲突在源头极小；本工作流在其之上负责「绿了就合」。
@@ -40,12 +76,35 @@ jobs:
     steps:
       - name: 启用自动合并（门禁转绿即合）
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ⚠️ 必须是**用户 PAT**，不能换成 secrets.GITHUB_TOKEN（#2799）：
+          # 合并归因决定 `pull_request: closed` / `push` 事件是否被投递，
+          # 用 GITHUB_TOKEN 会让下游守卫（issue 自动关闭、乱码扫描、lockfile 重建）
+          # 在这条路径上全哑，而门禁却是绿的。详见文件头「为什么用用户 PAT」。
+          # ⚠️ 刻意**不**写 `|| secrets.GITHUB_TOKEN`：PAT 缺失时静默回落 = 假绿复现。
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_PAT }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::未配置 secret AUTO_MERGE_PAT（用户 PAT）。" >&2
+            echo "::error::不能用 GITHUB_TOKEN 顶上——那样合并会归因到 github-actions，" >&2
+            echo "::error::其 pull_request: closed / push 事件全部被抑制，" >&2
+            echo "::error::下游守卫（issue 自动关闭 / 乱码扫描 / lockfile 重建）会静默失效（#2799）。" >&2
+            echo "::error::配置方式：Settings → Secrets and variables → Actions →" >&2
+            echo "::error::New repository secret → 名称 AUTO_MERGE_PAT → 值填用户 PAT" >&2
+            echo "::error::（权限：contents:write + pull-requests:write，够用即可）。" >&2
+            exit 1
+          fi
+          # 确认这个 PAT 真是「用户凭据」：GITHUB_TOKEN 的 API 身份是 github-actions，
+          # 而 PAT 的身份是它的主人。归因看的就是这个身份。
+          actor=$(gh api user --jq .login 2>/dev/null || echo "")
+          if [ -z "$actor" ]; then
+            echo "::error::AUTO_MERGE_PAT 无效或已过期（gh api user 失败）——请更新该 secret。" >&2
+            exit 1
+          fi
+          echo "启用 auto-merge 的凭据身份：$actor（合并将归因到它，事件才会被投递）"
           if gh pr merge --auto --merge "$PR_URL" 2>/tmp/automerge.err; then
-            echo "已为 $PR_URL 启用 auto-merge（质量门禁汇总转绿后自动合入 dev）"
+            echo "已为 $PR_URL 启用 auto-merge（质量门禁汇总转绿后自动合入 dev，归因到 $actor）"
           else
             # 常见：当前仍有冲突或门禁未绿。属预期，不标红——下次 synchronize 会重试。
             echo "auto-merge 暂未启用（可能仍有冲突或门禁未绿），将在后续推送时重试："
