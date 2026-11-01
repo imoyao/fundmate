@@ -18,6 +18,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import String, cast, func, or_
 
+from app.core.constants import DIVIDEND_TXN_TYPES
 from app.core.money import Money
 from app.core.utils import iso_date_only, paginate
 from app.domains.positions.models import Position
@@ -143,7 +144,13 @@ def _filtered_transaction_query(db, family_id: int, filters: dict):
 
     op_type = filters.get('op_type')
     if op_type:
-        query = query.filter(Transaction.txn_type == op_type)
+        # 「分红」两个码并存（`dividend` 历史码 / `dividend_cash` 新码，真机实测 69 + 33 笔）。
+        # 只筛一个码会让列表和汇总同时少掉一批现金分红，而两边少的是同一批——看起来
+        # 完全自洽，就是和账对不上。
+        if op_type == 'dividend':
+            query = query.filter(Transaction.txn_type.in_(DIVIDEND_TXN_TYPES))
+        else:
+            query = query.filter(Transaction.txn_type == op_type)
 
     # 筛选：时间范围
     time_range = filters.get('time_range')
@@ -232,11 +239,15 @@ def build_transaction_summary(db, family_id: int, filters: dict) -> dict:
 
     ## 公式（文档与实现必须逐字一致，前端不做二次求和）
 
-       买入    = Σ amount WHERE type='buy'        （成交额，**不含**手续费）
+       买入    = Σ amount WHERE type='buy'          （成交额，**不含**手续费）
        卖出    = Σ amount WHERE type='sell'
-       分红    = Σ amount WHERE type='dividend'
+       分红    = Σ amount WHERE type ∈ {dividend, dividend_cash}
        手续费  = Σ fee（全类型）
        净投入  = 买入 + 手续费 − 卖出 − 分红
+
+    **分红是两个码的合计**：历史导入写 `dividend`，新链路写 `dividend_cash`，真机库里
+    并存（实测 69 + 33 笔）。只认一个码不会报错，只会让「分红」少一截、净投入多一截，
+    而且列表和汇总少的是同一批——看起来自洽，就是和账对不上。见 `DIVIDEND_TXN_TYPES`。
 
     ## 为什么手续费不摊进买入
 
@@ -277,14 +288,18 @@ def build_transaction_summary(db, family_id: int, filters: dict) -> dict:
         count, amount_cents = cents_by_type.get(txn_type, (0, 0))
         return {'count': count, 'amount': Money.cents_to_yuan(amount_cents)}
 
+    # 分红按**两码合计**（`dividend` + `dividend_cash`）：真机库里两个码并存，只认一个
+    # 会少掉一批现金分红——数字看着正常，只是和账对不上。口径见 `DIVIDEND_TXN_TYPES`。
+    dividend_count = sum(cents_by_type.get(t, (0, 0))[0] for t in DIVIDEND_TXN_TYPES)
+    dividend_cents = sum(cents_by_type.get(t, (0, 0))[1] for t in DIVIDEND_TXN_TYPES)
+
     buy_cents = cents_by_type.get('buy', (0, 0))[1]
     sell_cents = cents_by_type.get('sell', (0, 0))[1]
-    dividend_cents = cents_by_type.get('dividend', (0, 0))[1]
 
     return {
         'buy': bucket('buy'),
         'sell': bucket('sell'),
-        'dividend': bucket('dividend'),
+        'dividend': {'count': dividend_count, 'amount': Money.cents_to_yuan(dividend_cents)},
         'fee': Money.cents_to_yuan(fee_cents),
         'net_invested': Money.cents_to_yuan(buy_cents + fee_cents - sell_cents - dividend_cents),
     }

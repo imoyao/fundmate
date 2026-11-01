@@ -1043,6 +1043,41 @@ class TestTransactionSummary:
         # 净投入随筛选变化：只剩两笔买入、无手续费 → 30
         assert s['net_invested'] == 30.0
 
+    def test_dividend_bucket_sums_both_codes(self, client, db):
+        """分红按**两个码合计**：`dividend`（历史）+ `dividend_cash`（新链路），少认一个就少钱。
+
+        真机数据里两码并存（开发库实测 69 + 33 笔）：只认 `dividend` 时页面不会报错，
+        只是「分红」比实际少一截、净投入多一截——而且列表和汇总少的是同一批，看起来自洽。
+        """
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='dividend', amount=500)),
+                Transaction(**_txn_kwargs(txn_type='dividend_cash', amount=1200)),
+            ]
+        )
+        db.commit()
+
+        s = _summary(client)
+        assert s['dividend'] == {'count': 2, 'amount': 17.0}, '两码未合计时这里会只算到 5.0'
+        assert s['net_invested'] == -17.0, '净投入必须跟着两码合计走'
+
+    def test_type_filter_dividend_covers_both_codes(self, client, db):
+        """筛选「分红」也要包含两个码：否则列表与汇总同时少掉同一批，两边还各自自洽。"""
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='dividend', amount=500)),
+                Transaction(**_txn_kwargs(txn_type='dividend_cash', amount=1200)),
+                Transaction(**_txn_kwargs(txn_type='buy', amount=1000)),
+            ]
+        )
+        db.commit()
+
+        listed = _get(client, '/api/transactions', {'type': 'dividend'}).get_json()
+        assert listed['total'] == 2, 'type=dividend 应把 dividend_cash 一起带回'
+        s = _summary(client, type='dividend')
+        assert s['dividend']['count'] == listed['total']
+        assert s['buy']['count'] == 0
+
     def test_summary_scoped_to_own_family(self, client, db):
         """别的家庭的流水不进汇总（跨家庭泄漏在这里同样是「数字对不上」）。"""
         db.add(Transaction(**_txn_kwargs(txn_type='buy', amount=99999)))

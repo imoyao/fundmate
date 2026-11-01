@@ -166,7 +166,20 @@ OP_TYPE_LABEL = {
     'bond_redeem': '债券兑付',
     'tax': '扣税',
     'other': '其他',
+    # 现金分红的历史码与新码并存（见下方 DIVIDEND_TXN_TYPES）：标签必须给齐，
+    # 否则表格会把 `dividend_cash` 原样印出来（前端 `txnTypeLabel` 的兜底是原值）。
+    'dividend_cash': '分红',
 }
+
+# 现金分红：**两个码在真机数据里并存**——历史导入写 `dividend`，新链路（AI 识别 /
+# 部分券商模板）写 `dividend_cash`。实测开发库 family 1：`dividend` 69 笔、
+# `dividend_cash` 33 笔（¥1,027.84），只认一个码会得到「分红少了一千块」这种
+# 不报错、但对不上账的结果。
+#
+# 因此凡是「合计现金分红」的地方**一律按集合认**，不要写 `txn_type == 'dividend'`。
+# `services/analytics/cleared_cycles.py` 的 `_DIVIDEND_TYPES` 早就是这么做的；
+# 本常量是同一口径的单一来源（那边后续可改为引用本常量，避免两份定义各自漂移）。
+DIVIDEND_TXN_TYPES = ('dividend', 'dividend_cash')
 
 # ── 投顾组合调仓操作类型（#1167 / #1468）──
 # 天天基金 adjustList 的 operationInt 与且慢「快照序列推导」共用同一词表，为单一真相源；

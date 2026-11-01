@@ -111,7 +111,7 @@
 |---|---|---|
 | 买入 | `Σ amount WHERE type = 'buy'` | 成交额（**不含手续费**），带笔数 |
 | 卖出 | `Σ amount WHERE type = 'sell'` | 同上 |
-| 分红 | `Σ amount WHERE type = 'dividend'` | 同上 |
+| 分红 | `Σ amount WHERE type ∈ {dividend, dividend_cash}` | 同上。**两个码必须合计**：历史导入写 `dividend`、新链路写 `dividend_cash`，真机库里并存（实测 69 + 33 笔） |
 | 手续费 | `Σ fee`（全类型） | 单独一行，不进任何金额 |
 | **净投入** | `买入 + 手续费 − 卖出 − 分红` | 「为了这套持仓，我净从口袋里放进去多少钱」。正数＝净投入，负数＝净取出，符号必须显示 |
 
@@ -124,6 +124,14 @@
 > 就会出现 0.01 漂移，而这是印在屏幕上的钱）。筛选与列表**共用**同一套 WHERE；前端零求和。
 > 两条判据钉在测试里：公式（56）与「25 笔不分页」。存款/取款不计入净投入（资金搬运不是
 > 为持仓投进去的钱），但它们的**手续费计入**——这一差异由 `test_fee_covers_all_types_but_net_only_uses_four` 守。
+>
+> **分红两码（真机数据核对时发现，v1.2 修正）**：公式初稿写 `type='dividend'`，拿开发库
+> 1512 笔实测才发现 `dividend_cash` 另有 33 笔 ¥1,027.84 被漏掉——页面上不会报错，只是
+> 「分红」少一截、「净投入」多一截，而且列表与汇总少的是同一批，看起来完全自洽。
+> 现将两码收进 `core.constants.DIVIDEND_TXN_TYPES`（与 analytics `_DIVIDEND_TYPES` 同口径），
+> 汇总桶与 `type=dividend` 筛选**都**按集合认；真实数据核对结果：
+> 买入 806 笔 ¥2,690,115.27 / 卖出 533 笔 ¥1,946,198.43 / 分红 102 笔 ¥3,487.21 /
+> 手续费 ¥517.41 / 净投入 **¥740,947.04**（与独立 SQL 逐项一致）。
 
 ---
 
@@ -271,7 +279,8 @@
 | 项 | 结果 |
 |---|---|
 | 后端 `tests/domains/test_transactions.py` | **41 passed**（v1.1 的详情 3 条 + 三态 5 条，v1.2 新增 `TestTransactionSummary` 6 条） |
-| 汇总条公式 | `TestTransactionSummary::test_net_invested_formula_from_spec_fixture`：买入 100 / 卖出 40 / 分红 5 / 手续费 1 → 净投入 **56**（并逐项断言四个数各自可核） |
+| 汇总条公式 | `TestTransactionSummary::test_net_invested_formula_from_spec_fixture`：买入 100 / 卖出 40 / 分红 5 / 手续费 1 → 净投入 **56**（并逐项断言四个数各自可核）；`test_dividend_bucket_sums_both_codes` 钉住两码合计 |
+| 真实数据核对 | 开发库副本 1512 笔：接口返回与独立 SQL 逐项一致（买入 806 / 卖出 533 / 分红 **102** / 手续费 ¥517.41 / 净投入 ¥740,947.04），见下方「分红两码」 |
 | 汇总条不拿当页凑数 | `test_summary_counts_every_row_not_just_one_page`：25 笔 + `per_page=10` → 汇总 count 仍 25 |
 | 前端单测 | `model.spec.ts` 17 + `transactionListModel.spec.ts` **31** + `transactionDetailOnDemand.spec.ts` 7 + `transactionSummaryWiring.spec.ts` **8** = 63 passed |
 | 变异验证（守卫有效） | 删「已取不重复请求」短路 → 对应用例红；删「收起提前返回」→ 对应用例红；两处已还原 |
