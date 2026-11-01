@@ -539,6 +539,41 @@ def _resolve_range(start_date: Optional[str], end_date: Optional[str]) -> Tuple[
     return start, end
 
 
+def _clamp_to_today(end: dt.date) -> dt.date:
+    """区间右端不得越过今天——**未来日不是历史**（#2793）。
+
+    #### 不截断会发生什么（真实库 2026-11-01 实测）
+
+    未来的日子里净值和收盘价都还没产生，取价只能靠「≤ 当日的最后已知价」前值
+    carry；而 carry 有寿命：`_is_stale` 距最后净值超过 `_STALE_TRADING_DAYS`(5)
+    个开盘日就返回 None，该持仓退出市值。于是**虚拟日期每往前推一天，就有一批
+    持仓「过期」**，被剔持仓的浮亏从累计水平值里消失，差分把它读成当日盈利：
+
+    | 日期 | 净资产 | 当日盈亏 | 实情 |
+    |---|---|---|---|
+    | 11/06 | 305,280.90 → 303,340.39 | **+197.34** | `025162` 越界，浮亏 197.40 被释放 |
+    | 11/09 | 303,340.39 → 212,295.48 | **+8,909.18** | 10/30 那批集体越界（122 笔） |
+
+    用户看到的是「指数没动，账上赚钱」，而 `month_total` 9,106.52 整月都是编的。
+
+    #### 为什么在**入口**截断，而不是在日循环里把 `daily_pnl` 置 None
+
+    区间级字段全部由 `days` 派生：`month_total`（求和）、`range_rate`（求和 ÷ 基线）、
+    `periods`（按日聚合）、`has_any_price`。只在循环里置 None 只能挡住格子上的数字，
+    `net_worth` 仍会输出被剔完后的残值（11/09 的 212,295.48），未来月仍会占一个
+    期间格。截断一次，所有派生自动一致，语义也最直白：**这段区间根本不存在**。
+
+    #### 与 #2277 的关系
+
+    那次给状态判定的**场内分支**加了 `day <= today` 门，只挡住「未来日被标成
+    partial」，而值计算 `price_of` 没有任何日期上限——数字照算。所以这次修的是根子，
+    那道门随之退化成防御性恒真（保留，见 `_compute_days` 内注释）。
+    """
+    from app.core.time_utils import now_shanghai
+
+    return min(end, now_shanghai().date())
+
+
 # ──────────────────── 物化读路径的辅助件（#1926）────────────────────────────
 #
 # 这一组函数只解决一件事：让「先算 A 段、再算 B 段、拼起来」与「一次算 A+B 段」
@@ -761,6 +796,9 @@ def build_daily_pnl_series(
     的净资产，全量命中时若不存它，分母就无处可取。
     """
     start, end = _resolve_range(start_date, end_date)
+    # #2793：未来日不进计算。放在**所有派生之前**——下面的 coverage / 物化取行 /
+    # as-of 份额 / 逐日循环全部按这个 end 办事，截断一次即可，不必逐处加日期上限。
+    end = _clamp_to_today(end)
     if start > end:
         return _empty_payload(ledger_id, start, end)
 
@@ -1217,6 +1255,8 @@ def _compute_days(
                     # 冻结判据不得前伸——否则未来日会因「场内在场 + OTC 缺席」
                     # 变成带值的 partial（实测 2026-10 未来周日报出 +4889 假盈利：
                     # OTC 市值跌出总额被当成了当日收益）。
+                    # #2793 起区间已在入口截到 `today`（`_clamp_to_today`），本门
+                    # 恒真，降级为防御：任何人绕过入口直接调本函数时仍不会前伸。
                     dates, _unit_prices = last_known[pos.id]
                     if day <= today and bisect_right(dates, day) > 0:
                         day_present_count += 1
@@ -1579,6 +1619,10 @@ def build_pnl_series(
         return payload
 
     base_start, base_end = _resolve_range(start_date, end_date)
+    # #2793：期间视图同样不得越过今天。不截断时未来月会占一个期间格（显示 0.00），
+    # 且下面 `payload['end_date'] = base_end` 会把截断后的值**覆盖回未截断**的，
+    # 让响应的区间与 `periods` 各自说一套。先截断，两处自然一致。
+    base_end = _clamp_to_today(base_end)
     scan_start = base_start - dt.timedelta(days=1)
     payload = build_daily_pnl_series(
         db,

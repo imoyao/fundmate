@@ -109,7 +109,7 @@ export function usePnlCalendarData(opts: {
   const emptyIsDataGap = computed(() => isDataGap(series.value));
 
   const emptyHint = computed(() =>
-    emptyHintFor(series.value, granularity.value)
+    emptyHintFor(series.value, granularity.value, cursor.value)
   );
 
   /** 有数据的最近一期（已正在看则回空串，跳转按钮随之隐藏） */

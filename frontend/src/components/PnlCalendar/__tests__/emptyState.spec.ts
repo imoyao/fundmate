@@ -13,6 +13,7 @@ import {
   emptyHintFor,
   emptyScopeFor,
   isDataGap,
+  isNotStartedYet,
   jumpButtonTextFor,
   latestPriceLabelFor
 } from "../emptyState";
@@ -100,13 +101,26 @@ describe("isDataGap", () => {
 
 describe("emptyScopeFor", () => {
   it("按粒度说「本月 / 本年 / 投资以来」", () => {
-    expect(emptyScopeFor("day")).toBe("本月");
-    expect(emptyScopeFor("month")).toBe("本年");
-    expect(emptyScopeFor("year")).toBe("投资以来");
+    // 用「当前年」构造，别写死 2026 —— 写死会让这条用例在 2027 年自己变红
+    const thisYear = new Date().getFullYear();
+    expect(emptyScopeFor("day", new Date(thisYear, 0, 1))).toBe("本月");
+    expect(emptyScopeFor("month", new Date(thisYear, 0, 1))).toBe("本年");
+    expect(emptyScopeFor("year", new Date(thisYear, 0, 1))).toBe("投资以来");
+  });
+
+  it("月粒度翻到别的年 ⇒ 直说那一年，不说「本年」", () => {
+    const thisYear = new Date().getFullYear();
+    expect(emptyScopeFor("month", new Date(thisYear - 1, 0, 1))).toBe(
+      `${thisYear - 1} 年`
+    );
   });
 });
 
 describe("emptyHintFor", () => {
+  // 「已开始」的游标：落在过去，确保 isNotStartedYet 走 false 分支，
+  // 三处旧用例断言的是「缺口 / 非缺口」文案，不该被「还没开始」分支截走。
+  const startedCursor = new Date(2026, 0, 1);
+
   it("数据缺口：带上粒度对应的范围与「任务没跑」的归因", () => {
     const text = emptyHintFor(
       series({
@@ -117,7 +131,8 @@ describe("emptyHintFor", () => {
         },
         latest_price_date: null
       }),
-      "month"
+      "month",
+      startedCursor
     );
     expect(text).toContain("本年还没有每日估值数据");
     expect(text).toContain("并非账户异常");
@@ -138,7 +153,8 @@ describe("emptyHintFor", () => {
         },
         latest_price_date: null
       }),
-      "day"
+      "day",
+      startedCursor
     );
     expect(text).toContain("最近一次估值：—");
     expect(text).not.toContain("undefined");
@@ -156,10 +172,34 @@ describe("emptyHintFor", () => {
         },
         latest_price_date: null
       }),
-      "day"
+      "day",
+      startedCursor
     );
     expect(text).toBe(EMPTY_NO_VALUATION);
     expect(text).not.toContain("快照");
+  });
+
+  it("还没开始（游标月份整体在未来）⇒ 说「还没发生」，不指去同步任务（#2793）", () => {
+    // 未来月份的日粒度：从月初到今天之间没有任何已过去的交易日
+    const text = emptyHintFor(null, "day", new Date(2099, 0, 1));
+    expect(text).toContain("还没有已发生的交易日");
+    expect(text).not.toContain("快照");
+  });
+});
+
+describe("isNotStartedYet", () => {
+  it("年视图恒为 false（区间固定为投资以来→今年，必有已过去交易日）", () => {
+    expect(isNotStartedYet("year", new Date(2026, 0, 1))).toBe(false);
+  });
+
+  it("游标月份整体在未来 ⇒ true（日 / 月粒度同判）", () => {
+    expect(isNotStartedYet("day", new Date(2099, 0, 1))).toBe(true);
+    expect(isNotStartedYet("month", new Date(2099, 0, 1))).toBe(true);
+  });
+
+  it("游标月份已过去 ⇒ false（日 / 月粒度同判）", () => {
+    expect(isNotStartedYet("day", new Date(2020, 0, 1))).toBe(false);
+    expect(isNotStartedYet("month", new Date(2020, 0, 1))).toBe(false);
   });
 });
 
