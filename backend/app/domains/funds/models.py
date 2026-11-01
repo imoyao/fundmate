@@ -503,10 +503,10 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     host = Column(String(60), comment='主理人')
     org_name = Column(String(100), comment='主理人所属机构/平台方')
     risk_level = Column(String(20), comment='风险等级')
-    strategy_type = Column(String(40), comment='策略类型(均衡/进取/稳健)')
-    cum_return = Column(SafeNumeric(7, 2), comment='累计收益(%)')
-    annual_return = Column(SafeNumeric(7, 2), comment='年化收益(%)')
-    running_days = Column(Integer, comment='运行天数')
+    strategy_type = Column(String(40), comment='策略类型(均衡/进取/稳健)·无写者，见 tech-debt')
+    cum_return = Column(SafeNumeric(7, 2), comment='累计收益(%)（与 return_since_incep 同一 SYL_LN 的两个读者）')
+    annual_return = Column(SafeNumeric(7, 2), comment='年化收益(%)（天天 ANNSYL_LN）')
+    running_days = Column(Integer, comment='运行天数（天天 RUN_DATE）')
     is_active = Column(Boolean, default=True, comment='是否在售/有效')
     # ── #1167 概览补充字段（天天基金 FundIATGInfoAggr / 平台元数据）──
     estab_date = Column(Date, comment='组合成立日期')
@@ -524,15 +524,24 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
 
     # ── #1392 投顾品类差异化指标（区间收益 / 回撤 / 超额，落库供自选投顾列展示）──
     # 数据源：天天基金 FundIATGInfoAggr 的 SYL_*，映射已实测核对（见 tiantian_advisor_adapter）。
-    # 回撤/超额 API 不直接提供（实测结论），暂留空、待补算；列已就绪不影响主链路。
+    # ⚠️ 2026-10-29 更正：旧注释称「回撤/超额 API 不直接提供」，那是**只探测了 AGGR 一个接口**
+    # 得出的结论。实网复测 `getTGQuoteByFavor` 现成给出 MAXRETRA_LN 24.33 / SHARPE_LN 0.16 /
+    # RUN_DATE 1556 / ANNSYL_LN 4.19，AGGR 给出 BENCHSYL_* 全区间 ⇒ 回撤、夏普、年化、
+    # 运行天数、基准收益都能取，属「适配器没请求」而非数据源缺失。别再照旧注释把这些列留空。
     return_1w = Column(SafeNumeric(7, 2), comment='近1周收益(%)（SYL_Z）')
     return_1m = Column(SafeNumeric(7, 2), comment='近1月收益(%)（SYL_Y）')
     return_1y = Column(SafeNumeric(7, 2), comment='近1年收益(%)（SYL_1N）')
     return_ytd = Column(SafeNumeric(7, 2), comment='今年以来收益(%)（SYL_JN）')
     return_since_incep = Column(SafeNumeric(7, 2), comment='成立以来收益(%)（SYL_LN）')
-    benchmark = Column(String(50), comment='业绩比较基准')
-    max_drawdown = Column(SafeNumeric(6, 2), comment='最大回撤(%)，API 未直接提供时为空')
-    excess_return = Column(SafeNumeric(7, 2), comment='相对基准超额收益(%)，待补算')
+    #: 业绩比较基准**名称**（如「沪深300指数收益率×90%」）。
+    #: ⚠️ 现状：**无写者**——天天两个接口都只给基准的**收益数值**（BENCHSYL_*），不给名称；
+    #: 登记于 docs/spec/tech-debt.md「投顾组合无写者字段」。保留列不删（删列不可逆，且换平台
+    #: 接口后可能有值）。不要因为「它一直为空」就删掉或填一个猜的字符串。
+    benchmark = Column(String(50), comment='业绩比较基准（名称）· 无写者，见 tech-debt')
+    max_drawdown = Column(SafeNumeric(6, 2), comment='最大回撤(%)（天天 MAXRETRA_LN）')
+    #: 相对基准超额收益(%)。**读取侧现算**（`advisor_profile` 用 成立以来收益 − 基准成立以来收益），
+    #: 库内不写：超额是纯派生值，按数据策略「能算出就不存」不落库。列保留给历史值/兼容。
+    excess_return = Column(SafeNumeric(7, 2), comment='超额收益(%)·读取侧现算，不写库')
 
     # ── #1468 且慢组合策展元数据（调研注册表 + GetStrategyDetails 实时抓取）──
     # 与上方 #1392 指标列一样，属「列已就绪、不影响主链路」的补充字段；
@@ -548,8 +557,27 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     nav = Column(SafeNumeric(12, 6), comment='组合最新净值')
     nav_date = Column(Date, comment='组合净值日期')
     return_1d = Column(SafeNumeric(7, 2), comment='近1日收益(%)')
-    return_1q = Column(SafeNumeric(7, 2), comment='近1季度收益(%)')
-    return_6m = Column(SafeNumeric(7, 2), comment='近半年收益(%)')
+    return_1q = Column(SafeNumeric(7, 2), comment='近1季度收益(%)（SYL_3Y 近3月）')
+    return_6m = Column(SafeNumeric(7, 2), comment='近半年收益(%)（SYL_6Y）')
+
+    # ── 投顾详情页 P0（2026-10-29 实网探测）：2/3 年区间 + 业绩基准同区间收益 ──
+    # 读者：详情页「业绩表现」表——8 个区间 × 三列（本组合 / 业绩基准 / 超额），
+    #   设计见 docs/working-notes/advisor-detail-page-design-2026-10-29.md §3.1-2。
+    # 为什么是「全区间 8 列」而不是设计稿当初估的「3 列」：那 3 列是**只探测了 BENCHSYL_LN /
+    #   BENCHSYL_1N 两个键**时的保守估计；2026-10-29 复测把 BENCHSYL_D/Z/Y/3Y/6Y/JN/1N/2N/3N/LN
+    #   一次性要回，**全部有值**（如 BENCHSYL_Y -6.37 / 2N 6.12 / 3N 16.87），且每列都对得上
+    #   表格里的一个格子（数据策略硬约束 1「新列必须当场指定读者」）。少建列 = 让几行永远 `—`。
+    # 超额列不存：`return_x − benchmark_return_x` 是纯派生值，读取侧现算（见 excess_return 注释）。
+    return_2y = Column(SafeNumeric(7, 2), comment='近2年收益(%)（SYL_2N）')
+    return_3y = Column(SafeNumeric(7, 2), comment='近3年收益(%)（SYL_3N）')
+    benchmark_return_1m = Column(SafeNumeric(7, 2), comment='业绩基准近1月收益(%)（BENCHSYL_Y）')
+    benchmark_return_1q = Column(SafeNumeric(7, 2), comment='业绩基准近3月收益(%)（BENCHSYL_3Y）')
+    benchmark_return_6m = Column(SafeNumeric(7, 2), comment='业绩基准近半年收益(%)（BENCHSYL_6Y）')
+    benchmark_return_ytd = Column(SafeNumeric(7, 2), comment='业绩基准今年以来收益(%)（BENCHSYL_JN）')
+    benchmark_return_1y = Column(SafeNumeric(7, 2), comment='业绩基准近1年收益(%)（BENCHSYL_1N）')
+    benchmark_return_2y = Column(SafeNumeric(7, 2), comment='业绩基准近2年收益(%)（BENCHSYL_2N）')
+    benchmark_return_3y = Column(SafeNumeric(7, 2), comment='业绩基准近3年收益(%)（BENCHSYL_3N）')
+    benchmark_return_since_incep = Column(SafeNumeric(7, 2), comment='业绩基准成立以来收益(%)（BENCHSYL_LN）')
 
 
 class AdvisorHolding(Base, PrimaryKeyMixin, TimestampMixin):

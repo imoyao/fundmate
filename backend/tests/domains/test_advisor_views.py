@@ -157,10 +157,144 @@ def test_adjusts_limit_and_date_params(client, db):
 
 def test_advisor_not_found_returns_404(client, db):
     _seed(db)
-    for path in ('holdings', 'adjusts'):
+    for path in ('holdings', 'adjusts', 'industries', 'holdings-history'):
         resp = client.get(f'/api/funds/advisors/NO_SUCH_CODE/{path}/')
         assert resp.status_code == 404
         assert resp.get_json()['data'] is None
+
+
+# ── 投顾详情页 P0（2026-10-29）：as_of / holdings-history / industries ──
+
+
+def test_holdings_as_of_param_selects_older_snapshot(client, db):
+    """`?as_of=` 取指定时点；不传仍是最新（行为不变）。"""
+    _seed(db)
+
+    old = client.get('/api/funds/advisors/ZH012926/holdings/?as_of=2026-09-01').get_json()['data']
+    assert old['as_of_date'] == '2026-09-01'
+    assert len(old['holdings']) == 1  # 09-01 只有 000001
+
+    # 不传 = 最新，与改动前逐字段一致
+    latest = client.get('/api/funds/advisors/ZH012926/holdings/').get_json()['data']
+    assert latest['as_of_date'] == '2026-09-11'
+
+
+def test_holdings_as_of_without_snapshot_echoes_requested_date(client, db):
+    """请求了一个**没有快照**的日期 → 空持仓，但 as_of_date 回显请求日。
+
+    必须是「回显」而不是 null：否则调用方分不清「那天没数据」与「这个组合从没数据」。
+    """
+    _seed(db)
+    data = client.get('/api/funds/advisors/ZH012926/holdings/?as_of=1999-01-01').get_json()['data']
+    assert data['as_of_date'] == '1999-01-01'
+    assert data['holdings'] == []
+
+
+def test_holdings_as_of_bad_format_is_400_not_404(client, db):
+    """非法日期 → 400/1001，**不能**被「组合不存在」的 404/1002 吞掉。
+
+    两者语义不同：把「日期写错了」显示成「组合没了」会让前端给出错误引导。
+    """
+    _seed(db)
+    resp = client.get('/api/funds/advisors/ZH012926/holdings/?as_of=not-a-date')
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body['error_code'] == 1001
+    assert body['data'] is None
+
+
+def test_holdings_history_lists_all_points_desc(client, db):
+    """历史持仓返回全部时点（倒序）+ 最新时点明细 + source/kind 标注。"""
+    _seed(db)
+    data = client.get('/api/funds/advisors/ZH012926/holdings-history/').get_json()['data']
+
+    assert data['dates'] == ['2026-09-11', '2026-09-01']
+    assert data['as_of_date'] == '2026-09-11'
+    # 且慢自动同步 → captured（不是设计稿原写的 'derived'，见第四节口径注释）
+    assert data['source'] == 'qieman'
+    assert data['kind'] == 'captured'
+    assert len(data['holdings']) == 2
+
+
+def test_holdings_history_as_of_selects_point(client, db):
+    _seed(db)
+    data = client.get('/api/funds/advisors/ZH012926/holdings-history/?as_of=2026-09-01').get_json()['data']
+    assert data['as_of_date'] == '2026-09-01'
+    assert [h['fund_code'] for h in data['holdings']] == ['000001']
+    # 时点列表始终是全集，不随所选时点收窄
+    assert data['dates'] == ['2026-09-11', '2026-09-01']
+
+
+def test_holdings_history_kind_manual(client, db):
+    """`qieman_manual` → kind=manual：人工导入与自动同步必须可区分。"""
+    p = AdvisorPortfolio(code='MANUAL_ONE', name='手动组合', platform='QIEMAN')
+    db.add(p)
+    db.flush()
+    db.add(
+        AdvisorHolding(
+            portfolio_id=p.id,
+            as_of_date=date(2026, 9, 11),
+            fund_code='000001',
+            fund_name='华夏成长混合',
+            after_ratio=100.0,
+            source='qieman_manual',
+        )
+    )
+    db.commit()
+
+    data = client.get('/api/funds/advisors/MANUAL_ONE/holdings-history/').get_json()['data']
+    assert data['source'] == 'qieman_manual'
+    assert data['kind'] == 'manual'
+
+
+def test_holdings_history_empty(client, db):
+    db.add(AdvisorPortfolio(code='EMPTY_TWO', name='空组合', platform='QIEMAN'))
+    db.commit()
+    data = client.get('/api/funds/advisors/EMPTY_TWO/holdings-history/').get_json()['data']
+    assert data['dates'] == []
+    assert data['as_of_date'] is None
+    assert data['source'] is None and data['kind'] is None
+    assert data['holdings'] == []
+
+
+def test_industries_sorted_desc_with_source(client, db):
+    from app.domains.funds.models import AdvisorIndustryAlloc
+
+    p = AdvisorPortfolio(code='IND_ONE', name='行业组合', platform='TIANTIAN')
+    db.add(p)
+    db.flush()
+    db.add_all(
+        [
+            AdvisorIndustryAlloc(
+                portfolio_id=p.id, as_of_date=date(2026, 9, 11), industry_name='制造业', ratio=42.5, source='tiantian'
+            ),
+            AdvisorIndustryAlloc(
+                portfolio_id=p.id, as_of_date=date(2026, 9, 11), industry_name='金融业', ratio=18.0, source='tiantian'
+            ),
+            # 旧快照不应出现
+            AdvisorIndustryAlloc(
+                portfolio_id=p.id, as_of_date=date(2026, 8, 1), industry_name='制造业', ratio=50.0, source='tiantian'
+            ),
+        ]
+    )
+    db.commit()
+
+    data = client.get('/api/funds/advisors/IND_ONE/industries/').get_json()['data']
+    assert data['as_of_date'] == '2026-09-11'
+    assert data['source'] == 'tiantian'
+    assert [i['industry_name'] for i in data['industries']] == ['制造业', '金融业']
+    assert data['industries'][0]['ratio'] == 42.5
+    assert isinstance(data['industries'][0]['ratio'], float)
+
+
+def test_industries_empty_when_no_data(client, db):
+    """绝大多数组合没有行业数据（全库仅 3 行）→ 空列表 + as_of_date=None，不 404。"""
+    db.add(AdvisorPortfolio(code='IND_EMPTY', name='无行业', platform='QIEMAN'))
+    db.commit()
+    data = client.get('/api/funds/advisors/IND_EMPTY/industries/').get_json()['data']
+    assert data['as_of_date'] is None
+    assert data['source'] is None
+    assert data['industries'] == []
 
 
 def test_no_holdings_returns_empty_not_error(client, db):

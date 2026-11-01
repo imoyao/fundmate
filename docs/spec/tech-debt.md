@@ -1110,3 +1110,25 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 **顺带记录（不改）**：`el-popover` 的浮层内容对每一行都常驻 DOM（10 行 = 10 份 radio-group），仅一份可见。当前页大小 10，开销可忽略；若将来持仓表上到百行且有明显内存/首屏压力，再评估 `:teleported` + 懒渲染。
 
 **顺带核实（同日）**：**提升覆盖率本身不需要开发**——目标池 `resolve_targets()` 取「持仓 + 自选」（`orchestrator.resolve_targets`），`fund_style` 已在日调度（`SCHEDULER_FUND_STYLE_ENABLED` 默认启用，cron `30 22 2 * *` 月度增量），CI `daily-snapshot.yml` 每天跑 `pdm run scheduler` 并 catch-up，手工补数入口（`--targets` / `--target-file`）已由 #2662 修好。故本条债只针对**指标口径**，不针对数据通路——不要把它当成「数据没在同步」去排查。
+
+## 2026-10-29 投顾组合无写者字段（`benchmark` 名称 / `strategy_type`）
+
+**背景**：`advisor_portfolios` 有 5 个字段长期 0% 填充（`strategy_type` / `cum_return` / `running_days` / `benchmark` / `excess_return`），本机 114 只组合实测全空。2026-10-29 逐字段实网复测后分成两类，**性质完全不同**：
+
+| 字段 | 结论 | 处置 |
+|---|---|---|
+| `cum_return` | 天天 `SYL_LN` **有值**（实测 18.46） | ✅ 已闭环：适配器写入，与 `return_since_incep` 同源（同一原始值两个读者） |
+| `running_days` | 天天 `getTGQuoteByFavor.RUN_DATE` **有值**（实测 1556） | ✅ 已闭环：适配器补写 |
+| `excess_return` | 无接口直接给，但**可算**：`return_since_incep − benchmark_return_since_incep` | ✅ 已闭环：**读取侧现算**（`advisor_profile.build_advisor_profile`），**不落库**——纯派生值按数据策略「能算出就不存」 |
+| `benchmark` | 天天两个接口只给基准的**收益数值**（`BENCHSYL_*`），**不给基准名称** | ⛔ **无写者**，保留列 |
+| `strategy_type` | 无接口给出（且慢/天天/好买均无此字段），平台侧只有 `risk_level` | ⛔ **无写者**，保留列 |
+
+**为什么保留而不删列**：删列不可逆，且将来换平台接口后可能有值；更重要的是「列存在但为空」是一个**可见的信号**，而「列不存在」会让后来者以为从没打算做。故在两列的模型注释里显式写「无写者，见 tech-debt」，避免下一轮把 0% 又当成一次新发现去排查。
+
+**⚠️ 本轮最贵的教训：0% 不等于数据源缺失。** 此前 `models.py` 的注释写着「回撤 / 超额 API 不直接提供」，那是**只探测了 `FundIATGInfoAggr` 一个接口**就下的结论。实网复测 `getTGQuoteByFavor`：`MAXRETRA_LN` 24.33（回撤）、`SHARPE_LN` 0.16（夏普）、`RUN_DATE` 1556、`ANNSYL_LN` 4.19 全都在；`BENCHSYL_*` 9 个区间在 AGGR 里也全有值。⇒ **「记成 API 不提供」其实是「适配器没请求」**。下一个人看到某列 0% 时，先确认「有没有接口真的问过」，再写「数据源不支持」。
+
+**遗留（未在本轮处理）**：
+
+1. `benchmark`（名称）需要一个能给出「业绩比较基准」文本的数据面——天天 App 详情页有，但不在上述两个接口里；属**新数据源调研**，不是补字段。
+2. `strategy_type`（均衡/进取/稳健）若要落地只能是**策展字段**（进 `advisor_catalog` 注册表，人工维护），不得靠猜。与 `allocation`（五笔钱）同性质，见 `CURATED_OVERVIEW_KEYS`。
+3. 天天组合每只现在**每次同步 2 次 HTTP**（AGGR + QUOTE，节流 2s）⇒ 111 只约 7~9 分钟。这是取全字段的必要代价，若要压缩得改「按需回填」（只对用户触达的组合抓 QUOTE 面）。

@@ -433,12 +433,11 @@ def related_symbols():
 def product_trend():
     """产品历史走势序列（#1967 · 详情页走势区块）。
 
-    与 ``/api/watchlist/trends/`` 的区别：本端点**带日期轴**且用区间语义（1M/3M/6M/1Y），
-    因为详情页要画坐标轴、并给出「数据日期」口径脚注；trends 面向列表页迷你图，只要数值数组。
-    ``start`` 为显式起始日（#2171 建仓期），给定时忽略档位。
+    与 ``/api/watchlist/trends/`` 的区别：本端点**带日期轴** + 区间语义（1M/3M/6M/1Y），详情页要坐标轴与
+    「数据日期」口径脚注；trends 只给数值数组。``start`` 为显式起始日（#2171 建仓期），给定时忽略档位。
 
-    降级：品类本身没有序列数据源（指数 / 基金经理 / 投顾组合）时返回**空序列**而非 404——
-    「该品类不提供走势」与「产品不存在」是两件事，前端要分别渲染空态。
+    降级：品类本身没有序列数据源（**基金经理 / 投顾组合**）时返回**空序列**而非 404——「不提供走势」
+    与「产品不存在」是两件事，前端分别渲染空态。⚠️ 指数**不在此列**（独立分支：``index_daily`` + 东财兜底）。
     """
     query: ProductTrendRequest = parse_query(ProductTrendRequest)
 
@@ -455,7 +454,7 @@ def product_trend():
             abort(400, str(e))
 
     if result is None:
-        # 品类无序列数据源（指数/基金经理/投顾组合）→ 空序列降级。
+        # 品类无序列数据源（基金经理/投顾组合；指数有独立分支）→ 空序列降级。
         # 响应形态由 service 给出（#1606：视图只做编排，不内联业务规则）
         result = empty_product_trend(query.symbol, query.range_, query.start)
     return jsonify({'data': result, 'message': 'ok'})

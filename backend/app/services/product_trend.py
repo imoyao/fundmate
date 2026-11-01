@@ -227,7 +227,9 @@ def fetch_product_trend(
         available_days}``；``source`` 是**站点名**（如「新浪财经」），``basis`` 是口径
         说明——用户看来源，需要时看口径（#1969）。``ohlc`` 为场内**未复权** OHLCV
         （画 K 线 + 成交量），场外为空数组（改画净值线）。
-        品类本身无序列数据源（指数等）时返回 ``None``，由调用方降级。
+        品类本身无序列数据源（基金经理 / 投顾组合）时返回 ``None``，由调用方降级。
+        （2026-10-29 更正：指数**不在此列**——它有独立的 ``index_daily`` 分支，见下方
+        ``normalized_type == 'index'``；``_NO_SERIES_TYPES`` 才是判据来源。）
 
     Raises:
         ValueError: ``symbol`` 为空或 ``range_key`` 非法。
