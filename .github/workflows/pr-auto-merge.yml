@@ -10,10 +10,51 @@
 #
 # ## 触发与条件
 #
-# - 事件：PR 打开 / 同步 / 重开 / 加标签（pull_request_target，便于拿到写权限 token）。
+# - 事件：PR 打开 / 同步 / 重开 / 加标签（`pull_request`，**不是** `pull_request_target`）。
 # - 仅对 base=dev 的 PR 生效。
 # - 仅当 PR 挂有 `automerge` 标签时启用自动合并（opt-in，避免误合）。
 # - 启用是幂等的：重复调用 `gh pr merge --auto` 不会报错。
+#
+# ## 为什么用 `pull_request` 而不是 `pull_request_target`（#2799）
+#
+# 这是本工作流最关键的一处取舍，**两个理由都指向 `pull_request`**：
+#
+# **理由一（决定性）：`pull_request_target` 的 workflow 定义只取自默认分支，无视 base 分支。**
+#
+# GitHub 于 2025-12-08 生效的行为变更（官方 changelog「Actions pull_request_target and
+# environment branch protections changes」）原文：
+# > The pull_request_target event now always uses the default branch for workflow source
+# > and reference: The workflow file and checkout commit will always be taken from the
+# > repository's default branch, regardless of the pull request's base branch.
+#
+# 本仓默认分支是 `main`，而功能 PR 一律 base=`dev`。⇒ 走 `pull_request_target` 时，
+# **跑的是 `main` 上的那一份定义**（本仓 `main` 落后 `dev` 数百个提交），
+# 于是「在 dev 上改了 workflow」这件事**对这条路径完全不可见**——
+# 改了什么、守卫加在哪、PAT 换成没有，跑的都还是 `main` 上那份旧的。
+#
+# 2026-11-01 实测（本仓 PR #2801，PR 的 base=dev 且 dev 上已含新版定义）：
+# 新版里那行 `启用 auto-merge 的凭据身份：$actor` 的 echo **没有出现在日志里**，
+# 取而代之的是 `main` 旧版逐字一致的文案 ⇒ 实证「定义来自默认分支」，
+# 而不是来自 PR 的 base 分支。
+#
+# `pull_request` 事件则相反：**workflow 定义取自 PR 的 merge commit**
+# （dev tip + PR head 合并结果），所以 dev 上的改动**立刻生效**。
+#
+# **理由二：`pull_request` 对同仓分支的 PR 同样有写权限与 secrets。**
+#
+# 官方文档原文：「The same is true for workflows triggered on `pull_request` from a branch
+# in the same repository, but not from external forks.」本仓所有功能分支都在本仓内
+# （不是 fork），故 `permissions: contents: write` 与 `secrets.AUTO_MERGE_PAT` 均可用，
+# 而 `pull_request_target` 带来的「能拿到写权限」这个优势**本仓本来就用不上**。
+#
+# **换成 `pull_request` 后必须守住的两条边界**：
+#
+# 1. **不 checkout PR 代码**：本工作流只用 `gh` CLI 调 API，全程无 `actions/checkout`，
+#    也不执行任何来自 PR 的文件 ⇒ 无 pwn request 面。PR 作者改不动「跑什么」，
+#    只能改「这段逻辑长什么样」——而本仓 PR 只由仓库 owner 自己开。
+# 2. **fork PR 必须显式跳过**：fork 的 `pull_request` 拿不到 secrets（`GH_TOKEN` 为空），
+#    若不区分就会把「fork PR 没有 secret」误报成「仓库没配 PAT」而误红。
+#    故先判 `head.repo.full_name == github.repository` 再继续。
 #
 # ## 为什么用用户 PAT 而不是 GITHUB_TOKEN（#2799）
 #
@@ -50,16 +91,31 @@
 # 否则前者会被当成后者一直重试，直到有人发现合并从不发生。
 #
 # 守卫：`scripts/guard_auto_merge_user_attribution.py`（并入 ci.yml 的 scripts_test，阻断）。
+# 守卫同时校验**触发器不是 `pull_request_target`**——那会把 PAT 修复锁死在默认分支上，
+# 改了对这条路径不可见（#2799 的第二层根因）。
 #
 # ## 与 Layer 1（自动变基）配合
 #
 # 自动变基让分支始终基于最新 dev，冲突在源头极小；本工作流在其之上负责「绿了就合」。
 # 二者合起来，未来 CNB/agent 分支的常态是：基于最新 dev → 自动变基保新 → 门禁绿就自动合 → 回同步 CNB。
+#
+# ## 已知边界（不在本工作流职责内）
+#
+# 本仓另有 6 个工作流同样用 `pull_request_target`（dependabot-auto-merge /
+# dependabot-lockfile-regen / issue-claim-sync / pr-auto-rebase /
+# pr-four-questions-guard / pr-overlap-guard），它们**同样只跑默认分支上的定义**。
+# 这是 `pull_request_target` 的平台级行为，不是本仓独有；已另开 issue 记录，
+# 不在本工作流内一并处理。
 
 name: PR 自动合并（绿灯即合）
 
 on:
-  pull_request_target:
+  # ⚠️ 刻意用 `pull_request` 而非 `pull_request_target`（#2799）：
+  # `pull_request_target` 的 workflow 定义只取自**默认分支**（本仓是 `main`），无视 base 分支
+  # ⇒ dev 上的改动对这条路径不可见，PAT 修复永远不会被执行。
+  # `pull_request` 的定义取自 **merge commit**（dev tip + PR head）⇒ dev 上的改动立刻生效。
+  # 同仓分支的 `pull_request` 同样有写权限与 secrets，故不损失任何能力。详见文件头。
+  pull_request:
     types: [opened, synchronize, reopened, labeled]
 
 permissions:
@@ -83,8 +139,18 @@ jobs:
           # ⚠️ 刻意**不**写 `|| secrets.GITHUB_TOKEN`：PAT 缺失时静默回落 = 假绿复现。
           GH_TOKEN: ${{ secrets.AUTO_MERGE_PAT }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          # fork 判定用（见文件头「换成 pull_request 后必须守住的两条边界」）：
+          # fork 的 pull_request 拿不到 secrets，须与「仓库没配 PAT」区分开，否则误红。
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # 边界一：fork PR 没有 secrets（GH_TOKEN 必为空），且其代码不可信 ⇒ 显式跳过。
+          # 放在 PAT 空值检查**之前**，否则会把「fork 没有 secret」误报成「仓库没配 PAT」。
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "跳过：PR 来自 fork（$HEAD_REPO ≠ $BASE_REPO），fork 的 pull_request 无 secrets，无法启用用户 PAT 归因的 auto-merge。"
+            exit 0
+          fi
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::error::未配置 secret AUTO_MERGE_PAT（用户 PAT）。" >&2
             echo "::error::不能用 GITHUB_TOKEN 顶上——那样合并会归因到 github-actions，" >&2
