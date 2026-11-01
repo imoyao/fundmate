@@ -195,6 +195,126 @@ environment branch protections changes」）原文：
 或按 `#2803` 的选项单独处理。**在此之前，不要指望「贴标签 → 自动合并」这条
 自动化路径已完全正常** —— 它只在旧版抢不到时生效。
 
+### 4.6 处置 `#2803` 时挖出的第三条机制：依赖 bot 的 PR **不能**迁 `pull_request`
+
+上一节 4.2 的结论是「`pull_request_target` 的定义只取自默认分支 ⇒ 应迁到
+`pull_request`」。迁 `#2803` 时发现这句话**只对一半场景成立**。
+
+GitHub 官方文档（events-that-trigger-workflows，`pull_request` → "Workflows in forked
+repositories"）原文：
+
+> Workflows triggered by Dependabot pull requests are treated as though they are from a
+> forked repository, and are also subject to these restrictions.
+> The `GITHUB_TOKEN` has read-only permissions in pull requests from forked repositories.
+
+⇒ **Dependabot 的 PR 即使 head 仓库就是本仓**（实测 `#2645`–`#2649` 的 head_repo 都是
+`imoyao/fundmate`），在 `pull_request` 事件下 token 仍是**只读**、secrets 也不注入。
+
+**「head 仓库相同」≠「权限相同」** —— Dependabot 被平台特殊对待。
+
+这条如果漏掉，后果是：`dependabot-auto-merge.yml` 的 `gh pr merge --auto` 与
+`dependabot-lockfile-regen.yml` 的 `git push` **必然失败**（`#578` 同族事故）。
+而且它**不会在 CI 里暴露** —— CI 全绿、PR 合得进去，只有真正跑起来才炸。
+
+发现路径也值得记：仓库里**已有一条守卫**
+（`scripts/guard_dependabot_lockfile_regen.py`）明确要求「触发方式必须是
+`pull_request_target`」，理由写的就是这句。本仓自己的判据比通用文档更早知道这件事。
+⇒ **改仓库里的 CI 之前，先读仓库里已有的守卫**——它们记录的是事故，不是文档摘要。
+
+### 4.7 迁移到 `pull_request` 的第二处易漏点：checkout 必须显式 `ref`
+
+| 事件 | `actions/checkout` 默认检出 |
+|---|---|
+| `pull_request_target` | **base 分支**（受信） |
+| `pull_request` | **merge commit（含 PR 代码）** |
+
+⇒ 迁移时若没补 `ref`，等于把「执行内容」交给 PR 作者：
+把 `guard_pr_four_questions.mjs` 的判据改成恒真、把 `pr-overlap-guard.yml` 的
+`GOV_GLOB` 改空——**改的是守卫自己**。
+
+本仓有 3 个工作流的 checkout 原本没写 ref（`issue-claim-sync` /
+`pr-four-questions-guard` / `pr-overlap-guard`），迁移时都补上了 `ref: dev`。
+
+**例外**：`ci.yml` / `docker-build.yml` / `ai-review.yml` 检出 PR 代码是**职责所在**
+（CI 就是用来测 PR 的代码的），要求它们写 `ref: dev` 反而让 CI 测错东西。
+⇒ 守卫用**显式清单**区分「守卫类」与「CI 类」，不靠猜。
+
+### 4.8 迁移的第三处易漏点：`concurrency` 的互斥会让守卫被**静默取消**
+
+这是迁移 `#2803` 时**实测撞到**的（PR #2807 首次 CI），同一时刻两个 run：
+
+| run | event | 结论 |
+|---|---|---|
+| 41305286670 | `pull_request`（`dev` 上的新版） | **cancelled** |
+| 41305286732 | `pull_request_target`（`main` 上的旧版） | success |
+
+⇒ 过渡期内 `main` 旧版与 `dev` 新版**同时被触发**，而两者算出的
+**concurrency group 名字相同**（group 名只含 PR 号，不含事件名）
+⇒ `cancel-in-progress: true` 让两者**互相取消** ⇒ **守卫被静默取消**，
+而 GitHub 把 `cancelled` 记成 check 失败（PR 上显示 fail）。
+
+**这个缺陷是迁移引入的**：迁移前只有一个版本生效（都读 `main`），不存在并发。
+
+#### 第一次修法（`cancel-in-progress: false`）**实测无效**
+
+第一反应是「把新版改成 `cancel-in-progress: false`，两份就不互相取消了」。
+提交 `a1a9e8f5d` 推上去后**新版仍然被 cancelled**。
+
+**根因**：**取消是「发起取消的那一方」的行为**。旧版（`main` 上那份）是
+`cancel-in-progress: true`，**它**取消新版；新版自己设成 `false`
+只影响「新版作为发起方时取消谁」，**拦不住旧版取消它**。
+
+⇒ **唯一可靠的修法是让两者的 group 名不同**，而不是调 `cancel-in-progress`。
+
+#### 正确修法：group 名加**过渡期后缀**
+
+新版 group 名加 `-pr-`（本仓约定含它）：
+
+```yaml
+group: pr-four-questions-guard-pr-${{ github.event.pull_request.number }}
+cancel-in-progress: false
+```
+
+⇒ 过渡期新旧两组并存、各跑各的、互不取消；发版后 `main` 上的旧版被替换
+⇒ 两边 group 名一致 ⇒ 恢复单一序列 ⇒ **发版后不需要回改**。
+
+#### `main` 旧版的实际形态（2026-11-01 逐个核过）
+
+| 工作流 | `main` 旧版 | 故障形态 |
+|---|---|---|
+| `pr-four-questions-guard` | group `pr-four-questions-guard-<n>`，`cancel-in-progress: true` | **会取消新版**（实测命中） |
+| `issue-claim-sync` | group `claim-in-progress-<n>`，`cancel-in-progress: false` | 不取消，但同组排队 |
+| `pr-overlap-guard` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复评论 |
+| `pr-auto-rebase` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复 force-push |
+| `pr-auto-merge` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复尝试合并 |
+
+⇒ 前两个已加后缀（`pr-four-questions-guard-pr-<n>` / `claim-in-progress-pr-<n>`）；
+后三个**没有 group 可改** ⇒ 过渡期副作用会重复。
+
+> ⚠️ **后三个的重复副作用不是 group 名能解决的**：后缀只能分开新版彼此，
+> 不能让旧版消失 ⇒ 它们必然新旧各跑一次。这只能等发版自然消失，
+> 已作为「过渡期已知残留」记在 `#2803`。
+>
+> `issue-claim-sync` 虽然有副作用（打/摘标签 + 撞车评论），但**跑两次无害**：
+> 标签操作幂等、撞车告警有隐藏键保证幂等（`scripts/claim_in_progress.mjs` 的
+> `COLLISION_HIDDEN_MARK`）⇒ 允许新旧并存。
+
+#### 守卫判据 4 的最终形态
+
+`scripts/guard_workflow_definition_source.py` 的判据 4 盯的是
+**group 名是否与旧版撞车**，不是 `cancel-in-progress` 的取值：
+
+1. 迁移到 `pull_request` 且**声明了 `concurrency`** 的工作流，
+   其 `group` 名必须含过渡期后缀 `-pr-`；
+2. 没有 `concurrency` 段 ⇒ 放行（不存在互斥，也就没有互斥风险）；
+3. 有 `concurrency` 段但**没有 `group`** ⇒ 判红（判据无从判断，要求显式表态：
+   要么给 group，要么整段删掉）；
+4. 同时覆盖 YAML 的**字符串简写**（`concurrency: 名字`）——
+   只认字典形态会让那种写法被**静默放行**，那正是守卫最危险的失败模式。
+
+（判据 1–3 是本次新增，判据 4 在实测撞到后按上述语义重写。）
+
+
 ## 5. 边界
 
 - **dependabot 那条路径刻意不动**（`dependabot-auto-merge.yml`）：它的合并归因留在

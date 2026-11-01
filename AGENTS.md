@@ -1080,11 +1080,110 @@ PAT 换成没有，跑的都还是 `main` 上那份旧的。
    `cnb-github-backfill.yml` / `bridge-*.yml`）与本条**无关**：那是 CNB 侧凭据的既有惯例，
    仓库 Actions secrets 里**并没有** `GH_PAT`，那几处一直在走 GITHUB_TOKEN 回落。
    刻意不共用名字，避免动到它们的推送归因。
-6. **本仓另有 6 个工作流也用 `pull_request_target`**（`dependabot-auto-merge` /
+6. **本仓另有 6 个工作流曾用 `pull_request_target`**（`dependabot-auto-merge` /
    `dependabot-lockfile-regen` / `issue-claim-sync` / `pr-auto-rebase` /
    `pr-four-questions-guard` / `pr-overlap-guard`）⇒ **它们同样只跑 `main` 上的定义**。
-   这是平台级行为带来的系统性问题（不是本仓独有），已另开 issue 记录，
-   不在 ② 内一并处理。
+   已由 `#2803` 处置：其中 4 个迁到 `pull_request`，2 个（依赖 bot 触发的）**合法保留**
+   `pull_request_target`（见下一节）。守卫
+   `scripts/guard_workflow_definition_source.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
+   把这条钉住，回归网 `scripts/tests/test_workflow_definition_source.py`（23 个用例）。
+
+#### ⚠️ ③ 依赖 bot 触发的路径**不能**迁 `pull_request`（#2803）
+
+上一节说「`pull_request` 对同仓分支的 PR 同样有写权限与 secrets」——**这句话对
+Dependabot 不成立**。GitHub 官方文档原文：
+
+> Workflows triggered by Dependabot pull requests are treated as though they are from a
+> forked repository, and are also subject to these restrictions.
+> The `GITHUB_TOKEN` has read-only permissions in pull requests from forked repositories.
+
+⇒ **Dependabot 的 PR 即使 head 仓库就是本仓**（实测 `#2645`–`#2649` 的 head_repo
+都是 `imoyao/fundmate`），在 `pull_request` 事件下 token 仍是**只读**、secrets 也不注入
+⇒ 这类工作流里的 `git push` / `gh pr merge --auto` **必然失败**（`#578` 同族事故）。
+
+> **「head 仓库相同」≠「权限相同」。** Dependabot 被平台特殊对待。
+> 这是「迁移前先查文档」而不是「迁移后跑一下看」才能发现的——迁过去 CI 全绿，
+> 真正跑起来才炸。
+
+因此本仓这 2 个工作流**合法保留** `pull_request_target`：
+
+| 工作流 | 它要做什么 | 为什么离不开 `pull_request_target` |
+|---|---|---|
+| `dependabot-auto-merge.yml` | `gh pr merge --auto` 合并依赖 PR | `pull_request` 下 token 只读 ⇒ 合并失败 |
+| `dependabot-lockfile-regen.yml` | `git push` 把重生成的锁推回 dependabot 分支 | 同上 |
+
+**代价（明确接受）**：它们的定义仍锁在默认分支 `main` 上，dev 上的改动要等
+`dev → main` 发版才生效（实测该文件在 main 与 dev 上曾差 227 行 ⇒ **撞锁形态在 main 侧
+无法自动修复**）。这是「`schedule` / `pull_request_target` 类漂移只能随发版解决」的一个
+实例——`schedule` 事件没有替代的定义来源选项，只能等同步。
+
+守卫 `scripts/guard_workflow_definition_source.py` 对这两个**显式豁免**
+（`_PRT_EXEMPT`），且豁免项必须同时在 `_GUARD_WORKFLOWS` 清单里（这样它的 checkout
+仍受「必须显式 `ref: dev`」约束）——**豁免清单本身也被守卫**，防止它变成藏污纳垢的地方。
+
+#### ⚠️ ④ 迁到 `pull_request` 后，**checkout 必须显式写 `ref: dev`**
+
+`pull_request_target` 下 `actions/checkout` 默认检出 **base 分支**（受信）；
+`pull_request` 下默认检出 **merge commit（含 PR 代码）**。
+
+⇒ 迁移时若忘了补 `ref`，等于给 PR 作者一个「改掉自己的守卫」的入口：
+把 `guard_pr_four_questions.mjs` 的判据改成恒真、把 `pr-overlap-guard.yml` 的
+`GOV_GLOB` 改空——**改的是守卫自己**。本仓这次有 3 个工作流的 checkout 原本没写 ref
+（`issue-claim-sync` / `pr-four-questions-guard` / `pr-overlap-guard`），迁移时都补上了。
+
+**例外**：`ci.yml` / `docker-build.yml` / `ai-review.yml` 这类 **CI 工作流检出 PR 代码是
+职责所在**（CI 就是用来测 PR 的代码的），要求它们写 `ref: dev` 反而会让 CI 测错东西。
+⇒ 守卫的判据用**显式清单**区分这两类，不靠猜。
+
+#### ⚠️ ⑤ 迁到 `pull_request` 后，`concurrency.group` 必须加**过渡期后缀**
+
+这是迁移里**最容易漏、且失败形态最阴**的一处：漏了它，CI 不会报错，
+只会看到「守卫明明是绿的，却被静默取消了」。
+
+**机制**：迁到 `pull_request` 后，**过渡期内新旧两版会同时被触发**——
+`main` 上的旧版（`pull_request_target`）与 `dev` 上的新版（`pull_request`）。
+若两者的 `concurrency.group` **算出的名字相同**，就落进同一个组 ⇒
+**`cancel-in-progress: true` 的一方会把另一方取消**。
+
+实测（PR `#2807`，2026-11-01）：
+
+```
+pull_request_target（main 旧版，cancel-in-progress: true）→ success
+pull_request       （dev 新版）                          → cancelled
+```
+
+⇒ 新版那条挂在 PR head 上的 check 被取消 ⇒ GitHub 把 cancelled 记成
+**check 失败** ⇒ PR 假红。而且这个红**不是「守卫判定不通过」**，
+是「守卫压根没跑完」——看日志会以为是守卫逻辑有问题，去查错方向。
+
+> ⚠️ **只把新版改成 `cancel-in-progress: false` 是不够的**（这是本次实测撞到的）。
+> **取消是「发起取消的那一方」的行为**——旧版是 `true`，它取消新版；
+> 新版自己设成 `false` 也拦不住（实测：改了 `false` 之后新版仍被 cancelled）。
+> **唯一可靠的修法是让两者的 group 名不同。**
+
+**修法**：新版 group 名加**过渡期后缀**（本仓约定：含 `-pr-`），
+让过渡期新旧两组并存、互不取消。发版后 `main` 上的旧版被替换 ⇒
+两边 group 名一致 ⇒ 自然恢复单一序列 ⇒ **发版后不需要回改**。
+
+本仓 `main` 旧版的实际形态（2026-11-01 逐个核过）：
+
+| 工作流 | `main` 旧版 | 故障形态 |
+|---|---|---|
+| `pr-four-questions-guard` | group `pr-four-questions-guard-<n>`，`cancel-in-progress: true` | **会取消新版**（实测命中） |
+| `issue-claim-sync` | group `claim-in-progress-<n>`，`cancel-in-progress: false` | 不取消，但同组排队 |
+| `pr-overlap-guard` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复评论 |
+| `pr-auto-rebase` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复 force-push |
+| `pr-auto-merge` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复尝试合并 |
+
+⇒ 前两个已加后缀（`pr-four-questions-guard-pr-<n>` / `claim-in-progress-pr-<n>`）。
+后三个**没有 group 可改** ⇒ 过渡期副作用会重复（重复评论 / 重复 force-push），
+**这不是 group 名能解决的**（后缀只能分开新版彼此，不能让旧版消失），
+只能等发版自然消失——已作为「过渡期已知残留」记在 `#2803`。
+
+> 守卫判据 4 盯的是**group 名是否与旧版撞车**，不是 `cancel-in-progress` 的取值：
+> 撞车了才需要后缀；不撞车时 `cancel-in-progress: true` 是正常的去重语义。
+> 判据同时覆盖 YAML 的字符串简写（`concurrency: 名字`），
+> 否则那种写法会被**静默放行**——那正是守卫最危险的失败模式。
 
 ### 「永久记忆」存在哪、什么时候读
 

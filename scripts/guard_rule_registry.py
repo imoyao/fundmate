@@ -403,7 +403,18 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         # +「触发器是不是 pull_request」（pull_request_target 的定义只取自默认分支，
         #   会把上面这些正确配置锁死在 main 上，改了对该路径不可见）
         # +「fork PR 是否被显式跳过」（fork 无 secrets，不跳过会误报成「没配 PAT」）。
-        'covered': '不查 secret 的实际值（看不到 secret 存储）；dependabot 那条路径刻意留在 bot 侧，不在本判据内；其余 6 个 pull_request_target 工作流另开 issue 统一处理',
+        'covered': '不查 secret 的实际值（看不到 secret 存储）；dependabot 那条路径刻意留在 bot 侧，不在本判据内；其余 6 个 pull_request_target 工作流的定义来源由 guard_workflow_definition_source.py 统一管',
+    },
+    'scripts/guard_workflow_definition_source.py': {
+        'rule': '全仓不得有 pull_request_target 触发器 + 守卫类工作流的 checkout 必须显式 ref（否则 dev 上的 workflow 改动对该路径不可见 = 静默失效）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_workflow_definition_source.py',
+        # 判据一：全仓无 `pull_request_target`——它的定义一律取自默认分支（main），
+        #   无视 PR 的 base 分支 ⇒ dev 上的改动对这条路径完全不可见（#2803）。
+        # 判据二：守卫类工作流（执行仓库内 scripts/ 的那些）用 `pull_request` 时，
+        #   checkout 必须显式写非默认分支的 ref——`pull_request` 下默认检出 merge
+        #   commit（含 PR 代码）⇒ PR 作者改一下 scripts/ 就能改掉自己的守卫。
+        'covered': '不查 schedule 的定义来源（平台行为，只有默认分支一个选项，靠 dev→main 发版同步解决）；不查 push（定义来源=被推分支=dev，本来就是新的）；不查 CI 类工作流的 checkout（检出 PR 代码是职责所在）；不查 governance-direction-guard 的既有形态（迁移前就是 pull_request，另记 issue）',
     },
     'scripts/guard_migrations_pg_aware.py': {
         'rule': '启动期迁移不许写「非 SQLite 就跳过」早退（存量按函数指纹基线冻结）',

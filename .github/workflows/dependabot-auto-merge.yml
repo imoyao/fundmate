@@ -3,6 +3,29 @@ name: Dependabot Auto Merge
 # 自动合并 Dependabot 的依赖更新 PR（仅 @dependabot 作者、仅补丁/次要版本、仅 dependencies 标签）
 # 作用：让安全更新随依赖升级自动合入默认分支，Dependency Graph 上的对应漏洞告警随之自动关闭，
 #       无需人工逐个处理（GitHub 默认行为：锁文件升级合并后，相关 Dependabot alert 会自动 resolved）。
+#
+# ## 为什么用 `pull_request_target` 而不是 `pull_request`（#2803）
+#
+# 本仓其他 PR 类工作流都已从 `pull_request_target` 迁到 `pull_request`
+# （理由：`pull_request_target` 的定义只取自默认分支 `main`，无视 base 分支 ⇒
+# dev 上的改动对这条路径不可见；GitHub 2025-12-08 生效的行为变更）。
+# **但本文件不能迁**——它由依赖 bot 触发，而 GitHub 官方文档明确写道：
+#
+# > Workflows triggered by Dependabot pull requests are treated as though they are
+# > from a forked repository, and are also subject to these restrictions.
+# > The GITHUB_TOKEN has read-only permissions in pull requests from forked repositories.
+#
+# ⇒ Dependabot 的 PR 即使 head 仓库就是本仓（实测 `#2645`–`#2649` 的 head_repo 都是
+# `imoyao/fundmate`），在 `pull_request` 事件下 token 仍是**只读** ⇒ 这里的
+# `gh pr merge --auto` **必然失败**（`#578` 同族事故）。
+# 「head 仓库相同」≠「权限相同」——dependabot 被平台特殊对待。
+#
+# ⇒ 代价：本文件的定义仍锁在默认分支 `main` 上，dev 上的改动要等发版才生效
+# （见 `#2803`）。这是**有意接受的**：它换来的是依赖更新照常自动合并。
+# 守卫 `scripts/guard_workflow_definition_source.py` 对本文件**显式豁免**。
+#
+# 本工作流**不 checkout 任何代码**（只用 `dependabot/fetch-metadata` 与 `gh` 调 API）
+# ⇒ 无 pwn request 面。
 
 on:
   pull_request_target:

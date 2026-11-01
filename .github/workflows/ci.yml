@@ -782,6 +782,23 @@ jobs:
       - name: 自动合并的归因（阻断）
         run: python scripts/guard_auto_merge_user_attribution.py
 
+      # workflow 的**定义来源**（#2803）：`pull_request_target` 的定义一律取自
+      # 仓库默认分支（本仓是 `main`），无视 PR 的 base 分支（GitHub 2025-12-08
+      # 生效的行为变更）⇒ 本仓功能 PR 一律 base=`dev` 时，「在 dev 上改了 workflow」
+      # 对这条路径**完全不可见**：守卫、判据、凭据、cron 改了什么，跑的都还是
+      # main 上那份旧的。这类故障**没有任何报错**——CI 照常绿，只有行为不一致。
+      #
+      # 判据两条：① 全仓不得出现 `pull_request_target` 触发器；
+      # ② 守卫类工作流（执行仓库内 scripts/ 的那些）用 `pull_request` 时，
+      # checkout 必须显式写非默认分支的 ref——否则 `pull_request` 下默认检出
+      # merge commit（含 PR 代码），PR 作者改一下 scripts/ 就能改掉自己的守卫。
+      # CI 类工作流检出 PR 代码是职责所在，不在该判据范围。
+      # 放在 pyyaml 安装之后（守卫要解 YAML）。
+      # 回归网：scripts/tests/test_workflow_definition_source.py（12 个变异探针，
+      # 随 unittest discover 收进来）。
+      - name: workflow 定义来源（阻断）
+        run: python scripts/guard_workflow_definition_source.py
+
       # MiSans 子集字形覆盖（源 https://github.com/imoyao/fundmate/issues/2402）：用户截图报
       # 「荃」「鑫」渲染不对。实测真因不是「按字频裁剪」——`subset_misans.py` 的字表压根
       # 没有 GB2312 **二级**（区 56~87，按笔画排序，装的全是姓氏 / 人名 / 地名用字），

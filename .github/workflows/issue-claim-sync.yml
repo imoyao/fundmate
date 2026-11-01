@@ -48,11 +48,42 @@
 # | **本工作流** | **GitHub 自己的 PR → GitHub 自己的卡** | `in-progress` |
 #
 # 两个方向合起来才是完整的「谁在动这张卡」。
+#
+# ## 为什么用 `pull_request` 而不是 `pull_request_target`（#2803）
+#
+# `pull_request_target` 的 workflow 定义**只取自仓库默认分支**（本仓是 `main`），
+# 无视 PR 的 base 分支（GitHub 2025-12-08 生效的行为变更，官方 changelog
+# 「Actions pull_request_target and environment branch protections changes」）：
+#
+# > The workflow file and checkout commit will always be taken from the repository's
+# > default branch, regardless of the pull request's base branch.
+#
+# 本仓功能 PR 一律 base=`dev`，而 `main` 落后 `dev` 数百个提交 ⇒ 走
+# `pull_request_target` 时跑的是 `main` 上那份旧定义 ⇒ **「在 dev 上改了这个守卫」
+# 对这条路径完全不可见**。`pull_request` 的定义取自 PR 的 merge commit ⇒ dev 上的
+# 改动立刻生效。
+#
+# 本工作流需要 `issues: write`（打/摘标签、写评论）。同仓分支的 `pull_request`
+# 与 `pull_request_target` 权限**完全一致**（官方文档：*「The same is true for
+# workflows triggered on pull_request from a branch in the same repository, but not
+# from external forks.」*）⇒ 迁过去**不损失**写权限。
+# 本仓已有该模式的**成功先例**：`close-linked-issues.yml` 就是 `pull_request` +
+# `issues: write`，实测成功关闭了 issue（actor = `github-actions[bot]`）。
+#
+# ## 迁到 `pull_request` 后 checkout 必须显式写 `ref`（关键）
+#
+# `pull_request_target` 下 `actions/checkout` 默认检出 **base 分支**；
+# `pull_request` 下默认检出 **merge commit**（含 PR 代码）。
+# 本工作流执行的是 `scripts/claim_in_progress.mjs`——**如果检出的是 PR 代码，
+# PR 作者就能改掉这个守卫脚本本身**（把判据改成永不打标签，或改成乱打）。
+# 故显式 `ref: dev`：检出的始终是受信的 dev 版本。
+# （原注释说「不检出 PR 代码」在 `pull_request_target` 下成立；
+#  迁到 `pull_request` 后**必须靠显式 `ref: dev` 才继续成立**。）
 
 name: 认领同步（本仓 PR → issue）
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, reopened, ready_for_review, closed]
 
 permissions:
@@ -62,7 +93,24 @@ permissions:
 
 concurrency:
   # 按 PR 串行即可：同一 PR 的连续事件不该互相覆盖标签
-  group: claim-in-progress-${{ github.event.pull_request.number }}
+  #
+  # ⚠️ group 名必须带 `-pr-` 过渡期后缀（#2803 迁移时实测撞到）：
+  # 迁到 `pull_request` 后，**过渡期内 `main` 上的旧版（`pull_request_target`，
+  # group 名 `claim-in-progress-<n>`）与 `dev` 上的新版（`pull_request`）
+  # 会同时被触发**。两者 group 名相同 ⇒ 共用一组 ⇒ 互相排队（且先到者被
+  # `cancel-in-progress: true` 的一方取消时，新版那条挂在 PR head 上的 check
+  # 会被取消 ⇒ GitHub 记成 check 失败 ⇒ PR 假红）。
+  #
+  # 本工作流两边都是 `cancel-in-progress: false` ⇒ 不会互相取消，但**仍要加后缀**：
+  # 共用一组意味着新版要排在旧版后面跑（串行拖慢），且一旦旧版改成
+  # `cancel-in-progress: true` 就会立刻退化成「新版被取消」。
+  #
+  # 后缀 `pr-` 让过渡期新旧两组并存（各跑各的）；发版后 `main` 上的旧版被替换
+  # ⇒ 两边 group 名一致 ⇒ 恢复单一序列。**发版后不需要回改。**
+  #
+  # 本工作流跑两次**无害**：打/摘标签是幂等的，撞车告警评论有隐藏键保证幂等
+  # （见 `scripts/claim_in_progress.mjs` 的 `COLLISION_HIDDEN_MARK`）。
+  group: claim-in-progress-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
@@ -73,6 +121,10 @@ jobs:
       - name: 检出脚本（不检出 PR 代码）
         uses: actions/checkout@v4
         with:
+          # ⚠️ 必须显式 ref: dev —— 见文件头「迁到 pull_request 后 checkout 必须
+          # 显式写 ref」。不写的话检出的是 merge commit（含 PR 代码），
+          # PR 作者就能改掉 claim_in_progress.mjs 来绕过本守卫。
+          ref: dev
           sparse-checkout: scripts
           sparse-checkout-cone-mode: false
 
