@@ -255,16 +255,65 @@ repositories"）原文：
 
 **这个缺陷是迁移引入的**：迁移前只有一个版本生效（都读 `main`），不存在并发。
 
-修法分两类：
+#### 第一次修法（`cancel-in-progress: false`）**实测无效**
 
-| 工作流 | 有无副作用 | 修法 |
+第一反应是「把新版改成 `cancel-in-progress: false`，两份就不互相取消了」。
+提交 `a1a9e8f5d` 推上去后**新版仍然被 cancelled**。
+
+**根因**：**取消是「发起取消的那一方」的行为**。旧版（`main` 上那份）是
+`cancel-in-progress: true`，**它**取消新版；新版自己设成 `false`
+只影响「新版作为发起方时取消谁」，**拦不住旧版取消它**。
+
+⇒ **唯一可靠的修法是让两者的 group 名不同**，而不是调 `cancel-in-progress`。
+
+#### 正确修法：group 名加**过渡期后缀**
+
+新版 group 名加 `-pr-`（本仓约定含它）：
+
+```yaml
+group: pr-four-questions-guard-pr-${{ github.event.pull_request.number }}
+cancel-in-progress: false
+```
+
+⇒ 过渡期新旧两组并存、各跑各的、互不取消；发版后 `main` 上的旧版被替换
+⇒ 两边 group 名一致 ⇒ 恢复单一序列 ⇒ **发版后不需要回改**。
+
+#### `main` 旧版的实际形态（2026-11-01 逐个核过）
+
+| 工作流 | `main` 旧版 | 故障形态 |
 |---|---|---|
-| `pr-four-questions-guard` | 无（只读正文、只返回退出码，不评论不写标签） | 改 `cancel-in-progress: false` ⇒ 两份串行跑完，结论一致、无害 |
-| `pr-overlap-guard` | 有（会评论 PR） | 过渡期跑两次可能发两条相同评论（可接受）；**有副作用**的不能靠 `false` 解决，得用不同 group 名避开互斥 |
-| `pr-auto-rebase` | 有（会推分支） | 但幂等（第二次因「分支已是最新」跳过）⇒ 无害 |
+| `pr-four-questions-guard` | group `pr-four-questions-guard-<n>`，`cancel-in-progress: true` | **会取消新版**（实测命中） |
+| `issue-claim-sync` | group `claim-in-progress-<n>`，`cancel-in-progress: false` | 不取消，但同组排队 |
+| `pr-overlap-guard` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复评论 |
+| `pr-auto-rebase` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复 force-push |
+| `pr-auto-merge` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复尝试合并 |
 
-守卫 `scripts/guard_workflow_definition_source.py` 的判据 4 盯住这条：
-无副作用守卫的 `cancel-in-progress` 不得为 `true`。
+⇒ 前两个已加后缀（`pr-four-questions-guard-pr-<n>` / `claim-in-progress-pr-<n>`）；
+后三个**没有 group 可改** ⇒ 过渡期副作用会重复。
+
+> ⚠️ **后三个的重复副作用不是 group 名能解决的**：后缀只能分开新版彼此，
+> 不能让旧版消失 ⇒ 它们必然新旧各跑一次。这只能等发版自然消失，
+> 已作为「过渡期已知残留」记在 `#2803`。
+>
+> `issue-claim-sync` 虽然有副作用（打/摘标签 + 撞车评论），但**跑两次无害**：
+> 标签操作幂等、撞车告警有隐藏键保证幂等（`scripts/claim_in_progress.mjs` 的
+> `COLLISION_HIDDEN_MARK`）⇒ 允许新旧并存。
+
+#### 守卫判据 4 的最终形态
+
+`scripts/guard_workflow_definition_source.py` 的判据 4 盯的是
+**group 名是否与旧版撞车**，不是 `cancel-in-progress` 的取值：
+
+1. 迁移到 `pull_request` 且**声明了 `concurrency`** 的工作流，
+   其 `group` 名必须含过渡期后缀 `-pr-`；
+2. 没有 `concurrency` 段 ⇒ 放行（不存在互斥，也就没有互斥风险）；
+3. 有 `concurrency` 段但**没有 `group`** ⇒ 判红（判据无从判断，要求显式表态：
+   要么给 group，要么整段删掉）；
+4. 同时覆盖 YAML 的**字符串简写**（`concurrency: 名字`）——
+   只认字典形态会让那种写法被**静默放行**，那正是守卫最危险的失败模式。
+
+（判据 1–3 是本次新增，判据 4 在实测撞到后按上述语义重写。）
+
 
 ## 5. 边界
 

@@ -1086,7 +1086,7 @@ PAT 换成没有，跑的都还是 `main` 上那份旧的。
    已由 `#2803` 处置：其中 4 个迁到 `pull_request`，2 个（依赖 bot 触发的）**合法保留**
    `pull_request_target`（见下一节）。守卫
    `scripts/guard_workflow_definition_source.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
-   把这条钉住，回归网 `scripts/tests/test_workflow_definition_source.py`（15 个用例）。
+   把这条钉住，回归网 `scripts/tests/test_workflow_definition_source.py`（23 个用例）。
 
 #### ⚠️ ③ 依赖 bot 触发的路径**不能**迁 `pull_request`（#2803）
 
@@ -1134,6 +1134,56 @@ Dependabot 不成立**。GitHub 官方文档原文：
 **例外**：`ci.yml` / `docker-build.yml` / `ai-review.yml` 这类 **CI 工作流检出 PR 代码是
 职责所在**（CI 就是用来测 PR 的代码的），要求它们写 `ref: dev` 反而会让 CI 测错东西。
 ⇒ 守卫的判据用**显式清单**区分这两类，不靠猜。
+
+#### ⚠️ ⑤ 迁到 `pull_request` 后，`concurrency.group` 必须加**过渡期后缀**
+
+这是迁移里**最容易漏、且失败形态最阴**的一处：漏了它，CI 不会报错，
+只会看到「守卫明明是绿的，却被静默取消了」。
+
+**机制**：迁到 `pull_request` 后，**过渡期内新旧两版会同时被触发**——
+`main` 上的旧版（`pull_request_target`）与 `dev` 上的新版（`pull_request`）。
+若两者的 `concurrency.group` **算出的名字相同**，就落进同一个组 ⇒
+**`cancel-in-progress: true` 的一方会把另一方取消**。
+
+实测（PR `#2807`，2026-11-01）：
+
+```
+pull_request_target（main 旧版，cancel-in-progress: true）→ success
+pull_request       （dev 新版）                          → cancelled
+```
+
+⇒ 新版那条挂在 PR head 上的 check 被取消 ⇒ GitHub 把 cancelled 记成
+**check 失败** ⇒ PR 假红。而且这个红**不是「守卫判定不通过」**，
+是「守卫压根没跑完」——看日志会以为是守卫逻辑有问题，去查错方向。
+
+> ⚠️ **只把新版改成 `cancel-in-progress: false` 是不够的**（这是本次实测撞到的）。
+> **取消是「发起取消的那一方」的行为**——旧版是 `true`，它取消新版；
+> 新版自己设成 `false` 也拦不住（实测：改了 `false` 之后新版仍被 cancelled）。
+> **唯一可靠的修法是让两者的 group 名不同。**
+
+**修法**：新版 group 名加**过渡期后缀**（本仓约定：含 `-pr-`），
+让过渡期新旧两组并存、互不取消。发版后 `main` 上的旧版被替换 ⇒
+两边 group 名一致 ⇒ 自然恢复单一序列 ⇒ **发版后不需要回改**。
+
+本仓 `main` 旧版的实际形态（2026-11-01 逐个核过）：
+
+| 工作流 | `main` 旧版 | 故障形态 |
+|---|---|---|
+| `pr-four-questions-guard` | group `pr-four-questions-guard-<n>`，`cancel-in-progress: true` | **会取消新版**（实测命中） |
+| `issue-claim-sync` | group `claim-in-progress-<n>`，`cancel-in-progress: false` | 不取消，但同组排队 |
+| `pr-overlap-guard` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复评论 |
+| `pr-auto-rebase` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复 force-push |
+| `pr-auto-merge` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复尝试合并 |
+
+⇒ 前两个已加后缀（`pr-four-questions-guard-pr-<n>` / `claim-in-progress-pr-<n>`）。
+后三个**没有 group 可改** ⇒ 过渡期副作用会重复（重复评论 / 重复 force-push），
+**这不是 group 名能解决的**（后缀只能分开新版彼此，不能让旧版消失），
+只能等发版自然消失——已作为「过渡期已知残留」记在 `#2803`。
+
+> 守卫判据 4 盯的是**group 名是否与旧版撞车**，不是 `cancel-in-progress` 的取值：
+> 撞车了才需要后缀；不撞车时 `cancel-in-progress: true` 是正常的去重语义。
+> 判据同时覆盖 YAML 的字符串简写（`concurrency: 名字`），
+> 否则那种写法会被**静默放行**——那正是守卫最危险的失败模式。
 
 ### 「永久记忆」存在哪、什么时候读
 

@@ -166,37 +166,99 @@ class GuardWorkflowDefinitionSourceTest(unittest.TestCase):
         code, out = self._run_guard(ok)
         self.assertEqual(code, 0, f'表达式 ref 不该判红：\n{out}')
 
-    # ── 判据 4：concurrency 的 cancel-in-progress 不得为 true ────────────
+    # ── 判据 4：concurrency.group 必须带过渡期后缀 ──────────────────
+    #
+    # 判据要防的故障（实测 PR #2807）：过渡期内 `main` 旧版（pull_request_target）
+    # 与 `dev` 新版（pull_request）同时触发，若 group 名相同 ⇒
+    # `cancel-in-progress: true` 的一方把另一方取消 ⇒ 新版挂在 PR head 上的
+    # check 被 cancelled ⇒ GitHub 记成 check 失败 ⇒ PR 假红。
+    # ⚠️ 只把新版改成 `cancel-in-progress: false` 不够——取消是旧版发起的。
+    # ⇒ 唯一可靠的修法是**让两者的 group 名不同**。
 
-    def test_变异_cancel_in_progress改回true转红(self):
-        """`cancel-in-progress: true` ⇒ 判红。
-
-        过渡期内新旧两版会同时触发且共用同一个 concurrency group ⇒ 互斥 ⇒
-        守卫被静默取消（实测 PR #2807：新版 cancelled、旧版 success）。
-        """
+    def test_变异_group名缺过渡期后缀转红(self):
+        """group 名与 `main` 旧版相同（无过渡期后缀）⇒ 判红。"""
         wf = GOOD_WORKFLOW.replace(
             'jobs:',
-            'concurrency:\n  group: pr-fq-${{ github.event.pull_request.number }}\n'
-            '  cancel-in-progress: true\n\njobs:',
-        )
-        code, out = self._run_guard(wf)
-        self.assertEqual(code, 1, f'应判红，实际退出码 {code}：\n{out}')
-        self.assertIn('cancel-in-progress', out)
-
-    def test_变异_cancel_in_progress为false不转红(self):
-        """`cancel-in-progress: false` ⇒ 不该判红（两份串行跑完，结论一致、无害）。"""
-        wf = GOOD_WORKFLOW.replace(
-            'jobs:',
-            'concurrency:\n  group: pr-fq-${{ github.event.pull_request.number }}\n'
+            'concurrency:\n  group: pr-four-questions-guard-${{ github.event.pull_request.number }}\n'
             '  cancel-in-progress: false\n\njobs:',
         )
         code, out = self._run_guard(wf)
-        self.assertEqual(code, 0, f'cancel-in-progress: false 不该判红：\n{out}')
+        self.assertEqual(code, 1, f'应判红，实际退出码 {code}：\n{out}')
+        self.assertIn('过渡期后缀', out)
+
+    def test_变异_group名带过渡期后缀不转红(self):
+        """group 名带 `-pr-` 过渡期后缀 ⇒ 不该判红（新旧两组并存，互不取消）。"""
+        wf = GOOD_WORKFLOW.replace(
+            'jobs:',
+            'concurrency:\n  group: pr-four-questions-guard-pr-${{ github.event.pull_request.number }}\n'
+            '  cancel-in-progress: false\n\njobs:',
+        )
+        code, out = self._run_guard(wf)
+        self.assertEqual(code, 0, f'带过渡期后缀不该判红：\n{out}')
+
+    def test_变异_group名带后缀且cancel为true不转红(self):
+        """带后缀时，`cancel-in-progress: true` 也不该判红。
+
+        判据盯的是**group 名是否与旧版撞车**，不是 `cancel-in-progress` 的取值：
+        撞车了才需要后缀；不撞车时 `cancel-in-progress: true` 是正常的去重语义
+        （同一 PR 的连续事件互相取消，正是 `issue-claim-sync` 想要的串行行为）。
+        """
+        wf = GOOD_WORKFLOW.replace(
+            'jobs:',
+            'concurrency:\n  group: pr-four-questions-guard-pr-${{ github.event.pull_request.number }}\n'
+            '  cancel-in-progress: true\n\njobs:',
+        )
+        code, out = self._run_guard(wf)
+        self.assertEqual(code, 0, f'带后缀时不该判红：\n{out}')
 
     def test_变异_无concurrency段不转红(self):
-        """没有 `concurrency` 段 ⇒ 不该判红（没有互斥风险）。"""
+        """没有 `concurrency` 段 ⇒ 不该判红（没有互斥，也就没有互斥风险）。
+
+        `pr-overlap-guard` / `pr-auto-rebase` / `pr-auto-merge` 三家在 `main`
+        旧版上就没有 concurrency ⇒ 它们不存在「被静默取消」这个故障。
+        代价是**副作用会重复**（重复评论 / 重复 force-push），那靠后缀解决不了
+        （后缀只能分开新版彼此，不能让旧版消失），只能等发版自然消失。
+        """
         code, out = self._run_guard(GOOD_WORKFLOW)
         self.assertEqual(code, 0, f'无 concurrency 段不该判红：\n{out}')
+
+    def test_变异_concurrency有段但无group转红(self):
+        """有 `concurrency` 段却没有 `group` ⇒ 判红（判据无从判断，需显式表态）。
+
+        形态：`concurrency:` 下只有 `cancel-in-progress`，没有 `group`。
+        这时无法判断它是否与旧版撞车 ⇒ 要求写清（要么给 group，要么整段删掉）。
+        """
+        wf = GOOD_WORKFLOW.replace(
+            'jobs:',
+            'concurrency:\n  cancel-in-progress: false\n\njobs:',
+        )
+        code, out = self._run_guard(wf)
+        self.assertEqual(code, 1, f'应判红，实际退出码 {code}：\n{out}')
+        self.assertIn('没有 `group`', out)
+
+    def test_变异_concurrency字符串简写缺后缀转红(self):
+        """`concurrency: 名字` 这种字符串简写也要判（不能只认字典形态）。
+
+        YAML 允许 `concurrency: my-group`；守卫若只处理字典形态，
+        就会在这种写法上**静默放行**——那正是本守卫要防的失败模式
+        （「以为钉住了」实际没钉住）。
+        """
+        wf = GOOD_WORKFLOW.replace(
+            'jobs:',
+            'concurrency: pr-four-questions-guard-${{ github.event.pull_request.number }}\n\njobs:',
+        )
+        code, out = self._run_guard(wf)
+        self.assertEqual(code, 1, f'应判红，实际退出码 {code}：\n{out}')
+        self.assertIn('过渡期后缀', out)
+
+    def test_变异_concurrency字符串简写带后缀不转红(self):
+        """字符串简写 + 带后缀 ⇒ 不该判红。"""
+        wf = GOOD_WORKFLOW.replace(
+            'jobs:',
+            'concurrency: pr-four-questions-guard-pr-${{ github.event.pull_request.number }}\n\njobs:',
+        )
+        code, out = self._run_guard(wf)
+        self.assertEqual(code, 0, f'字符串简写带后缀不该判红：\n{out}')
 
     # ── 边界：CI 类工作流检出 PR 代码是职责所在，不该判红 ────────────────
 
@@ -316,6 +378,27 @@ jobs:
             sys.path.pop(0)
         problems = check(REPO_ROOT)
         self.assertEqual(problems, [], f'仓库现状应通过守卫，实际：{problems}')
+
+    def test_共用组豁免清单是守卫清单的子集(self):
+        """`_SAME_GROUP_EXEMPT` 的每个条目都必须在 `_GUARD_WORKFLOWS` 里。
+
+        为什么需要这条不变式：豁免「允许与旧版共用同一个 group 名」时，
+        该工作流就**不受判据 4 约束**。若它不在 `_GUARD_WORKFLOWS` 里，
+        它的 checkout 也不受判据 2 约束 ⇒ 一个豁免顺手放开了两条判据。
+        这与 `_PRT_EXEMPT ⊆ _GUARD_WORKFLOWS` 是同一条纪律。
+        """
+        sys.path.insert(0, str(REPO_ROOT))
+        try:
+            from scripts.guard_workflow_definition_source import (
+                _GUARD_WORKFLOWS, _SAME_GROUP_EXEMPT,
+            )
+        finally:
+            sys.path.pop(0)
+        self.assertTrue(
+            set(_SAME_GROUP_EXEMPT).issubset(set(_GUARD_WORKFLOWS)),
+            f'共用组豁免清单的每个条目都必须在 _GUARD_WORKFLOWS 里：'
+            f'豁免={sorted(_SAME_GROUP_EXEMPT)} 守卫清单={sorted(_GUARD_WORKFLOWS)}',
+        )
 
 
 if __name__ == '__main__':

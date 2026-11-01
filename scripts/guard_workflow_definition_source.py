@@ -60,16 +60,44 @@ default branch"*。
 3. **不得把 `pull_request_target` 藏在注释或字符串里**——注释里提到不算触发器
    （本仓判据被自己的说明文字咬过多次）。
 
-4. **迁到 `pull_request` 的工作流，若有 `concurrency` 段，`cancel-in-progress`
-   不得为 `true`**——除非它**不写任何评论/标签副作用**。
+4. **迁到 `pull_request` 的工作流，其 `concurrency.group` 必须带一个**过渡期后缀**
+   （本仓约定：group 名含 `-pr-`），使其与**默认分支上的旧版定义**算出的 group 名
+   **不同**。
+
    理由：过渡期内 `main` 上的旧版（`pull_request_target`）与 `dev` 上的新版
-   （`pull_request`）**会同时被触发**，两者算出的 concurrency group 名字**相同**
-   ⇒ `cancel-in-progress: true` 会让两者**互相取消**，守卫被静默取消，
-   而 GitHub 把 cancelled 记成 check 失败。
-   实测（PR #2807，2026-11-01）：同一时刻两个 run——新版 `cancelled`、旧版 `success`
-   ⇒ **守卫被静默取消**。
-   本仓 `pr-four-questions-guard.yml` 的判定是幂等无副作用的（只读正文、只返回退出码，
-   不评论 PR、不写标签）⇒ 改成 `false` 后两份串行跑完，结论一致、无害。
+   （`pull_request`）**会同时被触发**。若两者 group 名相同 ⇒
+   **`cancel-in-progress: true` 的一方会把另一方取消**——而且是**发起取消的那一方**
+   取消掉对方（实测：旧版 success、新版 cancelled）。
+   ⇒ **守卫被静默取消**，而 GitHub 把 cancelled 记成 check 失败（显示 fail）。
+
+   ⚠️ **只把新版改成 `cancel-in-progress: false` 是不够的**——取消是旧版发起的，
+   新版无论自己是什么设置都会被取消掉（2026-11-01 实测：改了 `false` 之后
+   新版仍被 cancelled）。**必须让两者的 group 名不同**。
+
+   判据盯的是**group 名是否与旧版撞车**，不是 `cancel-in-progress` 的取值：
+   撞车了才需要后缀；不撞车时 `cancel-in-progress: true` 是正常的去重语义。
+
+   后缀在发版后自然失效：`main` 上的旧版被替换成新版 ⇒ 两边 group 名一致 ⇒
+   恢复单一序列。故这个后缀**不需要**在发版后回改。
+
+   **本仓 `main` 旧版的实际形态**（2026-11-01 逐个核过）：
+
+   | 工作流 | `main` 旧版 | 故障形态 |
+   |---|---|---|
+   | `pr-four-questions-guard` | group `pr-four-questions-guard-<n>`，`cancel-in-progress: true` | **会取消新版**（实测命中） |
+   | `issue-claim-sync`        | group `claim-in-progress-<n>`，`cancel-in-progress: false` | 不取消，但同组排队 |
+   | `pr-overlap-guard`        | **无 concurrency** | 无互斥；新旧各跑一次 ⇒ 可能重复评论 |
+   | `pr-auto-rebase`          | **无 concurrency** | 无互斥；新旧各跑一次 ⇒ 可能重复 force-push |
+   | `pr-auto-merge`           | **无 concurrency** | 无互斥；新旧各跑一次 ⇒ 可能重复尝试合并 |
+
+   ⚠️ **旧版没有 group 的那三个，不靠 group 名解决**：后缀只能分开新版彼此，
+   不能让旧版消失 ⇒ 过渡期它们必然新旧各跑一次，副作用会重复。这只能靠
+   「`main` 被新版替换」自然消失（发版后即不再发生），已作为「过渡期已知残留」
+   记在 `#2803` 的进展评论里。
+
+   而**声明了 group 的两个，跑两次都无害**（所以可以让新旧并存、各跑各的）：
+   `pr-four-questions-guard` 只读正文 + 返回退出码；`issue-claim-sync` 打/摘标签
+   （幂等）+ 撞车告警评论（隐藏键幂等，见 `scripts/claim_in_progress.mjs`）。
 
 ## 边界（刻意不查）
 
@@ -163,22 +191,45 @@ _PRT_EXEMPT = {
     'dependabot-lockfile-regen.yml': '依赖 bot 触发 ⇒ pull_request 下 token 只读，git push 必然失败',
 }
 
-# 「有副作用（会评论 PR / 写标签 / 推分支）」的工作流清单。
+# 判据 4 的适用范围：**迁移到 `pull_request`、且声明了 `concurrency.group`** 的工作流。
 #
-# 判据 4 的逻辑：迁到 `pull_request` 后，过渡期内新旧两版会同时触发且共用同一个
-# concurrency group ⇒ `cancel-in-progress: true` 会让两者互相取消 ⇒ 守卫被静默取消。
-# 对**无副作用**的守卫（只读正文、只返回退出码）来说，跑两次无害 ⇒ 改 `false` 即可。
-# 但对**有副作用**的（评论 PR / 打标签），跑两次就会发两条重复评论 / 撤两次标签
-# ⇒ 这类工作流必须**避开互斥**（用不同的 group 名），不能靠 `false` 解决。
+# 判据要防的具体故障是：**默认分支上的旧版（`pull_request_target`）与 dev 上的
+# 新版（`pull_request`）算出了同一个 concurrency group** ⇒ 同组内
+# `cancel-in-progress: true` 的一方会把另一方取消（实测 PR #2807：
+# 旧版 success、新版 cancelled）⇒ 新版那条挂在 PR head 上的 check 被取消
+# ⇒ GitHub 把 cancelled 记成 check 失败 ⇒ PR 假红。
 #
-# 名单里的工作流：其 `cancel-in-progress` 必须**不为** `true`。
-_CANCELLABLE_SAFE = {
-    'pr-four-questions-guard.yml',   # 只读正文 + 返回退出码，无副作用
-}
+# 逐个核过 main 上旧版的 concurrency（2026-11-01）：
+#
+# | 工作流 | main 旧版 | 故障形态 |
+# |---|---|---|
+# | `pr-four-questions-guard` | group `pr-four-questions-guard-<n>`，`cancel-in-progress: true` | **会取消新版**（实测命中） |
+# | `issue-claim-sync`        | group `claim-in-progress-<n>`，`cancel-in-progress: false` | 不取消，但同组排队 |
+# | `pr-overlap-guard`        | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复评论 |
+# | `pr-auto-rebase`          | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复 force-push |
+# | `pr-auto-merge`           | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复尝试合并 |
+#
+# ⚠️ **旧版没有 group 的那三个，不靠 group 名解决**：后缀只能分开新版彼此，
+#    不能让旧版消失 ⇒ 过渡期它们必然新旧各跑一次，副作用会重复。
+#    这只能靠「`main` 被新版替换」自然消失（发版后即不再发生），
+#    已作为「过渡期已知残留」记在 `#2803` 的进展评论里。
+#
+# 而**声明了 group 的两个，跑两次都无害**（所以可以让新旧并存、各跑各的）：
+#   - `pr-four-questions-guard`：只读 PR 正文 + 返回退出码（不评论、不写标签）；
+#   - `issue-claim-sync`：打/摘标签（幂等）+ 撞车告警评论（隐藏键幂等，
+#     见 `scripts/claim_in_progress.mjs` 的 `COLLISION_HIDDEN_MARK`）。
+#
+# 过渡期后缀的约定：group 名里必须出现它。
+# 为什么用固定约定而不是「与默认分支旧版比对」——后者要拉网络、拿默认分支的旧文件，
+# 静态判据做不了（CI 里也不该为此调 API）。约定成固定后缀后，
+# 「新旧两组并存、发版后自然合一」的性质由后缀语义保证。
+_TRANSITION_SUFFIX = '-pr-'
 
-# 「有副作用、需要独立 concurrency group」的豁免（过渡期允许两份都跑）。
-# 留空 = 本仓当前没有这类工作流；若有，必须在这里登记并写清理由。
-_SIDE_EFFECT_EXEMPT: Dict[str, str] = {}
+# 「允许与默认分支旧版共用同一个 group 名」的工作流豁免。
+# 留空 = 本仓当前没有这类工作流。
+# 若将来有（例如某个工作流跑了两次会有不可接受的副作用、宁可让新版被取消），
+# 必须在这里登记并写清理由——否则守卫默认「后缀无害」而放行。
+_SAME_GROUP_EXEMPT: Dict[str, str] = {}
 
 
 def _import_yaml():
@@ -338,29 +389,54 @@ def check(repo: Path) -> List[str]:
                         '修法：显式写 `ref: dev`（受信分支）。'
                     )
 
-        # ── 判据 4：concurrency 的 cancel-in-progress 不得为 true ───────────
-        # 过渡期内新旧两版会同时触发且共用同一个 concurrency group ⇒ 互斥 ⇒ 守卫被静默取消。
+        # ── 判据 4：concurrency.group 必须带过渡期后缀 ──────────────────
+        # 过渡期内新旧两版会同时触发；若 group 名相同 ⇒ cancel-in-progress: true 的一方
+        # 会取消掉另一方 ⇒ 守卫被静默取消（实测：旧版 success、新版 cancelled）。
         if 'pull_request' not in triggers:
             continue
         if path.name not in _GUARD_WORKFLOWS:
             continue
-        if path.name in _SIDE_EFFECT_EXEMPT:
+        if path.name in _SAME_GROUP_EXEMPT:
             continue
 
         conc = doc.get('concurrency')
-        if isinstance(conc, dict):
-            cancel = conc.get('cancel-in-progress')
-            if cancel is True and path.name in _CANCELLABLE_SAFE:
-                problems.append(
-                    f'{rel} 的 concurrency 是 `cancel-in-progress: true`。'
-                    '迁到 `pull_request` 后，过渡期内 `main` 上的旧版（`pull_request_target`）'
-                    '与 `dev` 上的新版（`pull_request`）**会同时被触发**，两者算出的 '
-                    'concurrency group 名字相同 ⇒ 两者**互相取消** ⇒ 守卫被静默取消，'
-                    '而 GitHub 把 cancelled 记成 check 失败。'
-                    '实测：PR #2807 同一时刻两个 run——新版 cancelled、旧版 success。'
-                    '本工作流无副作用（只读正文、只返回退出码，不评论 PR、不写标签）'
-                    '⇒ 修法：改成 `cancel-in-progress: false`，两份串行跑完、结论一致、无害。'
-                )
+        if conc is None:
+            # 没有 concurrency 段 ⇒ 不存在互斥风险（也就不需要后缀）。
+            # ⚠️ 但**有副作用**的工作流在过渡期会新旧各跑一次（见文件头表格）。
+            continue
+        if isinstance(conc, str):
+            # YAML 允许 `concurrency: my-group` 这种简写形态。
+            group = conc
+        elif isinstance(conc, dict):
+            group = str(conc.get('group') or '')
+        else:
+            group = ''
+        if not group:
+            # `concurrency:` 存在但没有 group（如只有 cancel-in-progress）⇒ 判据无从判断。
+            problems.append(
+                f'{rel} 有 `concurrency` 段但**没有 `group`** ⇒ 无法判断它是否与默认分支'
+                '旧版算出了同一个 concurrency group。'
+                '若本工作流确实不需要互斥，请把整个 `concurrency` 段删掉；'
+                '若需要，请显式写 `group`（并按约定带过渡期后缀）。'
+            )
+            continue
+        if _TRANSITION_SUFFIX in group:
+            continue
+
+        problems.append(
+            f'{rel} 的 `concurrency.group` 是 `{group}`，**没有过渡期后缀'
+            f'（约定含 `{_TRANSITION_SUFFIX}`）**。'
+            '迁到 `pull_request` 后，过渡期内 `main` 上的旧版（`pull_request_target`）'
+            '与 `dev` 上的新版（`pull_request`）**会同时被触发**；'
+            '若两者 group 名相同，`cancel-in-progress: true` 的一方会'
+            '**取消掉另一方** ⇒ 守卫被静默取消，'
+            '而 GitHub 把 cancelled 记成 check 失败。'
+            '实测（PR #2807）：旧版 success、新版 cancelled。'
+            '⚠️ 只把新版改成 `cancel-in-progress: false` **不够**——'
+            '取消是旧版发起的，新版无论自己是什么设置都会被取消掉。'
+            '修法：group 名加过渡期后缀，让新旧两组并存、互不取消；'
+            '发版后 `main` 上的旧版被替换 ⇒ 两边 group 名一致 ⇒ 自然恢复。'
+        )
 
     return problems
 

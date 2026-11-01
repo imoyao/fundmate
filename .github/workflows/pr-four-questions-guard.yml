@@ -68,26 +68,27 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: pr-four-questions-guard-${{ github.event.pull_request.number }}
-  # ⚠️ 必须 `false`，不能是 `true`（#2803 迁移时实测撞到）：
+  # ⚠️ group 名必须带 `pr-` 后缀（#2803 迁移时实测撞到）：
   #
   # 迁到 `pull_request` 后，**过渡期内 `main` 上的旧版（`pull_request_target`）与
   # `dev` 上的新版（`pull_request`）会同时被触发**——两者的定义来源不同
-  # （旧版读默认分支 `main`，新版读 merge commit），但**算出来的 concurrency group
-  # 名字是同一个** ⇒ 若 `cancel-in-progress: true`，两者会**互相取消**。
+  # （旧版读默认分支 `main`，新版读 merge commit）。
   #
-  # 实测（PR #2807，2026-11-01）：同一时刻两个 run ——
-  #   `pull_request`（新版）      → **cancelled**
-  #   `pull_request_target`（旧版）→ success
-  # ⇒ **守卫被静默取消**，且 GitHub 把 cancelled 记成 check 失败（显示 fail）。
+  # 若两者的 group 名相同，**`cancel-in-progress: true` 的一方会把另一方取消**
+  # ——而且是**发起取消的那一方**取消掉对方。实测（PR #2807，2026-11-01）：
+  #   `pull_request_target`（main 旧版，`cancel-in-progress: true`）→ success
+  #   `pull_request`（dev 新版）                            → **cancelled**
+  # ⇒ **守卫被静默取消**，且 GitHub 把 cancelled 记成 check 失败（PR 上显示 fail）。
   #
-  # 改成 `false` 后两份会串行跑完。本守卫的判定是**幂等且无副作用**的
-  # （只读 PR 正文、只返回退出码，**不评论 PR、不写标签**）⇒ 跑两次无害，
-  # 且无论哪份先跑，结论都一样。
+  # ⚠️ 只把新版改成 `cancel-in-progress: false` **不够**——取消是**旧版**发起的，
+  #    新版无论自己是什么设置都会被取消掉（2026-11-01 实测：改了 `false` 之后
+  #    新版仍被 cancelled）。**必须让两者的 group 名不同**，互不影响。
   #
-  # （`issue-claim-sync.yml` 本来就是 `false`；`pr-overlap-guard` 与 `pr-auto-rebase`
-  #  没有 concurrency group —— 前者跑两次可能发两条相同评论（过渡期可接受），
-  # 后者第二次会因「分支已是最新」而跳过（幂等）。）
+  # 后缀 `pr-` 让过渡期新旧两组并存（各跑各的、互不取消）；发版后 `main` 上的旧版
+  # 被替换成新版 ⇒ 两边 group 名一致 ⇒ 恢复单一序列。
+  # 本守卫的判定**幂等且无副作用**（只读 PR 正文、只返回退出码，**不评论 PR、
+  # 不写标签**）⇒ 过渡期跑两次无害，结论一致。
+  group: pr-four-questions-guard-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
