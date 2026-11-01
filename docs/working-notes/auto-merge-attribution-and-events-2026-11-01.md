@@ -30,7 +30,7 @@ native auto-merge 是「排队 → 门禁转绿后由 GitHub 执行合并」，
 启用出来的合并，其归因是 `github-actions` ⇒ 合并产生的事件全部落在
 「GITHUB_TOKEN 触发」的范围内 ⇒ 被抑制。
 
-实测（`gh api graphql` 查 PR #2797）：
+实测（`gh api graphql` 查 PR `#2797`）：
 
 ```json
 {"mergedBy":{"login":"github-actions"},
@@ -98,10 +98,10 @@ env:
 
 | 合并 | 启用方 workflow 版本 | `mergedBy` | 合并窗口内的仓库工作流 run | 关联 issue |
 |---|---|---|---|---|
-| #2800（第一次） | **dev 上的旧版**（GITHUB_TOKEN） | `github-actions` | **0 个** | #2799 仍是 OPEN ❌ |
-| #2802（探针） | **dev 上的新版**（`AUTO_MERGE_PAT`） | 用户 | 见下 | 自动关闭 ✅ |
+| `#2800`（第一次） | **dev 上的旧版**（GITHUB_TOKEN） | `github-actions` | **0 个** | `#2799` 仍是 OPEN ❌ |
+| `#2801`（探针） | **dev 上的新版**（`AUTO_MERGE_PAT`） | 用户 | 见下 | 自动关闭 ✅ |
 
-> 注：`pull_request_target` 跑的是 **base 分支**的 workflow 文件，所以 #2800 自己
+> 注：`pull_request_target` 跑的是 **base 分支**的 workflow 文件，所以 `#2800` 自己
 > 贴标签时用的是 dev 上的旧版——它的合并因此仍是 bot 归因、事件仍被抑制。
 > 这恰好成了「修复前」那一侧的现成样本；改动合入 dev 后的下一个 PR 才是「修复后」。
 
