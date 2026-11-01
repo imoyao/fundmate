@@ -1,8 +1,15 @@
 # 交易流水 · 桌面端重设计
 
-**状态**：设计定稿 v1.0（2026-11-01 整理归档）· 实施未开始
+**状态**：设计定稿 v1.1（2026-11-01 落实施，见 §十三）· 视觉与语义已落地，汇总条待后端端点
 **原型**：`docs/design/transaction-flow-redesign-prototype.html`（可交互，单文件离线可开）
 **范围**：`/asset/transactionList` 桌面端（表格视图 + 流水线视图）· 边界见文末「不做」
+
+> **v1.1 与 v1.0 的差异（实测推翻了初稿的两处判断，实施时以本文为准）**
+> 1. §三「已清仓」的判据**从 `position_id === null` 改为后端下发的 `position_state`**：
+>    #2343 起清仓不再删行（`ownership_status='cleared'`），已清仓的流水 `position_id` 仍有值，
+>    按 null 判会让胶囊几乎永不出现。
+> 2. §十二-2 的行高：实测 `tr` 的 `height` 是**最小高度**语义，两行产品单元 + 胶囊会自然撑高，
+>    无需把全局 44px 基线改成 48px（改了反而影响账本 Tab 与持仓抽屉）。
 
 ---
 
@@ -82,15 +89,15 @@
 
 | 规则 | 判据 | 渲染 | 为什么 |
 |---|---|---|---|
-| 持仓状态三态 | `position_id === null` **且** `type ∈ {deposit, withdraw}` → `account`；`position_id === null` 其余 → `cleared`；有值 → `held` | 见下三行 | 「没有持仓行」有两种成因，混成一个就是假阳性 |
-| 已清仓 | `cleared` | 名称右侧一枚**已清仓**胶囊（`--bg-soft` 底 / `--text-tertiary-ink` 字），**不打灰**；`title`：「持仓已清仓或被合并，流水与金额保留」 | 用户做的是清仓，不是删除。整格置灰把真实流水说得像失效数据，顺带毁掉可读性 |
-| 账户级流水 | `account` | **不打任何标记**；代码位显示「资金流水」 | 存入 / 取出本来就没有持仓行，标「已删除」是纯假阳性 |
-| 内部代码 | `symbol` 以 `_` 开头（`__CASH__` 等） | 不显示；无障碍名由资产名承担 | 内部标识泄漏到界面，既不可读也不可核对 |
-| 账户 | `ledger_id` 有值 / 无值 | 统一为可点胶囊 **账户名 ›** → `/asset/ledgers/:id`；无 `ledger_id` 时是虚线「未归属账户」，**不伪装成链接** | 可点与否必须能从外观分辨，否则用户点了没反应 |
-| 状态 | `status` | 成功＝12px 灰字、不出声；只有**失败**（危险色）、**可撤单**（沙金）着色；**已撤单**加描边胶囊 | 满屏绿色「成功」标签会把注意力从金额上拽走 |
+| 持仓状态三态 | **后端下发 `position_state`**（`held` / `cleared` / `account`），判据实现在 `services/txn_name_resolver.resolve_transaction_position_states` | 见下三行 | 判据要看 `ownership_status` 与「持仓行是否还在」两件事，前端只有 `position_id`，猜不出来；而且这套口径已经变过一次（#2343 清仓不删行），前端抄的那份必然滞后 |
+| 已清仓 | `position_state === 'cleared'` | 名称右侧一枚**已清仓**胶囊（`--bg-soft` 底 / `--text-tertiary-ink` 字），**不打灰**；`title`：「持仓已清仓或被合并，流水与金额保留」 | 用户做的是清仓，不是删除。整格置灰把真实流水说得像失效数据，顺带毁掉可读性 |
+| 账户级流水 | `position_state === 'account'`（后端按 `type ∈ {deposit, withdraw}` 判） | **不打任何标记**；名称旁一枚「资金流水」弱化字 | 存入 / 取出本来就没有持仓行，标「已删除」是纯假阳性 |
+| 内部代码 | `symbol` 以 `_` 开头（`__CASH__` 等） | **整段不渲染代码位**（而不是印 `# --`）；无障碍名由资产名承担 | 内部标识泄漏到界面，既不可读也不可核对 |
+| 账户 | `ledger_id` 有值 / 无值 | 统一为可点胶囊 **账户名 ›** → `/asset/ledgers/:id`；无 `ledger_id` 时是虚线「未归属账户」，**不伪装成链接**（无箭头、`title` 说明不可跳转） | 可点与否必须能从外观分辨，否则用户点了没反应 |
+| 状态 | `status` | 成功 / 未知＝12px 灰字、不出声；只有**失败**（危险色）、**可撤单**（沙金）着色；**已撤单**加描边胶囊 | 满屏绿色「成功」标签会把注意力从金额上拽走 |
 | 类型着色 | `type` | 一律 `-ink` 令牌 | 现值 3.86:1 / 2.0:1 不达 AA，顺手一并修 |
 | 金额口径 | 视图 | 表格＝成交额（**无符号**）；流水线＝资金流向（**±，不染色**），标注「＋入账 / −出账」 | 流水金额不表示涨跌，染红绿是错误语义（共享组件自己在注释里也是这么写的，流水线那处属漏网） |
-| 斑马纹 | — | 去掉，改 `--border-light` 行分隔 + hover `--bg-soft` | 条纹底是冷灰 `--bg-muted`，与暖色体系并置发脏；48px 行高已有两条信息线，条纹只增噪点 |
+| 斑马纹 | — | 去掉，改 `--border-light` 行分隔 + hover `--bg-soft` | 条纹底是冷灰 `--bg-muted`，与暖色体系并置发脏；行内已有两条信息线，条纹只增噪点 |
 
 **关于红与绿**：这里不是「涨跌」，是「敞口增减」——红＝增加敞口（买入 / 存入），绿＝减少敞口（卖出 / 取出）。之所以仍用红绿，是因为 A 股用户的肌肉记忆就是「红增绿减」；但两个色值都取 `-ink` 档且**只允许出现在类型列与方向列**，金额列一律墨色。一旦让金额也染红染绿，读者就会把「卖出得了一笔钱」读成「亏了」。
 
@@ -182,13 +189,19 @@
 | `TransactionTimelineView.vue` | 日折叠 → 月分组 + sticky 月头 + 月内合计；7 列栅格；账户列；金额不染色 | `el-collapse` 的 sticky 头在 `el-scrollbar` 内**需实测**；触底加载逻辑不变 |
 | `views/asset/TransactionList.vue` | 页头换 `PageHeaderBar` + `#action`（导出）；插入汇总条；传参给两个视图 | keepAlive 与 `?symbol=` 预筛逻辑保持原样，不动 |
 | 后端 `GET /api/transactions/summary`（**尚不存在**，已核实） | 与列表同筛选参数，返回买入/卖出/分红的笔数与金额、手续费合计、净投入（分转元） | **汇总条依赖它**。接口未就绪前整块不渲染（不留空容器），**不能用当页数据凑数**——当页只有 20 条，凑出来的数会骗人 |
+| **新增** `components/TransactionTable/TransactionAssetCell.vue` | 资产单元格：名称 + 代码位 + 已清仓胶囊 / 资金流水弱化字 | 三态各一条渲染路径，**没有一条会把整行置灰** |
+| **新增** `components/TransactionTable/TransactionAccountCell.vue` | 账户单元格：可点胶囊（带 `›`）/ 未归属虚线（无箭头 + `title`） | 判据只看 `ledger_id` 有没有值 |
+| **新增** `components/TransactionTable/TransactionDetailPanel.vue` | 展开详情：确认日 / 来源 / 备注全文 / 费用明细 / 持仓现状 / 溯源 / 编辑入口 | 只渲染不取数；三态（loading / error+重试 / data）分开，不合并成一个 `null` |
+| **新增** `views/asset/transactionList/TransactionTimelineRow.vue` | 流水线一行（7 列栅格） | 拆出理由：视图管分组折叠，行管「一笔怎么读」；顺带守住 400 行门禁 |
+| **新增** 后端 `GET /api/transactions/<int:id>/` | 单条详情：列表行全部字段 + `import_hash` / `updated_at` / `plan_id` / `position`（当前份额、清仓时间） | **按需取**：展开哪行取哪行。列表不发这些字段（避免「一次全拿到」），跨家庭与不存在同返 404 |
+| **新增** 后端 `position_state`（列表行字段） | `resolve_transaction_position_states`：按 `ownership_status` + 持仓行是否存在判定 | 这是 §三 三态判据的唯一出处；`tests/domains/test_transactions.py::TestTransactionPositionState` 5 条钉住（含 #2343 清仓不删行场景） |
 
 ---
 
 ## 十、验收判据
 
-1. 表格视图无「已删除」字样；`position_id === null` 且 `type ∉ {deposit, withdraw}` 的行显示「已清仓」胶囊，且该行 `opacity` 与 `filter` 均为默认值（`grep` 不到整格置灰的样式规则）。
-2. `type ∈ {deposit, withdraw}` 的行走 `account` 分支：无胶囊、代码位为「资金流水」。
+1. 表格视图无「已删除」字样；`position_state === 'cleared'` 的行显示「已清仓」胶囊，且该行 `opacity` 与 `filter` 均为默认值（`grep` 不到整格置灰的样式规则）。
+2. `position_state === 'account'` 的行走 `account` 分支：无胶囊、名称旁为「资金流水」弱化字。
 3. `symbol` 以 `_` 开头时不渲染代码位；该单元格无障碍名仍含资产名。
 4. 两条视图都有账户列；有 `ledger_id` 时是 `a[href]` 指向 `/asset/ledgers/:id`，无 `ledger_id` 时为非链接元素且带「未归属账户」文本。
 5. 状态列：`success` 无背景色标签（纯文字）；`failed` / `cancelled` 按规则着色或描边。
@@ -198,6 +211,7 @@
 9. 无横向滚动：1366px 视口下 `document.documentElement.scrollWidth === clientWidth`；表格列头文字完整不折行（实测基线见 §二「列宽预算」下方的实测注）。
 10. 键盘 Tab 序列覆盖：分段控制器 → 三个下拉 → 重置 → 视图切换 → 每行账户胶囊 → 每行编辑；`prefers-reduced-motion: reduce` 下无过渡。
 11. 汇总条：后端按 §四 公式返回；**一组已知数据单测**断言 `净投入 === 买入 + 手续费 − 卖出 − 分红`（构造 `买入 100、卖出 40、分红 5、手续费 1` → 净投入 **56**）。前端不得自行求和。
+12. **行展开详情按需取**：列表请求体里不含 `import_hash` / `plan_id` / `position`；展开某行才发 `GET /api/transactions/<id>/`，收起不发、已取过不重复发。三条判据由 `transactionDetailOnDemand.spec.ts` 钉住（源码判据 + 变异验证）。
 
 ---
 
@@ -210,15 +224,43 @@
 
 ---
 
-## 十二、待决（需要拍板）
+## 十二、待决 → 已决（2026-11-01 实施拍板）
 
-| # | 问题 | 我的建议 |
-|---|---|---|
-| 1 | 汇总条要不要做？它需要新后端端点 | **做，但拆两步**：先落视觉与文案（不依赖端点），端点就绪再接汇总条；整块未就绪时不渲染 |
-| 2 | 行高 48px（两行产品单元 + 胶囊的必要高度） | 按 48px 登记为例外。压回 44px 会让名称与代码挤在 2px 内边距里 |
-| 3 | 「已清仓」是否够准？`position_id IS NULL` 有两种成因：用户清仓、导入时旧持仓被合并 | 文案保持「已清仓」，细节交给备注与 tooltip。若要更精确需后端回 `position_state` 字段——属独立契约变更，不在本次 |
-| 4 | 是否需要行展开详情（确认日 / 来源 / 备注全文 / 编辑） | 先走 hover「编辑」，展开行是下一步 |
-| 5 | 桌面端是否需要保留「按日」视图 | **不需要**。按月之后日粒度靠日期列本身即可，再加一层切换只是多一个状态 |
+| # | 问题 | 结论 | 落地 |
+|---|---|---|---|
+| 1 | 汇总条要不要做？它需要新后端端点 | **拆两步**：本批先落视觉与语义；`GET /api/transactions/summary` 就绪后再接，**整块未就绪时不渲染**（不留空容器，不用当页数据凑数） | 汇总条本期未渲染；端点仍未实现 |
+| 2 | 行高 48px | **不需要改全局基线**：实测 `tr` 的 `height` 是**最小高度**语义，两行产品单元 + 胶囊会自然撑高；改全局 44px 会连带影响账本 Tab 与持仓抽屉 | `src/style/el-table.css` 未动 |
+| 3 | 「已清仓」是否够准？`position_id IS NULL` 有两种成因 | **判据整体改为后端下发 `position_state`**——初稿的 null 判据在 #2343「清仓不删行」之后几乎永不命中（已清仓的流水 `position_id` 仍有值）；同时把 `position_id` 非空但持仓行已删的历史数据判成 `cleared`。两种成因的区分（用户清仓 vs 导入合并）仍不做，`title` 里并列说明 | `txn_name_resolver.resolve_transaction_position_states` |
+| 4 | 是否需要行展开详情（确认日 / 来源 / 备注全文 / 编辑） | **做，且按需请求**：展开哪行取哪行（`GET /api/transactions/<id>/`），取过即缓存；列表**不预取**详情字段。收起不请求、已取不重复请求都有守卫钉住 | `TransactionDetailPanel.vue` + `TransactionTableView.loadDetail` + `transactionDetailOnDemand.spec.ts`（7 条，含变异验证） |
+| 5 | 桌面端是否保留「按日」视图 | **不保留**。按月之后日粒度靠日期列本身即可；再加一层切换只是多一个状态 | `groupByDate` / `dayBalanceOf` / `isDateInLast30Days` / `recentDatesOf` 已随视图下线 |
+
+---
+
+## 十三、实施记录（2026-11-01）
+
+### 已完成
+
+- **表格视图**：已清仓胶囊替换「已删除」、去掉整格置灰、账户列（表格此前根本没有）、状态静默化、去斑马纹、类型色改 `-ink`（对比度从 3.86:1 / 2.0:1 提到 5.60:1 / ~5.7:1）。
+- **行展开详情**：确认日 / 来源 / 费用明细 / 备注全文 / 持仓现状 / 导入溯源 / 编辑入口，**按需请求**。
+- **流水线视图**：日折叠 → 月分组（sticky 月头 + 月内合计 + 默认展开最近两个**有记录的**月）、7 列栅格、账户列、金额 ± 不染色。
+- **筛选**：类型升为一级分段控制器（6 项），资产 / 状态 / 时间留二级下拉；页头换 `PageHeaderBar` + 导出按钮，筛选卡头与列表同处一张卡。
+- **后端**：新增单条详情端点；列表行增发 `position_state`。
+
+### 未做（明确边界）
+
+- **汇总条**：依赖 `GET /api/transactions/summary`（仍未实现）。按 §十二-1 的结论，未就绪时整块不渲染。
+- **「确认日 vs 交易日的差异提醒」**：展开行只如实显示确认日，不判断「是否 T+1」——那需要按产品类型查申赎规则，属另一个功能面。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 后端 `tests/domains/test_transactions.py` | 35 passed（新增 `TestTransactionDetail` 3 条 + `TestTransactionPositionState` 5 条） |
+| 前端单测 | `model.spec.ts` 17 + `transactionListModel.spec.ts` 24 + `transactionDetailOnDemand.spec.ts` 7 = 48 passed |
+| 变异验证（守卫有效） | 删「已取不重复请求」短路 → 对应用例红；删「收起提前返回」→ 对应用例红；两处已还原 |
+| `vue-tsc` / eslint / prettier / stylelint | 干净 |
+| 守卫脚本 | `guard_a11y_interaction` / `guard_segmented` / `guard_mojibake` / `guard_layout_widths` / `guard_col_divider` / `guard_detail_tables` / `guard_error_envelope` 全绿 |
+| 门禁 | `check_vue_size` 无超限（484 个 .vue）；`check_view_thickness` 通过（transactions/views.py 按 `--report` 实测回写 85 → 95，理由见脚本注释） |
 
 ---
 
