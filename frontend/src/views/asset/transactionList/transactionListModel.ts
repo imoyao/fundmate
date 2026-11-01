@@ -227,6 +227,30 @@ export function recentMonthsOf(groups: MonthGroup[], count = 2): string[] {
     .map(group => group.month);
 }
 
+/**
+ * 展开态决策：决定「加载更多」（追加）还是「重置筛选」（整替换）后，哪几个月该展开。
+ *
+ * 这是 v1.3 修的一个**感知 bug**：原实现在 `watch(transactions)` 里无脑
+ * `recentMonthsOf` 重算，于是「加载更多」也会把你**手动展开**的旧月份重新折叠——
+ * 用户滑到底触发加载，抬头发现刚才展开的那个月没了，自然以为「数据没更新」。
+ *
+ * 规则：
+ * - 首次进入（prevOpen 为空）或**重置**（换筛选 / 清筛选）→ 回到「最近两月」默认；
+ * - **追加**（加载更多）→ 保留用户当前的展开 / 折叠状态，不碰它。
+ *
+ * `isReset` 由组件用「首条 id 是否变化 / 长度是否变短」判定，这里只消费结论。
+ */
+export function resolveOpenMonths(
+  prevOpen: string[],
+  groups: MonthGroup[],
+  isReset: boolean
+): string[] {
+  if (isReset || prevOpen.length === 0) {
+    return recentMonthsOf(groups, 2);
+  }
+  return prevOpen;
+}
+
 export function timelineIcon(type: string): string {
   const map: Record<string, string> = {
     buy: "ep:arrow-down",
