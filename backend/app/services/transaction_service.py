@@ -24,8 +24,10 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import build_transaction_symbol_conditions
 from app.services.txn_name_resolver import (
+    POSITION_STATE_CLEARED,
     resolve_transaction_asset_types,
     resolve_transaction_display_names,
+    resolve_transaction_position_states,
 )
 
 # #2137 费用拆分：Transaction 列名 → 输出键（元）
@@ -182,36 +184,135 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     pos_names, ledger_names = resolve_transaction_display_names(db, items)
     # #2712：asset_type 快照为空时回解析（价格列精度依赖它，详见 txn_name_resolver）
     asset_types = resolve_transaction_asset_types(db, items)
+    # 持仓状态（已清仓 / 持有 / 资金流水）：判据要看 ownership_status 与「持仓行是否还在」，
+    # 前端只有 position_id，猜不出来——故服务端下发，见 txn_name_resolver 的 WHY。
+    position_states = resolve_transaction_position_states(db, items)
 
-    results = []
-    for t in items:
-        results.append(
-            {
-                'id': t.id,
-                'ledger_id': t.ledger_id,
-                'position_id': t.position_id,
-                'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
-                'type': t.txn_type,
-                'asset_type': t.asset_type or asset_types.get(t.id),
-                'symbol': t.symbol,
-                'trade_date': iso_date_only(t.trade_date),
-                'confirm_date': iso_date_only(t.confirm_date),
-                'quantity': Money.min_unit_to_shares(t.quantity),
-                'price': Money.price_units_to_yuan(t.price),
-                'fee': Money.cents_to_yuan(t.fee),
-                # #2137 费用拆分：四列齐全才给明细（元），未拆分为 None——
-                # 前端 None 时按聚合 fee 单值展示，与存量行为一致。
-                'fee_breakdown': fee_breakdown_yuan(t),
-                'amount': Money.cents_to_yuan(t.amount),
-                'status': t.status,
-                'account_name': t.account_name or ledger_names.get(t.id) or '未知账户',
-                'notes': t.notes,
-                'source': t.source,
-                'created_at': t.created_at.isoformat() if t.created_at else None,
-            }
+    results = [
+        transaction_row(
+            t,
+            pos_names=pos_names,
+            ledger_names=ledger_names,
+            asset_types=asset_types,
+            position_states=position_states,
         )
+        for t in items
+    ]
 
     return {'data': results, 'total': total, 'page': page, 'per_page': per_page}
+
+
+def transaction_row(
+    t: Transaction,
+    *,
+    pos_names: dict,
+    ledger_names: dict,
+    asset_types: dict,
+    position_states: dict,
+) -> dict:
+    """单条流水的**列表行**结构（列表与详情共用，避免两条路径各声明一套字段）。
+
+    为什么抽函数：本仓已经因为「三条序列化路径各自拼字典」漏过一个字段（account 详情
+    页永远显示「—」，见 position_presenter 的注释）。详情端点若再手抄一份，下次加字段
+    就是同样的坑重演一次。
+
+    这里只放**列表本身要用的字段**；费用拆分历史上已在列表里（#2137，有测试钉住
+    「列表回显 fee_breakdown」），本次不动它——删一个已生效的键去换几百字节，
+    收益抵不上契约风险。详情额外追加的是列表**确实没有**的那部分：导入溯源
+    （import_hash / plan_id / updated_at）与持仓现状（position）。
+    """
+    return {
+        'id': t.id,
+        'ledger_id': t.ledger_id,
+        'position_id': t.position_id,
+        'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
+        'type': t.txn_type,
+        'asset_type': t.asset_type or asset_types.get(t.id),
+        'symbol': t.symbol,
+        'trade_date': iso_date_only(t.trade_date),
+        'confirm_date': iso_date_only(t.confirm_date),
+        'quantity': Money.min_unit_to_shares(t.quantity),
+        'price': Money.price_units_to_yuan(t.price),
+        'fee': Money.cents_to_yuan(t.fee),
+        # #2137 费用拆分：四列齐全才给明细（元），未拆分为 None——
+        # 前端 None 时按聚合 fee 单值展示，与存量行为一致。
+        'fee_breakdown': fee_breakdown_yuan(t),
+        'amount': Money.cents_to_yuan(t.amount),
+        'status': t.status,
+        'account_name': t.account_name or ledger_names.get(t.id) or '未知账户',
+        'notes': t.notes,
+        'source': t.source,
+        # 持仓状态：held（仍持有）/ cleared（已清仓，含持仓行已删的历史数据）/
+        # account（资金流水，本来没有持仓行）。前端据此渲染胶囊，不再自行按
+        # position_id === null 推断——那判据在 #2343「清仓不删行」之后已经失效。
+        'position_state': position_states.get(t.id, POSITION_STATE_CLEARED),
+        'created_at': t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+def build_transaction_detail(db, family_id: int, transaction_id: int):
+    """单条流水详情（行展开详情按需取用，见 docs/design/transaction-flow-redesign.md §十二 第 4 条）。
+
+    WHY 单独一个端点，而不是把字段全塞进列表：展开详情要的是「费用拆分 / 导入溯源 /
+    持仓现状 / 备注全文」——这些都是**一次只看一行**的数据。塞进列表意味着 20 行各算
+    一遍、响应体跟着涨，而其中绝大部分行永远不会被展开。
+
+    返回 ``None`` 表示不存在或不属于本家庭，由视图转 404（不在这里 abort，服务层
+    不依赖 HTTP 栈）。
+    """
+    t = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.family_id == family_id).first()
+    if not t:
+        return None
+
+    pos_names, ledger_names = resolve_transaction_display_names(db, [t])
+    asset_types = resolve_transaction_asset_types(db, [t])
+    position_states = resolve_transaction_position_states(db, [t])
+
+    row = transaction_row(
+        t,
+        pos_names=pos_names,
+        ledger_names=ledger_names,
+        asset_types=asset_types,
+        position_states=position_states,
+    )
+    row.update(
+        {
+            # 以下键**列表里没有**，正是「展开才取」的理由：
+            'import_hash': t.import_hash,
+            'updated_at': t.updated_at.isoformat() if t.updated_at else None,
+            # 定投计划来源（#2138）：用户要知道这笔记账是手工的还是计划自动产生的
+            'plan_id': t.plan_id,
+            # 持仓现状（份额 / 清仓时间）：展开一行的常见诉求是「这条卖出之后还剩多少」
+            'position': _position_brief(db, t),
+        }
+    )
+    return row
+
+
+def _position_brief(db, t: Transaction):
+    """详情里的持仓现状摘要；无 position_id 或持仓行已删时返回 None。
+
+    与 ``position_state`` 配套：状态回答「是哪一态」，摘要回答「那现在这仓怎么样了」。
+    用户展开一行的常见诉求就是「这条卖出之后我还剩多少」——列表给不了，这里给。
+    """
+    if not t.position_id:
+        return None
+    p = db.query(Position).filter(Position.id == t.position_id).first()
+    if not p:
+        # 悬空 position_id：历史删行。如实回 None，前端按 cleared 文案说明，不编造持仓。
+        return None
+    return {
+        'id': p.id,
+        'name': p.name,
+        'symbol': p.symbol,
+        'asset_type': p.asset_type,
+        # 份额与流水同单位（万分之一份 → 份），与 quantity 列口径一致
+        'quantity': Money.min_unit_to_shares(p.quantity),
+        # 不返回 ownership_status：它与行级 `position_state` 是同一件事的两种写法，
+        # 前端要是同时看到两个会不知道该用哪个（且第二个没有中文 label 下发）。
+        # 清仓时间才是这里多出来的信息：「已清仓」之外还能答「什么时候清的」。
+        'cleared_at': p.cleared_at.isoformat() if p.cleared_at else None,
+    }
 
 
 # CSV 导出列（与导入模板列对齐，导出的文件可直接再导入）

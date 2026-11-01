@@ -616,6 +616,19 @@ def _txn_kwargs(**kw):
     return base
 
 
+def _detail(client, txn_id: int) -> dict:
+    """取单条流水详情（`GET /api/transactions/<id>/`），非 200 直接失败并带上原因。"""
+    resp = client.get(f'/api/transactions/{txn_id}/')
+    assert resp.status_code == 200, f'详情接口返回 {resp.status_code}: {resp.get_json()}'
+    return resp.get_json()['data']
+
+
+def _listed(client, txn_id: int) -> dict:
+    """从列表接口里取同一行——用来断言「列表与详情同一口径」。"""
+    rows = _get(client, '/api/transactions').get_json()['data']
+    return next(t for t in rows if t['id'] == txn_id)
+
+
 class TestTransactionFeeBreakdown:
     """#2137 费用拆分四列（commission/stamp_duty/transfer_fee/other_fee，分）。
 
@@ -841,3 +854,115 @@ class TestTransactionFeeBreakdown:
         )
         assert patch_resp.status_code == 400
         assert '四类齐全' in (patch_resp.get_json() or {}).get('message', '')
+
+
+class TestTransactionDetail:
+    """单条流水详情（行展开按需取，`GET /api/transactions/<id>/`）。
+
+    存在理由：费用拆分以外的溯源信息（导入哈希 / 更新时间 / 定投计划）与**持仓现状**
+    （当前份额、是否已清仓）只有展开某一行才需要。并进列表等于给每页 20 行各算一遍。
+    """
+
+    def test_detail_carries_list_row_plus_detail_only_fields(self, client, db, make_position, make_transaction):
+        """详情 = 列表行 ∪ 详情专属字段；列表行那部分逐字相同（同一组装函数）。"""
+        pos = make_position(symbol='004369', name='测试基金', asset_type='fund', quantity=100, avg_price=1.0)
+        txn = make_transaction(position_id=pos.id, ledger_id=None, symbol='004369', position_name='测试基金')
+        db.commit()
+
+        detail = _detail(client, txn.id)
+        listed = next(t for t in _get(client, '/api/transactions').get_json()['data'] if t['id'] == txn.id)
+
+        # 列表行部分：详情不多不少，与列表逐键相同（防止两条路径各声明一套字段）
+        for key, value in listed.items():
+            assert detail[key] == value, f'详情与列表的 {key} 不一致：详情={detail[key]!r} 列表={value!r}'
+
+        # 详情专属（列表没有）
+        for key in ('import_hash', 'updated_at', 'plan_id', 'position'):
+            assert key in detail, f'详情缺字段 {key}'
+            assert key not in listed, f'{key} 不该出现在列表行里（那是「一次性全拿到」）'
+
+        assert detail['position']['id'] == pos.id
+        assert detail['position']['quantity'] == 100.0
+        # 不返回 ownership_status（与 position_state 是同一件事的两种写法），
+        # 多出来的是清仓时间：未清仓过 → None
+        assert 'ownership_status' not in detail['position']
+        assert detail['position']['cleared_at'] is None
+
+    def test_detail_404_for_unknown_id(self, client):
+        resp = client.get('/api/transactions/999999/')
+        assert resp.status_code == 404
+
+    def test_detail_404_for_other_family(self, client, db, make_position):
+        """跨家庭按 404 处理（不返 403 泄漏「这一行存在」）。
+
+        不用 `make_transaction`：该 fixture 把 `family_id` 写死为 1，要造「别家的流水」
+        只能直接建行——否则测出来的是「同家庭能读」，永远绿。
+        """
+        pos = make_position(symbol='004369', name='别家的', asset_type='fund', quantity=1, avg_price=1.0, family_id=2)
+        txn = Transaction(**_txn_kwargs(family_id=2, position_id=pos.id, symbol='004369'))
+        db.add(txn)
+        db.commit()
+        assert client.get(f'/api/transactions/{txn.id}/').status_code == 404
+
+
+class TestTransactionPositionState:
+    """流水行的持仓状态（`held` / `cleared` / `account`）——设计 §三 的**唯一**判据。
+
+    这一组钉住设计 v1.0 初判的一处实测失效：
+
+    > 「`position_id === null` → 已清仓」
+
+    #2343 起清仓**不再删行**（`ownership_status='cleared'`，锚点留存），所以已清仓的
+    流水 `position_id` 依然有值 —— 按 null 判会让「已清仓」胶囊几乎永不出现，
+    而用户会以为这个标记坏了。反过来，`position_id` 非空但持仓行已被删（#2343 之前的
+    历史数据，真库实测 621 笔）本来就是已清仓，判成 held 会长期撒谎。
+    """
+
+    def test_held_when_position_row_is_active(self, client, db, make_position, make_transaction):
+        pos = make_position(symbol='004369', name='测试基金', asset_type='fund', quantity=100, avg_price=1.0)
+        txn = make_transaction(position_id=pos.id, ledger_id=None, symbol='004369')
+        db.commit()
+
+        assert _detail(client, txn.id)['position_state'] == 'held'
+        assert _listed(client, txn.id)['position_state'] == 'held'
+
+    def test_cleared_when_position_kept_but_cleared(self, client, db, make_position, make_transaction):
+        """#2343：清仓不删行 → `position_id` 仍有值，状态必须是 cleared。
+
+        这条是本组的主用例：它正是「按 `position_id is None` 判已清仓」失效的场景。
+        """
+        pos = make_position(
+            symbol='004369',
+            name='测试基金',
+            asset_type='fund',
+            quantity=0,
+            avg_price=1.0,
+            ownership_status='cleared',
+        )
+        txn = make_transaction(position_id=pos.id, ledger_id=None, symbol='004369')
+        db.commit()
+
+        assert _detail(client, txn.id)['position_state'] == 'cleared'
+        assert _listed(client, txn.id)['position_state'] == 'cleared'
+
+    def test_cleared_when_position_id_dangles(self, client, db, make_transaction):
+        """`position_id` 指向已不存在的持仓（历史删行）→ cleared，且不编造持仓摘要。"""
+        txn = make_transaction(position_id=987654, ledger_id=None, symbol='004369')
+        db.commit()
+
+        detail = _detail(client, txn.id)
+        assert detail['position_state'] == 'cleared'
+        assert detail['position'] is None, '悬空 id 时不得编造持仓现状'
+
+    def test_account_state_for_deposit_and_withdraw(self, client, db, make_transaction):
+        """资金流水（存入 / 取出）本来就没有持仓行 → account，不是「已清仓」。"""
+        for txn_type in ('deposit', 'withdraw'):
+            txn = make_transaction(position_id=None, ledger_id=None, txn_type=txn_type, symbol=None)
+            db.commit()
+            assert _detail(client, txn.id)['position_state'] == 'account'
+
+    def test_cleared_for_orphan_non_account_type(self, client, db, make_transaction):
+        """无持仓行且不是资金流水（历史孤儿买入）→ cleared，不是 account。"""
+        txn = make_transaction(position_id=None, ledger_id=None, txn_type='buy', symbol='004369')
+        db.commit()
+        assert _detail(client, txn.id)['position_state'] == 'cleared'

@@ -1,10 +1,11 @@
 /**
  * 交易流水的展示口径与请求体（#980 拆分时抽出）。
  *
- * 全是纯函数，但三处容易静默出错：
- * - 日汇总的正负号（卖出/分红/存入算收入，其余算支出）；
+ * 全是纯函数，但四处容易静默出错：
+ * - 月汇总的正负号（卖出/分红/存入算流入，其余算流出）；
  * - 自定义时间范围用 `toISOString()` 取日期——它是 UTC，跨零点会差一天；
- * - 「近 30 天默认展开」的判定把当天算不算在内。
+ * - 「默认展开最近两个月」数的是**有记录的**月，不是日历月（否则空窗期会一片折叠）；
+ * - 月归属用「交易日优先、确认日兜底」，与表格列同一口径。
  */
 import type { TransactionRecord } from "@/api/transactions";
 import { txnStatusLabel, txnStatusTag } from "@/utils/transactionStatus";
@@ -41,6 +42,55 @@ export const TXN_VIEW_OPTIONS = [
   { label: "时间线", value: "timeline" }
 ];
 
+/**
+ * 一级筛选：交易类型（分段控制器）。
+ *
+ * 为什么升成一级分段而不是继续当第 4 个下拉：类型是筛流水时唯一**高频且互斥**的维度
+ * （「我只看卖出」），下拉要点两下才看到选项；资产 / 状态 / 时间都是低频条件，
+ * 留在二级下拉里。分层的判据是使用频率，不是信息多寡。
+ */
+export const TXN_TYPE_OPTIONS: { label: string; value: string }[] = [
+  { label: "全部", value: "" },
+  { label: "买入", value: "buy" },
+  { label: "卖出", value: "sell" },
+  { label: "分红", value: "dividend" },
+  { label: "存入", value: "deposit" },
+  { label: "取出", value: "withdraw" }
+];
+
+/** 月内合计（月头展示）：笔数 / 买入 / 卖出 / 净额 */
+export interface MonthSummary {
+  count: number;
+  /** `Σ amount WHERE type='buy'`（成交额，不含手续费） */
+  buy: number;
+  /** `Σ amount WHERE type='sell'` */
+  sell: number;
+  /** `Σ signedAmount`：流入为正、流出为负 */
+  net: number;
+}
+
+/** 一个月份的流水分组（月头 + 该月全部记录 + 月内合计） */
+export interface MonthGroup {
+  /** `YYYY-MM`；`""` = 交易日与确认日都缺失（沉底） */
+  month: string;
+  /** 展示文案（`2026 年 10 月` / `未标注日期`） */
+  label: string;
+  records: TransactionRecord[];
+  summary: MonthSummary;
+}
+
+/** 一条流水所属月份：交易日优先、确认日兜底（与表格列同口径） */
+export function monthOf(record: TransactionRecord): string {
+  const day = record.trade_date || record.confirm_date || "";
+  return day.slice(0, 7);
+}
+
+export function monthLabel(month: string): string {
+  if (!month) return "未标注日期";
+  const [year, mon] = month.split("-");
+  return `${year} 年 ${Number(mon)} 月`;
+}
+
 /** 列表请求参数：空筛选项一律不下发（后端把空串当「筛空」，与「不筛」不同） */
 export function buildTransactionParams(
   filters: TransactionFilters,
@@ -63,65 +113,68 @@ export function buildTransactionParams(
 }
 
 /**
- * 按交易日分组（Map 保持插入顺序，等价于原对象字面量的 key 顺序）。
+ * 按**月**分组（设计 §五：桌面上一天只有一两笔，按日分组就是一屏空折叠头）。
  *
  * 日期口径与表格列一致：**交易日优先、确认日兜底**。只认 `trade_date` 时，只有确认日的
  * 行会落进 `undefined` 这个 key（时间线里出现一个没名字的分组），而同一批流水在表格里
  * 显示的是确认日——同一页两套口径。
+ *
+ * 排不出日期的行进 `""` 桶（「未标注日期」），且**排在最后**：它没有时间位置，
+ * 混在月份之间会让「最近的流水」看起来乱序。
  */
-export function groupByDate(
-  list: TransactionRecord[]
-): Record<string, TransactionRecord[]> {
-  const group: Record<string, TransactionRecord[]> = {};
+export function groupByMonth(list: TransactionRecord[]): MonthGroup[] {
+  const buckets = new Map<string, TransactionRecord[]>();
   list.forEach(item => {
-    const date = item.trade_date || item.confirm_date || "";
-    if (!group[date]) group[date] = [];
-    group[date].push(item);
+    const month = monthOf(item);
+    const bucket = buckets.get(month);
+    if (bucket) bucket.push(item);
+    else buckets.set(month, [item]);
   });
-  return group;
+
+  const groups: MonthGroup[] = [];
+  buckets.forEach((records, month) => {
+    groups.push({
+      month,
+      label: monthLabel(month),
+      records,
+      summary: monthSummaryOf(records)
+    });
+  });
+
+  // `""`（未标注日期）沉底；其余保持插入顺序（后端已按有效交易日倒序返回）
+  return groups.sort((a, b) => {
+    if (a.month === b.month) return 0;
+    if (!a.month) return 1;
+    if (!b.month) return -1;
+    return 0;
+  });
 }
 
-/** 每日收支汇总：卖出 / 分红 / 存入为流入，其余为流出 */
-export function dayBalanceOf(
-  groups: Record<string, TransactionRecord[]>
-): Record<string, number> {
-  const balance: Record<string, number> = {};
-  Object.entries(groups).forEach(([date, list]) => {
-    let sum = 0;
-    list.forEach(txn => {
-      const val = Number(txn.amount);
-      if (
-        txn.type === "sell" ||
-        txn.type === "dividend" ||
-        txn.type === "deposit"
-      )
-        sum += val;
-      else sum -= val;
-    });
-    balance[date] = sum;
+/** 月内合计：笔数 / 买入 / 卖出 / 净额 */
+export function monthSummaryOf(records: TransactionRecord[]): MonthSummary {
+  let buy = 0;
+  let sell = 0;
+  let net = 0;
+  records.forEach(txn => {
+    const amount = Number(txn.amount) || 0;
+    if (txn.type === "buy") buy += amount;
+    else if (txn.type === "sell") sell += amount;
+    net += signedAmount(txn);
   });
-  return balance;
+  return { count: records.length, buy, sell, net };
 }
 
 /**
- * 判断日期是否在 30 天内（含第 30 天）。
+ * 默认展开的月份：最近 `count` 个**有记录的**月。
  *
- * `now` 可注入是为了让「同一批日期用同一基准」——`recentDatesOf` 会把同一个 `now`
- * 传给每一条；因此这里先复制再减 30 天，不能改调用方传进来的 Date。
+ * 为什么按「有记录的月」数而不是「日历上最近两个月」：用户三个月没交易时，
+ * 后者会一个都不展开，页面看起来像空的——而列表明明有数据。
  */
-export function isDateInLast30Days(dateStr: string, now: Date = new Date()) {
-  const target = new Date(dateStr);
-  const past = new Date(now.getTime());
-  past.setDate(past.getDate() - 30);
-  return target >= past;
-}
-
-/** 默认展开的分组：最近 30 天内的日期 */
-export function recentDatesOf(
-  groups: Record<string, TransactionRecord[]>,
-  now: Date = new Date()
-): string[] {
-  return Object.keys(groups).filter(date => isDateInLast30Days(date, now));
+export function recentMonthsOf(groups: MonthGroup[], count = 2): string[] {
+  return groups
+    .filter(group => Boolean(group.month))
+    .slice(0, count)
+    .map(group => group.month);
 }
 
 export function timelineIcon(type: string): string {
