@@ -31,11 +31,46 @@
 #    在那之前 bot 推送的分支仍会卡在 approval-required，需人工点 Approve。
 #    检出用 `ref: dev` + `git show origin/dev:<脚本>`，只能保证**执行内容**是新的，
 #    保证不了**定义**是新的。
+#
+# ## 为什么用 `pull_request` 而不是 `pull_request_target`（#2803）
+#
+# 上面第 7 条那个「生效前提」本身就是本工作流最大的痛点：
+# `pull_request_target` 的 workflow 定义**只取自仓库默认分支**（本仓是 `main`），
+# 无视 PR 的 base 分支（GitHub 2025-12-08 生效的行为变更，官方 changelog
+# 「Actions pull_request_target and environment branch protections changes」）：
+#
+# > The workflow file and checkout commit will always be taken from the repository's
+# > default branch, regardless of the pull request's base branch.
+#
+# 本仓功能 PR 一律 base=`dev`，而 `main` 落后 `dev` 数百个提交 ⇒ 走
+# `pull_request_target` 时跑的是 `main` 上那份旧定义 ⇒ **「在 dev 上改了这个工作流」
+# 对这条路径完全不可见**，要等发版才生效。
+# `pull_request` 的定义取自 PR 的 merge commit ⇒ dev 上的改动**立刻生效**。
+#
+# 本工作流需要 `contents:write` + `pull-requests:write` + `actions:write`，
+# 而同仓分支的 `pull_request` 与 `pull_request_target` 权限**完全一致**
+# （官方文档：*「The same is true for workflows triggered on pull_request from a branch
+# in the same repository, but not from external forks.」*）⇒ 迁过去**不损失**写权限。
+#
+# ## 迁到 `pull_request` 后必须同步改的两处（漏一处就出静默故障）
+#
+# 1. **job 的 `if`**：原写法 `github.event_name != 'pull_request_target' || ...`
+#    —— 迁到 `pull_request` 后 `event_name` 永不等于 `'pull_request_target'` ⇒
+#    条件恒真 ⇒ **base≠dev 的 PR 也会被变基**（闸门静默失效）。
+#    必须改成 `'pull_request'`。
+# 2. **脚本里的 `EVENT_NAME` 分支**：同样按事件名分流（PR 事件只处理本 PR，
+#    `schedule` / `workflow_dispatch` 处理全部 open PR）⇒ 同样要改成 `'pull_request'`。
+#
+# ## `schedule` 那一路仍读默认分支（无法迁，也不受影响）
+#
+# `schedule` 事件**只有**默认分支一个定义来源 ⇒ 这一路注定要等发版才拿到新定义。
+# 但它的**执行内容**已经是对的：checkout 显式 `ref: dev`、脚本从 `origin/dev` 取
+# ⇒ 每夜跑的是 dev 上最新的脚本与最新定义（定义随发版走，内容永远是新的）。
 
 name: PR 自动变基（保新）
 
 on:
-  pull_request_target:
+  pull_request:
     types: [synchronize]
   schedule:
     - cron: '17 2 * * *'
@@ -50,7 +85,7 @@ jobs:
   rebase:
     runs-on: ubuntu-latest
     if: >-
-      github.event_name != 'pull_request_target' ||
+      github.event_name != 'pull_request' ||
       github.event.pull_request.base.ref == 'dev'
     steps:
       - uses: actions/checkout@v5
@@ -59,6 +94,8 @@ jobs:
           # 落后 dev 上百个提交），而本 job 现在要跑 `scripts/pr_autorebase_approve.py`。
           # 显式写 dev：否则每夜那次跑的是很久以前的脚本（源 CNB #586，
           # 判据 scripts/guard_schedule_checkout_ref.py）。
+          # ⚠️ `pull_request` 事件下默认检出的是 **merge commit（含 PR 代码）**，
+          #    显式写 dev 同时挡掉 PR 代码注入面。
           ref: dev
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
@@ -67,7 +104,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ⚠️ 表达式一律先落 env，再用 $VAR 引用 —— 直接写进 run: 块会与 shell 代码拼接。
-          # pull_request_target 下 head.ref 由外部用户控制（分支名可由任意人建），
+          # pull_request 下 head.ref 由外部用户控制（分支名可由任意人建），
           # 曾被 CodeQL 判为 critical 注入。event_name 同块统一处理，避免一半内插一半引用。
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -92,7 +129,7 @@ jobs:
             exit 1
           fi
 
-          if [ "$EVENT_NAME" = "pull_request_target" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then
             BRANCHES="$PR_HEAD_REF"
           else
             # schedule / workflow_dispatch：列出所有 base=dev 的 open PR 头部分支

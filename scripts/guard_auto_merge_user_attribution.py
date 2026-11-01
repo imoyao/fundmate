@@ -73,10 +73,9 @@ dev 上的改动**立刻生效**。且官方文档明确：同仓分支的 `pull
 
 - **不查 dependabot 那条路径**（`dependabot-auto-merge.yml`）：它的合并归因刻意留在 bot
   侧（依赖更新不该触发版本自增、也不该重启 bot 链），属另一条产品决策，不在本守卫范围。
-- **不查其余 6 个 `pull_request_target` 工作流**（dependabot-auto-merge /
-  dependabot-lockfile-regen / issue-claim-sync / pr-auto-rebase /
-  pr-four-questions-guard / pr-overlap-guard）：它们同样只跑默认分支上的定义，
-  是平台级行为带来的系统性问题，另开 issue 统一处理，不在本守卫范围。
+- **不查其余工作流的定义来源**：那是 `scripts/guard_workflow_definition_source.py`
+  的职责（全仓禁止 `pull_request_target` + 守卫类工作流的 checkout 必须显式 ref）。
+  本守卫只管 `pr-auto-merge.yml` 这一个文件的凭据与触发器。
 - 不查 secret 的实际值（守卫只看 YAML，看不到 secret 存储）；「PAT 到底配没配」由
   步骤 5 的显式失败在运行时兜住——缺 PAT 时 workflow 自己会红，不会静默退化。
 - 不验证 auto-merge 真的合得上（那需要真实 PR 与门禁转绿，属端到端验证）。

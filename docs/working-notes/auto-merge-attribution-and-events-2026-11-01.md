@@ -195,6 +195,50 @@ environment branch protections changes」）原文：
 或按 `#2803` 的选项单独处理。**在此之前，不要指望「贴标签 → 自动合并」这条
 自动化路径已完全正常** —— 它只在旧版抢不到时生效。
 
+### 4.6 处置 `#2803` 时挖出的第三条机制：依赖 bot 的 PR **不能**迁 `pull_request`
+
+上一节 4.2 的结论是「`pull_request_target` 的定义只取自默认分支 ⇒ 应迁到
+`pull_request`」。迁 `#2803` 时发现这句话**只对一半场景成立**。
+
+GitHub 官方文档（events-that-trigger-workflows，`pull_request` → "Workflows in forked
+repositories"）原文：
+
+> Workflows triggered by Dependabot pull requests are treated as though they are from a
+> forked repository, and are also subject to these restrictions.
+> The `GITHUB_TOKEN` has read-only permissions in pull requests from forked repositories.
+
+⇒ **Dependabot 的 PR 即使 head 仓库就是本仓**（实测 `#2645`–`#2649` 的 head_repo 都是
+`imoyao/fundmate`），在 `pull_request` 事件下 token 仍是**只读**、secrets 也不注入。
+
+**「head 仓库相同」≠「权限相同」** —— Dependabot 被平台特殊对待。
+
+这条如果漏掉，后果是：`dependabot-auto-merge.yml` 的 `gh pr merge --auto` 与
+`dependabot-lockfile-regen.yml` 的 `git push` **必然失败**（`#578` 同族事故）。
+而且它**不会在 CI 里暴露** —— CI 全绿、PR 合得进去，只有真正跑起来才炸。
+
+发现路径也值得记：仓库里**已有一条守卫**
+（`scripts/guard_dependabot_lockfile_regen.py`）明确要求「触发方式必须是
+`pull_request_target`」，理由写的就是这句。本仓自己的判据比通用文档更早知道这件事。
+⇒ **改仓库里的 CI 之前，先读仓库里已有的守卫**——它们记录的是事故，不是文档摘要。
+
+### 4.7 迁移到 `pull_request` 的第二处易漏点：checkout 必须显式 `ref`
+
+| 事件 | `actions/checkout` 默认检出 |
+|---|---|
+| `pull_request_target` | **base 分支**（受信） |
+| `pull_request` | **merge commit（含 PR 代码）** |
+
+⇒ 迁移时若没补 `ref`，等于把「执行内容」交给 PR 作者：
+把 `guard_pr_four_questions.mjs` 的判据改成恒真、把 `pr-overlap-guard.yml` 的
+`GOV_GLOB` 改空——**改的是守卫自己**。
+
+本仓有 3 个工作流的 checkout 原本没写 ref（`issue-claim-sync` /
+`pr-four-questions-guard` / `pr-overlap-guard`），迁移时都补上了 `ref: dev`。
+
+**例外**：`ci.yml` / `docker-build.yml` / `ai-review.yml` 检出 PR 代码是**职责所在**
+（CI 就是用来测 PR 的代码的），要求它们写 `ref: dev` 反而让 CI 测错东西。
+⇒ 守卫用**显式清单**区分「守卫类」与「CI 类」，不靠猜。
+
 ## 5. 边界
 
 - **dependabot 那条路径刻意不动**（`dependabot-auto-merge.yml`）：它的合并归因留在

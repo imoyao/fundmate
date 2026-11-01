@@ -61,10 +61,36 @@
 name: Dependabot 锁重生成
 
 on:
+  # ⚠️ 刻意**保留** `pull_request_target`，不迁 `pull_request`（#2803）：
+  #
+  # 迁移的通用理由是「`pull_request_target` 的定义只取自默认分支（main），无视 PR 的
+  # base 分支 ⇒ dev 上的改动对该路径不可见」（GitHub 2025-12-08 生效的行为变更）。
+  # 但**依赖 bot 触发的路径不能迁**——GitHub 官方文档明确写道：
+  #
+  # > Workflows triggered by Dependabot pull requests are treated as though they are
+  # > from a forked repository, and are also subject to these restrictions.
+  # > The GITHUB_TOKEN has read-only permissions in pull requests from forked repositories.
+  #
+  # ⇒ Dependabot 的 PR 即使 head 仓库就是本仓（实测 `#2645`–`#2649` 的
+  # head_repo 都是 `imoyao/fundmate`），在 `pull_request` 事件下 token 仍是**只读**，
+  # secrets 也不注入 ⇒ 本工作流要做的 `git push`（把重生成的锁推回 PR 分支）
+  # **必然失败**（`#578` 同族事故）。「head 仓库相同」≠「权限相同」，
+  # dependabot 被平台特殊对待。
+  #
+  # ⇒ 代价：本文件的定义仍锁在默认分支 `main` 上，dev 上的改动要等发版才生效。
+  # 这正是「`schedule`/`pull_request_target` 类漂移只能随 `dev → main` 发版解决」
+  # 的又一个实例（见 `#2803`）。实测本文件在 main 与 dev 上曾差 227 行
+  # （main 版缺「分支重建」能力与 `push: dev` 补位触发）⇒ 撞锁形态在 main 侧无法自动修复。
+  #
+  # 守卫：`scripts/guard_dependabot_lockfile_regen.py`（判据含「触发方式必须是
+  # pull_request_target」）+ `scripts/guard_workflow_definition_source.py`
+  # （全仓禁 `pull_request_target` 那条对本文件**显式豁免**，理由即上）。
   pull_request_target:
     types: [opened, synchronize, reopened]
   # 撞锁的补位触发：一个 bot PR 合入 ⇒ dev 前进 ⇒ 其余同批 PR 立刻变成冲突态，
   # 而冲突下 pull_request 类工作流不触发。没有这一条，重建永远慢半拍。
+  # ⚠️ `push` 事件的定义来源是**被推的分支**（= dev）⇒ 这一路本来就拿的是新定义，
+  #    不受 `pull_request_target` 锁死影响，无需迁。
   push:
     branches: [dev]
 
@@ -91,7 +117,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # 先落 dev：需要 `origin/dev` 的锁作基线，也需要**已评审**的脚本版本。
-          # （`pull_request_target` 的 checkout 默认就是 base 分支，这里写死意图。）
+          # ⚠️ 必须显式写 ref: dev —— `pull_request` 事件下 checkout 默认检出的是
+          #    **merge commit（含 PR 代码）**，而本工作流要跑的是锁重生成脚本，
+          #    让 PR 代码进来就等于让 PR 作者能改掉「怎么重建锁」。
           ref: dev
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0

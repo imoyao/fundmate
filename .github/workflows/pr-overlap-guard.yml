@@ -10,11 +10,40 @@
 #
 # scripts/bridge/ 、scripts/check_*.py 、.cnb.yml 、AGENTS.md
 # —— 这些是全局共享、易被多分支重复改写的文件。普通业务改动不触发。
+#
+# ## 为什么用 `pull_request` 而不是 `pull_request_target`（#2803）
+#
+# `pull_request_target` 的 workflow 定义**只取自仓库默认分支**（本仓是 `main`），
+# 无视 PR 的 base 分支（GitHub 2025-12-08 生效的行为变更，官方 changelog
+# 「Actions pull_request_target and environment branch protections changes」）：
+#
+# > The workflow file and checkout commit will always be taken from the repository's
+# > default branch, regardless of the pull request's base branch.
+#
+# 本仓功能 PR 一律 base=`dev`，而 `main` 落后 `dev` 数百个提交 ⇒ 走
+# `pull_request_target` 时跑的是 `main` 上那份旧定义 ⇒「在 dev 上改了 workflow」
+# 对这条路径完全不可见（改了什么守卫、闸门放在哪，跑的都还是 `main` 那份旧的）。
+# `pull_request` 的定义取自 PR 的 merge commit ⇒ dev 上的改动立刻生效。
+#
+# 同仓分支的 `pull_request` 与 `pull_request_target` 一样有写权限与 secrets
+# （官方文档：*「The same is true for workflows triggered on pull_request from a
+# branch in the same repository, but not from external forks.」*），
+# 而本工作流需要 `pull-requests: write`（发评论）⇒ 迁过去**不损失**这个能力。
+#
+# ## 迁到 `pull_request` 后 checkout 必须显式写 `ref`（关键）
+#
+# `pull_request_target` 下 `actions/checkout` 默认检出 **base 分支**；
+# 而 `pull_request` 下默认检出 **merge commit**（含 PR 代码）——
+# 本工作流的 `GOV_GLOB` 圈定的正是 `scripts/bridge/`、`scripts/check_*.py` 这些
+# **治理文件**，若检出 PR 代码，PR 作者就能通过改自己的守卫来绕过它。
+# 故显式 `ref: dev`：检出的始终是受信的 dev，PR 代码永远不进来。
+# （checkout 在此**只用于给 `gh` CLI 提供仓库上下文**——本工作流全部结论都来自
+# `gh pr diff` / `gh pr list` 两个 API 调用，不读本地文件。）
 
 name: PR 重叠守卫
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -28,6 +57,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # ⚠️ 必须显式 ref: dev —— 见文件头「迁到 pull_request 后 checkout 必须
+          # 显式写 ref」。不写的话检出的是 merge commit（含 PR 代码），
+          # PR 作者就能改掉圈定治理文件的 GOV_GLOB 来绕过本守卫。
+          ref: dev
           fetch-depth: 0
 
       - name: 检测治理文件重叠

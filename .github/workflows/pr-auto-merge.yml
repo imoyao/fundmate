@@ -101,11 +101,19 @@
 #
 # ## 已知边界（不在本工作流职责内）
 #
-# 本仓另有 6 个工作流同样用 `pull_request_target`（dependabot-auto-merge /
-# dependabot-lockfile-regen / issue-claim-sync / pr-auto-rebase /
-# pr-four-questions-guard / pr-overlap-guard），它们**同样只跑默认分支上的定义**。
-# 这是 `pull_request_target` 的平台级行为，不是本仓独有；已另开 issue 记录，
-# 不在本工作流内一并处理。
+# 本仓另有 6 个工作流（dependabot-auto-merge / dependabot-lockfile-regen /
+# issue-claim-sync / pr-auto-rebase / pr-four-questions-guard / pr-overlap-guard）
+# 此前同样用 `pull_request_target`，因而同样只跑默认分支上的定义。
+# 它们已在 `#2803` 一并迁到 `pull_request`（定义取 merge commit ⇒ dev 上的改动
+# 立刻生效），并由 `scripts/guard_workflow_definition_source.py` 钉住
+# （全仓禁止 `pull_request_target` + 守卫类工作流的 checkout 必须显式 ref）。
+#
+# **注意：`main` 上的旧版定义要等下一次 `dev → main` 发版才会被替换。**
+# 在那之前，贴 `automerge` 标签时 `main` 上的旧版（`pull_request_target` +
+# `GITHUB_TOKEN`）与本仓的新版（`pull_request` + PAT）**会同时触发**，
+# 而旧版更快（无需先算 merge commit、脚本也更短）⇒ 它抢先启用 auto-merge ⇒
+# 归因落在 bot。过渡期的稳定做法是用 PAT 手动启用：
+# `gh pr merge --auto --merge <PR>`（本地 gh 用的就是同一个 PAT）。
 
 name: PR 自动合并（绿灯即合）
 

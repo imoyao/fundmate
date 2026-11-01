@@ -28,15 +28,39 @@
 #   机器人作者 / draft PR / 描述含 `four-questions-skip`。
 #   守卫一旦频繁误伤真实工作，就再也没有人看它——这是它能否长期活下来的前提。
 #
-# ## 为什么用 pull_request_target
+# ## 为什么用 `pull_request` 而不是 `pull_request_target`（#2803）
 #
-# 需要 issues: read 读关联 issue，且 fork PR 的 secrets 不注入。
-# **不 checkout PR 代码**（只 sparse-checkout `scripts/`），故无注入面。
+# `pull_request_target` 的 workflow 定义**只取自仓库默认分支**（本仓是 `main`），
+# 无视 PR 的 base 分支（GitHub 2025-12-08 生效的行为变更，官方 changelog
+# 「Actions pull_request_target and environment branch protections changes」）：
+#
+# > The workflow file and checkout commit will always be taken from the repository's
+# > default branch, regardless of the pull request's base branch.
+#
+# 本仓功能 PR 一律 base=`dev`，而 `main` 落后 `dev` 数百个提交 ⇒ 走
+# `pull_request_target` 时跑的是 `main` 上那份旧定义 ⇒ **「在 dev 上改了这个守卫」
+# 对这条路径完全不可见**（改了判据、扩了豁免面，跑的都还是 `main` 那份旧的）。
+# `pull_request` 的定义取自 PR 的 merge commit ⇒ dev 上的改动立刻生效。
+#
+# 本工作流只需 `contents: read` + `pull-requests: read`，而同仓分支的 `pull_request`
+# 与 `pull_request_target` 权限**完全一致**（官方文档：*「The same is true for
+# workflows triggered on pull_request from a branch in the same repository, but not
+# from external forks.」*）⇒ 迁过去**不损失任何能力**。
+#
+# ## 迁到 `pull_request` 后 checkout 必须显式写 `ref`（关键）
+#
+# `pull_request_target` 下 `actions/checkout` 默认检出 **base 分支**；
+# `pull_request` 下默认检出 **merge commit**（含 PR 代码）。
+# 本守卫执行的是 `scripts/guard_pr_four_questions.mjs`——**如果检出的是 PR 代码，
+# PR 作者就能改掉这个守卫脚本本身来绕过它**（把判据改成恒真）。
+# 故显式 `ref: dev`：检出的始终是受信的 dev 版本。
+# （原注释说「不 checkout PR 代码」在 `pull_request_target` 下成立；
+#  迁到 `pull_request` 后**必须靠显式 `ref: dev` 才继续成立**。）
 
 name: PR 四问格式守卫
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, reopened, ready_for_review]
 
 permissions:
@@ -55,6 +79,10 @@ jobs:
       - name: 检出守卫脚本（不检出 PR 代码）
         uses: actions/checkout@v4
         with:
+          # ⚠️ 必须显式 ref: dev —— 见文件头「迁到 pull_request 后 checkout 必须
+          # 显式写 ref」。不写的话检出的是 merge commit（含 PR 代码），
+          # PR 作者就能改掉 guard_pr_four_questions.mjs 来绕过本守卫。
+          ref: dev
           sparse-checkout: scripts
           sparse-checkout-cone-mode: false
 
