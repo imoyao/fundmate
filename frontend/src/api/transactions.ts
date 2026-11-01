@@ -70,6 +70,30 @@ export interface TransactionDetail extends TransactionRecord {
   position: TransactionPositionBrief | null;
 }
 
+/** 汇总条单个类型桶：笔数 + 成交额（元，不含手续费） */
+export interface TransactionSummaryBucket {
+  count: number;
+  /** `Σ amount`（元）；成交额，**不含**手续费 */
+  amount: number;
+}
+
+/**
+ * 交易流水汇总（`GET /api/transactions/summary/`，跟随筛选）。
+ *
+ * 公式在后端（设计 §四）：`净投入 = 买入 + 手续费 − 卖出 − 分红`。
+ * **前端不得二次求和**——本仓已有「两套盈亏口径并存、互相矛盾」的先例，聚合数字
+ * 只能有一个出处；这里也不做「用当页数据凑数」，因为当页只有 20 条。
+ */
+export interface TransactionSummary {
+  buy: TransactionSummaryBucket;
+  sell: TransactionSummaryBucket;
+  dividend: TransactionSummaryBucket;
+  /** `Σ fee`（元，全类型） */
+  fee: number;
+  /** 净投入（元）：正数＝净投入，负数＝净取出；符号必须显示 */
+  net_invested: number;
+}
+
 /** 交易流水查询参数（对齐后端 list_transactions 的 query args） */
 export interface TransactionListParams {
   /** 交易类型过滤（后端 txn_type 等值匹配） */
@@ -82,11 +106,17 @@ export interface TransactionListParams {
   status?: string;
   /** 资产类型过滤（后端经 positions 表关联） */
   asset_type?: string;
-  /** 产品代码过滤（后端经 symbol_scope 两步法匹配流水快照的真实写法） */
+  /** 产品代码过滤（后端经 symbol_scope 匹配流水快照的真实写法） */
   symbol?: string;
   page?: number;
   per_page?: number;
 }
+
+/** 汇总条查询参数：与列表同一组筛选，但没有分页（分页与汇总无关） */
+export type TransactionSummaryParams = Omit<
+  TransactionListParams,
+  "page" | "per_page"
+>;
 
 /** 交易流水分页响应（对齐后端信封 { data, total, page, per_page, message }） */
 export interface TransactionListResponse {
@@ -102,6 +132,20 @@ const BASE_URL = "/api/transactions";
 /** 获取交易流水列表 */
 export function getTransactions(params?: TransactionListParams) {
   return http.request<TransactionListResponse>("get", BASE_URL, { params });
+}
+
+/**
+ * 交易流水汇总（汇总条数据源，跟随筛选）。
+ *
+ * 为什么不复用列表：列表是分页的（20 条/页），对它求和得到的是「这一页的汇总」——
+ * 一个看起来像总计、实际只覆盖 20 行的数字。这是最坏的一种错：不报错，只骗人。
+ */
+export function getTransactionSummary(params?: TransactionSummaryParams) {
+  return http.request<{ data: TransactionSummary; message: string }>(
+    "get",
+    `${BASE_URL}/summary/`,
+    { params }
+  );
 }
 
 /**
