@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   compositeMetaOf,
+  compositeMetaParts,
+  groupNamesText,
   groupTextOf,
   hasChangeOf,
   hasPriceOf,
@@ -12,6 +14,7 @@ import {
   opClassOf,
   ratioTextOf,
   safeHttpUrl,
+  tagNamesText,
   tagTextOf,
   unwrap
 } from "../quickViewModel";
@@ -122,6 +125,40 @@ describe("分组与标签文案", () => {
     expect(tagTextOf([2, 99], ALL_TAGS)).toBe("观察");
     expect(tagTextOf([], ALL_TAGS)).toBe("—");
     expect(tagTextOf([1], undefined)).toBe("—");
+  });
+
+  // 抽屉备注区末行的元信息是「有才写」的一条，缺项必须整段跳过（不能是「—」）
+  it("空值语义的姊妹函数：没有就返回空串", () => {
+    expect(groupNamesText([])).toBe("");
+    expect(groupNamesText(null)).toBe("");
+    expect(groupNamesText(["核心", "卫星"])).toBe("核心、卫星");
+    expect(tagNamesText([], ALL_TAGS)).toBe("");
+    expect(tagNamesText([1], undefined)).toBe("");
+    expect(tagNamesText([2, 99], ALL_TAGS)).toBe("观察");
+  });
+});
+
+describe("组合分层信息（逐项）", () => {
+  it("组合给「平台 / 主理人 / 策略」，经理给所属公司，空值整项跳过", () => {
+    const item = {
+      advisor_platform: "且慢",
+      advisor_host: "张三",
+      advisor_strategy_type: "股债平衡",
+      manager_company: "易方达"
+    } as never;
+
+    expect(compositeMetaParts(item, "portfolio")).toEqual([
+      "且慢",
+      "张三",
+      "股债平衡"
+    ]);
+    expect(
+      compositeMetaParts({ advisor_platform: "且慢" } as never, "portfolio")
+    ).toEqual(["且慢"]);
+    expect(compositeMetaParts(item, "manager")).toEqual(["易方达"]);
+    // 拼好的串仍与逐项一致（既有调用方按串消费）
+    expect(compositeMetaOf(item, "portfolio")).toBe("且慢 · 张三 · 股债平衡");
+    expect(compositeMetaParts(null, "portfolio")).toEqual([]);
   });
 });
 

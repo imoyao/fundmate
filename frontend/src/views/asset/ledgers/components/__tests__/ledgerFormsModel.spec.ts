@@ -11,11 +11,10 @@ import {
   sortCommonInstitutions
 } from "../accountFormModel";
 import {
-  buildSummaryCells,
-  formatPnlRate,
+  buildAnchor,
+  buildFacts,
   formatXirr,
   isFundPosition,
-  pnlRateColor,
   xirrColor
 } from "../positionSummaryModel";
 
@@ -146,20 +145,12 @@ describe("accountFormModel：银行渠道提示与类型切换清理", () => {
   });
 });
 
-describe("positionSummaryModel：卡片派生", () => {
+describe("positionSummaryModel：锚点与键值派生", () => {
   it("基金 / 货币基金才算「份」，其余是「股/张」", () => {
     expect(isFundPosition("fund")).toBe(true);
     expect(isFundPosition("money_fund")).toBe(true);
     expect(isFundPosition("stock")).toBe(false);
     expect(isFundPosition(null)).toBe(false);
-  });
-
-  it("盈亏率带符号，null 显示 --；颜色 non-null 为涨色（与拆分前一致）", () => {
-    expect(formatPnlRate(0.079)).toBe("+0.08%");
-    expect(formatPnlRate(-1.234)).toBe("-1.23%");
-    expect(formatPnlRate(null)).toBe("--");
-    expect(pnlRateColor(null)).toBe("var(--color-rise)");
-    expect(pnlRateColor(-0.1)).toBe("var(--color-success)");
   });
 
   it("XIRR 是小数：0.1234 → +12.34%", () => {
@@ -169,8 +160,8 @@ describe("positionSummaryModel：卡片派生", () => {
     expect(xirrColor(null)).toBe("var(--text-primary)");
   });
 
-  it("8 张卡片：基金的份额/成本单位与股票不同", () => {
-    const fund = buildSummaryCells(
+  it("5 项键值：基金的份额/成本单位与股票不同，市值与盈亏不再重复出现", () => {
+    const fund = buildFacts(
       {
         asset_type: "fund",
         quantity: 12345,
@@ -184,13 +175,10 @@ describe("positionSummaryModel：卡片派生", () => {
       0.1,
       false
     );
-    expect(fund.map(c => c.key)).toEqual([
+    expect(fund.map(f => f.key)).toEqual([
       "quantity",
       "cost",
       "price",
-      "market_value",
-      "pnl",
-      "pnl_rate",
       "holding_days",
       "xirr"
     ]);
@@ -199,9 +187,11 @@ describe("positionSummaryModel：卡片派生", () => {
     expect(fund[0].unit).toBe("份");
     expect(fund[1].unit).toBe("元/份");
     expect(fund[2].label).toBe("最新净值");
-    expect(fund[6].hint).toBe("清仓后重新计起，不累计历史");
+    // 「(本轮)」进标签：口径说明不占独立一列
+    expect(fund[3].label).toBe("持有时长(本轮)");
+    expect(fund[3].text).toBe("30 天");
 
-    const stock = buildSummaryCells({ asset_type: "stock" }, null, false);
+    const stock = buildFacts({ asset_type: "stock" }, null, false);
     expect(stock[0].label).toBe("持有数量");
     expect(stock[0].unit).toBe("股/张");
     expect(stock[2].label).toBe("现价");
@@ -209,23 +199,38 @@ describe("positionSummaryModel：卡片派生", () => {
   });
 
   it("XIRR 计算中显示「计算中…」而不是 --（否则会被读成算不出来）", () => {
-    const cells = buildSummaryCells({ asset_type: "fund" }, null, true);
-    expect(cells[7].pending).toBe("计算中…");
+    const facts = buildFacts({ asset_type: "fund" }, null, true);
+    expect(facts[4].pending).toBe("计算中…");
 
-    const done = buildSummaryCells({ asset_type: "fund" }, null, false);
-    expect(done[7].pending).toBeUndefined();
-    expect(done[7].text).toBe("--");
+    const done = buildFacts({ asset_type: "fund" }, null, false);
+    expect(done[4].pending).toBeUndefined();
+    expect(done[4].text).toBe("--");
   });
 
-  it("市值/成本不带符号也不自动着色；盈亏金额保留默认着色", () => {
-    const cells = buildSummaryCells(
-      { asset_type: "fund", pnl: -5 },
-      null,
+  it("成本/净值不带符号也不自动着色（键值不是涨跌语义）", () => {
+    const facts = buildFacts({ asset_type: "fund", pnl: -5 }, null, false);
+    expect(facts[1].showSign).toBe(false);
+    expect(facts[1].autoColor).toBe(false);
+    expect(facts[2].showSign).toBe(false);
+  });
+
+  it("锚点：市值为主数值，盈亏/盈亏率成副行；都没有则无副行", () => {
+    const withPnl = buildAnchor(
+      { market_value: 18517.5, pnl: 400, pnl_rate: 2.16 },
+      0.1,
       false
     );
-    expect(cells[1].showSign).toBe(false);
-    expect(cells[1].autoColor).toBe(false);
-    expect(cells[3].showSign).toBe(false);
-    expect(cells[4].autoColor).toBeUndefined();
+    expect(withPnl.value).toBe(18517.5);
+    expect(withPnl.hasSub).toBe(true);
+    expect(withPnl.pnl).toBe(400);
+    expect(withPnl.pnlRate).toBe(2.16);
+
+    // 盈亏缺失但年化有值：副行退到年化（不留空白，避免「没数据」与「没算完」混淆）
+    const xirrOnly = buildAnchor({ market_value: 100 }, 0.1, false);
+    expect(xirrOnly.hasSub).toBe(true);
+
+    const nothing = buildAnchor({ market_value: 100 }, null, false);
+    expect(nothing.hasSub).toBe(false);
+    expect(nothing.value).toBe(100);
   });
 });

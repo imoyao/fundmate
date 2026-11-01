@@ -24,6 +24,7 @@ title: 组件使用规范（设计语言实现层）
   - `RealtimeEstimateToggle` — 当日预估开关 + 轮询状态（`PnlDualLine` 的必备搭档，四页复用，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
+- `ProductDrawer` — **产品详情抽屉唯一外壳**（自选速览 / 持仓明细 / 聚合产品详情共用）：头部（产品名 20/600 + 代码/品类胶囊/平台·主理人）、唯一锚点、区块、sticky footer 唯一出口；宽度单一来源 `--drawer-width`（`min(720px, 100vw)`），全抽屉只留 header 下沿与 footer 上沿两条线。区块标题**走 `DrawerSection`（13/500 `--text-secondary`）而非 `SectionHeader`**——后者是 16/600 卡级语义，进抽屉会与 20/600 产品名层级倒挂。禁各抽屉再自绘宽度 / 头部 / 出口（规范见 `docs/design/product-detail-drawer.md`）
 - `TagManagerDialog` / `TagFormDialog` / `TagEditorDialog` — 自选标签管理（GitHub Labels 风格列表）/ 标签新建编辑轻量弹窗 / 行内标签编辑弹窗（自 watchlist 页拆出，见「自选标签弹窗」章节）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡

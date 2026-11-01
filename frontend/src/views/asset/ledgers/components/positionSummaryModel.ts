@@ -1,8 +1,11 @@
 /**
- * 持仓抽屉的摘要卡片口径（#980 拆分自 `PositionTransactionsDrawer.vue`）。
+ * 持仓抽屉的数值口径（#980 拆分自 `PositionTransactionsDrawer.vue`）。
  *
- * 8 张卡片原先逐个手写在模板里（约 190 行），差异只有「标签 / 单位 / 是否加载中」。
- * 这里统一成数据，模板只负责渲染——文案、单位与颜色规则原样保留，便于单测断言。
+ * 原来 8 张描边卡片逐个手写在模板里，差异只有「标签 / 单位 / 是否加载中」。
+ * 按设计 `docs/design/product-detail-drawer.md` §4 / §6.2 收敛为：
+ * 一个锚点（持仓市值 + 盈亏副行）+ 5 项键值网格（无边框无底色）。
+ * 数字只有三档：24（锚点）/ 14（键值）/ 13（标签），本模型只产出「值与单位」，
+ * 字号由渲染层决定。
  */
 import { pricePrecision } from "@/utils/pricePrecision";
 
@@ -13,6 +16,8 @@ export interface PositionLike {
   symbol?: string | null;
   type_label?: string | null;
   asset_type?: string | null;
+  /** 市场（部分品类有；持仓表不存 venue，故只带 market 去问后端） */
+  market?: string | null;
   quantity?: number | null;
   avg_price?: number | null;
   current_price?: number | null;
@@ -23,12 +28,11 @@ export interface PositionLike {
   holding_days?: number | null;
 }
 
-/** 一张摘要卡片的渲染数据 */
-export interface SummaryCell {
+/** 一项键值（渲染成 `.pd-fact`，无边框无底色） */
+export interface PositionFact {
   key: string;
+  /** 标签（注解就近放在标签里，如「持有时长(本轮)」） */
   label: string;
-  /** 标签后缀小字（如「(本轮)」） */
-  labelHint?: string;
   /** 纯文本值（与 money 二选一） */
   text?: string;
   /** 金额值（走 MoneyDisplay） */
@@ -37,32 +41,35 @@ export interface SummaryCell {
   precision?: number;
   /** MoneyDisplay 是否带正负号 */
   showSign?: boolean;
-  /** MoneyDisplay 是否按正负自动着色（不传用组件默认：会着色） */
+  /** MoneyDisplay 是否按正负自动着色 */
   autoColor?: boolean;
-  /** 值后缀小字（份 / 元 / 股/张） */
+  /** 值后缀小字（份 / 元/份 / 股/张） */
   unit?: string;
   /** 值颜色（不传走 --text-primary） */
   color?: string;
-  /** 卡片底部提示 */
-  hint?: string;
   /** 非空时替代数值显示的占位文案（如「计算中…」） */
   pending?: string;
+}
+
+/** 锚点：主数值（持仓市值）+ 副行（盈亏额 / 盈亏率 / 年化） */
+export interface PositionAnchor {
+  /** 持仓市值（元）；无数据为 null（MoneyDisplay 渲染占位） */
+  value: number | null;
+  /** 副行是否有内容——没有就整段不渲染 */
+  hasSub: boolean;
+  /** 持仓盈亏（元） */
+  pnl: number | null;
+  /** 盈亏率（%） */
+  pnlRate: number | null;
+  /** 盈亏不可得时退而展示年化（有值才用） */
+  xirr: number | null;
+  /** 年化是否计算中 */
+  xirrLoading: boolean;
 }
 
 /** 基金 / 货币基金：份额单位用「份」、价格单位用「元/份」 */
 export function isFundPosition(assetType?: string | null): boolean {
   return ["fund", "money_fund"].includes(assetType ?? "");
-}
-
-/** 盈亏率文本：带符号、两位小数；无数据为 -- */
-export function formatPnlRate(rate: number | null | undefined): string {
-  if (rate == null) return "--";
-  return `${rate >= 0 ? "+" : ""}${rate.toFixed(2)}%`;
-}
-
-/** 盈亏率颜色：非负数用涨色（null 也算涨色，与拆分前一致） */
-export function pnlRateColor(rate: number | null | undefined): string {
-  return (rate ?? 0) >= 0 ? "var(--color-rise)" : "var(--color-success)";
 }
 
 /** 年化收益率（XIRR）文本：带符号、两位小数；无数据为 -- */
@@ -78,16 +85,43 @@ export function xirrColor(xirr: number | null | undefined): string {
 }
 
 /**
- * 组装 8 张摘要卡。
+ * 锚点模型（§6.2：「持仓盈亏 + 盈亏率两张卡」并成一条副行）。
  *
- * `xirrLoading` 为 true 时最后一张显示「计算中…」而不是 `--`——
- * 否则用户会把「还没算完」误读成「算不出来」。
+ * 副行的存在条件：盈亏额或盈亏率任一可得。两者都缺时，如果年化有值就用年化顶上
+ * （否则副行整段不渲染，读者分不清「没数据」还是「没算完」）；年化仍在计算中则显式
+ * 写「计算中…」——这是设计 §6.3 明确要求保留的一处文案。
  */
-export function buildSummaryCells(
+export function buildAnchor(
   position: PositionLike | null | undefined,
   xirr: number | null,
   xirrLoading: boolean
-): SummaryCell[] {
+): PositionAnchor {
+  const p = position ?? {};
+  const pnl = p.pnl ?? null;
+  const pnlRate = p.pnl_rate ?? null;
+  const hasPnl = pnl != null || pnlRate != null;
+  return {
+    value: p.market_value ?? null,
+    hasSub: hasPnl || xirr != null || xirrLoading,
+    pnl,
+    pnlRate,
+    xirr,
+    xirrLoading
+  };
+}
+
+/**
+ * 5 项键值网格：持有份额/数量 · 持仓成本 · 最新净值/现价 · 持有时长(本轮) · 年化收益率。
+ *
+ * 「市值 / 盈亏 / 盈亏率」已升到锚点，不在这里重复（§6.2：同一个问题不答两遍）。
+ * `xirrLoading` 为 true 时最后一项显示「计算中…」而不是 `--`，否则用户会把
+ * 「还没算完」误读成「算不出来」。
+ */
+export function buildFacts(
+  position: PositionLike | null | undefined,
+  xirr: number | null,
+  xirrLoading: boolean
+): PositionFact[] {
   const p = position ?? {};
   const fund = isFundPosition(p.asset_type);
   /** 成本 / 净值按品类精度显示（基金 4 位、股票 2 位，见 pricePrecision） */
@@ -119,30 +153,10 @@ export function buildSummaryCells(
       unit: fund ? "元/份" : "元"
     },
     {
-      key: "market_value",
-      label: "市值",
-      money: p.market_value || 0,
-      showSign: false,
-      autoColor: false
-    },
-    {
-      // 盈亏金额按正负自动着色（不传 autoColor，沿用 MoneyDisplay 默认）
-      key: "pnl",
-      label: "持仓盈亏",
-      money: p.pnl || 0
-    },
-    {
-      key: "pnl_rate",
-      label: "盈亏率",
-      text: formatPnlRate(p.pnl_rate),
-      color: pnlRateColor(p.pnl_rate)
-    },
-    {
+      // 「(本轮)」进标签：它是口径说明，不是独立指标
       key: "holding_days",
-      label: "持有时长",
-      labelHint: "(本轮)",
-      text: p.holding_days != null ? `${p.holding_days} 天` : "--",
-      hint: "清仓后重新计起，不累计历史"
+      label: "持有时长(本轮)",
+      text: p.holding_days != null ? `${p.holding_days} 天` : "--"
     },
     {
       key: "xirr",

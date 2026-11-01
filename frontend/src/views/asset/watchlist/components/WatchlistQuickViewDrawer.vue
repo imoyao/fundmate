@@ -1,77 +1,94 @@
 <!--
   WatchlistQuickViewDrawer · 自选行「速览」抽屉（#1285）
 
-  设计文档「行内交互：抽屉 vs 详情页」两级模型的第一步：
-  行点击 → 抽屉（速览）→ 抽屉内「查看详情」→ 完整详情页。
+  两级模型的第一步：行点击 → 抽屉（速览）→ footer「查看详情」→ 完整详情页。
+  骨架、两条线、宽度与出口位置一律由 `ProductDrawer` 承担（设计
+  `docs/design/product-detail-drawer.md`），本文件只决定「里面放什么」。
 
-  本版本为**速览版**：展示当前可得的通用字段（行情 / 持有 / 信息 / 备注）。
-  品种专属维度（指数估值、可转债条款、投顾持仓等）待数据底座落地后增量补充；
-  详情页入口已于 #1965 启用（跳 ProductDetail）；一期仅 fund / stock / manager 可跳，
-  其余品类按钮禁用并说明「暂未开放」，不静默失败。
+  内容顺序（§6）：锚点（最新价 / 组合净值）→ ①持有 → ②投顾信息 → ③成分与调仓 → ④备注。
+  原先独立的「行情」区块并进锚点（同一个问题不答两遍），「信息」区块（添加自选日 /
+  分组 / 标签）降为备注区末行 13px 元信息——标签与分组是管理元数据，不是决策信息。
 
-  可持有品类判定与列配置层一致：index / manager / portfolio 不展示「持有」区。
-
-  各区块已拆到 `quickView/`（头部 / 行情 / 持有 / 信息 / 投顾 / 成分与调仓 / 备注），
-  纯函数在 `quickView/quickViewModel.ts`，按需拉取在 `quickView/useQuickViewDetail.ts`。
+  各区块在 `quickView/`，纯函数在 `quickView/quickViewModel.ts`，按需拉取在
+  `quickView/useQuickViewDetail.ts`。
 -->
 <template>
-  <el-drawer
-    v-model="visible"
-    title="速览"
-    size="420px"
-    direction="rtl"
-    destroy-on-close
+  <ProductDrawer
+    :model-value="modelValue"
+    :name="item?.display_name || item?.symbol"
+    :symbol="item?.symbol"
+    :asset-type="item?.asset_type"
+    :type-label="item?.type_label"
+    :meta="metaParts"
+    :detail-available="detailOpenable"
+    :detail-hint="
+      detailOpenable ? '查看完整业绩、持仓与历史记录' : '该品类暂无详情页'
+    "
+    :disclaimer="PRODUCT_DISCLAIMER"
+    @update:model-value="emit('update:modelValue', $event)"
+    @detail="goDetail"
   >
-    <div v-if="item" class="wqv">
-      <QuickViewHead
-        :item="item"
-        :is-composite="isComposite"
-        :composite-meta="compositeMeta"
-      />
+    <!-- 锚点：有价格给最新价 + 涨跌幅副行，组合给组合净值；两者都不可得则不传 anchor -->
+    <template v-if="anchorKind" #anchor>
+      <template v-if="anchorKind === 'price'">
+        <MoneyDisplay
+          :value="item?.current_price"
+          :precision="precision"
+          size="lg"
+          :show-sign="false"
+          :auto-color="false"
+        />
+        <div class="pd-anchor__sub">
+          <RiseFallText
+            v-if="hasChange"
+            :value="item?.change_pct as number"
+            size="sm"
+          />
+          <span v-else>暂无涨跌数据</span>
+        </div>
+      </template>
+      <template v-else>
+        <MoneyDisplay
+          :value="item?.advisor_nav"
+          size="lg"
+          :precision="4"
+          :show-sign="false"
+          :show-currency="false"
+          :auto-color="false"
+        />
+        <div class="pd-anchor__sub">
+          <span>组合净值</span>
+          <span v-if="item?.advisor_nav_date"
+            >截至 {{ item?.advisor_nav_date }}</span
+          >
+        </div>
+      </template>
+    </template>
 
-      <QuickViewQuoteSection :item="item" :precision="precision" />
+    <QuickViewHoldingSection
+      v-if="isHoldable"
+      :item="item"
+      :precision="precision"
+    />
 
-      <QuickViewHoldingSection
-        v-if="isHoldable"
-        :item="item"
-        :precision="precision"
-      />
+    <QuickViewAdvisorSection v-if="isPortfolio" :item="item" />
 
-      <QuickViewInfoSection
-        :item="item"
-        :group-text="groupText"
-        :tag-text="tagText"
-      />
+    <QuickViewAdjustSection
+      v-if="isPortfolio"
+      :loading="detailLoading"
+      :error="detailError"
+      :holdings-count="holdingsCount"
+      :missing-count="missingCount"
+      :adjust-groups="adjustGroups"
+      :is-qieman="isQieman"
+    />
 
-      <QuickViewAdvisorSection v-if="isPortfolio" :item="item" />
-
-      <QuickViewAdjustSection
-        v-if="isPortfolio"
-        :loading="detailLoading"
-        :error="detailError"
-        :holdings-count="holdingsCount"
-        :missing-count="missingCount"
-        :adjust-groups="adjustGroups"
-        :is-qieman="isQieman"
-      />
-
-      <QuickViewNotesSection
-        :item="item"
-        @edit-notes="emit('edit-notes', $event)"
-      />
-
-      <!-- 详情页入口（#1965 启用）：一期只开放 fund / stock / manager（设计 §3.1），
-           其余品类按钮禁用并说明原因，不静默失败 -->
-      <div class="wqv-footer">
-        <el-button :disabled="!detailOpenable" @click="goDetail"
-          >查看详情</el-button
-        >
-        <span class="wqv-hint">{{
-          detailOpenable ? "查看完整资料与持仓" : "该品类详情页暂未开放"
-        }}</span>
-      </div>
-    </div>
-  </el-drawer>
+    <QuickViewNotesSection
+      :item="item"
+      :meta-text="notesMeta"
+      @edit-notes="emit('edit-notes', $event)"
+    />
+  </ProductDrawer>
 </template>
 
 <script setup lang="ts">
@@ -79,24 +96,27 @@ import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { WatchlistItem } from "@/api/watchlist";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
+import ProductDrawer from "@/components/ProductDrawer/index.vue";
+import { PRODUCT_DISCLAIMER } from "@/components/ProductDrawer/disclaimer";
+import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { resolveDetailPath } from "@/utils/productDetailNav";
 import { isDetailAssetType } from "@/utils/productIdentity";
 import {
-  compositeMetaOf,
-  groupTextOf,
-  isCompositeType,
+  compositeMetaParts,
+  groupNamesText,
+  hasChangeOf,
+  hasPriceOf,
   isHoldableType,
   isPortfolioType,
   isQiemanPlatform,
   normalizeAssetType,
-  tagTextOf
+  tagNamesText
 } from "./quickView/quickViewModel";
 import { useQuickViewDetail } from "./quickView/useQuickViewDetail";
-import QuickViewHead from "./quickView/QuickViewHead.vue";
-import QuickViewQuoteSection from "./quickView/QuickViewQuoteSection.vue";
 import QuickViewHoldingSection from "./quickView/QuickViewHoldingSection.vue";
-import QuickViewInfoSection from "./quickView/QuickViewInfoSection.vue";
 import QuickViewAdvisorSection from "./quickView/QuickViewAdvisorSection.vue";
 import QuickViewAdjustSection from "./quickView/QuickViewAdjustSection.vue";
 import QuickViewNotesSection from "./quickView/QuickViewNotesSection.vue";
@@ -114,16 +134,9 @@ const emit = defineEmits<{
   "edit-notes": [item: WatchlistItem];
 }>();
 
-const visible = computed({
-  get: () => props.modelValue,
-  set: val => emit("update:modelValue", val)
-});
-
 const router = useRouter();
 
-/** 有详情页的品类由 `productIdentity` 白名单单点判定（设计 §3.1）。
- *  已开放：fund / stock / manager / portfolio（#1975）/ etf（#1974）；
- *  未开放品类（如 bond、index）在此禁用并说明原因，不在这里另写一份名单。 */
+/** 有详情页的品类由 `productIdentity` 白名单单点判定（设计 §3.1） */
 const detailOpenable = computed(() =>
   isDetailAssetType(props.item?.asset_type)
 );
@@ -144,7 +157,7 @@ async function goDetail() {
       return;
     }
     // 先关抽屉再跳：否则抽屉会盖住刚打开的详情页
-    visible.value = false;
+    emit("update:modelValue", false);
     await router.push(path);
   } catch {
     ElMessage.warning("未找到该产品，可能已下架或代码有误");
@@ -152,18 +165,42 @@ async function goDetail() {
 }
 
 const assetType = computed(() => normalizeAssetType(props.item?.asset_type));
-const isComposite = computed(() => isCompositeType(assetType.value));
 const isHoldable = computed(() => isHoldableType(assetType.value));
 const isPortfolio = computed(() => isPortfolioType(assetType.value));
 const isQieman = computed(() => isQiemanPlatform(props.item?.advisor_platform));
 
 const precision = computed(() => pricePrecision(props.item?.asset_type ?? ""));
 
-const compositeMeta = computed(() =>
-  compositeMetaOf(props.item, assetType.value)
+const hasChange = computed(() => hasChangeOf(props.item));
+
+/**
+ * 锚点取值：有价格 → 最新价；组合 → 组合净值；都没有 → 不渲染锚点（§4 每抽屉恰好一个）。
+ *
+ * 价格这一档**按数据可得判定**而不是按「可持有品类」：原「行情」区块对所有品类都展示
+ * 最新价，并进锚点后若只对可持有品类开放，指数 / 可转债行会凭空丢掉主数值。
+ */
+const anchorKind = computed<"price" | "nav" | null>(() => {
+  if (hasPriceOf(props.item)) return "price";
+  if (isPortfolio.value && props.item?.advisor_nav != null) return "nav";
+  return null;
+});
+
+/** 识别信息行：平台 · 主理人 · 策略（组合）/ 所属公司（经理） */
+const metaParts = computed(() =>
+  compositeMetaParts(props.item, assetType.value)
 );
-const groupText = computed(() => groupTextOf(props.item?.group_names));
-const tagText = computed(() => tagTextOf(props.item?.tag_ids, props.allTags));
+
+/** 备注区末行的元信息：缺项整段跳过，用 `·` 连接（不写「—」占位） */
+const notesMeta = computed(() => {
+  const it = props.item;
+  const parts: string[] = [];
+  if (it?.created_at) parts.push(`已添加 ${formatDate(it.created_at)}`);
+  const group = groupNamesText(it?.group_names);
+  if (group) parts.push(`所属分组 ${group}`);
+  const tags = tagNamesText(it?.tag_ids, props.allTags);
+  if (tags) parts.push(`标签 ${tags}`);
+  return parts.join(" · ");
+});
 
 const {
   detailLoading,
@@ -177,26 +214,3 @@ const {
   isPortfolio: () => isPortfolio.value
 });
 </script>
-
-<style scoped>
-/* 抽屉容器：各区块自带 `quickView/_wqv-base.scss` 里的共用骨架（scoped 只作用于
-   本组件的元素，子组件内部拿不到这里的类名） */
-.wqv {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact);
-}
-
-.wqv-footer {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding-top: var(--space-2, 8px);
-  border-top: 1px solid var(--border-light);
-}
-
-.wqv-hint {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-</style>

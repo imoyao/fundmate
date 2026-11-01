@@ -50,30 +50,51 @@ export function safeHttpUrl(raw?: string | null): string {
   }
 }
 
-/** 组合类标的的分层信息（平台 · 主理人 · 策略；经理为所属公司） */
-export function compositeMetaOf(
+/**
+ * 组合类标的的分层信息，逐项返回（平台 / 主理人 / 策略；经理为所属公司）。
+ *
+ * 为什么给数组而不是拼好的串：抽屉识别信息行由外壳 `ProductDrawer` 的 `meta` 渲染，
+ * 它要按「实际有值的项」插 `·` 分隔符与代码、品类胶囊一起排；先拼成串再拆是退化解。
+ */
+export function compositeMetaParts(
   item: WatchlistItem | null,
   assetType?: string | null
-): string {
-  if (!item) return "";
+): string[] {
+  if (!item) return [];
   if (isPortfolioType(assetType)) {
     return [
       item.advisor_platform,
       item.advisor_host,
       item.advisor_strategy_type
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    ].filter((v): v is string => !!v);
   }
   if (normalizeAssetType(assetType) === "manager") {
-    return item.manager_company || "";
+    return item.manager_company ? [item.manager_company] : [];
   }
-  return "";
+  return [];
+}
+
+/** 组合类标的的分层信息（平台 · 主理人 · 策略；经理为所属公司） */
+export function compositeMetaOf(
+  item: WatchlistItem | null,
+  assetType?: string | null
+): string {
+  return compositeMetaParts(item, assetType).join(" · ");
 }
 
 export function groupTextOf(names?: string[] | null): string {
   const list = names ?? [];
   return list.length ? list.join("、") : "—";
+}
+
+/**
+ * 分组名，**没有就返回空串**。
+ *
+ * 与 `groupTextOf` 的差别只在空值语义：抽屉备注区末行的元信息是「有才写」的一条，
+ * 缺项整段跳过；而键值行必须有一个占位符（`—`），否则读者不知道这行是空的。
+ */
+export function groupNamesText(names?: string[] | null): string {
+  return (names ?? []).filter(Boolean).join("、");
 }
 
 /** tag_ids → 名称；查不到的 id 直接丢掉（标签被删时不应显示空白项） */
@@ -85,6 +106,17 @@ export function tagTextOf(
     .map(id => allTags?.find(t => t.id === id)?.name)
     .filter((n): n is string => !!n);
   return names.length ? names.join("、") : "—";
+}
+
+/** 标签名，**没有就返回空串**（同上，供备注区元信息用） */
+export function tagNamesText(
+  ids: number[] | null | undefined,
+  allTags?: { id: number; name: string; color?: string | null }[] | null
+): string {
+  const names = (ids ?? [])
+    .map(id => allTags?.find(t => t.id === id)?.name)
+    .filter((n): n is string => !!n);
+  return names.join("、");
 }
 
 /**

@@ -1,0 +1,279 @@
+//// 产品详情抽屉内共用的骨架类（docs/design/product-detail-drawer.md §2 / §4 / §5）
+////
+//// WHY 单独成 partial：这些类名同时出现在外壳与三个抽屉的区块组件里，而 scoped 样式
+//// 不跨组件（子组件内部元素拿不到父组件的 scopeId）——抄多份必然漂移，
+//// 与 `quickView/_wqv-base.scss` 是同一纪律。
+////
+//// 与 `_wqv-base.scss` 的差别：本文件**只由外壳 `index.vue` 单点 @use**，且全部规则
+//// 嵌在 `.product-drawer` 命名空间内。区块组件的元素永远在抽屉外壳之下，能命中；
+//// 同一套规则不会在 6 个组件里各产出一份 CSS（wqv-base 复制的既有代价，本卡不再叠加）。
+//// 命名空间同时保证不泄漏：`.pd-*` 离开抽屉没有语义。
+////
+//// 令牌纪律：字号只用 `--text-heading` / `--text-small` / `--text-label`（§4 的
+//// 24-14-13 三档由 MoneyDisplay 的 size-lg / size-sm 与 `.pd-fact__value` 落位），
+//// 间距只用 `--space-*`，颜色只用 `--text-primary` / `--text-secondary` /
+//// `--text-tertiary-ink` / `--bg-soft` / `--border-light`。
+
+@use "@/style/breakpoints" as bp;
+
+.product-drawer {
+  /* ── 外壳：全抽屉只有 header 下沿 / footer 上沿两条线（§2） ── */
+  .el-drawer__header {
+    padding: var(--space-standard) var(--space-standard) var(--space-3);
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .el-drawer__body {
+    padding: var(--space-standard);
+  }
+
+  .el-drawer__footer {
+    padding: var(--space-3) var(--space-standard);
+    border-top: 1px solid var(--border-light);
+  }
+
+  /* ── 头部（§3） ── */
+  .pd-head {
+    min-width: 0;
+    outline: none;
+  }
+
+  .pd-name {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--text-heading);
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .pd-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    align-items: center;
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-label);
+    font-weight: 400;
+    color: var(--text-tertiary-ink);
+  }
+
+  .pd-meta__code {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pd-meta__sep {
+    opacity: 0.6;
+  }
+
+  /* 品类胶囊：中性色（--bg-soft + --text-secondary + --radius-pill）。
+     刻意不复用 `AssetTypeBadge`：那是**渠道类别**徽章，颜色来自渠道色板
+     （getLedgerColor(channel_category)），装「混合型 / 投顾组合」会落到渠道默认色上。 */
+  .pd-type {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    padding: 1px var(--space-2);
+    font-size: var(--text-label);
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    background: var(--bg-soft);
+    border-radius: var(--radius-pill);
+  }
+
+  /* ── 锚点：每抽屉恰好一个（§4） ── */
+  .pd-anchor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+
+    /* 锚点与第一个区块之间用 32px 分节（区块标题自己的上边距在首块被清零） */
+    margin-bottom: var(--space-loose);
+  }
+
+  .pd-anchor__sub {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: baseline;
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  /* 锚点数字 24/600：MoneyDisplay size-lg 自带 24px，但字重是 500 */
+  .pd-anchor .money-display.size-lg,
+  .pd-anchor .money-display.size-lg .number {
+    font-weight: 600;
+  }
+
+  /* ── 区块（§5） ── */
+  .pd-sections {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 第一个区块的标题不再多留 32px：与头部 / 锚点的间距由父层统一给 */
+  .pd-sections > :first-child .pd-sec__title {
+    margin-top: 0;
+  }
+
+  .pd-sec__head {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .pd-sec__title {
+    margin: var(--space-loose) 0 var(--space-3);
+    font-size: var(--text-label);
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .pd-sec__action {
+    display: flex;
+    flex: none;
+    gap: var(--space-1);
+    align-items: center;
+    font-size: var(--text-label);
+    font-weight: 400;
+    color: var(--text-tertiary-ink);
+    text-align: right;
+  }
+
+  /* ── 键值网格：两列、单元无边框无底色（§4） ── */
+  .pd-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-compact);
+    margin: 0;
+
+    @include bp.below("sm") {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .pd-fact {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .pd-fact__label {
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  .pd-fact__value {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--text-small);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  /* 单位（份 / 股/张 / 元/份）：跟在数值后面，降一档字号与颜色 */
+  .pd-fact__unit {
+    margin-left: var(--space-1);
+    font-size: var(--text-label);
+    font-weight: 400;
+    color: var(--text-tertiary-ink);
+  }
+
+  /* ── 列表 / 行 ── */
+  .pd-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .pd-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .pd-row__label {
+    flex: none;
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  .pd-row__value {
+    min-width: 0;
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--text-primary);
+    text-align: right;
+  }
+
+  /* 长文本（策略简介等）改左对齐换行读：右对齐 + 单行会让长句无法扫读 */
+  .pd-row__value--wrap {
+    max-width: 60%;
+    line-height: 1.6;
+    text-align: left;
+    white-space: pre-wrap;
+  }
+
+  .pd-link {
+    color: var(--brand-ink);
+    text-decoration: none;
+  }
+
+  .pd-link:hover {
+    text-decoration: underline;
+  }
+
+  /* ── 辅助文案 / 免责声明 ── */
+  .pd-hint {
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  .pd-disclaimer {
+    margin: var(--space-loose) 0 0;
+    font-size: var(--text-label);
+    line-height: 1.6;
+    color: var(--text-tertiary-ink);
+  }
+
+  /* ── footer：左说明、右唯一出口（§5） ── */
+  .pd-footer {
+    display: flex;
+    gap: var(--space-compact);
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .pd-footer__note {
+    min-width: 0;
+    margin: 0;
+    font-size: var(--text-label);
+    font-weight: 400;
+    color: var(--text-tertiary-ink);
+  }
+
+  .pd-footer__btn {
+    flex: none;
+    height: 36px;
+    padding: 0 var(--space-compact);
+    font-size: var(--text-label);
+  }
+
+  .pd-footer__icon {
+    margin-left: var(--space-1);
+    font-size: var(--text-label);
+  }
+}

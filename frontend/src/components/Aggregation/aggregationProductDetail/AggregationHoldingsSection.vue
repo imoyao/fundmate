@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import DrawerSection from "@/components/ProductDrawer/DrawerSection.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { formatQuantity } from "@/utils/format";
 import type { AggregationProductGroup, AggregationSource } from "@/api/ledger";
@@ -12,10 +13,13 @@ import {
 } from "./aggregationDetailModel";
 
 /**
- * 持仓信息区：四格信息 + 基金管理人 + 分渠道持仓详情 / 单渠道扩展字段。
+ * 持仓信息区：三格信息 + 基金管理人 + 分渠道持仓详情 / 单渠道账户信息。
  *
- * 多根片段（四格 / 管理人 / 渠道 / 单渠道四个并列节点）：包 wrapper 会改变
- * `.info-grid` 的 `border-bottom` 与 `.channel-section` 的 `margin-top` 相邻关系。
+ * 设计变更（docs/design/product-detail-drawer.md §6.2 / §6.1）：
+ * - 四格并三格：原「份额日期」「净值日期」同取 `snapshot_date`，永远同值，
+ *   合成一格「快照日期」+ 副注「份额与净值同期」；
+ * - 单元改键值（`.pd-facts` / `.info-cell`）：不再自绘 18px 数字与块间横线；
+ * - 「基金管理人」原来是带箭头、`cursor: pointer` 却无点击的假链接，降为纯文本。
  */
 defineOptions({ name: "AggregationHoldingsSection" });
 
@@ -33,10 +37,8 @@ const props = withDefaults(
 const totalShares = computed(() => shareFromRaw(props.group?.quantity));
 /** 参考净值 */
 const nav = computed(() => props.group?.nav_yuan ?? null);
-/** 快照日期（= 份额日期） */
+/** 快照日期（份额与净值同期，均取导入对账日） */
 const snapshotDate = computed(() => props.group?.snapshot_date ?? null);
-/** 净值日期（与快照日期一致，均为导入对账日期） */
-const navDate = computed(() => props.group?.snapshot_date ?? null);
 /** 管理人 */
 const manager = computed(() => props.group?.fund_manager ?? null);
 /** 分红方式 */
@@ -53,38 +55,35 @@ function badgeOf(src: AggregationSource): string {
 </script>
 
 <template>
-  <!-- 四格信息 -->
-  <div class="info-grid">
-    <div class="info-cell">
-      <span class="cell-label">持有份额</span>
-      <span class="cell-value">{{ formatQuantity(totalShares) }}</span>
+  <!-- 三格信息（份额 / 净值 / 快照日期） -->
+  <div class="pd-facts info-grid">
+    <div class="pd-fact info-cell">
+      <span class="pd-fact__label cell-label">持有份额</span>
+      <span class="pd-fact__value cell-value">{{
+        formatQuantity(totalShares)
+      }}</span>
     </div>
-    <div class="info-cell">
-      <span class="cell-label">份额日期</span>
-      <span class="cell-value">{{ fmtShortDate(snapshotDate) }}</span>
+    <div class="pd-fact info-cell">
+      <span class="pd-fact__label cell-label">参考净值</span>
+      <span class="pd-fact__value cell-value">{{ navText(nav) }}</span>
     </div>
-    <div class="info-cell">
-      <span class="cell-label">参考净值</span>
-      <span class="cell-value">{{ navText(nav) }}</span>
-    </div>
-    <div class="info-cell">
-      <span class="cell-label">净值日期</span>
-      <span class="cell-value">{{ fmtShortDate(navDate) }}</span>
+    <div class="pd-fact info-cell">
+      <span class="pd-fact__label cell-label">快照日期</span>
+      <span class="pd-fact__value cell-value">{{
+        fmtShortDate(snapshotDate)
+      }}</span>
+      <span class="pd-hint">份额与净值同期</span>
     </div>
   </div>
 
-  <!-- 基金管理人 -->
+  <!-- 基金管理人：纯文本（原先带箭头 + 手型光标却无点击） -->
   <div v-if="manager" class="meta-line">
     <span class="meta-label">基金管理人：</span>
-    <span class="meta-value meta-link"
-      >{{ manager }}
-      <IconifyIconOffline icon="ep:arrow-right" class="link-icon" />
-    </span>
+    <span class="meta-value">{{ manager }}</span>
   </div>
 
-  <!-- 分渠道持仓详情（核心区块，对齐截图3） -->
-  <section v-if="multiChannel" class="channel-section">
-    <h4 class="section-title">分渠道持仓详情</h4>
+  <!-- 分渠道持仓详情（核心区块，聚合独有解释力） -->
+  <DrawerSection v-if="multiChannel" title="分渠道持仓详情">
     <div class="channel-list">
       <div
         v-for="(src, idx) in sources"
@@ -121,82 +120,56 @@ function badgeOf(src: AggregationSource): string {
         </div>
       </div>
     </div>
-  </section>
+  </DrawerSection>
 
-  <!-- 单渠道时展示该渠道的详细信息（对齐截图4的扩展字段） -->
-  <section v-else-if="sources.length === 1" class="single-channel-info">
-    <div class="meta-line">
-      <IconifyIconOffline icon="ep:wallet" class="meta-icon" />
-      <span class="meta-label">销售机构：</span>
-      <span class="meta-value">
-        {{ sources[0].institution_name || "未关联机构" }}
-        <span v-if="sources[0].institution_alias" class="meta-alias">
-          ({{ sources[0].institution_alias }})
+  <!-- 单渠道时展示该渠道的账户信息（补账的唯一线索，字段一个不少） -->
+  <DrawerSection v-else-if="sources.length === 1" title="账户信息">
+    <div class="single-channel-info">
+      <div class="meta-line">
+        <IconifyIconOffline icon="ep:wallet" class="meta-icon" />
+        <span class="meta-label">销售机构：</span>
+        <span class="meta-value">
+          {{ sources[0].institution_name || "未关联机构" }}
+          <span v-if="sources[0].institution_alias" class="meta-alias">
+            ({{ sources[0].institution_alias }})
+          </span>
         </span>
-      </span>
+      </div>
+      <div v-if="sources[0].ledger_name" class="meta-line">
+        <IconifyIconOffline icon="ep:wallet" class="meta-icon" />
+        <span class="meta-label">账本名称：</span>
+        <span class="meta-value">{{ sources[0].ledger_name }}</span>
+      </div>
+      <div v-if="dividendPref" class="meta-line">
+        <span class="meta-label">分红方式：</span>
+        <span class="meta-value">{{ dividendPref }}</span>
+      </div>
+      <div v-if="sources[0].fund_account" class="meta-line">
+        <span class="meta-label">基金账户：</span>
+        <span class="meta-value mono">{{ sources[0].fund_account }}</span>
+      </div>
+      <div v-if="sources[0].trade_account" class="meta-line">
+        <span class="meta-label">交易账户：</span>
+        <span class="meta-value mono">{{ sources[0].trade_account }}</span>
+      </div>
     </div>
-    <div v-if="sources[0].ledger_name" class="meta-line">
-      <IconifyIconOffline icon="ep:wallet" class="meta-icon" />
-      <span class="meta-label">账本名称：</span>
-      <span class="meta-value">{{ sources[0].ledger_name }}</span>
-    </div>
-    <div v-if="dividendPref" class="meta-line">
-      <span class="meta-label">分红方式：</span>
-      <span class="meta-value">{{ dividendPref }}</span>
-    </div>
-    <div v-if="sources[0].fund_account" class="meta-line">
-      <span class="meta-label">基金账户：</span>
-      <span class="meta-value mono">{{ sources[0].fund_account }}</span>
-    </div>
-    <div v-if="sources[0].trade_account" class="meta-line">
-      <span class="meta-label">交易账户：</span>
-      <span class="meta-value mono">{{ sources[0].trade_account }}</span>
-    </div>
-  </section>
+  </DrawerSection>
 </template>
 
 <style scoped>
-/* ── 四格信息 ── */
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-compact);
-  padding: var(--space-5, 24px) 0;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.info-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.cell-label {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-.cell-value {
-  font-family: var(--font-mono);
-  font-size: var(--text-num-strong);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-/* ── 元信息行 ── */
+/* ── 元信息行（管理人与单渠道账户信息共用） ── */
 .meta-line {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
   align-items: baseline;
-  padding: var(--space-3, 12px) 0;
-  font-size: var(--text-small);
+  padding: var(--space-1) 0;
+  font-size: var(--text-label);
 }
 
 .meta-icon {
   flex: none;
-  font-size: var(--text-small);
-  color: var(--brand-500, #f69988);
+  font-size: var(--text-label);
+  color: var(--brand-500);
 
   /* 与文字基线对齐（图标为 inline-block，需手动微调） */
   transform: translateY(1px);
@@ -219,64 +192,48 @@ function badgeOf(src: AggregationSource): string {
   color: var(--text-tertiary-ink);
 }
 
-.meta-link {
-  color: var(--brand-600, #f06b57);
-  cursor: pointer;
-}
-
-.link-icon {
-  font-size: var(--text-label);
-  vertical-align: middle;
-}
-
 .mono {
   font-family: var(--font-mono);
   font-size: var(--text-label);
 }
 
+/* 三格信息与下方元信息之间留一档间距（区块之间靠 32px 分节，这里属同一块内容） */
+.info-grid {
+  margin-bottom: var(--space-2);
+}
+
 /* ── 分渠道持仓详情 ── */
-.channel-section {
-  margin-top: var(--space-compact);
-}
-
-.section-title {
-  margin-bottom: var(--space-3, 12px);
-  font-size: var(--text-body);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
 .channel-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3, 12px);
+  gap: var(--space-3);
 }
 
 .channel-row {
-  padding: var(--space-3, 12px);
-  background: var(--bg-soft, var(--bg-page));
+  padding: var(--space-3);
+  background: var(--bg-soft);
   border-radius: var(--radius-md);
 }
 
 .channel-head {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .channel-icon {
   flex: none;
   margin-top: 1px;
-  font-size: var(--text-small);
-  color: var(--brand-500, #f69988);
+  font-size: var(--text-label);
+  color: var(--brand-500);
 }
 
 /* 机构全称 + 账本名 竖排 */
 .channel-title {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -291,7 +248,7 @@ function badgeOf(src: AggregationSource): string {
 
 .channel-ledger {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--space-1);
   align-items: center;
   font-size: var(--text-label);
   color: var(--text-secondary);
@@ -305,7 +262,7 @@ function badgeOf(src: AggregationSource): string {
 
 .channel-dividend {
   flex: none;
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
   margin-left: auto;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
@@ -317,7 +274,7 @@ function badgeOf(src: AggregationSource): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 22px; /* 与图标对齐 */
+  padding-left: var(--space-standard);
 }
 
 .ch-shares {
@@ -325,13 +282,5 @@ function badgeOf(src: AggregationSource): string {
   font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
-}
-
-/* ── 单渠道扩展信息 ── */
-.single-channel-info {
-  /* 不再加 border-top：上方 .info-grid 已有 border-bottom，
-     重复加会呈现「两条分割线」的观感 */
-  padding-top: var(--space-2, 8px);
-  margin-top: var(--space-compact);
 }
 </style>
