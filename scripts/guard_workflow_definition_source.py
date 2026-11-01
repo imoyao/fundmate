@@ -60,6 +60,17 @@ default branch"*。
 3. **不得把 `pull_request_target` 藏在注释或字符串里**——注释里提到不算触发器
    （本仓判据被自己的说明文字咬过多次）。
 
+4. **迁到 `pull_request` 的工作流，若有 `concurrency` 段，`cancel-in-progress`
+   不得为 `true`**——除非它**不写任何评论/标签副作用**。
+   理由：过渡期内 `main` 上的旧版（`pull_request_target`）与 `dev` 上的新版
+   （`pull_request`）**会同时被触发**，两者算出的 concurrency group 名字**相同**
+   ⇒ `cancel-in-progress: true` 会让两者**互相取消**，守卫被静默取消，
+   而 GitHub 把 cancelled 记成 check 失败。
+   实测（PR #2807，2026-11-01）：同一时刻两个 run——新版 `cancelled`、旧版 `success`
+   ⇒ **守卫被静默取消**。
+   本仓 `pr-four-questions-guard.yml` 的判定是幂等无副作用的（只读正文、只返回退出码，
+   不评论 PR、不写标签）⇒ 改成 `false` 后两份串行跑完，结论一致、无害。
+
 ## 边界（刻意不查）
 
 - **不查 `schedule` 事件的定义来源**：`schedule` **没有**除默认分支以外的定义来源
@@ -151,6 +162,23 @@ _PRT_EXEMPT = {
     'dependabot-auto-merge.yml': '依赖 bot 触发 ⇒ pull_request 下 token 只读，gh pr merge 必然失败',
     'dependabot-lockfile-regen.yml': '依赖 bot 触发 ⇒ pull_request 下 token 只读，git push 必然失败',
 }
+
+# 「有副作用（会评论 PR / 写标签 / 推分支）」的工作流清单。
+#
+# 判据 4 的逻辑：迁到 `pull_request` 后，过渡期内新旧两版会同时触发且共用同一个
+# concurrency group ⇒ `cancel-in-progress: true` 会让两者互相取消 ⇒ 守卫被静默取消。
+# 对**无副作用**的守卫（只读正文、只返回退出码）来说，跑两次无害 ⇒ 改 `false` 即可。
+# 但对**有副作用**的（评论 PR / 打标签），跑两次就会发两条重复评论 / 撤两次标签
+# ⇒ 这类工作流必须**避开互斥**（用不同的 group 名），不能靠 `false` 解决。
+#
+# 名单里的工作流：其 `cancel-in-progress` 必须**不为** `true`。
+_CANCELLABLE_SAFE = {
+    'pr-four-questions-guard.yml',   # 只读正文 + 返回退出码，无副作用
+}
+
+# 「有副作用、需要独立 concurrency group」的豁免（过渡期允许两份都跑）。
+# 留空 = 本仓当前没有这类工作流；若有，必须在这里登记并写清理由。
+_SIDE_EFFECT_EXEMPT: Dict[str, str] = {}
 
 
 def _import_yaml():
@@ -310,6 +338,30 @@ def check(repo: Path) -> List[str]:
                         '修法：显式写 `ref: dev`（受信分支）。'
                     )
 
+        # ── 判据 4：concurrency 的 cancel-in-progress 不得为 true ───────────
+        # 过渡期内新旧两版会同时触发且共用同一个 concurrency group ⇒ 互斥 ⇒ 守卫被静默取消。
+        if 'pull_request' not in triggers:
+            continue
+        if path.name not in _GUARD_WORKFLOWS:
+            continue
+        if path.name in _SIDE_EFFECT_EXEMPT:
+            continue
+
+        conc = doc.get('concurrency')
+        if isinstance(conc, dict):
+            cancel = conc.get('cancel-in-progress')
+            if cancel is True and path.name in _CANCELLABLE_SAFE:
+                problems.append(
+                    f'{rel} 的 concurrency 是 `cancel-in-progress: true`。'
+                    '迁到 `pull_request` 后，过渡期内 `main` 上的旧版（`pull_request_target`）'
+                    '与 `dev` 上的新版（`pull_request`）**会同时被触发**，两者算出的 '
+                    'concurrency group 名字相同 ⇒ 两者**互相取消** ⇒ 守卫被静默取消，'
+                    '而 GitHub 把 cancelled 记成 check 失败。'
+                    '实测：PR #2807 同一时刻两个 run——新版 cancelled、旧版 success。'
+                    '本工作流无副作用（只读正文、只返回退出码，不评论 PR、不写标签）'
+                    '⇒ 修法：改成 `cancel-in-progress: false`，两份串行跑完、结论一致、无害。'
+                )
+
     return problems
 
 
@@ -332,6 +384,7 @@ def main(argv: List[str]) -> int:
               '（依赖 bot 触发 ⇒ pull_request 下 token 只读）')
         print(f'✓ 守卫类工作流（{len(_GUARD_WORKFLOWS)} 个）checkout 均显式写了非默认分支的 ref')
         print('  （CI 类工作流检出 PR 代码是职责所在，不在本判据范围）')
+        print('✓ 无副作用守卫的 concurrency 不会互相取消（过渡期新旧两版并存时不静默取消守卫）')
     else:
         print('OK: workflow 定义来源正确，dev 上的改动对各路径可见。')
     return 0

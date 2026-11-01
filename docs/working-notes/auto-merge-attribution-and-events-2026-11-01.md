@@ -239,6 +239,33 @@ repositories"）原文：
 （CI 就是用来测 PR 的代码的），要求它们写 `ref: dev` 反而让 CI 测错东西。
 ⇒ 守卫用**显式清单**区分「守卫类」与「CI 类」，不靠猜。
 
+### 4.8 迁移的第三处易漏点：`concurrency` 的互斥会让守卫被**静默取消**
+
+这是迁移 `#2803` 时**实测撞到**的（PR #2807 首次 CI），同一时刻两个 run：
+
+| run | event | 结论 |
+|---|---|---|
+| 41305286670 | `pull_request`（`dev` 上的新版） | **cancelled** |
+| 41305286732 | `pull_request_target`（`main` 上的旧版） | success |
+
+⇒ 过渡期内 `main` 旧版与 `dev` 新版**同时被触发**，而两者算出的
+**concurrency group 名字相同**（group 名只含 PR 号，不含事件名）
+⇒ `cancel-in-progress: true` 让两者**互相取消** ⇒ **守卫被静默取消**，
+而 GitHub 把 `cancelled` 记成 check 失败（PR 上显示 fail）。
+
+**这个缺陷是迁移引入的**：迁移前只有一个版本生效（都读 `main`），不存在并发。
+
+修法分两类：
+
+| 工作流 | 有无副作用 | 修法 |
+|---|---|---|
+| `pr-four-questions-guard` | 无（只读正文、只返回退出码，不评论不写标签） | 改 `cancel-in-progress: false` ⇒ 两份串行跑完，结论一致、无害 |
+| `pr-overlap-guard` | 有（会评论 PR） | 过渡期跑两次可能发两条相同评论（可接受）；**有副作用**的不能靠 `false` 解决，得用不同 group 名避开互斥 |
+| `pr-auto-rebase` | 有（会推分支） | 但幂等（第二次因「分支已是最新」跳过）⇒ 无害 |
+
+守卫 `scripts/guard_workflow_definition_source.py` 的判据 4 盯住这条：
+无副作用守卫的 `cancel-in-progress` 不得为 `true`。
+
 ## 5. 边界
 
 - **dependabot 那条路径刻意不动**（`dependabot-auto-merge.yml`）：它的合并归因留在

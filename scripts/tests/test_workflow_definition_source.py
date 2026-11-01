@@ -166,6 +166,38 @@ class GuardWorkflowDefinitionSourceTest(unittest.TestCase):
         code, out = self._run_guard(ok)
         self.assertEqual(code, 0, f'表达式 ref 不该判红：\n{out}')
 
+    # ── 判据 4：concurrency 的 cancel-in-progress 不得为 true ────────────
+
+    def test_变异_cancel_in_progress改回true转红(self):
+        """`cancel-in-progress: true` ⇒ 判红。
+
+        过渡期内新旧两版会同时触发且共用同一个 concurrency group ⇒ 互斥 ⇒
+        守卫被静默取消（实测 PR #2807：新版 cancelled、旧版 success）。
+        """
+        wf = GOOD_WORKFLOW.replace(
+            'jobs:',
+            'concurrency:\n  group: pr-fq-${{ github.event.pull_request.number }}\n'
+            '  cancel-in-progress: true\n\njobs:',
+        )
+        code, out = self._run_guard(wf)
+        self.assertEqual(code, 1, f'应判红，实际退出码 {code}：\n{out}')
+        self.assertIn('cancel-in-progress', out)
+
+    def test_变异_cancel_in_progress为false不转红(self):
+        """`cancel-in-progress: false` ⇒ 不该判红（两份串行跑完，结论一致、无害）。"""
+        wf = GOOD_WORKFLOW.replace(
+            'jobs:',
+            'concurrency:\n  group: pr-fq-${{ github.event.pull_request.number }}\n'
+            '  cancel-in-progress: false\n\njobs:',
+        )
+        code, out = self._run_guard(wf)
+        self.assertEqual(code, 0, f'cancel-in-progress: false 不该判红：\n{out}')
+
+    def test_变异_无concurrency段不转红(self):
+        """没有 `concurrency` 段 ⇒ 不该判红（没有互斥风险）。"""
+        code, out = self._run_guard(GOOD_WORKFLOW)
+        self.assertEqual(code, 0, f'无 concurrency 段不该判红：\n{out}')
+
     # ── 边界：CI 类工作流检出 PR 代码是职责所在，不该判红 ────────────────
 
     def test_CI类工作流检出PR代码不转红(self):
