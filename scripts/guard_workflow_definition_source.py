@@ -460,7 +460,8 @@ def main(argv: List[str]) -> int:
               '（依赖 bot 触发 ⇒ pull_request 下 token 只读）')
         print(f'✓ 守卫类工作流（{len(_GUARD_WORKFLOWS)} 个）checkout 均显式写了非默认分支的 ref')
         print('  （CI 类工作流检出 PR 代码是职责所在，不在本判据范围）')
-        print('✓ 无副作用守卫的 concurrency 不会互相取消（过渡期新旧两版并存时不静默取消守卫）')
+        print('✓ 迁移到 pull_request 的工作流，其 concurrency.group 均带过渡期后缀')
+        print('  （过渡期内新旧两版算出的 group 名不同 ⇒ 不会互相取消、不会静默取消守卫）')
     else:
         print('OK: workflow 定义来源正确，dev 上的改动对各路径可见。')
     return 0
