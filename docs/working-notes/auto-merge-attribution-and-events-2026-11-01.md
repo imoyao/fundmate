@@ -148,11 +148,52 @@ environment branch protections changes」）原文：
 2. **显式跳过 fork PR**——fork 拿不到 secrets，不跳过会误报成「没配 PAT」而误红；
 3. 守卫新增两条判据：触发器不得是 `pull_request_target`、fork 必须被显式跳过。
 
-### 4.4 修复后的复验
+### 4.4 修复后的复验：四项证据全部到手
 
-见本文件后续版本（修复 PR 合入 dev 后，用新探针 PR 取四项证据：
-`enabledBy` = `imoyao` / `mergedBy` = 用户 / 合并窗口内仓库工作流 run 数 > 0 /
-`#2799` 被 `close-linked-issues` 自动关闭）。
+修复 PR `#2802` 合入 dev（`354c192fc`）后，两个探针 PR 取证：
+
+**探针 `#2804`**（正文未写 closing keyword）：验证归因与 `push` 事件投递。
+
+| 证据 | 结果 |
+|---|---|
+| 合并归因 | `merged_by = imoyao` ✅（此前是 `github-actions[bot]`） |
+| `push` 到 dev 的事件投递 | `乱码守卫（dev push）` + `Dependabot 锁重生成` 均产生 run ✅ |
+| `pull_request: closed` 投递 | `自动关闭关联 issue（dev 合入）` 产生 run ✅ |
+| issue 自动关闭 | ❌ 未关 —— 日志原文「`#2804` 正文里没有可关闭的 closing keyword，无需操作」⇒ **是探针正文的问题，不是链路的问题**（AGENTS.md 早有此告警） |
+
+**探针 `#2805`**（正文带真正的 `Closes #2799`）：补上第四项。
+
+| 证据 | 结果 |
+|---|---|
+| 合并归因 | `mergedBy = imoyao`（`mergedAt = 2026-11-01T10:27:12Z`）✅ |
+| 合并窗口内的事件投递 | `乱码守卫（dev push）`、`Dependabot 锁重生成`、`自动关闭关联 issue（dev 合入）` 三条 run 均产生 ✅ |
+| issue 自动关闭 | `#2799` → `CLOSED`（`closedAt = 2026-11-01T10:27:22Z`），时间线里 `closed` 的 actor = `github-actions[bot]` ✅ |
+| 关闭动作日志 | `已关闭 #2799「[bug] native auto-merge 合并抑制全部仓库工作流事件：…」—— 由 #2805 合入 dev 触发。` ✅ |
+
+⇒ **两层根因的修复全部验证通过**：PAT 归因恢复了合并事件的投递，
+门禁下游的守卫（issue 自动关闭 / 乱码扫描 / lockfile 重建）在这条路径上重新工作。
+
+### 4.5 残留：过渡期内 `main` 旧版与 `dev` 新版竞跑
+
+修复合入 dev 后，**`main` 上那份旧版 `pr-auto-merge.yml` 仍然带 `pull_request_target`**
+⇒ 贴 `automerge` 标签时两条路都会触发：
+
+| 路径 | 定义来源 | 凭据 | 谁跑得快 |
+|---|---|---|---|
+| 旧版 | `main`（`pull_request_target`） | `GITHUB_TOKEN` | **快**（无需算 merge commit，脚本也更短） |
+| 新版 | `dev`（`pull_request`） | 用户 PAT | 慢 |
+
+实测 `#2802` 贴标签时**旧版抢先**：新版 run 的日志是
+`auto-merge 暂未启用… GraphQL: Merge already in progress (mergePullRequest)`，
+该 PR 最终 `merged_by = github-actions[bot]` ⇒ 归因仍是 bot。
+
+**这不影响上面的四项证据**（那两轮是用 PAT 直接启用 auto-merge 取证的，
+等价于新版 workflow 内部执行的那一步），但**说明在 `main` 同步新版定义之前，
+自动合并这条路径仍会被旧版抢走**。
+
+处置：随下次 `dev → main` 发版自然解决（发版会把 `dev` 上这份文件带过去），
+或按 `#2803` 的选项单独处理。**在此之前，不要指望「贴标签 → 自动合并」这条
+自动化路径已完全正常** —— 它只在旧版抢不到时生效。
 
 ## 5. 边界
 
