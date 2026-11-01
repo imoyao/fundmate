@@ -1012,6 +1012,43 @@ if code == 1:
 
 > 唯一无法由系统代劳的，仍是「写出能过 CI 的代码」。三层机制把「救火旧分支」的人工动作降到只剩这一件。
 
+#### ⚠️ ② 自动合并必须用**用户 PAT**，不能用 GITHUB_TOKEN（#2799）
+
+**合并归因 = 启用 auto-merge 的那个凭据；归因决定后续事件是否被投递。**
+GitHub 规则：除 `workflow_dispatch` / `repository_dispatch` 外，**GITHUB_TOKEN 触发的事件
+不创建 workflow run**。native auto-merge 是「排队 → 门禁转绿后由 GitHub 执行合并」，
+**合并时携带的是最后启用 auto-merge 的那个凭据的归因**——用 GITHUB_TOKEN 启用出来的合并，
+其 `pull_request: closed` 与 `push` 事件**全部被抑制**。
+
+2026-11-01 实测（PR #2797，本仓史上第一次 native auto-merge 合并）：
+
+| 合并归因 | `pull_request: closed` | `push` 到 dev | 后果 |
+|---|---|---|---|
+| `github-actions`（GITHUB_TOKEN） | 不产生 run | 不产生 run | issue 不自动关闭；乱码守卫 / lockfile 守卫被静默跳过 |
+| `imoyao`（用户凭据） | 产生 run | 产生 run | 正常 |
+
+**门禁本身照常 success（`质量门禁汇总` 是绿的），但门禁下游的守卫在这条路径上是哑的**
+——这正是「假绿」最典型的形态。外部独立实证（ebi-agent-chat-relay，2026-09-22，16 次合并
+1:1 相关无例外）同结论："A merge attributed to GITHUB_TOKEN fires no push or pull_request
+event. A merge attributed to a real user does."
+
+**因此**：
+
+1. `pr-auto-merge.yml` 用 secret **`AUTO_MERGE_PAT`**（用户 PAT），**不得**改回
+   `secrets.GITHUB_TOKEN`，**也不得**写成 `AUTO_MERGE_PAT || secrets.GITHUB_TOKEN`
+   ——后者在 PAT 缺失时静默退化 ⇒ 假绿原样装回来。PAT 缺失必须**显式失败**。
+2. 守卫 `scripts/guard_auto_merge_user_attribution.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
+   把这条钉住；回归网 `scripts/tests/test_auto_merge_user_attribution.py`（7 个变异探针）。
+3. **PAT 是人工配置的 secret，Actions 里不会自动有**：
+   `Settings → Secrets and variables → Actions → New repository secret → AUTO_MERGE_PAT`，
+   值为用户 PAT（权限够用即可：`contents:write` + `pull-requests:write`）。
+   配好后 `gh secret list` 应能看到它。**没配 ⇒ ② 自动合并这一步会红**（这是有意的，
+   不能让它静默退化）。
+4. 仓库里另 4 处 `secrets.GH_PAT || secrets.GITHUB_TOKEN`（`claim-sync.yml` /
+   `cnb-github-backfill.yml` / `bridge-*.yml`）与本条**无关**：那是 CNB 侧凭据的既有惯例，
+   仓库 Actions secrets 里**并没有** `GH_PAT`，那几处一直在走 GITHUB_TOKEN 回落。
+   刻意不共用名字，避免动到它们的推送归因。
+
 ### 「永久记忆」存在哪、什么时候读
 
 NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住」= 写进**版本控制的仓库文本**，

@@ -768,6 +768,20 @@ jobs:
       - name: dependabot 锁重生成通道（阻断）
         run: python scripts/guard_dependabot_lockfile_regen.py
 
+      # 自动合并的**归因**（#2799）：`gh pr merge --auto` 用哪个凭据启用，
+      # 决定了最终那次合并归因给谁——而归因决定后续事件是否被投递。
+      # GitHub 规则：GITHUB_TOKEN 触发的事件不创建 workflow run，于是用 GITHUB_TOKEN
+      # 启用出来的合并，其 `pull_request: closed` / `push` 事件全被抑制 ⇒
+      # issue 不自动关闭、乱码守卫与 lockfile 守卫被静默跳过，而门禁（质量门禁汇总）
+      # 照常 success ⇒ **假绿**（#2797 实测：本仓史上第一次 native auto-merge 合并）。
+      # 判据只查「启用 auto-merge 用的凭据是不是用户 PAT」+「PAT 缺失是否显式失败」
+      # （不许 `||` 回落 GITHUB_TOKEN——那等于把假绿原样装回来）。
+      # 放在 pyyaml 安装之后（守卫要解 YAML）。
+      # 回归网：scripts/tests/test_auto_merge_user_attribution.py（7 个变异探针，
+      # 随 unittest discover 收进来）。
+      - name: 自动合并的归因（阻断）
+        run: python scripts/guard_auto_merge_user_attribution.py
+
       # MiSans 子集字形覆盖（源 https://github.com/imoyao/fundmate/issues/2402）：用户截图报
       # 「荃」「鑫」渲染不对。实测真因不是「按字频裁剪」——`subset_misans.py` 的字表压根
       # 没有 GB2312 **二级**（区 56~87，按笔画排序，装的全是姓氏 / 人名 / 地名用字），
