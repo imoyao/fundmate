@@ -25,10 +25,21 @@ export function emptyDataGapHint(lastDate: string, scope: string): string {
   );
 }
 
-/** 空态里的「哪儿没数据」——粒度不同说法不同，别在年视图里说「本月」 */
-export function emptyScopeFor(granularity: PnlCalendarGranularity): string {
+/**
+ * 空态里的「哪儿没数据」——粒度不同说法不同，别在年视图里说「本月」。
+ *
+ * 月粒度跟着**游标所在年**走（`rangeFor` 的月区间是 `cursor.getFullYear()` 那一年）：
+ * 用户把区间翻到 2025 年还再说「本年」，就是把去年说成了今年。
+ */
+export function emptyScopeFor(
+  granularity: PnlCalendarGranularity,
+  cursor: Date
+): string {
   if (granularity === "day") return "本月";
-  if (granularity === "month") return "本年";
+  if (granularity === "month") {
+    const year = cursor.getFullYear();
+    return year === new Date().getFullYear() ? "本年" : `${year} 年`;
+  }
   // 年视图的区间就是「投资以来」，说「该区间」不如直说
   return "投资以来";
 }
@@ -43,10 +54,14 @@ export function emptyScopeFor(granularity: PnlCalendarGranularity): string {
  *
  * 判据只看日历、不看数据：
  *   · 年粒度区间是「投资以来 → 今年」，恒有已过去的交易日 ⇒ false；
- *   · 月粒度看今年 1 月 1 日起，日粒度看游标所在月 1 日起；
+ *   · 月粒度看**游标所在年** 1 月 1 日起，日粒度看游标所在月 1 日起；
  *   · 起点到现在之间有任何一个工作日 ⇒ 已经「开始」了。周末固定休市，
  *     所以按周一~周五判；节假日会让它比真实交易日早一天结束，但方向是
  *     「已开始」，不会把「还没到」误判成「已开始」。
+ *
+ * ⚠️ 月粒度的起点必须跟**游标**走，不能写死「今年 1 月 1 日」：
+ * 月区间是游标所在年（`rangeFor` 用 `cursor.getFullYear()`），用户翻到未来
+ * 年份时整段区间都在未来——写死「今年」会把「整段还没到」误判成「已开始」。
  */
 export function isNotStartedYet(
   granularity: PnlCalendarGranularity,
@@ -57,7 +72,7 @@ export function isNotStartedYet(
   const from =
     granularity === "day"
       ? new Date(cursor.getFullYear(), cursor.getMonth(), 1)
-      : new Date(today.getFullYear(), 0, 1);
+      : new Date(cursor.getFullYear(), 0, 1);
   if (from > today) return true; // 整段区间都在未来
   for (const d = new Date(from); d <= today; d.setDate(d.getDate() + 1)) {
     const wd = d.getDay();
@@ -68,10 +83,11 @@ export function isNotStartedYet(
 
 /** 「还没开始」的空态正文：说清是日历事实，别指去同步任务 */
 export function emptyNotStartedHint(
-  granularity: PnlCalendarGranularity
+  granularity: PnlCalendarGranularity,
+  cursor: Date
 ): string {
   return (
-    `${emptyScopeFor(granularity)}还没有已发生的交易日。` +
+    `${emptyScopeFor(granularity, cursor)}还没有已发生的交易日。` +
     "未来的日期与周末同待遇、不占格，每个交易日结束后才会有当日收益。"
   );
 }
@@ -100,11 +116,12 @@ export function emptyHintFor(
   granularity: PnlCalendarGranularity,
   cursor: Date
 ): string {
-  if (isNotStartedYet(granularity, cursor)) return emptyNotStartedHint(granularity);
+  if (isNotStartedYet(granularity, cursor))
+    return emptyNotStartedHint(granularity, cursor);
   if (!isDataGap(series)) return EMPTY_NO_VALUATION;
   return emptyDataGapHint(
     series?.latest_price_date ?? "—",
-    emptyScopeFor(granularity)
+    emptyScopeFor(granularity, cursor)
   );
 }
 
