@@ -1012,7 +1012,7 @@ if code == 1:
 
 > 唯一无法由系统代劳的，仍是「写出能过 CI 的代码」。三层机制把「救火旧分支」的人工动作降到只剩这一件。
 
-#### ⚠️ ② 自动合并必须用**用户 PAT**，不能用 GITHUB_TOKEN（#2799）
+#### ⚠️ ② 自动合并必须用**用户 PAT**，且触发器不得用 `pull_request_target`（#2799）
 
 **合并归因 = 启用 auto-merge 的那个凭据；归因决定后续事件是否被投递。**
 GitHub 规则：除 `workflow_dispatch` / `repository_dispatch` 外，**GITHUB_TOKEN 触发的事件
@@ -1032,22 +1032,59 @@ GitHub 规则：除 `workflow_dispatch` / `repository_dispatch` 外，**GITHUB_T
 1:1 相关无例外）同结论："A merge attributed to GITHUB_TOKEN fires no push or pull_request
 event. A merge attributed to a real user does."
 
+##### ⚠️ 还有**第二层根因**：触发器一旦写成 `pull_request_target`，上面这些修复**根本不会被执行**
+
+2025-12-08 生效的平台行为变更（官方 changelog「Actions pull_request_target and
+environment branch protections changes」）原文：
+
+> The `pull_request_target` event now always uses the default branch for workflow source
+> and reference: The workflow file and checkout commit will always be taken from the
+> repository's **default branch, regardless of the pull request's base branch**.
+
+本仓默认分支是 `main`，而功能 PR 一律 base=`dev`。⇒ 走 `pull_request_target` 时，
+**跑的是 `main` 上那份定义**（本仓 `main` 落后 `dev` 数百个提交）⇒
+**「在 dev 上改了 workflow」这件事对这条路径完全不可见**：改了什么、守卫加在哪、
+PAT 换成没有，跑的都还是 `main` 上那份旧的。
+
+2026-11-01 实测（PR #2801，PR 的 base=dev 且 dev 上已含新版定义）：新版那行
+`启用 auto-merge 的凭据身份：$actor` 的 echo **没有出现在日志里**，
+取而代之的是 `main` 旧版逐字一致的文案 ⇒ 实证「定义来自默认分支」，而非 base 分支。
+
+| 触发器 | workflow 定义来源 | dev 上的改动何时生效 |
+|---|---|---|
+| `pull_request_target` | **默认分支 `main`** | ❌ 永远不生效 |
+| `pull_request` | **merge commit**（dev tip + PR head） | ✅ 立刻生效 |
+
+`pull_request` 事件对**同仓分支**的 PR 同样有写权限与 secrets（官方文档：fork 才受限），
+本仓所有功能分支都在本仓内 ⇒ **不损失任何能力**。
+
 **因此**：
 
 1. `pr-auto-merge.yml` 用 secret **`AUTO_MERGE_PAT`**（用户 PAT），**不得**改回
    `secrets.GITHUB_TOKEN`，**也不得**写成 `AUTO_MERGE_PAT || secrets.GITHUB_TOKEN`
    ——后者在 PAT 缺失时静默退化 ⇒ 假绿原样装回来。PAT 缺失必须**显式失败**。
-2. 守卫 `scripts/guard_auto_merge_user_attribution.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
-   把这条钉住；回归网 `scripts/tests/test_auto_merge_user_attribution.py`（7 个变异探针）。
-3. **PAT 是人工配置的 secret，Actions 里不会自动有**：
+2. **触发器用 `pull_request`，不得用 `pull_request_target`**（理由见上）。换成
+   `pull_request` 后必须**显式跳过 fork PR**：fork 拿不到 secrets，不跳过就会把
+   「fork 没有 secret」误报成「仓库没配 PAT」而误红。
+   另两条边界：本工作流**不 checkout PR 代码**（只用 `gh` 调 API ⇒ 无 pwn request 面）、
+   同仓 PR 才继续（`head.repo.full_name == github.repository`）。
+3. 守卫 `scripts/guard_auto_merge_user_attribution.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
+   把这两条一起钉住；回归网 `scripts/tests/test_auto_merge_user_attribution.py`
+   （**13 个变异探针**，含「触发器改回 `pull_request_target`」「删掉 fork 跳过分支」等）。
+4. **PAT 是人工配置的 secret，Actions 里不会自动有**：
    `Settings → Secrets and variables → Actions → New repository secret → AUTO_MERGE_PAT`，
    值为用户 PAT（权限够用即可：`contents:write` + `pull-requests:write`）。
    配好后 `gh secret list` 应能看到它。**没配 ⇒ ② 自动合并这一步会红**（这是有意的，
    不能让它静默退化）。
-4. 仓库里另 4 处 `secrets.GH_PAT || secrets.GITHUB_TOKEN`（`claim-sync.yml` /
+5. 仓库里另 4 处 `secrets.GH_PAT || secrets.GITHUB_TOKEN`（`claim-sync.yml` /
    `cnb-github-backfill.yml` / `bridge-*.yml`）与本条**无关**：那是 CNB 侧凭据的既有惯例，
    仓库 Actions secrets 里**并没有** `GH_PAT`，那几处一直在走 GITHUB_TOKEN 回落。
    刻意不共用名字，避免动到它们的推送归因。
+6. **本仓另有 6 个工作流也用 `pull_request_target`**（`dependabot-auto-merge` /
+   `dependabot-lockfile-regen` / `issue-claim-sync` / `pr-auto-rebase` /
+   `pr-four-questions-guard` / `pr-overlap-guard`）⇒ **它们同样只跑 `main` 上的定义**。
+   这是平台级行为带来的系统性问题（不是本仓独有），已另开 issue 记录，
+   不在 ② 内一并处理。
 
 ### 「永久记忆」存在哪、什么时候读
 

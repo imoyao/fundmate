@@ -395,12 +395,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
     },
     'scripts/guard_auto_merge_user_attribution.py': {
-        'rule': '自动合并必须用用户 PAT 归因（否则合并事件的门禁下游守卫全哑 = 假绿）',
+        'rule': '自动合并必须用用户 PAT 归因 + 触发器不得是 pull_request_target（否则合并事件的门禁下游守卫全哑 = 假绿）',
         'runner': 'ci',
         'tests': 'scripts/tests/test_auto_merge_user_attribution.py',
         # 只查「启用 auto-merge 的凭据是不是用户 PAT」+「PAT 缺失是否显式失败」
-        # （不许 `||` 回落 GITHUB_TOKEN——那等于把假绿原样装回来）。
-        'covered': '不查 secret 的实际值（看不到 secret 存储）；dependabot 那条路径刻意留在 bot 侧，不在本判据内',
+        # （不许 `||` 回落 GITHUB_TOKEN——那等于把假绿原样装回来）
+        # +「触发器是不是 pull_request」（pull_request_target 的定义只取自默认分支，
+        #   会把上面这些正确配置锁死在 main 上，改了对该路径不可见）
+        # +「fork PR 是否被显式跳过」（fork 无 secrets，不跳过会误报成「没配 PAT」）。
+        'covered': '不查 secret 的实际值（看不到 secret 存储）；dependabot 那条路径刻意留在 bot 侧，不在本判据内；其余 6 个 pull_request_target 工作流另开 issue 统一处理',
     },
     'scripts/guard_migrations_pg_aware.py': {
         'rule': '启动期迁移不许写「非 SQLite 就跳过」早退（存量按函数指纹基线冻结）',

@@ -37,12 +37,46 @@ eventual actor.」
 5. PAT 缺失时该步骤必须**非零退出**（`exit 1` 之类），不许把失败态吞成绿灯；
 6. workflow 里必须有一句可读的说明，指出「本步骤用用户 PAT 才能让合并归因到用户、
    从而让 `pull_request: closed` / `push` 事件被投递」——否则后人「顺手改回
-   `secrets.GITHUB_TOKEN`」时没有任何线索（#171 / #450 同族的配置回潮）。
+   `secrets.GITHUB_TOKEN`」时没有任何线索（#171 / #450 同族的配置回潮）；
+7. **触发器不得是 `pull_request_target`**——它会把上面所有的正确配置**锁死在默认分支上**
+   （见「第二层根因」一节），改了对这条路径完全不可见；
+8. 用 `pull_request` 后，**必须显式跳过 fork PR**——fork 的 `pull_request` 拿不到 secrets，
+   不区分就会把「fork 没有 secret」误报成「仓库没配 PAT」而误红。
+
+## 第二层根因：`pull_request_target` 的定义只取自默认分支（2026-12-08 生效）
+
+第一层根因是「用 GITHUB_TOKEN 启用 auto-merge ⇒ 合并归因到 bot ⇒ 事件被抑制」。
+把凭据换成用户 PAT 只解决了这一层；**还有第二层**，它会让第一层的修复**根本不被执行**：
+
+GitHub 于 2025-12-08 生效的行为变更（官方 changelog「Actions pull_request_target and
+environment branch protections changes」）原文：
+
+> The pull_request_target event now always uses the default branch for workflow source
+> and reference: The workflow file and checkout commit will always be taken from the
+> repository's default branch, regardless of the pull request's base branch.
+
+本仓默认分支是 `main`，而功能 PR 一律 base=`dev`。⇒ 走 `pull_request_target` 时，
+**跑的是 `main` 上那份定义**。本仓 `main` 落后 `dev` 数百个提交 ⇒
+
+- 在 dev 上把 token 换成 PAT —— `main` 上那份还写着 `secrets.GITHUB_TOKEN`，**改了不起作用**；
+- 在 dev 上加守卫、加日志、改任何东西 —— 同理，**全部不可见**。
+
+2026-11-01 实测（本仓 PR #2801，base=dev 且 dev 上已含新版定义）：新版那行
+`启用 auto-merge 的凭据身份：$actor` 的 echo **没有出现在日志里**，
+取而代之的是 `main` 旧版逐字一致的文案 ⇒ 实证「定义来自默认分支」，而非 base 分支。
+
+`pull_request` 事件则相反：**workflow 定义取自 PR 的 merge commit**（dev tip + PR head），
+dev 上的改动**立刻生效**。且官方文档明确：同仓分支的 `pull_request` 与
+`pull_request_target` 一样有写权限与 secrets（fork 才受限）⇒ 本仓不损失任何能力。
 
 ## 边界（刻意不查）
 
 - **不查 dependabot 那条路径**（`dependabot-auto-merge.yml`）：它的合并归因刻意留在 bot
   侧（依赖更新不该触发版本自增、也不该重启 bot 链），属另一条产品决策，不在本守卫范围。
+- **不查其余 6 个 `pull_request_target` 工作流**（dependabot-auto-merge /
+  dependabot-lockfile-regen / issue-claim-sync / pr-auto-rebase /
+  pr-four-questions-guard / pr-overlap-guard）：它们同样只跑默认分支上的定义，
+  是平台级行为带来的系统性问题，另开 issue 统一处理，不在本守卫范围。
 - 不查 secret 的实际值（守卫只看 YAML，看不到 secret 存储）；「PAT 到底配没配」由
   步骤 5 的显式失败在运行时兜住——缺 PAT 时 workflow 自己会红，不会静默退化。
 - 不验证 auto-merge 真的合得上（那需要真实 PR 与门禁转绿，属端到端验证）。
@@ -171,6 +205,68 @@ def _has_hard_failure(block) -> bool:
     return False
 
 
+def _fork_skip_block(run_text: str):
+    """截出「判断是不是 fork PR 并跳过」那个分支的代码行。
+
+    锚定方式：找同时提到 `HEAD_REPO` 与 `BASE_REPO`（或 `head.repo`）的比较行，
+    向后取到配对的 `fi`（同缩进层级）。
+
+    为什么要单独锚定：判据 8 要证明的是「fork 情形被**显式跳过**」，
+    而不是「脚本里出现过 fork 这个词」——注释里提一句 fork 不算数。
+    """
+    lines = run_text.replace('\\\n', ' ').splitlines()
+    start = None
+    for idx, raw in enumerate(lines):
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        if 'if' in line and (
+            ('HEAD_REPO' in line and 'BASE_REPO' in line)
+            or ('head.repo' in line and 'repository' in line)
+        ):
+            start = idx
+            break
+    if start is None:
+        return None
+
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    block = []
+    for raw in lines[start + 1:]:
+        line = raw.strip()
+        if not line:
+            continue
+        cur_indent = len(raw) - len(raw.lstrip())
+        if line == 'fi' and cur_indent <= indent:
+            break
+        if not line.startswith('#'):
+            block.append(line)
+    return block
+
+
+def _skips_fork(block) -> bool:
+    """这个分支是否**显式跳过**（而不是失败）。
+
+    两种都算「处理了 fork」：
+    - `exit 0` —— 跳过，不红（fork 拿不到 secret 是正常的，不该误红）；
+    - `exit 1` —— 拒绝，同样不算误报。
+
+    但必须**有非零或零的显式 exit**：只打一行提示然后继续往下跑，
+    会拿着空的 GH_TOKEN 去调 `gh pr merge` ⇒ 报「no token」之类的含糊错误，
+    掩盖了真正的语义。
+    """
+    if block is None:
+        return False
+    saw_exit = False
+    for line in block:
+        parts = line.replace(';', ' ').split()
+        for i, token in enumerate(parts):
+            if token == 'exit' and i + 1 < len(parts):
+                code = parts[i + 1].strip('"\'')
+                if code.isdigit():
+                    saw_exit = True
+    return saw_exit
+
+
 def check(repo: Path) -> List[str]:
     """返回违规项列表（空 = 通过）。纯读文件，无网络、无 git。"""
     yaml = _import_yaml()
@@ -263,6 +359,60 @@ def check(repo: Path) -> List[str]:
             '从而让事件被投递」——配置回潮时（#171 / #450 同族）没有任何线索'
         )
 
+    # 判据 7：触发器不得是 pull_request_target。
+    #
+    # 这是「第二层根因」：pull_request_target 的 workflow 定义**只取自默认分支**，
+    # 无视 PR 的 base 分支 ⇒ 本仓默认分支是 main、而功能 PR 一律 base=dev，
+    # 于是 dev 上这份文件里的 PAT / 守卫 / 日志改动**全部不可见**——
+    # 跑的还是 main 上那份旧的（仍写着 secrets.GITHUB_TOKEN）。
+    #
+    # 实测（PR #2801，base=dev 且 dev 上已含新版定义）：新版那行
+    # 「启用 auto-merge 的凭据身份：$actor」的 echo 没出现在日志里，
+    # 取而代之的是 main 旧版逐字一致的文案。
+    triggers = _triggers(doc)
+    if 'pull_request_target' in triggers:
+        problems.append(
+            f'{WORKFLOW_REL} 的触发器是 `pull_request_target`：'
+            '它的 workflow 定义**一律取自仓库默认分支**（本仓是 `main`），无视 PR 的 '
+            'base 分支 ⇒ dev 上这份文件里的 PAT 改动、守卫、日志**全部不会被执行**，'
+            '跑的还是 main 上那份旧版（仍用 secrets.GITHUB_TOKEN ⇒ 事件仍被抑制）。'
+            '2025-12-08 生效的平台行为变更，见官方 changelog「Actions '
+            'pull_request_target and environment branch protections changes」。'
+            '应改用 `pull_request`：其定义取自 PR 的 merge commit（dev tip + PR head），'
+            'dev 上的改动立刻生效；且同仓分支的 pull_request 同样有写权限与 secrets。'
+        )
+    if not triggers:
+        problems.append(
+            f'{WORKFLOW_REL} 没有 `on:` 触发器：自动合并通道没有入口'
+        )
+    elif 'pull_request' not in triggers and 'pull_request_target' not in triggers:
+        problems.append(
+            f'{WORKFLOW_REL} 的触发器既不是 `pull_request` 也不是 `pull_request_target`：'
+            f'自动合并通道没有入口（当前触发器：{sorted(triggers)}）'
+        )
+
+    # 判据 8：用 pull_request 后必须显式跳过 fork PR。
+    #
+    # fork 的 pull_request 拿不到 secrets（GH_TOKEN 必为空），
+    # 不显式跳过就会走到「PAT 为空 ⇒ exit 1」的分支 ⇒ 把「fork 没有 secret」
+    # 误报成「仓库没配 PAT」而误红。
+    if 'pull_request' in triggers:
+        for step in merge_steps:
+            where = f'步骤「{step.get("name") or "（未命名）"}」'
+            block = _fork_skip_block(step['run'])
+            if block is None:
+                problems.append(
+                    f'{where} 没有跳过 fork PR：'
+                    'fork 的 pull_request 拿不到 secrets（GH_TOKEN 为空），'
+                    '不显式跳过就会把「fork 没有 secret」误报成「仓库没配 PAT」而误红'
+                )
+            elif not _skips_fork(block):
+                problems.append(
+                    f'{where} 的「是 fork PR」分支没有显式退出：'
+                    '只打一行提示然后继续，会拿着空的 GH_TOKEN 去调 `gh pr merge`，'
+                    '报出含糊的错误而掩盖真正的语义'
+                )
+
     return problems
 
 
@@ -282,6 +432,8 @@ def main(argv: List[str]) -> int:
         print(f'✓ token 来自用户 PAT secret `{PAT_SECRET}`，不是 GITHUB_TOKEN')
         print('✓ 无 `||` 回落：PAT 缺失会显式失败，不静默退化')
         print('✓ 有「归因」说明：配置回潮时留得下线索')
+        print('✓ 触发器是 `pull_request`（定义取自 merge commit，dev 上的改动立刻生效）')
+        print('✓ 显式跳过 fork PR：fork 无 secret 不会被误报成「没配 PAT」')
     else:
         print('OK: 自动合并用用户凭据归因，事件会被投递。')
     return 0

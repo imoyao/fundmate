@@ -88,22 +88,71 @@ env:
 `github-actions`，PAT 的是它的主人）——归因看的就是这个身份。
 
 守卫 `scripts/guard_auto_merge_user_attribution.py`（并入 `ci.yml` 的 `scripts_test`，
-阻断）把四条钉死：必须用用户 PAT / 不许 `||` 回落 / PAT 缺失必须显式失败 /
-必须留归因说明（防「顺手改回 GITHUB_TOKEN」时的无声退化）。
-回归网 `scripts/tests/test_auto_merge_user_attribution.py`（7 个变异探针）。
+阻断）把六条钉死：必须用用户 PAT / 不许 `||` 回落 / PAT 缺失必须显式失败 /
+必须留归因说明（防「顺手改回 GITHUB_TOKEN」时的无声退化）/
+**触发器不得是 `pull_request_target`**（否则本节所有修复都不会被执行，见 §4.2）/
+**fork PR 必须被显式跳过**（fork 拿不到 secrets，不跳过会误报成「没配 PAT」）。
+回归网 `scripts/tests/test_auto_merge_user_attribution.py`（**13 个变异探针**）。
 
 ## 4. 端到端复验（同仓 A/B 对照）
 
-同一个 PR（#2800）先后经历了两种归因，构成天然对照：
+> ⚠️ **本节初版（2026-11-01 上午）的判断已被当晚的实测推翻并更正**：
+> 初版写「`pull_request_target` 跑的是 **base 分支**的 workflow 文件」——**错的**。
+> 真相见 §4.2：它跑的是**默认分支**（`main`）。初版那句注解是本仓踩过的坑，留着做警示。
 
-| 合并 | 启用方 workflow 版本 | `mergedBy` | 合并窗口内的仓库工作流 run | 关联 issue |
+### 4.1 修复前后的对照（更正后）
+
+| PR | 贴标签时刻 dev 的 tip | 实际执行的是哪份定义 | `mergedBy` | 关联 issue |
 |---|---|---|---|---|
-| `#2800`（第一次） | **dev 上的旧版**（GITHUB_TOKEN） | `github-actions` | **0 个** | `#2799` 仍是 OPEN ❌ |
-| `#2801`（探针） | **dev 上的新版**（`AUTO_MERGE_PAT`） | 用户 | 见下 | 自动关闭 ✅ |
+| `#2800` | 旧版（改动尚未合入） | `main` 上的旧版 | `github-actions` | `#2799` 仍 OPEN ❌ |
+| `#2801`（探针） | **已含新版的 `57f35e9a6`** | **仍是 `main` 上的旧版** | `github-actions` | `#2799` 仍 OPEN ❌ |
 
-> 注：`pull_request_target` 跑的是 **base 分支**的 workflow 文件，所以 `#2800` 自己
-> 贴标签时用的是 dev 上的旧版——它的合并因此仍是 bot 归因、事件仍被抑制。
-> 这恰好成了「修复前」那一侧的现成样本；改动合入 dev 后的下一个 PR 才是「修复后」。
+两次都是 bot 归因。**`#2801` 是关键的反证**：它的 base=dev，且 dev 的 tip 早在
+**08:58:27** 就已包含带 PAT 的新版定义，而探针 run（`41291802250`）在 **09:08:35**
+才触发——晚了整整 10 分钟，dev 上新版早已就位，跑的却仍是旧版。
+
+判据：新版 workflow 里那行 `启用 auto-merge 的凭据身份：$actor` 的 echo
+**没有出现在日志里**；日志里的 `echo "已为 $PR_URL 启用 auto-merge（质量门禁汇总转绿后
+自动合入 dev）"` 与 `main` 上的旧版**逐字一致**。
+
+### 4.2 第二层根因：`pull_request_target` 的定义只取自默认分支
+
+2025-12-08 生效的平台行为变更（官方 changelog「Actions pull_request_target and
+environment branch protections changes」）原文：
+
+> The `pull_request_target` event now always uses the default branch for workflow source
+> and reference: The workflow file and checkout commit will always be taken from the
+> repository's **default branch, regardless of the pull request's base branch**.
+
+本仓默认分支 = `main`（`gh api repos/imoyao/fundmate --jq .default_branch`），
+功能 PR 一律 base=`dev` ⇒ **dev 上这份 workflow 的任何改动对这条路径都不可见**。
+
+同仓 A/B 对照（用 `ci.yml` 当天然探针——它在 main 与 dev 上不同）：
+
+| 事件 | 定义的来源 | 证据 |
+|---|---|---|
+| `pull_request` | **merge commit**（dev tip + PR head） | PR `#2800` 的 `pull_request` run 步骤里**有**「自动合并的归因（阻断）」这一步，而 `main` 版 `ci.yml` 里没有这一步 |
+| `pull_request_target` | **默认分支 `main`** | PR `#2801` 的 run 执行的是 `main` 版 `pr-auto-merge.yml`（旧文案），尽管 dev tip 已是新版 |
+
+⇒ **PAT 修复躺在 `dev` 上，从一开始就不会被执行。**
+
+### 4.3 修复方向
+
+改触发器为 `pull_request`（其定义取自 merge commit ⇒ dev 上的改动立刻生效），
+且同仓分支的 `pull_request` 同样有写权限与 secrets（官方文档：fork 才受限），
+本仓所有功能分支都在本仓内 ⇒ **不损失任何能力**。
+
+换触发器后守住三条边界：
+
+1. **不 checkout PR 代码**——本工作流只用 `gh` 调 API，无 pwn request 面；
+2. **显式跳过 fork PR**——fork 拿不到 secrets，不跳过会误报成「没配 PAT」而误红；
+3. 守卫新增两条判据：触发器不得是 `pull_request_target`、fork 必须被显式跳过。
+
+### 4.4 修复后的复验
+
+见本文件后续版本（修复 PR 合入 dev 后，用新探针 PR 取四项证据：
+`enabledBy` = `imoyao` / `mergedBy` = 用户 / 合并窗口内仓库工作流 run 数 > 0 /
+`#2799` 被 `close-linked-issues` 自动关闭）。
 
 ## 5. 边界
 
@@ -115,3 +164,7 @@ env:
   刻意不共用 secret 名，避免连带改变它们的推送归因而引入递归防护问题。
 - **PAT 有效期**：过期后 ② 自动合并这一步会红（`gh api user` 失败 → `exit 1`），
   而非静默退化——这是有意设计，但需人工续期。
+- **本仓另有 6 个工作流也用 `pull_request_target`**（`dependabot-auto-merge` /
+  `dependabot-lockfile-regen` / `issue-claim-sync` / `pr-auto-rebase` /
+  `pr-four-questions-guard` / `pr-overlap-guard`）⇒ **它们同样只跑 `main` 上的定义**。
+  平台级行为带来的系统性问题，已另开 issue 统一处理，不在本次修复范围内。

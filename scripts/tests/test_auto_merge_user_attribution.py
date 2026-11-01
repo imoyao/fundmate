@@ -35,11 +35,16 @@ from scripts.guard_auto_merge_user_attribution import (
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # 一份「正确实现」的 workflow 骨架：所有探针都在它上面做单点变异。
+#
+# 触发器刻意是 `pull_request` 而非 `pull_request_target`：
+# 后者的 workflow 定义**一律取自默认分支**（本仓是 `main`），无视 PR 的 base 分支，
+# ⇒ dev 上这份文件里的 PAT 改动根本不会被执行（#2799 的第二层根因）。
+# `pull_request` 取 merge commit（dev tip + PR head）⇒ dev 上的改动立刻生效。
 GOOD_WORKFLOW = """\
 name: PR 自动合并（绿灯即合）
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, labeled]
 
 permissions:
@@ -57,8 +62,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.AUTO_MERGE_PAT }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "跳过：PR 来自 fork"
+            exit 0
+          fi
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::error::未配置 secret AUTO_MERGE_PAT" >&2
             exit 1
@@ -202,6 +213,95 @@ class AutoMergeAttributionGuardTest(unittest.TestCase):
         self.assertTrue(
             any('gh pr merge' in p for p in problems),
             f'注释里的 gh pr merge 不该算命中：{problems}',
+        )
+
+    # ------------------------------------------------------------------
+    # 二之二、第二层根因：触发器不得是 pull_request_target
+    # ------------------------------------------------------------------
+
+    def test_变异_触发器改回pull_request_target转红(self):
+        """**第二层根因**：pull_request_target 的定义只取自默认分支（main），无视 base 分支。
+
+        于是 dev 上这份文件里的 PAT 改动、守卫、日志全部不会被执行——
+        跑的还是 main 上那份旧版（仍用 secrets.GITHUB_TOKEN ⇒ 事件仍被抑制）。
+        守卫必须拦住这个形态，否则第一层修复就是个「写了但不会发生」的话。
+        """
+        bad = GOOD_WORKFLOW.replace(
+            '  pull_request:\n    types: [opened, synchronize, reopened, labeled]',
+            '  pull_request_target:\n    types: [opened, synchronize, reopened, labeled]',
+        )
+        problems = self._check_with(bad)
+        self.assertTrue(
+            any('pull_request_target' in p for p in problems),
+            f'改回 pull_request_target 必须被判红：{problems}',
+        )
+
+    def test_变异_两个触发器并存转红(self):
+        """并存时也要判红：`pull_request_target` 那一路仍会跑默认分支上的定义。"""
+        bad = GOOD_WORKFLOW.replace(
+            '  pull_request:\n    types: [opened, synchronize, reopened, labeled]',
+            '  pull_request_target:\n  pull_request:\n'
+            '    types: [opened, synchronize, reopened, labeled]',
+        )
+        problems = self._check_with(bad)
+        self.assertTrue(
+            any('pull_request_target' in p for p in problems),
+            f'两个触发器并存必须被判红：{problems}',
+        )
+
+    def test_变异_触发器整个删掉转红(self):
+        bad = GOOD_WORKFLOW.replace(
+            'on:\n  pull_request:\n    types: [opened, synchronize, reopened, labeled]',
+            'on: []',
+        )
+        problems = self._check_with(bad)
+        self.assertTrue(
+            any('触发器' in p for p in problems),
+            f'触发器缺失必须被判红：{problems}',
+        )
+
+    def test_变异_删掉fork跳过分支转红(self):
+        """fork 的 pull_request 拿不到 secrets ⇒ 不显式跳过就会误报成「没配 PAT」而误红。"""
+        bad = GOOD_WORKFLOW.replace(
+            """          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "跳过：PR 来自 fork"
+            exit 0
+          fi
+""",
+            '',
+        )
+        problems = self._check_with(bad)
+        self.assertTrue(
+            any('fork' in p for p in problems),
+            f'删掉 fork 跳过分支必须被判红：{problems}',
+        )
+
+    def test_变异_fork分支只打提示不退出转红(self):
+        """只打一行提示然后继续 ⇒ 拿着空的 GH_TOKEN 去调 gh pr merge ⇒ 报错含糊、语义被掩盖。"""
+        bad = GOOD_WORKFLOW.replace(
+            '            echo "跳过：PR 来自 fork"\n            exit 0',
+            '            echo "跳过：PR 来自 fork"',
+        )
+        problems = self._check_with(bad)
+        self.assertTrue(
+            any('fork' in p for p in problems),
+            f'fork 分支不显式退出必须被判红：{problems}',
+        )
+
+    def test_变异_fork判定写在注释里转红(self):
+        """注释里提到 fork 不算——守卫不能被自己的说明文字骗过去。"""
+        bad = GOOD_WORKFLOW.replace(
+            """          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "跳过：PR 来自 fork"
+            exit 0
+          fi
+""",
+            '          # 若 HEAD_REPO != BASE_REPO 则跳过 fork PR\n',
+        )
+        problems = self._check_with(bad)
+        self.assertTrue(
+            any('fork' in p for p in problems),
+            f'注释里的 fork 判定不该算命中：{problems}',
         )
 
     # ------------------------------------------------------------------
