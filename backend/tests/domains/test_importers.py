@@ -509,8 +509,15 @@ class TestTHSCSVParser:
         assert row['op_type'] == 'tax'
         assert row['op_type_label'] == '扣税'
 
-    def test_ths_bond_redeem_confirm_orphan(self, client, db):
-        """债券兑付确认后应生成 orphan 流水"""
+    def test_ths_bond_redeem_confirm_links_position(self, client, db):
+        """债券兑付确认后应**关联持仓并清仓**，而不是落孤儿流水（#2832）。
+
+        改版前：兑付硬编码 `position_id=None` + `entry_status='orphan'`，
+        持仓份额留在 30 张不动 —— 用户看到「钱到账了，持仓还在」，
+        已实现盈亏也永远不包含这笔。
+        """
+        from app.domains.positions.models import Position
+
         # 先创建持仓
         csv_buy = (
             '证券代码\t证券名称\t操作\t成交数量\t成交均价\t成交金额\t股票余额\t发生金额\t手续费\t印花税\t其他杂费\t资金余额\t合同编号\t交收日期\t证券中文全称\t佣金\t过户费\t清算费(B股)\t币种\n'
@@ -521,6 +528,11 @@ class TestTHSCSVParser:
         )
         rows = resp1.get_json()['data']
         client.post('/api/importers/confirm', json=rows)
+
+        # 场内债代码落库会带交易所前缀（SH/SZ），用 like 取，避免把前缀约定写死进测试
+        position = db.query(Position).filter(Position.symbol.like('%110067%')).first()
+        assert position is not None
+        qty_before = position.quantity
 
         # 债券兑付
         csv_redeem = (
@@ -535,12 +547,22 @@ class TestTHSCSVParser:
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
         assert data['imported'] == 1
-        assert data['orphan_count'] == 1
+        # 兑付清仓**不是**孤儿：这是本用例与改版前最关键的区别
+        assert data['orphan_count'] == 0
 
         txn = db.query(Transaction).filter_by(txn_type='bond_redeem').first()
         assert txn is not None
         assert txn.amount == 300000
-        assert txn.entry_status == 'orphan'
+        # 关联到持仓，且不再标 orphan
+        assert txn.position_id == position.id
+        assert txn.entry_status is None
+        # 份额扣减至 0，持仓行保留为 cleared（#2343 口径）
+        db.refresh(position)
+        assert position.quantity == 0
+        assert position.quantity == qty_before - 30 * 10000
+        assert position.ownership_status == 'cleared'
+        # 已实现盈亏 = 到账 3000 − 成本（112.5 × 30 = 3375）= −375 元
+        assert txn.realized_pnl == -37500
 
     def test_confirm_import_rollback_on_error(self, client, db):
         """测试导入过程中出错时，已处理的数据应回滚"""

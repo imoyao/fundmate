@@ -413,33 +413,17 @@ class CommitMixin:
                             kept_duplicates += 1
                         continue
 
-                    # 特殊操作：债券兑付
+                    # 特殊操作：债券兑付（#2832：关联持仓扣份额，不再是孤儿）
+                    # 金额口径见 PositionService.process_bond_redeem：取交割单「发生金额」
+                    # （到账净额，含应计利息），不是「成交均价 × 数量」。
+                    # 兑付量 > 持仓量时该方法抛 ValueError → 本行进 commit_errors，
+                    # 其余行照常入库（单条记录包在 SAVEPOINT 内）。
                     if bt == BusinessType.BOND_REDEEM.code:
-                        # 数量和金额都需要转换
-                        qty_units = Money.shares_to_min_unit(data['quantity'])
-                        price_units = Money.yuan_to_price_units(data.get('avg_price', 0))
-                        amount_cents = Money.yuan_to_cents(data['net_amount'])
-                        TransactionService.create(
-                            db=self.db,
-                            position_id=None,
-                            txn_type='bond_redeem',
-                            trade_date=data.get('trade_date'),
-                            confirm_date=data.get('confirm_date'),
-                            asset_type=data.get('type'),
-                            quantity=qty_units,
-                            price=price_units,
-                            fee=0,
-                            amount=amount_cents,
-                            status='success',
-                            position_name=data.get('name', data['symbol']),
-                            account_name=data.get('account_name', ''),
-                            notes=data.get('notes') or '债券到期兑付',
-                            import_hash=data.get('import_hash'),
-                            entry_status='orphan',
-                            link_group_id=data.get('link_group_id'),
-                            family_id=self.family_id,
-                        )
-                        orphan_count += 1
+                        outcome = PositionService.process_orphan_bond_redeem(self.db, data)
+                        # 用 is_orphan 而不是 `position is None`：兑付清仓也返回 None，
+                        # 那一条是正常业务结果，不是「没归位」。
+                        if outcome.is_orphan:
+                            orphan_count += 1
                         imported += 1
                         if record.keep_duplicate:  # #1882：勾选保留行入库单独计数
                             kept_duplicates += 1

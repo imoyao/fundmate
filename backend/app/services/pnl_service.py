@@ -46,7 +46,9 @@ from app.services.position_valuation import market_value_cents
 
 # 投入（+）与回款（−）的流水类型；分红/送股不参与成本基数（分红记 realized，送股只稀释均价）
 _INVEST_TXN_TYPES = ('buy', 'deposit')
-_DIVEST_TXN_TYPES = ('sell', 'withdraw')
+# 兑付（bond_redeem）计入回款：债券到期/强赎拿回的钱同样是「退出投入」，
+# 不计会让「净投入」在兑付后仍停留在买入全额，收益率被低估（#2832）。
+_DIVEST_TXN_TYPES = ('sell', 'withdraw', 'bond_redeem')
 
 
 def _scale_cents(cents: int, rate: float | None) -> int:
@@ -71,6 +73,36 @@ def compute_sell_realized_cents(
     """
     gross = Money.multiply_price_quantity((price_units or 0) - (avg_price_units or 0), qty_units or 0)
     return int(gross) - int(fee_cents or 0)
+
+
+def compute_redeem_realized_cents(
+    *,
+    amount_cents: int,
+    avg_price_units: int,
+    qty_units: int,
+) -> int:
+    """单笔债券兑付的已实现盈亏（分）= 实际到账额 − 释放成本。
+
+    ## 为什么不复用 compute_sell_realized_cents
+
+    兑付的金额口径与卖出**本质不同**（#2832 实测）：
+
+    - 卖出：``amount = 成交价 × 数量``（毛额），手续费单列 ⇒ 已实现必须减 fee；
+    - 兑付：``amount`` 取交割单「发生金额」，即**实际到账的净额**（面值 + 应计利息
+      − 代扣费），而 ``price`` 列是券商的成交均价（通常就是面值 100）。付息或强赎
+      溢价时两者本来就不相等。
+
+    所以：
+    1. 用 ``amount`` 而不是 ``price × qty`` 做回款项——否则 10 张面值 100、票息 3.5 的
+       债到账 1035 会被记成 1000，利息静默丢失；
+    2. **不再减 fee**——``amount`` 已是扣费后的净额，再减一次是双扣。
+
+    代价是这里假定了「兑付 amount = 净额」。该约定由导入侧（交割单「发生金额」；
+    见 ``ths_stock._compute_actual_amount``）与手动记账（用户填实收金额）共同保证，
+    并由 ``test_bond_redeem_pipeline.py`` 的口径用例钉住。
+    """
+    released = Money.multiply_price_quantity(avg_price_units or 0, qty_units or 0)
+    return int(amount_cents or 0) - int(released)
 
 
 def realized_pnl_by_position(db: Session, family_id: int, ledger_ids: Optional[List[int]] = None) -> dict[int, int]:
