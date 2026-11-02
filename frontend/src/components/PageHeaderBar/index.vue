@@ -4,6 +4,12 @@
     - title: 页面主标题
     - subtitle: 副标题（一句话说明这个页面是做什么的，面向小白用户）
     - updatedAt: 更新时间字符串（如 "2026-08-02 更新"），可选
+
+  ⚠️ 摆放约束：本组件**必须挂在页面的块级根节点下**，不要塞进 `display: flex`
+  的定宽容器里。它自带 `margin: 0 auto`，而 flex 子项在交叉轴上有 auto 外边距时
+  `align-items: stretch` 会失效 ⇒ 页头收缩成内容宽并被居中，标题与下方内容左边缘
+  错开（复盘页实测 381 vs 32，1280 视口）。正确形态见 dividends / TransactionList：
+  页头在外、定宽 + 内边距由内容区的 shell 承担，两者同值即左边缘对齐（#1501/#1506）。
 -->
 <template>
   <header class="page-header">
