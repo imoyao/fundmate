@@ -148,6 +148,29 @@
   color: var(--text-primary);
 }
 
+/* ── 操作列 ··· 菜单（2026-11-02 方案 B）──
+   菜单 popper teleport 到 body，**不在 .el-table 内**，故本组选择器不能带 .el-table 前缀，
+   改用自有类名（.watchlist-actions-menu__*）控制，避免污染其它下拉菜单。
+   删除项用 --color-danger-ink 而非 --color-danger：前者是「危险**文字**级」令牌
+   （白底 4.74:1），后者是面/描边级；菜单项是文字，必须用 ink 档（#1599）。 */
+.watchlist-actions-menu__icon {
+  margin-right: 8px;
+  font-size: 14px;
+  vertical-align: -2px;
+}
+
+.watchlist-actions-menu__danger,
+.watchlist-actions-menu__danger .watchlist-actions-menu__icon {
+  color: var(--color-danger-ink);
+}
+
+/* 危险项 hover 也不套品牌色：EP 默认 hover 会把文字刷成主色，删除语义会丢 */
+.watchlist-actions-menu__danger:hover,
+.watchlist-actions-menu__danger:focus {
+  color: var(--color-danger-ink);
+  background-color: var(--color-danger-10);
+}
+
 .el-table .add-note-btn {
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
