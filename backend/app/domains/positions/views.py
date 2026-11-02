@@ -95,18 +95,8 @@ def get_position_advisor_context(id: int):
 
 _PRICE_RANGE_OP_TYPES = {'buy', 'sell', 'deposit', 'withdraw'}
 
-# create_position 支持的操作类型（视图层在调服务前据此 abort，避免被 except Exception 兜底成 500）
-# bond_redeem（#2832）：债券到期兑付 / 强赎，与卖出同样扣份额，但金额口径是「到账净额」
-_KNOWN_OP_TYPES = {
-    'buy',
-    'deposit',
-    'sell',
-    'withdraw',
-    'dividend',
-    'dividend_reinvest',
-    'split',
-    'bond_redeem',
-}
+# create_position 支持的操作类型（据此 abort，避免被 except Exception 兜底成 500）；bond_redeem（#2832）＝债券到期兑付/强赎，扣份额但金额口径是「到账净额」
+_KNOWN_OP_TYPES = {'buy', 'deposit', 'sell', 'withdraw', 'dividend', 'dividend_reinvest', 'split', 'bond_redeem'}
 
 
 def _validate_price_within_range(data: dict) -> None:
