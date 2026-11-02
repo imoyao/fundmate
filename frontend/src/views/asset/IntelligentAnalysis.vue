@@ -135,10 +135,25 @@
           <SectionHeader
             title="资产净值走势"
             info="来自每日资产快照记录，未打卡则无曲线"
-          />
+          >
+            <!-- 区间涨跌贴着标题走（#badge 槽）：它是这张图的「结论」，
+                 不该塞进右侧操作槽和控件抢位置。悬停补齐起止日期与绝对额——
+                 只报百分比时用户没法判断「涨了 3% 是多少钱」。 -->
+            <template #badge>
+              <span v-if="netWorthRange" class="net-range" :title="rangeTip">
+                <span>区间</span>
+                <span class="net-range__value" :style="{ color: rangeColor }">
+                  {{ rangeLabel }}
+                </span>
+              </span>
+            </template>
+          </SectionHeader>
           <CardBlock>
             <div class="relative h-72">
-              <canvas ref="netWorthChartRef" />
+              <!-- 容器必须是**普通 div**：echarts.init 读的是 el.clientWidth/clientHeight，
+                   `<canvas>` 未设 CSS 尺寸时按 HTML 默认 300×150 报尺寸 ⇒ 图被画成左上角
+                   一小块（2026-11-02 复盘页实测）。宽高交给外层 h-72 + 满宽。 -->
+              <div ref="netWorthChartRef" class="h-full w-full" />
               <p
                 v-if="!netWorthSeries.length"
                 class="absolute inset-0 flex items-center justify-center text-sm"
@@ -198,9 +213,29 @@ const {
   chartRef: netWorthChartRef,
   series: netWorthSeries,
   latestSnapshot,
+  rangeChange: netWorthRange,
   load: loadProfitTrend,
   renderChart: initCharts
 } = useNetWorthTrend();
+
+/** 区间涨跌幅（首末快照之差）。涨红跌绿沿用中国市场惯例，文字用 -ink 档达 AA */
+const rangeLabel = computed(() => {
+  const r = netWorthRange.value;
+  if (!r || r.pct == null) return "";
+  return `${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%`;
+});
+const rangeColor = computed(() =>
+  netWorthRange.value && netWorthRange.value.abs < 0
+    ? "var(--color-fall-ink)"
+    : "var(--color-rise-ink)"
+);
+/** 百分比之外补绝对额与起止日期：只说「涨 3%」，用户没法判断那是多少钱 */
+const rangeTip = computed(() => {
+  const r = netWorthRange.value;
+  if (!r) return "";
+  const sign = r.abs >= 0 ? "+" : "-";
+  return `${r.from} → ${r.to}，净资产 ${sign}¥${formatAmount(Math.abs(r.abs), 0)}`;
+});
 const moneyFundIncome = ref<MoneyFundIncomeData | null>(null);
 
 const initialLoading = ref(true);
@@ -325,5 +360,28 @@ onMounted(async () => {
   align-items: center;
   margin-top: calc(var(--space-section) * -1 + 8px);
   font-size: var(--el-font-size-small);
+}
+
+/* 区间涨跌胶囊（区块标题右侧）：中性底 + 语义色数字。
+   只让**数字**带涨跌色，前缀「区间」保持中性——整枚胶囊染色会让标题行
+   出现第二个视觉焦点，与主图的品牌色打架。 */
+.net-range {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 8px;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
+  white-space: nowrap;
+  cursor: help;
+  background: var(--bg-soft);
+  border-radius: 999px;
+
+  &__value {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
 }
 </style>
