@@ -42,6 +42,7 @@ from app.services.mcp.errors import McpBadResponse, McpError, classify_exception
 from app.services.mcp.providers.qieman import (  # noqa: F401  兼容再导出：既有导入点（含测试）不必改
     QIEMAN_CLIENT_INFO,
     QIEMAN_MCP_URL,
+    QIEMAN_PORTFOLIO_NAV_TOOL,
     QIEMAN_PROTOCOL_VERSION,
     QIEMAN_STRATEGY_COMPOSITION_TOOL,
     QIEMAN_STRATEGY_DETAIL_TOOL,
@@ -60,6 +61,7 @@ _TOOL_CAPABILITY: Dict[str, str] = {
     QIEMAN_TOOL: 'latest_quotations',
     QIEMAN_STRATEGY_DETAIL_TOOL: 'strategy_details',
     QIEMAN_STRATEGY_COMPOSITION_TOOL: 'strategy_composition',
+    QIEMAN_PORTFOLIO_NAV_TOOL: 'portfolio_nav',
 }
 
 # 且慢组合概览（GetStrategyDetails）中文字段 → 归一化英文键（实测 2026-09）。
@@ -529,6 +531,59 @@ class QiemanFetcher(SingleValueFetcher):
                     seen.add(rec['code'])
                     out.append(rec)
         logger.info(f'且慢组合概览抓取 {len(out)}/{len(codes)} 条')
+        return out
+
+    def fetch_portfolio_nav_history(self, strategy_code: str) -> List[dict]:
+        """且慢组合历史净值序列：``GetPortfolioNavHistory``（投顾详情页走势图）。
+
+        真实返回结构（实测 2026-11-01，ZH012926）：
+            [{"navDate": "2017-07-24", "nav": 1, "dailyReturn": null},
+             {"navDate": "2026-10-30", "nav": 2.8105711229, "dailyReturn": -0.0149...},
+             …]   # 2250 行，成立至今全量，**无分页、无区间参数**
+
+        与概览（:meth:`fetch_strategy_details`）的区别：那边 ``策略净值`` 只是**当日一个点**，
+        这边才是序列。图要画线就必须走这条，不能拿概览值拼。
+
+        返回 ``[{nav_date, nav}]``（升序由调用方保证；本方法按上游顺序原样返回）。
+        **无法解析的行一律丢弃而不是补 0**：净值 0 会让走势图出现一根假暴跌，
+        而「少一个点」在图上只是一段略疏的线，代价不对称。
+
+        Raises:
+            McpTokenMissing: 未配置 Token（该平台功能关闭，不是故障）。
+            McpError: 传输 / 协议层失败，由调用方按平台隔离。
+        """
+        code = str(strategy_code or '').strip()
+        if not code:
+            return []
+
+        api_key = self._system_token('portfolio_nav')
+        try:
+            text = self._call_tool(
+                api_key,
+                self._provider.tool_for('portfolio_nav'),
+                {'poCode': code},
+            )
+            parsed = json.loads(text) if text else []
+        except McpError:
+            raise
+        except json.JSONDecodeError as e:
+            raise McpBadResponse(f'组合净值序列响应不是合法 JSON: {e}', provider=self._provider.name) from e
+
+        # 上游给的是裸数组；仍兼容 ``{"rows": [...]}`` / ``{"data": [...]}`` 两种包裹形态，
+        # 以免一次结构小改就把整条链路打成空序列（空序列会被读成「这组合没有净值」）。
+        if isinstance(parsed, dict):
+            parsed = parsed.get('rows') or parsed.get('data') or []
+
+        out: List[dict] = []
+        for raw in parsed or []:
+            if not isinstance(raw, dict):
+                continue
+            nav_date = str(raw.get('navDate') or raw.get('nav_date') or '').strip()
+            nav = _to_float(raw.get('nav'))
+            if not nav_date or nav is None or nav <= 0:
+                continue
+            out.append({'nav_date': nav_date, 'nav': nav})
+        logger.info(f'且慢组合 {code} 净值序列 {len(out)} 条')
         return out
 
     def fetch(self) -> Optional[Dict[str, Any]]:

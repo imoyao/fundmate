@@ -651,6 +651,52 @@ class AdvisorAdjustHistory(Base, PrimaryKeyMixin, TimestampMixin):
     __table_args__ = (UniqueConstraint('portfolio_id', 'adjust_date', 'fund_code', name='uq_advisor_adjust_p_d_f'),)
 
 
+class AdvisorPortfolioNav(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合净值日序列（投顾详情页走势图）。
+
+    ## 为什么需要这张表
+
+    详情页 `/trend/` 的其它品类都有序列底座（``daily_worth`` / ``price_history`` /
+    ``index_daily``），唯独投顾组合没有——``product_trend._NO_SERIES_TYPES`` 直接把
+    ``portfolio`` 判成「无序列数据源」，走势卡整块不渲染。事实并非没有数据源：
+    且慢 MCP 的 ``GetPortfolioNavHistory`` 一次调用就能返回该组合**成立至今**的
+    日频净值（实测 ZH012926 = 2250 行，2017-07-24 → 2026-10-30）。缺的是落库。
+
+    ## 为什么落库而不是每次现拉
+
+    MCP 是外部依赖：单次 1~2s、有额度、且可能抖动。详情页是「点进去就看」的场景，
+    每次现拉等于把外部依赖的可用性直接绑在首屏。落库后读库即回，与其它品类同构；
+    首次查看（库里还没有这个组合）走按需拉取并当场落库，之后走日更同步。
+
+    ## 数据口径
+
+    - ``nav``：组合**单位净值**（且慢返回的是组合净值，非累计净值；组合无分红拆份额，
+      故不需要复权口径——这一点与场外基金不同，见 ``product_trend`` 的 ``basis`` 文案）；
+    - ``source``：写者来源（``qieman``），与 ``advisor_holdings.source`` 同口径；
+    - 同一(组合, 净值日)唯一，重复同步按唯一键覆盖。
+
+    ## 为什么 FK 指向 advisor_portfolios.id 而不是存 code
+
+    同一份数据里 ``advisor_holdings`` / ``advisor_adjust_histories`` 都是这么做的
+    （组合是 market 域内部实体，不存在跨域外键问题），跟随既有口径比另起一套更省心；
+    ``code`` 的归一（大小写 / 平台命名空间）由 ``advisor_portfolios`` 承担。
+    """
+
+    __tablename__ = 'advisor_portfolio_navs'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    nav_date = Column(Date, nullable=False, index=True, comment='净值日期')
+    nav = Column(SafeNumeric(12, 6), nullable=False, comment='组合单位净值')
+    source = Column(String(20), nullable=False, comment='数据来源: qieman(MCP GetPortfolioNavHistory)')
+
+    __table_args__ = (
+        UniqueConstraint('portfolio_id', 'nav_date', name='uq_advisor_nav_p_d'),
+        Index('idx_advisor_nav_portfolio_date', 'portfolio_id', 'nav_date'),
+    )
+
+
 # ── 基金持仓明细 / 行业配置（#870 基金持仓穿透）─────────────────────────────────
 # 语义是**报告期快照**，不是日期序列：东财只提供报告期粒度（`季度`），无任意日期查询。
 # 版本键统一用 `report_period`（如 '2026Q2'），不用日期。

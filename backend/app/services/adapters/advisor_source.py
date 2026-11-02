@@ -183,6 +183,23 @@ class AdvisorPortfolioSource(ABC):
         """
         return {c: self.fetch_holdings(c) for c in codes or []}
 
+    def fetch_nav_history(self, code: str) -> List[Dict[str, Any]]:
+        """组合历史净值序列 ``[{nav_date, nav}]``；无该数据面返回 ``[]``。
+
+        语义要求：
+        - ``nav_date`` 是**字符串** ``YYYY-MM-DD``（日期解析统一由落库层负责，与
+          :meth:`fetch_holdings` 的 ``as_of_date`` 同口径）；
+        - 返回**全量**历史而不是按档位截取——详情页要支持 1M~5Y 六档，截断在适配器里
+          做等于让长档永远画不满，而多存几千行对 market 域毫无压力；
+        - 拿不到时**返回 ``[]`` 还是抛错**要分清：**没有该数据面**（平台不提供）返回 ``[]``，
+          **调不通**（Token 缺失 / 传输失败）必须抛错——空列表被上层读成
+          「这组合没有净值」，与「这次没调成」是两件事（#171 同族）。
+
+        默认实现返回 ``[]``：这是**可选数据面**，与批量方法同理——新增平台不必为此
+        写一个占位方法，也不该因为在基类里加了抽象方法就编译不过。
+        """
+        return []
+
 
 #: platform → 适配器类（由 :func:`register_advisor_source` 填充）
 _SOURCES: Dict[str, type] = {}
