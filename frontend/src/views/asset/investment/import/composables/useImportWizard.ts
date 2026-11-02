@@ -941,6 +941,20 @@ export function useImportWizard() {
     return filteredMergedData.value.slice(start, start + pageSize.value);
   });
 
+  // 筛选收缩后当前页可能越界：el-pagination 的 total 是筛选后的 filteredTotal，
+  // 若停在旧的大页码上（如 7/7），切片会落到空区间 → 表格假性「空白」。
+  // 统一在这里钳制，而不是指望每个筛选入口（开关/搜索/类型/类别胶囊）各自记得复位——
+  // 入口会不断增加，漏一个就是静默空表。sync 是刻意的：钳制只写一个 ref，
+  // 必须赶在下一次渲染前完成，否则会先画出一帧空表再跳页。
+  watch(
+    () => filteredMergedData.value.length,
+    len => {
+      const maxPage = Math.max(1, Math.ceil(len / pageSize.value));
+      if (currentPage.value > maxPage) currentPage.value = maxPage;
+    },
+    { flush: "sync" }
+  );
+
   const calculatedCount = computed(() => {
     return previewData.value.filter(row => row.is_calculated).length;
   });
