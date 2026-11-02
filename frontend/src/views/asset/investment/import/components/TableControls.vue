@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
@@ -18,6 +19,15 @@ const {
   toggleFixPanel,
   isFundMode
 } = useImportWizardContext();
+
+/**
+ * 操作说明与行色图例的显隐。
+ *
+ * 默认收起：两行常驻说明（约 40px）只有首次进入才需要，长期占着把表格往下推。
+ * 也**刻意不用 popover / tooltip**：#1790 验收①要求本页无浮层（就地编辑不得弹层），
+ * 用浮层承载说明会与那条判据互斥，故走页内展开——点「?」在原位展开，不浮、不遮挡。
+ */
+const showHelp = ref(false);
 </script>
 
 <template>
@@ -102,34 +112,37 @@ const {
         {{ showFullTable ? "收起列表" : "展开列表" }}
       </el-button>
       <!-- 操作说明与行色图例：首次进入才需要，从常驻两行（约 40px）收进「?」
-           （2026-11-02）。概览条的语义色点替代了「哪类数据」的图例，这里只留
+           （2026-11-02）。概览条的语义色点已替代「哪类数据」的图例，这里只留
            行级高亮与编辑快捷键两件表格内才知道的事 -->
-      <el-popover placement="bottom-end" :width="300" trigger="click">
-        <template #reference>
-          <el-button class="help-trigger" link aria-label="表格操作说明与图例"
-            ><IconifyIconOffline icon="ep:question-filled"
-          /></el-button>
-        </template>
-        <div class="help-body">
-          <p class="help-line">
-            点击{{
-              isFundMode ? "份额 / 确认净值 / 金额" : "数量 / 单价 / 金额"
-            }}单元格可就地修改：Enter 提交并停留、Esc 取消还原、Tab
-            跳到下一格；改数量或单价会自动重算金额
-          </p>
-          <p v-if="duplicateCount > 0" class="help-line">
-            <span
-              class="help-swatch help-swatch--duplicate"
-            />黄色行：已识别重复，自动跳过，可勾选保留
-          </p>
-          <p v-if="blockedCount > 0" class="help-line">
-            <span
-              class="help-swatch help-swatch--blocked"
-            />红色行：信息缺失，需补全数量或价格
-          </p>
-        </div>
-      </el-popover>
+      <el-button
+        class="help-trigger"
+        link
+        aria-label="表格操作说明与图例"
+        :aria-expanded="showHelp"
+        @click="showHelp = !showHelp"
+      >
+        <IconifyIconOffline icon="ep:question-filled" />
+      </el-button>
     </div>
+  </div>
+
+  <div v-if="showHelp" class="help-body" role="note">
+    <p class="help-line">
+      点击{{
+        isFundMode ? "份额 / 确认净值 / 金额" : "数量 / 单价 / 金额"
+      }}单元格可就地修改：Enter 提交并停留、Esc 取消还原、Tab
+      跳到下一格；改数量或单价会自动重算金额
+    </p>
+    <p v-if="duplicateCount > 0" class="help-line">
+      <span
+        class="help-swatch help-swatch--duplicate"
+      />黄色行：已识别重复，自动跳过，可勾选保留
+    </p>
+    <p v-if="blockedCount > 0" class="help-line">
+      <span
+        class="help-swatch help-swatch--blocked"
+      />红色行：信息缺失，需补全数量或价格
+    </p>
   </div>
 </template>
 
@@ -154,6 +167,10 @@ const {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 8px 10px;
+  margin: -4px 0 8px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
 }
 
 .help-line {

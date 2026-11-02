@@ -174,8 +174,7 @@ describe("概览条等式与筛选复位", () => {
     const w = setup(mixedRows());
 
     const b = w.fixBreakdown.value;
-    const sectionSum =
-      b.error + b.missingCode + b.missingQtyPrice + b.mismatch;
+    const sectionSum = b.error + b.missingCode + b.missingQtyPrice + b.mismatch;
 
     expect(sectionSum).toBe(w.summaryCounts.value.fix);
     expect(b.error).toBe(1);
@@ -190,9 +189,7 @@ describe("概览条等式与筛选复位", () => {
 
     // 基准取 previewData 本身，不取 totalRows：后者是解析计数 ref，靠多处赋值同步，
     // 概览条的「全部」条数因此由三类相加得出（见 SummaryPanel 的 totalCount）
-    expect(c.complete + c.duplicate + c.fix).toBe(
-      w.previewData.value.length
-    );
+    expect(c.complete + c.duplicate + c.fix).toBe(w.previewData.value.length);
   });
 
   it("「全部」胶囊清空类别筛选并保证表格可见", () => {
