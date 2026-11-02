@@ -231,6 +231,64 @@ class THSStockParser(BaseImportParser):
     # #2137：同花顺交割单费用明细的源列（与 _preprocess_dataframe 的 fee_cols 同源）
     FEE_BREAKDOWN_SOURCE_COLUMNS = ('佣金', '印花税', '过户费', '其他杂费')
 
+    # 差额推导手续费的上限（占成交额比例）。真实费率（佣金 + 印花税 + 过户费）
+    # 远低于 5%，超过这条线基本是「金额录错 / 数量单位错」，不能当费用吃掉。
+    FEE_GAP_MAX_RATIO = Decimal('0.05')
+
+    @classmethod
+    def _derive_fee_from_amount_gap(
+        cls,
+        business_type: str,
+        fee: float,
+        fee_breakdown: tuple,
+        trade_amount: Decimal,
+        quantity: float,
+        price: float,
+        net_amount_raw: Decimal,
+    ) -> float:
+        """费用列缺失时，用「发生金额 − 成交额」的差额兜补手续费（2026-11-02）。
+
+        ## 为什么不按费率估算
+
+        用户口径是「实际多付（买入）或少收（卖出）的钱就是手续费」——这是交割单上
+        算出来的实测值，不是猜。而本仓 `ledgers.fee_config` 16 个账户全为空，按空白
+        配置估算等于制造虚假精度：让「估算值」看起来像「交割单真值」。
+
+        ## 三条边界（缺一条就会把真错误静默吃成手续费）
+
+        1. **只在费用列全空时启用**：四列任一行有值说明来源给了明细，以它为准，
+           不覆盖。差额与明细不符时留给前端的「差额超过手续费」提示，由人判断。
+        2. **方向校验**：买入发生额 = 成交额 + 费（差为正），卖出 = 成交额 − 费
+           （差为负）。方向不符说明这不是费用（金额录错 / 数量单位错 / 列取反了），
+           此时不推导，让校验层照旧报「金额与数量×价格不符」。
+        3. **上限**：|差| > 成交额 5% 视为数据错误，不推导。
+
+        差额基准优先用交割单的「成交金额」列，缺失时回落到 数量 × 均价——
+        均价可能已被四舍五入，成交额列才是券商给的原值。
+        """
+        if business_type not in ('buy', 'sell'):
+            return fee
+        if fee and fee > 0:
+            return fee
+        if any(p is not None for p in fee_breakdown):
+            return fee
+
+        gross = abs(trade_amount) if trade_amount else Decimal('0')
+        if gross <= 0:
+            gross = abs(Decimal(str(quantity)) * Decimal(str(price)))
+        net = abs(net_amount_raw)
+        if gross <= 0 or net <= 0:
+            return fee
+
+        gap = net - gross
+        if business_type == 'sell':
+            gap = -gap
+        if gap <= 0:
+            return fee
+        if gap > gross * cls.FEE_GAP_MAX_RATIO:
+            return fee
+        return float(round(gap, 2))
+
     @classmethod
     def _parse_fee_breakdown(
         cls, raw: dict
@@ -319,6 +377,12 @@ class THSStockParser(BaseImportParser):
 
         actual_amount = self._compute_actual_amount(business_type, trade_amount, net_amount_raw)
         net_amount_abs = abs(net_amount_raw)
+
+        # 费用兜底（2026-11-02）：交割单费用列全空时，用发生金额与成交额的差额
+        # 反推手续费——「实际多付/少收的钱就是费用」，比按空配置估算可靠
+        fee = self._derive_fee_from_amount_gap(
+            business_type, fee, fee_breakdown, trade_amount, quantity, price, net_amount_raw
+        )
 
         return StandardTransactionRecord(
             confirm_date=trade_date,

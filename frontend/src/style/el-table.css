@@ -96,3 +96,9 @@
 .el-table .el-table__row td.cell-missing {
   box-shadow: inset 3px 0 0 var(--color-warning);
 }
+
+/* cell-fee：金额差额被手续费解释（**不是错误**，仅提示口径差异）。
+   与 cell-missing 的左色条区分开——那里是「缺」，这里是「含费已解释」。 */
+.el-table .el-table__row td.cell-fee {
+  background-color: rgb(250 236 216 / 0.45);
+}

@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
-type EditField = "quantity" | "price" | "amount";
+type EditField = "quantity" | "price" | "amount" | "fee";
 
 const props = defineProps<{ row: any; field: EditField }>();
 
@@ -11,7 +11,8 @@ const { startEdit, finishEdit, cancelEdit } = useImportWizardContext();
 const FIELD_LABEL: Record<EditField, string> = {
   quantity: "数量",
   price: "单价",
-  amount: "金额"
+  amount: "金额",
+  fee: "手续费"
 };
 
 /** 编辑态由 useImportWizard 驱动（单行单格互斥），此处只读展示 */
@@ -19,12 +20,24 @@ const editing = computed(() => {
   const r = props.row;
   if (props.field === "quantity") return !!r.isEditingQty;
   if (props.field === "price") return !!r.isEditingPrice;
+  if (props.field === "fee") return !!r.isEditingFee;
   return !!r.isEditingAmount;
 });
 
 const isEmpty = computed(() => {
   const v = props.row[props.field];
   return v === null || v === undefined || v === "";
+});
+
+/**
+ * 手续费展示：0 / 空一律显示占位「—」而不是「0」「待补全」。
+ * WHY：大多数行没有费用，满屏 0 会让「哪一行真的有费用」看不出来；而 fee 缺失
+ * 不构成阻断（isRowBlocked 不看 fee），「待补全」的红色语义会被误读成必须填。
+ * 展示为占位、点击仍可就地补录，两个需求都保住。
+ */
+const feeText = computed(() => {
+  const n = Number(props.row.fee);
+  return !n ? "—" : n.toFixed(2);
 });
 
 const displayRef = ref<HTMLElement | null>(null);
@@ -149,7 +162,10 @@ function tabToNext() {
       @click.stop="enterEdit"
       @mousedown.prevent
     >
-      <template v-if="!isEmpty">
+      <template v-if="field === 'fee'">
+        <span :class="{ 'fee-zero': feeText === '—' }">{{ feeText }}</span>
+      </template>
+      <template v-else-if="!isEmpty">
         {{ row[field] }}
         <el-tag
           v-if="row.is_calculated"
@@ -178,5 +194,10 @@ function tabToNext() {
 
 .edit-cell__display:hover {
   color: var(--el-color-primary);
+}
+
+/* 无费用占位：低于正文一级，避免满屏 0 抢注意力 */
+.fee-zero {
+  color: var(--text-tertiary-ink);
 }
 </style>
