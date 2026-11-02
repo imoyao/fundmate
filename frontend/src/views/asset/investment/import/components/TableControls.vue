@@ -101,28 +101,36 @@ const {
         />
         {{ showFullTable ? "收起列表" : "展开列表" }}
       </el-button>
+      <!-- 操作说明与行色图例：首次进入才需要，从常驻两行（约 40px）收进「?」
+           （2026-11-02）。概览条的语义色点替代了「哪类数据」的图例，这里只留
+           行级高亮与编辑快捷键两件表格内才知道的事 -->
+      <el-popover placement="bottom-end" :width="300" trigger="click">
+        <template #reference>
+          <el-button class="help-trigger" link aria-label="表格操作说明与图例"
+            ><IconifyIconOffline icon="ep:question-filled"
+          /></el-button>
+        </template>
+        <div class="help-body">
+          <p class="help-line">
+            点击{{
+              isFundMode ? "份额 / 确认净值 / 金额" : "数量 / 单价 / 金额"
+            }}单元格可就地修改：Enter 提交并停留、Esc 取消还原、Tab
+            跳到下一格；改数量或单价会自动重算金额
+          </p>
+          <p v-if="duplicateCount > 0" class="help-line">
+            <span
+              class="help-swatch help-swatch--duplicate"
+            />黄色行：已识别重复，自动跳过，可勾选保留
+          </p>
+          <p v-if="blockedCount > 0" class="help-line">
+            <span
+              class="help-swatch help-swatch--blocked"
+            />红色行：信息缺失，需补全数量或价格
+          </p>
+        </div>
+      </el-popover>
     </div>
   </div>
-
-  <!-- 行内编辑交互说明（#1790 验收②「页面有交互说明」） -->
-  <p v-if="showFullTable" class="edit-hint">
-    点击{{
-      isFundMode ? "份额 / 确认净值 / 金额" : "数量 / 单价 / 金额"
-    }}单元格可就地修改：Enter 提交并停留、Esc 取消还原、Tab
-    跳到下一格；修改数量或单价会自动重算金额
-  </p>
-
-  <p
-    v-if="showFullTable && (duplicateCount > 0 || blockedCount > 0)"
-    class="highlight-legend"
-  >
-    <span class="legend-item legend-item--duplicate"
-      >黄色行：已识别重复，自动跳过，可勾选保留</span
-    >
-    <span v-if="blockedCount > 0" class="legend-item legend-item--blocked"
-      >红色行：信息缺失，需补全数量或价格</span
-    >
-  </p>
 </template>
 
 <style scoped>
@@ -138,54 +146,49 @@ const {
   flex-shrink: 0;
 }
 
+.help-trigger {
+  color: var(--text-tertiary-ink);
+}
+
+.help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.help-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.help-swatch {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.help-swatch--duplicate {
+  background: rgb(250 236 216);
+}
+
+.help-swatch--blocked {
+  background: var(--bg-card);
+  border-left: 3px solid var(--color-danger);
+}
+
 /* #2274 隐藏勾选提示：允许在窄断面折行，不撑破控件行 */
 .hidden-selected-hint {
   max-width: 240px;
   height: auto;
   line-height: 1.5;
   white-space: normal;
-}
-
-.edit-hint {
-  margin: -4px 0 8px;
-  font-size: var(--text-label);
-  line-height: 1.5;
-  color: var(--text-tertiary-ink);
-}
-
-.highlight-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  align-items: center;
-  margin: -4px 0 8px;
-  font-size: var(--text-label);
-  line-height: 1.5;
-  color: var(--text-tertiary-ink);
-}
-
-.legend-item {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-}
-
-.legend-item::before {
-  display: inline-block;
-  flex-shrink: 0;
-  width: 10px;
-  height: 10px;
-  content: "";
-  border-radius: 2px;
-}
-
-.legend-item--duplicate::before {
-  background: rgb(250 236 216);
-}
-
-.legend-item--blocked::before {
-  background: var(--bg-card);
-  border-left: 3px solid var(--color-danger);
 }
 
 .fix-count {

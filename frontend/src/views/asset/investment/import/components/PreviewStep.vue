@@ -16,7 +16,6 @@ const {
   errorCount,
   showFixPanel,
   selectedCount,
-  totalRows,
   validRowsCount,
   draftSavedLabel,
   draftSavedHintVisible,
@@ -135,18 +134,14 @@ const pendingFixCount = computed(
 
     <div class="fixed-action-bar">
       <div class="action-content">
+        <!-- 只留一份计数：分档构成（重复/待补全/错误）已在表格上方概览条与修正面板里，
+             这里再列一遍等于同一批数字说第三遍（2026-11-02 UI 重排） -->
         <div class="action-summary">
           <span class="summary-primary">
             已选择 <strong>{{ selectedCount }}</strong> 条<template
               v-if="pendingFixCount > 0"
-              >（正常数据），<strong>{{ pendingFixCount }}</strong>
-              条待修正</template
-            >
-          </span>
-          <span v-if="pendingFixCount > 0" class="summary-secondary">
-            本次共识别 {{ totalRows }} 条：{{ duplicateCount }} 条重复 /
-            {{ blockedCount }} 条待补全<template v-if="errorCount > 0"
-              >/ {{ errorCount }} 条错误</template
+              >，另有
+              <strong>{{ pendingFixCount }}</strong> 条待修正未计入</template
             >
           </span>
         </div>
@@ -270,20 +265,23 @@ const pendingFixCount = computed(
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 16px;
+
+  /* 12px：概览条与修正面板都是「紧贴表格的上下文」，间距只做分组、不做留白 */
+  gap: 12px;
   min-height: calc(100vh - 240px);
   padding: 16px;
   overflow: hidden;
 }
 
 /*
- * #1792 内联修正面板：摘要下方、表格上方，三者同屏。
+ * #1792 内联修正面板：概览条下方、表格上方，三者同屏。
  * 有界内滚（max-height + overflow-y）——内容高时面板内部滚动，不产生页面级滚动条，
  * 表格仍是唯一可滚动的主体区域（#783 §1「仅表格区域纵向滚动」的口径按此放宽）。
+ * 2026-11-02 起上限收到 38%：面板只剩上下文动作，纵向空间优先给表格。
  */
 .step3-fixpanel {
   flex: 0 1 auto;
-  max-height: 42%;
+  max-height: 38%;
   overflow-y: auto;
 }
 
@@ -306,8 +304,7 @@ const pendingFixCount = computed(
 
 .action-summary {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
 }
 
 .summary-primary {
@@ -316,8 +313,7 @@ const pendingFixCount = computed(
   color: var(--text-primary);
 }
 
-.summary-secondary {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
+.summary-primary strong {
+  font-variant-numeric: tabular-nums;
 }
 </style>

@@ -1899,7 +1899,7 @@ export function useImportWizard() {
     else if (key === "error") activeCategoryFilter.value = "error";
   }
 
-  // ── #1791 三卡片：展开/收起类别过滤 + 卡片复选框 ──
+  // ── #1791 概览条：点类别筛选 + 类别复选框（2026-11-02 由三卡片改为一行胶囊） ──
 
   /** 该类别当前是否展开（tableStatusFilter 就是展开状态：一套状态，两处读） */
   function isCategoryExpanded(key: SummaryCategory): boolean {
@@ -1907,9 +1907,13 @@ export function useImportWizard() {
   }
 
   /**
-   * 【展开查看】/【收起】（#1791 要做的事 2）：tableStatusFilter 在 key↔"" 间切换。
-   * 展开时清掉子分类与「只看问题」开关——它们与三卡片是两套互斥的过滤视角，叠加会
-   * 令「卡片条数 ≠ 表格条数」（验收②）；关键词/类型搜索是正交收窄，予以保留。
+   * 点类别胶囊：tableStatusFilter 在 key↔"" 间切换。
+   * 展开时清掉子分类与「只看问题」开关——它们与类别筛选是两套互斥的过滤视角，叠加会
+   * 令「胶囊条数 ≠ 表格条数」（验收②）；关键词/类型搜索是正交收窄，予以保留。
+   *
+   * 筛到「需要修正」时顺手展开批量修正面板：点这个胶囊的人下一步必然是修它，
+   * 让他再去找按钮是一次多余的往返。只自动打开、不自动关闭（收起由面板自己管），
+   * 否则每点一次胶囊面板就闪一下。
    */
   function toggleCategoryFilter(key: SummaryCategory) {
     if (tableStatusFilter.value === key) {
@@ -1921,9 +1925,15 @@ export function useImportWizard() {
     showProblemOnly.value = false;
     showFullTable.value = true;
     currentPage.value = 1;
+    if (key === "fix" && !showFixPanel.value && summaryCounts.value.fix > 0) {
+      showFixPanel.value = true;
+      showAllocationGroupPanel.value = false;
+      fixModeOverride.value = null;
+      singleFixScope.value = "all";
+    }
   }
 
-  /** 【展开全部数据】：清空全部过滤回完整表格；摘要面板不在过滤作用域内，始终可见（验收③） */
+  /** 【全部】胶囊：清空全部过滤回完整表格；概览条不在过滤作用域内，始终可见（验收③） */
   function expandAllData() {
     tableStatusFilter.value = "";
     activeCategoryFilter.value = "";
@@ -2220,14 +2230,21 @@ export function useImportWizard() {
     return map[key] || "";
   }
 
+  /**
+   * 分区条数 tag 的颜色档：按**问题性质**定档，不比条数。
+   *
+   * 旧实现按条数分档（>200 danger / >50 warning / >10 info / 其余 success），于是
+   * 「代码未匹配 5 条」被染成 success 绿——把「有问题、需处理」显示成「通过」。
+   * 条数只说明规模，不说明性质；5 条匹配失败和 500 条一样不可导入。
+   *
+   * 现口径与状态列三态同源：阻断（不可导入）= danger，可导入但需留意 = warning。
+   */
   function getCategoryTagType(
-    key: string,
-    count: number
+    key: string
   ): "danger" | "warning" | "success" | "info" {
-    if (count > 200) return "danger";
-    if (count > 50) return "warning";
-    if (count > 10) return "info";
-    return "success";
+    if (key === "error" || key === "missingQtyPrice") return "danger";
+    if (key === "missingCode" || key === "mismatch") return "warning";
+    return "info";
   }
 
   function isCategoryActive(key: string): boolean {
