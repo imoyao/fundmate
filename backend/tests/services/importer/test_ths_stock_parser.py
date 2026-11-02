@@ -316,3 +316,137 @@ class TestTHSStockParserIntegration:
         assert r.fee_stamp_duty == Decimal('8.50')
         assert r.fee_transfer_fee == Decimal('1.00')
         assert r.fee_other == Decimal('0.50')
+
+
+class TestFeeGapFallback:
+    """费用列缺失时用「发生金额 − 成交额」差额兜补手续费（2026-11-02）。
+
+    口径来自用户决策：不按费率估算（本仓 ledgers.fee_config 16 个账户全为空，
+    估出来是假精度），而是「实际多付/少收的钱就是手续费」——交割单能算出来的实测值。
+
+    反向约束同样重要：方向不符 / 差额过大时**不推导**，让校验层照旧报错，
+    否则真错误（金额录错、数量单位错）会被静默吃成手续费。
+    """
+
+    @pytest.fixture
+    def parser(self):
+        return THSStockParser()
+
+    FEE_COLS = ('佣金', '印花税', '过户费', '其他杂费')
+
+    def _row_without_fee_columns(self, **kwargs):
+        """模拟交割单没有费用列：四列与合并 fee 全部缺席。"""
+        defaults = {
+            '证券代码': '600519',
+            '证券名称': '测试股票',
+            '操作': '证券买入',
+            '成交数量': '100',
+            '成交均价': '1650.00',
+            '成交金额': '165000.00',
+            '发生金额': '-165015.00',
+            '币种': 'CNY',
+            '交收日期': '20220101',
+            '合同编号': '123',
+        }
+        defaults.update(kwargs)
+        return pd.Series(defaults)
+
+    def test_buy_derives_fee_from_positive_gap(self, parser):
+        """买入：发生额 165015 − 成交额 165000 = 15 → fee 15。"""
+        row = self._row_without_fee_columns()
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee == Decimal('15.0')
+        # 四列仍为未拆分：推导值只进聚合 fee，不伪造明细归属
+        assert record.fee_commission is None
+
+    def test_sell_derives_fee_from_negative_gap(self, parser):
+        """卖出：发生额 79985 − 成交额 80000 = −15 → fee 15（卖到账已扣费）。"""
+        row = self._row_without_fee_columns(
+            操作='证券卖出',
+            成交均价='800.00',
+            成交金额='80000.00',
+            发生金额='79985.00',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.business_type == 'sell'
+        assert record.fee == Decimal('15.0')
+
+    def test_wrong_direction_is_not_treated_as_fee(self, parser):
+        """买入却「少付」：方向不符说明不是费用（金额录错），不推导。"""
+        row = self._row_without_fee_columns(发生金额='-164985.00')
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee == Decimal('0')
+
+    def test_gap_over_ratio_cap_is_not_treated_as_fee(self, parser):
+        """差额 15000 / 成交额 165000 = 9% > 5% 上限，判为数据错误，不推导。"""
+        row = self._row_without_fee_columns(发生金额='-180000.00')
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee == Decimal('0')
+
+    def test_explicit_breakdown_wins_over_gap(self, parser):
+        """四列有值（15）而差额 100：以交割单为准，不覆盖。"""
+        row = pd.Series(
+            {
+                '证券代码': '600519',
+                '证券名称': '测试股票',
+                '操作': '证券买入',
+                '成交数量': '100',
+                '成交均价': '1650.00',
+                '成交金额': '165000.00',
+                '发生金额': '-165100.00',
+                '佣金': '5.00',
+                '印花税': '8.50',
+                '过户费': '1.00',
+                '其他杂费': '0.50',
+                'fee': '15.00',  # 真实链路由 _preprocess_dataframe 合并四列得出
+                '交收日期': '20220101',
+                '合同编号': '123',
+            }
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee == Decimal('15.00')
+        assert record.fee_commission == Decimal('5.00')
+
+    def test_falls_back_to_shares_times_price_without_trade_amount(self, parser):
+        """没有「成交金额」列时用 数量 × 均价 作差额基准。"""
+        row = self._row_without_fee_columns()
+        del row['成交金额']
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee == Decimal('15.0')
+
+    def test_dividend_row_not_affected(self, parser):
+        """非买卖行（分红）不参与推导：本来就没有成交对手方。"""
+        row = self._row_without_fee_columns(
+            操作='红利入账',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='500.00',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.business_type == 'dividend_cash'
+        assert record.fee == Decimal('0')
+
+    def test_integration_derives_fee_through_full_parse(self, parser):
+        """端到端：交割单没有费用列时，走完整 parse() 也能补出手续费。
+
+        WHY 单独一条：`_parse_row` 直调绕过了 `_preprocess_dataframe`（那里会给
+        缺失的 fee 列补 0.0）。真实链路必须先经过它，推导才有可能被触发或误触发。
+        """
+        csv_content = (
+            '证券代码\t证券名称\t操作\t成交数量\t成交均价\t成交金额\t发生金额\t合同编号\t交收日期\n'
+            '600519\t测试股票\t证券买入\t100\t1650.00\t165000.00\t-165015.00\t123\t20220101\n'
+        )
+        records, errors = parser.parse(csv_content.encode('utf-8'))
+        assert len(errors) == 0
+        assert len(records) == 1
+        assert records[0].fee == Decimal('15.0')
+        # 推导值不伪造明细归属：四列仍是未拆分
+        assert records[0].fee_commission is None
