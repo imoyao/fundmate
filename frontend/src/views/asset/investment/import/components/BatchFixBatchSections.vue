@@ -101,9 +101,7 @@ function gotoFullTable() {
         :label="SECTION_LABELS.missingCode"
         :desc="getCategoryDesc('missingCode')"
         :count="fixSectionCounts.missingCode"
-        :tag-type="
-          getCategoryTagType('missingCode', fixSectionCounts.missingCode)
-        "
+        :tag-type="getCategoryTagType('missingCode')"
         :active="isCategoryActive('missingCode')"
         @select="filterByCategory('missingCode')"
       >
@@ -166,12 +164,7 @@ function gotoFullTable() {
         :label="SECTION_LABELS.missingQtyPrice"
         :desc="getCategoryDesc('missingQtyPrice')"
         :count="fixSectionCounts.missingQtyPrice"
-        :tag-type="
-          getCategoryTagType(
-            'missingQtyPrice',
-            fixSectionCounts.missingQtyPrice
-          )
-        "
+        :tag-type="getCategoryTagType('missingQtyPrice')"
         :active="isCategoryActive('missingQtyPrice')"
         :meta-text="qtyMetaText"
         :meta-sub="qtyMetaSub"
@@ -218,7 +211,7 @@ function gotoFullTable() {
         :label="SECTION_LABELS.mismatch"
         :desc="getCategoryDesc('mismatch')"
         :count="fixSectionCounts.mismatch"
-        :tag-type="getCategoryTagType('mismatch', fixSectionCounts.mismatch)"
+        :tag-type="getCategoryTagType('mismatch')"
         :active="isCategoryActive('mismatch')"
         @select="filterByCategory('mismatch')"
       >

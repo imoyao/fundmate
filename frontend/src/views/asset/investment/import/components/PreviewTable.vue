@@ -217,6 +217,12 @@ function missingField(row: any): "quantity" | "price" | null {
   font-variant-numeric: tabular-nums;
 }
 
+/* 日期列不折行：定长 10 字符加制表数字，一旦折成「2026-09- / 01」，
+   视觉上会被读成两条记录（2026-11-02 截图核对发现） */
+:deep(.col-date .cell) {
+  white-space: nowrap;
+}
+
 /* 操作列：默认低存在感，hover 整行时浮现（design.md「表格禁止每行常驻操作按钮」例外操作列） */
 .row-actions {
   display: flex;

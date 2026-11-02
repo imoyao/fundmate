@@ -114,7 +114,7 @@ const showRepoDialog = ref(false);
 
 <template>
   <div class="batch-fix-panel" data-fix-panel>
-    <!-- 顶部动作行：形态标签 + 一键自动修复 + 全局撤销 -->
+    <!-- 顶部动作行：形态标签 + 一键自动修复 + 全局撤销 + 收起（收起原先独占一行，收到这里省一整行） -->
     <div class="bf-actions bf-actions--top">
       <span v-if="modeLabel" class="bf-mode" :data-fix-mode="activeFixMode">
         {{ modeLabel }}
@@ -132,6 +132,9 @@ const showRepoDialog = ref(false);
       <el-button size="default" :disabled="!canUndo" @click="undoLastFix()">
         <IconifyIconOffline icon="ep:refresh-left" class="mr-1" />
         撤销上一步
+      </el-button>
+      <el-button class="bf-close-btn" size="default" @click="toggleFixPanel">
+        收起批量修正
       </el-button>
     </div>
 
@@ -185,7 +188,7 @@ const showRepoDialog = ref(false);
           :row="row"
           :section="section"
           :draft="draftFor(row)"
-          :tag-type="getCategoryTagType(section, 1)"
+          :tag-type="getCategoryTagType(section)"
           @update-draft="
             payload => updateDraft(row, payload.field, payload.value)
           "
@@ -198,13 +201,6 @@ const showRepoDialog = ref(false);
     </template>
 
     <p v-if="isEmptyState" class="bf-empty">本批数据校验通过，无需修正</p>
-
-    <!-- 面板底部（#783 §5：面板底部【收起批量修正】） -->
-    <div class="bf-foot">
-      <el-button size="default" @click="toggleFixPanel">
-        收起批量修正
-      </el-button>
-    </div>
 
     <BatchFixDialogs
       v-model:filled-visible="showFilledDialog"
@@ -245,6 +241,11 @@ const showRepoDialog = ref(false);
   border-radius: 999px;
 }
 
+/* 收起贴右：它是退出动作，不该和修复动作混在一起被误点 */
+.bf-close-btn {
+  margin-left: auto;
+}
+
 .bf-alert {
   margin: 0;
 }
@@ -278,12 +279,5 @@ const showRepoDialog = ref(false);
   margin: 0;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-}
-
-.bf-foot {
-  display: flex;
-  justify-content: center;
-  padding-top: 4px;
-  border-top: 1px dashed var(--border-default);
 }
 </style>

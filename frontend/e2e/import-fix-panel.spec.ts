@@ -65,7 +65,7 @@ const missingCodeRow = (name: string) => ({
   amount: 1000
 });
 
-/** 金额不一致行（100×10=1000 ≠ 999） */
+/** 金额不一致行（100×10=1000 ≠ 900，差额 100 远大于 fee 5） */
 const mismatchRow = (name: string) => ({
   ...baseRow,
   symbol: "600000",
@@ -73,7 +73,9 @@ const mismatchRow = (name: string) => ({
   type: "stock",
   quantity: 100,
   price: 10,
-  amount: 999
+  // 差额必须大于 fee，否则自 2026-11-02 费用容差上线后会被判为「被手续费解释」而归 complete，
+  // 这条 fixture 就再也测不到 mismatch 分区了（旧值 999 + fee 5 正是这种情形）
+  amount: 900
 });
 
 /** 可自动推算的缺失行（缺数量、有单价与金额 → 数量 = 金额 ÷ 单价） */
@@ -211,8 +213,12 @@ async function openPreview(page: Page, rows: typeof BATCH_ROWS) {
   });
 }
 
-function fixCard(page: Page) {
-  return page.locator('.summary-card[data-category="fix"]');
+/**
+ * 「需要修正」胶囊主体：点它 = 按该类别筛表 **并** 自动展开修正面板
+ * （2026-11-02 起卡片上的【批量修正】按钮已退场，胶囊本体就是入口）。
+ */
+async function openFixPanel(page: Page) {
+  await page.locator('.ov-chip[data-category="fix"] .ov-chip-btn').click();
 }
 
 function section(page: Page, key: string) {
@@ -235,7 +241,7 @@ test.describe("批量修正内联面板（#1792）", () => {
     await openPreview(page, BATCH_ROWS);
 
     // ── 验收①：内联展开——摘要、修正面板、表格三方同屏 ──
-    await fixCard(page).getByRole("button", { name: "批量修正" }).click();
+    await openFixPanel(page);
     const panel = page.locator("[data-fix-panel]");
     await expect(panel).toBeVisible();
     await expect(page.locator(".summary-panel")).toBeVisible();
@@ -335,7 +341,7 @@ test.describe("批量修正内联面板（#1792）", () => {
 
     await openPreview(page, SINGLE_ROWS);
 
-    await fixCard(page).getByRole("button", { name: "批量修正" }).click();
+    await openFixPanel(page);
     const panel = page.locator("[data-fix-panel]");
     await expect(panel).toBeVisible();
     await expect(page.locator(".summary-panel")).toBeVisible();
@@ -352,10 +358,10 @@ test.describe("批量修正内联面板（#1792）", () => {
       panel.locator('[data-fix-card][data-section="error"]')
     ).toContainText("交易日期无法解析");
 
-    // mismatch 卡片差额说明（100×10 − 999 = +1.00）
+    // mismatch 卡片差额说明（100×10 − 900 = +100.00）
     await expect(
       panel.locator('[data-fix-card][data-section="mismatch"]')
-    ).toContainText("差额 +1.00");
+    ).toContainText("差额 +100.00");
 
     // 代码未匹配卡片：输入代码 → 应用 → 行出问题集，卡片消失
     const codeCard = panel.locator(
@@ -367,16 +373,16 @@ test.describe("批量修正内联面板（#1792）", () => {
 
     // 跳过此条（mismatch 卡片）：行退出导入集合 → 底部已选择计数 -1
     // 默认已选 3 条（完整 1 + 未匹配 1 + 不一致 1；缺失/错误行默认不选）
-    await expect(page.locator(".summary-foot .foot-selected")).toContainText(
-      "已选择 3 条"
-    );
+    await expect(
+      page.locator(".action-summary .summary-primary")
+    ).toContainText("已选择 3 条");
     await panel
       .locator('[data-fix-card][data-section="mismatch"]')
       .getByRole("button", { name: "跳过此条" })
       .click();
-    await expect(page.locator(".summary-foot .foot-selected")).toContainText(
-      "已选择 2 条"
-    );
+    await expect(
+      page.locator(".action-summary .summary-primary")
+    ).toContainText("已选择 2 条");
 
     // 收起 → 面板关闭，摘要仍在
     await panel.getByRole("button", { name: "收起批量修正" }).click();

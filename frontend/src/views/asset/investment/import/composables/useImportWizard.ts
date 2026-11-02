@@ -423,7 +423,7 @@ export function useImportWizard() {
 
   /**
    * 表格列（#1790 → #783 §6.1 口径；2026-11-02 手续费列回归）：数据列 9 +
-   * 勾选 + 操作 = **11 列**，最小宽合计 1040px，1200px 视口内无横向滚动。
+   * 勾选 + 操作 = **11 列**，最小宽合计 1056px（预算 1060），1200px 视口内无横向滚动。
    *
    * 数据列一律 `minWidth`——design.md「冻结列与横向滚动规范」第 4 条：只有冻结列
    * 才用固定 `width`（否则 EP 不把该列纳入余量分配，宽屏右侧留白，#1421 根因 2）；
@@ -434,10 +434,14 @@ export function useImportWizard() {
    *   手续费列退场，可见性改由金额列 tooltip 承担。实测这不够——tooltip 只能
    *   「解释」已有差额，**补录不了缺失值**，而手续费直接进买入成本与卖出已实现
    *   （pnl_service），漏记即静默少算。故移除「备注」列（内容折进产品信息第二行）、
-   *   配置目标 110→100，腾出的宽度给手续费列 70px，列数仍为 11。
+   *   配置目标 110→106，腾出的宽度给手续费列 70px，列数仍为 11。
    * - 合同编号 / 发生金额（股票模式）仍退场——行数据完整携带、导入载荷不受影响，
    *   发生金额由金额列 tooltip 呈现。
-   * - 勾选 50 / 状态 60 / 产品信息 160 / 数量单价金额各 90 / 操作 120 维持 §6.1。
+   * - 勾选 50 / 数量单价金额各 90 / 操作 120 维持 §6.1；状态 60→68（「待补全」三字
+   *   标签在 60px 内会折行）；
+   *   操作类型 110→104、日期 100→112（+ 不折行：实测 109px 时文本 111px 会折成
+   *   「2026-09- / 01」，读起来像两条记录）、产品信息 160→170（余量给的，备注不再被
+   *   压成「备…」）。产品信息列内不再重复显示资产类型标签（「操作类型」列已有）。
    */
   const tableColumns = computed(() => {
     if (isFundMode.value) {
@@ -445,13 +449,19 @@ export function useImportWizard() {
         {
           prop: "status",
           label: "状态",
-          minWidth: 60,
+          minWidth: 68,
           slot: "status",
           align: "center"
         },
         { prop: "product", label: "产品信息", minWidth: 160, slot: "product" },
-        { prop: "opType", label: "操作类型", minWidth: 110, slot: "opType" },
-        { prop: "trade_date", label: "日期", minWidth: 100 },
+        { prop: "opType", label: "操作类型", minWidth: 104, slot: "opType" },
+        {
+          prop: "trade_date",
+          label: "日期",
+          minWidth: 112,
+          // 日期是定长 10 字符 + 制表数字，折成「2026-09- / 01」比截断更糟：两行看起来像两条记录
+          className: "col-date"
+        },
         {
           prop: "quantity",
           label: "份额",
@@ -483,7 +493,7 @@ export function useImportWizard() {
         {
           prop: "allocation",
           label: "配置目标",
-          minWidth: 100,
+          minWidth: 106,
           slot: "allocation"
         }
       ];
@@ -492,13 +502,19 @@ export function useImportWizard() {
       {
         prop: "status",
         label: "状态",
-        minWidth: 60,
+        minWidth: 68,
         slot: "status",
         align: "center"
       },
       { prop: "product", label: "产品信息", minWidth: 160, slot: "product" },
-      { prop: "opType", label: "操作类型", minWidth: 110, slot: "opType" },
-      { prop: "trade_date", label: "日期", minWidth: 100 },
+      { prop: "opType", label: "操作类型", minWidth: 104, slot: "opType" },
+      {
+        prop: "trade_date",
+        label: "日期",
+        minWidth: 112,
+        // 日期是定长 10 字符 + 制表数字，折成「2026-09- / 01」比截断更糟：两行看起来像两条记录
+        className: "col-date"
+      },
       {
         prop: "quantity",
         label: "数量",
@@ -530,7 +546,7 @@ export function useImportWizard() {
       {
         prop: "allocation",
         label: "配置目标",
-        minWidth: 100,
+        minWidth: 106,
         slot: "allocation"
       }
     ];
@@ -1899,7 +1915,7 @@ export function useImportWizard() {
     else if (key === "error") activeCategoryFilter.value = "error";
   }
 
-  // ── #1791 三卡片：展开/收起类别过滤 + 卡片复选框 ──
+  // ── #1791 概览条：点类别筛选 + 类别复选框（2026-11-02 由三卡片改为一行胶囊） ──
 
   /** 该类别当前是否展开（tableStatusFilter 就是展开状态：一套状态，两处读） */
   function isCategoryExpanded(key: SummaryCategory): boolean {
@@ -1907,9 +1923,13 @@ export function useImportWizard() {
   }
 
   /**
-   * 【展开查看】/【收起】（#1791 要做的事 2）：tableStatusFilter 在 key↔"" 间切换。
-   * 展开时清掉子分类与「只看问题」开关——它们与三卡片是两套互斥的过滤视角，叠加会
-   * 令「卡片条数 ≠ 表格条数」（验收②）；关键词/类型搜索是正交收窄，予以保留。
+   * 点类别胶囊：tableStatusFilter 在 key↔"" 间切换。
+   * 展开时清掉子分类与「只看问题」开关——它们与类别筛选是两套互斥的过滤视角，叠加会
+   * 令「胶囊条数 ≠ 表格条数」（验收②）；关键词/类型搜索是正交收窄，予以保留。
+   *
+   * 筛到「需要修正」时顺手展开批量修正面板：点这个胶囊的人下一步必然是修它，
+   * 让他再去找按钮是一次多余的往返。只自动打开、不自动关闭（收起由面板自己管），
+   * 否则每点一次胶囊面板就闪一下。
    */
   function toggleCategoryFilter(key: SummaryCategory) {
     if (tableStatusFilter.value === key) {
@@ -1921,9 +1941,15 @@ export function useImportWizard() {
     showProblemOnly.value = false;
     showFullTable.value = true;
     currentPage.value = 1;
+    if (key === "fix" && !showFixPanel.value && summaryCounts.value.fix > 0) {
+      showFixPanel.value = true;
+      showAllocationGroupPanel.value = false;
+      fixModeOverride.value = null;
+      singleFixScope.value = "all";
+    }
   }
 
-  /** 【展开全部数据】：清空全部过滤回完整表格；摘要面板不在过滤作用域内，始终可见（验收③） */
+  /** 【全部】胶囊：清空全部过滤回完整表格；概览条不在过滤作用域内，始终可见（验收③） */
   function expandAllData() {
     tableStatusFilter.value = "";
     activeCategoryFilter.value = "";
@@ -2220,14 +2246,21 @@ export function useImportWizard() {
     return map[key] || "";
   }
 
+  /**
+   * 分区条数 tag 的颜色档：按**问题性质**定档，不比条数。
+   *
+   * 旧实现按条数分档（>200 danger / >50 warning / >10 info / 其余 success），于是
+   * 「代码未匹配 5 条」被染成 success 绿——把「有问题、需处理」显示成「通过」。
+   * 条数只说明规模，不说明性质；5 条匹配失败和 500 条一样不可导入。
+   *
+   * 现口径与状态列三态同源：阻断（不可导入）= danger，可导入但需留意 = warning。
+   */
   function getCategoryTagType(
-    key: string,
-    count: number
+    key: string
   ): "danger" | "warning" | "success" | "info" {
-    if (count > 200) return "danger";
-    if (count > 50) return "warning";
-    if (count > 10) return "info";
-    return "success";
+    if (key === "error" || key === "missingQtyPrice") return "danger";
+    if (key === "missingCode" || key === "mismatch") return "warning";
+    return "info";
   }
 
   function isCategoryActive(key: string): boolean {
