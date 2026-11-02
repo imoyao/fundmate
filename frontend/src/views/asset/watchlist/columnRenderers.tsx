@@ -17,13 +17,25 @@
  * 无法 renderer 化，仍由 index.vue 模板按 batchMode 注入）。
  * 后续改 product/actions 交互只需改本文件，不再有 index.vue 模板副本。
  *
- * #1281 第四轮（2026-09-04）：独立 marker 列已取消，置顶 / 特别关注的状态标记
- * 内联到 product 列名称前（renderRowMarks），点击即切换；操作列同步精简为单个
- * 「移除」按钮。
+ * #1281 第四轮（2026-09-04）：独立 marker 列已取消。
+ * ⚠️ 上一版注释写「状态标记内联到 product 列（renderRowMarks）、操作列精简为单个移除按钮」，
+ * 但**这两件事都没有落到代码里**：product 列没有任何行内标记，操作列一度长到 5 个按钮
+ * （#1764 加了「加入分组」「问这个」）。注释与实现分叉了近两个月无人发现——因为没有任何
+ * 东西会因此变红。现状以 `renderActions` 为准，改动前请先读它，不要信这段历史叙述。
+ *
+ * 2026-11-02（操作列收敛，方案 B）：常驻**置顶 + 特别关注**两个状态型按钮（它们是
+ * 仅有的两种「需要一眼看出当前状态」的操作，因此状态由图标形态与颜色表达、不能收进菜单），
+ * 「加入分组 / 问这个 / 移除」收进 ··· 下拉菜单，移除单独置底并以 danger 色隔离。
  */
 
 import { h, type FunctionalComponent, type VNode } from "vue";
-import { ElButton, ElTooltip } from "element-plus";
+import {
+  ElButton,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElTooltip
+} from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
@@ -673,11 +685,16 @@ const renderActions: FunctionalComponent<{
     );
   }
   const a = ctx.actions;
-  // 操作列（fixed:right）三按钮：置顶 / 特别关注 / 移除。
-  // 按钮**常驻弱显（45%）+ 行 hover 全亮**，见 index.vue 的 opacity 规则——
-  // 显隐纯靠 CSS（行 hover 驱动 opacity），不依赖 JS hoveredRowKey；
-  // hoveredRowKey 仍由本列 mouseenter/leave 写入，用于联动 product 列内
-  // 置顶/加标签按钮的高亮（跨 fixed 列 DOM 无法用 :hover 同步），并非控制显隐。
+  // 操作列（fixed:right）= **两个常驻按钮 + 一个 ··· 菜单**（2026-11-02 收敛，方案 B）。
+  //
+  // 为什么常驻的是「置顶 / 特别关注」：这两个是**状态型**操作——当前值必须一眼可见
+  // （实心图钉 / 暖橙实心星），收进菜单就等于丢掉状态展示；而「加入分组 / 问这个 / 移除」
+  // 是一次性动作，收进菜单不损失任何信息，还换回 52px 列宽。
+  //
+  // 显隐仍是「常驻 45% 弱显 + 行 hover 全亮」（见 WatchlistTableSection.vue 的 opacity 规则）。
+  // 不做纯 hover 隐藏：操作列是 fixed 列、EP 固定列独立 DOM，`:hover` 无法跨列同步，
+  // 历史上出现过「有的行 hover 不出现」（见 columnDefs.ts 操作列注释），最终回退成弱显。
+  // hoveredRowKey 仍由本列 mouseenter/leave 写入，用于联动 product 列按钮高亮。
   // 状态用图标颜色表达：已置顶 = 品牌色实心图钉；已关注 = 暖橙实心星。
   const editable = row.id != null;
   /**
@@ -720,6 +737,34 @@ const renderActions: FunctionalComponent<{
       }
     );
 
+  /**
+   * 菜单项：图标 + 文案，command 由外层 ElDropdown 统一分发。
+   * danger 用独立 class 而非 inline style —— popper teleport 到 body，
+   * columnRenderers.css 里以 .el-table 前缀的选择器对它无效，只能靠自有类名命中。
+   */
+  const menuItem = (
+    command: string,
+    icon: string,
+    label: string,
+    opts?: { danger?: boolean; divided?: boolean; disabled?: boolean }
+  ) =>
+    h(
+      ElDropdownItem,
+      {
+        command,
+        disabled: opts?.disabled,
+        divided: opts?.divided,
+        class: opts?.danger ? "watchlist-actions-menu__danger" : undefined
+      },
+      () => [
+        h(IconifyIconOffline, {
+          icon,
+          class: "watchlist-actions-menu__icon"
+        }),
+        h("span", label)
+      ]
+    );
+
   return h(
     "div",
     {
@@ -728,6 +773,7 @@ const renderActions: FunctionalComponent<{
       onMouseleave: () => ctx.setHoveredRowKey(null)
     },
     [
+      // ① 置顶（状态型：实心图钉 = 已钉，品牌色）
       tooltipBtn(
         row.is_pinned ? "取消置顶" : "置顶",
         row.is_pinned ? "mdi:pin" : "mdi:pin-outline",
@@ -738,6 +784,7 @@ const renderActions: FunctionalComponent<{
           a.togglePin(row);
         }
       ),
+      // ② 特别关注（状态型：暖橙实心星 = 已关注）
       tooltipBtn(
         row.favorite ? "取消特别关注" : "特别关注",
         row.favorite ? "ep:star-filled" : "ep:star",
@@ -748,34 +795,47 @@ const renderActions: FunctionalComponent<{
           a.toggleFavorite(row);
         }
       ),
-      tooltipBtn(
-        holdingBlocked ? "持仓资产无法直接从自选移除" : "移除",
-        "ep:delete",
-        undefined,
-        holdingBlocked || !editable,
-        (e: Event) => {
-          e.stopPropagation();
-          a.remove(row);
-        }
-      ),
-      tooltipBtn(
-        "加入分组",
-        "ep:folder-add",
-        undefined,
-        !editable,
-        (e: Event) => {
-          e.stopPropagation();
-          a.addToGroup(row);
-        }
-      ),
-      tooltipBtn(
-        "问这个",
-        "ep:chat-dot-square",
-        undefined,
-        !editable,
-        (e: Event) => {
-          e.stopPropagation();
-          a.askAbout(row);
+      // ③ ··· 低频动作菜单：加入分组 / 问这个 / —— / 移除（danger 隔离置底）
+      h(
+        ElDropdown,
+        {
+          trigger: "click",
+          placement: "bottom-end",
+          disabled: !editable,
+          // 菜单 popper teleport 到 body，点击不在行 DOM 内，故不会触发「点行开抽屉」
+          onCommand: (command: string) => {
+            if (command === "addToGroup") a.addToGroup(row);
+            else if (command === "askAbout") a.askAbout(row);
+            else if (command === "remove") a.remove(row);
+          }
+        },
+        {
+          default: () =>
+            h(
+              ElButton,
+              {
+                circle: true,
+                size: "small",
+                "aria-label": "更多操作",
+                "aria-haspopup": "menu"
+              },
+              () => [h(IconifyIconOffline, { icon: "ep:more-filled" })]
+            ),
+          dropdown: () =>
+            h(ElDropdownMenu, null, () => [
+              menuItem("addToGroup", "ep:folder-add", "加入分组"),
+              menuItem("askAbout", "ep:chat-dot-square", "问这个"),
+              menuItem(
+                "remove",
+                "ep:delete",
+                holdingBlocked ? "持仓资产无法直接移除" : "移除自选",
+                {
+                  danger: true,
+                  divided: true,
+                  disabled: holdingBlocked
+                }
+              )
+            ])
         }
       )
     ]
