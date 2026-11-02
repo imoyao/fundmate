@@ -138,7 +138,10 @@
           />
           <CardBlock>
             <div class="relative h-72">
-              <canvas ref="netWorthChartRef" />
+              <!-- 容器必须是**普通 div**：echarts.init 读的是 el.clientWidth/clientHeight，
+                   `<canvas>` 未设 CSS 尺寸时按 HTML 默认 300×150 报尺寸 ⇒ 图被画成左上角
+                   一小块（2026-11-02 复盘页实测）。宽高交给外层 h-72 + 满宽。 -->
+              <div ref="netWorthChartRef" class="h-full w-full" />
               <p
                 v-if="!netWorthSeries.length"
                 class="absolute inset-0 flex items-center justify-center text-sm"
