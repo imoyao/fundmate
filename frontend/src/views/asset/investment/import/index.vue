@@ -8,7 +8,7 @@ import ResultStep from "./components/ResultStep.vue";
 import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
 import LeaveGuardDialog from "./components/LeaveGuardDialog.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useImportWizard } from "./composables/useImportWizard";
 import { useImportLeaveGuard } from "./composables/useImportLeaveGuard";
 import { provideWizard } from "./composables/useImportWizardContext";
@@ -45,11 +45,21 @@ const {
 
 // 调试快进面板：仅开发环境可见；勾选后跳到预览/结果时注入模拟数据
 const withMock = ref(false);
+
+/**
+ * 「工作步」= 预览（2）/ 结果（3）。
+ *
+ * 前两步是解释型页面（要标题与说明告诉用户这一步在干什么），后两步是工作台：
+ * 用户此刻只想看数据、改数据。而那块页头（大标题 + 副标题 + 居中步骤条）实测占约
+ * 195px，修正面板一展开就把表格顶到折叠线以下——「面板与表格同屏」形同虚设。
+ * 故进入工作步后页头退场、步骤条压成 simple 细条，把高度让给表格。
+ */
+const isWorkingStep = computed(() => currentStep.value >= 2);
 </script>
 
 <template>
-  <div class="inventory-page">
-    <header class="import-header">
+  <div class="inventory-page" :class="{ 'is-working-step': isWorkingStep }">
+    <header v-if="!isWorkingStep" class="import-header">
       <h1 class="import-title">导入交易</h1>
       <p class="import-subtitle">
         从券商或表格文件批量导入交易记录，支持自动识别与人工核对。
@@ -83,6 +93,7 @@ const withMock = ref(false);
 
     <el-steps
       :active="currentStep"
+      :simple="isWorkingStep"
       finish-status="success"
       align-center
       class="import-steps"
@@ -177,6 +188,11 @@ const withMock = ref(false);
 
 .import-steps {
   margin-bottom: 32px;
+}
+
+/* 工作步（预览 / 结果）：步骤条压成 simple 细条，页头已退场，把高度让给表格 */
+.inventory-page.is-working-step .import-steps {
+  margin-bottom: 8px;
 }
 
 :deep(.el-step__head.is-finish) {
