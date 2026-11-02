@@ -18,6 +18,25 @@
   border-color: var(--el-popper-border-color);
 }
 
+/* 深色短语气泡的宽度上限（2026-11-02）。
+   此前**完全没有上限**：一条 110 字的口径说明在 1280 视口里铺成一整行、实测 1083×32
+   （截图反馈「提示消息也太长了」）。这一条兜的是**全站**：126 处 el-tooltip，其中不少
+   content 是运行时拼出来的（计数、日期、动态归因），逐个调用点加约束既不现实也覆盖不全，
+   只能在浮层基类上收。单行约 24 字（限宽 320 − 左右内边距 22，字号 12），两行即 48 字
+   ——与「该不该换说明卡」的阈值同一个数（见 utils/tooltipText.ts）。
+
+   ⚠️ 故意写进 `:where()`，把特异性按到 0：这是**默认值**，不是强制值。
+   1）说明卡（`.el-popper.rich-tip`，0,3,0）要能取 380px；
+   2）通知标题浮层 `.notice-title-popper` 早就定死 238px（单类，0,1,0），
+      若本规则用两级选择器就会把它顶成 320——那是一次没人会注意到的静默回归。
+   零特异性下，任何局部规则都能盖住它，这正是「兜底」该有的位置。 */
+:where(.el-popper.is-dark:not(.rich-tip)) {
+  max-width: var(--tooltip-max-width);
+  /* 只影响「末行只剩一两个字」：浏览器会为此重排一次。不做则中文短句很容易
+     在最后一行孤零零挂一个字。不支持该属性的浏览器静默忽略，行为不变 */
+  text-wrap: pretty;
+}
+
 /* 破坏性确认气泡（#1836）：el-popconfirm 默认用 primary 蓝确认按钮，用户无法从按钮
    看出这是删除类操作。给这类气泡挂 popper-class="danger-popconfirm" 即可转 danger 色。
    popper 传送到 body，scoped 样式够不着，必须走全局。 */
@@ -47,7 +66,7 @@
   --el-popper-bg-color: var(--bg-soft);
   --el-popper-border-color: var(--border-default);
   --el-popper-text-color: var(--text-primary);
-  max-width: 380px;
+  max-width: var(--tooltip-max-width-rich);
   padding: 12px 14px;
   line-height: 1.6;
   text-align: left;
@@ -61,4 +80,20 @@
 .el-popper.rich-tip .el-popper__arrow::before {
   background-color: var(--el-popper-bg-color);
   border-color: var(--el-popper-border-color);
+}
+
+/* 由**长文案字符串**升格来的说明卡（`tipPopperClass()` 挂 rich-tip--paragraphs，
+   2026-11-02；SectionHeader 的 info 与 CrowdingHeaderTip 的 content 都走这里）。
+   内容是按句切开的若干 `<p>`，这里只负责段间距与末行收尾：
+   · 段间 6px：一句一行本身已经形成节奏，再多就散架；
+   · `text-wrap: pretty` 让每段末行别只剩一两个字——中文句子短，这个问题比英文明显。
+   刻意不写 font-size / color：卡片本体样式统一由上面的 rich-tip 决定，
+   两条路径（插槽 / 字符串）若各写一套字号，同一页就会有两种说明卡。 */
+.el-popper.rich-tip--paragraphs p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.el-popper.rich-tip--paragraphs p + p {
+  margin-top: 6px;
 }

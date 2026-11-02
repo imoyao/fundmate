@@ -723,6 +723,20 @@ sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开
 - 两档尺寸：md 16px（盈亏副行）/ sm 14px（日历格密排）；圆角 `--radius-pill`。
 - 组件**不内置 el-tooltip**：完整提示文案由调用方按语境传入 `tip`（盘中免责走 `ESTIMATE_DISCLAIMER` 单一出口；日历格说明走外层悬浮卡 `PnlCalendarUnitTip`），徽标自身以 `role="note"` + `aria-label` 保读屏与键盘可达。
 
+### Tooltip / 提示气泡（2026-11-02）
+
+提示文案**按长度选载体**，不按调用方自觉选。判据集中在 `utils/tooltipText.ts`，两个载体（`SectionHeader` 的 `info`、`CrowdingHeaderTip` 的 `content`）共用它，页面不必自己判断「这条算不算长」。
+
+| 载体 | 适用 | 规格 | 实现 |
+|------|------|------|------|
+| 深色短语气泡 | ≤48 字（约两行） | 限宽 320（`--tooltip-max-width`），12px / 行高 20 | Element Plus 默认 `el-tooltip`，类名不带 popper-class |
+| 浅色说明卡 | >48 字（2~4 句） | 限宽 380（`--tooltip-max-width-rich`），`--bg-soft` 表面 + `--border-default` 描边 + `--shadow-float`，左对齐，按句分行 | `popper-class="rich-tip rich-tip--paragraphs"` |
+
+- **禁止把一段说明塞进一行**：默认气泡此前没有宽度上限，110 字会铺成 1083×32 的横条（截图反馈「提示消息也太长了」）。限宽写在 `:where(.el-popper.is-dark)` 上（特异性 0），是**默认值**——局部要更窄（如通知标题 238px）可直接覆盖，不会被顶回去。
+- **按句分行**：口径说明天然一句一个意思，切成分行等于免费得到几个小标题；切分只在括号 / 引号**外**的 `。` 处发生（`splitTipSentences`）。
+- **结构化内容仍走插槽**：口径 + 图例这类多段落富内容用 `SectionHeader` 的 `#info` 插槽（自带 `rich-tip`），字符串路径只管「一段话」。
+- 已知边界：升格后的说明卡仍是 hover 气泡——不可选中复制、触屏不可达。内容若需要被引用（公式、口径全文），应当落到页面正文或文档，而不是继续加长气泡。
+
 ### Table（el-table）
 
 > **全站 `el-table` 视觉基线统一维护在 `src/style/el-table.css`**（2026-08 起强制）。
