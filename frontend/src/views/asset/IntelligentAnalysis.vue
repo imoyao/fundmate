@@ -44,13 +44,15 @@
 -->
 <template>
   <div
-    class="analysis-shell min-h-full"
+    class="analysis-page min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 幽灵重复告警：属对账范畴（#2151 迁往对账中心「跨账本重复交易」域）。
-         域 D 存在之前留在本页，因为「异常要看得见」优先于「归属洁癖」。 -->
-    <GhostDuplicateBanner />
-
+    <!-- 页头必须挂在**块级**根节点下，不能塞进 .analysis-shell：后者是 flex 列容器，
+         而 .page-header 自带 `margin: 0 auto`——交叉轴上的 auto 外边距会让
+         `align-items: stretch` 失效，页头收缩成内容宽（实测 565px / 容器 1264px）
+         并被 auto 外边距居中，标题与下方小节左边缘错开 349px，「更新时间」胶囊
+         也浮在页面中部。与 dividends / TransactionList 的「页头在外、shell 只包内容」
+         口径一致（#1501 / #1506）。 -->
     <PageHeaderBar
       title="投资复盘"
       subtitle="时间维度上的表现：净值怎么走、收益从哪来"
@@ -63,116 +65,122 @@
       </template>
     </PageHeaderBar>
 
-    <!-- 结构拆解不在这里：指一条明路，而不是让用户自己猜「想看结构该去哪」。
+    <div class="analysis-shell">
+      <!-- 幽灵重复告警：属对账范畴（#2151 迁往对账中心「跨账本重复交易」域）。
+           域 D 存在之前留在本页，因为「异常要看得见」优先于「归属洁癖」。 -->
+      <GhostDuplicateBanner />
+
+      <!-- 结构拆解不在这里：指一条明路，而不是让用户自己猜「想看结构该去哪」。
          #2150 删掉与资产总览重复的四块后，页面从「堆砌」变成「单一主题」，
          此条链接就是那次删除的可见交代。 -->
-    <p
-      class="analysis-crosslink"
-      :style="{ color: 'var(--text-tertiary-ink)' }"
-    >
-      本页只看时间维度的表现。想看资产结构（大类占比、产品类型、账户拆解），
-      去<el-button text size="small" @click="router.push('/panorama')"
-        >资产总览</el-button
-      >。
-    </p>
+      <p
+        class="analysis-crosslink"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
+      >
+        本页只看时间维度的表现。想看资产结构（大类占比、产品类型、账户拆解），
+        去<el-button text size="small" @click="router.push('/panorama')"
+          >资产总览</el-button
+        >。
+      </p>
 
-    <!-- 页内导航：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail（PageToc）接管。
+      <!-- 页内导航：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail（PageToc）接管。
          条目由 usePageNav 按 DOM 里真实渲染的 nav-* 锚点动态生成，不留死链。 -->
-    <PageNav
-      v-if="navItems.length > 1"
-      :items="navItems"
-      :active-id="navActiveId"
-      @navigate="goToNavSection"
-    />
-
-    <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
-         为「收益概览 / 货币基金收益 / 清仓周期复盘 / 资产净值走势」四段
-         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配）。 -->
-    <PageSkeleton
-      v-if="initialLoading"
-      :cards="3"
-      :chart-cols="2"
-      :table-rows="5"
-    />
-
-    <div v-else class="analysis-body">
-      <div ref="pageMain" class="analysis-main">
-        <!-- 收益概览（真实 XIRR，无预测）#871：拆为 ReturnOverviewSection，
-              自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
-        <ReturnOverviewSection id="nav-overview" ref="returnOverview" />
-
-        <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
-        <section v-if="moneyFundIncome" id="nav-money-fund">
-          <SectionHeader
-            title="货币基金收益"
-            info="按「万份收益 × 持有份额」估算，与上方 XIRR 口径不同（XIRR 衡量交易现金流的时间价值），两者不可相加；本项已计入总资产"
-          />
-          <MetricGrid>
-            <MetricCard
-              title="今日收益"
-              :value="mfTodayLabel"
-              value-color="var(--brand-ink)"
-              :caption="mfTodayCaption"
-              featured
-            />
-            <MetricCard
-              title="累计收益"
-              :value="mfTotalLabel"
-              value-color="var(--brand-ink)"
-              caption="持有期累计（万份收益 × 份额）"
-            />
-          </MetricGrid>
-        </section>
-
-        <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
-             自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与下方净值走势。 -->
-        <ClearedCyclesSection id="nav-cycles" />
-
-        <!-- 资产净值走势：本页的**独占项**（welcome 让出、panorama 只取快照做环比同比）。
-             原先与「资产分布」环形图并排成两列，环形图删掉后满宽 —— 时间序列本来就
-             该宽（横轴是日期），挤在半屏里读不出趋势。 -->
-        <section id="nav-net-worth">
-          <SectionHeader
-            title="资产净值走势"
-            info="来自每日资产快照记录，未打卡则无曲线"
-          >
-            <!-- 区间涨跌贴着标题走（#badge 槽）：它是这张图的「结论」，
-                 不该塞进右侧操作槽和控件抢位置。悬停补齐起止日期与绝对额——
-                 只报百分比时用户没法判断「涨了 3% 是多少钱」。 -->
-            <template #badge>
-              <span v-if="netWorthRange" class="net-range" :title="rangeTip">
-                <span>区间</span>
-                <span class="net-range__value" :style="{ color: rangeColor }">
-                  {{ rangeLabel }}
-                </span>
-              </span>
-            </template>
-          </SectionHeader>
-          <CardBlock>
-            <div class="relative h-72">
-              <!-- 容器必须是**普通 div**：echarts.init 读的是 el.clientWidth/clientHeight，
-                   `<canvas>` 未设 CSS 尺寸时按 HTML 默认 300×150 报尺寸 ⇒ 图被画成左上角
-                   一小块（2026-11-02 复盘页实测）。宽高交给外层 h-72 + 满宽。 -->
-              <div ref="netWorthChartRef" class="h-full w-full" />
-              <p
-                v-if="!netWorthSeries.length"
-                class="absolute inset-0 flex items-center justify-center text-sm"
-                :style="{ color: 'var(--text-tertiary-ink)' }"
-              >
-                暂无资产快照数据
-              </p>
-            </div>
-          </CardBlock>
-        </section>
-      </div>
-
-      <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
-      <PageToc
+      <PageNav
         v-if="navItems.length > 1"
         :items="navItems"
         :active-id="navActiveId"
         @navigate="goToNavSection"
       />
+
+      <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
+         为「收益概览 / 货币基金收益 / 清仓周期复盘 / 资产净值走势」四段
+         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配）。 -->
+      <PageSkeleton
+        v-if="initialLoading"
+        :cards="3"
+        :chart-cols="2"
+        :table-rows="5"
+      />
+
+      <div v-else class="analysis-body">
+        <div ref="pageMain" class="analysis-main">
+          <!-- 收益概览（真实 XIRR，无预测）#871：拆为 ReturnOverviewSection，
+              自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
+          <ReturnOverviewSection id="nav-overview" ref="returnOverview" />
+
+          <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
+          <section v-if="moneyFundIncome" id="nav-money-fund">
+            <SectionHeader
+              title="货币基金收益"
+              info="按「万份收益 × 持有份额」估算，与上方 XIRR 口径不同（XIRR 衡量交易现金流的时间价值），两者不可相加；本项已计入总资产"
+            />
+            <MetricGrid>
+              <MetricCard
+                title="今日收益"
+                :value="mfTodayLabel"
+                value-color="var(--brand-ink)"
+                :caption="mfTodayCaption"
+                featured
+              />
+              <MetricCard
+                title="累计收益"
+                :value="mfTotalLabel"
+                value-color="var(--brand-ink)"
+                caption="持有期累计（万份收益 × 份额）"
+              />
+            </MetricGrid>
+          </section>
+
+          <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
+             自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与下方净值走势。 -->
+          <ClearedCyclesSection id="nav-cycles" />
+
+          <!-- 资产净值走势：本页的**独占项**（welcome 让出、panorama 只取快照做环比同比）。
+             原先与「资产分布」环形图并排成两列，环形图删掉后满宽 —— 时间序列本来就
+             该宽（横轴是日期），挤在半屏里读不出趋势。 -->
+          <section id="nav-net-worth">
+            <SectionHeader
+              title="资产净值走势"
+              info="来自每日资产快照记录，未打卡则无曲线"
+            >
+              <!-- 区间涨跌贴着标题走（#badge 槽）：它是这张图的「结论」，
+                 不该塞进右侧操作槽和控件抢位置。悬停补齐起止日期与绝对额——
+                 只报百分比时用户没法判断「涨了 3% 是多少钱」。 -->
+              <template #badge>
+                <span v-if="netWorthRange" class="net-range" :title="rangeTip">
+                  <span>区间</span>
+                  <span class="net-range__value" :style="{ color: rangeColor }">
+                    {{ rangeLabel }}
+                  </span>
+                </span>
+              </template>
+            </SectionHeader>
+            <CardBlock>
+              <div class="relative h-72">
+                <!-- 容器必须是**普通 div**：echarts.init 读的是 el.clientWidth/clientHeight，
+                   `<canvas>` 未设 CSS 尺寸时按 HTML 默认 300×150 报尺寸 ⇒ 图被画成左上角
+                   一小块（2026-11-02 复盘页实测）。宽高交给外层 h-72 + 满宽。 -->
+                <div ref="netWorthChartRef" class="h-full w-full" />
+                <p
+                  v-if="!netWorthSeries.length"
+                  class="absolute inset-0 flex items-center justify-center text-sm"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
+                >
+                  暂无资产快照数据
+                </p>
+              </div>
+            </CardBlock>
+          </section>
+        </div>
+
+        <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
+        <PageToc
+          v-if="navItems.length > 1"
+          :items="navItems"
+          :active-id="navActiveId"
+          @navigate="goToNavSection"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -330,6 +338,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 内容区与 PageHeaderBar 同宽同内边距（--layout-content-width / --space-standard），
+   保证页头与内容左边缘严格对齐；与 dividends / inventory / profile 同值
+   （#1501 / #1506）。**页头不在这个容器里**——它是 flex 列，会让 .page-header
+   的 `margin: 0 auto` 把「拉伸」顶掉（详见模板里 PageHeaderBar 上方的注释）。 */
 .analysis-shell {
   display: flex;
   flex-direction: column;
