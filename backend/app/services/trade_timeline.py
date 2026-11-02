@@ -63,15 +63,21 @@ from sqlalchemy.orm import Session
 from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import build_transaction_symbol_conditions
 
-# 参与成本重放但**不作为买卖点**展示的类型：转入 / 取出 / 红利再投 改变份额与成本，
-# 却不是用户的买卖决策（#2171 定稿：叠加层只画 buy/sell 决策点）。
-_SHARE_TYPES = frozenset({'buy', 'sell', 'deposit', 'withdraw', 'dividend_reinvest'})
+# 参与成本重放但**不作为买卖点**展示的类型：转入 / 取出 / 红利再投 / 债券兑付
+# 改变份额与成本，却不是用户的买卖决策（#2171 定稿：叠加层只画 buy/sell 决策点）。
+# bond_redeem 于 #2832 并入：兑付后持仓份额归零，若仍留在忽略集，成本线会一直停在
+# 买入当天的值、「已实现盈亏」也永远不含兑付这笔——曲线与事实相反。
+_SHARE_TYPES = frozenset({'buy', 'sell', 'deposit', 'withdraw', 'dividend_reinvest', 'bond_redeem'})
 # 买卖决策点（前端 scatter 层只画这两类）
 _DECISION_TYPES = frozenset({'buy', 'sell'})
 # 现金分红：历史码 + 新码并存（真机实测 69 / 66 笔），只认一种会漏一半分红
 _DIVIDEND_TYPES = frozenset({'dividend', 'dividend_cash'})
-# 不参与重放的其余类型（拆分 / 兑付 / 扣税 / 其他），仅计数
-_IGNORED_TYPES = frozenset({'split', 'bond_redeem', 'tax', 'other'})
+# 减持类：份额减少、成本按剩余份额比例释放（#2832 起含债券兑付）。
+# 重放主循环的「卖出/取出/兑付」分支以此为准——不要在分支里手写类型元组，
+# 否则集合成了摆设、新增类型时两处必漏一处（本次就差点犯）。
+_DIVEST_TYPES = frozenset({'sell', 'withdraw', 'bond_redeem'})
+# 不参与重放的其余类型（拆分 / 扣税 / 其他），仅计数
+_IGNORED_TYPES = frozenset({'split', 'tax', 'other'})
 
 # 存储单位 → 输出单位换算
 _CENTS_PER_YUAN = 100
@@ -249,10 +255,15 @@ def build_trade_timeline(
             dividend_count += 1
             total_dividend_cents += amount_cents
             total_fee_cents += fee_cents
-        elif txn_type in ('sell', 'withdraw'):
-            # 卖出 / 取出：移动加权——剩余成本按剩余份额**比例缩减**（成本率不变），
+        elif txn_type in _DIVEST_TYPES:
+            # 卖出 / 取出 / 债券兑付：移动加权——剩余成本按剩余份额**比例缩减**（成本率不变），
             # 全部清空则成本归零（否则新一轮建仓会续上前轮成本，#2171 实测教训）。
             # 注意「成本总额不变」是错的：那会让成本率随减持被动抬升。
+            #
+            # 兑付与卖出共用这一段是因为会计语义相同（份额减少、成本按比例释放），
+            # 差异只在金额口径——兑付的 amount 是到账净额（含应计利息），卖出的是
+            # 价格×数量毛额。两者都用「amount − fee − 释放成本」这一个算式，
+            # 前提是 amount 的口径各自成立（兑付见 pnl_service.compute_redeem_realized_cents）。
             remaining = qty_units - qty
             if remaining > 0:
                 cost_cents = int(cost_cents * remaining / qty_units)
@@ -264,10 +275,14 @@ def build_trade_timeline(
             contribution_cents = (amount_cents - fee_cents) - released_cents
             realized_cents += contribution_cents
             qty_units = remaining
-            if txn_type == 'sell':
+            if txn_type in ('sell', 'bond_redeem'):
+                # 兑付计入「累计卖出金额」（它确实是回款），但不计入 sell_count：
+                # 兑付是被动退出，不是用户的卖出决策，混进决策计数会让「卖出 N 笔」
+                # 与买卖点个数对不上。
                 total_sell_cents += amount_cents
                 total_fee_cents += fee_cents
-                sell_count += 1
+                if txn_type == 'sell':
+                    sell_count += 1
             else:
                 total_fee_cents += fee_cents
         elif txn_type in _DIVIDEND_TYPES:

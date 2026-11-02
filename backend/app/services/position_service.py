@@ -17,7 +17,7 @@
 import json
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from flask import has_app_context
 from loguru import logger
@@ -49,7 +49,7 @@ from app.services.family_member_service import ledger_ids_for_member
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
 from app.services.institution_resolver import resolve_sales_institution_id
-from app.services.pnl_service import compute_sell_realized_cents
+from app.services.pnl_service import compute_redeem_realized_cents, compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_scope import active_holdings
 from app.services.symbol_scope import build_position_symbol_conditions, build_transaction_symbol_conditions
@@ -725,6 +725,24 @@ def _create_orphan_transaction(
         source=data.get('source'),
     )
     db.flush()
+
+
+class BondRedeemOutcome(NamedTuple):
+    """债券兑付的落账结果（#2832）。
+
+    ``position is None`` 有两种截然不同的含义，**必须分开**：
+
+    - ``is_orphan=False`` → 兑付成功且已清仓（#2343：行保留 + cleared，方法契约同卖出）；
+    - ``is_orphan=True``  → 未匹配到持仓，落的是孤儿流水。
+
+    导入侧的 ``orphan_count`` 是给用户看的「有多少笔没归位」，把「兑付清仓」算进去
+    会让人以为数据有问题。卖出路径历史上正是用单个 ``None`` 承载了这两种语义
+    （`process_orphan_sell_or_withdraw` + 调用方 ``if result is None: orphan_count += 1``），
+    这次不复制那个歧义。
+    """
+
+    position: Optional['Position']
+    is_orphan: bool
 
 
 def _is_reinvest(data: dict) -> bool:
@@ -2175,6 +2193,188 @@ class PositionService:
         )
         return None
 
+    # ── 债券兑付（#2832）──
+
+    @staticmethod
+    def process_bond_redeem(db: Session, data: dict) -> Optional[Position]:
+        """债券兑付（到期还本付息 / 强赎 / 回售）：扣份额 + 结转到账额的已实现盈亏。
+
+        调用前必须已确定 ``data['position_id']``（手动记账直传，导入路径先经
+        :meth:`process_orphan_bond_redeem` 按身份键定位）。
+
+        ## 与 :meth:`process_sell_or_withdraw` 的三处刻意不同
+
+        1. **金额口径是「到账净额」而不是「价格 × 数量」**。交割单兑付行的
+           「发生金额」= 面值 + 应计利息 − 代扣费，而 ``price`` 只是券商给的成交均价
+           （通常等于面值 100）。付息 / 强赎溢价时两者本来不等，若照卖出路径用
+           ``price × qty`` 记金额，利息会被静默丢掉——用户看到「到账 1035，账面 1000」。
+           详见 :func:`pnl_service.compute_redeem_realized_cents`。
+        2. **已实现盈亏不再减 fee**：``amount`` 已经是扣费后的净额（同花顺 / 东财的
+           「发生金额」口径一致），再减一次是双扣。卖出路径的 amount 是毛额，所以那边
+           必须减，两个口径不能互相套用。
+        3. **份额不足直接报错，不降级成孤儿**：兑付量 > 持仓量只可能是买入流水缺失
+           （或上次只导了兑付没导买入），静默记孤儿会把差额藏起来——用户看到的是
+           「钱到账了，持仓还在」。让这一行进 ``commit_errors`` / 400 让人看见，
+           比记一笔谁也不会去核的孤儿流水有用。卖出路径的降级是历史遗留（真实库
+           649 笔卖出无 symbol 可匹配），兑付没有那个包袱。
+
+        清仓沿 #2343 口径：行保留 + ``ownership_status='cleared'``，返回 None
+        （调用方「None = 已清仓」的契约不变）。
+        """
+        position_id = data.get('position_id')
+        existing = db.query(Position).filter_by(id=position_id, family_id=_resolve_family_id(data)).first()
+        if not existing:
+            raise ValueError('指定的持仓不存在')
+
+        qty_shares = data.get('quantity') or 0
+        qty_units = Money.shares_to_min_unit(qty_shares)
+        if qty_units <= 0:
+            raise ValueError('兑付数量必须大于 0')
+
+        # 金额：net_amount（交割单发生金额）优先 → amount（手动记账实收）→ 价格×数量
+        raw_amount = data.get('net_amount')
+        if raw_amount is None:
+            raw_amount = data.get('amount')
+        price_units = Money.yuan_to_price_units(data.get('avg_price') or 0)
+        if raw_amount is None:
+            amount_cents = Money.multiply_price_quantity(price_units, qty_units)
+        else:
+            amount_cents = Money.yuan_to_cents(abs(raw_amount))
+
+        # 均价缺失（兑付行常常只给发生金额、不给成交均价）：按到账额 ÷ 份数反算，
+        # 让「金额 / 单价 / 数量」三者自洽，前端在金额列旁展开时才不会显示 0 单价。
+        # 换算一律走 Money 的既有链路，不手推「分 × 份额最小单位 × 价格单位」的系数
+        # ——那三个 10_000 / 100 混乘极易差两个数量级且测试里也看不出来。
+        if price_units <= 0 and qty_units > 0:
+            per_share_yuan = Money.cents_to_yuan(amount_cents) / Money.min_unit_to_shares(qty_units)
+            price_units = Money.yuan_to_price_units(per_share_yuan)
+
+        fee_cents = Money.yuan_to_cents(data.get('fee') or 0)
+
+        # 锚点判定与卖出同口径：若这笔记兑付已含在快照里（confirm_date <= 锚点日），
+        # 快照份额已反映它，不再扣减；流水照落（它确实是发生过的业务事实）。
+        covered_by_anchor = _is_covered_by_anchor(existing, data.get('confirm_date'))
+        if not covered_by_anchor and existing.quantity < qty_units:
+            raise ValueError(
+                f'兑付数量超过持仓：当前持有 {Money.min_unit_to_shares(existing.quantity)}，'
+                f'本次兑付 {qty_shares}。请检查买入流水是否已完整导入'
+            )
+
+        realized_cents = compute_redeem_realized_cents(
+            amount_cents=amount_cents,
+            avg_price_units=existing.avg_price or 0,
+            qty_units=qty_units,
+        )
+
+        try:
+            # 自愈回填（与卖出路径同口径）：快照缺名称/账户时按 ID 反查，绝不留 NULL
+            if not existing.name:
+                existing.name = _resolve_fund_name_by_code(db, existing.symbol)
+            if not existing.account_name and existing.ledger_id:
+                existing.account_name = _resolve_ledger_name_by_id(db, existing.ledger_id)
+            position_name = existing.name or _resolve_fund_name_by_code(db, existing.symbol)
+            account_name = existing.account_name or _resolve_ledger_name_by_id(db, existing.ledger_id)
+            ledger_id = existing.ledger_id
+
+            is_cleared = False
+            if not covered_by_anchor:
+                existing.quantity -= qty_units
+                is_cleared = existing.quantity == 0
+                if is_cleared:
+                    # 清仓不清行（#2343）：锚点与成本基线原样留存，二次累加才不会复发
+                    _mark_position_cleared(existing, data.get('confirm_date') or data.get('trade_date'))
+            db.flush()
+
+            # 品种以持仓为准（同卖出路径）：请求体不带 type 时若兜底成 stock，
+            # 兑付流水会与买入分属两个身份键，清仓周期永远闭合不上。
+            redeem_asset_type = _get_asset_type(data, fallback=existing.asset_type)
+            TransactionService.create(
+                db=db,
+                position_id=position_id,
+                symbol=data.get('symbol') or existing.symbol,
+                txn_type='bond_redeem',
+                trade_date=data.get('trade_date'),
+                confirm_date=data.get('confirm_date'),
+                asset_type=redeem_asset_type,
+                link_group_id=data.get('link_group_id'),
+                quantity=qty_units,
+                price=price_units,
+                fee=fee_cents,
+                # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+                **_fee_breakdown_kwargs(data),
+                amount=amount_cents,
+                realized_pnl=realized_cents,
+                status='success',
+                position_name=position_name,
+                ledger_id=ledger_id,
+                account_name=account_name,
+                notes=data.get('notes') or '债券到期兑付',
+                import_hash=data.get('import_hash'),
+                family_id=_resolve_family_id(data),
+                # #1232 决策 11：流水来源透传（记一笔默认 manual）
+                source=data.get('source') or PositionSource.MANUAL.value,
+            )
+            db.flush()
+            # 兑付即退出持仓，与卖出/清仓后同样对齐自选状态（静默，失败不影响主链路）
+            _silent_reconcile_watchlist(db, _resolve_family_id(data), existing.symbol)
+            if is_cleared:
+                return None
+            db.refresh(existing)
+            return existing
+        except Exception:
+            logger.exception('债券兑付操作失败')
+            raise
+
+    @staticmethod
+    def process_orphan_bond_redeem(db: Session, data: dict) -> BondRedeemOutcome:
+        """导入路径的债券兑付：先按身份键关联持仓，找不到才记孤儿流水。
+
+        返回 :class:`BondRedeemOutcome`，调用方据 ``is_orphan`` 计数——不要用
+        ``position is None`` 判断孤儿，那会把「兑付清仓」误算成孤儿（见该类 docstring）。
+
+        与 :meth:`process_orphan_sell_or_withdraw` 的两点不同：
+
+        - 按 ``active_only=True`` 匹配：兑付后持仓已 ``cleared``，再导入同一只债的
+          兑付时不该命中那条空壳行（命中了只会报「兑付数量超过持仓」）；
+        - **不吞「超量兑付」的 ValueError**：卖出路径会把数量不足降级成孤儿，
+          兑付不行——见 :meth:`process_bond_redeem` 第 3 条理由。
+        """
+        symbol = data.get('symbol', '')
+        name = (data.get('name') or data.get('position_name') or '').strip()
+
+        existing = None
+        if symbol:
+            existing = _find_position_by_identity(db, data, symbol=symbol, active_only=True)
+        if existing is None and name:
+            # 交割单「证券名称常有、代码为空」的场景与卖出同源（#1920）
+            existing = _find_position_by_identity(db, data, name=name, active_only=True)
+            if existing is not None:
+                logger.info(
+                    '债券兑付按名称兜底关联到持仓：symbol=%r name=%r ledger_id=%r → position_id=%s',
+                    symbol,
+                    name,
+                    data.get('ledger_id'),
+                    existing.id,
+                )
+
+        if existing is not None:
+            return BondRedeemOutcome(
+                position=PositionService.process_bond_redeem(db, {**data, 'position_id': existing.id}),
+                is_orphan=False,
+            )
+
+        _create_orphan_transaction(
+            db,
+            data,
+            txn_type='bond_redeem',
+            quantity=data.get('quantity') or 0,
+            price=data.get('avg_price') or 0,
+            # 到账额优先；都没有才让 _create_orphan_transaction 按价格×数量兜底
+            amount=data.get('net_amount') if data.get('net_amount') is not None else (data.get('amount') or 0),
+            notes=data.get('notes') or '债券到期兑付（未匹配到持仓）',
+        )
+        return BondRedeemOutcome(position=None, is_orphan=True)
+
     @staticmethod
     def process_orphan_dividend(db: Session, data: dict) -> Optional[Position]:
         """
@@ -2463,6 +2663,12 @@ class PositionService:
         """
         if op_type in ('sell', 'withdraw'):
             return PositionService.process_sell_or_withdraw(db, data)
+        if op_type == 'bond_redeem':
+            # 债券兑付（#2832）：带 position_id 直接定位；只带代码/名称时按身份键找持仓
+            if data.get('position_id'):
+                return PositionService.process_bond_redeem(db, data)
+            outcome = PositionService.process_orphan_bond_redeem(db, data)
+            return outcome.position
         if op_type == 'dividend':
             data['dividend_amount'] = data.get('avg_price', 0)
             return PositionService.process_dividend(db, data)
