@@ -21,7 +21,6 @@ const {
   showFullTable,
   currentPage,
   pageSize,
-  totalRows,
   filteredTotal,
   handleSizeChange,
   handlePageChange,
@@ -184,10 +183,12 @@ function missingField(row: any): "quantity" | "price" | null {
 
       <div class="pagination-bar flex items-center justify-between mt-3">
         <span class="text-xs text-gray-400">共 {{ filteredTotal }} 条</span>
+        <!-- total 必须与左侧「共 N 条」同源（filteredTotal）：绑全量 totalRows 会让
+               筛选态下 pager 显示 7 页、实际只有 2 条，点后面页码得到空表 -->
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
-          :total="totalRows"
+          :total="filteredTotal"
           :page-sizes="[10, 20, 50, 100]"
           layout="sizes, prev, pager, next"
           @size-change="handleSizeChange"
