@@ -19,6 +19,7 @@
 import { computed } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import AllocationGroupPanel from "./AllocationGroupPanel.vue";
+import OverviewChip from "./OverviewChip.vue";
 import type { SummaryCategory } from "../composables/useImportWizard";
 
 const {
@@ -114,10 +115,6 @@ const cardCheckStates = computed(() => ({
   duplicate: categoryCheckState("duplicate"),
   fix: categoryCheckState("fix")
 }));
-
-function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
-  toggleCategorySelection(key, Boolean(val));
-}
 </script>
 
 <template>
@@ -138,36 +135,20 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 
         <span class="ov-divider" aria-hidden="true" />
 
-        <!-- 三类别：左侧复选框（按类全选）+ 右侧主体（筛选表格） -->
-        <div
+        <!-- 三类别：左侧复选框（按类全选）+ 右侧主体（筛选表格），双靶区见 OverviewChip -->
+        <OverviewChip
           v-for="cap in capsules"
           :key="cap.key"
-          class="ov-chip"
-          :class="[
-            `ov-chip--${cap.tone}`,
-            { 'is-active': isCategoryExpanded(cap.key) }
-          ]"
-          :data-category="cap.key"
-          :title="cap.hint"
-        >
-          <el-checkbox
-            class="ov-chip-check"
-            :model-value="cardCheckStates[cap.key] === 'all'"
-            :indeterminate="cardCheckStates[cap.key] === 'some'"
-            :aria-label="`${cap.label}全选`"
-            @change="onCardCheck(cap.key, $event)"
-          />
-          <button
-            type="button"
-            class="ov-chip-btn"
-            :aria-pressed="isCategoryExpanded(cap.key)"
-            @click="toggleCategoryFilter(cap.key)"
-          >
-            <span class="ov-dot" aria-hidden="true" />
-            <span class="ov-label">{{ cap.label }}</span>
-            <strong class="ov-count">{{ summaryCounts[cap.key] }}</strong>
-          </button>
-        </div>
+          :category="cap.key"
+          :label="cap.label"
+          :tone="cap.tone"
+          :hint="cap.hint"
+          :count="summaryCounts[cap.key]"
+          :active="isCategoryExpanded(cap.key)"
+          :check-state="cardCheckStates[cap.key]"
+          @check="toggleCategorySelection(cap.key, $event)"
+          @toggle="toggleCategoryFilter(cap.key)"
+        />
 
         <span
           v-if="transferNote"
@@ -281,79 +262,7 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
   background: var(--border-default);
 }
 
-/* ── 三类别胶囊：外层只管边框与选中态，内层是两个独立靶区 ── */
-.ov-chip {
-  display: inline-flex;
-  gap: 2px;
-  align-items: center;
-  height: 30px;
-  padding: 0 10px 0 8px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-
-.ov-chip:hover {
-  border-color: var(--color-primary-20);
-}
-
-/* 选中 = 表格正被这个类别筛选，用主色描边而非填充，避免与语义色点抢注意力 */
-.ov-chip.is-active {
-  background: var(--color-primary-10);
-  border-color: var(--color-primary);
-}
-
-.ov-chip :deep(.el-checkbox) {
-  height: auto;
-  margin-right: 0;
-}
-
-.ov-chip-btn {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  height: 100%;
-  padding: 0 2px;
-  font-family: inherit;
-  font-size: var(--text-label);
-  color: var(--text-primary);
-  cursor: pointer;
-  background: none;
-  border: 0;
-}
-
-.ov-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-/* 语义色与状态列三态同源：绿=可导入 / 橙=可导入但需留意 / 红=阻断 */
-.ov-chip--success .ov-dot {
-  background: var(--color-success-ink);
-}
-
-.ov-chip--warning .ov-dot {
-  background: var(--color-warning-ink);
-}
-
-.ov-chip--danger .ov-dot {
-  background: var(--color-danger-ink);
-}
-
-.ov-label {
-  white-space: nowrap;
-}
-
-.ov-count {
-  font-size: var(--text-small);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
+/* ── 三类别胶囊的样式已迁到 OverviewChip.vue（双靶区随组件一起搬走） ── */
 
 /* 转账提示胶囊：与三类别的实心胶囊区分——它是说明，不是入口 */
 .ov-note {
