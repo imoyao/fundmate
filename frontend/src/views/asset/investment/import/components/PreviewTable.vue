@@ -27,7 +27,10 @@ const {
   handlePageChange,
   toggleIgnoreRow,
   startEdit,
-  isFundMode
+  isFundMode,
+  // 费用容差口径（2026-11-02）：差额被手续费解释时给提示，不判错
+  isFeeExplained,
+  feeDiffOf
 } = useImportWizardContext();
 
 /**
@@ -50,6 +53,20 @@ watch(showFullTable, (visible, wasVisible) => {
     });
   }
 });
+
+/**
+ * 金额列提示文案（#1790 列收敛下不新增手续费列，解释线索挂 tooltip）。
+ * 明说三件事：交割单发生额、其中的手续费、入库采用的成交额——避免用户
+ * 看到两个数字不一致时误点「修正金额」把线索改掉。
+ */
+function amountHint(row: any): string {
+  const diff = feeDiffOf(row);
+  const gross = Number(row.quantity) * Number(row.price);
+  return (
+    `发生金额 ${Number(row.amount).toFixed(2)}（含手续费 ${diff.toFixed(2)}）；` +
+    `成交额 ${gross.toFixed(2)} = 数量×单价。入库按成交额记、手续费单独一列`
+  );
+}
 
 /** 缺数量或价格时返回对应字段名，供操作列「补全」一键定位编辑（基金模式暂不提供该捷径，修正走智能修正面板） */
 function missingField(row: any): "quantity" | "price" | null {
@@ -117,7 +134,14 @@ function missingField(row: any): "quantity" | "price" | null {
             <EditableCell :row="row" field="price" />
           </template>
           <template v-else-if="col.slot === 'amount'" #default="{ row }">
-            <EditableCell :row="row" field="amount" />
+            <el-tooltip
+              v-if="isFeeExplained(row)"
+              :content="amountHint(row)"
+              placement="top"
+            >
+              <EditableCell :row="row" field="amount" />
+            </el-tooltip>
+            <EditableCell v-else :row="row" field="amount" />
           </template>
           <template v-else-if="col.slot === 'allocation'" #default="{ row }">
             <AllocationSelect :row="row" />

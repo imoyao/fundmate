@@ -613,19 +613,44 @@ export function useImportWizard() {
     return !row.symbol || row.symbol === "UNKNOWN";
   }
 
-  /** 金额不一致（fixSectionRows 的 mismatch 分区谓词）：有份额有价格但乘积与金额对不上 */
+  /**
+   * 金额差额（元）= |数量×单价 − 金额|。任一端缺失返回 0——缺失由
+   * `isMissingAmount` / `isRowBlocked` 负责，此处不重复报警。
+   */
+  function feeDiffOf(row: any): number {
+    const qty = Number(row.quantity);
+    const prc = Number(row.price);
+    const amt = Number(row.amount);
+    if (isNaN(qty) || qty <= 0) return 0;
+    if (isNaN(prc) || prc <= 0) return 0;
+    if (isNaN(amt)) return 0;
+    return Math.abs(qty * prc - amt);
+  }
+
+  /**
+   * 差额**被手续费解释**（2026-11-02）：同花顺交割单的「发生金额」是含手续费的发生额，
+   * 而入库 `amount` 恒按 单价×数量 重算（`position_service.py` 卖出/买入分支）、fee 另列，
+   * 于是带费行在预览里天然差一笔 fee。判据 `差额 ≤ |fee| + 0.01` 即视为已解释。
+   *
+   * 与 `isAmountMismatch` **互斥且互补**（差额 ≤ 0.01 时两者皆 false）：
+   * 解释得掉 → 归「数据完整」可导入；解释不掉 → 才进 mismatch 分区。
+   * 旧版只看 `差额 > 0.01`，把全部带费行打成「需要修正」（#磁盘 152 条的成因）。
+   */
+  function isFeeExplained(row: any): boolean {
+    const diff = feeDiffOf(row);
+    if (diff <= 0.01) return false;
+    return diff <= Math.abs(Number(row.fee) || 0) + 0.01;
+  }
+
+  /**
+   * 金额不一致（fixSectionRows 的 mismatch 分区谓词）：有份额有价格，但差额
+   * **超出**手续费能解释的范围。超出的那部分才是真对不上——费用列可能漏项
+   * （只有佣金缺印花税/过户费），或金额本身被改过。
+   */
   function isAmountMismatch(row: any): boolean {
-    const qty = Number(row.quantity),
-      prc = Number(row.price),
-      amt = Number(row.amount);
-    return (
-      !isNaN(qty) &&
-      qty > 0 &&
-      !isNaN(prc) &&
-      prc > 0 &&
-      !isNaN(amt) &&
-      Math.abs(qty * prc - amt) > 0.01
-    );
+    const diff = feeDiffOf(row);
+    if (diff <= 0.01) return false;
+    return diff > Math.abs(Number(row.fee) || 0) + 0.01;
   }
 
   /**
@@ -2143,6 +2168,9 @@ export function useImportWizard() {
       return "cell-blocked";
     // cell-missing 随手续费列退场改挂金额列（#1790 列收敛，理由见 #1790 取舍说明）
     if (prop === "amount" && isMissingAmount(row)) return "cell-missing";
+    // 差额被手续费解释：金额列给淡黄底提示。列收敛（#1790）下不新增手续费列，
+    // 解释线索改由金额列底色 + 该格 tooltip 承载（见 PreviewTable 的 amount slot）。
+    if (prop === "amount" && isFeeExplained(row)) return "cell-fee";
     return "";
   }
 
@@ -2151,7 +2179,7 @@ export function useImportWizard() {
       error: "解析错误，无法在面板内修正",
       missingCode: "系统无法识别以下证券代码",
       missingQtyPrice: "数量或价格缺失",
-      mismatch: "金额与数量×价格不符"
+      mismatch: "金额与数量×价格不符，且差额超过手续费"
     };
     return map[key] || "";
   }
@@ -2677,6 +2705,12 @@ export function useImportWizard() {
     confirmAllCalculated,
     getTemplateKeyForLedger,
     isRowBlocked,
+    // 共谓词（#1791）：卡片计数 / 分区 / 表格过滤 / 回归测试共用同一判据
+    categorizeRow,
+    // 费用容差三件套（2026-11-02）：状态列三态 / 金额列 tooltip 共用
+    feeDiffOf,
+    isFeeExplained,
+    isAmountMismatch,
     formatFileSize,
     getFundTypeColor,
     getTypeColor,
