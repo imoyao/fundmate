@@ -143,6 +143,9 @@ function missingField(row: any): "quantity" | "price" | null {
             </el-tooltip>
             <EditableCell v-else :row="row" field="amount" />
           </template>
+          <template v-else-if="col.slot === 'fee'" #default="{ row }">
+            <EditableCell :row="row" field="fee" />
+          </template>
           <template v-else-if="col.slot === 'allocation'" #default="{ row }">
             <AllocationSelect :row="row" />
           </template>

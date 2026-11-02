@@ -47,6 +47,43 @@ export function recalcAfterEdit(row: any, field: string): void {
     row.quantity = parseFloat((amt / prc).toFixed(4));
 }
 
+/** #2137 费用拆分四键（元），顺序与后端 `_FEE_BREAKDOWN_KEYS` 一致 */
+const FEE_BREAKDOWN_KEYS = [
+  "fee_commission",
+  "fee_stamp_duty",
+  "fee_transfer_fee",
+  "fee_other"
+] as const;
+
+/**
+ * 手改手续费总额后处置拆分列（#2137 不变量前置，2026-11-02）。
+ *
+ * WHY 必须在提交时清、而不是留给后端兜：`Transaction.before_insert`
+ * 要求「四列之和 == fee」，只改总额不改四列 → 写入抛 ValueError → 整批导入
+ * 失败，而前端只会看到「导入失败」，根因（拆分对不上）完全不可见。
+ *
+ * 语义：用户手改总额 = 以总额为准、放弃明细，故四列置空（全 NULL = 未拆分，
+ * 事件放行）。返回是否**真的清掉了数字明细**，供调用方决定要不要提示。
+ *
+ * `''` 与 `null` 的口径差：后端 `_fee_breakdown_kwargs` 把两者同等视为「未提供」，
+ * 但 `''` 与数字**混合**时会走另一分支抛 ValueError。故清理动作必须把 `''` 一并
+ * 归零，而提示只在真有数字明细时弹——全空行弹「已清除明细」是假告警。
+ */
+export function clearFeeBreakdownOnEdit(row: any, field: string): boolean {
+  if (field !== "fee") return false;
+  const present = FEE_BREAKDOWN_KEYS.some(
+    k => row[k] !== null && row[k] !== undefined
+  );
+  if (!present) return false;
+  const hadNumbers = FEE_BREAKDOWN_KEYS.some(
+    k => row[k] !== null && row[k] !== undefined && row[k] !== ""
+  );
+  FEE_BREAKDOWN_KEYS.forEach(k => {
+    row[k] = null;
+  });
+  return hadNumbers;
+}
+
 /**
  * 金额列 cell-missing 判定（getCellClassName 用）。
  * 该高亮原挂手续费列，列收敛退场（#1790）后改挂金额列——金额是三个可编辑列之一，

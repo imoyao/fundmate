@@ -34,7 +34,12 @@ import {
   type FixUndoEntry,
   type SectionCounts
 } from "./batchFixLogic";
-import { isMissingAmount, recalcAfterEdit, smartFill } from "./cellEditLogic";
+import {
+  clearFeeBreakdownOnEdit,
+  isMissingAmount,
+  recalcAfterEdit,
+  smartFill
+} from "./cellEditLogic";
 
 /**
  * 问题摘要面板的三卡片分类（#1791）。
@@ -417,18 +422,22 @@ export function useImportWizard() {
   );
 
   /**
-   * 表格列（#1790 → #783 §6.1 口径）：数据列 9 + 勾选 + 操作 = **11 列**，
-   * 最小宽合计（含勾选 50 / 操作 120）1060px，1200px 视口内无横向滚动。
+   * 表格列（#1790 → #783 §6.1 口径；2026-11-02 手续费列回归）：数据列 9 +
+   * 勾选 + 操作 = **11 列**，最小宽合计 1040px，1200px 视口内无横向滚动。
    *
    * 数据列一律 `minWidth`——design.md「冻结列与横向滚动规范」第 4 条：只有冻结列
    * 才用固定 `width`（否则 EP 不把该列纳入余量分配，宽屏右侧留白，#1421 根因 2）；
    * §6.1 的 px 值即各列最小宽。
    *
-   * 列收敛取舍（写明理由、不静默超宽，见 #1790 取舍说明）：
-   * - 手续费（两模式）/ 合同编号 / 发生金额（股票模式）从表格退场——行数据仍完整
-   *   携带、导入载荷不受影响，仅不再占列；
-   * - 金额列 120→90 并接入行内编辑；勾选 80→50、状态 70→60、配置目标 120→110、
-   *   备注 120→80 对齐 §6.1 明示宽度。
+   * 列取舍（写明理由、不静默超宽，见 #1790 取舍说明）：
+   * - **2026-11-02 手续费列回归（换列，不加列）**：#1790 为守住 11 列/1060px 把
+   *   手续费列退场，可见性改由金额列 tooltip 承担。实测这不够——tooltip 只能
+   *   「解释」已有差额，**补录不了缺失值**，而手续费直接进买入成本与卖出已实现
+   *   （pnl_service），漏记即静默少算。故移除「备注」列（内容折进产品信息第二行）、
+   *   配置目标 110→100，腾出的宽度给手续费列 70px，列数仍为 11。
+   * - 合同编号 / 发生金额（股票模式）仍退场——行数据完整携带、导入载荷不受影响，
+   *   发生金额由金额列 tooltip 呈现。
+   * - 勾选 50 / 状态 60 / 产品信息 160 / 数量单价金额各 90 / 操作 120 维持 §6.1。
    */
   const tableColumns = computed(() => {
     if (isFundMode.value) {
@@ -465,12 +474,18 @@ export function useImportWizard() {
           align: "right"
         },
         {
+          prop: "fee",
+          label: "手续费",
+          minWidth: 70,
+          slot: "fee",
+          align: "right"
+        },
+        {
           prop: "allocation",
           label: "配置目标",
-          minWidth: 110,
+          minWidth: 100,
           slot: "allocation"
-        },
-        { prop: "notes", label: "备注", minWidth: 80 }
+        }
       ];
     }
     return [
@@ -506,12 +521,18 @@ export function useImportWizard() {
         align: "right"
       },
       {
+        prop: "fee",
+        label: "手续费",
+        minWidth: 70,
+        slot: "fee",
+        align: "right"
+      },
+      {
         prop: "allocation",
         label: "配置目标",
-        minWidth: 110,
+        minWidth: 100,
         slot: "allocation"
-      },
-      { prop: "notes", label: "备注", minWidth: 80 }
+      }
     ];
   });
 
@@ -841,7 +862,8 @@ export function useImportWizard() {
           row.is_duplicate ||
           row.isEditingQty ||
           row.isEditingPrice ||
-          row.isEditingAmount
+          row.isEditingAmount ||
+          row.isEditingFee
         );
       });
     if (tableFilterKeyword.value) {
@@ -2074,11 +2096,13 @@ export function useImportWizard() {
       if (row.isEditingQty) finishEdit(row, "quantity", true);
       else if (row.isEditingPrice) finishEdit(row, "price", true);
       else if (row.isEditingAmount) finishEdit(row, "amount", true);
+      else if (row.isEditingFee) finishEdit(row, "fee", true);
     }
     row._oldValue = row[field];
     row.isEditingQty = field === "quantity";
     row.isEditingPrice = field === "price";
     row.isEditingAmount = field === "amount";
+    row.isEditingFee = field === "fee";
     editingRowKey.value = row._rowKey;
     previewData.value = [...previewData.value]; // 新增
   }
@@ -2087,13 +2111,20 @@ export function useImportWizard() {
     const wasBlocked = isRowBlocked(row);
     if (!save) row[field] = row._oldValue;
     else {
+      // 手改手续费总额 → 同步清空 #2137 四列拆分：只改总额会让
+      // `Transaction.before_insert` 的「拆分之和 == fee」不变量失败，
+      // 整批导入抛 ValueError（用户只看到「导入失败」）。
+      if (clearFeeBreakdownOnEdit(row, field)) {
+        ElMessage.warning("已按新手续费总额入账，原有费用明细拆分已清除");
+      }
       smartFill(row, field);
       recalcAfterEdit(row, field); // §6.2：改数量单价→重算金额；改金额→反算
     }
     delete row._oldValue;
     if (field === "quantity") row.isEditingQty = false;
     else if (field === "price") row.isEditingPrice = false;
-    else row.isEditingAmount = false;
+    else if (field === "amount") row.isEditingAmount = false;
+    else if (field === "fee") row.isEditingFee = false;
     editingRowKey.value = null;
 
     const nowBlocked = isRowBlocked(row);
@@ -2122,6 +2153,7 @@ export function useImportWizard() {
       if (row.isEditingQty) finishEdit(row, "quantity", true);
       if (row.isEditingPrice) finishEdit(row, "price", true);
       if (row.isEditingAmount) finishEdit(row, "amount", true);
+      if (row.isEditingFee) finishEdit(row, "fee", true);
     });
   }
 
@@ -2137,6 +2169,10 @@ export function useImportWizard() {
       }
       if (row.isEditingAmount) {
         row.isEditingAmount = false;
+        delete row._oldValue;
+      }
+      if (row.isEditingFee) {
+        row.isEditingFee = false;
         delete row._oldValue;
       }
     });
