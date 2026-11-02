@@ -486,6 +486,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'advisor_holdings': DOMAIN_MARKET,  # 投顾组合当前基金级持仓（#1167）
     'advisor_industry_allocs': DOMAIN_MARKET,  # 投顾组合行业配置（#1167）
     'advisor_adjust_histories': DOMAIN_MARKET,  # 投顾组合历史调仓明细（#1167）
+    'advisor_portfolio_navs': DOMAIN_MARKET,  # 投顾组合净值日序列（详情页走势图底数）
     'fund_holdings': DOMAIN_MARKET,  # 基金持仓明细（#870：报告期快照，前十大与全量并存）
     'fund_industry_allocs': DOMAIN_MARKET,  # 基金行业配置（#870：csrc/gics 双体系分区）
     'fund_style_exposures': DOMAIN_MARKET,  # 基金风格箱暴露（#2478：韭圈儿 8 分类，月度，公开无家庭字段）

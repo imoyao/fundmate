@@ -106,6 +106,8 @@ ENV_INDEX_DAILY_ENABLED = 'SCHEDULER_INDEX_DAILY_ENABLED'
 ENV_INDEX_DAILY_CRON = 'SCHEDULER_INDEX_DAILY_CRON'
 ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
 ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
+ENV_ADVISOR_NAV_ENABLED = 'SCHEDULER_ADVISOR_NAV_ENABLED'
+ENV_ADVISOR_NAV_CRON = 'SCHEDULER_ADVISOR_NAV_CRON'
 ENV_FUND_HOLDING_ENABLED = 'SCHEDULER_FUND_HOLDING_ENABLED'
 ENV_FUND_HOLDING_CRON = 'SCHEDULER_FUND_HOLDING_CRON'
 ENV_FUND_STYLE_ENABLED = 'SCHEDULER_FUND_STYLE_ENABLED'
@@ -180,6 +182,10 @@ DEFAULT_INDEX_DAILY_CRON = '0 18 * * *'
 # 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
 # 排在净值前会用到前一日口径。这也是且慢调仓历史的**唯一**来源（无官方历史接口）。
 DEFAULT_ADVISOR_CRON = '0 22 * * *'
+# 投顾组合净值序列：排在投顾快照之后（22:30）。两者都用且慢 MCP，错开半小时既避开
+# 同一时段的会话/限流窗口，也保证序列里已包含当日净值（组合净值 T+1 发布，
+# 若当日尚未发布，本 job 拉到的是上一交易日，属正常）。
+DEFAULT_ADVISOR_NAV_CRON = '30 22 * * *'
 # 基金持仓明细 + 行业配置（#870）：**每周一次，不进每日**。
 # 持仓是季报数据，日变更量恒为 0——每日跑 133 只 × 2 次请求纯属浪费外部请求，
 # 还叠加东财限流风险（#1403 的原始形态）。选周一 23:00：排在净值（21:30）与投顾
@@ -379,6 +385,19 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         DEFAULT_ADVISOR_CRON,
         None,
         '投顾组合持仓 / 调仓快照（且慢 + 天天；且慢无历史调仓接口，快照序列是唯一来源）',
+    ),
+    (
+        # 投顾组合净值序列（详情页走势图）。target_kind=None 同 advisor_portfolio：
+        # 目标池是「组合代码」，resolve_targets() 只产 fund/stock 两类，套上去只会拿到空。
+        # 目标池由 job 自解析为**用户触达**的组合（自选 ∪ 持仓），不是库内全量 114 只
+        # ——后者是数据策略 §4.3.3 明令禁止的静默退化。
+        # 首个查看某组合时走 advisor_nav.ensure_series 按需补拉，故本 job 缺席也不影响首屏。
+        'advisor_portfolio_nav',
+        ENV_ADVISOR_NAV_ENABLED,
+        ENV_ADVISOR_NAV_CRON,
+        DEFAULT_ADVISOR_NAV_CRON,
+        None,
+        '投顾组合净值序列（详情页走势图底数；且慢 MCP GetPortfolioNavHistory）',
     ),
     (
         # 基金持仓明细 + 行业配置（#870）。#1983 起 target_kind=('fund', 'etf')：

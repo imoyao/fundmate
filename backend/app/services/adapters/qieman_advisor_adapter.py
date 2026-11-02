@@ -147,3 +147,19 @@ class QiemanAdvisorAdapter(AdvisorPortfolioSource):
         推导算法统一放在 job 侧（适配器拿不到历史快照，无法自给）。
         """
         return []
+
+    def fetch_nav_history(self, strategy_code: str) -> list:
+        """组合历史净值序列 ``[{nav_date, nav}]``（``GetPortfolioNavHistory``）。
+
+        且慢是**唯一**提供组合净值序列的平台：MCP 一次调用返回成立至今全量日频净值
+        （实测 ZH012926 = 2250 行）。天天基金与好买的投顾接口只给当日净值，
+        未实现本方法 ⇒ 走基类默认的 ``[]``。
+
+        Raises:
+            McpTokenMissing / McpError: 与概览 / 持仓同口径——**调不通要抛**，
+                不能返回 ``[]``，否则会被上层读成「这组合没有净值序列」。
+        """
+        code = str(strategy_code or '').strip()
+        if not code:
+            return []
+        return self._fetcher.fetch_portfolio_nav_history(code)

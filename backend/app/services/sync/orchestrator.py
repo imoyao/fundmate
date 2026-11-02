@@ -46,6 +46,7 @@ from app.services.adapters.xalpha_adapter import XalphaAdapter
 from app.services.bias.job import BiasJob
 from app.services.fund_utils import normalize_fund_code
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
+from app.services.sync.jobs.advisor_portfolio_nav_job import AdvisorPortfolioNavSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
 from app.services.sync.jobs.bond_adjust_log_job import BondAdjustLogSyncJob
@@ -234,6 +235,10 @@ def build_execution_plan(targets: Dict[str, List[str]]) -> List[tuple]:
         # 排在分红拆分之后即可（它自己查库，不依赖任何 target 池）。
         ('orphan_backfill', []),
         ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167）
+        # 投顾组合净值序列（详情页走势图）。目标池由 job 自解析为「用户触达的组合」
+        # （自选 ∪ 持仓），`__full__` 在这里是「不用外部目标池」而非「全库刷」——
+        # 全库 114 个组合逐只打 MCP 属于数据策略明令禁止的静默退化。
+        ('advisor_portfolio_nav', ['__full__']),
         # ── 第四梯队：全市场名录（周频，见 WEEKLY_JOBS）──
         ('stock_list', ['__full__']),  # 全量刷新股票列表，不需要目标列表
         ('fund_list', ['__full__']),  # 全量刷新基金列表
@@ -313,6 +318,9 @@ class DataSyncOrchestrator:
         # job 不认识具体平台，按 AdvisorPortfolio.platform 从注册表取适配器；
         # 注册表同时充当 SyncJob 的 adapter 槽位（sync_logs 审计读 get_name/get_version）。
         self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(AdvisorSourceRegistry(), self.db)
+        # 投顾组合净值序列：与上面同一个注册表（审计槽位复用），但独立 job ——
+        # 一个组合一次调用拉十年历史，与「当日快照」的失败面完全不同，混跑会互相拖累。
+        self.jobs['advisor_portfolio_nav'] = AdvisorPortfolioNavSyncJob(AdvisorSourceRegistry(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         # #2141：收盘估值定格。天天基金 HTTP 直抓（非 akshare/xalpha 数据源），
         # NullAdapter 占位；目标池吃 fund 池（场外基金裸码），多时点由

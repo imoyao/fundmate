@@ -37,6 +37,7 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 | `index_daily` | 18:00 | **指数日线**（#275 / #861）：万得系（韭圈儿）+ 交易所宽基（沪深 300 / 中证 500 / 创业板指……共 12 只，腾讯直连）落 `index_daily`；目标池是固定清单，与持仓/自选无关 |
 | `position_price` | 22:15 | **持仓现价回写**（#1104）：场外基金写已确认净值、场内写最近交易日收盘价 → `positions.current_price`；纯本地（不联网），目标池 = 持仓表本身 |
 | `advisor_portfolio` | 22:00 | 投顾组合持仓 / 调仓快照（且慢 + 天天，目标池 = 库内全部在售组合） |
+| `advisor_portfolio_nav` | 22:30 | **投顾组合净值序列**（详情页走势图）：且慢 MCP `GetPortfolioNavHistory` 一次拉全历史，落 `advisor_portfolio_navs`。目标池 = **用户触达的组合**（自选 ∪ 持仓），不做全库刷；首次查看不在池内的组合按需补拉 |
 
 > `position_price` 必须排在 `fund_nav` 与 `price_history` **之后**：它读的就是前者刚落库的
 > `daily_worth`、后者刚落库的 `price_history.close`，早了会写到旧口径。它是「持仓盈亏非零」
@@ -81,6 +82,7 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_INDEX_DAILY_CRON=0 18 * * *      # 指数日线（万得系 + 交易所宽基）
 # SCHEDULER_POSITION_PRICE_CRON=15 22 * * *
 # SCHEDULER_ADVISOR_CRON=0 22 * * *
+# SCHEDULER_ADVISOR_NAV_CRON=30 22 * * *      # 投顾组合净值序列（详情页走势图）
 # SCHEDULER_ASSET_SNAPSHOT_CRON=45 23 * * *  # 资产快照（#2132 / D63）
 # SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
 # SCHEDULER_RUN_ON_START=true          # 启动补跑
@@ -89,6 +91,7 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_NAV_ENABLED=true
 # SCHEDULER_POSITION_PRICE_ENABLED=true
 # SCHEDULER_ADVISOR_ENABLED=true
+# SCHEDULER_ADVISOR_NAV_ENABLED=true
 ```
 
 ### 不会启动的场景（都是刻意的）

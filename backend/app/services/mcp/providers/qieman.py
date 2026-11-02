@@ -29,12 +29,17 @@ QIEMAN_CLIENT_INFO = {'name': 'fundmate', 'version': '1.0.0'}
 QIEMAN_TOOL = 'GetLatestQuotations'  # 市场温度计
 QIEMAN_STRATEGY_DETAIL_TOOL = 'GetStrategyDetails'  # 投顾组合概览/风险收益指标
 QIEMAN_STRATEGY_COMPOSITION_TOOL = 'BatchGetStrategiesComposition'  # 投顾组合持仓
+#: 投顾组合**历史净值序列**（详情页走势图）。一次调用返回成立至今全量日频净值
+#: （实测 ZH012926 = 2250 行，2017-07-24 至今），无需分页、也无需按档位传区间——
+#: 与「概览只给当日净值」是两件事，别复用 ``GetStrategyDetails``。
+QIEMAN_PORTFOLIO_NAV_TOOL = 'GetPortfolioNavHistory'
 
 #: 能力名 → 工具名（能力名是业务侧的稳定词，工具名可能随上游变化）
 _CAPABILITY_TOOLS: Dict[str, str] = {
     'latest_quotations': QIEMAN_TOOL,
     'strategy_details': QIEMAN_STRATEGY_DETAIL_TOOL,
     'strategy_composition': QIEMAN_STRATEGY_COMPOSITION_TOOL,
+    'portfolio_nav': QIEMAN_PORTFOLIO_NAV_TOOL,
 }
 
 
