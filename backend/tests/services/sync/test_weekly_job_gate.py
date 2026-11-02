@@ -160,6 +160,8 @@ class TestExecutionPlanOrder:
                 'fund_company_backfill',
                 'orphan_backfill',
                 'advisor_portfolio',
+                # #2817：投顾组合净值序列（详情页走势底数），与快照同属投顾域
+                'advisor_portfolio_nav',
                 'stock_list',
                 'fund_list',
                 'index_catalog',

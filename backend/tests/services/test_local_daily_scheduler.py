@@ -67,6 +67,8 @@ class TestLoadConfig:
             'index_daily',
             'position_price',
             'advisor_portfolio',
+            # #2817：投顾组合净值序列（详情页走势底数），紧跟持仓快照之后
+            'advisor_portfolio_nav',
             'fund_position',
             'fund_style',
             'market_asset_daily',
@@ -92,6 +94,7 @@ class TestLoadConfig:
         assert crons['index_daily'] == ds.DEFAULT_INDEX_DAILY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
+        assert crons['advisor_portfolio_nav'] == ds.DEFAULT_ADVISOR_NAV_CRON
         assert crons['fund_position'] == ds.DEFAULT_FUND_HOLDING_CRON
         assert crons['fund_style'] == ds.DEFAULT_FUND_STYLE_CRON
         assert crons['market_asset_daily'] == ds.DEFAULT_MARKET_ASSET_DAILY_CRON
@@ -175,6 +178,9 @@ class TestLoadConfig:
         cfg = ds.load_config({})
         spec = next(s for s in cfg.jobs if s.job_name == 'advisor_portfolio')
         assert spec.target_kind is None
+        # #2817：净值序列同理，目标池由 job 自解析为「用户触达」的组合
+        nav_spec = next(s for s in cfg.jobs if s.job_name == 'advisor_portfolio_nav')
+        assert nav_spec.target_kind is None
 
     def test_advisor_job_can_be_disabled_alone(self):
         cfg = ds.load_config({ds.ENV_ENABLED: 'true', ds.ENV_ADVISOR_ENABLED: '0'})
@@ -187,6 +193,8 @@ class TestLoadConfig:
             'price_history',
             'index_daily',
             'position_price',
+            # #2817：净值序列是**独立 job**，关掉 advisor_portfolio 不影响它
+            'advisor_portfolio_nav',
             'fund_position',
             'fund_style',
             'market_asset_daily',
@@ -227,6 +235,8 @@ class TestLoadConfig:
             'fund_valuation_snapshot',
             'fund_valuation_reconcile',
             'nav_backfill',
+            # #2817：上面关掉的是 advisor_portfolio，净值序列 job 有自己的开关，仍在列表里
+            'advisor_portfolio_nav',
             'fund_style',
             'market_asset_daily',
             'industry_pbroe',
