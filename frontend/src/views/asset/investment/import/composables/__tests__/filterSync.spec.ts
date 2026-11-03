@@ -227,3 +227,145 @@ describe("「暂不导入」与可勾选同源", () => {
     expect(w.isRowSelected(r)).toBe(true);
   });
 });
+
+/**
+ * 底栏三个数字互相打架（#2840）。
+ *
+ * 现场：
+ * ```
+ * 已选择 169 条，另有 169 条暂不导入   [跳过这 169 条，导入 40 条]  [确认导入 169 条]
+ * ```
+ * 左边两个 169 相加是 338（全表），按钮上的 169+40 是 209（不含转账），主按钮
+ * 又是 169（含转账）——三个分母，用户没法核对「银证转账到底在不在里面」。
+ * 根因：`pendingFixCount` 刻意排除转账行（它数的是待修问题行），却被当成
+ * 「未勾选」展示；而按钮执行的是「重置勾选为正常行」，会连已勾的转账一起清掉。
+ */
+describe("底栏计数的分母必须一致（#2840）", () => {
+  const transfer = () =>
+    row({
+      symbol: "__CASH__",
+      type: "cash",
+      op_type: "deposit",
+      is_cash_transfer: true,
+      quantity: 0,
+      price: 0
+    });
+
+  it("未勾选 = 全表 − 已选，两个数可以互算回总条数", () => {
+    const w = setup([row(), row(), transfer()]);
+    w.selectedKeys.value = new Set([w.previewData.value[0]._rowKey]);
+
+    expect(w.selectedCount.value).toBe(1);
+    expect(w.unselectedCount.value).toBe(2);
+    expect(w.selectedCount.value + w.unselectedCount.value).toBe(
+      w.previewData.value.length
+    );
+  });
+
+  it("已选转账条数只数「勾上了的」转账行，用来解释勾选里含不含转账", () => {
+    const w = setup([row(), transfer(), transfer()]);
+
+    expect(w.selectedTransferCount.value).toBe(0);
+
+    w.selectedKeys.value = new Set([w.previewData.value[1]._rowKey]);
+    expect(w.selectedTransferCount.value).toBe(1);
+  });
+
+  it("全选时未勾选为 0，且已选转账条数覆盖全部转账行", () => {
+    const w = setup([row(), transfer()]);
+    w.selectAllValid();
+    // 转账行不在 selectAllValid 作用域内（要用户显式决定），这里手动补上
+    w.selectedKeys.value.add(w.previewData.value[1]._rowKey);
+
+    expect(w.unselectedCount.value).toBe(0);
+    expect(w.selectedTransferCount.value).toBe(1);
+  });
+});
+
+/**
+ * 现金类收益（利息归本）被当成银证转账（#2840）。
+ *
+ * 后端曾用 `asset_type == 'cash'` 推 `is_cash_transfer`，于是「利息归本」
+ * （asset_type=cash、business_type=dividend_cash）在前端：默认不勾、须先关联
+ * 现金账户、计入「含 N 条银证转账」，还挂着「代码未匹配」——三处都解释不通。
+ * 语义上它是投资收益，不是银行↔证券搬钱。
+ */
+describe("现金类收益不按转账/缺代码处理（#2840）", () => {
+  const interest = () =>
+    row({
+      symbol: "",
+      name: "利息归本",
+      type: "cash",
+      op_type: "dividend_cash",
+      quantity: 0,
+      price: 0,
+      amount: 0.9
+    });
+
+  it("type=cash 且无代码 → 不判代码未匹配，默认可导入", () => {
+    const w = setup([interest()]);
+    const r = w.previewData.value[0];
+
+    expect(w.isMissingCode(r)).toBe(false);
+    expect(w.isAutoSelectableRow(r)).toBe(true);
+    expect(w.isRowSelectable(r)).toBe(true);
+    expect(w.pendingFixCount.value).toBe(0);
+  });
+
+  it("股票行缺代码仍判代码未匹配——现金豁免不外溢到有标的的行", () => {
+    const w = setup([row({ symbol: "", type: "stock" })]);
+
+    expect(w.isMissingCode(w.previewData.value[0])).toBe(true);
+    expect(w.isAutoSelectableRow(w.previewData.value[0])).toBe(false);
+  });
+
+  it("全选有效行会把利息归本带上，导入条数如实计数", () => {
+    const w = setup([row(), interest()]);
+
+    w.selectAllValid();
+
+    expect(w.selectedCount.value).toBe(2);
+    expect(w.selectedTransferCount.value).toBe(0);
+  });
+});
+
+/**
+ * 表头「全选」的三态判据必须与 selectAllValid 同源（#2840）。
+ *
+ * 这里曾手抄一份同样的条件，注释还写着「eligible 口径与 selectAllValid 一致」，
+ * 实际漏了 isMissingCode：只要表里有一条缺代码行，selectedKeys 就永远追不上
+ * eligible，全选后表头还挂在半选态——用户会以为「没选全」，再点一次反而清空。
+ */
+describe("表头全选三态与可勾选谓词同源", () => {
+  it("含缺代码行时，重算三态仍落到「全选」（不挂在半选）", () => {
+    const w = setup([row(), row({ symbol: "" })]);
+    w.selectAllValid();
+    // selectAllValid 直接置位，不走重算——真正会暴露漂移的是任何一次
+    // 逐行勾选触发的 updateSelectAllState。
+    w.handleRowCheckboxChange(w.previewData.value[0], true);
+
+    expect(w.selectedCount.value).toBe(1);
+    expect(w.isAllSelected.value).toBe(true);
+    expect(w.isIndeterminate.value).toBe(false);
+  });
+
+  it("含转账行时同理（转账不在自动勾选范围，但不能挡住全选态）", () => {
+    const w = setup([
+      row(),
+      row({
+        symbol: "__CASH__",
+        type: "cash",
+        op_type: "deposit",
+        is_cash_transfer: true,
+        quantity: 0,
+        price: 0
+      })
+    ]);
+
+    w.selectAllValid();
+    w.handleRowCheckboxChange(w.previewData.value[0], true);
+
+    expect(w.isAllSelected.value).toBe(true);
+    expect(w.isIndeterminate.value).toBe(false);
+  });
+});
