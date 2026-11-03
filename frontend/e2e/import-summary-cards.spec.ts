@@ -212,8 +212,9 @@ test.describe("导入预览概览条（原 #1791 三卡片）", () => {
     await expect(breakdown).toContainText("代码未匹配 1");
     await expect(breakdown).toContainText("差额超出手续费 1");
 
-    // 底部「已选择」：selectAllValid 排除重复/错误/待补全，选中 4 行
-    await expect(selectedLine(page)).toContainText("已选择 4 条");
+    // 底部「已选择」：selectAllValid 排除重复/错误/待补全/代码未匹配，选中 3 行
+    // （#2836：UNKNOWN 代码的行以前被算进可选——勾上之后后端建不出产品，白等一次失败回执）
+    await expect(selectedLine(page)).toContainText("已选择 3 条");
 
     // ── 未筛选：完整表格 6 行，「全部」胶囊为选中态 ──
     await expect(page.locator(".table-wrapper .el-table__row")).toHaveCount(
@@ -270,7 +271,7 @@ test.describe("导入预览概览条（原 #1791 三卡片）", () => {
     await openPreview(page);
 
     // 默认：重复行未被勾选（selectAllValid 排除 is_duplicate）
-    await expect(selectedLine(page)).toContainText("已选择 4 条");
+    await expect(selectedLine(page)).toContainText("已选择 3 条");
 
     // 按「疑似重复」筛表 → 表格 1 行
     await chipButton(page, "duplicate").click();
@@ -285,7 +286,7 @@ test.describe("导入预览概览条（原 #1791 三卡片）", () => {
     // 手动勾选 → 计入已选择
     await row.locator("label.el-checkbox").click();
     await expect(rowInput).toBeChecked();
-    await expect(selectedLine(page)).toContainText("已选择 5 条");
+    await expect(selectedLine(page)).toContainText("已选择 4 条");
 
     // 胶囊左侧复选框同步为全选态（勾选与筛选是两个靶区，互不触发）
     await expect(

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
@@ -47,16 +48,40 @@ const fixHint = computed(() => {
  * 也**刻意不用 popover / tooltip**：#1790 验收①要求本页无浮层（就地编辑不得弹层），
  * 用浮层承载说明会与那条判据互斥，故走页内展开——点「?」在原位展开，不浮、不遮挡。
  */
+/**
+ * 「全部 / 只看问题」是**二选一**，不是一个开关（#2836）。
+ *
+ * 原来用 `el-switch` + 两端 active-text / inactive-text：两个词组看上去像两个
+ * 可选项，实际只有滑块能点，点文字没反应；而且未选中的那一侧仍是正文色，
+ * 用户分不清「当前在哪一档」。改用全站统一的分段控制器（`SegmentedControl`）：
+ * 两个都是真靶区，选中项有软底 + 深色字。顺带给「只看问题」带上条数——
+ * 切之前就知道里面有多少行，不用切过去再数。
+ */
+const problemCount = computed(
+  () => summaryCounts.value.fix + summaryCounts.value.duplicate
+);
+const viewMode = computed({
+  get: () => (showProblemOnly.value ? "problem" : "all"),
+  set: (v: string) => {
+    showProblemOnly.value = v === "problem";
+  }
+});
+const viewOptions = computed(() => [
+  { label: "全部数据", value: "all" },
+  { label: "只看问题", value: "problem", count: problemCount.value }
+]);
+
 const showHelp = ref(false);
 </script>
 
 <template>
   <div class="table-controls">
     <div class="flex items-center gap-4 flex-wrap">
-      <el-switch
-        v-model="showProblemOnly"
-        active-text="只看问题数据"
-        inactive-text="全部数据"
+      <SegmentedControl
+        v-model="viewMode"
+        :options="viewOptions"
+        size="small"
+        aria-label="全部数据与只看问题数据"
       />
       <el-input
         v-model="tableFilterKeyword"
