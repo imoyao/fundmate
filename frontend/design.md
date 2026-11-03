@@ -519,7 +519,7 @@ sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开
 | `--input-hover-border-color` | `var(--brand-500)` | —— |
 | `--input-focus-border-color` | `var(--brand-700)` | 改焦点色时**必须与 `--input-focus-shadow` 同时覆盖** |
 | `--input-focus-shadow` | `inset 1px 品牌色 + 3px 12% 品牌柔光`（**单环**） | OCR / 识别导入柔环（40% 品牌 400）、agent `none` |
-| `--input-radius` | `var(--radius-sm)` | 标签搜索框 `--radius-pill`、AssetEntry 录入表单 `8px` |
+| `--input-radius` | `var(--radius-sm)` | 标签搜索框 `--radius-pill` |
 | `--input-height` | `auto`（= EP 原生 32px） | QuickEntry 三表单 / 流水编辑弹窗 `40px` |
 | `--input-textarea-padding` | `5px 11px` | 添加自选弹窗 `8px 12px`、agent `4px 8px` |
 | `--input-textarea-resize` | `vertical` | agent `none` |
@@ -555,16 +555,17 @@ sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开
 否则「红框 + 品牌柔光」同框又是多层描边。该规则写在焦点规则之后：两者特异性同为
 `(0,4,0)`，靠顺序取胜，不依赖 EP 内部规则的档位。
 
-#### 3. 允许的 `:deep` 例外（纯几何，现存 1 个文件，验收阈值 ≤2）
+#### 3. 允许的 `:deep` 例外（纯几何，现存 2 个文件，验收阈值 ≤2）
 
 | 文件 | 保留内容 |
 |------|----------|
-| `views/asset/AssetEntry.vue` | 录入表单的 padding / 字号 / 文本对齐（几何），圆角走 `--input-radius: 8px` |
+| `views/asset/assetEntry/AssetEntryForm.vue` | 仅金额输入框的 `text-align: right`（几何）。2026-11-03 重做后 padding / 字号 / 圆角全部交回输入基线，不再有页面级视觉覆盖 |
+| `views/asset/investment/manual/conversion/components/ConversionFeeFold.vue` | 手续费输入框的 `tabular-nums` + `text-align: right`（几何，2026-10 基金转换页加入；本表此前漏登） |
 
 `rg -l -e ':deep\([^)]*(el-input__wrapper|el-textarea__inner|el-input__inner)' frontend/src`
-**应恒等于这 1 个文件**（注释里写这个正则同样计数，别在注释中复述）。原表中
+**应恒等于上表列出的文件数（现存 2 个）**（注释里写这个正则同样计数，别在注释中复述）。原表中
 `BatchFixPanel.vue` 的「两条内边距微调」已随 #1792 面板重写移除——纯 class 选择器即可达成，
-不再需要 `:deep`。新增页面既不要成第 2 个，也不要另起一套 `:deep` 视觉覆盖 —— 需要差异就改令牌。
+不再需要 `:deep`。新增页面既不要成第 3 个，也不要另起一套 `:deep` 视觉覆盖 —— 需要差异就改令牌。
 
 ### 资产代码（symbol）展示契约（venue，2026-09-24 #1662 / D35 + D36）
 
