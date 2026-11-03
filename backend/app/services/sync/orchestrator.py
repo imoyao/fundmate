@@ -35,7 +35,6 @@ from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
 from app.services import pnl_snapshot_store
-from app.services.price_depth import held_symbols
 from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
@@ -46,6 +45,7 @@ from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
 from app.services.bias.job import BiasJob
 from app.services.fund_utils import normalize_fund_code
+from app.services.price_depth import held_symbols
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.advisor_portfolio_nav_job import AdvisorPortfolioNavSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
