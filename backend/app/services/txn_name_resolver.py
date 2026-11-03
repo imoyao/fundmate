@@ -24,6 +24,7 @@ from typing import Dict, Iterable, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.core.asset_types import get_asset_type_label
 from app.core.constants import OwnershipStatus
 from app.core.symbol_utils import strip_exchange_prefix
 from app.domains.funds.models import Fund
@@ -33,6 +34,49 @@ from app.domains.transactions.models import Transaction
 
 # 账户级流水（存入 / 取出）：本来就没有持仓行，不属于「已清仓」
 ACCOUNT_LEVEL_TXN_TYPES = ('deposit', 'withdraw')
+
+# 收益类流水：券商原文常常只给金额、不给标的（同花顺「基金红利拨入」「红利入账」
+# 的证券代码 / 名称两列本来就是空的，table1101.xls 实测 33 笔）。
+# 值是兜底名的词尾——「红利税」与「分红」必须分开：把代扣税叫成「分红」会让人
+# 以为那笔钱是到账收益（实际是流出）。
+INCOME_TXN_SUFFIX: dict[str, str] = {
+    'dividend': '分红',
+    'dividend_cash': '分红',
+    'dividend_tax': '红利税',
+}
+
+
+def display_asset_name(
+    *,
+    position_name: str | None,
+    asset_type: str | None,
+    txn_type: str | None,
+) -> str:
+    """流水行的**展示名称**：快照 → 按「资产类型 + 收益种类」兜底 → 「未知资产」。
+
+    WHY（#2844）：券商原文不给标的的收益行，快照、持仓、名录三处都查不到名称，
+    列表里就只剩「未知资产」四个字。用户看到一笔 2.10 元的「分红 / 未知资产」，
+    既不知道钱从哪来，也判断不出这是数据缺失还是账目错乱——而这批行恰恰是
+    **每月都有的货基收益**，只是原文没写产品。
+
+    兜底文案只说**能确认的那部分**：类型是库里存的、收益种类是 txn_type 给的，
+    都不猜具体产品（猜错比「未知」更坏：用户会拿它去对账）。
+    不落库：`position_name` 仍是快照，写死一个派生名会让搜索、分组、去重一起失准。
+
+    只对**收益类**兜底。买入 / 卖出缺名称是另一类问题（说明标的真的丢了），
+    那时「未知资产」是诚实的，换成「股票买入」反而掩盖了数据缺口。
+    """
+    if position_name:
+        return position_name
+    # 代码位由前端单独渲染（`# 600000`），这里不拿它顶名称，否则同一格出现两次。
+    # 大小写两套口径都要吃：`transactions.txn_type` 是小写，导入记录里的
+    # `business_type` 是大写枚举（`DIVIDEND_CASH`），归一前先比会静默漏判。
+    suffix = INCOME_TXN_SUFFIX.get((txn_type or '').lower())
+    if suffix:
+        label = get_asset_type_label(asset_type)
+        return f'{label}{suffix}' if label else suffix
+    return '未知资产'
+
 
 # 流水行的持仓状态（设计口径，见 docs/design/transaction-flow-redesign.md §三）
 POSITION_STATE_HELD = 'held'

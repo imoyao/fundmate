@@ -26,6 +26,7 @@ from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import build_transaction_symbol_conditions
 from app.services.txn_name_resolver import (
     POSITION_STATE_CLEARED,
+    display_asset_name,
     resolve_transaction_asset_types,
     resolve_transaction_display_names,
     resolve_transaction_position_states,
@@ -328,7 +329,13 @@ def transaction_row(
         'id': t.id,
         'ledger_id': t.ledger_id,
         'position_id': t.position_id,
-        'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
+        # #2844：收益类流水（券商原文不给标的）用「资产类型 + 收益种类」兜底，
+        # 不再一律显示「未知资产」——判据与文案都在 display_asset_name 里，改一处即可。
+        'position_name': display_asset_name(
+            position_name=t.position_name or pos_names.get(t.id),
+            asset_type=t.asset_type or asset_types.get(t.id),
+            txn_type=t.txn_type,
+        ),
         'type': t.txn_type,
         'asset_type': t.asset_type or asset_types.get(t.id),
         'symbol': t.symbol,
