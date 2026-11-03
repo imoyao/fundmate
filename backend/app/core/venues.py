@@ -40,6 +40,13 @@ r"""交易场所（venue）的单一权威定义（#1662）。
                                        （manager / index 不进 positions；
                                         portfolio **进** positions，见 D70 / #2740 ——
                                         但它同样没有交易所归属，故仍是 NO_VENUE）
+    bank_wealth → ''                  （银行理财：银行渠道销售，不在交易所撮合；
+                                       同 portfolio 无份额净值公开来源，靠余额录入）
+
+⚠️ 不要把 `bank_wealth` 归进 OTC：OTC 在本仓的语义是「场外公募基金销售渠道」，
+   symbol 按裸 6 位码存（见 `normalize_by_venue`）。银行理财没有基金代码，落 OTC 会
+   被套上「裸码 = 基金代码」的归一逻辑，且 `VENUE_ASSET_TYPES[OTC]` 反查时会把
+   理财行当成基金行。
 
 ⚠️ **asset_type → venue 不是全函数**（本模块最容易踩的坑），已证的例外：
 
@@ -80,7 +87,7 @@ SH_EXCHANGE_MONEY_FUND_RE = re.compile(r'^SH97\d{4}$')
 # asset_type → venue 的**缺省**推断表（非全函数，见模块 docstring）
 _OTC_ASSET_TYPES: tuple[str, ...] = ('fund', 'money_fund')
 _EXCHANGE_DEFAULT_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond', 'reverse_repo')
-_NO_VENUE_ASSET_TYPES: tuple[str, ...] = ('manager', 'portfolio', 'index')
+_NO_VENUE_ASSET_TYPES: tuple[str, ...] = ('manager', 'portfolio', 'index', 'bank_wealth')
 
 # venue → 该场所**可能**出现的 asset_type（读侧反查存量行用，必须双向覆盖）：
 # EXCHANGE 额外含 `money_fund` —— 场内货基（`^97\d{4}$`）资产类型是货基但属交易所；

@@ -97,7 +97,9 @@ _DIVIDEND_KEYWORDS = ('红利', '分红', '派息', '股息', '兑息')
 # 非分红类的关键词：命中即排除（利息 / 兑付 / 退款 / 零款）。
 _NOT_DIVIDEND_KEYWORDS = ('利息', '兑付', '退款', '退息', '零款', '兑息')
 # 不给红利税补记提示的资产类型：可转债（`bond`）的派息是利息，货基/逆回购同理。
-_NO_DIVIDEND_TAX_ASSET_TYPES = frozenset({'bond', 'money_fund', 'reverse_repo', 'cash', 'bank'})
+# bank_wealth（银行理财）与 bank（银行存款）的到账是「理财收益 / 存款利息」，同样不是股息，
+# 提示红利税会让用户以为漏扣了税。
+_NO_DIVIDEND_TAX_ASSET_TYPES = frozenset({'bond', 'money_fund', 'reverse_repo', 'cash', 'bank', 'bank_wealth'})
 # 归入「同一账户」的兜底键：账户为空（手动记账 / 老数据）时，空账户之间互相匹配。
 _EMPTY_ACCOUNT = ''
 

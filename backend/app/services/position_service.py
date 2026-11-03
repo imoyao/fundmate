@@ -25,6 +25,7 @@ from sqlalchemy import false, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.asset_types import get_asset_type_label
 from app.core.constants import (
     ALLOCATION_LABELS,
     MARKET_LABELS,
@@ -442,7 +443,17 @@ def auto_purchase_money_fund(
 
 
 # 录入阶段已显式给出的具体类型，直接信任，不再做代码推断（避免误伤基金等）
-_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash', 'portfolio'}
+# bank_wealth 必须在这里：银行理财没有可推断的代码段，漏了它显式传入的 asset_type 会被
+# `_get_asset_type` 的推断分支覆盖成 stock（银行理财产品名多为中文、无代码 ⇒ 落到默认值）。
+_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash', 'portfolio', 'bank_wealth'}
+
+# 只允许 balance（直接余额）记账的品类：共同点是**系统拿不到公开净值**，落成 nav 模式
+# 不会报错，而是市值恒为 0（`position_price` job 不给它定价），用户看到一张「持仓 0 元」的卡。
+# 值是该品类专属的拒绝理由，拼进错误信息用。
+_BALANCE_ONLY_ASSET_TYPES: dict[str, str] = {
+    'portfolio': '投顾组合没有份额与净值',
+    'bank_wealth': '银行理财不在公开基金名录里，系统拿不到它的净值',
+}
 
 
 def _get_asset_type(data: dict, default: str = 'stock', *, fallback: Optional[str] = None) -> str:
@@ -1430,29 +1441,29 @@ class PositionService:
         is_balance = mode == ValuationMode.BALANCE.value
         amount = data.get('amount', 0) or 0
 
-        # ── 投顾组合：只允许 balance（D70 / #2740）──
-        # portfolio 没有份额、没有净值，市值只能来自 `market_value_override`（D2 双态计价）。
-        # 落成 nav 模式的后果**不是报错而是静默 0 元**：`position_price` job 不会给它定价，
-        # 市值恒为 0，但 has_position 仍为 true，详情页照常渲染一张「持仓 0 元」的卡
-        # ——用户看到的是一个说不通的数字，没有任何提示。
+        # ── 无净值品类：只允许 balance（D70 / #2740）──
+        # portfolio / bank_wealth 没有份额、没有净值，市值只能来自 `market_value_override`
+        # （D2 双态计价）。落成 nav 模式的后果**不是报错而是静默 0 元**：`position_price`
+        # job 不会给它定价，市值恒为 0，但 has_position 仍为 true，详情页照常渲染一张
+        # 「持仓 0 元」的卡 —— 用户看到的是一个说不通的数字，没有任何提示。
         # 历史上这条约束只写在 `core/asset_types.py` 的注释里（「不进 positions」），
         # 没有任何代码执行它，于是「能记进去但记了是坏的」。故在写入侧显式拒绝。
-        if asset_type == 'portfolio' and not is_balance:
+        if asset_type in _BALANCE_ONLY_ASSET_TYPES and not is_balance:
             raise ValueError(
-                '投顾组合只能以 balance（直接余额）模式记账：'
-                '它没有份额与净值，市值靠人工录入金额（valuation_mode 须传 balance）'
+                f'{_BALANCE_ONLY_ASSET_TYPES[asset_type]}，'
+                '只能以 balance（直接余额）模式记账，市值靠人工录入金额（valuation_mode 须传 balance）'
             )
 
         # 同一条 symbol 已有**别的品类**的持仓时不许合并（#2740）：
-        # 投顾组合的 venue 是 NO_VENUE，`_find_existing_position` 对空 venue 按设计不做
-        # 品类过滤（见其注释：对空串套用「无场所实体」集合会误伤 crypto 等未知品类），
-        # 于是「组合码恰好与某只证券同码」时会合并进那只证券的行——balance 分支只往
+        # balance-only 品类的 venue 是 NO_VENUE，`_find_existing_position` 对空 venue 按设计
+        # 不做品类过滤（见其注释：对空串套用「无场所实体」集合会误伤 crypto 等未知品类），
+        # 于是「产品名恰好与某只证券同码」时会合并进那只证券的行——balance 分支只往
         # `market_value_override` 上加钱，用户看到的是「一只股票凭空多了钱」。
         # 真实组合码是平台原生码（ZHxxxx / tgcode），撞码概率极低，但静默串账比报错贵。
-        if same is not None and asset_type == 'portfolio' and same.asset_type != 'portfolio':
+        if same is not None and asset_type in _BALANCE_ONLY_ASSET_TYPES and same.asset_type != asset_type:
             raise ValueError(
                 f'该账户下 {symbol} 已存在一条 asset_type={same.asset_type} 的持仓，'
-                '不能按投顾组合记账；请核对代码或换一个账户'
+                f'不能按{get_asset_type_label(asset_type)}记账；请核对名称或换一个账户'
             )
 
         # 校验数量/价格

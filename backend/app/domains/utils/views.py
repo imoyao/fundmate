@@ -106,6 +106,7 @@ def get_enums():
         INVESTMENT_MINOR_CATEGORIES,
     )
     from app.core.constants import MARKET_LABELS, OP_TYPE_LABEL, POSITION_SOURCE_LABELS, VENUE_LABELS
+    from app.core.investment_tiers import ASSET_TYPE_TIER, TIER_LABELS, TIER_SCOPES, TIER_VALUES
 
     return jsonify(
         {
@@ -122,6 +123,14 @@ def get_enums():
                 'market': MARKET_LABELS,
                 # #1969：交易场所标签（EXCHANGE/OTC 原键不再直接上屏）
                 'venue': VENUE_LABELS,
+                # 投资分档（主动投资 / 稳健 / 其他）：判据表在 core/investment_tiers，
+                # 前端做三层收益展示时从这里取，禁止手抄 asset_type → tier 的第二份映射。
+                # `tier_scopes` 是对用户暴露的三个口径（不含 other：房产保险这类没有交易
+                # 流水，单独算年化无意义）。
+                'investment_tier': ASSET_TYPE_TIER,
+                'investment_tier_labels': TIER_LABELS,
+                'investment_tier_values': list(TIER_VALUES),
+                'investment_tier_scopes': list(TIER_SCOPES),
             },
             'message': 'ok',
         }
