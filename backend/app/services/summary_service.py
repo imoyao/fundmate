@@ -19,6 +19,7 @@ from app.core.constants import (
     EXCHANGE_RATES,
     MARKET_LABELS,
     TYPE_LABELS,
+    ValuationMode,
 )
 from app.core.database import Session
 from app.core.money import Money
@@ -868,12 +869,30 @@ def get_ledger_distributions(db: Session, family_id: int = 1) -> dict[int, dict[
 _POS_GROUP_DIMENSIONS = ('type', 'account', 'allocation')
 
 
-def _pos_group_payload(p: Position) -> dict[str, Any]:
-    """持仓分组明细：展示单位 + 标签，市值/盈亏按汇率后端换算（唯一出口）。"""
+def _pos_group_payload(p: Position, effective_nav_yuan: float | None = None) -> dict[str, Any]:
+    """持仓分组明细：展示单位 + 标签，市值/盈亏按汇率后端换算（唯一出口）。
+
+    市值走全站唯一口径 :func:`position_valuation.market_value_cents`（#2154 契约的第 6 个出口）。
+    此前这里裸算「份额 × 快照价」，绕过了 override 优先级：
+    balance 模式持仓（投顾组合 / 银行理财，无份额无价格、市值只来自
+    ``market_value_override``）在产品类型 / 账户 / 配置目标三个维度里恒为 0，
+    而同一页的总资产卡把它算进去了 —— 同一份持仓在同一屏里出现两个数。
+    契约测试见 ``tests/services/test_summary_total_assets_contract.py``。
+    """
     rate = EXCHANGE_RATES.get(p.currency, 1.0)
     shares = Money.min_unit_to_shares(p.quantity)
     price = Money.price_units_to_yuan(p.current_price)
     cost = Money.price_units_to_yuan(p.avg_price)
+    market_value = Money.cents_to_yuan(market_value_cents(p, effective_nav_yuan=effective_nav_yuan, rate=rate))
+
+    # 盈亏只在「市值可由价格推出」时才有意义。override（人工录入单值）与 balance 模式
+    # 的市场价并未参与，减成本得出的「浮盈」不可信——与 ``_asset_group_payload`` 的
+    # pnl=0 同一条约定：拿不准就不给数，而不是给一个看起来精确的错数。
+    unpriced = (getattr(p, 'market_value_override', None) is not None) or (
+        (getattr(p, 'valuation_mode', None) or ValuationMode.NAV.value) == ValuationMode.BALANCE.value
+    )
+    pnl = 0.0 if unpriced else round(market_value - round(shares * cost * rate, 2), 2)
+
     return {
         'id': p.id,
         'name': p.name,
@@ -887,8 +906,8 @@ def _pos_group_payload(p: Position) -> dict[str, Any]:
         'account_name': p.account_name,
         'quantity': shares,
         'current_price': price,
-        'market_value': round(shares * price * rate, 2),
-        'pnl': round((price - cost) * shares * rate, 2),
+        'market_value': market_value,
+        'pnl': pnl,
     }
 
 
