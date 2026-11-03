@@ -25,16 +25,6 @@ export interface AssetGroupRaw {
   count?: number;
 }
 
-/** 「投资分布」卡片的一项（股票 + 可转债 合并为「股票」，基金独立） */
-export interface InvestmentGroup {
-  type: string;
-  label: string;
-  icon: string;
-  color: string;
-  total: number;
-  count: number;
-}
-
 /**
  * 取异常文案：兼容 axios 抛出的 Error 与后端信封返回的 `{ message }`，
  * 都没有时回退到调用方给的兜底文案。
@@ -110,49 +100,4 @@ export function getAllocationColor(key: string | null): string {
 /** 配置目标 key → 胶囊底色（前景色降透明度） */
 export function getAllocationBgColor(key: string | null): string {
   return getColorWithAlpha(getAllocationColor(key), 0.15);
-}
-
-/** 后端 `type` 分组 → 页面分组 key（股票 / 可转债 合并为证券，基金归基金，其余忽略） */
-const GROUP_KEY_MAP: Record<string, string> = {
-  股票: "securities",
-  可转债: "securities",
-  基金: "fund"
-};
-
-const GROUP_META_MAP: Record<
-  string,
-  { label: string; icon: string; color: string }
-> = {
-  securities: {
-    label: "股票",
-    icon: "ep:trend-charts",
-    color: "var(--asset-cat-stock)"
-  },
-  fund: { label: "基金", icon: "ep:money", color: "var(--asset-cat-fund)" }
-};
-
-/**
- * 投资分布：消费后端 `GET /api/summary/groups/?dimension=type`（含 count / 总市值），
- * 按原页面语义合并「股票 + 可转债 → 证券」「基金 → 场外基金」。
- */
-export function buildInvestmentGroups(raw: AssetGroupRaw[]): InvestmentGroup[] {
-  const groups: Record<string, { total: number; count: number }> = {};
-  for (const g of raw) {
-    const key = GROUP_KEY_MAP[g.name];
-    if (!key) continue;
-    if (!groups[key]) groups[key] = { total: 0, count: 0 };
-    groups[key].total += g.total || 0;
-    groups[key].count += g.count || 0;
-  }
-
-  return Object.entries(groups).map(([type, data]) => {
-    const meta = GROUP_META_MAP[type];
-    return {
-      type,
-      label: meta?.label || type,
-      icon: meta?.icon || "ep:question",
-      color: meta?.color || "var(--color-neutral)",
-      ...data
-    };
-  });
 }
