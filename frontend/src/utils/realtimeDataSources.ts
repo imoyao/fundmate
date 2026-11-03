@@ -559,6 +559,177 @@ export async function fetchIntradayTrend(
   return fetchIntradayTrendBySecid(secid);
 }
 
+// ──────────────────────────────────────────────
+// 东财资金流（#watchlist 资金面卡 / 自选股主力净流入 + 所属板块）
+// ──────────────────────────────────────────────
+/**
+ * 个股资金流结果。
+ * - `mainInflow`：主力净流入（元），null = 无数据 / 该标的无此口径（基金/指数/可转债）。
+ * - `sector`：所属行业 / 板块名（东财 f100），null = 无。
+ */
+export interface StockFundFlow {
+  mainInflow: number | null;
+  sector: string | null;
+}
+
+/** 板块资金流（行业板块主力净流入排名）。 */
+export interface SectorFundFlow {
+  /** 板块代码（BKxxxx） */
+  code: string;
+  /** 板块名称 */
+  name: string;
+  /** 主力净流入（元） */
+  mainInflow: number;
+  /** 涨跌幅（%） */
+  changePct: number;
+}
+
+/**
+ * 内部 symbol → 东财资金流 secid。仅股票/ETF 适用（基金/指数/可转债无主力资金流口径）。
+ * - A 股：`SH600519` / `600519` → 复用 `toEastmoneySecid`（SH=1 / SZ=0）。
+ * - 港股：`HK00700` → `116.00700`（东财港股市场码 116）。
+ * - 美股：`US:AAPL` / `USNVDA` → `105.<bare>`（东财美股市场码 105）。
+ * 其余（非 stock/etf）→ null。
+ */
+export function toEastmoneyFundFlowSecid(
+  symbol: string,
+  assetType?: string
+): string | null {
+  const type = (assetType || "").toLowerCase();
+  if (type !== "stock" && type !== "etf") return null;
+  const upper = symbol.toUpperCase();
+  if (upper.startsWith("HK")) {
+    const bare = symbol.replace(/^HK/i, "");
+    return /^\d{1,5}$/.test(bare) ? `116.${bare}` : null;
+  }
+  if (upper.startsWith("US")) {
+    const bare = symbol.replace(/^US:?/i, "");
+    return bare ? `105.${bare}` : null;
+  }
+  // A 股（可能带 SH/SZ 前缀或裸 6 位），market 未知时靠 toEastmoneySecid 按首位兜底
+  return toEastmoneySecid(symbol, undefined);
+}
+
+/** 把东财 clist/ulist 的 diff（可能是数组或「下标 → 对象」的字典）归一为数组 */
+function normalizeDiff(diff: any): any[] {
+  if (Array.isArray(diff)) return diff;
+  if (diff && typeof diff === "object") return Object.values(diff);
+  return [];
+}
+
+/**
+ * 个股主力净流入 + 所属行业（东财 `ulist.np/get`，按 secids 批量，一次请求）。
+ * 返回按内部 symbol 索引的结果；无资金流口径的标的（基金/指数/可转债）不进 map。
+ * 失败 / 超时 → 返回空 map（由调用方决定降级，不抛错、不阻塞列表）。
+ */
+export async function fetchStockFundFlow(
+  items: { symbol: string; asset_type?: string }[]
+): Promise<Map<string, StockFundFlow>> {
+  const result = new Map<string, StockFundFlow>();
+  const entries = items
+    .map(it => {
+      const secid = toEastmoneyFundFlowSecid(it.symbol, it.asset_type);
+      return secid ? { symbol: it.symbol, secid } : null;
+    })
+    .filter((x): x is { symbol: string; secid: string } => x !== null);
+  if (entries.length === 0) return result;
+
+  const codeToSymbol = new Map<string, string>();
+  for (const e of entries) codeToSymbol.set(e.secid.split(".")[1], e.symbol);
+  const secids = entries.map(e => e.secid).join(",");
+
+  return new Promise(resolve => {
+    const cb = "__emFlow" + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(result);
+    }, JSONP_TIMEOUT);
+
+    function cleanup() {
+      clearTimeout(timeoutId);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      delete (window as any)[cb];
+    }
+
+    (window as any)[cb] = (json: any) => {
+      cleanup();
+      const diff = normalizeDiff(json?.data?.diff);
+      for (const d of diff) {
+        const code = String(d.f12 ?? "");
+        const symbol = codeToSymbol.get(code);
+        if (!symbol) continue;
+        result.set(symbol, {
+          mainInflow: typeof d.f62 === "number" ? d.f62 : null,
+          sector: d.f100 ? String(d.f100) : null
+        });
+      }
+      resolve(result);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      resolve(result);
+    };
+    script.src =
+      "https://push2.eastmoney.com/api/qt/ulist.np/get" +
+      `?secids=${secids}&fields=f12,f14,f62,f100&fltt=2` +
+      `&cb=${cb}&_=${Date.now()}`;
+    document.body.appendChild(script);
+  });
+}
+
+/**
+ * 行业板块主力净流入排名（东财 `clist/get`，`fs=m:90+t:2`）。
+ * 返回按主力净流入降序的前 `topN` 个板块；失败 / 超时 → 空数组。
+ */
+export async function fetchSectorFundFlow(topN = 8): Promise<SectorFundFlow[]> {
+  return new Promise(resolve => {
+    const cb = "__emSector" + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve([]);
+    }, JSONP_TIMEOUT);
+
+    function cleanup() {
+      clearTimeout(timeoutId);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      delete (window as any)[cb];
+    }
+
+    (window as any)[cb] = (json: any) => {
+      cleanup();
+      const diff = normalizeDiff(json?.data?.diff);
+      const list: SectorFundFlow[] = diff
+        .map((d: any) => ({
+          code: String(d.f12 ?? ""),
+          name: String(d.f14 ?? ""),
+          mainInflow: typeof d.f62 === "number" ? d.f62 : 0,
+          changePct: typeof d.f3 === "number" ? d.f3 / 100 : 0
+        }))
+        .filter((s: SectorFundFlow) => s.name)
+        .sort(
+          (a: SectorFundFlow, b: SectorFundFlow) => b.mainInflow - a.mainInflow
+        )
+        .slice(0, topN);
+      resolve(list);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      resolve([]);
+    };
+    script.src =
+      "https://push2.eastmoney.com/api/qt/clist/get" +
+      "?pn=1&pz=50&po=1&np=1&fltt=2&invt=2&fid=f62" +
+      "&fs=m:90+t:2" +
+      "&fields=f12,f14,f62,f3" +
+      `&cb=${cb}&_=${Date.now()}`;
+    document.body.appendChild(script);
+  });
+}
+
 // 历史净值走势（pingzhongdata / 东方财富底层）：统一 Sparkline 历史源，
 // 替代「前端本地轮询累积缓存」（用户久未登录/换设备会丢数据）。
 // 返回按时间升序的净值序列，调用方按 rangeDays 切片。
