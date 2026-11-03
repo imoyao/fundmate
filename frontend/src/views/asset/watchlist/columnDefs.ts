@@ -82,7 +82,8 @@ export type ColumnRenderer =
   | "drawdown" // 基金最大回撤（#1285/§3.10：口径元数据挂 title）
   | "links" // 跨渠道关联（#1285 §3.8：数量角标 + 浮层）
   | "advisor" // 投顾组合品类差异化指标（#1392：区间收益/回撤/超额/集中度）
-  | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
+  | "actions" // 操作列（circle 按钮：置顶/关注/编辑/删除）
+  | "fundFlow"; // 资金流（主力净流入，按符号着色：流入红/流出绿）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
 export type RealtimeField = "currentPrice" | "changePct";
@@ -673,6 +674,34 @@ export const watchlistColumnDefs: ColumnDef[] = [
     // 1132px 预算（铁律 1），加宽会触发更多横向滚动。
     props: { ratioKey: "holding_pnl_percent", estimatePnl: true }
   },
+  {
+    // 主力净流入（#watchlist 资金面）：东财资金流实时取，A 股/港/美股票与 ETF 适用；
+    // 基金/指数/可转债无此口径，相应行渲染 `--`。红=净流入 / 绿=净流出（A 股习惯）。
+    // 默认隐藏（#993 约定新列默认隐藏，不冲击默认表格宽度预算）；用户在「列设置」显式开启。
+    key: "main_inflow",
+    label: "主力净流入",
+    renderer: "fundFlow",
+    appliesTo: ["stock", "etf"],
+    minWidth: 104,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    // 所属板块（#watchlist 资金面）：东财资金流 f100（所属行业），与主力净流入同源。
+    // 默认隐藏（同上）；开启后任何视图都显示，非 stock/etf 行渲染 `--`。
+    key: "sector",
+    label: "所属板块",
+    renderer: "text",
+    appliesTo: ["stock", "etf"],
+    minWidth: 132,
+    align: "left",
+    showOverflowTooltip: true,
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
   // ── #993(a) 新增候选列 ──
   // 数据全部来自后端既有字段或前端可派生，不改动后端接口契约（符合 #993 范围边界）。
   // 均带 defaultHidden：新列是「可选能力」而非「默认负担」，避免加宽表格
@@ -1120,7 +1149,10 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   groups: "extra",
   updated_at: "extra",
   notes: "extra",
-  links: "extra"
+  links: "extra",
+  // 资金面（#watchlist）：主力净流入 / 所属板块，默认隐藏、跨品类，开启后任何视图都显示
+  main_inflow: "extra",
+  sector: "extra"
 };
 
 /** 取列的分组（缺省 extra），供设置面板分组渲染 */
