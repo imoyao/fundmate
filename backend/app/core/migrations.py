@@ -2158,6 +2158,84 @@ def migrate_transactions_symbol_norm(engine: Engine) -> str:
     return '[SKIP] transactions.symbol_norm 列与回填均已就绪'
 
 
+def migrate_transaction_symbol_from_position(engine: Engine) -> str:
+    """回填挂了持仓却缺 ``symbol`` 的流水（#2855）：以 position_id 指向的持仓为准。
+
+    ## 为什么需要
+
+    卖出 / 分红 / 拆分的写路径曾经直接写 ``symbol=data.get('symbol')``——请求体
+    漏带该字段（旧版卖出表单、AI 识别等入口）就落 NULL。危害在读侧静默：
+
+    - 产品详情「交易记录」按 symbol 身份匹配（`symbol_scope`）⇒ 这些行永远不命中；
+    - 清仓周期按 ``strip_exchange_prefix(symbol)`` 分组 ⇒ 缺 symbol 的卖出被跳过，
+      FIFO 队列永远不清空，周期闭不上——已清仓产品于是「有买无卖」（#2855 实测：
+      SZ002311 三笔卖出 position_id 全对、symbol 全 NULL，详情页看不到任何一笔卖出）。
+
+    ## 真源与边界
+
+    - **position_id 非空且持仓行存在** ⇒ 持仓的 ``symbol`` 就是真源（写入侧新兜底
+      `data.get('symbol') or existing.symbol` 的存量对应物），连同 ``symbol_norm``
+      按 ``symbol_identity(pos.symbol, t.asset_type)`` 重算——mapper 事件只管 ORM
+      写入，迁移走裸 SQL 必须自己算（同 ``migrate_transactions_symbol_norm``）。
+    - **position_id 悬空（持仓行已删）或为 NULL** ⇒ **不动**。历史持仓删除后没有
+      任何确定性真源，按 ``position_name`` 模糊匹配等于猜身份，猜错比缺更危险；
+      这些行保持 NULL 并打 WARNING 留痕（真实库 2026-11 实测：450 笔缺 symbol 的
+      卖出里 260 笔悬空）。
+
+    幂等：只碰 ``symbol IS NULL OR symbol = ''`` 的行，回填后非空，二次运行 `[SKIP]`。
+    """
+    if not _table_exists(engine, 'transactions') or not _table_exists(engine, 'positions'):
+        return '[SKIP] transactions / positions 表不存在（空库，init_db 将按新模型建表）'
+
+    from app.core.symbol_utils import symbol_identity
+
+    actions: list[str] = []
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT t.id, p.symbol AS pos_symbol, t.asset_type
+                FROM transactions t
+                JOIN positions p ON p.id = t.position_id
+                WHERE (t.symbol IS NULL OR t.symbol = '')
+                  AND p.symbol IS NOT NULL AND p.symbol != ''
+                """
+            )
+        ).fetchall()
+        for rid, pos_symbol, atype in rows:
+            conn.execute(
+                text('UPDATE transactions SET symbol = :s, symbol_norm = :n WHERE id = :i'),
+                {'s': pos_symbol, 'n': symbol_identity(pos_symbol, atype), 'i': rid},
+            )
+        if rows:
+            actions.append(f'按持仓回填 symbol {len(rows)} 行')
+        conn.commit()
+
+        dangling = conn.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM transactions t
+                LEFT JOIN positions p ON p.id = t.position_id
+                WHERE (t.symbol IS NULL OR t.symbol = '')
+                  AND (t.position_id IS NULL OR p.id IS NULL)
+                  AND t.type IN ('sell', 'dividend', 'dividend_cash', 'split', 'bond_redeem')
+                """
+            )
+        ).scalar()
+        conn.commit()
+
+    if dangling:
+        logger.warning(
+            f'[WARN] 另有 {dangling} 笔卖出/分红类流水缺 symbol 且持仓行缺失或未挂载，'
+            '无确定性真源、保持原样（不按名称猜）；如需修复请人工确认后补录'
+        )
+
+    if actions:
+        logger.info(f'[OK] transactions.symbol 回填迁移完成：{"、".join(actions)}')
+        return f'[OK] {"、".join(actions)}'
+    return '[SKIP] 缺 symbol 的挂仓流水均已就绪'
+
+
 def migrate_transaction_plan_id(engine: Engine) -> str:
     """transactions 补 ``plan_id``（#2138）：把一笔买入归到产生它的定投计划。
 

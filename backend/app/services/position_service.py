@@ -1880,7 +1880,11 @@ class PositionService:
             TransactionService.create(
                 db=db,
                 position_id=position_id,
-                symbol=data.get('symbol'),
+                # symbol 同理以持仓为准（#2855）：卖出请求漏带 symbol 时若落 NULL，
+                # 产品详情「交易记录」（按 symbol 身份匹配）与清仓周期（按 symbol 分组）
+                # 都看不见这笔卖出——已清仓产品于是「有买无卖」。与下方 bond_redeem
+                # 路径的 `data.get('symbol') or existing.symbol` 同一条纪律。
+                symbol=data.get('symbol') or existing.symbol,
                 txn_type=op_type,
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
@@ -2080,7 +2084,10 @@ class PositionService:
                 db=db,
                 position_id=position_id,
                 txn_type='dividend',
-                symbol=data.get('symbol'),
+                # 分红挂在持仓上，symbol 缺失时以持仓为准（#2855，与卖出路径同因同法）：
+                # 落 NULL 会让该笔分红在按 symbol 匹配的读侧（产品详情交易记录 /
+                # 清仓周期分红窗口）里消失。
+                symbol=data.get('symbol') or existing.symbol,
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
                 asset_type=_get_asset_type(data),
@@ -2506,7 +2513,7 @@ class PositionService:
         TransactionService.create(
             db=db,
             position_id=existing.id,
-            symbol=data.get('symbol'),
+            symbol=data.get('symbol') or existing.symbol,  # 以持仓为准（#2855，同卖出路径）
             txn_type='split',
             trade_date=data.get('trade_date'),
             confirm_date=data.get('confirm_date'),
