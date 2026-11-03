@@ -16,7 +16,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getTodayPnl, type TodayPnlData } from "@/api/summary";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
-import { applyPriceOverlay, todayPnlSubtitle } from "./todayPnlOverlay";
+import {
+  applyPriceOverlay,
+  shanghaiTodayIso,
+  todayPnlSubtitle
+} from "./todayPnlOverlay";
 
 /** 官方净值公布时间不定（19:00~23:00 都有），收盘后低频问一次即可 */
 const CONFIRM_POLL_MS = 5 * 60 * 1000;
@@ -79,7 +83,12 @@ export function useTodayPnl() {
 
   const overlay = computed(() => {
     if (!data.value) return { data: null, applied: false };
-    return applyPriceOverlay(data.value, realtimePrices.value);
+    return applyPriceOverlay(data.value, realtimePrices.value, {
+      // 后端日期不是今天（盘中今日无价）时，实时增量代表**今天**的全量收益，
+      // 只能替换、不能叠到昨天那笔上
+      replaceBase: data.value.is_today === false,
+      todayIso: shanghaiTodayIso()
+    });
   });
 
   const view = computed<TodayPnlData | null>(() => overlay.value.data);

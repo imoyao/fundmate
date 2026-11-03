@@ -11,6 +11,7 @@ import type { TodayPnlData } from "@/api/summary";
 import {
   applyPriceOverlay,
   formatMonthDay,
+  shanghaiTodayIso,
   todayPnlSubtitle
 } from "../todayPnlOverlay";
 
@@ -115,6 +116,54 @@ describe("applyPriceOverlay", () => {
     expect(result.data.classes[0].status).toBe("estimated");
   });
 
+  it("后端是「最近交易日」时，实时增量替换当日收益而不是叠加（不把两天叠成一天）", () => {
+    const data = makeData({
+      date: "2026-11-02",
+      is_today: false,
+      total_pnl: 200, // 昨天的收益
+      classes: [
+        {
+          key: "stock",
+          label: "股票",
+          pnl: 100,
+          rate: 10,
+          market_value: 1100,
+          status: "confirmed"
+        },
+        {
+          key: "fund",
+          label: "基金",
+          pnl: 100,
+          rate: 10,
+          market_value: 1100,
+          status: "confirmed"
+        }
+      ]
+    });
+
+    const result = applyPriceOverlay(data, new Map([["SH600519", 12]]), {
+      replaceBase: true,
+      todayIso: "2026-11-03"
+    });
+
+    expect(result.applied).toBe(true);
+    expect(result.data.total_pnl).toBe(100); // 只有今天的 100，不是 200 + 100
+    expect(result.data.date).toBe("2026-11-03");
+    expect(result.data.is_today).toBe(true);
+    expect(result.data.invested_value).toBe(2300); // 昨日市值 + 今日增量
+
+    const classes = Object.fromEntries(
+      result.data.classes.map(item => [item.key, item])
+    );
+    // 基金今天一笔行情都没有 ⇒ 是「没数」而不是「0.00」
+    expect(classes.fund.pnl).toBeNull();
+    expect(classes.fund.status).toBe("partial");
+    // 合计仍等于已出价分项之和
+    expect(
+      result.data.classes.reduce((sum, item) => sum + (item.pnl ?? 0), 0)
+    ).toBe(result.data.total_pnl);
+  });
+
   it("忽略非法价 / 无份额持仓 / 行情里多出来的标的，不让脏值污染合计", () => {
     const data = makeData({
       holdings: [
@@ -134,6 +183,17 @@ describe("applyPriceOverlay", () => {
 
     expect(result.applied).toBe(false);
     expect(result.data.total_pnl).toBe(200);
+  });
+});
+
+describe("shanghaiTodayIso", () => {
+  it("按上海时区取日期（UTC 16:30 已跨日到上海的次日）", () => {
+    expect(shanghaiTodayIso(new Date("2026-11-02T16:30:00Z"))).toBe(
+      "2026-11-03"
+    );
+    expect(shanghaiTodayIso(new Date("2026-11-02T15:59:00Z"))).toBe(
+      "2026-11-02"
+    );
   });
 });
 
