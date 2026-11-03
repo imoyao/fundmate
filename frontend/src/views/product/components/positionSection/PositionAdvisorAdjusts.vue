@@ -6,7 +6,7 @@ import {
   getPositionAdvisorContext,
   type PositionAdvisorContext
 } from "@/api/positions";
-import { advisorOpTone, advisorRatioText } from "@/utils/advisorAdjust";
+import AdvisorAdjustList from "@/views/product/components/advisorSection/AdvisorAdjustList.vue";
 
 /**
  * 持仓页「主理人最近调仓」（#2740 / D70）。
@@ -92,46 +92,7 @@ watch(() => props.positionId, load, { immediate: true });
     <p v-else-if="!data.adjusts.length" class="advisor-adjusts__hint">
       {{ emptyHint }}
     </p>
-    <div v-else class="advisor-adjusts__list">
-      <div
-        v-for="group in data.adjusts"
-        :key="group.adjust_date"
-        class="advisor-adjusts__group"
-      >
-        <div class="advisor-adjusts__head">
-          <span class="advisor-adjusts__date">{{ group.adjust_date }}</span>
-          <span class="advisor-adjusts__count">
-            {{ group.items.length }} 只调整
-          </span>
-        </div>
-        <p v-if="group.reason" class="advisor-adjusts__reason">
-          {{ group.reason }}
-        </p>
-        <ul class="advisor-adjusts__items">
-          <li
-            v-for="item in group.items"
-            :key="`${group.adjust_date}-${item.fund_code}`"
-            class="advisor-adjusts__item"
-          >
-            <span
-              class="advisor-adjusts__name"
-              :title="item.fund_name || item.fund_code"
-            >
-              {{ item.fund_name || item.fund_code }}
-            </span>
-            <span class="advisor-adjusts__ratio">
-              <span
-                class="advisor-adjusts__op"
-                :class="`advisor-adjusts__op--${advisorOpTone(item.op_name)}`"
-              >
-                {{ item.op_name || "调整" }}
-              </span>
-              {{ advisorRatioText(item) }}
-            </span>
-          </li>
-        </ul>
-      </div>
-    </div>
+    <AdvisorAdjustList v-else :groups="data.adjusts" />
   </CardBlock>
 </template>
 
@@ -167,76 +128,6 @@ watch(() => props.positionId, load, { immediate: true });
   color: var(--text-tertiary-ink);
 }
 
-.advisor-adjusts__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.advisor-adjusts__head {
-  display: flex;
-  gap: var(--space-2);
-  align-items: baseline;
-  margin-bottom: var(--space-1);
-}
-
-.advisor-adjusts__date {
-  font-size: var(--text-label);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.advisor-adjusts__count {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-/* 主理人的调仓说明（原文，不做截断——理由短，截断反而看不懂） */
-.advisor-adjusts__reason {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-secondary);
-}
-
-.advisor-adjusts__items {
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.advisor-adjusts__item {
-  display: flex;
-  gap: var(--space-2);
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 2px 0;
-  font-size: var(--text-label);
-}
-
-.advisor-adjusts__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.advisor-adjusts__ratio {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary-ink);
-}
-
-.advisor-adjusts__op {
-  margin-right: var(--space-1);
-}
-
-/* 加仓/减仓用涨跌语义变量（不硬编码色值），其余操作保持中性 */
-.advisor-adjusts__op--add {
-  color: var(--color-rise-ink);
-}
-
-.advisor-adjusts__op--cut {
-  color: var(--color-fall-ink);
-}
+/* 列表渲染已提取到 `advisorSection/AdvisorAdjustList.vue`（详情页与持仓页同一份）。
+   这里只留卡壳、定调句与三态提示——两处的**原因说明不同**，所以状态位不共用。 */
 </style>

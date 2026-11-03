@@ -6,6 +6,7 @@ import { getAdvisorProfile, type AdvisorProfileResult } from "@/api/products";
 import { getAdvisorHoldings, type AdvisorHoldingsResult } from "@/api/funds";
 import { getAdvisorPlatformLabel } from "@/constants/advisorPlatform";
 import AdvisorFacts from "./advisorSection/AdvisorFacts.vue";
+import AdvisorAdjusts from "./advisorSection/AdvisorAdjusts.vue";
 import AdvisorFootnote from "./advisorSection/AdvisorFootnote.vue";
 import AdvisorHoldings from "./advisorSection/AdvisorHoldings.vue";
 import AdvisorMetrics from "./advisorSection/AdvisorMetrics.vue";
@@ -26,12 +27,15 @@ import {
  *   回答不了「这是个什么组合」，而详情页首屏要的正是后者；
  * - 成分基金复用**已上线**的 `getAdvisorHoldings`，不重写取数链路。
  *
- * ## 内容边界（本次刻意不做调仓记录）
+ * ## 调仓记录（本次补上）
  *
- * 调仓明细（`getAdvisorAdjusts`）**不在本区块渲染**：设计 §7 已把「投顾成分与调仓」
- * 登记为「抽屉既有 + 详情页复用同一组件」，而那需要先把速览抽屉里那段渲染提取成
- * 共用组件（属 B6「速览抽屉是否瘦身」的复评范围）。此处先给**档案 + 指标 + 成分**，
- * 避免同一份渲染逻辑写两遍（§2.1「强制复用」）。
+ * 此前本区块**刻意不渲染调仓**，理由写在旧注释里：「待把速览抽屉那段渲染提取成共用
+ * 组件后再复用」。那句注释一直没被兑现，用户看到的结果就是「调仓历史拿不到」。
+ *
+ * 现在渲染已提取为 `advisorSection/AdvisorAdjustList.vue`（详情页与持仓页同一份），
+ * 取数走已上线的 `getAdvisorAdjusts`（最近 3 组）。两处差别只在**口径说明**：
+ * 持仓页强调「不是你自己的买卖」，详情页强调「且慢没有官方调仓公告」。
+ * 因此本区块只挂子组件 `AdvisorAdjusts`，不在这里写渲染与状态文案。
  *
  * ## 降级（设计 §6 诚实降级，不用 mock）
  *
@@ -52,6 +56,7 @@ import {
  * - `advisorSection/AdvisorFacts.vue` —— 识别信息（名称 / 平台 / 机构 / 净值…）
  * - `advisorSection/AdvisorMetrics.vue` —— 收益表现 + 风险指标
  * - `advisorSection/AdvisorHoldings.vue` —— 成分基金
+ * - `advisorSection/AdvisorAdjusts.vue` —— 主理人调仓（取数 + 口径说明）
  * - `advisorSection/AdvisorFootnote.vue` —— 来源与外链、披露声明
  */
 const props = defineProps<{
@@ -131,6 +136,9 @@ watch(() => props.code, load, { immediate: true });
         v-if="holdings && holdings.holdings.length"
         :holdings="holdings"
       />
+
+      <!-- 主理人调仓：渲染与持仓页同一份（AdvisorAdjustList），此处只补口径说明 -->
+      <AdvisorAdjusts :code="code" :platform="profile.platform" />
 
       <!-- 脚注：来源给平台名（用户看得懂），并附官方页面外链（新窗口打开） -->
       <AdvisorFootnote :profile="profile" :platform-label="platformLabel" />
