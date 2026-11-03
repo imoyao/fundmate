@@ -32,6 +32,21 @@ export interface TransactionRecord {
    */
   position_state?: "held" | "cleared" | "account" | null;
   created_at: string | null;
+  /**
+   * 「当时成本」（元，含费）：该笔重放之后的持仓总成本（#2857）。
+   *
+   * 与 `profit_contribution_yuan` 一起由**主表响应**下发，只在按 `symbol` 过滤时才有值
+   * （账本全量列表不显示这两列，后端也不做重放）。`null` = 没有口径
+   * （拆分 / 扣税 / 其他 / 无日期不参与重放），渲染为 `--`，**不是 0**。
+   */
+  cost_after_yuan?: number | null;
+  /**
+   * 「收益贡献」（元）：该笔产生的已实现盈亏。
+   *
+   * 卖出 = 净回款 − 释放成本；分红 = +金额；买入 = 0（建仓未落袋，表格里显示 `--`，
+   * 判据见 `transactionSectionMetrics.producesRealizedPnl`）。
+   */
+  profit_contribution_yuan?: number | null;
 }
 
 /** #2137 费用拆分（元）。后端未拆分时整块为 `null`（四列全 NULL），不存在「拆了一半」。 */

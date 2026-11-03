@@ -58,3 +58,22 @@ export function showsPartial(
 ): boolean {
   return expanded && fetched < total;
 }
+
+/**
+ * 这笔流水本身是否**可能产生**已实现盈亏（#2857）。
+ *
+ * 买入 / 转入只是建仓，落袋恒为 0——在表格里印成 `0.00` 会被读成「这笔不赚钱」，
+ * 而真正「没有口径」的类型（拆分 / 扣税 / 无日期）显示的是 `--`。两者同屏，
+ * 却讲着完全不同的两件事：一个是**事实上的 0**，一个是**没有数据**。
+ * 共用一个符号就等于允许它们互相冒充，而这类混淆一旦发生，没人能从界面上看出来。
+ *
+ * 判据刻意放在这里、而不是写在模板表达式里：住进模板就只能靠肉眼验收，
+ * 而这条规则恰恰是最容易被「顺手简化成 `?? 0`」改坏的。
+ *
+ * 分红再投（`dividend_reinvest`）**不**在内：它当场把分红记为已实现，数值非 0。
+ */
+const NON_REALIZING_TYPES = new Set(["buy", "deposit"]);
+
+export function producesRealizedPnl(type: string | null | undefined): boolean {
+  return !NON_REALIZING_TYPES.has((type ?? "").trim().toLowerCase());
+}
