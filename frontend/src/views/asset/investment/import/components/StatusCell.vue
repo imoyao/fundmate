@@ -20,8 +20,24 @@ const feeHint = computed(() => {
 </script>
 
 <template>
+  <!-- #2836：被配对消费的行优先显示——它是「不用你管」而不是「有问题」，
+       不能落到下面的正常/待补全分支里被误读 -->
   <el-tooltip
-    v-if="row.is_duplicate"
+    v-if="row.consumed_by"
+    content="同日的债券兑付已经把份额清掉了（兑付自动清仓），这行只是券商附带的份额转移记录，不会重复入账"
+    placement="top"
+  >
+    <el-tag type="info" size="small">已随兑付清仓</el-tag>
+  </el-tooltip>
+  <el-tooltip
+    v-else-if="row.link_warning"
+    :content="row.link_warning"
+    placement="top"
+  >
+    <el-tag type="warning" size="small">税有疑问</el-tag>
+  </el-tooltip>
+  <el-tooltip
+    v-else-if="row.is_duplicate"
     content="该交易已存在于系统中，默认跳过。如需强制导入，请手动勾选"
     placement="top"
   >

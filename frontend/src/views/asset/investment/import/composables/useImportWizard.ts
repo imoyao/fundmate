@@ -651,17 +651,59 @@ export function useImportWizard() {
   }
 
   /**
+   * 入账不要求「数量 + 价格」齐全的类型。这些行的金额另有来源（税额、派息额、
+   * 兑付到账额），没有成交价格是正常的——`bond_redeem` 是 #2835 之后的常态：
+   * 交割单的兑付行只给「发生金额」，成交均价一栏常常是 0。
+   */
+  const QTY_PRICE_OPTIONAL_OPS = new Set([
+    "tax",
+    "dividend",
+    "dividend_cash",
+    "dividend_reinvest",
+    "split",
+    "bond_redeem"
+  ]);
+
+  /**
+   * 金额与「数量 × 价格」**无关**的类型：拿成交口径去比对必然误报。
+   *
+   * - `tax`：税额 = 税率 × 利息。真实交割单的交割「数量/单价」沿用了利息行的
+   *   60 / 1.5，于是 |60 × 1.5 − (−18)| = 108 元差额——一分钱问题都没有，
+   *   却被判成「数据不一致」，把好好的兑息组染红（#2836 实测）。
+   * - `bond_redeem`：兑付到账额 = 面值 × 数量 + 应计利息 − 税，本就不等于
+   *   单价 × 数量。
+   *
+   * 与 `QTY_PRICE_OPTIONAL_OPS` 分开而不是合并：那份管「缺不缺字段」，
+   * 这份管「金额该不该这么算」，混成一个集合会让两处判据都无法单独演进。
+   */
+  const AMOUNT_INDEPENDENT_OPS = new Set(["tax", "bond_redeem"]);
+
+  /**
    * 金额差额（元）= |数量×单价 − 金额|。任一端缺失返回 0——缺失由
    * `isMissingAmount` / `isRowBlocked` 负责，此处不重复报警。
+   *
+   * 两类例外见 `AMOUNT_INDEPENDENT_OPS`；合并行（息 + 税折成的净额行）另用
+   * **组等式**：`数量 × 单价 − 组内税额 = 净额`。丰山转债 60 × 1.5 − 18 = 72，
+   * 差额 0；不给合并行减掉组内税额的话，18 元的税会被当成 18 元的差额误报。
    */
   function feeDiffOf(row: any): number {
+    if (AMOUNT_INDEPENDENT_OPS.has(row.op_type)) return 0;
     const qty = Number(row.quantity);
     const prc = Number(row.price);
     const amt = Number(row.amount);
     if (isNaN(qty) || qty <= 0) return 0;
     if (isNaN(prc) || prc <= 0) return 0;
     if (isNaN(amt)) return 0;
-    return Math.abs(qty * prc - amt);
+    const groupTax = row.is_merged ? taxTotalOf(row) : 0;
+    return Math.abs(qty * prc - groupTax - amt);
+  }
+
+  /** 合并行内已并入净额的税额合计（它们本来就从成交额里扣掉了）。 */
+  function taxTotalOf(row: any): number {
+    const children: any[] = Array.isArray(row.children) ? row.children : [];
+    return children
+      .filter(c => c.op_type === "tax")
+      .reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
   }
 
   /**
@@ -709,10 +751,36 @@ export function useImportWizard() {
     return "complete";
   }
 
-  /** 三卡片条数：遍历原始行分区计数，故 sum === totalRows（和式不变量） */
+  /**
+   * 这行有没有「需要修正」的问题——与 `fixSectionRows` 的分区判据同源
+   * （顺序也对齐：error → missingCode → missingQtyPrice → mismatch）。
+   *
+   * 抽出来是因为 `mergeLinkGroups` 要问同一个问题：能不能把一组折起来，取决于
+   * 这组干不干净。两处各写一份必然漂移，而漂移的后果就是「概览条说这组没问题、
+   * 修正面板里却躺着一条」这种用户没法自己解释的矛盾。
+   */
+  function hasFixProblem(row: any): boolean {
+    if (row.is_duplicate || row.is_cash_transfer) return false;
+    return (
+      Boolean(row.error) ||
+      isMissingCode(row) ||
+      isRowBlocked(row) ||
+      isAmountMismatch(row)
+    );
+  }
+
+  /** 三卡片条数：按**显示单元**统计（息+税折成一行），故 sum === 表格总行数。
+   *
+   * 为什么不能按原始行统计（#2836 实测教训）：一组兑息+代扣税原先是两行，表格
+   * 折叠成一行后仍按两行计数——概览条说「共 2 条」而表格只有 1 行，用户数不出来。
+   * `mergeLinkGroups` 只在「两行都没问题」时才合并（见该函数的 why），所以
+   * fix 条数与 `fixSectionRows`（按原始行、供批量修正定位）始终一致。
+   */
   const summaryCounts = computed(() => {
     const counts = { complete: 0, duplicate: 0, fix: 0 };
-    previewData.value.forEach(row => counts[categorizeRow(row)]++);
+    mergeLinkGroups(previewData.value).forEach(
+      row => counts[categorizeRow(row)]++
+    );
     return counts;
   });
 
@@ -895,7 +963,17 @@ export function useImportWizard() {
     return list;
   }
 
-  /** link_group 合并（分红 + 税折叠为一条净额行）——分页与计数共用，保证两者一致 */
+  /**
+   * link_group 合并（利息 + 税折叠为一条净额行）——分页与计数共用，保证两者一致。
+   *
+   * **只合并两行都没问题的情况**：任一行解析错、缺代码、待补全或金额对不上，
+   * 就各自原样展示。理由：合并行的 `_rowKey` 是合成的（`merged_<父行>`），
+   * 用户在修正面板里改它改不到真实数据（后端认的是原始行的 `_rowKey`）；
+   * 而且「这一组有问题」时用户必须看见是哪一行有问题，折起来只会多一次展开。
+   *
+   * 合并只发生在同步配对成功的息+税上（后端 `importer/linking.py` 打的组），
+   * 所以「合并 = 这组已经核对干净」这个前提是站得住的。
+   */
   function mergeLinkGroups(list: any[]): any[] {
     const mergedList: any[] = [];
     const processedGroupIds = new Set<string>();
@@ -903,9 +981,11 @@ export function useImportWizard() {
       const groupId = row.link_group_id;
       if (groupId && !processedGroupIds.has(groupId)) {
         const groupRows = list.filter(r => r.link_group_id === groupId);
-        if (groupRows.length === 2) {
+        const healthy =
+          groupRows.length === 2 && groupRows.every(r => !hasFixProblem(r));
+        if (healthy) {
           const interestRow =
-            groupRows.find(r => r.op_type === "dividend") || groupRows[0];
+            groupRows.find(r => r.op_type !== "tax") || groupRows[0];
           const taxRow =
             groupRows.find(r => r.op_type === "tax") || groupRows[1];
           const netAmount = (interestRow.amount || 0) + (taxRow.amount || 0);
@@ -1061,14 +1141,13 @@ export function useImportWizard() {
 
   function isRowBlocked(row: any): boolean {
     if (row.is_cash_transfer || row.error || row.is_duplicate) return false;
-    if (
-      row.op_type === "tax" ||
-      row.op_type === "dividend" ||
-      row.op_type === "dividend_cash" ||
-      row.op_type === "dividend_reinvest" ||
-      row.op_type === "split"
-    )
-      return false;
+    // #2836：被配对消费的行不入账，自然不需要凑齐数量价格。真实交割单的
+    // 「股份转出」只有份额（110 张）、没有价格——不豁免的话它会被判「待补全」，
+    // 用户被迫去填一个根本用不到的单价。
+    if (row.consumed_by) return false;
+    // #2836：豁免清单收敛到 QTY_PRICE_OPTIONAL_OPS（原先是就地写死的 5 个 op_type，
+    // 加 bond_redeem 时漏改就会让「兑付无价格」被判待补全——而这已是常态）
+    if (QTY_PRICE_OPTIONAL_OPS.has(row.op_type)) return false;
     if (row.type === "money_fund" || row.type === "reverse_repo") return false;
     const qty = Number(row.quantity),
       prc = Number(row.price);
@@ -1103,7 +1182,10 @@ export function useImportWizard() {
         !row.is_duplicate &&
         !row.error &&
         !isRowBlocked(row) &&
-        !row.is_cash_transfer
+        !row.is_cash_transfer &&
+        // #2836：被配对规则消费的行不入账（效果已由同组主记录覆盖），
+        // 算进「可导入」会让回执数字比实际落库多一条
+        !row.consumed_by
     ).length;
   }
 
@@ -1119,7 +1201,8 @@ export function useImportWizard() {
         !row.error &&
         !isRowBlocked(row) &&
         !row.is_cash_transfer &&
-        !row._ignored
+        !row._ignored &&
+        !row.consumed_by
       ) {
         eligible++;
         if (selectedKeys.value.has(row._rowKey)) picked++;
@@ -1572,7 +1655,9 @@ export function useImportWizard() {
       !row.error &&
       !isRowBlocked(row) &&
       !row.is_cash_transfer &&
-      !row._ignored
+      !row._ignored &&
+      // #2836：被消费的行勾了也白勾（后端跳过），默认不选才是诚实的选择
+      !row.consumed_by
     );
   }
 
@@ -1984,6 +2069,8 @@ export function useImportWizard() {
    * 且转账行能否勾选取决于现金账户关联状态。
    */
   function isRowSelectable(row: any): boolean {
+    // #2836：被配对规则消费的行不可勾——勾了后端也跳过，让复选框说谎不如直接禁用
+    if (row.consumed_by) return false;
     if (row.error || row._ignored || isRowBlocked(row)) return false;
     if (row.is_cash_transfer) return Boolean(selectedLedgerLinkedCash.value);
     return true;

@@ -20,9 +20,19 @@ function onTransferChange(row: any, val: boolean) {
 </script>
 
 <template>
+  <!-- #2836：被配对规则消费的行（如兑付附带的「股份转出」）不入账，不可勾选。
+       它必须还看得见——凭空消失会让用户怀疑数据丢了；也正因为看得见，
+       才需要把「为什么不入账」写在 tooltip 里。 -->
+  <el-tooltip
+    v-if="row.consumed_by"
+    content="该行效果已由同日的债券兑付覆盖（兑付本身已清仓），无需重复入账"
+    placement="top"
+  >
+    <el-checkbox :model-value="false" disabled />
+  </el-tooltip>
   <!-- #2281：转账行条件放开——已关联现金账户才可勾；未关联禁用并指路横幅 -->
   <el-tooltip
-    v-if="row.is_cash_transfer && !selectedLedgerLinkedCash"
+    v-else-if="row.is_cash_transfer && !selectedLedgerLinkedCash"
     content="请先关联现金账户（见页面上方提示）"
     placement="top"
   >
