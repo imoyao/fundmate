@@ -277,6 +277,54 @@ async function fetchTencentBatch(
   });
 }
 
+/**
+ * 腾讯指数行情（#watchlist 顶部大盘条）：直接传外部码，**支持 hk/us 前缀的指数**
+ * （`hkHSI` 恒生、`usIXIC` 纳斯达克），不经由 `toExternalCode`（后者只认 SH/SZ
+ * 加 6 位数字，会把港股/美股指数码错拼成 `szHKHSI`）。
+ *
+ * 返回 Map<externalCode, Quote>；指数与股票同为 52 字段格式，故复用 `parseTencentQuote`
+ * 且 type 取 `"stock"`（parts[3]=点位，parts[4]=昨收，parts[32]=涨跌幅）。
+ * 失败时该码不进 map，由调用方决定降级（如保留上一值）。
+ */
+export async function fetchTencentIndexQuotes(
+  externalCodes: string[]
+): Promise<Map<string, Quote>> {
+  const result = new Map<string, Quote>();
+  const valid = externalCodes.filter(Boolean);
+  if (valid.length === 0) return result;
+
+  return new Promise(resolve => {
+    const script = document.createElement("script");
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(result);
+    }, JSONP_TIMEOUT);
+
+    function cleanup() {
+      clearTimeout(timeoutId);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      valid.forEach(c => delete (window as any)[`v_${c}`]);
+    }
+
+    script.onload = () => {
+      valid.forEach(code => {
+        const raw = (window as any)[`v_${code}`];
+        const q = parseTencentQuote(raw, code.toUpperCase(), "stock");
+        if (q) result.set(code, q);
+      });
+      cleanup();
+      resolve(result);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      resolve(result);
+    };
+    script.src = `https://qt.gtimg.cn/q=${valid.join(",")}`;
+    document.body.appendChild(script);
+  });
+}
+
 // 天天基金批量估值（FundValuationLast）：一次最多 50 个 FCODES，带 10s 内存缓存去重，
 // 避免同一轮并发重复请求。未返回的 code 通过 missing 暴露给调用方做降级（missing 不缓存）。
 const FUND_VALUATION_LAST_BATCH_SIZE = 50;
@@ -434,17 +482,21 @@ export function toEastmoneySecid(
  * 取单只场内标的的当日分时。失败（无源 / 网络 / 该码无分时）返回 null，
  * 由调用方回落日线 sparkline —— 不抛错、不阻塞列表。
  */
-export async function fetchIntradayTrend(
-  symbol: string,
-  market?: string | null
+/**
+ * 按东财 secid 取当日分时（#990 个股 + #watchlist 指数 banner 共用）。
+ *
+ * 抽这一层是为了让指数也能画分时：指数 secid 不遵循 `toEastmoneySecid` 的
+ * 「6 位数字 + SH/SZ」规则（如上证指数 `1.000001`、恒生 `100.HSI`、纳指 `100.IXIC`），
+ * 调用方直接传 secid 即可，A 股个股仍走 `fetchIntradayTrend(symbol, market)`。
+ */
+export async function fetchIntradayTrendBySecid(
+  secid: string
 ): Promise<IntradayTrend | null> {
-  const key = `${(market || "").toUpperCase()}:${symbol}`;
+  const key = `secid:${secid}`;
   const cached = intradayCache.get(key);
   if (cached && Date.now() - cached.time < INTRADAY_CACHE_TTL) {
     return cached.trend;
   }
-  const secid = toEastmoneySecid(symbol, market);
-  if (!secid) return null;
 
   return new Promise(resolve => {
     const cb = "__emTrend" + Math.random().toString(36).slice(2);
@@ -491,6 +543,20 @@ export async function fetchIntradayTrend(
       `&ndays=1&iscr=0&cb=${cb}&_=${Date.now()}`;
     document.body.appendChild(script);
   });
+}
+
+export async function fetchIntradayTrend(
+  symbol: string,
+  market?: string | null
+): Promise<IntradayTrend | null> {
+  const key = `${(market || "").toUpperCase()}:${symbol}`;
+  const cached = intradayCache.get(key);
+  if (cached && Date.now() - cached.time < INTRADAY_CACHE_TTL) {
+    return cached.trend;
+  }
+  const secid = toEastmoneySecid(symbol, market);
+  if (!secid) return null;
+  return fetchIntradayTrendBySecid(secid);
 }
 
 // 历史净值走势（pingzhongdata / 东方财富底层）：统一 Sparkline 历史源，
