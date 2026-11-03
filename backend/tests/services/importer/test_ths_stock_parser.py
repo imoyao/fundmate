@@ -165,6 +165,105 @@ class TestTHSStockParserRowLogic:
         assert record.asset_type == 'money_fund', f'期望 money_fund，实际 {record.asset_type}'
         assert record.symbol == 'SH970164'
 
+    # ── 无代码收益行的类型兜底（#2843）────────────────────
+    #
+    # 同花顺对「券商自己不给代码」的收益行，会把 证券代码 / 证券名称 两列留空。
+    # 这类行走不到 normalizer，以前一律掉进 `else: asset_type = 'stock'`：
+    # 显示成股票、计入投资收益、又因 symbol 为空被判「代码未匹配」而勾不上。
+
+    def test_parse_fund_dividend_without_code_is_money_fund(self, parser):
+        """基金红利拨入（无代码）→ money_fund，不是 stock
+
+        依据：开发库中同源的 12 笔历史流水全部是 asset_type='money_fund'
+        + position_name='银河水星现金添利' + symbol=NULL（970164 的月度收益结转）。
+        """
+        row = self._make_series(
+            证券代码='',
+            证券名称='',
+            操作='基金红利拨入',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='2.10',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.asset_type == 'money_fund', f'期望 money_fund，实际 {record.asset_type}'
+        assert record.business_type == 'dividend_cash'
+        assert record.symbol == ''
+        assert record.amount == Decimal('2.10')
+
+    def test_parse_fund_dividend_with_code_keeps_normalizer_type(self, parser):
+        """带代码的基金红利仍由 normalizer 定类型，兜底不外溢。
+
+        970164 → money_fund（本来就是这个类型）；带股票代码的同类行走
+        suggested_type → stock。判据：THS_NO_CODE_INCOME_ASSET_TYPES 只在
+        `suggested_type` 缺失时才生效，不会把「有代码的行」也一律推成货基。
+        """
+        money_fund_row = self._make_series(
+            证券代码='970164',
+            证券名称='银河水星现金添利',
+            操作='基金红利拨入',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='2.10',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        rec = parser._parse_row(money_fund_row, line_num=2)
+        assert rec is not None
+        assert rec.asset_type == 'money_fund'
+        assert rec.symbol == 'SH970164'
+
+        # 有代码 ⇒ 以 normalizer 的 suggested_type 为准，兜底表不参与
+        stock_row = self._make_series(
+            证券代码='603327',
+            证券名称='福蓉科技',
+            操作='基金红利拨入',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='100.00',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        rec2 = parser._parse_row(stock_row, line_num=3)
+        assert rec2 is not None
+        assert rec2.asset_type == 'stock', f'有代码时不该被兜底表覆盖，实际 {rec2.asset_type}'
+
+    def test_parse_interest_income_without_code_stays_cash(self, parser):
+        """利息归本（无代码）→ cash：两融利息没有标的，不该被 #2843 的改动带偏。"""
+        row = self._make_series(
+            证券代码='',
+            证券名称='',
+            操作='利息归本',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='0.90',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.asset_type == 'cash'
+        assert record.business_type == 'dividend_cash'
+
     def test_parse_reverse_repo(self, parser):
         """GC007 应被识别为 reverse_repo"""
         row = self._make_series(

@@ -691,14 +691,15 @@ export function useImportWizard() {
   /**
    * 代码未匹配（fixSectionRows 的 missingCode 分区谓词）。
    *
-   * `type === 'cash'` 直接放行：现金类收益（利息归本、现金分红）入库走现金分支，
-   * 后端根本不写 symbol——要它填代码等于要它填一个自己都不用的字段。券商原文
-   * 这两类本来就不给代码（table1101.xls 实测：利息归本 2 条、基金红利拨入 4 条
-   * 的「证券代码」列是空的），按 missingCode 拦下会让用户勾不上、也算不进任何
-   * 计数，只能对着一个「代码未匹配」标签干看（#2840）。
+   * `cash` / `money_fund` 直接放行：这两类入库走同一分支（后端
+   * `orchestrator_commit` 的「现金管理类」），**根本不写 symbol**——要它填代码
+   * 等于要它填一个自己都不用的字段。券商原文这些行本来就不给代码
+   * （table1101.xls 实测：利息归本 2 条、基金红利拨入 5 条，两列皆空），
+   * 按 missingCode 拦下会让用户勾不上、也算不进任何计数，只能对着一个
+   * 「代码未匹配」标签干看（#2840 / #2843）。
    */
   function isMissingCode(row: any): boolean {
-    if (row.type === "cash") return false;
+    if (row.type === "cash" || row.type === "money_fund") return false;
     return !row.symbol || row.symbol === "UNKNOWN";
   }
 

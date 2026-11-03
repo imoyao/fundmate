@@ -369,3 +369,53 @@ describe("表头全选三态与可勾选谓词同源", () => {
     expect(w.isIndeterminate.value).toBe(false);
   });
 });
+
+/**
+ * 基金红利拨入的资产口径（#2843）。
+ *
+ * 同花顺对「基金红利拨入」不给代码也不给名称（table1101.xls 里 5 条，两列皆空），
+ * 后端以前兜底成 `stock`：预览页显示「股票」、因 symbol 为空挂「代码未匹配」而
+ * 勾不上——既导不进，又会被算进投资收益。经 owner 确认（2026-11-03）它是
+ * 银河水星现金添利（970164）的月度收益结转，后端改判 `money_fund`。
+ * 前端必须同步放行：否则后端改对了，界面还是勾不动。
+ */
+describe("基金红利按货基口径处理（#2843）", () => {
+  const fundDividend = () =>
+    row({
+      symbol: "",
+      name: "",
+      type: "money_fund",
+      display_type: "货币基金",
+      op_type: "dividend_cash",
+      quantity: 0,
+      price: 0,
+      amount: 2.1,
+      fee: 0
+    });
+
+  it("type=money_fund 且无代码 → 不判代码未匹配，默认可导入", () => {
+    const w = setup([fundDividend()]);
+    const r = w.previewData.value[0];
+
+    expect(w.isMissingCode(r)).toBe(false);
+    expect(w.isAutoSelectableRow(r)).toBe(true);
+    expect(w.isRowSelectable(r)).toBe(true);
+    expect(w.pendingFixCount.value).toBe(0);
+  });
+
+  it("它不计入「含 N 条银证转账」", () => {
+    const w = setup([fundDividend()]);
+
+    w.selectAllValid();
+
+    expect(w.selectedCount.value).toBe(1);
+    expect(w.selectedTransferCount.value).toBe(0);
+  });
+
+  it("普通基金（fund）缺代码仍判代码未匹配——货基豁免不外溢", () => {
+    const w = setup([row({ symbol: "", type: "fund" })]);
+
+    expect(w.isMissingCode(w.previewData.value[0])).toBe(true);
+    expect(w.isAutoSelectableRow(w.previewData.value[0])).toBe(false);
+  });
+});
