@@ -35,6 +35,13 @@ from app.services.importer.linking import apply_linking_rules
 from app.services.importer.mappings import OP_TYPE_LABEL
 from app.services.importer.registry import get_parser
 
+# 资金划转 = 钱在银行与证券账户之间搬动，方向由 business_type 的存入/取出表达。
+# 它与「资产类型是现金」不是一回事：利息归本（asset_type='cash'、
+# business_type='dividend_cash'）同属现金资产，却是投资收益，并没有搬钱。
+# 判据必须落在「动作」上，否则前端会要求它先关联现金账户（否则勾不上），
+# 勾选后还会在银行侧生成一笔反向流水——凭空多出一笔资金流入（#2840）。
+CASH_TRANSFER_BUSINESS_TYPES = frozenset({'deposit', 'withdraw'})
+
 
 class ParsingMixin:
     """解析与预览：parse → validate → enrich → preview。"""
@@ -143,7 +150,9 @@ class ParsingMixin:
                     'account_name': rec.account_name,
                     'ledger_id': rec.ledger_id,  # 回传 confirm 用：缺了它落库不挂账户且去重失效
                     'contract_id': rec.transaction_id or '',
-                    'is_cash_transfer': rec.asset_type == 'cash',
+                    'is_cash_transfer': (
+                        rec.asset_type == 'cash' and (rec.business_type or '').lower() in CASH_TRANSFER_BUSINESS_TYPES
+                    ),
                     'error': rec.error or None,
                     'import_hash': rec.import_hash,
                     'is_duplicate': False,
