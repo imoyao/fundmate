@@ -118,7 +118,8 @@ def _load_user_assets(db: Session, family_id: int, member_id: int | None = None)
 #   总资产 = Σ 持仓市值（唯一口径 `market_value_cents`）
 #          + Σ 非负债类通用资产（正数）
 #          + 孤儿货基/逆回购流水净额（本金桶）
-#          + 渠道收益桶（is_income=True）
+#          + 收益桶（is_income=True 的渠道收益 + 孤儿货基的分红 / 代扣税，见
+#            `orphan_flow_delta`：钱到账了就必须在资产里，否则总资产少一块）
 #   总负债 = Σ 负债类通用资产（正数）
 #   净资产 = 总资产 − 总负债
 # 「账外类现金」= 后两项孤儿流水（不建持仓、不进市值），**计入总资产**——
@@ -237,6 +238,46 @@ def family_totals(
 _ORPHAN_FLOW_ASSET_TYPES = ('money_fund', 'reverse_repo')
 _ORPHAN_FLOW_POSITIVE_TYPES = ('buy', 'deposit')
 _ORPHAN_FLOW_NEGATIVE_TYPES = ('sell', 'withdraw')
+#: 收益发放 / 代扣税：进「收益桶」，**绝不进本金桶**（#2844）
+_ORPHAN_FLOW_INCOME_TYPES = ('dividend', 'dividend_cash')
+_ORPHAN_FLOW_TAX_TYPES = ('dividend_tax',)
+
+ORPHAN_BUCKET_NET = 'net'
+ORPHAN_BUCKET_INCOME = 'income'
+
+
+def orphan_flow_delta(txn_type: str | None, amount: int | None, is_income: bool | None) -> tuple[str, int] | None:
+    """单笔孤儿现金等价物流水 → ``(桶, 增量分)``；``None`` = 不进任何桶。
+
+    这是「哪些流水算本金、哪些算收益」的**唯一判据**。三处消费方
+    （`orphan_money_fund_totals_by_ledger` / `orphan_cash_like_breakdown` /
+    `orphan_cash_like_breakdown_all`）都调它，别再各写一遍 elif 链——
+    原先三份逐字复制，改一处必漏两处（同 #2839 的教训）。
+
+    分桶口径：
+    - buy / deposit / sell / withdraw → 本金桶（`is_income=True` 的进收益桶，
+      #863 D1：渠道发放的收益不是本金，不能拿它再滚收益）；
+    - **dividend / dividend_cash → 收益桶（正）**：这是「钱到账」，不是本金变动；
+    - dividend_tax → 收益桶（负）：代扣税是收益的减项，让它从总资产里扣掉；
+    - 其余（split / unknown）→ 不进桶。
+
+    ⚠️ 分红进收益桶这条是 #2844 补的。此前它落在 `continue` 里被直接丢弃，
+    而本金桶**照收**买入金额 ⇒ 单边排除：买入让总资产增加、收益却凭空消失，
+    「累计收益 = 期末资产 − 净投入」被系统性压低（真库实证：12 笔货基分红 81.74 元
+    一分钱没进过任何桶）。排除类现金可以，两边都排；只排收益一边是错账。
+    """
+    amount = amount or 0
+    if txn_type in _ORPHAN_FLOW_INCOME_TYPES:
+        return ORPHAN_BUCKET_INCOME, amount
+    if txn_type in _ORPHAN_FLOW_TAX_TYPES:
+        return ORPHAN_BUCKET_INCOME, -amount
+    if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
+        delta = amount
+    elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
+        delta = -amount
+    else:
+        return None
+    return (ORPHAN_BUCKET_INCOME if is_income else ORPHAN_BUCKET_NET), delta
 
 
 def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dict[int, int], dict[int, int]]:
@@ -244,8 +285,10 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
 
     返回 `(net_map, income_map)`，两者**互补**，合起来正好是全部孤儿现金等价物流水：
     - `net_map`    本金净额：非收益行（is_income 为 NULL / False，见 #863 D1）
-    - `income_map` 渠道收益：is_income=True 的收益发放流水（只并入总资产，
-      **禁止**进入本金/孤儿净额口径）
+    - `income_map` 收益桶：`is_income=True` 的收益发放流水，**加上**孤儿货基的
+      现金分红（dividend / dividend_cash）与其代扣税（dividend_tax，记负）。
+      只并入总资产；**禁止**进入本金/孤儿净额口径（#2844：分红原先被 continue
+      丢掉，而买入照进本金，等于单边排除，累计收益被系统性压低）
 
     WHY 合并（#1305 #16 / #18）：原来这两个是两个函数，而它们**只有 is_income 一处
     过滤不同**，却要打**两条 SQL**；调用方几乎总是成对取用（summary 里 5 处、
@@ -253,9 +296,9 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
     （NULL / False / True），`bool(is_income)` 恰好把它切成「非收益 / 收益」两组，
     与原两条 SQL **完全等价** —— 这是能合并成一个查询、又不用在 SQL 里做条件聚合的关键。
 
-    共同口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL。
-    净额 = buy/deposit 金额 − sell/withdraw 金额（amount 为分，全程整数运算，
-    禁止裸 float 乘除）。为 0 的组直接丢弃，避免产生空分组。
+    共同口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL；
+    逐笔分桶判据见 `orphan_flow_delta`（本金 / 收益 / 不进桶）。金额为分、全程整数运算，
+    禁止裸 float 乘除。为 0 的组直接丢弃，避免产生空分组。
     两张表都把悬空 ledger（None/已删）归 0 键，由各调用方按「游离」处理。
     """
     rows = (
@@ -275,15 +318,11 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
     net_map: dict[int, int] = {}
     income_map: dict[int, int] = {}
     for lid, txn_type, amount, is_income in rows:
-        amount = amount or 0
-        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
-            delta = amount
-        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
-            delta = -amount
-        else:
-            continue  # dividend/tax 等不计入
-        # 三态切分：True → 收益桶；NULL / False → 本金桶（等价于原两条 SQL 的互补过滤）
-        target = income_map if is_income else net_map
+        moved = orphan_flow_delta(txn_type, amount, is_income)
+        if moved is None:
+            continue  # split / unknown：不动钱
+        bucket, delta = moved
+        target = income_map if bucket == ORPHAN_BUCKET_INCOME else net_map
         key = lid or 0
         target[key] = target.get(key, 0) + delta
     return (
@@ -309,7 +348,8 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
 
     ⚠️ 口径必须与本模块 `orphan_money_fund_totals_by_ledger` 完全一致
     （资产类型、`position_id IS NULL`、buy/deposit 正 / sell/withdraw 负、
-    dividend/tax 不计、`is_income` 三态切分），否则汇总与明细会对不上——
+    dividend 记收益桶正 / dividend_tax 记收益桶负、`is_income` 三态切分），
+    否则汇总与明细会对不上——
     所以本函数**刻意**不复用另一条 SQL 的聚合结果去反推明细，而是同处定义。
     """
     rows = (
@@ -334,15 +374,11 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
     net_cents = 0
     income_cents = 0
     for txn_type, amount, is_income, symbol, name, asset_type in rows:
-        amount = amount or 0
-        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
-            delta = amount
-        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
-            delta = -amount
-        else:
-            continue  # dividend/tax 等不计入
-        # 三态切分：True → 收益桶；NULL / False → 本金桶（与汇总函数逐字一致）
-        if is_income:
+        moved = orphan_flow_delta(txn_type, amount, is_income)
+        if moved is None:
+            continue
+        bucket_name, delta = moved
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             income_cents += delta
         else:
             net_cents += delta
@@ -360,7 +396,7 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
                 'txn_count': 0,
             },
         )
-        if is_income:
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             bucket['income_amount_cents'] += delta
         else:
             bucket['net_amount_cents'] += delta
@@ -393,7 +429,8 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
 
     ⚠️ 口径红线（与 `orphan_money_fund_totals_by_ledger` 完全一致，改一处必改另一处）：
     `asset_type IN ('money_fund','reverse_repo')`、`position_id IS NULL`、
-    buy/deposit 记正 / sell/withdraw 记负、dividend/tax 不计、`is_income` 三态切分。
+    buy/deposit 记正 / sell/withdraw 记负、dividend 记收益桶正 / dividend_tax 记负、
+    `is_income` 三态切分——判据本体在 `orphan_flow_delta`，此处不再重复。
 
     ⚠️ 调用方只做展示，**禁止**把这里的金额再加进总资产：孤儿货基净额已经由
     `orphan_money_fund_totals_by_ledger` 并入 `total_assets`（重复加 = 双计）。
@@ -423,15 +460,12 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
     net_cents = 0
     income_cents = 0
     for ledger_id, txn_type, amount, is_income, symbol, name, asset_type in rows:
-        amount = amount or 0
-        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
-            delta = amount
-        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
-            delta = -amount
-        else:
+        moved = orphan_flow_delta(txn_type, amount, is_income)
+        if moved is None:
             continue
+        bucket_name, delta = moved
 
-        if is_income:
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             income_cents += delta
         else:
             net_cents += delta
@@ -451,7 +485,7 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
                 'txn_count': 0,
             },
         )
-        if is_income:
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             bucket['income_amount_cents'] += delta
         else:
             bucket['net_amount_cents'] += delta
