@@ -25,6 +25,21 @@ TODAY = date(2026, 11, 3)
 BASELINE = date(2021, 11, 3)  # 今天 − 5 年，即无流水标的的保底起点
 
 
+@pytest.fixture(autouse=True)
+def _frozen_today(monkeypatch):
+    """钉住「今天」：保底起点 = 今天 − 5 年，**跟随运行日漂移**。
+
+    不钉的后果是时间炸弹：本文件按 2026-11-03 写死断言，而 `today_shanghai()`
+    在 UTC 19:28（上海次日 03:28）之后返回 11-04 ⇒ `target_start` 变 2021-11-04，
+    5 条断言同时红（2026-11-04 03:28 CI 实测）。同 `test_today_pnl.py` 的处理：
+    凡「以今天为锚」的用例都必须把时钟固定，别让测试在某个时段自己失效。
+    """
+    import app.services.sync.jobs.price_history_job as job_module
+
+    monkeypatch.setattr(job_module, 'today_shanghai', lambda: TODAY)
+    return TODAY
+
+
 def _security(db, symbol, sec_type='stock'):
     sec = Security(symbol=symbol, name=symbol, market='CN_A', type=sec_type, currency='CNY')
     db.add(sec)

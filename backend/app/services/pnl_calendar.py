@@ -83,6 +83,7 @@ from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
 from app.services import pnl_snapshot_store
+from app.services.asset_class import CLASS_ORDER, class_of_position
 from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
@@ -957,6 +958,7 @@ def _compute_days(
     shares: Dict[int, Dict[dt.date, int]],
     txns: Dict[int, List[Transaction]],
     attribution: Optional[dict] = None,
+    class_breakdown: Optional[dict] = None,
 ) -> List[dict]:
     """现算 `[loop_start, end]` 并返回**存储形态**（整数分 / 整数基点，供 `save_days`）。
 
@@ -1111,6 +1113,26 @@ def _compute_days(
     day_level: Dict[int, int] = {}
     day_opening_level: Dict[int, int] = {}
 
+    # ── 大类拆分收集（首页「最新收益」卡）：与归因同构，但按 asset_class 聚合 ──
+    # 只按大类累加（O(3)/天），不保存逐持仓明细；`class_breakdown is None` 时
+    # 整块不执行——日历主路径零额外开销。
+    #
+    # 每个**有 daily_pnl 的日子**写一条：
+    #   pnl      各大类当日盈亏（与 daily_pnl 同一基准推进、同一 opening 扣除）
+    #   mv       各大类当日市值（已折 CNY）
+    #   prev_mv  各大类前一基准日市值（收益率分母，与 prev_total_pnl 同步冻结）
+    #   held / present  该大类持有笔数 / 当日有**真报价**的笔数（判断 confirmed/stale）
+    #   estimated 该大类当日价是否含收盘估值定格（#2141）
+    split = class_breakdown is not None
+    prev_class_level: Dict[str, int] = {}
+    prev_class_mv: Dict[str, int] = {}
+    day_class_level: Dict[str, int] = {}
+    day_class_mv: Dict[str, int] = {}
+    day_class_opening_level: Dict[str, int] = {}
+    day_class_held: Dict[str, int] = {}
+    day_class_present: Dict[str, int] = {}
+    day_estimated_classes: set = set()
+
     # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
 
@@ -1128,6 +1150,14 @@ def _compute_days(
         day_level = {}
         day_opening_level = {}
         forced_zero = False
+        if split:
+            day_class_level = {}
+            day_class_mv = {}
+            day_class_opening_level = {}
+            day_class_held = {}
+            day_class_present = {}
+            day_estimated_classes = set()
+            day_split_rows = []
         for per_pos in per_pos_sets:
             for state in per_pos.values():
                 # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
@@ -1160,7 +1190,8 @@ def _compute_days(
             if held_shares <= 0:
                 continue
             # #2141：该持仓当日价来自估值定格（merge 后 series[today] 即估值行）
-            if day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes:
+            used_estimate = bool(day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes)
+            if used_estimate:
                 day_uses_estimate = True
             market_value = Money.multiply_price_quantity(price, held_shares)
             # 成本基数与 pnl_service.cost_basis_cents 同口径：nav 模式用成本均价×份额。
@@ -1183,6 +1214,27 @@ def _compute_days(
                 attribution['priced'].add(pos.id)
                 if state['is_opening']:
                     day_opening_level[pos.id] = level
+            if split:
+                cls = class_of_position(pos)
+                day_class_level[cls] = day_class_level.get(cls, 0) + level
+                day_class_mv[cls] = day_class_mv.get(cls, 0) + market_value
+                if state['is_opening']:
+                    day_class_opening_level[cls] = day_class_opening_level.get(cls, 0) + level
+                if used_estimate:
+                    day_estimated_classes.add(cls)
+                # 逐持仓当日价：供首页卡在前端用实时行情做**价格替换**（不重算盈亏）。
+                # 单位保持引擎内部尺度（价 0.0001 元 / 份额 0.0001 份），换算在出口一次做完。
+                day_split_rows.append(
+                    {
+                        'position_id': pos.id,
+                        'symbol': (pos.symbol or '').strip(),
+                        'class': cls,
+                        'quantity': held_shares,
+                        'price': price,
+                        'currency': pos.currency,
+                        'fx': state['rate'],
+                    }
+                )
 
         daily_pnl = None
         if prev_total_pnl is not None:
@@ -1244,6 +1296,11 @@ def _compute_days(
             # 对它是无操作——只补上窗口变窄后会踩的 `None` 下标。
             if held:
                 day_held_count += 1
+            # `fresh_today`：这一天**真有当天报价**（场内 = 最后一条报价就落在当日；
+            # 场外 = 当日有净值行或当日估值定格）。与 `day_present_count` 不同——
+            # 后者对场内「有历史价就算在场」（停牌 / 收盘价未同步都算），够用于状态链，
+            # 但不足以回答首页卡的「这个大类今天确认了没有」。
+            fresh_today = False
             if held and pos.id not in no_price_ids:
                 if pos.id in exchange_ids and pos.id in last_known:
                     # 场内（#2277）：有价格水平即「在场」。停牌期间价格冻结在最后
@@ -1260,16 +1317,25 @@ def _compute_days(
                     dates, _unit_prices = last_known[pos.id]
                     if day <= today and bisect_right(dates, day) > 0:
                         day_present_count += 1
+                        # 最后一条报价恰落在当日 ⇒ 今日收盘价已入库（不是 carry）
+                        fresh_today = dates[bisect_right(dates, day) - 1] == day
                     else:
                         day_missing_ids.add(pos.id)
                 elif day in (series or {}):
                     day_present_count += 1
+                    fresh_today = True
                 else:
                     # 场外当天没出真净值：**值照常 carry**（#2733，市值不再归零），
                     # 但这里仍记「缺席」——`partial` 表达的是「今天的数不是今天的」。
                     # carry 只解决「别把节假日画成归零」，不代表价格是新鲜事实；
                     # 基金真停发净值同样靠这条被标出来，不必再靠 7 天上限去误伤长假。
                     day_missing_ids.add(pos.id)
+
+            if split and held:
+                cls = class_of_position(pos)
+                day_class_held[cls] = day_class_held.get(cls, 0) + 1
+                if fresh_today:
+                    day_class_present[cls] = day_class_present.get(cls, 0) + 1
 
             price = price_of(pos, day)
             if price is None:
@@ -1452,6 +1518,30 @@ def _compute_days(
                 row['estimated'] = True
             days.append(row)
 
+            # ── 大类拆分（首页「最新收益」卡）──
+            # 只在**当日盈亏可算**时记：`daily_pnl is None` 的日子（休市 / 无数据 /
+            # 无持仓）没有「分项收益」可言，记下去只会让调用方误当成 0。
+            if split and daily_pnl is not None:
+                class_breakdown[day.isoformat()] = {
+                    'state': state_code,
+                    'daily_pnl_cents': daily_pnl,
+                    'rate_bp': row['rate_bp'],
+                    'estimated': sorted(day_estimated_classes),
+                    # 与 daily_pnl 同一条基准推进、同一次 opening 扣除（forced_zero
+                    # 的日子整体为 0，逐类也必须是 0——否则 Σ 分项 ≠ 合计）
+                    'pnl': {
+                        c: 0
+                        if forced_zero
+                        else day_class_level.get(c, 0) - prev_class_level.get(c, 0) - day_class_opening_level.get(c, 0)
+                        for c in CLASS_ORDER
+                    },
+                    'mv': {c: day_class_mv.get(c, 0) for c in CLASS_ORDER},
+                    'prev_mv': {c: prev_class_mv.get(c, 0) for c in CLASS_ORDER},
+                    'held': {c: day_class_held.get(c, 0) for c in CLASS_ORDER},
+                    'present': {c: day_class_present.get(c, 0) for c in CLASS_ORDER},
+                    'holdings': day_split_rows,
+                }
+
         # ── 差分基准的推进规则（#2277：非开盘日冻结）──
         # 开盘日推进；**非开盘日冻结**（基准停在上一开盘日的水平值）。
         #
@@ -1487,6 +1577,12 @@ def _compute_days(
                 # 归因基准与 scope 基准**同一时刻、同一条件**冻结 / 前进——
                 # 两套基准一旦分叉，逐笔差分与 daily_pnl 就错位了。
                 prev_level = dict(day_level)
+            if split:
+                # 大类基准同理：与 `prev_level` 同一门控，否则分类收益率的分母
+                # 会与 `daily_pnl` 的基准错位（分项之和仍对，比率会跳）。
+                prev_class_level = dict(day_class_level)
+                if net_worth_cents is not None:
+                    prev_class_mv = dict(day_class_mv)
         day += dt.timedelta(days=1)
 
     return days
