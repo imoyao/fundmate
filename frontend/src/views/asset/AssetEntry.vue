@@ -1,23 +1,41 @@
+<!--
+  录入通用资产（页面编排层）。
+
+  结构对齐最新设计语言（`frontend/design.md`）：
+  - 页头走 `PageHeaderBar`（此前是裸 `<h2>`，字号 24/700，与全站 32/300 的页头不一致）
+  - 内容外壳与页头同宽同内边距（`--space-5` + 680px 单列居中，同 `views/profile`）
+  - 卡片走 `CardBlock`（统一 `--bg-card` + `--radius-lg` + `--border-light` + `--shadow-raised`），
+    不再手写 `el-card` 的 16px 圆角 / 32-40px 内边距
+
+  本页只做编排：表单、校验、提交在 `assetEntry/AssetEntryForm.vue`。
+-->
 <template>
   <div
-    class="asset-entry p-4 md:p-6 min-h-full"
+    class="asset-entry-page min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <div class="mb-6">
-      <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
-        录入通用资产
-      </h2>
-      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
-        记录房产、现金、信用卡、贷款等非交易类资产，完善你的资产负债表
-      </p>
+    <div class="asset-entry-head">
+      <PageHeaderBar
+        title="录入资产"
+        subtitle="记录房产、现金、信用卡、贷款等非交易类资产，完善你的资产负债表"
+      >
+        <template #action>
+          <el-button text @click="router.push('/inventory')">
+            <IconifyIconOffline icon="ep:arrow-left" class="mr-1" />
+            返回盘点
+          </el-button>
+        </template>
+      </PageHeaderBar>
     </div>
 
-    <AssetEntryForm
-      :ledgers="ledgers"
-      :initial="initial"
-      :picked-ledger="pickedLedger"
-      @create-ledger="showCreateLedgerDialog = true"
-    />
+    <div class="asset-entry-shell">
+      <AssetEntryForm
+        :ledgers="ledgers"
+        :initial="initial"
+        :picked-ledger="pickedLedger"
+        @create-ledger="showCreateLedgerDialog = true"
+      />
+    </div>
 
     <!-- 新增账户弹窗 -->
     <AssetCreateLedgerDialog
@@ -29,7 +47,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { IconifyIconOffline } from "@/components/ReIcon";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 
 import { getLedgers } from "@/api/ledger";
 import AssetEntryForm from "./assetEntry/AssetEntryForm.vue";
@@ -39,6 +59,7 @@ import { parseInitialFromQuery } from "./assetEntry/assetEntryModel";
 defineOptions({ name: "AssetEntry" });
 
 const route = useRoute();
+const router = useRouter();
 
 const ledgers = ref<any[]>([]);
 const showCreateLedgerDialog = ref(false);
@@ -70,13 +91,31 @@ onMounted(fetchLedgers);
 </script>
 
 <style scoped>
+.asset-entry-page {
+  padding: var(--space-5);
+}
+
+/* 页头与内容区同宽（680px 单列）：不覆盖 max-width 时页头按 --layout-content-width
+   居中，标题会跑到卡片左侧很远的地方（PageHeaderBar 文档里点名的错位形态）。 */
+.asset-entry-head :deep(.page-header) {
+  max-width: 680px;
+}
+
+.asset-entry-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+  max-width: 680px;
+  margin: 0 auto;
+}
+
 /* 弹窗样式：三条都是裸 `:deep`，编译成 `[data-v-x] .el-dialog`，
    要求 .el-dialog 是带 scopeId 元素的**后代**。所以它们必须留在本页——
    搬进 AssetCreateLedgerDialog 后 el-dialog 就是那个组件的根元素自己，
    既不是自己的后代、也匹配不上，弹窗背景与标题会静默退回 EP 默认样式。 */
 :deep(.el-dialog) {
   background-color: var(--bg-card);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
 
 :deep(.el-dialog__title) {
@@ -86,6 +125,6 @@ onMounted(fetchLedgers);
 }
 
 :deep(.el-dialog__body) {
-  padding: 24px 32px;
+  padding: var(--space-standard) var(--space-loose);
 }
 </style>
