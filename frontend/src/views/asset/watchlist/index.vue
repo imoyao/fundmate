@@ -33,6 +33,7 @@
       <CardBlock class="watchlist-card">
         <!-- 顶部大盘指数条（#watchlist banner）：常驻市场上下文，与下方「我的持仓」汇总条分层 -->
         <IndexMarketBar />
+        <WatchlistFundFlowCard :sectors="fundFlow.sectorFlow.value" />
 
         <WatchlistHeadPrimary
           :toolbar="toolbar"
@@ -135,6 +136,7 @@ import WatchlistFilterBar from "@/views/asset/watchlist/WatchlistFilterBar.vue";
 import WatchlistSummaryBar from "@/views/asset/watchlist/WatchlistSummaryBar.vue";
 import WatchlistHeadPrimary from "@/views/asset/watchlist/components/WatchlistHeadPrimary.vue";
 import IndexMarketBar from "@/views/asset/watchlist/components/IndexMarketBar.vue";
+import WatchlistFundFlowCard from "@/views/asset/watchlist/components/WatchlistFundFlowCard.vue";
 import WatchlistTableSection from "@/views/asset/watchlist/components/WatchlistTableSection.vue";
 import WatchlistTableFooter from "@/views/asset/watchlist/components/WatchlistTableFooter.vue";
 import WatchlistDialogs from "@/views/asset/watchlist/components/WatchlistDialogs.vue";
@@ -148,6 +150,7 @@ import { useWatchlistValuation } from "@/views/asset/watchlist/composables/useWa
 import { useWatchlistStickyLayout } from "@/views/asset/watchlist/composables/useWatchlistStickyLayout";
 import { useWatchlistPageActions } from "@/views/asset/watchlist/composables/useWatchlistPageActions";
 import { useWatchlistTable } from "@/views/asset/watchlist/composables/useWatchlistTable";
+import { useWatchlistFundFlow } from "@/views/asset/watchlist/composables/useWatchlistFundFlow";
 import { useWatchlistPageInit } from "@/views/asset/watchlist/composables/useWatchlistPageInit";
 import type { SortMetric } from "@/views/asset/watchlist/sortMetric";
 
@@ -159,6 +162,11 @@ const groups = useWatchlistGroups();
 const tags = useWatchlistTags();
 const toolbar = useWatchlistToolbar();
 const data = useWatchlistData(groups, tags, toolbar);
+
+// 资金面数据域（#watchlist 资金面卡 + 个股主力净流入 / 所属板块两列）：
+// 绑定全量行，标的集合变化时拉取东财资金流并写回行对象。
+const fundFlow = useWatchlistFundFlow();
+fundFlow.bindAllItems(data.allItems);
 
 // 当前品类（类型筛选命中单一品类时为其 asset_type；否则 null＝混合视图）。
 // 供列显隐在「混合视图通用列 / 品类视图专属列」间切换（#1285）。
