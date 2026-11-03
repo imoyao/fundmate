@@ -538,8 +538,12 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 35,
     },
+    # 2026-11-03 收紧（#2850，**下沉**而非放宽）：把 `/enums/` 的载荷组装（十余张映射
+    # 拼成响应体）下沉到 `services/enums_service.build_enums_payload`，视图只留
+    # jsonify 信封。lines 128 → 107。
+    # 不收紧会静默失效：基线停在 128 时，后续再加行也不会红。
     "backend/app/domains/utils/views.py": {
-        "lines": 128,
+        "lines": 107,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 38,
