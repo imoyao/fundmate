@@ -69,6 +69,21 @@ export function useProductTrend(options: UseProductTrendOptions) {
   type RangeValue = TrendRange | "HOLDING";
 
   const range = ref<RangeValue>("3M");
+  /**
+   * 用户是否**手动**改过区间（#2857）。
+   *
+   * 有交易时默认区间会自动切到「建仓」（见 `watch(firstTradeDate)`）。这个标记保证
+   * 自动定位只发生一次、且只在用户没表态之前——否则每次刷新都会把用户刚选好的 3M 抢走，
+   * 「记住我的选择」与「帮我选一个更合适的」是两件事，不能混。
+   */
+  const rangeTouched = ref(false);
+
+  /** 模板里点击区间（区别于程序性赋值 `range.value = ...`，后者不改 rangeTouched） */
+  function pickRange(next: RangeValue) {
+    rangeTouched.value = true;
+    range.value = next;
+  }
+
   const loading = ref(false);
   const failed = ref(false);
   const trend = ref<ProductTrendResult | null>(null);
@@ -452,6 +467,36 @@ export function useProductTrend(options: UseProductTrendOptions) {
       markerData.value.buy.length + markerData.value.sell.length > 0
   );
 
+  /**
+   * 有流水、但当前区间**一个点也落不下**时的说明（#2857）。
+   *
+   * 这是本轮三次报障的共同根源：`markerData` 找不到日期就 `continue`，于是
+   * 「区间外 / 行情缺行」两种完全正常的情况，和「功能坏了」在界面上长得一模一样
+   * ——勾选框跟着 `hasMarkers` 一起消失，用户连问的地方都没有。
+   *
+   * 分两句是因为责任不同：
+   * - 交易全在走势起点之前 → 是**行情数据覆盖不足**（`price_history` 真机只到 2025-06），
+   *   用户换区间也没用，得说清「从哪天起才有数据」；
+   * - 落在轴起点之后却仍落不下 → 是**当前区间里确实没有交易**，换个区间就有。
+   *
+   * 两种情况都不可能是「数据错了」，所以文案不提示报障，只指出下一步该点哪里。
+   */
+  const markersHint = computed(() => {
+    if (!overlayUsable.value) return "";
+    const pts = visiblePoints.value;
+    if (!pts.length) return "";
+    const plotted = markerData.value.buy.length + markerData.value.sell.length;
+    if (plotted > 0) return "";
+    const axisStart = trend.value?.dates?.[0];
+    if (!axisStart) return "";
+    const beforeAxis = pts.filter(p => p.date < axisStart).length;
+    if (beforeAxis === pts.length) {
+      return `走势数据自 ${axisStart} 起，${pts.length} 笔买卖都在这之前，无法标注`;
+    }
+    const lastDate = pts[pts.length - 1]?.date;
+    return `本区间内没有买卖（最近一笔 ${lastDate}），切到「建仓」查看全部`;
+  });
+
   /** 有流水（决定累计收益面板可不可见；含只有分红没有买卖的边界） */
   const hasTrades = computed(() => {
     const s = timeline.value?.summary;
@@ -513,15 +558,30 @@ export function useProductTrend(options: UseProductTrendOptions) {
   // 区块懒加载：走势图数据不阻塞 Hero 渲染（设计 §5 取数编排）
   watch(symbol, load, { immediate: true });
   watch(range, load);
-  // 起始日晚于走势请求回来（时间线是并行拉的）：停在「建仓」档时补一次，
-  // 避免用上一个标的的起始日画窗口
-  watch(firstTradeDate, () => {
+  // 首笔买入日回来后：把区间自动定位到「建仓」（#2857）。
+  //
+  // 为什么默认不能是 3M：买卖点只能落在走势轴上，而默认 3M 会把 3 个月以前的交易
+  // 整批裁掉——真机实测（SZ002726 两笔都在 2026-07）用户在折线视图里连一个点都看不到，
+  // 而且「买卖点」勾选框一起消失（`hasMarkers` 也随之 false），表现成「这个功能没了」。
+  // 建仓期 = 首笔买入日至今，恰好覆盖「我买在哪」这个问题的全部答案。
+  //
+  // 用户手动选过区间就不再插手（`rangeTouched`）：自动定位是「帮他选一次」，
+  // 不是「每次都替他决定」。
+  watch(firstTradeDate, next => {
+    if (next === null) return;
+    if (!rangeTouched.value && range.value === "3M") {
+      range.value = "HOLDING";
+      return;
+    }
+    // 起始日晚于走势请求回来（时间线是并行拉的）：停在「建仓」档时补一次，
+    // 避免用上一个标的的起始日画窗口
     if (range.value === "HOLDING") void load();
   });
 
   return {
     // 模板直接用
     range,
+    pickRange,
     rangeOptions,
     loading,
     failed,
@@ -540,6 +600,7 @@ export function useProductTrend(options: UseProductTrendOptions) {
     hasMarkers,
     markersActive,
     tradesHiddenByView,
+    markersHint,
     hasTrades,
     spanNotice,
     timeline,

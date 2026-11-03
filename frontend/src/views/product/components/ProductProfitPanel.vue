@@ -22,6 +22,9 @@ import type { TradeTimelineResult } from "@/api/products";
  *   XIRR，不重复造；
  * - 曲线**全程展示、不随走势区间缩放**：它是「至今累计」，随区间裁剪会丢掉
  *   早期的落袋（区间是看净值波动的窗口，不是看盈亏历史的窗口）；
+ * - **逐日阶梯**（#2857）：后端把「只在流水日推点」的 `profit_line` 补齐为逐日、
+ *   并延续到今天；前端用 `step: 'end'` 画。已实现盈亏是阶梯量，两次卖出之间不动，
+ *   直连会把它画成一条斜线（真机两笔流水的标的只剩两个点，看起来像「每天都在赚」）；
  * - 无流水 / 未登录（timeline 为空结构）时整块不渲染——父级据 summary 计数判断。
  */
 
@@ -116,6 +119,11 @@ const chartOption = computed(() => {
         name: isRate ? "累计收益率" : "累计已实现",
         type: "line",
         data,
+        // 阶梯而非直线（#2857）：累计已实现是**阶梯量**——两次卖出之间它一动不动。
+        // 补日之后若仍用直连，相邻两点之间会被连成一条斜线，「某天赚了一点」这个
+        // 不存在的中间态就被画了出来；`step: 'end'` 让跳变点落在真实交易日上，
+        // 平段保持水平。这与「不平滑」是同一条纪律：画出来的必须真的发生过。
+        step: "end",
         smooth: false,
         symbol: "none",
         lineStyle: { color: lineColor, width: 2 },
@@ -174,7 +182,7 @@ function hexToRgba(hex: string, alpha: number): string {
         已实现
         <MoneyDisplay
           :value="summary.realized_pnl_yuan"
-          :decimals="2"
+          :precision="2"
           :show-sign="true"
         />
       </span>

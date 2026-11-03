@@ -64,6 +64,11 @@ import { buildTrendChartOption } from "./trendChartOption";
  *   逻辑收口在 `trendMarkerMetrics.clearingMarks`（含单测）；
  * - **建仓期区间**（P1）：有流水时区间栏追加「建仓」档——首笔买入日至今，
  *   显式起始日走后端 `start` 参数（档位表达不了因人而异的长度）；
+ *   **有流水时默认就落在这一档**（#2857）：默认 3M 会把 3 个月以前的买卖点整批裁掉，
+ *   而买卖点落不下时 `hasMarkers` 跟着为 false，连勾选框都消失——用户看到的是
+ *   「买卖点没了」。用户手动选过区间后不再自动改（只帮他选一次，不替他每次决定）；
+ * - **落不下点必须说出来**（#2857）：全在走势起点之前 → 报「行情自哪天起」；
+ *   否则 → 报「本区间没有买卖，切到建仓」。不说的话，界面与「功能坏了」完全一致；
  * - **时间线不分区间**：后端一次返回全量重放结果，前端按当前区间过滤展示；
  * - 拉取失败 / 未持有 → 静默不渲染叠加层，主曲线不受影响（设计 §6）。
  *
@@ -102,6 +107,7 @@ const props = defineProps<{
 // 状态与派生全部来自 useProductTrend；这里解构成同名变量，模板逐字不变（#980 拆分纪律）。
 const {
   range,
+  pickRange,
   rangeOptions,
   loading,
   failed,
@@ -120,6 +126,7 @@ const {
   hasMarkers,
   markersActive,
   tradesHiddenByView,
+  markersHint,
   hasTrades,
   spanNotice,
   timeline,
@@ -169,10 +176,11 @@ const chartOption = computed(() =>
              叠到左侧 ⓘ 上。本区现在是「区间 + 视图 + 3 个复选框」共 5 枚，必须折行。 -->
         <div class="trend-section__actions">
           <SegmentedControl
-            v-model="range"
+            :model-value="range"
             :options="rangeOptions"
             size="small"
             ariaLabel="切换走势区间"
+            @update:model-value="pickRange"
           />
           <!-- 口径切换（#2454）：净值/价格 vs 业绩（区间累计收益率）。场内外都给——
                「现在多少钱」与「这段时间赚了多少」是两个问题，后者由业绩线答。
@@ -241,6 +249,9 @@ const chartOption = computed(() =>
       <p v-if="tradesHiddenByView" class="trend-section__hint">
         买卖点与成本线在「折线」视图中叠加显示
       </p>
+      <!-- 有流水却一个点也落不下时的说明（#2857）：区分「行情只覆盖到某天」与
+           「本区间内没有买卖」。不说的话，界面与「功能坏了」完全一致。 -->
+      <p v-if="markersHint" class="trend-section__hint">{{ markersHint }}</p>
       <!-- 来源说「哪个网站」，口径说「怎么算的」——后端分开给，前端只排版，
            不在这里推断「close 就等于前复权」（#1969）。
            空心买卖点（#2171 P1）：成交价低于当时持仓成本——低吸 / 割肉。 -->
