@@ -74,8 +74,16 @@
     >
       <div class="flex justify-between items-center gap-4 flex-wrap">
         <div class="min-w-0">
+          <!-- 集合边界写进标签：这两张卡是「品类全景」的唯一出口（全面盘点页原有的
+               「投资分布」两张同名卡已删除——它漏货基、漏 ETF，同名不同义）。
+               不写「含货币基金」，用户就会拿这里的数去和别处的「基金」对，
+               对不上也不知道差在哪。
+               金额口径：`fund/securities-aggregation` 取**库内最新净值 / 收盘价**；
+               总资产（`/summary/`）取 `positions.current_price` 的持仓快照价。
+               两者在同步滞后时会差一个净值日——这是既有口径差，不是本卡的 bug，
+               已在 tech-debt 登记；出现「卡片合计 ≠ 总资产里那一块」时先查同步时间。 -->
           <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
-            基金
+            基金（含货币基金）
           </p>
           <div class="mt-1">
             <MoneyDisplay
@@ -102,8 +110,9 @@
     >
       <div class="flex justify-between items-center gap-4 flex-wrap">
         <div class="min-w-0">
+          <!-- 见上方「基金」卡的注释：标签直接写明集合边界（场内证券 = 股票 + ETF + 可转债） -->
           <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
-            股票
+            股票（含 ETF、可转债）
           </p>
           <div class="mt-1">
             <MoneyDisplay

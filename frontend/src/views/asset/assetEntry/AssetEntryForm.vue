@@ -9,14 +9,21 @@
  * 「新增账户」按钮不在这里开弹窗：弹窗建完账户要写回本表单的 `ledger_id` /
  * `account_name`，而弹窗是页面的兄弟节点。所以这里只抛 `create-ledger`，
  * 由页面转一道后把 `pickedLedger` 递回来。
+ *
+ * 2026-11-03 视觉重做：此前本文件手写了主按钮 / 次按钮 / 悬停三套颜色，全部取自
+ * `--color-primary`（#7a7fa8 灰紫蓝）——那是旧主色，品牌色早已是 `--brand-700`。
+ * 于是「确认录入」是灰紫蓝实底、悬停还带灰紫蓝描边，与全站暖红主按钮两个色系。
+ * 现在一律用 `el-button type="primary"` 交给全局主题（`--brand-solid` 三态 + AA 对比度），
+ * 本文件不再声明任何按钮颜色。
  */
 import { reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { Icon as IconifyIconOffline } from "@iconify/vue";
+import { IconifyIconOffline } from "@/components/ReIcon";
 import type { FormInstance, FormRules } from "element-plus";
 
 import { createAsset } from "@/api/assets";
 import { ALLOCATION_OPTIONS } from "@/constants";
+import CardBlock from "@/components/CardBlock/index.vue";
 
 import AssetCategoryFields from "./AssetCategoryFields.vue";
 import { buildAssetPayload, createEmptyForm } from "./assetEntryModel";
@@ -103,12 +110,12 @@ function handleReset() {
 </script>
 
 <template>
-  <el-card shadow="never" class="entry-card">
+  <CardBlock>
     <el-form
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-width="110px"
+      label-width="88px"
       size="large"
       class="entry-form"
     >
@@ -128,11 +135,11 @@ function handleReset() {
       <el-form-item label="金额" prop="amount">
         <el-input-number
           v-model="form.amount"
-          :precision="2"
           class="amount-input"
+          :controls="false"
+          :precision="2"
+          :min="0"
           placeholder="0.00"
-          :step="1"
-          controls-position="right"
         />
         <p class="form-tip">负债请填写正数，系统会自动处理为负债</p>
       </el-form-item>
@@ -170,18 +177,14 @@ function handleReset() {
               :value="ledger.id"
             />
           </el-select>
-          <el-button
-            class="add-ledger-btn"
-            size="large"
-            @click="emit('create-ledger')"
-          >
+          <el-button size="large" @click="emit('create-ledger')">
             <IconifyIconOffline icon="ep:plus" class="mr-1" /> 新增账户
           </el-button>
         </div>
         <p class="form-tip">若没有合适的账户，请先创建</p>
       </el-form-item>
 
-      <el-form-item label="备注 (可选)" class="optional-item">
+      <el-form-item label="备注">
         <el-input
           v-model="form.notes"
           type="textarea"
@@ -190,179 +193,71 @@ function handleReset() {
         />
       </el-form-item>
 
-      <el-form-item>
-        <div class="form-actions">
-          <el-button
-            type="primary"
-            :loading="submitting"
-            class="submit-btn"
-            @click="handleSubmit"
-          >
-            确认录入
-          </el-button>
-          <el-button class="reset-btn" @click="handleReset">重置</el-button>
-        </div>
-      </el-form-item>
+      <div class="form-actions">
+        <el-button size="large" @click="handleReset">重置</el-button>
+        <el-button
+          size="large"
+          type="primary"
+          :loading="submitting"
+          @click="handleSubmit"
+        >
+          确认录入
+        </el-button>
+      </div>
     </el-form>
-  </el-card>
+  </CardBlock>
 </template>
 
 <style scoped>
-.entry-card {
-  max-width: 700px;
-  padding: 32px 40px;
-  margin: 0 auto;
-  background-color: var(--bg-card);
-  border-radius: 16px;
-}
-
-/* 表单项垂直间距增大，提升呼吸感 */
+/* 表单项纵向节奏：24px（--space-standard，4px 基数），此前 32px 偏松 */
 .entry-form :deep(.el-form-item) {
-  margin-bottom: 32px;
+  margin-bottom: var(--space-standard);
 }
 
-/* 标签与输入框完美居中对齐（匹配Element Plus large尺寸44px高度） */
+/* 标签色走暖色令牌：EP 默认 --el-text-color-regular(#606266) 是冷灰，
+   在暖色系统里与正文（--text-secondary）明显不同色温。 */
 .entry-form :deep(.el-form-item__label) {
-  font-size: var(--text-body);
-  line-height: 44px;
-  color: var(--text-primary);
+  font-size: var(--text-small);
+  color: var(--text-secondary);
 }
 
-/* 优化必填星号样式：增加间距，垂直居中 */
-.entry-form :deep(.el-form-item__label-wrap .el-form-item__required) {
-  margin-right: 4px;
-  vertical-align: middle;
-  color: var(--color-danger);
-}
-
-/* 本表单的输入框圆角是 8px（比基线 --radius-sm 6px 更圆，与卡片区一致）：
-   走 #1772 输入基线的圆角令牌，一次性覆盖单行 / 文本域 / 下拉三种控件。
-   —— 原先写在 `.el-input__inner` 上的 `border-radius: 8px` 其实是死代码
-   （EP 的 .el-input__inner 是 `border:none; background:none`，圆角画不出来），
-   真正一直生效的只有文本域那条，单行输入其实一直是 4px。 */
-.entry-form {
-  --input-radius: 8px;
-}
-
-/* 统一输入框字号与内边距（几何差异，走 :deep 是本 issue 允许的例外之一） */
-.entry-form :deep(.el-input__inner) {
-  padding-right: 14px;
-  padding-left: 14px;
-  font-size: var(--text-body);
-  color: var(--text-primary);
-  background-color: var(--bg-card);
-  border-color: var(--border-default);
-}
-
-.entry-form :deep(.el-textarea__inner) {
-  padding: 12px 14px;
-  font-size: var(--text-body);
-  color: var(--text-primary);
-  resize: vertical;
-  background-color: var(--bg-card);
-  border-color: var(--border-default);
-}
-
-/* 金额输入框全面优化 */
-.amount-input {
+/* 金额输入框撑满表单宽度。
+   不用 Tailwind 的 `w-full`：v4 的 utilities 在 @layer 里，而 EP 的
+   `.el-input-number{width:150px}` 是无层样式——无层优先于有层，`w-full` 会静默失效。
+   这里写法带 scoped 属性选择器 (0,2,0)，稳过 EP 的 (0,1,0)。 */
+.entry-form .amount-input {
   width: 100%;
 }
 
-.amount-input :deep(.el-input-number__decrease),
-.amount-input :deep(.el-input-number__increase) {
-  width: 44px;
-  font-size: var(--text-num-strong);
-  color: var(--text-secondary);
-  background-color: var(--bg-muted);
-  border: none;
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-
-.amount-input :deep(.el-input-number__decrease:hover),
-.amount-input :deep(.el-input-number__increase:hover) {
-  color: var(--color-primary-ink);
-  background-color: var(--bg-hover);
-}
-
-.amount-input :deep(.el-input__inner) {
-  padding-right: 16px;
+/* 金额右对齐（唯一保留的输入类 :deep，纯几何，且只作用于金额这一项）：
+   钱是按小数点对齐读的，左对齐的数字串在表单里最难核对右侧位数。
+   选择器必须挂 `.amount-input` 这一层——直接对表单根下的 inner 生效，
+   会把「资产名称」也一起右对齐。 */
+.entry-form .amount-input :deep(.el-input__inner) {
   text-align: right;
 }
 
-/* 提示文字样式优化：提升可读性 */
 .form-tip {
-  padding-left: 2px;
   margin-top: 6px;
   font-size: var(--text-label);
   line-height: 1.5;
-  color: var(--text-secondary);
+  color: var(--text-tertiary-ink);
 }
 
-/* 账户选择行：确保按钮与下拉框高度一致 */
+/* 账户选择行：下拉框吃掉剩余宽度，新增按钮保持自身宽度 */
 .account-select-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
+  width: 100%;
 }
 
-/* 新增账户按钮：边框式次要按钮，明确区分输入项与操作项 */
-.add-ledger-btn {
-  padding: 0 20px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-
-.add-ledger-btn:hover {
-  color: var(--color-primary-ink);
-  background-color: var(--color-primary-20);
-  border-color: var(--color-primary);
-}
-
-/* 可选项目：标签弱化+明确标注，降低认知负担 */
-.optional-item :deep(.el-form-item__label) {
-  font-weight: 400;
-  color: var(--text-secondary);
-}
-
-/* 操作按钮区域：统一尺寸，平衡视觉 */
+/* 操作区：右对齐（与「手动记账」页 ManualActionBar、各录入弹窗一致），
+   主操作在右、次操作在左，符合从左到右的阅读与视线落点。 */
 .form-actions {
   display: flex;
-  gap: 16px;
-  padding-top: 8px;
-}
-
-.submit-btn {
-  padding: 12px 40px;
-  font-size: var(--text-body);
-  font-weight: 500;
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-  border-radius: 8px;
-}
-
-.submit-btn:hover {
-  background-color: var(--color-primary);
-  opacity: 0.9;
-}
-
-.reset-btn {
-  padding: 12px 40px;
-  font-size: var(--text-body);
-  color: var(--text-primary);
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-
-.reset-btn:hover {
-  color: var(--color-primary-ink);
-  background-color: var(--color-primary-20);
-  border-color: var(--color-primary);
+  gap: var(--space-3);
+  justify-content: flex-end;
+  padding-top: var(--space-2);
 }
 </style>

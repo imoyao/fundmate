@@ -47,12 +47,7 @@ import {
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { INVESTMENT_MAJOR_KEYS } from "@/constants";
 import { INVESTMENT_PAGE_SIZE } from "./constants";
-import {
-  buildInvestmentGroups,
-  getErrorMessage,
-  type AssetGroupRaw,
-  type InvestmentGroup
-} from "./helpers";
+import { getErrorMessage, type AssetGroupRaw } from "./helpers";
 import {
   portfolioLabel,
   resolvePortfolioOf as resolvePortfolioAssignment
@@ -101,12 +96,25 @@ export function useInventoryData(activeCategory: Ref<string>) {
   /** 按大类的资产明细缓存；资产增删改后须整体失效 */
   const assetCache = ref<Record<string, AssetRecord[]>>({});
 
-  /** 投资分布卡片数据（仅投资理财大类有意义） */
-  const investmentGroups = computed<InvestmentGroup[]>(() =>
-    activeCategory.value === "investment"
-      ? buildInvestmentGroups(investmentGroupsRaw.value)
-      : []
-  );
+  /**
+   * 持仓市值合计（元），供「持仓明细」标题行的核对锚点。
+   *
+   * 取 `summary/groups?dimension=type` 各组 total 之和 = 全部在管持仓市值
+   * （同一份持仓、同一个唯一市值口径，与表格逐行同源）。
+   * `null` 表示「这一份没取到」——不返回 0，否则接口失败会被读成「持仓一文不值」。
+   *
+   * 为什么不再做「股票 / 基金」两张分布卡：那两个词在盘点页与账户管理页
+   * 各有一套集合定义（漏 ETF、漏货基、按持仓行计数），同名不同义且数字对不上。
+   * 品类全景只留账户管理一处（可下钻 /funds、/stocks），本页只保留合计。
+   */
+  const positionsMarketValue = computed<number | null>(() => {
+    if (!investmentGroupsRaw.value.length) return null;
+    const total = investmentGroupsRaw.value.reduce(
+      (sum, g) => sum + (g.total || 0),
+      0
+    );
+    return Math.round(total * 100) / 100;
+  });
 
   /**
    * 标签栏金额（#863 口径 A 对齐）。
@@ -346,7 +354,7 @@ export function useInventoryData(activeCategory: Ref<string>) {
     assetsSummary,
     distributions,
     investmentGroupsRaw,
-    investmentGroups,
+    positionsMarketValue,
     investmentPositions,
     investmentTotal,
     investmentPage,

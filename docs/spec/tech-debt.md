@@ -1133,3 +1133,29 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 1. `benchmark`（名称）需要一个能给出「业绩比较基准」文本的数据面——天天 App 详情页有，但不在上述两个接口里；属**新数据源调研**，不是补字段。
 2. `strategy_type`（均衡/进取/稳健）若要落地只能是**策展字段**（进 `advisor_catalog` 注册表，人工维护），不得靠猜。与 `allocation`（五笔钱）同性质，见 `CURATED_OVERVIEW_KEYS`。
 3. 天天组合每只现在**每次同步 2 次 HTTP**（AGGR + QUOTE，节流 2s）⇒ 111 只约 7~9 分钟。这是取全字段的必要代价，若要压缩得改「按需回填」（只对用户触达的组合抓 QUOTE 面）。
+
+## 2026-11-03 品类聚合用「库内最新净值」、总资产用「持仓快照价」（两套基准并存）
+
+**现象**：账户管理顶部「基金（含货币基金）」「股票（含 ETF、可转债）」两卡取
+`/api/ledgers/fund-aggregation/`、`/api/ledgers/securities-aggregation/`，市值走
+`NavService` 的**库内最新净值**；而总资产（`/api/summary/`、资产快照、资产总览的
+各维度分组）走 `position_valuation.market_value_cents`，基准是
+`positions.current_price`（持仓快照价）。同步滞后时两者会差一个净值日，表现为
+「品类卡合计 ≠ 总资产里对应的那一块」，容易被读成「又各写了一套实现」。
+
+**为什么本轮没有统一**：
+
+1. `position_price_job` 每天把场外净值回写进 `positions.current_price`，稳态下两个
+   基准非常接近，差的是**同步新鲜度**而不是定义；
+2. 若把 summary 域整体切到 NavService：总资产、资产快照、环比 / 同比会一起跳变，
+   而历史 `asset_snapshots` 行是按旧基准写下的 —— 等于制造一次口径不连续，
+   按 D62 / D65 的口径纪律，属于要先定决策（含是否提 CALIBER 版本）的事；
+3. 反向把聚合侧改回 `current_price`，会推翻 #1133 修过的「账本页与聚合页市值
+   不一致」，属倒退。
+
+**本轮已做**：同一页内不再各写一套 —— 盘点页与账户管理重复的「投资分布」卡已删除，
+`/api/summary/groups/` 也已改走唯一市值口径（见 `test_summary_total_assets_contract.py`
+的 `TestDimensionGroupsShareTheSameValuation`）。
+
+**待决策**：两套基准是否统一、以哪一侧为准。判据是「持仓多久同步一次」与
+「快照历史能否重算」，不靠拍脑袋换基准。
