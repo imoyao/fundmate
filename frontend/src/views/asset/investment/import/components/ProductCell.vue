@@ -31,7 +31,21 @@ const srcOp = computed(() => visibleSourceOp(props.row));
 
 <template>
   <div class="product-cell">
-    <span class="product-name">{{ row.name || row.symbol || "--" }}</span>
+    <!-- #2836：券商原文从「代码行」挪到「名称行」。
+         代码行被 `#` + 6 位代码吃掉约 66px，留给备注只剩 70px——正好卡在
+         「债券兑息兑付」6 个字（72px）的边上，于是每个真实备注都被截成
+         「债券兑息兑…」这种半个词，信息价值归零。名称通常是 4 个字，让出
+         的空间刚好够备注完整显示，且**不增加行高**（仍是两行结构）。
+         hover 仍给全文与「会写进备注」的说明。 -->
+    <div class="product-name-row">
+      <span class="product-name">{{ row.name || row.symbol || "--" }}</span>
+      <span
+        v-if="srcOp"
+        class="product-notes"
+        :title="`券商原文：${row.notes}（会写进该笔流水的备注）`"
+        >{{ srcOp }}</span
+      >
+    </div>
     <div class="product-code-row">
       <span class="product-code"># {{ row.symbol || "--" }}</span>
       <el-tag
@@ -41,14 +55,6 @@ const srcOp = computed(() => visibleSourceOp(props.row));
         class="type-tag-inline"
         >{{ row.display_type }}
       </el-tag>
-      <!-- 券商原文（2026-11-02 备注列并入本行；#2838 起与操作列重复时不显示）：
-           只在它说出了操作列没说的东西时出现，hover 说明这是原文、会被写进备注 -->
-      <span
-        v-if="srcOp"
-        class="product-notes"
-        :title="`券商原文：${row.notes}（会写进该笔流水的备注）`"
-        >{{ srcOp }}</span
-      >
     </div>
   </div>
 </template>
@@ -61,10 +67,22 @@ const srcOp = computed(() => visibleSourceOp(props.row));
   line-height: 1.3;
 }
 
+.product-name-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
 .product-name {
+  flex: 0 0 auto;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .product-code-row {
@@ -80,9 +98,10 @@ const srcOp = computed(() => visibleSourceOp(props.row));
   color: var(--text-tertiary-ink);
 }
 
-/* 备注：唯一可压缩项，超出截断（title 给全文） */
+/* 备注：唯一可压缩项，超出截断（title 给全文）。
+   刻意与名称同行而不与代码同行——见模板注释。 */
 .product-notes {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -46,7 +46,7 @@ const {
     @change="(val: boolean) => handleRowCheckboxChange(row, val)"
   />
 
-  <el-tag v-if="row.is_calculated" size="small" type="warning" class="ml-1"
-    >待确认</el-tag
-  >
+  <!-- #2836：「待确认」（推算行）与「待补全」原先一枚在这里、一枚在状态列并排出现，
+       勾选列本来只有 50px，两枚标签把它撑得歪斜。标签属于「这行是什么状态」，
+       统一收到状态列（StatusCell 里已有对应分支），勾选列回归纯勾选。 -->
 </template>

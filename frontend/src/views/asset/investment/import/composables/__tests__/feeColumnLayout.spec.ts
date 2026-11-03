@@ -137,11 +137,14 @@ describe("手续费列：换列不加列", () => {
     expect(sum + FIXED_COL_WIDTH).toBeLessThanOrEqual(WIDTH_BUDGET);
   });
 
-  it("配置目标让出宽度给手续费：110→106，手续费 70", () => {
+  it("配置目标让出宽度给手续费：110→106，手续费 66", () => {
     const w = setup([feeRow()]);
     const byProp = new Map(w.tableColumns.value.map(c => [c.prop, c]));
 
-    expect(byProp.get("fee")?.minWidth).toBe(70);
+    // #2836：70 → 66。状态列新增「金额不符」（4 字 = 48px + 内边距 24 = 72）
+    // 需要 68 → 72，这 4px 从手续费让——「5.81」这类两小数的实际占用约 52px，
+    // 66 仍有 14px 余量；总宽保持 1060。
+    expect(byProp.get("fee")?.minWidth).toBe(66);
     // 2026-11-02 实测量测后回补 6px：100px 时「长期增值」会被 ElSelect 截成「长期增…」，
     // 6px 从产品信息列（170→164）挪来，总宽仍是 1056（预算 1060）
     expect(byProp.get("allocation")?.minWidth).toBe(106);

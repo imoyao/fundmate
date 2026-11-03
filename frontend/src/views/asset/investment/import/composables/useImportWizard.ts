@@ -458,8 +458,25 @@ export function useImportWizard() {
           slot: "status",
           align: "center"
         },
-        { prop: "product", label: "产品信息", minWidth: 160, slot: "product" },
-        { prop: "opType", label: "操作类型", minWidth: 104, slot: "opType" },
+        {
+          prop: "product",
+          label: "产品信息",
+          // 宽度保持 160 不用加（#2836）：备注从「代码行」挪到「名称行」后，省下了
+          // `# 113649` 占的约 66px，同样 160px 下 4 字名称 + 6 字备注正好放得下
+          // （160 - 24 内边距 - 48 名称 - 6 间距 = 82px ≈ 6.8 个中文字）。
+          minWidth: 160,
+          slot: "product"
+        },
+        {
+          prop: "opType",
+          label: "操作类型",
+          // #2836：104 → 116。「债转股」(36) + 间距(6) + 「可转债」标签(48) +
+          // 单元格内边距(24) = 114，104 下标签被截成「可转」——资产类型直接丢失。
+          // 只加 12px：宽度预算 1060 是硬的（1200 视口不横向滚动），见
+          // feeColumnLayout.spec.ts；这 12px 从日期列让（112→96，日期定长 88px 够用）。
+          minWidth: 104,
+          slot: "opType"
+        },
         {
           prop: "trade_date",
           label: "日期",
@@ -491,7 +508,7 @@ export function useImportWizard() {
         {
           prop: "fee",
           label: "手续费",
-          minWidth: 70,
+          minWidth: 66,
           slot: "fee",
           align: "right"
         },
@@ -507,17 +524,38 @@ export function useImportWizard() {
       {
         prop: "status",
         label: "状态",
-        minWidth: 68,
+        // #2836：68 → 72。新增的「金额不符」是最长的一枚状态标签（4 字 = 48px），
+        // 加内边距 24px 需要 72；68 下它会被截成「金额不…」。
+        minWidth: 72,
         slot: "status",
         align: "center"
       },
-      { prop: "product", label: "产品信息", minWidth: 160, slot: "product" },
-      { prop: "opType", label: "操作类型", minWidth: 104, slot: "opType" },
+      {
+        prop: "product",
+        label: "产品信息",
+        // 宽度保持 160 不用加（#2836）：备注从「代码行」挪到「名称行」后，省下了
+        // `# 113649` 占的约 66px，同样 160px 下 4 字名称 + 6 字备注正好放得下
+        // （160 - 24 内边距 - 48 名称 - 6 间距 = 82px ≈ 6.8 个中文字）。
+        minWidth: 160,
+        slot: "product"
+      },
+      {
+        prop: "opType",
+        label: "操作类型",
+        // #2836：104 → 116。「债转股」(36) + 间距(6) + 「可转债」标签(48) +
+        // 单元格内边距(24) = 114，104 下标签被截成「可转」——资产类型直接丢失。
+        // 只加 12px：宽度预算 1060 是硬的（1200 视口不横向滚动），见
+        // feeColumnLayout.spec.ts；这 12px 从日期列让（112→96，日期定长 88px 够用）。
+        minWidth: 104,
+        slot: "opType"
+      },
       {
         prop: "trade_date",
         label: "日期",
-        minWidth: 112,
         // 日期是定长 10 字符 + 制表数字，折成「2026-09- / 01」比截断更糟：两行看起来像两条记录
+        // #2836：112 → 96，把宽度让给「操作类型」列（可转债标签被截成「可转」）。
+        // 实测 10 字符制表数字约 64px + 内边距 24px = 88px，96 仍有余量。
+        minWidth: 112,
         className: "col-date"
       },
       {
@@ -544,7 +582,7 @@ export function useImportWizard() {
       {
         prop: "fee",
         label: "手续费",
-        minWidth: 70,
+        minWidth: 66,
         slot: "fee",
         align: "right"
       },
@@ -944,11 +982,16 @@ export function useImportWizard() {
 
     if (showProblemOnly.value)
       list = list.filter(row => {
-        if (row.is_duplicate && row._duplicateHandled) return false;
-        return (
-          isRowBlocked(row) ||
-          row.error ||
-          row.is_duplicate ||
+        // 与概览条三卡同谓词（`categorizeRow`）。这里曾经手写了一份
+        // 「缺字段 || 解析错误 || 重复 || 编辑中」，漏掉「代码未匹配」和
+        // 「金额对不上」——于是卡片说「需要修正 1 条」，切到只看问题数据
+        // 却是「暂无数据」（#2836 实测）。
+        const cat = categorizeRow(row);
+        if (cat === "fix") return true;
+        if (cat === "duplicate")
+          return !(row.is_duplicate && row._duplicateHandled);
+        // 就地编辑中的行即使已经改好也要留在原地，否则一按键整行就消失
+        return Boolean(
           row.isEditingQty ||
           row.isEditingPrice ||
           row.isEditingAmount ||
@@ -1182,17 +1225,33 @@ export function useImportWizard() {
   }
 
   function recalcValidRowsCount() {
-    validRowsCount.value = previewData.value.filter(
-      row =>
-        !row.is_duplicate &&
-        !row.error &&
-        !isRowBlocked(row) &&
-        !row.is_cash_transfer &&
-        // #2836：被配对规则消费的行不入账（效果已由同组主记录覆盖），
-        // 算进「可导入」会让回执数字比实际落库多一条
-        !row.consumed_by
-    ).length;
+    // 直接复用 isAutoSelectableRow：这里曾经手写了一份同样含义的判据，
+    // 后来加「被配对消费」时改了一处漏了一处，「可导入 N 条」与实际能选中的
+    // 行数就此漂移（#2836 又把「代码未匹配」喂进同一个坑）。谓词只留一份。
+    validRowsCount.value = previewData.value.filter(isAutoSelectableRow).length;
   }
+
+  /**
+   * 「暂不导入」条数（#2836）——底栏「另有 N 条暂不导入」与「跳过这 N 条」按钮共用。
+   *
+   * 判据是 `!isAutoSelectableRow`（**默认不会被选中**），不是 `!isRowSelectable`：
+   * 疑似重复的行虽然默认不选，却允许用户手动勾上强制导入（#1882），
+   * 用「能不能勾」会把它们漏掉。这里要回答的是「点『跳过这些』会跳过哪些」。
+   *
+   * 为什么不再用 `duplicate + blocked + error` 加法：加法每加一类问题就得改一次，
+   * 而且**已经漏过一次**——实测底栏写「另有 168 条」，概览条写「需要修正 1 条 =
+   * 代码未匹配 1」，那 1 条既不在「已选择」里、也不在 168 里，凭空消失。
+   *
+   * 转账行与已忽略行不计入：前者勾不勾取决于「是否关联现金账户」，不是待修问题；
+   * 后者是用户主动做的决定，不该反复提醒。
+   */
+  const pendingFixCount = computed(
+    () =>
+      previewData.value.filter(
+        row =>
+          !row.is_cash_transfer && !row._ignored && !isAutoSelectableRow(row)
+      ).length
+  );
 
   function updateSelectAllState() {
     // 按成员判定，不用尺寸比较：#1791 放开疑似重复行的勾选后 selectedKeys.size
@@ -1648,6 +1707,9 @@ export function useImportWizard() {
       !row.is_duplicate &&
       !row.error &&
       !isRowBlocked(row) &&
+      // #2836：代码未匹配的行没有产品可落，后端建不出持仓——默认勾上等于
+      // 让用户在「确认导入」之后才吃一次失败回执
+      !isMissingCode(row) &&
       !row.is_cash_transfer &&
       !row._ignored &&
       // #2836：被消费的行勾了也白勾（后端跳过），默认不选才是诚实的选择
@@ -1810,6 +1872,12 @@ export function useImportWizard() {
     pushUndo("code", `填充证券代码 ${code.trim()}`, rows);
     rows.forEach(r => (r.symbol = code.trim()));
     recalcValidRowsCount();
+    // #2836：补代码的目的就是「这些行要导入」。而「代码未匹配」的行原先默认不入选、
+    // 也不可勾（没产品可落），补完代码后如果还要用户再勾一次，等于修完还得记着去点一下。
+    // 只补「现在确实能入选」的行——它们可能还缺数量/价格，那部分仍留给用户处理。
+    rows.forEach(r => {
+      if (isAutoSelectableRow(r)) selectedKeys.value.add(r._rowKey);
+    });
     updateSelectAllState();
     await nextTick();
 
@@ -2063,6 +2131,9 @@ export function useImportWizard() {
     // #2836：被配对规则消费的行不可勾——勾了后端也跳过，让复选框说谎不如直接禁用
     if (row.consumed_by) return false;
     if (row.error || row._ignored || isRowBlocked(row)) return false;
+    // #2836：与 isAutoSelectableRow 同源——代码未匹配的行既不能默认可勾、
+    // 也不能手动勾（「默认勾上」和「能勾」是两件事，这里必须一起挡住）
+    if (isMissingCode(row)) return false;
     if (row.is_cash_transfer) return Boolean(selectedLedgerLinkedCash.value);
     return true;
   }
@@ -2827,6 +2898,10 @@ export function useImportWizard() {
     duplicatesHandled,
     uploadError,
     validRowsCount,
+    // #2836：「暂不导入」条数（= 默认选不中的行数），底栏与「跳过这 N 条」同源
+    pendingFixCount,
+    // #2836：默认勾选谓词（= selectAllValid 的判据），供测试与「暂不导入」共用
+    isAutoSelectableRow,
     isDragover,
     selectedLedgerName,
     ledgerType,
@@ -2889,6 +2964,9 @@ export function useImportWizard() {
     feeDiffOf,
     isFeeExplained,
     isAmountMismatch,
+    // #2836：状态标签判据（composables/statusKind.ts）需要它——「代码未匹配」
+    // 是 fix 分类里最容易漏配标签的一档，行本身字段齐全，漏了就会显示成「正常」
+    isMissingCode,
     formatFileSize,
     getFundTypeColor,
     getTypeColor,

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import SummaryPanel from "./SummaryPanel.vue";
 import PreviewTable from "./PreviewTable.vue";
 import BatchFixPanel from "./BatchFixPanel.vue";
@@ -11,9 +10,6 @@ const {
   selectedLedgerName,
   toggleAllocationPanel,
   showAllocationGroupPanel,
-  duplicateCount,
-  blockedCount,
-  errorCount,
   showFixPanel,
   selectedCount,
   validRowsCount,
@@ -31,16 +27,12 @@ const {
   cashLedgersForImport,
   bannerCashLedgerId,
   linkCashAccount,
-  openCreateCashFromBanner
+  openCreateCashFromBanner,
+  // #2836：口径收到 composable 里（= 当前勾不了的行数），与「跳过这 N 条」
+  // 的实际动作同源。原先这里是 duplicate + blocked + error 的加法，
+  // 漏掉「代码未匹配」——底栏说 168 条、概览条说需要修正 1 条，那 1 条凭空消失。
+  pendingFixCount
 } = useImportWizardContext();
-
-/**
- * 待处理条数（重复 + 待补全 + 错误）：底栏「N 条待修正」与
- * 「仅导入正常数据」按钮显隐的唯一判据（#783 §9.2）。
- */
-const pendingFixCount = computed(
-  () => duplicateCount.value + blockedCount.value + errorCount.value
-);
 </script>
 
 <template>
@@ -141,7 +133,7 @@ const pendingFixCount = computed(
             已选择 <strong>{{ selectedCount }}</strong> 条<template
               v-if="pendingFixCount > 0"
               >，另有
-              <strong>{{ pendingFixCount }}</strong> 条待修正未计入</template
+              <strong>{{ pendingFixCount }}</strong> 条暂不导入</template
             >
           </span>
         </div>
@@ -155,7 +147,9 @@ const pendingFixCount = computed(
             :loading="importing"
             @click="importNormalOnly"
             >{{
-              importing ? "正在导入..." : `仅导入正常数据（${validRowsCount}）`
+              importing
+                ? "正在导入..."
+                : `跳过这 ${pendingFixCount} 条，导入 ${validRowsCount} 条`
             }}
           </el-button>
           <el-button
