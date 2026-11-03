@@ -43,6 +43,7 @@ from app.domains.securities.models import Security
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
 from app.services.money_fund_yield import compute_series_from_records
+from app.services.price_depth import desired_start, first_transaction_dates
 
 
 def _as_date(value) -> Optional[date]:
@@ -211,7 +212,13 @@ def _backfill_stock_price(symbol: str):
         stock_symbol = sec.symbol
 
         adapter = AkshareAdapter()
-        records = adapter.fetch_stock_price(symbol)
+        # #2860：回补起点按**该标的自己的首笔流水日**，而不是适配器默认的近 365 天。
+        # 这条路径是「新标的进场」时的第一笔历史，它决定了库内起点；写成默认值的话，
+        # 一只 2023 年买入的标的会永久缺 2023~2025 的行情，而增量同步只往后走、不回头
+        # （本金库实测 19 个标的踩此形态，最长缺 2.7 年）。
+        today = today_shanghai()
+        first_txn = first_transaction_dates(db, [stock_symbol]).get(stock_symbol)
+        records = adapter.fetch_stock_price(symbol, start_date=desired_start(first_txn, today), end_date=today)
         if not isinstance(records, list) or not records:
             return
         # T 日不回填：丢弃 trade_date >= 今日（上海时区）的记录，回填止于 T-1
