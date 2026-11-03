@@ -73,8 +73,52 @@ def _get_stock_latest_price(db: Session, symbol: str) -> float:
         return 0.0
 
 
+# 货基面值（元/份）：货币基金每份净值恒为 1.0000 元，收益以「万份收益」形式
+# 落在 `money_fund_daily_worth`（`money_fund_income` 链路），**从不进 nav 表**。
+# 与 `sync/jobs/position_price_job.py` 的「货基按面值回写 `current_price`」同口径。
+#
+# ⚠️ 已知局限（不要当成 bug 再报一遍）：按面值计的是**本金面额**，不含累计未结转
+# 收益。货基的真实市值严格等于「份额 × 1.0 + 未付收益」，当前未付收益由上述收益
+# 链路单独统计、未并入市值，故本函数对大额货基会低估几分到几十元。要精确到分需
+# 引入未付收益表（见 #2848 的后续项），届时改为读该表而非常量。
+MONEY_FUND_FACE_VALUE = 1.0
+
+
+def _is_money_fund_for_pricing(pos: Position) -> bool:
+    """估值口径的货基判定：`asset_type='money_fund'` **或** `is_money_fund is True`。
+
+    刻意比 `fund_utils.is_money_fund_position` 多兜一条 `asset_type`：那里的语义是
+    「`is_money_fund` 显式值优先」，于是历史漏回填的行（`is_money_fund=False` 但
+    `asset_type='money_fund'`）会漏判，估值就退回 nav 查询、市值变 0。
+    价格层（`position_price_job._classify`）用的正是本函数的「或」口径——两处同判，
+    才不会出现「价格按面值写对了、估值又读丢了」的错位。
+    """
+    if getattr(pos, 'asset_type', None) == 'money_fund':
+        return True
+    return getattr(pos, 'is_money_fund', None) is True
+
+
+def _exclude_cash_equivalent_positions() -> list:
+    """「剔除现金等价物」口径下，追加到持仓 WHERE 里的条件（#2848）。
+
+    为什么需要这个而不是只写 `asset_type NOT IN EXCLUDED_ASSET_TYPES`：
+    货基持仓的 `asset_type` 是 `'fund'`，`'money_fund'` 只出现在**流水**上，
+    所以光看 `asset_type` 永远拦不住货基持仓——「剔除现金」口径其实一直把货基
+    市值算进了分子（修复估值前只有 33.68 元、看不出来；按面值计价后是 2.3 万，
+    必须一并拦住，否则剔除口径反而变得更不准）。
+
+    `is_money_fund.isnot(True)` 生成 `IS NOT 1`，SQL 三值逻辑下 NULL 行判真（保留），
+    普通持仓（标记为 NULL 或 False）都不会被误排除。
+    """
+    return [Position.asset_type.not_in(EXCLUDED_ASSET_TYPES), Position.is_money_fund.isnot(True)]
+
+
 def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[int, float]:
-    fund_codes = [p.symbol for p in positions if p.asset_type == 'fund' and p.symbol]
+    """批量计算持仓市值（元）。货基按面值计价，其余走 nav / 收盘价。"""
+    # 货基不进 nav 批量查询：它们不在 nav 表里，送去查只会得到空结果（#2848）
+    fund_codes = [
+        p.symbol for p in positions if p.asset_type == 'fund' and p.symbol and not _is_money_fund_for_pricing(p)
+    ]
     stock_symbols = [p.symbol for p in positions if p.asset_type in ('stock', 'etf') and p.symbol]
 
     # 委托 NavService 统一入口（#1133）；批量场景禁止触发远程拉取
@@ -114,6 +158,13 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
         # 将内部单位转为元 / 份
         shares = Money.min_unit_to_shares(pos.quantity)
 
+        # 货基先出队（#2848）：它的 asset_type 也是 'fund'，若落到下面的 fund 分支会去
+        # nav 表查净值——货基从不进 nav 表，取到 0.0 后整块市值凭空消失（实测真实库
+        # 20 行货基 23,249.40 元只算出 33.68 元）。面值即净值，不必查任何行情表。
+        if _is_money_fund_for_pricing(pos):
+            value_map[pos.id] = shares * MONEY_FUND_FACE_VALUE
+            continue
+
         if pos.asset_type == 'fund' and pos.symbol:
             unit_price = fund_nav_map.get(pos.symbol, 0.0)  # 净值已是元
         elif pos.asset_type in ('stock', 'etf') and pos.symbol:
@@ -128,6 +179,11 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
 
 def _get_position_current_value(db: Session, position: Position) -> float:
     shares = Money.min_unit_to_shares(position.quantity)
+
+    # 货基按面值计价，理由同 _batch_get_position_values（#2848）；单持仓路径不能漏，
+    # 否则组合级市值补上了、单持仓卡片仍是 0，同一只货基两个页面两个数。
+    if _is_money_fund_for_pricing(position):
+        return shares * MONEY_FUND_FACE_VALUE
 
     if position.asset_type == 'fund' and position.symbol:
         unit_price = _get_fund_latest_nav(db, position.symbol)
@@ -320,7 +376,11 @@ def calculate_symbol_xirr(
     # 市值只取 quantity > 0 的持仓：清仓行不贡献当前市值（但它的流水已计入现金流）
     open_positions = [p for p in positions if (p.quantity or 0) > 0]
     if not include_cash_equivalents:
-        open_positions = [p for p in open_positions if p.asset_type not in EXCLUDED_ASSET_TYPES]
+        # 内存侧口径与 SQL 侧（_exclude_cash_equivalent_positions）必须同判：
+        # 只写 asset_type 会漏掉 asset_type='fund' 的货基（#2848）
+        open_positions = [
+            p for p in open_positions if p.asset_type not in EXCLUDED_ASSET_TYPES and not _is_money_fund_for_pricing(p)
+        ]
     total_value = sum(_batch_get_position_values(db, open_positions).values())
 
     if not transactions and total_value <= 1e-8:
@@ -358,7 +418,7 @@ def calculate_portfolio_xirr(
     # 获取所有非排除类型的持仓（家庭维度）
     pos_filter = [Position.quantity > 0, Position.family_id == family_id]
     if not include_cash_equivalents:
-        pos_filter.append(Position.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+        pos_filter.extend(_exclude_cash_equivalent_positions())
     positions = db.query(Position).filter(*pos_filter).all()
 
     # 批量计算持仓市值
@@ -417,7 +477,7 @@ def calculate_portfolio_xirr_by_id(
         Position.family_id == family_id,
     ]
     if not include_cash_equivalents:
-        pos_filter.append(Position.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+        pos_filter.extend(_exclude_cash_equivalent_positions())
     positions = db.query(Position).filter(*pos_filter).all()
 
     value_map = _batch_get_position_values(db, positions)
