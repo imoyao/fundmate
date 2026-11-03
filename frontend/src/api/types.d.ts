@@ -312,6 +312,10 @@ export interface WatchlistItem {
   advisor_nav_date?: string | null; // 净值日期（YYYY-MM-DD）
   advisor_source_url?: string | null; // 组合官方页面链接
   manager_company?: string | null; // 基金经理所属基金公司（仅 asset_type=manager 有值）
+  // ── 资金面（#watchlist 资金面卡 / 个股主力净流入 + 所属板块）──
+  // 前端实时源（东财资金流）注入，**非后端字段**；后端忽略多余属性。
+  main_inflow?: number | null; // 主力净流入（元），红=净流入 / 绿=净流出（A 股习惯）
+  sector?: string | null; // 所属行业 / 板块名（东财 f100）
   // ── 可转债条款（#1285 消费侧 / #1393）──
   // 仅 asset_type=bond 且后端 convertible_bond_terms 命中时有值，其余 null。
   // 数据源：集思录强赎（bond_cb_redeem_jsl）+ 东财基本信息（bond_zh_cov），免 cookie。
