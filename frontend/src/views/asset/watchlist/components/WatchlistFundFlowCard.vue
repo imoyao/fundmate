@@ -104,7 +104,7 @@ const themeLine = computed(() => {
   padding: 12px 12px 10px;
   margin-bottom: 12px;
   background: var(--bg-card, #fff);
-  border: 1px solid var(--border-color, #eee);
+  border: 1px solid var(--border-default, #eee);
   border-radius: 12px;
 }
 
@@ -119,12 +119,12 @@ const themeLine = computed(() => {
 .fund-flow-card__title {
   font-size: var(--text-label);
   font-weight: 600;
-  color: var(--color-text-primary, #333);
+  color: var(--text-primary, #333);
 }
 
 .fund-flow-card__src {
   font-size: var(--text-label);
-  color: var(--color-text-placeholder, #bbb);
+  color: var(--text-disabled, #bbb);
 }
 
 .fund-flow-card__body {
@@ -149,13 +149,13 @@ const themeLine = computed(() => {
   min-width: 84px;
   padding: 6px 10px;
   background: var(--bg-page, #fafafa);
-  border: 1px solid var(--border-color, #eee);
+  border: 1px solid var(--border-default, #eee);
   border-radius: 8px;
 }
 
 .sector-item__name {
   font-size: var(--text-label);
-  color: var(--color-text-secondary, #666);
+  color: var(--text-secondary, #666);
 }
 
 .sector-item__val {
@@ -174,18 +174,18 @@ const themeLine = computed(() => {
 }
 
 .is-flat .sector-item__val {
-  color: var(--color-text-secondary, #888);
+  color: var(--text-secondary, #888);
 }
 
 .fund-flow-card__theme {
   margin: 0;
   font-size: var(--text-label);
   line-height: 1.5;
-  color: var(--color-text-primary, #333);
+  color: var(--text-primary, #333);
 }
 
 .fund-flow-card__empty {
   font-size: var(--text-label);
-  color: var(--color-text-placeholder, #bbb);
+  color: var(--text-disabled, #bbb);
 }
 </style>

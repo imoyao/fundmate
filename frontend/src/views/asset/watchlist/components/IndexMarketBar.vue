@@ -1,5 +1,5 @@
 <!--
-  IndexMarketBar · 自选页顶部大盘指数条（#watchlist banner）
+  IndexMarketBar · 自选页顶部大盘指数条（#watchlist）
 
   定位：常驻「市场上下文条」，与 WatchlistSummaryBar（我的持仓）上下分层，
   不与探市页「大类资产观察」的指数数字快照冲突（本条带分时 + 常驻自选页）。
@@ -13,7 +13,7 @@
   assetType=index 已在 DETAIL_ASSET_TYPES 白名单内）。
 -->
 <template>
-  <section class="index-banner" aria-label="大盘指数速览">
+  <section class="index-market-bar" aria-label="大盘指数速览">
     <button
       v-for="meta in INDICES"
       :key="meta.key"
@@ -155,7 +155,7 @@ function strokeColor(meta: IndexMeta): string {
   const cls = trendClass(meta);
   if (cls === "is-rise") return "var(--color-rise)";
   if (cls === "is-fall") return "var(--color-fall)";
-  return "var(--color-text-placeholder, #bbb)";
+  return "var(--text-disabled, #bbb)";
 }
 
 function formatPrice(v: number): string {
@@ -266,7 +266,7 @@ onUnmounted(stopTimer);
 </script>
 
 <style scoped lang="scss">
-.index-banner {
+.index-market-bar {
   display: flex;
   gap: 12px;
   padding: 12px;
@@ -290,7 +290,7 @@ onUnmounted(stopTimer);
   text-align: left;
   cursor: pointer;
   background: var(--bg-page, #fafafa);
-  border: 1px solid var(--border-color, #eee);
+  border: 1px solid var(--border-default, #eee);
   border-radius: 10px;
   transition:
     border-color 0.15s ease,
@@ -314,12 +314,12 @@ onUnmounted(stopTimer);
 .index-card__name {
   font-size: var(--text-label);
   font-weight: 600;
-  color: var(--color-text-primary, #333);
+  color: var(--text-primary, #333);
 }
 
 .index-card__time {
   font-size: var(--text-label);
-  color: var(--color-text-placeholder, #bbb);
+  color: var(--text-disabled, #bbb);
 }
 
 .index-card__price {
@@ -351,7 +351,7 @@ onUnmounted(stopTimer);
     align-items: center;
     justify-content: center;
     font-size: var(--text-label);
-    color: var(--color-text-placeholder, #bbb);
+    color: var(--text-disabled, #bbb);
   }
 }
 
@@ -365,6 +365,6 @@ onUnmounted(stopTimer);
 }
 
 .is-flat {
-  color: var(--color-text-secondary, #888);
+  color: var(--text-secondary, #888);
 }
 </style>
