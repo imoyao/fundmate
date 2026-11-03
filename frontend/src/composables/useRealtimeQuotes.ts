@@ -99,9 +99,20 @@ export function useRealtimeQuotes(
     symbol: string
   ) =>
     | { currentPrice?: number; changePct?: number; prevClose?: number | null }
-    | undefined
+    | undefined,
+  /**
+   * 首访默认值（首页「最新收益」卡用 true，其余消费页不传 = 沿用历史默认关闭）。
+   *
+   * 只影响 **localStorage 尚无记录**时的取值：用户显式关过（存了 "false"），
+   * 任何页面都照旧尊重，不会被首页偷偷打开——开关仍是**一份**全局偏好，
+   * 不引入「首页专用开关」这种第二套语义。
+   */
+  options?: { defaultEnabled?: boolean }
 ): RealtimeQuotesReturn {
-  const enabled = ref(localStorage.getItem(STORAGE_KEY) === "true");
+  const stored = localStorage.getItem(STORAGE_KEY);
+  const enabled = ref(
+    stored === null ? options?.defaultEnabled === true : stored === "true"
+  );
   const status = ref<"idle" | "trading" | "closed" | "error">("idle");
   const items = ref<ValuationItem[]>([]);
   const summary = ref<ValuationSummary | null>(null);

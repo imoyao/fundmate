@@ -489,7 +489,13 @@ BASELINE: dict[str, dict[str, int]] = {
         # 服务层」；涨跌幅计算与四个状态码在 `services/analytics/cleared_cycles.py`，
         # 净值取数在 `NavService.get_navs_at_or_before`，视图零 ORM 查询、零事务，
         # `max_func` 43 不动。与 #2774 / #2681 同先例。
-        "lines": 423,
+        # 2026-11-03 重取（首页「最新收益」卡，**新增只读端点**，非放宽）：423 → 441。
+        # 新增 `GET /summary/today-pnl/`——只做 `get_family_id()` + 调
+        # `services/today_pnl.py` + 异常→HTTP 信封；当日盈亏口径（`Σ 分项 ≡ 合计`、
+        # 估值定格 / 官方净值的状态判定）全部在服务层复用 `pnl_calendar._compute_days`，
+        # 视图零 ORM 查询、零事务，`max_func` 43 不动（新端点函数体 14 行 ≤ 60）。
+        # 与 #2616 / #2617 / #2685 同先例。
+        "lines": 441,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,
