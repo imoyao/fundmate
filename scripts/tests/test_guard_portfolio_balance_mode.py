@@ -49,18 +49,66 @@ def _load_guard():
 
 
 def _find_portfolio_if(source: str) -> ast.If:
-    """定位真实代码里那段「portfolio 非 balance ⇒ raise」的 If 节点。"""
+    """定位真实代码里那段「portfolio 非 balance ⇒ raise」的 If 节点。
+
+    与守卫判据 1 同口径：`'portfolio'` 可以写在条件字面量里，也可以写在条件引用的
+    模块级字符串集合里（`_BALANCE_ONLY_ASSET_TYPES`）——提取常量是好做法，探针不该
+    因此找不到目标节点。
+
+    **必须同时要求「非 balance 判定」**：只按 `'portfolio'` 找会先命中
+    `_get_asset_type` 里的 `if explicit and explicit in _SPECIFIC_ASSET_TYPES:`
+    （那个集合也含 `'portfolio'`），于是探针删错地方、以为守卫失灵。
+    """
     tree = ast.parse(source)
+    named_sets: dict[str, set[str]] = {}
+    for stmt in tree.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(stmt, ast.Assign):
+            targets, value = stmt.targets, stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.target is not None:
+            targets, value = [stmt.target], stmt.value
+        for target in targets:
+            if not isinstance(target, ast.Name) or value is None:
+                continue
+            strings = {
+                child.value
+                for child in ast.walk(value)
+                if isinstance(child, ast.Constant) and isinstance(child.value, str)
+            }
+            if strings:
+                named_sets[target.id] = strings
+
+    def _names_in(node: ast.AST) -> set[str]:
+        return {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
+
+    def _negates_balance(test: ast.AST) -> bool:
+        for child in ast.walk(test):
+            if isinstance(child, ast.UnaryOp) and isinstance(child.op, ast.Not):
+                if 'is_balance' in _names_in(child):
+                    return True
+            if isinstance(child, ast.Compare):
+                attrs = {c.attr for c in ast.walk(child) if isinstance(c, ast.Attribute)}
+                if 'BALANCE' in attrs:
+                    return True
+        return False
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        texts = [
+        texts = {
             child.value
             for child in ast.walk(node.test)
             if isinstance(child, ast.Constant) and isinstance(child.value, str)
-        ]
-        if 'portfolio' in texts:
-            return node
+        }
+        for child in ast.walk(node.test):
+            if isinstance(child, ast.Name):
+                texts |= named_sets.get(child.id, set())
+        if 'portfolio' not in texts:
+            continue
+        if not _negates_balance(node.test):
+            continue
+        return node
     raise AssertionError('真实 position_service.py 里找不到 portfolio 的 If 分支（守卫判据需同步）')
 
 
@@ -143,6 +191,19 @@ class WriteGuardProbeTest(unittest.TestCase):
             '    return None\n'
         )
         self.assertTrue(self.module.check_write_guard(source, self.path))
+
+    def test_portfolio_dropped_from_named_set_turns_red(self):
+        """品类被从命名集合里删掉时也必须红（判据 1 认命名集合的代价）。
+
+        判据 1 现在接受「if 条件引用的模块级字符串集合含 portfolio」这种写法，好处是
+        提取常量不被惩罚；代价是「把 portfolio 从那个集合里删掉」也能绕过约束，而
+        `not is_balance` 与 `raise` 都还在。旧判据（只看字面量）根本发现不了这个形态，
+        故必须有一条用例把新路径自己的退化面钉住。
+        """
+        broken = re.sub(r"\n\s+'portfolio':\s*'[^']*',", '', self.source, count=1)
+        self.assertNotEqual(broken, self.source, '真实代码里没有 dict 形态的 portfolio 条目（守卫判据需同步）')
+        findings = self.module.check_write_guard(broken, self.path)
+        self.assertTrue(findings, '从命名集合删掉 portfolio 后守卫仍绿 —— 约束可以绕过')
 
 
 class AssetTypesTextTest(unittest.TestCase):
