@@ -114,59 +114,9 @@
           />
         </section>
 
-        <!-- 5. 策略洞察（#2237，2026-11-03 改为折叠）——
-             目标配比 / 策略诊断 / 持仓小贴士 三块都是**判断**，而本页的定位是
-             「把已经发生的事落库，不产生判断」（docs/design/navigation-ia.md）。
-             此前它们以三张满高卡片常驻，把一个录入工作台撑成分析页。
-             现在整组折叠、默认收起、首次展开才取数：录入动线（选大类 → 记一笔 →
-             看明细）不再被三屏结论挡住，想看的人点一下就在。
-             为什么要折而不是删：目标配比可编辑（写库），不属于「看结果」顶级，
-             迁去资产概览会违反该顶级的「纯读」定义；留在本页折叠是成本最低的解。 -->
-        <section class="inventory-section">
-          <SectionHeader
-            title="策略洞察"
-            info="目标配比 / 策略诊断 / 持仓小贴士——由规则对你的持仓算出的结论，与录入无关，默认收起。"
-          >
-            <template #action>
-              <el-button
-                text
-                size="small"
-                :aria-expanded="insightOpen"
-                @click="toggleInsight"
-              >
-                {{ insightOpen ? "收起" : "展开" }}
-                <IconifyIconOffline
-                  :icon="insightOpen ? 'ep:arrow-up' : 'ep:arrow-down'"
-                  class="ml-1"
-                />
-              </el-button>
-            </template>
-          </SectionHeader>
-
-          <el-collapse-transition>
-            <div v-show="insightOpen" class="insight-stack">
-              <AllocationTargetCard
-                :data="allocation"
-                :loading="allocationLoading"
-                :error="allocationError"
-                :saving="allocationSaving"
-                :reminder-refreshing="reminderRefreshing"
-                @save="saveTargets"
-                @refresh-reminders="refreshReminders"
-                @retry="loadAllocation"
-              />
-              <StrategyDiagnosisCard
-                :diagnosis="diagnosis"
-                :behavior="behavior"
-                :strategies="strategies"
-                :loading="diagnosisLoading"
-                :error="diagnosisError"
-                @retry="loadDiagnosis"
-              />
-              <RuleTipsCard />
-            </div>
-          </el-collapse-transition>
-        </section>
+        <!-- 5. 策略洞察（#2237）：判断类内容默认收起、首次展开才取数，
+             组件见 components/StrategyInsightSection.vue（本页只留一个引用位） -->
+        <StrategyInsightSection v-if="activeCategory === 'investment'" />
       </template>
 
       <!-- ==================== 场景 B：其他大类 ==================== -->
@@ -219,9 +169,9 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import { INVENTORY_CATEGORIES, type QuickActionItem } from "./constants";
+import { INVENTORY_CATEGORIES, INVESTMENT_QUICK_ACTIONS } from "./constants";
 import { getCategoryAssetTypes, getCategoryDesc } from "./helpers";
-import { useInventoryData, useStrategyInsight } from "./useInventoryData";
+import { useInventoryData } from "./useInventoryData";
 import {
   PNL_DUAL_SCOPE_TIP,
   usePositionValuation
@@ -235,9 +185,7 @@ import OtherInvestmentTable from "./components/OtherInvestmentTable.vue";
 import CashLikeTable from "./components/CashLikeTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";
-import AllocationTargetCard from "./components/AllocationTargetCard.vue";
-import RuleTipsCard from "./components/RuleTipsCard.vue";
-import StrategyDiagnosisCard from "./components/StrategyDiagnosisCard.vue";
+import StrategyInsightSection from "./components/StrategyInsightSection.vue";
 
 // 与路由 `router/modules/home.ts` 的 name 保持一致，保证 keep-alive 命中
 defineOptions({ name: "Inventory" });
@@ -266,46 +214,6 @@ const {
 } = useInventoryData(activeCategory);
 
 /**
- * 「策略洞察」区块（#2237）：目标配比 + 策略诊断 / 行为反推。
- *
- * 与 usePositionValuation 同理，必须在 setup 顶层**同步**调用：
- * `useStrategyInsight` 内部注册了 `usePageRefresh` 全局刷新订阅，
- * 晚于 await 调用会脱离组件实例。其加载失败只影响两张卡自身，
- * 不会阻塞上面的盘点数据（两者数据源与 failure 影响面都不同）。
- */
-const {
-  allocation,
-  allocationLoading,
-  allocationError,
-  allocationSaving,
-  reminderRefreshing,
-  diagnosis,
-  behavior,
-  strategies,
-  diagnosisLoading,
-  diagnosisError,
-  loadStrategyInsight,
-  loadAllocation,
-  loadDiagnosis,
-  saveTargets,
-  refreshReminders
-} = useStrategyInsight();
-
-/**
- * 「策略洞察」的折叠态与懒加载（2026-11-03）。
- *
- * 默认收起：目标配比 / 策略诊断 / 持仓小贴士 都是规则算出的**判断**，
- * 与「把已经发生的事落库」的页面定位无关；常驻会把录入动线挤到三屏以外。
- * 首次展开才发请求——收起时一个引擎接口都不打（`useStrategyInsight` 自己只在
- * 全局刷新时重取，不影响首屏）。
- */
-const insightOpen = ref(false);
-function toggleInsight() {
-  insightOpen.value = !insightOpen.value;
-  if (insightOpen.value) void loadStrategyInsight();
-}
-
-/**
  * 持仓明细的盈亏双线估值接线（#1104）。
  *
  * 必须在页面 setup 顶层同步调用：`usePositionValuation` 内部注册了
@@ -322,50 +230,6 @@ const activeCategoryDesc = computed(() =>
 const activeAssetTypes = computed(() =>
   getCategoryAssetTypes(activeCategory.value)
 );
-
-/**
- * 投资理财大类的固定快捷入口。
- *
- * #1354：银行理财/投顾/信托/私募/理财型保险 收敛为投资理财的细分，
- * 统一走「记录其他投资」这一个入口，不再各占一个大类标签。
- *
- * #936：导入入口按「持仓 / 流水」显式分层，两张导入卡并列相邻——
- * 「导入持仓快照」按平台导出的持仓建仓（只落持仓，不生成流水），
- * 「导入交易流水」按交割单回放交易（生成持仓 + 流水）。
- * 两者是并列的两条路，不是同一个入口的不同说法，故不合并且文案互不重叠。
- */
-const INVESTMENT_QUICK_ACTIONS: QuickActionItem[] = [
-  {
-    key: "manual",
-    icon: "ep:trend-charts",
-    label: "记录投资交易",
-    desc: "记录股票、基金、可转债、ETF",
-    color: "var(--brand-700)"
-  },
-  {
-    // 文案与「导入投资记账」向导页内的同名卡片保持一致（ImportModeCards.vue），
-    // 让用户在两处看到同一个词、同一句解释，降低认知成本
-    key: "import_holding",
-    icon: "ep:document",
-    label: "导入持仓快照",
-    desc: "上传平台导出的持仓文件，自动归入对应账户",
-    color: "var(--brand-700)"
-  },
-  {
-    key: "import_txn",
-    icon: "ep:upload",
-    label: "导入交易流水",
-    desc: "批量导入基金/股票交割单",
-    color: "var(--brand-700)"
-  },
-  {
-    key: "other_invest",
-    icon: "ep:briefcase",
-    label: "记录其他投资",
-    desc: "银行理财、投顾、信托、私募、理财型保险",
-    color: "var(--asset-cat-saving)"
-  }
-];
 
 /** 投资理财大类的快捷入口跳转 */
 function onInvestmentQuickAction(key: string) {
@@ -445,7 +309,7 @@ onMounted(() => {
     activeCategory.value = tab;
   }
   fetchData();
-  // 策略洞察不再随页面加载：它默认收起，首次展开时才由 toggleInsight 触发取数。
+  // 策略洞察不在这里发起：它默认收起，首次展开时才由 StrategyInsightSection 自己取数。
 });
 </script>
 
@@ -500,12 +364,5 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: var(--space-2, 8px);
   align-items: center;
-}
-
-/* 折叠区的三张卡：纵向间距与 shell 的区块间距一致（原来各占一个 section） */
-.insight-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-section);
 }
 </style>

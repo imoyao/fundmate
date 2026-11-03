@@ -227,6 +227,52 @@ export const INVENTORY_TABLE_HEADER_STYLE = {
   fontSize: "13px"
 };
 
+/**
+ * 投资理财大类的固定快捷入口。
+ *
+ * 自 `index.vue` 上移（2026-11-03）：本文件只放数据，页面只做编排。
+ *
+ * #1354：银行理财/投顾/信托/私募/理财型保险 收敛为投资理财的细分，
+ * 统一走「记录其他投资」这一个入口，不再各占一个大类标签。
+ *
+ * #936：导入入口按「持仓 / 流水」显式分层，两张导入卡并列相邻——
+ * 「导入持仓快照」按平台导出的持仓建仓（只落持仓，不生成流水），
+ * 「导入交易流水」按交割单回放交易（生成持仓 + 流水）。
+ * 两者是并列的两条路，不是同一个入口的不同说法，故不合并且文案互不重叠。
+ */
+export const INVESTMENT_QUICK_ACTIONS: QuickActionItem[] = [
+  {
+    key: "manual",
+    icon: "ep:trend-charts",
+    label: "记录投资交易",
+    desc: "记录股票、基金、可转债、ETF",
+    color: "var(--brand-700)"
+  },
+  {
+    // 文案与「导入投资记账」向导页内的同名卡片保持一致（ImportModeCards.vue），
+    // 让用户在两处看到同一个词、同一句解释，降低认知成本
+    key: "import_holding",
+    icon: "ep:document",
+    label: "导入持仓快照",
+    desc: "上传平台导出的持仓文件，自动归入对应账户",
+    color: "var(--brand-700)"
+  },
+  {
+    key: "import_txn",
+    icon: "ep:upload",
+    label: "导入交易流水",
+    desc: "批量导入基金/股票交割单",
+    color: "var(--brand-700)"
+  },
+  {
+    key: "other_invest",
+    icon: "ep:briefcase",
+    label: "记录其他投资",
+    desc: "银行理财、投顾、信托、私募、理财型保险",
+    color: "var(--asset-cat-saving)"
+  }
+];
+
 /** `el-table` 单元格基线样式 */
 export const INVENTORY_TABLE_CELL_STYLE = {
   color: "var(--text-secondary)"
