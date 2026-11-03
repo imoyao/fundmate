@@ -9,7 +9,7 @@ import ImportSteps from "./components/ImportSteps.vue";
 import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
 import LeaveGuardDialog from "./components/LeaveGuardDialog.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useImportWizard } from "./composables/useImportWizard";
 import { useImportLeaveGuard } from "./composables/useImportLeaveGuard";
 import { provideWizard } from "./composables/useImportWizardContext";
@@ -46,6 +46,19 @@ const {
 
 // 调试快进面板：仅开发环境可见；勾选后跳到预览/结果时注入模拟数据
 const withMock = ref(false);
+
+/**
+ * 调试面板的展开态（#2836）。
+ *
+ * 默认展开（开发时常用），但必须能收起——它固定在右下角，展开时正好盖住底栏的
+ * 「确认导入」。收起状态记进 sessionStorage：关一次就一直是收起的，不用每次进
+ * 页面再关一遍。
+ */
+const DEV_PANEL_KEY = "import.devJumpPanel.open";
+const devPanelOpen = ref(sessionStorage.getItem(DEV_PANEL_KEY) !== "0");
+watch(devPanelOpen, open => {
+  sessionStorage.setItem(DEV_PANEL_KEY, open ? "1" : "0");
+});
 
 /**
  * 「工作步」= 预览（2）/ 结果（3）。
@@ -108,9 +121,33 @@ const isWorkingStep = computed(() => currentStep.value >= 2);
       <ResultStep v-else />
     </div>
 
-    <!-- 调试快进面板：仅开发环境可见，跳过前序步骤直达目标步骤 -->
-    <div v-if="devMode" class="dev-jump-panel">
-      <div class="dev-jump-title">调试快进（DEV）</div>
+    <!-- 调试快进面板：仅开发环境可见（`devMode = import.meta.env.DEV`，生产构建里
+         该常量被静态替换为 false，整块连同事件一起被 tree-shake 掉），跳过前序步骤
+         直达目标步骤。
+         #2836：原来它是常驻的 280px 浮层，固定右下角，正好压住底栏「确认导入」——
+         开发时点不到按钮。改为可收起：收起后只剩一个 40×24 的小胶囊，且上移到
+         底栏上方，状态记在 sessionStorage（关一次就一直是收起的）。 -->
+    <button
+      v-if="devMode && !devPanelOpen"
+      type="button"
+      class="dev-jump-fab"
+      title="打开调试快进面板"
+      @click="devPanelOpen = true"
+    >
+      DEV
+    </button>
+    <div v-else-if="devMode" class="dev-jump-panel">
+      <div class="dev-jump-head">
+        <span class="dev-jump-title">调试快进（DEV）</span>
+        <button
+          type="button"
+          class="dev-jump-close"
+          aria-label="收起调试面板"
+          @click="devPanelOpen = false"
+        >
+          ×
+        </button>
+      </div>
       <div class="dev-jump-row">
         <el-button size="small" @click="devJump(0)">步骤1 选账户</el-button>
         <el-button size="small" @click="devJump(1)">步骤2 上传</el-button>
@@ -203,8 +240,51 @@ const isWorkingStep = computed(() => currentStep.value >= 2);
   box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
 }
 
-.dev-jump-title {
+.dev-jump-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 8px;
+}
+
+.dev-jump-close {
+  padding: 0 2px;
+  font-size: var(--text-body);
+  line-height: 1;
+  color: var(--text-tertiary-ink);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.dev-jump-close:hover {
+  color: var(--text-primary);
+}
+
+/* 收起态：小胶囊，且上移到「确认导入」上方，避免压住底栏按钮 */
+.dev-jump-fab {
+  position: fixed;
+  right: 12px;
+  bottom: 76px;
+  z-index: 1000;
+  width: 44px;
+  height: 24px;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  opacity: 0.6;
+}
+
+.dev-jump-fab:hover {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.dev-jump-title {
   font-weight: 600;
   color: var(--text-primary);
 }
