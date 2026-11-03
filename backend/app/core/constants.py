@@ -108,6 +108,14 @@ K_LONGTERM = '长期增值'
 # 标签与 ASSET_CATEGORY_LABELS 单一来源保持一致；liability 由 summary 单独处理，不进大类分布。
 CATEGORY_META = {k: (v, None) for k, v in ASSET_CATEGORY_LABELS.items() if k != 'liability'}
 
+# ⚠️ DEPRECATED / 已死的映射表（#2854）：**不是导入链路的真相源**。
+# 真正被 ths_stock.py 消费的是 app/services/importer/mappings.py::THS_OP_MAP。
+# 本表只被 domains/importers/parser.py 的 TransactionParser（全仓零实例化）引用；
+# dividend_tax_service.is_tax_import_note 原先也读它，现已改读活表。
+# 两表曾实测漂移（红利入账 / 基金红利拨入 / 利息归本 / 债券兑息：活表 dividend_cash、
+# 本表 dividend），#2844 修「两个分红码并存」时踩的就是这个分叉。
+# 判据：tests/services/importer/test_ths_op_map_consistency.py 锁定共同键不漂移。
+# ❌ 不要在这里新增操作名——加了不会影响导入行为，只会让下一个人继续改错表。
 # 同花顺操作类型 → 内部 op_type 映射
 THS_OP_TYPE_MAP = {
     # ── 买入类 ──

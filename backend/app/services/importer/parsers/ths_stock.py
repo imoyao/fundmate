@@ -14,7 +14,6 @@ from decimal import Decimal
 from typing import List, Optional, Tuple
 
 import pandas as pd
-from loguru import logger
 
 from app.core.constants import CASH_SYMBOL, PositionSource
 from app.core.symbol_utils import get_normalizer
@@ -22,11 +21,24 @@ from app.core.venues import EXCHANGE, OTC
 from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import (
+    THS_IGNORED_OPS,
     THS_NO_CODE_INCOME_ASSET_TYPES,
     THS_OP_MAP,
     THS_OTC_OPS,
     VALID_OP_TYPES,
 )
+
+
+class IgnoredOperationError(Exception):
+    """操作名在 THS_IGNORED_OPS 里：有意跳过，不报错、不进记录，但计入行数对账。"""
+
+
+class UnknownOperationError(Exception):
+    """操作名既不在 THS_OP_MAP、也不在 THS_IGNORED_OPS：绝不能静默丢行（#2854）。"""
+
+    def __init__(self, op_type_cn: str):
+        self.op_type_cn = op_type_cn
+        super().__init__(op_type_cn)
 
 
 class THSStockParser(BaseImportParser):
@@ -36,6 +48,11 @@ class THSStockParser(BaseImportParser):
 
     def __init__(self):
         self.normalizer = get_normalizer()
+        # #2854 行数对账：由 parse() 每次覆盖，供 orchestrator 读取后下发预览响应。
+        # 解析器是注册表单例，这两个值只在同一次 parse() 调用链内立刻被取走，
+        # 不参与任何跨请求状态判断。
+        self.source_row_count: Optional[int] = None
+        self.ignored_row_count: int = 0
 
     # ── 解析 ──
 
@@ -64,7 +81,11 @@ class THSStockParser(BaseImportParser):
         self._preprocess_dataframe(df)
 
         # 4. 逐行解析
-        records, row_errors = self._iterrows_to_records(df)
+        records, row_errors, ignored = self._iterrows_to_records(df)
+        # 源文件数据行数（表头之外）必须单独上报：预览响应里的 total 是「解析成功后
+        # 的行数」，天生就是丢过行的数，没有任何字段能暴露差额（#2854）。
+        self.source_row_count = len(df)
+        self.ignored_row_count = ignored
 
         # 配对（兑息+税 / 兑付+股份转出）不在这里做：它按 business_type 收集角色，
         # 对所有平台解析器一致，统一由 orchestrator 在解析完成后跑（importer/linking.py）。
@@ -169,19 +190,40 @@ class THSStockParser(BaseImportParser):
 
     # ── 逐行解析 ──
 
-    def _iterrows_to_records(self, df: pd.DataFrame) -> Tuple[List[StandardTransactionRecord], List[SBImportError]]:
-        """遍历 DataFrame 行，调用 _parse_row 解析"""
+    def _iterrows_to_records(
+        self, df: pd.DataFrame
+    ) -> Tuple[List[StandardTransactionRecord], List[SBImportError], int]:
+        """遍历 DataFrame 行，调用 _parse_row 解析。
+
+        返回 (records, errors, ignored_count)。三类行互斥且完备：
+        每行要么产出一条记录、要么产出一条错误、要么被显式忽略。
+        恒等式 ``source_row_count == total + parse_error_count + ignored_row_count``
+        是 #2854 行数对账的判据，任何一行 `return None` 都会打破它。
+        """
         records = []
         errors = []
+        ignored = 0
         for idx, raw_dict in enumerate(df.to_dict('records')):
             line_num = idx + 2
             try:
                 record = self._parse_row(raw_dict, line_num)
                 if record:
                     records.append(record)
+            except IgnoredOperationError:
+                ignored += 1
+            except UnknownOperationError as e:
+                # 带行号与券商原文操作名：用户（和排查者）必须能看出哪一行没进来。
+                errors.append(
+                    SBImportError(
+                        line_num,
+                        '操作',
+                        f'无法识别的操作类型「{e.op_type_cn}」，该行未纳入导入',
+                        raw_value=e.op_type_cn,
+                    )
+                )
             except Exception as e:
                 errors.append(SBImportError(line_num, None, f'行解析失败: {str(e)}'))
-        return records, errors
+        return records, errors, ignored
 
     @staticmethod
     def _safe_str(raw: dict, key: str, default: str = '') -> str:
@@ -313,11 +355,17 @@ class THSStockParser(BaseImportParser):
         if op_type_cn in ('银行转证券', '证券转银行', 'OTC资金划出', 'OTC资金划入', 'OTC现金宝交', 'OTC资管转让'):
             return self._parse_cash_transfer(raw, op_type_cn)
 
+        # 声明式「有意忽略」：这类行不是解析失败，但必须是白名单里的名字（#2854）。
+        if op_type_cn in THS_IGNORED_OPS:
+            raise IgnoredOperationError(op_type_cn)
+
         # 业务类型映射
         business_type = THS_OP_MAP.get(op_type_cn)
         if business_type is None:
-            logger.debug(f'无法识别的同花顺操作类型: [{op_type_cn}] (line {line_num})')
-            return None
+            # 旧实现在这里只打一条 DEBUG 日志就 return None：整行不进 records、
+            # 不进 errors，也不体现在 total 里，用户只能拿 Excel 行数一条条对。
+            # 行号由 _iterrows_to_records 统一挂到 SBImportError，此处不再需要 line_num。
+            raise UnknownOperationError(op_type_cn)
 
         if business_type not in VALID_OP_TYPES:
             raise ValueError(f'不支持的同花顺操作类型: {op_type_cn}')

@@ -113,6 +113,11 @@ export function useImportWizard() {
   // AI 识别成功后：把 txn 预览行并入既有预览表格与确认流程（与 handleUpload 同构）
   function onAiRowsFound(rows: OcrTxnRow[]) {
     if (rows.length === 0) return;
+    // #2854：AI 识别不是文件通道，没有源文件行数可对照，清掉上一次文件解析的对账状态
+    sourceRowCount.value = null;
+    parseErrors.value = [];
+    parseErrorCount.value = 0;
+    ignoredRowCount.value = 0;
     const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
     const defaultAlloc = ledger?.default_allocation || "longterm";
     const normalized = addRowKeys(
@@ -253,6 +258,14 @@ export function useImportWizard() {
   const previewData = ref<any[]>([]);
   const duplicateCount = ref(0);
   const errorCount = ref(0);
+  // ── #2854 导入行数对账 ──
+  /** 源文件数据行数（表头之外）；null = 非文件通道（AI 识别） */
+  const sourceRowCount = ref<number | null>(null);
+  /** 解析阶段未能纳入导入的行（未知操作名 / 行解析失败），带行号与原文操作名 */
+  const parseErrors = ref<any[]>([]);
+  const parseErrorCount = ref(0);
+  /** 声明式「有意忽略」的非交易记录行数 */
+  const ignoredRowCount = ref(0);
   const importedCount = ref(0);
   const skippedCount = ref(0);
   // #1010：银证转账在关联现金账户侧生成的反向记录数（后端独立计数，不混入 imported/skipped）
@@ -308,6 +321,29 @@ export function useImportWizard() {
   const isDragover = ref(false);
 
   // ── 计算属性 ──
+  /**
+   * #2854 行数对账：源文件 N 行必须能拆成「可导入 + 有意忽略 + 解析失败」。
+   * 只在「有解析失败行」或「等式不成立」时返回对象——零差异时不打扰用户。
+   * 旧实现里 total 天生是丢过行的数，用户连对账的锚点都没有。
+   */
+  const rowReconciliation = computed(() => {
+    const source = sourceRowCount.value;
+    if (source == null) return null;
+    const imported = totalRows.value;
+    const ignored = ignoredRowCount.value;
+    const failed = parseErrorCount.value;
+    const balanced = source === imported + ignored + failed;
+    if (balanced && failed === 0) return null;
+    const ops = [
+      ...new Set(
+        parseErrors.value
+          .map(e => e.raw_value || e.message)
+          .filter((v): v is string => !!v)
+      )
+    ];
+    return { source, imported, ignored, failed, balanced, ops };
+  });
+
   const selectedLedgerName = computed(() => {
     const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
     return ledger?.name || "未选择";
@@ -1322,6 +1358,11 @@ export function useImportWizard() {
     selectedKeys.value = new Set();
     duplicateCount.value = 0;
     errorCount.value = 0;
+    // #2854：换文件 / 重来时行数对账状态一并清空，避免上一份文件的差额挂在新预览上
+    sourceRowCount.value = null;
+    parseErrors.value = [];
+    parseErrorCount.value = 0;
+    ignoredRowCount.value = 0;
     orphanCount.value = 0;
     isAllSelected.value = false;
     isIndeterminate.value = false;
@@ -1435,6 +1476,12 @@ export function useImportWizard() {
       totalRows.value = previewData.value.length;
       duplicateCount.value = (res as any).duplicate_count ?? 0;
       errorCount.value = (res as any).error_count ?? 0;
+      // #2854 行数对账：errors 曾经只写不读，未知操作名整行静默消失，
+      // 连 total 都是「丢过行」的数。这里接住后端下发的明细与源文件行数。
+      sourceRowCount.value = (res as any).source_row_count ?? null;
+      parseErrors.value = (res as any).parse_errors ?? [];
+      parseErrorCount.value = (res as any).parse_error_count ?? 0;
+      ignoredRowCount.value = (res as any).ignored_row_count ?? 0;
 
       const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
       const defaultAlloc = ledger?.default_allocation || "longterm";
@@ -2866,6 +2913,12 @@ export function useImportWizard() {
     previewData,
     duplicateCount,
     errorCount,
+    // #2854 行数对账
+    sourceRowCount,
+    parseErrors,
+    parseErrorCount,
+    ignoredRowCount,
+    rowReconciliation,
     importedCount,
     skippedCount,
     cashTransfersCreated,
