@@ -149,6 +149,19 @@ class TestDeepenPlan:
         assert result['details'][0]['stored_first'] is None
         assert result['details'][0]['target_start'] == BASELINE
 
+    def test_symbol_missing_from_securities_is_reported_not_silent(self, job, db):
+        """流水里有、securities 名录里没有的标的必须出现在 `unlisted`（#2859）。
+
+        `_get_security_map` 只返回 securities 里查得到的，查不到的**静默丢弃** ⇒
+        扩池后依然零行情，而日志里看不出少了几只。本机实测 8 个 LOF 即此形态。
+        """
+        _txn(db, 'SH501018', date(2023, 5, 10), asset_type='stock')  # 刻意不建 Security
+
+        result = job.deepen(dry_run=True)
+
+        assert result['unlisted'] == ['SH501018']
+        assert result['details'] == []
+
     def test_no_plan_when_everything_is_covered(self, job, db):
         sec = _security(db, 'SH600519')
         _price(db, sec.id, 'SH600519', date(2020, 1, 5))
