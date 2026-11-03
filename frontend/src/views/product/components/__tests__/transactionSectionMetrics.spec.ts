@@ -21,7 +21,8 @@ import {
   needToggle,
   visibleRows,
   shouldFetchMore,
-  showsPartial
+  showsPartial,
+  producesRealizedPnl
 } from "../transactionSectionMetrics";
 
 /** n 条流水；只用来数长度，内容用序号占位 */
@@ -109,5 +110,45 @@ describe("showsPartial：「查看全部流水」只在展开态且真看不全�
   it("折叠态即使只取到 10 条也不出现 —— 判据是「展开后仍看不全」，不是「没取完」", () => {
     // 这条最容易写错：把「已取量 < 总量」直接当判据，会在折叠态就摆出链接
     expect(showsPartial(false, PREVIEW_SIZE, 500)).toBe(false);
+  });
+});
+
+/**
+ * 「收益贡献」列要不要显示 0（#2857）。
+ *
+ * 两列的取数从「第二个请求 + 按 id 关联」并进主表后，剩下的语义分歧只有一个：
+ * **买入的 0 到底要不要显示**。印成 `0.00` 会被读成「这笔不赚钱」，而事实是
+ * 「这笔不落袋」；它和「没有口径」（拆分 / 扣税 → 后端 null → `--`）是两件事。
+ */
+describe("producesRealizedPnl：建仓类不落袋", () => {
+  it("买入 / 转入不产生已实现 → 表格显示 —", () => {
+    expect(producesRealizedPnl("buy")).toBe(false);
+    expect(producesRealizedPnl("deposit")).toBe(false);
+  });
+
+  it("卖出 / 取出 / 兑付 / 分红 / 红利再投都产生已实现", () => {
+    for (const type of [
+      "sell",
+      "withdraw",
+      "bond_redeem",
+      "dividend",
+      "dividend_cash",
+      "dividend_reinvest"
+    ]) {
+      expect(producesRealizedPnl(type)).toBe(true);
+    }
+  });
+
+  it("大小写与空白不影响判据（导入侧业务枚举是 DAILY 大写、流水是小写）", () => {
+    expect(producesRealizedPnl("BUY")).toBe(false);
+    expect(producesRealizedPnl(" Buy ")).toBe(false);
+  });
+
+  it("类型缺失时按「可能产生」处理 —— 不把未知类型伪装成建仓", () => {
+    // 反过来（缺类型就显示 —）会让任何新类型静默丢掉收益贡献，
+    // 而这类丢失在界面上看起来和「这笔本来就没收益」一模一样
+    expect(producesRealizedPnl(null)).toBe(true);
+    expect(producesRealizedPnl(undefined)).toBe(true);
+    expect(producesRealizedPnl("")).toBe(true);
   });
 });
