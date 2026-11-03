@@ -271,12 +271,9 @@ def index_returns():
 def index_weights():
     """指数十大权重 + 前十大集中度（#2278 · 详情页指数区块）。
 
-    数据源两路串联（月频）：akshare ``index_stock_cons_weight_csindex``（中证口径）
-    优先，**口径不覆盖**时回退国证官网（``adapters/index_weights``，深证/国证系
-    399001、399006 等只能从这里拿到）。按需抓 + TTL 缓存 + 不入库，响应里的
-    ``source``（``csindex`` / ``cni`` / null）供前端标注口径来源。
-    接口失败 / 两路都不覆盖 → 200 + 空权重形态（``top10: []``、其余 ``null``），
-    前端整块降级「—」；仅名录未命中才 404。
+    源 = 两路串联（月频）：中证权重接口优先，口径不覆盖时回退国证官网（深证/国证系
+    399001、399006 只有国证有）；响应 ``source`` 标来源。按需抓 + TTL 缓存 + 不入库；
+    两路都空 → 200 + 空形态（``top10: []``、其余 ``null``），仅名录未命中才 404。
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 
