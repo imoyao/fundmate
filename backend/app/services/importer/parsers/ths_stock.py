@@ -21,7 +21,12 @@ from app.core.symbol_utils import get_normalizer
 from app.core.venues import EXCHANGE, OTC
 from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
-from app.services.importer.mappings import THS_OP_MAP, THS_OTC_OPS, VALID_OP_TYPES
+from app.services.importer.mappings import (
+    THS_NO_CODE_INCOME_ASSET_TYPES,
+    THS_OP_MAP,
+    THS_OTC_OPS,
+    VALID_OP_TYPES,
+)
 
 
 class THSStockParser(BaseImportParser):
@@ -337,8 +342,13 @@ class THSStockParser(BaseImportParser):
             asset_type = 'fund'
         elif suggested_type:
             asset_type = suggested_type  # 可能为 'money_fund', 'reverse_repo' 等
-        elif business_type == 'dividend_cash' and op_type_cn == '利息归本':
-            asset_type = 'cash'
+        elif not symbol and op_type_cn in THS_NO_CODE_INCOME_ASSET_TYPES:
+            # 券商原文**连代码都不给**的收益行（#2843）：利息归本 → 现金、基金红利拨入 → 货基。
+            # 兜底成 stock 会让它显示成股票、计入投资收益、又被 symbol 为空判「代码未匹配」拦死。
+            # `not symbol` 这个条件不能省：normalize() 对普通 6 位码返回的 suggested_type 是
+            # None（如 603327 → ('SH603327','SH',None)），所以 `else: stock` 是**大多数
+            # 股票行的正常路径**，不是罕见兜底。去掉它，带股票代码的「基金红利拨入」会被推成货基。
+            asset_type = THS_NO_CODE_INCOME_ASSET_TYPES[op_type_cn]
         else:
             asset_type = 'stock'
 
