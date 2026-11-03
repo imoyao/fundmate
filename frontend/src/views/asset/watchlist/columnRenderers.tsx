@@ -1275,6 +1275,48 @@ const renderAdvisor: FunctionalComponent<{
   return dash();
 };
 
+/**
+ * 资金流列（#watchlist 资金面）：个股主力净流入（元）。
+ * 符号着色遵循 A 股习惯——净流入（买入主导）着涨色、净流出着跌色；
+ * 单位为「亿 / 万」自适应（亿元口径更贴合主力资金量级）。无数据降级 `--`。
+ */
+const renderFundFlow: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+}> = props => {
+  const raw = field(props.row, props.def.key);
+  const v = typeof raw === "number" ? raw : null;
+  if (v == null) {
+    return h(
+      "span",
+      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
+      "--"
+    );
+  }
+  const abs = Math.abs(v);
+  // 亿元 / 万元自适应：主力净流入量级大，亿元更贴合
+  if (abs >= 1e8) {
+    return h(
+      "span",
+      {
+        class: "font-mono text-sm",
+        style: { color: v > 0 ? "var(--color-rise)" : "var(--color-fall-ink)" },
+        title: `主力净流入 ${v.toLocaleString("zh-CN")} 元`
+      },
+      `${(v / 1e8).toFixed(2)}亿`
+    );
+  }
+  return h(
+    "span",
+    {
+      class: "font-mono text-sm",
+      style: { color: v > 0 ? "var(--color-rise)" : "var(--color-fall-ink)" },
+      title: `主力净流入 ${v.toLocaleString("zh-CN")} 元`
+    },
+    `${Math.round(v / 1e4)}万`
+  );
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -1297,7 +1339,8 @@ const REGISTRY: Record<
   links: renderLinks as never,
   advisor: renderAdvisor as never,
   sparkline: renderSparkline as never,
-  actions: renderActions as never
+  actions: renderActions as never,
+  fundFlow: renderFundFlow as never
 };
 
 /** 按 renderer 类型取对应函数式组件（模板 <component :is> 用） */
