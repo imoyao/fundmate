@@ -283,7 +283,11 @@ const pendingFixCount = computed(
  */
 .step3-fixpanel {
   flex: 0 1 auto;
-  max-height: 220px;
+
+  /* 180px 是「面板能看两张卡片 + 表格还留得下 2 行」的平衡点（实测 1440×900 与
+     1280×720 两档）。面板不是越大越好：修完一条要能抬头看表格里那行变没变，
+     全遮住的话用户只能收起面板再核对，来回两趟。 */
+  max-height: 180px;
   overflow-y: auto;
 }
 

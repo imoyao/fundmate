@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
@@ -13,12 +13,34 @@ const {
   deselectAllDuplicates,
   toggleFullTable,
   showFullTable,
-  blockedCount,
-  errorCount,
+  summaryCounts,
+  fixBreakdown,
   showFixPanel,
   toggleFixPanel,
   isFundMode
 } = useImportWizardContext();
+
+/**
+ * 待修正条数取概览条同一个数（`summaryCounts.fix`，四分区之和）。
+ *
+ * 曾经这里写的是 `blockedCount + errorCount`，只数「待补全 + 解析错误」，
+ * 漏掉「代码未匹配」和「金额不一致」——于是概览条说「需要修正 3 条」、
+ * 按钮上却写「智能修正 1」，用户对着两个不同的数字不知道信哪个。
+ * 数字只有一个来源，术语也只留一个：「需要修正」。
+ */
+const fixCount = computed(() => summaryCounts.value.fix);
+
+/** 按钮 tooltip：把「点开之后能干什么」写在按之前，而不是点进去才发现 */
+const fixHint = computed(() => {
+  const b = fixBreakdown.value;
+  const parts = [
+    b.error ? `解析错误 ${b.error}` : "",
+    b.missingCode ? `代码未匹配 ${b.missingCode}` : "",
+    b.missingQtyPrice ? `数量或价格缺失 ${b.missingQtyPrice}` : "",
+    b.mismatch ? `金额对不上 ${b.mismatch}` : ""
+  ].filter(Boolean);
+  return `逐条处理：${parts.join("、")}。修完可勾选的行会进「可导入」`;
+});
 
 /**
  * 操作说明与行色图例的显隐。
@@ -93,24 +115,35 @@ const showHelp = ref(false);
           条勾选的重复行被隐藏，仍将导入
         </el-tag>
       </el-tooltip>
-      <el-button
-        v-if="blockedCount + errorCount > 0"
-        round
-        size="small"
-        type="warning"
-        :plain="!showFixPanel"
-        @click="toggleFixPanel"
+      <el-tooltip :content="fixHint" placement="bottom">
+        <el-button
+          v-if="fixCount > 0"
+          round
+          size="small"
+          type="warning"
+          :plain="!showFixPanel"
+          @click="toggleFixPanel"
+        >
+          <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
+          修正问题
+          <span class="fix-count">{{ fixCount }}</span>
+        </el-button>
+      </el-tooltip>
+      <el-tooltip
+        :content="
+          showFullTable
+            ? '把表格折叠起来，只留筛选条（需要再看时随时展开）'
+            : '展开表格，回到完整列表'
+        "
+        placement="bottom"
       >
-        <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
-        智能修正
-        <span class="fix-count">{{ blockedCount + errorCount }}</span>
-      </el-button>
-      <el-button link @click="toggleFullTable">
-        <IconifyIconOffline
-          :icon="showFullTable ? 'ep:arrow-up' : 'ep:arrow-down'"
-        />
-        {{ showFullTable ? "收起列表" : "展开列表" }}
-      </el-button>
+        <el-button link @click="toggleFullTable">
+          <IconifyIconOffline
+            :icon="showFullTable ? 'ep:arrow-up' : 'ep:arrow-down'"
+          />
+          {{ showFullTable ? "折叠表格" : "展开表格" }}
+        </el-button>
+      </el-tooltip>
       <!-- 操作说明与行色图例：首次进入才需要，从常驻两行（约 40px）收进「?」
            （2026-11-02）。概览条的语义色点已替代「哪类数据」的图例，这里只留
            行级高亮与编辑快捷键两件表格内才知道的事 -->
@@ -138,7 +171,7 @@ const showHelp = ref(false);
         class="help-swatch help-swatch--duplicate"
       />黄色行：已识别重复，自动跳过，可勾选保留
     </p>
-    <p v-if="blockedCount > 0" class="help-line">
+    <p v-if="fixBreakdown.missingQtyPrice > 0" class="help-line">
       <span
         class="help-swatch help-swatch--blocked"
       />红色行：信息缺失，需补全数量或价格

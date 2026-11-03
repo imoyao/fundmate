@@ -157,6 +157,10 @@ class CommitMixin:
                     net_amount=Decimal(str(row.get('net_amount') or 0)),
                     # #1882：疑似重复且勾选保留的行标记真插入（commit 内换 :keep 后缀）
                     keep_duplicate=bool(row.get('keep_duplicate')) and bool(row.get('is_duplicate')),
+                    # 配对组（#2836）：parse 打了组、confirm 必须带回来，否则落库时
+                    # 利息行与税行各自成孤儿，前端「按组折叠」在历史数据上永久失效。
+                    link_group_id=row.get('link_group_id') or None,
+                    consumed_by=row.get('consumed_by') or '',
                 )
             )
 
@@ -275,6 +279,16 @@ class CommitMixin:
         kept_duplicates_blocked = 0
 
         for record in records:
+            # 被配对规则消费的行（#2836）：它的效果已由同组主记录覆盖，入账就是重复。
+            # 当前唯一来源是「债券兑付 + 股份转出」——兑付本身已清仓，转出行再扣一次
+            # 就是把份额扣两遍（用户会看到持仓凭空少一半）。计入 skipped 让回执可解释。
+            if record.consumed_by:
+                skipped += 1
+                logger.info(
+                    f'跳过被配对消费的记录: symbol={record.symbol} type={record.business_type} '
+                    f'rule={record.consumed_by}'
+                )
+                continue
             try:
                 # B3 修复（2026-08-17）：单条记录包在 SAVEPOINT 内——普通异常回滚该条
                 # 已 flush 的部分写入后继续（与 E6 对账侧口径一致）；SQLAlchemyError 仍保持

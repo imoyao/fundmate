@@ -9,7 +9,6 @@ import decimal
 import io
 import math
 import re
-import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional, Tuple
@@ -62,29 +61,11 @@ class THSStockParser(BaseImportParser):
         # 4. 逐行解析
         records, row_errors = self._iterrows_to_records(df)
 
-        records = self._link_bond_interest_and_tax(records)
+        # 配对（兑息+税 / 兑付+股份转出）不在这里做：它按 business_type 收集角色，
+        # 对所有平台解析器一致，统一由 orchestrator 在解析完成后跑（importer/linking.py）。
         errors.extend(row_errors)
 
         return records, errors
-
-    def _link_bond_interest_and_tax(self, records: List[StandardTransactionRecord]) -> List[StandardTransactionRecord]:
-        """识别同日期同代码的债券兑息和债券兑息兑付，生成关联ID"""
-        interest_by_key: dict[tuple, StandardTransactionRecord] = {}
-        tax_by_key: dict[tuple, StandardTransactionRecord] = {}
-
-        for rec in records:
-            key = (rec.symbol, rec.trade_date)
-            if rec.raw_op_type == '债券兑息':
-                interest_by_key[key] = rec
-            elif rec.raw_op_type == '债券兑息兑付':
-                tax_by_key[key] = rec
-
-        for key in set(interest_by_key.keys()) & set(tax_by_key.keys()):
-            group_id = str(uuid.uuid4())
-            interest_by_key[key].link_group_id = group_id
-            tax_by_key[key].link_group_id = group_id
-
-        return records
 
     # ── 文件读取 ──
 

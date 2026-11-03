@@ -51,51 +51,63 @@ function onDraft(field: keyof CardDraft, value: string) {
     <p v-if="section === 'error'" class="bf-card-error">
       {{ row.error }}
     </p>
+    <!-- error 分区没有可在面板里改的东西（解析阶段就错了），必须明说下一步做什么，
+         否则用户盯着一个不能操作的卡片不知道怎么办 -->
+    <p v-if="section === 'error'" class="bf-card-tip">
+      这类得回原文件改正后重新上传；不想等也可以先跳过这条，其余照常导入
+    </p>
     <p v-else-if="section === 'mismatch'" class="bf-card-diff">
       {{ mismatchDiffText(row) }}
     </p>
 
-    <div v-if="section === 'missingCode'" class="bf-card-form">
-      <el-input
-        :model-value="draft.code"
-        placeholder="输入证券代码"
-        size="small"
-        class="bf-input"
-        @update:model-value="onDraft('code', $event)"
-      />
-      <el-button type="primary" size="small" @click="emit('apply-code')">
-        应用
+    <!-- 操作行：输入框 + 主操作 + 跳过，同一行右对齐。
+         「跳过」原先独占一行（卡片最低处），既费高度又看着像主操作；按钮文案统一
+         为两字，三张卡片读起来是一个尺寸的东西。 -->
+    <div class="bf-card-form">
+      <template v-if="section === 'missingCode'">
+        <el-input
+          :model-value="draft.code"
+          placeholder="输入证券代码"
+          size="small"
+          class="bf-input"
+          @update:model-value="onDraft('code', $event)"
+        />
+        <el-button type="primary" size="small" @click="emit('apply-code')">
+          应用
+        </el-button>
+      </template>
+      <template v-else-if="section === 'missingQtyPrice'">
+        <el-input
+          :model-value="draft.quantity"
+          placeholder="数量"
+          size="small"
+          class="bf-input"
+          @update:model-value="onDraft('quantity', $event)"
+        />
+        <el-input
+          :model-value="draft.price"
+          placeholder="单价"
+          size="small"
+          class="bf-input"
+          @update:model-value="onDraft('price', $event)"
+        />
+        <el-button type="primary" size="small" @click="emit('apply-fill')">
+          应用
+        </el-button>
+      </template>
+      <template v-else-if="section === 'mismatch'">
+        <el-tooltip
+          content="按「数量 × 单价」重算金额，让这一行自洽（原来的金额会被覆盖）"
+          placement="top"
+        >
+          <el-button type="primary" size="small" @click="emit('fix-amount')">
+            重算金额
+          </el-button>
+        </el-tooltip>
+      </template>
+      <el-button size="small" class="bf-skip" @click="emit('skip')">
+        跳过
       </el-button>
-    </div>
-
-    <div v-if="section === 'missingQtyPrice'" class="bf-card-form">
-      <el-input
-        :model-value="draft.quantity"
-        placeholder="数量"
-        size="small"
-        class="bf-input"
-        @update:model-value="onDraft('quantity', $event)"
-      />
-      <el-input
-        :model-value="draft.price"
-        placeholder="单价"
-        size="small"
-        class="bf-input"
-        @update:model-value="onDraft('price', $event)"
-      />
-      <el-button type="primary" size="small" @click="emit('apply-fill')">
-        应用
-      </el-button>
-    </div>
-
-    <div v-if="section === 'mismatch'" class="bf-card-form">
-      <el-button type="primary" size="small" @click="emit('fix-amount')">
-        修正此条
-      </el-button>
-    </div>
-
-    <div class="bf-card-footer">
-      <el-button size="small" @click="emit('skip')">跳过此条</el-button>
     </div>
   </article>
 </template>
@@ -142,6 +154,13 @@ function onDraft(field: keyof CardDraft, value: string) {
   color: var(--text-secondary);
 }
 
+.bf-card-tip {
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.5;
+  color: var(--text-tertiary-ink);
+}
+
 .bf-card-form {
   display: flex;
   flex-wrap: wrap;
@@ -153,9 +172,9 @@ function onDraft(field: keyof CardDraft, value: string) {
   margin-left: 0;
 }
 
-.bf-card-footer {
-  display: flex;
-  justify-content: flex-end;
+/* 「跳过」推到行末：它是这件事的出口，不该跟主操作挤在一起抢注意力 */
+.bf-skip {
+  margin-left: auto;
 }
 
 /* 与 BatchFixSection 各持一份：scoped 样式不跨组件（同那里的注释） */

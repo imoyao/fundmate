@@ -31,6 +31,7 @@ from app.services.import_records import (
     StandardTransactionRecord,
     compute_record_hash,
 )
+from app.services.importer.linking import apply_linking_rules
 from app.services.importer.mappings import OP_TYPE_LABEL
 from app.services.importer.registry import get_parser
 
@@ -148,6 +149,10 @@ class ParsingMixin:
                     'is_duplicate': False,
                     'allocation': 'liquid' if rec.asset_type in ('money_fund', 'reverse_repo', 'cash') else None,
                     'link_group_id': rec.link_group_id,
+                    # 配对交叉校验提示（如税率不符）：只提示，不影响入库，前端可作警示展示
+                    'link_warning': rec.link_warning or '',
+                    # 被配对规则消费（非空 = 不入账：效果已由同组主记录覆盖）
+                    'consumed_by': rec.consumed_by or '',
                     # 展示层显式转 float（#1375 阶段二）：字段已是 Decimal，
                     # Flask JSON 会把 Decimal 序列化成字符串，前端契约要求 number
                     'trade_amount': float(rec.trade_amount),
@@ -193,6 +198,12 @@ class ParsingMixin:
         if parser is None:
             raise SBException(ErrorCode.UNSUPPORTED_FILE_FORMAT.code, f'不支持的导入来源: {source}')
         records, errors = parser.parse(file_bytes)
+        # 配对（兑息+代扣税 / 兑付+股份转出）在所有解析器的共同出口统一做：
+        # 规则按 business_type 匹配，与平台无关（#2836，见 importer/linking.py）。
+        # 放在这里而不是各解析器内部，是因为「哪些行描述同一笔现金流」是业务语义，
+        # 不该由每个解析器各写一遍、更不该按原始中文操作名硬匹配。
+        for warning in apply_linking_rules(records):
+            logger.warning(f'配对提示: {warning}')
         for record in records:
             record.source = source
             if not record.import_hash:

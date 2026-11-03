@@ -720,6 +720,10 @@ def _create_orphan_transaction(
         notes=notes,
         import_hash=data.get('import_hash'),
         entry_status='orphan',
+        # 配对组（#2836）：兑息与代扣税都走本函数落库，组名不写进来的话，
+        # 前端折叠（按组算的）看起来正常，库里却是两条互不相干的孤儿流水——
+        # 后续按组做「净额对账 / 删组回滚」时才发现关联早没了。
+        link_group_id=data.get('link_group_id'),
         family_id=_resolve_family_id(data),
         # #1232 决策 11：孤儿流水来源透传
         source=data.get('source'),
