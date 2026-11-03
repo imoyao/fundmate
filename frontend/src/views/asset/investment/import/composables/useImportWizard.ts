@@ -688,8 +688,17 @@ export function useImportWizard() {
 
   // ── 三卡片分类（#1791）：互斥完备，卡片计数 / fix 细分 / 表格状态过滤共用同一谓词 ──
 
-  /** 代码未匹配（fixSectionRows 的 missingCode 分区谓词） */
+  /**
+   * 代码未匹配（fixSectionRows 的 missingCode 分区谓词）。
+   *
+   * `type === 'cash'` 直接放行：现金类收益（利息归本、现金分红）入库走现金分支，
+   * 后端根本不写 symbol——要它填代码等于要它填一个自己都不用的字段。券商原文
+   * 这两类本来就不给代码（table1101.xls 实测：利息归本 2 条、基金红利拨入 4 条
+   * 的「证券代码」列是空的），按 missingCode 拦下会让用户勾不上、也算不进任何
+   * 计数，只能对着一个「代码未匹配」标签干看（#2840）。
+   */
   function isMissingCode(row: any): boolean {
+    if (row.type === "cash") return false;
     return !row.symbol || row.symbol === "UNKNOWN";
   }
 
@@ -1253,21 +1262,44 @@ export function useImportWizard() {
       ).length
   );
 
+  /**
+   * 底栏补数：未勾选条数 = 全部行 − 已选。
+   *
+   * 底栏此前写「另有 {pendingFixCount} 条暂不导入」，而 pendingFixCount 刻意排除了
+   * 转账行（它数的是「待修问题行」），分母与左边的 selectedCount（含转账）不同：
+   * 一边 169 一边 169，加起来却等于 338 而不是表格里的行数；旁边按钮又是
+   * 「跳过这 169 条，导入 40 条」（169+40=209），三个数字来自三个分母，
+   * 谁也验证不了谁——用户看到的正是「银证转账到底算不算在内」看不清（#2840）。
+   *
+   * 底栏只负责回答「这一按会导入多少」，故分母必须是同一份全量行；
+   * 「其中多少条是问题行」由概览条与修正面板回答，不在这里说第三遍。
+   */
+  const unselectedCount = computed(() =>
+    Math.max(0, previewData.value.length - selectedCount.value)
+  );
+
+  /** 已选行里的银证转账条数：让「已选择 169 条」自己说清转账在不在里面 */
+  const selectedTransferCount = computed(() => {
+    let n = 0;
+    previewData.value.forEach(row => {
+      if (row.is_cash_transfer && selectedKeys.value.has(row._rowKey)) n++;
+    });
+    return n;
+  });
+
   function updateSelectAllState() {
     // 按成员判定，不用尺寸比较：#1791 放开疑似重复行的勾选后 selectedKeys.size
     // 会因多选重复行而超出有效行数——「漏选 1 条有效行 + 多选 1 条重复行」尺寸恰好
-    // 相等，会被误判为全选（表头复选框说谎）。eligible 口径与 selectAllValid 一致。
+    // 相等，会被误判为全选（表头复选框说谎）。
+    //
+    // 判据直接复用 isAutoSelectableRow（= selectAllValid 的谓词）。此前这里手抄了
+    // 一份同样的条件，注释写着「与 selectAllValid 一致」，实际却漏了 isMissingCode：
+    // 有缺代码行时 selectedKeys 永远追不上 eligible，表头复选框挂在半选态出不来
+    // （#2840 顺手收口；同源漂移在本文件已复发过两次）。
     let eligible = 0;
     let picked = 0;
     previewData.value.forEach(row => {
-      if (
-        !row.is_duplicate &&
-        !row.error &&
-        !isRowBlocked(row) &&
-        !row.is_cash_transfer &&
-        !row._ignored &&
-        !row.consumed_by
-      ) {
+      if (isAutoSelectableRow(row)) {
         eligible++;
         if (selectedKeys.value.has(row._rowKey)) picked++;
       }
@@ -2900,6 +2932,9 @@ export function useImportWizard() {
     validRowsCount,
     // #2836：「暂不导入」条数（= 默认选不中的行数），底栏与「跳过这 N 条」同源
     pendingFixCount,
+    // #2840：底栏补数与构成，与 selectedCount 同一分母（可互算）
+    unselectedCount,
+    selectedTransferCount,
     // #2836：默认勾选谓词（= selectAllValid 的判据），供测试与「暂不导入」共用
     isAutoSelectableRow,
     isDragover,

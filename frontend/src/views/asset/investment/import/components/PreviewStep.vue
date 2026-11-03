@@ -31,7 +31,10 @@ const {
   // #2836：口径收到 composable 里（= 当前勾不了的行数），与「跳过这 N 条」
   // 的实际动作同源。原先这里是 duplicate + blocked + error 的加法，
   // 漏掉「代码未匹配」——底栏说 168 条、概览条说需要修正 1 条，那 1 条凭空消失。
-  pendingFixCount
+  pendingFixCount,
+  // #2840：与 selectedCount 同一分母的两个补数，底栏据此可互算、并说清转账在不在里面
+  unselectedCount,
+  selectedTransferCount
 } = useImportWizardContext();
 </script>
 
@@ -127,13 +130,26 @@ const {
     <div class="fixed-action-bar">
       <div class="action-content">
         <!-- 只留一份计数：分档构成（重复/待补全/错误）已在表格上方概览条与修正面板里，
-             这里再列一遍等于同一批数字说第三遍（2026-11-02 UI 重排） -->
+             这里再列一遍等于同一批数字说第三遍（2026-11-02 UI 重排）。
+
+             #2840：补数必须与「已选择」同分母（= 全量行 − 已选），否则三个数字来自
+             三个口径、谁也验证不了谁。银证转账是否包含，由括号里显式写出，不靠推断。 -->
         <div class="action-summary">
           <span class="summary-primary">
             已选择 <strong>{{ selectedCount }}</strong> 条<template
-              v-if="pendingFixCount > 0"
-              >，另有
-              <strong>{{ pendingFixCount }}</strong> 条暂不导入</template
+              v-if="selectedTransferCount > 0"
+              ><span class="summary-note"
+                >（含
+                <strong>{{ selectedTransferCount }}</strong>
+                条银证转账）</span
+              ></template
+            ><template v-if="unselectedCount > 0"
+              ><span class="summary-sep" aria-hidden="true">·</span
+              ><span class="summary-note"
+                >另有
+                <strong>{{ unselectedCount }}</strong>
+                条未勾选</span
+              ></template
             >
           </span>
         </div>
@@ -142,16 +158,24 @@ const {
           <el-button v-if="allRowsDuplicate" @click="skipAllDuplicatesAndBack">
             全部跳过，返回上一步
           </el-button>
-          <el-button
-            v-else-if="pendingFixCount > 0"
-            :loading="importing"
-            @click="importNormalOnly"
-            >{{
-              importing
-                ? "正在导入..."
-                : `跳过这 ${pendingFixCount} 条，导入 ${validRowsCount} 条`
-            }}
-          </el-button>
+          <!-- #2840：这个按钮不是「第二种导入」，而是「重置勾选为正常行」——
+               说「跳过 N 条、导入 M 条」会把 N（待修行，不含转账）和 M（正常行）
+               当成一次导入的两个部分，实际动作却会连已勾的转账一起清掉。
+               故只用「正常行」这一侧的数字，并在提示里交代副作用。
+               与主按钮口径相同时（已选就是全部正常行）它没有意义，不出现。 -->
+          <el-tooltip
+            v-else-if="pendingFixCount > 0 && selectedCount !== validRowsCount"
+            content="会取消银证转账等其他勾选，只保留可自动导入的正常行"
+            placement="top"
+          >
+            <el-button :loading="importing" @click="importNormalOnly"
+              >{{
+                importing
+                  ? "正在导入..."
+                  : `只导入正常行（${validRowsCount} 条）`
+              }}
+            </el-button>
+          </el-tooltip>
           <el-button
             type="primary"
             :disabled="selectedCount === 0"
@@ -315,5 +339,22 @@ const {
 
 .summary-primary strong {
   font-variant-numeric: tabular-nums;
+}
+
+/* #2840：补数与构成用次要色，主句「已选择 N 条」仍是唯一焦点；
+   tabular-nums 让两个数字对齐，便于相加核对 */
+.summary-note {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.summary-note strong {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.summary-sep {
+  margin: 0 6px;
+  color: var(--text-tertiary);
 }
 </style>

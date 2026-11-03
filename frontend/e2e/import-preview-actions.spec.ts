@@ -80,6 +80,23 @@ const ROWS = [
     trade_date: "2026-06-05"
   },
   {
+    // #2840：利息归本 = 投资收益，asset_type 是 cash 但没有标的、券商原文也不给代码。
+    // 它不该被当成银证转账，更不该因为「没代码」就勾不上。
+    ...baseRow,
+    symbol: "",
+    name: "利息归本",
+    type: "cash",
+    display_type: "现金",
+    op_type: "dividend_cash",
+    op_type_label: "现金分红",
+    quantity: 0,
+    price: 0,
+    amount: 0.9,
+    is_cash_transfer: false,
+    notes: "利息归本",
+    trade_date: "2026-06-02"
+  },
+  {
     ...baseRow,
     symbol: "__CASH__",
     name: "银行转证券",
@@ -387,5 +404,92 @@ test.describe("预览页按钮可见性与转账行批量勾选（#2838）", () 
         timeout: 10_000
       })
       .toBeLessThanOrEqual(1);
+  });
+
+  /**
+   * #2840：利息归本（现金利息）曾同时踩两个坑——
+   * ① 被 `asset_type == 'cash'` 判成银证转账 ⇒ 要求先关联现金账户、计入「含 N 条银证转账」；
+   * ② 又因为没代码被判「代码未匹配」⇒ 勾不上，也不进任何计数，只剩一个标签干挂着。
+   */
+  test("现金利息行可以勾选，且不再挂「代码未匹配」", async ({ page }) => {
+    await openPreview(page);
+
+    const row = page
+      .locator(".table-wrapper .el-table__row:visible")
+      .filter({ hasText: "利息归本" });
+
+    await expect(row.locator(".el-tag", { hasText: "代码未匹配" })).toHaveCount(
+      0
+    );
+    await expect(row.locator("input[type=checkbox]")).toBeChecked();
+  });
+
+  /**
+   * #2840：底栏三个数字曾来自三个分母（已选 169 / 另有 169 / 按钮 169+40），
+   * 用户没法核对「银证转账到底算不算在内」。
+   *
+   * 判据不放宽成「文案里有没有这几个字」——那证明不了分母一致。这里把数字解析出来
+   * 相加，必须等于概览条上的「全部」。
+   */
+  test("底栏计数可互算：已选 + 未勾选 == 全部", async ({ page }) => {
+    await openPreview(page);
+
+    const summary = page.locator(".summary-primary");
+    await expect(summary).toContainText("已选择");
+
+    const flat = (await summary.innerText()).replace(/\s/g, "");
+    const selected = Number(flat.match(/已选择(\d+)条/)?.[1]);
+    const unselected = Number(flat.match(/另有(\d+)条未勾选/)?.[1] ?? 0);
+
+    const allText = await page.locator(".ov-all").innerText();
+    const all = Number(allText.replace(/\s/g, "").match(/(\d+)/)?.[1]);
+
+    expect(selected).toBeGreaterThan(0);
+    expect(selected + unselected).toBe(all);
+  });
+
+  /**
+   * #2840：转账行默认不勾，所以「含 N 条银证转账」不该凭空空降；
+   * 勾上之后它必须出现，且条数与勾上的转账行一致——这正是用户看不清的那件事。
+   */
+  test("「含 N 条银证转账」只在勾了转账时出现", async ({ page }) => {
+    await openPreview(page);
+
+    const summary = page.locator(".summary-primary");
+    await expect(summary).not.toContainText("银证转账");
+
+    await page.locator(".ov-note-action").click();
+
+    const flat = (await summary.innerText()).replace(/\s/g, "");
+    const n = Number(flat.match(/含(\d+)条银证转账/)?.[1]);
+    expect(n).toBe(2);
+  });
+
+  /**
+   * #2840：中间那个按钮执行的是「把勾选重置成正常行」，不是第二种导入。
+   * 原文案「跳过这 N 条，导入 M 条」把两个不同分母的数字并列，还隐瞒了
+   * 「会把已勾的转账一起清掉」这个副作用。
+   *
+   * 它只在「当前勾选 ≠ 正常行」时才有意义（勾了转账、或手动取消了几行）；
+   * 初始状态（已选 == 正常行）下出现只会让人以为还有第二种导入。
+   */
+  test("重置勾选的按钮只说「正常行」，且只在勾选偏离正常行时出现", async ({
+    page
+  }) => {
+    await openPreview(page);
+
+    const bar = page.locator(".fixed-action-bar");
+    const reset = bar.getByRole("button", { name: /只导入正常行/ });
+
+    // 初始：默认勾选的就是可自动导入的行，没有「重置」可言
+    await expect(reset).toHaveCount(0);
+
+    // 勾上转账后，勾选偏离了正常行，重置入口才该出现
+    await page.locator(".ov-note-action").click();
+    await expect(reset).toHaveCount(1);
+    await expect(reset).toContainText(/只导入正常行（\d+ 条）/);
+
+    // 旧文案里的「跳过这 N 条，导入 M 条」两个分母并存，已删掉
+    await expect(bar).not.toContainText("跳过这");
   });
 });
