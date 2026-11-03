@@ -88,7 +88,7 @@ const GRID_CLASS: Record<3 | 4, string> = {
 }
 
 /* !important 不可省：卡片根节点有内联 boxShadow（--shadow-raised），
-   内联样式优先级高于普通规则，不加 !important 时 hover 阴影不生效（与 InvestmentDistribution 同） */
+   内联样式优先级高于普通规则，不加 !important 时 hover 阴影不生效 */
 .summary-card-item:hover {
   box-shadow: var(--shadow-float) !important;
   transform: translateY(-2px);

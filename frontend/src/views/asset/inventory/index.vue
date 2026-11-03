@@ -18,13 +18,7 @@
 
       <!-- ==================== 场景 A：投资理财 ==================== -->
       <template v-if="activeCategory === 'investment'">
-        <!-- 1. 投资分布 -->
-        <section class="inventory-section">
-          <SectionHeader title="投资分布" />
-          <InvestmentDistribution :groups="investmentGroups" />
-        </section>
-
-        <!-- 2. 快捷操作 -->
+        <!-- 1. 快捷操作：录入工作台的首屏应当是「怎么记」，不是一份只读分布 -->
         <section class="inventory-section">
           <SectionHeader title="快捷操作" />
           <QuickActionGrid
@@ -34,19 +28,52 @@
           />
         </section>
 
-        <!-- 3. 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
+        <!-- 2. 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估）。
+             原「投资分布」两张卡（股票 / 基金）已删除：它与下方明细读同一份持仓，
+             却把「股票」「基金」各自定义成一套集合（漏 ETF、漏货基、按持仓行计数），
+             与账户管理页的两张聚合卡同名不同义、数字对不上。品类全景只留一处：
+             /asset/ledgers（可下钻 /funds、/stocks）。本页只保留「合计」用于盘点核对，
+             口径与表格逐行同源（同一份持仓、同一个总笔数）。 -->
         <section class="inventory-section">
           <SectionHeader title="持仓明细" :info="PNL_DUAL_SCOPE_TIP">
+            <template #badge>
+              <span
+                v-if="investmentTotal > 0 && positionsMarketValue !== null"
+                class="positions-total"
+              >
+                <span class="positions-total__label"
+                  >共 {{ investmentTotal }} 笔 · 持仓市值合计</span
+                >
+                <MoneyDisplay
+                  :value="positionsMarketValue"
+                  :show-sign="false"
+                  :auto-color="false"
+                  size="sm"
+                />
+              </span>
+            </template>
             <template #action>
-              <RealtimeEstimateToggle
-                :enabled="investmentValuation.realtime.enabled.value"
-                :status="investmentValuation.realtime.status.value"
-                :last-update-time="
-                  investmentValuation.realtime.lastUpdateTime.value
-                "
-                :text="investmentValuation.toggleText.value"
-                @toggle="investmentValuation.realtime.toggle"
-              />
+              <div class="positions-actions">
+                <!-- 品类全景在这里只留一个指针：股票/基金各值多少钱只认账户管理页那一处，
+                     避免同一个名词在两条链路上各有一套集合定义。 -->
+                <el-button
+                  text
+                  size="small"
+                  @click="router.push('/asset/ledgers')"
+                >
+                  基金/股票全景
+                  <IconifyIconOffline icon="ep:right" class="ml-1" />
+                </el-button>
+                <RealtimeEstimateToggle
+                  :enabled="investmentValuation.realtime.enabled.value"
+                  :status="investmentValuation.realtime.status.value"
+                  :last-update-time="
+                    investmentValuation.realtime.lastUpdateTime.value
+                  "
+                  :text="investmentValuation.toggleText.value"
+                  @toggle="investmentValuation.realtime.toggle"
+                />
+              </div>
             </template>
           </SectionHeader>
           <InvestmentPositionTable
@@ -87,38 +114,58 @@
           />
         </section>
 
-        <!-- 5. 策略洞察（#2237）：目标配比 + 策略诊断。
-             放在持仓明细之后：两张卡读的都是上面这些持仓，先看见「持了什么」
-             再看「规则对这些持仓说了什么」。
-             两卡各自加载/失败/重试，引擎接口慢或挂都不会拖垮上面的盘点内容。 -->
+        <!-- 5. 策略洞察（#2237，2026-11-03 改为折叠）——
+             目标配比 / 策略诊断 / 持仓小贴士 三块都是**判断**，而本页的定位是
+             「把已经发生的事落库，不产生判断」（docs/design/navigation-ia.md）。
+             此前它们以三张满高卡片常驻，把一个录入工作台撑成分析页。
+             现在整组折叠、默认收起、首次展开才取数：录入动线（选大类 → 记一笔 →
+             看明细）不再被三屏结论挡住，想看的人点一下就在。
+             为什么要折而不是删：目标配比可编辑（写库），不属于「看结果」顶级，
+             迁去资产概览会违反该顶级的「纯读」定义；留在本页折叠是成本最低的解。 -->
         <section class="inventory-section">
-          <AllocationTargetCard
-            :data="allocation"
-            :loading="allocationLoading"
-            :error="allocationError"
-            :saving="allocationSaving"
-            :reminder-refreshing="reminderRefreshing"
-            @save="saveTargets"
-            @refresh-reminders="refreshReminders"
-            @retry="loadAllocation"
-          />
-        </section>
+          <SectionHeader
+            title="策略洞察"
+            info="目标配比 / 策略诊断 / 持仓小贴士——由规则对你的持仓算出的结论，与录入无关，默认收起。"
+          >
+            <template #action>
+              <el-button
+                text
+                size="small"
+                :aria-expanded="insightOpen"
+                @click="toggleInsight"
+              >
+                {{ insightOpen ? "收起" : "展开" }}
+                <IconifyIconOffline
+                  :icon="insightOpen ? 'ep:arrow-up' : 'ep:arrow-down'"
+                  class="ml-1"
+                />
+              </el-button>
+            </template>
+          </SectionHeader>
 
-        <section class="inventory-section">
-          <StrategyDiagnosisCard
-            :diagnosis="diagnosis"
-            :behavior="behavior"
-            :strategies="strategies"
-            :loading="diagnosisLoading"
-            :error="diagnosisError"
-            @retry="loadDiagnosis"
-          />
-        </section>
-
-        <!-- 持仓小贴士（#1017）：规则驱动的静态提示，与上面「策略诊断」分工——
-             诊断说的是「标的处于什么状态」，小贴士说的是「这笔账有什么结构风险」。 -->
-        <section class="inventory-section">
-          <RuleTipsCard />
+          <el-collapse-transition>
+            <div v-show="insightOpen" class="insight-stack">
+              <AllocationTargetCard
+                :data="allocation"
+                :loading="allocationLoading"
+                :error="allocationError"
+                :saving="allocationSaving"
+                :reminder-refreshing="reminderRefreshing"
+                @save="saveTargets"
+                @refresh-reminders="refreshReminders"
+                @retry="loadAllocation"
+              />
+              <StrategyDiagnosisCard
+                :diagnosis="diagnosis"
+                :behavior="behavior"
+                :strategies="strategies"
+                :loading="diagnosisLoading"
+                :error="diagnosisError"
+                @retry="loadDiagnosis"
+              />
+              <RuleTipsCard />
+            </div>
+          </el-collapse-transition>
         </section>
       </template>
 
@@ -162,12 +209,14 @@
  * - 数据读写、缓存与全局刷新 → `./useInventoryData.ts`
  * - 区块 UI → `./components/*`
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { AssetRecord } from "@/api/assets";
 import type { Position } from "@/api/types";
 import { INVESTMENT_MAJOR_KEYS } from "@/constants";
 import { agentAskQuery } from "@/utils/agentAsk";
+import { IconifyIconOffline } from "@/components/ReIcon";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { INVENTORY_CATEGORIES, type QuickActionItem } from "./constants";
@@ -179,7 +228,6 @@ import {
 } from "@/composables/usePositionValuation";
 import CategoryTabs from "./components/CategoryTabs.vue";
 import CategoryDescBar from "./components/CategoryDescBar.vue";
-import InvestmentDistribution from "./components/InvestmentDistribution.vue";
 import QuickActionGrid from "./components/QuickActionGrid.vue";
 import InvestmentPositionTable from "./components/InvestmentPositionTable.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
@@ -200,7 +248,7 @@ const route = useRoute();
 const activeCategory = ref("investment");
 
 const {
-  investmentGroups,
+  positionsMarketValue,
   investmentPositions,
   investmentTotal,
   investmentPage,
@@ -242,6 +290,20 @@ const {
   saveTargets,
   refreshReminders
 } = useStrategyInsight();
+
+/**
+ * 「策略洞察」的折叠态与懒加载（2026-11-03）。
+ *
+ * 默认收起：目标配比 / 策略诊断 / 持仓小贴士 都是规则算出的**判断**，
+ * 与「把已经发生的事落库」的页面定位无关；常驻会把录入动线挤到三屏以外。
+ * 首次展开才发请求——收起时一个引擎接口都不打（`useStrategyInsight` 自己只在
+ * 全局刷新时重取，不影响首屏）。
+ */
+const insightOpen = ref(false);
+function toggleInsight() {
+  insightOpen.value = !insightOpen.value;
+  if (insightOpen.value) void loadStrategyInsight();
+}
 
 /**
  * 持仓明细的盈亏双线估值接线（#1104）。
@@ -358,6 +420,22 @@ function openEditAssetDialog(row: AssetRecord) {
   editDialogVisible.value = true;
 }
 
+/**
+ * 大类切到 URL（`?tab=`）：刷新 / 分享 / 前进后退都能回到同一视图。
+ *
+ * 此前 `activeCategory` 只是本地 ref，`?tab=` 仅在 onMounted 读一次、切 tab 不写回，
+ * 于是"切到房产 → 刷新"会跳回投资理财。投资理财是默认档，不写进 URL 保持地址干净。
+ */
+watch(activeCategory, key => {
+  const query = { ...route.query };
+  if (key === "investment") {
+    delete query.tab;
+  } else {
+    query.tab = key;
+  }
+  router.replace({ query });
+});
+
 onMounted(() => {
   const tab = route.query.tab as string;
   // #1354：历史链接可能带已经取消的细分大类（?tab=bank_wealth），统一落到投资理财
@@ -367,8 +445,7 @@ onMounted(() => {
     activeCategory.value = tab;
   }
   fetchData();
-  // 策略洞察与盘点数据并行发起，互不等待（引擎慢不拖首屏，盘点失败不影响卡片）
-  void loadStrategyInsight();
+  // 策略洞察不再随页面加载：它默认收起，首次展开时才由 toggleInsight 触发取数。
 });
 </script>
 
@@ -395,5 +472,40 @@ onMounted(() => {
 .inventory-section {
   display: flex;
   flex-direction: column;
+}
+
+/* 持仓明细标题行的合计（SectionHeader #badge 槽）：
+   中性底 + 数字等宽，只做「这页一共记了多少」的核对锚点，不上语义色
+   ——它不是盈亏，染色会被读成涨跌。 */
+.positions-total {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 10px;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
+  white-space: nowrap;
+  background: var(--bg-soft);
+  border-radius: 999px;
+
+  &__label {
+    font-size: var(--text-label);
+  }
+}
+
+/* 标题右侧操作槽：窄容器下折行而不是溢出（SectionHeader 的 #action 会收缩） */
+.positions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  align-items: center;
+}
+
+/* 折叠区的三张卡：纵向间距与 shell 的区块间距一致（原来各占一个 section） */
+.insight-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
 }
 </style>

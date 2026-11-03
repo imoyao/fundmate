@@ -14,10 +14,16 @@
       <span class="category-tab-label">{{ cat.label }}</span>
       <span class="category-tab-amount">
         <template v-if="Math.abs(totalOf(cat.key)) > 0">
+          <!-- 大类金额是「这类钱有多少」，不是盈亏：不带正负号、不套涨跌色。
+               此前 show-sign + autoColor 默认值让 6 个大类一律显示「+¥…」并染成
+               涨色，读起来像「每个大类都在赚钱」，也和「只给最关键的 1 个数
+               上语义色」的设计原则相悖。取整到元：标签栏是概览，不承担分的精度。 -->
           <MoneyDisplay
             :value="totalOf(cat.key)"
-            :show-sign="true"
+            :show-sign="false"
             :show-currency="true"
+            :auto-color="false"
+            :precision="0"
             size="sm"
           />
         </template>
@@ -91,8 +97,8 @@ function tabStyle(cat: InventoryCategory) {
 }
 
 /* 选中态卡片由 tabStyle() 注入内联 boxShadow（--shadow-raised），普通规则盖不过
-   内联样式，故 hover 抬升阴影必须 !important；与 InvestmentDistribution /
-   QuickActionGrid 同一处理（#955 拆分时漏了本组件）。 */
+   内联样式，故 hover 抬升阴影必须 !important；与 QuickActionGrid 同一处理
+   （#955 拆分时漏了本组件）。 */
 .category-tab:hover {
   box-shadow: var(--shadow-float) !important;
   transform: translateY(-2px);
