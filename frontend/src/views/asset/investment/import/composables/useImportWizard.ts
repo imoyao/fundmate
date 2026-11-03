@@ -140,7 +140,6 @@ export function useImportWizard() {
     totalRows.value = normalized.length;
     duplicateCount.value = normalized.filter(r => r.is_duplicate).length;
     errorCount.value = normalized.filter(r => !!r.error).length;
-    showFullTable.value = true;
     currentStep.value = 2;
     recalcValidRowsCount();
     selectAllValid();
@@ -299,7 +298,6 @@ export function useImportWizard() {
   const tableFilterKeyword = ref("");
   const tableTypeFilter = ref<string[]>([]);
   const tableStatusFilter = ref("");
-  const showFullTable = ref(true);
   /** 批量修正面板（#1792 起为摘要下方内联展开，由摘要卡【批量修正】/筛选栏按钮切换） */
   const showFixPanel = ref(false);
   const batchCodeInput = ref("");
@@ -1237,7 +1235,6 @@ export function useImportWizard() {
     isIndeterminate.value = false;
     importErrors.value = [];
     validRowsCount.value = 0;
-    showFullTable.value = true;
     showFixPanel.value = false;
     fixModeOverride.value = null;
     singleFixScope.value = "all";
@@ -1246,10 +1243,9 @@ export function useImportWizard() {
     tableTypeFilter.value = [];
     tableStatusFilter.value = "";
     duplicatesHandled.value = false;
-    // #2281：转账行横幅关闭态与「可导入」徽章 dismiss 态均为会话级，
-    // 新导入会话（换文件 / 重新导入）重置，确保能力提示重新出现
+    // #2281：转账行提示横幅的关闭态是会话级，新导入会话（换文件 / 重新导入）
+    // 重置，确保能力提示重新出现
     cashBindingBannerDismissed.value = false;
-    dismissedTransferBadgeKeys.value = new Set();
     uploadError.value = "";
     parsing.value = false;
   }
@@ -1286,13 +1282,6 @@ export function useImportWizard() {
         setTimeout(() => el.classList.remove("ledger-select-flash"), 600);
       }
       ledgerTouched.value = true;
-    }
-  }
-
-  function toggleFullTable() {
-    showFullTable.value = !showFullTable.value;
-    if (showFullTable.value) {
-      showProblemOnly.value = false;
     }
   }
 
@@ -1387,7 +1376,6 @@ export function useImportWizard() {
       previewData.value = [...previewData.value];
       recalcValidRowsCount();
       selectAllValid();
-      showFullTable.value = true;
 
       const warning = (res as any).compatibility_warning;
       if (warning) {
@@ -1576,7 +1564,6 @@ export function useImportWizard() {
       errorCount.value = previewData.value.filter(r => !!r.error).length;
       recalcValidRowsCount();
       updateSelectAllState();
-      showFullTable.value = true;
       currentStep.value = 2;
       draftBannerVisible.value = false;
       pendingDraftMeta.value = null;
@@ -2012,7 +1999,6 @@ export function useImportWizard() {
   }
 
   function filterByCategory(key: string) {
-    showFullTable.value = true;
     showProblemOnly.value = false;
     tableStatusFilter.value = "";
     if (key === "missingCode") activeCategoryFilter.value = "missingCode";
@@ -2045,7 +2031,6 @@ export function useImportWizard() {
     tableStatusFilter.value = key;
     activeCategoryFilter.value = "";
     showProblemOnly.value = false;
-    showFullTable.value = true;
     currentPage.value = 1;
     if (key === "fix" && !showFixPanel.value && summaryCounts.value.fix > 0) {
       showFixPanel.value = true;
@@ -2060,7 +2045,6 @@ export function useImportWizard() {
     tableStatusFilter.value = "";
     activeCategoryFilter.value = "";
     showProblemOnly.value = false;
-    showFullTable.value = true;
     currentPage.value = 1;
   }
 
@@ -2117,7 +2101,6 @@ export function useImportWizard() {
 
   function onMatchComplete() {
     previewData.value = [...previewData.value];
-    showFullTable.value = true;
     recalcValidRowsCount();
     selectAllValid();
     updateSelectAllState();
@@ -2493,23 +2476,43 @@ export function useImportWizard() {
   }
 
   /**
-   * #2281 感知层：转账行一次性「可导入」徽章。每行首次渲染时显示，
-   * 与本行有过交互（勾选 / 点击徽章）后本会话不再显示；按 _rowKey 记录，
-   * 翻页 / 过滤导致重新渲染不复发。
+   * 转账行批量勾选。
+   *
+   * 摘要卡只告诉用户「含 131 条银证转账，可勾选导入」——一个说得出条数、却要逐行
+   * 点勾的提示等于把活推回给用户（131 次点击）。这里给同一批行一个入口。
+   *
+   * 作用域刻意与 `completeTransferCount` 同一个谓词（转账行 && 归「数据完整」卡），
+   * 保证「按钮处理的行数 == 卡片上写的行数」。疑似重复的转账行归 duplicate 卡、
+   * 不在作用域内：#1882 定下「重复行要导需手动勾」，批量入口不能替用户做这个决定。
    */
-  const dismissedTransferBadgeKeys = ref(new Set<string>());
-  function showTransferBadge(row: any): boolean {
-    return (
-      Boolean(row.is_cash_transfer) &&
-      !dismissedTransferBadgeKeys.value.has(row._rowKey)
+  function transferToggleRows(): any[] {
+    return previewData.value.filter(
+      row => row.is_cash_transfer && categorizeRow(row) === "complete"
     );
   }
-  function dismissTransferBadge(row: any) {
-    if (dismissedTransferBadgeKeys.value.has(row._rowKey)) return;
-    dismissedTransferBadgeKeys.value.add(row._rowKey);
-    dismissedTransferBadgeKeys.value = new Set(
-      dismissedTransferBadgeKeys.value
+
+  /** 作用域内是否已全部勾上（按钮据此在「全选 / 取消」之间切换） */
+  const transferRowsAllSelected = computed(() => {
+    const rows = transferToggleRows();
+    return (
+      rows.length > 0 && rows.every(r => selectedKeys.value.has(r._rowKey))
     );
+  });
+
+  function toggleAllTransferRows() {
+    // 未关联现金账户时转账行不可勾（isRowSelectable 同口径）——入口在模板里已隐藏，
+    // 函数自己再挡一道，避免以后别处调用时勾出一批「勾了也导不进去」的行
+    if (!selectedLedgerLinkedCash.value) return;
+    const rows = transferToggleRows();
+    if (!rows.length) return;
+    const next = new Set(selectedKeys.value);
+    if (transferRowsAllSelected.value) {
+      rows.forEach(r => next.delete(r._rowKey));
+    } else {
+      rows.forEach(r => next.add(r._rowKey));
+    }
+    selectedKeys.value = next;
+    updateSelectAllState();
   }
 
   /** 在步骤3 横幅内直接关联现金账户并落库 */
@@ -2674,7 +2677,6 @@ export function useImportWizard() {
     errorCount.value = 0;
     recalcValidRowsCount();
     selectAllValid();
-    showFullTable.value = true;
   }
 
   /**
@@ -2793,8 +2795,8 @@ export function useImportWizard() {
     showCashTransferHint,
     linkedCashLedgerName,
     dismissCashBindingBanner,
-    showTransferBadge,
-    dismissTransferBadge,
+    transferRowsAllSelected,
+    toggleAllTransferRows,
     completeTransferCount,
     linkCashAccount,
     ledgerTouched,
@@ -2810,7 +2812,6 @@ export function useImportWizard() {
     tableFilterKeyword,
     tableTypeFilter,
     tableStatusFilter,
-    showFullTable,
     // #1791 问题摘要三卡片
     summaryCounts,
     fixBreakdown,
@@ -2899,7 +2900,6 @@ export function useImportWizard() {
     onAccountSelected,
     handleDownloadTemplate,
     handleUploadClick,
-    toggleFullTable,
     beforeUpload,
     handleUpload,
     confirmImport,

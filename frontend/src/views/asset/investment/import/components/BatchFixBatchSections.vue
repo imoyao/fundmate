@@ -35,7 +35,6 @@ const {
   isCategoryActive,
   filterByCategory,
   showMatchDrawer,
-  showFullTable,
   showProblemOnly
 } = useImportWizardContext();
 
@@ -63,9 +62,10 @@ const qtyMetaSub = computed(() =>
   filledRows.value.length > 0 ? `｜已填充 ${filledRows.value.length} 条` : null
 );
 
-/** §4 第 4 条：引导跳转完整表格手动处理（批量态不收起面板） */
-function gotoFullTable() {
-  showFullTable.value = true;
+/** §4 第 4 条：把改动交回表格手动处理（批量态不收起面板）。
+    表格本来就常驻，这里唯一要做的就是切到问题视图——故按钮说「在表格中查看」，
+    而不是「去完整表格」（后者会被读成还有另一个页面）。 */
+function viewProblemRows() {
   showProblemOnly.value = true;
 }
 </script>
@@ -88,8 +88,8 @@ function gotoFullTable() {
           <el-button size="small" @click="skipCategory(fixSectionRows.error)">
             跳过这 {{ errorRowCount }} 条
           </el-button>
-          <el-button size="small" @click="gotoFullTable">
-            去完整表格
+          <el-button size="small" @click="viewProblemRows">
+            在表格中查看
           </el-button>
         </div>
       </SoftBanner>

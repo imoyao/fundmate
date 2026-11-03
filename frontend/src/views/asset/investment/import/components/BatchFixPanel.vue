@@ -39,7 +39,6 @@ const {
   hasFundRecordsForNav,
   fundRecordsCount,
   calculatedCount,
-  showFullTable,
   showProblemOnly,
   toggleFixPanel
 } = useImportWizardContext();
@@ -101,9 +100,10 @@ function backToBatch() {
   singleFixScope.value = "all";
 }
 
-/** §4 第 4 条：引导跳转完整表格手动处理（table 态要顺手收起面板） */
-function gotoFullTable() {
-  showFullTable.value = true;
+/** §4 第 4 条：把改动交回表格手动处理（table 态要顺手收起面板）。
+    表格常驻，这里只有「切到问题视图 + 收起面板」两件事——按钮说「在表格中查看」，
+    而不是「去完整表格」（后者会被读成还有另一个页面）。 */
+function viewProblemRows() {
   showProblemOnly.value = true;
   toggleFixPanel();
 }
@@ -152,8 +152,8 @@ const showRepoDialog = ref(false);
         <el-button size="small" @click="skipCategory(fixSectionRows.error)">
           跳过这 {{ errorRowCount }} 条
         </el-button>
-        <el-button size="small" type="primary" @click="gotoFullTable">
-          去完整表格
+        <el-button size="small" type="primary" @click="viewProblemRows">
+          在表格中查看
         </el-button>
       </div>
     </SoftBanner>
