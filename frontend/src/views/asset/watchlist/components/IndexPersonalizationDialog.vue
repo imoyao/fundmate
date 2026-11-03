@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { ArrowDown, ArrowUp, Close, Rank } from "@element-plus/icons-vue";
 import { useIndexBarSelection } from "@/views/asset/watchlist/composables/useIndexBarSelection";
 import { MAX_INDEX_COUNT } from "@/views/asset/watchlist/composables/indexBarModel";
+import IndexBarMotionToggle from "@/views/asset/watchlist/components/IndexBarMotionToggle.vue";
 import {
   DEFAULT_INDEX_KEYS,
   INDEX_CATALOG,
@@ -200,6 +201,14 @@ function save(): void {
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 显示偏好（即时生效，不参与「保存」） -->
+    <div class="section">
+      <div class="section__head">
+        <span class="section__title">显示</span>
+      </div>
+      <IndexBarMotionToggle />
     </div>
 
     <template #footer>

@@ -9,10 +9,14 @@
   节奏刻意放慢且恒定（28px/s，见 indexBarModel）：
     - 恒定速度 = 选 5 个和 8 个一样快，不会「越多越快」制造紧迫感；
     - hover / focus-within 暂停（CSS），想读点位时不被带走；
-    - 收盘后静态（isWithinTradingWindow），不溢出时也静态。
+    - 不溢出时静态（放得下就别晃）。
+
+  什么时候「不动」：只有两种——设置里关掉「滚动展示」，或系统开了减弱动效。
+  刻意**不**按交易时段判断：16:15 打开页面看到静态滚动条，等于「功能没生效」，
+  比一直在动更让人困惑（初版踩过，见 useIndexBarMarquee 的注释）。
 
   无障碍：循环用的第二份内容带 aria-hidden 与 tabindex=-1，读屏与 Tab 不会重复；
-  prefers-reduced-motion 下整体退回可横向滚动的静态条（细滚动条，hover 才显色）。
+  静态时退回可横向滚动的条（细滚动条，hover 才显色，内容仍能看全）。
 -->
 <template>
   <div
@@ -56,14 +60,19 @@
 <script setup lang="ts">
 import { toRef } from "vue";
 import { useIndexBarMarquee } from "@/views/asset/watchlist/composables/useIndexBarMarquee";
+import { useIndexBarMotionPref } from "@/views/asset/watchlist/composables/useIndexBarMotionPref";
 import type { IndexTickerItem } from "@/views/asset/watchlist/composables/indexBarModel";
 import type { IndexCatalogEntry } from "@/views/asset/watchlist/composables/indexCatalog";
 
 const props = defineProps<{ items: IndexTickerItem[] }>();
 const emit = defineEmits<{ (e: "select", meta: IndexCatalogEntry): void }>();
 
+// 开关在「指数个性化设置」弹窗里，模块级单例，改动即时生效
+const { enabled } = useIndexBarMotionPref();
+
 const { containerRef, active, copies, trackStyle } = useIndexBarMarquee(
-  toRef(props, "items")
+  toRef(props, "items"),
+  enabled
 );
 </script>
 

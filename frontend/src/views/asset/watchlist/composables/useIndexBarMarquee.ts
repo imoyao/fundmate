@@ -5,11 +5,16 @@
  * （`:hover` / `:focus-within` 暂停）——用 JS 定时器暂停会让「鼠标停在某项上
  * 读点位」这件事变得不可靠。
  *
- * 启用条件（三者同时满足）：
+ * 启用条件（两者同时满足）：
  *   1. 内容溢出容器（几项放得下时静态，见 `shouldMarquee`）；
- *   2. 处于 A 股交易时段（`isWithinTradingWindow`）——收盘后价格不动，静态更安静；
- *   3. 用户没有 `prefers-reduced-motion: reduce`。
- * 不满足时退回「可横向滚动的静态条」，溢出内容仍能看全（细滚动条，hover 才显色）。
+ *   2. 用户没有关掉「滚动展示」开关（设置弹窗里可关），且系统未要求减弱动效
+ *      （`prefers-reduced-motion: reduce`）。
+ *
+ * ⚠️ 刻意**不**按交易时段开关（2026-11-03 修正）：
+ *   初版加了 `isWithinTradingWindow`，理由是「收盘后价格不动，静态更安静」。
+ *   实机验证 16:15 打开自选页，看到的是可横向滚动的静态条——对用户而言就是
+ *   「跑马灯没生效、还是那条滚动条」，比一直在动更糟。一个在一天里 2/3 时间
+ *   表现为失效的开关，收益远小于误解成本；想让它彻底不动，用设置里的开关。
  *
  * 模板契约：容器的**第一个** `.index-market-bar__group` 元素代表一份完整内容；
  * 启用跑马灯时模板会再渲染一份（`aria-hidden` + `tabindex=-1`）用于无缝循环。
@@ -23,15 +28,11 @@ import {
   type Ref
 } from "vue";
 import type { CSSProperties } from "vue";
-import { isWithinTradingWindow } from "@/utils/marketHours";
 import {
   MARQUEE_SPEED_PX_PER_SEC,
   marqueeDurationSeconds,
   shouldMarquee
 } from "@/views/asset/watchlist/composables/indexBarModel";
-
-/** 交易时段边界只在开盘/收盘两个时刻变化，每分钟复核一次足够 */
-const SESSION_RECHECK_MS = 60_000;
 
 const GROUP_SELECTOR = ".index-market-bar__group";
 
@@ -46,14 +47,20 @@ export interface IndexBarMarquee {
   trackStyle: Ref<CSSProperties>;
 }
 
-export function useIndexBarMarquee(items: Ref<unknown[]>): IndexBarMarquee {
+/**
+ * @param items   渲染项（变化时重新测量宽度）
+ * @param enabled 用户是否开启「滚动展示」（设置弹窗里的开关）
+ */
+export function useIndexBarMarquee(
+  items: Ref<unknown[]>,
+  enabled: Ref<boolean>
+): IndexBarMarquee {
   const containerRef = ref<HTMLElement | null>(null);
   const active = ref(false);
   const contentWidth = ref(0);
   const durationSec = ref(0);
 
   let observer: ResizeObserver | null = null;
-  let sessionTimer: number | null = null;
   let motionQuery: MediaQueryList | null = null;
 
   function prefersReducedMotion(): boolean {
@@ -74,8 +81,8 @@ export function useIndexBarMarquee(items: Ref<unknown[]>): IndexBarMarquee {
     const width = group.offsetWidth;
     contentWidth.value = width;
     active.value =
+      enabled.value &&
       !prefersReducedMotion() &&
-      isWithinTradingWindow(new Date()) &&
       shouldMarquee(width, container.clientWidth);
     durationSec.value = active.value
       ? marqueeDurationSeconds(width, MARQUEE_SPEED_PX_PER_SEC)
@@ -97,23 +104,20 @@ export function useIndexBarMarquee(items: Ref<unknown[]>): IndexBarMarquee {
       const group = container.querySelector<HTMLElement>(GROUP_SELECTOR);
       if (group) observer.observe(group);
     }
-    sessionTimer = window.setInterval(measure, SESSION_RECHECK_MS);
     measure();
   });
 
   onBeforeUnmount(() => {
     observer?.disconnect();
     observer = null;
-    if (sessionTimer !== null) {
-      clearInterval(sessionTimer);
-      sessionTimer = null;
-    }
     motionQuery?.removeEventListener("change", onMotionPreferenceChange);
     motionQuery = null;
   });
 
   // 选中集合变化（增删指数）→ DOM 更新后再量一次：宽度变了，圈时长也得跟着变
   watch(items, measure, { deep: true, flush: "post" });
+  // 用户拨动「滚动展示」开关 → 立即切换形态
+  watch(enabled, measure, { flush: "post" });
 
   const copies = computed(() => (active.value ? [0, 1] : [0]));
 
