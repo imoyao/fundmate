@@ -1,22 +1,29 @@
 <!--
   WatchlistFundFlowCard · 自选页顶部「盘前资金面」卡（#watchlist 资金面）
 
-  定位：与 IndexMarketBar（大盘体温计）上下分层，提供「板块今日资金表现 +
+  定位：与 IndexMarketBar（大盘体温计）上下分层，提供「板块资金双向表现 +
   一句话今日资金主线」，属**个股级资金面之上**的市场级摘要。数据来自东财板块
-  资金流（fetchSectorFundFlow，行业板块主力净流入排名）。
+  资金流（fetchSectorFundFlow：流入头部 + 流出头部两端）。
 
   与探市页边界：探市页承担全市场温度 / 行业情绪 / 拥挤度（情绪口径），本卡是
   「真金白银流向」口径，两者不重复。
 
-  着色：主力净流入为正（资金买入主导）→ 涨色；为负（净流出）→ 跌色（A 股习惯）。
+  折叠态为什么是静态数字条、而不是跑马灯：
+    资金面的核心读法是「流入端 vs 流出端」的**对比**，一流动就只剩一半；
+    且板块数量由数据自动取头尾（3+3），一行放得下，不存在需要流动承接的溢出。
+    跑马灯留给大盘指数条（同类单值长列表），两张卡一静一动才有层次。
+
+  折叠态为什么不是整句主线：
+    `themeLine` 是 30–50 字的中文句子，窄容器必然折行 → 折叠后仍占 3 行。
+    故折叠态只留结构化数字（省一行且可直接比较），整句移到展开态作结论句。
 -->
 <template>
   <section class="fund-flow-card" aria-label="盘前资金面">
     <header class="fund-flow-card__head">
-      <div class="fund-flow-card__heading">
+      <p class="fund-flow-card__heading">
         <span class="fund-flow-card__title">盘前资金面 · 板块主力净流入</span>
         <span class="fund-flow-card__src">东方财富 · 开盘前速览</span>
-      </div>
+      </p>
       <button
         type="button"
         class="fund-flow-card__toggle"
@@ -29,30 +36,67 @@
       </button>
     </header>
 
-    <!-- 折叠态：一行预览，保留资金主线上下文但省版面（默认折叠） -->
+    <!-- 折叠态：一行数字条，流入与流出同时可见 -->
     <div v-if="!expanded" class="fund-flow-card__preview">
-      <span v-if="themeLine">{{ themeLine }}</span>
+      <template v-if="hasData">
+        <span class="flow-tag flow-tag--in">流入</span>
+        <span
+          v-for="s in collapsed.inflow"
+          :key="`in-${s.code}`"
+          class="flow-mini"
+        >
+          <span class="flow-mini__name">{{ s.name }}</span>
+          <span class="flow-mini__val" :class="trendClassOf(s.mainInflow)">
+            {{ formatFlow(s.mainInflow) }}
+          </span>
+        </span>
+        <span class="flow-sep" aria-hidden="true" />
+        <span class="flow-tag flow-tag--out">流出</span>
+        <span
+          v-for="s in collapsed.outflow"
+          :key="`out-${s.code}`"
+          class="flow-mini"
+        >
+          <span class="flow-mini__name">{{ s.name }}</span>
+          <span class="flow-mini__val" :class="trendClassOf(s.mainInflow)">
+            {{ formatFlow(s.mainInflow) }}
+          </span>
+        </span>
+      </template>
       <span v-else class="fund-flow-card__empty">板块资金数据加载中…</span>
     </div>
 
-    <!-- 展开态：完整板块榜 + 主线 -->
+    <!-- 展开态：流入 / 流出双列 TOP4 + 一句话主线 -->
     <div v-else id="fund-flow-body" class="fund-flow-card__body">
-      <ul v-if="sectors.length" class="sector-list">
-        <li
-          v-for="s in topSectors"
-          :key="s.code"
-          class="sector-item"
-          :class="flowClass(s)"
-          :title="`${s.name}：主力净流入 ${formatYuan(s.mainInflow)}（${
-            s.changePct >= 0 ? '+' : ''
-          }${s.changePct.toFixed(2)}%）`"
-        >
-          <span class="sector-item__name">{{ s.name }}</span>
-          <span class="sector-item__val">{{ formatFlow(s.mainInflow) }}</span>
-        </li>
-      </ul>
+      <div class="flow-cols">
+        <section v-for="side in expandedSides" :key="side.key" class="flow-col">
+          <header class="flow-col__head">
+            <span class="flow-tag" :class="`flow-tag--${side.key}`">{{
+              side.label
+            }}</span>
+            <span>主力净{{ side.label }} TOP{{ EXPANDED_TOP_N }}</span>
+          </header>
+          <ul class="flow-col__list">
+            <li
+              v-for="s in side.items"
+              :key="`${side.key}-${s.code}`"
+              class="flow-row"
+              :title="`${s.name}：主力净流入 ${formatYuan(s.mainInflow)}`"
+            >
+              <span class="flow-row__name">{{ s.name }}</span>
+              <span class="flow-row__pct" :class="trendClassOf(s.mainInflow)">
+                {{ formatChangePct(s.changePct) }}
+              </span>
+              <span class="flow-row__val" :class="trendClassOf(s.mainInflow)">
+                {{ formatFlow(s.mainInflow) }}
+              </span>
+            </li>
+          </ul>
+        </section>
+      </div>
+
       <p v-if="themeLine" class="fund-flow-card__theme">{{ themeLine }}</p>
-      <div v-else-if="!sectors.length" class="fund-flow-card__empty">
+      <div v-else-if="!hasData" class="fund-flow-card__empty">
         板块资金数据加载中…
       </div>
     </div>
@@ -64,6 +108,14 @@ import { computed } from "vue";
 import { ArrowDown, ArrowUp } from "@element-plus/icons-vue";
 import type { SectorFundFlow } from "@/utils/realtimeDataSources";
 import { useCollapsedState } from "@/views/asset/watchlist/composables/useCollapsedState";
+import {
+  buildThemeLine,
+  formatChangePct,
+  formatFlow,
+  formatYuan,
+  splitSectorFlow,
+  trendClassOf
+} from "@/views/asset/watchlist/composables/fundFlowModel";
 
 const props = defineProps<{ sectors: SectorFundFlow[] }>();
 
@@ -75,58 +127,28 @@ function toggle(): void {
   expanded.value = !expanded.value;
 }
 
-const TOP_N = 6;
+/** 折叠态每侧数量：3+3 在 ~1080px 内容宽下一行放得下，不需要滚动 */
+const COLLAPSED_TOP_N = 3;
+/** 展开态每侧数量 */
+const EXPANDED_TOP_N = 4;
 
-const topSectors = computed(() => props.sectors.slice(0, TOP_N));
+const collapsed = computed(() =>
+  splitSectorFlow(props.sectors, COLLAPSED_TOP_N)
+);
+const expandedBoard = computed(() =>
+  splitSectorFlow(props.sectors, EXPANDED_TOP_N)
+);
 
-/** 亿 / 万自适应缩写（亿元口径更贴合主力资金量级） */
-function formatFlow(v: number): string {
-  const abs = Math.abs(v);
-  const sign = v > 0 ? "+" : v < 0 ? "-" : "";
-  if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(2)}亿`;
-  if (abs >= 1e4) return `${sign}${Math.round(abs / 1e4)}万`;
-  return `${sign}${abs.toFixed(0)}`;
-}
+const hasData = computed(
+  () => collapsed.value.inflow.length > 0 || collapsed.value.outflow.length > 0
+);
 
-/** 完整元（用于 title 悬浮说明） */
-function formatYuan(v: number): string {
-  return `${v >= 0 ? "+" : ""}${v.toLocaleString("zh-CN")} 元`;
-}
+const expandedSides = computed(() => [
+  { key: "in", label: "流入", items: expandedBoard.value.inflow },
+  { key: "out", label: "流出", items: expandedBoard.value.outflow }
+]);
 
-function flowClass(s: SectorFundFlow): string {
-  if (s.mainInflow > 0) return "is-inflow";
-  if (s.mainInflow < 0) return "is-outflow";
-  return "is-flat";
-}
-
-/**
- * 一句话今日资金主线：取主力净流入前三（买入主导）、净流出前二（最被抛售），
- * 动态拼出，不写死。无数据时返回空串（模板不渲染）。
- */
-const themeLine = computed(() => {
-  const list = props.sectors;
-  if (!list.length) return "";
-  const sorted = [...list].sort((a, b) => b.mainInflow - a.mainInflow);
-  const inflow = sorted.filter(s => s.mainInflow > 0).slice(0, 3);
-  const outflow = sorted
-    .filter(s => s.mainInflow < 0)
-    .slice(-2)
-    .reverse();
-  const inNames = inflow.map(s => s.name);
-  const outNames = outflow.map(s => s.name);
-  if (inNames.length && outNames.length) {
-    return `今日资金主线：${inNames.join("、")} 获主力净流入居前；${outNames.join(
-      "、"
-    )} 主力净流出居前。`;
-  }
-  if (inNames.length) {
-    return `今日资金主线：${inNames.join("、")} 获主力净流入居前。`;
-  }
-  if (outNames.length) {
-    return `今日资金主线：${outNames.join("、")} 主力净流出居前。`;
-  }
-  return "";
-});
+const themeLine = computed(() => buildThemeLine(expandedBoard.value));
 </script>
 
 <style scoped lang="scss">
@@ -138,6 +160,7 @@ const themeLine = computed(() => {
   border-radius: 12px;
 }
 
+// 标题与来源同行：来源是副标题，不该独占一行（折叠态省下的正是这一行）
 .fund-flow-card__head {
   display: flex;
   gap: 8px;
@@ -148,13 +171,27 @@ const themeLine = computed(() => {
 
 .fund-flow-card__heading {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0;
+}
+
+.fund-flow-card__title {
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--text-primary, #333);
+}
+
+.fund-flow-card__src {
+  font-size: var(--text-label);
+  color: var(--text-disabled, #bbb);
 }
 
 // 展开/收起按钮：复用 IndexMarketBar 的折叠交互样式（#1546 T2.2 范式）
 .fund-flow-card__toggle {
   display: inline-flex;
+  flex-shrink: 0;
   gap: 4px;
   align-items: center;
   padding: 4px 12px;
@@ -180,22 +217,57 @@ const themeLine = computed(() => {
   }
 }
 
+// 折叠态数字条：一行内「流入 3 + 分隔 + 流出 3」，不滚动
 .fund-flow-card__preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
   margin: 0;
-  font-size: var(--text-label);
   line-height: 1.5;
-  color: var(--text-primary, #333);
 }
 
-.fund-flow-card__title {
+.flow-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
   font-size: var(--text-label);
   font-weight: 600;
-  color: var(--text-primary, #333);
+  background: var(--bg-subtle, #f7f3ee);
+  border-radius: 4px;
+
+  &--in {
+    color: var(--color-rise-ink);
+  }
+
+  &--out {
+    color: var(--color-fall-ink);
+  }
 }
 
-.fund-flow-card__src {
+.flow-mini {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 4px;
+  align-items: baseline;
   font-size: var(--text-label);
-  color: var(--text-disabled, #bbb);
+  white-space: nowrap;
+
+  &__name {
+    color: var(--text-secondary, #666);
+  }
+
+  &__val {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.flow-sep {
+  flex-shrink: 0;
+  align-self: center;
+  width: 1px;
+  height: 14px;
+  background: var(--border-default, #eee);
 }
 
 .fund-flow-card__body {
@@ -204,48 +276,62 @@ const themeLine = computed(() => {
   gap: 8px;
 }
 
-.sector-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
+.flow-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
 }
 
-.sector-item {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 84px;
-  padding: 6px 10px;
+.flow-col {
+  padding: 8px 10px;
   background: var(--bg-page, #fafafa);
   border: 1px solid var(--border-default, #eee);
-  border-radius: 8px;
+  border-radius: 10px;
+
+  &__head {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: var(--text-label);
+    color: var(--text-secondary, #666);
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
 }
 
-.sector-item__name {
+.flow-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
   font-size: var(--text-label);
-  color: var(--text-secondary, #666);
-}
 
-.sector-item__val {
-  font-size: var(--text-num-strong);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
+  &__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary, #333);
+    white-space: nowrap;
+  }
 
-// 资金流符号色（A 股习惯：流入红 / 流出绿）
-.is-inflow .sector-item__val {
-  color: var(--color-rise);
-}
+  &__pct {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.85;
+  }
 
-.is-outflow .sector-item__val {
-  color: var(--color-fall-ink);
-}
-
-.is-flat .sector-item__val {
-  color: var(--text-secondary, #888);
+  &__val {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
 }
 
 .fund-flow-card__theme {
@@ -258,5 +344,18 @@ const themeLine = computed(() => {
 .fund-flow-card__empty {
   font-size: var(--text-label);
   color: var(--text-disabled, #bbb);
+}
+
+// 资金流语义色（A 股习惯：流入红 / 流出绿）
+.is-rise {
+  color: var(--color-rise);
+}
+
+.is-fall {
+  color: var(--color-fall-ink);
+}
+
+.is-flat {
+  color: var(--text-secondary, #888);
 }
 </style>
