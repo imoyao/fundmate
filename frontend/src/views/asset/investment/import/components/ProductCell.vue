@@ -38,7 +38,12 @@ const srcOp = computed(() => visibleSourceOp(props.row));
          的空间刚好够备注完整显示，且**不增加行高**（仍是两行结构）。
          hover 仍给全文与「会写进备注」的说明。 -->
     <div class="product-name-row">
-      <span class="product-name">{{ row.name || row.symbol || "--" }}</span>
+      <!-- #2844：display_name 由后端按「资产类型 + 收益种类」派生（券商原文不给标的的
+           收益行如「基金红利拨入」，名称与代码两列本来就是空的，此前只剩「--」，
+           用户看不出这笔钱是哪来的）。它只用于展示，回传给后端的仍是 name。 -->
+      <span class="product-name">{{
+        row.display_name || row.name || row.symbol || "--"
+      }}</span>
       <span
         v-if="srcOp"
         class="product-notes"

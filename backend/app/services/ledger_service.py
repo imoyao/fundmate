@@ -28,6 +28,7 @@ from app.services.summary_service import (
 )
 from app.services.transaction_service import order_by_effective_day
 from app.services.txn_name_resolver import (
+    display_asset_name,
     resolve_transaction_asset_types,
     resolve_transaction_display_names,
 )
@@ -679,7 +680,11 @@ class LedgerService:
                     'trade_date': iso_date_only(t.trade_date),
                     'txn_type': t.txn_type,
                     'asset_type': t.asset_type or asset_types.get(t.id),
-                    'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
+                    'position_name': display_asset_name(
+                        position_name=t.position_name or pos_names.get(t.id),
+                        asset_type=t.asset_type or asset_types.get(t.id),
+                        txn_type=t.txn_type,
+                    ),
                     'symbol': t.symbol or '',
                     'price': Money.price_units_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),

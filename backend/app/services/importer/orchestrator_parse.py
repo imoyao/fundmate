@@ -34,6 +34,7 @@ from app.services.import_records import (
 from app.services.importer.linking import apply_linking_rules
 from app.services.importer.mappings import OP_TYPE_LABEL
 from app.services.importer.registry import get_parser
+from app.services.txn_name_resolver import display_asset_name
 
 # 资金划转 = 钱在银行与证券账户之间搬动，方向由 business_type 的存入/取出表达。
 # 它与「资产类型是现金」不是一回事：利息归本（asset_type='cash'、
@@ -133,6 +134,15 @@ class ParsingMixin:
                 {
                     'symbol': rec.symbol,
                     'name': rec.name,
+                    # #2844 展示名称（只读派生，不入库）：券商原文不给标的的收益行
+                    # （基金红利拨入 / 红利入账）在预览里原本只有「--」，用户看不出
+                    # 这笔钱是什么。与流水列表共用同一个判据，避免两处文案漂移。
+                    'display_name': display_asset_name(
+                        position_name=rec.name,
+                        asset_type=rec.asset_type,
+                        # 大写枚举（`DIVIDEND_CASH`）由 display_asset_name 内部归一小写
+                        txn_type=rec.business_type,
+                    ),
                     'type': rec.asset_type,
                     'display_type': rec.display_type,
                     'op_type': rec.business_type.lower() if not rec.error else '',

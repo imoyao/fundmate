@@ -30,7 +30,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services import pnl_snapshot_store
-from app.services.txn_name_resolver import resolve_transaction_display_names
+from app.services.txn_name_resolver import display_asset_name, resolve_transaction_display_names
 
 # 决议动作白名单：持仓支持 merge，资产无 merge（金额无「加权平均」语义）
 _POSITION_ACTIONS = ('keep_source', 'keep_target', 'merge')
@@ -659,7 +659,11 @@ def build_orphan_detail(db, family_id: int) -> dict:
         transactions.append(
             {
                 'id': t.id,
-                'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
+                'position_name': display_asset_name(
+                    position_name=t.position_name or pos_names.get(t.id),
+                    asset_type=t.asset_type,
+                    txn_type=t.txn_type,
+                ),
                 # txn_type 保持后端原始枚举值（buy/sell/dividend…），翻译交给前端
                 'txn_type': t.txn_type,
                 'amount': Money.cents_to_yuan(t.amount),
