@@ -151,8 +151,10 @@
        （advisor_portfolios.code，如 ZH012926）——路由 `/portfolio/<symbol>`
        传下来的就是它。组合类标的**不展示代码**（设计 §2.6），靠「名称 + 平台 +
        机构」识别（设计要求写的「主理人」实测填充率只有 1.9%，故锚点落在机构上）。
-       调仓记录不在本区块渲染：速览抽屉已有，复用需先提取共用组件（设计 §7 已登记
-       为 B6 复评项），此处先给「档案 + 指标 + 成分」。 -->
+       调仓记录**在本区块内渲染**（feat/advisor-detail-adjust）：渲染已提取为
+       共用组件 `advisorSection/AdvisorAdjustList`，与持仓页同一份，两处只差口径
+       说明。此前的注释写着「速览抽屉已有，复用需先提取共用组件」——那句已兑现，
+       别再据此以为调仓还没做。 -->
   <ProductAdvisorSection
     v-if="product.asset_type === 'portfolio'"
     id="nav-advisor"
