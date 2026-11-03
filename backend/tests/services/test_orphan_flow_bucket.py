@@ -19,7 +19,6 @@ from app.services.summary_service import (
     orphan_money_fund_totals_by_ledger,
 )
 
-
 # ── 纯函数：逐笔分桶 ────────────────────────────────────────────────────
 
 
