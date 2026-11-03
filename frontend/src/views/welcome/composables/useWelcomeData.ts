@@ -1,6 +1,10 @@
 import { ref, onUnmounted, computed } from "vue";
 import { getSummary } from "@/api/summary";
-import { getUnreadCount } from "@/api/notification";
+import {
+  getNotifications,
+  markNotificationRead,
+  type NotificationItem
+} from "@/api/notification";
 import { getPortfolioXirr, type XirrData } from "@/api/performance";
 import { getRecordStats } from "@/api/users";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
@@ -60,6 +64,13 @@ export function useWelcomeData() {
   // 此前是恒 false 的预留钩子。取值逻辑见 fetchUnreadNotifications。
   const hasUnread = ref(false);
   const unreadCount = ref(0);
+  /**
+   * 首页横栏候选：后端 `GET /api/notifications/` 的 `banner` 字段（最高优先级的 1 条
+   * 未读，同级取最新）。该字段自通知底座落地时就随列表返回，注释写明「首页横栏候选」，
+   * 但前端一直是零消费方——首页只显示了计数，用户看不出「是什么事」，必须点开铃铛才知道。
+   * 现在提示条直接展示这条的标题与正文，计数只作补充。
+   */
+  const unreadBanner = ref<NotificationItem | null>(null);
 
   const welcomeState = computed<WelcomeState>(() =>
     recordLoading.value ? "loading" : recordDays.value > 0 ? "data" : "empty"
@@ -296,20 +307,46 @@ export function useWelcomeData() {
   };
 
   /**
-   * 未读站内信数（#2228）。
+   * 未读站内信（#2228）。
    *
    * 失败必须静默降级：这条提示不是首屏主体，一个超时不能把欢迎语整块带崩。
    * 降级方式是「保持 hasUnread=false（提示条不出现）」而不是「显示 0 条」——
    * 「读不到」与「没有未读」是两回事，显示后者等于把前者伪装成后者。
+   *
+   * #2228 当时调的是最轻的 `unread-count/`，只能拿到数字。首页要展示「是什么事」，
+   * 故改用列表端点（`unread_only=1&limit=1`）：它一次返回 `unread_count` + `banner`，
+   * 少发一次请求，也不再加一个只为首页存在的端点。多付的只是一次 COUNT 查询。
    */
   const fetchUnreadNotifications = async () => {
     try {
-      const res = await getUnreadCount();
+      const res = await getNotifications({ unread_only: true, limit: 1 });
       unreadCount.value = res.data?.unread_count ?? 0;
+      unreadBanner.value = res.data?.banner ?? null;
       hasUnread.value = unreadCount.value > 0;
     } catch (e) {
       console.debug("[welcome] 未读站内信拉取失败，提示条保持隐藏", e);
     }
+  };
+
+  /**
+   * 把当前这条横栏消息标记已读。
+   *
+   * 先本地收敛再重新拉取：本地那段是为了点击后**立刻**有反馈（计数减一、标题消失），
+   * 但只做本地减一不够——`banner` 必须换成「下一条最高优先级」，否则标题与计数对不上。
+   * 重新拉取失败时保持本地状态，下次进页面自然恢复，不额外弹窗打断。
+   */
+  const markUnreadRead = async () => {
+    const target = unreadBanner.value;
+    if (!target) return;
+    unreadCount.value = Math.max(0, unreadCount.value - 1);
+    hasUnread.value = unreadCount.value > 0;
+    unreadBanner.value = null;
+    try {
+      await markNotificationRead(target.id);
+    } catch (e) {
+      console.debug("[welcome] 标记已读失败，重新拉取以恢复真实状态", e);
+    }
+    await fetchUnreadNotifications();
   };
 
   // 综合市场温度（首页概览级，复用单例，仅触发拉取并刷新播报）
@@ -333,6 +370,8 @@ export function useWelcomeData() {
     userTitle,
     hasUnread,
     unreadCount,
+    unreadBanner,
+    markUnreadRead,
     // 播报 ticker
     tickerIndex,
     currentHomeMessage,

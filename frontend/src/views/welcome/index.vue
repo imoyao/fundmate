@@ -8,11 +8,13 @@
       :welcome-state="welcomeState"
       :has-unread="hasUnread"
       :unread-count="unreadCount"
+      :unread-banner="unreadBanner"
       :user-title="userTitle"
       :greeting-text="greetingText"
       :record-days="recordDays"
       :ticker-index="tickerIndex"
       :current-home-message="currentHomeMessage"
+      @mark-read="markUnreadRead"
     />
 
     <!-- ===== 第一排：最新收益卡（2026-11-03 用户拍板：hero 换成当日收益） ===== -->
@@ -82,6 +84,8 @@ const {
   userTitle,
   hasUnread,
   unreadCount,
+  unreadBanner,
+  markUnreadRead,
   tickerIndex,
   currentHomeMessage,
   startTicker,
