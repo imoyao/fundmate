@@ -190,6 +190,13 @@ const isWorkingStep = computed(() => currentStep.value >= 2);
   margin-bottom: 32px;
 }
 
+/* 步骤标题不折行：「选择导入账户」曾折成「选择导入账 / 户」，四步条看着像没做完。
+   标题统共几个字，宽度够与不够都该是一行——折行纯粹是 el-step 的默认容器宽度
+   在窄视口下不够，让文字自己换行反而更难看。 */
+.import-steps :deep(.el-step__title) {
+  white-space: nowrap;
+}
+
 /* 工作步（预览 / 结果）：步骤条压成 simple 细条，页头已退场，把高度让给表格 */
 .inventory-page.is-working-step .import-steps {
   margin-bottom: 8px;

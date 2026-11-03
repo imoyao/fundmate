@@ -397,8 +397,15 @@ export function useImportWizard() {
       selectedMode.value === "standard_fund"
   );
 
+  /**
+   * 模板名（**不含**「模板」二字）：调用方自己拼后缀。
+   *
+   * 曾经这里返回「股票标准模板」，而使用处又拼了一句「模板」，界面上就出现
+   * 「下载股票标准模板模板」——字面重复看着像没做完。名字只留品种，后缀交给
+   * 使用处决定，改词时只有一处要动。
+   */
   const templateNameForAccount = computed(() =>
-    selectedMode.value === "standard_fund" ? "基金标准模板" : "股票标准模板"
+    selectedMode.value === "standard_fund" ? "基金标准" : "股票标准"
   );
   const accountType = computed(() =>
     selectedMode.value === "standard_fund" ? "基金" : "股票"

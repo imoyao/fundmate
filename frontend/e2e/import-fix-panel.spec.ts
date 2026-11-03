@@ -371,14 +371,16 @@ test.describe("批量修正内联面板（#1792）", () => {
     await codeCard.getByRole("button", { name: "应用" }).click();
     await expect(cards).toHaveCount(3);
 
-    // 跳过此条（mismatch 卡片）：行退出导入集合 → 底部已选择计数 -1
+    // 跳过该条（mismatch 卡片）：行退出导入集合 → 底部已选择计数 -1
     // 默认已选 3 条（完整 1 + 未匹配 1 + 不一致 1；缺失/错误行默认不选）
     await expect(
       page.locator(".action-summary .summary-primary")
     ).toContainText("已选择 3 条");
+    // 按钮文案 2026-11-03 从「跳过此条」收成「跳过」并挪到操作行右端（省一行高度），
+    // exact 是刻意的：「跳过」两字太泛，不 exact 会命中同卡片里的其它按钮
     await panel
       .locator('[data-fix-card][data-section="mismatch"]')
-      .getByRole("button", { name: "跳过此条" })
+      .getByRole("button", { name: "跳过", exact: true })
       .click();
     await expect(
       page.locator(".action-summary .summary-primary")

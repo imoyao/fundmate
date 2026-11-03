@@ -93,7 +93,6 @@ function missingField(row: any): "quantity" | "price" | null {
           children: 'children',
           hasChildren: 'hasChildren'
         }"
-        default-expand-all
         stripe
         size="default"
         :row-class-name="getRowClassName"
