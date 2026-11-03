@@ -200,6 +200,22 @@ html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
   --el-button-active-text-color: var(--text-inverse);
 }
 
+/* 透明底（link / text）的主色按钮：#2838 实测 computed color = rgb(255,255,255)，
+   白字 + 透明底 ⇒ 按钮直接隐身（页面上看得见文字按钮「忽略」，却看不见同样写法的
+   「补全 / 恢复 / 全选转账行」）。
+   成因是本文件上面的 `.el-button.el-button--primary`(0,2,0) 与 Element Plus 的
+   `.el-button--primary.is-link`(0,2,0) **同权重**，而项目样式后加载，把 EP 专门给
+   link 态设的 `--el-button-text-color` 又刷回白。
+   这里按同权重补回：透明底的按钮没有「实底」，文字必须自己承担对比度，
+   故一律用品牌**文字**级令牌 --brand-ink（亮暗两套值分别在 colors.css / dark.scss）。 */
+.el-button.el-button--primary.is-link,
+.el-button.el-button--primary.is-text {
+  --el-button-text-color: var(--brand-ink);
+  --el-button-hover-text-color: var(--brand-ink);
+  --el-button-hover-link-text-color: var(--brand-ink);
+  --el-button-active-text-color: var(--brand-ink);
+}
+
 /* 禁用态主按钮：design.md「交互状态映射」把 Disabled 定义为「不透明度 50% + 灰度 30%」。
    EP 默认走 --el-color-primary-light-5（= --brand-400 #fabdb0）淡粉底 + 白字——
    与可用态只差饱和度，用户读成「弱化的可点按钮」而不是「不可用」，
