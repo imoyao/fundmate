@@ -15,13 +15,16 @@
    （COALESCE 口径，与列表接口一致——否则只有确认日的历史流水整批进 no_date 跳过，
    成本线/收益贡献全空）；
 9. 累计收益曲线 = **累计已实现盈亏**（分红 + 落袋 − 释放成本），不做市值估计——
-   浮动盈亏在「我的持仓」卡（unit_nav 口径），同页不造第二个收益数字（#2171 决策）。
+   浮动盈亏在「我的持仓」卡（unit_nav 口径），同页不造第二个收益数字（#2171 决策）；
+   **输出逐日补齐到今天**（#2857）：它是阶梯量，只在成交日跳变，两笔流水的标的
+   若只在流水日给点，会被画成一条斜线；
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
+from app.core.time_utils import today_shanghai
 from app.services.trade_timeline import build_trade_timeline, empty_trade_timeline
 
 TL_URL = '/api/products/trade-timeline/'
@@ -439,8 +442,17 @@ def test_contributions_per_txn(db, make_position, make_transaction):
     assert result['summary']['realized_pnl_yuan'] == 55.0, '45（卖出）+ 10（分红）'
 
 
-def test_profit_line_cumulative(db, make_position, make_transaction):
-    """累计收益线：逐日累计已实现 + 累计投入，同日多笔去重留当日末值。"""
+def test_profit_line_daily_staircase(db, make_position, make_transaction):
+    """累计收益线：逐日补齐到今天的**阶梯**，同日多笔去重留当日末值（#2857）。
+
+    上一版只在有流水的日子 append：买入 / 卖出各一笔的标的只得到 2 个点，
+    类别轴上两个类别平分整幅宽度，曲线被画成一条跨半年的斜线——既没有时间感，
+    又暗示「每天都在赚」。这里钉住三件事：
+
+    1. **逐日连续**且末端 = 今天（不是最后一笔交易日）；
+    2. **阶梯语义**：流水日**前一天**仍是旧值（补日绝不插值）；
+    3. 同日多笔只留末值（原有口径，一并回归）。
+    """
     pos = _seed_position(make_position)
     _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
     _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.2, amount=120, trade_date=_day(2026, 1, 5))
@@ -450,15 +462,24 @@ def test_profit_line_cumulative(db, make_position, make_transaction):
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
     line = result['profit_line']
-    assert [p['date'] for p in line] == ['2026-01-05', '2026-02-05', '2026-03-05']
+    dates = [p['date'] for p in line]
+    assert dates[0] == '2026-01-05', '曲线从首笔交易开始，不在之前编造 0 点'
+    assert dates[-1] == today_shanghai().isoformat(), '末端必须延续到今天'
+    parsed = [date.fromisoformat(d) for d in dates]
+    assert all(b - a == timedelta(days=1) for a, b in zip(parsed, parsed[1:])), '逐日连续，不缺日不重复'
+
+    by_date = {p['date']: p for p in line}
     # 1/5：两笔买入，投入 220，已实现 0
-    assert line[0]['invested_yuan'] == 220.0
-    assert line[0]['realized_yuan'] == 0.0
+    assert by_date['2026-01-05']['invested_yuan'] == 220.0
+    assert by_date['2026-01-05']['realized_yuan'] == 0.0
+    # 2/4（卖出前一天）：仍是 0 —— 阶梯的平段，补齐不插值
+    assert by_date['2026-02-04']['realized_yuan'] == 0.0
     # 2/5：卖 100/200 份，释放成本 110，回款 150 → 已实现 +40
-    assert line[1]['realized_yuan'] == 40.0
-    assert line[1]['invested_yuan'] == 220.0
-    # 3/5：分红 +8 → 累计已实现 48
-    assert line[2]['realized_yuan'] == 48.0
+    assert by_date['2026-02-05']['realized_yuan'] == 40.0
+    assert by_date['2026-02-05']['invested_yuan'] == 220.0
+    # 3/5：分红 +8 → 累计已实现 48，并平到今天
+    assert by_date['2026-03-05']['realized_yuan'] == 48.0
+    assert line[-1]['realized_yuan'] == 48.0
     assert result['summary']['total_invested_yuan'] == 220.0
 
 

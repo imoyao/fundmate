@@ -24,6 +24,7 @@ from app.core.utils import iso_date_only, paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import build_transaction_symbol_conditions
+from app.services.trade_timeline import build_contribution_map
 from app.services.txn_name_resolver import (
     POSITION_STATE_CLEARED,
     display_asset_name,
@@ -231,6 +232,16 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
         )
         for t in items
     ]
+    # #2857：按 symbol 过滤时，把「当时成本 / 收益贡献」并进主表响应。
+    # 只在按 symbol 过滤时重放——账本全量列表既不显示这两列，逐页重放等于白烧 CPU。
+    # 传参用 `filters['symbol']` 而非去重后的 symbol，与 `_filtered_transaction_query`
+    # 的匹配口径（symbol_scope）同源：重放与列表必须命中同一批流水，否则两列又会错位。
+    symbol = filters.get('symbol')
+    if symbol:
+        figures = build_contribution_map(db, symbol=symbol, family_id=family_id)
+        empty_figures = {'cost_after_yuan': None, 'profit_contribution_yuan': None}
+        for row in results:
+            row.update(figures.get(row['id'], empty_figures))
 
     return {'data': results, 'total': total, 'page': page, 'per_page': per_page}
 
@@ -357,6 +368,13 @@ def transaction_row(
         # position_id === null 推断——那判据在 #2343「清仓不删行」之后已经失效。
         'position_state': position_states.get(t.id, POSITION_STATE_CLEARED),
         'created_at': t.created_at.isoformat() if t.created_at else None,
+        # #2857：「当时成本 / 收益贡献」两列并入主表。
+        # 默认 None = 「无口径」（拆分 / 扣税 / 其他不参与重放），前端据此渲染 `--`；
+        # 只有 `build_transaction_list` 在按 symbol 过滤时用重放结果覆写这两个键。
+        # 不要在这里给 0.0：`0` 是「这笔不产生已实现」（买入建仓），与「没有数据」
+        # 是两件事，共用一个值就等于允许它们互相冒充。
+        'cost_after_yuan': None,
+        'profit_contribution_yuan': None,
     }
 
 

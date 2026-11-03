@@ -30,6 +30,9 @@
   浮动盈亏在「我的持仓」卡（unit_nav 口径，NavService 标准口径），同页不造第二个
   收益数字（#2171 决策）；本曲线的收益率 = 累计已实现 ÷ 累计投入（简单回报率，
   非年化——年化数字在业绩卡 XIRR，不重复）；
+  **输出是逐日序列、补到今天**（#2857）：它是阶梯量，只在成交日跳变，
+  前一版「只在流水日给点」会让两笔流水的标的变成一条斜线（详见
+  `_extend_profit_line_daily`）；
 - **红利再投（``dividend_reinvest``）视同入股**：增份额、增成本，已实现 +分红额，
   但不是「买卖决策」——不进散点层；
 - **其余类型（拆分 / 兑付 / 扣税 / 其他）不参与重放**：计入
@@ -60,6 +63,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
+from app.core.time_utils import today_shanghai
 from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import build_transaction_symbol_conditions
 
@@ -120,6 +124,71 @@ def _trade_day(txn: Transaction) -> Optional[dt.date]:
     if value is None:
         return None
     return value.date() if isinstance(value, dt.datetime) else value
+
+
+def _extend_profit_line_daily(line: List[Dict], until: dt.date) -> List[Dict]:
+    """把「只在流水日推点」的累计已实现序列补齐为**逐日**序列（#2857）。
+
+    ## 为什么必须补齐
+
+    已实现盈亏是**阶梯量**：两次卖出之间它一动不动。上一版只在流水日 append，
+    于是「买入一笔 + 卖出各一笔」的标的只得到 2 个点 —— 类别轴上两个类别平分整幅宽度，
+    曲线被画成一条跨半年的斜线：既没有时间感，又暗示「每天都在赚」，属失真呈现。
+
+    ## 为什么补到「今天」而不是最后一个流水日
+
+    这条曲线答的是「至今累计已实现」。末端停在最后一次操作，等于把「之后没再交易」
+    画成「曲线到此结束」——该标的清仓后仍有持仓收益、甚至仍是本轮关注对象，
+    停在最后一笔会让人以为数据断了。补平到今天是同一个数值的延续，不引入新信息。
+
+    ## 补齐只重复前值，绝不插值
+
+    `realized_yuan` / `invested_yuan` 在两次流水之间保持不变（阶梯的平段）。插值会造出
+    「某天赚了一点点」这种不存在的中间态——比不画更坏。前端配 `step: 'end'` 呈现，
+    阶梯的跳变点才落在真实交易日上。
+
+    **两段都要补**：流水日之间（1 月买入 → 3 月卖出，中间两个月不能空缺，否则类别轴
+    仍按点数平分宽度）与最后一笔之后（到今天）。只补末端等于只修一半——第一版就漏了
+    区间内那一段，被 `test_profit_line_daily_staircase` 的「逐日连续」断言当场抓住。
+
+    流水日已晚于 `until`（脏数据 / 未来日期）时，区间内照补、末端不补：
+    倒着补会造出 `until` 之后的多余点。
+    """
+    if not line:
+        return line
+    filled: List[Dict] = []
+    prev_day: Optional[dt.date] = None
+    prev_values: Optional[Dict] = None
+    for point in line:
+        day = dt.date.fromisoformat(point['date'])
+        if prev_day is not None and prev_values is not None:
+            gap_day = prev_day + dt.timedelta(days=1)
+            while gap_day < day:
+                filled.append(
+                    {
+                        'date': gap_day.isoformat(),
+                        'realized_yuan': prev_values['realized_yuan'],
+                        'invested_yuan': prev_values['invested_yuan'],
+                    }
+                )
+                gap_day += dt.timedelta(days=1)
+        filled.append(point)
+        prev_day = day
+        prev_values = point
+
+    if prev_day is None or prev_values is None or prev_day >= until:
+        return filled
+    day = prev_day + dt.timedelta(days=1)
+    while day <= until:
+        filled.append(
+            {
+                'date': day.isoformat(),
+                'realized_yuan': prev_values['realized_yuan'],
+                'invested_yuan': prev_values['invested_yuan'],
+            }
+        )
+        day += dt.timedelta(days=1)
+    return filled
 
 
 def empty_trade_timeline(symbol: str) -> Dict:
@@ -385,6 +454,44 @@ def build_trade_timeline(
         'points': points,
         'cost_line': cost_line,
         'contributions': contributions,
-        'profit_line': profit_line,
+        # #2857：补齐为逐日阶梯（口径与 WHY 见 `_extend_profit_line_daily`）
+        'profit_line': _extend_profit_line_daily(profit_line, today_shanghai()),
         'summary': summary,
+    }
+
+
+def build_contribution_map(
+    db: Session,
+    *,
+    symbol: str,
+    family_id: int,
+    ledger_id: Optional[int] = None,
+) -> Dict[int, Dict[str, Optional[float]]]:
+    """交易 id → 「当时成本 / 收益贡献」两列的映射（#2857）。
+
+    交易记录列表原先靠**第二个请求**（`/api/products/trade-timeline/`）取 contributions，
+    再在前端按 `txn_id ↔ row.id` 关联。这套结构的失效方式是静默的：两个请求各自取数，
+    一个到了、一个没到，界面就只剩一列 `--`，而且没有日志、没有提示——
+    用户无法分辨「本来就空」「请求失败」「关联不上」三者中的哪一种。
+
+    收进主表响应后只剩一次请求、一份口径。代价是该标的流水的一次内存重放
+    （`build_trade_timeline`，与走势卡叠加层同一函数）：本机最长的标的 54 笔买卖 / 百余行
+    流水，远低于任何需要缓存的门槛。
+
+    **仅当调用方按 `symbol` 过滤时才该调用**（账本全量列表逐页重放等于白烧 CPU，
+    且那些页面根本不显示这两列）。
+
+    Returns:
+        `{txn_id: {'cost_after_yuan': ..., 'profit_contribution_yuan': ...}}`。
+        未参与重放的类型（拆分 / 扣税 / 其他 / 无日期）不在映射里——查不到即「无口径」，
+        由调用方落 `None`（前端渲染 `--`），**不要**退回 `0.0`：那会把「没有数据」
+        伪装成「这笔不赚钱」。
+    """
+    timeline = build_trade_timeline(db, symbol=symbol, family_id=family_id, ledger_id=ledger_id)
+    return {
+        row['txn_id']: {
+            'cost_after_yuan': row['cost_after_yuan'],
+            'profit_contribution_yuan': row['profit_contribution_yuan'],
+        }
+        for row in timeline['contributions']
     }
