@@ -31,6 +31,9 @@
            第一行 head-primary 不吸顶（搜索框下滚自动隐藏），第二行
            WatchlistFilterBar 的 .filter-bar 与表格表头经 position:sticky 连续吸顶。 -->
       <CardBlock class="watchlist-card">
+        <!-- 顶部大盘指数条（#watchlist banner）：常驻市场上下文，与下方「我的持仓」汇总条分层 -->
+        <IndexMarketBar />
+
         <WatchlistHeadPrimary
           :toolbar="toolbar"
           :data="data"
@@ -131,6 +134,7 @@ import RealtimeWarningBanner from "@/components/RealtimeWarningBanner/index.vue"
 import WatchlistFilterBar from "@/views/asset/watchlist/WatchlistFilterBar.vue";
 import WatchlistSummaryBar from "@/views/asset/watchlist/WatchlistSummaryBar.vue";
 import WatchlistHeadPrimary from "@/views/asset/watchlist/components/WatchlistHeadPrimary.vue";
+import IndexMarketBar from "@/views/asset/watchlist/components/IndexMarketBar.vue";
 import WatchlistTableSection from "@/views/asset/watchlist/components/WatchlistTableSection.vue";
 import WatchlistTableFooter from "@/views/asset/watchlist/components/WatchlistTableFooter.vue";
 import WatchlistDialogs from "@/views/asset/watchlist/components/WatchlistDialogs.vue";
