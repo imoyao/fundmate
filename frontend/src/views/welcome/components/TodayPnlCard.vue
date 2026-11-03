@@ -131,12 +131,12 @@
       </p>
 
       <p
-        v-if="summary"
+        v-if="netAssets != null || totalLiabilities != null"
         class="today-pnl__foot"
         :style="{ color: 'var(--text-tertiary-ink)' }"
       >
-        家庭净资产 {{ formatted(summary.net_assets_cny) }} · 家庭总负债
-        {{ formatted(summary.total_liabilities_cny) }}
+        家庭净资产 {{ formatted(netAssets) }} · 家庭总负债
+        {{ formatted(totalLiabilities) }}
       </p>
     </div>
   </CardBlock>
@@ -148,7 +148,6 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import { useTweenNumber } from "@/composables/useTweenNumber";
-import type { SummaryData } from "@/api/types";
 import type { TodayPnlClass, TodayPnlData } from "@/api/summary";
 
 defineOptions({ name: "TodayPnlCard" });
@@ -159,8 +158,10 @@ const props = defineProps<{
   subtitle: string;
   loading: boolean;
   error: boolean;
-  /** 家庭净资产 / 总负债（底注；与卡内「投资类资产」是两层刻度） */
-  summary: SummaryData | null;
+  /** 家庭净资产（底注；与卡内「投资类资产」是两层刻度）——直出字段，前端不二次算 */
+  netAssets: number | null;
+  /** 家庭总负债（同上） */
+  totalLiabilities: number | null;
 }>();
 
 const emit = defineEmits<{ retry: [] }>();

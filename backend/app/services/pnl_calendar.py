@@ -1133,7 +1133,6 @@ def _compute_days(
     day_class_present: Dict[str, int] = {}
     day_estimated_classes: set = set()
 
-
     # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
 
@@ -1191,9 +1190,7 @@ def _compute_days(
             if held_shares <= 0:
                 continue
             # #2141：该持仓当日价来自估值定格（merge 后 series[today] 即估值行）
-            used_estimate = bool(
-                day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes
-            )
+            used_estimate = bool(day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes)
             if used_estimate:
                 day_uses_estimate = True
             market_value = Money.multiply_price_quantity(price, held_shares)
@@ -1535,9 +1532,7 @@ def _compute_days(
                     'pnl': {
                         c: 0
                         if forced_zero
-                        else day_class_level.get(c, 0)
-                        - prev_class_level.get(c, 0)
-                        - day_class_opening_level.get(c, 0)
+                        else day_class_level.get(c, 0) - prev_class_level.get(c, 0) - day_class_opening_level.get(c, 0)
                         for c in CLASS_ORDER
                     },
                     'mv': {c: day_class_mv.get(c, 0) for c in CLASS_ORDER},

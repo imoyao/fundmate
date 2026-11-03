@@ -23,7 +23,8 @@
         :subtitle="subtitle"
         :loading="loading"
         :error="error"
-        :summary="summary"
+        :net-assets="netAssets"
+        :total-liabilities="totalLiabilities"
         @retry="onRetry"
       />
 
@@ -41,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import type { SummaryData } from "@/api/types";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -49,13 +51,20 @@ import { useTodayPnl } from "../composables/useTodayPnl";
 
 defineOptions({ name: "WelcomeAssetBoard" });
 
-defineProps<{
+const props = defineProps<{
   summary: SummaryData | null;
   /** 汇总请求失败（#1832）：底注降级 + 一句说明，不显示 ¥0 */
   summaryError?: boolean;
 }>();
 
 const emit = defineEmits<{ retry: [] }>();
+
+// #119 修法 A：净资产 / 总负债一律取 `/api/summary/` 直出字段，
+// 前端**不做** `总资产 − 总负债` 的二次计算（本组件曾是这条判据的落点）。
+const netAssets = computed(() => props.summary?.net_assets_cny ?? null);
+const totalLiabilities = computed(
+  () => props.summary?.total_liabilities_cny ?? null
+);
 
 const { view, loading, error, subtitle, refresh } = useTodayPnl();
 
