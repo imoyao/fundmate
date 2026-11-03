@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""申万行业行情改走申万宏源官网（非东财）—— #1431。"""
+"""申万行业行情改走申万宏源官网（非东财）—— #1431。
+
+归属：被测模块 ``services/adapters/direct_feeds`` 2026-10-01 已从 bias 家族上提到
+adapters（跨家族共享），本文件 2026-11-03 随之从 ``tests/services/bias/`` 归位，
+与腾讯/国证两份直连测试同目录（测试树镜像源码树）。
+"""
 
 import pandas as pd
 

@@ -199,13 +199,15 @@ export interface IndexWeightRow {
 }
 
 /** 指数十大权重 + 前十大集中度（`/api/products/index-weights/`，#2278）。
- * 源 = akshare 中证权重接口（月频）；接口失败/码族不适用 → `top10: []` 且
- * 其余字段 null，前端整块降级「—」。 */
+ * 源 = 中证权重接口（月频）优先，口径不覆盖时回退国证官网；接口失败/两路都不
+ * 覆盖 → `top10: []` 且其余字段 null，前端整块降级「—」。 */
 export interface IndexWeightsResult {
   index_code: string;
   /** 权重数据日期 YYYY-MM-DD（月频，须在前端标注口径）；无数据为 null */
   as_of: string | null;
   frequency: string;
+  /** 权重来源（口径标注用）：`csindex` 中证 / `cni` 国证 / null 无数据 */
+  source: string | null;
   /** 成分股总数（如光伏产业 50 只） */
   constituent_count: number;
   total_weight: number | null;
