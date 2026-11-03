@@ -286,6 +286,57 @@ def test_weights_degrade_on_error_and_empty(monkeypatch):
     assert data['as_of'] is None
 
 
+def _capture_log_levels(monkeypatch) -> list:
+    """替换 im.logger，记录调用过的日志级别（验证降噪没有连真故障一起吞掉）。"""
+    levels: list = []
+
+    class _Recorder:
+        def debug(self, msg):
+            levels.append('debug')
+
+        def warning(self, msg):
+            levels.append('warning')
+
+    monkeypatch.setattr(im, 'logger', _Recorder())
+    return levels
+
+
+def test_weights_scope_miss_logs_debug_not_warning(monkeypatch):
+    """中证口径外（深证/国证系）是「不适用」而非故障：记 debug，不报 WARNING。
+
+    399006 的真实表现：中证官网无该指数权重文件 → 返回 HTML 404 → akshare 内部
+    pandas 抛「Excel file format cannot be determined」。
+    """
+    _seed_catalog_row()
+    # 独立缓存：避免命中同码既有的权重缓存而根本不进 _compute
+    monkeypatch.setattr(im, '_METRICS_CACHE', CacheService(namespace='index_detail_scope_miss'))
+    levels = _capture_log_levels(monkeypatch)
+    _patch_akshare(
+        monkeypatch,
+        exc=ValueError('Excel file format cannot be determined, you must specify an engine manually.'),
+    )
+
+    with closing(market_session_factory()()) as db:
+        data = build_index_weights(db, '931151')
+
+    assert data['top10'] == []
+    assert data['constituent_count'] == 0
+    assert levels == ['debug']
+
+
+def test_weights_real_failure_still_warns(monkeypatch):
+    """真故障（网络 / 解析）仍报 WARNING，不能被降噪一起吞掉。"""
+    _seed_catalog_row()
+    monkeypatch.setattr(im, '_METRICS_CACHE', CacheService(namespace='index_detail_real_fail'))
+    levels = _capture_log_levels(monkeypatch)
+    _patch_akshare(monkeypatch, exc=RuntimeError('network down'))
+
+    with closing(market_session_factory()()) as db:
+        assert build_index_weights(db, '931151')['top10'] == []
+
+    assert levels == ['warning']
+
+
 def test_weights_cached(monkeypatch):
     """月频数据 TTL 24h：同码两次构建只调一次 akshare。"""
     _seed_catalog_row()

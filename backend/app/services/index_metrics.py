@@ -21,6 +21,12 @@
 权重走 akshare ``index_stock_cons_weight_csindex``（月频，实测 931151 → 50 行、
 权重合计恰为 100.0；⚠️ ``ak.index_csindex`` 在 akshare 1.18.91 已不存在，不可用）。
 
+⚠️ 权重**只覆盖中证系列**（2026-11-03 实测）：深证/国证系（399001 深证成指、
+399006 创业板指、899xxx 等）在中证官网没有权重文件，返回的是 HTML 404，pandas
+读它时抛「Excel file format cannot be determined」。名录 4100 只里约 2370 只
+（58%）属此类，属于**数据源不覆盖**而非抓取故障——由 ``_is_weight_scope_miss``
+识别后按 debug 记录并降级空形态；其余异常仍报 WARNING。
+
 缓存：进程内 + 文件两级（``CacheService``，与温度计同一基建）。收益日线 1h、
 权重月频 24h。**无数据（两路全空 / 权重接口不适用）也进缓存**——负结果同样
 避免同一指数每次打开都白打外部请求；网络级故障由底层 best-effort 吞掉后同样
@@ -265,6 +271,24 @@ def _empty_weights(code: str) -> Dict[str, Any]:
     }
 
 
+def _is_weight_scope_miss(exc: Exception) -> bool:
+    """判断异常是「码族不在中证权重口径内」，而不是抓取故障。
+
+    WHY（2026-11-03 实测）：权重源是中证官网的月度 Excel，**只发布中证系列**。
+    深证/国证系（399001 深证成指、399006 创业板指、899xxx 北证等）在中证官网
+    没有对应文件，返回的是 HTML 404 页面，akshare 内部 pandas 读它时抛
+    ``ValueError: Excel file format cannot be determined``。
+
+    这不是「抓取失败」：名录 4100 只里约 58% 属此类（实测 2370 只）。原先把它们
+    一律记 WARNING，等于把「数据源不覆盖」当故障报警——每码每 24h 一条，既误导
+    排查方向，也让真正的网络/解析故障淹没在噪音里。
+
+    用错误特征而不是码族白名单判断：名录的 ``source`` / ``publisher`` 存在 NULL
+    （sina 转发源无法权威判定发布方），按前缀猜码族会误伤 000xxx 里的非中证指数。
+    """
+    return isinstance(exc, ValueError) and 'Excel file format' in str(exc)
+
+
 # ── 编排层：名录 + 缓存 + 抓取 ──────────────────────────────────────────
 def build_index_returns(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
     """阶段性收益 + 年化波动率（详情页指数区块，TTL 缓存）。
@@ -305,7 +329,11 @@ def build_index_weights(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
             ak = get_akshare()
             df = ak.index_stock_cons_weight_csindex(symbol=code)
         except Exception as e:  # noqa: BLE001 - 外部接口失败不阻断详情页
-            logger.warning(f'指数权重抓取失败 code={code}: {e}')
+            if _is_weight_scope_miss(e):
+                # 口径不覆盖 ≠ 故障，降级为 debug（详见 _is_weight_scope_miss）
+                logger.debug(f'指数权重不适用（非中证口径） code={code}')
+            else:
+                logger.warning(f'指数权重抓取失败 code={code}: {e}')
             return _empty_weights(code)
         if df is None or getattr(df, 'empty', True):
             return _empty_weights(code)
