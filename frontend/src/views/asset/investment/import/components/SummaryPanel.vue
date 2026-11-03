@@ -28,6 +28,8 @@ const {
   fixBreakdown,
   completeTransferCount,
   selectedLedgerLinkedCash,
+  transferRowsAllSelected,
+  toggleAllTransferRows,
   allRowsDuplicate,
   tableStatusFilter,
   isCategoryExpanded,
@@ -156,6 +158,19 @@ const cardCheckStates = computed(() => ({
           :class="{ 'ov-note--warn': transferNote.warn }"
           >{{ transferNote.text }}</span
         >
+        <!-- #2838：一行「含 131 条银证转账」却要逐条点勾，等于把活推回给用户。
+             未关联现金账户时（warn 态）不出按钮——那些行本就不可勾。
+             作用域与左边这个数字同源（见 toggleAllTransferRows）。 -->
+        <el-button
+          v-if="transferNote && !transferNote.warn"
+          class="ov-note-action"
+          size="small"
+          link
+          type="primary"
+          @click="toggleAllTransferRows"
+        >
+          {{ transferRowsAllSelected ? "全部取消" : "全部勾选" }}
+        </el-button>
       </div>
 
       <!-- 等式行：把这个胶囊条数由什么构成直接写出来，替代旧版卡片内 chips + 用户自己加的算式 -->
@@ -276,6 +291,13 @@ const cardCheckStates = computed(() => ({
 .ov-note--warn {
   color: var(--color-warning-ink);
   background: var(--color-warning-20);
+}
+
+/* 转账行批量勾选：跟在提示胶囊后面，做成同一条句子的一部分（不留独立按钮的边框感） */
+.ov-note-action {
+  height: auto;
+  padding: 0 2px;
+  font-size: var(--text-label);
 }
 
 /* ── 等式行 ── */

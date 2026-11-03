@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import { visibleSourceOp } from "../composables/sourceOpText";
 
 const props = defineProps<{ row: any }>();
 
@@ -20,6 +21,12 @@ const showTypeTag = computed(() => {
   if (!r.display_type) return false;
   return r.type === "fund" || Boolean(r.is_merged);
 });
+
+/**
+ * 券商原文（`notes`）只在它带来新信息时才显示（判据见 composables/sourceOpText.ts）。
+ * 「证券买入」这类与操作列重复的写法直接不渲染——它挤掉的是产品列里更该被看见的东西。
+ */
+const srcOp = computed(() => visibleSourceOp(props.row));
 </script>
 
 <template>
@@ -34,11 +41,14 @@ const showTypeTag = computed(() => {
         class="type-tag-inline"
         >{{ row.display_type }}
       </el-tag>
-      <!-- 备注列已并入本行（2026-11-02 换列给手续费让位）：空间不足时由备注先让出，
-           代码保持完整，hover 看全文 -->
-      <span v-if="row.notes" class="product-notes" :title="row.notes">{{
-        row.notes
-      }}</span>
+      <!-- 券商原文（2026-11-02 备注列并入本行；#2838 起与操作列重复时不显示）：
+           只在它说出了操作列没说的东西时出现，hover 说明这是原文、会被写进备注 -->
+      <span
+        v-if="srcOp"
+        class="product-notes"
+        :title="`券商原文：${row.notes}（会写进该笔流水的备注）`"
+        >{{ srcOp }}</span
+      >
     </div>
   </div>
 </template>

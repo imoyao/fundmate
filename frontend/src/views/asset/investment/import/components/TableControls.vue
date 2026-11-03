@@ -11,8 +11,6 @@ const {
   duplicatesHandled,
   hiddenSelectedDuplicateCount,
   deselectAllDuplicates,
-  toggleFullTable,
-  showFullTable,
   summaryCounts,
   fixBreakdown,
   showFixPanel,
@@ -99,7 +97,7 @@ const showHelp = ref(false);
             :disabled="!showProblemOnly"
             @click="deselectAllDuplicates"
           >
-            {{ duplicatesHandled ? "恢复查看重复行" : "取消显示重复行" }}
+            {{ duplicatesHandled ? "显示重复行" : "隐藏重复行" }}
           </el-button>
         </span>
       </el-tooltip>
@@ -107,7 +105,7 @@ const showHelp = ref(false);
            避免「看不见自己要导什么」；仅在问题视图成立（全部数据视图下重复行本就可见） -->
       <el-tooltip
         v-if="showProblemOnly && hiddenSelectedDuplicateCount > 0"
-        content="这些行不出现在当前视图，但会随「已选择」一起导入；点「恢复查看重复行」可重新显示并核对"
+        content="这些行不出现在当前视图，但会随「已选择」一起导入；点「显示重复行」可重新显示并核对"
         placement="bottom"
       >
         <el-tag type="warning" size="small" class="hidden-selected-hint">
@@ -129,21 +127,10 @@ const showHelp = ref(false);
           <span class="fix-count">{{ fixCount }}</span>
         </el-button>
       </el-tooltip>
-      <el-tooltip
-        :content="
-          showFullTable
-            ? '把表格折叠起来，只留筛选条（需要再看时随时展开）'
-            : '展开表格，回到完整列表'
-        "
-        placement="bottom"
-      >
-        <el-button link @click="toggleFullTable">
-          <IconifyIconOffline
-            :icon="showFullTable ? 'ep:arrow-up' : 'ep:arrow-down'"
-          />
-          {{ showFullTable ? "折叠表格" : "展开表格" }}
-        </el-button>
-      </el-tooltip>
+      <!-- #2838：原「折叠表格 / 展开表格」按钮已移除。折叠只是把表格 v-show 掉，
+           释放出来的高度没有任何消费者（.step3-right 仍 flex:1 占满），视觉结果
+           是一块同尺寸空白；且折叠后底栏照样可「确认导入 N 条」，用户反而看不见
+           自己要导什么。表格看更多行由内滚 + 分页解决。 -->
       <!-- 操作说明与行色图例：首次进入才需要，从常驻两行（约 40px）收进「?」
            （2026-11-02）。概览条的语义色点已替代「哪类数据」的图例，这里只留
            行级高亮与编辑快捷键两件表格内才知道的事 -->

@@ -192,7 +192,7 @@ describe("概览条等式与筛选复位", () => {
     expect(c.complete + c.duplicate + c.fix).toBe(w.previewData.value.length);
   });
 
-  it("「全部」胶囊清空类别筛选并保证表格可见", () => {
+  it("「全部」胶囊清空类别筛选", () => {
     const w = setup(mixedRows());
     w.toggleCategoryFilter("complete");
     expect(w.tableStatusFilter.value).toBe("complete");
@@ -200,6 +200,7 @@ describe("概览条等式与筛选复位", () => {
     w.expandAllData();
 
     expect(w.tableStatusFilter.value).toBe("");
-    expect(w.showFullTable.value).toBe(true);
+    // 表格常驻（折叠按钮 2026-11-03 移除），这里只需确认筛选回退到全量
+    expect(w.showProblemOnly.value).toBe(false);
   });
 });

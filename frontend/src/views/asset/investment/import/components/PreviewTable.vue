@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import TableControls from "./TableControls.vue";
 import RowSelectionCell from "./RowSelectionCell.vue";
@@ -18,7 +17,6 @@ const {
   isIndeterminate,
   handleHeaderCheckboxChange,
   tableColumns,
-  showFullTable,
   currentPage,
   pageSize,
   filteredTotal,
@@ -31,27 +29,6 @@ const {
   isFeeExplained,
   feeDiffOf
 } = useImportWizardContext();
-
-/**
- * 表格滚动宿主的 DOM 引用。
- * 折叠（showFullTable=false）只会 v-show 内层表格，宿主自身仍在——但内容高度塌陷后
- * 浏览器会把 scrollTop clamp 回 0，靠 CSS 保不住位置，必须显式记录/还原（#783 §6.5）。
- */
-const scrollHostRef = ref<HTMLElement | null>(null);
-/** 折叠那一刻的滚动位置，展开时还原 */
-let savedScrollTop = 0;
-
-watch(showFullTable, (visible, wasVisible) => {
-  if (wasVisible && !visible) {
-    savedScrollTop = scrollHostRef.value?.scrollTop ?? 0;
-    return;
-  }
-  if (!wasVisible && visible) {
-    void nextTick(() => {
-      if (scrollHostRef.value) scrollHostRef.value.scrollTop = savedScrollTop;
-    });
-  }
-});
 
 /**
  * 金额列提示文案（#1790 列收敛下不新增手续费列，解释线索挂 tooltip）。
@@ -82,10 +59,10 @@ function missingField(row: any): "quantity" | "price" | null {
 </script>
 
 <template>
-  <div ref="scrollHostRef" class="step3-right">
+  <div class="step3-right">
     <TableControls />
 
-    <div v-show="showFullTable" class="table-wrapper">
+    <div class="table-wrapper">
       <el-table
         :data="filteredPagedData"
         row-key="_rowKey"
@@ -148,7 +125,10 @@ function missingField(row: any): "quantity" | "price" | null {
             <AllocationSelect :row="row" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <!-- #2838：表头与行操作都靠右（align="right" + flex-end）。原先表头居中、单元格
+             内容居中，行操作只有「忽略」一个按钮时会孤零零浮在 120px 列的正中；多一个
+             「补全」又整体左移，扫视时像没对齐。两边钉同一条右边缘后，位置与按钮个数无关。 -->
+        <el-table-column label="操作" width="120" align="right" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button
@@ -223,13 +203,23 @@ function missingField(row: any): "quantity" | "price" | null {
   white-space: nowrap;
 }
 
-/* 操作列：默认低存在感，hover 整行时浮现（design.md「表格禁止每行常驻操作按钮」例外操作列） */
+/* 操作列：默认低存在感，hover 整行时浮现（design.md「表格禁止每行常驻操作按钮」例外操作列）。
+   右对齐而非居中（#2838）：行操作有两个（补全 / 忽略），只有「忽略」时居中会让它在
+   120px 列里孤零零浮在中间、且同一列内 x 位置随按钮个数跳动——扫视时像没对齐。
+   固定贴右后，忽略的位置与有没有补全无关。 */
 .row-actions {
   display: flex;
   gap: 8px;
-  justify-content: center;
+  align-items: center;
+  justify-content: flex-end;
   opacity: 0;
   transition: opacity 0.15s;
+}
+
+/* Element Plus 给相邻按钮加了 margin-left: 12px，与 gap 叠加会变成 20px 的不等距；
+   这里统一交给 gap 管 */
+.row-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .el-table__row:hover .row-actions,
