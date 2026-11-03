@@ -54,6 +54,7 @@ from app.core.migrations import (
     migrate_positions_symbol_norm,
     migrate_transaction_fee_breakdown,
     migrate_transaction_plan_id,
+    migrate_transaction_symbol_from_position,
     migrate_transactions_symbol_norm,
     migrate_users_username_unique_lower,
     migrate_watchlist_family_scoped_unique_key,
@@ -660,6 +661,10 @@ def init_db():
     # positions 做了这件事，流水侧被漏掉，导致 `SZ001937` 与 `001937` 各算各的。
     # 与 positions 同因同法，须先于结构校验（模型已加列，库表不同步会拒绝启动）。
     migrate_transactions_symbol_norm(user_eng)
+    # transactions.symbol 按持仓回填（#2855）：卖出/分红/拆分写路径曾漏带 symbol，
+    # 挂了持仓却落 NULL ⇒ 按 symbol 匹配的读侧（产品详情交易记录 / 清仓周期）看不见
+    # 这些行。真源 = position_id 指向的持仓；悬空的保持原样。幂等，依赖 symbol_norm 列。
+    migrate_transaction_symbol_from_position(user_eng)
     # watchlist 三表补模型列（#2469）：生产 user 域（Supabase Postgres）上的
     # watchlist_groups / watchlist_item_tags 是旧结构，缺列会让 _validate_schema
     # 判「库结构与模型不一致」并**拒绝启动** → 每日调度（#1490）全线停摆。
@@ -794,6 +799,8 @@ def init_db_split():
         migrate_transaction_plan_id(user_eng)
         # transactions.symbol_norm + asset_type 回填（#1662 遗留项）：与单库模式同口径
         migrate_transactions_symbol_norm(user_eng)
+        # transactions.symbol 按持仓回填（#2855）：与单库模式同口径，幂等
+        migrate_transaction_symbol_from_position(user_eng)
         # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
         # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
         migrate_watchlist_user_domain_columns(user_eng)
