@@ -70,7 +70,7 @@ from app.core.time_utils import today_shanghai
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
-from app.services.price_depth import desired_start, first_transaction_dates
+from app.services.price_depth import desired_start, first_transaction_dates, held_symbols
 
 # 全量 / 重算窗口的起点下限：A 股最早 1990 年开市，用它表达「要全部历史」。
 # 不用 None——`fetch_stock_price(start_date=None)` 会退化成「近 365 天」，
@@ -355,7 +355,13 @@ class PriceHistorySyncJob(SyncJob):
         if targets:
             symbols = [s for s in targets if s]
         else:
-            symbols = [r[0] for r in self.db.query(PriceHistory.symbol).distinct().all() if r[0]]
+            # 默认目标 = 库里已有行情的标的 ∪ 流水里出现过的场内标的（#2859）。
+            # 只取前者会**恰好漏掉最需要补的那批**：零行标的的 stored_first 是 None，
+            # 在下面的计划里必然入选，但只要不在 symbols 里就一条请求都发不出去。
+            # 本机实测 143 个场内标的零行情，其中 136 个不在同步池。
+            symbols = {r[0] for r in self.db.query(PriceHistory.symbol).distinct().all() if r[0]}
+            symbols |= set(held_symbols(self.db))
+            symbols = sorted(symbols)
 
         sec_map = self._get_security_map(symbols)
         stored_first = self._load_first_stored_dates(list(sec_map.keys()))

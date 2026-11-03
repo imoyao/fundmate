@@ -35,6 +35,7 @@ from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
 from app.services import pnl_snapshot_store
+from app.services.price_depth import held_symbols
 from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
@@ -469,12 +470,13 @@ class DataSyncOrchestrator:
 
     def _load_codes_from_database(self) -> List[str]:
         """
-        从数据库的持仓表和自选表中提取所有需要同步的代码。
+        从数据库的持仓表、自选表、以及历史流水里提取所有需要同步的代码。
         合并去重后返回。
 
         数据来源:
-            - positions 表：用户实际持有的基金/股票
+            - positions 表：用户实际持有的基金/股票（含已清仓行，见 #2773）
             - watchlist_items 表：用户关注但未持有的标的
+            - transactions 表：**持有过**的场内标的（#2859）
         """
 
         codes = set()
@@ -494,6 +496,17 @@ class DataSyncOrchestrator:
         for (symbol,) in watchlist:
             if symbol:
                 codes.add(symbol)
+
+        # 持有过、但持仓行已经不在了的场内标的（#2859）
+        #
+        # WHY：前两个来源都是**当前**的行。#2343（2026-10-18）之前清仓走的是
+        # `db.delete(position)`，行被物理删除；流水不级联、仍在库里，于是标的
+        # 两张表都不在 ⇒ 永远进不了同步 ⇒ 永远零行情，产品详情页是空图。
+        # 本机实测 143 个场内标的零行情、其中 136 个不在池，637 条流水 position_id
+        # 悬空。真相源取流水（清仓周期页同源），口径见 price_depth.held_symbols。
+        # 守卫：tests/services/sync/test_sync_pool_includes_held.py
+        for symbol in held_symbols(self.db):
+            codes.add(symbol)
 
         logger.info(f'从数据库提取到 {len(codes)} 个目标代码')
         return list(codes)
