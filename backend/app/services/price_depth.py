@@ -38,12 +38,19 @@ from loguru import logger
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.core.constants import CASH_SYMBOL
 from app.core.symbol_utils import symbol_identity
 from app.domains.transactions.models import Transaction
 from app.services.job_base import IN_CHUNK_SIZE
 
 # 首笔流水日往前的缓冲（天）。理由见模块 docstring。
 FIRST_TXN_BUFFER_DAYS = 14
+
+# 走交易所行情（`price_history`）的资产类型。
+# 用**白名单**而不是 `EXCLUDED_ASSET_TYPES` 的补集：后者会把 manager / portfolio /
+# index / bank_wealth 一并放进来，而这些同样没有连续行情。场外基金（fund）走净值
+# （funds / daily_worth），逆回购（reverse_repo）与现金（cash）没有行情。
+HELD_EXCHANGE_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond')
 
 # 无流水标的的保底历史年数，**对齐走势卡最长档位 5Y**（`useProductTrend.ts`
 # 的 RANGE_BASE_OPTIONS）。新增更长档位时同步改这里，否则新档位对老标的一律降级。
@@ -68,6 +75,52 @@ def desired_start(first_txn: Optional[dt.date], today: dt.date) -> dt.date:
     if first_txn is None:
         return floor
     return min(first_txn - dt.timedelta(days=FIRST_TXN_BUFFER_DAYS), floor)
+
+
+# ── 谁需要行情：「持有过」的真相源是流水，不是持仓行 ──────────────────────
+
+
+def held_symbols(db: Session) -> list[str]:
+    """流水里出现过的场内标的（含已清仓、含持仓行已被物理删除的历史遗留）。
+
+    ## 为什么不能只认 positions ∪ watchlist
+
+    同步目标池此前只取这两张表（`sync/orchestrator._load_codes_from_database`）。
+    而 #2343（2026-10-18）之前清仓走的是 `db.delete(position)`：持仓行连同它的
+    symbol 一起消失，流水因为不级联还在库里。于是标的**两张表都不在** ⇒ 永远
+    进不了同步 ⇒ 永远零行情，产品详情页是空图（用户读成「数据丢了」）。
+
+    本机实测（2026-11-03，`invest.db`）：流水里 213 个场内标的，143 个零行情，
+    其中 **136 个不在池**；**637 条流水的 `position_id` 已悬空**（指向不存在的
+    持仓行）——这就是「清仓删行」留下的疤，也是「明明买过却查不到行情」的根。
+
+    ## 为什么真相源是流水，而不是「补建持仓行」
+
+    清仓周期（`analytics/cleared_cycles.py`）本来就从流水现算、不依赖持仓行；
+    补行则要多决定账本归属、快照锚点与 `uq_positions_ledger_symbol` 唯一约束，
+    风险远大于收益。「我买过它」这件事，流水是唯一不会丢的证据。
+
+    ## 为什么是白名单
+
+    见 `HELD_EXCHANGE_ASSET_TYPES`：场外基金走净值、逆回购/现金没有行情，
+    用「排除 EXCLUDED_ASSET_TYPES」的补集会放进没有行情的 manager/portfolio。
+
+    Returns:
+        去重后的 `transactions.symbol` 字面量（场内带交易所前缀，与
+        `price_history.symbol` 同形态）；空串与 `__CASH__` 已排除。
+    """
+    rows = (
+        db.query(Transaction.symbol)
+        .filter(
+            Transaction.symbol.isnot(None),
+            Transaction.symbol != '',
+            Transaction.symbol != CASH_SYMBOL,
+            Transaction.asset_type.in_(HELD_EXCHANGE_ASSET_TYPES),
+        )
+        .distinct()
+        .all()
+    )
+    return [s for (s,) in rows if s]
 
 
 def _as_date(value) -> Optional[dt.date]:

@@ -70,7 +70,7 @@ from app.core.time_utils import today_shanghai
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
-from app.services.price_depth import desired_start, first_transaction_dates
+from app.services.price_depth import desired_start, first_transaction_dates, held_symbols
 
 # 全量 / 重算窗口的起点下限：A 股最早 1990 年开市，用它表达「要全部历史」。
 # 不用 None——`fetch_stock_price(start_date=None)` 会退化成「近 365 天」，
@@ -333,7 +333,9 @@ class PriceHistorySyncJob(SyncJob):
         锚点，会在除权日凭空多出一段涨跌（#2464 的实测 -5.235pp）。
 
         Returns:
-            `{planned, deepened, skipped, rows_added, empty, details}`；
+            `{planned, deepened, skipped, rows_added, empty, unlisted, details}`；
+            `unlisted` 是「在目标里但 securities 名录查不到」的标的（这些不会被发请求，
+            扩池后仍零行情——可见比修名录便宜，名录归 stock_list）；
             `details` 逐标的给出 `{symbol, stored_first, target_start, achieved_first, rows_added}`，
             `achieved_first` 仍晚于 `target_start` 说明**源侧已到底**（上市晚 / 已退市）。
 
@@ -355,9 +357,22 @@ class PriceHistorySyncJob(SyncJob):
         if targets:
             symbols = [s for s in targets if s]
         else:
-            symbols = [r[0] for r in self.db.query(PriceHistory.symbol).distinct().all() if r[0]]
+            # 默认目标 = 库里已有行情的标的 ∪ 流水里出现过的场内标的（#2859）。
+            # 只取前者会**恰好漏掉最需要补的那批**：零行标的的 stored_first 是 None，
+            # 在下面的计划里必然入选，但只要不在 symbols 里就一条请求都发不出去。
+            # 本机实测 143 个场内标的零行情，其中 136 个不在同步池。
+            symbols = {r[0] for r in self.db.query(PriceHistory.symbol).distinct().all() if r[0]}
+            symbols |= set(held_symbols(self.db))
+            symbols = sorted(symbols)
 
         sec_map = self._get_security_map(symbols)
+        # 名录缺失的标会被 `_get_security_map` **静默丢掉**（它只返回 securities 里有的），
+        # 于是扩池后仍然零行情，且日志里看不出少了几只。本机实测（#2859）：流水里 8 个
+        # LOF（SH501018 / SZ162411 / SZ162719 …）不在 securities，深度回补永远跳过它们。
+        # 不修名录（那是 stock_list 的活），但必须让它可见。
+        unlisted = sorted(s for s in symbols if s not in sec_map)
+        if unlisted:
+            logger.warning(f'行情加深：{len(unlisted)} 个标的在 securities 名录里查不到，已跳过：{unlisted[:10]}')
         stored_first = self._load_first_stored_dates(list(sec_map.keys()))
         txn_map = first_transaction_dates(self.db, list(sec_map.keys()))
 
@@ -375,6 +390,7 @@ class PriceHistorySyncJob(SyncJob):
             'skipped': len(sec_map) - len(plan),
             'rows_added': 0,
             'empty': list(),
+            'unlisted': unlisted,
             'details': list(),
         }
         logger.info(f'行情加深：{len(sec_map)} 个标的中 {len(plan)} 个库内起点晚于应有起点')

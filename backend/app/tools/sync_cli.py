@@ -188,8 +188,13 @@ def cmd_deepen(args):
             )
         logger.info(
             f'加深完成：计划 {result["planned"]}，已完成 {result["deepened"]}，'
-            f'无需处理 {result["skipped"]}，新增 {result["rows_added"]} 行，取回 0 行 {len(result["empty"])}'
+            f'无需处理 {result["skipped"]}，新增 {result["rows_added"]} 行，取回 0 行 {len(result["empty"])}，'
+            f'名录缺失 {len(result["unlisted"])}'
         )
+        if result['unlisted']:
+            # 名录缺失 = securities 里查不到，`_get_security_map` 会静默跳过 ⇒ 不发请求。
+            # 别让它只在日志里一闪：扩池后仍然零行情的标的必须能被解释（#2859）。
+            logger.warning(f'  名录缺失（不会发请求，需先补 securities）: {result["unlisted"]}')
         if result['empty']:
             # 不非 0 退出：这类标的多为停牌 / 已退市，对任何窗口都取不到（本机实测
             # SH601198 / SZ000003 / SZ000013 换窗口也是 0 行）。把它们算作失败会让

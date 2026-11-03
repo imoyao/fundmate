@@ -133,6 +133,35 @@ class TestDeepenPlan:
         assert [d['symbol'] for d in result['details']] == ['SH600519']
         assert result['details'][0]['target_start'] == BASELINE
 
+    def test_zero_row_symbol_from_transactions_is_planned(self, job, db):
+        """有流水但**零行情**的标的必须进 deepen 的默认目标（#2859）。
+
+        它没有 `PriceHistory` 行，而此前的默认 targets 只取
+        `price_history` 里已有的 symbol ⇒ 这条恰恰是最需要补的，却连一条请求
+        都发不出去（清仓后持仓行被删的那批就是此形态）。
+        """
+        _security(db, 'SH110074', sec_type='bond')
+        _txn(db, 'SH110074', date(2023, 5, 10), asset_type='bond')
+
+        result = job.deepen(dry_run=True)
+
+        assert [d['symbol'] for d in result['details']] == ['SH110074']
+        assert result['details'][0]['stored_first'] is None
+        assert result['details'][0]['target_start'] == BASELINE
+
+    def test_symbol_missing_from_securities_is_reported_not_silent(self, job, db):
+        """流水里有、securities 名录里没有的标的必须出现在 `unlisted`（#2859）。
+
+        `_get_security_map` 只返回 securities 里查得到的，查不到的**静默丢弃** ⇒
+        扩池后依然零行情，而日志里看不出少了几只。本机实测 8 个 LOF 即此形态。
+        """
+        _txn(db, 'SH501018', date(2023, 5, 10), asset_type='stock')  # 刻意不建 Security
+
+        result = job.deepen(dry_run=True)
+
+        assert result['unlisted'] == ['SH501018']
+        assert result['details'] == []
+
     def test_no_plan_when_everything_is_covered(self, job, db):
         sec = _security(db, 'SH600519')
         _price(db, sec.id, 'SH600519', date(2020, 1, 5))
