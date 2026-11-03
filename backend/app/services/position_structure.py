@@ -56,19 +56,12 @@ from sqlalchemy.orm import Session
 from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
+from app.services.asset_class import CLASS_LABELS, CLASS_ORDER, class_of_asset_type
 from app.services.fund_utils import is_cash_equivalent_position
 from app.services.position_valuation import market_value_cents
 from app.services.scope import filter_positions_by_scope
 from app.services.summary_service import _load_user_assets
 
-# 资产类别归属：股票 / 基金（含 ETF）/ 其他
-_CLASS_OF = {
-    'stock': 'stock',
-    'fund': 'fund',
-    'etf': 'fund',
-}
-CLASS_LABELS = {'stock': '股票', 'fund': '基金', 'other': '其他'}
-CLASS_ORDER = ('stock', 'fund', 'other')
 MAX_TOP_N = 50
 
 # 账户类型 → 该账户的唯一视角（#2739）。
@@ -83,7 +76,8 @@ _LEDGER_TYPE_VIEW = {
 
 
 def _class_of(asset_type: Optional[str]) -> str:
-    return _CLASS_OF.get((asset_type or '').lower(), 'other')
+    """大类归属的唯一出口在 `services.asset_class`（首页当日收益卡共用同一套分桶）。"""
+    return class_of_asset_type(asset_type)
 
 
 def _ratio(part_cents: int, whole_cents: int) -> Optional[float]:

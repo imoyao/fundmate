@@ -15,13 +15,15 @@
       :current-home-message="currentHomeMessage"
     />
 
-    <!-- ===== 第一排：核心资产看板 + 收益趋势（饼图在子组件内，数据就绪后由本页触发首绘） ===== -->
+    <!-- ===== 第一排：最新收益卡（2026-11-03 用户拍板：hero 换成当日收益） ===== -->
     <!-- #2034：不再透传 distributions——首页资产看板的结构环形图已移除，
-         结构拆解归资产总览（见 page-split-welcome-vs-panorama-2026-08-13.md）。 -->
+         结构拆解归资产总览（见 page-split-welcome-vs-panorama-2026-08-13.md）。
+         当日收益的数据由卡片自己取（`/api/summary/today-pnl/`），summary 只提供
+         底注的家庭净资产 / 总负债——两层刻度分开取，互不阻塞。 -->
     <WelcomeAssetBoard
       ref="assetBoardRef"
       :summary="summary"
-      :error="summaryError"
+      :summary-error="summaryError"
       @retry="onRetryAsset"
     />
 

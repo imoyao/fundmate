@@ -825,6 +825,75 @@ export function getFundValuation(params?: {
   );
 }
 
+/* ───────────────────────首页「最新收益」卡（当日盈亏）─────────────────────────
+ * 后端唯一出口 `services/today_pnl.py`：与收益日历**同一次遍历、同一条盈亏口径**
+ * （`Σ classes[].pnl ≡ 日历当日格`）。前端禁止按持仓自己再算一遍——
+ * 两套算法必然分叉，第一个坏结果是「首页 +1,227.88 / 日历 +1,198.20」。
+ *
+ * 状态契约（用户 2026-11-03 拍板）：
+ *   estimated  当日价含基金收盘估值定格 ⇒ 徽标「估」，官方净值到位后自动翻 confirmed
+ *   confirmed  该大类当日全部持仓都有官方当日价
+ *   partial    部分标的本日还没出价（盘中 / 同步没跑）：金额只算了已出价的
+ *   empty      该大类当日无持仓
+ *   no_data    整卡算不出（无持仓 / 全部持仓无价格序列）——此时 `total_pnl` 为 null
+ */
+
+export type TodayPnlStatus =
+  "estimated" | "confirmed" | "partial" | "empty" | "no_data";
+
+/** 分项大类（卡面只出股票 / 基金：只有这两类有统一的当日估值口径） */
+export type TodayPnlClass = {
+  key: "stock" | "fund";
+  label: string;
+  /** 当日盈亏（元）；null = 该大类今天一个真报价都没有（前值回填的 0 不是收益） */
+  pnl: number | null;
+  /** 当日收益率（%）；分母 = 前一基准日该大类市值，null = 分母缺失 */
+  rate: number | null;
+  market_value: number;
+  status: TodayPnlStatus;
+};
+
+/**
+ * 盘中价格替换的输入（**只换价、不重算盈亏**）。
+ *
+ * `price` 是后端当日取价（元，已折 CNY），`quantity` 是份额（份）。
+ * 前端拿到实时价后只做 `(实时价 − price) × quantity` 的增量，加到后端分项上——
+ * 这样盘中跳动的数在收盘那一刻**必然收敛回后端值**，不会出现两套算法各差几块钱。
+ */
+export type TodayPnlHolding = {
+  symbol: string;
+  class: "stock" | "fund";
+  quantity: number;
+  price: number;
+};
+
+export type TodayPnlData = {
+  /** 该收益所属日；`is_today=false` 表示今天还没有当日报价（盘中 / 净值未出） */
+  date: string;
+  is_today: boolean;
+  /** 收益日历的状态码（updown / zero / partial …），口径同 `PnlCalendarState` */
+  state: string;
+  status: TodayPnlStatus;
+  /** 当日盈亏（元）= Σ classes[].pnl；null = 算不出（不是 0） */
+  total_pnl: number | null;
+  /** 当日收益率（%）；null = 分母缺失 */
+  total_rate: number | null;
+  /** 投资类资产市值（元）= 股票 + 基金；null = 无持仓 */
+  invested_value: number | null;
+  /** 「其他」类市值（债券 / 货基 / 理财等，无当日估值口径，卡面不列，仅供口径说明） */
+  other_value: number | null;
+  classes: TodayPnlClass[];
+  holdings: TodayPnlHolding[];
+};
+
+/** 首页「最新收益」卡数据（家庭级） */
+export function getTodayPnl() {
+  return http.request<ApiResponse<TodayPnlData>>(
+    "get",
+    BASE_URL + "today-pnl/"
+  );
+}
+
 /**
  * 账外类现金逐产品明细（持仓页「类现金」分组）。
  *
