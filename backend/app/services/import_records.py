@@ -116,7 +116,12 @@ class StandardTransactionRecord:
     batch_id: Optional[str] = None  # 导入批次ID
     raw_text: Optional[str] = None  # 原始行文本，便于问题追溯
     source: str = ''  # 数据来源标识
-    link_group_id: Optional[str] = None  # 关联交易组ID
+    link_group_id: Optional[str] = None  # 关联交易组ID（同一笔现金流的多个侧面）
+    link_warning: str = ''  # 配对的交叉校验提示（如税率不符），不阻断导入
+    # 被哪条配对规则消费（见 importer/linking.py 的 ``consume`` 动作）。
+    # 非空 = 该行不入账：其效果已被组内的主记录覆盖（例：兑付已扣份额，
+    # 券商的「股份转出」再扣一次就是双重清仓）。
+    consumed_by: str = ''
     display_type: str = ''  # 产品细分类型，如“混合型”、“货币型”，前端展示用
     venue: str = ''  # 交易场所（EXCHANGE/OTC，见 core/venues；#1662）。空串=解析器未能判定
     error: str = ''  # 解析失败时存放错误信息
