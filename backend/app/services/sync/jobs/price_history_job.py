@@ -15,6 +15,17 @@ SZ000568 停在 7/20、SZ000001 停在 7/03、SZ000008 停在 5/29。本机调�
 取数与复权口径见 `AkshareAdapter.fetch_stock_price`：`close` 未复权（展示 / 盈亏）、
 `adj_close` 前复权（区间收益 / 回撤）。
 
+## 首次同步的起点 = 该标的自己的首笔流水日（#2860）
+
+原写法是「今天 − 365 天」，于是起点落成**批次日期**：本机实测 81 个标的的起始日聚成
+2025-08-29 / 2025-09-22 / 2025-11-03 几撮，而首笔流水散布在 2023-02 ~ 2025-09，
+58 个有流水的场内标的里 19 个「行情起点晚于首笔」（最长缺 2.7 年）。建仓档前半段
+因此空白，买卖点也落不到轴上。窗口改为 `price_depth.desired_start`，口径与理由见该
+模块 docstring（一句话：固定年数是静态阈值，标的自何时被买入才是每只自己的量）。
+
+存量那 19 个不能靠本 job 自愈——它们的库内起点已晚于首笔，增量分支只往后走、不回头，
+须显式跑 `deepen()`（`sync_cli deepen`）。
+
 ## 前复权锚点连续性（#2464）
 
 `adj_close` 是**前复权**价，而前复权在源侧是「以抓取那一刻的最新价为锚」算出来的：
@@ -59,9 +70,7 @@ from app.core.time_utils import today_shanghai
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
-
-# 库内无任何历史时的首次回补窗口（天）。更长的历史走全量同步（full_sync=True）
-DEFAULT_BACKFILL_DAYS = 365
+from app.services.price_depth import desired_start, first_transaction_dates
 
 # 全量 / 重算窗口的起点下限：A 股最早 1990 年开市，用它表达「要全部历史」。
 # 不用 None——`fetch_stock_price(start_date=None)` 会退化成「近 365 天」，
@@ -106,13 +115,21 @@ class PriceHistorySyncJob(SyncJob):
         # 锚点比对用的「库内最后一行」：与 `last_map` 同源，多带 close / adj_close / source
         last_bars = {} if full_sync else self._load_last_bars(list(sec_map.keys()))
 
+        # #2860：首次同步的起点要按「该标的首笔流水日」算，故先取一次首笔日。
+        # 只查库里没有任何历史的标——绝大多数轮次这个列表为空，成本是一次带索引的分组查询。
+        first_txn_map = {}
+        if not full_sync:
+            brand_new = [s for s in sec_map if s not in last_map]
+            if brand_new:
+                first_txn_map = first_transaction_dates(self.db, brand_new)
+
         records = list()
         for symbol in targets:
             sec = sec_map.get(symbol)
             if not sec:
                 continue
 
-            start_date, end_date = self._resolve_window(symbol, last_map, today, full_sync)
+            start_date, end_date = self._resolve_window(symbol, last_map, today, full_sync, first_txn_map.get(symbol))
             if start_date is not None and start_date > end_date:
                 # 已是最新：多见于「当日 K 线尚未发布」，留给下一次运行补
                 continue
@@ -162,11 +179,14 @@ class PriceHistorySyncJob(SyncJob):
         return records
 
     @staticmethod
-    def _resolve_window(symbol: str, last_map: dict, today: date, full_sync: bool):
+    def _resolve_window(symbol: str, last_map: dict, today: date, full_sync: bool, first_txn: Optional[date] = None):
         """本次抓取窗口 (start, end)。
 
         - 全量：从 `_HISTORY_START` 起（**不是** `None`——`None` 在适配器里会退化成
           近 365 天，重算覆盖不到更早的旧锚点行，#2464）；
+        - 首次（库内无该标的）：按 `price_depth.desired_start`，即「首笔流水日 − 缓冲」
+          与「今天 − 5 年」取更早者（#2860）。原口径是「今天 − 365 天」，起点因此
+          跟着**抓取日**走，与标的自己何时被买入无关；
         - 增量：从「库内最新交易日」起（#2464 起**含**该日，制造一行重叠用于锚点比对）。
 
         `start > end` 表示无需抓取（库内已到最新），由调用方跳过。
@@ -175,8 +195,9 @@ class PriceHistorySyncJob(SyncJob):
             return _HISTORY_START, today
         last = PriceHistorySyncJob._as_date(last_map.get(symbol))
         if last is None:
-            # 首次同步该标的：回补近一年，更长的历史走 full_sync
-            return today - timedelta(days=DEFAULT_BACKFILL_DAYS), today
+            # 首次同步该标的：按首笔流水日（无流水则近 5 年）。
+            # 不传 first_txn 时 desired_start 退化为 5 年保底，仍是具体日期。
+            return desired_start(first_txn, today), today
         if last >= today:
             # 库内已到今日：没有更晚的交易日可补，保持「start > end ⇒ 跳过」的既有语义
             return today + timedelta(days=1), today
@@ -271,15 +292,20 @@ class PriceHistorySyncJob(SyncJob):
         new_ratio = new_adj / new_close
         return abs(new_ratio - old_ratio) > _ANCHOR_REL_TOL * max(abs(old_ratio), 1.0)
 
-    def _refetch_full_history(self, symbol: str, today: date) -> Optional[List[dict]]:
-        """整段重抓该标的的全部历史（锚点变了时用）。
+    def _refetch_full_history(self, symbol: str, today: date, start: date = _HISTORY_START) -> Optional[List[dict]]:
+        """整段重抓该标的的历史（锚点变了 / 存量加深时用）。
+
+        `start` 默认 `_HISTORY_START`（1990）：锚点重算要把**库里所有行**覆盖成同一代
+        锚点，起点必须早于一切旧行。`deepen()` 传「该标的应有的起点」——那里要的是
+        「补齐前缀」，从头抓纯属浪费，但**同样要整段覆盖**：只追加前缀会让新旧两代
+        前复权锚点拼在一段里（#2464）。
 
         取不到时返回 None —— 调用方保留原有增量结果，绝不拿「空」当「重算完成」：
         那样会把已有历史原地删空（本 job 现在是 upsert，空列表不会删行，但会把
         「锚点已变」这件事静默吞掉）。
         """
         try:
-            rows = self.adapter.fetch_stock_price(symbol, start_date=_HISTORY_START, end_date=today)
+            rows = self.adapter.fetch_stock_price(symbol, start_date=start, end_date=today)
         except Exception as e:  # noqa: BLE001
             logger.warning(f'{symbol} 锚点重算失败（保留增量结果）: {e}')
             self.stats.setdefault('errors', []).append({'symbol': symbol, 'stage': 'rebuild_adj', 'error': str(e)})
@@ -287,6 +313,123 @@ class PriceHistorySyncJob(SyncJob):
         if not isinstance(rows, list) or not rows:
             return None
         return rows
+
+    # ── 存量加深（#2860）──
+
+    def deepen(self, targets: Optional[List[str]] = None, dry_run: bool = False) -> dict:
+        """存量加深：把「库内起点晚于应有起点」的标的整段重抓一遍。
+
+        为什么必须单独一条通道：这些标的库里**已有行**，`_resolve_window` 的增量分支
+        从库内最后一行往后走，永远不会回头看前缀。改首次窗口只治「新标的」，存量
+        不会自愈——本机按「首笔流水」口径就有 19 个起点偏晚（最长缺 2.7 年），
+        加上 5 年保底后 81 个标的全部不达标。
+
+        判据：`库内最早日 > desired_start(首笔日, 今天)`，即晚于
+        `min(首笔流水 − 14 天, 今天 − 5 年)`。已经覆盖到应有起点的标的**一条请求都不发**，
+        故本命令可反复跑；反向验证见 `tests/services/sync/test_price_history_deepen.py`
+        （把比较符写反会让 39 个已覆盖标的每轮重抓，而日志一切正常）。
+
+        写库走 `_save_data`（upsert 整段覆盖），不是只插前缀：一段序列里混两代前复权
+        锚点，会在除权日凭空多出一段涨跌（#2464 的实测 -5.235pp）。
+
+        Returns:
+            `{planned, deepened, skipped, rows_added, errors, details}`；
+            `details` 逐标的给出 `{symbol, stored_first, target_start, achieved_first, rows_added}`，
+            `achieved_first` 仍晚于 `target_start` 说明**源侧已到底**（上市晚 / 已退市），
+            不是没抓到——两者若在输出里同形，下次就没人分得清了。
+        """
+        today = today_shanghai()
+        if targets:
+            symbols = [s for s in targets if s]
+        else:
+            symbols = [r[0] for r in self.db.query(PriceHistory.symbol).distinct().all() if r[0]]
+
+        sec_map = self._get_security_map(symbols)
+        stored_first = self._load_first_stored_dates(list(sec_map.keys()))
+        txn_map = first_transaction_dates(self.db, list(sec_map.keys()))
+
+        plan = []
+        for symbol in sec_map:
+            target_start = desired_start(txn_map.get(symbol), today)
+            current = stored_first.get(symbol)
+            if current is not None and current <= target_start:
+                continue
+            plan.append((symbol, current, target_start))
+
+        result = {
+            'planned': len(plan),
+            'deepened': 0,
+            'skipped': len(sec_map) - len(plan),
+            'rows_added': 0,
+            'errors': list(),
+            'details': list(),
+        }
+        logger.info(f'行情加深：{len(sec_map)} 个标的中 {len(plan)} 个库内起点晚于应有起点')
+        if dry_run:
+            result['details'] = [
+                {'symbol': s, 'stored_first': c, 'target_start': t, 'achieved_first': None, 'rows_added': 0}
+                for s, c, t in plan
+            ]
+            return result
+
+        for symbol, current, target_start in plan:
+            rows = self._refetch_full_history(symbol, today, start=target_start)
+            if rows is None:
+                # 取不回来就**不动库里已有行**，并记账：这一态与「源侧已到底」必须可分
+                result['errors'].append({'symbol': symbol, 'stage': 'deepen', 'target_start': str(target_start)})
+                continue
+
+            security_id = sec_map[symbol].id
+            for item in rows:
+                item['security_id'] = security_id
+            validated = self._validate_data(rows)
+            if not validated:
+                result['errors'].append(
+                    {'symbol': symbol, 'stage': 'deepen_validate', 'target_start': str(target_start)}
+                )
+                continue
+            before = self._count_rows(symbol)
+            self._save_data(validated)
+            after = self._count_rows(symbol)
+            added = max(after - before, 0)
+            achieved = self._load_first_stored_dates([symbol]).get(symbol)
+            result['deepened'] += 1
+            result['rows_added'] += added
+            result['details'].append(
+                {
+                    'symbol': symbol,
+                    'stored_first': current,
+                    'target_start': target_start,
+                    'achieved_first': achieved,
+                    'rows_added': added,
+                }
+            )
+            logger.info(
+                f'{symbol} 加深完成：库内起点 {current} → {achieved}'
+                f'（新增 {added} 行 / 写 {len(validated)} 行，目标 {target_start}）'
+            )
+
+        return result
+
+    def _count_rows(self, symbol: str) -> int:
+        return self.db.query(func.count(PriceHistory.id)).filter(PriceHistory.symbol == symbol).scalar() or 0
+
+    def _load_first_stored_dates(self, symbols: List[str]) -> dict:
+        """`{symbol: 库内最早交易日}`；分批 `in_` 防 SQLite 变量上限。"""
+        out: dict = {}
+        for i in range(0, len(symbols), IN_CHUNK_SIZE):
+            chunk = symbols[i : i + IN_CHUNK_SIZE]
+            rows = (
+                self.db.query(PriceHistory.symbol, func.min(PriceHistory.trade_date))
+                .filter(PriceHistory.symbol.in_(chunk))
+                .group_by(PriceHistory.symbol)
+                .all()
+            )
+            for symbol, first in rows:
+                day = self._as_date(first)
+                if day is not None:
+                    out[symbol] = day
+        return out
 
     @staticmethod
     def _as_date(value) -> Optional[date]:
