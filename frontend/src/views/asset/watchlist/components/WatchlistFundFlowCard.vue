@@ -13,12 +13,31 @@
 <template>
   <section class="fund-flow-card" aria-label="盘前资金面">
     <header class="fund-flow-card__head">
-      <span class="fund-flow-card__title">盘前资金面 · 板块主力净流入</span>
-      <span class="fund-flow-card__src">东方财富 · 开盘前速览</span>
+      <div class="fund-flow-card__heading">
+        <span class="fund-flow-card__title">盘前资金面 · 板块主力净流入</span>
+        <span class="fund-flow-card__src">东方财富 · 开盘前速览</span>
+      </div>
+      <button
+        type="button"
+        class="fund-flow-card__toggle"
+        :aria-expanded="expanded ? 'true' : 'false'"
+        aria-controls="fund-flow-body"
+        @click="toggle"
+      >
+        <span>{{ expanded ? "收起" : "展开" }}</span>
+        <el-icon><component :is="toggleIcon" /></el-icon>
+      </button>
     </header>
 
-    <div v-if="sectors.length" class="fund-flow-card__body">
-      <ul class="sector-list">
+    <!-- 折叠态：一行预览，保留资金主线上下文但省版面（默认折叠） -->
+    <div v-if="!expanded" class="fund-flow-card__preview">
+      <span v-if="themeLine">{{ themeLine }}</span>
+      <span v-else class="fund-flow-card__empty">板块资金数据加载中…</span>
+    </div>
+
+    <!-- 展开态：完整板块榜 + 主线 -->
+    <div v-else id="fund-flow-body" class="fund-flow-card__body">
+      <ul v-if="sectors.length" class="sector-list">
         <li
           v-for="s in topSectors"
           :key="s.code"
@@ -33,17 +52,28 @@
         </li>
       </ul>
       <p v-if="themeLine" class="fund-flow-card__theme">{{ themeLine }}</p>
+      <div v-else-if="!sectors.length" class="fund-flow-card__empty">
+        板块资金数据加载中…
+      </div>
     </div>
-
-    <div v-else class="fund-flow-card__empty">板块资金数据加载中…</div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { ArrowDown, ArrowUp } from "@element-plus/icons-vue";
 import type { SectorFundFlow } from "@/utils/realtimeDataSources";
+import { useCollapsedState } from "@/views/asset/watchlist/composables/useCollapsedState";
 
 const props = defineProps<{ sectors: SectorFundFlow[] }>();
+
+// #watchlist 资金面卡收起：默认折叠省版面；展开态才渲染完整板块榜 + 主线。
+// 折叠/展开状态本地记忆（useCollapsedState）。
+const { expanded } = useCollapsedState("fund-flow");
+const toggleIcon = computed(() => (expanded.value ? ArrowUp : ArrowDown));
+function toggle(): void {
+  expanded.value = !expanded.value;
+}
 
 const TOP_N = 6;
 
@@ -114,6 +144,47 @@ const themeLine = computed(() => {
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 8px;
+}
+
+.fund-flow-card__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+// 展开/收起按钮：复用 IndexMarketBar 的折叠交互样式（#1546 T2.2 范式）
+.fund-flow-card__toggle {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: var(--text-label);
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border-light, #f0ebe4);
+  border-radius: var(--radius-pill, 9999px);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+
+  &:hover {
+    color: var(--text-primary, #333);
+    background: var(--bg-hover, #f2ede8);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+}
+
+.fund-flow-card__preview {
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.5;
+  color: var(--text-primary, #333);
 }
 
 .fund-flow-card__title {
