@@ -119,17 +119,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { ArrowDown, ArrowUp, Setting } from "@element-plus/icons-vue";
-import { useRouter } from "vue-router";
-import {
-  fetchTencentIndexQuotes,
-  fetchIntradayTrendBySecid
-} from "@/utils/realtimeDataSources";
-import { productRoute } from "@/utils/productIdentity";
 import { useCollapsedState } from "@/views/asset/watchlist/composables/useCollapsedState";
 import { useIndexBarSelection } from "@/views/asset/watchlist/composables/useIndexBarSelection";
-import type { IndexCatalogEntry } from "@/views/asset/watchlist/composables/indexCatalog";
+import { useIndexBarQuotes } from "@/views/asset/watchlist/composables/useIndexBarQuotes";
 import IndexPersonalizationDialog from "@/views/asset/watchlist/components/IndexPersonalizationDialog.vue";
 
 // 渲染列表 = 用户个性化选中的目录条目（按选中顺序；已剔除脏 key）
@@ -137,8 +131,7 @@ const { selectedEntries } = useIndexBarSelection();
 const indices = selectedEntries;
 
 // #watchlist banner 收起：默认折叠，省首屏版面；展开态才渲染完整卡片 + 分时折线。
-// 取数定时器不受折叠影响（展开时应即时看到最新数据，而非再等一轮轮询）。
-// 折叠/展开状态本地记忆：用户展开过，下次进入沿用。
+// 折叠/展开状态本地记忆：用户展开过，下次进入沿用（useCollapsedState）。
 const { expanded } = useCollapsedState("index-bar");
 const toggleIcon = computed(() => (expanded.value ? ArrowUp : ArrowDown));
 function toggle(): void {
@@ -150,162 +143,17 @@ function openDialog(): void {
   dialogVisible.value = true;
 }
 
-interface IndexQuote {
-  price: number;
-  change: number;
-  changePct: number;
-  prevClose: number;
-  time: string;
-  spark: number[];
-}
-
-const EMPTY: IndexQuote = {
-  price: NaN,
-  change: NaN,
-  changePct: NaN,
-  prevClose: NaN,
-  time: "",
-  spark: []
-};
-
-const quotes = reactive<Record<string, IndexQuote>>({});
-
-const router = useRouter();
-let timer: number | null = null;
-
-function quoteOf(meta: IndexCatalogEntry): IndexQuote {
-  return quotes[meta.key] ?? EMPTY;
-}
-
-function trendClass(meta: IndexCatalogEntry): string {
-  const pct = quoteOf(meta).changePct;
-  if (Number.isNaN(pct) || pct === 0) return "is-flat";
-  return pct > 0 ? "is-rise" : "is-fall";
-}
-
-function strokeColor(meta: IndexCatalogEntry): string {
-  const cls = trendClass(meta);
-  if (cls === "is-rise") return "var(--color-rise)";
-  if (cls === "is-fall") return "var(--color-fall)";
-  return "var(--text-disabled, #bbb)";
-}
-
-function formatPrice(v: number): string {
-  if (Number.isNaN(v)) return "—";
-  return v.toLocaleString("zh-CN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
-
-function formatSigned(v: number): string {
-  if (Number.isNaN(v)) return "—";
-  const s = v.toLocaleString("zh-CN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-  return v > 0 ? `+${s}` : s;
-}
-
-function formatPct(v: number): string {
-  if (Number.isNaN(v)) return "";
-  return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
-}
-
-function buildPath(points: number[]): string {
-  if (points.length < 2) return "";
-  const w = 100;
-  const h = 28;
-  const pad = 2;
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const range = max - min || 1;
-  const step = (w - pad * 2) / (points.length - 1);
-  return points
-    .map((p, i) => {
-      const x = pad + i * step;
-      const y = pad + (h - pad * 2) * (1 - (p - min) / range);
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
-/** 指数点位与昨收算涨跌额（腾讯指数行情已给昨收 parts[4]） */
-function patchQuote(
-  meta: IndexCatalogEntry,
-  price: number,
-  changePct: number,
-  prevClose: number,
-  time: string
-): void {
-  const q = quotes[meta.key] ?? (quotes[meta.key] = { ...EMPTY });
-  q.price = price;
-  q.changePct = changePct;
-  q.prevClose = prevClose;
-  q.change =
-    Number.isFinite(prevClose) && prevClose > 0 ? price - prevClose : NaN;
-  q.time = time;
-}
-
-async function load(): Promise<void> {
-  // 确保本轮选中的 key 都有 quotes 槽位（新增指数不会因缺槽位而报错）
-  for (const meta of indices.value) {
-    if (!quotes[meta.key]) quotes[meta.key] = { ...EMPTY };
-  }
-  // 1) 指数行情（腾讯，一次批量）
-  const map = await fetchTencentIndexQuotes(
-    indices.value.map(i => i.tencentCode)
-  );
-  for (const meta of indices.value) {
-    const q = map.get(meta.tencentCode);
-    if (q)
-      patchQuote(
-        meta,
-        q.currentPrice,
-        q.changePct,
-        q.prevClose ?? NaN,
-        q.updateTime
-      );
-  }
-  // 2) 分时（东财，逐指数 best-effort；失败仅缺折线）
-  await Promise.all(
-    indices.value.map(async meta => {
-      const t = await fetchIntradayTrendBySecid(meta.secid);
-      if (t) quotes[meta.key].spark = t.points;
-    })
-  );
-}
-
-function goDetail(meta: IndexCatalogEntry): void {
-  const path = productRoute({ assetType: "index", symbol: meta.detailSymbol });
-  if (path) router.push(path);
-}
-
-function startTimer(): void {
-  if (timer !== null) return;
-  timer = window.setInterval(() => {
-    if (!document.hidden) void load();
-  }, 30_000);
-}
-
-function stopTimer(): void {
-  if (timer !== null) {
-    clearInterval(timer);
-    timer = null;
-  }
-}
-
-// 选中集合变化（弹窗保存后）→ 立即重载，新指数即时出现
-watch(indices, () => {
-  void load();
-});
-
-onMounted(() => {
-  void load();
-  startTimer();
-});
-
-onUnmounted(stopTimer);
+// 取数 / 格式化 / 分时折线 / 轮询定时器（拆到 composable，压住 vue-size 门禁）
+const {
+  quoteOf,
+  trendClass,
+  strokeColor,
+  formatPrice,
+  formatSigned,
+  formatPct,
+  buildPath,
+  goDetail
+} = useIndexBarQuotes(indices);
 </script>
 
 <style scoped lang="scss">
