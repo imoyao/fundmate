@@ -1352,7 +1352,15 @@ def _split_fund_managers_tenures_pg(engine: Engine) -> str:
 
 
 # 写路径（#1661）已强制「显式非基金类型 → False」；存量若仍为 True 属历史污染，本迁移清零。
-_NON_FUND_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond', 'reverse_repo', 'crypto', 'index')
+_NON_FUND_ASSET_TYPES: tuple[str, ...] = (
+    'stock',
+    'etf',
+    'bond',
+    'reverse_repo',
+    'crypto',
+    'index',
+    'bank_wealth',
+)
 # 只有这两类才可能真为货基（与 `core/venues._OTC_ASSET_TYPES` 同族）
 _FUND_ASSET_TYPES: tuple[str, ...] = ('fund', 'money_fund')
 

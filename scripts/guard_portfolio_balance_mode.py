@@ -114,6 +114,16 @@ def _identifier_names(node: ast.AST) -> set[str]:
     return names
 
 
+def _refs_enum_member(node: ast.AST, member: str) -> bool:
+    """表达式里是否引用了枚举成员（如 `ValuationMode.BALANCE`）。
+
+    **不能用子串匹配**：`_BALANCE_ONLY_ASSET_TYPES` 这类常量名里也含 "BALANCE"，
+    按 `'BALANCE' in ast.unparse(...)` 判会把普通比较（`same.asset_type != asset_type`）
+    误认成「在比较计价模式」，于是删掉真正的 balance 约束后守卫仍然绿。
+    """
+    return any(isinstance(child, ast.Attribute) and child.attr == member for child in ast.walk(node))
+
+
 def _is_balance_negated(node: ast.AST, names: set[str]) -> bool:
     """条件里是否表达了「不是 balance」。
 
@@ -126,13 +136,10 @@ def _is_balance_negated(node: ast.AST, names: set[str]) -> bool:
             if 'is_balance' in _identifier_names(child):
                 return True
         if isinstance(child, ast.Compare):
-            operands = [child.left, *child.comparators]
-            texts = [ast.unparse(operand) for operand in operands]
-            joined = ' '.join(texts)
-            if 'BALANCE' in joined:
+            if _refs_enum_member(child, 'BALANCE'):
                 if any(isinstance(op, ast.NotEq) for op in child.ops):
                     return True
-                if any(isinstance(op, ast.Eq) for op in child.ops) and 'NAV' in joined:
+                if any(isinstance(op, ast.Eq) for op in child.ops) and _refs_enum_member(child, 'NAV'):
                     return True
     return False
 
@@ -149,6 +156,35 @@ def _find_function(tree: ast.Module, name: str) -> ast.FunctionDef | None:
     return None
 
 
+def _module_level_string_sets(tree: ast.Module) -> dict[str, set[str]]:
+    """模块级「名字 → 字符串集合」表（dict / tuple / set / list 字面量赋值）。
+
+    为什么需要这一层：判据 1 原先只看 if 条件里的 `'portfolio'` 字面量，于是把品类集合
+    提取成命名常量（`_BALANCE_ONLY_ASSET_TYPES`）就会被误判成「约束被删」。提取常量是
+    好事——新增 `bank_wealth` 时要复用同一段判断，复制粘贴才是坏事。所以判据跟着走：
+    条件里引用了某个模块级字符串集合、且该集合含 `'portfolio'`，等价于条件里含 `'portfolio'`。
+
+    只扫 `tree.body`（模块顶层），不扫函数体内：函数内局部变量不在 if 条件之前可见的
+    语义范围内，跟着它们走会让判据变成「猜」。
+    """
+    result: dict[str, set[str]] = {}
+    for stmt in tree.body:
+        target_name: str | None = None
+        value: ast.AST | None = None
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            target_name = stmt.targets[0].id
+            value = stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            target_name = stmt.target.id
+            value = stmt.value
+        if target_name is None or value is None:
+            continue
+        strings = set(_string_constants(value))
+        if strings:
+            result[target_name] = strings
+    return result
+
+
 def check_write_guard(source: str, path: Path) -> list[str]:
     """判据 1：`process_buy_or_deposit` 里必须有「portfolio 非 balance ⇒ raise」。"""
     tree = _parse(path, source)
@@ -157,10 +193,15 @@ def check_write_guard(source: str, path: Path) -> list[str]:
         # 找不到目标函数 = 输入不可信，不是「没问题」：写入路径改名/搬迁后必须同步本守卫。
         raise InputError(f'{path} 里找不到 {WRITE_FUNC}（写入路径改名/搬迁后请同步本守卫）')
 
+    named_sets = _module_level_string_sets(tree)
+
     for node in ast.walk(func):
         if not isinstance(node, ast.If):
             continue
-        strings = _string_constants(node.test)
+        strings = set(_string_constants(node.test))
+        # 命名常量里的 'portfolio' 等价于条件里的 'portfolio'（见 _module_level_string_sets）
+        for name in _identifier_names(node.test):
+            strings |= named_sets.get(name, set())
         if 'portfolio' not in strings:
             continue
         names = _identifier_names(node.test)

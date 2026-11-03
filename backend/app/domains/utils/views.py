@@ -98,31 +98,10 @@ def get_enums():
       定义，是唯一真相源；前端展示「来源徽标」时必须从这里取，禁止手抄第二份（否则两处漂移）。
     - 免登录：探市页 /explore 免登录也展示持仓来源徽标，匿名访客需能读取。
     - 后续新增需要前后端一致的枚举标签，统一在此下发，不要在 /constants/index.ts 再写一份。
-    """
-    from app.core.asset_types import (
-        ASSET_CATEGORY_LABELS,
-        ASSET_TYPE_LABELS,
-        ASSET_TYPE_VALUES,
-        INVESTMENT_MINOR_CATEGORIES,
-    )
-    from app.core.constants import MARKET_LABELS, OP_TYPE_LABEL, POSITION_SOURCE_LABELS, VENUE_LABELS
 
-    return jsonify(
-        {
-            'data': {
-                'position_source': POSITION_SOURCE_LABELS,
-                'asset_type': ASSET_TYPE_LABELS,
-                # #1527：合法取值集合（与标签映射同源），供前端共用、做运行时校验
-                'asset_type_values': sorted(ASSET_TYPE_VALUES),
-                'asset_category': ASSET_CATEGORY_LABELS,
-                # #1354：投资理财下的细分子类（写 minor_category），前端禁止再建平级大类
-                'investment_minor': INVESTMENT_MINOR_CATEGORIES,
-                'op_type_labels': OP_TYPE_LABEL,
-                # #1286：市场码 → 中文标签（含无市场实体 '' → 通用）
-                'market': MARKET_LABELS,
-                # #1969：交易场所标签（EXCHANGE/OTC 原键不再直接上屏）
-                'venue': VENUE_LABELS,
-            },
-            'message': 'ok',
-        }
-    )
+    载荷组装已下沉 `services/enums_service.build_enums_payload`：本函数原先是一段 30 余行
+    的纯数据组装，顶穿了视图层厚度基线（#1606 / 视图只做 HTTP 编排）。
+    """
+    from app.services.enums_service import build_enums_payload
+
+    return jsonify({'data': build_enums_payload(), 'message': 'ok'})
