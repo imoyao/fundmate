@@ -680,12 +680,44 @@ export async function fetchStockFundFlow(
 }
 
 /**
- * 行业板块主力净流入排名（东财 `clist/get`，`fs=m:90+t:2`）。
- * 返回按主力净流入降序的前 `topN` 个板块；失败 / 超时 → 空数组。
+ * 行业板块主力资金流（东财 `clist/get`，`fs=m:90+t:2`）。
+ *
+ * 返回「流入前 limit + 流出前 limit」合并后的**降序**数组，由调用方自行取头尾。
+ *
+ * WHY 两个请求：该口径下行业板块有 496 个，`po=1`（按净流入降序）只给最大的一批——
+ * 只看它永远拿不到「流出居前」，这也是此前资金面卡只能展示流入榜、并把流入前 8 里
+ * 的负值误称「流出居前」的根因。故并发两次：
+ *   - `po=1` → 净流入最大的一批；
+ *   - `po=0` → 净流入最小的一批（升序即最负在前）。
+ * 单侧失败只丢那一侧（返回空数组），不影响另一侧展示。
  */
-export async function fetchSectorFundFlow(topN = 8): Promise<SectorFundFlow[]> {
+export async function fetchSectorFundFlow(
+  limit = 20
+): Promise<SectorFundFlow[]> {
+  const [inflow, outflow] = await Promise.all([
+    fetchSectorFlowPage(limit, 1),
+    fetchSectorFlowPage(limit, 0)
+  ]);
+  const seen = new Set<string>();
+  const merged: SectorFundFlow[] = [];
+  for (const sector of [...inflow, ...outflow]) {
+    if (seen.has(sector.code)) continue;
+    seen.add(sector.code);
+    merged.push(sector);
+  }
+  return merged.sort((a, b) => b.mainInflow - a.mainInflow);
+}
+
+/**
+ * 单页板块资金流：`po=1` 降序（流入头部）/ `po=0` 升序（流出头部）。
+ * 失败 / 超时 → 空数组。
+ */
+function fetchSectorFlowPage(
+  limit: number,
+  po: 1 | 0
+): Promise<SectorFundFlow[]> {
   return new Promise(resolve => {
-    const cb = "__emSector" + Math.random().toString(36).slice(2);
+    const cb = "__emSector" + Math.random().toString(36).slice(2) + "_" + po;
     const script = document.createElement("script");
     const timeoutId = setTimeout(() => {
       cleanup();
@@ -700,19 +732,17 @@ export async function fetchSectorFundFlow(topN = 8): Promise<SectorFundFlow[]> {
 
     (window as any)[cb] = (json: any) => {
       cleanup();
-      const diff = normalizeDiff(json?.data?.diff);
-      const list: SectorFundFlow[] = diff
+      const list: SectorFundFlow[] = normalizeDiff(json?.data?.diff)
         .map((d: any) => ({
           code: String(d.f12 ?? ""),
           name: String(d.f14 ?? ""),
-          mainInflow: typeof d.f62 === "number" ? d.f62 : 0,
-          changePct: typeof d.f3 === "number" ? d.f3 / 100 : 0
+          // 停牌 / 无资金流口径的板块给 NaN，下面统一滤掉——早先兜底成 0
+          // 会把它们排到榜单中间，污染「居前」的口径
+          mainInflow: typeof d.f62 === "number" ? d.f62 : NaN,
+          // f3 在 fltt=2 下已经是百分数（0.31 = 0.31%），不要再除 100
+          changePct: typeof d.f3 === "number" ? d.f3 : 0
         }))
-        .filter((s: SectorFundFlow) => s.name)
-        .sort(
-          (a: SectorFundFlow, b: SectorFundFlow) => b.mainInflow - a.mainInflow
-        )
-        .slice(0, topN);
+        .filter((s: SectorFundFlow) => s.name && Number.isFinite(s.mainInflow));
       resolve(list);
     };
 
@@ -722,7 +752,7 @@ export async function fetchSectorFundFlow(topN = 8): Promise<SectorFundFlow[]> {
     };
     script.src =
       "https://push2.eastmoney.com/api/qt/clist/get" +
-      "?pn=1&pz=50&po=1&np=1&fltt=2&invt=2&fid=f62" +
+      `?pn=1&pz=${limit}&po=${po}&np=1&fltt=2&invt=2&fid=f62` +
       "&fs=m:90+t:2" +
       "&fields=f12,f14,f62,f3" +
       `&cb=${cb}&_=${Date.now()}`;

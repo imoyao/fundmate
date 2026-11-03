@@ -25,7 +25,7 @@ export function useWatchlistFundFlow() {
   const stockFlow = ref<
     Record<string, { mainInflow: number | null; sector: string | null }>
   >({});
-  /** 板块资金流排名（行业板块主力净流入降序） */
+  /** 板块资金流（流入 / 流出两端各一批，按主力净流入降序） */
   const sectorFlow = ref<SectorFundFlow[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -75,11 +75,11 @@ export function useWatchlistFundFlow() {
     }
   }
 
-  /** 拉取板块资金流排名（盘前资金面卡用）。 */
-  async function loadSectorFlow(topN = 8): Promise<void> {
+  /** 拉取板块资金流（盘前资金面卡用）：两端一起取，由卡内取头尾。 */
+  async function loadSectorFlow(): Promise<void> {
     loading.value = true;
     try {
-      sectorFlow.value = await fetchSectorFundFlow(topN);
+      sectorFlow.value = await fetchSectorFundFlow();
     } catch (e) {
       sectorFlow.value = [];
       error.value = e instanceof Error ? e.message : String(e);
@@ -104,7 +104,7 @@ export function useWatchlistFundFlow() {
   }
 
   onMounted(() => {
-    void loadSectorFlow(8);
+    void loadSectorFlow();
   });
 
   return {

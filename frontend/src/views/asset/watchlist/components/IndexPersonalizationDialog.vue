@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { ArrowDown, ArrowUp, Close, Rank } from "@element-plus/icons-vue";
 import { useIndexBarSelection } from "@/views/asset/watchlist/composables/useIndexBarSelection";
+import { MAX_INDEX_COUNT } from "@/views/asset/watchlist/composables/indexBarModel";
 import {
   DEFAULT_INDEX_KEYS,
   INDEX_CATALOG,
@@ -78,7 +79,11 @@ function moveDraft(i: number, dir: -1 | 1): void {
   draft.value = arr;
 }
 
+/** 已满上限：新增按钮禁用（上限口径见 indexBarModel.MAX_INDEX_COUNT） */
+const draftFull = computed(() => draft.value.length >= MAX_INDEX_COUNT);
+
 function addDraft(key: string): void {
+  if (draftFull.value) return;
   if (!draft.value.includes(key)) draft.value = [...draft.value, key];
 }
 function removeDraft(key: string): void {
@@ -104,12 +109,19 @@ function save(): void {
   >
     <p class="hint">
       已添加的指数会显示在自选页顶部；拖动或用箭头排序，可点击删除。下方点选即可添加。
+      最多 <b>{{ MAX_INDEX_COUNT }}</b> 个（每个指数每 30
+      秒各取一次分时，超出会明显变慢）。
     </p>
 
     <!-- 已添加 -->
     <div class="section">
       <div class="section__head">
-        <span class="section__title">已添加指数</span>
+        <span class="section__title">
+          已添加指数
+          <em class="section__count" :class="{ 'is-full': draftFull }">
+            {{ draft.length }}/{{ MAX_INDEX_COUNT }}
+          </em>
+        </span>
         <el-button size="small" text type="primary" @click="resetDraft">
           恢复默认
         </el-button>
@@ -178,6 +190,10 @@ function save(): void {
             :key="e.key"
             type="button"
             class="opt-chip"
+            :disabled="draftFull"
+            :title="
+              draftFull ? `已达上限 ${MAX_INDEX_COUNT} 个，请先删除一个` : ''
+            "
             @click="addDraft(e.key)"
           >
             + {{ e.name }}
@@ -198,6 +214,10 @@ function save(): void {
   margin-bottom: 12px;
   font-size: var(--text-label);
   color: var(--text-secondary);
+
+  b {
+    color: var(--text-primary);
+  }
 }
 
 .section {
@@ -214,6 +234,20 @@ function save(): void {
     font-size: var(--text-label);
     font-weight: 600;
     color: var(--text-primary);
+  }
+
+  // 已选数量计数：满上限时转品牌墨色，替代 toast 之类的打断式提示
+  &__count {
+    margin-left: 4px;
+    font-size: var(--text-label);
+    font-style: normal;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-disabled, #bbb);
+
+    &.is-full {
+      color: var(--brand-ink, #b8361f);
+    }
   }
 }
 
@@ -316,7 +350,7 @@ function save(): void {
     background-color 150ms ease,
     color 150ms ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     color: var(--text-primary);
     background: var(--bg-hover, #f2ede8);
   }
@@ -324,6 +358,13 @@ function save(): void {
   &:focus-visible {
     outline: none;
     box-shadow: var(--focus-ring);
+  }
+
+  // 已达上限：星标头提示 + 这里直接禁用，不做 toast 打断
+  &:disabled {
+    color: var(--text-disabled, #bbb);
+    cursor: not-allowed;
+    background: var(--bg-page, #fafafa);
   }
 }
 </style>

@@ -9,6 +9,7 @@
  */
 import { ref, watch, type Ref } from "vue";
 import { localForage } from "@/utils/localforage";
+import { MAX_INDEX_COUNT } from "@/views/asset/watchlist/composables/indexBarModel";
 import {
   DEFAULT_INDEX_KEYS,
   filterValidKeys,
@@ -17,6 +18,11 @@ import {
 } from "@/views/asset/watchlist/composables/indexCatalog";
 
 const STORAGE_KEY = "watchlist-index-bar-selection";
+
+/** 截到上限（去脏 key 后）：既挡住新选择，也收敛历史数据 */
+function normalize(keys: string[]): string[] {
+  return filterValidKeys(keys).slice(0, MAX_INDEX_COUNT);
+}
 
 const selected = ref<string[]>([]);
 let loadStarted = false;
@@ -30,9 +36,7 @@ function load(): void {
     .getItem<string[]>(STORAGE_KEY)
     .then(v => {
       selected.value =
-        Array.isArray(v) && v.length
-          ? filterValidKeys(v)
-          : [...DEFAULT_INDEX_KEYS];
+        Array.isArray(v) && v.length ? normalize(v) : [...DEFAULT_INDEX_KEYS];
       hydrated = true;
     })
     .catch(() => {
@@ -89,6 +93,7 @@ export function useIndexBarSelection(): IndexBarSelection {
   );
 
   function addIndex(key: string): void {
+    if (selected.value.length >= MAX_INDEX_COUNT) return;
     if (INDEX_CATALOG_BY_KEY[key] && !selected.value.includes(key)) {
       selected.value = [...selected.value, key];
     }
@@ -108,7 +113,7 @@ export function useIndexBarSelection(): IndexBarSelection {
   }
 
   function setSelection(keys: string[]): void {
-    selected.value = filterValidKeys(keys);
+    selected.value = normalize(keys);
   }
 
   function resetToDefault(): void {
