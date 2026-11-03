@@ -5,6 +5,7 @@ import LedgerSelectStep from "./components/LedgerSelectStep.vue";
 import UploadStep from "./components/UploadStep.vue";
 import PreviewStep from "./components/PreviewStep.vue";
 import ResultStep from "./components/ResultStep.vue";
+import ImportSteps from "./components/ImportSteps.vue";
 import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
 import LeaveGuardDialog from "./components/LeaveGuardDialog.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
@@ -52,7 +53,7 @@ const withMock = ref(false);
  * 前两步是解释型页面（要标题与说明告诉用户这一步在干什么），后两步是工作台：
  * 用户此刻只想看数据、改数据。而那块页头（大标题 + 副标题 + 居中步骤条）实测占约
  * 195px，修正面板一展开就把表格顶到折叠线以下——「面板与表格同屏」形同虚设。
- * 故进入工作步后页头退场、步骤条压成 simple 细条，把高度让给表格。
+ * 故进入工作步后页头退场、步骤条只留一排细字（上下留白压到 8px），把高度让给表格。
  */
 const isWorkingStep = computed(() => currentStep.value >= 2);
 </script>
@@ -91,21 +92,14 @@ const isWorkingStep = computed(() => currentStep.value >= 2);
       </template>
     </SoftBanner>
 
-    <el-steps
-      :active="currentStep"
-      :simple="isWorkingStep"
-      finish-status="success"
-      align-center
+    <!-- 步骤条：2026-11-03 由 `el-steps :simple` 换成本地组件（原因见 ImportSteps.vue 头注释） -->
+    <ImportSteps
       class="import-steps"
-    >
-      <el-step
-        v-for="(step, index) in steps"
-        :key="index"
-        :title="step.title"
-        :class="{ 'dev-step-clickable': devMode }"
-        @click="devMode && devJump(index, withMock)"
-      />
-    </el-steps>
+      :steps="steps"
+      :current="currentStep"
+      :clickable="devMode"
+      @jump="i => devMode && devJump(i, withMock)"
+    />
 
     <div class="step-content">
       <LedgerSelectStep v-if="currentStep === 0" />
@@ -190,29 +184,9 @@ const isWorkingStep = computed(() => currentStep.value >= 2);
   margin-bottom: 32px;
 }
 
-/* 步骤标题不折行：「选择导入账户」曾折成「选择导入账 / 户」，四步条看着像没做完。
-   标题统共几个字，宽度够与不够都该是一行——折行纯粹是 el-step 的默认容器宽度
-   在窄视口下不够，让文字自己换行反而更难看。 */
-.import-steps :deep(.el-step__title) {
-  white-space: nowrap;
-}
-
-/* 工作步（预览 / 结果）：步骤条压成 simple 细条，页头已退场，把高度让给表格 */
+/* 工作步（预览 / 结果）：页头已退场，步骤条只留一排细字，把高度让给表格 */
 .inventory-page.is-working-step .import-steps {
   margin-bottom: 8px;
-}
-
-:deep(.el-step__head.is-finish) {
-  cursor: pointer;
-}
-
-:deep(.el-step__title.is-finish) {
-  cursor: pointer;
-}
-
-.dev-step-clickable :deep(.el-step__head),
-.dev-step-clickable :deep(.el-step__title) {
-  cursor: pointer;
 }
 
 .dev-jump-panel {
