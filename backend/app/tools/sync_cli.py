@@ -170,7 +170,7 @@ def cmd_deepen(args):
 
     为什么需要单独一条命令：这些标的库里已有行，日常增量的窗口从**库内最后一行**
     往后走，永远不会回头看前缀——改首次同步的窗口只治新标的，存量不会自愈。
-    判据是「库内最早日 > max(首笔流水 − 14 天, 今天 − 5 年)」，已覆盖的一条请求
+    判据是「库内最早日 > min(首笔流水 − 14 天, 今天 − 5 年)」，已覆盖的一条请求
     都不发，故可反复跑。
     """
     from app.services.adapters.akshare_adapter import AkshareAdapter
@@ -188,12 +188,14 @@ def cmd_deepen(args):
             )
         logger.info(
             f'加深完成：计划 {result["planned"]}，已完成 {result["deepened"]}，'
-            f'无需处理 {result["skipped"]}，新增 {result["rows_added"]} 行，失败 {len(result["errors"])}'
+            f'无需处理 {result["skipped"]}，新增 {result["rows_added"]} 行，取回 0 行 {len(result["empty"])}'
         )
-        if result['errors']:
-            for err in result['errors']:
-                logger.warning(f'  取数失败 {err}')
-            return 1
+        if result['empty']:
+            # 不非 0 退出：这类标的多为停牌 / 已退市，对任何窗口都取不到（本机实测
+            # SH601198 / SZ000003 / SZ000013 换窗口也是 0 行）。把它们算作失败会让
+            # 这条可重复执行的命令次次亮红灯，真出问题时反而没人看。
+            for item in result['empty']:
+                logger.warning(f'  未加深（源侧无数据）: {item}')
         return 0
 
 

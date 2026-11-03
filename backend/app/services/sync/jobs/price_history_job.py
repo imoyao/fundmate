@@ -333,10 +333,23 @@ class PriceHistorySyncJob(SyncJob):
         锚点，会在除权日凭空多出一段涨跌（#2464 的实测 -5.235pp）。
 
         Returns:
-            `{planned, deepened, skipped, rows_added, errors, details}`；
+            `{planned, deepened, skipped, rows_added, empty, details}`；
             `details` 逐标的给出 `{symbol, stored_first, target_start, achieved_first, rows_added}`，
-            `achieved_first` 仍晚于 `target_start` 说明**源侧已到底**（上市晚 / 已退市），
-            不是没抓到——两者若在输出里同形，下次就没人分得清了。
+            `achieved_first` 仍晚于 `target_start` 说明**源侧已到底**（上市晚 / 已退市）。
+
+        ## 为什么「取回 0 行」不能算作「失败」
+
+        `AkshareAdapter.fetch_stock_price` 把异常也收敛成 `[]`（其 `except` 分支只
+        `logger.error` 后 `return []`），调用方**无法区分**「源侧本来就没有」与「这次请求
+        挂了」。既然分不清，就不能替其中一个下结论：
+
+        - 记进 `empty` 并在输出里逐条告警，附上「库里原有行未动」——这是确定的；
+        - 不记进 `errors`、不让命令以非 0 退出。本机 3 个标的（SH601198 停牌、
+          SZ000003 / SZ000013 已退市）对任何窗口都返回 0 行，把它们报成「加深失败」
+          会让这个可重复执行的命令每次都亮红灯，真出问题时反而没人看。
+
+        想要真正区分，得先让适配器把「异常」与「无数据」分成两种返回——那是另一张卡，
+        且要动所有调用方的契约。
         """
         today = today_shanghai()
         if targets:
@@ -361,7 +374,7 @@ class PriceHistorySyncJob(SyncJob):
             'deepened': 0,
             'skipped': len(sec_map) - len(plan),
             'rows_added': 0,
-            'errors': list(),
+            'empty': list(),
             'details': list(),
         }
         logger.info(f'行情加深：{len(sec_map)} 个标的中 {len(plan)} 个库内起点晚于应有起点')
@@ -374,9 +387,12 @@ class PriceHistorySyncJob(SyncJob):
 
         for symbol, current, target_start in plan:
             rows = self._refetch_full_history(symbol, today, start=target_start)
-            if rows is None:
-                # 取不回来就**不动库里已有行**，并记账：这一态与「源侧已到底」必须可分
-                result['errors'].append({'symbol': symbol, 'stage': 'deepen', 'target_start': str(target_start)})
+            if not rows:
+                # 取回 0 行：**不动库里已有行**，记进 empty 并在输出里告警。
+                # 不记 errors —— 适配器把异常也收敛成 []，这里分不清「源侧没有」与
+                # 「这次挂了」，见 docstring。
+                result['empty'].append({'symbol': symbol, 'stored_first': current, 'target_start': target_start})
+                logger.warning(f'{symbol} 取回 0 行（源侧无数据或请求失败），库内起点保持 {current}')
                 continue
 
             security_id = sec_map[symbol].id
@@ -384,9 +400,8 @@ class PriceHistorySyncJob(SyncJob):
                 item['security_id'] = security_id
             validated = self._validate_data(rows)
             if not validated:
-                result['errors'].append(
-                    {'symbol': symbol, 'stage': 'deepen_validate', 'target_start': str(target_start)}
-                )
+                result['empty'].append({'symbol': symbol, 'stored_first': current, 'target_start': target_start})
+                logger.warning(f'{symbol} 抓回 {len(rows)} 行但全部未通过校验，库内起点保持 {current}')
                 continue
             before = self._count_rows(symbol)
             self._save_data(validated)

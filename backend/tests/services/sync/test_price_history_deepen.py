@@ -8,7 +8,7 @@
    一切正常；
 2. **必须整段覆盖写，不是只插前缀**。只追加前缀会让一段序列里混两代前复权锚点，
    除权日凭空多出一段涨跌（#2464 实测 -5.235pp）；
-3. **取不到与已到底必须可分**。取失败进 `errors`、库里原有行不动；源侧本来就只有
+3. **取不到与已到底必须可分**。取取回 0 行记 `empty`、库里原有行不动；源侧本来就只有
    这么多（已退市转债）时记 `achieved_first` 仍晚于目标，但不报错。
 """
 
@@ -160,15 +160,20 @@ class TestDeepenWrite:
         result = job.deepen()
 
         assert result['deepened'] == 1
-        assert result['errors'] == []
+        assert result['empty'] == []
         rows = db.query(PriceHistory).filter(PriceHistory.symbol == 'SH113649').all()
         starts = min(r.trade_date for r in rows)
         assert starts == BASELINE
         assert len(rows) > 3, '前缀行必须真的落库，而不是被去重丢掉'
         assert result['details'][0]['achieved_first'] == BASELINE
 
-    def test_fetch_failure_keeps_existing_rows(self, job, db):
-        """取不回来 ⇒ 记 errors、库里原有行一行不动（绝不拿空当重算完成）。"""
+    def test_empty_result_keeps_existing_rows_and_is_reported(self, job, db):
+        """取回 0 行 ⇒ 记 `empty` 告警、库里原有行一行不动（绝不拿空当重算完成）。
+
+        刻意**不**记 `errors`：适配器把异常也收敛成 `[]`，调用方分不清「源侧没有」与
+        「这次挂了」。本机 3 个停牌/退市标的换窗口也是 0 行；把它们报成失败会让这条
+        可重复执行的命令次次亮红灯。
+        """
         sec = _security(db, 'SH113649')
         _txn(db, 'SH113649', date(2023, 2, 17))
         _price(db, sec.id, 'SH113649', date(2025, 11, 3))
@@ -178,12 +183,12 @@ class TestDeepenWrite:
         result = job.deepen()
 
         assert result['deepened'] == 0
-        assert len(result['errors']) == 1
+        assert result['empty'] == [{'symbol': 'SH113649', 'stored_first': date(2025, 11, 3), 'target_start': BASELINE}]
         rows = db.query(PriceHistory).filter(PriceHistory.symbol == 'SH113649').all()
         assert [r.trade_date for r in rows] == [date(2025, 11, 3)]
 
-    def test_source_bottomed_out_is_not_an_error(self, job, db):
-        """源侧只有近两年（已退市转债）⇒ 目标没达到，但不是失败：起点照实前移。"""
+    def test_source_bottomed_out_is_not_reported_at_all(self, job, db):
+        """源侧只有近两年（已退市转债）⇒ 起点照实前移，既不进 empty 也不算失败。"""
         sec = _security(db, 'SH111000', sec_type='bond')
         _txn(db, 'SH111000', date(2023, 7, 21), asset_type='bond')
         _price(db, sec.id, 'SH111000', date(2025, 11, 3))
@@ -193,7 +198,7 @@ class TestDeepenWrite:
         result = job.deepen()
 
         assert result['deepened'] == 1
-        assert result['errors'] == []
+        assert result['empty'] == []
         detail = result['details'][0]
         assert detail['achieved_first'] == date(2024, 6, 3)
         assert detail['achieved_first'] > detail['target_start']
