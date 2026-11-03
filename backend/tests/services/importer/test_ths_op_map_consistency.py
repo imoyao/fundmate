@@ -10,7 +10,6 @@
 而是把「共同键归一后必须一致」钉成判据：将来有人只改一张表，这里立刻转红。
 """
 
-
 from app.core.constants import THS_OP_TYPE_MAP
 from app.services.importer.mappings import THS_OP_MAP
 

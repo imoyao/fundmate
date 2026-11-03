@@ -95,9 +95,7 @@ class TestUnknownOperationRows:
     def test_row_reconciliation_identity_holds(self):
         """源文件行数 = 可导入 + 解析失败 + 有意忽略，三类互斥且完备。"""
         parser = THSStockParser()
-        records, errors = parser.parse(
-            _file_bytes('证券买入', '快速取现', '指定交易', '证券卖出')
-        )
+        records, errors = parser.parse(_file_bytes('证券买入', '快速取现', '指定交易', '证券卖出'))
 
         assert parser.source_row_count == 4
         assert parser.ignored_row_count == 1

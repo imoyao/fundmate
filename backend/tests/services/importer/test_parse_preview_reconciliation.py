@@ -70,9 +70,7 @@ def test_parse_and_preview_surfaces_errors_and_row_counts(db):
     assert result['source_row_count'] == 3
     assert result['ignored_row_count'] == 1
     # 恒等式：文件 3 行 = 可导入 1 + 无法识别 1 + 有意忽略 1
-    assert result['source_row_count'] == (
-        result['total'] + result['parse_error_count'] + result['ignored_row_count']
-    )
+    assert result['source_row_count'] == (result['total'] + result['parse_error_count'] + result['ignored_row_count'])
 
 
 def test_parse_and_preview_keeps_zero_loss_files_quiet(db):
