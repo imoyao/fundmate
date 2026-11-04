@@ -74,7 +74,7 @@ import datetime as dt
 from bisect import bisect_right
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy import func, tuple_
@@ -96,6 +96,28 @@ from app.services.pnl_service import (
     _INVEST_TXN_TYPES,
 )
 from app.services.scope import filter_positions_by_scope
+
+# 终点锚校准量的注入日（D80）：它不是流水，只是把 `positions.quantity` 与
+# 流水净额之间的差额折进起始份额的技术手段。`first_txn_date`（「投资以来」起点）
+# 必须排除它，否则年视图会把 1970 年当成第一笔建仓，画出几十个空年份。
+_SHARE_ANCHOR_EPOCH = dt.date(1970, 1, 1)
+
+
+class _TxnRow(NamedTuple):
+    """`_as_of_shares` 用到的流水字段（列投影行）。
+
+    属性名与 `Transaction` 一致 ⇒ `_effective_date` / `_build_per_pos` 逐字复用，
+    口径零变化。真实库 1261 行：整实体水合 81ms → 列投影 14.3ms（5.7×）。
+    首页今日收益 / 收益日历 / 收益归因三条路径都走这里。
+    """
+
+    position_id: Optional[int]
+    txn_type: Optional[str]
+    quantity: Optional[int]
+    realized_pnl: Optional[int]
+    confirm_date: Optional[dt.date]
+    trade_date: Optional[dt.date]
+
 
 # 单价精度：场内 adj_close 为「元」浮点，需放大到 0.0001 元整数再喂 Money.multiply_price_quantity
 _PRICE_SCALE = Decimal('10000')
@@ -209,7 +231,7 @@ def _as_of_shares(
     family_id: int,
     start: dt.date,
     ledger_id: Optional[int] = None,
-) -> Tuple[Dict[int, Dict[dt.date, int]], Dict[int, List[Transaction]]]:
+) -> Tuple[Dict[int, Dict[dt.date, int]], Dict[int, List[_TxnRow]]]:
     """as-of 份额与原始流水：{position_id: {date: 增量份额}} + {position_id: [txn...]}。
 
     份额取 `transactions.quantity`（0.0001 份/单位，与 Position.quantity 同尺度）。
@@ -266,7 +288,17 @@ def _as_of_shares(
     `quantity` 是权威值，收益引擎就自动对齐，不需要再跑任何修复工具；
     `asset_snapshots` 的历史口径完全不碰。
     """
-    query = db.query(Transaction).filter(
+    # 列投影而非整实体：1261 行流水逐个构造 ORM 实体并塞进 identity map
+    # 实测 81ms，投影成 6 列元组只要 14.3ms（5.7×）。引擎只需要这几个标量，
+    # `_TxnRow` 的属性名与 `Transaction` 一致 ⇒ 下游取数逻辑逐字不变。
+    query = db.query(
+        Transaction.position_id,
+        Transaction.txn_type,
+        Transaction.quantity,
+        Transaction.realized_pnl,
+        Transaction.confirm_date,
+        Transaction.trade_date,
+    ).filter(
         Transaction.family_id == family_id,
         Transaction.position_id.isnot(None),
     )
@@ -300,9 +332,17 @@ def _as_of_shares(
     # 按日增量必须取**全量流水**（不按 start 截断）：倒推今天的份额需要知道
     # `start` 之后发生了什么；返回值里的 shares / txns 仍只保留 `<= start`。
     deltas: Dict[int, Dict[dt.date, int]] = defaultdict(dict)
-    txns: Dict[int, List[Transaction]] = defaultdict(list)
+    txns: Dict[int, List[_TxnRow]] = defaultdict(list)
 
-    for txn in query.all():
+    for row in query.all():
+        txn = _TxnRow(
+            position_id=row.position_id,
+            txn_type=row.txn_type,
+            quantity=row.quantity,
+            realized_pnl=row.realized_pnl,
+            confirm_date=row.confirm_date,
+            trade_date=row.trade_date,
+        )
         eff = _effective_date(txn)
         if eff is None:
             continue
@@ -333,7 +373,7 @@ def _as_of_shares(
     # 终点锚校准：让 Σ(全部增量) 严格等于 `positions.quantity`。
     # 校准量放在早于任何窗口的固定日期，只改变**绝对水平**、不改变任意相邻
     # 两日之差 ⇒ 历史每日收益不受影响，但市值从此与账户页同源。
-    epoch = dt.date(1970, 1, 1)
+    epoch = _SHARE_ANCHOR_EPOCH
     shares: Dict[int, Dict[dt.date, int]] = defaultdict(dict)
     for pid, by_day in deltas.items():
         target = current_qty.get(pid)
@@ -615,7 +655,7 @@ def _has_usable_cost(pos) -> bool:
 def _build_per_pos(
     positions: List[Position],
     shares: Dict[int, Dict[dt.date, int]],
-    txns: Dict[int, List[Transaction]],
+    txns: Dict[int, List[_TxnRow]],
     scan_start: dt.date,
 ) -> Dict[int, dict]:
     """每笔持仓的运行态（份额 / 已实现 / 建仓标记），家庭级与账户级共用同一构造。
@@ -1029,9 +1069,12 @@ def build_daily_pnl_series(
     # （`YEAR_WINDOW`），窗口边界与真实建仓年份无关，年份一多就既看不全也对不上。
     # `shares` 已按 position_id 归组且只含 `eff <= end` 的流水，故取键的最小值即得，
     # 不需要再查一次库。
+    # D80 终点锚把校准量注入 `_SHARE_ANCHOR_EPOCH`，它不是流水、不是建仓日：
+    # 若不排除，`first_txn_date` 恒为 1970-01-01，年视图「投资以来」会画出
+    # 几十个空年份（真实库实测）。排除后取到的才是真正最早一笔份额变动。
     scope_position_ids = {p.id for p in positions}
     first_txn = min(
-        (day for pid in scope_position_ids for day in shares.get(pid, {})),
+        (day for pid in scope_position_ids for day in shares.get(pid, {}) if day != _SHARE_ANCHOR_EPOCH),
         default=None,
     )
 
@@ -1079,7 +1122,7 @@ def _compute_days(
     loop_start: dt.date,
     no_price_ids: set,
     shares: Dict[int, Dict[dt.date, int]],
-    txns: Dict[int, List[Transaction]],
+    txns: Dict[int, List[_TxnRow]],
     attribution: Optional[dict] = None,
     class_breakdown: Optional[dict] = None,
 ) -> List[dict]:
