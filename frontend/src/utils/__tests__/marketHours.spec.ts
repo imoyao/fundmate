@@ -162,8 +162,10 @@ describe("轮询启动时序守卫（#2885，源码断言）", () => {
 
   it("开盘前 canFetch 失败要安排到点唤醒，而不是直接 return", () => {
     expect(quotesSrc).toContain("msUntilTradingOpen(");
+    // 调用点是 `scheduleWakeAtOpen(token)`（带参数），判据只锚函数名；
+    // 中间还隔着 status 赋值与口径注释，窗口给到 400。
     expect(quotesSrc).toMatch(
-      /if \(!\(await canFetch\(\)\)\)[\s\S]{0,200}?scheduleWakeAtOpen\(\)/
+      /if \(!\(await canFetch\(\)\)\)[\s\S]{0,400}?scheduleWakeAtOpen\(/
     );
   });
 
