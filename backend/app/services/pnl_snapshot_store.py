@@ -86,7 +86,12 @@ from app.domains.transactions.models import Transaction
 #     假跳变，而且没法从数据上判断是真清零还是缺数据。`daily_pnl` 不受影响。
 #      与 v4 同属 #2733，但**必须再提一档**：v4 已经按「0」写过一批快照，若沿用
 #      同一版本号，读路径不会作废旧行，那些日期上的假归零就永远修不掉。
-CALIBER_VERSION = 5
+#   v6（2026-11-04，「建仓日按买入成本起算」）：建仓日的 `daily_pnl` 从「剔除 /
+#      强制 0」改为「市值 − 买入成本」（成本缺失仍剔除，见
+#      `pnl_calendar._has_usable_cost`）。历史建仓日的物化行是旧口径的 0，
+#      不换版就会被读路径当成新口径直接返回——用户看到「今天买的涨了，当日仍是 0」。
+#      `net_worth` 不受影响，但 `daily_pnl` 变了，必须整表作废重算。
+CALIBER_VERSION = 6
 
 # 日历关心的模型全集。`Asset` 不在其内：`pnl_calendar` 的 `net_worth` 只累加
 # 持仓市值（见其值循环），静态资产增减**不影响**日历的任何一个数字。

@@ -34,10 +34,12 @@
 3. **按标的合并再排名**：同一 symbol 在多个账户持有时先合并市值再排序——否则
    「前 5 大持仓」会被同一只基金的账户拆分挤掉，集中度被系统性低估。
    合并后仍保 `accounts` 计数，便于下钻。
-4. **账户级下 ETF 归权益侧**：ETF 是**场内**交易品种，与股票同为按市价计价，
+4. **ETF / 可转债归权益侧（全作用域，2026-11-04 D77）**：二者与股票同为**场内**
+   按市价计价，当日盈亏口径一致，故 `services.asset_class` 统一归 `stock`；
    合并排名不违反第 2 条（那条约束针对的是场外基金的净值口径）。实测证券账户
-   「同花顺（银河证券）」的 ETF 占该账户市值 21.2%，若归入基金侧则会被账户级
-   固定视角完全藏起来。组合/家庭级维持原分类（`etf → fund`），避免误伤组合页。
+   「同花顺（银河证券）」的 ETF 占该账户市值 21.2%，归入基金侧会被固定视角藏掉。
+   旧实现「只在账户级改写、家庭级维持 `etf → fund`」已删除——同一只 ETF 在两个
+   作用域分属不同大类，用户无法理解首页「基金」列为何在盘中跳动。
 5. **账户级下货基走类现金**：货基本质是现金等价物（见
    `services.fund_utils.is_cash_equivalent_position`），不是「持仓」。
    纳入持仓榜会稀释集中度（货基几乎零波动）并让「前 5 大持仓」失真。
@@ -125,7 +127,10 @@ def build_position_structure(
     positions, _assets = _load_user_assets(db, family_id)
     positions = filter_positions_by_scope(db, family_id, positions, ledger_id=ledger_id, portfolio_id=portfolio_id)
 
-    # 账户级 ⇒ 固定视角 + 口径改写（ETF 归权益侧 / 货基走类现金）
+    # 账户级 ⇒ 固定视角（货基走类现金）
+    # ⚠️ 「股票视角下 ETF 归权益侧」的改写已随 2026-11-04 口径统一删除：
+    # `services/asset_class` 现在把 etf / bond 一律归权益侧，家庭级与账户级同桶，
+    # 这里不再需要二次改写（保留会变成重复规则，改一边忘一边就分叉）。
     fixed_view, ledger_type = _resolve_ledger_view(db, ledger_id)
 
     # ── 1. 逐持仓定值 + 归类 + 按标的合并 ──────────────────────────────
@@ -148,9 +153,6 @@ def build_position_structure(
         counted_positions += 1
         asset_type = (getattr(pos, 'asset_type', None) or '').lower()
         cls = _class_of(asset_type)
-        # 账户级 + 股票视角：ETF 归权益侧（口径 4）
-        if fixed_view == 'stock' and asset_type == 'etf':
-            cls = 'stock'
 
         class_cents[cls] += cents
         total_cents += cents
@@ -213,14 +215,14 @@ def build_position_structure(
     if fixed_view == 'stock':
         notes.insert(
             0,
-            '本账户是证券账户，只看股票视角：ETF 按场内市价与股票合并排名；'
-            '债券等非权益持仓归「其他」只出总额；货币基金走类现金口径，不计入持仓。',
+            '本账户是证券账户，只看股票视角：场内权益（股票 / ETF / 可转债）按市价合并排名；'
+            '货基 / 逆回购等归「其他」只出总额，货币基金走类现金口径、不计入持仓。',
         )
     elif fixed_view == 'fund':
         notes.insert(
             0,
-            '本账户是基金账户，只看基金视角：场内 ETF 归基金侧；'
-            '非基金持仓归「其他」只出总额；货币基金走类现金口径，不计入持仓。',
+            '本账户是基金账户，只看基金视角：场外基金是主榜；'
+            'ETF / 可转债属场内权益，不在本视角；货币基金走类现金口径，不计入持仓。',
         )
 
     return {

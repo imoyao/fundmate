@@ -74,11 +74,14 @@ def test_双品种贡献_与引擎月合计自洽(db, make_position, make_transa
     assert attr['categories'][0]['positions_count'] == 2
 
 
-def test_建仓日剔除_期中建仓不虚增贡献(db, make_position, make_transaction):
-    """期中建仓：建仓日的水平值是「今天新出现的」，不是「今天赚的」。
+def test_建仓日按买入成本计入_期中建仓不漏计(db, make_position, make_transaction):
+    """期中建仓（2026-11-04 D77）：建仓日收益 = 当日价 − **买入价**。
 
-    变异探针：删掉折叠里的 `- day_opening_level` 剔除 ⇒ B 在建仓日虚增
-    +200，本用例两处断言（B 的贡献、Σ ≡ 引擎）同时转红。
+    旧口径把建仓日的水平值整笔剔掉，B 在 d2 的 +200 要等卖出那天才以已实现
+    形式出现（归期错误）。现在 d2 按成本起算计入，d3 只算增量。
+
+    变异探针：把 `_has_usable_cost` 判据改成「建仓日一律剔除」⇒ 总收益从
+    500 掉到 300、B 贡献从 500 掉到 300，两处断言同时转红。
     """
     d1, d2, d3 = dt.date(2026, 1, 5), dt.date(2026, 1, 6), dt.date(2026, 1, 7)
 
@@ -96,8 +99,8 @@ def test_建仓日剔除_期中建仓不虚增贡献(db, make_position, make_tra
     _add_nav(db, '000103', d1, 1.0)
     _add_nav(db, '000103', d2, 1.0)
     _add_nav(db, '000103', d3, 1.0)
-    # B 于 d2 期中建仓：买价 1.0 而当日净值已 1.2（建仓瞬间浮盈 200，
-    # 属「新出现的」而非「今天赚的」）；d3 净值 1.5 ⇒ 真实贡献 +300
+    # B 于 d2 期中建仓：买价 1.0、当日净值 1.2 ⇒ 建仓日 +200（相对买入价）；
+    # d3 净值 1.5 ⇒ 当日再 +300。整段贡献 500，且 200 必须落在 d2 而不是卖出日。
     pos_b = make_position(symbol='000104', name='期中建仓基金', quantity=1000, avg_price=1.0, asset_type='fund')
     make_transaction(
         position_id=pos_b.id,
@@ -115,8 +118,9 @@ def test_建仓日剔除_期中建仓不虚增贡献(db, make_position, make_tra
     engine = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
 
     assert attr['total_pnl'] == pytest.approx(engine['month_total'], abs=0.001)
-    assert attr['total_pnl'] == pytest.approx(300.0, abs=0.001)
-    assert _pnl_by_symbol(attr) == pytest.approx({'000103': 0.0, '000104': 300.0})
+    # 建仓日 +200（1.2 − 1.0）、次日 +300（1.5 − 1.2）
+    assert attr['total_pnl'] == pytest.approx(500.0, abs=0.001)
+    assert _pnl_by_symbol(attr) == pytest.approx({'000103': 0.0, '000104': 500.0})
 
 
 def test_已实现盈亏进品种贡献(db, make_position, make_transaction):

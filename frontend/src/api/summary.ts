@@ -841,7 +841,12 @@ export function getFundValuation(params?: {
 export type TodayPnlStatus =
   "estimated" | "confirmed" | "partial" | "empty" | "no_data";
 
-/** 分项大类（卡面只出股票 / 基金：只有这两类有统一的当日估值口径） */
+/**
+ * 分项大类（卡面只出「场内权益 / 场外基金」：只有这两类有统一的当日估值口径）。
+ *
+ * 2026-11-04 起 `stock` 覆盖股票 / ETF / 可转债（`asset_class` 按定价方式分桶），
+ * 标签由后端 `CLASS_LABELS` 下发——前端不要按 asset_type 自己判类。
+ */
 export type TodayPnlClass = {
   key: "stock" | "fund";
   label: string;
@@ -878,9 +883,9 @@ export type TodayPnlData = {
   total_pnl: number | null;
   /** 当日收益率（%）；null = 分母缺失 */
   total_rate: number | null;
-  /** 投资类资产市值（元）= 股票 + 基金；null = 无持仓 */
+  /** 投资类资产市值（元）= 场内权益 + 场外基金；null = 无持仓 */
   invested_value: number | null;
-  /** 「其他」类市值（债券 / 货基 / 理财等，无当日估值口径，卡面不列，仅供口径说明） */
+  /** 「其他」类市值（货基 / 理财 / 实物等，无当日估值口径，卡面不列，仅供口径说明） */
   other_value: number | null;
   classes: TodayPnlClass[];
   holdings: TodayPnlHolding[];
