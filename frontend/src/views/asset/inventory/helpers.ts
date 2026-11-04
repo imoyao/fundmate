@@ -12,23 +12,17 @@ import {
   majorCategoryLabel
 } from "@/constants";
 import type { AssetRecord } from "@/api/assets";
-import { INVENTORY_CATEGORIES } from "./constants";
+import {
+  ASSET_TYPE_MAP,
+  INVENTORY_CATEGORIES,
+  type AssetTypeOption
+} from "./constants";
 
 /** 后端 `GET /api/summary/groups/?dimension=type` 的单个分组 */
 export interface AssetGroupRaw {
   name: string;
   total?: number;
   count?: number;
-}
-
-/** 「投资分布」卡片的一项（股票 + 可转债 合并为「股票」，基金独立） */
-export interface InvestmentGroup {
-  type: string;
-  label: string;
-  icon: string;
-  color: string;
-  total: number;
-  count: number;
 }
 
 /**
@@ -54,6 +48,21 @@ export function getColorWithAlpha(colorVar: string, alpha: number): string {
 export function getCategoryLabel(key: string): string {
   const cat = INVENTORY_CATEGORIES.find(c => c.key === key);
   return cat ? cat.label : majorCategoryLabel(key);
+}
+
+/**
+ * 大类 key → 说明文案。
+ *
+ * 大类目录（`INVENTORY_CATEGORIES`）是唯一真相源，页面不再自己 `find` 一遍；
+ * 找不到给空串（`CategoryDescBar` 会自行隐藏），不返回 `undefined`。
+ */
+export function getCategoryDesc(key: string): string {
+  return INVENTORY_CATEGORIES.find(c => c.key === key)?.desc || "";
+}
+
+/** 大类 key → 该大类下的快捷录入入口；无对应项给空数组（`QuickActionGrid` 据此整块不渲染） */
+export function getCategoryAssetTypes(key: string): AssetTypeOption[] {
+  return ASSET_TYPE_MAP[key] || [];
 }
 
 /** 投资理财明细的细分标签：优先 `minor_category`，存量数据回退到历史大类标签 */
@@ -91,49 +100,4 @@ export function getAllocationColor(key: string | null): string {
 /** 配置目标 key → 胶囊底色（前景色降透明度） */
 export function getAllocationBgColor(key: string | null): string {
   return getColorWithAlpha(getAllocationColor(key), 0.15);
-}
-
-/** 后端 `type` 分组 → 页面分组 key（股票 / 可转债 合并为证券，基金归基金，其余忽略） */
-const GROUP_KEY_MAP: Record<string, string> = {
-  股票: "securities",
-  可转债: "securities",
-  基金: "fund"
-};
-
-const GROUP_META_MAP: Record<
-  string,
-  { label: string; icon: string; color: string }
-> = {
-  securities: {
-    label: "股票",
-    icon: "ep:trend-charts",
-    color: "var(--asset-cat-stock)"
-  },
-  fund: { label: "基金", icon: "ep:money", color: "var(--asset-cat-fund)" }
-};
-
-/**
- * 投资分布：消费后端 `GET /api/summary/groups/?dimension=type`（含 count / 总市值），
- * 按原页面语义合并「股票 + 可转债 → 证券」「基金 → 场外基金」。
- */
-export function buildInvestmentGroups(raw: AssetGroupRaw[]): InvestmentGroup[] {
-  const groups: Record<string, { total: number; count: number }> = {};
-  for (const g of raw) {
-    const key = GROUP_KEY_MAP[g.name];
-    if (!key) continue;
-    if (!groups[key]) groups[key] = { total: 0, count: 0 };
-    groups[key].total += g.total || 0;
-    groups[key].count += g.count || 0;
-  }
-
-  return Object.entries(groups).map(([type, data]) => {
-    const meta = GROUP_META_MAP[type];
-    return {
-      type,
-      label: meta?.label || type,
-      icon: meta?.icon || "ep:question",
-      color: meta?.color || "var(--color-neutral)",
-      ...data
-    };
-  });
 }

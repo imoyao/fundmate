@@ -1,29 +1,30 @@
 <template>
-  <!-- #1239 草稿层：同域（A）导入持仓快照的草稿恢复 Banner，不弹窗打断 -->
-  <div
+  <!-- #1239 草稿层：同域（A）导入持仓快照的草稿恢复 Banner，不弹窗打断。
+       #2716 起壳由 SoftBanner 承担；class 保留 e2e 锚点（eaccount-draft / import-draft spec） -->
+  <SoftBanner
     v-if="p.draftBannerVisible && p.pendingDraftMeta"
     class="draft-banner"
-    role="alert"
+    variant="info"
+    icon="ep:edit-pen"
   >
-    <IconifyIconOffline icon="ep:edit-pen" class="draft-banner__icon" />
     <div class="draft-banner__text">
       发现未完成的导入草稿（{{ p.pendingDraftMeta.rowCount }} 条持仓），
       是否继续？
     </div>
-    <div class="draft-banner__actions">
+    <template #actions>
       <el-button size="small" type="primary" @click="p.restoreDraft">
         恢复草稿
       </el-button>
       <el-button size="small" text @click="p.discardCurrentDraft">
         丢弃
       </el-button>
-    </div>
-  </div>
+    </template>
+  </SoftBanner>
 </template>
 
 <script setup lang="ts">
 import { reactive } from "vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import type { useEaccountImport } from "../composables/useEaccountImport";
 
 defineOptions({ name: "EaccountDraftBanner" });
@@ -39,31 +40,10 @@ const p = reactive(props.page);
 </script>
 
 <style scoped>
-/* ===== #1239 草稿恢复 Banner：中性信息色，非红非弹窗（柔性原则） ===== */
-.draft-banner {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.draft-banner__icon {
-  font-size: var(--text-body);
-  color: var(--brand-700);
-}
-
+/* #2716 起壳由 SoftBanner info variant 承担，只保留正文文字排版 */
 .draft-banner__text {
   flex: 1;
-}
-
-.draft-banner__actions {
-  display: flex;
-  gap: 8px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
 }
 </style>

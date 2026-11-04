@@ -225,6 +225,93 @@ def test_counts_are_scoped_to_this_portfolio():
     assert data['holding_count'] == 0
 
 
+# ── 投顾详情页 P0（2026-10-29）：2/3 年区间、基准收益、超额现算 ─────────────
+
+
+def test_new_interval_and_benchmark_fields_are_floats():
+    """`return_2y` / `return_3y` 与 8 个基准区间列都要透出且为 float。
+
+    这些列 2026-10-29 才建（`migrate_advisor_portfolio_perf_columns`）——漏进
+    `_NUMERIC_FIELDS` 会以 Decimal 形式进 JSON（序列化成字符串），前端算不了减法。
+    """
+    _seed_advisor(
+        'ZH900010',
+        name='基准齐全的组合',
+        return_2y=25.39,
+        return_3y=35.12,
+        benchmark_return_1m=-6.37,
+        benchmark_return_1q=-9.51,
+        benchmark_return_6m=-13.79,
+        benchmark_return_ytd=-9.99,
+        benchmark_return_1y=-10.4,
+        benchmark_return_2y=6.12,
+        benchmark_return_3y=16.87,
+        benchmark_return_since_incep=1.17,
+    )
+
+    with closing(market_session_factory()()) as db:
+        data = build_advisor_profile(db, 'ZH900010')
+
+    for field in (
+        'return_2y',
+        'return_3y',
+        'benchmark_return_1m',
+        'benchmark_return_1q',
+        'benchmark_return_6m',
+        'benchmark_return_ytd',
+        'benchmark_return_1y',
+        'benchmark_return_2y',
+        'benchmark_return_3y',
+        'benchmark_return_since_incep',
+    ):
+        assert data[field] is not None, f'{field} 必须透出'
+        assert isinstance(data[field], float), f'{field} 必须是 float（Decimal 会序列化成字符串）'
+
+
+def test_excess_return_computed_from_since_incep_pair():
+    """超额 = 成立以来收益 − 基准成立以来收益；**不读库列**（`excess_return` 无写者）。"""
+    _seed_advisor(
+        'ZH900011',
+        name='超额可算的组合',
+        return_since_incep=18.46,
+        benchmark_return_since_incep=1.17,
+        # 故意写一个错误的库内值：读取侧现算必须无视它
+        excess_return=999.0,
+    )
+
+    with closing(market_session_factory()()) as db:
+        data = build_advisor_profile(db, 'ZH900011')
+
+    assert data['excess_return'] == 17.29  # 18.46 - 1.17
+
+
+def test_excess_return_is_none_when_either_side_missing():
+    """任一缺失给 None，**不得把缺失当 0**。
+
+    当成 0 会让「基准还没披露」渲染成「跑赢基准 18 个百分点」——比显示「—」危险得多。
+    """
+    _seed_advisor('ZH900012', name='只有组合收益', return_since_incep=18.46)
+    _seed_advisor('ZH900013', name='只有基准收益', benchmark_return_since_incep=1.17)
+
+    with closing(market_session_factory()()) as db:
+        only_nav = build_advisor_profile(db, 'ZH900012')
+        only_bench = build_advisor_profile(db, 'ZH900013')
+
+    assert only_nav['excess_return'] is None
+    assert only_bench['excess_return'] is None
+
+
+def test_excess_return_key_always_present():
+    """固定契约：没有数据的组合也必须返回 `excess_return` 这个 key（值 None）。"""
+    _seed_advisor('ZH900014', name='什么都没有')
+
+    with closing(market_session_factory()()) as db:
+        data = build_advisor_profile(db, 'ZH900014')
+
+    assert 'excess_return' in data
+    assert data['excess_return'] is None
+
+
 # ── 端点级 ────────────────────────────────────────────────────────────────
 
 

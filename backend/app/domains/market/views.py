@@ -9,8 +9,10 @@ from apiflask import APIBlueprint
 from flask import jsonify, request
 
 from app.core.database import get_db
+from app.core.exceptions import ErrorCode, SBException
 from app.services.industry_emotion_service import get_latest_industry_emotion
 from app.services.industry_pbroe_service import get_latest_industry_pbroe
+from app.services.market_history_service import DEFAULT_DAYS, resolve_asset_history
 from app.services.market_snapshot_store import resolve_overview
 
 market_bp = APIBlueprint('market', __name__, url_prefix='/api/market')
@@ -37,6 +39,43 @@ def get_market_overview():
     """
     force = request.args.get('force', 'false').lower() in ('1', 'true', 'yes')
     data = resolve_overview(force)
+    return jsonify({'data': data, 'message': 'success'})
+
+
+@market_bp.get('/asset/<asset_key>/history/', strict_slashes=False)
+def get_market_asset_history(asset_key: str):
+    """
+    获取单个大类资产的日线历史（探市·资产详情曲线，#1460 P2）
+
+    GET /api/market/asset/<asset_key>/history
+
+    Path Parameters:
+        asset_key: 资产键（ASSET_CONFIG.key，如 sh000300 / HSI / .INX）
+
+    Query Parameters:
+        days: 回看交易日数（默认 500，范围 10~5000）
+        force: 是否强制刷新（默认 false）。true 时绕过 30 分钟序列缓存重新取数
+
+    Response:
+      {"data": {"key": "sh000300", "name": "沪深300", "category": "A股",
+                "points": [{"date": "2026-10-27", "close": 4123.45}, ...],
+                "count": 500, "last_date": "2026-10-27",
+                "total_rows": 4102, "expected_latest_date": "2026-10-28",
+                "fetched": true, "added": 12, "stale": false, "reason": null},
+       "message": "success"}
+
+    首次请求会**按需回填**该资产全历史并落库，之后只补缺失日期（#1460 P2）。
+    取数失败但库里有历史时正常返回，stale=true + reason 如实标注；
+    既无历史又取数失败返回 503，未知 / 无源资产返回 404。
+    单次只回填一个品种：不做「一次请求把 20 个资产全拉一遍」。
+    """
+    raw_days = request.args.get('days', str(DEFAULT_DAYS))
+    try:
+        days = int(raw_days)
+    except (TypeError, ValueError):
+        raise SBException(ErrorCode.INVALID_PARAMS.code, 'days 必须是整数', 400)
+    force = request.args.get('force', 'false').lower() in ('1', 'true', 'yes')
+    data = resolve_asset_history(asset_key, days=days, force=force)
     return jsonify({'data': data, 'message': 'success'})
 
 

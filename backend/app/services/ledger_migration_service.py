@@ -19,16 +19,18 @@ WHY 下沉
 """
 
 from loguru import logger
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 
+from app.core.constants import OwnershipStatus
 from app.core.money import Money
+from app.core.utils import iso_date_only
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services import pnl_snapshot_store
-from app.services.txn_name_resolver import resolve_transaction_display_names
+from app.services.txn_name_resolver import display_asset_name, resolve_transaction_display_names
 
 # 决议动作白名单：持仓支持 merge，资产无 merge（金额无「加权平均」语义）
 _POSITION_ACTIONS = ('keep_source', 'keep_target', 'merge')
@@ -552,6 +554,35 @@ def _orphan_ledger_condition(ledger_id_col, valid_ledger_ids):
     return or_(ledger_id_col.is_(None), ~ledger_id_col.in_(valid_ledger_ids))
 
 
+def _orphan_position_condition(valid_ledger_ids):
+    """孤儿**持仓**判定：ledger 悬空，且不是对账影子行（shadow）。
+
+    ## 为什么持仓要单独一条（2026-10-28 实测）
+
+    `_orphan_ledger_condition` 只看 `ledger_id`，对持仓不够用。E账户导入会为
+    **每一条真实持仓**再写一条 `ownership_status='shadow'` 的镜像行，归因关系记在
+    `PositionImportMeta.attributed_to_ledger_id`（不记在 `Position.ledger_id`）——
+    因为 `uq_positions_ledger_symbol(ledger_id, symbol)` 不区分状态，影子行带上
+    同一账户 id 会与真身撞约束，只能落 NULL。
+
+    只看 `ledger_id` 的后果（本地库实测，93 条影子行）：
+
+    - 全部被算成「未归置资产」，banner 提示「已删除账户的持仓，合计 ¥234,164.89」，
+      但它们是**已完成归因的对账镜像**，一条都不该「归入」；
+    - 「归入」必然失败：目标账户已有同名 active 行，整批回滚
+      （`uq_positions_ledger_symbol` 冲突）；
+    - 「清理」会把 93 条对账依据一起删掉，且 `position_count` 把影子行算进成果，
+      看起来删得比用户预期多。
+
+    故持仓侧一律排除 shadow：影子行既不参与归入，也不参与清理。
+    资产 / 交易没有 `ownership_status`，仍用 `_orphan_ledger_condition`。
+    """
+    return and_(
+        _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids),
+        Position.ownership_status != OwnershipStatus.SHADOW.value,
+    )
+
+
 def _valid_ledger_ids(db, family_id: int) -> list[int]:
     """当前家庭全部账户 id 集合（孤儿判定基准，与归入/清理同一口径）。"""
     return [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
@@ -570,9 +601,7 @@ def build_orphan_detail(db, family_id: int) -> dict:
     #    ROUND_HALF_UP 语义（与 ledger_service.get_positions_paginated 一致，
     #    避免 SQL 聚合与逐行四舍五入的分位差异）
     orphan_positions = (
-        db.query(Position)
-        .filter(Position.family_id == family_id, _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids))
-        .all()
+        db.query(Position).filter(Position.family_id == family_id, _orphan_position_condition(valid_ledger_ids)).all()
     )
     positions = []
     position_mv_cents = 0
@@ -630,12 +659,18 @@ def build_orphan_detail(db, family_id: int) -> dict:
         transactions.append(
             {
                 'id': t.id,
-                'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
+                'position_name': display_asset_name(
+                    position_name=t.position_name or pos_names.get(t.id),
+                    asset_type=t.asset_type,
+                    txn_type=t.txn_type,
+                ),
                 # txn_type 保持后端原始枚举值（buy/sell/dividend…），翻译交给前端
                 'txn_type': t.txn_type,
                 'amount': Money.cents_to_yuan(t.amount),
-                # 纯日期（YYYY-MM-DD），不带时间
-                'confirm_date': t.confirm_date.isoformat()[:10] if t.confirm_date else None,
+                # 日期一律 `YYYY-MM-DD`（#2712）：此前只给确认日、且自己 `.isoformat()[:10]`，
+                # 于是同一笔流水在别处（交易日优先）与这里（只认确认日）可能显示不同天。
+                'trade_date': iso_date_only(t.trade_date),
+                'confirm_date': iso_date_only(t.confirm_date),
             }
         )
 
@@ -658,7 +693,7 @@ def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
     返回各项计数；目标账户已有同名持仓（唯一键冲突）时回滚并抛 400。
     """
     valid_ledger_ids = _valid_ledger_ids(db, family_id)
-    orphan_cond = _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids)
+    orphan_cond = _orphan_position_condition(valid_ledger_ids)
 
     # 孤儿持仓 id 集合（供对应悬空交易归入使用）
     orphan_position_ids = [
@@ -719,7 +754,7 @@ def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
 def delete_orphan_data(db, family_id: int) -> dict:
     """清理所有未归置数据（孤儿持仓/资产/交易），单事务提交。"""
     valid_ledger_ids = _valid_ledger_ids(db, family_id)
-    orphan_cond = _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids)
+    orphan_cond = _orphan_position_condition(valid_ledger_ids)
 
     orphan_position_ids = [
         pid for (pid,) in db.query(Position.id).filter(Position.family_id == family_id, orphan_cond).all()

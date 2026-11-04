@@ -19,18 +19,23 @@ from werkzeug.serving import BaseWSGIServer  # noqa: E402
 
 from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
 from app.core.database import init_db, teardown_request_session  # noqa: E402
+from app.core.db_factory import validate_supabase_project_alignment  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
 from app.core.instance_guard import enforce_web_instance_or_exit  # noqa: E402
 from app.domains.agent.views import agent_bp  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
 from app.domains.dividends.views import dividends_bp  # noqa: E402
+from app.domains.families.member_views import member_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
+from app.domains.feedlog.views import feedlog_bp  # noqa: E402
+from app.domains.funds.overlap_views import overlap_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.e_account_views import e_account_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
 from app.domains.indices import models  # noqa: F401, E402  # 确保 index_constituents 表随 init_db 建表
+from app.domains.insight.views import insight_bp  # noqa: E402
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
 from app.domains.market.views import market_bp  # noqa: E402
 from app.domains.notification.views import notification_bp  # noqa: E402
@@ -40,6 +45,7 @@ from app.domains.portfolios.views import portfolios_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
 from app.domains.products.views import bp as products_bp  # noqa: E402
 from app.domains.reconciliation.views import bp as reconciliation_bp  # noqa: E402
+from app.domains.recurring.views import recurring_bp  # noqa: E402
 from app.domains.search.views import bp as search_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
 from app.domains.strategy.allocation.views import allocation_bp  # noqa: E402
@@ -49,6 +55,8 @@ from app.domains.summary.views import bp as summary_bp  # noqa: E402
 from app.domains.temperature.views import thermometer_bp  # noqa: E402
 from app.domains.transactions.views import bp as transactions_bp  # noqa: E402
 from app.domains.usage.views import usage_bp  # noqa: E402
+from app.domains.users.auth_audit import capture as capture_auth_audit  # noqa: E402
+from app.domains.users.auth_audit import flush as flush_auth_audit  # noqa: E402
 from app.domains.users.identity import UserIdentity  # noqa: E402
 from app.domains.users.seed import seed_default_identity  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
@@ -88,6 +96,13 @@ def create_app() -> APIFlask:
     app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'false').lower() in ('1', 'true', 'yes', 'on')
     app.config['PROPAGATE_EXCEPTIONS'] = True
 
+    # Supabase 项目一致性自检（#2764）：`SUPABASE_URL`（Auth/JWKS）与
+    # `SUPABASE_DATABASE_URL`（user 域库）必须是同一个项目。配错时系统不会自己报错——
+    # 验签通过、写库也成功，只是「认证主体在 A 项目、users 映射在 B 项目」，
+    # 表现为同一个邮箱两条 users 记录、用户名解析串到另一个项目。
+    # 放在建表之前：配错就不该建表，更不该接流量。
+    validate_supabase_project_alignment()
+
     # ✅ 启用 CORS，允许前端跨域访问
     # 默认收紧为本地前端 dev 地址；生产环境通过 CORS_ORIGINS 环境变量指定（逗号分隔）
     allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:8848')
@@ -108,6 +123,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(securities_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(funds_bp)
+    app.register_blueprint(overlap_bp)
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
@@ -121,10 +137,14 @@ def create_app() -> APIFlask:
     app.register_blueprint(strategy_bp)
     app.register_blueprint(allocation_bp)
     app.register_blueprint(strategy_engine_bp)
+    app.register_blueprint(insight_bp)
     app.register_blueprint(thermometer_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(families_bp)
+    app.register_blueprint(member_bp)
+    app.register_blueprint(feedlog_bp)
     app.register_blueprint(reconciliation_bp)
+    app.register_blueprint(recurring_bp)
     app.register_blueprint(agent_bp)
     app.register_blueprint(usage_bp)
 
@@ -137,6 +157,15 @@ def create_app() -> APIFlask:
 
     # 请求级会话收尾兜底（#1632）：`get_db()` 最外层通常已提交/关闭，
     # 这里兜底清理异常路径残留的请求级会话，避免连接泄漏。
+    #
+    # 认证端点流水（D76 / #2780）分两段接力：响应前只采集（`after_request`），
+    # 落库放在会话收尾**之后**（`teardown_request`）。
+    # **注册顺序是硬约束**：Flask 的 teardown 钩子按「后注册先执行」运行，所以
+    # `flush_auth_audit` 必须写在 `teardown_request_session` 上面，才能排在它之后执行；
+    # 反过来的话，写请求（`PATCH /api/users/me/`）尚未提交的事务还握着写锁，审计用的
+    # 独立连接会等满 SQLite timeout 后 OperationalError——台账变成随机丢行。
+    app.after_request(capture_auth_audit)
+    app.teardown_request(flush_auth_audit)
     app.teardown_request(teardown_request_session)
 
     # 单实例守门（#1809）：同一 DB 只允许一个 web 实例，且**必须排在 init_db()/迁移之前**——

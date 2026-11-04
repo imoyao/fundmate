@@ -5,6 +5,10 @@
 
   2026-09-12 按 #980 拆分：核心指标清单收口到 useCoreMetrics、
   趋势图抽为 TemperatureTrendChart，本文件只做区域编排。
+
+  2026-10 再拆（#980 续）：上半屏（仪表盘 + 温度解读 + 市场机会）→ detail/ExploreDashboardSection，
+  行业/赛道排行 → detail/ExploreRankSection（含三张表的数据层 useRankTables）。
+  本文件只剩「区块顺序」与数据新鲜度守卫。
 -->
 <template>
   <div class="detail-panel">
@@ -18,145 +22,14 @@
       </span>
     </div>
 
-    <!-- 综合仪表盘 -->
-    <section v-loading="loading" class="dashboard-section">
-      <MetricGrid>
-        <!-- 综合温度仪表（大）——与概览档同源同貌；gaugeVisible 保证同一时刻
-             全页只有一份仪表盘在 DOM 中（#1549 T4.1，参数由 index.vue 按档位传入） -->
-        <TemperatureGaugeCard
-          v-if="gaugeVisible"
-          :value="compositeValue"
-          title="综合市场温度"
-          :level="compositeLevel"
-          caption="基于多源市场数据计算"
-          :updated-at="updatedAt"
-          size="lg"
-          featured
-        />
-
-        <!-- 核心指标（恐惧贪婪 / 股债性价比 / 可转债 / 成交额）：清单见 useCoreMetrics -->
-        <MetricCard
-          v-for="metric in coreMetrics"
-          :key="metric.key"
-          :title="metric.title"
-          :value="metric.value"
-          :unit="metric.unit"
-          :level="metric.level"
-        />
-      </MetricGrid>
-    </section>
-
-    <!-- 温度解读 + 市场机会：与仪表卡配套，放在趋势图上方 -->
-    <section class="context-section">
-      <div class="context-grid">
-        <TemperatureContextCard
-          :temperature="compositeValue"
-          :fear-greed="fearGreedValue"
-          :fear-greed-label="fearGreedLabel"
-          :periods="tempPeriods"
-          caption="综合 6 个市场指标与市场情绪推导"
-          class="context-card"
-        />
-
-        <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
-        <CardBlock v-if="opportunityList.length" class="opportunity-card">
-          <SectionHeader title="市场机会" />
-          <div class="opportunity-list">
-            <div
-              v-for="op in opportunityList"
-              :key="op.name"
-              class="opportunity-item"
-              :class="`opportunity-item--${op.tone}`"
-            >
-              <div class="opportunity-head">
-                <span class="opportunity-name">{{ op.name }}</span>
-                <span class="opportunity-tag">{{
-                  op.tone === "safe"
-                    ? "机会"
-                    : op.tone === "danger"
-                      ? "风险"
-                      : "中性"
-                }}</span>
-              </div>
-              <p class="opportunity-desc">{{ op.desc }}</p>
-            </div>
-          </div>
-        </CardBlock>
-      </div>
-    </section>
+    <!-- 综合仪表盘 + 温度解读 + 市场机会 -->
+    <ExploreDashboardSection :gauge-visible="gaugeVisible" />
 
     <!-- 综合温度趋势（自带标题栏、周期切换与取数） -->
     <TemperatureTrendChart />
 
-    <!-- 行业 / 赛道排行（#1431）：单一卡片承载
-         一级分类（申万行业 / 热门赛道）× 二级视图（拥挤度 / 乖离率），
-         避免多张大表纵向堆叠；赛道维度无乖离率，切换分类时自动回到拥挤度 -->
-    <CardBlock class="industry-rank-section">
-      <SectionHeader title="行业 / 赛道排行" :info="activeRankView.info">
-        <template #action>
-          <!-- 排行分类 / 视图切换（#1731 收敛）：原手写 `.rank-switch` 是「D13 果冻胶囊」外观
-               （透明底 + 1px 边框 + `style-pop` 回弹），与 SegmentedControl 语义完全重叠
-               （都是「多选一、选项少」），按 #1731 裁决收编到唯一实现。
-               布局钩子改名 `.rank-switch-slot`——旧名会让人以为控件实现还在本文件里。 -->
-          <SegmentedControl
-            class="rank-switch-slot"
-            :model-value="rankCategory"
-            :options="rankCategoryOptions"
-            size="small"
-            aria-label="排行分类切换"
-            @change="switchCategory"
-          />
-          <SegmentedControl
-            class="rank-switch-slot"
-            :model-value="rankView"
-            :options="rankViewOptions"
-            size="small"
-            aria-label="排行视图切换"
-            @change="onRankViewChange"
-          />
-          <span class="rank-updated"
-            >更新：{{ activeRankView.date || "暂无" }}</span
-          >
-          <el-tooltip
-            v-if="activeRankView.stale"
-            :content="activeRankView.staleTip"
-            placement="top"
-          >
-            <span class="rank-stale-pill">数据滞后</span>
-          </el-tooltip>
-        </template>
-      </SectionHeader>
-
-      <!-- 分位色标图例：提升表格可读性（配色仍用本站温度语义色，不引入外部色板） -->
-      <div class="rank-legend">
-        <span
-          v-for="item in RANK_LEGEND"
-          :key="item.label"
-          class="rank-legend__item"
-        >
-          <i class="rank-legend__dot" :class="item.dotClass" />{{ item.label }}
-        </span>
-      </div>
-
-      <CrowdingTable
-        v-show="rankView === 'crowding'"
-        embedded
-        :items="activeCrowdingItems"
-        :loading="activeCrowdingLoading"
-        :name-column-label="rankCategory === 'track' ? '赛道' : '行业'"
-        :show-bias-columns="rankCategory === 'sw'"
-      />
-      <BiasTable
-        v-if="rankCategory === 'sw'"
-        v-show="rankView === 'bias'"
-        embedded
-        :items="biasItems"
-        :loading="biasLoading"
-      />
-    </CardBlock>
-
-    <!-- 拥挤度趋势（周度 / 月度；随上方分类联动「申万行业 / 热门赛道」） -->
-    <IndustryCrowdingTrend :category="rankCategory" />
+    <!-- 行业 / 赛道排行（含紧随其后的拥挤度趋势图，两处共用 rankCategory） -->
+    <ExploreRankSection />
 
     <!-- 行业 PB-ROE 散点（#2481）：韭圈儿免登录源日频快照，读库即回。
          负 ROE 行业在 PB-ROE 模型下有效（x 轴 scale 不裁负值 + ROE=0 参考线）；
@@ -175,41 +48,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { getMultiItems } from "@/api/temperature";
-import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
+import { computed, onMounted } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
-import MetricCard from "@/components/MetricCard/index.vue";
-import MetricGrid from "@/components/MetricGrid/index.vue";
-import CardBlock from "@/components/CardBlock/index.vue";
-import SectionHeader from "@/components/SectionHeader/index.vue";
-import SegmentedControl from "@/components/SegmentedControl/index.vue";
-import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
-import { useCoreMetrics } from "@/composables/temperature/useCoreMetrics";
-import {
-  CORE_SINGLE_SOURCES,
-  CROWDING_HIGH_THRESHOLD,
-  CROWDING_LOW_THRESHOLD
-} from "@/constants/temperature";
+import { CORE_SINGLE_SOURCES } from "@/constants/temperature";
 import TemperatureTrendChart from "./TemperatureTrendChart.vue";
-import IndustryCrowdingTrend from "./IndustryCrowdingTrend.vue";
 import IndustryPbroeScatter from "./IndustryPbroeScatter.vue";
 import ExploreAssetOverview from "./ExploreAssetOverview.vue";
-import BiasTable from "./detail/BiasTable.vue";
-import CrowdingTable from "./detail/CrowdingTable.vue";
 import MetricDetailTable from "./detail/MetricDetailTable.vue";
+import ExploreDashboardSection from "./detail/ExploreDashboardSection.vue";
+import ExploreRankSection from "./detail/ExploreRankSection.vue";
 
 defineOptions({
   name: "ExploreDetailPanel"
 });
 
-/**
- * 是否渲染「综合温度」仪表盘（本组件其余区块不受影响）。
- * 父页面按当前档位传入：深度档显示时 true、概览档 false ——
- * 概览档已有一份同源同貌的温度计卡，两份同时留在 DOM 中属重复（#1549 T4.1）。
- * 仪表卡自身不取数（数据来自单例 composable），卸载重挂不会多打接口。
- */
 withDefaults(
   defineProps<{
     gaugeVisible?: boolean;
@@ -225,181 +78,9 @@ withDefaults(
 
 // ================================================================
 // 市场温度总览：与概览档共享同一份数据实例（单例 + 并发去重，见该 composable 头注释）
+// 仪表盘与温度解读在 ExploreDashboardSection 里自行取同一实例，这里只用 freshness。
 // ================================================================
-const {
-  loading,
-  overview,
-  compositeTemperature,
-  freshness,
-  fearData,
-  fetchTemperature
-} = useTemperatureOverview();
-
-// 核心指标清单收口在 useCoreMetrics（见 #980）
-const { coreMetrics } = useCoreMetrics();
-
-// ================================================================
-// 页面独立数据：多指标接口（composable 未覆盖）
-// ================================================================
-const biasItems = ref<any[]>([]);
-const biasDate = ref<string>("");
-const biasStale = ref(false);
-const biasLoading = ref(false);
-
-// 行业拥挤度（独立维度：行业 PB / 全A 中位 PB 历史百分位）
-const crowdingItems = ref<any[]>([]);
-const crowdingDate = ref<string>("");
-const crowdingStale = ref(false);
-const crowdingLoading = ref(false);
-
-// 热门赛道拥挤度（外部临时源 category=track，18 条；该维度无行业乖离率）
-const trackItems = ref<any[]>([]);
-const trackDate = ref<string>("");
-const trackStale = ref(false);
-const trackLoading = ref(false);
-
-// ================================================================
-// 行业 / 赛道排行（#1431）：一级分类（申万行业 / 热门赛道）+ 二级视图（拥挤度 / 乖离率）
-// 赛道维度由外部临时源提供（category=track，18 条），无行业乖离率视图
-// ================================================================
-const RANK_CATEGORIES = [
-  { key: "sw", label: "申万行业", source: "industry_crowding" },
-  { key: "track", label: "热门赛道", source: "track_crowding" }
-] as const;
-
-type RankCategoryKey = (typeof RANK_CATEGORIES)[number]["key"];
-
-const RANK_VIEWS = [
-  {
-    key: "crowding",
-    label: "拥挤度",
-    info: {
-      sw: "申万一级 31 个行业的历史分位：综合拥挤度、成交额占全A比例、换手率、60 日线上占比、60 日新高占比、融资买入占比、百万大单。越高越拥挤。",
-      track:
-        "18 个热门赛道（概念指数 + 申万细分，如 AI芯片 / 半导体设备 / 光通信）的历史分位，维度同行业视图；赛道维度无行业乖离率。"
-    },
-    staleTip:
-      "数据暂未更新，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
-  },
-  {
-    key: "bias",
-    label: "乖离率",
-    info: {
-      sw: "LOGBIAS = (ln(收盘) − EMA20(ln(收盘))) × 100：正 = 位于均线上方（偏热），负 = 下方（偏冷）；档位阈值 ±15 / ±5。",
-      track: "赛道维度不提供行业乖离率（该口径仅申万一级行业适用）。"
-    },
-    staleTip:
-      "行情数据暂未更新，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
-  }
-] as const;
-
-type RankViewKey = (typeof RANK_VIEWS)[number]["key"];
-
-const rankCategory = ref<RankCategoryKey>("sw");
-const rankView = ref<RankViewKey>("crowding");
-
-/** 切换分类：赛道无乖离率 → 自动回到拥挤度视图，避免停在空视图 */
-const switchCategory = (key: RankCategoryKey) => {
-  rankCategory.value = key;
-  if (key === "track") rankView.value = "crowding";
-};
-
-/** 切换排行视图（原为模板内联 `rankView = view.key`，抽成具名函数以便类型收窄） */
-const onRankViewChange = (key: RankViewKey) => {
-  rankView.value = key;
-};
-
-/** 当前分类下可用的视图（赛道仅拥挤度） */
-const availableRankViews = computed(() =>
-  rankCategory.value === "track"
-    ? RANK_VIEWS.filter(v => v.key === "crowding")
-    : RANK_VIEWS
-);
-
-/**
- * 排行分类 / 视图的分段选项（#1731 收敛）。
- * 两个源常量都带额外字段（`source` / `info` / `staleTip`），只取 SegmentedControl 要的
- * `label` + `value`，避免把业务字段漏进展示层。
- */
-const rankCategoryOptions = RANK_CATEGORIES.map(c => ({
-  label: c.label,
-  value: c.key
-}));
-
-const rankViewOptions = computed(() =>
-  availableRankViews.value.map(v => ({ label: v.label, value: v.key }))
-);
-
-/** 分位色标图例：阈值与 crowdingColorClass 同源，避免文案与实现不一致 */
-const RANK_LEGEND = [
-  {
-    label: `低迷 <${CROWDING_LOW_THRESHOLD}`,
-    dotClass: "rank-legend__dot--low"
-  },
-  {
-    label: `中性 ${CROWDING_LOW_THRESHOLD}–${CROWDING_HIGH_THRESHOLD}`,
-    dotClass: "rank-legend__dot--mid"
-  },
-  {
-    label: `过热 >${CROWDING_HIGH_THRESHOLD}`,
-    dotClass: "rank-legend__dot--high"
-  }
-];
-
-// ================================================================
-// 计算属性
-// ================================================================
-const updatedAt = computed(() => overview.value?.updated_at || "");
-
-/** 当前「分类 × 视图」对应的提示、更新时间与滞后状态（标题行统一展示） */
-const activeRankView = computed(() => {
-  const view = RANK_VIEWS.find(v => v.key === rankView.value) ?? RANK_VIEWS[0];
-  const isCrowding = rankView.value === "crowding";
-  const isTrack = rankCategory.value === "track";
-  return {
-    info: view.info[rankCategory.value],
-    staleTip: view.staleTip,
-    date: isCrowding
-      ? isTrack
-        ? trackDate.value
-        : crowdingDate.value
-      : biasDate.value,
-    stale: isCrowding
-      ? isTrack
-        ? trackStale.value
-        : crowdingStale.value
-      : biasStale.value
-  };
-});
-
-const compositeValue = computed(
-  () => compositeTemperature.value?.value ?? null
-);
-
-// 等级文案与概览档同源同文案（含「暂无」兜底）：缺数据时不能兜成 TemperatureLevelBadge
-// 的默认「适中」——那会在无数据时给出「市场平稳」的错误结论（#1549 T4.1）。
-const compositeLevel = computed(
-  () => compositeTemperature.value?.level || "暂无"
-);
-
-// 温度解读卡（TemperatureContextCard）所需数据，从 composable 的 fearData 推导
-const fearGreedValue = computed<number | null>(() => {
-  const v = fearData.value?.value;
-  return typeof v === "number" ? v : null;
-});
-const fearGreedLabel = computed(() => fearData.value?.label || "");
-
-const tempPeriods = computed(() => {
-  const bands = overview.value?.composites?.temperature_bands;
-  if (!bands) return [];
-  return (["short", "medium", "long"] as const)
-    .map(k => bands[k])
-    .filter(Boolean)
-    .map((b: { name?: string; value?: number }) => ({
-      label: b.name || "",
-      value: typeof b.value === "number" ? b.value : null
-    }));
-});
+const { overview, freshness, fetchTemperature } = useTemperatureOverview();
 
 // 全部单值指标（过滤核心指标，按数据分层展示）
 const detailMetrics = computed(() => {
@@ -407,127 +88,13 @@ const detailMetrics = computed(() => {
   return singles.filter((s: any) => !CORE_SINGLE_SOURCES.includes(s.source));
 });
 
-// 过滤整组标灰占位（item_code === '__NA__'），仅展示有效行业
-const crowdingValidItems = computed(() =>
-  (crowdingItems.value || []).filter((i: any) => i.item_code !== "__NA__")
-);
-
-// 赛道同理（外部源关停时该 source 可能整组无数据）
-const trackValidItems = computed(() =>
-  (trackItems.value || []).filter((i: any) => i.item_code !== "__NA__")
-);
-
-/** 当前分类下的拥挤度条目（行业 / 赛道共用同一张表） */
-const activeCrowdingItems = computed(() =>
-  rankCategory.value === "track"
-    ? trackValidItems.value
-    : crowdingValidItems.value
-);
-
-const activeCrowdingLoading = computed(() =>
-  rankCategory.value === "track" ? trackLoading.value : crowdingLoading.value
-);
-
-// ================================================================
-// 方法
-// ================================================================
-const fetchBias = async () => {
-  biasLoading.value = true;
-  try {
-    const res = await getMultiItems("bias");
-    const data = res.data;
-    if (data && data.items) {
-      biasItems.value = data.items;
-      biasDate.value = data.date || "";
-      biasStale.value =
-        Boolean(data.stale) || (data.items || []).some((i: any) => i.stale);
-    } else {
-      biasItems.value = [];
-      biasStale.value = false;
-    }
-  } catch (e) {
-    console.error("获取乖离率数据失败:", e);
-    biasItems.value = [];
-    biasDate.value = "";
-    biasStale.value = false;
-  } finally {
-    biasLoading.value = false;
-  }
-};
-
-const fetchCrowding = async () => {
-  crowdingLoading.value = true;
-  try {
-    const res = await getMultiItems("industry_crowding");
-    const data = res.data;
-    if (data && data.items) {
-      crowdingItems.value = data.items;
-      crowdingDate.value = data.date || "";
-      crowdingStale.value =
-        Boolean(data.stale) || (data.items || []).some((i: any) => i.stale);
-    } else {
-      crowdingItems.value = [];
-      crowdingStale.value = false;
-    }
-  } catch (e) {
-    console.error("获取行业拥挤度数据失败:", e);
-    crowdingItems.value = [];
-    crowdingDate.value = "";
-    crowdingStale.value = false;
-  } finally {
-    crowdingLoading.value = false;
-  }
-};
-
-// 热门赛道（外部临时源 category=track）：失败静默为空，赛道视图显示空态提示，不影响行业视图
-const fetchTrack = async () => {
-  trackLoading.value = true;
-  try {
-    const res = await getMultiItems("track_crowding");
-    const data = res.data;
-    if (data && data.items) {
-      trackItems.value = data.items;
-      trackDate.value = data.date || "";
-      trackStale.value =
-        Boolean(data.stale) || (data.items || []).some((i: any) => i.stale);
-    } else {
-      trackItems.value = [];
-      trackStale.value = false;
-    }
-  } catch (e) {
-    console.error("获取赛道拥挤度数据失败:", e);
-    trackItems.value = [];
-    trackDate.value = "";
-    trackStale.value = false;
-  } finally {
-    trackLoading.value = false;
-  }
-};
-
-// ================================================================
-// 市场机会清单（B3：后端 insights 归集，前端只映射 tone→样式）
-// #1546 T2.1：直接由总览响应派生，**不再经 temperature store 重复打一次**
-// /api/temperature/overview（原实现是 composable 与 store 各拉一遍同一接口）
-// ================================================================
-const opportunityList = computed(() =>
-  (overview.value?.insights ?? []).map(i => ({
-    name: i.name,
-    desc: i.desc,
-    tone: i.tone
-  }))
-);
-
 // ================================================================
 // 生命周期
 // ================================================================
 onMounted(() => {
-  // #1546 T2.1：并发取数（原为串行 await，4 个请求首尾相接，最后一个才轮到温度）
-  void Promise.all([
-    fetchTemperature(),
-    fetchBias(),
-    fetchCrowding(),
-    fetchTrack()
-  ]);
+  // #1546 T2.1：并发取数。排行三张表在 ExploreRankSection 的 onMounted 里一起发起
+  // （子组件先于父组件挂载完成），四个请求仍是同轮并发，不会退化成串行。
+  void fetchTemperature();
 });
 </script>
 
@@ -578,224 +145,4 @@ onMounted(() => {
 .asset-overview-anchor {
   scroll-margin-top: 16px;
 }
-
-/* 仪表盘区域 */
-.dashboard-section {
-  margin-bottom: 24px;
-}
-
-.context-section {
-  margin-bottom: 24px;
-}
-
-/* ============================================================
-   温度解读 + 市场机会（并排）
-   ============================================================ */
-.context-grid {
-  display: grid;
-  grid-template-columns: 1.6fr 1fr;
-  gap: 16px;
-  align-items: stretch;
-
-  /* 窄屏「温度解读 + 市场机会」由并排改单列。
-     同 `padding` 那条：必须留在基础声明之后，否则会被 `grid-template-columns: 1.6fr 1fr` 压掉
-     （2026-09-18 之前是「960px 及以下」的裸查询且排在前面，从未生效）。
-     断点按 Tailwind 单一来源取 `lg`（<1024px；原数值 960px 随断点对齐外移）。 */
-  @include bp.below("lg") {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* TemperatureContextCard 自带卡片外壳（--bg-card / --border-light / --radius-lg /
-   --shadow-raised），父级此处只补裁切，不再重复声明外壳（#1547 T3.1）。 */
-.context-card {
-  overflow: hidden;
-}
-
-/* 区块外壳统一走 CardBlock（#1547 T3.1 收敛），此处只留内部排布 */
-.opportunity-card {
-  display: flex;
-  flex-direction: column;
-}
-
-.opportunity-card :deep(.section-header) {
-  margin-bottom: 12px;
-}
-
-.opportunity-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overflow-y: auto;
-}
-
-.opportunity-item {
-  padding: 12px 14px;
-  background: var(--bg-subtle);
-  border-left: 4px solid var(--border-light);
-  border-radius: 10px;
-}
-
-.opportunity-item--safe {
-  background: color-mix(in srgb, var(--temp-low) 8%, var(--bg-subtle));
-  border-left-color: var(--temp-low);
-}
-
-.opportunity-item--danger {
-  background: color-mix(in srgb, var(--temp-high) 8%, var(--bg-subtle));
-  border-left-color: var(--temp-high);
-}
-
-.opportunity-item--neutral {
-  background: color-mix(in srgb, var(--temp-mid) 8%, var(--bg-subtle));
-  border-left-color: var(--temp-mid);
-}
-
-.opportunity-head {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.opportunity-name {
-  font-size: var(--text-small);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.opportunity-tag {
-  padding: 2px 8px;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  background: var(--border-light);
-  border-radius: 10px;
-}
-
-.opportunity-item--safe .opportunity-tag {
-  color: var(--temp-low-ink);
-  background: color-mix(in srgb, var(--temp-low) 18%, transparent);
-}
-
-.opportunity-item--danger .opportunity-tag {
-  color: var(--temp-high-ink);
-  background: color-mix(in srgb, var(--temp-high) 18%, transparent);
-}
-
-.opportunity-desc {
-  margin: 0;
-  font-size: var(--text-label);
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
-/* ============================================================
-   行业排行（#1431）：拥挤度 / 乖离率双视图共用一张卡片
-   卡片外观统一由 CardBlock 提供（docs/design/components.md「CardBlock · 区块卡片容器」），
-   本页只保留区块外边距，禁在此重复手写 token 卡片样式
-   ============================================================ */
-.industry-rank-section {
-  margin-bottom: 24px;
-}
-
-.rank-updated {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-.rank-stale-pill {
-  padding: 2px 8px;
-  margin-left: 8px;
-  font-size: var(--text-label);
-  font-weight: 500;
-  line-height: 1.4;
-  color: var(--color-warning-ink);
-  white-space: nowrap;
-  cursor: help;
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
-  border-radius: 6px 6px 6px 0;
-}
-
-/* 排行分类 / 视图分段控制（#1731 收敛）：外观全部由 SegmentedControl `small` 档负责，
-   此处**只保留操作槽布局**（与右侧更新时间之间留 12px）。
-   原「D13 果冻胶囊」手写块（透明底 + 1px 边框 + `style-pop` 回弹 + `:active` 缩放）已删除——
-   它与 SegmentedControl 语义完全重叠，按 #1731 裁决收编。 */
-.rank-switch-slot {
-  margin-right: 12px;
-}
-
-/* ============================================================
-   窄屏修溢出（#1585）：行业/赛道排行的区块标题行
-   ------------------------------------------------------------
-   WHY：操作槽里塞了「分类胶囊组 + 视图胶囊组 + 更新时间 + 滞后提示」，
-   自然宽度约 414px；而公共 `SectionHeader` 的 `.section-header__action` 是
-   `inline-flex; flex-shrink: 0`，`.section-header` 又是默认 `nowrap` 的 flex 行——
-   两者叠加后这一行**既不能换行也不能收缩**，320/375 视口下把卡片（进而把文档）撑破：
-   实测文档级横向溢出 155px（#1576 记录）→ #1583 修内边距后 147px → **本块清零**。
-
-   只在**本区块**放开（不动公共 `SectionHeader`）：改公共组件会让 Aggregation /
-   inventory 等所有带操作槽的页面一起变版，属另一条决策；那里的同类风险已登记。
-   ============================================================ */
-@include bp.below("sm") {
-  :deep(.section-header) {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-
-  :deep(.section-header__action) {
-    /* 覆盖公共组件的 `flex-shrink: 0`：允许收缩到容器宽并**内部换行** */
-    flex: 1 1 100%;
-    flex-wrap: wrap;
-    row-gap: 8px;
-    min-width: 0;
-  }
-
-  .rank-switch-slot {
-    margin-right: 0; /* 独占一行时右侧不需要让位 */
-  }
-}
-
-/* 排行分类 / 视图的胶囊外观与 style-pop 回弹关键帧已随 #1731 收敛删除：
-   它们与 SegmentedControl 的软按钮规范语义重叠，保留任一份都会让两套外观并存。 */
-
-/* ============================================================
-   分位色标图例（#1431）
-   ============================================================ */
-.rank-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-bottom: 10px;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-.rank-legend__item {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.rank-legend__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.rank-legend__dot--low {
-  background: var(--temp-low);
-}
-
-.rank-legend__dot--mid {
-  background: var(--temp-mid);
-}
-
-.rank-legend__dot--high {
-  background: var(--temp-high);
-}
-
-/* 表格视觉基线由全站统一主题维护（src/style/el-table.css），勿在本页 :deep 覆盖 */
 </style>

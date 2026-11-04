@@ -38,9 +38,8 @@
 
 <script setup lang="ts">
 import { computed, reactive } from "vue";
-import TransactionTable, {
-  type TransactionRow
-} from "@/components/TransactionTable/index.vue";
+import TransactionTable from "@/components/TransactionTable/index.vue";
+import type { TransactionRow } from "@/components/TransactionTable/model";
 import type { LedgerTxnRow } from "@/composables/useLedgerTransactions";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
 

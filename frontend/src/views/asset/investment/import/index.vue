@@ -5,13 +5,14 @@ import LedgerSelectStep from "./components/LedgerSelectStep.vue";
 import UploadStep from "./components/UploadStep.vue";
 import PreviewStep from "./components/PreviewStep.vue";
 import ResultStep from "./components/ResultStep.vue";
+import ImportSteps from "./components/ImportSteps.vue";
 import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
 import LeaveGuardDialog from "./components/LeaveGuardDialog.vue";
-import { ref } from "vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
+import { computed, ref, watch } from "vue";
 import { useImportWizard } from "./composables/useImportWizard";
 import { useImportLeaveGuard } from "./composables/useImportLeaveGuard";
 import { provideWizard } from "./composables/useImportWizardContext";
-import { Edit } from "@element-plus/icons-vue";
 
 const wizard = useImportWizard();
 provideWizard(wizard);
@@ -45,54 +46,73 @@ const {
 
 // 调试快进面板：仅开发环境可见；勾选后跳到预览/结果时注入模拟数据
 const withMock = ref(false);
+
+/**
+ * 调试面板的展开态（#2836）。
+ *
+ * 默认展开（开发时常用），但必须能收起——它固定在右下角，展开时正好盖住底栏的
+ * 「确认导入」。收起状态记进 sessionStorage：关一次就一直是收起的，不用每次进
+ * 页面再关一遍。
+ */
+const DEV_PANEL_KEY = "import.devJumpPanel.open";
+const devPanelOpen = ref(sessionStorage.getItem(DEV_PANEL_KEY) !== "0");
+watch(devPanelOpen, open => {
+  sessionStorage.setItem(DEV_PANEL_KEY, open ? "1" : "0");
+});
+
+/**
+ * 「工作步」= 预览（2）/ 结果（3）。
+ *
+ * 前两步是解释型页面（要标题与说明告诉用户这一步在干什么），后两步是工作台：
+ * 用户此刻只想看数据、改数据。而那块页头（大标题 + 副标题 + 居中步骤条）实测占约
+ * 195px，修正面板一展开就把表格顶到折叠线以下——「面板与表格同屏」形同虚设。
+ * 故进入工作步后页头退场、步骤条只留一排细字（上下留白压到 8px），把高度让给表格。
+ */
+const isWorkingStep = computed(() => currentStep.value >= 2);
 </script>
 
 <template>
-  <div class="inventory-page">
-    <header class="import-header">
+  <div class="inventory-page" :class="{ 'is-working-step': isWorkingStep }">
+    <header v-if="!isWorkingStep" class="import-header">
       <h1 class="import-title">导入交易</h1>
       <p class="import-subtitle">
         从券商或表格文件批量导入交易记录，支持自动识别与人工核对。
       </p>
     </header>
 
-    <!-- #1239 草稿层：同域（C）草稿恢复 Banner，不弹窗打断 -->
-    <div
+    <!-- #1239 草稿层：同域（C）草稿恢复 Banner，不弹窗打断。
+         #2724 起壳由 SoftBanner 承担（与 EaccountDraftBanner 同构）；
+         class 保留 e2e 锚点（import-draft spec 的 `.draft-banner`） -->
+    <SoftBanner
       v-if="draftBannerVisible && pendingDraftMeta"
       class="draft-banner"
-      role="alert"
+      variant="info"
+      icon="ep:edit-pen"
     >
-      <el-icon class="draft-banner-icon"><Edit /></el-icon>
       <div class="draft-banner-text">
         发现{{ pendingDraftMeta.savedAt ? "未完成" : "" }}的导入草稿（{{
           pendingDraftMeta.rowCount
         }}
         条记录），是否继续？
       </div>
-      <div class="draft-banner-actions">
+      <template #actions>
         <el-button size="small" type="primary" @click="restoreDraft">
           恢复草稿
         </el-button>
         <el-button size="small" text @click="discardCurrentDraft">
           丢弃
         </el-button>
-      </div>
-    </div>
+      </template>
+    </SoftBanner>
 
-    <el-steps
-      :active="currentStep"
-      finish-status="success"
-      align-center
+    <!-- 步骤条：2026-11-03 由 `el-steps :simple` 换成本地组件（原因见 ImportSteps.vue 头注释） -->
+    <ImportSteps
       class="import-steps"
-    >
-      <el-step
-        v-for="(step, index) in steps"
-        :key="index"
-        :title="step.title"
-        :class="{ 'dev-step-clickable': devMode }"
-        @click="devMode && devJump(index, withMock)"
-      />
-    </el-steps>
+      :steps="steps"
+      :current="currentStep"
+      :clickable="devMode"
+      @jump="i => devMode && devJump(i, withMock)"
+    />
 
     <div class="step-content">
       <LedgerSelectStep v-if="currentStep === 0" />
@@ -101,9 +121,33 @@ const withMock = ref(false);
       <ResultStep v-else />
     </div>
 
-    <!-- 调试快进面板：仅开发环境可见，跳过前序步骤直达目标步骤 -->
-    <div v-if="devMode" class="dev-jump-panel">
-      <div class="dev-jump-title">调试快进（DEV）</div>
+    <!-- 调试快进面板：仅开发环境可见（`devMode = import.meta.env.DEV`，生产构建里
+         该常量被静态替换为 false，整块连同事件一起被 tree-shake 掉），跳过前序步骤
+         直达目标步骤。
+         #2836：原来它是常驻的 280px 浮层，固定右下角，正好压住底栏「确认导入」——
+         开发时点不到按钮。改为可收起：收起后只剩一个 40×24 的小胶囊，且上移到
+         底栏上方，状态记在 sessionStorage（关一次就一直是收起的）。 -->
+    <button
+      v-if="devMode && !devPanelOpen"
+      type="button"
+      class="dev-jump-fab"
+      title="打开调试快进面板"
+      @click="devPanelOpen = true"
+    >
+      DEV
+    </button>
+    <div v-else-if="devMode" class="dev-jump-panel">
+      <div class="dev-jump-head">
+        <span class="dev-jump-title">调试快进（DEV）</span>
+        <button
+          type="button"
+          class="dev-jump-close"
+          aria-label="收起调试面板"
+          @click="devPanelOpen = false"
+        >
+          ×
+        </button>
+      </div>
       <div class="dev-jump-row">
         <el-button size="small" @click="devJump(0)">步骤1 选账户</el-button>
         <el-button size="small" @click="devJump(1)">步骤2 上传</el-button>
@@ -164,49 +208,22 @@ const withMock = ref(false);
   color: var(--text-tertiary-ink);
 }
 
-/* #1239 草稿恢复 Banner：中性信息色，非红非弹窗（柔性原则 §2.5） */
-.draft-banner {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 16px;
-  margin: 0 0 16px;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.draft-banner-icon {
-  font-size: var(--text-body);
-  color: var(--brand-700);
-}
-
+/* #1239 草稿恢复 Banner：壳由 SoftBanner info 承担（#2724），只保留正文排版。
+   删除的本地壳样式：display/gap/align-items/padding/margin/background/border/radius
+   以及 `.draft-banner-icon`（--brand-700 直调，属 tech-debt 违规项，随壳一并消除）。 */
 .draft-banner-text {
   flex: 1;
-}
-
-.draft-banner-actions {
-  display: flex;
-  gap: 8px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
 }
 
 .import-steps {
   margin-bottom: 32px;
 }
 
-:deep(.el-step__head.is-finish) {
-  cursor: pointer;
-}
-
-:deep(.el-step__title.is-finish) {
-  cursor: pointer;
-}
-
-.dev-step-clickable :deep(.el-step__head),
-.dev-step-clickable :deep(.el-step__title) {
-  cursor: pointer;
+/* 工作步（预览 / 结果）：页头已退场，步骤条只留一排细字，把高度让给表格 */
+.inventory-page.is-working-step .import-steps {
+  margin-bottom: 8px;
 }
 
 .dev-jump-panel {
@@ -223,8 +240,51 @@ const withMock = ref(false);
   box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
 }
 
-.dev-jump-title {
+.dev-jump-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 8px;
+}
+
+.dev-jump-close {
+  padding: 0 2px;
+  font-size: var(--text-body);
+  line-height: 1;
+  color: var(--text-tertiary-ink);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.dev-jump-close:hover {
+  color: var(--text-primary);
+}
+
+/* 收起态：小胶囊，且上移到「确认导入」上方，避免压住底栏按钮 */
+.dev-jump-fab {
+  position: fixed;
+  right: 12px;
+  bottom: 76px;
+  z-index: 1000;
+  width: 44px;
+  height: 24px;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  opacity: 0.6;
+}
+
+.dev-jump-fab:hover {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.dev-jump-title {
   font-weight: 600;
   color: var(--text-primary);
 }

@@ -13,6 +13,7 @@
  * —— 只有后者绿了，才知道前者不是空转。
  */
 import { spawnSync } from "node:child_process";
+import { pythonOrFail } from "./_python-interpreter.mjs";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,31 +36,10 @@ const REAL_FILE = join(
  * 于是本文件的放行断言**全部假通过**：`NO_HIT` 恰好因为「什么都没跑」而成立。
  * 这是最坏的一种绿——守卫根本没执行，却报告「无回潮」。
  *
- * 与 `health_scan_rules.test.js` 同构：先探测真实解释器；探测不到就**显式失败**。
+ * 探测逻辑已收口到唯一一份 `_python-interpreter.mjs`（本文件原先是 6 份拷贝之一）；
+ * 探测不到就**在模块加载期抛错**，不 skip、不放行。
  */
-function findPython() {
-  const candidates = [];
-  if (process.env.PYTHON) candidates.push([process.env.PYTHON]);
-  if (process.platform === "win32") {
-    candidates.push(["python"], ["py", "-3"]);
-  } else {
-    candidates.push(["python3"], ["python"]);
-  }
-  for (const args of candidates) {
-    const r = spawnSync(args[0], [...args.slice(1), "--version"], { encoding: "utf8" });
-    if (!r.error && r.status === 0) return args;
-  }
-  return null;
-}
-
-const PY = findPython();
-if (!PY) {
-  throw new Error(
-    "找不到 Python 解释器（试过 $PYTHON / python3 / python）。\n" +
-      "本文件所有断言都靠子进程跑守卫脚本；没有解释器时 NO_HIT 会因「什么都没跑」而假通过。\n" +
-      "请安装 Python，或把解释器路径写进 $PYTHON 环境变量。"
-  );
-}
+const PY = pythonOrFail();
 const PY_BIN = PY[0];
 const PY_ARGS = PY.slice(1);
 

@@ -50,6 +50,9 @@ DATA_SOURCE_LABELS: dict[str, str] = {
     # 此前缺这一键，`data_source_label('eastmoney')` 会原样返回内部码，
     # 前端脚注会把「eastmoney」当站点名直接显示给用户（#2029 卡 C 实测）。
     'eastmoney': '东方财富',
+    # 投顾组合净值序列（advisor_portfolio_navs，且慢 MCP GetPortfolioNavHistory）。
+    # 与上面的 'xalpha' 不同：那条是**场外基金**净值，这条是**组合**净值。
+    'qieman': '且慢',
 }
 
 # 场外基金净值的来源：`daily_worth` 表**没有 source 列**，净值整条链路都由

@@ -69,7 +69,9 @@ ALLOWED_FILES: dict[Path, str] = {}
 # 键 = 文件；值 = (该 tablist 所在元素**必须命中**的类名, 理由)。
 # 精确到类名而非整文件放行：同一文件里再长出第二个 tablist 照样会被 RULE 4 拦下。
 ALLOWED_TABLIST_FILES: dict[Path, tuple[str, str]] = {
-    Path("frontend/src/views/explore/index.vue"): (
+    # #980 拆分：tablist 随切换条一起迁到 exploreView/ExplorePanelSwitch.vue（类名未变）。
+    # 登记跟着「实际承载 tablist 的文件」走，别留在旧路径上——旧路径已不含该元素。
+    Path("frontend/src/views/explore/exploreView/ExplorePanelSwitch.vue"): (
         "panel-switch__inner",
         "分组胶囊 Tab（design.md 专节）：带数量徽章 + 横向滚动的分组导航，选中态多一道 "
         "--brand-400 边框、hover 加深到 --brand-200；不是「多选一、选项少」的分段控制器",

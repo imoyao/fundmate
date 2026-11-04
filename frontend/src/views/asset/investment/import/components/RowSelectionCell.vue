@@ -7,22 +7,28 @@ const {
   isRowSelected,
   isRowBlocked,
   handleRowCheckboxChange,
-  selectedLedgerLinkedCash,
-  showTransferBadge,
-  dismissTransferBadge
+  selectedLedgerLinkedCash
 } = useImportWizardContext();
-
-/** #2281：转账行勾选后徽章使命完成，随之消失 */
-function onTransferChange(row: any, val: boolean) {
-  handleRowCheckboxChange(row, val);
-  dismissTransferBadge(row);
-}
 </script>
 
 <template>
-  <!-- #2281：转账行条件放开——已关联现金账户才可勾；未关联禁用并指路横幅 -->
+  <!-- #2836：被配对规则消费的行（如兑付附带的「股份转出」）不入账，不可勾选。
+       它必须还看得见——凭空消失会让用户怀疑数据丢了；也正因为看得见，
+       才需要把「为什么不入账」写在 tooltip 里。 -->
   <el-tooltip
-    v-if="row.is_cash_transfer && !selectedLedgerLinkedCash"
+    v-if="row.consumed_by"
+    content="该行效果已由同日的债券兑付覆盖（兑付本身已清仓），无需重复入账"
+    placement="top"
+  >
+    <el-checkbox :model-value="false" disabled />
+  </el-tooltip>
+  <!-- #2281：转账行条件放开——已关联现金账户才可勾；未关联禁用并指路横幅。 -->
+  <!-- #2838：这里原先还有一枚每行一次的「可导入」徽章，已移除。勾选列只有
+       50px，徽章必然折到第二行、再被截成「可导…」；而它要说的「转账行能导」
+       已被三处同义重复表达：状态列的「正常」、这个可勾的复选框本身、页顶横幅。
+       批量层面改由摘要卡「含 N 条银证转账」旁的「全选」承担。 -->
+  <el-tooltip
+    v-else-if="row.is_cash_transfer && !selectedLedgerLinkedCash"
     content="请先关联现金账户（见页面上方提示）"
     placement="top"
   >
@@ -31,7 +37,7 @@ function onTransferChange(row: any, val: boolean) {
   <el-checkbox
     v-else-if="row.is_cash_transfer"
     :model-value="isRowSelected(row)"
-    @change="(val: boolean) => onTransferChange(row, val)"
+    @change="(val: boolean) => handleRowCheckboxChange(row, val)"
   />
   <el-checkbox
     v-else
@@ -40,35 +46,7 @@ function onTransferChange(row: any, val: boolean) {
     @change="(val: boolean) => handleRowCheckboxChange(row, val)"
   />
 
-  <!-- #2281：转账行一次性「可导入」徽章——让用户感知到能力存在（用不用由他定），
-       点击或勾选本行后消失 -->
-  <el-tooltip
-    v-if="showTransferBadge(row)"
-    :content="
-      selectedLedgerLinkedCash
-        ? '银证转账行支持导入：勾选后现金账户自动生成反向流水'
-        : '银证转账行支持导入：关联现金账户后即可勾选'
-    "
-    placement="top"
-  >
-    <el-tag
-      size="small"
-      type="success"
-      class="transfer-badge"
-      @click.stop="dismissTransferBadge(row)"
-      >可导入</el-tag
-    >
-  </el-tooltip>
-
-  <el-tag v-if="row.is_calculated" size="small" type="warning" class="ml-1"
-    >待确认</el-tag
-  >
+  <!-- #2836：「待确认」（推算行）与「待补全」原先一枚在这里、一枚在状态列并排出现，
+       勾选列本来只有 50px，两枚标签把它撑得歪斜。标签属于「这行是什么状态」，
+       统一收到状态列（StatusCell 里已有对应分支），勾选列回归纯勾选。 -->
 </template>
-
-<style scoped>
-/* #2281：徽章可点击（点击=我知道了），给一点交互暗示 */
-.transfer-badge {
-  margin-left: 4px;
-  cursor: pointer;
-}
-</style>

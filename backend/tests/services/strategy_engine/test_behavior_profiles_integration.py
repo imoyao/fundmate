@@ -91,8 +91,8 @@ def test_behavior_profiles_includes_buy_side_metrics(app, db, make_position, mak
 def test_behavior_profiles_buy_percentile_with_enough_peers(app, db, make_position, make_transaction):
     """同类补足 20 只 → buy_percentile 有值且可复算。
 
-    序列 260 天（= nav_series 默认 limit，全覆盖）；买入日 D0 位于序列中段，
-    回看 365 天窗口含序列前段（D0-200 起），自身收益可复算。
+    序列 260 天（自 D0-200 起，买入日 D0 位于序列中段）；回看 365 天窗口含序列
+    前段，自身收益可复算。
     """
     type_id = _mk_fund_type(db, '股票型')
     _mk_fund(db, '000001', type_id)
@@ -154,3 +154,72 @@ def test_behavior_profiles_empty_family_returns_degraded(app, db):
     assert data['profiles'] == []
     assert data['summary']['actual_vs_hold'] is None
     assert data['summary']['symbol_count'] == 0
+
+
+def test_behavior_profiles_nav_window_covers_earliest_buy(app, db, make_position, make_transaction):
+    """#2637 端到端回归：净值窗口必须回溯到最早买入日之前，否则 h 日定位整体错位。
+
+    布点：400 个净值日（D0-300 → D0+99），买入在 D0-250（序列下标 50，净值 1.05）。
+    只看「近 260 条」只能覆盖 D0-160 之后，买入日早于窗口起点 —— 修复前该笔会被
+    错位索引成「窗口第 20 个点」，产出一个不报错的错值。
+    """
+    type_id = _mk_fund_type(db, '股票型')
+    _mk_fund(db, '000001', type_id)
+    start = D0 - timedelta(days=300)
+    for i in range(400):
+        _mk_worth(db, '000001', start + timedelta(days=i), 1.0 + i * 0.001)
+    buy_day = start + timedelta(days=50)
+    pos = make_position(
+        symbol='000001',
+        name='华夏成长',
+        asset_type='fund',
+        quantity=1000.0,
+        avg_price=1.0,
+        account_name='测试账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        symbol='000001',
+        quantity=1000.0,
+        price=1.05,
+        trade_date=datetime.combine(buy_day, datetime.min.time()),
+        confirm_date=buy_day,
+    )
+
+    data = behavior_profiles(DataProvider(db), family_id=1)
+    profile = data['profiles'][0]
+    forward = profile['forward_return']
+    assert forward is not None
+    # 买入后第 20 个净值日 = 下标 70 → 1.07；(1.07-1.05)/1.05 = +1.90%
+    assert forward['h20']['mean'] == pytest.approx((1.07 - 1.05) / 1.05 * 100, abs=0.01)
+    # 第 120 个净值日 = 下标 170 → 1.17 → +11.43%
+    assert forward['h120']['mean'] == pytest.approx((1.17 - 1.05) / 1.05 * 100, abs=0.01)
+    assert forward['h20']['missing_count'] == 0
+    assert profile['evidence']['forward_uncovered_buys'] == 0
+    assert profile['evidence']['first_nav_date'] == start.isoformat()
+
+
+def test_behavior_profiles_degrades_when_peer_fetch_fails(app, db, make_position, make_transaction, monkeypatch):
+    """同类取数整体失败时只降级同类分位，画像其余字段与请求本身不得一起挂。
+
+    批量化（#2639）把失败面从一个键放大到整个请求，本用例钉住放大之后的影响范围：
+    `buy_percentile` 变 None，而 `forward_return` 等其它指标照常。
+    """
+    type_id = _mk_fund_type(db, '股票型')
+    _mk_fund(db, '000001', type_id)
+    for i in range(150):
+        _mk_worth(db, '000001', D0 + timedelta(days=i), 1.0 + i * 0.01)
+    _seed_holding(db, make_position, make_transaction)
+
+    def _boom(self, requests, window_days: int = 365):
+        raise RuntimeError('取数模拟失败')
+
+    monkeypatch.setattr(DataProvider, 'peer_year_returns_for', _boom)
+
+    data = behavior_profiles(DataProvider(db), family_id=1)
+    profile = data['profiles'][0]
+    assert profile['buy_percentile'] is None
+    assert profile['forward_return'] is not None
+    assert data['summary']['avg_buy_percentile'] is None

@@ -331,7 +331,12 @@ def get_code_short_name_map() -> Dict[str, str]:
     return {code: name for name, code in (_cache or {}).items()}
 
 
-def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str, int]] = None) -> Optional[int]:
+def get_or_create_fund_company(
+    db: Session,
+    name: str,
+    cache: Optional[Dict[str, int]] = None,
+    index: Optional[Dict[tuple, FundCompany]] = None,
+) -> Optional[int]:
     """按名称取公司 id，不存在才新建（**全仓唯一写入口，四个 job 共用**）。
 
     为什么要收口：基金列表 / 基金详情 / 基金经理 三个同步任务都会带来公司名，
@@ -355,6 +360,13 @@ def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str,
 
     `full_name` / 地址 / 官网等 AMAC 字段不在本函数写权内（单一写者原则，
     见 `FundCompany` docstring）；本函数只负责「找到或创建那一行」。
+
+    `index` 是**批量调用方的优化入口**（#2522）：不传时本函数在精确名未命中后会
+    现建一次 `build_fund_company_index(db)`（1 次 `fund_companies` 全扫 + 2 个
+    `group by`）。单条调用无所谓，但全市场名录有 100+ 家公司，逐个调用就是
+    100+ 次全量索引重建——实测的这个 job 在写库阶段能静默 52 分钟。
+    批量场景应由调用方建一次再传入；本函数在**新建行**后会补进该索引，
+    保证同批次里同一家公司的两种写法不会各建一行。
     """
     if not name:
         return None
@@ -363,8 +375,9 @@ def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str,
 
     inst = db.query(FundCompany).filter_by(name=name).first()
     if inst is None:
-        # 跨来源形态差异（全称 ↔ 简称）靠归一化收敛，避免为同一主体建第二行
-        inst = match_fund_company(build_fund_company_index(db), name)
+        # 跨来源形态差异（全称 ↔ 简称）靠归一化收敛，避免为同一主体建第二行。
+        # 批量场景用调用方传入的索引，别在这里逐家重建（#2522）。
+        inst = match_fund_company(index if index is not None else build_fund_company_index(db), name)
     if inst is None:
         real_code, short_name = resolve_company_identity(name)
         if not real_code:
@@ -379,6 +392,9 @@ def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str,
             inst = FundCompany(name=display_name, code=candidate_code)
             db.add(inst)
             db.flush()
+            # 让同批次后续名称也能命中刚建的行（否则同一家公司的两种写法会各建一行）
+            if index is not None:
+                index.setdefault(company_index_key(inst.name), inst)
 
     if cache is not None:
         cache[name] = inst.id

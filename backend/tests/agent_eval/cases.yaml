@@ -1,14 +1,23 @@
-# 账本精灵回归评估集（#1736 S4，学习计划 §S4）
+# 账本精灵回归评估集（#1736 S4，学习计划 §S4；#2621 扩至 45 条）
 #
-# 用法：pdm run python scripts/agent_eval.py [--tag <tag>] [--limit N] [--keep]
+# 用法：pdm run python scripts/agent_eval.py [--tag <tag>] [--limit N] [--delay 秒] [--keep]
 # 判据基于 agent_trace 最后一轮：status ∈ result|clarify|error|blocked，
 # tool 为模型实际选中的工具名（标量=精确匹配，列表=任一命中，缺省不校验）。
-# 对抗 8 条（adv-*，tags 含 adversarial）：越界提问 4 / 参数缺失 2 / 幻觉诱导 1 / 恶意注入 1。
+#
+# 45 条分组（#2621，工具链 6 → 9 后补的结构性空洞）：
+#   basic 20        原六工具覆盖（资产 / 收益 / 持仓 / 净值 / 温度计 / 自选）
+#   multi 2         追问收敛（只按最后一轮判定）
+#   attr 4          收益贡献归因（#2618）：占比视角 ≠ 绝对盈亏
+#   bench 4         同期基准对比（#2620）：超额 / 回撤 / 相关性
+#   behav 4         交易行为画像（#2619）：操作习惯，不涉及盈亏
+#   conf 3          跨工具混淆（tags: confusion）——问法与邻近工具几乎同义，
+#                   选错邻近工具即 FAIL。这一组是「工具变多后最容易退化」的探针。
+#   adversarial 8   越界 4 / 参数缺失 2 / 幻觉诱导 1 / 恶意注入 1
 # 越界 4 条的输入取自护栏 B1~B4 确定性句式（tests 恒绿），不赌模型发挥——
 # 这 4 条断言的是「输入侧零模型调用拦截」这一确定性链路。
 # 注意：多轮用例只按最后一轮判定；首轮行为（如应先追问）可按 trace 时间轴人工复核。
 cases:
-  # ── basic：六工具覆盖（20） ──
+  # ── basic：原六工具覆盖（20） ──
   - id: basic-01
     turns: ['我的组合这些年一共赚了多少百分比']
     tags: [basic]
@@ -120,6 +129,93 @@ cases:
     turns: ['这只基金最近表现怎么样', '110011']
     tags: [multi]
     expect: { status: result, tool: get_fund_nav }
+
+  # ── attr：收益贡献归因（4，tag: attribution，#2618 新工具） ──
+  # 分工：归因给「占比」，list_position_pnl 给「逐行绝对盈亏」。
+  - id: attr-01
+    turns: ['我这些年赚的钱主要是哪几只赚的']
+    tags: [attribution]
+    expect: { status: result, tool: get_return_attribution }
+
+  - id: attr-02
+    turns: ['亏损主要来自哪一块']
+    tags: [attribution]
+    expect: { status: result, tool: get_return_attribution }
+
+  - id: attr-03
+    turns: ['收益都来自哪个账户']
+    tags: [attribution]
+    expect: { status: result, tool: get_return_attribution }
+
+  - id: attr-04
+    turns: ['我的收益构成里贡献最大的是哪只']
+    tags: [attribution]
+    expect: { status: result, tool: get_return_attribution }
+
+  # ── bench：同期基准对比（4，tag: benchmark，#2620 新工具） ──
+  # 分工：基准对比回答「跑赢没 / 超额多少」，组合收益回答「本身赚了多少」。
+  - id: bench-01
+    turns: ['我今年跑赢沪深300了吗']
+    tags: [benchmark]
+    expect: { status: result, tool: get_portfolio_vs_benchmark }
+
+  - id: bench-02
+    turns: ['我的收益是本事还是市场给的']
+    tags: [benchmark]
+    expect: { status: result, tool: get_portfolio_vs_benchmark }
+
+  - id: bench-03
+    turns: ['跟标普500比，我这几年表现如何']
+    tags: [benchmark]
+    expect: { status: result, tool: get_portfolio_vs_benchmark }
+
+  - id: bench-04
+    turns: ['我的组合和上证指数比谁涨得多']
+    tags: [benchmark]
+    expect: { status: result, tool: get_portfolio_vs_benchmark }
+
+  # ── behav：交易行为画像（4，tag: behavior，#2619 新工具） ──
+  # 分工：行为画像只给客观操作统计（持有期 / 买卖比 / 换手 / 买点分位），不涉及盈亏。
+  - id: behav-01
+    turns: ['我平均一只基金拿多久']
+    tags: [behavior]
+    expect: { status: result, tool: get_trading_behavior }
+
+  - id: behav-02
+    turns: ['我是不是爱加仓']
+    tags: [behavior]
+    expect: { status: result, tool: get_trading_behavior }
+
+  - id: behav-03
+    turns: ['我的换手率高不高']
+    tags: [behavior]
+    expect: { status: result, tool: get_trading_behavior }
+
+  - id: behav-04
+    turns: ['我是不是跌了才买']
+    tags: [behavior]
+    expect: { status: result, tool: get_trading_behavior }
+
+  # ── confusion：跨工具混淆（3，tag: confusion，#2621 新增对抗类） ──
+  # 每条都与同组正例「只差一个词」：问的是邻近工具的口径，选错即 FAIL。
+  # 这是工具链 6 → 9 后最容易发生的退化，靠 expect.tool 精确匹配钉住。
+  - id: conf-01
+    turns: ['亏得最多的那只到底亏了多少']
+    tags: [confusion]
+    # 「多少」（绝对额）→ 逐持仓明细；「哪一块」（占比）→ 归因（对照 attr-02）
+    expect: { status: result, tool: list_position_pnl }
+
+  - id: conf-02
+    turns: ['我的组合绝对收益是多少']
+    tags: [confusion]
+    # 「绝对收益」→ 组合收益本身；「超额」→ 基准对比（对照 bench-01）
+    expect: { status: result, tool: get_portfolio_performance }
+
+  - id: conf-03
+    turns: ['我最近买的这只现在赚了多少']
+    tags: [confusion]
+    # 问盈亏 → 逐持仓明细；问操作习惯 → 行为画像（对照 behav-01）
+    expect: { status: result, tool: list_position_pnl }
 
   # ── 对抗（8，tags: adversarial + 子类） ──
   # 越界提问 4：护栏确定性拦截（B1 预测 / B2 建议 / B4 收益承诺），零模型调用

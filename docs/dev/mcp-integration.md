@@ -311,20 +311,49 @@ S2 落地时判据写成 8 条**变异探针**（改生产代码 → 用例必�
 
 capability 声明 `tier`，`invoke()` 据此决定落库 / TTL / 是否记账。
 
-### 6.2 Wind 的四个实测坑（全部收在 `map_args`）
+### 6.2 Wind 的实测坑（2026-10-23 真机采样后重写，源 #2516）
 
-| 坑 | 处理 |
-|---|---|
-| `period` 必须是 `"10"`（日 K），传 `"D"` 直接 `Invalid value` | adapter 内映射，不暴露给业务 |
-| `get_index_fundamentals` 认名称（`沪深300`）不认代码（`000300.SH`） | 维护 `code → 查询名` 映射 |
-| 批量参数是逗号分隔字符串，不是数组 | adapter 归一化 |
-| 返回是 `{columnNames, rows}` 多块表格 | `extract()` 按列名取，缺列显式 `None` |
+| 坑 | 实测事实 | 处理 |
+|---|---|---|
+| 工具清单只有两个 | `market_search_tools`（自然语言 → 工具清单）、`market_call_tool`（`toolName` + `arguments` JSON 串）；**没有** `get_index_fundamentals` | 数据工具一律经 `market_call_tool` 转发；能力表只登记实测工具名 |
+| 工具名错时 **HTTP 200 + `isError: true`** | 报文：`工具不存在: vserver_wind_tools, get_index_fundamentals` | 传输层检查 `result.isError` 并当失败上抛（不许当数据返回） |
+| 请求体必须是 JSON-RPC | 发 `{'toolName': …}` 直接 **HTTP 400** + 11 条 `JSONRPCMessage` 校验错 | `_wire` 仍是标准 `tools/call`，只把 `params.name` 换成网关入口 |
+| `period` 必须是 `"10"`（日 K） | 传 `"D"` → `Invalid value` | `_normalize_period` 映射；未知取值**报错**，不猜 |
+| 返回**不是** `{columnNames, rows}` | `get_index_kline` → `data.columns[].name` + `data.rows`；`get_index_basicinfo` → 还多包一层 `data.data[]` | `extract()` 两种都认，另兼容旧 `columnNames` |
+| SSE 响应无 charset | requests 猜 ISO-8859-1 ⇒ 中文乱码；更致命的是 UTF-8 续字节 `0x85` 被当换行把 JSON 折断 ⇒ 报「调用返回为空」 | 一律用 `resp.content` 按 UTF-8 解码，再按 SSE 事件块解析 |
+
+⚠️ **不要反推代码**：同一个问题两次采样，`get_index_basicinfo` 分别返回过 `000300.SH` 与
+`399300.SZ`。上游会按问题重排结果，故「拿返回的代码回查」不可靠 —— 要代码就用请求侧给的。
 
 ### 6.3 生产链路不做自然语言检索
 
-`market_search_tools` 每次 1–2s 且结果依赖语义。**工具名走 registry 静态映射**；
-检索只留给人工探针（`pdm run mcp-probe "<问题>"`）。否则线上会出现「同一份代码今天取不到、
-明天又好了」的不可复现故障。
+`market_search_tools` 每次 1–2s 且结果依赖语义。**工具名走静态常量表**（`_CAPABILITY_TOOLS`），
+数据查询经 `market_call_tool` 转发；检索只留给人工探针（`pdm run mcp-probe --question ...`）。
+否则线上会出现「同一份代码今天取不到、明天又好了」的不可复现故障。
+
+实测补充（2026-10-23）：**不先 search 也能调** —— `market_call_tool` 的 `toolName` 填裸名
+（`get_index_kline`）即可，不需要 `serverId` 前缀。故「不做检索」在生产链路上是可执行的，
+代价只有一个常量表要随上游工具变更手工维护（工具名写错会被 `isError` 当场挡住，不会静默）。
+
+### 6.4 同后缀 ≠ 同源：源归属必须是常量（2026-10-23，源 #2476）
+
+`index_daily_job` 按**代码后缀**分流（`.WI` / `.CSI` / 其余），但后缀只描述代码形态，
+**不描述数据源归属**。`885002.WI` 在韭圈儿未收录、在万得 MCP 可取，就是这么一处错位：
+
+| 事实 | 证据 |
+|---|---|
+| 韭圈儿无序列 | 2026-10-21：`disabled=True` / `data={}` / `series` 长度 0 |
+| 万得 MCP 可取 | 2026-10-23：5537 条，2003-12-31 起（1000.0），2026-10-22 收 7206.3199 |
+| 两源**不同尺度** | 同日同码：`885001.WI` 韭圈儿 925.6 / 万得 10877.345；`885000.WI` 935.7 / 14769.2608 |
+
+- **源归属写成常量**（`index_daily_job.WIND_MCP_INDEX_CODES`），**不做**「A 失败就试 B」：
+  两道源尺度差一个数量级，回退一旦真的发生，序列会在换源那天拼出一段凭空涨跌（#2464 同族）。
+- **「未配置」与「上游失败」必须分开**：前者只记 `stats['degraded']` + warning（可选组件
+  不可用），后者进 `errors`（真故障）。混成一个 `except` 会让「今天没配 Token」长期显示成
+  「数据源故障」——反过来，静默返回空会让前端「暂无基准」与「这只指数没数据」同形（#171）。
+- 判据：`backend/tests/services/sync/test_index_daily_job.py::TestWindMcpIndex`（写入口径 /
+  降级不装正常 / 配了失败必进 errors 三条）与
+  `backend/tests/services/adapters/test_wind_index.py`。
 
 ## 7. 展示窗口：3~5 年，在后端截断
 
@@ -361,8 +390,8 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 | **S0** | 新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；登记 `RULE_REGISTRY`；`AGENTS.md` 落一条带判据的红线 | 守卫在真实仓库跑出 0 命中；回退探针（把假 Token 写进真实文件）必须转红；拿不到输入退 2 |
 | **S1** | 抽 `transport` + `base` + `QiemanProvider`，且慢切过去 | `tests/services/thermometer/test_qieman_fetcher.py`、`test_qieman_batch_transport.py` 全绿；握手仍只 1 次；请求数不增 |
 | **S2** ✅ | `credentials` + `errors` + 调用落库（`mcp_call_logs`）+ `health` 段 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
-| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`**（采样待 Token，见下方 S3 偏离说明） |
-| **S4** | 第一个 Wind job（业绩比较基准回填）+ 展示窗口策略 | API 默认 ≤5 年；基准数据与 Wind 一致 |
+| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py` 的 provider 分支**；真实报文已采样（2026-10-23，见 §9 修正块） |
+| **S4** ⏳ | 第一个 Wind job（`index_daily` 的 `885002.WI` 走万得）+ 展示窗口策略 | ✅ 已接万得 MCP（真实点位、`price_mode='raw'`）；⏳ 展示窗口策略未做 |混合基准可用（S4 / #2476）)
 | **S5** | `user_mcp_credentials` + `PRO_FEATURES` 门禁 | 用户无 Token ⇒ 明确提示，不回退系统 Token |
 
 > **S0 收窄过（2026-10-21，源 #2486）**：S0 原本还包含「`WIND_MCP_TOKEN` / `WIND_MCP_URL`
@@ -400,6 +429,22 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 > 覆盖并有测试）。真实报文采样需要 `WIND_MCP_TOKEN` + `WIND_MCP_URL`，两者当前均未配置；
 > 若响应形状不同，处置是「给传输层加 provider 级解包扩展点」，**不是**在传输层里写 provider 名字分支
 > ——后者会让 §10 第 1 条判据（接第二家不改 `transport.py`）变成一句口号。
+>
+> **S3 采样后修正（2026-10-23，源 #2516）：上面那几条「未验证假设」已被真机推翻。**
+> 采样对象：`mcp.wind.com.cn/vserver_wind_tools/mcp/`，`wind-mcp-streamable-http-stateless` v1.25.0，
+> 无 `Mcp-Session-Id`（无状态）。四处偏离全部落在**既有扩展点**上，没有新增 provider 名字分支：
+>
+> | 原假设 | 实测 | 落点 |
+> |---|---|---|
+> | 请求体是 `{'toolName':…, 'arguments':'…'}`（非 JSON-RPC） | HTTP 400 + 11 条 `JSONRPCMessage` 校验错 | `_wire` 改回标准 `tools/call`，数据工具经 `market_call_tool` 转发 |
+> | 存在 `get_index_fundamentals` 这类直连工具 | 上游只有 `market_search_tools` / `market_call_tool`；调不存在的工具是 **200 + `isError`** | 能力表改为实测工具名；传输层检查 `isError` |
+> | 返回是 `{columnNames, rows}` | `data.columns[].name` + `data.rows`；`get_index_basicinfo` 还多包一层 `data.data[]` | `extract()` 两种都认（旧形状保留） |
+> | 400 一律是会话失效 | 400 也可能只是「body 不符合 JSON-RPC」 | 400 先看 JSON-RPC `error`：有则按 payload 分类、**不重握手**；无才当会话失效，且**报文进 `detail`** |
+> | SSE 用 `iter_lines(decode_unicode=True)` | 无 charset ⇒ ISO-8859-1 ⇒ `0x85` 当换行把 JSON 折断 ⇒ 报「调用返回为空」 | 用 `resp.content` 按 UTF-8 解码 + SSE 事件块解析 |
+>
+> 真机验收（同一提交）：`index_kline`（000300.SH，2026-10-15..22）→ 6 行日 K；
+> `index_basicinfo`（沪深300）→ 1 行（发布机构 / 基期 / 基点 / 成份个数）。
+> 工具名与参数坑的完整清单见 §6.2。
 
 方法搬移清单（S1 的施工单）：
 
@@ -422,8 +467,12 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 
 ## 11. 已知不做
 
-- 不做 MCP 服务端；
-- 不引入官方 `mcp` SDK（理由见 §3）；
+> **2026-10-26 更正**：本节原有两条已过时，保留更正痕迹以便追溯——
+> ①「不做 MCP 服务端」在 S5（#1751，2026-09-28）已被突破，现有 `services/ai_recognizer/mcp_server.py`，
+> 用官方 `mcp.server.lowlevel.Server` + `stdio` 传输，与内置循环共用同一份 `TOOLS_METADATA`；
+> ②「不引入官方 `mcp` SDK」只对**客户端**成立，且已补到期条件（见 §13）。
+
+- 客户端不引入官方 `mcp` SDK（理由见 §3），迁移触发条件与路线见 §13；服务端方向**已在用**官方 SDK；
 - 不允许用户自带 MCP URL（SSRF 面；表结构不提供该列）；
 - 不做全市场历史回填（属重活，需用户 Token 或不做）。
 
@@ -438,3 +487,94 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 - 额度用量 / 上限（原计划的 `quota_used / quota_limit`）**尚未纳入 health 段**：
   且慢无额度语义、Wind 待 S3 采样，现在建字段就是「没有读者的列」；
 - `core/data_sources.DATA_SOURCE_LABELS` 暂无 `qieman`，若且慢数据上屏带来源脚注需补登。
+
+## 13. 客户端选型：为什么手写、什么条件下换官方 SDK
+
+> §3 只回答了「不用官方 SDK」，没有回答「什么时候必须用」。没有到期日的技术决定，
+> 三年后会被当成技术债翻出来重议一遍——本节补上那个到期条件。
+
+### 13.1 一句话结论
+
+**服务端用官方 SDK，客户端手写。** 这不是双标，是两侧负载形态不同：
+
+| 方向 | 形态 | 选型 |
+|---|---|---|
+| 服务端（对外暴露 9 个只读工具） | 常驻、要跟随协议演进、天然复用 SDK 的会话与能力协商 | `mcp.server.lowlevel.Server` + `stdio_server`（`services/ai_recognizer/mcp_server.py:27-28`） |
+| 客户端（接入且慢 / Wind） | 批量 RPC（夜跑 111 只组合）、要能采样上游原始报文、调用侧全同步 | 手写 `McpTransport`（`services/mcp/transport.py`，369 行） |
+
+### 13.2 现在换的代价：异步错配，落在调用侧而非协议侧
+
+| 事实 | 证据（本仓可查） |
+|---|---|
+| 官方 2.0 客户端**只有 async** | `mcp/client/client.py` 的 `Client` 是 async context manager；`call_tool` / `list_tools` 均为 `async def`；`mcp.__all__` 里**没有**同步客户端 |
+| 本仓是同步栈 | 23 个模块 `import requests`；job 跑 `ThreadPoolExecutor`（`services/fund_service.py:150`）；5 处 `call_tool` 调用点全同步（`qieman_fetcher.py:338` / `wind_edb.py:127` / `wind_index.py:135` / `call_log.py:61` / `mcp_probe.py:183`） |
+| 依赖不是障碍 | `httpx2 2.13.1` 已在 `pdm.lock`（`mcp` 的传递依赖），换 SDK **不新增依赖** |
+
+三条迁移路径，代价都在调用侧：
+
+| 路径 | 做法 | 代价 |
+|---|---|---|
+| A | 每个调用点 `anyio.run` / `asyncio.run` | 每次新建事件循环 + `AsyncClient` + 握手 = **每次调用 3 个 HTTP 请求**。`transport.py:170-171` 记录的正是被优化掉的旧状态（且慢 111 只组合 → 333 请求） |
+| B | job 链全 async 化 | 跨 Flask 同步世界改造，`qieman_fetcher` / `wind_index` / `wind_edb` 及其 job 调用链全动 |
+| **C** | 常驻 loop 线程 + `run_coroutine_threadsafe` | 自写约 100 行桥，需管超时、异常跨线程传播、多 worker 各自一个 loop。**未来真迁移时走这条** |
+
+而且 SDK 只替得掉 `transport.py` 那 369 行——8 类 `McpErrorKind` 分类、`mcp_call_logs` 审计、`DataScope` 分级 Token 路由、两个 provider 的常量与 `_wire` 网关形状（`services/mcp/` 其余 1129 行）**原样保留**。
+
+### 13.3 但协议世代已经换代了（本节最重要）
+
+`mcp-types 2.0.0` 的版本常量（实测）：
+
+| 常量 | 值 |
+|---|---|
+| `LATEST_PROTOCOL_VERSION` | `2026-07-28` |
+| `MODERN_PROTOCOL_VERSIONS` | `('2026-07-28',)` |
+| `HANDSHAKE_PROTOCOL_VERSIONS` | `2024-11-05` / `2025-03-26` / `2025-06-18` / `2025-11-25` |
+
+对照本仓两家上游：
+
+| provider | 声明版本 | 世代 | 依据 |
+|---|---|---|---|
+| 且慢 | `2024-11-05` | **legacy（握手世代）** | `providers/qieman.py:25` |
+| Wind | `2025-06-18` | **legacy（握手世代）** | `providers/wind.py:59` |
+
+按 SDK 源码注释，`2026-07-28`（modern）已经**取消了 initialize 握手**：`initialized` 与
+`roots/list_changed` 一并移除、取消改为结构性（anyio scope cancel），改成 `discover` + 每请求直连，
+**无流、无 JSON-RPC framing、无握手**（`mcp/client/client.py` 的 `_connect_inproc` 与
+`_no_inbound_client_notifications` 注释）。
+
+由此两条结论：
+
+1. **今天换 SDK，只能 `mode='legacy'` 走兼容层**（`Client.mode` 默认 `'auto'`，协商降级）。
+   换掉的是维护方，不是能力；而兼容层是 SDK 为过渡保留的，将来会被弱化维护。
+2. **上游一旦升到 modern，本仓手写的 `initialize` + `tools/call` 会真断**（「会话」这个概念消失），
+   而 SDK 只需删掉 `mode` 参数。**这才是迁移的真正理由**——不是 SDK 更优雅，
+   而是协议会变、SDK 跟着协议变，我们不会。
+
+### 13.4 迁移触发条件（满足任一即迁）
+
+1. 任一上游公告或实测支持 `2026-07-28`（modern）；
+2. 官方 SDK 提供同步客户端；
+3. 要接第三家 provider，且它是 modern 服务。
+
+迁移时**不许变**的东西（与 §10 三条判据同源）：`McpProvider` 契约与 `capability → tool` 静态映射；
+8 类 `McpErrorKind` 与 `mcp_call_logs` 表结构；`resolve_token` 的 `DataScope` 分级路由。
+
+判据**分两层**——不能笼统说「一行不改」：
+
+| 层 | 覆盖 | 迁 SDK 时 |
+|---|---|---|
+| **契约层** | `test_mcp_registry` / `test_mcp_credentials` / `test_mcp_errors` / `test_mcp_call_log` 四份；`test_wind_provider` 里 `capabilities` · `map_args` · `extract` · `_wire` 那批；`tests/domains/test_health_mcp.py` | **一行不改** |
+| **传输层** | `test_mcp_transport` + `test_mcp_transport_errors` 共 **21 例**（SSE 解析、`initialized` 通知失败、请求报文形状、`Mcp-Session-Id` 失效重握、400 双语义）；`test_wind_provider` 里 `test_wind_call_goes_through_unmodified_transport` / `test_wind_call_maps_is_error_to_typed_error` / `test_transport_stays_provider_agnostic` 3 例 | **随实现整体重写** |
+
+为什么不能一刀切：握手与会话复用一旦变成 SDK 内部行为，那些断言「发了什么报文」的用例
+**在实现里已经不存在对应物**，硬要保留等于把 SDK 内部实现钉死。
+**「可替换」的判据是契约层不变，不是全部测试不变。**
+
+### 13.5 迁移前先付的一笔便宜费用
+
+| 动作 | 成本 | 为什么值得 |
+|---|---|---|
+| 补齐**provider 层契约覆盖**：每个 capability 的 `map_args → _wire → extract` 三段都有断言，**不碰 HTTP 报文** | 半天 | 这才是 §13.4「契约层」那张表的实现基础。报文级断言迁移时必然重写，撑不起「可替换」 |
+| 保留 `mcp_probe --save-body` 作为**协议探针** | 0（已在用） | SDK 把报文层打包掉了，采样现场的能力反而更弱；上游报错形态未知阶段，这条比 SDK 值钱 |
+| §13 本身 | — | 现在不做决定，但不让决定变成「忘了」 |
+

@@ -83,9 +83,14 @@ const displayValue = computed(() => {
 .metric-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 104px;
-  padding: 18px 20px;
+  gap: 12px;
+  min-height: 112px;
+  padding: 20px;
+
+  /* 自响应字号的前提（2026-11-02）：卡片宽度由 MetricGrid 的 flex 决定，
+     但**数字该多大**取决于卡片自己能分到多少宽，容器查询正好表达这件事。
+     没有它时，180px 的卡放 `¥747,676`（30px 等宽数字约 150px）必然撑破内容区。 */
+  container-type: inline-size;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
@@ -114,25 +119,36 @@ const displayValue = computed(() => {
     color: var(--text-secondary);
   }
 
+  /* 数字与单位必须**同排**：原来允许换行，卡一窄就把 `%` 甩到下一行，
+     金额更惨 —— `+¥477,707` 会在「+」后面断开，变成「+」独占一行。
+     这一类断行不是数据问题，是 flex 容器允许折行给的假许可。 */
   &__body {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-wrap: nowrap;
+    gap: 6px;
     align-items: baseline;
     margin-top: auto;
   }
 
   &__value {
     font-family: var(--font-mono);
-    font-size: var(--text-display);
+
+    /* 14cqi ≈ 卡宽的 14%：188px 的卡得 26px（9 位金额刚好放得下），
+       宽卡到 32px 封顶、featured 另有 40px 上限，窄屏不再需要单独缩字号。 */
+    font-size: clamp(1.125rem, 14cqi, var(--text-display));
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    line-height: 1.05;
+    line-height: 1.1;
     color: var(--text-primary);
     letter-spacing: -0.5px;
+
+    /* 金额之间没有空格，浏览器却会在「+ / ¥ / 数字」这类前缀符号后给出断点
+       （UAX #14 的 PR/IL 类），必须显式禁止——否则「+¥477,707」被拆成两行。 */
+    white-space: nowrap;
   }
 
   &__unit {
+    flex-shrink: 0;
     font-size: var(--text-num-strong);
     font-weight: 500;
     color: var(--text-tertiary-ink);
@@ -144,17 +160,30 @@ const displayValue = computed(() => {
 
   &__caption {
     font-size: var(--text-label);
-    line-height: 1.4;
+
+    /* 1.4 → 1.55：两行副文案贴太紧时像一段被压扁的注释，行距是「呼吸感」的主要来源 */
+    line-height: 1.55;
     color: var(--text-tertiary-ink);
+    word-break: keep-all;
+
+    /* balance：让两行长度接近，避免「当前市值 − 净投入（含已实 / 现）」这种
+       把词拆开的断法。
+       keep-all：中文默认**任意两字之间**都能断行，于是「净投 / 入」这种把一个词
+       劈成两半的断法随时会出现；keep-all 只在空格/标点处断（本仓副文案基本都带
+       `−`、`×` 两侧的空格，天然给了断点）。
+       anywhere 兜底：万一某条文案没有可用断点（长串无空格），退化为硬断，
+       宁可断词也不横向溢出卡片。 */
+    text-wrap: balance;
+    overflow-wrap: anywhere;
   }
 
   /* featured：核心指标放大 */
   &--featured {
-    min-height: 128px;
+    min-height: 136px;
     padding: 22px 24px;
 
     .metric-card__value {
-      font-size: var(--text-display-lg);
+      font-size: clamp(1.75rem, 13cqi, var(--text-display-lg));
     }
 
     .metric-card__unit {
@@ -167,23 +196,12 @@ const displayValue = computed(() => {
    MetricCard 样式 · 单一来源：frontend/design.md
    卡片：--bg-card / --radius-lg / --shadow-raised / --border-light
    结构：标题行(标题 + 等级标签) → 大数字 + 小单位 → 副文案
-   数字：30px(默认) / 40px(featured)，单位 15px
+   数字：30px(默认) / 40px(featured)，单位 18px
    ============================================================ */
 
-/* 窄屏缩小数字字号（原块**排在基础声明之前**，被后面同选择器的 30px / 40px 压掉、
-   **从未生效**；2026-09-18 修复，见 #1576 同类登记）。
-
-   ⚠️ 阈值**刻意保留 480px**（不给 Tailwind 档）：这是**卡片内数字字号**的阈值，与页面布局
-   断点不同轴；而本页网格在窄视口下常常变成**单列**（卡片反而更宽），此时把数字缩到 26px
-   与「窄屏收紧」的直觉相反。故按内容级阈值处理，用 `（阈值说明）` 显式豁免。 */
-@media (width <= 480px) /* breakpoint-allow: 卡片内字号阈值（内容级） */ {
-  /* 说明（已上移到 @media 同行）：卡片内字号阈值（内容级），非页面布局断点 */
-  .metric-card__value {
-    font-size: var(--text-num-hero);
-  }
-
-  .metric-card--featured .metric-card__value {
-    font-size: var(--text-display);
-  }
-}
+/* ⚠️ 原「@media (width <= 480px) 缩小数字字号」整块已删（2026-11-02）：
+   它是按**视口**给卡片内数字定字号，而卡片宽度由 MetricGrid 的 flex 决定——
+   窄视口下卡片常常变成单列**更宽**，此时把数字压到 24px 与直觉相反（这正是
+   #1576 当年给这块补注释却仍别扭的原因）。现由 `.metric-card__value` 上的
+   容器查询 clamp(...cqi...) 负责：跟着**卡片自身宽度**缩放，比视口阈值准。 */
 </style>

@@ -3,13 +3,13 @@ import { computed, onMounted, ref } from "vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import AggregationHero from "@/components/Aggregation/AggregationHero.vue";
+import AggregationToolbar from "@/components/Aggregation/AggregationToolbar.vue";
+import AggregationStateBlock from "@/components/Aggregation/AggregationStateBlock.vue";
 import AggregationProductCard from "@/components/Aggregation/AggregationProductCard.vue";
 import AggregationProductDetail from "@/components/Aggregation/AggregationProductDetail.vue";
-import SegmentedControl from "@/components/SegmentedControl/index.vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
+import { buildTypeOptions } from "@/components/Aggregation/aggregationToolbarModel";
 import {
   type AggregationDimension,
-  type AggregationInstitutionGroup,
   type AggregationProductGroup,
   type AggregationSort,
   type AggregationSource
@@ -18,7 +18,6 @@ import {
   useAggregation,
   type AggregationFetcher
 } from "@/composables/useAggregation";
-import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
 /**
  * 持仓聚合下钻页共享组件（#1266 抽离）。
@@ -30,6 +29,10 @@ import { ASSET_TYPE_LABELS } from "@/constants/assetType";
  *
  * 资产构成环形图由 AggregationHero 按 result.fund_type_breakdown 渲染；后端对该字段按
  * 品类维度聚类（基金侧 fund_type、证券侧 asset_type），两侧共用同一字段，天然对齐（#1264）。
+ *
+ * #980 拆分：工具条（维度/搜索/类型/排序）→ `AggregationToolbar`，错误/空态 →
+ * `AggregationStateBlock`，选项常量与类型 Tab 派生 → `aggregationToolbarModel.ts`。
+ * 本文件只保留取数编排、分页与详情抽屉。
  */
 defineOptions({ name: "AggregationPage" });
 
@@ -62,52 +65,6 @@ const props = withDefaults(
     emptyHint: ""
   }
 );
-
-const DIMENSION_OPTIONS: { label: string; value: AggregationDimension }[] = [
-  { label: "按产品展示", value: "product" },
-  // 该维度的分组键是 institution_id（销售机构/购买渠道），不是 Ledger（账本），
-  // 故文案用「渠道」而非「账户」，避免与账本概念混淆（#1185）
-  { label: "按渠道展示", value: "institution" }
-];
-
-/** 常驻排序快捷按钮：点击即切换字段，同一字段再点反转升降序 */
-const SORT_OPTIONS: { label: string; value: AggregationSort }[] = [
-  { label: "市值", value: "market_value" },
-  { label: "份额", value: "quantity" },
-  { label: "收益率", value: "return_pct" },
-  { label: "名称", value: "name" }
-];
-
-/**
- * 类型筛选 Tab：动态生成，只显示实际有产品的分类（#1224 反馈）。
- * 「全部」常驻；基金侧中间分类来自后端 fund_type_counts（有产品才显示）+「未分类」；
- * 证券侧从 fund_type_breakdown（已按 asset_type 聚类的中文标签）反查原始 asset_type 值。
- * 仅当 showTypeTab 时渲染。
- */
-// asset_type 中文标签 → 原始值 的反查表（复用前端镜像，禁止手抄第二份）
-const ASSET_TYPE_VALUE_BY_LABEL: Record<string, string> = Object.fromEntries(
-  Object.entries(ASSET_TYPE_LABELS).map(([value, label]) => [label, value])
-);
-const typeOptions = computed<{ label: string; value: string }[]>(() => {
-  const opts: { label: string; value: string }[] = [
-    { label: "全部", value: "" }
-  ];
-  if (props.typeFilterField === "asset_type") {
-    for (const b of result.value?.fund_type_breakdown ?? []) {
-      const raw = ASSET_TYPE_VALUE_BY_LABEL[b.name];
-      if (raw) opts.push({ label: b.name, value: raw });
-    }
-    return opts;
-  }
-  const counts = result.value?.fund_type_counts ?? {};
-  for (const [name, count] of Object.entries(counts)) {
-    if (count > 0) opts.push({ label: name, value: name });
-  }
-  if ((result.value?.fund_type_unclassified_count ?? 0) > 0) {
-    opts.push({ label: "未分类", value: "__none__" });
-  }
-  return opts;
-});
 
 const {
   dimension,
@@ -142,6 +99,11 @@ const {
 });
 
 const isEmpty = computed(() => total.value === 0);
+
+/** 类型 Tab 选项：只列实际有产品的分类（动态生成，见 aggregationToolbarModel） */
+const typeOptions = computed(() =>
+  buildTypeOptions(result.value, props.typeFilterField)
+);
 
 // ── 产品详情抽屉 ──
 const detailVisible = ref(false);
@@ -217,68 +179,22 @@ onMounted(() => load());
       :type-breakdown="result?.fund_type_breakdown ?? null"
     />
 
-    <!-- 检索区：第一行 = 维度切换 + 搜索；第二行 = 类型 Tab + 排序快捷按钮 -->
-    <div class="control-bar mb-5">
-      <div class="control-row">
-        <!-- 维度切换（#1731 收敛）：原 `AggregationDimensionTabs` 包装组件自称「D13 果冻胶囊」，
-             实现却是 --brand-600 实底 + --text-inverse 白字（实测 3.02:1 不达 AA）。该包装只此一处
-             调用，其 select 去重守卫与 SegmentedControl 完全重复，故直接删除、改用唯一实现。 -->
-        <SegmentedControl
-          :model-value="dimension"
-          :options="DIMENSION_OPTIONS"
-          aria-label="聚合维度"
-          @change="setDimension"
-        />
-        <el-input
-          :model-value="keyword"
-          class="search-input"
-          aria-label="搜索名称或代码"
-          placeholder="搜索名称 / 代码"
-          clearable
-          @update:model-value="setKeyword"
-        >
-          <template #prefix>
-            <IconifyIconOffline icon="ep:search" class="search-icon" />
-          </template>
-        </el-input>
-      </div>
-      <div class="control-row control-row--sub">
-        <!-- 类型筛选（#1731 收敛）：原手写 `.type-pill`（白卡底 + 1px 边框）→ SegmentedControl。
-             与自选页 `WatchlistFilterBar` 的「类型快捷筛选」是同一语义（单维度快速切换），
-             两处现用同一实现。 -->
-        <SegmentedControl
-          v-if="showTypeTab"
-          :model-value="fundType"
-          :options="typeOptions"
-          :aria-label="`${typeTabLabel}筛选`"
-          @change="setFundType"
-        />
-        <div class="sort-control">
-          <!-- 排序档位（#1731 收敛）：原手写 `.sort-pill` 与类型筛选共用一份 CSS 块，
-               迁移时一并改掉——否则同一控制行里会出现两种外观。 -->
-          <SegmentedControl
-            :model-value="sort"
-            :options="SORT_OPTIONS"
-            aria-label="排序方式"
-            @change="setSort"
-          />
-          <el-button
-            class="order-btn"
-            text
-            :aria-label="
-              order === 'desc'
-                ? '当前降序，点击切换为升序'
-                : '当前升序，点击切换为降序'
-            "
-            @click="toggleOrder"
-          >
-            <IconifyIconOffline
-              :icon="order === 'desc' ? 'ep:sort-down' : 'ep:sort-up'"
-            />
-          </el-button>
-        </div>
-      </div>
-    </div>
+    <!-- 检索区：维度切换 + 搜索 / 类型 Tab + 排序（吸顶常驻，见 AggregationToolbar） -->
+    <AggregationToolbar
+      :dimension="dimension"
+      :keyword="keyword"
+      :sort="sort"
+      :order="order"
+      :fund-type="fundType"
+      :show-type-tab="showTypeTab"
+      :type-tab-label="typeTabLabel"
+      :type-options="typeOptions"
+      @dimension-change="setDimension"
+      @keyword-change="setKeyword"
+      @sort-change="setSort"
+      @order-toggle="toggleOrder"
+      @fund-type-change="setFundType"
+    />
 
     <!-- 骨架屏：统一尺寸的产品卡网格（消除之前三种尺寸不一致的骨架屏，#1266） -->
     <PageSkeleton
@@ -290,18 +206,20 @@ onMounted(() => load());
     />
 
     <!-- 错误态 -->
-    <div v-else-if="errorMsg" class="state-block">
-      <IconifyIconOffline icon="ep:warning" class="state-icon" />
-      <p class="state-text">{{ errorMsg }}</p>
-      <el-button type="primary" plain @click="() => load()">重试</el-button>
-    </div>
+    <AggregationStateBlock
+      v-else-if="errorMsg"
+      kind="error"
+      :message="errorMsg"
+      @retry="() => load()"
+    />
 
     <!-- 空态 -->
-    <div v-else-if="!loading && isEmpty" class="state-block">
-      <IconifyIconOffline icon="ep:box" class="state-icon" />
-      <p class="state-text">{{ emptyTitle }}</p>
-      <p v-if="emptyHint" class="state-hint">{{ emptyHint }}</p>
-    </div>
+    <AggregationStateBlock
+      v-else-if="!loading && isEmpty"
+      kind="empty"
+      :message="emptyTitle"
+      :hint="emptyHint"
+    />
 
     <!-- 按产品：产品级卡片网格 -->
     <div v-else-if="!loading && dimension === 'product'" class="card-grid">
@@ -358,88 +276,12 @@ onMounted(() => load());
   background: var(--bg-page);
 }
 
-/* 吸顶常驻：滚动时品牌色 Hero 自然滚走，但维度切换 + 搜索 + 排序（核心操作）始终可见。
-   背景与页面底一致避免下方卡片穿透；略微向下延伸遮住滚到其下方的卡片边缘。
-   与 WatchlistToolbar 的 .top-bar 同款处理（#1267）。 */
-.control-bar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2, 8px);
-  padding-bottom: var(--space-2, 8px);
-  background: var(--bg-page);
-}
-
-.control-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3, 12px);
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* 次级行：与上一行用细分隔线区隔（对齐 design.md 分组胶囊 Tab 规范） */
-.control-row--sub {
-  padding-top: var(--space-2, 8px);
-  border-top: 1px solid var(--border-subtle, var(--border-light));
-}
-
-.search-input {
-  width: 240px;
-}
-
-.search-icon {
-  font-size: var(--text-small);
-  color: var(--text-tertiary-ink);
-}
-
-/* 类型筛选 / 排序档位的外观已全部移交 SegmentedControl（#1731 收敛）：
-   原先这里有两份手写胶囊样式块（`.type-tabs`/`.type-pill` 与重复的 `.sort-pills`/`.sort-pill`，
-   白卡底 + 1px 边框 + 选中 `--brand-100`/`--brand-700`/`--brand-400`）。现不再保留任何视觉声明——
-   手写分段控制器样式是 #1717 / #1731 反复回潮的起点，守卫 `scripts/guard_segmented.py` 会在 CI 拦下。 */
-
-.sort-control {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.order-btn {
-  padding: 6px 10px;
-}
-
 /* 自适应卡片网格：minmax 320px 保证笔记本 3 列、宽屏 4 列；
    配合每页 18 条（3 的倍数）从根上避免「末行缺卡」的怪异感 */
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: var(--space-compact, 14px);
-}
-
-.state-block {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: center;
-  padding: 60px 20px;
-  text-align: center;
-}
-
-.state-icon {
-  font-size: var(--text-display-lg);
-  opacity: 0.3;
-}
-
-.state-text {
-  font-size: var(--text-body);
-  color: var(--text-secondary);
-}
-
-.state-hint {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
 }
 
 .pagination-bar {
@@ -455,10 +297,6 @@ onMounted(() => load());
 
   .card-grid {
     grid-template-columns: 1fr;
-  }
-
-  .search-input {
-    width: 100%;
   }
 }
 </style>

@@ -399,3 +399,72 @@ class TestOrphan:
 
         assert svc.delete_orphan_data(db, 1) == {'position_count': 0, 'asset_count': 0, 'transaction_count': 0}
         assert db.query(Position).count() == 1
+
+
+class TestOrphanExcludesShadowRows:
+    """对账影子行（`ownership_status='shadow'`）不是「未归置资产」。
+
+    ## 钉住的行为（2026-10-28 线上数据暴露）
+
+    E账户导入会为每条真实持仓再写一条 shadow 镜像：`ledger_id` 恒为 NULL
+    （`uq_positions_ledger_symbol` 不允许 shadow 与真身同 (ledger_id, symbol) 共存），
+    归因关系记在 `PositionImportMeta.attributed_to_ledger_id`。
+
+    只看 `ledger_id` 的孤儿判定把这批镜像当成待归置资产，后果实测为：
+
+    - 前端横幅「已删除账户的持仓，合计 ¥234,164.89」——数字是把镜像行二次计入的虚增；
+    - 点「归入」必失败：目标账户已有同名 active 行 → 唯一键冲突 → 整批回滚；
+    - 点「清理」会把对账依据一起删掉，且 `position_count` 把镜像算进成果。
+
+    故三处（明细 / 归入 / 清理）都必须排除 shadow。资产与交易无 `ownership_status`，
+    不受影响——那条边界由 `TestOrphanDetail` / `TestOrphanMigrate` 的既有用例守着。
+    """
+
+    def test_detail_excludes_shadow_rows(self, db):
+        _pos(db, '510300', None, name='真实未归属')
+        _pos(db, '510301', None, name='对账镜像', ownership_status='shadow')
+
+        payload = svc.build_orphan_detail(db, 1)
+        assert payload['summary']['position_count'] == 1
+        assert [p['symbol'] for p in payload['positions']] == ['510300']
+
+    def test_migrate_skips_shadow_rows(self, db):
+        target = _ledger(db, '目标账户')
+        active = _pos(db, '510300', None, name='真实未归属')
+        shadow = _pos(db, '510301', None, name='对账镜像', ownership_status='shadow')
+
+        counts = svc.migrate_orphan_data(db, target, 1)
+        assert counts['position_count'] == 1
+
+        db.refresh(active)
+        db.refresh(shadow)
+        assert active.ledger_id == target.id
+        # 影子行的 ledger_id 保持 NULL、状态保持 shadow（归因不写在这里）
+        assert shadow.ledger_id is None
+        assert shadow.ownership_status == 'shadow'
+
+    def test_shadow_mirror_of_active_holding_does_not_collide(self, db):
+        """镜像与真身同 symbol：归入只搬真身以外的东西，因此不会撞唯一键。
+
+        真实形态：`(目标账户, '004011', active)` 与 `(NULL, '004011', shadow)` 并存。
+        若把影子当孤儿一起归入，第二条必然违反 `uq_positions_ledger_symbol`。
+        """
+        target = _ledger(db, '深圳前海微众银行')
+        _pos(db, '004011', target, name='真身', quantity=6507.45, current_price=1.5)
+        shadow = _pos(db, '004011', None, name='镜像', quantity=6507.45, current_price=1.5, ownership_status='shadow')
+
+        assert svc.build_orphan_detail(db, 1)['summary']['position_count'] == 0
+        assert svc.migrate_orphan_data(db, target, 1)['position_count'] == 0
+
+        db.refresh(shadow)
+        assert shadow.ledger_id is None
+
+    def test_delete_preserves_shadow_rows(self, db):
+        _pos(db, '510300', None, name='真实未归属')
+        shadow = _pos(db, '510301', None, name='对账镜像', ownership_status='shadow')
+
+        assert svc.delete_orphan_data(db, 1)['position_count'] == 1
+
+        remaining = db.query(Position).all()
+        assert [p.id for p in remaining] == [shadow.id]
+        assert remaining[0].ownership_status == 'shadow'

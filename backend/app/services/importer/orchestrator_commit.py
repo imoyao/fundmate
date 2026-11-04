@@ -9,6 +9,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from decimal import InvalidOperation as decimal_InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -28,6 +29,20 @@ from app.services.trading import TransactionService
 # 确定性（不带随机数）即自幂等——同一行再次「勾选保留」导入时命中已存在的 suffixed hash，
 # 走去重拦截计数，不会叠出第三份记录。
 KEEP_HASH_SUFFIX = ':keep'
+
+
+def _opt_decimal(value) -> Optional[Decimal]:
+    """可空十进制（#2137 费用拆分回传）：None / 空值 → None（未拆分），否则 Decimal。
+
+    预览行由前端原样回传，字段可能是 None、缺键、'' 或数字；统一在这里收敛，
+    避免在记录构造处散落四份 try/except。
+    """
+    if value is None or value == '':
+        return None
+    try:
+        return Decimal(str(value))
+    except (decimal_InvalidOperation, ValueError):
+        return None
 
 
 def refresh_prices_best_effort(db) -> Optional[dict]:
@@ -128,6 +143,11 @@ class CommitMixin:
                     shares=Decimal(str(row.get('quantity') or 0)) if row.get('quantity') else None,
                     nav=Decimal(str(row.get('price') or 0)) if row.get('price') else None,
                     fee=Decimal(str(row.get('fee') or 0)),
+                    # #2137 费用拆分（元）：预览行原样回传；None/缺键 = 未拆分
+                    fee_commission=_opt_decimal(row.get('fee_commission')),
+                    fee_stamp_duty=_opt_decimal(row.get('fee_stamp_duty')),
+                    fee_transfer_fee=_opt_decimal(row.get('fee_transfer_fee')),
+                    fee_other=_opt_decimal(row.get('fee_other')),
                     transaction_id=row.get('contract_id', ''),
                     import_hash=row.get('import_hash'),
                     source=row.get('source', ''),
@@ -137,6 +157,10 @@ class CommitMixin:
                     net_amount=Decimal(str(row.get('net_amount') or 0)),
                     # #1882：疑似重复且勾选保留的行标记真插入（commit 内换 :keep 后缀）
                     keep_duplicate=bool(row.get('keep_duplicate')) and bool(row.get('is_duplicate')),
+                    # 配对组（#2836）：parse 打了组、confirm 必须带回来，否则落库时
+                    # 利息行与税行各自成孤儿，前端「按组折叠」在历史数据上永久失效。
+                    link_group_id=row.get('link_group_id') or None,
+                    consumed_by=row.get('consumed_by') or '',
                 )
             )
 
@@ -255,6 +279,16 @@ class CommitMixin:
         kept_duplicates_blocked = 0
 
         for record in records:
+            # 被配对规则消费的行（#2836）：它的效果已由同组主记录覆盖，入账就是重复。
+            # 当前唯一来源是「债券兑付 + 股份转出」——兑付本身已清仓，转出行再扣一次
+            # 就是把份额扣两遍（用户会看到持仓凭空少一半）。计入 skipped 让回执可解释。
+            if record.consumed_by:
+                skipped += 1
+                logger.info(
+                    f'跳过被配对消费的记录: symbol={record.symbol} type={record.business_type} '
+                    f'rule={record.consumed_by}'
+                )
+                continue
             try:
                 # B3 修复（2026-08-17）：单条记录包在 SAVEPOINT 内——普通异常回滚该条
                 # 已 flush 的部分写入后继续（与 E6 对账侧口径一致）；SQLAlchemyError 仍保持
@@ -393,33 +427,17 @@ class CommitMixin:
                             kept_duplicates += 1
                         continue
 
-                    # 特殊操作：债券兑付
+                    # 特殊操作：债券兑付（#2832：关联持仓扣份额，不再是孤儿）
+                    # 金额口径见 PositionService.process_bond_redeem：取交割单「发生金额」
+                    # （到账净额，含应计利息），不是「成交均价 × 数量」。
+                    # 兑付量 > 持仓量时该方法抛 ValueError → 本行进 commit_errors，
+                    # 其余行照常入库（单条记录包在 SAVEPOINT 内）。
                     if bt == BusinessType.BOND_REDEEM.code:
-                        # 数量和金额都需要转换
-                        qty_units = Money.shares_to_min_unit(data['quantity'])
-                        price_units = Money.yuan_to_price_units(data.get('avg_price', 0))
-                        amount_cents = Money.yuan_to_cents(data['net_amount'])
-                        TransactionService.create(
-                            db=self.db,
-                            position_id=None,
-                            txn_type='bond_redeem',
-                            trade_date=data.get('trade_date'),
-                            confirm_date=data.get('confirm_date'),
-                            asset_type=data.get('type'),
-                            quantity=qty_units,
-                            price=price_units,
-                            fee=0,
-                            amount=amount_cents,
-                            status='success',
-                            position_name=data.get('name', data['symbol']),
-                            account_name=data.get('account_name', ''),
-                            notes=data.get('notes') or '债券到期兑付',
-                            import_hash=data.get('import_hash'),
-                            entry_status='orphan',
-                            link_group_id=data.get('link_group_id'),
-                            family_id=self.family_id,
-                        )
-                        orphan_count += 1
+                        outcome = PositionService.process_orphan_bond_redeem(self.db, data)
+                        # 用 is_orphan 而不是 `position is None`：兑付清仓也返回 None，
+                        # 那一条是正常业务结果，不是「没归位」。
+                        if outcome.is_orphan:
+                            orphan_count += 1
                         imported += 1
                         if record.keep_duplicate:  # #1882：勾选保留行入库单独计数
                             kept_duplicates += 1

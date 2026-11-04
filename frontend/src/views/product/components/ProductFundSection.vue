@@ -5,6 +5,13 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { getFundProfile, type FundProfileResult } from "@/api/products";
+import FundFeeGuide from "./FundFeeGuide.vue";
+import {
+  purchaseFeeText,
+  redeemFeeLadder,
+  redeemFeeText
+} from "./fundFeeFormat";
+import { formatRatingDeltaText, formatRatingText } from "./fundRatingFormat";
 
 /**
  * 详情页「基金资料」区块（#1968 · 设计 §5 C 区块）。
@@ -29,33 +36,37 @@ const failed = ref(false);
 
 const DASH = "—";
 
-/** 申购费率：阶梯取首档（金额下限最小的档），并标注是否分档 */
-const purchaseRate = computed(() => {
-  const rows = profile.value?.fee_rates?.purchase ?? [];
-  if (!rows.length) return null;
-  const first = rows[0];
-  return {
-    text: `${(first.rate * 100).toFixed(2)}%`,
-    tiered: rows.length > 1
-  };
-});
+/** 费率文案与阶梯（#1015）：口径（小数费率、半开区间、取最小档）全在纯函数里，
+ *  组件只管取数与渲染——旧实现把 `rows[0]` 当首档、把 `start_day` 当条件，
+ *  接口换个顺序就会把「持有 2 年以上 0%」显示成赎回费率。 */
+const purchaseFee = computed(() =>
+  purchaseFeeText(profile.value?.fee_rates?.purchase)
+);
 
-/** 赎回费：持有 ≤ 某天数时的费率（首档），分档时标注 */
-const redeemRate = computed(() => {
-  const rows = profile.value?.fee_rates?.redeem ?? [];
-  if (!rows.length) return null;
-  const first = rows[0];
-  return {
-    text: `${(first.rate * 100).toFixed(2)}%`,
-    days: first.start_day,
-    tiered: rows.length > 1
-  };
-});
+const redeemFee = computed(() =>
+  redeemFeeText(profile.value?.fee_rates?.redeem)
+);
+
+/** 赎回费阶梯明细：折叠区里解释「格子里为什么只有一个数」 */
+const redeemTiers = computed(() =>
+  redeemFeeLadder(profile.value?.fee_rates?.redeem)
+);
 
 /** 基金经理列表：接口缺字段时为 null（FundProfileResult 契约：缺失一律降级），
  *  统一收敛为空数组——模板不裸取 .length（#2191：缺字段时渲染抛错，Vue 中止
  *  更新，整个区块永远停在「正在读取」）。 */
 const managerList = computed(() => profile.value?.managers ?? []);
+
+/** 晨星评级文案（#1440）：口径与守卫都在纯函数里（`fundRatingFormat.ts`），
+ *  组件只做取数——模板里内联的 `v-if` 没人能钉住「缺失 ≠ 0 星」这类口径。 */
+const ratingText = computed(() =>
+  formatRatingText(profile.value?.morningstar_rating)
+);
+
+/** 评级较上期的变化：只表达方向与幅度（上期值不展示——当期值列不存历史）。 */
+const ratingDeltaText = computed(() =>
+  formatRatingDeltaText(profile.value?.morningstar_rating_delta)
+);
 
 async function load() {
   if (!props.symbol) return;
@@ -148,13 +159,32 @@ watch(() => props.symbol, load, { immediate: true });
           <dt class="facts-grid__label">成立日期</dt>
           <dd class="facts-grid__value">{{ profile.create_time || DASH }}</dd>
         </div>
+        <!-- 晨星 3 年期星级（#1440）：源为东财评级总汇页，与净值/费率链路不同源，
+             故在格内自带机构与期限口径，不并入页脚「数据来源」标签。 -->
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">晨星评级</dt>
+          <dd class="facts-grid__value facts-grid__value--wrap">
+            <template v-if="ratingText">
+              {{ ratingText
+              }}<span v-if="ratingDeltaText" class="fund-section__tier"
+                >（{{ ratingDeltaText }}）</span
+              >
+            </template>
+            <template v-else>{{ DASH }}</template>
+          </dd>
+        </div>
+        <!-- 费率两格只在格内给「最低一档 + 适用条件」，口径说明与阶梯明细收在下方
+             折叠区（#1015）：14px 的格子里塞不下「按金额分档、赎回费首档是惩罚档」
+             这类话，硬塞会让两行数字变成一片小字。 -->
         <div class="facts-grid__cell">
           <dt class="facts-grid__label">申购费率</dt>
-          <dd class="facts-grid__value">
-            <template v-if="purchaseRate">
-              {{ purchaseRate.text
-              }}<span v-if="purchaseRate.tiered" class="fund-section__tier"
-                >起</span
+          <dd class="facts-grid__value facts-grid__value--wrap">
+            <template v-if="purchaseFee">
+              {{ purchaseFee.rate
+              }}<span class="fund-section__tier"
+                >（{{ purchaseFee.condition
+                }}<template v-if="purchaseFee.tiered">，分档递减</template
+                >）</span
               >
             </template>
             <template v-else>{{ DASH }}</template>
@@ -162,11 +192,13 @@ watch(() => props.symbol, load, { immediate: true });
         </div>
         <div class="facts-grid__cell">
           <dt class="facts-grid__label">赎回费率</dt>
-          <dd class="facts-grid__value">
-            <template v-if="redeemRate">
-              {{ redeemRate.text
+          <dd class="facts-grid__value facts-grid__value--wrap">
+            <template v-if="redeemFee">
+              {{ redeemFee.rate
               }}<span class="fund-section__tier"
-                >（{{ redeemRate.days }} 天内）</span
+                >（{{ redeemFee.condition
+                }}<template v-if="redeemFee.tiered">，分档递减</template
+                >）</span
               >
             </template>
             <template v-else>{{ DASH }}</template>
@@ -179,6 +211,10 @@ watch(() => props.symbol, load, { immediate: true });
           </dd>
         </div>
       </dl>
+
+      <!-- 费率科普（#1015）：唯一没有后端字段归属的维度——费率数字属 data，
+           「怎么读」属知识，故落在前端静态文案里（子组件，主区块不再长行数）。 -->
+      <FundFeeGuide :tiers="redeemTiers" />
 
       <!-- 来源给站点名：净值 / 费率 / 基础资料整条链路都走天天基金（#1969） -->
       <p class="section-footnote">数据来源：{{ profile.source }}</p>
@@ -229,4 +265,7 @@ watch(() => props.symbol, load, { immediate: true });
   background: color-mix(in srgb, var(--color-info) 12%, transparent);
   border-radius: var(--radius-pill);
 }
+
+/* 费率科普折叠（#1015）的样式在 `FundFeeGuide.vue` 里——它是独立的可点区块，
+   与本次指标格无关，留在本文件会把「资料网格」和「科普」两套规则混在一起。 */
 </style>

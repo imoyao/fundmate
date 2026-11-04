@@ -31,8 +31,17 @@ from app.services.import_records import (
     StandardTransactionRecord,
     compute_record_hash,
 )
+from app.services.importer.linking import apply_linking_rules
 from app.services.importer.mappings import OP_TYPE_LABEL
 from app.services.importer.registry import get_parser
+from app.services.txn_name_resolver import display_asset_name
+
+# 资金划转 = 钱在银行与证券账户之间搬动，方向由 business_type 的存入/取出表达。
+# 它与「资产类型是现金」不是一回事：利息归本（asset_type='cash'、
+# business_type='dividend_cash'）同属现金资产，却是投资收益，并没有搬钱。
+# 判据必须落在「动作」上，否则前端会要求它先关联现金账户（否则勾不上），
+# 勾选后还会在银行侧生成一笔反向流水——凭空多出一笔资金流入（#2840）。
+CASH_TRANSFER_BUSINESS_TYPES = frozenset({'deposit', 'withdraw'})
 
 
 class ParsingMixin:
@@ -80,7 +89,24 @@ class ParsingMixin:
 
         # 文件类型校验
         self.validate_file_type(records, template_key)
-        return self._rows_from_records(records, parser, frontend_account, ledger_id)
+        result = self._rows_from_records(records, parser, frontend_account, ledger_id)
+        # #2854：errors 不能只写不读。原实现在「还有别的行能解析」时把 errors 直接
+        # 丢掉，于是「把未知操作名改成 append SBImportError」这个最直觉的修法不会
+        # 产生任何可见效果。这里把明细、计数与源文件行数一并下发，前端才能对账。
+        stats = getattr(self, '_last_parse_stats', {}) or {}
+        result['parse_error_count'] = len(errors)
+        result['parse_errors'] = [
+            {
+                'line': e.line_number,
+                'field': e.field_name,
+                'message': e.message,
+                'raw_value': e.raw_value,
+            }
+            for e in errors
+        ]
+        result['source_row_count'] = stats.get('source_row_count')
+        result['ignored_row_count'] = stats.get('ignored_row_count', 0)
+        return result
 
     def preview_records(
         self,
@@ -125,6 +151,15 @@ class ParsingMixin:
                 {
                     'symbol': rec.symbol,
                     'name': rec.name,
+                    # #2844 展示名称（只读派生，不入库）：券商原文不给标的的收益行
+                    # （基金红利拨入 / 红利入账）在预览里原本只有「--」，用户看不出
+                    # 这笔钱是什么。与流水列表共用同一个判据，避免两处文案漂移。
+                    'display_name': display_asset_name(
+                        position_name=rec.name,
+                        asset_type=rec.asset_type,
+                        # 大写枚举（`DIVIDEND_CASH`）由 display_asset_name 内部归一小写
+                        txn_type=rec.business_type,
+                    ),
                     'type': rec.asset_type,
                     'display_type': rec.display_type,
                     'op_type': rec.business_type.lower() if not rec.error else '',
@@ -133,16 +168,27 @@ class ParsingMixin:
                     'price': float(rec.nav) if rec.nav and not rec.error else 0,
                     'amount': float(rec.amount),
                     'fee': float(rec.fee),
+                    # #2137 费用拆分（元）：未拆分为 None，前端原样回传即可
+                    'fee_commission': float(rec.fee_commission) if rec.fee_commission is not None else None,
+                    'fee_stamp_duty': float(rec.fee_stamp_duty) if rec.fee_stamp_duty is not None else None,
+                    'fee_transfer_fee': float(rec.fee_transfer_fee) if rec.fee_transfer_fee is not None else None,
+                    'fee_other': float(rec.fee_other) if rec.fee_other is not None else None,
                     'trade_date': rec.confirm_date.isoformat() if rec.confirm_date else '',
                     'account_name': rec.account_name,
                     'ledger_id': rec.ledger_id,  # 回传 confirm 用：缺了它落库不挂账户且去重失效
                     'contract_id': rec.transaction_id or '',
-                    'is_cash_transfer': rec.asset_type == 'cash',
+                    'is_cash_transfer': (
+                        rec.asset_type == 'cash' and (rec.business_type or '').lower() in CASH_TRANSFER_BUSINESS_TYPES
+                    ),
                     'error': rec.error or None,
                     'import_hash': rec.import_hash,
                     'is_duplicate': False,
                     'allocation': 'liquid' if rec.asset_type in ('money_fund', 'reverse_repo', 'cash') else None,
                     'link_group_id': rec.link_group_id,
+                    # 配对交叉校验提示（如税率不符）：只提示，不影响入库，前端可作警示展示
+                    'link_warning': rec.link_warning or '',
+                    # 被配对规则消费（非空 = 不入账：效果已由同组主记录覆盖）
+                    'consumed_by': rec.consumed_by or '',
                     # 展示层显式转 float（#1375 阶段二）：字段已是 Decimal，
                     # Flask JSON 会把 Decimal 序列化成字符串，前端契约要求 number
                     'trade_amount': float(rec.trade_amount),
@@ -188,6 +234,18 @@ class ParsingMixin:
         if parser is None:
             raise SBException(ErrorCode.UNSUPPORTED_FILE_FORMAT.code, f'不支持的导入来源: {source}')
         records, errors = parser.parse(file_bytes)
+        # #2854：把解析器的行数对账元数据挂到本次 orchestrator 实例（每请求新建，
+        # 不落在注册表单例上），供 parse_and_preview 下发到预览响应。
+        self._last_parse_stats = {
+            'source_row_count': getattr(parser, 'source_row_count', None),
+            'ignored_row_count': getattr(parser, 'ignored_row_count', 0),
+        }
+        # 配对（兑息+代扣税 / 兑付+股份转出）在所有解析器的共同出口统一做：
+        # 规则按 business_type 匹配，与平台无关（#2836，见 importer/linking.py）。
+        # 放在这里而不是各解析器内部，是因为「哪些行描述同一笔现金流」是业务语义，
+        # 不该由每个解析器各写一遍、更不该按原始中文操作名硬匹配。
+        for warning in apply_linking_rules(records):
+            logger.warning(f'配对提示: {warning}')
         for record in records:
             record.source = source
             if not record.import_hash:
@@ -447,6 +505,11 @@ class ParsingMixin:
             'confirm_date': confirm_date,
             'trade_date': trade_date,
             'fee': fee_val,  # 原始元
+            # #2137 费用拆分（原始元，None=未拆分）：随数据字典一路带到写入层
+            'fee_commission': record.fee_commission,
+            'fee_stamp_duty': record.fee_stamp_duty,
+            'fee_transfer_fee': record.fee_transfer_fee,
+            'fee_other': record.fee_other,
             # raw_text 承载上游说明（自动抓取的分红/配股会把「10派2元 × 持有1000股」写在这里）：
             # 自动记账的流水没有人工输入，notes 空着等于用户看不懂这笔钱从哪来（#541）。
             'notes': record.raw_text or '',
@@ -460,3 +523,31 @@ class ParsingMixin:
             # 配股缴款数量由比例算出，不走「一手起买」申报校验（#541）
             'skip_lot_check': getattr(record, 'raw_op_type', '') == '配股缴款',
         }
+
+
+def preview_response(result: dict) -> dict:
+    """把 `parse_and_preview` 的结果封成 `/parse/` 的响应体（#2854）。
+
+    放在 service 而不是视图，有两个理由：
+
+    1. 字段映射与「哪些字段必须一起出现」是**业务契约**（`total` 与
+       `source_row_count` 必须同时下发才能对账），不是 HTTP 细节；
+    2. 视图层厚度守卫（`scripts/check_view_thickness.py`）把 `importers/views.py`
+       冻结在 247 行 / max_func 52，本卡新增的 4 个对账字段若直接写进视图，
+       会让「视图只做编排」这条纪律当场破一个口子。
+
+    `cash_transfer_count` 恒为 0 是历史遗留的占位（转账条数由前端按行类型算），
+    保留键名是为了不破坏既有消费方。
+    """
+    return {
+        'data': result['rows'],
+        'total': result['total'],
+        'error_count': result['error_count'],
+        'duplicate_count': result['duplicate_count'],
+        'cash_transfer_count': 0,
+        'parse_error_count': result.get('parse_error_count', 0),
+        'parse_errors': result.get('parse_errors', []),
+        'source_row_count': result.get('source_row_count'),
+        'ignored_row_count': result.get('ignored_row_count', 0),
+        'message': 'ok',
+    }

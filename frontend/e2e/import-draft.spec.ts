@@ -32,7 +32,9 @@ const BANNER = ".draft-banner";
 const SELECTED_STRONG = ".summary-primary strong";
 const HEADER_CHECKBOX = ".table-wrapper thead .el-checkbox";
 const LEAVE_DIALOG = ".el-dialog";
-const IMPORT_HEADER = ".import-header";
+// 「仍在导入页」的锚点：.import-header 在预览/结果步会退场（2026-11-02 工作步页头折叠），
+// 故改用页面根容器，它在四步里都在、离开页面即消失
+const IMPORT_ROOT = ".inventory-page";
 
 const LEDGER = {
   id: 7,
@@ -321,11 +323,11 @@ test.describe("导入草稿自动保存 / 过期 / 离开提示（#1789）", () 
     // 3) 取消 → 留在导入页，URL 不变
     await sidebarNavigate();
     await expect(dialog).toBeVisible();
-    await expect(page.locator(IMPORT_HEADER)).toBeVisible();
+    await expect(page.locator(IMPORT_ROOT)).toBeVisible();
     await dialog.getByRole("button", { name: "取消" }).click();
     await expect(dialog).toBeHidden();
     await expect(page).toHaveURL(/#\/inventory\/investment\/import/);
-    await expect(page.locator(IMPORT_HEADER)).toBeVisible();
+    await expect(page.locator(IMPORT_ROOT)).toBeVisible();
 
     // 4) 再次离开 → 保存后离开：放行（目标页可能带 redirect，断言「已离开导入页」而非精确 URL）
     await sidebarNavigate();
@@ -333,7 +335,7 @@ test.describe("导入草稿自动保存 / 过期 / 离开提示（#1789）", () 
     await dialog.getByRole("button", { name: "保存后离开" }).click();
     await expect(dialog).toBeHidden();
     await expect(page).not.toHaveURL(/#\/inventory\/investment\/import/);
-    await expect(page.locator(IMPORT_HEADER)).toHaveCount(0);
+    await expect(page.locator(IMPORT_ROOT)).toHaveCount(0);
 
     // 5) 丢弃分支：回导入页恢复 → 制造脏 → 丢弃 → 草稿整份删除，回站无 Banner
     await page.goto(IMPORT_URL);
@@ -350,7 +352,7 @@ test.describe("导入草稿自动保存 / 过期 / 离开提示（#1789）", () 
     await dialog.getByRole("button", { name: "丢弃" }).click();
     await expect(dialog).toBeHidden();
     await expect(page).not.toHaveURL(/#\/inventory\/investment\/import/);
-    await expect(page.locator(IMPORT_HEADER)).toHaveCount(0);
+    await expect(page.locator(IMPORT_ROOT)).toHaveCount(0);
     await expect
       .poll(() => page.evaluate(readDraftWrap), { timeout: 10_000 })
       .toBeUndefined();

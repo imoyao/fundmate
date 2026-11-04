@@ -2,6 +2,7 @@ import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessageBox, ElMessage } from "element-plus";
 import { supabase } from "@/utils/supabase";
+import { buildAppUrl } from "@/utils/appUrl";
 import { createWatchlistItem } from "@/api/watchlist";
 import { createPosition } from "@/api/positions";
 import { POSITION_SOURCE } from "@/constants";
@@ -38,7 +39,7 @@ export function useSupabaseAuth() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/welcome`,
+        emailRedirectTo: buildAppUrl("/welcome"),
         data: { username }
       }
     });

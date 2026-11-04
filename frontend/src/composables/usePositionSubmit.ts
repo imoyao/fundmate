@@ -3,6 +3,7 @@ import { ElMessage } from "element-plus";
 import { createPosition } from "@/api/positions";
 import type { PositionCreate } from "@/api/types";
 import { venueOfAssetType } from "@/constants/market";
+import { genIdempotencyKey } from "@/utils/idempotency";
 import { emitter } from "@/utils/mitt";
 
 /**
@@ -27,20 +28,8 @@ export function usePositionSubmit() {
   // - 同一种意图失败重试时复用同一键 → 命中唯一约束被友好拦截，而非产生重复流水。
   const idempotencyKey = ref<string>("");
 
-  /** 生成幂等键：优先 crypto.randomUUID，非安全上下文(纯 http)降级到 Math.random 实现。 */
-  function genIdempotencyKey(): string {
-    if (
-      typeof crypto !== "undefined" &&
-      typeof crypto.randomUUID === "function"
-    ) {
-      return crypto.randomUUID();
-    }
-    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === "x" ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    });
-  }
+  // 键生成本身收口在 `@/utils/idempotency`（#980：转换提交曾有一份逐字相同的实现，
+  // 两份一旦漂移，服务端的 UNIQUE(ledger_id, import_hash) 拦截行为会按入口分裂）
 
   /** 后端错误 → 可读文案（422 携带字段级明细时逐项拼接） */
   function parseSubmitError(e: any): string {

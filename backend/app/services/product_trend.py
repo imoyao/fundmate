@@ -26,7 +26,11 @@
   （``000300`` → ``000300.SH`` / ``000300.SZ``）。**有日线才出曲线**：库里没有该
   指数的日线（覆盖极低，万得系 ``.WI`` 码无法从裸码推导）时返回 ``None``，
   前端诚实降级「该品类暂无走势序列」，不假装有数据（#2028 拍板口径结论）；
-- 基金经理 / 投顾组合：**无历史序列数据源**，返回 ``None`` 由调用方降级为 ``—``。
+- 投顾组合（portfolio）：``advisor_portfolio_navs`` 的组合单位净值序列。此前与基金经理
+  一起被 ``_NO_SERIES_TYPES`` 判成「无序列」——**那是数据源缺失，不是品类没有数据**：
+  且慢 MCP 的 ``GetPortfolioNavHistory`` 一次调用就给成立至今全量日频净值（实测
+  ZH012926 = 2250 行）。落库链路见 :mod:`app.services.advisor_nav`，本模块只负责读；
+- 基金经理：仍**无历史序列数据源**，返回 ``None`` 由调用方降级为 ``—``。
 """
 
 from __future__ import annotations
@@ -35,12 +39,15 @@ import datetime as dt
 import re
 from typing import Dict, List, Optional, Tuple
 
+from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.data_sources import FUND_NAV_SOURCE_LABEL, data_source_label
-from app.domains.funds.models import DailyWorth
+from app.domains.funds.models import AdvisorPortfolio, DailyWorth
 from app.domains.indices.models import IndexDaily
 from app.domains.price_history.models import PriceHistory
+from app.services import advisor_nav
 from app.services.fund_nav_on_demand import maybe_trigger_nav_backfill
 
 # 区间 → 自然日天数（设计 §5 B 区块：1M / 3M / 6M / 1Y；3Y / 5Y 为长区间补充档，
@@ -67,9 +74,10 @@ def requested_days_for(range_key: str, start_date: Optional[dt.date] = None) -> 
     return RANGE_DAYS.get(range_key, RANGE_DAYS[DEFAULT_RANGE])
 
 
-# 无历史序列能力的品类：基金经理、投顾组合。指数自 #2028 起走 index_daily（有日线
-# 才出曲线，无日线返回 None，见 _fetch_index_series）。
-_NO_SERIES_TYPES = frozenset({'manager', 'portfolio'})
+# 无历史序列能力的品类：只剩基金经理。指数自 #2028 起走 index_daily（有日线才出曲线，
+# 无日线返回 None）；投顾组合走 advisor_portfolio_navs（且慢 MCP 落库），
+# **不再**属于本集合——它曾经在这里，导致详情页整块走势卡不渲染。
+_NO_SERIES_TYPES = frozenset({'manager'})
 
 
 def _fetch_close_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[dt.date, float]]:
@@ -204,6 +212,40 @@ def _fetch_index_series(db: Session, symbol: str, start: dt.date) -> Tuple[List[
     return series, source_code
 
 
+def _fetch_portfolio_series(db: Session, symbol: str, start: dt.date) -> Tuple[List[Tuple[dt.date, float]], str]:
+    """投顾组合净值序列（``advisor_portfolio_navs``，投顾详情页走势图）。
+
+    与基金净值的关键差别：组合**没有分红拆份额**，所以只有一条单位净值序列，
+    不存在「累计净值 / 单位净值」的口径选择；也就不需要复权。
+
+    **按需补拉**：库里没有该组合的序列（用户第一次点进来）、或最新一行太旧时，
+    调一次 :func:`advisor_nav.ensure_series` 走 MCP 补拉并落库。节流（3 天新鲜度 +
+    6 小时重试间隔）在 ``advisor_nav`` 内部，详情页刷多少次都只打一次上游。
+
+    补拉失败**不让本请求 500**：走势卡少一条线远好过整页报错，故这里显式降级为
+    「库里有什么画什么」并记 warning——「降级」与「静默」的区别就是这条日志。
+
+    Returns:
+        ``(序列, source码)``；组合未建档 / 上游确实没有该序列时序列为空，
+        调用方据此返回 ``None`` 走诚实降级（前端渲染「暂无走势序列」空态）。
+    """
+    code = advisor_nav.normalize_code(symbol)
+    if not code:
+        return [], ''
+    portfolio = db.query(AdvisorPortfolio).filter(func.upper(AdvisorPortfolio.code) == code).first()
+    if portfolio is None:
+        # 库内未建档：不是「没有净值」，而是我们还不认识这个组合。
+        # 同样走空序列（前端空态），但要留日志，避免排查时把「未建档」误判成上游没数据。
+        logger.info(f'投顾组合 {code} 未在 advisor_portfolios 建档，走势序列暂不可用')
+        return [], ''
+    try:
+        advisor_nav.ensure_series(db, portfolio)
+    except Exception as exc:  # noqa: BLE001 - 补拉失败不得让详情页 500
+        logger.warning(f'投顾组合 {code} 走势序列按需补拉失败（本次降级为库内数据）：{exc}')
+        db.rollback()
+    return advisor_nav.load_series(db, portfolio.id, start), advisor_nav.series_source_code(db, portfolio.id)
+
+
 def fetch_product_trend(
     market_db: Session,
     symbol: str,
@@ -226,8 +268,11 @@ def fetch_product_trend(
         ``{symbol, kind, dates, values, source, basis, ohlc, range, requested_days,
         available_days}``；``source`` 是**站点名**（如「新浪财经」），``basis`` 是口径
         说明——用户看来源，需要时看口径（#1969）。``ohlc`` 为场内**未复权** OHLCV
-        （画 K 线 + 成交量），场外为空数组（改画净值线）。
-        品类本身无序列数据源（指数等）时返回 ``None``，由调用方降级。
+        （画 K 线 + 成交量），场外 / 组合为空数组（改画净值线）。
+        品类本身无序列数据源（仅剩基金经理；指数与投顾组合各有独立分支）时返回
+        ``None``，由调用方降级。
+        （2026-10-29 更正：指数**不在此列**——它有独立的 ``index_daily`` 分支，见下方
+        ``normalized_type == 'index'``；``_NO_SERIES_TYPES`` 才是判据来源。）
 
     Raises:
         ValueError: ``symbol`` 为空或 ``range_key`` 非法。
@@ -275,6 +320,20 @@ def fetch_product_trend(
         series = index_series
         kind, basis, source = 'close', '指数收盘点位（点位走势，非全收益）', data_source_label(index_source)
         # 指数日线只有收盘点位，无 OHLCV —— 前端画单线而非 K 线
+        ohlc = []
+    elif normalized_type == 'portfolio':
+        # 投顾组合：advisor_portfolio_navs 组合单位净值（且慢 MCP 落库 + 按需补拉）。
+        # 无序列 → None 诚实降级（与指数同口径：不画假曲线，也不假装有数据）。
+        portfolio_series, portfolio_source = _fetch_portfolio_series(market_db, code, start)
+        if not portfolio_series:
+            return None
+        series = portfolio_series
+        # kind='nav' + 空 ohlc：前端据此画净值线（不是 K 线），与场外基金同一套渲染分支
+        kind, basis, source = (
+            'nav',
+            '组合单位净值（平台口径，无分红拆份额故不复权）',
+            data_source_label(portfolio_source),
+        )
         ohlc = []
     else:
         series = _fetch_close_series(market_db, code, start)

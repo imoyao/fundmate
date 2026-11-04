@@ -5,7 +5,7 @@
 # -*- coding: utf-8 -*-
 """自选模块服务层：分组数据构建"""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -47,7 +47,14 @@ def compute_latest_quote(db: Session, symbol: str) -> Optional[dict]:
     完全没有价；且场内那份长期不被刷新（导入当天的快照）。本函数让「最新价」对任何
     已回补行情的标的都有值，并附带数据日期供前端判断新鲜度。
 
-    返回 {'trade_date': date, 'close': float, 'change_pct': float | None}。
+    返回 {'trade_date': date, 'close': float, 'change_pct': float | None,
+    'prev_close': float | None}。
+
+    `prev_close` 是**同一口径下的前一个价点**（场内 = 上一交易日收盘价，场外 = 上一
+    交易日单位净值），供前端算「当日盈亏」的分母。它本来就是算 `change_pct` 时的中间
+    量，此前算完即弃；现在下发，前端未开实时 / 收盘后也能算当日盈亏，不必等实时通道
+    （与 #2007 持仓页 `prev_close` 同义，但来源不同：那边来自 `position_price` job
+    写入的 positions 快照，这边是最近两根历史价）。
     """
     rows = (
         db.query(PriceHistory.trade_date, PriceHistory.close)
@@ -75,7 +82,11 @@ def compute_latest_quote(db: Session, symbol: str) -> Optional[dict]:
 
 
 def _build_quote(trade_date, close, prev_close) -> Optional[dict]:
-    """组装行情项：价格无效返回 None；涨跌幅样本不足（只有一根 K 线）时为 None。"""
+    """组装行情项：价格无效返回 None；涨跌幅样本不足（只有一根 K 线）时为 None。
+
+    `prev_close` 无论涨跌幅是否成立都照实下发——只关心「上一价点」的调用方（当日盈亏）
+    不必自己重算；样本不足时它是 None，前端据此降级为 `—`。
+    """
     close_value = _to_float(close)
     if close_value is None or close_value <= 0:
         return None
@@ -83,7 +94,12 @@ def _build_quote(trade_date, close, prev_close) -> Optional[dict]:
     prev_value = _to_float(prev_close)
     if prev_value:
         change_pct = round((close_value - prev_value) / prev_value * 100, 2)
-    return {'trade_date': trade_date, 'close': close_value, 'change_pct': change_pct}
+    return {
+        'trade_date': trade_date,
+        'close': close_value,
+        'change_pct': change_pct,
+        'prev_close': prev_value if prev_value else None,
+    }
 
 
 def _to_float(value) -> Optional[float]:
@@ -934,3 +950,48 @@ def get_filtered_items_query(
         total = query.count()
 
     return query, total
+
+
+# ─────────── 清仓智能提示条件（#2720 从 watchlist/views.py 下沉）───────────
+
+
+def _effective_dates(txns) -> List[Any]:
+    """一组流水的「有效日期」：优先 trade_date，整组都缺时回退 confirm_date。
+
+    与 `pnl_calendar._effective_date` / `dividend_service._event_date` 同口径。
+    返回空列表表示该侧两个日期都缺——调用方必须按「算不出持有天数」处理，
+    **不能**拿空序列去 `min()` / `max()`（会抛 ValueError → 500）。
+    """
+    vals = [t.trade_date for t in txns if t.trade_date]
+    if vals:
+        return [v.date() if isinstance(v, datetime) else v for v in vals]
+    return [t.confirm_date for t in txns if t.confirm_date]
+
+
+def smart_prompt_conditions(item: WatchlistItem, transactions: List[Any]) -> Dict[str, Any]:
+    """清仓时「特别关注」的智能提示条件判定。
+
+    #2720 从 `watchlist/views.py` 下沉（该文件受 `check_view_thickness.py` 冻结）：
+    180 天 / 6 笔的阈值判定与「有效日期」兜底属业务口径，视图只留
+    「取数 → 调服务 → 组信封」。阈值刻意留字面量在本函数——前端与文档一律以
+    返回的 `should_prompt` 与各 `*_gt_*` 布尔为准，不另抄一份。
+    """
+    buy_txns = [t for t in transactions if t.txn_type == 'buy']
+    sell_txns = [t for t in transactions if t.txn_type == 'sell']
+    trade_count = len(buy_txns) + len(sell_txns)
+
+    holding_days = 0
+    if buy_txns and sell_txns:
+        buy_dates = _effective_dates(buy_txns)
+        sell_dates = _effective_dates(sell_txns)
+        if buy_dates and sell_dates:
+            holding_days = (max(sell_dates) - min(buy_dates)).days
+
+    return {
+        'holding_days_gt_180': holding_days > 180,
+        'trade_count_gt_6': trade_count > 6,
+        'has_notes': bool(item.notes),
+        'holding_days': holding_days,
+        'trade_count': trade_count,
+        'should_prompt': (holding_days > 180) or (trade_count > 6) or bool(item.notes),
+    }

@@ -404,6 +404,20 @@ def _fetch_close_series(asset: Dict[str, Any]) -> Tuple[List[str], List[float]]:
     return _cache.get_or_set(cache_key, ttl=_SERIES_TTL, producer=producer)
 
 
+def fetch_asset_series(asset: Dict[str, Any]) -> Tuple[List[str], List[float]]:
+    """取某资产日线序列的**公开入口**（#1460 P2 历史回填使用）。
+
+    内部就是 ``_fetch_close_series``（含 30 分钟缓存与腾讯/新浪回退），单独开一个公开名字
+    是为了让历史回填走同一条取数路径——多一条独立取数实现就多一套口径分叉。
+    """
+    return _fetch_close_series(asset)
+
+
+def invalidate_asset_series(asset_key: str) -> None:
+    """失效某资产的序列缓存（详情页 force=true 时用，避免拿到 30 分钟内的旧值）。"""
+    _cache.invalidate(f'series:{asset_key}')
+
+
 def _calc_daily_change(dates: List[str], closes: List[float]) -> Tuple[Optional[float], str, str]:
     """计算当日涨跌幅(%) 与交易日/数据截止（北京时间字符串）。
 

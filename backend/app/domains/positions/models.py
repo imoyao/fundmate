@@ -495,24 +495,8 @@ class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
     pinyin_short = Column(String(100), nullable=True, comment='名称拼音首字母简拼（同步 job 派生，供前端检索过滤）')
 
 
-def resolve_sales_institution_id(db, source_broker):
-    """按销售机构名（source_broker）匹配 AMAC 权威名录，返回机构 id；无匹配返回 None。
-
-    匹配链路与 orchestrator._get_or_create_channel_ledger 保持一致（先 org_name 权威全称，
-    再 display_name 别名），但本函数只查不建——不自动创建 Ledger，仅供导入时派生
-    PositionImportMeta.sales_institution_id 使用。仅匹配在册（is_active）机构。
-    """
-    if not source_broker:
-        return None
-    institution = (
-        db.query(SalesInstitution)
-        .filter(SalesInstitution.is_active.is_(True), SalesInstitution.org_name == source_broker)
-        .first()
-    )
-    if institution is None:
-        institution = (
-            db.query(SalesInstitution)
-            .filter(SalesInstitution.is_active.is_(True), SalesInstitution.display_name == source_broker)
-            .first()
-        )
-    return institution.id if institution else None
+# 注：`resolve_sales_institution_id` 已迁至 `app.services.institution_resolver`。
+# 分层依赖方向 `core ← domains.{models,schemas} ← services ← domains.views`
+# （`scripts/guard_layer_direction.py` R3）禁止 models 反向 import services，
+# 而机构匹配的判据只有一份、住在 services 层；本文件不再保留同名转发函数，
+# 以免留下第二个入口。

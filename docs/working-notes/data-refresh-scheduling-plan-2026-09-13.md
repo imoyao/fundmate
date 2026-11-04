@@ -113,13 +113,13 @@
 | B1 | 东财两市成交额 | 东财公开行情 | `market_single_values` | 每日 | 20:00 | ✅ 已挂（本机 temperature） |
 | B2 | 且慢温度计 | 且慢 MCP（需 key） | 同上 | 每日 | 20:00 | ✅ 同上 |
 | B3 | 有知有行温度计 | 网页 SSR | 同上 | 每日 | 20:00 | ✅ 同上 |
-| B4 | 集思录可转债温度 | `jisilu.cn`（需 Cookie） | 同上 | 每日 | 20:00 | ✅ 同上（**依赖 B10**） |
-| B5 | 集思录全市场中位 PB/PE | `jisilu.cn/data/indicator/`（需 Cookie） | `market_composites` | 每日 | 20:00 | ✅ 同上（**依赖 B10**） |
+| B4 | 集思录可转债温度 | `jisilu.cn/data/indicator/`（免登录） | 同上 | 每日 | 20:00 | ✅ 同上 |
+| B5 | 集思录全市场中位 PB/PE | `jisilu.cn/data/indicator/`（免登录） | `market_composites` | 每日 | 20:00 | ✅ 同上 |
 | B6 | 自算估值分位（股债利差） | 沪深 300 PE + 10Y 国债 + CPI | `market_composites` | 每日 | 20:00 | ✅ 同上 |
 | B7 | 韭圈儿恐贪 + 中长期温度 | API 优先 / Playwright 降级 | `market_single_values` | 每日 | 20:00 | ✅ 同上 |
 | B8 | 乖离率（31 行业 + 6 宽基） | 腾讯 / 东财直连 | `market_multi_items` | 每日 | 原设计午间 + 盘后双次 | ✅ 已挂（**只跑 1 次**，见 §8-D5） |
 | B9 | 行业拥挤度 | legulegu 免费行情自算 | `market_multi_items` | 每日 | 20:00 | ✅ 同上 |
-| B10 | **集思录 Cookie 保活** | `keepalive_jsl_session()` | — | 每日 | 开工前 | ⚠️ **本机未接**（F7）→ 不接则 B4/B5 会随 Cookie 过期静默失效 |
+| B10 | **集思录 Cookie 保活**（可转债**列表** `cb_list_new` 用） | `keepalive_jsl_session()` | — | 每日 | 开工前 | ⚠️ **本机未接**（F7）→ 影响的是 #1400 的可转债列表链路，**与 B4/B5 无关**（2026-10-24 实测：`fetchers.py` 不 import `jsl_session`，指标端点匿名可用） |
 | B11 | 全 A 中位 PB 历史基线 | `thermometer/data/all_pb.csv`（入库文件） | — | 静态 | — | ✅ 已在库 |
 
 ### C. 账本 / 自选 / 持仓

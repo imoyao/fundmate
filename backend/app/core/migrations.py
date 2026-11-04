@@ -10,6 +10,19 @@
 - 入参 engine（对应数据域引擎）；
 - 幂等：目标结构已存在则跳过；
 - 失败显式抛错（不静默吞掉，避免带病启动）。
+
+**全引擎覆盖（2026-10-23，#2534）**：迁移必须同时管 SQLite 与 Postgres
+（生产 user 域是 Supabase PG、market 域是 Turso/libsql）。本仓没有 Alembic，
+``create_all()`` 只建缺失的表、不给存量表加列/加索引——「非 SQLite 就跳过」
+等于「生产的库永远不迁移」，而 ``init_db()`` 末尾的 ``_validate_schema`` 会因
+结构漂移**拒绝启动**（#2469 / #2532 两次生产停摆的根因）。故：
+
+- 加列一律走 ``_add_columns_if_missing``，建索引一律走 ``_ensure_index``
+  （方言分支已在 helper 内收敛，迁移函数里禁止裸写 ALTER / CREATE INDEX）；
+- 数据回填用标准 SQL（两种引擎通用）；确需方言差异时按 ``_is_postgres``
+  显式分支并**两侧都写测试**；
+- 静态守卫 ``scripts/guard_migrations_pg_aware.py`` 拦下新的「非 SQLite 就跳过」
+  早退；存量按函数指纹基线冻结，改到一个函数就顺手收一个基线条目。
 """
 
 import os
@@ -43,6 +56,10 @@ _WATCHLIST_GROUP_COLUMNS = (
 #: watchlist_groups.family_id 的索引（模型声明 index=True → 默认名 ix_<表>_<列>）
 _WATCHLIST_GROUP_FAMILY_INDEX = 'ix_watchlist_groups_family_id'
 
+#: watchlist 终态唯一键的名字，与模型 `UniqueConstraint(..., name=...)` 完全一致
+#: （PG 侧建的是同名唯一索引，SQLite 侧重建后表内是同名约束；两条路径因此同名可查）。
+_WATCHLIST_FAMILY_UNIQUE_INDEX = 'uk_watchlist_family_symbol_market_venue'
+
 
 def _is_postgres(engine: Engine) -> bool:
     url = str(getattr(engine, 'url', '') or '')
@@ -54,6 +71,95 @@ def _add_column_sql(table: str, name: str, ddl: str, is_pg: bool) -> str:
     if is_pg:
         return f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {ddl}'
     return f'ALTER TABLE {table} ADD COLUMN {name} {ddl}'
+
+
+def _table_exists(engine: Engine, table: str) -> bool:
+    """表是否存在（dialect 无关反射）。空库（create_all 尚未建表）时为 False。"""
+    return table in set(inspect(engine).get_table_names())
+
+
+def _add_columns_if_missing(engine: Engine, table: str, columns) -> List[str]:
+    """给 ``table`` 补齐 ``columns``（(列名, DDL) 序列）中缺失的列，返回实际加上的列名。
+
+    ## 为什么必须收敛到这个单一通道（#2534）
+
+    加列迁移此前散落着两种死法：
+
+    1. **SQLite-only 早退**（「非 SQLite 引擎，列由 ORM 模型/迁移工具负责」）——
+       而本仓没有 Alembic、``create_all()`` 又不给存量表加列，生产 user 域
+       （Supabase Postgres）的列**永远加不上**；``_validate_schema`` 再判
+       「库结构与模型不一致」拒绝启动。#2469 与 #2532 两次生产停摆同此根因。
+    2. **每个函数各写一遍** inspect→ALTER→commit：漏 commit、漏自校验的变体
+       在本地全绿、在启动路径上炸。
+
+    本函数是加列的唯一允许通道：
+
+    - 方言分支收敛在 ``_add_column_sql``（PG 用 ``ADD COLUMN IF NOT EXISTS``）；
+    - 幂等：列已存在则不发 DDL，可重复跑；
+    - 收尾自校验：加完仍缺列 ⇒ 抛错（迁移失败必须显性，不留半截状态）；
+    - 表不存在（空库）⇒ 返回 ``[]``（create_all 会按新模型建表，不替它兜底）。
+
+    配套静态守卫 ``scripts/guard_migrations_pg_aware.py``：迁移里再出现
+    「非 SQLite 就跳过」的新早退即报红（存量按函数指纹基线冻结，改一个收一个）。
+    """
+    if not _table_exists(engine, table):
+        return []
+    is_pg = _is_postgres(engine)
+    existing = {c['name'] for c in inspect(engine).get_columns(table)}
+    added: List[str] = []
+    with engine.connect() as conn:
+        for name, ddl in columns:
+            if name not in existing:
+                conn.execute(text(_add_column_sql(table, name, ddl, is_pg)))
+                added.append(name)
+        conn.commit()
+    if added:
+        # 自校验：DDL 若被引擎静默忽略（PG 上 IF NOT EXISTS 不会静默失败，但
+        # 权限/只读副本会），这里必须让调用方看到，而不是返回「看起来 OK」。
+        after = {c['name'] for c in inspect(engine).get_columns(table)}
+        missing = [n for n in added if n not in after]
+        if missing:
+            raise RuntimeError(f'{table} 加列后仍缺列 {missing}（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
+    return added
+
+
+def _index_exists(engine: Engine, table: str, index_name: str) -> bool:
+    """按**名**判断索引是否存在（表达式索引也能判）。
+
+    方言差异是实测逼出来的：SQLAlchemy 对 SQLite 的反射**不曝露表达式索引**
+    （``COALESCE(...)`` 的列清单解析不出来，``get_indexes()`` 直接跳过整条），
+    费率三表的唯一索引正是表达式索引——按反射判会把「已建成」误判成「没建成」
+    （#2534 首版即踩中，迁移每次启动都抛错）。故 SQLite 侧查 ``sqlite_master``
+    （系统表按名列索引，与表达式无关），PG 侧反射曝露名字，用 ``get_indexes()``。
+    """
+    if _is_postgres(engine):
+        return index_name in {i['name'] for i in inspect(engine).get_indexes(table)}
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='index' AND name=:n"),
+            {'n': index_name},
+        ).scalar()
+    return row is not None
+
+
+def _ensure_index(engine: Engine, index_name: str, ddl: str, *, table: str) -> bool:
+    """建索引（幂等）：执行自带 ``IF NOT EXISTS`` 的 DDL，按**名**校验，缺了抛错。
+
+    返回 True = 本次执行了 DDL，False = 已存在（无 DDL 发出）。
+
+    PG 与 SQLite 都支持 ``CREATE [UNIQUE] INDEX IF NOT EXISTS``，故**无需方言分支**；
+    校验按名走 ``_index_exists``（表达式索引的反射差异见其 docstring）。
+    """
+    if not _table_exists(engine, table):
+        return False
+    existed = _index_exists(engine, table, index_name)
+    if not existed:
+        with engine.connect() as conn:
+            conn.execute(text(ddl))
+            conn.commit()
+    if not _index_exists(engine, table, index_name):
+        raise RuntimeError(f'索引 {index_name} 创建后校验失败（表 {table}）')
+    return not existed
 
 
 def _add_id_serial_sql(table: str, is_pg: bool) -> str:
@@ -217,12 +323,19 @@ def migrate_watchlist_unique_key(engine: Engine) -> str:
     防 000001 上证指数 vs 平安银行跨市场同码冲突。SQLite 不支持直接改约束，
     走「建新表→拷贝→删旧→改名」标准重建流程。
 
-    仅 SQLite 需要此重建（Postgres 等由 ORM 模型 / 迁移工具负责唯一键，无 sqlite_master
-    概念）；非 SQLite 引擎直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+    ## PG 侧跳过的理由（#2689）
+
+    本函数的目标 `(symbol, market, venue)` 是 SQLite 重建路径上的**中间形态**：紧随其后的
+    :func:`migrate_watchlist_family_scoped_unique_key` 会再把它换成模型声明的终态
+    `(family_id, symbol, market, venue)`。PG 支持 `ALTER TABLE ADD CONSTRAINT`，
+    先在 PG 上建一遍中间键、下一条再删掉重建，纯属白跑 DDL，且两步之间若有并发写入，
+    中间键反而会误伤（跨家庭同标的被拦）。故 PG 侧**直接由下一个迁移建终态**，
+    这里只报一句可读的状态，不做任何 DDL —— 与「非 SQLite 就跳过」的区别在于：
+    那条路径下**没人**建终态，这里有人建（见 helper
+    :func:`_ensure_watchlist_family_unique_key_pg`）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎（如 Supabase Postgres），唯一键由 ORM 模型/迁移工具负责，无需重建'
+    if _is_postgres(engine):
+        return '[SKIP] PG 侧跳过中间形态唯一键 (symbol, market, venue)，终态由 family 维度迁移直接建'
 
     with engine.connect() as conn:
         ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'")).scalar()
@@ -273,6 +386,81 @@ def migrate_watchlist_unique_key(engine: Engine) -> str:
     raise RuntimeError('watchlist 唯一键迁移后校验失败')
 
 
+def _ensure_watchlist_family_unique_key_pg(engine: Engine) -> str:
+    """PG 侧建 watchlist 终态唯一键（幂等）：`CREATE UNIQUE INDEX IF NOT EXISTS`（#2689）。
+
+    ## 为什么不复刻 SQLite 的整表重建
+
+    PG 不需要重建：`ALTER TABLE ... ADD CONSTRAINT` 就能加约束。但它**没有
+    `IF NOT EXISTS`** —— 重复执行报 `constraint already exists`，于是每次启动都得先
+    反射再决定发不发 DDL，比一条幂等 DDL 更脆、也更难读。`CREATE UNIQUE INDEX IF NOT
+    EXISTS` 语义等价（SQLAlchemy 在 PG 上把 `UniqueConstraint` 落地的也是一条唯一索引），
+    天然幂等；索引名沿用模型里的约束名 `uk_watchlist_family_symbol_market_venue`，
+    两条路径（SQLite 重建 / PG 建索引）因此「唯一键叫什么」一致。
+
+    ## 为什么要先查重复行
+
+    PG 上这个键**可能从未存在过**（两条迁移此前都在非 SQLite 上早退）。直接
+    `CREATE UNIQUE INDEX` 会抛 `duplicate key value violates unique constraint`，
+    只说「有重复」、不说哪几组各几行，运维还得自己写聚合 SQL。故先用标准 SQL 查出
+    分组明细、显式抛错并给修复口径（与 `positions.symbol_norm` 同款处理）。
+
+    ## NULL 口径
+
+    唯一索引把 NULL 视为互不相等 ⇒ 键列含 NULL 的行本就不受该约束，检测时排除，
+    只在日志里报数（这类行通常来自 venue 未回填的历史数据，由前一步
+    :func:`migrate_watchlist_venue_not_null` 处理）。
+    """
+    if not _table_exists(engine, 'watchlist'):
+        return '[SKIP] watchlist 表不存在（空库，init_db 将按新约束建表）'
+
+    cols = {c['name'] for c in inspect(engine).get_columns('watchlist')}
+    missing = [c for c in ('family_id', 'symbol', 'market', 'venue') if c not in cols]
+    if missing:
+        raise RuntimeError(
+            f'watchlist 缺列 {missing}，无法建家庭维度唯一键；'
+            '应由 migrate_watchlist_user_domain_columns 先补 family_id（init_db 的调用顺序已保证）'
+        )
+
+    key_cols = '(family_id, symbol, market, venue)'
+    key_names = ('family_id', 'symbol', 'market', 'venue')
+    not_null = ' AND '.join(f'{c} IS NOT NULL' for c in key_names)
+    with engine.connect() as conn:
+        nulls = conn.execute(text(f'SELECT COUNT(*) FROM watchlist WHERE NOT ({not_null})')).scalar() or 0
+        dupes = conn.execute(
+            text(
+                'SELECT family_id, symbol, market, venue, COUNT(*) AS n FROM watchlist '
+                f'WHERE {not_null} '
+                'GROUP BY family_id, symbol, market, venue HAVING COUNT(*) > 1'
+            )
+        ).fetchall()
+
+    if nulls:
+        logger.warning(f'[watchlist 唯一键] {nulls} 行键列含 NULL，唯一索引对它们不生效（先跑 venue 回填）')
+    if dupes:
+        detail = '\n'.join(
+            f'  - family_id={d[0]} symbol={d[1]!r} market={d[2]!r} venue={d[3]!r} 共 {d[4]} 行' for d in dupes
+        )
+        raise RuntimeError(
+            f'watchlist 存在 {len(dupes)} 组「同家庭同标的」重复行，唯一键无法建立：\n{detail}\n'
+            '修复（自选条目没有份额/成本口径，不需要合并计算，保留每组 id 最小的一行即可）：\n'
+            '  SELECT family_id, symbol, market, venue, MIN(id) AS keep, COUNT(*) '
+            'FROM watchlist GROUP BY family_id, symbol, market, venue HAVING COUNT(*) > 1;\n'
+            '  -- 核对后删掉 keep 以外的行，再重启（迁移会重跑）'
+        )
+
+    created = _ensure_index(
+        engine,
+        _WATCHLIST_FAMILY_UNIQUE_INDEX,
+        f'CREATE UNIQUE INDEX IF NOT EXISTS {_WATCHLIST_FAMILY_UNIQUE_INDEX} ON watchlist {key_cols}',
+        table='watchlist',
+    )
+    if created:
+        logger.info(f'[OK] watchlist 唯一键已建为 {key_cols}（PG）')
+        return f'[OK] watchlist 唯一键已建为 {key_cols}（PG）'
+    return '[SKIP] 家庭维度唯一键已存在，无需迁移'
+
+
 def migrate_watchlist_family_scoped_unique_key(engine: Engine) -> str:
     """自选表唯一键补 family_id：(symbol, market, venue) → (family_id, symbol, market, venue)（#1491 评审阻断项）。
 
@@ -282,12 +470,12 @@ def migrate_watchlist_family_scoped_unique_key(engine: Engine) -> str:
     INSERT 却撞 DB 唯一约束 → IntegrityError(500)。即一个家庭关注过的标的，其他家庭再也加不进来。
 
     与前一个迁移同法：SQLite 不支持改约束，走「建新表→拷贝→删旧→改名」标准重建流程；
-    非 SQLite（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    **PG 侧走另一条路**（#2689）：不重建、直接建终态唯一索引，见
+    :func:`_ensure_watchlist_family_unique_key_pg`。
     兼容两种前序形态：(symbol, market, venue) 与更旧的 (symbol, venue)。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎（如 Supabase Postgres），唯一键由 ORM 模型/迁移工具负责，无需重建'
+    if _is_postgres(engine):
+        return _ensure_watchlist_family_unique_key_pg(engine)
 
     with engine.connect() as conn:
         ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'")).scalar()
@@ -356,11 +544,11 @@ def migrate_watchlist_venue_not_null(engine: Engine) -> str:
 
     只回填数据、不改表结构：SQLite 加 NOT NULL 需整表重建（风险高于收益），
     新写入由 ORM 的 default='' 保证非空，唯一键语义已能生效。
-    """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎（如 Supabase Postgres），由 ORM/迁移工具负责'
 
+    回填 SQL 是标准 ``UPDATE``（两种引擎通用），故本迁移**全引擎执行**——
+    生产 user 域是 Postgres，「非 SQLite 就跳过」会让存量 NULL 永远躺在库里
+    （#2534；唯一键对这类行失效正是本迁移要修的问题）。
+    """
     insp = inspect(engine)
     if 'watchlist' not in insp.get_table_names():
         return '[SKIP] watchlist 表不存在（空库，init_db 将按新模型建表）'
@@ -386,29 +574,18 @@ def migrate_watchlist_name_snapshot(engine: Engine) -> str:
     000300 指数=沪深300 / funds=德邦德利货币A），任何一次「未命中就回退别表」的猜测
     都可能给出**错名**（#1497 / #1499 的根因）。本迁移补上快照列，让名称随产品一起落库。
 
-    加入方式：SQLite / libsql 支持对「可空列」直接 ``ALTER TABLE ADD COLUMN``（无需整表重建）。
-    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，
-    直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+    加入方式：走 ``_add_columns_if_missing``（PG 用 ``ADD COLUMN IF NOT EXISTS``，
+    SQLite 裸 ALTER，幂等由「列已存在则跳过」保证）。**不再按引擎早退**——
+    生产 user 域是 Postgres，而本仓没有任何工具会替它加列（#2534，
+    #2469 / #2532 两次停摆的根因都是「非 SQLite 就跳过」）。
 
     历史行 ``name`` 为 NULL → 读取端自动落回反查链，行为与迁移前一致（不倒退）；
     随后的买入（``ensure_watchlist_for_positions``）会顺带回填（``positions.name``）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    if 'watchlist' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'watchlist'):
         return '[SKIP] watchlist 表不存在（空库，init_db 将按新模型建表）'
 
-    cols = [('name', 'VARCHAR(100)')]
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('watchlist')}
-        added = []
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE watchlist ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'watchlist', [('name', 'VARCHAR(100)')])
     if added:
         logger.info(f'[OK] watchlist 增加列: {added}')
         return f'[OK] 增加列 {added}'
@@ -419,12 +596,12 @@ def migrate_advisor_portfolio_metrics(engine: Engine) -> str:
     """advisor_portfolios 补 投顾品类差异化指标列（#1392）：区间收益 / 回撤 / 超额。
 
     SQLite / libsql 支持对「可空列」直接 ALTER ADD COLUMN（无需整表重建）。
-    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，
-    直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+    幂等：列已存在则跳过。两种引擎都由本迁移负责（走 ``_add_columns_if_missing``，
+    PG 用 ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres，本仓没有
+    Alembic、``create_all()`` 也不给存量表加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+    if not _table_exists(engine, 'advisor_portfolios'):
+        return '[SKIP] advisor_portfolios 表不存在（空库，init_db 将按新模型建表）'
 
     cols = [
         ('return_1w', 'NUMERIC(7,2)'),
@@ -436,14 +613,7 @@ def migrate_advisor_portfolio_metrics(engine: Engine) -> str:
         ('max_drawdown', 'NUMERIC(6,2)'),
         ('excess_return', 'NUMERIC(7,2)'),
     ]
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('advisor_portfolios')}
-        added = []
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE advisor_portfolios ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'advisor_portfolios', cols)
     if added:
         logger.info(f'[OK] advisor_portfolios 增加列: {added}')
         return f'[OK] 增加列 {added}'
@@ -459,12 +629,12 @@ def migrate_advisor_portfolio_metadata(engine: Engine) -> str:
       ``source_url`` / ``nav`` / ``nav_date`` / ``return_1d`` / ``return_1q`` / ``return_6m``
 
     与 :func:`migrate_advisor_portfolio_metrics` 同源同法：SQLite / libsql 支持对「可空列」
-    直接 ALTER ADD COLUMN（无需整表重建）。幂等：列已存在则跳过。非 SQLite 引擎
-    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过，避免 init_db 误跑 SQLite 专属 SQL。
+    直接 ALTER ADD COLUMN（无需整表重建）。幂等：列已存在则跳过。两种引擎都由本迁移负责
+    （走 ``_add_columns_if_missing``，PG 用 ``ADD COLUMN IF NOT EXISTS``）——生产 user 域
+    是 Postgres，本仓没有 Alembic、``create_all()`` 也不给存量表加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+    if not _table_exists(engine, 'advisor_portfolios'):
+        return '[SKIP] advisor_portfolios 表不存在（空库，init_db 将按新模型建表）'
 
     cols = [
         ('volatility', 'NUMERIC(6,2)'),
@@ -479,14 +649,7 @@ def migrate_advisor_portfolio_metadata(engine: Engine) -> str:
         ('return_1q', 'NUMERIC(7,2)'),
         ('return_6m', 'NUMERIC(7,2)'),
     ]
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('advisor_portfolios')}
-        added = []
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE advisor_portfolios ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'advisor_portfolios', cols)
     if added:
         logger.info(f'[OK] advisor_portfolios 增加列: {added}')
         return f'[OK] 增加列 {added}'
@@ -502,33 +665,68 @@ def migrate_advisor_portfolio_provenance(engine: Engine) -> str:
       新增平台不必为此加列，日后真要补列时可回填，无需重新抓取。
 
     与 :func:`migrate_advisor_portfolio_metrics` 同源同法：SQLite / libsql 支持对「可空列」
-    直接 ALTER ADD COLUMN（无需整表重建）。幂等：列已存在则跳过。非 SQLite 引擎
-    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过，避免 init_db 误跑 SQLite 专属 SQL。
+    直接 ALTER ADD COLUMN（无需整表重建）。幂等：列已存在则跳过。两种引擎都由本迁移负责
+    （走 ``_add_columns_if_missing``，PG 用 ``ADD COLUMN IF NOT EXISTS``）——生产 user 域
+    是 Postgres，本仓没有 Alembic、``create_all()`` 也不给存量表加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    # 空库（表还没建）直接 skip：create_all 会按新模型建表，此处不该替它兜底
-    if 'advisor_portfolios' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'advisor_portfolios'):
         return '[SKIP] advisor_portfolios 表不存在（空库，init_db 将按新模型建表）'
 
     cols = [
         ('source', 'VARCHAR(20)'),
         ('extra', 'JSON'),
     ]
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('advisor_portfolios')}
-        added = []
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE advisor_portfolios ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'advisor_portfolios', cols)
     if added:
         logger.info(f'[OK] advisor_portfolios 增加列: {added}')
         return f'[OK] 增加列 {added}'
     return '[SKIP] advisor_portfolios 来历列已存在'
+
+
+def migrate_advisor_portfolio_perf_columns(engine: Engine) -> str:
+    """advisor_portfolios 补 2/3 年区间 + 业绩基准同区间收益列（投顾详情页 P0，2026-10-29）。
+
+    10 列一次补齐：`return_2y` / `return_3y` + 8 个 `benchmark_return_*`。
+
+    ## 为什么是 8 个基准列，而不是设计稿估的 3 个
+
+    设计稿（`docs/working-notes/advisor-detail-page-design-2026-10-29.md`）当初只探到
+    `BENCHSYL_LN` / `BENCHSYL_1N` 两个键，据此保守估了 3 列。2026-10-29 把
+    `BENCHSYL_D/Z/Y/3Y/6Y/JN/1N/2N/3N/LN` 一次性要回，**全部有值**
+    （如 `Y` -6.37 / `2N` 6.12 / `3N` 16.87）⇒ 业绩表 8 个区间每行都对得上一个格子。
+    少建列 = 让几行永远只能渲染 `—`，而数据明明取得到。
+
+    `D` / `Z`（日 / 周）两档**刻意不建列**：业绩表不展示这两行，存下来没有读者
+    （`docs/spec/data-strategy.md` 数据准入第 1 问）。
+
+    ## 超额不建列
+
+    超额 = `return_x − benchmark_return_x`，是纯派生值，读取侧现算（见
+    `services/advisor_profile.py`）；既有 `excess_return` 列保留但不写。
+
+    与同族迁移同源同法：走 `_add_columns_if_missing`（PG 用 `ADD COLUMN IF NOT EXISTS`，
+    SQLite 靠 inspect 判存在），幂等，两种引擎都执行（#2534：非 SQLite 就跳过等于 PG 永远没这些列）。
+    """
+    if not _table_exists(engine, 'advisor_portfolios'):
+        return '[SKIP] advisor_portfolios 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('return_2y', 'NUMERIC(7,2)'),
+        ('return_3y', 'NUMERIC(7,2)'),
+        ('benchmark_return_1m', 'NUMERIC(7,2)'),
+        ('benchmark_return_1q', 'NUMERIC(7,2)'),
+        ('benchmark_return_6m', 'NUMERIC(7,2)'),
+        ('benchmark_return_ytd', 'NUMERIC(7,2)'),
+        ('benchmark_return_1y', 'NUMERIC(7,2)'),
+        ('benchmark_return_2y', 'NUMERIC(7,2)'),
+        ('benchmark_return_3y', 'NUMERIC(7,2)'),
+        ('benchmark_return_since_incep', 'NUMERIC(7,2)'),
+    ]
+    added = _add_columns_if_missing(engine, 'advisor_portfolios', cols)
+    if added:
+        logger.info(f'[OK] advisor_portfolios 增加列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] advisor_portfolios 业绩区间列已存在'
 
 
 def migrate_positions_symbol_norm(engine: Engine) -> str:
@@ -560,28 +758,39 @@ def migrate_positions_symbol_norm(engine: Engine) -> str:
     与本模块「失败显式抛错，避免带病启动」的约定一致。
 
     幂等：列已存在则跳过加列、无空值则跳过回填、索引已存在则跳过创建。
-    非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
 
-    重复检测**排除 `ledger_id IS NULL` 的行**：SQLite 的唯一索引把 NULL 视为互不相等，
+    ## 两种引擎都执行（#2689 / #2534）
+
+    生产 user 域是 Supabase Postgres，本仓没有 Alembic、`create_all()` 又不给存量表加列，
+    「非 SQLite 就跳过」等于 PG 侧**永远没有** `symbol_norm` 与那条唯一键 —— 正是 #2469 同族
+    事故的根因形态（本地 SQLite 全绿、生产两库静默不一致）。方言差异只有三处，
+    且都不改变判定口径：
+
+    1. 加列：PG 用 `ADD COLUMN IF NOT EXISTS`（见 `_add_column_sql`）；SQLite 不支持该语法，
+       靠 `inspect` 判存在；
+    2. 重复行明细的聚合：SQLite `GROUP_CONCAT(col)` / PG `STRING_AGG(col, ',')`；
+    3. `HAVING` 只写聚合表达式（`COUNT(*) > 1`），**不引用 select 别名** —— PG 不允许。
+
+    唯一索引在两库都靠 `CREATE UNIQUE INDEX IF NOT EXISTS`，NULL 语义也一致（唯一索引把
+    NULL 视为互不相等），故无需第四处分叉。
+
+    重复检测**排除 `ledger_id IS NULL` 的行**：SQLite / PG 的唯一索引都把 NULL 视为互不相等，
     这类行本就不参与约束（与旧的字面量约束同语义），`GROUP BY` 却会把它们归到一组 ——
     不排除就会误报、进而无谓地阻断启动。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列与索引由 ORM 模型/迁移工具负责'
-
-    if 'positions' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'positions'):
         return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
 
     from app.core.symbol_utils import symbol_identity
 
     actions: list[str] = []
+    is_pg = _is_postgres(engine)
     with engine.connect() as conn:
         existing = {c['name'] for c in inspect(engine).get_columns('positions')}
         if 'symbol_norm' not in existing:
             # NOT NULL 必须带常量默认值，SQLite 才允许 ADD COLUMN；随后立即回填真实身份，
             # 空串只是过渡态（空串行会被下面的重复检测当成同一身份报出来，不会静默放过）。
-            conn.execute(text("ALTER TABLE positions ADD COLUMN symbol_norm VARCHAR(64) NOT NULL DEFAULT ''"))
+            conn.execute(text(_add_column_sql('positions', 'symbol_norm', "VARCHAR(64) NOT NULL DEFAULT ''", is_pg)))
             actions.append('加列 symbol_norm')
 
         rows = conn.execute(text('SELECT id, symbol, type, symbol_norm FROM positions')).fetchall()
@@ -594,11 +803,14 @@ def migrate_positions_symbol_norm(engine: Engine) -> str:
         if pending:
             actions.append(f'回填 {len(pending)} 行')
 
+        # 方言差异只在这一处：SQLite 没有 STRING_AGG、PG 没有 GROUP_CONCAT。
+        # `HAVING` 写聚合表达式而**不引用 select 别名**（`HAVING n > 1`）：PG 不允许别名。
+        concat = "STRING_AGG(symbol, ',')" if is_pg else 'GROUP_CONCAT(symbol)'
         dupes = conn.execute(
             text(
-                'SELECT ledger_id, symbol_norm, COUNT(*) AS n, GROUP_CONCAT(symbol) AS syms '
+                f'SELECT ledger_id, symbol_norm, COUNT(*) AS n, {concat} AS syms '
                 'FROM positions WHERE ledger_id IS NOT NULL '
-                'GROUP BY ledger_id, symbol_norm HAVING n > 1'
+                'GROUP BY ledger_id, symbol_norm HAVING COUNT(*) > 1'
             )
         ).fetchall()
         if dupes:
@@ -635,43 +847,44 @@ def migrate_channel_link_indexes(engine: Engine) -> str:
     `to_symbol` 是查询 / join 字段（跨渠道关联回填与「ETF→联接」查询都按它过滤），
     模型此前未声明索引 → 按目标代码查找会全表扫描。
 
-    SQLite 支持 `CREATE INDEX IF NOT EXISTS`，无需重建表；非 SQLite 引擎
-    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
-    `create_all` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 启动期兜底。
+    PG 与 SQLite 都支持 `CREATE INDEX IF NOT EXISTS`，**无需方言分支**；`create_all`
+    只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 启动期兜底——
+    且对两种引擎都兜底（生产 user 域是 Postgres，#2534：本仓没有 Alembic，
+    「非 SQLite 就跳过」等于生产永远没索引）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，索引由 ORM 模型/迁移工具负责'
-
-    if 'channel_links' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'channel_links'):
         return '[SKIP] channel_links 表不存在（空库，init_db 将按新模型建表）'
 
-    with engine.connect() as conn:
-        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_channel_links_to_symbol ON channel_links (to_symbol)'))
-        conn.commit()
-
-    names = [i['name'] for i in inspect(engine).get_indexes('channel_links')]
-    if 'ix_channel_links_to_symbol' in names:
-        logger.info('[OK] channel_links.to_symbol 索引已就绪')
-        return '[OK] channel_links.to_symbol 索引已就绪'
-    raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')
+    _ensure_index(
+        engine,
+        'ix_channel_links_to_symbol',
+        'CREATE INDEX IF NOT EXISTS ix_channel_links_to_symbol ON channel_links (to_symbol)',
+        table='channel_links',
+    )
+    logger.info('[OK] channel_links.to_symbol 索引已就绪')
+    return '[OK] channel_links.to_symbol 索引已就绪'
 
 
 #: 费率三表的唯一约束 DDL（2026-10-18）。与 ORM 模型 ``__table_args__`` 逐字一致——
 #: 那边让新库由 create_all 建出，这里给存量库补建；两处必须同源，改一处就要改两处。
+#: 三元组：(索引名, 表名, DDL)——表名单列一项，供 ``_ensure_index`` 反射校验用
+#: （从 DDL 字符串里解析表名太脆，改一次 SQL 形态就断）。
 _FEE_UNIQUE_INDEX_DDL_ALL = (
     (
         'uq_fee_ratios_scope',
+        'fee_ratios',
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_ratios_scope ON fee_ratios '
         '(fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1))',
     ),
     (
         'uq_redeem_rules_range',
+        'redeem_rules',
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_redeem_rules_range ON redeem_rules '
         '(COALESCE(start_day, -1), COALESCE(end_day, -1))',
     ),
     (
         'uq_purchase_rules_quota',
+        'purchase_rules',
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_rules_quota ON purchase_rules '
         '(COALESCE(start_quota, -1), COALESCE(end_quota, -1))',
     ),
@@ -744,12 +957,12 @@ def migrate_fee_unique_indexes(engine: Engine) -> str:
     故提供显式开关 ``ALLOW_FEE_DUPLICATES=1``：只在该环境下放行（记ERROR 日志、
     不建索引、继续启动），供「清理 / 重同步」这个窗口使用。默认不放行。
 
-    ``create_all`` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 兜底。
+    ``create_all`` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 兜底——
+    且对两种引擎都兜底：表达式唯一索引 + ``IF NOT EXISTS`` 在 PG 与 SQLite 上都成立，
+    「非 SQLite 就跳过」会让生产（Supabase PG）的费率表永远没有唯一约束（#2534；
+    本仓没有 Alembic）。校验一律走 ``inspect().get_indexes()`` 的索引名，
+    **不再查 ``sqlite_master``**（那张表只有 SQLite 有）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，唯一约束由 ORM 模型/迁移工具负责'
-
     present = set(inspect(engine).get_table_names())
     missing = [t for t in ('fee_ratios', 'redeem_rules', 'purchase_rules') if t not in present]
     if missing:
@@ -772,21 +985,10 @@ def migrate_fee_unique_indexes(engine: Engine) -> str:
             return msg
         raise RuntimeError(f'费率三表存在重复行，唯一索引无法建立：\n  - {detail}\n请先清理存量：{remediation}')
 
-    with engine.connect() as conn:
-        for _name, sql in _FEE_UNIQUE_INDEX_DDL_ALL:
-            conn.execute(text(sql))
-        conn.commit()
+    for name, table, sql in _FEE_UNIQUE_INDEX_DDL_ALL:
+        _ensure_index(engine, name, sql, table=table)
 
-    with engine.connect() as conn:
-        names = {
-            row[0]
-            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'uq_%'"))
-        }
-    missing_idx = [name for name, _sql in _FEE_UNIQUE_INDEX_DDL_ALL if name not in names]
-    if missing_idx:
-        raise RuntimeError(f'费率唯一索引创建后校验失败，缺失: {missing_idx}')
-
-    msg = '[OK] 费率三表唯一约束已就绪: ' + ' / '.join(name for name, _ in _FEE_UNIQUE_INDEX_DDL_ALL)
+    msg = '[OK] 费率三表唯一约束已就绪: ' + ' / '.join(name for name, _t, _s in _FEE_UNIQUE_INDEX_DDL_ALL)
     logger.info(msg)
     return msg
 
@@ -808,29 +1010,19 @@ def migrate_positions_price_columns(engine: Engine) -> str:
     故两列都声明为可空：历史行没有基准价，只能 NULL；NULL 在读取端降级为「—」，
     **不写 0**（0 会被读成「今天没涨没跌」，那是编造）。
 
-    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，
-    直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+    幂等：列已存在则跳过。两种引擎都由本迁移负责（走 ``_add_columns_if_missing``，
+    PG 用 ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres，本仓没有
+    Alembic、``create_all()`` 也不给存量表加列（#2534）。
 
     ⚠️ 本迁移**只加列、不回填**：`prev_close` 是「上一确认价」，只能在写入
     `current_price` 的**同一批**里取到（`sync/jobs/position_price_job`），事后凭历史数据
     补不出时点正确的值（补错了比空着更糟）。存量行会在下次调度自然补齐。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    if 'positions' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'positions'):
         return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
 
     cols = [('prev_close', 'INTEGER'), ('price_date', 'DATE')]
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
-        added = []
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE positions ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'positions', cols)
     if added:
         logger.info(f'[OK] positions 增加列: {added}')
         return f'[OK] 增加列 {added}'
@@ -877,6 +1069,57 @@ _MANAGER_TENURES_INDEXES = (
     'CREATE INDEX IF NOT EXISTS ix_manager_tenures_fund_id ON manager_tenures (fund_id)',
 )
 
+#: fund_managers 的唯一键名，与模型 `UniqueConstraint(..., name=...)` 一致
+#: （PG 侧建的是同名唯一索引；SQLite 侧重建后表内是同名约束）。
+_FUND_MANAGERS_UNIQUE_INDEX = 'uq_fund_managers_fund_mgr'
+
+
+def _plan_manager_tenure_split(rows: list[dict]) -> 'tuple[dict, list[dict], int]':
+    """把 ``fund_managers`` 的旧行拆成「保留的关联行」与「待写入的任期行」。
+
+    **两引擎同源口径**（#2689）：SQLite 的整表重建分支与 PG 的原位改造分支都调这一份，
+    避免「同一个迁移在两种引擎上去重口径不同」这种最难发现的分叉。
+
+    返回 ``(best, tenures, invalid)``：
+
+    - ``best``：按 ``(fund_id, mgr_id)`` 去重后的保留行，**优先 ``is_classic=True``**；
+      同优先级时保留先遍历到的那行（SQLite 侧 SELECT 未排序，等价于按 id 升序；
+      PG 侧的物理删除用的是「id 最小」，两者在实测数据上一致 —— 卡内记录：重复组内
+      除 id 外三列完全相同，所以取哪一行只影响 id）。
+    - ``tenures``：``start_date`` 非空才写（空起始日无法定位一段任期）；``start > end``
+      属脏行，跳过并计入 ``invalid``；``current`` 按 ``end_date IS NULL`` 落，
+      **不是**无条件 True（否则历史段全被标成「在任」，读侧会选错代表作）。
+    - ``invalid``：被丢弃的倒挂脏行数（用于回报）。
+    """
+    best: dict = {}
+    for r in rows:
+        key = (r['fund_id'], r['mgr_id'])
+        cur = best.get(key)
+        if cur is None or (r.get('is_classic') and not cur.get('is_classic')):
+            best[key] = r
+
+    tenures: list[dict] = []
+    invalid = 0
+    for r in best.values():
+        start = r.get('start_date')
+        end = r.get('end_date')
+        if not start:
+            continue
+        if end and str(start) > str(end):
+            invalid += 1
+            continue
+        tenures.append(
+            {
+                'fund_id': r['fund_id'],
+                'mgr_id': r['mgr_id'],
+                'start_date': str(start),
+                'end_date': str(end) if end else None,
+                'current': 1 if not end else 0,
+                'source': 'legacy_split',
+            }
+        )
+    return best, tenures, invalid
+
 
 def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     """拆分 ``fund_managers``：关联（+唯一约束）归本表，任期归 ``manager_tenures``（#2239）。
@@ -906,15 +1149,22 @@ def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     ``current`` 按 ``end_date IS NULL`` 落 —— **不是**无条件 True：无条件为真等于
     把所有历史段都标成「在任」，读侧按 ``current`` 筛选代表作时会跨轮次选错人。
 
+    ## 两种引擎都执行（#2689）
+
+    SQLite 只能整表重建；PG 不需要（既能 `ADD CONSTRAINT` 又能 `DROP COLUMN`），走
+    :func:`_split_fund_managers_tenures_pg`：搬任期（`ON CONFLICT DO NOTHING`）→
+    物理去重（`DELETE ... USING`）→ 删列 → 建同名唯一索引。两条路径的去重 / 任期口径
+    共用 :func:`_plan_manager_tenure_split`，不分叉。
+
     ## 幂等
 
-    三种「已完成」形态都直接跳过：非 SQLite 引擎；``fund_managers`` 不存在（空库，
-    ``create_all`` 会按新模型建）；已无任期列且 ``manager_tenures`` 已存在。
-    任期写入用 ``INSERT OR IGNORE`` 依赖 ``uq_manager_tenures_fund_mgr_start``。
+    三种「已完成」形态都直接跳过：``fund_managers`` 不存在（空库，``create_all`` 会按
+    新模型建）；已无任期列且唯一键/表都已就绪；重复执行时任期写入靠
+    ``uq_manager_tenures_fund_mgr_start``（SQLite ``INSERT OR IGNORE`` /
+    PG ``ON CONFLICT DO NOTHING``）天然幂等。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，结构由 ORM 模型/迁移工具负责'
+    if _is_postgres(engine):
+        return _split_fund_managers_tenures_pg(engine)
 
     insp = inspect(engine)
     tables = set(insp.get_table_names())
@@ -940,34 +1190,8 @@ def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     with engine.connect() as conn:
         rows = [dict(r) for r in conn.execute(text(f'SELECT {", ".join(select_cols)} FROM fund_managers')).mappings()]
 
-    # 按 (fund_id, mgr_id) 去重，优先保留 is_classic=True 的那行
-    best: dict = {}
-    for r in rows:
-        key = (r['fund_id'], r['mgr_id'])
-        cur = best.get(key)
-        if cur is None or (r.get('is_classic') and not cur.get('is_classic')):
-            best[key] = r
-
-    tenures, invalid = [], 0
-    for r in best.values():
-        start = r.get('start_date')
-        end = r.get('end_date')
-        if not start:
-            continue
-        if end and str(start) > str(end):
-            # 起始晚于结束属脏行：宁可少一段任期，也不把倒挂的区间写进库
-            invalid += 1
-            continue
-        tenures.append(
-            {
-                'fund_id': r['fund_id'],
-                'mgr_id': r['mgr_id'],
-                'start_date': str(start),
-                'end_date': str(end) if end else None,
-                'current': 1 if not end else 0,
-                'source': 'legacy_split',
-            }
-        )
+    # 去重 + 任期规划：口径见 `_plan_manager_tenure_split`（PG 分支共用同一份）
+    best, tenures, invalid = _plan_manager_tenure_split(rows)
 
     with engine.connect() as conn:
         if tenures:
@@ -1030,8 +1254,113 @@ def migrate_fund_managers_split_tenures(engine: Engine) -> str:
     return msg
 
 
+def _split_fund_managers_tenures_pg(engine: Engine) -> str:
+    """PG 侧拆分 ``fund_managers``（#2689）：搬任期 → 去重 → 删列 → 建同名唯一索引。
+
+    ## 为什么不像 SQLite 那样整表重建
+
+    PG 两步都能原地做：``ALTER TABLE ... DROP COLUMN IF EXISTS`` 删任期列、
+    ``CREATE UNIQUE INDEX IF NOT EXISTS`` 补唯一键。照抄 SQLite 的「建新表 → 拷贝 →
+    删旧 → 改名」只会多一次全表拷贝、多一次 DROP 丢数据的窗口，而且那套
+    ``PRAGMA foreign_keys`` 在 PG 上根本不存在。
+
+    ## 顺序：先搬任期，后删列
+
+    与 SQLite 分支同理 —— ``start_date`` / ``end_date`` 是每次 F10 抓取（每只基金一次
+    HTTP）才有的数据，先删列就再也补不回来。先搬（幂等）再删，重跑时源数据仍在。
+
+    ## ``manager_tenures`` 由谁建
+
+    ``init_db()`` 里 ``create_all()`` 先跑、按模型建好该表（含
+    ``uq_manager_tenures_fund_mgr_start`` 与两个索引）。单独跑迁移（手工修库 / 单测）
+    时若表不在，这里**显式抛错**而不是自建：模块顶部那份手写 DDL 是 SQLite 方言
+    （``INTEGER NOT NULL`` 主键），在 PG 上会建出自增语义不同的表，等于埋一个
+    「两个引擎结构不同」的坑。
+    """
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    if 'fund_managers' not in tables:
+        return '[SKIP] fund_managers 不存在（空库，init_db 将按新模型建表）'
+
+    cols = {c['name'] for c in insp.get_columns('fund_managers')}
+    tenure_cols = {'start_date', 'end_date'} & cols
+    if not tenure_cols and _index_exists(engine, 'fund_managers', _FUND_MANAGERS_UNIQUE_INDEX):
+        return '[SKIP] 已拆分完成（fund_managers 无任期列，唯一约束已存在）'
+    if 'manager_tenures' not in tables:
+        raise RuntimeError(
+            'manager_tenures 不存在：该表由模型建（init_db 的 create_all），'
+            '迁移不自建 PG 版表结构（手写 DDL 是 SQLite 方言）'
+        )
+
+    select_cols = ['id', 'fund_id', 'mgr_id', 'is_classic']
+    select_cols += [c for c in ('start_date', 'end_date') if c in cols]
+    with engine.connect() as conn:
+        rows = [dict(r) for r in conn.execute(text(f'SELECT {", ".join(select_cols)} FROM fund_managers')).mappings()]
+
+    best, tenures, invalid = _plan_manager_tenure_split(rows)
+
+    with engine.connect() as conn:
+        # ── 1. 搬任期（幂等：撞 uq_manager_tenures_fund_mgr_start 即跳过）────────
+        if tenures:
+            conn.execute(
+                text(
+                    'INSERT INTO manager_tenures '
+                    '(fund_id, mgr_id, start_date, end_date, current, source) '
+                    'VALUES (:fund_id, :mgr_id, :start_date, :end_date, :current, :source) '
+                    'ON CONFLICT (fund_id, mgr_id, start_date) DO NOTHING'
+                ),
+                tenures,
+            )
+
+        # ── 2. 物理去重：每个 (fund_id, mgr_id) 只留一行 ───────────────────────
+        # 交给 PG 一条 `DELETE ... USING`，不把几万行 id 搬进 Python（本机实测 69,684 行）。
+        # 保留顺序与 `_plan_manager_tenure_split` 同口径：is_classic=True 优先，其次 id 最小。
+        conn.execute(
+            text(
+                'DELETE FROM fund_managers a USING fund_managers b '
+                'WHERE a.fund_id = b.fund_id AND a.mgr_id = b.mgr_id AND a.id <> b.id '
+                'AND (COALESCE(a.is_classic, FALSE) < COALESCE(b.is_classic, FALSE) '
+                '     OR (COALESCE(a.is_classic, FALSE) = COALESCE(b.is_classic, FALSE) AND a.id > b.id))'
+            )
+        )
+
+        # ── 3. 删任期列（顺序理由见 docstring）────────────────────────────────
+        for col in sorted(tenure_cols):
+            conn.execute(text(f'ALTER TABLE fund_managers DROP COLUMN IF EXISTS {col}'))
+        conn.commit()
+
+    # ── 4. 唯一键（同名索引，幂等）+ 自校验 ──────────────────────────────────
+    created = _ensure_index(
+        engine,
+        _FUND_MANAGERS_UNIQUE_INDEX,
+        f'CREATE UNIQUE INDEX IF NOT EXISTS {_FUND_MANAGERS_UNIQUE_INDEX} ON fund_managers (fund_id, mgr_id)',
+        table='fund_managers',
+    )
+    leftover = {'start_date', 'end_date'} & {c['name'] for c in inspect(engine).get_columns('fund_managers')}
+    if leftover:
+        raise RuntimeError(f'fund_managers 删除任期列后仍存在 {sorted(leftover)}，迁移失败')
+
+    merged = len(rows) - len(best)
+    msg = (
+        f'[OK] fund_managers 去重 {len(rows)} → {len(best)} 行（合并 {merged} 行）；'
+        f'manager_tenures 迁入 {len(tenures)} 段任期'
+        + (f'（跳过倒挂脏行 {invalid}）' if invalid else '')
+        + ('；唯一索引新建' if created else '；唯一索引已存在')
+    )
+    logger.info(msg)
+    return msg
+
+
 # 写路径（#1661）已强制「显式非基金类型 → False」；存量若仍为 True 属历史污染，本迁移清零。
-_NON_FUND_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond', 'reverse_repo', 'crypto', 'index')
+_NON_FUND_ASSET_TYPES: tuple[str, ...] = (
+    'stock',
+    'etf',
+    'bond',
+    'reverse_repo',
+    'crypto',
+    'index',
+    'bank_wealth',
+)
 # 只有这两类才可能真为货基（与 `core/venues._OTC_ASSET_TYPES` 同族）
 _FUND_ASSET_TYPES: tuple[str, ...] = ('fund', 'money_fund')
 
@@ -1061,13 +1390,11 @@ def migrate_positions_money_fund_flag(engine: Engine) -> str:
     最后这条是硬边界：迁移每次启动都跑，若把「名录不可达」当成「不是货基」，一次
     market 域抖动就会把全库货基标记清空。宁漏不误（#1661 取舍）。
 
-    幂等：结论与库中值一致就不写；非 SQLite 引擎（Supabase Postgres）跳过，由 ORM /
-    迁移工具负责。
+    幂等：结论与库中值一致就不写。判定与回填都在 **Python 侧**做（读全行 →
+    算 → 逐行参数化 UPDATE），SQL 只有标准 SELECT/UPDATE，两种引擎通用，故本迁移
+    **全引擎执行**——生产 user 域是 Postgres，存量污染标记不会因为引擎不同而
+    该留着（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，货基标记由 ORM 模型/迁移工具负责'
-
     if 'positions' not in inspect(engine).get_table_names():
         return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
     if 'is_money_fund' not in {c['name'] for c in inspect(engine).get_columns('positions')}:
@@ -1128,24 +1455,18 @@ def migrate_fund_equity_position_period(engine: Engine) -> str:
 
     存量行**故意留 NULL**——旧值来自已废弃口径，其报告期无从得知，不假装知道。
 
-    SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN（无需整表重建）；非 SQLite 引擎
-    由 ORM 模型 / 迁移工具负责，直接跳过。新表 fund_holdings / fund_industry_allocs
-    由 create_all 建，无需迁移。
+    SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN（无需整表重建）；新表
+    fund_holdings / fund_industry_allocs 由 create_all 建，无需迁移。两种引擎都
+    由本迁移负责（走 ``_add_columns_if_missing``，PG 用 ``ADD COLUMN IF NOT
+    EXISTS``）——生产 user 域是 Postgres，本仓没有 Alembic、``create_all()``
+    也不给存量表加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    if 'funds' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'funds'):
         return '[SKIP] funds 表不存在（空库，init_db 将按新模型建表）'
 
-    existing = {c['name'] for c in inspect(engine).get_columns('funds')}
-    if 'equity_position_period' in existing:
+    added = _add_columns_if_missing(engine, 'funds', [('equity_position_period', 'VARCHAR(8)')])
+    if not added:
         return '[SKIP] funds.equity_position_period 已存在'
-
-    with engine.connect() as conn:
-        conn.execute(text('ALTER TABLE funds ADD COLUMN equity_position_period VARCHAR(8)'))
-        conn.commit()
 
     if 'equity_position_period' not in {c['name'] for c in inspect(engine).get_columns('funds')}:
         raise RuntimeError('funds.equity_position_period 增加后校验失败')
@@ -1166,17 +1487,14 @@ def migrate_fund_valuation_official_columns(engine: Engine) -> str:
 
     三列全为**可空**列：SQLite / libsql 对可空列支持直接 ALTER ADD COLUMN；
     历史行（对照发生前落库的预估行）留 NULL，读取端 NULL → None 降级，不写 0。
-    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具
-    负责，直接跳过。
+    幂等：列已存在则跳过。两种引擎都由本迁移负责（走 ``_add_columns_if_missing``，
+    PG 用 ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres，本仓没有
+    Alembic、``create_all()`` 也不给存量表加列（#2534）。
 
     ⚠️ 本迁移**只加列、不回填**：偏差是「当时预估 vs 当时官方」的时点对照，
     事后可以补算（reconcile job 会自然收敛历史 estimated 行），无需启动期回填。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    if 'fund_valuation_daily' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'fund_valuation_daily'):
         return '[SKIP] fund_valuation_daily 表不存在（空库，init_db 将按新模型建表）'
 
     cols = [
@@ -1184,14 +1502,7 @@ def migrate_fund_valuation_official_columns(engine: Engine) -> str:
         ('deviation', 'NUMERIC(18, 6)'),
         ('deviation_pct', 'NUMERIC(10, 4)'),
     ]
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('fund_valuation_daily')}
-        added = []
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE fund_valuation_daily ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'fund_valuation_daily', cols)
     if added:
         logger.info(f'[OK] fund_valuation_daily 增加对照列: {added}')
         return f'[OK] 增加列 {added}'
@@ -1212,14 +1523,12 @@ def migrate_fund_risk_metrics_period_returns(engine: Engine) -> str:
     区间收益是「由净值序列可复现的派生值」，不是时点对照——但迁移阶段回填会
     在启动路径里做计算扫描（读全量净值），得不偿失。正确路径是
     ``fund_risk_metrics_job.CALIBER_VERSION`` bump（v1 → v2）后由 job 重算覆盖，
-    启动期迁移只负责把列建好。幂等：列已存在则跳过；非 SQLite 引擎
-    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    启动期迁移只负责把列建好。幂等：列已存在则跳过。两种引擎都由本迁移负责
+    （走 ``_add_columns_if_missing``，PG 用 ``ADD COLUMN IF NOT EXISTS``）——
+    生产 user 域是 Postgres，本仓没有 Alembic、``create_all()`` 也不给存量表
+    加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    if 'fund_risk_metrics' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'fund_risk_metrics'):
         return '[SKIP] fund_risk_metrics 表不存在（空库，init_db 将按新模型建表）'
 
     cols = [
@@ -1227,14 +1536,7 @@ def migrate_fund_risk_metrics_period_returns(engine: Engine) -> str:
         ('ret_3m', 'NUMERIC(10, 4)'),
         ('ret_1y', 'NUMERIC(10, 4)'),
     ]
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('fund_risk_metrics')}
-        added = []
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE fund_risk_metrics ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'fund_risk_metrics', cols)
     if added:
         logger.info(f'[OK] fund_risk_metrics 增加区间收益列: {added}')
         return f'[OK] 增加列 {added}'
@@ -1271,12 +1573,10 @@ def migrate_positions_snapshot_anchor(engine: Engine) -> str:
     人工确认后才写入锚点。
 
     幂等：列已存在则跳过；回填只填 `snapshot_date IS NULL` 的行。
-    非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    两种引擎都由本迁移负责（加列走 ``_add_columns_if_missing``，回填是标准
+    SQL）——生产 user 域是 Postgres，本仓没有 Alembic、``create_all()``
+    也不给存量表加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
     tables = set(inspect(engine).get_table_names())
     if 'positions' not in tables:
         return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
@@ -1287,14 +1587,7 @@ def migrate_positions_snapshot_anchor(engine: Engine) -> str:
         ('snapshot_date', 'DATE'),
         ('anchor_kind', 'VARCHAR(20)'),
     ]
-    added = []
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE positions ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
+    added = _add_columns_if_missing(engine, 'positions', cols)
 
     # 回填：日期 + 来源。份额不填（见 docstring）。
     backfilled = 0
@@ -1351,25 +1644,18 @@ def migrate_positions_cleared_at(engine: Engine) -> str:
 
     NULL 的语义是「无已知清仓时间」，等同于「从未清仓」，与现存数据完全一致。
 
-    幂等：列已存在则跳过；非 SQLite 引擎由 ORM 模型 / 迁移工具负责。
+    幂等：列已存在则跳过。两种引擎都由本迁移负责（走 ``_add_columns_if_missing``，
+    PG 用 ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres，本仓没有
+    Alembic、``create_all()`` 也不给存量表加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    tables = set(inspect(engine).get_table_names())
-    if 'positions' not in tables:
+    if not _table_exists(engine, 'positions'):
         return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
 
-    with engine.connect() as conn:
-        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
-        if 'cleared_at' in existing:
-            return '[SKIP] positions.cleared_at 已存在'
-        conn.execute(text('ALTER TABLE positions ADD COLUMN cleared_at DATETIME'))
-        conn.commit()
-
-    logger.info('[OK] positions.cleared_at 已新增（历史清仓行无法反推，保持 NULL）')
-    return '[OK] 新增列 cleared_at（不回填：历史清仓行已删除，无可靠数据源）'
+    added = _add_columns_if_missing(engine, 'positions', [('cleared_at', 'DATETIME')])
+    if added:
+        logger.info('[OK] positions.cleared_at 已新增（历史清仓行无法反推，保持 NULL）')
+        return '[OK] 新增列 cleared_at（不回填：历史清仓行已删除，无可靠数据源）'
+    return '[SKIP] positions.cleared_at 已存在'
 
 
 def migrate_account_name_snapshot(engine: Engine) -> str:
@@ -1398,12 +1684,10 @@ def migrate_account_name_snapshot(engine: Engine) -> str:
     「未指定账户」是对这类行的正确兜底。逐行 `UPDATE ... WHERE` 而非全表覆盖，
     幂等、可重复跑。
 
-    非 SQLite 引擎跳过（由 ORM 模型 / 迁移工具负责）。
+    回填 SQL 是标准相关子查询 UPDATE（两种引擎通用），故本迁移**全引擎执行**——
+    生产 user 域是 Postgres，存量 NULL 不该因为引擎不同而继续违反「有账户就该有
+    账户名」（#2534；那个 TypeError 500 在任何引擎上都会炸）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，冗余快照由 ORM 模型/迁移工具负责'
-
     tables = set(inspect(engine).get_table_names())
     missing = [t for t in ('positions', 'transactions', 'ledgers') if t not in tables]
     if missing:
@@ -1459,13 +1743,11 @@ def migrate_conversion_in_leg_snapshot(engine: Engine) -> str:
       写 `'CN_A'`（`process_buy_or_deposit` 写入缺省与导入路径同值，全库 151/152
       行实证）；非基金类行不动（股票市场推断另有权威入口，不在此越权）；
 
-    只补数据不动结构，逐行 `UPDATE ... WHERE`，幂等可重复跑。
-    非 SQLite 引擎跳过（新写入由 mapper 事件/写路径收口，存量由迁移工具负责）。
+    只补数据不动结构，逐行 `UPDATE ... WHERE`，幂等可重复跑。判定与回填都在
+    **Python 侧**做（读全行 → 名录反查 → 逐行参数化 UPDATE），SQL 只有标准
+    SELECT/UPDATE，两种引擎通用，故本迁移**全引擎执行**——生产 user 域是
+    Postgres，存量空值/污染值不该因为引擎不同而留在库里（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，转入腿快照由 ORM 模型/迁移工具负责'
-
     tables = set(inspect(engine).get_table_names())
     if 'positions' not in tables:
         return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
@@ -1549,13 +1831,9 @@ def migrate_asset_major_category_current_to_cash(engine: Engine) -> str:
 
     - 幂等：重复执行影响 0 行；
     - 库表不存在 → 跳过；
-    - 非 SQLite 引擎（Supabase Postgres）→ 跳过，由对应引擎的迁移工具负责
-      （与本模块其余迁移同口径，不在启动路径上误跑 SQLite 专属 SQL）。
+    - 归一 SQL 是标准 ``UPDATE``（两种引擎通用），故**全引擎执行**——生产 user 域
+      是 Postgres，词表外值 'current' 在任何引擎上都读不到（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，数据归一由对应引擎的迁移工具负责'
-
     if 'assets' not in inspect(engine).get_table_names():
         return '[SKIP] assets 表不存在'
 
@@ -1574,30 +1852,812 @@ def migrate_fund_style_columns(engine: Engine) -> str:
     `equity_position` 同构——「明细是源、标量是派生，无源即不派生」，故存量行
     **故意留 NULL**（从未抓到风格箱的基金不冒充 '未知'）。
 
-    两列均可空：SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN；非 SQLite 引擎
-    由 ORM 模型 / 迁移工具负责，直接跳过。幂等：列已存在则跳过。
+    两列均可空：SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN；幂等：列已存在
+    则跳过。两种引擎都由本迁移负责（走 ``_add_columns_if_missing``，PG 用
+    ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres，本仓没有 Alembic、
+    ``create_all()`` 也不给存量表加列（#2534）。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
-
-    if 'funds' not in inspect(engine).get_table_names():
+    if not _table_exists(engine, 'funds'):
         return '[SKIP] funds 表不存在（空库，init_db 将按新模型建表）'
 
-    existing = {c['name'] for c in inspect(engine).get_columns('funds')}
     cols = [
         ('dominant_style', 'VARCHAR(20)'),
         ('style_period', 'VARCHAR(10)'),
     ]
-    added = []
-    with engine.connect() as conn:
-        for name, typ in cols:
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE funds ADD COLUMN {name} {typ}'))
-                added.append(name)
-        conn.commit()
-
+    added = _add_columns_if_missing(engine, 'funds', cols)
     if added:
         logger.info(f'[OK] funds 增加风格箱派生列: {added}（#2478）')
         return f'[OK] funds 增加风格箱派生列 {added}'
     return '[SKIP] funds 风格箱派生列已存在'
+
+
+def migrate_convertible_bond_enhanced_columns(engine: Engine) -> str:
+    """convertible_bond_terms 补条款增强两列（#1400 / #2575）。
+
+    新增 ``stock_pb``（正股市净率）/ ``ytm``（到期税前收益，自算）。
+
+    ## 为什么是「加列」而不是「建表」
+
+    `convertible_bond_terms` 已有存量行（约 300+ 只转债），本迁移**只加可空列**：
+    SQLite / libsql 支持对可空列直接 `ALTER TABLE ADD COLUMN`（无需整表重建），
+    PG 用 `ADD COLUMN IF NOT EXISTS`。两种引擎都由本迁移负责（走
+    ``_add_columns_if_missing``）——生产 user 域是 Postgres，本仓没有 Alembic、
+    ``create_all()`` 也不给存量表加列（#2534）。
+
+    ## 为什么不回填
+
+    两列都是**当期快照值**（PB / YTM 随行情与条款变动），存量行没有「当时的值」
+    可回填——回填等于用今天的数贴到历史行。故存量行保持 NULL，读侧降级为「—」，
+    由下次 `convertible_bond` 调度自然补齐。
+
+    幂等：列已存在则跳过，可重复跑。
+    """
+    if not _table_exists(engine, 'convertible_bond_terms'):
+        return '[SKIP] convertible_bond_terms 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('stock_pb', 'NUMERIC(10, 4)'),
+        ('ytm', 'NUMERIC(12, 4)'),
+    ]
+    added = _add_columns_if_missing(engine, 'convertible_bond_terms', cols)
+    if added:
+        logger.info(f'[OK] convertible_bond_terms 增加条款增强列: {added}（#2575）')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] convertible_bond_terms 条款增强列已存在'
+
+
+def migrate_fund_rating_columns(engine: Engine) -> str:
+    """funds 补晨星星级评级当期值三列（#1440）：morningstar_rating / _delta / _asof。
+
+    数据源为东财评级总汇页（fund.eastmoney.com/data/fundrating.html，akshare
+    `fund_rating_all` 同源），采**晨星 3 年期**星级。口径已双重坐实：
+    - 三家机构评级专页反证综合页字段顺序（招商 15576/15576、上海 382/382、
+      济安 46/46，pos14=晨星）；
+    - 晨星官方 MCP `getFundPerformance` 的 `starRatingDetails` 标注
+      `ratingPeriod: 36`，三只探针（000001/110011/161725）与 pos14 逐只一致。
+
+    存储为**当期值列**而非快照表（D1 拍板）：全仓无评级消费方即无历史需求，
+    delta 的含义在写入期已定格；升级路径 = 换 job 的 `_save_data`，解析层复用。
+
+    三列均可空：SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN；幂等：列已存在
+    则跳过。两种引擎都由本迁移负责（走 ``_add_columns_if_missing``，PG 用
+    ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres，本仓没有 Alembic、
+    ``create_all()`` 也不给存量表加列（#2534）。存量行留 NULL = 未采集，
+    job 首次跑后按 fund_code 覆盖写（同 scale 先例）。
+    """
+    if not _table_exists(engine, 'funds'):
+        return '[SKIP] funds 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('morningstar_rating', 'SMALLINT'),
+        ('morningstar_rating_delta', 'SMALLINT'),
+        ('morningstar_rating_asof', 'DATE'),
+    ]
+    added = _add_columns_if_missing(engine, 'funds', cols)
+    if added:
+        logger.info(f'[OK] funds 增加晨星星级评级列: {added}（#1440）')
+        return f'[OK] funds 增加晨星星级评级列 {added}'
+    return '[SKIP] funds 晨星星级评级列已存在'
+
+
+def migrate_transaction_fee_breakdown(engine: Engine) -> str:
+    """transactions 补费用拆分四列（#2137）：佣金 / 印花税 / 过户费等税费 / 其他费用。
+
+    ## 为什么需要
+
+    交割单（同花顺导出）本就带四列费用明细，解析器此前只能合并成聚合 ``fee``
+    落库——「这笔 15 元手续费里佣金/印花税/过户费各多少」无从回答。
+    四列让费用结构可记、可查、可按类别汇总。
+
+    ## 与聚合 fee 的关系（存量兼容策略）
+
+    ``fee`` 仍是唯一权威总额（已实现盈亏结转、卖出回款净额等口径都不动）；
+    四列全 NULL = 未拆分，是存量数据与未提供拆分的写入路径的默认态，
+    读取端按 ``fee`` 展示，**行为与迁移前完全一致**（不造错数、不改写历史）。
+
+    ## 加列方式（2026-10-23 修正：PG 也必须由本迁移负责）
+
+    四列均为**可空**列，两种引擎都能直接 ``ALTER TABLE ADD COLUMN``：
+    SQLite / libsql 无需整表重建，Postgres 用 ``IF NOT EXISTS`` 保证幂等
+    （见 ``_add_column_sql``）；列已存在则跳过。
+
+    ⚠️ **这里曾经对非 SQLite 引擎直接早退**（原文写「由 ORM 模型 / 迁移工具负责」），
+    而那前提在本仓**不成立**：
+
+    - 本仓没有 Alembic，迁移都是本文件里手写的函数；
+    - ``create_all()`` **只建缺失的表，不会给已有表加列**；
+    - 生产 user 域是 Supabase Postgres（手工建表，与模型不同步）。
+
+    三者叠加 ⇒ 四列在生产**永远加不上**，而 ``init_db()`` 末尾的 ``_validate_schema``
+    又会因「表 transactions 缺列」**拒绝启动** ⇒ 每日调度（#1490）死在 ``init_db()``，
+    一个 job 都跑不到。实测：schedule 运行 39848022855（2026-10-22T20:20:42Z）。
+    与 #2469（watchlist 三表补列）是同一类错——迁移写成 SQLite-only，本地全绿、生产必崩。
+
+    收尾有**自校验**：加列后四列必须都在，缺了直接抛错。迁移失败必须显性，
+    不能返回一个「看起来 OK」的字符串让调用方继续往下走。
+
+    ⚠️ 本迁移**只加列、不回填**：历史行的拆分事实已随合并丢失，唯一的总额
+    ``fee`` 无法反推四类各是多少——盲猜等于编数，宁空不猜。
+    """
+    if 'transactions' not in inspect(engine).get_table_names():
+        return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('commission', 'INTEGER'),
+        ('stamp_duty', 'INTEGER'),
+        ('transfer_fee', 'INTEGER'),
+        ('other_fee', 'INTEGER'),
+    ]
+    is_pg = _is_postgres(engine)
+    added = []
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('transactions')}
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(_add_column_sql('transactions', name, typ, is_pg)))
+                added.append(name)
+        conn.commit()
+
+    # 收尾自校验：缺列即抛错（PG 上若 DDL 被静默忽略，这里必须让调用方看到）
+    missing = [name for name, _ in cols if name not in {c['name'] for c in inspect(engine).get_columns('transactions')}]
+    if missing:
+        raise RuntimeError(
+            f'transactions 补费用拆分列失败，仍缺列: {missing}（引擎 {"Postgres" if is_pg else "SQLite"}）'
+        )
+
+    if added:
+        logger.info(f'[OK] transactions 增加费用拆分列: {added}（#2137，存量留 NULL=未拆分）')
+        return f'[OK] transactions 增加费用拆分列 {added}'
+    return '[SKIP] transactions 费用拆分四列已存在'
+
+
+def _backfill_transaction_asset_type(conn, engine: Engine) -> tuple[int, int]:
+    """按**确定性判据**回填 ``transactions.asset_type``，返回 (已回填行数, 无法判定行数)。
+
+    为什么必须先补 asset_type：``symbol_identity`` 靠 ``asset_type`` 判 venue（见
+    ``core/venues``）。``asset_type`` 为 NULL 时身份退化成 ``NO_VENUE:{字面量}``，
+    与持仓侧的 ``OTC:001937`` / ``EXCHANGE:SZ000638`` 永不相等 —— 于是同标的跨表
+    匹配必然落空。光加 ``symbol_norm`` 列而不补这一列，等于把坏身份写进新列。
+
+    判据按可靠性排序，**全部是查询事实，不做代码段推断**：
+
+    1. ``position_id`` 可关联到持仓 → 取 ``positions.type``（同一笔交易自己的持仓类型，
+       最强信号）；
+    2. 否则裸码在 ``funds`` 名录命中，**且**流水 ``position_name`` 快照与名录名一致
+       → 按 ``fund_types.name == '货币型'`` 判 ``money_fund`` / 其余 ``fund``。
+
+    第 2 条的「名称必须一致」不是多余的保险，是本卡最硬的一条：``000638`` 在场外基金是
+    「富国富钱包货币A」、在深市证券是「*ST万方」。只看代码段，无论判成哪边都会错一半；
+    而 ``position_name`` 是交易发生时的快照，它是唯一能区分「这串数字当时指谁」的字段。
+
+    判不出来的**保持 NULL 并计数返回**，由调用方告警 —— 宁可留空让审计暴露，也不猜。
+    """
+    from app.core.symbol_utils import strip_exchange_prefix
+
+    rows = conn.execute(
+        text('SELECT id, symbol, position_name, position_id FROM transactions WHERE asset_type IS NULL')
+    ).fetchall()
+    targets = [r for r in rows if (r[1] or '').strip()]
+    if not targets:
+        return 0, 0
+
+    pos_types: dict[int, str] = {}
+    if _table_exists(engine, 'positions'):
+        # 只取需要的那批 id，避免把整张持仓表读进内存（PG 上尤其）
+        for pid, ptype in conn.execute(text('SELECT id, type FROM positions')).fetchall():
+            if ptype:
+                pos_types[pid] = ptype
+
+    fund_names: dict[str, tuple[str, bool]] = {}
+    if _table_exists(engine, 'funds'):
+        # funds 主键即裸 6 位码；fund_type 名称取自 fund_types（'货币型' → money_fund）
+        for code, fname, tname in conn.execute(
+            text('SELECT f.fund_code, f.name, ft.name FROM funds f LEFT JOIN fund_types ft ON ft.id = f.fund_type_id')
+        ).fetchall():
+            fund_names[code] = (fname, tname == '货币型')
+
+    filled = 0
+    unresolved = 0
+    for tid, sym, name, pid in targets:
+        atype = pos_types.get(pid) if pid else None
+        if not atype:
+            code = strip_exchange_prefix(sym)
+            hit = fund_names.get(code)
+            if hit and name and hit[0] == name:
+                atype = 'money_fund' if hit[1] else 'fund'
+        if not atype:
+            unresolved += 1
+            continue
+        conn.execute(text('UPDATE transactions SET asset_type = :a WHERE id = :i'), {'a': atype, 'i': tid})
+        filled += 1
+    return filled, unresolved
+
+
+def migrate_transactions_symbol_norm(engine: Engine) -> str:
+    """transactions 补归一身份列 `symbol_norm` + 回填 `asset_type`（#1662 遗留项）。
+
+    ## 为什么流水表被漏掉了
+
+    #1662 的结论是「唯一约束挂在**身份**而非字面量」，实现（#1677 / PR #1680）只落在
+    `positions`：加 `symbol_norm` 列、`uq_positions_ledger_symbol_norm`、 mapper 事件回填。
+    `transactions` 当时没有同步 —— 而流水侧的读法普遍是
+    `Transaction.symbol == position.symbol`（**字面量等值**），一旦两侧形态不同就漏算。
+
+    本机实测（投资库 1512 条流水）：
+
+    - 持仓侧 `011341` / `016462` 已被 #1677 收敛成裸码，**流水侧仍是 `SZ011341` / `SZ016462`**；
+    - 同类污染共 51 条（`SZ000638`×24、`SZ001937`×13、`SZ003474`×11、`SZ011341`×2、`SZ016462`×1），
+      经 `funds` 名录逐条核对，全部是场外基金/货基被套上了深交所前缀；
+    - `asset_type` 为 NULL 且有 symbol 的流水 190 条，其中 153 条靠 position 关联、
+      37 条靠名录+名称一致，**无一需要推断**。
+
+    ## 为什么不改 `symbol` 字面量
+
+    `symbol` 是**交易发生时的快照**，改它等于改写历史。而且真正需要修的读侧匹配只要有一个
+    共同身份键即可 —— 改字面量是「把历史改成看起来对」，加列是「让读法对」。
+
+    ## 为什么不建唯一索引
+
+    `positions` 的场景是「同账户同标的只能有一行」，流水恰恰相反：同一标的天经地义有多笔。
+    唯一化会把第二笔买入打回。故本列仅作查询键，导入幂等仍由 `uq_txn_import_hash` 负责。
+    （`symbol` 上保留既有的 `idx_txn_symbol`，本列同样只加普通索引用不着 —— 查询走
+    `position_id` 或 `ledger_id` 组合已有索引，故不新增索引，避免无用的写入放大。）
+
+    幂等：列已存在则跳过加列；`asset_type` / `symbol_norm` 均只补空值，二次运行 `[SKIP]`。
+    """
+    if not _table_exists(engine, 'transactions'):
+        return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
+
+    from app.core.symbol_utils import symbol_identity
+
+    is_pg = _is_postgres(engine)
+    actions: list[str] = []
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('transactions')}
+        if 'symbol_norm' not in existing:
+            # NOT NULL 带常量默认值，两种引擎都能直接 ADD COLUMN；空串只是过渡态，
+            # 紧随其后的回填会逐行写真实身份。
+            conn.execute(text(_add_column_sql('transactions', 'symbol_norm', "VARCHAR(64) NOT NULL DEFAULT ''", is_pg)))
+            actions.append('加列 symbol_norm')
+        conn.commit()
+
+        # 先补 asset_type —— 它是 symbol_identity 判 venue 的唯一依据，顺序不能反。
+        filled, unresolved = _backfill_transaction_asset_type(conn, engine)
+        if filled:
+            actions.append(f'回填 asset_type {filled} 行')
+        conn.commit()
+
+        rows = conn.execute(text('SELECT id, symbol, asset_type, symbol_norm FROM transactions')).fetchall()
+        # 比对**期望值**而非「是否为空」：symbol 为 NULL 的现金流水期望值就是 ''（列默认值），
+        # 按空值判断会让这 551 行每次都被重算一遍、迁移永远报「回填 551 行」而不幂等。
+        pending = []
+        for rid, sym, atype, norm in rows:
+            expected = symbol_identity(sym, atype)
+            if (norm or '') != expected:
+                pending.append((rid, expected))
+        for rid, expected in pending:
+            conn.execute(
+                text('UPDATE transactions SET symbol_norm = :n WHERE id = :i'),
+                {'n': expected, 'i': rid},
+            )
+        if pending:
+            actions.append(f'回填 symbol_norm {len(pending)} 行')
+        conn.commit()
+
+    if unresolved:
+        # 不抛错阻断启动（流水不像持仓那样有唯一约束要建），但必须出声：
+        # 这些行的 symbol_norm 是 NO_VENUE 降级形态，读侧匹配仍会漏。
+        logger.warning(
+            f'[WARN] transactions.asset_type 有 {unresolved} 行无法按确定性判据回填，'
+            '其 symbol_norm 为 NO_VENUE 降级形态（读侧跨表匹配会漏算），需人工确认'
+        )
+
+    if actions:
+        logger.info(f'[OK] transactions.symbol_norm 迁移完成：{"、".join(actions)}')
+        return f'[OK] {"、".join(actions)}' + (f'；{unresolved} 行 asset_type 待人工确认' if unresolved else '')
+    return '[SKIP] transactions.symbol_norm 列与回填均已就绪'
+
+
+def migrate_transaction_symbol_from_position(engine: Engine) -> str:
+    """回填挂了持仓却缺 ``symbol`` 的流水（#2855）：以 position_id 指向的持仓为准。
+
+    ## 为什么需要
+
+    卖出 / 分红 / 拆分的写路径曾经直接写 ``symbol=data.get('symbol')``——请求体
+    漏带该字段（旧版卖出表单、AI 识别等入口）就落 NULL。危害在读侧静默：
+
+    - 产品详情「交易记录」按 symbol 身份匹配（`symbol_scope`）⇒ 这些行永远不命中；
+    - 清仓周期按 ``strip_exchange_prefix(symbol)`` 分组 ⇒ 缺 symbol 的卖出被跳过，
+      FIFO 队列永远不清空，周期闭不上——已清仓产品于是「有买无卖」（#2855 实测：
+      SZ002311 三笔卖出 position_id 全对、symbol 全 NULL，详情页看不到任何一笔卖出）。
+
+    ## 真源与边界
+
+    - **position_id 非空且持仓行存在** ⇒ 持仓的 ``symbol`` 就是真源（写入侧新兜底
+      `data.get('symbol') or existing.symbol` 的存量对应物），连同 ``symbol_norm``
+      按 ``symbol_identity(pos.symbol, t.asset_type)`` 重算——mapper 事件只管 ORM
+      写入，迁移走裸 SQL 必须自己算（同 ``migrate_transactions_symbol_norm``）。
+    - **position_id 悬空（持仓行已删）或为 NULL** ⇒ **不动**。历史持仓删除后没有
+      任何确定性真源，按 ``position_name`` 模糊匹配等于猜身份，猜错比缺更危险；
+      这些行保持 NULL 并打 WARNING 留痕（真实库 2026-11 实测：450 笔缺 symbol 的
+      卖出里 260 笔悬空）。
+
+    幂等：只碰 ``symbol IS NULL OR symbol = ''`` 的行，回填后非空，二次运行 `[SKIP]`。
+    """
+    if not _table_exists(engine, 'transactions') or not _table_exists(engine, 'positions'):
+        return '[SKIP] transactions / positions 表不存在（空库，init_db 将按新模型建表）'
+
+    from app.core.symbol_utils import symbol_identity
+
+    actions: list[str] = []
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT t.id, p.symbol AS pos_symbol, t.asset_type
+                FROM transactions t
+                JOIN positions p ON p.id = t.position_id
+                WHERE (t.symbol IS NULL OR t.symbol = '')
+                  AND p.symbol IS NOT NULL AND p.symbol != ''
+                """
+            )
+        ).fetchall()
+        for rid, pos_symbol, atype in rows:
+            conn.execute(
+                text('UPDATE transactions SET symbol = :s, symbol_norm = :n WHERE id = :i'),
+                {'s': pos_symbol, 'n': symbol_identity(pos_symbol, atype), 'i': rid},
+            )
+        if rows:
+            actions.append(f'按持仓回填 symbol {len(rows)} 行')
+        conn.commit()
+
+        dangling = conn.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM transactions t
+                LEFT JOIN positions p ON p.id = t.position_id
+                WHERE (t.symbol IS NULL OR t.symbol = '')
+                  AND (t.position_id IS NULL OR p.id IS NULL)
+                  AND t.type IN ('sell', 'dividend', 'dividend_cash', 'split', 'bond_redeem')
+                """
+            )
+        ).scalar()
+        conn.commit()
+
+    if dangling:
+        logger.warning(
+            f'[WARN] 另有 {dangling} 笔卖出/分红类流水缺 symbol 且持仓行缺失或未挂载，'
+            '无确定性真源、保持原样（不按名称猜）；如需修复请人工确认后补录'
+        )
+
+    if actions:
+        logger.info(f'[OK] transactions.symbol 回填迁移完成：{"、".join(actions)}')
+        return f'[OK] {"、".join(actions)}'
+    return '[SKIP] 缺 symbol 的挂仓流水均已就绪'
+
+
+def migrate_transaction_plan_id(engine: Engine) -> str:
+    """transactions 补 ``plan_id``（#2138）：把一笔买入归到产生它的定投计划。
+
+    ## 为什么需要
+
+    定投计划与流水的关联只能落在流水侧（计划可停用/删除，历史流水必须保留），
+    否则「累计投入 / 已执行几期」只能靠日期区间猜——补录一笔同标的的手动买入
+    就会被误算成计划执行。加一列显式引用，口径才有唯一答案。
+
+    ## 方言（#2534 的纪律）
+
+    走 ``_add_columns_if_missing`` 单一通道：SQLite / libsql 直接加列，
+    Postgres 用 ``ADD COLUMN IF NOT EXISTS``，幂等且收尾自校验。
+    **不写「非 SQLite 就跳过」**——生产 user 域就是 Postgres，
+    跳过等于让 ``_validate_schema`` 在下次启动时拒绝启动（#2469 / #2532 同形态）。
+
+    索引同步补（模型声明 ``index=True``）：``create_all`` 只建缺失的表，
+    不给存量表建索引，故这里按名幂等补 ``ix_transactions_plan_id``。
+
+    只加列不回填：历史流水是否由定投产生已不可考，NULL = 非定投（正确语义）。
+    """
+    if not _table_exists(engine, 'transactions'):
+        return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
+    added = _add_columns_if_missing(engine, 'transactions', [('plan_id', 'INTEGER')])
+    indexed = _ensure_index(
+        engine,
+        'ix_transactions_plan_id',
+        'CREATE INDEX IF NOT EXISTS ix_transactions_plan_id ON transactions (plan_id)',
+        table='transactions',
+    )
+    if added or indexed:
+        logger.info(f'[OK] transactions 增加定投计划关联列/索引（#2138）：added={added} indexed={indexed}')
+        return f'[OK] transactions 增加 plan_id={added} indexed={indexed}'
+    return '[SKIP] transactions.plan_id 与索引已存在'
+
+
+# ── #1173 家庭成员档案（family_members）+ 账户归属列 ──────────────────────────
+# 刻意**不** import ``app.domains.families.models``：core 层不得依赖 domains 层
+# （`tests/core/test_layer_direction.py` R1 守卫：core → 上层一律违规）。
+# 代价是表结构可能随模型漂移，故迁移末尾**自校验**两件事：
+# 表是否真的建出来、账户的归属列是否真的在（`_validate_schema` 只查
+# 「模型有列而库没列」，查不出「库多列」与「少表」）。
+#
+# DDL 逐列对齐模型：``family_members`` 的列类型与
+# ``app/domains/families/models.py`` 的 ``FamilyMember`` 一一对应。
+_FAMILY_MEMBERS_DDL = """
+CREATE TABLE IF NOT EXISTS family_members (
+    id INTEGER NOT NULL,
+    family_id INTEGER NOT NULL DEFAULT 1,
+    name VARCHAR(50) NOT NULL,
+    role VARCHAR(20) DEFAULT 'other',
+    user_id INTEGER,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+    updated_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+    PRIMARY KEY (id)
+)
+"""
+_FAMILY_MEMBERS_INDEXES = (
+    'CREATE INDEX IF NOT EXISTS ix_family_members_family_id ON family_members (family_id)',
+    'CREATE INDEX IF NOT EXISTS ix_ledgers_owner_member_id ON ledgers (owner_member_id)',
+)
+
+
+def migrate_family_members_ownership(engine: Engine) -> str:
+    """建 ``family_members`` 表 + 给 ``ledgers`` 补 ``owner_member_id`` 列（#1173）。
+
+    ## 为什么需要
+
+    账户（``ledgers``）此前无法归属到具体家庭成员——多账户只能靠起名
+    「老婆的招行」区分，系统层面无法按人切片 / 汇总 / 看走势。定位级缺口：
+    产品主打家庭资产管理，而「谁的钱」这一维度缺失。
+
+    ## 为什么成员档案独立成表（而不是复用 ``users``）
+
+    - ``users`` 是**登录账号**：``supabase_id`` 唯一非空，成员很可能没有 App 账号，
+      硬塞就得造一个假 supabase_id；
+    - ``users.role``（admin/member/viewer）是**权限角色**，
+      「谁能改账本」与「这笔钱是谁的」是两件事，复用会让「角色」一词两义。
+
+    故成员档案另立 ``family_members``，``user_id`` 可空（纯档案成员无账号）、
+    **不加外键**（SQLite 的 ``ALTER TABLE ADD COLUMN`` 不支持带约束的列定义，
+    存量表加不上 FK；本文件亦无存量表加 FK 先例）。
+
+    ## 加列而不回填
+
+    ``owner_member_id`` 是**当期归属事实**：历史账户归属谁不可考（多数本就是
+    家庭共有），回填等于编造归属。保持 NULL = 「未归属/家庭共有」，
+    与 UI 上「不选成员即共有」一致。
+
+    幂等：表/列已存在则跳过。两种引擎都由本迁移负责（PG 用
+    ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres。
+    """
+    if not _table_exists(engine, 'ledgers'):
+        return '[SKIP] ledgers 表不存在（空库，init_db 将按新模型建表）'
+
+    is_pg = _is_postgres(engine)
+    notes: List[str] = []
+
+    # 1. 建 family_members 表（表不存在才建）
+    if 'family_members' not in set(inspect(engine).get_table_names()):
+        with engine.connect() as conn:
+            conn.execute(text(_FAMILY_MEMBERS_DDL))
+            conn.commit()
+        notes.append('family_members 表已建')
+    else:
+        notes.append('family_members 表已存在')
+
+    # 2. ledgers 补归属列（走唯一允许的加列通道）
+    added = _add_columns_if_missing(engine, 'ledgers', [('owner_member_id', 'INTEGER')])
+    if added:
+        notes.append(f'ledgers 新增列 {added}（存量留 NULL=未归属/家庭共有）')
+    else:
+        notes.append('ledgers.owner_member_id 已存在')
+
+    # 3. 索引（owner_member_id 是筛选热路径）
+    for ddl in _FAMILY_MEMBERS_INDEXES:
+        with engine.connect() as conn:
+            conn.execute(text(ddl))
+            conn.commit()
+
+    # 收尾自校验：表与列都要真的在（PG 上 DDL 若被静默忽略，这里必须让调用方看到）
+    names = set(inspect(engine).get_table_names())
+    if 'family_members' not in names:
+        raise RuntimeError(f'family_members 建表失败（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
+    ledger_cols = {c['name'] for c in inspect(engine).get_columns('ledgers')}
+    if 'owner_member_id' not in ledger_cols:
+        raise RuntimeError(f'ledgers 补 owner_member_id 失败（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
+
+    logger.info(f'[OK] #1173 家庭成员档案与账户归属：{"；".join(notes)}')
+    return '[OK] ' + '；'.join(notes)
+
+
+# ── pnl_daily_snapshots.net_worth_cents 解除 NOT NULL（#2733 C）─────────────
+#
+# 旧结构把「净资产」定成 NOT NULL，于是「当天有持仓、但一笔都取不到价」只能写 0
+# ——与「账户真归零」在库里长得一模一样。净值曲线因此掉到地板再弹回，读数上根本
+# 分不清是数据缺口还是计算 bug（实测 2025-10-08 −8,458.78，次日 +8,870.50）。
+# 口径改法是：缺输入记 NULL，真无持仓才记 0。列表里已有 `daily_pnl_cents` /
+# `rate_bp` 两列用 NULL 表达「算不出来」，本条只是把这套语义补齐到第三条。
+#
+# 两种引擎都得改：SQLite 不支持 ALTER 改约束（走重建），PG 用 ALTER COLUMN。
+
+
+def _sqlite_drop_not_null(table: str, column: str, engine: Engine) -> str:
+    """SQLite：把 ``table.column`` 的 NOT NULL 去掉（标准重建流程，幂等）。
+
+    从 ``sqlite_master`` 取现表 DDL，只改目标列那一段（不手写整张表的列清单——
+    模型以后加减列不会让这个迁移变成「按旧结构重建」的定时炸弹），然后
+    建新表 → 拷贝 → 删旧 → 改名 → 重建索引。
+    """
+    with engine.connect() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:t"), {'t': table}).scalar()
+        if ddl is None:
+            return f'[SKIP] {table} 表不存在（空库，create_all 将按新模型建表）'
+        index_sql = [
+            r[0]
+            for r in conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL AND tbl_name=:t"),
+                {'t': table},
+            )
+        ]
+        if not re.search(rf'\b{column}\b', ddl):
+            raise RuntimeError(f'{table} 的 DDL 里没有 {column} 列，迁移失败：\n{ddl}')
+
+        new_ddl = re.sub(
+            rf'(\b{column}\b\s+[A-Z]+)\s+NOT\s+NULL',
+            r'\1',
+            ddl,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if new_ddl == ddl:
+            # 已经是可空（模型改过之后重建过的库）或 DDL 形态出乎意料，交给上层判定
+            return f'[SKIP] {table}.{column} 在 DDL 中已无 NOT NULL'
+        new_ddl = re.sub(
+            rf'CREATE TABLE\s+"?{table}"?',
+            f'CREATE TABLE {table}_new',
+            new_ddl,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if f'CREATE TABLE {table}_new' not in new_ddl:
+            raise RuntimeError(f'{table} 重建 DDL 拼装失败：\n{ddl}')
+
+        cols = [c['name'] for c in inspect(engine).get_columns(table)]
+        col_list = ', '.join(cols)
+        conn.execute(text('PRAGMA foreign_keys=OFF'))
+        conn.execute(text(new_ddl))
+        conn.execute(text(f'INSERT INTO {table}_new ({col_list}) SELECT {col_list} FROM {table}'))
+        conn.execute(text(f'DROP TABLE {table}'))
+        conn.execute(text(f'ALTER TABLE {table}_new RENAME TO {table}'))
+        # DROP TABLE 会带走索引 ⇒ 按原 DDL 重建（写在改名之后，表名不用改写）
+        for sql in index_sql:
+            conn.execute(text(sql))
+        conn.commit()
+    return f'[OK] {table}.{column} 已解除 NOT NULL（SQLite 重建）'
+
+
+def migrate_pnl_snapshot_net_worth_nullable(engine: Engine) -> str:
+    """`pnl_daily_snapshots.net_worth_cents` 允许 NULL（#2733 C）。
+
+    语义：**有持仓、但当天一笔都取不到价 ⇒ NULL**（缺输入）；**当天没有持仓
+    ⇒ 0**（真值）。这两件事此前都落成 0，净值曲线上的「假归零」因此无法与
+    「账户真的清空」区分。
+
+    幂等：列已可空即跳过（`inspect` 反射的可空性，与 DDL 文本无关）。
+    """
+    table, column = 'pnl_daily_snapshots', 'net_worth_cents'
+    if not _table_exists(engine, table):
+        return f'[SKIP] {table} 表不存在（空库，create_all 将按新模型建表）'
+    cols = {c['name']: c for c in inspect(engine).get_columns(table)}
+    if column not in cols:
+        raise RuntimeError(f'{table} 缺列 {column}，迁移失败')
+    if cols[column]['nullable']:
+        return f'[SKIP] {table}.{column} 已是可空'
+
+    is_pg = _is_postgres(engine)
+    if is_pg:
+        with engine.connect() as conn:
+            conn.execute(text(f'ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL'))
+            conn.commit()
+    else:
+        note = _sqlite_drop_not_null(table, column, engine)
+        if note.startswith('[SKIP]'):
+            # DDL 里没有 NOT NULL 但反射说不可空 ⇒ 两种判据打架，不能静默继续
+            raise RuntimeError(f'{table}.{column} 可空性判定冲突：{note}')
+
+    # 收尾自校验：反射必须真的变成可空（DDL 被静默忽略时不让它蒙混过关）
+    after = {c['name']: c for c in inspect(engine).get_columns(table)}
+    if not after[column]['nullable']:
+        raise RuntimeError(f'{table}.{column} 仍为 NOT NULL（引擎 {"Postgres" if is_pg else "SQLite"}），迁移失败')
+    logger.info(f'[OK] #2733 C {table}.{column} 已允许 NULL（{after[column].get("type", "?")}）')
+    return f'[OK] {table}.{column} 已允许 NULL'
+
+
+# ── 组合名唯一：部分唯一索引 + 存量重名去冲突（2026-10-30）───────────────────
+#
+# 问题：`portfolios` 自建表以来**没有任何唯一约束**，`POST /api/portfolios/` 也不查重，
+# 于是同一家庭下可以存在两个「养老计划」。列表卡片的主标题就是这个 name —— 两个一模
+# 一样的标题等于让用户在两个同名对象间猜。
+#
+# 用**部分**唯一索引而不是普通唯一索引：组合是软删除（`is_deleted`），已删除的名字
+# 应当能重新使用；普通唯一索引会让「删了也建不回来」，比不放索引更糟。
+#
+# 索引键是**表达式** `lower(trim(name))`，与应用层判据（portfolio_service.
+# assert_portfolio_name_available）同口径：大小写、首尾空白都不构成新名字。
+# 两者不能只留一个——应用层给用户一句能看懂的 409，索引层挡并发与旁路写入（导入脚本）。
+_PORTFOLIO_NAME_INDEX = 'uq_portfolios_family_name_alive'
+#: 组合名列宽（与 models.Portfolio.name 的 String(100) 对齐，去重命名时不能超）
+_PORTFOLIO_NAME_MAX = 100
+
+
+def _portfolios_alive_predicate(is_pg: bool) -> str:
+    """「未删除」的 SQL 谓词。PG 的 boolean 不接受 ``= 0``，故按方言给字面量。"""
+    return 'is_deleted = FALSE' if is_pg else 'is_deleted = 0'
+
+
+def _normalize_portfolio_names(conn, is_pg: bool) -> List[str]:
+    """把存量组合名折叠掉多余空白（``'养老  计划'`` → ``'养老 计划'``），返回改动清单。
+
+    为什么必须先做这一步：索引键与应用层判据都只能是 ``lower(trim(name))``——SQL 里
+    没有跨方言的「折叠内部连续空白」。存量行若带着双空格，它既躲过索引、也躲过应用层
+    校验（用户输入会被折叠成单空格，两边就差这一个空格）。把存量行归一化之后，
+    「库里的名字都是归一形态」成为不变量，两侧判据才真正等价。
+
+    只动空白，不动语义；软删除行不处理（它们不进索引，也永远不会被展示）。
+    """
+    rows = conn.execute(text(f'SELECT id, name FROM portfolios WHERE {_portfolios_alive_predicate(is_pg)}')).fetchall()
+    changes: List[str] = []
+    for row_id, name in rows:
+        normalized = ' '.join((name or '').split())
+        if normalized and normalized != name:
+            conn.execute(text('UPDATE portfolios SET name = :n WHERE id = :i'), {'n': normalized, 'i': row_id})
+            changes.append(f'id={row_id}: 「{name}」→「{normalized}」（空白归一）')
+    return changes
+
+
+def _dedupe_portfolio_names(conn, is_pg: bool) -> List[str]:
+    """把存量重名的组合改成「原名（2）」「原名（3）」…，返回改动清单（供日志）。
+
+    为什么是重命名而不是删行：组合底下挂着账户与持仓归属，删一条等于丢用户数据；
+    重命名保留两者，且**最早**建的那条保留原名（``ORDER BY id``），后建的加序号。
+    为什么不 fail closed：重名是本次要修的历史数据，若启动即拒绝，用户连进页面改名的
+    机会都没有（对比 fee 三表：那里重复行是计算冗余，删掉无损，故可以 fail closed）。
+
+    调用前必须先跑 :func:`_normalize_portfolio_names`，否则 ``lower(trim())`` 分组
+    与用户看到的「同名」不完全一致。
+    """
+    alive = _portfolios_alive_predicate(is_pg)
+    rows = conn.execute(
+        text(f'SELECT id, family_id, name FROM portfolios WHERE {alive} ORDER BY family_id, lower(trim(name)), id')
+    ).fetchall()
+
+    taken = {(row[1], (row[2] or '').strip().lower()) for row in rows}
+    seen: set = set()
+    changes: List[str] = []
+    for row_id, family_id, name in rows:
+        key = (family_id, (name or '').strip().lower())
+        if key not in seen:
+            seen.add(key)
+            continue
+        base = (name or '').strip() or '组合'
+        suffix_no = 2
+        while True:
+            suffix = f'（{suffix_no}）'
+            candidate = f'{base[: _PORTFOLIO_NAME_MAX - len(suffix)]}{suffix}'
+            candidate_key = (family_id, candidate.lower())
+            if candidate_key not in taken:
+                break
+            suffix_no += 1
+        conn.execute(text('UPDATE portfolios SET name = :n WHERE id = :i'), {'n': candidate, 'i': row_id})
+        taken.add(candidate_key)
+        changes.append(f'id={row_id} family={family_id}: 「{name}」→「{candidate}」（重名）')
+    return changes
+
+
+def migrate_portfolios_unique_name(engine: Engine) -> str:
+    """给 ``portfolios`` 建「家庭内未删除组合名唯一」的部分唯一索引（幂等）。
+
+    SQLite 与 PG 都支持表达式 + 部分索引，DDL 只差布尔字面量（见
+    :func:`_portfolios_alive_predicate`），故不按方言分支整个函数——与
+    ``guard_migrations_pg_aware`` 的要求一致：两侧都真的执行，不是「非 SQLite 就跳过」。
+
+    步骤：① 存量名空白归一 → ② 重名加序号 → ③ 建部分唯一索引（已存在则跳过）。
+    幂等：跑第二遍时 ①② 无改动、③ 按名判定已存在。
+    """
+    if not _table_exists(engine, 'portfolios'):
+        return '[SKIP] portfolios 表不存在（空库，create_all 将按新模型建表）'
+
+    is_pg = _is_postgres(engine)
+    with engine.connect() as conn:
+        normalization = _normalize_portfolio_names(conn, is_pg)
+        renames = _dedupe_portfolio_names(conn, is_pg)
+        conn.commit()
+    for line in normalization + renames:
+        # 改了用户数据的名字就必须留痕：这条日志是「为什么我的组合名多了个（2）」的唯一答案
+        logger.warning(f'[MIGRATE] 组合名规整：{line}')
+
+    ddl = (
+        f'CREATE UNIQUE INDEX IF NOT EXISTS {_PORTFOLIO_NAME_INDEX} '
+        f'ON portfolios (family_id, lower(trim(name))) '
+        f'WHERE {_portfolios_alive_predicate(is_pg)}'
+    )
+    created = _ensure_index(engine, _PORTFOLIO_NAME_INDEX, ddl, table='portfolios')
+    head = '已重建' if created else '已存在'
+    touched = len(normalization) + len(renames)
+    if touched:
+        return f'[OK] 组合名唯一索引{head}，存量规整 {len(normalization)} 条、重名改名 {len(renames)} 条'
+    return f'[OK] 组合名唯一索引{head}，无存量重名'
+
+
+# ── user 域 users.username 大小写不敏感唯一（#2764）─────────────────────────────
+#
+# 登录标识 username 此前只靠应用层判重（`update_me` 的 409），且**判重区分大小写**，
+# 而登录解析 `resolve_identifier` 却按 `lower(username)` 匹配、取 id 最小那条：
+#
+#   users: id=5 'devyao' / id=2 'Devyao'   → 输入 'devyao' 解析到 id=2 的邮箱
+#
+# 于是「后注册的人把先注册的人顶掉」——原主用用户名登不进去（密码对不上别人的邮箱）。
+# `provision`（JIT 建号）又是第三条写入路径，它根本不判重。
+#
+# 唯一性必须下沉到库：应用层判重只是给人看的提示，唯一索引才是兜底。索引是
+# `lower(username)` 表达式索引（不是列级 unique）——SQLite 与 PG 都支持，
+# 且 `username` 可空，两边都允许多个 NULL，不影响种子/测试用户。
+#
+# **存量重名时 fail closed（不自动改名）**：组合名重名可以自动加「（2）」（那只是展示名），
+# 用户名是**登录标识**，静默改名等于替用户换了一把钥匙且不告诉他。故这里直接拒绝启动，
+# 把重名清单与修复方式打出来，由人来决定留哪个。
+
+_USERS_USERNAME_INDEX = 'uq_users_username_lower'
+
+
+def migrate_users_username_unique_lower(engine: Engine) -> str:
+    """给 ``users.username`` 建大小写不敏感唯一索引（幂等，SQLite / PG 同一条 DDL）。
+
+    步骤：① 查存量重名（按 ``lower(username)`` 分组）→ 有则显式抛错并给出清单；
+    ② ``CREATE UNIQUE INDEX IF NOT EXISTS ... ON users (lower(username))``。
+
+    判据（为什么是「抛错」而不是「跳过建索引」）：跳过等于把「同一用户名指向两个账号」
+    这个事实留在库里继续生效——登录会解析到 id 最小那条，另一人永远登不进去，
+    而日志里什么都不会说。宁可不启动。
+    """
+    if not _table_exists(engine, 'users'):
+        return '[SKIP] users 表不存在（空库，init_db 将按新模型建表）'
+
+    with engine.connect() as conn:
+        dup_names = (
+            conn.execute(
+                text(
+                    'SELECT lower(username) AS name FROM users '
+                    'WHERE username IS NOT NULL '
+                    'GROUP BY lower(username) HAVING COUNT(*) > 1 '
+                    'ORDER BY lower(username)'
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if dup_names:
+            detail = []
+            for name in dup_names:
+                ids = (
+                    conn.execute(
+                        text('SELECT id FROM users WHERE lower(username) = :name ORDER BY id'),
+                        {'name': name},
+                    )
+                    .scalars()
+                    .all()
+                )
+                detail.append(f'  - {name}：users.id = {list(ids)}')
+            raise RuntimeError(
+                'users.username 存在大小写不敏感的重名，无法建立唯一索引（#2764）。\n'
+                '登录解析按 lower(username) 匹配并取 id 最小那条，重名会让其中一人'
+                '永远无法用用户名登录。请先决定保留哪一个，把其余改成别的用户名'
+                '（个人中心改用户名，或直接 UPDATE users SET username=... WHERE id=...），'
+                '然后重启。当前重名：\n' + '\n'.join(detail)
+            )
+
+    ddl = f'CREATE UNIQUE INDEX IF NOT EXISTS {_USERS_USERNAME_INDEX} ON users (lower(username))'
+    created = _ensure_index(engine, _USERS_USERNAME_INDEX, ddl, table='users')
+    if created:
+        logger.info('[OK] users.username 大小写不敏感唯一索引已建立（#2764）')
+        return '[OK] 新建唯一索引 uq_users_username_lower'
+    return '[SKIP] 唯一索引 uq_users_username_lower 已存在'

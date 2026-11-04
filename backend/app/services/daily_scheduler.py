@@ -106,6 +106,8 @@ ENV_INDEX_DAILY_ENABLED = 'SCHEDULER_INDEX_DAILY_ENABLED'
 ENV_INDEX_DAILY_CRON = 'SCHEDULER_INDEX_DAILY_CRON'
 ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
 ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
+ENV_ADVISOR_NAV_ENABLED = 'SCHEDULER_ADVISOR_NAV_ENABLED'
+ENV_ADVISOR_NAV_CRON = 'SCHEDULER_ADVISOR_NAV_CRON'
 ENV_FUND_HOLDING_ENABLED = 'SCHEDULER_FUND_HOLDING_ENABLED'
 ENV_FUND_HOLDING_CRON = 'SCHEDULER_FUND_HOLDING_CRON'
 ENV_FUND_STYLE_ENABLED = 'SCHEDULER_FUND_STYLE_ENABLED'
@@ -178,8 +180,13 @@ DEFAULT_POSITION_PRICE_CRON = '15 22 * * *'
 # 与两者都无依赖关系，只是错开 DB 会话与外部请求窗口（同一出口同时打两路易成突发指纹）。
 DEFAULT_INDEX_DAILY_CRON = '0 18 * * *'
 # 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
-# 排在净值前会用到前一日口径。这也是且慢调仓历史的**唯一**来源（无官方历史接口）。
+# 排在净值前会用到前一日口径。且慢官方调仓（`/alfa/v1/graphql`）由本 job 一并抓，
+# 快照推导只作为计划型组合（`LONG_WIN` 等）的降级路径。
 DEFAULT_ADVISOR_CRON = '0 22 * * *'
+# 投顾组合净值序列：排在投顾快照之后（22:30）。两者都用且慢 MCP，错开半小时既避开
+# 同一时段的会话/限流窗口，也保证序列里已包含当日净值（组合净值 T+1 发布，
+# 若当日尚未发布，本 job 拉到的是上一交易日，属正常）。
+DEFAULT_ADVISOR_NAV_CRON = '30 22 * * *'
 # 基金持仓明细 + 行业配置（#870）：**每周一次，不进每日**。
 # 持仓是季报数据，日变更量恒为 0——每日跑 133 只 × 2 次请求纯属浪费外部请求，
 # 还叠加东财限流风险（#1403 的原始形态）。选周一 23:00：排在净值（21:30）与投顾
@@ -378,7 +385,20 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         ENV_ADVISOR_CRON,
         DEFAULT_ADVISOR_CRON,
         None,
-        '投顾组合持仓 / 调仓快照（且慢 + 天天；且慢无历史调仓接口，快照序列是唯一来源）',
+        '投顾组合概览 / 持仓快照 / 官方调仓（且慢 + 天天；且慢计划型组合降级为快照推导）',
+    ),
+    (
+        # 投顾组合净值序列（详情页走势图）。target_kind=None 同 advisor_portfolio：
+        # 目标池是「组合代码」，resolve_targets() 只产 fund/stock 两类，套上去只会拿到空。
+        # 目标池由 job 自解析为**用户触达**的组合（自选 ∪ 持仓），不是库内全量 114 只
+        # ——后者是数据策略 §4.3.3 明令禁止的静默退化。
+        # 首个查看某组合时走 advisor_nav.ensure_series 按需补拉，故本 job 缺席也不影响首屏。
+        'advisor_portfolio_nav',
+        ENV_ADVISOR_NAV_ENABLED,
+        ENV_ADVISOR_NAV_CRON,
+        DEFAULT_ADVISOR_NAV_CRON,
+        None,
+        '投顾组合净值序列（详情页走势图底数；且慢 MCP GetPortfolioNavHistory）',
     ),
     (
         # 基金持仓明细 + 行业配置（#870）。#1983 起 target_kind=('fund', 'etf')：
@@ -498,6 +518,18 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
 # 每天打上游，风险远大于收益。
 _NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
     # job 名 → (为什么不进每日调度, 建议的真实频率)
+    # #2494：乖离率（31 个申万一级 + 6 个宽基，固定清单）**只注册、不调度**。
+    # 它的数据其实「日变 + 用户直接可见」（探市行业/赛道排行读的就是它），但
+    # 日常那一次已经由 TemperatureJob._fetch_data **内联**跑完（thermometer/jobs.py）。
+    # 若这里再挂进 _JOB_TEMPLATES，同一天会算**两遍**——每遍 37 次外部请求 × 3s 限速，
+    # 而两遍都会成功、日志全绿，只有上游请求数翻倍能看出来。
+    # 要把它变成独立调度，前置动作是「摘掉 temperature 的内联调用 + 切换探市读库来源」，
+    # 那属另一张卡；在那之前本条目就是**如实登记**，不是绕过守门。
+    'bias': (
+        '日常由 TemperatureJob._fetch_data 内联计算一次（37 个固定品种）；'
+        '再进调度会同一天算两遍，需先摘内联调用才谈调度（#2494）',
+        '随 temperature（20:00 内联）/ 手动补跑',
+    ),
     'stock_list': ('全库列表型：单次调用即换全市场股票列表，日变更量极小', '月度 / 手动'),
     'fund_list': ('全库列表型：同上；且东财/天天源对全库频抓敏感（限流）', '月度 / 手动'),
     'fund_detail_enrich': ('逐只详情（基金经理/费率/持仓等），成本高、日变更量小', '月度'),
@@ -508,6 +540,11 @@ _NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
     'manager_tenure': ('逐只基金抓 F10 经理任期（每只一次 HTTP），且季报级才变', '季度 / 手动（按目标池）'),
     'fund_company_backfill': ('基金公司主数据回填；覆盖率演进慢，且与 #1386 遗留同源', '月度'),
     'fund_scale': ('全库规模单次换全市场（__full__）；逐只抓是限流炸弹（#1403）', '季度 / 手动'),
+    # #1440：全市场晨星星级评级。东财评级总汇页单次 HTTP 即全市场（3.1MB / 18,568 只），
+    # 但**晨星评级本身按月调整**（季度生效、官方 lastUpdate 约 10 天一次），
+    # 日跑 99.9% 的行无变化——只满足「用户看得见」不满足「日变」，按 #1934 判据留本表。
+    # 已登记进 orchestrator.WEEKLY_JOBS，由 CI 周频门控兜底（周频足够覆盖月更）。
+    'fund_rating': ('晨星评级按月调整（日跑无变化）；单次 HTTP 即全市场，周频足够', '周频 CI / 手动'),
     'fund_type': ('基金分类映射，日变更量极小', '月度'),
     'index_constituents': ('指数成分股，季报级调整', '季度'),
     'index_catalog': ('指数名录（基准/跟踪映射），准静态', '月度 / 手动'),
@@ -532,6 +569,14 @@ _NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
     # 不满足「日变 + 用户直接可见」双条件，故登记本表而非每日调度。
     'fund_risk_metrics': (
         '逐标的从净值历史派生的指标投影（3 年窗口指标日变更极小），按目标池按需回填',
+        '周度 / 手动（按目标池）',
+    ),
+    # #2585：可转债下修历史。下修是**股东大会决议事件**——一只债一年最多几次，
+    # 绝大多数债终其一生 0 次（实测洪涛转债 3 次已是高位），日变更量接近 0；
+    # 且逐只一次 HTTP（目标池 500+ 只时是一轮小时级请求），进每日调度等于每天
+    # 把同一批历史记录再请求一遍。故明确留在本表：按目标池手动/周度回填。
+    'bond_adjust_log': (
+        '下修是股东大会决议事件（日变更量接近 0），且逐只一次 HTTP；按目标池手动回填',
         '周度 / 手动（按目标池）',
     ),
 }

@@ -202,9 +202,10 @@ def health_check():
             ARK_API_KEY,
             ARK_ENDPOINT,
             ARK_MODEL,
+            ARK_MODEL_AGENT,
         )
     except Exception:  # 极端情况下 AI 域不可导入，视为未配置
-        ARK_API_KEY, ARK_MODEL, ARK_ENDPOINT = '', 'unknown', 'unknown'
+        ARK_API_KEY, ARK_MODEL, ARK_MODEL_AGENT, ARK_ENDPOINT = '', 'unknown', 'unknown', 'unknown'
     llm_configured = bool(ARK_API_KEY)
     if not llm_configured:
         llm_status = 'disabled'
@@ -213,12 +214,16 @@ def health_check():
         # 仅配置就绪：免登录端点不发起实时 LLM 请求（防止匿名请求刷额度/SSRF），
         # 连通性由实际调用链路与监控告警覆盖。
         llm_status = 'healthy'
-        llm_message = f'已配置火山方舟 LLM（model={ARK_MODEL}）；连通性由实际调用与监控告警覆盖，本端点不做实时探测'
+        llm_message = (
+            f'已配置火山方舟 LLM（OCR model={ARK_MODEL}，agent model={ARK_MODEL_AGENT}）；'
+            '连通性由实际调用与监控告警覆盖，本端点不做实时探测'
+        )
     components['llm'] = {
         'status': llm_status,
         'configured': llm_configured,
         'provider': 'volcano-ark',
         'model': ARK_MODEL,
+        'model_agent': ARK_MODEL_AGENT,
         'endpoint': ARK_ENDPOINT,
         'message': llm_message,
     }

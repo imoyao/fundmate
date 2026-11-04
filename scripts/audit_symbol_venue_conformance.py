@@ -42,7 +42,13 @@ venue 解析**不再在本脚本内重复实现**：统一走 `app/core/venues.p
   watchlist 的 `UNIQUE(family_id, symbol, market, venue)` → 作用域 = (family_id, market)。
   **跨账户持仓同码是正常的**（同一只基金在多个账户各持一份），绝不能合并——
   这条是本脚本最容易犯的错，合并前会对作用域再断言一次；
-- transactions **永不合并**（同一 symbol 多笔流水是正常业务），只做前缀归一；
+- transactions **永不合并**（同一 symbol 多笔流水是正常业务）；更严格地说，
+  **transactions 的 `symbol` 只报不改**：它是交易发生时的快照，且
+  `import_hash` 的输入含 symbol（`services/import_records.compute_record_hash`），
+  改写会让重导去重失效、凭空产生重复流水 —— 而历史 hash 无法从库内列反推复现，
+  「改完再重算」同样不可行。形态债由 `audit_immutable_symbols()` 单独提示、
+  不计入退出码；「同一产品」由派生列 `symbol_norm` 统一（PR #2782）。
+  `symbol_norm` 是派生列，`--apply` 照常重算覆盖（positions / transactions 都修）；
 - 合并按**份额加权**重算成交均价（整数域运算，避免 float 污染金融口径），
   并把所有引用表改指到保留行后再删除被并行。
 """
@@ -74,6 +80,7 @@ TABLES = {
         scope=('family_id', 'ledger_id'),
         ref_col='position_id',
         merge=True,
+        norm=True,  # D36：唯一约束改挂 uq_positions_ledger_symbol_norm
     ),
     'transactions': dict(
         pk='id',
@@ -83,6 +90,14 @@ TABLES = {
         scope=None,
         ref_col=None,
         merge=False,  # 同一 symbol 多笔流水正常，永不合并
+        # symbol 是**交易发生时的快照**，且 `import_hash` 的输入含 symbol
+        # （source|confirm_date|symbol|business_type|shares|nav，见
+        # services/import_records.compute_record_hash）——改写它会让重导去重失效、
+        # 凭空产生重复流水。而历史 hash 无法从库内列反推复现（实测：15 种 source ×
+        # 8 种 business_type × 多种精度全不命中），所以「改完再重算 hash」这条路也堵死。
+        # 结论：本表形态不合规**只报不改**；「同一产品」由 symbol_norm 统一（PR #2782）。
+        symbol_rewrite=False,
+        norm=True,  # PR #2782：归一身份键已补上，读侧按它匹配，错了就是静默漏算
     ),
     'watchlist': dict(
         pk='id',
@@ -92,6 +107,7 @@ TABLES = {
         scope=('family_id', 'market'),
         ref_col='item_id',
         merge=True,
+        norm=False,  # 自选侧用 venue 列表达场所，没有也不需要 symbol_norm
     ),
 }
 
@@ -138,86 +154,149 @@ def backup(db_path: pathlib.Path) -> pathlib.Path:
     return dest
 
 
-def audit(con: sqlite3.Connection) -> list[dict]:
-    """逐表找出形态不合规的行。"""
+def _scan_table(con: sqlite3.Connection, table: str, cfg: dict, pos_type: dict) -> list[dict]:
+    """扫单表，返回「symbol 字面量形态不合规」的行（不改库，纯分析）。"""
+    cols = [cfg['pk'], cfg['symbol'], cfg['asset_type']]
+    if cfg['venue']:
+        cols.append(cfg['venue'])
+    if cfg['scope']:
+        cols.extend(cfg['scope'])
+    if table == 'transactions':
+        cols.append('position_id')
     findings: list[dict] = []
-    pos_type = {r[0]: r[1] for r in con.execute('SELECT id, type FROM positions').fetchall()}
+    for raw in con.execute(f'SELECT {", ".join(cols)} FROM {table}').fetchall():
+        rec = dict(zip(cols, raw))
+        pk = rec[cfg['pk']]
+        symbol = rec[cfg['symbol']] or ''
+        if not symbol:
+            continue
+        asset_type = rec[cfg['asset_type']]
+        declared = rec.get(cfg['venue']) if cfg['venue'] else None
+        # 流水自身没标类型时，回退到它挂的持仓（口径与写入侧一致）
+        if table == 'transactions' and not asset_type and rec['position_id'] in pos_type:
+            asset_type = pos_type[rec['position_id']]
+        venue = venue_of_row(symbol, asset_type, declared)
+        want = expected_symbol(symbol, venue)
+        if want != symbol:
+            scope = tuple(rec[c] for c in cfg['scope']) if cfg['scope'] else ()
+            findings.append(
+                dict(
+                    table=table,
+                    pk=pk,
+                    symbol=symbol,
+                    expected=want,
+                    venue=venue,
+                    asset_type=asset_type,
+                    scope=scope,
+                )
+            )
+    return findings
 
+
+def audit(con: sqlite3.Connection) -> list[dict]:
+    """逐表找出形态不合规、**且允许改写**的行。
+
+    `symbol_rewrite=False` 的表（当前只有 `transactions`）不在此列：它们的 `symbol`
+    是快照且被 `import_hash` 依赖，改写会造成重导重复，故只经
+    `audit_immutable_symbols()` 提示、绝不由 `--apply` 触碰。
+    """
+    pos_type = {r[0]: r[1] for r in con.execute('SELECT id, type FROM positions').fetchall()}
+    findings: list[dict] = []
     for table, cfg in TABLES.items():
-        cols = [cfg['pk'], cfg['symbol'], cfg['asset_type']]
-        if cfg['venue']:
-            cols.append(cfg['venue'])
-        if cfg['scope']:
-            cols.extend(cfg['scope'])
-        if table == 'transactions':
-            cols.append('position_id')
-        for raw in con.execute(f'SELECT {", ".join(cols)} FROM {table}').fetchall():
-            rec = dict(zip(cols, raw))
-            pk = rec[cfg['pk']]
-            symbol = rec[cfg['symbol']] or ''
+        if not cfg.get('symbol_rewrite', True):
+            continue
+        findings.extend(_scan_table(con, table, cfg, pos_type))
+    return findings
+
+
+def audit_immutable_symbols(con: sqlite3.Connection) -> list[dict]:
+    """`symbol` **不可改写**的表里形态不合规的行 —— 仅提示，不参与退出码与 `--apply`。
+
+    「同一产品」已由 `symbol_norm` 统一（PR #2782 让 `transactions` 也有归一身份键、
+    读侧改为按身份匹配），字面量保持快照原貌不再影响计算口径；因此这类行是
+    **可接受的形态债**，不是待修缺陷。报出来是为了让人知道有多少、以及为什么不动。
+    """
+    pos_type = {r[0]: r[1] for r in con.execute('SELECT id, type FROM positions').fetchall()}
+    rows: list[dict] = []
+    for table, cfg in TABLES.items():
+        if cfg.get('symbol_rewrite', True):
+            continue
+        rows.extend(_scan_table(con, table, cfg, pos_type))
+    return rows
+
+
+def audit_symbol_norm(con: sqlite3.Connection) -> list[dict]:
+    """`symbol_norm` 与「由 symbol + asset_type 重算的身份」不一致的行（#1662 后续）。
+
+    `symbol_norm` 是**派生列**（构造见 `core/symbol_utils.symbol_identity`），判据即
+    「重算值 == 库里存的值」。不一致只有两种成因：
+
+    ① 列不存在 —— 迁移没跑（`migrate_positions_symbol_norm` /
+       `migrate_transactions_symbol_norm`）；
+    ② 有人绕过 ORM 事件写库（`bulk_update_mappings` / 裸 SQL）—— 那正是唯一约束
+       `uq_positions_ledger_symbol_norm` 会**静默失效**的形态，必须报出来。
+
+    覆盖 `positions` 与 `transactions`（配置 `norm=True`；`watchlist` 用 `venue` 列表达
+    场所，没有也不需要该列）：后者虽无唯一约束（同一标的多笔流水是天经地义），
+    但 `symbol_norm` 是读侧的唯一匹配键（PR #2782），错了就是**静默漏算**，同样必须报。
+
+    与 `audit()`（形态审计）分开：形态审计要改写 `symbol`，本审计只需按派生规则重算覆盖，
+    修复动作不同、风险等级也不同，混在一起会让 `--apply` 的语义变模糊。
+    """
+    findings: list[dict] = []
+    for table, cfg in TABLES.items():
+        if not cfg.get('norm'):
+            continue
+        cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
+        if 'symbol_norm' not in cols:
+            findings.append(
+                dict(
+                    table=table,
+                    pk=None,
+                    symbol='',
+                    expected='',
+                    actual='',
+                    why='symbol_norm 列不存在（迁移未跑）',
+                )
+            )
+            continue
+        sql = f'SELECT {cfg["pk"]}, {cfg["symbol"]}, {cfg["asset_type"]}, symbol_norm FROM {table}'
+        for rid, symbol, asset_type, actual in con.execute(sql):
             if not symbol:
                 continue
-            asset_type = rec[cfg['asset_type']]
-            declared = rec.get(cfg['venue']) if cfg['venue'] else None
-            # 流水自身没标类型时，回退到它挂的持仓（口径与写入侧一致）
-            if table == 'transactions' and not asset_type and rec['position_id'] in pos_type:
-                asset_type = pos_type[rec['position_id']]
-            venue = venue_of_row(symbol, asset_type, declared)
-            want = expected_symbol(symbol, venue)
-            if want != symbol:
-                scope = tuple(rec[c] for c in cfg['scope']) if cfg['scope'] else ()
+            want = symbol_identity(symbol, asset_type)
+            if (actual or '') != want:
                 findings.append(
                     dict(
                         table=table,
-                        pk=pk,
+                        pk=rid,
                         symbol=symbol,
                         expected=want,
-                        venue=venue,
-                        asset_type=asset_type,
-                        scope=scope,
+                        actual=actual or '',
+                        why='与派生身份不一致',
                     )
                 )
     return findings
 
 
-def audit_symbol_norm(con: sqlite3.Connection) -> list[dict]:
-    """`positions.symbol_norm` 与「由 symbol + asset_type 重算的身份」不一致的行（#1662 后续）。
-
-    `symbol_norm` 是**派生列**（构造见 `core/symbol_utils.symbol_identity`），判据即
-    「重算值 == 库里存的值」。不一致只有两种成因：
-
-    ① 列不存在 —— 迁移没跑（`core/migrations.py::migrate_positions_symbol_norm`）；
-    ② 有人绕过 ORM 事件写库（`bulk_update_mappings` / 裸 SQL）—— 那正是唯一约束
-       `uq_positions_ledger_symbol_norm` 会**静默失效**的形态，必须报出来。
-
-    与 `audit()`（形态审计）分开：形态审计要改写 `symbol`，本审计只需按派生规则重算覆盖，
-    修复动作不同、风险等级也不同，混在一起会让 `--apply` 的语义变模糊。
-    """
-    cols = [r[1] for r in con.execute('PRAGMA table_info("positions")')]
-    if 'symbol_norm' not in cols:
-        return [dict(pk=None, symbol='', expected='', actual='', why='symbol_norm 列不存在（迁移未跑）')]
-
-    findings: list[dict] = []
-    for rid, symbol, asset_type, actual in con.execute('SELECT id, symbol, type, symbol_norm FROM positions'):
-        if not symbol:
-            continue
-        want = symbol_identity(symbol, asset_type)
-        if (actual or '') != want:
-            findings.append(dict(pk=rid, symbol=symbol, expected=want, actual=actual or '', why='与派生身份不一致'))
-    return findings
-
-
 def repair_symbol_norm(con: sqlite3.Connection) -> int:
-    """按派生规则重算并覆盖 `positions.symbol_norm`（幂等）。返回受影响行数。"""
+    """按派生规则重算并覆盖 `symbol_norm`（幂等），覆盖所有 `norm=True` 的表。返回受影响行数。"""
     n = 0
-    for rid, symbol, asset_type in con.execute('SELECT id, symbol, type FROM positions').fetchall():
-        if not symbol:
+    for table, cfg in TABLES.items():
+        if not cfg.get('norm'):
             continue
-        con.execute(
-            'UPDATE positions SET symbol_norm = ? WHERE id = ?',
-            (symbol_identity(symbol, asset_type), rid),
-        )
-        n += 1
+        cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
+        if 'symbol_norm' not in cols:
+            continue
+        sql = f'SELECT {cfg["pk"]}, {cfg["symbol"]}, {cfg["asset_type"]} FROM {table}'
+        for rid, symbol, asset_type in con.execute(sql).fetchall():
+            if not symbol:
+                continue
+            con.execute(
+                f'UPDATE {table} SET symbol_norm = ? WHERE {cfg["pk"]} = ?',
+                (symbol_identity(symbol, asset_type), rid),
+            )
+            n += 1
     return n
 
 
@@ -328,13 +407,20 @@ def main() -> int:
     try:
         findings = audit(con)
         norm_findings = audit_symbol_norm(con)
+        immutable = audit_immutable_symbols(con)
         dups = duplicates(con, findings)
         dup_pks = {(d['table'], pk) for d in dups for pk in d['pks']}
 
         if args.json:
             print(
                 json.dumps(
-                    dict(db=str(db_path), findings=findings, duplicates=dups, norm_findings=norm_findings),
+                    dict(
+                        db=str(db_path),
+                        findings=findings,
+                        duplicates=dups,
+                        norm_findings=norm_findings,
+                        immutable_symbols=immutable,
+                    ),
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -351,10 +437,18 @@ def main() -> int:
                 )
             for d in dups:
                 print(f'  重复组 [{d["table"]}] scope={d["scope"]} {d["expected"]}: ids={d["pks"]}')
+            if immutable:
+                print(
+                    f'形态债（只报不改）: {len(immutable)} 行 —— symbol 是快照且参与 import_hash，改写会让重导去重失效'
+                )
+                for f in immutable[:5]:
+                    print(f'  [{f["table"]}] id={f["pk"]:>6}  {f["symbol"]:<12} (应为 {f["expected"]})')
+                if len(immutable) > 5:
+                    print(f'  … 另 {len(immutable) - 5} 行同类，详见 --json')
             print(f'symbol_norm 不一致: {len(norm_findings)} 行')
             for n in norm_findings:
                 print(
-                    f'  [positions] id={n["pk"]}  symbol={n["symbol"]}  '
+                    f'  [{n["table"]}] id={n["pk"]}  symbol={n["symbol"]}  '
                     f'库里={n["actual"] or "(空)"} 应为={n["expected"] or "(空)"}  ({n["why"]})'
                 )
 

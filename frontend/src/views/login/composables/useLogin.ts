@@ -6,7 +6,10 @@ import { useEventListener } from "@vueuse/core";
 import type { FormInstance, FormRules } from "element-plus";
 import { initRouter } from "@/router/utils";
 import { supabase } from "@/utils/supabase";
-import { resolveIdentifier } from "@/api/auth";
+import { ensureLocalProfile, resolveIdentifier } from "@/api/auth";
+import { toAuthErrorMessage } from "@/utils/authError";
+import { textLength } from "@/utils/textLength";
+import { buildAppUrl, DOCS_SITE_URL } from "@/utils/appUrl";
 
 /**
  * 登录 / 注册页状态单体（#980 P1-C 结构拆分）：
@@ -56,11 +59,23 @@ export function useLogin() {
       { type: "email", message: "请输入有效的邮箱地址", trigger: "blur" }
     ],
     username: [
-      { required: true, message: "请输入昵称", trigger: "blur" },
-      { min: 5, max: 16, message: "昵称长度 5-16 个字符", trigger: "blur" },
+      { required: true, message: "请输入用户名", trigger: "blur" },
+      {
+        // 码点口径（与后端 len() 一致，D73）：async-validator 的 min/max
+        // 按 UTF-16 .length 计，emoji 下与后端不一致，故手写校验
+        validator: (_rule, value: string, callback) => {
+          const len = textLength(value);
+          if (len < 5 || len > 20) {
+            callback(new Error("用户名长度 5-20 个字符"));
+            return;
+          }
+          callback();
+        },
+        trigger: "blur"
+      },
       {
         pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/,
-        message: "昵称只能包含中文、字母、数字和下划线",
+        message: "用户名只能包含中文、字母、数字和下划线",
         trigger: "blur"
       }
     ],
@@ -115,12 +130,14 @@ export function useLogin() {
   // ============================================
   // 打开隐私政策
   // ============================================
+  // 隐私政策 / 用户协议在**文档站**（docs.duoduobei.com），应用站没有这两条路由：
+  // 此前 window.open("/privacy") 打开的是应用站根路径，hash 为空 ⇒ 落到 /welcome。
   const openPrivacyPolicy = () => {
-    window.open("/privacy", "_blank");
+    window.open(`${DOCS_SITE_URL}/privacy`, "_blank");
   };
 
   const openTerms = () => {
-    window.open("/terms", "_blank");
+    window.open(`${DOCS_SITE_URL}/terms`, "_blank");
   };
 
   // ============================================
@@ -136,13 +153,13 @@ export function useLogin() {
           // 会被 Supabase 编码成 ?redirect_to=/welcome 塞进 hash，变成
           // welcome#/welcome 导致无法正确匹配路由。回到根后由路由守卫
           // getSession() 识别已登录态，自动 redirect 到 /welcome 概览页。
-          redirectTo: `${window.location.origin}/`
+          redirectTo: buildAppUrl("/")
         }
       });
       if (error) throw error;
       // 成功时 Supabase 会重定向到 GitHub，无需手动处理
     } catch (err: any) {
-      message(err.message || "GitHub 登录失败，请稍后再试", { type: "error" });
+      message(toAuthErrorMessage(err), { type: "error" });
       githubLoading.value = false;
     }
   };
@@ -180,7 +197,7 @@ export function useLogin() {
           {
             // 同源回跳路径：规避 PKCE code_verifier 跨域丢失；
             // 回跳后由 onAuthStateChange 的 PASSWORD_RECOVERY 事件接管（detectSessionInUrl 已开）
-            redirectTo: `${window.location.origin}/reset-password`
+            redirectTo: buildAppUrl("/reset-password")
           }
         );
         if (error) throw error;
@@ -188,7 +205,7 @@ export function useLogin() {
         message("重置邮件已发送，请查收邮箱", { type: "success" });
         forgotVisible.value = false;
       } catch (err: any) {
-        message(err.message || "发送失败，请稍后再试", { type: "error" });
+        message(toAuthErrorMessage(err), { type: "error" });
       } finally {
         forgotLoading.value = false;
       }
@@ -210,12 +227,12 @@ export function useLogin() {
       try {
         if (isRegisterMode.value) {
           // 🔥 注册（原 .vue 内解构出的 data 从未使用，迁入 .ts 后触 lint，直接不取）
-          const { error } = await supabase.auth.signUp({
+          const { data, error } = await supabase.auth.signUp({
             email: ruleForm.email.trim(),
             password: ruleForm.password,
             options: {
-              // 邮箱验证回调同样回根路径，由前端守卫接管跳转，避免 hash 模式编码异常
-              emailRedirectTo: `${window.location.origin}/`,
+              // 邮箱验证回调回根路径，由前端守卫接管跳转；hash 模式由 buildAppUrl 拼 `#/`
+              emailRedirectTo: buildAppUrl("/"),
               data: {
                 username: ruleForm.username.trim()
               }
@@ -223,6 +240,28 @@ export function useLogin() {
           });
 
           if (error) throw error;
+
+          // 注册即建号（#2764 遗留项）：项目关闭邮箱验证时 signUp 直接返回 session，
+          // 此刻立即让后端建出本地映射行；否则用户随后用「用户名」登录，
+          // 匿名 resolve 查不到行 → 404（登录页只能提示「未找到」）。
+          // 开启邮箱验证时没有 session，建号发生在「点邮件回跳后的首个带 token 请求」。
+          if (data.session) {
+            const desired = ruleForm.username.trim();
+            const profile = await ensureLocalProfile();
+            // 后端遇到同名会加后缀（`_2`）而不是报错——不告诉用户，他会以为名字没生效
+            if (
+              profile?.username &&
+              desired &&
+              profile.username.toLowerCase() !== desired.toLowerCase()
+            ) {
+              message(
+                `用户名「${desired}」已被占用，已为你分配「${profile.username}」`,
+                {
+                  type: "warning"
+                }
+              );
+            }
+          }
 
           showRegisterSuccess.value = true;
           message("注册成功！请查收验证邮件", { type: "success" });
@@ -255,12 +294,16 @@ export function useLogin() {
 
           if (error) throw error;
 
+          // 幂等建号（#2764 遗留项）：老账号在本地可能还没映射行（注册时未走过带
+          // token 的请求）。失败不阻断登录——下一次带 token 的请求会自动补建。
+          await ensureLocalProfile();
+
           message("登录成功", { type: "success" });
           await initRouter();
           router.push("/welcome");
         }
       } catch (err: any) {
-        message(err.message || "操作失败，请重试", { type: "error" });
+        message(toAuthErrorMessage(err), { type: "error" });
       } finally {
         disabled.value = false;
         loading.value = false;

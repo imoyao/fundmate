@@ -80,7 +80,12 @@ class TestPriceHistoryBatch:
         assert result['stats']['success'] == 8
 
     def test_resume_after_interruption(self, job, db, securities):
-        """断点续传：已存在的数据被跳过"""
+        """断点续传：已存在的行被**重写**而非丢弃（#2464），且不产生重复行。
+
+        原语义是「已存在的 `(security_id, trade_date)` 直接跳过」——那样任何重算
+        （如修前复权锚点断裂）都落不了库。现在这些行走 `_save_data` 的 update 分支，
+        故 `success` 计全部落库行数、`updated` 单独计被覆盖的行数、`skipped` 恒为 0。
+        """
         db.add(
             PriceHistory(
                 security_id=securities[0].id,
@@ -104,9 +109,21 @@ class TestPriceHistoryBatch:
 
         targets = [s.symbol for s in securities]
         result = job.run(full_sync=True, targets=targets)
+        # 2 主键 × 2 交易日 = 8 行，重跑不新增行
         assert db.query(PriceHistory).count() == 8
-        assert result['stats']['success'] == 6
-        assert result['stats']['skipped'] == 2
+        assert result['stats']['success'] == 8
+        assert result['stats']['updated'] == 2
+        assert result['stats']['skipped'] == 0
+        # 被覆盖的那两行拿到了源侧现值（原 close=100 → 102）
+        rewritten = (
+            db.query(PriceHistory)
+            .filter(
+                PriceHistory.trade_date == date(2025, 1, 1),
+                PriceHistory.security_id.in_([securities[0].id, securities[1].id]),
+            )
+            .all()
+        )
+        assert [r.close for r in rewritten] == [102, 102]
 
     def test_single_failure_does_not_block_others(self, job, db, securities):
         """某只股票失败不影响同批次其他股票"""

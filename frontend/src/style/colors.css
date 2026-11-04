@@ -110,7 +110,7 @@
   /* ===== 原始色板（primitive 层，12 色）=====
      命名按**颜色**而非用途：这些色被多处复用于互不相同的语义
      （`--palette-thistle` 既是桑基图的「稳健底仓」、又是导入向导的「FOF」；
-       `--palette-sage-green` 既是「存款」、又是对账工作台的「已清」），
+       `--palette-sage-green` 既是「存款」、又是对账中心的「已清」），
      按用途命名只会得到自相矛盾的名字。故按层级命名，并明确：
      **业务代码优先用 semantic / domain 层令牌**，直接引用本层须说明理由。
      分层规则见 docs/spec/conventions.md §3.11「设计令牌命名分层」。 */
@@ -132,6 +132,12 @@
   --color-primary-20: rgba(122, 127, 168, 0.2);
   --color-warning-20: rgba(212, 200, 152, 0.2);
   --color-danger-20: rgba(212, 54, 74, 0.2);
+  --color-success-20: rgba(
+    129,
+    178,
+    154,
+    0.2
+  ); /* 成功色 20% 透明（SoftBanner success 档底色，#2723 首批 success 提示出现时启用） */
   --color-danger-10: rgba(
     212,
     54,
@@ -351,7 +357,17 @@
      否则会先于 MiSans 命中中文、导致 MiSans 实际不生效（评审 2026-09-04）
      半角数字由 Inter 承担，等宽对齐走 font-variant-numeric: tabular-nums */
   --font-latin: "Inter";
-  --font-cjk-list: "MiSans", "PingFang SC", "Microsoft YaHei";
+  /* 回退栈按「平台各自的最优中文字体」排，缺一个就掉到 system-ui 默认字形，
+     与 MiSans 混排是肉眼可见的两种字（#2402）：
+       - PingFang SC      macOS / iOS
+       - Microsoft YaHei  Windows
+       - Noto Sans CJK SC / Source Han Sans SC  Linux（无前两者）
+       - WenQuanYi Micro Hei  老发行版兜底
+     MiSans 子集扩到 GBK 之后（见 backend/scripts/subset_misans.py），
+     这里仍必须保留完整中文栈：母本缺字、Unicode 扩展区、旧浏览器都可能走到这里。 */
+  --font-cjk-list:
+    "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei";
   --font-cjk: var(--font-cjk-list), system-ui, sans-serif;
   --font-sans: var(--font-latin), var(--font-cjk);
   /* 等宽（代码/代码-like 场景：基金代码、OCR 文本域等）：真等宽字体优先；
@@ -400,6 +416,13 @@
      否则发送按钮会被 FAB 压住（见 design.md「两条硬约定」第 ③ 条）。 */
   --layout-fab-safe: 88px;
 
+  /* 产品详情抽屉宽度（唯一来源，docs/design/product-detail-drawer.md §2）。
+     三处抽屉（自选速览 / 持仓明细 / 聚合产品详情）此前各写 420/420/680，
+     同一个动作三种形状。720 − 48（左右各 24 的内边距）恰好放下一条 7 列紧凑
+     交易表；<768 视口按 100vw 满宽，不做第二套断点。
+     组件内禁止再写字面量 720px（外壳 `:size="'var(--drawer-width)'"`）。 */
+  --drawer-width: min(720px, 100vw);
+
   /* ===== 圆角 ===== */
   --radius-sm: 6px;
   --radius-md: 12px;
@@ -422,4 +445,6 @@
    第三部分：暗色模式变量（规划中，供 dark.scss 引用）
    ============================================================ */
 
-/* 暗色模式变量在 dark.scss 中通过 [data-theme="dark"] 选择器覆盖 */
+/* 暗色模式变量在 dark.scss 的 `:root.dark` 块中覆盖同名变量。
+   注意不是 `data-theme` 属性：该属性只承载配色主题名（light/default/.../showbuy），
+   暗色由挂到 <html> 上的 .dark 类切换（useDataThemeChange.ts）。 */

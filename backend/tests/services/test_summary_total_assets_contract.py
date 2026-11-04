@@ -381,3 +381,97 @@ class TestLedgerLevelSharesTheSameAggregation:
         """空家庭：账户级返回空字典（而不是一个全 0 的哨兵桶）。"""
         assert get_ledger_distributions(db, 1) == {}
         self._assert_ledger_sum_equals_family(db, note='空家庭')
+
+
+class TestDimensionGroupsShareTheSameValuation:
+    """维度分组（`/api/summary/groups/`）也是「我持有多少」的一个出口（第 6 个）。
+
+    历史口子：`_pos_group_payload` 裸算「份额 × 快照价」，绕过 override 优先级 ⇒
+    balance 模式持仓在「产品类型 / 账户 / 配置目标」三个视图里恒为 0，而同一屏的
+    总资产卡算得出 8 万——同一份持仓、同一页、两个数。
+
+    三件事在这里钉住：
+    1. **逐维度覆盖**：type / account / allocation 都必须走唯一口径（漏一个就白修）；
+    2. **分组合计 == 持仓合计**：不要求等于总资产（通用资产不进 type/allocation 维度），
+       只要求与「持仓市值唯一口径」逐分相等；
+    3. **override 持仓的盈亏为 0 而非「市值 − 成本」**：人工录入的单值没有市价可比。
+    """
+
+    @staticmethod
+    def _sum_groups(db, dimension: str) -> float:
+        from app.services.summary_service import get_position_groups
+
+        return round(sum(g['total'] for g in get_position_groups(db, 1, dimension)), 2)
+
+    def test_balance_mode_counts_in_every_dimension(self, db, make_position):
+        """balance 持仓（无份额无价格）在三个维度里都必须有金额。"""
+        make_position(
+            symbol='GRP001',
+            name='投顾产品',
+            account_name='投顾账户',
+            asset_type='fund',
+            valuation_mode='balance',
+            market_value_override=Money.yuan_to_cents(80000),
+            quantity=0,
+            current_price=0,
+            market='场外',
+            allocation='longterm',
+        )
+        for dim in ('type', 'account', 'allocation'):
+            assert self._sum_groups(db, dim) == 80000.0, f'dimension={dim} 丢了 balance 持仓市值'
+
+    def test_override_position_pnl_is_zero_not_negative(self, db, make_position):
+        """有份额有成本、又录了 override：市值取 override，盈亏不得按快照价硬算。"""
+        make_position(
+            symbol='GRP002',
+            name='场外基金',
+            account_name='基金账户',
+            asset_type='fund',
+            valuation_mode='nav',
+            quantity=100,
+            current_price=10.0,
+            avg_price=8.0,
+            market_value_override=Money.yuan_to_cents(5000),
+            market='场外',
+            allocation='longterm',
+        )
+        from app.services.summary_service import get_position_groups
+
+        group = get_position_groups(db, 1, 'type')[0]
+        assert group['total'] == 5000.0
+        assert group['items'][0]['market_value'] == 5000.0
+        assert group['items'][0]['pnl'] == 0.0
+        assert group['total_pnl'] == 0.0
+
+    def test_group_totals_match_position_value_total(self, db, make_position, make_asset):
+        """分组合计 == 持仓市值合计（通用资产不进 type/allocation 维度）。"""
+        make_position(
+            symbol='GRP003',
+            name='股票',
+            account_name='券商',
+            asset_type='stock',
+            valuation_mode='nav',
+            quantity=200,
+            current_price=50.0,
+            market='沪市',
+            allocation='speculative',
+        )
+        make_position(
+            symbol='GRP004',
+            name='投顾产品',
+            account_name='投顾账户',
+            asset_type='fund',
+            valuation_mode='balance',
+            market_value_override=Money.yuan_to_cents(80000),
+            quantity=0,
+            current_price=0,
+            market='场外',
+            allocation='longterm',
+        )
+        make_asset(account_name='银行', major_category='cash', name='活期', amount=10000)
+
+        positions_value = 200 * 50.0 + 80000
+        assert self._sum_groups(db, 'type') == positions_value
+        assert self._sum_groups(db, 'allocation') == positions_value
+        # account 维度含非负债通用资产：10000 + 10000 + 80000
+        assert self._sum_groups(db, 'account') == positions_value + 10000

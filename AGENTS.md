@@ -387,8 +387,23 @@ job 名与 stage 名都要写（后者是查询锚点）。
 ### 前端约束
 
 - **禁止 `any` / `Record<string, any>`** 作为 API 入参/响应类型。
-- 列表增删改成功后**必须主动清空列表缓存**。
+- **列表增删改成功后**必须主动清空列表缓存。
 - 禁止 Emoji，涨红跌绿必须使用语义变量。
+- **页面规模只减不增**（源 #980）：`.vue` 单文件超 400 行即登记进 `scripts/vue-size-baseline.json`
+  作为存量基线，此后**只能降不能涨**——基线内文件涨一行、或新增一个超阈文件，`scripts/check_vue_size.mjs`
+  在 `frontend` job 直接判红（`--mode fail`），基线只接受下调（`--update-baseline` 上调会被脚本拒绝）。
+  为什么这道闸非设不可：本卡拆过的 9 个页面里有 8 个在涨、4 个已重新越过 400 行
+  （WatchlistFilterBar 332→497 / welcome 370→440 / reconcile-workbench 336→405 / watchlist/index 369→403），
+  warn 模式只打印不拦截，等于没设。确实拆不动时，须在同一 PR 内腾出等量行数（净零也合规），
+  不允许「先加功能、以后再拆」。
+- **前端 Supabase 环境隔离**：`frontend/.env.development`（本地、不入库）与 `frontend/.env.production`（入库）
+  **不得**指向同一个 Supabase 项目——开发期注册的测试账号会直接写进**生产** Auth 用户表，
+  且当时没有任何报错。两条判据各管一半、互不重叠：
+  入库文件的凭证完整性（`.env.production` / `.env.staging` 必须给出 URL + anon key；
+  `.env.example` 只放占位）由 `scripts/guard_supabase_env_separation.py` 在 CI 拦合并；
+  「dev 与 prod 是否同项目」要读**不入库**的 `.env.development`、CI 看不到，
+  由 `frontend/build/supabase-env-guard.ts` 在 **dev server 启动**时兜（命中即拒绝启动）。
+  本地排查可临时 `DISABLE_SUPABASE_ENV_GUARD=1 pnpm dev`（该开关只关本地这一半，CI 那半照拦）。
 
 ---
 
@@ -798,6 +813,9 @@ if code == 1:
 ### 持仓与资产
 
 - 可交易持仓（股票/基金/ETF/可转债）入 `positions` 表。
+- 投顾组合（`portfolio`）入 `positions` 表，且 **`valuation_mode` 必须为 `balance`**（D70 / #2740；判据：`scripts/guard_portfolio_balance_mode.py`），
+  因为组合没有份额也没有净值，落成默认的 `nav` 模式会让市值恒为 0，而页面照常渲染一张「持仓 0 元」的卡。
+  写入侧 `process_buy_or_deposit` 显式拒绝非 balance，`manager` / `index` 仍不进 `positions`。
 - 静态资产（现金/房产等）入 `assets` 表。
 
 ### 数据分级与登录门禁
@@ -820,6 +838,31 @@ if code == 1:
 - 代码在必要处加注释讲“为什么”。
 - 样式/设计类改动必须同步 `frontend/design.md` / `design.dark.md`。
 - 注释过期须自主更新，注释用中文。
+
+### 字体与字符集（MiSans 子集）
+
+- **入库子集的字符集目标是 GBK 汉字全集（20,902），不是 GB2312 一级**。GB2312 二级的
+  3008 字按**笔画**排序，装的全是姓氏 / 人名 / 地名用字（亓、仉、芮、覃、邬、睢…），
+  恰好是**用户昵称 / 自选备注 / 账户名 / 导入文件名**每天碰到的那一批——它不是低频长尾。
+  用户举的「犇 喆 堃 赟 燚 彧 玊」七字连二级都不在（属 GBK 扩展区），只补二级交不了差。
+- `docs/design/font-design.md` §5.2 里「生僻字回退系统字体，属可接受长尾」**这句已作废**，
+  修改该文档时一并修正；现行口径以本节与 `backend/scripts/subset_misans.py` 的 docstring 为准。
+- 判据：`scripts/guard_font_glyph_coverage.py`（GB2312 一级必须 100%、GBK ≥ 98%，
+  并入 `ci.yml` 的 `scripts_test`）。改字表后**必须重生成 4 个字重产物**——只改脚本不改
+  产物，守卫照样红，因为产物才是浏览器真正加载的东西。
+- 母本路径写死在本机（`D:\MiSans\MiSans\woff2`），CI 跑不出字来 ⇒ **子集产物是
+  「本机生成、入库提交」**。任何人改字表都得先在 Windows 上备好母本，这条不是疏漏
+  而是现状，改之前请先看脚本 docstring。
+- **不要手写 woff2 / cmap 二进制解析**：首版守卫自研 format 4 解析，在 `idRangeOffset`
+  段算错偏移、把 3823 个码位读成 2667 个，且**不抛异常**——输出照样"成功"、数字全假
+  （同「缓存被当成判据」一族）。解字体交给 `fontTools`，守卫只负责判据。
+- 回退栈 `--font-cjk-list`（`frontend/src/style/colors.css`）按平台排全
+  `PingFang SC` / `Microsoft YaHei` / `Noto Sans CJK SC`。少一个就掉到 `system-ui`
+  默认字形，与 MiSans 混排是肉眼可见的两种字（目前靠 review 看，无机器判据：
+  按字体名做白名单只能拦「删字」，拦不住「换成一个同样存在的坏字体」）。
+- **体积是伴生账，不许默默合并**：字表扩到 GBK 后单字重约 2.8 MB（实测 ~150 B/字），
+  首屏 preload 的 400 直接翻数倍。真要压回去得靠 `cn-font-split` 分片
+  （`font-design.md` §11.2），那是独立工程量，不在补字这一张卡里做。
 
 ### 东方财富 WAF 与 akshare
 
@@ -968,6 +1011,179 @@ if code == 1:
 - `no-bot-rebase`：贴到 PR 上即禁用 ① 自动变基（人工接管时用）。
 
 > 唯一无法由系统代劳的，仍是「写出能过 CI 的代码」。三层机制把「救火旧分支」的人工动作降到只剩这一件。
+
+#### ⚠️ ② 自动合并必须用**用户 PAT**，且触发器不得用 `pull_request_target`（#2799）
+
+**合并归因 = 启用 auto-merge 的那个凭据；归因决定后续事件是否被投递。**
+GitHub 规则：除 `workflow_dispatch` / `repository_dispatch` 外，**GITHUB_TOKEN 触发的事件
+不创建 workflow run**。native auto-merge 是「排队 → 门禁转绿后由 GitHub 执行合并」，
+**合并时携带的是最后启用 auto-merge 的那个凭据的归因**——用 GITHUB_TOKEN 启用出来的合并，
+其 `pull_request: closed` 与 `push` 事件**全部被抑制**。
+
+2026-11-01 实测（PR #2797，本仓史上第一次 native auto-merge 合并）：
+
+| 合并归因 | `pull_request: closed` | `push` 到 dev | 后果 |
+|---|---|---|---|
+| `github-actions`（GITHUB_TOKEN） | 不产生 run | 不产生 run | issue 不自动关闭；乱码守卫 / lockfile 守卫被静默跳过 |
+| `imoyao`（用户凭据） | 产生 run | 产生 run | 正常 |
+
+**门禁本身照常 success（`质量门禁汇总` 是绿的），但门禁下游的守卫在这条路径上是哑的**
+——这正是「假绿」最典型的形态。外部独立实证（ebi-agent-chat-relay，2026-09-22，16 次合并
+1:1 相关无例外）同结论："A merge attributed to GITHUB_TOKEN fires no push or pull_request
+event. A merge attributed to a real user does."
+
+##### ⚠️ 还有**第二层根因**：触发器一旦写成 `pull_request_target`，上面这些修复**根本不会被执行**
+
+2025-12-08 生效的平台行为变更（官方 changelog「Actions pull_request_target and
+environment branch protections changes」）原文：
+
+> The `pull_request_target` event now always uses the default branch for workflow source
+> and reference: The workflow file and checkout commit will always be taken from the
+> repository's **default branch, regardless of the pull request's base branch**.
+
+本仓默认分支是 `main`，而功能 PR 一律 base=`dev`。⇒ 走 `pull_request_target` 时，
+**跑的是 `main` 上那份定义**（本仓 `main` 落后 `dev` 数百个提交）⇒
+**「在 dev 上改了 workflow」这件事对这条路径完全不可见**：改了什么、守卫加在哪、
+PAT 换成没有，跑的都还是 `main` 上那份旧的。
+
+2026-11-01 实测（PR #2801，PR 的 base=dev 且 dev 上已含新版定义）：新版那行
+`启用 auto-merge 的凭据身份：$actor` 的 echo **没有出现在日志里**，
+取而代之的是 `main` 旧版逐字一致的文案 ⇒ 实证「定义来自默认分支」，而非 base 分支。
+
+| 触发器 | workflow 定义来源 | dev 上的改动何时生效 |
+|---|---|---|
+| `pull_request_target` | **默认分支 `main`** | ❌ 永远不生效 |
+| `pull_request` | **merge commit**（dev tip + PR head） | ✅ 立刻生效 |
+
+`pull_request` 事件对**同仓分支**的 PR 同样有写权限与 secrets（官方文档：fork 才受限），
+本仓所有功能分支都在本仓内 ⇒ **不损失任何能力**。
+
+**因此**：
+
+1. `pr-auto-merge.yml` 用 secret **`AUTO_MERGE_PAT`**（用户 PAT），**不得**改回
+   `secrets.GITHUB_TOKEN`，**也不得**写成 `AUTO_MERGE_PAT || secrets.GITHUB_TOKEN`
+   ——后者在 PAT 缺失时静默退化 ⇒ 假绿原样装回来。PAT 缺失必须**显式失败**。
+2. **触发器用 `pull_request`，不得用 `pull_request_target`**（理由见上）。换成
+   `pull_request` 后必须**显式跳过 fork PR**：fork 拿不到 secrets，不跳过就会把
+   「fork 没有 secret」误报成「仓库没配 PAT」而误红。
+   另两条边界：本工作流**不 checkout PR 代码**（只用 `gh` 调 API ⇒ 无 pwn request 面）、
+   同仓 PR 才继续（`head.repo.full_name == github.repository`）。
+3. 守卫 `scripts/guard_auto_merge_user_attribution.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
+   把这两条一起钉住；回归网 `scripts/tests/test_auto_merge_user_attribution.py`
+   （**13 个变异探针**，含「触发器改回 `pull_request_target`」「删掉 fork 跳过分支」等）。
+4. **PAT 是人工配置的 secret，Actions 里不会自动有**：
+   `Settings → Secrets and variables → Actions → New repository secret → AUTO_MERGE_PAT`，
+   值为用户 PAT（权限够用即可：`contents:write` + `pull-requests:write`）。
+   配好后 `gh secret list` 应能看到它。**没配 ⇒ ② 自动合并这一步会红**（这是有意的，
+   不能让它静默退化）。
+5. 仓库里另 4 处 `secrets.GH_PAT || secrets.GITHUB_TOKEN`（`claim-sync.yml` /
+   `cnb-github-backfill.yml` / `bridge-*.yml`）与本条**无关**：那是 CNB 侧凭据的既有惯例，
+   仓库 Actions secrets 里**并没有** `GH_PAT`，那几处一直在走 GITHUB_TOKEN 回落。
+   刻意不共用名字，避免动到它们的推送归因。
+6. **本仓另有 6 个工作流曾用 `pull_request_target`**（`dependabot-auto-merge` /
+   `dependabot-lockfile-regen` / `issue-claim-sync` / `pr-auto-rebase` /
+   `pr-four-questions-guard` / `pr-overlap-guard`）⇒ **它们同样只跑 `main` 上的定义**。
+   已由 `#2803` 处置：其中 4 个迁到 `pull_request`，2 个（依赖 bot 触发的）**合法保留**
+   `pull_request_target`（见下一节）。守卫
+   `scripts/guard_workflow_definition_source.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
+   把这条钉住，回归网 `scripts/tests/test_workflow_definition_source.py`（23 个用例）。
+
+#### ⚠️ ③ 依赖 bot 触发的路径**不能**迁 `pull_request`（#2803）
+
+上一节说「`pull_request` 对同仓分支的 PR 同样有写权限与 secrets」——**这句话对
+Dependabot 不成立**。GitHub 官方文档原文：
+
+> Workflows triggered by Dependabot pull requests are treated as though they are from a
+> forked repository, and are also subject to these restrictions.
+> The `GITHUB_TOKEN` has read-only permissions in pull requests from forked repositories.
+
+⇒ **Dependabot 的 PR 即使 head 仓库就是本仓**（实测 `#2645`–`#2649` 的 head_repo
+都是 `imoyao/fundmate`），在 `pull_request` 事件下 token 仍是**只读**、secrets 也不注入
+⇒ 这类工作流里的 `git push` / `gh pr merge --auto` **必然失败**（`#578` 同族事故）。
+
+> **「head 仓库相同」≠「权限相同」。** Dependabot 被平台特殊对待。
+> 这是「迁移前先查文档」而不是「迁移后跑一下看」才能发现的——迁过去 CI 全绿，
+> 真正跑起来才炸。
+
+因此本仓这 2 个工作流**合法保留** `pull_request_target`：
+
+| 工作流 | 它要做什么 | 为什么离不开 `pull_request_target` |
+|---|---|---|
+| `dependabot-auto-merge.yml` | `gh pr merge --auto` 合并依赖 PR | `pull_request` 下 token 只读 ⇒ 合并失败 |
+| `dependabot-lockfile-regen.yml` | `git push` 把重生成的锁推回 dependabot 分支 | 同上 |
+
+**代价（明确接受）**：它们的定义仍锁在默认分支 `main` 上，dev 上的改动要等
+`dev → main` 发版才生效（实测该文件在 main 与 dev 上曾差 227 行 ⇒ **撞锁形态在 main 侧
+无法自动修复**）。这是「`schedule` / `pull_request_target` 类漂移只能随发版解决」的一个
+实例——`schedule` 事件没有替代的定义来源选项，只能等同步。
+
+守卫 `scripts/guard_workflow_definition_source.py` 对这两个**显式豁免**
+（`_PRT_EXEMPT`），且豁免项必须同时在 `_GUARD_WORKFLOWS` 清单里（这样它的 checkout
+仍受「必须显式 `ref: dev`」约束）——**豁免清单本身也被守卫**，防止它变成藏污纳垢的地方。
+
+#### ⚠️ ④ 迁到 `pull_request` 后，**checkout 必须显式写 `ref: dev`**
+
+`pull_request_target` 下 `actions/checkout` 默认检出 **base 分支**（受信）；
+`pull_request` 下默认检出 **merge commit（含 PR 代码）**。
+
+⇒ 迁移时若忘了补 `ref`，等于给 PR 作者一个「改掉自己的守卫」的入口：
+把 `guard_pr_four_questions.mjs` 的判据改成恒真、把 `pr-overlap-guard.yml` 的
+`GOV_GLOB` 改空——**改的是守卫自己**。本仓这次有 3 个工作流的 checkout 原本没写 ref
+（`issue-claim-sync` / `pr-four-questions-guard` / `pr-overlap-guard`），迁移时都补上了。
+
+**例外**：`ci.yml` / `docker-build.yml` / `ai-review.yml` 这类 **CI 工作流检出 PR 代码是
+职责所在**（CI 就是用来测 PR 的代码的），要求它们写 `ref: dev` 反而会让 CI 测错东西。
+⇒ 守卫的判据用**显式清单**区分这两类，不靠猜。
+
+#### ⚠️ ⑤ 迁到 `pull_request` 后，`concurrency.group` 必须加**过渡期后缀**
+
+这是迁移里**最容易漏、且失败形态最阴**的一处：漏了它，CI 不会报错，
+只会看到「守卫明明是绿的，却被静默取消了」。
+
+**机制**：迁到 `pull_request` 后，**过渡期内新旧两版会同时被触发**——
+`main` 上的旧版（`pull_request_target`）与 `dev` 上的新版（`pull_request`）。
+若两者的 `concurrency.group` **算出的名字相同**，就落进同一个组 ⇒
+**`cancel-in-progress: true` 的一方会把另一方取消**。
+
+实测（PR `#2807`，2026-11-01）：
+
+```
+pull_request_target（main 旧版，cancel-in-progress: true）→ success
+pull_request       （dev 新版）                          → cancelled
+```
+
+⇒ 新版那条挂在 PR head 上的 check 被取消 ⇒ GitHub 把 cancelled 记成
+**check 失败** ⇒ PR 假红。而且这个红**不是「守卫判定不通过」**，
+是「守卫压根没跑完」——看日志会以为是守卫逻辑有问题，去查错方向。
+
+> ⚠️ **只把新版改成 `cancel-in-progress: false` 是不够的**（这是本次实测撞到的）。
+> **取消是「发起取消的那一方」的行为**——旧版是 `true`，它取消新版；
+> 新版自己设成 `false` 也拦不住（实测：改了 `false` 之后新版仍被 cancelled）。
+> **唯一可靠的修法是让两者的 group 名不同。**
+
+**修法**：新版 group 名加**过渡期后缀**（本仓约定：含 `-pr-`），
+让过渡期新旧两组并存、互不取消。发版后 `main` 上的旧版被替换 ⇒
+两边 group 名一致 ⇒ 自然恢复单一序列 ⇒ **发版后不需要回改**。
+
+本仓 `main` 旧版的实际形态（2026-11-01 逐个核过）：
+
+| 工作流 | `main` 旧版 | 故障形态 |
+|---|---|---|
+| `pr-four-questions-guard` | group `pr-four-questions-guard-<n>`，`cancel-in-progress: true` | **会取消新版**（实测命中） |
+| `issue-claim-sync` | group `claim-in-progress-<n>`，`cancel-in-progress: false` | 不取消，但同组排队 |
+| `pr-overlap-guard` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复评论 |
+| `pr-auto-rebase` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复 force-push |
+| `pr-auto-merge` | **无 concurrency** | 无互斥；但新旧各跑一次 ⇒ 可能重复尝试合并 |
+
+⇒ 前两个已加后缀（`pr-four-questions-guard-pr-<n>` / `claim-in-progress-pr-<n>`）。
+后三个**没有 group 可改** ⇒ 过渡期副作用会重复（重复评论 / 重复 force-push），
+**这不是 group 名能解决的**（后缀只能分开新版彼此，不能让旧版消失），
+只能等发版自然消失——已作为「过渡期已知残留」记在 `#2803`。
+
+> 守卫判据 4 盯的是**group 名是否与旧版撞车**，不是 `cancel-in-progress` 的取值：
+> 撞车了才需要后缀；不撞车时 `cancel-in-progress: true` 是正常的去重语义。
+> 判据同时覆盖 YAML 的字符串简写（`concurrency: 名字`），
+> 否则那种写法会被**静默放行**——那正是守卫最危险的失败模式。
 
 ### 「永久记忆」存在哪、什么时候读
 
@@ -1546,37 +1762,42 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 ### 里程碑全量清单与归属规则（2026-10-19 治理修订）
 
 > 背景：14 个开放里程碑曾同时 open、且「内部编号 ≠ 标题 M 编号」导致引用错位。2026-10-19 盘点后收敛（提案见 `imoyao/fundmate#2407`）。
+> 执行：2026-10-24 按 `#2407` 落地——先分流关闭 `#6` / `#8` / `#12` / `#15`（14 → 10），再把 `#13` / `#16` 的剩余卡暂缓挂起并归档（10 → 8），**开放里程碑 14 → 8，目标达成**。
+> **档位以 GitHub 里程碑描述为准**（每个描述首行都写了 NOW / NEXT / LATER），下表只是索引。
 
 #### ⚠️ 命名陷阱：标题 M 编号 ≠ 内部编号
 
 引用里程碑使用**内部编号**，标题里的 M 编号是历史错位的产物：
 
-| 内部编号 | 标题 | 备注 |
-|---|---|---|
-| `#13` | M0 上线 Launch | 标题 M0 ↔ 内部 13 |
-| `#4` | M1 付费验证 Paid Validation | 标题 M1 ↔ 内部 4 |
-| `#5` | M2 免费核心 Free Core | 标题 M2 ↔ 内部 5；**当前阶段里程碑** |
-| `#6` | M3 量化分析 Quant Analysis | 标题 M3 ↔ 内部 6 |
-| `#8` | M5 安全与体验 Security UX | 无 M4 对应里程碑 |
-| `#18` | M7 策略与纪律 Strategy & Discipline | 2026-10-15 新立；描述里已有 P0~P3 分期，是良好样板 |
-| `#2` | 基础数据 Base Data | 主题容器 |
-| `#12` | 自选增强 Watchlist Enhancement | 主题容器 |
-| `#14` | 双库架构 DB Multi-Engine | 主题容器；有专项治理规则 |
-| `#15` | 产品详情页 Product Detail | 主题容器（#1909 拆分） |
-| `#16` | 反馈与更新日志闭环 Feedback & Changelog | 主题容器 |
-| `#17` | 账本能力对齐 | 主题容器（#2018 拆分） |
-| `#19` | 高级洞察 Pro 面板 Pro Insight Panel | 主题容器 |
-| `#9` | M6 待办积压 Backlog | **仅作远期兜底（不再当垃圾桶）** |
+| 内部编号 | 标题 | 档位 | 备注 |
+|---|---|---|---|
+| `#5` | M2 免费核心 Free Core | **NOW** | 标题 M2 ↔ 内部 5；当前阶段里程碑（免费层缺陷清零）**，也是 NOW 档唯一在办的执行级里程碑** |
+| `#4` | M1 付费验证 Paid Validation | **LATER（冻结）** | 标题 M1 ↔ 内部 4；解冻三条件见 §3.2 与里程碑描述 |
+| `#17` | 账本能力对齐 | **NOW → NEXT** | 主题容器（#2018 拆分）；先收口径再算数 |
+| `#18` | M7 策略与纪律 Strategy & Discipline | **NEXT** | 2026-10-15 新立；P0 只读诊断对免费用户也有价值 |
+| `#19` | 高级洞察 Pro 面板 Pro Insight Panel | **NEXT → LATER** | 仅 Phase 0 数据底座；付费化模块 LATER |
+| `#14` | 双库架构 DB Multi-Engine | **NOW** | 数据可靠性常设容器；有专项治理规则 |
+| `#2` | 基础数据 Base Data | **NOW → NEXT** | 数据可靠性常设容器 |
+| `#9` | M6 待办积压 Backlog | **LATER** | 远期兜底（不再当垃圾桶）；2026-10-24 起兼收**配置运维暂缓卡** |
+| ~~`#16`~~ | 反馈与更新日志闭环 Feedback & Changelog | 已关闭 | 2026-10-24 归档；#1998 暂缓 → `#9`（#2001 / #1997 此前已关闭） |
+| ~~`#13`~~ | M0 上线 Launch | 已关闭 | 2026-10-24 归档；#1430 / #1029 / #1310 暂缓 → `#9` |
+| ~~`#6`~~ | M3 量化分析 Quant Analysis | 已关闭 | 2026-10-24 归档；卡分流至 `#18`（分析能力）/ `#9`（远期） |
+| ~~`#8`~~ | M5 安全与体验 Security UX | 已关闭 | 2026-10-24 归档；卡分流至 `#17` / `#19` / `#2` / `#9` |
+| ~~`#12`~~ | 自选增强 Watchlist Enhancement | 已关闭 | 2026-10-24 归档；卡并入 `#2`（数据类） |
+| ~~`#15`~~ | 产品详情页 Product Detail（#1909） | 已关闭 | 2026-10-24 归档；卡并入 `#19` |
 
 #### 归属规则（当前阶段目标：基础可用 + 免费功能跑起来）
 
 > 当前阶段目标由 owner 于 2026-10-19 确认：**先把基础功能与免费功能上线、让日常跑起来**，不着急上线付费版本。此前「付费验证优先」的 R0 口径已被推翻。
 
-- **执行级 · 当前阶段**：`#5` M2 免费核心、`#16` M16 反馈闭环、`#13` M0 上线（只出不进，收尾即关）；
+- **执行级 · 当前阶段**：`#5` M2 免费核心（NOW 档唯一在办的执行级里程碑，承载免费功能缺陷清零与功能开发）；
 - **主题容器**：`#17` M17 账本对齐、`#18` M18 策略引擎、`#19` M19 Pro 面板（**仅 Phase 0 数据底座**，付费化模块不做）、`#14` 双库架构、`#2` 基础数据；
-- **冻结**：`#4` M1 付费验证**整块冻结**至免费层稳定。冻结 = 卡保持原样、**不清零不关闭**，只是不进 NOW/NEXT 档；
-- **远期兜底**：`#9` M6 只收「永不承诺」的远期卡；「债务:」前缀卡迁 `#2` 基础数据并去掉前缀，付费主线卡迁 `#4` 冻结（分流提案见 `imoyao/fundmate#2408`）；
-- **规划中关闭**：`#6` M3 / `#8` M5 / `#12` M12 / `#15` M15 —— open 卡按路线图分流后清空关闭。
+- **冻结**：`#4` M1 付费验证**整块冻结**至免费层稳定。冻结 = 卡保持原样、**不清零不关闭**，只是不进 NOW/NEXT 档。
+  **解冻条件（三条同时满足，写在里程碑描述里）**：① 免费层连续 2 个月无 P0/P1 缺陷；② NOW 档里程碑全部关闭归档（当前只剩 `#5`）；③ owner 明确决定启动付费验证；
+- **远期兜底**：`#9` M6 收三类卡——① 永不承诺的远期卡；② LATER 档体验打磨 / 增长实验；③ **配置运维暂缓卡**（2026-10-24 起）。每张须写清「为什么现在不做」。「债务:」前缀卡迁 `#2` 基础数据并去掉前缀，付费主线卡迁 `#4` 冻结（分流提案见 `imoyao/fundmate#2408`）；
+- **配置 / 运维类工作后置（owner 2026-10-24 决定）**：部署配置、单点登录、演示账户、运营外链等「运维配置」类工作**暂缓**，先推进功能开发；此类卡挂 `#9` 并在卡面写暂缓说明与恢复条件，不占 NOW 档；
+- **已关闭归档（2026-10-24）**：`#6` M3 → 卡分 `#18` / `#9`；`#8` M5 → 卡分 `#17` / `#19` / `#2` / `#9`；`#12` M12 → 卡并入 `#2`；`#15` M15 → 卡并入 `#19`；`#13` M0 → 3 张收尾卡暂缓进 `#9`；`#16` M16 → #1998 暂缓进 `#9`。
+  **归档不复活**：这些主题不再新开里程碑，新卡按主题就近挂到上表保留的容器（分析能力 → `#18`，数据 → `#2`，账本 → `#17`，体验打磨 / 远期 / 运维暂缓 → `#9`）。
 
 > 排期细节（NOW / NEXT / LATER 三档与启动条件）**不在本文件**、也不在 `docs/spec/roadmap.md`，唯一真源是 `imoyao/fundmate#2409`。
 

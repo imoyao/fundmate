@@ -11,6 +11,8 @@ S1 的 ``test_mcp_transport.py`` 钉的是会话复用 / SSE 解析 / 请求形�
    一次"能力调用"一行（含重握重试），不是一次 HTTP 一行。
 """
 
+import json
+
 import pytest
 
 from app.services.mcp import McpTransport
@@ -149,6 +151,85 @@ def test_session_invalid_retries_once_then_bad_response():
         t.call_tool('SomeTool', {}, token='k')
 
     assert post.methods.count('initialize') == 2, '只允许重握一次'
+
+
+def test_session_invalid_keeps_upstream_body_for_sampling():
+    """会话失效时的**报文必须留在 detail 里**（探针 ``--save-body`` 靠它留证）。
+
+    实测背景（#2516）：旧实现只写 ``HTTP 400``，把 1966 字节的报文丢掉，
+    于是「上游到底嫌什么」完全不可知，只能靠猜。
+    """
+    post = _Post([_Resp(status_code=400, body='<html>WAF blocked this request</html>')])
+
+    with pytest.raises(McpBadResponse) as excinfo:
+        _transport(post).call_tool('SomeTool', {}, token='k')
+
+    assert 'WAF blocked this request' in excinfo.value.detail
+
+
+def test_http_400_with_jsonrpc_error_is_not_treated_as_session_invalid():
+    """400 带 JSON-RPC ``error`` ⇒ 请求/参数错，**重握手没有意义**，也不该重试。
+
+    实测（2026-10-23）：body 不是 JSON-RPC 消息时上游回
+    ``400 + {"error": {"code": -32602, "message": "Validation error: …"}}``；
+    旧实现把它当会话失效，重握一次再失败，最终报「会话重握后仍失败」——
+    报错方向指向会话，而真因是请求体形状。
+    """
+    body = {
+        'jsonrpc': '2.0',
+        'id': 'server-error',
+        'error': {'code': -32602, 'message': 'Validation error: 11 validation errors for JSONRPCMessage'},
+    }
+    post = _Post([_Resp(status_code=400, body=json.dumps(body), payload=body)])
+    t = _transport(post)
+
+    with pytest.raises(McpBadResponse, match='Validation error') as excinfo:
+        t.call_tool('SomeTool', {}, token='k')
+
+    assert excinfo.value.http_status is None, 'payload 级错误没有 HTTP 语义（不是鉴权/频控）'
+    assert post.methods.count('initialize') == 1, '参数错不重握手'
+
+
+def test_result_is_error_flag_is_not_swallowed():
+    """``result.isError`` 为真 ⇒ 失败。**HTTP 200 不代表调用成功**（MCP 规范如此）。
+
+    实测（2026-10-23，某家网关）：工具名不存在时就是 200 + isError + 一句中文报错。
+    漏看它会把错误文案当数据返回，再在解析层报「结构异常」，把排查方向带偏。
+    """
+    post = _Post(
+        [
+            _Resp(
+                headers={'content-type': 'application/json'},
+                payload={
+                    'jsonrpc': '2.0',
+                    'id': 2,
+                    'result': {
+                        'content': [{'type': 'text', 'text': '工具不存在: x'}],
+                        'structuredContent': {'code': 400, 'message': '工具不存在: x'},
+                        'isError': True,
+                    },
+                },
+            )
+        ]
+    )
+
+    with pytest.raises(McpBadResponse, match='工具不存在'):
+        _transport(post).call_tool('SomeTool', {}, token='k')
+
+
+def test_is_error_without_message_still_fails():
+    """``isError`` 但上游没给文案：也必须失败，并且明说「没给文案」（不许静默返回空串）。"""
+    post = _Post(
+        [
+            _Resp(
+                headers={'content-type': 'application/json'},
+                payload={'jsonrpc': '2.0', 'id': 2, 'result': {'content': [], 'isError': True}},
+            )
+        ]
+    )
+
+    with pytest.raises(McpBadResponse, match='未给错误文案'):
+        _transport(post).call_tool('SomeTool', {}, token='k')
 
 
 def test_payload_error_field_is_classified():

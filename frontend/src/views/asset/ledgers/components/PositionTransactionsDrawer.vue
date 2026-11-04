@@ -1,326 +1,107 @@
 <template>
-  <el-drawer
-    v-model="drawerVisible"
-    size="680px"
-    direction="rtl"
-    destroy-on-close
-    title="持仓明细"
-    @closed="resetState"
+  <ProductDrawer
+    :model-value="visible"
+    :name="positionData?.name"
+    :symbol="positionData?.symbol"
+    :asset-type="positionData?.asset_type"
+    :type-label="positionData?.type_label"
+    :detail-available="detailAvailable"
+    :detail-hint="
+      detailAvailable ? '查看完整资料、持仓与历史记录' : '该品类暂无详情页'
+    "
+    :detail-loading="detailLoading"
+    :disclaimer="PRODUCT_DISCLAIMER"
+    @update:model-value="emit('update:visible', $event)"
+    @detail="goDetail"
   >
-    <!-- 1. 顶部：持仓名称与信息 -->
-    <div class="position-header mb-5 flex items-center justify-between">
-      <div>
-        <h3 class="text-xl font-bold" :style="{ color: 'var(--text-primary)' }">
-          {{ positionData?.name || "--" }}
-        </h3>
-        <div class="flex items-center gap-2 mt-1">
-          <span class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }"
-            ># {{ positionData?.symbol || "--" }}</span
-          >
-          <el-tag size="small" type="info" round>{{
-            positionData?.type_label || "--"
-          }}</el-tag>
-        </div>
-      </div>
-      <!-- #1965：新增跳详情入口（持仓抽屉原先只能看流水，没有出口） -->
-      <el-button text size="small" :loading="detailLoading" @click="goDetail">
-        查看详情
-      </el-button>
-    </div>
-
-    <!-- 2. 核心摘要卡片 -->
-    <div class="grid grid-cols-3 gap-3 mb-5">
-      <!-- 持有份额 / 持有数量 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          {{ isFund ? "持有份额" : "持有数量" }}
-        </div>
-        <div
-          class="text-base font-semibold mt-1"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          {{ Number(positionData?.quantity ?? 0).toLocaleString() }}
-          <span
-            class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          >
-            {{ isFund ? "份" : "股/张" }}
-          </span>
-        </div>
-      </div>
-
-      <!-- 持仓成本 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          持仓成本
-        </div>
-        <div
-          class="text-base font-semibold mt-1"
-          :style="{ color: 'var(--text-primary)' }"
-        >
+    <!-- 锚点：持仓市值（24/600），副行是持仓盈亏 + 盈亏率（同一件事的绝对值与比率） -->
+    <template #anchor>
+      <MoneyDisplay
+        :value="anchor.value"
+        size="lg"
+        :show-sign="false"
+        :auto-color="false"
+      />
+      <div v-if="anchor.hasSub" class="pd-anchor__sub">
+        <template v-if="anchor.pnl != null || anchor.pnlRate != null">
+          <span>持仓盈亏</span>
           <MoneyDisplay
-            :value="positionData?.avg_price || 0"
-            :precision="pricePrecision(positionData?.asset_type)"
-            :show-sign="false"
-            :auto-color="false"
-            size="md"
+            v-if="anchor.pnl != null"
+            :value="anchor.pnl"
+            size="sm"
           />
-          <span
-            class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          >
-            {{ isFund ? "元/份" : "元" }}
+          <RiseFallText
+            v-if="anchor.pnlRate != null"
+            :value="anchor.pnlRate"
+            size="sm"
+          />
+        </template>
+        <template v-else-if="anchor.xirrLoading">
+          <span>年化收益率 计算中…</span>
+        </template>
+        <template v-else>
+          <span>年化收益率</span>
+          <span :style="{ color: xirrColor(anchor.xirr) }">
+            {{ formatXirr(anchor.xirr) }}
           </span>
-        </div>
+        </template>
       </div>
+    </template>
 
-      <!-- 最新净值 / 现价 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          {{ isFund ? "最新净值" : "现价" }}
-        </div>
-        <div
-          class="text-base font-semibold mt-1"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          <MoneyDisplay
-            :value="positionData?.current_price || 0"
-            :precision="pricePrecision(positionData?.asset_type)"
-            :show-sign="false"
-            :auto-color="false"
-            size="md"
-          />
-          <span
-            class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          >
-            {{ isFund ? "元/份" : "元" }}
-          </span>
-        </div>
-      </div>
+    <!-- 键值网格：份额 / 成本 / 净值 / 时长 / 年化（市值与盈亏已升到锚点） -->
+    <DrawerSection title="持仓概况">
+      <PositionSummaryGrid
+        :position-data="positionData"
+        :xirr="xirr"
+        :loading-xirr="loadingXirr"
+      />
+    </DrawerSection>
 
-      <!-- 市值 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          市值
-        </div>
-        <div
-          class="text-base font-semibold mt-1"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          <MoneyDisplay
-            :value="positionData?.market_value || 0"
-            :show-sign="false"
-            :auto-color="false"
-            size="md"
-          />
-        </div>
-      </div>
-
-      <!-- 持仓盈亏 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          持仓盈亏
-        </div>
-        <div class="text-base font-semibold mt-1">
-          <MoneyDisplay :value="positionData?.pnl || 0" size="md" />
-        </div>
-      </div>
-
-      <!-- 盈亏率 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          盈亏率
-        </div>
-        <div
-          class="text-base font-semibold mt-1"
-          :style="{
-            color:
-              (positionData?.pnl_rate ?? 0) >= 0
-                ? 'var(--color-rise)'
-                : 'var(--color-success)'
-          }"
-        >
-          {{
-            positionData?.pnl_rate != null
-              ? (positionData.pnl_rate >= 0 ? "+" : "") +
-                positionData.pnl_rate.toFixed(2) +
-                "%"
-              : "--"
-          }}
-        </div>
-      </div>
-
-      <!-- 持有时长（#862）：后端按 confirm_date 计算返回 holding_days；口径为「本轮」：自本轮建仓日起算，清仓后重新计起 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          持有时长<span class="ml-1 opacity-60">(本轮)</span>
-        </div>
-        <div
-          class="text-base font-semibold mt-1"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          <span v-if="positionData?.holding_days != null"
-            >{{ positionData.holding_days }} 天</span
-          >
-          <span v-else>--</span>
-        </div>
-        <div
-          class="text-[11px] mt-0.5"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-        >
-          清仓后重新计起，不累计历史
-        </div>
-      </div>
-
-      <!-- 年化收益率（XIRR，#862 / #796）：抽屉单持仓维度，开抽屉时拉取 -->
-      <div
-        class="p-3 rounded-lg border"
-        :style="{ borderColor: 'var(--border-default)' }"
-      >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          年化收益率
-        </div>
-        <div class="text-base font-semibold mt-1" :style="{ color: xirrColor }">
-          <span
-            v-if="loadingXirr"
-            class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-            >计算中…</span
-          >
-          <span v-else-if="xirr != null">{{
-            (xirr >= 0 ? "+" : "") + (xirr * 100).toFixed(2) + "%"
-          }}</span>
-          <span v-else>--</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 3. 走势图区 -->
-    <div
-      class="mb-5 p-4 bg-gray-50 rounded-lg border border-dashed flex items-center justify-center"
-      :style="{ borderColor: 'var(--border-default)' }"
-    >
-      <div
-        class="text-xs text-center leading-relaxed"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
-        <IconifyIconOffline
-          icon="ep:trend-charts"
-          class="text-lg block mx-auto mb-1"
-        />
-        历史价格与成本曲线<br />
-        <span class="text-[10px]">(数据依赖 P1-20 定时任务同步)</span>
-      </div>
-    </div>
-
-    <!-- 4. 交易明细列表 -->
-    <div class="flex-1 overflow-y-auto">
-      <div class="flex justify-between items-center mb-3">
-        <span
-          class="text-sm font-medium"
-          :style="{ color: 'var(--text-secondary)' }"
-          >交易记录</span
-        >
-        <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }"
-          >共 {{ transactionsTotal }} 条</span
-        >
-      </div>
-
-      <!-- 加载状态 -->
-      <div
-        v-if="loadingTransactions"
-        class="text-center py-8"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
-        <el-icon class="is-loading" :size="20"><Loading /></el-icon>
-        <p class="mt-2 text-xs">加载交易记录中...</p>
-      </div>
-
-      <template v-else>
-        <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件」）。
-             抽屉单持仓视图：无产品列（抽屉头部已显示持仓名）、无账户列，
-             基金品类走「确认净值/确认份额」标签（fund 确认语义）。 -->
-        <TransactionTable
-          :rows="rows"
-          mode="compact"
-          show-fee
-          show-edit
-          :price-label="isFund ? '确认净值' : '单价'"
-          :quantity-label="isFund ? '确认份额' : '数量'"
-          @edit="openEdit"
-        />
-
-        <!-- 🔥 修复3：明确加载完成的提示 -->
-        <div
-          v-if="!loadingTransactions && transactionsList.length > 0"
-          class="text-center text-xs mt-4 pb-2"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-        >
-          已加载全部交易记录
-        </div>
-
-        <div
-          v-if="transactionsList.length === 0"
-          class="text-center py-6 text-xs"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-        >
-          暂无交易记录
-        </div>
-      </template>
-    </div>
-
-    <!-- 行内编辑弹窗 -->
-    <TransactionEditDialog
-      v-model="editDialogVisible"
-      :transaction="editingTxn"
+    <!-- 交易明细（抽屉 destroy-on-close：打开即取数，关闭即重置） -->
+    <PositionTransactionsList
+      :position-id="positionData?.id"
       :asset-type="positionData?.asset_type"
       :symbol="positionData?.symbol"
-      @saved="handleSaved"
+      :is-fund="isFund"
     />
-  </el-drawer>
+  </ProductDrawer>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { Loading } from "@element-plus/icons-vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
-import { getPositionTransactions } from "@/api/positions";
 import { getPositionXirr } from "@/api/performance";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import TransactionTable, {
-  type TransactionRow
-} from "@/components/TransactionTable/index.vue";
-import { pricePrecision } from "@/utils/pricePrecision";
-import TransactionEditDialog from "./TransactionEditDialog.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
+import ProductDrawer from "@/components/ProductDrawer/index.vue";
+import DrawerSection from "@/components/ProductDrawer/DrawerSection.vue";
+import { PRODUCT_DISCLAIMER } from "@/components/ProductDrawer/disclaimer";
 import { resolveDetailPath } from "@/utils/productDetailNav";
+import { isDetailAssetType } from "@/utils/productIdentity";
+import PositionSummaryGrid from "./PositionSummaryGrid.vue";
+import PositionTransactionsList from "./PositionTransactionsList.vue";
+import {
+  buildAnchor,
+  formatXirr,
+  isFundPosition,
+  xirrColor,
+  type PositionLike
+} from "./positionSummaryModel";
 
+/**
+ * 持仓明细抽屉（#980 拆分）。
+ *
+ * 骨架（宽度 / 两条线 / 区块标题 / 唯一出口）全部由 `ProductDrawer` 承担；
+ * 头部原先由 `PositionDrawerHeader.vue` 自绘，职责已并入外壳，该文件已删除。
+ * 本文件只剩：跳详情的路由副作用、XIRR 取数、锚点与区块的编排。
+ *
+ * 已删除（设计 §6.1）：「历史价格与成本曲线（数据依赖 P1-20 定时任务同步）」
+ * 空壳块——它把内部工单号写进界面，读起来像「图坏了」。
+ */
 const props = defineProps<{
   visible: boolean;
-  positionData: any;
+  positionData: PositionLike | null;
 }>();
 
 const emit = defineEmits<{
@@ -329,6 +110,11 @@ const emit = defineEmits<{
 
 const router = useRouter();
 const detailLoading = ref(false);
+
+/** 品类白名单单点判定：没有详情页就不渲染按钮，只留原因（§5） */
+const detailAvailable = computed(() =>
+  isDetailAssetType(props.positionData?.asset_type)
+);
 
 /**
  * 跳详情页（#1965）。
@@ -360,37 +146,16 @@ async function goDetail() {
   }
 }
 
-// 基金类型判断（基金/货币基金）
-const isFund = computed(() =>
-  ["fund", "money_fund"].includes(props.positionData?.asset_type)
-);
-
-// 抽屉双向绑定
-const drawerVisible = computed({
-  get: () => props.visible,
-  set: val => emit("update:visible", val)
-});
-
-// 交易记录状态
-const loadingTransactions = ref(false);
-const transactionsList = ref<any[]>([]);
-const transactionsTotal = ref(0);
-
-/** 适配公共表格行：txn_type → type（spread 保留原字段，编辑弹窗所需的
-    notes / import_hash 运行时仍在，仅类型层面不收）。 */
-const rows = computed<TransactionRow[]>(() =>
-  transactionsList.value.map(r => ({ ...r, type: r.txn_type }))
-);
+/** 基金类型判断（基金/货币基金） */
+const isFund = computed(() => isFundPosition(props.positionData?.asset_type));
 
 // 年化收益率（XIRR，#862 / #796）：单持仓维度，开抽屉时拉取
 const loadingXirr = ref(false);
 const xirr = ref<number | null>(null);
-const xirrColor = computed(() =>
-  xirr.value == null
-    ? "var(--text-primary)"
-    : xirr.value >= 0
-      ? "var(--color-rise)"
-      : "var(--color-success)"
+
+/** 锚点模型：主数值 + 副行（盈亏 / 盈亏率 / 年化兜底） */
+const anchor = computed(() =>
+  buildAnchor(props.positionData, xirr.value, loadingXirr.value)
 );
 
 async function fetchXirr() {
@@ -401,8 +166,8 @@ async function fetchXirr() {
   }
   loadingXirr.value = true;
   try {
-    const res = await getPositionXirr(id);
-    const data = (res as any)?.data;
+    const res = await getPositionXirr(id as number);
+    const data = res?.data;
     // xirr 为小数（0.1234=12.34%）；无现金流/无法计算时后端可能不返回该字段
     xirr.value = typeof data?.xirr === "number" ? data.xirr : null;
   } catch {
@@ -412,82 +177,13 @@ async function fetchXirr() {
   }
 }
 
-// 获取交易明细 API 调用
-async function fetchTransactions() {
-  if (!props.positionData?.id) return;
-
-  loadingTransactions.value = true;
-  try {
-    const res = await getPositionTransactions(props.positionData.id);
-    // 根据后端实际返回格式解析
-    const data = (res as any)?.data;
-
-    // 兼容处理
-    if (data && typeof data === "object" && "items" in data) {
-      transactionsList.value = data.items || [];
-      transactionsTotal.value = data.total || 0;
-    } else {
-      transactionsList.value = Array.isArray(data) ? data : [];
-      transactionsTotal.value = transactionsList.value.length;
-    }
-  } catch (e) {
-    transactionsList.value = [];
-    transactionsTotal.value = 0;
-  } finally {
-    loadingTransactions.value = false;
-  }
-}
-
-// 监听抽屉打开事件，触发数据加载
+// 监听抽屉打开事件，触发年化收益率加载（交易明细由子组件自取）
 watch(
   () => props.visible,
   newVal => {
     if (newVal) {
-      // 打开时先清空之前的记录
-      transactionsList.value = [];
-      transactionsTotal.value = 0;
-      // 等待 DOM 渲染完毕再拉取数据
-      nextTick(() => fetchTransactions());
-      // 同步拉取该持仓年化收益率（XIRR）
       fetchXirr();
     }
   }
 );
-
-// 重置状态
-function resetState() {
-  transactionsList.value = [];
-  transactionsTotal.value = 0;
-  xirr.value = null;
-  loadingXirr.value = false;
-  editDialogVisible.value = false;
-  editingTxn.value = null;
-}
-
-// 行内编辑
-const editDialogVisible = ref(false);
-const editingTxn = ref<any>(null);
-function openEdit(row: any) {
-  editingTxn.value = row;
-  editDialogVisible.value = true;
-}
-function handleSaved(data: any) {
-  const idx = transactionsList.value.findIndex(t => t.id === data?.id);
-  if (idx !== -1) {
-    Object.assign(transactionsList.value[idx], {
-      quantity: data.quantity,
-      price: data.price,
-      amount: data.amount,
-      fee: data.fee,
-      trade_date: data.trade_date || data.confirm_date || null,
-      confirm_date: data.confirm_date,
-      notes: data.notes,
-      import_hash: data.import_hash
-    });
-  }
-}
 </script>
-
-<style scoped>
-/* 无需额外全局 CSS，完全依赖色彩规范变量 */
-</style>

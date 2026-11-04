@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
+import OwnerMemberSelect from "./OwnerMemberSelect.vue";
 import {
   useUnsavedChangesGuard,
   useDialogForm
@@ -46,7 +47,9 @@ const createForm = ref({
   auto_purchase_money_fund: false,
   portfolio_id: null as number | null,
   fee_config: null as any,
-  sales_institution_id: null as number | null
+  sales_institution_id: null as number | null,
+  // 归属家庭成员（#1173，null=未归属/家庭共有）
+  owner_member_id: null as number | null
 });
 
 // 每次打开重置表单（原 openCreateDialog 的重置语义迁移至此）；
@@ -108,7 +111,8 @@ async function handleCreate() {
       auto_purchase_money_fund: createForm.value.auto_purchase_money_fund,
       portfolio_id: createForm.value.portfolio_id,
       fee_config: createForm.value.fee_config,
-      sales_institution_id: createForm.value.sales_institution_id
+      sales_institution_id: createForm.value.sales_institution_id,
+      owner_member_id: createForm.value.owner_member_id
     });
     ElMessage.success("账户创建成功");
     // 已落库，当前值即新基线（关闭分支也会复位，两处都做是为了时序上不依赖单一路径）
@@ -152,6 +156,7 @@ async function handleCreate() {
         :portfolio-list="portfolioList"
         :sales-institutions="salesInstitutions"
       />
+      <OwnerMemberSelect v-model="createForm.owner_member_id" />
 
       <el-form-item label="备注">
         <el-input v-model="createForm.notes" placeholder="可选" />

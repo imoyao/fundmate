@@ -202,15 +202,26 @@
     color: var(--text-inverse) !important;
   }
 
+  /**
+   * 激活标签的文字色：**白底 + 品牌文字色**，不是 `--text-inverse`。
+   *
+   * 标签栏底色是白卡片（`--bg-card`），这里从来没有过品牌色底——`cbc043a6d`
+   * 把标题从 `var(--el-color-primary)`（红字白底）改成 `var(--text-inverse)`
+   * （白字）却没有补背景，于是**当前页那个标签白字白底、肉眼完全看不见**，
+   * 只剩一个 × 按钮（用户反馈：「标签块在、里面空的」「点击侧边栏时空白」）。
+   *
+   * 用 `--brand-ink`（a11y 批次补齐的**文字级**品牌色，白底 5.86:1），
+   * 而不是 `--el-color-primary`（--brand-700 作文字仅 3.73:1）。
+   */
   .tag-title {
-    color: var(--text-inverse) !important;
+    color: var(--brand-ink) !important;
   }
 
   .chrome-close-btn {
-    color: var(--text-inverse);
+    color: var(--brand-ink);
 
     &:hover {
-      background-color: var(--el-color-primary);
+      background-color: var(--brand-100);
     }
   }
 

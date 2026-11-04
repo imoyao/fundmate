@@ -14,6 +14,22 @@ from app.services.similar_fund_service import get_similar_funds
 bp = APIBlueprint('funds', __name__, url_prefix='/api/funds')
 
 
+# `as_of` 解析失败的哨兵：用 `is` 判等，不与合法值 `None` / `date` 混淆。不用 `ValueError`
+# 是因为服务层也用 `ValueError` 表达「组合不存在」，两者会被同一个 except 吞成同一码。
+_BAD_DATE = object()
+
+
+def _parse_as_of_param():
+    """解析可选查询参数 ``as_of``（YYYY-MM-DD）：未传 → ``None``；合法 → ``date``；非法 → ``_BAD_DATE``。"""
+    raw = (request.args.get('as_of') or '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, '%Y-%m-%d').date()
+    except ValueError:
+        return _BAD_DATE
+
+
 @bp.get('/search/')
 def search_funds():
     q = request.args.get('q', '').strip()
@@ -167,14 +183,28 @@ def sync_fund_fees(fund_code: str):
 
 @bp.get('/style/portfolio/')
 def get_portfolio_style():
-    """组合加权风格暴露（持仓透视，家庭作用域）。
+    """组合加权风格暴露（持仓透视，家庭 / 组合 / 账户三级口径）。
 
-    无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0——
-    前端据此显示「暂无数据」，不显示全零箱体（「0 暴露」与「没有数据」是两件事）。
+    作用域（2026-10-27）：不传 = 家庭级；``?portfolio_id=`` = 组合口径（显式归属 +
+    成员账本继承，唯一出口 ``services/scope.py``）；``?ledger_id=`` = 单账户；同传 400
+    （``error_code=1001``，与穿透 / 归因同款）。加这两个参数是因为组合详情页此前直接
+    复用家庭级结果却标题「组合风格构成」（同类问题 #2595 在穿透面板修过）。
+
+    无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0——前端据此显示
+    「暂无数据」，不显示全零箱体（「0 暴露」与「没有数据」是两件事）。
     """
-    with get_db() as db:
-        data = portfolio_style_exposure(db, get_family_id())
-    return jsonify({'data': data, 'message': 'ok'})
+    try:
+        with get_db() as db:
+            data = portfolio_style_exposure(
+                db,
+                get_family_id(),
+                portfolio_id=request.args.get('portfolio_id', type=int),
+                ledger_id=request.args.get('ledger_id', type=int),
+            )
+        return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        # scope 参数冲突 / 组合不存在（services/scope.py 约定），与穿透 / 归因端点同款 400
+        return jsonify({'data': {}, 'message': str(e), 'error_code': 1001}), 400
 
 
 @bp.get('/<string:fund_code>/style/latest/')
@@ -224,14 +254,64 @@ def get_similar_funds_view(fund_code: str):
 
 @bp.get('/advisors/<string:code>/holdings/')
 def get_advisor_holdings(code: str):
-    """投顾组合当前持仓（只读）。
+    """投顾组合持仓（只读）。
 
     返回最新快照日的成分基金与占比。每只基金带 `in_local_db` —— 该基金是否已收录进
     本地 `funds` 表（组合成分可能暂缺于本地名录，如 QDII），前端据此决定能否跳详情。
+
+    查询参数 `as_of`（YYYY-MM-DD，可选，投顾详情页 P0）：取指定调仓时点的快照。
+    不传 = 最新，行为与加参数前一致。格式非法 **400/1001** 而不是 404/1002 ——
+    后者是「组合不存在」的语义，混用会让前端把「我拼错了日期」显示成「组合没了」。
+    因此这里先解析、再进服务层（服务层抛的 ValueError 仍统一按 404 处理）。
+    """
+    as_of = _parse_as_of_param()
+    if as_of is _BAD_DATE:
+        return jsonify({'data': None, 'message': 'as_of 需为 YYYY-MM-DD', 'error_code': 1001}), 400
+    with get_db() as db:
+        try:
+            data = FundService.build_advisor_holdings(db, code, as_of=as_of)
+        except ValueError as e:
+            return jsonify({'data': None, 'message': str(e), 'error_code': 1002}), 404
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/advisors/<string:code>/holdings-history/')
+def get_advisor_holdings_history(code: str):
+    """投顾组合历史持仓时点 + 指定时点明细（只读，投顾详情页 P0）。
+
+    返回 `{code, name, platform, dates: [...], as_of_date, source, kind, holdings: [...]}`：
+
+    - `dates` 是**调仓时点**列表（倒序），不是逐日；前端须写「数据点 = N 个调仓时点」，
+      不得画成连续日线（设计稿 §1 的粒度口径）。
+    - `source` 保留库内原值（`tiantian` / `qieman` / `qieman_manual`），`kind` 是
+      `official` / `captured` / `manual` 的粗粒度标签。设计稿原写单一 `source: 'official' | 'derived'`，
+      实做拆两个字段——持仓快照没有「derived」这一档（调仓明细才是两个快照推导的），硬套会把
+      「且慢自动同步」与「且慢手动导入」压成同一个值。
+
+    查询参数 `as_of`（可选）：指定时点，缺省 = 最新时点。
+    """
+    as_of = _parse_as_of_param()
+    if as_of is _BAD_DATE:
+        return jsonify({'data': None, 'message': 'as_of 需为 YYYY-MM-DD', 'error_code': 1001}), 400
+    with get_db() as db:
+        try:
+            data = FundService.build_advisor_holdings_history(db, code, as_of=as_of)
+        except ValueError as e:
+            return jsonify({'data': None, 'message': str(e), 'error_code': 1002}), 404
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/advisors/<string:code>/industries/')
+def get_advisor_industries(code: str):
+    """投顾组合行业配置（只读，投顾详情页 P0）。
+
+    返回 `{code, name, platform, as_of_date, source, industries: [{industry_name, ratio}]}`，
+    按占比倒序。**当前只有天天基金提供**，全库仅 3 行（本机实测）⇒ 绝大多数组合返回
+    `as_of_date: null` + 空列表，前端应整块隐藏而不是渲染空表。
     """
     with get_db() as db:
         try:
-            data = FundService.build_advisor_holdings(db, code)
+            data = FundService.build_advisor_industries(db, code)
         except ValueError as e:
             return jsonify({'data': None, 'message': str(e), 'error_code': 1002}), 404
         return jsonify({'data': data, 'message': 'ok'})
@@ -245,8 +325,8 @@ def get_advisor_adjusts(code: str):
     - `limit`：最近 N 个调仓日，缺省 10，上限 50；
     - `date`：只取指定调仓日（YYYY-MM-DD），与 limit 互斥时优先 date。
 
-    来源差异写进每条的 `source`：且慢无历史调仓接口，明细由我们的持仓快照序列推导
-    （`qieman`，`reason` 记录推导所依据的上一次快照日）；天天来自官方接口（`tiantian`）。
+    来源差异写进每条的 `source`：`qieman_official`（且慢官方）/ `qieman`（计划型组合的快照推导）/
+    `tiantian`（天天官方）；各值语义见 `FundService.build_advisor_adjusts`。
     """
     raw_limit = request.args.get('limit', '10')
     try:

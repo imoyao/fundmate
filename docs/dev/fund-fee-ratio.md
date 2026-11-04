@@ -27,6 +27,27 @@ title: 基金费率信息获取
 
 - **币种已落库**：`FeeRatio` 已含 `currency` 列（ISO 4217，默认 CNY，见 [#820](https://github.com/imoyao/fundmate/issues/820)）。东财/同花顺接口均无结构化币种字段（pingzhongdata / jjfl / f10 / `fund_info_ths` 实测均不含），故按基金份额名称特征推导：含「人民币」或全无外币字样 → CNY；含「美元/港币/港元/日元/欧元/英镑」→ 对应 ISO 码。推导逻辑见 `FundService.infer_fund_currency`（`backend/app/services/fund_service.py`），写入点为 `sync_fund_fees` 与 `FundDetailEnrichJob._update_fund_fees`。既有库回填用一次性脚本 `backend/scripts/migrate_fee_ratio_currency.py`。
 
+### 消费侧展示口径（前端，#1015）
+
+产品详情页「基金资料」区块的两格费率口径收口在纯函数
+`frontend/src/views/product/components/fundFeeFormat.ts`，三条约定写在那里：
+
+1. **`rate` 是小数**（`0.015` = 1.5%）。落库前 `_upsert_fee_ratio` 已除以 100，
+   消费侧只许走 `formatPercent`，**不得再乘 100**——两处各写一份就是 100 倍错误的来路。
+2. **区间是半开区间** `[start, end)`（`estimate_redeem_fee` 判据 `days >= start`
+   且 `days < end`），故 `[0, 7)` 读作「不足 7 天」，写成「0~7 天」会让人以为第 7 天
+   仍收 1.5%。
+3. **取区间下界最小的一档**，不是 `rows[0]`：`get_fund_fee_rates` 的查询无
+   `ORDER BY`，顺序不确定；旧实现取首行 + 用 `start_day` 当条件，首档下界为 0 时
+   渲染出「1.50%（0 天内）」。
+
+申购档还要看 `fee_amount`（固定金额档，元/笔）：大额档常是「1000 元/笔」且
+`rate` 为 0，只读 `rate` 会显示成「0.00%」，等于说「免费申购」。
+
+「费率怎么读」（申购/赎回费怎么算、首档是短期惩罚档且全额计入基金资产、管理费/
+托管费等按日从净值计提）没有任何后端字段归属，属**知识**而非**数据**，由前端静态
+文案承载（`components/FundFeeGuide.vue`，默认收起），不入库、不缓存。
+
 ---
 
 ## 历史方案（V1，已退役 · 仅作归档参考）

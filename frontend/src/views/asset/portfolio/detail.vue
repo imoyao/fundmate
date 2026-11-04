@@ -7,26 +7,16 @@
       </el-button>
     </div>
 
-    <div
-      v-if="loading"
-      class="text-center py-20"
-      style="color: var(--text-tertiary-ink)"
-    >
-      <p>加载中...</p>
-    </div>
+    <PageSkeleton v-if="loading" :cards="3" :chart-cols="1" :table-rows="4" />
 
     <template v-else-if="portfolio">
-      <!-- 标题与操作 -->
-      <div class="flex justify-between items-start mb-6">
-        <div>
-          <h2 class="text-2xl font-bold" style="color: var(--text-primary)">
-            {{ portfolio.name }}
-          </h2>
-          <p class="text-sm mt-1" style="color: var(--text-tertiary-ink)">
-            {{ portfolio.purpose || "未设定投资目的" }}
-          </p>
-        </div>
-        <div class="flex gap-2">
+      <!-- 页头统一走 PageHeaderBar（2026-10-25 前是手写 h2 + tailwind，
+           与全站页头规格 --text-display/300 不一致） -->
+      <PageHeaderBar
+        :title="portfolio.name"
+        :subtitle="portfolio.purpose || '未设定投资目的'"
+      >
+        <template #action>
           <el-button @click="editVisible = true">编辑</el-button>
           <el-popconfirm
             title="确定删除此组合？关联账户将自动解绑。"
@@ -39,304 +29,126 @@
               <el-button type="danger" text>删除</el-button>
             </template>
           </el-popconfirm>
-        </div>
-      </div>
+        </template>
+      </PageHeaderBar>
 
-      <!-- 基础信息指标卡 -->
-      <MetricGrid class="mb-6">
-        <MetricCard title="关联账户" :value="linkedLedgers.length" unit="个" />
-        <MetricCard
-          title="目标收益率"
-          :value="portfolio.target_return ?? null"
-          unit="%"
-        />
-        <MetricCard title="基准指数" :value="portfolio.benchmark || '--'" />
-      </MetricGrid>
+      <!-- 页内导航：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail（PageToc）接管。
+           两级互斥，条目由 usePageNav 按 DOM 里真实渲染的 nav-* 锚点动态生成，
+           v-if 整块消失的区块（如无货基数据）自动不留死链。 -->
+      <PageNav
+        v-if="navItems.length > 1"
+        :items="navItems"
+        :active-id="navActiveId"
+        @navigate="goToNavSection"
+      />
 
-      <!-- 组合收益 (XIRR) -->
-      <CardBlock class="mb-6">
-        <SectionHeader title="组合收益 (XIRR)">
-          <template #action>
-            <IncludeCashSwitch
-              v-model="includeCashEquivalents"
-              @change="fetchXirr"
+      <div class="portfolio-detail__body">
+        <div ref="pageMain" class="portfolio-detail__main">
+          <!-- 基础信息指标卡（hero 概览，不进目录） -->
+          <MetricGrid class="mb-6">
+            <MetricCard
+              title="关联账户"
+              :value="linkedLedgers.length"
+              unit="个"
             />
-            <el-button size="small" :loading="xirrLoading" @click="fetchXirr">
-              <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
-            </el-button>
-          </template>
-        </SectionHeader>
-        <div v-if="xirrData" class="xirr-grid">
-          <div class="xirr-item">
-            <span class="xirr-label">年化收益率</span>
-            <div class="xirr-value--lg">
-              <RiseFallText :value="xirrData.xirr * 100" />
-            </div>
-          </div>
-          <div class="xirr-item xirr-item--ml">
-            <span class="xirr-label">当前市值</span>
-            <div class="xirr-value">
-              <MoneyDisplay
-                :value="xirrData.current_value"
-                :show-sign="false"
-              />
-            </div>
-          </div>
-          <div class="xirr-item">
-            <span class="xirr-label">总投入</span>
-            <div class="xirr-value">
-              <MoneyDisplay
-                :value="xirrData.total_invested"
-                :show-sign="false"
-              />
-            </div>
-          </div>
-          <div class="xirr-item">
-            <span class="xirr-label">总收益</span>
-            <div class="xirr-value">
-              <MoneyDisplay :value="xirrData.total_return" />
-            </div>
-          </div>
-        </div>
-        <div v-else-if="!xirrLoading" class="xirr-empty">
-          点击刷新获取收益数据
-        </div>
-        <div v-else class="xirr-empty">计算中...</div>
-      </CardBlock>
-
-      <!-- 货基收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加） -->
-      <CardBlock v-if="moneyFundData || moneyFundLoading" class="mb-6">
-        <SectionHeader title="货基收益">
-          <template #action>
-            <el-button
-              size="small"
-              :loading="moneyFundLoading"
-              @click="fetchMoneyFund"
-            >
-              <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
-            </el-button>
-          </template>
-        </SectionHeader>
-        <div v-if="moneyFundData" class="xirr-grid">
-          <div class="xirr-item">
-            <span class="xirr-label">近30天累计</span>
-            <div class="xirr-value">
-              <MoneyDisplay :value="moneyFundData.total_income" />
-            </div>
-          </div>
-          <div class="xirr-item xirr-item--ml">
-            <span class="xirr-label">今日收益</span>
-            <div class="xirr-value">
-              <MoneyDisplay
-                :value="moneyFundData.today_income"
-                :show-sign="true"
-              />
-            </div>
-          </div>
-        </div>
-        <div v-else-if="!moneyFundLoading" class="xirr-empty">
-          点击刷新获取货基收益
-        </div>
-        <div v-else class="xirr-empty">计算中...</div>
-      </CardBlock>
-
-      <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股） -->
-      <div class="mb-6">
-        <PenetrationPanel />
-      </div>
-
-      <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
-      <CardBlock class="mb-6">
-        <SectionHeader title="持仓明细" :info="PNL_DUAL_SCOPE_TIP">
-          <template #action>
-            <RealtimeEstimateToggle
-              :enabled="estimateEnabled"
-              :status="estimateStatus"
-              :last-update-time="estimateUpdatedAt"
-              :text="estimateToggleText"
-              @toggle="estimateQuotes.toggle"
+            <MetricCard
+              title="目标收益率"
+              :value="portfolio.target_return ?? null"
+              unit="%"
             />
-          </template>
-        </SectionHeader>
-        <el-table
-          v-if="holdings.length"
-          :data="pagedHoldings"
-          stripe
-          size="default"
-          :default-sort="{ prop: 'market_value', order: 'descending' }"
-          @sort-change="handleSortChange"
-        >
-          <el-table-column label="产品信息" min-width="180">
-            <template #default="{ row }">
-              <ProductDisplay
-                :name="row.name || ''"
-                :symbol="row.symbol || ''"
-                :type-label="row.type_label || ''"
-              />
-            </template>
-          </el-table-column>
+            <MetricCard
+              title="基准指数"
+              :value="benchmarkLabel"
+              :caption="benchmarkCaption"
+            />
+            <!-- #2134：区间超额（近 90 天 vs 基准同期）；缺数据由 MetricCard 显示「--」，不造 0 -->
+            <MetricCard
+              title="超额收益"
+              :value="excessValue"
+              unit="%"
+              :caption="excessCaption"
+              :value-color="excessColor"
+            />
+          </MetricGrid>
 
-          <el-table-column
-            label="市值"
-            width="130"
-            align="right"
-            sortable
-            prop="market_value"
-          >
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.market_value || 0"
-                :show-sign="false"
-                :auto-color="false"
-              />
-            </template>
-          </el-table-column>
-          <!-- 盈亏双线（#1104）：主行＝已确认（后端 current_price 口径），副行＝当日预估。
-               排序仍按后端 `pnl`（与已确认同一公式）——资产行无份额 / 现价，两行都显示 `--`。 -->
-          <el-table-column
-            label="盈亏"
-            width="170"
-            align="right"
-            sortable
-            prop="pnl"
-          >
-            <template #default="{ row }">
-              <PnlDualLine
-                :confirmed="confirmedPnl(row as PortfolioHolding)"
-                :estimated="estimatedPnl(row as PortfolioHolding)"
-                :hint="estimateHint(row as PortfolioHolding)"
-                :price-date="(row as PortfolioHolding).price_date"
-                :settled-today="(row as PortfolioHolding).settled_today"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="盈亏率"
-            width="90"
-            align="right"
-            sortable
-            prop="pnl_rate"
-          >
-            <template #default="{ row }">
-              <RiseFallText :value="row.pnl_rate || 0" />
-            </template>
-          </el-table-column>
-          <el-table-column label="来源" width="110">
-            <template #default="{ row }">
-              <el-tag
-                v-if="positionSourceLabel(row.source)"
-                size="small"
-                type="info"
-              >
-                {{ positionSourceLabel(row.source) }}
-              </el-tag>
-              <span v-else style="color: var(--text-tertiary-ink)">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="所属账户" width="120">
-            <template #default="{ row }">{{
-              row.account_name || "未归档"
-            }}</template>
-          </el-table-column>
-        </el-table>
-        <div v-else class="table-empty">
-          暂无持仓数据，可先在各账户新建持仓后再关联到此组合。
-        </div>
-        <div v-if="holdings.length > 0" class="flex justify-end mt-4">
-          <el-pagination
-            v-model:current-page="holdingsPage"
-            :page-size="holdingsPageSize"
-            layout="prev, pager, next"
-            :total="holdings.length"
-            small
+          <!-- 超额走势（#2685）：曲线与上方「超额收益」卡同口径，末点相等 -->
+          <PortfolioExcessTrend
+            class="mb-6"
+            :portfolio-id="portfolioId"
+            @updated="fetchExcess"
+          />
+
+          <!-- 组合收益（#871 三口径卡，#980 拆出） -->
+          <PortfolioReturnCard id="nav-return" :portfolio-id="portfolioId" />
+
+          <!-- 货币基金收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加） -->
+          <PortfolioMoneyFundCard
+            id="nav-money-fund"
+            :portfolio-id="portfolioId"
+          />
+
+          <!-- 资金流动（#2681）：与上面的收益率并列看，才分得清「赚得多」还是「投得多」 -->
+          <div class="mb-6">
+            <CashFlowPanel id="nav-cash-flow" :portfolio-id="portfolioId" />
+          </div>
+
+          <!-- #2135 收益归因（动线：表现 → 归因 → 结构 → 明细，与产品详情页一致）。
+               根节点是 template 分片，fallthrough 落不上 id，故包一层。 -->
+          <div id="nav-attribution">
+            <PnlAttribution :portfolio-id="portfolioId" />
+          </div>
+
+          <!-- 持仓结构（#2617）：大类占比 → 行业穿透 → 风格，由粗到细，不跳级。
+               面板自带三级作用域，本页传组合口径。 -->
+          <div class="mb-6">
+            <PositionStructurePanel
+              id="nav-structure"
+              :portfolio-id="portfolioId"
+            />
+          </div>
+
+          <!-- 持仓穿透（#870 / #2595）：显式传 portfolio-id，否则拉到的是家庭级数据 -->
+          <div class="mb-6">
+            <PenetrationPanel
+              id="nav-penetration"
+              :portfolio-id="portfolioId"
+            />
+          </div>
+
+          <!-- 组合风格构成（#2603 / #2595 同型）：不传 portfolio-id 会展示全家风格 -->
+          <div class="mb-6">
+            <PortfolioStylePanel id="nav-style" :portfolio-id="portfolioId" />
+          </div>
+
+          <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
+          <PortfolioHoldingsCard id="nav-holdings" :holdings="holdings" />
+
+          <!-- 持仓重合度（#2604 重叠度 / #2686 相关性）。
+               紧跟明细：先看买了什么，再看这些基金之间重不重、涨跌同不同步。 -->
+          <PortfolioFundMatrixSection />
+
+          <!-- 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合账户 -->
+          <PortfolioUnarchivedCard
+            id="nav-unarchived"
+            :ledgers="linkedLedgers"
+            @archived="fetchHoldings"
+          />
+
+          <!-- 关联账户 -->
+          <PortfolioLinkedLedgersCard
+            id="nav-ledgers"
+            :ledgers="linkedLedgers"
           />
         </div>
-      </CardBlock>
 
-      <!-- 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合账户 -->
-      <CardBlock class="mb-6">
-        <SectionHeader title="未归档持仓">
-          <template #action>
-            <el-button size="small" :loading="false" @click="fetchUnarchived">
-              <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
-            </el-button>
-          </template>
-        </SectionHeader>
-        <el-table v-if="unarchived.length > 0" :data="unarchived" border>
-          <el-table-column label="产品信息" min-width="180">
-            <template #default="{ row }">
-              <ProductDisplay
-                :name="row.name || ''"
-                :symbol="row.symbol || ''"
-                :type-label="row.type_label || ''"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column label="来源" width="110">
-            <template #default="{ row }">
-              <el-tag
-                v-if="positionSourceLabel(row.source)"
-                size="small"
-                type="info"
-              >
-                {{ positionSourceLabel(row.source) }}
-              </el-tag>
-              <span v-else style="color: var(--text-tertiary-ink)">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="市值" width="130" align="right">
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.market_value || 0"
-                :show-sign="false"
-                :auto-color="false"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="120" align="center">
-            <template #default="{ row }">
-              <el-button
-                size="small"
-                type="primary"
-                @click="openArchive(row.id)"
-              >
-                归档
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div v-else class="table-empty">
-          暂无未归档持仓。探市录入或导入未绑定账户的持仓会出现在这里。
-        </div>
-      </CardBlock>
-
-      <!-- 关联账户 -->
-      <CardBlock>
-        <SectionHeader title="关联账户" />
-        <el-table
-          v-if="linkedLedgers.length"
-          :data="linkedLedgers"
-          stripe
-          size="default"
-        >
-          <el-table-column prop="name" label="账户名称" min-width="150" />
-          <el-table-column label="账户类型" width="120">
-            <template #default="{ row }">
-              {{ ledgerTypeLabel(row.ledger_type) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="100">
-            <template #default="{ row }">
-              <el-button text size="small" @click="goToLedger(row.id)"
-                >查看</el-button
-              >
-            </template>
-          </el-table-column>
-        </el-table>
-        <div v-else class="table-empty">
-          暂无账户关联此组合，请在账户编辑中选择关联。
-        </div>
-      </CardBlock>
+        <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
+        <PageToc
+          v-if="navItems.length > 1"
+          :items="navItems"
+          :active-id="navActiveId"
+          @navigate="goToNavSection"
+        />
+      </div>
     </template>
 
     <!-- 编辑对话框（拆出的共有组件） -->
@@ -346,37 +158,11 @@
       :linked-ledger-ids="linkedLedgers.map(l => l.id)"
       @saved="fetchDetail"
     />
-
-    <!-- 归档对话框：将未归档持仓绑定到本组合下某账户 -->
-    <el-dialog v-model="archiveVisible" title="归档到账户" width="420px">
-      <el-form label-width="80px">
-        <el-form-item label="目标账户">
-          <el-select
-            v-model="archiveLedgerId"
-            placeholder="选择账户"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="l in linkedLedgers"
-              :key="l.id"
-              :label="l.name"
-              :value="l.id"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="archiveVisible = false">取消</el-button>
-        <el-button type="primary" :loading="archiving" @click="confirmArchive">
-          确定归档
-        </el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -386,69 +172,53 @@ import {
   getPortfolioHoldings,
   type PortfolioDetail
 } from "@/api/portfolio";
-import {
-  getPortfolioXirr,
-  getMoneyFundIncome,
-  type XirrData,
-  type MoneyFundIncomeData
-} from "@/api/performance";
-import { getLedgers, type LedgerItem } from "@/api/ledger";
-import { getPositions, updatePosition } from "@/api/positions";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import RiseFallText from "@/components/RiseFallText/index.vue";
-import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import { getLedgers } from "@/api/ledger";
+import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
-import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
-import SectionHeader from "@/components/SectionHeader/index.vue";
-import CardBlock from "@/components/CardBlock/index.vue";
-import PnlDualLine from "@/components/PnlDualLine/index.vue";
-import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
+import PageNav from "@/components/PageNav/index.vue";
+import PageToc from "@/components/PageToc/index.vue";
+import PageSkeleton from "@/components/PageSkeleton/index.vue";
+import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
+import PnlAttribution from "@/components/PnlAttribution/index.vue";
+import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
-import PenetrationPanel from "./PenetrationPanel.vue";
-import { useEnumLabels } from "@/composables/useEnumLabels";
+import PortfolioExcessTrend from "./portfolioDetail/PortfolioExcessTrend.vue";
+import { usePageNav } from "@/composables/usePageNav";
+import PortfolioStylePanel from "./PortfolioStylePanel.vue";
+import PortfolioReturnCard from "./PortfolioReturnCard.vue";
+import PortfolioMoneyFundCard from "./portfolioDetail/PortfolioMoneyFundCard.vue";
+import PortfolioHoldingsCard from "./portfolioDetail/PortfolioHoldingsCard.vue";
+import PortfolioUnarchivedCard from "./portfolioDetail/PortfolioUnarchivedCard.vue";
+import PortfolioFundMatrixSection from "./portfolioDetail/PortfolioFundMatrixSection.vue";
+import PortfolioLinkedLedgersCard from "./portfolioDetail/PortfolioLinkedLedgersCard.vue";
+import { usePortfolioExcess } from "./portfolioDetail/usePortfolioExcess";
 import {
-  confirmedPnl,
-  PNL_DUAL_SCOPE_TIP,
-  usePositionValuation
-} from "@/composables/usePositionValuation";
+  type LinkedLedger,
+  type PortfolioHolding,
+  unwrapList
+} from "./portfolioDetail/portfolioDetailModel";
 
+/**
+ * 组合详情页（/asset/portfolios/:id）。
+ *
+ * #980 拆分后只留「页面骨架」：PageHeaderBar 页头、四张指标卡、页内导航
+ * （PageNav / PageToc，2026-10-25 接入）与十一个纵向区块（收益 / 货基 / 资金流动 /
+ * 归因 / 结构 / 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
+ *
+ * - `PortfolioHoldingsCard`：持仓明细（排序 + 前端分页 + 盈亏双线估值接线）
+ * - `PortfolioUnarchivedCard`：未归档持仓 + 归档对话框（自含取数）
+ * - `PortfolioLinkedLedgersCard`：关联账户
+ * - `PortfolioMoneyFundCard`：货基收益（自含取数）
+ *
+ * 派生文案进 `usePortfolioExcess`，信封解包 / 排序分页 / 账户类型文案进 `portfolioDetailModel.ts`。
+ *
+ * 结构段三个面板口径共享：`PositionStructurePanel`（大类占比 / Top N / 集中度）、
+ * `PenetrationPanel`（行业穿透）、`PortfolioStylePanel`（风格构成）都上移/落到
+ * `components/` 或本目录，且都收 `portfolio-id` 走组合口径（#2595 / #2617）。
+ */
 defineOptions({ name: "PortfolioDetail" });
-
-/** 组合持仓（后端 /api/portfolios/{id}/holdings/ 返回，字段按现有代码使用为准） */
-interface PortfolioHolding {
-  symbol?: string;
-  name?: string | null;
-  type_label?: string;
-  market_value?: number;
-  pnl?: number;
-  pnl_rate?: number;
-  account_name?: string;
-  source?: string | null;
-  /**
-   * #1104：盈亏双线要用到的最小字段集（后端本就下发，此前页面类型没声明）。
-   *
-   * 注意 `type` 与 `quantity` 对**资产行**（`api/portfolio.ts` 注释：资产行 id = asset.id
-   * + 100000）是空的——`confirmedPnl` 会返回 `null` 显示 `--`，这是正确行为：
-   * 那些行没有「份额 × 现价」的口径，不该硬凑一个 0 出来。
-   */
-  type?: string | null;
-  quantity?: number | null;
-  current_price?: number | null;
-  avg_price?: number | null;
-  /** 价格时点（#2140 / #2210）：后端行级 price_date，部分路径缺省为 null */
-  price_date?: string | null;
-  /**
-   * 当日确认口径是否已定型（#2210）：true = 估值副行应隐藏；null / 缺省 = 不隐藏。
-   * **状态 = 后端字段契约**，前端禁止拿 price_date 自己跟今天比对推断。
-   */
-  settled_today?: boolean | null;
-}
-
-/** 关联账户：账户 + 组合关联字段 */
-interface LinkedLedger extends LedgerItem {
-  portfolio_id?: number | null;
-}
 
 const route = useRoute();
 const router = useRouter();
@@ -458,121 +228,38 @@ const portfolioId = computed(() => Number(route.params.id));
 const loading = ref(true);
 const portfolio = ref<PortfolioDetail | null>(null);
 const linkedLedgers = ref<LinkedLedger[]>([]);
-const xirrData = ref<XirrData | null>(null);
-const xirrLoading = ref(false);
-// 组合货基收益（组合维度，按 ledger_id 聚合关联账户；与 XIRR 并列展示，不相加）
-const moneyFundData = ref<MoneyFundIncomeData | null>(null);
-const moneyFundLoading = ref(false);
-// #1354：年化收益是否纳入现金等价物；默认 false=仅主动投资，反映真实投资水准
-const includeCashEquivalents = ref(false);
-const sortProp = ref<string | null>(null);
-const sortOrder = ref<"ascending" | "descending" | null>(null);
-
-// 枚举中文标签（来源等），从后端 /api/utils/enums 单一真相源获取
-const { ensure: ensureEnums, positionSourceLabel } = useEnumLabels();
 
 // 持仓相关
 const holdings = ref<PortfolioHolding[]>([]);
-const holdingsPage = ref(1);
-const holdingsPageSize = 20;
-
-/**
- * 盈亏双线（#1104）：估值接线。
- *
- * 传**全量** `holdings` 而非当前页 `pagedHoldings`——本页分页是前端 slice，传当前页会让
- * 每次翻页都重取一轮行情（`usePositionValuation` 的 `watch` 会触发）；而估值引擎是
- * 一次批量请求（基金一批 / 场内一批），全量代价一样。页面也没有「预估合计」这类
- * 跨页汇总，不存在被误读成全仓的口径风险。
- *
- * 三个 `estimate*` 是 `usePositionValuation` 提供的顶层别名：模板不会解包嵌套 ref，
- * 用它才能直接绑定（详见该组合式函数返回值处的注释）。
- */
-const {
-  estimatedPnl,
-  estimateHint,
-  estimateEnabled,
-  estimateStatus,
-  estimateUpdatedAt,
-  toggleText: estimateToggleText,
-  realtime: estimateQuotes
-} = usePositionValuation(holdings);
-
-// 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合下某账户
-const unarchived = ref<PortfolioHolding[]>([]);
-const archiveVisible = ref(false);
-const archiveTargetId = ref<number | null>(null);
-const archiveLedgerId = ref<number | null>(null);
-const archiving = ref(false);
-
-async function fetchUnarchived() {
-  try {
-    const res = await getPositions({ ledger_id: "null" });
-    unarchived.value = unwrapList<PortfolioHolding>(res);
-  } catch {
-    unarchived.value = [];
-  }
-}
-
-function openArchive(id: number) {
-  archiveTargetId.value = id;
-  archiveLedgerId.value = linkedLedgers.value[0]?.id ?? null;
-  archiveVisible.value = true;
-}
-
-async function confirmArchive() {
-  if (!archiveTargetId.value || !archiveLedgerId.value) {
-    ElMessage.warning("请选择归档目标账户");
-    return;
-  }
-  archiving.value = true;
-  try {
-    await updatePosition(archiveTargetId.value, {
-      ledger_id: archiveLedgerId.value
-    });
-    ElMessage.success("已归档");
-    archiveVisible.value = false;
-    await fetchUnarchived();
-    await fetchHoldings();
-  } catch {
-    ElMessage.error("归档失败");
-  } finally {
-    archiving.value = false;
-  }
-}
 
 // 编辑相关
 const editVisible = ref(false);
 
-/** 从接口信封（{ data, message } 或 { data: { data, message } }）中安全取出列表 */
-function unwrapList<T>(res: unknown): T[] {
-  const d = (res as { data?: unknown })?.data;
-  if (Array.isArray(d)) return d as T[];
-  const nested = (d as { data?: unknown })?.data;
-  return Array.isArray(nested) ? (nested as T[]) : [];
-}
+// ---------- 页内导航（2026-10-25）----------
+// 纵向区块 9 个、明显超一屏，符合 components.md 的 PageToc 接入判据。
+// state / scroll-spy 全在共享 usePageNav 里，本文件只给锚点 → 标签映射。
+const pageMain = ref<HTMLElement>();
+const NAV_LABELS: Record<string, string> = {
+  "nav-return": "组合收益",
+  "nav-money-fund": "货币基金收益",
+  "nav-cash-flow": "资金流动",
+  "nav-attribution": "收益归因",
+  "nav-structure": "持仓结构",
+  "nav-penetration": "持仓穿透",
+  "nav-style": "组合风格",
+  "nav-holdings": "持仓明细",
+  "nav-overlap": "持仓重叠度",
+  "nav-unarchived": "未归档持仓",
+  "nav-ledgers": "关联账户"
+};
+const {
+  items: navItems,
+  activeId: navActiveId,
+  goTo: goToNavSection
+} = usePageNav(pageMain, { labels: NAV_LABELS });
 
-const sortedHoldings = computed(() => {
-  if (!sortProp.value || !sortOrder.value) {
-    return [...holdings.value]; // 默认保持原始顺序
-  }
-  const sorted = [...holdings.value];
-  sorted.sort((a, b) => {
-    const key = sortProp.value as keyof PortfolioHolding;
-    const valA = Number(a[key] ?? 0);
-    const valB = Number(b[key] ?? 0);
-    return sortOrder.value === "ascending" ? valA - valB : valB - valA;
-  });
-  return sorted;
-});
-
-function handleSortChange(sort: {
-  prop: string;
-  order: "ascending" | "descending" | null;
-}) {
-  sortProp.value = sort.order ? sort.prop : null;
-  sortOrder.value = sort.order || null;
-  holdingsPage.value = 1; // 排序后重置到第一页
-}
+// #871：组合收益（三口径）已拆为 PortfolioReturnCard——自含取数与口径切换，
+// 父页只传 portfolioId（#980 上帝页面拆分）。
 
 // ---------- 数据加载 ----------
 async function fetchDetail() {
@@ -614,38 +301,17 @@ async function fetchHoldings() {
   }
 }
 
-async function fetchXirr() {
-  xirrLoading.value = true;
-  try {
-    const res = await getPortfolioXirr(
-      "portfolio",
-      portfolioId.value,
-      includeCashEquivalents.value
-    );
-    xirrData.value = res.data;
-  } catch {
-    ElMessage.error("获取收益率失败");
-  } finally {
-    xirrLoading.value = false;
-  }
-}
+// ---------- 区间收益 vs 基准（#2134）----------
+const {
+  fetchExcess,
+  benchmarkLabel,
+  benchmarkCaption,
+  excessValue,
+  excessColor,
+  excessCaption
+} = usePortfolioExcess(portfolioId, portfolio);
 
-async function fetchMoneyFund() {
-  moneyFundLoading.value = true;
-  try {
-    const res = await getMoneyFundIncome({
-      scope: "portfolio",
-      portfolio_id: portfolioId.value
-    });
-    moneyFundData.value = res.data;
-  } catch {
-    ElMessage.error("获取货基收益失败");
-  } finally {
-    moneyFundLoading.value = false;
-  }
-}
-
-// ---------- 删除 / 跳转 ----------
+// ---------- 删除 ----------
 async function handleDelete() {
   try {
     await deletePortfolio(portfolioId.value);
@@ -657,30 +323,11 @@ async function handleDelete() {
   }
 }
 
-function goToLedger(id: number) {
-  router.push(`/asset/ledgers/${id}`);
-}
-
-function ledgerTypeLabel(type: string): string {
-  if (type === "cash") return "现金账户";
-  if (type === "family") return "家庭账户";
-  return "通用账户";
-}
-
-// ---------- 分页 ----------
-const pagedHoldings = computed(() => {
-  const start = (holdingsPage.value - 1) * holdingsPageSize;
-  return sortedHoldings.value.slice(start, start + holdingsPageSize);
-});
-
 // ---------- 生命周期 ----------
 onMounted(async () => {
-  void ensureEnums(); // 预热枚举标签缓存（来源徽标）
   await fetchDetail();
   if (portfolio.value) {
-    void fetchXirr(); // 自动加载收益率
-    void fetchMoneyFund(); // 自动加载组合货基收益
-    await fetchUnarchived(); // 加载未归档持仓（探市录入等）
+    void fetchExcess(); // #2134 区间收益 vs 基准（近 90 天）
   }
 });
 </script>
@@ -694,49 +341,56 @@ onMounted(async () => {
   font-variant-numeric: tabular-nums;
 }
 
-/* XIRR 指标区 */
-.xirr-grid {
+/* 页内导航两级布局（components.md PageToc）：<xl 单列（胶囊在正文上方整条横跨）；
+   xl+ 主列 + 160px 右目录 rail，列间距 20px（产品详情页同款宽度账）。 */
+.portfolio-detail__body {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.portfolio-detail__main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* XIRR 指标区：组合收益卡与组合货基卡共用——两张卡都已拆为子组件（#980），
+   跨子组件的规则统一用 :deep() 包裹（作用域仍限定在本页树内，
+   welcome/index.vue 同款约定）。注意：搬进任一张卡都会让另一张失去样式。 */
+:deep(.xirr-grid) {
   display: flex;
   gap: var(--space-5);
   align-items: center;
 }
 
-.xirr-item {
+:deep(.xirr-item) {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.xirr-item--ml {
+:deep(.xirr-item--ml) {
   margin-left: auto;
 }
 
-.xirr-label {
+:deep(.xirr-label) {
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
-.xirr-value {
+:deep(.xirr-value) {
   font-size: var(--text-body);
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.xirr-value--lg {
+:deep(.xirr-value--lg) {
   font-size: var(--text-display);
   font-weight: 700;
   line-height: 1.1;
 }
 
-.xirr-empty {
+:deep(.xirr-empty) {
   padding: var(--space-compact);
-  color: var(--text-tertiary-ink);
-  text-align: center;
-}
-
-/* 空状态 */
-.table-empty {
-  padding: var(--space-standard);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

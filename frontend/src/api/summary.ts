@@ -4,9 +4,15 @@ import type { ApiResponse, SummaryData } from "./types";
 
 const BASE_URL = "/api/summary/";
 
-/** 获取首页仪表盘聚合数据 */
-export function getSummary() {
-  return http.request<ApiResponse<SummaryData>>("get", BASE_URL);
+/**
+ * 获取首页仪表盘聚合数据。
+ * `memberId`（#1173）：按家庭成员切片；不传 = 家庭级全量。
+ */
+export function getSummary(memberId?: number) {
+  return http.request<ApiResponse<SummaryData>>(
+    "get",
+    BASE_URL + (memberId ? `?member_id=${memberId}` : "")
+  );
 }
 
 /** 桑基图数据 */
@@ -14,6 +20,93 @@ export type SankeyData = {
   nodes: Array<{ name: string; itemStyle?: { color: string } }>;
   links: Array<{ source: string; target: string; value: number }>;
 };
+
+/**
+ * 资金流动汇总（#2616 账户级 / #2681 组合级，金额一律**元**）。
+ *
+ * 口径（`docs/spec/cashflow-layers.md`）：
+ * - L1 只有 `deposit` / `withdraw`（钱跨出账户）；买入/卖出是账户内部换形态，**不**计入；
+ * - `net_invested = deposit − withdraw`，恒为「自开户以来」，**不随区间变化**——
+ *   切区间就看「累计 0」会把累计语义毁掉；
+ * - 组合级 = Σ 成员账本 L1，**组合内互转已由后端抵消为 0**（否则累计入金会被搬运抬高）；
+ * - `end_asset = market_value + cash_residual`，`cash_residual` 是**推导值**（不是对账单）；
+ * - `has_deposit_record = false` 时净投入恒 0，页面必须提示「未录入金」而不是展示成「没赚钱」。
+ */
+export type CashFlowTotals = {
+  deposit: number;
+  withdraw: number;
+  net_invested: number;
+  cash_residual: number;
+  /** 期末持仓市值（净值线末值，持仓市值口径） */
+  market_value: number;
+  /** 期末资产 = 期末市值 + 现金残差 */
+  end_asset: number;
+  /** 累计收益 = 期末资产 − 净投入 */
+  total_return: number;
+  has_deposit_record: boolean;
+};
+
+export type CashFlowPoint = {
+  date: string;
+  /** 缺价日为 null——**不得补 0**，曲线断开比画成持平诚实 */
+  net_worth: number | null;
+  cum_net_invested: number;
+  state?: string;
+};
+
+export type CashFlowItem = {
+  date: string;
+  direction: "in" | "out";
+  amount: number;
+  asset_type?: string | null;
+  symbol?: string | null;
+};
+
+export type CashFlowMonth = {
+  month: string;
+  deposit: number;
+  withdraw: number;
+  net: number;
+};
+
+/** 资金流动汇总（账户级 / 组合级同一份结构，用 `scope` 区分） */
+export type CashFlow = {
+  scope: "ledger" | "portfolio";
+  /** 组合级为 null */
+  ledger_id: number | null;
+  /** 账户级为 null */
+  portfolio_id: number | null;
+  start_date: string;
+  end_date: string;
+  totals: CashFlowTotals;
+  external_flows: CashFlowItem[];
+  monthly: CashFlowMonth[];
+  net_worth_series: CashFlowPoint[];
+  coverage: {
+    has_any_price: boolean;
+    days: number;
+    missing_nav_days: number;
+    amount_unit: "yuan";
+    cash_residual_is_derived: boolean;
+  };
+};
+
+/**
+ * 查询资金流动（账户级 / 组合级）。
+ *
+ * `ledger_id` 与 `portfolio_id` **二选一**（同传后端 400、都不传也 400）；
+ * 区间只影响逐笔 / 月度 / 曲线，累计指标恒为「自开户以来」。
+ */
+export function getCashFlow(params: {
+  ledger_id?: number;
+  portfolio_id?: number;
+  start_date?: string;
+  end_date?: string;
+}) {
+  return http.request<ApiResponse<CashFlow>>("get", BASE_URL + "cash-flow/", {
+    params
+  });
+}
 
 /** 获取桑基图节点与链接数据 */
 export function getSankeyData() {
@@ -38,10 +131,11 @@ export type DistributionsData = {
 };
 
 /** 获取家庭级多维市值分布 */
-export function getDistributions() {
+/** 家庭级多维市值分布（`memberId`：按家庭成员切片，#1173） */
+export function getDistributions(memberId?: number) {
   return http.request<ApiResponse<DistributionsData>>(
     "get",
-    BASE_URL + "distributions/"
+    BASE_URL + "distributions/" + (memberId ? `?member_id=${memberId}` : "")
   );
 }
 
@@ -75,12 +169,19 @@ export type PositionGroup = {
 export type GroupDimension = "type" | "account" | "allocation";
 
 /** 获取持仓/资产按维度分组汇总（含 items 明细，后端唯一聚合出口） */
-export function getPositionGroups(dimension: GroupDimension) {
+/** 持仓/资产分组明细（`memberId`：按家庭成员切片，#1173） */
+export function getPositionGroups(
+  dimension: GroupDimension,
+  memberId?: number
+) {
   return http.request<ApiResponse<PositionGroup[]>>(
     "get",
     BASE_URL + "groups/",
     {
-      params: { dimension }
+      params: {
+        dimension,
+        ...(memberId ? { member_id: memberId } : {})
+      }
     }
   );
 }
@@ -173,8 +274,12 @@ export type PnlCalendarDay = {
   date: string;
   /** 当日盈亏（元）；`null` = 不可算（无价格序列 / 休市 / 区间首日），**不是 0** */
   daily_pnl: number | null;
-  /** 当日净资产（元） */
-  net_worth: number;
+  /**
+   * 当日净资产（元）；`null` = **有持仓但一笔都取不到价**（#2733 C）。
+   * 与 0 不是一回事：0 表示当天没有持仓，`null` 表示「不知道」——
+   * 绘图时必须断开（`connectNulls: false`），补 0 就是画一条假的地板线。
+   */
+  net_worth: number | null;
   /** 当日收益率（%）；分母为前一日净资产，`null` = 首日或分母为 0 */
   rate: number | null;
   state: PnlCalendarState;
@@ -207,8 +312,8 @@ export type PnlCalendarPeriod = {
   period: string;
   /** 期间盈亏（元）；`null` = 该期间一天都算不出来（无价 / 休市），**不是 0** */
   pnl: number | null;
-  /** 期间末净资产（元） */
-  net_worth: number;
+  /** 期间末净资产（元）；`null` = 该期末有持仓却取不到价（#2733 C，同 `PnlCalendarDay`） */
+  net_worth: number | null;
   /** 期间收益率（%）；分母为**上一期间末**净资产，`null` = 无基线或基线为 0 */
   rate: number | null;
   state: PnlCalendarState;
@@ -295,6 +400,154 @@ export function getPnlCalendar(params?: {
   );
 }
 
+/** #2134 基准超额收益结果：区间收益 vs 基准指数同期涨跌幅（缺数据一侧为 null，不造 0） */
+export type BenchmarkExcessResult = {
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  start_date: string;
+  end_date: string;
+  /** scope 区间收益率（%）；为 null 的原因见 range_reason */
+  range_rate: number | null;
+  /** 区间盈亏（元） */
+  range_pnl: number | null;
+  /**
+   * range_rate 的分母（区间前一天净资产，元）——仅服务端组合级聚合使用；
+   * 前端**禁止**拿它二次计算收益率（口径唯一，见 AGENTS.md）。
+   */
+  range_baseline: number | null;
+  /** null=正常；否则 range_rate 为 null 的原因（no_position / no_members / baseline_missing…） */
+  range_reason: string | null;
+  benchmark: {
+    code: string | null;
+    name: string | null;
+    /** 指数区间涨跌幅（%） */
+    range_return: number | null;
+    /** 指数实际取数首 / 末交易日（ISO），供复核「同期」是否对齐 */
+    bench_start_date: string | null;
+    bench_end_date: string | null;
+    /** null=正常；否则降级原因（non_cn_a_holdings / unrecognized_benchmark / index_insufficient_data…） */
+    reason: string | null;
+  } | null;
+  /** 超额（百分点）= range_rate − benchmark.range_return；任一侧为 null 则为 null */
+  excess_return: number | null;
+  /**
+   * 逐日累计曲线（#2685）：`scope_cum_pct` 分母固定为区间前一日净资产，
+   * 故**末点 ≡ range_rate**；`benchmark_cum_pct` 末点 ≡ benchmark.range_return，
+   * 基准不可算时全程 null（前端只画组合线，不画 0 线冒充基准）。
+   * 某日无报价 ⇒ 该字段 null，前端断线，不用前值伪装成走平。
+   */
+  series: Array<{
+    date: string;
+    scope_cum_pct: number | null;
+    benchmark_cum_pct: number | null;
+  }>;
+};
+
+/** 可选基准（#2685）：唯一出口 = 后端 BENCHMARK_INDICES，前端不再硬编码 */
+export type BenchmarkOption = {
+  /** 指数代码（如 `000300.SH`）；写入 `Portfolio.benchmark` 用这个 */
+  code: string;
+  name: string;
+};
+
+/** 查询可选基准清单（顺序由后端常量声明顺序决定，前端不二次排序） */
+export function getBenchmarks() {
+  return http.request<ApiResponse<BenchmarkOption[]>>(
+    "get",
+    BASE_URL + "benchmarks/"
+  );
+}
+
+/** 收益归因的品种行（#2135）：区间盈亏 + 占比 */
+export type PnlAttributionRow = {
+  position_id: number;
+  symbol: string;
+  name: string | null;
+  asset_type: string | null;
+  ledger_id: number | null;
+  /** 区间盈亏（元，已含已实现） */
+  pnl: number;
+  /** 占区间合计的百分比；合计为 0（没赚没赔）时为 null（不是 0%） */
+  pct: number | null;
+};
+
+/** 收益归因的大类聚合行（#2135）：按 asset_type 分桶 */
+export type PnlAttributionCategory = {
+  asset_type: string;
+  pnl: number;
+  positions_count: number;
+  pct: number | null;
+};
+
+/** 无价降级行（#2135）：持有但整窗无价格数据，不进合计 */
+export type PnlAttributionUnpricedRow = Omit<PnlAttributionRow, "pnl" | "pct">;
+
+export type PnlAttributionPayload = {
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  start_date: string;
+  end_date: string;
+  /**
+   * 区间合计盈亏（元）；整窗无可算日时为 null——诚实降级，不是 0
+   *（0 会被读成「没赚没赔」，而真相是「算不了」）。
+   * Σ positions[].pnl ≡ 同窗 pnl-calendar 的 month_total（构造保证）。
+   */
+  total_pnl: number | null;
+  has_any_computable: boolean;
+  /** 逐品种贡献，按 |pnl| 降序 */
+  positions: PnlAttributionRow[];
+  /** 大类贡献，按 |pnl| 降序 */
+  categories: PnlAttributionCategory[];
+  /** 持有但整窗无价的持仓——不进合计，前端折叠提示 */
+  unpriced_positions: PnlAttributionUnpricedRow[];
+};
+
+/**
+ * 查询区间收益 vs 基准指数超额收益（#2134 账本对齐-D）
+ *
+ * `start_date` / `end_date`（YYYY-MM-DD）必填；`ledger_id` 与 `portfolio_id`
+ * 互斥。基准缺失（港美股持仓 / 未识别基准 / 指数数据不足）一律诚实降级 null，
+ * 前端显示「--」，不显示 0。
+ */
+export function getBenchmarkExcess(params: {
+  start_date: string;
+  end_date: string;
+  ledger_id?: number;
+  portfolio_id?: number;
+}) {
+  return http.request<ApiResponse<BenchmarkExcessResult>>(
+    "get",
+    BASE_URL + "benchmark-excess/",
+    {
+      params
+    }
+  );
+}
+
+/**
+ * 查询区间收益归因（#2135）
+ *
+ * 复用 pnl 引擎唯一盈亏口径（同一次 _compute_days 遍历、同一条基准推进），
+ * Σ positions[].pnl 与同窗 pnl-calendar 的 month_total 由构造保证一致。
+ * `ledger_id` 与 `portfolio_id` 互斥；不传两者 = 家庭级。
+ */
+export function getPnlAttribution(params?: {
+  start_date?: string;
+  end_date?: string;
+  ledger_id?: number;
+  portfolio_id?: number;
+}) {
+  return http.request<ApiResponse<PnlAttributionPayload>>(
+    "get",
+    BASE_URL + "pnl-attribution/",
+    {
+      params
+    }
+  );
+}
+
 /** 跨账本疑似重复组（幽灵重复扫描结果）：同一笔交易疑似出现在多个账本 */
 export type GhostDuplicateGroup = {
   symbol: string;
@@ -348,6 +601,13 @@ export type PenetrationOtherScheme = {
   industry_ratio_of_covered: number;
   note: string;
   industries: PenetrationIndustry[];
+  /** 直持腿在该体系下的行业分布（#1981）；与 `industries`（基金部分）互补不重叠 */
+  direct_industries: Array<{
+    code: string;
+    name: string;
+    value_cny: number;
+    ratio_of_total: number;
+  }>;
 };
 
 /** 个股层一项（code 为 __other__ 时name 为「其他」，是截断的聚合行） */
@@ -380,13 +640,53 @@ export type PenetrationCoverage = {
   unpenetrated_fund_cny: number;
 };
 
+/**
+ * #2617 持仓结构口径（穿透面板「持仓结构」档，2026-10-30 由「直接持有」改名）。
+ *
+ * 与 `PenetrationData.industries`（穿透持仓）共用同一批持仓：本结构里基金整块
+ * 不拆底层，`industries` 只含直持腿。各项合计 = `total_cny`。
+ */
+export type PenetrationDirectView = {
+  industries: Array<{
+    code: string;
+    name: string;
+    value_cny: number;
+    ratio_of_total: number | null;
+  }>;
+  /** 基金整块市值（不拆底层） */
+  fund_cny: number;
+  /** 基金整块占持仓总市值（0–1，与 industries[].ratio_of_total 同量纲） */
+  fund_ratio: number;
+  /** 命中「个股→行业」映射的直持金额（等于 industries 各项之和，单列便于算缺口） */
+  mapped_cny: number;
+  mapped_ratio: number;
+  /** 无行业映射的直持腿（环形图里单列「未映射直持」扇区，不凭空补 0 值行业）；**不含现金等价物** */
+  unmapped_cny: number;
+  unmapped_ratio: number;
+  /** 现金等价物（货基/逆回购）单列：本质无股票敞口，不是映射缺口 */
+  cash_equivalent_cny: number;
+  cash_equivalent_ratio: number;
+  /** 当前口径下是否至少有一条直持映射；false 时直持图必然为空（映射数据源缺口，非缺陷） */
+  mapping_available: boolean;
+  /** 未映射成因说明；无缺口时为 null。界面须原样展示，不得自行改写 */
+  unmapped_reason: string | null;
+  total_cny: number;
+  note: string;
+};
+
 export type PenetrationData = {
   as_of: string;
   scheme: string;
   scheme_label: string;
+  /** #2595 三级口径标记：family / ledger / portfolio（与归因、超额同枚举） */
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
   total_value_cny: number;
   coverage: PenetrationCoverage;
   industries: PenetrationIndustry[];
+  /** #2617 持仓结构口径（图 A）：基金整块不拆底层，用于与穿透持仓对照 */
+  direct_view: PenetrationDirectView;
   /** 行业合计不足 100% 的差额＝该基金的债券/现金/其他，**不是缺失数据** */
   industry_non_equity_cny: number;
   other_schemes: Record<string, PenetrationOtherScheme>;
@@ -403,14 +703,93 @@ export type PenetrationData = {
 };
 
 /**
- * 获取持仓穿透聚合（#870）。
+ * 获取持仓穿透聚合（#870；#2595 三级口径）。
  * @param scheme 主口径分类体系，默认 csrc（实测只有 2 只基金缺 csrc，口径最全）
+ * @param scope 账户级 / 组合级：`ledger_id` 与 `portfolio_id` 互斥（后端 400）；
+ *   均不传 = 家庭级。组合级语义同归因（#2135）：显式归属 + 成员账本继承。
  */
-export function getPenetration(scheme: "csrc" | "gics" = "csrc") {
+export function getPenetration(
+  scheme: "csrc" | "gics" = "csrc",
+  scope?: { ledger_id?: number; portfolio_id?: number }
+) {
   return http.request<ApiResponse<PenetrationData>>(
     "get",
     BASE_URL + "penetration/",
-    { params: { scheme } }
+    { params: { scheme, ...(scope ?? {}) } }
+  );
+}
+
+/**
+ * #2617 持仓结构：资产类别占比 + 股基分列 Top N + 集中度。
+ *
+ * 股票与基金**分开排名**（份额与价格不可比）；同一标的跨账户已由后端合并，
+ * `accounts` 是合并了几个账户。前端不再二次计算占比与排名（D5 唯一出口）。
+ */
+export type PositionStructureItem = {
+  symbol: string | null;
+  name: string | null;
+  asset_type: string | null;
+  value_cny: number;
+  ratio_of_total: number | null;
+  ratio_of_group: number | null;
+  accounts: number;
+};
+
+export type PositionStructureGroup = {
+  label: string;
+  count: number;
+  total_cny: number;
+  ratio_of_total: number | null;
+  top: PositionStructureItem[];
+  top5_ratio_of_group: number | null;
+  top5_ratio_of_total: number | null;
+};
+
+export type PositionStructureData = {
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  total_cny: number;
+  position_count: number;
+  /**
+   * 账户级固定视角（#2739）：`stock` / `fund` / `null`。
+   *
+   * `null` = 组合级或家庭级 ⇒ 前端**保留**股基切换控件（跨类型账户混合，
+   * 切换才有意义）。非 null = 账户级 ⇒ 视角由账户类型决定，**不提供切换**。
+   */
+  view: "stock" | "fund" | null;
+  /** 账户的内部资产类口径键（stock/fund/bank/property/e_account），非账户级为 null */
+  ledger_type: string | null;
+  /** 走类现金口径的市值（账户级下排除出持仓榜的货基等）；非账户级恒为 0 */
+  cash_like_cny: number;
+  by_asset_class: Array<{
+    key: string;
+    label: string;
+    value_cny: number;
+    ratio_of_total: number | null;
+  }>;
+  groups: Record<"stock" | "fund", PositionStructureGroup>;
+  concentration: {
+    top5_ratio_of_total: number | null;
+    top5_ratio_of_stock: number | null;
+    top5_ratio_of_fund: number | null;
+  };
+  notes: string[];
+};
+
+/**
+ * 获取持仓结构（#2617）。
+ * @param scope `ledger_id` / `portfolio_id` 互斥（后端 400），均不传 = 家庭级
+ * @param topN 每组榜单条数，默认 5（后端夹取 1–50）
+ */
+export function getPositionStructure(
+  scope?: { ledger_id?: number; portfolio_id?: number },
+  topN = 5
+) {
+  return http.request<ApiResponse<PositionStructureData>>(
+    "get",
+    BASE_URL + "position-structure/",
+    { params: { top_n: topN, ...(scope ?? {}) } }
   );
 }
 
@@ -443,6 +822,80 @@ export function getFundValuation(params?: {
     "get",
     BASE_URL + "fund-valuation/",
     { params }
+  );
+}
+
+/* ───────────────────────首页「最新收益」卡（当日盈亏）─────────────────────────
+ * 后端唯一出口 `services/today_pnl.py`：与收益日历**同一次遍历、同一条盈亏口径**
+ * （`Σ classes[].pnl ≡ 日历当日格`）。前端禁止按持仓自己再算一遍——
+ * 两套算法必然分叉，第一个坏结果是「首页 +1,227.88 / 日历 +1,198.20」。
+ *
+ * 状态契约（用户 2026-11-03 拍板）：
+ *   estimated  当日价含基金收盘估值定格 ⇒ 徽标「估」，官方净值到位后自动翻 confirmed
+ *   confirmed  该大类当日全部持仓都有官方当日价
+ *   partial    部分标的本日还没出价（盘中 / 同步没跑）：金额只算了已出价的
+ *   empty      该大类当日无持仓
+ *   no_data    整卡算不出（无持仓 / 全部持仓无价格序列）——此时 `total_pnl` 为 null
+ */
+
+export type TodayPnlStatus =
+  "estimated" | "confirmed" | "partial" | "empty" | "no_data";
+
+/**
+ * 分项大类（卡面只出「场内权益 / 场外基金」：只有这两类有统一的当日估值口径）。
+ *
+ * 2026-11-04 起 `stock` 覆盖股票 / ETF / 可转债（`asset_class` 按定价方式分桶），
+ * 标签由后端 `CLASS_LABELS` 下发——前端不要按 asset_type 自己判类。
+ */
+export type TodayPnlClass = {
+  key: "stock" | "fund";
+  label: string;
+  /** 当日盈亏（元）；null = 该大类今天一个真报价都没有（前值回填的 0 不是收益） */
+  pnl: number | null;
+  /** 当日收益率（%）；分母 = 前一基准日该大类市值，null = 分母缺失 */
+  rate: number | null;
+  market_value: number;
+  status: TodayPnlStatus;
+};
+
+/**
+ * 盘中价格替换的输入（**只换价、不重算盈亏**）。
+ *
+ * `price` 是后端当日取价（元，已折 CNY），`quantity` 是份额（份）。
+ * 前端拿到实时价后只做 `(实时价 − price) × quantity` 的增量，加到后端分项上——
+ * 这样盘中跳动的数在收盘那一刻**必然收敛回后端值**，不会出现两套算法各差几块钱。
+ */
+export type TodayPnlHolding = {
+  symbol: string;
+  class: "stock" | "fund";
+  quantity: number;
+  price: number;
+};
+
+export type TodayPnlData = {
+  /** 该收益所属日；`is_today=false` 表示今天还没有当日报价（盘中 / 净值未出） */
+  date: string;
+  is_today: boolean;
+  /** 收益日历的状态码（updown / zero / partial …），口径同 `PnlCalendarState` */
+  state: string;
+  status: TodayPnlStatus;
+  /** 当日盈亏（元）= Σ classes[].pnl；null = 算不出（不是 0） */
+  total_pnl: number | null;
+  /** 当日收益率（%）；null = 分母缺失 */
+  total_rate: number | null;
+  /** 投资类资产市值（元）= 场内权益 + 场外基金；null = 无持仓 */
+  invested_value: number | null;
+  /** 「其他」类市值（货基 / 理财 / 实物等，无当日估值口径，卡面不列，仅供口径说明） */
+  other_value: number | null;
+  classes: TodayPnlClass[];
+  holdings: TodayPnlHolding[];
+};
+
+/** 首页「最新收益」卡数据（家庭级） */
+export function getTodayPnl() {
+  return http.request<ApiResponse<TodayPnlData>>(
+    "get",
+    BASE_URL + "today-pnl/"
   );
 }
 
@@ -495,9 +948,15 @@ export function getCashLikeBreakdown() {
  * 且该周期不进汇总的胜率/盈亏比样本（pnl_known=false）。
  */
 
+/** 清仓后涨跌幅的四种状态（#2773）：互斥且穷尽，`post_clear_pct` 只有 `ok` 时非空 */
+export type PostClearStatus =
+  "ok" | "no_nav_at_sell" | "no_nav_after" | "not_supported";
+
 /** 单个清仓周期（首买 → 末卖；金额单位元，日期 ISO） */
 export type ClearedCycle = {
   symbol: string;
+  /** 归一身份键（#2774）：产品数按它去重，写法变体（HK00700 / 00700.HK）算同一只 */
+  identity?: string;
   name: string | null;
   /** 该标的第几次清仓（同一标的可有多轮周期） */
   cycle_number: number;
@@ -519,11 +978,31 @@ export type ClearedCycle = {
   /** false = 部分配对，不进汇总胜率/盈亏比样本 */
   pnl_known: boolean;
   caveats: string[];
+  /**
+   * 清仓后涨跌幅（%）（#2773）——**仅在传 `include_post_clear` 时下发**。
+   * null = 算不出（看 `post_clear_status` 是哪一种「算不出」），**不是 0**：
+   * 0 的含义是「卖掉之后不涨不跌」，与「没有净值可算」必须分开。
+   */
+  post_clear_pct?: number | null;
+  /** 状态码；不传 include_post_clear 时字段不存在 */
+  post_clear_status?: PostClearStatus;
+  /**
+   * 最新净值日（YYYY-MM-DD），仅 `ok` 时有值。**必须与涨跌幅一起展示**——
+   * 不标「截至哪天」，一个停在几个月前的数会被当实时值读。
+   */
+  post_clear_as_of?: string | null;
+  /** 实际使用的价格口径：场外 acc_nav（含分红再投）/ unit_nav（不含）；场内 adj_close（前复权） */
+  post_clear_basis?: "acc_nav" | "unit_nav" | "adj_close" | null;
 };
 
 /** 跨周期汇总（样本仅含 pnl_known 周期；零盈亏计样本不计胜负） */
 export type ClearedCyclesSummary = {
   cycle_count: number;
+  /**
+   * 清仓产品数（#2774）：按归一身份键去重，与 `cycle_count`（清仓次数）含义不同——
+   * 同一只标的可能被清仓多轮（`cycle_number`），「清过 3 轮」≠「清过 3 只」。
+   */
+  product_count: number;
   sample_count: number;
   win_count: number;
   loss_count: number;
@@ -535,6 +1014,16 @@ export type ClearedCyclesSummary = {
   /** 累计已实现盈亏（元，仅样本周期） */
   realized_pnl_total: number | null;
   total_trade_count: number;
+  /**
+   * 当前持仓中**仍浮亏**的标的数（#2773），必须与胜率并列展示。
+   *
+   * 为什么它是必需项而不是彩蛋：胜率只统计已清仓周期，套牢不卖的浮亏不在分母里，
+   * 于是胜率天然偏乐观。只看胜率而不看这个数，等于只看被挑过的样本。
+   *
+   * `null` = 后端没算（未实现/降级），与 `0`（算了，一只都不亏）必须区分——
+   * 混成 0 会在界面上显示成「持仓全部健康」，那是编数字。
+   */
+  unrealized_count: number | null;
   caveats: string[];
 };
 
@@ -548,11 +1037,20 @@ export type ClearedCyclesData = {
  *
  * 不传 `ledger_id` = 家庭全部账户合并（产品级口径，与 XIRR/行为画像一致）；
  * `include_cash_equivalents` 默认 false（剔除货基/逆回购/cash，与复盘页 XIRR 同默认）。
+ * `start_date` / `end_date`（#2774）按**末卖日**裁剪，缺省 = 投资以来。
+ * `include_post_clear`（#2773）补「清仓后涨跌幅」，每个周期多出 4 个字段；
+ * 默认 false 是因为它要额外查 `daily_worth`（锚点 + 最新），复盘页要这列就显式开。
  */
 export function getClearedCycles(params?: {
   ledger_id?: number;
   symbol?: string;
   include_cash_equivalents?: boolean;
+  /** YYYY-MM-DD；缺省不限制下界 */
+  start_date?: string;
+  /** YYYY-MM-DD；缺省不限制上界 */
+  end_date?: string;
+  /** 补「清仓后涨跌幅」（#2773）；默认不开 */
+  include_post_clear?: boolean;
 }) {
   return http.request<ApiResponse<ClearedCyclesData>>(
     "get",

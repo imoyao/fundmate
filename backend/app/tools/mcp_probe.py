@@ -5,9 +5,9 @@
 用法（``pdm run mcp-probe ...``）::
 
     pdm run mcp-probe --list
-    pdm run mcp-probe --question "沪深300 最近一年收益率" --args '{"query": "沪深300"}'
-    pdm run mcp-probe --capability index_fundamentals --args '{"codes": ["000300.SH"], "period": "D"}'
-    pdm run mcp-probe --capability index_fundamentals --args '{...}' --save-body .tmp/wind_err.json
+    pdm run mcp-probe --question "沪深300 最近一年收益率" --args '{"question": "沪深300"}'
+    pdm run mcp-probe --capability index_kline --args '{"windcode": "000300.SH", "begin_date": "2026-10-15", "end_date": "2026-10-23"}'
+    pdm run mcp-probe --capability index_kline --args '{...}' --save-body .tmp/wind_err.json
 
 为什么单独一个 CLI（设计文档 §6.3）
 ----------------------------------

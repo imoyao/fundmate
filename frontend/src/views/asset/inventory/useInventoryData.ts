@@ -20,7 +20,9 @@ import {
   getAssetsSummary,
   type AssetRecord
 } from "@/api/assets";
-import { getPositions } from "@/api/positions";
+import { getLedgers } from "@/api/ledger";
+import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
+import { getPositions, updatePosition } from "@/api/positions";
 import type { Position } from "@/api/types";
 import {
   getAllocation,
@@ -45,12 +47,11 @@ import {
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { INVESTMENT_MAJOR_KEYS } from "@/constants";
 import { INVESTMENT_PAGE_SIZE } from "./constants";
+import { getErrorMessage, type AssetGroupRaw } from "./helpers";
 import {
-  buildInvestmentGroups,
-  getErrorMessage,
-  type AssetGroupRaw,
-  type InvestmentGroup
-} from "./helpers";
+  portfolioLabel,
+  resolvePortfolioOf as resolvePortfolioAssignment
+} from "./portfolioAssignModel";
 
 /** 单次取回某大类的资产明细上限（大类下资产量级有限，一次取回避免翻页） */
 const CATEGORY_ASSET_LIMIT = 500;
@@ -70,6 +71,19 @@ export function useInventoryData(activeCategory: Ref<string>) {
   const investmentLoading = ref(false);
 
   /**
+   * 组合上下文（D20 二期 UI「所属组合」列的展示与改派选项）。
+   *
+   * 分两块：
+   * - `portfolios`：可选目标列表（浮层选项）+ id→名称映射；
+   * - `ledgerPortfolioMap`：账户 → 默认组合 id。D20 的**继承路径**由服务端定义
+   *   （`portfolio_service.portfolio_position_conditions`：持仓 `portfolio_id` 为 NULL 时，
+   *   取其所属 `ledgers.portfolio_id`）。前端要显示「它实际归到哪个组合」必须用同一份映射，
+   *   **不得另建一套推导规则**——复制第二份必然与后端漂移，而那正是这次要修的病根。
+   */
+  const portfolios = ref<PortfolioItem[]>([]);
+  const ledgerPortfolioMap = ref<Record<number, number | null>>({});
+
+  /**
    * 账外类现金（货基 / 逆回购）：按流水净额记账、不建持仓行，故不在持仓明细里。
    * **只用于展示，不得并入任何合计**——它的金额已经计入总资产。
    */
@@ -82,12 +96,25 @@ export function useInventoryData(activeCategory: Ref<string>) {
   /** 按大类的资产明细缓存；资产增删改后须整体失效 */
   const assetCache = ref<Record<string, AssetRecord[]>>({});
 
-  /** 投资分布卡片数据（仅投资理财大类有意义） */
-  const investmentGroups = computed<InvestmentGroup[]>(() =>
-    activeCategory.value === "investment"
-      ? buildInvestmentGroups(investmentGroupsRaw.value)
-      : []
-  );
+  /**
+   * 持仓市值合计（元），供「持仓明细」标题行的核对锚点。
+   *
+   * 取 `summary/groups?dimension=type` 各组 total 之和 = 全部在管持仓市值
+   * （同一份持仓、同一个唯一市值口径，与表格逐行同源）。
+   * `null` 表示「这一份没取到」——不返回 0，否则接口失败会被读成「持仓一文不值」。
+   *
+   * 为什么不再做「股票 / 基金」两张分布卡：那两个词在盘点页与账户管理页
+   * 各有一套集合定义（漏 ETF、漏货基、按持仓行计数），同名不同义且数字对不上。
+   * 品类全景只留账户管理一处（可下钻 /funds、/stocks），本页只保留合计。
+   */
+  const positionsMarketValue = computed<number | null>(() => {
+    if (!investmentGroupsRaw.value.length) return null;
+    const total = investmentGroupsRaw.value.reduce(
+      (sum, g) => sum + (g.total || 0),
+      0
+    );
+    return Math.round(total * 100) / 100;
+  });
 
   /**
    * 标签栏金额（#863 口径 A 对齐）。
@@ -123,6 +150,77 @@ export function useInventoryData(activeCategory: Ref<string>) {
       investmentPositions.value = [];
     } finally {
       investmentLoading.value = false;
+    }
+  }
+
+  /**
+   * 拉取组合上下文（组合列表 + 账户默认组合映射）。
+   *
+   * 独立 try/catch 且失败时**清空而非报错**：这两个接口只服务「所属组合」列的展示与
+   * 改派选项，挂了不该让整页盘点进失败态。清空后该列退化为「—」，改派浮层只剩
+   * 「跟随账户」一项——看得见的降级，好过整页白屏。
+   */
+  async function loadPortfolioContext() {
+    try {
+      const [portfolioRes, ledgerRes] = await Promise.all([
+        getPortfolios(),
+        getLedgers()
+      ]);
+      portfolios.value = portfolioRes?.data ?? [];
+      const map: Record<number, number | null> = {};
+      for (const ledger of ledgerRes?.data ?? []) {
+        map[ledger.id] = ledger.portfolio_id ?? null;
+      }
+      ledgerPortfolioMap.value = map;
+    } catch (e) {
+      console.error("加载组合上下文失败", e);
+      portfolios.value = [];
+      ledgerPortfolioMap.value = {};
+    }
+  }
+
+  /**
+   * 解析一条持仓的「所属组合」展示状态。
+   *
+   * 实现落在 `portfolioAssignModel.resolvePortfolioOf`（纯函数，可单测）：
+   * 四态判断错一个分支，界面上都只是「换了个组合名」，看不出来，只有单测能钉住。
+   * 这里只负责把响应式数据喂进去。
+   */
+  function resolvePortfolioOf(row: Position) {
+    return resolvePortfolioAssignment(row, {
+      portfolios: portfolios.value,
+      ledgerPortfolioMap: ledgerPortfolioMap.value
+    });
+  }
+
+  /**
+   * 改派一条持仓的组合归属。
+   *
+   * `portfolioId = null` ⇒ 后端置 `positions.portfolio_id = NULL`，该行退回账户默认组合。
+   *
+   * **局部更新而不是整页 `fetchData()`**：整页重取会重拉分页数据，刚点完的那一行可能
+   * 被挤出当前页——比数字短暂陈旧更让人困惑。归属列本身不参与排序，局部替换足够。
+   *
+   * **不主动发全局刷新事件**：改派不改变任何金额（总资产 / 市值 / 盈亏都不动），
+   * 只改归属口径；组合年化属于组合详情页，进入时会重新取数，无需跨页失效。
+   */
+  async function reassignPosition(row: Position, portfolioId: number | null) {
+    try {
+      await updatePosition(row.id, { portfolio_id: portfolioId });
+      const index = investmentPositions.value.findIndex(p => p.id === row.id);
+      if (index >= 0) {
+        investmentPositions.value[index] = {
+          ...investmentPositions.value[index],
+          portfolio_id: portfolioId
+        };
+      }
+      const target =
+        portfolioId == null
+          ? "账户默认组合"
+          : portfolioLabel(portfolios.value, portfolioId);
+      ElMessage.success(`已改派到「${target}」，相关组合年化将重算`);
+    } catch (e) {
+      ElMessage.error(getErrorMessage(e, "改派失败"));
     }
   }
 
@@ -199,8 +297,9 @@ export function useInventoryData(activeCategory: Ref<string>) {
       distributions.value = distRes?.data ?? null;
       investmentGroupsRaw.value = groupsRes?.data ?? [];
 
-      // 与盘点主体并行、互不阻塞
+      // 与盘点主体并行、互不阻塞（组合上下文失败只降级「所属组合」列，不拖垮整页）
       void loadCashLike();
+      void loadPortfolioContext();
 
       await loadInvestmentPage(investmentPage.value);
 
@@ -255,11 +354,14 @@ export function useInventoryData(activeCategory: Ref<string>) {
     assetsSummary,
     distributions,
     investmentGroupsRaw,
-    investmentGroups,
+    positionsMarketValue,
     investmentPositions,
     investmentTotal,
     investmentPage,
     investmentLoading,
+    portfolios,
+    resolvePortfolioOf,
+    reassignPosition,
     cashLikeItems,
     cashLikeTotal,
     cashLikeLoading,

@@ -11,25 +11,29 @@ import datetime as dt
 from typing import Any, Dict, List, Tuple
 
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 # EXCLUDED_ASSET_TYPES 唯一来源为 app.core.asset_types（#1171 枚举一致性）；
 # 原 services/performance/constants.py 只是 12 行 re-export 转发层，已删除。
 from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
-from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.services.nav_service import NavService
-from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows, generate_portfolio_cashflows
-from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
+from app.services.performance.xirr_engine import (
+    calculate_modified_dietz,
+    calculate_xirr,
+    generate_cashflows,
+    generate_portfolio_cashflows,
+)
+from app.services.symbol_scope import build_transaction_symbol_conditions, query_positions_by_symbol
 
 
 class XirrScopeParameterError(ValueError):
-    """scope 参数缺失 / 非法。
+    """scope / method 查询参数缺失 / 非法。
 
     单独成类而不是裸 `ValueError`：HTTP 层要把它映射成 **400**（客户端参数错），
     而 `ValueError` 在这条链路上已经被用作**归属校验失败 → 404**（如「持仓不存在」），
@@ -69,8 +73,52 @@ def _get_stock_latest_price(db: Session, symbol: str) -> float:
         return 0.0
 
 
+# 货基面值（元/份）：货币基金每份净值恒为 1.0000 元，收益以「万份收益」形式
+# 落在 `money_fund_daily_worth`（`money_fund_income` 链路），**从不进 nav 表**。
+# 与 `sync/jobs/position_price_job.py` 的「货基按面值回写 `current_price`」同口径。
+#
+# ⚠️ 已知局限（不要当成 bug 再报一遍）：按面值计的是**本金面额**，不含累计未结转
+# 收益。货基的真实市值严格等于「份额 × 1.0 + 未付收益」，当前未付收益由上述收益
+# 链路单独统计、未并入市值，故本函数对大额货基会低估几分到几十元。要精确到分需
+# 引入未付收益表（见 #2848 的后续项），届时改为读该表而非常量。
+MONEY_FUND_FACE_VALUE = 1.0
+
+
+def _is_money_fund_for_pricing(pos: Position) -> bool:
+    """估值口径的货基判定：`asset_type='money_fund'` **或** `is_money_fund is True`。
+
+    刻意比 `fund_utils.is_money_fund_position` 多兜一条 `asset_type`：那里的语义是
+    「`is_money_fund` 显式值优先」，于是历史漏回填的行（`is_money_fund=False` 但
+    `asset_type='money_fund'`）会漏判，估值就退回 nav 查询、市值变 0。
+    价格层（`position_price_job._classify`）用的正是本函数的「或」口径——两处同判，
+    才不会出现「价格按面值写对了、估值又读丢了」的错位。
+    """
+    if getattr(pos, 'asset_type', None) == 'money_fund':
+        return True
+    return getattr(pos, 'is_money_fund', None) is True
+
+
+def _exclude_cash_equivalent_positions() -> list:
+    """「剔除现金等价物」口径下，追加到持仓 WHERE 里的条件（#2848）。
+
+    为什么需要这个而不是只写 `asset_type NOT IN EXCLUDED_ASSET_TYPES`：
+    货基持仓的 `asset_type` 是 `'fund'`，`'money_fund'` 只出现在**流水**上，
+    所以光看 `asset_type` 永远拦不住货基持仓——「剔除现金」口径其实一直把货基
+    市值算进了分子（修复估值前只有 33.68 元、看不出来；按面值计价后是 2.3 万，
+    必须一并拦住，否则剔除口径反而变得更不准）。
+
+    `is_money_fund.isnot(True)` 生成 `IS NOT 1`，SQL 三值逻辑下 NULL 行判真（保留），
+    普通持仓（标记为 NULL 或 False）都不会被误排除。
+    """
+    return [Position.asset_type.not_in(EXCLUDED_ASSET_TYPES), Position.is_money_fund.isnot(True)]
+
+
 def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[int, float]:
-    fund_codes = [p.symbol for p in positions if p.asset_type == 'fund' and p.symbol]
+    """批量计算持仓市值（元）。货基按面值计价，其余走 nav / 收盘价。"""
+    # 货基不进 nav 批量查询：它们不在 nav 表里，送去查只会得到空结果（#2848）
+    fund_codes = [
+        p.symbol for p in positions if p.asset_type == 'fund' and p.symbol and not _is_money_fund_for_pricing(p)
+    ]
     stock_symbols = [p.symbol for p in positions if p.asset_type in ('stock', 'etf') and p.symbol]
 
     # 委托 NavService 统一入口（#1133）；批量场景禁止触发远程拉取
@@ -110,6 +158,13 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
         # 将内部单位转为元 / 份
         shares = Money.min_unit_to_shares(pos.quantity)
 
+        # 货基先出队（#2848）：它的 asset_type 也是 'fund'，若落到下面的 fund 分支会去
+        # nav 表查净值——货基从不进 nav 表，取到 0.0 后整块市值凭空消失（实测真实库
+        # 20 行货基 23,249.40 元只算出 33.68 元）。面值即净值，不必查任何行情表。
+        if _is_money_fund_for_pricing(pos):
+            value_map[pos.id] = shares * MONEY_FUND_FACE_VALUE
+            continue
+
         if pos.asset_type == 'fund' and pos.symbol:
             unit_price = fund_nav_map.get(pos.symbol, 0.0)  # 净值已是元
         elif pos.asset_type in ('stock', 'etf') and pos.symbol:
@@ -124,6 +179,11 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
 
 def _get_position_current_value(db: Session, position: Position) -> float:
     shares = Money.min_unit_to_shares(position.quantity)
+
+    # 货基按面值计价，理由同 _batch_get_position_values（#2848）；单持仓路径不能漏，
+    # 否则组合级市值补上了、单持仓卡片仍是 0，同一只货基两个页面两个数。
+    if _is_money_fund_for_pricing(position):
+        return shares * MONEY_FUND_FACE_VALUE
 
     if position.asset_type == 'fund' and position.symbol:
         unit_price = _get_fund_latest_nav(db, position.symbol)
@@ -145,8 +205,9 @@ def _empty_xirr_result() -> Dict[str, Any]:
     return {
         'xirr': 0.0,
         'total_invested': 0.0,
-        'current_value': 0.0,
         'total_withdrawn': 0.0,
+        'net_invested': 0.0,
+        'current_value': 0.0,
         'total_return': 0.0,
         'cashflow_count': 0,
     }
@@ -155,33 +216,56 @@ def _empty_xirr_result() -> Dict[str, Any]:
 def _calculate_xirr_for_cashflows(
     cashflows: List[Tuple[dt.date, float]],
     current_market_value: float = 0.0,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """
-    根据现金流计算 XIRR 并返回标准结构。
+    根据现金流计算收益率并返回标准结构。
 
     Args:
         cashflows: 完整现金流列表
         current_market_value: 当前持仓总市值（由调用方传入，不从现金流反推）
+        method: 'xirr'（默认，年化资金加权）/ 'dietz'（Modified Dietz 区间，不年化，#871）
     """
-    xirr_val = calculate_xirr(cashflows)
-
-    # 总投入：所有负现金流的绝对值之和
+    # 累计买入：所有负现金流的绝对值之和（**毛额**，买卖一次就累加一次，含再投入）
     total_invested = sum(abs(a) for _, a in cashflows if a < 0)
     # 总收回：所有正现金流之和（包含虚拟卖出）
     total_withdrawn = sum(a for _, a in cashflows if a > 0)
     # 历史收回（不含虚拟卖出）：从 total_withdrawn 中减去虚拟卖出的部分
     historical_withdrawn = total_withdrawn - current_market_value
-    # 总收益 = 当前市值 + 历史收回 - 总投入
-    total_return = current_market_value + historical_withdrawn - total_invested
+    # 净投入（口径 = 累计买入 − 累计卖出/分红）：当前**还压在里面的本金**。
+    # 毛额 `total_invested` 对展示是误导——反复买卖会把同一笔钱算很多遍
+    # （一个本金 20 万的账户交易几年可以累加成 168 万），故对外展示与
+    # 「总收益」都基于净投入。
+    net_invested = total_invested - historical_withdrawn
+    # 总收益 = 当前市值 + 历史收回 - 累计买入 = 当前市值 - 净投入
+    # （含已实现 + 未实现 + 分红，赚的亏的一起算，不是只算亏损）
+    total_return = current_market_value - net_invested
+
+    if method == 'dietz':
+        dietz_val = calculate_modified_dietz(cashflows)
+        return {
+            'method': 'dietz',
+            'dietz': round(dietz_val, 4),
+            'total_invested': round(total_invested, 2),
+            'total_withdrawn': round(historical_withdrawn, 2),
+            'net_invested': round(net_invested, 2),
+            'current_value': round(current_market_value, 2),
+            'total_return': round(total_return, 2),
+            'cashflow_count': len(cashflows),
+        }
+
+    xirr_val = calculate_xirr(cashflows)
 
     logger.info(
         f'XIRR计算详情: cashflows前5笔={cashflows[:5]}, total_invested={total_invested}, current_market_value={current_market_value}'
     )
     return {
+        'method': 'xirr',
         'xirr': round(xirr_val, 4),
         'total_invested': round(total_invested, 2),
-        'current_value': round(current_market_value, 2),
         'total_withdrawn': round(historical_withdrawn, 2),
+        'net_invested': round(net_invested, 2),
+        'current_value': round(current_market_value, 2),
         'total_return': round(total_return, 2),
         'cashflow_count': len(cashflows),
     }
@@ -190,14 +274,13 @@ def _calculate_xirr_for_cashflows(
 def _position_scope_transactions(db: Session, position: Position, include_cash_equivalents: bool) -> List[Transaction]:
     """该持仓**行**名下的流水（#2009）。
 
-    收敛键 = `symbol`（写法变体）+ `ledger_id`，依据见 `calculate_position_xirr` 的说明。
+    收敛键 = `symbol`（身份键，含写法变体）+ `ledger_id`，依据见 `calculate_position_xirr` 的说明。
     `ledger_id` 走 NULL-safe 相等：未归属持仓（`ledger_id` 为空）退化为「按 symbol」——
     这类持仓本身就没有账户维度可用，退化是唯一合理选择。
     """
-    symbols = collect_transaction_symbol_variants(position.symbol, [position])
     txn_q = db.query(Transaction).filter(
         Transaction.family_id == position.family_id,
-        Transaction.symbol.in_(symbols),
+        or_(*build_transaction_symbol_conditions(position.symbol)),
     )
     if position.ledger_id is None:
         txn_q = txn_q.filter(Transaction.ledger_id.is_(None))
@@ -210,7 +293,11 @@ def _position_scope_transactions(db: Session, position: Position, include_cash_e
 
 
 def calculate_position_xirr(
-    db: Session, position_id: int, family_id: int = 1, include_cash_equivalents: bool = False
+    db: Session,
+    position_id: int,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """计算单持仓**行**的年化收益率 (XIRR)。
 
@@ -243,11 +330,15 @@ def calculate_position_xirr(
 
     current_value = _get_position_current_value(db, position)
     cashflows = generate_cashflows(transactions, current_value, include_cash_equivalents=include_cash_equivalents)
-    return _calculate_xirr_for_cashflows(cashflows, current_value)
+    return _calculate_xirr_for_cashflows(cashflows, current_value, method=method)
 
 
 def calculate_symbol_xirr(
-    db: Session, symbol: str, family_id: int = 1, include_cash_equivalents: bool = False
+    db: Session,
+    symbol: str,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """
     计算**产品级**持有年化：跨账户按 symbol 汇总现金流（#1972）。
@@ -260,8 +351,9 @@ def calculate_symbol_xirr(
 
     - 持仓匹配与详情页「我的持仓」区块**同一口径**（`services/symbol_scope.py`，#1966），
       否则会出现「列表有三行、年化只算了两行」的自相矛盾页面；
-    - `transactions.symbol` 只有字面量快照、无归一列，故先取持仓拿到真实写法再 `IN`
-      （两步法，见 `collect_transaction_symbol_variants`）；
+    - 流水匹配走 `symbol_norm` 身份键（`build_transaction_symbol_conditions`）：
+      **不再**先取持仓拿真实写法再 `IN`（两步法的前提「持仓与流水写法一致」不成立，
+      持仓 `001937` / 流水 `SZ001937` 时 `IN` 一条也命中不了）；
     - 无成交且无市值时返回全 0 结构（与 `calculate_portfolio_xirr_by_id` 的空账户同构），
       前端据此降级为 `—`，不显示 NaN。
 
@@ -272,9 +364,10 @@ def calculate_symbol_xirr(
         raise ValueError('缺少 symbol 参数')
 
     positions = query_positions_by_symbol(db, symbol, family_id=family_id)
-    symbols = collect_transaction_symbol_variants(symbol, positions)
 
-    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id, Transaction.symbol.in_(symbols))
+    txn_q = db.query(Transaction).filter(
+        Transaction.family_id == family_id, or_(*build_transaction_symbol_conditions(symbol))
+    )
     if not include_cash_equivalents:
         # NULL 的 asset_type 默认视为投资类资产，纳入计算（与其余两个 scope 同口径）
         txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
@@ -283,7 +376,11 @@ def calculate_symbol_xirr(
     # 市值只取 quantity > 0 的持仓：清仓行不贡献当前市值（但它的流水已计入现金流）
     open_positions = [p for p in positions if (p.quantity or 0) > 0]
     if not include_cash_equivalents:
-        open_positions = [p for p in open_positions if p.asset_type not in EXCLUDED_ASSET_TYPES]
+        # 内存侧口径与 SQL 侧（_exclude_cash_equivalent_positions）必须同判：
+        # 只写 asset_type 会漏掉 asset_type='fund' 的货基（#2848）
+        open_positions = [
+            p for p in open_positions if p.asset_type not in EXCLUDED_ASSET_TYPES and not _is_money_fund_for_pricing(p)
+        ]
     total_value = sum(_batch_get_position_values(db, open_positions).values())
 
     if not transactions and total_value <= 1e-8:
@@ -298,10 +395,15 @@ def calculate_symbol_xirr(
         f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value)
+    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
 
 
-def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equivalents: bool = False) -> Dict[str, Any]:
+def calculate_portfolio_xirr(
+    db: Session,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
+) -> Dict[str, Any]:
     """
     计算整个投资组合的年化收益率 (XIRR)。
     通过 asset_type 字段直接过滤，孤儿交易默认纳入计算（asset_type 为 NULL 不会被 NOT IN 排除）。
@@ -316,7 +418,7 @@ def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equiv
     # 获取所有非排除类型的持仓（家庭维度）
     pos_filter = [Position.quantity > 0, Position.family_id == family_id]
     if not include_cash_equivalents:
-        pos_filter.append(Position.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+        pos_filter.extend(_exclude_cash_equivalent_positions())
     positions = db.query(Position).filter(*pos_filter).all()
 
     # 批量计算持仓市值
@@ -333,19 +435,23 @@ def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equiv
         f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value)
+    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
 
 
 def calculate_portfolio_xirr_by_id(
-    db: Session, portfolio_id: int, family_id: int = 1, include_cash_equivalents: bool = False
+    db: Session,
+    portfolio_id: int,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """
     计算指定投资组合的年化收益率 (XIRR)。
 
     步骤：
     1. 校验组合存在且归属当前家庭
-    2. 获取组合关联的所有 Ledger
-    3. 计算这些 Ledger 下合规资产的持仓总市值
+    2. 按持仓归属取本组合持仓（显式 portfolio_id 优先，未指派时继承账户默认组合）
+    3. 计算这些持仓的总市值（仅 quantity > 0）
     4. 生成组合现金流（含内部划转过滤）
     5. 送入 XIRR 引擎计算
     """
@@ -356,41 +462,52 @@ def calculate_portfolio_xirr_by_id(
     if not portfolio:
         raise ValueError('投资组合不存在')
 
-    # 获取组合关联的所有 Ledger ID（家庭维度）。统一按 ledger_id（外键维度）聚合，
-    # 不用冗余的 account_name —— 同名账户会造成口径串味（历史 bug）；未归档持仓
-    # ledger_id 为 NULL 自然不计入组合。
-    ledger_ids = [
-        row[0]
-        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
-    ]
+    # 组合持仓归属（**与持仓视图同源**，`portfolio_service.portfolio_position_conditions`）：
+    # 显式 portfolio_id 优先，未指派时继承账户默认组合。
+    # 为什么必须同源：历史实现这里按 ledger_ids 取市值、而持仓列表按 portfolio_id 取，
+    # 同一账户下分属两个组合时会算出两套数（市值含整账户、列表只含本组合持仓）。
+    from app.services.portfolio_service import portfolio_ledger_ids, portfolio_position_conditions
 
-    if not ledger_ids:
-        return _empty_xirr_result()
+    ledger_ids = portfolio_ledger_ids(db, family_id, portfolio_id)
 
-    # 获取这些账户下的持仓总市值（按 ledger_id 集合过滤）
+    # 获取本组合的持仓总市值
     pos_filter = [
-        Position.ledger_id.in_(ledger_ids),
+        or_(*portfolio_position_conditions(portfolio_id, ledger_ids)),
         Position.quantity > 0,
         Position.family_id == family_id,
     ]
     if not include_cash_equivalents:
-        pos_filter.append(Position.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+        pos_filter.extend(_exclude_cash_equivalent_positions())
     positions = db.query(Position).filter(*pos_filter).all()
 
     value_map = _batch_get_position_values(db, positions)
     total_value = sum(value_map.values())
 
+    # 口径回填（#2615）：account = 有入金流水、按外部资金流算；position = 只导过交易、
+    # 沿用「买入算投入」的降级口径；mixed = 组合内两种账户混着。页面需要据此提示
+    # 「未记录入金，按买入成本估算」，不能把两种口径的数字并排展示却不说。
+    basis_info: Dict[str, Any] = {}
     cashflows = generate_portfolio_cashflows(
-        db, portfolio_id, total_value, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+        db,
+        portfolio_id,
+        total_value,
+        family_id=family_id,
+        include_cash_equivalents=include_cash_equivalents,
+        basis_sink=basis_info,
     )
 
     logger.debug(
         f'组合 XIRR 计算(portfolio_id={portfolio_id}): '
         f'账户数={len(ledger_ids)}, 持仓数={len(positions)}, '
-        f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}'
+        f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}, '
+        f'method={method}, basis={basis_info.get("basis")}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value)
+    # `method` 必须透传：此前漏传，`method=dietz` 在组合级被静默当成 xirr 计算
+    # （前端切到「区间」仍回 xirr 字段，页面显示 0.00%）。
+    result = _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
+    result['cashflow_basis'] = basis_info.get('basis', 'position')
+    return result
 
 
 def calculate_xirr_by_scope(
@@ -401,6 +518,7 @@ def calculate_xirr_by_scope(
     portfolio_id: int | None = None,
     symbol: str | None = None,
     include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """按 scope 分派年化收益率计算（#1929 / #1972：视图只做 HTTP 编排，分派逻辑在 service）。
 
@@ -413,19 +531,38 @@ def calculate_xirr_by_scope(
     - ``position``：单持仓行的年化（须传 ``position_id``）；
     - ``portfolio``：指定组合（须传 ``portfolio_id``）；不传组合 id 时退化为**家庭整体**；
     - ``symbol``：产品级持有年化，跨账户按 symbol 汇总现金流（须传 ``symbol``，#1972）。
+
+    method 取值（#871）：
+    - ``xirr``（默认）：年化资金加权；
+    - ``dietz``：Modified Dietz 区间收益（不年化）；
+    - ``twr``：时间加权——不在此函数内（走 `pnl_calendar` 日因子连乘引擎），
+      由包门面 `calculate_return_by_scope` 转派 `twr.calculate_twr_by_scope`；
+      scope=symbol / position 明确 400 不支持（无每日净资产序列）。
     """
     if scope == 'position':
         if not position_id:
             raise XirrScopeParameterError('缺少 position_id 参数')
         return calculate_position_xirr(
-            db, position_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+            db,
+            position_id,
+            family_id=family_id,
+            include_cash_equivalents=include_cash_equivalents,
+            method=method,
         )
     if scope == 'portfolio' and portfolio_id:
         return calculate_portfolio_xirr_by_id(
-            db, portfolio_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+            db,
+            portfolio_id,
+            family_id=family_id,
+            include_cash_equivalents=include_cash_equivalents,
+            method=method,
         )
     if scope == 'symbol':
         if not symbol:
             raise XirrScopeParameterError('缺少 symbol 参数')
-        return calculate_symbol_xirr(db, symbol, family_id=family_id, include_cash_equivalents=include_cash_equivalents)
-    return calculate_portfolio_xirr(db, family_id=family_id, include_cash_equivalents=include_cash_equivalents)
+        return calculate_symbol_xirr(
+            db, symbol, family_id=family_id, include_cash_equivalents=include_cash_equivalents, method=method
+        )
+    return calculate_portfolio_xirr(
+        db, family_id=family_id, include_cash_equivalents=include_cash_equivalents, method=method
+    )

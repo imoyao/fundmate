@@ -330,6 +330,215 @@ def test_portfolio_no_positions_or_zero_value(db):
     assert [u['symbol'] for u in result['uncovered']] == ['000001']
 
 
+# ── 2b. 可覆盖口径（#2628）：分母只含可能拿到箱体的持仓 ──
+
+
+def _add_position(db, symbol, name, asset_type, mv, **kw):
+    from app.domains.positions.models import Position
+
+    db.add(
+        Position(
+            family_id=1,
+            symbol=symbol,
+            name=name,
+            asset_type=asset_type,
+            quantity=100,
+            market_value_override=mv,
+            **kw,
+        )
+    )
+
+
+def test_portfolio_eligible_coverage_excludes_money_fund(db):
+    """货基再大也不进可覆盖分母（#2628）：121 只持仓→8.35% 那个天花板就是这么来的。
+
+    `coverage_pct` 保持 #2478 契约不变（全量持仓），两个口径并存、互不覆盖。
+    """
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 100.0})
+    _add_position(db, '000001', '场外基金', 'fund', 1000)
+    _add_position(db, '970164', '货币基金', 'money_fund', 9000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['total_market_value_cents'] == 10000
+    # 旧口径：1000/10000 = 10%（含永远无箱体的货基）
+    assert result['coverage_pct'] == pytest.approx(10.0)
+    # 可覆盖口径：分母只剩那只场外基金
+    assert result['eligible_market_value_cents'] == 1000
+    assert result['eligible_coverage_pct'] == 100.0
+
+
+def test_portfolio_eligible_coverage_null_when_no_eligible_asset(db):
+    """没有任何可能带箱体的品种 → `None`，**不是 0%**（两种结论对用户意义不同）。"""
+    _add_position(db, '970164', '货币基金', 'money_fund', 5000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['eligible_market_value_cents'] == 0
+    assert result['eligible_coverage_pct'] is None
+    assert result['coverage_pct'] == 0.0
+
+
+def test_portfolio_eligible_coverage_excludes_qdii(db):
+    """QDII 从可覆盖分母里摘掉：它的箱体口径存疑（韭圈儿实测把纳指100 判成固收风格），
+    不该让它把「覆盖率」拉低，也不该让它拉高。"""
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 100.0})
+    db.add(Fund(fund_code='270042', name='广发纳斯达克100ETF联接(QDII)'))
+    db.commit()
+    _add_position(db, '000001', '场外基金', 'fund', 1000)
+    _add_position(db, '270042', '纳指联接', 'fund', 3000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['has_qdii'] is True
+    assert result['total_market_value_cents'] == 4000
+    assert result['coverage_pct'] == pytest.approx(25.0)
+    assert result['eligible_market_value_cents'] == 1000
+    assert result['eligible_coverage_pct'] == 100.0
+
+
+def test_portfolio_eligible_coverage_zero_when_eligible_but_uncovered(db):
+    """有合格品种但一个都没箱体 → 0.0%（与「没有可覆盖资产」的 None 必须分得开）。"""
+    _add_position(db, '000001', '无箱体基金', 'fund', 2000)
+    db.commit()
+
+    result = portfolio_style_exposure(db, 1)
+
+    assert result['eligible_market_value_cents'] == 2000
+    assert result['eligible_coverage_pct'] == 0.0
+
+
+# ── 3b. 作用域（2026-10-27）：组合 / 账户 / 互斥 / 空作用域不回退 ──
+
+
+def _make_portfolio(db, name='风格组合'):
+    from app.domains.portfolios.models import Portfolio
+
+    pf = Portfolio(family_id=1, name=name, is_deleted=False)
+    db.add(pf)
+    db.commit()
+    return pf
+
+
+def _attach_ledger(db, ledger_id, portfolio_id):
+    from app.domains.ledgers.models import Ledger
+
+    db.query(Ledger).filter(Ledger.id == ledger_id).update({'portfolio_id': portfolio_id})
+    db.commit()
+
+
+def test_portfolio_style_scope_portfolio(db, make_position):
+    """组合口径 = 成员账本继承 + 持仓显式归属；组合外持仓不进结果。
+
+    口径必须与 `services/scope.py` 一致（显式 `positions.portfolio_id` 优先，
+    否则继承 `ledger.portfolio_id`）——手写「只按成员账本查」会漏掉显式归属那条路径，
+    这正是穿透 / 归因把解析收敛成唯一出口的原因。
+    """
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 60.0, '大盘价值': 40.0})
+    _seed_box(db, '000002', date(2026, 9, 30), {'大盘成长': 100.0})
+    _seed_box(db, '000003', date(2026, 9, 30), {'固收风格': 100.0})
+
+    pf = _make_portfolio(db)
+    inherited = make_position(
+        symbol='000001',
+        name='继承',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=1000,
+        account_name='组合账户甲',
+    )
+    _attach_ledger(db, inherited.ledger_id, pf.id)
+    # 非成员账本，但持仓显式归属本组合 ⇒ 进结果
+    make_position(
+        symbol='000002',
+        name='显式',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=3000,
+        account_name='组合账户乙',
+        portfolio_id=pf.id,
+    )
+    # 组合外：同一账本里的另一只基金 ⇒ 不进结果
+    make_position(
+        symbol='000003',
+        name='组合外',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=2000,
+        account_name='组合账户乙',
+    )
+
+    assert portfolio_style_exposure(db, 1)['total_market_value_cents'] == 6000
+
+    scoped = portfolio_style_exposure(db, 1, portfolio_id=pf.id)
+    by_name = {s['style_name']: s['value'] for s in scoped['styles']}
+    # (1000×60) / 4000 = 15；(1000×40) / 4000 = 10；(3000×100) / 4000 = 75
+    assert by_name['大盘成长'] == pytest.approx(90.0)
+    assert by_name['大盘价值'] == pytest.approx(10.0)
+    assert scoped['total_market_value_cents'] == 4000
+    assert scoped['coverage_pct'] == 100.0
+
+
+def test_portfolio_style_scope_ledger(db, make_position):
+    """账户级只算该账本持仓（与组合级是两级不同粒度，不做隐式合并）。"""
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 100.0})
+    _seed_box(db, '000002', date(2026, 9, 30), {'固收风格': 100.0})
+
+    pos_a = make_position(
+        symbol='000001',
+        name='甲',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=1000,
+        account_name='风格账户甲',
+    )
+    make_position(
+        symbol='000002',
+        name='乙',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=3000,
+        account_name='风格账户乙',
+    )
+
+    scoped = portfolio_style_exposure(db, 1, ledger_id=pos_a.ledger_id)
+    assert scoped['total_market_value_cents'] == 1000
+    assert [s['style_name'] for s in scoped['styles']] == ['大盘成长']
+
+
+def test_portfolio_style_scope_empty_does_not_fall_back_to_family(db, make_position):
+    """空作用域返回空结构，**不静默放大成家庭级**（#2595 同型错误的复活防线）。"""
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 100.0})
+    make_position(
+        symbol='000001',
+        name='甲',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=1000,
+        account_name='风格账户甲',
+    )
+    empty_pf = _make_portfolio(db, '空组合')
+
+    scoped = portfolio_style_exposure(db, 1, portfolio_id=empty_pf.id)
+    assert scoped['styles'] == []
+    assert scoped['total_market_value_cents'] == 0
+    assert scoped['coverage_pct'] == 0.0
+    assert scoped['uncovered'] == []
+    # 家庭级照旧能看到这笔持仓（对比项：证明上面的空结果是作用域造成的，不是数据没了）
+    assert portfolio_style_exposure(db, 1)['total_market_value_cents'] == 1000
+
+
+def test_portfolio_style_scope_mutex_and_missing_portfolio(db):
+    """互斥 / 组合不存在一律抛 ValueError（视图层转 400，与穿透 / 归因同款）。"""
+    with pytest.raises(ValueError, match='互斥'):
+        portfolio_style_exposure(db, 1, ledger_id=1, portfolio_id=1)
+    with pytest.raises(ValueError, match='投资组合不存在'):
+        portfolio_style_exposure(db, 1, portfolio_id=999999)
+
+
 # ── 4. views：三个只读端点 ──
 
 
@@ -377,3 +586,50 @@ def test_style_views(db, client):
     r = client.get('/api/funds/999999/style/latest/')
     assert r.status_code == 200
     assert r.get_json()['data'] is None
+
+
+def test_style_portfolio_api_scope(db, client, make_position):
+    """`?portfolio_id=` 走组合口径；互斥 / 组合不存在回 400 + error_code=1001。"""
+    _seed_box(db, '000001', date(2026, 9, 30), {'大盘成长': 100.0})
+    _seed_box(db, '000002', date(2026, 9, 30), {'固收风格': 100.0})
+
+    pf = _make_portfolio(db, '接口组合')
+    pos_a = make_position(
+        symbol='000001',
+        name='甲',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=1000,
+        account_name='接口账户甲',
+    )
+    _attach_ledger(db, pos_a.ledger_id, pf.id)
+    make_position(
+        symbol='000002',
+        name='乙',
+        asset_type='fund',
+        quantity=100,
+        market_value_override=3000,
+        account_name='接口账户乙',
+    )
+
+    r = client.get('/api/funds/style/portfolio/')
+    assert r.status_code == 200
+    assert r.get_json()['data']['total_market_value_cents'] == 4000
+
+    r = client.get(f'/api/funds/style/portfolio/?portfolio_id={pf.id}')
+    assert r.status_code == 200
+    data = r.get_json()['data']
+    assert data['total_market_value_cents'] == 1000
+    assert [s['style_name'] for s in data['styles']] == ['大盘成长']
+
+    r = client.get(f'/api/funds/style/portfolio/?ledger_id={pos_a.ledger_id}')
+    assert r.status_code == 200
+    assert r.get_json()['data']['total_market_value_cents'] == 1000
+
+    r = client.get(f'/api/funds/style/portfolio/?ledger_id={pos_a.ledger_id}&portfolio_id={pf.id}')
+    assert r.status_code == 400
+    assert r.get_json()['error_code'] == 1001
+
+    r = client.get('/api/funds/style/portfolio/?portfolio_id=999999')
+    assert r.status_code == 400
+    assert r.get_json()['error_code'] == 1001

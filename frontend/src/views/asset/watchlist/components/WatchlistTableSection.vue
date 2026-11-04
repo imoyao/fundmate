@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { Plus } from "@element-plus/icons-vue";
+import { nextTick, onMounted, ref } from "vue";
 import type { WatchlistItem } from "@/api/watchlist";
 import type { ColumnDef } from "@/views/asset/watchlist/columnDefs";
+import {
+  DEFAULT_SORT_METRIC,
+  type SortMetric
+} from "@/views/asset/watchlist/sortMetric";
 import WatchlistTableSkeleton from "@/views/asset/watchlist/WatchlistTableSkeleton.vue";
+import WatchlistEmptyState from "@/views/asset/watchlist/components/WatchlistEmptyState.vue";
+import CompositeSortHeader from "@/views/asset/watchlist/components/CompositeSortHeader.vue";
 import {
   resolveRenderer,
   type RenderCtx
@@ -27,6 +32,11 @@ const props = defineProps<{
   activeGroupLabel: string;
   /** 是否叠加了标签筛选（空态文案分支） */
   hasTagFilter: boolean;
+  /**
+   * 复合列的排序口径（按列 key 记忆，2026-10-30 二次优化）：
+   * 只有声明了 `ColumnDef.sortMetrics` 的列才会用到（当日盈亏 / 持仓市值 / 持仓收益）。
+   */
+  sortMetrics: Record<string, SortMetric>;
 }>();
 
 const emit = defineEmits<{
@@ -38,6 +48,8 @@ const emit = defineEmits<{
   /** el-table 实例上抛（表头列拖拽用，见 useWatchlistStickyLayout） */
   (e: "table-ready", instance: unknown): void;
   (e: "open-group-items"): void;
+  /** 复合列口径切换（金额 / 比例）→ 由 index 写回 data 层并持久化 */
+  (e: "metric-change", payload: { key: string; metric: SortMetric }): void;
 }>();
 
 type SortPayload = {
@@ -76,6 +88,42 @@ function openGroupItems() {
   emit("open-group-items");
 }
 
+/** 该列当前口径（未记忆过 → 金额，与列主行一致） */
+function metricOf(key: string): SortMetric {
+  return props.sortMetrics[key] ?? DEFAULT_SORT_METRIC;
+}
+
+/**
+ * 复合列的表头类名（EP 的 `label-class-name` 落到 th 上）。
+ * `--tight` 只给 104px 的「当日盈亏」：把内边距收到 4px，给口径徽标腾位置。
+ */
+function headerClassOf(def: ColumnDef): string | undefined {
+  if (!def.sortMetrics) return undefined;
+  return def.key === "day_pnl"
+    ? "col-metric-head col-metric-head--tight"
+    : "col-metric-head";
+}
+
+/**
+ * 复合列切口径：先写回口径，再按新口径**降序**重排一次。
+ *
+ * 为什么必然重排（而不是「只改口径、等用户自己点列名」）：切口径的动机就是
+ * 「换个维度看头部」（谁赚得多 → 谁涨得凶），只改不排会让人以为没生效——
+ * 正是首版「看着乱」的那类问题。
+ *
+ * 排序由本组件 emit 出去（走 index → useWatchlistTable 的同一条分发），
+ * 表头箭头另用 EP 的 `sort()` 同步——只 emit 不调 sort 的话，数据已按新口径排好，
+ * 箭头却还停在旧方向。两条路不会各发一次请求：EP 的 `table.sort()` 只 commit
+ * 内部排序状态（`store.commit("sort")`），**不 emit `sort-change`**；发请求的只有
+ * 上面那个 emit。
+ */
+function onMetricChange(key: string, metric: SortMetric) {
+  if (metric === metricOf(key)) return;
+  emit("metric-change", { key, metric });
+  emit("sort-change", { prop: key, order: "descending" });
+  void nextTick(() => tableRef.value?.sort?.(key, "descending"));
+}
+
 // 子组件 mounted 早于页面 mounted，index 的 onMounted 调 initHeaderDrag 前
 // 实例已上抛（与拆分前模板 ref 在渲染期赋值的可见性等价）。
 onMounted(() => {
@@ -106,9 +154,10 @@ onMounted(() => {
          :data 在 loading 时置空：分组切换/搜索等加载中，让表格回到表头 + 空体
          的高度（整页收缩为一屏），骨架屏得以完整覆盖可视区——若保留旧行，
          旧行高度会把页面撑长，滚到底部时骨架只盖到 wrap 高度、下方露出大片空白。 -->
-    <!-- 表格宽度铁律（#1285 / #1341 / #1421 / #1425，改这里前先读 design.md
-         「冻结列与横向滚动规范」§4/§5）：
-         ① 默认可见列总宽 ≤ 1040px —— 列集在 columnDefs.ts，「加一列必须减一列」；
+    <!-- 表格宽度铁律（#1285 / #1341 / #1421 / #1425，2026-10-26 预算放宽；
+         改这里前先读 design.md「冻结列与横向滚动规范」§4/§5）：
+         ① 默认可见列总宽 ≤ 1040px —— 列集在 columnDefs.ts，超预算须显式说明并改
+            columnBudget.spec.ts 的 BUDGET（1366 屏允许表格内部横滚）；
          ② 横向滚动**只允许发生在表格内部**：页面级横向滚动条由本页 flex
             min-width:0 链（.watchlist-page / .watchlist-scroll / .watchlist-card /
             本容器）禁止（#1341），**不要摘掉任何一层 min-width:0**；
@@ -147,9 +196,23 @@ onMounted(() => {
         :align="def.align"
         :fixed="def.fixed"
         :sortable="def.sortable"
+        :sort-orders="def.sortOrders"
         :class-name="def.draggable ? undefined : 'col-no-drag'"
+        :label-class-name="headerClassOf(def)"
         :show-overflow-tooltip="def.showOverflowTooltip"
       >
+        <!-- 列头：复合列（声明了 sortMetrics）渲染「列名 + 口径徽标」，见 CompositeSortHeader；
+             其余列仍渲染 def.label，与 EP 默认行为一致 -->
+        <template #header>
+          <CompositeSortHeader
+            v-if="def.sortMetrics"
+            :label="def.label"
+            :metric="metricOf(def.key)"
+            :labels="def.sortMetrics.labels"
+            @change="onMetricChange(def.key, $event)"
+          />
+          <template v-else>{{ def.label }}</template>
+        </template>
         <template #default="{ row }">
           <component
             :is="resolveRenderer(def.renderer)"
@@ -165,28 +228,13 @@ onMounted(() => {
          不复用 el-table #empty（其 empty-block 高度由 EP 撑到 280px 封顶，
          无法在整段空表格区内垂直居中）；隐藏 el-table 自带空态文字
          （empty-text=""）避免穿透。表头吸顶保留（30px，见 overlay top）。 -->
-    <div v-if="!loading && items.length === 0" class="watchlist-empty-overlay">
-      <!-- 空白自定义分组：虚线「+ 从全部自选添加」快捷入口（#987）。
-           空白组是可填充的占位区，给可点入口而非阻断性文案；系统分组为空、
-           以及标签筛选无匹配的场景，仍走下方纯文案空态。 -->
-      <template v-if="isEmptyCustomGroup">
-        <button type="button" class="empty-add-btn" @click="openGroupItems">
-          <el-icon><Plus /></el-icon>
-          从全部自选添加
-        </button>
-        <p class="watchlist-empty__hint">
-          把已有自选归入「{{ activeGroupLabel }}」
-        </p>
-      </template>
-      <template v-else>
-        <p class="watchlist-empty__title">
-          {{ hasTagFilter ? "暂无匹配所选标签的持仓" : "暂无自选资产" }}
-        </p>
-        <p v-if="hasTagFilter" class="watchlist-empty__hint">
-          试试调整或清空标签筛选条件
-        </p>
-      </template>
-    </div>
+    <WatchlistEmptyState
+      v-if="!loading && items.length === 0"
+      :is-empty-custom-group="isEmptyCustomGroup"
+      :active-group-label="activeGroupLabel"
+      :has-tag-filter="hasTagFilter"
+      @open-group-items="openGroupItems"
+    />
     <!-- 骨架屏覆盖层：仅数据加载期间渲染（分组切换/首屏/搜索/翻页），
          随 .watchlist-table-wrap 定位，top 对齐表头底部。 -->
     <WatchlistTableSkeleton v-if="loading" />
@@ -225,8 +273,8 @@ onMounted(() => {
    关键：el-table 默认 overflow:hidden 会成为 header-wrapper 的「最近滚动祖先」，
    导致 sticky 相对表格自身（不随页面滚）而非布局滚动容器——这是吸顶反复失效的根因。
    本页表格无内部滚动，改为 overflow:visible 让 sticky 正确吸附到布局滚动容器。
-   （el-table 不需要 flex 拉伸：空态文案已由 .watchlist-empty-overlay 覆盖层承载，
-   见下；有数据时表格按内容高度自然展开，外层滚动接管。） */
+   （el-table 不需要 flex 拉伸：空态文案由 WatchlistEmptyState 覆盖层承载，
+   见该组件；有数据时表格按内容高度自然展开，外层滚动接管。） */
 .watchlist-table-wrap :deep(.el-table) {
   min-width: 0;
 
@@ -249,73 +297,8 @@ onMounted(() => {
   background: var(--bg-card);
 }
 
-/* 表格空状态覆盖层（2026-09-05 问题 1 修复）：
-   覆盖在 .watchlist-table-wrap 上、表头（约 30px）之下，铺满表格剩余区并让文案垂直
-   居中。空态时表格仍渲染表头（吸顶正常），数据行为 0，下方整段区域由本层占住——
-   视觉上"暂无自选资产"位于卡片中部，footer 经 .watchlist-card flex:1 + margin-top:auto
-   沉到视口底，不再出现"文案靠上 + footer 悬在中间"的空分组观感。
-   注：不再使用 el-table #empty（empty-text="" 已隐藏 EP 默认占位）。 */
-.watchlist-empty-overlay {
-  /* 覆盖整张 el-table（含表头）：空态时没有数据行，列名与表头底边框没有意义，
-     反而会在文案上方形成一条"怪异分割线"。overlay 从 top:0 铺满并用卡片色背景
-     盖住表头/空体，文案在整卡区内垂直居中，视觉干净。
-     注意 z-index 需高于表头（header z-index:3）才能盖住其底边线。 */
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 0;
-  background-color: var(--bg-card);
-}
-
-.watchlist-empty__title {
-  margin: 0;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-}
-
-.watchlist-empty__hint {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-/* 空白自定义分组的虚线「+ 从全部自选添加」入口（issue #987）。
-   虚线框表达「可填充的占位区」而非阻断性空态，与表格内「＋ 标签」
-   虚线按钮（columnRenderers.css .add-tag-btn）同一视觉语言。
-   选中态/hover 转为品牌色实线，明确可点。 */
-.empty-add-btn {
-  display: inline-flex;
-  gap: var(--space-2);
-  align-items: center;
-  padding: 8px 16px;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: transparent;
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease;
-}
-
-.empty-add-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-400);
-  border-style: solid;
-}
-
-.empty-add-btn:focus-visible {
-  outline: 1px solid var(--brand-400);
-  outline-offset: 2px;
-}
+/* 空态覆盖层的样式随组件搬进 WatchlistEmptyState.vue（2026-10-30 拆件，
+   让本文件回到 #980 的 .vue 行数门禁以内）。 */
 
 /* 操作列按钮默认弱化可见，行悬停时全亮（150ms ease）。
    说明：不采用 opacity:0 完全隐藏——操作列/产品列是 fixed 列，EP 固定列独立 DOM，
@@ -376,6 +359,10 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+/* 复合列列头的几何样式（flex 横排 / 当日盈亏收紧内边距 / 排序三角收窄）已拆到
+   `compositeSortHeader.css`，由本文件末尾的 `<style scoped src>` 引入——
+   留在本文件会把组件顶过 400 行页面规模门禁（scripts/check_vue_size.mjs）。 */
+
 /* 表头行高 ≈36px（EP 默认 th padding 8px ≈ 40px 高）。
    #1281 第四轮曾收到 3px（≈30px）为数据行让出高度，实测表头过薄：与下方 52px
    数据行比例失衡，5 字表头（添加自选日 / 添加后涨幅）贴着上下边线显廉价。
@@ -385,3 +372,5 @@ onMounted(() => {
   padding: 6px 0;
 }
 </style>
+
+<style src="./compositeSortHeader.css"></style>

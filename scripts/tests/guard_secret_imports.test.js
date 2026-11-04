@@ -108,6 +108,14 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pythonOrFail } from "./_python-interpreter.mjs";
+
+// 解释器探测只此一份（`_python-interpreter.mjs`）。原先三处硬写 `"python3"`：
+// 本机（Windows，只有 `python`）上子进程 ENOENT，「守卫应当通过」与「回退必须报红」
+// 会同时崩，看起来像判据失效，其实是守卫一次都没跑。取不到解释器即加载期抛错。
+const PY = pythonOrFail();
+const PY_BIN = PY[0];
+const PY_ARGS = PY.slice(1);
 
 const ROOT = process.cwd();
 const CNB_YML = readFileSync(join(ROOT, ".cnb.yml"), "utf8");
@@ -124,7 +132,7 @@ function runGuardOnCnb(content) {
   const tmp = join(ROOT, ".cnb.yml.secret-imports-tmp");
   writeFileSync(tmp, content, "utf8");
   try {
-    return spawnSync("python3", [GUARD, "--file", tmp], { encoding: "utf8" });
+    return spawnSync(PY_BIN, [...PY_ARGS, GUARD, "--file", tmp], { encoding: "utf8" });
   } finally {
     rmSync(tmp, { force: true });
   }
@@ -231,7 +239,7 @@ test("三条 git-sync 作业都用插件任务级 imports 挂凭据（默认 set
 
 test("守卫必须带自检探针，且探针在真实代码上真会红（守门通过 ≠ 守门有效）", () => {
   const guard = join(ROOT, "scripts", "guard_secret_imports.py");
-  const ok = spawnSync("python3", [guard], { encoding: "utf8" });
+  const ok = spawnSync(PY_BIN, [...PY_ARGS, guard], { encoding: "utf8" });
   assert.equal(ok.status, 0, `守卫在修好的 .cnb.yml 上应当通过，实际：${ok.stdout}${ok.stderr}`);
 
   // 回退验证：把 push 那处改回 settingsFrom，守卫必须变红（不能静默放过）。
@@ -243,7 +251,7 @@ test("守卫必须带自检探针，且探针在真实代码上真会红（守�
   const tmp = join(ROOT, ".cnb.yml.guard-test-tmp");
   writeFileSync(tmp, mutated, "utf8");
   try {
-    const bad = spawnSync("python3", [guard, "--file", tmp], { encoding: "utf8" });
+    const bad = spawnSync(PY_BIN, [...PY_ARGS, guard, "--file", tmp], { encoding: "utf8" });
     assert.equal(
       bad.status,
       1,

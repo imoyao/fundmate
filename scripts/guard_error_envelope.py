@@ -16,6 +16,14 @@
 检查 dict **字面量**是否含 `error_code`（缺 `data` 一并报出）。非字面量（变量 / 函数调用）
 无法静态判定，跳过——这类由 `tests/test_error_envelope.py` 的信封不变量兜底。
 
+第二条判据（2026-10-30 加）：**5xx 的 `message` 不得拼接异常对象**（f-string 里出现 `{}`，
+或直接 `str(e)`）。起因是一次真实泄漏——`summary/views.py` 各端点自建的
+``except Exception → f'服务器内部错误: {str(e)}'`` 把 ``IntegrityError`` 的 SQL 全文、
+绑定参数（含 family_id / ledger_id / 金额）与 sqlalche.me 链接原样送到浏览器；而异常
+被视图吞掉后 `main.py` 的全局处理器（固定文案 + 堆栈留痕）根本没机会执行。
+只判 5xx：4xx 的 `str(e)` 是业务校验文案，属正常用法。修法见
+``app/core/exceptions.py::internal_error_message``（固定文案 + 留痕绑成一个动作）。
+
 error_code 值用 **int**（`ErrorCode.code`），与 `main.py::_HTTP_STATUS_TO_ERROR_CODE`、
 `SBException` 完全一致；前端契约类型为 `number | string`（`api/search.ts`），int 合法。
 
@@ -98,6 +106,50 @@ def _keys_of(d: ast.Dict) -> set[str]:
     return {k.value for k in d.keys if isinstance(k, ast.Constant)}
 
 
+def _message_leaks_exception(d: ast.Dict) -> bool:
+    """`message` 是否把异常对象拼进了响应体（会把 SQL / 参数送到浏览器）。
+
+    只认两种可静态验证的形态：f-string 里出现 `{...}`、或对 `str(...)` 的直接调用。
+    判据只覆盖 5xx（见 `_violations`）——4xx 的 `str(e)` 是业务校验文案，属于正常用法。
+    """
+    for k, v in zip(d.keys, d.values):
+        if not (isinstance(k, ast.Constant) and k.value == 'message'):
+            continue
+        if isinstance(v, ast.JoinedStr) and any(isinstance(item, ast.FormattedValue) for item in v.values):
+            return True
+        if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == 'str':
+            return True
+    return False
+
+
+def _violations(tree: ast.Module, path: Path) -> list[dict]:
+    """两类违规：缺 `error_code`（信封不完整）、5xx message 泄漏异常细节。"""
+    found: list[dict] = []
+    for d, status in _targets(tree):
+        keys = _keys_of(d)
+        if 'error_code' not in keys:
+            found.append(
+                {
+                    'kind': 'missing_error_code',
+                    'path': path,
+                    'lineno': d.lineno,
+                    'status': status,
+                    'missing_data': 'data' not in keys,
+                }
+            )
+        if status >= 500 and _message_leaks_exception(d):
+            found.append(
+                {
+                    'kind': 'leaks_exception',
+                    'path': path,
+                    'lineno': d.lineno,
+                    'status': status,
+                    'missing_data': False,
+                }
+            )
+    return found
+
+
 def scan_file(path: Path) -> tuple[list[dict], str | None]:
     """返回 (违规清单, 解析错误信息)。解析错误不再静默跳过（防假绿）。"""
     src = path.read_text(encoding='utf-8')
@@ -105,21 +157,7 @@ def scan_file(path: Path) -> tuple[list[dict], str | None]:
         tree = ast.parse(src, filename=str(path))
     except SyntaxError as exc:
         return [], f'{exc.__class__.__name__}: {exc.msg} (line {exc.lineno})'
-
-    violations: list[dict] = []
-    for d, status in _targets(tree):
-        keys = _keys_of(d)
-        if 'error_code' in keys:
-            continue
-        violations.append(
-            {
-                'path': path,
-                'lineno': d.lineno,
-                'status': status,
-                'missing_data': 'data' not in keys,
-            }
-        )
-    return violations, None
+    return _violations(tree, path), None
 
 
 def _byte_index(lines_bytes: list[bytes], lineno: int, col_offset: int) -> int:
@@ -165,16 +203,17 @@ def fix_file(path: Path) -> int:
     for insert_at, payload in sorted(edits, reverse=True):
         src_bytes = src_bytes[:insert_at] + payload + src_bytes[insert_at:]
 
-    # 写盘前自校验：必须仍可解析，且本文件已无违规（防再次写坏/假绿）
+    # 写盘前自校验：必须仍可解析，且本文件已无「缺 error_code」的违规
+    # （`leaks_exception` 不是 `--fix` 能修的，不参与此处判定，由扫描单独报）
     fixed_src = src_bytes.decode('utf-8')
     try:
         ast.parse(fixed_src, filename=str(path))
     except SyntaxError as exc:
         print(f'  [ERROR] {path}: 补齐后语法错误（{exc.msg}，line {exc.lineno}），已放弃写入', file=sys.stderr)
         return 0
-    leftover, parse_error = scan_file_contents(fixed_src, path)
-    if parse_error or leftover:
-        print(f'  [ERROR] {path}: 补齐后仍有违规/不可解析，已放弃写入', file=sys.stderr)
+    leftover = [v for v in scan_file_contents(fixed_src, path)[0] if v['kind'] == 'missing_error_code']
+    if leftover:
+        print(f'  [ERROR] {path}: 补齐后仍缺 error_code，已放弃写入', file=sys.stderr)
         return 0
 
     path.write_bytes(src_bytes)
@@ -187,19 +226,16 @@ def scan_file_contents(src: str, path: Path) -> tuple[list[dict], str | None]:
         tree = ast.parse(src, filename=str(path))
     except SyntaxError as exc:
         return [], f'{exc.__class__.__name__}: {exc.msg} (line {exc.lineno})'
-    violations = []
-    for d, status in _targets(tree):
-        keys = _keys_of(d)
-        if 'error_code' not in keys:
-            violations.append({'path': path, 'lineno': d.lineno, 'status': status, 'missing_data': 'data' not in keys})
-    return violations, None
+    return _violations(tree, path), None
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='错误信封 error_code 守卫 / 修复器（#1610）')
     parser.add_argument('--fix', action='store_true', help='就地补齐 error_code(+data)，幂等')
     parser.add_argument('--app-dir', default=str(APP_DIR), help='backend/app 路径')
-    args = parser.parse_args()
+    # `argv` 显式传入时按它解析：测试里直接调 `main([])` 才能真扫仓库，
+    # 否则 `parse_args()` 会去读 pytest 自己的 `sys.argv` 并当场 SystemExit。
+    args = parser.parse_args(argv)
 
     app_dir = Path(args.app_dir)
     if not app_dir.is_dir():
@@ -227,15 +263,22 @@ def main() -> int:
         return 1
 
     if not violations:
-        print(f'OK: 错误路径均含 error_code（扫描 {len(py_files)} 个文件）')
+        print(f'OK: 错误路径均含 error_code 且 5xx message 未泄漏异常细节（扫描 {len(py_files)} 个文件）')
         return 0
 
     root = app_dir.parent.parent
-    print(f'FAIL: 发现 {len(violations)} 处错误响应缺 error_code（应为 {{data, message, error_code}}）：')
-    for v in violations:
+    missing = [v for v in violations if v['kind'] == 'missing_error_code']
+    leaks = [v for v in violations if v['kind'] == 'leaks_exception']
+    print(f'FAIL: 发现 {len(violations)} 处违规（{len(missing)} 处缺 error_code / {len(leaks)} 处 5xx 泄漏异常细节）：')
+    for v in missing:
         extra = '（另缺 data）' if v['missing_data'] else ''
-        print(f"  {v['path'].relative_to(root)}:{v['lineno']}  status={v['status']}{extra}")
-    print('\n修复：python scripts/guard_error_envelope.py --fix')
+        print(f'  {v["path"].relative_to(root)}:{v["lineno"]}  status={v["status"]}{extra}')
+    for v in leaks:
+        print(
+            f'  {v["path"].relative_to(root)}:{v["lineno"]}  status={v["status"]}'
+            '  5xx message 拼接了异常对象，应改用 app.core.exceptions.internal_error_message(...)'
+        )
+    print('\n修复：python scripts/guard_error_envelope.py --fix（只补 error_code；泄漏需手工改）')
     return 1
 
 

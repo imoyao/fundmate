@@ -7,8 +7,8 @@ import { injectSupabaseSession } from "./support/session";
  * 覆盖验收：
  * - ① 无浮层：页面 `.el-popover` 为 0，输入框出现在被点单元格内部；
  *   （`rg -e 'el-popover'` 目录 0 命中由提交前静态检查承担）
- * - ② 三个可编辑列均支持 Enter / Esc / Tab，且页面有交互说明（.edit-hint）；
- * - ③ 表格总列数 = 11（勾选 + 9 数据列 + 操作），退场列（手续费/合同编号/发生金额）不出现；
+ * - ② 三个可编辑列均支持 Enter / Esc / Tab，且页面有交互说明（点「?」页内展开 .help-body）；
+ * - ③ 表格总列数 = 11（勾选 + 9 数据列 + 操作），手续费列在列内、备注折进产品信息；
  * - ④ 自动计算与行/格高亮回归：改数量→重算金额、Enter 停留 / Esc 还原、
  *   缺数量行 row-blocked + cell-blocked + 补全入口 + 解禁、缺金额 cell-missing、
  *   改金额→反算单价。
@@ -150,9 +150,17 @@ test.describe("行内就地编辑（#1790）", () => {
 
     await openPreview(page, ROWS);
 
-    // 验收②：页面有交互说明
-    await expect(page.locator(".edit-hint")).toContainText("Enter");
-    await expect(page.locator(".edit-hint")).toContainText("Esc");
+    // 验收②：页面有交互说明。2026-11-02 起默认收起（原常驻两行约占 40px），
+    // 点「?」在原位展开——仍是页内元素，不用浮层，故下面的「无 .el-popover」判据不受影响
+    const helpTrigger = page.getByRole("button", {
+      name: "表格操作说明与图例"
+    });
+    await expect(page.locator(".help-body")).toHaveCount(0);
+    await helpTrigger.click();
+    await expect(page.locator(".help-body")).toContainText("Enter");
+    await expect(page.locator(".help-body")).toContainText("Esc");
+    await helpTrigger.click();
+    await expect(page.locator(".help-body")).toHaveCount(0);
 
     // 验收①：整页无任何浮层
     await expect(page.locator(".el-popover")).toHaveCount(0);
@@ -263,7 +271,7 @@ test.describe("行内就地编辑（#1790）", () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test("列收敛：总列数 11，退场列（手续费/合同编号/发生金额）不出现", async ({
+  test("列收敛：总列数 11，手续费列回归而备注列折进产品信息", async ({
     page
   }) => {
     const pageErrors: string[] = [];
@@ -271,9 +279,12 @@ test.describe("行内就地编辑（#1790）", () => {
 
     await openPreview(page, ROWS);
 
-    // 11 列 = 勾选 + 9 数据列（状态/产品/操作类型/日期/数量/单价/金额/配置/备注）+ 操作
+    // 11 列 = 勾选 + 9 数据列（状态/产品/操作类型/日期/数量/单价/金额/手续费/配置）+ 操作。
+    // 2026-11-02 #2818 起：手续费列回归（"有值看不见、缺失补不了" 是补录缺口，不是列宽问题），
+    // 腾位置的方式是删掉「备注」列——其内容折进产品信息第二行，不再是独立列。
     await expect(page.locator(".el-table__header th")).toHaveCount(11);
-    await expect(page.locator(".el-table__header")).not.toContainText("手续费");
+    await expect(page.locator(".el-table__header")).toContainText("手续费");
+    await expect(page.locator(".el-table__header")).not.toContainText("备注");
     await expect(page.locator(".el-table__header")).not.toContainText(
       "合同编号"
     );

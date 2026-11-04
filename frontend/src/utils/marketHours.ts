@@ -42,6 +42,26 @@ export function isWithinTradingWindow(now: Date): boolean {
 }
 
 /**
+ * 交易日、开盘前：返回距 09:30 的毫秒数；已开盘 / 已收盘返回 null。
+ *
+ * 为什么需要它：`useRealtimeQuotes.start()` 在**开盘前**打开页面时，
+ * `canFetch()` 返回 false 后既不取数也不重试，用户整个上午都看不到行情刷新
+ * （#2885：9:00 打开首页，10:00 数据仍然不动）。到点唤醒由调用方安排，
+ * 本函数只回答「今天离开盘还有多久」。
+ *
+ * **不判交易日**：调用方先拿 `isTradingDay` 结果——法定假日当天不会再开市，
+ * 排一个 9:30 的唤醒只会空跑一次请求。已过 9:30 一律返回 null：那时要么在盘中
+ * （正常轮询），要么已收盘（等明天重进页面，页面重进会重新走 `start()`）。
+ */
+export function msUntilTradingOpen(now: Date = new Date()): number | null {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  if (minutes >= TRADING_WINDOW_START_MINUTE) return null;
+  const open = new Date(now);
+  open.setHours(0, TRADING_WINDOW_START_MINUTE, 0, 0);
+  return Math.max(0, open.getTime() - now.getTime());
+}
+
+/**
  * 是否应当发起实时行情取数（#2338 A 判据的唯一判据）。
  *
  * 所有取数入口（`start()` / `manualRefresh()` / 轮询 tick）都必须过这一关，

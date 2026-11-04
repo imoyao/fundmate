@@ -51,6 +51,7 @@ class TestNoAccountData:
             'total_invested': 0.0,
             'current_value': 0.0,
             'total_withdrawn': 0.0,
+            'net_invested': 0.0,
             'total_return': 0.0,
             'cashflow_count': 0,
         }

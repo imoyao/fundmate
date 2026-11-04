@@ -1,5 +1,5 @@
 /**
- * 对账工作台纯格式化函数（#980 拆分自 index.vue 的 utils/ 步骤，零行为变更）
+ * 对账中心纯格式化函数（#980 拆分自 index.vue 的 utils/ 步骤，零行为变更）
  *
  * 与页面结构无关的纯函数：差异类型 / 状态中文映射、差异值格式与着色类名。
  */
@@ -17,17 +17,6 @@ export function statusLabel(s: string): string {
     pending: "待处理",
     cleared: "已清除",
     ignored: "已忽略"
-  };
-  return map[s] || s;
-}
-
-/** E账户记录状态中文（四态） */
-export function eStatusLabel(s: string): string {
-  const map: Record<string, string> = {
-    pending: "待处理",
-    attributed: "已归因",
-    ignored: "已忽略",
-    verified: "已核对"
   };
   return map[s] || s;
 }

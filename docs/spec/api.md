@@ -22,7 +22,9 @@ title: 核心 API 端点清单（api）
 |GET/POST|/api/positions/|持仓列表查询、新增持仓|
 |PATCH/DELETE|/api/positions/{id}/|更新、删除单条持仓（支持 `delete_transactions` 参数）|
 |**GET**|**/api/positions/{id}/transactions/**|**获取持仓的关联交易明细**|
-|GET|/api/transactions/|交易流水分页筛选查询|
+|GET|/api/transactions/|交易流水分页筛选查询（行内附 `position_state`：`held`/`cleared`/`account`，由后端按 `ownership_status` + 持仓行是否存在判定，前端不自行按 `position_id` 推断）|
+|**GET**|**/api/transactions/{id}/**|**单条流水详情**（交易流水页「行展开详情」**按需取用**）：在列表行全部字段之上追加 `import_hash` / `updated_at` / `plan_id` / `position`（当前份额、清仓时间）；`position_id` 悬空或为资金流水时 `position` 为 `null`。跨家庭与不存在同返 404（不区分「无权访问」，避免泄漏行是否存在）。**不要并进列表**——那些字段一次只看一行，并进列表等于每页 20 行各算一遍。|
+|**GET**|**/api/transactions/summary/**|**交易流水汇总（汇总条数据源）**：与列表**同一组筛选参数**（`type` / `time_range` / `start_date` / `end_date` / `status` / `asset_type` / `symbol`），但**无分页**。返回 `{buy:{count,amount}, sell:{…}, dividend:{…}, fee, net_invested}`（金额单位元）。口径固定：`净投入 = 买入 + 手续费 − 卖出 − 分红`（手续费不摊进买入，四个数各自可核）；**分红按 `dividend` + `dividend_cash` 两码合计**（真机两码并存，只认一个会少算现金分红，且列表与汇总少的是同一批、看起来自洽）。与列表共用同一套 WHERE 与**独立聚合查询**——不要拿列表 `data` 求和：那是「这一页的 20 条」，会得到一个像总计的错数。|
 |**GET**|**/api/transactions/export/**|**交易记录一键导出 CSV**（P2-15）：全家庭交易流水，列与导入模板对齐（交易日期/确认日期/资产类型/代码/名称/业务类型/账户/数量/价格/手续费/金额/状态/备注）；金额用 `Money` 精度换算分→元；响应 `Content-Type: text/csv` + `Content-Disposition: attachment; filename="transactions_{YYYY-MM-DD}.csv"`；需鉴权（JWT），非探市公开端点。|
 |GET/POST|/api/assets/|通用资产负债查询（支持 `exclude` 参数排除负债）、新增|
 |PATCH/DELETE|/api/assets/{id}/|更新、删除通用资产|
@@ -31,7 +33,7 @@ title: 核心 API 端点清单（api）
 |GET|/api/funds/search/|基金模糊搜索|
 |GET|/api/funds/managers/search/|基金经理搜索|
 |GET|/api/funds/advisors/{code}/holdings/|投顾组合当前持仓（#1468）：最新快照日的成分基金与占比，每只带 `in_local_db` 标注是否已收录本地 `funds` 表|
-|GET|/api/funds/advisors/{code}/adjusts/|投顾组合调仓明细（#1468）：按调仓日倒序分组，`?limit=N`（缺省 10 上限 50）、`?date=YYYY-MM-DD` 精确取某日；且慢明细由持仓快照序列推导，无官方历史接口|
+|GET|/api/funds/advisors/{code}/adjusts/|投顾组合调仓明细（#1468）：按调仓日倒序分组，`?limit=N`（缺省 10 上限 50）、`?date=YYYY-MM-DD` 精确取某日；且慢走官方 GraphQL（`source='qieman_official'`），计划型组合（且慢官方返回空）回退由持仓快照序列推导（`source='qieman'`）|
 |GET|/api/securities/search/|证券股票搜索|
 |GET/POST|/api/watchlist/items/|自选资产列表、新增|
 |PATCH/DELETE|/api/watchlist/items/{item_id}/|更新、删除自选|
@@ -42,7 +44,7 @@ title: 核心 API 端点清单（api）
 |DELETE|/api/watchlist/tags/{tag_id}/|删除标签|
 |POST/DELETE|/api/watchlist/items/{item_id}/tags/{tag_id}/|资产绑定/解绑标签|
 |POST|/api/funds/nav/|基金净值批量查询（响应格式为数组）|
-|GET|/api/performance/xirr/|年化收益率查询（扩展 `portfolio_id` 参数，支持组合维度 XIRR）|
+|GET|/api/performance/xirr/|年化收益率查询（扩展 `portfolio_id` 参数，支持组合维度 XIRR；响应含 `cashflow_basis` 口径标识，见 `cashflow-layers.md`）|
 |**GET/POST**|**/api/portfolios/**|**组合列表（返回 id/name/purpose/created_at）、创建组合**|
 |**GET/PATCH**|**/api/portfolios/{id}/**|**获取详情、更新组合**|
 |**DELETE**|**/api/portfolios/{id}/**|**软删除组合（自动解绑关联账户）**|
@@ -61,7 +63,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **192** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **222** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -87,6 +89,12 @@ title: 核心 API 端点清单（api）
 | GET | `/api/e-account/reconciliation/` | `reconciliation` |
 | POST | `/api/families/` | `create_family` |
 | GET | `/api/families/<int:family_id>/members/` | `list_family_members` |
+| GET | `/api/families/members/profiles/` | `list_member_profiles` |
+| POST | `/api/families/members/profiles/` | `create_member_profile` |
+| DELETE | `/api/families/members/profiles/<int:member_id>/` | `delete_member_profile` |
+| PATCH | `/api/families/members/profiles/<int:member_id>/` | `update_member_profile` |
+| GET | `/api/feedlog-token/` | `feedlog_token` |
+| POST | `/api/feedlog-token/` | `feedlog_token` |
 | GET | `/api/funds/<string:fund_code>/fee-rates/` | `get_fund_fee_rates` |
 | POST | `/api/funds/<string:fund_code>/fee-sync/` | `sync_fund_fees` |
 | GET | `/api/funds/<string:fund_code>/nav/` | `get_fund_nav` |
@@ -94,9 +102,13 @@ title: 核心 API 端点清单（api）
 | GET | `/api/funds/<string:fund_code>/style/history/` | `get_fund_style_history_view` |
 | GET | `/api/funds/<string:fund_code>/style/latest/` | `get_fund_style_latest` |
 | GET | `/api/funds/advisors/<string:code>/adjusts/` | `get_advisor_adjusts` |
+| GET | `/api/funds/advisors/<string:code>/holdings-history/` | `get_advisor_holdings_history` |
 | GET | `/api/funds/advisors/<string:code>/holdings/` | `get_advisor_holdings` |
+| GET | `/api/funds/advisors/<string:code>/industries/` | `get_advisor_industries` |
 | GET | `/api/funds/managers/search/` | `search_managers` |
 | POST | `/api/funds/nav/` | `get_fund_nav_by_date` |
+| GET | `/api/funds/overlap/` | `get_holding_overlap` |
+| GET | `/api/funds/overlap/correlation/` | `get_holding_correlation` |
 | POST | `/api/funds/redeem-fee/estimate/` | `estimate_redeem_fee` |
 | GET | `/api/funds/search/` | `search_funds` |
 | GET | `/api/funds/style/portfolio/` | `get_portfolio_style` |
@@ -106,6 +118,7 @@ title: 核心 API 端点清单（api）
 | POST | `/api/importers/holdings/parse/` | `parse_holding_file` |
 | POST | `/api/importers/parse/` | `parse_file` |
 | GET | `/api/importers/template/<template_type>/` | `download_import_template` |
+| GET | `/api/insight/tips/` | `get_tips` |
 | GET | `/api/ledgers/` | `list_ledgers` |
 | POST | `/api/ledgers/` | `create_ledger` |
 | DELETE | `/api/ledgers/<int:ledger_id>/` | `delete_ledger` |
@@ -130,6 +143,7 @@ title: 核心 API 端点清单（api）
 | PATCH | `/api/ledgers/reorder/` | `reorder_ledgers` |
 | GET | `/api/ledgers/sales-institutions/` | `list_sales_institutions` |
 | GET | `/api/ledgers/securities-aggregation/` | `get_securities_aggregation` |
+| GET | `/api/market/asset/<asset_key>/history/` | `get_market_asset_history` |
 | GET | `/api/market/industry-emotion/` | `get_industry_emotion` |
 | GET | `/api/market/industry-pbroe/` | `get_industry_pbroe` |
 | GET | `/api/market/overview/` | `get_market_overview` |
@@ -140,6 +154,7 @@ title: 核心 API 端点清单（api）
 | POST | `/api/ocr/parse/` | `ocr_parse_text` |
 | POST | `/api/ocr/recognize/` | `ocr_recognize` |
 | GET | `/api/performance/money-fund-income/` | `get_money_fund_income` |
+| GET | `/api/performance/twr/` | `get_twr` |
 | GET | `/api/performance/xirr/` | `get_xirr` |
 | GET | `/api/portfolios/` | `list_portfolios` |
 | POST | `/api/portfolios/` | `create_portfolio` |
@@ -147,10 +162,12 @@ title: 核心 API 端点清单（api）
 | GET | `/api/portfolios/<int:portfolio_id>/` | `get_portfolio` |
 | PATCH | `/api/portfolios/<int:portfolio_id>/` | `update_portfolio` |
 | GET | `/api/portfolios/<int:portfolio_id>/holdings/` | `get_portfolio_holdings` |
+| POST | `/api/portfolios/industry-map/refresh/` | `refresh_industry_map` |
 | GET | `/api/positions/` | `list_positions` |
 | POST | `/api/positions/` | `create_position` |
 | DELETE | `/api/positions/<int:id>/` | `delete_position` |
 | PATCH | `/api/positions/<int:id>/` | `update_position` |
+| GET | `/api/positions/<int:id>/advisor-context/` | `get_position_advisor_context` |
 | GET | `/api/positions/<int:id>/transactions/` | `get_position_transactions` |
 | POST | `/api/positions/allocate-value/` | `allocate_position_value` |
 | POST | `/api/positions/conversion/` | `submit_conversion` |
@@ -189,6 +206,13 @@ title: 核心 API 端点清单（api）
 | DELETE | `/api/reconciliation/ghost-duplicates/ignored/<int:ignore_id>/` | `undo_ghost_duplicate_ignore` |
 | GET | `/api/reconciliation/ledger-consistency/` | `ledger_consistency` |
 | POST | `/api/reconciliation/run/` | `run_reconciliation` |
+| GET | `/api/recurring-plans/` | `list_plans` |
+| POST | `/api/recurring-plans/` | `create_plan` |
+| GET | `/api/recurring-plans/<int:plan_id>/` | `get_plan` |
+| PATCH | `/api/recurring-plans/<int:plan_id>/` | `update_plan` |
+| POST | `/api/recurring-plans/<int:plan_id>/end/` | `end_plan` |
+| POST | `/api/recurring-plans/<int:plan_id>/pause/` | `pause_plan` |
+| POST | `/api/recurring-plans/<int:plan_id>/resume/` | `resume_plan` |
 | GET | `/api/search/assets/` | `search_assets` |
 | GET | `/api/securities/<symbol>/price-range/` | `get_price_range` |
 | GET | `/api/securities/search/` | `search_securities` |
@@ -207,6 +231,9 @@ title: 核心 API 端点清单（api）
 | GET | `/api/strategy/overview/` | `get_strategy_overview` |
 | GET | `/api/strategy/relations/` | `get_all_position_tags` |
 | GET | `/api/summary/` | `summary` |
+| GET | `/api/summary/benchmark-excess/` | `benchmark_excess` |
+| GET | `/api/summary/benchmarks/` | `benchmarks` |
+| GET | `/api/summary/cash-flow/` | `cash_flow` |
 | GET | `/api/summary/cash-like/` | `cash_like` |
 | GET | `/api/summary/cleared-cycles/` | `cleared_cycles` |
 | GET | `/api/summary/distributions/` | `distributions` |
@@ -214,17 +241,22 @@ title: 核心 API 端点清单（api）
 | GET | `/api/summary/ghost-duplicates/` | `ghost_duplicates` |
 | GET | `/api/summary/groups/` | `position_groups` |
 | GET | `/api/summary/penetration/` | `penetration` |
+| GET | `/api/summary/pnl-attribution/` | `pnl_attribution` |
 | GET | `/api/summary/pnl-calendar/` | `pnl_calendar` |
+| GET | `/api/summary/position-structure/` | `position_structure` |
 | GET | `/api/summary/sankey/` | `sankey` |
 | GET | `/api/summary/snapshots/` | `list_snapshots` |
 | POST | `/api/summary/snapshots/` | `create_snapshot` |
+| GET | `/api/summary/today-pnl/` | `today_pnl` |
 | GET | `/api/temperature/crowding-history` | `get_crowding_history` |
 | GET | `/api/temperature/history` | `get_temperature_history` |
 | GET | `/api/temperature/multi` | `get_multi_items` |
 | GET | `/api/temperature/overview` | `get_temperature_overview` |
 | GET | `/api/transactions/` | `list_transactions` |
 | DELETE | `/api/transactions/<int:transaction_id>/` | `delete_transaction` |
+| GET | `/api/transactions/<int:transaction_id>/` | `get_transaction` |
 | GET | `/api/transactions/export/` | `export_transactions` |
+| GET | `/api/transactions/summary/` | `get_transaction_summary` |
 | GET | `/api/usage/<feature>/` | `get_usage` |
 | GET | `/api/users/` | `list_family_members` |
 | PATCH | `/api/users/me/` | `update_me` |

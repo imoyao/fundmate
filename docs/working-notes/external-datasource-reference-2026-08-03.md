@@ -32,7 +32,7 @@
 | 4 | 腾讯 web.ifzq.gtimg.cn | 乖离度修复 `fetch_close_tencent` | 股票/ETF/宽基日 K | 免 | **本会话实跑通过** | ✅ 适用（新验证） |
 | 5 | xalpha（gitee fork） | `xalpha_adapter` + `DailyWorth` | 基金净值 / 费率 / 货币基金 | 免 | 代码在用 | ✅ 适用（基金主源） |
 | 6 | akshare 基金元数据 | `akshare_adapter` | 基金列表/详情/经理 | 免 | 代码在用 | ⚠️ 适用但有 akshare 断更风险 |
-| 7 | 集思录 jisilu.cn | `JisiluCBFetcher` / `JisiluIndicatorFetcher` | 可转债温度 + 估值指标(PB/PE 温度) | **需登录 Cookie** (`JISILU_COOKIE`) | 代码在用 | ✅ 适用（需 Cookie） |
+| 7 | 集思录 jisilu.cn | `JisiluCBFetcher` / `JisiluIndicatorFetcher` | 可转债温度 + 估值指标(PB/PE 温度) | 免登录（2026-10-24 实测匿名 200） | 代码在用 | ✅ 适用 |
 | 8 | 且慢 MCP stargate.yingmi.com | `QiemanFetcher` | 市场温度计(中证全 A) | **需 `QIEMAN_API_KEY`** | 代码在用 | ✅ 适用（需 key） |
 | 9 | 有知有行 youzhiyouxing.cn | `YouzhiyouxingFetcher` | 全市场温度(SSR 解析) | 免 | 代码在用 | ✅ 适用 |
 | 10 | 韭圈儿 jiucaishuo.com | `JiucaishuoFetcher` | 恐贪指数 + 中长期温度 | 免(API+Playwright) | 代码在用 | ✅ 适用（含浏览器降级） |
@@ -94,7 +94,9 @@
 
 - 可转债温度：`https://www.jisilu.cn/data/indicator/get_cb_temperature/`（取 `cb_temperature`）。
 - 估值指标：`https://www.jisilu.cn/data/indicator/get_last_indicator/`（median_pb/pe 温度、stock_count 等）。
-- 需 `headers={'Referer':'https://www.jisilu.cn/data/indicator/'}`；温度值需登录态 Cookie（`JISILU_COOKIE`=kbzw__Session），注释称"配即用官方真值"。
+- 需 `headers={'Referer':'https://www.jisilu.cn/data/indicator/'}`；**免登录**（2026-10-24 实测：匿名请求两端点均 200，
+  `get_cb_temperature` → `{"cb_temperature":"51.41"}`、`get_last_indicator` → `{"price_dt":"2026-10-23","median_pb":"2.49","median_pb_temperature":"31.10",...}`）。
+  ⚠ 与下方 `JSL_COOKIE`（可转债列表 `cb_list_new` 端点，游客限 30 只）是**两套不同的东西**，勿混。
 
 **⑧ 且慢 MCP（Streamable HTTP）**
 

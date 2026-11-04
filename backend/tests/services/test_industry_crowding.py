@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from app.services.thermometer import industry_crowding as ic
+from app.services.thermometer import wind_turnover as wt
 
 
 class _FakeSession:
@@ -404,11 +405,12 @@ def test_turnover_rank_short_history_returns_none():
 
 
 def test_extra_dims_failure_returns_none(monkeypatch):
-    """两源均失败时两维字段均为 None，且不抛异常。"""
+    """三源（中证成交额 / Wind 换手率 / 东财兜底）均失败时两维字段均为 None，且不抛异常。"""
     monkeypatch.setattr(ic, '_csindex_hist', lambda code, **kw: None)
     monkeypatch.setattr(ic, '_em_industry_hist', lambda code: None)
+    monkeypatch.setattr(wt, 'wind_turnover_rank', lambda code, name: None)
 
-    out = ic._extra_dims('000990.SH', None)
+    out = ic._extra_dims('农林牧渔', '000990.SH', None)
 
     assert out == {
         'amount_pct': None,
@@ -419,20 +421,38 @@ def test_extra_dims_failure_returns_none(monkeypatch):
 
 
 def test_extra_dims_merges_both_dims(monkeypatch):
-    """成交额（中证官网，非东财）与换手率（东财）两维分位合并进结果。"""
+    """成交额（中证官网，非东财）与换手率（东财兜底）两维分位合并进结果。"""
     dates = pd.date_range('2024-01-01', periods=210, freq='B')
     fake_cs = pd.DataFrame({'amount': [100.0] * 200 + [200.0] * 10}, index=dates)
     fake_mkt_cs = pd.DataFrame({'amount': [1000.0] * 210}, index=dates)
     fake_em = pd.DataFrame({'amount': [100.0] * 210, 'turnover': [1.0] * 200 + [3.0] * 10}, index=dates)
     monkeypatch.setattr(ic, '_csindex_hist', lambda code, **kw: fake_cs)
     monkeypatch.setattr(ic, '_em_industry_hist', lambda code: fake_em)
+    monkeypatch.setattr(wt, 'wind_turnover_rank', lambda code, name: None)
 
-    out = ic._extra_dims('000990.SH', fake_mkt_cs)
+    out = ic._extra_dims('农林牧渔', '000990.SH', fake_mkt_cs)
 
     assert out['amount_pct'] == pytest.approx(20.0)
     assert out['amount_pct_rank'] == pytest.approx(200 / 210 * 100, abs=0.1)
     assert out['turnover'] == pytest.approx(3.0)
     assert out['turnover_rank'] == pytest.approx(200 / 210 * 100, abs=0.1)
+
+
+def test_extra_dims_prefers_wind_turnover(monkeypatch):
+    """换手率 Wind 为主（#1502）：Wind 有结果时不再打东财（摘单点）。"""
+    dates = pd.date_range('2024-01-01', periods=210, freq='B')
+    fake_cs = pd.DataFrame({'amount': [100.0] * 210}, index=dates)
+    fake_mkt_cs = pd.DataFrame({'amount': [1000.0] * 210}, index=dates)
+    em_calls: list = []
+    monkeypatch.setattr(ic, '_csindex_hist', lambda code, **kw: fake_cs)
+    monkeypatch.setattr(ic, '_em_industry_hist', lambda code: em_calls.append(code))
+    monkeypatch.setattr(wt, 'wind_turnover_rank', lambda code, name: {'turnover': 2.5, 'turnover_rank': 88.8})
+
+    out = ic._extra_dims('农林牧渔', '000990.SH', fake_mkt_cs)
+
+    assert out['turnover'] == pytest.approx(2.5)
+    assert out['turnover_rank'] == pytest.approx(88.8)
+    assert em_calls == [], 'Wind 已给结果时不应再打东财（限流敏感）'
 
 
 def test_record_includes_em_dims_and_note():

@@ -10,6 +10,11 @@ import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumn
 import type { useWatchlistValuation } from "@/views/asset/watchlist/composables/useWatchlistValuation";
 import type { useWatchlistPageActions } from "@/views/asset/watchlist/composables/useWatchlistPageActions";
 import type { RenderCtx } from "@/views/asset/watchlist/columnRenderers";
+import {
+  CLIENT_SORT_KEYS,
+  type ClientSortKey
+} from "@/views/asset/watchlist/clientSort";
+import { pickSortMetric } from "@/views/asset/watchlist/sortMetric";
 
 interface TableRenderOptions {
   groups: ReturnType<typeof useWatchlistGroups>;
@@ -25,21 +30,22 @@ interface TableRenderOptions {
 /**
  * 自选页表格渲染域（#980 P0-b 拆分自 index.vue，零行为变更）：
  * renderCtx 组装（把页面级状态/方法注入 renderer 注册表）、行 hover 状态
- * （fixed 列操作按钮淡入用）、表头排序分发（#1333 实时列客户端排序）。
+ * （fixed 列操作按钮淡入用）、表头排序分发（吃实时价的列走客户端**整组**排序，
+ * 见 `views/asset/watchlist/clientSort.ts`）。
  */
 export function useWatchlistTable(options: TableRenderOptions) {
   const { groups, tags, toolbar, data, valuation, actions } = options;
   const router = useRouter(); // 「问这个」跳转用（#1764）
-  const { items } = data;
   const { batchMode } = toolbar;
   const {
-    realtime,
     realtimeEnabled,
     getValuationItem,
     addedReturnPct,
     addedReturnAmount,
+    dayPnlOf,
     marketValueRatio,
-    trendMap
+    trendMap,
+    intradayMap
   } = valuation;
 
   // ── 行 hover 状态（供 fixed 列操作按钮淡入）──
@@ -65,13 +71,46 @@ export function useWatchlistTable(options: TableRenderOptions) {
     }, 100);
   }
 
+  /** 最新价取值：真拿到行情才用实时价，否则回落后端静态价（同 money renderer 口径） */
+  function livePriceOf(row: WatchlistItem): number | null {
+    const quote = getValuationItem(row.symbol ?? "");
+    const live =
+      quote && quote.source === "realtime" ? quote.currentPrice : null;
+    const value = live ?? row.current_price;
+    return typeof value === "number" && value > 0 ? value : null;
+  }
+
   /**
-   * 表头排序分发（issue #1333 修正）。
-   * 带 realtimeField 的列（change_pct 涨跌幅 / current_price 最新价）其「有意义的值」来自
-   * 前端实时行情引擎，后端只有 None / positions 静态快照——若走后端 sort_by 会按错值排，
-   * 故这两列改为前端按实时估值项做客户端排序。
-   * 限制：后端无实时值，跨页一致排序本就不成立，因此只排当前页（items）；
-   * 其余列维持原 handleSortChange → 后端 sort_by/sort_order（跨页一致）。
+   * 当日盈亏取值：按当前口径选「金额」或「涨幅」——复合列两行数各有各的排序。
+   *
+   * 口径在**调用时**读（`data.sortMetricOf`），所以表头切口径后，客户端整组排序
+   * （`clientSortedItems` 是 computed）会立刻重算，不需要再手动触发一次排序。
+   */
+  function dayPnlSortValueOf(): (row: WatchlistItem) => number | null {
+    return row => pickSortMetric(dayPnlOf(row), data.sortMetricOf("day_pnl"));
+  }
+
+  /** 该列是否走客户端整组排序（名单只在 `clientSort.ts` 维护，不在此另立一份） */
+  function isClientSortKey(key: string): key is ClientSortKey {
+    return (CLIENT_SORT_KEYS as readonly string[]).includes(key);
+  }
+
+  /**
+   * 表头排序分发（#1333 → #2641 → 2026-10-30 整组化 → 2026-10-30 复合列口径）。
+   *
+   * | 列 | 走哪 | 为什么 |
+   * |---|---|---|
+   * | 当日盈亏 / 最新价 | **客户端整组排序**（`data.setClientSort`，对全量 allItems 排 + 本地分页） | 这两列吃实时价，后端只有上一交易日收盘（job 17:30 跑）⇒ 按 `sort_by` 排等于「按昨天的涨幅排」，与列里显示的今日值不是同一个数 |
+   * | 持仓市值 / 持仓收益 | `handleSortChange` → 后端 `sort_by/sort_order`，**字段随口径切换** | 两列主行取自 positions 快照 + 库内行情，后端排的就是列里显示的数；「金额 / 比例」是库里两个不同的排序键（`position_market_value` / `holding_pnl` / `holding_pnl_percent`，均在后端白名单内） |
+   * | 其余列 | `handleSortChange` → 后端 `sort_by/sort_order` | 这些列的值后端就有，跨页一致由后端保证 |
+   *
+   * ⚠️ 旧实现（含 #2641 版）在实时开启时**只排当前页**——第 2 页重新从最大/最小开始，
+   * 用户看到的就是「点了排序但顺序很乱」（2026-10-30 用户实测反馈）。现在要么整组排
+   * （客户端），要么整组排（后端），没有「页内排」这一档。
+   *
+   * ⚠️ 复合列（`ColumnDef.sortMetrics`）的排序指标由表头徽标决定，**不再拿一个口径
+   * 代理另一个**：#2641 把当日盈亏代理到 `change_pct`，于是「按金额排序」这个诉求
+   * 在实现上根本不存在。
    */
   function onSortChange({
     prop,
@@ -80,31 +119,41 @@ export function useWatchlistTable(options: TableRenderOptions) {
     prop?: string | number;
     order: "ascending" | "descending" | null;
   }) {
-    const def = prop
-      ? options.columnSettings.visibleColumns.value.find(
-          d => d.key === String(prop)
-        )
+    const key = prop ? String(prop) : "";
+    const def = key
+      ? options.columnSettings.visibleColumns.value.find(d => d.key === key)
       : undefined;
-    if (def?.realtimeField && order) {
-      const field = def.realtimeField; // "currentPrice" | "changePct"
-      const dir = order === "descending" ? -1 : 1;
-      const rtMap = new Map<string, number>();
-      for (const it of realtime.items.value ?? []) {
-        const v = it[field];
-        if (typeof v === "number") rtMap.set(it.symbol, v);
-      }
-      const sortVal = (row: (typeof items.value)[number]): number => {
-        const rv = rtMap.get(row.symbol);
-        if (typeof rv === "number") return rv;
-        const sv = (row as Record<string, unknown>)[def.key];
-        return typeof sv === "number" ? sv : 0;
-      };
-      items.value = [...items.value].sort(
-        (a, b) => (sortVal(a) - sortVal(b)) * dir
+
+    // 取消排序（普通列的第三档；复合列只有两档，不会走到这里）：先退出客户端模式
+    // 再让后端回默认序。只清本地状态的话，items 会停在上一轮本地切片上（表格「卡住」）。
+    if (!order) {
+      data.clearClientSort();
+      data.handleSortChange({ prop: def?.sortBy ?? key, order });
+      return;
+    }
+
+    const dir = order === "descending" ? "desc" : "asc";
+
+    // ① 客户端整组排序：吃实时价的两列（当日盈亏还要看口径）
+    if (isClientSortKey(key)) {
+      data.setClientSort(
+        key,
+        dir,
+        key === "current_price" ? livePriceOf : dayPnlSortValueOf()
       );
       return;
     }
-    data.handleSortChange({ prop, order });
+
+    // ② 复合列走后端时，排序字段随口径切换：金额 / 比例在库里是两个不同的列。
+    //    只认列定义声明的 `ratioSortBy`（当日盈亏没声明 → 两种口径都走客户端，见 ①）。
+    const ratioField = def?.sortMetrics?.ratioSortBy;
+    const field =
+      ratioField && data.sortMetricOf(key) === "ratio"
+        ? ratioField
+        : (def?.sortBy ?? key);
+
+    data.clearClientSort();
+    data.handleSortChange({ prop: field, order });
   }
 
   // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件
@@ -125,6 +174,10 @@ export function useWatchlistTable(options: TableRenderOptions) {
           value: addedReturnAmount(row as WatchlistItem),
           ratio: addedReturnPct(row as WatchlistItem)
         };
+      }
+      if (kind === "dayPnl") {
+        // 当日盈亏（#2640）：口径与汇总条同源（dayPnl.ts），缺失同样是 null 而非 0
+        return dayPnlOf(row);
       }
       // marketValue
       return {
@@ -167,7 +220,9 @@ export function useWatchlistTable(options: TableRenderOptions) {
         });
       }
     },
-    trends: trendMap.value
+    trends: trendMap.value,
+    // 当日分时（#2640）：走势列盘中态的唯一数据源；缺省 → 回落 trends
+    intraday: intradayMap.value
   }));
 
   return {

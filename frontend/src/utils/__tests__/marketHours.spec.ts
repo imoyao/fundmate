@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   isWithinTradingWindow,
+  msUntilTradingOpen,
   shouldFetchRealtimeQuotes,
   TRADING_WINDOW_START_MINUTE,
   TRADING_WINDOW_END_MINUTE
@@ -133,5 +134,52 @@ describe("置灰守卫：休市时刷新控件必须禁用（源码断言）", (
   it("给出置灰原因（tooltip + aria-label 同源文案），不是静默置灰", () => {
     expect(barSrc).toContain("closedHint");
     expect(barSrc).toContain("休市不抓取");
+  });
+});
+
+describe("msUntilTradingOpen（开盘到点唤醒，#2885）", () => {
+  it("8:00 → 距开盘 90 分钟", () => {
+    expect(msUntilTradingOpen(at(8, 0))).toBe(90 * 60 * 1000);
+  });
+
+  it("9:29 → 1 分钟（秒级也准）", () => {
+    expect(msUntilTradingOpen(at(9, 29))).toBe(60 * 1000);
+  });
+
+  it("9:30 整 → null（已开盘，交给正常取数）", () => {
+    expect(msUntilTradingOpen(at(9, 30))).toBeNull();
+  });
+
+  it("盘中 / 收盘后 / 深夜 → null（当天不再排唤醒）", () => {
+    expect(msUntilTradingOpen(at(10, 30))).toBeNull();
+    expect(msUntilTradingOpen(at(15, 1))).toBeNull();
+    expect(msUntilTradingOpen(at(23, 0))).toBeNull();
+  });
+});
+
+describe("轮询启动时序守卫（#2885，源码断言）", () => {
+  const quotesSrc = readSrc("../../composables/useRealtimeQuotes.ts");
+
+  it("开盘前 canFetch 失败要安排到点唤醒，而不是直接 return", () => {
+    expect(quotesSrc).toContain("msUntilTradingOpen(");
+    // 调用点是 `scheduleWakeAtOpen(token)`（带参数），判据只锚函数名；
+    // 中间还隔着 status 赋值与口径注释，窗口给到 400。
+    expect(quotesSrc).toMatch(
+      /if \(!\(await canFetch\(\)\)\)[\s\S]{0,400}?scheduleWakeAtOpen\(/
+    );
+  });
+
+  it("holdings 为空时要短重试，而不是干等一个完整轮询周期", () => {
+    expect(quotesSrc).toContain("EMPTY_HOLDINGS_RETRY_DELAYS_MS");
+    expect(quotesSrc).toMatch(/if \(!filled\) scheduleEmptyRetry\(\)/);
+  });
+
+  it("定时器必须被清理（失活 / 卸载 / 关闭）", () => {
+    expect(
+      quotesSrc.match(/clearWakeTimer\(\)/g)?.length ?? 0
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      quotesSrc.match(/clearEmptyRetry\(\)/g)?.length ?? 0
+    ).toBeGreaterThanOrEqual(3);
   });
 });

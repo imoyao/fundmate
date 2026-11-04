@@ -12,7 +12,8 @@
 - 顺序写反（先重建再搬任期）→ 中途失败就**永久丢任期日期**（只能重新逐只抓 F10）。
 
 故这里覆盖：去重与保留优先级、任期搬迁与 `current` 口径、脏行跳过、唯一约束、
-幂等重跑、空库跳过、非 SQLite 跳过。
+幂等重跑、空库跳过；PG 分支（原地改造，不整表重建）见
+`test_migrations_pg_aware.py::test_pg_fund_managers_split_*`。
 """
 
 import sqlite3
@@ -21,6 +22,8 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 
 from app.core.migrations import migrate_fund_managers_split_tenures
+
+from .migrations_pg_fake import PgFake
 
 
 def _legacy_db(tmp_path):
@@ -191,17 +194,28 @@ def test_skips_when_table_absent(tmp_path):
         engine.dispose()
 
 
-def test_skips_non_sqlite_engine():
-    """非 SQLite（Supabase Postgres）→ 直接跳过，结构交给 ORM / 迁移工具。
+def test_pg_branch_never_runs_sqlite_only_statements(monkeypatch):
+    """PG 分支**不早退**，也绝不把 SQLite 专属语句（`PRAGMA` / 整表重建）带过去。
 
-    这里传的是**假引擎**：只要 ``.url`` 不是 sqlite 就该在碰库之前返回，
-    否则线上 Postgres 路径会跑到 SQLite 专属的 `PRAGMA` / 整表重建语句上。
+    旧版这条叫 `test_skips_non_sqlite_engine`，用「只有 url 的假引擎」断言 `[SKIP]` ——
+    那是在钉 bug 本身（PG 侧结构永远不迁移，#2689）。新契约用 `PgFake`：
+    分支跑真实逻辑，只是把方言差异（删列/唯一索引）钉在 SQL 形态上。
     """
+    fake = PgFake(
+        {
+            'fund_managers': ['id', 'fund_id', 'mgr_id', 'is_classic', 'start_date'],
+            'manager_tenures': ['id', 'fund_id', 'mgr_id', 'start_date'],
+        }
+    )
+    fake.install(monkeypatch)
 
-    class _FakeEngine:
-        url = 'postgresql+pg8000://user:pw@host/db'
+    result = migrate_fund_managers_split_tenures(fake.engine)
 
-    assert '[SKIP]' in migrate_fund_managers_split_tenures(_FakeEngine())
+    assert '非 SQLite' not in result
+    joined = '\n'.join(fake.sql)
+    assert 'PRAGMA' not in joined, joined
+    assert 'RENAME TO' not in joined, joined
+    assert 'ALTER TABLE fund_managers DROP COLUMN IF EXISTS start_date' in joined, joined
 
 
 def test_dedupes_group_without_classic_flag(tmp_path):

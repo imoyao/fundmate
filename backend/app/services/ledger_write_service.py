@@ -21,7 +21,7 @@ import json
 from datetime import datetime
 
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.money import Money
 from app.domains.assets.models import Asset
@@ -34,8 +34,14 @@ from app.domains.ledgers.constants import (
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services.family_member_service import (
+    FamilyMemberError,
+    get_member,
+    resolve_owner_member,
+)
 from app.services.fund_service import FundService
 from app.services.position_service import PositionService
+from app.services.symbol_scope import build_transaction_symbol_conditions
 from app.services.trading import TransactionService
 
 
@@ -159,7 +165,9 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
             Transaction.ledger_id == ledger.id,
             Transaction.family_id == family_id,
             Transaction.asset_type == 'money_fund',
-            Transaction.symbol == old_fund.fund_code,
+            # 身份键匹配（#1662 遗留项）：货基流水的 symbol 快照可能是带前缀形态，
+            # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
+            or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
             Transaction.position_id.is_(None),
             Transaction.txn_type.in_(('buy', 'deposit')),
         )
@@ -172,7 +180,9 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
             Transaction.ledger_id == ledger.id,
             Transaction.family_id == family_id,
             Transaction.asset_type == 'money_fund',
-            Transaction.symbol == old_fund.fund_code,
+            # 身份键匹配（#1662 遗留项）：货基流水的 symbol 快照可能是带前缀形态，
+            # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
+            or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
             Transaction.position_id.is_(None),
             Transaction.txn_type.in_(('sell', 'withdraw')),
         )
@@ -263,6 +273,19 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         if not cash_ledger or cash_ledger.family_id != family_id:
             raise LedgerWriteError('关联的现金账户不存在或类型不是现金账户', 400, 1001)
 
+    # 归属家庭成员（#1173）：校验成员存在且属同一家庭；不传 = 未归属/家庭共有。
+    # 停用成员不可被**新**账户指派（历史账户保留原归属不动）。
+    owner_member_id = None
+    raw_owner_member_id = data.get('owner_member_id')
+    if raw_owner_member_id is not None:
+        try:
+            owner_member_id = resolve_owner_member(db, family_id, raw_owner_member_id)
+        except FamilyMemberError as e:
+            raise LedgerWriteError(e.message, e.status_code, e.error_code)
+        member = get_member(db, family_id, owner_member_id)
+        if member is not None and not member.is_active:
+            raise LedgerWriteError('不能把账户归属给已停用的成员', 400, 1001)
+
     # 派生 channel_category / ledger_type（#1101 渠道分类重设计）：
     #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
     #   - 否则有销售机构 → 以 org_type 映射为准（权威，覆盖 ledger_type 的展示语义）；
@@ -303,6 +326,7 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         linked_money_fund_id=linked_money_fund_id,
         auto_purchase_money_fund=auto_purchase_money_fund,
         sales_institution_id=sales_institution_id,
+        owner_member_id=owner_member_id,
         family_id=family_id,
     )
 
@@ -373,6 +397,26 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
     # 更新 portfolio_id（允许设置为 None）
     if 'portfolio_id' in data:
         ledger.portfolio_id = data['portfolio_id']
+
+    # 归属家庭成员（#1173）：允许设为 None（解绑 → 回到「未归属/家庭共有」）。
+    # ⚠️ 必须显式在白名单里加这一分支——本函数用 `if 'X' in data:` 逐字段处理，
+    # **未列出的键被静默忽略**：不写这行，前端传了成员、后端会静默丢弃，
+    # 表现为「保存了但没生效」。
+    if 'owner_member_id' in data:
+        raw_owner_member_id = data['owner_member_id']
+        if raw_owner_member_id is None:
+            ledger.owner_member_id = None
+        else:
+            try:
+                resolved = resolve_owner_member(db, family_id, raw_owner_member_id)
+            except FamilyMemberError as e:
+                raise LedgerWriteError(e.message, e.status_code, e.error_code)
+            member = get_member(db, family_id, resolved)
+            # 停用成员：允许**继续绑定已有账户**（历史归属要留住），
+            # 但不允许把账户**改绑**给停用成员。
+            if member is not None and not member.is_active and resolved != ledger.owner_member_id:
+                raise LedgerWriteError('不能把账户归属给已停用的成员', 400, 1001)
+            ledger.owner_member_id = resolved
 
     # 更新 linked_cash_ledger_id（允许设置为 None）
     if 'linked_cash_ledger_id' in data:
@@ -564,6 +608,24 @@ def update_ledger_transaction(db, ledger, txn, data: dict) -> Transaction:
         recompute_amount = True
     if 'fee' in data:
         txn.fee = Money.yuan_to_cents(_non_negative('fee', data['fee']))
+        touched = True
+    # #2137 费用拆分（元 → 分）：显式传才改；四类必须齐全（缺的传 0 表示该类为 0），
+    # 否则与 Transaction 的 before_insert 不变量冲突会在 flush 时炸——
+    # 这里先校验，把错误变成 400 而不是 500。传 null 一律按「不修改」处理
+    # （与上方 _non_negative 的 None 语义一致），不提供「拆分明细置空」操作。
+    fee_breakdown_keys = (
+        ('fee_commission', 'commission'),
+        ('fee_stamp_duty', 'stamp_duty'),
+        ('fee_transfer_fee', 'transfer_fee'),
+        ('fee_other', 'other_fee'),
+    )
+    provided = {k: data[k] for k, _col in fee_breakdown_keys if data.get(k) is not None}
+    if provided:
+        if len(provided) != len(fee_breakdown_keys):
+            missing = [k for k, _col in fee_breakdown_keys if k not in provided]
+            raise LedgerWriteError(f'费用拆分必须四类齐全（缺的类别显式传 0）：未提供 {missing}', 400, None)
+        for key, col in fee_breakdown_keys:
+            setattr(txn, col, Money.yuan_to_cents(_non_negative(key, provided[key])))
         touched = True
     if 'amount' in data:
         txn.amount = Money.yuan_to_cents(_non_negative('amount', data['amount']))

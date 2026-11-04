@@ -43,61 +43,15 @@
       <p class="text-lg">暂无投资组合，点击上方按钮创建</p>
     </div>
 
-    <!-- 卡片列表 -->
+    <!-- 卡片列表（卡片本体见 components/PortfolioCard.vue，2026-10-30 重设计） -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-      <!-- a11y-allow 组合卡：卡片本身是跳转热区，但右上角有 el-popconfirm 删除按钮；
-           补 role=button 会让删除按钮被整卡的 button 语义吞掉 -->
-      <div
+      <PortfolioCard
         v-for="item in portfolios"
         :key="item.id"
-        class="portfolio-card"
-        @click="$router.push(`/asset/portfolios/${item.id}`)"
-      >
-        <div class="flex items-center justify-between mb-3">
-          <h3
-            class="font-semibold text-base"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            {{ item.name }}
-          </h3>
-          <el-popconfirm
-            title="确定删除此组合？关联账户将自动解绑。"
-            confirm-button-text="删除"
-            cancel-button-text="取消"
-            popper-class="danger-popconfirm"
-            @confirm="handleDelete(item.id)"
-            @click.stop
-          >
-            <template #reference>
-              <el-button
-                type="danger"
-                size="small"
-                circle
-                aria-label="删除此组合"
-                @click.stop
-              >
-                <IconifyIconOffline icon="ep:delete" />
-              </el-button>
-            </template>
-          </el-popconfirm>
-        </div>
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2">
-            <span
-              class="text-xs px-2 py-0.5 rounded-full"
-              :style="{
-                backgroundColor: 'var(--bg-page)',
-                color: 'var(--text-secondary)'
-              }"
-            >
-              {{ item.purpose || "未设定目的" }}
-            </span>
-          </div>
-          <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-            创建于 {{ formatDate(item.created_at ?? "") }}
-          </p>
-        </div>
-      </div>
+        :item="item"
+        @open="openPortfolio"
+        @delete="handleDelete"
+      />
     </div>
 
     <!-- 仅保留创建对话框 -->
@@ -109,7 +63,14 @@
     >
       <el-form :model="form" label-width="90px">
         <el-form-item label="组合名称" required>
-          <el-input v-model="form.name" placeholder="如：养老计划" />
+          <!-- 重名由后端判定（同家庭未删除组合不允许同名，409 带具体名字）。
+               这里只做长度约束——把校验规则复制到前端必然与后端漂移。 -->
+          <el-input
+            v-model="form.name"
+            placeholder="如：养老计划"
+            maxlength="100"
+            show-word-limit
+          />
         </el-form-item>
         <el-form-item label="投资目的">
           <el-input v-model="form.purpose" placeholder="如：长期增值" />
@@ -153,16 +114,20 @@
           />
         </el-form-item>
         <el-form-item label="基准指数">
+          <!-- #2685：选项来自后端 BENCHMARK_INDICES，不再硬编码（旧写死的 SPX 必降级） -->
           <el-select
             v-model="form.benchmark"
             class="w-full"
             clearable
             filterable
-            allow-create
+            placeholder="选择基准指数"
           >
-            <el-option label="沪深300" value="CSI300" />
-            <el-option label="中证500" value="CSI500" />
-            <el-option label="标普500" value="SPX" />
+            <el-option
+              v-for="item in benchmarkOptions"
+              :key="item.code"
+              :label="item.name"
+              :value="item.code"
+            />
           </el-select>
         </el-form-item>
       </el-form>
@@ -178,17 +143,39 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import PortfolioCard from "@/views/asset/portfolio/components/PortfolioCard.vue";
 import {
   getPortfolios,
   createPortfolio,
   deletePortfolio,
   type PortfolioItem
 } from "@/api/portfolio";
-import { formatDate } from "@/utils/date";
+import { getBenchmarks, type BenchmarkOption } from "@/api/summary";
 
 defineOptions({ name: "PortfolioList" });
+
+const router = useRouter();
+
+/** 整卡点击 → 组合详情（路由留在页面，卡片组件只 emit id，便于单测） */
+function openPortfolio(id: number) {
+  router.push(`/asset/portfolios/${id}`);
+}
+
+/** 可选基准清单（#2685）：唯一出口是后端 `BENCHMARK_INDICES` */
+const benchmarkOptions = ref<BenchmarkOption[]>([]);
+
+async function loadBenchmarks() {
+  if (benchmarkOptions.value.length) return;
+  try {
+    const res = await getBenchmarks();
+    benchmarkOptions.value = res.data ?? [];
+  } catch {
+    benchmarkOptions.value = [];
+  }
+}
 
 const portfolios = ref<PortfolioItem[]>([]);
 const loading = ref(true);
@@ -209,17 +196,19 @@ const form = ref({ ...defaultForm });
 function openCreateDialog() {
   form.value = { ...defaultForm };
   dialogVisible.value = true;
+  void loadBenchmarks();
 }
 
 async function handleSave() {
-  if (!form.value.name.trim()) {
+  const name = form.value.name.trim();
+  if (!name) {
     ElMessage.warning("请输入组合名称");
     return;
   }
   saving.value = true;
   try {
     await createPortfolio({
-      name: form.value.name,
+      name,
       purpose: form.value.purpose || undefined,
       description: form.value.description || undefined,
       target_return: form.value.target_return,
@@ -231,6 +220,7 @@ async function handleSave() {
     dialogVisible.value = false;
     await fetchList();
   } catch (e: any) {
+    // 409 = 重名，后端已给出「组合「xxx」已存在」，直接透出，不再包一层泛化文案
     ElMessage.error(e?.response?.data?.message || "创建失败");
   } finally {
     saving.value = false;
@@ -274,17 +264,6 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-.portfolio-card {
-  padding: 20px;
-  cursor: pointer;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: 16px;
-  transition: all 0.2s;
-}
-
-.portfolio-card:hover {
-  box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
-  transform: translateY(-2px);
-}
+/* 卡片外观已随卡片组件迁到 components/PortfolioCard.vue（2026-10-30 重设计，
+   样式与结构同处一文件，页面只负责栅格） */
 </style>

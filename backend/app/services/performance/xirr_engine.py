@@ -27,14 +27,17 @@ except ImportError:
     PYXIRR_AVAILABLE = False
     logger.warning('pyxirr 不可用，将使用纯 Python 实现作为兜底')
 
+from sqlalchemy import or_
+
 # EXCLUDED_ASSET_TYPES 唯一来源为 app.core.asset_types（#1171 枚举一致性）；
 # 原 services/performance/constants.py 只是 12 行 re-export 转发层，已删除。
 from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
-from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
+from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
+from app.services.performance import cashflow_layers
 
 
 def _safe_return(value: float) -> float:
@@ -151,6 +154,55 @@ def calculate_xirr(cashflows: List[Tuple[dt.date, float]]) -> float:
         return 0.0
 
 
+def calculate_modified_dietz(cashflows: List[Tuple[dt.date, float]]) -> float:
+    """
+    Modified Dietz 区间收益率（#871）：线性近似，**不年化**。
+
+    回答「这一段（本月 / 本年）贡献多少」，与 XIRR 的分工见 #796 存档论证：
+    XIRR 作主口径（年化、资金加权，对申赎时点敏感），Modified Dietz 作区间
+    归因辅助（无需求解、无迭代，权重按持有天数线性折减）。
+
+    标准式：R = (EMV − BMV − C) / (BMV + Σ w_i·C_i)，C_i 为外部流入（正），
+    w_i = (T − t_i)/T。换算到本仓现金流约定（支出为负、收入为正，末笔虚拟
+    卖出即 EMV，BMV=0 因首笔流前无持仓记录）：
+
+        R = −Σa_i / Σ(w_i·a_i)        （虚拟卖出 w=0，自动出局）
+
+    验证（单利场景必须与直觉一致）：D0 买 100、D365 值 110 ⇒ R=+10%；
+    D0/D182 各买 100、D365 值 230 ⇒ R≈+19.97%（同期 XIRR≈19.5%，差异来自
+    线性近似本身，属预期）。
+
+    退化处理（不造数字）：
+    - 权重分母 ≈ 0（如全部资金最后一天才进仓）：无持续在仓资本即无区间
+      收益，返回 0.0；
+    - 所有流同一天（T=0）：权重无定义，退化为简单回报（净增益 ÷ 总成本）。
+    """
+    if not cashflows or len(cashflows) < 2:
+        return 0.0
+
+    # 过滤零值现金流并确保按日期升序（与 calculate_xirr 同一前置口径）
+    cf = [(d, a) for d, a in cashflows if abs(a) > 1e-8]
+    if len(cf) < 2:
+        return 0.0
+    cf.sort(key=lambda x: x[0])
+
+    d0, d_end = cf[0][0], cf[-1][0]
+    total_days = (d_end - d0).days
+    net = sum(a for _, a in cf)
+
+    if total_days <= 0:
+        cost = -sum(a for _, a in cf if a < 0)
+        return _safe_return(net / cost) if cost > 1e-8 else 0.0
+
+    weighted = 0.0
+    for d, a in cf:
+        weight = (total_days - (d - d0).days) / total_days
+        weighted += weight * a
+    if abs(weighted) < 1e-8:
+        return 0.0
+    return _safe_return(-net / weighted)
+
+
 def generate_cashflows(
     transactions: list[Transaction],
     current_value: float = 0.0,
@@ -229,42 +281,12 @@ def _exclude_internal_transfers(
     transfer_candidates: list[dict],
     portfolio_ledger_ids: set[int],
 ) -> set[int]:
-    """
-    识别并返回应排除的内部划转交易索引集合。
+    """兼容入口（历史名）：实现已迁到 `cashflow_layers.pair_internal_transfers`。
 
-    配对条件：同日、金额相等（分精度）、方向相反、分属本组合内不同账户
-    （按 ledger_id 判定，避免 account_name 同名串味的历史 bug）。
+    保留别名是因为 `tests/services/performance/test_xirr_engine.py` 有一整套配对用例
+    直接打它；真正被消费方使用的是 `cashflow_layers` 里的同名函数。
     """
-    excluded = set()
-    deposit_code = BusinessType.DEPOSIT.code
-    withdraw_code = BusinessType.WITHDRAW.code
-
-    for i, a in enumerate(transfer_candidates):
-        if i in excluded:
-            continue
-        for j, b in enumerate(transfer_candidates):
-            if j <= i or j in excluded:
-                continue
-            if a['date'] != b['date']:
-                continue
-            if a['amount_cents'] != b['amount_cents']:
-                continue
-            # 同一账户内的存取不算内部划转（按 ID 判定）
-            if a['ledger_id'] == b['ledger_id']:
-                continue
-            # 方向相反
-            a_out = a['txn_type'] == deposit_code and b['txn_type'] == withdraw_code
-            b_out = b['txn_type'] == deposit_code and a['txn_type'] == withdraw_code
-            if not (a_out or b_out):
-                continue
-            if a['ledger_id'] not in portfolio_ledger_ids or b['ledger_id'] not in portfolio_ledger_ids:
-                continue
-            excluded.update([i, j])
-            logger.debug(
-                f'内部划转已排除: {a["date"]} ledger#{a["ledger_id"]}↔#{b["ledger_id"]} 金额={a["amount"]:.2f}'
-            )
-            break
-    return excluded
+    return cashflow_layers.pair_internal_transfers(transfer_candidates, portfolio_ledger_ids)
 
 
 def generate_portfolio_cashflows(
@@ -274,8 +296,31 @@ def generate_portfolio_cashflows(
     end_date: Optional[dt.date] = None,
     family_id: int = 1,
     include_cash_equivalents: bool = False,
+    basis_sink: Optional[dict] = None,
 ) -> List[Tuple[dt.date, float]]:
-    """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。"""
+    """为指定投资组合生成 XIRR 现金流列表（**持仓口径**，D20 二期）。
+
+    **金额单位必须与 `generate_cashflows` 一致（元）**：`transactions.amount` 存的是
+    「分」，本函数曾直接 `float(amount)` 当元用，导致组合级现金流比市值大 100 倍
+    （线上表现为总投入 1.68 亿、总收益 -1886 万，XIRR 恒为 0）。改动此处前先看
+    `tests/services/performance/test_portfolio_xirr_units.py`。
+
+    ## 为什么是持仓口径，而不是「逐账户口径」
+
+    D20 定稿「组合成员是持仓」（`positions.portfolio_id`）。组合的成员不再是账户集合，
+    因此「哪笔钱属于本组合的本金」只能由**持仓的买卖**回答：买入 = 投入，卖出/分红 = 回收。
+    入金/出金（L1）是账户级事实，没有持仓归属，天然不进组合现金流——这不是遗漏，
+    而是持仓级组合的必然结果。
+
+    历史实现（#2615/D67）按「账户口径 + 无入金时降级为持仓口径」组装，前提是
+    「组合 = 账户集合」。该前提被 D20 取代后，逐账户口径会让同一账户里分属两个组合的
+    持仓互相串味（A 账户有入金时，两个组合都会把整账户的本金算成自己的）。
+
+    分类仍统一走 `cashflow_layers`（L2 资产转换 / L3 收益实现），本函数只做组装。
+
+    `basis_sink` 传 dict 时回填 `{'basis': 'position', 'by_ledger': {}}`——
+    组合口径只可能是持仓口径，保留该键是为了不破坏响应契约（`cashflow_basis` 只增不改）。
+    """
     if end_date is None:
         end_date = dt.date.today()
     elif isinstance(end_date, dt.datetime):
@@ -294,71 +339,55 @@ def generate_portfolio_cashflows(
     if not portfolio:
         raise ValueError(f'投资组合不存在: {portfolio_id}')
 
-    # 组合聚合统一按 ledger_id（外键维度），不用冗余的 account_name —— 同名账户
-    # 会造成口径串味（历史 bug）。未归档持仓 ledger_id 为 NULL 自然不计入组合。
-    ledger_ids = [
+    # 2. 组合的持仓集合（归属口径与持仓视图同源：portfolio_service 的显式指派 + 账户继承）
+    #    **刻意不筛 quantity > 0**：已清仓持仓的买卖流水仍属本组合的历史，筛掉会让清仓
+    #    即丢失整段收益（市值端由调用方只统计 quantity > 0，两端口径各自正确）。
+    #    延迟导入：portfolio_service 依赖 fund_utils / pnl_settle，避免模块加载期互相拉扯。
+    from app.services.portfolio_service import portfolio_ledger_ids, portfolio_position_conditions
+
+    ledger_ids = portfolio_ledger_ids(db_session, family_id, portfolio_id)
+    position_ids = [
         row[0]
-        for row in db_session.query(Ledger.id)
-        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
+        for row in db_session.query(Position.id)
+        .filter(or_(*portfolio_position_conditions(portfolio_id, ledger_ids)))
         .all()
     ]
-    if not ledger_ids:
+    if not position_ids:
         return []
 
-    ledger_set = set(ledger_ids)
-
-    # 2. 查询所有相关交易（按 ledger_id 集合过滤）
-    transactions = (
-        db_session.query(Transaction)
-        .filter(Transaction.ledger_id.in_(ledger_ids), Transaction.family_id == family_id)
-        .all()
+    # 3. 分层取流水（按持仓取；金额已是元，见 cashflow_layers 的单位纪律）
+    flows = cashflow_layers.collect_flows(
+        db_session,
+        ledger_ids,
+        family_id=family_id,
+        end_date=end_date,
+        include_cash_equivalents=include_cash_equivalents,
+        position_ids=position_ids,
     )
 
-    # 3. 分类交易
-    outflow_types = {BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code}
-    inflow_types = {BusinessType.SELL.code, BusinessType.DIVIDEND_CASH.code}
-
+    # 4. 持仓口径组装：买入 = 投入，卖出/分红 = 回收
+    #    L1（入金/出金）是账户级事实、没有持仓归属，故不消费——这也意味着本函数不再需要
+    #    内部划转配对：配对解决的是「账户间转账被当成一进一出」，而这里根本不看 L1。
     investment_cf: List[Tuple[dt.date, float]] = []
-    transfer_candidates: List[dict] = []
+    for flow in flows:
+        if flow['layer'] == cashflow_layers.L2_TRANSFER:
+            if flow['txn_type'] in (BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code):
+                investment_cf.append((flow['date'], -flow['amount']))
+            elif flow['txn_type'] == BusinessType.SELL.code:
+                investment_cf.append((flow['date'], flow['amount']))
+        elif flow['layer'] == cashflow_layers.L3_REALIZED and flow['txn_type'] in (
+            BusinessType.DIVIDEND.code,
+            BusinessType.DIVIDEND_CASH.code,
+            BusinessType.BOND_REDEEM.code,
+        ):
+            investment_cf.append((flow['date'], flow['amount']))
 
-    for txn in transactions:
-        txn_date = txn.confirm_date
-        if isinstance(txn_date, dt.datetime):
-            txn_date = txn_date.date()
-        if txn_date is None:
-            continue
+    if basis_sink is not None:
+        # 组合口径只可能是持仓口径；保留键名是为了不破坏 `cashflow_basis` 响应契约
+        basis_sink['basis'] = 'position'
+        basis_sink['by_ledger'] = {}
 
-        if not include_cash_equivalents and getattr(txn, 'asset_type', None) in EXCLUDED_ASSET_TYPES:
-            continue
-
-        amount = getattr(txn, 'amount', None)
-        if amount is None:
-            continue
-        try:
-            amount_f = float(amount)
-        except (TypeError, ValueError):
-            continue
-
-        txn_type = txn.txn_type
-        if txn_type in (BusinessType.DEPOSIT.code, BusinessType.WITHDRAW.code):
-            transfer_candidates.append(
-                {
-                    'date': txn_date,
-                    'amount': amount_f,
-                    'amount_cents': round(amount_f * 100),
-                    'txn_type': txn_type,
-                    'ledger_id': txn.ledger_id,
-                }
-            )
-        elif txn_type in outflow_types:
-            investment_cf.append((txn_date, -amount_f))
-        elif txn_type in inflow_types:
-            investment_cf.append((txn_date, amount_f))
-
-    # 4. 剔除内部划转（按 ledger_id 判定）
-    _ = _exclude_internal_transfers(transfer_candidates, ledger_set)
-
-    # 5. 添加虚拟卖出
+    # 4. 添加虚拟卖出（当前市值按元计，与上面同单位）
     if current_value > 1e-8:
         investment_cf.append((end_date, current_value))
 

@@ -15,67 +15,58 @@
   emits：add-all（一键加入自选）、view-all（打开明细弹窗）。
 -->
 <template>
-  <el-alert
-    type="warning"
-    :closable="false"
-    show-icon
+  <SoftBanner
     class="holding-gap-banner"
+    variant="warning"
+    icon="ep:warning-filled"
   >
-    <template #title>
-      <span
-        >有 {{ gaps.length }} 个持仓产品尚未加入自选，暂无法打标签 /
-        写备注。</span
-      >
-    </template>
-    <template #default>
-      <span class="gap-banner__desc"
-        >持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。</span
-      >
+    <p class="gap-banner__title">
+      有 {{ gaps.length }} 个持仓产品尚未加入自选，暂无法打标签 / 写备注。
+    </p>
+    <span class="gap-banner__desc"
+      >持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。</span
+    >
 
-      <!-- 明细预览：品类 + 名称 + 编码，用户据此核对「到底缺的是哪几只」。
-           类型胶囊走 AssetTypeBadge（components.md 强制复用，禁止页面自定类型色）。 -->
-      <ul class="gap-banner__list">
-        <li
-          v-for="gap in previewGaps"
-          :key="gap.symbol"
-          class="gap-banner__row"
-        >
-          <AssetTypeBadge
-            v-if="gap.asset_type"
-            :type="gap.asset_type"
-            :label="typeLabelOf(gap)"
-          />
-          <span class="gap-banner__name" :title="gap.name">{{ gap.name }}</span>
-          <span class="gap-banner__code"># {{ gap.symbol }}</span>
-        </li>
-      </ul>
+    <!-- 明细预览：品类 + 名称 + 编码，用户据此核对「到底缺的是哪几只」。
+         类型胶囊走 AssetTypeBadge（components.md 强制复用，禁止页面自定类型色）。 -->
+    <ul class="gap-banner__list">
+      <li v-for="gap in previewGaps" :key="gap.symbol" class="gap-banner__row">
+        <AssetTypeBadge
+          v-if="gap.asset_type"
+          :type="gap.asset_type"
+          :label="typeLabelOf(gap)"
+        />
+        <span class="gap-banner__name" :title="gap.name">{{ gap.name }}</span>
+        <span class="gap-banner__code"># {{ gap.symbol }}</span>
+      </li>
+    </ul>
 
-      <div class="gap-banner__actions">
-        <el-button
-          type="warning"
-          size="small"
-          plain
-          :loading="reconciling"
-          @click="emit('add-all')"
-        >
-          一键加入自选
-        </el-button>
-        <el-button
-          v-if="restCount > 0"
-          size="small"
-          text
-          @click="emit('view-all')"
-        >
-          还有 {{ restCount }} 个，查看全部
-        </el-button>
-      </div>
-    </template>
-  </el-alert>
+    <div class="gap-banner__actions">
+      <el-button
+        type="warning"
+        size="small"
+        plain
+        :loading="reconciling"
+        @click="emit('add-all')"
+      >
+        一键加入自选
+      </el-button>
+      <el-button
+        v-if="restCount > 0"
+        size="small"
+        text
+        @click="emit('view-all')"
+      >
+        还有 {{ restCount }} 个，查看全部
+      </el-button>
+    </div>
+  </SoftBanner>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import SoftBanner from "@/components/SoftBanner/index.vue";
 import { assetTypeLabel } from "@/composables/useEnumLabels";
 import type { HoldingGap } from "@/api/types";
 
@@ -110,6 +101,11 @@ function typeLabelOf(gap: HoldingGap): string {
    「提示 / Banner 品牌色规范」的间距令牌，仅本页生效 */
 .holding-gap-banner {
   margin: 12px 0;
+}
+
+/* 原 el-alert 的 content 是 column + gap:4px；换成 SoftBanner 后由消费方补齐这点间距 */
+.gap-banner__title {
+  margin-bottom: 2px;
 }
 
 .gap-banner__desc {

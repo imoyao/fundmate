@@ -48,7 +48,9 @@ from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
 FUND_TARGET_JOBS = ('fund_nav', 'fund_detail_enrich', 'fund_manager', 'fund_position')
 
 # Stock 类 job（--target-file 走 stock 池）。
-STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy')
+# #2585：`bond_adjust_log` 吃的是 stock 池里的转债（11x/12x），job 内部再按前缀过滤；
+# 漏登记会让 `--target-file` 静默退化成「0 只处理」（见本段上方的 ⚠️）。
+STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy', 'bond_adjust_log')
 
 # 受限目标池 job：**未给任何显式目标时，从库内核心池（持仓 + 自选）现取**。
 #
@@ -67,7 +69,22 @@ STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy')
 # ⚠️ 不要顺手把 fund_nav / fund_detail_enrich / fund_manager 一并放进这里：
 # 它们的 `targets=None` 是「子类自取核心池」的既有语义，赋成显式列表会把执行
 # 切成 `_execute_batches` 分批路径，属行为变更，需单独评估。
-DB_POOL_JOBS = {'fund_position': ('fund', 'etf')}
+#
+# #2585 `bond_adjust_log`：它的 `targets=None` 语义是「**空目标池 ⇒ 跳过**」
+# （逐只抓取、按用户触达范围限量）。CLI 不给它解析核心池，就等于 `pdm run sync
+# --job bond_adjust_log` 抓 0 只、报 success —— 也就是本段上方那个 ⚠️ 说的静默坑。
+#
+# #2628 `fund_style`（风格箱）：与 `fund_position` 完全同形——逐只 1 次 HTTP、
+# `targets=None` 即显式跳过、目标池同为 fund + etf（`daily_scheduler` 侧
+# target_kind=('fund','etf')）。漏登记的代价比「裸调用 0 只」更重：
+# **连显式 `--targets` 也会被吞掉**——因为 else 分支只在 `DB_POOL_JOBS` 内解析
+# 显式目标，未登记时 `job_targets` 恒为 None。2026-10-27 实测
+# `--job fund_style --targets 110011` 返回 `total=0 / status=success`。
+DB_POOL_JOBS = {
+    'fund_position': ('fund', 'etf'),
+    'bond_adjust_log': 'stock',
+    'fund_style': ('fund', 'etf'),
+}
 
 
 def _combine_pools(resolved: dict, keys) -> list:
@@ -78,6 +95,33 @@ def _combine_pools(resolved: dict, keys) -> list:
     for k in keys:
         out.extend(resolved.get(k, []))
     return list(dict.fromkeys(out))
+
+
+def render_job_result(result: dict) -> tuple[str, str, bool]:
+    """把 `run_job` / `run_all_jobs` 的结果**字典**渲染成 `(状态标记, 一行摘要, 是否成功)`。
+
+    为什么要这层：调用点原先写的是 `result.success` / `result.message` /
+    `result.duration_ms` —— 这三个属性在 dict 上都不存在。于是**任务已经跑完之后**
+    才抛 `AttributeError`，被外层 `except` 兜住后 `sys.exit(1)`：`sync_logs` 里明明是
+    success，命令行却报失败。2026-10-22 实测 `--job bias`（37/37 成功、落 37 条）
+    以 exit 1 收尾——排障的人只会以为同步没跑成，而真正的原因在渲染那一行。
+
+    `run_all_jobs` 返回的是 `{job_name: result}` 字典（不是列表），旧代码在 `--all`
+    路径上还按列表遍历，同样是在**全量同步全部跑完之后**才崩。
+
+    抽成纯函数是为了能被单测直接钉住（不必拉起真实 orchestrator 与数据库）。
+    """
+    ok = str(result.get('status')) == 'success'
+    stats = result.get('stats') or {}
+    parts = [f'total={stats.get("total", 0)}', f'success={stats.get("success", 0)}']
+    if stats.get('failed'):
+        parts.append(f'failed={stats["failed"]}')
+    if result.get('error'):
+        parts.append(f'error={result["error"]}')
+    duration = result.get('duration')
+    if isinstance(duration, (int, float)):
+        parts.append(f'{duration:.1f}s')
+    return ('✅' if ok else '❌'), ' '.join(parts), ok
 
 
 def _resolve_targets_from_file(target_file: str) -> list:
@@ -111,6 +155,10 @@ def resolve_job_targets(orch, job: str, targets: str | None, target_file: str | 
         if job in STOCK_TARGET_JOBS:
             # stock 分支（price_history 等）
             return resolved.get('stock', [])
+        # #2628：只在 DB_POOL_JOBS 登记、不属上面两类的逐标的 job（fund_style）。
+        # 漏这条时 `--target-file` 会落进「未知 job → None」，跑成 0 只且报 success。
+        if job in DB_POOL_JOBS:
+            return _combine_pools(resolved, DB_POOL_JOBS[job])
         # 未知 job：不处理 target-file，返回 None
         return None
 
@@ -241,10 +289,13 @@ def main():
                 results = orchestrator.run_all_jobs(full_sync=args.full_sync, target_file=args.target_file)
                 elapsed = time.time() - start
                 print(f'✅ 全量同步完成，耗时 {elapsed:.1f}s')
-                for r in results:
-                    status = '✅' if r.success else '❌'
-                    print(f'  {status} {r.job_name}: {r.message} ({r.duration_ms}ms)')
-                if any(not r.success for r in results):
+                failed_jobs = []
+                for job_name, result in results.items():
+                    mark, detail, ok = render_job_result(result)
+                    print(f'  {mark} {job_name}: {detail}')
+                    if not ok:
+                        failed_jobs.append(job_name)
+                if failed_jobs:
                     sys.exit(1)
             else:
                 # 单 job
@@ -279,9 +330,9 @@ def main():
                         )
 
                     result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=targets)
-                    status = '✅' if result.success else '❌'
-                    print(f'{status} {result.job_name}: {result.message} ({result.duration_ms}ms)')
-                    if not result.success:
+                    mark, detail, ok = render_job_result(result)
+                    print(f'{mark} {result.get("job_name", args.job)}: {detail}')
+                    if not ok:
                         sys.exit(1)
                 else:
                     # 列表型 / 指数型 / 温度计型 job：单次调用换全市场，裸 --full-sync 为正常模式
@@ -289,10 +340,20 @@ def main():
                         logger.warning(
                             f'{args.job} 裸带 --full-sync（列表/指数/温度计型 job 单次即换全市场，目标参数被忽略）。'
                         )
-                    result = orchestrator.run_job(args.job, full_sync=args.full_sync)
-                    status = '✅' if result.success else '❌'
-                    print(f'{status} {result.job_name}: {result.message} ({result.duration_ms}ms)')
-                    if not result.success:
+                    # #2585：DB_POOL_JOBS 里的**逐标的** job（bond_adjust_log）不属
+                    # FUND_TARGET_JOBS（它不按日期回填），但同样必须解析库内核心池：
+                    # `targets=None` 在它那里是「空目标池 ⇒ 跳过」，
+                    # 直接透传 None 会让命令报 success 而实际一只都没抓。
+                    job_targets = None
+                    if args.job in DB_POOL_JOBS:
+                        job_targets = resolve_job_targets(orchestrator, args.job, args.targets, args.target_file)
+                        if not job_targets:
+                            print(f'ℹ️ {args.job}: 库内核心池（持仓+自选）中没有可处理标的，跳过')
+                            return
+                    result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=job_targets)
+                    mark, detail, ok = render_job_result(result)
+                    print(f'{mark} {result.get("job_name", args.job)}: {detail}')
+                    if not ok:
                         sys.exit(1)
         except Exception as e:
             logger.exception('同步执行异常: {}', e)

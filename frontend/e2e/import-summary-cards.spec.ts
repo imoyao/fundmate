@@ -2,12 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { injectSupabaseSession } from "./support/session";
 
 /**
- * #1791 导入问题摘要三卡片（问题摘要面板改三卡片形态）。
+ * 导入预览「概览条」（原 #1791 三卡片，2026-11-02 改为一栏胶囊）。
  *
  * 覆盖验收：
- * - ② 三卡片条数 = 展开后表格行数 = 底部「展开全部数据（总条数）」三者一致；
- * - ③ 展开任一类别过滤时摘要面板不消失（表格是唯一滚动容器）；
- * - ④ 疑似重复默认不计入导入集合（默认未勾选），可手动勾选保留。
+ * - ① 三类胶囊条数 = 点该胶囊后表格行数 = 「全部」胶囊条数（三者互证）；
+ * - ② 点胶囊筛表时概览条不消失（表格仍是唯一滚动容器）；
+ * - ③ 疑似重复默认不计入导入集合，可手动勾选保留（沿 #1791 验收④）；
+ * - ④ 点「需要修正」= 筛选 + 自动展开修正面板，且等式行写出细分构成。
  *
  * 打桩策略：真实走「选账户 → 上传文件 → 解析」链路，仅把 `/api/importers/parse/`
  * 换成返回 2 完整 + 1 疑似重复 + 3 需修正（解析错误 / 代码未匹配 / 金额不一致）的
@@ -98,7 +99,10 @@ const PARSE_ROWS = [
     type: "stock",
     quantity: 100,
     price: 10,
-    amount: 999 // 100×10=1000 ≠ 999 → 金额不一致
+    // 差额 100 远大于 fee 5：这是「真对不上」，不是被手续费解释。
+    // （旧数据 amount 999 + fee 5 自 2026-11-02 费用容差上线后已属「可解释」，会归 complete，
+    //  那样这条 fixture 就测不到 mismatch 分区了——e2e 只看夜间绿灯，最容易烂在这种地方。）
+    amount: 900
   }
 ];
 
@@ -156,18 +160,36 @@ async function openPreview(page: Page) {
   });
 }
 
-function card(page: Page, category: "complete" | "duplicate" | "fix") {
-  return page.locator(`.summary-card[data-category="${category}"]`);
+type Category = "complete" | "duplicate" | "fix";
+
+/** 类别胶囊：左侧复选框 + 右侧主体（筛表），两个独立靶区 */
+function chip(page: Page, category: Category) {
+  return page.locator(`.ov-chip[data-category="${category}"]`);
 }
 
-test.describe("导入问题摘要三卡片（#1791）", () => {
+/** 点胶囊主体＝按该类筛表（复选框是「按类全选」，别混用） */
+function chipButton(page: Page, category: Category) {
+  return chip(page, category).locator(".ov-chip-btn");
+}
+
+/** 「全部」胶囊：清空筛选 */
+function allChip(page: Page) {
+  return page.locator('.ov-all[data-category="all"]');
+}
+
+/** 底部操作条的「已选择 N 条」——概览条不再重复显示已选数，只有这一处 */
+function selectedLine(page: Page) {
+  return page.locator(".action-summary .summary-primary");
+}
+
+test.describe("导入预览概览条（原 #1791 三卡片）", () => {
   test.setTimeout(180_000);
 
   test.beforeEach(async ({ context, baseURL }) => {
     await injectSupabaseSession(context, baseURL!);
   });
 
-  test("三卡片条数与展开后表格、底部总条数三者一致（验收②），面板常驻（验收③）", async ({
+  test("胶囊条数 = 筛后表格行数 = 全部条数（三者互证），等式行写出细分构成", async ({
     page
   }) => {
     const pageErrors: string[] = [];
@@ -175,85 +197,66 @@ test.describe("导入问题摘要三卡片（#1791）", () => {
 
     await openPreview(page);
 
-    // ── 标题与三卡片条数（2 / 1 / 3） ──
-    await expect(page.locator(".summary-title")).toContainText(
-      "系统已自动分析，发现以下问题"
-    );
-    const cards = page.locator(".summary-card");
-    await expect(cards).toHaveCount(3);
-    await expect(card(page, "complete").locator(".card-count")).toHaveText("2");
-    await expect(card(page, "duplicate").locator(".card-count")).toHaveText(
-      "1"
-    );
-    await expect(card(page, "fix").locator(".card-count")).toHaveText("3");
+    // ── 概览条：全部 6 + 三类 2 / 1 / 3 ──
+    await expect(allChip(page)).toContainText(String(TOTAL));
+    const chips = page.locator(".ov-chip");
+    await expect(chips).toHaveCount(3);
+    await expect(chip(page, "complete").locator(".ov-count")).toHaveText("2");
+    await expect(chip(page, "duplicate").locator(".ov-count")).toHaveText("1");
+    await expect(chip(page, "fix").locator(".ov-count")).toHaveText("3");
 
-    // ── 底部统计：已选择（selectAllValid 排除 dup/error，选中 4 行）+ 总条数 ──
-    await expect(page.locator(".summary-foot .foot-selected")).toContainText(
-      "已选择 4 条"
-    );
-    const expandAll = page.getByRole("button", {
-      name: `展开全部数据（${TOTAL}）`
-    });
-    await expandAll.isVisible().then(v => expect(v).toBe(true));
+    // 等式行：不需要用户自己把 1+1+1 加一遍
+    const breakdown = page.locator(".ov-breakdown");
+    await expect(breakdown).toContainText("需要修正 3 条 =");
+    await expect(breakdown).toContainText("解析错误 1");
+    await expect(breakdown).toContainText("代码未匹配 1");
+    await expect(breakdown).toContainText("差额超出手续费 1");
 
-    // 三卡之和 = 底部总条数
-    const sum = (
-      await Promise.all(
-        [0, 1, 2].map(i => cards.nth(i).locator(".card-count").textContent())
-      )
-    )
-      .map(Number)
-      .reduce((a, b) => a + b, 0);
-    expect(sum).toBe(TOTAL);
+    // 底部「已选择」：selectAllValid 排除重复/错误/待补全/代码未匹配，选中 3 行
+    // （#2836：UNKNOWN 代码的行以前被算进可选——勾上之后后端建不出产品，白等一次失败回执）
+    await expect(selectedLine(page)).toContainText("已选择 3 条");
 
-    // 展开前：完整表格 6 行
+    // ── 未筛选：完整表格 6 行，「全部」胶囊为选中态 ──
     await expect(page.locator(".table-wrapper .el-table__row")).toHaveCount(
       TOTAL
     );
+    await expect(allChip(page)).toHaveClass(/is-active/);
 
-    // ── 展开「数据完整」→ 表格 2 行，与卡片条数一致；面板常驻 ──
-    await card(page, "complete")
-      .getByRole("button", { name: "展开查看" })
-      .click();
+    // ── 点「可直接导入」→ 表格 2 行，与胶囊条数一致；概览条常驻 ──
+    await chipButton(page, "complete").click();
     await expect(page.locator(".table-wrapper .el-table__row")).toHaveCount(2);
     await expect(page.locator(".step3-right")).toContainText("共 2 条");
-    await expect(
-      card(page, "complete").getByRole("button", { name: "收起" })
-    ).toBeVisible();
+    await expect(chip(page, "complete")).toHaveClass(/is-active/);
     await expect(page.locator(".summary-panel")).toBeVisible();
 
-    // 收起 → 回到 6 行
-    await card(page, "complete").getByRole("button", { name: "收起" }).click();
+    // 再点一次同一胶囊 → 收起筛选，回到 6 行
+    await chipButton(page, "complete").click();
     await expect(page.locator(".table-wrapper .el-table__row")).toHaveCount(
       TOTAL
     );
+    await expect(chip(page, "complete")).not.toHaveClass(/is-active/);
 
-    // ── 展开「需要修正」→ 表格 3 行 + 细分错误统计与卡片计数同源 ──
-    await card(page, "fix").getByRole("button", { name: "展开查看" }).click();
+    // ── 点「需要修正」→ 表格 3 行 + 修正面板自动展开（点它的人下一步就是修它）──
+    await chipButton(page, "fix").click();
     await expect(page.locator(".table-wrapper .el-table__row")).toHaveCount(3);
-    const chips = card(page, "fix").locator(".card-chips");
-    await expect(chips).toContainText("解析错误 1");
-    await expect(chips).toContainText("代码未匹配 1");
-    await expect(chips).toContainText("数据不一致 1");
-    await expect(page.locator(".summary-panel")).toBeVisible();
-
-    // 【批量修正】入口打开内联修正面板（#1791 要做的事 3 的入口 + #1792 抽屉改内联）：
-    // 摘要与修正面板同屏互不覆盖，点【收起批量修正】收起。
     const fixPanel = page.locator("[data-fix-panel]");
-    await card(page, "fix").getByRole("button", { name: "批量修正" }).click();
     await expect(fixPanel).toBeVisible();
     await expect(page.locator(".summary-panel")).toBeVisible();
+
+    // 【收起批量修正】已移到顶行右侧，仍在面板内
     await fixPanel.getByRole("button", { name: "收起批量修正" }).click();
     await expect(fixPanel).toBeHidden();
+    // 收起面板不清筛选：表格仍是那 3 行
+    await expect(page.locator(".table-wrapper .el-table__row")).toHaveCount(3);
 
-    // ── 【展开全部数据】清空过滤回完整表格，面板仍在 ──
-    await expandAll.click();
+    // ── 点「全部」→ 清空筛选回完整表格 ──
+    await allChip(page).click();
     await expect(page.locator(".table-wrapper .el-table__row")).toHaveCount(
       TOTAL
     );
     await expect(page.locator(".step3-right")).toContainText(`共 ${TOTAL} 条`);
 
-    // ── 验收③：滚动表格区后摘要面板仍常驻（表格是唯一滚动容器） ──
+    // ── 验收③：滚动表格区后概览条仍常驻（表格是唯一滚动容器） ──
     await page.locator(".step3-right").evaluate(el => {
       el.scrollTop = el.scrollHeight;
     });
@@ -262,18 +265,16 @@ test.describe("导入问题摘要三卡片（#1791）", () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test("疑似重复默认不勾选、可手动勾选保留（验收④）", async ({ page }) => {
+  test("疑似重复默认不勾选、可手动勾选保留（沿 #1791 验收④）", async ({
+    page
+  }) => {
     await openPreview(page);
 
     // 默认：重复行未被勾选（selectAllValid 排除 is_duplicate）
-    await expect(page.locator(".summary-foot .foot-selected")).toContainText(
-      "已选择 4 条"
-    );
+    await expect(selectedLine(page)).toContainText("已选择 3 条");
 
-    // 展开「疑似重复」→ 表格 1 行
-    await card(page, "duplicate")
-      .getByRole("button", { name: "展开查看" })
-      .click();
+    // 按「疑似重复」筛表 → 表格 1 行
+    await chipButton(page, "duplicate").click();
     const row = page.locator(".table-wrapper .el-table__row");
     await expect(row).toHaveCount(1);
 
@@ -285,12 +286,11 @@ test.describe("导入问题摘要三卡片（#1791）", () => {
     // 手动勾选 → 计入已选择
     await row.locator("label.el-checkbox").click();
     await expect(rowInput).toBeChecked();
-    await expect(page.locator(".summary-foot .foot-selected")).toContainText(
-      "已选择 5 条"
-    );
-    // 卡片复选框同步为全选态
+    await expect(selectedLine(page)).toContainText("已选择 4 条");
+
+    // 胶囊左侧复选框同步为全选态（勾选与筛选是两个靶区，互不触发）
     await expect(
-      card(page, "duplicate").locator("input[type=checkbox]")
+      chip(page, "duplicate").locator("input[type=checkbox]")
     ).toBeChecked();
   });
 });

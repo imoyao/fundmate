@@ -30,13 +30,14 @@ class ProfileUpdate(BaseModel):
     校验（作为登录标识，必须全局唯一，D10）；昵称与头像可随意修改。
     """
 
-    # 长度限制与前端一致：用户名（登录标识）5-20、昵称（展示）5-16（中文环境标准）
+    # 长度限制与前端一致：用户名（登录标识）5-20；昵称（展示名，无唯一约束）
+    # 下限 2——覆盖中文最常见的双字昵称，同时挡住单字误触（行业惯例 1-2，见 decisions.md）
     username: Optional[str] = Field(default=None, min_length=5, max_length=20)
-    nickname: Optional[str] = Field(default=None, min_length=5, max_length=16)
+    nickname: Optional[str] = Field(default=None, min_length=2, max_length=16)
     avatar: Optional[str] = Field(default=None, max_length=500)
 
-    # mode='before' 必须先 strip 再走 min_length 校验，否则 '  a  '（5字符含空格）
-    # 会先通过 min_length 再被 strip 成 'a'，绕过长度的最短限制
+    # mode='before' 必须先 strip 再走 min_length 校验，否则含空格的短值
+    # 会先通过 min_length 再被 strip，绕过长度的最短限制
     @field_validator('username', 'nickname', mode='before')
     @classmethod
     def _strip_blank(cls, value: Optional[str]) -> Optional[str]:

@@ -7,9 +7,9 @@
 import hashlib
 from collections import defaultdict
 from datetime import date, datetime
-from typing import Any, Type
+from typing import Any, List, Optional, Type
 
-from sqlalchemy import or_
+from sqlalchemy import false, or_
 from sqlalchemy.exc import IntegrityError
 
 from app.core.asset_types import normalize_major_category
@@ -19,6 +19,7 @@ from app.core.constants import (
     EXCHANGE_RATES,
     MARKET_LABELS,
     TYPE_LABELS,
+    ValuationMode,
 )
 from app.core.database import Session
 from app.core.money import Money
@@ -29,6 +30,9 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.summary.models import AssetSnapshot
 from app.domains.transactions.models import Transaction
+
+# 成员切片的账户集合唯一出口（#1173）
+from app.services.family_member_service import ledger_ids_for_member
 
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
@@ -56,14 +60,47 @@ _LIABILITY_NODE = '总负债'
 _UNCONFIGURED_NODE = '未配置资产'
 
 
-def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]], Any]:
+def _member_ledger_ids(db: Session, family_id: int, member_id: int | None) -> Optional[List[int]]:
+    """按家庭成员切片时的账户集合——**唯一出口**（#1173）。
+
+    口径纪律：成员 → 账户集合的映射只在这里算一次（收口在
+    `services/family_member_service.ledger_ids_for_member`），持仓、资产、
+    盈亏、汇总各处都拿同一份集合下推。口径若分散在多处，将来改一处就会
+    出现「列表里两行、汇总只算一行」的分叉账。
+
+    返回 ``None`` = 不按成员筛（家庭全量）；``[]`` = 该成员名下没有账户
+    （调用方必须据此返回空集/全零，**不能**退化成全家庭）。
+    """
+    if member_id is None:
+        return None
+    return ledger_ids_for_member(db, family_id, member_id)
+
+
+def _load_user_assets(db: Session, family_id: int, member_id: int | None = None) -> tuple[list[Type[Position]], Any]:
     """统一加载当前家庭的资产数据（持仓 + 通用资产），按 family_id 隔离（D1）。
 
     持仓只取 ownership_status='active'（§12.3）：E账户影子记录（shadow，ledger_id=NULL）
     仅对账不参与总资产，过滤后 ledger_id 关联不变，避免暂存区记录虚增总资产。
+
+    ``member_id``（#1173）：按家庭成员切片时**只加载该成员名下账户的持仓**——
+    持仓经账户间接归属（``Position.ledger_id → Ledger.owner_member_id``）。
+    通用资产（``Asset``）不按成员过滤：它带 ``ledger_id``，成员归属同样经账户判定，
+    故对资产同样按成员名下账户过滤（否则成员视图里的「房产」会算成家庭共有）。
     """
-    positions = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active').all()
-    assets = db.query(Asset).filter(Asset.family_id == family_id).all()
+    query = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active')
+    asset_query = db.query(Asset).filter(Asset.family_id == family_id)
+    member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
+    if member_ledger_ids is not None:
+        if member_ledger_ids:
+            query = query.filter(Position.ledger_id.in_(member_ledger_ids))
+            asset_query = asset_query.filter(Asset.ledger_id.in_(member_ledger_ids))
+        else:
+            # 该成员名下没有账户 → 成员视图必为空；用恒假条件而非 `IN ()`
+            # （各方言行为不一致，PG 会直接语法错）
+            query = query.filter(false())
+            asset_query = asset_query.filter(false())
+    positions = query.all()
+    assets = asset_query.all()
     return positions, assets
 
 
@@ -82,7 +119,8 @@ def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]]
 #   总资产 = Σ 持仓市值（唯一口径 `market_value_cents`）
 #          + Σ 非负债类通用资产（正数）
 #          + 孤儿货基/逆回购流水净额（本金桶）
-#          + 渠道收益桶（is_income=True）
+#          + 收益桶（is_income=True 的渠道收益 + 孤儿货基的分红 / 代扣税，见
+#            `orphan_flow_delta`：钱到账了就必须在资产里，否则总资产少一块）
 #   总负债 = Σ 负债类通用资产（正数）
 #   净资产 = 总资产 − 总负债
 # 「账外类现金」= 后两项孤儿流水（不建持仓、不进市值），**计入总资产**——
@@ -95,7 +133,13 @@ def _empty_bucket() -> dict[str, float]:
     return {'total_assets': 0.0, 'total_liabilities': 0.0, 'net_worth': 0.0}
 
 
-def _per_ledger_buckets(db: Session, family_id: int, positions=None, assets=None) -> dict[int, dict[str, float]]:
+def _per_ledger_buckets(
+    db: Session,
+    family_id: int,
+    positions=None,
+    assets=None,
+    member_id: int | None = None,
+) -> dict[int, dict[str, float]]:
     """**唯一累加实现**：把家庭资产按 `ledger_id` 归组累加（账户级与家庭级共用）。
 
     无账户归属（`ledger_id` 为 NULL）的条目统一归到哨兵键 **0**。
@@ -112,7 +156,7 @@ def _per_ledger_buckets(db: Session, family_id: int, positions=None, assets=None
     调用方可传入已加载的 `positions` / `assets` 复用查询；不传则自行加载。
     """
     if positions is None or assets is None:
-        positions, assets = _load_user_assets(db, family_id)
+        positions, assets = _load_user_assets(db, family_id, member_id)
 
     totals: dict[int, dict[str, float]] = {}
 
@@ -154,7 +198,13 @@ def _round_totals(bucket: dict[str, float]) -> dict[str, float]:
     return {k: round(v, 2) for k, v in bucket.items()}
 
 
-def family_totals(db: Session, family_id: int, positions=None, assets=None) -> dict[str, float]:
+def family_totals(
+    db: Session,
+    family_id: int,
+    positions=None,
+    assets=None,
+    member_id: int | None = None,
+) -> dict[str, float]:
     """家庭级总资产 / 总负债 / 净资产（元）——**唯一聚合出口**（#2154）。
 
     调用方可传入已加载的 `positions` / `assets` 复用查询；不传则自行加载
@@ -168,7 +218,7 @@ def family_totals(db: Session, family_id: int, positions=None, assets=None) -> d
     需要**按账户**看同一套口径时用 `get_ledger_distributions`（它同样委托
     `_per_ledger_buckets`），不要自己再写一遍循环。
     """
-    buckets = _per_ledger_buckets(db, family_id, positions=positions, assets=assets)
+    buckets = _per_ledger_buckets(db, family_id, positions=positions, assets=assets, member_id=member_id)
     # 家庭桶 = 各账户桶按位相加：与账户级共用同一份累加实现，故 Σ账户 ≡ 家庭（#2179）
     merged = _empty_bucket()
     for bucket in buckets.values():
@@ -189,6 +239,46 @@ def family_totals(db: Session, family_id: int, positions=None, assets=None) -> d
 _ORPHAN_FLOW_ASSET_TYPES = ('money_fund', 'reverse_repo')
 _ORPHAN_FLOW_POSITIVE_TYPES = ('buy', 'deposit')
 _ORPHAN_FLOW_NEGATIVE_TYPES = ('sell', 'withdraw')
+#: 收益发放 / 代扣税：进「收益桶」，**绝不进本金桶**（#2844）
+_ORPHAN_FLOW_INCOME_TYPES = ('dividend', 'dividend_cash')
+_ORPHAN_FLOW_TAX_TYPES = ('dividend_tax',)
+
+ORPHAN_BUCKET_NET = 'net'
+ORPHAN_BUCKET_INCOME = 'income'
+
+
+def orphan_flow_delta(txn_type: str | None, amount: int | None, is_income: bool | None) -> tuple[str, int] | None:
+    """单笔孤儿现金等价物流水 → ``(桶, 增量分)``；``None`` = 不进任何桶。
+
+    这是「哪些流水算本金、哪些算收益」的**唯一判据**。三处消费方
+    （`orphan_money_fund_totals_by_ledger` / `orphan_cash_like_breakdown` /
+    `orphan_cash_like_breakdown_all`）都调它，别再各写一遍 elif 链——
+    原先三份逐字复制，改一处必漏两处（同 #2839 的教训）。
+
+    分桶口径：
+    - buy / deposit / sell / withdraw → 本金桶（`is_income=True` 的进收益桶，
+      #863 D1：渠道发放的收益不是本金，不能拿它再滚收益）；
+    - **dividend / dividend_cash → 收益桶（正）**：这是「钱到账」，不是本金变动；
+    - dividend_tax → 收益桶（负）：代扣税是收益的减项，让它从总资产里扣掉；
+    - 其余（split / unknown）→ 不进桶。
+
+    ⚠️ 分红进收益桶这条是 #2844 补的。此前它落在 `continue` 里被直接丢弃，
+    而本金桶**照收**买入金额 ⇒ 单边排除：买入让总资产增加、收益却凭空消失，
+    「累计收益 = 期末资产 − 净投入」被系统性压低（真库实证：12 笔货基分红 81.74 元
+    一分钱没进过任何桶）。排除类现金可以，两边都排；只排收益一边是错账。
+    """
+    amount = amount or 0
+    if txn_type in _ORPHAN_FLOW_INCOME_TYPES:
+        return ORPHAN_BUCKET_INCOME, amount
+    if txn_type in _ORPHAN_FLOW_TAX_TYPES:
+        return ORPHAN_BUCKET_INCOME, -amount
+    if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
+        delta = amount
+    elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
+        delta = -amount
+    else:
+        return None
+    return (ORPHAN_BUCKET_INCOME if is_income else ORPHAN_BUCKET_NET), delta
 
 
 def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dict[int, int], dict[int, int]]:
@@ -196,8 +286,10 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
 
     返回 `(net_map, income_map)`，两者**互补**，合起来正好是全部孤儿现金等价物流水：
     - `net_map`    本金净额：非收益行（is_income 为 NULL / False，见 #863 D1）
-    - `income_map` 渠道收益：is_income=True 的收益发放流水（只并入总资产，
-      **禁止**进入本金/孤儿净额口径）
+    - `income_map` 收益桶：`is_income=True` 的收益发放流水，**加上**孤儿货基的
+      现金分红（dividend / dividend_cash）与其代扣税（dividend_tax，记负）。
+      只并入总资产；**禁止**进入本金/孤儿净额口径（#2844：分红原先被 continue
+      丢掉，而买入照进本金，等于单边排除，累计收益被系统性压低）
 
     WHY 合并（#1305 #16 / #18）：原来这两个是两个函数，而它们**只有 is_income 一处
     过滤不同**，却要打**两条 SQL**；调用方几乎总是成对取用（summary 里 5 处、
@@ -205,9 +297,9 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
     （NULL / False / True），`bool(is_income)` 恰好把它切成「非收益 / 收益」两组，
     与原两条 SQL **完全等价** —— 这是能合并成一个查询、又不用在 SQL 里做条件聚合的关键。
 
-    共同口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL。
-    净额 = buy/deposit 金额 − sell/withdraw 金额（amount 为分，全程整数运算，
-    禁止裸 float 乘除）。为 0 的组直接丢弃，避免产生空分组。
+    共同口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL；
+    逐笔分桶判据见 `orphan_flow_delta`（本金 / 收益 / 不进桶）。金额为分、全程整数运算，
+    禁止裸 float 乘除。为 0 的组直接丢弃，避免产生空分组。
     两张表都把悬空 ledger（None/已删）归 0 键，由各调用方按「游离」处理。
     """
     rows = (
@@ -227,15 +319,11 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
     net_map: dict[int, int] = {}
     income_map: dict[int, int] = {}
     for lid, txn_type, amount, is_income in rows:
-        amount = amount or 0
-        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
-            delta = amount
-        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
-            delta = -amount
-        else:
-            continue  # dividend/tax 等不计入
-        # 三态切分：True → 收益桶；NULL / False → 本金桶（等价于原两条 SQL 的互补过滤）
-        target = income_map if is_income else net_map
+        moved = orphan_flow_delta(txn_type, amount, is_income)
+        if moved is None:
+            continue  # split / unknown：不动钱
+        bucket, delta = moved
+        target = income_map if bucket == ORPHAN_BUCKET_INCOME else net_map
         key = lid or 0
         target[key] = target.get(key, 0) + delta
     return (
@@ -261,7 +349,8 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
 
     ⚠️ 口径必须与本模块 `orphan_money_fund_totals_by_ledger` 完全一致
     （资产类型、`position_id IS NULL`、buy/deposit 正 / sell/withdraw 负、
-    dividend/tax 不计、`is_income` 三态切分），否则汇总与明细会对不上——
+    dividend 记收益桶正 / dividend_tax 记收益桶负、`is_income` 三态切分），
+    否则汇总与明细会对不上——
     所以本函数**刻意**不复用另一条 SQL 的聚合结果去反推明细，而是同处定义。
     """
     rows = (
@@ -286,15 +375,11 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
     net_cents = 0
     income_cents = 0
     for txn_type, amount, is_income, symbol, name, asset_type in rows:
-        amount = amount or 0
-        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
-            delta = amount
-        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
-            delta = -amount
-        else:
-            continue  # dividend/tax 等不计入
-        # 三态切分：True → 收益桶；NULL / False → 本金桶（与汇总函数逐字一致）
-        if is_income:
+        moved = orphan_flow_delta(txn_type, amount, is_income)
+        if moved is None:
+            continue
+        bucket_name, delta = moved
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             income_cents += delta
         else:
             net_cents += delta
@@ -312,7 +397,7 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
                 'txn_count': 0,
             },
         )
-        if is_income:
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             bucket['income_amount_cents'] += delta
         else:
             bucket['net_amount_cents'] += delta
@@ -345,7 +430,8 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
 
     ⚠️ 口径红线（与 `orphan_money_fund_totals_by_ledger` 完全一致，改一处必改另一处）：
     `asset_type IN ('money_fund','reverse_repo')`、`position_id IS NULL`、
-    buy/deposit 记正 / sell/withdraw 记负、dividend/tax 不计、`is_income` 三态切分。
+    buy/deposit 记正 / sell/withdraw 记负、dividend 记收益桶正 / dividend_tax 记负、
+    `is_income` 三态切分——判据本体在 `orphan_flow_delta`，此处不再重复。
 
     ⚠️ 调用方只做展示，**禁止**把这里的金额再加进总资产：孤儿货基净额已经由
     `orphan_money_fund_totals_by_ledger` 并入 `total_assets`（重复加 = 双计）。
@@ -375,15 +461,12 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
     net_cents = 0
     income_cents = 0
     for ledger_id, txn_type, amount, is_income, symbol, name, asset_type in rows:
-        amount = amount or 0
-        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
-            delta = amount
-        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
-            delta = -amount
-        else:
+        moved = orphan_flow_delta(txn_type, amount, is_income)
+        if moved is None:
             continue
+        bucket_name, delta = moved
 
-        if is_income:
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             income_cents += delta
         else:
             net_cents += delta
@@ -403,7 +486,7 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
                 'txn_count': 0,
             },
         )
-        if is_income:
+        if bucket_name == ORPHAN_BUCKET_INCOME:
             bucket['income_amount_cents'] += delta
         else:
             bucket['net_amount_cents'] += delta
@@ -438,7 +521,7 @@ def orphan_cash_like_payload(db: Session, family_id: int) -> dict[str, Any]:
     }
 
 
-def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
+def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[str, Any]:
     """返回仪表盘聚合数据（总资产、总负债、净资产、盈亏拆分、市场分布）
 
     盈亏口径见 `services/pnl_service.py`（#1183）：
@@ -446,13 +529,17 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     - unrealized 未实现：持仓浮动盈亏 = 市值 − 成本基数
     - total      总盈亏 = realized + unrealized
     """
-    positions, assets = _load_user_assets(db, family_id)
+    positions, assets = _load_user_assets(db, family_id, member_id)
 
     market_distribution: dict[str, float] = {}
 
+    # 成员切片的账户集合（#1173）：已实现/净投入盈亏与持仓必须按同一份集合过滤，
+    # 否则会出现「持仓算的是 A 成员、盈亏算的是全家」的口径分叉。
+    member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
+
     # 两个 map 均按 family 一次性查出；禁止在循环里逐持仓查流水（N+1）
-    realized_map = realized_pnl_by_position(db, family_id)
-    invested_map = net_invested_by_position(db, family_id)
+    realized_map = realized_pnl_by_position(db, family_id, member_ledger_ids)
+    invested_map = net_invested_by_position(db, family_id, member_ledger_ids)
 
     # 一次遍历 positions，完成未实现盈亏、市场分布
     # （总资产不在此累加：交给唯一出口 family_totals，见函数注释）
@@ -476,7 +563,7 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     totals = family_totals(db, family_id, positions=positions, assets=assets)
 
     # 已实现盈亏以流水为事实源，含已清仓持仓的结转盈亏与孤儿分红
-    realized_cents = family_realized_pnl_cents(db, family_id)
+    realized_cents = family_realized_pnl_cents(db, family_id, member_ledger_ids)
 
     return {
         'total_assets_cny': totals['total_assets'],
@@ -489,9 +576,9 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     }
 
 
-def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str, Any]]]:
+def get_sankey_data(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[str, list[dict[str, Any]]]:
     """返回桑基图数据（双流并行模型：资产流在上，负债流在下，无交叉）"""
-    positions, assets = _load_user_assets(db, family_id)
+    positions, assets = _load_user_assets(db, family_id, member_id)
 
     nodes: list[dict[str, Any]] = []
     links: list[dict[str, Any]] = []
@@ -630,9 +717,9 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
     return {'nodes': nodes, 'links': links}
 
 
-def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
+def get_account_groups(db: Session, family_id: int = 1, member_id: int | None = None) -> list[dict]:
     """返回按账户分组的汇总数据，负债金额为负数"""
-    positions, assets = _load_user_assets(db, family_id)
+    positions, assets = _load_user_assets(db, family_id, member_id)
     groups: dict[str, dict[str, float | int]] = defaultdict(lambda: {'total': 0.0, 'count': 0})
 
     # 1. 处理持仓 (均为资产)
@@ -680,7 +767,7 @@ def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
     return result
 
 
-def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
+def get_distributions(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[str, Any]:
     """家庭级多维市值分布聚合（后端唯一出口）。
 
     供 Overview / AssetPanorama 等分布图表消费：持仓按产品类型 / 五笔钱 /
@@ -688,7 +775,7 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
     总资产 / 总负债 / 净资产汇总。聚合与汇率换算全部收敛后端，前端不再
     遍历全量明细自行计算（D5：后端是唯一数据出口）。
     """
-    positions, assets = _load_user_assets(db, family_id)
+    positions, assets = _load_user_assets(db, family_id, member_id)
 
     def _pos_mv(p) -> float:
         # 口径分叉修复（#1183 附带修复，同时是 #1181 验收第 3 条的前提）：
@@ -782,12 +869,30 @@ def get_ledger_distributions(db: Session, family_id: int = 1) -> dict[int, dict[
 _POS_GROUP_DIMENSIONS = ('type', 'account', 'allocation')
 
 
-def _pos_group_payload(p: Position) -> dict[str, Any]:
-    """持仓分组明细：展示单位 + 标签，市值/盈亏按汇率后端换算（唯一出口）。"""
+def _pos_group_payload(p: Position, effective_nav_yuan: float | None = None) -> dict[str, Any]:
+    """持仓分组明细：展示单位 + 标签，市值/盈亏按汇率后端换算（唯一出口）。
+
+    市值走全站唯一口径 :func:`position_valuation.market_value_cents`（#2154 契约的第 6 个出口）。
+    此前这里裸算「份额 × 快照价」，绕过了 override 优先级：
+    balance 模式持仓（投顾组合 / 银行理财，无份额无价格、市值只来自
+    ``market_value_override``）在产品类型 / 账户 / 配置目标三个维度里恒为 0，
+    而同一页的总资产卡把它算进去了 —— 同一份持仓在同一屏里出现两个数。
+    契约测试见 ``tests/services/test_summary_total_assets_contract.py``。
+    """
     rate = EXCHANGE_RATES.get(p.currency, 1.0)
     shares = Money.min_unit_to_shares(p.quantity)
     price = Money.price_units_to_yuan(p.current_price)
     cost = Money.price_units_to_yuan(p.avg_price)
+    market_value = Money.cents_to_yuan(market_value_cents(p, effective_nav_yuan=effective_nav_yuan, rate=rate))
+
+    # 盈亏只在「市值可由价格推出」时才有意义。override（人工录入单值）与 balance 模式
+    # 的市场价并未参与，减成本得出的「浮盈」不可信——与 ``_asset_group_payload`` 的
+    # pnl=0 同一条约定：拿不准就不给数，而不是给一个看起来精确的错数。
+    unpriced = (getattr(p, 'market_value_override', None) is not None) or (
+        (getattr(p, 'valuation_mode', None) or ValuationMode.NAV.value) == ValuationMode.BALANCE.value
+    )
+    pnl = 0.0 if unpriced else round(market_value - round(shares * cost * rate, 2), 2)
+
     return {
         'id': p.id,
         'name': p.name,
@@ -801,8 +906,8 @@ def _pos_group_payload(p: Position) -> dict[str, Any]:
         'account_name': p.account_name,
         'quantity': shares,
         'current_price': price,
-        'market_value': round(shares * price * rate, 2),
-        'pnl': round((price - cost) * shares * rate, 2),
+        'market_value': market_value,
+        'pnl': pnl,
     }
 
 
@@ -819,7 +924,9 @@ def _asset_group_payload(a: Asset) -> dict[str, Any]:
     }
 
 
-def get_position_groups(db: Session, family_id: int = 1, dimension: str = 'type') -> list[dict[str, Any]]:
+def get_position_groups(
+    db: Session, family_id: int = 1, dimension: str = 'type', member_id: int | None = None
+) -> list[dict[str, Any]]:
     """按维度分组汇总持仓/资产（含 items 明细），供资产总览分组卡片消费。
 
     聚合、汇率换算、市值/盈亏全部在后端；前端纯渲染，不再保留 EXCHANGE_RATES。
@@ -828,7 +935,7 @@ def get_position_groups(db: Session, family_id: int = 1, dimension: str = 'type'
     """
     if dimension not in _POS_GROUP_DIMENSIONS:
         dimension = 'type'
-    positions, assets = _load_user_assets(db, family_id)
+    positions, assets = _load_user_assets(db, family_id, member_id)
 
     groups: dict[str, dict[str, Any]] = {}
 
@@ -904,16 +1011,17 @@ def _upsert_snapshot(db: Session, *, family_id: int, ledger_id: int | None, snap
     return row
 
 
-def family_pnl_cents(db: Session, family_id: int = 1) -> dict[str, int]:
+def family_pnl_cents(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[str, int]:
     """家庭级三段盈亏（分），口径与 pnl_service 一致，供家庭级快照落库（#1220）。
 
     realized    = 全流水 realized_pnl 合计（含已清仓持仓结转与孤儿分红）；
     unrealized  = 各 active 持仓（市值 − 成本基数）之和；
     total       = realized + unrealized。
     """
-    positions, _ = _load_user_assets(db, family_id)
-    realized_map = realized_pnl_by_position(db, family_id)
-    invested_map = net_invested_by_position(db, family_id)
+    positions, _ = _load_user_assets(db, family_id, member_id)
+    member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
+    realized_map = realized_pnl_by_position(db, family_id, member_ledger_ids)
+    invested_map = net_invested_by_position(db, family_id, member_ledger_ids)
     unrealized = 0
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
@@ -923,7 +1031,7 @@ def family_pnl_cents(db: Session, family_id: int = 1) -> dict[str, int]:
             realized_cents=realized_map.get(p.id, 0),
             net_invested=invested_map.get(p.id, 0),
         )['unrealized_pnl_cents']
-    realized = family_realized_pnl_cents(db, family_id)
+    realized = family_realized_pnl_cents(db, family_id, member_ledger_ids)
     return {
         'realized_pnl_cents': realized,
         'unrealized_pnl_cents': unrealized,
@@ -931,15 +1039,16 @@ def family_pnl_cents(db: Session, family_id: int = 1) -> dict[str, int]:
     }
 
 
-def get_ledger_pnl(db: Session, family_id: int = 1) -> dict[int, dict[str, int]]:
+def get_ledger_pnl(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[int, dict[str, int]]:
     """按账户聚合三段盈亏（分），供账户级快照落库（#1220）。
 
     口径与 get_ledger_distributions 严格对齐：仅遍历 active 持仓，按 ledger_id 归组；
     无账户归属归哨兵键 0（不单独立行）。已实现盈亏取自该账户 active 持仓的流水结转。
     """
-    positions, _ = _load_user_assets(db, family_id)
-    realized_map = realized_pnl_by_position(db, family_id)
-    invested_map = net_invested_by_position(db, family_id)
+    positions, _ = _load_user_assets(db, family_id, member_id)
+    member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
+    realized_map = realized_pnl_by_position(db, family_id, member_ledger_ids)
+    invested_map = net_invested_by_position(db, family_id, member_ledger_ids)
     totals: dict[int, dict[str, int]] = {}
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)

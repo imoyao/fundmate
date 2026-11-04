@@ -34,6 +34,32 @@ export interface Position {
   allocation_label?: string;
   /** 所属账户 ID：后端 PositionOut 会输出（group_by 路径必含），分页路径可能缺失 */
   ledger_id?: number | null;
+  /**
+   * 所属组合 ID（D20 持仓级组合）：后端 `PositionOut.portfolio_id` 输出。
+   *
+   * **语义分三态，展示层必须区分**：
+   * - 具体数字 = 用户显式指派到该组合；
+   * - `null` = 未指派，归到哪个组合由**账户默认组合继承**决定（改派前的常态）；
+   * - `undefined` = 响应里没有这个字段（接口未升级 / 旧缓存）→ 视为「未知」，
+   *   **不得当成 `null` 渲染成「随账户」**，否则会把「不知道」谎报成「继承」。
+   */
+  portfolio_id?: number | null;
+  /**
+   * 该持仓是否计入组合（D20 二期开口项 4）：由后端 `enrich_position_dict` 现算下发，
+   * `= not should_exclude_from_investment(position)`。
+   *
+   * **为什么必须由后端下发**：判据是 `core/asset_types.EXCLUDED_ASSET_TYPES`
+   * （货基 / 逆回购 / 现金），该集合的单一真相源在后端常量；前端硬编码三个值等于抄
+   * 第二份真相源，集合一变就漂移（与 #1171 枚举一致性纪律冲突）。
+   *
+   * 语义：`false` = 类现金资产，`build_portfolio_holdings` 会把它从组合持仓里滤掉，
+   * 故「所属组合」列即便显示组合名也永远在组合页看不到——**改派是无效交互**，
+   * 前端据此渲染「— 不进组合」并禁用改派。
+   *
+   * `undefined` = 响应里没有该字段（旧缓存 / 其他接口的行），**不得当成 `false`**：
+   * 那会把所有持仓都标成「不进组合」。
+   */
+  in_portfolio?: boolean;
   /** 配置目标：后端 PositionOut 可能输出，前端不保证 */
   allocation?: string | null;
   /** 首次确认日期：group_by 路径必含，分页路径可能缺失 */
@@ -92,6 +118,12 @@ export interface PositionListParams {
   market?: string;
   /** 按关联账户ID精确过滤；传字符串 'null' 表示仅查未归档持仓（对齐后端 views.py） */
   ledger_id?: string | number;
+  /**
+   * 按家庭成员过滤（#1173）：持仓经账户间接归属
+   * （`Position.ledger_id → Ledger.owner_member_id`），后端下推到 SQL。
+   * 未绑定账户的持仓不命中。
+   */
+  member_id?: number;
 }
 
 /** 持仓分页响应（对齐后端分页信封：{ data, total, page, per_page, message }） */
@@ -163,6 +195,14 @@ export interface PositionCreate {
   nav_date?: string;
   /** 份额由用户手动填写（回填只校正净值与成本，不覆盖份额） */
   shares_manual?: boolean;
+  /**
+   * 计价模式（#1174 双态）：nav=份额×净值（默认）/ balance=直接余额。
+   * 投顾组合（type='portfolio'）**必须** balance —— 它没有份额与净值，
+   * 市值只能靠人工录入金额（D70 / #2740）；后端对 nav 直接报错。
+   */
+  valuation_mode?: "nav" | "balance";
+  /** 交易金额（元）：balance 模式下即本次记账的市值增量 */
+  amount?: number;
 }
 
 /** 更新持仓请求体 (PATCH，所有字段可选) */
@@ -170,6 +210,13 @@ export interface PositionUpdate {
   name?: string;
   account_name?: string;
   ledger_id?: number | null;
+  /**
+   * 改派持仓所属组合（D20）。后端 `PositionUpdate.portfolio_id` + `resolve_portfolio_change`。
+   * 传具体 ID = 指派；传 `null` = 解除指派、退回账户默认组合继承。
+   * **不传该键与传 `null` 语义不同**（前者不动，后者显式清空）——后端按
+   * `exclude_unset` 区分，所以「跟随账户」必须显式传 `null`，不能省略。
+   */
+  portfolio_id?: number | null;
   quantity?: number;
   avg_price?: number;
   current_price?: number;
@@ -225,6 +272,12 @@ export interface WatchlistItem {
   current_price?: number;
   change_pct?: number;
   /**
+   * 当日盈亏的分母：同一口径下的上一个价点（场内 = 上一交易日收盘价，
+   * 场外基金 = 上一交易日单位净值）。后端 `compute_latest_quote` 下发（#2640）；
+   * null = 历史价点不足两根，前端「当日盈亏」列降级 `—`（不是 0）。
+   */
+  prev_close?: number | null;
+  /**
    * 最新价 / 涨跌幅的数据日期（YYYY-MM-DD，后端 enrich，#1104）。
    * 有值 = 该价格来自「最近交易日收盘价 / 确认净值」；null = 无行情、回退持仓快照。
    */
@@ -259,6 +312,10 @@ export interface WatchlistItem {
   advisor_nav_date?: string | null; // 净值日期（YYYY-MM-DD）
   advisor_source_url?: string | null; // 组合官方页面链接
   manager_company?: string | null; // 基金经理所属基金公司（仅 asset_type=manager 有值）
+  // ── 资金面（#watchlist 资金面卡 / 个股主力净流入 + 所属板块）──
+  // 前端实时源（东财资金流）注入，**非后端字段**；后端忽略多余属性。
+  main_inflow?: number | null; // 主力净流入（元），红=净流入 / 绿=净流出（A 股习惯）
+  sector?: string | null; // 所属行业 / 板块名（东财 f100）
   // ── 可转债条款（#1285 消费侧 / #1393）──
   // 仅 asset_type=bond 且后端 convertible_bond_terms 命中时有值，其余 null。
   // 数据源：集思录强赎（bond_cb_redeem_jsl）+ 东财基本信息（bond_zh_cov），免 cookie。
@@ -274,6 +331,19 @@ export interface WatchlistItem {
   bond_remain_size?: number | null; // 剩余规模（亿元）
   bond_issue_size?: number | null; // 发行规模（亿元）
   bond_stock_name?: string | null; // 正股名称
+  // ── 可转债条款增强（#1400 / #2575）──
+  // 数据源：东财 RPT_BOND_CB_LIST 批量报表口（带 quoteColumns），免 cookie。
+  bond_stock_pb?: number | null; // 正股市净率 PB（覆盖 99.1%）
+  // 到期税前收益 YTM（%）：**单利年化持有到期总回报**，口径同集思录（非 IRR）。
+  // 深度价内债后端**不出此值**（持有到期不成立，算出来是 -500% 这类无意义数）→ null。
+  bond_ytm?: number | null; // 到期税前收益 YTM（%）
+  // ── 可转债下修历史（#2585 PR2）──
+  // 仅 asset_type=bond 且后端 convertible_bond_adjust_logs 命中时有值
+  // （job 已抓过该券且确有下修记录）；未落库 / 确无下修记录均为 null → 显 `—`。
+  // 「日期 / 底价」取自**最近一次**下修——底价随每股净资产逐次变化，只随最新事件下发。
+  bond_adjust_count?: number | null; // 下修次数（落库记录条数）
+  bond_last_adjust_date?: string | null; // 最近下修日（最近一次股东大会日，YYYY-MM-DD）
+  bond_adjust_floor_price?: number | null; // 最近一次下修的底价（元）
   // ── 指数估值（#1285 消费侧「指数」品类 / #1394）──
   // 仅 asset_type=index 且后端 index_valuations 命中时有值；来源中证官方（免 cookie）。
   index_pe?: number | null; // 市盈率（官方列「市盈率1」）

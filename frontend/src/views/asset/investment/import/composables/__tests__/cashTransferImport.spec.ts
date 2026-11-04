@@ -239,23 +239,67 @@ describe("#2281 横幅双态：关联后不消失、可关闭", () => {
   });
 });
 
-describe("#2281 「可导入」徽章：一次性提示", () => {
-  it("转账行初始显示徽章；dismiss 后消失；正常行从不显示", () => {
+/*
+ * #2838：原「可导入」徽章已移除（勾选列只有 50px，必然折行并被截成「可导…」；
+ * 而它要说的「转账行能导」已由状态列 / 可勾的复选框 / 页顶横幅三处重复表达）。
+ * 批量层面改由摘要卡旁的「全部勾选」承担——下面这批用例守的就是那个入口。
+ */
+describe("#2838 转账行批量勾选：全部勾选 / 全部取消", () => {
+  it("一次点上：作用域内的转账行全入选中，已勾的正常行不受影响", () => {
     const { w, rows } = setupWizard(true);
-    expect(w.showTransferBadge(rows[1])).toBe(true);
-    expect(w.showTransferBadge(rows[0])).toBe(false);
+    w.selectAllValid();
+    expect(w.transferRowsAllSelected.value).toBe(false);
 
-    w.dismissTransferBadge(rows[1]);
-    expect(w.showTransferBadge(rows[1])).toBe(false);
+    w.toggleAllTransferRows();
+
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(true);
+    expect(w.selectedKeys.value.has(rows[0]._rowKey)).toBe(true);
+    expect(w.transferRowsAllSelected.value).toBe(true);
   });
 
-  it("徽章 dismiss 态按行记录： dismiss 一行不影响另一行", () => {
-    const { w } = setupWizard(true);
-    const rows2 = w.addRowKeys([makeTransferRow()]);
-    w.previewData.value = [...w.previewData.value, ...rows2];
-    w.dismissTransferBadge(rows2[0]);
-    expect(w.showTransferBadge(rows2[0])).toBe(false);
-    expect(w.showTransferBadge(w.previewData.value[1])).toBe(true);
+  it("再点一次：只清转账行，正常行的勾选保留（不是清空重来）", () => {
+    const { w, rows } = setupWizard(true);
+    w.selectAllValid();
+    w.toggleAllTransferRows();
+
+    w.toggleAllTransferRows();
+
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(false);
+    expect(w.selectedKeys.value.has(rows[0]._rowKey)).toBe(true);
+    expect(w.transferRowsAllSelected.value).toBe(false);
+  });
+
+  it("作用域 = 摘要卡那个 N：疑似重复的转账行不在内（#1882 需手动勾）", () => {
+    const w = useImportWizard();
+    const rows = w.addRowKeys([
+      makeTransferRow(),
+      makeTransferRow({ trade_date: "2026-03-13" }),
+      makeTransferRow({ trade_date: "2026-03-14", is_duplicate: true })
+    ]);
+    w.ledgers.value = [
+      {
+        id: 1,
+        name: "测试证券账户",
+        ledger_type: "stock",
+        default_allocation: "longterm",
+        linked_cash_ledger_id: 2
+      },
+      { id: 2, name: "测试现金账户", ledger_type: "bank" }
+    ] as never;
+    w.selectedLedgerId.value = 1;
+    w.previewData.value = rows;
+
+    expect(w.completeTransferCount.value).toBe(2);
+    w.toggleAllTransferRows();
+
+    expect(w.selectedKeys.value.size).toBe(2);
+    expect(w.selectedKeys.value.has(rows[2]._rowKey)).toBe(false);
+  });
+
+  it("未关联现金账户时不动作：不勾出一批「勾了也导不进去」的行", () => {
+    const { w, rows } = setupWizard(false);
+    w.toggleAllTransferRows();
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(false);
   });
 });
 

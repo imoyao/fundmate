@@ -312,6 +312,22 @@ class TemperatureJob(SyncJob):
         except Exception as e:
             logger.warning(f'赛道拥挤度获取异常（已忽略，不影响其它维度）: {e}')
 
+        # ---- 指数/申万一级行业估值（Wind 指数域，#2749）----
+        # Token 未配置 → 静默跳过；分块失败 → 该块记 errors，其余块照常落库。
+        # 不像复合指标那样整组标 stale：本维度按块取数、块间独立，
+        # 一块挂了不代表其它块的数据过期。
+        try:
+            from app.services.thermometer.wind_valuation import fetch_wind_valuation_records
+
+            wind_records, wind_errors = fetch_wind_valuation_records(collected_at)
+            if wind_records:
+                records.extend(wind_records)
+                logger.info(f'Wind 指数/行业估值获取成功: {len(wind_records)} 条')
+            errors.extend(wind_errors)
+        except Exception as e:
+            logger.error(f'Wind 指数/行业估值异常: {e}')
+            errors.append({'source': 'wind_valuation', 'error': str(e)})
+
         self.stats['errors'] = errors
         return records
 

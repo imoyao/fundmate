@@ -71,13 +71,29 @@ export const ALLOCATION_LABELS: Record<string, string> = {
   security: "保险保障"
 };
 
-/** 账户类型单字缩写 */
+/** 账户类型单字缩写（**内部计算口径键**，仅当拿不到 channel_category 时兜底）。
+ *  ⚠️ 展示请优先用下方 CHANNEL_CATEGORY_SHORT：后端模型注释与设计文档 §2.3 都写明
+ *  「账户列表分组、类型标签、排序、筛选一律只读 channel_category，绝不读 ledger_type」。
+ *  2026-10-28 事故：微众银行(ledger_type=bank) 在「银行」组里挂着「基」徽标；同名渠道的
+ *  fund 类型幽灵账户则显示「基」——两个字段各说各话，用户无法理解也无法修正。 */
 export const LEDGER_TYPE_SHORT: Record<string, string> = {
   bank: "银",
   stock: "股",
   fund: "基",
   property: "物",
   deleted: "已删"
+};
+
+/** 渠道类别单字缩写（用户可见的类型标签，对应后端 Ledger.channel_category）。
+ *  与 LEDGER_TYPE_SHORT 值域不同：这里是「这个账户开在哪类渠道」，不是「账户装什么资产」。
+ *  例：券商账户 channel_category=securities → 证；它装的是股票，但账户属于证券渠道。 */
+export const CHANNEL_CATEGORY_SHORT: Record<string, string> = {
+  bank: "银",
+  securities: "证",
+  fund_platform: "基",
+  insurance: "保",
+  futures: "期",
+  other: "其"
 };
 
 /** 资产大类标签（与后端 app/core/asset_types.py ASSET_CATEGORY_LABELS 对齐）。
@@ -146,11 +162,17 @@ export function majorCategoryLabel(key: string): string {
   return MAJOR_CATEGORY_LABELS[key] ?? key;
 }
 
-/** 交易类型标签（buy/sell/dividend/deposit/withdraw/split/dividend_reinvest） */
+/** 交易类型标签（buy/sell/dividend/deposit/withdraw/split/dividend_reinvest）
+ *
+ * `dividend_cash` 必须给中文：历史导入写 `dividend`、新链路写 `dividend_cash`，
+ * 真机两码并存（开发库实测 69 + 33 笔）。`txnTypeLabel` 的兜底是**原值**，
+ * 漏一个码就会在表格里看见英文 `dividend_cash`。
+ */
 export const TXN_TYPE_LABELS: Record<string, string> = {
   buy: "买入",
   sell: "卖出",
   dividend: "分红",
+  dividend_cash: "分红",
   deposit: "存入",
   withdraw: "取出",
   split: "送股/拆分",
@@ -163,7 +185,7 @@ export function txnTypeLabel(type: string): string {
 
 /** 对账差异类型标签（quantity/cost/cash/orphan）
  *
- * 单一来源：对账工作台（`reconcile-workbench/utils/discFormat.ts`）与全局差异提醒
+ * 单一来源：对账中心（`reconcile-workbench/utils/discFormat.ts`）与全局差异提醒
  * （`components/DiscrepancyBanner`）都要用这张表。此前各自维护一份，类型一旦新增
  * 就会一边有中文、一边露出英文原值（`map[t] || t` 的兜底），用户看到的是两种语言。
  */

@@ -17,6 +17,7 @@ from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionOut
+from app.services.fund_utils import should_exclude_from_investment
 from app.services.pnl_settle import is_settled_today
 from app.services.position_valuation import market_value_cents
 
@@ -74,4 +75,10 @@ def enrich_position_dict(p: Position) -> dict:
         # 给 0 会被读成「今天一分没涨没跌」，那是在编造一个用户会信的结论。
         d['day_pnl'] = None
         d['day_pnl_rate'] = None
+    # 是否计入组合（D20 二期开口项 4）：类现金资产（货基 / 逆回购 / cash）会被
+    # `should_exclude_from_investment` 从组合持仓里滤掉，但盘点页仍显示这些行，
+    # 于是「改派到某组合」成功了、组合页却永远看不到——静默无效比报错更难排查。
+    # 判据必须由后端下发（集合的单一真相源在 `core/asset_types`，前端硬编码等于抄
+    # 第二份真相源），前端据此把该格渲染成「不进组合」并禁用改派。
+    d['in_portfolio'] = not should_exclude_from_investment(p)
     return d

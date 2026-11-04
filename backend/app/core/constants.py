@@ -108,6 +108,14 @@ K_LONGTERM = '长期增值'
 # 标签与 ASSET_CATEGORY_LABELS 单一来源保持一致；liability 由 summary 单独处理，不进大类分布。
 CATEGORY_META = {k: (v, None) for k, v in ASSET_CATEGORY_LABELS.items() if k != 'liability'}
 
+# ⚠️ DEPRECATED / 已死的映射表（#2854）：**不是导入链路的真相源**。
+# 真正被 ths_stock.py 消费的是 app/services/importer/mappings.py::THS_OP_MAP。
+# 本表只被 domains/importers/parser.py 的 TransactionParser（全仓零实例化）引用；
+# dividend_tax_service.is_tax_import_note 原先也读它，现已改读活表。
+# 两表曾实测漂移（红利入账 / 基金红利拨入 / 利息归本 / 债券兑息：活表 dividend_cash、
+# 本表 dividend），#2844 修「两个分红码并存」时踩的就是这个分叉。
+# 判据：tests/services/importer/test_ths_op_map_consistency.py 锁定共同键不漂移。
+# ❌ 不要在这里新增操作名——加了不会影响导入行为，只会让下一个人继续改错表。
 # 同花顺操作类型 → 内部 op_type 映射
 THS_OP_TYPE_MAP = {
     # ── 买入类 ──
@@ -166,11 +174,29 @@ OP_TYPE_LABEL = {
     'bond_redeem': '债券兑付',
     'tax': '扣税',
     'other': '其他',
+    # 现金分红的历史码与新码并存（见下方 DIVIDEND_TXN_TYPES）：标签必须给齐，
+    # 否则表格会把 `dividend_cash` 原样印出来（前端 `txnTypeLabel` 的兜底是原值）。
+    'dividend_cash': '分红',
 }
+
+# 现金分红：**两个码在真机数据里并存**——历史导入写 `dividend`，新链路（AI 识别 /
+# 部分券商模板）写 `dividend_cash`。实测开发库 family 1：`dividend` 69 笔、
+# `dividend_cash` 33 笔（¥1,027.84），只认一个码会得到「分红少了一千块」这种
+# 不报错、但对不上账的结果。
+#
+# 因此凡是「合计现金分红」的地方**一律按集合认**，不要写 `txn_type == 'dividend'`。
+# `services/analytics/cleared_cycles.py` 的 `_DIVIDEND_TYPES` 早就是这么做的；
+# 本常量是同一口径的单一来源（那边后续可改为引用本常量，避免两份定义各自漂移）。
+DIVIDEND_TXN_TYPES = ('dividend', 'dividend_cash')
 
 # ── 投顾组合调仓操作类型（#1167 / #1468）──
 # 天天基金 adjustList 的 operationInt 与且慢「快照序列推导」共用同一词表，为单一真相源；
 # 禁止在适配器 / job 内各自硬编码一份（历史上 adapter 与 scripts 各存过一份）。
+#
+# ⚠️ 且慢**官方**调仓（`/alfa/v1/graphql`，2026-11-03 接入）给的是另一套用词：
+# 调入 / 调出 / 调增 / 调减。它比这张表细一档——「调入」是新建仓，「调增」是已有仓位加仓，
+# 压成 code 2/4 会丢掉这个区别。故官方行**原样保留 op_name**，只按语义补 op_code
+# （映射见 `qieman_advisor_adapter._MOVEMENT_TO_OP_CODE`）；本表仍是推导 / 天天基金的词表。
 ADVISOR_ADJUST_OP_NAME = {1: '建仓', 2: '加仓', 3: '减仓', 4: '新增', 5: '持平'}
 
 

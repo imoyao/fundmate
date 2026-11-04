@@ -9,20 +9,36 @@ import decimal
 import io
 import math
 import re
-import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
 import pandas as pd
-from loguru import logger
 
 from app.core.constants import CASH_SYMBOL, PositionSource
 from app.core.symbol_utils import get_normalizer
 from app.core.venues import EXCHANGE, OTC
 from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
-from app.services.importer.mappings import THS_OP_MAP, THS_OTC_OPS, VALID_OP_TYPES
+from app.services.importer.mappings import (
+    THS_IGNORED_OPS,
+    THS_NO_CODE_INCOME_ASSET_TYPES,
+    THS_OP_MAP,
+    THS_OTC_OPS,
+    VALID_OP_TYPES,
+)
+
+
+class IgnoredOperationError(Exception):
+    """操作名在 THS_IGNORED_OPS 里：有意跳过，不报错、不进记录，但计入行数对账。"""
+
+
+class UnknownOperationError(Exception):
+    """操作名既不在 THS_OP_MAP、也不在 THS_IGNORED_OPS：绝不能静默丢行（#2854）。"""
+
+    def __init__(self, op_type_cn: str):
+        self.op_type_cn = op_type_cn
+        super().__init__(op_type_cn)
 
 
 class THSStockParser(BaseImportParser):
@@ -32,6 +48,11 @@ class THSStockParser(BaseImportParser):
 
     def __init__(self):
         self.normalizer = get_normalizer()
+        # #2854 行数对账：由 parse() 每次覆盖，供 orchestrator 读取后下发预览响应。
+        # 解析器是注册表单例，这两个值只在同一次 parse() 调用链内立刻被取走，
+        # 不参与任何跨请求状态判断。
+        self.source_row_count: Optional[int] = None
+        self.ignored_row_count: int = 0
 
     # ── 解析 ──
 
@@ -60,31 +81,17 @@ class THSStockParser(BaseImportParser):
         self._preprocess_dataframe(df)
 
         # 4. 逐行解析
-        records, row_errors = self._iterrows_to_records(df)
+        records, row_errors, ignored = self._iterrows_to_records(df)
+        # 源文件数据行数（表头之外）必须单独上报：预览响应里的 total 是「解析成功后
+        # 的行数」，天生就是丢过行的数，没有任何字段能暴露差额（#2854）。
+        self.source_row_count = len(df)
+        self.ignored_row_count = ignored
 
-        records = self._link_bond_interest_and_tax(records)
+        # 配对（兑息+税 / 兑付+股份转出）不在这里做：它按 business_type 收集角色，
+        # 对所有平台解析器一致，统一由 orchestrator 在解析完成后跑（importer/linking.py）。
         errors.extend(row_errors)
 
         return records, errors
-
-    def _link_bond_interest_and_tax(self, records: List[StandardTransactionRecord]) -> List[StandardTransactionRecord]:
-        """识别同日期同代码的债券兑息和债券兑息兑付，生成关联ID"""
-        interest_by_key: dict[tuple, StandardTransactionRecord] = {}
-        tax_by_key: dict[tuple, StandardTransactionRecord] = {}
-
-        for rec in records:
-            key = (rec.symbol, rec.trade_date)
-            if rec.raw_op_type == '债券兑息':
-                interest_by_key[key] = rec
-            elif rec.raw_op_type == '债券兑息兑付':
-                tax_by_key[key] = rec
-
-        for key in set(interest_by_key.keys()) & set(tax_by_key.keys()):
-            group_id = str(uuid.uuid4())
-            interest_by_key[key].link_group_id = group_id
-            tax_by_key[key].link_group_id = group_id
-
-        return records
 
     # ── 文件读取 ──
 
@@ -183,19 +190,40 @@ class THSStockParser(BaseImportParser):
 
     # ── 逐行解析 ──
 
-    def _iterrows_to_records(self, df: pd.DataFrame) -> Tuple[List[StandardTransactionRecord], List[SBImportError]]:
-        """遍历 DataFrame 行，调用 _parse_row 解析"""
+    def _iterrows_to_records(
+        self, df: pd.DataFrame
+    ) -> Tuple[List[StandardTransactionRecord], List[SBImportError], int]:
+        """遍历 DataFrame 行，调用 _parse_row 解析。
+
+        返回 (records, errors, ignored_count)。三类行互斥且完备：
+        每行要么产出一条记录、要么产出一条错误、要么被显式忽略。
+        恒等式 ``source_row_count == total + parse_error_count + ignored_row_count``
+        是 #2854 行数对账的判据，任何一行 `return None` 都会打破它。
+        """
         records = []
         errors = []
+        ignored = 0
         for idx, raw_dict in enumerate(df.to_dict('records')):
             line_num = idx + 2
             try:
                 record = self._parse_row(raw_dict, line_num)
                 if record:
                     records.append(record)
+            except IgnoredOperationError:
+                ignored += 1
+            except UnknownOperationError as e:
+                # 带行号与券商原文操作名：用户（和排查者）必须能看出哪一行没进来。
+                errors.append(
+                    SBImportError(
+                        line_num,
+                        '操作',
+                        f'无法识别的操作类型「{e.op_type_cn}」，该行未纳入导入',
+                        raw_value=e.op_type_cn,
+                    )
+                )
             except Exception as e:
                 errors.append(SBImportError(line_num, None, f'行解析失败: {str(e)}'))
-        return records, errors
+        return records, errors, ignored
 
     @staticmethod
     def _safe_str(raw: dict, key: str, default: str = '') -> str:
@@ -228,6 +256,87 @@ class THSStockParser(BaseImportParser):
         except (ValueError, TypeError):
             return default
 
+    # #2137：同花顺交割单费用明细的源列（与 _preprocess_dataframe 的 fee_cols 同源）
+    FEE_BREAKDOWN_SOURCE_COLUMNS = ('佣金', '印花税', '过户费', '其他杂费')
+
+    # 差额推导手续费的上限（占成交额比例）。真实费率（佣金 + 印花税 + 过户费）
+    # 远低于 5%，超过这条线基本是「金额录错 / 数量单位错」，不能当费用吃掉。
+    FEE_GAP_MAX_RATIO = Decimal('0.05')
+
+    @classmethod
+    def _derive_fee_from_amount_gap(
+        cls,
+        business_type: str,
+        fee: float,
+        fee_breakdown: tuple,
+        trade_amount: Decimal,
+        quantity: float,
+        price: float,
+        net_amount_raw: Decimal,
+    ) -> float:
+        """费用列缺失时，用「发生金额 − 成交额」的差额兜补手续费（2026-11-02）。
+
+        ## 为什么不按费率估算
+
+        用户口径是「实际多付（买入）或少收（卖出）的钱就是手续费」——这是交割单上
+        算出来的实测值，不是猜。而本仓 `ledgers.fee_config` 16 个账户全为空，按空白
+        配置估算等于制造虚假精度：让「估算值」看起来像「交割单真值」。
+
+        ## 三条边界（缺一条就会把真错误静默吃成手续费）
+
+        1. **只在费用列全空时启用**：四列任一行有值说明来源给了明细，以它为准，
+           不覆盖。差额与明细不符时留给前端的「差额超过手续费」提示，由人判断。
+        2. **方向校验**：买入发生额 = 成交额 + 费（差为正），卖出 = 成交额 − 费
+           （差为负）。方向不符说明这不是费用（金额录错 / 数量单位错 / 列取反了），
+           此时不推导，让校验层照旧报「金额与数量×价格不符」。
+        3. **上限**：|差| > 成交额 5% 视为数据错误，不推导。
+
+        差额基准优先用交割单的「成交金额」列，缺失时回落到 数量 × 均价——
+        均价可能已被四舍五入，成交额列才是券商给的原值。
+        """
+        if business_type not in ('buy', 'sell'):
+            return fee
+        if fee and fee > 0:
+            return fee
+        if any(p is not None for p in fee_breakdown):
+            return fee
+
+        gross = abs(trade_amount) if trade_amount else Decimal('0')
+        if gross <= 0:
+            gross = abs(Decimal(str(quantity)) * Decimal(str(price)))
+        net = abs(net_amount_raw)
+        if gross <= 0 or net <= 0:
+            return fee
+
+        gap = net - gross
+        if business_type == 'sell':
+            gap = -gap
+        if gap <= 0:
+            return fee
+        if gap > gross * cls.FEE_GAP_MAX_RATIO:
+            return fee
+        return float(round(gap, 2))
+
+    @classmethod
+    def _parse_fee_breakdown(
+        cls, raw: dict
+    ) -> Tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal], Optional[Decimal]]:
+        """读取交割单四列费用明细（#2137），返回 (佣金, 印花税, 过户费, 其他杂费)，单位元。
+
+        四列**全在**才拆分；任一缺列 → 全 None（未拆分）。模型的拆分不变量是
+        「四列齐全且其和=fee」，缺列时按 0 补齐会把「来源没给这一列」演成
+        「来源给了 0」——费用汇总时两类无法区分。缺列的老模板退回聚合 fee
+        单值（_preprocess_dataframe 的合并逻辑），行为与改造前一致。
+        """
+        if any(col not in raw for col in cls.FEE_BREAKDOWN_SOURCE_COLUMNS):
+            return (None, None, None, None)
+        return (
+            cls._safe_decimal(cls._safe_float(raw, '佣金')),
+            cls._safe_decimal(cls._safe_float(raw, '印花税')),
+            cls._safe_decimal(cls._safe_float(raw, '过户费')),
+            cls._safe_decimal(cls._safe_float(raw, '其他杂费')),
+        )
+
     # ── 行解析 ──
 
     def _parse_row(self, raw: dict, line_num: int) -> Optional[StandardTransactionRecord]:
@@ -246,11 +355,17 @@ class THSStockParser(BaseImportParser):
         if op_type_cn in ('银行转证券', '证券转银行', 'OTC资金划出', 'OTC资金划入', 'OTC现金宝交', 'OTC资管转让'):
             return self._parse_cash_transfer(raw, op_type_cn)
 
+        # 声明式「有意忽略」：这类行不是解析失败，但必须是白名单里的名字（#2854）。
+        if op_type_cn in THS_IGNORED_OPS:
+            raise IgnoredOperationError(op_type_cn)
+
         # 业务类型映射
         business_type = THS_OP_MAP.get(op_type_cn)
         if business_type is None:
-            logger.debug(f'无法识别的同花顺操作类型: [{op_type_cn}] (line {line_num})')
-            return None
+            # 旧实现在这里只打一条 DEBUG 日志就 return None：整行不进 records、
+            # 不进 errors，也不体现在 total 里，用户只能拿 Excel 行数一条条对。
+            # 行号由 _iterrows_to_records 统一挂到 SBImportError，此处不再需要 line_num。
+            raise UnknownOperationError(op_type_cn)
 
         if business_type not in VALID_OP_TYPES:
             raise ValueError(f'不支持的同花顺操作类型: {op_type_cn}')
@@ -275,8 +390,13 @@ class THSStockParser(BaseImportParser):
             asset_type = 'fund'
         elif suggested_type:
             asset_type = suggested_type  # 可能为 'money_fund', 'reverse_repo' 等
-        elif business_type == 'dividend_cash' and op_type_cn == '利息归本':
-            asset_type = 'cash'
+        elif not symbol and op_type_cn in THS_NO_CODE_INCOME_ASSET_TYPES:
+            # 券商原文**连代码都不给**的收益行（#2843）：利息归本 → 现金、基金红利拨入 → 货基。
+            # 兜底成 stock 会让它显示成股票、计入投资收益、又被 symbol 为空判「代码未匹配」拦死。
+            # `not symbol` 这个条件不能省：normalize() 对普通 6 位码返回的 suggested_type 是
+            # None（如 603327 → ('SH603327','SH',None)），所以 `else: stock` 是**大多数
+            # 股票行的正常路径**，不是罕见兜底。去掉它，带股票代码的「基金红利拨入」会被推成货基。
+            asset_type = THS_NO_CODE_INCOME_ASSET_TYPES[op_type_cn]
         else:
             asset_type = 'stock'
 
@@ -286,12 +406,22 @@ class THSStockParser(BaseImportParser):
         quantity = self._safe_float(raw, '成交数量')
         price = self._safe_float(raw, '成交均价')
         fee = self._safe_float(raw, 'fee')
+        # 费用拆分（#2137）：同花顺交割单固定带 佣金/印花税/过户费/其他杂费 四列
+        # （_preprocess_dataframe 已保留原列，仅另算合并值 df['fee']），逐类透传；
+        # 源文件缺列时（老模板 / 资金划转等无费用行）四列留 None = 未拆分。
+        fee_breakdown = self._parse_fee_breakdown(raw)
         # 金融口径收口（#1375 阶段二）：金额域直接进 Decimal，raw→float→Decimal 的桥接收敛为一处
         trade_amount = self._safe_decimal(self._safe_float(raw, '成交金额'))
         net_amount_raw = self._safe_decimal(self._safe_float(raw, '发生金额'))
 
         actual_amount = self._compute_actual_amount(business_type, trade_amount, net_amount_raw)
         net_amount_abs = abs(net_amount_raw)
+
+        # 费用兜底（2026-11-02）：交割单费用列全空时，用发生金额与成交额的差额
+        # 反推手续费——「实际多付/少收的钱就是费用」，比按空配置估算可靠
+        fee = self._derive_fee_from_amount_gap(
+            business_type, fee, fee_breakdown, trade_amount, quantity, price, net_amount_raw
+        )
 
         return StandardTransactionRecord(
             confirm_date=trade_date,
@@ -305,6 +435,11 @@ class THSStockParser(BaseImportParser):
             shares=self._safe_decimal(quantity),
             nav=self._safe_decimal(price),
             fee=self._safe_decimal(fee),
+            # #2137：交割单费用明细逐类透传（缺列时为 None=未拆分）
+            fee_commission=fee_breakdown[0],
+            fee_stamp_duty=fee_breakdown[1],
+            fee_transfer_fee=fee_breakdown[2],
+            fee_other=fee_breakdown[3],
             transaction_id=contract_id,
             source=self.source,
             raw_op_type=op_type_cn,  # 保留原始中文操作类型

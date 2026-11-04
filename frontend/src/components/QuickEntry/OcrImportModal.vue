@@ -1,3 +1,14 @@
+<!--
+  AI 批量导入弹窗（#2106 / #1835）：上传截图或粘贴文本 → 识别 → 勾选 → 导入自选。
+
+  #980 拆分后本文件只剩「弹窗外壳」：额度通栏 / 分段切换 / 两个输入面板 /
+  结果确认区 / 底栏按钮的接线。内在逻辑分在四处：
+  - composables/useOcrQuota.ts        额度三态（紧张线、图标、文案）
+  - composables/useOcrRecognize.ts    识别链路（图片转 base64、探测已存在、候选派生）
+  - composables/useOcrImport.ts       导入动作（逐条 POST、409 记跳过、结果文案）
+  - composables/useOcrGroupPicker.ts  导入时的分组选择（只列自定义分组）
+  - ocrImportModel.ts                 纯函数：候选派生 / 请求体 / 结果文案
+-->
 <template>
   <el-dialog
     v-model="visible"
@@ -8,18 +19,14 @@
     :close-on-click-modal="false"
     :before-close="onBeforeClose"
   >
-    <!-- 顶部：剩余次数提示（三态：正常 / 紧张 / 用尽）。极简通栏，弱化存在感，聚焦「粘贴区」与「开始识别」 -->
-    <div class="usage-banner" :class="usageStateClass">
-      <IconifyIconOffline class="usage-banner__icon" :icon="usageIcon" />
-      <span class="usage-banner__label">今日 AI 导入额度剩余</span>
-      <span class="usage-banner__count">
-        <!-- :key 触发动画：额度变化时数字轻微跳动，直给「扣了一次额度」的反馈 -->
-        <strong :key="remaining">{{ remaining }}</strong> / {{ quota }} 次
-      </span>
-      <span v-if="remainingText" class="usage-banner__hint">{{
-        remainingText
-      }}</span>
-    </div>
+    <!-- 顶部：剩余次数提示（三态：正常 / 紧张 / 用尽） -->
+    <OcrUsageBanner
+      :remaining="remaining"
+      :quota="quota"
+      :state-class="usageStateClass"
+      :icon="usageIcon"
+      :hint="remainingText"
+    />
 
     <!-- 两个互斥选项 → SegmentedControl small 档（design.md「Segmented」唯一实现，
          见 docs/design/components.md）；轨道用 --bg-soft 暖米色：--bg-muted 是淡灰蓝
@@ -44,114 +51,24 @@
 
     <!-- ── 文本解析 ── -->
     <div v-else class="ocr-tab-panel">
-      <!-- 格式说明：每行一只，6 位代码必填，名称可选（后端按代码反查名称） -->
-      <div class="ocr-format-hint">
-        <div class="ocr-format-hint__title">
-          <IconifyIconOffline icon="ep:info" class="mr-1" />
-          格式说明
-        </div>
-        <p class="ocr-format-hint__line">每行一只，支持6位代码，名称可不填</p>
-        <p class="ocr-format-hint__example">示例：110011 易方达中小盘</p>
-      </div>
-      <el-input
-        ref="textareaRef"
+      <OcrTextPanel
+        ref="textPanelRef"
         v-model="textContent"
-        type="textarea"
-        :rows="8"
-        resize="vertical"
-        class="ocr-textarea"
-        placeholder="在此粘贴基金/股票代码，一行一个"
-        @input="textError = ''"
+        :error="textError"
+        @edited="textError = ''"
       />
-      <!-- 行内错误提示（非全局弹红，design.md 危险色） -->
-      <p v-if="textError" class="ocr-textarea__error">{{ textError }}</p>
     </div>
 
     <!-- 识别结果确认 -->
-    <div v-if="candidates.length > 0" class="result-section">
-      <div class="result-head">
-        识别到 {{ candidates.length }} 条，可勾选导入
-      </div>
-      <div class="candidate-list">
-        <!-- a11y-allow 容器内首行就是 el-checkbox，整行点击只是它的热区扩展；
-             补 role=button 会把整行读成一个按钮、盖住 checkbox 的语义 -->
-        <div
-          v-for="item in candidates"
-          :key="item.code"
-          class="candidate-row"
-          :class="{ 'is-exists': item.exists }"
-          @click="toggleCandidate(item)"
-        >
-          <el-checkbox
-            :model-value="item.selected"
-            :disabled="item.exists"
-            @change="toggleCandidate(item)"
-          />
-          <span class="candidate-code">{{ item.code }}</span>
-          <span class="candidate-name">{{ item.name }}</span>
-          <el-tag
-            v-if="item.exists"
-            size="small"
-            type="info"
-            class="candidate-tag"
-            >已在自选</el-tag
-          >
-        </div>
-      </div>
-
-      <!-- 导入分组（#2106）：可选，默认不选＝只进「全部」。
-           只列**自定义分组**（多对多真实关联）；「全部」等系统分组是虚拟口径、
-           没有关联关系，故不作为勾选项出现——用户需要感知的是「可补救」，不是
-           「全部不可取消」（后者等于发明一个不存在的状态）。 -->
-      <div class="import-groups">
-        <span class="import-groups__label">同时加入分组（可选，可多选）</span>
-        <div class="import-groups__control">
-          <el-select
-            v-model="selectedGroupIds"
-            multiple
-            filterable
-            clearable
-            collapse-tags
-            collapse-tags-tooltip
-            size="small"
-            class="import-groups__select"
-            placeholder="不分组"
-          >
-            <el-option
-              v-for="g in availableGroups"
-              :key="g.id"
-              :label="g.name"
-              :value="g.id"
-            >
-              <div class="import-groups__option">
-                <span
-                  class="import-groups__dot"
-                  :style="{
-                    backgroundColor: g.color || 'var(--text-disabled)'
-                  }"
-                />
-                <span>{{ g.name }}</span>
-              </div>
-            </el-option>
-          </el-select>
-          <el-button
-            aria-label="新建分组"
-            size="small"
-            class="import-groups__add"
-            @click="groupFormVisible = true"
-          >
-            <IconifyIconOffline icon="ep:plus" />
-          </el-button>
-        </div>
-        <p class="import-groups__hint">
-          {{
-            availableGroups.length
-              ? "不选则只进入「全部」，之后可在自选页随时调整分组。"
-              : "暂无自定义分组，可点右侧 + 新建；不选则只进入「全部」。"
-          }}
-        </p>
-      </div>
-    </div>
+    <OcrCandidateList
+      v-if="candidates.length > 0"
+      v-model="selectedGroupIds"
+      v-model:group-form-visible="groupFormVisible"
+      :candidates="candidates"
+      :groups="availableGroups"
+      @toggle="toggleCandidate"
+      @group-created="onGroupCreated"
+    />
 
     <template #footer>
       <el-button class="ocr-cancel-btn" size="large" @click="requestClose"
@@ -191,24 +108,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from "vue";
-import { ElInput, ElMessage } from "element-plus";
-import { Icon as IconifyIconOffline } from "@iconify/vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import ImageUploader from "@/components/ImageUploader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
-import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
+import OcrUsageBanner from "./components/OcrUsageBanner.vue";
+import OcrTextPanel from "./components/OcrTextPanel.vue";
+import OcrCandidateList from "./components/OcrCandidateList.vue";
+import { IMPORT_TAB_OPTIONS } from "./ocrImportModel";
+import { useOcrQuota } from "./composables/useOcrQuota";
+import { useOcrRecognize } from "./composables/useOcrRecognize";
+import { useOcrImport } from "./composables/useOcrImport";
+import { useOcrGroupPicker } from "./composables/useOcrGroupPicker";
 import {
   useFormDirty,
   useUnsavedChangesGuard
 } from "@/composables/useUnsavedChangesGuard";
-import {
-  createWatchlistItem,
-  getWatchlistItems,
-  getWatchlistGroups,
-  type WatchlistGroup
-} from "@/api/watchlist";
-import type { OcrImportItem } from "@/api/ocr";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -224,287 +139,68 @@ const visible = computed({
 });
 
 const activeTab = ref<"image" | "text">("image");
-/** 导入方式分段选项：显式标注取值类型，供 SegmentedControl 泛型推断 */
-const IMPORT_TAB_OPTIONS: { label: string; value: "image" | "text" }[] = [
-  { label: "上传图片", value: "image" },
-  { label: "粘贴文本", value: "text" }
-];
 const imageFile = ref<File | null>(null);
 const textContent = ref("");
-const recognizing = ref(false);
-const importing = ref(false);
 // 文本域行内错误（design.md：错误提示走行内小字 + --color-danger，不用全局弹红）
 const textError = ref("");
 
-const remaining = ref(0);
-const quota = ref(5);
-const occupied = ref(false);
+const {
+  remaining,
+  quota,
+  occupied,
+  remainingText,
+  usageStateClass,
+  usageIcon,
+  fetchUsage
+} = useOcrQuota();
 
-const remainingText = computed(() => {
-  if (occupied.value) return "额度已用尽，请明日再试";
-  if (remaining.value <= 2) return "额度紧张，谨慎使用";
-  return "";
-});
-const usageStateClass = computed(() => {
-  if (occupied.value) return "is-used-up";
-  if (remaining.value <= 2) return "is-low";
-  return "";
-});
-const usageIcon = computed(() => {
-  if (occupied.value) return "ep:warning";
-  if (remaining.value <= 2) return "ep:bell";
-  return "ep:magic-stick";
+const {
+  recognizing,
+  candidates,
+  canRecognize,
+  selectedCount,
+  toggleCandidate,
+  clearCandidates,
+  handleRecognize
+} = useOcrRecognize({
+  activeTab,
+  imageFile,
+  textContent,
+  textError,
+  occupied,
+  remaining,
+  fetchUsage
 });
 
-interface Candidate extends OcrImportItem {
-  exists: boolean;
-  selected: boolean;
-}
-const candidates = ref<Candidate[]>([]);
-
-// ── 导入分组（#2106）──
-// 归属说明：只列自定义分组（WatchlistGroup + 多对多关联），「全部」等系统分组
-// 是虚拟口径、无关联关系，故不在可选项中——它不是「不可取消的勾选项」。
-const availableGroups = ref<WatchlistGroup[]>([]);
-const selectedGroupIds = ref<number[]>([]);
+const {
+  availableGroups,
+  selectedGroupIds,
+  groupFormUsedColors,
+  fetchGroups,
+  onGroupCreated,
+  resetGroupSelection
+} = useOcrGroupPicker();
 const groupFormVisible = ref(false);
 
-/** 已占用的分组色，供新建分组弹窗随机取色时避开 */
-const groupFormUsedColors = computed<string[]>(() =>
-  availableGroups.value.map(g => g.color).filter((c): c is string => Boolean(c))
-);
-
-const fetchGroups = async () => {
-  try {
-    const res = await getWatchlistGroups();
-    availableGroups.value = (res.data ?? []).filter(
-      g => !g.is_system && g.id != null
-    );
-  } catch (e) {
-    console.error("获取分组失败：", e);
-  }
-};
-
-/** 现场新建的分组直接补进可选项并选中，省得用户再找一遍 */
-function onGroupCreated(group: WatchlistGroup) {
-  if (group.id == null) return;
-  if (!availableGroups.value.some(g => g.id === group.id)) {
-    availableGroups.value = [...availableGroups.value, group];
-  }
-  if (!selectedGroupIds.value.includes(group.id)) {
-    selectedGroupIds.value = [...selectedGroupIds.value, group.id];
-  }
-}
-
-const canRecognize = computed(() => {
-  if (occupied.value || remaining.value <= 0) return false;
-  if (activeTab.value === "image") return !!imageFile.value;
-  return textContent.value.trim().length > 0;
+const { importing, handleImport } = useOcrImport({
+  candidates,
+  selectedGroupIds,
+  onImported: count => emit("imported", count),
+  onFinished: () => reset()
 });
 
-const selectedCount = computed(
-  () => candidates.value.filter(c => c.selected).length
-);
-
-const handleTabChange = () => {
-  candidates.value = [];
-};
+// 自动聚焦文本域（生命感：打开弹窗/切到粘贴文本时，光标直达输入区）
+const textPanelRef = ref<InstanceType<typeof OcrTextPanel> | null>(null);
+function focusTextarea(): void {
+  void nextTick(() => textPanelRef.value?.focus());
+}
 
 // 分段控制器切档：切换激活项并清空上一次识别结果；切到文本 tab 自动聚焦输入框
-const switchTab = (tab: "image" | "text") => {
+function switchTab(tab: "image" | "text"): void {
   activeTab.value = tab;
-  handleTabChange();
+  clearCandidates();
   if (tab === "text") focusTextarea();
-};
-
-// 自动聚焦文本域（生命感：打开弹窗/切到粘贴文本时，光标直达输入区）
-const textareaRef = ref<InstanceType<typeof ElInput>>();
-const focusTextarea = () => {
-  nextTick(() => textareaRef.value?.focus());
-};
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // 去掉 data URL 前缀，保留纯 base64
-      const base64 = result.split(",")[1] ?? result;
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
-
-const toggleCandidate = (item: Candidate) => {
-  if (item.exists) return;
-  item.selected = !item.selected;
-};
-
-const handleRecognize = async () => {
-  if (remaining.value <= 0) {
-    ElMessage.warning("今日 AI 导入额度已用完，请明日再试");
-    return;
-  }
-  recognizing.value = true;
-  try {
-    let items: OcrImportItem[] = [];
-    if (activeTab.value === "image") {
-      if (!imageFile.value) {
-        ElMessage.warning("请先选择图片");
-        return;
-      }
-      const base64 = await fileToBase64(imageFile.value);
-      const res = await recognizeImage(base64);
-      items =
-        (res.data as { items: OcrImportItem[]; usage: unknown }).items ?? [];
-    } else {
-      const text = textContent.value.trim();
-      if (!text) {
-        ElMessage.warning("请输入文本内容");
-        return;
-      }
-      const res = await parseImportText(text);
-      items =
-        (res.data as { items: OcrImportItem[]; usage: unknown }).items ?? [];
-    }
-
-    if (items.length === 0) {
-      // 文本：行内错误提示（不弹全局）；图片：无行内锚点，保留全局轻提示
-      if (activeTab.value === "text") {
-        textError.value = "未识别到有效代码，请检查每行是否包含 6 位代码";
-      } else {
-        ElMessage.info("未能识别出基金，请检查图片清晰度或文本格式");
-      }
-      // 识别成功但无有效内容：本次配额已消耗，刷新余量展示
-      void fetchUsage();
-      return;
-    }
-
-    const existingSet = await probeExisting(items);
-    candidates.value = items.map(it => {
-      const key = it.symbol || it.code;
-      return {
-        ...it,
-        exists: existingSet.has(key),
-        selected: !existingSet.has(key)
-      };
-    });
-    // 识别成功已消耗 1 次配额，同步刷新余量展示
-    void fetchUsage();
-  } catch (e: any) {
-    // 兜底：识别失败（超时/服务不可用）后端会返还配额，刷新余量避免显示虚低
-    void fetchUsage();
-    const status = e?.response?.status;
-    if (status === 503) {
-      ElMessage.error("AI 识别服务暂时繁忙，请稍后重试（失败不消耗次数）");
-    } else if (status === 429) {
-      // 可能是配额用完（3004）或限流（3005），用后端 message 区分
-      const msg =
-        e?.response?.data?.message || "今日 AI 识别次数已用完，请明日再试";
-      ElMessage.warning(msg);
-    } else if (e?.code === "ECONNABORTED" || e?.message?.includes("timeout")) {
-      ElMessage.error(
-        "识别超时，图片内容可能较多，请稍后重试（失败不消耗次数）"
-      );
-    } else {
-      const msg =
-        e?.response?.data?.message || e?.message || "识别失败，请重试";
-      ElMessage.error(msg);
-    }
-  } finally {
-    recognizing.value = false;
-  }
-};
-
-// 探测哪些代码已存在于自选（对批量候选，逐条查询看是否已存在，避免重复导入）
-async function probeExisting(items: OcrImportItem[]): Promise<Set<string>> {
-  const set = new Set<string>();
-  for (const it of items) {
-    // 空/空白代码必须跳过：后端对空 symbol 跳过过滤走「全部」分支返回整页数据，
-    // 会被误判成「已存在」——无代码的候选（如只有组合名的投顾行）一律保守当作新项
-    const key = (it.symbol || it.code || "").trim();
-    if (!key) continue;
-    try {
-      // 用标准化 symbol 探测（场内如 SH600519），与后端查重口径一致
-      const res = await getWatchlistItems({ symbol: key, per_page: 1 });
-      const data = (res as any).data ?? [];
-      if (data.length > 0) set.add(key);
-    } catch {
-      // 网络异常不阻断已存在判断，保守当作新项
-    }
-  }
-  return set;
-}
-
-const handleImport = async () => {
-  const toImport = candidates.value.filter(c => c.selected && !c.exists);
-  if (toImport.length === 0) {
-    ElMessage.info("没有需要导入的资产");
-    return;
-  }
-  importing.value = true;
-  let success = 0;
-  let skipped = 0;
-  const failed: string[] = [];
-  for (const item of toImport) {
-    try {
-      // 透传后端反查的 type/market/venue/symbol，不再按 code 前缀猜类型
-      // （否则股票 600519 / 深市 ETF 159915 会被误判为场外基金导入）
-      await createWatchlistItem({
-        symbol: item.symbol || item.code,
-        // 名称快照（#1508）：OCR 识别结果自带 name，随创建落库
-        name: item.name,
-        asset_type: item.type || "fund",
-        market: item.market,
-        venue: item.venue || "OTC",
-        add_reason: "AI 批量导入",
-        // #2106：导入时勾选的自定义分组（空数组 = 不分组，行为与不带该字段一致）
-        group_ids: [...selectedGroupIds.value]
-      });
-      success++;
-    } catch (e: any) {
-      if (e?.response?.status === 409) {
-        skipped++;
-      } else {
-        failed.push(item.code);
-      }
-    }
-  }
-  importing.value = false;
-
-  if (failed.length > 0) {
-    ElMessage.error(
-      `导入完成：成功 ${success} 条，跳过已存在 ${skipped} 条，失败 ${
-        failed.length
-      } 条（${failed.join("、")}）`
-    );
-  } else {
-    ElMessage.success(
-      `导入成功 ${success} 条${skipped > 0 ? `，跳过已存在 ${skipped} 条` : ""}`
-    );
-  }
-
-  if (success > 0) {
-    emit("imported", success);
-  }
-  reset();
-};
-
-const fetchUsage = async () => {
-  try {
-    const res = await getOcrUsage();
-    const data = res.data;
-    remaining.value = data?.remaining ?? 0;
-    quota.value = data?.quota ?? 5;
-    occupied.value = data?.remaining <= 0;
-  } catch {
-    remaining.value = 5;
-    quota.value = 5;
-    occupied.value = false;
-  }
-};
 
 // ── 未保存离开保护（#1835）──
 //关闭按钮 / ESC 走 before-close；底部「取消」是程序化 close，走不到它。
@@ -523,7 +219,7 @@ const { onBeforeClose, requestClose: confirmThenClose } =
   });
 
 /** 底部「取消」：程序化 close 走不到 before-close，必须自己问一遍 */
-async function requestClose() {
+async function requestClose(): Promise<void> {
   await confirmThenClose(() => (visible.value = false));
 }
 
@@ -536,16 +232,16 @@ watch(
   { immediate: true }
 );
 
-const reset = () => {
-  candidates.value = [];
+function reset(): void {
+  clearCandidates();
   textContent.value = "";
   imageFile.value = null;
   textError.value = "";
-  selectedGroupIds.value = [];
+  resetGroupSelection();
   // 与表单一起清基线：reset 跑在「导入成功」与「放弃后关闭」两条路上，
   // 只清表单不清基线的话，关闭后再开弹窗会直接是脏的（#1845 同源）。
   markClean();
-};
+}
 
 // 🔥 修复：组件挂载时弹窗处于关闭态（visible=false），onMounted 不会触发
 // fetchUsage，导致 remaining 永远停留在初始值 0。改为监听 modelValue，
@@ -573,21 +269,6 @@ onMounted(() => {
 <!-- lang="scss" 必须保留：本文件使用 &__block 嵌套拼接语法，原生 CSS 嵌套不支持该写法，
      缺失会导致全部嵌套规则静默失效（分段控制器裸按钮问题的根因） -->
 <style scoped lang="scss">
-/* 额度数字跳动：扣除次数时轻微缩放反馈 */
-@keyframes usage-pop {
-  0% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.18);
-  }
-
-  100% {
-    transform: scale(1);
-  }
-}
-
 /* 「重置式」而非「覆盖式」：先把 el-dialog 内部原生 margin/padding 归零，
    再按 design.md 的 --space-standard(24px) / --space-compact(16px) 重新注入呼吸感 */
 .ocr-import-dialog {
@@ -673,69 +354,6 @@ onMounted(() => {
 }
 
 /* ============================================
-   剩余次数提示（三态：正常 / 紧张 / 用尽）
-   极简通栏：--bg-warm 暖底 + 无边框 + 线性小图标，弱化「通知」属性增强「辅助」属性
-   ============================================ */
-
-/* 额度提示：无背景无边框，纯文字分层留白（图标 --text-tertiary / 说明 --text-secondary /
-   数字等宽加粗 --brand-700），用空间代替色块，高级感来自留白 */
-.usage-banner {
-  display: flex;
-  gap: var(--space-2);
-  align-items: baseline;
-  margin-bottom: var(--space-standard);
-  transition: color 0.2s ease;
-
-  &__icon {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-self: center;
-    font-size: var(--text-small);
-    color: var(--text-tertiary-ink);
-  }
-
-  &__label {
-    font-size: var(--text-label);
-    color: var(--text-secondary);
-  }
-
-  &__count {
-    font-size: var(--text-small);
-    color: var(--text-secondary);
-
-    strong {
-      display: inline-block;
-      font-family: var(--font-mono);
-      font-size: var(--text-mono-small);
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      color: var(--brand-700);
-      animation: usage-pop 0.2s ease; /* :key 变化时重放：额度扣除的微小「跳动」 */
-    }
-  }
-
-  &__hint {
-    flex-shrink: 0;
-    margin-left: auto;
-    font-size: var(--text-label);
-    color: var(--text-tertiary-ink);
-  }
-
-  /* 额度紧张：仅数字/图标变色，不新增背景块 */
-  &.is-low .usage-banner__count strong {
-    color: var(--text-primary);
-  }
-
-  /* 额度用尽：数字/提示变危险色，不新增背景块 */
-  &.is-used-up {
-    .usage-banner__count strong,
-    .usage-banner__hint {
-      color: var(--color-danger);
-    }
-  }
-}
-
-/* ============================================
    分段控制器（SegmentedControl）：只补与下方面板的间距，外观全部由组件负责
    ============================================ */
 .ocr-import-tabs {
@@ -745,207 +363,4 @@ onMounted(() => {
 .ocr-tab-panel {
   min-height: 180px; /* 压缩留白，避免弹窗空洞 */
 }
-
-/* ============================================
-   文本解析：格式说明 + textarea 圆角/focus 环 + 行内错误
-   ============================================ */
-
-/* 格式说明：无背景色块，纯排版留白区分层级（遵循「留白即背景」） */
-.ocr-format-hint {
-  padding: 0;
-  margin-bottom: var(--space-standard); /* 24px 呼吸感，与 textarea 拉开距离 */
-
-  &__title {
-    display: flex;
-    align-items: center;
-    margin-bottom: var(--space-2);
-    font-size: var(--text-label);
-    font-weight: 500;
-    color: var(--text-tertiary-ink); /* 标题弱化为浅灰，突出正文 */
-
-    /* 线性浅色小图标（--text-tertiary），弱化「通知」属性 */
-    :deep(svg) {
-      color: var(--text-tertiary-ink);
-    }
-  }
-
-  &__line {
-    margin: 0;
-    font-size: var(--text-body);
-    line-height: 1.6;
-    color: var(--text-primary); /* 正文为主黑，形成排版层 */
-  }
-
-  /* 示例纯文本化：仅等宽字体 + 品牌红字色，不加背景块/边框（聚焦靠留白与色彩层级） */
-  &__example {
-    margin: var(--space-2) 0 0;
-    font-family: var(--font-mono);
-    font-size: var(--text-label);
-    font-style: italic; /* 微倾斜增加层次 */
-    font-variant-numeric: tabular-nums;
-    color: var(--brand-700);
-  }
-}
-
-/* 文本域走 #1772 输入基线令牌：等宽字体直接写在容器上（EP 内部
-   `font-family: inherit` 会继承下来），圆角 / 静态描边 / 过渡 / 焦点光晕
-   全部由令牌表达，不再 :deep。
-   ⚠️ 焦点刻意**不用**全局 --focus-ring（2px 间隙圈 + 4px 实红双环）——
-   本输入区因自动聚焦常驻显示，重环会呈现「报错红框」观感；
-   改用 brand-40% 柔光，聚焦感清晰但不施压。 */
-.ocr-textarea {
-  --input-focus-shadow:
-    0 0 0 1px var(--brand-700) inset,
-    0 0 0 3px color-mix(in srgb, var(--brand-400) 40%, transparent);
-  --input-transition: box-shadow 0.2s ease;
-
-  font-family: var(--font-mono); /* 代码等宽，数字纵向对齐 */
-}
-
-/* 行内错误提示：危险色小字，不弹全局红提示 */
-.ocr-textarea__error {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-label);
-  color: var(--color-danger);
-}
-
-/* ============================================
-   识别结果候选列表
-   ============================================ */
-.result-section {
-  margin-top: var(--space-5);
-}
-
-.result-head {
-  margin-bottom: var(--space-3);
-  font-size: var(--text-small);
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-/* 候选列表：去容器背景与边框，改用行间细分隔线（--border-light 极浅暖灰）保持清爽 */
-.candidate-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.candidate-row {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  padding: var(--space-compact) var(--space-2);
-  font-size: var(--text-small);
-  cursor: pointer;
-  border-bottom: 1px solid var(--border-light);
-  transition: background-color 0.15s ease;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &:hover {
-    background: var(--bg-hover);
-  }
-
-  &.is-exists {
-    opacity: 0.55;
-  }
-
-  .candidate-code {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--text-primary);
-  }
-
-  .candidate-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--text-secondary);
-    white-space: nowrap;
-  }
-
-  .candidate-tag {
-    border-radius: var(--radius-pill);
-  }
-}
-
-/* ============================================
-   导入分组选择（#2106）
-   轻量可选控件：默认不选，选中态由 el-select 自带 chip 表达，
-   不额外加背景块——与「留白即背景」的既有观感一致
-   ============================================ */
-.import-groups {
-  margin-top: var(--space-3);
-
-  &__label {
-    display: block;
-    margin-bottom: var(--space-2);
-    font-size: var(--text-label);
-    color: var(--text-secondary);
-  }
-
-  &__control {
-    display: flex;
-    gap: var(--space-2);
-    align-items: center;
-  }
-
-  &__select {
-    flex: 1;
-    min-width: 0;
-  }
-
-  /* 与 size="small" 的 el-select 同高（EP small 组件高度 24px），
-     否则「输入框 24px + 按钮 32px」会呈现明显的高低肩 */
-  &__add {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    color: var(--text-tertiary-ink);
-    background-color: var(--bg-soft);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
-    transition:
-      color 150ms ease,
-      background-color 150ms ease;
-
-    &:hover {
-      color: var(--text-primary);
-      background-color: var(--bg-hover);
-    }
-  }
-
-  &__option {
-    display: flex;
-    gap: var(--space-2);
-    align-items: center;
-  }
-
-  &__dot {
-    display: inline-block;
-    flex-shrink: 0;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-
-  &__hint {
-    margin: var(--space-2) 0 0;
-    font-size: var(--text-label);
-    line-height: 1.6;
-    color: var(--text-tertiary-ink);
-  }
-}
-
-/* ============================================
-   弹窗容器：对齐 design.md（大圆角 + 暖调模态阴影 + 头尾分隔线）
-   ============================================ */
 </style>

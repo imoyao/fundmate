@@ -9,7 +9,10 @@
                  （#2035：收益日历在资产总览右卡正是这样撞的车）。
                  不传 `title` 也不显示标题，但**通常不该这么用**：区块标题行缺一个
                  语义化 heading 对读屏是信息损失。
-    - info:      信息图标 tooltip 文案（可选；不传则不显示图标）
+    - info:      信息图标 tooltip 文案（可选；不传则不显示图标）。
+                 **按长度自动选载体**（2026-11-02）：≤48 字走深色短语气泡；
+                 更长的（约两行以上）自动升格成浅色说明卡，并按句分行。
+                 判据与阈值见 utils/tooltipText.ts——调用方只管写清文案，不必判断「这算长算短」。
     - infoLabel: 信息图标的可访问名（可选，默认取 `info`）。
                  **富内容（`#info` 插槽）必须传**：插槽内容读屏读不到「这是什么」，
                  靠它给图标一个说得清的名字。
@@ -22,6 +25,8 @@
              并自动挂 `rich-tip` 气泡样式（宽度与排版见 style/el-tooltip.css）。
              用途：口径 + 图例这类「多行结构化」说明——一行字符串塞进去只会变成一堵墙
              （#1942 第三轮反馈：收益日历的口径说明正是这样被吐槽的）。
+             ⚠️ 只是「一段话」而非结构化内容时，直接用 `info` 字符串即可：
+             长文案现在会自动升格成说明卡并按句分行，不必为此写插槽。
     - action: 右侧操作槽。**窄容器下本槽会收缩**（#2039），因此槽内若有多枚控件，
               请自行套一个 `flex-wrap: wrap` 的容器：收缩时靠它折行，而不是溢出卡片
               （参考 PnlCalendar 的 `#action`——它那排控件宽 588px，是最典型的场景）。
@@ -34,10 +39,10 @@
     >
       <h2 v-if="title" class="section-header__title">{{ title }}</h2>
       <el-tooltip
-        v-if="info || $slots.info"
-        :content="info"
+        v-if="hasInfo"
+        :content="useRichTip ? undefined : info"
         placement="top"
-        :popper-class="$slots.info ? 'rich-tip' : ''"
+        :popper-class="tipClass"
       >
         <span
           class="section-header__info"
@@ -47,8 +52,13 @@
         >
           <IconifyIconOffline :icon="icon" />
         </span>
-        <template v-if="$slots.info" #content>
-          <slot name="info" />
+        <template v-if="useRichTip" #content>
+          <slot v-if="$slots.info" name="info" />
+          <template v-else>
+            <p v-for="(paragraph, i) in paragraphs" :key="i">
+              {{ paragraph }}
+            </p>
+          </template>
         </template>
       </el-tooltip>
       <slot name="badge" />
@@ -60,9 +70,16 @@
 </template>
 
 <script setup lang="ts">
+import { computed, useSlots } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
+import {
+  isRichTipText,
+  RICH_TIP_CLASS,
+  tipParagraphs,
+  tipPopperClass
+} from "@/utils/tooltipText";
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     title?: string;
     info?: string;
@@ -75,6 +92,26 @@ withDefaults(
     infoLabel: "",
     icon: "ep:info-filled"
   }
+);
+
+const slots = useSlots();
+
+const hasInfo = computed(() => Boolean(props.info) || Boolean(slots.info));
+
+/* 载体按**文案长度**选，不按调用方自觉选（判据与阈值见 utils/tooltipText.ts）：
+   短语 → 深色气泡（限宽由 --tooltip-max-width 兜住）；超过两行 → 浅色说明卡。
+   这样 43 处 `info` 一处不用改，长的自动升格，短的不动。 */
+const useRichTip = computed(
+  () => Boolean(slots.info) || isRichTipText(props.info)
+);
+
+/** 说明卡里一句一行；短文案返回空数组（不会渲染） */
+const paragraphs = computed(() => tipParagraphs(props.info));
+
+/* 插槽内容自带结构（标题 + 列表），沿用既有 rich-tip 卡片；字符串升格的多挂段落修饰，
+   只为给 `<p>` 段间距（见 style/el-tooltip.css），不改变卡片本体样式 */
+const tipClass = computed(() =>
+  slots.info ? RICH_TIP_CLASS : tipPopperClass(props.info)
 );
 </script>
 

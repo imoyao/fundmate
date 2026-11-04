@@ -31,9 +31,16 @@ class DataScope(StrEnum):
 
 
 #: provider → 系统凭据所在环境变量（新增服务在这里登记，不猜变量名）
+#:
+#: ``wind`` 与 ``wind_stock`` 是**同一张 Token、不同 vserver**（实测：同一个 Bearer 对
+#: 指数 / 宏观 / 股票 / 债券 / 基金五个域都有效）。分成两个 provider 是因为协议形状不同
+#: （见 ``providers/wind_stock_data.py``），但凭据同源——照抄同一个变量名，避免多一份密钥。
 _TOKEN_ENV = {
     'qieman': 'QIEMAN_API_KEY',
     'wind': 'WIND_MCP_TOKEN',
+    'wind_stock': 'WIND_MCP_TOKEN',
+    'wind_fund': 'WIND_MCP_TOKEN',
+    'wind_index': 'WIND_MCP_TOKEN',
 }
 
 

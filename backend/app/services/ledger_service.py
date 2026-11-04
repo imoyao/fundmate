@@ -13,6 +13,7 @@ from app.core.asset_types import MAJOR_CATEGORY_CASH
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
+from app.core.utils import iso_date_only
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -20,12 +21,17 @@ from app.domains.transactions.models import Transaction
 from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
 from app.services.pnl_settle import is_settled_today
-from app.services.position_scope import exclude_cleared
+from app.services.position_scope import active_holdings, exclude_cleared
 from app.services.summary_service import (
     orphan_cash_like_breakdown,
     orphan_money_fund_totals_by_ledger,
 )
-from app.services.txn_name_resolver import resolve_transaction_display_names
+from app.services.transaction_service import order_by_effective_day
+from app.services.txn_name_resolver import (
+    display_asset_name,
+    resolve_transaction_asset_types,
+    resolve_transaction_display_names,
+)
 
 
 class LedgerService:
@@ -110,8 +116,12 @@ class LedgerService:
     def get_overview_stats(db: Session, family_id: int) -> dict:
         """账户资金全景：按类型分组市值、负债、净资产（覆盖游离数据）"""
         # 轻量列加载（避免全量 ORM 实体）；持仓市值聚合必须保留逐行 ROUND_HALF_UP 语义（tech-debt §13，#911 M4）
+        # 只统计 active 持仓（2026-10-28 修复）：`shadow` 是 E账户导入写下的**对账镜像行**，
+        # 与真身同 (symbol, 份额)，按 `position_scope` 的口径本就不该进总资产。此前这里
+        # 没有过滤，镜像行因 `ledger_id` 为 NULL 走「孤儿」通道**二次计入**总资产 ——
+        # 本地库实测虚增 ¥253,916.91（93 条镜像 + 1 条带账户的镜像）。
         all_positions = (
-            db.query(Position.ledger_id, Position.current_price, Position.quantity)
+            active_holdings(db.query(Position.ledger_id, Position.current_price, Position.quantity))
             .filter(Position.family_id == family_id)
             .all()
         )
@@ -161,7 +171,11 @@ class LedgerService:
             type_groups[t]['count'] += 1
             type_groups[t]['total'] += Money.cents_to_yuan(total_cents)
 
-        # 处理已删除账户和游离数据（ledger_id 无效或为 None）
+        # 处理「未归属」数据：ledger_id 为 None（游离）或指向已删除账户。
+        # 两者语义不同但同属「账户归属缺失」，故合并为一组展示；`count` 是**来源组数**
+        # （None 记 1 组 + 每个悬空 ledger_id 各 1 组），**不是账户个数** ——
+        # 2026-10-28 前前端把它读成「N 个已删除账户」，把 LEDGER_ID 为 NULL 的游离数据
+        # 也说成了已删除账户（本地库实测：93 条 E账户镜像行被如此误报）。
         orphan_cents = 0
         orphan_ledger_ids = set()
         for lid in set(list(pos_map.keys()) + list(asset_map.keys()) + list(orphan_map.keys())):
@@ -177,7 +191,7 @@ class LedgerService:
         if orphan_ledger_ids:
             type_groups['deleted'] = {
                 'type': 'deleted',
-                'label': '已删除账户',
+                'label': '未归属数据',
                 'count': len(orphan_ledger_ids),
                 'total': Money.cents_to_yuan(orphan_cents),
             }
@@ -427,9 +441,13 @@ class LedgerService:
             .scalar()
         )
         # 2. 理财/基金持仓
-        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
-        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
-        fund_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in positions)
+        # 口径复用 get_portfolio_stats：基金按最新净值、非基金按 current_price。
+        # 为什么不再自己按 current_price 累加（2026-10-28）：银行账户也能持有基金（微众等），
+        # 而 fund 类型账户走的是净值口径。两套口径并存时，把导入产生的幽灵基金账户合并回
+        # 银行账户，卡片总资产会平白变动 1,224.97 元（本地库 021180 等 18 只基金），
+        # 用户看到的是「合并把数据改了」。统一到净值口径后合并前后数字一致。
+        portfolio = LedgerService.get_portfolio_stats(db, ledger_id)
+        fund_mv = Money.yuan_to_cents(portfolio['total_market_value'])
         total_balance = current_amount + fund_mv
 
         # 🔥 3. 新增：查询该银行卡下关联的负债（房贷）
@@ -443,8 +461,9 @@ class LedgerService:
             'total_market_value': Money.cents_to_yuan(total_balance),
             'current_balance': Money.cents_to_yuan(current_amount),
             'cash_balance': Money.cents_to_yuan(current_amount),
-            'fund_value': Money.cents_to_yuan(fund_mv),
-            'position_count': len(positions),
+            'fund_value': portfolio['total_market_value'],
+            'position_pnl': portfolio['position_pnl'],
+            'position_count': portfolio['position_count'],
             # 🔥 新增字段，直接暴露给视图层
             'linked_liability': Money.cents_to_yuan(liability_cents) if liability_cents else 0.0,
         }
@@ -484,7 +503,9 @@ class LedgerService:
         elif ledger.ledger_type == 'bank':
             stats = LedgerService.get_bank_stats(db, ledger.id)
             item['total_market_value'] = stats['total_market_value']
-            item['pnl'] = 0.0  # bank 不直接显示盈亏
+            # 银行账户也可能持有基金（微众等：现金 + 自购基金同账户），持仓盈亏照实报，
+            # 不再写死 0 —— 否则合并账户后用户会以为盈亏凭空消失。
+            item['pnl'] = stats['position_pnl']
             item['position_count'] = stats.get('position_count', 0)
             item['cash_balance'] = stats['current_balance']
             # 🔥 负债必须从 stats 拿，视图层不做 SQL 聚合
@@ -607,6 +628,15 @@ class LedgerService:
                     'holding_days': (today_shanghai() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,
                     'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未配置'),
+                    # 所属组合（D20 持仓级组合）：账户详情页「所属组合」列据此区分
+                    # 「显式指派」与「随账户继承」。``None`` = 未指派、归到本账户默认组合。
+                    # 只增不改：本键缺失会让前端把「继承」误渲染成「未归属」。
+                    'portfolio_id': p.portfolio_id,
+                    # 是否计入组合（D20 二期开口项 4）：类现金资产会被
+                    # `build_portfolio_holdings` 滤掉，该行即便改派也不会出现在组合里。
+                    # 判据与聚合层同一个函数——前端不许按 asset_type 自己判（那等于抄
+                    # 第二份 `EXCLUDED_ASSET_TYPES`）。本键缺失会让货基行的改派入口复活。
+                    'in_portfolio': not should_exclude_from_investment(p),
                     'position_ratio': ratio,  # 绝对为 float
                     'back_to_cost_rate': back,
                     'fund_category': None,
@@ -628,29 +658,33 @@ class LedgerService:
             like = f'%{search}%'
             query = query.filter(or_(Transaction.position_name.ilike(like), Transaction.symbol.ilike(like)))
         total = query.count()
-        txn_list = (
-            query.order_by(
-                Transaction.confirm_date.desc().nullslast(),
-                Transaction.created_at.desc(),
-            )
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
+        # 排序与 `/api/transactions` 同源（`order_by_effective_day`）：此前这里是
+        # `confirm_date DESC NULLS LAST, created_at DESC`——只有交易日的行被甩到末尾，
+        # 批量导入又按「导入批次」排，与详情页顺序相反（#2171 / #2712）。
+        txn_list = order_by_effective_day(query).offset((page - 1) * per_page).limit(per_page).all()
 
         # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」
         pos_names, _ledger_names = resolve_transaction_display_names(db, txn_list)
+        # #2712：asset_type 快照为 NULL 时按持仓/基金名录回解析——前端价格列靠它决定
+        # 位数（基金 4 位 / 其余 2 位），缺失会把净值 1.2200 显示成 1.22。
+        asset_types = resolve_transaction_asset_types(db, txn_list)
 
         items = []
         for t in txn_list:
             items.append(
                 {
                     'id': t.id,
-                    'confirm_date': t.confirm_date.isoformat() if t.confirm_date else None,
-                    'trade_date': t.trade_date.isoformat() if t.trade_date else None,
+                    # 日期一律 `YYYY-MM-DD`（#2712）：trade_date 是 DateTime，isoformat 会带
+                    # `T00:00:00`，与 /api/transactions 的 strftime 口径分裂
+                    'confirm_date': iso_date_only(t.confirm_date),
+                    'trade_date': iso_date_only(t.trade_date),
                     'txn_type': t.txn_type,
-                    'asset_type': t.asset_type,
-                    'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
+                    'asset_type': t.asset_type or asset_types.get(t.id),
+                    'position_name': display_asset_name(
+                        position_name=t.position_name or pos_names.get(t.id),
+                        asset_type=t.asset_type or asset_types.get(t.id),
+                        txn_type=t.txn_type,
+                    ),
                     'symbol': t.symbol or '',
                     'price': Money.price_units_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),

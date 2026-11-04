@@ -2,6 +2,12 @@
   CrowdingTable · 行业拥挤度排行表格
   从 temperature/index.vue 拆分（#980），模板与相关样式随组件 scoped 迁移。
   内部复用 utils/temperatureFormat 的 crowdingColorClass / crowdingBarStyle。
+
+  #980 批 B5 二次拆分（纯搬运，零视觉/行为变更）：
+    · 三类单元格（分值+条 / 双数字 / 表头气泡）→ CrowdingMetricCell /
+      CrowdingDimCell / CrowdingHeaderTip
+    · 数字写法（`--` 占位、正负号、亿单位）→ crowdingCells.ts 纯函数
+  本文件只留列定义与外壳。
 -->
 <template>
   <!-- 非 embedded 时根节点换成 CardBlock：区块外壳统一由 CardBlock 提供（#1547 T3.1） -->
@@ -54,6 +60,8 @@
           >
         </template>
       </el-table-column>
+      <!-- 三列同构（回看 CrowdingMetricCell）：拥挤度 / 成交额占比 / 换手率都是
+           「历史分位 0–100 + 进度条」，配色语义一致——越高越热（红），越低越冷（绿）。 -->
       <el-table-column
         prop="data.crowding_pct"
         width="140"
@@ -61,35 +69,13 @@
         sortable
       >
         <template #header>
-          <el-tooltip
+          <CrowdingHeaderTip
             content="综合拥挤度分位（0-100）：综合成交额占比、换手率、60日线上占比、新高占比、融资买入占比、百万大单等多维度合成的历史分位，越高越拥挤。"
-            placement="top"
+            >拥挤度</CrowdingHeaderTip
           >
-            <span>拥挤度</span>
-          </el-tooltip>
         </template>
         <template #default="{ row }">
-          <div class="crowding-cell">
-            <span
-              class="crowding-value"
-              :class="crowdingColorClass(row.data?.crowding_pct)"
-            >
-              {{
-                row.data?.crowding_pct != null
-                  ? row.data.crowding_pct.toFixed(1) + "%"
-                  : "--"
-              }}
-            </span>
-            <div class="crowding-cell-bar">
-              <div class="crowding-cell-track">
-                <div
-                  class="crowding-cell-fill"
-                  :class="crowdingColorClass(row.data?.crowding_pct)"
-                  :style="crowdingBarStyle(row.data?.crowding_pct)"
-                />
-              </div>
-            </div>
-          </div>
+          <CrowdingMetricCell :value="row.data?.crowding_pct" />
         </template>
       </el-table-column>
       <!-- 成交额占比（历史百分位）：复用拥挤度配色与进度条语义，数据源降级为 null 时显示 -- -->
@@ -100,35 +86,13 @@
         sortable
       >
         <template #header>
-          <el-tooltip
+          <CrowdingHeaderTip
             content="该行业成交额占比在过去 250 个交易日内的百分位。默认由申万宏源官网单源自算（分母 = 当日 31 个申万一级行业成交额之和）；申万源不可用时回退中证指数官网口径（分母为中证全指），两种口径数值不可直接比较。"
-            placement="top"
+            >成交额占比</CrowdingHeaderTip
           >
-            <span>成交额占比</span>
-          </el-tooltip>
         </template>
         <template #default="{ row }">
-          <div class="crowding-cell">
-            <span
-              class="crowding-value"
-              :class="crowdingColorClass(row.data?.amount_pct_rank)"
-            >
-              {{
-                row.data?.amount_pct_rank != null
-                  ? row.data.amount_pct_rank.toFixed(1) + "%"
-                  : "--"
-              }}
-            </span>
-            <div class="crowding-cell-bar">
-              <div class="crowding-cell-track">
-                <div
-                  class="crowding-cell-fill"
-                  :class="crowdingColorClass(row.data?.amount_pct_rank)"
-                  :style="crowdingBarStyle(row.data?.amount_pct_rank)"
-                />
-              </div>
-            </div>
-          </div>
+          <CrowdingMetricCell :value="row.data?.amount_pct_rank" />
         </template>
       </el-table-column>
       <!-- 换手率（历史百分位）：语义与拥挤度一致，越高越热（红），越低越冷（绿） -->
@@ -140,30 +104,10 @@
         sortable
       >
         <template #default="{ row }">
-          <div class="crowding-cell">
-            <span
-              class="crowding-value"
-              :class="crowdingColorClass(row.data?.turnover_rank)"
-            >
-              {{
-                row.data?.turnover_rank != null
-                  ? row.data.turnover_rank.toFixed(1) + "%"
-                  : "--"
-              }}
-            </span>
-            <div class="crowding-cell-bar">
-              <div class="crowding-cell-track">
-                <div
-                  class="crowding-cell-fill"
-                  :class="crowdingColorClass(row.data?.turnover_rank)"
-                  :style="crowdingBarStyle(row.data?.turnover_rank)"
-                />
-              </div>
-            </div>
-          </div>
+          <CrowdingMetricCell :value="row.data?.turnover_rank" />
         </template>
       </el-table-column>
-      <!-- 以下四列：左侧为当期值、右侧为历史分位 -->
+      <!-- 以下四列：左侧为当期值、右侧为历史分位（回看 CrowdingDimCell） -->
       <el-table-column
         prop="data.ma60_ratio"
         width="120"
@@ -171,23 +115,16 @@
         sortable
       >
         <template #header>
-          <el-tooltip
+          <CrowdingHeaderTip
             content="60 日均线上方个股占比（该行业成分股中收盘价在 MA60 之上的比例）。右侧为该值的历史分位。"
-            placement="top"
+            >60线上占比</CrowdingHeaderTip
           >
-            <span>60线上占比</span>
-          </el-tooltip>
         </template>
         <template #default="{ row }">
-          <div class="dim-cell">
-            <span class="dim-value">{{ fmtPct(row.data?.ma60_ratio) }}</span>
-            <span
-              class="dim-rank"
-              :class="crowdingColorClass(row.data?.ma60_ratio_pct)"
-            >
-              {{ fmtPct(row.data?.ma60_ratio_pct) }}
-            </span>
-          </div>
+          <CrowdingDimCell
+            :value="row.data?.ma60_ratio"
+            :rank="row.data?.ma60_ratio_pct"
+          />
         </template>
       </el-table-column>
       <el-table-column
@@ -197,23 +134,16 @@
         sortable
       >
         <template #header>
-          <el-tooltip
+          <CrowdingHeaderTip
             content="60 日新高个股占比（该行业成分股中创 60 日新高的比例）。右侧为该值的历史分位。"
-            placement="top"
+            >新高占比</CrowdingHeaderTip
           >
-            <span>新高占比</span>
-          </el-tooltip>
         </template>
         <template #default="{ row }">
-          <div class="dim-cell">
-            <span class="dim-value">{{ fmtPct(row.data?.high60_ratio) }}</span>
-            <span
-              class="dim-rank"
-              :class="crowdingColorClass(row.data?.high60_ratio_pct)"
-            >
-              {{ fmtPct(row.data?.high60_ratio_pct) }}
-            </span>
-          </div>
+          <CrowdingDimCell
+            :value="row.data?.high60_ratio"
+            :rank="row.data?.high60_ratio_pct"
+          />
         </template>
       </el-table-column>
       <el-table-column
@@ -223,43 +153,27 @@
         sortable
       >
         <template #header>
-          <el-tooltip
+          <CrowdingHeaderTip
             content="融资买入额占该行业成交额比例。右侧为该值的历史分位（融资余额是相对慢变量）。"
-            placement="top"
+            >融资买入占比</CrowdingHeaderTip
           >
-            <span>融资买入占比</span>
-          </el-tooltip>
         </template>
         <template #default="{ row }">
-          <div class="dim-cell">
-            <span class="dim-value">{{ fmtPct(row.data?.margin_ratio) }}</span>
-            <span
-              class="dim-rank"
-              :class="crowdingColorClass(row.data?.margin_ratio_pct)"
-            >
-              {{ fmtPct(row.data?.margin_ratio_pct) }}
-            </span>
-          </div>
+          <CrowdingDimCell
+            :value="row.data?.margin_ratio"
+            :rank="row.data?.margin_ratio_pct"
+          />
         </template>
       </el-table-column>
       <el-table-column prop="data.big_order" width="120" align="right" sortable>
         <template #header>
-          <el-tooltip
-            content="百万大单净买入额（亿元，正=净买入）。"
-            placement="top"
+          <CrowdingHeaderTip content="百万大单净买入额（亿元，正=净买入）。"
+            >百万大单</CrowdingHeaderTip
           >
-            <span>百万大单</span>
-          </el-tooltip>
         </template>
         <template #default="{ row }">
           <span :class="bigOrderClass(row.data?.big_order)">
-            {{
-              row.data?.big_order != null
-                ? (row.data.big_order > 0 ? "+" : "") +
-                  row.data.big_order.toFixed(1) +
-                  "亿"
-                : "--"
-            }}
+            {{ bigOrderText(row.data?.big_order) }}
           </span>
         </template>
       </el-table-column>
@@ -296,27 +210,13 @@
 <script setup lang="ts">
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import {
-  biasColorClass,
-  crowdingBarStyle,
-  crowdingColorClass,
-  formatValue
-} from "@/utils/temperatureFormat";
+import CrowdingMetricCell from "./CrowdingMetricCell.vue";
+import CrowdingDimCell from "./CrowdingDimCell.vue";
+import CrowdingHeaderTip from "./CrowdingHeaderTip.vue";
+import { biasColorClass, formatValue } from "@/utils/temperatureFormat";
+import { BIAS_WINDOWS, bigOrderClass, bigOrderText } from "./crowdingCells";
 
 defineOptions({ name: "CrowdingTable" });
-
-/** 百分比展示：null/undefined → “--”，否则一位小数 + %（外部源与自算值共用） */
-const fmtPct = (v: number | null | undefined) =>
-  v == null ? "--" : `${Number(v).toFixed(1)}%`;
-
-/** 百万大单着色：净买入红、净卖出绿（沿用全站涨跌配色语义） */
-const bigOrderClass = (v: number | null | undefined) => {
-  if (v == null || v === 0) return "";
-  return v > 0 ? "big-order--in" : "big-order--out";
-};
-
-/** 行业乖离率窗口（简单 MA 口径，与后端 sw_industry_source.BIAS_WINDOWS 对齐） */
-const BIAS_WINDOWS = [6, 20, 60];
 
 withDefaults(
   defineProps<{
@@ -400,87 +300,6 @@ withDefaults(
   text-align: center;
 }
 
-/* ===== 拥挤度单元格（数值 + 进度条） ===== */
-.crowding-cell {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.crowding-value {
-  min-width: 52px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.crowding-cell-bar {
-  flex: 1;
-  max-width: 96px;
-}
-
-.crowding-cell-track {
-  position: relative;
-  height: 8px;
-  overflow: hidden;
-  background: var(--border-default);
-  border-radius: 4px;
-}
-
-.crowding-cell-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.4s ease;
-}
-
-.crowding-cell-fill.val-low {
-  background: var(--temp-low);
-}
-
-.crowding-cell-fill.val-mid {
-  background: var(--temp-mid);
-}
-
-.crowding-cell-fill.val-high {
-  background: var(--temp-high);
-}
-
-/* ===== 外部源维度单元格（当期值 + 历史分位，分位沿用 val-* 档位配色） ===== */
-.dim-cell {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  justify-content: flex-end;
-}
-
-.dim-value {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.dim-rank {
-  min-width: 42px;
-  font-size: var(--text-label);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.dim-rank.val-low {
-  color: var(--temp-low-ink);
-}
-
-.dim-rank.val-mid {
-  color: var(--temp-mid-ink);
-}
-
-.dim-rank.val-high {
-  color: var(--temp-high-ink);
-}
-
 /* 百万大单：净买入（红）/ 净卖出（绿），沿用涨跌配色语义 */
 .big-order--in {
   font-variant-numeric: tabular-nums;
@@ -492,16 +311,19 @@ withDefaults(
   color: var(--temp-low-ink);
 }
 
-/* ===== 拥挤度数值颜色（val-* 令牌） ===== */
-.val-high {
+/* ===== 拥挤度数值颜色（val-* 令牌） =====
+   这三条是**跨子件共用**的：`CrowdingMetricCell` 的数值与 `CrowdingDimCell` 的分位
+   都靠 `*.val-*` 拿颜色。scoped 样式不穿透子组件，所以在父级用 `:deep()` 出**一份**——
+   各子件再写一份虽然也能跑，但那意味着同一个令牌值有三处副本，改色必漏。 */
+:deep(.val-high) {
   color: var(--temp-high-ink);
 }
 
-.val-low {
+:deep(.val-low) {
   color: var(--temp-low-ink);
 }
 
-.val-mid {
+:deep(.val-mid) {
   color: var(--text-secondary);
 }
 </style>

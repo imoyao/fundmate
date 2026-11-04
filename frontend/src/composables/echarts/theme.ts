@@ -3,7 +3,8 @@ import { ref, type Ref } from "vue";
 /**
  * ECharts 取色工具。
  * 设计红线（见 frontend/design.md）：图表颜色一律走 CSS 语义变量，禁止硬编码 hex。
- * 暗色模式由 [data-theme="dark"] 自动切换，业务/图表代码不判断主题。
+ * 暗色模式由 <html> 上的 .dark 类（dark.scss 的 `:root.dark` 覆盖同名变量）自动切换，
+ * 业务/图表代码不判断主题。注意不是 data-theme 属性——它只承载配色主题名。
  */
 
 /**

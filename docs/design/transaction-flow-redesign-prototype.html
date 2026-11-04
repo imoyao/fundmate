@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>交易流水 · 桌面端重设计（2026-10-31）</title>
+<style>
+  /* ============================================================
+     令牌：全部取自 frontend/src/style/colors.css + design-tokens.css
+     本文件不含新色值；仅此处集中声明，便于与代码库逐条核对。
+     ============================================================ */
+  :root {
+    --bg-page: #fdfbf7;
+    --bg-warm: #faf6f0;
+    --bg-card: #ffffff;
+    --bg-soft: #f5f0eb;
+    --bg-subtle: #f7f3ee;
+    --bg-hover: #f2ede8;
+    --bg-muted: #f5f7fa;
+
+    --brand-100: #fff5f3;
+    --brand-200: #feede8;
+    --brand-400: #fabdb0;
+    --brand-700: #e34f38;
+    --brand-800: #cc3d27;
+
+    --color-rise: #e34f38;
+    --color-rise-ink: #c0341f;
+    --color-fall: #7bc49a;
+    --color-fall-ink: #1f6b43;
+    --color-danger-ink: #d4364a;
+    --color-warning-ink: #806218;
+    --color-info-ink: #4e6f7d;
+    --color-primary-ink: #5b5f85;
+
+    --text-primary: #2d2a24;
+    --text-secondary: #6b655c;
+    --text-tertiary-ink: #716a60;
+    --text-tertiary: #8c8478;
+    --text-disabled: #c9c2b8;
+
+    --border-default: #e5ddd4;
+    --border-light: #f0ebe4;
+    --border-subtle: rgba(229, 221, 212, .5);
+
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-pill: 9999px;
+
+    --shadow-raised: 0 2px 16px rgba(180, 150, 130, .06);
+    --shadow-float: 0 8px 32px rgba(180, 150, 130, .08);
+    --focus-ring: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--brand-700);
+
+    --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    --font-number: "SF Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--bg-page); }
+  body {
+    margin: 0;
+    padding: 48px 32px 96px;
+    color: var(--text-primary);
+    font: 400 14px/1.6 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+  }
+  .doc { max-width: 1400px; margin: 0 auto; }
+  h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.2px; }
+  a { color: inherit; }
+
+  /* ---------- 文稿区 ---------- */
+  .doc-head { max-width: 860px; }
+  .doc-head h1 { font-size: 30px; font-weight: 600; }
+  .doc-head .lede {
+    margin: 10px 0 0;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
+  .doc-head .meta {
+    margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .tag {
+    padding: 3px 10px; font-size: 12px; color: var(--text-tertiary-ink);
+    background: var(--bg-soft); border-radius: var(--radius-pill);
+  }
+
+  .section { margin-top: 56px; }
+  .section > h2 {
+    font-size: 13px; font-weight: 600; color: var(--text-tertiary-ink);
+    letter-spacing: .3px; margin-bottom: 16px;
+  }
+  .section > h2::after {
+    content: ""; display: block; width: 28px; height: 1px;
+    margin-top: 8px; background: var(--brand-400);
+  }
+
+  .plan { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 1080px) { .plan { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .plan-card {
+    background: var(--bg-card); border: 1px solid var(--border-light);
+    border-radius: var(--radius-md); padding: 18px 20px; box-shadow: var(--shadow-raised);
+  }
+  .plan-card h3 { font-size: 13px; color: var(--text-tertiary-ink); font-weight: 600; }
+  .plan-card p { margin: 10px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.75; }
+  .plan-card dl { margin: 10px 0 0; font-size: 13px; }
+  .plan-card dt { color: var(--text-tertiary-ink); margin-top: 8px; }
+  .plan-card dd { margin: 2px 0 0; color: var(--text-primary); }
+  .swatches { display: flex; gap: 6px; margin-top: 12px; }
+  .sw { width: 34px; height: 34px; border-radius: var(--radius-sm); border: 1px solid rgba(0,0,0,.04); }
+  .sw span { display: none; }
+
+  pre.wire {
+    margin: 0; padding: 18px 20px; overflow-x: auto;
+    font: 12px/1.75 var(--font-number); color: var(--text-secondary);
+    background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md);
+  }
+
+  /* ---------- 应用框 ---------- */
+  .frame-shell { margin-top: 8px; }
+  .frame {
+    display: grid; grid-template-columns: 218px minmax(0, 1fr);
+    height: 900px; overflow: hidden;
+    background: var(--bg-page);
+    border: 1px solid var(--border-default); border-radius: 14px;
+    box-shadow: 0 24px 64px rgba(180, 150, 130, .14);
+  }
+  .frame-note {
+    margin: 10px 0 0; font-size: 12px; color: var(--text-tertiary-ink);
+  }
+
+  /* 侧栏（示意，非本次设计对象） */
+  .side {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 16px 12px; background: var(--bg-warm);
+    border-right: 1px solid var(--border-light);
+  }
+  .side-brand { display: flex; align-items: center; gap: 8px; padding: 4px 8px 16px; }
+  .side-brand i {
+    width: 22px; height: 22px; border-radius: 7px;
+    background: var(--brand-700); display: inline-block;
+  }
+  .side-brand b { font-size: 14px; letter-spacing: .2px; }
+  .side-group { padding: 12px 8px 6px; font-size: 11px; color: var(--text-tertiary); }
+  .side-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 10px; font-size: 13px; color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+  }
+  .side-item i {
+    width: 14px; height: 14px; border-radius: 4px;
+    border: 1.5px solid var(--text-tertiary); opacity: .7;
+  }
+  .side-item.is-active {
+    color: var(--brand-700); background: var(--brand-100); font-weight: 600;
+  }
+  .side-item.is-active i { border-color: var(--brand-700); opacity: 1; }
+
+  /* min-height:0 是必须的：flex 子项默认 min-height:auto，
+     不加这行 .page 会被内容撑高、永不滚动（内容直接被 .frame 裁掉） */
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 56px; padding: 0 24px; flex: none;
+    background: rgba(255, 255, 255, .72);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-tertiary-ink); }
+  .crumbs b { color: var(--text-primary); font-weight: 600; }
+  .crumbs .sep { color: var(--text-disabled); }
+  .topbar-right { display: flex; align-items: center; gap: 14px; }
+  .dot-btn { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--text-tertiary); }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--bg-soft); border: 1px solid var(--border-default); }
+
+  .page { flex: 1; min-height: 0; padding: 24px; overflow-y: auto; }
+
+  /* ---------- 页头（PageHeaderBar） ---------- */
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .page-head h1 { font-size: 32px; font-weight: 300; line-height: 1.2; letter-spacing: -.4px; }
+  .page-head p { margin: 8px 0 0; font-size: 14px; color: var(--text-secondary); }
+  .page-actions { display: flex; align-items: center; gap: 8px; flex: none; padding-top: 4px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 32px; padding: 0 12px;
+    font: 500 13px/1 var(--font-ui); color: var(--text-primary);
+    background: var(--bg-card); border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm); cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .btn:hover { background: var(--bg-hover); border-color: var(--text-disabled); }
+  .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .btn svg { width: 13px; height: 13px; }
+
+  /* ---------- 汇总条（三层字号：标签 11 / 数值 17 / 笔数 11，净投入 20 主指标） ---------- */
+  .strip {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 26px;
+    margin-top: 18px; padding: 14px 18px;
+    background: var(--bg-card); border: 1px solid var(--border-light);
+    border-radius: var(--radius-md); box-shadow: var(--shadow-raised);
+  }
+  .strip .scope {
+    align-self: flex-start; flex: none;
+    padding: 3px 8px; font-size: 11px; line-height: 1.2; letter-spacing: .2px;
+    color: var(--text-tertiary-ink); background: var(--bg-soft);
+    border-radius: var(--radius-pill); white-space: nowrap;
+  }
+  .m { display: inline-flex; flex-direction: column; gap: 4px; }
+  .m-label {
+    font-size: 11px; line-height: 1.3; font-weight: 400; letter-spacing: .2px;
+    color: var(--text-tertiary-ink); white-space: nowrap;
+  }
+  .m-line { display: inline-flex; align-items: baseline; gap: 6px; }
+  .m-value {
+    font-family: var(--font-number); font-size: 17px; font-weight: 500; line-height: 1.1;
+    font-variant-numeric: tabular-nums; color: var(--text-primary); letter-spacing: -.3px;
+  }
+  .m-value .cur {
+    font-size: .7em; font-weight: 400; letter-spacing: 0;
+    color: var(--text-tertiary-ink); margin-right: 1px;
+  }
+  .m-sub { font-size: 11px; line-height: 1; color: var(--text-tertiary-ink); font-variant-numeric: tabular-nums; }
+  .strip .net {
+    margin-left: auto; padding-left: 24px;
+    border-left: 1px solid var(--border-light);
+  }
+  .strip .net .m-label { color: var(--text-secondary); }
+  .strip .net .m-value { font-size: 20px; font-weight: 600; letter-spacing: -.5px; }
+  .strip .net .m-value .cur { font-size: .62em; }
+
+  /* ---------- 筛选 ---------- */
+  .filters {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .seg {
+    display: inline-flex; gap: 2px; padding: 3px;
+    background: var(--bg-soft); border: 1px solid var(--border-default);
+    border-radius: var(--radius-pill);
+  }
+  .seg button {
+    height: 26px; padding: 0 14px; border: 0; border-radius: var(--radius-pill);
+    background: transparent; color: var(--text-secondary);
+    font: 400 13px/1 var(--font-ui); cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .seg button:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .seg button[aria-selected="true"] {
+    color: var(--brand-700); background: var(--brand-100); font-weight: 600;
+  }
+  .seg button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .seg--sm { padding: 2px; border-color: transparent; }
+  .seg--sm button { height: 20px; padding: 0 10px; font-size: 12px; }
+
+  .field { position: relative; display: inline-flex; align-items: center; }
+  .field select {
+    height: 32px; min-width: 108px; padding: 0 28px 0 10px;
+    font: 400 13px/1 var(--font-ui); color: var(--text-primary);
+    background: var(--bg-card); border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm); appearance: none; cursor: pointer;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .field select:hover { border-color: var(--brand-400); }
+  .field select:focus-visible {
+    outline: none; border-color: var(--brand-700);
+    box-shadow: inset 0 0 0 1px var(--brand-700), 0 0 0 3px rgba(227, 79, 56, .12);
+  }
+  .field svg {
+    position: absolute; right: 9px; width: 10px; height: 10px;
+    pointer-events: none; color: var(--text-tertiary);
+  }
+  .spacer { flex: 1; }
+  /* 纯图标按钮：28×28 视觉 + 40×40 命中区（design.md「紧凑工具条按钮」）。
+     命中区只能用 ::after 扩，不能用 padding（会连可见圆一起撑大）。 */
+  .icon-btn {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; color: var(--text-secondary);
+    background: var(--bg-card); border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .icon-btn::after { content: ""; position: absolute; inset: -6px; }
+  .icon-btn:hover { background: var(--bg-hover); }
+  .icon-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 26px; padding: 0 6px 0 10px; font-size: 12px;
+    color: var(--text-secondary); background: var(--bg-subtle);
+    border: 1px solid var(--border-light); border-radius: var(--radius-pill);
+  }
+  .chip b { font-family: var(--font-number); font-weight: 500; color: var(--text-primary); }
+  .chip button {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; padding: 0; color: var(--text-tertiary-ink);
+    background: transparent; border: 0; border-radius: 50%; cursor: pointer;
+  }
+  .chip button:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* ---------- 列表卡 ---------- */
+  .card {
+    margin-top: 16px; background: var(--bg-card);
+    border: 1px solid var(--border-light); border-radius: var(--radius-md);
+    box-shadow: var(--shadow-raised);
+    /* 用 clip 而非 hidden：hidden 会建滚动容器，把月头的 sticky 顶失效 */
+    overflow: clip;
+  }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border-light);
+  }
+  .card-head .meta { font-size: 12px; color: var(--text-tertiary-ink); }
+  .card-head .meta b { font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+  /* 表格 */
+  .table-scroll { overflow-x: auto; }
+  table.trx { width: 100%; min-width: 1086px; border-collapse: collapse; table-layout: fixed; }
+  table.trx col.c-asset { width: 196px; }
+  table.trx col.c-acct { width: 124px; }
+  table.trx col.c-date { width: 92px; }
+  table.trx col.c-type { width: 64px; }
+  table.trx col.c-price { width: 86px; }
+  table.trx col.c-qty { width: 90px; }
+  table.trx col.c-amt { width: 104px; }
+  table.trx col.c-fee { width: 78px; }
+  table.trx col.c-status { width: 78px; }
+  table.trx col.c-notes { width: auto; min-width: 104px; }
+  table.trx col.c-act { width: 72px; }
+
+  table.trx thead th {
+    height: 40px; padding: 0 12px;
+    font: 500 13px/1 var(--font-ui); color: var(--text-tertiary-ink);
+    text-align: left; white-space: nowrap;
+    background: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-light);
+  }
+  table.trx thead th.num { text-align: right; }
+  table.trx tbody td {
+    height: 48px; padding: 0 12px;
+    border-bottom: 1px solid var(--border-light);
+    vertical-align: middle;
+  }
+  table.trx tbody tr:last-child td { border-bottom: 0; }
+  table.trx tbody tr { transition: background-color 150ms ease; }
+  table.trx tbody tr:hover { background: var(--bg-soft); }
+  table.trx tbody tr:hover .row-act { opacity: 1; }
+  table.trx tbody tr:focus-within { background: var(--bg-soft); }
+  table.trx tbody tr:focus-within .row-act { opacity: 1; }
+  table.trx td.num { text-align: right; }
+
+  /* 冻结列（对应 el-table 的 fixed="left" / "right"）：
+     资产列与操作列常驻，中间列横滚（1366 屏下表宽 1086 < 可视 1098，正常不触发；
+     窄屏或未来加列时才用得上）。 */
+  table.trx th:first-child, table.trx td:first-child,
+  table.trx th:last-child, table.trx td:last-child {
+    position: sticky; z-index: 1; background: var(--bg-card);
+  }
+  table.trx th:first-child, table.trx td:first-child { left: 0; box-shadow: 1px 0 0 var(--border-light); }
+  table.trx th:last-child, table.trx td:last-child { right: 0; box-shadow: -1px 0 0 var(--border-light); }
+  table.trx thead th:first-child, table.trx thead th:last-child { background: var(--bg-subtle); z-index: 3; }
+  table.trx tbody tr:hover td:first-child, table.trx tbody tr:hover td:last-child { background: var(--bg-soft); }
+
+  /* 资产单元 */
+  .asset { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .asset-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .asset-name .nm {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; font-weight: 500; color: var(--text-primary); line-height: 20px;
+  }
+  .asset-meta {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font: 400 12px/16px var(--font-number); color: var(--text-tertiary-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .asset-meta.is-plain { font-family: var(--font-ui); font-size: 11px; color: var(--text-tertiary-ink); }
+
+  .badge {
+    flex: none; display: inline-flex; align-items: center; height: 16px;
+    padding: 0 6px; font-size: 11px; font-weight: 400; line-height: 1;
+    color: var(--text-secondary); background: var(--bg-soft);
+    border-radius: var(--radius-pill); white-space: nowrap;
+  }
+  .badge--cancelled { display: none; }
+
+  /* 账户胶囊 */
+  .acct {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+    height: 24px; padding: 0 8px;
+    font-size: 12px; color: var(--text-secondary); text-decoration: none;
+    background: var(--bg-subtle); border-radius: var(--radius-sm);
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .acct span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct svg { width: 10px; height: 10px; flex: none; opacity: 0; transition: opacity 150ms ease; }
+  a.acct:hover { color: var(--color-primary-ink); background: var(--bg-hover); }
+  a.acct:hover svg { opacity: 1; }
+  a.acct:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .acct--none {
+    color: var(--text-tertiary-ink); background: transparent;
+    border: 1px dashed var(--border-default); cursor: default;
+  }
+
+  /* 类型 / 状态 / 数字 */
+  .ty { font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .ty-buy, .ty-deposit { color: var(--color-rise-ink); }
+  .ty-sell, .ty-withdraw { color: var(--color-fall-ink); }
+  .ty-dividend, .ty-split, .ty-dividend_reinvest { color: var(--color-info-ink); }
+
+  .st { font-size: 12px; white-space: nowrap; color: var(--text-tertiary-ink); }
+  .st-ok { color: var(--text-tertiary-ink); }
+  .st-failed { color: var(--color-danger-ink); font-weight: 500; }
+  .st-cancelled { color: var(--text-secondary); }
+  .st-pending { color: var(--color-warning-ink); font-weight: 500; }
+
+  .num-txt {
+    font-family: var(--font-number); font-size: 13px; font-variant-numeric: tabular-nums;
+    color: var(--text-primary); white-space: nowrap;
+  }
+  .num-txt.is-void { color: var(--text-disabled); }
+  .num-txt.is-strong { font-size: 14px; font-weight: 500; }
+  .num-txt.is-quiet { color: var(--text-tertiary-ink); }
+  .num-txt.is-struck { text-decoration: line-through; text-decoration-color: var(--text-disabled); color: var(--text-tertiary-ink); }
+
+  .notes {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px; color: var(--text-tertiary-ink);
+  }
+  .notes.is-empty { color: var(--text-disabled); }
+
+  .row-act { display: flex; justify-content: flex-end; opacity: 0; transition: opacity 150ms ease; }
+  .row-act button {
+    height: 24px; padding: 0 8px; font: 400 12px/1 var(--font-ui); color: var(--text-secondary);
+    background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .row-act button:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .row-act button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+  /* ---------- 流水线 ---------- */
+  .flow-wrap { padding: 0 0 8px; }
+  .month { border-bottom: 1px solid var(--border-light); }
+  .month:last-child { border-bottom: 0; }
+  .month-head {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    height: 44px; padding: 0 16px; text-align: left;
+    background: var(--bg-warm); border: 0; border-bottom: 1px solid var(--border-light);
+    cursor: pointer; color: var(--text-primary);
+  }
+  .month-head:hover { background: var(--bg-soft); }
+  .month-head:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+  .month-head .chev { width: 11px; height: 11px; color: var(--text-tertiary-ink); transition: transform 150ms ease; }
+  .month-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+  .month-head .m-title { font-size: 13px; font-weight: 600; letter-spacing: .2px; }
+  .month-head .m-stats {
+    margin-left: auto; display: flex; gap: 16px; font-size: 12px; color: var(--text-tertiary-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .month-head .m-stats b { font-family: var(--font-number); font-weight: 500; color: var(--text-secondary); }
+
+  .flow { margin: 0; padding: 0; list-style: none; }
+  .flow-row {
+    display: grid;
+    grid-template-columns: 58px 72px minmax(0, 340px) 136px minmax(140px, 1fr) 76px 48px;
+    align-items: center; gap: 16px;
+    min-height: 58px; padding: 8px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background-color 150ms ease;
+  }
+  .flow-row:last-child { border-bottom: 0; }
+  .flow-row:hover { background: var(--bg-soft); }
+  .flow-row:hover .row-act, .flow-row:focus-within .row-act { opacity: 1; }
+  .f-date { font: 400 12px/1 var(--font-number); color: var(--text-tertiary-ink); font-variant-numeric: tabular-nums; }
+  .f-type { white-space: nowrap; }
+  .f-type svg { width: 11px; height: 11px; }
+  .f-asset { min-width: 0; }
+  .f-asset .asset { gap: 2px; }
+  .f-aside { margin-top: 2px; font-size: 11px; color: var(--text-tertiary-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .f-acct { min-width: 0; }
+  .f-amt { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .f-amt .sub { font-size: 11px; color: var(--text-tertiary-ink); font-variant-numeric: tabular-nums; }
+  .f-status { text-align: right; }
+  .flow-row .row-act { opacity: 0; }
+
+  /* ---------- 空态 / 页脚 ---------- */
+  .empty { padding: 56px 24px 64px; text-align: center; }
+  .empty svg { width: 52px; height: 52px; color: var(--brand-600); }
+  .empty h3 { margin: 14px 0 6px; font-size: 15px; font-weight: 500; }
+  .empty p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+  .empty .btn { margin-top: 16px; }
+
+  .card-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-top: 1px solid var(--border-light);
+    font-size: 12px; color: var(--text-tertiary-ink);
+  }
+  .pager { display: flex; align-items: center; gap: 4px; }
+  .pager button {
+    min-width: 26px; height: 26px; padding: 0 7px;
+    font: 400 12px/1 var(--font-ui); color: var(--text-secondary);
+    background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .pager button:hover { background: var(--bg-hover); }
+  .pager button.is-on { color: var(--brand-700); background: var(--brand-100); font-weight: 600; }
+  .pager button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+  /* ---------- 说明表 ---------- */
+  table.spec { width: 100%; border-collapse: collapse; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md); overflow: hidden; }
+  table.spec th, table.spec td { padding: 11px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border-light); font-size: 13px; }
+  table.spec thead th { font-size: 12px; font-weight: 500; color: var(--text-tertiary-ink); background: var(--bg-subtle); }
+  table.spec tbody tr:last-child td { border-bottom: 0; }
+  table.spec td:first-child { color: var(--text-secondary); width: 26%; }
+  table.spec td code { font: 400 12px/1.5 var(--font-number); color: var(--brand-800); background: var(--bg-subtle); padding: 1px 5px; border-radius: 4px; }
+  .ok { color: var(--color-fall-ink); font-weight: 600; }
+  .no { color: var(--color-danger-ink); font-weight: 600; }
+
+  ul.plain { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-secondary); line-height: 1.9; }
+  ul.plain li::marker { color: var(--brand-400); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 12px);
+    padding: 9px 16px; font-size: 13px; color: var(--text-inverse, #fff);
+    background: #2d2a24; border-radius: var(--radius-pill);
+    opacity: 0; pointer-events: none; transition: opacity 200ms ease, transform 200ms ease;
+    z-index: 50;
+  }
+  .toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <header class="doc-head">
+    <h1>交易流水 · 桌面端重设计</h1>
+    <p class="lede">
+      同一份流水，两种看法：表格用来对账、找单笔、改数；流水线用来复盘资金节奏。两套视图共享同一套筛选、同一个账户轴、同一份文案——切换只换呈现，不换数据。
+      手机端只能纵向堆叠，桌面端有横向空间，所以这里不是把 App 放大，而是把「账户」和「方向」摆成两条稳定的参考轴。
+    </p>
+    <div class="meta">
+      <span class="tag">遵循 design.md v2.3.4 令牌</span>
+      <span class="tag">亮色主题</span>
+      <span class="tag">1440 视口 / 内容列 1400</span>
+      <span class="tag">可点击原型</span>
+    </div>
+  </header>
+
+  <!-- ============ 设计计划 ============ -->
+  <section class="section">
+    <h2>设计计划</h2>
+    <div class="plan">
+      <div class="plan-card">
+        <h3>颜色 · 5 个角色</h3>
+        <div class="swatches">
+          <div class="sw" style="background:#fdfbf7"></div>
+          <div class="sw" style="background:#f5f0eb"></div>
+          <div class="sw" style="background:#c0341f"></div>
+          <div class="sw" style="background:#1f6b43"></div>
+          <div class="sw" style="background:#716a60"></div>
+        </div>
+        <dl>
+          <dt>纸 · #fdfbf7 / #f5f0eb</dt>
+          <dd>页面与悬停底，暖奶油档</dd>
+          <dt>进 · #c0341f（rise-ink）</dt>
+          <dd>买入、存入（加仓方向）</dd>
+          <dt>出 · #1f6b43（fall-ink）</dt>
+          <dd>卖出、取出（减仓方向）</dd>
+          <dt>墨 · #2d2a24 / #716a60</dt>
+          <dd>数字与一切非方向信息</dd>
+        </dl>
+        <p>颜色只回答一个问题：这笔钱往哪个方向走。状态、账户、备注一律退回墨色层级。</p>
+      </div>
+
+      <div class="plan-card">
+        <h3>字体 · 2 个字族</h3>
+        <p>
+          <b>Inter / MiSans</b> 承担中文与标签（13–14px，行高 1.6）。<br>
+          <b>SF Mono / JetBrains Mono</b> 只给数字：金额、价格、份额、日期、笔数。
+        </p>
+        <p>
+          金额一律 <code style="font-family:var(--font-number)">tabular-nums</code>，
+          小数点纵向对齐——这是表格能被「扫」而不是被「读」的前提。
+        </p>
+        <p>
+          字阶只用三档：页标题 30/300、行内主信息 14/500、元信息 12/400。没有第四档。
+        </p>
+      </div>
+
+      <div class="plan-card">
+        <h3>版式 · 三条横带</h3>
+        <p>
+          页头（我是谁）→ 汇总条（这段时间发生了什么）→ 筛选 + 列表（具体哪一笔）。
+          列表卡内再分两层：卡头（视图与计数）+ 内容。
+        </p>
+        <p>
+          表格 11 列，总宽 1086px，卡在默认列预算 1132px 内，1366 屏（可视 1098）不横滚。
+          流水线用 7 列固定栅格，账户列独立成列——同一账户的流水上下对齐，扫一眼就是「这个账户最近在干什么」。
+        </p>
+      </div>
+
+      <div class="plan-card">
+        <h3>原则 · 三条自守</h3>
+        <p>
+          ① 一屏只有一个视觉焦点：列表本身。汇总条压到一行，不用 5 张大数字卡。<br>
+          ② 状态默认不出声：「成功」是常态，常态不染色。<br>
+          ③ 已清仓不是「坏数据」：不打灰、不删除，只加一枚安静的胶囊。
+        </p>
+      </div>
+    </div>
+
+    <pre class="wire" style="margin-top:16px">┌─ 页头（一层页头 · 操作槽在右）
+│   交易流水                                         [导出 CSV]
+│   买入、卖出、转入转出的完整记录，按交易日倒序排列
+├─ 汇总条（跟随筛选，一行读完就够）
+│   近一年 · 买入 ¥86,320.44 24笔 · 卖出 ¥42,100.00 11笔
+│          · 分红 ¥312.50 3笔 · 手续费 ¥28.45 · 净投入 +¥44,220.44
+├─ 筛选（一级 = 分段控制器，二级 = 三个下拉）
+│   [全部][买入][卖出][分红][存入][取出]   资产▾  状态▾  时间▾   ↻
+├─ 列表卡
+│   卡头：[表格|流水线]        共 N 条 · 按交易日倒序 · 金额不含手续费
+│   表头：资产(冻结) │ 账户 │ 日期 │ 类型 │ 价格 │ 数量 │ 金额 │ 手续费 │ 状态 │ 备注 │
+│   行：  名称 [已清仓] │ 招商证券› │ 2026-10-13 │ 买入 │ 2.9223 │ 3,421.96 │ …
+│          # 021180      ↑ 可点跳账户                ↑ 涨红(ink)      ↑ tabular-nums
+└─ 流水线视图：月分组（sticky 月头 + 月内合计）
+    日期 │ 类型 │ 资产 + 备注 │ 账户 │ 金额(±) │ 状态</pre>
+  </section>
+
+  <!-- ============ 屏幕 ============ -->
+  <section class="section" id="screen">
+    <h2>屏幕 · 可交互</h2>
+    <div class="frame-shell">
+      <div class="frame">
+        <aside class="side">
+          <div class="side-brand"><i></i><b>多多贝</b></div>
+          <div class="side-group">记账中心</div>
+          <div class="side-item"><i></i>全面盘点</div>
+          <div class="side-item is-active"><i></i>交易流水</div>
+          <div class="side-item"><i></i>分红股息</div>
+          <div class="side-item"><i></i>对账中心</div>
+          <div class="side-group">资产</div>
+          <div class="side-item"><i></i>我的持仓</div>
+          <div class="side-item"><i></i>账户管理</div>
+          <div class="side-item"><i></i>组合分析</div>
+          <div class="side-group">探市</div>
+          <div class="side-item"><i></i>市场温度</div>
+        </aside>
+
+        <div class="main">
+          <div class="topbar">
+            <div class="crumbs">记账中心 <span class="sep">/</span> <b>交易流水</b></div>
+            <div class="topbar-right">
+              <span class="dot-btn"></span>
+              <span class="dot-btn"></span>
+              <span class="avatar"></span>
+            </div>
+          </div>
+
+          <div class="page">
+            <div class="page-head">
+              <div>
+                <h1>交易流水</h1>
+                <p>买入、卖出、转入转出的完整记录，按交易日倒序排列。</p>
+              </div>
+              <div class="page-actions">
+                <button class="btn" id="exportBtn">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v8m0 0L4.8 6.8M8 10l3.2-3.2M2.5 12.5h11"/></svg>
+                  导出 CSV
+                </button>
+              </div>
+            </div>
+
+            <!-- 汇总条 -->
+            <div class="strip" id="strip" aria-label="当前筛选范围的汇总"></div>
+
+            <!-- 筛选 -->
+            <div class="filters">
+              <div class="seg" id="typeSeg" role="tablist" aria-label="交易类型"></div>
+              <div class="field">
+                <select id="assetSel" aria-label="资产类型">
+                  <option value="">全部资产</option>
+                  <option value="stock">股票</option>
+                  <option value="fund">基金</option>
+                  <option value="cash">现金</option>
+                </select>
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4l3 3 3-3"/></svg>
+              </div>
+              <div class="field">
+                <select id="statusSel" aria-label="交易状态">
+                  <option value="">全部状态</option>
+                  <option value="success">成功</option>
+                  <option value="cancelled">已撤单</option>
+                  <option value="pending">可撤单</option>
+                </select>
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4l3 3 3-3"/></svg>
+              </div>
+              <div class="field">
+                <select id="rangeSel" aria-label="时间范围">
+                  <option value="all">全部时间</option>
+                  <option value="1m">近一月</option>
+                  <option value="3m">近三月</option>
+                  <option value="6m">近半年</option>
+                  <option value="1y" selected>近一年</option>
+                </select>
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4l3 3 3-3"/></svg>
+              </div>
+              <span class="chip" id="symbolChip" hidden>产品代码 <b id="symbolVal"></b>
+                <button id="symbolClear" aria-label="清除产品代码筛选">
+                  <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+                </button>
+              </span>
+              <span class="spacer"></span>
+              <button class="icon-btn" id="resetBtn" aria-label="重置筛选">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.5 8a5.5 5.5 0 1 1-1.9-4.2M13.5 2.5V6H10"/></svg>
+              </button>
+            </div>
+
+            <!-- 列表卡 -->
+            <div class="card">
+              <div class="card-head">
+                <div class="seg seg--sm" id="viewSeg" role="tablist" aria-label="流水视图">
+                  <button data-view="table" aria-selected="true">表格</button>
+                  <button data-view="flow" aria-selected="false">流水线</button>
+                </div>
+                <div class="meta">共 <b id="count">0</b> 条 · 按交易日倒序 · 金额为成交额，不含手续费</div>
+              </div>
+
+              <div id="tableWrap">
+                <div class="table-scroll">
+                  <table class="trx">
+                    <colgroup>
+                      <col class="c-asset"><col class="c-acct"><col class="c-date"><col class="c-type">
+                      <col class="c-price"><col class="c-qty"><col class="c-amt"><col class="c-fee">
+                      <col class="c-status"><col class="c-notes"><col class="c-act">
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>资产</th>
+                        <th>账户</th>
+                        <th>日期</th>
+                        <th>类型</th>
+                        <th class="num">价格</th>
+                        <th class="num">数量</th>
+                        <th class="num">金额</th>
+                        <th class="num">手续费</th>
+                        <th>状态</th>
+                        <th>备注</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbody"></tbody>
+                  </table>
+                </div>
+                <div id="emptyTable" hidden></div>
+                <div class="card-foot" id="tableFoot">
+                  <span>第 1 页，共 <span id="pageCount">1</span> 页</span>
+                  <div class="pager" id="pager"></div>
+                </div>
+              </div>
+
+              <div id="flowWrap" hidden>
+                <div class="flow-wrap" id="flow"></div>
+                <div id="emptyFlow" hidden></div>
+                <div class="card-foot" id="flowFoot">
+                  <span>已加载 <span id="flowCount">0</span> 条 · 下滑加载更多</span>
+                  <span>金额带符号：＋入账 · −出账</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="frame-note">
+        原型内可直接操作：切换「表格 / 流水线」、切换交易类型、改资产 / 状态 / 时间、点账户胶囊（模拟跳转）。
+        <a href="#" id="demoSymbol" style="color:var(--brand-800);text-decoration:none;border-bottom:1px solid var(--brand-400)">试一下从产品详情页带 ?symbol=021180 进来</a>。
+        侧栏与顶栏为示意外壳，不是本次设计对象。
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ 决策对照 ============ -->
+  <section class="section">
+    <h2>逐项对照：旧 → 新</h2>
+    <table class="spec">
+      <thead>
+        <tr><th>位置</th><th>旧实现</th><th>新设计</th><th>理由</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>孤儿流水标记</td>
+          <td><span class="no">「已删除」</span>灰字 + 整格 <code>opacity .5 + grayscale</code></td>
+          <td>名称右侧一枚 <b>已清仓</b> 胶囊（<code>--bg-soft</code> 底 / <code>--text-tertiary-ink</code> 字），不打灰；悬浮说明「持仓已清仓或被合并，流水与金额保留」</td>
+          <td>「已删除」是数据库视角，用户做的是「清仓」；整格置灰把一条真实流水说得像失效数据，可读性也一起丢了</td>
+        </tr>
+        <tr>
+          <td>账户级流水</td>
+          <td>存入 / 取出（账户现金）也打「已删除」——它们本来就没有持仓行</td>
+          <td>按类型判定：<code>deposit</code> / <code>withdraw</code> 视为账户资金流水，<b>不打任何标记</b>，代码位显示「资金流水」</td>
+          <td>假阳性。用户看到「账户现金 存入 ¥68.76 已删除」会以为钱没了</td>
+        </tr>
+        <tr>
+          <td>内部代码</td>
+          <td>资产名下方显示 <code># _CASH_</code></td>
+          <td>下划线开头的内部代码一律不显示（<code>__CASH__</code> 等），无障碍名由名称承担</td>
+          <td>内部标识泄漏到界面，既不可读也不可核对</td>
+        </tr>
+        <tr>
+          <td>账户</td>
+          <td>表格里没有账户列；流水线里是「账户：xxx」纯文本，不可点</td>
+          <td>表格独立成列（第二位），流水线独立成列；统一为可点胶囊 <b>账户名 ›</b> → <code>/asset/ledgers/:id</code>。无 <code>ledger_id</code> 的显示虚线「未归属账户」，不伪装成链接</td>
+          <td>「这笔钱在哪个账户」是核对流水时最常问的第二句话；不可点就等于要用户自己再去账户页找</td>
+        </tr>
+        <tr>
+          <td>状态</td>
+          <td>每行一枚绿色 <code>el-tag</code>「成功」</td>
+          <td>成功＝12px 灰字、不出声；只有 <b>失败</b>（危险色）、<b>可撤单</b>（沙金）才着色，<b>已撤单</b>加一枚描边胶囊</td>
+          <td>「红绿灯」式满屏彩色标签会把注意力从金额上拽走；常态不该抢戏</td>
+        </tr>
+        <tr>
+          <td>类型着色</td>
+          <td><code>--color-rise</code> / <code>--color-fall</code> 直接作文字</td>
+          <td>改用 <code>--color-rise-ink</code>（5.6:1）/ <code>--color-fall-ink</code>（5.7:1）</td>
+          <td>现值的白底对比度 3.86:1 / 2.0:1，正文档不达 AA。<span class="no">这是既有缺陷</span>，顺手一并修</td>
+        </tr>
+        <tr>
+          <td>斑马纹</td>
+          <td><code>stripe</code> + 两行产品单元</td>
+          <td>去斑马纹，用 <code>--border-light</code> 行分隔线 + 悬停 <code>--bg-soft</code></td>
+          <td>条纹底是冷灰 <code>--bg-muted</code>，与暖色体系并置发脏；行高 48px 有两条信息线，条纹反而增加噪点</td>
+        </tr>
+        <tr>
+          <td>筛选</td>
+          <td>4 个下拉平铺 + 刷新按钮，类型是下拉</td>
+          <td>一级＝交易类型分段控制器（全部/买入/卖出/分红/存入/取出，≤6 平铺）；二级＝资产 / 状态 / 时间三个下拉 + 重置</td>
+          <td>类型是最常用的维度，藏进下拉每天多点两次；六个选项正好在分段控制器适用域内</td>
+        </tr>
+        <tr>
+          <td>时间分组</td>
+          <td>按<b>日</b>折叠，默认展开近 30 天</td>
+          <td>按<b>月</b>分组，月头 sticky 并带月内合计（笔数 / 买入 / 卖出 / 净额），默认展开最近两个月</td>
+          <td>桌面上「一天」往往只有一两笔，按日分组全是空折叠头；按月才有节奏感，也和手机端「交易记录」的心智一致</td>
+        </tr>
+        <tr>
+          <td>金额口径</td>
+          <td>表格无符号、流水线带正负且<b>自动染色</b></td>
+          <td>表格＝成交额（无符号）；流水线＝资金流向（±，<b>不染色</b>），并标注「＋入账 / −出账」</td>
+          <td>流水金额不表示涨跌，染红绿是错误语义（共享组件自己也是这么写的，流水线这处属于漏网）</td>
+        </tr>
+        <tr>
+          <td>页面头部</td>
+          <td>h2 + 副标题 + 一张筛选卡（页头下又起一条工具条）</td>
+          <td>一层页头（标题 / 副标题 / 右侧操作槽），筛选与列表同处一张卡</td>
+          <td>design.md「一层页头」原则：页头之下不再另起工具栏</td>
+        </tr>
+        <tr>
+          <td>汇总</td>
+          <td>无</td>
+          <td>一行汇总条（买入 / 卖出 / 分红 / 手续费 / 净投入），跟随筛选范围</td>
+          <td>参考手机端的「交易总览」，但压成一条：这页的主角是列表，不是指标卡</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 实现映射 ============ -->
+  <section class="section">
+    <h2>落到代码：改动映射</h2>
+    <table class="spec">
+      <thead><tr><th>文件</th><th>改什么</th><th>风险 / 验收</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>components/TransactionTable/model.ts</code></td>
+          <td>新增 <code>positionStateOf(row)</code> → <code>held | cleared | account</code>、<code>assetMetaOf(row)</code>（内部码不显示 / 账户级显示「资金流水」）、<code>statusTone(row)</code>；<code>typeClass</code> 改用 <code>-ink</code> 令牌</td>
+          <td>纯函数，单测直测。这里的判定是「已清仓」文案的唯一来源，三端共用</td>
+        </tr>
+        <tr>
+          <td><code>components/TransactionTable/index.vue</code></td>
+          <td>「已删除」→ 徽标「已清仓」+ <code>title</code> 说明；去掉整格置灰；账户列胶囊化（已有 <code>showAccount</code>，补无 <code>ledger_id</code> 的虚线态）；状态列静默化；单元格 48px</td>
+          <td>账本 Tab / 持仓抽屉共用此组件，文案与配色会一起变（预期内）。行高变更需在 <code>design.md</code>「行高例外」登记 48px</td>
+        </tr>
+        <tr>
+          <td><code>views/asset/transactionList/transactionListModel.ts</code></td>
+          <td>新增 <code>groupByMonth</code> / <code>monthSummaryOf</code> / <code>signedAmount</code> 保留；旧 <code>groupByDate</code> / <code>dayBalanceOf</code> 随视图下线（或保留给测试兼容）</td>
+          <td>现有 28 条单测里日分组相关 6 条要改写成月分组；断言值按真实数据核</td>
+        </tr>
+        <tr>
+          <td><code>TransactionToolbar.vue</code></td>
+          <td>类型从 <code>el-select</code> 换 <code>SegmentedControl</code>；资产 / 状态 / 时间并为一行；symbol 改为可清除胶囊；重置保留</td>
+          <td><code>guard_segmented.py</code> 必须绿（走 <code>SegmentedControl</code>，不写 <code>el-segmented</code>）</td>
+        </tr>
+        <tr>
+          <td><code>TransactionTableView.vue</code></td>
+          <td>传 <code>show-account</code>；列序与列宽按原型；去 stripe 需改共享样式，或用 <code>stripe=false</code>（<code>el-table</code> 支持）</td>
+          <td>默认列总宽 1086 ≤ 1132 预算；1366 屏可视 1098，不横滚</td>
+        </tr>
+        <tr>
+          <td><code>TransactionTimelineView.vue</code></td>
+          <td>日折叠 → 月分组 + sticky 月头 + 月内合计；7 列栅格；账户列；金额不染色</td>
+          <td><code>el-collapse</code> 的 sticky 头在 <code>el-scrollbar</code> 内需实测；触底加载逻辑不变</td>
+        </tr>
+        <tr>
+          <td><code>views/asset/TransactionList.vue</code></td>
+          <td>页头换 <code>PageHeaderBar</code> + <code>#action</code>（导出）；插入汇总条；传参给两个视图</td>
+          <td>keepAlive 与 <code>?symbol=</code> 预筛逻辑保持原样，不动</td>
+        </tr>
+        <tr>
+          <td><span class="no">后端</span> <code>GET /api/transactions/summary</code></td>
+          <td>与列表同筛选参数，返回买入 / 卖出 / 分红 的笔数与金额、手续费合计、净投入（分转元）</td>
+          <td><b>汇总条依赖它</b>。接口未就绪前整块不渲染（不留空容器），不能拿当页数据凑数</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 自检 ============ -->
+  <section class="section">
+    <h2>自检 · 第二遍</h2>
+
+    <h3 style="font-size:14px;font-weight:600;margin:0 0 8px">从手机端拿了什么，没拿什么</h3>
+    <table class="spec">
+      <thead><tr><th>手机端的做法</th><th>这里</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td>按月 / 按日分节的纵向流水（图 1）</td><td><b>拿</b>：月分组 + 月内合计，落在流水线视图</td><td>分节回答的是「这段时间的节奏」，与屏宽无关</td></tr>
+        <tr><td>顶部「交易汇总」四宫格大数字（图 2、图 3）</td><td><b>改造</b>：压成一行汇总条</td><td>手机竖屏没横向空间，只能用大卡片；桌面把 5 个数字铺成一行 40px 高就够了，列表才是主角</td></tr>
+        <tr><td>每行右侧的「›」进入详情</td><td><b>不拿</b>：改为 hover 出「编辑」</td><td>桌面没有「进入详情页」这一步的空间成本，抽屉/弹窗更直接；「›」在宽屏上会变成一排噪音</td></tr>
+        <tr><td>「清仓分析」卡（图 2）</td><td><b>不拿</b></td><td>那是分析历史持仓周期，属于另一个功能面，不是流水列表的一行</td></tr>
+        <tr><td>「已撤单」跟在金额后（图 2）</td><td><b>改造</b>：金额划线 + 状态列写「已撤单」</td><td>桌面上状态有独立列，重复标注两遍是冗余</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="font-size:14px;font-weight:600;margin:24px 0 8px">是不是换了张皮的通用后台？</h3>
+    <ul class="plain">
+      <li>配色、字体、圆角、阴影全部来自 <code>design.md</code>，不是自选色板 —— 所以「独特性」不在色板上，在信息结构：<b>账户轴</b>（每一行都能回答「在哪」并一步跳过去）+ <b>月轴</b>（时间有节奏）+ <b>方向色</b>（颜色只表示加仓 / 减仓）。</li>
+      <li>没有 01/02/03 编号（月份是真实序列，不是装饰性序号）、没有全大写小标签、没有渐变卡片、没有 emoji 当图标。</li>
+      <li>砍掉的一件配饰：本来想给每个账户一个色点（像银行卡），但账户色会和涨跌色抢同一个注意力通道，而且 6 种颜色过不了对比度。统一成墨色胶囊 + hover 出箭头 —— 少一件，反而更清楚。</li>
+    </ul>
+  </section>
+
+  <!-- ============ 待决 ============ -->
+  <section class="section">
+    <h2>待决 · 需要你拍板</h2>
+    <ul class="plain">
+      <li><b>汇总条要不要做？</b>它需要新接口（1 个端点，逻辑与列表同筛选）。若这轮只想改视觉与文案，可先不做，页面结构不变。</li>
+      <li><b>行高 48px</b>：两行产品单元 + 胶囊的必要高度。要么按 48px 登记为例外，要么压回 44px（名称与代码挤在 2px 内边距里，观感偏紧）。</li>
+      <li><b>「已清仓」是否够准？</b>目前 <code>position_id IS NULL</code> 有两种成因：用户清仓、导入时旧持仓被合并（备注里会写「基金持仓迁移为…」）。文案统一成「已清仓」，细节交给备注与 tooltip；若要更精确，需要后端回一个 <code>position_state</code> 字段。</li>
+      <li><b>「清仓分析」卡</b>（手机端第二张图）属于另一个功能面——分析历史持仓的完整周期，不在这页范围。</li>
+      <li><b>是否需要行展开详情</b>（确认日 / 来源 / 备注全文 / 编辑）？原型先走 hover「编辑」，展开行是下一步。</li>
+    </ul>
+  </section>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+// ============================================================
+// 原型数据：取自真实截图的结构（含孤儿流水、账户现金、转换、撤单）
+// 金额与份额按截图口径，仅作原型
+// ============================================================
+const TODAY = new Date("2026-10-31T00:00:00");
+
+const DATA = [
+  { id: 101, name: "易方达产业机遇混合C", symbol: "021180", acct: "招商证券", ledger: 1, type: "buy", asset: "fund", date: "2026-10-13", price: 2.9223, qty: 3421.96, amount: 10000.00, fee: 0, status: "success", notes: "初始买入", pos: "held" },
+  { id: 102, name: "东方红中证东方红红利低波动A", symbol: "012708", acct: "招商证券", ledger: 1, type: "sell", asset: "fund", date: "2026-10-12", price: 1.3956, qty: 5540, amount: 7731.62, fee: 19.33, status: "success", notes: "基金转换-转出", pos: "held" },
+  { id: 103, name: "交银优择回报灵活配置混合C", symbol: "519771", acct: "招商证券", ledger: 1, type: "buy", asset: "fund", date: "2026-10-12", price: 5.0550, qty: 1512.07, amount: 7643.51, fee: 0, status: "success", notes: "基金转换-转入", pos: "held" },
+  { id: 104, name: "账户现金", symbol: "__CASH__", acct: "现金钱包", ledger: 5, type: "deposit", asset: "cash", date: "2026-10-12", price: 0, qty: 0, amount: 68.76, fee: 0, status: "success", notes: "基金转换退款差额", pos: "account" },
+  { id: 105, name: "金地集团", symbol: "SH600383", acct: "华泰证券", ledger: 2, type: "sell", asset: "stock", date: "2026-10-08", price: 2.81, qty: 5000, amount: 14050.00, fee: 8.65, status: "success", notes: null, pos: "held" },
+  { id: 106, name: "金地集团", symbol: "SH600383", acct: "华泰证券", ledger: 2, type: "buy", asset: "stock", date: "2026-10-08", price: 2.30, qty: 2200, amount: 5060.00, fee: 1.05, status: "success", notes: "补仓", pos: "held" },
+  { id: 107, name: "账户现金", symbol: "__CASH__", acct: "华泰证券", ledger: 2, type: "withdraw", asset: "cash", date: "2026-10-08", price: 0, qty: 0, amount: 10209.56, fee: 0, status: "success", notes: "证券转银行", pos: "account" },
+
+  { id: 108, name: "华电国际", symbol: "SH600027", acct: "华泰证券", ledger: 2, type: "sell", asset: "stock", date: "2026-09-30", price: 4.89, qty: 1100, amount: 5379.00, fee: 3.74, status: "success", notes: null, pos: "held" },
+  { id: 109, name: "卫星E", symbol: "SZ563530", acct: "华泰证券", ledger: 2, type: "buy", asset: "stock", date: "2026-09-28", price: 1.042, qty: 3000, amount: 3126.00, fee: 0.38, status: "success", notes: null, pos: "held" },
+  { id: 110, name: "海大集团", symbol: "SZ002311", acct: "华泰证券", ledger: 2, type: "buy", asset: "stock", date: "2026-09-28", price: 40.50, qty: 100, amount: 4050.00, fee: 1.00, status: "success", notes: null, pos: "held" },
+  { id: 111, name: "招商中证白酒指数C", symbol: "012414", acct: "天天基金", ledger: 4, type: "sell", asset: "fund", date: "2026-09-15", price: 0, qty: 0, amount: 4000.00, fee: 0, status: "cancelled", notes: "当日撤单", pos: "held" },
+
+  { id: 112, name: "富国富钱包货币A", symbol: "000638", acct: "天天基金", ledger: 4, type: "buy", asset: "fund", date: "2026-08-14", price: 0, qty: 0, amount: 7.42, fee: 0, status: "success", notes: "基金持仓迁移为 000198", pos: "cleared" },
+  { id: 113, name: "博时现金宝货币B", symbol: "000891", acct: "天天基金", ledger: 4, type: "buy", asset: "fund", date: "2026-08-14", price: 0, qty: 0, amount: 4.82, fee: 0, status: "success", notes: "基金持仓迁移为 000198", pos: "cleared" },
+  { id: 114, name: "富国收益宝交易型货币B", symbol: "001982", acct: "天天基金", ledger: 4, type: "buy", asset: "fund", date: "2026-08-14", price: 0, qty: 0, amount: 0.01, fee: 0, status: "success", notes: "基金持仓迁移为 000198", pos: "held" },
+  { id: 115, name: "南方天天利货币B", symbol: "003474", acct: "天天基金", ledger: 4, type: "buy", asset: "fund", date: "2026-08-14", price: 0, qty: 0, amount: 0.00, fee: 0, status: "success", notes: "基金持仓迁移为 000198", pos: "held" },
+  { id: 116, name: "建信医疗健康行业股票C", symbol: "006228", acct: "支付宝·基金", ledger: 3, type: "dividend", asset: "fund", date: "2026-08-10", price: 0, qty: 0, amount: 12.40, fee: 0, status: "success", notes: "现金分红", pos: "held" },
+
+  { id: 117, name: "招商中证白酒指数C", symbol: "012414", acct: "天天基金", ledger: 4, type: "buy", asset: "fund", date: "2026-07-30", price: 1.0, qty: 4000, amount: 4000.00, fee: 0, status: "cancelled", notes: "超时未支付，已撤单", pos: "held" },
+  { id: 118, name: "金鹰研究驱动混合C", symbol: "018182", acct: "支付宝·基金", ledger: 3, type: "buy", asset: "fund", date: "2026-07-23", price: 1.0, qty: 1000, amount: 1000.00, fee: 0, status: "success", notes: null, pos: "held" },
+
+  { id: 119, name: "沪深300ETF", symbol: "SH510300", acct: null, ledger: null, type: "buy", asset: "fund", date: "2026-06-30", price: 4.02, qty: 2500, amount: 10050.00, fee: 5.00, status: "success", notes: "探市录入，未归属账户", pos: "held" },
+  { id: 120, name: "沪深300ETF", symbol: "SH510300", acct: "支付宝·基金", ledger: 3, type: "split", asset: "fund", date: "2026-06-18", price: 0, qty: 2500, amount: 0, fee: 0, status: "success", notes: "份额拆分 2:1", pos: "held" },
+
+  { id: 121, name: "账户现金", symbol: "__CASH__", acct: "现金钱包", ledger: 5, type: "deposit", asset: "cash", date: "2026-03-05", price: 0, qty: 0, amount: 50000.00, fee: 0, status: "success", notes: "年初入金", pos: "account" },
+  { id: 122, name: "华泰柏瑞红利低波ETF联接A", symbol: "007466", acct: "支付宝·基金", ledger: 3, type: "buy", asset: "fund", date: "2026-03-04", price: 1.20, qty: 8000, amount: 9600.00, fee: 12.00, status: "success", notes: null, pos: "held" }
+];
+
+const TYPE_LABEL = {
+  buy: "买入", sell: "卖出", dividend: "分红", dividend_reinvest: "红利再投",
+  deposit: "存入", withdraw: "取出", split: "拆分"
+};
+const STATUS_LABEL = { success: "成功", cancelled: "已撤单", failed: "失败", pending: "可撤单" };
+const INFLOW = { sell: 1, dividend: 1, dividend_reinvest: 1, deposit: 1 };
+
+const state = { type: "", asset: "", status: "", range: "1y", symbol: "", view: "table" };
+
+const nf = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = v => "¥" + nf.format(Math.abs(v));
+const plain = v => nf.format(v);
+
+// 内部代码（__CASH__ 等）不在界面出现
+const isInternal = s => !!s && s.startsWith("_");
+const isCash = r => r.asset === "cash";
+
+function inRange(dateStr) {
+  if (state.range === "all") return true;
+  const days = { "1m": 30, "3m": 90, "6m": 180, "1y": 365 }[state.range];
+  const d = new Date(dateStr + "T00:00:00");
+  const from = new Date(TODAY.getTime());
+  from.setDate(from.getDate() - days);
+  return d >= from;
+}
+
+function visible() {
+  return DATA.filter(r =>
+    (!state.type || r.type === state.type) &&
+    (!state.asset || r.asset === state.asset) &&
+    (!state.status || r.status === state.status) &&
+    (!state.symbol || r.symbol === state.symbol) &&
+    inRange(r.date)
+  );
+}
+
+// 汇总只统计「真的成交了」的流水：已撤单 / 失败不计金额，但笔数照实分开
+function summarize(rows) {
+  const ok = rows.filter(r => r.status === "success");
+  const of = t => ok.filter(r => r.type === t);
+  const sum = list => list.reduce((a, b) => a + b.amount, 0);
+  const buy = of("buy"), sell = of("sell"), div = of("dividend");
+  const fee = ok.reduce((a, b) => a + b.fee, 0);
+  return {
+    buyN: buy.length, buyAmt: sum(buy),
+    sellN: sell.length, sellAmt: sum(sell),
+    divN: div.length, divAmt: sum(div),
+    fee, net: sum(buy) - sum(sell)
+  };
+}
+
+function renderStrip() {
+  const rows = visible();
+  const s = summarize(rows);
+  const scope = { all: "全部时间", "1m": "近一月", "3m": "近三月", "6m": "近半年", "1y": "近一年" }[state.range];
+  // 币种符号降一档字号（.cur），数字本体吃满 17px —— 视觉重量落在数字上
+  const val = v => `<span class="cur">¥</span>${nf.format(Math.abs(v))}`;
+  document.getElementById("strip").innerHTML = `
+    <span class="scope">${scope}</span>
+    <span class="m"><span class="m-label">买入</span><span class="m-line"><span class="m-value">${val(s.buyAmt)}</span><span class="m-sub">${s.buyN} 笔</span></span></span>
+    <span class="m"><span class="m-label">卖出</span><span class="m-line"><span class="m-value">${val(s.sellAmt)}</span><span class="m-sub">${s.sellN} 笔</span></span></span>
+    <span class="m"><span class="m-label">分红</span><span class="m-line"><span class="m-value">${val(s.divAmt)}</span><span class="m-sub">${s.divN} 笔</span></span></span>
+    <span class="m"><span class="m-label">手续费</span><span class="m-line"><span class="m-value">${val(s.fee)}</span></span></span>
+    <span class="m net"><span class="m-label">净投入</span><span class="m-line"><span class="m-value">${s.net >= 0 ? "+" : "−"}${val(s.net)}</span></span></span>
+  `;
+}
+
+function badgeOf(r) {
+  if (r.pos === "cleared") {
+    return `<span class="badge" title="该流水对应的持仓已清仓或被合并，流水与金额仍然保留">已清仓</span>`;
+  }
+  return "";
+}
+
+function assetCell(r) {
+  const codeLine = isCash(r)
+    ? `<div class="asset-meta is-plain">资金流水</div>`
+    : (isInternal(r.symbol) ? "" : `<div class="asset-meta"># ${r.symbol}</div>`);
+  const title = r.notes ? `${r.name} · ${r.notes}` : r.name;
+  return `<div class="asset">
+      <div class="asset-name"><span class="nm" title="${title}">${r.name}</span>${badgeOf(r)}</div>
+      ${codeLine}
+    </div>`;
+}
+
+function acctCell(r) {
+  if (!r.ledger) {
+    return `<span class="acct acct--none" title="这笔流水没有关联账户（如探市录入），无法跳转">未归属账户</span>`;
+  }
+  const label = r.acct || "未知账户";
+  return `<a class="acct" href="#ledger-${r.ledger}" data-ledger="${r.ledger}" data-name="${label}"
+      title="打开账户：${label}"><span>${label}</span>
+      <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>
+    </a>`;
+}
+
+function statusCell(r) {
+  const cls = r.status === "failed" ? "st-failed" : r.status === "pending" ? "st-pending" : "st-ok";
+  return `<span class="st ${cls}">${STATUS_LABEL[r.status] || r.status}</span>`;
+}
+
+function numCell(v, opts = {}) {
+  if (opts.void) return `<span class="num-txt is-void">—</span>`;
+  const cls = ["num-txt", opts.strong ? "is-strong" : "", opts.quiet ? "is-quiet" : "", opts.struck ? "is-struck" : ""].filter(Boolean).join(" ");
+  return `<span class="${cls}">${v}</span>`;
+}
+
+function renderTable() {
+  const rows = visible();
+  const tbody = document.getElementById("tbody");
+  document.getElementById("count").textContent = rows.length;
+  const pages = Math.max(1, Math.ceil(rows.length / 10));
+  document.getElementById("pageCount").textContent = pages;
+  document.getElementById("pager").innerHTML =
+    `<button aria-label="上一页" disabled>‹</button>` +
+    Array.from({ length: pages }, (_, i) => `<button class="${i === 0 ? "is-on" : ""}">${i + 1}</button>`).join("") +
+    `<button aria-label="下一页" ${pages > 1 ? "" : "disabled"}>›</button>`;
+
+  tbody.innerHTML = rows.map(r => {
+    const struck = r.status === "cancelled";
+    return `<tr>
+      <td>${assetCell(r)}</td>
+      <td>${acctCell(r)}</td>
+      <td class="num">${numCell(r.date, { quiet: true })}</td>
+      <td><span class="ty ty-${r.type}">${TYPE_LABEL[r.type] || r.type}</span></td>
+      <td class="num">${r.price ? numCell(priceText(r.price)) : numCell("", { void: true })}</td>
+      <td class="num">${r.qty ? numCell(plain(r.qty)) : numCell("", { void: true })}</td>
+      <td class="num">${numCell(money(r.amount), { strong: true, struck })}</td>
+      <td class="num">${numCell(money(r.fee), { quiet: r.fee === 0 })}</td>
+      <td>${statusCell(r)}</td>
+      <td><span class="notes${r.notes ? "" : " is-empty"}" title="${r.notes || ""}">${r.notes || "—"}</span></td>
+      <td><div class="row-act"><button type="button" data-edit="${r.id}">编辑</button></div></td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("emptyTable").hidden = rows.length !== 0;
+  document.querySelector("#tableWrap .table-scroll").hidden = rows.length === 0;
+  document.getElementById("tableFoot").hidden = rows.length === 0;
+}
+
+function priceText(p) {
+  return p >= 10 ? p.toFixed(2) : p.toFixed(4);
+}
+
+function monthKeyOf(date) { return date.slice(0, 7); }
+
+function renderFlow() {
+  const rows = visible();
+  document.getElementById("count").textContent = rows.length;
+  document.getElementById("flowCount").textContent = rows.length;
+
+  const groups = new Map();
+  rows.forEach(r => {
+    const k = monthKeyOf(r.date);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  });
+
+  const html = [...groups.entries()].map(([key, list], idx) => {
+    const [y, m] = key.split("-");
+    const s = summarize(list);
+    const net = s.sellAmt + s.divAmt - s.buyAmt;
+    const open = idx < 3;
+    return `<section class="month">
+      <button class="month-head" type="button" aria-expanded="${open}" data-month="${key}">
+        <svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 4.5L6 8.5l4-4"/></svg>
+        <span class="m-title">${y} 年 ${m} 月</span>
+        <span class="m-stats">
+          <span>${list.length} 笔</span>
+          <span>买入 <b>${money(s.buyAmt)}</b></span>
+          <span>卖出 <b>${money(s.sellAmt)}</b></span>
+          <span>净额 <b>${net >= 0 ? "+" : "−"}${money(net)}</b></span>
+        </span>
+      </button>
+      <ol class="flow" ${open ? "" : "hidden"}>
+        ${list.map(r => flowRow(r)).join("")}
+      </ol>
+    </section>`;
+  }).join("");
+
+  document.getElementById("flow").innerHTML = html;
+  document.getElementById("emptyFlow").hidden = rows.length !== 0;
+  document.getElementById("flowFoot").hidden = rows.length === 0;
+}
+
+function flowRow(r) {
+  const signed = INFLOW[r.type] ? r.amount : -r.amount;
+  const sign = signed >= 0 ? "+" : "−";
+
+  return `<li class="flow-row">
+    <span class="f-date">${r.date.slice(5)}</span>
+    <span class="ty ty-${r.type} f-type">${TYPE_LABEL[r.type] || r.type}</span>
+    <div class="f-asset">
+      ${assetCell(r)}
+      ${r.notes ? `<div class="f-aside" title="${r.notes}">${r.notes}</div>` : ""}
+    </div>
+    <div class="f-acct">${acctCell(r)}</div>
+    <div class="f-amt">
+      <span class="num-txt is-strong ${r.status === "cancelled" ? "is-struck" : ""}">${sign}${money(r.amount)}</span>
+      ${r.fee ? `<span class="sub">手续费 ${money(r.fee)}</span>` : ""}
+    </div>
+    <span class="f-status">${statusCell(r)}</span>
+    <div class="row-act"><button type="button" data-edit="${r.id}">编辑</button></div>
+  </li>`;
+}
+
+function emptyHtml() {
+  return `<div class="empty">
+    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <path d="M24 24a3 3 0 1 1 3-3 6.5 6.5 0 1 1-6.5 6.5 10 10 0 1 1 10-10 13.5 13.5 0 1 1-13.5 13.5 17 17 0 1 1 17-17"/>
+    </svg>
+    <h3>没有符合条件的流水</h3>
+    <p>当前筛选下没有任何记录。放宽时间范围，或清空筛选重新看。</p>
+    <button class="btn" type="button" id="emptyReset">清空筛选</button>
+  </div>`;
+}
+
+function apply() {
+  const empty = visible().length === 0;
+  document.getElementById("emptyTable").innerHTML = empty ? emptyHtml() : "";
+  document.getElementById("emptyFlow").innerHTML = empty ? emptyHtml() : "";
+  document.getElementById("tableWrap").hidden = state.view !== "table";
+  document.getElementById("flowWrap").hidden = state.view !== "flow";
+
+  document.getElementById("count").parentElement.hidden = empty;
+  document.getElementById("strip").hidden = empty;
+
+  renderStrip();
+  renderTable();
+  renderFlow();
+  bindRowActions();
+  syncSeg();
+}
+
+function syncSeg() {
+  document.querySelectorAll("#typeSeg button").forEach(b => {
+    b.setAttribute("aria-selected", String(b.dataset.type === state.type));
+  });
+  document.querySelectorAll("#viewSeg button").forEach(b => {
+    b.setAttribute("aria-selected", String(b.dataset.view === state.view));
+  });
+}
+
+function bindRowActions() {
+  document.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      toast("打开编辑弹窗：流水 #" + btn.dataset.edit);
+    };
+  });
+  document.querySelectorAll("[data-ledger]").forEach(a => {
+    a.onclick = e => {
+      e.preventDefault();
+      toast(`跳转账户详情 /asset/ledgers/${a.dataset.ledger}（${a.dataset.name}）`);
+    };
+  });
+  document.querySelectorAll(".month-head").forEach(b => {
+    b.onclick = () => {
+      const open = b.getAttribute("aria-expanded") === "true";
+      b.setAttribute("aria-expanded", String(!open));
+      b.nextElementSibling.hidden = open;
+    };
+  });
+  const er = document.getElementById("emptyReset");
+  if (er) er.onclick = reset;
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("is-on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("is-on"), 2200);
+}
+
+function reset() {
+  state.type = "";
+  state.asset = "";
+  state.status = "";
+  state.range = "1y";
+  state.symbol = "";
+  document.getElementById("assetSel").value = "";
+  document.getElementById("statusSel").value = "";
+  document.getElementById("rangeSel").value = "1y";
+  document.getElementById("symbolChip").hidden = true;
+  apply();
+}
+
+// —— 初始化 ——
+const TYPES = [["", "全部"], ["buy", "买入"], ["sell", "卖出"], ["dividend", "分红"], ["deposit", "存入"], ["withdraw", "取出"]];
+document.getElementById("typeSeg").innerHTML = TYPES
+  .map(([v, l]) => `<button type="button" role="tab" data-type="${v}" aria-selected="${v === ""}">${l}</button>`)
+  .join("");
+document.querySelectorAll("#typeSeg button").forEach(b => {
+  b.onclick = () => { state.type = b.dataset.type; apply(); };
+});
+
+document.querySelectorAll("#viewSeg button").forEach(b => {
+  b.onclick = () => { state.view = b.dataset.view; document.querySelector(".page").scrollTop = 0; apply(); };
+});
+
+document.getElementById("assetSel").onchange = e => { state.asset = e.target.value; apply(); };
+document.getElementById("statusSel").onchange = e => { state.status = e.target.value; apply(); };
+document.getElementById("rangeSel").onchange = e => { state.range = e.target.value; apply(); };
+document.getElementById("resetBtn").onclick = reset;
+document.getElementById("exportBtn").onclick = () => toast("导出 CSV（沿用现有 /api/transactions/export/）");
+document.getElementById("symbolClear").onclick = () => {
+  state.symbol = "";
+  document.getElementById("symbolChip").hidden = true;
+  apply();
+};
+
+// 产品代码预筛演示：像从产品详情页「查看全部流水」带 ?symbol= 进来
+document.getElementById("demoSymbol").onclick = e => {
+  e.preventDefault();
+  state.symbol = "021180";
+  document.getElementById("symbolVal").textContent = "021180";
+  document.getElementById("symbolChip").hidden = false;
+  apply();
+};
+
+apply();
+</script>
+</body>
+</html>

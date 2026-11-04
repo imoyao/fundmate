@@ -8,6 +8,8 @@
 from enum import Enum
 from typing import Dict, Optional
 
+from loguru import logger
+
 
 class SBException(Exception):
     """所有业务异常的基类。"""
@@ -89,3 +91,45 @@ class ErrorCode(Enum):
             if item.code == code:
                 return item
         return None
+
+
+def internal_error_message(exc: Optional[BaseException] = None, context: str = '') -> str:
+    """500 响应的**固定文案**，并顺手把完整堆栈落日志（2026-10-29）。
+
+    为什么必须有它：视图里写
+    ``except Exception as e: jsonify({'message': f'服务器内部错误: {str(e)}'})``
+    会把 ``str(e)`` 原样送到浏览器——实测一次 ``IntegrityError`` 就泄漏了 INSERT
+    全文、绑定参数（含 ``family_id`` / ``ledger_id`` / 金额）与 ``sqlalche.me`` 链接。
+    更糟的是异常被视图吞掉后，``main.py::handle_unexpected`` 那一层（固定文案 +
+    ``logger.opt(exception=True)``）**永远不会执行** ⇒ 既不脱敏也不留痕，事后连
+    排查线索都没有。
+
+    本函数把「脱敏」与「留痕」绑成同一个动作：调用方只写一次，就不可能只做一半。
+    堆栈走 loguru（``logger.exception`` 同效），对外只有 ``ErrorCode.INTERNAL_ERROR.msg``。
+    """
+    logger.opt(exception=exc).error('未捕获的系统异常（{}）', context or '未标注')
+    return ErrorCode.INTERNAL_ERROR.msg
+
+
+def internal_error_payload(
+    exc: Optional[BaseException] = None,
+    context: str = '',
+    data: object = None,
+    error_code: int = ErrorCode.INTERNAL_ERROR.code,
+) -> Dict:
+    """完整 5xx 信封 `{data, message, error_code}`：固定文案 + 堆栈留痕（2026-10-30）。
+
+    与 :func:`internal_error_message` 的区别只是「一次给全信封」，视图侧一行即可：
+
+        return jsonify(internal_error_payload(e, 'sankey', {'nodes': [], 'links': []})), 500
+
+    为什么值得单独一个函数：脱敏改造让每处 5xx 从一行涨到三行，`summary` /
+    `temperature` 因此顶破 `scripts/check_view_thickness.py` 的存量冻结基线
+    （只减不增）。**正确做法不是放宽基线**（那等于承认「视图可以继续变厚」），
+    而是把「组信封」这一步也收进 core——它本就是契约实现，不属于视图职责。
+
+    `data` 由调用方传入而**不从 `exc` 推导**：各视图的 `data` 形状
+    （`{}` / `{'items': []}` / `{'cycles': [], 'summary': {}}`）是前端契约，
+    脱敏不该顺带把它改成 `None`。
+    """
+    return {'data': data, 'message': internal_error_message(exc, context), 'error_code': error_code}

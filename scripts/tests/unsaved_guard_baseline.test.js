@@ -37,8 +37,10 @@ test("源码里确实有「基线为 null 视为不脏」这行（防实现与�
   assert.doesNotMatch(SRC, /initialSnapshot = ref\(""\)/);
   // 三个弹窗都必须用共享 helper，不允许各自再写一份快照比较。
   // #1880 起新增 useDialogForm（内部转调 useFormDirty），两者都算「共享 helper」。
+  // #980 起 TransactionEditDialog 的表单状态机搬进 useTransactionEditForm.ts，
+  // 判据跟着代码走（否则这条守门会因为「文件里不再有那行」而假红）。
   for (const f of [
-    "frontend/src/views/asset/ledgers/components/TransactionEditDialog.vue",
+    "frontend/src/views/asset/ledgers/components/transactionEdit/useTransactionEditForm.ts",
     "frontend/src/views/asset/inventory/components/AssetEditDialog.vue",
     "frontend/src/views/asset/ledgers/components/CreateAccountDialog.vue"
   ]) {
@@ -163,7 +165,8 @@ test("#1884：成功路径内必须复位脏基线（打开时复位不算）", 
       reset: /markSaved\(\)|markClean\(\)/
     },
     {
-      f: "frontend/src/views/asset/ledgers/components/TransactionEditDialog.vue",
+      // #980：handleSave 从 SFC 搬进 useTransactionEditForm.ts，判据跟着代码走
+      f: "frontend/src/views/asset/ledgers/components/transactionEdit/useTransactionEditForm.ts",
       fn: "handleSave",
       reset: /markClean\(\)/
     },

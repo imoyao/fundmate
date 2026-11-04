@@ -5,7 +5,7 @@
 
 - 概览只覆盖非 None 值、策展字段永不被抓取覆盖；
 - 持仓/行业按快照日覆盖、调仓按调仓日覆盖；
-- 无官方调仓接口的平台由快照序列推导；
+- 官方调仓取不到（或该平台无官方调仓面）时由快照序列推导；
 - **新增平台只加适配器**（registry 注入即可，无需改 job）。
 """
 
@@ -60,10 +60,12 @@ class _FakeSource(AdvisorPortfolioSource):
         rebalances: Optional[List[dict]] = None,
         derive_rebalances: bool = False,
         has_official_rebalances: bool = True,
+        official_rebalance_source: str = '',
     ) -> None:
         self.platform = platform
         self.has_official_rebalances = has_official_rebalances
         self.derive_rebalances_from_snapshots = derive_rebalances
+        self.official_rebalance_source = official_rebalance_source
         self.overview = overview if overview is not None else {}
         self.holdings = holdings if holdings is not None else {'as_of_date': None, 'funds': []}
         self.industries = industries or []
@@ -530,7 +532,10 @@ def test_qieman_overview_empty_keeps_curated_fields(db):
 
 
 def test_qieman_derive_adjust_from_snapshots(db):
-    """#1468 且慢调仓明细：且慢无历史调仓接口，由相邻两次持仓快照推导前后占比与方向。"""
+    """且慢**降级**路径：官方接口覆盖不到的代码，由相邻两次持仓快照推导前后占比与方向。
+
+    （2026-11-03 换源前这是且慢的唯一来源；现在只服务计划型组合与官方取数失败的回退。）
+    """
     p = AdvisorPortfolio(platform='QIEMAN', code='ZH999888', name='测试组合')
     db.add(p)
     db.commit()
@@ -697,6 +702,167 @@ def test_qieman_clear_position_beyond_threshold_is_recorded(db):
     assert [r.fund_code for r in rows] == ['000002']
     assert rows[0].op_name == '减仓'
     assert float(rows[0].after_ratio) == pytest.approx(0.0)
+
+
+# ── 且慢换官方调仓源（2026-11-03）──
+
+
+def _official_source(rebalances: List[dict], **kwargs) -> _FakeSource:
+    """且慢假适配器：官方有数据 + 快照推导作为降级位（生产侧两个能力位同时为真）。"""
+    return _FakeSource(
+        'QIEMAN',
+        has_official_rebalances=True,
+        derive_rebalances=True,
+        official_rebalance_source='qieman_official',
+        rebalances=rebalances,
+        holdings={'as_of_date': '2026-11-02 00:00:00', 'funds': []},
+        **kwargs,
+    )
+
+
+def _seed_derived_adjust(db, code: str, adjust_date: date, fund_code: str = '000001') -> AdvisorPortfolio:
+    p = AdvisorPortfolio(platform='QIEMAN', code=code, name='推导过组合')
+    db.add(p)
+    db.commit()
+    db.add(
+        AdvisorAdjustHistory(
+            portfolio_id=p.id,
+            adjust_date=adjust_date,
+            fund_code=fund_code,
+            fund_name='推导出来的行',
+            pre_ratio=4.0,
+            after_ratio=8.0,
+            op_code=2,
+            op_name='加仓',
+            reason='由 2026-01-04 持仓快照推导（变化>0.5pp）',
+            source='qieman',
+        )
+    )
+    db.commit()
+    return p
+
+
+def test_official_rebalances_write_with_dedicated_source(db):
+    """官方行落 `qieman_official`：与推导行（`qieman`）区分，否则库里两个来源共用一个标签。"""
+    p = AdvisorPortfolio(platform='QIEMAN', code='ZH0200001', name='远足')
+    db.add(p)
+    db.commit()
+    src = _official_source(
+        [
+            {
+                'adjust_date': '2026-10-30',
+                'reason': '主理人原文',
+                'funds': [
+                    {
+                        'fund_code': '005827',
+                        'fund_name': '易方达蓝筹精选混合',
+                        'pre_ratio': 10.31,
+                        'after_ratio': 12.0,
+                        'op_code': 2,
+                        'op_name': '调增',
+                    }
+                ],
+            }
+        ]
+    )
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['ZH0200001'])
+
+    rows = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
+    assert len(rows) == 1
+    assert rows[0].source == 'qieman_official'
+    assert rows[0].op_name == '调增', '官方用词原样保留，不压成「加仓」'
+    assert rows[0].reason == '主理人原文'
+
+
+def test_official_rebalances_purge_existing_derived_rows(db):
+    """官方覆盖到该组合后，同组合的历史推导行必须清掉——否则同一时段两套真相。"""
+    p = _seed_derived_adjust(db, 'ZH0200002', date(2026, 3, 2))
+    src = _official_source(
+        [
+            {
+                'adjust_date': '2026-10-30',
+                'reason': '',
+                'funds': [
+                    {
+                        'fund_code': '005827',
+                        'fund_name': '易方达蓝筹精选混合',
+                        'pre_ratio': 0.0,
+                        'after_ratio': 3.0,
+                        'op_code': 4,
+                        'op_name': '调入',
+                    }
+                ],
+            }
+        ]
+    )
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['ZH0200002'])
+
+    rows = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
+    assert {r.source for r in rows} == {'qieman_official'}
+    assert all(r.adjust_date == date(2026, 10, 30) for r in rows)
+
+
+def test_derived_rows_survive_when_official_api_returns_nothing(db):
+    """计划型组合（官方返回空）→ 推导行**不得**被误删，这是降级路径的全部意义。"""
+    p = _seed_derived_adjust(db, 'LONG_WIN', date(2026, 3, 2))
+    src = _official_source([])
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['LONG_WIN'])
+
+    rows = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
+    assert [r.source for r in rows] == ['qieman']
+
+
+def test_derive_yields_to_existing_official_rows(db):
+    """已有官方行的组合不再推导：同一天推导行会按日覆盖官方行，静默丢官方数据。"""
+    p = AdvisorPortfolio(platform='QIEMAN', code='ZH0200003', name='已换源组合')
+    db.add(p)
+    db.commit()
+    db.add(
+        AdvisorAdjustHistory(
+            portfolio_id=p.id,
+            adjust_date=date(2026, 10, 30),
+            fund_code='005827',
+            fund_name='易方达蓝筹精选混合',
+            op_code=2,
+            op_name='调增',
+            source='qieman_official',
+        )
+    )
+    db.bulk_insert_mappings(
+        AdvisorHolding,
+        [
+            {
+                'portfolio_id': p.id,
+                'as_of_date': date(2026, 10, 31),
+                'fund_code': '000001',
+                'fund_name': 'A',
+                'after_ratio': 30.0,
+                'source': 'qieman',
+            }
+        ],
+    )
+    db.commit()
+
+    # 本轮官方接口失败（返回空）→ 会走到推导分支
+    src = _FakeSource(
+        'QIEMAN',
+        has_official_rebalances=True,
+        derive_rebalances=True,
+        official_rebalance_source='qieman_official',
+        rebalances=[],
+        holdings={
+            'as_of_date': '2026-11-02 00:00:00',
+            'funds': [{'fund_code': '000001', 'fund_name': 'A', 'after_ratio': 60.0}],
+        },
+    )
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['ZH0200003'])
+
+    dates = {r.adjust_date for r in db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()}
+    assert date(2026, 11, 2) not in dates, '已有官方行的组合不得再生成推导行'
 
 
 def test_job_rejects_single_platform_adapter(db):

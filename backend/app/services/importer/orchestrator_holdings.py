@@ -19,15 +19,17 @@ from app.core.constants import PositionSource
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.venues import resolve_venue
-from app.domains.ledgers.constants import map_org_type_to_channel_category
+from app.domains.ledgers.constants import (
+    map_channel_category_to_ledger_type,
+    map_org_type_to_channel_category,
+)
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import (
     FundCompanyObservation,
     Position,
     PositionImportMeta,
-    SalesInstitution,
-    resolve_sales_institution_id,
 )
+from app.domains.transactions.models import Transaction
 from app.services.import_records import (
     SBImportError,
     StandardHoldingRecord,
@@ -35,6 +37,7 @@ from app.services.import_records import (
 )
 from app.services.importer.orchestrator_commit import refresh_prices_best_effort
 from app.services.importer.registry import get_holding_parser
+from app.services.institution_resolver import resolve_sales_institution_id
 from app.services.position_service import PositionService
 
 
@@ -485,114 +488,210 @@ class HoldingsMixin:
         return position, meta
 
     def _get_or_create_channel_ledger(self, source_broker: str, external_account_code: str = 'MAIN') -> Ledger:
-        """按销售机构匹配渠道 Ledger（ledger_type='fund'）；找不到则自动创建（§3.3）。
+        """按销售机构匹配渠道 Ledger；找不到则自动创建（§3.3）。
 
-        资金账户维度（#1100/#1101）：external_account_code 区分同一机构下的不同资金账户
-        （普通/两融等），默认 'MAIN'。查/建键为 (family_id, sales_institution_id, external_account_code)，
-        与权威设计文档 §2.5/§6 一致。
+        ## 账户粒度（2026-10-28 修正：一个渠道 = 一个账户）
 
-        匹配链路（2026-08-17 重构，AMAC 权威名录为唯一基准）：
-        1. source_broker → SalesInstitution 匹配（org_name 等值 → display_name 等值）；
+        查/建键为 **(family_id, sales_institution_id)**（名录未命中时退化为
+        (family_id, name)）。`external_account_code` **不再参与匹配**。
+
+        为什么改：导入侧传进来的其实是**交易账号**，而同一渠道下不同基金 / 不同绑定卡各有不同
+        交易账号（实测珠海盈米 2 个、招商银行 2 个、蚂蚁 2 个、腾安 2 个、富国 2 个）。按它查/建
+        的结果是「每多一个交易账号就多一个同名账户」——2026-10-28 一次测试导入建出 13 个同名
+        重复账户（`珠海盈米基金销售` ×2、`富国基金` ×3、`招商银行` ×3 …），用户看到的是同一
+        渠道被拆成一堆账户。交易账号 / 基金账号是**持仓级**属性，逐行记在
+        `position_import_meta.trade_account / fund_account`，渠道账户这一层不需要它。
+
+        ## 查重不得带 ledger_type（2026-10-28 二次修正，#2710 后续）
+
+        原先的查重条件里含 `ledger_type='fund'`，等于认定「这个渠道的账户一定是我建的 fund 类型」。
+        但用户手工建的银行 / 券商账户是 `bank` / `stock` 类型，于是**永远查不到**，每次导入都
+        新建一个幽灵账户。实测（本地库）：机构 72（微众）下有 ledger 3「微众银行」(bank，416 条
+        流水，用户 2026-05-29 手工建) 与 ledger 18「深圳前海微众银行」(fund，0 流水，2026-08-17
+        导入建)；机构 203（银河）下有 ledger 12「同花顺（银河证券）」(stock，1211 条流水) 与
+        ledger 14「中国银河证券」(fund，0 流水)，两对幽灵的 `created_at` 精确到同一次导入。
+
+        渠道 ↔ 账户是一对一的：一个销售机构下就该只有一个账户，与它装的是现金还是基金无关
+        （`ledger_type` 只是内部计算口径键，见 `constants.py` 文件头的双字段铁律）。所以查重
+        只看 `sales_institution_id`，让任何类型的既有账户都能被复用。
+
+        ## 新建时 ledger_type 必须派生，不得硬编码
+
+        原实现写死 `ledger_type='fund'`，而同一处却用 `map_org_type_to_channel_category()` 正确
+        推导了 `channel_category` —— 两个字段从建号那一刻就自相矛盾：微众是银行，`channel_category`
+        算出 bank（早先因映射表缺「城市商业银行」落成 other），`ledger_type` 却写死 fund，于是
+        账户卡在「银行」分组里挂着「基」徽标。现改为与手工建号路径
+        （`ledger_write_service`）共用 `map_channel_category_to_ledger_type()`，
+        `constants.py` 要求的「唯一映射源」才真正唯一。
+
+        同名账户去重（`_pick_channel_ledger`）是为历史数据兜底：已存在的重复账户不会被自动删除
+        （删账户要让用户决定），但新导入一律复用"真正在用"的那一条，不再继续分裂。
+
+        匹配链路（2026-08-17 重构，AMAC 权威名录为唯一基准；判据见
+        `app/services/institution_resolver.py`，与 `resolve_sales_institution_id` 共用一份）：
+        1. source_broker → SalesInstitution（原文精确 → 别名精确 → 手工别名 → 归一化名 + 业务族）；
         2. 命中机构 → 查 Ledger.sales_institution_id == 机构.id：
            - 找到 → 返回该 Ledger（name 为用户创建时的名字，权威名仅存后台不展示）；
            - 未找到 → 自动创建 Ledger（name=可读展示名）+ 自动关联 sales_institution_id；
         3. 名录未命中 → 回退：按 source_broker 原文查/建 Ledger（不关联机构，记 warning）。
+           基金公司直销（易方达基金 / 富国基金）本就**不在** AMAC 销售机构公示名录内，属正常回退。
 
         注意：Ledger.name 永远是用户输入/可读展示名，权威 org_name 不进前台任何字段。
         """
-        institution = (
-            self.db.query(SalesInstitution)
-            .filter(SalesInstitution.is_active.is_(True), SalesInstitution.org_name == source_broker)
-            .first()
-        )
-        if institution is None:
-            institution = (
-                self.db.query(SalesInstitution)
-                .filter(
-                    SalesInstitution.is_active.is_(True),
-                    SalesInstitution.display_name == source_broker,
-                )
-                .first()
-            )
+        institution = self._sales_institution_resolver().resolve(source_broker)
 
-        # 名录命中：按机构关联找/建渠道 Ledger
+        # 名录命中：按机构关联找/建渠道 Ledger（不限 ledger_type —— 见 docstring「查重不得带」）
         if institution is not None:
-            # 1) 精确命中（同机构 + 同外部资金账户）
-            ledger = (
+            candidates = (
                 self.db.query(Ledger)
                 .filter_by(
-                    sales_institution_id=institution.id,
-                    ledger_type='fund',
                     family_id=self.family_id,
-                    external_account_code=external_account_code,
+                    sales_institution_id=institution.id,
                 )
-                .first()
+                .order_by(Ledger.id.asc())
+                .all()
             )
-            if ledger:
-                return ledger
-            # 2) 存量「主账户」升级：本机构仅有一个 external_account_code='MAIN' 的旧账本，
-            #    视为同一物理账户，将其外部账号补正为该笔导入真实资金账号，避免重复建账（#1100）。
-            if external_account_code != 'MAIN':
-                legacy = (
-                    self.db.query(Ledger)
-                    .filter_by(
-                        sales_institution_id=institution.id,
-                        ledger_type='fund',
-                        family_id=self.family_id,
-                        external_account_code='MAIN',
-                    )
-                    .all()
-                )
-                if len(legacy) == 1:
-                    legacy[0].external_account_code = external_account_code
-                    self.db.flush()
-                    return legacy[0]
-            # 3) 确无匹配 → 新建（含真实外部资金账号）
+            if candidates:
+                return self._pick_channel_ledger(candidates, source_broker)
+
             display_name = institution.display_name or institution.org_name
             # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：命中销售机构时，
-            # channel_category 由 org_type 映射写入（权威），与 ledger_type(资产类) 正交。
-            # 例：微众银行 org_type=商业银行 → channel_category=bank，ledger_type 仍为 fund。
+            # channel_category 由 org_type 映射写入（权威），ledger_type 再由它派生——
+            # 两个字段同源，不会再出现「银行分组里的基金类型账户」。
+            # 例：微众银行 org_type=城市商业银行 → channel_category=bank → ledger_type=bank。
+            channel_category = map_org_type_to_channel_category(institution.org_type)
             ledger = Ledger(
                 name=display_name,
-                ledger_type='fund',
+                ledger_type=map_channel_category_to_ledger_type(channel_category),
                 default_allocation='longterm',
                 family_id=self.family_id,
                 sales_institution_id=institution.id,
-                external_account_code=external_account_code,
-                channel_category=map_org_type_to_channel_category(institution.org_type),
+                external_account_code='MAIN',  # 渠道主账户；交易账号属持仓级，见 docstring
+                channel_category=channel_category,
             )
             self.db.add(ledger)
             self.db.flush()
             logger.info(
                 f'对账自动创建渠道账户: name={display_name} (机构={institution.org_name}, '
-                f'id={institution.id}, 外部账号={external_account_code})'
+                f'id={institution.id}, 渠道分类={channel_category}, 资产类={ledger.ledger_type}, '
+                f'导入侧交易账号={external_account_code})'
             )
             return ledger
 
         # 名录未命中：回退原文（历史行为，不关联机构）
-        ledger = (
+        candidates = (
             self.db.query(Ledger)
             .filter_by(
                 name=source_broker,
-                ledger_type='fund',
                 family_id=self.family_id,
-                external_account_code=external_account_code,
             )
-            .first()
+            .order_by(Ledger.id.asc())
+            .all()
         )
-        if ledger:
-            return ledger
+        if candidates:
+            return self._pick_channel_ledger(candidates, source_broker)
         ledger = Ledger(
             name=source_broker,
             ledger_type='fund',
             default_allocation='longterm',
             family_id=self.family_id,
-            external_account_code=external_account_code,
+            external_account_code='MAIN',
         )
         self.db.add(ledger)
         self.db.flush()
-        logger.warning(f'对账自动创建渠道账户（未命中 AMAC 名录）: name={source_broker}')
+        logger.warning(
+            f'对账自动创建渠道账户（未命中 AMAC 名录）: name={source_broker} (导入侧交易账号={external_account_code})'
+        )
         return ledger
+
+    def _sales_institution_resolver(self):
+        """本编排器实例复用的机构匹配器（名录索引只建一次，逐行对账时不再全表扫）。"""
+        resolver = getattr(self, '_institution_resolver_cache', None)
+        if resolver is None:
+            from app.services.institution_resolver import SalesInstitutionResolver
+
+            resolver = SalesInstitutionResolver(self.db)
+            self._institution_resolver_cache = resolver
+        return resolver
+
+    def _pick_channel_ledger(self, ledgers: list, label: str) -> Ledger:
+        """同一渠道存在多条 Ledger 时择一（历史重复账户的收敛点，不删数据）。
+
+        判据（2026-10-28 二次修正）：**有流水 > 持仓多 > id 小**。
+
+        为什么把「有流水」提到首位：原判据「持仓最多、其次 id 最小」是按「用户手工建了个空壳
+        账户」设计的；但重复账户的另一来源是**导入自动建**（旧 `_get_or_create_channel_ledger`
+        的 bug），这类幽灵恰好持仓最多、流水恒为 0。实测机构 72：ledger 3「微众银行」416 条
+        流水 / 1 条持仓，ledger 18「深圳前海微众银行」0 条流水 / 18 条持仓 —— 只看持仓数会选中
+        幽灵，让后续每次导入继续往空壳里灌数据。**流水是「这个账户真的被用过」的铁证**，持仓则
+        可能是自动化产物。同分时按 id 小（先建的通常是用户自己建的那本）。
+
+        重复账户本身留给用户决定是否合并（`scripts/dedupe_channel_ledgers.py`）。
+        """
+        if len(ledgers) == 1:
+            return ledgers[0]
+        ids = [led.id for led in ledgers]
+        pos_counts = dict(
+            self.db.query(Position.ledger_id, func.count(Position.id))
+            .filter(Position.ledger_id.in_(ids))
+            .group_by(Position.ledger_id)
+            .all()
+        )
+        txn_counts = dict(
+            self.db.query(Transaction.ledger_id, func.count(Transaction.id))
+            .filter(Transaction.ledger_id.in_(ids))
+            .group_by(Transaction.ledger_id)
+            .all()
+        )
+        ordered = sorted(
+            ledgers,
+            key=lambda led: (-txn_counts.get(led.id, 0), -pos_counts.get(led.id, 0), led.id),
+        )
+        logger.warning(
+            f'渠道「{label}」存在 {len(ordered)} 个重复账户'
+            f'（ids={[led.id for led in ordered]}, '
+            f'流水数={[txn_counts.get(led.id, 0) for led in ordered]}, '
+            f'持仓数={[pos_counts.get(led.id, 0) for led in ordered]}），'
+            f'本次使用 id={ordered[0].id}；重复账户需人工合并'
+        )
+        return ordered[0]
+
+    def _find_same_institution_position(self, symbol: str, ledger: Ledger) -> Optional[Tuple[Position, Ledger]]:
+        """同机构**其它账本**下是否已有该 symbol 的 active 持仓，返回 (持仓, 账本)。
+
+        WHY：`_get_or_create_channel_ledger` 只按 (sales_institution_id, ledger_type='fund',
+        external_account_code) 查/建账本，`_pick_channel_ledger` 的收敛也只在 fund 类型内部生效 ——
+        它们的视野里都没有用户自己建的**非 fund 类型**账本。典型场景（#2706 实测）：机构 72（微众）下
+          - id=3  「微众银行」        ledger_type=bank（用户手工录，持有 021180）
+          - id=18 「深圳前海微众银行」 ledger_type=fund（E账户导入建，18 条持仓）
+        E账户行按机构匹配到 18，18 名下没有 021180 ⇒ 走「渠道无持仓 → 自动归因新建」，
+        于是同一笔持仓在 3 和 18 各存一份，系统份额 3,421.96 → 6,843.92（**正好翻倍**）。
+
+        所以：同机构任一账本已有该 symbol，就认它是这笔持仓的落点——份额一致走「已核对」，
+        不一致落「冲突」交用户裁决。两条分支都不会再新建第二份。
+        """
+        if ledger.sales_institution_id is None:
+            return None
+        row = (
+            self.db.query(Position, Ledger)
+            .join(Ledger, Ledger.id == Position.ledger_id)
+            .filter(
+                Position.family_id == self.family_id,
+                Position.symbol == symbol,
+                Position.ownership_status == 'active',
+                Ledger.family_id == self.family_id,
+                Ledger.sales_institution_id == ledger.sales_institution_id,
+                Ledger.id != ledger.id,
+            )
+            .order_by(Position.id)
+            .first()
+        )
+        if row is None:
+            return None
+        logger.info(
+            f'同机构其它账本已持有 {symbol}（账本={row[1].id}/{row[1].name}）：跳过自动归因新建，避免同一笔持仓重复计数'
+        )
+        return row
 
     def _auto_attribute(
         self, shadow_pos: Position, shadow_meta: PositionImportMeta, ledger: Ledger, row: dict
@@ -662,9 +761,11 @@ class HoldingsMixin:
         流程：
         1. 防复活检查：按三元组查影子 meta，is_attributed/is_ignored → 跳过并计数；
         2. 影子记录专用 upsert（ledger_id=NULL, ownership_status='shadow'）；
-        3. 渠道匹配：source_broker → SalesInstitution（is_active，org_name/display_name 等值）→
+        3. 渠道匹配：source_broker → SalesInstitution（判据见 app/services/institution_resolver.py：
+           原文精确 → 别名精确 → 手工别名 → 归一化名 + 业务族唯一命中）→
            按 sales_institution_id 查/建 Ledger(fund)（name=display_name or org_name，自动关联机构）；
            名录未命中回退按 name=source_broker 查/建（不关联机构，记 warning）；
+           **账户粒度是一个渠道一个账户**，交易账号不参与匹配（见 _get_or_create_channel_ledger）；
         4. 三分支判定（§4.2 只看份额，min_unit 整数比较，0.001 份 = 10 min_unit）：
            - 渠道无该 symbol → 自动归因（渠道新建 active + 影子 is_attributed=True）；
            - 有且份额差 ≤10 min_unit → 已核对（渠道不动 + 影子 is_attributed=True）；
@@ -733,6 +834,13 @@ class HoldingsMixin:
                         .filter_by(symbol=symbol, ledger_id=ledger.id, family_id=self.family_id)
                         .first()
                     )
+                    channel_ledger = ledger
+                    if channel_pos is None:
+                        # 同机构另有一个账本已持有该 symbol（如手工建的 bank 账本）⇒ 认它是落点，
+                        # 不再新建，否则同一笔持仓记两遍（#2706）
+                        sibling = self._find_same_institution_position(symbol, ledger)
+                        if sibling is not None:
+                            channel_pos, channel_ledger = sibling
                     if channel_pos is None:
                         # 自动归因：渠道新建 active Position（E账户快照数据）
                         self._auto_attribute(shadow_pos, shadow_meta, ledger, row)
@@ -747,7 +855,7 @@ class HoldingsMixin:
                             shadow_meta.is_attributed = False
                             summary['conflicts'] += 1
                             summary['conflict_list'].append(
-                                self._build_conflict_item(shadow_pos, shadow_meta, ledger, channel_pos)
+                                self._build_conflict_item(shadow_pos, shadow_meta, channel_ledger, channel_pos)
                             )
             except Exception as e:
                 logger.exception(f'E账户对账单条失败: symbol={symbol}')

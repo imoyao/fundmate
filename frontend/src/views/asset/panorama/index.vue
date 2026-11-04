@@ -20,9 +20,11 @@
         <!-- #1798：/analysis 的静态入口（路由名跳转，拍平后最稳妥）。
              #2150：文案随页面标题改名（智能分析 → 复盘）——两页的跳转关系是
              双向的（本页按钮 → 复盘页；复盘页指路条 → 本页），文案必须对齐，
-             否则用户点「智能分析」过去的页面标题写着「复盘」，会以为自己走错了。 -->
+             否则用户点「智能分析」过去的页面标题写着「复盘」，会以为自己走错了。
+             2026-10-30：随侧边栏「菜单标题统一 4 字」再改一次（复盘 → 投资复盘），
+             三处（路由 title / 本按钮 / 目标页 h1）必须同步，否则侧边栏与页头两个名字。 -->
         <el-button @click="$router.push({ name: 'AssetAnalysis' })">
-          <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 复盘
+          <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 投资复盘
         </el-button>
         <el-button :loading="loading" @click="fetchData">
           <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
@@ -30,7 +32,7 @@
       </div>
     </div>
 
-    <!-- 总览大卡片（含资产大类瀑布图） -->
+    <!-- 总览大卡片（含资产大类构成柱状图） -->
     <OverviewSummaryCard
       class="mb-6"
       :total-assets="totalAssets"
@@ -62,6 +64,9 @@
       </div>
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
     </div>
+
+    <!-- 基金风格分布（#2628）：家庭级、按持仓市值加权；无箱体的持仓进「未覆盖」不补 0 -->
+    <StyleDistributionCard />
 
     <!-- 「资产透视」区块（原 `AssetInsightPanel`）已于 #2034 收尾时**删除**：
          它的两张环形图，标题与数据字段各有对不上的地方（#2032）——
@@ -119,6 +124,7 @@ import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import OverviewSummaryCard from "./components/OverviewSummaryCard.vue";
 import CategoryBalanceTable from "./components/CategoryBalanceTable.vue";
 import DetailGroupList from "./components/DetailGroupList.vue";
+import StyleDistributionCard from "./components/StyleDistributionCard.vue";
 import {
   getSummary,
   getSankeyData,

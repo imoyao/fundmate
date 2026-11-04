@@ -17,14 +17,15 @@
 import json
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from flask import has_app_context
 from loguru import logger
-from sqlalchemy import func, or_
+from sqlalchemy import false, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.asset_types import get_asset_type_label
 from app.core.constants import (
     ALLOCATION_LABELS,
     MARKET_LABELS,
@@ -37,20 +38,24 @@ from app.core.constants import (
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol, strip_exchange_prefix
-from app.core.utils import get_confirm_date, paginate
+from app.core.utils import get_confirm_date, iso_date_only, paginate
 from app.core.venues import asset_types_of_venue, resolve_venue
 from app.domains.funds.models import DailyWorth, Fund
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
+from app.domains.portfolios.models import Portfolio
+from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.transactions.models import Transaction
 from app.services import async_backfill
+from app.services.family_member_service import ledger_ids_for_member
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
-from app.services.pnl_service import compute_sell_realized_cents
+from app.services.institution_resolver import resolve_sales_institution_id
+from app.services.pnl_service import compute_redeem_realized_cents, compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
-from app.services.position_scope import exclude_cleared
-from app.services.symbol_scope import build_position_symbol_conditions
+from app.services.position_scope import active_holdings
+from app.services.symbol_scope import build_position_symbol_conditions, build_transaction_symbol_conditions
 from app.services.trading import TransactionService, validate_buy, validate_sell
+from app.services.transaction_service import order_by_effective_day
 from app.services.watchlist_service import (
     ensure_watchlist_for_positions,
     reconcile_watchlist_status,
@@ -58,6 +63,27 @@ from app.services.watchlist_service import (
 
 # 单用户遗留口径：离线脚本（无请求上下文）且入参也没给 family_id 时的唯一退路。
 _LEGACY_SINGLE_FAMILY_ID = 1
+
+# #2137 费用拆分数据键（元）→ Transaction 列名（分）。四键全空 = 未拆分。
+_FEE_BREAKDOWN_KEYS = ('fee_commission', 'fee_stamp_duty', 'fee_transfer_fee', 'fee_other')
+_FEE_BREAKDOWN_COLUMNS = ('commission', 'stamp_duty', 'transfer_fee', 'other_fee')
+
+
+def _fee_breakdown_kwargs(data: dict) -> dict:
+    """从数据字典提取费用拆分 kwargs（#2137，元 → 分）。
+
+    四键**全空**（缺键 / None / 0 之外的未提供）→ 返回空 dict：Transaction 四列
+    留 NULL = 未拆分，聚合 fee 为权威，行为与改造前一致。
+    任一键有值 → 四键必须齐全（缺的显式补 0），否则抛 ValueError——
+    与 Transaction 的 before_insert 不变量同口径，fail closed 在写入前。
+    """
+    raw = [data.get(k) for k in _FEE_BREAKDOWN_KEYS]
+    if all(v is None or v == '' for v in raw):
+        return {}
+    if any(v is None or v == '' for v in raw):
+        missing = [k for k, v in zip(_FEE_BREAKDOWN_KEYS, raw) if v is None or v == '']
+        raise ValueError(f'费用拆分必须四类齐全（缺的类别显式传 0）：未提供 {missing}')
+    return {col: Money.yuan_to_cents(v) for col, v in zip(_FEE_BREAKDOWN_COLUMNS, raw)}
 
 
 def _resolve_family_id(data: dict) -> int:
@@ -231,10 +257,79 @@ def query_transactions_by_identity(db: Session, position: Position):
     ``scripts/check_view_thickness.py`` 会按行数拦截视图层变厚。同一段兜底过滤在
     ``get_position_transactions`` 与 ``delete_position`` 两处都需要，下沉后一处定义、两处复用。
     """
-    query = db.query(Transaction).filter(Transaction.symbol == position.symbol)
+    # 匹配口径走 symbol_scope（#1662 遗留项）：此前是字面量 `Transaction.symbol == position.symbol`，
+    # 而流水快照与持仓写法可以不同（实测流水 `SZ001937`、持仓 `001937`），字面量等值会漏掉整批流水。
+    query = db.query(Transaction).filter(or_(*build_transaction_symbol_conditions(position.symbol)))
     if position.ledger_id is not None:
         return query.filter(Transaction.ledger_id == position.ledger_id)
     return query.filter(Transaction.ledger_id.is_(None))
+
+
+def list_position_transactions(db: Session, position: Position) -> list[Transaction]:
+    """某持仓的交易流水（持仓抽屉数据源）。
+
+    取数口径：#2372 的「优先 ``position_id``、悬空时按身份键兜底」保持不变；
+    排序统一走 ``order_by_effective_day``（#2712）——此前这里是
+    ``confirm_date DESC NULLS LAST, created_at DESC``，只有交易日的行被甩到末尾，
+    批量导入又退化成「导入批次顺序」（#2171），与详情页顺序对不上。
+    """
+    if position.id:
+        rows = db.query(Transaction).filter(Transaction.position_id == position.id).first()
+        if rows is not None:
+            return order_by_effective_day(db.query(Transaction).filter(Transaction.position_id == position.id)).all()
+    return order_by_effective_day(query_transactions_by_identity(db, position)).all()
+
+
+def serialize_position_transaction(txn: Transaction, position: Optional[Position] = None) -> dict:
+    """持仓抽屉的流水行（唯一出口，#2712）。
+
+    与 ``/api/transactions`` 同口径：
+
+    - 日期给**两个真字段**（``trade_date`` / ``confirm_date``），由前端按「交易日优先、
+      确认日兜底」展示。此前这里把 ``confirm_date or trade_date`` 塞进 ``trade_date``：
+      字段名与语义错位，同一笔流水在抽屉与详情页可以显示不同天。
+    - ``asset_type`` 在流水快照为空时用持仓自身类型兜底：前端价格列按
+      ``pricePrecision(asset_type)`` 取位数（基金 4 位 / 其余 2 位），缺失会把
+      净值 ``1.2200`` 印成 ``1.22``。
+    """
+    return {
+        'id': txn.id,
+        'ledger_id': txn.ledger_id,
+        'symbol': txn.symbol,
+        'trade_date': iso_date_only(txn.trade_date),
+        'confirm_date': iso_date_only(txn.confirm_date),
+        'txn_type': txn.txn_type,
+        'asset_type': txn.asset_type or (position.asset_type if position else None),
+        'quantity': Money.min_unit_to_shares(txn.quantity),
+        'price': Money.price_units_to_yuan(txn.price),
+        'amount': Money.cents_to_yuan(txn.amount),
+        'fee': Money.cents_to_yuan(txn.fee),
+        'notes': txn.notes,
+    }
+
+
+def resolve_portfolio_change(
+    db: Session,
+    update_data: dict,
+    family_id: int,
+) -> Optional[str]:
+    """校验持仓改派的目标组合存在且归属本家庭（禁止跨家庭串仓）。
+
+    返回 ``None`` 表示通过；返回字符串是**给调用方 abort(404) 的文案**（HTTP 语义留在
+    视图层，本方法不 import flask）。
+
+    与 `resolve_ledger_change` 同一形态、同一个理由：这类「目标资源存在性 + 归属」
+    校验是业务规则，留在视图里会让每个新增的可改派字段都往 views 里再加一段 query
+    （#1606 视图层职责边界；本文件 positions/views.py 早已在冻结基线内，只减不增）。
+    `portfolio_id` 未传 / 显式置空（解除关联）均直接放行，不查库。
+    """
+    portfolio_id = update_data.get('portfolio_id')
+    if portfolio_id is None:
+        return None
+    target = db.query(Portfolio).filter(Portfolio.id == portfolio_id, Portfolio.family_id == family_id).first()
+    if not target:
+        return '目标组合不存在或无权访问'
+    return None
 
 
 def resolve_ledger_change(
@@ -348,12 +443,22 @@ def auto_purchase_money_fund(
 
 
 # 录入阶段已显式给出的具体类型，直接信任，不再做代码推断（避免误伤基金等）
-_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash'}
+# bank_wealth 必须在这里：银行理财没有可推断的代码段，漏了它显式传入的 asset_type 会被
+# `_get_asset_type` 的推断分支覆盖成 stock（银行理财产品名多为中文、无代码 ⇒ 落到默认值）。
+_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash', 'portfolio', 'bank_wealth'}
+
+# 只允许 balance（直接余额）记账的品类：共同点是**系统拿不到公开净值**，落成 nav 模式
+# 不会报错，而是市值恒为 0（`position_price` job 不给它定价），用户看到一张「持仓 0 元」的卡。
+# 值是该品类专属的拒绝理由，拼进错误信息用。
+_BALANCE_ONLY_ASSET_TYPES: dict[str, str] = {
+    'portfolio': '投顾组合没有份额与净值',
+    'bank_wealth': '银行理财不在公开基金名录里，系统拿不到它的净值',
+}
 
 
-def _get_asset_type(data: dict, default: str = 'stock') -> str:
+def _get_asset_type(data: dict, default: str = 'stock', *, fallback: Optional[str] = None) -> str:
     """
-    录入阶段确定资产类型：显式具体类型 > 代码前缀推断 > 默认 stock。
+    录入阶段确定资产类型：显式具体类型 > 代码前缀推断 > ``fallback`` > 默认 stock。
 
     历史债背景：PositionCreate.asset_type 使用 validation_alias='type'，
     model_dump() 输出的是字段名 `asset_type`，而 importer 路径直接构造 `type` key，
@@ -362,10 +467,22 @@ def _get_asset_type(data: dict, default: str = 'stock') -> str:
     分类下沉到录入阶段（#1264 / #1266）：仅当显式类型缺失，或显式为泛化默认 'stock' 时，
     才按代码前缀推断（沪 51/56/58、深 15/16 → ETF；11/12 → 可转债），
     以免把已正确标注为 fund/money_fund 的基金（代码前缀可能与股票/可转债重合）误判成股票。
+
+    ``fallback``（#2773 附带修）：**已知持仓**时的品种来源。卖出/取出等「操作的是既有持仓」
+    的路径，请求体可以不带 ``type``（导入器、脚本、老客户端都不带），而默认兜底是
+    ``'stock'`` —— 于是场外基金的卖出流水落成 ``asset_type='stock'``，身份键从
+    ``OTC:004369`` 变成 ``EXCHANGE:SZ004369``，与买入那条**分裂成两个分组**：
+    清仓周期永远闭合不上，卖出被记成「无周期可归集」。品种本来就该以持仓为准，
+    请求体只是它的冗余副本，故 ``fallback`` 排在代码前缀推断**之前**。
     """
     explicit = data.get('asset_type') or data.get('type')
     if explicit and explicit in _SPECIFIC_ASSET_TYPES:
         return explicit
+    # 已知持仓的品种**优先于**代码前缀推断：`derive_security_type` 在缺少场所信息时
+    # 对任何 6 位数字码都返回 'stock'（实测 004369 → stock），而它其实是场外基金。
+    # 推导不可信时以持仓为准，请求体里的品种只是持仓的冗余副本。
+    if fallback:
+        return fallback
     symbol = data.get('symbol') or ''
     market, code = split_symbol(symbol)
     derived = derive_security_type(code, market)
@@ -591,6 +708,8 @@ def _create_orphan_transaction(
     price_units = Money.yuan_to_price_units(price)
     amount_cents = Money.yuan_to_cents(amount) if amount else Money.multiply_price_quantity(price_units, qty_units)
     fee_cents = Money.yuan_to_cents(data.get('fee', 0) or 0)
+    # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+    fee_breakdown = _fee_breakdown_kwargs(data)
 
     TransactionService.create(
         db=db,
@@ -603,6 +722,7 @@ def _create_orphan_transaction(
         quantity=qty_units,
         price=price_units,
         fee=fee_cents,
+        **fee_breakdown,
         amount=amount_cents,
         ledger_id=data.get('ledger_id'),
         status='success',
@@ -611,11 +731,33 @@ def _create_orphan_transaction(
         notes=notes,
         import_hash=data.get('import_hash'),
         entry_status='orphan',
+        # 配对组（#2836）：兑息与代扣税都走本函数落库，组名不写进来的话，
+        # 前端折叠（按组算的）看起来正常，库里却是两条互不相干的孤儿流水——
+        # 后续按组做「净额对账 / 删组回滚」时才发现关联早没了。
+        link_group_id=data.get('link_group_id'),
         family_id=_resolve_family_id(data),
         # #1232 决策 11：孤儿流水来源透传
         source=data.get('source'),
     )
     db.flush()
+
+
+class BondRedeemOutcome(NamedTuple):
+    """债券兑付的落账结果（#2832）。
+
+    ``position is None`` 有两种截然不同的含义，**必须分开**：
+
+    - ``is_orphan=False`` → 兑付成功且已清仓（#2343：行保留 + cleared，方法契约同卖出）；
+    - ``is_orphan=True``  → 未匹配到持仓，落的是孤儿流水。
+
+    导入侧的 ``orphan_count`` 是给用户看的「有多少笔没归位」，把「兑付清仓」算进去
+    会让人以为数据有问题。卖出路径历史上正是用单个 ``None`` 承载了这两种语义
+    （`process_orphan_sell_or_withdraw` + 调用方 ``if result is None: orphan_count += 1``），
+    这次不复制那个歧义。
+    """
+
+    position: Optional['Position']
+    is_orphan: bool
 
 
 def _is_reinvest(data: dict) -> bool:
@@ -1299,6 +1441,31 @@ class PositionService:
         is_balance = mode == ValuationMode.BALANCE.value
         amount = data.get('amount', 0) or 0
 
+        # ── 无净值品类：只允许 balance（D70 / #2740）──
+        # portfolio / bank_wealth 没有份额、没有净值，市值只能来自 `market_value_override`
+        # （D2 双态计价）。落成 nav 模式的后果**不是报错而是静默 0 元**：`position_price`
+        # job 不会给它定价，市值恒为 0，但 has_position 仍为 true，详情页照常渲染一张
+        # 「持仓 0 元」的卡 —— 用户看到的是一个说不通的数字，没有任何提示。
+        # 历史上这条约束只写在 `core/asset_types.py` 的注释里（「不进 positions」），
+        # 没有任何代码执行它，于是「能记进去但记了是坏的」。故在写入侧显式拒绝。
+        if asset_type in _BALANCE_ONLY_ASSET_TYPES and not is_balance:
+            raise ValueError(
+                f'{_BALANCE_ONLY_ASSET_TYPES[asset_type]}，'
+                '只能以 balance（直接余额）模式记账，市值靠人工录入金额（valuation_mode 须传 balance）'
+            )
+
+        # 同一条 symbol 已有**别的品类**的持仓时不许合并（#2740）：
+        # balance-only 品类的 venue 是 NO_VENUE，`_find_existing_position` 对空 venue 按设计
+        # 不做品类过滤（见其注释：对空串套用「无场所实体」集合会误伤 crypto 等未知品类），
+        # 于是「产品名恰好与某只证券同码」时会合并进那只证券的行——balance 分支只往
+        # `market_value_override` 上加钱，用户看到的是「一只股票凭空多了钱」。
+        # 真实组合码是平台原生码（ZHxxxx / tgcode），撞码概率极低，但静默串账比报错贵。
+        if same is not None and asset_type in _BALANCE_ONLY_ASSET_TYPES and same.asset_type != asset_type:
+            raise ValueError(
+                f'该账户下 {symbol} 已存在一条 asset_type={same.asset_type} 的持仓，'
+                f'不能按{get_asset_type_label(asset_type)}记账；请核对名称或换一个账户'
+            )
+
         # 校验数量/价格
         qty = data.get('quantity', 0) or 0
         price = data.get('avg_price', 0) or 0
@@ -1409,6 +1576,12 @@ class PositionService:
                     # 只累加可写市值并刷新覆写时间
                     same.market_value_override = (same.market_value_override or 0) + amount_cents
                     same.value_override_at = datetime.now()
+                    # 投顾组合自愈（D70）：存量行可能是在写入约束落地前按 nav 建出来的，
+                    # 那一行没有净值、市值恒 0。再次买入时顺手把模式纠正过来，让「同一组合
+                    # 两种计价模式并存」不至于永久留在库里。只对 portfolio 做——其他品类
+                    # 若被以 balance 入参合并，擅自改模式会把份额口径静默作废。
+                    if asset_type == 'portfolio':
+                        same.valuation_mode = ValuationMode.BALANCE.value
                 elif covered_by_anchor:
                     # 这笔交易已包含在快照里（confirm_date <= 锚点日）：**只写流水，不动份额**。
                     # 快照本身已经反映了它，再加一次就是本次修复要解决的重复累加。
@@ -1555,6 +1728,8 @@ class PositionService:
                 quantity=qty_units,
                 price=price_units,
                 fee=Money.yuan_to_cents(data.get('fee', 0) or 0),
+                # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+                **_fee_breakdown_kwargs(data),
                 # balance 模式没有 price×qty 可算，流水金额直接取用户录入的金额
                 amount=amount_cents if is_balance else Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
@@ -1698,18 +1873,28 @@ class PositionService:
                 )
             db.flush()
 
+            # 品种以**持仓**为准（理由见 `_get_asset_type` 的 `fallback` 说明）：
+            # 卖出请求不带 type 时若兜底成 'stock'，场外基金的卖出流水会与买入
+            # 分属两个身份键，清仓周期永远闭合不上。
+            sell_asset_type = _get_asset_type(data, fallback=existing.asset_type)
             TransactionService.create(
                 db=db,
                 position_id=position_id,
-                symbol=data.get('symbol'),
+                # symbol 同理以持仓为准（#2855）：卖出请求漏带 symbol 时若落 NULL，
+                # 产品详情「交易记录」（按 symbol 身份匹配）与清仓周期（按 symbol 分组）
+                # 都看不见这笔卖出——已清仓产品于是「有买无卖」。与下方 bond_redeem
+                # 路径的 `data.get('symbol') or existing.symbol` 同一条纪律。
+                symbol=data.get('symbol') or existing.symbol,
                 txn_type=op_type,
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
-                asset_type=_get_asset_type(data),
+                asset_type=sell_asset_type,
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
                 price=price_units,
                 fee=fee_cents,
+                # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+                **_fee_breakdown_kwargs(data),
                 amount=Money.multiply_price_quantity(price_units, qty_units),
                 realized_pnl=realized_cents,
                 status='success',
@@ -1728,7 +1913,11 @@ class PositionService:
             # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
             # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
             # 基金转换传 auto_purchase=False：退款腿由转换服务按用户选择显式落账（见 docstring）。
-            if auto_purchase and _get_asset_type(data) not in ('money_fund', 'reverse_repo'):
+            # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
+            # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
+            # 判据用 `sell_asset_type`（持仓品种）而非 `_get_asset_type(data)`：请求体没带 type 时
+            # 后者会把货基赎回判成股票卖出去自动申购，正是它要防的那个死循环。
+            if auto_purchase and sell_asset_type not in ('money_fund', 'reverse_repo'):
                 gross_cents = Money.multiply_price_quantity(price_units, qty_units)
                 auto_purchase_money_fund(
                     db,
@@ -1895,7 +2084,10 @@ class PositionService:
                 db=db,
                 position_id=position_id,
                 txn_type='dividend',
-                symbol=data.get('symbol'),
+                # 分红挂在持仓上，symbol 缺失时以持仓为准（#2855，与卖出路径同因同法）：
+                # 落 NULL 会让该笔分红在按 symbol 匹配的读侧（产品详情交易记录 /
+                # 清仓周期分红窗口）里消失。
+                symbol=data.get('symbol') or existing.symbol,
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
                 asset_type=_get_asset_type(data),
@@ -2023,6 +2215,188 @@ class PositionService:
         )
         return None
 
+    # ── 债券兑付（#2832）──
+
+    @staticmethod
+    def process_bond_redeem(db: Session, data: dict) -> Optional[Position]:
+        """债券兑付（到期还本付息 / 强赎 / 回售）：扣份额 + 结转到账额的已实现盈亏。
+
+        调用前必须已确定 ``data['position_id']``（手动记账直传，导入路径先经
+        :meth:`process_orphan_bond_redeem` 按身份键定位）。
+
+        ## 与 :meth:`process_sell_or_withdraw` 的三处刻意不同
+
+        1. **金额口径是「到账净额」而不是「价格 × 数量」**。交割单兑付行的
+           「发生金额」= 面值 + 应计利息 − 代扣费，而 ``price`` 只是券商给的成交均价
+           （通常等于面值 100）。付息 / 强赎溢价时两者本来不等，若照卖出路径用
+           ``price × qty`` 记金额，利息会被静默丢掉——用户看到「到账 1035，账面 1000」。
+           详见 :func:`pnl_service.compute_redeem_realized_cents`。
+        2. **已实现盈亏不再减 fee**：``amount`` 已经是扣费后的净额（同花顺 / 东财的
+           「发生金额」口径一致），再减一次是双扣。卖出路径的 amount 是毛额，所以那边
+           必须减，两个口径不能互相套用。
+        3. **份额不足直接报错，不降级成孤儿**：兑付量 > 持仓量只可能是买入流水缺失
+           （或上次只导了兑付没导买入），静默记孤儿会把差额藏起来——用户看到的是
+           「钱到账了，持仓还在」。让这一行进 ``commit_errors`` / 400 让人看见，
+           比记一笔谁也不会去核的孤儿流水有用。卖出路径的降级是历史遗留（真实库
+           649 笔卖出无 symbol 可匹配），兑付没有那个包袱。
+
+        清仓沿 #2343 口径：行保留 + ``ownership_status='cleared'``，返回 None
+        （调用方「None = 已清仓」的契约不变）。
+        """
+        position_id = data.get('position_id')
+        existing = db.query(Position).filter_by(id=position_id, family_id=_resolve_family_id(data)).first()
+        if not existing:
+            raise ValueError('指定的持仓不存在')
+
+        qty_shares = data.get('quantity') or 0
+        qty_units = Money.shares_to_min_unit(qty_shares)
+        if qty_units <= 0:
+            raise ValueError('兑付数量必须大于 0')
+
+        # 金额：net_amount（交割单发生金额）优先 → amount（手动记账实收）→ 价格×数量
+        raw_amount = data.get('net_amount')
+        if raw_amount is None:
+            raw_amount = data.get('amount')
+        price_units = Money.yuan_to_price_units(data.get('avg_price') or 0)
+        if raw_amount is None:
+            amount_cents = Money.multiply_price_quantity(price_units, qty_units)
+        else:
+            amount_cents = Money.yuan_to_cents(abs(raw_amount))
+
+        # 均价缺失（兑付行常常只给发生金额、不给成交均价）：按到账额 ÷ 份数反算，
+        # 让「金额 / 单价 / 数量」三者自洽，前端在金额列旁展开时才不会显示 0 单价。
+        # 换算一律走 Money 的既有链路，不手推「分 × 份额最小单位 × 价格单位」的系数
+        # ——那三个 10_000 / 100 混乘极易差两个数量级且测试里也看不出来。
+        if price_units <= 0 and qty_units > 0:
+            per_share_yuan = Money.cents_to_yuan(amount_cents) / Money.min_unit_to_shares(qty_units)
+            price_units = Money.yuan_to_price_units(per_share_yuan)
+
+        fee_cents = Money.yuan_to_cents(data.get('fee') or 0)
+
+        # 锚点判定与卖出同口径：若这笔记兑付已含在快照里（confirm_date <= 锚点日），
+        # 快照份额已反映它，不再扣减；流水照落（它确实是发生过的业务事实）。
+        covered_by_anchor = _is_covered_by_anchor(existing, data.get('confirm_date'))
+        if not covered_by_anchor and existing.quantity < qty_units:
+            raise ValueError(
+                f'兑付数量超过持仓：当前持有 {Money.min_unit_to_shares(existing.quantity)}，'
+                f'本次兑付 {qty_shares}。请检查买入流水是否已完整导入'
+            )
+
+        realized_cents = compute_redeem_realized_cents(
+            amount_cents=amount_cents,
+            avg_price_units=existing.avg_price or 0,
+            qty_units=qty_units,
+        )
+
+        try:
+            # 自愈回填（与卖出路径同口径）：快照缺名称/账户时按 ID 反查，绝不留 NULL
+            if not existing.name:
+                existing.name = _resolve_fund_name_by_code(db, existing.symbol)
+            if not existing.account_name and existing.ledger_id:
+                existing.account_name = _resolve_ledger_name_by_id(db, existing.ledger_id)
+            position_name = existing.name or _resolve_fund_name_by_code(db, existing.symbol)
+            account_name = existing.account_name or _resolve_ledger_name_by_id(db, existing.ledger_id)
+            ledger_id = existing.ledger_id
+
+            is_cleared = False
+            if not covered_by_anchor:
+                existing.quantity -= qty_units
+                is_cleared = existing.quantity == 0
+                if is_cleared:
+                    # 清仓不清行（#2343）：锚点与成本基线原样留存，二次累加才不会复发
+                    _mark_position_cleared(existing, data.get('confirm_date') or data.get('trade_date'))
+            db.flush()
+
+            # 品种以持仓为准（同卖出路径）：请求体不带 type 时若兜底成 stock，
+            # 兑付流水会与买入分属两个身份键，清仓周期永远闭合不上。
+            redeem_asset_type = _get_asset_type(data, fallback=existing.asset_type)
+            TransactionService.create(
+                db=db,
+                position_id=position_id,
+                symbol=data.get('symbol') or existing.symbol,
+                txn_type='bond_redeem',
+                trade_date=data.get('trade_date'),
+                confirm_date=data.get('confirm_date'),
+                asset_type=redeem_asset_type,
+                link_group_id=data.get('link_group_id'),
+                quantity=qty_units,
+                price=price_units,
+                fee=fee_cents,
+                # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+                **_fee_breakdown_kwargs(data),
+                amount=amount_cents,
+                realized_pnl=realized_cents,
+                status='success',
+                position_name=position_name,
+                ledger_id=ledger_id,
+                account_name=account_name,
+                notes=data.get('notes') or '债券到期兑付',
+                import_hash=data.get('import_hash'),
+                family_id=_resolve_family_id(data),
+                # #1232 决策 11：流水来源透传（记一笔默认 manual）
+                source=data.get('source') or PositionSource.MANUAL.value,
+            )
+            db.flush()
+            # 兑付即退出持仓，与卖出/清仓后同样对齐自选状态（静默，失败不影响主链路）
+            _silent_reconcile_watchlist(db, _resolve_family_id(data), existing.symbol)
+            if is_cleared:
+                return None
+            db.refresh(existing)
+            return existing
+        except Exception:
+            logger.exception('债券兑付操作失败')
+            raise
+
+    @staticmethod
+    def process_orphan_bond_redeem(db: Session, data: dict) -> BondRedeemOutcome:
+        """导入路径的债券兑付：先按身份键关联持仓，找不到才记孤儿流水。
+
+        返回 :class:`BondRedeemOutcome`，调用方据 ``is_orphan`` 计数——不要用
+        ``position is None`` 判断孤儿，那会把「兑付清仓」误算成孤儿（见该类 docstring）。
+
+        与 :meth:`process_orphan_sell_or_withdraw` 的两点不同：
+
+        - 按 ``active_only=True`` 匹配：兑付后持仓已 ``cleared``，再导入同一只债的
+          兑付时不该命中那条空壳行（命中了只会报「兑付数量超过持仓」）；
+        - **不吞「超量兑付」的 ValueError**：卖出路径会把数量不足降级成孤儿，
+          兑付不行——见 :meth:`process_bond_redeem` 第 3 条理由。
+        """
+        symbol = data.get('symbol', '')
+        name = (data.get('name') or data.get('position_name') or '').strip()
+
+        existing = None
+        if symbol:
+            existing = _find_position_by_identity(db, data, symbol=symbol, active_only=True)
+        if existing is None and name:
+            # 交割单「证券名称常有、代码为空」的场景与卖出同源（#1920）
+            existing = _find_position_by_identity(db, data, name=name, active_only=True)
+            if existing is not None:
+                logger.info(
+                    '债券兑付按名称兜底关联到持仓：symbol=%r name=%r ledger_id=%r → position_id=%s',
+                    symbol,
+                    name,
+                    data.get('ledger_id'),
+                    existing.id,
+                )
+
+        if existing is not None:
+            return BondRedeemOutcome(
+                position=PositionService.process_bond_redeem(db, {**data, 'position_id': existing.id}),
+                is_orphan=False,
+            )
+
+        _create_orphan_transaction(
+            db,
+            data,
+            txn_type='bond_redeem',
+            quantity=data.get('quantity') or 0,
+            price=data.get('avg_price') or 0,
+            # 到账额优先；都没有才让 _create_orphan_transaction 按价格×数量兜底
+            amount=data.get('net_amount') if data.get('net_amount') is not None else (data.get('amount') or 0),
+            notes=data.get('notes') or '债券到期兑付（未匹配到持仓）',
+        )
+        return BondRedeemOutcome(position=None, is_orphan=True)
+
     @staticmethod
     def process_orphan_dividend(db: Session, data: dict) -> Optional[Position]:
         """
@@ -2139,7 +2513,7 @@ class PositionService:
         TransactionService.create(
             db=db,
             position_id=existing.id,
-            symbol=data.get('symbol'),
+            symbol=data.get('symbol') or existing.symbol,  # 以持仓为准（#2855，同卖出路径）
             txn_type='split',
             trade_date=data.get('trade_date'),
             confirm_date=data.get('confirm_date'),
@@ -2178,6 +2552,7 @@ class PositionService:
         ledger_id_raw: str,
         symbol: str = '',
         market: str = '',
+        member_id_raw: str = '',
     ) -> dict:
         """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
@@ -2188,16 +2563,40 @@ class PositionService:
 
         ``symbol`` / ``market``（#1966）：产品维度过滤，供详情页「我的持仓」区块用。
         **下推到 SQL**——取全表后内存筛违反数据策略硬约束 §6。
+
+        ``member_id``（#1173）：按家庭成员筛选。持仓**经账户间接归属**
+        （``Position.ledger_id → Ledger.owner_member_id``），不在持仓表冗余成员列——
+        冗余列要跟着导入/转换/清仓等所有写路径双写，一处漏了就出「同一笔持仓在两个
+        成员名下」的矛盾账。过滤同样**下推 SQL**（``ledger_id IN (子查询)``）。
+        注意：未绑定账户的持仓（``ledger_id IS NULL``）不属于任何成员，不会被命中。
+
+        ``ownership_status``：只要 ``active``。``shadow`` 是 E账户导入写下的**对账镜像行**
+        （``ledger_id`` 恒为 NULL、``account_name`` 恒为「基金E账户」），它表示「E账户说有这笔、
+        系统还没认领」，不是用户持有的账户，也不是可买卖的账户。放进这里会以「基金E账户」
+        的名义凭空多出一组持仓：本地库实测 021180 因此显示两个渠道（基金E账户 3,421.96 份 +
+        微众银行 3,421.9622 份），市值翻倍。镜像行的归宿只有对账工作台
+        （``get_reconciliation``），那边直接查 ``ownership_status='shadow'``，不依赖本接口。
         """
         query = db.query(Position).filter(Position.family_id == family_id)
-        # 已清仓行保留在表里（锚点/成本基线不灭），但不属于「当前持仓」视图。
-        # 库里还没有 cleared 行时这是恒等变换，见 services/position_scope.py。
-        query = exclude_cleared(query)
+        # 只要真实持仓：同时排掉 `cleared`（已清仓，行保留作锚点）与 `shadow`
+        # （E账户对账镜像行）。见 services/position_scope.py。
+        query = active_holdings(query)
         # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
         if ledger_id_raw == 'null':
             query = query.filter(Position.ledger_id.is_(None))
         elif ledger_id_raw:
             query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        if member_id_raw:
+            # 成员 → 账户 → 持仓：下推过滤，避免取全表后内存筛。
+            # 账户集合口径收口在 `family_member_service.ledger_ids_for_member`
+            # （与汇总/盈亏拿同一份集合，见 #1173 单一出口纪律）。
+            member_ledger_ids = ledger_ids_for_member(db, family_id, int(member_id_raw))
+            if not member_ledger_ids:
+                # 该成员名下没有账户 → 结果必为空；直接给恒假条件，
+                # 不用 `IN ()`（各方言行为不一致，PG 会直接语法错）
+                query = query.filter(false())
+            else:
+                query = query.filter(Position.ledger_id.in_(member_ledger_ids))
         if symbol:
             # symbol 同时匹配「展示形态」与 #1662 的「归一身份键」，取并集：存量行
             # symbol_norm 可能为空、只有新写入行保证有值，只用其一都会漏命中。
@@ -2286,6 +2685,12 @@ class PositionService:
         """
         if op_type in ('sell', 'withdraw'):
             return PositionService.process_sell_or_withdraw(db, data)
+        if op_type == 'bond_redeem':
+            # 债券兑付（#2832）：带 position_id 直接定位；只带代码/名称时按身份键找持仓
+            if data.get('position_id'):
+                return PositionService.process_bond_redeem(db, data)
+            outcome = PositionService.process_orphan_bond_redeem(db, data)
+            return outcome.position
         if op_type == 'dividend':
             data['dividend_amount'] = data.get('avg_price', 0)
             return PositionService.process_dividend(db, data)

@@ -1,5 +1,6 @@
 // src/api/positions.ts
 import { http } from "@/utils/http";
+import type { AdvisorAdjustGroup } from "./funds";
 import type {
   ApiResponse,
   Position,
@@ -70,6 +71,35 @@ export function getPositionTransactions(id: number) {
   return http.request<ApiResponse<PositionTransaction[]>>(
     "get",
     `${BASE_URL}${id}/transactions/`
+  );
+}
+
+/**
+ * 投顾组合持仓的主理人上下文（调仓提示，#2740 / D70）。
+ *
+ * `data` 为 `null` 是**可降级**状态而非错误：组合主数据在 market 域、持仓在 user 域，
+ * 本地从未同步过该组合时后端返回 `data=null` + `error_code=0`（不是 500）。
+ * 组合元信息与调仓明细由后端复用 `FundService.build_advisor_adjusts` 的既有口径，
+ * 前端只做展示。
+ *
+ * 只接受 `asset_type='portfolio'` 的持仓；传别的持仓 id 后端返回 400。
+ */
+export interface PositionAdvisorContext {
+  position_id: number | null;
+  /** 组合平台原生码（`advisor_portfolios.code`） */
+  code: string;
+  name: string | null;
+  /** QIEMAN / DANJUAN / TIANTIAN / YINGMI */
+  platform: string | null;
+  /** 按调仓日倒序 */
+  adjusts: AdvisorAdjustGroup[];
+}
+
+export function getPositionAdvisorContext(id: number, limit = 3) {
+  return http.request<ApiResponse<PositionAdvisorContext | null>>(
+    "get",
+    `${BASE_URL}${id}/advisor-context/`,
+    { params: { limit } }
   );
 }
 

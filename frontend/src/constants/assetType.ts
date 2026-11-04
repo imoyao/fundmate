@@ -16,12 +16,17 @@ export const ASSET_TYPE_LABELS: Record<string, string> = {
   crypto: "加密货币",
   manager: "基金经理",
   portfolio: "投顾组合",
+  // saving 是历史遗留键：后端 ASSET_TYPE_LABELS 里**没有** saving（写入会被
+  // normalize_asset_type 拒绝），保留只为存量脏值不至于显示英文原键。勿新增引用。
   saving: "存款",
   cash: "现金",
   static: "其他",
   money_fund: "货币基金",
   reverse_repo: "逆回购",
-  bank: "银行",
+  // 银行理财与银行存款是两个品类（详见后端 asset_types.py 注释），不可合并：
+  // 前者不保本、算投资收益；后者保本、算利息收入。
+  bank_wealth: "银行理财",
+  bank: "银行存款",
   real_estate: "房产",
   insurance: "保险",
   precious_metal: "贵金属",

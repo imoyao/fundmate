@@ -6,7 +6,7 @@
  * 三件事都属同一形态——**同一份数据/同一个名字在一个视口里出现两次**：
  *
  * 1. welcome 的「家庭资产看板」曾持有一张资产大类环形图（口径 `category_distribution`），
- *    与资产总览瀑布图**同接口字段、同口径**；按两页分工
+ *    与资产总览构成图**同接口字段、同口径**；按两页分工
  *    （`docs/working-notes/page-split-welcome-vs-panorama-2026-08-13.md`：
  *    「拆解（composition）归资产总览，表现 + 目标归投资概览」），该图已整体移除。
  * 2. panorama 的「资产透视」两张环（原 `AssetInsightPanel`）标题与字段对不上（#2032），
@@ -21,7 +21,7 @@
  *
  * - 真实文件断言零命中（当前状态正确）；
  * - 把旧写法注回去必须报红（证明判据不是空转）；
- * - 放行样本不得误报（panorama 瀑布图 / 多维视图仍应合法消费这些字段）。
+ * - 放行样本不得误报（panorama 构成图 / 多维视图仍应合法消费这些字段）。
  *
  * 依赖：零新依赖（Node 内置 `node:test` / `node:assert` + 文件读取）。
  */
@@ -64,10 +64,21 @@ function collectVueCodes(rel) {
 }
 
 const WELCOME_BOARD = 'frontend/src/views/welcome/components/WelcomeAssetBoard.vue';
-const WATERFALL = 'frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue';
-// #2093：瀑布图的几何与 option 构造被抽到此模块（纯计算，不碰 DOM / 实例），
+// 2026-10-27（#980 批 B6）：摘要卡拆成左右两张组件，构成图态（标题 / 口径 tooltip /
+// PnlCalendar 宿主）搬到 `OverviewInsightCard.vue`。判据跟着搬家——被检查的代码换了
+// 文件，指针不动就成假绿。
+const COMPOSITION = 'frontend/src/views/asset/panorama/components/OverviewInsightCard.vue';
+// #2093：图的几何与 option 构造被抽到此模块（纯计算，不碰 DOM / 实例），
 // `category_distribution` 的消费随之搬来这里；组件侧只留「何时画 / 画在哪 / 何时 dispose」。
-const WATERFALL_HELPER = 'frontend/src/views/asset/panorama/components/assetWaterfall.ts';
+// 2026-10-25：卡片从瀑布图改为「资产大类构成柱状图」，本模块随之更名
+// `assetComposition.ts`——判据只钉「谁消费字段、谁委托谁」，图型换了不该让守门失效。
+const COMPOSITION_HELPER =
+  'frontend/src/views/asset/panorama/components/assetComposition.ts';
+// 2026-10-24（#980 页面规模基线）：取色与 option 组装再从组件抽到本模块，
+// 组件里只剩「何时画 / 画在哪 / 何时 dispose」。委托点跟着搬——判据因此查
+// 「组件 → 取色/组装模块 → 计算模块」这条链路，而不是钉死在一个文件上。
+const COMPOSITION_VIEW =
+  'frontend/src/views/asset/panorama/components/compositionView.ts';
 
 /**
  * 判据 A：welcome 资产看板里不得出现「结构图」的两个特征——
@@ -102,20 +113,28 @@ test('#2034：把旧写法注回去必须报红（判据非空转）', () => {
   assert.ok(violates('const d = props.distributions?.market_distribution ?? []'));
 });
 
-test('#2034：panorama 瀑布图仍应合法消费这些字段（不得误报）', () => {
+test('#2034：panorama 构成图仍应合法消费这些字段（不得误报）', () => {
   // 结构拆解归资产总览：这里是**唯一**该画资产大类构成图的地方。
   //
-  // ⚠️ 字段消费点会随重构搬家（#2093 抽到 `assetWaterfall.ts`）。断言钉死在哪个
+  // ⚠️ 字段消费点会随重构搬家（#2093 抽到 `assetComposition.ts`）。断言钉死在哪个
   // 文件，就得跟着搬到哪个文件——否则守门会在**重构成功的那一刻**误报，把
   // 「字段被消费」判成「字段没人用」（#2093 首次 CI 就是这么红的）。故这里守两段
   // 链路：① 计算模块真的读该字段；② 组件仍委托它，没有把数据逻辑搬回组件。
-  const helper = readCode(WATERFALL_HELPER);
+  const helper = readCode(COMPOSITION_HELPER);
   assert.ok(
     helper && helper.includes('category_distribution'),
-    '瀑布图计算模块应消费 category_distribution'
+    '构成图计算模块应消费 category_distribution'
   );
-  const comp = readCode(WATERFALL);
-  assert.ok(comp && comp.includes('buildWaterfallBars'), '组件应委托 buildWaterfallBars 画瀑布图');
+  const view = readCode(COMPOSITION_VIEW);
+  assert.ok(
+    view && view.includes('buildCompositionOption'),
+    '取色/组装模块应委托 buildCompositionOption 组装构成图'
+  );
+  const comp = readCode(COMPOSITION);
+  assert.ok(
+    comp && comp.includes('buildCompositionViewOption'),
+    '组件应委托 buildCompositionViewOption 画构成图，不得把数据逻辑搬回组件'
+  );
 });
 
 test('#2034：welcome 不再请求 distributions（少一次无消费方的请求）', () => {
@@ -158,33 +177,43 @@ test('#2032/#2034：把区块注回 panorama 必须报红（判据非空转）',
 });
 
 test('#2034：标题不得与切换按钮上的字同名（切过去像没切）', () => {
-  const waterfall = readCode(WATERFALL);
-  assert.ok(waterfall, 'OverviewSummaryCard.vue 应存在');
-  // 瀑布态标题：维度词，不是「资产构成」「资产大类构成」这类与按钮文字同长的名字。
+  const chartCard = readCode(COMPOSITION);
+  assert.ok(chartCard, 'OverviewInsightCard.vue 应存在');
+  // 构成图态标题：维度词，不是「资产构成」「资产大类构成」这类与按钮文字同长的名字。
   assert.ok(
-    /"资产大类"/.test(waterfall),
-    '瀑布态标题应为「资产大类」（维度词），给下卡片上的 (i) 口径说明'
+    /"资产大类"/.test(chartCard),
+    '构成图态标题应为「资产大类」（维度词），给下卡片上的 (i) 口径说明'
   );
   for (const banned of ['"资产大类构成"', '"总资产构成"']) {
-    assert.ok(!waterfall.includes(banned), `标题不应为 ${banned}（与切换按钮同名 / 名实不符）`);
+    assert.ok(!chartCard.includes(banned), `标题不应为 ${banned}（与切换按钮同名 / 名实不符）`);
   }
   // 按钮/标题互斥字面必须在：切过去要能看出来。
   assert.ok(
-    /日历|收益日历/.test(waterfall) && /资产大类/.test(waterfall),
+    /日历|收益日历/.test(chartCard) && /资产大类/.test(chartCard),
     '两态标题必须各自可辨'
   );
 });
 
 test('#2034：口径 tooltip 不得再用「按 X 拆解」这种像控件的措辞', () => {
-  const waterfall = readCode(WATERFALL);
-  assert.ok(waterfall, 'OverviewSummaryCard.vue 应存在');
+  const chartCard = readCode(COMPOSITION);
+  assert.ok(chartCard, 'OverviewInsightCard.vue 应存在');
   assert.ok(
-    !/按资产大类/.test(waterfall),
+    !/按资产大类/.test(chartCard),
     '「按资产大类…」正是原卡病灶措辞（位置 + 维度词 = 像可切换控件），应改为「口径：…」'
   );
+  // 2026-10-25：图从瀑布换成构成柱状图，tooltip 必须跟着说「只统计资产端」。
+  // 旧的「逐项累加、扣负债落到净资产」是瀑布口径，留着就是 ⓘ 描述另一张图。
   assert.ok(
-    /口径：各大类金额逐项累加/.test(waterfall),
-    '口径 tooltip 应保留（内容是对的，只是措辞要换）'
+    /口径：.*资产端/.test(chartCard),
+    '口径 tooltip 必须说明「只统计资产端」，否则读者会以为图里含负债'
+  );
+  assert.ok(
+    /负债与净资产见左侧卡片/.test(chartCard),
+    '负债与净资产不在图内，ⓘ 必须把它们指向左卡（否则说明不了该去哪看）'
+  );
+  assert.ok(
+    !/逐项累加/.test(chartCard),
+    '「逐项累加、扣负债落到净资产」是瀑布图的读法，构成图不得沿用'
   );
 });
 
@@ -197,16 +226,16 @@ test('#2034：注回旧措辞必须报红（判据非空转）', () => {
 // 全站口径：同一份「资产大类构成」图，只允许画一次
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('#2034：全站只有 panorama 瀑布图一处画「资产大类构成」图', () => {
+test('#2034：全站只有 panorama 构成图一处画「资产大类构成」图', () => {
   const hits = [];
   for (const [file, code] of collectVueCodes('frontend/src')) {
     // 组件消费 `category_distribution` 即视为画了一张「资产大类构成」图。
     if (/category_distribution/.test(code)) hits.push(file.replace(ROOT, '').replace(/\\/g, '/'));
   }
   const allowed = [
-    // 资产大类构成瀑布图（本卡之后**唯一**的资产大类构成出口）
-    '/frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue',
-    // 大类余额明细表：与瀑布图同口径的**表格**表达（同一区块的两种读法，非第二个「图」）
+    // 资产大类构成图（本卡之后**唯一**的资产大类构成出口；#980 批 B6 起在图卡组件里）
+    '/frontend/src/views/asset/panorama/components/OverviewInsightCard.vue',
+    // 大类余额明细表：与构成图同口径的**表格**表达（同一区块的两种读法，非第二个「图」）
     '/frontend/src/views/asset/panorama/components/CategoryBalanceTable.vue',
     // 复盘页（原「智能分析」）已在 #2150 删掉大类卡片 + 环形图，此处**不再豁免**。
     // 盘点页复用「投资理财」切片，不画构成图
@@ -235,12 +264,12 @@ test('#2150：全站不再有第四处消费 category_distribution（复盘页�
     }
   }
   const allowed = [
-    // 资产大类瀑布图（全站唯一的「资产大类构成」图出口）
-    '/frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue',
-    // 大类余额明细表：与瀑布图同口径的**表格**表达（同一区块的两种读法）
+    // 资产大类构成图（全站唯一的「资产大类构成」图出口；#980 批 B6 起在图卡组件里）
+    '/frontend/src/views/asset/panorama/components/OverviewInsightCard.vue',
+    // 大类余额明细表：与构成图同口径的**表格**表达（同一区块的两种读法）
     '/frontend/src/views/asset/panorama/components/CategoryBalanceTable.vue',
-    // 瀑布图几何/option 计算模块（#2093 从组件抽出）
-    '/frontend/src/views/asset/panorama/components/assetWaterfall.ts',
+    // 构成图的数据整形 + option 计算模块（#2093 从组件抽出）
+    '/frontend/src/views/asset/panorama/components/assetComposition.ts',
     // 盘点页复用「投资理财」切片，不画构成图
     '/frontend/src/views/asset/inventory/useInventoryData.ts'
   ];
@@ -256,7 +285,7 @@ test('#2150：复盘页不得再出现与 panorama 同字段同接口同算法�
   const code = readCode(ANALYSIS);
   assert.ok(code, `${ANALYSIS} 应存在`);
 
-  // ① 总资产 + 环比/同比 ← panorama OverviewSummaryCard 首卡
+  // ① 总资产 + 环比/同比 ← panorama 摘要卡左卡（OverviewAssetsCard，2026-10-27 拆分前在 OverviewSummaryCard 里）
   assert.ok(
     !/monthly_change_pct|yearly_change_pct/.test(code),
     '总资产环比/同比归 panorama 首卡（同字段同接口），复盘页不得再画一遍'
@@ -266,7 +295,7 @@ test('#2150：复盘页不得再出现与 panorama 同字段同接口同算法�
     !/\(d\.value\s*\/\s*total\)\s*\*\s*100/.test(code),
     '「(值/合计)*100」与 panorama 大类表逐字同公式，属重复拆解'
   );
-  // ③ category_distribution ← panorama 瀑布图 + 明细表
+  // ③ category_distribution ← panorama 构成图 + 明细表
   assert.ok(
     !/category_distribution|getDistributions/.test(code),
     'category_distribution 全站只画一次（panorama），复盘页不得消费'
@@ -299,34 +328,98 @@ test('#2150：判据非空转——把四块任意一块注回去必须报红', 
 });
 
 test('#2150：复盘页的独占项（净值走势）必须还在——删重复不等于删自己', () => {
+  // 2026-10-25：净值走势的取数/绘图拆进了 composables/useNetWorthTrend.ts
+  //（页内导航接入后按 #980 拆 composable 让页面净减少），独占项的判据随迁：
+  // 页面必须仍消费该 composable 并持有 canvas，取数必须仍在复盘页专属文件里。
   const code = readCode(ANALYSIS);
   assert.ok(
-    /getSnapshots/.test(code),
-    '资产净值走势是复盘页唯一的独占项（welcome 已让出、panorama 只取最新快照做环比），删了页面就没有存在理由'
+    /useNetWorthTrend/.test(code),
+    '复盘页必须仍接入净值走势 composable（useNetWorthTrend）——它是本页唯一的独占项（welcome 已让出、panorama 只取最新快照做环比），删了页面就没有存在理由'
   );
   assert.ok(
-    /profitTrendChartRef/.test(code),
+    /netWorthChartRef/.test(code),
     '净值走势的 canvas 必须还在'
+  );
+  const trend = readCode(
+    'frontend/src/views/asset/composables/useNetWorthTrend.ts'
+  );
+  assert.ok(
+    trend && /getSnapshots/.test(trend),
+    'useNetWorthTrend 必须仍读 /summary/snapshots/（资产净值走势独占数据源）'
   );
 });
 
-test('#2150：页面标题与入口文案一致（复盘），且路由声明只有一份', () => {
-  const router = readCode('frontend/src/router/modules/asset.ts');
-  assert.ok(router, 'asset.ts 应存在');
-  const analysisRoute = router.match(/path: "\/analysis"[\s\S]{0,600}?title: "([^"]+)"/);
-  assert.ok(analysisRoute, '应有 /analysis 路由声明');
+test('#2150：页面标题与入口文案一致（投资复盘），且路由声明只有一份', () => {
+  // 2026-10-30：`/analysis` 的声明从 asset.ts 迁到 home.ts（侧边栏按财务动作重组，
+  // 复盘属「看结果」故归资产概览），标题按「菜单标题统一 4 字」由「复盘」改「投资复盘」。
+  //
+  // 原判据把**位置**（asset.ts）和**字面**（复盘）都写死了：位置会随 IA 调整搬家，
+  // 字面会随命名收紧变化，两者一漂移守卫就报「应有 /analysis 路由声明」——
+  // 报的是搬家，不是回归。真正的不变式只有一句：
+  // **全站只有一份 `/analysis` 声明，且路由标题 == 总览入口按钮 == 复盘页 h1。**
+  // 三处逐字比对，任何一处单独改名都咬得住；比原来「锚死 asset.ts + 复盘」更严。
+  const modulesDir = join(ROOT, 'frontend/src/router/modules');
+  const modules = readdirSync(modulesDir)
+    .filter(n => n.endsWith('.ts'))
+    .map(n => stripComments(readFileSync(join(modulesDir, n), 'utf8')));
+  const routerAll = modules.join('\n');
+
+  const declCount = (routerAll.match(/path:\s*"\/analysis"/g) || []).length;
   assert.strictEqual(
-    analysisRoute[1],
-    '复盘',
-    '路由标题应为「复盘」（#2150 重定义定位后的命名）'
+    declCount,
+    1,
+    `/analysis 路由声明必须恰好一份（重复声明会渲染两遍），实际 ${declCount} 份`
   );
+  const decl = routerAll.match(
+    /path:\s*"\/analysis"[\s\S]{0,600}?title:\s*"([^"]+)"/
+  );
+  assert.ok(decl, '/analysis 路由必须声明 title');
+  const routeTitle = decl[1];
+
   assert.ok(
-    !/"智能分析"/.test(router),
+    !/"智能分析"/.test(routerAll),
     '「智能分析」作为**标题字面量**不应再出现在路由表里（可用作历史沿革注释）'
   );
+
+  // 目标页 h1：读 PageHeaderBar 的 title，不认文件名（页面文件叫
+  // IntelligentAnalysis.vue 是历史遗留，判据不该被文件名牵着走）。
+  const page = readCode(ANALYSIS);
+  assert.ok(page, '复盘页文件应存在');
+  const h1 = page.match(/<PageHeaderBar\s+title="([^"]+)"/);
+  assert.ok(h1, '复盘页必须有 PageHeaderBar 且声明 title');
+  assert.strictEqual(
+    h1[1],
+    routeTitle,
+    '复盘页 h1 必须与路由标题同字——侧边栏与页头两个名字，用户会以为走错页'
+  );
+
+  // 总览页入口按钮：锚在 `push({ name: 'AssetAnalysis' })` 这个跳转上取**按钮内容**
+  // （`">` 之后到 `</el-button>` 之间），而不是「页面里第一个 el-button」
+  // （同排还有「刷新」），也不是整段开标签（属性里的 push 表达式不是文案）。
+  const extractEntryText = src => {
+    const m = src.match(
+      /\$router\.push\(\{\s*name:\s*['"]AssetAnalysis['"]\s*\}\)\s*"[^>]*>([\s\S]{0,200}?)<\/el-button>/
+    );
+    return m ? m[1].replace(/<[^>]*>/g, '').replace(/[\s\u00a0]+/g, '') : null;
+  };
   const panorama = readCode('frontend/src/views/asset/panorama/index.vue');
-  assert.ok(
-    />\s*复盘\s*</.test(panorama),
-    'panorama 页头入口按钮文案应随页面标题改为「复盘」，否则点过去标题对不上'
+  assert.ok(panorama, '资产总览页应存在');
+  const entryText = extractEntryText(panorama);
+  assert.ok(entryText, '资产总览页应有跳往 /analysis 的入口按钮');
+  assert.strictEqual(
+    entryText,
+    routeTitle,
+    'panorama 入口按钮文案必须与目标页标题同字，否则点过去标题对不上'
+  );
+
+  // 判据非空转：喂一段入口文案与路由标题不一致的样本，三处比对必须能区分出来。
+  const drift = extractEntryText(
+    '<el-button @click="$router.push({ name: \'AssetAnalysis\' })"> 复盘 </el-button>'
+  );
+  assert.strictEqual(drift, '复盘', '入口文案提取器本身应能工作');
+  assert.notStrictEqual(
+    drift,
+    routeTitle,
+    '入口与路由标题不同字时判据必须报红——否则这条断言是装饰'
   );
 });

@@ -33,11 +33,12 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
-from app.domains.funds.models import FundStyleExposure
+from app.domains.funds.models import Fund, FundStyleExposure
 from app.domains.positions.models import Position
 from app.services.fund_utils import normalize_fund_code
 from app.services.nav_service import NavService
 from app.services.position_valuation import market_value_cents
+from app.services.scope import filter_positions_by_scope
 
 # 8 分类展示顺序（晨星式）。上游顺序确定，但读取侧自持一份固定序，
 # 上游调整顺序时 API 响应不变；上游增删分类时未知名追加在末尾（排序稳定）。
@@ -55,11 +56,45 @@ STYLE_DISPLAY_ORDER: tuple[str, ...] = (
 # 风格箱覆盖的持仓品类：场外基金 + 货基 + 场内 ETF（与 job 的 resolve_pool 一致）
 PORTFOLIO_STYLE_ASSET_TYPES = ('fund', 'money_fund', 'etf')
 
+# **可覆盖**风格箱的品类（#2628）：只有场外基金与 ETF 才可能拿到箱体。
+# 货基/现金不会出现在任何风格箱里，把它们留在分母只会制造一个永远到不了 100% 的
+# 天花板（实测 121 只持仓 → 8.35%），并被误读成「同步没在跑」。
+ELIGIBLE_COVERAGE_ASSET_TYPES = ('fund', 'etf')
+
 # 历史序列默认返回的时点数（月度频率 → 默认约 5 年）与硬上限（上游实测最长 283 点）
 HISTORY_DEFAULT_LIMIT = 60
 HISTORY_MAX_LIMIT = 500
 
+# QDII 的判定特征。上游**无结构化 QDII 字段**（东财/同花顺基金档案都没有），
+# 既有做法是按名称特征判定（见 `services/fund_benchmark.py` 的同名关键词表）。
+QDII_NAME_MARKERS = ('QDII', '海外')
+
 STYLE_SOURCE = 'jiucaishuo_style'
+
+
+def _qdii_codes(db: Session, fund_codes: List[str]) -> set[str]:
+    """返回这批基金里被判为 QDII 的代码集合。
+
+    查 `funds` 表取**基金官方简称**而不是持仓录入名——用户可能把持仓命名为
+    「老婆的纳指基金」，按录入名判会漏检。
+
+    判不出来时返回空集（按「不含 QDII」处理）：QDII 只影响展示层的口径说明与
+    「可覆盖分母」的取数，不影响风格数值本身；误判为「有」会让每条提示都挂一句
+    无关警告，也会平白把一只基金从分母里摘掉。
+    """
+    codes = [code for code in fund_codes if code]
+    if not codes:
+        return set()
+    try:
+        rows = db.query(Fund.fund_code, Fund.name).filter(Fund.fund_code.in_(codes)).all()
+    except Exception:
+        return set()
+    return {code for code, name in rows if any(marker in (name or '') for marker in QDII_NAME_MARKERS)}
+
+
+def _has_qdii(db: Session, fund_codes: List[str]) -> bool:
+    """持仓基金里是否含 QDII（风格分类口径存疑，消费方需要能标注出来）。"""
+    return bool(_qdii_codes(db, fund_codes))
 
 
 def _to_float(value: Any) -> Optional[float]:
@@ -216,7 +251,12 @@ def get_fund_style_history(db: Session, fund_code: str, limit: Optional[int] = N
     return {'fund_code': fund_code, 'points': points, 'count': len(points)}
 
 
-def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
+def portfolio_style_exposure(
+    db: Session,
+    family_id: int,
+    portfolio_id: Optional[int] = None,
+    ledger_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """组合加权风格暴露（持仓透视）：按市值加权汇总持仓基金的风格箱。
 
     口径（与 ``strategy_engine/allocation.py`` 一致，勿在此重写市值逻辑）：
@@ -228,33 +268,63 @@ def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
        它们整体排除、低估覆盖），加权结果天然合计 = 100（单只箱体合计 = 100）；
     5. **无风格箱的持仓不计入加权**，但全额计入分母并列入 ``uncovered``——
        覆盖率是结果的一部分，不是可以省看的注释。
+    6. **两个覆盖率口径并存**（#2628）：``coverage_pct`` 分母 = 全部持仓（#2478 契约，
+       保持不变）；``eligible_coverage_pct`` 分母只含**可能拿到箱体**的持仓
+       （``ELIGIBLE_COVERAGE_ASSET_TYPES`` 且非 QDII）。货基/现金永远不会出现在
+       风格箱里，留在分母只会把覆盖率压成一个永远到不了 100% 的数（实测 121 只持仓
+       → 8.35%），并被误读成「同步没在跑」。**没有合格资产时返回 ``None`` 而不是 0**
+       ——「0% 覆盖」与「没有可覆盖的资产」不是一回事。
 
     QDII 口径存疑（见模块 docstring）：加权结果包含 QDII 持仓的原样箱体，
     由消费方决定是否提示。
+
+    ## 作用域（2026-10-27 收口）
+
+    - 默认（两个参数都不传）= 家庭级；
+    - ``ledger_id`` = 单账户；``portfolio_id`` = 该组合口径；
+    - 作用域解析**委托** ``services.scope.filter_positions_by_scope``（组合语义 =
+      显式 ``positions.portfolio_id`` + 成员账本继承），不在此手写成员账本查询——
+      否则会漏掉「持仓显式归属」，与穿透 / 归因 / 持仓结构口径不一致。
+    - 两者互斥：同时传抛 ``ValueError``（与其余分析类端点同文案，视图层转 400）；
+      组合不存在 / 非本家庭同样抛 ``ValueError``。
+    - 作用域内没有持仓时返回**空结构**，不退回家庭级。这条是刻意的：
+      #2595 修过「组合详情页穿透面板不传 scope、实际拉的是家庭数据」，
+      「传了但过滤为空」若静默放大成全家数据，就是同一个错误的复活。
     """
     positions = (
         db.query(Position)
         .filter(Position.family_id == family_id, Position.asset_type.in_(PORTFOLIO_STYLE_ASSET_TYPES))
         .all()
     )
+    positions = filter_positions_by_scope(db, family_id, positions, ledger_id=ledger_id, portfolio_id=portfolio_id)
     result: Dict[str, Any] = {
         'styles': [],
         'fund_count': 0,
         'covered_market_value_cents': 0,
         'total_market_value_cents': 0,
         'coverage_pct': 0.0,
+        # 可覆盖口径（#2628）：分母只含 fund/etf 且非 QDII 的持仓
+        'eligible_market_value_cents': 0,
+        'eligible_coverage_pct': None,
         'period_from': None,
         'period_to': None,
         'uncovered': [],
+        # QDII 标记：风格分类对 QDII 不可靠（见模块头第 3 条），
+        # 由本服务判定一次，**提示与面板共用同一个值**，避免两处口径打架
+        'has_qdii': False,
         'source': STYLE_SOURCE,
     }
     if not positions:
         return result
+    fund_codes = sorted({normalize_fund_code(p.symbol) or '' for p in positions if p.symbol} - {''})
+    qdii_codes = _qdii_codes(db, fund_codes)
+    result['has_qdii'] = bool(qdii_codes)
 
     # 1) 按 symbol 聚合市值（分，折 CNY）——先合并多账户，再定权重
     symbols = [p.symbol for p in positions if p.symbol]
     navs = NavService.get_latest_navs(db, symbols, allow_remote=False) if symbols else {}
     aggregated: Dict[str, Dict[str, Any]] = {}
+    eligible_flags: Dict[str, bool] = {}
     for pos in positions:
         symbol = pos.symbol
         if not symbol:
@@ -266,12 +336,21 @@ def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
             {'symbol': symbol, 'name': pos.name or symbol, 'market_value_cents': 0},
         )
         bucket['market_value_cents'] += value
+        # 合格判定按 symbol 收敛：同一 symbol 多账户里只要有一条不是 fund/etf，
+        # 就整只从「可覆盖分母」里摘掉（宁可少算，也不要把货基市值当成分母）
+        eligible_flags[symbol] = eligible_flags.get(symbol, True) and (pos.asset_type in ELIGIBLE_COVERAGE_ASSET_TYPES)
         if not bucket.get('name') or bucket['name'] == symbol:
             if pos.name:
                 bucket['name'] = pos.name
 
+    def _eligible(symbol: str) -> bool:
+        """该 symbol 是否计入可覆盖分母（品类合格 且 非 QDII）。"""
+        return bool(eligible_flags.get(symbol)) and normalize_fund_code(symbol) not in qdii_codes
+
     total_mv = sum(b['market_value_cents'] for b in aggregated.values())
     result['total_market_value_cents'] = total_mv
+    eligible_mv = sum(b['market_value_cents'] for s, b in aggregated.items() if _eligible(s))
+    result['eligible_market_value_cents'] = eligible_mv
     if total_mv <= 0:
         # 全 0 市值（如仅 balance 模式未录市值）→ 权重无定义，诚实回空
         result['uncovered'] = [
@@ -283,6 +362,7 @@ def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
     # 2) 每只基金取各自最新时点箱体；无箱体 → uncovered
     weighted: Dict[str, float] = {}
     covered_mv = 0
+    covered_eligible_mv = 0
     covered_dates: List[Any] = []
     uncovered: List[Dict[str, Any]] = []
     for bucket in aggregated.values():
@@ -296,6 +376,8 @@ def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
             continue
         mv = bucket['market_value_cents']
         covered_mv += mv
+        if _eligible(bucket['symbol']):
+            covered_eligible_mv += mv
         covered_dates.append(latest_date)
         for item in _order_styles(rows):
             value = item.get('value')
@@ -313,5 +395,9 @@ def portfolio_style_exposure(db: Session, family_id: int) -> Dict[str, Any]:
         result['period_from'] = min(covered_dates).isoformat()
         result['period_to'] = max(covered_dates).isoformat()
         result['fund_count'] = len(covered_dates)
+    # 可覆盖口径独立给值：`eligible_mv == 0` 时是 None（没有一个品种可能带箱体），
+    # 不是 0%（有合格品种但一个都没覆盖）——两者对用户是不同结论。
+    if eligible_mv > 0:
+        result['eligible_coverage_pct'] = round(covered_eligible_mv / eligible_mv * 100, 2)
     result['uncovered'] = sorted(uncovered, key=lambda u: -u['market_value_cents'])
     return result

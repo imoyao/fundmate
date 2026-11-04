@@ -5,7 +5,8 @@ import { injectSupabaseSession } from "./support/session";
  * 详情页 Pro 模块二「偏离与风险控制」回归网（#994 Phase 2：BIAS + 波动率 + VaR 接线）。
  *
  * 钉四条不变式：
- * 1. **状态位驱动挂载**：`risk.available=true` → 模块徽标「已上线」+ 内容区块渲染；
+ * 1. **状态位驱动挂载**：`risk.available=true` → 模块内容渲染（#2523 两态拆分后
+ *    已开通态无介绍卡，徽标信号并入「模块进度」行）；
  *    allocation 已翻真（#994 Phase 2 模块三提前落地），report 仍为 Phase 4 占位；
  * 2. **风险指标诚实渲染**：BIAS 带符号（正=高于均线）+ 引擎信号标签 + |BIAS|≥5 的
  *    克制提示（只讲波动风险、不做买卖建议）；年化波动率 / VaR 95% / 日收益样本
@@ -224,9 +225,10 @@ test.describe("详情页 Pro 模块二风险指标（#994 Phase 2）", () => {
     await page.goto(`/#/fund/${SYMBOL}`);
 
     const pro = page.locator(".pro-section");
-    // 状态位驱动：模块一/二徽标翻「已上线」，其余保持建设中占位
-    await expect(pro.getByText("已上线")).toHaveCount(3);
-    await expect(pro.getByText("Phase 4 建设中")).toBeVisible(); // report
+    // 状态位驱动（#2523 两态拆分后）：已开通态无介绍卡，徽标信号并入「模块进度」行
+    await expect(pro.locator(".pro-section__progress-text")).toHaveText(
+      "已上线 3/4 · 智能报告与自动化 Phase 4 建设中"
+    );
 
     // BIAS：带符号（正 = 高于均线）+ 引擎信号标签 + 数据日期 + 克制提示
     const risk = page.locator(".pro-risk");
@@ -286,8 +288,11 @@ test.describe("详情页 Pro 模块二风险指标（#994 Phase 2）", () => {
       risk.getByText("风险指标暂时取不到，稍后再来看看")
     ).toBeVisible();
 
-    // 独立降级：模块徽标与占位卡照常渲染（断网/接口失败不拖垮 Pro 卡）
+    // 独立降级：兄弟模块的状态位与内容不受影响。riskStatus=500 只打桩内容端点
+    // pro-risk，状态位 pro/** 仍回三模块已上线（report Phase 4）
     const pro = page.locator(".pro-section");
-    await expect(pro.getByText("已上线")).toHaveCount(3);
+    await expect(pro.locator(".pro-section__progress-text")).toHaveText(
+      "已上线 3/4 · 智能报告与自动化 Phase 4 建设中"
+    );
   });
 });

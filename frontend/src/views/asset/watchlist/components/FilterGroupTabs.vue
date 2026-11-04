@@ -7,7 +7,9 @@
     <div
       ref="groupScrollEl"
       class="group-tabs-scroll"
+      :class="{ 'is-overflowing': groupOverflow }"
       @wheel="handleGroupWheel"
+      @scroll.passive="updateGroupFade"
     >
       <button
         v-for="g in allGroups"
@@ -37,8 +39,15 @@
         </span>
       </button>
     </div>
-    <!-- 右缘渐变遮罩：分组溢出时暗示可横向滑动（纯装饰，不拦截指针事件） -->
-    <span class="group-tabs-fade" aria-hidden="true" />
+    <!-- 右缘渐变遮罩：分组溢出时暗示可横向滑动（纯装饰，不拦截指针事件）。
+         ⚠️ 必须绑 showGroupFade：此前 `showGroupFade` 只被赋值、模板从未消费，
+         遮罩**永远常亮**——分组根本放得下时也压住最后一个组名（2026-11-02 用户报障：
+         「最后一个组名外显太短」）。判据见 updateGroupFade。 -->
+    <span
+      class="group-tabs-fade"
+      :class="{ 'is-visible': showGroupFade }"
+      aria-hidden="true"
+    />
   </div>
 </template>
 
@@ -79,16 +88,37 @@ const allGroups = computed(() => props.groups.allGroups.value);
 // （用户反馈：滚动条出现时两边对不上）。故隐藏原生滚动条、改用「滚轮/触控板横滑」，
 // 右缘渐变遮罩（.group-tabs-fade）负责提示还有更多，行高恒定、与右侧恒对齐。
 const groupScrollEl = ref<HTMLElement>();
-/** 右缘渐变遮罩是否显示：仅当「单行且横向溢出」时显示；两行拆行时隐藏（#2213） */
+/**
+ * 右缘渐变遮罩宽度（px），必须与 CSS `.group-tabs-fade` 的 `width` 一致：
+ * 溢出时滚动容器会补同样宽度的 `padding-right`，让最后一个 tab 滚到底时
+ * 完全落在遮罩左侧（否则它永远被压掉一截，正是用户报障的现象）。
+ */
+const FADE_WIDTH = 16;
+
+/** 分组区是否横向溢出：控制滚动容器的尾部留白（.is-overflowing） */
+const groupOverflow = ref(false);
+/** 右缘渐变遮罩是否显示：仅当「单行 + 横向溢出 + 未滚到底」时显示 */
 const showGroupFade = ref(false);
+
 function updateGroupFade() {
   const el = groupScrollEl.value;
   if (!el) {
     showGroupFade.value = false;
+    groupOverflow.value = false;
     return;
   }
-  const overflow = el.scrollWidth > el.clientWidth + 1;
+  // 尾部留白会让 scrollWidth 虚增同样宽度 ⇒ 判定前先扣回去，
+  // 否则「内容刚好铺满」会被算成溢出，遮罩在放得下时也亮着（正是本次要修的病）。
+  const pad = groupOverflow.value ? FADE_WIDTH : 0;
+  const overflow = el.scrollWidth - pad > el.clientWidth + 1;
+  groupOverflow.value = overflow;
   if (!overflow) {
+    showGroupFade.value = false;
+    return;
+  }
+  // 已滚到最右：右侧没有更多内容可提示，遮罩必须消失 —— 这是「最后一个组名
+  // 完全显示」的最终保证（配合尾部留白，滑到底时覆盖量为 0）。
+  if (el.scrollLeft >= el.scrollWidth - el.clientWidth - 1) {
     showGroupFade.value = false;
     return;
   }
@@ -129,7 +159,7 @@ function handleGroupWheel(e: WheelEvent) {
 }
 
 // 渐变遮罩按需显示：分组 tab 溢出时才出现，否则隐藏（#ai-review-inline）。
-// ResizeObserver 覆盖窗口/容器尺寸变化；watch 分组数量变化覆盖增删分组导致的溢出变化。
+// ResizeObserver 覆盖窗口/容器尺寸变化；watch 分组内容变化覆盖增删/改名导致的溢出变化。
 let groupFadeObserver: ResizeObserver | undefined;
 onMounted(() => {
   const el = groupScrollEl.value;
@@ -137,12 +167,14 @@ onMounted(() => {
   updateGroupFade();
   groupFadeObserver = new ResizeObserver(updateGroupFade);
   groupFadeObserver.observe(el);
+  // 字体就绪后重算：组名走 webfont，首帧可能按回退字体量过宽度，
+  // 之后又不变（ResizeObserver 只看容器自身尺寸，内容宽度变化它不感知）。
+  void document.fonts?.ready.then(() => nextTick(updateGroupFade));
 });
 onBeforeUnmount(() => groupFadeObserver?.disconnect());
-watch(
-  () => allGroups.value.length,
-  () => nextTick(updateGroupFade)
-);
+// deep 而非只看 length：分组**改名**同样会改 tab 宽度（旧实现只 watch length，
+// 改名引起的溢出状态变化因此一直被漏掉）。
+watch(allGroups, () => nextTick(updateGroupFade), { deep: true });
 </script>
 
 <style scoped>
@@ -193,16 +225,32 @@ watch(
   display: none; /* Chrome / Edge（Chromium） */
 }
 
+/* 溢出时给滚动内容补一段与遮罩等宽的尾部留白：
+   遮罩是绝对定位、盖在内容之上，不留白的话最后一个 tab 永远被压掉一截
+   （滚到底也压着）。留白后滑到最右，最后一项的右缘恰好落在遮罩左边界。
+   只在溢出时加——不溢出时加会白占 16px，也会让 scrollWidth 虚增、误判成溢出。 */
+.group-tabs-scroll.is-overflowing {
+  padding-right: 16px;
+}
+
 /* 右缘渐变遮罩：自定义分组多、横向可滑动时，用「渐隐到卡片底色」暗示右侧还有内容。
-   遮罩固定在可视区右缘（absolute 于 wrap），不随内容滚动；pointer-events:none 不挡点击。 */
+   遮罩固定在可视区右缘（absolute 于 wrap），不随内容滚动；pointer-events:none 不挡点击。
+   默认透明，仅 .is-visible 时显现——**可见性必须由 JS 判定驱动**，因为
+   「是否还有内容可滑」不是 CSS 能表达的条件（见 updateGroupFade）。 */
 .group-tabs-fade {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 28px;
+  width: 16px;
   pointer-events: none;
   background: linear-gradient(to right, transparent, var(--bg-card));
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.group-tabs-fade.is-visible {
+  opacity: 1;
 }
 
 /* tab 项：32px 胶囊；选中态软按钮（--brand-100/--brand-700/--brand-400），未选中 --text-secondary + hover --bg-hover */
@@ -246,9 +294,13 @@ watch(
   border-radius: 50%;
 }
 
-/* 分组名：展示截断 8 汉字（8em），全名由 title 提示 */
+/* 分组名：展示截断 10 汉字（10em），全名由 title 提示。
+   2026-11-02：8em → 10em。8em 下 12 字组名只剩 66% 可见，低于「不少于八成」的
+   可读底线；10em 让常见组名（≤10 字）完全显示，超长组名也保住 80% 以上。
+   代价是单个 tab 最宽多约 2 个字宽——分组区本来就靠横滚 + 右缘遮罩兜底，
+   宽度不够时滑一下即可，比「名字永远看不全」划算。 */
 .group-tab-label {
-  max-width: 8em;
+  max-width: 10em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

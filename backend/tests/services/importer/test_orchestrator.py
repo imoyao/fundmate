@@ -161,6 +161,81 @@ def test_commit_from_preview_passes_net_amount(db):
     assert txn.amount == Money.yuan_to_cents(88.5)
 
 
+def test_commit_from_preview_carries_fee_breakdown(db):
+    """#2137：预览行回传四类费用 → 落库到 transactions 拆分四列（分）。"""
+    ledger = Ledger(name='证券账户', ledger_type='stock', family_id=1)
+    db.add(ledger)
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    row = {
+        'symbol': 'SH600519',
+        'name': '贵州茅台',
+        'type': 'stock',
+        'op_type': 'buy',
+        'amount': 165015.0,
+        'quantity': 100,
+        'price': 1650.0,
+        'fee': 15.0,
+        # #2137 费用拆分（元）：预览行原样回传的键
+        'fee_commission': 5.0,
+        'fee_stamp_duty': 8.5,
+        'fee_transfer_fee': 1.0,
+        'fee_other': 0.5,
+        'trade_date': '2026-08-01',
+        'account_name': '证券账户',
+        'ledger_id': ledger.id,
+        'contract_id': 'TXN-FEE-BD',
+        'source': 'ths_stock',
+        'import_hash': 'h-fee-breakdown',
+    }
+    result = orch.commit_from_preview([row])
+    assert result['imported'] == 1
+    txn = db.query(Transaction).filter_by(import_hash='h-fee-breakdown').first()
+    assert txn is not None
+    assert txn.fee == Money.yuan_to_cents(15.0)
+    assert (txn.commission, txn.stamp_duty, txn.transfer_fee, txn.other_fee) == (
+        Money.yuan_to_cents(5.0),
+        Money.yuan_to_cents(8.5),
+        Money.yuan_to_cents(1.0),
+        Money.yuan_to_cents(0.5),
+    )
+
+
+def test_commit_from_preview_without_breakdown_stays_unsplit(db):
+    """#2137：预览行不带拆分键（存量前端/未拆分来源）→ 四列留 NULL。"""
+    ledger = Ledger(name='证券账户', ledger_type='stock', family_id=1)
+    db.add(ledger)
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    row = {
+        'symbol': 'SH600519',
+        'name': '贵州茅台',
+        'type': 'stock',
+        'op_type': 'buy',
+        'amount': 165015.0,
+        'quantity': 100,
+        'price': 1650.0,
+        'fee': 15.0,
+        'trade_date': '2026-08-01',
+        'account_name': '证券账户',
+        'ledger_id': ledger.id,
+        'contract_id': 'TXN-NO-BD',
+        'source': 'ths_stock',
+        'import_hash': 'h-no-breakdown',
+    }
+    result = orch.commit_from_preview([row])
+    assert result['imported'] == 1
+    txn = db.query(Transaction).filter_by(import_hash='h-no-breakdown').first()
+    assert txn is not None
+    assert txn.fee == Money.yuan_to_cents(15.0)
+    assert txn.commission is None
+    assert txn.stamp_duty is None
+    assert txn.transfer_fee is None
+    assert txn.other_fee is None
+
+
 def test_commit_cash_missing_ledger_counts_skipped(db):
     """B4 修复：现金管理产品缺 ledger_id 跳过时计入 skipped（原漏计数）。"""
     orch = ImportOrchestrator(db, family_id=1)
@@ -775,3 +850,84 @@ def test_keep_duplicate_after_original_deleted_inserts_plain_hash(db):
     assert r2['kept_duplicates'] == 1
     assert db.query(Transaction).filter_by(import_hash='keep-hash-gone', ledger_id=ledger.id).count() == 1
     assert db.query(Transaction).filter_by(import_hash='keep-hash-gone:keep', ledger_id=ledger.id).count() == 0
+
+
+# ── #2840 「现金资产」≠「资金划转」──
+
+
+def test_cash_income_is_not_marked_as_cash_transfer(db):
+    """利息归本是投资收益，不是银行↔证券搬钱。
+
+    判据曾写成 `asset_type == 'cash'`，于是「利息归本」（asset_type=cash、
+    business_type=dividend_cash）也被打成银证转账：前端要求先关联现金账户才可
+    勾选（否则勾不上），勾上后 `_commit_cash_transfer_row` 还会在银行侧生成一笔
+    反向流水——账上凭空多出一笔资金流入。
+    """
+    orch = ImportOrchestrator(db, family_id=1)
+
+    interest = StandardTransactionRecord(
+        confirm_date=date(2026, 11, 1),
+        trade_date=date(2026, 11, 1),
+        asset_type='cash',
+        symbol='',
+        name='利息归本',
+        business_type='dividend_cash',
+        amount=Decimal('0.9'),
+        net_amount=Decimal('0.9'),
+        account_name='',
+        source='ths_stock',
+        raw_op_type='利息归本',
+    )
+    deposit = StandardTransactionRecord(
+        confirm_date=date(2026, 11, 1),
+        trade_date=date(2026, 11, 1),
+        asset_type='cash',
+        symbol='__CASH__',
+        name='银行转证券',
+        business_type='deposit',
+        amount=Decimal('10000'),
+        net_amount=Decimal('10000'),
+        account_name='',
+        source='ths_stock',
+        raw_op_type='银行转证券',
+    )
+
+    preview = orch._rows_from_records([interest, deposit], None, '', None, source='ths_stock')
+    by_name = {r['name']: r for r in preview['rows']}
+
+    # 同样 asset_type='cash'，一个不是划转、一个是划转——判据落在动作上
+    assert by_name['利息归本']['is_cash_transfer'] is False
+    assert by_name['银行转证券']['is_cash_transfer'] is True
+
+
+def test_cash_income_reaches_cash_branch_without_symbol(db):
+    """利息归本没有代码也能入库：它走的是现金分支，本来就不写 symbol。"""
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    interest = StandardTransactionRecord(
+        confirm_date=date(2026, 11, 1),
+        trade_date=date(2026, 11, 1),
+        asset_type='cash',
+        symbol='',
+        name='利息归本',
+        business_type='dividend_cash',
+        amount=Decimal('0.9'),
+        net_amount=Decimal('0.9'),
+        account_name='',
+        ledger_id=ledger.id,
+        source='ths_stock',
+        raw_op_type='利息归本',
+        import_hash='interest-no-symbol-hash',
+    )
+
+    preview = orch._rows_from_records([interest], None, '', ledger.id, source='ths_stock')
+    rows = preview['rows']
+    assert len(rows) == 1
+
+    res = orch.commit_from_preview(rows)
+    assert res['imported'] == 1
+    txn = db.query(Transaction).filter_by(import_hash='interest-no-symbol-hash').first()
+    assert txn is not None
+    assert txn.amount == Money.yuan_to_cents(0.9)
+    assert txn.ledger_id == ledger.id

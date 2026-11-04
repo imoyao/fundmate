@@ -5,8 +5,12 @@
   · **合成命中样本** —— 三条规则各自能抓到问题；
   · **合成放行样本** —— 不得误报。最危险的是「只写 width / 只写 padding」的表格布局
     （判进来就是逼人删布局）、`:class` 动态类名、以及非详情页的存量表格；
-  · **真实文件回退探针** —— 把 `ProductPositionSection.vue` 的共享类摘掉，守卫必须转红。
+  · **真实文件回退探针** —— 把 `PositionChannelTable.vue` 的共享类摘掉，守卫必须转红。
     没有这条，「守卫是绿的」只能证明「它没扫到东西」；
+    ⚠️ 取样文件是**会搬家的**：#980 拆分把这张表从 `ProductPositionSection.vue`
+    搬进了 `positionSection/PositionChannelTable.vue`，探针当时因此静默失效
+    （突变字符串在旧文件里已不存在 ⇒ 替换是空操作 ⇒ 守卫保持绿 ⇒ 断言报红）。
+    再搬表时，这里必须跟着改，否则探针变成恒真。
   · **基线语义** —— 基线里的文件放行、基线外的文件必须红（否则基线会悄悄变成垃圾桶）。
 """
 
@@ -24,7 +28,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TMP_ROOT = Path(tempfile.gettempdir()).resolve()
 SCRIPT = REPO_ROOT / "scripts" / "guard_detail_tables.py"
-DETAIL_SAMPLE = REPO_ROOT / "frontend/src/views/product/components/ProductPositionSection.vue"
+DETAIL_SAMPLE = (
+    REPO_ROOT
+    / "frontend/src/views/product/components/positionSection/PositionChannelTable.vue"
+)
 
 ORPHAN_TABLE = """<template>
   <table class="my-table">

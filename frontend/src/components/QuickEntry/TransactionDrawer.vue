@@ -71,7 +71,7 @@
     </template>
   </el-drawer>
 
-  <!-- AI 识别截图导入（接 txn_import）→ 候选落 recon-draft，由统一对账工作台确认入库（#934） -->
+  <!-- AI 识别截图导入（接 txn_import）→ 候选落 recon-draft，由统一对账中心确认入库（#934） -->
   <RecognizerImportModal
     v-model="recognizerVisible"
     scenario-lock="txn_import"
@@ -189,7 +189,7 @@ function openRecognizer() {
   recognizerVisible.value = true;
 }
 function onRecognizerSaved() {
-  ElMessage.success("已存入对账草稿，请在「统一对账工作台」确认入库");
+  ElMessage.success("已存入对账草稿，请在「统一对账中心」确认入库");
   recognizerVisible.value = false;
   visible.value = false;
 }

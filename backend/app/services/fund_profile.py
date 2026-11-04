@@ -146,6 +146,14 @@ def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
         'create_time': fund.create_time.isoformat() if fund.create_time else None,
         'risk_level': fund.risk_level,
         'benchmark': fund.benchmark,
+        # 晨星 3 年期星级（#1440）：源为东财评级总汇页（晨星授权内容），
+        # 与净值/费率那条「天天基金」链路**不是同一口径**，故不并入 source 标签——
+        # 前端在资料区自己标注机构与期限（「3 星（3年期）」）。
+        # 缺失 = 该基金无晨星评级（货基/新基金常态），不是「采集失败」，
+        # 故一律给 None 由前端显示「—」，不猜 0、不编默认值。
+        'morningstar_rating': fund.morningstar_rating,
+        'morningstar_rating_delta': fund.morningstar_rating_delta,
+        'morningstar_rating_asof': (fund.morningstar_rating_asof.isoformat() if fund.morningstar_rating_asof else None),
         'managers': _managers_of(db, fund),
         'fee_rates': _fee_rates_of(db, code),
         # 数据来源（#1969）：净值 / 费率 / 基础资料整条链路都走天天基金（东方财富），

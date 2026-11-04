@@ -19,6 +19,7 @@ from sqlalchemy import inspect, text
 
 from app.core.database import Base
 from app.core.db_factory import DOMAIN_MARKET, DatabaseFactory
+from app.core.migrations import migrate_advisor_portfolio_perf_columns
 from app.domains.funds.models import (  # noqa: F401  触发模型注册进 metadata
     AdvisorAdjustHistory,
     AdvisorHolding,
@@ -52,6 +53,11 @@ def main() -> None:
         if col not in existing_cols:
             with engine.begin() as conn:
                 conn.execute(text(ddl))
+
+    # 投顾详情页 P0（2026-10-29）：return_2y/3y + 8 个基准区间收益列。
+    # **不在此处重抄 DDL**——`init_db` 的启动迁移已有一份（migrate_advisor_portfolio_perf_columns），
+    # 抄第二份等于给自己留一处必然漂移的真相源。直接复用同一个函数（幂等）。
+    print(migrate_advisor_portfolio_perf_columns(engine))
 
     tables = set(insp.get_table_names())
     expected = {

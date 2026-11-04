@@ -1,0 +1,91 @@
+# 发版 readiness 周检（每周一 08:45 北京时间）
+#
+# ## 为什么需要它
+#
+# `scripts/release_readiness.py` 是 `dev → main` 发版的机械闸，判据见
+# `docs/spec/release-readiness.md`。它在 2026-10-08 写好过，但**只有本地文件、没有定时执行点**，
+# 于是丢失 25 天无人发现（提交从未 push，分支被清后成了悬空对象）。
+# 「写进仓库」不足以让它活着——判据必须挂在**一定会跑**的钩子上。
+#
+# ## 设计决策
+#
+# 1. **只报告，不合并、不关卡**：合并发版 PR 是不可逆动作（base=main 时 `Closes` 原生生效，
+#    revert 不会重开 issue），永远由人做。脚本本身也没有任何写操作。
+# 2. **有阻断项就让 job 变红**：周检的红灯没人盯，但至少它出现在 Actions 列表里；
+#    绿了则什么都不做。报告同时写进 step summary 并留产物，便于回溯。
+# 3. **schedule 只读默认分支的 workflow 定义**，故 checkout 显式取 dev（同 issue-health-scan.yml）：
+#    实际执行的是 dev 上的脚本，避免 main 落后导致规则过期。
+# 4. 与 `issue-health-scan.yml` 错开 15 分钟：两者都要密集调 GitHub API，同分钟起跑会抢配额。
+#
+# ⚠️ 本 workflow 只有在**合入 main 之后**才会被 schedule 触发（GitHub 只读默认分支上的定时定义）。
+# 在 dev 上它只能手动 `workflow_dispatch` 验证。
+
+name: 发版 readiness 周检
+
+on:
+  schedule:
+    # 每周一 UTC 00:45（北京时间 08:45）——错开 issue 体检的 00:30
+    - cron: '45 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+env:
+  # 实际执行代码的分支（main 只承载 workflow 定义）
+  SCAN_REF: dev
+  REPORT: release-readiness.md
+
+jobs:
+  readiness:
+    name: 机械闸扫描
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码（ref=dev）
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCAN_REF }}
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 不吞退出码：1=有 BLOCK、2=执行错误（凭据/网络）。两者都要让 job 红，
+      # 但报告必须先落地，否则红了也没有可看的内容。
+      - name: 跑机械闸
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          python scripts/release_readiness.py --repo "$GITHUB_REPOSITORY" --out "$REPORT"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "机械闸退出码：$code"
+
+      - name: 写进步骤摘要
+        if: always()
+        run: |
+          if [ -f "$REPORT" ]; then
+            cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "报告未生成（脚本在执行前就失败了），退出码 ${{ steps.gate.outputs.exit_code }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 上传报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness
+          path: ${{ env.REPORT }}
+          if-no-files-found: warn
+
+      - name: 有阻断项或执行错误则失败
+        if: always() && steps.gate.outputs.exit_code != '0'
+        run: |
+          echo "::error::机械闸未通过（exit=${{ steps.gate.outputs.exit_code }}）——见步骤摘要。1=存在阻断项，2=执行错误。"
+          exit 1

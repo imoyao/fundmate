@@ -15,8 +15,9 @@ import { PRO_NOT_ENTITLED_CODE } from "@/constants/errorCodes";
  *    等于让用户无限期地等一个不会自己变好的状态。
  * 2. **付费墙不再是纯前端 flag**：后端 `/api/products/pro/` 的 `paywall_required`
  *    已按家庭权益计算（`backend/app/services/product_pro_status.py` 的
- *    `build_pro_status`）。env `VITE_PRO_PAYWALL_ENABLED` 退化为**显式覆盖**，
- *    未配置时才以后端为准。
+ *    `build_pro_status`）。env `VITE_PRO_PAYWALL_ENABLED` 与 URL
+ *    `?pro_paywall=0|1` 都退化为**显式覆盖**（只管遮罩显隐），两者都未配置时
+ *    才以后端为准；覆盖优先级见 `resolvePaywallEnabled` 的判据表。
  *
  * 判定写在模板的 `v-if` 里没法被单测钉住，抽成纯函数才能钉
  * （同族先例：`productIdentityFacts.ts`）。
@@ -67,26 +68,41 @@ export function classifyProPanelFailure(error: unknown): ProPanelFailure {
 }
 
 /**
- * 付费墙开关三态。**顺序有意义**：env 是显式覆盖，未配置才看后端。
+ * 付费墙开关四态。**顺序有意义**，从高到低：
+ * URL 运行时覆盖（`?pro_paywall=0|1`）> env 显式覆盖 > 后端 `paywall_required`。
  *
- * | `VITE_PRO_PAYWALL_ENABLED` | 结果 |
- * |---|---|
- * | `"false"` | 关（本地预览 / e2e 用，见 `playwright.config.ts` 的 webServer env） |
- * | `"true"` | 开（强制展示遮罩） |
- * | 未配置 / 其它取值 | 用后端 `paywall_required`（已按家庭权益算） |
+ * | 来源 | 取值 | 结果 |
+ * |---|---|---|
+ * | URL `pro_paywall` | `"1"` / `"true"` | 开（运行时强制展示遮罩，本地预览 / e2e 用） |
+ * | URL `pro_paywall` | `"0"` / `"false"` | 关（运行时强制隐藏遮罩） |
+ * | env `VITE_PRO_PAYWALL_ENABLED` | `"false"` | 关（构建期放行口，见 `playwright.config.ts`） |
+ * | env `VITE_PRO_PAYWALL_ENABLED` | `"true"` | 开（构建期强制展示） |
+ * | 以上都未配置 / 其它取值 | — | 用后端 `paywall_required`（已按家庭权益算） |
  *
- * 不认识的取值（如 `"0"`、`"yes"`）按**未配置**处理：开关值不猜，
- * 猜错的代价是「已授权用户被遮住」或「未授权用户绕过遮罩」，两个都不该由拼写决定。
+ * 不认识的取值（如 `"yes"`、`"2"`）按**未配置**处理，逐层往下落：
+ * 开关值不猜，猜错的代价是「已授权用户被遮住」或「未授权用户绕过遮罩」，
+ * 两个都不该由拼写决定。
  *
- * `paywallRequired` 为 `null` / `undefined` ⇒ 状态位还没回来或取不到 ⇒ **不显示遮罩**：
- * 遮罩表达的是「已确认未开通」，不是「还没问出来」——后者挂遮罩就是拿猜测当结论。
+ * **URL / env 只管遮罩显隐，不是权益事实**（#2523）：介绍卡两态的判据是后端
+ * `paywall_required` 一个来源，挂 env 或 URL 都会让「e2e 关了遮罩，介绍卡
+ * 也跟着消失」这类串味出现。遮罩表达的是「已确认未开通」的提示层，
+ * `paywallRequired` 为 `null` / `undefined` ⇒ 状态位还没回来 ⇒ **不显示遮罩**：
+ * 「还没问出来」不等于「未开通」，后者挂遮罩就是拿猜测当结论。
+ *
+ * URL 取值的读取形态（hash 路由）：`/#/fund/<symbol>?pro_paywall=1`——
+ * 查询串在 hash 里，由 vue-router 解析进 `route.query`；本函数只收解析后的
+ * 字符串，不自己碰 `window.location`（纯函数才能被单测钉住）。
  */
 export function resolvePaywallEnabled(
+  urlFlag: string | null | undefined,
   envFlag: string | null | undefined,
   paywallRequired: boolean | null | undefined
 ): boolean {
-  const flag = (envFlag ?? "").trim();
-  if (flag === "false") return false;
-  if (flag === "true") return true;
+  const url = (urlFlag ?? "").trim();
+  if (url === "1" || url === "true") return true;
+  if (url === "0" || url === "false") return false;
+  const env = (envFlag ?? "").trim();
+  if (env === "false") return false;
+  if (env === "true") return true;
   return paywallRequired === true;
 }

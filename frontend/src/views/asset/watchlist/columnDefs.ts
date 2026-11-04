@@ -31,16 +31,29 @@
  *    余量分配（flexColumns），全列固定宽会让表格实体宽度恒等于 Σ列宽，容器再宽也
  *    铺不满，右侧留大片空白。改用 minWidth 后：容器有余量 → 按 minWidth 比例拉伸
  *    铺满；容器不足 → 各列回到 minWidth 并在**表格内部**横向滚动。
- * 2) **混合视图通用列集 = 名称 / 添加自选日 / 最新价 / 涨跌幅 / 持有数量 / 持仓市值 /
- *    持仓收益 / 操作（≈1010px）**：即「对所有品类都成立」+「对所有可交易品类都成立」的
- *    列。真品类专属列（bond_* / index_* / fund_max_drawdown / links / advisor_* /
- *    return_*）留品类视图；走势 / 添加后涨幅 / 成本价 因预算不足，改为
- *    「品类视图 + 列设置可选」。
+ * 2) **混合视图通用列集（顺序即默认展示顺序，2026-10-30 重排）= 名称 / 当日盈亏 /
+ *    最新价 / 走势 / 持有数量 / 持仓市值 / 持仓收益 / 操作 = 984px**：
+ *    （2026-11-02 操作列由 140 收敛到 88——2 常驻按钮 + ··· 菜单，见 `_actions` 定义，
+ *     总宽 1036 → 984，仍在 spec 的 1040 判据内。）
+ *    即「对所有品类都成立」+「对所有可交易品类都成立」的列。真品类专属列
+ *    （bond_* / index_* / fund_max_drawdown / links / advisor_* / return_*）留品类视图；
+ *    添加自选日（#2640 起）/ 添加后涨幅 / 成本价 仍为「品类视图 + 列设置可选」。
+ *    走势（`trend`）自 2026-10-26 起**恢复默认显示**（owner 拍板：持仓里必然要关注
+ *    持仓产品的走势，不能省）；「今日涨跌幅」列已于 #2641 并入当日盈亏（同一口径），
+ *    默认预算随之回到 1040——见铁律 1。
  *
- * ── 表格宽度铁律（#1285 立，2026-09-11 #1425 重申：改本文件前先读完这三条）──
- * 1. **默认可见列总宽 ≤ 1040px**（design.md「冻结列与横向滚动规范」）：按最受约束的
- *    1366×768 推出内容区宽度，保证默认视图**不出现横向滚动**。要加默认列，必须同时
- *    从默认集里拿掉等量宽度——**不接受「加了列导致默认视图开始滚」**。
+ *    列序口径（2026-10-30 owner 反馈「当日盈亏默认排得太后」）：**越靠左＝今天越需要知道**——
+ *    当日变动 → 价格 → 走势 → 持仓规模（数量/市值/收益）。改序只动本数组顺序，
+ *    用户的拖拽自定义顺序优先级更高（`columnOrder.ts` 重建，注意「部分顺序不能当全量用」，
+ *    那是表头整段重复列的老 bug）。
+ *
+ * ── 表格宽度铁律（#1285 立，2026-09-11 #1425 重申，2026-10-26 修订：改本文件前先读完）──
+ * 1. **默认可见列总宽 ≤ 1132px**（design.md「冻结列与横向滚动规范」，2026-10-26 由 1040
+ *    修订）：1040 是按最受约束的 1366×768 推出的「不横滚」值，但实测「再拿掉一列」的代价
+ *    都高于承认滚动（走势 92px 是持仓场景的必看信息；持仓收益/当日盈亏是主数据）。
+ *    **owner 拍板：1366 屏允许表格内部横向滚动**，两端冻结列（product / _actions）常驻，
+ *    「这是哪只标的 / 能对它做什么」始终可见。**上限仍守 1132px**：要再加默认列，
+ *    必须说明宽度来源并同步改本值 + `__tests__/columnBudget.spec.ts`，不允许无登记加宽。
  * 2. **横向滚动只能发生在表格内部**：`.el-table` 的外框宽 = 容器宽，列总宽超出时由
  *    Element Plus 在表格内部滚动；**页面级横向滚动条禁止**（#1341 的 flex min-width:0
  *    链就是这条的实现，改布局层时别把它拿掉）。
@@ -59,7 +72,6 @@ export type ColumnRenderer =
   | "product" // 代码/名称 + 标签 chips（ProductDisplay + TagChips）
   | "date" // 格式化日期（formatDate）
   | "money" // MoneyDisplay（精度按 asset_type）
-  | "riseFall" // RiseFallText（涨跌幅，支持实时覆盖）
   | "qty" // 持有数量 + 单位（份/股）
   | "moneyRatio" // MoneyWithRatio（金额 + 比率）
   | "sparkline" // 迷你走势图（纯 SVG 折线，#990）
@@ -70,7 +82,8 @@ export type ColumnRenderer =
   | "drawdown" // 基金最大回撤（#1285/§3.10：口径元数据挂 title）
   | "links" // 跨渠道关联（#1285 §3.8：数量角标 + 浮层）
   | "advisor" // 投顾组合品类差异化指标（#1392：区间收益/回撤/超额/集中度）
-  | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
+  | "actions" // 操作列（circle 按钮：置顶/关注/编辑/删除）
+  | "fundFlow"; // 资金流（主力净流入，按符号着色：流入红/流出绿）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
 export type RealtimeField = "currentPrice" | "changePct";
@@ -102,7 +115,57 @@ export interface ColumnDef {
   fixed?: "left" | "right";
   /** 排序模式：固定 "custom"（#991 后端排序透传，EP 不做页内排序） */
   sortable?: "custom";
-  /** 开启实时且存在估值项时，用估值项的该字段覆盖静态值 */
+  /**
+   * 排序代理字段（#2641）：点击本列表头时交给后端的 `sort_by`。
+   *
+   * 用于**前端派生列**——它在 `row` 上没有同名字段，直接拿 `key` 去查后端白名单会
+   * 「查不到就静默失效」（#1331 的形态）。指定本字段后，排序语义是「按这个后端字段排」，
+   * **与列里展示的数值不必是同一个数**。
+   *
+   * 缺省 = 用 `key` 本身。⚠️ 吃实时价的列（`day_pnl` / `current_price`）**不用它**：
+   * 它们走客户端整组排序（见 `clientSort.ts`），代理到后端只会按上一交易日收盘排。
+   */
+  sortBy?: string;
+  /**
+   * 表头点击时的排序档位循环（EP `sort-orders`，2026-10-30）。
+   *
+   * 默认档位是「升序 → 降序 → 取消」，对涨跌/金额这类指标反直觉：用户点「当日盈亏」
+   * 想看的是今天赚得最多的，默认升序先把亏得最多的摆上来。这类列写
+   * `["descending", "ascending", null]` 让第一次点击即降序。
+   *
+   * **复合列（带 `sortMetrics`）写两档 `["descending", "ascending"]`**（2026-10-30 二次优化）：
+   * 三档循环里「取消」夹在升降之间，于是 `升 → 降` 要先经过「取消」——点一次整表
+   * 跳回默认序、再点一次才降序，用户看到的是「顺序乱了一下」。两档循环每次点击都
+   * 是换方向，一次到位。代价是这几列不能再点回「默认序」：**这是刻意的取舍**——
+   * 涨跌/金额排序是这页的主用法，回默认（置顶 + 更新时间）改用刷新页面或点其它列。
+   */
+  sortOrders?: ("ascending" | "descending" | null)[];
+  /**
+   * 复合列的两行数口径（2026-10-30 二次优化）：声明本列有「金额 / 比例」两行数，
+   * 表头常驻显示当前口径徽标（`components/CompositeSortHeader.vue`），点击即切换。
+   *
+   * 缺省 = 普通列（表头只渲染 label）。两行数的**取值**由 `useWatchlistTable`
+   * 按列 key 派发（当日盈亏走 `dayPnlOf`、持仓市值走 `marketValueRatio`…），
+   * 本字段只声明「叫什么、按哪个后端字段排」。
+   */
+  sortMetrics?: {
+    /** 两个口径在表头/提示里的叫法（列与列不同：涨幅 / 占比 / 收益率） */
+    labels: { amount: string; ratio: string };
+    /**
+     * 「比例」口径交给后端的排序字段。
+     *
+     * 缺省 = 该列走客户端整组排序（吃实时价的列，如当日盈亏）；给了就走后端 `sort_by`
+     * （值来自库里的静态快照，跨页一致由后端保证）。
+     */
+    ratioSortBy?: string;
+  };
+  /**
+   * 开启实时且存在估值项时，用估值项的该字段覆盖静态值（**渲染口径**）。
+   *
+   * ⚠️ 它**不再决定排序**（2026-10-30）：吃实时价的列一律走客户端整组排序，
+   * 取值由 `useWatchlistTable` 里的取数函数决定（当日盈亏还要看当前口径，
+   * 见 `data.sortMetricOf("day_pnl")`）。
+   */
   realtimeField?: RealtimeField;
   /** #993 预留：用户是否可隐藏 */
   hideable?: boolean;
@@ -117,10 +180,14 @@ export interface ColumnDef {
   draggable?: boolean;
   /**
    * 视图作用域（#1285 品类差异化；混合视图列集于 #1421/#1422 修订）：
-   * - `"mixed"`：混合视图（未按品类筛选）也显示的「通用列」——名称 / 添加自选日 /
-   *   最新价 / 涨跌幅 / 持有数量 / 持仓市值 / 持仓收益 / 操作（≈1010px）。
+   * - `"mixed"`：混合视图（未按品类筛选）也显示的「通用列」——名称 / 最新价 /
+   *   走势 / 持有数量 / 持仓市值 / 持仓收益 / 当日盈亏 / 操作（#2641 起 1036px；
+   *   2026-11-02 操作列 140→88 后为 984px）。
    *   判定标准：**该列对「全部品类」或「全部可交易品类」都成立**且不会恒为 `—`，
-   *   同时**放得进 1040px 预算**——两者取交集才是 mixed（见文件头「表格宽度铁律」）。
+   *   同时**放得进预算**——两者取交集才是 mixed（见文件头「表格宽度铁律」）。
+   *   走势（`trend`，92px）曾因 1040 预算退到 `"category"`（#2650），2026-10-26
+   *   预算放宽到 1132 后恢复 `"mixed"`；#2641 删掉 96px 的「今日涨跌幅」列后实测回到
+   *   1036（owner 对 1132 上限的拍板不因此收紧，余量留给列宽增长）。
    * - `"category"`（默认）：仅在「品类视图」（类型筛选命中单一品类）显示；
    *   用户若在「列设置」显式开启，则任何视图都显示（当前标的不适用时渲染 `—`）。
    *   本档只留**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）。
@@ -128,8 +195,10 @@ export interface ColumnDef {
   scope?: "mixed" | "category";
   /**
    * 适用的资产类型（`asset_type` 小写枚举）；缺省 = 全部类型。
-   * 仅对 `scope="category"` 生效：品类视图下只展示命中品类的列
-   * （如持仓 / 市值类列只对可交易标的，指数 / 经理 / 组合不出现）。
+   *
+   * 判据是**品类视图**：命中单一品类时，该列只在 `appliesTo` 含它时出现（与 `scope`
+   * 无关——`scope` 只回答「混合视图要不要出现」）。缺省会在品类视图里被判为「全品类适用」，
+   * 故无行情 / 无持仓语义的列必须显式收敛（见 `QUOTE_TYPES` / `TRADABLE_TYPES` 注释）。
    */
   appliesTo?: string[];
   /** 名称超长时省略并 hover 显示完整内容（对应 el-table-column show-overflow-tooltip） */
@@ -138,9 +207,9 @@ export interface ColumnDef {
   props?: Record<string, unknown>;
   /**
    * 派生值来源（非 row 直接字段，由 index.vue 注入计算函数）。
-   * 如「添加后涨幅」「持仓市值比例」是组合计算，renderer 经 ctx.derived 取。
+   * 如「添加后涨幅」「持仓市值比例」「当日盈亏」是组合计算，renderer 经 ctx.derived 取。
    */
-  derived?: "addedReturn" | "marketValue";
+  derived?: "addedReturn" | "marketValue" | "dayPnl";
 }
 
 /**
@@ -155,10 +224,10 @@ export interface ColumnDef {
  * 可交易 / 可持有资产类型：持仓数量、市值、涨跌收益等列**仅对它们有意义**。
  * 指数（不可买）、基金经理、投顾组合（非交易实体）不在此列。
  *
- * 注意（#1421/#1422/#1425）：本常量同时被用作「可交易品类通用列」的判据——这些列对 **7 类
- * 可交易标的**全部成立，属**可交易品类通用列**而非品类专属列。其中
- * 持有数量 / 持仓市值 / 持仓收益 已纳入混合视图；走势 / 添加后涨幅 / 成本价 因
- * 1040px 预算放不下，留在品类视图（混合视图可在「管理 → 列设置」显式开启）。
+ * 注意（#1421/#1422/#1425，2026-10-26 修订）：本常量同时被用作「可交易品类通用列」的判据——
+ * 这些列对 **7 类可交易标的**全部成立，属**可交易品类通用列**而非品类专属列。其中
+ * 持有数量 / 持仓市值 / 持仓收益 / 当日盈亏 / 走势 已纳入混合视图；添加后涨幅 / 成本价
+ * 仍留在品类视图（混合视图可在「管理 → 列设置」显式开启）。
  * 仅指数 / 经理 / 投顾组合三类在混合视图下渲染 `—`。
  */
 export const TRADABLE_TYPES = [
@@ -172,7 +241,7 @@ export const TRADABLE_TYPES = [
 ];
 
 /**
- * 有「行情」的品类：最新价 / 涨跌幅这两列只对它们有意义。
+ * 有「行情」的品类：最新价 / 当日盈亏（涨跌幅）这类列只对它们有意义。
  *
  * 为什么不能缺省（appliesTo 不写）就等于「全品类适用」：品类视图的列集由 appliesTo 决定，
  * 缺省会被判为「对基金经理也适用」，于是经理视图里会冒出「最新价 / 涨跌幅」这类无意义列
@@ -209,6 +278,65 @@ export const watchlistColumnDefs: ColumnDef[] = [
     scope: "mixed"
   },
   {
+    /**
+     * 当日盈亏（#2640）：金额 + 当日涨跌幅两行，盘中随实时价跳动。
+     *
+     * 口径收口在 `dayPnl.ts`（(现价 − 昨收) × 持仓数量；比例 = (现价 − 昨收) / 昨收），
+     * 与顶部汇总条**共用同一份**——两处各写一遍迟早算出两个数。
+     *
+     * ## 位置：排在「最新价」之前（2026-10-30 列序重排，owner 反馈）
+     *
+     * 它是「今天赚了多少」，是自选页最常看的一列，原来却排在倒数第二——
+     * 1366 屏上要先横滚才看得到。默认列序口径改为
+     * **当日变动 → 价格 → 走势 → 持仓规模（数量/市值/收益）**：
+     * 越靠左＝越是「今天就要知道」的信息。用户拖拽出的自定义顺序优先级更高，
+     * 这里只定默认序（见 `columnOrder.ts`）。
+     *
+     * 为什么它是**默认可见**列：这是「今天赚了多少」的主数据，天天要看；
+     * 为此把 `created_at`（一次性历史）降为可选列，默认列总宽不变。
+     *
+     * ## 排序（2026-10-30 整组化，取代 #2641 的 change_pct 代理）
+     *
+     * 这一列有**两行数**：金额（主行）与涨跌幅（副行），是**两个不同的量**
+     * （同样涨 1%，一万仓与百万仓的当日盈亏差两个数量级）。所以两行各自要能排序：
+     * 表头口径徽标常驻显示当前口径、点一下即切（`SortMetric`：amount / ratio，
+     * 见 `sortMetric.ts`），由 `useWatchlistTable.onSortChange` → `data.setClientSort`
+     * 对**全量**结果排。
+     *
+     * 为什么不用后端 `sort_by`：后端 `current_price` / `change_pct` 来自 `price_history`
+     * 最近一根收盘（job 每天 17:30 跑），盘中就是**上一交易日**的数——按它排等于
+     * 「按昨天的涨跌幅排」，与列里显示的今日实时值不是同一个数。完整推导见
+     * `clientSort.ts` 文件头。
+     *
+     * 旧行为（#2641）把排序代理到 `change_pct` 且实时开启时**只排当前页**，
+     * 于是「按金额排序」在实现上并不存在，跨页顺序也乱（2026-10-30 用户实测）。
+     *
+     * ## 指数行为什么也在 appliesTo 里
+     *
+     * 指数没有持仓 → 金额行渲染 `—`，但**涨跌幅成立**（有现价与昨收）。原来这半截由
+     * 「今日涨跌幅」列承担，该列删除后必须由本列接住，否则指数行会连涨跌都看不到。
+     */
+    key: "day_pnl",
+    label: "当日盈亏",
+    renderer: "moneyRatio",
+    appliesTo: QUOTE_TYPES,
+    scope: "mixed",
+    // 与 created_at 等宽（104）：#2640「进一出一」时定下，此后未变
+    minWidth: 104,
+    align: "right",
+    sortable: "custom",
+    // 涨/亏类指标默认「从大到小」：第一次点表头就该看到涨得最多的，
+    // 而不是先看一遍亏得最多的（EP 默认升序优先，会多一次点击）；
+    // 只要两档 → 之后每次点击都是换方向，一次到位（见 ColumnDef.sortOrders 注释）
+    sortOrders: ["descending", "ascending"],
+    // 口径徽标常驻表头（¥ = 按金额 / % = 按涨幅），点一下就换 —— 不设 ratioSortBy：
+    // 本列吃实时价，两种口径都必须走客户端整组排序（后端只有 T-1 收盘）
+    sortMetrics: { labels: { amount: "金额", ratio: "涨幅" } },
+    hideable: true,
+    draggable: true,
+    derived: "dayPnl" // value=当日盈亏(元), ratio=当日涨跌幅(%)
+  },
+  {
     // 基金经理品类专属列：所属基金公司（后端 enrich 的 manager_company）。
     // 为什么独立成列而不是挤在产品列里：公司是「选人」场景的主要区分维度
     // （同名/同风格经理靠公司区分），232px 的产品列里既排不出层级也读不全
@@ -233,7 +361,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "center",
     sortable: "custom",
     hideable: true,
-    draggable: true
+    draggable: true,
+    // #2640 降为可选列：默认集要腾出等量宽度给「当日盈亏」（铁律 1「加一列必须减一列」）。
+    // 选它而不是别的：添加日期是**一次性历史**，看完即不再变化；当日盈亏是每日变动的主数据。
+    defaultHidden: true
   },
   {
     key: "current_price",
@@ -244,6 +375,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 96,
     align: "right",
     sortable: "custom",
+    // 价格同样「高的在前」更符合直觉；且它走客户端整组排序（实时价，见 clientSort.ts）
+    sortOrders: ["descending", "ascending", null],
     realtimeField: "currentPrice",
     scope: "mixed",
     hideable: true,
@@ -253,24 +386,13 @@ export const watchlistColumnDefs: ColumnDef[] = [
     // 静态价来自最近交易日收盘价 / 确认净值时，renderer 用 price_as_of 标注数据日期。
     props: { nullable: true }
   },
-  {
-    key: "change_pct",
-    // 口径 = 当日/最新行情涨跌幅（最新两个价点的变化），与非 HOLDING 行的
-    // enrich_item 同源同义（#2211）；基金净值发布滞后 T-1，展示的是最近交易日涨跌。
-    // 持仓区间口径由「持仓收益」列承担，此处不混入区间涨幅。
-    label: "今日涨跌幅",
-    renderer: "riseFall",
-    appliesTo: QUOTE_TYPES,
-    minWidth: 96,
-    align: "right",
-    sortable: "custom",
-    realtimeField: "changePct",
-    scope: "mixed",
-    hideable: true,
-    draggable: true,
-    // 同「最新价」：后端只在能算出前后两根收盘价（或净值）时才下发，否则为 null
-    props: { nullable: true }
-  },
+  // ── 「今日涨跌幅」列已并入「当日盈亏」（#2641）──
+  // 两者是**同一个数**：`(现价 − 昨收) / 昨收`，只是当日盈亏多了「× 持仓数量」那一行。
+  // 并排摆着等于同一列画两遍，代价是 96px——删掉它，默认列宽从 1132px 回到 1036px。
+  // 「按今日涨跌幅排序」的能力**没有丢**：当日盈亏列用 `sortBy: "change_pct"` 把排序
+  // 代理到后端既有白名单字段（见该列注释）。
+  // 依赖 `row.change_pct` 的渲染器不受影响：`holding_pnl` 列的 `props.ratioKey` 默认值
+  // 仍是它，读的是行字段而非列定义。
   // ── 可转债品类专属列（#1285 消费侧 / #1393）──
   // 决策核心是「条款博弈」：强赎状态优先于行情，故紧随涨跌幅之后。
   // scope 缺省 = "category"：仅「可转债」品类视图显示；appliesTo=["bond"] 保证其他
@@ -318,6 +440,65 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     draggable: true
   },
+  {
+    // 正股市净率（#1400 / #2575）：判断转债贵不贵的分母。
+    // 数据源东财 RPT_BOND_CB_LIST 的 quoteColumns 关联带出（免 cookie，覆盖 99.1%）。
+    key: "bond_stock_pb",
+    label: "正股PB",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 92,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 到期税前收益 YTM（#1400 / #2575）：单利年化持有到期总回报，口径同集思录。
+    // **深度价内债后端不出此值**（持有到期不成立，算出来是 -500% 这类无意义数），
+    // 故缺值显 `—`，不用 0 兜底。
+    key: "bond_ytm",
+    label: "到期收益",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 96,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 下修历史三列（#2585 PR2）：判断「下修意愿」——离触发线越近、下修概率越高，
+    // 频繁下修的发行人后续再下修概率更高。数据来自 convertible_bond_adjust_logs
+    // 落库快照（集思录 adj_logs，免 cookie）；job 未抓过 / 确无下修记录显 `—`。
+    // 日期与底价均取**最近一次**下修（底价随每股净资产逐次变化，非固定条款）。
+    key: "bond_adjust_count",
+    label: "下修次数",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 88,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    key: "bond_last_adjust_date",
+    label: "最近下修日",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 104,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    key: "bond_adjust_floor_price",
+    label: "下修底价",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 92,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
   // ── 指数品类专属列（#1285 消费侧「指数」/ #1394）──
   // 来源中证指数官方估值文件（免 cookie）。官方只下发近约 20 个交易日，
   // 故「历史分位」暂不提供（见 #1394 讨论）；估值日期挂在 title 上，口径透明。
@@ -358,12 +539,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
   },
   {
     // 跨渠道关联入口（#1285 §3.8「数量标记 + 浮层」）：hover 浮层列出关联标的名。
-    // 本期仅指数↔ETF 且只覆盖主流宽基（实测 akshare 无「跟踪标的」字段，总名称
-    // 匹配覆盖 41.1% < 90% 门槛 → 按设计降级）；无关联渲染 `—`。
+    // #2503：appliesTo 补 `fund` —— `etf_feeder` 层数据已入库（本地实测 1486 条），
+    // 但本列只认 index/etf，场外联接行看不到「对应场内」入口：数据双向可查、
+    // 界面上查不到，等于只写不读（与数据策略「新表必须有读路径」相反）。
+    // **不新增列**（默认列集已满 1132px，见铁律 1）：复用本列，
+    // 靠 `link_type` 在浮层里分区块区分场内/场外。
+    // 覆盖率口径（名称匹配 41.1% < 90% 门槛）本期不动；无关联渲染 `—`。
     key: "links",
     label: "关联",
     renderer: "links",
-    appliesTo: ["index", "etf"],
+    appliesTo: ["index", "etf", "fund"],
     minWidth: 84,
     align: "center",
     hideable: true,
@@ -371,13 +556,23 @@ export const watchlistColumnDefs: ColumnDef[] = [
   },
   {
     // 近 60 日收盘迷你走势（#990）：数据源 price_history，无数据降级 --
+    //
+    // 2026-10-26 口径修订（owner 拍板）：**恢复 `"mixed"`，混合视图默认显示**。
+    // 理由：自选页默认落在「持仓」分组（混合视图），而持仓里必然要关注持仓产品的
+    // 走势——把它藏到品类视图等于让最常用的视图少一块核心信息，#2650 的
+    // 「列设置可开回来」也不成立（见 columnGroups.ts 的说明：设置面板当时根本
+    // 找不到本列）。
+    // 预算账（现行口径 1040，源 #2641 删掉 96px 涨跌幅列后复位）：
+    // 232(product)+96(最新价)+92(走势)+104(持有数量)+140(持仓市值)
+    // +128(持仓收益)+104(当日盈亏)+88(操作) = 984。
+    // （2026-10-26 曾为留住本列把预算放宽到 1132，当时还含 96px 涨跌幅列；
+    //  2026-11-02 操作列 140→88 后余量更宽。）
+    // 判据：`__tests__/columnBudget.spec.ts` 把「mixed 默认可见列 Σ ≤ 1040」钉死，
+    // 并单独断言本列在默认集内（防再次被静默移出）。
     key: "trend",
     label: "走势",
     renderer: "sparkline",
     appliesTo: TRADABLE_TYPES,
-    // #1425：回到「品类视图专属」。走势 92px 放不进 1040px 默认预算，
-    // 若强行进默认集会让 1366 屏默认视图开始横向滚动（违反文件头铁律 1）；
-    // 混合视图仍可在「管理 → 列设置」显式开启（shown 语义＝任何视图都显示）。
     scope: "mixed",
     // 图形 72×22（#1281 第二轮：20px 高在 54px 行高里显得过扁，回调到 22px）+
     // 左右各 10px 留白 = 92px 列宽
@@ -411,6 +606,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 140,
     align: "right",
     sortable: "custom",
+    sortOrders: ["descending", "ascending"],
+    // 与当日盈亏同一套「口径」机制（2026-10-30 二次优化）：金额（¥）/ 占比（%）。
+    // ⚠️ 两种口径的**顺序恒等**：占比 = 市值 ÷ 投资类总市值，分母对全表是同一个常数
+    // （`useInvestmentTotalMv`，跨分组稳定），故按占比排与按金额排必然同序。
+    // 仍然提供切换是为了三列口径交互一致；真要说区别，只有「分母取不到」时
+    // 占比整列为 null（全部垫底），而金额仍能排 —— 这是缺值语义，不是口径差异。
+    sortMetrics: {
+      labels: { amount: "金额", ratio: "占比" },
+      ratioSortBy: "position_market_value"
+    },
     hideable: true,
     draggable: true,
     derived: "marketValue" // value=position_market_value, ratio=marketValueRatio(row)
@@ -420,9 +625,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "添加后涨幅",
     renderer: "moneyRatio",
     appliesTo: TRADABLE_TYPES,
-    // #1425：同走势——140px 放不进 1040px 默认预算，回到「列设置可选」（默认隐藏）。
-    // 若后续确要进默认集，必须同时从默认集里拿掉等量宽度的列（铁律 1），否则
-    // 默认视图列总宽 > 1040 会在主流笔记本（内容区 ≈1046px）直接横向滚动、固定列被推出视口。
+    // #1425：140px 放不进默认预算，回到「列设置可选」（默认隐藏）。
+    // 2026-10-26 预算放宽到 1132 后，默认集已被走势列占满（232+96+96+92+104+140+128+104+140），
+    // 本列仍不回到默认集——「添加后涨幅」是一次性结论，优先级低于每日变动的持仓数据；
+    // 若后续确要进默认集，必须同时说明宽度来源（铁律 1）。
     // 本次（2026-09-12）回归即此：注释写「回到可选」却漏写 defaultHidden，致其默认可见，
     // 默认列 1150px 超预算 110px、复现 #1341 式横滚 + 固定列消失。
     scope: "mixed",
@@ -433,6 +639,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     defaultHidden: true,
     draggable: true,
+    // 也是「金额 + 涨幅」两行数，但**不挂 sortMetrics**（2026-10-30）：后端只有
+    // `added_return`（金额口径）一个排序键，没有 added_return_pct；挂上口径徽标
+    // 就会出现「切到涨幅但顺序不变」的假控件。要补齐需后端加排序键，另开卡。
     derived: "addedReturn" // value=addedReturnAmount(row), ratio=addedReturnPct(row)
   },
   {
@@ -446,16 +655,53 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 128,
     align: "right",
     sortable: "custom",
+    sortOrders: ["descending", "ascending"],
+    // 与当日盈亏同一套「口径」机制（2026-10-30 二次优化）：金额（¥）/ 收益率（%）。
+    // 这两行是**真正的两个量**：同样赚 1 万，五万本金是 +20%、百万本金是 +1%，
+    // 「谁赚得多」与「谁赚得高效」必须各排各的。
+    // 两个字段后端都在 `USER_SORTABLE_FIELDS` 里，故走后端排序（跨页一致），
+    // 不像当日盈亏那样需要客户端整组（本列主行取自 positions 快照，不吃实时价）。
+    sortMetrics: {
+      labels: { amount: "金额", ratio: "收益率" },
+      ratioSortBy: "holding_pnl_percent"
+    },
     hideable: true,
     draggable: true,
     // value=holding_pnl, ratio=holding_pnl_percent（renderer 内对持仓量为 0 时置 null）
     // estimatePnl（#1104）：实时估值开启**且拿到真实行情**时，本列追加第三行「估」副行
     // （引擎按实时价与成本价算出的盈亏，口径与「持仓收益」同源）。
-    // 列宽**不加**：副行是「16px 徽章 + 金额」，128px 内放得下；而默认列集本就卡着
-    // 1040px 预算（#1425），加宽会触发横向滚动。
+    // 列宽**不加**：副行是「16px 徽章 + 金额」，128px 内放得下；而默认列集本就占满
+    // 1132px 预算（铁律 1），加宽会触发更多横向滚动。
     props: { ratioKey: "holding_pnl_percent", estimatePnl: true }
   },
-
+  {
+    // 主力净流入（#watchlist 资金面）：东财资金流实时取，A 股/港/美股票与 ETF 适用；
+    // 基金/指数/可转债无此口径，相应行渲染 `--`。红=净流入 / 绿=净流出（A 股习惯）。
+    // 默认隐藏（#993 约定新列默认隐藏，不冲击默认表格宽度预算）；用户在「列设置」显式开启。
+    key: "main_inflow",
+    label: "主力净流入",
+    renderer: "fundFlow",
+    appliesTo: ["stock", "etf"],
+    minWidth: 104,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    // 所属板块（#watchlist 资金面）：东财资金流 f100（所属行业），与主力净流入同源。
+    // 默认隐藏（同上）；开启后任何视图都显示，非 stock/etf 行渲染 `--`。
+    key: "sector",
+    label: "所属板块",
+    renderer: "text",
+    appliesTo: ["stock", "etf"],
+    minWidth: 132,
+    align: "left",
+    showOverflowTooltip: true,
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
   // ── #993(a) 新增候选列 ──
   // 数据全部来自后端既有字段或前端可派生，不改动后端接口契约（符合 #993 范围边界）。
   // 均带 defaultHidden：新列是「可选能力」而非「默认负担」，避免加宽表格
@@ -473,7 +719,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     appliesTo: TRADABLE_TYPES,
     // #1332：开放列内排序（白名单已登记）；无真实持仓时显示 --
     sortable: "custom",
-    // #1425：回到 #993 的「新增候选列默认隐藏」语义——默认列集要守 1040px 预算，
+    // #1425：回到 #993 的「新增候选列默认隐藏」语义——默认列集占满 1132px 预算，
     // 成本价 96px 不进默认集；用户在「管理 → 列设置」勾选后任何视图都显示。
     // 未持仓的自选标的该列渲染 `--`（props.nullable），属预期，不视为无效列。
     props: { nullable: true },
@@ -767,16 +1013,19 @@ export const watchlistColumnDefs: ColumnDef[] = [
     defaultHidden: true
   },
   {
-    // 操作列：置顶 / 特别关注 / 移除 / 加入分组 / 问这个（#1764），默认 45% 弱显、行 hover 全亮
-    //（2026-09-05 回归）：曾把按钮拆到产品列 hover 图标，但 fixed 列 hover 状态
-    // 在 EP 中不稳定，出现「有的行 hover 不出现」——回到固定的右固定操作列，
+    // 操作列（2026-11-02 收敛为「2 常驻 + ··· 菜单」，方案 B）：
+    // 常驻「置顶 / 特别关注」——仅有的两个**状态型**操作（实心图钉=已钉、暖橙星=已关注），
+    // 收进菜单就丢掉状态展示；「加入分组 / 问这个 / 移除」进 ··· 菜单，移除单独置底并标 danger。
+    // 宽度 140 → 88：24×3（两按钮 + ···）+ 4×2 gap + 4 余量 = 84，取 88 留 1 个 gap 的余量。
+    // 换回 52px 列宽，默认列总宽 1036 → 984，比 1040 预算多出的余量也在扩。
+    //
+    // 历史（2026-09-05 回归）：曾把按钮拆到产品列 hover 图标，但 fixed 列 hover 状态
+    // 在 EP 中不稳定，出现「有的行 hover 不出现」——回到固定的右固定操作列。
     // 状态以按钮图标颜色表达（置顶品牌色 / 关注暖橙），不依赖 JS hover 同步。
-    // 宽度 110 → 140（#1764 第 5 按钮：5×24 + 4×4 gap = 136，原 110 装不下）；
-    // 默认列总宽仍在 design.md 的 ≈1040px 预算内。
     key: "_actions",
     label: "操作",
     renderer: "actions",
-    width: 140,
+    width: 88,
     align: "center",
     fixed: "right",
     scope: "mixed",
@@ -848,17 +1097,23 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   // 通用（混合视图基础列 / 行情 / 持仓类）
   created_at: "general",
   current_price: "general",
-  change_pct: "general",
   trend: "general",
   holding_quantity: "general",
   position_market_value: "general",
   added_return: "general",
   holding_pnl: "general",
+  day_pnl: "general",
   // 可转债条款
   bond_premium_rate: "bond",
   bond_redeem: "bond",
   bond_remain_years: "bond",
   bond_rating: "bond",
+  bond_stock_pb: "bond",
+  bond_ytm: "bond",
+  // 下修历史三列（#2585 PR2）
+  bond_adjust_count: "bond",
+  bond_last_adjust_date: "bond",
+  bond_adjust_floor_price: "bond",
   // 指数估值
   index_pe: "index",
   index_dividend_yield: "index",
@@ -894,7 +1149,10 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   groups: "extra",
   updated_at: "extra",
   notes: "extra",
-  links: "extra"
+  links: "extra",
+  // 资金面（#watchlist）：主力净流入 / 所属板块，默认隐藏、跨品类，开启后任何视图都显示
+  main_inflow: "extra",
+  sector: "extra"
 };
 
 /** 取列的分组（缺省 extra），供设置面板分组渲染 */

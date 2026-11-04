@@ -28,6 +28,13 @@
                          净值行、落在非交易日的当日预估——并入下一开盘日）；
                          total_pnl_asof(D) = Σ_pos [ mv_asof(D) − cost_basis_asof(D) + realized_asof(D) ]
 
+**建仓日按买入成本起算（2026-11-04 用户裁定）**：份额由 0 变正的那天，前值
+水平值是「未持有」的 0，当日 `level = 市值 − 买入成本`——这正是「今天买的
+场内标的今天涨跌」。旧实现把整笔建仓浮盈从当日差分里剔掉，导致这笔收益要等
+**卖出那天**才以已实现的形式出现（不丢钱，但归期全错）。
+成本缺失（`positions.avg_price` 为 0，买入流水未回填）时仍退回剔除，否则
+`level` 会是整笔市值（实测 1/5 建仓日冒出的假盈亏），判据见 `_has_usable_cost`。
+
 **为什么用 `total_pnl` 的日差分而不是 `net_worth` 日环比**：
 `total_pnl` 是累计盈亏，买入建仓瞬间 `unrealized = 市值 − 成本 = 0`，追加投入不改变
 盈亏总额 ⇒ 它的日差分**天然免疫资金流**。反之 `net_worth` 日环比会被存取款污染
@@ -83,10 +90,12 @@ from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
 from app.services import pnl_snapshot_store
+from app.services.asset_class import CLASS_ORDER, class_of_position
 from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
 )
+from app.services.scope import filter_positions_by_scope
 
 # 单价精度：场内 adj_close 为「元」浮点，需放大到 0.0001 元整数再喂 Money.multiply_price_quantity
 _PRICE_SCALE = Decimal('10000')
@@ -118,10 +127,28 @@ STATE_NO_POSITION = 'no_position'
 # `no_data` = 一条真报价都没有（**不出数**）。两者都不可与 `closed`（真休市）混用。
 STATE_PARTIAL = 'partial'
 
-# 某标的当天没价格时，最多向前沿用最近多少天的价格（#1812）。
-# 太大：一个月没更新的标的会被当成「价格不变」而画出 0 收益，掩盖数据缺失；
-# 太小：单日数据抖动就会让市值归零、差分出现假跳空。7 天覆盖周末与节假日。
-_STALE_CARRY_DAYS = 7
+# 前值回填的**取数前扩天数**（#1812 引入，语义在 #2733 改过一次）。
+#
+# 历史：这里原本是「最多向前沿用 7 天价格」的**硬上限**。7 天刚够覆盖普通周末，
+# 覆盖不了春节 / 国庆这类 8~10 天的长假——假后首日取不到前值，那笔持仓市值按 0 计，
+# 净值曲线掉到地板再弹回（实测 2025-10-08 −8,458.78、次日 +8,870.50）。
+#
+# 现在：#2733 起取价改成「≤ 当日的最后已知净值」，**没有回看上限**——节假日 carry
+# 本来就该诚实，基金真停发净值由 `no_price` 状态单独表达，不该用「归零」冒充。
+# 这个常量因此只剩两个职责：
+#   ① 取数窗口向前扩这么多天，保证**区间首日**也能取到前值（否则首日的答案取决于
+#      查询起点，物化读与现算读会分叉，见 `fetch_start` 处的注释）；
+#   ② 作为物化新鲜窗的基数：新价格的影响半径 = 到下一个已知净值的那一天，最长就是
+#      一个长假。
+# 16 天 = 春节 / 国庆最长 10 天 + 前后各一个周末，留余量。
+_STALE_CARRY_DAYS = 16
+
+# 陈旧阈值（#2733）：某标的最后已知价之后**走过了几个开盘日**还没出新价，就判它陈旧
+# ⇒ 该持仓当天按缺价处理（回 `no_price` / `partial`，市值不计入）。
+# 5 个开盘日 ≈ 一周的交易时间：足够容纳「净值晚发布一两天」的常态，又能在一周没有
+# 新净值时把信号交还给状态码。与 `_STALE_CARRY_DAYS` 分工明确：
+# 前者管**取数前扩 / 新鲜窗**（自然日），后者管**要不要继续采信这条旧价**（交易日）。
+_STALE_TRADING_DAYS = 5
 
 # ── 物化新鲜窗（#1926）────────────────────────────────────────────────────────
 # `>= 今天 - PRICE_FRESH_DAYS` 的日期**永不落库**、读时恒现算，其行也就从不被写出去。
@@ -396,8 +423,46 @@ def _price_series_of(
     return None
 
 
+def _last_known_price(day: dt.date, dates: List[dt.date], prices: List[int]) -> Optional[int]:
+    """「≤ 当日的最后已知价」——价格序列须已按日期升序排好（热路径用预排序数组）。
+
+    场内与场外**同一套取价语义**（#2277 先给场内，2026-10-28 #2733 推广到全部）：
+    某标的当天没出价，就用它最近一次已知的价，**没有回看上限**。
+
+    为什么不该设上限：场外基金的「当天没净值」绝大多数是**节假日**（不发布），
+    少数才是真停发。设 7 天上限的结果是把国庆 8 天假当成「没数据」→ 市值计 0 →
+    净值曲线掉到地板再弹回（实测 2025-10-08）。而真停发这件事，`no_price` 状态
+    本来就能单独表达（整窗无价格序列 ⇒ 该持仓永不进 `last_known`），不需要用
+    「归零」来冒充「没数据」。
+    """
+    i = bisect_right(dates, day) - 1
+    return prices[i] if i >= 0 else None
+
+
+def _trading_days_between(start: dt.date, end: dt.date) -> List[dt.date]:
+    """`[start, end]` 内所有 A 股开盘日（升序）。判据唯一出口 `is_trading_day`（#1217）。"""
+    out: List[dt.date] = []
+    day = start
+    while day <= end:
+        if is_trading_day(day):
+            out.append(day)
+        day += dt.timedelta(days=1)
+    return out
+
+
+def _is_stale(last_known_day: dt.date, day: dt.date, trading_days: List[dt.date]) -> bool:
+    """`last_known_day` 之后到 `day` 为止**走过几个开盘日**，超过阈值即视为陈旧。
+
+    阈值按**交易日**而不是自然日：长假（春节 / 国庆）里一个开盘日都没有，所以假后
+    首日照样是「刚更新过」，不该被当成陈旧而归零；反过来，一只真停发净值的基金
+    每过一个开盘日就累加一天，5 个开盘日没动静就落回 `no_price`——信号没丢。
+    """
+    passed = bisect_right(trading_days, day) - bisect_right(trading_days, last_known_day)
+    return passed > _STALE_TRADING_DAYS
+
+
 def _price_for(day: dt.date, series: Optional[Dict[dt.date, int]]) -> Optional[int]:
-    """该标在 day 的 0.0001 元单价；`series` 为 None/空表示整段无价格序列。
+    """该标的在 day 的 0.0001 元单价；`series` 为 None/空表示整段无价格序列。
 
     前值回填（#1812 修复）：某只基金当天没发布净值时，若直接跳过它，
     等价于「市值归零」，日差分会出现巨额假跳空——实测 2026-09-30 只有
@@ -405,18 +470,15 @@ def _price_for(day: dt.date, series: Optional[Dict[dt.date, int]]) -> Optional[i
     回填**只保证市值不跳空**，不代表「价格没变」这个事实：周末 / 全市场没同步时
     所有标的都回填不出，差分虽恰为 0，也不出数（状态由 `is_trading_day` 分派成
     `closed` 休市 / `no_data` 没同步，见下方状态判定），不会被填成「0 收益」。
+
+    **回看无上限**（#2733）：见 `_last_known_price`。本函数是字典入参的便捷入口，
+    每次都要排一次序，故日循环热路径不走它（那里用 `last_known` 里的预排序数组）；
+    用例与冷路径用它，保证两边的取价语义只有一份。
     """
     if not series:
         return None
-    price = series.get(day)
-    if price is not None:
-        return price
-    # 当日无价 → 沿用最近一次已知价格（最多回溯 _STALE_CARRY_DAYS 天）
-    for back in range(1, _STALE_CARRY_DAYS + 1):
-        prev = series.get(day - dt.timedelta(days=back))
-        if prev is not None:
-            return prev
-    return None
+    ordered = sorted(series)
+    return _last_known_price(day, ordered, [series[d] for d in ordered])
 
 
 def _positions(
@@ -432,6 +494,24 @@ def _positions(
     if ledger_id is not None:
         query = query.filter(Position.ledger_id == ledger_id)
     return query.all()
+
+
+def _has_usable_cost(pos) -> bool:
+    """成本均价是否可用：建仓日能否按「买入成本 → 当日价」起算的唯一判据。
+
+    建仓日的前值水平值是「未持有」（0），当日 `level = 市值 − 成本`。
+    成本可用时它就等于「相对买入价的当日浮动」——正是用户要的「今天买的
+    场内标的今天涨跌」。成本缺失（`avg_price` 为 0 / None，常见于买入流水
+    尚未回填成本）时，`level` 会变成整笔市值（全部当成盈利）——实测 1/5
+    建仓当天冒出过这种假盈亏，故退回旧的「建仓日剔除」。
+
+    值循环与状态判定循环必须共用这一条判据，否则「算出的数」与「状态」
+    会对不上（一个按成本起算、一个按剔除判定）。
+    """
+    try:
+        return float(getattr(pos, 'avg_price', 0) or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _build_per_pos(
@@ -483,6 +563,41 @@ def _resolve_range(start_date: Optional[str], end_date: Optional[str]) -> Tuple[
     end = dt.datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else now_shanghai().date()
     start = dt.datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else end - dt.timedelta(days=29)
     return start, end
+
+
+def _clamp_to_today(end: dt.date) -> dt.date:
+    """区间右端不得越过今天——**未来日不是历史**（#2793）。
+
+    #### 不截断会发生什么（真实库 2026-11-01 实测）
+
+    未来的日子里净值和收盘价都还没产生，取价只能靠「≤ 当日的最后已知价」前值
+    carry；而 carry 有寿命：`_is_stale` 距最后净值超过 `_STALE_TRADING_DAYS`(5)
+    个开盘日就返回 None，该持仓退出市值。于是**虚拟日期每往前推一天，就有一批
+    持仓「过期」**，被剔持仓的浮亏从累计水平值里消失，差分把它读成当日盈利：
+
+    | 日期 | 净资产 | 当日盈亏 | 实情 |
+    |---|---|---|---|
+    | 11/06 | 305,280.90 → 303,340.39 | **+197.34** | `025162` 越界，浮亏 197.40 被释放 |
+    | 11/09 | 303,340.39 → 212,295.48 | **+8,909.18** | 10/30 那批集体越界（122 笔） |
+
+    用户看到的是「指数没动，账上赚钱」，而 `month_total` 9,106.52 整月都是编的。
+
+    #### 为什么在**入口**截断，而不是在日循环里把 `daily_pnl` 置 None
+
+    区间级字段全部由 `days` 派生：`month_total`（求和）、`range_rate`（求和 ÷ 基线）、
+    `periods`（按日聚合）、`has_any_price`。只在循环里置 None 只能挡住格子上的数字，
+    `net_worth` 仍会输出被剔完后的残值（11/09 的 212,295.48），未来月仍会占一个
+    期间格。截断一次，所有派生自动一致，语义也最直白：**这段区间根本不存在**。
+
+    #### 与 #2277 的关系
+
+    那次给状态判定的**场内分支**加了 `day <= today` 门，只挡住「未来日被标成
+    partial」，而值计算 `price_of` 没有任何日期上限——数字照算。所以这次修的是根子，
+    那道门随之退化成防御性恒真（保留，见 `_compute_days` 内注释）。
+    """
+    from app.core.time_utils import now_shanghai
+
+    return min(end, now_shanghai().date())
 
 
 # ──────────────────── 物化读路径的辅助件（#1926）────────────────────────────
@@ -636,7 +751,10 @@ def _day_to_api(date: dt.date, meta: dict) -> dict:
     api = {
         'date': date.isoformat(),
         'daily_pnl': None if pnl is None else round(Money.cents_to_yuan(pnl), 2),
-        'net_worth': round(Money.cents_to_yuan(meta['net_worth_cents']), 2),
+        # NULL 直通：前端据此断线 / 显示「无数据」，绝不折算成 0.00（#2733 C）
+        'net_worth': (
+            None if meta['net_worth_cents'] is None else round(Money.cents_to_yuan(meta['net_worth_cents']), 2)
+        ),
         'rate': rate,
         'state': meta['state'],
     }
@@ -662,8 +780,13 @@ def build_daily_pnl_series(
 
      Returns:
          {'ledger_id': int|None, 'scope': 'family'|'ledger', 'start_date': ..., 'end_date': ...,
-          'month_total': float, 'range_rate': float|None, 'has_any_price': bool,
-          'days': [{'date','daily_pnl','rate','state'}, ...]}
+          'month_total': float, 'range_rate': float|None, 'range_baseline': float|None,
+          'has_any_price': bool, 'days': [{'date','daily_pnl','rate','state'}, ...]}
+
+         `range_baseline` = `range_rate` 的分母（区间前一天净资产，元；None 同
+         `range_rate` 的 None 条件）。#2134 组合级聚合拿它拼 Σ成员基线——与本
+         函数算 rate 用的是**同一个值**，保证组合口径与引擎同源；**前端仍禁止
+         拿它二次计算**（组合级聚合只在服务端做）。
 
          `rate` = 当日盈亏 / 前一日总资产；`range_rate` = 区间盈亏 / **区间前一天**总资产
          （两者同分母口径，单位均为 %）。**前端禁止二次计算**，一切数值出口在此。
@@ -699,6 +822,9 @@ def build_daily_pnl_series(
     的净资产，全量命中时若不存它，分母就无处可取。
     """
     start, end = _resolve_range(start_date, end_date)
+    # #2793：未来日不进计算。放在**所有派生之前**——下面的 coverage / 物化取行 /
+    # as-of 份额 / 逐日循环全部按这个 end 办事，截断一次即可，不必逐处加日期上限。
+    end = _clamp_to_today(end)
     if start > end:
         return _empty_payload(ledger_id, start, end)
 
@@ -828,6 +954,8 @@ def build_daily_pnl_series(
         'end_date': end.isoformat(),
         'month_total': round(Money.cents_to_yuan(total_cents), 2),
         'range_rate': range_rate,
+        # 分母与 rate 同源（同一 range_baseline），#2134 组合级聚合用；见 docstring。
+        'range_baseline': None if range_baseline is None else round(Money.cents_to_yuan(range_baseline), 2),
         'has_any_price': any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in days),
         # ── 覆盖率诊断（前端据此区分「你的标的无估值」与「这个月没数据」）──
         # 这两件事对用户完全不同的处置：前者是持仓属性（本来就不该有日估值），
@@ -854,6 +982,8 @@ def _compute_days(
     no_price_ids: set,
     shares: Dict[int, Dict[dt.date, int]],
     txns: Dict[int, List[Transaction]],
+    attribution: Optional[dict] = None,
+    class_breakdown: Optional[dict] = None,
 ) -> List[dict]:
     """现算 `[loop_start, end]` 并返回**存储形态**（整数分 / 整数基点，供 `save_days`）。
 
@@ -866,6 +996,12 @@ def _compute_days(
       `price_series` 推导——本函数的取价窗口已前扩，推出来的集合会不一样；
     - 输出条件是 `day >= loop_start` 而非 `>= start`，否则会把 `loop_start - 1`
       也写进结果，与前段的物化行重复。
+
+    `attribution`（#2135 收益归因）非 None 时，同一次遍历顺带收集逐持仓区间
+    盈亏并就地写入该 dict（`pnl` / `priced` / `unpriced` / `days` 四键，见
+    `compute_range_attribution`）。**日历主路径传 None，零额外分配、零行为变化**；
+    归因镜像同一循环、同一条基准推进、同一套状态门控，故
+    `Σ attribution['pnl'] ≡ month_total`（同窗全现算下）由构造保证，不是对账出来的。
     """
     # 往前多取一天，**只为给区间首日建立差分基准**。
     # 否则每月 1 号都因「无前一日」而不可算（#1942 起报 no_data，而不是「休市」，
@@ -911,19 +1047,36 @@ def _compute_days(
     # （账户级的价值集是它的子集）；coverage 诊断按本作用域报。
     price_series = {p.id: _price_series_of(p, fund_nav, exchange_prices) for p in decision_positions}
 
-    # 场内（EXCHANGE）取价预解析（#2277 停牌冻结）：把每笔场内持仓的价格序列
-    # 排成有序数组，取价退化为「≤ 当日的最后已知价」（bisect，O(log n)）。
-    # 为什么场内不做 7 天截断：场内「没有报价」的唯一常态是**停牌**——最后成交价
-    # 就是当前价（券商 App 同款口径），冻结比缺席诚实；OTC 净值断档才是真
-    # 「没数据」（基金可能停发净值），维持 7 天前值回填 + partial 的旧口径。
-    # 序列为空的场内持仓（从未有过报价）不进 `ex_levels`，照旧走 `_price_for`
-    # 返回 None ⇒ 计入 no_price，与「整段无价格序列」的语义一致。
-    ex_levels: Dict[int, Tuple[List[dt.date], List[int]]] = {}
+    # 交易日索引（#2733 的陈旧判定用）：窗口内所有 A 股开盘日，升序。
+    # 为什么按**交易日**数而不是自然日数判陈旧：节假日和「基金停发净值」在自然日历上
+    # 长得一样，但在交易日历上完全不同——国庆 8 天假里一个开盘日都没有，而一只
+    # 停发净值的基金每过一个开盘日就多加一天。用自然日当阈值，要么误伤长假
+    # （7 天窗掉 8 天假 ⇒ 市值归零，这正是本卡要修的 bug），要么放过真停更。
+    trading_days = _trading_days_between(fetch_start, end)
+
+    # 取价预解析（#2277 场内 → #2733 全量）：把每笔持仓的价格序列排成升序数组，
+    # 取价退化为「≤ 当日的最后已知价」（`bisect`，O(log n)）。
+    #
+    # 过去只有场内走这条路，场外仍吃 `_price_for` 的 7 天硬回填窗。分叉的代价是
+    # 国庆 / 春节这类长假之后，场外那部分市值计 0 ——净值曲线掉到地板再弹回
+    # （实测 2025-10-08 −8,458.78、次日 +8,870.50，#2733）。现在两边统一：
+    # 「当天没出价」一律沿用最后已知价；是不是「已经不能算数」改由**交易日**
+    # 距离判定（见 `_is_stale`），长假不再被误伤。
+    #
+    # 序列为空的持仓（balance 模式 / 从未有过报价 / 无场所判定）不进 `last_known`，
+    # `price_of` 返回 None ⇒ 计入 no_price，与「整段无价格序列」的语义一致。
+    last_known: Dict[int, Tuple[List[dt.date], List[int]]] = {}
+    exchange_ids = set()
     for p in decision_positions:
         s = price_series.get(p.id)
-        if s and venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE:
-            ordered = sorted(s)
-            ex_levels[p.id] = (ordered, [s[d] for d in ordered])
+        if not s:
+            continue
+        ordered = sorted(s)
+        last_known[p.id] = (ordered, [s[d] for d in ordered])
+        # 场所判定在这里做一次（原本在日循环里每天每笔重算，55 万次正则）；
+        # 它只影响「停牌冻结」与「陈旧判定」这两处，不影响基础取价。
+        if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE:
+            exchange_ids.add(p.id)
     # 整段无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益。
     # `no_price_ids` 由调用方按**原始窗口**注入（见 `_price_presence`），刻意不在这里
     # 从 `price_series` 推：本函数的取价窗口已前扩 `_STALE_CARRY_DAYS`，推出来的集合
@@ -937,23 +1090,74 @@ def _compute_days(
     def price_of(pos: Position, day: dt.date) -> Optional[int]:
         key = pos.id
         if key not in price_cache:
-            if key in ex_levels:
-                # 场内：≤ 当日的最后已知价（含停牌冻结，见上方 `ex_levels` 注释）。
-                dates, unit_prices = ex_levels[key]
-                i = bisect_right(dates, day) - 1
-                price_cache[key] = unit_prices[i] if i >= 0 else None
+            levels = last_known.get(key)
+            if levels is None:
+                # 整段没有价格序列：不是「今天没价」，是「从来没有价」⇒ 不出数
+                price_cache[key] = None
             else:
-                price_cache[key] = _price_for(day, price_series.get(key))
+                dates, unit_prices = levels
+                i = bisect_right(dates, day) - 1
+                if i < 0:
+                    price_cache[key] = None
+                elif key not in exchange_ids and _is_stale(dates[i], day, trading_days):
+                    # 场外且已陈旧（超过 `_STALE_TRADING_DAYS` 个开盘日没出新净值）
+                    # ⇒ 不再采信这条旧价，交回状态链报 no_price / partial。
+                    # 场内不判陈旧：停牌期间最后成交价**就是**当前价（券商 App 同款），
+                    # 冻结是事实而不是缺数据（#2277）。
+                    price_cache[key] = None
+                else:
+                    price_cache[key] = unit_prices[i]
         return price_cache[key]
 
     # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
     decision_per_pos = _build_per_pos(decision_positions, shares, txns, scan_start)
-    value_per_pos = decision_per_pos if ledger_id is None else _build_per_pos(positions, shares, txns, scan_start)
+    # 值集与决策集是否**同一对象**（而非按 `ledger_id` 判）：#2135 组合级归因传入
+    # 「成员账户持仓子集 + 家庭级决策集」且 `ledger_id` 为 None，按参数判会把
+    # 决策集误当值集。家庭级调用两列表本就是同一对象（`build_daily_pnl_series`
+    # 内 `decision_positions = positions if ledger_id is None else ...`），
+    # 按身份判对既有路径逐位等价。
+    value_per_pos = (
+        decision_per_pos if positions is decision_positions else _build_per_pos(positions, shares, txns, scan_start)
+    )
 
     days: List[dict] = []
     day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
+
+    # ── 归因收集（#2135）：与 scope 差分同构的逐持仓水平值链 ──
+    # `attribution` 非 None 时启用；日历主路径（None）不写一个键。三件套与
+    # scope 严格同口径：
+    #   · `day_level`        当日计入 day_total_pnl 的逐持仓水平值（无价 / 份额≤0
+    #                          的持仓不进，与值循环的 continue 同步 ⇒ 缺席 = 0）；
+    #   · `day_opening_level` **成本缺失**的建仓持仓水平值（`opening_pnl` 的
+    #                          逐笔拆分；成本可用的建仓持仓已计入当日差分，不在此列）；
+    #   · `prev_level`        差分基准，与 `prev_total_pnl` **同一推进条件**冻结 /
+    #                          前进（循环末尾一处收口，见 `if trading_today ...`）。
+    collect = attribution is not None
+    prev_level: Dict[int, int] = {}
+    day_level: Dict[int, int] = {}
+    day_opening_level: Dict[int, int] = {}
+
+    # ── 大类拆分收集（首页「最新收益」卡）：与归因同构，但按 asset_class 聚合 ──
+    # 只按大类累加（O(3)/天），不保存逐持仓明细；`class_breakdown is None` 时
+    # 整块不执行——日历主路径零额外开销。
+    #
+    # 每个**有 daily_pnl 的日子**写一条：
+    #   pnl      各大类当日盈亏（与 daily_pnl 同一基准推进、同一 opening 扣除）
+    #   mv       各大类当日市值（已折 CNY）
+    #   prev_mv  各大类前一基准日市值（收益率分母，与 prev_total_pnl 同步冻结）
+    #   held / present  该大类持有笔数 / 当日有**真报价**的笔数（判断 confirmed/stale）
+    #   estimated 该大类当日价是否含收盘估值定格（#2141）
+    split = class_breakdown is not None
+    prev_class_level: Dict[str, int] = {}
+    prev_class_mv: Dict[str, int] = {}
+    day_class_level: Dict[str, int] = {}
+    day_class_mv: Dict[str, int] = {}
+    day_class_opening_level: Dict[str, int] = {}
+    day_class_held: Dict[str, int] = {}
+    day_class_present: Dict[str, int] = {}
+    day_estimated_classes: set = set()
 
     # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
@@ -967,6 +1171,20 @@ def _compute_days(
         # #2141：本日是否有持仓用上收盘估值（仅 day==today 可能为 True），
         # 有则当日行附 estimated 标记——前端徽标/开关据此展示，不再前端猜。
         day_uses_estimate = False
+        # 归因三件套按日重建；`forced_zero` 标记状态链把 daily_pnl **改写成 0**
+        # 的全建仓日**且成本缺失**（其逐笔原始差分之和是 −prev_total_pnl，与强制值不等）。
+        # 成本可用的建仓日不算 forced_zero——它已按买入成本正常计差。
+        day_level = {}
+        day_opening_level = {}
+        forced_zero = False
+        if split:
+            day_class_level = {}
+            day_class_mv = {}
+            day_class_opening_level = {}
+            day_class_held = {}
+            day_class_present = {}
+            day_estimated_classes = set()
+            day_split_rows = []
         for per_pos in per_pos_sets:
             for state in per_pos.values():
                 # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
@@ -981,17 +1199,26 @@ def _compute_days(
         day_total_pnl = 0
         day_net_worth = 0
         opening_pnl = 0
+        # 当天**真被计进市值**的持仓数（有份额 + 取得到价）。它是「净资产这个数
+        # 有没有输入」的唯一判据：`day_net_worth` 从 0 起累加，一笔都没加上去时
+        # 它仍是 0——那个 0 是**缺省值**，不是「账户归零」（#2733 C）。
+        day_valued_count = 0
 
         for state in value_per_pos.values():
             pos: Position = state['pos']
             price = price_of(pos, day)
             if price is None:
+                if collect and state['shares'] > 0:
+                    # 持有但当日无价：进降级清单（输出时与「曾有价」集合做差，
+                    # 只留**整窗无价**的持仓，见 compute_range_attribution）。
+                    attribution['unpriced'].add(pos.id)
                 continue
             held_shares = state['shares']
             if held_shares <= 0:
                 continue
             # #2141：该持仓当日价来自估值定格（merge 后 series[today] 即估值行）
-            if day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes:
+            used_estimate = bool(day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes)
+            if used_estimate:
                 day_uses_estimate = True
             market_value = Money.multiply_price_quantity(price, held_shares)
             # 成本基数与 pnl_service.cost_basis_cents 同口径：nav 模式用成本均价×份额。
@@ -1001,12 +1228,43 @@ def _compute_days(
             if rate != 1.0:
                 market_value = int(Decimal(market_value) * Decimal(str(rate)))
                 cost = int(Decimal(cost) * Decimal(str(rate)))
-            day_total_pnl += market_value - cost + state['realized']
+            level = market_value - cost + state['realized']
+            day_total_pnl += level
             day_net_worth += market_value + state['realized']
-            if state['is_opening']:
-                # 建仓持仓的浮盈是「今天新出现的」，不是「今天赚的」。
-                # 记进水平值（次日差分的基准要用），但从当日差分里剔掉。
-                opening_pnl += market_value - cost + state['realized']
+            day_valued_count += 1
+            # 建仓日：成本可用时**照常计入当日差分**（用户 2026-11-04 裁定）——
+            # 前值水平值是「未持有」的 0，`level = 市值 − 买入成本`，正好是
+            # 「今天买的、今天涨跌」那笔收益。只有成本缺失时才退回旧行为剔除，
+            # 否则整笔市值会被当成盈利（实测 1/5 建仓日假盈亏）。
+            opening_uncosted = state['is_opening'] and not _has_usable_cost(pos)
+            if opening_uncosted:
+                opening_pnl += level
+            if collect:
+                day_level[pos.id] = level
+                attribution['priced'].add(pos.id)
+                if opening_uncosted:
+                    day_opening_level[pos.id] = level
+            if split:
+                cls = class_of_position(pos)
+                day_class_level[cls] = day_class_level.get(cls, 0) + level
+                day_class_mv[cls] = day_class_mv.get(cls, 0) + market_value
+                if opening_uncosted:
+                    day_class_opening_level[cls] = day_class_opening_level.get(cls, 0) + level
+                if used_estimate:
+                    day_estimated_classes.add(cls)
+                # 逐持仓当日价：供首页卡在前端用实时行情做**价格替换**（不重算盈亏）。
+                # 单位保持引擎内部尺度（价 0.0001 元 / 份额 0.0001 份），换算在出口一次做完。
+                day_split_rows.append(
+                    {
+                        'position_id': pos.id,
+                        'symbol': (pos.symbol or '').strip(),
+                        'class': cls,
+                        'quantity': held_shares,
+                        'price': price,
+                        'currency': pos.currency,
+                        'fx': state['rate'],
+                    }
+                )
 
         daily_pnl = None
         if prev_total_pnl is not None:
@@ -1068,8 +1326,13 @@ def _compute_days(
             # 对它是无操作——只补上窗口变窄后会踩的 `None` 下标。
             if held:
                 day_held_count += 1
+            # `fresh_today`：这一天**真有当天报价**（场内 = 最后一条报价就落在当日；
+            # 场外 = 当日有净值行或当日估值定格）。与 `day_present_count` 不同——
+            # 后者对场内「有历史价就算在场」（停牌 / 收盘价未同步都算），够用于状态链，
+            # 但不足以回答首页卡的「这个大类今天确认了没有」。
+            fresh_today = False
             if held and pos.id not in no_price_ids:
-                if pos.id in ex_levels:
+                if pos.id in exchange_ids and pos.id in last_known:
                     # 场内（#2277）：有价格水平即「在场」。停牌期间价格冻结在最后
                     # 成交价（`price_of` 的 bisect 分支），市值不缺席、差分贡献为 0，
                     # 不再日复一日地报 partial——停牌是市场事实，不是数据缺口。
@@ -1079,15 +1342,30 @@ def _compute_days(
                     # 冻结判据不得前伸——否则未来日会因「场内在场 + OTC 缺席」
                     # 变成带值的 partial（实测 2026-10 未来周日报出 +4889 假盈利：
                     # OTC 市值跌出总额被当成了当日收益）。
-                    dates, _unit_prices = ex_levels[pos.id]
+                    # #2793 起区间已在入口截到 `today`（`_clamp_to_today`），本门
+                    # 恒真，降级为防御：任何人绕过入口直接调本函数时仍不会前伸。
+                    dates, _unit_prices = last_known[pos.id]
                     if day <= today and bisect_right(dates, day) > 0:
                         day_present_count += 1
+                        # 最后一条报价恰落在当日 ⇒ 今日收盘价已入库（不是 carry）
+                        fresh_today = dates[bisect_right(dates, day) - 1] == day
                     else:
                         day_missing_ids.add(pos.id)
                 elif day in (series or {}):
                     day_present_count += 1
+                    fresh_today = True
                 else:
+                    # 场外当天没出真净值：**值照常 carry**（#2733，市值不再归零），
+                    # 但这里仍记「缺席」——`partial` 表达的是「今天的数不是今天的」。
+                    # carry 只解决「别把节假日画成归零」，不代表价格是新鲜事实；
+                    # 基金真停发净值同样靠这条被标出来，不必再靠 7 天上限去误伤长假。
                     day_missing_ids.add(pos.id)
+
+            if split and held:
+                cls = class_of_position(pos)
+                day_class_held[cls] = day_class_held.get(cls, 0) + 1
+                if fresh_today:
+                    day_class_present[cls] = day_class_present.get(cls, 0) + 1
 
             price = price_of(pos, day)
             if price is None:
@@ -1102,11 +1380,14 @@ def _compute_days(
             if state['shares'] <= 0:
                 continue
             if state['is_opening']:
-                # 建仓当日：仍要计入**水平值**（否则次日差分失去基准，
-                # 次日会把「建仓日没算的涨跌」一次性算进去），但当日盈亏记 0。
+                # 建仓日：水平值照常进基准（否则次日差分失去锚点）。
+                # 当日盈亏是否计入，取决于成本是否可用——与值循环**同一条判据**
+                # （`_has_usable_cost`）。成本可用时它已参与当日差分，这里计入
+                # `day_priced_count`；缺失时才落到下方的「全建仓强制 0」分支。
                 day_opening = True
-            else:
-                day_priced_count += 1
+                if not _has_usable_cost(pos):
+                    continue
+            day_priced_count += 1
 
         # 状态判定（顺序即优先级）：
         #  0. **非 A 股开盘日一律 `closed`**（2026-10-17 用户拍板「周六、周日固定休市」，
@@ -1152,10 +1433,14 @@ def _compute_days(
             state_code = STATE_NO_POSITION
             daily_pnl = None
         elif day_priced_count == 0 and day_opening:
-            # 当日全部是建仓日：水平值已计入，但当日盈亏强制为 0
-            # （建仓那一刻浮盈本来就是 0，不是「没数据」）。
+            # 当日持仓全部是建仓日、且**成本都不可用**：水平值已计入，
+            # 但「按买入成本起算」不成立（level 会是整笔市值），只能强制 0。
+            # 成本可用的建仓日已在值循环里正常计差，不会走到这个分支。
             state_code = STATE_ZERO
             daily_pnl = 0
+            # 归因跳过该日：逐笔原始差分之和 = −prev_total_pnl，与强制值 0 不等，
+            # 照折会破坏 Σ品种 ≡ month_total（见下方折叠门控）。
+            forced_zero = True
         elif not day_has_price or (day_present_count == 0 and day_missing_ids):
             # 「当天一个可用价都没有」的两种情形（全部标的都取不到价 / 全体标的
             # 当天都没出真报价，全靠前值回填）在这里合流，一律按 **A 股开盘日历**分派：
@@ -1206,6 +1491,23 @@ def _compute_days(
         else:
             state_code = STATE_ZERO
 
+        # ── 归因折叠（#2135）：仅在**进入月合计**的日产上累加逐持仓差分 ──
+        # 门控与 month_total 的求和口径逐位对齐：
+        #   · `daily_pnl is None` 的日（休市 / 无价 / 无持仓 / 无数据 / 扫描首日）
+        #     不进月合计 ⇒ 这里同样不折；
+        #   · 全建仓强制 0 日（forced_zero）跳过——那天的逐笔原始差分之和是
+        #     −prev_total_pnl，与状态链强制的 0 不等，照折 Σ 就对不上；
+        #   · 其余日（updown / 自然 0 / partial）`daily_pnl` 即原始差分，
+        #     Σ逐笔 diff = day_total − prev_total − opening = daily_pnl，
+        #     由「同一批水平值、同一条基准」构造保证，不是对账出来的。
+        if collect and day >= loop_start and daily_pnl is not None:
+            attribution['days'] += 1
+            if not forced_zero:
+                pos_pnl = attribution['pnl']
+                for pid in day_level.keys() | prev_level.keys():
+                    diff = day_level.get(pid, 0) - prev_level.get(pid, 0) - day_opening_level.get(pid, 0)
+                    pos_pnl[pid] = pos_pnl.get(pid, 0) + diff
+
         rate_pct = None
         if daily_pnl is not None and prev_net_worth not in (None, 0):
             rate_pct = round(daily_pnl / abs(prev_net_worth) * 100, 2)
@@ -1219,6 +1521,16 @@ def _compute_days(
         # 才起的，`loop_start > start` 时首轮 `prev_net_worth` 还是 None——捕出来会
         # 变成 None 或锚到错误的某天。改由 `build_daily_pnl_series` 从物化行取
         # `start - 1` 的 `net_worth_cents`，与取数窗口无关。
+        # ── 净资产：把「缺输入」与「真归零」分开（#2733 C）──
+        # 判据挂在**状态**上而不是「份额 > 0」：
+        #   · `no_position` = 当天压根没有持仓（建仓前 / 清仓后）⇒ 0 是事实；
+        #   · 其余状态（no_price / no_data / closed / partial …）都是「应该有钱、
+        #     但一笔都没计进市值」⇒ 累加器的初值 0 会被读成「账户归零」，记 NULL。
+        # 为什么不用份额：balance 模式（银行理财 / 投顾 / 实物）份额恒 0，市值来自
+        # 单值 `market_value_override`，本就无历史序列——它们的净资产同样是
+        # 「不知道」，不能因为份额是 0 就当成「没有持仓」。
+        net_worth_cents = None if day_valued_count == 0 and state_code != STATE_NO_POSITION else day_net_worth
+
         if day >= loop_start:
             # 这里出的是**存储形态**（整数分 / 整数基点），不是 API 形态：
             # `daily_pnl`/`day_net_worth` 本来就是分，`Money` 换算挪到 `_day_to_api`
@@ -1227,7 +1539,10 @@ def _compute_days(
             row = {
                 'date': day.isoformat(),
                 'daily_pnl_cents': daily_pnl,
-                'net_worth_cents': day_net_worth,
+                # 有持仓却一笔都没计进市值 ⇒ 这个「0」是累加器的初值，不是账户
+                # 真归零，写 NULL（#2733 C）。当天压根没持仓（建仓前 / 清仓后）
+                # 照旧写 0：那时的 0 是事实。
+                'net_worth_cents': net_worth_cents,
                 'rate_bp': None if rate_pct is None else int(Decimal(str(rate_pct)) * 100),
                 'state': state_code,
             }
@@ -1236,6 +1551,30 @@ def _compute_days(
                 # （save_days 的 max_date 截止在窗左端），故此键不会进快照表。
                 row['estimated'] = True
             days.append(row)
+
+            # ── 大类拆分（首页「最新收益」卡）──
+            # 只在**当日盈亏可算**时记：`daily_pnl is None` 的日子（休市 / 无数据 /
+            # 无持仓）没有「分项收益」可言，记下去只会让调用方误当成 0。
+            if split and daily_pnl is not None:
+                class_breakdown[day.isoformat()] = {
+                    'state': state_code,
+                    'daily_pnl_cents': daily_pnl,
+                    'rate_bp': row['rate_bp'],
+                    'estimated': sorted(day_estimated_classes),
+                    # 与 daily_pnl 同一条基准推进、同一次 opening 扣除（forced_zero
+                    # 的日子整体为 0，逐类也必须是 0——否则 Σ 分项 ≠ 合计）
+                    'pnl': {
+                        c: 0
+                        if forced_zero
+                        else day_class_level.get(c, 0) - prev_class_level.get(c, 0) - day_class_opening_level.get(c, 0)
+                        for c in CLASS_ORDER
+                    },
+                    'mv': {c: day_class_mv.get(c, 0) for c in CLASS_ORDER},
+                    'prev_mv': {c: prev_class_mv.get(c, 0) for c in CLASS_ORDER},
+                    'held': {c: day_class_held.get(c, 0) for c in CLASS_ORDER},
+                    'present': {c: day_class_present.get(c, 0) for c in CLASS_ORDER},
+                    'holdings': day_split_rows,
+                }
 
         # ── 差分基准的推进规则（#2277：非开盘日冻结）──
         # 开盘日推进；**非开盘日冻结**（基准停在上一开盘日的水平值）。
@@ -1258,12 +1597,28 @@ def _compute_days(
         #   · 基准尚未播种（`prev_total_pnl is None`，扫描首日）：必须先锚一个
         #     水平值，否则区间首日永远无基准。月 / 年粒度的 `scan_start` 常落在
         #     周日（区间首日的前一天），不播这一年视图每周一都不可算；
-        #   · 建仓日（`day_opening`，哪怕落在周末——场外基金周末可确认）：当日
-        #     不出数，但新持仓的整笔浮盈必须锚进基准，否则下一开盘日把建仓浮盈
-        #     算成当日盈利（实测 1/5 建仓当天冒出等于全部市值−成本的假盈亏）。
+        #   · 建仓日（`day_opening`，哪怕落在周末——场外基金周末可确认）：
+        #     水平值必须锚进基准，否则下一开盘日会把建仓浮盈当成当日盈利。
+        #     成本可用时建仓日已经正常出数（差分里含它），推进基准是同一动作；
+        #     成本缺失时当天不出数，推进基准则保证下一日只算增量
+        #     （实测 1/5 建仓当天冒出过等于全部市值−成本的假盈亏）。
         if trading_today or prev_total_pnl is None or day_opening:
             prev_total_pnl = day_total_pnl
-            prev_net_worth = day_net_worth
+            # 净资产基准只在**当天真有净值**时前进（#2733 C）：NULL 是「缺输入」，
+            # 拿它当基准等于把「不知道」记成 0，次日的 `rate` 又得靠 `not in (None, 0)`
+            # 兜底。冻结在上一有效净值上，与「非开盘日冻结」同一条纪律。
+            if net_worth_cents is not None:
+                prev_net_worth = net_worth_cents
+            if collect:
+                # 归因基准与 scope 基准**同一时刻、同一条件**冻结 / 前进——
+                # 两套基准一旦分叉，逐笔差分与 daily_pnl 就错位了。
+                prev_level = dict(day_level)
+            if split:
+                # 大类基准同理：与 `prev_level` 同一门控，否则分类收益率的分母
+                # 会与 `daily_pnl` 的基准错位（分项之和仍对，比率会跳）。
+                prev_class_level = dict(day_class_level)
+                if net_worth_cents is not None:
+                    prev_class_mv = dict(day_class_mv)
         day += dt.timedelta(days=1)
 
     return days
@@ -1339,8 +1694,11 @@ def _aggregate_periods(
 
         # 期间末净资产：取最后一日。周末 / 无持仓日会是 0，向前回溯最近一个非零值，
         # 否则下一个期间的收益率分母会莫名变成 0、rate 恒 null。
+        # `net_worth` 为 NULL（当日有仓却无价，#2733 C）与 0 一样不可作分母，
+        # 一并跳过；整期都没有正数时如实给最后一日（可能是 0 或 NULL），
+        # 不拿更早的旧值冒充「期末」。
         net_worth = next(
-            (r['net_worth'] for r in reversed(rows) if r['net_worth'] > 0),
+            (r['net_worth'] for r in reversed(rows) if (r['net_worth'] or 0) > 0),
             rows[-1]['net_worth'],
         )
 
@@ -1393,6 +1751,10 @@ def build_pnl_series(
         return payload
 
     base_start, base_end = _resolve_range(start_date, end_date)
+    # #2793：期间视图同样不得越过今天。不截断时未来月会占一个期间格（显示 0.00），
+    # 且下面 `payload['end_date'] = base_end` 会把截断后的值**覆盖回未截断**的，
+    # 让响应的区间与 `periods` 各自说一套。先截断，两处自然一致。
+    base_end = _clamp_to_today(base_end)
     scan_start = base_start - dt.timedelta(days=1)
     payload = build_daily_pnl_series(
         db,
@@ -1424,6 +1786,10 @@ def build_pnl_series(
         if baseline not in (None, 0) and any(d['daily_pnl'] is not None for d in in_range)
         else None
     )
+    # 分母同步覆盖：`build_daily_pnl_series` 自带的 range_baseline 锚在它内部的
+    # start−1（= base_start−2，因为这里把 start 挪到了 scan_start），与刚覆盖的
+    # range_rate 对不上；baseline（scan_start 净资产）才是上面这个 rate 的分母。
+    payload['range_baseline'] = baseline
     payload['has_any_price'] = any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in in_range)
     payload['periods'] = _aggregate_periods(in_range, granularity, baseline)
     payload['days'] = []  # 聚合下推：期间视图不再回日明细
@@ -1439,9 +1805,174 @@ def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> di
         'month_total': 0.0,
         # 无持仓 / 区间不合法时没有基准可言 ⇒ None（不是 0%，见 build_daily_pnl_series）
         'range_rate': None,
+        'range_baseline': None,
         'has_any_price': False,
         'coverage': {'total_positions': 0, 'priced_positions': 0, 'unpriced_positions': 0},
         'latest_price_date': None,
         'first_txn_date': None,
         'days': [],
+    }
+
+
+# ──────────────────── 区间收益归因（#2135）────────────────────────────
+
+
+def _empty_attribution(
+    ledger_id: Optional[int],
+    portfolio_id: Optional[int],
+    start: dt.date,
+    end: dt.date,
+) -> dict:
+    """无可算区间（无持仓 / 区间不合法）的归因空载荷。
+
+    `total_pnl` 用 None 而不是 0.0：0.0 会被读成「区间没赚没赔」，
+    而真相是「算不了」——「数据不足诚实降级」是 #2135 的验收项。
+    """
+    return {
+        'scope': 'portfolio' if portfolio_id is not None else ('ledger' if ledger_id is not None else 'family'),
+        'ledger_id': ledger_id,
+        'portfolio_id': portfolio_id,
+        'start_date': start.isoformat(),
+        'end_date': end.isoformat(),
+        'total_pnl': None,
+        'has_any_computable': False,
+        'positions': [],
+        'categories': [],
+        'unpriced_positions': [],
+    }
+
+
+def _attribution_meta(pos: Position) -> dict:
+    """归因明细行的身份字段（品种行与 unpriced 行共用）。"""
+    return {
+        'position_id': pos.id,
+        'symbol': pos.symbol,
+        'name': pos.name,
+        'asset_type': pos.asset_type,
+        'ledger_id': pos.ledger_id,
+    }
+
+
+def compute_range_attribution(
+    db: Session,
+    family_id: int = 1,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    ledger_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
+) -> dict:
+    """区间逐品种 / 大类收益归因（#2135）：`Σ positions[].pnl ≡ 引擎区间合计`。
+
+    口径铁律——**复用 pnl 引擎的唯一盈亏口径，不存在第二套算账**：
+    与 `build_daily_pnl_series` 的月合计走**同一次** `_compute_days` 遍历、
+    同一条基准推进、同一套状态门控（归因收集是循环内的镜像分支，见该函数
+    docstring）。故同窗全现算下 `Σ attribution['pnl'] ≡ month_total` 由
+    **构造保证**，不是对账出来的——引擎怎么算合计，归因就怎么拆到品种。
+
+    - **强制全现算**：`loop_start = start`，不读不写物化行。物化只有日级
+      `daily_pnl`，没有逐持仓水平值；从日级差分反拆品种不可逆
+      （同一天多个品种一涨一跌会互相抵消）。
+    - **已实现盈亏含在水平值里**（`level = 市值 − 成本 + 累计已实现`）：
+      区间内清仓的品种仍带着它的贡献，不会在退出那天凭空消失。
+    - **组合口径**与 `portfolio_service.build_portfolio_holdings` 一致：
+      显式 `positions.portfolio_id` 归属 + 成员账本（`Ledger.portfolio_id`）
+      的继承归属（持仓未显式指定组合时继承账户默认组合）。
+    - **降级**：持有但整窗无价的持仓进 `unpriced_positions`、不进合计；
+      整窗无任何可算日时 `total_pnl=None`、`positions=[]`（不造 0 明细）。
+    - `ledger_id` 与 `portfolio_id` 互斥；组合不存在 / 非本家庭抛 ValueError
+      （与 portfolio_service 同文案，视图转 404）。
+    """
+    if ledger_id is not None and portfolio_id is not None:
+        raise ValueError('ledger_id 与 portfolio_id 互斥')
+
+    start, end = _resolve_range(start_date, end_date)
+    if start > end:
+        return _empty_attribution(ledger_id, portfolio_id, start, end)
+
+    # 决策集恒为家庭全量（#1916：流水不按 ledger 过滤，份额 / 已实现按持仓归集，
+    # 归因沿用才保「Σ账户 ≡ 家庭」的可加性）。
+    decision_positions = _positions(db, family_id, None)
+    if ledger_id is not None:
+        positions = _positions(db, family_id, ledger_id)
+    elif portfolio_id is not None:
+        # #2595：组合级解析收敛到唯一出口（显式归属 + 成员账本继承，语义不变），
+        # 此前的内联实现已抽到 services/scope.py，供穿透等端点共用同一口径。
+        positions = filter_positions_by_scope(db, family_id, decision_positions, portfolio_id=portfolio_id)
+    else:
+        positions = decision_positions
+
+    if not positions:
+        return _empty_attribution(ledger_id, portfolio_id, start, end)
+
+    no_price_ids, _ = _price_presence(db, decision_positions, start, end)
+    shares, txns = _as_of_shares(db, family_id, end)
+    attribution: dict = {'pnl': {}, 'priced': set(), 'unpriced': set(), 'days': 0}
+    _compute_days(
+        db,
+        family_id,
+        positions,
+        decision_positions,
+        start,
+        end,
+        ledger_id,
+        start,  # 归因强制全现算：loop_start = start，不读不写物化
+        no_price_ids,
+        shares,
+        txns,
+        attribution=attribution,
+    )
+
+    if not attribution['days']:
+        # 整窗无任何可算日：合计与明细一起降级；unpriced 照报（它是真实信息）。
+        payload = _empty_attribution(ledger_id, portfolio_id, start, end)
+        never = attribution['unpriced'] - attribution['priced']
+        payload['unpriced_positions'] = [_attribution_meta(p) for p in positions if p.id in never]
+        return payload
+
+    total_cents = sum(attribution['pnl'].values())
+    pos_by_id = {p.id: p for p in positions}
+    rows: List[dict] = []
+    categories_map: Dict[str, dict] = {}
+    for pid in attribution['priced']:
+        pos = pos_by_id.get(pid)
+        if pos is None:
+            continue  # 防御：值集 ⊆ 决策集，正常不会缺
+        pnl_cents = attribution['pnl'].get(pid, 0)
+        rows.append(
+            {
+                **_attribution_meta(pos),
+                'pnl': round(Money.cents_to_yuan(pnl_cents), 2),
+                # 合计为 0（没赚没赔）时占比无意义 ⇒ None，不是 0%
+                'pct': round(pnl_cents / total_cents * 100, 2) if total_cents else None,
+            }
+        )
+        key = pos.asset_type or '未分类'
+        cat = categories_map.setdefault(key, {'asset_type': key, 'pnl_cents': 0, 'positions_count': 0})
+        cat['pnl_cents'] += pnl_cents
+        cat['positions_count'] += 1
+    rows.sort(key=lambda r: abs(r['pnl']), reverse=True)
+
+    categories = [
+        {
+            'asset_type': c['asset_type'],
+            'pnl': round(Money.cents_to_yuan(c['pnl_cents']), 2),
+            'positions_count': c['positions_count'],
+            'pct': round(c['pnl_cents'] / total_cents * 100, 2) if total_cents else None,
+        }
+        for c in sorted(categories_map.values(), key=lambda c: abs(c['pnl_cents']), reverse=True)
+    ]
+    never = attribution['unpriced'] - attribution['priced']
+    unpriced_rows = [_attribution_meta(p) for p in sorted(positions, key=lambda p: p.id) if p.id in never]
+
+    return {
+        'scope': 'portfolio' if portfolio_id is not None else ('ledger' if ledger_id is not None else 'family'),
+        'ledger_id': ledger_id,
+        'portfolio_id': portfolio_id,
+        'start_date': start.isoformat(),
+        'end_date': end.isoformat(),
+        'total_pnl': round(Money.cents_to_yuan(total_cents), 2),
+        'has_any_computable': True,
+        'positions': rows,
+        'categories': categories,
+        'unpriced_positions': unpriced_rows,
     }

@@ -70,13 +70,27 @@ export interface FundProfileResult {
   create_time: string | null;
   risk_level: number | null;
   benchmark: string | null;
+  /** 晨星 3 年期星级 1~5（#1440）；null = 该基金无晨星评级（货基/新基金常态），
+   *  不是「采集失败」。源为东财评级总汇页，与净值/费率链路口径不同，故单列。 */
+  morningstar_rating: number | null;
+  /** 晨星评级较上期变化（-4~4）；null = 未知。0 = 与上期持平（前端不展示） */
+  morningstar_rating_delta: number | null;
+  /** 评级快照日期 YYYY-MM-DD（东财页当日 / 最近一次变化日） */
+  morningstar_rating_asof: string | null;
   /** 基金经理列表；缺字段时为 null（与接口契约一致：缺失一律降级为「—」） */
   managers: FundProfileManager[] | null;
   /** 费率阶梯；取不到时为 null（不阻断其余字段） */
   fee_rates: {
     fund_code: string;
     currency: string | null;
-    purchase: { start_quota: number; end_quota: number | null; rate: number }[];
+    /** 申购档：`rate` 为比例档（0.015 = 1.5%），`fee_amount` 为固定金额档（元/笔，
+     *  与 rate 互斥；大额档常见「1000 元/笔」）。两者都要读，否则固定档会被当成 0%。 */
+    purchase: {
+      start_quota: number;
+      end_quota: number | null;
+      rate: number;
+      fee_amount: number | null;
+    }[];
     redeem: { start_day: number; end_day: number | null; rate: number }[];
   } | null;
   /** 数据来源站点名（如「天天基金」）；#1969 前脚注写的是 daily_worth 这类表名 */
@@ -185,13 +199,15 @@ export interface IndexWeightRow {
 }
 
 /** 指数十大权重 + 前十大集中度（`/api/products/index-weights/`，#2278）。
- * 源 = akshare 中证权重接口（月频）；接口失败/码族不适用 → `top10: []` 且
- * 其余字段 null，前端整块降级「—」。 */
+ * 源 = 中证权重接口（月频）优先，口径不覆盖时回退国证官网；接口失败/两路都不
+ * 覆盖 → `top10: []` 且其余字段 null，前端整块降级「—」。 */
 export interface IndexWeightsResult {
   index_code: string;
   /** 权重数据日期 YYYY-MM-DD（月频，须在前端标注口径）；无数据为 null */
   as_of: string | null;
   frequency: string;
+  /** 权重来源（口径标注用）：`csindex` 中证 / `cni` 国证 / null 无数据 */
+  source: string | null;
   /** 成分股总数（如光伏产业 50 只） */
   constituent_count: number;
   total_weight: number | null;

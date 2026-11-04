@@ -275,12 +275,16 @@ def build_run_summary(
     只写「运行失败」等于把排查成本推给读日志的人（#2457）。
     """
     jobs = {name: (res or {}).get('status', 'unknown') for name, res in (results or {}).items()}
-    failed = sorted(name for name, status in jobs.items() if status != 'success')
+    # skipped（周频门控，见 orchestrator.WEEKLY_JOBS）既不是成功也不是失败：
+    # 单独成一栏，否则「名录类今天没跑」会被读成「名录类坏了」（#1490）。
+    failed = sorted(name for name, status in jobs.items() if status not in ('success', 'skipped'))
+    skipped = sorted(name for name, status in jobs.items() if status == 'skipped')
     return {
         'started_at': started_at or now_shanghai().isoformat(),
         'elapsed_seconds': round(float(elapsed), 1),
         'total': len(jobs),
         'failed': failed,
+        'skipped': skipped,
         'jobs': jobs,
     }
 
@@ -299,8 +303,11 @@ def scheduler_exit_code(results: Dict[str, Any]) -> int:
 
     #2457：旧行为把失败降级成日志里的一行、进程照样退 0，于是 workflow 判绿、
     末尾的「失败告警」步骤不触发 ⇒ 半个链路坏了却没有任何告警。
+
+    `skipped`（周频门控跳过的名录类 job）**不算失败**：名录类一周才该跑一次，
+    若把它计入失败，每周会有 6 天红着——红灯失去可信度比不红更糟（#1490）。
     """
-    failed = [name for name, res in (results or {}).items() if (res or {}).get('status') != 'success']
+    failed = [name for name, res in (results or {}).items() if (res or {}).get('status') not in ('success', 'skipped')]
     return EXIT_JOB_FAILED if failed else EXIT_OK
 
 

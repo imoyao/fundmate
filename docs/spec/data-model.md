@@ -193,17 +193,21 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 > 注：原计划中的 `risk_level` 字段已移除，`purpose` 已能表达风险偏好，避免概念重叠。
 
-#### 5.11.2 持仓与账户的组合绑定（🚧 一期实施中）
+#### 5.11.2 持仓与账户的组合绑定（✅ 已实现：一期归属 + 二期收益口径）
 
 | 表.字段 | 类型 | 说明 |
 |--------|------|------|
-| `positions.portfolio_id` | Integer (FK)，nullable | 持仓所属组合；NULL = 继承账户默认组合（🚧 一期新增，存量回填 = 所属账户的组合） |
+| `positions.portfolio_id` | Integer (FK)，nullable | 持仓所属组合；NULL = 继承账户默认组合（✅ 已实现，存量回填 = 所属账户的组合） |
 | `ledgers.portfolio_id` | Integer (FK) | 语义调整为「默认组合」：新建持仓未显式指派时继承；`ON DELETE SET NULL`（已实现） |
 | `ledgers.linked_cash_ledger_id` | Integer (FK) | 关联的现金账户（仅 stock/fund 类型可用），`ON DELETE SET NULL`（已实现，不变） |
 
 **注**：原计划添加的 `objective` 字段已移除，语义与 `Portfolio.purpose` 重叠，精简模型。
 
 **聚合口径变更（一期）**：组合持仓聚合从「按关联账户取全部持仓（历史实现按 `account_name` 字符串匹配，存在改名断链/重名串仓隐患）」切换为「按 `positions.portfolio_id` 直接归属」，账户名匹配隐患随一期修复。
+
+**组合可见性（D20 二期 A0，2026-10-29）**：组合**不要求先关联账户**。只要存在显式 `positions.portfolio_id` 指向该组合，组合详情即可见；`ledger_ids` 为空时只失去「继承路径」与「账户级资产（现金）」，不再整块返回空。历史实现 `if not ledger_ids: return []` 会让「成长组合」这类不绑账户的组合彻底看不见——而 `ledgers.portfolio_id` 是单值，一个账户只能有一个默认组合，绑不了第二个。
+
+**收益口径（D20 二期 A1，2026-10-29）**：组合 XIRR 的市值与现金流统一按持仓归属取（显式 `portfolio_id` 优先，未指派继承账户默认组合），**组合口径恒为持仓口径**：买入 = 投入，卖出/分红 = 回收，入金/出金（L1）不进组合现金流。D67 曾定的「有入金走账户口径 / 无入金降级」随「组合 = 账户集合」前提作废。取持仓算现金流时**不筛** `quantity > 0`——已清仓持仓的历史流水仍属本组合；市值端只统计 `quantity > 0`。详见 `decisions.md` D71。
 
 #### 5.11.3 策略标签（持仓风格分析）（已实现，定位微调 D20）
 
@@ -380,3 +384,66 @@ GICS 板块（`gics`，两位数字）。两套体系语义不重叠（GICS 的�
 
 调度：`fund_position` 已注册进本机调度，但 cron 是**每周一次**（周一 23:00）而非每日——持仓是季报数据、
 日变更量恒为 0，每日跑只浪费外部请求并叠加东财限流风险（#1403 的原始形态）。
+
+### 5.17 区间收益 vs 基准指数同期口径（新增 2026-10-23，源 #2134）
+
+**唯一实现**：`services/analytics/benchmark_excess.py`（端点 `GET /api/summary/benchmark-excess/`，
+前端两处容器 `portfolio/detail.vue` / `LedgerDetailOverview.vue`）。三条口径与服务 docstring
+互为镜像，**改一处须同步另一处**：
+
+1. **scope 区间收益率 `range_rate`**：一律复用 `pnl_calendar.build_daily_pnl_series`
+   （= 区间盈亏 ÷ 区间前一天净资产，%）——**唯一口径，前端禁止二次计算**。
+   - 账户级 / 家庭级直接取引擎返回值；组合级 = **Σ成员区间盈亏 ÷ Σ成员区间前一天净资产**
+     （成员各自走同一引擎，分母取引擎 payload 的 `range_baseline` 字段——#2134 起新增，
+     与 `range_rate` 的分母同源）。**不是**成员收益率做平均（平均无视资产规模：
+     10 万跌 50% 与 1 千涨 50% 平均出 +25% 是错数）。
+2. **「同期」= 同一区间 `[start, end]`**（#2134 拍板口径）：指数侧取 `index_daily` 在区间内
+   **首、末两个可得交易日收盘**之比 − 1。降级条件（任一命中 → `range_return=null`，不造 0）：
+   - 区间内不足 2 个可得收盘点（`index_insufficient_data`）；
+   - 首 / 末点距区间边界 > **7 天容差**（`coverage_start_insufficient` /
+     `coverage_end_insufficient`——该指数在区间边界没有报价，涨跌幅覆盖的不是整段；
+     7 天吸收周末与节假日，也拦得住「2015 年查 2019 年才上市的科创50 拿 2020 年涨幅冒充」）。
+   响应带 `bench_start_date` / `bench_end_date`，供复核实际取数首末日。
+3. **超额 `excess_return` = range_rate − 指数区间涨跌幅**（百分点）；任一侧为 null → null，
+   前端显示「--」。清仓周期的「同期基准」不走本节（清仓明细表已死列，周期级走
+   `cleared_cycles` 活算，见 #2131）。
+
+**基准选取链**（`resolve_benchmark_code`，降级一律不顶替）：
+
+| 顺序 | 条件 | 结果 |
+|---|---|---|
+| 1 | scope 持仓含非 `CN_A` 市场（`CN_HK` / `US` / `CRYPTO` 及未识别值） | `null` + `non_cn_a_holdings`（宽基表没有对应序列，拿沪深300 代表港美持仓是造数） |
+| 2 | `Portfolio.benchmark` 非空 | 按 code / 中文名 / 别名（`CSI300`/`CSI500`/`HS300`/`ZZ500`…）归一到 `bias/constants.BENCHMARK_INDICES`；**认不出（恒生/标普…）→ `null` + `unrecognized_benchmark`** |
+| 3 | 空（组合未设 / 账户级无此字段） | 默认 `000300.SH` 沪深300 |
+
+> `BENCHMARK_INDICES` 是映射**唯一真相源**；`benchmark_excess._BENCHMARK_TEXT_ALIASES`
+> 只是 text→code 的归一化糖，归一结果必须落在 `BENCHMARK_INDICES`——**不是第二份指数映射表**。
+
+**数据准入**：零新增表、零新增外部请求——指数序列复用 `index_daily_job` 已同步的
+`index_daily`（公开市场数据、已在本地库）。
+
+### 5.18 收益归因（pnl-attribution，派生口径，源 #2135）
+
+**不新增任何表 / 列**——区间收益归因是 pnl 日历引擎的派生视图，端点
+`GET /summary/pnl-attribution/`（`start_date` / `end_date` 必填缺省同日历；`ledger_id` 与
+`portfolio_id` 互斥，同时传 400 / `error_code 1001`）。
+
+- **唯一口径**：与 `build_daily_pnl_series` 的月合计走**同一次** `_compute_days` 遍历、同一条
+  基准推进（`prev_level` 与 `prev_total_pnl` 同条件冻结）、同一套状态门控；日历主路径
+  `attribution=None` 零额外分配、零行为变化。故同窗全现算下
+  **`Σ positions[].pnl ≡ month_total` 由构造保证**，不是对账出来的——不存在第二套算账。
+- **强制全现算**（`loop_start = start`，不读不写物化行）：物化只有日级 `daily_pnl`，没有逐持仓
+  水平值；从日级差分反拆品种不可逆（同日多品种一涨一跌互相抵消）。
+- **门控三则**：`daily_pnl is None` 的日不折（与月合计同口径）；全建仓强制 0 日不折（其逐笔原始
+  差分之和 = −prev_total_pnl，与强制值不等，照折破坏 Σ）；建仓水平值经 `day_opening_level`
+  剔除（「今天新出现的」不是「今天赚的」）。
+- **已实现含在水平值内**（`level = 市值 − 成本 + 累计已实现`，`transactions.realized_pnl` 单位为分）：
+  区间内部分清仓的品种不丢失贡献。
+- **响应**（`ApiResponse` 信封）：`total_pnl`（元；整窗无可算日 = **null** 不造 0——0 会被读成
+  「没赚没赔」）、`positions[]`（pnl + pct，`|pnl|` 降序；合计为 0 时 pct = null 不是 0%）、
+  `categories[]`（asset_type 聚合）、`unpriced_positions[]`（整窗无价，**不进合计**，前端折叠提示）、
+  `has_any_computable`。
+- **组合口径**与 `portfolio_service.build_portfolio_holdings` 一致：持仓显式 `portfolio_id` 归属 +
+  成员账本（`Ledger.portfolio_id`）继承归属，显式覆盖继承。
+- **已知边界**：引擎「部分清仓抹浮盈」的既有口径怪癖不在本卡范围（归因镜像同门控故 Σ 仍成立，
+  单品种数值与经济真相的偏差沿用引擎口径，另行开卡登记）。

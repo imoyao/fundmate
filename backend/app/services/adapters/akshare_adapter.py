@@ -21,6 +21,7 @@ from app.core.symbol_utils import (
     split_symbol,
 )
 from app.services.adapters.base import DataSourceAdapter
+from app.services.adapters.contract import UpstreamContractError, assert_columns
 
 # 基金经理全量接口（东财 fund_manager_em）偶发抖动，首次拉取的有限重试策略
 _FUND_MANAGER_RETRY = 3
@@ -149,6 +150,49 @@ def industry_scheme_of(industry_code) -> str:
     if code.isdigit():
         return _HY_SCHEME_GICS
     return _HY_SCHEME_UNKNOWN
+
+
+# ── 晨星星级评级（#1440） ──────────────────────────────────────────────
+# 东财评级总汇页：akshare `fund_rating_all()` 的同源端点。**不走 akshare 的解析**——
+# 其内部是 `split("var")[6]` + 27 列按序号硬映射，上游改版时要么字段数对不上
+# 响亮报错、要么**数量不变仅换序 → 静默错位**（把招商证券的值当晨星落库），
+# 黑箱漂移时我们无感知（实证见 docs/dev/fund-rating-collection.md §1.3）。
+_EM_FUND_RATING_URL = 'https://fund.eastmoney.com/data/fundrating.html'
+
+# `var fundinfos` 字段位置契约（0-based；2026-10-24 实测 + 三重坐实）：
+#   ① 三家机构专页反证链 100% 命中：招商 pos10 15576/15576、上海 pos12 382/382、
+#      济安 pos16 46/46（akshare fund_rating_zs/_sh/_ja 同源专页回查综合页）；
+#   ② 晨星官方 MCP `getFundPerformance.starRatingDetails` 标注 ratingPeriod=36，
+#      探针 000001/110011/161725 的 3 年期评级与 pos14 逐只一致；
+#   ③ pos7「5星评级家数」== 四家 5 星列计数之和，18568/18568 自洽。
+# 位置即契约——调整任何一行前先重跑反证链与 MCP 对账。
+_FR_CODE, _FR_NAME, _FR_TYPE = 0, 1, 2
+_FR_STAR_COUNT = 7  # 5星评级家数（仅统计下面四家）
+_FR_ZS, _FR_SH, _FR_MS, _FR_JA = 10, 12, 14, 16  # 招商 / 上海 / 晨星 / 济安（均 3 年期）
+_FR_MS_DELTA = 15  # 晨星较上期（实测 -4~+3；000001=-1 与晨星官方历史 2026-06→09 降星吻合）
+_FR_FIELDS = 27
+# 存在性探针：用**存在性**而非固定星级值——评级月度会变，固定值会误报。
+# 三只覆盖混合 / QDII / 行业指数三种类型，且均与晨星官方 MCP 对过账。
+_FR_PROBES = ('000001', '110011', '161725')
+# 规模下限（无历史存储时的「分布漂移」等价物）：低于经验值即 WARNING 人工复核
+_FR_MIN_RECORDS = 10000
+_FR_MIN_RATED = 5000
+
+# ── 上游列名契约：ak.fund_scale_open_sina（#2543） ──
+# 快照取自 2026-10-23 生产 run ``39971621884`` 的报错原文（akshare 抛出的期望列全集）。
+# 上游改列名会以「静默空数据」的形态落地（见 fetch_fund_scale docstring），故钉成常量：
+# **必填列缺失即抛错**，未知列只告警（上游加列不是漂移，但说明该更新这份快照了）。
+FUND_SCALE_REQUIRED_COLUMNS = ('基金代码', '最近总份额', '单位净值')
+FUND_SCALE_KNOWN_COLUMNS = (
+    '基金代码',
+    '基金简称',
+    '单位净值',
+    '总募集规模',
+    '最近总份额',
+    '成立日期',
+    '基金经理',
+    '更新日期',
+)
 
 
 class AkshareAdapter(DataSourceAdapter):
@@ -1074,6 +1118,15 @@ class AkshareAdapter(DataSourceAdapter):
 
         接口仅给「最近总份额」与「单位净值」，不直接给规模列；规模由调用方按
         shares×nav 估算（亿元）。返回 [{fund_code, shares, nav}]。
+
+        **列名契约（#2543）**：先校验上游列覆盖 ``FUND_SCALE_REQUIRED_COLUMNS``
+        再逐行取值。上游改列名时，``row.get`` 会静默返回 None → 每行都被
+        ``continue`` 跳过 → 返回 ``[]``，与「上游今天没数据」无法区分；2026-10-23
+        就是这么红的（生产 run ``39971621884``）。现在改为**当场抛
+        ``UpstreamContractError``**，把缺哪些列、现有哪些列一并写进异常。
+
+        **异常不吞**：网络/上游异常原样抛出（与 fetch_fund_rating 同口径），
+        不再伪装成「返回空数据」——「空」与「没拿到」必须区分（#1179 同族）。
         """
         from app.core.akshare_lazy import get_akshare
 
@@ -1082,10 +1135,20 @@ class AkshareAdapter(DataSourceAdapter):
             df = ak.fund_scale_open_sina()
             if df is None or df.empty:
                 return []
+
+            assert_columns(
+                df.columns,
+                required=FUND_SCALE_REQUIRED_COLUMNS,
+                known=FUND_SCALE_KNOWN_COLUMNS,
+                source='akshare.fund_scale_open_sina',
+            )
+
             out = []
+            skipped = 0
             for _, row in df.iterrows():
                 code = str(row.get('基金代码', '')).strip()
                 if not code or len(code) != 6 or not code.isdigit():
+                    skipped += 1
                     continue
                 out.append(
                     {
@@ -1094,11 +1157,130 @@ class AkshareAdapter(DataSourceAdapter):
                         'nav': self._to_ratio(row.get('单位净值')),
                     }
                 )
+
+            # 契约已过（列都在）却一行都解析不出 ⇒ 列**语义**变了（如代码列塞进了
+            # 带后缀的写法）。这在旧实现里同样表现为静默的 []，故一并显性化。
+            if not out and skipped:
+                raise UpstreamContractError(
+                    'akshare.fund_scale_open_sina 上游列语义漂移：'
+                    f'{skipped}/{len(df)} 行的「基金代码」均非 6 位数字，'
+                    '契约列名在但取值对不上（上游改了代码列写法？）'
+                )
+
             self.logger.info(f'获取到 {len(out)} 只基金规模数据')
             return out
+        except UpstreamContractError:
+            # 契约漂移是**要人处理**的信号，不降级、不吞：job 层按上游异常判 failed。
+            self.logger.error('获取基金规模失败：上游列名/列语义与契约不符')
+            raise
         except Exception as e:
             self.logger.error(f'获取基金规模失败: {e}')
-            return []
+            raise
+
+    # ── 晨星星级评级（#1440，3 年期口径，自写解析） ──
+
+    @staticmethod
+    def _parse_rating_star(value) -> Optional[int]:
+        """晨星星级：``'' → None``（无评级，货基/新基金常态）；``'1'~'5' → int``。
+
+        越界（``'0'`` / ``'6'`` / 非数字）⇒ **抛错**：这是字段错位或上游结构
+        漂移的信号，宁可失败也不把错位列的值当星级落库。
+        """
+        s = str(value if value is not None else '').strip()
+        if s == '':
+            return None
+        if s in ('1', '2', '3', '4', '5'):
+            return int(s)
+        raise ValueError(f'晨星评级值越域: {value!r}（期望 "" 或 1~5）')
+
+    @staticmethod
+    def _parse_rating_delta(value) -> Optional[int]:
+        """晨星评级较上期：``'' → None``；整数且 ``|v| ≤ 4``（星级 1~5，单期理论
+        最大变 4；实测仅见 -4~+3）。越界 ⇒ 抛错（同 _parse_rating_star 的理由）。
+        """
+        s = str(value if value is not None else '').strip()
+        if s == '':
+            return None
+        try:
+            v = int(s)
+        except ValueError:
+            raise ValueError(f'晨星评级 delta 非整数: {value!r}')
+        if abs(v) > 4:
+            raise ValueError(f'晨星评级 delta 越域: {v}（|v| ≤ 4）')
+        return v
+
+    def fetch_fund_rating(self) -> List[dict]:
+        """全市场晨星星级评级（东财评级总汇页，#1440，3 年期口径）。
+
+        返回 ``[{fund_code, rating, delta}]``：rating 为 1~5 或 None（无评级）；
+        delta 为较上期变化（None=未知）。asof（快照日期）不在这里产出——
+        页面无评级生效日字段，由 job 按「rating/delta 变化日」落库。
+
+        单次 HTTP 返回全市场（实测 3.1MB / 18,568 只），不产生逐条外部请求，
+        满足 data-strategy.md §4.3.3 全量例外（同 fetch_fund_scale 先例）。
+
+        **结构不符即抛错、不写库**（校验规则全量见 docs/dev/fund-rating-collection.md
+        §2.4）：字段数恒等 27、代码 6 位数字、评级值域 1~5、delta |v|≤4、
+        5星家数自洽、三探针存在。akshare 黑箱的前车之鉴是「静默错位」——
+        所有漂移信号都必须当场响亮，由 job 基类记 failed 并保留上期数据。
+        """
+        try:
+            resp = requests.get(_EM_FUND_RATING_URL, timeout=30)
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001
+            # 网络/5xx：不吞成空列表——「空」与「没拿到」必须区分（#1179 同族）
+            self.logger.error(f'晨星评级页请求失败: {e}')
+            raise
+
+        m = re.search(r'var\s+fundinfos\s*=\s*"(.*?)";', resp.text or '', re.S)
+        if not m:
+            raise ValueError('晨星评级页未找到 var fundinfos（上游结构变更？）')
+
+        out: List[dict] = []
+        seen = set()
+        for raw in m.group(1).strip('|').split('|_'):
+            fields = raw.split('|')
+            # 校验 1：字段数恒等——27 列位置映射的前提，不等即整体抛错
+            if len(fields) != _FR_FIELDS:
+                raise ValueError(f'晨星评级记录字段数 {len(fields)} ≠ {_FR_FIELDS}（上游结构漂移）: {raw[:80]!r}')
+            code = fields[_FR_CODE].strip()
+            # 校验 2：代码形态（前导零保留，如 '000001'）
+            if not re.fullmatch(r'[0-9]{6}', code):
+                raise ValueError(f'晨星评级记录代码形态异常: {code!r}')
+            if code in seen:
+                continue  # 重复行先到先得（实测无重复，防御性）
+            seen.add(code)
+            rating = self._parse_rating_star(fields[_FR_MS])  # 校验 3（值域）
+            delta = self._parse_rating_delta(fields[_FR_MS_DELTA])  # 校验 4（|v|≤4）
+            # 校验 5：5星评级家数自洽——pos7 == 招商/上海/晨星/济安四家 5 星计数。
+            # 实测 18568/18568 成立；不等基本就是字段错位（把别家星级读成了 5 星）。
+            star_count = fields[_FR_STAR_COUNT].strip()
+            if star_count.isdigit():
+                n5 = sum(1 for p in (_FR_ZS, _FR_SH, _FR_MS, _FR_JA) if fields[p].strip() == '5')
+                if int(star_count) != n5:
+                    raise ValueError(
+                        f'{code} 5星评级家数 {star_count} ≠ 四家5星计数 {n5}'
+                        f'（招商{fields[_FR_ZS]}/上海{fields[_FR_SH]}/晨星{fields[_FR_MS]}/济安{fields[_FR_JA]}，字段错位信号）'
+                    )
+            else:
+                self.logger.warning(f'{code} 5星评级家数非数字 {star_count!r}，跳过自洽校验')
+            out.append({'fund_code': code, 'rating': rating, 'delta': delta})
+
+        # 校验 6：存在性探针（不锁星级值——评级月度会变，固定值会误报）
+        missing = [c for c in _FR_PROBES if c not in seen]
+        if missing:
+            raise ValueError(f'晨星评级探针缺失: {missing}（上游覆盖异常或结构漂移）')
+
+        # 校验 7（等价物）：规模下限告警。设计文档原案为「与上期偏差 >30%」，
+        # 但当期值列不存历史计数，改用经验下限——低于即 WARNING 人工复核，不阻断。
+        rated = sum(1 for r in out if r['rating'] is not None)
+        self.logger.info(f'获取到 {len(out)} 只基金晨星评级（有效 {rated}，覆盖率 {rated / len(out) * 100:.1f}%）')
+        if len(out) < _FR_MIN_RECORDS or rated < _FR_MIN_RATED:
+            self.logger.warning(
+                f'晨星评级规模异常：总记录 {len(out)} / 有效 {rated}，低于经验下限'
+                f'（{_FR_MIN_RECORDS}/{_FR_MIN_RATED}），请人工复核上游'
+            )
+        return out
 
     def fetch_fund_top_holdings(self, fund_code: str, year: Optional[int] = None) -> Dict[str, Any]:
         """单只基金**最近一期**的持仓明细（ak.fund_portfolio_hold_em / 东财基金档案）。
@@ -1749,4 +1931,93 @@ class AkshareAdapter(DataSourceAdapter):
             return out
         except Exception as e:
             self.logger.warning(f'获取可转债基本信息失败: {e}')
+            return []
+
+    def fetch_convertible_bond_terms(self) -> List[dict]:
+        """可转债条款增强数据（东财 ``RPT_BOND_CB_LIST`` 批量报表口，#1400 / #2575）。
+
+        **为什么必须带 `quoteColumns`**：正股 PB（``PBV_RATIO``）在**不带**该参数时
+        是 0/1065 全空列（实测 2026-10-24）——它不是报表自带字段，而是靠
+        ``quoteColumns`` 的「按正股关联取行情」能力带出来的：
+
+            f23~01~CONVERT_STOCK_CODE~PBV_RATIO
+            f2~01~CONVERT_STOCK_CODE~CONVERT_STOCK_PRICE
+            f235~10~SECURITY_CODE~TRANSFER_PRICE
+
+        ``f23`` = 正股市净率，``quoteType=01`` = 按正股关联。带上后实测
+        ``PBV_RATIO`` 覆盖 1048/1058（99.1%），**一次分页拉完全量（3 次请求）**，
+        远比「逐只 ``bond_zh_cov_info``」（500+ 次）便宜。
+
+        同时带出 **YTM 自算所需条款原文**（``INTEREST_RATE_EXPLAIN`` 逐年票息、
+        ``REDEEM_CLAUSE`` 到期赎回条款、``EXPIRE_DATE`` / ``BOND_START_DATE`` /
+        ``PAY_INTEREST_DAY``）。
+
+        ⚠️ **不要把 ``EXECUTE_PRICE_HS/SH`` 当成「下修触发价」**：实测该字段按
+        ``EXECUTE_REASON`` 分组为「历史赎回执行价」（REASON 3/4/1 = 到期赎回价，
+        REASON 5 含强赎线 130），且 ``EXECUTE_START_DATESH`` 是 2009/2010 一类的
+        **历史日期**——它是「当年赎回时用的价格」，不是下修触发价。该报表**没有**
+        下修触发价字段（全文搜「下修」仅 12/1065 条的条款说明里出现），故本期
+        不落「下修触发价」列（见 #2575 的口径更正）。
+
+        ⚠️ **走 `datacenter-web` 域，不走 `push2`**：2026-10-24 本机实测
+        ``push2.eastmoney.com`` 系 6 个 host 全部 ``RemoteDisconnected``（直连与
+        代理均失败），而 ``datacenter-web`` 正常。关键路径不能压在 push2 上。
+        """
+        url = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
+        quote_columns = (
+            'f23~01~CONVERT_STOCK_CODE~PBV_RATIO,'
+            'f2~01~CONVERT_STOCK_CODE~CONVERT_STOCK_PRICE,'
+            'f235~10~SECURITY_CODE~TRANSFER_PRICE'
+        )
+        out: List[dict] = []
+        try:
+            page = 1
+            while True:
+                params = {
+                    'reportName': 'RPT_BOND_CB_LIST',
+                    'columns': 'ALL',
+                    'quoteColumns': quote_columns,
+                    'quoteType': '0',
+                    'source': 'WEB',
+                    'client': 'WEB',
+                    'pageSize': 500,
+                    'pageNumber': page,
+                    'sortColumns': 'SECURITY_CODE',
+                    'sortTypes': '1',
+                }
+                resp = requests.get(url, params=params, timeout=30)
+                resp.raise_for_status()
+                payload = resp.json()
+                result = payload.get('result') or {}
+                rows = result.get('data') or []
+                for row in rows:
+                    code = str(row.get('SECURITY_CODE') or '').strip()
+                    if not code:
+                        continue
+                    out.append(
+                        {
+                            'bond_code': code.zfill(6),
+                            'name': str(row.get('SECURITY_NAME_ABBR') or ''),
+                            # 正股 PB：quoteColumns 关联带出，缺列时为 None（不用 0 兜底）
+                            'stock_pb': self._num(row.get('PBV_RATIO')),
+                            'stock_price': self._num(row.get('CONVERT_STOCK_PRICE')),
+                            'transfer_price_em': self._num(row.get('TRANSFER_PRICE')),
+                            # YTM 自算所需条款原文
+                            'coupon_schedule_text': str(row.get('INTEREST_RATE_EXPLAIN') or ''),
+                            'redeem_clause': str(row.get('REDEEM_CLAUSE') or ''),
+                            'expire_date': row.get('EXPIRE_DATE'),
+                            'start_date': row.get('BOND_START_DATE'),
+                            'pay_interest_day': str(row.get('PAY_INTEREST_DAY') or ''),
+                            'par_value': self._num(row.get('PAR_VALUE')),
+                            'source': 'eastmoney_RPT_BOND_CB_LIST',
+                        }
+                    )
+                pages = result.get('pages') or 1
+                if page >= pages:
+                    break
+                page += 1
+            self.logger.info(f'获取到 {len(out)} 条可转债条款增强数据（东财批量）')
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取可转债条款增强数据失败: {e}')
             return []

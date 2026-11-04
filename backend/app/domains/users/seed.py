@@ -10,6 +10,7 @@
 双库模式下必须落 user 引擎——此前用 market 引擎写 user 域表，真双库分离时会落错库（#1219）。
 """
 
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import MetaData
 
@@ -46,11 +47,17 @@ def seed_default_identity() -> None:
         if not db.query(Family).filter_by(id=1).first():
             db.add(Family(id=1, name='默认家庭'))
         if not db.query(User).filter_by(id=1).first():
+            # `users.username` 自 #2764 起有 lower(username) 唯一索引：若库里已有人叫
+            # `local`（id≠1，例如 id=1 曾被删除后重建），种子再插 `local` 会撞索引、
+            # 启动直接失败。这里换一个确定可用的名字，种子用户本来就是占位身份。
+            seed_username = 'local'
+            if db.query(User.id).filter(func.lower(User.username) == seed_username).first() is not None:
+                seed_username = 'local_seed'
             db.add(
                 User(
                     id=1,
                     family_id=1,
-                    username='local',
+                    username=seed_username,
                     nickname='本地用户',
                     role=ROLE_ADMIN,
                     is_active=1,

@@ -1,5 +1,6 @@
 import { ref, computed, watch } from "vue";
 import { getWatchlistTrends } from "@/api/watchlist";
+import type { WatchlistItem } from "@/api/watchlist";
 import { useInvestmentTotalMv } from "@/composables/useInvestmentTotalMv";
 import {
   useRealtimeQuotes,
@@ -7,7 +8,19 @@ import {
 } from "@/composables/useRealtimeQuotes";
 import type { useWatchlistData } from "@/composables/useWatchlistData";
 import { formatDateTime } from "@/utils/date";
+import {
+  fetchIntradayTrend,
+  type IntradayTrend
+} from "@/utils/realtimeDataSources";
 import type { Holding, ValuationSummary } from "@/utils/valuationEngine";
+import {
+  resolveDayPnl,
+  resolveDayPnlInput,
+  sumDayPnl,
+  type DayPnlResult,
+  type DayPnlRow,
+  type DayPnlSummary
+} from "../dayPnl";
 
 type WatchlistData = ReturnType<typeof useWatchlistData>;
 
@@ -149,7 +162,13 @@ export function useWatchlistValuation(data: WatchlistData) {
   const getStaticPrice = (symbol: string) => {
     const item = allItems.value.find(i => i.symbol === symbol);
     return item
-      ? { currentPrice: item.current_price, changePct: item.change_pct }
+      ? {
+          currentPrice: item.current_price,
+          changePct: item.change_pct,
+          // 当日盈亏分母（#2640）：后端 compute_latest_quote 由最近两根历史价算得，
+          // 未持仓的自选行也有；缺值传 null，引擎会保持 null（不做顶替）
+          prevClose: item.prev_close ?? null
+        }
       : undefined;
   };
 
@@ -193,6 +212,30 @@ export function useWatchlistValuation(data: WatchlistData) {
     { deep: true }
   );
 
+  /**
+   * 行级当日盈亏（#2640）：「当日盈亏」列的唯一取数口。
+   *
+   * 实时价优先（且必须真拿到行情），昨收实时源缺失时回落后端 `prev_close`；
+   * 两者都缺 → `value`/`ratio` 均为 null（渲染 `—`），**不拿现价顶替**
+   * （顶替的后果是恒 ¥0.00，见 dayPnl.ts 头部）。
+   */
+  function dayPnlOf(row: DayPnlRow): DayPnlResult {
+    return resolveDayPnl(row, getValuationItem(row.symbol ?? ""));
+  }
+
+  /**
+   * 汇总条的当日盈亏（#2640）：与列共用 `dayPnl.ts`，比例按**昨日市值加权**。
+   *
+   * 基于 `allItems`（全量过滤结果）而非当前页，与总市值/总成本/总盈亏同口径
+   * ——否则翻页时汇总条会随当前页跳变（#1245 的老坑）。
+   */
+  const daySummary = computed<DayPnlSummary>(() => {
+    const inputs = allItems.value
+      .filter(item => Boolean(item.symbol))
+      .map(item => resolveDayPnlInput(item, getValuationItem(item.symbol)));
+    return sumDayPnl(inputs);
+  });
+
   /** 手动刷新估值：旋转图标至请求完成 */
   const refreshing = ref(false);
   async function handleManualRefresh() {
@@ -226,6 +269,67 @@ export function useWatchlistValuation(data: WatchlistData) {
     void fetchTrends();
   });
 
+  // ── 盘中分时（#2640）：走势列盘中画当日分时，收盘后回落上面那份日线 ──
+  const intradayMap = ref<Record<string, IntradayTrend>>({});
+  /** 竞态令牌：翻页/切换档位时旧响应不得覆盖新结果 */
+  let intradayToken = 0;
+
+  /**
+   * 有分时源的品类：场内股票 / ETF / 可转债。
+   *
+   * **场外基金没有盘中估值分时**（2026-10-26 实测三家均失败：新浪
+   * `getEstimateNetworthPic` 已下线、东财 `FundValuationDetail` 返回 `Datas: null`、
+   * 天天只给「当前 GSZ 一个值」）。这一类只能继续显示日线，由走势列 title 说明原因
+   * ——不要为了「看起来统一」拿日线冒充分时。
+   */
+  function hasIntradaySource(item: WatchlistItem): boolean {
+    if (item.venue === "OTC") return false;
+    const type = (item.asset_type || "").toLowerCase();
+    return type === "stock" || type === "etf" || type === "bond";
+  }
+
+  /**
+   * 取**当前页**场内标的的当日分时。
+   *
+   * 三个约束缺一不可：
+   * - 已开实时 + 盘中（`status === "trading"`）：收盘后/未开启时清空，走势列回落日线；
+   * - 只取当前页：分时是**单码一请求**（不像 trends 那样整页一次批量），
+   *   全量拉会把请求数按「自选总行数」放大（AGENTS「按需存/按需取」同一条）；
+   * - 单码 60s 缓存（`fetchIntradayTrend` 内），15s 快速档也不会每 tick 重打。
+   */
+  async function fetchIntraday() {
+    const token = ++intradayToken;
+    if (!realtime.enabled.value || realtime.status.value !== "trading") {
+      intradayMap.value = {};
+      return;
+    }
+    const rows = items.value
+      .filter(item => item.symbol && hasIntradaySource(item))
+      .map(item => ({ symbol: item.symbol, market: item.market }));
+    if (rows.length === 0) {
+      intradayMap.value = {};
+      return;
+    }
+    const trends = await Promise.all(
+      rows.map(r => fetchIntradayTrend(r.symbol, r.market))
+    );
+    if (token !== intradayToken) return; // 期间翻页/收盘：丢弃过期结果
+    const next: Record<string, IntradayTrend> = {};
+    rows.forEach((r, i) => {
+      const trend = trends[i];
+      if (trend) next[r.symbol] = trend;
+    });
+    intradayMap.value = next;
+  }
+
+  // 三个触发源：翻页/筛选换行、实时开关、盘中午休/收盘状态切换
+  watch(
+    [items, () => realtime.enabled.value, () => realtime.status.value],
+    () => {
+      void fetchIntraday();
+    }
+  );
+
   /** 切换刷新档位：转发给 realtime（负责持久化 + 盘中重启定时器） */
   const onRefreshIntervalChange = (value: string | number | boolean) => {
     realtime.setRefreshInterval(value as RefreshInterval);
@@ -237,12 +341,15 @@ export function useWatchlistValuation(data: WatchlistData) {
     getValuationItem,
     addedReturnPct,
     addedReturnAmount,
+    dayPnlOf,
+    daySummary,
     staticSummary,
     marketValueRatio,
     toggleBtnText,
     refreshing,
     handleManualRefresh,
     trendMap,
+    intradayMap,
     onRefreshIntervalChange
   };
 }

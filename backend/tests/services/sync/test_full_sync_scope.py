@@ -39,6 +39,12 @@ class TestRequireFullSyncScope:
             require_full_sync_scope('fund_risk_metrics', full_sync=True, has_targets=False)
         require_full_sync_scope('fund_risk_metrics', full_sync=True, has_targets=True)
 
+    def test_bond_adjust_log_requires_scope(self):
+        """#2585：下修历史逐只一次 HTTP，裸 `--full-sync` 会打全市场 500+ 只转债。"""
+        with pytest.raises(ValueError):
+            require_full_sync_scope('bond_adjust_log', full_sync=True, has_targets=False)
+        require_full_sync_scope('bond_adjust_log', full_sync=True, has_targets=True)
+
     def test_symbol_backfill_jobs_complete(self):
         # 与 run_all_jobs 执行计划中的逐标的 Job 保持一致
         expected = {
@@ -55,6 +61,9 @@ class TestRequireFullSyncScope:
             'fund_risk_metrics',
             # #2478：风格箱逐只抓取（1 请求/只），同 fund_position 必须限量
             'fund_style',
+            # #2585：下修历史逐只一次 HTTP（集思录 HTML 片段接口），裸 --full-sync
+            # 会对全市场 500+ 只转债各发一次请求
+            'bond_adjust_log',
         }
         assert SYMBOL_BACKFILL_JOBS == expected
 

@@ -7,8 +7,8 @@ from app.core.constants import PositionSource
 from app.domains.positions.models import (
     PositionImportMeta,
     SalesInstitution,
-    resolve_sales_institution_id,
 )
+from app.services.institution_resolver import resolve_sales_institution_id
 
 
 def test_position_import_meta_has_sales_institution_id_column(db):

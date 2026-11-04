@@ -7,6 +7,15 @@ export interface PortfolioItem {
   name: string;
   purpose?: string | null;
   created_at?: string | null;
+  /** 卡片聚合（后端只增字段，2026-10-30）：市值含账户级现金，与详情页 holdings 口径一致 */
+  market_value?: number;
+  /** 持有盈亏金额（元）；比例分母是成本，零成本时 pnl_rate 为 null（「不知道」≠「没赚没亏」） */
+  pnl?: number;
+  pnl_rate?: number | null;
+  account_count?: number;
+  position_count?: number;
+  /** 目标达成率 %（市值/目标金额×100，不封顶）；未设 target_amount 为 null */
+  target_progress?: number | null;
 }
 
 /** 组合详情（对齐后端 _portfolio_to_dict 全量字段） */
@@ -57,6 +66,11 @@ export interface PortfolioHoldingItem {
   account_name: string | null;
   /** 仅资产行下发（持仓行无此字段） */
   ledger_id?: number | null;
+  /**
+   * 归属方式（D20 二期 UI）：`null` = 靠所属账户默认组合继承而来；数字 = 用户显式指派。
+   * **仅持仓行下发**——资产行（现金）不带该键，「未下发」不得当成 `null`（继承）渲染。
+   */
+  portfolio_id?: number | null;
   quantity: number;
   current_price: number;
   avg_price: number;

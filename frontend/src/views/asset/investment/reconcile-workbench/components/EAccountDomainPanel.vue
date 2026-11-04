@@ -1,70 +1,35 @@
 <template>
   <div class="domain-a-body">
-    <el-empty
-      v-if="!loading && items.length === 0"
-      description="暂无 E账户对账记录"
-      :image-size="80"
+    <!-- 与独立对账中心共用同一个面板（筛选 + 明细表 + 分页）。
+         framed=false：本域已在 CardBlock 里，面板自带外框会变成双框。 -->
+    <EaccountReconcilePanel
+      :items="items"
+      :loading="loading"
+      :acting="acting"
+      :framed="false"
+      @cover="emit('cover', $event)"
+      @ignore="emit('ignore', $event)"
     />
-    <div v-else class="disc-table-wrap">
-      <el-table :data="items" stripe size="small" class="disc-table">
-        <el-table-column label="代码" prop="symbol" width="110" />
-        <el-table-column label="名称" prop="name" min-width="120" />
-        <el-table-column label="渠道" width="120">
-          <template #default="{ row }">
-            {{ row.source_broker || "—" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="E账户份额" width="110" align="right">
-          <template #default="{ row }">
-            {{ row.eaccount_quantity ?? "—" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="系统份额" width="110" align="right">
-          <template #default="{ row }">
-            {{ row.current_quantity ?? "—" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <span class="disc-status">{{ eStatusLabel(row.status) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="160">
-          <template #default="{ row }">
-            <template v-if="row.status === 'pending'">
-              <el-button
-                size="small"
-                text
-                type="primary"
-                @click="emit('cover', row as ReconciliationItem)"
-              >
-                归因覆盖
-              </el-button>
-              <el-button
-                size="small"
-                text
-                @click="emit('ignore', row as ReconciliationItem)"
-              >
-                忽略
-              </el-button>
-            </template>
-            <span v-else class="disc-muted">已处理</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { ReconciliationItem } from "@/api/eaccount";
-import { eStatusLabel } from "../utils/discFormat";
+import EaccountReconcilePanel from "@/components/EaccountReconcilePanel/index.vue";
+import type { Acting } from "@/components/EaccountReconcilePanel/model";
 
-/** 域 A E账户对账表（#980 拆分自 index.vue，零行为变更）：
- *  E账户官方快照 vs 渠道持仓，归因覆盖 / 忽略操作经 emit 上抛由父级编排。 */
+/**
+ * 域 A E账户对账（#980 拆分自 index.vue；2026-10-28 收敛到共用面板）。
+ *
+ * 此前这里是手抄的一份表：`system_quantity` 绑成了 `current_quantity`（整列恒空）、
+ * 没有差异列、没有分页与筛选，且「归因覆盖」绕过了确认框直接删渠道原记录。
+ * 现在只剩「传数据 + 转 emit」，表格语言与独立对账中心由同一个组件保证一致
+ * （SPEC 3.8：产品信息列必须用 ProductDisplay，禁止手写「代码」「名称」两列）。
+ */
 defineProps<{
   items: ReconciliationItem[];
   loading: boolean;
+  acting: Acting;
 }>();
 
 const emit = defineEmits<{
@@ -74,24 +39,7 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
-/* 域 A 对账表（样式随模板一并迁入；.disc-* 与域 B 同名但 scoped 作用域相互独立，
- * 按抽象克制原则保留局部副本，不为此上提公共样式） */
-.disc-table-wrap {
-  overflow-x: auto;
-}
-
-.disc-table {
-  width: 100%;
-}
-
-.disc-status {
-  padding: 1px 8px;
-  font-size: var(--text-label);
-  border-radius: 999px;
-}
-
-.disc-muted {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
+.domain-a-body {
+  padding: 4px 0;
 }
 </style>

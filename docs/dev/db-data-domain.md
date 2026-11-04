@@ -40,12 +40,15 @@
 | `FundManager` / `Manager`（基金管理人，**独立表**） | 被 `funds` 外键引用 | 恒定小表（已确认独立表，放 market 域） |
 | `manager_tenures`（基金经理**任期分段**，#2239 从 `fund_managers` 拆出） | 与 `fund_managers` 同源同写方（`manager_tenure` job）、同样外键引用 `funds`/`managers`；读方是经理读服务 | 按 (基金 × 经理 × 段) 增长，一基金一经理通常 1–2 段；**空态合法**（只对目标池回填，见该表模型注释）。放 market 域：与 `fund_managers` 拆到不同域会制造跨域 FK 与跨域事务 |
 | `sync_logs`（系统同步审计） | 记录市场/备份同步任务执行情况 | 超小量（每日几次任务），统一放 Turso，随市场同步任务 |
-| `advisor_portfolios` / `advisor_holdings` / `advisor_industry_allocs` / `advisor_adjust_histories` | 投顾组合公开参照与持仓/行业/调仓明细（#1167；2026-09-08 补登记，此前文档漂移） | 参照小表，明细随组合数增长 |
+| `advisor_portfolios` / `advisor_holdings` / `advisor_industry_allocs` / `advisor_adjust_histories` / `advisor_portfolio_navs` | 投顾组合公开参照与持仓/行业/调仓明细（#1167；2026-09-08 补登记，此前文档漂移）；`advisor_portfolio_navs` 是组合单位净值日序列（详情页走势图，`advisor_portfolio_nav` job + 首次查看按需补拉），公开数据、无家庭私有字段 | 参照小表，明细随组合数增长；净值表按「触达组合 × 净值日」增长（单组合十年约 2200 行） |
 | `index_constituents` | 指数成分股（#1358 / #1286；2026-09-08 补登记） | 按指数×成分，覆盖式更新 |
 | `index_catalog` | 指数名录（#1286 聚合搜索底座） | 恒定，千级，覆盖式重建 |
 | `index_valuations` / `index_valuation_baselines` | 指数估值（#1285 官方日频近 20 日）与分位基线（#1407 乐咕月频近 5 年，滚动 PE 单列） | 按指数×日期，小表（基线约 9 指数 × 60 点） |
+| `fund_style_exposures` | 基金投资风格箱暴露明细（#2478 韭圈儿 8 分类；long 格式 = 每风格一行，保留上游原文免迁移；**append-only**，上游按月重算、断档即永久缺口故无限保留） | 按基金×风格×时点增长；每时点 8 风格合计 = 100 |
+| `fund_industry_allocs` | 基金行业配置（东财 f10/HYPZ；`scheme` 标分类体系：csrc 证监会门类 / gics GICS 板块，**两套体系语义不重叠，聚合时禁止跨体系相加**） | 按基金×报告期×行业增长；覆盖式写入（同一报告期整体替换） |
 | `fund_risk_metrics` | 基金风险指标派生投影（#167 榜单/详情页；由净值历史现算，公开数据无家庭私有字段；2026-10-16 随 #2255 收敛补登记） | 按基金数增长（每基金每口径一行），覆盖式更新 |
 | `etf_fee_rates` | ETF 管理/托管费率缓存小表（#2333 对比表费率列；东财 F10 / 同花顺双 HTML 源，成功即 upsert、双源挂用旧值兜底；只写对比表触达的 ETF，无全市场回填） | 极小表，按触达 ETF 数增长（每 ETF 一行 5 列） |
+| `fund_holdings` | 基金持仓明细（东财基金档案-投资组合；唯一键 = 基金 × 报告期 × **披露口径** × 个股；口径列 `full`=半年报/年报全量、`top10`=季报前十大，两者**不可混算**） | 按基金×报告期×口径×个股增长，中等体量；按报告期覆盖式写入 |
 
 > **2026-09-08 注**：完整表清单以 `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY` 为唯一权威（启动校验兜底）；本节为人工盘点快照，新增表时须同步更新（AGENTS.md 双库硬规则 §1）。
 
@@ -104,6 +107,7 @@
 2. **`init_db` 按域分别 `create_all` 到对应 engine**，并启动断言「声明域 == 实际建到的 engine」，不一致直接 fail（防表建错库导致静默错误）。
 3. **Session 入口只有 `market_session()` / `user_session()`**，service 层只能从这两个取会话，禁止混用。
 4. **开发期迁移点**：本地 SQLite 文件当前已含全部 30 张表（含本该去 Supabase 的用户表）。迁双库后 SQLite 只建 `market` 域表，用户表不再建在本地 SQLite，避免「用户表既在 dev Supabase 又有本地残留」。
+5. **`SUPABASE_URL` 与 `SUPABASE_DATABASE_URL` 必须是同一个 Supabase 项目**（2026-10-31，#2764）。两者是**独立配置**：前者供 GoTrue 签/验 token（决定 `claims.sub` 是谁签的），后者是 user 域真正落库的地方。指向不同项目时，登录验签通过、但 `sub` 在目标库里查不到 → JIT 建号把同一个人的账号复制到另一个库，于是**同一邮箱/用户名在同一个库里出现两行**（`resolve` 命中多行）。启动期由 `validate_supabase_project_alignment()`（`app/core/db_factory.py`，在 `create_app()` 里调用）比对两侧的 project ref，不一致直接 `RuntimeError`；只配一侧、或不是 Supabase 域名（Neon 灾备、本地 SQLite）时跳过。**判据只在两侧都抽得出 ref 时生效**——不要把它当成「必须配 Supabase」的强制校验。
 
 ## 6. 已识别的坑（设计阶段已规避，记录备查）
 

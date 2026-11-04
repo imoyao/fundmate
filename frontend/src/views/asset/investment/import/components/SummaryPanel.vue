@@ -1,7 +1,25 @@
 <script setup lang="ts">
+/**
+ * 数据预览概览条（2026-11-02 由「三张卡片」改为「一行胶囊」）。
+ *
+ * 改版动因：旧版把同一批数字说了三遍——卡片条数、卡片内 chips 细分、底部「已选择」；
+ * 且三张卡各自带「展开查看 / 收起」「批量修正」按钮，同屏三个主按钮争夺注意力，
+ * 而点卡片本体什么都不发生。更糟的是「需要修正」卡要先把 5+1+180 自己算一遍，
+ * 才知道 186 条是由什么构成的。
+ *
+ * 新版把卡片压成一行**可点的筛选器**：
+ * - 每颗胶囊 = 一个类别，点主体即筛表（原「展开查看 / 收起」按钮退场）；
+ * - 胶囊左侧的复选框保留原「按类全选」能力（勾选与筛选是两个动作，故分成两个靶区）；
+ * - 「需要修正」下方直接写出 `N 条 = 解析错误 a · 代码未匹配 b · …`，等式不再靠用户算；
+ * - 类别色点即图例：绿=可导入、橙=可导入但需留意、红=阻断，与状态列三态同源。
+ *
+ * 被删掉的两处（不是丢功能）：「已选择 N 条」只在底部操作条保留一份；
+ * 「展开全部数据」由首颗「全部」胶囊承担。
+ */
 import { computed } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import AllocationGroupPanel from "./AllocationGroupPanel.vue";
+import OverviewChip from "./OverviewChip.vue";
 import type { SummaryCategory } from "../composables/useImportWizard";
 
 const {
@@ -10,58 +28,62 @@ const {
   fixBreakdown,
   completeTransferCount,
   selectedLedgerLinkedCash,
-  totalRows,
-  selectedCount,
+  transferRowsAllSelected,
+  toggleAllTransferRows,
   allRowsDuplicate,
+  tableStatusFilter,
   isCategoryExpanded,
   toggleCategoryFilter,
   expandAllData,
   categoryCheckState,
-  toggleCategorySelection,
-  toggleFixPanel
+  toggleCategorySelection
 } = useImportWizardContext();
 
-/** 标题（#783 §3.1 原型文案）：有问题时追加「，发现以下问题」 */
-const pageTitle = computed(() =>
-  summaryCounts.value.fix + summaryCounts.value.duplicate > 0
-    ? "数据预览 — 系统已自动分析，发现以下问题"
-    : "数据预览 — 系统已自动分析"
-);
-
-interface CardDef {
+interface CapsuleDef {
   key: SummaryCategory;
   label: string;
-  icon: string;
-  iconClass: string;
-  desc: string;
+  /** 语义色：绿=可导入 / 橙=可导入但需留意 / 红=阻断 */
+  tone: "success" | "warning" | "danger";
+  /** 悬停说明：胶囊只有 4 个字，语义靠它补 */
+  hint: string;
 }
 
-/** 三卡片（#783 §3.2 原型；emoji 禁用，改用语义图标） */
-const cards: CardDef[] = [
+const capsules: CapsuleDef[] = [
   {
     key: "complete",
-    label: "数据完整",
-    icon: "ep:circle-check-filled",
-    iconClass: "is-complete",
-    desc: "可直接导入"
+    label: "可直接导入",
+    tone: "success",
+    hint: "校验通过，勾选的按成交额入库、手续费单列"
   },
   {
     key: "duplicate",
     label: "疑似重复",
-    icon: "ep:warning-filled",
-    iconClass: "is-duplicate",
-    desc: "已自动跳过，如需保留请手动勾选"
+    tone: "warning",
+    hint: "与已有记录疑似重复，默认跳过，勾选可保留"
   },
   {
     key: "fix",
     label: "需要修正",
-    icon: "ep:circle-close-filled",
-    iconClass: "is-fix",
-    desc: "补全或修正后才能可靠导入"
+    tone: "danger",
+    hint: "其中信息不全的行无法可靠导入，点此筛选并打开修正面板"
   }
 ];
 
-/** 「需要修正」卡的细分错误统计（#783 §3.2），四类之和恒等于该卡条数 */
+/** 「全部」胶囊的选中态：没有任何类别筛选时成立 */
+const allActive = computed(() => tableStatusFilter.value === "");
+
+/**
+ * 「全部」的条数**由三类相加得出**，不读 `totalRows`：后者是解析结果的计数 ref，
+ * 在忽略行 / 增删行等路径上靠多处赋值维持同步（1234 / 1443 / 2548 三处），一旦漏一处
+ * 就会出现「全部 ≠ 三类之和」——而这正是概览条要消灭的那类不一致。
+ * 相加则恒等，等式结构性成立。
+ */
+const totalCount = computed(() => {
+  const c = summaryCounts.value;
+  return c.complete + c.duplicate + c.fix;
+});
+
+/** 「需要修正」的构成（四分区之和恒等于该胶囊条数，故等号成立而非约等于） */
 const fixChips = computed(() => {
   const b = fixBreakdown.value;
   const chips: Array<{ label: string; count: number }> = [];
@@ -70,123 +92,107 @@ const fixChips = computed(() => {
     chips.push({ label: "代码未匹配", count: b.missingCode });
   if (b.missingQtyPrice > 0)
     chips.push({ label: "数量或价格缺失", count: b.missingQtyPrice });
-  if (b.mismatch > 0) chips.push({ label: "数据不一致", count: b.mismatch });
+  if (b.mismatch > 0)
+    chips.push({ label: "差额超出手续费", count: b.mismatch });
   return chips;
 });
 
 /**
- * #2281：「数据完整」卡内的转账行提示 chips——让用户在计数语境里
- * 感知到「这些行具备导入能力」。未关联时提示待关联，已关联提示可导入。
+ * #2281：转账行的能力提示。未关联现金账户时是待办（警示色），已关联时是能力（主色）。
  */
-const completeTransferChip = computed(() => {
+const transferNote = computed(() => {
   const n = completeTransferCount.value;
   if (n === 0) return null;
   return {
-    label: selectedLedgerLinkedCash.value ? "转账可导入" : "转账待关联",
-    count: n
+    text: selectedLedgerLinkedCash.value
+      ? `含 ${n} 条银证转账，可勾选导入`
+      : `含 ${n} 条银证转账，需先关联现金账户`,
+    warn: !selectedLedgerLinkedCash.value
   };
 });
 
-/** 每卡复选框三态算一次供模板复用（避免每 render 对全表多扫几遍） */
+/** 每颗胶囊的复选框三态算一次供模板复用（避免每 render 对全表多扫几遍） */
 const cardCheckStates = computed(() => ({
   complete: categoryCheckState("complete"),
   duplicate: categoryCheckState("duplicate"),
   fix: categoryCheckState("fix")
 }));
-
-function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
-  toggleCategorySelection(key, Boolean(val));
-}
 </script>
 
 <template>
   <div class="step3-topbar">
-    <section class="summary-panel" aria-label="数据预览摘要">
-      <div class="summary-head">
-        <span class="summary-title">{{ pageTitle }}</span>
-      </div>
-
-      <!-- #783 §十 边界一：全表皆重复时说明「为什么没有可导入的行」，与底栏出口配对 -->
-      <p v-if="allRowsDuplicate" class="summary-alert">
-        本次识别的
-        {{ totalRows }}
-        条记录全部与已有记录重复，已默认跳过。如需保留，请在下方逐条勾选；也可以点击「重新选择文件」换一份数据。
-      </p>
-
-      <div class="summary-cards">
-        <div
-          v-for="card in cards"
-          :key="card.key"
-          class="summary-card"
-          :class="`summary-card--${card.key}`"
-          :data-category="card.key"
+    <section class="summary-panel" aria-label="数据预览概览">
+      <div class="ov-bar">
+        <!-- 首颗：全部（未筛选态）。条数由三类相加得出，故三胶囊之和与它恒等 -->
+        <button
+          type="button"
+          class="ov-all"
+          :class="{ 'is-active': allActive }"
+          data-category="all"
+          @click="expandAllData"
         >
-          <div class="card-head">
-            <el-checkbox
-              :model-value="cardCheckStates[card.key] === 'all'"
-              :indeterminate="cardCheckStates[card.key] === 'some'"
-              :aria-label="`${card.label}全选`"
-              @change="onCardCheck(card.key, $event)"
-            />
-            <IconifyIconOffline
-              :icon="card.icon"
-              class="card-icon"
-              :class="card.iconClass"
-            />
-            <span class="card-label">{{ card.label }}</span>
-            <strong class="card-count">{{ summaryCounts[card.key] }}</strong>
-            <span class="card-unit">条</span>
-          </div>
+          全部
+          <strong class="ov-count">{{ totalCount }}</strong>
+        </button>
 
-          <p class="card-desc">{{ card.desc }}</p>
+        <span class="ov-divider" aria-hidden="true" />
 
-          <!-- 需要修正卡：细分错误统计 + 批量修正入口（#1791 要做的事 3） -->
-          <div v-if="card.key === 'fix' && fixChips.length" class="card-chips">
-            <span v-for="chip in fixChips" :key="chip.label" class="chip">
-              {{ chip.label }} {{ chip.count }}
-            </span>
-          </div>
+        <!-- 三类别：左侧复选框（按类全选）+ 右侧主体（筛选表格），双靶区见 OverviewChip -->
+        <OverviewChip
+          v-for="cap in capsules"
+          :key="cap.key"
+          :category="cap.key"
+          :label="cap.label"
+          :tone="cap.tone"
+          :hint="cap.hint"
+          :count="summaryCounts[cap.key]"
+          :active="isCategoryExpanded(cap.key)"
+          :check-state="cardCheckStates[cap.key]"
+          @check="toggleCategorySelection(cap.key, $event)"
+          @toggle="toggleCategoryFilter(cap.key)"
+        />
 
-          <!-- #2281：数据完整卡的转账行能力提示（关联前后两种文案） -->
-          <div
-            v-else-if="card.key === 'complete' && completeTransferChip"
-            class="card-chips"
-          >
-            <span class="chip chip--info">
-              {{ completeTransferChip.label }} {{ completeTransferChip.count }}
-            </span>
-          </div>
-
-          <div class="card-actions">
-            <el-button
-              link
-              type="primary"
-              size="small"
-              @click="toggleCategoryFilter(card.key)"
-            >
-              {{ isCategoryExpanded(card.key) ? "收起" : "展开查看" }}
-            </el-button>
-            <el-button
-              v-if="card.key === 'fix'"
-              link
-              type="warning"
-              size="small"
-              @click="toggleFixPanel"
-            >
-              批量修正
-            </el-button>
-          </div>
-        </div>
-      </div>
-
-      <div class="summary-foot">
-        <span class="foot-selected">
-          已选择 <strong>{{ selectedCount }}</strong> 条
-        </span>
-        <el-button size="small" @click="expandAllData">
-          展开全部数据（{{ totalRows }}）
+        <span
+          v-if="transferNote"
+          class="ov-note"
+          :class="{ 'ov-note--warn': transferNote.warn }"
+          >{{ transferNote.text }}</span
+        >
+        <!-- #2838：一行「含 131 条银证转账」却要逐条点勾，等于把活推回给用户。
+             未关联现金账户时（warn 态）不出按钮——那些行本就不可勾。
+             作用域与左边这个数字同源（见 toggleAllTransferRows）。 -->
+        <el-button
+          v-if="transferNote && !transferNote.warn"
+          class="ov-note-action"
+          size="small"
+          link
+          type="primary"
+          @click="toggleAllTransferRows"
+        >
+          {{ transferRowsAllSelected ? "全部取消" : "全部勾选" }}
         </el-button>
       </div>
+
+      <!-- 等式行：把这个胶囊条数由什么构成直接写出来，替代旧版卡片内 chips + 用户自己加的算式 -->
+      <p v-if="fixChips.length" class="ov-breakdown">
+        <span class="ov-breakdown-head"
+          >需要修正 <strong>{{ summaryCounts.fix }}</strong> 条 =</span
+        >
+        <span
+          v-for="(chip, i) in fixChips"
+          :key="chip.label"
+          class="ov-breakdown-item"
+        >
+          {{ chip.label }} <strong>{{ chip.count }}</strong>
+          <span v-if="i < fixChips.length - 1" class="ov-sep">·</span>
+        </span>
+      </p>
+
+      <!-- #783 §十 边界一：全表皆重复时说明「为什么没有可导入的行」，与底栏出口配对 -->
+      <p v-if="allRowsDuplicate" class="ov-alert">
+        本次识别的 {{ totalCount }}
+        条记录全部与已有记录重复，已默认跳过。如需保留，请在下方逐条勾选；也可以点击「重新选择文件」换一份数据。
+      </p>
     </section>
 
     <AllocationGroupPanel v-if="showAllocationGroupPanel" />
@@ -197,14 +203,14 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 .step3-topbar {
   display: flex;
 
-  /* 验收③：摘要面板在表格滚动区之外且不参与收缩——展开任一类别时面板常驻 */
+  /* 验收③：概览条在表格滚动区之外且不参与收缩——展开任一类别时都常驻 */
   flex-shrink: 0;
   flex-wrap: wrap;
   gap: 12px;
   align-items: stretch;
 }
 
-/* 三卡片占整行；配置目标面板（子组件根）保留原有的 240px 弹性基宽 */
+/* 概览条占整行；配置目标面板（子组件根）保留原有的 240px 弹性基宽 */
 .step3-topbar > .summary-panel {
   flex: 1 1 100%;
   min-width: 100%;
@@ -216,24 +222,114 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
   min-width: 240px;
 }
 
+/* 一行胶囊：白色卡面，只留最轻的边框，把纵向空间让给表格 */
 .summary-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 10px 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
 }
 
-.summary-title {
-  font-size: var(--text-small);
-  font-weight: 600;
+.ov-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ── 「全部」胶囊 ── */
+.ov-all {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.ov-all:hover {
+  border-color: var(--color-primary-20);
+}
+
+.ov-all.is-active {
+  color: var(--color-primary-ink);
+  background: var(--color-primary-10);
+  border-color: var(--color-primary);
+}
+
+.ov-divider {
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--border-default);
+}
+
+/* ── 三类别胶囊的样式已迁到 OverviewChip.vue（双靶区随组件一起搬走） ── */
+
+/* 转账提示胶囊：与三类别的实心胶囊区分——它是说明，不是入口 */
+.ov-note {
+  padding: 2px 8px;
+  font-size: var(--text-label);
+  color: var(--color-primary-ink);
+  background: var(--color-primary-10);
+  border-radius: 999px;
+}
+
+.ov-note--warn {
+  color: var(--color-warning-ink);
+  background: var(--color-warning-20);
+}
+
+/* 转账行批量勾选：跟在提示胶囊后面，做成同一条句子的一部分（不留独立按钮的边框感） */
+.ov-note-action {
+  height: auto;
+  padding: 0 2px;
+  font-size: var(--text-label);
+}
+
+/* ── 等式行 ── */
+.ov-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+}
+
+.ov-breakdown-head strong,
+.ov-breakdown-item strong {
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
-/* 边界提示（#783 §十）：告警级文字色 + 暖沙金底边（--color-warning 仅作底色/边框） */
-.summary-alert {
+.ov-breakdown-item {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+}
+
+.ov-sep {
+  margin-left: 4px;
+  color: var(--text-tertiary-ink);
+}
+
+/* 边界提示（#783 §十）：告警级文字色 + 暖沙金底边 */
+.ov-alert {
   padding: 8px 10px;
   margin: 0;
   font-size: var(--text-label);
@@ -242,115 +338,5 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
   background: var(--color-warning-20);
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-sm);
-}
-
-.summary-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
-}
-
-.summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.card-head {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.card-icon {
-  font-size: var(--text-body);
-}
-
-.card-icon.is-complete {
-  color: var(--color-success-ink);
-}
-
-.card-icon.is-duplicate {
-  color: var(--color-warning-ink);
-}
-
-.card-icon.is-fix {
-  color: var(--color-danger-ink);
-}
-
-.card-label {
-  font-size: var(--text-label);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.card-count {
-  font-size: var(--text-num-strong);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.card-unit {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-.card-desc {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-}
-
-.card-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.chip {
-  padding: 1px 8px;
-  font-size: var(--text-label);
-  color: var(--color-danger-ink);
-  background: var(--color-danger-10);
-  border: 1px solid var(--color-danger-30);
-  border-radius: 999px;
-}
-
-/* #2281：能力提示 chips 用主色系，与问题统计的红色系区分 */
-.chip--info {
-  color: var(--color-primary-ink);
-  background: var(--color-primary-10);
-  border-color: var(--color-primary-20);
-}
-
-.card-actions {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  margin-top: auto;
-}
-
-.summary-foot {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border-default);
-}
-
-.foot-selected {
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-}
-
-.foot-selected strong {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
 }
 </style>

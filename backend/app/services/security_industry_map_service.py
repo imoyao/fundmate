@@ -59,6 +59,8 @@ SCHEME_SW1 = 'sw1'
 
 SOURCE_CNINFO = 'cninfo'
 SOURCE_SWSRESEARCH = 'swsresearch'
+#: 万得股票 MCP（#2749）：一次问句回「申万一级 + 证监会门类」，传债券代码回正股
+SOURCE_WIND = 'wind'
 
 #: 证监会门类（2012 版，现行 19 个）**中文名 → 单字母代码**。
 #:

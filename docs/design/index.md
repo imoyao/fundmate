@@ -29,9 +29,12 @@ title: 设计哲学与决策记录 (ADR)
 
 | 文档 | 内容 | 状态 |
 |:---|:---|:---|
+| `navigation-ia.md` | 导航信息架构：按**财务动作**切四个顶级（资产概览 / 资产管理 / 记账中心 / 账本精灵）；菜单 4 字规则与豁免；面包屑改读菜单树（`route.matched` 因路由拍平而恒错）与去掉过渡动画的实证；单子项模块拍平（禁止 `showParent`）；守卫清单与反向约束 | 定稿（2026-10-30） |
 | `brand-v1.7.md` | 主站 + 落地页品牌视觉语言（v1.7 终稿：深海叙事 + 珊瑚红镜头转场 + /about 独立页 + 四生物插画映射） | 终稿 |
 | `ocean-invest-ecology-illustration-v0.1.md` | 海洋投资生态图鉴插画规范（8 生物 archetype、超椭圆容器、双色、颜色双账） | 规范 v0.1，绘制/互动后置 |
 | `about-page-proposal.md` | `/about` 品牌故事页方案评估（推荐轻量排版骨架 + 标准工程件补齐，四拍板已落地） | 提案已采纳 |
+| `transaction-flow-redesign.md` | 交易流水桌面端重设计：三条横带（页头 / 汇总条 / 筛选+列表）、表格 11 列 + 流水线 7 列栅格、账户轴与月轴、持仓三态语义（`held`/`cleared`/`account`）与「已清仓」胶囊取代「已删除」+ 整格置灰、状态静默化、改动映射与 12 条验收判据。原型 `transaction-flow-redesign-prototype.html`（可交互单文件） | **已实施（v1.2，2026-11-01）**：三条横带全部落地——汇总条接 `GET /api/transactions/summary/`（净投入公式在文档 §四，前端零求和），行展开详情按需取（`GET /api/transactions/{id}/`） |
+| `product-detail-drawer.md` | 产品详情抽屉统一规范：唯一外壳（`components/ProductDrawer`）、720px 单宽、24/14/13 三档数字、13/500 区块标题（不复用 `SectionHeader`）、唯一出口在 sticky footer、内容删减 6 项 / 合并 7 项、组合详情页成分基金行栈 | 定稿并已实施（2026-11-01） |
 | 主站实现（`landing.html` / `about.html` / `story.html`） | 按 brand-v1.7 落地的静态营销三页：落地页含 eco 无缝横幅；about 章节结构与 `docs/about.md` 对齐（文案可润色）；story 为深海叙事页。共享令牌源 `site/style.css`（镜像 frontend `colors.css`）。构建：`scripts/build-landing.mjs` + `landing.content.yml` | ✅ 已落地（2026-08-05，about-us 页已删除，footer 含意见反馈/隐私政策链接） |
 
 ### 设计文档 ↔ issue 反链（2026-08-08 triage）

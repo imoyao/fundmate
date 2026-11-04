@@ -20,10 +20,15 @@ WHY
 
 白名单（不是漏洞，是显式登记的例外）
 ----------------------------------
-`frontend/src/components/Aggregation/AggregationHero.vue` —— hero 是横向概览锚点，
+`frontend/src/components/Aggregation/AggregationBreakdownDonut.vue` —— hero 是横向概览锚点，
 空间放不下表格；它把 echarts 原生图例换成「HTML top5 + 其他 N 类」折叠，属**信息分层**
 而非「重新实现一套资产分布」。按判据它本该走表内嵌条，但 hero 布局下不可行，故登记为例
 并在 components.md 补了说明（#2164）。除它之外的任何新 pie option 都会变红。
+
+注意：白名单登记的是**承载这段 option 的文件**，不是历史上的宿主。该环形图原为
+`AggregationHero.vue` 内联，`#2664`（#980 瘦身）把它整块搬进
+`AggregationBreakdownDonut.vue` 时白名单没跟着迁移，于是全仓 CI 变红（dev 实测）——
+搬迁代码时若跨了守卫的路径白名单，必须同步改路径。
 
 用法
 ----
@@ -50,7 +55,8 @@ UNIFIED_COMPONENT = "frontend/src/components/Charts/AssetAllocationDonut.vue"
 # 否则这道守卫会退化成「谁熟谁加白名单」的橡皮图章。
 WHITELIST = frozenset(
     {
-        "frontend/src/components/Aggregation/AggregationHero.vue",
+        # #2664 起这段环形 option 住在这个文件（原先内联在 AggregationHero.vue）
+        "frontend/src/components/Aggregation/AggregationBreakdownDonut.vue",
     }
 )
 

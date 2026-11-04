@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { formatQuantity } from "@/utils/format";
 import type { AggregationProductGroup, AggregationSource } from "@/api/ledger";
+import { useProductCardModel } from "@/components/Aggregation/productCardModel";
 
 /**
  * 聚合视图产品卡片（#1101 / #1132 共用）。
@@ -16,6 +16,8 @@ import type { AggregationProductGroup, AggregationSource } from "@/api/ledger";
  * 两种模式共用同一套模板，仅副标题来源不同：
  * - 'product'：按产品聚合，副标题=基金管理人
  * - 'institution'：按渠道平铺，副标题=销售机构名
+ *
+ * 全部字段派生已收敛到 `productCardModel.ts`（#980），本文件只负责模板与样式。
  */
 defineOptions({ name: "AggregationProductCard" });
 
@@ -46,103 +48,23 @@ const emit = defineEmits<{
   (e: "select", payload: AggregationProductGroup | AggregationSource): void;
 }>();
 
-const isInstitution = computed(() => props.mode === "institution");
-
-const productName = computed(
-  () => props.group?.name || props.source?.name || "--"
-);
-const productCode = computed(
-  () => props.group?.symbol || props.source?.symbol || ""
-);
-
-/**
- * 副标题。
- * - institution 维度（按渠道分组、组内按账本平铺）：显示**账本名称**，
- *   用于区分同一渠道下的不同账本；销售机构全称较长，改由悬浮提示承载，
- *   避免挤压卡片布局。注意该维度的分组键是销售机构，不是账本。
- * - product 维度：显示基金管理人。
- */
-const subtitle = computed(() => {
-  if (isInstitution.value) return props.source?.ledger_name || null;
-  return props.group?.fund_manager || null;
-});
-const subtitleIcon = computed(() => (isInstitution.value ? "ep:wallet" : ""));
-/** 副标题悬浮提示：institution 模式补充销售机构全称（Alias） */
-const subtitleTitle = computed(() => {
-  if (isInstitution.value) {
-    const org = props.source?.institution_name;
-    const alias = props.source?.institution_alias;
-    if (org && alias) return `${org}（${alias}）`;
-    return org || null;
-  }
-  return props.group?.fund_manager || null;
-});
-
-const shares = computed(() => {
-  if (isInstitution.value) return (props.source?.quantity || 0) / 10000;
-  return (props.group?.quantity || 0) / 10000;
-});
-
-const marketValueYuan = computed(() => {
-  if (isInstitution.value) return (props.source?.market_value_cents || 0) / 100;
-  return (props.group?.market_value_cents || 0) / 100;
-});
-
-const nav = computed(() => {
-  if (isInstitution.value) return props.navYuan;
-  return props.group?.nav_yuan ?? null;
-});
-
-/** 持仓收益率（小数，如 0.079 → 7.90%）；无成本（后端 return_pct 为 null）时显示 -- */
-const returnPct = computed<number | null>(() => {
-  if (isInstitution.value) return props.source?.return_pct ?? null;
-  return props.group?.return_pct ?? null;
-});
-
-/** 收益率文本（带正负号，如 "+7.90%"） */
-const returnText = computed(() => {
-  const v = returnPct.value;
-  if (v == null) return "--";
-  const sign = v >= 0 ? "+" : "";
-  return `${sign}${(v * 100).toFixed(2)}%`;
-});
-
-/** 收益率胶囊语义：正收益涨色 / 负收益跌色 / 无成本中性 */
-const returnClass = computed(() => {
-  const v = returnPct.value;
-  if (v == null || v === 0) return "return-badge--flat";
-  return v > 0 ? "return-badge--positive" : "return-badge--negative";
-});
-
-/** 多渠道持有 tooltip 明细（对齐「N 个账户」弱化为图标的诉求） */
-const channelTooltip = computed(() => {
-  if (isInstitution.value) return "";
-  const names = (props.group?.sources ?? [])
-    .map(s => s.ledger_name)
-    .filter(Boolean);
-  const base = `该基金分散在 ${channelCount.value} 个账户持有`;
-  return names.length ? `${base}：${names.join("、")}` : base;
-});
-
-/** 显示用的快照日期（格式化后） */
-const displayDate = computed(() => {
-  const d =
-    props.snapshotDate ??
-    (isInstitution.value
-      ? props.source?.snapshot_date
-      : props.group?.snapshot_date);
-  if (!d) return null;
-  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? `${m[2]}-${m[3]}` : d;
-});
-
-/** 多渠道持有提示 */
-const multiChannelHint = computed(() => {
-  if (isInstitution.value) return false;
-  const srcCount = props.group?.sources?.length ?? 0;
-  return srcCount > 1;
-});
-const channelCount = computed(() => props.group?.sources?.length ?? 0);
+const {
+  isInstitution,
+  productName,
+  productCode,
+  subtitle,
+  subtitleIcon,
+  subtitleTitle,
+  shares,
+  marketValueYuan,
+  nav,
+  returnText,
+  returnClass,
+  channelCount,
+  channelTooltip,
+  displayDate,
+  multiChannelHint
+} = useProductCardModel(props);
 
 function handleClick() {
   const payload = isInstitution.value

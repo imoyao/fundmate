@@ -5,14 +5,16 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TransactionTable from "@/components/TransactionTable/index.vue";
 import { getTransactions, type TransactionRecord } from "@/api/transactions";
-import { getTradeTimeline, type TradeContribution } from "@/api/products";
+import TransactionCountLine from "./transactionSection/TransactionCountLine.vue";
+import TransactionMoreControls from "./transactionSection/TransactionMoreControls.vue";
 import {
   PREVIEW_SIZE,
   EXPAND_SIZE,
   needToggle,
   visibleRows as pickVisibleRows,
   shouldFetchMore,
-  showsPartial
+  showsPartial,
+  producesRealizedPnl
 } from "./transactionSectionMetrics";
 
 /**
@@ -41,12 +43,17 @@ import {
  * （top10 紧凑表 + 卡内就地展开），与同页 `ProductHoldingSection.vue` 保持一致；
  * 该文 §3.3 优先级 4 明确否决「默认渲染全表 + 内部滚动」，故滚动**只在展开态**启用。
  *
- * ## 当时成本 / 收益贡献两列（#2171 P2）
+ * ## 当时成本 / 收益贡献两列（#2171 P2，取数方式 #2857 重写）
  *
- * 数据来自 `GET /api/products/trade-timeline/` 的 contributions（按 txn_id 关联），
- * 与走势卡叠加层同源同口径；本卡自行取数（各区块独立取数是详情页既有形态，
- * 时间线端点是单条索引查询 + 内存重放，代价低于跨组件抬 state）。拉取失败两列
- * 显示 `--`，主表不受影响（设计 §6 诚实降级）。
+ * 两列由**主表响应**下发（`/api/transactions/?symbol=` 的 `cost_after_yuan` /
+ * `profit_contribution_yuan`，后端在按 symbol 过滤时用 `build_contribution_map`
+ * 跑一次与走势卡同源的重放）。
+ *
+ * 上一版是「第二个请求 + 按 txn_id 关联」：`/api/products/trade-timeline/` 拉
+ * contributions，再 `contributionMap.get(row.id)`。它的失效方式是静默的——两个请求
+ * 各自取数，一个到了、一个没到，界面就只剩一列 `--`，没有日志也没有提示；
+ * 用户能看到的只是「这两列没值」，分不清是请求失败、关联不上，还是本来就没有口径。
+ * 一次请求、一份口径之后，「有没有值」与「有没有数据」才重新变成同一件事。
  */
 
 /** 仅可交易品类渲染本区块；manager / portfolio / index 等查看型详情页整块不渲染 */
@@ -88,30 +95,6 @@ const transactions = ref<TransactionRecord[]>([]);
 const total = ref(0);
 const errorMsg = ref<string | null>(null);
 const expanded = ref(false);
-
-/**
- * 「当时成本 / 收益贡献」两列的数据源（#2171 P2）。
- *
- * 与走势卡的时间线是**两次独立请求**：本卡与走势卡各自取自己需要投影——
- * 时间线端点是单条索引查询 + 内存重放，代价远低于为共享一份数据在两个组件间
- * 抬 state（详情页各区块本就各自取数，见 ProductFundSection 等同侪）。
- * 拉取失败静默降级：两列显示「—」，主表不受影响（设计 §6）。
- */
-const contributionMap = ref<Map<number, TradeContribution>>(new Map());
-
-async function loadContributions() {
-  if (!renderable.value) return;
-  try {
-    const res = await getTradeTimeline({ symbol: props.symbol });
-    contributionMap.value = new Map(
-      (res.data.contributions ?? [])
-        .filter(c => c.txn_id !== null)
-        .map(c => [c.txn_id as number, c])
-    );
-  } catch {
-    contributionMap.value = new Map();
-  }
-}
 
 const hasTransactions = computed(() => transactions.value.length > 0);
 
@@ -165,7 +148,6 @@ async function loadTransactions(perPage: number) {
 // 刻意不在这里取满 EXPAND_SIZE：绝大多数用户不会展开，为不会看的行付请求代价不划算。
 if (renderable.value) {
   void loadTransactions(PREVIEW_SIZE);
-  void loadContributions();
 }
 
 async function toggleExpanded() {
@@ -195,24 +177,35 @@ watch(
     expanding.value = false;
     transactions.value = [];
     total.value = 0;
-    contributionMap.value = new Map();
     if (renderable.value) {
       void loadTransactions(PREVIEW_SIZE);
-      void loadContributions();
     }
   }
 );
 
-/** 行 → 当时成本（元）；无重放数据（拆分等未参与类型 / 拉取失败）为 null。
-    入参不标 TransactionRecord：el-table 默认槽的 row 是 DefaultRow（无索引签名，
-    整个对象传不进强类型函数），与模板里其余列一样按属性访问即可。 */
-function rowField(
-  row: unknown,
-  field: "cost_after_yuan" | "profit_contribution_yuan"
-) {
-  const id = (row as { id?: number }).id;
-  if (typeof id !== "number") return null;
-  return contributionMap.value.get(id)?.[field] ?? null;
+/**
+ * 行 → 当时成本（元）；后端未参与重放（拆分等）为 null → `--`。
+ *
+ * 入参不标 `TransactionRecord`：el-table 默认槽的 row 是 `DefaultRow`（无索引签名，
+ * 整个对象传不进强类型函数），与模板里其余列一样按属性访问即可。
+ */
+function costAfter(row: unknown): number | null {
+  const v = (row as { cost_after_yuan?: unknown }).cost_after_yuan;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * 行 → 收益贡献（元）。
+ *
+ * 建仓类流水（买入 / 转入）**不产生已实现盈亏**，这里返回 null 让表格显示 `--`：
+ * 印成 `0.00` 等于说「这笔没赚钱」，而事实是「这笔不落袋」。判据住
+ * `producesRealizedPnl`（含单测），模板里不再拼第二份。
+ */
+function profitContribution(row: unknown): number | null {
+  const r = row as { type?: string; profit_contribution_yuan?: unknown };
+  if (!producesRealizedPnl(r.type)) return null;
+  const v = r.profit_contribution_yuan;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function goAllTransactions() {
@@ -243,12 +236,12 @@ function goAllTransactions() {
     <template v-else>
       <!-- 总数与表同屏、不藏脚注：首版的静默截断让用户以为「这就是全部」（#2160）。
            有更多时才提示「最近 10 条」，否则「共 N 条」本身就是完整信息。 -->
-      <p class="transaction-section__count">
-        共 {{ total }} 条
-        <span v-if="needToggleBtn && !expanded">
-          （当前显示最近 {{ PREVIEW_SIZE }} 条）
-        </span>
-      </p>
+      <TransactionCountLine
+        :total="total"
+        :preview-size="PREVIEW_SIZE"
+        :need-toggle="needToggleBtn"
+        :expanded="expanded"
+      />
 
       <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件」：
            此前详情页 / 账本 Tab / 持仓抽屉三套表格，字段与口径全不一致）。
@@ -265,24 +258,25 @@ function goAllTransactions() {
              注意：交易日期/类型/数量/价格/金额/账户六列由 TransactionTable 基础列
              无条件渲染，此处不得重复注入（重复曾致详情页 14 列、6 列双份）。 -->
         <template #extra-columns>
-          <!-- 当时成本 / 收益贡献（#2171 P2）：由交易时间线重放得出（与走势卡
-             同源口径），无重放数据的类型（拆分等）显示 — -->
+          <!-- 当时成本 / 收益贡献（#2171 P2 · 取数 #2857）：由主表响应一次下发
+               （后端按 symbol 跑一次与走势卡同源的重放）。没有口径的类型显示 —。 -->
           <el-table-column label="当时成本" width="100">
             <template #default="{ row }">
               <MoneyDisplay
-                :value="rowField(row, 'cost_after_yuan')"
-                :decimals="2"
+                :value="costAfter(row)"
+                :precision="2"
                 :auto-color="false"
               />
             </template>
           </el-table-column>
           <el-table-column label="收益贡献" width="100">
             <template #default="{ row }">
-              <!-- 收益贡献是盈亏语义：开 auto-color（涨红跌绿）；无重放数据时
-                 MoneyDisplay 空值渲染 --（与价格/金额列一致） -->
+              <!-- 收益贡献是盈亏语义：开 auto-color（涨红跌绿）。
+                   建仓类（买入/转入）不落袋 → null → `--`，不是 `0.00`
+                   （判据见 transactionSectionMetrics.producesRealizedPnl）。 -->
               <MoneyDisplay
-                :value="rowField(row, 'profit_contribution_yuan')"
-                :decimals="2"
+                :value="profitContribution(row)"
+                :precision="2"
                 :show-sign="true"
               />
             </template>
@@ -291,41 +285,32 @@ function goAllTransactions() {
       </TransactionTable>
 
       <!-- 两列的口径脚注：收益贡献是盈亏语义（涨红跌绿），当时成本是事实值（中性色）。
-           写清楚「怎么算的」，用户才不会把「当时成本 0」误读成免费拿到。 -->
+           写清楚「怎么算的」，用户才不会把「当时成本 0」误读成免费拿到；
+           也要写清「买入为什么是 —」——否则那会看起来像没取到数。 -->
       <p class="transaction-section__footnote">
         当时成本 / 收益贡献由交易时间线重放得出：成本含手续费；收益贡献 =
-        卖出净回款 − 释放成本，分红按 +金额，买入记 0（建仓未实现）。
+        卖出净回款 − 释放成本，分红按 +金额，买入（建仓未落袋）显示 — 而非 0。
       </p>
 
-      <button
+      <!-- 第二 / 三级出口：就地展开（表内滚动）与「查看全部流水」跳转。
+           只在总量超过折叠态时挂载——恰好 10 条时不该出现这个按钮。 -->
+      <TransactionMoreControls
         v-if="needToggleBtn"
-        type="button"
-        class="transaction-section__more"
-        :aria-expanded="expanded"
-        aria-controls="transaction-detail-table"
-        :disabled="expanding"
-        @click="toggleExpanded"
-      >
-        {{ expanding ? "加载中…" : expanded ? "收起" : `展开全部 ${total} 条` }}
-      </button>
-
-      <!-- 第 3 级出口：展开后仍看不全时，把「查全部」交给本就是为查明细设计的流水页。
-           只在展开态出现——折叠态就摆这条链接，是在给一个多数用不到的出口加噪声。 -->
-      <p v-if="showsPartialWhenExpanded" class="transaction-section__footnote">
-        仅显示最近 {{ transactions.length }} 条 ·
-        <button
-          type="button"
-          class="transaction-section__link"
-          @click="goAllTransactions"
-        >
-          查看全部流水
-        </button>
-      </p>
+        :total="total"
+        :expanded="expanded"
+        :expanding="expanding"
+        :shows-partial="showsPartialWhenExpanded"
+        :taken="transactions.length"
+        @toggle="toggleExpanded"
+        @go-all="goAllTransactions"
+      />
     </template>
   </CardBlock>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "./transactionSection/transaction-base";
+
 .transaction-section {
   display: flex;
   flex-direction: column;
@@ -350,52 +335,5 @@ function goAllTransactions() {
   padding: 24px;
   color: var(--text-tertiary);
   text-align: center;
-}
-
-.transaction-section__count,
-.transaction-section__footnote {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
-}
-
-/* 展开/收起是主操作，给品牌色；「查看全部流水」是次级出口，弱化成普通链接 */
-.transaction-section__more {
-  align-self: flex-start;
-  padding: 0;
-  font-size: var(--text-label);
-  color: var(--brand-700, var(--brand-500));
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-.transaction-section__more:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.transaction-section__more:disabled {
-  color: var(--text-tertiary);
-  cursor: default;
-}
-
-.transaction-section__more:focus-visible,
-.transaction-section__link:focus-visible {
-  outline: 2px solid var(--brand-500);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm, 4px);
-}
-
-.transaction-section__link {
-  padding: 0;
-  font-size: var(--text-label);
-  color: var(--brand-700, var(--brand-500));
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-.transaction-section__link:hover {
-  text-decoration: underline;
 }
 </style>

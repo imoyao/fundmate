@@ -148,6 +148,29 @@
   color: var(--text-primary);
 }
 
+/* ── 操作列 ··· 菜单（2026-11-02 方案 B）──
+   菜单 popper teleport 到 body，**不在 .el-table 内**，故本组选择器不能带 .el-table 前缀，
+   改用自有类名（.watchlist-actions-menu__*）控制，避免污染其它下拉菜单。
+   删除项用 --color-danger-ink 而非 --color-danger：前者是「危险**文字**级」令牌
+   （白底 4.74:1），后者是面/描边级；菜单项是文字，必须用 ink 档（#1599）。 */
+.watchlist-actions-menu__icon {
+  margin-right: 8px;
+  font-size: 14px;
+  vertical-align: -2px;
+}
+
+.watchlist-actions-menu__danger,
+.watchlist-actions-menu__danger .watchlist-actions-menu__icon {
+  color: var(--color-danger-ink);
+}
+
+/* 危险项 hover 也不套品牌色：EP 默认 hover 会把文字刷成主色，删除语义会丢 */
+.watchlist-actions-menu__danger:hover,
+.watchlist-actions-menu__danger:focus {
+  color: var(--color-danger-ink);
+  background-color: var(--color-danger-10);
+}
+
 .el-table .add-note-btn {
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
@@ -230,6 +253,16 @@
   color: var(--text-secondary);
 }
 
+/* 到期收益 YTM（#1400/#2575）：正收益涨色、负收益跌色（A 股惯例：涨红跌绿）。
+   不用 is-positive/is-negative 这类通用名——避免与其他列的语义类撞名。 */
+.el-table .bond-num.is-ytm-up {
+  color: var(--color-rise-ink);
+}
+
+.el-table .bond-num.is-ytm-down {
+  color: var(--color-fall-ink);
+}
+
 /* 强赎状态：文本可超列宽，省略并以 title 看全文；含「强赎」的状态用涨色高亮 */
 .el-table .bond-redeem {
   display: inline-block;
@@ -283,6 +316,36 @@
 
 .el-table .link-empty {
   color: var(--text-tertiary-ink);
+}
+
+/* 关联浮层分区块（#2503）：组标题带数量，组内一行一条「名称（代码）」。
+   ⚠️ 刻意**不加** `.el-table` 前缀：ElTooltip 的浮层走 Teleport 挂到 body，
+   带祖先前缀的选择器命中不到（与上面 .link-badge 不同——角标在单元格内）。
+   配色写死浅色而非用 --text-*-ink 变量：本浮层 effect="dark"，背景是深色的，
+   套用正文墨色变量会看不见。 */
+.link-tip {
+  display: flex;
+  flex-direction: column;
+  max-width: 280px;
+  gap: 8px;
+}
+
+.link-tip-group + .link-tip-group {
+  padding-top: 6px;
+  border-top: 1px solid rgb(255 255 255 / 18%);
+}
+
+.link-tip-title {
+  margin-bottom: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgb(255 255 255 / 65%);
+}
+
+.link-tip-item {
+  font-size: 12px;
+  line-height: 18px;
+  color: #fff;
 }
 
 /* ── 且慢组合补充列（#1468）── */

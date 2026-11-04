@@ -66,6 +66,20 @@ CANONICAL_OVERVIEW_COLUMNS: tuple[str, ...] = (
     'return_1y',
     'return_ytd',
     'return_since_incep',
+    # ── 投顾详情页 P0（2026-10-29）：2/3 年区间 + 业绩基准同区间收益 ──
+    # 基准收益与 `return_*` **配对命名**（`return_1m` ↔ `benchmark_return_1m`）而不是合成一个
+    # `excess_return` 列：超额是纯派生值（读取侧现算），基准则是**上游事实**、必须原样存下来
+    # ——否则「组合 25.39% / 基准 6.12%」这类判断依据就再也无法复核。
+    'return_2y',
+    'return_3y',
+    'benchmark_return_1m',
+    'benchmark_return_1q',
+    'benchmark_return_6m',
+    'benchmark_return_ytd',
+    'benchmark_return_1y',
+    'benchmark_return_2y',
+    'benchmark_return_3y',
+    'benchmark_return_since_incep',
 )
 
 #: canonical 概览里需要按日期解析的键（字符串 → date 由落库层统一处理）
@@ -95,9 +109,11 @@ class AdvisorPortfolioSource(ABC):
     - ``platform`` 必须与 ``AdvisorPortfolio.platform`` 一致（大写，如 ``QIEMAN``）；
     - 数据面方法**无该数据面时返回空集合**（``[]`` / ``{}``），不要抛错——
       job 对空集合天然无操作，这样「平台能力差异」不需要额外的能力开关；
-    - 唯一需要显式声明的能力位是 :attr:`derive_rebalances_from_snapshots`：
-      它描述的是「**没有**官方调仓接口，须由落库层用快照序列推导」，
-      推导算法在 job 侧统一实现，适配器无法自给，故必须声明。
+    - 能力位有两个：:attr:`derive_rebalances_from_snapshots` 描述「**没有**官方调仓接口，
+      须由落库层用快照序列推导」（推导算法在 job 侧统一实现，适配器无法自给）；
+      :attr:`has_official_rebalances` 描述官方数据面是否存在。**两者可同时为真**——
+      且有平台确实如此（且慢：官方接口覆盖 ``alfa/portfolio``，但计划型组合
+      ``LONG_WIN`` 不属于该命名空间），此时官方优先、拿不到才推导。
     """
 
     #: 平台标识（与 ``AdvisorPortfolio.platform`` 取值一致）
@@ -106,8 +122,16 @@ class AdvisorPortfolioSource(ABC):
     #: 是否有**官方**历史调仓数据面；False 时只能靠 :attr:`derive_rebalances_from_snapshots`
     has_official_rebalances: bool = False
 
-    #: 无官方调仓接口时，是否允许由持仓快照序列推导调仓明细（落库层统一实现）
+    #: 官方调仓拿不到（或该代码不在官方命名空间内）时，是否允许由持仓快照序列推导调仓明细
+    #: （落库层统一实现）。可与 :attr:`has_official_rebalances` 同时为真——且慢即如此。
     derive_rebalances_from_snapshots: bool = False
+
+    #: 官方调仓行落库时的 ``source`` 值；空串 = 与其它数据面同源（``platform.lower()``）。
+    #:
+    #: 只有「既有官方接口、历史上又靠推导入库过」的平台才需要区分（且慢）。不区分的后果：
+    #: 同类数据在库里两个来源共用一个 ``source``，换源后同一时段会有两套真相，
+    #: 前端也无法只凭 ``source`` 判断某行是否为推导结果。
+    official_rebalance_source: str = ''
 
     @abstractmethod
     def get_name(self) -> str:
@@ -168,6 +192,23 @@ class AdvisorPortfolioSource(ABC):
         「这只组合清仓了」。
         """
         return {c: self.fetch_holdings(c) for c in codes or []}
+
+    def fetch_nav_history(self, code: str) -> List[Dict[str, Any]]:
+        """组合历史净值序列 ``[{nav_date, nav}]``；无该数据面返回 ``[]``。
+
+        语义要求：
+        - ``nav_date`` 是**字符串** ``YYYY-MM-DD``（日期解析统一由落库层负责，与
+          :meth:`fetch_holdings` 的 ``as_of_date`` 同口径）；
+        - 返回**全量**历史而不是按档位截取——详情页要支持 1M~5Y 六档，截断在适配器里
+          做等于让长档永远画不满，而多存几千行对 market 域毫无压力；
+        - 拿不到时**返回 ``[]`` 还是抛错**要分清：**没有该数据面**（平台不提供）返回 ``[]``，
+          **调不通**（Token 缺失 / 传输失败）必须抛错——空列表被上层读成
+          「这组合没有净值」，与「这次没调成」是两件事（#171 同族）。
+
+        默认实现返回 ``[]``：这是**可选数据面**，与批量方法同理——新增平台不必为此
+        写一个占位方法，也不该因为在基类里加了抽象方法就编译不过。
+        """
+        return []
 
 
 #: platform → 适配器类（由 :func:`register_advisor_source` 填充）

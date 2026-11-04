@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.transaction_service import fee_breakdown_yuan
 from tests.domains.test_positions import _get, _post
 
 
@@ -598,3 +599,515 @@ class TestTransactionSource:
         resp2 = _post(client, '/api/positions/', payload)
         assert resp2.status_code == 409
         assert '已记录' in (resp2.get_json() or {}).get('message', '')
+
+
+def _txn_kwargs(**kw):
+    """费用拆分测试共用的流水构造参数（family_id=1，金额单位分）。"""
+    base = {
+        'family_id': 1,
+        'txn_type': 'buy',
+        'quantity': 0,
+        'price': 0,
+        'amount': 0,
+        'position_name': '测试',
+        'account_name': '测试账户',
+    }
+    base.update(kw)
+    return base
+
+
+def _detail(client, txn_id: int) -> dict:
+    """取单条流水详情（`GET /api/transactions/<id>/`），非 200 直接失败并带上原因。"""
+    resp = client.get(f'/api/transactions/{txn_id}/')
+    assert resp.status_code == 200, f'详情接口返回 {resp.status_code}: {resp.get_json()}'
+    return resp.get_json()['data']
+
+
+def _listed(client, txn_id: int) -> dict:
+    """从列表接口里取同一行——用来断言「列表与详情同一口径」。"""
+    rows = _get(client, '/api/transactions').get_json()['data']
+    return next(t for t in rows if t['id'] == txn_id)
+
+
+class TestTransactionFeeBreakdown:
+    """#2137 费用拆分四列（commission/stamp_duty/transfer_fee/other_fee，分）。
+
+    不变量由 Transaction 的 before_insert / before_update 兜底：
+    - 四列全 NULL = 未拆分（存量数据与未提供拆分的路径的默认态）；
+    - 一旦拆分必须四列齐全，且其和必须等于聚合 fee。
+    """
+
+    def test_unsplit_fee_accepted_and_reads_as_none(self, db):
+        """未拆分：四列全 NULL + 聚合 fee，存量行为不变（不报错、明细读作 None）。"""
+        txn = Transaction(**_txn_kwargs(fee=1500))
+        db.add(txn)
+        db.flush()
+        assert txn.commission is None
+        assert txn.stamp_duty is None
+        assert fee_breakdown_yuan(txn) is None
+
+    def test_consistent_breakdown_accepted(self, db):
+        """四列齐全且和=fee：正常落库，明细按元读出。"""
+        txn = Transaction(
+            **_txn_kwargs(
+                fee=1500,
+                commission=500,
+                stamp_duty=850,
+                transfer_fee=100,
+                other_fee=50,
+            )
+        )
+        db.add(txn)
+        db.flush()
+        assert fee_breakdown_yuan(txn) == {
+            'commission': 5.0,
+            'stamp_duty': 8.5,
+            'transfer_fee': 1.0,
+            'other_fee': 0.5,
+        }
+
+    def test_zero_fee_with_zero_breakdown_accepted(self, db):
+        """分红/兑付等零费用行也可显式拆分（四列全 0，和=fee=0）。"""
+        txn = Transaction(
+            **_txn_kwargs(
+                fee=0,
+                commission=0,
+                stamp_duty=0,
+                transfer_fee=0,
+                other_fee=0,
+            )
+        )
+        db.add(txn)
+        db.flush()
+        assert fee_breakdown_yuan(txn) == {
+            'commission': 0.0,
+            'stamp_duty': 0.0,
+            'transfer_fee': 0.0,
+            'other_fee': 0.0,
+        }
+
+    def test_sum_mismatch_rejected_on_insert(self, db):
+        """拆分之和不等于 fee → before_insert fail closed。"""
+        with pytest.raises(ValueError, match='不一致'):
+            txn = Transaction(
+                **_txn_kwargs(
+                    fee=1500,
+                    commission=500,
+                    stamp_duty=800,  # 850 → 800，和 1450 ≠ 1500
+                    transfer_fee=100,
+                    other_fee=50,
+                )
+            )
+            db.add(txn)
+            db.flush()
+
+    def test_partial_breakdown_rejected_on_insert(self, db):
+        """只给部分拆分列 → before_insert fail closed（缺的类别必须显式传 0）。"""
+        with pytest.raises(ValueError, match='四列齐全'):
+            txn = Transaction(**_txn_kwargs(fee=500, commission=500))
+            db.add(txn)
+            db.flush()
+
+    def test_sum_mismatch_rejected_on_update(self, db):
+        """存量未拆分行被改坏时，before_update 同样拦截。"""
+        txn = Transaction(**_txn_kwargs(fee=1500))
+        db.add(txn)
+        db.flush()
+        db.refresh(txn)
+        txn.commission = 500
+        txn.stamp_duty = 800
+        txn.transfer_fee = 100
+        txn.other_fee = 50
+        with pytest.raises(ValueError, match='不一致'):
+            db.flush()
+        db.rollback()
+
+    def test_manual_buy_carries_breakdown_via_api(self, client, db):
+        """记一笔带四类费用 → 流水四列落库，列表接口回显 fee_breakdown（元）。"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 100,
+                'avg_price': 350,
+                'currency': 'HKD',
+                'trade_date': '2026-05-01',
+                'fee': 15,
+                'fee_commission': 5,
+                'fee_stamp_duty': 8.5,
+                'fee_transfer_fee': 1,
+                'fee_other': 0.5,
+            },
+        )
+        assert resp.status_code == 200
+        pos_id = resp.get_json()['data']['id']
+        txn = db.query(Transaction).filter_by(position_id=pos_id).first()
+        assert txn is not None
+        assert txn.fee == 1500
+        assert (txn.commission, txn.stamp_duty, txn.transfer_fee, txn.other_fee) == (500, 850, 100, 50)
+
+        list_resp = _get(client, '/api/transactions')
+        row = next(t for t in list_resp.get_json()['data'] if t['id'] == txn.id)
+        assert row['fee_breakdown'] == {
+            'commission': 5.0,
+            'stamp_duty': 8.5,
+            'transfer_fee': 1.0,
+            'other_fee': 0.5,
+        }
+
+    def test_manual_buy_without_breakdown_reads_none(self, client, db):
+        """不带拆分的记一笔：fee_breakdown 为 None（前端按单值展示，存量语义）。"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': 'AAPL',
+                'name': '苹果',
+                'type': 'stock',
+                'market': 'US',
+                'account_name': '富途',
+                'quantity': 10,
+                'avg_price': 180,
+                'currency': 'USD',
+                'trade_date': '2026-05-01',
+                'fee': 3,
+            },
+        )
+        assert resp.status_code == 200
+        list_resp = _get(client, '/api/transactions')
+        row = next(t for t in list_resp.get_json()['data'] if t['symbol'] == 'US:AAPL')
+        assert row['fee_breakdown'] is None
+        assert row['fee'] == 3.0
+
+    def test_edit_transaction_sets_breakdown(self, client, db):
+        """编辑交易可补录四类费用（PATCH ledgers 域交易编辑入口）。"""
+        ledger = client.post('/api/ledgers/', json={'name': '华泰证券'}).get_json()['data']
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '600519',
+                'name': '贵州茅台',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '华泰证券',
+                'ledger_id': ledger['id'],
+                'quantity': 100,
+                'avg_price': 1500,
+                'trade_date': '2026-05-01',
+            },
+        )
+        assert resp.status_code == 200
+        txn = db.query(Transaction).filter_by(symbol='SH600519').first()
+        assert txn is not None
+
+        patch_resp = client.patch(
+            f'/api/ledgers/{ledger["id"]}/transactions/{txn.id}/',
+            json={
+                'fee': 15,
+                'fee_commission': 5,
+                'fee_stamp_duty': 8.5,
+                'fee_transfer_fee': 1,
+                'fee_other': 0.5,
+            },
+        )
+        assert patch_resp.status_code == 200
+        data = patch_resp.get_json()['data']
+        assert data['fee_breakdown'] == {
+            'commission': 5.0,
+            'stamp_duty': 8.5,
+            'transfer_fee': 1.0,
+            'other_fee': 0.5,
+        }
+        db.refresh(txn)
+        assert (txn.commission, txn.stamp_duty, txn.transfer_fee, txn.other_fee) == (500, 850, 100, 50)
+
+    def test_edit_transaction_partial_breakdown_rejected(self, client, db):
+        """编辑交易只给部分拆分列 → 400（而不是撞模型不变量变 500）。"""
+        ledger = client.post('/api/ledgers/', json={'name': '华泰证券'}).get_json()['data']
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '600519',
+                'name': '贵州茅台',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '华泰证券',
+                'ledger_id': ledger['id'],
+                'quantity': 100,
+                'avg_price': 1500,
+                'trade_date': '2026-05-01',
+            },
+        )
+        assert resp.status_code == 200
+        txn = db.query(Transaction).filter_by(symbol='SH600519').first()
+        assert txn is not None
+        patch_resp = client.patch(
+            f'/api/ledgers/{ledger["id"]}/transactions/{txn.id}/',
+            json={'fee': 15, 'fee_commission': 5},
+        )
+        assert patch_resp.status_code == 400
+        assert '四类齐全' in (patch_resp.get_json() or {}).get('message', '')
+
+
+class TestTransactionDetail:
+    """单条流水详情（行展开按需取，`GET /api/transactions/<id>/`）。
+
+    存在理由：费用拆分以外的溯源信息（导入哈希 / 更新时间 / 定投计划）与**持仓现状**
+    （当前份额、是否已清仓）只有展开某一行才需要。并进列表等于给每页 20 行各算一遍。
+    """
+
+    def test_detail_carries_list_row_plus_detail_only_fields(self, client, db, make_position, make_transaction):
+        """详情 = 列表行 ∪ 详情专属字段；列表行那部分逐字相同（同一组装函数）。"""
+        pos = make_position(symbol='004369', name='测试基金', asset_type='fund', quantity=100, avg_price=1.0)
+        txn = make_transaction(position_id=pos.id, ledger_id=None, symbol='004369', position_name='测试基金')
+        db.commit()
+
+        detail = _detail(client, txn.id)
+        listed = next(t for t in _get(client, '/api/transactions').get_json()['data'] if t['id'] == txn.id)
+
+        # 列表行部分：详情不多不少，与列表逐键相同（防止两条路径各声明一套字段）
+        for key, value in listed.items():
+            assert detail[key] == value, f'详情与列表的 {key} 不一致：详情={detail[key]!r} 列表={value!r}'
+
+        # 详情专属（列表没有）
+        for key in ('import_hash', 'updated_at', 'plan_id', 'position'):
+            assert key in detail, f'详情缺字段 {key}'
+            assert key not in listed, f'{key} 不该出现在列表行里（那是「一次性全拿到」）'
+
+        assert detail['position']['id'] == pos.id
+        assert detail['position']['quantity'] == 100.0
+        # 不返回 ownership_status（与 position_state 是同一件事的两种写法），
+        # 多出来的是清仓时间：未清仓过 → None
+        assert 'ownership_status' not in detail['position']
+        assert detail['position']['cleared_at'] is None
+
+    def test_detail_404_for_unknown_id(self, client):
+        resp = client.get('/api/transactions/999999/')
+        assert resp.status_code == 404
+
+    def test_detail_404_for_other_family(self, client, db, make_position):
+        """跨家庭按 404 处理（不返 403 泄漏「这一行存在」）。
+
+        不用 `make_transaction`：该 fixture 把 `family_id` 写死为 1，要造「别家的流水」
+        只能直接建行——否则测出来的是「同家庭能读」，永远绿。
+        """
+        pos = make_position(symbol='004369', name='别家的', asset_type='fund', quantity=1, avg_price=1.0, family_id=2)
+        txn = Transaction(**_txn_kwargs(family_id=2, position_id=pos.id, symbol='004369'))
+        db.add(txn)
+        db.commit()
+        assert client.get(f'/api/transactions/{txn.id}/').status_code == 404
+
+
+class TestTransactionPositionState:
+    """流水行的持仓状态（`held` / `cleared` / `account`）——设计 §三 的**唯一**判据。
+
+    这一组钉住设计 v1.0 初判的一处实测失效：
+
+    > 「`position_id === null` → 已清仓」
+
+    #2343 起清仓**不再删行**（`ownership_status='cleared'`，锚点留存），所以已清仓的
+    流水 `position_id` 依然有值 —— 按 null 判会让「已清仓」胶囊几乎永不出现，
+    而用户会以为这个标记坏了。反过来，`position_id` 非空但持仓行已被删（#2343 之前的
+    历史数据，真库实测 621 笔）本来就是已清仓，判成 held 会长期撒谎。
+    """
+
+    def test_held_when_position_row_is_active(self, client, db, make_position, make_transaction):
+        pos = make_position(symbol='004369', name='测试基金', asset_type='fund', quantity=100, avg_price=1.0)
+        txn = make_transaction(position_id=pos.id, ledger_id=None, symbol='004369')
+        db.commit()
+
+        assert _detail(client, txn.id)['position_state'] == 'held'
+        assert _listed(client, txn.id)['position_state'] == 'held'
+
+    def test_cleared_when_position_kept_but_cleared(self, client, db, make_position, make_transaction):
+        """#2343：清仓不删行 → `position_id` 仍有值，状态必须是 cleared。
+
+        这条是本组的主用例：它正是「按 `position_id is None` 判已清仓」失效的场景。
+        """
+        pos = make_position(
+            symbol='004369',
+            name='测试基金',
+            asset_type='fund',
+            quantity=0,
+            avg_price=1.0,
+            ownership_status='cleared',
+        )
+        txn = make_transaction(position_id=pos.id, ledger_id=None, symbol='004369')
+        db.commit()
+
+        assert _detail(client, txn.id)['position_state'] == 'cleared'
+        assert _listed(client, txn.id)['position_state'] == 'cleared'
+
+    def test_cleared_when_position_id_dangles(self, client, db, make_transaction):
+        """`position_id` 指向已不存在的持仓（历史删行）→ cleared，且不编造持仓摘要。"""
+        txn = make_transaction(position_id=987654, ledger_id=None, symbol='004369')
+        db.commit()
+
+        detail = _detail(client, txn.id)
+        assert detail['position_state'] == 'cleared'
+        assert detail['position'] is None, '悬空 id 时不得编造持仓现状'
+
+    def test_account_state_for_deposit_and_withdraw(self, client, db, make_transaction):
+        """资金流水（存入 / 取出）本来就没有持仓行 → account，不是「已清仓」。"""
+        for txn_type in ('deposit', 'withdraw'):
+            txn = make_transaction(position_id=None, ledger_id=None, txn_type=txn_type, symbol=None)
+            db.commit()
+            assert _detail(client, txn.id)['position_state'] == 'account'
+
+    def test_cleared_for_orphan_non_account_type(self, client, db, make_transaction):
+        """无持仓行且不是资金流水（历史孤儿买入）→ cleared，不是 account。"""
+        txn = make_transaction(position_id=None, ledger_id=None, txn_type='buy', symbol='004369')
+        db.commit()
+        assert _detail(client, txn.id)['position_state'] == 'cleared'
+
+
+def _summary(client, **params) -> dict:
+    """取汇总条数据（`GET /api/transactions/summary/`），非 200 直接失败并带上原因。"""
+    resp = client.get('/api/transactions/summary/', query_string=params)
+    assert resp.status_code == 200, f'汇总接口返回 {resp.status_code}: {resp.get_json()}'
+    return resp.get_json()['data']
+
+
+class TestTransactionSummary:
+    """汇总条（设计 §四 口径）：净投入 = 买入 + 手续费 − 卖出 − 分红。
+
+    这批用例存在的理由：汇总条是全页**唯一**的聚合数字，算错了页面不会报错——
+    它只会安静地给出一个和列表对不上的数。所以判据全写死成可手算的已知数据。
+    """
+
+    def test_net_invested_formula_from_spec_fixture(self, client, db):
+        """规格里的已知数据：买入 100 / 卖出 40 / 分红 5 / 手续费 1 → 净投入 **56**。
+
+        手续费**不摊进买入**（否则「买入」不再等于成交额，拿汇总条去核表格会差一笔），
+        所以四个数各自可核：100 / 40 / 5 / 1。
+        """
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='buy', amount=10000, fee=100)),
+                Transaction(**_txn_kwargs(txn_type='sell', amount=4000)),
+                Transaction(**_txn_kwargs(txn_type='dividend', amount=500)),
+            ]
+        )
+        db.commit()
+
+        s = _summary(client)
+        assert s['buy'] == {'count': 1, 'amount': 100.0}
+        assert s['sell'] == {'count': 1, 'amount': 40.0}
+        assert s['dividend'] == {'count': 1, 'amount': 5.0}
+        assert s['fee'] == 1.0
+        assert s['net_invested'] == 56.0
+        # 公式本身也断一遍：日后改结构（比如加字段）时这条仍能抓住口径漂移
+        assert s['net_invested'] == pytest.approx(
+            s['buy']['amount'] + s['fee'] - s['sell']['amount'] - s['dividend']['amount']
+        )
+
+    def test_summary_counts_every_row_not_just_one_page(self, client, db):
+        """汇总覆盖**全部**命中行，不是当页 20 条——拿列表数据求和是最坏的一种错。
+
+        这条用例的作用是钉住「独立聚合查询」：一旦有人图省事改成对列表 `data`
+        求和，25 条会变成 10 条（或 20 条），而页面照样渲染得漂漂亮亮。
+        """
+        db.add_all([Transaction(**_txn_kwargs(txn_type='buy', amount=1000)) for _ in range(25)])
+        db.commit()
+
+        page = _get(client, '/api/transactions', {'per_page': 10}).get_json()
+        assert len(page['data']) == 10, '前提：列表分页只返回 10 条'
+
+        s = _summary(client)
+        assert s['buy']['count'] == 25
+        assert s['buy']['amount'] == 250.0
+
+    def test_summary_follows_same_filters_as_list(self, client, db):
+        """同一组筛选下，汇总的笔数与列表的 total 必须一致（两条路径共用 WHERE）。"""
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='buy', amount=1000)),
+                Transaction(**_txn_kwargs(txn_type='buy', amount=2000)),
+                Transaction(**_txn_kwargs(txn_type='sell', amount=500)),
+            ]
+        )
+        db.commit()
+
+        s = _summary(client, type='buy')
+        listed = _get(client, '/api/transactions', {'type': 'buy'}).get_json()
+        assert s['buy']['count'] == 2
+        assert s['sell']['count'] == 0, 'type=buy 时卖出不该混进来'
+        assert s['buy']['count'] == listed['total']
+        # 净投入随筛选变化：只剩两笔买入、无手续费 → 30
+        assert s['net_invested'] == 30.0
+
+    def test_dividend_bucket_sums_both_codes(self, client, db):
+        """分红按**两个码合计**：`dividend`（历史）+ `dividend_cash`（新链路），少认一个就少钱。
+
+        真机数据里两码并存（开发库实测 69 + 33 笔）：只认 `dividend` 时页面不会报错，
+        只是「分红」比实际少一截、净投入多一截——而且列表和汇总少的是同一批，看起来自洽。
+        """
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='dividend', amount=500)),
+                Transaction(**_txn_kwargs(txn_type='dividend_cash', amount=1200)),
+            ]
+        )
+        db.commit()
+
+        s = _summary(client)
+        assert s['dividend'] == {'count': 2, 'amount': 17.0}, '两码未合计时这里会只算到 5.0'
+        assert s['net_invested'] == -17.0, '净投入必须跟着两码合计走'
+
+    def test_type_filter_dividend_covers_both_codes(self, client, db):
+        """筛选「分红」也要包含两个码：否则列表与汇总同时少掉同一批，两边还各自自洽。"""
+        db.add_all(
+            [
+                Transaction(**_txn_kwargs(txn_type='dividend', amount=500)),
+                Transaction(**_txn_kwargs(txn_type='dividend_cash', amount=1200)),
+                Transaction(**_txn_kwargs(txn_type='buy', amount=1000)),
+            ]
+        )
+        db.commit()
+
+        listed = _get(client, '/api/transactions', {'type': 'dividend'}).get_json()
+        assert listed['total'] == 2, 'type=dividend 应把 dividend_cash 一起带回'
+        s = _summary(client, type='dividend')
+        assert s['dividend']['count'] == listed['total']
+        assert s['buy']['count'] == 0
+
+    def test_summary_scoped_to_own_family(self, client, db):
+        """别的家庭的流水不进汇总（跨家庭泄漏在这里同样是「数字对不上」）。"""
+        db.add(Transaction(**_txn_kwargs(txn_type='buy', amount=99999)))
+        db.add(Transaction(**_txn_kwargs(family_id=2, txn_type='buy', amount=88888)))
+        db.commit()
+
+        s = _summary(client)
+        assert s['buy'] == {'count': 1, 'amount': 999.99}
+
+    def test_fee_covers_all_types_but_net_only_uses_four(self, client, db):
+        """手续费取**全类型**求和（含存入），但净投入公式只认买入/卖出/分红。
+
+        存入 1000 + 手续费 3：手续费要算进来，存入本身不进净投入——它是资金搬运，
+        不是「为持仓投进去的钱」。这条差异必须被钉住，否则下次会把存入也算进净投入。
+        """
+        db.add(Transaction(**_txn_kwargs(txn_type='deposit', amount=100000, fee=300)))
+        db.commit()
+
+        s = _summary(client)
+        assert s['fee'] == 3.0
+        assert s['buy']['count'] == 0
+        assert s['net_invested'] == 3.0
+
+    def test_empty_range_returns_zeros_not_none(self, client, db):
+        """无命中行时四个数都是 0（不是 None）：前端要直接渲染，不该在这做空值判断。"""
+        s = _summary(client, time_range='custom', start_date='2099-01-01', end_date='2099-12-31')
+        assert s == {
+            'buy': {'count': 0, 'amount': 0.0},
+            'sell': {'count': 0, 'amount': 0.0},
+            'dividend': {'count': 0, 'amount': 0.0},
+            'fee': 0.0,
+            'net_invested': 0.0,
+        }

@@ -70,6 +70,11 @@
   --spacing-standard: var(--space-standard);
   --spacing-loose: var(--space-loose);
 
+  /* 浮层宽度（2026-11-02）：tooltip 两种载体的宽度上限，层次不要拉平。
+     短语 320 与说明卡 380 的取值理由见 style/el-tooltip.css 的两段注释。 */
+  --tooltip-max-width: 320px;
+  --tooltip-max-width-rich: 380px;
+
   /* ===== 字阶系统 ===== */
   --text-hero: 57px;
   --text-display: 32px;

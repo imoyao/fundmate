@@ -17,6 +17,10 @@
     # 重抓并验证 jisilu_indicator 是否含 level（B2 端到端验证用）
     pdm run python -m app.tools.sync_cli verify-jisilu
 
+    # 行情加深：把「库内起点晚于首笔流水」的标的整段重抓（#2860，可反复跑）
+    pdm run python -m app.tools.sync_cli deepen --dry-run
+    pdm run python -m app.tools.sync_cli deepen
+
 说明:
     - temperature 任务已放开乖离率（SKIP_BIAS=False，见 thermometer/jobs.py）：
       数据源改为直连后不再依赖 akshare/东财限流。乖离率按标的粒度记账，
@@ -161,6 +165,45 @@ def cmd_verify_jisilu(args):
     return 0 if level_keys else 1
 
 
+def cmd_deepen(args):
+    """行情加深：把「库内起点晚于应有起点」的标的整段重抓（#2860）。
+
+    为什么需要单独一条命令：这些标的库里已有行，日常增量的窗口从**库内最后一行**
+    往后走，永远不会回头看前缀——改首次同步的窗口只治新标的，存量不会自愈。
+    判据是「库内最早日 > min(首笔流水 − 14 天, 今天 − 5 年)」，已覆盖的一条请求
+    都不发，故可反复跑。
+    """
+    from app.services.adapters.akshare_adapter import AkshareAdapter
+    from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
+
+    init_db()
+    with get_db() as db:
+        job = PriceHistorySyncJob(AkshareAdapter(), db)
+        targets = [c.strip() for c in args.targets.split(',') if c.strip()] if args.targets else None
+        result = job.deepen(targets=targets, dry_run=args.dry_run)
+        for item in result['details']:
+            logger.info(
+                f'  {item["symbol"]}: {item["stored_first"]} → {item["achieved_first"]}'
+                f'（目标 {item["target_start"]}，新增 {item["rows_added"]} 行）'
+            )
+        logger.info(
+            f'加深完成：计划 {result["planned"]}，已完成 {result["deepened"]}，'
+            f'无需处理 {result["skipped"]}，新增 {result["rows_added"]} 行，取回 0 行 {len(result["empty"])}，'
+            f'名录缺失 {len(result["unlisted"])}'
+        )
+        if result['unlisted']:
+            # 名录缺失 = securities 里查不到，`_get_security_map` 会静默跳过 ⇒ 不发请求。
+            # 别让它只在日志里一闪：扩池后仍然零行情的标的必须能被解释（#2859）。
+            logger.warning(f'  名录缺失（不会发请求，需先补 securities）: {result["unlisted"]}')
+        if result['empty']:
+            # 不非 0 退出：这类标的多为停牌 / 已退市，对任何窗口都取不到（本机实测
+            # SH601198 / SZ000003 / SZ000013 换窗口也是 0 行）。把它们算作失败会让
+            # 这条可重复执行的命令次次亮红灯，真出问题时反而没人看。
+            for item in result['empty']:
+                logger.warning(f'  未加深（源侧无数据）: {item}')
+        return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description='统一数据同步 CLI')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -183,6 +226,11 @@ def main():
 
     p_verify = sub.add_parser('verify-jisilu', help='验证 jisilu_indicator 是否已含 level 字段')
     p_verify.set_defaults(func=cmd_verify_jisilu)
+
+    p_deepen = sub.add_parser('deepen', help='行情加深：起点晚于首笔流水的标的整段重抓（#2860）')
+    p_deepen.add_argument('--targets', type=str, help='只处理这些代码（逗号分隔），缺省为全部库内标的')
+    p_deepen.add_argument('--dry-run', action='store_true', help='只列计划，不发请求、不写库')
+    p_deepen.set_defaults(func=cmd_deepen)
 
     args = parser.parse_args()
 

@@ -18,7 +18,7 @@ from contextlib import closing
 
 import pytest
 
-from app.core.db_factory import market_session_factory, user_session_factory
+import app.core.db_factory as db_factory
 from app.core.symbol_utils import symbol_identity
 from app.domains.funds.models import Fund
 from app.domains.positions.models import Position
@@ -33,7 +33,7 @@ _TEST_SYMBOLS = ('SZ000001', 'SZ159915', 'SH601899', '159857', 'SZ159857')
 
 
 @pytest.fixture(autouse=True)
-def _isolate_product_rows():
+def _isolate_product_rows(client):
     """每个用例前按 symbol 清掉本文件关心的业务行。
 
     conftest 的 ``clean_db`` 只清「当前会话引擎实际存在的表」，**market 域与部分
@@ -45,12 +45,20 @@ def _isolate_product_rows():
 
     ``funds`` 同理：裸码误判用例种了 ``fund_code='159857'``，不清理会把后续
     目录反查串味（market 域残留是 clean_db 的已知盲区）。
+
+    ⚠️ 必须请求 ``client`` 夹具（而非独立 autouse）：一是保证本清理在 conftest
+    对 ``*_session_factory`` 的 monkeypatch **之后**执行；二是工厂一律经
+    ``db_factory.属性`` 调用——2026-10-28 实测，``from app.core.db_factory import
+    market_session_factory`` 会在 import 期早绑定原函数对象，monkeypatch 对它
+    无效，本文件的种子与清理曾**全部落到真实 dev 库 invest.db**（当日清理
+    funds '159857' 撞真实 daily_worth 外键才暴露；conftest 顶部另有环境变量
+    安全网兜底，但正确写法是这两条都守住）。
     """
-    with closing(user_session_factory()()) as db:
+    with closing(db_factory.user_session_factory()()) as db:
         db.query(WatchlistItem).filter(WatchlistItem.symbol.in_(_TEST_SYMBOLS)).delete()
         db.query(Position).filter(Position.symbol.in_(_TEST_SYMBOLS)).delete()
         db.commit()
-    with closing(market_session_factory()()) as db:
+    with closing(db_factory.market_session_factory()()) as db:
         db.query(Security).filter(Security.symbol.in_(_TEST_SYMBOLS)).delete()
         db.query(Fund).filter(Fund.fund_code.in_(('159857',))).delete()
         db.commit()
@@ -62,7 +70,7 @@ def _seed_security(symbol='SZ000001', name='平安银行', sec_type='stock'):
     幂等：conftest 的 ``clean_db`` 只清当前会话引擎实际存在的表，**market 域残留不保证被清**，
     故这里先查后插——否则重复 symbol 会撞 ``securities.symbol`` 唯一约束。
     """
-    with closing(market_session_factory()()) as db:
+    with closing(db_factory.market_session_factory()()) as db:
         if db.query(Security.id).filter(Security.symbol == symbol).first() is None:
             db.add(Security(symbol=symbol, name=name, market='CN_A', type=sec_type))
             db.commit()
@@ -70,7 +78,7 @@ def _seed_security(symbol='SZ000001', name='平安银行', sec_type='stock'):
 
 def _seed_watchlist(family_id=1, symbol='SZ000001', asset_type='stock', name='平安银行'):
     """user 域种子（自选行，含名称快照）。同样幂等（唯一键 family+symbol+market+venue）。"""
-    with closing(user_session_factory()()) as db:
+    with closing(db_factory.user_session_factory()()) as db:
         exists = (
             db.query(WatchlistItem.id)
             .filter(
@@ -214,7 +222,7 @@ def test_resolve_etf_from_security_type(client):
 def test_resolve_from_position_when_not_in_watchlist(client):
     """只在持仓里、没加自选 → source=position，in_watchlist=False / has_position=True。"""
     _seed_security()
-    with closing(user_session_factory()()) as db:
+    with closing(db_factory.user_session_factory()()) as db:
         exists = db.query(Position.id).filter(Position.family_id == 1, Position.symbol == 'SZ000001').first()
         if exists is None:
             db.add(
@@ -252,7 +260,7 @@ def _seed_watchlist_row(
     与 `_seed_watchlist` 的区别：那个固定写契约市场 `CN_A`，本函数用来复现存量库里
     「场内自选存交易所形态」的历史事实（本机实测 `SH` 13 行 / `SZ` 22 行）。
     """
-    with closing(user_session_factory()()) as db:
+    with closing(db_factory.user_session_factory()()) as db:
         exists = (
             db.query(WatchlistItem.id)
             .filter(
@@ -279,7 +287,7 @@ def _seed_watchlist_row(
 
 def _seed_position(symbol='SH601899', market='CN_A', quantity=100):
     """写一行持仓（**契约市场**）。实测 `positions.market` 155/155 都是 `CN_A`。"""
-    with closing(user_session_factory()()) as db:
+    with closing(db_factory.user_session_factory()()) as db:
         exists = (
             db.query(Position.id)
             .filter(Position.family_id == 1, Position.symbol == symbol, Position.market == market)
@@ -357,12 +365,12 @@ def test_resolve_bare_code_matches_prefixed_position(client):
     判据：持仓行（用户自录，最可信）必须压过目录反查；``has_position`` 也必须为真。
     """
     # 目录陷阱：funds 表有裸码同名行（不种它，目录反查返回 None，测不出压序）
-    with closing(market_session_factory()()) as db:
+    with closing(db_factory.market_session_factory()()) as db:
         if db.query(Fund.id).filter(Fund.fund_code == '159857').first() is None:
             db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
             db.commit()
     # 持仓存带交易所前缀写法 + 归一身份键（生产库真实形态）
-    with closing(user_session_factory()()) as db:
+    with closing(db_factory.user_session_factory()()) as db:
         exists = db.query(Position.id).filter(Position.family_id == 1, Position.symbol == 'SZ159857').first()
         if exists is None:
             db.add(

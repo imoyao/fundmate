@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     UniqueConstraint,
     text,
@@ -136,6 +137,15 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     # 见 fund_style_tag_feasibility.md §4），筛选场景应排除 QDII 后使用本字段。
     dominant_style = Column(String(20), comment='当前主导风格（韭圈儿风格箱暴露值最大项，上游原文）')
     style_period = Column(String(10), comment='上述主导风格对应的时点，如 2026-10-16（口径与版本留痕）')
+    # ── #1440 晨星星级评级（当期值，3 年期口径）──
+    # 数据源：东财评级总汇页 fundrating.html（晨星授权、东财聚合展示），job 为
+    # FundRatingSyncJob。口径坐实：三家机构专页反证字段顺序（pos14=晨星）+
+    # 晨星官方 MCP starRatingDetails ratingPeriod=36；探针对账 000001/110011/161725
+    # 逐只一致。存储为当期值列而非快照表（D1：无消费者即无历史需求，delta 含义
+    # 在写入期已定格）；空=无评级（货基/新基金常态，见 migrations 同名校验）。
+    morningstar_rating = Column(SmallInteger, comment='晨星星级评级 1-5（3年期口径，东财评级总汇页），空=无评级')
+    morningstar_rating_delta = Column(SmallInteger, comment='晨星评级较上期变化（-4~4，如 000001=-1 降一星），空=未知')
+    morningstar_rating_asof = Column(Date, comment='评级数据快照日期（东财页当日），供前端标注时效')
     risk_level = Column(Integer, comment='风险等级 1-5')
     is_fe_charge = Column(Boolean, default=False, comment='前端收费')
     benchmark = Column(String(200), comment='业绩比较基准')
@@ -493,10 +503,10 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     host = Column(String(60), comment='主理人')
     org_name = Column(String(100), comment='主理人所属机构/平台方')
     risk_level = Column(String(20), comment='风险等级')
-    strategy_type = Column(String(40), comment='策略类型(均衡/进取/稳健)')
-    cum_return = Column(SafeNumeric(7, 2), comment='累计收益(%)')
-    annual_return = Column(SafeNumeric(7, 2), comment='年化收益(%)')
-    running_days = Column(Integer, comment='运行天数')
+    strategy_type = Column(String(40), comment='策略类型(均衡/进取/稳健)·无写者，见 tech-debt')
+    cum_return = Column(SafeNumeric(7, 2), comment='累计收益(%)（与 return_since_incep 同一 SYL_LN 的两个读者）')
+    annual_return = Column(SafeNumeric(7, 2), comment='年化收益(%)（天天 ANNSYL_LN）')
+    running_days = Column(Integer, comment='运行天数（天天 RUN_DATE）')
     is_active = Column(Boolean, default=True, comment='是否在售/有效')
     # ── #1167 概览补充字段（天天基金 FundIATGInfoAggr / 平台元数据）──
     estab_date = Column(Date, comment='组合成立日期')
@@ -514,15 +524,24 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
 
     # ── #1392 投顾品类差异化指标（区间收益 / 回撤 / 超额，落库供自选投顾列展示）──
     # 数据源：天天基金 FundIATGInfoAggr 的 SYL_*，映射已实测核对（见 tiantian_advisor_adapter）。
-    # 回撤/超额 API 不直接提供（实测结论），暂留空、待补算；列已就绪不影响主链路。
+    # ⚠️ 2026-10-29 更正：旧注释称「回撤/超额 API 不直接提供」，那是**只探测了 AGGR 一个接口**
+    # 得出的结论。实网复测 `getTGQuoteByFavor` 现成给出 MAXRETRA_LN 24.33 / SHARPE_LN 0.16 /
+    # RUN_DATE 1556 / ANNSYL_LN 4.19，AGGR 给出 BENCHSYL_* 全区间 ⇒ 回撤、夏普、年化、
+    # 运行天数、基准收益都能取，属「适配器没请求」而非数据源缺失。别再照旧注释把这些列留空。
     return_1w = Column(SafeNumeric(7, 2), comment='近1周收益(%)（SYL_Z）')
     return_1m = Column(SafeNumeric(7, 2), comment='近1月收益(%)（SYL_Y）')
     return_1y = Column(SafeNumeric(7, 2), comment='近1年收益(%)（SYL_1N）')
     return_ytd = Column(SafeNumeric(7, 2), comment='今年以来收益(%)（SYL_JN）')
     return_since_incep = Column(SafeNumeric(7, 2), comment='成立以来收益(%)（SYL_LN）')
-    benchmark = Column(String(50), comment='业绩比较基准')
-    max_drawdown = Column(SafeNumeric(6, 2), comment='最大回撤(%)，API 未直接提供时为空')
-    excess_return = Column(SafeNumeric(7, 2), comment='相对基准超额收益(%)，待补算')
+    #: 业绩比较基准**名称**（如「沪深300指数收益率×90%」）。
+    #: ⚠️ 现状：**无写者**——天天两个接口都只给基准的**收益数值**（BENCHSYL_*），不给名称；
+    #: 登记于 docs/spec/tech-debt.md「投顾组合无写者字段」。保留列不删（删列不可逆，且换平台
+    #: 接口后可能有值）。不要因为「它一直为空」就删掉或填一个猜的字符串。
+    benchmark = Column(String(50), comment='业绩比较基准（名称）· 无写者，见 tech-debt')
+    max_drawdown = Column(SafeNumeric(6, 2), comment='最大回撤(%)（天天 MAXRETRA_LN）')
+    #: 相对基准超额收益(%)。**读取侧现算**（`advisor_profile` 用 成立以来收益 − 基准成立以来收益），
+    #: 库内不写：超额是纯派生值，按数据策略「能算出就不存」不落库。列保留给历史值/兼容。
+    excess_return = Column(SafeNumeric(7, 2), comment='超额收益(%)·读取侧现算，不写库')
 
     # ── #1468 且慢组合策展元数据（调研注册表 + GetStrategyDetails 实时抓取）──
     # 与上方 #1392 指标列一样，属「列已就绪、不影响主链路」的补充字段；
@@ -538,8 +557,27 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     nav = Column(SafeNumeric(12, 6), comment='组合最新净值')
     nav_date = Column(Date, comment='组合净值日期')
     return_1d = Column(SafeNumeric(7, 2), comment='近1日收益(%)')
-    return_1q = Column(SafeNumeric(7, 2), comment='近1季度收益(%)')
-    return_6m = Column(SafeNumeric(7, 2), comment='近半年收益(%)')
+    return_1q = Column(SafeNumeric(7, 2), comment='近1季度收益(%)（SYL_3Y 近3月）')
+    return_6m = Column(SafeNumeric(7, 2), comment='近半年收益(%)（SYL_6Y）')
+
+    # ── 投顾详情页 P0（2026-10-29 实网探测）：2/3 年区间 + 业绩基准同区间收益 ──
+    # 读者：详情页「业绩表现」表——8 个区间 × 三列（本组合 / 业绩基准 / 超额），
+    #   设计见 docs/working-notes/advisor-detail-page-design-2026-10-29.md §3.1-2。
+    # 为什么是「全区间 8 列」而不是设计稿当初估的「3 列」：那 3 列是**只探测了 BENCHSYL_LN /
+    #   BENCHSYL_1N 两个键**时的保守估计；2026-10-29 复测把 BENCHSYL_D/Z/Y/3Y/6Y/JN/1N/2N/3N/LN
+    #   一次性要回，**全部有值**（如 BENCHSYL_Y -6.37 / 2N 6.12 / 3N 16.87），且每列都对得上
+    #   表格里的一个格子（数据策略硬约束 1「新列必须当场指定读者」）。少建列 = 让几行永远 `—`。
+    # 超额列不存：`return_x − benchmark_return_x` 是纯派生值，读取侧现算（见 excess_return 注释）。
+    return_2y = Column(SafeNumeric(7, 2), comment='近2年收益(%)（SYL_2N）')
+    return_3y = Column(SafeNumeric(7, 2), comment='近3年收益(%)（SYL_3N）')
+    benchmark_return_1m = Column(SafeNumeric(7, 2), comment='业绩基准近1月收益(%)（BENCHSYL_Y）')
+    benchmark_return_1q = Column(SafeNumeric(7, 2), comment='业绩基准近3月收益(%)（BENCHSYL_3Y）')
+    benchmark_return_6m = Column(SafeNumeric(7, 2), comment='业绩基准近半年收益(%)（BENCHSYL_6Y）')
+    benchmark_return_ytd = Column(SafeNumeric(7, 2), comment='业绩基准今年以来收益(%)（BENCHSYL_JN）')
+    benchmark_return_1y = Column(SafeNumeric(7, 2), comment='业绩基准近1年收益(%)（BENCHSYL_1N）')
+    benchmark_return_2y = Column(SafeNumeric(7, 2), comment='业绩基准近2年收益(%)（BENCHSYL_2N）')
+    benchmark_return_3y = Column(SafeNumeric(7, 2), comment='业绩基准近3年收益(%)（BENCHSYL_3N）')
+    benchmark_return_since_incep = Column(SafeNumeric(7, 2), comment='业绩基准成立以来收益(%)（BENCHSYL_LN）')
 
 
 class AdvisorHolding(Base, PrimaryKeyMixin, TimestampMixin):
@@ -608,9 +646,59 @@ class AdvisorAdjustHistory(Base, PrimaryKeyMixin, TimestampMixin):
     after_ratio = Column(SafeNumeric(5, 2), comment='调仓后占比(%)')
     op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
     op_name = Column(String(10), comment='操作名称')
-    source = Column(String(20), nullable=False, comment='数据来源: tiantian(官方接口)/qieman(快照推导)')
+    source = Column(
+        String(20),
+        nullable=False,
+        comment='数据来源: tiantian/qieman_official(官方接口)/qieman(快照推导)/qieman_manual(手动)',
+    )
 
     __table_args__ = (UniqueConstraint('portfolio_id', 'adjust_date', 'fund_code', name='uq_advisor_adjust_p_d_f'),)
+
+
+class AdvisorPortfolioNav(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合净值日序列（投顾详情页走势图）。
+
+    ## 为什么需要这张表
+
+    详情页 `/trend/` 的其它品类都有序列底座（``daily_worth`` / ``price_history`` /
+    ``index_daily``），唯独投顾组合没有——``product_trend._NO_SERIES_TYPES`` 直接把
+    ``portfolio`` 判成「无序列数据源」，走势卡整块不渲染。事实并非没有数据源：
+    且慢 MCP 的 ``GetPortfolioNavHistory`` 一次调用就能返回该组合**成立至今**的
+    日频净值（实测 ZH012926 = 2250 行，2017-07-24 → 2026-10-30）。缺的是落库。
+
+    ## 为什么落库而不是每次现拉
+
+    MCP 是外部依赖：单次 1~2s、有额度、且可能抖动。详情页是「点进去就看」的场景，
+    每次现拉等于把外部依赖的可用性直接绑在首屏。落库后读库即回，与其它品类同构；
+    首次查看（库里还没有这个组合）走按需拉取并当场落库，之后走日更同步。
+
+    ## 数据口径
+
+    - ``nav``：组合**单位净值**（且慢返回的是组合净值，非累计净值；组合无分红拆份额，
+      故不需要复权口径——这一点与场外基金不同，见 ``product_trend`` 的 ``basis`` 文案）；
+    - ``source``：写者来源（``qieman``），与 ``advisor_holdings.source`` 同口径；
+    - 同一(组合, 净值日)唯一，重复同步按唯一键覆盖。
+
+    ## 为什么 FK 指向 advisor_portfolios.id 而不是存 code
+
+    同一份数据里 ``advisor_holdings`` / ``advisor_adjust_histories`` 都是这么做的
+    （组合是 market 域内部实体，不存在跨域外键问题），跟随既有口径比另起一套更省心；
+    ``code`` 的归一（大小写 / 平台命名空间）由 ``advisor_portfolios`` 承担。
+    """
+
+    __tablename__ = 'advisor_portfolio_navs'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    nav_date = Column(Date, nullable=False, index=True, comment='净值日期')
+    nav = Column(SafeNumeric(12, 6), nullable=False, comment='组合单位净值')
+    source = Column(String(20), nullable=False, comment='数据来源: qieman(MCP GetPortfolioNavHistory)')
+
+    __table_args__ = (
+        UniqueConstraint('portfolio_id', 'nav_date', name='uq_advisor_nav_p_d'),
+        Index('idx_advisor_nav_portfolio_date', 'portfolio_id', 'nav_date'),
+    )
 
 
 # ── 基金持仓明细 / 行业配置（#870 基金持仓穿透）─────────────────────────────────

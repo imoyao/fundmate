@@ -47,13 +47,14 @@ from decimal import Decimal
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.constants import ValuationMode
 from app.core.money import Money
 from app.core.trading_calendar import next_trading_day
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.symbol_scope import build_transaction_symbol_conditions
 
 # 视为「资金进出」的流水类型（#1217）：申购/赎回与分红都会改变实际持有情况，
 # 但不会体现在 market_value_override 上，故据此判定分摊基数是否已经过期
@@ -123,7 +124,9 @@ def _has_cash_flow_since(db, family_id: int, symbol: str, since: Optional[date])
         db.query(Transaction.id)
         .filter(
             Transaction.family_id == family_id,
-            Transaction.symbol == symbol,
+            # 身份键匹配而非字面量（#1662 遗留项）：流水快照写法可与持仓不同，
+            # 字面量等值会把 `SZ001937` 那批漏掉 → 误报「无资金进出」。
+            or_(*build_transaction_symbol_conditions(symbol)),
             Transaction.txn_type.in_(_CASH_FLOW_TXN_TYPES),
             occurred > since,
         )

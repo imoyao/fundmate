@@ -31,21 +31,32 @@ from app.core.migrations import (
     migrate_account_name_snapshot,
     migrate_advisor_portfolio_metadata,
     migrate_advisor_portfolio_metrics,
+    migrate_advisor_portfolio_perf_columns,
     migrate_advisor_portfolio_provenance,
     migrate_asset_major_category_current_to_cash,
     migrate_channel_link_indexes,
     migrate_conversion_in_leg_snapshot,
+    migrate_convertible_bond_enhanced_columns,
+    migrate_family_members_ownership,
     migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
+    migrate_fund_rating_columns,
     migrate_fund_risk_metrics_period_returns,
     migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
+    migrate_pnl_snapshot_net_worth_nullable,
+    migrate_portfolios_unique_name,
     migrate_positions_cleared_at,
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
     migrate_positions_snapshot_anchor,
     migrate_positions_symbol_norm,
+    migrate_transaction_fee_breakdown,
+    migrate_transaction_plan_id,
+    migrate_transaction_symbol_from_position,
+    migrate_transactions_symbol_norm,
+    migrate_users_username_unique_lower,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
@@ -535,6 +546,10 @@ def _validate_schema(bind, metadata, label: str = 'app') -> None:
             f'[{label}] 数据库结构与模型不一致（{len(drifts)} 处漂移），拒绝启动：\n'
             + '\n'.join(drifts)
             + '\n修复路径：开发环境重建 DB 文件；生产环境补迁移脚本后再启动。'
+            + '\n查看全貌：pdm run user-schema-report'
+            '（只读：逐表列出缺列 / 库多列 / 主键形态 / 存量行数）。'
+            + '\n注意：init_db 里的存量迁移只对 SQLite 生效，Postgres（Supabase）不会被自动补列（#2498）；'
+            '「补非主键列」与「给存量表补主键（需重建表或加约束）」是两类活，后者先看行数再拍板。'
         )
 
 
@@ -576,6 +591,8 @@ def init_db():
     migrate_advisor_portfolio_metadata(app_eng)
     # 投顾组合来历列（#1392）：source 来源标记 + extra 平台特有字段，同上须先于结构校验
     migrate_advisor_portfolio_provenance(app_eng)
+    # 投顾详情页 P0（2026-10-29）：return_2y/3y + 8 个基准区间收益列，同上须先于结构校验
+    migrate_advisor_portfolio_perf_columns(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）：create_all 只建新表、不给存量表加索引
     migrate_channel_link_indexes(app_eng)
     # 费率三表唯一约束（2026-10-18）：同理只补存量；库里有重复行时迁移会 fail closed
@@ -595,6 +612,14 @@ def init_db():
     # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
     # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
     migrate_fund_style_columns(app_eng)
+    # funds 晨星星级评级当期值三列（#1440）：create_all 不替存量表加列，
+    # 同上须先于结构校验；解析契约与口径实证见 docs/dev/fund-rating-collection.md，
+    # job 为 FundRatingSyncJob（orchestrator 第三梯队 + WEEKLY_JOBS）。
+    migrate_fund_rating_columns(app_eng)
+    # convertible_bond_terms 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+    # create_all 不替存量表加列，同上须先于结构校验；两列都是当期快照值、不回填
+    # （回填等于用今天的数贴到历史行），存量行留 NULL 由下次调度补齐。
+    migrate_convertible_bond_enhanced_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -627,12 +652,41 @@ def init_db():
     # 同一份 in_data dict 的 name / market 漏传（#2406）：存量行 name 按基金名录回填、
     # market 收编为契约值（'UNKNOWN' 系 presenter 旧变异落库的污染值，已修读函数写库）。
     migrate_conversion_in_leg_snapshot(user_eng)
+    # transactions 费用拆分四列（#2137）：佣金/印花税/过户费等税费/其他费用，可空、
+    # 只加列不回填（存量拆分事实已随合并丢失，总额 fee 反推不出四类各多少，宁空不猜）。
+    migrate_transaction_fee_breakdown(user_eng)
+    # transactions.plan_id（#2138）：定投计划与流水的关联列 + 索引，同上须先于结构校验
+    migrate_transaction_plan_id(user_eng)
+    # transactions.symbol_norm 归一身份列 + asset_type 回填（#1662 遗留项）：#1677 只给
+    # positions 做了这件事，流水侧被漏掉，导致 `SZ001937` 与 `001937` 各算各的。
+    # 与 positions 同因同法，须先于结构校验（模型已加列，库表不同步会拒绝启动）。
+    migrate_transactions_symbol_norm(user_eng)
+    # transactions.symbol 按持仓回填（#2855）：卖出/分红/拆分写路径曾漏带 symbol，
+    # 挂了持仓却落 NULL ⇒ 按 symbol 匹配的读侧（产品详情交易记录 / 清仓周期）看不见
+    # 这些行。真源 = position_id 指向的持仓；悬空的保持原样。幂等，依赖 symbol_norm 列。
+    migrate_transaction_symbol_from_position(user_eng)
     # watchlist 三表补模型列（#2469）：生产 user 域（Supabase Postgres）上的
     # watchlist_groups / watchlist_item_tags 是旧结构，缺列会让 _validate_schema
     # 判「库结构与模型不一致」并**拒绝启动** → 每日调度（#1490）全线停摆。
     # 与既有 watchlist 迁移不同：这条**管 PG 侧**（生产 user 域就是 Postgres，
     # 而仓内既有迁移全是 SQLite-only —— 那正是漂移一直没人补上的原因）。
     migrate_watchlist_user_domain_columns(user_eng)
+    # 家庭成员档案表 + 账户归属列（#1173）：建 family_members 表、给 ledgers 补
+    # owner_member_id（只加列不回填——历史账户归属谁不可考，NULL=未归属/家庭共有）。
+    migrate_family_members_ownership(user_eng)
+    # pnl_daily_snapshots.net_worth_cents 解除 NOT NULL（#2733 C）：有持仓却一笔都
+    # 取不到价的日子要能记 NULL，与「真归零」分开。SQLite 走整表重建、PG 走
+    # ALTER COLUMN，两侧都在迁移函数里，幂等。
+    migrate_pnl_snapshot_net_worth_nullable(user_eng)
+    # 组合名唯一（2026-10-30）：portfolios 建表以来无唯一约束，同家庭可有同名组合，
+    # 而列表卡片标题就是组合名。建**部分**唯一索引（只约束未删除行，软删除后可复用名字），
+    # 存量重名按「保留最早一条、其余加（2）（3）」去冲突并打 WARNING 留痕。
+    migrate_portfolios_unique_name(user_eng)
+    # 登录标识唯一（#2764）：users.username 建 lower(username) 唯一索引。此前只有
+    # update_me 的应用层 409（且区分大小写），而 resolve 按 lower() 匹配取 id 最小那条
+    # ⇒ 后注册的人能把先注册的人顶掉。存量重名时 fail closed（用户名是登录标识，
+    # 不静默改名），迁移函数里给出重名清单与修复方式。
+    migrate_users_username_unique_lower(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -686,6 +740,8 @@ def init_db_split():
     migrate_advisor_portfolio_metadata(app_eng)
     # 投顾组合来历列（#1392）：source 来源标记 + extra 平台特有字段，同上须先于结构校验
     migrate_advisor_portfolio_provenance(app_eng)
+    # 投顾详情页 P0（2026-10-29）：return_2y/3y + 8 个基准区间收益列，同上须先于结构校验
+    migrate_advisor_portfolio_perf_columns(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）
     migrate_channel_link_indexes(app_eng)
     # 费率三表唯一约束（2026-10-18）：与上方同理只补存量；重复行存在时 fail closed
@@ -704,6 +760,13 @@ def init_db_split():
     # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
     # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
     migrate_fund_style_columns(app_eng)
+    # funds 晨星星级评级当期值三列（#1440）：同上须先于结构校验；解析契约与
+    # 口径实证见 docs/dev/fund-rating-collection.md，job 为 FundRatingSyncJob。
+    migrate_fund_rating_columns(app_eng)
+    # convertible_bond_terms 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+    # create_all 不替存量表加列，同上须先于结构校验；两列都是当期快照值、不回填
+    # （回填等于用今天的数贴到历史行），存量行留 NULL 由下次调度补齐。
+    migrate_convertible_bond_enhanced_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:
@@ -730,9 +793,24 @@ def init_db_split():
         migrate_account_name_snapshot(user_eng)
         # 转入腿 name / market 漏传的存量收编（#2406），与单库模式同口径
         migrate_conversion_in_leg_snapshot(user_eng)
+        # transactions 费用拆分四列（#2137）：与单库模式同口径，只加列不回填
+        migrate_transaction_fee_breakdown(user_eng)
+        # transactions.plan_id（#2138）：与单库模式同口径，双库模式也必须补
+        migrate_transaction_plan_id(user_eng)
+        # transactions.symbol_norm + asset_type 回填（#1662 遗留项）：与单库模式同口径
+        migrate_transactions_symbol_norm(user_eng)
+        # transactions.symbol 按持仓回填（#2855）：与单库模式同口径，幂等
+        migrate_transaction_symbol_from_position(user_eng)
         # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
         # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
         migrate_watchlist_user_domain_columns(user_eng)
+        # 家庭成员档案表 + 账户归属列（#1173）：与单库模式同口径，双库模式也必须建
+        migrate_family_members_ownership(user_eng)
+        # net_worth_cents 解除 NOT NULL（#2733 C）：与单库模式同口径，双库模式也必须改
+        migrate_pnl_snapshot_net_worth_nullable(user_eng)
+        # 登录标识唯一（#2764）：与单库模式同口径。双库模式下 user 引擎可能真是
+        # Supabase PG，索引由本迁移补（create_all 只给新表建索引，不给存量表补）。
+        migrate_users_username_unique_lower(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。

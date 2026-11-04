@@ -25,12 +25,19 @@ from datetime import date, datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
+from sqlalchemy import func
 
 from app.core import database  # 模块级引用，禁止 from-import get_session（#1608 晚绑定守卫）
 from app.core.money import Money
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
+from app.domains.transactions.models import Transaction
+from app.services.analytics.benchmark_comparison import build_benchmark_comparison
+from app.services.analytics.trading_behavior import build_trading_behavior
+from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.nav_service import NavService
 from app.services.performance.calculators import calculate_portfolio_xirr
+from app.services.pnl_calendar import compute_range_attribution
 from app.services.position_scope import exclude_cleared
 from app.services.position_valuation import market_value_cents
 from app.services.summary_service import get_summary_data
@@ -142,6 +149,158 @@ def _tool_list_position_pnl(params: dict) -> dict:
     return {'items': items, 'count': len(items)}
 
 
+def _tool_get_trading_behavior(params: dict) -> dict:
+    """交易行为画像（#2619）：持有期分布 / 换手 / 买卖结构 / 买点分位。
+
+    与 `list_position_pnl`（盈亏明细）、`get_return_attribution`（收益归因）的区别：
+    本工具回答的是**操作习惯**，不涉及盈亏。
+
+    消费方必须守住的三条（否则会误读或幻觉）：
+    - 只给客观统计，**不做好坏评价**：不要据此说「你换手太高/爱追涨」；
+    - `buy_price_percentile.coverage_pct` 可能很低（真库仅部分标的有历史价格），
+      低覆盖时不得把均值当作全样本结论；
+    - `holding.samples` 是分位数样本量，为 0/1 时分位数无意义（None）；
+      `trading.buy_sell_ratio` 在零卖出时为 None（不是 0）。
+    """
+    with database.get_session() as db:
+        return build_trading_behavior(
+            db,
+            family_id=_server_family_id(params),
+            start_date=params.get('start_date'),
+            end_date=params.get('end_date'),
+            symbol=params.get('symbol'),
+        )
+
+
+def _tool_get_portfolio_vs_benchmark(params: dict) -> dict:
+    """组合同期基准对比（#2620）：区间收益 / 基准收益 / 超额 / 回撤 / 相关系数。
+
+    与 `get_portfolio_performance`（绝对年化 XIRR）的分工：本工具回答「跑赢了吗」，
+    即「收益是本事还是市场给的」。全部字段复用既有基准链路
+    （`analytics.benchmark_comparison` → `build_scope_excess` / `index_daily`），
+    零新表、零外部请求。
+
+    口径要点（消费方须知道，否则会误读）：
+    - 超额 = 组合区间收益 − 基准区间涨跌幅（百分点），**同期、同复权**，不是年化；
+    - 最大回撤用日收益连乘（TWR 链式），缺口日跳过不填 0；
+    - 相关系数按**对齐后的日收益**算，样本数一并返回（< 3 或零波动回 None）；
+    - `available=False` 时**不许**用近似值补：读 `unavailable_reason` 与
+      `coverage_gaps`（基准缺哪段）如实告知用户。
+    """
+    with database.get_session() as db:
+        return build_benchmark_comparison(
+            db,
+            family_id=_server_family_id(params),
+            start_date=params.get('start_date'),
+            end_date=params.get('end_date'),
+            benchmark_code=params.get('benchmark'),
+        )
+
+
+def _earliest_confirm_date(db, family_id: int) -> Optional[str]:
+    """本家庭最早一笔流水的确认日（归因「缺省全期」的起点）。
+
+    用 `confirm_date` 而不是 `trade_date`：真库实测 trade_date 有 63% 为空
+    （2026-10-25 核对 1927 笔中 1211 笔无发起日），confirm_date 100% 填充，
+    且 pnl 引擎本身按确认日结算。
+    """
+    earliest = db.query(func.min(Transaction.confirm_date)).filter(Transaction.family_id == family_id).scalar()
+    return earliest.isoformat() if earliest else None
+
+
+def _tool_get_return_attribution(params: dict) -> dict:
+    """收益贡献归因（#2618）：区间收益按标的 / 账户拆到贡献占比。
+
+    与 `list_position_pnl`（#1711）的分工——**明细 ≠ 归因**：
+    前者是每行绝对盈亏，各行不可相加成组合总收益（分母不同）；本工具把区间
+    收益额拆到每个标的/账户，`contribution_pct` 各行相加 ≈ 100。
+
+    口径（全部复用既有唯一算账，不在本层重写）：
+    - 收益额来自 `pnl_calendar.compute_range_attribution`（#2135），与收益日历
+      同一次 `_compute_days` 遍历 ⇒ `Σ items.pnl ≡ 区间合计` 由构造保证；
+    - 占比 = 该标的分位整数分 / 区间合计整数分 × 100（合计为 0 时 None，
+      「没赚没赔」的占比无意义，与 #2135 的 `pct` 同纪律）；
+    - 缺省区间为**全期**（最早一笔流水的确认日起），显式传日期则按传入区间；
+    - 整窗无价的持仓进 `unpriced_count`、不进合计（不造 0 明细）。
+
+    dimension=instrument 按持仓（多账户同一标的各自成行，便于定位账户）；
+    dimension=account 先按 ledger 聚合金额再算占比（聚合只做整数分相加）。
+    """
+    dimension = params.get('dimension') or 'instrument'
+    with database.get_session() as db:
+        family_id = _server_family_id(params)
+        start_date = params.get('start_date') or _earliest_confirm_date(db, family_id)
+        attr = compute_range_attribution(
+            db,
+            family_id=family_id,
+            start_date=start_date,
+            end_date=params.get('end_date'),
+        )
+        account_names: Dict[int, str] = {}
+        if dimension == 'account':
+            ledger_ids = {r['ledger_id'] for r in attr['positions'] if r['ledger_id'] is not None}
+            if ledger_ids:
+                account_names = {
+                    led.id: led.name
+                    for led in db.query(Ledger).filter(Ledger.id.in_(ledger_ids), Ledger.family_id == family_id).all()
+                }
+
+    total_cents = Money.yuan_to_cents(attr['total_pnl']) if attr['total_pnl'] is not None else None
+
+    def _pct(pnl_cents: int) -> Optional[float]:
+        return round(pnl_cents / total_cents * 100, 2) if total_cents else None
+
+    if dimension == 'account':
+        buckets: Dict[Optional[int], dict] = {}
+        for row in attr['positions']:
+            ledger_id = row['ledger_id']
+            bucket = buckets.setdefault(
+                ledger_id,
+                {
+                    'ledger_id': ledger_id,
+                    'account_name': account_names.get(ledger_id),
+                    'pnl_cents': 0,
+                    'positions_count': 0,
+                },
+            )
+            bucket['pnl_cents'] += Money.yuan_to_cents(row['pnl'])
+            bucket['positions_count'] += 1
+        rows = sorted(buckets.values(), key=lambda b: abs(b['pnl_cents']), reverse=True)
+    else:
+        rows = [
+            {
+                'symbol': row['symbol'],
+                'name': row['name'],
+                'asset_type': row['asset_type'],
+                'ledger_id': row['ledger_id'],
+                'pnl_cents': Money.yuan_to_cents(row['pnl']),
+                'positions_count': 1,
+            }
+            for row in attr['positions']
+        ]
+
+    items = [
+        {
+            **{k: v for k, v in row.items() if k != 'pnl_cents'},
+            'pnl': Money.cents_to_yuan(row['pnl_cents']),
+            'contribution_pct': _pct(row['pnl_cents']),
+        }
+        for row in rows
+    ]
+    # 不把内部整数分暴露给模型：单位纪律要求出参一律元（#2610 同一条）。
+    return {
+        'dimension': dimension,
+        'scope': attr['scope'],
+        'start_date': attr['start_date'],
+        'end_date': attr['end_date'],
+        'total_pnl': attr['total_pnl'],
+        'items': items,
+        'count': len(items),
+        'has_any_computable': attr['has_any_computable'],
+        'unpriced_count': len(attr['unpriced_positions']),
+    }
+
+
 def _tool_get_fund_nav(params: dict) -> dict:
     """基金最新净值（只读本地已同步净值；allow_remote=False，工具自身不出网）。"""
     fund_codes: List[str] = params.get('fund_codes') or []
@@ -177,7 +336,10 @@ def _tool_get_watchlist_overview(params: dict) -> dict:
 
 register_tool('get_assets_overview', _tool_get_assets_overview)
 register_tool('get_portfolio_performance', _tool_get_portfolio_performance)
+register_tool('get_portfolio_vs_benchmark', _tool_get_portfolio_vs_benchmark)
 register_tool('list_position_pnl', _tool_list_position_pnl)
+register_tool('get_trading_behavior', _tool_get_trading_behavior)
+register_tool('get_return_attribution', _tool_get_return_attribution)
 register_tool('get_fund_nav', _tool_get_fund_nav)
 register_tool('get_market_temperature', _tool_get_market_temperature)
 register_tool('get_watchlist_overview', _tool_get_watchlist_overview)
@@ -189,7 +351,10 @@ register_tool('get_watchlist_overview', _tool_get_watchlist_overview)
 TOOLS_METADATA = [
     {
         'name': 'get_assets_overview',
-        'description': '获取家庭资产总览：总资产/总负债/净资产/已实现与未实现盈亏（单位：元）',
+        'description': '获取家庭资产总览：总资产/总负债/净资产/已实现与未实现盈亏（单位：元）。'
+        '当用户问「我有多少资产」「净资产多少」「负债多少」这类**存量**问题时使用。'
+        '本工具的盈亏是账面存量（已实现+未实现之和），不做时间加权；'
+        '问「赚了多少 / 收益率 / 年化」时用 get_portfolio_performance（XIRR 口径），不要用本工具',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -202,7 +367,10 @@ TOOLS_METADATA = [
     },
     {
         'name': 'get_portfolio_performance',
-        'description': '计算整个投资组合的年化收益率 XIRR：总投入/当前市值/总收益（单位：元）',
+        'description': '计算整个投资组合的年化收益率 XIRR：总投入/当前市值/总收益（单位：元）。'
+        '当用户问「赚了多少钱」「收益率多少」「年化多少」「总共赚了多少」时使用——'
+        '凡问法里带「赚 / 收益 / 收益率」的，优先本工具；'
+        '问「我有多少资产 / 净资产 / 负债」用 get_assets_overview（那是资产存量总览，不是收益口径）',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -218,6 +386,40 @@ TOOLS_METADATA = [
         },
     },
     {
+        'name': 'get_portfolio_vs_benchmark',
+        'description': '组合同期基准对比：组合区间收益、基准（默认沪深300）同期涨跌幅、'
+        '超额（百分点）、组合与基准最大回撤、日收益相关系数。当用户问「我跑赢沪深300了吗」'
+        '「今年比大盘好还是差」「收益是本事还是市场给的」时使用。'
+        '返回 available=false 时必须如实告知口径不可用及缺口区间，不得用近似值代替；'
+        'unavailable_reason=no_baseline 表示区间起点时账户还没有资产（收益率无分母），'
+        '此时应建议用户指定一个更晚的起始日期',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'family_id': {
+                    'type': 'integer',
+                    'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+                'start_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '区间起始日 YYYY-MM-DD，缺省为全期（最早一笔流水确认日）',
+                },
+                'end_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '区间结束日 YYYY-MM-DD，缺省为今日',
+                },
+                'benchmark': {
+                    'type': 'string',
+                    'enum': sorted(BENCHMARK_INDICES),
+                    'description': '基准指数代码，缺省沪深300（000300.SH）。'
+                    '可选值：' + '、'.join(f'{code}={name}' for code, name in sorted(BENCHMARK_INDICES.items())),
+                },
+            },
+        },
+    },
+    {
         'name': 'list_position_pnl',
         'description': '逐持仓盈亏明细：列出当前每个持仓的成本/市值/盈亏额（元）与盈亏率（%），'
         '按盈亏率从高到低排序。当用户问「我哪些持仓在亏钱」「亏得最多的是哪只」「逐个持仓的盈亏」'
@@ -228,6 +430,68 @@ TOOLS_METADATA = [
                 'family_id': {
                     'type': 'integer',
                     'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+            },
+        },
+    },
+    {
+        'name': 'get_trading_behavior',
+        'description': '交易行为画像：平均持有天数与 25/50/75 分位、区间买卖笔数与买卖比、'
+        '换手率、连续加仓次数、割肉后回补次数、买入时点价格分位均值。'
+        '当用户问「我平均一只基金拿多久」「我是不是爱加仓/爱割肉回补」「我换手高不高」'
+        '「我是不是跌了才买」等操作习惯问题时使用。只给客观统计，不做好坏评价',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'family_id': {
+                    'type': 'integer',
+                    'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+                'start_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '统计窗口起始日 YYYY-MM-DD，缺省为全期',
+                },
+                'end_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '统计窗口结束日 YYYY-MM-DD，缺省为今日',
+                },
+                'symbol': {
+                    'type': 'string',
+                    'description': '限定单个标的代码，缺省统计全部标的',
+                },
+            },
+        },
+    },
+    {
+        'name': 'get_return_attribution',
+        'description': '收益贡献归因：把区间收益额拆到每个标的（或每个账户），给出每行'
+        '收益额（元）与对区间总收益的贡献占比（%，各行相加≈100），按贡献绝对值降序。'
+        '当用户问「我这些年赚的钱主要是哪几只赚的」「亏损里最大一块是哪个」「收益都来自'
+        '哪个账户」等需要占比（而非逐行绝对盈亏）的问题时使用；只看单只赚亏多少用 '
+        'list_position_pnl。缺省区间为全期',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'family_id': {
+                    'type': 'integer',
+                    'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+                'start_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '区间起始日 YYYY-MM-DD，缺省为全期（最早一笔流水确认日）',
+                },
+                'end_date': {
+                    'type': 'string',
+                    'pattern': r'^\d{4}-\d{2}-\d{2}$',
+                    'description': '区间结束日 YYYY-MM-DD，缺省为今日',
+                },
+                'dimension': {
+                    'type': 'string',
+                    'enum': ['instrument', 'account'],
+                    'description': '归因维度：instrument=按标的（默认），account=按账户聚合',
                 },
             },
         },

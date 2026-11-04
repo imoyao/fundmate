@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>线框图 · 持仓改派组合（D20 二期 UI）</title>
+<style>
+  :root {
+    --bg-page: #FDFBF7;
+    --bg-warm: #FAF6F0;
+    --bg-card: #FFFFFF;
+    --bg-soft: #F5F0EB;
+    --bg-subtle: #F7F3EE;
+    --bg-hover: #F2EDE8;
+    --brand-100: #FFF5F3;
+    --brand-200: #FEEDE8;
+    --brand-400: #FABDB0;
+    --brand-700: #E34F38;
+    --brand-800: #CC3D27;
+    --color-rise: #E34F38;
+    --color-fall: #7BC49A;
+    --text-primary: #2D2A24;
+    --text-secondary: #6B655C;
+    --text-tertiary-ink: #716A60;
+    --text-disabled: #C9C2B8;
+    --border-default: #E5DDD4;
+    --border-subtle: #EFE8DF;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --shadow-card: 0 2px 8px rgba(180, 150, 130, 0.08);
+    --shadow-modal: 0 16px 48px rgba(180, 150, 130, 0.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 24px 80px;
+    background: var(--bg-page);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ---------- 页头 ---------- */
+  .doc-head { margin-bottom: 44px; }
+  .doc-head h1 {
+    margin: 0 0 6px; font-size: 24px; font-weight: 600; letter-spacing: -0.2px;
+  }
+  .doc-head .sub {
+    margin: 0 0 20px; color: var(--text-secondary); font-size: 13px;
+  }
+  .premise {
+    background: var(--bg-card); border: 1px solid var(--border-default);
+    border-radius: var(--radius-md); padding: 18px 20px; box-shadow: var(--shadow-card);
+  }
+  .premise h2 {
+    margin: 0 0 12px; font-size: 13px; font-weight: 600;
+    color: var(--text-tertiary-ink); letter-spacing: 0.4px; text-transform: uppercase;
+  }
+  .premise ol { margin: 0; padding-left: 20px; }
+  .premise li { margin-bottom: 9px; color: var(--text-secondary); font-size: 13px; }
+  .premise li:last-child { margin-bottom: 0; }
+  .premise li b { color: var(--text-primary); font-weight: 600; }
+  .premise .tag-inline {
+    display: inline-block; padding: 0 5px; border-radius: 3px;
+    background: var(--brand-100); color: var(--brand-800);
+    font-size: 11px; font-weight: 600; margin: 0 2px;
+  }
+
+  /* ---------- 屏容器 ---------- */
+  .screen { margin-bottom: 52px; }
+  .screen-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .screen-no {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--brand-800); color: #fff;
+    font-size: 12px; font-weight: 600; flex: 0 0 auto;
+  }
+  .screen-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .screen-head .meta { color: var(--text-tertiary-ink); font-size: 12px; }
+  .screen-desc { margin: 0 0 16px 32px; color: var(--text-secondary); font-size: 13px; }
+
+  /* ---------- 模拟界面 ---------- */
+  .frame {
+    background: var(--bg-card); border: 1px solid var(--border-default);
+    border-radius: var(--radius-md); box-shadow: var(--shadow-card); overflow: hidden;
+  }
+  .frame-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px; background: var(--bg-soft);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 12px; color: var(--text-tertiary-ink);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-default); }
+  .frame-body { padding: 20px 22px 22px; }
+
+  /* 卡片头 */
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  .card-head .hint { font-size: 12px; color: var(--text-tertiary-ink); }
+
+  /* 表格 */
+  table.wt { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.wt thead th {
+    text-align: left; padding: 9px 10px; font-weight: 500; font-size: 12px;
+    color: var(--text-tertiary-ink); background: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-default); white-space: nowrap;
+  }
+  table.wt tbody td {
+    padding: 11px 10px; border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle; white-space: nowrap;
+  }
+  table.wt tbody tr:last-child td { border-bottom: none; }
+  table.wt tbody tr:hover td { background: var(--bg-hover); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .rise { color: var(--color-rise); }
+  .fall { color: var(--color-fall); }
+  .muted { color: var(--text-tertiary-ink); }
+  .prod-name { font-weight: 500; }
+  .prod-code { display: block; font-size: 11px; color: var(--text-tertiary-ink); margin-top: 1px; }
+  .type-chip {
+    display: inline-block; padding: 0 4px; border-radius: 3px;
+    background: var(--bg-soft); color: var(--text-tertiary-ink);
+    font-size: 10px; margin-left: 5px; vertical-align: 1px;
+  }
+
+  /* 新增元素标注：内联 chip（绝对定位会压住表头文字） */
+  .new-chip {
+    display: inline-block; margin-left: 5px;
+    background: var(--brand-800); color: #fff;
+    font-size: 9px; line-height: 1; padding: 3px 4px; border-radius: 3px;
+    letter-spacing: 0.3px; font-weight: 600; vertical-align: 1px;
+    white-space: nowrap;
+  }
+  .col-new { background: var(--brand-100) !important; }
+  thead th.col-new { color: var(--brand-800); }
+
+  /* 组合归属单元格 */
+  .own {
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .own-explicit { color: var(--text-primary); }
+  .own-inherit { color: var(--text-tertiary-ink); }
+  .own-mark {
+    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+    flex: 0 0 auto;
+  }
+  .own-explicit .own-mark { background: var(--brand-700); }
+  .own-inherit .own-mark { background: var(--text-disabled); }
+  .own-suffix {
+    font-size: 10px; padding: 0 4px; border-radius: 3px;
+    background: var(--bg-soft); color: var(--text-tertiary-ink);
+  }
+
+  /* 行内操作按钮 */
+  .row-actions { display: flex; gap: 6px; align-items: center; justify-content: center; }
+  .icon-btn {
+    width: 26px; height: 26px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-default); background: var(--bg-card);
+    color: var(--text-secondary); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: opacity 200ms ease-out, background 150ms ease, border-color 150ms ease;
+  }
+  .icon-btn:hover { background: var(--bg-hover); border-color: var(--text-disabled); color: var(--text-primary); }
+  .icon-btn svg { width: 14px; height: 14px; }
+  /* 行内操作规范：静息隐藏，hover / focus 显形 */
+  .row-hoverable .icon-btn { opacity: 0; }
+  .row-hoverable:hover .icon-btn,
+  .row-hoverable .icon-btn:focus { opacity: 1; }
+  .btn-anchor {
+    font-size: 12px; color: var(--brand-800); background: none; border: none;
+    cursor: pointer; padding: 2px 4px; font-family: inherit;
+  }
+  .btn-anchor:hover { text-decoration: underline; }
+
+  /* 复选列 */
+  .check {
+    width: 15px; height: 15px; border-radius: 3px;
+    border: 1.5px solid var(--text-disabled); background: var(--bg-card);
+    display: inline-block; vertical-align: -2px;
+  }
+  .check.on {
+    border-color: var(--brand-800); background: var(--brand-800);
+    position: relative;
+  }
+  .check.on::after {
+    content: ""; position: absolute; left: 4px; top: 1px;
+    width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  /* ---------- 浮层 ---------- */
+  .popover {
+    position: relative; width: 310px;
+    background: var(--bg-card); border: 1px solid var(--border-default);
+    border-radius: var(--radius-md); box-shadow: var(--shadow-modal);
+    overflow: hidden;
+  }
+  .pop-head {
+    padding: 12px 14px 8px; font-size: 12px; color: var(--text-tertiary-ink);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .pop-list { padding: 6px; max-height: 240px; overflow-y: auto; }
+  .pop-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 9px; border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .pop-item:hover { background: var(--bg-hover); }
+  .pop-item.current { background: var(--brand-100); }
+  .radio {
+    width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto;
+    border: 1.5px solid var(--text-disabled); background: var(--bg-card);
+    position: relative;
+  }
+  .pop-item.current .radio { border-color: var(--brand-800); }
+  .pop-item.current .radio::after {
+    content: ""; position: absolute; inset: 2.5px; border-radius: 50%;
+    background: var(--brand-800);
+  }
+  .pop-label { flex: 1; font-size: 13px; }
+  .pop-meta { font-size: 11px; color: var(--text-tertiary-ink); font-variant-numeric: tabular-nums; }
+  .pop-divider { height: 1px; background: var(--border-subtle); margin: 2px 6px; }
+  .pop-foot {
+    padding: 9px 14px; background: var(--bg-warm);
+    border-top: 1px solid var(--border-subtle);
+    font-size: 11px; color: var(--text-tertiary-ink); line-height: 1.5;
+  }
+
+  /* ---------- 批量条 ---------- */
+  .batch-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; margin-bottom: 12px;
+    background: var(--brand-100); border: 1px solid var(--brand-400);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+  }
+  .batch-bar .count { font-weight: 600; color: var(--brand-800); }
+  .batch-bar .spacer { flex: 1; }
+  .btn {
+    font-family: inherit; font-size: 13px; padding: 5px 12px;
+    border-radius: var(--radius-sm); cursor: pointer; border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--brand-800); color: #fff; font-weight: 500; }
+  .btn-primary:hover { background: #A52E1C; }
+  .btn-ghost { background: transparent; color: var(--text-secondary); border-color: var(--border-default); }
+  .btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* ---------- 抽屉 ---------- */
+  .drawer-mock {
+    position: relative; background: var(--bg-page);
+    border-left: 1px solid var(--border-default);
+    width: 420px; box-shadow: var(--shadow-modal); border-radius: var(--radius-md) 0 0 var(--radius-md);
+  }
+  .drawer-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px; border-bottom: 1px solid var(--border-default);
+  }
+  .drawer-head h4 { margin: 0; font-size: 14px; font-weight: 600; }
+  .drawer-body { padding: 18px; }
+  .field-label { font-size: 12px; color: var(--text-tertiary-ink); margin-bottom: 7px; }
+  .select-mock {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 11px; border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm); background: var(--bg-card);
+    font-size: 13px; margin-bottom: 18px;
+  }
+  .diff-list {
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+    overflow: hidden; background: var(--bg-card);
+  }
+  .diff-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; font-size: 12.5px; border-bottom: 1px solid var(--border-subtle);
+  }
+  .diff-row:last-child { border-bottom: none; }
+  .diff-arrow { color: var(--text-disabled); margin: 0 7px; }
+  .drawer-warn {
+    margin-top: 18px; padding: 11px 13px;
+    background: var(--bg-warm); border-left: 3px solid var(--brand-400);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+  }
+  .drawer-foot {
+    display: flex; justify-content: flex-end; gap: 9px;
+    padding: 14px 18px; border-top: 1px solid var(--border-default);
+    background: var(--bg-card);
+  }
+
+  /* ---------- 标注 ---------- */
+  .notes {
+    margin: 14px 0 0 32px; padding: 0; list-style: none;
+    display: grid; grid-template-columns: 1fr; gap: 7px;
+  }
+  .notes li {
+    display: flex; gap: 8px; font-size: 12.5px; color: var(--text-secondary);
+    line-height: 1.65;
+  }
+  .notes .n {
+    flex: 0 0 auto; width: 17px; height: 17px; border-radius: 50%;
+    background: var(--bg-soft); color: var(--text-tertiary-ink);
+    font-size: 10px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-top: 2px;
+  }
+  .notes b { color: var(--text-primary); font-weight: 600; }
+  .notes code {
+    background: var(--bg-soft); padding: 1px 4px; border-radius: 3px;
+    font-size: 11.5px; color: var(--brand-800);
+    font-family: "SF Mono", Consolas, monospace;
+  }
+
+  /* ---------- 待拍板 ---------- */
+  .decide {
+    margin-top: 12px; padding: 22px 24px;
+    background: var(--bg-card); border: 1px solid var(--border-default);
+    border-left: 3px solid var(--brand-700); border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+  }
+  .decide h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+  .decide .q { margin-bottom: 14px; }
+  .decide .q:last-child { margin-bottom: 0; }
+  .decide .q p { margin: 0 0 5px; font-size: 13px; font-weight: 500; }
+  .decide .q .opt {
+    font-size: 12.5px; color: var(--text-secondary); padding-left: 16px;
+    position: relative; margin-bottom: 3px;
+  }
+  .decide .q .opt::before {
+    content: "—"; position: absolute; left: 0; color: var(--text-disabled);
+  }
+  .decide .rec {
+    display: inline-block; margin-left: 5px; padding: 0 5px;
+    background: var(--brand-100); color: var(--brand-800);
+    border-radius: 3px; font-size: 10px; font-weight: 600; vertical-align: 1px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ 页头 ============ -->
+  <div class="doc-head">
+    <h1>持仓改派组合 · 线框图</h1>
+    <p class="sub">D20 二期 UI ｜ 2026-10-29 ｜ 待确认后实施，当前无任何前端代码改动</p>
+
+    <div class="premise">
+      <h2>三个设计前提（读完再看图）</h2>
+      <ol>
+        <li><b>「所属组合」列必须区分「显式指派」与「账户继承」。</b><span class="tag-inline">否则改派等于白改</span>
+          你现在的痛点是「成长基金被归进固收+」，而这个归类<b>不是显式写上去的</b>——是
+          <code style="background:#F5F0EB;padding:1px 4px;border-radius:3px;font-size:11.5px;color:#CC3D27;font-family:Consolas,monospace">portfolio_id IS NULL</code>
+          继承账户默认组合得来的。如果不把这两种状态在界面上分开，改派完成后你依然无法确认「这只到底归对了没有」。</li>
+        <li><b>改派会让组合年化数字变化，必须预告。</b><span class="tag-inline">否则会被当成 bug</span>
+          A1 已把组合收益口径从「账户入金」切到「持仓买卖」。改派一只持仓 = 两个组合的本金序列同时变。<b>不做提示，你看到年化突然跳变会以为算错了。</b></li>
+        <li><b>事后改派是补丁，不是根治。</b><span class="tag-inline">本线框只做补丁</span>
+          根治是在「新建持仓 / 记账买入」时就选组合。那属记账流程改造，成本更高，本线框不含。但每次买新的成长基金，你都要回来改一次派——这个重复劳动的量，决定 P1（批量）值不值得做。</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ============ 屏 1 ============ -->
+  <section class="screen">
+    <div class="screen-head">
+      <span class="screen-no">1</span>
+      <h2>盘点页 · 投资理财持仓表</h2>
+      <span class="meta">主入口 ／ 文件：views/asset/inventory/components/InvestmentPositionTable.vue</span>
+    </div>
+    <p class="screen-desc">
+      加两列：左冻结的复选列（批量用）、右冻结的「操作」列内加改派按钮。
+      现有列一列不动——「归属账户」保留，因为改派组合不改账户，两个维度要能同时看见。
+    </p>
+
+    <div class="frame">
+      <div class="frame-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span style="margin-left:6px">/asset/inventory · 投资理财</span>
+      </div>
+      <div class="frame-body">
+        <div class="card-head">
+          <h3>持仓明细</h3>
+          <span class="hint">后端分页 ｜ 共 9 条</span>
+        </div>
+
+        <table class="wt">
+          <thead>
+            <tr>
+              <th class="col-new" style="width:66px;">
+                <span class="check"></span><span class="new-chip">新增</span>
+              </th>
+              <th style="min-width:170px">产品信息</th>
+              <th style="width:110px">归属账户</th>
+              <th class="col-new" style="width:180px">所属组合<span class="new-chip">新增</span></th>
+              <th class="num" style="width:120px">市值</th>
+              <th class="num" style="width:140px">盈亏</th>
+              <th class="col-new" style="width:104px; text-align:center;">操作<span class="new-chip">新增</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row-hoverable">
+              <td><span class="check"></span></td>
+              <td><span class="prod-name">易方达裕祥回报<span class="type-chip">债</span></span><span class="prod-code">002351</span></td>
+              <td class="muted">微众银行</td>
+              <td>
+                <span class="own own-inherit">
+                  <span class="own-mark"></span>固收+<span class="own-suffix">随账户</span>
+                </span>
+              </td>
+              <td class="num">68,420.00</td>
+              <td class="num rise">+1,842.30</td>
+              <td>
+                <div class="row-actions">
+                  <button class="icon-btn" title="改派组合" aria-label="改派组合：易方达裕祥回报">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+                      <path d="M2 4h8M2 8h8M2 12h8"/><path d="M12 6v4M10 8h4" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <button class="icon-btn" title="问这个" aria-label="问这个">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+                      <path d="M2.5 3h11v8h-6l-3 2.5V11h-2z" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr class="row-hoverable">
+              <td><span class="check"></span></td>
+              <td><span class="prod-name">招商产业债券<span class="type-chip">债</span></span><span class="prod-code">217022</span></td>
+              <td class="muted">微众银行</td>
+              <td>
+                <span class="own own-inherit">
+                  <span class="own-mark"></span>固收+<span class="own-suffix">随账户</span>
+                </span>
+              </td>
+              <td class="num">42,180.00</td>
+              <td class="num rise">+980.20</td>
+              <td>
+                <div class="row-actions">
+                  <button class="icon-btn" title="改派组合"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 4h8M2 8h8M2 12h8"/><path d="M12 6v4M10 8h4" stroke-linecap="round"/></svg></button>
+                  <button class="icon-btn" title="问这个"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3h11v8h-6l-3 2.5V11h-2z" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr class="row-hoverable" style="background:var(--bg-hover)">
+              <td><span class="check"></span></td>
+              <td><span class="prod-name">华夏成长混合<span class="type-chip">混</span></span><span class="prod-code">000001</span></td>
+              <td class="muted">微众银行</td>
+              <td>
+                <span class="own own-explicit">
+                  <span class="own-mark"></span>成长策略
+                </span>
+              </td>
+              <td class="num">31,650.00</td>
+              <td class="num fall">−2,140.50</td>
+              <td>
+                <div class="row-actions">
+                  <button class="icon-btn" title="改派组合" style="opacity:1; background:var(--bg-card); border-color:var(--text-disabled);"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 4h8M2 8h8M2 12h8"/><path d="M12 6v4M10 8h4" stroke-linecap="round"/></svg></button>
+                  <button class="icon-btn" title="问这个" style="opacity:1;"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3h11v8h-6l-3 2.5V11h-2z" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr class="row-hoverable">
+              <td><span class="check"></span></td>
+              <td><span class="prod-name">中欧价值发现<span class="type-chip">混</span></span><span class="prod-code">166005</span></td>
+              <td class="muted">微众银行</td>
+              <td>
+                <span class="own own-explicit">
+                  <span class="own-mark"></span>成长策略
+                </span>
+              </td>
+              <td class="num">18,900.00</td>
+              <td class="num fall">−760.00</td>
+              <td>
+                <div class="row-actions">
+                  <button class="icon-btn" title="改派组合"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 4h8M2 8h8M2 12h8"/><path d="M12 6v4M10 8h4" stroke-linecap="round"/></svg></button>
+                  <button class="icon-btn" title="问这个"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3h11v8h-6l-3 2.5V11h-2z" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr class="row-hoverable">
+              <td><span class="check"></span></td>
+              <td><span class="prod-name">天弘余额宝<span class="type-chip">货</span></span><span class="prod-code">000198</span></td>
+              <td class="muted">微众银行</td>
+              <td><span class="muted" style="font-size:12px">— 不进组合</span></td>
+              <td class="num">12,400.00</td>
+              <td class="num rise">+38.60</td>
+              <td>
+                <div class="row-actions">
+                  <button class="icon-btn" title="问这个"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3h11v8h-6l-3 2.5V11h-2z" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="n">1</span><span><b>「随账户」是本页最关键的两个字。</b>它标记这条持仓的 <code>portfolio_id IS NULL</code>——归到固收+只是因为账户默认组合是固收+，不是任何人指定过。没有它，你改派完之后看到「成长策略」，仍然分不清是改成功了还是本来就写着。</span></li>
+      <li><span class="n">2</span><span><b>货基/逆回购显示「— 不进组合」，不给改派按钮。</b>它们本来就被 <code>should_exclude_from_investment</code> 排除在组合之外，给了入口反而让人以为能归进去。</span></li>
+      <li><span class="n">3</span><span><b>改派不影响「归属账户」。</b>账户维度（钱在哪）和组合维度（钱为什么而投）是两个正交轴，同屏并列才不会混淆——这也是这次讨论里最容易搞混的一点。</span></li>
+      <li><span class="n">4</span><span><b>操作按钮静息隐藏、hover 淡入</b>（<code>200ms ease-out</code>），遵循 design.md「行内操作交互规范」。键盘 <code>:focus-within</code> 与触屏常驻两个兜底必须同写，否则 a11y 守卫脚本 <code>guard_a11y_interaction.py</code> 会拦。</span></li>
+      <li><span class="n">5</span><span><b>复选列是 P1（批量）才需要。</b>如果你觉得「一次改一两个够用」，这列可以不做，操作列单放改派按钮即可——见屏 3 的取舍说明。</span></li>
+    </ul>
+  </section>
+
+  <!-- ============ 屏 2 ============ -->
+  <section class="screen">
+    <div class="screen-head">
+      <span class="screen-no">2</span>
+      <h2>改派浮层（单选 · 行内 popover）</h2>
+      <span class="meta">点屏 1 的改派按钮后展开</span>
+    </div>
+    <p class="screen-desc">
+      用 <code style="background:#F5F0EB;padding:1px 4px;border-radius:3px;font-size:11.5px;color:#CC3D27;font-family:Consolas,monospace">el-popover</code>，不用 <code style="background:#F5F0EB;padding:1px 4px;border-radius:3px;font-size:11.5px;color:#CC3D27;font-family:Consolas,monospace">el-dialog</code>——单条改派是轻量动作，弹窗过重。
+      首项固定是「跟随账户」，因为<b>改错要能退回去</b>，而「退回继承」这个动作如果没有入口，用户只能手动改数据库。
+    </p>
+
+    <div class="frame">
+      <div class="frame-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span style="margin-left:6px">改派浮层 · 展开态</span>
+      </div>
+      <div class="frame-body" style="padding:34px 22px 26px; display:flex; gap:40px; align-items:flex-start;">
+        <div class="popover">
+          <div class="pop-head">易方达裕祥回报 · 改派到</div>
+          <div class="pop-list">
+            <div class="pop-item">
+              <span class="radio"></span>
+              <span class="pop-label">跟随账户<span class="own-suffix" style="margin-left:6px">固收+</span></span>
+              <span class="pop-meta">继承</span>
+            </div>
+            <div class="pop-divider"></div>
+            <div class="pop-item current">
+              <span class="radio"></span>
+              <span class="pop-label">固收+</span>
+              <span class="pop-meta">¥236,180</span>
+            </div>
+            <div class="pop-item">
+              <span class="radio"></span>
+              <span class="pop-label">成长策略</span>
+              <span class="pop-meta">¥50,550</span>
+            </div>
+            <div class="pop-item">
+              <span class="radio"></span>
+              <span class="pop-label">价值均衡</span>
+              <span class="pop-meta">¥0</span>
+            </div>
+          </div>
+          <div class="pop-foot">
+            改派后「固收+」与「成长策略」的年化都会重算。<br>
+            收益按各组合内持仓的买卖流水计算，不含账户入金。
+          </div>
+        </div>
+
+        <div style="flex:1; font-size:12.5px; color:var(--text-secondary); line-height:1.7;">
+          <p style="margin:0 0 10px; font-weight:600; color:var(--text-primary);">三个刻意的选择</p>
+          <p style="margin:0 0 8px;"><b>① 「跟随账户」排第一且独立分组</b><br>
+          它不是「一个叫固收+的组合」，而是「不指定」这个状态。合并进列表会让人以为它和「固收+」是两回事，实际上是同一结果的两条路径（显式 vs 继承）——这正是当前所有混乱的源头。</p>
+          <p style="margin:0 0 8px;"><b>② 每项右侧显示该组合当前市值</b><br>
+          改派前你能预判影响面：把一只 6.8 万的债基丢进一个 0 元的组合，那个组合的年化会瞬间变成单只基金的历史收益，参考价值归零。看到 ¥0 就该警惕。</p>
+          <p style="margin:0;"><b>③ 底部固定口径说明，不是错误提示</b><br>
+          用 <code style="background:#F5F0EB;padding:1px 4px;border-radius:3px;color:#CC3D27;font-family:Consolas,monospace">--bg-warm</code> 中性底而非警告色——这是正常的计算规则变更，不是危险操作。用红色会让人以为改派有风险而不敢用。</p>
+        </div>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="n">1</span><span><b>提交走 <code>PATCH /api/positions/{id}/</code>，body <code>{portfolio_id: 3}</code>；退回继承传 <code>{portfolio_id: null}</code>。</b>后端 <code>resolve_portfolio_change</code> 已做家庭归属校验，前端不需要额外接口，也不需要新端点——这是纯 UI 工作。</span></li>
+      <li><span class="n">2</span><span><b>浮层打开时聚焦当前选中项</b>，方向键切换、<code>Enter</code> 确认、<code>Esc</code> 关闭。a11y 是进行中的里程碑（#1968），这类轻量浮层最容易漏键盘支持。</span></li>
+      <li><span class="n">3</span><span><b>组合列表为空时</b>（一个组合都没建）显示：「还没有投资组合，先去<a href="#" style="color:var(--brand-800)">组合管理</a>创建一个」，不要给一个空下拉。</span></li>
+    </ul>
+  </section>
+
+  <!-- ============ 屏 3 ============ -->
+  <section class="screen">
+    <div class="screen-head">
+      <span class="screen-no">3</span>
+      <h2>批量改派（P1 · 可选）</h2>
+      <span class="meta">选中多条后浮出操作条 → 右侧抽屉确认</span>
+    </div>
+    <p class="screen-desc">
+      需要解决的是<b>重复劳动</b>：以后每买一只成长基金，都要回来改一次派。如果你一个月只买一两只，这屏可以砍掉，只保留屏 2。
+    </p>
+
+    <div class="frame">
+      <div class="frame-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span style="margin-left:6px">选中 2 条 · 批量改派</span>
+      </div>
+      <div class="frame-body">
+        <div class="batch-bar">
+          <span>已选 <span class="count">2</span> 项</span>
+          <button class="btn btn-primary">改派到…</button>
+          <span class="spacer"></span>
+          <button class="btn btn-ghost">取消选择</button>
+        </div>
+
+        <table class="wt">
+          <thead>
+            <tr>
+              <th style="width:42px; padding-right:0;"><span class="check on"></span></th>
+              <th style="min-width:170px">产品信息</th>
+              <th style="width:110px">归属账户</th>
+              <th style="width:150px">所属组合</th>
+              <th class="num" style="width:120px">市值</th>
+              <th class="num" style="width:140px">盈亏</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="background:var(--brand-100)">
+              <td><span class="check on"></span></td>
+              <td><span class="prod-name">易方达裕祥回报<span class="type-chip">债</span></span><span class="prod-code">002351</span></td>
+              <td class="muted">微众银行</td>
+              <td><span class="own own-inherit"><span class="own-mark"></span>固收+<span class="own-suffix">随账户</span></span></td>
+              <td class="num">68,420.00</td>
+              <td class="num rise">+1,842.30</td>
+            </tr>
+            <tr>
+              <td><span class="check"></span></td>
+              <td><span class="prod-name">招商产业债券<span class="type-chip">债</span></span><span class="prod-code">217022</span></td>
+              <td class="muted">微众银行</td>
+              <td><span class="own own-inherit"><span class="own-mark"></span>固收+<span class="own-suffix">随账户</span></span></td>
+              <td class="num">42,180.00</td>
+              <td class="num rise">+980.20</td>
+            </tr>
+            <tr style="background:var(--brand-100)">
+              <td><span class="check on"></span></td>
+              <td><span class="prod-name">华夏成长混合<span class="type-chip">混</span></span><span class="prod-code">000001</span></td>
+              <td class="muted">微众银行</td>
+              <td><span class="own own-explicit"><span class="own-mark"></span>成长策略</span></td>
+              <td class="num">31,650.00</td>
+              <td class="num fall">−2,140.50</td>
+            </tr>
+            <tr>
+              <td><span class="check"></span></td>
+              <td><span class="prod-name">中欧价值发现<span class="type-chip">混</span></span><span class="prod-code">166005</span></td>
+              <td class="muted">微众银行</td>
+              <td><span class="own own-explicit"><span class="own-mark"></span>成长策略</span></td>
+              <td class="num">18,900.00</td>
+              <td class="num fall">−760.00</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="display:flex; gap:30px; margin-top:26px; padding-top:22px; border-top:1px dashed var(--border-default); align-items:flex-start;">
+          <div style="flex:1; font-size:12.5px; color:var(--text-secondary); line-height:1.7;">
+            <p style="margin:0 0 9px; font-weight:600; color:var(--text-primary);">点「改派到…」后，右侧滑出抽屉</p>
+            <p style="margin:0 0 9px;">抽屉宽 420px（<code style="background:var(--bg-soft);padding:1px 4px;border-radius:3px;color:var(--brand-800);font-family:Consolas,monospace">el-drawer</code> 固定档），覆盖在表格上层。线框里平铺展示，是为了让你同时看清「选中了哪些」和「改成哪些」。</p>
+            <p style="margin:0;">抽屉内<b>不重复展示完整持仓列表</b>——只列本次会变的那几条和去向。再叠一层列表会让人怀疑自己是不是选错了行。</p>
+          </div>
+          <div class="drawer-mock" style="flex:0 0 420px; border:1px solid var(--border-default); border-radius:var(--radius-md);">
+            <div class="drawer-head">
+              <h4>批量改派</h4>
+              <span class="muted" style="font-size:16px; cursor:pointer;">×</span>
+            </div>
+            <div class="drawer-body">
+              <div class="field-label">改派到</div>
+              <div class="select-mock">
+                <span>价值均衡</span>
+                <span class="muted" style="font-size:10px;">▾</span>
+              </div>
+
+              <div class="field-label">将产生以下变更</div>
+              <div class="diff-list">
+                <div class="diff-row">
+                  <span>易方达裕祥回报</span>
+                  <span><span class="own-inherit" style="font-size:12px">固收+（随账户）</span><span class="diff-arrow">→</span><b>价值均衡</b></span>
+                </div>
+                <div class="diff-row">
+                  <span>华夏成长混合</span>
+                  <span><span style="font-size:12px;color:var(--text-secondary)">成长策略</span><span class="diff-arrow">→</span><b>价值均衡</b></span>
+                </div>
+              </div>
+
+              <div class="drawer-warn">
+                涉及 3 个组合的年化将重算。<br>
+                改派只改归属，<b>不产生任何交易流水</b>，不影响已实现盈亏。
+              </div>
+            </div>
+            <div class="drawer-foot">
+              <button class="btn btn-ghost">取消</button>
+              <button class="btn btn-primary">确认改派 2 项</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="n">1</span><span><b>批量没有后端接口，只能前端循环 PATCH。</b>当前 <code>PATCH /api/positions/{id}/</code> 是单条语义。若选 P1，建议后端补 <code>PATCH /api/positions/portfolio/</code>（body: <code>{ids: [], portfolio_id}</code>）走事务，否则 N 次请求里失败一半会出现「改了一半」的中间态。<b>这会从纯 UI 变成前后端一起改。</b></span></li>
+      <li><span class="n">2</span><span><b>抽屉里必须列 diff，不能只写「已选 2 项」。</b>两条持仓的来源组合不同（一条继承、一条显式），确认前要能看清各自从哪来——尤其「固收+（随账户）」这种继承态，用户容易误读为「它明确属于固收+」。</span></li>
+      <li><span class="n">3</span><span><b>跨账户可同批。</b>改派只动 <code>positions.portfolio_id</code>，与 <code>ledger_id</code> 无关，所以不同账户的持仓可以一次改到同一组合——这是组合维度独立于账户维度带来的自然结果。</span></li>
+    </ul>
+  </section>
+
+  <!-- ============ 屏 4 ============ -->
+  <section class="screen">
+    <div class="screen-head">
+      <span class="screen-no">4</span>
+      <h2>组合详情页 · 归属标记（只读 + 单一出口）</h2>
+      <span class="meta">文件：views/asset/portfolio/portfolioDetail/PortfolioHoldingsCard.vue</span>
+    </div>
+    <p class="screen-desc">
+      这个页面是「按组合看持仓」。在这里给完整改派浮层是反直觉的——你想把某只持仓<b>弄出去</b>，而不是在这里给它选新家。
+      所以只做两件事：<b>标明每条持仓是「本组合独有」还是「随账户带进来的」</b>，以及给一个「移出本组合」的次要动作。
+    </p>
+
+    <div class="frame">
+      <div class="frame-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span style="margin-left:6px">/asset/portfolios/3 · 固收+</span>
+      </div>
+      <div class="frame-body">
+        <div class="card-head">
+          <h3>持仓明细</h3>
+          <span class="hint">共 5 条 ｜ 其中 2 条随账户带入</span>
+        </div>
+
+        <table class="wt">
+          <thead>
+            <tr>
+              <th style="min-width:170px">产品信息</th>
+              <th class="num" style="width:110px">市值</th>
+              <th class="num" style="width:130px">盈亏</th>
+              <th style="width:105px">来源</th>
+              <th class="col-new" style="width:214px">所属账户 / 归属<span class="new-chip">新增</span></th>
+              <th class="col-new" style="width:108px; text-align:center;">操作<span class="new-chip">新增</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row-hoverable" style="background:var(--bg-hover)">
+              <td><span class="prod-name">易方达裕祥回报<span class="type-chip">债</span></span><span class="prod-code">002351</span></td>
+              <td class="num">68,420.00</td>
+              <td class="num rise">+1,842.30</td>
+              <td><span class="type-chip" style="font-size:11px; padding:1px 5px;">手工录入</span></td>
+              <td class="muted">微众银行 <span class="own-suffix" style="margin-left:4px">随账户</span></td>
+              <td style="text-align:center;">
+                <div class="row-actions"><button class="icon-btn" title="移出本组合" style="opacity:1; background:var(--bg-card); border-color:var(--text-disabled);"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3H3v10h3M10 5l3 3-3 3M13 8H6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+              </td>
+            </tr>
+            <tr class="row-hoverable">
+              <td><span class="prod-name">招商产业债券<span class="type-chip">债</span></span><span class="prod-code">217022</span></td>
+              <td class="num">42,180.00</td>
+              <td class="num rise">+980.20</td>
+              <td><span class="type-chip" style="font-size:11px; padding:1px 5px;">手工录入</span></td>
+              <td class="muted">微众银行 <span class="own-suffix" style="margin-left:4px">随账户</span></td>
+              <td style="text-align:center;">
+                <div class="row-actions"><button class="icon-btn" title="移出本组合"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3H3v10h3M10 5l3 3-3 3M13 8H6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+              </td>
+            </tr>
+            <tr class="row-hoverable">
+              <td><span class="prod-name">南方中债7-10年<span class="type-chip">债</span></span><span class="prod-code">006961</span></td>
+              <td class="num">35,200.00</td>
+              <td class="num rise">+1,120.00</td>
+              <td><span class="type-chip" style="font-size:11px; padding:1px 5px;">手工录入</span></td>
+              <td class="muted">微众银行</td>
+              <td style="text-align:center;">
+                <div class="row-actions"><button class="icon-btn" title="移出本组合"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3H3v10h3M10 5l3 3-3 3M13 8H6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="margin-top:16px; padding:10px 13px; background:var(--bg-warm); border-radius:6px; font-size:12px; color:var(--text-secondary);">
+          <b>口径提示</b>　本组合年化按持仓买卖流水计算，共 5 条持仓、3 笔卖出。账户入金不计入组合本金。
+        </div>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="n">1</span><span><b>「移出本组合」= 把 <code>portfolio_id</code> 置 null，不是删除。</b>结果是被这条持仓回落到<b>账户默认组合</b>——如果账户默认就是当前组合，移出等于什么都没发生。所以这个按钮<b>必须配二次确认说明</b>，否则是个看起来有用、实际无效的操作。这也是我倾向「这里干脆不给改派入口」的原因。</span></li>
+      <li><span class="n">2</span><span><b>「随账户」标记在本页的价值高于屏 1。</b>因为你在这里看到的持仓，有一半是账户带进来的、一半是显式指派的，混在一起你却看不出来。想清空一个组合的真实边界，得先能分辨这个。</span></li>
+      <li><span class="n">3</span><span><b>底部口径提示是 A1 改动的必要补丁。</b><code>cashflow_basis</code> 已恒为 <code>position</code>，页面上如果不说明「不含入金」，用户会拿它和以前按入金算的年化对比，然后认为数字错了。</span></li>
+    </ul>
+  </section>
+
+  <!-- ============ 待拍板 ============ -->
+  <div class="decide">
+    <h2>需要你拍板的四件事</h2>
+
+    <div class="q">
+      <p>Q1　改派入口放哪几个页面？</p>
+      <div class="opt">A. 只在盘点页（屏 1 + 屏 2）——最小面，组合详情页只加只读标记</div>
+      <div class="opt">B. 盘点页 + 组合详情页都给完整浮层 <span class="rec">不推荐</span>（详情页语义反直觉）</div>
+      <div class="opt">C. 盘点页给浮层 + 详情页给「移出本组合」单动作（屏 4 现方案）</div>
+    </div>
+
+    <div class="q">
+      <p>Q2　批量（屏 3）做不做？</p>
+      <div class="opt">A. 不做——一次改一两条够用，纯 UI，零后端改动 <span class="rec">建议先这档</span></div>
+      <div class="opt">B. 做——但需要后端补批量端点，从纯 UI 变成前后端一起改</div>
+      <div class="opt">C. 做——前端循环 PATCH，接受「失败一半」的中间态风险</div>
+    </div>
+
+    <div class="q">
+      <p>Q3　「所属组合」列的继承态怎么表达？</p>
+      <div class="opt">A. 灰字 + 「随账户」小标签（屏 1 现方案）</div>
+      <div class="opt">B. 直接显示「固收+（默认）」，不加颜色区分</div>
+      <div class="opt">C. 继承态整格显示「— 随账户」，不显示组合名（最干净，但也最不直观）</div>
+    </div>
+
+    <div class="q">
+      <p>Q4　要不要顺带做「买入时直接选组合」（根治）？</p>
+      <div class="opt">A. 不做，先上线事后改派，看实际使用频率再决定</div>
+      <div class="opt">B. 一起做——记账抽屉加「所属组合」字段，从源头不再继承错</div>
+      <div class="opt" style="color:var(--brand-800)">注意：B 会牵动记账主流程（含导入向导、快速记账快捷键），成本远高于本线框</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

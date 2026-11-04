@@ -79,3 +79,38 @@ def test_missing_fields_fall_back_to_nav():
     """缺 valuation_mode / market_value_override 字段时按 nav 安全降级（兼容老数据与 mock）。"""
     legacy = SimpleNamespace(id=2, quantity=1000000, current_price=15000, currency='CNY')
     assert market_value_cents(legacy) == 15000
+
+
+def test_portfolio_balance_uses_override_only():
+    """投顾组合（balance + override）：市值只来自人工录入金额，与份额/净值无关。
+
+    这就是 D70 强制 portfolio 走 balance 的理由——组合永远不会有净值，若按 nav 派生，
+    分子恒为 0（`position_price` job 不给它定价），市值静默变成 0 元。
+    """
+    p = SimpleNamespace(
+        id=3,
+        quantity=0,
+        current_price=0,
+        avg_price=0,
+        currency='CNY',
+        valuation_mode=ValuationMode.BALANCE.value,
+        market_value_override=3000000,  # 3 万元
+    )
+    assert market_value_cents(p) == 3000000
+
+
+def test_portfolio_saved_as_nav_would_be_zero():
+    """反证：同一笔 3 万元若落成 nav 模式，市值就是 0——这正是写入侧要拒绝的形态。
+
+    本用例钉的是**失败形态**（而不是实现），防止有人把写入约束当成多余的严格。
+    """
+    p = SimpleNamespace(
+        id=4,
+        quantity=0,
+        current_price=0,
+        avg_price=0,
+        currency='CNY',
+        valuation_mode=ValuationMode.NAV.value,
+        market_value_override=None,
+    )
+    assert market_value_cents(p) == 0

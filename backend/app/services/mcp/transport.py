@@ -26,7 +26,8 @@ WAF 拦截返回非 JSON、会话失效后必须重握一次。重写等于把�
 
 import hashlib
 import json
-from typing import Any, Callable, Dict, Optional
+import re
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from loguru import logger
 
@@ -62,16 +63,68 @@ def _token_fingerprint(token: str) -> str:
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
-def _body_excerpt(resp: Any, limit: int = 200) -> str:
-    """响应体摘要（喂给错误分类）。
+def _response_text(resp: Any) -> str:
+    """响应体 → 文本，**按 UTF-8 解码**。
 
-    测试替身可能没有 ``.text``；取不到就返回空串 —— 分类退化为「按状态码判」，
-    不允许因为读不到 body 就把错误吞掉。
+    ⚠️ 不能用 ``resp.text`` / ``iter_lines(decode_unicode=True)``：``text/event-stream``
+    不带 ``charset``，requests 按 RFC 2616 猜成 **ISO-8859-1**，于是
+    ① 中文全变乱码；② 更致命的是 UTF-8 续字节 ``0x85``（U+0085 NEXT LINE）被
+    ``str.splitlines()`` 当成换行，把一行 1700 字节的 JSON **在汉字中间折断** ⇒
+    ``json.loads`` 失败 ⇒ 上层读成「调用返回为空」（实测 2026-10-23，真实网关）。
+    故这里一律拿原始字节自己解码。
+    """
+    raw = getattr(resp, 'content', None)
+    if isinstance(raw, (bytes, bytearray)):
+        return bytes(raw).decode('utf-8', errors='replace')
+    try:
+        return getattr(resp, 'text', '') or ''
+    except Exception:  # noqa: BLE001 - 替身没有该成员时按「读不到」处理
+        return ''
+
+
+def _body_excerpt(resp: Any, limit: int = 200) -> str:
+    """响应体摘要（喂给错误分类 / 采样留证）。
+
+    取不到就返回空串 —— 分类退化为「按状态码判」，不允许因为读不到 body 就把错误吞掉。
     """
     try:
-        return sanitize(getattr(resp, 'text', '') or '', limit)
+        return sanitize(_response_text(resp), limit)
     except Exception:  # noqa: BLE001 - 摘要失败不影响分类
         return ''
+
+
+def _sse_payloads(body: str) -> Iterator[str]:
+    """按 SSE 事件块切分，逐个产出 ``data`` 载荷。
+
+    SSE 规范：同一事件里的多行 ``data`` 用 ``\\n`` 拼接。上游还会把超长 JSON 折行且
+    **续行不带 ``data:`` 前缀**（实测 2026-10-23），故两种情况都产出候选：
+    先按规范拼 ``\\n``，再按「硬折行」拼 ``''``；由调用方选能 ``json.loads`` 的那个。
+    """
+    blocks: List[List[str]] = []
+    current: List[str] = []
+    for line in re.split(r'\r\n|\r|\n', body):
+        if not line:
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        marker = line.find('data:')
+        if marker >= 0:
+            chunk = line[marker + len('data:') :]
+            current.append(chunk[1:] if chunk.startswith(' ') else chunk)
+        elif current:
+            current.append(line)
+    if current:
+        blocks.append(current)
+    for lines in blocks:
+        # ① 规范形状：同一事件的多行 data 用 \n 拼接
+        yield '\n'.join(lines)
+        if len(lines) > 1:
+            # ② 上游硬折行（续行不带 data:）⇒ 拼接时不能插 \n
+            yield ''.join(lines)
+            # ③ 现实里还有「每个 data 行各自就是一条完整消息」的写法（不合规范但常见，
+            #    且既有夹具与历史行为都是它）⇒ 逐行也试，谁解析得出就是谁
+            yield from lines
 
 
 class McpTransport:
@@ -226,7 +279,17 @@ class McpTransport:
         """在既有会话内发一次 ``tools/call``；会话失效抛 :class:`McpSessionInvalid`。"""
         r3 = self._post(self._provider._wire(tool, arguments), sid)
         if r3.status_code in (400, 404):
-            raise McpSessionInvalid(f'HTTP {r3.status_code}')
+            # 400 有**两种**语义，实测（2026-10-23，某家网关）：
+            #   ① 请求体不符合 JSON-RPC ⇒ 上游回 {"error": {"code": -32602, "message": "Validation error…"}}；
+            #   ② 会话失效 / WAF 拦截 ⇒ 非 JSON 或与协议无关的报文。
+            # 旧实现把 400 一律当 ②，于是「重握 → 再 400 → 包成『会话重握后仍失败』」，
+            # **响应体被丢弃**：本可一眼看出的校验错变成了一句瞎猜（#2516 采样时实测）。
+            # 故：能解析出 JSON-RPC error 就按 payload 分类（重握手没有意义）；否则才算会话失效，
+            # 且**报文必须带进错误里**（探针的 --save-body 就是靠它留证）。
+            payload_error = self._payload_error(r3)
+            if payload_error is not None:
+                raise classify_payload(payload_error, provider=self._name)
+            raise McpSessionInvalid(f'HTTP {r3.status_code}: {_body_excerpt(r3, 400)}')
         if r3.status_code != 200:
             # 401/403 → 授权失效；429 → 频控/额度；5xx → 服务不可用。全部类型化上抛，
             # 让 job 层能区分「该换 Token」与「等一会儿再试」。
@@ -249,22 +312,58 @@ class McpTransport:
         return text
 
     @staticmethod
-    def _text_from_sse(resp: Any) -> str:
-        """从事件流里取 ``id == 2``（tools/call）那条消息的文本片段。"""
-        text = ''
-        for line in resp.iter_lines(decode_unicode=True):
-            if line and line.startswith('data:'):
-                data = line[len('data:') :].strip()
-                try:
-                    msg = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                if msg.get('id') == 2 and 'result' in msg:
-                    text = McpTransport._text_from_result(msg['result'])
-                    break
-        return text
+    def _payload_error(resp: Any) -> Optional[Any]:
+        """响应体里的 JSON-RPC ``error`` 字段（取不到返回 ``None``）。
 
-    @staticmethod
-    def _text_from_result(result: Dict[str, Any]) -> str:
+        只用于 4xx 的**语义区分**：能拿到结构化 error 就是「请求/参数错」，
+        拿不到（HTML、空体、非 JSON）才按会话失效处理。
+        """
+        try:
+            body = resp.json()
+        except Exception:  # noqa: BLE001 - 非 JSON / 替身没有 json() 都算「拿不到」
+            return None
+        if isinstance(body, dict) and body.get('error'):
+            return body['error']
+        return None
+
+    def _text_from_sse(self, resp: Any) -> str:
+        """从事件流里取 ``id == 2``（tools/call）那条消息的文本片段。
+
+        两个实测坑（2026-10-23，真实网关），都由 :func:`_response_text` /
+        :func:`_sse_payloads` 兜住：
+
+        1. **不能用 ``iter_lines(decode_unicode=True)``**：``text/event-stream`` 无 charset
+           ⇒ requests 按 ISO-8859-1 解码 ⇒ UTF-8 续字节 ``0x85`` 被当成换行，
+           一行 JSON 在汉字中间被折断，``json.loads`` 全部失败 ⇒ 报「调用返回为空」；
+        2. ``event:`` 与 ``data:`` 可能在同一行，也可能分成两行；超长 JSON 还可能硬折行。
+        """
+        for payload in _sse_payloads(_response_text(resp)):
+            try:
+                msg = json.loads(payload)
+            except ValueError:
+                continue
+            if msg.get('id') == 2 and 'result' in msg:
+                return self._text_from_result(msg['result'])
+        return ''
+
+    def _text_from_result(self, result: Dict[str, Any]) -> str:
+        """``result`` → 文本片段；``isError`` 为真时抛类型化错误。
+
+        为什么必须查 ``isError``（实测 2026-10-23，某家网关）：工具名写错时上游回的是
+        **HTTP 200** + ``{"isError": true, "content": [{"text": "工具不存在: …"}]}``。
+        只看状态码会把这段错误文本当数据返回，随后在解析层报「结构异常」——
+        报错方向指向解析，而真因是工具名（#171 同族：失败被读成「没有数据」）。
+        """
+        if result.get('isError'):
+            raise McpBadResponse(self._error_message(result), provider=self._name)
         content = result.get('content', [])
         return ''.join(c.get('text', '') for c in content if c.get('type') == 'text')
+
+    @staticmethod
+    def _error_message(result: Dict[str, Any]) -> str:
+        """``isError`` 的错误文案：优先 ``structuredContent.message``，否则拼 content 文本。"""
+        structured = result.get('structuredContent')
+        if isinstance(structured, dict) and structured.get('message'):
+            return str(structured['message'])
+        text = ''.join(c.get('text', '') for c in result.get('content') or [] if c.get('type') == 'text')
+        return text or 'isError=true 但上游未给错误文案'

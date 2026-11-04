@@ -43,7 +43,12 @@ const {
         <UploadArea />
       </div>
 
-      <div v-if="formatGuides[selectedMode]" class="upload-right">
+      <!-- #2836：格式说明从「右侧 340px 窄栏」改为「上传区下方通栏横排」。
+           窄栏里每条提示要折 3~4 行（"下载 CSV 模板填写数据，或直接上传同花顺
+           等券商导出的 Excel/CSV 文件" 就占 4 行），是首屏阅读成本最高的一块；
+           通栏后按 minmax(250px) 自动分栏，同样内容降到 1~2 行，卡片高度也从
+           360+ 降到 130 左右。 -->
+      <div v-if="formatGuides[selectedMode]" class="upload-guide">
         <FormatGuide />
       </div>
     </div>
@@ -58,37 +63,22 @@ const {
 
 .upload-layout {
   display: flex;
-  gap: 24px;
-  align-items: stretch;
+  flex-direction: column;
+  gap: 20px;
   max-width: 1100px;
   margin: 0 auto;
 }
 
 .upload-left {
   display: flex;
-  flex: 1;
   flex-direction: column;
   gap: 20px;
   min-width: 0;
 }
 
-.upload-right {
-  display: flex;
-  flex: 1 1 340px;
-  min-width: 300px;
-  max-width: 360px;
-}
-
-.upload-right :deep(.format-guide) {
-  flex: 1;
+.upload-guide {
   width: 100%;
-  min-height: 360px;
-  padding: 20px 24px;
-  margin-top: 0;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: 16px;
-  box-shadow: var(--shadow-raised);
+  min-width: 0;
 }
 
 .ledger-select-area {

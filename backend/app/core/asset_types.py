@@ -33,14 +33,39 @@ ASSET_TYPE_LABELS: dict[str, str] = {
     'bond': '可转债',
     'index': '指数',
     'crypto': '加密货币',
-    # #1286 品种差异化维度：可自选观察的非交易实体（不进 positions，仅 watchlist 引用）。
-    # manager/portfolio 无市场与交易场所属性，watchlist 行的 market/venue 以空串 '' 存储。
+    # #1286 品种差异化维度：可自选观察的非交易实体。三者都无市场与交易场所属性，
+    # watchlist 行的 market/venue 以空串 '' 存储（`core/venues._NO_VENUE_ASSET_TYPES`）。
+    #
+    # 是否进 positions **按品类分档**（D70，2026-10-29，推翻 #1286 时「一律不进」的表述）：
+    # - manager / index：**不进 positions**——没有「我花了多少钱买它」的语义，
+    #   进持仓只会造出一笔不存在的资产；
+    # - portfolio：**进 positions，且必须 `valuation_mode='balance'`**——投顾组合是用户
+    #   真实付钱买的一篮子产品，只是没有份额 / 净值，市值靠人工录入（D2 双态计价）。
+    #   旧表述「不进 positions」从未被代码执行，副作用是落成 nav 模式后市值恒为 0
+    #   （`services/position_service` 的写入约束现在会显式拒绝，见 D70）。
     'manager': '基金经理',
     'portfolio': '投顾组合',
     'money_fund': '货币基金',
     'reverse_repo': '逆回购',
+    # bank_wealth：银行（及理财子公司）发行的理财产品。与 `bank`（银行存款）是**两个品类**，
+    # 不可互替：存款保本、按约定利率计息、收益记利息；理财不保本、有净值波动与风险等级，
+    # 收益属投资收益。`ASSET_CATEGORY_LABELS` 里早就有同名 `bank_wealth`（投资理财的
+    # minor_category）——两处同名同义是刻意的：任何人看到这个词都该理解成「银行理财」。
+    #
+    # 为什么必须落 asset_type 而不是只靠 major_category：收益计算（XIRR / 分层）只认
+    # positions + transactions 的 asset_type，从不读 major_category。银行理财若没有
+    # asset_type，导入后会被归到 `static`，之后所有分层判据都认不出它。
+    #
+    # 估值必须 `valuation_mode='balance'`（同 portfolio / D70）：银行理财不在公开基金
+    # 名录里，拿不到净值，落成 nav 模式会静默算成 0 元。写入侧已显式拒绝（见
+    # `services/position_service`）。
+    'bank_wealth': '银行理财',
     'cash': '现金',
-    'bank': '银行',
+    # bank：**银行存款**（活期 / 定期 / 大额存单 / 结构性存款），不是「银行机构」。
+    # 机构维度是 `ledgers.ledger_type='bank'`（标签「银行账户」，见 core/constants），
+    # 两者不是一回事。label 从「银行」改为「银行存款」是为了与 bank_wealth 消歧——
+    # 只写「银行」时用户无法判断该填机构还是产品。本值改前零存量（实测 2026-11-03）。
+    'bank': '银行存款',
     'real_estate': '房产',
     'insurance': '保险',
     'precious_metal': '贵金属',

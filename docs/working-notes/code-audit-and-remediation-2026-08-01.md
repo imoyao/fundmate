@@ -713,6 +713,14 @@ SPEC §2.1（第 73–74 行）明文：
 1. **数据能力已被 V2 锁定**：探市所需全部源（东财成交额、集思录温度计/可转债温度、且慢行情、有知有行、韭圈儿、自算、二鸟）均在 V2 `thermometer/fetchers.py` 内，且已写入测试。V1 `data/` 不参与该方向。
 2. **不应"复活"任何 V1 抓取器**：新功能一律走 V2 的 `sync`(akshare/xalpha) 或 `thermometer`(自建 fetcher) 通道，保持单一数据接入面，避免再次分裂。
 3. **探市 fetcher 的脆弱性需正视**：`fetchers.py` 使用 scrape cookie（`JISILU_COOKIE`/`kbzw__Session`）取「真值」，这类接口随时可能因对方改版/反爬失效。建议：(a) 将 fetcher 失败降级为 `self_calc` 或缓存值；(b) 为 fetcher 加健康检查与告警；(c) 在 SPEC 中把"探市类公开数据抓取"列为**显式允许**项，与"账本数据自动导入"明确区分。
+   > **更正（2026-10-24，#2576）**：本条的前提已不成立——`fetchers.py` **从不使用** scrape cookie。集思录**指标**端点
+   > （`get_cb_temperature` / `get_last_indicator`）**匿名请求即可**（实测 200，`cb_temperature=51.41`、
+   > `median_pb_temperature=31.10`），且全仓**不存在 `JISILU_COOKIE` 读取点**，`BaseFetcher._get` 也不注入 Cookie。
+   > 本条描述的「用 cookie 取真值」是对当时注释的转述，而该注释本身把**字符串解析测试的样本值 `73.56`**
+   > （见 `backend/tests/services/test_constants_label_temp.py`）误当成了集思录真值——属误记，已在同 PR 更正。
+   > 仍成立的是建议 (a)(b)(c) 的**精神**（接口随时可能改版/反爬失效，失败要降级与告警），这部分与是否用 cookie 无关。
+   > ⚠ 另注：可转债**列表**端点（`cb_list_new`，游客限 30 只）确需 `JSL_COOKIE`，那套保活机制（#1400）仍然有效，
+   > 与本条说的指标端点是两回事。
 4. **账本数据自动导入红线**：蛋卷/且慢/好买等"组合自动同步"属 SPEC 禁区，即便用户想要，也应改为「用户导出文件 → 手动上传」流程，而非后台爬虫。
 5. **`libs/cal` 仍是唯一需迁移项**：V2 测试 `tests/libs/cal/test_rate_of_return.py` 仍 import `backend.fundmate.libs.cal`。删除 V1 前须先将该计算库迁入 `app/core` 或 `app/libs`（Phase 2），否则 V2 测试会断。
 

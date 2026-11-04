@@ -12,6 +12,7 @@ import vueJsx from "@vitejs/plugin-vue-jsx";
 import tailwindcss from "@tailwindcss/vite";
 import { configCompressPlugin } from "./compress";
 import { depDriftGuard } from "./dep-drift-guard";
+import { supabaseEnvGuard } from "./supabase-env-guard";
 import removeNoMatch from "vite-plugin-router-warn";
 import { visualizer } from "rollup-plugin-visualizer";
 import removeConsole from "vite-plugin-remove-console";
@@ -33,6 +34,8 @@ export function getPluginsList(
     viteBuildInfo(),
     // 依赖升级后自动重启 dev server，避免磁盘新版本与运行中旧缓存错位（#972）
     depDriftGuard(),
+    // dev 与 prod 必须指向不同的 Supabase 项目；同项目 ⇒ dev server 拒绝启动（#1028）
+    supabaseEnvGuard(),
     removeNoMatch(),
     svgLoader(),
     Icons({

@@ -53,6 +53,8 @@ export interface FundPurchaseRateItem {
   start_quota: number;
   end_quota: number | null;
   rate: number;
+  /** 固定金额档（元/笔），与 rate 互斥；大额档常见「1000 元/笔」 */
+  fee_amount: number | null;
 }
 
 /** 赎回费率阶梯（对齐 FundService.get_fund_fee_rates；end_day 为 null 表示正无穷） */
@@ -154,7 +156,11 @@ export interface AdvisorAdjustItem {
 export interface AdvisorAdjustGroup {
   adjust_date: string;
   reason: string | null;
-  /** `qieman` = 由我们的持仓快照序列推导；`tiantian` = 官方接口 */
+  /**
+   * `qieman_official` = 且慢官方调仓接口（`/alfa/v1/graphql`）；
+   * `qieman` = 由我们的持仓快照序列推导（仅官方未覆盖的计划型组合）；
+   * `tiantian` = 天天基金官方接口；`qieman_manual` = 手动导入
+   */
   source: string;
   items: AdvisorAdjustItem[];
 }
@@ -284,5 +290,60 @@ export function getFundStyleHistory(fundCode: string, limit?: number) {
     "get",
     `/api/funds/${fundCode}/style/history/`,
     { params: limit ? { limit } : undefined }
+  );
+}
+
+/**
+ * 组合加权风格暴露（家庭作用域，#2478 组合透视口子 / #2603 前端消费）。
+ *
+ * 口径（后端 `services/fund_style_service.portfolio_style_exposure` 定死，前端不二次推导）：
+ * - 按持仓市值加权，每只基金取**各自最新时点**的风格箱；
+ * - 无风格箱的持仓**不计入加权**，但全额计入分母 → `coverage_pct` 是覆盖率不是权重；
+ * - `styles` 为空数组表示「算不出来」，**不等于「全部为 0」**。
+ */
+export interface PortfolioStyleExposure {
+  /** 各风格暴露值（0-100，合计 100）；算不出来时为空数组 */
+  styles: FundStyleItem[];
+  /** 有风格箱的持仓基金数 */
+  fund_count: number;
+  covered_market_value_cents: number;
+  total_market_value_cents: number;
+  /**
+   * 全量持仓口径覆盖率（0-100）：有箱体的持仓市值 / **全部**持仓市值。
+   * 分母含货基/现金（它们永远不会有箱体），故有天花板 —— 判断「算得全不全」请用
+   * `eligible_coverage_pct`（见 `utils/styleCoverage`）。
+   */
+  coverage_pct: number;
+  /** 可覆盖资产市值（分）：只含可能带箱体的持仓（场外基金 / ETF，剔除 QDII） */
+  eligible_market_value_cents: number;
+  /**
+   * 可覆盖资产口径覆盖率（0-100）。**`null` = 没有可覆盖的资产**（不是 0% 覆盖）：
+   * 「全是货基/现金」与「一只都没同步到」是两种结论，展示层必须分开写。
+   */
+  eligible_coverage_pct: number | null;
+  /** 箱体时点区间（各基金取各自最新，故可能跨月） */
+  period_from: string | null;
+  period_to: string | null;
+  /** 无风格箱的持仓（覆盖率不足时如实在此列出，不藏起来） */
+  uncovered: { symbol: string; name: string; market_value_cents: number }[];
+  /** 是否含 QDII 持仓：其风格分类为上游原值，口径存疑，展示层须注明 */
+  has_qdii: boolean;
+  source: string;
+}
+
+/**
+ * 获取组合加权风格暴露。无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0。
+ *
+ * @param scope 三级口径（不传 = 家庭级）：`portfolio_id` 组合级 / `ledger_id` 账户级，
+ * 两者互斥（后端 400）。组合详情页必须传 `portfolio_id`，否则拿到的是**全家**风格
+ * ——标题写「组合风格构成」而数据是家庭级，属口径错误（同类问题 #2595）。
+ */
+export function getPortfolioStyle(
+  scope: { ledger_id?: number; portfolio_id?: number } = {}
+) {
+  return http.request<ApiResponse<PortfolioStyleExposure>>(
+    "get",
+    `/api/funds/style/portfolio/`,
+    { params: scope }
   );
 }

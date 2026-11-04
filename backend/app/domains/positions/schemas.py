@@ -16,6 +16,8 @@ class PositionListRequest(BaseModel):
       故 `SZ000001` 与 `000001.SZ` 视为同一只产品（详见 service 内注释）。
     - `market`：市场过滤，与 symbol 组合用于同码跨市场消歧。
     - `ledger_id`：传字符串 `'null'` 表示仅查未归档持仓（`ledger_id IS NULL`）。
+    - `member_id`：按家庭成员筛选（#1173），经账户间接归属
+      （`Position.ledger_id → Ledger.owner_member_id`）；未绑定账户的持仓不命中。
     - `group_by`：目前仅支持 `'account'`（按账户分组）。
     """
 
@@ -25,6 +27,7 @@ class PositionListRequest(BaseModel):
     ledger_id: str = Field('', description="账户 ID；'null' 表示仅未归档持仓")
     symbol: str = Field('', description='产品代码过滤（#1966）')
     market: str = Field('', description='市场过滤（#1966），与 symbol 组合消歧')
+    member_id: str = Field('', description='家庭成员 ID 过滤（#1173），经账户间接归属')
 
 
 class PositionCreate(BaseModel):
@@ -52,6 +55,12 @@ class PositionCreate(BaseModel):
     allocation: Optional[str] = Field(None, description='配置目标')
     notes: Optional[str] = Field(None, description='备注')
     fee: Optional[float] = Field(0.0, description='手续费')
+    # #2137 费用拆分（元）：四类齐全才落拆分列，缺类显式传 0；全不传 = 未拆分
+    # （存量语义，聚合 fee 为权威）。与 Transaction 的拆分不变量同口径。
+    fee_commission: Optional[float] = Field(None, description='佣金(元，#2137)')
+    fee_stamp_duty: Optional[float] = Field(None, description='印花税(元，#2137)')
+    fee_transfer_fee: Optional[float] = Field(None, description='过户费等税费(元，#2137)')
+    fee_other: Optional[float] = Field(None, description='其他费用(元，#2137)')
     confirm_date: Optional[date] = Field(None, description='确认日期')
     op_type: Optional[str] = Field('buy', description='操作类型')
     position_id: Optional[int] = Field(None, description='关联持仓ID')

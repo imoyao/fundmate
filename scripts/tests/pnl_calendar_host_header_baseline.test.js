@@ -1,5 +1,5 @@
 /**
- * #2050 回归探针：静态判定 OverviewSummaryCard 与 PnlCalendar 的契约是否对齐。
+ * #2050 回归探针：静态判定摘要卡（现 `OverviewInsightCard`）与 PnlCalendar 的契约是否对齐。
  *
  * 背景（实测）：`3eddf7f7f`（恢复 #2034 口径 tooltip 的提交）在解决同步合并冲突时
  * 取了较旧一侧，把宿主从 `<PnlCalendar host-header />` 改回 `<PnlCalendar hide-title />`。
@@ -12,11 +12,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const HOST =
-  path.join(
-    ROOT,
-    "frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue"
-  );
+// 2026-10-27（#980 批 B6）：摘要卡拆成左右两张组件，PnlCalendar 的宿主搬到
+// `OverviewInsightCard.vue`。判据跟着搬家——被检查的代码换了文件，指针不动就成假绿。
+const HOST = path.join(
+  ROOT,
+  "frontend/src/views/asset/panorama/components/OverviewInsightCard.vue"
+);
 const CAL =
   path.join(ROOT, "frontend/src/components/PnlCalendar/index.vue");
 

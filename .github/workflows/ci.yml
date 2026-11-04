@@ -278,6 +278,17 @@ jobs:
       - name: 扫描裸栏间分割线回潮（阻断）
         run: python scripts/guard_col_divider.py
 
+      # 自绘提示条守卫（#2725，源 #2716 批次 3）：#2716 抽出了 SoftBanner 并迁了 5 处，
+      # 但**没有任何机制拦住第 6 份手写**。本仓已有前车之鉴（视图层 .commit() 收敛过一拨，
+      # 无守卫时又长回来，#1606/#1620）。判据：样式选择器含 banner + 同块内
+      # display:flex + 真实背景或边框。迁移后的消费方保留 `class="recon-banner"` 这类
+      # e2e 锚点类名不受影响（它们样式里只剩排版）。
+      # 已知不覆盖：壳与配色分块写的（含 SoftBanner 自身）、不叫 banner 的块——
+      # 边界与理由见脚本 docstring；回归样本在 scripts/tests/guard_soft_banner.test.js。
+      # 同属「前端设计语言回潮」一类，故并入本 job（不新增 job 就不必改 gate.needs）。
+      - name: 扫描自绘提示条回潮（阻断）
+        run: python scripts/guard_soft_banner.py
+
       # 密钥引用位置守卫（源 CNB #148，2026-10-12，两个形态都踩过）：
       # git-sync 凭据必须挂**插件任务级 `imports`**（与 image 平级），
       # ① 挂流水线级 imports ⇒ 死在 Prepare（`declares allow_images … plugin tasks`）；
@@ -486,11 +497,18 @@ jobs:
       - name: 单元测试
         run: pnpm test:unit
 
-      # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，超出阈值报告。
-      # 当前为 warn 模式（不阻断 CI），仅让存量大页面趋势可见；
-      # 待存量大页面拆分完成后再切 --mode fail 冻结增量（避免误伤既有 PR）。
+      # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，**只减不增**。
+      #
+      # 2026-10-24 从 warn 切 fail（源 #980 实测）：warn 模式只打印不拦截，本卡拆过的
+      # 9 个页面里有 8 个在涨、4 个已重新越过 400 行（WatchlistFilterBar 332→497 /
+      # welcome 370→440 / reconcile-workbench 336→405 / watchlist/index 369→403）。
+      # 口径改为「存量登记基线 + 增量判红」：基线内涨一行、或新增超阈文件即红；
+      # 拆小了不判红（否则谁拆谁被拦，闸门会被绕开）。基线只能下调，脚本拒绝上调。
+      # 回归网 `scripts/tests/check_vue_size.test.js`（17 条，含 GROW/NEW 变异探针）
+      # 由 scripts_test job 的 `node --test "scripts/tests/*.test.js"` 收进来。
+      # 不新增 job ⇒ 不必动 gate.needs。
       - name: 页面规模门禁（行数检查）
-        run: node ../scripts/check_vue_size.mjs --threshold 400 --mode warn
+        run: node ../scripts/check_vue_size.mjs --threshold 400 --mode fail --baseline ../scripts/vue-size-baseline.json
 
       # 详情页表格约定守卫（源 CNB #553）：产品详情页 5 处手写 <table> 曾各写各的
       # padding / 分隔线 / 表头 / 数字列对齐，收进 `style/_detail-table.scss` 后，本守卫
@@ -629,6 +647,18 @@ jobs:
       - name: 跑 scripts/ 下的守卫脚本单测
         run: node --test "scripts/tests/*.test.js"
 
+      # 字体产物完整性（2026-10-24）：字体是**本机产物依赖**——MiSans 中文子集由本机
+      # 子集化脚本产出（4 个子集各约 3.5 MB）、Inter 是裁剪的可变字体。它们提交进仓库，
+      # 但**前端构建不校验它们**：public/ 下的静态文件由 Vite 原样拷贝，字体缺失或被截断时
+      # `pnpm build` 照样成功，页面照常渲染、只是静默 fallback 到系统字体——本地有字体、
+      # CI 没有，两边长得不一样却没有任何红灯（假绿比红灯贵）。
+      # 判据三条：引用完整性（样式 url() 指到的文件必须在）+ 文件头魔数（wOF2 / wOFF / OTTO，
+      # 防被占位符替换或写坏）+ 无孤儿产物（改名残留/多余副本）。并入本 job 而不另起 job
+      # （不新增 job 就不必改 gate.needs）。
+      # 回归网在 scripts/tests/check_font_assets.test.js（4 条变异探针 + 失败态探针）。
+      - name: 字体产物完整性（阻断）
+        run: python scripts/check_font_assets.py
+
       # workflow `inputs` 插值守卫（源 CNB #148，2026-10-12）：`inputs` 只有
       # workflow_dispatch / workflow_call 才定义，`schedule` 下写进 `run:` 会留**字面量**
       # ⇒ `bash: bad substitution`，步骤首行即挂。`cnb-github-backfill.yml` 因此
@@ -640,6 +670,20 @@ jobs:
       - name: 扫描 workflow inputs 插值回潮（阻断）
         run: python scripts/guard_workflow_inputs_interpolation.py
 
+      # 上游列名契约（#2543）：2026-10-23 fund_scale job 报红，根因是 akshare 上游改列名，
+      # 而适配层 `row.get(...)` + `except: return []` 把「列名漂移」和「上游没数据」都
+      # 表现成空列表。contract.py 提供修法（钉契约 + 显性抛错），本守卫负责让这个修法
+      # 不会退化回去——写进 AGENTS.md 的软约束管不住「顺手改回 return []」。
+      # 判据四条（R1 契约常量在 / R2 调了 assert_columns / R3 引用常量而非硬编码 /
+      # R4 except 不得 return []），回归网含 4 个变异探针 + 2 条失败态探针。
+      - name: 上游列名契约守卫（阻断）
+        run: python scripts/guard_upstream_column_contract.py
+
+      - name: 上游列名契约守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_upstream_column_contract -v
+        working-directory: ${{ github.workspace }}
+
       # 跨仓引用守卫（源 CNB 卡）：CNB 的正文/评论里裸 `#N` 会被解析成**本仓**编号，
       # 于是「见 GitHub 的某号」点进去落到 cnb.cool 的同号（要么 404、要么撞上另一张卡）。
       # 用户实测撞到，故规则是「提到 GitHub 的编号必须挂源」。不新增 job——并入本 job，
@@ -647,6 +691,19 @@ jobs:
       # 判据边界与豁免方式见脚本 docstring；回归网在 scripts/tests/guard_cross_repo_refs.test.js。
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
+
+      # 暗色模式死选择器（本轮 panorama 页清理时一并扫出的同型问题）：
+      # 暗色由 <html> 上的 `.dark` 类驱动、变量由 dark.scss 的 `:root.dark` 覆盖同名令牌；
+      # `data-theme` 属性只承载**配色主题名**（light/default/.../showbuy），永远不会是 dark。
+      # 因此 `[data-theme="dark"]` 选择器永不命中：不报错、构建绿，只让下一个人
+      # 以为「暗色有独立分支」并照着继续写（MoneyDisplay / RiseFallText 各躺了两块）。
+      # 判据自带失败态：扫不到输入时 exit 2（结论不可信），不会退化成「零命中 = 通过」。
+      # 回归网 scripts/tests/guard_no_data_theme_dark.test.js（真实扫描 + 三种写法注入探针
+      # + 两条失败态探针 + 一条「配色主题选择器不得误伤」反向探针）由上面的
+      # `node --test "scripts/tests/*.test.js"` 统一跑，此处不再重复执行：
+      # 同一份回归网跑两遍只是多花几秒，而「哪个 job 才是真的」会多一处说不清。
+      - name: 暗色模式：禁止 data-theme 等于 dark 的死选择器
+        run: node scripts/guard_no_data_theme_dark.mjs
 
       # 付费卡违规占用 NOW 档位（源 #1288 实测）：付费里程碑上的卡带了 `Q1-RED`。
       # 首次上线时违规项**已经存在**且不是 PR 作者能修的（要改的是 owner 的优先级判断），
@@ -700,13 +757,80 @@ jobs:
       - name: 安装 pyyaml + pytest
         run: python -m pip install pyyaml pytest
 
-      # dependabot 锁重生成通道（#2434）：dependabot 不跑 pnpm，文本级重写锁会丢
-      # peer-suffixed 条目 ⇒ `--frozen-lockfile` 报 MISSING_DEPENDENCY（一天三连踩）。
-      # 判据只查「通道会不会真的发生」：workflow 是否执行脚本、带 --apply、推回、
-      # 不吞失败态、按 dependabot + base=dev 设闸。放在 pyyaml 安装之后（守卫要解 YAML）。
-      # 回归网 scripts/tests/test_dependabot_lockfile_regen.py（6 个变异探针）。
+      # dependabot 锁重生成 + 分支重建通道（#2434）：dependabot 不跑 pnpm，文本级重写锁会丢
+      # peer-suffixed 条目 ⇒ `--frozen-lockfile` 报 MISSING_DEPENDENCY（一天三连踩）；
+      # 同批两个 bump PR 还会各自重写同一份锁 ⇒ CONFLICTING（#2646 / #2648 实测）。
+      # 判据只查「通道会不会真的发生」：workflow 是否执行两个脚本、带 --apply、推回、
+      # --force-with-lease、push: dev 重扫、不吞失败态、按 dependabot + base=dev 设闸。
+      # 放在 pyyaml 安装之后（守卫要解 YAML）。
+      # 回归网：scripts/tests/test_dependabot_lockfile_regen.py（9 个变异探针）+
+      # scripts/tests/test_rebuild_dependabot_branch.py（真 git 仓库复现撞锁，随 discover 收进来）。
       - name: dependabot 锁重生成通道（阻断）
         run: python scripts/guard_dependabot_lockfile_regen.py
+
+      # 自动合并的**归因**（#2799）：`gh pr merge --auto` 用哪个凭据启用，
+      # 决定了最终那次合并归因给谁——而归因决定后续事件是否被投递。
+      # GitHub 规则：GITHUB_TOKEN 触发的事件不创建 workflow run，于是用 GITHUB_TOKEN
+      # 启用出来的合并，其 `pull_request: closed` / `push` 事件全被抑制 ⇒
+      # issue 不自动关闭、乱码守卫与 lockfile 守卫被静默跳过，而门禁（质量门禁汇总）
+      # 照常 success ⇒ **假绿**（#2797 实测：本仓史上第一次 native auto-merge 合并）。
+      # 判据只查「启用 auto-merge 用的凭据是不是用户 PAT」+「PAT 缺失是否显式失败」
+      # （不许 `||` 回落 GITHUB_TOKEN——那等于把假绿原样装回来）。
+      # 放在 pyyaml 安装之后（守卫要解 YAML）。
+      # 回归网：scripts/tests/test_auto_merge_user_attribution.py（7 个变异探针，
+      # 随 unittest discover 收进来）。
+      - name: 自动合并的归因（阻断）
+        run: python scripts/guard_auto_merge_user_attribution.py
+
+      # workflow 的**定义来源**（#2803）：`pull_request_target` 的定义一律取自
+      # 仓库默认分支（本仓是 `main`），无视 PR 的 base 分支（GitHub 2025-12-08
+      # 生效的行为变更）⇒ 本仓功能 PR 一律 base=`dev` 时，「在 dev 上改了 workflow」
+      # 对这条路径**完全不可见**：守卫、判据、凭据、cron 改了什么，跑的都还是
+      # main 上那份旧的。这类故障**没有任何报错**——CI 照常绿，只有行为不一致。
+      #
+      # 判据两条：① 全仓不得出现 `pull_request_target` 触发器；
+      # ② 守卫类工作流（执行仓库内 scripts/ 的那些）用 `pull_request` 时，
+      # checkout 必须显式写非默认分支的 ref——否则 `pull_request` 下默认检出
+      # merge commit（含 PR 代码），PR 作者改一下 scripts/ 就能改掉自己的守卫。
+      # CI 类工作流检出 PR 代码是职责所在，不在该判据范围。
+      # 放在 pyyaml 安装之后（守卫要解 YAML）。
+      # 回归网：scripts/tests/test_workflow_definition_source.py（12 个变异探针，
+      # 随 unittest discover 收进来）。
+      - name: workflow 定义来源（阻断）
+        run: python scripts/guard_workflow_definition_source.py
+
+      # MiSans 子集字形覆盖（源 https://github.com/imoyao/fundmate/issues/2402）：用户截图报
+      # 「荃」「鑫」渲染不对。实测真因不是「按字频裁剪」——`subset_misans.py` 的字表压根
+      # 没有 GB2312 **二级**（区 56~87，按笔画排序，装的全是姓氏 / 人名 / 地名用字），
+      # 而二级的 3008 字里 2987 个不在产物里；用户举的 10 个字中有 7 个连二级都不在
+      # （属 GBK 扩展区）。旧口径「生僻字属可接受长尾」是错的。
+      #
+      # 贵在这条根本没有观测手段：`scan_frontend_chars()` 只能扫写死的文案，覆盖不了
+      # 用户输入，于是只能等用户截图。本判据让它变成一个数字：
+      #   GB2312 一级必须 100%（界面文案不跳字体的底线）
+      #   GBK 汉字必须 ≥ 98%（用户可能输入什么的上界，与 Windows CP936 一致）
+      #
+      # 依赖 fonttools：**刻意不自研 woff2/cmap 解析**——首版手写 format 4 的偏移，
+      # 在 idRangeOffset 段算错、把 3823 个码位读成 2667 个且**不抛异常**，输出照样
+      # "成功"。判据自己错了，只会更响亮地重复错结论（同 CNB #450 的形态）。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界与不覆盖项见脚本 docstring；回归网在
+      # scripts/tests/test_font_glyph_coverage.py（13 条，含 2 个变异探针）。
+      - name: 安装 fonttools（字形覆盖判据用）
+        run: python -m pip install fonttools brotli
+
+      - name: 检查 MiSans 子集字形覆盖（阻断）
+        run: python scripts/guard_font_glyph_coverage.py
+
+      # 迁移 PG-aware 守卫（#2534，源 #2469 / #2532 两次生产停摆）：迁移里再出现
+      # 「非 SQLite 就跳过」早退即红——本仓没有 Alembic、create_all 不给存量表加列，
+      # 生产 user 域是 Supabase PG，那句「由 ORM 模型/迁移工具负责」是假前提。
+      # 存量 4 个函数（整表重建 / SQLite 专属 SQL）按指纹基线冻结，收敛一个删一个；
+      # 「已无早退但条目还在」同样红，逼基线与代码同一个 PR 贴合。自带变异探针
+      # （--self-test）；回归网 scripts/tests/test_guard_migrations_pg_aware.py。
+      # 不新增 job——并入本 job，也就不必动 gate.needs。
+      - name: 迁移 PG-aware 守卫（阻断）
+        run: python scripts/guard_migrations_pg_aware.py
 
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
@@ -849,6 +973,22 @@ jobs:
       - name: 校验 Pro 端点权益接线（阻断）
         run: python scripts/guard_pro_endpoint_registry.py
 
+      # 投顾组合必须 balance 模式记账（D70 / #2740，源 #1205 切片 A）。
+      #
+      # WHY：`core/asset_types.py` 曾写「manager / portfolio **不进 positions**，仅 watchlist
+      # 引用」——而那句话**没有任何代码执行它**。于是现状是「能记进去、但记了是坏的」：
+      # portfolio 落在默认 `nav` 模式，组合没有份额也没有净值 ⇒ `position_price` job 不给它
+      # 定价 ⇒ **市值恒为 0**，详情页却照常渲染一张「持仓 0 元」的卡。
+      # 失败形态是**静默**的（无异常、无日志、无红灯），所以判据不能靠「约定没人这么写」，
+      # 必须钉在写入路径上：`process_buy_or_deposit` 里「portfolio 且非 balance ⇒ raise」
+      # 那段还在、位置没搬；`asset_types.py` 的旧表述不许回归；`decisions.md` 的 D70 行必须在。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界（不判运行时行为、不判前端、不判 assets 表、只认一条写入入口）见脚本 docstring；
+      # 回归网在 scripts/tests/test_guard_portfolio_balance_mode.py（14 条，含真实代码回退探针：
+      # 删整段约束 / 删 `and not is_balance` / `raise` 换日志 / 函数改名退 2，均须转红）。
+      - name: 校验投顾组合 balance 口径（阻断）
+        run: python scripts/guard_portfolio_balance_mode.py
+
       # 规则登记与生命周期守卫（源：用户问「写进 AGENTS.md 的规则，别的 Agent 不遵守怎么办」）。
       #
       # WHY：本仓有 30+ 个守门脚本，但**从没有人问过「AGENTS.md 里那些『强制 / 禁止』
@@ -896,6 +1036,25 @@ jobs:
       # 回归网在 scripts/tests/test_no_hardcoded_secrets.py（含临时仓库灵敏度探针 + 失败态用例）。
       - name: 检查仓库里是否写死了密钥（阻断）
         run: python scripts/guard_no_hardcoded_secrets.py
+
+      # 前端 env 的 Supabase 凭证（#1028）：开发/生产共用同一个 Supabase 项目时，
+      # 开发期注册的测试账号会写进**生产** Auth 用户表，而当时没有任何一处会报错。
+      # 本守卫只管**入库文件**（CI 看得见的那些）：`.env.production` / `.env.staging`
+      # 必须给出完整的 URL + anon key（缺项 ⇒ 浏览器里才炸，构建期就该红），
+      # `.env.example` 只允许占位值（它是新人抄配置的入口）。
+      # ⚠️ 「dev 与 prod 是否同项目」这条**不在本守卫范围内**——它要读**不入库**的
+      # `frontend/.env.development`，CI 看不到，由 `frontend/build/supabase-env-guard.ts`
+      # 在 dev server 启动时兜。两条规则不重叠、各有唯一实现。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/test_supabase_env_separation.py
+      # （含 3 个变异探针，均已实测转红）。
+      - name: 检查前端 env 的 Supabase 凭证（阻断）
+        run: python scripts/guard_supabase_env_separation.py
+
+      - name: 前端 env 凭证守门回归网（阻断）
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_supabase_env_separation -v
+        working-directory: ${{ github.workspace }}
 
   gate:
     name: 质量门禁汇总

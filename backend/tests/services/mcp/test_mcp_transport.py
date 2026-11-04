@@ -23,12 +23,20 @@ from app.services.mcp.errors import McpBadResponse, McpUnavailable
 class _Resp:
     """``requests.Response`` 的最小替身（只实现传输层用到的成员）。"""
 
-    def __init__(self, status_code=200, headers=None, payload=None, lines=None, bad_json=False):
+    def __init__(self, status_code=200, headers=None, payload=None, lines=None, bad_json=False, content=None):
         self.status_code = status_code
         self.headers = headers or {}
         self._payload = payload
         self._lines = lines
         self._bad_json = bad_json
+        if content is not None:
+            self.content = content
+        elif lines is not None:
+            # 传输层现在按原始字节 + UTF-8 解码（``resp.text`` 会被 requests 猜成
+            # ISO-8859-1，把中文折成两行），故替身也要给 ``content``。
+            self.content = '\n'.join(lines).encode('utf-8')
+        else:
+            self.content = b''
 
     def json(self):
         if self._bad_json:
@@ -104,6 +112,36 @@ def test_sse_response_is_parsed():
 
     assert transport.call_tool('SomeTool', {}, token='k') == '来自SSE'
     assert post.methods == ['initialize', 'notifications/initialized', 'tools/call']
+
+
+def test_sse_line_with_event_and_data_on_one_line_is_parsed():
+    """实测（2026-10-23）：上游把 ``event:`` 与 ``data:`` 放在**同一行**。
+
+    按「行首是否 ``data:``」匹配会一条都取不到 ⇒ 最终报「调用返回为空」，
+    一个看起来像「上游没数据」的假结论。故用行内首次出现 ``data:`` 定位。
+    """
+    lines = ['event: message data: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"同一行"}]}}']
+    post = _Post([_Resp(headers={'content-type': 'text/event-stream'}, lines=lines)])
+
+    assert McpTransport(post, _Provider()).call_tool('SomeTool', {}, token='k') == '同一行'
+
+
+def test_sse_utf8_continuation_byte_is_not_treated_as_line_break():
+    """UTF-8 续字节 ``0x85``（U+0085 NEXT LINE）不得被当成换行。
+
+    实测（2026-10-23，真实网关）：``text/event-stream`` 不带 charset ⇒ requests 猜
+    **ISO-8859-1** ⇒ 中文的某个续字节变成 U+0085，``iter_lines`` / ``str.splitlines()``
+    在那里把一行 JSON 折断 ⇒ ``json.loads`` 全失败 ⇒ 上层读成「调用返回为空」
+    （一个看起来像「上游没数据」的假结论）。故必须拿原始字节按 UTF-8 解码。
+    """
+    body = (
+        b'event: message\r\n'
+        b'data: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"\xe4\xb8\x85"}]}}\r\n'
+        b'\r\n'
+    )
+    post = _Post([_Resp(headers={'content-type': 'text/event-stream'}, content=body)])
+
+    assert McpTransport(post, _Provider()).call_tool('SomeTool', {}, token='k') == '丅'
 
 
 def test_sse_without_matching_message_raises():

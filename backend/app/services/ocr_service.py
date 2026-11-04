@@ -13,7 +13,8 @@ P1 重构（ai-recognizer-architecture-2026-08-13.md）后，业务逻辑已全�
     recognizers/watchlist_recognizer.py   自选场景（本文件对外接口的默认实现）
     recognizers/txn_recognizer.py         持仓场景
 
-本模块保留旧接口（供 `domains/ocr/views.py` 与既有测试引用），行为与重构前完全一致；
+本模块保留旧接口（生产视图 `domains/ocr/views.py` 已直连 `ai_recognizer`，
+当前仅既有测试引用），行为与重构前完全一致；
 新增场景请走 `get_recognizer(scenario)`，不要在本文件继续堆业务逻辑。
 """
 
@@ -58,7 +59,7 @@ _RECOGNIZER = WatchlistRecognizer()
 
 # ── 兼容入口（委托默认场景识别器）──
 def recognize(image_bytes: bytes) -> list:
-    """图片 → 火山方舟 vision（默认 mini 便宜模型）→ 基金/股票代码列表。"""
+    """图片 → 火山方舟 vision（默认 2-1-lite，关深度思考）→ 基金/股票代码列表。"""
     return _RECOGNIZER.recognize_image(image_bytes)
 
 

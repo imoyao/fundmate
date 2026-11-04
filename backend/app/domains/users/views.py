@@ -14,11 +14,11 @@ from sqlalchemy import func
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.core.sensitive_word_guard import contains_sensitive
 from app.core.validation import parse_body
 from app.domains.transactions.models import Transaction
 from app.domains.users.models import ROLE_LABELS, User, UserPreference
 from app.domains.users.schemas import PreferenceOut, PreferenceUpsert, ProfileUpdate, UserOut
+from app.services.user_profile import update_profile
 
 users_bp = APIBlueprint('users', __name__, url_prefix='/api/users')
 
@@ -41,41 +41,18 @@ def list_family_members():
 def update_me():
     """更新当前登录用户资料（昵称 / 用户名 / 头像）。
 
-    用户名作为登录标识必须全局唯一：与其他用户冲突返回 409；
-    用户名只允许修改且不可置空（置空则保持原值）。
-    头像仅存生成式 URL（D9：不落盘、不上传，由 DiceBear 之类生成）。
+    业务规则（敏感词 / 用户名唯一性 / GoTrue metadata 同步）在
+    `app/services/user_profile.py`；本视图只做「取当前用户 → 调服务 → 组响应」。
+    用户名作为登录标识必须全局唯一，冲突返回 409；头像仅存生成式 URL（D9）。
     """
     data = parse_body(ProfileUpdate)
     with get_db() as db:
         user = db.query(User).filter_by(id=g.current_user.id).first()
         if user is None:
             abort(401, description='未登录')
-
-        if data.username is not None:
-            new_username = data.username
-            if contains_sensitive(new_username):
-                abort(400, description='用户名包含不当词汇，请更换')
-            conflict = (
-                db.query(User)
-                .filter(
-                    User.username == new_username,
-                    User.id != user.id,
-                )
-                .first()
-            )
-            if conflict is not None:
-                abort(409, description='该用户名已被占用，请换一个')
-            user.username = new_username
-        if data.nickname is not None:
-            if contains_sensitive(data.nickname):
-                abort(400, description='昵称包含不当词汇，请更换')
-            user.nickname = data.nickname
-        if data.avatar is not None:
-            user.avatar = data.avatar
-
-        db.flush()
-        db.refresh(user)
-        return jsonify({'data': _user_to_dict(user), 'message': 'ok'})
+        update_profile(db, user, data)
+        payload = _user_to_dict(user)
+    return jsonify({'data': payload, 'message': 'ok'})
 
 
 @users_bp.get('/record-stats/')

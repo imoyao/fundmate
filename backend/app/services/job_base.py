@@ -243,27 +243,50 @@ class SyncJob(ABC):
             return 0
 
         total_saved = 0
+        phase_costs: Dict[str, float] = {}
         for i in range(0, len(targets), self.batch_size):
             batch = targets[i : i + self.batch_size]
             self.logger.info(f'进度: {min(i + self.batch_size, len(targets))}/{len(targets)}')
 
             # 1. 抓取
+            started = time.perf_counter()
             batch_data = self._fetch_data(self._full_sync_flag, batch)
+            phase_costs['抓取'] = phase_costs.get('抓取', 0.0) + (time.perf_counter() - started)
 
             # 2. 校验
+            started = time.perf_counter()
             validated = self._validate_data(batch_data)
+            phase_costs['校验'] = phase_costs.get('校验', 0.0) + (time.perf_counter() - started)
 
             # 3. 去重
+            started = time.perf_counter()
             new_data = self._deduplicate(validated)
+            phase_costs['去重'] = phase_costs.get('去重', 0.0) + (time.perf_counter() - started)
             self.stats['skipped'] += len(validated) - len(new_data)
 
             # 4. 写入
             if new_data:
+                started = time.perf_counter()
                 self._save_data(new_data)
+                phase_costs['写库'] = phase_costs.get('写库', 0.0) + (time.perf_counter() - started)
                 self.stats['success'] += len(new_data)
                 total_saved += len(new_data)
 
+        self._log_phase_costs(phase_costs)
         return total_saved
+
+    def _log_phase_costs(self, costs: Dict[str, float]) -> None:
+        """把各阶段累计耗时打成一行（#2522）。
+
+        为什么必须显式打：瓶颈在**远端写库**（Turso/Hrana 逐行往返），
+        本地 SQLite 上是毫秒级 ⇒ 本地测试永远看不到；而真机日志此前只有
+        「进入 / 完成」两端，8407 行写 28 分钟、28149 只 52 分钟零输出，
+        排查只能靠推断。有了这一行，下一次跑就能直接指出卡在抓取、去重还是写库。
+        """
+        if not costs:
+            return
+        text = ' / '.join(f'{name} {secs:.1f}s' for name, secs in costs.items())
+        self.logger.info(f'阶段耗时：{text}')
 
     # ── 主流程 ──
 
@@ -278,8 +301,15 @@ class SyncJob(ABC):
 
                 if targets is None:
                     # 无外部目标列表：子类自己获取全部数据（适用于全量列表 Job）
+                    # #2522：逐阶段计时。写库慢在本地 SQLite 上不可见（毫秒级），
+                    # 真机日志此前只有「进入 / 完成」两端，8407 行写 28 分钟、
+                    # 28149 只 52 分钟零输出，只能靠推断定位。
+                    phase_costs: Dict[str, float] = {}
+                    started = time.perf_counter()
                     raw_data = self._fetch_data(full_sync, [])
+                    phase_costs['抓取'] = time.perf_counter() - started
                     if not raw_data:
+                        self._log_phase_costs(phase_costs)
                         if self._allow_empty_data:
                             # 全挂也走这里：分母取「试过的目标数」，再由 `_decide_final_status`
                             # 决定这是「今天没数据」（errors 为空）还是「全都失败了」（#2475）
@@ -293,16 +323,23 @@ class SyncJob(ABC):
                                 message=f'数据源返回空数据: {self.get_name()}',
                                 status_code=503,
                             )
+                    started = time.perf_counter()
                     validated = self._validate_data(raw_data)
+                    phase_costs['校验'] = time.perf_counter() - started
+                    started = time.perf_counter()
                     new_data = self._deduplicate(validated)
+                    phase_costs['去重'] = time.perf_counter() - started
                     # total 必须含失败目标与主动跳过的目标：否则「32 个目标里 8 个没数据、
                     # 24 个成功」会被记成 total=24/success=24 —— 分母被吃掉，
                     # 看板上 100% 成功（#2475）
                     self.stats['total'] = self._count_total(None, len(raw_data))
                     self.stats['skipped'] = len(validated) - len(new_data)
                     if new_data:
+                        started = time.perf_counter()
                         self._save_data(new_data)
+                        phase_costs['写库'] = time.perf_counter() - started
                         self.stats['success'] = len(new_data)
+                    self._log_phase_costs(phase_costs)
                     self.status = JobStatus.SUCCESS
                     break
 

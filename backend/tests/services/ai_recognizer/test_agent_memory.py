@@ -10,6 +10,8 @@
 import json
 import re
 
+from loguru import logger as loguru_logger
+
 from app.domains.agent.models import AgentSession
 from app.services.ai_recognizer import agent_loop, guards
 from app.services.ai_recognizer import llm as llm_mod
@@ -62,6 +64,38 @@ def test_twenty_turns_retain_first_turn_and_prompt_bounded(monkeypatch):
     assert len(session.messages) <= agent_loop.COMPRESS_WINDOW  # 原文层被压回窗口
     assert len(session.summary) <= agent_loop.SUMMARY_CAP
     assert out['type'] == 'clarify'
+
+
+def test_summary_full_keeps_new_digest_and_warns(monkeypatch):
+    """#2657：摘要触顶时必须保留**本次**新 digest。
+
+    旧实现 `(summary + '\\n' + digest)[:SUMMARY_CAP]` 追加在尾、截断也在尾，
+    触顶后切掉的正是刚压进来的内容，而日志仍报「压缩完成」。本例即该缺陷的回归：
+    预置摘要到接近上限，压缩一次后断言新 digest 在结果里。
+    """
+    seg = '早期约束段'
+    digest = 'DIGEST2657新压缩内容'
+    monkeypatch.setattr(agent_loop, '_summarize', lambda old, goal: (digest, {}))
+
+    session = AgentSession(session_id='mem-3', user_id=1, goal='分析账户收益')
+    session.turn_count = agent_loop.COMPRESS_MIN_TURNS + 1
+    session.messages = [{'user': f'第{i}轮', 'assistant': 'ok'} for i in range(agent_loop.COMPRESS_WINDOW + 1)]
+    # 摘要已近上限：按段铺满，留出的余量 < digest 长度 ⇒ 必然触发丢弃
+    session.summary = '\n'.join([seg] * (agent_loop.SUMMARY_CAP // (len(seg) + 1)))
+    assert len(session.summary) <= agent_loop.SUMMARY_CAP < len(session.summary) + len(digest) + 1
+
+    warns = []
+    sink = loguru_logger.add(lambda m: warns.append(m.record['message']), level='WARNING')
+    try:
+        agent_loop._maybe_compress(session)
+    finally:
+        loguru_logger.remove(sink)
+
+    assert digest in session.summary  # 本次新内容没被切掉（旧实现此处必失败）
+    assert len(session.summary) <= agent_loop.SUMMARY_CAP  # 仍然有界
+    assert session.summary.split('\n')[0] == seg  # 首段完整，没留半个残句
+    assert any('丢弃最旧' in w for w in warns)  # 丢失必须被告知，不再静默
+    assert len(session.messages) == agent_loop.RECENT_KEEP
 
 
 def test_compress_failure_degrades_to_hard_cap(monkeypatch):

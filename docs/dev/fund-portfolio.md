@@ -42,16 +42,20 @@ title: 投顾组合（Advisor Portfolio）数据域设计与实现
 
 - **天天基金**：公开接口零鉴权直抓四个数据面（概览 / 当前持仓 / 行业配置 / 历史调仓），覆盖式更新。
 - **且慢**：官方 MCP（`QIEMAN_API_KEY`，与温度计同 key）自动抓概览（`GetStrategyDetails`）与持仓
-  （`BatchGetStrategiesComposition`）；**无官方历史调仓接口**，调仓明细由相邻两次持仓快照推导
-  （`source='qieman'`，`reason` 记录推导依据的快照日）。手动导入 `import_qieman_holdings()`
-  （`source='qieman_manual'`）仅作兜底。
+  （`BatchGetStrategiesComposition`）；**历史调仓走官方 GraphQL**（`POST /alfa/v1/graphql` 的
+  `Adjustment` operation，匿名可取、只需 `x-sign`，`source='qieman_official'`），
+  含主理人原文与调入/调出语义。官方取不到时（计划型组合如 `LONG_WIN` / `LONG_WIN_S`，
+  官方本就返回空）回退由相邻两次持仓快照推导（`source='qieman'`，`reason` 记录推导依据的
+  快照日）；官方数据一旦覆盖该组合，同组合的推导行**同事务清掉**（同一时段不留两套真相）。
+  手动导入 `import_qieman_holdings()`（`source='qieman_manual'`）仅作兜底。
   - **只记真实调仓（#1622）**：且慢给的「持仓占比」是**市值口径**、每天随净值自然漂移
     （实测 4880 个基金级差异：p50=0.01pp、p99=0.23pp），而快照日几乎每个交易日都推进。
-    故推导判据为「`|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT`（0.5pp ≈ 2×p99）」，且**不写
+    故**推导路径**的判据为「`|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT`（0.5pp ≈ 2×p99）」，且**不写
     `op=5 持平` 行**、**无变化不写任何行**——修复前把漂移也记成调仓，导致每个交易日都生成
-    一整组"调仓"（开发库实测：99 个组合 4907 行噪音 → 真实 53 行）。
-  - **历史起点限制**：且慢无官方历史，调仓历史只能从我们**首个持仓快照**起算；更早的真实调仓
-    无法回溯（要回溯只能改抓取源，属另一决策）。
+    一整组"调仓"（开发库实测：99 个组合 4907 行噪音 → 真实 53 行）。官方路径不用这条阈值。
+  - **历史起点限制（已解除）**：官方接口给的是**成立以来全量**（实测 `ZH000129` 最早到
+    2014-01-03），不再受「从我们首个持仓快照起算」的限制；该限制只对仍走推导的
+    计划型组合成立。
 - 任务不认识任何平台：按 `AdvisorPortfolio.platform` 从注册表取适配器；缺省 targets 时抓库内
   **已有适配器**的平台的在售组合。已在 orchestrator 注册（`advisor_portfolio` job）。
 - 回填 SOP：`pdm run python scripts/seed_advisors.py` 建档（幂等 upsert）→ `pdm run invoke grab.advisor_portfolio`（或 `sync --job advisor_portfolio`）。

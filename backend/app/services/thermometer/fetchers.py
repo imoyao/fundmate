@@ -10,7 +10,12 @@
       - 韭圈儿恐贪 + 中长期温度 : app.jiucaishuo.com 官方页面（Playwright 渲染取值，已验证可用）
       - 集思录温度(官方)      : www.jisilu.cn/data/indicator/ 官方接口
                                  get_cb_temperature(可转债温度) + get_last_indicator(全市场中位数PB/PE温度)
-                                 需登录态 Cookie(kbzw__Session)，配 JISILU_COOKIE 即用官方真值（已验证：73.56）
+                                 匿名请求即可取到，无需登录态 Cookie（2026-10-24 实测：
+                                 get_cb_temperature → {"cb_temperature":"51.41"}、
+                                 get_last_indicator → {"price_dt":"2026-10-23","median_pb":"2.49",...}）。
+                                 ⚠ 本仓不存在 JISILU_COOKIE 读取点，BaseFetcher._get 也不注入 Cookie——
+                                 若集思录后续收紧匿名访问，届时在 _get 层按环境变量可选注入，
+                                 而非假定「不配 Cookie 就拿不到值」
   · 脆弱层（App 私有 / 无公开接口，单源失败不影响整体）
       - 且慢温度计            : 官方 MCP(stargate.yingmi.com) 的 GetLatestQuotations（用户提供 key，已验证可用）
       - 有知有行温度计        : youzhiyouxing.cn/thermometer 网页 SSR（公开可抓，已验证可用）

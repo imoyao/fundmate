@@ -131,7 +131,11 @@ def test_exchange_venue_covers_money_fund_for_read_back():
     assert 'money_fund' in asset_types_of_venue(OTC)
     # 注意：NO_VENUE 的反查集合是「无场所实体」，**非空** —— 写侧不能直接拿它当
     # 过滤条件，_find_existing_position 必须显式写 if venue else ()（见防过度抑制用例）。
-    assert asset_types_of_venue(NO_VENUE) == ('manager', 'portfolio', 'index')
+    #
+    # 用集合相等而不是 `>=`：多一个/少一个都是契约变更，必须显式改这里。
+    # bank_wealth（银行理财）在此集合内、**不**进 OTC —— 它不是场外公募基金，没有基金
+    # 代码，落 OTC 会被套上「裸码 = 基金代码」的归一逻辑（见 core/venues 模块 docstring）。
+    assert set(asset_types_of_venue(NO_VENUE)) == {'manager', 'portfolio', 'index', 'bank_wealth'}
 
 
 # ── B. symbol 归一（正向 + 反向）──────────────────────

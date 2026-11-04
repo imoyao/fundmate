@@ -1,0 +1,15 @@
+// 「投顾组合」区块的共用样式（#980 拆分）。
+// 这两条被多个子件同时使用（__sub 在识别信息与成分基金、__metrics-title 在
+// 收益/风险指标与成分基金），scoped 样式不跨组件，故抽 partial 各 @use。
+// 引用写 `@use "./advisor-base";`。
+.advisor-section__sub {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+.advisor-section__metrics-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--text-primary);
+}

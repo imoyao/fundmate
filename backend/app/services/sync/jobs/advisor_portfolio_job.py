@@ -10,15 +10,18 @@
 | 谁 | 负责 |
 |---|---|
 | 适配器 | 把平台原始响应翻译成 canonical（概览 / 持仓 / 行业 / 官方调仓） |
-| 本任务 | 平台无关的落库语义：覆盖式快照、策展字段不被覆盖、快照推导调仓 |
+| 本任务 | 平台无关的落库语义：覆盖式快照、策展字段不被覆盖、官方优先 + 快照推导降级 |
 
 落库语义（与平台无关，新平台自动继承）：
 - 概览指标：只覆盖**非 None** 值（接口缺字段 / 抓取失败不清空已有数据）；
   `host`/`allocation`/`product_type` 是策展字段（`advisor_catalog` 注册表维护），永不被抓取覆盖；
 - 当前持仓/行业配置：同一 (portfolio, as_of_date) 先删后插；
 - 历史调仓：同一 (portfolio, adjust_date) 先删后插，调仓理由随行冗余；
-- 无官方调仓接口的平台（如且慢）：由持仓快照序列推导调仓明细，且**只记真实变化**——
-  仅 `|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT` 的基金入账，**过滤后为空就不写任何行**。
+  官方行与推导行靠 `source` 区分（且慢 = `qieman_official` / `qieman`），
+  **官方覆盖到该组合时同组合的推导行就地清掉**——否则同一时段存在两套真相；
+- 无官方调仓（或该代码不在官方命名空间内，如且慢 `LONG_WIN` 计划）：由持仓快照序列
+  推导调仓明细，且**只记真实变化**——仅 `|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT`
+  的基金入账，**过滤后为空就不写任何行**；已有官方行的组合不再推导（会让位）。
   （#1622 的教训：且慢的占比是**市值口径**、每天随净值自然漂移，原实现对所有基金逐行落库
   ——没变的写 `op=5 持平`——且无阈值，于是每个交易日都生成一整组"调仓"，真实调仓被淹没。）
 
@@ -265,6 +268,7 @@ class AdvisorPortfolioSyncJob(SyncJob):
                         'platform': platform,
                         # 能力位随 payload 走：落库层无需再回查注册表
                         'derive_rebalances': src.derive_rebalances_from_snapshots,
+                        'official_rebalance_source': src.official_rebalance_source,
                         'overview': overview,
                         'holdings': holdings,
                         'industries': src.fetch_industries(code),
@@ -433,8 +437,11 @@ class AdvisorPortfolioSyncJob(SyncJob):
     def _apply_rebalances(self, portfolio: AdvisorPortfolio, rebalances: List[dict], source: str) -> int:
         """**官方**历史调仓逐调仓日覆盖（平台无关）；返回写入行数。
 
-        无官方调仓接口的平台返回空列表 → 本方法无操作，改走
-        :meth:`_derive_adjust_from_snapshots`。
+        ``source`` 由调用方按适配器的 ``official_rebalance_source`` 决定（且慢 =
+        ``qieman_official``），与快照推导行（``qieman``）区分开。
+
+        适配器拿不到官方数据时返回空列表 → 本方法无操作，调用方改走
+        :meth:`_derive_adjust_from_snapshots`（计划型组合的正常路径）。
         """
         n = 0
         for node in rebalances or []:
@@ -466,8 +473,12 @@ class AdvisorPortfolioSyncJob(SyncJob):
     def _derive_adjust_from_snapshots(self, portfolio: AdvisorPortfolio, as_of, source: str) -> int:
         """由「本次快照 vs 上一快照」推导**真实**调仓明细，落 advisor_adjust_histories。
 
-        适用于**没有官方历史调仓接口**的平台（如且慢：MCP 只给当前持仓）。历史由我们自己的
-        持仓快照序列推导，但判据是「**真的有变化**」而不是「快照日又推进了一天」（#1622）：
+        这是**降级**路径：平台有官方调仓数据面时以官方为准，只有「官方拿不到 / 该代码不在
+        官方命名空间内」（且慢的长赢计划类）才走这里。调用前由 :meth:`_save_data` 判
+        ``derive_rebalances`` 能力位；本方法再兜一层「该组合已有官方行就不推导」——
+        否则同一天官方行会被推导行按日覆盖，静默丢掉官方数据。
+
+        判据是「**真的有变化**」而不是「快照日又推进了一天」（#1622）：
 
         1. **阈值**：只有 ``|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT``（0.5pp）的基金入账，
            新增 / 清仓同样按阈值过滤。且慢占比是**市值口径**，每天随净值自然漂移
@@ -481,10 +492,23 @@ class AdvisorPortfolioSyncJob(SyncJob):
            若日后出现，应改为「累计变化」口径并重标阈值。
 
         首次快照没有前值可对比 → 跳过（不编造 0 → X 的假建仓记录）。
-        有官方调仓接口的平台走 :meth:`_apply_rebalances`，不进此路径。返回写入行数。
+        返回写入行数。
         """
         if not as_of:
             return 0
+        # 该组合已有官方调仓行 ⇒ 推导会让两套数据抢同一个 adjust_date，直接让位
+        has_official = (
+            self.db.query(AdvisorAdjustHistory.id)
+            .filter(
+                AdvisorAdjustHistory.portfolio_id == portfolio.id,
+                AdvisorAdjustHistory.source != source,
+            )
+            .first()
+        )
+        if has_official is not None:
+            self.logger.info(f'投顾组合 {portfolio.code} 已有其它来源的调仓行，跳过快照推导')
+            return 0
+
         prev_date = (
             self.db.query(func.max(AdvisorHolding.as_of_date))
             .filter(AdvisorHolding.portfolio_id == portfolio.id, AdvisorHolding.as_of_date < as_of)
@@ -548,24 +572,35 @@ class AdvisorPortfolioSyncJob(SyncJob):
         逐组合单独 commit：一轮可能跨上百个组合，整批共用一个事务会把失败半径放大到
         整批，也让 SQLite 写锁长时间不释放。
 
-        本方法**不含平台分支**：数据来源标识统一取 ``platform.lower()``
+        本方法**不含平台分支**：数据来源标识取 ``platform.lower()``
         （TIANTIAN→tiantian、QIEMAN→qieman，与历史已落库数据同口径）；
-        「无官方调仓接口」这类能力差异由 payload 的 ``derive_rebalances`` 位驱动。
+        「有没有官方调仓数据面」这类能力差异由 payload 的 ``official_rebalance_source``
+        位驱动（None = 该平台没有，按快照推导补齐）。
+
+        调仓的来源有两档，靠适配器的 ``official_rebalance_source`` 区分：官方行的 source
+        用它（且慢 = ``qieman_official``），快照推导行仍是 ``platform.lower()``
+        （且慢 = ``qieman``，与换源前的 172 行同值，故不需要数据迁移）。
+        **官方数据一旦覆盖该组合，同组合的推导行就地清掉**——否则同一时段存在两套真相，
+        而这正是本次换源要消灭的形态（存量数据也必须被新口径收编，不能只改代码）。
         """
         for p in new_data:
             platform = p.get('platform') or DEFAULT_ADVISOR_PLATFORM
-            source = platform.lower()
+            base_source = platform.lower()
+            official_source = p.get('official_rebalance_source') or base_source
             portfolio = self._get_or_create_portfolio(p['code'], platform)
-            n_ov = self._apply_overview(portfolio, p.get('overview') or {}, source)
+            n_ov = self._apply_overview(portfolio, p.get('overview') or {}, base_source)
 
             holdings = p.get('holdings') or {}
             as_of = _parse_date(holdings.get('as_of_date'))
-            n_hold = self._apply_holdings(portfolio, holdings.get('funds') or [], as_of, source)
-            n_ind = self._apply_industries(portfolio, p.get('industries') or [], as_of, source)
-            n_hist = self._apply_rebalances(portfolio, p.get('rebalances') or [], source)
-            # 无官方调仓接口的平台：由快照序列推导本次调仓（首次快照无前值，自动跳过）
+            n_hold = self._apply_holdings(portfolio, holdings.get('funds') or [], as_of, base_source)
+            n_ind = self._apply_industries(portfolio, p.get('industries') or [], as_of, base_source)
+            n_hist = self._apply_rebalances(portfolio, p.get('rebalances') or [], official_source)
+            # 官方数据已覆盖 ⇒ 推导行是同一时段的另一套真相，清掉
+            n_purged = self._purge_derived_adjusts(portfolio, base_source, official_source) if n_hist else 0
+            # 无官方调仓（或该组合不在官方命名空间内）：由快照序列推导本次调仓
+            # （首次快照无前值，自动跳过）。已有官方行的组合不再推导。
             n_derived = (
-                self._derive_adjust_from_snapshots(portfolio, as_of, source)
+                self._derive_adjust_from_snapshots(portfolio, as_of, base_source)
                 if p.get('derive_rebalances') and n_hold
                 else 0
             )
@@ -573,7 +608,25 @@ class AdvisorPortfolioSyncJob(SyncJob):
             self.logger.info(
                 f'投顾组合 {p["code"]}({platform}) 落库: 概览 {n_ov} 字段, 持仓 {n_hold} 条(as_of={as_of}), '
                 f'行业 {n_ind} 条, 官方调仓 {n_hist} 条, 推导调仓 {n_derived} 条'
+                + (f', 清理推导行 {n_purged} 条' if n_purged else '')
             )
+
+    def _purge_derived_adjusts(self, portfolio: AdvisorPortfolio, derive_source: str, official_source: str) -> int:
+        """官方覆盖该组合后，删掉它历史遗留的快照推导行；返回删除行数。
+
+        只在 ``official_source != derive_source``（平台区分了两种来源）且本轮真的拿到
+        官方行时调用。计划型组合（``LONG_WIN``）永远没有官方行，推导行不会被误删。
+        """
+        if official_source == derive_source:
+            return 0
+        return (
+            self.db.query(AdvisorAdjustHistory)
+            .filter(
+                AdvisorAdjustHistory.portfolio_id == portfolio.id,
+                AdvisorAdjustHistory.source == derive_source,
+            )
+            .delete(synchronize_session=False)
+        )
 
 
 def import_qieman_holdings(db, data: dict, portfolio_code: str) -> int:

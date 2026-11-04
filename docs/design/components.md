@@ -24,10 +24,12 @@ title: 组件使用规范（设计语言实现层）
   - `RealtimeEstimateToggle` — 当日预估开关 + 轮询状态（`PnlDualLine` 的必备搭档，四页复用，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
+- `ProductDrawer` — **产品详情抽屉唯一外壳**（自选速览 / 持仓明细 / 聚合产品详情共用）：头部（产品名 20/600 + 代码/品类胶囊/平台·主理人）、唯一锚点、区块、sticky footer 唯一出口；宽度单一来源 `--drawer-width`（`min(720px, 100vw)`），全抽屉只留 header 下沿与 footer 上沿两条线。区块标题**走 `DrawerSection`（13/500 `--text-secondary`）而非 `SectionHeader`**——后者是 16/600 卡级语义，进抽屉会与 20/600 产品名层级倒挂。禁各抽屉再自绘宽度 / 头部 / 出口（规范见 `docs/design/product-detail-drawer.md`）
 - `TagManagerDialog` / `TagFormDialog` / `TagEditorDialog` — 自选标签管理（GitHub Labels 风格列表）/ 标签新建编辑轻量弹窗 / 行内标签编辑弹窗（自 watchlist 页拆出，见「自选标签弹窗」章节）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
+- `PageNav` / `PageToc` — 长页面页内导航两级形态（<xl 顶部锚点胶囊 / xl+ 右侧目录 rail），state 收口在共享 `usePageNav`；**接入判据与接线模式见「长页面页内导航」章节**
 - `SegmentedControl` — 分段控制器（`role="tablist"` 的「多选一、选项少 2–6」**一律**走此组件：视图 / 维度 / 档位 / 筛选 / 排序；`default` / `small` 两档 + `block` 铺满 + 可选 `count` 数量徽章；#1717 收敛、#1731 扩边到「全部手写 tablist 按钮组」，禁再用 `el-segmented`、页面自写 `.xxx-segmented` 样式块、或手写 `role="tablist"` 按钮组——**仅两类登记例外**：「分组胶囊 Tab」与「水平滑动胶囊栏」，判别见 `frontend/design.md`「Segmented（分段控制器）」的「语言边界」）
 - `PnlCalendar` — 收益日历卡（**唯一**实现，welcome 嵌入卡 / 账户详情 / panorama「资产大类」三处容器共用；#1925 起带日 / 月 / 年三粒度；#1942 起**三粒度各有两形态**：`PnlCalendarGrid`（日·日历图）/ `PnlCalendarPeriodGrid`（月·12 格 / 年·投资以来每年一格，可点击下钻）与 `PnlCalendarBars`（三粒度共用的柱状几何）。格子的**七态**视觉与文案只有 `PnlCalendarTile` 一处实现，区间 / 文案 / 色深规则在 `helpers.ts`——禁止各页重写格子、柱或另起一套配色。第二轮（同日）：日历图**默认 5 列（一~五）**，周末不占格（该月有周末日不是 `closed` 时自动回 7 列）；表头多一个**金额 / 收益率**口径开关（两个口径的数都由后端下发，切换不发请求）；悬浮提示由原生 `title` 换成两个共享卡片——`PnlCalendarUnitTip`（单格：日期含星期 + 金额与收益率同显 + 态说明）与 `PnlCalendarCaliberTip`（标题行 (i)：口径 3 条 + 七态图例），气泡样式走全局 `style/el-tooltip.css` 的 `rich-tip`；`SectionHeader` 因此多了 `#info` 富内容插槽与 `infoLabel`）
 
@@ -72,6 +74,19 @@ title: 组件使用规范（设计语言实现层）
 - 与 `MetricCard` / `TemperatureGaugeCard` 标题行视觉一致（16px / 600 / `--text-primary`，右侧操作槽垂直居中）。
 - **`#action` 收缩契约（#2039）**：`__action` 是 `flex-shrink: 1; min-width: 0` 的 flex 项，窄容器下**会收缩到自身 min-content 以下**。因此 `#action` 里若有**多枚控件**（最典型的反例是 `PnlCalendar`——那排粒度 / 范围 / 币种控件实测宽 588px），调用方**必须**在内层套一个 `flex-wrap: wrap` 容器承接折行，否则收缩只会把控件压扁 / 压溢出卡片，叠到左侧 ⓘ 上。反向约束：**禁止给 `__action` 写回 `flex-shrink: 0`**——那会让它恒为 max-content，把负空间全甩给 `min-width: 0` 的 title-group（正是 #2039 的根因）。宽容器下负空间为 0，两条声明均不生效，宽屏排版逐像素不变。
 
+## 长页面页内导航（PageNav / PageToc + usePageNav）
+
+自产品详情页 #1968 上提（2026-10-25 通用化），给「纵向区块多、一屏装不下」
+的页面提供位置感——解决「往下滚不知道滑到哪」：
+
+- **形态（两级互斥）**：`< xl` 用 `PageNav`（`frontend/src/components/PageNav/index.vue`，内容区顶部锚点胶囊，sticky 于页头下、横向可滑不换行）；`xl+`（≥1280）用 `PageToc`（`frontend/src/components/PageToc/index.vue`，右侧 sticky 目录 rail，宽 160px）。两者共用同一份 `items / activeId`，由父页面调用 `usePageNav` 下发。
+- **state 来源**：`src/composables/usePageNav.ts`——锚点**不是静态清单**，而是扫描容器内真实存在的 `nav-*` id（DOM 存在性过滤，异步到位的区块由 MutationObserver 补扫），`v-if` 整块消失的区块自动不留死链；scroll-spy / 跳转动画（每帧重读目标 rect + 末段吸附 + 停摆看门狗）/ 用户接管 / keep-alive 清理全在 composable 内（踩坑推导见该文件头）。页面只提供 `labels`（锚点 → 标签映射，**与区块 SectionHeader 标题逐字一致**——读屏与视觉同一套词汇）。
+- **接入判据（防止无脑全站挂）**：纵向独立区块 ≥ 4 且页面明显超过一屏才接；**纯**横向 tabs / 视图切换页不接（资产总览的多维视图）。但**主体是纵向区块、tabs 在末端**的长页**可以**接——账户详情页即此形态（正文 7 个纵向分析区块，末端才是持仓明细 / 交易记录的 `el-tabs`）：tabs 区本身**不进目录**（一个锚点指不到两个 tab 中的哪一个，硬挂一个必然指错），且它是页面最后一屏，自然滚动即达。
+- **接线模式**（参考 `views/asset/portfolio/detail.vue`、`views/asset/ledgers/detail.vue`、`views/asset/IntelligentAnalysis.vue`）：`PageNav` 放页头（及跨页指路条）之后；正文包一层 `__body`（`display:flex; gap: var(--space-5)`）+ `__main`（`flex:1; min-width:0`）+ `PageToc`；锚点 id 经 attribute fallthrough 挂在区块根元素上（根节点是 template 分片的组件——如 `PnlAttribution`——由调用方包一层 div 承接；多根且整块条件渲染的组件——如 `LedgerCashLikeCard`——走 `anchor-id` prop，把锚点挂在**块内**，块不渲染即消失）。
+- **为什么右栏不做左栏**：全局 NavVertical 已在左（240px），双左栏视觉打架且随折叠宽度抖动（调研 `docs/working-notes/product-detail-research-2026-10-12.md` §5.2/§5.3，Agent 页 session-history 是反面先例）；右侧补空不抢宽（xl 视口下卡片仍有约 860px，图表与横向滚动表格都够用）。
+- **语义**：胶囊 / rail 是「跳转」不是「切换视图」，**不挂 tablist 角色**（guard_segmented 白名单不收第三类）；rail 无视觉标题，可访问名由 `aria-label="本页目录"` 提供。
+- **已接入**：产品详情页（#1968）、组合详情页、复盘页（2026-10-25）、账户详情页（#2739，2026-10-29）。
+
 ## 设置页 · 单栏居中布局（D13）
 
 面向「个人中心 / 设置」类**账户管理页**，采用 Vercel / Trae 风格的单栏居中设置页，**禁止双栏多卡散乱平铺**：
@@ -110,6 +125,24 @@ title: 组件使用规范（设计语言实现层）
 > ⚠️ **本节旧稿的两处失效引用（2026-09-27 修正）**：① `views/profile/index.vue` 的 `.style-capsule`
 > **全仓已无**（头像画风已拆为 `ProfileAvatarStyleGrid.vue` 的卡片网格）；② 旧稿把
 > `manual/index.vue` 写作独立参考，其实它是 `el-radio-button` 的 `:deep` 覆盖，**不是**手写胶囊。
+
+### 什么时候**不该**有切换（#2739 登记）
+
+`SegmentedControl` 用于「同一份数据的另一种切法」。但**若被切换的选项由上下文唯一确定，
+切了等于没切**，就该由上下文决定、不给控件。
+
+判据：**选项能否由作用域对象自身的属性推导出来？** 能 ⇒ 不给切换控件。
+
+实例（`PositionStructurePanel`）：账户是基金账户还是股票账户由 `ledgers.ledger_type`
+确定 ⇒ 账户级下「股票 / 基金」两个视角只有一个有意义，**不渲染切换**；组合级 / 家庭级
+跨类型账户混合，切换仍有意义 ⇒ 保留。口径细则见
+`docs/spec/position-structure-view-by-ledger-type.md`。
+
+> ⚠️ **同样是 `SegmentedControl`，语义不同要区别对待**：
+> `PositionStructurePanel` 切的是「**看账户的哪一面**」（资产类别视角）——被上下文唯一确定 ⇒ 收敛；
+> `PenetrationPanel` 切的是「**用哪套标准看同一件事**」（证监会门类 / GICS 分类体系）——
+> 两套标准都有意义、与账户类型无关 ⇒ **保留**。
+> 判别问句：**「换个切法，看到的是不是同一件事？」** 是 ⇒ 保留；不是（换了一面）⇒ 看能否由上下文确定。
 
 ## 分段控制器 vs 相邻「多选一」语言（#1731 登记）
 
@@ -257,6 +290,27 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - emits：`update:modelValue`、`saved`（保存成功后触发，**由父页面负责重新拉取详情**）。
 - 说明：账户关联 diff（unlink/link 逐个调接口）当前仍在前端实现，已记技术债务（后端应提供原子化更新接口），见对应 issue。
 - 参考实现：`frontend/src/views/asset/portfolio/detail.vue`。
+
+## PortfolioCard · 组合列表卡（强制复用，2026-10-30 重设计）
+
+- 用途：投资组合页（`/asset/portfolios`）栅格里的单个组合卡。**禁止页面再手写这批样式**（重设计前就是内联在 `index.vue` 里的一段 Tailwind 拼装）。
+- 路径：`src/views/asset/portfolio/components/PortfolioCard.vue`（展示口径 `portfolioCardModel.ts`）。
+- props：`item`(`PortfolioItem`，后端 `list_portfolio_cards` 聚合字段)；emits：`open`(id)、`delete`(id)。路由留在页面，卡片不碰 router。
+- 结构与字阶（每一层都要有 label——「只有数字」是重设计前的核心问题）：
+
+  | 区块 | 内容 | 字阶 / 颜色 |
+  |---|---|---|
+  | 卡头 | 组合名（截断 + `title` 全名）+ 目的徽章 | 名 16px/600 `--text-primary`；徽章 13px/500 `--text-secondary` on `--bg-soft` + `--radius-pill` |
+  | 主指标 | label「持仓市值」+ 金额 | label 13px/500 `--text-secondary`；金额 24px/600 `--text-primary`（`MoneyDisplay size="lg"` + `.number` 覆写 600） |
+  | 次指标 | label「累计盈亏」+ 金额 + 比例胶囊 | 金额 16px 涨跌语义色（`--color-rise-ink` / `--color-fall-ink`）；比例 14px 同色，胶囊底 `--bg-soft` |
+  | 分隔线 | 1px `--border-light` | — |
+  | 元信息 | `N 个账户 · M 只持仓` | 13px/400 `--text-tertiary-ink` |
+  | 目标达成 | label + 百分比 + 4px 进度条（仅 `target_progress != null` 渲染） | label 13px `--text-tertiary-ink`；百分比 13px/600 `--text-primary`；填充 `--brand-500` |
+
+- **主数字为什么不是品牌色**（owner 问过）：品牌暖红在本站同时是涨色（design.md 设计原则 4），拿它当金额主色会被读成「这个组合在涨」；金额是陈述句，颜色只留给涨跌语义。主数字的权重由 24px/600 + 独立成行 + 上下留白承担，卡片里唯一的彩色是盈亏，反而是它更「主」的原因。需要品牌色时走 `--brand-ink`（白底 5.86:1 达 AA），**不要**用 `--brand-700` 作文字。
+- **达成率两条口径**：数字不封顶（144% 就说 144%），进度条封顶 100%（条只答「满没满」）。`null` 不是 0（没设目标 ≠ 达成 0%），整块不渲染。
+- 删除按钮：默认 `opacity: 0`，hover / `:focus-within` 显现，`@media (hover: none)` 常显。常驻红色圆钮会抢主数字的注意力，且删除是低频破坏性动作。
+- 卡片容器：`--bg-card` + `--border-light` + `--radius-card` + `--shadow-raised`；hover 换 `--border-default` + `--shadow-float` + `translateY(-2px)`；内边距 `--space-standard`，块间距 `--space-compact`（重设计前是 20px 内边距 + 8/4/12px 混排，观感「挤」）。
 
 ## 自选标签弹窗（业务共有组件）
 
@@ -414,7 +468,8 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 颜色红线：必须经 CSS 语义变量（`colorMap` 传变量名，组件内 `getCssVar` 读取）；不传或缺失回退 `--chart-01~08` 循环。
 - 参考实现：`frontend/src/views/asset/ledgers/detail.vue`（`typeColorMap` + `allocationData`）。
 - **机器化拦截**：`scripts/guard_no_duplicate_pie.py` 扫 `type: "pie"`，除本组件与下述白名单外一律 CI 变红。新增例外必须同时更新该脚本 `WHITELIST` 与本小节，否则这道拦截会退化成「谁熟谁加」的橡皮图章。
-- **已登记的例外**（#2164）：`frontend/src/components/Aggregation/AggregationHero.vue`。
+- **已登记的例外**（#2164）：`frontend/src/components/Aggregation/AggregationBreakdownDonut.vue`
+  （#2664 前内联在 `AggregationHero.vue`，`#980` 瘦身时整块搬出、白名单随之迁移）。
   按判据它本该走表内嵌条（基金侧 `fund_type` 常 > 6 类），但 hero 是**横向概览锚点**、
   空间放不下表格；它把 echarts 原生图例换成「HTML top5 + 其他 N 类」折叠，属
   **信息分层**而非「重新实现一套资产分布」——「读全分类」的诉求由聚合页下方的

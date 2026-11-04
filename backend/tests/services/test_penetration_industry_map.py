@@ -280,3 +280,66 @@ def test_upsert_skips_rows_without_code_or_symbol(db):
     )
     assert stats == {'inserted': 0, 'updated': 0, 'skipped': 2}
     assert db.query(SecurityIndustryMap).count() == 0
+
+
+# ── #2617 直接持有口径（图 A）：基金整块不拆底层 ──────────────────────────
+
+
+def test_direct_view_与穿透后口径对照且守恒(db, make_position):
+    """直持行业只含直持腿金额，基金整块单列；两图各项合计都等于持仓总市值。"""
+    make_position(symbol='600519', asset_type='stock', name='贵州茅台', quantity=100, current_price=10.0)  # 1000
+    make_position(symbol='110011', asset_type='fund', name='混合基金', quantity=100, current_price=5.0)  # 500
+    _map(db, '600519', 'C', '制造业')
+    _alloc(db, '110011', 'C', '制造业', 50.0)  # 基金一半在制造业
+    db.commit()
+
+    result = build_penetration(db, family_id=1)
+    dv = result['direct_view']
+
+    assert dv['fund_cny'] == pytest.approx(500.0)
+    assert dv['total_cny'] == pytest.approx(1500.0)
+    # 图 A：制造业只有直持的 1000，不含基金穿透出的 250
+    assert _find(dv['industries'], 'C')['value_cny'] == pytest.approx(1000.0)
+    # 图 B（穿透后）：制造业 = 1000 + 250
+    assert _find(result['industries'], 'C')['value_cny'] == pytest.approx(1250.0)
+    # 守恒：直持行业 + 基金整块 + 未映射 + 现金等价物 = 持仓总市值
+    assert (
+        sum(i['value_cny'] for i in dv['industries']) + dv['fund_cny'] + dv['unmapped_cny'] + dv['cash_equivalent_cny']
+    ) == pytest.approx(dv['total_cny'])
+    # 本口径下直持映射可用，不该给出「映射缺口」的降级说明
+    assert dv['mapping_available'] is True
+    assert dv['mapped_cny'] == pytest.approx(1000.0)
+    assert dv['unmapped_reason'] is None
+
+
+def test_direct_view_无映射直持进未映射而非零值行业(db, make_position):
+    """无行业映射的直持腿只进 unmapped_cny，行业列表不得凭空多出 0 值项。"""
+    make_position(symbol='600519', asset_type='stock', name='无映射股票', quantity=100, current_price=10.0)
+    db.commit()
+
+    result = build_penetration(db, family_id=1)
+    dv = result['direct_view']
+
+    assert dv['industries'] == []
+    assert dv['unmapped_cny'] == pytest.approx(1000.0)
+    assert dv['fund_cny'] == pytest.approx(0.0)
+    # 整个口径都没有直持映射时，必须显式告知成因，而不是只给空列表
+    assert dv['mapping_available'] is False
+    assert dv['mapped_cny'] == pytest.approx(0.0)
+    assert '映射' in (dv['unmapped_reason'] or '')
+
+
+def test_direct_view_现金等价物单列不进未映射(db, make_position):
+    """货基/逆回购本质无股票敞口，不得混进「未映射」把映射缺口放大。"""
+    make_position(symbol='600519', asset_type='stock', name='无映射股票', quantity=100, current_price=10.0)  # 1000
+    make_position(
+        symbol='511990', asset_type='money_fund', name='华宝现金添益', quantity=200, current_price=5.0
+    )  # 1000
+    db.commit()
+
+    result = build_penetration(db, family_id=1)
+    dv = result['direct_view']
+
+    assert dv['unmapped_cny'] == pytest.approx(1000.0)  # 只有股票的 1000
+    assert dv['cash_equivalent_cny'] == pytest.approx(1000.0)
+    assert dv['total_cny'] == pytest.approx(2000.0)

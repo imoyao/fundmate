@@ -1,0 +1,216 @@
+// 「基金经理」区块的样式底座（#980 拆分）。
+// 为什么单独成文件：这些 .mgr-section__* 类被身份行 / 任职基金 / 重仓三块共用。
+// scoped 样式只作用于本组件模板里的元素，子组件内部元素拿不到父的 scopeId；
+// 与其在 3 个文件里各抄一遍，不如抽成 partial 各 @use —— 源只有一份，
+// 改一个字号只改这里，不会出现「改了两处漏一处」的局部漂移。
+// 引用写 `@use "./mgr-base";`（带下划线的 partial，引用时不写下划线、不写扩展名）。
+.mgr-section {
+  &__identity {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-6);
+    align-items: baseline;
+    margin-bottom: var(--space-6);
+  }
+
+  &__name {
+    font-size: var(--text-num-strong);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__company {
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  &__metrics {
+    margin-bottom: var(--space-3);
+  }
+
+  /* 涨跌语义：数据不带色，视觉在前端决定（涨红跌绿，见 design.md） */
+  &__best-return {
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-label);
+    color: var(--text-secondary);
+
+    &.is-rise {
+      color: var(--color-rise-ink);
+    }
+
+    &.is-fall {
+      color: var(--color-fall-ink);
+    }
+  }
+
+  &__hint {
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--text-tertiary);
+  }
+
+  &__note {
+    padding: var(--space-2) var(--space-3);
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-label);
+    line-height: 1.6;
+    color: var(--text-secondary);
+    background: var(--bg-soft);
+    border-radius: var(--radius-sm);
+  }
+
+  &__funds,
+  &__holdings {
+    margin-top: var(--space-5);
+  }
+
+  &__subtitle {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-small);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__fund-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  &__fund-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__fund-link {
+    font-size: var(--text-label);
+    color: var(--text-primary);
+    text-decoration: none;
+
+    &:hover {
+      color: var(--brand-ink); /* #2314：前景文字用品牌文字级 */
+    }
+
+    /* 键盘焦点必须可见（#1838 可访问性） */
+    &:focus-visible {
+      outline: 2px solid var(--brand-700);
+      outline-offset: 2px;
+    }
+  }
+
+  &__fund-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    font-size: var(--text-label);
+
+    /* 数字用等宽，避免日期/百分比在列内跳动 */
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+  }
+
+  &__fund-tenure-length {
+    color: var(--text-secondary);
+  }
+
+  &__badge {
+    /* #2314：对齐 design.md Badge 规范 pill；文字用品牌文字级 --brand-ink
+       （--brand-700 作文字白底 3.73:1 不达 AA，见 #1599 batch 3） */
+    padding: 0 var(--space-2);
+    font-size: var(--text-label);
+    color: var(--brand-ink);
+    background: var(--brand-100);
+    border-radius: var(--radius-pill);
+
+    &--muted {
+      color: var(--text-tertiary);
+      background: var(--bg-muted);
+    }
+  }
+
+  &__holdings-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  &__styles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    margin-top: var(--space-2);
+  }
+
+  &__styles-label {
+    font-size: var(--text-label);
+    color: var(--text-tertiary);
+  }
+
+  &__styles-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  /* 档位阶梯：描边（低）→ 软底（中）→ 软底+重墨（高）。
+     中性强度递进，刻意不用红绿——涨跌语义专用（design.md「Badge / Tag」）；
+     配色由 key 档位在本层映射，后端不返回颜色 */
+  &__style-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    font-size: var(--text-label);
+    line-height: 1.6;
+    color: var(--text-secondary);
+    cursor: help;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+
+    &.is-low {
+      border-color: var(--border-subtle);
+    }
+
+    &.is-mid {
+      background: var(--bg-soft);
+    }
+
+    &.is-high {
+      font-weight: 600;
+      color: var(--text-primary);
+      background: var(--bg-soft);
+    }
+
+    /* 依据（basis）经 tooltip 展示，键盘 focus 也必须可见（#1838 可访问性） */
+    &:focus-visible {
+      outline: 2px solid var(--brand-700);
+      outline-offset: 2px;
+    }
+  }
+
+  &__holdings-fund {
+    font-size: var(--text-label);
+    color: var(--text-tertiary);
+  }
+
+  &__stock {
+    color: var(--text-primary);
+  }
+
+  &__ratio {
+    /* 表格数字必须等宽（design.md 表格规范） */
+    font-variant-numeric: tabular-nums;
+  }
+}

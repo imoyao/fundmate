@@ -21,6 +21,7 @@ from app.services.sync.jobs.index_daily_job import (
     KNOWN_UNLISTED,
     TENCENT_INDEX_TARGETS,
     WIND_INDEX_TARGETS,
+    WIND_MCP_INDEX_CODES,
     IndexDailySyncJob,
 )
 
@@ -129,8 +130,19 @@ class TestJiucaishuoParse:
 
 def test_known_unlisted_codes_are_in_default_targets():
     """KNOWN_UNLISTED 必须是清单内真实存在的码：打错一个字的后果是**静默失效**
-    （该码照样每天记 error），而「每天 8 条 error」正是这次要消灭的形态（#2475）。"""
+    （该码照样每天记 error），而「每天 7 条 error」正是这次要消灭的形态（#2475）。"""
     assert KNOWN_UNLISTED <= set(DEFAULT_TARGETS)
+
+
+def test_wind_mcp_codes_are_declared_and_not_double_counted():
+    """走万得 MCP 的码：必须在跟踪清单内、必须是 `.WI`、且**不能**同时算「韭圈儿未收录」。
+
+    三者任一不成立，失效形态都是静默的：不在清单里 ⇒ 永远不抓；同时留在 KNOWN_UNLISTED
+    ⇒ 万得失败时被当成「源侧没有」而吞掉（#2476 就是这么把真故障读成业务事实的）。
+    """
+    assert WIND_MCP_INDEX_CODES <= set(DEFAULT_TARGETS)
+    assert all(code.upper().endswith('.WI') for code in WIND_MCP_INDEX_CODES)
+    assert WIND_MCP_INDEX_CODES & KNOWN_UNLISTED == frozenset()
 
 
 class TestIndexDailySyncJob:
@@ -224,6 +236,13 @@ class TestIndexDailySyncJob:
         """
         monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', lambda *a, **k: [('2026-10-20', 100.0)])
         monkeypatch.setattr(index_daily_job_module, 'fetch_daily_csindex', lambda *a, **k: [('2026-10-20', 100.0)])
+        # 885002.WI 走万得 MCP：不替身的话这里会真的联网（#2476 的修复点）
+        monkeypatch.setattr(index_daily_job_module.wind_index, 'is_available', lambda: True)
+        monkeypatch.setattr(
+            index_daily_job_module.wind_index,
+            'fetch_index_daily',
+            lambda code, full_sync=False: [{'trade_date': date(2026, 10, 20), 'close': 7206.3199}],
+        )
 
         def fake_fetch(code, months=12):
             if code in KNOWN_UNLISTED:
@@ -249,6 +268,12 @@ class TestIndexDailySyncJob:
         """编排队列传 ['__full__']：total 必须展开成默认清单，否则记成 total=1/success=24（#2475）。"""
         monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', lambda *a, **k: [('2026-10-20', 100.0)])
         monkeypatch.setattr(index_daily_job_module, 'fetch_daily_csindex', lambda *a, **k: [('2026-10-20', 100.0)])
+        monkeypatch.setattr(index_daily_job_module.wind_index, 'is_available', lambda: True)
+        monkeypatch.setattr(
+            index_daily_job_module.wind_index,
+            'fetch_index_daily',
+            lambda code, full_sync=False: [{'trade_date': date(2026, 10, 20), 'close': 7206.3199}],
+        )
         job.adapter.fetch_index_daily.return_value = {
             'gu_code': '881001.WI',
             'gu_name': '万得全A',
@@ -282,6 +307,74 @@ class TestIndexDailySyncJob:
         """非全量跑 12 月增量；全量跑成立来（'all'）。"""
         job.run(full_sync=False, targets=['881001.WI'])
         assert job.adapter.fetch_index_daily.call_args[0][1] == 12
+
+
+class TestWindMcpIndex:
+    """`885002.WI` 走万得 MCP（S4 / #2476）：真实点位、`raw` 口径、显式降级。
+
+    这一组的存在理由：`#2476` 曾把「我们没接这条源」误判成「万得没有这个指数」，
+    差点把基准换成语义不符的 `H11022.CSI`。故除了「能取到」，还要钉住
+    「未配置时**不装成正常**」与「配置了但失败**必须进 errors**」两种相反形态。
+    """
+
+    @pytest.fixture
+    def job(self, db):
+        return IndexDailySyncJob(MagicMock(), db)
+
+    def test_writes_rows_with_wind_source_and_raw_price_mode(self, job, db, monkeypatch):
+        monkeypatch.setattr(index_daily_job_module.wind_index, 'is_available', lambda: True)
+        monkeypatch.setattr(
+            index_daily_job_module.wind_index,
+            'fetch_index_daily',
+            lambda code, full_sync=False: [
+                {'trade_date': date(2026, 10, 21), 'close': 7201.5089},
+                {'trade_date': date(2026, 10, 22), 'close': 7206.3199},
+            ],
+        )
+
+        result = job.run(full_sync=True, targets=['885002.WI'])
+
+        assert result['status'] == 'success'
+        assert result['stats']['success'] == 1
+        rows = db.query(IndexDaily).order_by(IndexDaily.trade_date).all()
+        assert [r.index_code for r in rows] == ['885002.WI', '885002.WI']
+        assert float(rows[-1].close) == pytest.approx(7206.3199)
+        assert rows[-1].source == 'wind'
+        assert rows[-1].price_mode == 'raw'
+        # 万得路**不碰**韭圈儿适配器：源归属是常量，不做运行时回退
+        job.adapter.fetch_index_daily.assert_not_called()
+
+    def test_unconfigured_is_degraded_not_silent_empty(self, job, db, monkeypatch):
+        """缺 Token / 地址 ⇒ `stats['degraded']` + warning，不记 errors，也不算成功。
+
+        断言 `degraded` 而不只是「没崩」：静默返回空会让前端「暂无基准」与
+        「这只指数没有数据」完全同形（#171 同族）。
+        """
+        monkeypatch.setattr(index_daily_job_module.wind_index, 'is_available', lambda: False)
+
+        result = job.run(full_sync=False, targets=['885002.WI'])
+
+        assert result['stats']['degraded'] == 1
+        assert result['stats']['success'] == 0
+        assert result['stats']['errors'] == []
+        assert result['stats'].get('unlisted', 0) == 0  # 不能伪装成「源侧未收录」
+        assert db.query(IndexDaily).count() == 0
+
+    def test_configured_but_failing_records_error(self, job, db, monkeypatch):
+        monkeypatch.setattr(index_daily_job_module.wind_index, 'is_available', lambda: True)
+
+        def boom(code, full_sync=False):
+            raise RuntimeError('quota exceeded')
+
+        monkeypatch.setattr(index_daily_job_module.wind_index, 'fetch_index_daily', boom)
+
+        result = job.run(full_sync=False, targets=['885002.WI'])
+
+        assert result['status'] == 'failed', '配置齐了还失败 = 真故障，不能报绿'
+        assert result['stats']['failed'] == 1
+        assert result['stats'].get('degraded', 0) == 0
+        assert result['stats']['errors'][0]['stage'] == 'fetch_daily_wind'
+        assert 'quota exceeded' in result['stats']['errors'][0]['error']
 
 
 class TestBenchmarkAlignment:

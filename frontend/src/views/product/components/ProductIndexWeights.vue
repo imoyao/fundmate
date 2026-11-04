@@ -7,9 +7,10 @@ import { fetchIndexWeights, type IndexWeightsResult } from "@/api/products";
  *
  * ## 取数与降级
  *
- * `GET /api/products/index-weights/`（#2278 新增）：akshare 中证权重接口（月频）
- * 按需抓 + TTL 缓存 + 不入库。接口失败 / 码族不适用 → `top10: []` → 整块显示
- * 「暂无可展示的权重数据」，不阻塞指数卡内其余内容。
+ * `GET /api/products/index-weights/`（#2278 新增）：中证权重接口（月频）优先，
+ * 口径不覆盖时后端回退国证官网（`source` 字段标明来源）；按需抓 + TTL 缓存 +
+ * 不入库。接口失败 / 两路都不覆盖 → `top10: []` → 整块显示「暂无可展示的权重
+ * 数据」，不阻塞指数卡内其余内容。
  *
  * ## 口径标注（验收硬要求）
  *
@@ -48,10 +49,17 @@ const concentrationText = computed(() => {
   return `前十大合计 ${d.top10_weight.toFixed(2)}%${count}`;
 });
 
+/** 口径来源文案：深证/国证系走国证源（2026-11-03 起），脚注必须如实标注 */
+const SOURCE_LABEL: Record<string, string> = {
+  csindex: "中证指数官网",
+  cni: "国证指数官网"
+};
+
 const footnote = computed(() => {
   const d = data.value;
   if (!d || !d.as_of) return "";
-  return `权重截至 ${d.as_of}（月频口径，来自中证指数官网）`;
+  const from = SOURCE_LABEL[d.source ?? ""] ?? "指数官网";
+  return `权重截至 ${d.as_of}（月频口径，来自${from}）`;
 });
 
 async function load() {

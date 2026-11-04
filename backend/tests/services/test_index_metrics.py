@@ -12,7 +12,9 @@
 4. **TTL 缓存**：同码第二次构建零外部请求（含「两路全空」的负结果也进缓存）；
 5. **权重聚合**：中文列名解析（实测 2026-10-17）、top10 降序、前十大集中度、
    成分码前导零防御（'591' → '000591'）、接口失败/空 df 整块降级；
-6. **聚合测试一律不联网**：direct_feeds 两路与 akshare 全部 monkeypatch，
+6. **权重源路由**（2026-11-03）：中证口径优先且**不额外打国证请求**；只有「口径
+   不覆盖」才回退国证（深证/国证系），真网络故障不回退；两套表头先归一；
+7. **聚合测试一律不联网**：direct_feeds 两路、akshare 权重、国证权重全部 monkeypatch，
    缓存按用例注入 tmp_path 隔离（file_dir）；date.today() 钉死为周六 2026-10-17，
    作为「窗口锚点不吃日历」回归用例的判别背景。
 """
@@ -68,6 +70,8 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(im, 'date', _FixedDate)
     monkeypatch.setattr(im.direct_feeds, 'fetch_daily_csindex', lambda code, **k: [])
     monkeypatch.setattr(im.direct_feeds, 'fetch_daily_tencent', lambda symbol, **k: [])
+    # 权重第二路（国证）默认不外呼：需要时由具体用例覆写，否则单测会真打国证站
+    monkeypatch.setattr(im, 'fetch_weights_cni', lambda code, **k: None)
     yield
 
 
@@ -286,6 +290,57 @@ def test_weights_degrade_on_error_and_empty(monkeypatch):
     assert data['as_of'] is None
 
 
+def _capture_log_levels(monkeypatch) -> list:
+    """替换 im.logger，记录调用过的日志级别（验证降噪没有连真故障一起吞掉）。"""
+    levels: list = []
+
+    class _Recorder:
+        def debug(self, msg):
+            levels.append('debug')
+
+        def warning(self, msg):
+            levels.append('warning')
+
+    monkeypatch.setattr(im, 'logger', _Recorder())
+    return levels
+
+
+def test_weights_scope_miss_logs_debug_not_warning(monkeypatch):
+    """中证口径外（深证/国证系）是「不适用」而非故障：记 debug，不报 WARNING。
+
+    399006 的真实表现：中证官网无该指数权重文件 → 返回 HTML 404 → akshare 内部
+    pandas 抛「Excel file format cannot be determined」。
+    """
+    _seed_catalog_row()
+    # 独立缓存：避免命中同码既有的权重缓存而根本不进 _compute
+    monkeypatch.setattr(im, '_METRICS_CACHE', CacheService(namespace='index_detail_scope_miss'))
+    levels = _capture_log_levels(monkeypatch)
+    _patch_akshare(
+        monkeypatch,
+        exc=ValueError('Excel file format cannot be determined, you must specify an engine manually.'),
+    )
+
+    with closing(market_session_factory()()) as db:
+        data = build_index_weights(db, '931151')
+
+    assert data['top10'] == []
+    assert data['constituent_count'] == 0
+    assert levels == ['debug']
+
+
+def test_weights_real_failure_still_warns(monkeypatch):
+    """真故障（网络 / 解析）仍报 WARNING，不能被降噪一起吞掉。"""
+    _seed_catalog_row()
+    monkeypatch.setattr(im, '_METRICS_CACHE', CacheService(namespace='index_detail_real_fail'))
+    levels = _capture_log_levels(monkeypatch)
+    _patch_akshare(monkeypatch, exc=RuntimeError('network down'))
+
+    with closing(market_session_factory()()) as db:
+        assert build_index_weights(db, '931151')['top10'] == []
+
+    assert levels == ['warning']
+
+
 def test_weights_cached(monkeypatch):
     """月频数据 TTL 24h：同码两次构建只调一次 akshare。"""
     _seed_catalog_row()
@@ -304,6 +359,140 @@ def test_weights_cached(monkeypatch):
         build_index_weights(db, '931151')
 
     assert len(calls) == 1
+
+
+# ── 权重源路由：中证优先 / 口径不覆盖回退国证（2026-11-03）─────────────
+def _cni_weights_df(n: int = 12, trade_date: str = '2026-10-30') -> pd.DataFrame:
+    """国证官网实测表头：``样本代码`` 是 int（前导零已被源侧吃掉）、权重列名带
+    全角括号、**没有「交易所」列**——三点都是一旦按中证口径写死就会踩的坑。"""
+    return pd.DataFrame(
+        [
+            {
+                '日期': trade_date,
+                '样本代码': 937 + i,
+                '样本简称': f'样本{i}',
+                '所属行业': '工业',
+                '总市值(亿元)': 100.0 + i,
+                '权重（%）': round(9.0 - i * 0.5, 3),
+            }
+            for i in range(n)
+        ]
+    )
+
+
+def test_normalize_weight_columns_maps_cni_headers():
+    """国证表头 → 标准形状；中证表头映射幂等（列名不得被改坏）。"""
+    cni = im._normalize_weight_columns(_cni_weights_df(n=3))
+    assert {'日期', '成分券代码', '成分券名称', '权重'} <= set(cni.columns)
+    assert '样本代码' not in cni.columns
+
+    csindex = im._normalize_weight_columns(_weights_df(n=3))
+    assert list(csindex.columns) == list(_weights_df(n=3).columns)
+
+
+def test_normalize_weight_columns_tolerates_non_frame():
+    """非 DataFrame / None 原样返回，交下游「列缺失 → None」判据处理。"""
+    assert im._normalize_weight_columns(None) is None
+    assert im._normalize_weight_columns([1, 2, 3]) == [1, 2, 3]
+
+
+def test_weights_fall_back_to_cni_on_scope_miss(monkeypatch):
+    """中证口径不覆盖（ValueError: Excel file format）→ 回退国证并采用其结果。
+
+    深证/国证系（399001 等）在中证官网没有权重文件，中证路必然抛这个错；
+    回退后前导零已被源侧吃掉（937），最终仍须还原成 000937。
+    """
+    _seed_catalog_row(code='399001', name='深证成指', exchange='SZ')
+    cni_calls = []
+    _patch_akshare(
+        monkeypatch,
+        exc=ValueError('Excel file format cannot be determined, you must specify an engine manually.'),
+    )
+    monkeypatch.setattr(im, 'fetch_weights_cni', lambda code, **k: (cni_calls.append(code), _cni_weights_df(n=12))[1])
+
+    with closing(market_session_factory()()) as db:
+        data = build_index_weights(db, '399001')
+
+    assert cni_calls == ['399001']
+    assert data['source'] == 'cni'
+    assert data['as_of'] == '2026-10-30'
+    assert data['constituent_count'] == 12
+    assert data['top10'][0]['code'] == '000937'
+    assert data['top10'][0]['exchange'] is None  # 国证没有交易所列 → 诚实 null
+    weights = [row['weight'] for row in data['top10']]
+    assert weights == sorted(weights, reverse=True)
+
+
+def test_weights_no_cni_request_when_csindex_covers(monkeypatch):
+    """中证系指数一次拿到 ⇒ 不得再多打一次国证请求（成本约束，非可选优化）。"""
+    _seed_catalog_row()
+    cni_calls = []
+    _patch_akshare(monkeypatch, df=_weights_df(n=12))
+    monkeypatch.setattr(im, 'fetch_weights_cni', lambda code, **k: cni_calls.append(code))
+
+    with closing(market_session_factory()()) as db:
+        data = build_index_weights(db, '931151')
+
+    assert cni_calls == []
+    assert data['source'] == 'csindex'
+
+
+def test_weights_no_fallback_on_real_network_error(monkeypatch):
+    """中证通道真故障（网络）**不回退**国证：否则「中证挂了」被掩盖成「国证没有」，
+    两路都空时没有任何排查线索。"""
+    _seed_catalog_row(code='399001', name='深证成指', exchange='SZ')
+    cni_calls = []
+    monkeypatch.setattr(im, '_METRICS_CACHE', CacheService(namespace='index_detail_weight_net_fail'))
+    _patch_akshare(monkeypatch, exc=RuntimeError('network down'))
+    monkeypatch.setattr(im, 'fetch_weights_cni', lambda code, **k: cni_calls.append(code))
+
+    with closing(market_session_factory()()) as db:
+        data = build_index_weights(db, '399001')
+
+    assert cni_calls == []
+    assert data['top10'] == []
+    assert data['source'] is None
+
+
+def test_weights_empty_csindex_frame_falls_back_to_cni(monkeypatch):
+    """中证返回空帧（非异常）也试国证：空帧同样是「这次没有数据」，不构成口径判据。"""
+    _seed_catalog_row(code='399012', name='国证地产', exchange='SZ')
+    _patch_akshare(monkeypatch, df=pd.DataFrame())
+    monkeypatch.setattr(im, 'fetch_weights_cni', lambda code, **k: _cni_weights_df(n=3))
+
+    with closing(market_session_factory()()) as db:
+        data = build_index_weights(db, '399012')
+
+    assert data['source'] == 'cni'
+    assert data['constituent_count'] == 3
+
+
+def test_weights_both_sources_empty_degrades_and_negatively_cached(monkeypatch):
+    """两路都取不到 → 空形态，且负结果进 24h 缓存（第二次零外部请求）。"""
+    _seed_catalog_row(code='399001', name='深证成指', exchange='SZ')
+    cni_calls = []
+    _patch_akshare(
+        monkeypatch,
+        exc=ValueError('Excel file format cannot be determined, you must specify an engine manually.'),
+    )
+    monkeypatch.setattr(im, 'fetch_weights_cni', lambda code, **k: (cni_calls.append(code), None)[1])
+
+    with closing(market_session_factory()()) as db:
+        first = build_index_weights(db, '399001')
+        second = build_index_weights(db, '399001')
+
+    assert first == {
+        'index_code': '399001',
+        'as_of': None,
+        'frequency': 'monthly',
+        'source': None,
+        'constituent_count': 0,
+        'total_weight': None,
+        'top10_weight': None,
+        'top10': [],
+    }
+    assert first == second
+    assert cni_calls == ['399001']  # 第二次命中缓存，不再打国证
 
 
 # ── 端点契约 ──────────────────────────────────────────────────────────

@@ -38,53 +38,12 @@
     <template v-else>
       <!-- 顶部操作栏 -->
       <div class="flex justify-between items-center mb-6">
-        <div class="flex gap-4">
-          <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              总持仓
-            </p>
-            <p
-              class="text-xl font-bold"
-              :style="{ color: 'var(--color-primary-ink)' }"
-            >
-              {{ totalHoldings }} 项
-            </p>
-          </el-card>
-          <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              标签数
-            </p>
-            <p
-              class="text-xl font-bold"
-              :style="{ color: 'var(--color-primary-ink)' }"
-            >
-              {{ allTags.length }} 个
-            </p>
-          </el-card>
-          <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              总市值
-            </p>
-            <p
-              class="text-xl font-bold"
-              :style="{ color: 'var(--color-primary-ink)' }"
-            >
-              <MoneyDisplay
-                :value="totalMarketValue"
-                :show-sign="false"
-                :auto-color="false"
-              />
-            </p>
-          </el-card>
-          <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-              总盈亏
-            </p>
-            <p class="text-xl font-bold">
-              <MoneyDisplay :value="totalPnl" />
-            </p>
-          </el-card>
-        </div>
+        <StrategySummaryCards
+          :total-holdings="totalHoldings"
+          :tag-count="allTags.length"
+          :total-market-value="totalMarketValue"
+          :total-pnl="totalPnl"
+        />
         <div class="flex gap-3 items-center">
           <!-- 盈亏双线（#1104）：口径说明 + 实时估值开关 -->
           <el-tooltip :content="PNL_DUAL_SCOPE_TIP" placement="top">
@@ -101,199 +60,25 @@
             :text="estimateToggleText"
             @toggle="estimateQuotes.toggle"
           />
-          <el-button @click="openTagManager">
+          <el-button @click="tagManagerVisible = true">
             <IconifyIconOffline icon="ep:setting" class="mr-1" /> 管理标签
           </el-button>
         </div>
       </div>
 
-      <!-- 分组列表 -->
-      <div v-for="group in strategyGroups" :key="group.tag" class="mb-8">
-        <div class="flex items-baseline justify-between mb-4">
-          <h3
-            class="font-bold text-lg"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            {{ group.tag }}
-            <span
-              class="text-sm font-normal ml-2"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            >
-              {{ group.holdings.length }} 只持仓 · 市值
-              <MoneyDisplay
-                :value="group.totalMarketValue"
-                :show-sign="false"
-                :auto-color="false"
-                size="xs"
-              />
-              <MoneyDisplay
-                :value="group.totalPnl"
-                size="xs"
-                class="ml-1 font-medium"
-              />
-            </span>
-          </h3>
-        </div>
-
-        <el-table
-          v-if="group.holdings.length"
-          :data="getPagedHoldings(group.tag)"
-          stripe
-          size="default"
-        >
-          <!-- 产品信息：名称/代码 + 类型标签 -->
-          <el-table-column label="名称 / 代码" min-width="180">
-            <template #default="{ row }">
-              <div class="product-cell">
-                <span class="product-name">{{
-                  row.name || row.symbol || "--"
-                }}</span>
-                <div class="product-code-row">
-                  <span class="product-code"># {{ row.symbol || "--" }}</span>
-                  <span
-                    v-if="row.type_label"
-                    class="type-tag-inline ml-2 px-2 py-0.5 rounded-full text-xs"
-                    :style="{
-                      backgroundColor: 'var(--bg-page)',
-                      color: 'var(--text-secondary)'
-                    }"
-                  >
-                    {{ row.type_label }}
-                  </span>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="市值" width="130" align="right">
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.marketValue || 0"
-                :show-sign="false"
-                :auto-color="false"
-                size="sm"
-              />
-            </template>
-          </el-table-column>
-
-          <!-- 盈亏双线（#1104）：主行＝已确认，副行＝当日预估。
-               组级汇总（totalPnl）仍是静态确认口径，不含预估——预估只做逐行参考。 -->
-          <el-table-column label="盈亏" width="170" align="right">
-            <template #default="{ row }">
-              <PnlDualLine
-                :confirmed="confirmedPnl(row as EnrichedHolding)"
-                :estimated="estimatedPnl(row as EnrichedHolding)"
-                :hint="estimateHint(row as EnrichedHolding)"
-                :price-date="(row as EnrichedHolding).price_date"
-                :settled-today="(row as EnrichedHolding).settled_today"
-              />
-            </template>
-          </el-table-column>
-
-          <el-table-column label="盈亏率" width="90" align="right">
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.pnlRate || 0"
-                :precision="2"
-                suffix="%"
-                size="sm"
-              />
-            </template>
-          </el-table-column>
-
-          <el-table-column label="所属账户" width="120">
-            <template #default="{ row }">{{ row.account_name }}</template>
-          </el-table-column>
-
-          <!-- 策略标签列：点击弹出多选，可增删 -->
-          <el-table-column label="策略标签" width="180">
-            <template #default="{ row }">
-              <el-popover
-                placement="bottom"
-                :width="240"
-                trigger="click"
-                :teleported="true"
-              >
-                <template #reference>
-                  <div class="tag-trigger">
-                    <template v-if="row._tags && row._tags.length">
-                      <el-tag
-                        v-for="tag in row._tags"
-                        :key="tag"
-                        size="small"
-                        class="mr-1 mb-1"
-                        closable
-                        @close="unbindTag(row, tag)"
-                        >{{ tag }}</el-tag
-                      >
-                    </template>
-                    <span
-                      v-else
-                      class="text-xs"
-                      :style="{ color: 'var(--text-tertiary-ink)' }"
-                    >
-                      未设置
-                    </span>
-                    <IconifyIconOffline
-                      icon="ep:arrow-down"
-                      class="ml-1 text-xs"
-                      :style="{ color: 'var(--text-tertiary-ink)' }"
-                    />
-                  </div>
-                </template>
-                <div class="tag-selector">
-                  <div
-                    class="text-xs mb-2"
-                    :style="{ color: 'var(--text-secondary)' }"
-                  >
-                    为「{{ row.name || row.symbol }}」选择标签
-                  </div>
-                  <el-checkbox-group
-                    :model-value="row._tags || []"
-                    size="small"
-                    @update:model-value="
-                      (vals: string[]) => updateTags(row, vals)
-                    "
-                  >
-                    <el-checkbox
-                      v-for="tag in allTags"
-                      :key="tag.id"
-                      :label="tag.name"
-                      class="block mb-1"
-                    />
-                  </el-checkbox-group>
-                  <el-input
-                    v-model="newTagNames[row.id]"
-                    size="small"
-                    placeholder="输入新标签名称"
-                    class="mt-3"
-                    @keyup.enter="createTagForRow(row)"
-                  >
-                    <template #append>
-                      <el-button @click="createTagForRow(row)">添加</el-button>
-                    </template>
-                  </el-input>
-                </div>
-              </el-popover>
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <!-- 分组内分页 -->
-        <div
-          v-if="group.holdings.length > groupPageSize"
-          class="flex justify-end mt-4"
-        >
-          <el-pagination
-            v-model:current-page="groupPages[group.tag]"
-            :page-size="groupPageSize"
-            :total="group.holdings.length"
-            layout="prev, pager, next"
-            small
-            background
-          />
-        </div>
-      </div>
+      <!-- 分组列表（每组自带组内分页，页码是子组件本地状态） -->
+      <StrategyGroupSection
+        v-for="group in strategyGroups"
+        :key="group.tag"
+        :group="group"
+        :all-tags="allTags"
+        :page-size="groupPageSize"
+        :create-tag="createTagForRow"
+        :estimated-pnl="estimatedPnl"
+        :estimate-hint="estimateHint"
+        @unbind="p => unbindTag(p.positionId, p.tag)"
+        @update-tags="p => updateTags(p.positionId, p.tags)"
+      />
 
       <!-- 无数据时 -->
       <div
@@ -310,42 +95,12 @@
     </template>
 
     <!-- 标签管理对话框 -->
-    <el-dialog
+    <StrategyTagManagerDialog
       v-model="tagManagerVisible"
-      title="管理策略标签"
-      width="440px"
-      destroy-on-close
-    >
-      <div class="flex items-center gap-2 mb-4">
-        <el-input
-          v-model="newGlobalTag"
-          placeholder="输入新标签名（如：成长、价值）"
-          size="small"
-          @keyup.enter="createGlobalTag"
-        />
-        <el-button type="primary" size="small" @click="createGlobalTag"
-          >添加</el-button
-        >
-      </div>
-      <el-table :data="allTags" size="small" max-height="300">
-        <el-table-column prop="name" label="标签名称" />
-        <el-table-column label="操作" width="80" align="center">
-          <template #default="{ row }">
-            <el-popconfirm
-              title="删除后相关持仓将解绑此标签"
-              confirm-button-text="删除"
-              cancel-button-text="取消"
-              popper-class="danger-popconfirm"
-              @confirm="deleteGlobalTag(row.id)"
-            >
-              <template #reference>
-                <el-button type="danger" size="small" text>删除</el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
+      :tags="allTags"
+      :create-tag="createGlobalTag"
+      @delete="deleteGlobalTag"
+    />
   </div>
 </template>
 
@@ -361,51 +116,42 @@ import {
   PNL_DUAL_SCOPE_TIP,
   usePositionValuation
 } from "@/composables/usePositionValuation";
+import { getStrategyOverview } from "@/api/strategy";
+import StrategySummaryCards from "./strategyView/StrategySummaryCards.vue";
+import StrategyGroupSection from "./strategyView/StrategyGroupSection.vue";
+import StrategyTagCell from "./strategyView/StrategyTagCell.vue";
+import StrategyTagManagerDialog from "./strategyView/StrategyTagManagerDialog.vue";
+import { useStrategyTags } from "./strategyView/useStrategyTags";
 import {
-  getStrategyTags,
-  createStrategyTag,
-  deleteStrategyTag,
-  bindPositionTag,
-  unbindPositionTag,
-  getStrategyOverview,
-  type StrategyTag
-} from "@/api/strategy";
+  type EnrichedHolding,
+  applyTags,
+  buildStrategyGroups,
+  enrichHoldings,
+  sumMarketValue,
+  sumPnl
+} from "./strategyView/strategyViewModel";
 
+/**
+ * 策略视图（/asset/strategies）。
+ *
+ * 按标签分组看持仓表现：一只持仓可带多个标签 ⇒ **会同时出现在多个组里**（多对多），
+ * 所以各组市值/盈亏相加不等于顶部汇总——顶部汇总取原始持仓，不取分组结果。
+ *
+ * #980 拆分后本文件只做编排：
+ * - 富化 / 分组 / 分组分页 / 标签 diff 都在 `strategyView/strategyViewModel.ts`（纯函数）
+ * - 标签的增删改在 `strategyView/useStrategyTags.ts`（逐项收集失败，不空 catch）
+ * - 四张汇总卡、标签单元格、标签管理对话框各自成组件
+ */
 defineOptions({ name: "Strategies" });
 
-interface EnrichedHolding {
-  id: number;
-  name?: string;
-  symbol?: string;
-  type_label?: string;
-  account_name?: string;
-  marketValue: number;
-  pnl: number;
-  pnlRate: number;
-  _tags: string[];
-  /** 价格时点（#2140 / #2210）：行数据来自 getStrategyOverview，后端行级 price_date */
-  price_date?: string | null;
-  /**
-   * 当日确认口径是否已定型（#2210）：true = 估值副行应隐藏；null / 缺省 = 不隐藏。
-   * **状态 = 后端字段契约**，前端禁止按日期自行推断。
-   */
-  settled_today?: boolean | null;
-  [key: string]: any;
-}
-
 const loading = ref(true);
-const allTags = ref<StrategyTag[]>([]);
-const positionTagMap = ref<Record<number, string[]>>({});
 const rawHoldings = ref<EnrichedHolding[]>([]);
-
 const tagManagerVisible = ref(false);
-const newGlobalTag = ref("");
-const newTagNames = ref<Record<number, string>>({});
 
 /**
  * 盈亏双线（#1104）：估值接线。
  *
- * 传 **`rawHoldings`（原始持仓，每只一份）** 而非 `enrichedHoldings` / `strategyGroups`：
+ * 传 **`rawHoldings`（原始持仓，每只一份）** 而非 `strategyGroups`：
  * 策略分组是「一只持仓按标签复制进多个组」的多对多结构，传分组结果会让同一 symbol
  * 出现多个副本，估值引擎按 symbol 查回时命中哪一份不确定。
  */
@@ -419,9 +165,19 @@ const {
   realtime: estimateQuotes
 } = usePositionValuation(rawHoldings);
 
-// 分组内分页相关
-const groupPageSize = 20; // 每个标签分组每页显示20条
-const groupPages = ref<Record<string, number>>({}); // 标签名 -> 当前页码
+/** 每个标签分组每页显示 20 条（组内分页由 StrategyGroupSection 自己管页码） */
+const groupPageSize = 20;
+
+const {
+  allTags,
+  positionTagMap,
+  setOverview,
+  unbindTag,
+  updateTags,
+  createTagForRow,
+  createGlobalTag,
+  deleteGlobalTag
+} = useStrategyTags();
 
 async function fetchAll() {
   loading.value = true;
@@ -429,28 +185,8 @@ async function fetchAll() {
     const res = await getStrategyOverview();
     const { holdings = [], tags = [], relations = {} } = res.data ?? {};
 
-    rawHoldings.value = holdings.map((h: any) => ({
-      ...h,
-      marketValue: (h.quantity || 0) * (h.current_price || 0),
-      // 盈亏口径收敛到 confirmedPnl（#1104）：这里原本是页面自算的同款公式，
-      // 与「已确认」双线并存就会出现同一行两套公式——货基 / 逆回购的豁免只在一处生效。
-      pnl: confirmedPnl(h) ?? 0,
-      pnlRate: h.avg_price
-        ? ((h.current_price - h.avg_price) / h.avg_price) * 100
-        : 0,
-      _tags: relations[h.id] || []
-    }));
-
-    allTags.value = tags;
-    positionTagMap.value = relations;
-
-    // 初始化每个标签的页码为1
-    const newPages: Record<string, number> = {};
-    tags.forEach((t: StrategyTag) => {
-      newPages[t.name] = 1;
-    });
-    newPages["未分类"] = 1;
-    groupPages.value = newPages;
+    rawHoldings.value = enrichHoldings(holdings, relations, confirmedPnl);
+    setOverview(tags, relations);
   } catch (e) {
     ElMessage.error("加载策略视图失败");
   } finally {
@@ -458,181 +194,23 @@ async function fetchAll() {
   }
 }
 
-// 汇总数据
+// 汇总数据（取原始持仓，避免多标签重复计算）
 const totalHoldings = computed(() => rawHoldings.value.length);
-const totalMarketValue = computed(() =>
-  rawHoldings.value.reduce((sum, h) => sum + (h.marketValue || 0), 0)
-);
-const totalPnl = computed(() =>
-  rawHoldings.value.reduce((sum, h) => sum + (h.pnl || 0), 0)
-);
+const totalMarketValue = computed(() => sumMarketValue(rawHoldings.value));
+const totalPnl = computed(() => sumPnl(rawHoldings.value));
 
-// 附加标签后的持仓
-const enrichedHoldings = computed<EnrichedHolding[]>(() =>
-  rawHoldings.value.map(h => ({
-    ...h,
-    _tags: positionTagMap.value[h.id] || []
-  }))
+/**
+ * 标签走**当前映射**而不是取数时的快照：勾选/取消后映射变了、持仓对象没变。
+ * 少了这一步，标签改动只落在请求上，表格徽标与分组都不会跟着动。
+ */
+const enrichedHoldings = computed(() =>
+  applyTags(rawHoldings.value, positionTagMap.value)
 );
 
 // 按标签分组
-const strategyGroups = computed(() => {
-  const groups: Record<string, EnrichedHolding[]> = {};
-
-  enrichedHoldings.value.forEach(h => {
-    const tags = h._tags.length ? h._tags : ["未分类"];
-    tags.forEach((tag: string) => {
-      if (!groups[tag]) groups[tag] = [];
-      groups[tag].push(h);
-    });
-  });
-
-  const entries: [string, EnrichedHolding[]][] = Object.entries(groups);
-  entries.sort(([a], [b]) => {
-    if (a === "未分类") return 1;
-    if (b === "未分类") return -1;
-    return a.localeCompare(b, "zh-Hans");
-  });
-
-  return entries.map(([tag, items]) => ({
-    tag,
-    holdings: items,
-    totalMarketValue: items.reduce(
-      (sum, item) => sum + (item.marketValue || 0),
-      0
-    ),
-    totalPnl: items.reduce((sum, item) => sum + (item.pnl || 0), 0)
-  }));
-});
-
-// 获取某个标签分组的当前页数据
-function getPagedHoldings(tag: string) {
-  const group = strategyGroups.value.find(g => g.tag === tag);
-  if (!group) return [];
-  const page = groupPages.value[tag] || 1;
-  const start = (page - 1) * groupPageSize;
-  return group.holdings.slice(start, start + groupPageSize);
-}
-
-// ---------- 标签操作（局部更新）----------
-async function unbindTag(row: EnrichedHolding | any, tagName: string) {
-  const r = row as EnrichedHolding;
-  const tag = allTags.value.find(t => t.name === tagName);
-  if (!tag) return;
-  try {
-    await unbindPositionTag(tag.id, r.id);
-    if (positionTagMap.value[r.id]) {
-      positionTagMap.value[r.id] = positionTagMap.value[r.id].filter(
-        (n: string) => n !== tagName
-      );
-    }
-    ElMessage.success("已移除标签");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "操作失败");
-  }
-}
-
-async function updateTags(row: EnrichedHolding | any, selected: string[]) {
-  const r = row as EnrichedHolding;
-  const current = positionTagMap.value[r.id] || [];
-  const toAdd = selected.filter(t => !current.includes(t));
-  const toRemove = current.filter(t => !selected.includes(t));
-
-  // 逐项收集失败而不是空 catch（#1833）：过去绑定失败也被吞掉，最后无条件弹「标签已更新」——
-  // 用户看到成功、刷新后标签消失。乐观更新 + 静默失败比直接报错更伤信任。
-  const failed: string[] = [];
-
-  for (const tagName of toAdd) {
-    const tag = allTags.value.find(t => t.name === tagName);
-    if (tag) {
-      try {
-        await bindPositionTag(tag.id, r.id);
-      } catch {
-        failed.push(tagName);
-      }
-    }
-  }
-  for (const tagName of toRemove) {
-    const tag = allTags.value.find(t => t.name === tagName);
-    if (tag) {
-      try {
-        await unbindPositionTag(tag.id, r.id);
-      } catch {
-        failed.push(tagName);
-      }
-    }
-  }
-
-  // 本地映射只提交真正生效的部分，别把失败的写进去
-  positionTagMap.value[r.id] = selected.filter(t => !failed.includes(t));
-  if (failed.length) {
-    ElMessage.warning(`部分标签未生效：${failed.join("、")}`);
-  } else {
-    ElMessage.success("标签已更新");
-  }
-}
-
-async function createTagForRow(row: EnrichedHolding | any) {
-  const r = row as EnrichedHolding;
-  const name = (newTagNames.value[r.id] || "").trim();
-  if (!name) return;
-  try {
-    const res: any = await createStrategyTag({ name });
-    const newTag: StrategyTag = res?.data;
-    if (!newTag?.id) throw new Error("创建标签失败");
-
-    allTags.value.push(newTag);
-    await bindPositionTag(newTag.id, r.id);
-    if (!positionTagMap.value[r.id]) positionTagMap.value[r.id] = [];
-    positionTagMap.value[r.id] = [...positionTagMap.value[r.id], name];
-
-    newTagNames.value[r.id] = "";
-    ElMessage.success("标签已添加并绑定");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "创建失败");
-  }
-}
-
-function openTagManager() {
-  tagManagerVisible.value = true;
-}
-
-async function createGlobalTag() {
-  const name = newGlobalTag.value.trim();
-  if (!name) return;
-  try {
-    const res: any = await createStrategyTag({ name });
-    const newTag: StrategyTag = res?.data;
-    if (!newTag?.id) throw new Error("创建失败");
-
-    allTags.value.push(newTag);
-    newGlobalTag.value = "";
-    ElMessage.success("标签已创建");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "创建失败");
-  }
-}
-
-async function deleteGlobalTag(id: number) {
-  try {
-    await deleteStrategyTag(id);
-    const deletedTag = allTags.value.find(t => t.id === id);
-    allTags.value = allTags.value.filter(t => t.id !== id);
-
-    if (deletedTag) {
-      const tagName = deletedTag.name;
-      Object.keys(positionTagMap.value).forEach(posId => {
-        const idx = positionTagMap.value[Number(posId)]?.indexOf(tagName);
-        if (idx !== undefined && idx > -1) {
-          positionTagMap.value[Number(posId)].splice(idx, 1);
-        }
-      });
-    }
-    ElMessage.success("标签已删除");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
-  }
-}
+const strategyGroups = computed(() =>
+  buildStrategyGroups(enrichedHoldings.value)
+);
 
 onMounted(() => {
   fetchAll();
@@ -646,13 +224,6 @@ onMounted(() => {
 
   /* 数字等宽对齐：消除金额/计数宽度抖动（design.md「数字等宽对齐」） */
   font-variant-numeric: tabular-nums;
-}
-
-/* 汇总卡片 */
-.summary-card {
-  min-width: 120px;
-  padding: 8px 16px;
-  border-radius: 12px;
 }
 
 /* 产品单元格 */
@@ -688,28 +259,5 @@ onMounted(() => {
   color: var(--text-inverse);
   background-color: var(--bg-page);
   border: none;
-}
-
-/* 标签触发器 */
-.tag-trigger {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-  min-height: 24px;
-  cursor: pointer;
-}
-
-.tag-trigger:hover {
-  opacity: 0.8;
-}
-
-.tag-selector {
-  padding: 8px 0;
-}
-
-.tag-selector :deep(.el-checkbox) {
-  display: block;
-  margin-bottom: 4px;
 }
 </style>

@@ -95,7 +95,16 @@ class StandardTransactionRecord:
     trade_date: Optional[date] = None  # 交易申请日期（下单日，用于持有天数计算）
     shares: Optional[Decimal] = None  # 确认份额
     nav: Optional[Decimal] = None  # 确认净值
-    fee: Decimal = Decimal('0')  # 手续费
+    fee: Decimal = Decimal('0')  # 手续费（聚合总额，元）
+    # ── #2137 费用拆分（元）──
+    # 交割单（同花顺）/ 标准模板带明细列时逐类透传；四列全 None = 未拆分
+    # （解析器没给明细、或来源只有聚合手续费），落库时四列留 NULL。
+    # 与 fee 的关系：四列之和必须等于 fee（不变量在 Transaction 模型层兜底），
+    # 缺的类别由解析方显式给 0，不在此处猜。
+    fee_commission: Optional[Decimal] = None  # 佣金
+    fee_stamp_duty: Optional[Decimal] = None  # 印花税
+    fee_transfer_fee: Optional[Decimal] = None  # 过户费等税费
+    fee_other: Optional[Decimal] = None  # 其他费用
     transaction_id: Optional[str] = None  # 平台交易流水号（去重核心）
 
     # ── 金融口径（#1375 阶段二）：金额字段一律 Decimal，禁止 float 域中转 ──
@@ -107,7 +116,12 @@ class StandardTransactionRecord:
     batch_id: Optional[str] = None  # 导入批次ID
     raw_text: Optional[str] = None  # 原始行文本，便于问题追溯
     source: str = ''  # 数据来源标识
-    link_group_id: Optional[str] = None  # 关联交易组ID
+    link_group_id: Optional[str] = None  # 关联交易组ID（同一笔现金流的多个侧面）
+    link_warning: str = ''  # 配对的交叉校验提示（如税率不符），不阻断导入
+    # 被哪条配对规则消费（见 importer/linking.py 的 ``consume`` 动作）。
+    # 非空 = 该行不入账：其效果已被组内的主记录覆盖（例：兑付已扣份额，
+    # 券商的「股份转出」再扣一次就是双重清仓）。
+    consumed_by: str = ''
     display_type: str = ''  # 产品细分类型，如“混合型”、“货币型”，前端展示用
     venue: str = ''  # 交易场所（EXCHANGE/OTC，见 core/venues；#1662）。空串=解析器未能判定
     error: str = ''  # 解析失败时存放错误信息

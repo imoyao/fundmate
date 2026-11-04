@@ -122,6 +122,9 @@ class PnlDailySnapshot(Base, PrimaryKeyMixin, TimestampMixin):
       `closed` / `no_data` / `no_position`），绝不可写 0——「缺数据绝不可画成 0」
       是本产品红线。
     - `net_worth_cents`：该日净资产（分，仅持仓口径，与日历一致）。
+      **NULL = 当天有持仓，但一笔都取不到价**（#2733 C）。旧实现此时写 0，
+      与「真的清零」不可区分——净值曲线于是掉到地板再弹回，看上去像计算 bug。
+      当日无持仓（`no_position`，含清仓后）仍写 0：那时 0 就是真值，不是缺数据。
     - `rate_bp`：日收益率，**基点**（`rate(%) × 100`），如 −0.45% → −45。
       NULL 同上。用整数而非浮点，是为了让「物化读」与「现算读」逐位相等。
     - `state`：日历报的状态码。#1917/#1942 之后共 7 种：`updown` / `zero` /
@@ -174,7 +177,12 @@ class PnlDailySnapshot(Base, PrimaryKeyMixin, TimestampMixin):
         default=None,
         comment='日盈亏（分）；NULL=当日算不出来（缺数据不可画成 0）',
     )
-    net_worth_cents = Column(Integer, nullable=False, comment='该日净资产（分，仅持仓口径）')
+    net_worth_cents = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment='该日净资产（分，仅持仓口径）；NULL=有持仓但当日无一笔取得到价',
+    )
     rate_bp = Column(
         Integer,
         nullable=True,

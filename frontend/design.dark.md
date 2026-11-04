@@ -37,8 +37,8 @@
 >   --brand-l: 55%;
 > }
 >
-> /* 暗色模式：基于基础值计算 */
-> [data-theme="dark"] {
+> /* 暗色模式：基于基础值计算（暗色由 <html> 的 .dark 类驱动，见下方「机制说明」） */
+> :root.dark {
 >   --brand-700: hsl(var(--brand-h) calc(var(--brand-s) * 0.8) var(--brand-l));
 > }
 > ```
@@ -48,7 +48,7 @@
 > **声明顺序（强制降级防线）**：
 >
 > ```css
-> [data-theme="dark"] {
+> :root.dark {
 >   /* 第一步：写 Fallback（静态色值），确保旧浏览器至少能显示正确颜色 */
 >   --brand-700: #D45A44;
 >   /* 第二步：写 Calc（动态计算），现代浏览器自动覆盖上一行 */
@@ -448,15 +448,16 @@
   - **水平网格（Horizontal）**：保持 **虚线（`dashed`）** 或 **极细实线（1px，透明度 0.04）**，弱化背景
   - **垂直时间轴（Vertical）**：**保留实线（`solid`）** 或 **完全去除**。**禁止使用虚线**，因为虚线在垂直方向会把用户的视线切碎，影响对时间序列的连贯阅读
 
-### 柱状 / 瀑布图（与亮色端同一套规则）
+### 柱状图（与亮色端同一套规则）
 
-亮色 `design.md`「Data Visualization · 柱状 / 瀑布图的可读性约定」的三条
-（柱高 = 自身金额而非累计、轴与标签过万缩写、小额柱只进 tooltip）与暗色无关，
-**不重复定义**。此处只记两条与暗色直接相关的：
+亮色 `design.md`「Data Visualization · 柱状图的可读性约定」的几条（柱长 = 自身金额且从 0 起、
+轴上限给柱顶标签留余量、轴与标签过万缩写、类目少时全员挂标签）与暗色无关，**不重复定义**。
+此处只记两条与暗色直接相关的：
 
 - **轴标签色用 `--text-tertiary-ink`**（暗卡 4.79:1 ✅），不用 `--text-tertiary`（3.09:1 ❌）。
-- **瀑布基座层用 `color: "transparent"`** 而非「与底色同值」——暗色下底色是
-  `#242120` 这样的暗值，基座若画成实色会在深背景上露出一块比卡片更亮的色块。
+- **0 基线（x 轴）必须可见**：它承担「柱子从 0 起」这个事实，颜色取 `--border-default`
+  而不是 `--border-light`。暗色下 `--border-light` 是 `rgba(255,255,255,0.04)`，在白卡上已极淡、
+  在暗卡上几乎不可见 —— 那条线一消失，柱子看起来又重新「悬空」了，正是本图要治的病。
 
 
 ## Motion
@@ -497,8 +498,8 @@
   /* ... 其他亮色变量 */
 }
 
-/* 暗色模式：基于基础值计算 */
-[data-theme="dark"] {
+/* 暗色模式：基于基础值计算（选择器即实际生效的 `:root.dark`） */
+:root.dark {
   /* 第一步：Fallback（静态色值），确保旧浏览器至少能显示正确颜色 */
   --bg-page: #1A1816;
   --bg-card: #242120;
@@ -515,19 +516,34 @@
 }
 ```
 
+### 机制说明：`.dark` 类驱动暗色，`data-theme` 只承载配色主题名
+
+> **两者是两个正交的维度，不要混用**：
+>
+> | 维度 | 载体 | 取值 |
+> |---|---|---|
+> | 明暗 | `<html>` 上的 **`.dark` 类** | 有 / 无 |
+> | 配色主题名 | `<html>` 上的 `data-theme` 属性 | `light` / `default` / `saucePurple` / `pink` / `dusk` / `volcano` / `mingQing` / `auroraGreen` / `showbuy` |
+>
+> **`data-theme` 永远不会是 `"dark"`** —— 如果你写出「选择器里判 data-theme 等于 dark」这类条件，
+> 它一次都不会命中（不报错，只是不生效），是最难被发现的一种死代码。
+> 暗色样式一律这样写：`dark.scss` 里用 `:root.dark { … }` 覆盖同名语义变量，
+> 业务组件只引用变量，不做任何主题判断。
+> 防回潮判据：`scripts/guard_no_data_theme_dark.mjs`（扫前端源码，命中即红）。
+
 ### JavaScript 切换
 
 ```javascript
-// 切换暗色模式
+// 切换暗色模式：切 .dark 类，不动 data-theme（后者是配色主题名）
 function toggleDarkMode(enabled) {
-  document.documentElement.setAttribute('data-theme', enabled ? 'dark' : 'light');
-  localStorage.setItem('theme', enabled ? 'dark' : 'light');
+  document.documentElement.classList.toggle('dark', enabled);
+  localStorage.setItem('theme-mode', enabled ? 'dark' : 'light');
 }
 
 // 初始化
-const savedTheme = localStorage.getItem('theme');
+const savedTheme = localStorage.getItem('theme-mode');
 if (savedTheme === 'dark') {
-  document.documentElement.setAttribute('data-theme', 'dark');
+  document.documentElement.classList.add('dark');
 }
 ```
 
@@ -536,8 +552,8 @@ if (savedTheme === 'dark') {
 ```javascript
 // 检测系统偏好
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-if (prefersDark.matches && !localStorage.getItem('theme')) {
-  document.documentElement.setAttribute('data-theme', 'dark');
+if (prefersDark.matches && !localStorage.getItem('theme-mode')) {
+  document.documentElement.classList.add('dark');
 }
 ```
 
@@ -546,10 +562,10 @@ if (prefersDark.matches && !localStorage.getItem('theme')) {
 如果检测到浏览器不支持 CSS 自定义属性（`CSS Variables`），页面将强制使用亮色模式并隐藏暗色模式切换按钮，避免样式错乱。
 
 ```javascript
-// 检测 CSS 变量支持
+// 检测 CSS 变量支持：不支持则强制亮色（摘掉 .dark 类）
 const supportsCSSVars = window.CSS && CSS.supports('color', 'var(--test)');
 if (!supportsCSSVars) {
-  document.documentElement.setAttribute('data-theme', 'light');
+  document.documentElement.classList.remove('dark');
   document.querySelector('.theme-toggle')?.style.display = 'none';
 }
 ```
@@ -592,7 +608,7 @@ if (!supportsCSSVars) {
 
 | 变更类型 | 影响范围 | 兼容性 |
 |----------|----------|--------|
-| 新增 `data-theme="dark"` 选择器 | 全局 | ✅ 纯新增 |
+| 新增 `.dark`（`dark.scss` 的 `:root.dark`）选择器 | 全局 | ✅ 纯新增 |
 | 新增所有暗色变量值 | 全局 | ✅ 纯新增 |
 | `--color-rise` / `--color-fall` 动态切换 | 涨跌语义 | ✅ 纯新增（亮色值不变） |
 | 品牌色饱和度降低 | 品牌元素 | ✅ 仅暗色模式下生效 |

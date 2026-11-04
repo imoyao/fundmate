@@ -50,7 +50,7 @@ def create_family():
 @families_bp.get('/<int:family_id>/members/')
 @require_roles(ROLE_ADMIN)
 def list_family_members(family_id: int):
-    """查看指定家庭成员（仅主理人）。"""
+    """查看指定家庭的成员（**登录账号**；账本归属维度见 member_views.py，#1173）。"""
     with get_db() as db:
         family = db.get(Family, family_id)
         if not family:

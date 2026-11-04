@@ -79,7 +79,7 @@
         >
           <template #suffix>
             <span class="char-count"
-              >{{ p.profileForm.nickname.length }}/16</span
+              >{{ textLength(p.profileForm.nickname) }}/16</span
             >
           </template>
         </el-input>
@@ -115,7 +115,7 @@
         >
           <template #suffix>
             <span class="char-count"
-              >{{ p.profileForm.username.length }}/20</span
+              >{{ textLength(p.profileForm.username) }}/20</span
             >
           </template>
         </el-input>
@@ -141,6 +141,7 @@ import { reactive } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import Superellipse from "@/components/Superellipse/index.vue";
+import { textLength } from "@/utils/textLength";
 import type { useProfileData } from "../composables/useProfileData";
 import ProfileAvatarStyleGrid from "./ProfileAvatarStyleGrid.vue";
 

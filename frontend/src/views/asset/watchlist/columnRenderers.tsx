@@ -6,7 +6,7 @@
  *
  * 核心职责（设计文档 §4）：把 index.vue 模板里散落的
  *   v-if="realtimeEnabled && getValuationItem(row.symbol)"
- * 双分支「实时覆盖静态」逻辑，内聚进 money/riseFall renderer，模板不再出现双分支。
+ * 双分支「实时覆盖静态」逻辑，内聚进 money renderer，模板不再出现双分支。
  *
  * 约束（AGENTS.md / realtime-data-sources.md）：不得在此新开 JSONP 通道；
  * 实时数据一律来自 ctx.getValuationItem（useRealtimeQuotes 链路）。
@@ -17,13 +17,25 @@
  * 无法 renderer 化，仍由 index.vue 模板按 batchMode 注入）。
  * 后续改 product/actions 交互只需改本文件，不再有 index.vue 模板副本。
  *
- * #1281 第四轮（2026-09-04）：独立 marker 列已取消，置顶 / 特别关注的状态标记
- * 内联到 product 列名称前（renderRowMarks），点击即切换；操作列同步精简为单个
- * 「移除」按钮。
+ * #1281 第四轮（2026-09-04）：独立 marker 列已取消。
+ * ⚠️ 上一版注释写「状态标记内联到 product 列（renderRowMarks）、操作列精简为单个移除按钮」，
+ * 但**这两件事都没有落到代码里**：product 列没有任何行内标记，操作列一度长到 5 个按钮
+ * （#1764 加了「加入分组」「问这个」）。注释与实现分叉了近两个月无人发现——因为没有任何
+ * 东西会因此变红。现状以 `renderActions` 为准，改动前请先读它，不要信这段历史叙述。
+ *
+ * 2026-11-02（操作列收敛，方案 B）：常驻**置顶 + 特别关注**两个状态型按钮（它们是
+ * 仅有的两种「需要一眼看出当前状态」的操作，因此状态由图标形态与颜色表达、不能收进菜单），
+ * 「加入分组 / 问这个 / 移除」收进 ··· 下拉菜单，移除单独置底并以 danger 色隔离。
  */
 
 import { h, type FunctionalComponent, type VNode } from "vue";
-import { ElButton, ElTooltip } from "element-plus";
+import {
+  ElButton,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElTooltip
+} from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
@@ -36,7 +48,18 @@ import {
 } from "@/constants/advisorPlatform";
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
+import type { IntradayTrend } from "@/utils/realtimeDataSources";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
+import { bondNumberText, bondYtmClass } from "./bondFormats";
+// #2651：走势列 title 口径（含 `--` 无数据分支），纯函数便于单测
+import { resolveSparklineTitle } from "./sparklineTitle";
+// #2503：关联列的分组 / 措辞整形（纯模块，不牵动本文件的组件依赖链）
+import {
+  buildLinkTip,
+  groupLinks,
+  linkBadgeText,
+  type WatchlistLinkItem
+} from "./linkGroups";
 // renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
 import "./columnRenderers.css";
 
@@ -80,7 +103,7 @@ export interface RenderCtx {
   groupNames: Record<number, string>;
   /** 派生计算列的取值函数（注入 index.vue 的 addedReturnAmount 等） */
   derived: (
-    kind: "addedReturn" | "marketValue",
+    kind: "addedReturn" | "marketValue" | "dayPnl",
     row: WatchlistRow
   ) => DerivedValue;
   /** 打开标签编辑弹窗（product 列 add-tag 按钮） */
@@ -128,6 +151,11 @@ export interface RenderCtx {
   };
   /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
   trends: Record<string, number[]>;
+  /**
+   * 当日分时（sparkline 列盘中态，#2640）：symbol → { points, prevClose }。
+   * 缺省 = 无分时（未开实时 / 收盘后 / 场外基金 / 该码无分时），走势列回落 `trends`。
+   */
+  intraday: Record<string, IntradayTrend>;
 }
 
 /** 安全地从 row 取任意字段（WatchlistItem 无索引签名，需经 unknown 中转） */
@@ -205,17 +233,40 @@ function resolveValue(
  * - 颜色随涨跌：首尾比较，涨 --color-rise / 跌 --color-fall（禁止硬编码 hex）；
  * - 数据缺失（未回填/场外基金/新标的）降级显示 --，不影响行高与布局；
  * - 不逐格实例化 ECharts：40 行同屏 40 个图表实例必卡（issue #990 决策）。
+ *
+ * #2640 双态：有分时（`ctx.intraday`，仅「当前页 + 已开实时 + 盘中 + 场内」才有）
+ * 就画当日分时，否则回落近 60 日收盘——**同一根折线换口径**，不新增列。
+ * 分时的着色基准是**昨收**（`prevClose`）而非首点：当日分时的首点是 09:30 开盘价，
+ * 拿它当基准会把「跳空高开」画成一条全绿的上行线，而用户要看的是「相对昨收赚没赚」。
+ *
+ * #2651：`title` 改由 `resolveSparklineTitle` 统一产出，`--` 降级分支同样带说明
+ * （场外基金「无盘中估值分时」原先只在有折线时才说得出来）。
  */
 const renderSparkline: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
   ctx: RenderCtx;
 }> = props => {
-  const series = props.ctx.trends[props.row.symbol];
+  const { row, ctx } = props;
+  const intraday = ctx.intraday[row.symbol];
+  // 少于 2 点画不出线（刚开盘 / 该码无分时），按「无分时」处理而不是画一个点
+  const intradayPoints = intraday?.points.length ?? 0;
+  const intradaySeries =
+    intraday && intraday.points.length >= 2 ? intraday.points : null;
+  const trendPoints = ctx.trends[row.symbol];
+  const series = intradaySeries ?? trendPoints;
+  // title 说明**这一格是什么口径**，`--` 的分支也必须带（#2651）：无数据的行最需要
+  // 解释，而原先那句话写在「有折线」的分支里，场外基金的说明根本走不到。
+  // 文案口径全部收敛在 sparklineTitle.ts（纯函数，可单测）。
+  const title = resolveSparklineTitle({
+    isOtc: field(row, "venue") === "OTC",
+    intradayPoints,
+    trendPoints: trendPoints?.length ?? 0
+  });
   if (!series || series.length < 2) {
     return h(
       "span",
-      { class: "text-xs", style: { color: "var(--text-tertiary)" } },
+      { class: "text-xs", style: { color: "var(--text-tertiary)" }, title },
       "--"
     );
   }
@@ -236,9 +287,12 @@ const renderSparkline: FunctionalComponent<{
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
-  const rising = series[series.length - 1] >= series[0];
+  const last = series[series.length - 1];
+  const rising = intradaySeries
+    ? last >= (intraday as IntradayTrend).prevClose
+    : last >= series[0];
   const stroke = rising ? "var(--color-rise)" : "var(--color-fall)";
-  return h("svg", { width, height, viewBox: `0 0 ${width} ${height}` }, [
+  const svg = h("svg", { width, height, viewBox: `0 0 ${width} ${height}` }, [
     h("polyline", {
       points,
       fill: "none",
@@ -248,6 +302,8 @@ const renderSparkline: FunctionalComponent<{
       "stroke-linecap": "round"
     })
   ]);
+
+  return h("span", { title }, [svg]);
 };
 
 const renderDate: FunctionalComponent<{
@@ -290,30 +346,6 @@ const renderMoney: FunctionalComponent<{
     { title: `数据日期 ${asOf}（最近交易日收盘价 / 确认净值）` },
     [node]
   );
-};
-
-const renderRiseFall: FunctionalComponent<{
-  row: WatchlistRow;
-  def: ColumnDef;
-  ctx: RenderCtx;
-}> = props => {
-  const raw = field(props.row, props.def.key);
-  if (props.def.props?.nullable && (raw === null || raw === undefined)) {
-    return h(
-      "span",
-      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
-      "--"
-    );
-  }
-  const { staticVal, realtimeVal, useRealtime } = resolveValue(
-    props.row,
-    props.def,
-    props.ctx
-  );
-  return h(RiseFallText, {
-    value: useRealtime ? realtimeVal! : staticVal,
-    size: "sm"
-  });
 };
 
 const renderQty: FunctionalComponent<{
@@ -413,12 +445,12 @@ const renderMoneyRatio: FunctionalComponent<{
       ratio: d.ratio,
       moneySize: "sm",
       // 持仓市值：金额是余额不是涨跌 → 不带 +/- 号、保留 ¥ 符号
-      // 添加后收益：金额由 price_at_added 差值计算，是真盈亏 → 带 +/- 号、不带 ¥
+      // 添加后收益 / 当日盈亏：都是真盈亏 → 带 +/- 号、不带 ¥
       showSign: !isMarketValue,
       showCurrency: isMarketValue,
       // 「持仓市值」的比例是市值占比（恒为正的仓位权重），非涨跌语义：必须中性色，
       // 且不带 +/- 号（showRatioSign 默认 true 会让 RiseFallText 拼出无意义的「+」，#2209）；
-      // 「添加后涨幅」的 % 是真涨跌，保留符号与默认涨红跌绿
+      // 「添加后涨幅」「当日盈亏」的 % 是真涨跌，保留符号与默认涨红跌绿
       // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
       ratioAutoColor: !isMarketValue,
       showRatioSign: !isMarketValue
@@ -653,11 +685,16 @@ const renderActions: FunctionalComponent<{
     );
   }
   const a = ctx.actions;
-  // 操作列（fixed:right）三按钮：置顶 / 特别关注 / 移除。
-  // 按钮**常驻弱显（45%）+ 行 hover 全亮**，见 index.vue 的 opacity 规则——
-  // 显隐纯靠 CSS（行 hover 驱动 opacity），不依赖 JS hoveredRowKey；
-  // hoveredRowKey 仍由本列 mouseenter/leave 写入，用于联动 product 列内
-  // 置顶/加标签按钮的高亮（跨 fixed 列 DOM 无法用 :hover 同步），并非控制显隐。
+  // 操作列（fixed:right）= **两个常驻按钮 + 一个 ··· 菜单**（2026-11-02 收敛，方案 B）。
+  //
+  // 为什么常驻的是「置顶 / 特别关注」：这两个是**状态型**操作——当前值必须一眼可见
+  // （实心图钉 / 暖橙实心星），收进菜单就等于丢掉状态展示；而「加入分组 / 问这个 / 移除」
+  // 是一次性动作，收进菜单不损失任何信息，还换回 52px 列宽。
+  //
+  // 显隐仍是「常驻 45% 弱显 + 行 hover 全亮」（见 WatchlistTableSection.vue 的 opacity 规则）。
+  // 不做纯 hover 隐藏：操作列是 fixed 列、EP 固定列独立 DOM，`:hover` 无法跨列同步，
+  // 历史上出现过「有的行 hover 不出现」（见 columnDefs.ts 操作列注释），最终回退成弱显。
+  // hoveredRowKey 仍由本列 mouseenter/leave 写入，用于联动 product 列按钮高亮。
   // 状态用图标颜色表达：已置顶 = 品牌色实心图钉；已关注 = 暖橙实心星。
   const editable = row.id != null;
   /**
@@ -700,6 +737,34 @@ const renderActions: FunctionalComponent<{
       }
     );
 
+  /**
+   * 菜单项：图标 + 文案，command 由外层 ElDropdown 统一分发。
+   * danger 用独立 class 而非 inline style —— popper teleport 到 body，
+   * columnRenderers.css 里以 .el-table 前缀的选择器对它无效，只能靠自有类名命中。
+   */
+  const menuItem = (
+    command: string,
+    icon: string,
+    label: string,
+    opts?: { danger?: boolean; divided?: boolean; disabled?: boolean }
+  ) =>
+    h(
+      ElDropdownItem,
+      {
+        command,
+        disabled: opts?.disabled,
+        divided: opts?.divided,
+        class: opts?.danger ? "watchlist-actions-menu__danger" : undefined
+      },
+      () => [
+        h(IconifyIconOffline, {
+          icon,
+          class: "watchlist-actions-menu__icon"
+        }),
+        h("span", label)
+      ]
+    );
+
   return h(
     "div",
     {
@@ -708,6 +773,7 @@ const renderActions: FunctionalComponent<{
       onMouseleave: () => ctx.setHoveredRowKey(null)
     },
     [
+      // ① 置顶（状态型：实心图钉 = 已钉，品牌色）
       tooltipBtn(
         row.is_pinned ? "取消置顶" : "置顶",
         row.is_pinned ? "mdi:pin" : "mdi:pin-outline",
@@ -718,6 +784,7 @@ const renderActions: FunctionalComponent<{
           a.togglePin(row);
         }
       ),
+      // ② 特别关注（状态型：暖橙实心星 = 已关注）
       tooltipBtn(
         row.favorite ? "取消特别关注" : "特别关注",
         row.favorite ? "ep:star-filled" : "ep:star",
@@ -728,34 +795,47 @@ const renderActions: FunctionalComponent<{
           a.toggleFavorite(row);
         }
       ),
-      tooltipBtn(
-        holdingBlocked ? "持仓资产无法直接从自选移除" : "移除",
-        "ep:delete",
-        undefined,
-        holdingBlocked || !editable,
-        (e: Event) => {
-          e.stopPropagation();
-          a.remove(row);
-        }
-      ),
-      tooltipBtn(
-        "加入分组",
-        "ep:folder-add",
-        undefined,
-        !editable,
-        (e: Event) => {
-          e.stopPropagation();
-          a.addToGroup(row);
-        }
-      ),
-      tooltipBtn(
-        "问这个",
-        "ep:chat-dot-square",
-        undefined,
-        !editable,
-        (e: Event) => {
-          e.stopPropagation();
-          a.askAbout(row);
+      // ③ ··· 低频动作菜单：加入分组 / 问这个 / —— / 移除（danger 隔离置底）
+      h(
+        ElDropdown,
+        {
+          trigger: "click",
+          placement: "bottom-end",
+          disabled: !editable,
+          // 菜单 popper teleport 到 body，点击不在行 DOM 内，故不会触发「点行开抽屉」
+          onCommand: (command: string) => {
+            if (command === "addToGroup") a.addToGroup(row);
+            else if (command === "askAbout") a.askAbout(row);
+            else if (command === "remove") a.remove(row);
+          }
+        },
+        {
+          default: () =>
+            h(
+              ElButton,
+              {
+                circle: true,
+                size: "small",
+                "aria-label": "更多操作",
+                "aria-haspopup": "menu"
+              },
+              () => [h(IconifyIconOffline, { icon: "ep:more-filled" })]
+            ),
+          dropdown: () =>
+            h(ElDropdownMenu, null, () => [
+              menuItem("addToGroup", "ep:folder-add", "加入分组"),
+              menuItem("askAbout", "ep:chat-dot-square", "问这个"),
+              menuItem(
+                "remove",
+                "ep:delete",
+                holdingBlocked ? "持仓资产无法直接移除" : "移除自选",
+                {
+                  danger: true,
+                  divided: true,
+                  disabled: holdingBlocked
+                }
+              )
+            ])
         }
       )
     ]
@@ -814,7 +894,8 @@ const renderNotes: FunctionalComponent<{
 /**
  * 可转债条款列（#1285 消费侧 / #1393）。
  *
- * 一个 renderer 覆盖 4 列（按 def.key 分派）：溢价率 / 强赎状态 / 剩余年限 / 评级。
+ * 一个 renderer 覆盖 7 列（按 def.key 分派）：溢价率 / 强赎状态 / 剩余年限 / 评级 /
+ * 正股PB / YTM / 下修历史三列（次数 / 最近下修日 / 下修底价，#2585）。
  * 数据缺席（表未落库 / 非转债）统一渲染 `—`，不用 0 兜底（0 溢价率是真实值）。
  * 剩余年限由 `bond_maturity_date` 现算，避免为展示多存一个口径字段。
  */
@@ -866,6 +947,70 @@ const renderBond: FunctionalComponent<{
   if (def.key === "bond_rating") {
     const rating = (field(row, "bond_rating") as string) || "";
     return rating ? h("span", { class: "bond-rating" }, rating) : dash();
+  }
+
+  if (def.key === "bond_stock_pb") {
+    const v = field(row, "bond_stock_pb") as number | null | undefined;
+    // 负 PB（净资产为负）是真实值，**不能当缺值处理**；0 也是真实值
+    return h(
+      "span",
+      { class: "bond-num", title: "正股市净率（东财）" },
+      bondNumberText(v)
+    );
+  }
+
+  if (def.key === "bond_ytm") {
+    const v = field(row, "bond_ytm") as number | null | undefined;
+    // 口径 = 单利年化持有到期总回报（同集思录）。**深度价内债后端不出此值**
+    // （持有到期不成立，算出来是 -500% 这类无意义数），此处只渲染真值。
+    const cls = bondYtmClass(v);
+    return h(
+      "span",
+      {
+        class: cls ? ["bond-num", cls] : "bond-num",
+        title: "到期税前收益（单利年化持有到期总回报，自算）"
+      },
+      bondNumberText(v, "%")
+    );
+  }
+
+  // ── 下修历史三列（#2585 PR2）──
+  // 未落库（job 未抓过）与确无下修记录后端均不出值 → `—`；不用 0 兜底，
+  // 避免「确有下修但尚未抓取」与「抓过确认为 0」两种口径在前端混淆。
+  if (def.key === "bond_adjust_count") {
+    const v = field(row, "bond_adjust_count") as number | null | undefined;
+    if (v == null) return dash();
+    return h(
+      "span",
+      {
+        class: "bond-num",
+        title: "历史下修次数（下修决议经股东大会，按次落库）"
+      },
+      `${v} 次`
+    );
+  }
+
+  if (def.key === "bond_last_adjust_date") {
+    const v = field(row, "bond_last_adjust_date") as string | null | undefined;
+    if (!v) return dash();
+    return h(
+      "span",
+      { class: "bond-num", title: "最近一次下修的股东大会日（下修决议日）" },
+      v
+    );
+  }
+
+  if (def.key === "bond_adjust_floor_price") {
+    const v = field(row, "bond_adjust_floor_price") as
+      number | null | undefined;
+    return h(
+      "span",
+      {
+        class: "bond-num",
+        title: "最近一次下修的底价（元）——随每股净资产逐次变化，非固定条款"
+      },
+      bondNumberText(v)
+    );
   }
 
   return dash();
@@ -943,8 +1088,14 @@ const renderDrawdown: FunctionalComponent<{
  * 跨渠道关联入口（#1285 设计 §3.8「数量标记 + 浮层」）。
  *
  * 数量角标 + hover 浮层列出关联标的全名；数据来自后端 `channel_links`
- *（index_etf 指数↔场内 ETF、etf_feeder 场内 ETF↔场外联接，两类混排）。
+ *（index_etf 指数↔场内 ETF、etf_feeder 场内 ETF↔场外联接）。
+ * #2503：浮层从平铺一句改为**按 link_type 分区块**——此前场内 ETF 与场外联接
+ * 混在一句里，看不出「哪些能场内买、哪些只能场外申购」，而这两类恰恰是用户
+ * 需要区分的信息（同一暴露的不同购买渠道）。
  * 无关联渲染 `—`——不用「0 个」，与全表「无数据一律 —」的约定保持一致。
+ *
+ * 分组与文案整形在 `./linkGroups`（纯模块，可独立于本文件的组件依赖被测）；
+ * 这里只负责把它们包进 ElTooltip。
  */
 const renderLinks: FunctionalComponent<{
   row: WatchlistRow;
@@ -952,19 +1103,25 @@ const renderLinks: FunctionalComponent<{
   ctx: RenderCtx;
 }> = props => {
   const links =
-    (field(props.row, "links") as
-      { code: string; name: string | null }[] | undefined) ?? [];
-  if (!links.length) return h("span", { class: "link-empty" }, "—");
+    (field(props.row, "links") as WatchlistLinkItem[] | undefined) ?? [];
+  const groups = groupLinks(links);
+  // 无关联（或分组后为空）一律降级 `—`：宁可少显示，也不给一个空浮层
+  if (!groups.length) return h("span", { class: "link-empty" }, "—");
 
-  const content = links
-    .map(l => (l.name ? `${l.name}（${l.code}）` : l.code))
-    .join("、");
+  // 浮层走 content slot（VNode）而不是 props 字符串：分组是结构化的，
+  // 拼成字符串会丢失区块边界。showAfter 稍延迟，避免鼠标掠过整列时浮层乱闪。
   return h(
     ElTooltip,
-    // content 走 props（字符串），避免为浮层引入额外渲染分支；showAfter 稍延迟，
-    // 避免鼠标掠过整列时浮层乱闪
-    { content, placement: "top", showAfter: 120, effect: "dark" },
-    { default: () => h("span", { class: "link-badge" }, `${links.length} 个`) }
+    { placement: "top", showAfter: 120, effect: "dark" },
+    {
+      default: () =>
+        h(
+          "span",
+          { class: "link-badge" },
+          linkBadgeText(groups, assetTypeOf(props.row))
+        ),
+      content: () => buildLinkTip(groups)
+    }
   );
 };
 
@@ -1118,6 +1275,48 @@ const renderAdvisor: FunctionalComponent<{
   return dash();
 };
 
+/**
+ * 资金流列（#watchlist 资金面）：个股主力净流入（元）。
+ * 符号着色遵循 A 股习惯——净流入（买入主导）着涨色、净流出着跌色；
+ * 单位为「亿 / 万」自适应（亿元口径更贴合主力资金量级）。无数据降级 `--`。
+ */
+const renderFundFlow: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+}> = props => {
+  const raw = field(props.row, props.def.key);
+  const v = typeof raw === "number" ? raw : null;
+  if (v == null) {
+    return h(
+      "span",
+      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
+      "--"
+    );
+  }
+  const abs = Math.abs(v);
+  // 亿元 / 万元自适应：主力净流入量级大，亿元更贴合
+  if (abs >= 1e8) {
+    return h(
+      "span",
+      {
+        class: "font-mono text-sm",
+        style: { color: v > 0 ? "var(--color-rise)" : "var(--color-fall-ink)" },
+        title: `主力净流入 ${v.toLocaleString("zh-CN")} 元`
+      },
+      `${(v / 1e8).toFixed(2)}亿`
+    );
+  }
+  return h(
+    "span",
+    {
+      class: "font-mono text-sm",
+      style: { color: v > 0 ? "var(--color-rise)" : "var(--color-fall-ink)" },
+      title: `主力净流入 ${v.toLocaleString("zh-CN")} 元`
+    },
+    `${Math.round(v / 1e4)}万`
+  );
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -1130,7 +1329,6 @@ const REGISTRY: Record<
   product: renderProduct as never,
   date: renderDate as never,
   money: renderMoney as never,
-  riseFall: renderRiseFall as never,
   qty: renderQty as never,
   moneyRatio: renderMoneyRatio as never,
   text: renderText as never,
@@ -1141,7 +1339,8 @@ const REGISTRY: Record<
   links: renderLinks as never,
   advisor: renderAdvisor as never,
   sparkline: renderSparkline as never,
-  actions: renderActions as never
+  actions: renderActions as never,
+  fundFlow: renderFundFlow as never
 };
 
 /** 按 renderer 类型取对应函数式组件（模板 <component :is> 用） */

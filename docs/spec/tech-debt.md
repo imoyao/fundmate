@@ -23,6 +23,7 @@ title: 技术债务与开口项明细（tech-debt）
 | ~~（保留原 `get_ledger_summary` 问题）~~ | ~~🔴 严重~~ **✅ 已修复** | ~~bank/property 分支写在 `if ledger_type in ('stock','fund')` 的 elif 中，永远不执行~~ | ~~将 bank/property 提升为与 stock/fund 同级的独立分支~~ |
 | ~~（保留原前端 API 路径问题）~~ | ~~🔴 严重~~ **✅ 已修复** | ~~后端返回 `{data: [...], total, page}`，前端解析为 `res.data.data`~~ | ~~后端统一包裹为 `{data: {items, total, page, per_page}}`~~ |
 | 腾讯理财通格式复杂 | 中 | 理财通导出格式非标准 CSV，需专门解析器 | P2 实现 |
+| **投顾调仓「同一次动作被拆成多条」**（展示形态，非推导错误） | 🟢 低 | 推导按「相邻快照逐日比较」记账（`advisor_portfolio_job.py` 的 `_derive_adjust_from_snapshots`）：主理人若把一次调仓**分多日执行**、且每天都超过 0.5pp 阈值，会落成多条独立记录。**2026-11-03 实测**本机库 1378 条中仅 **2 段**符合「同基金连续 ≥3 次同向、间隔 ≤3 天」——`ZH012926` 的 `016234` 减仓 2026-10-26→30 共 3 次（11.31→10.70→10.19→9.60），另一组合 `000509` 减仓 3 次。**不是普遍形态**；但详情页只取最近 3 组，这 3 组会占满整块，读起来像「连续减仓」告警 | 展示层合并（同基金 ±N 天内同向折叠为一条并显示累计幅度），或推导时给同一次动作打 `episode_id`。**不要动 0.5pp 阈值**——它有 #1622 的 p99 标定（取 2×p99；市值漂移 p99=0.23pp），调低即把漂移记成调仓。**2026-11-04 起**且慢走官方接口（D77），本条仅对仍需推导的计划型组合成立 |
 | ~~孤儿交易无自动回填机制~~ | ~~中~~ **✅ 已实现 (2026-10-07)** | ~~需定时任务扫描并关联后续新增的持仓~~ | **#950 已闭环**：新增 `sync/jobs/orphan_backfill_job.py` 定时扫描 `position_id IS NULL` 的交易，按 `symbol_norm` 身份键（#1662 建立的唯一身份，**不按字面量 symbol**）挂回既有持仓；只补 `position_id`、不改金额/确认日；歧义候选宁可不挂。已注册进编排器与本机每日调度（默认 `30 23 * * *`）。写入层的货基挂回（#863 口径 A）保持不变——两者互补：写入层管建仓那一刻，本 job 管此后所有孤儿 |
 | ~~持仓分布可视化缺失~~ | ~~中~~ **✅ 已实现 (2026-08-09)** | 原描述：仪表盘仅有总资产展示，无配置结构图 | **实证回填**：仪表盘资产分布饼图基于 `summary.market_distribution` 渲染（`welcome/index.vue:741-767`）；账户详情页资产配置环形图基于持仓前端聚合（`ledgers/detail.vue:862-889`），与 roadmap §1.4「资产配置环形图已实现」吻合。 |
 | 货币基金识别依赖关键词硬编码 | 中 | 元数据同步未完全覆盖所有货币基金名称，临时使用关键词匹配兜底 | 待元数据同步覆盖率足够后移除关键词逻辑 |
@@ -627,6 +628,41 @@ static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；F
 - `node scripts/check_css_vars.mjs`：通过（364 定义 / 278 引用，无幽灵令牌）
 - 前端：`pnpm lint`（eslint + prettier + stylelint）/ `pnpm typecheck` / `pnpm build` **全绿**
 
+## 2026-10-27 PG 约束 / 重建类迁移（承接 #2534 · 跟踪 #2689 · 4 项已全部清零 2026-10-28）
+
+#2534 把「加列迁移写成『非 SQLite 就跳过』」这条系统性风险收口：22 处 → 4 处，并落地守卫
+`scripts/guard_migrations_pg_aware.py`（指纹基线 + `--self-test` 变异探针 + 接入 `ci.yml` 的
+`scripts_test`），登记在 `guard_rule_registry.py` 的 `RULE_REGISTRY`。
+
+**剩下的 4 项不是加列迁移**（AST 实测：函数体均不含 `add_column`，只做整表重建或改约束），
+没有随 #2534 一起做，单独跟踪在 **#2689**；2026-10-28 全部补上 PG 分支，基线清零：
+
+| 函数 | 类型 | 跳过 PG 的后果 | 状态 |
+|---|---|---|---|
+| `migrate_watchlist_unique_key` | 整表重建（唯一键） | PG 无唯一键 ⇒ 重复自选进得来（#2469 同族） | **已收敛**（PG 侧跳过中间形态，#2699） |
+| `migrate_watchlist_family_scoped_unique_key` | 整表重建（家庭维度唯一键） | 同上 | **已收敛**（建同名唯一索引 + 重复行报错，#2699） |
+| `migrate_fund_managers_split_tenures` | SQLite 专属 SQL（任期拆分） | PG 任期模型与 SQLite 不同源 | **已收敛**（原地搬任期/去重/删列，#2698） |
+| `migrate_positions_symbol_norm` | SQLite 专属 SQL（symbol 归一） | `600000` 与 `600000.SH` 在 PG 共存，口径分裂 | **已收敛**（commit `301916487`，#2695） |
+
+收敛口径各有分工，共同点是**不复刻 SQLite 的整表重建**：
+
+- `positions_symbol_norm`：门禁从「按方言早退」改成「表是否存在」，PG 侧只差三处方言——
+  加列走 `_add_column_sql`（`ADD COLUMN IF NOT EXISTS`）、聚合 `STRING_AGG`、
+  `HAVING` 只写聚合表达式；
+- `watchlist` 两条：中间形态 `(symbol, market, venue)` 在 PG 上直接跳过（终态是
+  `(family_id, symbol, market, venue)`），终态由 `_ensure_watchlist_family_unique_key_pg`
+  建**与模型同名**的唯一索引（`CREATE UNIQUE INDEX IF NOT EXISTS`，建前先查重复组并给修复口径）；
+- `fund_managers`：PG 原地改造——`ON CONFLICT DO NOTHING` 搬任期 → 一条 `DELETE ... USING`
+  物理去重 → `DROP COLUMN IF EXISTS` 删任期列 → 建同名唯一索引；去重/任期口径与 SQLite
+  共用 `_plan_manager_tenure_split`。
+
+每个函数都有 `PgFake` 用例钉住「不早退 + PG 形态 SQL + 幂等」
+（`backend/tests/core/test_migrations_pg_aware.py`），SQLite 侧行为零变化。
+
+**清零后的判据**：`python scripts/guard_migrations_pg_aware.py` 输出「基线 0 个函数」——
+此后任何新写的「非 SQLite 就跳过」早退直接红，不再有存量兜底；「代码已收敛、条目还挂着」
+那条反向判据仍保留（`_probe_baseline_drift`），防止把清零做成关掉判据。
+
 ### 遗留（登记，交真机 axe）
 - 「静态不可判定（品牌 / 彩色实底）」桶 **27 → 34 处** —— 正是本批改为 `--text-inverse` 的那些实底位置，**只能真机判定**
 - 「内联样式不可静态解析」**15 处**（`:style` 绑运行时颜色）
@@ -806,7 +842,7 @@ cd backend && pdm run pytest tests/test_company_resolver.py \
 
 | # | 事项 | 说明 |
 |---|---|---|
-| 1 | `summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛 | 仍重复实现全局处理器职责、绕过 `logger.opt(exception=True)` 留痕。收敛会让 500 响应体由 `data: {空结构}` / `message: '服务器内部错误: <内部细节>'` 变为 `data: None` / 泛化 message（**对外可观察变化**），需单独拍板 |
+| 1 | ~~`summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛~~ **已收敛（2026-10-30，D71）** | 用户已拍板：**保留各视图原有 `data` 形状，只换 `message`**（不采纳「统一改成 `data: None`」——那会把一次脱敏顺带变成前端契约变更）。实测同类分支共 20 处（summary 16 / importers 2 / temperature 2），全部改走 `core/exceptions.py::internal_error_message`（固定文案 + 堆栈留痕）；另加 `scripts/guard_error_envelope.py` 的第二条判据（5xx message 不得拼接异常对象）。详见 `decisions.md` D71 |
 | 2 | 前端尚未消费 `error_code` | 契约已可用（三字段 + int），前端 `api/search.ts` 目前仅声明类型未分支处理；接入错误分类时可直接用 |
 
 
@@ -850,6 +886,11 @@ cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
 ```
 ## 2026-09-20 投顾调仓历史只记真实变化（#1622）
 
+> ⚠️ **2026-11-04 状态更正**：且慢已换用**官方 GraphQL 调仓接口**（D77），
+> 本节描述的「推导 + 0.5pp 阈值」现在只对**计划型组合**（`LONG_WIN` / `LONG_WIN_S`，
+> 官方返回空）成立；且慢常规组合的官方行不经过该阈值，也不再有「同一次动作被拆多条」的形态
+> （官方以 `adjustmentId` 为一次动作）。本节的阈值标定与回归网继续作为**推导路径**的判据保留。
+
 ### 已完成
 
 | 项 | 内容 | 证据 |
@@ -862,7 +903,7 @@ cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
 
 | # | 事项 | 说明 |
 |---|---|---|
-| 1 | 且慢调仓历史只能从**首个持仓快照**起算 | 且慢 MCP 无历史调仓接口，无法回溯更早的真实调仓。若要历史回溯，只能换/补数据源（属另一决策） |
+| 1 | ~~且慢调仓历史只能从**首个持仓快照**起算~~ **已于 2026-11-04 解除** | ~~且慢 MCP 无历史调仓接口~~ — 且慢**有**官方历史调仓接口（Web GraphQL `Adjustment`，匿名可取、只需 `x-sign`），已换源，`ZH000129` 实测回溯到 2014-01-03。**残留范围**：仅计划型组合（官方返回空）仍从首个快照起算。见 D77 与 `docs/working-notes/qieman-official-adjustment-api-2026-11-03.md` |
 | 2 | 阈值口径为「逐日比较 + 单日超阈」 | 若日后出现「一次调仓分多日、每天低于 0.5pp」的形态会漏记；届时改为累计口径并重标阈值 |
 | 3 | 生产库（Turso）需执行修复脚本 | 部署后在生产环境跑一次 `repair_advisor_adjust_history.py --apply`（先 dry-run 核对行数） |
 | 4 | 低于 0.5pp 的真实微调被有意忽略 | 宁缺勿噪；若用户反馈"小调仓看不到"，可下调阈值（需重新核对漂移 p99） |
@@ -938,8 +979,8 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 | 文件 | 读法 | 处置 |
 |---|---|---|
-| `panorama/.../OverviewSummaryCard.vue` | 瀑布图 | 保留（本卡之后**唯一**的资产大类构成图） |
-| `panorama/.../CategoryBalanceTable.vue` | 与瀑布图同区块的**表格** | 保留（同一区块的两种读法，非第二个「图」） |
+| `panorama/.../OverviewSummaryCard.vue` | 构成柱状图 | 保留（本卡之后**唯一**的资产大类构成图） |
+| `panorama/.../CategoryBalanceTable.vue` | 与构成图同区块的**表格** | 保留（同一区块的两种读法，非第二个「图」） |
 | `asset/IntelligentAnalysis.vue` | 「资产分布」环形图 + 同口径卡片 | **开口项**，见下 |
 | `asset/inventory/useInventoryData.ts` | 只取「投资理财」切片做盘点，不画构成图 | 保留 |
 
@@ -1006,4 +1047,120 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 **验收对应**：#2131 三项验收——周期级盈亏/胜率可查（端点 + 复盘页「清仓周期复盘」区块）、不新增写入方（纯读聚合）、`ClearedPosition` 去留结论落代码 docstring + 本条登记。
 | **资产快照四列（`realized_pnl` / `unrealized_pnl` / `total_pnl` / `money_fund_income`）API 暴露但无 UI 消费者，且与 FIFO 自算口径并存** | 中 | `asset_snapshots` 的这四列读的是**流水 `transactions.realized_pnl`**（存量库该列全 0，与真零盈亏不可区分），而「已落袋表现」等页面用的是 **FIFO 配对自算**（#994 Phase 0 口径 v2）——**两套口径并存且不等价**。此前流传的说法「这四列写而不读」**不准确**：`GET /api/summary/snapshots/` 经 `_snapshot_payload` **确实返回**它们，准确表述是「API 暴露但无 UI 消费者」 | **不展示，先统一口径**。把这四列直接接到 UI 上会给出与「已落袋表现」**互相矛盾**的两个已实现盈亏——比不展示更糟。处理顺序：① 先定「已实现盈亏」唯一口径（流水列 vs FIFO 自算，二选一，倾向 FIFO 自算并把流水列标为「不可用」）；② 口径统一后，这四列若仍有展示价值，再在 `pnl_snapshot_store` 侧重建（可回溯、有失效机制），而不是复活 `asset_snapshots` 的旧列；③ 在此之前，`AssetSnapshotItem` 刻意不声明这四个字段（前端 `api/summary.ts` 已注明）。来源：#2132（2026-10-21 核实代码后登记）。 |
-| **`asset_snapshots.snapshot_date` 只是标签（= 落库日），回填等于把今天的值贴到历史日期** | 中 | 取数链无日期过滤、全仓无失效/重算钩子，故 `write_asset_snapshot(..., snapshot_date=<过去某日>)` 产出的是「今天那一刻的账面值」却挂在历史日期上——**看起来有历史、实则不可信**。#1812 当初为此**否掉了整张 `asset_snapshots`**（改做 `pnl_snapshot_store`），#1926 又在 `PnlDailySnapshot` docstring 重述了一遍区别，但**后端没有权威落点** | **不回填**（已落档：#2132 → `docs/spec/decisions.md` D62，并在 `AssetSnapshot` / `write_asset_snapshot` / `get_snapshots` 的 docstring 与前端 `AssetSnapshotItem` 注释四处写明）。要「截至某日」的可回溯时点序列，**用 `pnl_snapshot_store`（`PnlDailySnapshot`，#1926）**：按日物化 + 三道失效机制 + 改持仓后历史自动跟着变。**若确需资产曲线**：要么改用收益日历那条链，要么新采真时点（新增「数据时点 / 入库时点」两列区分），**不得靠回填伪造**。**已体检（2026-10-21，`backend/scripts/audit_asset_snapshot_gaps.py` 只读跑真库）**：`asset_snapshots` 真库共 575 行 / **44 个日期**（区间 2026-08-10 ~ 2026-10-18，家庭级 44 / 账户级 531），**缺 26 天、其中 19 天是工作日** ⇒ 现有历史**不是日历连续**的；**无任何事后补写痕迹**（标签日 ≈ 落库日，阈值 2 天）⇒ 已有历史是可信的，缺的是「没写」而不是「写错」。下一步：按 #2132 的推荐方案决定是否纳回每日调度（改动前先补 D21 的决策口径）。来源：#2132（2026-10-21 核实代码 + 真库体检后登记）。
+| **`asset_snapshots.snapshot_date` 只是标签（= 落库日），回填等于把今天的值贴到历史日期** | 中 | 取数链无日期过滤、全仓无失效/重算钩子，故 `write_asset_snapshot(..., snapshot_date=<过去某日>)` 产出的是「今天那一刻的账面值」却挂在历史日期上——**看起来有历史、实则不可信**。#1812 当初为此**否掉了整张 `asset_snapshots`**（改做 `pnl_snapshot_store`），#1926 又在 `PnlDailySnapshot` docstring 重述了一遍区别，但**后端没有权威落点** | **禁止伪造式回填，允许精确修错**（已落档：#2132 → D62；**2026-10-28 D65 修订边界**：禁止的是「用当下引擎写历史日期」，已知错误行若正确值可精确推导则**必须修正**——当日已据此修正 88 行被跨账本重复导入虚增 506,021.09 元污染的快照，脚本 `backend/scripts/fix_asset_snapshots_orphan_inflation.py`，备份 `invest.db.bak-20261028-172404-snapshot-fix`）。要「截至某日」的可回溯时点序列，**用 `pnl_snapshot_store`（`PnlDailySnapshot`，#1926）**：按日物化 + 三道失效机制 + 改持仓后历史自动跟着变。**若确需资产曲线**：要么改用收益日历那条链，要么新采真时点（新增「数据时点 / 入库时点」两列区分），**不得靠回填伪造**。**已体检（2026-10-21，`backend/scripts/audit_asset_snapshot_gaps.py` 只读跑真库）**：`asset_snapshots` 真库共 575 行 / **44 个日期**（区间 2026-08-10 ~ 2026-10-18，家庭级 44 / 账户级 531），**缺 26 天、其中 19 天是工作日** ⇒ 现有历史**不是日历连续**的；**无任何事后补写痕迹**（标签日 ≈ 落库日，阈值 2 天）⇒ 已有历史是可信的，缺的是「没写」而不是「写错」。下一步：按 #2132 的推荐方案决定是否纳回每日调度（改动前先补 D21 的决策口径）。来源：#2132（2026-10-21 核实代码 + 真库体检后登记）。
+
+## 2026-10-27 风格分布覆盖率的**分母**含「永远无箱体」资产，指标有天花板（#2628）
+
+**现状**：`GET /api/funds/style/portfolio/` 的 `coverage_pct` = 有箱体持仓市值 / **全部持仓市值**，分母包含货币基金、现金、部分上游无箱体的指数/QDII。这些资产再跑多少次 `fund_style` 也不会产生箱体，于是覆盖率有一个**永远到不了 100% 的天花板**。
+
+实测（2026-10-27，本地库）：121 只持仓仅 2 只有箱体 → 8.35%，未覆盖清单里明确有「银河水星现金添利货币市场基金」这类货基。后果是面板上的低覆盖率会被误读成「同步没在跑」，而实际是口径如此——这正是 #2628 落地后用户第一反应会问的问题。
+
+**为什么没在本卡改**：`coverage_pct` 是 #2478 定下的契约（`frontend/src/api/funds.ts` 的类型注释也写死「覆盖率不是权重」），换分母属口径变更，会影响既有消费方与 `api.md` 文档；#2628 只做前端消费，不擅自改后端口径。
+
+**处理策略（2026-10-28 已收敛）**：`portfolio_style_exposure` 新增 `eligible_market_value_cents` + `eligible_coverage_pct`（分母只算场外基金/ETF，剔除货基/现金与 QDII），`coverage_pct` 原样保留以兼容；前端主数字改用 eligible，全量覆盖率降为括号提示。判据：① 分母只含 `ELIGIBLE_COVERAGE_ASSET_TYPES`（fund/etf）且非 QDII；② **无合格资产时返回 `null` 而不是 0**（「0% 覆盖」与「没有可覆盖资产」是两件事）；③ 与旧字段并存，既有断言（66.67% / 100% / 0%）全部不变；④ 前端两个面板共用 `frontend/src/utils/styleCoverage.ts` 的 `effectiveCoveragePct` / `coverageScopeHint`，不在各视图各写一份口径。
+
+**判据（测试）**：`backend/tests/services/test_fund_style.py` 的 `test_portfolio_eligible_coverage_*` 四条（货基不入分母 / 无合格资产回 null / QDII 剔除 / 有合格品种但未覆盖 = 0.0）；`frontend/src/utils/__tests__/styleCoverage.spec.ts` 钉「null ≠ 0」与口径提示只在两数不同时出现。
+
+## 2026-10-29 D20 二期 UI：持仓改派组合的四个开口项
+
+**已落地范围**（先划清，避免与下面的开口项混淆）：盘点页持仓表新增「所属组合」列，区分「显式指派」与「账户继承（随账户）」，行内浮层可改派到任一组合或退回账户默认组合；组合详情页持仓表在「所属账户」列加「随账户」标记（**只读**，无操作入口）。
+
+后端**零新增端点**——复用 `PATCH /api/positions/{id}/` + `position_service.resolve_portfolio_change`（传 `null` = 退回继承）；唯一改动是 `build_portfolio_holdings` 的持仓行**增发** `portfolio_id`（只增不改，资产行刻意不下发）。
+
+| # | 开口项 | 现状与为何没做 | 处理策略 |
+|---|---|---|---|
+| 1 | **批量改派** | 现有端点只有单条语义。前端若循环 N 次 PATCH，中途失败会留下「改了一半」的中间态（前几条已提交、后几条未改），且无回滚、无事务边界 | 后端补 `PATCH /api/positions/portfolio/`（body `{ids: [], portfolio_id}`）走单事务后再做前端批量。**不要先做前端循环兜着**——那会把数据一致性问题伪装成 UI 问题。触发条件：实际使用频率证明「一次要改 3 条以上」是常态 |
+| 2 | **组合详情页「移出本组合」动作** | 该动作本质是 `portfolio_id = NULL`（退回账户默认组合）。但若账户默认组合**就是**当前组合，移出等于什么都没发生——直接给按钮会造成「点了没反应」的假象 | 若要加，二选一：① 改为「改派到其他组合」并跨页面复用 `PortfolioAssignCell`；② 保留单向动作但确认文案必须写清落点（「移出后归入账户默认组合『固收+』，若二者相同则无变化」）。**禁止**只做一个裸的 null 动作 |
+| 3 | **买入 / 记账时直接选组合（根治）** | 当前持仓默认 `portfolio_id = NULL` → 继承账户默认组合，于是每买一只成长类标的都要回盘点页改一次派。事后改派只是补丁 | 记账抽屉（`manual` 流程）+ 导入向导 + 快速记账快捷键统一加「所属组合」字段，默认值 = 账户默认组合。牵动面大（`ManualOpSwitch` / 导入映射 / 快捷键链路），需独立设计文档，不宜搭在 UI 改动里 |
+| 4 | ~~**货基 / 逆回购行仍提供改派入口**~~（**2026-11-01 已收口**，见下方「开口项 4 收口」） | `EXCLUDED_ASSET_TYPES = ('money_fund', 'reverse_repo', 'cash')`（`backend/app/core/asset_types.py:121`）的持仓在盘点页也会显示「所属组合」并可点开改派，但 `build_portfolio_holdings` 经 `should_exclude_from_investment` 把它们过滤掉 ⇒ **改派成功但组合视图永远看不到，是无效交互**。前端无法拦：该集合的单一真相源在后端常量，`GET /api/utils/enums` 不下发，硬编码三个值等于抄第二份真相源（与 #1171 枚举一致性纪律冲突） | 后端在持仓行增发 `in_portfolio: bool`（= `not should_exclude_from_investment(pos)`），前端据此把该列渲染成「— 不进组合」并禁用改派。成本小，但属独立契约变更，本卡未做 |
+
+**判据（测试）**：`frontend/src/views/asset/inventory/__tests__/portfolioAssignModel.spec.ts` 17 条钉住归属五态（显式 / 继承 / 无归属 / 未知 / 不进组合）以及「`undefined` 不得当成 `null`」「`in_portfolio` 缺失不得当成 `false`」；`backend/tests/domains/test_d20_portfolio_phase2.py::TestHoldingsAssignmentMode` 钉住持仓行透出 `portfolio_id` 且显式指派压过账户继承。
+
+**为什么第 4 条值得单列**：它不会报错、不会丢数据，只会让用户「改了但看不到效果」，进而怀疑整个改派功能是坏的——这类静默无效比崩溃更难排查。
+
+### 开口项 4 收口（2026-11-01）
+
+**做法**（按上表「处理策略」原样落地，未改口径）：
+
+| 层 | 改动 | 说明 |
+|---|---|---|
+| 后端 | `services/position_presenter.enrich_position_dict` 增发 `in_portfolio` | `= not should_exclude_from_investment(p)`，判据与聚合层**同一个函数**，不按 `asset_type` 重写一遍 |
+| 后端 | `services/ledger_service.get_positions_paginated` 增发 `in_portfolio` | 「三条序列化路径」的老坑：holdings / `PositionOut` / 账户持仓手工拼字典各写一份，漏一处该页就永远显示「—」。**这条是测试逼出来的**——先只改 presenter 时 `test_ledger_positions_also_carry_the_flag` 直接 `KeyError` |
+| 前端 | `portfolioAssignModel.PortfolioMode` 加 `excluded` 态 | `resolvePortfolioOf` 里**优先于** `portfolio_id` 判断：先答「能不能归」再答「归到哪」 |
+| 前端 | `PortfolioAssignCell` 渲染「— 不进组合」+ `el-popover :disabled` | 渲染成 `<span title>` 而非按钮：不可交互的结论不该长得像入口；`title` 写清原因，避免被当成 bug 待查 |
+| 前端 | `InvestmentPositionTable` 的 `resolvePortfolio` 改引用 `PortfolioAssignment` 类型 | 原先在 props 里抄了一份 mode 字面量联合，加 `excluded` 时表格与纯函数会各说一套**且 TS 不报错** |
+
+**关键判据**：① `in_portfolio === false` 才是 `excluded`，`undefined`（旧缓存 / 未升级接口）**不得**当 `false`，否则所有持仓都会被标成「不进组合」；② 显式覆盖 `count_as_investment=True` 的货基必须回 `True`（`test_count_as_investment_override_flips_the_flag`），否则盘点页说「不进组合」、组合页真能看到它，比原来的静默无效更懵。
+
+### 走查实测（2026-10-29，真机 Edge + 真实前端渲染）
+
+**环境**：worktree 内独立 dev server（`:8850`，临时 `cacheDir`），`/api/**` 全 mock（本 worktree 无真实库，`portfolio_id` 是否真透出由 pytest 覆盖）。16 项断言全 PASS：
+
+| 断言 | 证据 |
+|---|---|
+| 表头含「所属组合」 | `['产品信息','归属账户','所属组合','市值','盈亏','操作']` |
+| 继承态 | `['固收+\n随账户', '固收+\n随账户']` |
+| 显式态 | `['成长策略', '成长策略']`（同账户内混入成长类，正是本卡要解决的场景） |
+| 无归属 / 未知 | `['未归属', '—']` |
+| 触发按钮具名 | `改派组合：易方达裕祥回报，当前归入「固收+」（随账户）` |
+| 改派提交 | `PATCH /api/positions/1/` body `{"portfolio_id":5}`，该行即时变显式态（局部更新，未整页重取） |
+| 退回继承 | `PATCH` body `{"portfolio_id":null}`，该行恢复「固收+ 随账户」 |
+| console | 无 error |
+
+**走查抓到一个真缺陷（已修）**：点「当前已选中的那一项」时浮层不关、也不提交，点击完全无响应。
+
+根因不在本组件，而在 Element Plus：`el-radio` 的变更事件来自原生 `<input type=radio>` 的 `change`（`radio.vue` 里只挂了 `onChange`），而**原生 radio 在已选中状态下再点不触发 `change`** ⇒ `onPick` 从不被调用 ⇒ `visible` 从未被置 false。`onPick` 里那句「未变化不提交」的守卫因此成了永远走不到的死分支。
+
+修法：给每个选项补 `@click="onPickSame(value)"`，点当前项时只收起浮层（不提交）。值真变化时该函数不做事，提交仍走 `change → onPick`，不会一次点击提交两遍。**这类「点了没反应」只有真机能抓**——`vue-tsc`、单测、lint 全绿，代码读起来也毫无破绽。
+
+**顺带记录（不改）**：`el-popover` 的浮层内容对每一行都常驻 DOM（10 行 = 10 份 radio-group），仅一份可见。当前页大小 10，开销可忽略；若将来持仓表上到百行且有明显内存/首屏压力，再评估 `:teleported` + 懒渲染。
+
+**顺带核实（同日）**：**提升覆盖率本身不需要开发**——目标池 `resolve_targets()` 取「持仓 + 自选」（`orchestrator.resolve_targets`），`fund_style` 已在日调度（`SCHEDULER_FUND_STYLE_ENABLED` 默认启用，cron `30 22 2 * *` 月度增量），CI `daily-snapshot.yml` 每天跑 `pdm run scheduler` 并 catch-up，手工补数入口（`--targets` / `--target-file`）已由 #2662 修好。故本条债只针对**指标口径**，不针对数据通路——不要把它当成「数据没在同步」去排查。
+
+## 2026-10-29 投顾组合无写者字段（`benchmark` 名称 / `strategy_type`）
+
+**背景**：`advisor_portfolios` 有 5 个字段长期 0% 填充（`strategy_type` / `cum_return` / `running_days` / `benchmark` / `excess_return`），本机 114 只组合实测全空。2026-10-29 逐字段实网复测后分成两类，**性质完全不同**：
+
+| 字段 | 结论 | 处置 |
+|---|---|---|
+| `cum_return` | 天天 `SYL_LN` **有值**（实测 18.46） | ✅ 已闭环：适配器写入，与 `return_since_incep` 同源（同一原始值两个读者） |
+| `running_days` | 天天 `getTGQuoteByFavor.RUN_DATE` **有值**（实测 1556） | ✅ 已闭环：适配器补写 |
+| `excess_return` | 无接口直接给，但**可算**：`return_since_incep − benchmark_return_since_incep` | ✅ 已闭环：**读取侧现算**（`advisor_profile.build_advisor_profile`），**不落库**——纯派生值按数据策略「能算出就不存」 |
+| `benchmark` | 天天两个接口只给基准的**收益数值**（`BENCHSYL_*`），**不给基准名称** | ⛔ **无写者**，保留列 |
+| `strategy_type` | 无接口给出（且慢/天天/好买均无此字段），平台侧只有 `risk_level` | ⛔ **无写者**，保留列 |
+
+**为什么保留而不删列**：删列不可逆，且将来换平台接口后可能有值；更重要的是「列存在但为空」是一个**可见的信号**，而「列不存在」会让后来者以为从没打算做。故在两列的模型注释里显式写「无写者，见 tech-debt」，避免下一轮把 0% 又当成一次新发现去排查。
+
+**⚠️ 本轮最贵的教训：0% 不等于数据源缺失。** 此前 `models.py` 的注释写着「回撤 / 超额 API 不直接提供」，那是**只探测了 `FundIATGInfoAggr` 一个接口**就下的结论。实网复测 `getTGQuoteByFavor`：`MAXRETRA_LN` 24.33（回撤）、`SHARPE_LN` 0.16（夏普）、`RUN_DATE` 1556、`ANNSYL_LN` 4.19 全都在；`BENCHSYL_*` 9 个区间在 AGGR 里也全有值。⇒ **「记成 API 不提供」其实是「适配器没请求」**。下一个人看到某列 0% 时，先确认「有没有接口真的问过」，再写「数据源不支持」。
+
+**遗留（未在本轮处理）**：
+
+1. `benchmark`（名称）需要一个能给出「业绩比较基准」文本的数据面——天天 App 详情页有，但不在上述两个接口里；属**新数据源调研**，不是补字段。
+2. `strategy_type`（均衡/进取/稳健）若要落地只能是**策展字段**（进 `advisor_catalog` 注册表，人工维护），不得靠猜。与 `allocation`（五笔钱）同性质，见 `CURATED_OVERVIEW_KEYS`。
+3. 天天组合每只现在**每次同步 2 次 HTTP**（AGGR + QUOTE，节流 2s）⇒ 111 只约 7~9 分钟。这是取全字段的必要代价，若要压缩得改「按需回填」（只对用户触达的组合抓 QUOTE 面）。
+
+## 2026-11-03 品类聚合用「库内最新净值」、总资产用「持仓快照价」（两套基准并存）
+
+**现象**：账户管理顶部「基金（含货币基金）」「股票（含 ETF、可转债）」两卡取
+`/api/ledgers/fund-aggregation/`、`/api/ledgers/securities-aggregation/`，市值走
+`NavService` 的**库内最新净值**；而总资产（`/api/summary/`、资产快照、资产总览的
+各维度分组）走 `position_valuation.market_value_cents`，基准是
+`positions.current_price`（持仓快照价）。同步滞后时两者会差一个净值日，表现为
+「品类卡合计 ≠ 总资产里对应的那一块」，容易被读成「又各写了一套实现」。
+
+**为什么本轮没有统一**：
+
+1. `position_price_job` 每天把场外净值回写进 `positions.current_price`，稳态下两个
+   基准非常接近，差的是**同步新鲜度**而不是定义；
+2. 若把 summary 域整体切到 NavService：总资产、资产快照、环比 / 同比会一起跳变，
+   而历史 `asset_snapshots` 行是按旧基准写下的 —— 等于制造一次口径不连续，
+   按 D62 / D65 的口径纪律，属于要先定决策（含是否提 CALIBER 版本）的事；
+3. 反向把聚合侧改回 `current_price`，会推翻 #1133 修过的「账本页与聚合页市值
+   不一致」，属倒退。
+
+**本轮已做**：同一页内不再各写一套 —— 盘点页与账户管理重复的「投资分布」卡已删除，
+`/api/summary/groups/` 也已改走唯一市值口径（见 `test_summary_total_assets_contract.py`
+的 `TestDimensionGroupsShareTheSameValuation`）。
+
+**待决策**：两套基准是否统一、以哪一侧为准。判据是「持仓多久同步一次」与
+「快照历史能否重算」，不靠拍脑袋换基准。

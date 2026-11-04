@@ -14,9 +14,9 @@ from contextlib import closing
 from apiflask import APIBlueprint
 from flask import abort, g, jsonify, request
 
+from app.core import db_factory as db_f  # 短别名：`db_factory.` 会把双会话 with 行顶过 120 → 拆行顶穿视图基线
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.entitlements import get_pro_status_for_family, require_pro_feature
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
@@ -91,7 +91,7 @@ def resolve_product():
 
     # 双域会话：watchlist/positions 在 user 域，funds/securities/… 在 market 域，
     # 生产下是独立引擎，必须分别取（详见 services/product_identity 模块 docstring）。
-    with closing(user_session_factory()()) as user_db, closing(market_session_factory()()) as market_db:
+    with closing(db_f.user_session_factory()()) as user_db, closing(db_f.market_session_factory()()) as market_db:
         try:
             result = resolve_product_identity(
                 user_db,
@@ -128,7 +128,7 @@ def fund_profile():
     只是把它读出来的出口）。详见 ``services/fund_profile.py`` 模块 docstring。
     """
     fund_code = (request.args.get('code') or '').strip()
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_fund_profile(db, fund_code)
         except ValueError as e:
@@ -152,7 +152,7 @@ def fund_performance():
     字段缺失一律回 ``null``，前端降级「—」（设计 §6 诚实降级，不编造）。
     """
     fund_code = (request.args.get('code') or '').strip()
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_fund_performance(db, fund_code)
         except ValueError as e:
@@ -178,7 +178,7 @@ def fund_holdings_detail():
     是不同语义，前端据此分别渲染 404 页与空态卡。
     """
     fund_code = (request.args.get('code') or '').strip()
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_fund_holdings_detail(db, fund_code)
         except ValueError as e:
@@ -209,7 +209,7 @@ def stock_profile():
     """
     query: StockProfileRequest = parse_query(StockProfileRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_stock_profile(db, query.symbol, market=query.market)
         except ValueError as e:
@@ -234,7 +234,7 @@ def index_profile():
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_index_profile(db, query.symbol)
         except ValueError as e:
@@ -256,7 +256,7 @@ def index_returns():
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_index_returns(db, query.symbol)
         except ValueError as e:
@@ -271,13 +271,13 @@ def index_returns():
 def index_weights():
     """指数十大权重 + 前十大集中度（#2278 · 详情页指数区块）。
 
-    数据源 akshare ``index_stock_cons_weight_csindex``（中证月频口径），按需抓 +
-    TTL 缓存 + 不入库。接口失败 / 码族不适用 → 200 + 空权重形态（``top10: []``、
-    其余 ``null``），前端整块降级「—」；仅名录未命中才 404。
+    源 = 两路串联（月频）：中证权重接口优先，口径不覆盖时回退国证官网（深证/国证系
+    399001、399006 只有国证有）；响应 ``source`` 标来源。按需抓 + TTL 缓存 + 不入库；
+    两路都空 → 200 + 空形态（``top10: []``、其余 ``null``），仅名录未命中才 404。
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_index_weights(db, query.symbol)
         except ValueError as e:
@@ -301,7 +301,7 @@ def index_etf_compare():
     """
     query: IndexEtfCompareRequest = parse_query(IndexEtfCompareRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_etf_compare(db, query.symbol)
         except ValueError as e:
@@ -333,7 +333,7 @@ def manager_profile():
     """
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_manager_profile(db, query.mgr_code, fund_limit=query.fund_limit)
         except ValueError as e:
@@ -366,7 +366,7 @@ def manager_holdings():
     """
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_manager_holdings(db, query.mgr_code, fund_limit=query.fund_limit)
         except ValueError as e:
@@ -396,7 +396,7 @@ def advisor_profile():
     """
     query: AdvisorProfileRequest = parse_query(AdvisorProfileRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             data = build_advisor_profile(db, query.code)
         except ValueError as e:
@@ -423,7 +423,7 @@ def related_symbols():
     """
     query: RelatedSymbolsRequest = parse_query(RelatedSymbolsRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         data = build_related_symbols(db, query.symbol)
 
     return jsonify({'data': data, 'message': 'ok'})
@@ -433,16 +433,15 @@ def related_symbols():
 def product_trend():
     """产品历史走势序列（#1967 · 详情页走势区块）。
 
-    与 ``/api/watchlist/trends/`` 的区别：本端点**带日期轴**且用区间语义（1M/3M/6M/1Y），
-    因为详情页要画坐标轴、并给出「数据日期」口径脚注；trends 面向列表页迷你图，只要数值数组。
-    ``start`` 为显式起始日（#2171 建仓期），给定时忽略档位。
+    与 ``/api/watchlist/trends/`` 的区别：本端点**带日期轴** + 区间语义（1M/3M/6M/1Y），详情页要坐标轴与
+    「数据日期」口径脚注；trends 只给数值数组。``start`` 为显式起始日（#2171 建仓期），给定时忽略档位。
 
-    降级：品类本身没有序列数据源（指数 / 基金经理 / 投顾组合）时返回**空序列**而非 404——
-    「该品类不提供走势」与「产品不存在」是两件事，前端要分别渲染空态。
+    降级：品类本身没有序列数据源（**仅剩基金经理**）时返回**空序列**而非 404——「不提供走势」
+    与「产品不存在」是两件事，前端分别渲染空态。⚠️ 指数（``index_daily``）/ 投顾组合（``advisor_portfolio_navs``）各有独立分支，不在此列。
     """
     query: ProductTrendRequest = parse_query(ProductTrendRequest)
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         try:
             result = fetch_product_trend(
                 db,
@@ -455,7 +454,7 @@ def product_trend():
             abort(400, str(e))
 
     if result is None:
-        # 品类无序列数据源（指数/基金经理/投顾组合）→ 空序列降级。
+        # 品类无序列数据源（仅剩基金经理；指数与投顾组合各走独立分支）→ 空序列降级。
         # 响应形态由 service 给出（#1606：视图只做编排，不内联业务规则）
         result = empty_product_trend(query.symbol, query.range_, query.start)
     return jsonify({'data': result, 'message': 'ok'})
@@ -470,7 +469,7 @@ def _family_ranking_flags() -> tuple[set, set]:
     """
     if not _is_authenticated():
         return set(), set()
-    with closing(user_session_factory()()) as user_db:
+    with closing(db_f.user_session_factory()()) as user_db:
         return user_flags_for_codes(user_db, family_id=get_family_id())
 
 
@@ -493,7 +492,7 @@ def fund_risk_ranking():
 
     holding_codes, watchlist_codes = _family_ranking_flags()
 
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         data = list_by_metric(
             db,
             fund_type_id=query.fund_type_id,
@@ -512,7 +511,7 @@ def fund_risk_types():
     """列出**当前有榜**的基金小类（#167）。为什么单开端点见
     `services/fund_risk_ranking.list_fund_types` 的 docstring。"""
     query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
-    with closing(market_session_factory()()) as db:
+    with closing(db_f.market_session_factory()()) as db:
         data = list_fund_types(db, caliber_version=query.caliber_version)
     return jsonify({'data': data, 'message': 'ok'})
 
@@ -531,7 +530,7 @@ def product_trade_timeline():
     if not _is_authenticated():
         return jsonify({'data': empty_trade_timeline(symbol), 'message': 'ok'})
 
-    with closing(user_session_factory()()) as db:
+    with closing(db_f.user_session_factory()()) as db:
         try:
             data = build_trade_timeline(db, symbol=symbol, family_id=get_family_id(), ledger_id=ledger_id)
         except ValueError as e:

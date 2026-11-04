@@ -144,6 +144,32 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_col_divider.test.js',
         'covered': '只认 1px + --border-light 的形态；3px 语义强调条有意放行',
     },
+    'scripts/guard_soft_banner.py': {
+        'rule': '柔性提示条唯一走 SoftBanner（禁止新写自绘 flex + 背景/边框的 banner 壳）',
+        # 只挂 CI：本守卫扫**整文件样式**，而 pre-commit 传的是改动文件列表——
+        # 两者能对上，但「文件级基线」在局部扫描下无法判僵尸（脚本已按此分叉）。
+        # 上线初期先在 CI 兜底，本地反馈由 `python scripts/guard_soft_banner.py <改动的文件>` 手工跑。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_soft_banner.test.js',
+        'covered': (
+            '只认「选择器含 banner + 同块 display:flex + 真实背景/边框」；'
+            '壳与配色分块写的（含 SoftBanner 自身）、不叫 banner 的块不命中；'
+            '模板内联 style 与 el-alert 包壳不参与判定'
+        ),
+    },
+    'scripts/guard_font_glyph_coverage.py': {
+        'rule': 'MiSans 子集必须覆盖 GB2312 一级（100%）与 GBK 汉字（≥98%），不许退回仅一级',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_font_glyph_coverage.py',
+        'covered': (
+            '只比 cmap 有无该码位，**不检查字形画得对不对**；不检查母本是否缺字'
+            '（缺字时请调 GBK_MIN_COVERAGE 并在 PR 写明）；不扫用户输入；不判体积'
+            '（字表扩到 GBK 后单字重约 2.8 MB，首屏预算属另一件事）。'
+            '刻意用 fontTools 解 woff2，不自研 cmap 解析——首版手写 format 4 偏移在'
+            'idRangeOffset 段算错、3823 读成 2667 且不抛异常（同 CNB #450 形态）。'
+            '回归网 13 条，含 2 个变异探针（阈值调 0 / 删一级判据，均须转红）。'
+        ),
+    },
     'scripts/guard_db_backup_ignored.py': {
         'rule': '数据库/备份文件必须被 gitignore 忽略（`*.db` 只匹配以 .db 结尾的名字）',
         'runner': 'ci',
@@ -163,11 +189,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '静态匹配装饰器名；`getattr(bp, "input")` 一类动态写法拦不住',
     },
     'scripts/guard_error_envelope.py': {
-        'rule': '错误响应三字段信封 {data, message, error_code}',
+        'rule': '错误响应三字段信封 {data, message, error_code}；5xx message 不得拼接异常对象',
         'runner': 'both',
         'stage': 'default',
-        'tests': 'scripts/tests/test_rule_registry_guard.py',
-        'covered': '只扫 backend/app 的视图内字面量 dict；从 service 透传的残缺响应不追',
+        'tests': 'backend/tests/test_error_envelope.py',
+        'covered': (
+            '只扫 backend/app 的视图内字面量 dict；从 service 透传的残缺响应不追。'
+            '5xx 泄漏判据只认 f-string 的 `{}` 与直接 `str(x)` 两种形态，'
+            '`message=变量` 这类间接拼接拦不住'
+        ),
     },
     'scripts/check_api_conventions.py': {
         'rule': 'API 端点尾斜杠 + api.md 全量端点段一致',
@@ -345,9 +375,9 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只比声明集合；传递依赖漂移要 pnpm install 才看得见',
     },
     'scripts/check_vue_size.mjs': {
-        'rule': '单文件规模门禁（页面组件行数）',
+        'rule': '单文件规模门禁（页面组件行数，存量基线只减不增）',
         'runner': 'ci',
-        'tests': 'scripts/tests/test_rule_registry_guard.py',
+        'tests': 'scripts/tests/check_vue_size.test.js',
         'covered': '只数行数；把逻辑挪进 composable 但组件仍混乱不会被拦',
     },
     'scripts/guard_workflow_inputs_interpolation.py': {
@@ -363,6 +393,37 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         # 只查「通道会不会真的发生」（调用 / --apply / push / 不吞失败态 / 设闸）。
         # 锁生成得对不对要 pnpm + 网络，属端到端验证，不在这里假装。
         'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
+    },
+    'scripts/guard_auto_merge_user_attribution.py': {
+        'rule': '自动合并必须用用户 PAT 归因 + 触发器不得是 pull_request_target（否则合并事件的门禁下游守卫全哑 = 假绿）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_auto_merge_user_attribution.py',
+        # 只查「启用 auto-merge 的凭据是不是用户 PAT」+「PAT 缺失是否显式失败」
+        # （不许 `||` 回落 GITHUB_TOKEN——那等于把假绿原样装回来）
+        # +「触发器是不是 pull_request」（pull_request_target 的定义只取自默认分支，
+        #   会把上面这些正确配置锁死在 main 上，改了对该路径不可见）
+        # +「fork PR 是否被显式跳过」（fork 无 secrets，不跳过会误报成「没配 PAT」）。
+        'covered': '不查 secret 的实际值（看不到 secret 存储）；dependabot 那条路径刻意留在 bot 侧，不在本判据内；其余 6 个 pull_request_target 工作流的定义来源由 guard_workflow_definition_source.py 统一管',
+    },
+    'scripts/guard_workflow_definition_source.py': {
+        'rule': '全仓不得有 pull_request_target 触发器 + 守卫类工作流的 checkout 必须显式 ref（否则 dev 上的 workflow 改动对该路径不可见 = 静默失效）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_workflow_definition_source.py',
+        # 判据一：全仓无 `pull_request_target`——它的定义一律取自默认分支（main），
+        #   无视 PR 的 base 分支 ⇒ dev 上的改动对这条路径完全不可见（#2803）。
+        # 判据二：守卫类工作流（执行仓库内 scripts/ 的那些）用 `pull_request` 时，
+        #   checkout 必须显式写非默认分支的 ref——`pull_request` 下默认检出 merge
+        #   commit（含 PR 代码）⇒ PR 作者改一下 scripts/ 就能改掉自己的守卫。
+        'covered': '不查 schedule 的定义来源（平台行为，只有默认分支一个选项，靠 dev→main 发版同步解决）；不查 push（定义来源=被推分支=dev，本来就是新的）；不查 CI 类工作流的 checkout（检出 PR 代码是职责所在）；不查 governance-direction-guard 的既有形态（迁移前就是 pull_request，另记 issue）',
+    },
+    'scripts/guard_migrations_pg_aware.py': {
+        'rule': '启动期迁移不许写「非 SQLite 就跳过」早退（存量按函数指纹基线冻结）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_migrations_pg_aware.py',
+        # 只判「return 一个含『非 SQLite』的字符串常量」这一种早退形态。裸写
+        # ALTER/CREATE INDEX、数据回填的方言差异不在判据内（前者由 migrations.py
+        # module docstring 的单一通道约定管，后者两种引擎本就通用）。
+        'covered': '不校验 PG 分支 SQL 的正确性——那由 backend/tests/core/ 的 PgFake 用例钉形态；本地无 PG 可连',
     },
     'scripts/guard_cross_repo_refs.mjs': {
         'rule': '提到 GitHub 的 issue / PR 编号必须挂源',
@@ -507,6 +568,26 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '`PUBLIC_PRO_ROUTES` 的豁免是**逐条带理由**的，不是按目录/前缀批量放行。'
         ),
     },
+    'scripts/guard_portfolio_balance_mode.py': {
+        'rule': '投顾组合进 positions 必须 balance 模式（D70 / #2740）',
+        # 源 #2740（#1205 切片 A）。`core/asset_types.py` 曾写「manager / portfolio
+        # **不进 positions**」，但**没有任何代码执行那句话** ⇒ portfolio 记进 positions 后
+        # 落在默认 `nav` 模式，没有份额也没有净值、`position_price` 不给它定价
+        # ⇒ 市值恒为 0，而详情页照常渲染一张「持仓 0 元」的卡。失败形态是静默的
+        # （无报错、无日志），所以判据必须钉在写入路径上，而不是靠「约定没人这么写」。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_portfolio_balance_mode.py',
+        # 边界写清楚，避免下一个人以为它保证「portfolio 一定记得对」。
+        'covered': (
+            '只判三件事的**存在与位置**：`process_buy_or_deposit` 里那段约束还在（AST 认'
+            '「portfolio 字面量 + 非 balance 判定 + 分支体内 raise」）；`asset_types.py` 的'
+            '旧表述没回归、新口径写在注释里；`decisions.md` 有 D70 行。'
+            '**不判运行时行为**（真的拒绝由 test_positions.py::TestPortfolioBalanceMode 管）；'
+            '**不判前端**（买入表单提交 balance 由 buyFormPayload.spec.ts 管）；'
+            '**不判 assets 表**（D70 只谈 positions）；'
+            '**只认这一条写入入口**——将来出现不经它的第二条写入路径，先扩判据再合并'
+        ),
+    },
     'scripts/guard_bridge_machine_branch_single_writer.py': {
         'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
         'runner': 'ci',
@@ -570,6 +651,24 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '二进制与 >512KB 文件、锁文件跳过；运行时拼接的密钥（`ak_` + 变量）静态看不见'
             '——那正是测试夹具构造假 Token 的办法，也是本守卫能自洽的前提。'
             '白名单只认语义（占位值 + Supabase anon JWT），不按路径放行'
+        ),
+    },
+    'scripts/guard_supabase_env_separation.py': {
+        'rule': '入库的前端 env 文件必须给出完整的 Supabase 凭证，示例文件只放占位值（#1028）',
+        # 源 #1028。开发/生产共用同一个 Supabase 项目时，开发期注册的测试账号会写进
+        # **生产** Auth 用户表，而当时没有任何一处会报错。
+        # 只在 CI 里跑：判据全是**仓库内入库文件**的静态检查（纯读文件、不拉网络），
+        # 挂本地钩子没有额外收益，还会让人分不清「谁负责哪一半」。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_supabase_env_separation.py',
+        # 边界写清楚：**dev 与 prod 是否同项目不归它管**——那条要读不入库的
+        # `frontend/.env.development`，CI 看不到，由 `frontend/build/supabase-env-guard.ts`
+        # 在 dev server 启动时兜。两条规则不重叠、各有唯一实现。
+        'covered': (
+            '只看入库的 frontend/.env.production / .env.staging / .env.example；'
+            '不入库的 frontend/.env 与 .env.development 读不到；'
+            '只判「凭证在不在、形态对不对、示例里有没有真实值」，'
+            '不判 anon key 是否有效、也不判 dev 与 prod 是否同项目'
         ),
     },
 }

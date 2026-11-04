@@ -6,7 +6,8 @@
   从 `claims.sub` 映射本地 `users` 表，注入 `g.current_user / family_id / role`。
 - 白名单：health、temperature（探市市场温度，D4）、securities/search 与 funds/search（探市页免登录搜索候选标的，D4 延伸，均为 GET 只读公开查询）、auth/logout、auth/resolve、OPTIONS 预检。
 - 开发/测试模式（`AUTH_ENABLED` 未启用）：允许无 token 回退默认用户，
-  支持 `X-User-Id` 头旁路指定身份（仅测试用）。
+  支持 `X-User-Id` 头旁路指定身份（**仅 `APP_ENV=development`**；staging / production
+  一律忽略该头——它等价于免密指定身份，见 `_resolve_user`）。
 - viewer（只读）角色对写方法统一 403（单一拦截点，避免逐端点装饰遗漏）。
 - 用户身份读写经**注入**获得（#1607）：本模块属业务无关的基础设施层，按 `decisions.md`
   的依赖方向（core ← domains ← services）不得 import 领域模型，查用户 / 建号 / 回写邮箱
@@ -55,7 +56,12 @@ PUBLIC_PREFIXES = (
 #   services/product_identity.resolve_product_identity 的 include_user_state 参数）。
 #   **不能放 PUBLIC_PREFIXES**：那样 g.current_user 永远不存在，登录用户也永远拿不到
 #   私有状态，登录与未登录的响应将完全一致——等于把该功能砍了。
-OPTIONAL_AUTH_PREFIXES = ('/api/products/resolve',)
+# - /api/feedlog-token（#1998）：FeedLog SSO 令牌。未登录回 {"token": null}
+#   （widget 的游客模式），**不能返回 401**——前端 http 拦截器见 401 会强制
+#   登出，把「widget 探测登录态」变成「用户被踢下线」。
+#   同样**不能放 PUBLIC_PREFIXES**：那样 g.current_user 永远不存在，登录用户
+#   也拿不到令牌，等于把 SSO 砍了。
+OPTIONAL_AUTH_PREFIXES = ('/api/products/resolve', '/api/feedlog-token')
 # 免登录精确路径
 # - logout：允许无有效 token 也返回成功（由前端清理本地会话）
 # - auth/resolve：登录前的"标识→邮箱"解析，帮助 Supabase 完成用户名登录（D10）
@@ -205,13 +211,26 @@ def _resolve_user(db):
     """
     identity = _identity()
 
-    # 测试/开发旁路：X-User-Id 头直接指定本地用户 id
+    # 测试/开发旁路：X-User-Id 头直接指定本地用户 id。
+    #
+    # **仅 development 生效**（D2 原话就是「本地开发/测试用」）。该头等价于
+    # 「免密指定任意身份」——只要线上放行，任何人带一个 `X-User-Id: 1` 就是主理人。
+    # 此前这里没有任何环境判断（#2764 评审实测），是比「用户名登录」严重得多的洞。
+    #
+    # 非开发环境**忽略该头并继续走 JWT**，而不是直接 401：带了合法 token 的请求
+    # 不该因为多一个头就失败（前端从不发这个头，忽略是零影响）。
     xid = request.headers.get('X-User-Id')
     if xid:
-        try:
-            return identity.get_by_id(db, int(xid))
-        except ValueError:
-            return None
+        from app.core.db_factory import get_app_env  # 延迟导入，便于测试 monkeypatch
+
+        env = get_app_env()
+        if env == 'development':
+            try:
+                return identity.get_by_id(db, int(xid))
+            except ValueError:
+                return None
+        # 只留 debug：线上被扫到时这行会跟着每个请求刷，WARNING 会把真告警淹掉
+        logger.debug('忽略 X-User-Id 旁路：仅 development 可用（APP_ENV={}）', env)
 
     auth_header = request.headers.get('Authorization', '')
     token = auth_header[7:].strip() if auth_header.lower().startswith('bearer ') else ''

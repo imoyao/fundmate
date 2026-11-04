@@ -218,6 +218,15 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
     // 页面任何时刻都只有一个「发送 / 停止」按钮，不并排也不换位
     const stopBtn = page.getByRole("button", { name: "停止" });
     await expect(stopBtn).toBeVisible();
+
+    // 思考态气泡（#980 拆分）：`msg--pending` 从模板字面量改为计算值后，
+    // 根类名必须与拆分前一致——样式表里 `.msg--pending` 与 `.msg--assistant` 同组，
+    // 类名漂移不会让截图变红，只能靠这条断言钉住
+    const pendingBubble = page.locator(".msg--pending");
+    await expect(pendingBubble).toBeVisible();
+    await expect(pendingBubble.locator(".msg__bubble--pending")).toHaveText(
+      "分析中"
+    );
     await expect(
       page.getByRole("button", { name: /^(发送|停止)$/ })
     ).toHaveCount(1);

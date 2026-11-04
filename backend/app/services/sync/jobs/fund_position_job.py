@@ -26,9 +26,11 @@
 并叠加限流风险；按 `daily_scheduler` 的周任务触发。
 """
 
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from app.core.time_utils import now_shanghai
+from app.services.adapters import wind_fund
 from app.services.job_base import JobStatus, SyncJob
 
 # 逐只抓取的硬上限：超过即截断并告警，防止一次同步变成数小时的外部请求风暴
@@ -39,6 +41,10 @@ FULL_PLACEHOLDER = '__full__'
 # 数据来源标记（写入两张表的 source 列，便于日后区分多源/回溯）
 HOLDING_SOURCE = 'eastmoney'
 INDUSTRY_SOURCE = 'eastmoney'
+#: 东财没给持仓明细时的补充源（#2749 场内 ETF 底层持仓）
+WIND_HOLDING_SOURCE = wind_fund.SOURCE_WIND
+#: 万得补充源最多试几期报告期（每期一次外部请求）
+WIND_PERIOD_ATTEMPTS = 3
 
 
 class FundPositionSyncJob(SyncJob):
@@ -175,6 +181,7 @@ class FundPositionSyncJob(SyncJob):
         out: List[dict] = []
         for code in targets:
             holdings, industry = {}, {}
+            holdings_source = HOLDING_SOURCE
             try:
                 holdings = self.adapter.fetch_fund_top_holdings(code) or {}
             except Exception as e:  # noqa: BLE001
@@ -184,6 +191,14 @@ class FundPositionSyncJob(SyncJob):
                 self.stats.setdefault('errors', []).append(
                     {'fund_code': code, 'stage': 'fetch_holdings', 'error': str(e)}
                 )
+            # 东财没给持仓明细时补一次万得（#2749：场内 ETF 的底层持仓缺口）。
+            # **只在缺口处补**，不改东财优先：东财那条路已长期验证，换了主源会动到存量口径。
+            if not (holdings.get('holdings') or []):
+                wind_holdings = self._fetch_holdings_from_wind(code)
+                if wind_holdings:
+                    holdings = wind_holdings
+                    holdings_source = WIND_HOLDING_SOURCE
+                    self.logger.info(f'基金 {code} 持仓明细由万得补齐（{len(wind_holdings["holdings"])} 条）')
             try:
                 industry = self.adapter.fetch_fund_industry_allocation(code) or {}
             except Exception as e:  # noqa: BLE001
@@ -194,8 +209,43 @@ class FundPositionSyncJob(SyncJob):
             if not holdings and not industry:
                 # 无源数据：不产出记录，从而不覆盖该基金已有的标量值
                 continue
-            out.append({'fund_code': code, 'holdings': holdings, 'industry': industry})
+            out.append(
+                {
+                    'fund_code': code,
+                    'holdings': holdings,
+                    'industry': industry,
+                    'holdings_source': holdings_source,
+                }
+            )
         return out
+
+    def _fetch_holdings_from_wind(self, code: str) -> dict:
+        """用万得补前十大持仓（形状对齐东财适配器的出参）。
+
+        报告期**不猜**：``fetch_fund_holdings`` 问「最新报告期」时上游不给期次，而
+        ``fund_holdings`` 的版本键必须带期次。故按 ``candidate_report_periods``
+        给出的确定性候选（披露窗口已开启的顺序）逐个试，取第一个真有数据的。
+        最多试 :data:`WIND_PERIOD_ATTEMPTS` 期 —— 每期一次请求，不无限回溯。
+        """
+        if not wind_fund.is_available():
+            return {}
+        for period in wind_fund.candidate_report_periods(date.today())[:WIND_PERIOD_ATTEMPTS]:
+            try:
+                result = wind_fund.fetch_fund_holdings(code, period)
+            except Exception as e:  # noqa: BLE001 - 万得是补充源，失败不该拖垮东财那一路
+                self.logger.warning(f'基金 {code} 万得持仓取数失败（{period}）: {e}')
+                self.stats.setdefault('errors', []).append(
+                    {'fund_code': code, 'stage': 'wind_holdings', 'error': str(e)}
+                )
+                return {}
+            if result.get('rows') and result.get('report_period'):
+                return {
+                    'report_period': result['report_period'],
+                    'report_date': None,
+                    'holding_basis': result['holding_basis'],
+                    'holdings': result['rows'],
+                }
+        return {}
 
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
         return [i for i in (raw_data or []) if i.get('fund_code') and (i.get('holdings') or i.get('industry'))]
@@ -231,7 +281,7 @@ class FundPositionSyncJob(SyncJob):
                         'shares': row.get('shares'),
                         'market_value': row.get('market_value'),
                         'rank': row.get('rank'),
-                        'source': HOLDING_SOURCE,
+                        'source': item.get('holdings_source') or HOLDING_SOURCE,
                     }
                 )
 

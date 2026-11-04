@@ -15,6 +15,9 @@ import { supabase } from "@/utils/supabase";
 import { message } from "@/utils/message";
 import { PRO_NOT_ENTITLED_CODE } from "@/constants/errorCodes";
 
+/** 5xx 的对外文案：与后端 `ErrorCode.INTERNAL_ERROR.msg` 同级，绝不拼接异常细节 */
+const SERVER_ERROR_TEXT = "服务暂时不可用，请稍后重试";
+
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
   // 请求超时时间
@@ -110,6 +113,17 @@ class PureHttp {
             message(payload?.message || "没有权限执行此操作", {
               type: "warning"
             });
+          }
+        }
+        // 5xx 一律**不透传后端 message**：后端某些视图把 str(e) 拼进 message，
+        // 一次 IntegrityError 就会让 SQL 全文、绑定参数（family_id / ledger_id /
+        // 金额）与 sqlalche.me 链接直接出现在页面上（2026-10-29 实测）。
+        // 在拦截器里统一替换，比要求每个组件各自兜底可靠——组件是逐个写的，会漏。
+        if ($error.response?.status >= 500) {
+          const payload = $error.response.data as
+            { message?: string } | undefined;
+          if (payload && typeof payload === "object") {
+            payload.message = SERVER_ERROR_TEXT;
           }
         }
         // 所有的响应异常 区分来源为取消请求/非取消请求

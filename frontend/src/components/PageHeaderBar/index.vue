@@ -4,6 +4,12 @@
     - title: 页面主标题
     - subtitle: 副标题（一句话说明这个页面是做什么的，面向小白用户）
     - updatedAt: 更新时间字符串（如 "2026-08-02 更新"），可选
+
+  ⚠️ 摆放约束：本组件**必须挂在页面的块级根节点下**，不要塞进 `display: flex`
+  的定宽容器里。它自带 `margin: 0 auto`，而 flex 子项在交叉轴上有 auto 外边距时
+  `align-items: stretch` 会失效 ⇒ 页头收缩成内容宽并被居中，标题与下方内容左边缘
+  错开（复盘页实测 381 vs 32，1280 视口）。正确形态见 dividends / TransactionList：
+  页头在外、定宽 + 内边距由内容区的 shell 承担，两者同值即左边缘对齐（#1501/#1506）。
 -->
 <template>
   <header class="page-header">
@@ -93,17 +99,24 @@ withDefaults(
     /* D17：页面主标题统一走 --text-display（32px/300 细体），design.md 字阶系统 */
     font-size: var(--text-display);
     font-weight: 300;
-    line-height: 1.3;
+
+    /* 1.3 → 1.35：细体 32px 行距 1.3 时上下几乎贴住，中文标题尤其憋 */
+    line-height: 1.35;
     color: var(--text-primary);
     letter-spacing: -0.3px;
   }
 
   &__subtitle {
     max-width: 640px;
-    margin: 6px 0 0;
+
+    /* 6px → 10px：标题与副标题是「主-从」两层，行距只差 6px 时读起来是一个段落 */
+    margin: 10px 0 0;
     font-size: var(--text-small);
-    line-height: 1.5;
+    line-height: 1.6;
     color: var(--text-secondary);
+
+    /* pretty：避免末行只剩一两个字的孤字（副标题多为一句中文，孤字很难看） */
+    text-wrap: pretty;
   }
 
   &__aside {
@@ -112,6 +125,11 @@ withDefaults(
     flex-wrap: wrap;
     gap: var(--space-compact);
     align-items: center;
+
+    /* 右侧胶囊/按钮按**标题行**居中，而不是贴着容器顶边：
+       标题行高 1.35 × 32px ≈ 43px，胶囊只有 26px，`align-items: flex-start`
+       会让它浮在标题上沿、与四个字的视觉重心错开一截（页头显乱的直接原因）。 */
+    min-height: calc(var(--text-display) * 1.35);
   }
 
   /* 页面级操作槽（#1714 UI 复核）：右对齐、与更新时间胶囊同一行；窄屏随 aside 换行 */

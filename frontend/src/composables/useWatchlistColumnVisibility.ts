@@ -27,11 +27,13 @@ import {
 } from "@/composables/watchlistColumnPrefs";
 import {
   watchlistColumnDefs,
-  COLUMN_GROUP_META,
-  getColumnGroup,
   type ColumnDef,
   type ColumnGroup
 } from "@/views/asset/watchlist/columnDefs";
+// 列序重建算法（纯函数，含「部分顺序不可当全量用」的推导与回归判据）
+import { rebuildColumnOrder } from "@/views/asset/watchlist/columnOrder";
+// 分组口径（通用组按 group 归属收列，与 scope 无关）与判据都在该纯模块内
+import { buildColumnGroups } from "@/views/asset/watchlist/columnGroups";
 
 const STORAGE_KEY = "watchlist-column-settings";
 
@@ -192,42 +194,30 @@ export function useWatchlistColumnVisibility(
 
   /**
    * 按「品类视图」分组（设置面板「表格列显示」分导航渲染，2026-09-12 修订）：
-   * 每个非「通用」视图 = 通用列（scope:"mixed"）+ 该品类专属列合并呈现，
-   * 让用户在「基金」视图下一屏配齐基金相关的所有列，不必跨两个分组跳。
-   * 通用列因同一 key 共享，跨视图显隐状态天然同步；UI 以配色区分「通用/专属」。
-   * 「通用」视图只装通用列；无列的组剔除，避免空标题。
+   * 每个非「通用」视图 = 通用列 + 该品类专属列合并呈现，让用户在「基金」视图下
+   * 一屏配齐基金相关的所有列，不必跨两个分组跳。通用列因同一 key 共享，跨视图显隐
+   * 状态天然同步；UI 以配色区分「通用/专属」。无列的组剔除，避免空标题。
+   *
+   * ⚠️ 通用列**只能按 `COLUMN_GROUP_MAP` 的归类取**，不能按 `scope === "mixed"` 取：
+   * 后者会让 scope=category 但语义属通用的列（#2650 的 `trend`）在设置面板里消失。
+   * 口径与回归判据见 `views/asset/watchlist/columnGroups.ts` 与其单测。
    */
-  const generalCols = computed(() =>
-    hideableColumns.value.filter(c => c.scope === "mixed")
-  );
   const groupedHideableColumns = computed(() =>
-    COLUMN_GROUP_META.map(g => {
-      const specific = hideableColumns.value.filter(
-        c => getColumnGroup(c.key) === g.key
-      );
-      const cols =
-        g.key === "general"
-          ? generalCols.value
-          : [...generalCols.value, ...specific];
-      return { ...g, cols };
-    }).filter(g => g.cols.length > 0)
+    buildColumnGroups(hideableColumns.value)
   );
 
   /**
    * 全量列按自定义顺序重排：非拖拽列（固定列/内置列）保持默认锚点位置，
    * 拖拽列按保存顺序依次填入原拖拽区槽位——固定列左右包夹的布局不被破坏。
+   *
+   * ⚠️ 重建算法必须由 `rebuildColumnOrder` 负责（2026-10-30）：持久化的 `order`
+   * 只含「当时可见」的列（7~8 个），而可拖拽槽位约 50 个。曾在此就地实现「按槽位
+   * shift、队列空则保留原位」，于是同一列既占了别人的槽位、又留在自己的原生槽位，
+   * 表头整段重复（走势/持有数量/持仓市值/持仓收益 各两遍）。详见 columnOrder.ts。
    */
-  const orderedColumns = computed(() => {
-    if (customOrder.value.length === 0) return watchlistColumnDefs;
-    const orderIndex = new Map(customOrder.value.map((k, i) => [k, i]));
-    const draggables = watchlistColumnDefs
-      .filter(d => d.draggable && orderIndex.has(d.key))
-      .sort((a, b) => orderIndex.get(a.key)! - orderIndex.get(b.key)!);
-    const queue = [...draggables];
-    return watchlistColumnDefs.map(d =>
-      d.draggable ? (queue.shift() ?? d) : d
-    );
-  });
+  const orderedColumns = computed(() =>
+    rebuildColumnOrder(watchlistColumnDefs, customOrder.value)
+  );
 
   /**
    * 实际渲染的列 = 自定义顺序 × 用户显隐偏好 × **视图作用域**（#1285）：

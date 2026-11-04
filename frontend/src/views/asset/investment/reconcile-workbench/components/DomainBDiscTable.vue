@@ -2,70 +2,90 @@
   <div class="domain-b-body">
     <el-empty
       v-if="!loading && items.length === 0"
-      description="暂无待处理差异"
+      :description="emptyText"
       :image-size="80"
     />
-    <div v-else class="disc-table-wrap">
-      <el-table :data="items" stripe size="small" class="disc-table">
-        <el-table-column label="代码" prop="symbol" width="110" />
-        <el-table-column label="类型" width="90">
-          <template #default="{ row }">
-            <span class="disc-type">{{ typeLabel(row.discrepancy_type) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="理论"
-          prop="expected_value"
-          width="100"
-          align="right"
-        />
-        <el-table-column
-          label="实际"
-          prop="actual_value"
-          width="100"
-          align="right"
-        />
-        <el-table-column label="差异" width="100" align="right">
-          <template #default="{ row }">
-            <span :class="diffClass(row.diff)">{{ formatDiff(row.diff) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <span class="disc-status" :class="`disc-status--${row.status}`">
-              {{ statusLabel(row.status) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="200">
-          <template #default="{ row }">
-            <template v-if="row.status === 'pending'">
-              <!-- 就地补充（§6.4）：工作台内直接补录，绝不跳「记一笔」 -->
-              <el-button
-                size="small"
-                text
-                type="primary"
-                @click="emit('supplement', row as DiscrepancyItem)"
-              >
-                补充
-              </el-button>
-              <el-button
-                size="small"
-                text
-                @click="emit('ignore', row as DiscrepancyItem)"
-              >
-                忽略
-              </el-button>
+    <template v-else>
+      <div class="disc-table-wrap">
+        <el-table :data="pagedItems" stripe size="small" class="disc-table">
+          <el-table-column label="代码" prop="symbol" width="110" />
+          <el-table-column label="类型" width="90">
+            <template #default="{ row }">
+              <span class="disc-type">{{
+                typeLabel(row.discrepancy_type)
+              }}</span>
             </template>
-            <span v-else class="disc-muted">已处理</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
+          </el-table-column>
+          <el-table-column
+            label="理论"
+            prop="expected_value"
+            width="100"
+            align="right"
+          />
+          <el-table-column
+            label="实际"
+            prop="actual_value"
+            width="100"
+            align="right"
+          />
+          <el-table-column label="差异" width="100" align="right">
+            <template #default="{ row }">
+              <span :class="diffClass(row.diff)">{{
+                formatDiff(row.diff)
+              }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <span class="disc-status" :class="`disc-status--${row.status}`">
+                {{ statusLabel(row.status) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="200">
+            <template #default="{ row }">
+              <template v-if="row.status === 'pending'">
+                <!-- 就地补充（§6.4）：工作台内直接补录，绝不跳「记一笔」 -->
+                <el-button
+                  size="small"
+                  text
+                  type="primary"
+                  @click="emit('supplement', row as DiscrepancyItem)"
+                >
+                  补充
+                </el-button>
+                <el-button
+                  size="small"
+                  text
+                  @click="emit('ignore', row as DiscrepancyItem)"
+                >
+                  忽略
+                </el-button>
+              </template>
+              <span v-else class="disc-muted">已处理</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 客户端分页：域 B 实测 163 条待处理差异，全量堆在一页既翻不动也看不清 -->
+      <el-pagination
+        v-if="items.length > pageSize"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="items.length"
+        :page-sizes="[50, 100, 200]"
+        layout="total, prev, pager, next, sizes"
+        small
+        background
+        class="disc-pagination"
+      />
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from "vue";
 import type { DiscrepancyItem } from "@/api/reconciliation";
 import {
   typeLabel,
@@ -74,21 +94,44 @@ import {
   diffClass
 } from "../utils/discFormat";
 
-/** 域 B 持仓快照差异表（#980 拆分自 index.vue，零行为变更）：
- *  理论持仓 vs 实际持仓的待处理差异列表，补充 / 忽略操作经 emit 上抛由父级编排。 */
-defineProps<{
-  items: DiscrepancyItem[];
-  loading: boolean;
-}>();
+/** 域 B 持仓快照差异表（#980 拆分自 index.vue；2026-10-28 补客户端分页）。
+ *  理论持仓 vs 实际持仓的待处理差异列表，补充 / 忽略操作经 emit 上抛由父级编排。
+ *  域 C（对账单导入）复用同一张表：两域差异结构相同（`DiscrepancyItem`），
+ *  差别只在空态文案，故不为 C 域再抄一份。 */
+const props = withDefaults(
+  defineProps<{
+    items: DiscrepancyItem[];
+    loading: boolean;
+    /** 空态文案（域 B「暂无待处理差异」/ 域 C「暂无孤儿持仓」） */
+    emptyText?: string;
+  }>(),
+  { emptyText: "暂无待处理差异" }
+);
 
 const emit = defineEmits<{
   supplement: [row: DiscrepancyItem];
   ignore: [row: DiscrepancyItem];
 }>();
+
+/** 客户端分页（与域 A 面板口径一致：默认 50，可选 100 / 200） */
+const page = ref(1);
+const pageSize = ref(50);
+const pagedItems = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return props.items.slice(start, start + pageSize.value);
+});
+
+/** 数据重载（运行对账 / 补充 / 忽略）后回到第一页，避免停在已不存在的页 */
+watch(
+  () => props.items,
+  () => {
+    page.value = 1;
+  }
+);
 </script>
 
 <style scoped>
-/* 域 B 差异表（样式随模板一并迁入，保持 scoped 作用域不变，零视觉变更） */
+/* 域 B 差异表（样式随模板一并迁入，保持 scoped 作用域不变） */
 .domain-b-body {
   padding: 4px 0;
 }
@@ -99,6 +142,13 @@ const emit = defineEmits<{
 
 .disc-table {
   width: 100%;
+}
+
+/* 分页条：表格底部右对齐，与域 A 面板同一位置与粗细 */
+.disc-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-compact);
 }
 
 .disc-type {

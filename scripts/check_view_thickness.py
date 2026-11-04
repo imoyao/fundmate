@@ -163,6 +163,13 @@ NEW_FILE_LIMITS = {
 # 名录查询（orm 的 query）在 service 内做（视图层零 db.query 红线不动），`orm_queries` /
 # `commits` 仍为 **0**、`max_func` 不变（30）。docstring 在写「数据链为何中证官网优先 /
 # 降级语义」的口径，值得留。products 458 → 502（`--report` 实测，其余三维不动）。
+# 2026-10-24 收紧（#871，**非放宽**）：收益率三口径（xirr / twr / dietz）落地时，
+# `get_xirr` 视图里长的「成功日志」5 行 f-string 下沉到门面
+# `services/performance/__init__.py::calculate_return_by_scope`（与计算同生命周期，
+# services 侧 loguru 是既有惯例），注释压一行；视图回到「解析 + 调服务 + 异常→HTTP」。
+# 按 `--report` 实测回写：performance lines 86 → 83（max_func 31 不动——最长函数是
+# money-fund-income，本 PR 未触碰）。教训与 #1642 相同：**给视图加功能前先想好日志/校验
+# 落点**，否则「只加 5 行日志」也能顶穿冻结基线。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {
         "lines": 208,
@@ -171,10 +178,10 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 44,
     },
     "backend/app/domains/auth/views.py": {
-        "lines": 137,
-        "orm_queries": 3,
+        "lines": 102,
+        "orm_queries": 1,
         "commits": 0,
-        "max_func": 45,
+        "max_func": 28,
     },
     "backend/app/domains/families/views.py": {
         "lines": 72,
@@ -182,8 +189,21 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 22,
     },
+    # 2026-10-27 重取（**口径修复**，非放宽）：`GET /api/funds/style/portfolio/` 补
+    # `portfolio_id` / `ledger_id` 三级作用域（组合详情页此前复用家庭级结果，标题却写
+    # 「组合风格构成」，属口径错误，与 #2595 同类）。视图侧只增加「解析两个 query 参数 +
+    # ValueError → 400 信封」与作用域 docstring，作用域解析本身按纪律下沉在
+    # `services/scope.py`（组合语义 = 显式归属 + 成员账本继承，不在此手写成员账本查询）。
+    # 三项实测量未动（orm_queries 2 / commits 0 / max_func 39），唯 lines 263 → 277（+14）。
+    # 2026-10-31 重取（**新增端点**，非放宽）：投顾详情页 P0 加 `GET /advisors/<code>/industries/`
+    # 与 `GET /advisors/<code>/holdings-history/`，另给 `/holdings/` 补可选 `as_of`。
+    # 视图侧只有「解析 as_of + 非法日期 → 400/1001 + 调服务 + 信封」——聚合、时点筛选、
+    # `source`/`kind` 归一全在 `services/fund_service`，故 `orm_queries` / `commits` /
+    # `max_func` 三项实测不动（2/0/39），唯 lines 277 → 343（+66 = 2 个端点 + as_of 解析器
+    # 与哨兵）。**400 与 404 必须分开**：服务层用 `ValueError` 表达「组合不存在」，
+    # 若把 as_of 解析也塞进同一个 try 里，拼错日期会显示成「组合没了」。
     "backend/app/domains/funds/views.py": {
-        "lines": 263,
+        "lines": 343,
         "orm_queries": 2,
         "commits": 0,
         "max_func": 39,
@@ -196,10 +216,21 @@ BASELINE: dict[str, dict[str, int]] = {
     # commits / max_func 三项实测不动（2/0/39），唯 lines 197 → 263（+66，含端点签名与
     # 口径 docstring）。无可下沉的业务规则，按 `--report` 实测回写。
     "backend/app/domains/importers/views.py": {
-        "lines": 249,
+        # 2026-11-04 收紧（#2854，**下沉**而非放宽）：`/parse/` 的响应体字段映射与
+        # 「total 必须与 source_row_count 同时下发」这条对账契约，从视图搬进
+        # `services/importer/orchestrator_parse.preview_response`——视图只留
+        # `jsonify(preview_response(result))`。lines 247 → 239、max_func 52 → 43。
+        # 直接往视图里塞 4 个新字段会让「视图只做编排」当场破口，故本卡先下沉再改。
+        #
+        # 2026-10-30 收紧（#2777 脱敏改造，**非放宽**）：两处
+        # `except Exception → f'服务器内部错误: {str(e)}'` 改走
+        # `core.exceptions.internal_error_message`，顺手删掉重复的
+        # `logger.exception`（helper 已把留痕绑进同一次调用）——
+        # lines 249 → 247、max_func 53 → 52，其余两维不动。
+        "lines": 239,
         "orm_queries": 1,
         "commits": 0,
-        "max_func": 53,
+        "max_func": 43,
     },
     # 2026-10-22 收紧（#2497，**下沉**而非放宽）：删除账户的「有数据不可删 + 级联删除
     # 关联数据 + 清理 position_import_meta 引用」下沉到
@@ -208,11 +239,25 @@ BASELINE: dict[str, dict[str, int]] = {
     # 起因是线上 500：影子记录的 `attributed_to_ledger_id` 未随持仓删除清理，
     # `DELETE FROM ledgers` 被外键拦下；该清理逻辑正属于业务规则，不该留在视图。
     # 按 `--report` 实测回写，基线只减不增。
+    # 2026-10-22 再收紧（#2137，**下沉**而非放宽）：交易编辑 PATCH 的响应组装
+    # （Money 反算 + 日期归一 + 新增 fee_breakdown）下沉到
+    # `services/transaction_service.transaction_edit_payload`——给响应加字段若写在
+    # 视图里必然变厚（lines 701 → 704 已被守卫拦），而组装属展示职责、本就该在
+    # services；顺带删除 `_ymd` 闭包与 10 字段字典。orm_queries / commits 不动
+    # （10/0），lines 701 → 679、max_func 60 → 44。按 `--report` 实测回写。
+    # 2026-10-24 收紧（#1173，**非放宽**）：把 `_ledger_to_dict`（出参序列化口径）整体下沉到
+    # 新增的 `services/ledger_presenter.py::ledger_to_dict`——与既有
+    # `services/position_presenter.py`（`enrich_position_dict`）同构：展示层序列化属
+    # 「展示口径」，不是 HTTP 编排，留在视图里只会让账户域视图随字段增长持续变厚。
+    # 本次顺带加了两个归属字段（`owner_member_id` / `owner_member_name`），
+    # 若不下沉就得让 `_ledger_to_dict` 再涨 11 行（max_func 44 → 55，越 60 的硬上限虽未破，
+    # 但基线已被顶破）。下沉后 ledgers 679 → 635 行、max_func 44 → 43，
+    # `orm_queries` / `commits` 不动（10/0）。按 `--report` 实测**收紧**。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 701,
+        "lines": 635,
         "orm_queries": 10,
         "commits": 0,
-        "max_func": 60,
+        "max_func": 43,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
@@ -220,11 +265,16 @@ BASELINE: dict[str, dict[str, int]] = {
     # commits / max_func 三项实测不动（0/0/21），唯 lines 61 → 85（+24，新增
     # /industry-emotion/ 端点，纯 HTTP 编排：开 db → 调 service → jsonify，无内联
     # 业务逻辑；增长来自端点签名与口径 docstring）。按 `--report` 实测回写。
+    # 2026-10-28 重取（#1460 P2，**新增端点**，非放宽）：加
+    # `GET /api/market/asset/<asset_key>/history/`（资产日线历史，按需回填在
+    # services/market_history_service 内完成）——视图仍是「解析参数 → 调 service → 信封」，
+    # 实测 orm_queries / commits 均为 0，max_func 21 → 34、lines 85 → 124，增长全部
+    # 来自新端点的签名与口径 docstring（含错误码 400/404/503 的说明）。
     "backend/app/domains/market/views.py": {
-        "lines": 85,
+        "lines": 124,
         "orm_queries": 0,
         "commits": 0,
-        "max_func": 21,
+        "max_func": 34,
     },
     "backend/app/domains/ocr/views.py": {
         "lines": 214,
@@ -232,18 +282,35 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 48,
     },
+    # 2026-10-24 重取（#871 / #2133 收敛，**方案 C**，非放宽）：TWR 两套实现二选一，
+    # 保留 `#2133` 的日因子引擎（pnl_calendar daily_pnl 连乘，与收益日历同源），
+    # `#2133` 的 `GET /api/performance/twr/` 端点**恢复在役**（welcome 页在用）；
+    # `#871` 的组合级 TWR 走既有 `/xirr/` 的 `method=twr` 分派（新增 1 参 + 日志
+    # 下沉 services）。故 lines 由 D 化时的 83 回到 108（dev 原版 110 − 日志下沉 2）。
+    # 按 `--report` 实测回写。
     "backend/app/domains/performance/views.py": {
-        "lines": 86,
+        "lines": 108,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,
     },
+    # 2026-10-30 收紧（PR #2754，组合重名）：名称唯一性校验与写路径下沉
+    # `services/portfolio_service.py` 的 `assert_portfolio_name_available` /
+    # `create_portfolio_record` / `update_portfolio_record`，视图回到
+    # 「parse → 调 service → 组信封」，错误码只留一张 `_NAME_ERROR_STATUS` 映射。
     "backend/app/domains/portfolios/views.py": {
-        "lines": 161,
-        "orm_queries": 1,
+        "lines": 150,
+        "orm_queries": 0,
         "commits": 0,
-        "max_func": 25,
+        "max_func": 22,
     },
+    # 2026-10-30 重取（**新增端点**，非放宽）：手动补齐行业映射
+    # POST /industry-map/refresh/ 落地（+27 行 / max_func 19→22：symbol 收集在
+    # portfolio_service.collect_family_map_symbols，「用户动作触发 job」按 R6
+    # 属视图层编排——领域服务不得反向调 DataSyncOrchestrator，故编排调用留在
+    # 视图（ocr/views.py 调 ImportOrchestrator 同款先例），视图只有
+    # 收集 → 调编排器 → 组信封；orm_queries / commits 仍为 0。
+    # 此前 133 → 123 是 #2754 收敛（name 校验下沉）。
     # 2026-10-18 重取（#2326，**新增端点**，非放宽）：基金转换 P0/P1 落地——
     # 试算 POST /api/positions/conversion/estimate/ 与提交 POST /api/positions/conversion/
     # （设计 docs/working-notes/fund-conversion-design-2026-10-17.md）。视图侧只有
@@ -257,9 +324,25 @@ BASELINE: dict[str, dict[str, int]] = {
     # `query_transactions_by_identity` 按 (ledger_id, symbol) 收敛，两处共用同一份判据；
     # 视图层因此少了 2 处 `db.query(Transaction)` ⇒ orm_queries 6 → 4（**收紧**）。
     # lines 320、commits 0、max_func 57 均不动。按本文件既有先例以 `--report` 实测回写。
+    # 2026-10-28 重取（#2712，**再次下沉**）：持仓流水端点原在视图里做两段
+    # `order_by(...) + 逐行组 dict`（含日期归一 / 资产类型兜底），已整体下沉为
+    # `position_service.list_position_transactions` + `serialize_position_transaction`，
+    # 与 `/api/transactions` 共用同一套排序与序列化口径。
+    # 视图因此 lines 320 → 288、orm_queries 4 → 2（**收紧**），按既有先例以 `--report`
+    # 实测回写；max_func 仍为 57（未动）。
+    # 2026-10-29 重取（#2740 / D70，**新增端点，非放宽**）：新增
+    # `GET /api/positions/<id>/advisor-context/`（投顾组合的主理人调仓提示，只读）。
+    # 该端点体只做「取持仓 → 品类校验 → 调 `services/advisor_position` → 组信封」，
+    # limit 夹取与调仓口径都在服务层——**不含任何业务规则**，正是本守卫要保住的形态。
+    # 同 PR 顺手把 `portfolio_id` 改派的「目标存在 + 归属本家庭」校验下沉为
+    # `position_service.resolve_portfolio_change`（与 #2372 的 `resolve_ledger_change` 同形态），
+    # 于是 lines 288 → 307（**净 +19 = 端点编排 +19**）、orm_queries 2 → 1（**收紧**）、
+    # max_func 57 / commits 0 不动。之所以不做净零：本文件其余部分是价格区间拦截 / 货基归一
+    # 等既有规则，动它们属另一件事（范围外），换行数的正当路径是**下沉规则**而不是
+    # 把无关重构塞进这张卡；端点本身已无进一步下沉空间（服务不再拥有 HTTP 语义）。
     "backend/app/domains/positions/views.py": {
-        "lines": 320,
-        "orm_queries": 4,
+        "lines": 307,
+        "orm_queries": 1,
         "commits": 0,
         "max_func": 57,
     },
@@ -300,8 +383,11 @@ BASELINE: dict[str, dict[str, int]] = {
     # 行数两笔：610 → 645（本端点 + import + ValueError→400 防御），再因
     # rebase 到合并后的 dev（#2314 / #2318 等同期改动）落到 **639**——后者不是
     # 本卡的生长，取 `--report` 实测值，不手工倒推。
+    # 2026-10-31 收紧（**非放宽**）：`product_trend` 的「降级品类」docstring 更正口径
+    # （指数有独立 `index_daily` 分支，不再误列为「无序列数据源」），顺手把同段说明压到
+    # 原有行数——lines 639 → 638，`orm_queries` / `commits` / `max_func` 不动（0/0/30）。
     "backend/app/domains/products/views.py": {
-        "lines": 639,
+        "lines": 638,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 30,
@@ -341,11 +427,84 @@ BASELINE: dict[str, dict[str, int]] = {
     # `orm_queries` / `commits` 仍为 **0**、`max_func` 不变（31）。summary 245 → 272 行
     # （+27，含端点签名与 3 行 docstring——口径说明留在 service，视图不重复）。
     # 同 #2141「新增功能但视图变薄」先例：无可下沉的业务规则，按 `--report` 实测回写。
+    # 2026-10-23 重取（#2134，**新增端点**，非放宽）：给 summary 加 `GET /summary/benchmark-excess/`
+    # （账户/组合/家庭区间收益 vs 基准指数超额收益，账本对齐-D 卡）——三条口径（scope 区间
+    # 收益 / 指数区间涨跌幅 / 超额）与全部降级原因全在 `services/analytics/benchmark_excess.py`，
+    # 视图侧只有「入参解析 + 必填校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍为 **0**、
+    # `max_func` 不变（31；新端点 span 29 ≤ penetration 的 31）。summary 272 → 305 行
+    # （+33：import 1 + 空行 2 + 装饰器/签名/docstring 9 + 编排 21；docstring 写清
+    # 「互斥参数 / 诚实降级不造数」口径，同 #2141「口径 docstring 值得写清」之例）。
+    # 同 #2131（账本对齐 A'，上一张同系列卡）先例：无可下沉的业务规则，按 `--report` 实测回写。
+    # 2026-10-24 重取（#2135，**新增端点**，非放宽）：加 `GET /summary/pnl-attribution/`
+    # （区间收益归因）——业务逻辑全在 `services/pnl_calendar.py`（`compute_range_attribution`），
+    # 视图侧只有「入参解析 + 互斥校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍 **0**、
+    # `max_func` 不变（31）。含 #2134 端点在内按 `--report` 实测回写（rebase 两卡叠加后重测）。
+    # 同 #2131 先例：新增端点但纯 HTTP 编排，按 `--report` 实测回写基线。
+    # 2026-10-24 重取（#1173，**新增过滤参数**，非放宽）：给 summary 的 4 个端点
+    # （`/summary/` `/summary/sankey/` `/summary/distributions/` `/summary/groups/`）
+    # 加 `member_id` 查询参数——按家庭成员档案切片持仓与汇总。切片口径全在
+    # `services/summary_service.py`（「成员 → 账户集合」收口在
+    # `services/family_member_service.ledger_ids_for_member`，持仓/资产/盈亏同一份集合），
+    # 视图侧只有「入参解析 + 调服务 + 信封」，`orm_queries` / `commits` 仍 **0**、
+    # `max_func` 不变（31）。
+    # 增量构成：summary 327 → 334（+7 = import 2 + `MemberSliceQuery` 解析 4 + 注释 1）。
+    # 参数校验走新增的 `domains/summary/schemas.py::MemberSliceQuery` + `parse_query`
+    # （pydantic，非法值 → 422），与 positions 域 `PositionListRequest` 同一套惯例——
+    # **不**在视图里手写 `int(request.args.get(...))`：非法值静默变成「不筛」会让用户
+    # 以为筛了成员、实际看的是全量。
+    # 解析语句必须放在 `try` **之外**：这 4 个端点的 `except Exception` 会把 abort(422)
+    # 吞成 500（HTTPException 是 Exception 子类）。
+    # 2026-10-25 重取（#2595，**新增查询参数 + 口径 docstring**，非放宽）：给
+    # `GET /summary/penetration/` 加 `ledger_id` / `portfolio_id` 两个可选参数（互斥，
+    # 均不传=家庭级）——口径解析、归属校验、成员账本继承全在
+    # `services/scope.py`（唯一出口，穿透与归因共用），视图侧增量只有
+    # 「两行入参解析 + 3 行 ValueError→400（与 pnl-attribution 同款，冲突参数必须
+    # 回 400 而不是 500）+ 6 行 docstring 写清互斥与继承语义」。
+    # `orm_queries` / `commits` 仍为 **0**——没有任何查询或事务边界回到视图，
+    # 没有可下沉的业务规则。按 --report 实测回写：334 → 346、max_func 31 → 43
+    # （穿透端点自身 span 43 ≤ 硬上限 60）。同 #2134 / #2135 先例。
     "backend/app/domains/summary/views.py": {
-        "lines": 272,
+        # #2617 新增 GET /summary/position-structure/（持仓结构）后 346 → 379：
+        # 该端点只做入参解析 + 调 services，无 ORM 查询、无 commit；
+        # 业务口径全部在 services/position_structure.py，故只重取 lines。
+        # 2026-10-26 重取（#2616，**新增端点**，非放宽）：379 → 403。新增
+        # `GET /summary/cash-flow/`——`ledger_id` 必填校验、异常→HTTP 信封，业务口径
+        # 全在 `services/cash_flow_service.py`；`orm_queries` / `commits` 仍为 0，
+        # `max_func` 43 不动（新端点函数体 21 行 ≤ 60）。与 #2134 / #2135 / #2617 同先例。
+        # 2026-10-27 重取（#2681，**给既有端点补作用域**，非放宽）：403 → 407。
+        # `GET /summary/cash-flow/` 增加 `portfolio_id`（与 `ledger_id` 二选一），视图侧
+        # 增量只有「把必填校验换成两个可选参数 + docstring 写清互斥」；成员账本解析在
+        # `services/scope.py::member_ledger_ids`、互转抵消在
+        # `services/performance/cashflow_layers.py`，视图仍零查询、零事务。
+        # 2026-10-27 重取（#2685，**新增只读清单端点**，非放宽）：407 → 421。新增
+        # `GET /summary/benchmarks/` 只把常量 `BENCHMARK_INDICES` 摊平成 `[{code,name}]`，
+        # 不含查询 / 事务 / 业务判断（前端下拉改为从这里取，删掉两处硬编码）；
+        # 曲线计算在 `services/analytics/benchmark_excess.py::_build_cum_series`。
+        # 2026-10-30 收紧（#2777 脱敏改造，**非放宽**）：16 处 5xx 分支改走
+        # `core.exceptions.internal_error_payload`——信封组装属契约实现、不属视图职责，
+        # 每处从 1~7 行压回 1 行，421 → 412；`orm_queries` / `commits` / `max_func` 不动。
+        # 2026-10-31 重取（#2774，**给既有端点补区间参数**，非放宽）：412 → 419。
+        # `GET /summary/cleared-cycles/` 增加 `start_date` / `end_date`（按末卖日裁剪），
+        # 视图侧增量只有 2 行 kwargs、2 行 `ValueError`→400（格式错 / 起止倒置必须回
+        # 400，不能静默当作「不过滤」）与 docstring；聚合与裁剪全在
+        # `services/analytics/cleared_cycles.py`，`orm_queries` / `commits` 仍为 0，
+        # `max_func` 43 不动（该端点函数体仍在 60 行硬上限内）。
+        # 2026-10-31 重取（#2773，**给既有端点补可选参数**，非放宽）：419 → 423。
+        # 同一个 `GET /summary/cleared-cycles/` 再加 `include_post_clear` 布尔参数，
+        # 视图侧增量只有「多解 1 个 query 参数 + 多传 1 个 kwarg + docstring 一行指向
+        # 服务层」；涨跌幅计算与四个状态码在 `services/analytics/cleared_cycles.py`，
+        # 净值取数在 `NavService.get_navs_at_or_before`，视图零 ORM 查询、零事务，
+        # `max_func` 43 不动。与 #2774 / #2681 同先例。
+        # 2026-11-03 重取（首页「最新收益」卡，**新增只读端点**，非放宽）：423 → 441。
+        # 新增 `GET /summary/today-pnl/`——只做 `get_family_id()` + 调
+        # `services/today_pnl.py` + 异常→HTTP 信封；当日盈亏口径（`Σ 分项 ≡ 合计`、
+        # 估值定格 / 官方净值的状态判定）全部在服务层复用 `pnl_calendar._compute_days`，
+        # 视图零 ORM 查询、零事务，`max_func` 43 不动（新端点函数体 14 行 ≤ 60）。
+        # 与 #2616 / #2617 / #2685 同先例。
+        "lines": 441,
         "orm_queries": 0,
         "commits": 0,
-        "max_func": 31,
+        "max_func": 43,
     },
     "backend/app/domains/temperature/views.py": {
         "lines": 140,
@@ -353,11 +512,31 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 38,
     },
+    # 2026-10-28 收紧（#2720，**下沉**而非放宽）：CSV 导出的取数 / 有效交易日排序 /
+    # 逐行金额换算下沉到 `services/transaction_service.build_transactions_csv`，视图只留
+    # 「取会话 → 调服务 → 包 Response」。顺带复用 `order_by_effective_day(descending=False)`，
+    # 让导出与列表页共享同一份「有效交易日」口径——初版在导出里手抄了一份 coalesce，
+    # 且单元格兜底写成 trade_date 单列，空交易日的行整批沉底（守卫之外的口径漂移）。
+    # lines 138 → 85、max_func 60 → 25、orm_queries 2 → 1。
+    # 2026-11-01 重取（**新增端点**，非放宽）：给 transactions 加 `GET /api/transactions/<id>/`
+    # （交易流水页「行展开详情」按需取；列表页不再为每行预取溯源与持仓现状）。视图侧只有
+    # 「调 build_transaction_detail + 404 + 组信封」，行组装与持仓现状查询全在 services；
+    # orm_queries / commits / max_func 三项**实测不动**（1 / 0 / 25），无业务规则可下沉。
+    # 按本文件既有先例以 `--report` 实测回写：lines 85 → 95。
+    # 2026-11-01 再回写（**新增端点**，非放宽）：`GET /api/transactions/summary/` 是汇总条
+    # 的数据源（设计 §四，净投入公式在 `services.build_transaction_summary`）。视图侧只
+    # 「调服务 + 组信封」；筛选参数解析**下沉**为 `services.filters_from_args`（列表与汇总
+    # 共用一份字段映射），views 因此净减 9 行。剩下 +14 = 端点 4 行 + `import` 从 1 行拆成
+    # 6 行（ruff 行长限制，第五个符号放不下）。orm_queries / commits / max_func 三项
+    # **实测不动**（1 / 0 / 25）。
+    # ⚠️ 这已是同一文件两次因「再加一个只读端点」而回写基线。**下次再加端点前先拆模块**
+    # （如 `transactions/read_views.py`），别再让 100 变成 110——基线只减不增的前提是
+    # 「厚度来自业务规则」，而连续加薄端点会让它变成「视图像个收纳箱」。
     "backend/app/domains/transactions/views.py": {
-        "lines": 138,
-        "orm_queries": 2,
+        "lines": 100,
+        "orm_queries": 1,
         "commits": 0,
-        "max_func": 60,
+        "max_func": 25,
     },
     "backend/app/domains/usage/views.py": {
         "lines": 68,
@@ -366,19 +545,27 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 27,
     },
     "backend/app/domains/users/views.py": {
-        "lines": 160,
-        "orm_queries": 6,
+        "lines": 137,
+        "orm_queries": 5,
         "commits": 0,
-        "max_func": 38,
+        "max_func": 35,
     },
+    # 2026-11-03 收紧（#2850，**下沉**而非放宽）：把 `/enums/` 的载荷组装（十余张映射
+    # 拼成响应体）下沉到 `services/enums_service.build_enums_payload`，视图只留
+    # jsonify 信封。lines 128 → 107。
+    # 不收紧会静默失效：基线停在 128 时，后续再加行也不会红。
     "backend/app/domains/utils/views.py": {
-        "lines": 128,
+        "lines": 107,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 38,
     },
+    # 2026-10-28 收紧（#2720，**下沉**而非放宽）：清仓「特别关注」的条件判定
+    # （180 天 / 6 笔阈值 + 有效日期兜底）下沉到
+    # `services/watchlist_service.smart_prompt_conditions`，视图只留取数 + 组信封。
+    # lines 622 → 606（orm_queries 14 / max_func 53 不动）。
     "backend/app/domains/watchlist/views.py": {
-        "lines": 622,
+        "lines": 606,
         "orm_queries": 14,
         "commits": 0,
         "max_func": 53,

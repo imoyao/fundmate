@@ -30,6 +30,9 @@
   浮动盈亏在「我的持仓」卡（unit_nav 口径，NavService 标准口径），同页不造第二个
   收益数字（#2171 决策）；本曲线的收益率 = 累计已实现 ÷ 累计投入（简单回报率，
   非年化——年化数字在业绩卡 XIRR，不重复）；
+  **输出是逐日序列、补到今天**（#2857）：它是阶梯量，只在成交日跳变，
+  前一版「只在流水日给点」会让两笔流水的标的变成一条斜线（详见
+  `_extend_profit_line_daily`）；
 - **红利再投（``dividend_reinvest``）视同入股**：增份额、增成本，已实现 +分红额，
   但不是「买卖决策」——不进散点层；
 - **其余类型（拆分 / 兑付 / 扣税 / 其他）不参与重放**：计入
@@ -57,25 +60,28 @@ from __future__ import annotations
 import datetime as dt
 from typing import Dict, List, Optional
 
-from sqlalchemy import String, cast, func
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
-from app.domains.positions.models import Position
+from app.core.time_utils import today_shanghai
 from app.domains.transactions.models import Transaction
-from app.services.symbol_scope import (
-    collect_transaction_symbol_variants,
-    query_positions_by_symbol,
-)
+from app.services.symbol_scope import build_transaction_symbol_conditions
 
-# 参与成本重放但**不作为买卖点**展示的类型：转入 / 取出 / 红利再投 改变份额与成本，
-# 却不是用户的买卖决策（#2171 定稿：叠加层只画 buy/sell 决策点）。
-_SHARE_TYPES = frozenset({'buy', 'sell', 'deposit', 'withdraw', 'dividend_reinvest'})
+# 参与成本重放但**不作为买卖点**展示的类型：转入 / 取出 / 红利再投 / 债券兑付
+# 改变份额与成本，却不是用户的买卖决策（#2171 定稿：叠加层只画 buy/sell 决策点）。
+# bond_redeem 于 #2832 并入：兑付后持仓份额归零，若仍留在忽略集，成本线会一直停在
+# 买入当天的值、「已实现盈亏」也永远不含兑付这笔——曲线与事实相反。
+_SHARE_TYPES = frozenset({'buy', 'sell', 'deposit', 'withdraw', 'dividend_reinvest', 'bond_redeem'})
 # 买卖决策点（前端 scatter 层只画这两类）
 _DECISION_TYPES = frozenset({'buy', 'sell'})
 # 现金分红：历史码 + 新码并存（真机实测 69 / 66 笔），只认一种会漏一半分红
 _DIVIDEND_TYPES = frozenset({'dividend', 'dividend_cash'})
-# 不参与重放的其余类型（拆分 / 兑付 / 扣税 / 其他），仅计数
-_IGNORED_TYPES = frozenset({'split', 'bond_redeem', 'tax', 'other'})
+# 减持类：份额减少、成本按剩余份额比例释放（#2832 起含债券兑付）。
+# 重放主循环的「卖出/取出/兑付」分支以此为准——不要在分支里手写类型元组，
+# 否则集合成了摆设、新增类型时两处必漏一处（本次就差点犯）。
+_DIVEST_TYPES = frozenset({'sell', 'withdraw', 'bond_redeem'})
+# 不参与重放的其余类型（拆分 / 扣税 / 其他），仅计数
+_IGNORED_TYPES = frozenset({'split', 'tax', 'other'})
 
 # 存储单位 → 输出单位换算
 _CENTS_PER_YUAN = 100
@@ -118,6 +124,71 @@ def _trade_day(txn: Transaction) -> Optional[dt.date]:
     if value is None:
         return None
     return value.date() if isinstance(value, dt.datetime) else value
+
+
+def _extend_profit_line_daily(line: List[Dict], until: dt.date) -> List[Dict]:
+    """把「只在流水日推点」的累计已实现序列补齐为**逐日**序列（#2857）。
+
+    ## 为什么必须补齐
+
+    已实现盈亏是**阶梯量**：两次卖出之间它一动不动。上一版只在流水日 append，
+    于是「买入一笔 + 卖出各一笔」的标的只得到 2 个点 —— 类别轴上两个类别平分整幅宽度，
+    曲线被画成一条跨半年的斜线：既没有时间感，又暗示「每天都在赚」，属失真呈现。
+
+    ## 为什么补到「今天」而不是最后一个流水日
+
+    这条曲线答的是「至今累计已实现」。末端停在最后一次操作，等于把「之后没再交易」
+    画成「曲线到此结束」——该标的清仓后仍有持仓收益、甚至仍是本轮关注对象，
+    停在最后一笔会让人以为数据断了。补平到今天是同一个数值的延续，不引入新信息。
+
+    ## 补齐只重复前值，绝不插值
+
+    `realized_yuan` / `invested_yuan` 在两次流水之间保持不变（阶梯的平段）。插值会造出
+    「某天赚了一点点」这种不存在的中间态——比不画更坏。前端配 `step: 'end'` 呈现，
+    阶梯的跳变点才落在真实交易日上。
+
+    **两段都要补**：流水日之间（1 月买入 → 3 月卖出，中间两个月不能空缺，否则类别轴
+    仍按点数平分宽度）与最后一笔之后（到今天）。只补末端等于只修一半——第一版就漏了
+    区间内那一段，被 `test_profit_line_daily_staircase` 的「逐日连续」断言当场抓住。
+
+    流水日已晚于 `until`（脏数据 / 未来日期）时，区间内照补、末端不补：
+    倒着补会造出 `until` 之后的多余点。
+    """
+    if not line:
+        return line
+    filled: List[Dict] = []
+    prev_day: Optional[dt.date] = None
+    prev_values: Optional[Dict] = None
+    for point in line:
+        day = dt.date.fromisoformat(point['date'])
+        if prev_day is not None and prev_values is not None:
+            gap_day = prev_day + dt.timedelta(days=1)
+            while gap_day < day:
+                filled.append(
+                    {
+                        'date': gap_day.isoformat(),
+                        'realized_yuan': prev_values['realized_yuan'],
+                        'invested_yuan': prev_values['invested_yuan'],
+                    }
+                )
+                gap_day += dt.timedelta(days=1)
+        filled.append(point)
+        prev_day = day
+        prev_values = point
+
+    if prev_day is None or prev_values is None or prev_day >= until:
+        return filled
+    day = prev_day + dt.timedelta(days=1)
+    while day <= until:
+        filled.append(
+            {
+                'date': day.isoformat(),
+                'realized_yuan': prev_values['realized_yuan'],
+                'invested_yuan': prev_values['invested_yuan'],
+            }
+        )
+        day += dt.timedelta(days=1)
+    return filled
 
 
 def empty_trade_timeline(symbol: str) -> Dict:
@@ -177,14 +248,13 @@ def build_trade_timeline(
     if not code:
         raise ValueError('缺少 symbol 参数')
 
-    # 两步读（数据策略 §3）：先用持仓侧拿真实 symbol 写法，再对交易表做 IN。
+    # 身份键匹配（#1662 遗留项）：原先走「两步读」——先用持仓侧拿真实写法、再对交易表 IN。
+    # 该前提是「持仓与流水写法一致」，而实测持仓 `001937`、流水 `SZ001937`，`IN` 一条也命中
+    # 不了，正是「历轮买卖」薄数据的成因。现两侧都有符号身份，直接在同一口径上判定。
     # 不过滤 quantity——清仓行的流水同样是重放对象（#2171「历轮买卖」）。
-    positions: List[Position] = query_positions_by_symbol(db, code, family_id)
-    variants = collect_transaction_symbol_variants(code, positions)
-
     query = db.query(Transaction).filter(
         Transaction.family_id == family_id,
-        Transaction.symbol.in_(sorted(variants)),
+        or_(*build_transaction_symbol_conditions(code)),
     )
     if ledger_id is not None:
         query = query.filter(Transaction.ledger_id == ledger_id)
@@ -254,10 +324,15 @@ def build_trade_timeline(
             dividend_count += 1
             total_dividend_cents += amount_cents
             total_fee_cents += fee_cents
-        elif txn_type in ('sell', 'withdraw'):
-            # 卖出 / 取出：移动加权——剩余成本按剩余份额**比例缩减**（成本率不变），
+        elif txn_type in _DIVEST_TYPES:
+            # 卖出 / 取出 / 债券兑付：移动加权——剩余成本按剩余份额**比例缩减**（成本率不变），
             # 全部清空则成本归零（否则新一轮建仓会续上前轮成本，#2171 实测教训）。
             # 注意「成本总额不变」是错的：那会让成本率随减持被动抬升。
+            #
+            # 兑付与卖出共用这一段是因为会计语义相同（份额减少、成本按比例释放），
+            # 差异只在金额口径——兑付的 amount 是到账净额（含应计利息），卖出的是
+            # 价格×数量毛额。两者都用「amount − fee − 释放成本」这一个算式，
+            # 前提是 amount 的口径各自成立（兑付见 pnl_service.compute_redeem_realized_cents）。
             remaining = qty_units - qty
             if remaining > 0:
                 cost_cents = int(cost_cents * remaining / qty_units)
@@ -269,10 +344,14 @@ def build_trade_timeline(
             contribution_cents = (amount_cents - fee_cents) - released_cents
             realized_cents += contribution_cents
             qty_units = remaining
-            if txn_type == 'sell':
+            if txn_type in ('sell', 'bond_redeem'):
+                # 兑付计入「累计卖出金额」（它确实是回款），但不计入 sell_count：
+                # 兑付是被动退出，不是用户的卖出决策，混进决策计数会让「卖出 N 笔」
+                # 与买卖点个数对不上。
                 total_sell_cents += amount_cents
                 total_fee_cents += fee_cents
-                sell_count += 1
+                if txn_type == 'sell':
+                    sell_count += 1
             else:
                 total_fee_cents += fee_cents
         elif txn_type in _DIVIDEND_TYPES:
@@ -375,6 +454,44 @@ def build_trade_timeline(
         'points': points,
         'cost_line': cost_line,
         'contributions': contributions,
-        'profit_line': profit_line,
+        # #2857：补齐为逐日阶梯（口径与 WHY 见 `_extend_profit_line_daily`）
+        'profit_line': _extend_profit_line_daily(profit_line, today_shanghai()),
         'summary': summary,
+    }
+
+
+def build_contribution_map(
+    db: Session,
+    *,
+    symbol: str,
+    family_id: int,
+    ledger_id: Optional[int] = None,
+) -> Dict[int, Dict[str, Optional[float]]]:
+    """交易 id → 「当时成本 / 收益贡献」两列的映射（#2857）。
+
+    交易记录列表原先靠**第二个请求**（`/api/products/trade-timeline/`）取 contributions，
+    再在前端按 `txn_id ↔ row.id` 关联。这套结构的失效方式是静默的：两个请求各自取数，
+    一个到了、一个没到，界面就只剩一列 `--`，而且没有日志、没有提示——
+    用户无法分辨「本来就空」「请求失败」「关联不上」三者中的哪一种。
+
+    收进主表响应后只剩一次请求、一份口径。代价是该标的流水的一次内存重放
+    （`build_trade_timeline`，与走势卡叠加层同一函数）：本机最长的标的 54 笔买卖 / 百余行
+    流水，远低于任何需要缓存的门槛。
+
+    **仅当调用方按 `symbol` 过滤时才该调用**（账本全量列表逐页重放等于白烧 CPU，
+    且那些页面根本不显示这两列）。
+
+    Returns:
+        `{txn_id: {'cost_after_yuan': ..., 'profit_contribution_yuan': ...}}`。
+        未参与重放的类型（拆分 / 扣税 / 其他 / 无日期）不在映射里——查不到即「无口径」，
+        由调用方落 `None`（前端渲染 `--`），**不要**退回 `0.0`：那会把「没有数据」
+        伪装成「这笔不赚钱」。
+    """
+    timeline = build_trade_timeline(db, symbol=symbol, family_id=family_id, ledger_id=ledger_id)
+    return {
+        row['txn_id']: {
+            'cost_after_yuan': row['cost_after_yuan'],
+            'profit_contribution_yuan': row['profit_contribution_yuan'],
+        }
+        for row in timeline['contributions']
     }

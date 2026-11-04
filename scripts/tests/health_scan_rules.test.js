@@ -18,43 +18,31 @@
  * 零新依赖（只用 Node 内置 node:test / node:assert）。行为断言通过子进程调用 **真实**
  * Python 解释器跑 `issue_health_scan` 的纯函数（`closer_refs` / `classify` / `dedupe_bd`），
  * 不是在 JS 里复刻一份逻辑——复刻等于把被测逻辑抄一份，抄错的那份才是绿的。
- * 若环境里找不到 Python，行为用例会显式 skip 并打印原因，静态口径断言仍然执行。
+ * 若环境里找不到 Python，本文件在**模块加载期**就报错退出（原先的 `behavioral.skip`
+ * 已废弃：`node --test` 里 skip 的用例既不算通过也不算失败、退出码仍是 0，对 CI 和对人
+ * 都是「绿」，而守卫脚本一次都没跑 —— 那正是 #119 那批假绿的同一种形态）。
  */
 
-'use strict';
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const assert = require('node:assert/strict');
-const { test } = require('node:test');
-const { spawnSync } = require('node:child_process');
-const fs = require('node:fs');
-const path = require('node:path');
+import { pythonOrFail } from './_python-interpreter.mjs';
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SRC = fs.readFileSync(
   path.join(REPO_ROOT, 'scripts', 'issue_health_scan.py'),
   'utf8',
 );
 
 // ---------------------------------------------------------------------------
-// Python 解释器探测（行为断言用；CI 的 ubuntu-latest 自带 python3）
+// Python 解释器：探测只此一份（`_python-interpreter.mjs`），取不到即加载期抛错
 // ---------------------------------------------------------------------------
 
-function findPython() {
-  const candidates = [];
-  if (process.env.PYTHON) candidates.push([process.env.PYTHON]);
-  if (process.platform === 'win32') {
-    candidates.push(['python'], ['py', '-3']);
-  } else {
-    candidates.push(['python3'], ['python']);
-  }
-  for (const args of candidates) {
-    const r = spawnSync(args[0], [...args.slice(1), '--version'], { encoding: 'utf8' });
-    if (!r.error && r.status === 0) return args;
-  }
-  return null;
-}
-
-const PYTHON = findPython();
+const PYTHON = pythonOrFail();
 const PY_SNIPPET = `
 import json, sys
 sys.path.insert(0, r'scripts')
@@ -64,7 +52,6 @@ print(json.dumps(eval(r"""__EXPR__"""), ensure_ascii=True, default=list))
 
 /** 在真实 Python 里求值一个表达式，返回 JSON 解析后的结果。 */
 function py(expr) {
-  if (!PYTHON) throw new Error('找不到 Python 解释器');
   const r = spawnSync(PYTHON[0], [...PYTHON.slice(1), '-c', PY_SNIPPET.replace('__EXPR__', expr)], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
@@ -80,16 +67,11 @@ function py(expr) {
 const refs = (bodyLiteral) =>
   py(`[sorted(m.closer_refs(${bodyLiteral})[0]), sorted(m.closer_refs(${bodyLiteral})[1])]`);
 
-/** 只在有 Python 时执行的行为用例。 */
-const behavioral = {
-  skip: PYTHON ? false : '本机找不到 Python 解释器，行为断言跳过（静态断言仍执行）',
-};
-
 // ---------------------------------------------------------------------------
 // 项 1：closing keyword 带括号限定词 → 从 A 降级为 B
 // ---------------------------------------------------------------------------
 
-test('项1·无限定词的 closing keyword 仍算 A 类强信号', behavioral, () => {
+test('项1·无限定词的 closing keyword 仍算 A 类强信号', () => {
   assert.deepEqual(refs("'Closes #1915'"), [[1915], []]);
   assert.deepEqual(refs("'fixes #1286'"), [[1286], []]);
   assert.deepEqual(refs("'Resolves #12, resolves #13'"), [[12, 13], []]);
@@ -100,7 +82,7 @@ test('项1·无限定词的 closing keyword 仍算 A 类强信号', behavioral, 
   assert.deepEqual(refs("'resolve #13'"), [[], []]);
 });
 
-test('项1·括号限定词（部分 / 仅 / …）降级，不进 A 类', behavioral, () => {
+test('项1·括号限定词（部分 / 仅 / …）降级，不进 A 类', () => {
   // 本轮实证的三个真实写法
   assert.deepEqual(refs("'Closes #1286（数据底座部分）'"), [[], [1286]]);
   assert.deepEqual(refs("'Closes #1285（仅备注编辑部分）'"), [[], [1285]]);
@@ -109,18 +91,18 @@ test('项1·括号限定词（部分 / 仅 / …）降级，不进 A 类', behav
   assert.deepEqual(refs("'Fixes #20 (part only)'"), [[], [20]]);
 });
 
-test('项1·换行后再出现的括号不算本次 keyword 的限定词', behavioral, () => {
+test('项1·换行后再出现的括号不算本次 keyword 的限定词', () => {
   // 降级只看紧随其后的括号：正文别处谈「部分」不能把强信号降级掉
   assert.deepEqual(refs("'Closes #10\\n\\n（部分说明见 PR 描述）'"), [[10], []]);
   // 同段紧跟（允许空格）才算限定
   assert.deepEqual(refs("'Closes #10 （仅前端）'"), [[], [10]]);
 });
 
-test('项1·同一编号同时有强信号与限定信号时以强信号为准', behavioral, () => {
+test('项1·同一编号同时有强信号与限定信号时以强信号为准', () => {
   assert.deepEqual(refs("'Closes #10\\n\\nCloses #10（部分）'"), [[10], [10]]);
 });
 
-test('项1·classify 把限定降级判成 B 而非 A', behavioral, () => {
+test('项1·classify 把限定降级判成 B 而非 A', () => {
   const c = 'm.classify';
   const issue = "{'number': 1286, 'title': 'feat: shu ju di diao'}";
   // 有限定词 closer：closers 为空（closer_refs 已降级），但关联 PR 已合入 → B
@@ -133,7 +115,7 @@ test('项1·classify 把限定降级判成 B 而非 A', behavioral, () => {
   assert.equal(py(`${c}(${issue}, [], [], [], [])`), null);
 });
 
-test('项1·split_closers 把已合入 PR 分成 closer / 降级两拨（scan 路径的守门）', behavioral, () => {
+test('项1·split_closers 把已合入 PR 分成 closer / 降级两拨（scan 路径的守门）', () => {
   // 强信号：PR 正文里是裸 keyword
   assert.deepEqual(py(`list(m.split_closers(10, [1900], m.closer_refs('Closes #10')))`), [
     [1900],
@@ -167,13 +149,13 @@ const ALERT_ISSUE = '{"number": 1490, "title": "【自动告警】每日调度 d
 const TRACKER_ISSUE = '{"number": 1709, "title": "Issue 体检周报（固定跟踪卡）"}';
 const NORMAL_ISSUE = '{"number": 1908, "title": "fix(health-scan): 五项修正"}';
 
-test('项2·【自动告警】与固定跟踪卡识别为 TRACK_ONLY', behavioral, () => {
+test('项2·【自动告警】与固定跟踪卡识别为 TRACK_ONLY', () => {
   assert.equal(py(`m.is_track_only(${ALERT_ISSUE})`), true);
   assert.equal(py(`m.is_track_only(${TRACKER_ISSUE})`), true);
   assert.equal(py(`m.is_track_only(${NORMAL_ISSUE})`), false);
 });
 
-test('项2·TRACK_ONLY 卡即便有关联 PR 合入也不进 A/B', behavioral, () => {
+test('项2·TRACK_ONLY 卡即便有关联 PR 合入也不进 A/B', () => {
   assert.equal(py(`m.classify(${ALERT_ISSUE}, [1900], [], [1900], [])`), 'TRACK_ONLY');
 });
 
@@ -181,7 +163,7 @@ test('项2·TRACK_ONLY 卡即便有关联 PR 合入也不进 A/B', behavioral, (
 // 项 4：B∩D 去重（同一张卡只出一处）
 // ---------------------------------------------------------------------------
 
-test('项4·同时命中 B 与 D 的卡只保留在 D，B 侧返回编号供附注', behavioral, () => {
+test('项4·同时命中 B 与 D 的卡只保留在 D，B 侧返回编号供附注', () => {
   const weak = "[({'number': 1028}, [1900], ''), ({'number': 1764}, [1901], '')]";
   const stale = "[{'number': 1028}]";
   const kept = py(
@@ -191,7 +173,7 @@ test('项4·同时命中 B 与 D 的卡只保留在 D，B 侧返回编号供附�
   assert.deepEqual(py(`m.dedupe_bd(${weak}, ${stale})[1]`), [1028]);
 });
 
-test('项4·无重叠时 B 侧原样保留、附注为空', behavioral, () => {
+test('项4·无重叠时 B 侧原样保留、附注为空', () => {
   const weak = "[({'number': 1764}, [1901], '')]";
   const stale = "[{'number': 1028}]";
   const res = py(
@@ -200,7 +182,7 @@ test('项4·无重叠时 B 侧原样保留、附注为空', behavioral, () => {
   assert.deepEqual(res, [1764, []]);
 });
 
-test('项4·本轮实证的四个重叠卡（#1028/#1014/#894/#808）全部只进 D', behavioral, () => {
+test('项4·本轮实证的四个重叠卡（#1028/#1014/#894/#808）全部只进 D', () => {
   const weak =
     "[({'number': 1028}, [1], ''), ({'number': 1014}, [2], '')," +
     " ({'number': 894}, [3], ''), ({'number': 808}, [4], '')]";
@@ -225,14 +207,14 @@ const report = (over) =>
 const WEAK_1028 = "({'number': 1028, 'title': '债务卡', 'labels': [], 'updated_at': '2026-01-01T00:00:00Z'}, [1900], '')";
 const WEAK_1764 = "({'number': 1764, 'title': 'feat 卡', 'labels': [], 'updated_at': '2026-01-01T00:00:00Z'}, [1901], '')";
 
-test('项3·B 类不再叫「可关候选」，改「已合 PR 待复核」', behavioral, () => {
+test('项3·B 类不再叫「可关候选」，改「已合 PR 待复核」', () => {
   const out = report({ weak: `[${WEAK_1764}]` });
   assert.ok(out.includes('### B. 已合 PR 待复核'), 'B 段标题应为「已合 PR 待复核」');
   assert.ok(!out.includes('可关候选'), '报告里不应再出现「可关候选」这一误导措辞');
   assert.ok(out.includes('不等于验收达成'), '处置约定须写明「有过合入 ≠ 验收达成」');
 });
 
-test('项4·B∩D 重叠卡只在 D 出现，B 段给出附注', behavioral, () => {
+test('项4·B∩D 重叠卡只在 D 出现，B 段给出附注', () => {
   const stale =
     "[{'number': 1028, 'title': '债务卡', 'labels': [], 'updated_at': '2026-01-01T00:00:00Z'}]";
   // 端到端：去重发生在 scan() 里，故这里复现真实调用链 dedupe_bd → render
@@ -257,7 +239,7 @@ test('项4·B∩D 重叠卡只在 D 出现，B 段给出附注', behavioral, () 
   assert.ok(dSection.includes('#1028'), 'D 段应保留重叠卡 #1028');
 });
 
-test('项4·限定降级的卡在 B 段带降级标注', behavioral, () => {
+test('项4·限定降级的卡在 B 段带降级标注', () => {
   const weak =
     "({'number': 1286, 'title': 'feat 数据底座', 'labels': [], 'updated_at': '2026-01-01T00:00:00Z'}, [1900], ' | closing keyword 带括号限定词，已从 A 降级待复核')";
   const out = report({ weak: `[${weak}]` });
@@ -266,7 +248,7 @@ test('项4·限定降级的卡在 B 段带降级标注', behavioral, () => {
   assert.ok(bSection.includes('已从 A 降级待复核'), '降级卡应带说明，便于人工复核');
 });
 
-test('项2·被排除的两类卡在报告里单独说明', behavioral, () => {
+test('项2·被排除的两类卡在报告里单独说明', () => {
   const out = report({
     track: "[{'number': 1490}, {'number': 1709}]",
   });
@@ -274,7 +256,7 @@ test('项2·被排除的两类卡在报告里单独说明', behavioral, () => {
   assert.ok(out.includes('按生命周期排除'), '应说明这两类卡被排除的理由');
 });
 
-test('项5·报告正文不再引用被证伪的 #1349 反例', behavioral, () => {
+test('项5·报告正文不再引用被证伪的 #1349 反例', () => {
   const out = report({});
   assert.ok(!out.includes('#1349'), '报告不应再引用 #1349 作反例');
 });
