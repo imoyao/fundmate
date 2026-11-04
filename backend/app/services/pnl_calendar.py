@@ -214,6 +214,22 @@ def _as_of_shares(
 
     份额取 `transactions.quantity`（0.0001 份/单位，与 Position.quantity 同尺度）。
 
+    ## 必须同时认「快照锚点」（2026-11-04 实测：30 万基金只算出十几万）
+
+    `positions.quantity` 是**派生值**：
+    `snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)`，唯一入口是
+    `position_service.compute_anchored_state`。只累计流水会漏掉整个快照——用户通过
+    「导入当前持仓」建立的仓位（`upsert_from_holding` 写快照 + 锚点日，没有对应买入
+    流水）在这里份额恒为 0 ⇒ 日历 / 首页**整笔不计市值**；账户页按 `positions.quantity`
+    算，两个数正好差一个快照。这是「账户页基金 30 万、首页十几万」的根因。
+
+    边界与 `compute_anchored_state` 完全一致：`confirm_date <= snapshot_date` 的流水
+    视为「已被快照包含」，不再计入份额（重复计就是 012708 精确 2 倍的旧病）；
+    但它的 `realized_pnl` 仍要累计——它是「累计已实现」的组成，跳过会让
+    `mv − cost + realized` 配不平。
+    `ownership_status == 'shadow'`（E 账户影子行）不走锚点：影子记录只写
+    `position_import_meta`，没有 positions 层锚点（同一判据见 `compute_anchored_state`）。
+
     **口径：按持仓归集，流水不按 `ledger_id` 过滤**（#1916）。
     既有权威口径 `get_ledger_pnl`（#1220）就是 `key = p.ledger_id or 0` 按持仓分组，
     而 `realized_pnl_by_position` / `net_invested_by_position` 只按 `family_id` 过滤、
@@ -229,6 +245,21 @@ def _as_of_shares(
         Transaction.position_id.isnot(None),
     )
 
+    # 快照锚点 {position_id: (快照份额, 快照日)}。同样**不按 ledger 过滤**：
+    # 与上面流水的归集口径一致，否则账户级视图会因「锚点记在别的账户」再漏一次。
+    anchors: Dict[int, Tuple[int, dt.date]] = {}
+    for pid, snap_qty, snap_date in (
+        db.query(Position.id, Position.snapshot_quantity, Position.snapshot_date)
+        .filter(
+            Position.family_id == family_id,
+            Position.snapshot_quantity.isnot(None),
+            Position.snapshot_date.isnot(None),
+            Position.ownership_status != 'shadow',
+        )
+        .all()
+    ):
+        anchors[pid] = (int(snap_qty or 0), snap_date)
+
     shares: Dict[int, Dict[dt.date, int]] = defaultdict(dict)
     txns: Dict[int, List[Transaction]] = defaultdict(list)
 
@@ -237,6 +268,12 @@ def _as_of_shares(
         if eff is None or eff > start:
             continue
         pid = txn.position_id
+        anchor = anchors.get(pid)
+        if anchor is not None and eff <= anchor[1]:
+            # 份额已含在快照里，但已实现盈亏是累计量，仍要留着（见 docstring）
+            if txn.txn_type in _INVEST_TXN_TYPES or txn.txn_type in _DIVEST_TXN_TYPES:
+                txns[pid].append(txn)
+            continue
         if txn.txn_type in _INVEST_TXN_TYPES:
             shares[pid][eff] = shares[pid].get(eff, 0) + (txn.quantity or 0)
         elif txn.txn_type in _DIVEST_TXN_TYPES:
@@ -246,6 +283,12 @@ def _as_of_shares(
             continue
         # realized_pnl 存在流水上（清仓删持仓也不丢），as-of 已实现盈亏靠它累计
         txns[pid].append(txn)
+
+    # 快照份额按「锚点日的增量」注入：`_build_per_pos` 会把 `d < scan_start` 的
+    # 增量折进起始份额，故锚点落在窗口之前也能被正确继承。
+    for pid, (snap_qty, snap_date) in anchors.items():
+        if snap_qty:
+            shares[pid][snap_date] = shares[pid].get(snap_date, 0) + snap_qty
 
     return shares, txns
 
