@@ -239,10 +239,47 @@ def _as_of_shares(
 
     `ledger_id` 参数**仅用于缩小查询范围做性能优化时也必须保持口径一致**，
     因此这里刻意不使用它过滤——保持与既有 service 完全一致。
+
+    ## 终点锚：份额唯一事实源是 `positions.quantity`（2026-11-04）
+
+    上面两条（流水 + 快照）合起来仍是**正向重算一遍份额**，与账户页读的
+    `positions.quantity` 是两套独立事实源。只要有一处对不上，就出现
+    「账户页 12,617 / 首页 4,477」这种同标的两个市值：真实库 `SH688223`
+    的 `quantity` 3,100 份、流水净额 5,100 份、引擎算出 1,100 份，三者互不相同；
+    `015916` 反过来，引擎按流水算出 14,888 份而 `quantity` 只有 1.49 份，
+    首页**多算** 21,795.56。回填快照锚点只能救「有锚点」那一半，
+    `write_anchor=False` 的导入行（只写 `quantity`）与人工改过量的行依旧分叉。
+
+    故这里改为**倒推**：把正向累加得到的按日增量当作「相对变化」，再用
+    `positions.quantity` 校准终点——
+
+        correction = quantity − Σ(全部按日增量)
+        shares[pid][1970-01-01] += correction
+
+    校准量注入到**早于任何查询窗口**的固定日期，`_build_per_pos` 会把它折进
+    起始份额。于是任一日的份额都满足
+    `Q(day) = quantity − Σ_{t > day} Δ(t)`：终点恒等于账户页那个 `quantity`，
+    而相邻两日之差仍是当天的流水净额 ⇒ **历史每日收益一个字都不变**。
+    未来日流水（预约单）也自然被排除在今天的份额之外。
+
+    这是「一直生效」而不是一次性回填脚本：新导入 / 手动校准的持仓只要
+    `quantity` 是权威值，收益引擎就自动对齐，不需要再跑任何修复工具；
+    `asset_snapshots` 的历史口径完全不碰。
     """
     query = db.query(Transaction).filter(
         Transaction.family_id == family_id,
         Transaction.position_id.isnot(None),
+    )
+
+    # 唯一事实源：账户页、聚合页、summary 读的都是这个派生值
+    # （`position_service.compute_anchored_state` 的输出）。
+    current_qty: Dict[int, int] = dict(
+        db.query(Position.id, Position.quantity)
+        .filter(
+            Position.family_id == family_id,
+            Position.ownership_status == 'active',
+        )
+        .all()
     )
 
     # 快照锚点 {position_id: (快照份额, 快照日)}。同样**不按 ledger 过滤**：
@@ -260,35 +297,53 @@ def _as_of_shares(
     ):
         anchors[pid] = (int(snap_qty or 0), snap_date)
 
-    shares: Dict[int, Dict[dt.date, int]] = defaultdict(dict)
+    # 按日增量必须取**全量流水**（不按 start 截断）：倒推今天的份额需要知道
+    # `start` 之后发生了什么；返回值里的 shares / txns 仍只保留 `<= start`。
+    deltas: Dict[int, Dict[dt.date, int]] = defaultdict(dict)
     txns: Dict[int, List[Transaction]] = defaultdict(list)
 
     for txn in query.all():
         eff = _effective_date(txn)
-        if eff is None or eff > start:
+        if eff is None:
             continue
         pid = txn.position_id
         anchor = anchors.get(pid)
         if anchor is not None and eff <= anchor[1]:
             # 份额已含在快照里，但已实现盈亏是累计量，仍要留着（见 docstring）
-            if txn.txn_type in _INVEST_TXN_TYPES or txn.txn_type in _DIVEST_TXN_TYPES:
+            if eff <= start and (txn.txn_type in _INVEST_TXN_TYPES or txn.txn_type in _DIVEST_TXN_TYPES):
                 txns[pid].append(txn)
             continue
         if txn.txn_type in _INVEST_TXN_TYPES:
-            shares[pid][eff] = shares[pid].get(eff, 0) + (txn.quantity or 0)
+            deltas[pid][eff] = deltas[pid].get(eff, 0) + (txn.quantity or 0)
         elif txn.txn_type in _DIVEST_TXN_TYPES:
-            shares[pid][eff] = shares[pid].get(eff, 0) - (txn.quantity or 0)
+            deltas[pid][eff] = deltas[pid].get(eff, 0) - (txn.quantity or 0)
         else:
             # 分红 / 手续费等其他类型不改变份额
             continue
         # realized_pnl 存在流水上（清仓删持仓也不丢），as-of 已实现盈亏靠它累计
-        txns[pid].append(txn)
+        if eff <= start:
+            txns[pid].append(txn)
 
     # 快照份额按「锚点日的增量」注入：`_build_per_pos` 会把 `d < scan_start` 的
     # 增量折进起始份额，故锚点落在窗口之前也能被正确继承。
     for pid, (snap_qty, snap_date) in anchors.items():
         if snap_qty:
-            shares[pid][snap_date] = shares[pid].get(snap_date, 0) + snap_qty
+            deltas[pid][snap_date] = deltas[pid].get(snap_date, 0) + snap_qty
+
+    # 终点锚校准：让 Σ(全部增量) 严格等于 `positions.quantity`。
+    # 校准量放在早于任何窗口的固定日期，只改变**绝对水平**、不改变任意相邻
+    # 两日之差 ⇒ 历史每日收益不受影响，但市值从此与账户页同源。
+    epoch = dt.date(1970, 1, 1)
+    shares: Dict[int, Dict[dt.date, int]] = defaultdict(dict)
+    for pid, by_day in deltas.items():
+        target = current_qty.get(pid)
+        if target is not None:
+            correction = int(target or 0) - sum(by_day.values())
+            if correction:
+                by_day[epoch] = by_day.get(epoch, 0) + correction
+        for day, qty in by_day.items():
+            if day <= start:
+                shares[pid][day] = shares[pid].get(day, 0) + qty
 
     return shares, txns
 

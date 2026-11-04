@@ -134,7 +134,10 @@ def test_已实现盈亏进品种贡献(db, make_position, make_transaction):
     """
     d1, d2, d3 = dt.date(2026, 1, 5), dt.date(2026, 1, 6), dt.date(2026, 1, 7)
 
-    pos = make_position(symbol='000105', name='清仓基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    # quantity 是「当前份额」的派生值：买 1000 后卖 500 ⇒ 当前应为 500。
+    # 写成 1000 会与流水自相矛盾，终点锚校准（_as_of_shares 以 quantity 为准）
+    # 就会多注入 500 份，把本用例的 +200 改成 +150。
+    pos = make_position(symbol='000105', name='清仓基金', quantity=500, avg_price=1.0, asset_type='fund')
     make_transaction(
         position_id=pos.id,
         ledger_id=pos.ledger_id,

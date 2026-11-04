@@ -245,6 +245,34 @@ describe("盘中替换后的占比", () => {
 });
 
 describe("todayPnlSubtitle / formatMonthDay", () => {
+  it("无当日报价标的 ⇒ 副标题说明「市值已按快照价计入」，不把缺失画成静默", () => {
+    expect(
+      todayPnlSubtitle({
+        status: "confirmed",
+        isToday: true,
+        date: "2026-11-03",
+        unvaluedCount: 13
+      })
+    ).toBe("官方净值已确认 · 13 只暂无报价 · 市值按快照价计入");
+    // 回退到上一交易日时也要带上，别让口径注解被日期标签吃掉
+    expect(
+      todayPnlSubtitle({
+        status: "partial",
+        isToday: false,
+        date: "2026-11-02",
+        unvaluedCount: 5
+      })
+    ).toBe("最近交易日 11月2日 · 5 只暂无报价 · 市值按快照价计入");
+    // 没有这类标的时保持原文案，不改既有展示
+    expect(
+      todayPnlSubtitle({
+        status: "partial",
+        isToday: true,
+        date: "2026-11-03"
+      })
+    ).toBe("部分标的本日尚无报价");
+  });
+
   it("盘中替换过 ⇒ 带上更新时间；收盘估值 ⇒ 说明会自动确认", () => {
     expect(
       todayPnlSubtitle({

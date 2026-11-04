@@ -19,7 +19,8 @@ import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
 import {
   applyPriceOverlay,
   shanghaiTodayIso,
-  todayPnlSubtitle
+  todayPnlSubtitle,
+  unvaluedNote
 } from "./todayPnlOverlay";
 
 /** 官方净值公布时间不定（19:00~23:00 都有），收盘后低频问一次即可 */
@@ -117,14 +118,17 @@ export function useTodayPnl(options: UseTodayPnlOptions = {}) {
     const current = view.value;
     if (!current) return "";
     if (live.value) {
-      return realtime.lastUpdateTime.value
+      const base = realtime.lastUpdateTime.value
         ? `盘中估值 · 更新于 ${realtime.lastUpdateTime.value}`
         : "盘中估值 · 随行情刷新";
+      const note = unvaluedNote(current.unvalued_count);
+      return note ? `${base} · ${note}` : base;
     }
     return todayPnlSubtitle({
       status: current.status,
       isToday: current.is_today,
-      date: current.date
+      date: current.date,
+      unvaluedCount: current.unvalued_count
     });
   });
 

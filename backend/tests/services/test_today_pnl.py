@@ -58,7 +58,17 @@ def _seed_stock(db, make_position, make_transaction, symbol='SH600519', quantity
     sec = Security(symbol=symbol, name='测试股', market='CN_A', type='stock')
     db.add(sec)
     db.commit()
-    pos = make_position(symbol=symbol, name='测试股', quantity=quantity, avg_price=cost, asset_type='stock')
+    # 账户页 / 首页市值都走 `market_value_cents`（读 current_price 快照价）。
+    # 夹具必须把快照价写成与当日收盘价一致，否则会造出「引擎有价、账本没价」
+    # 的假数据，测出来的市值少一整类。
+    pos = make_position(
+        symbol=symbol,
+        name='测试股',
+        quantity=quantity,
+        avg_price=cost,
+        asset_type='stock',
+        current_price=11.0,
+    )
     make_transaction(
         position_id=pos.id,
         ledger_id=pos.ledger_id,
@@ -72,7 +82,16 @@ def _seed_stock(db, make_position, make_transaction, symbol='SH600519', quantity
 
 
 def _seed_fund(db, make_position, make_transaction, code='000001', quantity=1000, cost=1.0):
-    pos = make_position(symbol=code, name='测试基金', quantity=quantity, avg_price=cost, asset_type='fund')
+    # 场外优先用 `NavService` 最新净值；没有净值行时 `market_value_cents` 回退
+    # current_price，故这里也要给出与当日净值一致的快照价。
+    pos = make_position(
+        symbol=code,
+        name='测试基金',
+        quantity=quantity,
+        avg_price=cost,
+        asset_type='fund',
+        current_price=1.1,
+    )
     make_transaction(
         position_id=pos.id,
         ledger_id=pos.ledger_id,
@@ -266,10 +285,9 @@ def test_占比由后端直出且分子分母与卡面同源(db, make_position, 
     _nav(db, '000001', OLDER, 1.0)
     _nav(db, '000001', PREV, 1.0)
     _nav(db, '000001', TODAY, 1.1)
-    # 分母走 `family_totals` → `market_value_cents` → **持仓快照价**（current_price），
-    # 而分子走 pnl 引擎 → **历史价格序列**。两者是两条取价路径，测试里必须把快照价
-    # 也写成同一个数，否则会得到「投资类资产 2,200、家庭总资产 1,800」这种
-    # 分子大于分母的假象（实测踩过：占比 122%）。
+    # 分子（`market_value_cents` 逐持仓求和）与分母（`family_totals`）现在同口径；
+    # 夹具仍显式写一次快照价，是为了钉住「价格序列与持仓快照价一致」这个前提
+    # （历史上这里踩过占比 122% 的假象：分子 2,200、分母 1,800）。
     stock_pos.current_price = Money.yuan_to_price_units(11.0)
     fund_pos.current_price = Money.yuan_to_price_units(1.1)
     db.commit()
@@ -326,3 +344,97 @@ def test_家庭聚合失败只降级占比不拖垮整卡(db, make_position, mak
     assert data['total_pnl'] == pytest.approx(200.0)
     assert data['invested_value'] == pytest.approx(2200.0)
     assert sum(item['share_of_invested'] for item in data['classes']) == pytest.approx(100.0)
+
+
+# ── 全站一本账（2026-11-04）：以下三条是「一直生效」的守卫 ──────────────
+# 历史上首页市值取自 pnl 引擎的「当日价 × 引擎自算份额」，账户页取自
+# `market_value_cents`（当前价 × `positions.quantity`），两套算法分叉出
+# 93,712.70 的差额。任何人再把市值改回第二套口径，这三条都会红。
+
+
+def test_首页市值与两张账户页同函数同值(db, make_position, make_transaction, frozen_today):
+    """`/stocks` + `/funds` 的总市值 = 首页「投资类资产」，逐类也要相等。"""
+    from app.services.position_aggregation import (
+        get_fund_aggregation,
+        get_securities_aggregation,
+    )
+
+    sec, _ = _seed_stock(db, make_position, make_transaction)
+    _seed_fund(db, make_position, make_transaction)
+    _bar(db, sec.id, 'SH600519', OLDER, 10.0)
+    _bar(db, sec.id, 'SH600519', PREV, 10.0)
+    _bar(db, sec.id, 'SH600519', TODAY, 11.0)
+    _nav(db, '000001', OLDER, 1.0)
+    _nav(db, '000001', PREV, 1.0)
+    _nav(db, '000001', TODAY, 1.1)
+
+    opts = {'dimension': 'product', 'page': 1, 'page_size': 0}
+    stocks = Money.cents_to_yuan(get_securities_aggregation(db, 1, **opts)['total_market_value_cents'])
+    funds = Money.cents_to_yuan(get_fund_aggregation(db, 1, **opts)['total_market_value_cents'])
+
+    data = build_today_pnl(db, family_id=1)
+    by_key = {c['key']: c for c in data['classes']}
+    assert by_key['stock']['market_value'] == pytest.approx(stocks)
+    assert by_key['fund']['market_value'] == pytest.approx(funds)
+    assert data['invested_value'] == pytest.approx(stocks + funds)
+    assert sum(c['market_value'] for c in data['classes']) == pytest.approx(data['invested_value'])
+
+
+def test_无当日报价标的市值照样计入但当日收益为None(db, make_position, make_transaction, frozen_today):
+    """导入型 / 停牌标的：市值按账户页同源计，收益不编 0.00。
+
+    对应真实库里的 `026029`（净值恒 1 的组合，无 `daily_worth`）与
+    `SZ127094`（可转债行情停在 4 月）：收益引擎按设计跳过它们，
+    但账户页照常计市值——以前首页就少了这整整一块。
+    """
+    sec, _ = _seed_stock(db, make_position, make_transaction)
+    _bar(db, sec.id, 'SH600519', OLDER, 10.0)
+    _bar(db, sec.id, 'SH600519', PREV, 10.0)
+    _bar(db, sec.id, 'SH600519', TODAY, 11.0)
+    # 无锚点、无流水、无净值序列：模拟 `upsert_from_holding(write_anchor=False)`
+    make_position(
+        symbol='026029',
+        name='净值恒1组合',
+        quantity=5000,
+        avg_price=1.0,
+        current_price=1.0,
+        asset_type='fund',
+    )
+
+    data = build_today_pnl(db, family_id=1)
+    by_key = {c['key']: c for c in data['classes']}
+
+    assert by_key['fund']['market_value'] == pytest.approx(5000.0)
+    assert by_key['fund']['pnl'] is None  # 没数据 ≠ 没赚没亏
+    assert data['unvalued_count'] == 1
+    assert data['unvalued_value'] == pytest.approx(5000.0)
+    assert data['status'] == 'partial'
+    assert data['invested_value'] == pytest.approx(6100.0)
+
+
+def test_份额唯一事实源是positions_quantity(db, make_position, make_transaction, frozen_today):
+    """流水与 `quantity` 不一致时以 `quantity` 为准（终点锚倒推）。
+
+    真实库 `SH688223` 的 quantity=3,100、流水净额=5,100、引擎自算=1,100，
+    三者互不相同；没有这条守卫，新导入 / 手动校准过的持仓会再次分叉。
+    """
+    sec, pos = _seed_stock(db, make_position, make_transaction)
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=50,
+        price=10.0,
+        confirm_date=PREV,
+        symbol='SH600519',
+    )
+    # 人工校准成一个与流水净额（100−50=50）不同的权威份额
+    pos.quantity = Money.shares_to_min_unit(300)
+    db.commit()
+    _bar(db, sec.id, 'SH600519', OLDER, 10.0)
+    _bar(db, sec.id, 'SH600519', PREV, 10.0)
+    _bar(db, sec.id, 'SH600519', TODAY, 11.0)
+
+    data = build_today_pnl(db, family_id=1)
+    holdings = {h['symbol']: h for h in data['holdings']}
+    assert holdings['SH600519']['quantity'] == pytest.approx(300.0)
