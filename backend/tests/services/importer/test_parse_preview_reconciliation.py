@@ -10,6 +10,7 @@ issue 的第 2 条证据：`orchestrator_parse.parse_and_preview` 的 `errors` �
 """
 
 from app.services.importer.orchestrator import ImportOrchestrator
+from app.services.importer.orchestrator_parse import preview_response
 
 COLUMNS = [
     '证券代码',
@@ -88,3 +89,37 @@ def test_parse_and_preview_keeps_zero_loss_files_quiet(db):
     assert result['parse_errors'] == []
     assert result['source_row_count'] == 4
     assert result['ignored_row_count'] == 0
+
+
+def test_preview_response_carries_reconciliation_fields(db):
+    """`/parse/` 响应体必须带齐对账字段（#2854）。
+
+    视图改成 `jsonify(preview_response(result))` 后，字段映射搬到 service；
+    本用例钉住「搬到哪都一样」——四个字段一个都不能在路上丢，
+    否则前端 `rowReconciliation` 只是拿不到数而不是报错，仍然静默。
+    """
+    orch = ImportOrchestrator(db, family_id=1)
+    result = orch.parse_and_preview(
+        _file_bytes('证券买入', '快速取现'),
+        'ths_stock',
+        '测试账户',
+        1,
+    )
+    resp = preview_response(result)
+
+    assert set(resp) >= {
+        'data',
+        'total',
+        'error_count',
+        'duplicate_count',
+        'parse_error_count',
+        'parse_errors',
+        'source_row_count',
+        'ignored_row_count',
+    }
+    assert resp['data'] == result['rows']
+    assert resp['parse_error_count'] == len(resp['parse_errors']) == 1
+    assert resp['source_row_count'] == resp['total'] + resp['parse_error_count'] + resp['ignored_row_count']
+    # 占位键不能因为搬了位置就消失（既有消费方还在读）
+    assert resp['cash_transfer_count'] == 0
+    assert resp['message'] == 'ok'

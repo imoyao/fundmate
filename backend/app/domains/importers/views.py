@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.exceptions import SBException, internal_error_message
 from app.domains.ledgers.models import Ledger
 from app.services.importer.orchestrator import ImportOrchestrator
+from app.services.importer.orchestrator_parse import preview_response
 from app.services.importer.template_config import get_template_filepath, get_template_info
 
 # 蓝图定义
@@ -147,22 +148,7 @@ def parse_file():
                 f'文件解析完成: 文件={file.filename}, 模板={template_key}, '
                 f'总记录={result["total"]}, 错误={result["error_count"]}, 重复={result["duplicate_count"]}'
             )
-            return jsonify(
-                {
-                    'data': result['rows'],
-                    'total': result['total'],
-                    'error_count': result['error_count'],
-                    'duplicate_count': result['duplicate_count'],
-                    'cash_transfer_count': 0,
-                    # #2854 行数对账 + 解析错误明细：errors 曾经是「只写变量」，
-                    # 只要文件里还有别的能解析的行，这些错误就永远到不了响应体。
-                    'parse_error_count': result.get('parse_error_count', 0),
-                    'parse_errors': result.get('parse_errors', []),
-                    'source_row_count': result.get('source_row_count'),
-                    'ignored_row_count': result.get('ignored_row_count', 0),
-                    'message': 'ok',
-                }
-            )
+            return jsonify(preview_response(result))
     except (SBException, ValueError) as e:
         return _txn_parse_error(getattr(e, 'message', str(e)), 400)
     except Exception as e:

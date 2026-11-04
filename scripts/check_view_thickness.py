@@ -216,15 +216,21 @@ BASELINE: dict[str, dict[str, int]] = {
     # commits / max_func 三项实测不动（2/0/39），唯 lines 197 → 263（+66，含端点签名与
     # 口径 docstring）。无可下沉的业务规则，按 `--report` 实测回写。
     "backend/app/domains/importers/views.py": {
+        # 2026-11-04 收紧（#2854，**下沉**而非放宽）：`/parse/` 的响应体字段映射与
+        # 「total 必须与 source_row_count 同时下发」这条对账契约，从视图搬进
+        # `services/importer/orchestrator_parse.preview_response`——视图只留
+        # `jsonify(preview_response(result))`。lines 247 → 239、max_func 52 → 43。
+        # 直接往视图里塞 4 个新字段会让「视图只做编排」当场破口，故本卡先下沉再改。
+        #
         # 2026-10-30 收紧（#2777 脱敏改造，**非放宽**）：两处
         # `except Exception → f'服务器内部错误: {str(e)}'` 改走
         # `core.exceptions.internal_error_message`，顺手删掉重复的
         # `logger.exception`（helper 已把留痕绑进同一次调用）——
         # lines 249 → 247、max_func 53 → 52，其余两维不动。
-        "lines": 247,
+        "lines": 239,
         "orm_queries": 1,
         "commits": 0,
-        "max_func": 52,
+        "max_func": 43,
     },
     # 2026-10-22 收紧（#2497，**下沉**而非放宽）：删除账户的「有数据不可删 + 级联删除
     # 关联数据 + 清理 position_import_meta 引用」下沉到

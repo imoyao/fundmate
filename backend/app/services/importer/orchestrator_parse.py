@@ -523,3 +523,31 @@ class ParsingMixin:
             # 配股缴款数量由比例算出，不走「一手起买」申报校验（#541）
             'skip_lot_check': getattr(record, 'raw_op_type', '') == '配股缴款',
         }
+
+
+def preview_response(result: dict) -> dict:
+    """把 `parse_and_preview` 的结果封成 `/parse/` 的响应体（#2854）。
+
+    放在 service 而不是视图，有两个理由：
+
+    1. 字段映射与「哪些字段必须一起出现」是**业务契约**（`total` 与
+       `source_row_count` 必须同时下发才能对账），不是 HTTP 细节；
+    2. 视图层厚度守卫（`scripts/check_view_thickness.py`）把 `importers/views.py`
+       冻结在 247 行 / max_func 52，本卡新增的 4 个对账字段若直接写进视图，
+       会让「视图只做编排」这条纪律当场破一个口子。
+
+    `cash_transfer_count` 恒为 0 是历史遗留的占位（转账条数由前端按行类型算），
+    保留键名是为了不破坏既有消费方。
+    """
+    return {
+        'data': result['rows'],
+        'total': result['total'],
+        'error_count': result['error_count'],
+        'duplicate_count': result['duplicate_count'],
+        'cash_transfer_count': 0,
+        'parse_error_count': result.get('parse_error_count', 0),
+        'parse_errors': result.get('parse_errors', []),
+        'source_row_count': result.get('source_row_count'),
+        'ignored_row_count': result.get('ignored_row_count', 0),
+        'message': 'ok',
+    }
