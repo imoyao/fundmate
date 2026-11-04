@@ -26,10 +26,7 @@
               :aria-label="masked ? '显示金额' : '隐藏金额'"
               @click="toggleMask"
             >
-              <IconifyIconOffline
-                :icon="masked ? 'ep:hide' : 'ep:view'"
-                class="text-lg"
-              />
+              <BoardActionIcon :name="masked ? 'eye-off' : 'eye'" />
             </button>
           </el-tooltip>
           <router-link
@@ -41,7 +38,7 @@
             }"
             title="查看资产详情"
           >
-            <IconifyIconOffline icon="ep:full-screen" class="text-lg" />
+            <BoardActionIcon name="maximize" />
           </router-link>
         </template>
       </SectionHeader>
@@ -51,6 +48,7 @@
         :subtitle="subtitle"
         :loading="loading"
         :error="error"
+        :show-skeleton="showSkeleton"
         :total-assets="totalAssets"
         :net-assets="netAssets"
         :total-liabilities="totalLiabilities"
@@ -75,8 +73,8 @@
 import { computed } from "vue";
 import type { SummaryData } from "@/api/types";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
 import TodayPnlCard from "./TodayPnlCard.vue";
+import BoardActionIcon from "./BoardActionIcon.vue";
 import { useTodayPnl } from "../composables/useTodayPnl";
 import { usePrivacyMode } from "@/composables/usePrivacyMode";
 
@@ -102,7 +100,7 @@ const liabilityRatio = computed(() => props.summary?.liability_ratio ?? null);
 
 // 「投资类资产占家庭总资产」的分母必须与卡面「家庭总资产」是**同一个数**：
 // 传取值器而非值，summary 异步到时 overlay 会自动重算（详见 useTodayPnl 选项注释）
-const { view, loading, error, subtitle, refresh } = useTodayPnl({
+const { view, loading, error, subtitle, refresh, showSkeleton } = useTodayPnl({
   householdAssets: () => props.summary?.total_assets_cny ?? null
 });
 

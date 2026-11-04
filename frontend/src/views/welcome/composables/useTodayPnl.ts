@@ -16,6 +16,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getTodayPnl, type TodayPnlData } from "@/api/summary";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
+import { useSkeletonThreshold } from "@/composables/useSkeletonThreshold";
 import {
   applyPriceOverlay,
   shanghaiTodayIso,
@@ -46,8 +47,18 @@ export function useTodayPnl(options: UseTodayPnlOptions = {}) {
   /** 只有「一次都没成功过」才算错误态：盘中抖动不该把已有数字清成加载失败 */
   const error = ref(false);
 
+  // 骨架屏 200ms 阈值（docs/design/components.md 铁律 4）：快请求全程不渲染骨架，
+  // 避免「刚出现就消失」的闪屏。本卡实测后端 280~360ms（冷启动 1.5s），
+  // 通常都会越过阈值；家庭口径那一层走 `/api/summary/`（约 60ms），不等这里。
+  const {
+    showSkeleton: skeletonReady,
+    startSkeleton,
+    settleSkeleton
+  } = useSkeletonThreshold();
+
   async function fetchTodayPnl(): Promise<void> {
     loading.value = true;
+    startSkeleton();
     try {
       const res = await getTodayPnl();
       data.value = res?.data ?? null;
@@ -55,9 +66,15 @@ export function useTodayPnl(options: UseTodayPnlOptions = {}) {
     } catch {
       error.value = data.value == null;
     } finally {
+      settleSkeleton();
       loading.value = false;
     }
   }
+
+  /** 已有数据时的后台刷新（收盘确认轮询 / 切回前台）绝不点亮骨架屏 */
+  const showSkeleton = computed(
+    () => skeletonReady.value && data.value == null
+  );
 
   /** 后端当日取价索引（实时行情缺失时的兜底价 + 价格替换的基准） */
   const holdingBySymbol = computed(
@@ -195,6 +212,7 @@ export function useTodayPnl(options: UseTodayPnlOptions = {}) {
     error,
     live,
     subtitle,
+    showSkeleton,
     realtime,
     refresh: fetchTodayPnl
   };
