@@ -74,6 +74,9 @@ async function mockPanorama(page: Page) {
         data: {
           total_assets_cny: 1250000,
           total_liabilities_cny: 250000,
+          // #119 / #2883：左卡净资产改走直出字段，桩数据必须带上，
+          // 否则 `|| 0` 会把这一格静默渲染成 ¥0 而断言仍全绿（假绿）。
+          net_assets_cny: 1000000,
           total_pnl_cny: 12345.67
         },
         message: ""

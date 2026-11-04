@@ -57,6 +57,12 @@ function readCode(rel) {
 
 const WELCOME_BOARD = 'frontend/src/views/welcome/components/WelcomeAssetBoard.vue';
 const WELCOME_DATA = 'frontend/src/views/welcome/composables/useWelcomeData.ts';
+// #2883：#119 原先只钉首页看板，资产全景页（panorama）漏网——左卡自己写
+// `totalAssets - totalLiabilities`。两处都消费 /api/summary/ 的 net_assets_cny，
+// 故本守门把 panorama 一并纳入；全仓「不许现算」另由
+// scripts/guard_net_assets_source.py 扫 frontend/src 全量兜底。
+const PANORAMA_PAGE = 'frontend/src/views/asset/panorama/index.vue';
+const PANORAMA_CARD = 'frontend/src/views/asset/panorama/components/OverviewAssetsCard.vue';
 
 /**
  * 判据一：前端二次计算净资产。
@@ -110,6 +116,30 @@ test('#119：资产看板不得前端二次计算净资产（真实文件零命�
   assert.ok(
     !computesNetAssetsInline(code),
     `${WELCOME_BOARD} 出现 total_assets_cny - total_liabilities_cny 二次计算；净资产有直出字段，禁止前端再算一遍（#119）`
+  );
+});
+
+test('#119 / #2883：资产全景页也取直出字段 net_assets_cny（真实文件命中）', () => {
+  const page = readCode(PANORAMA_PAGE);
+  const card = readCode(PANORAMA_CARD);
+  assert.ok(page, `${PANORAMA_PAGE} 应存在`);
+  assert.ok(card, `${PANORAMA_CARD} 应存在`);
+  assert.ok(
+    /net_assets_cny/.test(page),
+    `${PANORAMA_PAGE} 应从 /api/summary/ 读出 net_assets_cny（不得只取总资产 / 总负债让子卡自己减）`
+  );
+  assert.ok(
+    /:net-assets=/.test(page) && /netAssets/.test(card),
+    'netAssets 必须由 panorama/index.vue 透传到 OverviewAssetsCard，左卡消费该 prop'
+  );
+});
+
+test('#119 / #2883：资产全景左卡不得前端二次计算净资产（真实文件零命中）', () => {
+  const card = readCode(PANORAMA_CARD);
+  assert.ok(card, `${PANORAMA_CARD} 应存在`);
+  assert.ok(
+    !/totalAssets\s*-\s*totalLiabilities/.test(card) && !computesNetAssetsInline(card),
+    `${PANORAMA_CARD} 仍在做「总资产 − 总负债」；净资产有直出字段，禁止前端再算一遍（#119 / #2883）`
   );
 });
 
