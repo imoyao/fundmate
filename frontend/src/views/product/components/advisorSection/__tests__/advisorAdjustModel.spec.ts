@@ -10,8 +10,27 @@ describe("derivedFromSnapshots：什么时候必须挂「快照推导」声明",
     expect(derivedFromSnapshots([])).toBe(false);
   });
 
-  it("含 qieman → 声明（且慢没有官方调仓接口）", () => {
+  it("含 qieman → 声明（`qieman` 是快照推导，仅计划型组合仍走这条）", () => {
     expect(derivedFromSnapshots([{ source: "qieman" }])).toBe(true);
+  });
+
+  it("含 qieman_official → 不声明（官方接口数据，不该挂推导免责）", () => {
+    expect(derivedFromSnapshots([{ source: "qieman_official" }])).toBe(false);
+    expect(
+      derivedFromSnapshots([
+        { source: "qieman_official" },
+        { source: "qieman_official" }
+      ])
+    ).toBe(false);
+  });
+
+  it("同一平台两种来源混排 → 仍要声明（推导行确实存在）", () => {
+    expect(
+      derivedFromSnapshots([
+        { source: "qieman_official" },
+        { source: "qieman" }
+      ])
+    ).toBe(true);
   });
 
   it("全是 tiantian → 不声明（官方接口，不要给真实数据挂免责）", () => {
@@ -32,7 +51,8 @@ describe("derivedFromSnapshots：什么时候必须挂「快照推导」声明",
 });
 
 describe("adjustEmptyHint：空态要说清「为什么没有」", () => {
-  it("且慢：解释需要累积两次快照（否则用户以为功能坏了）", () => {
+  it("且慢：解释「官方未收录 → 快照推导 → 需两次快照」", () => {
+    expect(adjustEmptyHint("QIEMAN")).toContain("官方接口未收录");
     expect(adjustEmptyHint("QIEMAN")).toContain("持仓快照");
     expect(adjustEmptyHint("QIEMAN")).toContain("2 次快照");
   });

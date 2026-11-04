@@ -156,7 +156,11 @@ export interface AdvisorAdjustItem {
 export interface AdvisorAdjustGroup {
   adjust_date: string;
   reason: string | null;
-  /** `qieman` = 由我们的持仓快照序列推导；`tiantian` = 官方接口 */
+  /**
+   * `qieman_official` = 且慢官方调仓接口（`/alfa/v1/graphql`）；
+   * `qieman` = 由我们的持仓快照序列推导（仅官方未覆盖的计划型组合）；
+   * `tiantian` = 天天基金官方接口；`qieman_manual` = 手动导入
+   */
   source: string;
   items: AdvisorAdjustItem[];
 }

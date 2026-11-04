@@ -52,8 +52,10 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 
 >
 > `advisor_portfolio` 排在建净值之后是刻意的：且慢调仓快照带的是当日占比口径。
-> 它还是**且慢调仓历史的唯一来源**——且慢没有历史调仓接口，明细靠相邻两次快照对比推导
-> （见 `_derive_qieman_adjust`），不每天留一份快照就永远推不出调仓。
+> 它同时是**计划型组合调仓历史的唯一来源**——这类组合（`LONG_WIN` / `LONG_WIN_S` 等）
+> 在且慢官方调仓接口里本来就返回空，明细只能靠相邻两次快照对比推导
+> （见 `_derive_adjust_from_snapshots`），不每天留一份快照就永远推不出调仓。
+> 其余且慢组合自 2026-11-04 起走官方 GraphQL（`source='qieman_official'`），不再依赖这份快照。
 
 - **非开盘日不抓**：周末 / 法定节假日 / 调休补班周末一律跳过（口径唯一来自
   `app/core/trading_calendar.py`）——非交易日没有新数据，空跑只会白送请求 + 留下失败审计。
@@ -233,8 +235,10 @@ SUPABASE_POOLER_HOST=aws-1-ap-southeast-1.pooler.supabase.com
 - [x] 每日账户更新（盈利情况）：`asset_snapshot` job 落 `asset_snapshots` 表
       （家庭/账户两级，含货基每日收益 `money_fund_income_cents`，#863 P1-5）
 - [x] 投顾组合持仓 / 调仓快照（`advisor_portfolio` job，且慢 + 天天全量在售组合）：
-      持仓按 `(组合, 快照日)` 覆盖式更新；**且慢无历史调仓接口**，调仓明细由相邻两次
-      快照对比推导（`_derive_qieman_adjust`），故每天留一份快照是调仓历史的唯一来源
+      持仓按 `(组合, 快照日)` 覆盖式更新；且慢**官方 GraphQL 调仓**（`source='qieman_official'`）
+      优先，取不到或计划型组合（官方返回空）才由相邻两次快照对比推导
+      （`_derive_adjust_from_snapshots`，`source='qieman'`）——故每天留一份快照仍是
+      **计划型组合**调仓历史的唯一来源
 
 ### 季度更新（规划中）
 

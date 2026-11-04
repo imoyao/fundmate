@@ -109,9 +109,11 @@ class AdvisorPortfolioSource(ABC):
     - ``platform`` 必须与 ``AdvisorPortfolio.platform`` 一致（大写，如 ``QIEMAN``）；
     - 数据面方法**无该数据面时返回空集合**（``[]`` / ``{}``），不要抛错——
       job 对空集合天然无操作，这样「平台能力差异」不需要额外的能力开关；
-    - 唯一需要显式声明的能力位是 :attr:`derive_rebalances_from_snapshots`：
-      它描述的是「**没有**官方调仓接口，须由落库层用快照序列推导」，
-      推导算法在 job 侧统一实现，适配器无法自给，故必须声明。
+    - 能力位有两个：:attr:`derive_rebalances_from_snapshots` 描述「**没有**官方调仓接口，
+      须由落库层用快照序列推导」（推导算法在 job 侧统一实现，适配器无法自给）；
+      :attr:`has_official_rebalances` 描述官方数据面是否存在。**两者可同时为真**——
+      且有平台确实如此（且慢：官方接口覆盖 ``alfa/portfolio``，但计划型组合
+      ``LONG_WIN`` 不属于该命名空间），此时官方优先、拿不到才推导。
     """
 
     #: 平台标识（与 ``AdvisorPortfolio.platform`` 取值一致）
@@ -120,8 +122,16 @@ class AdvisorPortfolioSource(ABC):
     #: 是否有**官方**历史调仓数据面；False 时只能靠 :attr:`derive_rebalances_from_snapshots`
     has_official_rebalances: bool = False
 
-    #: 无官方调仓接口时，是否允许由持仓快照序列推导调仓明细（落库层统一实现）
+    #: 官方调仓拿不到（或该代码不在官方命名空间内）时，是否允许由持仓快照序列推导调仓明细
+    #: （落库层统一实现）。可与 :attr:`has_official_rebalances` 同时为真——且慢即如此。
     derive_rebalances_from_snapshots: bool = False
+
+    #: 官方调仓行落库时的 ``source`` 值；空串 = 与其它数据面同源（``platform.lower()``）。
+    #:
+    #: 只有「既有官方接口、历史上又靠推导入库过」的平台才需要区分（且慢）。不区分的后果：
+    #: 同类数据在库里两个来源共用一个 ``source``，换源后同一时段会有两套真相，
+    #: 前端也无法只凭 ``source`` 判断某行是否为推导结果。
+    official_rebalance_source: str = ''
 
     @abstractmethod
     def get_name(self) -> str:

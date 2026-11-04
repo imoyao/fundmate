@@ -29,20 +29,21 @@ import {
  *
  * ## 口径必须写在脸上（且慢）
  *
- * 且慢没有官方调仓接口，库里的记录是用持仓快照序列推导的，因此列表下方必须声明
- * 「非官方调仓公告」——不写就等于冒充官方数据；空态必须说「需要累积 ≥2 次快照」，
- * 而不是留白让人以为坏了。判断逻辑在 `advisorAdjustModel`（纯函数，有单测），
- * 本组件只渲染它的结论。
+ * 且慢现在有官方调仓接口（`/alfa/v1/graphql` 的 `Adjustment`，2026-11-03 接入），
+ * 但**不是所有代码都在它的命名空间里**——计划型组合（`LONG_WIN` / `LONG_WIN_S`）返回空，
+ * 仍由我们的持仓快照序列推导。两种来源靠 `source` 区分（`qieman_official` / `qieman`），
+ * 只要列表里混进推导行，下方就必须声明「由持仓快照推导」——不写就等于冒充官方数据。
+ * 判断逻辑在 `advisorAdjustModel`（纯函数，有单测），本组件只渲染它的结论。
  *
  * ## 已知边界
  *
  * 推导噪声（阈值 0.5pp 偏粗、连续同向未合并、占比漂移被当事件）属已知技术债，
- * 不在本组件治理——这里只改「有没有显示」，不改「怎么算出来的」。
+ * 不在本组件治理——这里只改「有没有显示」，不改「怎么算出来的」。官方行没有这个问题。
  */
 const props = defineProps<{
   /** 平台组合码（`advisor_portfolios.code`，如 ZH012926） */
   code: string;
-  /** 平台码（`advisor_portfolios.platform`），用于空态解释「为什么没有官方调仓」 */
+  /** 平台码（`advisor_portfolios.platform`），用于空态解释「为什么没有调仓记录」 */
   platform: string;
 }>();
 
@@ -95,7 +96,8 @@ watch(() => props.code, load, { immediate: true });
     <template v-else>
       <AdvisorAdjustList :groups="groups" />
       <p v-if="derived" class="advisor-adjusts-block__caveat">
-        且慢不提供官方调仓公告，以上记录由我们的持仓快照序列推导，时点与幅度可能与官方实际调仓存在差异。
+        以上标记为推导的记录由我们的持仓快照序列算出（该组合不在且慢官方调仓接口的覆盖范围内），
+        时点与幅度可能与实际调仓存在差异。
       </p>
     </template>
   </div>

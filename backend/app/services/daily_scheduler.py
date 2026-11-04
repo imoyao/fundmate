@@ -180,7 +180,8 @@ DEFAULT_POSITION_PRICE_CRON = '15 22 * * *'
 # 与两者都无依赖关系，只是错开 DB 会话与外部请求窗口（同一出口同时打两路易成突发指纹）。
 DEFAULT_INDEX_DAILY_CRON = '0 18 * * *'
 # 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
-# 排在净值前会用到前一日口径。这也是且慢调仓历史的**唯一**来源（无官方历史接口）。
+# 排在净值前会用到前一日口径。且慢官方调仓（`/alfa/v1/graphql`）由本 job 一并抓，
+# 快照推导只作为计划型组合（`LONG_WIN` 等）的降级路径。
 DEFAULT_ADVISOR_CRON = '0 22 * * *'
 # 投顾组合净值序列：排在投顾快照之后（22:30）。两者都用且慢 MCP，错开半小时既避开
 # 同一时段的会话/限流窗口，也保证序列里已包含当日净值（组合净值 T+1 发布，
@@ -384,7 +385,7 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         ENV_ADVISOR_CRON,
         DEFAULT_ADVISOR_CRON,
         None,
-        '投顾组合持仓 / 调仓快照（且慢 + 天天；且慢无历史调仓接口，快照序列是唯一来源）',
+        '投顾组合概览 / 持仓快照 / 官方调仓（且慢 + 天天；且慢计划型组合降级为快照推导）',
     ),
     (
         # 投顾组合净值序列（详情页走势图）。target_kind=None 同 advisor_portfolio：

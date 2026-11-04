@@ -77,6 +77,9 @@
 
 ## 四、且慢调仓明细：由快照序列推导
 
+> ⚠️ **2026-11-04 更正**：且慢**有**官方历史调仓接口，本节及下文「快照推导」只对计划型组合成立；
+> 见文末「已知限制与后续」里的更正段与 [qieman-official-adjustment-api-2026-11-03.md](./qieman-official-adjustment-api-2026-11-03.md)。
+
 且慢没有历史调仓接口，但 `BatchGetStrategiesComposition` 每只持仓带「调仓时间」，
 `_apply_holdings` 又是**按 `as_of_date` 覆盖式快照**，因此：
 
@@ -175,5 +178,10 @@
 - 6 只组合无收益指标（2026 年新成立 / 货币类），非抓取失败。
 - 且慢调仓明细**没有官方接口**，推导出的「调仓日」= 我们快照发现变化的日期，
   与官方实际发车日可能差 1 天（快照频率决定），不是官方口径。
+  > ⚠️ **2026-11-04 更正**：这条已失实——且慢**有**官方历史调仓接口
+  > （`POST https://qieman.com/alfa/v1/graphql` 的 `Adjustment` operation，匿名可取，
+  > 唯一门槛是 `x-sign` 请求头，算法可复刻）。实现与实测见
+  > [qieman-official-adjustment-api-2026-11-03.md](./qieman-official-adjustment-api-2026-11-03.md)。
+  > 上述「快照推导」现仅用于**计划型组合**（`LONG_WIN` / `LONG_WIN_S`，官方返回空）。
 - 仓库本地 git 对象损坏（`git log` 报 `bad object HEAD`，refs 指向缺失对象），
   本次改动未做任何 git 操作，由另一路修复。
