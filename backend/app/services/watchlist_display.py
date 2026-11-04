@@ -39,6 +39,7 @@ from app.domains.securities.models import ConvertibleBondAdjustLog, ConvertibleB
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
 from app.domains.watchlist.schemas import WatchlistItemOut
 from app.services.fund_metrics import compute_max_drawdown, load_nav_points
+from app.services.position_scope import active_holdings
 from app.services.watchlist_service import (
     _build_quote,
     bare_code_of,
@@ -168,14 +169,26 @@ class BatchContext:
                 self._prefetch_display_fields()
             return
         # 1. positions 聚合统计（qty_units, cost_raw, value_raw）
+        # 「当前持仓」口径统一走 `position_scope.active_holdings()`：E账户 `shadow`
+        # 镜像行只是对账用快照，`cleared` 是已清仓保留行，二者都不能进
+        # holding_quantity / position_market_value / holding_cost_price。曾漏掉这一条，
+        # 导致 023887 在自选页显示 84,282.0222 份 / ¥59,720.99（active + 两条 shadow），
+        # 而详情页只有 42,850.4322 份 / ¥28,949.76。
+        # 本模块所有「当前持仓」查询一律经 active_holdings() 包装，由
+        # scripts/guard_watchlist_active_scope.py 静态拦截「改了一半」。
         pos_rows = (
-            self.db.query(
-                Position.symbol,
-                func.sum(Position.quantity).label('qty_units'),
-                func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
-                func.sum(Position.quantity * Position.current_price).label('value_raw'),
+            active_holdings(
+                self.db.query(
+                    Position.symbol,
+                    func.sum(Position.quantity).label('qty_units'),
+                    func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
+                    func.sum(Position.quantity * Position.current_price).label('value_raw'),
+                )
             )
-            .filter(Position.symbol.in_(self.symbols), Position.family_id == self.family_id)
+            .filter(
+                Position.symbol.in_(self.symbols),
+                Position.family_id == self.family_id,
+            )
             .group_by(Position.symbol)
             .all()
         )
@@ -197,10 +210,14 @@ class BatchContext:
             }
             self._position_market_value[r.symbol] = round(value_yuan, 2)
 
-        # 2. 平均市价
+        # 2. 平均市价（同样只取 active：shadow 行的 current_price 是导入时的旧净值，
+        #    混进均价会把兜底路径的展示价一起带偏）
         avg_rows = (
-            self.db.query(Position.symbol, func.avg(Position.current_price))
-            .filter(Position.symbol.in_(self.symbols), Position.family_id == self.family_id)
+            active_holdings(self.db.query(Position.symbol, func.avg(Position.current_price)))
+            .filter(
+                Position.symbol.in_(self.symbols),
+                Position.family_id == self.family_id,
+            )
             .group_by(Position.symbol)
             .all()
         )
@@ -212,11 +229,10 @@ class BatchContext:
         #    逐 symbol 的 `Position...first()`。order_by(id) 取首行，与 .first() 的
         #    「任意一行」语义一致（SQLite 默认按 rowid 返回，id 升序即首行）。
         meta_rows = (
-            self.db.query(Position.symbol, Position.market, Position.asset_type, Position.name)
+            active_holdings(self.db.query(Position.symbol, Position.market, Position.asset_type, Position.name))
             .filter(
                 Position.symbol.in_(self.symbols),
                 Position.family_id == self.family_id,
-                Position.ownership_status == 'active',
             )
             .order_by(Position.id)
             .all()
@@ -1096,12 +1112,17 @@ def _compute_holding_stats(symbol, db, family_id: int) -> dict | None:
     换算统一走 Money（min_unit_to_shares / price_units_to_yuan）。
     """
     row = (
-        db.query(
-            func.sum(Position.quantity).label('qty_units'),
-            func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
-            func.sum(Position.quantity * Position.current_price).label('value_raw'),
+        active_holdings(
+            db.query(
+                func.sum(Position.quantity).label('qty_units'),
+                func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
+                func.sum(Position.quantity * Position.current_price).label('value_raw'),
+            )
         )
-        .filter(Position.symbol == symbol, Position.family_id == family_id)
+        .filter(
+            Position.symbol == symbol,
+            Position.family_id == family_id,
+        )
         .first()
     )
     if not row or not row.qty_units:
@@ -1141,8 +1162,11 @@ def _compute_position_market_value(symbol, db, family_id: int):
     裸乘结果是最小单位·0.0001元，须经 Money.multiply_price_quantity 换算回元（÷1e6 转分、/100 转元）。
     """
     value = (
-        db.query(func.sum(Position.quantity * Position.current_price))
-        .filter(Position.symbol == symbol, Position.family_id == family_id)
+        active_holdings(db.query(func.sum(Position.quantity * Position.current_price)))
+        .filter(
+            Position.symbol == symbol,
+            Position.family_id == family_id,
+        )
         .scalar()
     )
     if not value:
@@ -1156,8 +1180,11 @@ def _compute_avg_current_price(symbol, db, family_id: int):
     current_price 以 0.0001元 存储，对外换算回元（禁止裸除 float）。
     """
     avg_price_units = (
-        db.query(func.avg(Position.current_price))
-        .filter(Position.symbol == symbol, Position.family_id == family_id)
+        active_holdings(db.query(func.avg(Position.current_price)))
+        .filter(
+            Position.symbol == symbol,
+            Position.family_id == family_id,
+        )
         .scalar()
     )
     return Money.price_units_to_yuan(avg_price_units) if avg_price_units else 0.0
@@ -1179,8 +1206,8 @@ def list_holding_items(
     每行 id=None 表示「无自选记录」，前端据此禁用置顶/关注/标签/移除等行操作。
     """
     rows = (
-        db.query(Position.symbol, Position.asset_type, Position.market, Position.name)
-        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        active_holdings(db.query(Position.symbol, Position.asset_type, Position.market, Position.name))
+        .filter(Position.family_id == family_id)
         .distinct()
         .all()
     )
@@ -1263,11 +1290,10 @@ def _build_holding_row(
         pos = ctx.get_position_meta(symbol)
     else:
         pos = (
-            db.query(Position)
+            active_holdings(db.query(Position))
             .filter(
                 Position.symbol == symbol,
                 Position.family_id == family_id,
-                Position.ownership_status == 'active',
             )
             .first()
         )
@@ -1470,10 +1496,7 @@ def build_all_items(
     all_symbols = [item.symbol for item in items]
     if not (tag_ids_str or favorite or group_id):
         holding_rows_raw = (
-            db.query(Position.symbol)
-            .filter(Position.family_id == family_id, Position.ownership_status == 'active')
-            .distinct()
-            .all()
+            active_holdings(db.query(Position.symbol)).filter(Position.family_id == family_id).distinct().all()
         )
         for (sym,) in holding_rows_raw:
             if sym not in all_symbols:
@@ -1650,10 +1673,7 @@ def list_items_paginated(db, family_id: int, params: dict) -> tuple[list, int]:
         # base ctx：只预取基础字段（行情/持仓聚合等，enrich 阶段消费）；
         # 展示字段由 fill_page_display_fields 的页级 ctx 补算（只覆盖本页 ≤20 行）
         holding_symbols_rows = (
-            db.query(Position.symbol)
-            .filter(Position.family_id == family_id, Position.ownership_status == 'active')
-            .distinct()
-            .all()
+            active_holdings(db.query(Position.symbol)).filter(Position.family_id == family_id).distinct().all()
         )
         holding_symbols = [s for (s,) in holding_symbols_rows]
         ctx = BatchContext(db, family_id, holding_symbols, need_display_fields=False)

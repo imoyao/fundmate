@@ -85,7 +85,9 @@ defineProps<{
       <tfoot>
         <tr>
           <td class="detail-table__product">合计</td>
-          <td class="detail-table__num" />
+          <td class="detail-table__num">
+            {{ formatQuantity(totals.quantity) }}
+          </td>
           <td class="detail-table__num">
             <MoneyDisplay
               :value="totals.cost"

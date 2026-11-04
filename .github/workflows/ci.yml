@@ -832,6 +832,17 @@ jobs:
       - name: 迁移 PG-aware 守卫（阻断）
         run: python scripts/guard_migrations_pg_aware.py
 
+      # watchlist 当前持仓口径（023887）：自选页曾把 E账户 `shadow` 镜像行算进持仓，
+      # 而产品详情页只算 `active` —— 同一个 BatchContext 里「代表持仓行过滤了、
+      # 数值聚合没过滤」，是典型的「改了一半」。本守卫要求两个 watchlist 模块的每个
+      # query/select(Position...) 都从 active_holdings() 进，裸字面量与漏过滤一律红；
+      # 刻意全量的 5 处走精确白名单，且白名单不许陈旧。
+      # 不新增 job——并入本 job，也就不必动 gate.needs。
+      # 回归网：scripts/tests/test_guard_watchlist_active_scope.py（21 条，含真实代码
+      # 回退探针，随 unittest discover 收进来）。
+      - name: watchlist 当前持仓口径（阻断）
+        run: python scripts/guard_watchlist_active_scope.py
+
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
 
