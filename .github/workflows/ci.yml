@@ -70,6 +70,11 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              # 净资产单一出口守卫及其回归网住在 scripts/ 下：只改守卫 / 只改回归网的 PR
+              # 不碰 frontend/**，若不加这两条，frontend job 不会被唤起、守卫静默不跑
+              # （同 backend filter 里 scripts/bridge/** 的教训）。
+              - 'scripts/guard_net_assets_source.py'
+              - 'scripts/tests/test_guard_net_assets_source.py'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -547,6 +552,13 @@ jobs:
         run: node --test scripts/tests/guard_price_precision.test.js
         working-directory: ${{ github.workspace }}
 
+      # 净资产单一出口守卫（#119 / #2883）：资产全景页左卡曾在页面层写
+      # 「总资产 − 总负债」，绕过 /api/summary/ 的 net_assets_cny 直出。两条路径当前数值
+      # 相同，但口径一变就会三处分叉且无契约测试能发现。本守卫把 #119 从散文规范钉成 CI 判据。
+      # 并入本 job 而非另起 job（不新增 job 就不必动 gate.needs）；回归网另挂在 scripts_test。
+      - name: 守卫:净资产单一出口
+        run: python ../scripts/guard_net_assets_source.py
+
       - name: 构建
         run: pnpm build
 
@@ -689,6 +701,15 @@ jobs:
       - name: 上游列名契约守卫回归网
         if: ${{ always() }}
         run: python -m unittest scripts.tests.test_upstream_column_contract -v
+        working-directory: ${{ github.workspace }}
+
+      # 净资产单一出口守卫回归网（#2883）：9 条 unittest，含合成命中 / 放行
+      # （占比分母、注释举例、反向净负债）/ 真实文件回退探针 / 失败态 exit 2。
+      # 本 job 无条件跑（非 bridge 分支），是守卫本体的第二道执行点——
+      # 只改守卫脚本的 PR 即使 frontend job 被路径过滤跳过，这里也会拦下。
+      - name: 净资产单一出口守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_guard_net_assets_source -v
         working-directory: ${{ github.workspace }}
 
       # 跨仓引用守卫（源 CNB 卡）：CNB 的正文/评论里裸 `#N` 会被解析成**本仓**编号，

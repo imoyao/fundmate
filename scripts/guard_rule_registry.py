@@ -586,6 +586,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '收编前须先判定该表语义（资产 / 探市 / 自选是另一种密度语义）。'
         ),
     },
+    'scripts/guard_net_assets_source.py': {
+        'rule': '净资产一律取 /api/summary/ 的 net_assets_cny 直出（#119 / #2883，页面层不得现算）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_net_assets_source.py',
+        'covered': (
+            '只拦页面层「总资产 − 总负债」减法（R1 命名族 + R2 词根族）；'
+            '注释举例、两值分别作占比分母、反向净负债均放行。'
+            '刻意不覆盖「先赋给无词根别名再相减」；不判数值是否相等、不判后端口径对不对'
+            '（那是契约测试与代码审查的事）。回归网含真实文件回退探针 + 失败态 exit 2'
+        ),
+    },
     'scripts/guard_pro_endpoint_registry.py': {
         'rule': 'Pro 端点必须挂 @require_pro_feature，权益位必须登记在 PRO_FEATURES',
         'runner': 'ci',

@@ -37,6 +37,7 @@
       class="mb-6"
       :total-assets="totalAssets"
       :total-liabilities="totalLiabilities"
+      :net-assets="netAssets"
       :total-pnl="totalPnl"
       :latest-snapshot="latestSnapshot"
       :distributions="distributions"
@@ -140,6 +141,8 @@ defineOptions({ name: "AssetPanorama" });
 
 const totalAssets = ref(0);
 const totalLiabilities = ref(0);
+// #119 / #2883：净资产取 /api/summary/ 的 net_assets_cny 直出，页面层不做减法
+const netAssets = ref(0);
 const totalPnl = ref(0);
 // 不用 `any`：distributions 是后端下发的固定结构，`any` 会让下游三个消费方
 // （摘要卡 / 分类表 / 分组列表）都失去类型检查。字段口径见 `DistributionsData`。
@@ -187,6 +190,7 @@ async function fetchData() {
 
     totalAssets.value = (sumRes as any)?.data?.total_assets_cny || 0;
     totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny || 0;
+    netAssets.value = (sumRes as any)?.data?.net_assets_cny || 0;
     totalPnl.value = (sumRes as any)?.data?.total_pnl_cny || 0;
     distributions.value = distRes?.data ?? null;
     sankeyData.value = {

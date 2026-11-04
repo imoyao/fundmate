@@ -815,6 +815,13 @@ if code == 1:
 
 - 用户录入正数，后端按大类自动转换（资产正 / 负债负）。
 - 接口统一输出 `signed_amount` 为唯一计算字段，前端禁止二次运算正负。
+- **净资产一律取 `/api/summary/` 的 `net_assets_cny` 直出，页面层禁止现算**（#119 / #2883，判据 `scripts/guard_net_assets_source.py`）：不许写
+  `totalAssets - totalLiabilities` 这类「总资产 − 总负债」。后端 `net_worth` 当前就等于这个差，
+  两条路径现值相同，但口径一旦纳入不可估值资产调整 / 汇率折算 / 取整策略，页面层减法不经过任何
+  契约测试、也不会跟着变；同一指标两条来源，后人改口径必然只改一处。对照范式
+  `frontend/src/views/welcome/components/WelcomeAssetBoard.vue`（`props.summary?.net_assets_cny`）。
+  守卫扫 `frontend/src` 全量（R1 命名族 + R2 词根族）；注释举例与「两值分别作占比分母」放行，
+  回归网含真实文件回退探针。
 
 ### 持仓与资产
 

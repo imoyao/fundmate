@@ -16,6 +16,7 @@
       <OverviewAssetsCard
         :total-assets="totalAssets"
         :total-liabilities="totalLiabilities"
+        :net-assets="netAssets"
         :total-pnl="totalPnl"
         :latest-snapshot="latestSnapshot"
       />
@@ -37,6 +38,8 @@ defineOptions({ name: "OverviewSummaryCard" });
 defineProps<{
   totalAssets: number;
   totalLiabilities: number;
+  /** #119 / #2883：/api/summary/ 的 net_assets_cny 直出，透传给左卡 */
+  netAssets: number;
   totalPnl: number;
   latestSnapshot: AssetSnapshotItem | null;
   distributions: DistributionsData | null;
