@@ -220,6 +220,11 @@ test.describe("详情页「我的持仓」形态分流（#980）", () => {
     await expect(table.locator("tfoot tr")).toHaveCount(1);
     await expect(table.locator("tfoot").getByText("合计")).toBeVisible();
 
+    // 合计行「持有份额」= 两账户份额之和（1000 + 500），列序与 thead 第 2 列对齐。
+    // 曾把该列写成空 <td />，只有金额合计却没有份额合计——totals.quantity 一直算好了，
+    // 只是没渲染。份额保留 2 位 + 千分位（utils/format.ts formatQuantity）。
+    await expect(table.locator("tfoot tr td").nth(1)).toHaveText("1,500.00");
+
     // 已归档账户是链接；未归档只剩只读文本（没有落点，链过去是坏链）
     await expect(
       table.locator("tbody a.product-position__account")

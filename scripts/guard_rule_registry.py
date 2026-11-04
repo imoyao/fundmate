@@ -101,6 +101,22 @@ NON_COMMIT_STAGES = ('commit-msg', 'push')
 #   stage  : pre-commit 时的钩子阶段（默认默认阶段）
 #   covered: 该判据**已知不覆盖**的形态（登记时必须非空——写「无」也算一次思考）
 RULE_REGISTRY: dict[str, dict[str, str]] = {
+    'scripts/guard_watchlist_active_scope.py': {
+        'rule': 'watchlist 的「当前持仓」查询必须统一走 active_holdings()（023887 / 防「改了一半」）',
+        # 源 023887：自选页把 E账户 `shadow` 镜像行算进持仓（84,282.0222 份 /
+        # ¥59,720.99），产品详情页只算 `active`（42,850.4322 份 / ¥28,949.76）——
+        # 同一个 BatchContext 里「代表持仓行 meta 过滤了、数值聚合没过滤」。
+        # 只把漏掉的几段补上字面量仍拦不住下一个新查询再漏一次，故把 17 处口径
+        # 收敛到统一入口，再用静态判据钉住「每个 query/select(Position...) 都在口径内」。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_watchlist_active_scope.py',
+        'covered': (
+            '只判静态接线：裸状态字面量、query/select(Position...) 是否经 active_holdings()、'
+            '白名单是否陈旧、统一入口是否被掏空。不判运行时数字（由 '
+            'backend/tests/domains/test_watchlist_holding_scope.py 钉），也不扫 watchlist 之外的模块；'
+            '刻意全量的 5 处查询走精确白名单，故「新写的全量查询」会先红、需显式登记理由。'
+        ),
+    },
     'scripts/guard_all_pb.py': {
         'rule': '温度计基线数据 all_pb.csv 禁止删除 / 清空',
         # **只挂本地 pre-commit**：CI 里没有独立的 all_pb 步骤。
