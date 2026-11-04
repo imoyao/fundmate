@@ -803,6 +803,31 @@ def test_回报投资以来起点_供年视图取全区间(db, make_position, ma
     assert empty['first_txn_date'] is None
 
 
+def test_终点锚校准量不污染投资以来起点(db, make_position, make_transaction):
+    """D80 终点锚：校准量注入 1970-01-01，它是技术手段、不是流水。
+
+    `positions.quantity` 与流水净额不一致时必有 correction 注入锚点日；
+    若 `first_txn_date` 取到它，年视图「投资以来」会从 1970 年开始，
+    画出几十个空年份（真实库实测 first_txn_date=1970-01-01）。
+    """
+    buy = dt.date(2024, 3, 15)
+    pos = make_position(symbol='000075', name='份额分叉', quantity=1500, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=buy,
+        symbol='000075',
+    )
+    _add_nav(db, '000075', dt.date(2026, 1, 5), 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+
+    assert result['first_txn_date'] == buy.isoformat()
+
+
 def test_整月未同步的期间状态是no_data(db, make_position, make_transaction):
     """整月一条净值都没有 ⇒ 期间报「未同步」，不是「休市」（#1942 聚合层）。"""
     pos = make_position(symbol='000074', name='整月没同步', quantity=1000, avg_price=1.0, asset_type='fund')
