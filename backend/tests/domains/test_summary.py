@@ -1001,8 +1001,9 @@ class TestClearedCyclesEndpoint:
         ``'stock'``，卖出流水与买入会分属两个身份键（``EXCHANGE:`` vs ``OTC:``），
         清仓周期永远闭合不上。这条同时守住 `_get_asset_type(fallback=持仓品种)`。
 
-        代码取 ``004369`` 而非 ``000001``：后者与平安银行同码，后端成交价区间校验
-        会按股票的真实区间把 1.1 拦下来（`_validate_price_within_range`）。
+        代码沿用 ``004369``：历史上取它而非 ``000001`` 是为了绕开场外基金与平安银行
+        ``SZ000001`` 同码导致的误拦。该误拦已于 2026-11-04 修复（写路径区间校验按
+        venue 过滤，见 `validate_trade_price_within_range`），这里保留原代码只为用例稳定。
         """
         buy = _post(
             client,
