@@ -28,7 +28,18 @@ const CONFIRM_POLL_MS = 5 * 60 * 1000;
 const CONFIRM_POLL_UNTIL_HOUR = 23;
 const CONFIRM_POLL_UNTIL_MINUTE = 30;
 
-export function useTodayPnl() {
+export interface UseTodayPnlOptions {
+  /**
+   * 家庭总资产（元）的取值器——「投资类资产占家庭总资产」的分母。
+   *
+   * 用取值器而不是传值：`summary` 是异步加载的，先挂载后到达；传值会在第一次
+   * 渲染时把 undefined 固化进闭包后面的计算里。
+   * 不传 = 占比沿用后端值（后端已经用它自己的分母算过一遍）。
+   */
+  householdAssets?: () => number | null;
+}
+
+export function useTodayPnl(options: UseTodayPnlOptions = {}) {
   const data = ref<TodayPnlData | null>(null);
   const loading = ref(false);
   /** 只有「一次都没成功过」才算错误态：盘中抖动不该把已有数字清成加载失败 */
@@ -87,7 +98,11 @@ export function useTodayPnl() {
       // 后端日期不是今天（盘中今日无价）时，实时增量代表**今天**的全量收益，
       // 只能替换、不能叠到昨天那笔上
       replaceBase: data.value.is_today === false,
-      todayIso: shanghaiTodayIso()
+      todayIso: shanghaiTodayIso(),
+      // 占比分母：与卡面「家庭总资产」同一份 summary 数据，不另取一份
+      householdAssets: options.householdAssets
+        ? options.householdAssets()
+        : undefined
     });
   });
 

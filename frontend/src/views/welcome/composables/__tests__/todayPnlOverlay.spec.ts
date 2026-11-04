@@ -24,6 +24,7 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
     total_pnl: 200,
     total_rate: 10,
     invested_value: 2200,
+    invested_ratio_of_assets: 55,
     other_value: 0,
     classes: [
       {
@@ -32,6 +33,7 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
         pnl: 100,
         rate: 10,
         market_value: 1100,
+        share_of_invested: 50,
         status: "confirmed"
       },
       {
@@ -40,6 +42,7 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
         pnl: 100,
         rate: 10,
         market_value: 1100,
+        share_of_invested: 50,
         status: "confirmed"
       }
     ],
@@ -105,6 +108,7 @@ describe("applyPriceOverlay", () => {
           pnl: null,
           rate: null,
           market_value: 1100,
+          share_of_invested: 100,
           status: "partial"
         }
       ]
@@ -128,6 +132,7 @@ describe("applyPriceOverlay", () => {
           pnl: 100,
           rate: 10,
           market_value: 1100,
+          share_of_invested: 50,
           status: "confirmed"
         },
         {
@@ -136,6 +141,7 @@ describe("applyPriceOverlay", () => {
           pnl: 100,
           rate: 10,
           market_value: 1100,
+          share_of_invested: 50,
           status: "confirmed"
         }
       ]
@@ -194,6 +200,47 @@ describe("shanghaiTodayIso", () => {
     expect(shanghaiTodayIso(new Date("2026-11-02T15:59:00Z"))).toBe(
       "2026-11-02"
     );
+  });
+});
+
+describe("盘中替换后的占比", () => {
+  it("传了家庭总资产 ⇒ 分项占比与投资占比一起重算（金额变了占比不能停在旧值）", () => {
+    const data = makeData();
+    // 股票 11 → 22：市值 1100 → 2200，投资类资产 3300（基金 1100 未动）
+    const result = applyPriceOverlay(data, new Map([["SH600519", 22]]), {
+      householdAssets: 4000
+    });
+
+    expect(result.applied).toBe(true);
+    const byKey = Object.fromEntries(
+      result.data.classes.map(item => [item.key, item])
+    );
+    expect(result.data.invested_value).toBe(3300);
+    expect(byKey.stock.share_of_invested).toBe(66.67);
+    expect(byKey.fund.share_of_invested).toBe(33.33);
+    // 3,300 ÷ 4,000 = 82.5%（分母来自 summary，不是前端另取）
+    expect(result.data.invested_ratio_of_assets).toBe(82.5);
+  });
+
+  it("没传家庭总资产 ⇒ 沿用后端算好的占比（宁可用旧值，也不清成 --）", () => {
+    const data = makeData();
+    const result = applyPriceOverlay(data, new Map([["SH600519", 22]]));
+
+    expect(result.applied).toBe(true);
+    expect(result.data.invested_ratio_of_assets).toBe(55);
+  });
+
+  it("分母明确不可用（null）⇒ 占比降级为 null，不显示 0%", () => {
+    const data = makeData();
+    const result = applyPriceOverlay(data, new Map([["SH600519", 22]]), {
+      householdAssets: null
+    });
+
+    expect(result.data.invested_ratio_of_assets).toBeNull();
+    // 分项占比仍然算得出来（分母是投资类资产，与家庭总资产无关）
+    expect(
+      result.data.classes.find(item => item.key === "stock")?.share_of_invested
+    ).toBe(66.67);
   });
 });
 
