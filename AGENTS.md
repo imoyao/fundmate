@@ -396,6 +396,12 @@ job 名与 stage 名都要写（后者是查询锚点）。
   （WatchlistFilterBar 332→497 / welcome 370→440 / reconcile-workbench 336→405 / watchlist/index 369→403），
   warn 模式只打印不拦截，等于没设。确实拆不动时，须在同一 PR 内腾出等量行数（净零也合规），
   不允许「先加功能、以后再拆」。
+- **services 层模块体量/复杂度只减不增**（防 #2873 类上帝模块复发）：`backend/app/services/**/*.py` 由 `scripts/guard_service_size.py`
+  在 CI 的 `backend` job 钉死——存量按 `BASELINE` 冻结、只能降不能涨，新增文件走 `NEW_FILE_LIMITS`
+  （lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20），超标即判红；存量文件涨一行（或复杂度升一档）也判红。
+  判据边界与回退探针见脚本 docstring 与 `scripts/tests/test_guard_service_size.py`。
+  为什么非设不可：#2873 把 `position_service.py`（当时 2468 行）拆成多个单一职责模块，根因是**没有机器化的体量闸门**，
+  业务规则持续堆进同一文件直到谁都不敢动；视图层已有 `scripts/check_view_thickness.py` 同款范式，services 层补上对称的一道。
 - **前端 Supabase 环境隔离**：`frontend/.env.development`（本地、不入库）与 `frontend/.env.production`（入库）
   **不得**指向同一个 Supabase 项目——开发期注册的测试账号会直接写进**生产** Auth 用户表，
   且当时没有任何报错。两条判据各管一半、互不重叠：

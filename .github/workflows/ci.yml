@@ -168,6 +168,13 @@ jobs:
       - name: 守卫:视图层厚度
         run: python ../scripts/check_view_thickness.py
 
+      # 守卫：services 层体量 / 复杂度软闸门（防 #2873 类上帝模块复发）。
+      # 同样并入本 job 而不新增 job——不新增 job 就不必改 gate.needs（#1559/#1560 两次事故
+      # 都是合并冲突弄丢 needs）。存量按 BASELINE 冻结、只减不增，新增文件走 NEW_FILE_LIMITS
+      # （lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20）；判据边界与回退探针见脚本 docstring。
+      - name: 守卫:services 层体量/复杂度软闸门
+        run: python ../scripts/guard_service_size.py
+
       # 守卫：跨域模型同语句（#1643：双库「零外键、零 SQL join」）。
       # **本 job 是这条约束唯一的机器化拦截层**：门禁与全部单测都跑单库
       # （conftest 把 engine / user_engine patch 成同一个内存引擎），跨域 join 在两域
