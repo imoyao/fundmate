@@ -273,6 +273,19 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '只判「登记 / 引擎 / 生命周期 / 预算」四件事；规则内容对不对仍要靠人',
     },
+    'scripts/guard_service_size.py': {
+        'rule': 'services 层模块体量 / 复杂度软闸门（防 #2873 类上帝模块复发）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_service_size.py',
+        'covered': (
+            '只量体量（物理行数）/ 最长函数行数 / 函数最大圈复杂度（McCabe，AST 决策点计）；'
+            '存量按 BASELINE 冻结、只减不增，新增文件走 NEW_FILE_LIMITS'
+            '（lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20）。'
+            '不判「该不该拆」「拆得对不对」（那是 code review 的事）；不扫 services 之外的模块；'
+            '不判运行时行为。基线虚胖（实测低于基线未回写）只提示不阻断——该收敛由 '
+            'scripts/tests/test_guard_service_size.py::test_baseline_matches_current_metrics 钉死'
+        ),
+    },
     'scripts/bridge/check_branch_divergence.py': {
         'rule': '仓内 main 不得领先 dev（发版前先合并）',
         'runner': 'ci_only',
