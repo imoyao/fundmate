@@ -192,6 +192,11 @@ export function applyPriceOverlay(
   };
 }
 
+/** 无当日报价标的的口径注解（副标题各处共用，避免文案分叉） */
+export function unvaluedNote(count?: number): string {
+  return count ? `${count} 只暂无报价 · 市值按快照价计入` : "";
+}
+
 /**
  * 副标题（口径 + 时间）：一件事一句话，不堆术语。
  *
@@ -206,18 +211,28 @@ export function todayPnlSubtitle(input: {
   isToday: boolean;
   date: string;
   updateTime?: string;
+  unvaluedCount?: number;
 }): string {
+  // 无当日报价的标的市值已照常计入（与 /funds /stocks 同源），只是没有当日收益。
+  // 这句话必须显式写出来：否则用户拿两张页的市值对得上、却看到收益偏小，
+  // 会以为又漏了一块。
+  const note = unvaluedNote(input.unvaluedCount);
+  const withNote = (text: string) =>
+    note ? (text ? `${text} · ${note}` : note) : text;
+
   if (input.status === "estimated") {
-    return input.updateTime
-      ? `盘中估值 · 更新于 ${input.updateTime}`
-      : "收盘估值 · 官方净值公布后自动确认";
+    return withNote(
+      input.updateTime
+        ? `盘中估值 · 更新于 ${input.updateTime}`
+        : "收盘估值 · 官方净值公布后自动确认"
+    );
   }
   if (!input.isToday) {
-    return `最近交易日 ${formatMonthDay(input.date)}`;
+    return withNote(`最近交易日 ${formatMonthDay(input.date)}`);
   }
-  if (input.status === "confirmed") return "官方净值已确认";
-  if (input.status === "partial") return "部分标的本日尚无报价";
-  return "";
+  if (input.status === "confirmed") return withNote("官方净值已确认");
+  if (input.status === "partial") return withNote("部分标的本日尚无报价");
+  return withNote("");
 }
 
 /** ISO 日期 → 「M月D日」（不引入时区换算：日期本身就是上海时区的交易日标签） */

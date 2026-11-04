@@ -905,6 +905,13 @@ export type TodayPnlData = {
   invested_ratio_of_assets: number | null;
   /** 「其他」类市值（债券 / 货基 / 理财 / 实物等，无当日估值口径，卡面不列，仅供口径说明） */
   other_value: number | null;
+  /**
+   * 无当日报价、但市值已按账户页同一口径计入的持仓（笔数 / 元）。
+   * 这些标的的当日收益是 null，不能当成「没赚没亏」；卡面副标题据此标注，
+   * 避免用户以为市值漏了一块。后端必出，可选类型仅为兼容旧缓存与测试桩。
+   */
+  unvalued_count?: number;
+  unvalued_value?: number | null;
   classes: TodayPnlClass[];
   holdings: TodayPnlHolding[];
 };
