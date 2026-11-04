@@ -340,8 +340,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # max_func 57 / commits 0 不动。之所以不做净零：本文件其余部分是价格区间拦截 / 货基归一
     # 等既有规则，动它们属另一件事（范围外），换行数的正当路径是**下沉规则**而不是
     # 把无关重构塞进这张卡；端点本身已无进一步下沉空间（服务不再拥有 HTTP 语义）。
+    # 2026-11-04 收紧（307 → 282，**净减**）：写路径的成交价区间拦截整段下沉为
+    # `services/price_range_service.validate_trade_price_within_range`（形态正是守卫要的
+    # 「视图只做 HTTP 编排」）。同批修复场外品种误入区间校验的缺陷：此前不判场所，
+    # 场外基金裸码会被归一成场内代码去抓日线，且与深市股票同码时（000001 华夏成长 vs
+    # 平安银行）会拿股票区间拦截基金申购。orm_queries / commits / max_func 三项不动。
     "backend/app/domains/positions/views.py": {
-        "lines": 307,
+        "lines": 281,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 57,
