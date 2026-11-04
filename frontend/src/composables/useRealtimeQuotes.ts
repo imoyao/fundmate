@@ -13,7 +13,10 @@ import {
 } from "@/utils/valuationEngine";
 import { http } from "@/utils/http";
 import { formatDate } from "@/utils/date";
-import { shouldFetchRealtimeQuotes } from "@/utils/marketHours";
+import {
+  msUntilTradingOpen,
+  shouldFetchRealtimeQuotes
+} from "@/utils/marketHours";
 
 const STORAGE_KEY = "duoduobei_realtime_quotes_enabled";
 const REFRESH_INTERVAL_KEY = "duoduobei_realtime_quotes_interval";
@@ -70,6 +73,16 @@ async function fetchPlatformEnabled(): Promise<boolean> {
 /** 可选刷新档位（秒）。默认 30s；盘中可切 15s 快速档，收盘后切 60/90s 省请求。 */
 export const REFRESH_INTERVAL_OPTIONS = [15, 30, 60, 90] as const;
 export const DEFAULT_REFRESH_INTERVAL = 30;
+
+/**
+ * 消费方 holdings 尚未就绪时的短重试节奏（毫秒）。
+ *
+ * 为什么需要它：`start()` 在页面 setup 时就被调用，而首页 `getHoldings` 依赖
+ * `/api/summary/today-pnl/` 的返回——那一刻还是空数组。旧实现在空集合上直接
+ * `return`，于是**第一份实时价要等 30s 后的轮询 tick**，用户观感是「进页面先呆
+ * 半分钟」（#2885）。这几次短重试把等待压到秒级；用尽后仍由常规轮询兜底。
+ */
+export const EMPTY_HOLDINGS_RETRY_DELAYS_MS = [800, 1600, 3200, 6400] as const;
 
 export type RefreshInterval = (typeof REFRESH_INTERVAL_OPTIONS)[number];
 
@@ -251,12 +264,13 @@ export function useRealtimeQuotes(
    * 链飞行中，空桩 JSONP 每腿 5s 的超时尾巴（fundcomapi→fundgz→qt ≈ 10s）越过
    * 3s settle 落进零请求窗口——本闸让链数回到设计值 1。
    */
-  let inflightFetch: Promise<void> | null = null;
-  const fetchAndUpdate = async (): Promise<void> => {
+  let inflightFetch: Promise<boolean> | null = null;
+  /** @returns 是否真的发出了取数（`false` = 消费方 holdings 还是空集合） */
+  const fetchAndUpdate = async (): Promise<boolean> => {
     if (inflightFetch) return inflightFetch;
     inflightFetch = (async () => {
       const holdings = getHoldings();
-      if (holdings.length === 0) return;
+      if (holdings.length === 0) return false;
       const result = await calculateHoldingsValuation(holdings, getStaticPrice);
       items.value = result.items;
       summary.value = result.summary;
@@ -269,31 +283,111 @@ export function useRealtimeQuotes(
         const trading = await isTradingDay();
         status.value = trading ? "error" : "closed";
       }
+      return true;
     })();
     try {
-      await inflightFetch;
+      return await inflightFetch;
     } finally {
       inflightFetch = null;
     }
   };
 
+  // ── 启动时序（#2885）：空集合短重试 + 开盘到点唤醒 ──
+  let emptyRetryTimer: number | null = null;
+  let emptyRetryAttempt = 0;
+  let wakeTimer: number | null = null;
+  /**
+   * 启动轮次号：`start()` 每次自增。异步链路（查交易日历 → 排唤醒 / 排重试）
+   * 在 await 之后必须复核，否则「刚 stop() 或刚失活」的实例会把定时器重新装上，
+   * 出现后台空跑取数（与 `deactivated` 同一类问题，只是发生在 await 之后）。
+   */
+  let startToken = 0;
+
+  const clearEmptyRetry = () => {
+    if (emptyRetryTimer !== null) {
+      window.clearTimeout(emptyRetryTimer);
+      emptyRetryTimer = null;
+    }
+  };
+
+  const clearWakeTimer = () => {
+    if (wakeTimer !== null) {
+      window.clearTimeout(wakeTimer);
+      wakeTimer = null;
+    }
+  };
+
+  /**
+   * 消费方数据还没到：按固定节奏补几次，不占用 30s 的常规周期。
+   *
+   * 每次仍过 `canFetch()`：期间若收盘，立即停（不能拿「重试」当绕过闸门的理由）。
+   */
+  const scheduleEmptyRetry = () => {
+    if (emptyRetryAttempt >= EMPTY_HOLDINGS_RETRY_DELAYS_MS.length) return;
+    const delay = EMPTY_HOLDINGS_RETRY_DELAYS_MS[emptyRetryAttempt];
+    emptyRetryAttempt += 1;
+    emptyRetryTimer = window.setTimeout(async () => {
+      emptyRetryTimer = null;
+      if (!(await canFetch())) {
+        status.value = "closed";
+        return;
+      }
+      if (!(await fetchAndUpdate())) scheduleEmptyRetry();
+    }, delay);
+  };
+
+  /**
+   * 开盘前打开页面：安排一次到点唤醒。
+   *
+   * 旧实现在 `canFetch()` 为 false 时直接 `return`，既不轮询也不重试——9:00 打开
+   * 首页一直挂着，整个上午的数据都停在进页面那一刻（#2885）。
+   * 只对**交易日**安排：非交易日当天不会再开市；交易日历失败也不安排
+   * （与 `canFetch` 同一条保守纪律，宁可少抓一轮也不空跑）。
+   */
+  const scheduleWakeAtOpen = async (token: number) => {
+    if (!(await isTradingDay())) return;
+    // 查日历期间可能已 stop() / 失活：本轮作废，不能再装定时器
+    if (token !== startToken) return;
+    const delay = msUntilTradingOpen(new Date());
+    if (delay === null || delay <= 0) return;
+    wakeTimer = window.setTimeout(() => {
+      wakeTimer = null;
+      void start();
+    }, delay);
+  };
+
   // ✅ 核心修复 2：start 中自动休市时，只影响 status，绝对不改变 enabled 的物理状态
   const start = async () => {
+    const token = ++startToken;
     stopPolling();
+    clearWakeTimer();
+    clearEmptyRetry();
+    emptyRetryAttempt = 0;
 
     // #2338：先判能否取数，不能则直接返回（不启动轮询、不改 enabled）
     if (!(await canFetch())) {
+      if (token !== startToken) return;
       status.value = "closed";
+      // #2885：开盘前打开页面时必须安排到点唤醒，否则整个上午都不刷新
+      void scheduleWakeAtOpen(token);
       return;
     }
 
-    await fetchAndUpdate();
+    const filled = await fetchAndUpdate();
+    // 取数期间可能已经 stop() / 失活：不再起轮询
+    if (token !== startToken) return;
     schedulePolling();
+    // #2885：holdings 依赖消费方的首个接口，此时可能还是空集合
+    if (!filled) scheduleEmptyRetry();
   };
 
   // ✅ 用户主动关闭实时估值时：停止轮询并清空数据（此后表格回退到后端静态 current_price）
   const stop = () => {
+    startToken += 1;
     stopPolling();
+    clearEmptyRetry();
+    clearWakeTimer();
+    emptyRetryAttempt = 0;
     status.value = "idle";
     items.value = [];
     summary.value = null;
@@ -324,7 +418,12 @@ export function useRealtimeQuotes(
     }
   });
 
-  onBeforeUnmount(() => stopPolling());
+  onBeforeUnmount(() => {
+    startToken += 1;
+    stopPolling();
+    clearEmptyRetry();
+    clearWakeTimer();
+  });
 
   /**
    * keep-alive 的激活 / 失活（#1104 公共层，此前缺失）：
@@ -342,7 +441,12 @@ export function useRealtimeQuotes(
    */
   onDeactivated(() => {
     deactivated = true;
+    startToken += 1;
     stopPolling();
+    // 失活页不在后台取数，也不该在后台被唤醒（切回来时 onActivated 会重新 start）
+    clearEmptyRetry();
+    clearWakeTimer();
+    emptyRetryAttempt = 0;
   });
 
   onActivated(() => {
