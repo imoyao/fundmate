@@ -71,9 +71,7 @@ def seeded(app):
         )
         db.add(WatchlistItem(symbol=SYMBOL, market='CN_A', status='HOLDING'))
         db.commit()
-        family_id = (
-            db.query(Position.family_id).filter(Position.symbol == SYMBOL).first()[0]
-        )
+        family_id = db.query(Position.family_id).filter(Position.symbol == SYMBOL).first()[0]
         return family_id
 
 
@@ -100,9 +98,7 @@ class TestWatchlistHoldingStatsScope:
             assert stats['quantity'] == pytest.approx(EXPECT_SHARES, abs=1e-4)
             # cost_price 是单位成本，用 份额×成本价 还原总成本
             assert stats['cost_price'] * stats['quantity'] == pytest.approx(EXPECT_COST, abs=0.02)
-            assert stats['pnl'] + stats['cost_price'] * stats['quantity'] == pytest.approx(
-                EXPECT_VALUE, abs=0.02
-            )
+            assert stats['pnl'] + stats['cost_price'] * stats['quantity'] == pytest.approx(EXPECT_VALUE, abs=0.02)
 
     def test_batch_context_only_active(self, seeded):
         """自选页实际路径：`BatchContext` 预取的聚合同样只算 active。"""
@@ -121,6 +117,4 @@ class TestWatchlistHoldingStatsScope:
         from app.services.watchlist_display import _compute_position_market_value
 
         with get_db() as db:
-            assert _compute_position_market_value(SYMBOL, db, seeded) == pytest.approx(
-                EXPECT_VALUE, abs=0.02
-            )
+            assert _compute_position_market_value(SYMBOL, db, seeded) == pytest.approx(EXPECT_VALUE, abs=0.02)
