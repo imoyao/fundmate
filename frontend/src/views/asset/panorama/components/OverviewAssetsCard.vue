@@ -15,17 +15,22 @@
     <div class="summary-card__stack">
       <div class="summary-card__hero">
         <p class="summary-card__label">总资产（本月）</p>
-        <!-- 总资产是**存量**不是盈亏：design.md「指标数值不染涨跌色」。
-             `MoneyDisplay` 的 `auto-color` 默认开着，值 > 0 时会把 48px 的
-             主数字染成涨红——主数字被染红既与语义不符，也让下面三列的中性
-             基调被拉偏。故显式关掉 autoColor 并给 --text-primary。 -->
+        <!-- hero 主数字的强调色口径（与首页「最新收益」卡一致，2026-11-04）：
+             **盈亏语义 → 涨跌色；存量/汇总语义 → 品牌文字级 --brand-ink**。
+             总资产是存量不是盈亏，所以不能走 `MoneyDisplay` 默认的 `auto-color`
+             （值 > 0 会被染成涨红，语义错了）；但它仍然必须是这张卡里唯一的
+             强色锚点——此前给的是 `--text-primary`，与正文同色，57px 的大数字
+             只剩字号在撑层级，看起来就是「颜色没了」。故改走 `--brand-ink`
+             （白底 5.86:1 / 暗卡 6.55:1，均为 AA 达标值；不要换 `--brand-700`，
+             作正文只有 3.73:1）。下面三列保持中性 --text-primary，只有这一个
+             数染色，避免整张卡花掉。 -->
         <MoneyDisplay
           :value="totalAssets"
           size="hero"
           :show-sign="false"
           :show-currency="true"
           :auto-color="false"
-          custom-color="var(--text-primary)"
+          custom-color="var(--brand-ink)"
         />
         <!-- 环比 / 同比：标签在前、数值在后（原先是「数值 较上月」）。
              「+1.24% 较上月」要回读一遍才知道是什么，「较上月 +1.24%」不用。 -->

@@ -14,6 +14,13 @@
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-raised);
   transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 兜底墨色：壳原先不声明 color，亮色下卡内文本继承的是 body 的纯黑 #000，
+   * 而不是 --text-primary(#2d2a24)。当前子元素都各自写了颜色所以看不出来，
+   * 但任何漏写的文本都会落到「离令牌半档」的纯黑上，暗色下又由 html.dark
+   * 兜成白色 —— 同一个疏漏在两种主题下表现不同，排查时极易误判。
+   * 写在这里让「卡片内的默认文字色」成为令牌的直连，而不是继承链的意外。 */
+  color: var(--text-primary);
 }
 
 .summary-card:hover {
