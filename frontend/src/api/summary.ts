@@ -855,6 +855,15 @@ export type TodayPnlClass = {
   /** 当日收益率（%）；分母 = 前一基准日该大类市值，null = 分母缺失 */
   rate: number | null;
   market_value: number;
+  /**
+   * 该大类占「投资类资产」的比例（%，后端 `summary_service.ratio_pct` 统一舍入）。
+   *
+   * 前端**不做**这道除法：占比与卡面上的两个金额必须是同一次计算的两个切面，
+   * 各算一遍就会出现「金额能对上、百分比差 0.1」的观感 bug。盘中的价格替换
+   * 由 `todayPnlOverlay` 用同一规则重算（见其 `ratioPct`）。
+   * null = 投资类资产为 0（无股票无基金），此时不显示该项。
+   */
+  share_of_invested: number | null;
   status: TodayPnlStatus;
 };
 
@@ -885,7 +894,16 @@ export type TodayPnlData = {
   total_rate: number | null;
   /** 投资类资产市值（元）= 场内权益 + 场外基金；null = 无持仓 */
   invested_value: number | null;
-  /** 「其他」类市值（货基 / 理财 / 实物等，无当日估值口径，卡面不列，仅供口径说明） */
+  /**
+   * 投资类资产占**家庭总资产**的比例（%，后端直出）。
+   *
+   * 它回答的是卡面最容易断掉的那个问题：411,679 在 3,395,884 里算什么。
+   * 分母是 `/api/summary/` 的总资产（同一个 `family_totals`），前端不自己除——
+   * 否则卡面「总资产」与这个占比可能来自两次聚合，口径对不上。
+   * null = 家庭总资产为 0 或未加载到（**不是 0%**，见后端 `ratio_pct`）。
+   */
+  invested_ratio_of_assets: number | null;
+  /** 「其他」类市值（债券 / 货基 / 理财 / 实物等，无当日估值口径，卡面不列，仅供口径说明） */
   other_value: number | null;
   classes: TodayPnlClass[];
   holdings: TodayPnlHolding[];

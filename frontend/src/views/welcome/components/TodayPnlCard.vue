@@ -1,13 +1,20 @@
 <!--
-  TodayPnlCard · 首页「最新收益」卡（2026-11-03 用户拍板的卡面）
+  TodayPnlCard · 首页「最新收益」卡（2026-11-03 用户拍板的卡面，11-04 改版）
 
-  信息层级只有三层，从上到下：
-    1. 最新收益（hero）+ 当日涨幅   ← 唯一的强色数字
-    2. 投资类资产（次级）+ 场内权益 / 场外基金两列（分项盈亏 + 市值）
-    3. 家庭净资产 · 总负债（底注，另一层刻度）
+  信息层级四层，从上到下：
+    1. 最新收益（hero）+ 当日涨幅              ← 唯一的强色数字
+    2. 投资类资产（次级）+ 占家庭总资产          ← 把两个刻度接起来
+    3. 场内权益 / 场外基金两列                  ← `TodayPnlClassColumns`
+    4. 家庭口径 · 存量（三列 + 负债率 + 结构条）  ← `TodayPnlHouseholdBand`
+
+  为什么第 3、4 层拆成子组件：这张卡从 370 行涨到 838 行，越过仓库
+  「页面规模只减不增」门禁（#980，阈值 400 行）。拆法按**读者的问题**切，
+  不按代码块切——第 3 层答「今天谁赚的」，第 4 层答「我家底子多厚」，
+  两者连数据来源都不同（today-pnl vs summary），本就不该同处一室。
 
   为什么分项和合计能写得这么「敢」：两列与 hero 是**同一份数据**的两个切面
-  （后端 `Σ classes.pnl ≡ total_pnl`），前端不做第二次相加。
+  （后端 `Σ classes.pnl ≡ total_pnl`），前端不做第二次相加；占比也一律后端直出
+  （`share_of_invested` / `invested_ratio_of_assets`），卡面不做除法。
 
   估值口径（估 / 确认）：
     · 盘中或收盘估值定格 ⇒ 徽标「估」+ 副标题说明；
@@ -15,7 +22,14 @@
 
   数字跳动（用户要求「不打扰」）：只有 hero 与两列盈亏做 420ms 缓动，
   市值 / 总资产直接落值——它们是稳定锚点，一起动会显得整张卡在抖。
+
+  隐私模式：金额换 `••••`（渲染层替换，不是 CSS 模糊），百分比 / 涨跌色 / 负债率
+  全部保留；长按卡面可临时窥视。详见 `composables/usePrivacyMode.ts`。
+
+  手势只有一个来源：长按 = 窥视、短按 = 跳页。`peekGuard` 把「刚才揭开过吗」
+  递给家庭带——不递的话，长按松手那一下会先亮出真值、再顺势把用户带走。
 -->
+
 <template>
   <CardBlock class="today-pnl">
     <!-- 失败态（沿用 #1832 口径）：不显示 ¥0。0 在资产语境里是结论，不是「不知道」 -->
@@ -39,7 +53,14 @@
       <span class="text-sm">正在计算当日收益…</span>
     </div>
 
-    <div v-else-if="data" class="today-pnl__body">
+    <div
+      v-else-if="data"
+      class="today-pnl__body"
+      @pointerdown="onPeekStart"
+      @pointerup="onPeekEnd"
+      @pointerleave="onPeekEnd"
+      @pointercancel="onPeekEnd"
+    >
       <div class="today-pnl__head">
         <div class="today-pnl__primary">
           <p class="today-pnl__label">
@@ -69,7 +90,12 @@
               >{{ signedRate(data.total_rate) }}</span
             >
           </div>
-          <p class="today-pnl__sub">{{ subtitle }}</p>
+          <p class="today-pnl__sub">
+            {{ subtitle }}
+            <span v-if="masked" class="today-pnl__peek-hint"
+              >· 长按查看金额</span
+            >
+          </p>
         </div>
 
         <div class="today-pnl__invested">
@@ -86,58 +112,28 @@
             :auto-color="false"
             custom-color="var(--text-primary)"
           />
+          <!-- 占比把「411,679 在 3,395,884 里算什么」一句话说完：这张卡上半是
+               投资口径、下半是家庭口径，中间原本没有任何桥 -->
+          <p
+            v-if="data.invested_ratio_of_assets != null"
+            class="today-pnl__invested-ratio"
+          >
+            占家庭总资产 {{ pct1(data.invested_ratio_of_assets) }}
+          </p>
         </div>
       </div>
 
       <div class="today-pnl__rule" />
 
-      <div v-if="data.classes.length" class="today-pnl__cols">
-        <div
-          v-for="item in data.classes"
-          :key="item.key"
-          class="today-pnl__col"
-        >
-          <p class="today-pnl__label">{{ item.label }}</p>
-          <div class="today-pnl__col-value">
-            <MoneyDisplay
-              :value="tweenOf(item.key)"
-              size="lg"
-              :show-currency="false"
-              empty-text="—"
-            />
-            <span
-              v-if="item.rate != null"
-              class="today-pnl__col-rate"
-              :class="rateClass(item.rate)"
-              >{{ signedRate(item.rate) }}</span
-            >
-          </div>
-          <MoneyDisplay
-            :value="item.market_value"
-            size="sm"
-            :show-sign="false"
-            :auto-color="false"
-            custom-color="var(--text-tertiary-ink)"
-          />
-        </div>
-      </div>
+      <TodayPnlClassColumns :classes="data.classes" />
 
-      <p
-        v-else
-        class="today-pnl__empty"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
-        还没有可估值的股票或基金持仓
-      </p>
-
-      <p
-        v-if="netAssets != null || totalLiabilities != null"
-        class="today-pnl__foot"
-        :style="{ color: 'var(--text-tertiary-ink)' }"
-      >
-        家庭净资产 {{ formatted(netAssets) }} · 家庭总负债
-        {{ formatted(totalLiabilities) }}
-      </p>
+      <TodayPnlHouseholdBand
+        :total-assets="totalAssets"
+        :net-assets="netAssets"
+        :total-liabilities="totalLiabilities"
+        :liability-ratio="liabilityRatio"
+        :peek-guard="consumePeekClick"
+      />
     </div>
   </CardBlock>
 </template>
@@ -148,7 +144,11 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import { useTweenNumber } from "@/composables/useTweenNumber";
-import type { TodayPnlClass, TodayPnlData } from "@/api/summary";
+import { usePrivacyMode } from "@/composables/usePrivacyMode";
+import TodayPnlClassColumns from "./TodayPnlClassColumns.vue";
+import TodayPnlHouseholdBand from "./TodayPnlHouseholdBand.vue";
+import { pct1, rateClass, signedRate } from "../composables/pnlFormat";
+import type { TodayPnlData } from "@/api/summary";
 
 defineOptions({ name: "TodayPnlCard" });
 
@@ -158,10 +158,14 @@ const props = defineProps<{
   subtitle: string;
   loading: boolean;
   error: boolean;
-  /** 家庭净资产（底注；与卡内「投资类资产」是两层刻度）——直出字段，前端不二次算 */
+  /** 家庭总资产（后端 `total_assets_cny` 直出） */
+  totalAssets: number | null;
+  /** 家庭净资产（直出字段，前端不二次算） */
   netAssets: number | null;
   /** 家庭总负债（同上） */
   totalLiabilities: number | null;
+  /** 负债率（%，后端 `ratio_pct` 直出）；null = 总资产为 0，此时不显示比率 */
+  liabilityRatio: number | null;
 }>();
 
 const emit = defineEmits<{ retry: [] }>();
@@ -169,34 +173,39 @@ const emit = defineEmits<{ retry: [] }>();
 /** 含估值价（收盘估值定格或盘中替换）⇒ 挂「估」徽标；确认后自动消失 */
 const estimated = computed(() => props.data?.status === "estimated");
 
-const classOf = (key: TodayPnlClass["key"]) =>
-  props.data?.classes.find(item => item.key === key) ?? null;
-
 const totalTween = useTweenNumber(
   computed(() => props.data?.total_pnl ?? null)
 );
-const stockTween = useTweenNumber(
-  computed(() => classOf("stock")?.pnl ?? null)
-);
-const fundTween = useTweenNumber(computed(() => classOf("fund")?.pnl ?? null));
 
-const tweenOf = (key: TodayPnlClass["key"]) =>
-  key === "stock" ? stockTween.value : fundTween.value;
+// ── 隐私模式（只藏金额，保留百分比）──
+const { masked, peeking, startPeek, endPeek } = usePrivacyMode();
 
-const rateClass = (value: number) =>
-  value > 0 ? "is-rise" : value < 0 ? "is-fall" : "is-zero";
+/**
+ * 长按窥视与「三列可点击」是同一个手势的两个含义：按住 = 看数字，短按 = 跳走。
+ * 不处理的话，长按松手那一下会先亮出真值、再顺势把用户带走——「看一眼」的代价
+ * 变成换页。故记一次「这次按压确实揭开过」，由家庭带的点击处理吃掉紧随的 click。
+ * 每次 pointerdown 都重置，不会误伤下一次正常点击。
+ */
+let peekFired = false;
+const onPeekStart = () => {
+  peekFired = false;
+  startPeek();
+};
+const onPeekEnd = () => {
+  if (peeking.value) peekFired = true;
+  endPeek();
+};
 
-/** `+0.20%` / `-1.17%`：符号与数值同号，零值不带符号 */
-const signedRate = (value: number) =>
-  `${value > 0 ? "+" : value < 0 ? "-" : ""}${Math.abs(value).toFixed(2)}%`;
-
-/** 千分位金额（底注用；与 MoneyDisplay 同一格式，但不需要涨跌色与货币符号） */
-function formatted(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "—";
-  const fixed = Math.abs(value).toFixed(2);
-  const [intPart, decimals] = fixed.split(".");
-  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return `¥${grouped}.${decimals}`;
+/**
+ * 递给子组件：这次点击是不是长按的余波。
+ *
+ * 做成「消费一次就复位」而不是直接传 `peekFired` 变量：真值在父组件，
+ * 若让子组件读原始标记，同一次长按会连累下一次正常点击（标记没人清）。
+ */
+function consumePeekClick(): boolean {
+  if (!peekFired) return false;
+  peekFired = false;
+  return true;
 }
 </script>
 
@@ -285,49 +294,16 @@ function formatted(value: number | null | undefined): string {
   background-color: var(--border-light);
 }
 
-/* 两列分项：竖线是同级弱分隔（--border-subtle），比外框横线轻一档 */
-.today-pnl__cols {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.today-pnl__col {
-  min-width: 0;
-  padding: 0 var(--space-compact);
-}
-
-.today-pnl__col:first-child {
-  padding-left: 0;
-}
-
-.today-pnl__col + .today-pnl__col {
-  border-left: 1px solid var(--border-subtle);
-}
-
-.today-pnl__col-value {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  margin-bottom: 4px;
-}
-
-.today-pnl__col-rate {
-  font-size: var(--text-small, 14px);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.today-pnl__empty {
-  margin: 0;
-  font-size: var(--text-small);
-}
-
-.today-pnl__foot {
-  padding-top: var(--space-3, 12px);
-  margin: 0;
+/* 投资类资产的占比：紧贴数字下方、与标签同色阶，读作「这个数的一个注解」 */
+.today-pnl__invested-ratio {
+  margin: 5px 0 0;
   font-size: var(--text-label);
-  border-top: 1px solid var(--border-light);
+  color: var(--text-tertiary-ink);
+}
+
+/* 遮罩态的提示：只在金额被藏起来时出现，告诉用户「不是坏了，是藏了，长按能看」 */
+.today-pnl__peek-hint {
+  color: var(--text-tertiary-ink);
 }
 
 .is-rise {

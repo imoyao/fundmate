@@ -18,6 +18,25 @@ def test_summary_empty(client):
     assert data['total_pnl_cny'] == 0
     assert data['total_liabilities_cny'] == 0
     assert data['net_assets_cny'] == 0
+    # 总资产为 0 时负债率**不可计算**：给 None 而不是 0%。
+    # 「负债率 0%」会被读成「一分钱负债都没有」，而真相是分母不存在。
+    assert data['liability_ratio'] is None
+
+
+def test_ratio_pct_统一舍入且分母非正时给None():
+    """占比的唯一实现：分母为 0 / None ⇒ None，分子为 0 ⇒ 0.0（两者不可混同）。
+
+    「没有负债」（0/100 = 0%）与「没有资产」（1/0 = 不可计算）在界面上是两句话，
+    函数必须能分开表达，否则卡面只能要么撒谎、要么永远显示「--」。
+    """
+    from app.services.summary_service import ratio_pct
+
+    assert ratio_pct(5000, 132200) == 3.78
+    assert ratio_pct(0, 100) == 0.0
+    assert ratio_pct(1, 0) is None
+    assert ratio_pct(1, None) is None
+    assert ratio_pct(None, 100) is None
+    assert ratio_pct(10, -5) is None
 
 
 def test_summary_with_positions_and_liabilities(client):
@@ -61,6 +80,8 @@ def test_summary_with_positions_and_liabilities(client):
     assert data['total_liabilities_cny'] == 5000.0
     assert data['net_assets_cny'] == 127200.0
     assert data['total_pnl_cny'] == 0.0
+    # 负债率 = 5,000 ÷ 132,200 = 3.78%（后端直出，前端不再除一遍）
+    assert data['liability_ratio'] == 3.78
     # 验证市场分布（至少包含港股）
     assert 'CN_HK' in data['market_distribution']
 
