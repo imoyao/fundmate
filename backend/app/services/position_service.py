@@ -2435,6 +2435,7 @@ class PositionService:
         return build_position_list_impl(
             db, family_id, group_by, page, per_page, ledger_id_raw, symbol, market, member_id_raw
         )
+
     @staticmethod
     def dispatch_position_op(db, data: dict, op_type: str) -> Optional['Position']:
         """create_position 的操作分派（#1642 B 块，从 views 下沉）。
