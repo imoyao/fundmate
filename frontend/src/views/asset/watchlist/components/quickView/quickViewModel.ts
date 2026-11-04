@@ -24,7 +24,7 @@ export function isPortfolioType(t?: string | null): boolean {
   return normalizeAssetType(t) === "portfolio";
 }
 
-/** 且慢平台的调仓靠持仓快照推导，空态要额外说明（不是故障） */
+/** 且慢平台：官方接口只覆盖 `alfa/portfolio`，计划型组合仍靠快照推导，空态要额外说明（不是故障） */
 export function isQiemanPlatform(platform?: string | null): boolean {
   return (platform || "").toUpperCase() === "QIEMAN";
 }

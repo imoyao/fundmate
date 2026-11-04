@@ -15,7 +15,7 @@ defineProps<{
   holdingsCount: number;
   missingCount: number;
   adjustGroups: AdvisorAdjustGroup[];
-  /** 且慢的调仓靠持仓快照推导，空态要额外说明（不是故障） */
+  /** 且慢平台：官方接口未覆盖时靠快照推导，空态要额外说明（不是故障） */
   isQieman: boolean;
 }>();
 </script>
@@ -58,7 +58,7 @@ defineProps<{
         </div>
       </div>
       <p v-else class="pd-hint">
-        暂无调仓记录{{ isQieman ? "（需累积 ≥2 次持仓快照后自动推导）" : "" }}
+        暂无调仓记录{{ isQieman ? "（官方未收录时需 2 次快照后推导）" : "" }}
       </p>
     </template>
   </DrawerSection>

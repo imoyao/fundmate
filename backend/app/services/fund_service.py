@@ -983,7 +983,8 @@ class FundService:
         """投顾组合调仓明细（只读）组装（#1642 B 块，从 views 下沉）。
 
         与下沉前逐字段一致：按调仓日倒序分组；reason 同日冗余存储取首条；source 标记来源
-        （qieman/tiantian）。参数：``limit`` 最近 N 个调仓日（已在视图层 clamp[1,50]）；
+        （``qieman_official`` 官方 / ``qieman`` 快照推导 / ``tiantian`` 官方 / ``qieman_manual`` 手动）。
+        参数：``limit`` 最近 N 个调仓日（已在视图层 clamp[1,50]）；
         ``only_date`` 指定调仓日（None 表示取最新）。组合不存在 → 抛 ``ValueError``，由视图转
         404/1002；无调仓日 → 返回 adjusts=[]。
         """

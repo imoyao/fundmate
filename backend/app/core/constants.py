@@ -192,6 +192,11 @@ DIVIDEND_TXN_TYPES = ('dividend', 'dividend_cash')
 # ── 投顾组合调仓操作类型（#1167 / #1468）──
 # 天天基金 adjustList 的 operationInt 与且慢「快照序列推导」共用同一词表，为单一真相源；
 # 禁止在适配器 / job 内各自硬编码一份（历史上 adapter 与 scripts 各存过一份）。
+#
+# ⚠️ 且慢**官方**调仓（`/alfa/v1/graphql`，2026-11-03 接入）给的是另一套用词：
+# 调入 / 调出 / 调增 / 调减。它比这张表细一档——「调入」是新建仓，「调增」是已有仓位加仓，
+# 压成 code 2/4 会丢掉这个区别。故官方行**原样保留 op_name**，只按语义补 op_code
+# （映射见 `qieman_advisor_adapter._MOVEMENT_TO_OP_CODE`）；本表仍是推导 / 天天基金的词表。
 ADVISOR_ADJUST_OP_NAME = {1: '建仓', 2: '加仓', 3: '减仓', 4: '新增', 5: '持平'}
 
 

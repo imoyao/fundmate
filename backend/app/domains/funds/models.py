@@ -646,7 +646,11 @@ class AdvisorAdjustHistory(Base, PrimaryKeyMixin, TimestampMixin):
     after_ratio = Column(SafeNumeric(5, 2), comment='调仓后占比(%)')
     op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
     op_name = Column(String(10), comment='操作名称')
-    source = Column(String(20), nullable=False, comment='数据来源: tiantian(官方接口)/qieman(快照推导)')
+    source = Column(
+        String(20),
+        nullable=False,
+        comment='数据来源: tiantian/qieman_official(官方接口)/qieman(快照推导)/qieman_manual(手动)',
+    )
 
     __table_args__ = (UniqueConstraint('portfolio_id', 'adjust_date', 'fund_code', name='uq_advisor_adjust_p_d_f'),)
 

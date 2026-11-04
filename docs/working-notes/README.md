@@ -1,6 +1,6 @@
 # 工作备忘索引（working-notes）
 
-> 共 **152 张**，2026-10-19 按主题归类。**一张未删**——本表只解决「找不到」，不解决「该不该留」。
+> 共 **153 张**，2026-10-19 按主题归类。**一张未删**——本表只解决「找不到」，不解决「该不该留」。
 > 归位与归档的判断依据见 [docs-audit-2026-10-19.md](./docs-audit-2026-10-19.md)。
 > 「摘要」列是卡片开头若干字符的**机械截取**，不是结论——结论以卡片本体为准。
 
@@ -43,7 +43,7 @@
 | [portfolio-lot-attribution-design-2026-08-25](./portfolio-lot-attribution-design-2026-08-25.md) | 180 | ◐ | - 同标的分批分属不同组合的场景，现有 positions 聚合行（同账户同标的 = 一行，总量 + 摊薄成本）在  |
 | [reconciliation-framework-design-2026-08-31](./reconciliation-framework-design-2026-08-31.md) | 423 | ◐ | 手动导入是投资记账的核心场景，数据源头在用户手里，系统永远无法 100% 自动正确。现有三套流程各自独立、形态不一： |
 
-## 数据源与落库（35 张）
+## 数据源与落库（36 张）
 
 | 卡片 | 行 | 标记 | 摘要 |
 |:---|---:|:---:|---|
@@ -82,6 +82,7 @@
 | [release-notes-v0.1.0-body](./release-notes-v0.1.0-body.md) | 23 | · | 把散落在不同平台的钱，合成一你自己看得懂的账。 |
 | [sw-industry-source-plan-2026-09-14](./sw-industry-source-plan-2026-09-14.md) | 150 | ◐ | 结论：申万宏源官网通道在本机可用且数据到当日，调研包「不碰东财、纯申万单源」的路线在数据源侧成立。 |
 | [watchlist-type-dimensions-design-2026-09-10](./watchlist-type-dimensions-design-2026-09-10.md) | 264 | ◐ | - #1286 就绪：统一编码/唯一键、聚合搜索、指数名录、天天投顾抓取、fund 元数据回填。 |
+| [qieman-official-adjustment-api-2026-11-03](./qieman-official-adjustment-api-2026-11-03.md) | 241 | — | 我们此前认定的「且慢没有官方历史调仓接口」是**错的**。POST https://qieman.com/alfa/v1/graphql 的 Adjustment operation 返回完整官方调仓（含主理人原文、逐基金调前/调后比例、调入调出语义），匿名可取、签名可复刻。 |
 
 ## 账户与渠道（9 张）
 

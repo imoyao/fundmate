@@ -14,9 +14,24 @@ import type { AdvisorAdjustItem } from "@/api/funds";
 /** 调仓方向：加仓 / 减仓用涨跌语义色，新增 / 建仓 / 持平保持中性（它们不是行情涨跌） */
 export type AdvisorOpTone = "add" | "cut" | "neutral";
 
+/**
+ * 调仓方向口径。**两套用词并存**，因为来源不同：
+ *
+ * - 天天基金 / 且慢快照推导：`加仓` / `减仓` / `新增` / `建仓` / `持平`
+ *   （`constants.ADVISOR_ADJUST_OP_NAME`）；
+ * - 且慢**官方**调仓：`调入` / `调增` / `调出` / `调减` / `持平`
+ *   （`/alfa/v1/graphql` 的 `movementName`，比前者细一档——「调入」是新建仓，「调增」是加仓）。
+ *
+ * 漏掉官方那套的后果不是报错，而是**整片变灰**：所有官方行的 op_name 都落进 `neutral`，
+ * 页面看起来像「调仓功能坏了」。故两套都在这里映射，`持平` 与未知值一律中性。
+ */
 export function advisorOpTone(op: string | null | undefined): AdvisorOpTone {
+  // 天天基金 / 快照推导
   if (op === "加仓") return "add";
   if (op === "减仓") return "cut";
+  // 且慢官方（调入=新建仓，调增=加仓；调出=清仓，调减=减仓）
+  if (op === "调入" || op === "调增") return "add";
+  if (op === "调出" || op === "调减") return "cut";
   return "neutral";
 }
 

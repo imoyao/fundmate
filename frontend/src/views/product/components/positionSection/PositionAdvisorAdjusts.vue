@@ -7,6 +7,7 @@ import {
   type PositionAdvisorContext
 } from "@/api/positions";
 import AdvisorAdjustList from "@/views/product/components/advisorSection/AdvisorAdjustList.vue";
+import { adjustEmptyHint as sharedEmptyHint } from "@/views/product/components/advisorSection/advisorAdjustModel";
 
 /**
  * 持仓页「主理人最近调仓」（#2740 / D70）。
@@ -25,8 +26,9 @@ import AdvisorAdjustList from "@/views/product/components/advisorSection/Advisor
  * - 拉取失败（网络 / 500）：说「暂时取不到」，不冒充「没有调仓」；
  * - `data === null`（后端契约）：本地从没同步过该组合的 market 域数据。这是**数据完整性**
  *   问题，不是这笔记账坏了——持仓金额、成本、盈亏照常，所以只提示一句；
- * - `adjusts` 为空数组：确实没有调仓记录；且慢的来源是持仓快照序列推导，
- *   空态要额外说明「不是故障」（与速览抽屉同一口径）。
+ * - `adjusts` 为空数组：确实没有调仓记录；且慢的官方接口只覆盖 `alfa/portfolio`
+ *   命名空间，计划型组合仍由持仓快照推导，空态要额外说明「不是故障」
+ *   （与详情页共用 `adjustEmptyHint`，避免同一句文案在两处各自漂移）。
  *
  * 口径复用：比例文案与方向判定走 `@/utils/advisorAdjust`，与自选速览抽屉同源，
  * 避免同一条调仓记录在两个页面显示成两种样子。
@@ -40,12 +42,8 @@ const loading = ref(false);
 const failed = ref(false);
 const data = ref<PositionAdvisorContext | null>(null);
 
-/** 且慢的调仓由持仓快照推导，空态需要解释「不是故障」 */
-const emptyHint = computed(() =>
-  data.value?.platform === "QIEMAN"
-    ? "暂无调仓记录（且慢按持仓快照推导，需累积 ≥2 次快照）"
-    : "暂无调仓记录"
-);
+/** 空态需要解释「不是故障」：文案与详情页共用一份（`advisorAdjustModel.adjustEmptyHint`） */
+const emptyHint = computed(() => sharedEmptyHint(data.value?.platform));
 
 async function load() {
   if (!props.positionId) return;

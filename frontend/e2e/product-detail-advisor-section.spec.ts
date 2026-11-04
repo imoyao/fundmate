@@ -10,9 +10,10 @@ import { injectSupabaseSession } from "./support/session";
  *    用户看到的是「调仓历史拿不到」。现在渲染已提取为 `AdvisorAdjustList`，
  *    与持仓页共用。单测只能钉住纯函数，钉不住「模板里到底挂了没有」——
  *    组件忘 import、被 `v-else` 吃掉、宿主没接线，全是单测的盲区。
- * 2. **推导口径必须写在脸上**：且慢没有官方调仓接口，库里的记录由持仓快照序列推导。
+ * 2. **推导口径必须写在脸上**：来源为快照推导（`qieman`）时，库里的记录由持仓快照序列推导。
  *    不挂声明就等于冒充官方数据。这里同时钉「该挂的时候挂了」与
- *    「官方来源（tiantian）不该挂」——只有前者会退化成「永远挂着免责」。
+ *    「官方来源（`tiantian` / `qieman_official`）不该挂」——只有前者会退化成「永远挂着免责」。
+ *    （且慢自 2026-11-04 起有官方 GraphQL 调仓接口，`qieman_official` 行不挂免责。）
  * 3. **脚注层级**：旧版两条脚注同为 13px 灰色，来源行与免责声明长得一模一样；
  *    外链只是换了颜色、没有下划线也没有图标，用户「感知不到可外链」。
  *    现在按信息价值分两层，判据必须是**可计算的**（字号递减、颜色有别、
@@ -269,7 +270,7 @@ test.describe("投顾组合详情页：调仓渲染 + 脚注层级", () => {
     await expect(first.getByText("加仓").first()).toBeVisible();
     await expect(first.getByText("减仓").first()).toBeVisible();
 
-    // 推导口径：且慢没有官方调仓公告，声明必须挂在列表下方
+    // 推导口径：来源为快照推导（qieman）时，声明必须挂在列表下方
     const caveat = block.locator(".advisor-adjusts-block__caveat");
     await expect(caveat).toBeVisible();
     await expect(caveat).toContainText("持仓快照序列推导");

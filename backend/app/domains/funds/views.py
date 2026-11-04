@@ -325,8 +325,8 @@ def get_advisor_adjusts(code: str):
     - `limit`：最近 N 个调仓日，缺省 10，上限 50；
     - `date`：只取指定调仓日（YYYY-MM-DD），与 limit 互斥时优先 date。
 
-    来源差异写进每条的 `source`：且慢无历史调仓接口，明细由我们的持仓快照序列推导
-    （`qieman`，`reason` 记录推导所依据的上一次快照日）；天天来自官方接口（`tiantian`）。
+    来源差异写进每条的 `source`：`qieman_official`（且慢官方）/ `qieman`（计划型组合的快照推导）/
+    `tiantian`（天天官方）；各值语义见 `FundService.build_advisor_adjusts`。
     """
     raw_limit = request.args.get('limit', '10')
     try:
