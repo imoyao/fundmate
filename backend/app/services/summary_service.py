@@ -198,6 +198,31 @@ def _round_totals(bucket: dict[str, float]) -> dict[str, float]:
     return {k: round(v, 2) for k, v in bucket.items()}
 
 
+def ratio_pct(numerator: float | int | None, denominator: float | int | None) -> float | None:
+    """占比（%，两位小数）——**全站唯一实现**，禁止再写 `round(a / b * 100, 2)`。
+
+    首页卡片一屏里有三个「占比」：负债率（分母=总资产）、投资类资产占家庭总资产
+    （同分母）、股票/基金占投资类资产（分母=投资类资产）。三者只是分子分母不同，
+    舍入规则必须同一份——否则同一张卡上会出现 51.83% 与 51.8% 并存。
+
+    **分母 ≤ 0 一律 None，绝不造 0%**：没有资产时「负债率 0%」会被读成
+    「一分钱负债都没有」，而真相是「这个比率不存在」。调用方据此隐藏该项，
+    与全站「不把不知道画成 0」同一条口径（#1942 / #2733）。
+
+    Args:
+        numerator: 分子（与分母同单位，金额一律用元）。
+        denominator: 分母；`None` / `0` / 负数 ⇒ 返回 None。
+
+    Returns:
+        百分比数值（如 51.83 表示 51.83%），不可计算时为 None。
+    """
+    if numerator is None or denominator is None:
+        return None
+    if denominator <= 0:
+        return None
+    return round(numerator / denominator * 100, 2)
+
+
 def family_totals(
     db: Session,
     family_id: int,
@@ -522,12 +547,17 @@ def orphan_cash_like_payload(db: Session, family_id: int) -> dict[str, Any]:
 
 
 def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[str, Any]:
-    """返回仪表盘聚合数据（总资产、总负债、净资产、盈亏拆分、市场分布）
+    """返回仪表盘聚合数据（总资产、总负债、负债率、净资产、盈亏拆分、市场分布）
 
     盈亏口径见 `services/pnl_service.py`（#1183）：
     - realized   已实现：卖出结转盈亏 + 现金分红，以**流水**为事实源（清仓后仍可查）
     - unrealized 未实现：持仓浮动盈亏 = 市值 − 成本基数
     - total      总盈亏 = realized + unrealized
+
+    `liability_ratio`（负债率，%）= 总负债 ÷ 总资产，交给 `ratio_pct` 统一舍入；
+    总资产 ≤ 0 时为 None（**不是 0%**，见 `ratio_pct` 的注释）。
+    它是首页卡「负债」那一格唯一的语义出口：负债绝对值单独看只会吓人，
+    「占家庭总资产多少」才说得清这是房贷还是危险（用户 2026-11-04 拍板）。
     """
     positions, assets = _load_user_assets(db, family_id, member_id)
 
@@ -569,6 +599,7 @@ def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = No
         'total_assets_cny': totals['total_assets'],
         'total_liabilities_cny': totals['total_liabilities'],
         'net_assets_cny': totals['net_worth'],
+        'liability_ratio': ratio_pct(totals['total_liabilities'], totals['total_assets']),
         'realized_pnl_cny': round(Money.cents_to_yuan(realized_cents), 2),
         'unrealized_pnl_cny': round(Money.cents_to_yuan(unrealized_cents), 2),
         'total_pnl_cny': round(Money.cents_to_yuan(realized_cents + unrealized_cents), 2),

@@ -231,6 +231,14 @@ export interface SummaryData {
   total_pnl_cny: number;
   total_liabilities_cny: number;
   net_assets_cny: number;
+  /**
+   * 负债率（%）= 总负债 ÷ 总资产，后端 `summary_service.ratio_pct` 直出。
+   *
+   * 首页卡「负债」那一格只展示这个比率而不是染色的绝对值：负债不是亏损，
+   * 涨跌色（红涨绿跌）在这里语义会**反转**（负债增加是坏事，但红色代表上涨）。
+   * null = 总资产为 0（**不是 0%**——0% 会被读成「一分钱负债都没有」）。
+   */
+  liability_ratio: number | null;
   market_distribution: Record<string, number>;
 }
 

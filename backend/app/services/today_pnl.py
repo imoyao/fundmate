@@ -23,6 +23,18 @@
 （2026-11-04 起 `asset_class` 把 etf / bond 归权益侧，此前二者分别落在「基金」
 与「其他」，可转债因此完全不进卡面。）
 
+## 占比（2026-11-04 用户拍板：一律后端出，前端不做除法）
+
+    classes[].share_of_invested = 该大类市值 ÷ 投资类资产
+    invested_ratio_of_assets    = 投资类资产 ÷ 家庭总资产
+
+两个比率的分子分母**必须与卡面上的数逐一对应**（同一份 `invested_cents`、
+同一个 `family_totals`），否则会出现「卡面写 12.1%，手算 12.2%」这种自打脸。
+
+⚠️ 时点口径（不可假装同点）：分子是**当日口径市值**（`_pick_target` 可能回退到
+最近有价日，见下），分母是**当前**家庭总资产。盘中两者差一个交易日，占比只作
+结构参考（1 位小数量级），不用于任何对账。分母 ≤ 0 时 `ratio_pct` 返回 None。
+
 ## 估 / 确认（用户 2026-11-03 拍板）
 
     estimated  当日价里有基金来自收盘估值定格（`fund_valuation_daily`，#2141）
@@ -67,6 +79,11 @@ from app.services.pnl_calendar import (
     _positions,
     _price_presence,
 )
+
+# 家庭口径（总资产 / 总负债 / 净资产）与占比口径的唯一出口。
+# 本模块**不**自己累加家庭资产：`investment_ratio` 的分母必须是 `family_totals`
+# 那一个数，否则「投资类资产 ÷ 总资产」会与 /summary/ 的净资产/负债率不同源。
+from app.services.summary_service import family_totals, ratio_pct
 
 # 回看窗口：覆盖国庆 / 春节（最长 8 天假）+ 一个交易日，足以找到「最近有价的一天」
 LOOKBACK_DAYS = 10
@@ -161,6 +178,9 @@ def _empty_payload(today: dt.date, reason: str) -> dict:
         'total_pnl': None,
         'total_rate': None,
         'invested_value': None,
+        # 「无持仓」与「算不出来」共用空态：占比一并给 None，前端据此隐藏
+        # 「占家庭总资产 x%」整段，而不是渲染成 0%（0% 会被读成「投资为 0」）
+        'invested_ratio_of_assets': None,
         'other_value': None,
         'classes': [],
         'holdings': [],
@@ -172,8 +192,9 @@ def build_today_pnl(db: Session, family_id: int = 1) -> dict:
 
     Returns:
         `date` / `is_today` / `state` / `status` / `total_pnl` / `total_rate` /
-        `invested_value`（股票+基金市值）/ `other_value`（其他类市值，卡面不出）/
-        `classes[]`（key, label, pnl, rate, market_value, status）/
+        `invested_value`（股票+基金市值）/ `invested_ratio_of_assets`（占家庭总资产，%）/
+        `other_value`（其他类市值，卡面不出）/
+        `classes[]`（key, label, pnl, rate, market_value, share_of_invested, status）/
         `holdings[]`（symbol, class, quantity, price——盘中价格替换用）。
     """
     today = now_shanghai().date()
@@ -248,6 +269,23 @@ def build_today_pnl(db: Session, family_id: int = 1) -> dict:
     else:
         status = STATUS_EMPTY
 
+    invested_value = _yuan(invested_cents)
+    # 分项占投资类资产：分母恒为卡面那个「投资类资产」，不做二次求和
+    for item in classes:
+        item['share_of_invested'] = ratio_pct(item['market_value'], invested_value)
+
+    # 家庭总资产：只用来做占比分母，**不下发给卡片**——卡片上的家庭三项
+    # 与负债率统一走 /summary/（两层刻度分开取，一边失败不拖累另一边）。
+    #
+    # 失败只降级、不抛出：占比是展示派生，本该由 /summary/ 那一侧负责；
+    # 若让家庭聚合的异常把本接口打成 500，用户会看到「当日收益加载失败」，
+    # 而真正算得出来的收益一个数都没问题——那是把「一个注解缺失」升级成「整卡不可用」。
+    try:
+        household_assets = family_totals(db, family_id)['total_assets']
+    except Exception:  # noqa: BLE001 —— 见上：占比缺失可接受，整卡失败不可接受
+        logger.warning('家庭总资产聚合失败，投资占比降级为 None', exc_info=True)
+        household_assets = None
+
     payload = {
         'date': target,
         'is_today': target == today.isoformat(),
@@ -255,7 +293,8 @@ def build_today_pnl(db: Session, family_id: int = 1) -> dict:
         'status': status,
         'total_pnl': _yuan(covered_pnl_cents),
         'total_rate': _rate(covered_pnl_cents, covered_prev_cents),
-        'invested_value': _yuan(invested_cents),
+        'invested_value': invested_value,
+        'invested_ratio_of_assets': ratio_pct(invested_value, household_assets),
         'other_value': _yuan(rec['mv'].get(CLASS_OTHER, 0)),
         'classes': classes,
         'holdings': _merge_holdings(rec['holdings']),

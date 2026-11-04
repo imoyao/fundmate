@@ -15,6 +15,8 @@ import datetime as dt
 
 import pytest
 
+from app.core.money import Money
+from app.domains.assets.models import Asset
 from app.domains.funds.models import DailyWorth, FundValuationDaily
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -192,6 +194,8 @@ def test_无持仓时不给零收益(db, frozen_today):
     assert data['total_pnl'] is None
     assert data['classes'] == []
     assert data['status'] == 'no_data'
+    # 占比同属「算不了」：给 None 让前端隐藏整句，而不是渲染「占家庭总资产 0.0%」
+    assert data['invested_ratio_of_assets'] is None
 
 
 def test_可转债与ETF计入场内权益(db, make_position, make_transaction, frozen_today):
@@ -245,3 +249,80 @@ def test_可转债与ETF计入场内权益(db, make_position, make_transaction, 
     holdings = {h['symbol']: h for h in data['holdings']}
     assert holdings['SH510300']['class'] == 'stock'
     assert holdings['SH110081']['class'] == 'stock'
+
+
+def test_占比由后端直出且分子分母与卡面同源(db, make_position, make_transaction, frozen_today):
+    """`share_of_invested` / `invested_ratio_of_assets` 必须在后端算好。
+
+    卡面同时显示「股票 1,100 / 基金 1,100 / 投资类资产 2,200 / 家庭总资产 4,000」，
+    四个数各自都能被用户心算验算。若前端另算一遍，四舍五入一旦不同就会出现
+    「金额对得上、百分比差 0.1」——这类观感 bug 无法靠对账解释。
+    """
+    sec, stock_pos = _seed_stock(db, make_position, make_transaction)  # 100 股 × 11 = 1,100
+    fund_pos = _seed_fund(db, make_position, make_transaction)  # 1,000 份 × 1.1 = 1,100
+    _bar(db, sec.id, 'SH600519', OLDER, 10.0)
+    _bar(db, sec.id, 'SH600519', PREV, 10.0)
+    _bar(db, sec.id, 'SH600519', TODAY, 11.0)
+    _nav(db, '000001', OLDER, 1.0)
+    _nav(db, '000001', PREV, 1.0)
+    _nav(db, '000001', TODAY, 1.1)
+    # 分母走 `family_totals` → `market_value_cents` → **持仓快照价**（current_price），
+    # 而分子走 pnl 引擎 → **历史价格序列**。两者是两条取价路径，测试里必须把快照价
+    # 也写成同一个数，否则会得到「投资类资产 2,200、家庭总资产 1,800」这种
+    # 分子大于分母的假象（实测踩过：占比 122%）。
+    stock_pos.current_price = Money.yuan_to_price_units(11.0)
+    fund_pos.current_price = Money.yuan_to_price_units(1.1)
+    db.commit()
+    # 家里还有 1,800 现金 ⇒ 家庭总资产 4,000，投资类资产只占 55%
+    db.add(
+        Asset(
+            user_id=1,
+            major_category='cash',
+            name='活期存款',
+            amount=Money.yuan_to_cents(1800),
+            currency='CNY',
+        )
+    )
+    db.commit()
+
+    data = build_today_pnl(db, family_id=1)
+
+    assert data['invested_value'] == pytest.approx(2200.0)
+    assert data['invested_ratio_of_assets'] == pytest.approx(55.0)
+    by_key = {item['key']: item for item in data['classes']}
+    assert by_key['stock']['share_of_invested'] == pytest.approx(50.0)
+    assert by_key['fund']['share_of_invested'] == pytest.approx(50.0)
+    # 两个分项占比必须闭合到 100（同一分母、同一舍入）
+    assert sum(item['share_of_invested'] for item in data['classes']) == pytest.approx(100.0)
+
+
+def test_家庭聚合失败只降级占比不拖垮整卡(db, make_position, make_transaction, frozen_today, monkeypatch):
+    """占比是展示派生：家庭聚合挂了就只能少一个注解，不能把整张卡打成错误态。
+
+    这条钉的是「分层独立」——`/api/summary/today-pnl/` 的主职责是当日收益，
+    家庭总资产只是它的一个注解。若这里跟着抛 500，用户会看到「当日收益加载失败」，
+    而实际上收益一分不差地算得出来。
+    """
+    import app.services.today_pnl as service
+
+    sec, _ = _seed_stock(db, make_position, make_transaction)
+    _seed_fund(db, make_position, make_transaction)
+    _bar(db, sec.id, 'SH600519', OLDER, 10.0)
+    _bar(db, sec.id, 'SH600519', PREV, 10.0)
+    _bar(db, sec.id, 'SH600519', TODAY, 11.0)
+    _nav(db, '000001', OLDER, 1.0)
+    _nav(db, '000001', PREV, 1.0)
+    _nav(db, '000001', TODAY, 1.1)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError('家庭聚合炸了')
+
+    monkeypatch.setattr(service, 'family_totals', _boom)
+
+    data = build_today_pnl(db, family_id=1)
+
+    assert data['invested_ratio_of_assets'] is None
+    # 主数据照常：收益、分项、占比（分项分母是投资类资产，与家庭聚合无关）
+    assert data['total_pnl'] == pytest.approx(200.0)
+    assert data['invested_value'] == pytest.approx(2200.0)
+    assert sum(item['share_of_invested'] for item in data['classes']) == pytest.approx(100.0)
