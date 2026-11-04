@@ -1427,3 +1427,68 @@ def test_当天没有持仓时净资产仍为0(db, make_position, make_transacti
 
     after = dt.date(2026, 1, 8)
     assert _worth_of(result, after) == 1000.0, '有价的持仓日照常给出市值'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 快照锚点（2026-11-04，源「账户页基金 30 万、首页十几万」）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_快照锚点份额计入日历市值与收益(db, make_position):
+    """导入的当前持仓（只有快照、没有买入流水）必须计入市值与收益。
+
+    `positions.quantity` = `snapshot_quantity + Σ(锚点后流水)`，而 `_as_of_shares`
+    曾只累计流水 ⇒ 快照型持仓份额恒为 0，日历 / 首页整笔不计市值。真实库实测：
+    账户页基金 30 万+、首页只十几万，差额全是这类持仓。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    pos = make_position(symbol='000090', name='快照持仓', quantity=1000, avg_price=1.0, asset_type='fund')
+    pos.snapshot_quantity = Money.shares_to_min_unit(1000)
+    pos.snapshot_avg_price = Money.yuan_to_price_units(1.0)
+    pos.snapshot_date = d1
+    db.commit()
+
+    _add_nav(db, '000090', d1, 1.0)
+    _add_nav(db, '000090', d2, 1.1)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    assert _state_of(result, d2) == STATE_UPDOWN
+    assert _worth_of(result, d2) == pytest.approx(1100.0, abs=0.01), '快照份额必须计入市值'
+    # 常日按快照成本起算：d1 = 0（建仓日），d2 = +100
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01)
+
+
+def test_锚点日及之前的流水不重复计份额(db, make_position, make_transaction):
+    """锚点日（含）之前的流水已被快照包含，不能再加一遍。
+
+    重复计就是 012708「精确 2 倍」那个老病：快照已有 1000 份，
+    同日确认的买入流水再 +1000 ⇒ 2000 份，市值凭空翻倍。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    pos = make_position(symbol='000091', name='快照+同日流水', quantity=1000, avg_price=1.0, asset_type='fund')
+    pos.snapshot_quantity = Money.shares_to_min_unit(1000)
+    pos.snapshot_avg_price = Money.yuan_to_price_units(1.0)
+    pos.snapshot_date = d1
+    db.commit()
+
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000091',
+    )
+    _add_nav(db, '000091', d1, 1.0)
+    _add_nav(db, '000091', d2, 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    assert _worth_of(result, d2) == pytest.approx(1000.0, abs=0.01), '锚点日流水不得重复计份额'
+    assert _pnl_of(result, d2) == pytest.approx(0.0, abs=0.01)

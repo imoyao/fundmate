@@ -91,7 +91,12 @@ from app.domains.transactions.models import Transaction
 #      `pnl_calendar._has_usable_cost`）。历史建仓日的物化行是旧口径的 0，
 #      不换版就会被读路径当成新口径直接返回——用户看到「今天买的涨了，当日仍是 0」。
 #      `net_worth` 不受影响，但 `daily_pnl` 变了，必须整表作废重算。
-CALIBER_VERSION = 6
+#   v7（2026-11-04，「快照锚点份额计入日历」）：`_as_of_shares` 以前只累计流水，
+#      通过「导入当前持仓」建立的仓位（`snapshot_quantity` + `snapshot_date`，无买入
+#      流水）份额恒为 0 ⇒ 日历/首页整笔漏计市值（真实库：账户页基金 30 万+、首页
+#      十几万）。修复后这些持仓从锚点日起按快照份额计入，历史每日市值与收益全变，
+#      旧物化行必须整表作废。
+CALIBER_VERSION = 7
 
 # 日历关心的模型全集。`Asset` 不在其内：`pnl_calendar` 的 `net_worth` 只累加
 # 持仓市值（见其值循环），静态资产增减**不影响**日历的任何一个数字。
