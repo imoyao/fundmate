@@ -72,6 +72,16 @@ export interface ImportConfirmRow {
   net_amount?: number;
 }
 
+/** 解析阶段未能纳入导入的行（#2854：未知操作名 / 行解析失败） */
+export interface ImportParseError {
+  /** 源文件行号（表头占第 1 行） */
+  line: number;
+  field: string | null;
+  message: string;
+  /** 券商原文操作名，便于用户按名字定位 */
+  raw_value: string | null;
+}
+
 /** 文件解析响应（对齐后端 /parse/） */
 export interface ImportParseResponse {
   data: ImportPreviewRow[];
@@ -79,6 +89,11 @@ export interface ImportParseResponse {
   error_count: number;
   duplicate_count: number;
   cash_transfer_count: number;
+  /** #2854 行数对账：源文件数据行数 / 解析错误数 / 有意忽略数 */
+  parse_error_count: number;
+  parse_errors: ImportParseError[];
+  source_row_count: number | null;
+  ignored_row_count: number;
   message: string;
 }
 

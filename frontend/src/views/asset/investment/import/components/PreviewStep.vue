@@ -34,7 +34,10 @@ const {
   pendingFixCount,
   // #2840：与 selectedCount 同一分母的两个补数，底栏据此可互算、并说清转账在不在里面
   unselectedCount,
-  selectedTransferCount
+  selectedTransferCount,
+  // #2854：源文件行数对账 + 解析阶段未能纳入导入的行
+  rowReconciliation,
+  parseErrors
 } = useImportWizardContext();
 </script>
 
@@ -60,6 +63,31 @@ const {
         </el-button>
       </div>
     </div>
+
+    <!-- #2854：源文件行数对账。未知操作名曾整行静默消失，预览 total 是丢过行的数，
+         用户连「少了几行」都不知道。这里把差额与未登记的操作名显式写出来。 -->
+    <SoftBanner
+      v-if="rowReconciliation"
+      class="row-reconciliation-banner"
+      variant="warning"
+      icon="ep:warning-filled"
+    >
+      <span class="banner-text">
+        文件共 {{ rowReconciliation.source }} 行 = 可导入
+        {{ rowReconciliation.imported }} 行 + 有意忽略
+        {{ rowReconciliation.ignored }} 行 + 未能识别
+        {{ rowReconciliation.failed }} 行
+        <template v-if="!rowReconciliation.balanced">
+          （对不平，请检查源文件是否有合并行或空行）
+        </template>
+      </span>
+      <p v-if="rowReconciliation.ops.length" class="text-xs mt-1">
+        未登记的操作类型：{{ rowReconciliation.ops.join("、") }}
+        <span v-if="parseErrors.length">
+          ，涉及行号 {{ parseErrors.map(e => e.line).join("、") }} </span
+        >。请在映射表登记后再导入，不要手工编造标的。
+      </p>
+    </SoftBanner>
 
     <!-- #2281 引导态：能力宣告 + 关联入口（未关联现金账户时；不可关闭，tooltip 指向此处）。
          #2724 起壳由 SoftBanner 承担，select 与跳转按钮走 #actions slot -->

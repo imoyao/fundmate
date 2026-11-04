@@ -62,10 +62,10 @@ from typing import Iterable, Optional
 
 from sqlalchemy.orm import Session
 
-from app.core.constants import THS_OP_TYPE_MAP
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.importer.mappings import THS_OP_MAP, BusinessType
 
 # 通知来源标识（写入 notifications.source_type）
 SOURCE_TYPE = 'dividend_tax_pending'  # 有一笔分红还没记扣税
@@ -91,7 +91,7 @@ SUSPECT_MIN_DIVIDEND_CENTS = 10_000  # 100 元
 SUSPECT_RATIO_THRESHOLD = 0.20
 
 # 分红类流入的白名单关键词：操作名（`notes`）里出现这些才算「分红 / 派息」。
-# 取自 `core/constants.THS_OP_TYPE_MAP` 里落成 `dividend` 的六个操作名，
+# 取自活表 `importer/mappings.THS_OP_MAP` 里落成 `dividend_cash` 的操作名，
 # 外加「利息」——存款/理财利息也被映射成 dividend，这里用「含利息 ⇒ 排除」反着用。
 _DIVIDEND_KEYWORDS = ('红利', '分红', '派息', '股息', '兑息')
 # 非分红类的关键词：命中即排除（利息 / 兑付 / 退款 / 零款）。
@@ -495,7 +495,7 @@ def is_tax_import_note(note: str) -> bool:
     raw = (note or '').strip()
     if not raw:
         return False
-    if THS_OP_TYPE_MAP.get(raw) == 'tax':
+    if THS_OP_MAP.get(raw) == BusinessType.TAX.code:
         return True
     return bool(re.search(r'红利|股息', raw)) and bool(re.search(r'扣税|差异|纳税|税费', raw))
 

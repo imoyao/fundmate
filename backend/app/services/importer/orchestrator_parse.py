@@ -89,7 +89,24 @@ class ParsingMixin:
 
         # 文件类型校验
         self.validate_file_type(records, template_key)
-        return self._rows_from_records(records, parser, frontend_account, ledger_id)
+        result = self._rows_from_records(records, parser, frontend_account, ledger_id)
+        # #2854：errors 不能只写不读。原实现在「还有别的行能解析」时把 errors 直接
+        # 丢掉，于是「把未知操作名改成 append SBImportError」这个最直觉的修法不会
+        # 产生任何可见效果。这里把明细、计数与源文件行数一并下发，前端才能对账。
+        stats = getattr(self, '_last_parse_stats', {}) or {}
+        result['parse_error_count'] = len(errors)
+        result['parse_errors'] = [
+            {
+                'line': e.line_number,
+                'field': e.field_name,
+                'message': e.message,
+                'raw_value': e.raw_value,
+            }
+            for e in errors
+        ]
+        result['source_row_count'] = stats.get('source_row_count')
+        result['ignored_row_count'] = stats.get('ignored_row_count', 0)
+        return result
 
     def preview_records(
         self,
@@ -217,6 +234,12 @@ class ParsingMixin:
         if parser is None:
             raise SBException(ErrorCode.UNSUPPORTED_FILE_FORMAT.code, f'不支持的导入来源: {source}')
         records, errors = parser.parse(file_bytes)
+        # #2854：把解析器的行数对账元数据挂到本次 orchestrator 实例（每请求新建，
+        # 不落在注册表单例上），供 parse_and_preview 下发到预览响应。
+        self._last_parse_stats = {
+            'source_row_count': getattr(parser, 'source_row_count', None),
+            'ignored_row_count': getattr(parser, 'ignored_row_count', 0),
+        }
         # 配对（兑息+代扣税 / 兑付+股份转出）在所有解析器的共同出口统一做：
         # 规则按 business_type 匹配，与平台无关（#2836，见 importer/linking.py）。
         # 放在这里而不是各解析器内部，是因为「哪些行描述同一笔现金流」是业务语义，
@@ -500,3 +523,31 @@ class ParsingMixin:
             # 配股缴款数量由比例算出，不走「一手起买」申报校验（#541）
             'skip_lot_check': getattr(record, 'raw_op_type', '') == '配股缴款',
         }
+
+
+def preview_response(result: dict) -> dict:
+    """把 `parse_and_preview` 的结果封成 `/parse/` 的响应体（#2854）。
+
+    放在 service 而不是视图，有两个理由：
+
+    1. 字段映射与「哪些字段必须一起出现」是**业务契约**（`total` 与
+       `source_row_count` 必须同时下发才能对账），不是 HTTP 细节；
+    2. 视图层厚度守卫（`scripts/check_view_thickness.py`）把 `importers/views.py`
+       冻结在 247 行 / max_func 52，本卡新增的 4 个对账字段若直接写进视图，
+       会让「视图只做编排」这条纪律当场破一个口子。
+
+    `cash_transfer_count` 恒为 0 是历史遗留的占位（转账条数由前端按行类型算），
+    保留键名是为了不破坏既有消费方。
+    """
+    return {
+        'data': result['rows'],
+        'total': result['total'],
+        'error_count': result['error_count'],
+        'duplicate_count': result['duplicate_count'],
+        'cash_transfer_count': 0,
+        'parse_error_count': result.get('parse_error_count', 0),
+        'parse_errors': result.get('parse_errors', []),
+        'source_row_count': result.get('source_row_count'),
+        'ignored_row_count': result.get('ignored_row_count', 0),
+        'message': 'ok',
+    }
