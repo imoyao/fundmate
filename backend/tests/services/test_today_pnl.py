@@ -192,3 +192,56 @@ def test_无持仓时不给零收益(db, frozen_today):
     assert data['total_pnl'] is None
     assert data['classes'] == []
     assert data['status'] == 'no_data'
+
+
+def test_可转债与ETF计入场内权益(db, make_position, make_transaction, frozen_today):
+    """2026-11-04（D77）：`asset_class` 按定价方式分桶，bond / etf 都进「场内权益」。
+
+    此前 `bond` 归 other（完全不进卡面）、`etf` 归 fund（与场外基金混在
+    「基金」列，而它其实有实时价、盘中会跳）。两者与股票同属交易所报价，
+    当日盈亏口径完全一致。
+    """
+    etf = Security(symbol='SH510300', name='沪深300ETF', market='CN_A', type='etf')
+    bond = Security(symbol='SH110081', name='测试转债', market='CN_A', type='bond')
+    db.add_all([etf, bond])
+    db.commit()
+
+    pos_etf = make_position(symbol='SH510300', name='沪深300ETF', quantity=100, avg_price=4.0, asset_type='etf')
+    make_transaction(
+        position_id=pos_etf.id,
+        ledger_id=pos_etf.ledger_id,
+        txn_type='buy',
+        quantity=100,
+        price=4.0,
+        confirm_date=TODAY - dt.timedelta(days=60),
+        symbol='SH510300',
+    )
+    pos_bond = make_position(symbol='SH110081', name='测试转债', quantity=10, avg_price=100.0, asset_type='bond')
+    make_transaction(
+        position_id=pos_bond.id,
+        ledger_id=pos_bond.ledger_id,
+        txn_type='buy',
+        quantity=10,
+        price=100.0,
+        confirm_date=TODAY - dt.timedelta(days=60),
+        symbol='SH110081',
+    )
+
+    for sec, symbol, prev, today in ((etf, 'SH510300', 4.0, 4.1), (bond, 'SH110081', 100.0, 101.0)):
+        _bar(db, sec.id, symbol, OLDER, prev)
+        _bar(db, sec.id, symbol, PREV, prev)
+        _bar(db, sec.id, symbol, TODAY, today)
+
+    data = build_today_pnl(db, family_id=1)
+
+    classes = {c['key']: c for c in data['classes']}
+    assert list(classes) == ['stock'], 'ETF 与可转债同属场内权益，不应再单列「基金」'
+    assert classes['stock']['label'] == '场内权益'
+    # ETF：(4.1 − 4.0) × 100 = 10；转债：(101 − 100) × 10 = 10
+    assert classes['stock']['pnl'] == pytest.approx(20.0)
+    assert data['total_pnl'] == pytest.approx(20.0)
+    assert sum(c['pnl'] for c in data['classes']) == pytest.approx(data['total_pnl'])
+
+    holdings = {h['symbol']: h for h in data['holdings']}
+    assert holdings['SH510300']['class'] == 'stock'
+    assert holdings['SH110081']['class'] == 'stock'

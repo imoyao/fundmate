@@ -72,7 +72,11 @@ channel_category 分布：fund_platform 8 / bank 4 / securities 1 / other 1 / NU
 - 不这么做会藏掉证券账户 **21.2%** 的市值（实测 7 只行业 ETF：恒生科技 / 创新药 /
   卫星E / 科技HK / 创新药E / 证券ETF / 养殖ETF），对证券账户是重大信息损失。
 
-⚠️ 该改写**只在账户级生效**。组合/家庭级维持原分类（`etf → fund`），避免误伤组合页。
+⚠️ ~~该改写**只在账户级生效**，组合/家庭级维持 `etf → fund`。~~
+**2026-11-04 更新（D77）**：`services/asset_class` 已按**定价方式**统一分桶
+（`stock/etf/bond → 场内权益`、`fund → 场外基金`），家庭级与账户级同桶。
+账户级不再需要二次改写——「只在账户级生效」这条规则已被推翻；
+本节其余理由（ETF 是场内品种、合并排名不违反股基约束）仍然成立。
 
 ### 3.2 货基走类现金（owner 裁定）
 
@@ -100,8 +104,9 @@ channel_category 分布：fund_platform 8 / bank 4 / securities 1 / other 1 / NU
 - 新增 `_LEDGER_TYPE_VIEW`：`stock→stock`、`fund/bank/e_account→fund`。
   `property` / `family` 不在表内（不持有可排名的持仓）⇒ 返回 `None`（无固定视角）。
 - `_resolve_ledger_view()`：按 `ledger_id` 取该账户的 `ledger_type` → 视角。
-- 分类改写（仅账户级）：
-  - ETF 在股票视角下归 `stock`；
+- 分类归属（全作用域，`services/asset_class` 单一出口）：
+  - `stock` / `etf` / `bond` → `stock`（场内权益），`fund` → `fund`（场外基金）；
+  - 账户级**不再**单独改写 ETF（2026-11-04 D77：家庭级与账户级同桶）；
   - 现金等价物（`is_cash_equivalent_position`）排除出持仓榜，市值计入 `cash_like_cny`。
 - 响应新增：`view`（`stock`/`fund`/`null`）、`ledger_type`、`cash_like_cny`。
   `position_count` 改为与 `total_cny` 同口径（不含走类现金的持仓）。
@@ -129,7 +134,7 @@ channel_category 分布：fund_platform 8 / bank 4 / securities 1 / other 1 / NU
 - **前端**：`frontend/src/components/PositionStructurePanel/__tests__/positionStructureViewGuard.spec.ts`
   5 例（切换控件的出现条件、固定视角取自后端、主榜取值、组合级保留切换、口径说明）。
 - **反向验证**（各 4 个变异，全部转红后复原全绿）：
-  - 后端：ETF 不归权益侧 / 账户级不排除货基 / 视角恒 None / 银行账户不走基金视角；
+  - 后端：`asset_class` 仍把 etf 归基金 / 账户级不排除货基 / 视角恒 None / 银行账户不走基金视角；
   - 前端：切换控件恒显示 / `showSwitcher` 恒 false / 主榜取用户上次选的 / 前端自己猜视角。
 
 > ⚠️ 前端守卫首版有一处**假绿**：`showSwitcher` 写成恒 false 时，「组合级保留切换」
@@ -141,7 +146,9 @@ channel_category 分布：fund_platform 8 / bank 4 / securities 1 / other 1 / NU
 ## 6. 明确不做
 
 - 不给聚合页加 `?scope=ledger&id=` 深链（#2739 已裁定）。
-- 不改组合/家庭级的任何既有分类与口径（避免误伤已上线的组合页与持仓分析页）。
+- ~~不改组合/家庭级的任何既有分类与口径~~ —— **已被 D77（2026-11-04）推翻**：
+  分类按定价方式全作用域统一（`etf/bond → 场内权益`）。本条只保留「不改组合 /
+  家庭级**其它**既有口径」这层含义。
 - 不把 `ledger_type` 用作展示标签（铁律：它是内部计算口径键，用户不可见）。
 - **不改 `PenetrationPanel` 的切换**：它的 `SegmentedControl` 切的是**分类体系**
   （证监会门类 / GICS），即「用哪套标准看行业分布」，两套标准都有意义，与账户类型无关。

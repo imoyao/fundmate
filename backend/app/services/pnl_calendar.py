@@ -28,6 +28,13 @@
                          净值行、落在非交易日的当日预估——并入下一开盘日）；
                          total_pnl_asof(D) = Σ_pos [ mv_asof(D) − cost_basis_asof(D) + realized_asof(D) ]
 
+**建仓日按买入成本起算（2026-11-04 用户裁定）**：份额由 0 变正的那天，前值
+水平值是「未持有」的 0，当日 `level = 市值 − 买入成本`——这正是「今天买的
+场内标的今天涨跌」。旧实现把整笔建仓浮盈从当日差分里剔掉，导致这笔收益要等
+**卖出那天**才以已实现的形式出现（不丢钱，但归期全错）。
+成本缺失（`positions.avg_price` 为 0，买入流水未回填）时仍退回剔除，否则
+`level` 会是整笔市值（实测 1/5 建仓日冒出的假盈亏），判据见 `_has_usable_cost`。
+
 **为什么用 `total_pnl` 的日差分而不是 `net_worth` 日环比**：
 `total_pnl` 是累计盈亏，买入建仓瞬间 `unrealized = 市值 − 成本 = 0`，追加投入不改变
 盈亏总额 ⇒ 它的日差分**天然免疫资金流**。反之 `net_worth` 日环比会被存取款污染
@@ -487,6 +494,24 @@ def _positions(
     if ledger_id is not None:
         query = query.filter(Position.ledger_id == ledger_id)
     return query.all()
+
+
+def _has_usable_cost(pos) -> bool:
+    """成本均价是否可用：建仓日能否按「买入成本 → 当日价」起算的唯一判据。
+
+    建仓日的前值水平值是「未持有」（0），当日 `level = 市值 − 成本`。
+    成本可用时它就等于「相对买入价的当日浮动」——正是用户要的「今天买的
+    场内标的今天涨跌」。成本缺失（`avg_price` 为 0 / None，常见于买入流水
+    尚未回填成本）时，`level` 会变成整笔市值（全部当成盈利）——实测 1/5
+    建仓当天冒出过这种假盈亏，故退回旧的「建仓日剔除」。
+
+    值循环与状态判定循环必须共用这一条判据，否则「算出的数」与「状态」
+    会对不上（一个按成本起算、一个按剔除判定）。
+    """
+    try:
+        return float(getattr(pos, 'avg_price', 0) or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _build_per_pos(
@@ -1105,7 +1130,8 @@ def _compute_days(
     # scope 严格同口径：
     #   · `day_level`        当日计入 day_total_pnl 的逐持仓水平值（无价 / 份额≤0
     #                          的持仓不进，与值循环的 continue 同步 ⇒ 缺席 = 0）；
-    #   · `day_opening_level` 建仓持仓的水平值（`opening_pnl` 的逐笔拆分）；
+    #   · `day_opening_level` **成本缺失**的建仓持仓水平值（`opening_pnl` 的
+    #                          逐笔拆分；成本可用的建仓持仓已计入当日差分，不在此列）；
     #   · `prev_level`        差分基准，与 `prev_total_pnl` **同一推进条件**冻结 /
     #                          前进（循环末尾一处收口，见 `if trading_today ...`）。
     collect = attribution is not None
@@ -1146,7 +1172,8 @@ def _compute_days(
         # 有则当日行附 estimated 标记——前端徽标/开关据此展示，不再前端猜。
         day_uses_estimate = False
         # 归因三件套按日重建；`forced_zero` 标记状态链把 daily_pnl **改写成 0**
-        # 的全建仓日（其逐笔原始差分之和是 −prev_total_pnl，与强制值不等）。
+        # 的全建仓日**且成本缺失**（其逐笔原始差分之和是 −prev_total_pnl，与强制值不等）。
+        # 成本可用的建仓日不算 forced_zero——它已按买入成本正常计差。
         day_level = {}
         day_opening_level = {}
         forced_zero = False
@@ -1205,20 +1232,23 @@ def _compute_days(
             day_total_pnl += level
             day_net_worth += market_value + state['realized']
             day_valued_count += 1
-            if state['is_opening']:
-                # 建仓持仓的浮盈是「今天新出现的」，不是「今天赚的」。
-                # 记进水平值（次日差分的基准要用），但从当日差分里剔掉。
+            # 建仓日：成本可用时**照常计入当日差分**（用户 2026-11-04 裁定）——
+            # 前值水平值是「未持有」的 0，`level = 市值 − 买入成本`，正好是
+            # 「今天买的、今天涨跌」那笔收益。只有成本缺失时才退回旧行为剔除，
+            # 否则整笔市值会被当成盈利（实测 1/5 建仓日假盈亏）。
+            opening_uncosted = state['is_opening'] and not _has_usable_cost(pos)
+            if opening_uncosted:
                 opening_pnl += level
             if collect:
                 day_level[pos.id] = level
                 attribution['priced'].add(pos.id)
-                if state['is_opening']:
+                if opening_uncosted:
                     day_opening_level[pos.id] = level
             if split:
                 cls = class_of_position(pos)
                 day_class_level[cls] = day_class_level.get(cls, 0) + level
                 day_class_mv[cls] = day_class_mv.get(cls, 0) + market_value
-                if state['is_opening']:
+                if opening_uncosted:
                     day_class_opening_level[cls] = day_class_opening_level.get(cls, 0) + level
                 if used_estimate:
                     day_estimated_classes.add(cls)
@@ -1350,11 +1380,14 @@ def _compute_days(
             if state['shares'] <= 0:
                 continue
             if state['is_opening']:
-                # 建仓当日：仍要计入**水平值**（否则次日差分失去基准，
-                # 次日会把「建仓日没算的涨跌」一次性算进去），但当日盈亏记 0。
+                # 建仓日：水平值照常进基准（否则次日差分失去锚点）。
+                # 当日盈亏是否计入，取决于成本是否可用——与值循环**同一条判据**
+                # （`_has_usable_cost`）。成本可用时它已参与当日差分，这里计入
+                # `day_priced_count`；缺失时才落到下方的「全建仓强制 0」分支。
                 day_opening = True
-            else:
-                day_priced_count += 1
+                if not _has_usable_cost(pos):
+                    continue
+            day_priced_count += 1
 
         # 状态判定（顺序即优先级）：
         #  0. **非 A 股开盘日一律 `closed`**（2026-10-17 用户拍板「周六、周日固定休市」，
@@ -1400,8 +1433,9 @@ def _compute_days(
             state_code = STATE_NO_POSITION
             daily_pnl = None
         elif day_priced_count == 0 and day_opening:
-            # 当日全部是建仓日：水平值已计入，但当日盈亏强制为 0
-            # （建仓那一刻浮盈本来就是 0，不是「没数据」）。
+            # 当日持仓全部是建仓日、且**成本都不可用**：水平值已计入，
+            # 但「按买入成本起算」不成立（level 会是整笔市值），只能强制 0。
+            # 成本可用的建仓日已在值循环里正常计差，不会走到这个分支。
             state_code = STATE_ZERO
             daily_pnl = 0
             # 归因跳过该日：逐笔原始差分之和 = −prev_total_pnl，与强制值 0 不等，
@@ -1563,9 +1597,11 @@ def _compute_days(
         #   · 基准尚未播种（`prev_total_pnl is None`，扫描首日）：必须先锚一个
         #     水平值，否则区间首日永远无基准。月 / 年粒度的 `scan_start` 常落在
         #     周日（区间首日的前一天），不播这一年视图每周一都不可算；
-        #   · 建仓日（`day_opening`，哪怕落在周末——场外基金周末可确认）：当日
-        #     不出数，但新持仓的整笔浮盈必须锚进基准，否则下一开盘日把建仓浮盈
-        #     算成当日盈利（实测 1/5 建仓当天冒出等于全部市值−成本的假盈亏）。
+        #   · 建仓日（`day_opening`，哪怕落在周末——场外基金周末可确认）：
+        #     水平值必须锚进基准，否则下一开盘日会把建仓浮盈当成当日盈利。
+        #     成本可用时建仓日已经正常出数（差分里含它），推进基准是同一动作；
+        #     成本缺失时当天不出数，推进基准则保证下一日只算增量
+        #     （实测 1/5 建仓当天冒出过等于全部市值−成本的假盈亏）。
         if trading_today or prev_total_pnl is None or day_opening:
             prev_total_pnl = day_total_pnl
             # 净资产基准只在**当天真有净值**时前进（#2733 C）：NULL 是「缺输入」，

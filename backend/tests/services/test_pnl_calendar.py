@@ -907,6 +907,70 @@ def test_年粒度等于其各月期间之和(db, make_position, make_transactio
     assert year['periods'][0]['pnl'] == pytest.approx(jan['periods'][0]['pnl'] + feb['periods'][0]['pnl'], abs=0.01)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 建仓日口径（2026-11-04，D77）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_建仓日按买入成本计入当日盈亏(db, make_position, make_transaction):
+    """建仓当天也要算收益：今天买的，今天涨跌就是今天的。
+
+    前值水平值是「未持有」的 0 ⇒ `level = 市值 − 买入成本`，
+    建仓日收益 = (当日净值 − 买入价) × 份额。
+    旧实现把整笔剔除并强制 0，这笔钱要等卖出那天才以已实现形式出现（归期错误）。
+    """
+    d1 = dt.date(2026, 1, 5)  # 建仓前一日
+    d2 = dt.date(2026, 1, 6)  # 建仓日
+
+    pos = make_position(symbol='000088', name='当日建仓', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d2,
+        symbol='000088',
+    )
+    _add_nav(db, '000088', d1, 1.0)
+    _add_nav(db, '000088', d2, 1.1)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    assert _state_of(result, d1) == STATE_NO_POSITION
+    assert _state_of(result, d2) == STATE_UPDOWN, '建仓日有真实浮动，不是 zero'
+    # (1.1 − 1.0) × 1000 = +100，相对买入价起算
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01)
+
+
+def test_建仓日成本缺失时仍剔除收益(db, make_position, make_transaction):
+    """成本未回填（`avg_price=0`）时，建仓日必须退回剔除。
+
+    否则 `level = 市值 − 0 = 整笔市值`，买入金额会被当成当天盈利
+    （1/5 实测过的假盈亏）。判据是 `_has_usable_cost`，值与状态共用同一条。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    pos = make_position(symbol='000089', name='成本缺失', quantity=1000, avg_price=0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d2,
+        symbol='000089',
+    )
+    _add_nav(db, '000089', d1, 1.0)
+    _add_nav(db, '000089', d2, 1.1)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    assert _state_of(result, d2) == STATE_ZERO
+    assert _pnl_of(result, d2) == 0, '成本不可用时不得把整笔市值算成收益'
+
+
 def test_期间收益率分母取上一期间末净资产(db, make_position, make_transaction):
     """首期间的分基线是「区间前一天」，由 build_pnl_series 多取的那一天提供。"""
     _seed_跨月收益(db, make_position, make_transaction)
