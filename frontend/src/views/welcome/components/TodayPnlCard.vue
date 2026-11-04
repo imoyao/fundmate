@@ -32,100 +32,98 @@
 
 <template>
   <CardBlock class="today-pnl">
-    <!-- 失败态（沿用 #1832 口径）：不显示 ¥0。0 在资产语境里是结论，不是「不知道」 -->
+    <!-- 慢接口不再挡住整张卡：家庭三项走 `/api/summary/`（约 60ms）立即渲染，
+         当日收益走 `/api/summary/today-pnl/`（约 300ms）期间只让上半部占位。
+         失败也只降级上半部——家庭数据是另一条链，不该陪着一起隐藏。 -->
     <div
-      v-if="error"
-      class="today-pnl__state"
-      role="alert"
-      :style="{ color: 'var(--text-secondary)' }"
-    >
-      <p class="text-sm">当日收益加载失败，请检查网络后重试</p>
-      <el-button size="small" type="primary" @click="emit('retry')">
-        重新加载
-      </el-button>
-    </div>
-
-    <div
-      v-else-if="loading && !data"
-      class="today-pnl__state"
-      :style="{ color: 'var(--text-tertiary-ink)' }"
-    >
-      <span class="text-sm">正在计算当日收益…</span>
-    </div>
-
-    <div
-      v-else-if="data"
       class="today-pnl__body"
+      :aria-busy="!data || loading"
       @pointerdown="onPeekStart"
       @pointerup="onPeekEnd"
       @pointerleave="onPeekEnd"
       @pointercancel="onPeekEnd"
     >
-      <div class="today-pnl__head">
-        <div class="today-pnl__primary">
-          <p class="today-pnl__label">
-            <span>最新收益（元）</span>
-            <el-tooltip
-              v-if="estimated"
-              placement="top"
-              content="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
-            >
-              <ValuationSourceBadge
-                status="estimated"
-                size="sm"
-                tip="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
-              />
-            </el-tooltip>
-          </p>
-          <div class="today-pnl__hero">
-            <MoneyDisplay
-              :value="totalTween"
-              size="hero"
-              :show-currency="false"
-            />
-            <span
-              v-if="data.total_rate != null"
-              class="today-pnl__hero-rate"
-              :class="rateClass(data.total_rate)"
-              >{{ signedRate(data.total_rate) }}</span
-            >
-          </div>
-          <p class="today-pnl__sub">
-            {{ subtitle }}
-            <span v-if="masked" class="today-pnl__peek-hint"
-              >· 长按查看金额</span
-            >
-          </p>
-        </div>
-
-        <div class="today-pnl__invested">
-          <el-tooltip
-            placement="top"
-            content="只统计场内权益（股票/ETF/可转债）与场外基金；房产、现金、理财等见下方家庭净资产"
-          >
-            <p class="today-pnl__label">投资类资产</p>
-          </el-tooltip>
-          <MoneyDisplay
-            :value="data.invested_value"
-            size="lg"
-            :show-sign="false"
-            :auto-color="false"
-            custom-color="var(--text-primary)"
-          />
-          <!-- 占比把「411,679 在 3,395,884 里算什么」一句话说完：这张卡上半是
-               投资口径、下半是家庭口径，中间原本没有任何桥 -->
-          <p
-            v-if="data.invested_ratio_of_assets != null"
-            class="today-pnl__invested-ratio"
-          >
-            占家庭总资产 {{ pct1(data.invested_ratio_of_assets) }}
-          </p>
-        </div>
+      <!-- 失败态（沿用 #1832 口径）：不显示 ¥0。0 在资产语境里是结论，不是「不知道」 -->
+      <div
+        v-if="error"
+        class="today-pnl__state"
+        role="alert"
+        :style="{ color: 'var(--text-secondary)' }"
+      >
+        <p class="text-sm">当日收益加载失败，请检查网络后重试</p>
+        <el-button size="small" type="primary" @click="emit('retry')">
+          重新加载
+        </el-button>
       </div>
 
-      <div class="today-pnl__rule" />
+      <template v-else-if="data">
+        <div class="today-pnl__head">
+          <div class="today-pnl__primary">
+            <p class="today-pnl__label">
+              <span>最新收益（元）</span>
+              <el-tooltip
+                v-if="estimated"
+                placement="top"
+                content="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
+              >
+                <ValuationSourceBadge
+                  status="estimated"
+                  size="sm"
+                  tip="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
+                />
+              </el-tooltip>
+            </p>
+            <div class="today-pnl__hero">
+              <MoneyDisplay
+                :value="totalTween"
+                size="hero"
+                :show-currency="false"
+              />
+              <span
+                v-if="data.total_rate != null"
+                class="today-pnl__hero-rate"
+                :class="rateClass(data.total_rate)"
+                >{{ signedRate(data.total_rate) }}</span
+              >
+            </div>
+            <p class="today-pnl__sub">
+              {{ subtitle }}
+              <span v-if="masked" class="today-pnl__peek-hint"
+                >· 长按查看金额</span
+              >
+            </p>
+          </div>
 
-      <TodayPnlClassColumns :classes="data.classes" />
+          <div class="today-pnl__invested">
+            <el-tooltip
+              placement="top"
+              content="只统计场内权益（股票/ETF/可转债）与场外基金；房产、现金、理财等见下方家庭净资产"
+            >
+              <p class="today-pnl__label">投资类资产</p>
+            </el-tooltip>
+            <MoneyDisplay
+              :value="data.invested_value"
+              size="lg"
+              :show-sign="false"
+              :auto-color="false"
+              custom-color="var(--brand-ink)"
+            />
+            <!-- 占比把「411,679 在 3,395,884 里算什么」一句话说完：这张卡上半是
+               投资口径、下半是家庭口径，中间原本没有任何桥 -->
+            <p
+              v-if="data.invested_ratio_of_assets != null"
+              class="today-pnl__invested-ratio"
+            >
+              占家庭总资产 {{ pct1(data.invested_ratio_of_assets) }}
+            </p>
+          </div>
+        </div>
+
+        <div class="today-pnl__rule" />
+
+        <TodayPnlClassColumns :classes="data.classes" />
+      </template>
+      <TodayPnlSkeleton v-else :active="showSkeleton" />
 
       <TodayPnlHouseholdBand
         :total-assets="totalAssets"
@@ -147,6 +145,7 @@ import { useTweenNumber } from "@/composables/useTweenNumber";
 import { usePrivacyMode } from "@/composables/usePrivacyMode";
 import TodayPnlClassColumns from "./TodayPnlClassColumns.vue";
 import TodayPnlHouseholdBand from "./TodayPnlHouseholdBand.vue";
+import TodayPnlSkeleton from "./TodayPnlSkeleton.vue";
 import { pct1, rateClass, signedRate } from "../composables/pnlFormat";
 import type { TodayPnlData } from "@/api/summary";
 
@@ -158,6 +157,8 @@ const props = defineProps<{
   subtitle: string;
   loading: boolean;
   error: boolean;
+  /** 200ms 阈值后才点亮骨架屏；快请求全程只留等高留白（不闪屏） */
+  showSkeleton: boolean;
   /** 家庭总资产（后端 `total_assets_cny` 直出） */
   totalAssets: number | null;
   /** 家庭净资产（直出字段，前端不二次算） */
