@@ -141,6 +141,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/bias/schemas.py": {'lines': 64, 'max_func': 19, 'max_cc': 2},
     "backend/app/services/cash_flow_service.py": {'lines': 248, 'max_func': 122, 'max_cc': 22},
     "backend/app/services/cold_set_guard.py": {'lines': 240, 'max_func': 52, 'max_cc': 8},
+    "backend/app/services/cold_set_write_scope.py": {'lines': 140, 'max_func': 42, 'max_cc': 8},
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
     "backend/app/services/cross_domain.py": {'lines': 221, 'max_func': 54, 'max_cc': 15},
@@ -299,7 +300,10 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/sync/jobs/fund_detail_enrich_job.py": {'lines': 275, 'max_func': 113, 'max_cc': 24},
     "backend/app/services/sync/jobs/fund_list_job.py": {'lines': 115, 'max_func': 52, 'max_cc': 12},
     "backend/app/services/sync/jobs/fund_manager_job.py": {'lines': 352, 'max_func': 114, 'max_cc': 31},
-    "backend/app/services/sync/jobs/fund_nav_job.py": {'lines': 186, 'max_func': 65, 'max_cc': 11},
+    # #2872：写入期冷集硬上限新增 1 处调用点（import + 注释 + 调用，共 4 行）。
+    # 规则本体在 services/cold_set_write_scope.py，本文件只多一行调用，职责未增加；
+    # 收紧方向仍成立——本文件的正常收敛不必因此停下。
+    "backend/app/services/sync/jobs/fund_nav_job.py": {'lines': 190, 'max_func': 68, 'max_cc': 11},
     "backend/app/services/sync/jobs/fund_position_job.py": {'lines': 381, 'max_func': 73, 'max_cc': 12},
     "backend/app/services/sync/jobs/fund_rating_job.py": {'lines': 120, 'max_func': 40, 'max_cc': 11},
     "backend/app/services/sync/jobs/fund_risk_metrics_job.py": {'lines': 293, 'max_func': 81, 'max_cc': 9},

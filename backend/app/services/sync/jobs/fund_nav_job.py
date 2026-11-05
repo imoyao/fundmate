@@ -15,6 +15,7 @@ from app.core.db_utils import bulk_insert_if_not_exists
 from app.core.time_utils import now_shanghai
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.models.sync_log import SyncLog
+from app.services.cold_set_write_scope import enforce_cold_write_cap
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
 from app.services.money_fund_yield import recompute_annual_return_7d
 
@@ -115,6 +116,9 @@ class FundNavSyncJob(SyncJob):
     def _save_data(self, new_data: List[dict]) -> None:
         if not new_data:
             return
+
+        # #2872：冷集写入硬上限（超限拒绝而非静默裁剪，理由见 cold_set_write_scope）
+        enforce_cold_write_cap(self.db, new_data, job_name=self.get_name(), stats=self.stats)
 
         now = now_shanghai()
         money_records = []
