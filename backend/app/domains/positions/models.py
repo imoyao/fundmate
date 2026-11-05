@@ -270,7 +270,7 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         #    #1968 / #2382 那类份额重复累加的复发形态。
         #    `snapshot_avg_price` / `anchor_kind` 不进约束：迁移产物里它们也可能是 NULL。
         CheckConstraint(
-            "snapshot_quantity IS NULL OR snapshot_date IS NOT NULL",
+            'snapshot_quantity IS NULL OR snapshot_date IS NOT NULL',
             name='ck_positions_anchor_qty_needs_date',
         ),
     )
