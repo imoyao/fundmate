@@ -220,9 +220,7 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     await openWorkbench(page);
 
     // 标题 / 副标题随组件搬迁仍在页头
-    await expect(page.locator(".workbench-head__title")).toHaveText(
-      "对账工作台"
-    );
+    await expect(page.locator(".workbench-head__title")).toHaveText("对账中心");
     await expect(page.locator(".workbench-head__subtitle")).toContainText(
       "统一处理 E账户对账"
     );

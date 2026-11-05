@@ -11,6 +11,7 @@
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import { COLLAPSED_LIMIT } from "./helpers";
 import { useDiscrepancyBanner } from "./useDiscrepancyBanner";
+import { useDanglingRefBanner } from "./useDanglingRefBanner";
 import DiscrepancyList from "./DiscrepancyList.vue";
 
 defineOptions({ name: "DiscrepancyBanner" });
@@ -28,6 +29,14 @@ const {
   dismiss,
   goToWorkbench
 } = useDiscrepancyBanner();
+
+/** 悬空引用是另一类问题，独立取数、独立显隐，绝不并入上面那条 await 链 */
+const {
+  count: danglingCount,
+  loading: danglingLoading,
+  routeAllowed: danglingRouteAllowed,
+  goToDangling
+} = useDanglingRefBanner();
 </script>
 
 <template>
@@ -82,6 +91,25 @@ const {
       <p class="recon-banner__hint">
         差异意味着账上的数量或成本与流水推演对不上，可能影响持仓市值与收益。请到对账中心核对处理。
       </p>
+    </div>
+  </SoftBanner>
+
+  <!-- 悬空引用（#2866）：独立条件块，不复用域 B 横幅的 .recon-banner 锚点与文案 -->
+  <SoftBanner
+    v-if="danglingRouteAllowed && !danglingLoading && danglingCount > 0"
+    class="dangling-ref-notice"
+    variant="warning"
+    icon="ep:warning-filled"
+  >
+    <div class="dangling-ref__body">
+      <p class="dangling-ref__title">
+        有
+        <span class="dangling-ref__count">{{ danglingCount }}</span>
+        条流水指向已删除的持仓（悬空引用），部分报表会静默漏算
+      </p>
+      <button type="button" class="dangling-ref__action" @click="goToDangling">
+        去查看悬空引用
+      </button>
     </div>
   </SoftBanner>
 </template>
@@ -166,5 +194,36 @@ const {
   font-size: var(--text-label, 13px);
   line-height: 20px;
   color: var(--text-tertiary-ink);
+}
+
+/* 悬空引用条目：只排正文，壳由 SoftBanner warning variant 承担 */
+.dangling-ref__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dangling-ref__title {
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
+}
+
+.dangling-ref__count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-warning-ink);
+}
+
+.dangling-ref__action {
+  padding: 4px 0;
+  margin-top: 6px;
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--color-warning-ink);
+  text-decoration: underline;
+  cursor: pointer;
+  background: transparent;
+  border: none;
 }
 </style>

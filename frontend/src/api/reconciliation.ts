@@ -321,3 +321,146 @@ export function recordDividendTax(payload: {
     unknown
   >("/reconciliation/dividend-tax/record/", { data: payload });
 }
+
+// ── 域 F：悬空引用（#2866）────────────────────────────────────────────────────
+// 一组交易流水仍指向已删除的持仓行。后端把修复拆成「列组 → 预览影响 → 回补 → 撤销」
+// 四段，字段逐字照抄契约，前端不二次推导、不自造字段。
+// 四个函数名统一以 DanglingRef 为前缀，按动作对应四个端点：
+//   list… / preview…Reattach / reattach… / undo…Reattach（Reattach 只挂在写操作上，
+//   读操作不带，避免 listDanglingRefReattach 这种把读说成写的名字）。
+
+/** 目标持仓候选 / 现存持仓（契约里 live_position 与 candidates 元素同形） */
+export interface DanglingRefPosition {
+  id: number;
+  symbol: string;
+  quantity: number;
+  ownership_status: string;
+}
+
+/** 组内一笔悬空流水（position_id 指向已不存在的持仓行） */
+export interface DanglingRefTransaction {
+  id: number;
+  txn_type: string;
+  trade_date: string | null;
+  confirm_date: string | null;
+  symbol: string;
+  quantity: number;
+  amount: number;
+  position_id: number;
+}
+
+/** 一个待修复分组（GET /api/reconciliation/dangling-refs/ 的 groups 元素） */
+export interface DanglingRefGroup {
+  key: string;
+  ledger_id: number;
+  symbol: string;
+  txn_count: number;
+  dangling_position_ids: number[];
+  net_units: number;
+  live_position: DanglingRefPosition | null;
+  candidates: DanglingRefPosition[];
+  batch_id: number;
+  batch_label: string;
+  flags: string[];
+  /** 后端一处判据：缺标的代码 / 无同标的现存持仓行时为 false */
+  fixable: boolean;
+  /** 不可回补时给出可执行的下一步，前端只显示不自行推导 */
+  block_reason: string | null;
+  transactions: DanglingRefTransaction[];
+}
+
+/** 批次（GET /api/reconciliation/dangling-refs/ 的 batches 元素） */
+export interface DanglingRefBatch {
+  id: number;
+  label: string;
+  txn_count: number;
+  ledger_ids: number[];
+  symbol_count: number;
+}
+
+/** 域 F 列表响应（GET /api/reconciliation/dangling-refs/ 的 data） */
+export interface DanglingRefList {
+  total: number;
+  group_count: number;
+  batch_count: number;
+  /** 缺标的 / 缺交易日期的流水条数 */
+  null_symbol: number;
+  null_trade_date: number;
+  /** 可直接回补的流水条数（≠ total，其余需先补全数据） */
+  fixable_count: number;
+  groups: DanglingRefGroup[];
+  batches: DanglingRefBatch[];
+}
+
+/** 预览影响（GET /api/reconciliation/dangling-refs/preview/ 的 data） */
+export interface DanglingRefPreview {
+  txn_count: number;
+  target_position: DanglingRefPosition | null;
+  quantity_before: number;
+  quantity_if_recomputed: number;
+  delta: number;
+  safe: boolean;
+  warnings: string[];
+}
+
+/** 回补结果（POST /api/reconciliation/dangling-refs/reattach/ 的 data） */
+export interface DanglingRefReattachResult {
+  log_id: number;
+  updated: number;
+  recompute: boolean;
+  quantity_before: number;
+  quantity_after: number;
+}
+
+/** 撤销结果（POST /api/reconciliation/dangling-refs/undo/ 的 data） */
+export interface DanglingRefUndoResult {
+  restored: number;
+  log_id: number;
+}
+
+/** 列出悬空引用分组、批次与汇总（只读扫描，不写库） */
+export function listDanglingRefs(): Promise<ApiResponse<DanglingRefList>> {
+  return http.get<ApiResponse<DanglingRefList>, unknown>(
+    "/reconciliation/dangling-refs/"
+  );
+}
+
+/** 预览把这一批流水挂到目标持仓后的份额变化（提交前必须先展示） */
+export function previewDanglingRefReattach(params: {
+  transaction_ids: number[];
+  target_position_id: number;
+}): Promise<ApiResponse<DanglingRefPreview>> {
+  return http.get<
+    ApiResponse<DanglingRefPreview>,
+    { transaction_ids: string; target_position_id: number }
+  >("/reconciliation/dangling-refs/preview/", {
+    params: {
+      transaction_ids: params.transaction_ids.join(","),
+      target_position_id: params.target_position_id
+    }
+  });
+}
+
+/** 二次回补：把选定流水指向目标持仓（写操作，成功后凭 log_id 撤销） */
+export function reattachDanglingRefs(payload: {
+  transaction_ids: number[];
+  target_position_id: number;
+  reason?: string;
+  /** 后端仍接受但会拒绝 true（自动重算改份额、不可逆）；前端不再提供该选项，故不传。 */
+  recompute?: boolean;
+}): Promise<ApiResponse<DanglingRefReattachResult>> {
+  return http.post<ApiResponse<DanglingRefReattachResult>, unknown>(
+    "/reconciliation/dangling-refs/reattach/",
+    { data: payload }
+  );
+}
+
+/** 撤销一次回补（按 log_id 还原，成功后列表由调用方重拉） */
+export function undoDanglingRefReattach(
+  logId: number
+): Promise<ApiResponse<DanglingRefUndoResult>> {
+  return http.post<ApiResponse<DanglingRefUndoResult>, unknown>(
+    "/reconciliation/dangling-refs/undo/",
+    { data: { log_id: logId } }
+  );
+}
