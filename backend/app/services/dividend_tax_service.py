@@ -64,6 +64,7 @@ from sqlalchemy.orm import Session
 
 from app.core.money import Money
 from app.domains.positions.models import Position
+from app.domains.transactions.ledger_guard import dividend_tax_source_fields
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import THS_OP_MAP, BusinessType
 
@@ -566,9 +567,7 @@ def record_tax(
         status='success',
         entry_status='orphan' if position is None else None,
         position_name=(position.name if position else '') or symbol,
-        account_name=account_name or (position.account_name if position else '') or '',
-        ledger_id=position.ledger_id if position else None,
-        asset_type=position.asset_type if position else None,
+        **dividend_tax_source_fields(db, family_id, symbol, position, account_name),
         notes='红利税补记',
         import_hash=import_hash,
         family_id=family_id,

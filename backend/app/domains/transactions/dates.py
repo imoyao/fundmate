@@ -145,9 +145,28 @@ def resolve_trade_date(trade_date, confirm_date=None):
     return today_shanghai()
 
 
+def prepare_write_kwargs(kwargs: dict) -> dict:
+    """流水写入前的 kwargs 收敛点：目前只兜底 ``trade_date``（#2914）。
+
+    #2875 曾在此加过「ledger_id 为空即 ValueError」的硬拦，**已按 owner 2026-11-05
+    定案撤掉**：全仓 `TransactionService.create` 的十余处调用里，手工建仓 / API 等
+    合法路径本来就不带账本，汇点硬拦会让它们 400（CI 实测 65 例回归）。
+    真实库 26 笔 `ledger_id IS NULL` 全部来自导入器（TAX 分支漏传 / enrich 传
+    None），因此账本完整性由**导入路径的显式护栏**负责：
+    `orchestrator_commit` 在 `_build_import_data` 后把缺账本行计入
+    `commit_errors`，TAX 分支补传 `ledger_id`；存量 NULL 由
+    `scripts/fix_orphan_ledger_null.py` 按 `account_name` 归属回填。
+
+    只管**新行**；日期兜底口径见 :func:`resolve_trade_date`。
+    """
+    kwargs['trade_date'] = resolve_trade_date(kwargs.get('trade_date'), kwargs.get('confirm_date'))
+    return kwargs
+
+
 __all__ = [
     'effective_day_expr',
     'filter_by_effective_range',
     'order_by_effective_day',
+    'prepare_write_kwargs',
     'resolve_trade_date',
 ]

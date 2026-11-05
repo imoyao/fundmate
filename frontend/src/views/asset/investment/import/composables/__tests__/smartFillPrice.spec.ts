@@ -2,22 +2,27 @@ import { describe, expect, it } from "vitest";
 import {
   PRICE_NOT_DERIVABLE_OPS,
   fillSmartPrice,
-  shouldSmartFillPrice
+  shouldSmartFillPrice,
+  canRestoreSmartFilledPrice,
+  restoreSmartFilledPrice
 } from "../smartFillPrice";
 import { QTY_PRICE_OPTIONAL_OPS, isRowBlocked } from "../previewPredicates";
+import { pickFilledRows } from "../previewPipeline";
+import { filledFieldsLabel } from "../../components/batchFixPanelModel";
 
 /**
- * 「金额 ÷ 份额 补单价」的口径回归网（#2903）。
+ * 「金额 ÷ 份额 补单价」的口径回归网（#2903），并承接 #2902 的可见性 / 可恢复判据。
  *
  * 背景：同一规则原先在 `useImportWizard.ts` 写了两份——OCR 通道无守卫、文件通道 4 条件，
  * 计算式逐字相同。卡面要求先判定「哪个口径是对的」，结论见 `smartFillPrice.ts` 头注释：
  * 两个都不对，文件通道那 4 个条件**把条件写反了**。
  *
- * 本文件钉住四件事：
+ * 本文件钉住五件事：
  * 1. 该补的补：普通成交行（buy/sell/红利再投）缺价 → 金额 ÷ 份额，精度 4 位；
  * 2. 不该补的不补：不解析错误 / 疑似重复 / 资金划转 / 被消费 / 金额与份额无关的类型；
  * 3. 「旧守卫是空集」有机器证据——不对着卡面描述空谈；
- * 4. 补价后该行从「被拦」变「可入账」（这是补价的产品意义，不是副作用）。
+ * 4. 补价后该行从「被拦」变「可入账」（这是补价的产品意义，不是副作用）；
+ * 5. #2902：补价行进「已填充数据」清单、原始值随行持久化、逐行恢复不覆盖用户后续输入。
  */
 
 /** 一条普通买入行：有份额、有金额、缺单价。 */
@@ -65,7 +70,7 @@ describe("fillSmartPrice 该补的行", () => {
     expect(r.price).toBe(333.3333);
   });
 
-  it("只改 price / smartFilled，不动 amount 与 quantity", () => {
+  it("不动 amount / quantity（补价只落在 price 与清单标记上）", () => {
     const r = row();
     fillSmartPrice(r);
     expect(r.amount).toBe("1234");
@@ -164,5 +169,75 @@ describe("#2903 的定案依据（机器证据，不是卡面叙述）", () => {
       op => !PRICE_NOT_DERIVABLE_OPS.has(op)
     );
     expect(diff).toEqual(["dividend_reinvest"]);
+  });
+});
+
+describe("#2902：装载期补价可见 + 逐行可恢复", () => {
+  it("补价行进「已填充数据」清单，字段名显示为「价格」", () => {
+    const r = row();
+    expect(fillSmartPrice(r)).toBe(true);
+    expect(r._autoFilled).toEqual(["price"]);
+    expect(pickFilledRows([r])).toEqual([r]);
+    expect(filledFieldsLabel(r)).toBe("价格");
+  });
+
+  it("原值记在行上：先存 before 再写 price，重复补价不覆盖原值", () => {
+    const r = row({ price: 0 });
+    expect(fillSmartPrice(r)).toBe(true);
+    expect(r._smartFillOrigin).toEqual({ before: 0, after: 12.34 });
+    // 已有正单价后第二次调用不补，更不会把补过的值当成「原始值」
+    expect(fillSmartPrice(r)).toBe(false);
+    expect(r._smartFillOrigin.before).toBe(0);
+  });
+
+  it("恢复：price 回到上传原值、标记清干净、行从清单消失且重新被拦", () => {
+    const r = row();
+    fillSmartPrice(r);
+    expect(isRowBlocked(r)).toBe(false);
+    expect(restoreSmartFilledPrice(r)).toBe(true);
+    expect(r.price).toBe("");
+    expect(r.smartFilled).toBeUndefined();
+    expect(r._autoFilled).toBeUndefined();
+    expect(r._smartFillOrigin).toBeUndefined();
+    expect(pickFilledRows([r])).toEqual([]);
+    expect(isRowBlocked(r)).toBe(true);
+    expect(canRestoreSmartFilledPrice(r)).toBe(false);
+  });
+
+  it("草稿往返（整行 JSON 持久化）后仍可恢复——撤销栈做不到这一点", () => {
+    const r = row();
+    fillSmartPrice(r);
+    const fromDraft = JSON.parse(JSON.stringify(r)) as any;
+    expect(canRestoreSmartFilledPrice(fromDraft)).toBe(true);
+    expect(restoreSmartFilledPrice(fromDraft)).toBe(true);
+    expect(fromDraft.price).toBe("");
+  });
+
+  it("用户随后手改过单价：不给恢复、也不许覆盖他的输入", () => {
+    const r = row();
+    fillSmartPrice(r);
+    r.price = 99;
+    expect(canRestoreSmartFilledPrice(r)).toBe(false);
+    expect(restoreSmartFilledPrice(r)).toBe(false);
+    expect(r.price).toBe(99);
+    expect(r._autoFilled).toEqual(["price"]);
+  });
+
+  it("同行还有别的自动填充字段：只摘掉 price，其他字段留在清单里", () => {
+    const r = row();
+    fillSmartPrice(r);
+    r._autoFilled = ["quantity", "price"];
+    expect(restoreSmartFilledPrice(r)).toBe(true);
+    expect(r._autoFilled).toEqual(["quantity"]);
+    expect(filledFieldsLabel(r)).toBe("数量");
+  });
+
+  it("没补过价的行：不留标记、不给恢复按钮", () => {
+    const r = row({ price: "12.5" });
+    expect(fillSmartPrice(r)).toBe(false);
+    expect(r._autoFilled).toBeUndefined();
+    expect(r._smartFillOrigin).toBeUndefined();
+    expect(canRestoreSmartFilledPrice(r)).toBe(false);
+    expect(restoreSmartFilledPrice(r)).toBe(false);
   });
 });
