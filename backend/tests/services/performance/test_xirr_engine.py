@@ -407,8 +407,8 @@ class TestIncludeCashEquivalents:
         assert xirr_excl > xirr_incl  # 10% > 6%
 
 
-class TestFeesSink:
-    """`fees_sink`：把同一 scope 的手续费合计带出去，且费用**并入现金流**。
+class TestFeeInCashflows:
+    """费用**并入现金流**，且合计随现金流一起带出（`Cashflows.fees_total`）。
 
     两件事都要钉：
     - 并入（改算）：买入流出 `+(费)`、卖出流入 `−(费)`，否则总收益虚高；
@@ -428,9 +428,8 @@ class TestFeesSink:
             MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, fee=500),
             MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 120000, fee=600),
         ]
-        sink: dict = {}
-        generate_cashflows(txn, current_value=0, fees_sink=sink)
-        assert sink['fees'] == 11.0  # 5 元 + 6 元
+        cf = generate_cashflows(txn, current_value=0)
+        assert cf.fees_total == 11.0  # 5 元 + 6 元
 
     def test_buy_outflow_includes_fee(self):
         """买入：现金流出 = 成交额 + 费（这笔钱真的划走了）。"""
@@ -459,9 +458,8 @@ class TestFeesSink:
             MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, fee=500),
             MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund', fee=999),
         ]
-        sink: dict = {}
-        cf = generate_cashflows(txn, current_value=0, fees_sink=sink)
-        assert sink['fees'] == 5.0
+        cf = generate_cashflows(txn, current_value=0)
+        assert cf.fees_total == 5.0
         assert cf == [(dt.date(2025, 1, 1), -1005.0)]
 
     def test_null_and_malformed_fee_degrade_to_zero(self):
@@ -471,9 +469,8 @@ class TestFeesSink:
             MockTransaction(dt.date(2025, 1, 2), BusinessType.BUY.code, 100000, fee='oops'),
             MockTransaction(dt.date(2025, 1, 3), BusinessType.BUY.code, 100000, fee=0),
         ]
-        sink: dict = {}
-        cf = generate_cashflows(txn, current_value=0, fees_sink=sink)
-        assert sink['fees'] == 0.0
+        cf = generate_cashflows(txn, current_value=0)
+        assert cf.fees_total == 0.0
         assert cf == [
             (dt.date(2025, 1, 1), -1000.0),
             (dt.date(2025, 1, 2), -1000.0),

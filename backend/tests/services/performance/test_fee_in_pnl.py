@@ -89,6 +89,10 @@ def test_四个出口对同一笔费用给出同一个总收益(db, make_positio
     assert xirr['total_return'] == EXPECTED_TOTAL
 
     # ③ 资金流动（现金残差扣费）
+    #    这一条同时守着一个**double count 陷阱**：`cash_flow_service` 把日历的
+    #    `net_worth` 当市值用，再叠已扣费的 `cash_residual`。若费用并进日历的
+    #    `realized`（进而进 net_worth），这里就会变成 490 而不是 495——所以
+    #    `pnl_calendar` 的费用必须单独累计（`fee_cum`），只进盈亏水平值。
     cash_flow = build_cash_flow(db, family_id=1, ledger_id=pos.ledger_id)
     assert cash_flow['totals']['total_return'] == EXPECTED_TOTAL
 

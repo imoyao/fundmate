@@ -20,17 +20,8 @@ WHY
   nav 模式成本基数 = 成本均价 × 份额；balance 模式（无份额可乘）成本基数 =
   该持仓的净投入（Σ买入/存入 − Σ卖出/取出；分红不冲减成本基数，已在 realized 侧计过）。
 - **总盈亏 total = realized + unrealized − buy_fee**。
-- **买入侧手续费（buy_fee）**：单独从总盈亏扣，**不**资本化进成本均价。
-  卖出费已经在 `realized` 里扣过（`compute_sell_realized_cents`），这里只收
-  `buy` / `deposit` 的 `fee`，否则双扣。两条口径的取舍：
-
-  | 口径 | 成本均价 | 总盈亏 | 与交割单对照 |
-  |---|---|---|---|
-  | 资本化（券商 APP） | 含费 | 含费 | 对不上成交价 |
-  | **损耗（本仓）** | **= 成交价** | **扣费** | **逐笔可核** |
-
-  代价：成本均价旁边会看到「投入 10000、成本 9950，差额是费用」这种观感；
-  补偿是费用作为一个独立数字可见（`buy_fee_cents`），而不是被藏进均价里。
+- **买入侧手续费（buy_fee）**：单独从总盈亏扣，**不**资本化进成本均价（卖出费已在
+  `realized` 里扣过，只收 `buy` / `deposit`，否则双扣）。口径取舍与取数见 `pnl_fees`。
 
 与 XIRR 口径的自洽性（决策 D3：balance 模式盈亏复用 XIRR 现金流定义）：
 两种模式下恒有
@@ -60,14 +51,6 @@ _INVEST_TXN_TYPES = ('buy', 'deposit')
 # 兑付（bond_redeem）计入回款：债券到期/强赎拿回的钱同样是「退出投入」，
 # 不计会让「净投入」在兑付后仍停留在买入全额，收益率被低估（#2832）。
 _DIVEST_TXN_TYPES = ('sell', 'withdraw', 'bond_redeem')
-
-#: **尚未进任何收益口径**的费用所在类型：买入费。
-#:
-#: 卖出费早就算进 `realized`（`compute_sell_realized_cents` 的 `− fee_cents`），
-#: 再在这里减一次就是双扣；买入侧则相反——成本基数 = 成交价 × 份额，
-#: 费用从未参与，于是「买入花掉的佣金」在总盈亏里凭空消失。
-#: 兑付（bond_redeem）的 `amount` 已是到账净额、`fee` 若存在也已含在里面，故不在本表。
-_PNL_FEE_TXN_TYPES = _INVEST_TXN_TYPES
 
 
 def _scale_cents(cents: int, rate: float | None) -> int:
@@ -178,41 +161,6 @@ def net_invested_by_position(db: Session, family_id: int, ledger_ids: Optional[L
     return net
 
 
-def buy_fee_by_position(db: Session, family_id: int, ledger_ids: Optional[List[int]] = None) -> dict[int, int]:
-    """按持仓归集的**买入侧**手续费（分）。
-
-    只收 `_PNL_FEE_TXN_TYPES`（buy / deposit）的费用：卖出费早已在
-    `realized_pnl` 里扣过，这里再收就是双扣。孤儿流水（`position_id` 为 NULL，
-    例如清仓后持仓行被删）统一归到哨兵键 0，与 `realized_pnl_by_position` 同款。
-
-    ``ledger_ids`` 语义同 `realized_pnl_by_position`。
-    """
-    query = db.query(Transaction.position_id, func.sum(Transaction.fee)).filter(
-        Transaction.family_id == family_id,
-        Transaction.txn_type.in_(_PNL_FEE_TXN_TYPES),
-    )
-    if ledger_ids is not None:
-        query = query.filter(Transaction.ledger_id.in_(ledger_ids))
-    rows = query.group_by(Transaction.position_id).all()
-    return {(pid or 0): int(total or 0) for pid, total in rows if total}
-
-
-def family_buy_fee_cents(db: Session, family_id: int, ledger_ids: Optional[List[int]] = None) -> int:
-    """家庭级**买入侧**手续费合计（分），口径同 :func:`buy_fee_by_position`。
-
-    这是「费用损耗」的唯一取数口：总盈亏因此可以写成
-    ``realized + unrealized − buy_fee``，而不是去改成本均价（那会让成本价
-    与交割单成交价对不上，见 `docs/spec/` 的成本口径说明）。
-    """
-    query = db.query(func.sum(Transaction.fee)).filter(
-        Transaction.family_id == family_id,
-        Transaction.txn_type.in_(_PNL_FEE_TXN_TYPES),
-    )
-    if ledger_ids is not None:
-        query = query.filter(Transaction.ledger_id.in_(ledger_ids))
-    return int(query.scalar() or 0)
-
-
 def cost_basis_cents(position, net_invested: int | None = None) -> int:
     """持仓成本基数（分）。
 
@@ -242,15 +190,11 @@ def position_pnl_cents(
         rate: 本币 → CNY 汇率；None 按 1.0。市值与成本基数同乘该汇率。
         realized_cents: 该持仓的已实现盈亏（分），由 `realized_pnl_by_position` 批量取。
         net_invested: 该持仓的净投入（分），balance 模式用作成本基数。
-        buy_fee_cents: 该持仓的**买入侧**手续费（分），由 `buy_fee_by_position` 批量取。
-            它不是成本基数的一部分（成本均价仍等于成交价，可与交割单逐笔核对），
-            而是直接从总盈亏里扣掉——「费用损耗」与「资本化」是两种口径，
-            这里选前者：账面成本可核，损耗单独可见。
+        buy_fee_cents: 该持仓的**买入侧**手续费（分），由 `pnl_fees.buy_fee_by_position` 批量取。
 
     Returns:
-        五段结构，``total_pnl_cents = realized + unrealized − buy_fee``。
-        ``buy_fee_cents`` 单列返回，供调用方展示「其中费用多少」，
-        不要再去反推（反推就是在做第二套算术）。
+        ``total_pnl_cents = realized + unrealized − buy_fee``；``buy_fee_cents`` 单列返回
+        （供展示「其中费用多少」，别从 total 反推——那是在做第二套算术）。
     """
     market_value = market_value_cents(position, effective_nav_yuan=effective_nav_yuan, rate=rate)
     cost = _scale_cents(cost_basis_cents(position, net_invested), rate)

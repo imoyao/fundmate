@@ -36,9 +36,8 @@ from app.services.family_member_service import ledger_ids_for_member
 
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
+from app.services.pnl_fees import buy_fee_by_position, family_buy_fee_cents
 from app.services.pnl_service import (
-    buy_fee_by_position,
-    family_buy_fee_cents,
     family_realized_pnl_cents,
     net_invested_by_position,
     position_pnl_cents,
@@ -554,12 +553,10 @@ def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = No
     盈亏口径见 `services/pnl_service.py`（#1183）：
     - realized   已实现：卖出结转盈亏 + 现金分红，以**流水**为事实源（清仓后仍可查）
     - unrealized 未实现：持仓浮动盈亏 = 市值 − 成本基数
-    - buy_fee    买入侧手续费（费用损耗，不资本化进成本均价）
-    - total      总盈亏 = realized + unrealized − buy_fee
+    - total      总盈亏 = realized + unrealized − buy_fee（费用口径见 `pnl_fees`）
 
     注意 `unrealized` 只取 `position_pnl_cents` 的 `unrealized_pnl_cents` 一段，
-    费用在下面按**家庭级合计**扣一次——若逐持仓连 `total_pnl_cents` 一起取，
-    费用就被扣两遍（`position_pnl_cents` 内部已扣）。
+    费用按家庭级合计扣一次——逐持仓连 `total_pnl_cents` 一起取会扣两遍。
 
     `liability_ratio`（负债率，%）= 总负债 ÷ 总资产，交给 `ratio_pct` 统一舍入；
     总资产 ≤ 0 时为 None（**不是 0%**，见 `ratio_pct` 的注释）。
@@ -601,9 +598,8 @@ def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = No
 
     # 已实现盈亏以流水为事实源，含已清仓持仓的结转盈亏与孤儿分红
     realized_cents = family_realized_pnl_cents(db, family_id, member_ledger_ids)
-    # 买入侧手续费：不资本化进成本，直接从总盈亏扣（口径见 `pnl_service` 模块文档）。
-    # 取家庭级合计而不是 Σ fee_map：已清仓持仓的持仓行会被删，其买入费挂在孤儿流水上，
-    # 按持仓求和会漏掉，而 realized 那边是含孤儿的——两端口径必须对称。
+    # 买入侧手续费：不资本化进成本，直接从总盈亏扣。取家庭级合计而非 Σ 逐持仓 map——
+    # 清仓后持仓行被删、费用挂在孤儿流水上，按持仓求和会漏，而 realized 那边含孤儿。
     buy_fee_cents = family_buy_fee_cents(db, family_id, member_ledger_ids)
 
     return {
@@ -1233,10 +1229,9 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
         family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
         family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
-        # 注意：本行三列**不再自洽**——`total = realized + unrealized − buy_fee`，
-        # 而快照表没有 buy_fee 列，差的一项恰好等于当时累计的买入侧手续费。
-        # 这三列本就标注「暂不得直接展示」（见上文 #2132 说明与 tech-debt），
-        # 故不为一项费用再加列/加迁移；真要还原就取 `pnl_service.family_buy_fee_cents`。
+        # 注意：本行三列**不再自洽**——`total = realized + unrealized − buy_fee`，而快照表
+        # 没有 buy_fee 列，差的一项等于当时累计买入费。这三列本就标注「暂不得直接展示」
+        # （见上文 #2132），故不为一项费用加列/加迁移；还原用 `pnl_fees.family_buy_fee_cents`。
         family_row.total_pnl_cents = family_pnl['total_pnl_cents']
         family_row.money_fund_income_cents = sum(mf_income_by_ledger.values()) if mf_ledgers else None
 
