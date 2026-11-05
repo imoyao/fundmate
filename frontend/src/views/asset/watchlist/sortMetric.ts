@@ -3,16 +3,21 @@
  *
  * ## 为什么抽成独立模块
  *
- * 自选表里有**三个复合列**，都是「主行金额 + 副行比例」两行数：
+ * 自选表里有**四个复合列**（2026-11-05 拆列后由三个变四个），都是「主行金额 + 副行比例」两行数：
  *
  * | 列 | 主行（amount） | 副行（ratio） |
  * |---|---|---|
- * | 当日盈亏 `day_pnl` | 当日盈亏（元） | 当日涨跌幅（%） |
+ * | 今日估算 `day_pnl` | 今日估算盈亏（元） | 今日估算涨跌幅（%） |
+ * | 昨日盈亏 `yesterday_pnl` | 昨日盈亏（元） | 昨日涨跌幅（%） |
  * | 持仓市值 `position_market_value` | 持仓市值（元） | 占投资类总市值（%） |
  * | 持仓收益 `holding_pnl` | 持仓收益（元） | 持仓收益率（%） |
  *
- * 两行是**两个不同的量**：同样涨 1%，一万仓与百万仓的当日盈亏差两个数量级；
+ * 两行是**两个不同的量**：同样涨 1%，一万仓与百万仓的盈亏差两个数量级；
  * 同样赚 1 万，五万本金是 +20%、一百万本金是 +1%。所以两行必须能**各排各的**。
+ *
+ * ⚠️ 两列盈亏虽共用本模块的 `SortMetric`，但**取值函数各自独立**
+ * （`todayEstimateOf` / `yesterdayPnlOf`，见 `useWatchlistTable`）；口径按列 key 记忆，
+ * 共用取值函数会让两列点表头排出同一串顺序。
  *
  * 口径的「有哪些取值 / 怎么从两行里取一个数 / 旧值怎么迁移」只应有一处定义——
  * 表头（`components/CompositeSortHeader.vue`）、数据层（`useWatchlistData` 的记忆）、
@@ -21,9 +26,10 @@
  *
  * ## 为什么不叫 DayPnlMetric 了
  *
- * 2026-10-30 首版只有「当日盈亏」一列可切口径，类型因此叫 `DayPnlMetric` 且取值是
- * `amount` / `pct`。这次统一到三列后：`pct` 只是「涨跌幅」这一列的说法（另有占比、
- * 收益率），故取值改成语义中性的 `amount` / `ratio`，旧值 `pct` 在读盘时迁移。
+ * 2026-10-30 首版只有 #2640 的「当日盈亏」一列可切口径，类型因此叫 `DayPnlMetric`
+ * 且取值是 `amount` / `pct`。统一到多列后（2026-11-05 拆列后共四个复合列）：
+ * `pct` 只是「涨跌幅」这一列的说法（另有占比、收益率），故取值改成语义中性的
+ * `amount` / `ratio`，旧值 `pct` 在读盘时迁移。
  */
 
 /** 排序口径：`amount` = 按主行金额，`ratio` = 按副行比例（% 语义，列与列叫法不同） */
@@ -61,8 +67,8 @@ export function otherSortMetric(metric: SortMetric): SortMetric {
 /**
  * 归一化读盘值；无法识别返回 `null`（调用方回落 `DEFAULT_SORT_METRIC`）。
  *
- * `pct` 是 2026-10-30 首版的旧值（只服务「当日盈亏」列），迁移为 `ratio`——
- * 否则老用户存过「按涨幅排序」，升级后会静默回落成「按金额」。
+ * `pct` 是 2026-10-30 首版的旧值（当时只服务 #2640 的「当日盈亏」列），迁移为
+ * `ratio`——否则老用户存过「按涨幅排序」，升级后会静默回落成「按金额」。
  */
 export function normalizeSortMetric(raw: unknown): SortMetric | null {
   if (raw === "amount" || raw === "ratio") return raw;
@@ -73,9 +79,10 @@ export function normalizeSortMetric(raw: unknown): SortMetric | null {
 /**
  * 表头徽标符号：金额用 `¥`、比例用 `%`。
  *
- * 为什么不用「金额 / 涨幅」四个字：`当日盈亏` 列宽只有 104px（默认列预算 1040 已用满
- * 1036，见 `columnDefs.ts` 铁律 1），列名 56px + 徽标 + 排序三角 18px + 内边距 8px 之后
- * 只够一个字符。`¥` / `%` 各自对应列的上下两行，语义直白且不随列改文案。
+ * 为什么不用「金额 / 涨幅」四个字：两列盈亏各只有 104px（「今日估算 / 昨日盈亏」
+ * 都是四字列名；默认列预算 1088 已用满，见 `columnDefs.ts` 铁律 1），
+ * 列名 56px + 徽标 + 排序三角 18px + 内边距 8px 之后只够一个字符。
+ * `¥` / `%` 各自对应列的上下两行，语义直白且不随列改文案。
  */
 export function sortMetricSymbol(metric: SortMetric): string {
   return metric === "amount" ? "¥" : "%";

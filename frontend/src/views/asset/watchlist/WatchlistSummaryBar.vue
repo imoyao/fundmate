@@ -5,6 +5,8 @@ import type { RealtimeQuotesReturn } from "@/composables/useRealtimeQuotes";
 import type { ValuationSummary } from "@/utils/valuationEngine";
 import type { DayPnlSummary } from "./dayPnl";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
+import { ESTIMATE_DISCLAIMER } from "@/composables/usePositionValuation";
 
 /**
  * 自选实时估值汇总条（状态指示 + 刷新档位 + 估值数据组），从 index.vue 抽出（2026-08-20）。
@@ -12,6 +14,9 @@ import SegmentedControl from "@/components/SegmentedControl/index.vue";
  * ——左侧状态与刷新频率、右侧三个汇总指标（总市值/总成本/总盈亏），去卡片背景，
  * 用细分隔线分区（design.md 数据密集场景紧凑原则），减少对下方表格的视线打断。
  * 仅展示用：realtime 实例由页面注入，本组件不发起任何请求。
+ *
+ * 2026-11-05：「当日盈亏」拆成「今日估算 / 昨日盈亏」两个指标（与表格两列同名同口径），
+ * 样式同时外置到 `watchlistSummaryBar.css` 以守住 .vue 行数门禁（见该 CSS 文件头）。
  */
 const props = defineProps<{
   realtime: RealtimeQuotesReturn;
@@ -25,13 +30,21 @@ const props = defineProps<{
    */
   fallbackSummary?: ValuationSummary | null;
   /**
-   * 当日盈亏（#2640）：金额 + 当日涨跌幅，与表格「当日盈亏」列**同源**
-   * （口径在 `dayPnl.ts`，比例按昨日市值加权，不是各行涨跌幅的算术平均）。
+   * 今日估算（2026-11-05）：`(T 实时估值价 − T-1 确认价) × 份额`，
+   * 与表格「今日估算」列**同源**（`dayPnl.ts`，比例按基准市值加权，
+   * 不是各行涨跌幅的算术平均）。
    *
-   * `value == null` 表示一条都算不出（无昨收 / 无持仓）→ 整块不渲染：
-   * 显示 `0.00` 会让人以为「今天没赚没亏」，那正是本次要消灭的假象。
+   * `value == null` = 一条都算不出（未开实时 / 休市 / 行情不可达）→ 整块不渲染。
+   * ⚠️ 绝不拿「昨日盈亏」填这里：那正是用户反馈的「盘中看到昨天的真实值」。
+   * 也不显示 `0.00` —— 会让人以为「今天没赚没亏」，同样是假象。
    */
-  dayPnl?: DayPnlSummary | null;
+  todayEstimate?: DayPnlSummary | null;
+  /**
+   * 昨日盈亏（2026-11-05）：`(T-1 确认价 − T-2 确认价) × 份额`，
+   * 已确认的真实值，与实时通道无关，盘中不跳动。与表格「昨日盈亏」列同源。
+   * 这正是 #2640 那列**实际算出来的数**，此前被误命名为「当日盈亏」。
+   */
+  yesterdayPnl?: DayPnlSummary | null;
 }>();
 
 const emit = defineEmits<{
@@ -78,17 +91,24 @@ const profitArrow = computed(() =>
   (summary.value?.totalPnl ?? 0) >= 0 ? ArrowUp : ArrowDown
 );
 
-/** 当日盈亏（#2640）：与总盈亏同一套涨跌配色/箭头，避免同一屏两套语义 */
-const hasDayPnl = computed(() => props.dayPnl?.value != null);
-const dayPnlClass = computed(() => {
-  const v = props.dayPnl?.value ?? 0;
-  if (v > 0) return "text-up";
-  if (v < 0) return "text-down";
-  return "text-flat";
-});
-const dayPnlArrow = computed(() =>
-  (props.dayPnl?.value ?? 0) >= 0 ? ArrowUp : ArrowDown
-);
+/**
+ * 两列盈亏（2026-11-05 拆列）与总盈亏共用同一套涨跌配色 / 箭头：
+ * 同一屏不出现两套语义。
+ *
+ * 用无状态纯函数而不是给每列复制三份 computed —— 拆成两列后，复制粘贴最容易
+ * 漏掉「value == null 就整块不渲染」这条守卫，把 `—` 显示成 `0.00`。
+ * props 在模板里每次渲染读取，响应式由 Vue 模板自身保证，无需手工包 computed。
+ */
+const hasTodayEstimate = computed(() => props.todayEstimate?.value != null);
+const hasYesterdayPnl = computed(() => props.yesterdayPnl?.value != null);
+
+function pnlClass(v: number | null | undefined): string {
+  if (v == null || v === 0) return "text-flat";
+  return v > 0 ? "text-up" : "text-down";
+}
+function pnlArrow(v: number | null | undefined) {
+  return (v ?? 0) >= 0 ? ArrowUp : ArrowDown;
+}
 const intervalOptions = [
   { label: "15s", value: 15 },
   { label: "30s", value: 30 },
@@ -167,16 +187,51 @@ const intervalOptions = [
           <span class="metric-value">{{ summary?.totalCost?.toFixed(2) }}</span>
         </div>
         <span class="metric-divider" />
-        <!-- 当日盈亏（#2640）：与表格同名同口径；「今日 / 累计」成对呈现，
-             故与下面的总盈亏共用同一档字重与涨跌配色 -->
-        <template v-if="hasDayPnl">
+        <!-- 今日估算 / 昨日盈亏（2026-11-05 拆列）：与表格两列同名同口径。
+             一个今天（估算、盘中随轮询跳动）、一个昨天（已确认、不跳动），并排才分得清。
+             两者都「有值才显示」：拿不到实时行情时今日估算整块不渲染，
+             绝不拿昨日数字顶替，也不显示 0.00 那种「没赚没亏」的假象。 -->
+        <template v-if="hasTodayEstimate">
           <div class="metric-group metric-group--pnl">
-            <span class="metric-label">当日盈亏</span>
-            <span class="metric-value metric-value--pnl" :class="dayPnlClass">
-              <el-icon><component :is="dayPnlArrow" /></el-icon>
-              {{ dayPnl?.value?.toFixed(2) }}
-              <span v-if="dayPnl?.ratio != null" class="pct"
-                >({{ dayPnl?.ratio?.toFixed(2) }}%)</span
+            <span class="metric-label">今日估算</span>
+            <!-- 「估」徽章：与表格「今日估算」列同一个 ValuationSourceBadge，
+                 免责文案走 ESTIMATE_DISCLAIMER 单一出口。列名之外再给一个视觉锚点，
+                 避免两个「金额 + 涨幅」指标又被读成两个「今日收益」。 -->
+            <el-tooltip :content="ESTIMATE_DISCLAIMER" placement="top">
+              <ValuationSourceBadge
+                status="estimated"
+                size="sm"
+                :tip="ESTIMATE_DISCLAIMER"
+              />
+            </el-tooltip>
+            <span
+              class="metric-value metric-value--pnl"
+              :class="pnlClass(todayEstimate?.value)"
+            >
+              <el-icon
+                ><component :is="pnlArrow(todayEstimate?.value)"
+              /></el-icon>
+              {{ todayEstimate?.value?.toFixed(2) }}
+              <span v-if="todayEstimate?.ratio != null" class="pct"
+                >({{ todayEstimate?.ratio?.toFixed(2) }}%)</span
+              >
+            </span>
+          </div>
+          <span class="metric-divider" />
+        </template>
+        <template v-if="hasYesterdayPnl">
+          <div class="metric-group metric-group--pnl">
+            <span class="metric-label">昨日盈亏</span>
+            <span
+              class="metric-value metric-value--pnl"
+              :class="pnlClass(yesterdayPnl?.value)"
+            >
+              <el-icon
+                ><component :is="pnlArrow(yesterdayPnl?.value)"
+              /></el-icon>
+              {{ yesterdayPnl?.value?.toFixed(2) }}
+              <span v-if="yesterdayPnl?.ratio != null" class="pct"
+                >({{ yesterdayPnl?.ratio?.toFixed(2) }}%)</span
               >
             </span>
           </div>
@@ -198,151 +253,4 @@ const intervalOptions = [
   </div>
 </template>
 
-<style scoped>
-/* #1281 第二轮：从 --space-2(8) 回到 --space-3(12)。
-   第一轮为压高度收到 8px，估值条与上下区块几乎贴在一起，整页失去呼吸感；
-   现在的取舍是「留白回到规范档位 + 滚动时整条收起」，两种状态各自干净。 */
-
-/* 下外边距逐步收紧：--space-3(12) → --space-2(8) → 4px（2026-09-05）。
-   本条是「顶部第三层」，与头部行/横幅叠加吃掉的都是首屏行数；4px 已贴近下表格，
-   靠底部分割线分区，视觉可接受。 */
-.summary-bar {
-  margin-bottom: var(--space-1);
-}
-
-/* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右）
-   （多轮收紧后 padding 落定 4px：本条无卡片背景、靠细线分区，4px 呼吸足够） */
-.summary-row {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  padding: var(--space-1) 0;
-}
-
-.summary-row__status {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-  align-items: center;
-}
-
-.summary-row__metrics {
-  display: flex;
-  flex-shrink: 0;
-  gap: 12px;
-  align-items: center;
-}
-
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status-trading {
-  background: var(--color-rise);
-}
-
-.status-closed,
-.status-idle {
-  background: var(--text-secondary);
-}
-
-.status-error {
-  background: var(--color-danger);
-}
-
-.status-text {
-  font-size: var(--text-label);
-  font-weight: 400;
-  color: var(--text-secondary);
-}
-
-.update-time {
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-}
-
-/* 休市说明（#2338）：与状态文案同级字号，避免「少了一行」被读成数据出错。
-   用 --text-secondary（5.77:1）而非 --text-tertiary —— 后者作正文不足 4.5:1。 */
-.closed-hint {
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-/* 刷新控件组：休市时整组置灰，tooltip 落在本包裹层（disabled 控件自身不派发事件） */
-.refresh-controls {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* 汇总指标紧凑数据组：label 12px 次级 + value 等宽数字，细分隔线分区 */
-.metric-group {
-  display: flex;
-  gap: 4px;
-  align-items: baseline;
-  white-space: nowrap;
-}
-
-/* 汇总指标：#1281 第四轮整体降一档（label 12→11、value 14→13、主指标 18→16）。
-   顶部右侧这三个数字曾占据很大一块视觉重量，与下方表格争抢注意力；
-   降档后仍是「label + 等宽数字」结构，可读性不变，视觉重心回到列表。 */
-.metric-label {
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-}
-
-.metric-value {
-  font-size: var(--text-label);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-/* 主指标（总盈亏）：16px/800 视觉锚点，红涨绿跌走 --color-rise/--color-fall */
-.metric-value--pnl {
-  font-size: var(--text-body);
-  font-weight: 800;
-}
-
-.metric-divider {
-  flex-shrink: 0;
-  width: 1px;
-  height: 16px;
-  background-color: var(--border-subtle);
-}
-
-/* 刷新图标按钮：无文字，loading 时由 EP 自带 loading 图标替代 */
-.refresh-icon-btn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-}
-
-.refresh-icon-btn:hover {
-  color: var(--text-primary) !important;
-}
-
-.text-up {
-  color: var(--color-rise-ink);
-}
-
-.text-down {
-  color: var(--color-fall-ink);
-}
-
-.text-flat {
-  color: var(--text-secondary);
-}
-
-.pct {
-  font-size: var(--text-label);
-  font-weight: 400;
-  opacity: 0.8;
-}
-</style>
+<style scoped src="./watchlistSummaryBar.css"></style>

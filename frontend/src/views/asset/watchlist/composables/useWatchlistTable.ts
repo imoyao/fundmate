@@ -42,7 +42,8 @@ export function useWatchlistTable(options: TableRenderOptions) {
     getValuationItem,
     addedReturnPct,
     addedReturnAmount,
-    dayPnlOf,
+    todayEstimateOf,
+    yesterdayPnlOf,
     marketValueRatio,
     trendMap,
     intradayMap
@@ -81,13 +82,33 @@ export function useWatchlistTable(options: TableRenderOptions) {
   }
 
   /**
-   * 当日盈亏取值：按当前口径选「金额」或「涨幅」——复合列两行数各有各的排序。
+   * 两列盈亏的排序取值：按当前口径选「金额」或「涨幅」——复合列两行数各有各的排序。
    *
    * 口径在**调用时**读（`data.sortMetricOf`），所以表头切口径后，客户端整组排序
    * （`clientSortedItems` 是 computed）会立刻重算，不需要再手动触发一次排序。
+   *
+   * ⚠️ 2026-11-05 拆列后必须是**两个**取值函数、各读各的口径：
+   * - `day_pnl`（今日估算）只吃实时估值，没行情就是 null（排末尾）；
+   * - `yesterday_pnl`（昨日盈亏）恒为已确认真实值，与实时通道无关。
+   * 共用一个函数会让两列点表头排出同一串顺序，用户会以为其中一列坏了。
    */
-  function dayPnlSortValueOf(): (row: WatchlistItem) => number | null {
-    return row => pickSortMetric(dayPnlOf(row), data.sortMetricOf("day_pnl"));
+  function todayEstimateSortValueOf(): (row: WatchlistItem) => number | null {
+    return row =>
+      pickSortMetric(todayEstimateOf(row), data.sortMetricOf("day_pnl"));
+  }
+
+  function yesterdayPnlSortValueOf(): (row: WatchlistItem) => number | null {
+    return row =>
+      pickSortMetric(yesterdayPnlOf(row), data.sortMetricOf("yesterday_pnl"));
+  }
+
+  /** 客户端整组排序的取值函数按列 key 分派（名单唯一出口见 clientSort.ts） */
+  function clientSortValueOf(
+    key: ClientSortKey
+  ): (row: WatchlistItem) => number | null {
+    if (key === "current_price") return livePriceOf;
+    if (key === "yesterday_pnl") return yesterdayPnlSortValueOf();
+    return todayEstimateSortValueOf(); // day_pnl
   }
 
   /** 该列是否走客户端整组排序（名单只在 `clientSort.ts` 维护，不在此另立一份） */
@@ -100,7 +121,7 @@ export function useWatchlistTable(options: TableRenderOptions) {
    *
    * | 列 | 走哪 | 为什么 |
    * |---|---|---|
-   * | 当日盈亏 / 最新价 | **客户端整组排序**（`data.setClientSort`，对全量 allItems 排 + 本地分页） | 这两列吃实时价，后端只有上一交易日收盘（job 17:30 跑）⇒ 按 `sort_by` 排等于「按昨天的涨幅排」，与列里显示的今日值不是同一个数 |
+   * | 今日估算 / 昨日盈亏 / 最新价 | **客户端整组排序**（`data.setClientSort`，对全量 allItems 排 + 本地分页） | 今日估算与最新价吃实时价、昨日盈亏是前端按 T-1/T-2 现算的派生值；后端只有上一交易日收盘（job 17:30 跑）与库内快照，没有这两个派生字段 ⇒ 按 `sort_by` 排等于「按昨天的数排」，与列里显示的数不是同一个 |
    * | 持仓市值 / 持仓收益 | `handleSortChange` → 后端 `sort_by/sort_order`，**字段随口径切换** | 两列主行取自 positions 快照 + 库内行情，后端排的就是列里显示的数；「金额 / 比例」是库里两个不同的排序键（`position_market_value` / `holding_pnl` / `holding_pnl_percent`，均在后端白名单内） |
    * | 其余列 | `handleSortChange` → 后端 `sort_by/sort_order` | 这些列的值后端就有，跨页一致由后端保证 |
    *
@@ -109,7 +130,7 @@ export function useWatchlistTable(options: TableRenderOptions) {
    * （客户端），要么整组排（后端），没有「页内排」这一档。
    *
    * ⚠️ 复合列（`ColumnDef.sortMetrics`）的排序指标由表头徽标决定，**不再拿一个口径
-   * 代理另一个**：#2641 把当日盈亏代理到 `change_pct`，于是「按金额排序」这个诉求
+   * 代理另一个**：#2641 把当时的「当日盈亏」代理到 `change_pct`，于是「按金额排序」这个诉求
    * 在实现上根本不存在。
    */
   function onSortChange({
@@ -134,18 +155,16 @@ export function useWatchlistTable(options: TableRenderOptions) {
 
     const dir = order === "descending" ? "desc" : "asc";
 
-    // ① 客户端整组排序：吃实时价的两列（当日盈亏还要看口径）
+    // ① 客户端整组排序：吃实时价的列 + 两列纯前端派生的盈亏
+    //    （今日估算 / 昨日盈亏 / 最新价）。每列取自己的数、口径各自记忆，
+    //    不再用一个「当日盈亏」函数通吃（2026-11-05 拆列）。
     if (isClientSortKey(key)) {
-      data.setClientSort(
-        key,
-        dir,
-        key === "current_price" ? livePriceOf : dayPnlSortValueOf()
-      );
+      data.setClientSort(key, dir, clientSortValueOf(key));
       return;
     }
 
     // ② 复合列走后端时，排序字段随口径切换：金额 / 比例在库里是两个不同的列。
-    //    只认列定义声明的 `ratioSortBy`（当日盈亏没声明 → 两种口径都走客户端，见 ①）。
+    //    只认列定义声明的 `ratioSortBy`（两列盈亏都没声明 → 两种口径都走客户端，见 ①）。
     const ratioField = def?.sortMetrics?.ratioSortBy;
     const field =
       ratioField && data.sortMetricOf(key) === "ratio"
@@ -175,9 +194,15 @@ export function useWatchlistTable(options: TableRenderOptions) {
           ratio: addedReturnPct(row as WatchlistItem)
         };
       }
-      if (kind === "dayPnl") {
-        // 当日盈亏（#2640）：口径与汇总条同源（dayPnl.ts），缺失同样是 null 而非 0
-        return dayPnlOf(row);
+      if (kind === "todayEstimate") {
+        // 今日估算（2026-11-05）：口径与汇总条同源（dayPnl.ts）。
+        // 只消费 source === "realtime" 的行情；拿不到就是 null → 单元格渲染 `—`，
+        // 绝不回落昨日盈亏（否则两列会显示同一个数）。
+        return todayEstimateOf(row);
+      }
+      if (kind === "yesterdayPnl") {
+        // 昨日盈亏（2026-11-05）：已确认真实值，完全不读实时行情，盘中不跳动。
+        return yesterdayPnlOf(row);
       }
       // marketValue
       return {

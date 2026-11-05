@@ -10,7 +10,8 @@
  *
  * 本文件钉两件事：
  * 1) `rebuildColumnOrder` 的输出**等长且 key 唯一**（任意输入都不重复、不丢列）；
- * 2) 默认列序口径（当日变动 → 价格 → 走势 → 持仓规模），防「重排」被静默改回去。
+ * 2) 默认列序口径（2026-11-05 拆列后：今日估算 → 昨日盈亏 → 价格 → 走势 → 持仓规模），
+ *    防「重排」被静默改回去，尤其防新增的「昨日盈亏」被挤到离「今日估算」很远的地方。
  *
  * 含**变异探针**：把旧算法就地复现一遍，确认它在同一输入下真的会重复——
  * 否则「修复被回退但测试仍绿」（旧实现换成新实现后用例全过，说明用例没测到点上）。
@@ -26,6 +27,10 @@ const defaults = () => watchlistColumnDefs;
 /**
  * 用户坏缓存的真实形态：`order` 只有当时可见的 7 列
  * （含被显式开启的 `added_return`），而可拖拽槽位约 50 个。
+ *
+ * 2026-11-05 新增 `yesterday_pnl` 后，老缓存里**没有**这个 key —— 正是
+ * `rebuildColumnOrder`「没排过的列按默认序补到队尾」要自愈的场景：
+ * 新列不能丢，也不能把已有列挤重复。下面「结果等长、key 唯一」两条即覆盖它。
  */
 const PARTIAL_ORDER = [
   "current_price",
@@ -126,17 +131,18 @@ describe("rebuildColumnOrder：部分顺序不能当全量用（表头重复列�
   });
 });
 
-describe("默认列序（2026-10-30 重排：当日变动 → 价格 → 走势 → 持仓规模）", () => {
+describe("默认列序（2026-10-30 重排；2026-11-05 拆列：今日估算 → 昨日盈亏 → 价格 → 走势 → 持仓规模）", () => {
   const mixedDefaultKeys = watchlistColumnDefs
     .filter(
       d => d.key !== "_selection" && d.scope === "mixed" && !d.defaultHidden
     )
     .map(d => d.key);
 
-  it("当日盈亏紧跟代码/名称，最新价其次，持仓三列殿后", () => {
+  it("两列盈亏紧跟代码/名称，最新价其次，持仓三列殿后", () => {
     expect(mixedDefaultKeys).toEqual([
       "product",
-      "day_pnl",
+      "day_pnl", // 今日估算
+      "yesterday_pnl", // 昨日盈亏（2026-11-05 新增）
       "current_price",
       "trend",
       "holding_quantity",
@@ -146,9 +152,20 @@ describe("默认列序（2026-10-30 重排：当日变动 → 价格 → 走势 
     ]);
   });
 
-  it("当日盈亏不再排在数据列末尾（用户反馈「默认排得比较靠后」）", () => {
-    const idx = mixedDefaultKeys.indexOf("day_pnl");
-    expect(idx).toBeGreaterThan(0);
-    expect(idx).toBeLessThan(3);
+  it("两列都排在最前，且**相邻并排**（一个今天、一个昨天，一眼分得清）", () => {
+    const todayIdx = mixedDefaultKeys.indexOf("day_pnl");
+    const yesterdayIdx = mixedDefaultKeys.indexOf("yesterday_pnl");
+    expect(todayIdx).toBeGreaterThan(0);
+    expect(todayIdx).toBeLessThan(3);
+    expect(yesterdayIdx).toBe(todayIdx + 1);
+  });
+
+  it("新增列不破坏「等长且 key 唯一」：老缓存没有 yesterday_pnl 也能自愈", () => {
+    // PARTIAL_ORDER 是拆列前的真实缓存（不含 yesterday_pnl）：重建后新列必须补进来，
+    // 且不能因为多了一个可拖拽槽位而把别的列挤重复。
+    const keys = keysOf(rebuildColumnOrder(defaults(), PARTIAL_ORDER));
+    expect(keys).toContain("yesterday_pnl");
+    expect(keys).toHaveLength(defaults().length);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });

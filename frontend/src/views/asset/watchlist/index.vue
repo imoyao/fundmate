@@ -69,12 +69,15 @@
         <RealtimeWarningBanner v-if="realtimeEnabled" />
         <!-- 状态 + 汇总数据条：**常驻**（不再 v-if realtimeEnabled）。
              未开实时时用静态价（最近交易日收盘价 / 确认净值）汇总兜底（#1245 /
-             2026-09-22 用户反馈），数据与事件由 useWatchlistValuation 注入。 -->
+             2026-09-22 用户反馈），数据与事件由 useWatchlistValuation 注入。
+             2026-11-05 拆列后注入「今日估算 / 昨日盈亏」两份汇总，与表格两列同源；
+             拿不到实时行情时今日估算为 null，汇总条该指标整块不渲染，不拿昨日数字顶替。 -->
         <WatchlistSummaryBar
           :realtime="realtime"
           :refreshing="refreshing"
           :fallback-summary="staticSummary"
-          :day-pnl="daySummary"
+          :today-estimate="todayEstimateSummary"
+          :yesterday-pnl="yesterdayPnlSummary"
           @interval-change="onRefreshIntervalChange"
           @manual-refresh="handleManualRefresh"
         />
@@ -212,7 +215,7 @@ const { renderCtx, onSortChange, handleCellMouseEnter, handleCellMouseLeave } =
   table;
 
 /**
- * 复合列口径切换（当日盈亏 / 持仓市值 / 持仓收益）：只负责写回口径并持久化。
+ * 复合列口径切换（今日估算 / 昨日盈亏 / 持仓市值 / 持仓收益）：只负责写回口径并持久化。
  *
  * 重排由表格区自己 emit `sort-change` 触发（见 WatchlistTableSection 的
  * `onMetricChange`）——这里不能再排一次，否则同一次点会发两轮请求。
@@ -232,7 +235,8 @@ const {
   toggleBtnText,
   refreshing,
   staticSummary,
-  daySummary,
+  todayEstimateSummary,
+  yesterdayPnlSummary,
   handleManualRefresh,
   onRefreshIntervalChange
 } = valuation;

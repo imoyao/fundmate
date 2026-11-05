@@ -16,9 +16,19 @@ export interface ValuationItem extends Holding {
   pnl: number;
   pnlPercent: number;
   /**
-   * 上一价点（实时源优先：腾讯昨收 / 天天 `dwjz` / 批量 `NAV`；缺失取后端静态价
-   * 的 `prev_close`）。`null` = 两处都没有，前端「当日盈亏」降级 `—`
-   * ——不要用 `currentPrice` 顶替，那会把当日盈亏算成恒 0（#2640 修的就是这个）。
+   * **实时链路的 T-1 基准**（腾讯 `parts[4]` 昨收 / 天天 `dwjz` 昨净值 /
+   * 批量 `NAV`），只由 `source === "realtime"` 的分支产出；静态回退分支恒为 null。
+   *
+   * ⚠️ 它与后端 `row.prev_close` **同名不同日**：后者是 T-2（后端 `close` 本身
+   * 才是 T-1，见 #824「T 日不回填」）。早期实现会在实时源缺基准时用静态
+   * `prev_close` 补位，把「今天的实时价 − 前天的价」当成今日盈亏，
+   * 2026-11-05「今日估算 / 昨日盈亏」拆列时删除。
+   *
+   * 因此「今日估算」只消费 `source === "realtime"` 的这一份；实时源缺值时由
+   * `dayPnl.ts` 兜底 `row.current_price`（T-1 已确认价），与实时价同源同日。
+   *
+   * `null` = 该来源没给；展示层降级 `—`，不要用 `currentPrice` 顶替
+   * （那会把盈亏算成恒 0，#2640 修的就是这个）。
    */
   prevClose: number | null;
 }
@@ -37,7 +47,12 @@ export interface ValuationResult {
   summary: ValuationSummary | null;
 }
 
-// 静态兜底数据（由外部注入，可以从后端已加载的数据中获取）
+/**
+ * 静态兜底数据（由外部注入，可以从后端已加载的数据中获取）。
+ *
+ * ⚠️ `prevClose` 只应在调用方能给出**T-1 昨收**时填写。后端 `prev_close` 是 T-2，
+ * 不要把它塞进这里——自选页已因此不再传该字段（2026-11-05）。
+ */
 export interface StaticPriceProvider {
   (
     symbol: string
@@ -70,24 +85,26 @@ export async function calculateHoldingsValuation(
     if (quote && quote.currentPrice > 0) {
       currentPrice = quote.currentPrice;
       changePct = quote.changePct;
+      // 只认实时源自带的 T-1 基准；缺失就留 null（下一步也不补）
       prevClose = quote.prevClose ?? null;
       source = "realtime";
       hasRealtime = true;
       if (!lastUpdateTime) lastUpdateTime = quote.updateTime;
     } else {
-      // 降级：使用后端静态数据
+      // 降级：使用后端静态数据（T-1 已确认价）
       const staticData = staticPriceProvider(h.symbol);
       currentPrice = staticData?.currentPrice ?? 0;
       changePct = staticData?.changePct ?? 0;
       prevClose = staticData?.prevClose ?? null;
     }
 
-    // 实时价 + 静态昨收的混合口径只在「实时源不提供昨收」时出现（如腾讯基金格式），
-    // 此时补一次静态昨收，避免当日盈亏因为半个来源缺失而整列变 `—`。
-    if (prevClose == null && source === "realtime") {
-      prevClose = staticPriceProvider(h.symbol)?.prevClose ?? null;
-    }
-    // 「当日盈亏」分母为 0 / 负数没有意义（0 会算出 Infinity），一律降到 null
+    // ⚠️ 不要在实时源缺 prevClose 时用静态 prevClose 补位（2026-11-05 拆列时删除）。
+    // 注入的 staticPriceProvider.prevClose 曾是后端 `prev_close`（T-2），而实时
+    // currentPrice 是今天（T）——补进去等于「今天减前天」，多算一天。
+    // 缺基准一律留 null：由 `dayPnl.ts` 兜底 `row.current_price`（T-1 已确认价），
+    // 展示层在完全算不出时降级 `—`。宁可空白，也不能拿两个不同日子的价相减。
+    //
+    // 非正数基准没有意义（0 会算出 Infinity），一律降到 null。
     if (prevClose != null && !(prevClose > 0)) prevClose = null;
 
     const marketValue = currentPrice * h.quantity;
