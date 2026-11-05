@@ -198,12 +198,12 @@ export function useTransactionEditForm(opts: {
     }
   );
 
-  // 股票 / 可转债：quantity / price / fee 变化 → 正算 amount
+  // 股票 / 可转债：quantity / price 变化 → 正算毛额 amount（手续费单列，不参与）
   watch(
-    [() => form.value.quantity, () => form.value.price, () => form.value.fee],
-    ([quantity, price, fee]) => {
+    [() => form.value.quantity, () => form.value.price],
+    ([quantity, price]) => {
       if (isInitializing.value || isFund.value) return;
-      const next = recalcAmount(quantity, price, fee);
+      const next = recalcAmount(quantity, price);
       if (next == null) return;
       form.value.amount = next;
     }

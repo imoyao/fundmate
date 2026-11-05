@@ -100,27 +100,29 @@ describe("recalcShares（金额 → 份额）", () => {
 });
 
 describe("recalcAmount（数量 → 金额）", () => {
-  it("qty * price + fee，保留 2 位小数", () => {
-    expect(recalcAmount(100, 1.23, 5)).toBe(128);
-    expect(recalcAmount(100, 2, 0)).toBe(200);
+  // 阶段 0 口径修正：amount 是**成交毛额**（数量 × 单价），手续费单列在 fee。
+  // 旧实现 `qty*price+fee` 只在 fee=0 时与后端一致；费用可填之后会把成交额写虚增。
+  it("qty * price（毛额），保留 2 位小数", () => {
+    expect(recalcAmount(100, 1.23)).toBe(123);
+    expect(recalcAmount(100, 2)).toBe(200);
   });
 
   it("浮点误差被抹平（0.1 × 3 不出现 0.30000000000000004）", () => {
-    expect(recalcAmount(3, 0.1, 0)).toBe(0.3);
+    expect(recalcAmount(3, 0.1)).toBe(0.3);
   });
 
   it("数量或单价为空时返回 null（不写回）", () => {
-    expect(recalcAmount(null, 2, 0)).toBeNull();
-    expect(recalcAmount(100, null, 0)).toBeNull();
+    expect(recalcAmount(null, 2)).toBeNull();
+    expect(recalcAmount(100, null)).toBeNull();
   });
 
   it("负数不计算", () => {
-    expect(recalcAmount(-1, 2, 0)).toBeNull();
-    expect(recalcAmount(100, -2, 0)).toBeNull();
+    expect(recalcAmount(-1, 2)).toBeNull();
+    expect(recalcAmount(100, -2)).toBeNull();
   });
 
-  it("数量为 0 时金额 = 手续费", () => {
-    expect(recalcAmount(0, 2, 5)).toBe(5);
+  it("数量为 0 时金额为 0（费用不进 amount）", () => {
+    expect(recalcAmount(0, 2)).toBe(0);
   });
 });
 

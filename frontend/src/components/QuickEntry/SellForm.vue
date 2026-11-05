@@ -78,28 +78,13 @@
         >
       </el-form-item>
 
-      <!-- 4. 卖出费用（纯金额模式） -->
-      <template v-if="form.type === 'fund'">
-        <el-form-item label="卖出费用" prop="fee">
-          <div class="flex flex-col gap-2 w-full">
-            <div class="flex items-center gap-3 w-full">
-              <el-input-number
-                v-model="form.fee"
-                class="flex-1"
-                :controls="false"
-                :precision="2"
-                :min="0"
-                placeholder="输入手续费金额"
-                @change="onFeeManualChange"
-              />
-              <el-button @click="openFeeRateDialog">查询费率</el-button>
-            </div>
-          </div>
-          <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-            按持仓天数自动匹配费率，可手动修改
-          </div>
-        </el-form-item>
-      </template>
+      <!-- 4. 卖出费用（全品种；基金可查费率，股票/ETF 按券商实收填） -->
+      <SellFeeField
+        v-model:fee="form.fee"
+        :type="form.type"
+        @fee-manual-change="onFeeManualChange"
+        @open-rate-dialog="openFeeRateDialog"
+      />
 
       <!-- 5. 对应净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
       <TradeNavPriceRow
@@ -166,6 +151,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import SellPositionField from "./components/SellPositionField.vue";
 import SellQuantityField from "./components/SellQuantityField.vue";
+import SellFeeField from "./components/SellFeeField.vue";
 import SellFeeRateDialog from "./components/SellFeeRateDialog.vue";
 import TradeNavPriceRow from "./components/TradeNavPriceRow.vue";
 import { defaultSellForm } from "./sellFormModel";

@@ -63,12 +63,13 @@
       :is-portfolio="form.type === 'portfolio'"
     />
 
-    <!-- 2. 手续费（带有金额/费率切换） -->
+    <!-- 2. 手续费（基金：金额/费率双模式 + 申购折扣；股票/ETF：实收金额直填） -->
     <BuyFeeField
-      v-if="selectedSecurityOption?.type === 'fund'"
+      v-if="showFeeField"
       v-model:fee="form.fee"
       v-model:fee-mode="feeMode"
       v-model:discount="fundFeeDiscount"
+      :simple="!isFundSecurity"
       @fee-mode-change="onFeeModeChange"
       @discount-change="onFundFeeDiscountChange"
     />
@@ -167,6 +168,7 @@ import {
   snapshotToFormPatch,
   snapshotToSecurityOption
 } from "./buyLastSubmitted";
+import { createBuyFormDefaults } from "./buyFormModel";
 
 // ── Props & Emits ──
 const props = defineProps<{
@@ -179,23 +181,7 @@ const emit = defineEmits<{
   (e: "accounts-changed"): void;
 }>();
 
-const defaultForm = () => ({
-  ledger_id: null as number | null,
-  symbol: "",
-  name: "",
-  market: "CN_A",
-  type: "stock",
-  price: undefined as number | undefined,
-  trade_date: new Date().toISOString().slice(0, 10),
-  confirm_date: "",
-  fee: 0 as number | undefined,
-  allocation: "longterm",
-  notes: "",
-  isAfter15: false,
-  currency: "CNY",
-  buyAmount: undefined as number | undefined,
-  shares: undefined as number | undefined
-});
+const defaultForm = createBuyFormDefaults;
 
 const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
@@ -209,6 +195,14 @@ const currentLedger = computed(
   () => props.ledgers.find(l => l.id === form.ledger_id) ?? null
 );
 const accountName = computed(() => currentLedger.value?.name ?? "");
+const isFundSecurity = computed(
+  () => selectedSecurityOption.value?.type === "fund"
+);
+// 投顾组合不收申购费（服务费在组合侧扣，载荷里恒 0），不显示输入框
+const showFeeField = computed(() => {
+  const type = selectedSecurityOption.value?.type;
+  return Boolean(type) && type !== "portfolio";
+});
 const showIsAfter15 = computed(() => {
   const type = currentLedger.value?.ledger_type;
   if (type === "fund" || type === "bank") return true;

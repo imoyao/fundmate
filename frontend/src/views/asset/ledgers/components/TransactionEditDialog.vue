@@ -75,7 +75,7 @@
         />
       </el-form-item>
 
-      <!-- 金额：自动计算 = 数量 * 单价 + 手续费，可手动覆盖 -->
+      <!-- 金额：自动计算 = 数量 × 单价（成交毛额，手续费单列），可手动覆盖 -->
       <el-form-item label="金额(元)">
         <el-input-number
           v-model="form.amount"
@@ -89,7 +89,9 @@
         />
         <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           <span v-if="isFund">金额为权威数据，份额自动反算，可手动修改</span>
-          <span v-else>自动计算：数量 × 单价 + 手续费，可手动修改</span>
+          <span v-else
+            >自动计算：数量 × 单价（成交毛额，手续费单列），可手动修改</span
+          >
         </div>
       </el-form-item>
 

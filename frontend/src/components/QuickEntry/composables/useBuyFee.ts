@@ -84,6 +84,12 @@ export function useBuyFee(deps: {
 
   /** 按账户类型回填预设手续费：股票按佣金率，基金/银行按申购费 × 折扣 */
   function applyFeePreset() {
+    // 股票 / ETF 只有「实收金额」一种输入口径（BuyFeeField 的 simple 模式）。
+    // 从基金切过来时 feeMode 会残留 rate，留着会让元被当成百分比再换算一次，
+    // 所以先归位；下面各分支都会重算 form.fee，不会留下旧单位的数字。
+    if (deps.selectedSecurityOption.value?.type !== "fund") {
+      feeMode.value = "amount";
+    }
     const ledger = deps.currentLedger.value;
     if (!ledger) {
       deps.form.fee = 0;
