@@ -734,6 +734,20 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '不判 anon key 是否有效、也不判 dev 与 prod 是否同项目'
         ),
     },
+    'scripts/guard_products_api.mjs': {
+        'rule': '产品域 API 公共入口只做 barrel，21 个端点按子域落在 products/*.ts（#2878）',
+        # 源 #2878：products.ts 曾是 1364 行 / 21 个端点的巨型客户端。拆分后 51 个
+        # 既有调用点仍从公共入口导入，回潮形态是「新端点又写回 barrel」——编译、
+        # 单测照常绿，只有文件悄悄长回去，故用静态判据钉住分层与转发完整性。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_products_api.test.js',
+        'covered': (
+            '只判 frontend/src/api/products.ts 与 products/*.ts 的静态结构'
+            '（barrel 纯度 / 转发不断链 / 无孤儿模块 / 行数上限 / 无反向 import）；'
+            '端点 method、URL 与参数映射由 productsBarrel.spec.ts 钉住，'
+            '后端返回值的业务语义不在此判据覆盖范围'
+        ),
+    },
 }
 
 
