@@ -124,12 +124,14 @@ const xirrNetInvestedLabel = computed(() => {
   return formatYuan(d.net_invested ?? d.total_invested - d.total_withdrawn);
 });
 /**
- * 累计费用（元）。`fees == null` 时返回 null（组件显示 `--`），**不补 0**：
- * TWR 走日净资产序列，没有交易级费用，补 0 会被读成「一分手续费都没花」。
+ * 累计费用（元）。两种情况都显示 `--`，**不补 0**：
+ * - `cashflow_count <= 0`：没有可算的流水，与同页其它卡（净投入 / 收益）同一降级口径；
+ * - `fees == null`：`method=twr` 走日净资产序列，没有交易级费用。
+ * 补 0 会让用户读成「查过了，一分手续费都没花」。
  */
 const xirrFeesLabel = computed(() => {
   const d = xirr.value;
-  if (!d || d.fees == null) return null;
+  if (!d || d.cashflow_count <= 0 || d.fees == null) return null;
   return formatYuan(d.fees);
 });
 const xirrCaption = computed(() => {

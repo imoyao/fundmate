@@ -235,7 +235,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/ocr_service.py": {'lines': 100, 'max_func': 6, 'max_cc': 1},
     "backend/app/services/penetration.py": {'lines': 729, 'max_func': 404, 'max_cc': 96},
     "backend/app/services/performance/__init__.py": {'lines': 83, 'max_func': 50, 'max_cc': 3},
-    "backend/app/services/performance/calculators.py": {'lines': 574, 'max_func': 70, 'max_cc': 24},
+    "backend/app/services/performance/calculators.py": {'lines': 577, 'max_func': 70, 'max_cc': 24},
     "backend/app/services/performance/cashflow_layers.py": {'lines': 381, 'max_func': 105, 'max_cc': 20},
     "backend/app/services/performance/fee_cash.py": {'lines': 100, 'max_func': 22, 'max_cc': 3},
     "backend/app/services/performance/twr.py": {'lines': 336, 'max_func': 76, 'max_cc': 15},

@@ -201,6 +201,10 @@ def _empty_xirr_result() -> Dict[str, Any]:
     """空结果的标准结构（无账户 / 无成交 / 无市值）：全 0。
 
     前端据 `cashflow_count == 0` 降级显示 `—`，不会出现 NaN（#1972 验收③）。
+
+    **刻意不含 `fees`**：空结果里的「0 元费用」会被读成「查过了、确实没花手续费」，
+    而事实是「没有可算的流水」。字段缺席 ⇒ 前端显示 `--`，与同页其它卡一致；
+    有流水但费用为 0 时该字段才为 0。
     """
     return {
         'xirr': 0.0,
@@ -209,7 +213,6 @@ def _empty_xirr_result() -> Dict[str, Any]:
         'net_invested': 0.0,
         'current_value': 0.0,
         'total_return': 0.0,
-        'fees': 0.0,
         'cashflow_count': 0,
     }
 
