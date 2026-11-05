@@ -45,7 +45,8 @@ title: 自选实时数据接口源归集（realtime-data-sources）
 - **着色基准是昨收 `preClose`，不是分时首点**。首点是 09:30 开盘价，拿它当基准会把「跳空高开」画成一条全绿上行线，而用户要看的是「相对昨收赚没赚」。
 - 解析：`fields2=f51,f52,f53,f54,f55,f56,f57,f58`（时间 / 开 / **收** / 高 / 低 / 量 / 额 / 均价），取第 3 列收盘价；`points.length < 2` 或 `preClose <= 0` 一律返回 `null`（刚开盘一个点画不出线）。
 - **场外基金没有盘中估值分时**（2026-10-26 实测三家均失败）：新浪 `getEstimateNetworthPic` 已下线、东财 mobapi `FundValuationDetail` 返回 `Datas: null`、天天 `fundgz` 只给「当前 GSZ 一个值」而非序列。故基金行盘中仍显示日线，由走势列 `title` 明写原因——**不拿日线冒充分时**（看起来「分时没动」比说明白更贵）。
-- 该源只用于**画线**，不参与「当日盈亏」计算；后者的昨收来自 `prev_close`（后端）/ `parts[4]`（腾讯）/ `dwjz`（天天），见 §1 表格。
+- 该源只用于**画线**，不参与两列盈亏计算（2026-11-05 起为「今日估算 / 昨日盈亏」，口径见 `watchlist-column-defs.md` §10）。
+  ⚠️ **「今日估算」的基准是 T-1 已确认价**，不是后端 `prev_close`：实时链路的 `parts[4]`（腾讯昨收）/ `dwjz`（天天昨净值）/ 批量 `NAV` 才是 T-1；实时源缺基准时由 `dayPnl.ts` 兜底 `row.current_price`（同为 T-1）。**不得**用后端 `row.prev_close`——它是 **T-2**（`compute_latest_quote` 的第二根已确认价），拿它与今日实时价相减等于「今天减前天」，多算一天。「昨日盈亏」列才把 `row.prev_close` 用作 T-2 基准。
 
 ## 2. 新增字段 / 新接口的硬约束（来自 AGENTS.md）
 

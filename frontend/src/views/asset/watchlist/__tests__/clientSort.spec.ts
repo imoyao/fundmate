@@ -31,7 +31,7 @@ const valueOf = (row: Row) => row.value;
 const symbols = (list: Row[]) => list.map(r => r.symbol);
 
 describe("sortRowsForClient：整组排序", () => {
-  it("降序（用户点「当日盈亏」第一眼要看的顺序）", () => {
+  it("降序（用户点「今日估算」第一眼要看的顺序）", () => {
     const sorted = sortRowsForClient(rows, { order: "desc", valueOf });
     expect(symbols(sorted)).toEqual(["C", "A", "E", "B", "D"]);
   });

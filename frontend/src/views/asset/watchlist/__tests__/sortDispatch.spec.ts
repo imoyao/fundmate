@@ -1,5 +1,5 @@
 /**
- * 表头排序分发（2026-10-30 整组化后的判据）。
+ * 表头排序分发（2026-10-30 整组化；2026-11-05 拆列后两列各自取数）。
  *
  * ## 为什么必须有这个文件
  *
@@ -11,14 +11,15 @@
  *
  * | # | 判据 | 为什么值得钉 |
  * |---|---|---|
- * | 1 | 当日盈亏 → `data.setClientSort("day_pnl", …)`，**不**调后端 | 后端 `change_pct` 是上一交易日收盘算的，按它排 = 按昨天的涨幅排，与列里显示的今日实时值不是同一个数 |
- * | 2 | 口径 amount / ratio 取不同的数 | 复合列两行是两个量（同样涨 1%，一万仓与百万仓差两个数量级）；#2641 只代理 change_pct，「按金额排序」根本不存在 |
- * | 3 | 最新价 → `setClientSort("current_price", …)`，取实时价、缺行情回落后端价、都没有给 null | 与 money renderer 同口径；给 0 会让「没行情」的行看起来像「价格跌到 0」 |
- * | 4 | 其余列 → `clearClientSort` + `handleSortChange(prop)` | 这些值后端就有，跨页一致由后端保证 |
- * | 5 | `order === null` → 必须落到后端清空 | 否则取消排序后表格停在上一轮的本地切片上 |
- * | 6 | **不再有「只排当前页」的分支** | 旧实现实时开启时只排当前页，第 2 页重新从头上开始 = 用户说的「顺序乱」 |
- * | 7 | 持仓收益 / 持仓市值走**后端**，但字段随口径切换 | 两列主行取自 positions 快照，后端排的就是列里的数；「金额 / 收益率（占比）」是库里两个不同的排序键 |
- * | 8 | 空仓行（数量 <= 0）的持仓收益给 null | 与 renderer 同判据；留 0 会让空仓行按「收益 0」排进队首 |
+ * | 1 | 今日估算(`day_pnl`) / 昨日盈亏(`yesterday_pnl`) → `data.setClientSort(各自 key, …)`，**不**调后端 | 后端 `change_pct` 是上一交易日收盘算的，按它排 = 按昨天的涨幅排，与列里显示的数不是同一个 |
+ * | 2 | **两列各用各的取值函数，不串数** | 拆列前只有一个 `dayPnlOf`；若两列共用它，点表头会排出同一串顺序，用户会以为其中一列坏了 |
+ * | 3 | 口径 amount / ratio 取不同的数 | 复合列两行是两个量（同样涨 1%，一万仓与百万仓差两个数量级）；#2641 只代理 change_pct，「按金额排序」根本不存在 |
+ * | 4 | 最新价 → `setClientSort("current_price", …)`，取实时价、缺行情回落后端价、都没有给 null | 与 money renderer 同口径；给 0 会让「没行情」的行看起来像「价格跌到 0」 |
+ * | 5 | 其余列 → `clearClientSort` + `handleSortChange(prop)` | 这些值后端就有，跨页一致由后端保证 |
+ * | 6 | `order === null` → 必须落到后端清空 | 否则取消排序后表格停在上一轮的本地切片上 |
+ * | 7 | **不再有「只排当前页」的分支** | 旧实现实时开启时只排当前页，第 2 页重新从头上开始 = 用户说的「顺序乱」 |
+ * | 8 | 持仓收益 / 持仓市值走**后端**，但字段随口径切换 | 两列主行取自 positions 快照，后端排的就是列里的数；「金额 / 收益率（占比）」是库里两个不同的排序键 |
+ * | 9 | 空仓行（数量 <= 0）的持仓收益给 null | 与 renderer 同判据；留 0 会让空仓行按「收益 0」排进队首 |
  *
  * ⚠️ `useWatchlistTable` 是 composable，构造时只做解构与 `computed` 定义（懒求值），
  * 故这里用最小桩对象即可驱动 `onSortChange`，不需要挂载组件。`useRouter` 在
@@ -62,13 +63,16 @@ function makeRow(
 type DayPnlResultLike = { value: number | null; ratio: number | null };
 
 /**
- * 最小 options 桩。`dayPnlOf` 在这里按行返回预置结果，便于断言
- * 「金额口径取 value、比例口径取 ratio」；口径（`sortMetrics`）按列 key 预置。
+ * 最小 options 桩。拆列后 `valuation` 必须提供**两个**取数函数
+ * （`todayEstimateOf` / `yesterdayPnlOf`），各自按行返回预置结果：
+ * 这样「金额口径取 value、比例口径取 ratio」和「两列不串数」才能被断言。
+ * 口径（`sortMetrics`）按列 key 预置。
  */
 function setup({
   metrics = {} as Record<string, SortMetric>,
   quotes = {} as Record<string, { currentPrice: number; source: string }>,
-  dayPnl = {} as Record<string, DayPnlResultLike>,
+  todayEstimate = {} as Record<string, DayPnlResultLike>,
+  yesterdayPnl = {} as Record<string, DayPnlResultLike>,
   marketValueRatio = () => null as number | null
 } = {}) {
   const handleSortChange = vi.fn();
@@ -94,8 +98,10 @@ function setup({
       getValuationItem,
       addedReturnPct: () => null,
       addedReturnAmount: () => null,
-      dayPnlOf: (row: RowLike) =>
-        dayPnl[row.symbol] ?? { value: null, ratio: null },
+      todayEstimateOf: (row: RowLike) =>
+        todayEstimate[row.symbol] ?? { value: null, ratio: null },
+      yesterdayPnlOf: (row: RowLike) =>
+        yesterdayPnl[row.symbol] ?? { value: null, ratio: null },
       marketValueRatio,
       trendMap: ref(new Map()),
       intradayMap: ref(new Map())
@@ -105,6 +111,7 @@ function setup({
     columnSettings: {
       visibleColumns: ref([
         colDef("day_pnl"),
+        colDef("yesterday_pnl"),
         colDef("current_price"),
         colDef("holding_quantity"),
         colDef("position_market_value"),
@@ -122,7 +129,7 @@ describe("表头排序分发：吃实时价的列走客户端整组排序", () =
     vi.clearAllMocks();
   });
 
-  it("当日盈亏：交给 setClientSort，**不再**把 change_pct 发给后端", () => {
+  it("今日估算：交给 setClientSort，**不再**把 change_pct 发给后端", () => {
     const { table, setClientSort, handleSortChange } = setup();
 
     table.onSortChange({ prop: "day_pnl", order: "descending" });
@@ -137,7 +144,7 @@ describe("表头排序分发：吃实时价的列走客户端整组排序", () =
 
   it("金额口径：取值是金额（value），不是涨跌幅", () => {
     const { table, setClientSort } = setup({
-      dayPnl: { A: { value: 100, ratio: 1.2 } }
+      todayEstimate: { A: { value: 100, ratio: 1.2 } }
     });
     table.onSortChange({ prop: "day_pnl", order: "descending" });
     const valueOf = setClientSort.mock.calls[0][2];
@@ -147,16 +154,16 @@ describe("表头排序分发：吃实时价的列走客户端整组排序", () =
   it("涨幅口径：取值是涨跌幅（ratio）——「今天谁涨得最凶」是另一个问题", () => {
     const { table, setClientSort } = setup({
       metrics: { day_pnl: "ratio" },
-      dayPnl: { A: { value: 100, ratio: 1.2 } }
+      todayEstimate: { A: { value: 100, ratio: 1.2 } }
     });
     table.onSortChange({ prop: "day_pnl", order: "descending" });
     const valueOf = setClientSort.mock.calls[0][2];
     expect(valueOf(makeRow(1, "A"))).toBe(1.2);
   });
 
-  it("当日盈亏缺值 → 取值 null（交给排序函数垫底，而不是当 0）", () => {
+  it("今日估算缺值 → 取值 null（交给排序函数垫底，而不是当 0）", () => {
     const { table, setClientSort } = setup({
-      dayPnl: { A: { value: null, ratio: null } }
+      todayEstimate: { A: { value: null, ratio: null } }
     });
     table.onSortChange({ prop: "day_pnl", order: "descending" });
     const valueOf = setClientSort.mock.calls[0][2];
@@ -212,6 +219,79 @@ describe("表头排序分发：吃实时价的列走客户端整组排序", () =
       order: null
     });
     expect(setClientSort).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 昨日盈亏（2026-11-05 新增）：另一套取值函数、另一个排序 key。
+ * 拆列前只有一个 `dayPnlOf`，两列若共用就会排出同一串顺序 —— 这组用例是
+ * 「两列各读各的数」的机器判据，也是本次拆列最容易静默回退的地方。
+ */
+describe("昨日盈亏：独立的客户端整组排序，不与今日估算串数", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('交给 setClientSort("yesterday_pnl", …)，不调后端', () => {
+    const { table, setClientSort, handleSortChange } = setup();
+
+    table.onSortChange({ prop: "yesterday_pnl", order: "descending" });
+
+    expect(setClientSort).toHaveBeenCalledTimes(1);
+    const [key, order] = setClientSort.mock.calls[0];
+    expect(key).toBe("yesterday_pnl");
+    expect(order).toBe("desc");
+    expect(handleSortChange).not.toHaveBeenCalled();
+  });
+
+  it("金额口径取昨日盈亏的 value（不是今日估算的）", () => {
+    const { table, setClientSort } = setup({
+      todayEstimate: { A: { value: 100, ratio: 10 } },
+      yesterdayPnl: { A: { value: 20, ratio: 2.04 } }
+    });
+    table.onSortChange({ prop: "yesterday_pnl", order: "descending" });
+    const valueOf = setClientSort.mock.calls[0][2];
+    expect(valueOf(makeRow(1, "A"))).toBe(20);
+  });
+
+  it("涨幅口径取昨日涨跌幅（按 yesterday_pnl 自己的口径记忆）", () => {
+    const { table, setClientSort } = setup({
+      metrics: { yesterday_pnl: "ratio" },
+      todayEstimate: { A: { value: 100, ratio: 10 } },
+      yesterdayPnl: { A: { value: 20, ratio: 2.04 } }
+    });
+    table.onSortChange({ prop: "yesterday_pnl", order: "descending" });
+    const valueOf = setClientSort.mock.calls[0][2];
+    expect(valueOf(makeRow(1, "A"))).toBe(2.04);
+  });
+
+  it("同一行两列给不同数：点不同表头拿到各自的数（防共用一个取数函数）", () => {
+    const { table, setClientSort } = setup({
+      todayEstimate: { A: { value: 100, ratio: 10 } },
+      yesterdayPnl: { A: { value: 20, ratio: 2.04 } }
+    });
+
+    table.onSortChange({ prop: "day_pnl", order: "descending" });
+    const todayValueOf = setClientSort.mock.calls[0][2];
+    table.onSortChange({ prop: "yesterday_pnl", order: "descending" });
+    const yesterdayValueOf = setClientSort.mock.calls[1][2];
+
+    const rowA = makeRow(1, "A");
+    expect(todayValueOf(rowA)).toBe(100);
+    expect(yesterdayValueOf(rowA)).toBe(20);
+    expect(todayValueOf(rowA)).not.toBe(yesterdayValueOf(rowA));
+  });
+
+  it("今日估算缺行情时，昨日盈亏仍排得出（两列互不牵连）", () => {
+    const { table, setClientSort } = setup({
+      todayEstimate: { A: { value: null, ratio: null } },
+      yesterdayPnl: { A: { value: 20, ratio: 2.04 } }
+    });
+
+    table.onSortChange({ prop: "day_pnl", order: "descending" });
+    expect(setClientSort.mock.calls[0][2](makeRow(1, "A"))).toBeNull();
+    table.onSortChange({ prop: "yesterday_pnl", order: "descending" });
+    expect(setClientSort.mock.calls[1][2](makeRow(1, "A"))).toBe(20);
   });
 });
 

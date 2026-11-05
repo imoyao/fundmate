@@ -6,6 +6,7 @@ title: 自选表格 columnDefs 数据驱动设计（watchlist-column-defs）
 
 > 对应 issue：#995（前置），并为 #990（Sparkline）、#992（拖拽排序）、#993（表头自定义）提供干净地基。
 > 关联 umbrella：#1022。接口源约束见 `realtime-data-sources.md`。
+> **2026-11-05 修订**：#2640 的「当日盈亏」拆成「今日估算 / 昨日盈亏」两列，口径与列宽预算见 §10；本文 §3、§9 的清单 / 判据已同步。
 
 ## 0. 现状与问题
 
@@ -61,29 +62,31 @@ export interface ColumnDef {
 }
 ```
 
-> `WatchlistRow` = 现有表格 `row` 类型（含 `symbol / asset_type / current_price / change_pct / holding_quantity / position_market_value / created_at / tag_ids / is_pinned / favorite` 等）。
+> `WatchlistRow` = 现有表格 `row` 类型（含 `symbol / asset_type / current_price / prev_close / change_pct / holding_quantity / position_market_value / created_at / tag_ids / is_pinned / favorite` 等）。
+> `derived` 的现行联合类型是 `"addedReturn" | "marketValue" | "todayEstimate" | "yesterdayPnl"`（2026-11-05 拆列后），见 §10。
 
-## 3. 列定义清单（从现有 21 列映射，首批）
+## 3. 列定义清单（首批；2026-11-05 拆列后的现行口径）
 
 | key | label | renderer | 备注 |
 |---|---|---|---|
 | `_selection` | （多选） | 内置 selection | `v-if="batchMode"` |
 | `product` | 代码/名称 | product | fixed left，含标签 chips（原独立 `_marker` 列已于 2026-09-04 删除：置顶/关注图标内联进本列名称前） |
-| `created_at` | 添加自选日 | date | sortStr；**#2640 起默认隐藏**（腾宽度给当日盈亏） |
+| `created_at` | 添加自选日 | date | sortStr；**#2640 起默认隐藏**（当时腾宽度给新增的「当日盈亏」；2026-11-05 拆列后不再适用「进一出一」，见 §10） |
 | `current_price` | 最新价 | money | **realtimeField: currentPrice**（实时覆盖静态） |
-| `change_pct` | 涨跌幅 | ~~riseFall~~ | **已删除（#2641）**：与「当日盈亏」的百分比行是同一个数（`(现价−昨收)/昨收`），并排摆着等于画两遍；排序能力由 `day_pnl` 的 `sortBy: change_pct` 接住 |
+| `change_pct` | 涨跌幅 | ~~riseFall~~ | **已删除（#2641）**：当时与「当日盈亏」的百分比行是同一个数（`(现价−昨收)/昨收`），并排摆着等于画两遍；排序能力由 `day_pnl` 的 `sortBy: change_pct` 接住。⚠️ 这两条理由**已被 2026-11-05 拆列覆盖**：拆列后「今日估算」是盘中估值涨跌幅、「昨日盈亏」是已确认涨跌幅，二者与 `change_pct` 都不再是「同一个数」，见 §10 |
 | `holding_quantity` | 持有数量 | qty | 单位按 venue |
 | `position_market_value` | 持仓市值 | moneyRatio | ratio = marketValueRatio；**sortMetrics（金额 / 占比）**，见 §9 |
 | `added_return` | 添加后涨幅 | moneyRatio | sortAddedReturn |
 | `holding_pnl` | 持仓收益 | moneyRatio | auto-color；**sortMetrics（金额 / 收益率）**，见 §9 |
-| `day_pnl` | 当日盈亏 | moneyRatio | **derived: dayPnl**（口径见 `views/asset/watchlist/dayPnl.ts`）；**sortable: custom + 客户端整组排序**（金额 / 涨幅两口径可选，见 §9；不设 `sortBy`——后端只有上一交易日收盘） |
-| `_actions` | 操作 | actions | fixed right，120px |
+| `day_pnl` | **今日估算** | moneyRatio | **2026-11-05 由「当日盈亏」改名 + 换口径**：`derived: todayEstimate`，口径见 §10 与 `views/asset/watchlist/dayPnl.ts`；只在 `quote.source === "realtime"` 时有值，带「估」徽章 + 免责 tooltip；**客户端整组排序**（金额 / 涨幅两口径，见 §9；不设 `sortBy`） |
+| `yesterday_pnl` | **昨日盈亏** | moneyRatio | **2026-11-05 新增**：`derived: yesterdayPnl` = `(T-1 确认价 − T-2 确认价) × 份额`，已确认真实值、与实时通道无关；同为 104px、`QUOTE_TYPES`、`sortMetrics（金额 / 涨幅）`、客户端整组排序 |
+| `_actions` | 操作 | actions | fixed right，88px（2026-11-02 由 140 收敛，常驻置顶 / 特别关注两个状态按钮） |
 
 > 现有"最新价"的 `v-if realtimeEnabled` 双分支，统一收进 `money` renderer 内部，由 `realtimeField` 驱动；**模板不再出现双分支**。（`riseFall` renderer 曾承担同一职责，随 `change_pct` 列在 #2641 删除后一并移除——`RiseFallText` 组件本身仍被 `return_*` 等收益类列使用。）
 
 ### 实施偏差（MVP 阶段，已落地）
 
-为降低与 #980 重构的冲突面、避免丢失既有交互，下列列**暂保留原模板**（未纳入 v-for），仅 7 个纯数据列（created_at / current_price / holding_quantity / position_market_value / added_return / holding_pnl / day_pnl）走 columnDefs 驱动：
+为降低与 #980 重构的冲突面、避免丢失既有交互，下列列**暂保留原模板**（未纳入 v-for），仅 7 个纯数据列（created_at / current_price / holding_quantity / position_market_value / added_return / holding_pnl / day_pnl）走 columnDefs 驱动；**2026-11-05 拆列后为 8 个**（新增 `yesterday_pnl`，`day_pnl` 改名为「今日估算」）：
 
 - `product`：含「添加/编辑标签」按钮（`openTagEditor`），逻辑较特殊，renderer 暂未承载该交互。
 - `_marker`：置顶/关注图标列，纯展示 + 行 hover 样式，保留原模板。
@@ -127,6 +130,7 @@ export interface ColumnDef {
 - `renderCtx.getValuationItem(symbol)` 仍来自页面现有的 `useRealtimeQuotes` 实例（不新建）。
 - renderer 内判断：`if (def.realtimeField && ctx.realtimeEnabled && ctx.getValuationItem(row.symbol))` → 用估值项字段，否则用 `row[def.key]` 静态值。逻辑内聚在 renderer，**不在模板散落**。
 - 新增实时字段（如 #990 走势所需的历史点）一律经 `realtimeDataSources.ts` 扩展，renderer 只消费，符合 `realtime-data-sources.md` 约束。
+- ⚠️ **两列盈亏不吃 `realtimeField`**：`day_pnl` / `yesterday_pnl` 由 `RenderCtx.derived(kind, row)` 派发到 `todayEstimateOf` / `yesterdayPnlOf`，判据是 `quote.source === "realtime"` 而非开关本身（见 §10）。
 
 ## 6. 为后续 issue 预留的扩展点
 
@@ -150,63 +154,96 @@ export interface ColumnDef {
 - 现有全部列行为（排序/实时覆盖/标签/操作/置顶图标）与重构前视觉与功能一致。
 - `pnpm run typecheck` 零错误。
 
-## 9. 品类视图列集（#1285，2026-09-10）
+## 9. 品类视图列集（#1285，2026-09-10；2026-11-05 拆列后同步）
 
 引入列「视图作用域」，解决「混合视图把所有品类列并集导致默认超宽」：
 
 - `ColumnDef.scope`：
-  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `day_pnl` / `current_price` / `trend` / `holding_quantity` / `position_market_value` / `holding_pnl` / `_actions`（**顺序即默认展示顺序**，2026-10-30 重排：当日盈亏前移到第二个数据列，口径见 §9「列序重建与默认列序」；**#1421/#1422/#1425 修订**：原集只有 4 列、默认视图信息量过低；#1422 一度扩到 11 列 ≈1338px，#1425 收敛回 8 列；**#2640 起** `created_at` 降为默认隐藏、`day_pnl` 升为默认可见；**2026-10-26 起**预算放宽到 1132px，`trend` 恢复默认可见；**#2641** 删掉 96px 的 `change_pct` 列，其百分比并入 `day_pnl`。见下方「默认列预算」）；
+  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `day_pnl`（今日估算）/ `yesterday_pnl`（昨日盈亏）/ `current_price` / `trend` / `holding_quantity` / `position_market_value` / `holding_pnl` / `_actions`（**顺序即默认展示顺序**，2026-10-30 重排：盈亏列前移到第二个数据列；2026-11-05 拆列后两列盈亏并排；口径见下方「列序重建与默认列序」；**#1421/#1422/#1425 修订**：原集只有 4 列、默认视图信息量过低；#1422 一度扩到 11 列 ≈1338px，#1425 收敛回 8 列；**#2640 起** `created_at` 降为默认隐藏、`day_pnl` 升为默认可见；**2026-10-26 起**预算一度放宽到 1132px，`trend` 恢复默认可见；**#2641** 删掉 96px 的 `change_pct` 列；**2026-11-05** 新增 104px 的 `yesterday_pnl` 且两列常驻，预算提到 **1088px**、接受表格内部横滚，见 §10 与下方「默认列预算」）；
   - `"category"`（默认）：**品类专属列**，仅当「类型筛选命中单一品类」时显示。
   - **通用列判定标准（#1421）**：该列对「**全部品类**」或「**全部可交易品类**（`TRADABLE_TYPES` 7 类）」都成立、不会恒为 `—` → 归 `"mixed"`；只有**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）留 `"category"`。
-- `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类）。**它是品类视图的判据，与 `scope` 无关**：`scope` 只回答「混合视图要不要出现」。如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）；`current_price` 与 `day_pnl` 用 `QUOTE_TYPES`（含 `index`——指数无持仓、金额 `—`，但涨跌幅成立）。
+- `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类）。**它是品类视图的判据，与 `scope` 无关**：`scope` 只回答「混合视图要不要出现」。如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）；`current_price` 与**两列盈亏**（`day_pnl` / `yesterday_pnl`）用 `QUOTE_TYPES`（含 `index`——指数无持仓、金额 `—`，但涨跌幅成立）。
 - `ColumnDef.sortBy`：**排序代理字段**，用于前端派生列（在 `row` 上没有同名字段）把排序交给后端。⚠️ **吃实时价的列不用它**（见下条）：后端只有上一交易日收盘，代理到后端等于「按昨天的数排」。
 - `ColumnDef.sortOrders`（2026-10-30）：表头点击的排序档位循环（EP `sort-orders`）。涨跌/金额类列写 `["descending","ascending",null]`，第一次点击即降序——默认的「升序优先」会先给用户看一遍亏得最多的。**复合列（带 `sortMetrics`）写两档** `["descending","ascending"]`：换方向一次到位，不夹「取消」（D75）。
 - **排序走哪条路（`useWatchlistTable.onSortChange`，2026-10-30 整组化）**：
 
   | 列 | 走哪 | 为什么 |
   |---|---|---|
-  | `day_pnl`（当日盈亏）/ `current_price`（最新价） | **客户端整组排序**：`data.setClientSort(key, order, valueOf)` → 对**全量** `allItems` 排 → 本地分页 | 后端 `current_price` / `change_pct` 来自 `price_history` 最近一根收盘（job 每天 17:30 跑），盘中就是**上一交易日**的数。按它排 = 按昨天的涨幅排，与列里显示的今日实时值不是同一个数 |
+  | `day_pnl`（今日估算）/ `yesterday_pnl`（昨日盈亏）/ `current_price`（最新价） | **客户端整组排序**：`data.setClientSort(key, order, valueOf)` → 对**全量** `allItems` 排 → 本地分页 | 后端 `current_price` / `change_pct` 来自 `price_history` 最近一根收盘（job 每天 17:30 跑），盘中就是**上一交易日**的数。按它排 = 按昨天的涨幅排，与列里显示的今日实时值不是同一个数；两列盈亏都是前端派生，后端没有对应字段 |
   | 其余列 | `handleSortChange` → 后端 `sort_by/sort_order` | 这些值后端就有，跨页一致由后端保证 |
 
-  ⚠️ **不再有「只排当前页」这一档**。#1333/#2641 时代的实时分支只排当前页，第 2 页重新从最大/最小开始，用户看到的就是「点了排序但顺序乱」（2026-10-30 用户实测）。整组排序的三条对齐规则（置顶前置 / 缺值垫底 / 稳定排序）见 `views/asset/watchlist/clientSort.ts` 文件头。
+  ⚠️ **不再有「只排当前页」这一档**。#1333/#2641 时代的实时分支只排当前页，第 2 页重新从最大/最小开始，用户看到的就是「点了排序但顺序乱」（2026-10-30 用户实测）。整组排序的三条对齐规则（置顶前置 / 缺值垫底 / 稳定排序）见 `views/asset/watchlist/clientSort.ts` 文件头；名单唯一出口是 `clientSort.ts` 的 `CLIENT_SORT_KEYS = ["day_pnl", "yesterday_pnl", "current_price"]`。
 
-- **复合列的两行数口径（2026-10-30 首版 → 同日二次优化，D73/D75）**：自选表有**三个**复合列（金额 + 比例），两行数**各排各的**：
+- **复合列的两行数口径（2026-10-30 首版 → 同日二次优化，D73/D75；2026-11-05 拆列后共四个）**：自选表有**四个**复合列（金额 + 比例），两行数**各排各的**：
   | 列 | 主行（`amount`） | 副行（`ratio`） | 排序走法 |
   |---|---|---|---|
-  | `day_pnl` 当日盈亏 | 当日盈亏（元） | 当日涨跌幅（%） | 客户端整组（吃实时价） |
+  | `day_pnl` 今日估算 | 今日估算盈亏（元） | 今日估算涨跌幅（%） | 客户端整组（吃实时价） |
+  | `yesterday_pnl` 昨日盈亏 | 昨日盈亏（元） | 昨日涨跌幅（%） | 客户端整组（已确认价） |
   | `position_market_value` 持仓市值 | 持仓市值（元） | 占投资类总市值（%） | 后端字段（`position_market_value`；⚠️ 与金额**恒同序**，分母是全局常数） |
   | `holding_pnl` 持仓收益 | 持仓收益（元） | 持仓收益率（%） | 后端字段（`holding_pnl` / `holding_pnl_percent`） |
 
   - 口径的唯一入口是 `views/asset/watchlist/sortMetric.ts`（`SortMetric = "amount" \| "ratio"` + `pickSortMetric` + `normalizeSortMetric`）。**`DayPnlMetric` / `pickDayPnlMetric` 已删除**：保留别名会让「哪套语义才是真的」重新分叉；读盘旧值 `pct` 自动迁移为 `ratio`。
-  - 列定义用 `ColumnDef.sortMetrics = { labels: { amount, ratio }, ratioSortBy? }` 声明；`ratioSortBy` 缺省 = 该列两种口径都走客户端整组排序（当日盈亏），给了 = 副行口径改走该后端字段。
-  - 表头由 `components/CompositeSortHeader.vue` 渲染**常驻口径徽标**（`¥` = 金额 / `%` = 比例，单字符是因为当日盈亏列只有 104px），**点一下即切口径并按新口径重排**（不再有下拉层级）；口径按列 key 本地记忆（localforage `watchlist-sort-metrics`，不上云）。
+  - ⚠️ **两列盈亏虽共用 `SortMetric`，取值函数各自独立**：今日估算走 `todayEstimateOf`、昨日盈亏走 `yesterdayPnlOf`（`useWatchlistTable.ts`），绝不串数。
+  - 列定义用 `ColumnDef.sortMetrics = { labels: { amount, ratio }, ratioSortBy? }` 声明；`ratioSortBy` 缺省 = 该列两种口径都走客户端整组排序（两列盈亏都没声明），给了 = 副行口径改走该后端字段。
+  - 表头由 `components/CompositeSortHeader.vue` 渲染**常驻口径徽标**（`¥` = 金额 / `%` = 比例，单字符是因为**两列盈亏各只有 104px**），**点一下即切口径并按新口径重排**（不再有下拉层级）；口径按列 key 本地记忆（localforage `watchlist-sort-metrics`，不上云）。
   - 复合列的 `sortOrders` 只有两档 `["descending","ascending"]`：三档循环里「取消」夹在升降之间，切方向要多点一次且整表先跳回默认序。**代价是这几列不能点回默认序**（刻意取舍，见 decisions D75）。
-  - #2641 曾把当日盈亏排序代理到 `change_pct`，等于「按金额排序」在实现上并不存在。判据：`__tests__/sortMetric.spec.ts`、`__tests__/sortDispatch.spec.ts`（口径 → 客户端取值 vs 后端字段）、`__tests__/columnBudget.spec.ts`（三列都声明 `sortMetrics` 且 `sortOrders` 无 `null`）、`__tests__/clientSort.spec.ts`。
+  - #2641 曾把当日盈亏排序代理到 `change_pct`，等于「按金额排序」在实现上并不存在。判据：`__tests__/sortMetric.spec.ts`、`__tests__/sortDispatch.spec.ts`（口径 → 客户端取值 vs 后端字段；含「两列不串数」用例）、`__tests__/columnBudget.spec.ts`（四列都声明 `sortMetrics` 且 `sortOrders` 无 `null`）、`__tests__/clientSort.spec.ts`。
 - `useWatchlistColumnVisibility(activeCategory)`：`activeCategory` = 类型筛选命中单一品类时为其 `asset_type`，否则 `null`（混合视图）。可见列 = 顺序 × 用户显隐偏好 × 视图作用域：
   - 用户显式开启（`shown`）→ **任何视图都显示**（覆盖视图作用域与默认隐藏）；
   - 默认隐藏且未开启 → 隐藏；
   - 其余按 `scope`/`appliesTo` 判定。
 - `isHidden(key)` 语义 = 「**当前视图下是否可见**」，设置面板勾选框与表格所见一致（勾上即任何视图都显示）。
 - 列宽表达（#1421）：非固定列一律用 `ColumnDef.minWidth`，`ColumnDef.width` 只给固定列（`product` / `_actions` / `_selection`）。原因：EP 只把「无数字 `width`」的列纳入容器余量分配（`flexColumns`），全列固定宽会让表格宽度恒等于 Σ 列宽、容器再宽也不铺满。
-- **默认可见列总宽 ≤ 1040px（#1285 立，#1425 重申；2026-10-26 曾临时放宽到 1132，#2641 复位）**：1040 是「1366×768 不横滚」的推导值。2026-10-26 曾为让走势列（92px）留在混合视图而放宽到 1132、接受表格内部横滚；**#2641 删掉 96px 的「今日涨跌幅」列后实测 1036，横滚的代价不必再付，故口径回到 1040**（`trend` 仍在混合视图，两个诉求同时满足）。要加默认列仍须在 PR 里说明宽度来源并同步本口径与 `columnBudget.spec.ts`。横向滚动只发生在**表格内部**（`.el-table` 外框 = 容器宽，页面级横滚禁止），且 `product`（左冻结）与 `_actions`（右冻结）恒定不滚。见 `frontend/design.md`「冻结列与横向滚动规范」§4/§5（已同步）。
+- **默认可见列总宽 ≤ 1088px（2026-11-05 起，owner 拍板）**：1040 是当年按最受约束的 1366×768 推出的「不横滚」值；2026-10-26 曾为留住走势列放宽到 1132 并接受表格内部横滚，#2641 删 `change_pct`（96px）+ 2026-11-02 操作列 140→88 后实测回到 984、上限复位 1040。**2026-11-05 owner 明确：「今日估算 / 昨日盈亏」两列都必须常驻，接受横向滚动**——新增 `yesterday_pnl` 104px 且不按「进一出一」减列，预算 984 → 1088、余量用满。要再加默认列仍须在 PR 里说明宽度来源并同步本口径与 `columnBudget.spec.ts` 的 `BUDGET`。横向滚动只发生在**表格内部**（`.el-table` 外框 = 容器宽，页面级横滚禁止），且 `product`（左冻结）与 `_actions`（右冻结）恒定不滚。见 `frontend/design.md`「冻结列与横向滚动规范」§4/§5。历史数字（1040 / 1132 / 984）只叙述沿革，**不再作为判据**。
 
-#### 默认列预算（2026-10-27，#2641 后实测）
+#### 默认列预算（2026-11-05，拆列后实测）
 
 按 `visibleColumns` 的真实判据（`hideable && !defaultHidden && scope==="mixed"`）逐列相加（`columnDefs.ts` 经 esbuild 打包后取 `width ?? minWidth` 求和，不是手算）：
 
-| 列 | product | day_pnl | current_price | trend | holding_quantity | position_market_value | holding_pnl | _actions |
-|---|---|---|---|---|---|---|---|---|
-| px | 232 | 104 | 96 | 92 | 104 | 140 | 128 | 88 |
+| 列 | product | day_pnl 今日估算 | yesterday_pnl 昨日盈亏 | current_price | trend | holding_quantity | position_market_value | holding_pnl | _actions |
+|---|---|---|---|---|---|---|---|---|---|
+| px | 232 | 104 | 104 | 96 | 92 | 104 | 140 | 128 | 88 |
 
-合计 **984px**（上限 1040，余量 56px）。2026-11-02 操作列由 140 收敛到 88：常驻「置顶 / 特别关注」两个**状态型**按钮（实心图钉 = 已钉、暖橙星 = 已关注，收进菜单就丢掉状态展示），「加入分组 / 问这个 / 移除」进 `···` 下拉，移除单独置底并标 danger。三点必须写清楚，否则下一个人会把账算错：
+合计 **1088px**（上限 1088，**余量 0，已用满**）。相比拆列前的 984 只多了新增的「昨日盈亏」104px —— 其余列宽一律没动。三点必须写清楚，否则下一个人会把账算错：
 
-1. **走势列默认可见是 owner 的明确要求**：`trend` 曾因 1040 预算退到 `scope:"category"`（#2650），导致自选页默认的「持仓」分组看不到走势列；2026-10-26 改回 `"mixed"` 并把预算放宽到 1132。#2641 删掉 `change_pct`（96px）后，`trend` 留在混合视图的同时总宽回到 1040 以内——**不需要再放宽预算**，故上限复位。
-2. **#2640 的「进一出一」仍然成立**：`created_at`（104，一次性历史）默认隐藏、`day_pnl`（104，每日主数据）默认可见，两者等宽。
-3. **不得再静默加宽**：再加默认列必须同步改 `columnBudget.spec.ts` 的 `BUDGET` 与本表；超限时该用例会打印逐列账目。余量 56px 够加半列，但**操作列多一个常驻按钮就要多 28px**（24 控件 + 4 gap），别把它当成免费额度。
+1. **走势列默认可见是 owner 的明确要求**：`trend` 曾因 1040 预算退到 `scope:"category"`（#2650），导致自选页默认的「持仓」分组看不到走势列；2026-10-26 改回 `"mixed"` 并把预算放宽到 1132。#2641 删掉 `change_pct`（96px）后，`trend` 留在混合视图的同时总宽回到 1040 以内——当时不需要再放宽预算。2026-11-05 拆列后预算 1088，**代价就是表格内部横滚，owner 已确认接受**。
+2. **#2640 的「进一出一」在本次不适用**：#2640 用 `created_at`（104）换 `day_pnl`（104）；2026-11-05 新增 `yesterday_pnl` 时**没有**再减一列——两列必须并排常驻，故预算 984 → 1088。
+3. **不得再静默加宽**：再加默认列必须同步改 `columnBudget.spec.ts` 的 `BUDGET` 与本表；超限时该用例会打印逐列账目。余量已是 0，**没有免费额度**：操作列多一个常驻按钮就要多 28px（24 控件 + 4 gap）。
 
-#### 列序重建与默认列序（2026-10-30）
+#### 列序重建与默认列序（2026-10-30；2026-11-05 增列）
 
-- **默认列序** = `columnDefs.ts` 数组顺序（改序不影响宽度，预算口径不变）。口径：**越靠左＝今天越需要知道**——当日变动 → 价格 → 走势 → 持仓规模。据 owner 反馈「当日盈亏默认排得太后」而重排：`day_pnl` 由倒数第二前移到第二个数据列。
+- **默认列序** = `columnDefs.ts` 数组顺序（改序不影响宽度，预算口径不变）。口径：**越靠左＝今天越需要知道**——今日变动（今日估算 → 昨日盈亏）→ 价格 → 走势 → 持仓规模。据 owner 反馈「当日盈亏默认排得太后」而重排：盈亏列由倒数第二前移到第二个数据列；2026-11-05 拆列后 `yesterday_pnl` 紧跟 `day_pnl`。
 - **用户拖拽顺序优先**于默认序；重建收敛在纯函数 `views/asset/watchlist/columnOrder.ts` 的 `rebuildColumnOrder(defs, order)`。
-- ⚠️ **持久化的 `order` 只含「当时可见」的列**（写入侧 `useWatchlistStickyLayout.headerKeys()` 取的是过滤后的 `dataColumns`，通常 7~8 个 key），而可拖拽槽位约 50 个。**它不能当全量顺序用**：旧实现「按槽位 shift、队列空后保留原位」，于是同一列既占了别人的槽位、又留在自己的原生槽位 ⇒ **表头同一列出现两次**（2026-10-30 用户实测：走势 / 持有数量 / 持仓市值 / 添加后涨幅 / 持仓收益 各两遍，当日盈亏一前一后）。现口径是「先凑齐全量可拖拽列（排过的按 `order`，没排过的按默认序补到队尾）再填槽位」，老用户的坏缓存**无需「恢复默认」即自愈**。判据：`__tests__/columnOrder.spec.ts`（含旧算法的变异探针，防修复被回退而测试仍绿）。
-- **品类视图的列集由 `appliesTo` 决定，与 `scope` 无关**（`scope` 只决定「混合视图要不要出现」）：新增 `mixed` 列时必须检查它在**经理 / 投顾组合**等无行情、无持仓语义的品类视图里是否也需要 `appliesTo` 收窄（#1425：最新价 → `QUOTE_TYPES`；#2641：当日盈亏 → `QUOTE_TYPES`，删列后指数行的涨跌幅靠它承担）。
+- ⚠️ **持久化的 `order` 只含「当时可见」的列**（写入侧 `useWatchlistStickyLayout.headerKeys()` 取的是过滤后的 `dataColumns`，通常 7~9 个 key），而可拖拽槽位约 50 个。**它不能当全量顺序用**：旧实现「按槽位 shift、队列空后保留原位」，于是同一列既占了别人的槽位、又留在自己的原生槽位 ⇒ **表头同一列出现两次**（2026-10-30 用户实测：走势 / 持有数量 / 持仓市值 / 添加后涨幅 / 持仓收益 各两遍，当日盈亏一前一后）。现口径是「先凑齐全量可拖拽列（排过的按 `order`，没排过的按默认序补到队尾）再填槽位」，老用户的坏缓存**无需「恢复默认」即自愈**。新增 `yesterday_pnl` 后老缓存里没有这个 key，走同一条自愈路径补进队尾。判据：`__tests__/columnOrder.spec.ts`（含旧算法的变异探针，以及「老缓存无 `yesterday_pnl` 也能自愈」用例）。
+- **品类视图的列集由 `appliesTo` 决定，与 `scope` 无关**（`scope` 只决定「混合视图要不要出现」）：新增 `mixed` 列时必须检查它在**经理 / 投顾组合**等无行情、无持仓语义的品类视图里是否也需要 `appliesTo` 收窄（#1425：最新价 → `QUOTE_TYPES`；#2641：当日盈亏 → `QUOTE_TYPES`；2026-11-05：新增的「昨日盈亏」同样用 `QUOTE_TYPES`）。
+
+## 10. 两列盈亏口径（2026-11-05：#2640「当日盈亏」一分为二）
+
+### 10.1 为什么要拆
+
+#2640 新增的「当日盈亏」列，静态口径算的是 `(row.current_price − row.prev_close) × 份额`。后端 `compute_latest_quote` 取的是最近两根**已确认**价：
+
+| 价点 | 含义 | 前端字段 |
+|---|---|---|
+| T | 今日盘中实时价 / 估值净值 `gsz` | `quote.currentPrice`（仅 `source === "realtime"`） |
+| T-1 | 最近一根已确认收盘价 / 确认净值（#824 规则：T 日不回填） | `row.current_price`（后端 `close`）；实时链路的 `quote.prevClose` / `dwjz` / `parts[4]` |
+| T-2 | 上一根已确认价 | `row.prev_close`（后端 `prev_close`） |
+
+未开实时估值时，那列算的是 **T-1 相对 T-2，即昨天已确认的真实盈亏**，却被命名为「当日盈亏」；用户盘中真正想看的是**今天的估算值**。实时估值开关默认关闭、收盘/休市 `status=closed` 不刷新，所以多数时候页面上挂着的是昨天的数。#2641 又删掉了「今日涨跌幅」列（`change_pct` / `realtimeField: "changePct"`，理由是「和当日盈亏百分比是同一个数」），把估算涨跌幅这个展示语义一起删没了。
+
+### 10.2 现行口径（唯一出口 `views/asset/watchlist/dayPnl.ts`）
+
+| 列 | 计算 | 数据源 | 视觉 |
+|---|---|---|---|
+| **今日估算** `day_pnl` | `(T 实时价 − T-1 已确认价) × 份额`；比例同基准 | **仅** `quote.source === "realtime"` 时有值；基准取 `quote.prevClose ?? row.current_price`（都是 T-1） | 带「估」徽章 + `ESTIMATE_DISCLAIMER` tooltip；无实时行情时显示 `—`，**绝不**回落到昨日数字 |
+| **昨日盈亏** `yesterday_pnl` | `(T-1 确认价 − T-2 确认价) × 份额` | 纯静态，`row.current_price` / `row.prev_close`，与实时通道无关 | 已确认真实值，无徽章 |
+
+- **命名不撞车**：两列 label 分别是「今日估算」「昨日盈亏」，都不再叫「当日盈亏」，避免「一个叫今日收益、另一个也叫今日收益」。
+- **盘中动态**：自选页首访默认开启实时估值（`useRealtimeQuotes(getHoldings, getStaticPrice, { defaultEnabled: true })`，仅 localStorage 无记录时生效；用户显式关过仍尊重），「今日估算」随轮询刷新。
+- ⚠️ **`prevClose` 同名不同日**：实时链路的 `quote.prevClose` 是 T-1（昨收 / 昨净值）；后端 `row.prev_close` 是 T-2。**禁止互换**。旧 `valuationEngine.ts` 在实时源缺 `prevClose` 时会用注入的 `staticPriceProvider.prevClose` 补位（自选页给的是 `item.prev_close`），等于「今天减前天」多算一天——该兜底已删除，`getStaticPrice` 也不再返回 `prevClose`；缺基准一律留 null，由 `dayPnl.ts` 兜底 `row.current_price`（T-1）。
+- **同源**：表格列与顶部汇总条都走 `dayPnl.ts`（`resolveTodayEstimate` / `resolveYesterdayPnl`），汇总比例按 Σ 基准市值加权、缺数行同时从分子分母剔除；`WatchlistSummaryBar.vue` 的 props 是 `todayEstimate` / `yesterdayPnl` 两份，各自「有值才渲染」。
+- **排序**：两列都在 `CLIENT_SORT_KEYS` 里，`day_pnl` key 保留以兼容用户已持久化的排序 / 口径偏好（旧偏好迁移到「今日估算」语义），`yesterday_pnl` 是新增 key；取值函数各自独立，判据见 `__tests__/sortDispatch.spec.ts` 的「两列不串数」用例。
+
+### 10.3 判据
+
+`__tests__/dayPnl.spec.ts`（双口径、T/T-1/T-2、实时缺基准不碰 `row.prev_close`、命名不撞车）、`__tests__/columnBudget.spec.ts`（`BUDGET = 1088`、两列常驻且相邻、derived 不同）、`__tests__/columnOrder.spec.ts`（默认列序 + 老缓存自愈）、`__tests__/sortDispatch.spec.ts`（两列独立整组排序）、`__tests__/columnGroups.spec.ts`（新列已登记 `COLUMN_GROUP_MAP`）。

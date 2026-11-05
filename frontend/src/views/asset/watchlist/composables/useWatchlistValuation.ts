@@ -14,8 +14,10 @@ import {
 } from "@/utils/realtimeDataSources";
 import type { Holding, ValuationSummary } from "@/utils/valuationEngine";
 import {
-  resolveDayPnl,
-  resolveDayPnlInput,
+  resolveTodayEstimate,
+  resolveTodayEstimateInput,
+  resolveYesterdayPnl,
+  resolveYesterdayPnlInput,
   sumDayPnl,
   type DayPnlResult,
   type DayPnlRow,
@@ -159,20 +161,37 @@ export function useWatchlistValuation(data: WatchlistData) {
       }));
   };
 
+  /**
+   * 引擎静态回退分支的数据源（行情不可达时）。
+   *
+   * ⚠️ **不再返回 `prevClose`**（2026-11-05 拆列）：后端 `prev_close` 是 T-2，
+   * 而 `ValuationItem.prevClose` 的契约是 T-1 基准；把它传进去，引擎在实时源
+   * 缺基准时就会拿「今天的实时价 − 前天的价」当今日盈亏。今日估算缺基准时
+   * 由 `dayPnl.ts` 兜底 `row.current_price`（T-1），两者同源同日。
+   *
+   * 「昨日盈亏」不经过引擎：它直接读行的 T-1 / T-2 两根已确认价（见下方
+   * `yesterdayPnlOf`），与实时通道是否开启无关。
+   */
   const getStaticPrice = (symbol: string) => {
     const item = allItems.value.find(i => i.symbol === symbol);
     return item
       ? {
           currentPrice: item.current_price,
-          changePct: item.change_pct,
-          // 当日盈亏分母（#2640）：后端 compute_latest_quote 由最近两根历史价算得，
-          // 未持仓的自选行也有；缺值传 null，引擎会保持 null（不做顶替）
-          prevClose: item.prev_close ?? null
+          changePct: item.change_pct
         }
       : undefined;
   };
 
-  const realtime = useRealtimeQuotes(getHoldings, getStaticPrice);
+  /**
+   * 自选页首访默认开启实时估值（2026-11-05）。
+   *
+   * 「今日估算」这一列的存在意义就是**盘中动态变化**；沿用全站默认关闭会让它
+   * 长期停在 `—`，等于没有这一列。`defaultEnabled` 只在 localStorage 无记录时
+   * 生效（首页「最新收益」卡同款），用户显式关过仍照旧尊重，不引入第二套开关。
+   */
+  const realtime = useRealtimeQuotes(getHoldings, getStaticPrice, {
+    defaultEnabled: true
+  });
   const realtimeEnabled = computed(() => realtime.enabled.value);
 
   // ✅ 1. 新增：一个专门控制按钮文字的 computed，解决文字不更新的脏数据问题
@@ -212,27 +231,44 @@ export function useWatchlistValuation(data: WatchlistData) {
     { deep: true }
   );
 
-  /**
-   * 行级当日盈亏（#2640）：「当日盈亏」列的唯一取数口。
-   *
-   * 实时价优先（且必须真拿到行情），昨收实时源缺失时回落后端 `prev_close`；
-   * 两者都缺 → `value`/`ratio` 均为 null（渲染 `—`），**不拿现价顶替**
-   * （顶替的后果是恒 ¥0.00，见 dayPnl.ts 头部）。
-   */
-  function dayPnlOf(row: DayPnlRow): DayPnlResult {
-    return resolveDayPnl(row, getValuationItem(row.symbol ?? ""));
+  // ── 两套盈亏口径（2026-11-05 拆列）──────────────────────────────
+  // 唯一取数口在 dayPnl.ts；表格列与顶部汇总条都走这里，避免两处各算一遍。
+  //
+  // 「今日估算」= (T 实时估值价 − T-1 已确认价) × 份额：只有实时通道真拿到
+  //  行情才有值，随轮询跳动；拿不到就是 `—`，**绝不回落昨日数字**。
+  // 「昨日盈亏」= (T-1 确认价 − T-2 确认价) × 份额：已确认的真实值，
+  //  完全不读实时行情，开关 / 轮询 / 休市都不会让它变化。
+
+  /** 行级「今日估算」：今日估算列的唯一取数口 */
+  function todayEstimateOf(row: DayPnlRow): DayPnlResult {
+    return resolveTodayEstimate(row, getValuationItem(row.symbol ?? ""));
+  }
+
+  /** 行级「昨日盈亏」：昨日盈亏列的唯一取数口（不读实时行情） */
+  function yesterdayPnlOf(row: DayPnlRow): DayPnlResult {
+    return resolveYesterdayPnl(row);
   }
 
   /**
-   * 汇总条的当日盈亏（#2640）：与列共用 `dayPnl.ts`，比例按**昨日市值加权**。
+   * 汇总条的「今日估算」：与列共用 `dayPnl.ts`，比例按基准市值加权。
    *
    * 基于 `allItems`（全量过滤结果）而非当前页，与总市值/总成本/总盈亏同口径
    * ——否则翻页时汇总条会随当前页跳变（#1245 的老坑）。
    */
-  const daySummary = computed<DayPnlSummary>(() => {
+  const todayEstimateSummary = computed<DayPnlSummary>(() => {
     const inputs = allItems.value
       .filter(item => Boolean(item.symbol))
-      .map(item => resolveDayPnlInput(item, getValuationItem(item.symbol)));
+      .map(item =>
+        resolveTodayEstimateInput(item, getValuationItem(item.symbol))
+      );
+    return sumDayPnl(inputs);
+  });
+
+  /** 汇总条的「昨日盈亏」：静态真实值，同样按基准市值加权 */
+  const yesterdayPnlSummary = computed<DayPnlSummary>(() => {
+    const inputs = allItems.value
+      .filter(item => Boolean(item.symbol))
+      .map(item => resolveYesterdayPnlInput(item));
     return sumDayPnl(inputs);
   });
 
@@ -341,8 +377,10 @@ export function useWatchlistValuation(data: WatchlistData) {
     getValuationItem,
     addedReturnPct,
     addedReturnAmount,
-    dayPnlOf,
-    daySummary,
+    todayEstimateOf,
+    yesterdayPnlOf,
+    todayEstimateSummary,
+    yesterdayPnlSummary,
     staticSummary,
     marketValueRatio,
     toggleBtnText,

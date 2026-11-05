@@ -34,7 +34,8 @@ const props = defineProps<{
   hasTagFilter: boolean;
   /**
    * 复合列的排序口径（按列 key 记忆，2026-10-30 二次优化）：
-   * 只有声明了 `ColumnDef.sortMetrics` 的列才会用到（当日盈亏 / 持仓市值 / 持仓收益）。
+   * 只有声明了 `ColumnDef.sortMetrics` 的列才会用到（2026-11-05 拆列后为
+   * 今日估算 / 昨日盈亏 / 持仓市值 / 持仓收益四列）。
    */
   sortMetrics: Record<string, SortMetric>;
 }>();
@@ -95,13 +96,14 @@ function metricOf(key: string): SortMetric {
 
 /**
  * 复合列的表头类名（EP 的 `label-class-name` 落到 th 上）。
- * `--tight` 只给 104px 的「当日盈亏」：把内边距收到 4px，给口径徽标腾位置。
+ * `--tight` 给 104px 的两列盈亏（今日估算 / 昨日盈亏）：把内边距收到 4px，
+ * 给口径徽标腾位置。两列同宽同结构，必须同档处理——2026-11-05 新增「昨日盈亏」
+ * 时若漏掉它，四个汉字的列名 + 徽标 + 排序三角会在这列挤成省略号。
  */
 function headerClassOf(def: ColumnDef): string | undefined {
   if (!def.sortMetrics) return undefined;
-  return def.key === "day_pnl"
-    ? "col-metric-head col-metric-head--tight"
-    : "col-metric-head";
+  const tight = def.key === "day_pnl" || def.key === "yesterday_pnl";
+  return tight ? "col-metric-head col-metric-head--tight" : "col-metric-head";
 }
 
 /**
@@ -155,9 +157,11 @@ onMounted(() => {
          的高度（整页收缩为一屏），骨架屏得以完整覆盖可视区——若保留旧行，
          旧行高度会把页面撑长，滚到底部时骨架只盖到 wrap 高度、下方露出大片空白。 -->
     <!-- 表格宽度铁律（#1285 / #1341 / #1421 / #1425，2026-10-26 预算放宽；
+         2026-11-05「今日估算 / 昨日盈亏」两列常驻再放宽到 1088；
          改这里前先读 design.md「冻结列与横向滚动规范」§4/§5）：
-         ① 默认可见列总宽 ≤ 1040px —— 列集在 columnDefs.ts，超预算须显式说明并改
-            columnBudget.spec.ts 的 BUDGET（1366 屏允许表格内部横滚）；
+         ① 默认可见列总宽 ≤ 1088px —— 列集在 columnDefs.ts，超预算须显式说明并改
+            columnBudget.spec.ts 的 `BUDGET = 1088`（owner 拍板两列常驻，
+            1366 屏允许表格内部横滚，本次新增 104px 未按「进一出一」减列）；
          ② 横向滚动**只允许发生在表格内部**：页面级横向滚动条由本页 flex
             min-width:0 链（.watchlist-page / .watchlist-scroll / .watchlist-card /
             本容器）禁止（#1341），**不要摘掉任何一层 min-width:0**；
@@ -359,7 +363,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-/* 复合列列头的几何样式（flex 横排 / 当日盈亏收紧内边距 / 排序三角收窄）已拆到
+/* 复合列列头的几何样式（flex 横排 / 两列盈亏收紧内边距 / 排序三角收窄）已拆到
    `compositeSortHeader.css`，由本文件末尾的 `<style scoped src>` 引入——
    留在本文件会把组件顶过 400 行页面规模门禁（scripts/check_vue_size.mjs）。 */
 

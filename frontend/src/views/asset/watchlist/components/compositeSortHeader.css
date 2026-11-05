@@ -9,14 +9,16 @@
  * 会按语法错误判红。这里改用**类前缀作用域**（.watchlist-table-wrap，只出现在自选表格），
  * 等价于只作用于本页，同时对标准 CSS 检查友好。
  *
- * 三条规则解决的都是同一件事：「104px 的当日盈亏列要同时放下列名 + 口径徽标 + 排序三角」。
+ * 三条规则解决的都是同一件事：「104px 的盈亏列（今日估算 / 昨日盈亏，2026-11-05 拆列后
+ * 共两列）要同时放下列名 + 口径徽标 + 排序三角」。`--tight` 由
+ * `WatchlistTableSection.vue` 的 `headerClassOf()` 对这两列同时分发。
  * 1. 列头改 flex 横排，放不下时**只省略列名**（徽标与三角是操作入口，被裁掉等于点不到）；
- * 2. 当日盈亏列内边距 12px → 4px，腾 16px 给徽标（其余复合列宽度充足，保持 12px 基线，
+ * 2. 两列盈亏内边距 12px → 4px，腾 16px 给徽标（其余复合列宽度充足，保持 12px 基线，
  *    否则表头会比右对齐的数据行偏右 8px）；
  * 3. 排序三角容器 24px → 16px（三角本身 10px 不变，水平居中随之左移 3px）。
  */
 
-/* 三列都是 align: right，故 flex-end */
+/* 四个复合列都是 align: right，故 flex-end */
 .watchlist-table-wrap .el-table__header th.col-metric-head .cell {
   display: flex;
   gap: 2px;

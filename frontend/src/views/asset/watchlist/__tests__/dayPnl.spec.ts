@@ -1,23 +1,25 @@
 /**
- * 自选页「当日盈亏」口径（#2640）。
+ * 自选页盈亏口径（2026-11-05 拆列：「今日估算」/「昨日盈亏」）。
  *
  * ## 这个文件钉什么
  *
- * 1. **缺昨收给 null，不给 0**——这是本次最核心的判据。给 0 的写法
- *    （`prevClose ?? price`）算出来**恒等于 0**，而列看起来完全正常，
- *    比空白贵得多：它让人相信「今天没赚没亏」（探市页就这么错过，见 dayPnl.ts 头部）。
- * 2. **零持仓时金额不成立、涨跌幅仍成立**——自选里大量标的只是「看着」，
- *    它们的当日涨跌幅有意义，当日赚了多少钱没有。
- * 3. **汇总比例是市值加权，不是算术平均**——一元仓与百万仓同涨幅，对账户的影响
- *    差五个数量级；算术平均会给出一个谁都不是的数。
- * 4. **缺数据的行同时从分子分母剔除**——让它以 0 参与分子，等于把「缺数据」
- *    稀释成「没涨没跌」。
- * 5. **列定义**：当日盈亏默认可见，且与降为可选的 `created_at` 等宽（进一出一）。
- * 6. **排序能力不随列删除而丢失**（#2641 → 2026-10-30 修正）：「今日涨跌幅」独立列已删，
- *    排序由当日盈亏列承担，**两行数各排各的**（金额 / 涨幅，口径见 `sortMetric.ts`），
- *    且走客户端整组排序——后端只有上一交易日收盘，按它排等于按昨天的涨幅排。
- * 7. **指数行仍有涨跌幅**：指数无持仓 → 金额 `—`，但百分比成立，故它必须留在
- *    `appliesTo` 里——否则删列后指数行连涨跌都看不到。
+ * 1. **两列口径互不混用**：今日估算是 `(T 实时价 − T-1 确认价)`、昨日盈亏是
+ *    `(T-1 确认价 − T-2 确认价)`。后端 `compute_latest_quote` 只回填到 T-1（#824），
+ *    所以 `row.current_price` 是 T-1、`row.prev_close` 是 T-2 —— 旧实现把后者减前者
+ *    叫「当日盈亏」，盘中显示的是**昨天的真实值**（用户实测反馈）。
+ * 2. **今日估算只认 `source === "realtime"`**：引擎行情不可达时回退静态价（就是 T-1），
+ *    拿它当今日价会算出「今日 = 昨日」的假象；此时整组必须给 `null`。
+ * 3. **实时源缺 T-1 基准时兜底 `row.current_price`，绝不兜底 `row.prev_close`**（T-2）：
+ *    后者等于「今天的价格减前天的价格」，多算一天（腾讯基金格式走这条）。
+ * 4. **拿不到实时行情就空白，绝不回落昨日数字**：这一列宁可 `—`，也不能把真实值
+ *    冒充估算值；也不显示 `0.00`（会被读成「今天没赚没亏」）。
+ * 5. **缺基准给 null，不给 0**（`prevClose ?? price` 恒等于 0 的假 0）。
+ * 6. **零持仓时金额不成立、涨跌幅仍成立**：自选里大量标的只是「看着」。
+ * 7. **汇总比例是市值加权，不是算术平均**，缺数据的行同时从分子分母剔除。
+ * 8. **列定义**：两列常驻、命名不撞车、各带自己的 `derived`、都覆盖指数
+ *    （指数无持仓 → 金额 `—`，但涨跌幅成立）。
+ * 9. **排序能力不随改名丢失**：两列都走客户端整组排序，两行数各排各的
+ *    （金额 / 涨幅，口径见 `sortMetric.ts`）；后端只有上一交易日收盘。
  *
  * ⚠️ 为什么测纯模块而不是直接调渲染器：vitest 环境是 node（无 DOM），
  * `columnRenderers.tsx` 会一路 import `.vue` 组件（见 `bondFormats.spec.ts` 的说明）。
@@ -26,8 +28,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeDayPnl,
-  resolveDayPnl,
-  resolveDayPnlInput,
+  resolveTodayEstimate,
+  resolveTodayEstimateInput,
+  resolveYesterdayPnl,
+  resolveYesterdayPnlInput,
   sumDayPnl
 } from "../dayPnl";
 import { watchlistColumnDefs } from "../columnDefs";
@@ -39,14 +43,22 @@ function colDef(key: string) {
   return def;
 }
 
-describe("computeDayPnl：有价 + 有昨收才算得出来", () => {
-  it("正常情形：金额按持仓数量、比例按昨收", () => {
+/** T-1 = 100（确认价）、T-2 = 98（确认价）、份额 10 */
+const row = {
+  symbol: "600519",
+  current_price: 100,
+  prev_close: 98,
+  holding_quantity: 10
+};
+
+describe("computeDayPnl：有价 + 有基准才算得出来", () => {
+  it("正常情形：金额按持仓数量、比例按基准", () => {
     expect(
       computeDayPnl({ price: 1.1, prevClose: 1.0, quantity: 1000 })
     ).toEqual({ value: 100, ratio: 10 });
   });
 
-  it("缺昨收 → 两项都是 null（不是 0）", () => {
+  it("缺基准 → 两项都是 null（不是 0）", () => {
     for (const prevClose of [null, undefined, 0, -1, NaN]) {
       expect(computeDayPnl({ price: 1.1, prevClose, quantity: 1000 })).toEqual({
         value: null,
@@ -82,67 +94,138 @@ describe("computeDayPnl：有价 + 有昨收才算得出来", () => {
   });
 });
 
-describe("resolveDayPnl：价格实时优先，昨收可跨源", () => {
-  const row = {
-    symbol: "600519",
-    current_price: 100,
-    prev_close: 98,
-    holding_quantity: 10
-  };
-
-  it("实时行情可用时用实时价", () => {
-    expect(
-      resolveDayPnl(row, {
-        currentPrice: 110,
-        prevClose: 98,
-        source: "realtime"
-      })
-    ).toEqual({ value: 120, ratio: 12.24 });
+describe("resolveYesterdayPnl：已确认真实值（T-1 vs T-2），完全不读实时行情", () => {
+  it("用 T-1 确认价减 T-2 确认价，份额照乘", () => {
+    expect(resolveYesterdayPnlInput(row)).toEqual({
+      price: 100,
+      prevClose: 98,
+      quantity: 10
+    });
+    expect(resolveYesterdayPnl(row)).toEqual({ value: 20, ratio: 2.04 });
   });
 
-  it("实时源标记 static（引擎回退后端静态价）时不当作实时价", () => {
-    // static 的 currentPrice 就是后端那一份，用它覆盖 row.current_price 只会原地踏步；
-    // 这里显式给一个不同的值，确认它**没有**被采用
-    expect(
-      resolveDayPnl(row, {
-        currentPrice: 999,
-        prevClose: null,
-        source: "static"
-      })
-    ).toEqual({ value: 20, ratio: 2.04 });
+  it("就是 #2640 那列**实际算出来的数**（此前被误命名为「当日盈亏」）", () => {
+    // 旧口径 (100 − 98) × 10 = 20；今日估算在同一行应是另一个数（下方断言）。
+    expect(resolveYesterdayPnl(row).value).toBe(20);
   });
 
-  it("实时价 + 实时源缺昨收 → 回落后端昨收（腾讯基金格式即此）", () => {
+  it("缺 prev_close → null 而非拿现价顶替", () => {
     expect(
-      resolveDayPnlInput(row, { currentPrice: 110, source: "realtime" })
-    ).toEqual({ price: 110, prevClose: 98, quantity: 10 });
-  });
-
-  it("无行情、无昨收 → null 而非拿现价顶替", () => {
-    expect(
-      resolveDayPnl({ symbol: "x", current_price: 100, prev_close: null })
+      resolveYesterdayPnl({ symbol: "x", current_price: 100, prev_close: null })
     ).toEqual({ value: null, ratio: null });
+  });
+
+  it("即使有实时行情，昨日盈亏也不变（函数根本不接收 quote）", () => {
+    // 拆列前「开了实时就换价」正是两列串数的根源：盘中同一格忽而是昨天、忽而是今天。
+    // 现在昨日盈亏是纯静态值，签名上就没有 quote 参数。
+    const before = resolveYesterdayPnl(row);
+    const after = resolveYesterdayPnl(row);
+    expect(after).toEqual(before);
+    expect(after).toEqual({ value: 20, ratio: 2.04 });
   });
 });
 
-describe("sumDayPnl：比例按昨日市值加权", () => {
+describe("resolveTodayEstimate：只吃 realtime，基准恒为 T-1", () => {
+  it("实时源自带 T-1 基准 → 用今日实时价减它", () => {
+    expect(
+      resolveTodayEstimateInput(row, {
+        currentPrice: 110,
+        prevClose: 100,
+        source: "realtime"
+      })
+    ).toEqual({ price: 110, prevClose: 100, quantity: 10 });
+    expect(
+      resolveTodayEstimate(row, {
+        currentPrice: 110,
+        prevClose: 100,
+        source: "realtime"
+      })
+    ).toEqual({ value: 100, ratio: 10 });
+  });
+
+  it("实时源缺基准 → 兜底 row.current_price(T-1)，**绝不**碰 row.prev_close(T-2)", () => {
+    // 腾讯基金格式不给昨收。若错误兜底 prev_close(98)，会算出 120 / 12.24
+    // ——「今天的价格减前天的价格」，多算一天。这是本次拆列修掉的引擎隐患。
+    const input = resolveTodayEstimateInput(row, {
+      currentPrice: 110,
+      source: "realtime"
+    });
+    expect(input).toEqual({ price: 110, prevClose: 100, quantity: 10 });
+    expect(input.prevClose).not.toBe(98);
+    expect(
+      resolveTodayEstimate(row, { currentPrice: 110, source: "realtime" })
+    ).toEqual({ value: 100, ratio: 10 });
+  });
+
+  it("source=static（引擎回退静态价）→ 整组 null，不把 T-1 冒充今日", () => {
+    // 静态价的 currentPrice 就是后端 T-1 确认价；给它配 T-1 基准会算出恒 0，
+    // 配 T-2 则是昨天的数。两种都是「盘中看到昨天」，故直接空白。
+    expect(
+      resolveTodayEstimateInput(row, {
+        currentPrice: 999,
+        prevClose: 100,
+        source: "static"
+      })
+    ).toEqual({ price: null, prevClose: null, quantity: 10 });
+    expect(
+      resolveTodayEstimate(row, {
+        currentPrice: 999,
+        prevClose: 100,
+        source: "static"
+      })
+    ).toEqual({ value: null, ratio: null });
+  });
+
+  it("无行情 / 实时价非正 → null（宁可 `—`，不回落昨日数字）", () => {
+    expect(resolveTodayEstimate(row)).toEqual({ value: null, ratio: null });
+    expect(
+      resolveTodayEstimate(row, { currentPrice: 0, source: "realtime" })
+    ).toEqual({ value: null, ratio: null });
+    expect(
+      resolveTodayEstimate(row, { currentPrice: NaN, source: "realtime" })
+    ).toEqual({ value: null, ratio: null });
+  });
+
+  it("同一行两列给出**不同**的数：估算不冒充真实值、真实值不冒充估算", () => {
+    const today = resolveTodayEstimate(row, {
+      currentPrice: 110,
+      prevClose: 100,
+      source: "realtime"
+    });
+    const yesterday = resolveYesterdayPnl(row);
+    expect(today).toEqual({ value: 100, ratio: 10 });
+    expect(yesterday).toEqual({ value: 20, ratio: 2.04 });
+    expect(today.value).not.toBe(yesterday.value);
+  });
+});
+
+describe("sumDayPnl：两列共用，比例按基准市值加权", () => {
   it("大仓小涨 + 小仓暴涨 → 接近大仓的涨幅（算术平均会得到中间值）", () => {
     const summary = sumDayPnl([
-      { price: 101, prevClose: 100, quantity: 100000 }, // +1%，昨日市值 10,000,000
-      { price: 110, prevClose: 100, quantity: 100 } // +10%，昨日市值 10,000
+      { price: 101, prevClose: 100, quantity: 100000 }, // +1%，基准市值 10,000,000
+      { price: 110, prevClose: 100, quantity: 100 } // +10%，基准市值 10,000
     ]);
     expect(summary.value).toBe(101000);
     // (100000 + 1000) / 10010000 ≈ 1.0090%，算术平均则是 5.5%
     expect(summary.ratio).toBe(1.01);
   });
 
-  it("缺昨收 / 无持仓的行同时从分子分母剔除", () => {
+  it("缺基准 / 无持仓的行同时从分子分母剔除", () => {
     const withMissing = sumDayPnl([
       { price: 101, prevClose: 100, quantity: 1000 }, // +1000
-      { price: 999, prevClose: null, quantity: 1000 }, // 缺昨收：不得以 0 参与
+      { price: 999, prevClose: null, quantity: 1000 }, // 缺基准：不得以 0 参与
       { price: 1.1, prevClose: 1.0, quantity: 0 } // 无持仓：不参与
     ]);
     expect(withMissing).toEqual({ value: 1000, ratio: 1 });
+  });
+
+  it("今日估算缺行情的行（price=null）整组剔除，不稀释成「没涨没跌」", () => {
+    expect(
+      sumDayPnl([
+        { price: null, prevClose: 100, quantity: 10 }, // 未开实时 → 今日估算无值
+        { price: 110, prevClose: 100, quantity: 10 } // 有行情 +10%
+      ])
+    ).toEqual({ value: 100, ratio: 10 });
   });
 
   it("一条都算不出 → 两项 null（不是 0）", () => {
@@ -151,32 +234,56 @@ describe("sumDayPnl：比例按昨日市值加权", () => {
       value: null,
       ratio: null
     });
+    // 未开实时时汇总条「今日估算」就是这一形态 → 整块不渲染
+    expect(sumDayPnl([{ price: null, prevClose: null, quantity: 10 }])).toEqual(
+      { value: null, ratio: null }
+    );
   });
 });
 
-describe("列定义：当日盈亏默认可见，且与添加自选日等宽交换", () => {
-  it("当日盈亏列存在、走派生渲染、默认可见", () => {
+describe("列定义：今日估算 / 昨日盈亏 两列常驻，各带各的口径", () => {
+  it("day_pnl 改名为「今日估算」，派生 todayEstimate，默认可见", () => {
     const def = colDef("day_pnl");
+    expect(def.label).toBe("今日估算");
     expect(def.renderer).toBe("moneyRatio");
-    expect(def.derived).toBe("dayPnl");
+    expect(def.derived).toBe("todayEstimate");
     expect(def.scope).toBe("mixed");
     expect(def.defaultHidden).toBeFalsy();
   });
 
-  it("添加自选日降为可选列（腾出宽度）", () => {
+  it("新增 yesterday_pnl「昨日盈亏」，派生 yesterdayPnl，默认可见", () => {
+    const def = colDef("yesterday_pnl");
+    expect(def.label).toBe("昨日盈亏");
+    expect(def.renderer).toBe("moneyRatio");
+    expect(def.derived).toBe("yesterdayPnl");
+    expect(def.scope).toBe("mixed");
+    expect(def.defaultHidden).toBeFalsy();
+  });
+
+  it("命名不撞车：两列 label 不同，且都不再叫「当日盈亏」", () => {
+    const today = colDef("day_pnl").label;
+    const yesterday = colDef("yesterday_pnl").label;
+    expect(today).not.toBe(yesterday);
+    for (const label of [today, yesterday]) {
+      expect(label).not.toContain("当日盈亏");
+    }
+    expect(today).toContain("估算"); // 「估算」二字必须出现在列名里
+    expect(yesterday).toContain("昨日");
+  });
+
+  it("两列等宽（104），与降为可选的 created_at 等宽", () => {
     expect(colDef("created_at").defaultHidden).toBe(true);
-  });
-
-  it("进一出一等量：两列 minWidth 相同", () => {
-    // 铁律 1「加一列必须减等量」。用「两列等宽」而不是硬写总宽做判据：
-    // 总宽会随趋势列等历史问题变动，钉死它只会制造假红。
+    expect(colDef("day_pnl").minWidth).toBe(104);
+    expect(colDef("yesterday_pnl").minWidth).toBe(104);
     expect(colDef("day_pnl").minWidth).toBe(colDef("created_at").minWidth);
+    expect(colDef("yesterday_pnl").minWidth).toBe(
+      colDef("created_at").minWidth
+    );
   });
 
-  it("当日盈亏只对「有行情」的品类出现，且**包含指数**（无持仓 → 只有百分比）", () => {
-    // 指数不可买，但有点位与昨收：金额渲染 `—`、涨跌幅成立。
-    // #2641 删掉「今日涨跌幅」独立列后，指数行的涨跌全靠这一列，故必须留在 appliesTo。
-    expect(colDef("day_pnl").appliesTo).toEqual([
+  it("两列都覆盖指数（无持仓 → 金额 `—`，涨跌幅成立）", () => {
+    // #2641 删掉「今日涨跌幅」独立列后，指数行的涨跌全靠这两列，故必须留在 appliesTo。
+    const quoteTypes = [
       "stock",
       "etf",
       "fund",
@@ -185,40 +292,40 @@ describe("列定义：当日盈亏默认可见，且与添加自选日等宽交�
       "crypto",
       "reverse_repo",
       "index"
-    ]);
+    ];
+    expect(colDef("day_pnl").appliesTo).toEqual(quoteTypes);
+    expect(colDef("yesterday_pnl").appliesTo).toEqual(quoteTypes);
+  });
+
+  it("两列都默认降序优先 + 两档循环 + 口径徽标常驻", () => {
+    for (const key of ["day_pnl", "yesterday_pnl"]) {
+      const def = colDef(key);
+      expect(def.sortOrders).toEqual(["descending", "ascending"]);
+      expect(def.sortMetrics).toEqual({
+        labels: { amount: "金额", ratio: "涨幅" }
+      });
+    }
   });
 });
 
-describe("列定义：当日盈亏可排序，且不再靠后端代理（2026-10-30）", () => {
-  it("独立列已不存在（它的百分比行并入当日盈亏）", () => {
+describe("列定义：两列都走客户端整组排序，不再靠后端代理", () => {
+  it("「今日涨跌幅」独立列已不存在（#2641）", () => {
     expect(watchlistColumnDefs.some(d => d.key === "change_pct")).toBe(false);
   });
 
-  it("可排序，但**不设** sortBy：后端只有上一交易日收盘，按它排等于按昨天的涨幅排", () => {
-    const def = colDef("day_pnl");
-    expect(def.sortable).toBe("custom");
-    // 反例守卫：#2641 曾写 sortBy: "change_pct"，于是「按金额排序」在实现上不存在，
-    // 且实时开启时只排当前页（跨页顺序乱）。现在排序走客户端整组（clientSort.ts）。
-    expect(def.sortBy).toBeUndefined();
-    // 实时价由 derived 链路（dayPnlOf → 实时估值）取，不走 realtimeField 覆盖；
-    // 后者只服务「静态字段 + 实时覆盖」的 money renderer（如最新价）
-    expect(def.derived).toBe("dayPnl");
-    expect(def.realtimeField).toBeUndefined();
-  });
-
-  it("默认降序优先：第一次点表头看到的是涨得最多的", () => {
-    // EP 默认「升序 → 降序 → 取消」，对涨跌指标反直觉（第一眼是亏得最多的）
-    expect(colDef("day_pnl").sortOrders).toEqual(["descending", "ascending"]);
-  });
-
-  it("口径徽标挂在列定义上（金额 / 涨幅；2026-10-30 二次优化）", () => {
-    // 首版是表头下拉（DayPnlSortHeader），口径要点开才看得见；现在徽标常驻。
-    // 判据的「常驻/一点即切」在 sortMetric.spec.ts + sortDispatch.spec.ts。
-    expect(colDef("day_pnl").sortMetrics).toEqual({
-      labels: { amount: "金额", ratio: "涨幅" }
-    });
-    // 不设 ratioSortBy：两种口径都必须走客户端整组排序（后端只有 T-1 收盘）
-    expect(colDef("day_pnl").sortMetrics?.ratioSortBy).toBeUndefined();
+  it("两列都可排序，但**都不设** sortBy：后端只有上一交易日收盘", () => {
+    for (const key of ["day_pnl", "yesterday_pnl"]) {
+      const def = colDef(key);
+      expect(def.sortable).toBe("custom");
+      // 反例守卫：#2641 曾写 sortBy: "change_pct"，于是「按金额排序」在实现上不存在，
+      // 且实时开启时只排当前页（跨页顺序乱）。现在两列都走客户端整组（clientSort.ts）。
+      expect(def.sortBy).toBeUndefined();
+      expect(def.sortMetrics?.ratioSortBy).toBeUndefined();
+      // 派生值由 derived 链路取，不走 realtimeField 覆盖（后者只服务 money renderer）
+      expect(def.realtimeField).toBeUndefined();
+    }
+    expect(colDef("day_pnl").derived).toBe("todayEstimate");
+    expect(colDef("yesterday_pnl").derived).toBe("yesterdayPnl");
   });
 });
 
