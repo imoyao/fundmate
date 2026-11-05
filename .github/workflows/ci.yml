@@ -75,6 +75,11 @@ jobs:
               # （同 backend filter 里 scripts/bridge/** 的教训）。
               - 'scripts/guard_net_assets_source.py'
               - 'scripts/tests/test_guard_net_assets_source.py'
+              # TS any 防回潮守卫（#2879 第一刀）：守卫 / 基线 / 回归网都住在 scripts/ 下，
+              # 只改它们的 PR 不碰 frontend/**，不登记则 frontend job 不会被唤起、守卫静默不跑。
+              - 'scripts/guard_ts_any.mjs'
+              - 'scripts/ts-any-baseline.json'
+              - 'scripts/tests/guard_ts_any.test.js'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -561,6 +566,21 @@ jobs:
       - name: 价格精度守卫回归网
         if: ${{ always() }}
         run: node --test scripts/tests/guard_price_precision.test.js
+        working-directory: ${{ github.workspace }}
+
+      # TS 显式 any 类型注解防回潮（#2879 第一刀）：用 TypeScript Compiler API +
+      # @vue/compiler-sfc 数 AnyKeyword 节点，冻结存量、只减不增。散文规范拦不住
+      # 「顺手 any 一下」——tsc 允许显式 any、eslint 可关、构建照绿，故做成 CI 判据。
+      # 并入本 job 而非另起 job（不新增 job 就不必动 gate.needs）；cwd=frontend/，
+      # 依赖由上面的 pnpm install 装好，守卫走 AST 主口径。判据边界见脚本 docstring。
+      - name: 守卫:TS 显式 any 类型注解只减不增
+        run: node ../scripts/guard_ts_any.mjs
+
+      # 上条的回归网（灵敏度正/反例 + 基线覆盖 + 空输入 exit 2）。与价格精度守卫
+      # 同理，cwd 要回到仓库根；此处有前端依赖，回归网走 AST 口径。
+      - name: TS any 守卫回归网
+        if: ${{ always() }}
+        run: node --test scripts/tests/guard_ts_any.test.js
         working-directory: ${{ github.workspace }}
 
       # 净资产单一出口守卫（#119 / #2883）：资产全景页左卡曾在页面层写
