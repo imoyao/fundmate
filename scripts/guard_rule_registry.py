@@ -397,6 +397,23 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/check_router_links.test.js',
         'covered': '只认字面量路径；拼接出来的 to= 看不见',
     },
+    'scripts/guard_ts_any.mjs': {
+        'rule': 'TS/Vue 显式 any 类型注解冻结基线、只减不增（防 #2879 类类型护栏泄漏回潮）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_ts_any.test.js',
+        'covered': (
+            '用 TypeScript Compiler API 数 ts.SyntaxKind.AnyKeyword（.vue 的 script 块由 '
+            '@vue/compiler-sfc 的 parse 取出再交给 TS），故注释 / 字符串 / 标识符 / '
+            'JSDoc 里的 any 不计；只扫 frontend/src 的 .ts / .vue（.tsx / .js / .jsx '
+            '不在口径内，.d.ts 声明照计）；不判该 any 是否合理、能否换 unknown，'
+            '也不判运行时类型是否安全。存量按 scripts/ts-any-baseline.json 冻结'
+            '（收录所有文件含 0 值），新增文件 any ≤ 3 放行；实测低于基线只提示收紧、'
+            '不阻断。typescript 与 @vue/compiler-sfc 任一不可用时即判 exit 2、不产出结论'
+            '（实测降级正则 539 处 vs AST 540 处，口径不同不得与同一份基线比对而宣布通过）；'
+            '正式判据只在 frontend job（已装前端依赖）跑，--report / --write 在依赖缺失时同样拒绝；'
+            '降级只作解析层纯函数测试（回归网 import 后验证注释/字符串里的 any 不计）。'
+        ),
+    },
     'scripts/check_pnpm_overrides.mjs': {
         'rule': '安全 override 必须在锁文件里真实生效',
         'runner': 'ci',
