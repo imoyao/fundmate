@@ -14,14 +14,21 @@ WHY 下沉
 
 import csv
 import io
-from datetime import date, timedelta
+from datetime import timedelta
 
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import func, or_
 
 from app.core.constants import DIVIDEND_TXN_TYPES
 from app.core.money import Money
+from app.core.time_utils import today_shanghai
 from app.core.utils import iso_date_only, paginate
 from app.domains.positions.models import Position
+from app.domains.transactions.dates import (
+    filter_by_effective_range,
+)
+from app.domains.transactions.dates import (
+    order_by_effective_day as _order_by_effective_day,
+)
 from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import build_transaction_symbol_conditions
 from app.services.trade_timeline import build_contribution_map
@@ -54,39 +61,14 @@ def fee_breakdown_yuan(txn: Transaction):
 
 
 def order_by_effective_day(query, *, descending: bool = True):
-    """按**有效交易日**排序（`COALESCE(trade_date, confirm_date)`，并列用 `id` 兜底）。
+    """按**有效交易日**排序（``COALESCE(trade_date, confirm_date)``，并列用 ``id`` 兜底）。
 
-    #2171 / #2712 起这是全站**唯一**的流水排序口径——`/api/transactions`、账本 Tab、
-    持仓抽屉三处都走这里，不再各写一份（写三份必然漂，已经漂过一次）。
-    默认倒序（列表口径）；CSV 导出按时间**正序**读，传 `descending=False`
-    ——**同一个函数出两个方向，而不是在导出里再复制一份 `coalesce` 排序**。
-
-    WHY 不是 `created_at`：那是**写入时间**。批量导入的历史流水会让整张表退化成
-    「导入批次顺序」，真机实测 `SZ000638` 的 24 笔排出来是
-    `2023-02-03 → 2023-02-15 → 2023-02-07 → 2023-03-16 → …`（同一批 `created_at`
-    挤在毫秒内、并列区间顺序未定义），用户看到的就是「乱序」。
-
-    WHY 不是 `confirm_date` 单列：真机 1,921 笔里有 1,211 笔 `trade_date` 为空
-    （历史导入只填确认日），但反过来也有只有交易日的行（基金确认日待定），单列排序
-    会把它们整批沉底，而屏幕上印的是「交易日优先、确认日兜底」的那个日期
-    （`components/TransactionTable` 的 `formatDate`）——排序键必须与展示值一致。
-
-    WHY `id` 兜底：同一天的多笔必须有**确定**的相对顺序，否则翻页会在并列区间里重复
-    或漏行（批量导入的行 `created_at` 常精确到同一微秒）。
-
-    WHY 转文本再合并：两个日期列类型不同（`trade_date` 是 DateTime / `confirm_date`
-    是 Date），**不能转 DateTime**——SQLite 对 `CAST('2025-06-20' AS DATETIME)` 走
-    NUMERIC 亲和性，把日期当成「以年份开头的数字」（→ 2025.0），数字恒排于文本之前，
-    于是「只有确认日」的行会被整批甩到最前（开发实测踩到）。转文本后两边都是 ISO 形式
-    （`YYYY-MM-DD[ HH:MM:SS]`），字典序即时间序，跨 SQLite / Postgres 一致。
+    #2171 / #2712 起全站唯一的流水排序口径；#2914 起表达式本身收进
+    :mod:`app.domains.transactions.dates`——**排序键必须与筛选键、展示值是同一个值**，
+    否则「列表里看得见、按时间筛出来却看不见」这类自相矛盾永远查不完（此前筛选用的是
+    裸 ``trade_date``，把只有确认日的行整批漏掉）。完整 WHY 见该模块 docstring。
     """
-    effective_day = func.coalesce(
-        cast(Transaction.trade_date, String),
-        cast(Transaction.confirm_date, String),
-    )
-    if not descending:
-        return query.order_by(effective_day.asc(), Transaction.id.asc())
-    return query.order_by(effective_day.desc(), Transaction.id.desc())
+    return _order_by_effective_day(query, descending=descending)
 
 
 def transaction_edit_payload(txn: Transaction) -> dict:
@@ -154,23 +136,17 @@ def _filtered_transaction_query(db, family_id: int, filters: dict):
         else:
             query = query.filter(Transaction.txn_type == op_type)
 
-    # 筛选：时间范围
+    # 筛选：时间范围（#2914 修）
+    # 此前用裸 `trade_date >= ?`：真实库 1,491/1,930 笔 `trade_date` 为 NULL（历史导入只填
+    # 确认日），「近 30 天」实测漏 28/61 笔、「近 365 天」漏 660/916 笔——用户看着屏幕上
+    # 有日期（`TransactionTable` 印的就是确认日），筛出来却没有。现改用与**排序同一把键**
+    # （有效日），漏行与「排序键 ≠ 筛选键」两个问题一起消失。
     time_range = filters.get('time_range')
-    if time_range == '1m':
-        query = query.filter(Transaction.trade_date >= date.today() - timedelta(days=30))
-    elif time_range == '3m':
-        query = query.filter(Transaction.trade_date >= date.today() - timedelta(days=90))
-    elif time_range == '6m':
-        query = query.filter(Transaction.trade_date >= date.today() - timedelta(days=180))
-    elif time_range == '1y':
-        query = query.filter(Transaction.trade_date >= date.today() - timedelta(days=365))
+    _RANGE_DAYS = {'1m': 30, '3m': 90, '6m': 180, '1y': 365}
+    if time_range in _RANGE_DAYS:
+        query = filter_by_effective_range(query, start=today_shanghai() - timedelta(days=_RANGE_DAYS[time_range]))
     elif time_range == 'custom':
-        start = filters.get('start_date')
-        end = filters.get('end_date')
-        if start:
-            query = query.filter(Transaction.trade_date >= start)
-        if end:
-            query = query.filter(Transaction.trade_date <= end)
+        query = filter_by_effective_range(query, start=filters.get('start_date'), end=filters.get('end_date'))
 
     # 筛选：交易状态
     status = filters.get('status')
@@ -201,8 +177,9 @@ def _filtered_transaction_query(db, family_id: int, filters: dict):
 def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
     """交易流水列表：多维筛选 + 分页 + 行组装（#1642 B 块，从视图层下沉）。
 
-    与下沉前逐字段一致：type→txn_type；time_range(1m/3m/6m/1y) 按 trade_date 阈值过滤，
-    custom 用 start_date/end_date 做 [start, end] 边界；status→status 等值过滤；asset_type
+    与下沉前逐字段一致：type→txn_type；time_range(1m/3m/6m/1y) 与 custom(start_date/end_date)
+    都按**有效日**做 [start, end] 闭区间筛选（#2914 起口径在 `dates.filter_by_effective_range`）；
+    status→status 等值过滤；asset_type
     经 positions 表关联（position_id.in_(...)）过滤。返回原 jsonify 的内层 data 字典
     （视图负责补 message）。筛选条件本身在 `_filtered_transaction_query`，与汇总条共用。
     """
