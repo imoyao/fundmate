@@ -1658,6 +1658,205 @@ def migrate_positions_cleared_at(engine: Engine) -> str:
     return '[SKIP] positions.cleared_at 已存在'
 
 
+#: 从 `CREATE [UNIQUE] INDEX <name> ON ...` 里取索引名（重建后的「索引是否还在」自校验用）。
+_INDEX_NAME_RE = re.compile(r'INDEX\s+(?:IF NOT EXISTS\s+)?["\[]?(\w+)', re.IGNORECASE)
+
+#: positions 状态一致性 CHECK 约束（#2875 切片 A）：(约束名, 判定表达式)。
+#:
+#: 断言内容与模型 `Position.__table_args__` **逐字一致**——两边不同步会让
+#: 「新库按 model 建、老库按迁移改」分叉，而 SQLite 反射不出 CHECK 内容，
+#: 没有任何自动手段能发现这种分叉。改动时两处一起改。
+_POSITION_STATE_CHECKS = (
+    (
+        'ck_positions_cleared_zero_qty',
+        "ownership_status <> 'cleared' OR quantity = 0",
+    ),
+    (
+        'ck_positions_anchor_pair',
+        "ownership_status = 'shadow' OR ((snapshot_quantity IS NULL) = (snapshot_date IS NULL))",
+    ),
+)
+
+#: 每条 CHECK 对应的「存量违反行」判定 SQL（用于迁移前 fail-closed 自检）。
+#: 与 CHECK 表达式是**否定关系**：CHECK 为假的行，这里的条件为真。
+_POSITION_STATE_VIOLATIONS = (
+    ('cleared 但仍有份额', "ownership_status = 'cleared' AND quantity <> 0"),
+    (
+        '锚点半残（份额与日期只填了一个）',
+        "ownership_status <> 'shadow' AND ((snapshot_quantity IS NULL) <> (snapshot_date IS NULL))",
+    ),
+)
+
+
+def _positions_state_violation_report(engine: Engine):
+    """返回 [(说明, 违反行数), ...]，只列**确实有违反**的项（#2875）。"""
+    findings = []
+    with engine.connect() as conn:
+        for label, where in _POSITION_STATE_VIOLATIONS:
+            count = conn.execute(text(f'SELECT COUNT(*) FROM positions WHERE {where}')).scalar() or 0
+            if count:
+                findings.append((label, int(count)))
+    return findings
+
+
+def _sqlite_add_check_constraints(engine: Engine, new_checks) -> str:
+    """SQLite 侧加 CHECK：整表重建（SQLite 不支持 ALTER ADD CONSTRAINT）。
+
+    流程与 watchlist 唯一键迁移一致：读 `sqlite_master` 的真实 DDL → 在末尾插入
+    CONSTRAINT 子句 → 建 `positions_new` → 拷数 → 删旧 → 改名 → **重建索引**。
+
+    三个非平凡点：
+
+    1. **必须重建索引**：`positions` 的索引里，`uq_positions_ledger_symbol` /
+       `uq_positions_import_hash` / `uq_positions_ledger_symbol_norm` 是**独立**
+       CREATE UNIQUE INDEX（不是表内 UNIQUE 子句），DROP TABLE 会连它们一起删掉。
+       不重建 = 唯一约束静默消失，比不加 CHECK 严重得多。故结尾按名字自校验。
+    2. **必须关外键再开**：`position_import_meta.position_id` 与策略持仓都
+       `ON DELETE CASCADE` 指向 positions，外键开着做 DROP TABLE 会级联删掉子行。
+       PRAGMA 是连接级的，且**在事务内设置无效**（SQLite 文档），故先 commit 结束
+       隐式事务，再 OFF，最后 try/finally 恢复成调前的值。
+    3. **拷数用反射列清单**：模型增删列后硬编码列名会失效（与 watchlist 迁移同法）。
+    """
+    with engine.connect() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='positions'")).scalar()
+        if ddl is None:
+            return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+        pending = [(name, expr) for name, expr in new_checks if name not in ddl]
+        if not pending:
+            return '[SKIP] positions 状态一致性 CHECK 已存在'
+
+        index_ddl = [
+            row[0]
+            for row in conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='positions' AND sql IS NOT NULL")
+            )
+            if row[0]
+        ]
+
+        checks_sql = ''.join(f',\n\tCONSTRAINT {name} CHECK ({expr})' for name, expr in pending)
+        head, sep, tail = ddl.rpartition(')')
+        if not sep:
+            raise RuntimeError(f'positions 建表 DDL 形态异常，无法插入 CHECK 约束：\n{ddl}')
+        new_ddl = f'{head}{checks_sql}{sep}{tail}'.replace('CREATE TABLE positions', 'CREATE TABLE positions_new', 1)
+
+        cols = ', '.join(c['name'] for c in inspect(engine).get_columns('positions'))
+        fk_state = conn.execute(text('PRAGMA foreign_keys')).scalar()
+        conn.commit()  # 结束隐式事务，否则下面的 PRAGMA 是空操作
+        try:
+            conn.execute(text('PRAGMA foreign_keys=OFF'))
+            conn.execute(text(new_ddl))
+            conn.execute(text(f'INSERT INTO positions_new ({cols}) SELECT {cols} FROM positions'))
+            conn.execute(text('DROP TABLE positions'))
+            conn.execute(text('ALTER TABLE positions_new RENAME TO positions'))
+            for stmt in index_ddl:
+                conn.execute(text(stmt))
+            conn.commit()
+        finally:
+            conn.execute(text(f'PRAGMA foreign_keys={"ON" if fk_state else "OFF"}'))
+
+        # 自校验：CHECK 落库了吗？索引还在吗？（重建丢索引是本迁移最危险的失败形态）
+        final_ddl = (
+            conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='positions'")).scalar() or ''
+        )
+        missing_checks = [name for name, _ in pending if name not in final_ddl]
+        if missing_checks:
+            raise RuntimeError(f'positions CHECK 约束重建后缺失: {missing_checks}\n{final_ddl}')
+
+        final_indexes = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='positions' AND sql IS NOT NULL")
+            )
+        }
+        expected_indexes = {m.group(1) for stmt in index_ddl if (m := _INDEX_NAME_RE.search(stmt))}
+        missing_indexes = sorted(expected_indexes - final_indexes)
+        if missing_indexes:
+            raise RuntimeError(f'positions 重建后索引丢失: {missing_indexes}')
+
+    logger.info(f'[OK] positions 已重建并加 CHECK 约束: {[n for n, _ in pending]}')
+    return f'[OK] CHECK 约束已添加（SQLite 整表重建）: {[n for n, _ in pending]}'
+
+
+def _pg_add_check_constraints(engine: Engine, new_checks) -> str:
+    """PG 侧加 CHECK：`ALTER TABLE ... ADD CONSTRAINT`（PG 不需要重建表）。
+
+    PG **没有** `ADD CONSTRAINT IF NOT EXISTS`，重复执行会抛 `already exists`，
+    故先反射 `get_check_constraints()` 再决定发不发 DDL（与 PG 唯一索引那条迁移
+    用 `CREATE INDEX IF NOT EXISTS` 的动机相同：宁可多一次反射，也不要一条会在
+    第二次启动就炸的 DDL）。
+    """
+    existing = {c['name'] for c in inspect(engine).get_check_constraints('positions')}
+    pending = [(name, expr) for name, expr in new_checks if name not in existing]
+    if not pending:
+        return '[SKIP] positions 状态一致性 CHECK 已存在'
+
+    with engine.connect() as conn:
+        for name, expr in pending:
+            conn.execute(text(f'ALTER TABLE positions ADD CONSTRAINT {name} CHECK ({expr})'))
+        conn.commit()
+    logger.info(f'[OK] positions ALTER 加 CHECK 约束: {[n for n, _ in pending]}')
+    return f'[OK] CHECK 约束已添加（PG ALTER）: {[n for n, _ in pending]}'
+
+
+def migrate_positions_state_check_constraints(engine: Engine) -> str:
+    """给 `positions` 加状态一致性 CHECK 约束（#2875 切片 A）。
+
+    ## 治什么
+
+    「清仓态零份额」「锚点四列同空同非空」这两条不变量，
+    此前只由 `position_service.py` 的 `_mark_position_cleared` /
+    `_reactivate_cleared_position` **单点**维持：导入、重建、数据修复脚本
+    任一写路径只改其中一半，库就会停在「cleared 但还有份额」这种自相矛盾态，
+    而读侧（总资产、市值、锚点口径）会**静默**按错的那半算。
+
+    这正是 #2875 说的「约束散落在服务里，跨写路径无法保证一致」——收敛成库级约束后，
+    错误在写入那一刻就报 `IntegrityError`，不再等对账工作台几周后才发现。
+
+    ## 为什么只有两条
+
+    「`cleared` 必须有 `cleared_at`」**不列**：`migrate_positions_cleared_at` 明确
+    把该列的 NULL 定义为「无已知清仓时间」，旧库允许这个形态。升成硬约束会让
+    「有清仓行但无清仓时间」的库直接拒绝启动，而它无法自动修复——约束的价值
+    抵不上一次启动失败。
+
+    ## 为什么现在加是安全的
+
+    2026-11-05 在真实库（281 行持仓 / 1930 笔流水）实测两条均 **0 违反**，
+    shadow 行（`snapshot_date` 有值、`snapshot_quantity` NULL）按设计豁免。
+    故本迁移**不改任何存量数据**，只加结构。
+
+    ## 违反时 fail closed
+
+    存量若有违反，说明已经有写路径在绕过服务层。此时**不猜测、不自动修复**：
+    抛错并列出违反口径与行数（含清理建议），否则约束会把「仍在带病跑的写路径」
+    和「启动」一起卡死，而运维看不到是哪一类行。修复路径与 #2875 的审计脚本一致。
+
+    ## 双引擎
+
+    SQLite 走整表重建，PG 走 `ALTER TABLE ADD CONSTRAINT`；两条分支都有测试
+    （SQLite 真跑，PG 由 `PgFake` 钉 DDL 形态与「不早退」）。守卫
+    `scripts/guard_migrations_pg_aware.py` 要求不得出现「非 SQLite 就跳过」的早退。
+    """
+    if not _table_exists(engine, 'positions'):
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+    findings = _positions_state_violation_report(engine)
+    if findings:
+        detail = '\n  - '.join(f'{label}: {count} 行' for label, count in findings)
+        raise RuntimeError(
+            'positions 存在状态不一致的行，拒绝加 CHECK 约束（否则约束会与带病数据打架）：\n'
+            f'  - {detail}\n'
+            '判定口径见 migrations._POSITION_STATE_VIOLATIONS；'
+            '先跑 `python backend/scripts/audit_position_state_invariants.py` 定位到具体行，'
+            '修复后再启动（本迁移不改任何存量数据）。'
+        )
+
+    if _is_postgres(engine):
+        return _pg_add_check_constraints(engine, _POSITION_STATE_CHECKS)
+    return _sqlite_add_check_constraints(engine, _POSITION_STATE_CHECKS)
+
+
 def migrate_account_name_snapshot(engine: Engine) -> str:
     """回填 `positions` / `transactions` 的 `account_name` 冗余快照空值。
 

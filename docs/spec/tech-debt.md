@@ -1178,3 +1178,31 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 **待决策**：两套基准是否统一、以哪一侧为准。判据是「持仓多久同步一次」与
 「快照历史能否重算」，不靠拍脑袋换基准。
+
+## 2026-11-05 持仓状态机散落、不变量无库级兜底（#2875）
+
+**现象**：`positions` 的状态迁移（清仓、清仓后再买入、锚点覆盖判定、无锚点时从流水派生）
+集中在 `position_service.py` 的若干私有函数里，只有服务层能调用；导入、重建、数据修复
+脚本各自照抄一遍。任何一条写路径只改一半，库就停在「`cleared` 但仍有份额」这类自相矛盾态，
+而读侧（总资产、市值、锚点口径）会**静默**按错的那半算。
+
+**本轮已做**（2026-11-05，切片 A + B）：
+
+- 切片 A：`positions` 加两条库级 CHECK —— `ck_positions_cleared_zero_qty`
+  （清仓态必须零份额）、`ck_positions_anchor_pair`（锚点两列同空同非空，shadow 行豁免）。
+  迁移 `migrate_positions_state_check_constraints` 双引擎：SQLite 整表重建（含索引重建 +
+  外键 PRAGMA 关/开 + 自校验）、PG 走 `ALTER TABLE ADD CONSTRAINT`。
+  真实库副本实测（281 行持仓 / 1930 笔流水 / 212 条 import_meta）：三条子表行数、
+  8 个索引、37 列全部原样；存量按这两条判定 0 违反，故**不改任何数据**。
+- 切片 B：`is_covered_by_anchor` / `mark_position_cleared` /
+  `reactivate_cleared_position` / `derive_state_from_txns` 迁到
+  `app/domains/positions/state.py`（纯函数、不碰 Session），服务层改为导入。
+  `position_service.py` 2468 → 2339 行，基线同 PR 收紧。
+
+**刻意不做的**：`cleared ⇒ cleared_at IS NOT NULL`。`migrate_positions_cleared_at`
+把该列的 NULL 定义为「无已知清仓时间」，旧库允许该形态；升成硬约束会让这类库
+拒绝启动且无法自动修复。`test_cleared缺清仓时间不被拦` 守着这个边界。
+
+**剩余（未做）**：`process_buy_or_deposit` 仍 403 行 / 圈复杂度 84（买入与卖出共用一套
+编排）；669 笔（35%）孤儿流水（`position_id IS NULL`）的归因与重挂时机未定 ——
+自动重挂会放大「重复计数」，需先有只读审计口径。
