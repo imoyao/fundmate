@@ -1671,21 +1671,11 @@ _POSITION_STATE_CHECKS = (
         'ck_positions_cleared_zero_qty',
         "ownership_status <> 'cleared' OR quantity = 0",
     ),
-    (
-        'ck_positions_anchor_pair',
-        "ownership_status = 'shadow' OR ((snapshot_quantity IS NULL) = (snapshot_date IS NULL))",
-    ),
 )
 
 #: 每条 CHECK 对应的「存量违反行」判定 SQL（用于迁移前 fail-closed 自检）。
 #: 与 CHECK 表达式是**否定关系**：CHECK 为假的行，这里的条件为真。
-_POSITION_STATE_VIOLATIONS = (
-    ('cleared 但仍有份额', "ownership_status = 'cleared' AND quantity <> 0"),
-    (
-        '锚点半残（份额与日期只填了一个）',
-        "ownership_status <> 'shadow' AND ((snapshot_quantity IS NULL) <> (snapshot_date IS NULL))",
-    ),
-)
+_POSITION_STATE_VIOLATIONS = (('cleared 但仍有份额', "ownership_status = 'cleared' AND quantity <> 0"),)
 
 
 def _positions_state_violation_report(engine: Engine):
@@ -1804,7 +1794,7 @@ def migrate_positions_state_check_constraints(engine: Engine) -> str:
 
     ## 治什么
 
-    「清仓态零份额」「锚点四列同空同非空」这两条不变量，
+    「清仓态零份额」这条不变量，
     此前只由 `position_service.py` 的 `_mark_position_cleared` /
     `_reactivate_cleared_position` **单点**维持：导入、重建、数据修复脚本
     任一写路径只改其中一半，库就会停在「cleared 但还有份额」这种自相矛盾态，
@@ -1813,17 +1803,26 @@ def migrate_positions_state_check_constraints(engine: Engine) -> str:
     这正是 #2875 说的「约束散落在服务里，跨写路径无法保证一致」——收敛成库级约束后，
     错误在写入那一刻就报 `IntegrityError`，不再等对账工作台几周后才发现。
 
-    ## 为什么只有两条
+    ## 为什么只有一条
 
-    「`cleared` 必须有 `cleared_at`」**不列**：`migrate_positions_cleared_at` 明确
-    把该列的 NULL 定义为「无已知清仓时间」，旧库允许这个形态。升成硬约束会让
-    「有清仓行但无清仓时间」的库直接拒绝启动，而它无法自动修复——约束的价值
-    抵不上一次启动失败。
+    另外两条看起来同样「显然」的候选，被全套测试证伪（首轮 CI 9 例转红）：
+
+    - 「`cleared` 必须有 `cleared_at`」：`migrate_positions_cleared_at` 明确把该列
+      NULL 定义为「无已知清仓时间」，旧库允许这个形态。升成硬约束会让这类库
+      **拒绝启动且无法自动修复**。
+    - 「锚点两列同空同非空」：`migrate_positions_snapshot_anchor` 的官方升级路径
+      就是「回填 `snapshot_date`、份额列留 NULL」（历史份额已丢），
+      `repair_snapshot_double_count` 也把 `snapshot_quantity IS NULL` 当作修复入口。
+      半残锚点是**受支持的降级态**（`compute_anchored_state` 见 NULL 即走全量流水），
+      不是脏数据；加成约束会挡住升级与修复本身。
+
+    两条都有对应用例（`test_cleared缺清仓时间不被拦` /
+    `test_半残锚点不被拦`）守着——它们红的那天，就是「旧库/修复工具怎么办」
+    需要重新拍板的那天。
 
     ## 为什么现在加是安全的
 
-    2026-11-05 在真实库（281 行持仓 / 1930 笔流水）实测两条均 **0 违反**，
-    shadow 行（`snapshot_date` 有值、`snapshot_quantity` NULL）按设计豁免。
+    2026-11-05 在真实库（281 行持仓 / 1930 笔流水）实测「`cleared` 带份额」**0 行**。
     故本迁移**不改任何存量数据**，只加结构。
 
     ## 违反时 fail closed

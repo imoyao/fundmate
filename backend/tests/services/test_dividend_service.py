@@ -317,6 +317,10 @@ class TestSummaryTotals:
             symbol=holding.symbol,
         )
         holding.ownership_status = 'cleared'
+        # 清仓态必须零份额（`ck_positions_cleared_zero_qty`，源 #2875）：生产路径由
+        # `domains/positions/state.py::mark_position_cleared` 同时写 quantity=0，
+        # 夹具按同一形态造数，否则造出的是生产不可能出现、库也不允许的行。
+        holding.quantity = 0
         db.flush()
         summary = _summary(db)
         assert summary['holdings'] == []

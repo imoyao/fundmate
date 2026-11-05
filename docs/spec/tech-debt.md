@@ -1188,20 +1188,26 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 **本轮已做**（2026-11-05，切片 A + B）：
 
-- 切片 A：`positions` 加两条库级 CHECK —— `ck_positions_cleared_zero_qty`
-  （清仓态必须零份额）、`ck_positions_anchor_pair`（锚点两列同空同非空，shadow 行豁免）。
+- 切片 A：`positions` 加库级 CHECK `ck_positions_cleared_zero_qty`（清仓态必须零份额）。
   迁移 `migrate_positions_state_check_constraints` 双引擎：SQLite 整表重建（含索引重建 +
   外键 PRAGMA 关/开 + 自校验）、PG 走 `ALTER TABLE ADD CONSTRAINT`。
   真实库副本实测（281 行持仓 / 1930 笔流水 / 212 条 import_meta）：三条子表行数、
-  8 个索引、37 列全部原样；存量按这两条判定 0 违反，故**不改任何数据**。
+  8 个索引、37 列全部原样；存量 0 违反，故**不改任何数据**。
 - 切片 B：`is_covered_by_anchor` / `mark_position_cleared` /
   `reactivate_cleared_position` / `derive_state_from_txns` 迁到
   `app/domains/positions/state.py`（纯函数、不碰 Session），服务层改为导入。
   `position_service.py` 2468 → 2339 行，基线同 PR 收紧。
 
-**刻意不做的**：`cleared ⇒ cleared_at IS NOT NULL`。`migrate_positions_cleared_at`
-把该列的 NULL 定义为「无已知清仓时间」，旧库允许该形态；升成硬约束会让这类库
-拒绝启动且无法自动修复。`test_cleared缺清仓时间不被拦` 守着这个边界。
+**刻意不做、且被证伪的两条**（首轮 CI 9 例转红，把「看起来显然的不变量」打回）：
+
+- `cleared ⇒ cleared_at IS NOT NULL`：`migrate_positions_cleared_at` 把该列 NULL 定义为
+  「无已知清仓时间」，旧库允许该形态，加了会让这类库拒绝启动且无法自动修复；
+- 锚点两列「同空同非空」：`migrate_positions_snapshot_anchor` 的官方升级路径就是
+  「回填 `snapshot_date`、份额列留 NULL」，`repair_snapshot_double_count` 也以
+  `snapshot_quantity IS NULL` 为修复入口——半残锚点是**受支持的降级态**，不是脏数据。
+
+两条各有用例守边界（`test_cleared缺清仓时间不被拦` / `test_半残锚点不被拦`）：
+它们红的那天，就是「旧库与修复工具怎么办」需要重新拍板的那天。
 
 **剩余（未做）**：`process_buy_or_deposit` 仍 403 行 / 圈复杂度 84（买入与卖出共用一套
 编排）；669 笔（35%）孤儿流水（`position_id IS NULL`）的归因与重挂时机未定 ——

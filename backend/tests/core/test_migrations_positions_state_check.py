@@ -7,7 +7,8 @@
 2. **存量行一条不少、内容不变**（整表重建最容易在这里出事）；
 3. **索引一条不少**——`positions` 的唯一键是**独立** `CREATE UNIQUE INDEX`，
    `DROP TABLE` 会连它们一起删；不重建 = 悄悄丢掉唯一约束（比不加 CHECK 严重）；
-4. **违规写入当场被拒**：`cleared` 带份额 / 锚点半残；
+4. **违规写入当场被拒**：`cleared` 带份额；两条「看起来该拦、实则受支持」的形态
+   （无清仓时间、半残锚点）必须**不被**拦；
 5. **合法边界不被误伤**：shadow 行（有观测日、无份额）与 `active` 零份额
    （「清仓当天再买入」的已知边界）都必须能写；
 6. **存量已有违反时 fail closed**：不猜测、不自动改数据，抛错并报出行数。
@@ -26,9 +27,9 @@ from app.core.migrations import migrate_positions_state_check_constraints
 
 from .migrations_pg_fake import PgFake
 
-#: 刻意只有两条：`cleared_at IS NOT NULL` 不加（旧库允许「无已知清仓时间」，
-#: 见 `migrate_positions_cleared_at` 的 docstring 与模型里的注释）。
-_CHECK_NAMES = ('ck_positions_cleared_zero_qty', 'ck_positions_anchor_pair')
+#: 刻意只有一条：`cleared_at IS NOT NULL` 与锚点「同空同非空」都不加（旧库/升级路径
+#: 允许这两种形态），见模型里的注释与迁移 docstring 的「为什么只有一条」。
+_CHECK_NAMES = ('ck_positions_cleared_zero_qty',)
 
 _OLD_DDL = """
 CREATE TABLE positions (
@@ -96,7 +97,7 @@ def _index_names(engine):
         }
 
 
-def test_三条CHECK落库且存量行与索引不变(old_db):
+def test_CHECK落库且存量行与索引不变(old_db):
     before_rows = [tuple(r) for r in _rows(old_db)]
     before_idx = _index_names(old_db)
 
@@ -161,16 +162,20 @@ def test_cleared缺清仓时间不被拦(old_db):
         assert conn.execute(text('SELECT cleared_at FROM positions WHERE id = 2')).scalar() is None
 
 
-def test_锚点半残被拒而shadow豁免(old_db):
-    migrate_positions_state_check_constraints(old_db)
-    with pytest.raises(IntegrityError) as exc:
-        with old_db.connect() as conn:
-            conn.execute(text('UPDATE positions SET snapshot_quantity = NULL WHERE id = 1'))
-            conn.commit()
-    assert 'ck_positions_anchor_pair' in str(exc.value)
+def test_半残锚点不被拦(old_db):
+    """锚点「同空同非空」**刻意不做约束**。
 
-    # shadow 行本来就是这个形态（id=3），重建后必须仍然在、且还能再插一条同形态的
+    反证来自 `migrate_positions_snapshot_anchor`：官方升级路径就是「回填
+    `snapshot_date`、份额列留 NULL」（历史份额已丢），`repair_snapshot_double_count`
+    也把 `snapshot_quantity IS NULL` 当修复入口。半残锚点是**受支持的降级态**，
+    不是脏数据；加成约束会挡住升级与修复本身（首轮 CI 9 例转红的就是它）。
+    """
+    migrate_positions_state_check_constraints(old_db)
     with old_db.connect() as conn:
+        # active 行把份额置空（= 旧库升级后的形态）必须仍然可写
+        conn.execute(text('UPDATE positions SET snapshot_quantity = NULL WHERE id = 1'))
+        conn.commit()
+        # shadow 行本来就是这个形态（id=3），重建后仍应可再插一条
         assert conn.execute(text('SELECT snapshot_date FROM positions WHERE id = 3')).scalar()
         conn.execute(
             text(
