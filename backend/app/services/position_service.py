@@ -46,6 +46,7 @@ from app.domains.positions.state import (
     mark_position_cleared,
     reactivate_cleared_position,
 )
+from app.domains.transactions.dates import order_by_effective_day
 from app.domains.transactions.models import Transaction
 from app.services import async_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
@@ -720,7 +721,7 @@ def compute_anchored_state(db: Session, position: Position) -> tuple[int, int]:
     )
     query = db.query(Transaction).filter(Transaction.position_id == position.id)
     if not has_anchor:
-        txns = query.order_by(Transaction.trade_date, Transaction.id).all()
+        txns = order_by_effective_day(query, descending=False).all()
         return derive_state_from_txns(txns, 0, 0)
 
     base_qty = int(position.snapshot_quantity)
@@ -728,7 +729,7 @@ def compute_anchored_state(db: Session, position: Position) -> tuple[int, int]:
     # 否则拿 avg_price 顶替会得到「被流水加权过」的价，成本永久偏。
     base_cost = Money.multiply_price_quantity(int(position.snapshot_avg_price or 0), base_qty)
     included = []
-    for t in query.order_by(Transaction.trade_date, Transaction.id).all():
+    for t in order_by_effective_day(query, descending=False).all():
         d = _txn_effective_date(t)
         if d is None:
             if t.quantity:
@@ -1714,12 +1715,9 @@ class PositionService:
         例外：`not txns and not has_anchor` 的空壳行仍删行——那不是清仓历史，
         是无任何数据支撑的孤儿行，标记成 cleared 反而会伪造一段「曾持有」。
         """
-        txns = (
-            db.query(Transaction)
-            .filter(Transaction.position_id == position_id)
-            .order_by(Transaction.trade_date, Transaction.id)
-            .all()
-        )
+        txns = order_by_effective_day(
+            db.query(Transaction).filter(Transaction.position_id == position_id), descending=False
+        ).all()
         pos = db.query(Position).filter_by(id=position_id).first()
 
         # 「无流水即删行」只能在**无锚点**时成立。有锚点的持仓其份额来自快照，
