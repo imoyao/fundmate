@@ -55,6 +55,25 @@ describe("buildSellPayload", () => {
     expect(body.fee).toBe(1.2);
   });
 
+  it("股票卖出：费用照实透传，金额仍是毛额（费用不冲减 amount）", () => {
+    // 阶段 0 回归：股票卖出此前没有费用输入，fee 恒为 0；
+    // 现在可填，但 amount 必须保持「数量 × 成交价」的毛额口径——
+    // 后端用 `amount`/`fee` 分别结转盈亏与自动申购净额，冲减会让费用被扣两次。
+    const body = buildSellPayload({
+      form: mkForm({
+        type: "stock",
+        positionId: 9,
+        quantity: 200,
+        price: 10,
+        fee: 5.32
+      }),
+      accountName: "华泰",
+      quantity: 200
+    });
+    expect(body.amount).toBeCloseTo(2000, 6);
+    expect(body.fee).toBe(5.32);
+  });
+
   it("手续费缺失按 0、配置目标固定 null、position_id 透传", () => {
     const body = buildSellPayload({
       form: mkForm({ fee: undefined }),

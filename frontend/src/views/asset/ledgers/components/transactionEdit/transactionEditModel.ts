@@ -2,7 +2,8 @@
  * 编辑交易弹窗的口径（#980 拆分时抽出）。
  *
  * 三处「看起来是 UI、实际是业务口径」的东西收在这里：
- * - **金额为权威**：基金按「金额 → 份额」反算，股票按「数量 × 单价 + 手续费」正算；
+ * - **金额为权威**：基金按「金额 → 份额」反算，股票按「数量 × 单价」正算毛额
+ *   （手续费单列，不加进金额——见 `recalcAmount`）；
  *   两边都保留 4 / 2 位小数的 `Math.round` 而不是 `toFixed`（后者返回字符串，会污染数字输入框）；
  * - **资产类型的四级兜底**（外部传入 → asset_type → type → security_type → position_type）；
  * - **份额与该不该被反算覆盖**：靠调用方的 `sharesTouched` 标志，这里只负责算。
@@ -85,14 +86,25 @@ export function recalcShares(
 }
 
 /**
- * 股票 / 可转债：由数量正算金额 `qty * price + fee`，保留 2 位小数。
+ * 股票 / 可转债：由数量正算金额 `qty × price`（**毛额**），保留 2 位小数。
+ *
+ * 为什么**不把手续费加进去**（阶段 0 口径修正）：交易流水的 `amount` 全场统一是
+ * **成交毛额**，费用单独记在 `fee`：
+ *
+ * - 卖出写入侧 `position_service.process_sell_or_withdraw` 落 `价格×数量`；
+ * - 买入写入侧同（非 balance 模式落 `价格×数量`）；
+ * - 编辑接口在调用方未显式给 `amount` 时也按 `价格×数量` 重算毛额
+ *   （`ledger_write_service.update_ledger_transaction`）。
+ *
+ * 此前这里写 `qty × price + fee`，只有 `fee = 0` 时才与后端一致；一旦开始记费用
+ * （股票卖出费用可填之后），编辑一次就会把成交额写成「毛额 + 费用」，
+ * 而「卖出回款净额 = amount − fee」在别处已经减过一次，等于重复扣减。
  *
  * 同样返回 `null` 表示「不该写回」。
  */
 export function recalcAmount(
   quantity: number | null | undefined,
-  price: number | null | undefined,
-  fee: number | null | undefined
+  price: number | null | undefined
 ): number | null {
   if (
     quantity == null ||
@@ -101,10 +113,7 @@ export function recalcAmount(
     Number(price) < 0
   )
     return null;
-  return (
-    Math.round((Number(quantity) * Number(price) + Number(fee || 0)) * 100) /
-    100
-  );
+  return Math.round(Number(quantity) * Number(price) * 100) / 100;
 }
 
 /** 打开弹窗时的表单快照（与交易记录逐字段对齐） */

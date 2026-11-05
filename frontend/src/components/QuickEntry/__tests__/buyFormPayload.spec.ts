@@ -90,6 +90,25 @@ describe("buildBuyPayload 手续费换算", () => {
     const body = buildBuyPayload({ ...base, form: mkForm({ fee: undefined }) });
     expect(body.fee).toBe(0);
   });
+
+  it("股票/ETF 残留费率模式时，仍按金额原样提交", () => {
+    // 只有基金有费率口径（`BuyFeeField` 的 simple 模式隐藏了模式切换）。
+    // feeMode 若残留 rate，这里再乘一次会把 5 元当成 5% ⇒ 500 元。
+    const body = buildBuyPayload({
+      ...base,
+      feeMode: "rate",
+      form: mkForm({ type: "stock", price: 12.34, fee: 5, buyAmount: 10000 })
+    });
+    expect(body.fee).toBe(5);
+  });
+
+  it("股票/ETF 金额模式下也原样提交", () => {
+    const body = buildBuyPayload({
+      ...base,
+      form: mkForm({ type: "etf", price: 3.2, fee: 2.5, buyAmount: 10000 })
+    });
+    expect(body.fee).toBe(2.5);
+  });
 });
 
 describe("buildBuyPayload 净值缺失先记账三件套", () => {

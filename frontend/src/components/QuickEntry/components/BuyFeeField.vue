@@ -1,11 +1,15 @@
 <template>
-  <!-- 手续费（金额 / 费率双模式 + 折扣档位）。
-       #980 拆分自 BuyForm.vue：状态仍住父层（提交时要换算，区块只负责呈现与透传）。 -->
+  <!-- 手续费。
+       基金：金额 / 费率双模式 + 申购折扣档位（#980 拆分自 BuyForm.vue）。
+       股票 / ETF：`simple` 模式，只收一个实收金额 —— 佣金有「免五不免五」、
+       各家费率不同，费率模式既算不准也多一层心智负担（与卖出侧对称）。
+       状态仍住父层（提交时要换算），区块只负责呈现与透传。 -->
   <el-form-item label="手续费" prop="fee">
     <div class="flex flex-col gap-2 w-full">
-      <!-- 第一行：模式切换 + 数值输入 -->
+      <!-- 第一行：模式切换（仅基金）+ 数值输入 -->
       <div class="flex items-center gap-3 w-full">
         <el-select
+          v-if="!simple"
           v-model="feeModeModel"
           style="width: 100px"
           @change="emit('fee-mode-change')"
@@ -19,20 +23,26 @@
           v-model="feeModel"
           class="flex-1"
           :controls="false"
-          :precision="feeMode === 'amount' ? 2 : 4"
+          :precision="simple ? 2 : feeMode === 'amount' ? 2 : 4"
           :min="0"
-          :placeholder="feeMode === 'amount' ? '输入手续费金额' : '0.0000'"
+          :placeholder="
+            simple
+              ? '券商实际收取的费用（不确定可留 0）'
+              : feeMode === 'amount'
+                ? '输入手续费金额'
+                : '0.0000'
+          "
         />
         <span class="text-sm shrink-0" style="color: var(--text-tertiary-ink)">
-          {{ feeMode === "amount" ? "元" : "%" }}
+          {{ simple || feeMode === "amount" ? "元" : "%" }}
         </span>
       </div>
 
-      <!-- 第二行：快捷折扣档位（仅费率模式）。
+      <!-- 第二行：快捷折扣档位（仅基金 · 费率模式）。
            「多选一、选项少」→ SegmentedControl（design.md 语言边界），
            与份额档位/交易时点同一套软按钮选中态，不再手写 el-button 组。 -->
       <div
-        v-if="feeMode === 'rate'"
+        v-if="!simple && feeMode === 'rate'"
         class="flex flex-wrap items-center gap-2 mt-1"
       >
         <SegmentedControl
@@ -45,7 +55,11 @@
     </div>
 
     <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-      费率已根据账户预设填充，可手动修改
+      <span v-if="simple"
+        >含佣金、过户费等，按交割单实收金额填写；不填则按 0
+        计，持仓成本会偏低</span
+      >
+      <span v-else>费率已根据账户预设填充，可手动修改</span>
     </div>
   </el-form-item>
 </template>
@@ -64,6 +78,8 @@ const props = defineProps<{
   feeMode: FeeMode;
   /** 申购费折扣系数（1 / 0.1 / 0.01 / 0） */
   discount: number;
+  /** 简化模式（股票 / ETF）：只收实收金额，隐藏模式切换与折扣档位 */
+  simple?: boolean;
 }>();
 const emit = defineEmits<{
   "update:fee": [value: number | undefined];

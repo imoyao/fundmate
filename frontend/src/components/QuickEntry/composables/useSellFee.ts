@@ -97,7 +97,14 @@ export function useSellFee(deps: {
 
   const calculateFeeAndRate = async () => {
     if (!selectedPosition.value || form.type !== "fund" || !form.trade_date) {
-      form.fee = 0;
+      // 非基金（股票 / ETF / 债券 / 可转债）：费率分布不适用，只清分布。
+      //
+      // 这里**不能**再把 form.fee 抹成 0（阶段 0 修复）：本函数挂在
+      // [price, quantity, trade_date, isAfter15] 的 watch 上，一旦清零，
+      // 用户刚填的费用会在下一次改价格/数量时被静默吃掉——那正是「股票卖出
+      // 永远记不到费用」的第二个成因（第一个是模板按品种隐藏了输入框）。
+      // 换持仓 / 换账户 / 重置时的清零由 useSellFormActions.onPositionSelect
+      // （form.fee = 0）与 defaultSellForm 负责，职责不重叠。
       clearFeeState();
       return;
     }
