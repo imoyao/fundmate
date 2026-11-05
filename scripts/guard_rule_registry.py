@@ -249,6 +249,12 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '不带 role 的手写切换控件仍不覆盖（登记于 #1731 C 项）',
     },
+    'scripts/guard_smart_fill_parity.mjs': {
+        'rule': '导入预览的「金额 ÷ 份额 补单价」单一实现，OCR 与文件通道共用',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_smart_fill_parity.test.js',
+        'covered': '只拦「另起一份补价并打 smartFilled 标记」；无标记的手抄除法识别不了',
+    },
     'scripts/guard_a11y_interaction.py': {
         'rule': '交互可达性（图标按钮可访问名称 / 非交互元素挂 click）',
         'runner': 'ci',

@@ -491,6 +491,13 @@ jobs:
       - name: 守卫:路由死链
         run: node ../scripts/check_router_links.mjs
 
+      # 守卫：导入预览「金额 ÷ 份额 补单价」单一实现（#2903）。
+      # 同一条规则曾在 OCR 与文件上传两条通道各写一份，文件通道还把 `!isRowBlocked`
+      # 当门禁、方向写反（该补的一个没补、不该补的全补了）。回潮形态是「再内联一份
+      # 并打 smartFilled 标记」——纯函数测试看不见它，因为它只测那一个实现。
+      - name: 守卫:智能补价单一实现
+        run: node ../scripts/guard_smart_fill_parity.mjs
+
       - name: 类型检查
         run: pnpm typecheck
 

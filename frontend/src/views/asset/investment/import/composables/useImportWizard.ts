@@ -38,6 +38,7 @@ import {
   recalcAfterEdit,
   smartFill
 } from "./cellEditLogic";
+import { fillSmartPrice } from "./smartFillPrice";
 import {
   isMissingCode,
   isRowBlocked,
@@ -177,16 +178,10 @@ export function useImportWizard() {
         price: row.price || 0
       }))
     );
-    // 智能补价：有份额无价格但有金额 → 金额/份额（与文件解析预览同口径）
-    normalized.forEach(row => {
-      const qty = parseFloat(row.quantity),
-        prc = parseFloat(row.price),
-        amt = parseFloat(row.amount);
-      if (!isNaN(qty) && qty > 0 && (isNaN(prc) || prc <= 0) && !isNaN(amt)) {
-        row.price = parseFloat((amt / qty).toFixed(4));
-        row.smartFilled = true;
-      }
-    });
+    // 智能补价：有份额无价格但有金额 → 金额/份额。
+    // #2903：判据抽到 smartFillPrice.ts，与文件上传通道共用同一份（原两处各写一份、
+    // 守卫条件还不一致）。
+    normalized.forEach(fillSmartPrice);
 
     previewData.value = normalized;
     totalRows.value = normalized.length;
@@ -913,25 +908,11 @@ export function useImportWizard() {
             ? row.account_name
             : ledger?.name || "";
         if (row.allocation == null) row.allocation = defaultAlloc;
-        if (
-          !isRowBlocked(row) &&
-          !row.is_cash_transfer &&
-          !row.error &&
-          !row.is_duplicate
-        ) {
-          const qty = parseFloat(row.quantity),
-            prc = parseFloat(row.price),
-            amt = parseFloat(row.amount);
-          if (
-            !isNaN(qty) &&
-            qty > 0 &&
-            (isNaN(prc) || prc <= 0) &&
-            !isNaN(amt)
-          ) {
-            row.price = parseFloat((amt / qty).toFixed(4));
-            row.smartFilled = true;
-          }
-        }
+        // 智能补价：#2903 起与 OCR 通道共用 smartFillPrice 的判据。
+        // 旧守卫 `!isRowBlocked && !is_cash_transfer && !row.error && !is_duplicate` 把
+        // 条件写反了——isRowBlocked 在「单价缺失」时恒为 true，与补价前提互斥，
+        // 于是该补的普通成交行一个没补、不该补的豁免类型（税额/兑付/分红）全补了。
+        fillSmartPrice(row);
       });
 
       previewData.value = [...previewData.value];
@@ -1423,6 +1404,16 @@ export function useImportWizard() {
   /**
    * 自动填充缺失数量/价格（四分区之二）：可推算行的缺项 = 金额 ÷ 另一项；
    * 填充后解除阻塞的行自动勾选（对齐 finishEdit 的既有行为）。
+   *
+   * #2903：这是**用户显式点按钮**触发的第三条路径，与装载时的智能补价
+   * （`smartFillPrice.fillSmartPrice`）刻意不共用实现，两点理由：
+   * - 它还要处理**缺数量**方向（金额 ÷ 单价），而 `fillSmartPrice` 只补价；
+   * - 候选集来自 `isRowBlocked` 为真的行（`fixSectionRows.missingQtyPrice`），
+   *   豁免类型（tax / dividend / bond_redeem / money_fund / reverse_repo）天然不在其中，
+   *   排除面已等价，再套一层是重复判据。
+   *
+   * 反过来说：装载路径原先把 `!isRowBlocked` 当门禁，方向恰好写反——见
+   * `smartFillPrice.ts` 头注释。两处对同一个谓词的用法相反，是本卡的核心证据。
    */
   async function autoFillMissing() {
     const targets = autoFillableRows.value;
