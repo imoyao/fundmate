@@ -2,6 +2,7 @@
 // 修正面板的两个附属弹窗：【查看已填充数据】与【查看转换结果】（逆回购）。
 // 放一起是因为它们共享 `.bf-dialog-note` 一条说明样式，且都属于「看一眼但不改数据」。
 import { filledFieldsLabel, allocationLabelOf } from "./batchFixPanelModel";
+import { canRestoreSmartFilledPrice } from "../composables/smartFillPrice";
 
 defineProps<{
   /** 已填充行（数量 / 单价由金额推算出来的那些） */
@@ -16,13 +17,18 @@ const filledVisible = defineModel<boolean>("filled-visible", {
   required: true
 });
 const repoVisible = defineModel<boolean>("repo-visible", { required: true });
+
+/** #2902：装载期补价可逐行退回；批量修正的填充仍走顶部【撤销上一步】 */
+const emit = defineEmits<{
+  "restore-original": [row: any];
+}>();
 </script>
 
 <template>
   <el-dialog
     v-model="filledVisible"
     title="已填充数据"
-    width="640px"
+    width="720px"
     class="bf-dialog"
   >
     <el-table :data="filledRows" size="small" max-height="400">
@@ -35,9 +41,24 @@ const repoVisible = defineModel<boolean>("repo-visible", { required: true });
       </el-table-column>
       <el-table-column label="数量" prop="quantity" width="110" />
       <el-table-column label="单价" prop="price" width="110" />
+      <el-table-column label="操作" width="110">
+        <template #default="{ row }">
+          <el-button
+            v-if="canRestoreSmartFilledPrice(row)"
+            link
+            type="primary"
+            size="small"
+            @click="emit('restore-original', row)"
+          >
+            恢复原始值
+          </el-button>
+        </template>
+      </el-table-column>
     </el-table>
     <p class="bf-dialog-note">
-      数量 / 价格按「金额 ÷ 另一项」自动推算；点顶部【撤销上一步】可回滚。
+      数量 / 价格按「金额 ÷
+      另一项」自动推算。上传期补价可点【恢复原始值】退回你上传时的原值；
+      批量修正产生的填充由顶部【撤销上一步】回滚。
     </p>
   </el-dialog>
 
