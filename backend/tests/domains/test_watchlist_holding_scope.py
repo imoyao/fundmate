@@ -56,7 +56,13 @@ def _pos(status: str, **kw) -> Position:
 
 @pytest.fixture
 def seeded(app):
-    """写入 2 active + 2 shadow + 1 cleared（cleared 故意留非零份额）。"""
+    """写入 2 active + 2 shadow + 1 cleared。
+
+    这里**不再**给 cleared 行造非零份额：`ck_positions_cleared_zero_qty`（#2875）
+    之后该形态在库层就不存在——清仓的唯一写入口 `state.mark_position_cleared`
+    必然先写 `quantity = 0`。而「按状态而不是按份额过滤」这层防线仍由 shadow 行
+    提供（shadow 行带份额、必须被排除），与本夹具的 cleared 行无关。
+    """
     with get_db() as db:
         db.add_all([_pos('active', **r) for r in _ACTIVE])
         db.add_all([_pos('shadow', **r) for r in _SHADOW])
@@ -64,7 +70,7 @@ def seeded(app):
             _pos(
                 'cleared',
                 account_name='已清仓账户',
-                quantity=99000000,  # 9,900 份：不为 0，逼实现按状态排除
+                quantity=0,  # 清仓态零份额（库级 CHECK 保证，见 _mark_position_cleared）
                 avg_price=7000,
                 current_price=7000,
             )

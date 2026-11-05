@@ -4,6 +4,7 @@ from typing import Optional
 from loguru import logger
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -246,6 +247,24 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         Index('idx_positions_symbol', 'symbol'),
         Index('idx_positions_account_name', 'account_name'),
         Index('idx_positions_ledger_asset_type', 'ledger_id', 'type'),
+        # ── 状态一致性 CHECK（#2875 切片 A）───────────────────────────────────
+        # 此前「清仓态零份额」只由 `domains/positions/state.py::mark_position_cleared`
+        # 单点维持：它先写 quantity=0 再改状态。任何新写路径（导入 / 重建 / 修复脚本）
+        # 只改其中一半，库就停在「cleared 但仍有份额」——读侧（总资产、市值）会静默
+        # 按错的那半算。库级 CHECK 是唯一会让错误**当场报错**而不是静默漂移的一道。
+        # 存量实测（2026-11-05，281 行持仓）0 违反，故加约束不动任何数据。
+        CheckConstraint(
+            "ownership_status <> 'cleared' OR quantity = 0",
+            name='ck_positions_cleared_zero_qty',
+        ),
+        # 注：两条**刻意不加**的候选，都由全套测试证伪（2026-11-05，PR #2907 首轮 CI）：
+        # - `cleared_at IS NOT NULL`：`migrate_positions_cleared_at` 把该列 NULL 定义为
+        #   「无已知清仓时间」，旧库允许该形态，加了会让这类库拒绝启动且无法自动修复；
+        # - 锚点两列「同空同非空」：`migrate_positions_snapshot_anchor` 的官方升级路径
+        #   就是「回填 `snapshot_date`、份额列留 NULL」（历史份额已丢），
+        #   `repair_snapshot_double_count` 也以 `snapshot_quantity IS NULL` 为修复入口。
+        #   半残锚点因此是**受支持的降级态**（`compute_anchored_state` 见 NULL 走全量
+        #   流水），不是脏数据。把它升成约束会挡住升级路径与修复工具本身。
     )
 
 

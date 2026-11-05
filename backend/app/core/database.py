@@ -51,6 +51,7 @@ from app.core.migrations import (
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
     migrate_positions_snapshot_anchor,
+    migrate_positions_state_check_constraints,
     migrate_positions_symbol_norm,
     migrate_transaction_fee_breakdown,
     migrate_transaction_plan_id,
@@ -645,6 +646,9 @@ def init_db():
     # positions.cleared_at（#2343）：清仓不再删行，需要「何时清仓」作为周期下界。
     # 只加列不回填（历史清仓行已被删除，无可靠数据源），同上须先于结构校验。
     migrate_positions_cleared_at(user_eng)
+    # positions 状态一致性 CHECK（#2875 切片 A）：cleared⇒零份额/有清仓时间、锚点四列
+    # 同空同非空。必须排在 cleared_at 之后（约束引用该列）；存量 0 违反，只加结构不改数据。
+    migrate_positions_state_check_constraints(user_eng)
     # positions / transactions 的 account_name 冗余快照空值回填：基金转换「转入腿」
     # 只传 ledger_id 漏传 account_name，存量行会留 NULL（按账户分组时 jsonify 崩）。
     # 只补数据、不动结构，故放在结构校验之前也无副作用。
@@ -789,6 +793,9 @@ def init_db_split():
         migrate_positions_snapshot_anchor(user_eng)
         # positions.cleared_at（#2343）：只加列不回填，幂等（见迁移 docstring）
         migrate_positions_cleared_at(user_eng)
+        # positions 状态一致性 CHECK（#2875 切片 A）：与单库模式同口径，双库模式也必须加
+        # （生产 user 域是 Postgres，SQLite 专用路径覆盖不到，故迁移自身双引擎）
+        migrate_positions_state_check_constraints(user_eng)
         # account_name 冗余快照空值回填：与单库模式同口径，双库模式也必须收编存量行
         migrate_account_name_snapshot(user_eng)
         # 转入腿 name / market 漏传的存量收编（#2406），与单库模式同口径

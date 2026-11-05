@@ -248,7 +248,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/position_display.py": {'lines': 291, 'max_func': 129, 'max_cc': 18},
     "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 60, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
-    "backend/app/services/position_service.py": {'lines': 2468, 'max_func': 403, 'max_cc': 84},
+    "backend/app/services/position_service.py": {'lines': 2339, 'max_func': 403, 'max_cc': 84},
     "backend/app/services/position_structure.py": {'lines': 259, 'max_func': 152, 'max_cc': 23},
     "backend/app/services/position_valuation.py": {'lines': 235, 'max_func': 95, 'max_cc': 16},
     "backend/app/services/price_depth.py": {'lines': 211, 'max_func': 72, 'max_cc': 18},
