@@ -36,7 +36,6 @@ import {
 } from "./batchFixLogic";
 import {
   clearFeeBreakdownOnEdit,
-  isMissingAmount,
   recalcAfterEdit,
   smartFill
 } from "./cellEditLogic";
@@ -54,6 +53,18 @@ import {
   AMOUNT_INDEPENDENT_OPS,
   type SummaryCategory
 } from "./previewPredicates";
+import {
+  ledgerTypeMap,
+  getTemplateKeyForLedger,
+  formatFileSize,
+  getFundTypeColor,
+  getTypeColor,
+  addRowKeys,
+  getRowClassName,
+  getCellClassName,
+  getCategoryDesc,
+  getCategoryTagType
+} from "./importPresentation";
 
 /**
  * 问题摘要面板的三卡片分类（#1791）。
@@ -164,42 +175,6 @@ export function useImportWizard() {
     recalcValidRowsCount();
     selectAllValid();
   }
-
-  const fundTypeColorMap: Record<string, string> = {
-    股票型: "var(--asset-cat-stock)",
-    混合型: "var(--asset-cat-fund)",
-    债券型: "var(--asset-cat-bond)",
-    货币型: "var(--asset-cat-money-fund)",
-    指数型: "var(--asset-cat-etf)",
-    QDII: "var(--asset-cat-fund)",
-    FOF: "var(--asset-cat-portfolio)"
-  };
-
-  // 类型中文标签统一走后端唯一来源 frontend/src/constants/assetType（getTypeLabel），不再在此私藏副本（#1171 枚举一致性）。
-
-  // 品种 → 颜色：真相源是 `--asset-cat-*`（#1602）。此处曾用 `--palette-*` 装饰色表达品种
-  // （stock 用 muted-blue、fund 用 rose-taupe……），与 getLedgerColor 的 `--asset-cat-*` 并存，
-  // 导致「同一个股票」在导入向导是蓝灰、在自选 / 买卖表单是紫 —— 这正是 colors.css 里
-  // 「业务代码禁止再借用 --palette-* 装饰色表达品种」要拦的情形，本处属 #1604 漏改。
-  // cash / static 在 12 槽位里无同名槽位：现金取货币基金（同属现金管理工具）、static 回退中性色。
-  const typeColorMap: Record<string, string> = {
-    stock: "var(--asset-cat-stock)",
-    fund: "var(--asset-cat-fund)",
-    bond: "var(--asset-cat-bond)",
-    etf: "var(--asset-cat-etf)",
-    crypto: "var(--asset-cat-crypto)",
-    saving: "var(--asset-cat-saving)",
-    cash: "var(--asset-cat-money-fund)",
-    static: "var(--color-neutral)"
-  };
-
-  const ledgerTypeMap: Record<string, string> = {
-    stock: "股票账户",
-    fund: "基金账户",
-    cash: "现金账户",
-    general: "综合账户",
-    family: "家庭账户"
-  };
 
   const formatGuides = reactive({
     standard_stock: {
@@ -1093,42 +1068,11 @@ export function useImportWizard() {
   const filteredTotal = computed(() => filteredMergedData.value.length);
 
   // ── 辅助函数 ──
-  function getTemplateKeyForLedger(ledger: LedgerItem | null): string {
-    if (!ledger) return "";
-    switch (ledger.ledger_type) {
-      case "stock":
-        return "standard_stock";
-      case "fund":
-      case "cash":
-        return "standard_fund";
-      default:
-        return "";
-    }
-  }
-
   const lockedTemplateKey = computed(() =>
     getTemplateKeyForLedger(
       ledgers.value.find(l => l.id === selectedLedgerId.value) || null
     )
   );
-
-  function formatFileSize(bytes: number): string {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-  }
-
-  function getFundTypeColor(typeName: string): string {
-    return fundTypeColorMap[typeName] || "var(--palette-stone-gray)";
-  }
-
-  function getTypeColor(type: string): string {
-    return typeColorMap[type] || "var(--palette-stone-gray)";
-  }
-
-  function addRowKeys(data: any[]) {
-    return data.map((item, idx) => ({ ...item, _rowKey: `row_${idx}` }));
-  }
 
   function isRowSelected(row: any): boolean {
     return selectedKeys.value.has(row._rowKey);
@@ -2298,63 +2242,6 @@ export function useImportWizard() {
     previewData.value = [...previewData.value]; // 新增
   }
 
-  function getRowClassName({ row }: { row: any }) {
-    if (row.is_duplicate) return "row-duplicate";
-    if (row.error || isRowBlocked(row)) return "row-blocked";
-    return "";
-  }
-
-  function getCellClassName({ row, column }: { row: any; column: any }) {
-    const prop = column.property;
-    if (
-      prop === "quantity" &&
-      isRowBlocked(row) &&
-      !row.is_duplicate &&
-      !row.error
-    )
-      return "cell-blocked";
-    if (
-      prop === "price" &&
-      isRowBlocked(row) &&
-      !row.is_duplicate &&
-      !row.error
-    )
-      return "cell-blocked";
-    // cell-missing 随手续费列退场改挂金额列（#1790 列收敛，理由见 #1790 取舍说明）
-    if (prop === "amount" && isMissingAmount(row)) return "cell-missing";
-    // 差额被手续费解释：金额列给淡黄底提示。列收敛（#1790）下不新增手续费列，
-    // 解释线索改由金额列底色 + 该格 tooltip 承载（见 PreviewTable 的 amount slot）。
-    if (prop === "amount" && isFeeExplained(row)) return "cell-fee";
-    return "";
-  }
-
-  function getCategoryDesc(key: string): string {
-    const map: Record<string, string> = {
-      error: "解析错误，无法在面板内修正",
-      missingCode: "系统无法识别以下证券代码",
-      missingQtyPrice: "数量或价格缺失",
-      mismatch: "金额与数量×价格不符，且差额超过手续费"
-    };
-    return map[key] || "";
-  }
-
-  /**
-   * 分区条数 tag 的颜色档：按**问题性质**定档，不比条数。
-   *
-   * 旧实现按条数分档（>200 danger / >50 warning / >10 info / 其余 success），于是
-   * 「代码未匹配 5 条」被染成 success 绿——把「有问题、需处理」显示成「通过」。
-   * 条数只说明规模，不说明性质；5 条匹配失败和 500 条一样不可导入。
-   *
-   * 现口径与状态列三态同源：阻断（不可导入）= danger，可导入但需留意 = warning。
-   */
-  function getCategoryTagType(
-    key: string
-  ): "danger" | "warning" | "success" | "info" {
-    if (key === "error" || key === "missingQtyPrice") return "danger";
-    if (key === "missingCode" || key === "mismatch") return "warning";
-    return "info";
-  }
-
   function isCategoryActive(key: string): boolean {
     if (key === "missingCode")
       return activeCategoryFilter.value === "missingCode";
@@ -2895,6 +2782,7 @@ export function useImportWizard() {
     onAiRowsFound,
     fetchAndFillFundNav,
     confirmAllCalculated,
+    // #2876 增量 2：展示/格式化 helper 已下沉到 ./importPresentation，以下名字继续经返回值导出，组件与 spec 零感知。
     getTemplateKeyForLedger,
     isRowBlocked,
     // 共谓词（#1791）：卡片计数 / 分区 / 表格过滤 / 回归测试共用同一判据
