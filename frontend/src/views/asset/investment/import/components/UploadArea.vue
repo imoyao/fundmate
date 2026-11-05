@@ -7,8 +7,6 @@ const {
   uploadAccept,
   beforeUpload,
   handleUpload,
-  isDragover,
-  uploading,
   handleUploadClick,
   isStandardMode,
   formatName,
@@ -27,24 +25,19 @@ const {
       :show-file-list="false"
       drag
       :disabled="!selectedLedgerId || parsing"
-      :class="['golden-upload', { 'is-dragover': isDragover }]"
+      class="golden-upload"
     >
       <template #default>
-        <IconifyIconOffline
-          icon="lucide:cloud-upload"
-          class="upload-icon"
-          :class="{ 'icon-active': isDragover }"
-        />
+        <IconifyIconOffline icon="lucide:cloud-upload" class="upload-icon" />
         <p class="upload-text">将文件拖到此处，或</p>
         <el-button
           plain
           size="default"
           class="upload-btn"
-          :disabled="!selectedLedgerId || uploading"
-          :loading="uploading"
+          :disabled="!selectedLedgerId"
           @click="handleUploadClick"
         >
-          {{ uploading ? "正在上传..." : "点击上传" }}
+          点击上传
         </el-button>
         <p class="upload-hint">
           {{
@@ -111,16 +104,12 @@ const {
   border-color: var(--border-default);
 }
 
-.golden-upload.is-dragover {
-  background: var(--brand-100);
-  border: 1px dashed var(--brand-400);
-  box-shadow: var(--shadow-raised);
-}
-
-.golden-upload.is-dragover .upload-icon {
-  color: var(--brand-700);
-  transform: scale(1.1);
-}
+/* 拖拽高亮走 Element Plus 自带的 `.el-upload-dragger.is-dragover`
+   （背景 `--el-color-primary-light-9` = `--brand-100`，`2px dashed --el-color-primary` = `--brand-700`，
+   映射见 src/style/theme.scss:157-162），无需本组件再写一条。
+   #2904 之前这里有两级规则打在根节点 `.golden-upload` 上，而 Element Plus 把 `.is-dragover`
+   挂在子元素 `.el-upload-dragger` 上 ⇒ 从未命中；配套的 `isDragover` ref 也从没被写过。
+   两者一并删除，删前后渲染无差异（元素与计算样式逐项比对过）。 */
 
 .upload-icon {
   margin-bottom: 16px;
