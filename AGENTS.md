@@ -402,6 +402,11 @@ job 名与 stage 名都要写（后者是查询锚点）。
   判据边界与回退探针见脚本 docstring 与 `scripts/tests/test_guard_service_size.py`。
   为什么非设不可：#2873 把 `position_service.py`（当时 2468 行）拆成多个单一职责模块，根因是**没有机器化的体量闸门**，
   业务规则持续堆进同一文件直到谁都不敢动；视图层已有 `scripts/check_view_thickness.py` 同款范式，services 层补上对称的一道。
+- **导入预览的「金额 ÷ 份额 补单价」只有一份实现**：判据在
+  `frontend/src/views/asset/investment/import/composables/smartFillPrice.ts`，由 AI/OCR 与文件上传两条通道
+  共用；禁止在调用点手抄计算式或另打 `smartFilled` 标记。判据 `scripts/guard_smart_fill_parity.mjs`
+  （并入 `ci.yml` 的 frontend job，阻断）——同一条规则曾两处各写一份，且文件通道把 `!isRowBlocked`
+  当门禁、方向正好写反（该补的普通成交行一个没补，不该补的税额 / 兑付 / 分红行全补了）。
 - **前端 Supabase 环境隔离**：`frontend/.env.development`（本地、不入库）与 `frontend/.env.production`（入库）
   **不得**指向同一个 Supabase 项目——开发期注册的测试账号会直接写进**生产** Auth 用户表，
   且当时没有任何报错。两条判据各管一半、互不重叠：
