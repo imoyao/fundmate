@@ -1382,16 +1382,31 @@ export function useImportWizard() {
 
       const warning = (res as any).compatibility_warning;
       if (warning) {
-        await ElMessageBox.confirm(warning, "文件格式提醒", {
-          confirmButtonText: "继续导入",
-          cancelButtonText: "返回重选",
-          type: "warning"
-        })
-          .then(() => (currentStep.value = 2))
-          .catch(() => {
-            parsing.value = false;
-            return;
+        let confirmed = false;
+        try {
+          await ElMessageBox.confirm(warning, "文件格式提醒", {
+            confirmButtonText: "继续导入",
+            cancelButtonText: "返回重选",
+            type: "warning"
           });
+          confirmed = true;
+        } catch {
+          // 用户点「返回重选」：交给下面的放弃分支，不在这里 return
+        }
+        if (!confirmed) {
+          // #2901「返回重选」= 放弃本次导入。旧写法在 .catch 回调里 return，
+          // 只退出回调、退不出 handleUpload，于是照样落草稿并向上报成功。
+          // clearImportState() 会清空 previewData，使 hasUnsavedDraftWork 判假，
+          // 避免 30s 自动保存（2714-2728）把这份被放弃的草稿又写回去。
+          clearImportState();
+          // totalRows 不在 clearImportState 的重置清单里（它的另外 3 个调用点
+          // :1612/:1620/:1629 各自语义不同，本卡不扩大到那里），
+          // 这里单独归零，避免「已放弃的解析」留下一个行数残值。
+          totalRows.value = 0;
+          options.onError?.(new Error("用户取消导入") as any);
+          return;
+        }
+        currentStep.value = 2;
       } else {
         ElMessage.success(`解析完成，共识别 ${totalRows.value} 条记录`);
         currentStep.value = 2;
