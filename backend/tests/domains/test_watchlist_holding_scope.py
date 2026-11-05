@@ -10,8 +10,11 @@
 把 4 行全算进 `holding_quantity` / `position_market_value` / `holding_cost_price`。
 
 本文件把两条取数路径（批量 ctx / 无 ctx 兜底）都钉在 `active` 口径上。
-夹具刻意让 `cleared` 行也带非零份额，避免实现靠「份额为 0」蒙混过关——
-排除依据必须是 `ownership_status`，不是 quantity。
+
+判别力由 `_SHADOW` 承担，不是 `cleared`：清仓带非零份额已被库级 CHECK
+（`ck_positions_cleared_zero_qty`，源 #2875）禁止，再也造不出来。而 `_SHADOW`
+两行都带非零份额且必须被排除——把过滤条件写成 `quantity > 0` 的实现，
+会在这里把 shadow 份额算进去，照样被抓。
 """
 
 import pytest

@@ -1671,11 +1671,21 @@ _POSITION_STATE_CHECKS = (
         'ck_positions_cleared_zero_qty',
         "ownership_status <> 'cleared' OR quantity = 0",
     ),
+    (
+        'ck_positions_anchor_qty_needs_date',
+        'snapshot_quantity IS NULL OR snapshot_date IS NOT NULL',
+    ),
 )
 
 #: 每条 CHECK 对应的「存量违反行」判定 SQL（用于迁移前 fail-closed 自检）。
 #: 与 CHECK 表达式是**否定关系**：CHECK 为假的行，这里的条件为真。
-_POSITION_STATE_VIOLATIONS = (('cleared 但仍有份额', "ownership_status = 'cleared' AND quantity <> 0"),)
+_POSITION_STATE_VIOLATIONS = (
+    ('cleared 但仍有份额', "ownership_status = 'cleared' AND quantity <> 0"),
+    (
+        '锚点有份额却无日期',
+        'snapshot_quantity IS NOT NULL AND snapshot_date IS NULL',
+    ),
+)
 
 
 def _positions_state_violation_report(engine: Engine):
@@ -1728,7 +1738,25 @@ def _sqlite_add_check_constraints(engine: Engine, new_checks) -> str:
         head, sep, tail = ddl.rpartition(')')
         if not sep:
             raise RuntimeError(f'positions 建表 DDL 形态异常，无法插入 CHECK 约束：\n{ddl}')
-        new_ddl = f'{head}{checks_sql}{sep}{tail}'.replace('CREATE TABLE positions', 'CREATE TABLE positions_new', 1)
+        new_ddl = f'{head}{checks_sql}{sep}{tail}'
+        # 改表名**必须容忍引号**：本迁移自己上一次跑完会 `ALTER TABLE positions_new
+        # RENAME TO positions`，而 SQLite 会把 sqlite_master 里的 DDL 重写成带引号形式
+        # （`CREATE TABLE "positions"`）。用字面量 `str.replace('CREATE TABLE positions')`
+        # 会静默不命中 ⇒ 新 DDL 仍在建 `positions` ⇒ 第二次加约束必然报
+        # `table "positions" already exists` 而启动全废（2026-11-05 实测踩中）。
+        # 判据与同文件 `_remove_not_null_sqlite` 同法（`CREATE TABLE\s+"?<表名>"?`），
+        # 另用 `(?=\s*\()` 前瞻钉住「表名 + 左括号」，避免误改 `positions_new` 这类前缀相同的名字。
+        new_ddl = re.sub(
+            r'CREATE\s+TABLE\s+(?:"positions"|\[positions\]|`positions`|positions)(?=\s*\()',
+            'CREATE TABLE positions_new',
+            new_ddl,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if not re.search(r'CREATE\s+TABLE\s+positions_new\s*\(', new_ddl, re.IGNORECASE):
+            # 拼装失败必须当场红：否则就是「又建一张 positions」，SQLite 报 already exists，
+            # 报错指向 SQL 而不指向「改名没命中」，排查方向全错。
+            raise RuntimeError(f'positions 重建 DDL 拼装失败（表名未改写）：\n{ddl}')
 
         cols = ', '.join(c['name'] for c in inspect(engine).get_columns('positions'))
         fk_state = conn.execute(text('PRAGMA foreign_keys')).scalar()
@@ -1794,7 +1822,7 @@ def migrate_positions_state_check_constraints(engine: Engine) -> str:
 
     ## 治什么
 
-    「清仓态零份额」这条不变量，
+    「清仓态零份额」与「锚点有份额必须有日期」这两条不变量，
     此前只由 `position_service.py` 的 `_mark_position_cleared` /
     `_reactivate_cleared_position` **单点**维持：导入、重建、数据修复脚本
     任一写路径只改其中一半，库就会停在「cleared 但还有份额」这种自相矛盾态，
@@ -1803,22 +1831,30 @@ def migrate_positions_state_check_constraints(engine: Engine) -> str:
     这正是 #2875 说的「约束散落在服务里，跨写路径无法保证一致」——收敛成库级约束后，
     错误在写入那一刻就报 `IntegrityError`，不再等对账工作台几周后才发现。
 
-    ## 为什么只有一条
+    ## 为什么是两条、以及锚点为什么是**方向式**
 
-    另外两条看起来同样「显然」的候选，被全套测试证伪（首轮 CI 9 例转红）：
+    「`cleared` 必须有 `cleared_at`」**不列**：`migrate_positions_cleared_at` 明确把
+    该列 NULL 定义为「无已知清仓时间」，旧库允许这个形态。升成硬约束会让这类库
+    **拒绝启动且无法自动修复**，收益抵不上一次启动失败。
 
-    - 「`cleared` 必须有 `cleared_at`」：`migrate_positions_cleared_at` 明确把该列
-      NULL 定义为「无已知清仓时间」，旧库允许这个形态。升成硬约束会让这类库
-      **拒绝启动且无法自动修复**。
-    - 「锚点两列同空同非空」：`migrate_positions_snapshot_anchor` 的官方升级路径
-      就是「回填 `snapshot_date`、份额列留 NULL」（历史份额已丢），
-      `repair_snapshot_double_count` 也把 `snapshot_quantity IS NULL` 当作修复入口。
-      半残锚点是**受支持的降级态**（`compute_anchored_state` 见 NULL 即走全量流水），
-      不是脏数据；加成约束会挡住升级与修复本身。
+    锚点那条**只能写成方向式**（有份额就必须有日期），不能写成「两列同空同非空」：
 
-    两条都有对应用例（`test_cleared缺清仓时间不被拦` /
-    `test_半残锚点不被拦`）守着——它们红的那天，就是「旧库/修复工具怎么办」
-    需要重新拍板的那天。
+    - `migrate_positions_snapshot_anchor` 的官方升级路径就是「回填 `snapshot_date`、
+      份额列保持 NULL」（历史份额已丢，盲猜会把一半账户改坏）；
+    - `repair_snapshot_double_count.apply_freeze` 服务的正是「有快照日、无锚点」的行。
+
+    对称式会同时挡住升级和修复工具，而本迁移违反时 **fail closed**——任何跑过
+    `migrate_positions_snapshot_anchor` 的真实库，下次启动都会被这条约束拦死。
+    反向（有份额、无日期）**必须**禁：`_is_covered_by_anchor` 见 `snapshot_date` 为
+    None 恒返回 False，锚点被静默忽略、重算退回全量流水口径，正是 #1968 / #2382
+    那类「份额重复累加」的复发形态。
+
+    `snapshot_avg_price` / `anchor_kind` 不进约束：迁移产物里它们同样可能是 NULL，
+    写进约束会重蹈对称式的覆辙。
+
+    两条各有用例守着：`test_cleared缺清仓时间不被拦`（证明没多拦）、
+    `test_迁移产物_有快照日无份额_不阻断启动且可写`（证明没误伤升级路径）、
+    `test_锚点有份额无日期_存量违反时fail_closed`（证明方向没有放反）。
 
     ## 为什么现在加是安全的
 

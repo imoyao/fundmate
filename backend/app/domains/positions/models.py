@@ -257,14 +257,22 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
             "ownership_status <> 'cleared' OR quantity = 0",
             name='ck_positions_cleared_zero_qty',
         ),
-        # 注：两条**刻意不加**的候选，都由全套测试证伪（2026-11-05，PR #2907 首轮 CI）：
-        # - `cleared_at IS NOT NULL`：`migrate_positions_cleared_at` 把该列 NULL 定义为
-        #   「无已知清仓时间」，旧库允许该形态，加了会让这类库拒绝启动且无法自动修复；
-        # - 锚点两列「同空同非空」：`migrate_positions_snapshot_anchor` 的官方升级路径
-        #   就是「回填 `snapshot_date`、份额列留 NULL」（历史份额已丢），
-        #   `repair_snapshot_double_count` 也以 `snapshot_quantity IS NULL` 为修复入口。
-        #   半残锚点因此是**受支持的降级态**（`compute_anchored_state` 见 NULL 走全量
-        #   流水），不是脏数据。把它升成约束会挡住升级路径与修复工具本身。
+        # 注：`cleared_at IS NOT NULL` **刻意不加**：`migrate_positions_cleared_at` 把该列
+        # NULL 定义为「无已知清仓时间」，旧库允许该形态，加了会让这类库拒绝启动且无法
+        # 自动修复（2026-11-05，PR #2907 首轮 CI 已证伪一次）。
+        # 锚点方向式约束：**有份额就必须有日期**，反向不要求。
+        #    「有日期、无份额」是合法常态——`migrate_positions_snapshot_anchor` 只回填
+        #    snapshot_date + anchor_kind、份额列刻意保持 NULL（历史快照份额已丢失，盲猜
+        #    会把一半账户改坏）；`repair_snapshot_double_count.apply_freeze` 服务的正是
+        #    这类「有快照日、无锚点」的行。若要求对称，这两条路径都会被库层拒绝。
+        #    反之「有份额、无日期」必须禁：`_is_covered_by_anchor` 遇到 snapshot_date
+        #    为 None 会恒返回 False，锚点被静默忽略、重算退回全量流水口径，正是
+        #    #1968 / #2382 那类份额重复累加的复发形态。
+        #    `snapshot_avg_price` / `anchor_kind` 不进约束：迁移产物里它们也可能是 NULL。
+        CheckConstraint(
+            "snapshot_quantity IS NULL OR snapshot_date IS NOT NULL",
+            name='ck_positions_anchor_qty_needs_date',
+        ),
     )
 
 

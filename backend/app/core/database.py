@@ -646,8 +646,8 @@ def init_db():
     # positions.cleared_at（#2343）：清仓不再删行，需要「何时清仓」作为周期下界。
     # 只加列不回填（历史清仓行已被删除，无可靠数据源），同上须先于结构校验。
     migrate_positions_cleared_at(user_eng)
-    # positions 状态一致性 CHECK（#2875 切片 A）：cleared⇒零份额/有清仓时间、锚点四列
-    # 同空同非空。必须排在 cleared_at 之后（约束引用该列）；存量 0 违反，只加结构不改数据。
+    # positions 状态一致性 CHECK（#2875 切片 A）：cleared⇒零份额、锚点有份额必须有日期。
+    # 必须排在 cleared_at 之后（约束引用该列）；存量 0 违反，只加结构不改数据。
     migrate_positions_state_check_constraints(user_eng)
     # positions / transactions 的 account_name 冗余快照空值回填：基金转换「转入腿」
     # 只传 ledger_id 漏传 account_name，存量行会留 NULL（按账户分组时 jsonify 崩）。
