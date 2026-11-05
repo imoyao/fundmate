@@ -818,6 +818,16 @@ cd backend && pdm run pytest tests/test_company_resolver.py \
   tests/test_eastmoney_adapter.py -p no:xdist -q
 ```
 
+### 2026-11-05 持久化无 Alembic（#2874，需决策）
+
+现状：仓库采用 `create_all` + `backend/app/core/migrations.py`（2663 行、34 个 `migrate_*(engine)` 幂等函数，SQLite 走整表重建、PG 走 ALTER 分支）+ `database.py::_validate_schema` 拒绝带病启动，无 Alembic（依赖/配置/代码全 0 命中）。`backend/scripts/` 下 42 个 `migrate_*` + 24 个 `fix_/clean_/dedupe_/purge_/backfill_/repair_*` 共 66 个一次性脚本（全仓 `.py` 81 个）。
+
+评估（#2874 架构体检提议引入 Alembic）：技术可行但属架构改造，须先解决双引擎方言（生产 market=Turso/libSQL、user=Supabase PG、本地 SQLite）、CI 无真 PG 验证、启动期 `init_db` 语义重定、本地库无 `alembic_version` 基线、Supabase 用户域 DDL 归属口径矛盾。79 个脚本多为存量数据修复/口径收编，Alembic 只管 DDL 版本链，真正根因在 #2875（库级约束/写路径不变量）。项目单实例、无 downgrade/多部署/多人并行改 schema 需求，数据安全已被幂等 + 拒绝启动 + 漂移校验 + `guard_migrations_pg_aware.py` 守卫 + 17 个迁移测试覆盖。2026-08-01 代码审计曾建议 Phase 4 建 Alembic 但未落地，仓库后续明确选自建迁移并持续投入。
+
+裁决：**暂不引入 Alembic**（对应 `decisions.md` D81）。低风险改进（不换框架）：① `migrations.py` 按域拆模块 + 显式有序注册表，消除 `init_db`/`init_db_split` 两串硬编码重复；② CI 加真 Postgres service，守卫扩为「新迁移必须带双引擎测试」；③ 一次性脚本归档分类，能追因的并入 #2875。
+
+触发重评条件：多实例/多部署各自升级、需要 downgrade、对外分发带版本快照、CI 具备真 PG、多人并行改 schema。
+
 ## 2026-09-19 错误响应统一信封（#1610，D27）：63 处已补齐 + 守卫上线
 
 ### 已完成
