@@ -203,7 +203,11 @@ def test_bank_wealth_rejects_nav_mode(db):
 
 
 def test_bank_wealth_accepts_balance_mode(db):
-    """balance 模式下应能正常建仓，并把市值落到 market_value_override。"""
+    """balance 模式下应能正常建仓，并把市值落到 market_value_override。
+
+    #2875：data 必须带 ledger_id——前端真实路径总带账本，此前夹具漏传会静默
+    落成「无账本持仓 + 无账本流水」，现在被写入守卫拦截。
+    """
     pos = PositionService.process_buy_or_deposit(
         db,
         {
@@ -213,6 +217,7 @@ def test_bank_wealth_accepts_balance_mode(db):
             'amount': 100000.0,
             'valuation_mode': 'balance',
             'family_id': 1,
+            'ledger_id': 1,
             'trade_date': date(2026, 11, 3),
             'confirm_date': date(2026, 11, 3),
         },

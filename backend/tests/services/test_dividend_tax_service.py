@@ -375,6 +375,36 @@ class TestRecordTax:
         db.commit()
         assert scan_pending_tax(db, 1, today=TODAY) == []
 
+    def test_no_position_inherits_ledger_from_last_dividend(self, db, make_transaction):
+        """#2875：无持仓补税 ⇒ 账本归属从最近一笔同标的分红流水继承。
+
+        红利税是分红的减项，语义上本来就属于那次分红的账本；此前这里落
+        ledger_id=NULL（真实库 26 笔「不进任何账本」的税行的另一个源头）。
+        """
+        make_transaction(
+            position_id=None,
+            ledger_id=7,
+            txn_type='dividend',
+            quantity=0,
+            price=0,
+            amount=500.0,
+            confirm_date=date(2026, 6, 20),
+            symbol='600519',
+            account_name='银河账户',
+            asset_type='stock',
+        )
+        txn = record_tax(db, 1, symbol='600519', amount_cents=10000, tax_on=date(2026, 6, 25))
+        db.commit()
+        assert txn.ledger_id == 7
+        assert txn.account_name == '银河账户'
+        assert txn.asset_type == 'stock'
+        assert txn.entry_status == 'orphan'
+
+    def test_no_position_no_dividend_is_rejected(self, db):
+        """#2875：无持仓也无历史分红 ⇒ 无法定位账本，拒绝而不是落 NULL 行。"""
+        with pytest.raises(ValueError, match='无法定位账本'):
+            record_tax(db, 1, symbol='999999', amount_cents=100, tax_on=date(2026, 6, 25))
+
 
 class TestApiEndpoint:
     """`/api/reconciliation/dividend-tax/` 的端到端形态。

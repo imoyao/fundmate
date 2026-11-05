@@ -3,8 +3,7 @@
 
 职责：预览行 → 记录重建 → commit（SAVEPOINT 单条事务、现金/转账/常规分支）→
 元数据回填触发。与解析（orchestrator_parse.ParsingMixin）、持仓对账
-（orchestrator_holdings.HoldingsMixin）经 ImportOrchestrator 组合复用；
-方法体自原 orchestrator.py 逐字搬运，逻辑零改动。
+（orchestrator_holdings.HoldingsMixin）经 ImportOrchestrator 组合复用。
 """
 
 from datetime import date, datetime
@@ -17,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
+from app.domains.transactions import ledger_guard
 from app.domains.transactions.models import Transaction
 from app.services import async_backfill
 from app.services.import_records import StandardTransactionRecord
@@ -377,6 +377,9 @@ class CommitMixin:
 
                     # ---- 常规投资品种 ----
                     data = self._build_import_data(record)
+                    if not data.get('ledger_id'):
+                        commit_errors.append(ledger_guard.missing_ledger_error(record))
+                        continue
                     bt = record.business_type
 
                     # 基本校验
@@ -386,15 +389,11 @@ class CommitMixin:
                         BusinessType.SELL.code,
                         BusinessType.WITHDRAW.code,
                     ):
-                        if data.get('quantity', 0) <= 0:
-                            commit_errors.append(
-                                {'symbol': record.symbol, 'name': record.name, 'error': '数量必须大于 0'}
-                            )
-                            continue
-                        if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code) and data.get('avg_price', 0) <= 0:
-                            commit_errors.append(
-                                {'symbol': record.symbol, 'name': record.name, 'error': '价格必须大于 0'}
-                            )
+                        err = ledger_guard.regular_field_error(
+                            data, bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code)
+                        )
+                        if err:
+                            commit_errors.append(ledger_guard.commit_error(record, err))
                             continue
 
                     # 特殊操作：扣税
@@ -415,6 +414,7 @@ class CommitMixin:
                             status='success',
                             position_name=data.get('name', data['symbol']),
                             account_name=data.get('account_name', ''),
+                            ledger_id=data.get('ledger_id'),
                             notes=data.get('notes') or '股息红利扣税',
                             import_hash=data.get('import_hash'),
                             entry_status='orphan',
@@ -476,7 +476,7 @@ class CommitMixin:
             except Exception as e:
                 # 普通异常：savepoint 已回滚该条部分写入，仅记错误继续（B3 修复，2026-08-17）
                 logger.exception(f'入库单条记录失败: symbol={record.symbol}, business_type={record.business_type}')
-                commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': str(e)})
+                commit_errors.append(ledger_guard.commit_error(record, e))
 
         self._safe_commit()
         # #541：导入完成是「用户刚刚面对过交割单」的时刻，也是红利税提醒最该出现的时刻
