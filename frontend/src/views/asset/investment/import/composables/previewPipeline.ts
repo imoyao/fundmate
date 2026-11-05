@@ -288,3 +288,97 @@ export function countSelectedTransfers(
   });
   return n;
 }
+
+/**
+ * 表格行过滤的入参快照（#2876 增量 4b）。
+ *
+ * 五个键一一对应组合式里的五个 ref。抽成显式入参后，过滤函数不再读任何
+ * Vue 运行时状态——它和本模块其余函数一样，单测直接喂行对象即可，不必
+ * 起 hook、不必 mock 五个 ref。类型故意写成宽泛的 `string` 而不是字面量
+ * 联合：旧键的清理历史见 applyRowFilters 的 JSDoc，键集合历史上就变过，
+ * 收窄类型只会把「后端多塞一个状态键」变成编译错误而不是分支自然处理。
+ */
+export interface RowFilterState {
+  /** 概览卡状态键：`""` | `blocked` | `complete` | `duplicate` | `fix` */
+  tableStatusFilter: string;
+  /** 子分类胶囊：`""` | `missingCode` | `mismatch` | `error` */
+  activeCategoryFilter: string;
+  showProblemOnly: boolean;
+  tableFilterKeyword: string;
+  tableTypeFilter: string[];
+}
+
+/**
+ * 表格行过滤（状态 + 子分类 + 问题开关 + 关键词 + 类型）。
+ * #1791 起分页数据与总条数共用本函数——此前是两处 90 行近重复实现，新增过滤键
+ * 只改一边就会出现「分页显示与底部总条数对不上」的漂移。
+ * 旧键 normal / problem / error 是 SummaryStats 胶囊 Tab 的写入值，胶囊已随本卡
+ * 删除（#1791 要做的事 7：两套分类法合并），死分支一并移除。
+ *
+ * **无过滤键命中时返回入参同一引用**（`list` 从 `base` 出发、命中才重新赋值），
+ * 调用方不要依赖这一点的副本语义，也不要在这里补 `.slice()`——它是历史行为，
+ * #2876 增量 4b 只搬家不修行为。
+ */
+export function applyRowFilters(base: any[], f: RowFilterState): any[] {
+  let list = base;
+  const status = f.tableStatusFilter;
+  if (status === "blocked")
+    list = list.filter(
+      row =>
+        isRowBlocked(row) &&
+        !row.is_duplicate &&
+        !row.error &&
+        !row.is_cash_transfer
+    );
+  else if (status === "complete" || status === "duplicate" || status === "fix")
+    // 三卡片状态键：与卡片计数同谓词（categorizeRow）
+    list = list.filter(row => categorizeRow(row) === status);
+
+  if (f.activeCategoryFilter === "missingCode")
+    list = list.filter(
+      row =>
+        isMissingCode(row) &&
+        !row.is_duplicate &&
+        !row.error &&
+        !row.is_cash_transfer
+    );
+  else if (f.activeCategoryFilter === "mismatch")
+    list = list.filter(row => {
+      if (row.is_duplicate || row.error || row.is_cash_transfer) return false;
+      return isAmountMismatch(row);
+    });
+  else if (f.activeCategoryFilter === "error")
+    list = list.filter(
+      row => !!row.error && !row.is_duplicate && !row.is_cash_transfer
+    );
+
+  if (f.showProblemOnly)
+    list = list.filter(row => {
+      // 与概览条三卡同谓词（`categorizeRow`）。这里曾经手写了一份
+      // 「缺字段 || 解析错误 || 重复 || 编辑中」，漏掉「代码未匹配」和
+      // 「金额对不上」——于是卡片说「需要修正 1 条」，切到只看问题数据
+      // 却是「暂无数据」（#2836 实测）。
+      const cat = categorizeRow(row);
+      if (cat === "fix") return true;
+      if (cat === "duplicate")
+        return !(row.is_duplicate && row._duplicateHandled);
+      // 就地编辑中的行即使已经改好也要留在原地，否则一按键整行就消失
+      return Boolean(
+        row.isEditingQty ||
+        row.isEditingPrice ||
+        row.isEditingAmount ||
+        row.isEditingFee
+      );
+    });
+  if (f.tableFilterKeyword) {
+    const kw = f.tableFilterKeyword.toLowerCase();
+    list = list.filter(
+      row =>
+        String(row.symbol).toLowerCase().includes(kw) ||
+        String(row.name).toLowerCase().includes(kw)
+    );
+  }
+  if (f.tableTypeFilter.length > 0)
+    list = list.filter(row => f.tableTypeFilter.includes(row.type));
+  return list;
+}

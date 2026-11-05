@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyRowFilters,
   bucketFixSections,
   countBlockedRows,
   countByCategory,
@@ -416,5 +417,177 @@ describe("countBlockedRows / countSelectedTransfers / countCompleteTransfers", (
     ];
 
     expect(countCompleteTransfers(rows)).toBe(1);
+  });
+});
+
+describe("applyRowFilters：五键过滤管线（#2876 增量 4b）", () => {
+  /** 全空过滤器 = 「无任何过滤键命中」，调参方便 */
+  const NO_FILTER = {
+    tableStatusFilter: "",
+    activeCategoryFilter: "",
+    showProblemOnly: false,
+    tableFilterKeyword: "",
+    tableTypeFilter: []
+  };
+  const f = (over: Partial<typeof NO_FILTER> = {}) => ({
+    ...NO_FILTER,
+    ...over
+  });
+
+  /** 待补全行（isRowBlocked 命中：qty=0 且不在豁免清单） */
+  const blockedRow = (over: Record<string, any> = {}) =>
+    baseRow({ quantity: 0, price: 0, amount: 0, ...over });
+  /** 金额对不上的行：|100×10 − 500| = 500，fee=0 解释不掉 → mismatch */
+  const mismatchRow = (over: Record<string, any> = {}) =>
+    baseRow({ amount: 500, ...over });
+  /** 代码未匹配的行 */
+  const noCodeRow = (over: Record<string, any> = {}) =>
+    baseRow({ symbol: "", ...over });
+  const healthyRow = (over: Record<string, any> = {}) => baseRow(over);
+
+  it("status=blocked：只留「待补全且不是重复/错误/转账」的行", () => {
+    const rows = [
+      blockedRow(),
+      blockedRow({ is_duplicate: true }),
+      blockedRow({ error: "解析失败" }),
+      blockedRow({ is_cash_transfer: true }),
+      healthyRow()
+    ];
+    const out = applyRowFilters(rows, f({ tableStatusFilter: "blocked" }));
+    expect(out.map(r => r._rowKey)).toEqual([rows[0]._rowKey]);
+  });
+
+  it("status=complete/duplicate/fix：三卡状态键与 categorizeRow 同谓词", () => {
+    const rows = [healthyRow(), baseRow({ is_duplicate: true }), noCodeRow()];
+    const pick = (status: string) =>
+      applyRowFilters(rows, f({ tableStatusFilter: status })).length;
+
+    expect(pick("complete")).toBe(1);
+    expect(pick("duplicate")).toBe(1);
+    expect(pick("fix")).toBe(1);
+  });
+
+  it("status=空串：不做状态过滤（死键 normal/problem 已随胶囊移除）", () => {
+    const rows = [healthyRow(), blockedRow()];
+    expect(applyRowFilters(rows, f()).length).toBe(2);
+    // 未知的旧键也不该命中任何分支（不会误伤成全空）
+    expect(
+      applyRowFilters(rows, f({ tableStatusFilter: "normal" })).length
+    ).toBe(2);
+  });
+
+  it("activeCategoryFilter=missingCode：缺代码且不沾重复/错误/转账；cash 类天然放行", () => {
+    const rows = [
+      noCodeRow(),
+      noCodeRow({ is_duplicate: true }),
+      noCodeRow({ error: "解析失败" }),
+      noCodeRow({ is_cash_transfer: true }),
+      baseRow({ type: "cash", symbol: "" }), // 现金类不写 symbol 是常态，不是缺代码
+      healthyRow()
+    ];
+    const out = applyRowFilters(
+      rows,
+      f({ activeCategoryFilter: "missingCode" })
+    );
+    expect(out.map(r => r._rowKey)).toEqual([rows[0]._rowKey]);
+  });
+
+  it("activeCategoryFilter=mismatch：金额差超出手续费解释范围的行", () => {
+    const rows = [
+      mismatchRow(),
+      healthyRow(), // 差额 0，不命中
+      baseRow({ amount: 1050, fee: 50 }), // 差 50 被 fee 解释 → 不命中
+      mismatchRow({ is_duplicate: true }),
+      mismatchRow({ error: "解析失败" }),
+      mismatchRow({ is_cash_transfer: true })
+    ];
+    const out = applyRowFilters(rows, f({ activeCategoryFilter: "mismatch" }));
+    expect(out.map(r => r._rowKey)).toEqual([rows[0]._rowKey]);
+  });
+
+  it("activeCategoryFilter=error：有解析错误且不沾重复/转账", () => {
+    const rows = [
+      baseRow({ error: "解析失败" }),
+      baseRow({ error: "解析失败", is_duplicate: true }),
+      baseRow({ error: "解析失败", is_cash_transfer: true }),
+      healthyRow()
+    ];
+    const out = applyRowFilters(rows, f({ activeCategoryFilter: "error" }));
+    expect(out.map(r => r._rowKey)).toEqual([rows[0]._rowKey]);
+  });
+
+  it("showProblemOnly：fix 全留、未处理重复留、已处理重复丢、编辑中行留下（#2836 教训）", () => {
+    const rows = [
+      noCodeRow(), // fix（missingCode）
+      mismatchRow(), // fix（mismatch）
+      blockedRow(), // fix（缺数量价格）
+      baseRow({ error: "解析失败" }), // fix（error）
+      baseRow({ is_duplicate: true }), // 未处理重复 → 留
+      baseRow({ is_duplicate: true, _duplicateHandled: true }), // 已处理 → 丢
+      healthyRow({ isEditingQty: true }), // 编辑中，即使数据已好也留原地
+      healthyRow() // 干净且不在编辑 → 丢
+    ];
+    const out = applyRowFilters(rows, f({ showProblemOnly: true }));
+    expect(out.map(r => r._rowKey)).toEqual([
+      rows[0]._rowKey,
+      rows[1]._rowKey,
+      rows[2]._rowKey,
+      rows[3]._rowKey,
+      rows[4]._rowKey,
+      rows[6]._rowKey
+    ]);
+  });
+
+  it("showProblemOnly 的 fix 判据走 categorizeRow，不再手写「缺字段||错误||重复」副本", () => {
+    // #2836 的原始事故：手写副本漏掉「代码未匹配」——这里钉住它必须被留下
+    const rows = [noCodeRow(), healthyRow()];
+    const out = applyRowFilters(rows, f({ showProblemOnly: true }));
+    expect(out.map(r => r._rowKey)).toEqual([rows[0]._rowKey]);
+  });
+
+  it("关键词：symbol 或 name 不分大小写命中", () => {
+    const rows = [
+      healthyRow(), // 002311 / 海大集团
+      baseRow({ symbol: "600000", name: "浦发银行" }),
+      baseRow({ symbol: "", name: "HEIN集团" })
+    ];
+    const out = applyRowFilters(rows, f({ tableFilterKeyword: "600000" }));
+    expect(out.map(r => r._rowKey)).toEqual([rows[1]._rowKey]);
+
+    const byName = applyRowFilters(rows, f({ tableFilterKeyword: "hein" }));
+    expect(byName.map(r => r._rowKey)).toEqual([rows[2]._rowKey]);
+  });
+
+  it("类型过滤：type 在清单内才留；空数组不过滤", () => {
+    const rows = [
+      healthyRow(), // stock
+      baseRow({ type: "fund" })
+    ];
+    const out = applyRowFilters(rows, f({ tableTypeFilter: ["stock"] }));
+    expect(out.map(r => r._rowKey)).toEqual([rows[0]._rowKey]);
+
+    expect(applyRowFilters(rows, f({ tableTypeFilter: [] })).length).toBe(2);
+  });
+
+  it("多键叠加：status=fix + showProblemOnly + 关键词逐层收缩", () => {
+    const rows = [
+      noCodeRow({ name: "海大A" }), // fix + 命中关键词
+      noCodeRow({ name: "别的B" }), // fix 但关键词不命中
+      healthyRow({ name: "海大C" }) // 关键词命中但不是 fix
+    ];
+    const out = applyRowFilters(
+      rows,
+      f({
+        tableStatusFilter: "fix",
+        showProblemOnly: true,
+        tableFilterKeyword: "海大"
+      })
+    );
+    expect(out.map(r => r._rowKey)).toEqual([rows[0]._rowKey]);
+  });
+
+  it("无过滤键命中时返回入参同一引用（历史行为，不补 slice）", () => {
+    const rows = [healthyRow()];
+    expect(applyRowFilters(rows, f())).toBe(rows);
   });
 });
