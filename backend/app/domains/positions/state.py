@@ -19,7 +19,9 @@
 ## 与库级约束的分工
 
 本模块管「怎么写」，``positions`` 上的两条 CHECK（``ck_positions_cleared_zero_qty`` /
-``ck_positions_anchor_pair``）管「写坏了库会报错」。
+``ck_positions_anchor_qty_needs_date``）管「写坏了库会报错」。
+后者是**方向式**的：有份额就必须有日期，反向不要求（「有日期、无份额」是
+``migrate_positions_snapshot_anchor`` 的正常产物）。
 两边是同一组不变量的两处表达：改这里的写入语义时，同步看模型与
 ``migrations._POSITION_STATE_CHECKS``。
 """

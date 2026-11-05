@@ -1882,8 +1882,13 @@ def migrate_positions_state_check_constraints(engine: Engine) -> str:
         raise RuntimeError(
             'positions 存在状态不一致的行，拒绝加 CHECK 约束（否则约束会与带病数据打架）：\n'
             f'  - {detail}\n'
-            '判定口径见 migrations._POSITION_STATE_VIOLATIONS；'
-            '先跑 `python backend/scripts/audit_position_state_invariants.py` 定位到具体行，'
+            '判定口径见 migrations._POSITION_STATE_VIOLATIONS。修复入口：\n'
+            '  - 锚点类（有份额却无日期）：在 backend/ 下跑\n'
+            '    `python -m app.tools.repair_snapshot_double_count --report` 先看报告，\n'
+            '    确证后 `--apply --confirm`（可加 `--position <id>` 只修单行）；\n'
+            '  - cleared 类（清仓却仍有份额）：按上面 where 条件直接查库定位行，再按\n'
+            '    `app/domains/positions/state.py::mark_position_cleared` 的口径修正\n'
+            '    （先 `quantity = 0` 再置 cleared 状态）。\n'
             '修复后再启动（本迁移不改任何存量数据）。'
         )
 
