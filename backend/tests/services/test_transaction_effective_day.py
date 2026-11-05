@@ -112,8 +112,8 @@ def test_custom区间坏参数不筛空(db, make_position, make_transaction):
 def _create_via_service(db, **kw):
     from app.services.trading import TransactionService
 
-    # ledger_id=1 是夹具里的合法账本；create 侧的「缺账本拒写」是 #2875 的独立不变量，
-    # 由 test_create缺ledger_id时拒绝写入 单独钉住。
+    # ledger_id=1 是夹具里的合法账本；#2875 的账本校验只在导入路径，
+    # 写入汇点不拦（见 test_账本校验只在导入路径不在写入汇点）。
     kw.setdefault('ledger_id', 1)
     txn = TransactionService.create(db=db, symbol='000400', txn_type='buy', quantity=0, price=0, amount=0, **kw)
     db.flush()
@@ -142,18 +142,15 @@ def test_create显式trade_date不被覆盖(db):
     assert txn.trade_date == td
 
 
-def test_create缺ledger_id时拒绝写入(db):
-    """#2875：ledger 为空的流水不进任何账本视图（真实库 26 笔只能全表扫发现）——
-    唯一构造汇点必须硬拦，None / 0 / 空串一律拒绝。"""
-    import pytest
+def test_账本校验只在导入路径不在写入汇点(db):
+    """#2875 定案（owner 2026-11-05）：唯一构造汇点不硬拦 ledger_id。
 
-    from app.services.trading import TransactionService
-
-    for bad in (None, 0, ''):
-        with pytest.raises(ValueError, match='ledger_id'):
-            TransactionService.create(
-                db=db, symbol='000400', txn_type='buy', quantity=0, price=0, amount=0, ledger_id=bad
-            )
+    全仓十余处 create 调用里手工建仓 / API 等合法路径不带账本，汇点硬拦会让
+    它们 400（CI 实测 65 例回归）。真实 26 笔无账本流水全部来自导入器，
+    由 orchestrator_commit 的显式护栏负责；本例钉住「别把硬校验加回汇点」。
+    """
+    txn = _create_via_service(db, status='success', ledger_id=None)
+    assert txn.trade_date is not None  # 日期兜底仍在汇点，不受本次口径变更影响
     db.rollback()
 
 

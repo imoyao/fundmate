@@ -123,9 +123,9 @@ class TransactionService:
     def create(db: Session, **kwargs) -> Transaction:
         """构造并添加流水到会话，由调用方统一提交。
 
-        写入不变量收敛点（唯一构造汇点，全仓 16 处调用）在
-        `domains/transactions/dates.prepare_write_kwargs`：trade_date 兜底
-        （#2914）+ ledger_id 必填（#2875，拒绝产生「不进任何账本」的脏行）。
+        写入收敛点（唯一构造汇点，全仓 16 处调用）在
+        `domains/transactions/dates.prepare_write_kwargs`：只兜底 trade_date（#2914）。
+        #2875 的账本校验放在导入路径（见 orchestrator_commit），不在汇点硬拦。
         source（#1232 决策 11）：可选，透传到 Transaction.source（复用 PositionSource）。
         """
         prepare_write_kwargs(kwargs)

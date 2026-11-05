@@ -14,6 +14,15 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 
 
+def _with_ledger(rows, ledger_id=1):
+    """#2875：confirm 行必须带目标账本（导入器显式缺账本护栏），旧夹具统一补齐。
+
+    真实流程里前端 parse 时传 `?ledger_id=`，后端 enrich 把账本写进预览行，
+    confirm 再把预览行原样回传；这些老夹具直接 parse 且不传账本，故在此补齐。
+    """
+    return [{**r, 'ledger_id': r.get('ledger_id') or ledger_id} for r in rows]
+
+
 class TestStandardCSVParse:
     """新股票标准模板解析测试（使用 standard_stock 模板）"""
 
@@ -101,9 +110,9 @@ class TestStandardCSVParse:
         csv_content = self.STOCK_HEADER + (
             '2025-06-15,2025-06-15,600519,贵州茅台,买入,100,1650.00,165000.00,12.50,华泰证券,\n'
         )
-        # 第一次上传解析
+        # 第一次上传解析（#2875：parse 带上目标账本，enrich 才会把 ledger_id 写进预览行）
         resp1 = client.post(
-            '/api/importers/parse', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
+            '/api/importers/parse?ledger_id=1', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
         )
         assert resp1.status_code == 200
         rows1 = resp1.get_json()['data']
@@ -111,13 +120,13 @@ class TestStandardCSVParse:
         assert not rows1[0]['is_duplicate']
 
         # 模拟确认导入（将这条数据真正写入数据库）
-        confirm_resp = client.post('/api/importers/confirm', json=rows1)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows1))
         assert confirm_resp.status_code == 200
         assert confirm_resp.get_json()['data']['imported'] == 1
 
-        # 第二次上传同一文件
+        # 第二次上传同一文件（去重按 (ledger_id, import_hash) 判定，账本须与首次一致）
         resp2 = client.post(
-            '/api/importers/parse', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
+            '/api/importers/parse?ledger_id=1', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
         )
         assert resp2.status_code == 200
         rows2 = resp2.get_json()['data']
@@ -138,7 +147,7 @@ class TestStandardCSVParse:
         rows[0]['account_name'] = ledger_name
         rows[0]['allocation'] = 'longterm'
         # 确认导入
-        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows))
         assert confirm_resp.status_code == 200
         assert confirm_resp.get_json()['data']['imported'] == 1
         # 验证持仓表中的账户和配置目标
@@ -161,7 +170,7 @@ class TestStandardCSVParse:
         )
         rows1 = resp1.get_json()['data']
         rows1[0]['account_name'] = '账户A'
-        client.post('/api/importers/confirm', json=rows1)
+        client.post('/api/importers/confirm', json=_with_ledger(rows1))
 
         # 3. 第二次导入同一文件到账户B
         resp2 = client.post(
@@ -171,7 +180,7 @@ class TestStandardCSVParse:
         rows2[0]['account_name'] = '账户B'
         # 第二次导入应成功（因为不同账户），但 import_hash 检测会标记为 duplicate，然后 /confirm 会跳过
         # 因此最终 skipped = 1, imported = 0
-        confirm_resp = client.post('/api/importers/confirm', json=rows2)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows2))
         data = confirm_resp.get_json()['data']
         assert data['imported'] == 0
         assert data['skipped'] == 1
@@ -185,7 +194,7 @@ class TestStandardCSVParse:
         resp = client.post('/api/importers/parse', data={'file': (io.BytesIO(csv_buy.encode('utf-8')), 'buy.csv')})
         rows = resp.get_json()['data']
         buy_symbol = rows[0]['symbol']  # 标准化后应为 SH601318
-        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows))
         assert confirm_resp.status_code == 200
         assert confirm_resp.get_json()['data']['imported'] == 1
 
@@ -193,7 +202,7 @@ class TestStandardCSVParse:
         csv_sell = self.STOCK_HEADER + ('2025-03-15,2025-03-15,601318,中国平安,卖出,100,55.00,5500.00,5.00,华泰证券,\n')
         resp2 = client.post('/api/importers/parse', data={'file': (io.BytesIO(csv_sell.encode('utf-8')), 'sell.csv')})
         rows2 = resp2.get_json()['data']
-        confirm_resp2 = client.post('/api/importers/confirm', json=rows2)
+        confirm_resp2 = client.post('/api/importers/confirm', json=_with_ledger(rows2))
         assert confirm_resp2.status_code == 200
         data = confirm_resp2.get_json()['data']
         assert data['imported'] == 1
@@ -210,7 +219,7 @@ class TestStandardCSVParse:
         csv_sell = self.STOCK_HEADER + ('2025-02-20,2025-02-20,000858,五粮液,卖出,50,150.00,7500.00,5.00,华泰证券,\n')
         resp = client.post('/api/importers/parse', data={'file': (io.BytesIO(csv_sell.encode('utf-8')), 'sell.csv')})
         rows = resp.get_json()['data']
-        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows))
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
         assert data['imported'] == 1
@@ -229,7 +238,7 @@ class TestStandardCSVParse:
         csv_div = self.STOCK_HEADER + ('2025-06-01,,600036,招商银行,现金分红,0,0,30.00,0,招商证券,\n')
         resp = client.post('/api/importers/parse', data={'file': (io.BytesIO(csv_div.encode('utf-8')), 'div.csv')})
         rows = resp.get_json()['data']
-        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows))
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
         assert data['orphan_count'] == 1
@@ -261,7 +270,7 @@ class TestStandardCSVParse:
         buy_row = next(r for r in rows if r['op_type'] == 'buy')
         maotai_symbol = buy_row['symbol']  # SH600519
 
-        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows))
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
         # 4条记录：buy(持仓创建)、sell(有持仓)、sell(无持仓->孤立)、dividend(有持仓)
@@ -382,17 +391,19 @@ class TestTHSCSVParser:
             '证券代码\t证券名称\t操作\t成交数量\t成交均价\t成交金额\t股票余额\t发生金额\t手续费\t印花税\t其他杂费\t资金余额\t合同编号\t交收日期\t证券中文全称\t佣金\t过户费\t清算费(B股)\t币种\n'
             '110067\t华安转债\t证券买入\t30\t112.5\t3375\t30\t-3375.17\t0.17\t0\t0\t1\t0001008807\t20230203\t华安转债\t0.17\t0\t0\t人民币'
         )
-        # 第一次解析并导入
+        # 第一次解析并导入（#2875：带目标账本，去重键与落库账本才能对齐）
         resp1 = client.post(
-            '/api/importers/parse?template=ths', data={'file': (io.BytesIO(content.encode('utf-8')), 'ths.csv')}
+            '/api/importers/parse?template=ths&ledger_id=1',
+            data={'file': (io.BytesIO(content.encode('utf-8')), 'ths.csv')},
         )
         assert resp1.status_code == 200
         row1 = resp1.get_json()['data'][0]
-        client.post('/api/importers/confirm', json=[row1])
+        client.post('/api/importers/confirm', json=_with_ledger([row1]))
 
         # 第二次解析
         resp2 = client.post(
-            '/api/importers/parse?template=ths', data={'file': (io.BytesIO(content.encode('utf-8')), 'ths.csv')}
+            '/api/importers/parse?template=ths&ledger_id=1',
+            data={'file': (io.BytesIO(content.encode('utf-8')), 'ths.csv')},
         )
         assert resp2.get_json()['data'][0]['is_duplicate']
 
@@ -406,7 +417,7 @@ class TestTHSCSVParser:
             '/api/importers/parse?template=ths', data={'file': (io.BytesIO(csv_tax.encode('utf-8')), 'tax.csv')}
         )
         rows = resp.get_json()['data']
-        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows))
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
         assert data['imported'] == 1
@@ -527,7 +538,7 @@ class TestTHSCSVParser:
             '/api/importers/parse?template=ths', data={'file': (io.BytesIO(csv_buy.encode('utf-8')), 'buy.csv')}
         )
         rows = resp1.get_json()['data']
-        client.post('/api/importers/confirm', json=rows)
+        client.post('/api/importers/confirm', json=_with_ledger(rows))
 
         # 场内债代码落库会带交易所前缀（SH/SZ），用 like 取，避免把前缀约定写死进测试
         position = db.query(Position).filter(Position.symbol.like('%110067%')).first()
@@ -543,7 +554,7 @@ class TestTHSCSVParser:
             '/api/importers/parse?template=ths', data={'file': (io.BytesIO(csv_redeem.encode('utf-8')), 'redeem.csv')}
         )
         rows2 = resp2.get_json()['data']
-        confirm_resp = client.post('/api/importers/confirm', json=rows2)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows2))
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
         assert data['imported'] == 1
@@ -585,7 +596,7 @@ class TestTHSCSVParser:
                 'account_name': '华泰证券',
             }
         )
-        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        confirm_resp = client.post('/api/importers/confirm', json=_with_ledger(rows))
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
         assert data['imported'] == 1  # 第一条成功导入
