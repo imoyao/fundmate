@@ -211,7 +211,6 @@ export function useImportWizard() {
   const orphanCount = ref(0);
   const importing = ref(false);
   const parsing = ref(false);
-  const uploading = ref(false);
   const fileSize = ref("");
   const editingRowKey = ref<string | null>(null);
   const newLedgerAllocation = ref("longterm");
@@ -231,7 +230,6 @@ export function useImportWizard() {
   const salesInstitutionsForImport = ref<SalesInstitution[]>([]);
   /** 步骤3 软提示横幅：用户现场选中的现金账户 */
   const bannerCashLedgerId = ref<number | null>(null);
-  const ledgerTouched = ref(false);
   const activeCategoryFilter = ref("");
   const downloadLoading = ref(false);
 
@@ -253,7 +251,6 @@ export function useImportWizard() {
   const duplicatesHandled = ref(false);
   const uploadError = ref("");
   const validRowsCount = ref(0);
-  const isDragover = ref(false);
 
   // ── 计算属性 ──
   /**
@@ -993,16 +990,15 @@ export function useImportWizard() {
     setTimeout(() => (downloadLoading.value = false), 1500);
   }
 
+  /**
+   * #2904：这里原本还有一段「给 `.ledger-select-area .el-select` 加 600ms
+   * `ledger-select-flash` 类」的 DOM 操作，想在未选账户时闪一下提示。它两层都失效，且不可修：
+   * 账户选择搬到了第 0 步（`LedgerSelectStep`），`.ledger-select-area` 里现在只有
+   * 只读 el-tag + 「更换账户」按钮，`querySelector` 恒返回 null；而那个类全仓也没有 CSS 定义。
+   * 故一并删除（含只写不读的 `ledgerTouched`），只留下面这条兜底提示。
+   */
   function handleUploadClick() {
-    if (!selectedLedgerId.value) {
-      ElMessage.warning("请先选择交易所属账户");
-      const el = document.querySelector(".ledger-select-area .el-select");
-      if (el) {
-        el.classList.add("ledger-select-flash");
-        setTimeout(() => el.classList.remove("ledger-select-flash"), 600);
-      }
-      ledgerTouched.value = true;
-    }
+    if (!selectedLedgerId.value) ElMessage.warning("请先选择交易所属账户");
   }
 
   const uploadAccept = computed(() => {
@@ -2458,7 +2454,6 @@ export function useImportWizard() {
     orphanCount,
     importing,
     parsing,
-    uploading,
     fileSize,
     editingRowKey,
     newLedgerAllocation,
@@ -2487,7 +2482,6 @@ export function useImportWizard() {
     toggleAllTransferRows,
     completeTransferCount,
     linkCashAccount,
-    ledgerTouched,
     activeCategoryFilter,
     downloadLoading,
     currentPage,
@@ -2522,7 +2516,6 @@ export function useImportWizard() {
     selectedTransferCount,
     // #2836：默认勾选谓词（= selectAllValid 的判据），供测试与「暂不导入」共用
     isAutoSelectableRow,
-    isDragover,
     selectedLedgerName,
     ledgerType,
     ledgerTypeLabel,
