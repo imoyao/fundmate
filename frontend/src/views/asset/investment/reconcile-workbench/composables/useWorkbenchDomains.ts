@@ -9,6 +9,8 @@ import {
   ignoreGhostDuplicate,
   undoGhostDuplicateIgnoreById,
   listDividendTaxPending,
+  listDanglingRefs,
+  type DanglingRefList,
   type DividendTaxPendingItem,
   type DiscrepancyItem,
   type GhostDuplicateGroupItem,
@@ -69,6 +71,10 @@ export function useWorkbenchDomains() {
   const eItems = ref<ReconciliationItem[]>([]);
   const eLoading = ref(false);
 
+  /** 域 F：悬空引用（#2866）——只读取数的分组 + 汇总；预览/回补/撤销内聚在修复弹窗 */
+  const danglingRefs = ref<DanglingRefList | null>(null);
+  const danglingLoading = ref(false);
+
   /** 域 B 差异：仅展示待处理（pending）行，使下方表格与顶部「待裁决差异」口径一致（#1259） */
   const bDiscs = computed(() =>
     discs.value.filter(d => d.domain === "B" && d.status === "pending")
@@ -110,6 +116,8 @@ export function useWorkbenchDomains() {
     if (key === "D") return ghostGroups.value.length;
     // 域 E 同理：待办项实时派生，没有「已忽略」概念（记完税即自然消失）
     if (key === "E") return taxItems.value.length;
+    // 域 F 是只读扫描，待处理数即悬空流水总条数（修复后由重拉刷新）
+    if (key === "F") return danglingRefs.value?.total ?? 0;
     return discs.value.filter(d => d.domain === key && d.status === "pending")
       .length;
   }
@@ -117,7 +125,7 @@ export function useWorkbenchDomains() {
     if (key === "A")
       return eItems.value.filter(i => i.status === "ignored").length;
     if (key === "D") return ghostIgnored.value.length;
-    if (key === "E") return 0;
+    if (key === "E" || key === "F") return 0;
     return discs.value.filter(d => d.domain === key && d.status === "ignored")
       .length;
   }
@@ -215,6 +223,22 @@ export function useWorkbenchDomains() {
       taxPendingCount.value = 0;
     } finally {
       taxLoading.value = false;
+    }
+  }
+
+  /** 加载域 F：悬空引用分组 + 汇总（#2866）。
+   *  预览 / 回补 / 撤销是写路径上的三段独立交互，留在修复弹窗里各自调用，
+   *  本函数只负责「进页面 / 修复完成后」把只读快照拉回来。失败静默：单个扫描
+   *  接口超时不该让整个工作台的其它域一起白屏。 */
+  async function loadDanglingRefs(): Promise<void> {
+    danglingLoading.value = true;
+    try {
+      const res = await listDanglingRefs();
+      danglingRefs.value = res.data ?? null;
+    } catch {
+      danglingRefs.value = null;
+    } finally {
+      danglingLoading.value = false;
     }
   }
 
@@ -388,6 +412,9 @@ export function useWorkbenchDomains() {
     taxTotalCents,
     taxPendingCount,
     taxLoading,
+    danglingRefs,
+    danglingLoading,
+    loadDanglingRefs,
     loadDividendTax,
     loadDiscrepancies,
     loadEAccount,

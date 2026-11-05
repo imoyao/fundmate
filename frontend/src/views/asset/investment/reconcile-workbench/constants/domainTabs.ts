@@ -3,18 +3,19 @@
  *
  * #980 拆分：自 reconcile-workbench/index.vue 抽出为页面级常量（constants/），
  * #2151：新增域 D「跨账本重复交易」（幽灵重复），联合类型随之扩展。
+ * #2866：新增域 F「悬空引用」（流水指向已删除的持仓行），联合类型随之扩展。
  * 2026-10-28：域 C 接入真实差异列表，删掉 `status` / `statusLabel` / `placeholderHint`
  * 三个「工程内部状态」字段——它们曾让域 C 在功能已通的情况下对外自称
  * 「P1 规划 / 本期占位」，用户点进去发现能用，文案与事实自相矛盾。界面上不再出现
  * 「这个域做到第几期」这类只有开发者关心的话。
  *
- * ⚠️ 这里刻意**不导出** `WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E"` 之外的东西：
+ * ⚠️ 这里刻意**不导出** `WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E" | "F"` 之外的东西：
  * 域标识是「页面级」概念（与 `useReconDraft.ts` 的 `ReconDomain` 是两码事——
  * 后者是导入草稿的路由标签，只有 A/B/C，本次不动它）。
  */
 
-/** 域标识：A=E账户 / B=持仓快照 / C=对账单导入 / D=跨账本重复交易 / E=分红未记扣税 */
-export type WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E";
+/** 域标识：A=E账户 / B=持仓快照 / C=对账单导入 / D=跨账本重复交易 / E=分红未记扣税 / F=悬空引用 */
+export type WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E" | "F";
 
 export interface WorkbenchDomainEntryLink {
   to: string | { name: string };
@@ -85,6 +86,14 @@ export const domainTabs: WorkbenchDomainTab[] = [
     // 措辞注意：本域不做「替你算税」，只指出哪几笔对不上账。税率取决于买入批次持有期，
     // 本系统只有聚合持仓，反推出来的是会被券商否掉的猜测（见后端 dividend_tax_service）。
     description: "有现金分红，该年账上却没有扣税流水",
+    badgeType: "fund"
+  },
+  {
+    key: "F",
+    label: "悬空引用",
+    title: "流水指向已删除的持仓",
+    description:
+      "这些流水仍指向已不存在的持仓行，部分报表会静默漏算；可指定持仓二次回补",
     badgeType: "fund"
   }
 ];

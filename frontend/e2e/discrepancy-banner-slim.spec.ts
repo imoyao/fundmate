@@ -130,10 +130,7 @@ test.describe("对账差异横幅拆分后回归（#980 批 B8）", () => {
     const banner = page.locator(".recon-banner");
     await expect(banner).toBeVisible({ timeout: 90_000 });
 
-    await page
-      .getByRole("button", { name: "本次会话不再提示" })
-      .first()
-      .click();
+    await page.getByRole("button", { name: "关闭提示" }).first().click();
     await expect(banner).toHaveCount(0);
 
     const keys = await page.evaluate(() =>
@@ -159,7 +156,7 @@ test.describe("对账差异横幅拆分后回归（#980 批 B8）", () => {
     await expect(banner).toBeVisible({ timeout: 90_000 });
 
     // 走真实路径：横幅上的主按钮跳工作台并带 domain=B
-    await banner.getByRole("button", { name: "去对账工作台处理" }).click();
+    await banner.getByRole("button", { name: "去对账中心处理" }).click();
     await expect(page).toHaveURL(/reconcile-workbench/);
     await expect(page).toHaveURL(/domain=B/);
 

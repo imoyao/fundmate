@@ -13,7 +13,12 @@ import type { WorkbenchDomainKey } from "../constants/domainTabs";
  */
 export function normalizeDomain(raw: unknown): WorkbenchDomainKey | null {
   const v = Array.isArray(raw) ? raw[0] : raw;
-  return v === "A" || v === "B" || v === "C" || v === "D" || v === "E"
+  return v === "A" ||
+    v === "B" ||
+    v === "C" ||
+    v === "D" ||
+    v === "E" ||
+    v === "F"
     ? v
     : null;
 }
