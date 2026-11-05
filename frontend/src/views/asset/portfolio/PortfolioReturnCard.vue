@@ -119,7 +119,7 @@ const metricsNote = computed(() => {
   const fmt = (n: number) => `¥${formatAmount(n || 0, 2)}`;
   return (
     `净投入 = 累计买入 ${fmt(d.total_invested)} − 累计卖出/分红 ${fmt(d.total_withdrawn)}；` +
-    "累计收益 = 当前市值 − 净投入（已实现 + 未实现一起算）"
+    "累计收益 = 当前市值 − 净投入（已实现 + 未实现一起算，手续费已在两端口径中扣除）"
   );
 });
 

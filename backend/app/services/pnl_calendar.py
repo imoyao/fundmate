@@ -94,6 +94,7 @@ from app.services.asset_class import CLASS_ORDER, class_of_position
 from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
+    _PNL_FEE_TXN_TYPES,
 )
 from app.services.scope import filter_positions_by_scope
 
@@ -117,6 +118,7 @@ class _TxnRow(NamedTuple):
     realized_pnl: Optional[int]
     confirm_date: Optional[dt.date]
     trade_date: Optional[dt.date]
+    fee: Optional[int] = None
 
 
 # 单价精度：场内 adj_close 为「元」浮点，需放大到 0.0001 元整数再喂 Money.multiply_price_quantity
@@ -298,6 +300,7 @@ def _as_of_shares(
         Transaction.realized_pnl,
         Transaction.confirm_date,
         Transaction.trade_date,
+        Transaction.fee,
     ).filter(
         Transaction.family_id == family_id,
         Transaction.position_id.isnot(None),
@@ -342,6 +345,7 @@ def _as_of_shares(
             realized_pnl=row.realized_pnl,
             confirm_date=row.confirm_date,
             trade_date=row.trade_date,
+            fee=row.fee,
         )
         eff = _effective_date(txn)
         if eff is None:
@@ -680,6 +684,10 @@ def _build_per_pos(
             'realized': 0,
             'share_days': day_deltas,
             'txn_days': defaultdict(int),
+            # 买入侧手续费按日：与 `realized` 不同，它不是成本基数的一部分
+            # （成本均价仍等于成交价），而是直接从当日盈亏里扣的「损耗」。
+            # 窗口之前的费用不在此表——它们在窗口内的日差分里根本不出现。
+            'fee_days': defaultdict(int),
         }
         for txn in txns.get(pos.id, []):
             eff = _effective_date(txn)
@@ -687,6 +695,10 @@ def _build_per_pos(
                 per_pos[pos.id]['realized'] += txn.realized_pnl or 0
             elif eff is not None:
                 per_pos[pos.id]['txn_days'][eff] += txn.realized_pnl or 0
+                # 只收买入侧：卖出费早已在 `realized_pnl` 里扣过（见 pnl_service），
+                # 再收一次就是双扣——那会让卖出日的亏损凭空翻倍。
+                if txn.txn_type in _PNL_FEE_TXN_TYPES and txn.fee:
+                    per_pos[pos.id]['fee_days'][eff] += int(txn.fee)
     return per_pos
 
 
@@ -1265,6 +1277,9 @@ def _compute_days(
     day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
+    # 自 scan_start 起累计的买入侧手续费（分）。`day_total_pnl` 是绝对水平值，
+    # 费用必须按累计扣，否则日差分会在费用次日把前一天的费用再「赚」回来。
+    cumulative_fee = 0
 
     # ── 归因收集（#2135）：与 scope 差分同构的逐持仓水平值链 ──
     # `attribution` 非 None 时启用；日历主路径（None）不写一个键。三件套与
@@ -1406,6 +1421,35 @@ def _compute_days(
                         'fx': state['rate'],
                     }
                 )
+
+        # ── 买入侧手续费（损耗）：与取价无关，钱是真花出去的 ──
+        # 为什么在值循环**之外**扣：买入当天净值可能还没发布，那种日子持仓会被
+        # 上面的 `continue` 跳过，把费用塞进 `level` 就会静默丢失（费用只在买入日
+        # 出现一次，丢了就永远补不回来）。所以按日单独结算，不受有无报价影响。
+        #
+        # 为什么按**累计**扣、而归因按**增量**扣：`day_total_pnl` 是绝对水平值
+        # （`total_pnl_asof`），`daily_pnl` 是它的日差分。只在当日扣会让差分把前
+        # 一天的费用再「赚」回来——实测口径：买入日 −5、次日价格涨 500 却报 +505。
+        # 归因/分类做的是跨日差分，故那里必须只扣当日那一笔。
+        day_fee_total = 0
+        fee_by_pos: Dict[int, int] = {}
+        for state in value_per_pos.values():
+            fee_today = state['fee_days'].get(day, 0)
+            if fee_today:
+                day_fee_total += fee_today
+                fee_by_pos[state['pos'].id] = fee_today
+        cumulative_fee += day_fee_total
+        if cumulative_fee:
+            day_total_pnl -= cumulative_fee
+        if day_fee_total and collect:
+            for pid, fee_today in fee_by_pos.items():
+                day_level[pid] = day_level.get(pid, 0) - fee_today
+        if day_fee_total and split:
+            for state in value_per_pos.values():
+                fee_today = fee_by_pos.get(state['pos'].id)
+                if fee_today:
+                    cls = class_of_position(state['pos'])
+                    day_class_level[cls] = day_class_level.get(cls, 0) - fee_today
 
         daily_pnl = None
         if prev_total_pnl is not None:

@@ -72,14 +72,30 @@ class XirrResponse(BaseModel):
     dietz: Optional[float] = Field(None, description='区间收益率，不年化（method=dietz）')
     twr: Optional[float] = Field(None, description='时间加权区间收益率（method=twr；无数据时为 None）')
     twr_annualized: Optional[float] = Field(None, description='时间加权年化收益率（method=twr）')
-    total_invested: float = Field(..., description='累计买入金额（毛额，同一笔钱反复买卖会重复累加）')
-    total_withdrawn: float = Field(..., description='历史收回金额（卖出 + 分红，不含当前市值）')
+    total_invested: float = Field(
+        ...,
+        description='累计买入金额（毛额，同一笔钱反复买卖会重复累加；**含买入手续费**，即真实现金流出）',
+    )
+    total_withdrawn: float = Field(
+        ..., description='历史收回金额（卖出 + 分红，不含当前市值；**已扣卖出费**，即真实现金流入）'
+    )
     net_invested: float = Field(
         ...,
         description='净投入 = 累计买入 − 历史收回，即当前还压在里面的本金；展示口径应优先用它，而非毛额 total_invested',
     )
     current_value: float = Field(..., description='当前市值')
-    total_return: float = Field(..., description='总收益 = 当前市值 − 净投入（含已实现 + 未实现 + 分红）')
+    total_return: float = Field(
+        ...,
+        description='总收益 = 当前市值 − 净投入（含已实现 + 未实现 + 分红，**已扣买卖双边手续费**）',
+    )
+    fees: float = Field(
+        0.0,
+        description=(
+            '同一 scope 下的手续费合计（元，买 + 卖双边，只统计进了现金流的交易）。'
+            '已从 total_return 中扣除；本字段用于展示「其中费用多少」，'
+            '两者相加不应再二次扣减。'
+        ),
+    )
     cashflow_count: int = Field(..., description='参与计算的现金流笔数')
     days_used: Optional[int] = Field(None, description='TWR 参与连乘的天数（method=twr）')
     days_skipped: Optional[int] = Field(None, description='TWR 因缺数据被跳过的天数（method=twr；跳过而非当 0）')

@@ -9,13 +9,16 @@ from app.services.performance.xirr_engine import (
 
 
 class MockTransaction:
-    def __init__(self, confirm_date, txn_type, amount, trade_date=None, asset_type=None):
+    def __init__(self, confirm_date, txn_type, amount, trade_date=None, asset_type=None, fee=None):
         self.confirm_date = confirm_date
         self.trade_date = trade_date
         self.txn_type = txn_type
         self.amount = amount
         # 货基 / 逆回购 / 现金需被 XIRR 排除（决策文档 §2.1-4），故需可指定资产类型
         self.asset_type = asset_type
+        # 手续费（分）。默认 None 而不是 0：真实库里这一列可为 NULL，
+        # 聚合侧必须容忍「没有这一列/值为空」的桩，不能 AttributeError。
+        self.fee = fee
 
 
 def _npv(rate: float, cashflows: list[tuple[dt.date, float]]) -> float:
@@ -402,3 +405,82 @@ class TestIncludeCashEquivalents:
         xirr_excl = calculate_xirr(excl)
         xirr_incl = calculate_xirr(incl)
         assert xirr_excl > xirr_incl  # 10% > 6%
+
+
+class TestFeesSink:
+    """`fees_sink`：把同一 scope 的手续费合计带出去，且费用**并入现金流**。
+
+    两件事都要钉：
+    - 并入（改算）：买入流出 `+(费)`、卖出流入 `−(费)`，否则总收益虚高；
+    - 带出去（可见）：同一笔费用还要能单独展示，用户才答得出「花了多少手续费」。
+
+    ⚠️ 2026-11-05 决策：C 阶段这里曾断言「费用不并入现金流」。B 阶段按用户
+    拍板改为并入（`total_return` 与 `pnl_service` 的「已扣买入费」对齐）。
+    断言随之反转，**不是**为了让红灯变绿而放宽——原来那条断言守的是
+    「`amount` 仍是成交毛额」，而这条性质在别处有独立守卫：
+    写入侧 `position_service.process_sell`（卖出 `amount = 价 × 量`）、
+    前端 `sellFormPayload.spec.ts`（载荷 `amount` 不冲减费用）。本函数只管
+    现金流金额，两者不可混淆。
+    """
+
+    def test_sums_buy_and_sell_fee_in_yuan(self):
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, fee=500),
+            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 120000, fee=600),
+        ]
+        sink: dict = {}
+        generate_cashflows(txn, current_value=0, fees_sink=sink)
+        assert sink['fees'] == 11.0  # 5 元 + 6 元
+
+    def test_buy_outflow_includes_fee(self):
+        """买入：现金流出 = 成交额 + 费（这笔钱真的划走了）。"""
+        txn = [MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, fee=500)]
+        assert generate_cashflows(txn, current_value=0) == [(dt.date(2025, 1, 1), -1005.0)]
+
+    def test_sell_inflow_excludes_fee(self):
+        """卖出：现金流入 = 成交额 − 费（到账是净额）。"""
+        txn = [MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 120000, fee=600)]
+        assert generate_cashflows(txn, current_value=0) == [(dt.date(2025, 6, 1), 1194.0)]
+
+    def test_no_fee_leaves_cashflows_untouched(self):
+        """费用为 0 时与改造前逐位一致——大多数历史流水属于这一类。"""
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000),
+            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 120000),
+        ]
+        assert generate_cashflows(txn, current_value=0) == [
+            (dt.date(2025, 1, 1), -1000.0),
+            (dt.date(2025, 6, 1), 1200.0),
+        ]
+
+    def test_counts_only_transactions_that_entered_cashflows(self):
+        """被排除的现金等价物，其费用既不进合计也不进现金流——口径与现金流同一 scope。"""
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, fee=500),
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund', fee=999),
+        ]
+        sink: dict = {}
+        cf = generate_cashflows(txn, current_value=0, fees_sink=sink)
+        assert sink['fees'] == 5.0
+        assert cf == [(dt.date(2025, 1, 1), -1005.0)]
+
+    def test_null_and_malformed_fee_degrade_to_zero(self):
+        """历史数据 fee 可为 NULL、测试桩可能是字符串：一律 0，不抛错。"""
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, fee=None),
+            MockTransaction(dt.date(2025, 1, 2), BusinessType.BUY.code, 100000, fee='oops'),
+            MockTransaction(dt.date(2025, 1, 3), BusinessType.BUY.code, 100000, fee=0),
+        ]
+        sink: dict = {}
+        cf = generate_cashflows(txn, current_value=0, fees_sink=sink)
+        assert sink['fees'] == 0.0
+        assert cf == [
+            (dt.date(2025, 1, 1), -1000.0),
+            (dt.date(2025, 1, 2), -1000.0),
+            (dt.date(2025, 1, 3), -1000.0),
+        ]
+
+    def test_sink_absent_does_not_change_cashflows(self):
+        """不传 sink 只影响「有没有把合计带出来」，不影响现金流本身。"""
+        txn = [MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, fee=500)]
+        assert generate_cashflows(txn, current_value=0) == [(dt.date(2025, 1, 1), -1005.0)]

@@ -209,6 +209,7 @@ def _empty_xirr_result() -> Dict[str, Any]:
         'net_invested': 0.0,
         'current_value': 0.0,
         'total_return': 0.0,
+        'fees': 0.0,
         'cashflow_count': 0,
     }
 
@@ -217,6 +218,7 @@ def _calculate_xirr_for_cashflows(
     cashflows: List[Tuple[dt.date, float]],
     current_market_value: float = 0.0,
     method: str = 'xirr',
+    fees_total: float = 0.0,
 ) -> Dict[str, Any]:
     """
     根据现金流计算收益率并返回标准结构。
@@ -225,6 +227,10 @@ def _calculate_xirr_for_cashflows(
         cashflows: 完整现金流列表
         current_market_value: 当前持仓总市值（由调用方传入，不从现金流反推）
         method: 'xirr'（默认，年化资金加权）/ 'dietz'（Modified Dietz 区间，不年化，#871）
+        fees_total: 同一 scope 下的手续费合计（元，已含买卖双边）。**只回填不改算**——
+            费用已由 `xirr_engine.generate_cashflows` 并入现金流（买入 `−(amount+fee)`、
+            卖出 `+(amount−fee)`），故此处 `total_return` 天然已扣费；本函数只把同一个
+            数字回填到 `fees` 供前端展示，不再二次扣减。
     """
     # 累计买入：所有负现金流的绝对值之和（**毛额**，买卖一次就累加一次，含再投入）
     total_invested = sum(abs(a) for _, a in cashflows if a < 0)
@@ -251,6 +257,7 @@ def _calculate_xirr_for_cashflows(
             'net_invested': round(net_invested, 2),
             'current_value': round(current_market_value, 2),
             'total_return': round(total_return, 2),
+            'fees': round(fees_total, 2),
             'cashflow_count': len(cashflows),
         }
 
@@ -267,6 +274,7 @@ def _calculate_xirr_for_cashflows(
         'net_invested': round(net_invested, 2),
         'current_value': round(current_market_value, 2),
         'total_return': round(total_return, 2),
+        'fees': round(fees_total, 2),
         'cashflow_count': len(cashflows),
     }
 
@@ -329,8 +337,14 @@ def calculate_position_xirr(
     transactions = _position_scope_transactions(db, position, include_cash_equivalents)
 
     current_value = _get_position_current_value(db, position)
-    cashflows = generate_cashflows(transactions, current_value, include_cash_equivalents=include_cash_equivalents)
-    return _calculate_xirr_for_cashflows(cashflows, current_value, method=method)
+    fee_info: Dict[str, Any] = {}
+    cashflows = generate_cashflows(
+        transactions,
+        current_value,
+        include_cash_equivalents=include_cash_equivalents,
+        fees_sink=fee_info,
+    )
+    return _calculate_xirr_for_cashflows(cashflows, current_value, method=method, fees_total=fee_info.get('fees', 0.0))
 
 
 def calculate_symbol_xirr(
@@ -387,7 +401,13 @@ def calculate_symbol_xirr(
         logger.debug(f'产品级 XIRR(symbol={symbol})：无成交且无市值，返回空结果')
         return _empty_xirr_result()
 
-    cashflows = generate_cashflows(transactions, total_value, include_cash_equivalents=include_cash_equivalents)
+    fee_info: Dict[str, Any] = {}
+    cashflows = generate_cashflows(
+        transactions,
+        total_value,
+        include_cash_equivalents=include_cash_equivalents,
+        fees_sink=fee_info,
+    )
 
     logger.debug(
         f'产品级 XIRR 计算(symbol={symbol}): 持仓行数={len(positions)}, '
@@ -395,7 +415,7 @@ def calculate_symbol_xirr(
         f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
+    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method, fees_total=fee_info.get('fees', 0.0))
 
 
 def calculate_portfolio_xirr(
@@ -425,8 +445,12 @@ def calculate_portfolio_xirr(
     value_map = _batch_get_position_values(db, positions)
     total_value = sum(value_map.values())
 
+    fee_info: Dict[str, Any] = {}
     cashflows = generate_cashflows(
-        filtered_transactions, total_value, include_cash_equivalents=include_cash_equivalents
+        filtered_transactions,
+        total_value,
+        include_cash_equivalents=include_cash_equivalents,
+        fees_sink=fee_info,
     )
 
     logger.debug(
@@ -435,7 +459,7 @@ def calculate_portfolio_xirr(
         f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
+    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method, fees_total=fee_info.get('fees', 0.0))
 
 
 def calculate_portfolio_xirr_by_id(
@@ -487,6 +511,7 @@ def calculate_portfolio_xirr_by_id(
     # 沿用「买入算投入」的降级口径；mixed = 组合内两种账户混着。页面需要据此提示
     # 「未记录入金，按买入成本估算」，不能把两种口径的数字并排展示却不说。
     basis_info: Dict[str, Any] = {}
+    fee_info: Dict[str, Any] = {}
     cashflows = generate_portfolio_cashflows(
         db,
         portfolio_id,
@@ -494,6 +519,7 @@ def calculate_portfolio_xirr_by_id(
         family_id=family_id,
         include_cash_equivalents=include_cash_equivalents,
         basis_sink=basis_info,
+        fees_sink=fee_info,
     )
 
     logger.debug(
@@ -505,7 +531,7 @@ def calculate_portfolio_xirr_by_id(
 
     # `method` 必须透传：此前漏传，`method=dietz` 在组合级被静默当成 xirr 计算
     # （前端切到「区间」仍回 xirr 字段，页面显示 0.00%）。
-    result = _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
+    result = _calculate_xirr_for_cashflows(cashflows, total_value, method=method, fees_total=fee_info.get('fees', 0.0))
     result['cashflow_basis'] = basis_info.get('basis', 'position')
     return result
 

@@ -40,6 +40,22 @@ from app.services.importer.mappings import BusinessType
 from app.services.performance import cashflow_layers
 
 
+def _fee_yuan(txn) -> float:
+    """该笔交易的手续费（元）；缺失 / 非法一律 0，绝不抛错。
+
+    测试桩与历史数据里 `fee` 可能是 None / 字符串 / 已是元的小数，
+    统一按「分」解释（`transactions.fee` 的库内单位），非法值退化为 0——
+    费用算成 0 只会让「累计手续费」偏小，抛错会让整个收益页 500。
+    """
+    raw = getattr(txn, 'fee', None)
+    if not raw:
+        return 0.0
+    try:
+        return Money.cents_to_yuan(int(raw))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _safe_return(value: float) -> float:
     """统一的范围校验，确保返回值在 [-1.0, 10.0] 内，极小值归零"""
     if -1.0 < value < 10.0:
@@ -208,6 +224,7 @@ def generate_cashflows(
     current_value: float = 0.0,
     end_date: Optional[dt.date] = None,
     include_cash_equivalents: bool = False,
+    fees_sink: Optional[dict] = None,
 ) -> List[Tuple[dt.date, float]]:
     """
     从交易记录生成 XIRR 所需的现金流列表。
@@ -220,9 +237,23 @@ def generate_cashflows(
         transactions: 交易记录列表，需包含 confirm_date, txn_type, amount 属性
         current_value: 当前持仓总市值，大于0时会作为最后一笔正现金流加入
         end_date: 计算截止日期，默认今天
+    fees_sink: 传 dict 时回填 ``{'fees': 手续费合计（元）}``——只统计**进了现金流**
+            的交易，与收益口径同一 scope，不重不漏。
 
     Returns:
         按日期升序排列的现金流列表：[(日期, 金额), ...]，支出为负，收入为正
+
+    ## 费用与现金流
+
+    ``amount`` 是成交额（买卖均为毛额），手续费单列；**现金流用的是含费金额**：
+
+    - 买入 → ``−(成交额 + 费)``：这笔钱真的从账户里划走了；
+    - 卖出 → ``+(成交额 − 费)``：到账的是扣费后的净额。
+
+    于是 ``total_return = 当前市值 − 净投入`` 天然把费用算进亏损，与
+    `pnl_service` 的 ``realized + unrealized − buy_fee`` 是同一个数
+    （验证见 `tests/services/performance/test_fee_in_pnl.py` 的自洽用例）。
+    若只改一边，收益页与流水页会各报一个数——那正是本仓最忌讳的一种错。
     """
     if end_date is None:
         end_date = dt.date.today()
@@ -230,6 +261,7 @@ def generate_cashflows(
         end_date = end_date.date()
 
     cashflows: List[Tuple[dt.date, float]] = []
+    fees_total = 0.0
 
     # 负现金流（现金流出）
     outflow_types = {
@@ -264,14 +296,22 @@ def generate_cashflows(
 
         # 根据交易类型确定方向
         txn_type = txn.txn_type  # Transaction 模型字段
+        fee = _fee_yuan(txn)
         if txn_type in outflow_types:
-            cashflows.append((txn_date, -amount))
+            # 买入：现金流出 = 成交额 + 手续费（费用同样是掏出去的钱）
+            cashflows.append((txn_date, -(amount + fee)))
+            fees_total += fee
         elif txn_type in inflow_types:
-            cashflows.append((txn_date, amount))
+            # 卖出：现金流入 = 成交额 − 手续费（到账是净额）
+            cashflows.append((txn_date, amount - fee))
+            fees_total += fee
 
     # 虚拟卖出
     if current_value > 1e-8:
         cashflows.append((end_date, current_value))
+
+    if fees_sink is not None:
+        fees_sink['fees'] = round(fees_total, 2)
 
     cashflows.sort(key=lambda x: x[0])
     return cashflows
@@ -297,6 +337,7 @@ def generate_portfolio_cashflows(
     family_id: int = 1,
     include_cash_equivalents: bool = False,
     basis_sink: Optional[dict] = None,
+    fees_sink: Optional[dict] = None,
 ) -> List[Tuple[dt.date, float]]:
     """为指定投资组合生成 XIRR 现金流列表（**持仓口径**，D20 二期）。
 
@@ -369,18 +410,28 @@ def generate_portfolio_cashflows(
     #    L1（入金/出金）是账户级事实、没有持仓归属，故不消费——这也意味着本函数不再需要
     #    内部划转配对：配对解决的是「账户间转账被当成一进一出」，而这里根本不看 L1。
     investment_cf: List[Tuple[dt.date, float]] = []
+    fees_total = 0.0
     for flow in flows:
         if flow['layer'] == cashflow_layers.L2_TRANSFER:
+            fee = float(flow.get('fee') or 0.0)
             if flow['txn_type'] in (BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code):
-                investment_cf.append((flow['date'], -flow['amount']))
+                # 与 `generate_cashflows` 同口径：买入流出含费、卖出流入扣费
+                investment_cf.append((flow['date'], -(flow['amount'] + fee)))
+                fees_total += fee
             elif flow['txn_type'] == BusinessType.SELL.code:
-                investment_cf.append((flow['date'], flow['amount']))
+                investment_cf.append((flow['date'], flow['amount'] - fee))
+                fees_total += fee
         elif flow['layer'] == cashflow_layers.L3_REALIZED and flow['txn_type'] in (
             BusinessType.DIVIDEND.code,
             BusinessType.DIVIDEND_CASH.code,
             BusinessType.BOND_REDEEM.code,
         ):
             investment_cf.append((flow['date'], flow['amount']))
+
+    if fees_sink is not None:
+        # 只统计进了现金流的交易，供 UI 展示「累计手续费」。费用已经并入上面的
+        # 现金流金额，这里回填的是同一个数的**展示口径**，不是另算一遍。
+        fees_sink['fees'] = round(fees_total, 2)
 
     if basis_sink is not None:
         # 组合口径只可能是持仓口径；保留键名是为了不破坏 `cashflow_basis` 响应契约

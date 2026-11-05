@@ -37,6 +37,8 @@ from app.services.family_member_service import ledger_ids_for_member
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
 from app.services.pnl_service import (
+    buy_fee_by_position,
+    family_buy_fee_cents,
     family_realized_pnl_cents,
     net_invested_by_position,
     position_pnl_cents,
@@ -552,7 +554,12 @@ def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = No
     盈亏口径见 `services/pnl_service.py`（#1183）：
     - realized   已实现：卖出结转盈亏 + 现金分红，以**流水**为事实源（清仓后仍可查）
     - unrealized 未实现：持仓浮动盈亏 = 市值 − 成本基数
-    - total      总盈亏 = realized + unrealized
+    - buy_fee    买入侧手续费（费用损耗，不资本化进成本均价）
+    - total      总盈亏 = realized + unrealized − buy_fee
+
+    注意 `unrealized` 只取 `position_pnl_cents` 的 `unrealized_pnl_cents` 一段，
+    费用在下面按**家庭级合计**扣一次——若逐持仓连 `total_pnl_cents` 一起取，
+    费用就被扣两遍（`position_pnl_cents` 内部已扣）。
 
     `liability_ratio`（负债率，%）= 总负债 ÷ 总资产，交给 `ratio_pct` 统一舍入；
     总资产 ≤ 0 时为 None（**不是 0%**，见 `ratio_pct` 的注释）。
@@ -594,6 +601,10 @@ def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = No
 
     # 已实现盈亏以流水为事实源，含已清仓持仓的结转盈亏与孤儿分红
     realized_cents = family_realized_pnl_cents(db, family_id, member_ledger_ids)
+    # 买入侧手续费：不资本化进成本，直接从总盈亏扣（口径见 `pnl_service` 模块文档）。
+    # 取家庭级合计而不是 Σ fee_map：已清仓持仓的持仓行会被删，其买入费挂在孤儿流水上，
+    # 按持仓求和会漏掉，而 realized 那边是含孤儿的——两端口径必须对称。
+    buy_fee_cents = family_buy_fee_cents(db, family_id, member_ledger_ids)
 
     return {
         'total_assets_cny': totals['total_assets'],
@@ -602,7 +613,8 @@ def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = No
         'liability_ratio': ratio_pct(totals['total_liabilities'], totals['total_assets']),
         'realized_pnl_cny': round(Money.cents_to_yuan(realized_cents), 2),
         'unrealized_pnl_cny': round(Money.cents_to_yuan(unrealized_cents), 2),
-        'total_pnl_cny': round(Money.cents_to_yuan(realized_cents + unrealized_cents), 2),
+        'buy_fee_cny': round(Money.cents_to_yuan(buy_fee_cents), 2),
+        'total_pnl_cny': round(Money.cents_to_yuan(realized_cents + unrealized_cents - buy_fee_cents), 2),
         'market_distribution': {k: round(v, 2) for k, v in market_distribution.items()},
     }
 
@@ -1047,7 +1059,8 @@ def family_pnl_cents(db: Session, family_id: int = 1, member_id: int | None = No
 
     realized    = 全流水 realized_pnl 合计（含已清仓持仓结转与孤儿分红）；
     unrealized  = 各 active 持仓（市值 − 成本基数）之和；
-    total       = realized + unrealized。
+    buy_fee     = 买入侧手续费（卖出费已在 realized 里扣过，不重复）；
+    total       = realized + unrealized − buy_fee。
     """
     positions, _ = _load_user_assets(db, family_id, member_id)
     member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
@@ -1063,10 +1076,12 @@ def family_pnl_cents(db: Session, family_id: int = 1, member_id: int | None = No
             net_invested=invested_map.get(p.id, 0),
         )['unrealized_pnl_cents']
     realized = family_realized_pnl_cents(db, family_id, member_ledger_ids)
+    buy_fee = family_buy_fee_cents(db, family_id, member_ledger_ids)
     return {
         'realized_pnl_cents': realized,
         'unrealized_pnl_cents': unrealized,
-        'total_pnl_cents': realized + unrealized,
+        'buy_fee_cents': buy_fee,
+        'total_pnl_cents': realized + unrealized - buy_fee,
     }
 
 
@@ -1075,11 +1090,14 @@ def get_ledger_pnl(db: Session, family_id: int = 1, member_id: int | None = None
 
     口径与 get_ledger_distributions 严格对齐：仅遍历 active 持仓，按 ledger_id 归组；
     无账户归属归哨兵键 0（不单独立行）。已实现盈亏取自该账户 active 持仓的流水结转。
+    买入侧手续费按同一分组扣减（口径见 `pnl_service`），故
+    ``total = realized + unrealized − buy_fee``。
     """
     positions, _ = _load_user_assets(db, family_id, member_id)
     member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
     realized_map = realized_pnl_by_position(db, family_id, member_ledger_ids)
     invested_map = net_invested_by_position(db, family_id, member_ledger_ids)
+    fee_map = buy_fee_by_position(db, family_id, member_ledger_ids)
     totals: dict[int, dict[str, int]] = {}
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
@@ -1088,13 +1106,15 @@ def get_ledger_pnl(db: Session, family_id: int = 1, member_id: int | None = None
             rate=rate,
             realized_cents=realized_map.get(p.id, 0),
             net_invested=invested_map.get(p.id, 0),
+            buy_fee_cents=fee_map.get(p.id, 0),
         )
         key = p.ledger_id or 0
-        bucket = totals.setdefault(key, {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0})
+        bucket = totals.setdefault(key, {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'buy_fee_cents': 0})
         bucket['realized_pnl_cents'] += pnl['realized_pnl_cents']
         bucket['unrealized_pnl_cents'] += pnl['unrealized_pnl_cents']
+        bucket['buy_fee_cents'] += pnl['buy_fee_cents']
     for b in totals.values():
-        b['total_pnl_cents'] = b['realized_pnl_cents'] + b['unrealized_pnl_cents']
+        b['total_pnl_cents'] = b['realized_pnl_cents'] + b['unrealized_pnl_cents'] - b['buy_fee_cents']
     return totals
 
 
@@ -1213,6 +1233,10 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
         family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
         family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
+        # 注意：本行三列**不再自洽**——`total = realized + unrealized − buy_fee`，
+        # 而快照表没有 buy_fee 列，差的一项恰好等于当时累计的买入侧手续费。
+        # 这三列本就标注「暂不得直接展示」（见上文 #2132 说明与 tech-debt），
+        # 故不为一项费用再加列/加迁移；真要还原就取 `pnl_service.family_buy_fee_cents`。
         family_row.total_pnl_cents = family_pnl['total_pnl_cents']
         family_row.money_fund_income_cents = sum(mf_income_by_ledger.values()) if mf_ledgers else None
 
