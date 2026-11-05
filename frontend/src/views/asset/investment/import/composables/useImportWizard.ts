@@ -38,7 +38,7 @@ import {
   recalcAfterEdit,
   smartFill
 } from "./cellEditLogic";
-import { fillSmartPrice } from "./smartFillPrice";
+import { fillSmartPrice, restoreSmartFilledPrice } from "./smartFillPrice";
 import {
   isMissingCode,
   isRowBlocked,
@@ -1421,6 +1421,23 @@ export function useImportWizard() {
   }
 
   /**
+   * #2902【恢复原始值】：把装载期补价退回用户上传时的原始单价。
+   *
+   * 刻意不入撤销栈（撤的是批量修正，不是解析期规范化，理由见 smartFillPrice.ts 头注释）。
+   * 恢复会让行重新变成「单价缺失」被拦，故必须同步撤勾选并重算统计，
+   * 否则底栏「已选择 N 条」会带着一条导不进去的行说谎。
+   */
+  function restoreOriginalPrice(row: any): void {
+    if (!restoreSmartFilledPrice(row)) return;
+    if (isRowBlocked(row)) selectedKeys.value.delete(row._rowKey);
+    selectedKeys.value = new Set(selectedKeys.value);
+    recalcValidRowsCount();
+    updateSelectAllState();
+    previewData.value = [...previewData.value];
+    ElMessage.success("已恢复原始单价");
+  }
+
+  /**
    * 逆回购分区【撤销】（四分区之四）：撤的是解析期自动置的配置目标（活钱 → 长期增值）。
    * 类型识别本身是按代码模式（沪 204xxx / 深 1318xx）得出的解析事实，不提供撤销；
    * 用户手动改过的行（_allocationManual）不在撤销范围。
@@ -2320,6 +2337,7 @@ export function useImportWizard() {
     undoLastFix,
     autoFillMissing,
     applyManualFill,
+    restoreOriginalPrice,
     revertRepoAllocation,
     errorSummary,
     filteredPagedData,

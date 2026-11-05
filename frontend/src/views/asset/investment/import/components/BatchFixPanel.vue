@@ -30,6 +30,7 @@ const {
   canUndo,
   undoLastFix,
   applyManualFill,
+  restoreOriginalPrice,
   batchFillCode,
   batchFixAmount,
   skipCategory,
@@ -208,6 +209,7 @@ const showRepoDialog = ref(false);
       :filled-rows="filledRows"
       :reverse-repo-rows="reverseRepoRows"
       :detect-basis="repoDetectBasis"
+      @restore-original="restoreOriginalPrice"
     />
   </div>
 </template>

@@ -25,6 +25,24 @@
  *
  * 回归网 `__tests__/smartFillPrice.spec.ts` 同时钉住三件事：新口径逐类放行/拒绝、
  * 旧守卫对普通缺价行恒 false（「条件写反」的机器证据）、以及两处调用点共用本模块。
+ *
+ * ## #2902 定案口径（2026-11-05，owner 拍板）
+ *
+ * 装载期补价**算**「自动填充」：补价必须同时写 `_autoFilled: ["price"]`。
+ * 否则 `pickFilledRows` / `filledFieldsLabel` 只认 `_autoFilled`，用户既看不到单价被改写的行，
+ * `BatchFixDialogs` 里那句「点顶部【撤销上一步】可回滚」也无从兑现。
+ *
+ * 但「可回滚」**不塞进批量修正的撤销栈**，改为逐行【恢复原始值】，三条理由：
+ * - 撤销栈撤的是用户上一次批量修正；装载期补价是解析期规范化，用户从未执行过这个动作。
+ *   绑到任意一次撤销上，会把刚补好的行变回 `isRowBlocked` 不可导入，语义错乱。
+ * - 撤销快照的 `before.price` 本来就是补过的值（快照拍在批量修复之前、补价之后），
+ *   把 `smartFilled` 加进 `UNDO_FIELDS` 也退不回原始空值——字段清单不是根因，时机才是。
+ * - 恢复所需信息存在**行对象**上（`_smartFillOrigin`），草稿持久化整行，
+ *   `restoreDraft` 之后仍可恢复；撤销栈是组件内 ref，恢复草稿后会丢，做不到这一点。
+ *
+ * `smartFilled` 保留为兼容标记（`cellEditLogic.smartFill` 的行内编辑也写它），
+ * 但**唯一消费口径是 `_autoFilled`**：清单、字段名标签、恢复判据都只读它。
+ * 行内就地编辑（`finishEdit`）的补值不在本卡范围，另行治理。
  */
 
 /**
@@ -84,12 +102,52 @@ export function shouldSmartFillPrice(row: any): boolean {
  *
  * 精度 4 位对齐既有口径（`cellEditLogic.smartFill` 同款 `toFixed(4)`）：净值本身就是
  * 4 位小数，多留位数只会把浮点尾巴带进「数量 × 单价 = 金额」的比对。
+ *
+ * #2902：除了改 price，还要留三样东西——`_autoFilled` 让行进「已填充数据」清单，
+ * `smartFilled` 兼容旧标记，`_smartFillOrigin` 记下「改前 / 改后」供逐行恢复。
+ * 先存 before 再写 price，顺序反了会把补过的值当成原始值。
  */
 export function fillSmartPrice(row: any): boolean {
   if (!shouldSmartFillPrice(row)) return false;
-  row.price = parseFloat(
+  const filled = parseFloat(
     (parseFloat(row.amount) / parseFloat(row.quantity)).toFixed(4)
   );
+  row._smartFillOrigin = { before: row.price, after: filled };
+  row.price = filled;
   row.smartFilled = true;
+  row._autoFilled = [...new Set([...(row._autoFilled || []), "price"])];
+  return true;
+}
+
+/** 装载期补价的「改前 / 改后」原值，随行走草稿；after 同时是「用户没再动过」的判据 */
+export interface SmartFillOrigin {
+  before: unknown;
+  after: number;
+}
+
+/**
+ * 这一行现在能不能点【恢复原始值】。
+ *
+ * 必须是补价行，且 price 仍是当初补进去的那个值——用户随后在表格里手改过单价、
+ * 或批量修正又动过 price，就不该再让一个「恢复」按钮把他的输入覆盖掉。
+ */
+export function canRestoreSmartFilledPrice(row: any): boolean {
+  const origin = row._smartFillOrigin as SmartFillOrigin | undefined;
+  return !!origin && row.price === origin.after;
+}
+
+/**
+ * 把装载期补价整组退回：price 还原、清单标记移除、兼容标记与原始值一并清掉。
+ * 返回是否真的恢复；只改行数据，不碰 Vue 状态——勾选与统计由调用方重算。
+ */
+export function restoreSmartFilledPrice(row: any): boolean {
+  if (!canRestoreSmartFilledPrice(row)) return false;
+  const origin = row._smartFillOrigin as SmartFillOrigin;
+  row.price = origin.before;
+  delete row._smartFillOrigin;
+  delete row.smartFilled;
+  const rest = (row._autoFilled || []).filter((f: string) => f !== "price");
+  if (rest.length) row._autoFilled = rest;
+  else delete row._autoFilled;
   return true;
 }
