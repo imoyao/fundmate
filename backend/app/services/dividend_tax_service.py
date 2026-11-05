@@ -553,6 +553,30 @@ def record_tax(
         .order_by(Position.id.desc())
         .first()
     )
+    # #2875 入口封堵：找不到持仓时不能再落 ledger_id=NULL 的税行（真实库 26 笔
+    # 「不进任何账本」的 dividend_tax 有一部分源于此）。红利税是某笔分红的减项，
+    # 账本归属就从**最近一笔同标的分红流水**继承——语义上它本来就属于那次分红。
+    # 连分红流水都没有 ⇒ 无法定位账本，直接拒绝（调用方给出可读错误）。
+    source_ledger_id = position.ledger_id if position else None
+    source_account = (position.account_name if position else '') or ''
+    source_asset_type = position.asset_type if position else None
+    if position is None:
+        last_dividend = (
+            db.query(Transaction)
+            .filter(
+                Transaction.family_id == family_id,
+                Transaction.symbol == symbol,
+                Transaction.txn_type == 'dividend',
+                Transaction.ledger_id.isnot(None),
+            )
+            .order_by(Transaction.id.desc())
+            .first()
+        )
+        if last_dividend is None:
+            raise ValueError(f'无法定位账本：标的 {symbol} 既无持仓也无历史分红流水，请先记一笔买入或分红')
+        source_ledger_id = last_dividend.ledger_id
+        source_account = last_dividend.account_name or ''
+        source_asset_type = last_dividend.asset_type
     txn = Transaction(
         position_id=position.id if position else None,
         symbol=symbol,
@@ -566,9 +590,9 @@ def record_tax(
         status='success',
         entry_status='orphan' if position is None else None,
         position_name=(position.name if position else '') or symbol,
-        account_name=account_name or (position.account_name if position else '') or '',
-        ledger_id=position.ledger_id if position else None,
-        asset_type=position.asset_type if position else None,
+        account_name=account_name or source_account,
+        ledger_id=source_ledger_id,
+        asset_type=source_asset_type,
         notes='红利税补记',
         import_hash=import_hash,
         family_id=family_id,

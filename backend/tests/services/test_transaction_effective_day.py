@@ -112,6 +112,9 @@ def test_custom区间坏参数不筛空(db, make_position, make_transaction):
 def _create_via_service(db, **kw):
     from app.services.trading import TransactionService
 
+    # ledger_id=1 是夹具里的合法账本；create 侧的「缺账本拒写」是 #2875 的独立不变量，
+    # 由 test_create缺ledger_id时拒绝写入 单独钉住。
+    kw.setdefault('ledger_id', 1)
     txn = TransactionService.create(db=db, symbol='000400', txn_type='buy', quantity=0, price=0, amount=0, **kw)
     db.flush()
     return txn
@@ -137,6 +140,21 @@ def test_create显式trade_date不被覆盖(db):
     td = datetime(2023, 6, 1, 9, 30, 0)
     txn = _create_via_service(db, trade_date=td, confirm_date=date(2023, 6, 2), status='success')
     assert txn.trade_date == td
+
+
+def test_create缺ledger_id时拒绝写入(db):
+    """#2875：ledger 为空的流水不进任何账本视图（真实库 26 笔只能全表扫发现）——
+    唯一构造汇点必须硬拦，None / 0 / 空串一律拒绝。"""
+    import pytest
+
+    from app.services.trading import TransactionService
+
+    for bad in (None, 0, ''):
+        with pytest.raises(ValueError, match='ledger_id'):
+            TransactionService.create(
+                db=db, symbol='000400', txn_type='buy', quantity=0, price=0, amount=0, ledger_id=bad
+            )
+    db.rollback()
 
 
 def test_resolve_trade_date空字符串视同缺失():

@@ -13,7 +13,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.domains.transactions.dates import resolve_trade_date
+from app.domains.transactions.dates import prepare_write_kwargs
 from app.domains.transactions.models import Transaction
 
 # ---------- 规则配置 ----------
@@ -123,12 +123,12 @@ class TransactionService:
     def create(db: Session, **kwargs) -> Transaction:
         """构造并添加流水到会话，由调用方统一提交。
 
-        trade_date 缺省兜底（#2914，口径与 WHY 见 `domains/transactions/dates.py`）：
-        trade_date → confirm_date → 今日。这是**唯一**的流水构造汇点（全仓 16 处调用），
-        在这里兜底后，新行不再产生无日期记录，存量 1,491 笔无日期行成为封闭集合。
+        写入不变量收敛点（唯一构造汇点，全仓 16 处调用）在
+        `domains/transactions/dates.prepare_write_kwargs`：trade_date 兜底
+        （#2914）+ ledger_id 必填（#2875，拒绝产生「不进任何账本」的脏行）。
         source（#1232 决策 11）：可选，透传到 Transaction.source（复用 PositionSource）。
         """
-        kwargs['trade_date'] = resolve_trade_date(kwargs.get('trade_date'), kwargs.get('confirm_date'))
+        prepare_write_kwargs(kwargs)
         txn = Transaction(**kwargs)
         db.add(txn)
         return txn

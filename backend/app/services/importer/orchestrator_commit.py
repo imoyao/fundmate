@@ -377,6 +377,20 @@ class CommitMixin:
 
                     # ---- 常规投资品种 ----
                     data = self._build_import_data(record)
+                    # #2875 入口封堵：enrich 传 None（前端没选账本）时 record.ledger_id
+                    # 全批为空，下面 buy/sell/dividend/tax/兑付任何分支落库都会产生
+                    # 「不进任何账本」的孤儿行（真实库 26 笔 dividend_tax/bond_redeem
+                    # 就是这么来的）。与上方现金分支（B4）同一守卫口径：缺账本的行
+                    # 计入 commit_errors，其余行照常入库。
+                    if not data.get('ledger_id'):
+                        commit_errors.append(
+                            {
+                                'symbol': record.symbol,
+                                'name': record.name,
+                                'error': '缺少目标账本（ledger_id），请选择账本后重试',
+                            }
+                        )
+                        continue
                     bt = record.business_type
 
                     # 基本校验
@@ -415,6 +429,9 @@ class CommitMixin:
                             status='success',
                             position_name=data.get('name', data['symbol']),
                             account_name=data.get('account_name', ''),
+                            # #2875：与 BUY/SELL 分支同口径——真实库 25 笔 ledger_id IS NULL
+                            # 的 dividend_tax 全部源于此处漏传（enrich 已回填 record.ledger_id）
+                            ledger_id=data.get('ledger_id'),
                             notes=data.get('notes') or '股息红利扣税',
                             import_hash=data.get('import_hash'),
                             entry_status='orphan',

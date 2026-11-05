@@ -145,9 +145,31 @@ def resolve_trade_date(trade_date, confirm_date=None):
     return today_shanghai()
 
 
+def prepare_write_kwargs(kwargs: dict) -> dict:
+    """流水写入前的不变量收敛点（与 :func:`resolve_trade_date` 同属一个汇点）。
+
+    #2916 只收敛了「日期」，#2875 补上第二条：**``ledger_id`` 不许为空**。真实库
+    26 笔 ``ledger_id IS NULL`` 的流水全部来自导入器 TAX 分支漏传 / enrich 传 None
+    ——它们不进任何账本视图，只能靠全表扫描才能发现。全库检查确认**没有任何合法
+    写路径会不带账本**，所以在唯一构造汇点硬拦：
+
+    - ``ledger_id`` 为空（None / 0 / 空串）⇒ ``ValueError``。调用方应当把该行
+      计入自己的错误清单（导入器 ``commit_errors``）或让请求失败，而不是落一行
+      「不进任何账本」的脏数据——静默写入比报错更难发现。
+
+    与 :func:`resolve_trade_date` 一样：只管**新行**，存量 NULL 由修复脚本
+    （``scripts/fix_orphan_ledger_null.py``）按 ``account_name`` 归属回填。
+    """
+    kwargs['trade_date'] = resolve_trade_date(kwargs.get('trade_date'), kwargs.get('confirm_date'))
+    if not kwargs.get('ledger_id'):
+        raise ValueError('流水缺少 ledger_id（账本归属）：拒绝写入无账本流水')
+    return kwargs
+
+
 __all__ = [
     'effective_day_expr',
     'filter_by_effective_range',
     'order_by_effective_day',
+    'prepare_write_kwargs',
     'resolve_trade_date',
 ]
