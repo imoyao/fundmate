@@ -239,6 +239,12 @@ export interface SummaryData {
    * null = 总资产为 0（**不是 0%**——0% 会被读成「一分钱负债都没有」）。
    */
   liability_ratio: number | null;
+  /**
+   * 买入侧手续费合计（元）。`total_pnl_cny` **已扣掉**这个数（卖出费早在已实现
+   * 盈亏里扣过，不在这里重复）。仅用于解释「为什么盈亏比想象中的少」，
+   * 不要再从 `total_pnl_cny` 里减第二次。
+   */
+  buy_fee_cny?: number;
   market_distribution: Record<string, number>;
 }
 

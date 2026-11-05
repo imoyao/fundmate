@@ -201,6 +201,10 @@ def _empty_xirr_result() -> Dict[str, Any]:
     """空结果的标准结构（无账户 / 无成交 / 无市值）：全 0。
 
     前端据 `cashflow_count == 0` 降级显示 `—`，不会出现 NaN（#1972 验收③）。
+
+    **刻意不含 `fees`**：空结果里的「0 元费用」会被读成「查过了、确实没花手续费」，
+    而事实是「没有可算的流水」。字段缺席 ⇒ 前端显示 `--`，与同页其它卡一致；
+    有流水但费用为 0 时该字段才为 0。
     """
     return {
         'xirr': 0.0,
@@ -226,6 +230,9 @@ def _calculate_xirr_for_cashflows(
         current_market_value: 当前持仓总市值（由调用方传入，不从现金流反推）
         method: 'xirr'（默认，年化资金加权）/ 'dietz'（Modified Dietz 区间，不年化，#871）
     """
+    # 手续费合计随现金流一起带出来（`fee_cash.Cashflows.fees_total`）：费用已并入
+    # 金额（买入 `−(amount+fee)`、卖出 `+(amount−fee)`），这里只回填展示，不再二次扣减。
+    fees_total = getattr(cashflows, 'fees_total', 0.0)
     # 累计买入：所有负现金流的绝对值之和（**毛额**，买卖一次就累加一次，含再投入）
     total_invested = sum(abs(a) for _, a in cashflows if a < 0)
     # 总收回：所有正现金流之和（包含虚拟卖出）
@@ -251,6 +258,7 @@ def _calculate_xirr_for_cashflows(
             'net_invested': round(net_invested, 2),
             'current_value': round(current_market_value, 2),
             'total_return': round(total_return, 2),
+            'fees': round(fees_total, 2),
             'cashflow_count': len(cashflows),
         }
 
@@ -267,6 +275,7 @@ def _calculate_xirr_for_cashflows(
         'net_invested': round(net_invested, 2),
         'current_value': round(current_market_value, 2),
         'total_return': round(total_return, 2),
+        'fees': round(fees_total, 2),
         'cashflow_count': len(cashflows),
     }
 

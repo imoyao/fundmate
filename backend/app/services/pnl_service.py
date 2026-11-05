@@ -19,7 +19,9 @@ WHY
 - **未实现盈亏 unrealized**：持仓浮动部分 = 市值 − 成本基数。
   nav 模式成本基数 = 成本均价 × 份额；balance 模式（无份额可乘）成本基数 =
   该持仓的净投入（Σ买入/存入 − Σ卖出/取出；分红不冲减成本基数，已在 realized 侧计过）。
-- **总盈亏 total = realized + unrealized**。
+- **总盈亏 total = realized + unrealized − buy_fee**。
+- **买入侧手续费（buy_fee）**：单独从总盈亏扣，**不**资本化进成本均价（卖出费已在
+  `realized` 里扣过，只收 `buy` / `deposit`，否则双扣）。口径取舍与取数见 `pnl_fees`。
 
 与 XIRR 口径的自洽性（决策 D3：balance 模式盈亏复用 XIRR 现金流定义）：
 两种模式下恒有
@@ -178,6 +180,7 @@ def position_pnl_cents(
     rate: float | None = None,
     realized_cents: int = 0,
     net_invested: int | None = None,
+    buy_fee_cents: int = 0,
 ) -> dict[str, int]:
     """单笔持仓的三段盈亏（分）。
 
@@ -187,15 +190,22 @@ def position_pnl_cents(
         rate: 本币 → CNY 汇率；None 按 1.0。市值与成本基数同乘该汇率。
         realized_cents: 该持仓的已实现盈亏（分），由 `realized_pnl_by_position` 批量取。
         net_invested: 该持仓的净投入（分），balance 模式用作成本基数。
+        buy_fee_cents: 该持仓的**买入侧**手续费（分），由 `pnl_fees.buy_fee_by_position` 批量取。
+
+    Returns:
+        ``total_pnl_cents = realized + unrealized − buy_fee``；``buy_fee_cents`` 单列返回
+        （供展示「其中费用多少」，别从 total 反推——那是在做第二套算术）。
     """
     market_value = market_value_cents(position, effective_nav_yuan=effective_nav_yuan, rate=rate)
     cost = _scale_cents(cost_basis_cents(position, net_invested), rate)
     realized = int(realized_cents or 0)
+    buy_fee = int(buy_fee_cents or 0)
     unrealized = market_value - cost
     return {
         'market_value_cents': market_value,
         'cost_basis_cents': cost,
         'realized_pnl_cents': realized,
         'unrealized_pnl_cents': unrealized,
-        'total_pnl_cents': realized + unrealized,
+        'buy_fee_cents': buy_fee,
+        'total_pnl_cents': realized + unrealized - buy_fee,
     }
