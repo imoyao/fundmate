@@ -272,12 +272,123 @@ def _assess_safety(txns: list[Transaction], target: Position):
     return safe, warnings, quantity_before, quantity_if_recomputed, delta
 
 
+def _load_positions_by_ledger(db: Session, family_id: int) -> dict:
+    """同 family 全部现存持仓一次查完、按 ledger 索引，避免每组回表。"""
+    positions = db.query(Position).filter(Position.family_id == family_id).order_by(Position.id).all()
+    by_ledger = defaultdict(list)
+    for p in positions:
+        by_ledger[p.ledger_id].append(p)
+    return by_ledger
+
+
+def _build_batches(rows: list[Transaction]) -> tuple[list[dict], dict, dict]:
+    """按 created_at 聚簇成批次，同时给出 txn_id → 批次映射与批次标签表。
+
+    rows 须已按 (created_at, id) 升序；聚簇规则见 ``_cluster_batches``。
+    """
+    batches = []
+    txn_to_batch = {}
+    for idx, batch in enumerate(_cluster_batches(rows), 1):
+        for t in batch:
+            txn_to_batch[t.id] = idx
+        ledgers = sorted({t.ledger_id for t in batch if t.ledger_id is not None})
+        symbols = {t.symbol for t in batch if t.symbol}
+        first_ts = batch[0].created_at
+        batches.append(
+            {
+                'id': idx,
+                'label': first_ts.strftime('%Y-%m-%d %H:%M') if first_ts else '未知时间',
+                'txn_count': len(batch),
+                'ledger_ids': ledgers,
+                'symbol_count': len(symbols),
+            }
+        )
+    return batches, txn_to_batch, {b['id']: b['label'] for b in batches}
+
+
+def _group_candidates(ledger_positions: list[Position], symbol: str) -> tuple[list[Position], Position | None]:
+    """候选只列「同账本且同标的」的现存持仓；空 symbol 一律不给候选。
+
+    reattach 硬校验 symbol 一致，列出别的标的只会诱导用户挂错。真库最大一组是
+    293 条空 symbol 卖出流水，旧实现给它 20 个无关候选（同账本任意持仓前 20 条），
+    等于让用户瞎猜。
+    """
+    if not symbol:
+        return [], None
+    same_symbol = [p for p in ledger_positions if (p.symbol or '') == symbol]
+    return same_symbol[:MAX_CANDIDATES], (same_symbol[0] if same_symbol else None)
+
+
+def _group_block_reason(symbol: str, cands: list[Position]) -> tuple[bool, str | None]:
+    """可否安全回补的单一真相源：前端只显示判据结果，不自行推导（避免两处口径漂移）。"""
+    if not symbol:
+        return False, '这批流水缺标的代码，无法判定归属；需先补全 symbol 才能回补'
+    if not cands:
+        return False, '同账本没有同标的的现存持仓行，无法安全挂回；需先补建持仓或补录流水'
+    return True, None
+
+
+def _group_flags(
+    symbol: str,
+    cands: list[Position],
+    live: Position | None,
+    net_units: float,
+    fixable: bool,
+) -> list[str]:
+    """分组标签。net_mismatch 只作展示提示，不阻断「只改指针」的回补动作。"""
+    flags = []
+    if not symbol:
+        flags.append('no_symbol')
+    if cands:
+        flags.append('has_candidate')
+    if live is not None and abs(net_units - _shares(live.quantity)) > NET_MISMATCH_TOLERANCE:
+        flags.append('net_mismatch')
+    if any(p.ownership_status == 'cleared' for p in cands):
+        flags.append('cleared_target')
+    if not fixable:
+        flags.append('blocked')
+    return flags
+
+
+def _build_group(
+    ledger_id,
+    symbol: str,
+    txns: list[Transaction],
+    ledger_positions: list[Position],
+    first_batch_id: int,
+    batch_label: str,
+) -> dict:
+    """组装单个 (ledger, symbol) 分组；判据全部来自 ``_group_*`` 系列函数。"""
+    cands, live = _group_candidates(ledger_positions, symbol)
+    fixable, block_reason = _group_block_reason(symbol, cands)
+    net_units = _shares(_net_min_units(txns))
+    return {
+        'key': f'{ledger_id}|{symbol}',
+        'ledger_id': ledger_id,
+        'symbol': symbol,
+        'txn_count': len(txns),
+        'dangling_position_ids': sorted({t.position_id for t in txns if t.position_id is not None}),
+        'net_units': net_units,
+        'live_position': _pos_brief(live) if live is not None else None,
+        'candidates': [_pos_brief(p) for p in cands],
+        'batch_id': first_batch_id,
+        'batch_label': batch_label,
+        'flags': _group_flags(symbol, cands, live, net_units, fixable),
+        'fixable': fixable,
+        'block_reason': block_reason,
+        'transactions': [_txn_brief(t) for t in txns],
+    }
+
+
 def scan_dangling_refs(db: Session, family_id: int) -> dict:
     """列出当前家庭全部悬空流水（GET /dangling-refs/ 的数据源，纯只读）。
 
     返回结构与前端契约一一对应：total / group_count / batch_count / null_symbol /
     null_trade_date 为全局计数；groups 按 (ledger_id, symbol or '') 分组，空 symbol
     独立成组（不与有 symbol 的组混合）；batches 是全局按 created_at 聚簇的批次。
+
+    职责拆成「取数 → 批次 → 分组 → 单组组装」四段，单函数圈复杂度留给
+    ``scripts/guard_service_size.py`` 守住（新增服务 max_cc ≤ 20）。
     """
     dangling = db.query(Transaction).filter(_dangling_condition(family_id)).all()
     total = len(dangling)
@@ -286,33 +397,8 @@ def scan_dangling_refs(db: Session, family_id: int) -> dict:
     null_trade_date = sum(1 for t in dangling if t.trade_date is None)
 
     rows = sorted(dangling, key=lambda t: (t.created_at is None, t.created_at or datetime.min, t.id))
-    batch_rows = _cluster_batches(rows)
-
-    batches = []
-    txn_to_batch = {}
-    for idx, batch in enumerate(batch_rows, 1):
-        for t in batch:
-            txn_to_batch[t.id] = idx
-        ledgers = sorted({t.ledger_id for t in batch if t.ledger_id is not None})
-        symbols = {t.symbol for t in batch if t.symbol}
-        first_ts = batch[0].created_at
-        label = first_ts.strftime('%Y-%m-%d %H:%M') if first_ts else '未知时间'
-        batches.append(
-            {
-                'id': idx,
-                'label': label,
-                'txn_count': len(batch),
-                'ledger_ids': ledgers,
-                'symbol_count': len(symbols),
-            }
-        )
-    batch_labels = {b['id']: b['label'] for b in batches}
-
-    # 同 family 全部现存持仓一次查完、按 ledger 索引，避免每组回表。
-    positions = db.query(Position).filter(Position.family_id == family_id).order_by(Position.id).all()
-    by_ledger = defaultdict(list)
-    for p in positions:
-        by_ledger[p.ledger_id].append(p)
+    batches, txn_to_batch, batch_labels = _build_batches(rows)
+    by_ledger = _load_positions_by_ledger(db, family_id)
 
     # 分组键 (ledger_id, symbol or '')；rows 已按 created_at 排好，组内顺序稳定。
     grouped = {}
@@ -321,55 +407,17 @@ def scan_dangling_refs(db: Session, family_id: int) -> dict:
 
     groups = []
     for (ledger_id, symbol), txns in grouped.items():
-        ledger_positions = by_ledger.get(ledger_id, [])
-        # 候选只列「同账本且同标的」的现存持仓：reattach 硬校验 symbol 一致，
-        # 列出别的标的只会诱导用户挂错。真库最大一组是 293 条空 symbol 卖出流水，
-        # 旧实现给它 20 个无关候选（同账本任意持仓前 20 条），等于让用户瞎猜。
-        same_symbol = [p for p in ledger_positions if symbol and (p.symbol or '') == symbol]
-        cands = same_symbol[:MAX_CANDIDATES]
-        live = same_symbol[0] if same_symbol else None
-        net_units = _shares(_net_min_units(txns))
-
-        # 可否安全回补由后端一处判据给出，前端只显示、不自行推导（避免两处口径漂移）。
-        if not symbol:
-            block_reason = '这批流水缺标的代码，无法判定归属；需先补全 symbol 才能回补'
-        elif not cands:
-            block_reason = '同账本没有同标的的现存持仓行，无法安全挂回；需先补建持仓或补录流水'
-        else:
-            block_reason = None
-        fixable = block_reason is None
-
-        flags = []
-        if not symbol:
-            flags.append('no_symbol')
-        if cands:
-            flags.append('has_candidate')
-        if live is not None and abs(net_units - _shares(live.quantity)) > NET_MISMATCH_TOLERANCE:
-            flags.append('net_mismatch')
-        if any(p.ownership_status == 'cleared' for p in cands):
-            flags.append('cleared_target')
-        if not fixable:
-            flags.append('blocked')
-
         # 一个组可能跨多个批次，这里取组内最早一条流水所属的批次（组内按 created_at 升序）。
         first_batch_id = txn_to_batch[txns[0].id]
         groups.append(
-            {
-                'key': f'{ledger_id}|{symbol}',
-                'ledger_id': ledger_id,
-                'symbol': symbol,
-                'txn_count': len(txns),
-                'dangling_position_ids': sorted({t.position_id for t in txns if t.position_id is not None}),
-                'net_units': net_units,
-                'live_position': _pos_brief(live) if live is not None else None,
-                'candidates': [_pos_brief(p) for p in cands],
-                'batch_id': first_batch_id,
-                'batch_label': batch_labels[first_batch_id],
-                'flags': flags,
-                'fixable': fixable,
-                'block_reason': block_reason,
-                'transactions': [_txn_brief(t) for t in txns],
-            }
+            _build_group(
+                ledger_id,
+                symbol,
+                txns,
+                by_ledger.get(ledger_id, []),
+                first_batch_id,
+                batch_labels[first_batch_id],
+            )
         )
 
     return {
