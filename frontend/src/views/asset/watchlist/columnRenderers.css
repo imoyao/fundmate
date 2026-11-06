@@ -385,16 +385,7 @@
   align-items: flex-end;
 }
 
-/* ── 「今日估算」列的「估」徽章（2026-11-05 拆列）──
-   这一列只在拿到实时行情时才有数字，且是**盘中估算**而非确认值：列名已写「今日估算」，
-   单元格再挂一枚 ValuationSourceBadge(status=estimated) 的「估」徽章 + 免责 tooltip
-   （ESTIMATE_DISCLAIMER 单一出口），与相邻「昨日盈亏」的真实值一眼分开。
-   布局与 .watchlist-pnl-dual 同为右对齐纵向 flex：金额/涨幅一组、徽章一组。
-   ⚠️ 行高会增加约 16px；只在实时估算有值时出现，未开实时 / 收盘后回落纯两行态。
-   徽章自身的几何/配色住在 ValuationSourceBadge（scoped），这里只负责成组间距。 */
-.el-table .watchlist-today-estimate {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  align-items: flex-end;
-}
+/* ── 「当日盈亏」列的「估」徽章（2026-11-06）──
+   徽章现作为 MoneyWithRatio 的 prefix 插槽渲染在金额数字之前（与金额同行，不再独占一行），
+   仅估值态出现（已确认真实值 / 无值不挂）。徽章自身的几何/配色住在
+   ValuationSourceBadge（scoped）；MoneyWithRatio 的 .money-with-ratio__main 负责前缀同行布局。 */

@@ -44,6 +44,20 @@ export interface Quote {
    * 缺失时（源不提供）留 undefined，由调用方降级，不要拿现价顶替。
    */
   prevClose?: number;
+  /**
+   * 官方确认价（收盘 / 净值）：股票=无（盘中/收盘实时价本身就由 `currentPrice`
+   * 承载，无单独官方价字段）；基金=已公布单位净值（`dwjz` / `NAV`）。
+   * 仅当 `confirmed === true` 时才有意义——`dayPnl.ts` 用它替换估值价算「当日盈亏」。
+   */
+  officialPrice?: number | null;
+  /**
+   * 数据源标注的价点日期（净值日期 `jzrq` / `PDATE` / 腾讯时间戳里的日期）。
+   * 用于判「这份报价是不是今天的确认价」——绝不靠本地时钟猜（否则早上打开页面
+   * 行情源还挂着昨天的收盘价，会被误判成今天的确认值）。
+   */
+  priceDate?: string | null;
+  /** 行情时刻（场内用，`HH:mm`）：判是否已收盘（≥15:00 才算当日收盘价已定）。 */
+  priceTime?: string | null;
 }
 
 /**
@@ -82,13 +96,17 @@ function parseTencentQuote(
       const price = parseFloat(parts[5]);
       const changePct = parseFloat(parts[7]);
       if (!isNaN(price)) {
+        const priceDate = parts[8] || null;
         return {
           symbol,
           type: "fund",
           currentPrice: price,
           changePct: !isNaN(changePct) ? changePct : 0,
           updateTime: parts[8] || formatDate(new Date()) + " 00:00",
-          source: "tencent"
+          source: "tencent",
+          officialPrice: null,
+          priceDate,
+          priceTime: null
         };
       }
     }
@@ -105,6 +123,9 @@ function parseTencentQuote(
           timeStr.length >= 14
             ? timeStr.slice(8, 10) + ":" + timeStr.slice(10, 12)
             : "";
+        // 行情日期/时刻来自数据源自带的时间戳：股票盘后（≥15:00）即「当日收盘价已定」，
+        // 由 quoteStatus.isConfirmedQuote 据此判确认态，不靠本地时钟。
+        const priceDate = timeFormatted ? formatDate(new Date()) : null;
         return {
           symbol,
           type: "stock",
@@ -115,7 +136,11 @@ function parseTencentQuote(
             ? // 日期用本地时区（toISOString 取 UTC 日期凌晨会跨日），时间不带秒
               formatDate(new Date()) + " " + timeFormatted
             : formatDateTime(new Date()),
-          source: "tencent"
+          source: "tencent",
+          // 股票无单独官方价：确认价即收盘实时价（currentPrice 本身）
+          officialPrice: null,
+          priceDate,
+          priceTime: timeFormatted || null
         };
       }
     }
@@ -156,16 +181,23 @@ async function fetchTiantian(code: string): Promise<Quote | null> {
         cleanup();
         tiantianQueue = null; // 释放队列
         if (data && data.fundcode && data.gsz) {
-          // dwjz = 最近一个已确认交易日的单位净值，正是估算净值 gsz 的基准价
+          // dwjz = 最近一个已确认交易日的单位净值；jzrq = 该净值日期。
+          // 基金净值公布后 jzrq 会推到当天，dwjz 随之变成当日确认净值——
+          // 这正是「净值已更新」的信号（见 quoteStatus.isConfirmedQuote）。
           const prevNav = parseFloat(data.dwjz);
+          const officialPrice = !isNaN(prevNav) && prevNav > 0 ? prevNav : null;
+          const gzTime = data.gztime || "";
           resolve({
             symbol: code,
             type: "fund",
             currentPrice: parseFloat(data.gsz),
             changePct: parseFloat(data.gszzl || 0),
-            prevClose: !isNaN(prevNav) && prevNav > 0 ? prevNav : undefined,
-            updateTime: data.gztime,
-            source: "tiantian"
+            prevClose: officialPrice ?? undefined,
+            updateTime: gzTime,
+            source: "tiantian",
+            officialPrice,
+            priceDate: data.jzrq || null,
+            priceTime: gzTime.split(" ")[1]?.slice(0, 5) || null
           });
         } else {
           resolve(null);
@@ -384,19 +416,24 @@ export async function fetchFundValuationLastBatch(
               got.add(code);
               const price = parseFloat(it.GSZ);
               const changePct = parseFloat(it.GSZZL);
-              // NAV = 上一确认日单位净值（请求 FIELDS 里本来就带着，此前解析时丢掉了）
+              // NAV = 上一确认日单位净值（请求 FIELDS 里本来就带着，此前解析时丢掉了）；
+              // PDATE = 该净值日期。净值公布后 PDATE 推到当天 → 当日确认净值信号。
               const prevNav = parseFloat(it.NAV);
+              const officialPrice =
+                !isNaN(prevNav) && prevNav > 0 ? prevNav : null;
               if (!isNaN(price)) {
                 result.set(code, {
                   symbol: code,
                   type: "fund",
                   currentPrice: price,
                   changePct: !isNaN(changePct) ? changePct : 0,
-                  prevClose:
-                    !isNaN(prevNav) && prevNav > 0 ? prevNav : undefined,
+                  prevClose: officialPrice ?? undefined,
                   updateTime: it.GZTIME || formatDate(new Date()) + " 00:00",
                   source: "tiantian-batch",
-                  name: it.SHORTNAME
+                  name: it.SHORTNAME,
+                  officialPrice,
+                  priceDate: it.PDATE || null,
+                  priceTime: null
                 });
               }
             }

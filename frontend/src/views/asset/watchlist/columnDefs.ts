@@ -296,8 +296,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
   },
   {
     /**
-     * 今日估算（2026-11-05：由 #2640 的「当日盈亏」改名 + 换口径）：
-     * **盘中今日的估算**金额 + 估算涨跌幅，随实时行情轮询动态变化。
+     * 当日盈亏（2026-11-05 由 #2640 的「当日盈亏」拆列；2026-11-06 升级为「真实值优先、估值兜底」）：
+     * 金额 = (T 价 − T-1 已确认价) × 份额，涨跌幅同分母；随实时行情轮询动态变化。
      *
      * ## 为什么必须和「昨日盈亏」拆成两列
      *
@@ -308,25 +308,26 @@ export const watchlistColumnDefs: ColumnDef[] = [
      *
      * | 列 | 口径 | 数据状态 |
      * |---|---|---|
-     * | 今日估算（本列） | `(T 实时估值价 − T-1 确认价) × 份额` | 估算、盘中动态；拿不到行情一律 `—` |
+     * | 当日盈亏（本列） | `(T 价 − T-1 确认价) × 份额` | 真实值优先：股票盘后=收盘价、基金净值公布后=官方净值（确认态，不挂「估」）；未确认用盘中估值价填充并挂「估」 |
      * | 昨日盈亏 | `(T-1 确认价 − T-2 确认价) × 份额` | 已确认真实值，永不跳动 |
      *
      * 口径唯一出口是 `dayPnl.ts` 的 `resolveTodayEstimate`，表格列与顶部汇总条共用。
      * **拿不到实时行情时绝不回落昨日数字**——这一列就空白，真实值去「昨日盈亏」看。
      * 实时源缺 T-1 基准时由 `dayPnl.ts` 兜底 `row.current_price`，不碰 `row.prev_close`。
      *
-     * ## 估算语义的视觉锚点
+     * ## 确认态的视觉锚点
      *
-     * 「估算」二字写进列名，单元格另带 `ValuationSourceBadge(status="estimated")`
-     * 的「估」徽章 + 免责 tooltip（见 `columnRenderers.tsx` 的 renderMoneyRatio）。
-     * 不做这层标记，两个都是「金额 + 涨幅」的复合列又会被读成两个「今日收益」。
+     * 列名已写「当日盈亏」。单元格只在**估值态**（`ValuationSourceBadge(status="estimated")`）
+     * 挂一枚「估」徽章 + 免责 tooltip（见 `columnRenderers.tsx` 的 renderMoneyRatio）；
+     * 已确认真实值（盘后收盘价 / 基金已公布净值）**不挂**徽章，避免把确认值也读成估算。
+     * 不做这层区分，两个都是「金额 + 涨幅」的复合列又会被读成两个「今日收益」。
      *
      * ## 位置与默认可见（owner 拍板：两列常驻，接受横向滚动）
      *
      * 排在「名称」之后、「昨日盈亏」之前——越靠左＝今天越需要知道。两列均默认可见；
      * 默认列总宽由 984 → 1088（新增 104px），宽度来源见文件头铁律 1。
      *
-     * ## 排序（2026-10-30 整组化，口径 2026-11-05 换成今日估算）
+     * ## 排序（2026-10-30 整组化，口径 2026-11-05 拆列）
      *
      * 两行数（金额 / 涨跌幅）各排各的：表头口径徽标常驻、点一下即切
      * （`SortMetric` amount / ratio），由 `useWatchlistTable.onSortChange`
@@ -339,7 +340,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
      * #2641 删掉「今日涨跌幅」列后必须由本列接住，否则指数行连涨跌都看不到。
      */
     key: "day_pnl",
-    label: "今日估算",
+    label: "当日盈亏",
     renderer: "moneyRatio",
     appliesTo: QUOTE_TYPES,
     scope: "mixed",
@@ -355,7 +356,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortMetrics: { labels: { amount: "金额", ratio: "涨幅" } },
     hideable: true,
     draggable: true,
-    derived: "todayEstimate" // value=今日估算盈亏(元), ratio=今日估算涨跌幅(%)
+    derived: "todayEstimate" // value=当日盈亏(元，真实值优先、估值兜底), ratio=当日涨跌幅(%)
   },
   {
     /**
@@ -1167,7 +1168,7 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   position_market_value: "general",
   added_return: "general",
   holding_pnl: "general",
-  day_pnl: "general", // 今日估算（2026-11-05 由「当日盈亏」改名 + 换口径）
+  day_pnl: "general", // 当日盈亏（2026-11-05 拆列，2026-11-06 升级为真实值优先、估值兜底）
   yesterday_pnl: "general", // 昨日盈亏（2026-11-05 新增，已确认真实值）
   // 可转债条款
   bond_premium_rate: "bond",
