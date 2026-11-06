@@ -159,7 +159,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import { formatAmount } from "@/utils/currency";
-import type { LedgerSummaryData } from "@/composables/useLedgerDetail";
+import type { LedgerSummaryData } from "@/composables/ledger/types";
 
 defineOptions({ name: "LedgerCashLikeCard" });
 

@@ -12,6 +12,7 @@
  * | W2 | 另开一处读写 `watchlist-page-size` / `watchlist-sort-metrics`（偏好像素分裂） |
  * | N1 | `usePageNav` 自己又写一份滚动度量（几何层被绕过） |
  * | L1 | `useLedgerDetail` 又自己声明 `summaryData` / `portfolioList`（子域被绕过） |
+ * | T1 | 行/概览类型从 `ledger/types.ts` 搬回父文件，或被本地手抄一份（#2931，D87） |
  *
  * ⚠️ 判据一律**先剥注释**再匹配：本仓踩过「注释里写着名字，守卫就拿它当已登记」
  * 的假绿灯（#2453）。注释保留在文件头是本项目的习惯，不能因为它而让守卫失明。
@@ -152,5 +153,63 @@ describe("L1 账户详情的概览 / 组合状态只由子域声明", () => {
     expect(
       readCode("composables/ledger/useLedgerPositionPortfolio.ts")
     ).toContain("const portfolioList = ref");
+  });
+});
+
+describe("T1 账户详情类型只有 ledger/types.ts 一个声明点（#2931，D87）", () => {
+  const TYPES = [
+    "LedgerSummaryData",
+    "CashLikeBreakdownRow",
+    "LedgerHoldingRow"
+  ];
+  const OWNER = "composables/ledger/types.ts";
+
+  it("三个类型在全仓只有一个声明点", { timeout: 30000 }, () => {
+    const files = walk(SRC);
+    expect(files.length).toBeGreaterThan(100); // 扫描本身必须有效，防空目录假绿灯
+
+    for (const t of TYPES) {
+      // 剥注释后按「行首（可带 export）interface」匹配：手抄副本、局部同名类型都会被抓到
+      const decl = new RegExp(`\\n\\s*(export\\s+)?interface\\s+${t}\\b`);
+      const owners = files.filter(f => decl.test("\n" + readCode(f)));
+      expect(owners, `${t} 的声明点应唯一（只许 ${OWNER}）`).toEqual([OWNER]);
+    }
+  });
+
+  it("全仓无人再从父 composable 取这三个类型", { timeout: 30000 }, () => {
+    const files = walk(SRC).filter(f => f !== "composables/useLedgerDetail.ts");
+    const re =
+      /import\s+type\s*\{[^}]*\b(LedgerSummaryData|CashLikeBreakdownRow|LedgerHoldingRow)\b[^}]*\}\s*from\s*"@\/composables\/useLedgerDetail"/;
+    const offenders = files.filter(f =>
+      re.test(readFileSync(join(SRC, f), "utf-8"))
+    );
+    expect(
+      offenders,
+      "类型必须从 ledger/types 取，不能反向取父 composable"
+    ).toEqual([]);
+  });
+
+  it("父文件保留 re-export 兼容层（对外 import 路径不变）", () => {
+    const code = readCode("composables/useLedgerDetail.ts");
+    expect(code).toMatch(
+      /export\s+type\s*\{[^}]*\}\s*from\s*"\.\/ledger\/types"/
+    );
+    for (const t of TYPES) {
+      expect(code, `父文件未转发 ${t}`).toContain(t);
+    }
+  });
+
+  it("LedgerHoldingRow 保有手抄副本曾漏掉的四个字段", () => {
+    // MigrateDialog 原有一份 14 字段手抄版，缺这四项（对应 #862 / #2140 / #2210 / D20）。
+    // 搬类型时最容易出的错是漏字段，故逐项钉住。
+    const code = readCode(OWNER);
+    for (const field of [
+      "holding_days",
+      "price_date",
+      "settled_today",
+      "portfolio_id"
+    ]) {
+      expect(code, `LedgerHoldingRow 缺字段 ${field}`).toContain(field);
+    }
   });
 });

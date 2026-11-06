@@ -269,7 +269,7 @@ import PortfolioAssignCell from "@/views/asset/inventory/components/PortfolioAss
 import { updateLedgerPosition } from "@/api/ledger";
 import { ALLOCATION_OPTIONS } from "@/constants";
 import { pricePrecision } from "@/utils/pricePrecision";
-import type { LedgerHoldingRow } from "@/composables/useLedgerDetail";
+import type { LedgerHoldingRow } from "@/composables/ledger/types";
 import {
   confirmedPnl,
   PNL_DUAL_SCOPE_TIP

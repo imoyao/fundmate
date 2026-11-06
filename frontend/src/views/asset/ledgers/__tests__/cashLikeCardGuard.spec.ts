@@ -91,14 +91,17 @@ describe("账外类现金出口（#2155）", () => {
   });
 
   it("账户概览接口类型含分项与明细字段", () => {
-    const composable = read("../../../../composables/useLedgerDetail.ts");
+    // #2931（D87）：`LedgerSummaryData` 已从 `useLedgerDetail.ts` 迁到
+    // `composables/ledger/types.ts`（消除子域反向依赖父 composable）。判据意图不变——
+    // 「概览类型必须含这 4 个字段」——但取数位置跟着真源走，否则搬家即假红。
+    const types = read("../../../../composables/ledger/types.ts");
     for (const field of [
       "orphan_amount",
       "orphan_income_amount",
       "account_cash_amount",
       "cash_like_breakdown"
     ]) {
-      expect(composable, `缺字段 ${field}`).toContain(field);
+      expect(types, `缺字段 ${field}`).toContain(field);
     }
   });
 });

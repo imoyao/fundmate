@@ -21,7 +21,7 @@ import { ElMessage } from "element-plus";
 import type { LedgerItem } from "@/api/ledger";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { updatePosition } from "@/api/positions";
-import type { LedgerHoldingRow } from "@/composables/useLedgerDetail";
+import type { LedgerHoldingRow } from "./types";
 import {
   portfolioLabel,
   resolvePortfolioOf,
