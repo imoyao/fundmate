@@ -107,7 +107,8 @@ jobs:
           python-version: "3.12"
 
       - name: 安装 PDM
-        run: pip install pdm
+        # 同 ci.yml：hishel 2.0.0 破坏性升级，钉 <2 直到 PDM 兼容。
+        run: pip install pdm "hishel<2"
 
       - name: 安装依赖
         env:
