@@ -44,7 +44,8 @@ from app.core.money import Money
 from app.core.symbol_utils import derive_security_type, split_symbol, strip_exchange_prefix
 from app.core.utils import get_confirm_date
 from app.core.venues import asset_types_of_venue
-from app.domains.funds.models import DailyWorth
+from app.domains.funds.models import DailyWorth, Fund
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.fund_utils import normalize_fund_code
@@ -327,3 +328,38 @@ def _find_existing_position(
         query = query.filter(Position.ownership_status == 'active')
     # 取最新一条（id 降序），确保命中最近建仓的持仓
     return query.order_by(Position.id.desc()).first()
+
+
+def _resolve_fund_name_by_code(db: Session, symbol: Optional[str]) -> Optional[str]:
+    """按代码反查基金名称（market 域名录**点查**，非 JOIN）。
+
+    WHY（#2372）：``Position.name`` / ``Transaction.position_name`` 是**冗余快照**，
+    多个写入路径（基金转换转入腿、部分导入器）只传 ``ledger_id`` 不传名称，
+    快照落 NULL 后交易列表显示「未知资产」、持仓明细退化成 6 位编码
+    （真库实测：转换建的持仓 618 ``name=NULL``，流水 3001 两个快照全 NULL）。
+    ``symbol``（→ ``funds.fund_code``）才是权威键，快照缺失时按 ID 反查回填，
+    不依赖调用方自觉传名称。
+
+    只做单行点查：双库架构下 market / user 分引擎，路由会话按表分发，
+    点查安全；查不到返回 None（由调用方兜底），不猜、不建行。
+    """
+    if not symbol:
+        return None
+    code = strip_exchange_prefix(str(symbol))
+    if not code:
+        return None
+    fund = db.query(Fund).filter(Fund.fund_code == code).first()
+    return fund.name if fund else None
+
+
+def _resolve_ledger_name_by_id(db: Session, ledger_id: Optional[int]) -> Optional[str]:
+    """按账户 ID 反查账户名（user 域 ``ledgers`` 点查）。
+
+    同 ``_resolve_fund_name_by_code``：``account_name`` 是**可编辑字段**的快照，
+    快照缺失/漂移时按 ``ledger_id``（真外键）反查——前端据此显示真实账户名而非
+    「未知账户」，下游也不得再拿名称当匹配键（真库存在重名账户：#2372）。
+    """
+    if not ledger_id:
+        return None
+    ledger = db.get(Ledger, ledger_id)
+    return ledger.name if ledger else None
