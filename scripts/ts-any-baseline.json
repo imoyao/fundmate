@@ -676,6 +676,7 @@
     "views/asset/investment/reconcile-workbench/components/DanglingRefFixResult.vue": 0,
     "views/asset/investment/reconcile-workbench/components/DanglingRefGroupCard.vue": 0,
     "views/asset/investment/reconcile-workbench/components/DanglingRefPreviewPanel.vue": 0,
+    "views/asset/investment/reconcile-workbench/components/DanglingRefFixDialog.vue": 3,
     "views/asset/investment/reconcile-workbench/components/DomainBDiscTable.vue": 0,
     "views/asset/investment/reconcile-workbench/components/DomainDGhostTable.vue": 0,
     "views/asset/investment/reconcile-workbench/components/DomainEDividendTaxTable.vue": 0,
