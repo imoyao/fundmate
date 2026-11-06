@@ -28,8 +28,8 @@ jobs:
           python-version: "3.12"
 
       - name: Install PDM
-        # 同 ci.yml：hishel 2.0.0 破坏性升级，钉 <2 直到 PDM 兼容。
-        run: pip install pdm "hishel<2"
+        # 版本口径与理由见 scripts/ci/install_pdm.sh（#2928 / #2803）。
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/install_pdm.sh"
 
       # 统一使用项目配置（backend/pdm.toml 强制 use_uv=true）：
       # 用 venv 模式跑 uv（CI 上 PEP 582 本地包模式与 uv 不兼容，故不再关 use_venv），
