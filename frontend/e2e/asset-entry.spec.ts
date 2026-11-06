@@ -88,7 +88,11 @@ async function mockApis(page: Page): Promise<Call[]> {
 
 async function openAssetEntry(page: Page, query = "") {
   await page.goto(`/#/asset/asset-entry${query}`, { waitUntil: "commit" });
-  await expect(page.locator(".entry-card")).toBeVisible({ timeout: 150_000 });
+  // 判据从「卡片壳」换成「表单真的长出来了」：2026-11-03 视觉重做把
+  // `<el-card class="entry-card">` 换成了 `CardBlock`（类名随之消失），而
+  // 「资产名称」是表单第一个必填项——它比外壳更能证明本页（含懒加载的表单组件）
+  // 渲染完成。夜间 E2E 因此红了两周：断言盯的是已被删掉的类名。
+  await expect(formItem(page, "资产名称")).toBeVisible({ timeout: 150_000 });
 }
 
 /** 按表单项标签定位（「资产大类」与「资产子类」标签相近，必须精确匹配） */
