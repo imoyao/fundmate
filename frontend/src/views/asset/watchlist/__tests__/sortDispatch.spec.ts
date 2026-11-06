@@ -11,7 +11,7 @@
  *
  * | # | 判据 | 为什么值得钉 |
  * |---|---|---|
- * | 1 | 今日估算(`day_pnl`) / 昨日盈亏(`yesterday_pnl`) → `data.setClientSort(各自 key, …)`，**不**调后端 | 后端 `change_pct` 是上一交易日收盘算的，按它排 = 按昨天的涨幅排，与列里显示的数不是同一个 |
+ * | 1 | 当日盈亏(`day_pnl`) / 昨日盈亏(`yesterday_pnl`) → `data.setClientSort(各自 key, …)`，**不**调后端 | 后端 `change_pct` 是上一交易日收盘算的，按它排 = 按昨天的涨幅排，与列里显示的数不是同一个 |
  * | 2 | **两列各用各的取值函数，不串数** | 拆列前只有一个 `dayPnlOf`；若两列共用它，点表头会排出同一串顺序，用户会以为其中一列坏了 |
  * | 3 | 口径 amount / ratio 取不同的数 | 复合列两行是两个量（同样涨 1%，一万仓与百万仓差两个数量级）；#2641 只代理 change_pct，「按金额排序」根本不存在 |
  * | 4 | 最新价 → `setClientSort("current_price", …)`，取实时价、缺行情回落后端价、都没有给 null | 与 money renderer 同口径；给 0 会让「没行情」的行看起来像「价格跌到 0」 |
@@ -129,7 +129,7 @@ describe("表头排序分发：吃实时价的列走客户端整组排序", () =
     vi.clearAllMocks();
   });
 
-  it("今日估算：交给 setClientSort，**不再**把 change_pct 发给后端", () => {
+  it("当日盈亏：交给 setClientSort，**不再**把 change_pct 发给后端", () => {
     const { table, setClientSort, handleSortChange } = setup();
 
     table.onSortChange({ prop: "day_pnl", order: "descending" });
@@ -161,7 +161,7 @@ describe("表头排序分发：吃实时价的列走客户端整组排序", () =
     expect(valueOf(makeRow(1, "A"))).toBe(1.2);
   });
 
-  it("今日估算缺值 → 取值 null（交给排序函数垫底，而不是当 0）", () => {
+  it("当日盈亏缺值 → 取值 null（交给排序函数垫底，而不是当 0）", () => {
     const { table, setClientSort } = setup({
       todayEstimate: { A: { value: null, ratio: null } }
     });
@@ -227,7 +227,7 @@ describe("表头排序分发：吃实时价的列走客户端整组排序", () =
  * 拆列前只有一个 `dayPnlOf`，两列若共用就会排出同一串顺序 —— 这组用例是
  * 「两列各读各的数」的机器判据，也是本次拆列最容易静默回退的地方。
  */
-describe("昨日盈亏：独立的客户端整组排序，不与今日估算串数", () => {
+describe("昨日盈亏：独立的客户端整组排序，不与当日盈亏串数", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -244,7 +244,7 @@ describe("昨日盈亏：独立的客户端整组排序，不与今日估算串�
     expect(handleSortChange).not.toHaveBeenCalled();
   });
 
-  it("金额口径取昨日盈亏的 value（不是今日估算的）", () => {
+  it("金额口径取昨日盈亏的 value（不是当日盈亏的）", () => {
     const { table, setClientSort } = setup({
       todayEstimate: { A: { value: 100, ratio: 10 } },
       yesterdayPnl: { A: { value: 20, ratio: 2.04 } }
@@ -282,7 +282,7 @@ describe("昨日盈亏：独立的客户端整组排序，不与今日估算串�
     expect(todayValueOf(rowA)).not.toBe(yesterdayValueOf(rowA));
   });
 
-  it("今日估算缺行情时，昨日盈亏仍排得出（两列互不牵连）", () => {
+  it("当日盈亏缺行情时，昨日盈亏仍排得出（两列互不牵连）", () => {
     const { table, setClientSort } = setup({
       todayEstimate: { A: { value: null, ratio: null } },
       yesterdayPnl: { A: { value: 20, ratio: 2.04 } }

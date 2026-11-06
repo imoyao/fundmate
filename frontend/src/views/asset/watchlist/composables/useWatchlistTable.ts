@@ -195,7 +195,7 @@ export function useWatchlistTable(options: TableRenderOptions) {
         };
       }
       if (kind === "todayEstimate") {
-        // 今日估算（2026-11-05）：口径与汇总条同源（dayPnl.ts）。
+        // 当日盈亏（2026-11-06 升级为真实值优先、估值兜底）：口径与汇总条同源（dayPnl.ts）。
         // 只消费 source === "realtime" 的行情；拿不到就是 null → 单元格渲染 `—`，
         // 绝不回落昨日盈亏（否则两列会显示同一个数）。
         return todayEstimateOf(row);

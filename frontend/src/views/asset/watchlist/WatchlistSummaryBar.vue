@@ -30,9 +30,9 @@ const props = defineProps<{
    */
   fallbackSummary?: ValuationSummary | null;
   /**
-   * 今日估算（2026-11-05）：`(T 实时估值价 − T-1 确认价) × 份额`，
-   * 与表格「今日估算」列**同源**（`dayPnl.ts`，比例按基准市值加权，
-   * 不是各行涨跌幅的算术平均）。
+   * 当日盈亏（2026-11-06 升级为真实值优先、估值兜底）：`(T 价 − T-1 确认价) × 份额`，
+   * 与表格「当日盈亏」列**同源**（`dayPnl.ts`，比例按基准市值加权，
+   * 不是各行涨跌幅的算术平均）。`status` 字段标记这一行（或汇总）是否仍是估值态。
    *
    * `value == null` = 一条都算不出（未开实时 / 休市 / 行情不可达）→ 整块不渲染。
    * ⚠️ 绝不拿「昨日盈亏」填这里：那正是用户反馈的「盘中看到昨天的真实值」。
@@ -187,17 +187,21 @@ const intervalOptions = [
           <span class="metric-value">{{ summary?.totalCost?.toFixed(2) }}</span>
         </div>
         <span class="metric-divider" />
-        <!-- 今日估算 / 昨日盈亏（2026-11-05 拆列）：与表格两列同名同口径。
-             一个今天（估算、盘中随轮询跳动）、一个昨天（已确认、不跳动），并排才分得清。
-             两者都「有值才显示」：拿不到实时行情时今日估算整块不渲染，
-             绝不拿昨日数字顶替，也不显示 0.00 那种「没赚没亏」的假象。 -->
+        <!-- 当日盈亏 / 昨日盈亏（2026-11-05 拆列，2026-11-06 升级为真实值优先、估值兜底）：
+             与表格两列同名同口径。一个今天（真实值优先、未确认用估值填充、盘中随轮询跳动）、
+             一个昨天（已确认、不跳动），并排才分得清。两者都「有值才显示」：拿不到实时行情时
+             当日盈亏整块不渲染，绝不拿昨日数字顶替，也不显示 0.00 那种「没赚没亏」的假象。 -->
         <template v-if="hasTodayEstimate">
           <div class="metric-group metric-group--pnl">
-            <span class="metric-label">今日估算</span>
-            <!-- 「估」徽章：与表格「今日估算」列同一个 ValuationSourceBadge，
-                 免责文案走 ESTIMATE_DISCLAIMER 单一出口。列名之外再给一个视觉锚点，
-                 避免两个「金额 + 涨幅」指标又被读成两个「今日收益」。 -->
-            <el-tooltip :content="ESTIMATE_DISCLAIMER" placement="top">
+            <span class="metric-label">当日盈亏</span>
+            <!-- 「估」徽章：与表格「当日盈亏」列同一个 ValuationSourceBadge，
+                 免责文案走 ESTIMATE_DISCLAIMER 单一出口。仅估值态出现（已确认真实值不挂），
+                 避免把确认值也读成估算。 -->
+            <el-tooltip
+              v-if="todayEstimate?.status === 'estimated'"
+              :content="ESTIMATE_DISCLAIMER"
+              placement="top"
+            >
               <ValuationSourceBadge
                 status="estimated"
                 size="sm"

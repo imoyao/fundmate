@@ -14,6 +14,7 @@ import {
 import { http } from "@/utils/http";
 import { formatDate } from "@/utils/date";
 import {
+  isAfterTradingClose,
   msUntilTradingOpen,
   shouldFetchRealtimeQuotes
 } from "@/utils/marketHours";
@@ -120,7 +121,15 @@ export function useRealtimeQuotes(
    * 任何页面都照旧尊重，不会被首页偷偷打开——开关仍是**一份**全局偏好，
    * 不引入「首页专用开关」这种第二套语义。
    */
-  options?: { defaultEnabled?: boolean }
+  options?: {
+    defaultEnabled?: boolean;
+    /**
+     * 盘后收盘快照（自选页「当日盈亏」真实值）：交易日 15:00 后取一次已确认价
+     * （股票收盘价 / 基金官方净值）注入 items，但不轮询、不点亮交易态
+     * （status 保持 "closed"，刷新控件仍置灰）。默认关闭；自选页显式开启。
+     */
+    fetchClosingSnapshot?: boolean;
+  }
 ): RealtimeQuotesReturn {
   const stored = localStorage.getItem(STORAGE_KEY);
   const enabled = ref(
@@ -133,6 +142,12 @@ export function useRealtimeQuotes(
   const refreshInterval = ref<RefreshInterval>(readStoredInterval());
 
   let timer: number | null = null;
+
+  /**
+   * 盘后收盘快照已取数的日期（YYYY-MM-DD）。当天只取一次，避免 keep-alive
+   * 反复 onActivated 重复打行情源；跨天自然失效（新交易日重新取）。
+   */
+  let closingSnapshotFetchedFor: string | null = null;
 
   /**
    * 是否处于 keep-alive 失活态（#1104 公共层）。
@@ -356,6 +371,35 @@ export function useRealtimeQuotes(
     }, delay);
   };
 
+  /**
+   * 盘后收盘快照（自选页「当日盈亏」真实值）：交易日 15:00 后取一次已确认价
+   * （股票收盘价 / 基金官方净值），注入 `items` 供列展示，但**保持 `status="closed"`**、
+   * 不轮询、不点亮交易态（否则会错误触发盘中分时重拉、刷新控件解除置灰）。
+   *
+   * 入口约束：`start()` 在 `canFetch()` 为 false（休市/收盘）的分支里调用本函数，
+   * 故此处只需再判「是否真的盘后」与「当天是否已取过」——交易日历与时段闸门已由上游承担。
+   * 取数走与正常轮询同一份 `calculateHoldingsValuation`，确认态由 `quoteStatus` 按
+   * 数据源自带日期/时刻判定（股票 15:00 后 = 收盘价、基金 NAV/jzrq=今天 = 已公布净值）。
+   */
+  const fetchClosingSnapshot = async (token: number) => {
+    if (!options?.fetchClosingSnapshot) return;
+    const today = localDateStr(new Date());
+    if (closingSnapshotFetchedFor === today) return; // 当天只取一次
+    if (!(await isTradingDay())) return;
+    if (!isAfterTradingClose(new Date())) return; // 仅盘后；开盘前不取（上一交易日数据同源）
+    closingSnapshotFetchedFor = today;
+    const holdings = getHoldings();
+    if (holdings.length === 0) return;
+    const result = await calculateHoldingsValuation(holdings, getStaticPrice);
+    if (token !== startToken) return; // 期间已 stop()/失活：丢弃过期结果
+    items.value = result.items;
+    summary.value = result.summary;
+    if (result.summary?.updateTime) {
+      lastUpdateTime.value = result.summary.updateTime;
+    }
+    status.value = "closed"; // 显式保持：盘后快照不点亮交易态
+  };
+
   // ✅ 核心修复 2：start 中自动休市时，只影响 status，绝对不改变 enabled 的物理状态
   const start = async () => {
     const token = ++startToken;
@@ -370,6 +414,9 @@ export function useRealtimeQuotes(
       status.value = "closed";
       // #2885：开盘前打开页面时必须安排到点唤醒，否则整个上午都不刷新
       void scheduleWakeAtOpen(token);
+      // 盘后收盘快照：交易日 15:00 后取一次已确认价（收盘价 / 官方净值），
+      // 供「当日盈亏」列展示真实值；仍保持 status="closed"，不轮询、不点亮交易态。
+      if (options?.fetchClosingSnapshot) void fetchClosingSnapshot(token);
       return;
     }
 
@@ -388,6 +435,8 @@ export function useRealtimeQuotes(
     clearEmptyRetry();
     clearWakeTimer();
     emptyRetryAttempt = 0;
+    // 重置收盘快照日期标记：重新开启时允许在新交易日重新取一次
+    closingSnapshotFetchedFor = null;
     status.value = "idle";
     items.value = [];
     summary.value = null;

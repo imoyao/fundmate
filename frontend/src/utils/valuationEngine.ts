@@ -1,4 +1,5 @@
 import { batchFetchQuotes } from "./realtimeDataSources";
+import { isConfirmedQuote } from "./quoteStatus";
 
 export interface Holding {
   symbol: string;
@@ -24,13 +25,21 @@ export interface ValuationItem extends Holding {
    * `prev_close` 补位，把「今天的实时价 − 前天的价」当成今日盈亏，
    * 2026-11-05「今日估算 / 昨日盈亏」拆列时删除。
    *
-   * 因此「今日估算」只消费 `source === "realtime"` 的这一份；实时源缺值时由
+   * 因此「当日盈亏」只消费 `source === "realtime"` 的这一份；实时源缺值时由
    * `dayPnl.ts` 兜底 `row.current_price`（T-1 已确认价），与实时价同源同日。
    *
    * `null` = 该来源没给；展示层降级 `—`，不要用 `currentPrice` 顶替
    * （那会把盈亏算成恒 0，#2640 修的就是这个）。
    */
   prevClose: number | null;
+  /**
+   * 这份实时报价是否已是「今日确认价」（收盘 / 官方净值已公布）。
+   * 由 `quoteStatus.isConfirmedQuote` 按数据源自带日期/时刻判定，不靠本地时钟。
+   * `source === "static"`（引擎回退）恒为 false（那是 T-1 已确认价，不是今天的）。
+   */
+  confirmed?: boolean;
+  /** 官方确认价：基金=已公布单位净值（NAV/dwjz）；股票=无（null）。仅 confirmed 时有意义。 */
+  officialPrice?: number | null;
 }
 
 export interface ValuationSummary {
@@ -82,6 +91,8 @@ export async function calculateHoldingsValuation(
     let prevClose: number | null = null;
     let source: "realtime" | "static" = "static";
 
+    let quoteConfirmed = false;
+    let quoteOfficial: number | null = null;
     if (quote && quote.currentPrice > 0) {
       currentPrice = quote.currentPrice;
       changePct = quote.changePct;
@@ -90,6 +101,13 @@ export async function calculateHoldingsValuation(
       source = "realtime";
       hasRealtime = true;
       if (!lastUpdateTime) lastUpdateTime = quote.updateTime;
+      // 确认态：按数据源自带日期/时刻判定「今日收盘价 / 官方净值已定」
+      quoteConfirmed = isConfirmedQuote({
+        type: h.type,
+        priceDate: quote.priceDate ?? null,
+        priceTime: quote.priceTime ?? null
+      });
+      quoteOfficial = quote.officialPrice ?? null;
     } else {
       // 降级：使用后端静态数据（T-1 已确认价）
       const staticData = staticPriceProvider(h.symbol);
@@ -124,7 +142,9 @@ export async function calculateHoldingsValuation(
       marketValue,
       pnl,
       pnlPercent,
-      prevClose
+      prevClose,
+      confirmed: source === "realtime" ? quoteConfirmed : false,
+      officialPrice: source === "realtime" ? quoteOfficial : null
     });
   }
 
