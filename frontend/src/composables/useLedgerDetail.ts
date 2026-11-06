@@ -11,7 +11,6 @@ import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getLedgers,
-  getLedgerPositions,
   deleteLedgerPosition,
   archiveLedger,
   unarchiveLedger,
@@ -25,6 +24,7 @@ import type { MoneyFundIncomeData } from "@/api/performance";
 import { getLedgerTypeLabel } from "@/constants";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { useLedgerOverview } from "@/composables/ledger/useLedgerOverview";
+import { useLedgerHoldings } from "@/composables/ledger/useLedgerHoldings";
 import { useLedgerPositionPortfolio } from "@/composables/ledger/useLedgerPositionPortfolio";
 
 import type { LedgerHoldingRow, LedgerSummaryData } from "./ledger/types";
@@ -192,13 +192,16 @@ export function useLedgerDetail(): LedgerDetailApi {
     loadMoneyFundIncome
   } = useLedgerOverview(ledgerId, isUnclassified);
 
-  // 持仓 Tab 数据
-  const holdingsPage = ref(1);
-  const holdingsPageSize = 20;
-  const holdingsList = ref<LedgerHoldingRow[]>([]);
-  const holdingsTotal = ref(0);
-  // 名称/代码搜索（#982）：后端 LIKE 过滤，防抖后重置回第一页
-  const holdingsSearch = ref("");
+  // 持仓 Tab 数据（#2948，D89 下沉到 useLedgerHoldings：分页状态与取数属该域；
+  // 「何时取」（首屏 Promise.all 顺序 / 搜索防抖 / 刷新时机）仍留本文件，见 onMounted）
+  const {
+    holdingsPage,
+    holdingsPageSize,
+    holdingsList,
+    holdingsTotal,
+    holdingsSearch,
+    loadHoldings
+  } = useLedgerHoldings(ledgerId);
 
   const activeTab = ref("holdings");
 
@@ -310,24 +313,7 @@ export function useLedgerDetail(): LedgerDetailApi {
     }
   }
 
-  // 持仓加载
-  async function loadHoldings(page = 1) {
-    holdingsPage.value = page;
-    try {
-      const res = await getLedgerPositions(Number(ledgerId.value), {
-        page,
-        per_page: holdingsPageSize,
-        search: holdingsSearch.value.trim() || undefined
-      });
-      const result = (
-        res as { data?: { items?: LedgerHoldingRow[]; total?: number } }
-      )?.data;
-      holdingsList.value = result?.items ?? [];
-      holdingsTotal.value = result?.total ?? 0;
-    } catch {
-      ElMessage.error("持仓加载失败");
-    }
-  }
+  // 持仓加载已下沉到 useLedgerHoldings（#2948，D89），本文件只保留「何时调它」的编排
 
   // ── 所属组合（D20 二期 UI，2026-11-05）──────────────────────────────
   //

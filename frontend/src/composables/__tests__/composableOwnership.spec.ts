@@ -13,6 +13,7 @@
  * | N1 | `usePageNav` 自己又写一份滚动度量（几何层被绕过） |
  * | L1 | `useLedgerDetail` 又自己声明 `summaryData` / `portfolioList`（子域被绕过） |
  * | T1 | 行/概览类型从 `ledger/types.ts` 搬回父文件，或被本地手抄一份（#2931，D87） |
+ * | H1 | 持仓分页状态搬回父文件，或 `onMounted` 的 `Promise.all` 顺序被改（#2948，D89） |
  *
  * ⚠️ 判据一律**先剥注释**再匹配：本仓踩过「注释里写着名字，守卫就拿它当已登记」
  * 的假绿灯（#2453）。注释保留在文件头是本项目的习惯，不能因为它而让守卫失明。
@@ -153,6 +154,82 @@ describe("L1 账户详情的概览 / 组合状态只由子域声明", () => {
     expect(
       readCode("composables/ledger/useLedgerPositionPortfolio.ts")
     ).toContain("const portfolioList = ref");
+  });
+});
+
+describe("H1 持仓分页状态归 `ledger/useLedgerHoldings`，首屏编排仍归父文件（#2948，D89）", () => {
+  const OWNER = "composables/ledger/useLedgerHoldings.ts";
+
+  it("父文件不再声明持仓状态，也不再自带 loadHoldings 实现", () => {
+    const code = readCode("composables/useLedgerDetail.ts");
+    for (const decl of [
+      "const holdingsPage = ref",
+      "const holdingsPageSize =",
+      "const holdingsList = ref",
+      "const holdingsTotal = ref",
+      "const holdingsSearch = ref",
+      "async function loadHoldings"
+    ]) {
+      expect(code, `useLedgerDetail 又自己声明/实现了：${decl}`).not.toContain(
+        decl
+      );
+    }
+  });
+
+  it("父文件真的接上了子域（防「删了实现、守卫仍绿」）", () => {
+    const code = readCode("composables/useLedgerDetail.ts");
+    expect(code).toContain('from "@/composables/ledger/useLedgerHoldings"');
+    expect(code).toMatch(/useLedgerHoldings\(\s*ledgerId\s*\)/);
+    // 对外契约（LedgerDetailApi 的 6 个成员）必须仍由父文件解构出来再返回
+    for (const key of [
+      "holdingsPage",
+      "holdingsPageSize",
+      "holdingsList",
+      "holdingsTotal",
+      "holdingsSearch",
+      "loadHoldings"
+    ]) {
+      expect(code, `父文件未从子域解构 ${key}`).toContain(key);
+    }
+  });
+
+  it("子域里没有编排：不碰概览 / 组合 / 货基，也不反向 import 父 composable", () => {
+    const code = readCode(OWNER);
+    for (const marker of [
+      "loadSummary",
+      "loadPortfolioContext",
+      "loadMoneyFundIncome",
+      "Promise.all"
+    ]) {
+      expect(code, `持仓域混进了编排：${marker}`).not.toContain(marker);
+    }
+    expect(code).not.toContain('from "@/composables/useLedgerDetail"');
+    // 但必须真的持有分页状态（防空实现假绿灯）
+    expect(code).toContain("const holdingsPage = ref");
+    expect(code).toContain("getLedgerPositions(");
+  });
+
+  it("首屏编排顺序未被动：三者并行、货基收益在其后、未归置走单拉分支", () => {
+    const code = readCode("composables/useLedgerDetail.ts");
+    const mounted = code.slice(code.indexOf("onMounted("));
+    expect(mounted.length, "onMounted 未找到").toBeGreaterThan(100);
+
+    const normalized = mounted.replace(/\s+/g, " ");
+    // 概览 / 持仓 / 组合并行——三个缺一即首屏少一块，多一个则并行度被破坏
+    expect(normalized).toContain(
+      "Promise.all([ loadSummary(), loadHoldings(), loadPortfolioContext() ])"
+    );
+
+    // 货基收益依赖 summary 判定账户类型（实测踩出来的顺序），必须在 Promise.all 之后
+    const allIdx = mounted.indexOf("Promise.all(");
+    const moneyIdx = mounted.indexOf("await loadMoneyFundIncome()");
+    expect(allIdx, "Promise.all 未找到").toBeGreaterThan(-1);
+    expect(moneyIdx, "货基收益调用未找到").toBeGreaterThan(-1);
+    expect(moneyIdx, "货基收益被挪到并行块之前了").toBeGreaterThan(allIdx);
+
+    // 未归置伪账户没有概览可拉，只拉持仓
+    expect(normalized).toContain("if (!isUnclassified.value)");
+    expect(normalized).toContain("} else { await loadHoldings(); }");
   });
 });
 
