@@ -22,7 +22,7 @@ import {
   getMoneyFundIncome,
   type MoneyFundIncomeData
 } from "@/api/performance";
-import type { LedgerSummaryData } from "@/composables/useLedgerDetail";
+import type { LedgerSummaryData } from "./types";
 
 export interface LedgerOverviewApi {
   summaryData: Ref<LedgerSummaryData | null>;
