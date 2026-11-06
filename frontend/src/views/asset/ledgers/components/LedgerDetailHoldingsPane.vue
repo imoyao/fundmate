@@ -45,7 +45,7 @@
            持有时长 110→100 / 所属组合 150→132）才归零。下次谁要再加列，
            必须先减一列或降别的列宽，否则「配置目标」会再次被遮住（`measure_table.py`
            式的量法：读 `.el-table__body-wrapper` 的 scrollWidth − clientWidth）。 -->
-      <el-table-column v-if="!p.isUnclassified" label="所属组合" width="132">
+      <el-table-column label="所属组合" width="132">
         <template #default="{ row }">
           <PortfolioAssignCell
             :row="row as LedgerHoldingRow"
@@ -190,12 +190,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column
-        v-if="!p.isUnclassified"
-        label="操作"
-        width="130"
-        fixed="right"
-      >
+      <el-table-column label="操作" width="130" fixed="right">
         <template #default="{ row }">
           <div class="flex items-center gap-1" style="white-space: nowrap">
             <el-button
@@ -214,23 +209,6 @@
               >删除</el-button
             >
           </div>
-        </template>
-      </el-table-column>
-      <el-table-column v-if="p.isUnclassified" label="归入账户" width="160">
-        <template #default="{ row }">
-          <el-select
-            v-model="p.assignMap[row.id]"
-            placeholder="选择账户"
-            size="small"
-            @change="p.handleAssign(row.id)"
-          >
-            <el-option
-              v-for="ledger in p.ledgers"
-              :key="ledger.id"
-              :label="ledger.name"
-              :value="ledger.id"
-            />
-          </el-select>
         </template>
       </el-table-column>
     </el-table>

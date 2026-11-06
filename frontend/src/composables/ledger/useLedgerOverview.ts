@@ -3,10 +3,10 @@
  *
  * ## 为什么这一块单独成域
  *
- * 它只依赖两个**只读输入**（路由上的账户 id、是否「未归置持仓」伪账户），产出的
- * 全是**本页内的派生视图**，与持仓列表、交易流水、弹窗开关没有交集。原先挤在
- * 845 行的 `useLedgerDetail` 里，与「账户信息 / 列表加载 / 归档 / 删除 / 迁移」
- * 混排，改任一处都得先读完整个文件确认影响面。
+ * 它只依赖一个**只读输入**（路由上的账户 id），产出的全是**本页内的派生视图**，
+ * 与持仓列表、交易流水、弹窗开关没有交集。原先挤在 845 行的 `useLedgerDetail` 里，
+ * 与「账户信息 / 列表加载 / 归档 / 删除 / 迁移」混排，改任一处都得先读完整个文件
+ * 确认影响面。
  *
  * ## 刻意不进 store
  *
@@ -35,12 +35,10 @@ export interface LedgerOverviewApi {
 }
 
 /**
- * @param ledgerId      路由参数里的账户 id（原样字符串，伪账户是 `unclassified`）
- * @param isUnclassified 是否「未归置持仓」伪账户（无概览可拉）
+ * @param ledgerId 路由参数里的账户 id（原样字符串，取数前自行转数字）
  */
 export function useLedgerOverview(
-  ledgerId: ComputedRef<string>,
-  isUnclassified: ComputedRef<boolean>
+  ledgerId: ComputedRef<string>
 ): LedgerOverviewApi {
   const summaryData = ref<LedgerSummaryData | null>(null);
 
@@ -85,7 +83,6 @@ export function useLedgerOverview(
   }
 
   async function loadMoneyFundIncome() {
-    if (isUnclassified.value) return;
     moneyFundData.value = null;
     try {
       const res = await getMoneyFundIncome({
