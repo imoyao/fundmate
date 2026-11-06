@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { injectSupabaseSession } from "./support/session";
+import { fundProfileFixture } from "./fixtures/productDetail";
 
 /**
  * 付费墙遮罩的 URL 运行时覆盖回归网（#2527）。
@@ -66,22 +67,12 @@ async function stubApis(
       }
     })
   );
+  // #2958：完整 21 字段桩收口在 fixtures/productDetail.ts。此前这里只写 8 个字段，
+  // 而契约是「缺失一律 null、前端降级为 —」——本文件每个用例都跑在防御态上。
   await page.route("**/api/products/fund-profile/**", route =>
     route.fulfill({
       status: 200,
-      json: {
-        data: {
-          fund_code: SYMBOL,
-          name: NAME,
-          fund_type: "指数型-股票",
-          company: "永赢基金管理有限公司",
-          unit_nav: 1.1,
-          nav_date: "2026-10-21",
-          change_pct: 0.5,
-          source: "天天基金"
-        },
-        message: "ok"
-      }
+      json: { data: fundProfileFixture(), message: "ok" }
     })
   );
   await page.route("**/api/products/trend/**", route =>
