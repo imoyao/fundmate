@@ -16,11 +16,11 @@
 #2873 拆分进度（god module 逐簇下沉，主模块保留核心命令与 facade）：
 - 读/展示簇 → `position_display`；写侧共用原语 → `position_write_support`；
 - 孤儿流水簇 → `position_orphan_flows`（`process_orphan_*` 在此仅为薄壳）；
-- 买入/存入命令 → `position_buy_command`（`process_buy_or_deposit` 在此仅为 facade）。
+- 买入/存入命令 → `position_buy_command`（`process_buy_or_deposit` 在此仅为 facade）；
+- 快照导入命令 → `position_snapshot_command`（`upsert_from_holding` 在此仅为 facade）。
 """
 
 import uuid
-from datetime import date, datetime
 from typing import Optional
 
 from loguru import logger
@@ -32,11 +32,10 @@ from app.core.constants import (
     PositionSource,
 )
 from app.core.money import Money
-from app.core.symbol_utils import normalize_by_venue
 from app.core.venues import resolve_venue
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.positions.models import Position
 from app.domains.positions.state import (
     derive_state_from_txns,
     is_covered_by_anchor,
@@ -48,10 +47,8 @@ from app.domains.transactions.models import Transaction
 # #2873 第三抽：孤儿流水簇已下沉到 position_orphan_flows，此处 re-export 保 facade ——
 # 内部调用点（买入的现金转移、建仓/卖出的孤儿挂回）与外部导入
 # （scripts/fix_orphan_money_fund_reattach、sync/jobs/orphan_backfill_job、测试）一行不改。
-from app.services import async_backfill, position_orphan_flows
+from app.services import position_orphan_flows
 from app.services.fund_utils import is_money_fund_symbol
-from app.services.import_records import compute_position_hash
-from app.services.institution_resolver import resolve_sales_institution_id
 from app.services.pnl_service import compute_redeem_realized_cents, compute_sell_realized_cents
 
 # issue #2873 安全首抽：读/展示簇已下沉到 position_display，此处仅 re-export 保 facade。
@@ -75,6 +72,14 @@ from app.services.position_orphan_flows import (  # noqa: F401
     _create_orphan_transaction,
     _reattach_orphan_flows,
     find_orphan_cash_flows,
+)
+
+# #2873 第五抽：快照导入命令已下沉到 position_snapshot_command，类方法只留 facade。
+from app.services.position_snapshot_command import (
+    finalize_snapshot,
+    resolve_snapshot_intent,
+    upsert_anchor_position,
+    upsert_import_meta,
 )
 
 # #2873 第二抽：写侧共用原语已下沉到 position_write_support，此处 re-export 保 facade，
@@ -452,201 +457,22 @@ class PositionService:
     ) -> Position:
         """持仓快照 upsert（#1012）：以 (ledger_id, symbol) 为业务键写**锚点**，不直接写份额。
 
-        与 process_buy_or_deposit 的本质区别（持仓 vs 交易流水）：
-        - 快照是某日点位的绝对值：`snapshot_quantity / snapshot_avg_price / snapshot_date`
-          按快照**整条替换**，不累加；
-        - `quantity` 不再是「快照值」本身，而是 `compute_anchored_state` 派生出来的结果
-          （快照 + 快照日之后的流水）。这正是修复「份额被快照与流水重复累加」的关键：
-          快照值只作为基线存在，不再与流水共享同一个变量；
-        - **绝不调用 TransactionService.create** —— 导入持仓不产生交易流水；
-        - 溯源元数据（基金管理人/平台账号/分红方式/市值等）写入 position_import_meta（1:1 upsert）。
+        #2873 第五抽：实现已下沉到 `position_snapshot_command`（解析校验 → 锚点 SET/新建 →
+        溯源 meta → 挂孤儿 + 锚点派生 → 自选静默同步），此处只保留 facade，签名与行为逐字不变。
 
-        ## 锚点时间轴规则（时间不可倒流）
-
-        | 新快照日 vs 现有锚点 | external 来源 | manual 来源 |
-        |---|---|---|
-        | `<`（更旧） | **拒绝**（除非 allow_anchor_rewind） | 同左 |
-        | `==`（同日） | 允许覆盖 | **拒绝**（同日人工值优先于同日外部数据） |
-        | `>`（更新） | 接纳并推进锚点 | 接纳并推进锚点 |
-
-        开放 `allow_anchor_rewind` 的唯一场景是对账工作台的 `kind='set'`：用户显式要求把
-        持仓设成某个值，这属于「人工校准」，不是「导入旧快照」。
-
-        ownership_status 参数（E账户对账扩展，#1021）：
-        - 'active'（默认）：参与总资产，渠道正常持仓；
-        - 'shadow'：仅对账不参与总资产（影子记录走专用 upsert，不调用本方法）。
-
-        data 关键字段：
-            symbol / name / asset_type / ledger_id / account_name / quantity(份) /
-            avg_price(元,缺失降级为 current_price 近似) / current_price(元) /
-            snapshot_date(date,缺失降级为落库当日) / anchor_kind(external|manual) /
-            currency / source / source_broker / source_import_id / family_id /
-            meta(dict: fund_manager/share_class/fund_account/trade_account/
-            dividend_preference/market_value)
+        与 `process_buy_or_deposit` 的本质区别：快照是某日点位的**绝对值**（整条替换、不累加），
+        `quantity` 是锚点派生结果而非快照值本身，且**绝不调用 TransactionService.create** ——
+        导入持仓不产生交易流水。锚点时间轴规则（时间不可倒流 / 同日 manual 优先）、
+        影子行不落 positions 锚点、负份额钳 0 并保留快照成本价等口径，见该模块 docstring。
         """
-        symbol = data.get('symbol', '')
-        ledger_id = data.get('ledger_id')
-        family_id = _resolve_family_id(data)
-        if not symbol or not ledger_id:
-            raise ValueError('持仓快照导入必须提供 symbol 与 ledger_id')
-
-        # venue（#1662）：显式入参优先，缺失按 asset_type 推断（持仓快照本无场所维度，只能兜底）。
-        # 落库前把 symbol 收敛到该场所的唯一形态，避免同一标的并存 `SZ004369` / `004369`
-        # 两种写法——positions 的唯一约束是字面量 UNIQUE(ledger_id, symbol)，拦不住。
-        venue = resolve_venue(data.get('venue'), data.get('asset_type'))
-        if venue:
-            symbol, _venue_market, _ = normalize_by_venue(symbol, venue)
-            data['symbol'] = symbol
-
-        qty = data.get('quantity', 0) or 0
-        if qty <= 0:
-            raise ValueError('数量必须大于 0')
-
-        # 成本均价：优先显式 avg_price，缺失降级为当前净值近似（用户已确认）
-        price_yuan = data.get('avg_price') or data.get('current_price') or 0
-        if price_yuan <= 0:
-            raise ValueError('成本均价与当前净值均缺失，无法确定价格')
-
-        qty_units = Money.shares_to_min_unit(qty)
-        price_units = Money.yuan_to_price_units(price_yuan)
-
-        # 快照日：优先 snapshot_date，缺失降级为落库当日（规范 §3.3）
-        raw_snap = data.get('snapshot_date') or date.today()
-        snapshot_date = raw_snap if isinstance(raw_snap, date) else datetime.fromisoformat(str(raw_snap)).date()
-
-        incoming_kind = data.get('anchor_kind') or AnchorKind.EXTERNAL.value
-        if isinstance(incoming_kind, AnchorKind):
-            incoming_kind = incoming_kind.value
-
-        src = data.get('source', PositionSource.E_ACCOUNT.value)
-        import_hash = data.get('import_hash') or compute_position_hash(src, ledger_id, symbol, snapshot_date)
-
-        # 查找现有持仓（venue 感知归一去重，SET 语义定位；#1662）
-        existing = _find_existing_position(db, ledger_id=ledger_id, family_id=family_id, symbol=symbol, venue=venue)
-
-        if existing:
-            _assert_anchor_accepts(
-                existing,
-                snapshot_date,
-                incoming_kind,
-                allow_rewind=allow_anchor_rewind,
-            )
-            # 锚点 SET：份额/成本价/日期三者必须同批写入（缺 snapshot_avg_price 会让
-            # 重算拿不到快照原价，成本被永久稀释）。
-            existing.snapshot_quantity = qty_units
-            existing.snapshot_avg_price = price_units
-            existing.snapshot_date = snapshot_date
-            existing.anchor_kind = incoming_kind
-            # quantity 先按快照值占位；下方 reattach 孤儿流水后用锚点重算覆盖。
-            existing.quantity = qty_units
-            existing.avg_price = price_units
-            existing.current_price = price_units
-            existing.confirm_date = snapshot_date
-            existing.name = data.get('name') or existing.name
-            existing.account_name = data.get('account_name') or existing.account_name
-            existing.currency = data.get('currency') or existing.currency
-            existing.import_hash = import_hash
-            existing.source = src
-            existing.source_broker = data.get('source_broker')
-            # 对账扩展：调用方显式传 shadow 时同步更新（防渠道记录被误标为影子）
-            if existing.ownership_status != ownership_status:
-                existing.ownership_status = ownership_status
-            position = existing
-        else:
-            # 影子行（ownership_status != active）不落锚点：它只在 position_import_meta 层
-            # 有日期，若写 positions 层锚点，重算会把对账影子链路搅进派生逻辑。
-            write_anchor = ownership_status == 'active'
-            position = Position(
-                symbol=symbol,
-                name=data.get('name') or symbol,
-                market=data.get('market', 'CN_A'),
-                asset_type=data.get('asset_type', 'fund'),
-                ledger_id=ledger_id,
-                account_name=data.get('account_name', ''),
-                quantity=qty_units,
-                avg_price=price_units,
-                current_price=price_units,
-                currency=data.get('currency', 'CNY'),
-                confirm_date=snapshot_date,
-                allocation=data.get('allocation', 'longterm'),
-                import_hash=import_hash,
-                source=src,
-                source_broker=data.get('source_broker'),
-                ownership_status=ownership_status,
-                family_id=family_id,
-                snapshot_quantity=qty_units if write_anchor else None,
-                snapshot_avg_price=price_units if write_anchor else None,
-                snapshot_date=snapshot_date if write_anchor else None,
-                anchor_kind=incoming_kind if write_anchor else None,
-            )
-            db.add(position)
-
-        db.flush()
-
-        # #863 口径 A：快照持仓也落货基冗余判定（SET 覆盖，聚合分类归「现金」桶）
-        position.is_money_fund = _resolve_money_fund_flag(symbol, position.asset_type, data.get('is_money_fund'))
-
-        # 溯源元数据 1:1 upsert（position_import_meta，保留末次快照的溯源信息）
-        meta = data.get('meta') or {}
-        meta_row = db.query(PositionImportMeta).filter_by(position_id=position.id).first()
-        if meta_row is None:
-            meta_row = PositionImportMeta(position_id=position.id, family_id=family_id)
-            db.add(meta_row)
-        meta_row.symbol = symbol
-        meta_row.ledger_id = ledger_id
-        meta_row.snapshot_date = snapshot_date
-        meta_row.source = src
-        meta_row.source_import_id = data.get('source_import_id')
-        meta_row.source_broker = data.get('source_broker')
-        meta_row.fund_manager = meta.get('fund_manager')
-        meta_row.share_class = meta.get('share_class')
-        meta_row.fund_account = meta.get('fund_account')
-        meta_row.trade_account = meta.get('trade_account')
-        meta_row.dividend_preference = meta.get('dividend_preference')
-        meta_row.market_value = (
-            Money.yuan_to_cents(meta['market_value']) if meta.get('market_value') is not None else None
+        intent = resolve_snapshot_intent(
+            data,
+            ownership_status=ownership_status,
+            allow_anchor_rewind=allow_anchor_rewind,
         )
-        meta_row.sales_institution_id = resolve_sales_institution_id(db, data.get('source_broker'))
-        db.flush()
-
-        # #863 口径 A 写入层互斥 + #1657 修复：无论 is_money_fund 快照判定如何，都尝试挂回
-        # 同 (ledger, symbol) 孤儿货基/逆回购流水（幂等；非货基持仓无对应孤儿流水则无操作），
-        # 避免快照 is_money_fund 判定不一致时漏挂回导致资金双计。
-        _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
-
-        # 锚点派生：quantity 不再等于快照值，而是「快照 + 快照日之后的流水」。
-        # 必须在 _reattach_orphan_flows **之后**：刚挂回的孤儿流水也要参与派生，
-        # 否则它们在下一轮重算时才会被计入，中间这一段时间市值偏小。
-        if position.snapshot_quantity is not None:
-            net_qty, derived_avg = compute_anchored_state(db, position)
-            if net_qty < 0:
-                # 语义矛盾：快照说还有份额，但快照日之后的流水已把它卖成负数。
-                # 导入路径不做「删行」这种激进动作（那是卖出路径的职责），钳到 0 并告警，
-                # 由对账工作台暴露给用户。
-                logger.warning(
-                    '快照锚点派生出负份额，已钳为 0: position={} symbol={} net={} anchor={} date={}',
-                    position.id,
-                    symbol,
-                    Money.min_unit_to_shares(net_qty),
-                    Money.min_unit_to_shares(position.snapshot_quantity),
-                    position.snapshot_date,
-                )
-                net_qty = 0
-            position.quantity = net_qty
-            # 成本只在能派生出正份额时采用；0 份额保留快照成本价，避免 avg_price 被清成 0
-            # 后前端显示「成本 0 元」。
-            if net_qty > 0:
-                position.avg_price = derived_avg
-            db.flush()
-
-        try:
-            async_backfill.trigger_backfill('fund', symbol)
-        except Exception:
-            pass
-
-        # #1458 后续：持仓快照导入即入自选（静默，失败不影响主链路）
-        _silent_ensure_watchlist(db, family_id, symbol)
-        return position
+        position = upsert_anchor_position(db, intent, data)
+        upsert_import_meta(db, position, intent, data)
+        return finalize_snapshot(db, position, intent)
 
     @staticmethod
     def process_buy_or_deposit(db: Session, data: dict, force_create_position: bool = False) -> Optional[Position]:
