@@ -115,7 +115,8 @@ jobs:
         # 版本口径与踩坑理由都在脚本里（#2928 / #2803）：`schedule` /
         # `pull_request_target` 只读 main 上的 workflow 定义，工具链版本写在这里
         # 等于把修复锁死在 main；放进脚本才能「改一次、下次运行即生效」。
-        run: bash scripts/ci/install_pdm.sh
+        # 本 job 的 defaults 是 working-directory: backend，故用 $GITHUB_WORKSPACE 定位脚本。
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/install_pdm.sh"
 
       # 依赖缓存：避免每次 PR 全量重装 akshare/playwright/pypinyin 等重型依赖
       # （此前无缓存，仅安装就占 6~8 分钟，是 CI 耗时大头）。

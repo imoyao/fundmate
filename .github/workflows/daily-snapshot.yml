@@ -109,7 +109,7 @@ jobs:
       - name: 安装 PDM
         # 走脚本而非内联（#2928 / #2803）：本文件只在 main 上生效，工具链口径写在这里
         # 就改不动；脚本取自下面 checkout 的 dev，改一次即对下次调度生效。
-        run: bash scripts/ci/install_pdm.sh
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/install_pdm.sh"
 
       - name: 安装依赖
         env:
