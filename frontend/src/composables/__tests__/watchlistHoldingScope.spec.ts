@@ -21,6 +21,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
 import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
 import {
@@ -132,6 +133,8 @@ function stripComments(src: string): string {
 }
 
 beforeEach(() => {
+  // #2922：本地偏好下沉 store 后，composable 需要 active pinia
+  setActivePinia(createPinia());
   vi.clearAllMocks();
   m.getItems.mockResolvedValue({ data: [], total: 0 });
   m.getTags.mockResolvedValue({ data: [] });
