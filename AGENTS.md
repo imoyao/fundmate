@@ -360,6 +360,7 @@ job 名与 stage 名都要写（后者是查询锚点）。
 
 - **路由**：由 `src/router/modules/*.ts` **手工注册**（每页一个模块文件）；`src/router/utils.ts` 的 `import.meta.glob("/src/views/**/*")` 仅用于按路径反查组件，**不自动生成路由**（`handleAsyncRoutes([])`，glob 结果未注入，#1703 实证）。新建页面须保证 `defineOptions.name` 与路由 name 一致（否则 keep-alive 失效）。
 - **接口**：集中在 `src/api/`，按域划分，组件内**禁止**裸 axios。
+- **产品域 API 按子域拆分（#2878）**：`src/api/products.ts` 只做 barrel（9 条 `export *`），21 个端点与 77 个顶层声明落在 `src/api/products/*.ts`（resolve / fund / fundRisk / indices / stock / manager / trend / advisor / pro）。新增端点写进对应子域模块，**禁止把实现写回公共入口**——这类回潮不会让测试变红，只会让文件悄悄长回巨型客户端。判据 `scripts/guard_products_api.mjs`（并入 `ci.yml` 的 `frontend` job，拦 barrel 混入实现 / 断转发 / 孤儿模块 / 子模块超 500 行 / 反向 import），回归网 `scripts/tests/guard_products_api.test.js` 由 `scripts_test` 统一收；手动入口 `node scripts/guard_products_api.mjs --report`。
 - **登录**：Supabase Auth（`@supabase/supabase-js`），后端校验 JWT；登录/登出/路由守卫已配置。
 - **新增页面路由**：`src/views/` 下的组件**不会**自动成路由，须在 `src/router/modules/` 新建模块文件注册（参考 `modules/agent.ts`，含 `meta.requiresAuth` 等）。
 - **设计语言**：亮色 `frontend/design.md`，暗色 `design.dark.md`，**禁止硬编码 hex 色值**，必须使用 CSS 变量（`--color-rise`/`--color-fall` 等）。

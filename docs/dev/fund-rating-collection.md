@@ -221,7 +221,7 @@ morningstar_rating_asof   DATE NULL       -- 数据快照日期（东财页当�
 ### 10.3 数据流（改动面很小）
 
 - 后端 `app/services/fund_profile.py::build_fund_profile` **直接查 `Fund` 模型**（:116）⇒ 三列天然在数据源里，只需在返回 dict 追加 3 个键；
-- 前端 `src/api/products.ts` 的 `FundProfileResult` 加 3 个字段；
+- 前端 `src/api/products.ts` 的 `FundProfileResult` 加 3 个字段（#2878 按子域拆分后，该类型位于 `src/api/products/fund.ts`，公共入口 `src/api/products.ts` 仍可导入）；
 - `ProductFundSection.vue` 加 1 格。
 
 ### 10.4 ETF 无需特殊处理
