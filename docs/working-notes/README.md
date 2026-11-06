@@ -83,6 +83,7 @@
 | [sw-industry-source-plan-2026-09-14](./sw-industry-source-plan-2026-09-14.md) | 150 | ◐ | 结论：申万宏源官网通道在本机可用且数据到当日，调研包「不碰东财、纯申万单源」的路线在数据源侧成立。 |
 | [watchlist-type-dimensions-design-2026-09-10](./watchlist-type-dimensions-design-2026-09-10.md) | 264 | ◐ | - #1286 就绪：统一编码/唯一键、聚合搜索、指数名录、天天投顾抓取、fund 元数据回填。 |
 | [qieman-official-adjustment-api-2026-11-03](./qieman-official-adjustment-api-2026-11-03.md) | 241 | — | 我们此前认定的「且慢没有官方历史调仓接口」是**错的**。POST https://qieman.com/alfa/v1/graphql 的 Adjustment operation 返回完整官方调仓（含主理人原文、逐基金调前/调后比例、调入调出语义），匿名可取、签名可复刻。 |
+| [stock-valuation-source-probe-2026-11-06](./stock-valuation-source-probe-2026-11-06.md) | 111 | — | 状态：**已真机实测**（不是静态推断）。结论：**万得股票域已有可用的个股 PE/PB 历史分位，且一次问句可批量取多只 ⇒ 不启动 iFinD 配额评估**，也不走「同行业相对分位」降级形态。 |
 
 ## 账户与渠道（9 张）
 
