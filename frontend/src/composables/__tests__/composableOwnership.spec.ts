@@ -14,6 +14,7 @@
  * | L1 | `useLedgerDetail` 又自己声明 `summaryData` / `portfolioList`（子域被绕过） |
  * | T1 | 行/概览类型从 `ledger/types.ts` 搬回父文件，或被本地手抄一份（#2931，D87） |
  * | H1 | 持仓分页状态搬回父文件，或 `onMounted` 的 `Promise.all` 顺序被改（#2948，D89） |
+ * | U1 | 「未归置持仓」伪账户判定（`isUnclassified` / `"unclassified"`）回来（#2951） |
  *
  * ⚠️ 判据一律**先剥注释**再匹配：本仓踩过「注释里写着名字，守卫就拿它当已登记」
  * 的假绿灯（#2453）。注释保留在文件头是本项目的习惯，不能因为它而让守卫失明。
@@ -209,7 +210,7 @@ describe("H1 持仓分页状态归 `ledger/useLedgerHoldings`，首屏编排仍�
     expect(code).toContain("getLedgerPositions(");
   });
 
-  it("首屏编排顺序未被动：三者并行、货基收益在其后、未归置走单拉分支", () => {
+  it("首屏编排顺序未被动：三者并行、货基收益在其后", () => {
     const code = readCode("composables/useLedgerDetail.ts");
     const mounted = code.slice(code.indexOf("onMounted("));
     expect(mounted.length, "onMounted 未找到").toBeGreaterThan(100);
@@ -226,10 +227,16 @@ describe("H1 持仓分页状态归 `ledger/useLedgerHoldings`，首屏编排仍�
     expect(allIdx, "Promise.all 未找到").toBeGreaterThan(-1);
     expect(moneyIdx, "货基收益调用未找到").toBeGreaterThan(-1);
     expect(moneyIdx, "货基收益被挪到并行块之前了").toBeGreaterThan(allIdx);
+  });
 
-    // 未归置伪账户没有概览可拉，只拉持仓
-    expect(normalized).toContain("if (!isUnclassified.value)");
-    expect(normalized).toContain("} else { await loadHoldings(); }");
+  it("#2951：「未归置持仓」伪账户判定不许回来", () => {
+    // 那页全仓无入口（banner 的「查看明细」打开的是弹窗），而它的取数是
+    // Number("unclassified") → NaN → /api/ledgers/NaN/positions/ 必然 404。
+    // 判定一旦回来，首屏又会出现「某类账户不拉概览 / 不拉组合」的隐性分支——
+    // 那种分支不看代码根本发现不了，只能在删掉之后用判据钉住。
+    const code = readCode("composables/useLedgerDetail.ts");
+    expect(code, "伪账户判定又回来了").not.toContain("isUnclassified");
+    expect(code, "伪账户路由参数又回来了").not.toContain('"unclassified"');
   });
 });
 

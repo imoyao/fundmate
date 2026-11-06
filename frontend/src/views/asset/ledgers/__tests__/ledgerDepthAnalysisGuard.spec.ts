@@ -10,8 +10,8 @@
  * 2. **口径必须是本账户**：`PositionStructurePanel` / `PenetrationPanel` 在
  *    `ledgerId` 缺失时会退化成「全家庭」档 —— 页面标题写着账户详情，数据却
  *    是全家庭的，且面板口径标签还写着「账户」；
- * 3. 未归置持仓伪账户（路由参数是 "unclassified"，没有数字账户 id）不展示
- *    深度分析 —— 那里没有账户口径可言。
+ * 3. **口径解得出来才展示**：路由参数是非数字 / 缺失时（`ledgerIdNum` 为
+ *    undefined）整块不渲染 —— 没有账户口径可言，宁可不显示也不显示别人的。
  *
  * 判据纪律（本仓「守门通过 ≠ 守门有效」）：断言**模板绑定**，不认标识符
  * 出现过；锚点与导航标签的对应关系按**集合相等**判（多一个少一个都红），
@@ -107,8 +107,8 @@ describe("账户详情页深度分析（#2739）", () => {
   });
 
   it("口径必须是本账户：ledgerId 走有限数字，不靠 Number(字符串) 顶替", () => {
-    // Number("unclassified") = NaN → 后端按「不传」处理 → 退化成全家庭档，
-    // 而面板口径标签还写着「账户」。故必须走 Number.isFinite 过滤后的值。
+    // 路由参数是字符串：非数字取值 Number 之后是 NaN → 后端按「不传」处理 →
+    // 退化成全家庭档，而面板口径标签还写着「账户」。故必须走 Number.isFinite 过滤后的值。
     expect(detailComposable).toMatch(/const ledgerIdNum = computed/);
     expect(detailComposable).toContain("Number.isFinite(n)");
     // 页面里不得再出现「NaN 直传」的写法
@@ -116,14 +116,17 @@ describe("账户详情页深度分析（#2739）", () => {
     expect(detail).not.toMatch(/Number\(ledgerId\)/);
   });
 
-  it("未归置持仓伪账户不展示深度分析（那里没有账户口径）", () => {
-    // 少了 isUnclassified 判据 → 未归置页会展示别的账户（家庭级）的数据
+  it("账户 id 解不出来时不展示深度分析（不许退化成家庭级）", () => {
+    // 判据只有「有限数字的 id」一条：少了它 → 面板拿到 undefined → 退化成全家庭档，
+    // 而页面标题写着账户详情，面板口径标签也写着「账户」。
     expect(overview).toMatch(
-      /showDepthAnalysis = computed\([\s\S]{0,160}isUnclassified[\s\S]{0,160}ledgerIdNum/
+      /showDepthAnalysis = computed\([\s\S]{0,120}ledgerIdNum != null/
     );
     expect(overview).toMatch(
       /<LedgerDepthAnalysis[\s\S]{0,120}v-if="showDepthAnalysis"/
     );
+    // #2951：可选的 `!isUnclassified` 前提已随「未归置持仓」伪账户页删除，不许回来
+    expect(overview).not.toContain("isUnclassified");
   });
 
   it("类现金锚点随整块消失（不留死链）", () => {

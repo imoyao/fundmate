@@ -8,7 +8,7 @@
       <el-button text @click="goBack">
         <IconifyIconOffline icon="ep:arrow-left" class="mr-1" /> 返回
       </el-button>
-      <div v-if="!isUnclassified && accountInfo" class="flex gap-2">
+      <div v-if="accountInfo" class="flex gap-2">
         <el-button @click="router.push({ name: 'InvestmentReconcile' })">
           <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 对账
         </el-button>
@@ -25,14 +25,14 @@
           {{ accountInfo.is_active === false ? "激活" : "归档" }}
         </el-button>
         <el-button
-          v-if="!isUnclassified && holdingsTotal > 0"
+          v-if="holdingsTotal > 0"
           @click="migrationPanelRef?.openBatchMigrateDialog()"
         >
           <IconifyIconOffline icon="ep:share" class="mr-1" /> 批量迁移
         </el-button>
         <div class="flex items-center gap-1">
           <el-button
-            v-if="!isUnclassified && accountInfo"
+            v-if="accountInfo"
             type="danger"
             text
             @click="openDeleteDialog(accountInfo)"
@@ -60,8 +60,7 @@
       <template v-else>
         <!-- 页内导航（#2739）：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail
              （PageToc）接管。两级互斥，条目由 usePageNav 按 DOM 里真实渲染的
-             nav-* 锚点动态生成——整块不渲染的区块（类现金为 0、未归置持仓页）
-             自动不留死链。 -->
+             nav-* 锚点动态生成——整块不渲染的区块（如类现金为 0）自动不留死链。 -->
         <PageNav
           v-if="navItems.length > 1"
           :items="navItems"
@@ -72,11 +71,12 @@
         <div class="account-detail__body">
           <div ref="pageMain" class="account-detail__main">
             <LedgerDetailOverview :page="page" />
-            <!-- #2616 资金流动：入金/出金/净投入/期末资产（未分类账户没有真实归属，不展示）。
+            <!-- #2616 资金流动：入金/出金/净投入/期末资产（路由 id 非有限数字时没有账户
+                 口径可言，整块不展示）。
                  组件已上移 components/CashFlowPanel（#2681：账户级 / 组合级共享同一份口径）。
                  #2739：id 经 fallthrough 落在卡片根（单根元素）＝ 锚点即标题行顶边。 -->
             <CashFlowPanel
-              v-if="!isUnclassified && ledgerIdNum"
+              v-if="ledgerIdNum"
               id="nav-cash-flow"
               :ledger-id="ledgerIdNum"
               class="mt-4"
@@ -199,7 +199,6 @@ defineOptions({ name: "LedgerDetail" });
 const page = useLedgerDetailPage();
 const {
   router,
-  isUnclassified,
   accountInfo,
   openEditDialog,
   toggleArchiveDetail,
@@ -241,7 +240,7 @@ const {
 //
 // 标签与各区块的 SectionHeader 标题**逐字一致**（读屏与视觉同一套词汇）。
 // 锚点由 DOM 存在性过滤决定：整块不渲染的区块（类现金为 0 的普通基金账户、
-// 未归置持仓页的深度分析）自动不留死链。
+// 无有效账户 id 时的深度分析与资金流动）自动不留死链。
 //
 // 持仓明细 / 交易记录**不进目录**：它们是页面末端的 el-tabs（视图切换区），
 // 一个锚点指不到两个 tab 中的哪一个，硬挂一个必然指错；它们也是页面最后一屏，

@@ -61,13 +61,11 @@ interface LedgerTransactionsBinding {
 export interface LedgerDetailApi {
   ledgerId: ComputedRef<string>;
   ledgerIdNum: ComputedRef<number | undefined>;
-  isUnclassified: ComputedRef<boolean>;
   loading: Ref<boolean>;
   showSkeleton: Ref<boolean>;
   ledgers: Ref<LedgerItem[]>;
   portfolioList: Ref<PortfolioItem[]>;
   salesInstitutions: Ref<SalesInstitution[]>;
-  assignMap: Ref<Record<number, number>>;
   deleteDialogVisible: Ref<boolean>;
   deletingAccount: Ref<LedgerItem | null>;
   showEditDialog: Ref<boolean>;
@@ -131,7 +129,7 @@ export interface LedgerDetailApi {
 /**
  * 账本详情页「详情与账户信息」相关状态与函数：详情加载、账户信息、销售机构候选、
  * 概览/货基/持仓 Tab 数据、搜索联动、归档/编辑/删除、全局刷新与首屏加载。
- * 交易流水 Tab 的状态与函数见 useLedgerTransactions；批量迁移残留逻辑见 usePositionMigration。
+ * 交易流水 Tab 的状态与函数见 useLedgerTransactions。
  * 共享状态（ledgers / accountInfo / salesInstitutions / ledgerId / accountName 等）统一在此持有，
  * 其余 composable 通过参数复用同一实例，避免重复声明导致状态分裂。
  */
@@ -139,20 +137,18 @@ export function useLedgerDetail(): LedgerDetailApi {
   const route = useRoute();
 
   const ledgerId = computed(() => route.params.id as string);
-  const isUnclassified = computed(
-    () => ledgerId.value === "unclassified" || !!route.query.name
-  );
   /**
    * 账户 id（数字口径）。
    *
-   * ⚠️ 不要用 `Number(ledgerId.value)` 顶替：「未归置持仓」伪账户的路由参数是
-   * `"unclassified"`，Number 之后是 **NaN**；NaN 会被 axios 序列化成
-   * `ledger_id=NaN`，后端 `request.args.get('ledger_id', type=int)` 解析失败
-   * 一律回 None（＝「不传」＝家庭级）——于是页面拿**全家庭**的数据当本页展示，
-   * 而面板的口径标签还写着「账户」。数据与标签同时错，比单错更坏。
+   * ⚠️ 不要用 `Number(ledgerId.value)` 顶替：路由参数是**字符串**，非数字取值
+   * （历史遗留的 `/asset/ledgers/<非数字>` 深链、空值）经 Number 之后是 **NaN**；
+   * NaN 会被 axios 序列化成 `ledger_id=NaN`，后端
+   * `request.args.get('ledger_id', type=int)` 解析失败一律回 None
+   * （＝「不传」＝家庭级）——于是页面拿**全家庭**的数据当本页展示，而面板的
+   * 口径标签还写着「账户」。数据与标签同时错，比单错更坏。
    *
-   * 故只认**有限数字**：非数字（未归置伪账户 / 空值）一律 undefined，
-   * 即「显式不传」，由各消费方自己落到家庭级或整块不展示。
+   * 故只认**有限数字**：非数字 / 空值一律 undefined，即「显式不传」，
+   * 由各消费方自己落到家庭级或整块不展示。
    */
   const ledgerIdNum = computed<number | undefined>(() => {
     const raw = ledgerId.value;
@@ -160,9 +156,6 @@ export function useLedgerDetail(): LedgerDetailApi {
     const n = Number(raw);
     return Number.isFinite(n) ? n : undefined;
   });
-  const targetAccountName = computed(
-    () => route.query.name as string | undefined
-  );
 
   const loading = ref(true);
   // 骨架屏阈值控制：请求 ≤200ms 返回时直接渲染内容、跳过骨架屏，避免"闪屏"（骨架刚出现就消失）
@@ -171,7 +164,6 @@ export function useLedgerDetail(): LedgerDetailApi {
   const ledgers = ref<LedgerItem[]>([]);
   /** 基金销售机构候选（AMAC 名录，编辑账户可选关联） */
   const salesInstitutions = ref<SalesInstitution[]>([]);
-  const assignMap = ref<Record<number, number>>({});
   const deleteDialogVisible = ref(false);
   const deletingAccount = ref<LedgerItem | null>(null);
 
@@ -181,7 +173,7 @@ export function useLedgerDetail(): LedgerDetailApi {
   const selectedPosition = ref<LedgerHoldingRow | null>(null);
 
   // 概览 / 货基收益 / 资产构成（#2922 下沉到 useLedgerOverview：只依赖账户 id
-  // 与「未归置」判定两个只读输入，产出全是本页派生视图，不进 store）
+  // 一个只读输入，产出全是本页派生视图，不进 store）
   const {
     summaryData,
     moneyFundData,
@@ -190,7 +182,7 @@ export function useLedgerDetail(): LedgerDetailApi {
     compositionColorMap,
     loadSummary,
     loadMoneyFundIncome
-  } = useLedgerOverview(ledgerId, isUnclassified);
+  } = useLedgerOverview(ledgerId);
 
   // 持仓 Tab 数据（#2948，D89 下沉到 useLedgerHoldings：分页状态与取数属该域；
   // 「何时取」（首屏 Promise.all 顺序 / 搜索防抖 / 刷新时机）仍留本文件，见 onMounted）
@@ -245,16 +237,12 @@ export function useLedgerDetail(): LedgerDetailApi {
   const accountInfo = computed(
     () => ledgers.value.find(l => String(l.id) === ledgerId.value) || null
   );
-  const accountName = computed(() => {
-    if (targetAccountName.value) return targetAccountName.value;
-    if (isUnclassified.value) return "未归置持仓";
-    return (
+  const accountName = computed(
+    () =>
       accountInfo.value?.name || summaryData.value?.ledger_name || "账户详情"
-    );
-  });
+  );
 
   const subTitle = computed(() => {
-    if (isUnclassified.value) return "将以下资产关联到已有账户";
     const type =
       summaryData.value?.ledger_type || accountInfo.value?.ledger_type;
     return getLedgerTypeLabel(type) || "其他";
@@ -293,9 +281,7 @@ export function useLedgerDetail(): LedgerDetailApi {
 
   async function handleGlobalRefresh() {
     console.log("收到全局记账完成信号，刷新当前页面数据...");
-    if (!isUnclassified.value) {
-      await loadSummary();
-    }
+    await loadSummary();
     await loadHoldings();
     // 如果当前用户正在看的是交易记录 Tab，顺便刷新交易记录
     if (activeTab.value === "transactions") {
@@ -499,35 +485,31 @@ export function useLedgerDetail(): LedgerDetailApi {
     try {
       // 销售机构候选：编辑弹窗下拉数据源（内部兜底，失败不打断主流程）
       await loadSalesInstitutions();
-      if (!isUnclassified.value) {
-        // 组合列表与概览/持仓并行：它是「所属组合」列的候选项与名称来源，
-        // 晚一步不影响主数据，故不必串行等待（见 loadPortfolioContext 注释）。
-        await Promise.all([
-          loadSummary(),
-          loadHoldings(),
-          loadPortfolioContext()
-        ]);
-        // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
-        if (summaryData.value?.ledger_type === "fund")
-          await loadMoneyFundIncome();
-        // 修复：首屏填充 ledgers，使 accountInfo 可解析，从而显示右上角操作栏
-        // （编辑/归档/删除/对账/批量迁移）。此前仅在点击这些按钮时才拉取，
-        // 而按钮本身又在 v-if="accountInfo" 内，形成死锁导致操作栏永不显示。
-        // 拉取失败仅影响操作栏可用性，不阻断概览/持仓等主流程，故单独兜底。
-        try {
-          const ledgerRes = await getLedgers(true);
-          ledgers.value = ledgerRes.data ?? [];
-          // 账本列表到位才算「继承态可判」：账户详情页的继承来源就是本账户的
-          // `portfolio_id`，拿不到它时不能退化成「未归属」（见 useLedgerPositionPortfolio）
-          markLedgersLoaded();
-        } catch (error) {
-          console.error(
-            "获取账本列表失败，操作栏暂不可用（其余详情正常）",
-            error
-          );
-        }
-      } else {
-        await loadHoldings();
+      // 组合列表与概览/持仓并行：它是「所属组合」列的候选项与名称来源，
+      // 晚一步不影响主数据，故不必串行等待（见 loadPortfolioContext 注释）。
+      await Promise.all([
+        loadSummary(),
+        loadHoldings(),
+        loadPortfolioContext()
+      ]);
+      // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
+      if (summaryData.value?.ledger_type === "fund")
+        await loadMoneyFundIncome();
+      // 修复：首屏填充 ledgers，使 accountInfo 可解析，从而显示右上角操作栏
+      // （编辑/归档/删除/对账/批量迁移）。此前仅在点击这些按钮时才拉取，
+      // 而按钮本身又在 v-if="accountInfo" 内，形成死锁导致操作栏永不显示。
+      // 拉取失败仅影响操作栏可用性，不阻断概览/持仓等主流程，故单独兜底。
+      try {
+        const ledgerRes = await getLedgers(true);
+        ledgers.value = ledgerRes.data ?? [];
+        // 账本列表到位才算「继承态可判」：账户详情页的继承来源就是本账户的
+        // `portfolio_id`，拿不到它时不能退化成「未归属」（见 useLedgerPositionPortfolio）
+        markLedgersLoaded();
+      } catch (error) {
+        console.error(
+          "获取账本列表失败，操作栏暂不可用（其余详情正常）",
+          error
+        );
       }
     } catch (e) {
       const err = e as { message?: string };
@@ -545,13 +527,11 @@ export function useLedgerDetail(): LedgerDetailApi {
   return {
     ledgerId,
     ledgerIdNum,
-    isUnclassified,
     loading,
     showSkeleton,
     ledgers,
     portfolioList,
     salesInstitutions,
-    assignMap,
     deleteDialogVisible,
     deletingAccount,
     showEditDialog,

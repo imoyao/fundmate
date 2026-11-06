@@ -318,13 +318,12 @@ const p = reactive(props.page);
 /**
  * 是否展示账户深度分析（持仓结构 / 持仓穿透）。
  *
- * 未归置持仓页**不展示**：那个页面是「把散落资产关联到账户」的归置台，
- * 它没有数字账户 id，深度分析对它没有账户口径可言（传家庭级会展示别的
- * 账户的数据）。处置与同页的资金流动区块一致（`!isUnclassified && ledgerIdNum`）。
+ * 判据只有一条：**拿到有限数字的账户 id**（`ledgerIdNum`）。两个面板在
+ * `ledgerId` 缺失时会退化成「全家庭」档，那会让本页显示别的账户的数据，
+ * 而面板口径标签还写着「账户」。故 id 不可解析时整块不展示，与同页资金流动
+ * 区块同一处置（`v-if="ledgerIdNum"`）。
  */
-const showDepthAnalysis = computed(
-  () => !p.isUnclassified && p.ledgerIdNum != null
-);
+const showDepthAnalysis = computed(() => p.ledgerIdNum != null);
 
 // ---------- #2134：近 90 天区间收益 vs 基准（缺数据诚实降级 null → 模板「--」）----------
 const excess = ref<BenchmarkExcessResult | null>(null);

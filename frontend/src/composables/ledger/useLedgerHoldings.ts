@@ -37,7 +37,7 @@ export interface LedgerHoldingsApi {
 }
 
 /**
- * @param ledgerId 路由参数里的账户 id（原样字符串，伪账户是 `unclassified`）
+ * @param ledgerId 路由参数里的账户 id（原样字符串，取数前自行转数字）
  */
 export function useLedgerHoldings(
   ledgerId: ComputedRef<string>
