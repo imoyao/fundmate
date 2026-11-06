@@ -654,9 +654,10 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_guard_portfolio_balance_mode.py',
         # 边界写清楚，避免下一个人以为它保证「portfolio 一定记得对」。
         'covered': (
-            '只判三件事的**存在与位置**：`process_buy_or_deposit` 里那段约束还在（AST 认'
-            '「portfolio 字面量 + 非 balance 判定 + 分支体内 raise」）；`asset_types.py` 的'
-            '旧表述没回归、新口径写在注释里；`decisions.md` 有 D70 行。'
+            '只判三件事的**存在与位置**：`position_buy_command._assert_balance_only_asset_type`'
+            '（#2873 第四抽后买入命令从 `position_service` 下沉到该模块，判据跟着写入路径走）'
+            '里那段约束还在（AST 认「portfolio 字面量 + 非 balance 判定 + 分支体内 raise」）；'
+            '`asset_types.py` 的旧表述没回归、新口径写在注释里；`decisions.md` 有 D70 行。'
             '**不判运行时行为**（真的拒绝由 test_positions.py::TestPortfolioBalanceMode 管）；'
             '**不判前端**（买入表单提交 balance 由 buyFormPayload.spec.ts 管）；'
             '**不判 assets 表**（D70 只谈 positions）；'
