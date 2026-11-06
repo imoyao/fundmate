@@ -31,9 +31,14 @@
  * scripts/ts-any-baseline.json（按路径字典序，收录**所有**被扫文件，含 0 值）比对：
  *   1. 总数不许涨：基线内文件的实测 any 总和 > 基线冻结总和 ⇒ 拦截；
  *   2. 任何已有文件（在基线里）的计数不许涨：实测 > 基线 ⇒ 拦截（回潮）；
- *   3. 新增文件（不在基线里）：其 any 计数 > NEW_FILE_ANY_LIMIT(3) ⇒ 拦截；≤ 3 放行，
- *      但提示用 --write 纳入基线（纳入后即受规则 2 约束，0→1 也会红）；--write 纳入
- *      新增文件时同样校验 ≤ 上限，防「先写 10 个 any 再回写洗掉」；
+ *   3. 新增文件（不在基线里）：两条独立判据——
+ *      ① 其 any 计数 > NEW_FILE_ANY_LIMIT(3) ⇒ 拦截；
+ *      ② 含 any（1~3 处）但**未纳入基线** ⇒ 拦截（#2935）。此前只打印提示、exit 0，
+ *         而回归网第 7 条要求「有 any 就必须在基线里」，两条判据打架 ⇒ 带 any 的
+ *         新文件 PR 自己绿，等别的 PR 把它带进 dev 组合态才由回归网红（#2934 实证）。
+ *         现在对齐：跑一次 --write 纳入基线即转绿（纳入后受规则 2 约束，0→1 也会红）。
+ *      --write 纳入新增文件时同样校验 ≤ 上限，防「先写 10 个 any 再回写洗掉」；
+ *      0 处 any 的新文件仍静默放行（不打扰新增纯类型文件）；一旦它 0→1，按 ② 转红。
  *   4. 实测低于基线 ⇒ 打印「请 --report 收紧基线」提示但**不报错**（loose 语义，
  *      同 guard_service_size.py：正常收敛不该红掉校验）；
  *   5. 基线里有、文件已删 ⇒ stale 提示，不报错。
@@ -86,7 +91,8 @@
  *   node scripts/guard_ts_any.mjs --write         # 回写/收紧 scripts/ts-any-baseline.json
  *   # 回归网造沙箱：GUARD_TS_ANY_SRC=<dir> GUARD_TS_ANY_BASELINE=<file> node scripts/guard_ts_any.mjs
  *
- * 退出码：0 = 通过；1 = 拦截（回潮 / 新增文件超上限 / --write 拒绝上调）；
+ * 退出码：0 = 通过；1 = 拦截（回潮 / 新增文件超上限 / 新文件有 any 却未纳入基线 /
+ *         --write 拒绝上调）；
  *         2 = 拿不到可信输入（依赖缺失 / 源文件解析失败、扫不到任何文件、
  *             基线缺失或格式非法、未知参数）—— 结论不可信，**不得**当成通过
  *             （不许静默绿）。依赖缺失正属于这一类，不降级、不产出结论。
@@ -338,7 +344,6 @@ const sumValues = (obj) => Object.values(obj).reduce((s, n) => s + n, 0);
 export function compareToBaseline(counts, base) {
   const violations = [];
   const loose = [];
-  const newFiles = [];
   const frozenTotal = sumValues(base);
   let measuredExistingTotal = 0;
 
@@ -350,9 +355,13 @@ export function compareToBaseline(counts, base) {
     } else if (n > NEW_FILE_ANY_LIMIT) {
       violations.push({ kind: "NEW_OVER", key: k, n });
     } else if (n > 0) {
-      newFiles.push({ key: k, n });
+      // #2935：与回归网第 7 条「每个含 any 的文件都在基线里」对齐。
+      // 旧实现只打印提示并 exit 0，于是带 any 的新文件 PR 自己绿，等别的 PR
+      // 把两者合进 dev 才由回归网抓到 —— 典型「组合态才红」。
+      violations.push({ kind: "NEW_UNREGISTERED", key: k, n });
     }
-    // 0 any 的新文件：静默放行，避免「新增一个纯类型文件」也刷提示。
+    // 0 any 的新文件：静默放行，避免「新增一个纯类型文件」也刷提示；
+    // 它一旦 0→1 就会命中上面的 NEW_UNREGISTERED，仍堵得住。
   }
   const stale = Object.keys(base).filter((k) => !(k in counts));
 
@@ -371,12 +380,7 @@ export function compareToBaseline(counts, base) {
       );
       for (const h of loose) console.log(`  - ${h.key}: ${h.n}（基线 ${h.b}）`);
     }
-    if (newFiles.length) {
-      console.log(
-        `提示：以下 ${newFiles.length} 个新文件未在基线内（any ≤ ${NEW_FILE_ANY_LIMIT} 放行），请用 --write 纳入基线：`,
-      );
-      for (const h of newFiles) console.log(`  - ${h.key}: ${h.n} 处 any`);
-    }
+    // 带 any 却未纳入基线的新文件已在 violations 里判红，不再有「提示后放行」分支。
     if (stale.length) {
       console.log("提示：以下文件已不在基线中（stale），请用 --write 清理：");
       for (const k of stale) console.log(`  - ${k}`);
@@ -384,7 +388,7 @@ export function compareToBaseline(counts, base) {
     return 0;
   }
 
-  console.error("[TS any 守卫] ❌ 显式 any 类型注解回潮（只减不增）：");
+  console.error("[TS any 守卫] ❌ 显式 any 类型注解回潮 / 基线未同步（只减不增）：");
   if (totalRose) {
     console.error(
       `  - 总数回潮：已有文件实测 ${measuredExistingTotal} > 冻结总数 ${frozenTotal}`,
@@ -395,6 +399,10 @@ export function compareToBaseline(counts, base) {
       console.error(
         `  - ${v.key}: ${v.n} 处 any（基线 ${v.b}，+${v.n - v.b}）`,
       );
+    } else if (v.kind === "NEW_UNREGISTERED") {
+      console.error(
+        `  - ${v.key}: 新文件含 ${v.n} 处 any（≤ 上限 ${NEW_FILE_ANY_LIMIT}），但未纳入基线`,
+      );
     } else {
       console.error(
         `  - ${v.key}: 新文件 ${v.n} 处 any，超过新增文件上限 ${NEW_FILE_ANY_LIMIT}`,
@@ -403,7 +411,9 @@ export function compareToBaseline(counts, base) {
   }
   console.error(
     "\n  修法：把新增的 any 换成具体类型 / unknown；新文件确需 any 时先压到上限内，\n" +
-      "        并在同 PR 用 --write 纳入基线。存量每消掉一处就用 --write 收紧一次。",
+      "        并在同 PR 跑一次 `node scripts/guard_ts_any.mjs --write` 纳入基线\n" +
+      "        （--write 会连同 0 值新文件一起登记，已有条目数值一个不动）。\n" +
+      "        存量每消掉一处就用 --write 收紧一次。",
   );
   return 1;
 }

@@ -5,10 +5,13 @@
  *
  * 「只减不增」闸门最贵的失效形态是**永远绿**；更隐蔽的一种是**口径不同的假绿**：
  * 依赖缺失时降级正则曾数出 539 处（AST 是 540），却仍与同一份 AST 基线比对并
- * 返回 0「只减不增」。本网钉住三件事：
+ * 返回 0「只减不增」。本网钉住四件事：
  *   1. 依赖缺失时 main() 必须返回 2、不得返回 0（防「降级静默绿」回潮）；
  *   2. 加一个 any 真转红 / 删一个 any 真放行并提示收紧（灵敏度正/反例）；
- *   3. 空输入、坏基线、--write 上调等失败态必须显式失败。
+ *   3. 空输入、坏基线、--write 上调等失败态必须显式失败；
+ *   4. 带 any 的新文件**未纳入基线**必须转红，且 --write 后能转绿（#2935）。
+ *      旧实现只提示、exit 0，与「基线覆盖」用例口径相反 ⇒ 两个 PR 各自绿、
+ *      合进 dev 才红，#2934 / #2936 都是事后补数据的止血卡。
  *
  * ## 怎么跑
  *
@@ -330,14 +333,45 @@ test("新增文件 any 超过上限(3) 必须转红", { skip: SKIP_NO_AST }, () 
 });
 
 test(
-  "新增文件 any ≤ 上限放行，并提示 --write 纳入基线",
+  "新增文件含 any 但未纳入基线必须转红（#2935：与基线覆盖用例口径对齐）",
   { skip: SKIP_NO_AST },
   () => {
     const sb = withSandbox();
     writeFileSync(join(sb.src, "small-new.ts"), "const x: any = 1;\n");
     const r = run([], sb.env);
-    assert.equal(r.code, 0);
-    assert.match(r.out, /请用 --write 纳入基线/);
+    assert.equal(r.code, 1, "带 any 的新文件不得静默放行（旧实现 exit 0）");
+    assert.match(`${r.out}${r.err}`, /small-new\.ts/);
+    assert.match(`${r.out}${r.err}`, /未纳入基线/);
+    assert.match(`${r.out}${r.err}`, /--write/);
+    assert.doesNotMatch(r.out, /只减不增/, "转红时不得同时宣布通过");
+  },
+);
+
+test(
+  "修法闭环：--write 纳入新文件后守卫转绿，且已有基线条目数值不动",
+  { skip: SKIP_NO_AST },
+  () => {
+    const sb = withSandbox();
+    writeFileSync(join(sb.src, "small-new.ts"), "const x: any = 1;\n");
+    assert.equal(run([], sb.env).code, 1, "前置：先确认它确实红");
+    const w = run(["--write"], sb.env);
+    assert.equal(w.code, 0, `--write 应当能纳入：${w.out}\n${w.err}`);
+    const after = JSON.parse(readFileSync(sb.baseline, "utf8"));
+    assert.equal(after.files["small-new.ts"], 1, "新文件按实测值登记");
+    assert.equal(after.files["a.ts"], AST_COUNTS["a.ts"], "已有条目不得被改写");
+    assert.equal(run([], sb.env).code, 0, "--write 后应当转绿");
+  },
+);
+
+test(
+  "防误伤：0 any 的新文件仍静默放行，不刷提示",
+  { skip: SKIP_NO_AST },
+  () => {
+    const sb = withSandbox();
+    writeFileSync(join(sb.src, "brand-clean.ts"), "export const n: number = 2;\n");
+    const r = run([], sb.env);
+    assert.equal(r.code, 0, "新增纯类型文件不该红掉校验");
+    assert.doesNotMatch(r.out, /未纳入基线|--write 纳入基线/);
   },
 );
 

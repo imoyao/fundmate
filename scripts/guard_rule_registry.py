@@ -410,7 +410,8 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只认字面量路径；拼接出来的 to= 看不见',
     },
     'scripts/guard_ts_any.mjs': {
-        'rule': 'TS/Vue 显式 any 类型注解冻结基线、只减不增（防 #2879 类类型护栏泄漏回潮）',
+        'rule': ('TS/Vue 显式 any 类型注解冻结基线、只减不增；新文件含 any 必须同步进基线'
+                 '（防 #2879 类类型护栏泄漏回潮 / #2935 类组合态才红）'),
         'runner': 'ci',
         'tests': 'scripts/tests/guard_ts_any.test.js',
         'covered': (
@@ -419,8 +420,11 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             'JSDoc 里的 any 不计；只扫 frontend/src 的 .ts / .vue（.tsx / .js / .jsx '
             '不在口径内，.d.ts 声明照计）；不判该 any 是否合理、能否换 unknown，'
             '也不判运行时类型是否安全。存量按 scripts/ts-any-baseline.json 冻结'
-            '（收录所有文件含 0 值），新增文件 any ≤ 3 放行；实测低于基线只提示收紧、'
-            '不阻断。typescript 与 @vue/compiler-sfc 任一不可用时即判 exit 2、不产出结论'
+            '（收录所有文件含 0 值）；新增文件 any > 3 拦截，含 1~3 处 any 但未纳入基线'
+            '也拦截（#2935：与回归网「基线覆盖」用例口径对齐，跑 --write 后转绿）；'
+            '0 处 any 的新文件静默放行，一旦 0→1 即按上条拦截。'
+            '实测低于基线只提示收紧、不阻断。'
+            'typescript 与 @vue/compiler-sfc 任一不可用时即判 exit 2、不产出结论'
             '（实测降级正则 539 处 vs AST 540 处，口径不同不得与同一份基线比对而宣布通过）；'
             '正式判据只在 frontend job（已装前端依赖）跑，--report / --write 在依赖缺失时同样拒绝；'
             '降级只作解析层纯函数测试（回归网 import 后验证注释/字符串里的 any 不计）。'
