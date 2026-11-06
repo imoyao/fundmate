@@ -89,8 +89,8 @@ const props = withDefaults(defineProps<Props>(), {
    外层 .is-right 用 align-items:flex-end 把本行推到右侧，故此处不必自行右对齐。 */
 .money-with-ratio__main {
   display: inline-flex;
-  align-items: baseline;
   gap: 2px;
+  align-items: baseline;
 }
 
 /* 比例为辅：明显小于主金额并弱化，形成主次之分。
