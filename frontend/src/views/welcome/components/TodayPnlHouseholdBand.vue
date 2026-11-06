@@ -64,7 +64,9 @@
     </div>
 
     <!-- 杠杆结构条：把 1,760,000 从「一个吓人的数」变成「一个水位」。
-         纯视觉冗余（不计入读屏），文字结论由上面的 chip 承担。 -->
+         纯视觉冗余（不计入读屏），文字结论由上面的 chip 承担。
+         图例不再重复百分比：负债率已在 chip 写过一次，同一张卡出现两次 51.5%
+         会被读成两个不同口径的数（2026-11-06 用户实测反馈）。 -->
     <div
       v-if="debtShare != null && legend"
       class="household__leverage"
@@ -78,7 +80,7 @@
         />
       </div>
       <div class="household__legend">
-        <span>负债 {{ legend.debt }}</span>
+        <span>负债</span>
         <span>{{ legend.equity }}</span>
       </div>
     </div>
@@ -142,7 +144,6 @@ const legend = computed(() => {
   const ratio = props.liabilityRatio;
   if (ratio == null) return null;
   return {
-    debt: pct1(ratio),
     equity: isInsolvent.value ? "已资不抵债" : `净资产 ${pct1(100 - ratio)}`
   };
 });

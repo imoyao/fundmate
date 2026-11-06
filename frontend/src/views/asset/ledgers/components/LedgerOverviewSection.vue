@@ -62,9 +62,9 @@
     />
   </div>
 
-  <!-- 聚合汇总卡网格：场外基金 / 场内证券 两卡并排（窄屏单列堆叠），等高等高权重 -->
+  <!-- 聚合汇总卡网格：基金 / 股票 两卡并排（窄屏单列堆叠），等高等高权重 -->
   <div class="aggregation-cards-grid mb-6">
-    <!-- 场外基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
+    <!-- 基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
     <div
       class="overview-card fund-summary-card"
       role="button"
@@ -74,17 +74,19 @@
     >
       <div class="flex justify-between items-center gap-4 flex-wrap">
         <div class="min-w-0">
-          <!-- 集合边界写进标签：这两张卡是「品类全景」的唯一出口（全面盘点页原有的
-               「投资分布」两张同名卡已删除——它漏货基、漏 ETF，同名不同义）。
-               不写「含货币基金」，用户就会拿这里的数去和别处的「基金」对，
-               对不上也不知道差在哪。
+          <!-- 标题只写「基金」（2026-11-06 用户拍板，D91），集合边界移到下一行小字。
+               这两张卡是「品类全景」的唯一出口（全面盘点页原有的「投资分布」两张同名卡
+               已删除——它漏货基、漏 ETF，同名不同义）。小字必须写明含货币基金：
+               用户会拿这里的数去和首页「基金」列对，两边集合本就不同
+               （本卡 = fund + money_fund，首页 = fund），不写清就不知道差在哪。
                金额口径：`fund/securities-aggregation` 取**库内最新净值 / 收盘价**；
                总资产（`/summary/`）取 `positions.current_price` 的持仓快照价。
                两者在同步滞后时会差一个净值日——这是既有口径差，不是本卡的 bug，
                已在 tech-debt 登记；出现「卡片合计 ≠ 总资产里那一块」时先查同步时间。 -->
           <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
-            基金（含货币基金）
+            基金
           </p>
+          <p class="aggregation-hint">含货币基金、E 账户份额</p>
           <div class="mt-1">
             <MoneyDisplay
               :value="p.fundTotalYuan"
@@ -100,7 +102,7 @@
       </div>
     </div>
 
-    <!-- 场内证券（股票/ETF/可转债）聚合汇总卡：整卡可点下钻至聚合视图 -->
+    <!-- 股票（含 ETF、可转债）聚合汇总卡：整卡可点下钻至聚合视图 -->
     <div
       class="overview-card securities-summary-card"
       role="button"
@@ -110,10 +112,11 @@
     >
       <div class="flex justify-between items-center gap-4 flex-wrap">
         <div class="min-w-0">
-          <!-- 见上方「基金」卡的注释：标签直接写明集合边界（场内证券 = 股票 + ETF + 可转债） -->
+          <!-- 见上方「基金」卡的注释：标题只写「股票」，集合边界移到下一行小字 -->
           <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
-            股票（含 ETF、可转债）
+            股票
           </p>
+          <p class="aggregation-hint">含 ETF、可转债</p>
           <div class="mt-1">
             <MoneyDisplay
               :value="p.securitiesTotalYuan"
@@ -146,7 +149,7 @@ defineOptions({ name: "LedgerOverviewSection" });
 
 /**
  * 账户列表页顶部汇总区（#980 P1-C 结构拆分）：
- * 净资产卡（指标竖排/负债警示）+ 资产配置环形图 + 基金/证券聚合汇总卡。
+ * 净资产卡（指标竖排/负债警示）+ 资产配置环形图 + 基金/股票聚合汇总卡。
  * page 为 index 注入的状态单体；p 用 reactive 解包，使模板表达式与拆分前逐字一致。
  */
 const props = defineProps<{ page: ReturnType<typeof useLedgerList> }>();
@@ -185,7 +188,7 @@ const p = reactive(props.page);
   flex-direction: column;
 }
 
-/* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言。
+/* 基金（含 E 账户、货币基金）汇总卡：整卡可点下钻，复用 overview-card 视觉语言。
    hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
 .fund-summary-card {
   cursor: pointer;
@@ -204,7 +207,7 @@ const p = reactive(props.page);
   box-shadow: var(--focus-ring);
 }
 
-/* 场内证券（股票/ETF/可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言。
+/* 股票（含 ETF、可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言。
    hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
 .securities-summary-card {
   cursor: pointer;
@@ -223,12 +226,20 @@ const p = reactive(props.page);
   box-shadow: var(--focus-ring);
 }
 
-/* 聚合汇总卡网格：场外基金 / 场内证券 两卡并排，等宽等高（grid 默认 align-items: stretch）；
+/* 聚合汇总卡网格：基金 / 股票 两卡并排，等宽等高（grid 默认 align-items: stretch）；
    minmax(0, 1fr) 防止金额等超长内容撑破列宽；窄屏（<768px，与 Tailwind md 断点对齐）回退单列堆叠 */
 .aggregation-cards-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-compact);
+}
+
+/* 集合边界：一行小字、次级墨色，字号用既有令牌，不占标题层级 */
+.aggregation-hint {
+  margin: 2px 0 0;
+  font-size: var(--text-label);
+  line-height: 1.4;
+  color: var(--text-tertiary-ink);
 }
 
 @media (width <= 767px) /* breakpoint-allow: 拆分随迁的存量写法，零变更不改输出 */ {

@@ -86,10 +86,11 @@ export const LEDGER_TYPE_SHORT: Record<string, string> = {
 
 /** 渠道类别单字缩写（用户可见的类型标签，对应后端 Ledger.channel_category）。
  *  与 LEDGER_TYPE_SHORT 值域不同：这里是「这个账户开在哪类渠道」，不是「账户装什么资产」。
- *  例：券商账户 channel_category=securities → 证；它装的是股票，但账户属于证券渠道。 */
+ *  例：券商账户 channel_category=securities → 股；用户日常按「装什么」认账户，
+ *  写「证」会被读成与首页「股票」不同的东西（2026-11-06 用户拍板，D91）。 */
 export const CHANNEL_CATEGORY_SHORT: Record<string, string> = {
   bank: "银",
-  securities: "证",
+  securities: "股",
   fund_platform: "基",
   insurance: "保",
   futures: "期",

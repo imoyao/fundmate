@@ -842,9 +842,10 @@ export type TodayPnlStatus =
   "estimated" | "confirmed" | "partial" | "empty" | "no_data";
 
 /**
- * 分项大类（卡面只出「场内权益 / 场外基金」：只有这两类有统一的当日估值口径）。
+ * 分项大类（卡面只出「股票 / 基金」：只有这两类有统一的当日估值口径）。
  *
- * 2026-11-04 起 `stock` 覆盖股票 / ETF / 可转债（`asset_class` 按定价方式分桶），
+ * 2026-11-04（D77）起 `stock` 覆盖股票 / ETF / 可转债（`asset_class` 按定价方式分桶）；
+ * 2026-11-06（D91）起用户可见标签统一为「股票 / 基金」，集合边界由前端小字说明。
  * 标签由后端 `CLASS_LABELS` 下发——前端不要按 asset_type 自己判类。
  */
 export type TodayPnlClass = {
@@ -892,7 +893,7 @@ export type TodayPnlData = {
   total_pnl: number | null;
   /** 当日收益率（%）；null = 分母缺失 */
   total_rate: number | null;
-  /** 投资类资产市值（元）= 场内权益 + 场外基金；null = 无持仓 */
+  /** 投资类资产市值（元）= 股票 + 基金；null = 无持仓 */
   invested_value: number | null;
   /**
    * 投资类资产占**家庭总资产**的比例（%，后端直出）。

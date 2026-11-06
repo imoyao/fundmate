@@ -4,7 +4,7 @@
   信息层级四层，从上到下：
     1. 最新收益（hero）+ 当日涨幅              ← 唯一的强色数字
     2. 投资类资产（次级）+ 占家庭总资产          ← 把两个刻度接起来
-    3. 场内权益 / 场外基金两列                  ← `TodayPnlClassColumns`
+    3. 股票 / 基金两列                          ← `TodayPnlClassColumns`
     4. 家庭口径 · 存量（三列 + 负债率 + 结构条）  ← `TodayPnlHouseholdBand`
 
   为什么第 3、4 层拆成子组件：这张卡从 370 行涨到 838 行，越过仓库
@@ -97,7 +97,7 @@
           <div class="today-pnl__invested">
             <el-tooltip
               placement="top"
-              content="只统计场内权益（股票/ETF/可转债）与场外基金；房产、现金、理财等见下方家庭净资产"
+              content="股票含 ETF、可转债；基金只含场外基金；房产、现金、理财等见下方家庭净资产"
             >
               <p class="today-pnl__label">投资类资产</p>
             </el-tooltip>

@@ -1,5 +1,9 @@
 <!--
-  TodayPnlClassColumns · 当日收益卡的两列分项（场内权益 / 场外基金）
+  TodayPnlClassColumns · 当日收益卡的两列分项（股票 / 基金）
+
+  标题只写「股票」「基金」（2026-11-06 用户拍板，D91）：用户日常不按交易所
+  场所叫资产，把「含 ETF、可转债」这类集合边界塞进标题会显得繁琐；
+  边界统一放在两列下方的一行小字里，一眼可扫、不占标题层级。
 
   为什么这两列与 hero 能写得这么「敢」：它们是**同一份数据**的两个切面
   （后端 `Σ classes.pnl ≡ total_pnl`），前端不做第二次相加；占比也一律后端直出
@@ -42,6 +46,9 @@
         >
       </div>
     </div>
+    <p class="cls__hint">
+      股票含 ETF、可转债；基金仅含场外基金（不含货币基金）
+    </p>
   </div>
 
   <p v-else class="cls__empty" :style="{ color: 'var(--text-tertiary-ink)' }">
@@ -128,6 +135,15 @@ const tweenOf = (key: TodayPnlClass["key"]) =>
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
+}
+
+/* 集合边界只占一行小字：跨两列、次级墨色，不参与数字层级 */
+.cls__hint {
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+  font-size: var(--text-label);
+  line-height: 1.4;
+  color: var(--text-tertiary-ink);
 }
 
 .cls__empty {

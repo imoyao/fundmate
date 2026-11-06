@@ -217,12 +217,13 @@ def test_无持仓时不给零收益(db, frozen_today):
     assert data['invested_ratio_of_assets'] is None
 
 
-def test_可转债与ETF计入场内权益(db, make_position, make_transaction, frozen_today):
-    """2026-11-04（D77）：`asset_class` 按定价方式分桶，bond / etf 都进「场内权益」。
+def test_可转债与ETF计入股票(db, make_position, make_transaction, frozen_today):
+    """2026-11-04（D77）：`asset_class` 按定价方式分桶，bond / etf 都进股票侧。
 
-    此前 `bond` 归 other（完全不进卡面）、`etf` 归 fund（与场外基金混在
+    此前 `bond` 归 other（完全不进卡面）、`etf` 归 fund（与基金混在
     「基金」列，而它其实有实时价、盘中会跳）。两者与股票同属交易所报价，
-    当日盈亏口径完全一致。
+    当日盈亏口径完全一致。2026-11-06（D91）起用户可见标签改为「股票 / 基金」，
+    分桶 key 与归属不变。
     """
     etf = Security(symbol='SH510300', name='沪深300ETF', market='CN_A', type='etf')
     bond = Security(symbol='SH110081', name='测试转债', market='CN_A', type='bond')
@@ -258,8 +259,8 @@ def test_可转债与ETF计入场内权益(db, make_position, make_transaction, 
     data = build_today_pnl(db, family_id=1)
 
     classes = {c['key']: c for c in data['classes']}
-    assert list(classes) == ['stock'], 'ETF 与可转债同属场内权益，不应再单列「基金」'
-    assert classes['stock']['label'] == '场内权益'
+    assert list(classes) == ['stock'], 'ETF 与可转债同属股票侧，不应再单列「基金」'
+    assert classes['stock']['label'] == '股票'
     # ETF：(4.1 − 4.0) × 100 = 10；转债：(101 − 100) × 10 = 10
     assert classes['stock']['pnl'] == pytest.approx(20.0)
     assert data['total_pnl'] == pytest.approx(20.0)
