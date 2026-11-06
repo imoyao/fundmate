@@ -11,7 +11,6 @@ import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getLedgers,
-  getLedgerSummary,
   getLedgerPositions,
   deleteLedgerPosition,
   archiveLedger,
@@ -21,19 +20,12 @@ import {
   type SalesInstitution
 } from "@/api/ledger";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
-import { updatePosition } from "@/api/positions";
-import {
-  portfolioLabel,
-  resolvePortfolioOf,
-  type PortfolioAssignment,
-  type PortfolioLookup
-} from "@/views/asset/inventory/portfolioAssignModel";
-import {
-  getMoneyFundIncome,
-  type MoneyFundIncomeData
-} from "@/api/performance";
+import type { PortfolioAssignment } from "@/views/asset/inventory/portfolioAssignModel";
+import type { MoneyFundIncomeData } from "@/api/performance";
 import { getLedgerTypeLabel } from "@/constants";
 import { usePageRefresh } from "@/composables/usePageRefresh";
+import { useLedgerOverview } from "@/composables/ledger/useLedgerOverview";
+import { useLedgerPositionPortfolio } from "@/composables/ledger/useLedgerPositionPortfolio";
 
 /** 账户概览（GET /api/ledgers/{id}/summary/） */
 export interface LedgerSummaryData {
@@ -265,19 +257,6 @@ export function useLedgerDetail(): LedgerDetailApi {
   const showSkeleton = ref(false);
   let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
   const ledgers = ref<LedgerItem[]>([]);
-  const portfolioList = ref<PortfolioItem[]>([]);
-  /**
-   * 「所属组合」列的上下文就绪位。
-   *
-   * 继承态（「随账户」）要成立，光有组合列表不够——还得知道**本账户的默认组合**
-   * （来自 `ledgers → accountInfo`）。两路数据任一未到时若按「查不到 ⇒ 没设默认组合」
-   * 直接判成 `none`，界面就会把「不知道」显示成「未归属」：用户看到自己的持仓
-   * 忽然不属于任何组合，只会以为数据丢了。
-   *
-   * 故未就绪时一律走 `unknown`（显示「—」），宁可少说，不可错说。
-   */
-  const portfoliosLoaded = ref(false);
-  const ledgersLoaded = ref(false);
   /** 基金销售机构候选（AMAC 名录，编辑账户可选关联） */
   const salesInstitutions = ref<SalesInstitution[]>([]);
   const assignMap = ref<Record<number, number>>({});
@@ -289,54 +268,17 @@ export function useLedgerDetail(): LedgerDetailApi {
   const drawerVisible = ref(false);
   const selectedPosition = ref<LedgerHoldingRow | null>(null);
 
-  // 概览数据
-  const summaryData = ref<LedgerSummaryData | null>(null);
-
-  // 货币基金收益（仅基金账户拉取）
-  const moneyFundData = ref<MoneyFundIncomeData | null>(null);
-
-  // 是否展示资产构成（仅股票 / 基金 / 信用账户有投资资产与现金类资产之分）
-  const isCompositionLedger = computed(() =>
-    ["stock", "fund", "e_account"].includes(
-      summaryData.value?.ledger_type ?? ""
-    )
-  );
-
-  // 环形图数据：投资资产 vs 现金类资产。
-  //
-  // ⚠️ 两片必须是**持仓市值的一个划分**（合计 = 左侧「总资产」），否则占比会算出
-  // 负数或超过 100%：账外类现金（孤儿货基流水净额 / 账户现金）不在持仓市值内，
-  // 若拿它当「现金类资产」片，投资片 = 总市值 - 类现金 就会变负
-  // （真机：账户 id=12 曾显示「投资资产 -63.2% / 现金类资产 163.2%」）。
-  // 故现金片固定取 `cash_like_in_positions_amount`（持仓内类现金）。
-  const compositionData = computed(() => [
-    { name: "投资资产", value: summaryData.value?.investment_amount ?? 0 },
-    {
-      name: "现金类资产",
-      value: summaryData.value?.cash_like_in_positions_amount ?? 0
-    }
-  ]);
-
-  // 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex），对齐家庭资产看板饼图取色（chart-01 起）
-  const compositionColorMap = {
-    投资资产: "--chart-01",
-    现金类资产: "--chart-06"
-  };
-
-  async function loadMoneyFundIncome() {
-    if (isUnclassified.value) return;
-    moneyFundData.value = null;
-    try {
-      const res = await getMoneyFundIncome({
-        scope: "ledger",
-        ledger_id: Number(ledgerId.value)
-      });
-      moneyFundData.value = res.data;
-    } catch (e) {
-      // 禁止静默吞错：失败保留占位 "--"，仅记日志不打断页面
-      console.error("货基收益加载失败", e);
-    }
-  }
+  // 概览 / 货基收益 / 资产构成（#2922 下沉到 useLedgerOverview：只依赖账户 id
+  // 与「未归置」判定两个只读输入，产出全是本页派生视图，不进 store）
+  const {
+    summaryData,
+    moneyFundData,
+    isCompositionLedger,
+    compositionData,
+    compositionColorMap,
+    loadSummary,
+    loadMoneyFundIncome
+  } = useLedgerOverview(ledgerId, isUnclassified);
 
   // 持仓 Tab 数据
   const holdingsPage = ref(1);
@@ -446,15 +388,6 @@ export function useLedgerDetail(): LedgerDetailApi {
     }
   }
 
-  async function loadSummary() {
-    try {
-      const res = await getLedgerSummary(Number(ledgerId.value));
-      summaryData.value = (res as { data?: LedgerSummaryData })?.data ?? {};
-    } catch {
-      ElMessage.error("概览加载失败");
-    }
-  }
-
   /** 销售机构候选加载：失败仅记日志，编辑弹窗下拉留空（可选字段不阻塞页面） */
   async function loadSalesInstitutions() {
     try {
@@ -484,106 +417,26 @@ export function useLedgerDetail(): LedgerDetailApi {
     }
   }
 
-  // ── 所属组合（D20 二期 UI）────────────────────────────────────────────
+  // ── 所属组合（D20 二期 UI，2026-11-05）──────────────────────────────
   //
   // 账户详情页此前只能改「配置目标」（五笔钱），组合归属得跑去「全面盘点」页改。
   // 而用户看账户时最想问的正是「这个账户里哪些持仓被我拆到了别的组合」——
   // 数据就在眼前，入口却在另一页。这一组把它补上。
-
-  /** 组合上下文是否可用于解析归属（两个来源都到齐，见 ref 处注释） */
-  const portfolioContextReady = computed(
-    () => portfoliosLoaded.value && ledgersLoaded.value
-  );
-
-  /** 供纯函数解析用的查询表：本页只有一个账户，故映射里只有一条 */
-  const portfolioLookup = computed<PortfolioLookup>(() => ({
-    portfolios: portfolioList.value,
-    ledgerPortfolioMap:
-      ledgerIdNum.value != null
-        ? { [ledgerIdNum.value]: accountInfo.value?.portfolio_id ?? null }
-        : {}
-  }));
-
-  /**
-   * 解析单条持仓的归属状态。
-   *
-   * 规则本身**不在这里写**：显式指派压过账户继承是服务端口径
-   * （`portfolio_service.portfolio_position_conditions`），抄第二份必然漂移，
-   * 故直接调盘点页那份纯函数。本函数只补两件本页特有的事：
-   * 1. 未就绪 → `unknown`（不猜）；
-   * 2. 补 `ledger_id`——账户持仓接口的行里**没有**该字段（items 是后端手工拼的
-   *    字典），而整页只有一个账户，用路由上的 id 补上比让后端多发一个冗余字段更省。
-   */
-  function resolveHoldingPortfolio(row: LedgerHoldingRow): PortfolioAssignment {
-    if (!portfolioContextReady.value) {
-      return { mode: "unknown", labelText: null };
-    }
-    return resolvePortfolioOf(
-      { ...row, ledger_id: ledgerIdNum.value ?? null },
-      portfolioLookup.value
-    );
-  }
-
-  /**
-   * 改派持仓所属组合。
-   *
-   * ⚠️ 必须走 `PATCH /api/positions/<id>/`，**不是**账户下的嵌套持仓 PATCH
-   * （`/api/ledgers/<lid>/positions/<pid>/`）。后者是「五笔钱」白名单，只接受
-   * allocation / current_price / notes，`portfolio_id` 会被静默丢弃——请求返回 200、
-   * 界面却纹丝不动，是最难排查的一类「失败」。`api/ledger.ts` 里该函数的注释
-   * 也明确写着「迁移持仓归属请改调 PATCH /api/positions/<id>/」。
-   *
-   * 成功后**局部替换该行**而不整页重取：改派不动任何金额，重取只会让表格闪一下，
-   * 还会把刚改的那行挤出当前页（后端按市值降序分页）。
-   */
-  async function reassignPosition(
-    row: LedgerHoldingRow,
-    portfolioId: number | null
-  ): Promise<void> {
-    try {
-      await updatePosition(row.id, { portfolio_id: portfolioId });
-    } catch (e) {
-      const err = e as {
-        message?: string;
-        response?: { data?: { message?: string; description?: string } };
-      };
-      ElMessage.error(
-        err?.response?.data?.message ||
-          err?.response?.data?.description ||
-          err?.message ||
-          "改派组合失败"
-      );
-      return;
-    }
-    const index = holdingsList.value.findIndex(item => item.id === row.id);
-    if (index >= 0) {
-      holdingsList.value[index] = {
-        ...holdingsList.value[index],
-        portfolio_id: portfolioId
-      };
-    }
-    const target =
-      portfolioId === null
-        ? "账户默认组合"
-        : portfolioLabel(portfolioList.value, portfolioId);
-    ElMessage.success(`已改派到「${target}」，相关组合年化将重算`);
-  }
-
-  /**
-   * 拉取组合列表（改派浮层的候选项）。
-   *
-   * 首屏就拉：此前只在「编辑账户」弹窗里才拉（下拉需要），于是打开页面时组合列
-   * 无从解析。失败不抛——组合列降级为「—」，持仓表其余列照常可用。
-   */
-  async function loadPortfolioContext() {
-    try {
-      const res = await getPortfolios();
-      portfolioList.value = (res as { data?: PortfolioItem[] })?.data ?? [];
-      portfoliosLoaded.value = true;
-    } catch (e) {
-      console.error("组合列表加载失败，「所属组合」列暂显示为「—」", e);
-    }
-  }
+  //
+  // #2922 起整块下沉到 useLedgerPositionPortfolio（读归属 / 改派 / 候选项与就绪位）；
+  // 同属单页派生，不进 store。
+  const {
+    portfolioList,
+    loadPortfolioContext,
+    adoptPortfolioList,
+    markLedgersLoaded,
+    resolveHoldingPortfolio,
+    reassignPosition
+  } = useLedgerPositionPortfolio({
+    ledgerIdNum,
+    accountInfo,
+    holdingsList
+  });
 
   function onTabChange(tabName: string) {
     if (tabName === "holdings" && holdingsList.value.length === 0) {
@@ -608,10 +461,10 @@ export function useLedgerDetail(): LedgerDetailApi {
         getPortfolios()
       ]);
       ledgers.value = ledgerRes.data ?? [];
-      portfolioList.value =
-        (portfolioRes as { data?: PortfolioItem[] })?.data ?? [];
       // 首屏那一次若失败，这里重试成功后同样要放行「所属组合」列的解析
-      portfoliosLoaded.value = true;
+      adoptPortfolioList(
+        (portfolioRes as { data?: PortfolioItem[] })?.data ?? []
+      );
     } catch {
       ElMessage.error("加载关联账户或组合列表失败");
       return; // 加载失败不打开弹窗
@@ -767,8 +620,8 @@ export function useLedgerDetail(): LedgerDetailApi {
           const ledgerRes = await getLedgers(true);
           ledgers.value = ledgerRes.data ?? [];
           // 账本列表到位才算「继承态可判」：账户详情页的继承来源就是本账户的
-          // `portfolio_id`，拿不到它时不能退化成「未归属」（见 portfoliosLoaded 注释）
-          ledgersLoaded.value = true;
+          // `portfolio_id`，拿不到它时不能退化成「未归属」（见 useLedgerPositionPortfolio）
+          markLedgersLoaded();
         } catch (error) {
           console.error(
             "获取账本列表失败，操作栏暂不可用（其余详情正常）",

@@ -1,4 +1,5 @@
 import { ref, computed, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getWatchlistItems,
@@ -10,117 +11,24 @@ import {
 } from "@/api/watchlist";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
-import { localForage } from "@/utils/localforage";
 import {
   sortRowsForClient,
   type ClientSortKey,
   type ClientSortOrder
 } from "@/views/asset/watchlist/clientSort";
+import type { SortMetric } from "@/views/asset/watchlist/sortMetric";
 import {
-  DEFAULT_SORT_METRIC,
-  normalizeSortMetric,
-  type SortMetric
-} from "@/views/asset/watchlist/sortMetric";
-
-/** 每页条数可选档位（issue #1335）：与后端 per_page 限幅 [1,200] 对齐，不超出范围 */
-export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
-const PAGE_SIZE_STORAGE_KEY = "watchlist-page-size";
-const DEFAULT_PAGE_SIZE = 20;
+  PAGE_SIZE_OPTIONS,
+  useWatchlistPrefsStore
+} from "@/store/modules/watchlistPrefs";
 
 /**
- * 每页条数偏好（issue #1335）：纯前端本地持久化（localforage），不落数据库——
- * 跨设备同步依赖后端 user_preferences 基建，本期不做（见 issue 关联说明）。
- * 模块级单例：自选页与设置抽屉共享同一份状态，且只从本地加载一次。
+ * 每页条数与复合列排序口径已下沉到 `store/modules/watchlistPrefs`（#2922）：
+ * 二者是**跨挂载点共享**的本地视图偏好（自选页表格 + 设置抽屉同一份），
+ * 原先以模块级单例住在本文件顶层，属于「状态归属说不清」的技术债。
+ * 此处 re-export 保持既有导入路径可用（`useWatchlistData` 的调用方无需改）。
  */
-const pageSize = ref(DEFAULT_PAGE_SIZE);
-// 记忆化「加载本地每页条数」Promise：多个挂载点（自选页 + 设置抽屉）并发调用 initPageSize 时，
-// 共享同一次加载，避免第二个挂载点在首个 await 完成前即返回、用默认 20 发起首屏请求，
-// 随后被记忆值（如 50）覆盖导致「数据按 20 拉取、分页器按 50 显示」的短暂不一致。
-let pageSizeLoadPromise: Promise<void> | null = null;
-
-async function loadPageSize(): Promise<void> {
-  try {
-    const saved = await localForage().getItem<number>(PAGE_SIZE_STORAGE_KEY);
-    if (
-      typeof saved === "number" &&
-      (PAGE_SIZE_OPTIONS as readonly number[]).includes(saved)
-    ) {
-      pageSize.value = saved;
-    }
-  } catch {
-    /* 读取失败按默认处理 */
-  }
-}
-
-function persistPageSize(): void {
-  localForage()
-    .setItem<number>(PAGE_SIZE_STORAGE_KEY, pageSize.value)
-    .catch(() => {
-      /* 持久化失败不影响会话内生效（IndexedDB 不可用时库内部降级 localStorage） */
-    });
-}
-
-/**
- * 复合列的排序口径（按列 key 记忆，2026-10-30 二次优化）。
- *
- * 三个复合列各有各的两行数（当日盈亏：金额/涨幅；持仓市值：金额/占比；
- * 持仓收益：金额/收益率），故记忆的是 `{ [列 key]: SortMetric }` 而不是单个值——
- * 首版只服务当日盈亏，用的是单值 ref，扩到三列后必须按列存，否则切一列会把
- * 另一列的口径一起改掉。
- *
- * 纯本地记忆（与 pageSize 同模式，不上云）：它是「我怎么看这张表」的偏好，
- * 跨设备同步的价值低于实现成本；服务端的 user_preferences 里也还没有这一项。
- * 模块级单例：表头徽标与数据层共享同一份，切换即时生效。
- */
-const SORT_METRICS_STORAGE_KEY = "watchlist-sort-metrics";
-/** 首版的单值键（只存当日盈亏，取值 amount/pct）：读一次做迁移，之后不再写 */
-const LEGACY_DAY_PNL_METRIC_STORAGE_KEY = "watchlist-day-pnl-metric";
-const sortMetrics = ref<Record<string, SortMetric>>({});
-let sortMetricsLoadStarted = false;
-
-async function loadSortMetrics(): Promise<void> {
-  if (sortMetricsLoadStarted) return;
-  sortMetricsLoadStarted = true;
-  try {
-    const saved = await localForage().getItem<Record<string, unknown>>(
-      SORT_METRICS_STORAGE_KEY
-    );
-    const next: Record<string, SortMetric> = {};
-    if (saved && typeof saved === "object") {
-      for (const [key, raw] of Object.entries(saved)) {
-        const metric = normalizeSortMetric(raw);
-        if (metric) next[key] = metric;
-      }
-    }
-    // 迁移：老用户存过「按涨幅排序」，不读旧键会静默回落成「按金额」
-    if (!next.day_pnl) {
-      const legacy = await localForage().getItem<unknown>(
-        LEGACY_DAY_PNL_METRIC_STORAGE_KEY
-      );
-      const migrated = normalizeSortMetric(legacy);
-      if (migrated) next.day_pnl = migrated;
-    }
-    sortMetrics.value = next;
-  } catch {
-    /* 读取失败按默认（金额，与列主行一致） */
-  }
-}
-
-/** 取某列的当前口径；未存过 → 金额（与列主行一致） */
-function sortMetricOf(key: string): SortMetric {
-  return sortMetrics.value[key] ?? DEFAULT_SORT_METRIC;
-}
-
-function setSortMetric(key: string, metric: SortMetric): void {
-  if (sortMetricOf(key) === metric) return;
-  // 换新对象而不是改属性：引用变化让读它的 computed（整组排序）稳定重算
-  sortMetrics.value = { ...sortMetrics.value, [key]: metric };
-  localForage()
-    .setItem(SORT_METRICS_STORAGE_KEY, sortMetrics.value)
-    .catch(() => {
-      /* 持久化失败不影响本次会话 */
-    });
-}
+export { PAGE_SIZE_OPTIONS };
 
 /**
  * 自选列表「数据 + 分页 + 筛选 + 行操作 + 批量」编排逻辑（从 watchlist/index.vue 抽离，2026-08-20）。
@@ -162,8 +70,13 @@ export function useWatchlistData(
     batchMoveGroupId
   } = toolbar;
 
+  // 跨挂载点共享的本地偏好（每页条数 / 复合列口径）由 store 持有（#2922）；
+  // 本 composable 只用它的 ref 参与 watch 与模板，值本身不进本文件。
+  const prefs = useWatchlistPrefsStore();
+  const { pageSize, sortMetrics } = storeToRefs(prefs);
+
   // 口径偏好首屏前恢复（幂等；失败静默回默认「金额」）
-  void loadSortMetrics();
+  void prefs.loadSortMetrics();
 
   const loading = ref(false);
   const items = ref<WatchlistItem[]>([]);
@@ -400,26 +313,28 @@ export function useWatchlistData(
 
   /**
    * 首屏前加载本地每页条数偏好（#1335），确保第一次 fetch 即使用已记忆的档位。
-   * 幂等：返回记忆化的加载 Promise，所有调用方（自选页、设置抽屉等挂载点）等待同一次加载完成，
-   * 避免并发挂载点时第二个调用方提前返回、用默认档位发起首屏请求而产生短暂不一致。
+   * 幂等由 store 内部保证（记忆化的加载 Promise），此处只做转发。
    */
-  async function initPageSize(): Promise<void> {
-    if (!pageSizeLoadPromise) {
-      pageSizeLoadPromise = loadPageSize();
-    }
-    return pageSizeLoadPromise;
+  function initPageSize(): Promise<void> {
+    return prefs.initPageSize();
   }
 
   /** 切换每页条数（#1335）：记忆选择 → 回到第一页 → 重新拉取。
-   *  仅接受预定义档位，越界值回退默认，避免与后端 per_page 限幅 [1,200] 冲突。 */
+   *  档位归一（越界回退默认、拒绝重复档位）在 store 里判；此处只负责「变了才刷新」。 */
   function setPageSize(size: number) {
-    const allowed = PAGE_SIZE_OPTIONS as readonly number[];
-    const next = allowed.includes(size) ? size : DEFAULT_PAGE_SIZE;
-    if (next === pageSize.value) return;
-    pageSize.value = next;
-    persistPageSize();
+    if (!prefs.changePageSize(size)) return;
     currentPage.value = 1;
     fetchData();
+  }
+
+  /** 取某列的当前口径（转发 store；未存过 → 金额，与列主行一致） */
+  function sortMetricOf(key: string): SortMetric {
+    return prefs.sortMetricOf(key);
+  }
+
+  /** 切某列口径（转发 store；持久化与引用替换在 store 内完成） */
+  function setSortMetric(key: string, metric: SortMetric): void {
+    prefs.setSortMetric(key, metric);
   }
 
   /** 搜索防抖：输入 300ms 后重置分页并刷新 */

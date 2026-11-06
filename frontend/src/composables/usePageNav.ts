@@ -8,6 +8,15 @@ import {
   watch
 } from "vue";
 import type { Ref, WatchSource } from "vue";
+import {
+  clamp,
+  prefersReducedMotion,
+  resetScrollerCache,
+  scrollHostFor,
+  scrollMetrics,
+  spyLine,
+  type ScrollHost
+} from "@/composables/pageNav/scrollGeometry";
 
 /**
  * 长页面页内导航的状态与 scroll-spy（通用版）。
@@ -74,114 +83,6 @@ export interface UsePageNavOptions {
 }
 
 const ANCHOR_PREFIX = "nav-";
-
-/** 吸顶后的滚动容器（fixedHeader 模式下是 `.el-scrollbar__wrap`，非 fixed 模式
- *  整页滚动返回 null）。缓存 + resize 失效：滚动容器不随滚动变，但随视口变
- *  （布局模式 / 侧边栏折叠都可能切换滚动宿主）。
- *  **null 不缓存**：容器 watch 里 scan() 刚设完 items，nav 的重渲染还没发生，
- *  那一刻查询会扑空；若把 null 缓存下来，定位线会永远按「无滚动容器」算
- *  （实测 scroll-spy 整体少算一个页头高度，active 停在前一个区块）。
- *  模块级共享是安全的：它只由布局决定，与哪个页面在用无关。 */
-let cachedScroller: HTMLElement | null | undefined;
-
-function currentScroller(): HTMLElement | null {
-  if (cachedScroller) return cachedScroller;
-  const nav = document.querySelector<HTMLElement>(".page-nav");
-  const found = nav ? findScroller(nav) : null;
-  if (found) cachedScroller = found;
-  return found;
-}
-
-/** 吸顶定位线（视口坐标）：滚动容器顶沿 + 胶囊高 + 8px 呼吸位。
- *  **不能取胶囊当前 rect**：页面在顶部时胶囊尚未吸顶、rect 偏下，点击跳转会
- *  少滚一截（实测差约 130px，落点悬在胶囊下方）。取容器顶沿即吸顶后的位置。
- *  xl+ 胶囊 display:none（offsetHeight 0），线退到容器顶沿 + 8。 */
-function spyLine(): number {
-  const nav = document.querySelector<HTMLElement>(".page-nav");
-  const base = currentScroller()?.getBoundingClientRect().top ?? 0;
-  return base + (nav?.offsetHeight ?? 0) + 8;
-}
-
-/** 找最近的可滚动祖先：fixedHeader 模式下是 `.el-scrollbar__wrap`，
- *  非 fixed 模式整页滚动（window）。判据用「真能滚」而不是单看 overflow——
- *  `.app-main` 也是 overflow:hidden，但它不滚（scrollHeight == clientHeight）。 */
-function findScroller(el: HTMLElement): HTMLElement | null {
-  let node: HTMLElement | null = el.parentElement;
-  while (node) {
-    const overflowY = getComputedStyle(node).overflowY;
-    const scrollable = node.scrollHeight > node.clientHeight + 1;
-    if (
-      scrollable &&
-      (overflowY === "auto" || overflowY === "scroll" || overflowY === "hidden")
-    ) {
-      return node;
-    }
-    node = node.parentElement;
-  }
-  return null;
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-/** 滚动宿主抽象：fixedHeader 模式是 `.el-scrollbar__wrap`，非 fixed 模式
- *  整页滚动（window）。read/write/limit 三件套让 goTo 的动画循环不关心
- *  当前是哪种布局（视口宽度 / 侧边栏折叠都可能切换宿主）。 */
-interface ScrollHost {
-  read: () => number;
-  write: (top: number) => void;
-  limit: () => number;
-}
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(Math.max(v, min), max);
-}
-
-/** 解析滚动宿主（goTo 用，从目标区块往上找）。返回 null = 没有可滚内容
- *  （页面比视口矮），跳转无从谈起——置了 active 即可。 */
-function scrollHostFor(el: HTMLElement): ScrollHost | null {
-  const scroller = findScroller(el);
-  if (scroller && scroller.scrollHeight > scroller.clientHeight + 1) {
-    return {
-      read: () => scroller.scrollTop,
-      write: top => {
-        scroller.scrollTop = top;
-      },
-      limit: () => scroller.scrollHeight - scroller.clientHeight
-    };
-  }
-  const limit = document.documentElement.scrollHeight - window.innerHeight;
-  if (limit > 1) {
-    return {
-      read: () => window.scrollY,
-      write: top => window.scrollTo(0, top),
-      limit: () => document.documentElement.scrollHeight - window.innerHeight
-    };
-  }
-  return null;
-}
-
-/** 滚动度量（updateActive 的触底判据用）。与 scrollHostFor 同源，但走
- *  cachedScroller 缓存路径——scroll 事件每帧都可能调，不值得再走一遍
- *  findScroller。返回 null = 无可滚内容。 */
-function scrollMetrics(): { top: number; limit: number } | null {
-  const scroller = currentScroller();
-  if (scroller) {
-    return {
-      top: scroller.scrollTop,
-      limit: scroller.scrollHeight - scroller.clientHeight
-    };
-  }
-  const limit = document.documentElement.scrollHeight - window.innerHeight;
-  if (limit > 1) {
-    return { top: window.scrollY, limit };
-  }
-  return null;
-}
 
 /** 定位线容差（px）：goTo 的落点会把区块顶边正好压在定位线上（实测残差
  *  ±0.5px）。零容差判据下残差为正（区块低 0.1px）就不算越过、高亮退回
@@ -447,7 +348,7 @@ export function usePageNav(
     // → 中止动画、清 pin，让 scroll-spy 按新布局重算，用户重新点击即可。
     cancelAnim();
     pinnedId = null;
-    cachedScroller = undefined;
+    resetScrollerCache();
     onScroll();
   }
 
@@ -523,7 +424,7 @@ export function usePageNav(
     if (rafId) cancelAnimationFrame(rafId);
     cancelAnim();
     pinnedId = null;
-    cachedScroller = undefined;
+    resetScrollerCache();
   });
 
   // 依赖切换（如品类换页）：等 patch 完再扫，否则读到的是上一页的 DOM；
