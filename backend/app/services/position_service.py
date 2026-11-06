@@ -18,7 +18,9 @@
 - 孤儿流水簇 → `position_orphan_flows`（`process_orphan_*` 在此仅为薄壳）；
 - 买入/存入命令 → `position_buy_command`（`process_buy_or_deposit` 在此仅为 facade）；
 - 快照导入命令 → `position_snapshot_command`（`upsert_from_holding` 在此仅为 facade）；
-- 卖出/取出命令 → `position_sell_command`（`process_sell_or_withdraw` 在此仅为 facade）。
+- 卖出/取出命令 → `position_sell_command`（`process_sell_or_withdraw` 在此仅为 facade）；
+- 债券兑付命令 → `position_bond_command`（`process_bond_redeem` 在此仅为 facade）；
+- 份额重算 → `position_recompute`（`recompute_position_from_transactions` 在此仅为 facade）。
 """
 
 import uuid
@@ -37,8 +39,6 @@ from app.core.venues import resolve_venue
 from app.domains.positions.models import Position
 from app.domains.positions.state import (
     derive_state_from_txns,
-    is_covered_by_anchor,
-    mark_position_cleared,
 )
 from app.domains.transactions.dates import order_by_effective_day
 from app.domains.transactions.models import Transaction
@@ -48,7 +48,11 @@ from app.domains.transactions.models import Transaction
 # （scripts/fix_orphan_money_fund_reattach、sync/jobs/orphan_backfill_job、测试）一行不改。
 from app.services import position_orphan_flows
 from app.services.fund_utils import is_money_fund_symbol
-from app.services.pnl_service import compute_redeem_realized_cents
+
+# #2873 第五抽：快照导入命令已下沉到 position_snapshot_command，类方法只留 facade。
+# #2873 第六抽：卖出/取出命令已下沉到 position_sell_command，类方法只留 facade。
+# #2873 第七抽：债券兑付命令已下沉到 position_bond_command，类方法只留 facade。
+from app.services.position_bond_command import run_bond_redeem
 
 # issue #2873 安全首抽：读/展示簇已下沉到 position_display，此处仅 re-export 保 facade。
 from app.services.position_buy_command import (  # noqa: F401
@@ -73,8 +77,8 @@ from app.services.position_orphan_flows import (  # noqa: F401
     find_orphan_cash_flows,
 )
 
-# #2873 第五抽：快照导入命令已下沉到 position_snapshot_command，类方法只留 facade。
-# #2873 第六抽：卖出/取出命令已下沉到 position_sell_command，类方法只留 facade。
+# #2873 第八抽：份额重算已下沉到 position_recompute，类方法只留 facade。
+from app.services.position_recompute import recompute_from_transactions
 from app.services.position_sell_command import (
     auto_purchase_money_fund,  # noqa: F401  re-export 保 facade，供外部脚本沿用旧导入路径
     run_sell_or_withdraw,
@@ -456,128 +460,16 @@ class PositionService:
 
     @staticmethod
     def recompute_position_from_transactions(db: Session, position_id: int):
-        """删除/编辑交易后，依据该持仓剩余流水重算份额与成本均价（#948 后续回滚）。
+        """删除 / 编辑交易后，依据该持仓剩余流水重算份额与成本均价（#948 后续回滚）。
 
-        卖出/取出使持仓份额减少；删除该类流水必须把份额加回，否则账面份额丢失。
-        采用「从流水重算」而非只做反向加减：
-        - 能正确处理部分卖出（剩余流水仍有买入，净份额>0，更新现有持仓）；
-        - 也能在「整笔卖出清空持仓」后删除该卖出流水时（持仓行已被 process_sell 删掉）
-          依据剩余买入流水重建持仓，避免份额彻底丢失。
+        #2873 第八抽：实现已下沉到 `position_recompute`（取流水 → 锚点派生 → 清仓 / 复活 /
+        重建 → 自选对齐），此处只保留 facade，签名与行为逐字不变。
 
-        **份额与成本一律委托 `compute_anchored_state`**（锚点感知）：本函数历史上自己
-        实现了一套「全量流水净额」循环，与快照导入的 SET 语义并存，正是份额被重复
-        累加的成因。现在只保留一个派生入口，避免第二份实现再次分叉。
-
-        **「无流水即删行」必须以无锚点为前提**（2026-10-18）：纯快照导入的持仓本来就没有
-        明细流水，早退删行会让它们在任意一次重算中消失（真实库实测 79 行）。
-        有锚点时走正常派生：`snapshot_quantity` 即基线份额。
-
-        **净份额归零不再删行**（#2343 第二步，2026-10-18）：改为 `mark_position_cleared`
-        （`quantity=0` + `ownership_status='cleared'` + `cleared_at`），锚点原样留存。
-        反向对称：`cleared` 行派生出正份额（典型：删除了那笔清仓卖出流水）时自动
-        重新激活回 `active`——持仓「复活」，锚点与流水全程无断链。
-        例外：`not txns and not has_anchor` 的空壳行仍删行——那不是清仓历史，
-        是无任何数据支撑的孤儿行，标记成 cleared 反而会伪造一段「曾持有」。
+        三条判据都在该模块 docstring 里：份额一律委托 `compute_anchored_state`（不允许第二份
+        派生实现）、「无流水即删行」以无锚点为前提（纯快照持仓零流水不能被删）、净份额归零
+        改为 `mark_position_cleared` 而非删行（#2343，锚点留存；派生出正份额即复活）。
         """
-        txns = order_by_effective_day(
-            db.query(Transaction).filter(Transaction.position_id == position_id), descending=False
-        ).all()
-        pos = db.query(Position).filter_by(id=position_id).first()
-
-        # 「无流水即删行」只能在**无锚点**时成立。有锚点的持仓其份额来自快照，
-        # 流水本来就可以为空（纯快照导入的账户，绝大多数持仓没有明细流水）。
-        # 2026-10-18 实测：真实库 105 行「有快照日、无流水」的持仓里 79 行零流水，
-        # 该早退分支会让它们在任何一次重算中整行消失——锚点模型对这类持仓完全失效。
-        has_anchor = pos is not None and pos.snapshot_quantity is not None and pos.snapshot_date is not None
-        if not txns and not has_anchor:
-            if pos:
-                db.delete(pos)
-                db.flush()
-            return None
-
-        if pos is not None:
-            net_qty, avg_price_units = compute_anchored_state(db, pos)
-        else:
-            # 持仓行已被清空删除：无锚点可用，退回全量流水口径（见 docstring 已知边界）
-            net_qty, avg_price_units = derive_state_from_txns(txns, 0, 0)
-
-        if net_qty <= 0:
-            if pos:
-                # 归零不再删行（#2343）：标记清仓、锚点留存。负份额钳为 0
-                # （负数是脏数据，真实份额不可能为负，保留负值会让市值算出负数）。
-                if net_qty < 0:
-                    logger.warning(
-                        '[Recompute] 派生份额为负，钳为 0 并标记清仓: position={} symbol={} net={}',
-                        pos.id,
-                        pos.symbol,
-                        Money.min_unit_to_shares(net_qty),
-                    )
-                mark_position_cleared(pos)
-                db.flush()
-            return None
-
-        if pos:
-            # 清仓行派生出正份额 → 持仓复活（典型：删除了那笔清仓卖出流水）。
-            # 锚点与 cleared_at 原样保留：锚点仍是上一轮快照口径（删除卖出后全量流水
-            # 恰好等于锚点+流入，两者自洽），cleared_at 是历史周期下界，不是当前状态。
-            if pos.ownership_status == OwnershipStatus.CLEARED.value:
-                pos.ownership_status = OwnershipStatus.ACTIVE.value
-                logger.info(
-                    '[Recompute] 已清仓持仓复活: position={} symbol={} qty={}',
-                    pos.id,
-                    pos.symbol,
-                    Money.min_unit_to_shares(net_qty),
-                )
-            # 锚点重算的可观测性（2026-10-18 评审）：重算覆盖是本类 bug 最隐蔽的复发形态
-            # ——净值回填/删流水都会静默改写 quantity。只记日志不抛错：重算本来就会正常
-            # 变化（补录/修正历史流水），抛错会打断 nav_backfill 的任务链。
-            if pos.quantity != net_qty and pos.snapshot_quantity is not None:
-                logger.warning(
-                    '[Recompute] 锚点持仓份额变更: position={} symbol={} {} -> {} (anchor={} date={} kind={})',
-                    pos.id,
-                    pos.symbol,
-                    Money.min_unit_to_shares(pos.quantity),
-                    Money.min_unit_to_shares(net_qty),
-                    Money.min_unit_to_shares(pos.snapshot_quantity),
-                    pos.snapshot_date,
-                    pos.anchor_kind,
-                )
-            pos.quantity = net_qty
-            pos.avg_price = avg_price_units
-            if pos.current_price in (None, 0):
-                pos.current_price = avg_price_units
-            db.flush()
-            # #1458 后续：重算后对齐自选状态（静默）
-            _silent_reconcile_watchlist(db, pos.family_id, pos.symbol)
-            return pos
-
-        # 持仓行已被整笔卖出清空删除：依据剩余买入流水重建
-        # （Transaction 不携带 market/currency，缺失时取默认值）
-        first = txns[0]
-        new_pos = Position(
-            ledger_id=first.ledger_id,
-            family_id=first.family_id,
-            symbol=first.symbol or '',
-            name=first.position_name or first.symbol or '',
-            asset_type=first.asset_type,
-            market='CN_A',
-            currency='CNY',
-            quantity=net_qty,
-            avg_price=avg_price_units,
-            current_price=avg_price_units,
-            confirm_date=first.confirm_date,
-            account_name=first.account_name,
-            allocation='longterm',
-            notes='',
-        )
-        db.add(new_pos)
-        db.flush()
-        for t in txns:
-            t.position_id = new_pos.id
-        db.flush()
-        # #1458 后续：重算后对齐自选状态（静默）
-        _silent_reconcile_watchlist(db, new_pos.family_id, new_pos.symbol)
-        return new_pos
+        return recompute_from_transactions(db, position_id)
 
     @staticmethod
     def process_dividend(db: Session, data: dict) -> Position:
@@ -662,135 +554,21 @@ class PositionService:
 
     # ── 债券兑付（#2832）──
 
+    # ── 债券兑付（#2832）──
+
     @staticmethod
     def process_bond_redeem(db: Session, data: dict) -> Optional[Position]:
         """债券兑付（到期还本付息 / 强赎 / 回售）：扣份额 + 结转到账额的已实现盈亏。
 
-        调用前必须已确定 ``data['position_id']``（手动记账直传，导入路径先经
-        :meth:`process_orphan_bond_redeem` 按身份键定位）。
+        #2873 第七抽：实现已下沉到 `position_bond_command`（解析校验 → 扣减/清仓 →
+        落流水 + 自选对齐），此处只保留 facade，签名与行为逐字不变。
 
-        ## 与 :meth:`process_sell_or_withdraw` 的三处刻意不同
-
-        1. **金额口径是「到账净额」而不是「价格 × 数量」**。交割单兑付行的
-           「发生金额」= 面值 + 应计利息 − 代扣费，而 ``price`` 只是券商给的成交均价
-           （通常等于面值 100）。付息 / 强赎溢价时两者本来不等，若照卖出路径用
-           ``price × qty`` 记金额，利息会被静默丢掉——用户看到「到账 1035，账面 1000」。
-           详见 :func:`pnl_service.compute_redeem_realized_cents`。
-        2. **已实现盈亏不再减 fee**：``amount`` 已经是扣费后的净额（同花顺 / 东财的
-           「发生金额」口径一致），再减一次是双扣。卖出路径的 amount 是毛额，所以那边
-           必须减，两个口径不能互相套用。
-        3. **份额不足直接报错，不降级成孤儿**：兑付量 > 持仓量只可能是买入流水缺失
-           （或上次只导了兑付没导买入），静默记孤儿会把差额藏起来——用户看到的是
-           「钱到账了，持仓还在」。让这一行进 ``commit_errors`` / 400 让人看见，
-           比记一笔谁也不会去核的孤儿流水有用。卖出路径的降级是历史遗留（真实库
-           649 笔卖出无 symbol 可匹配），兑付没有那个包袱。
-
-        清仓沿 #2343 口径：行保留 + ``ownership_status='cleared'``，返回 None
-        （调用方「None = 已清仓」的契约不变）。
+        调用前必须已确定 `data['position_id']`（手动记账直传，导入路径先经
+        `process_orphan_bond_redeem` 按身份键定位）。与卖出路径的三处刻意不同
+        （到账净额口径 / 已实现盈亏不再减 fee / 份额不足直接报错不降级孤儿），
+        以及清仓沿用 #2343 口径（行保留 + 返回 None）的细节，见该模块 docstring。
         """
-        position_id = data.get('position_id')
-        existing = db.query(Position).filter_by(id=position_id, family_id=_resolve_family_id(data)).first()
-        if not existing:
-            raise ValueError('指定的持仓不存在')
-
-        qty_shares = data.get('quantity') or 0
-        qty_units = Money.shares_to_min_unit(qty_shares)
-        if qty_units <= 0:
-            raise ValueError('兑付数量必须大于 0')
-
-        # 金额：net_amount（交割单发生金额）优先 → amount（手动记账实收）→ 价格×数量
-        raw_amount = data.get('net_amount')
-        if raw_amount is None:
-            raw_amount = data.get('amount')
-        price_units = Money.yuan_to_price_units(data.get('avg_price') or 0)
-        if raw_amount is None:
-            amount_cents = Money.multiply_price_quantity(price_units, qty_units)
-        else:
-            amount_cents = Money.yuan_to_cents(abs(raw_amount))
-
-        # 均价缺失（兑付行常常只给发生金额、不给成交均价）：按到账额 ÷ 份数反算，
-        # 让「金额 / 单价 / 数量」三者自洽，前端在金额列旁展开时才不会显示 0 单价。
-        # 换算一律走 Money 的既有链路，不手推「分 × 份额最小单位 × 价格单位」的系数
-        # ——那三个 10_000 / 100 混乘极易差两个数量级且测试里也看不出来。
-        if price_units <= 0 and qty_units > 0:
-            per_share_yuan = Money.cents_to_yuan(amount_cents) / Money.min_unit_to_shares(qty_units)
-            price_units = Money.yuan_to_price_units(per_share_yuan)
-
-        fee_cents = Money.yuan_to_cents(data.get('fee') or 0)
-
-        # 锚点判定与卖出同口径：若这笔记兑付已含在快照里（confirm_date <= 锚点日），
-        # 快照份额已反映它，不再扣减；流水照落（它确实是发生过的业务事实）。
-        covered_by_anchor = is_covered_by_anchor(existing, data.get('confirm_date'))
-        if not covered_by_anchor and existing.quantity < qty_units:
-            raise ValueError(
-                f'兑付数量超过持仓：当前持有 {Money.min_unit_to_shares(existing.quantity)}，'
-                f'本次兑付 {qty_shares}。请检查买入流水是否已完整导入'
-            )
-
-        realized_cents = compute_redeem_realized_cents(
-            amount_cents=amount_cents,
-            avg_price_units=existing.avg_price or 0,
-            qty_units=qty_units,
-        )
-
-        try:
-            # 自愈回填（与卖出路径同口径）：快照缺名称/账户时按 ID 反查，绝不留 NULL
-            if not existing.name:
-                existing.name = _resolve_fund_name_by_code(db, existing.symbol)
-            if not existing.account_name and existing.ledger_id:
-                existing.account_name = _resolve_ledger_name_by_id(db, existing.ledger_id)
-            position_name = existing.name or _resolve_fund_name_by_code(db, existing.symbol)
-            account_name = existing.account_name or _resolve_ledger_name_by_id(db, existing.ledger_id)
-            ledger_id = existing.ledger_id
-
-            is_cleared = False
-            if not covered_by_anchor:
-                existing.quantity -= qty_units
-                is_cleared = existing.quantity == 0
-                if is_cleared:
-                    # 清仓不清行（#2343）：锚点与成本基线原样留存，二次累加才不会复发
-                    mark_position_cleared(existing, data.get('confirm_date') or data.get('trade_date'))
-            db.flush()
-
-            # 品种以持仓为准（同卖出路径）：请求体不带 type 时若兜底成 stock，
-            # 兑付流水会与买入分属两个身份键，清仓周期永远闭合不上。
-            redeem_asset_type = _get_asset_type(data, fallback=existing.asset_type)
-            TransactionService.create(
-                db=db,
-                position_id=position_id,
-                symbol=data.get('symbol') or existing.symbol,
-                txn_type='bond_redeem',
-                trade_date=data.get('trade_date'),
-                confirm_date=data.get('confirm_date'),
-                asset_type=redeem_asset_type,
-                link_group_id=data.get('link_group_id'),
-                quantity=qty_units,
-                price=price_units,
-                fee=fee_cents,
-                # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
-                **_fee_breakdown_kwargs(data),
-                amount=amount_cents,
-                realized_pnl=realized_cents,
-                status='success',
-                position_name=position_name,
-                ledger_id=ledger_id,
-                account_name=account_name,
-                notes=data.get('notes') or '债券到期兑付',
-                import_hash=data.get('import_hash'),
-                family_id=_resolve_family_id(data),
-                # #1232 决策 11：流水来源透传（记一笔默认 manual）
-                source=data.get('source') or PositionSource.MANUAL.value,
-            )
-            db.flush()
-            # 兑付即退出持仓，与卖出/清仓后同样对齐自选状态（静默，失败不影响主链路）
-            _silent_reconcile_watchlist(db, _resolve_family_id(data), existing.symbol)
-            if is_cleared:
-                return None
-            db.refresh(existing)
-            return existing
-        except Exception:
-            logger.exception('债券兑付操作失败')
-            raise
+        return run_bond_redeem(db, data)
 
     @staticmethod
     def process_orphan_bond_redeem(db: Session, data: dict) -> BondRedeemOutcome:
