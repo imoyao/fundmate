@@ -5,11 +5,11 @@
  *    先后兜底，改数组顺序就会跳位置（#2152 的机械成因）；
  * 2. **asset 模块段隔离**：/asset 直接子级占 100~199、全部孙级占 200~299，
  *    两段不得相交、asset 全树 rank 唯一；
- * 3. **侧边栏结构钉住产品决策**（2026-10-29 重组）：按财务动作切四个顶级
- *    （资产概览 / 资产管理 / 记账中心 / 账本精灵），资产管理下四个语义分组，
- *    每个分组的可见项逐个钉死。
- * 4. **菜单标题统一 4 字**（用户明确要求）：除资产品类名（「贵金属」「房产」）
- *    这类无法用 4 字准确描述的外，一律 4 个汉字。
+ * 3. **侧边栏结构钉住产品决策**（2026-11-01 三次修订）：按财务动作切五个顶级
+ *    （概览 / 资产 / 自选 / 记账 / 账本精灵），业务顶级下**一律平铺**——
+ *    「我的关注」独立成一级，其余分组目录撤销，每个顶级下的可见项逐个钉死。
+ * 4. **标题字数分层**：一级目录 2~4 字（用户要短到能扫），二级叶子一律 4 字
+ *    （资产品类名「贵金属」「房产」豁免，扩写会改变语义）。
  * 5. **单子项目录一律拍平，禁止用 `showParent` 硬撑一层**：只有一页的模块不该有
  *    目录层——`SidebarItem.hasOneShowingChild` 本来就把它拍平，点击直达页面。
  *    面包屑已对「单可见子项目录」同步折叠（`utils/breadcrumb.ts` 的
@@ -29,6 +29,7 @@ import { describe, it, expect } from "vitest";
 import { buildBreadcrumb } from "@/utils/breadcrumb";
 import home from "../modules/home";
 import asset from "../modules/asset";
+import watch from "../modules/watch";
 import record from "../modules/record";
 import agent from "../modules/agent";
 import product from "../modules/product";
@@ -55,6 +56,7 @@ const asArray = (mod: unknown): RouteNode[] =>
 const topLevelRoutes: RouteNode[] = [
   ...asArray(home),
   ...asArray(asset),
+  ...asArray(watch),
   ...asArray(record),
   ...asArray(agent),
   ...asArray(product),
@@ -136,7 +138,7 @@ describe("路由 rank 守卫（#2152）", () => {
     expect(problems).toEqual([]);
   });
 
-  it("asset 段隔离：直接子级 ∈[100,199]、全部孙级 ∈[200,299]，全树 rank 唯一", () => {
+  it("asset 段隔离：直接子级 ∈[100,199]，且**平铺**（不得再有分组目录），全树 rank 唯一", () => {
     const root = asset as RouteNode;
 
     // 直接子级段
@@ -150,23 +152,14 @@ describe("路由 rank 守卫（#2152）", () => {
       expect(r, `${labelOf(c)} 应落在直接子级段 100~199`).toBeLessThan(200);
     }
 
-    // 孙级段：2026-10-29 起有 4 个分组，不能只查单个目录
+    // 平铺（2026-11-01）：四个分组目录已撤销——「我的关注」独立成 watch.ts，
+    // 其余三组降级为平级页面。任何带 children 的直接子级都意味着"又长出一层"，
+    // 那正是本轮拆掉的东西（多一层 = 多一次点击 + 多一个要学的名字）。
     const groups = (root.children ?? []).filter(c => c.children?.length);
-    expect(groups.length, "asset 应有 4 个语义分组").toBe(4);
-    for (const g of groups) {
-      for (const child of g.children ?? []) {
-        const r = child.meta?.rank;
-        expect(typeof r).toBe("number");
-        expect(
-          r,
-          `${labelOf(g)} / ${labelOf(child)} 应落在孙级段 200~299`
-        ).toBeGreaterThanOrEqual(200);
-        expect(
-          r,
-          `${labelOf(g)} / ${labelOf(child)} 应落在孙级段 200~299`
-        ).toBeLessThan(300);
-      }
-    }
+    expect(
+      groups.map(labelOf),
+      "asset 下不得再有分组目录：叶子直接挂在这里"
+    ).toEqual([]);
 
     // 全树唯一：跨层撞键（103 贵金属 ≡ 103 账户管理 一类）也一并杜绝
     const seen = new Map<number, string>();
@@ -184,52 +177,44 @@ describe("路由 rank 守卫（#2152）", () => {
     expect(dups).toEqual([]);
   });
 
-  it("侧边栏结构：四个顶级按财务动作切开（2026-10-29 重组）", () => {
+  it("侧边栏结构：五个顶级按财务动作切开（2026-11-01 三次修订）", () => {
     const order = filterTree(ascending(topLevelRoutes.map(cloneRoute)))
       .map(labelOf)
       .filter(t => t !== "产品详情" && !t.startsWith("("));
 
-    // 顶级只剩「看 / 管 / 记 / 助手」四种财务动作。
-    // 旧结构是「总览 + 资产管理」两套分组逻辑并存（总览按使用频次、资产管理按
-    // 资产类型），同一动作被劈到两个顶级下，这是「没有层次感」的机械成因。
-    expect(order).toEqual(["资产概览", "资产管理", "记账中心", "账本精灵"]);
+    // 顶级 = 财务动作：看结果 / 管配置 / 挑标的 / 记事实 / 问助手。
+    // 比 2026-10-29 那版（4 个）多出「自选」：它装的是**还没买的候选池**，
+    // 放进「资产」（字面是已经在我名下的东西）属名实不符——与当初把同类优选
+    // 塞进「品类持仓」是同一种错。
+    expect(order).toEqual(["概览", "资产", "自选", "记账", "账本精灵"]);
   });
 
-  it("资产管理：四个分组，各自可见项逐个钉住", () => {
-    // 2026-10-30 二次修订：分组名要能被直接读懂（用户否掉了「品类持仓 / 观察名单 /
-    // 账户家庭」三个硬凑的名词拼接），判断依据是**这一组装的是什么样的页面**。
+  it("资产 / 自选：业务顶级下一律平铺，可见项逐个钉住", () => {
+    // 平铺（2026-11-01）：原「组合策略 / 实物资产 / 账户成员」三个目录撤销，
+    // 叶子直接挂在这里。成对相邻即分组语义，不再靠目录层表达：
+    //   投资组合 · 策略分析 · 定投计划  —— 一篮子的做法
+    //   账户管理 · 家庭成员            —— 钱放在哪、算谁的
+    //   贵金属 · 房产                  —— 要手动登记、手动估值的线下资产
     expect(visibleTitlesOf(asset)).toEqual([
-      "组合策略",
-      "实物资产",
-      "我的关注",
-      "账户成员"
-    ]);
-    expect(visibleTitlesOf(asset, "AssetPortfolioGroup")).toEqual([
       "投资组合",
       "策略分析",
-      "定投计划"
-    ]);
-    // 只装「要手动登记、手动估值」的线下资产。
-    // 「同类优选」曾在此组（旧名「品类持仓」），但它是**基金筛选页**不是持仓，
-    // 输入是你的持仓与自选——名字与成员互相否定，故移到「我的关注」。
-    expect(visibleTitlesOf(asset, "AssetCategoryGroup")).toEqual([
+      "定投计划",
+      "账户管理",
+      "家庭成员",
       "贵金属",
       "房产"
     ]);
-    // 三个成员的共同点：还没买、在挑、在盯。「我的自选」原在 home 的「总览」下、
-    // 「特别关注」在「资产管理」下，同一件心事隔着两个顶级——归到一起是本轮核心修正。
-    expect(visibleTitlesOf(asset, "AssetWatchGroup")).toEqual([
+    // 自选一级：三个成员的共同点是「还没买、在挑、在盯」。
+    // 此前是 /asset 下的「我的关注」分组，点击深度 3；独立成顶级后降为 2，
+    // 与概览 / 记账对齐。
+    expect(visibleTitlesOf(watch)).toEqual([
       "我的自选",
       "特别关注",
       "同类优选"
     ]);
-    expect(visibleTitlesOf(asset, "AssetHouseholdGroup")).toEqual([
-      "账户管理",
-      "家庭成员"
-    ]);
   });
 
-  it("资产概览与记账中心：可见项逐个钉住", () => {
+  it("概览与记账：可见项逐个钉住", () => {
     // 概览 = 纯读（复盘 / 持仓分析都是"看结果"，不下配置、不录事实）
     expect(visibleTitlesOf(home)).toEqual([
       "投资概览",
@@ -246,27 +231,32 @@ describe("路由 rank 守卫（#2152）", () => {
     ]);
   });
 
-  it("菜单标题统一 4 字（豁免资产品类名）", () => {
-    // 用户明确要求：侧边栏都使用 4 个字，除非无法用 4 个字描述。
+  it("标题字数分层：一级 2~4 字，叶子 4 字（豁免资产品类名）", () => {
+    // 一级菜单是用户最先扫的一列，短才扫得动（概览 / 资产 / 自选 / 记账）；
+    // 叶子是"挑具体页面"，才需要说清是什么，故一律 4 字。
     // 豁免项必须是**资产类别名词**——「贵金属」「房产」扩成四个字（如「实物房产」）
     // 会改变语义或与页面标题脱节，属"无法用 4 字描述"。
     const EXEMPT = new Set(["贵金属", "房产"]);
     const offenders: string[] = [];
 
-    const walk = (nodes: RouteNode[], visible: boolean) => {
+    const walk = (nodes: RouteNode[], depth: number) => {
       for (const n of nodes) {
-        const isVisible =
-          visible && n.meta?.showLink !== false && !n.meta?.hidden;
+        const isVisible = n.meta?.showLink !== false && !n.meta?.hidden;
         const title = n.meta?.title;
         if (isVisible && title && !EXEMPT.has(title)) {
-          if ([...title].length !== 4) {
-            offenders.push(`${title}（${[...title].length} 字，${n.path}）`);
+          const len = [...title].length;
+          if (depth === 0) {
+            if (len < 2 || len > 4) {
+              offenders.push(`一级「${title}」应为 2~4 字（${n.path}）`);
+            }
+          } else if (len !== 4) {
+            offenders.push(`${title}（${len} 字，${n.path}）`);
           }
         }
-        if (n.children?.length) walk(n.children, isVisible);
+        if (n.children?.length) walk(n.children, depth + 1);
       }
     };
-    walk(topLevelRoutes, true);
+    walk(topLevelRoutes, 0);
     expect(offenders).toEqual([]);
   });
 
@@ -341,7 +331,7 @@ describe("路由 rank 守卫（#2152）", () => {
 
   it("面包屑：每个可达页面的末项必须是页面自己的标题（含隐藏页与下钻页）", () => {
     // 2026-10-30 实机盘查（Edge，27 个页面）：面包屑把 showLink:false 的页面整段
-    // 丢弃后，末项要么消失、要么塌回 `route.matched` 的首级「资产概览」。
+    // 丢弃后，末项要么消失、要么塌回 `route.matched` 的首级「概览」。
     // 判据：任何**绝对路径**的可达页面，面包屑末项 === 该页面 meta.title。
     const tree = ascending(topLevelRoutes.map(cloneRoute));
     const offenders: string[] = [];
@@ -368,23 +358,26 @@ describe("路由 rank 守卫（#2152）", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("面包屑：隐藏页/下钻页不得塌回「资产概览 / 某页」（实机盘查回归）", () => {
+  it("面包屑：隐藏页/下钻页不得塌回「概览 / 某页」（实机盘查回归）", () => {
     const tree = ascending(topLevelRoutes.map(cloneRoute));
     const chain = (p: string, title?: string) =>
       buildBreadcrumb(tree as any, p, title).map(c => c.title);
 
     // 这些页面 showLink:false 或 hidden，不在侧边栏，但用户能直达：
-    // 它们的父级必须来自路由结构（资产管理 / 记账中心），不是路径前缀猜的。
-    expect(chain("/stocks")).toEqual(["资产管理", "股票"]);
-    expect(chain("/funds")).toEqual(["资产管理", "基金"]);
-    expect(chain("/investment/holding-import")).toEqual([
-      "记账中心",
-      "导入持仓"
-    ]);
-    expect(chain("/investment/manual")).toEqual(["记账中心", "手动记账"]);
-    expect(chain("/investment/reconcile")).toEqual(["记账中心", "E账户对账"]);
-    // 反例：它的 path 以 /asset 开头，但结构上归「记账中心」——前缀法会答错
-    expect(chain("/asset/asset-entry")).toEqual(["记账中心", "录入资产"]);
+    // 它们的父级必须来自路由结构（资产 / 记账），不是路径前缀猜的。
+    expect(chain("/stocks")).toEqual(["资产", "股票"]);
+    expect(chain("/funds")).toEqual(["资产", "基金"]);
+    expect(chain("/investment/holding-import")).toEqual(["记账", "导入持仓"]);
+    expect(chain("/investment/manual")).toEqual(["记账", "手动记账"]);
+    expect(chain("/investment/reconcile")).toEqual(["记账", "E账户对账"]);
+    // 反例：它的 path 以 /asset 开头，但结构上归「记账」——前缀法会答错
+    expect(chain("/asset/asset-entry")).toEqual(["记账", "录入资产"]);
+    // 自选一级（2026-11-01）：/watchlist 的父级是「自选」而不是「资产」
+    expect(chain("/watchlist")).toEqual(["自选", "我的自选"]);
+    expect(chain("/the-road-not-taken")).toEqual(["自选", "特别关注"]);
+    // 反例：/asset/fund-ranking 路径仍在 /asset 前缀下，但结构上归「自选」——
+    // 与 /asset/asset-entry 同款陷阱，前缀法必答错
+    expect(chain("/asset/fund-ranking")).toEqual(["自选", "同类优选"]);
     // 带参路由（/fund/004369 → /:assetType/:symbol）：单级，不虚构父级
     expect(chain("/fund/004369", "产品详情")).toEqual(["产品详情"]);
   });
@@ -397,8 +390,8 @@ describe("路由 rank 守卫（#2152）", () => {
         name: "Asset",
         children: [
           {
-            path: "investment",
-            name: "AssetCategoryGroup",
+            path: "some-group",
+            name: "SomeGroup",
             children: [{ path: "/analysis", name: "AssetAnalysis" }]
           },
           { path: "/analysis", name: "AssetAnalysis" }

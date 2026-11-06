@@ -79,7 +79,7 @@ test.describe("标签栏渲染与交互（#980 拆分回归）", () => {
     await expect(page.locator(TAG_ITEM).first()).toBeVisible();
     const before = await page.locator(TAG_ITEM).count();
 
-    await gotoSidebarMenu(page, "资产管理", "策略分析");
+    await gotoSidebarMenu(page, "资产", "策略分析");
     await expect(page).toHaveURL(/#\/asset\/strategies/);
 
     // 标签数量真的多了一个（`dynamicRouteTag` + 路由 watch 的接线还在）
@@ -101,7 +101,7 @@ test.describe("标签栏渲染与交互（#980 拆分回归）", () => {
     const before = await page.locator(TAG_ITEM).count();
 
     // 先造出一个可关闭的新标签，否则右键固定标签只会给「重新加载」
-    await gotoSidebarMenu(page, "资产管理", "策略分析");
+    await gotoSidebarMenu(page, "资产", "策略分析");
     await expect(page.locator(TAG_ITEM)).toHaveCount(before + 1);
 
     // 右键刚加的那个（最后一个）标签
