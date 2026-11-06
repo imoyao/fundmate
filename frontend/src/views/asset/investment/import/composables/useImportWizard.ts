@@ -1,7 +1,9 @@
 import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
+import type { ImportErrorItem, ImportParseError } from "@/api/importer";
 import { runReconciliation } from "@/api/reconciliation";
 import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
+import type { EditField, PreviewRow } from "./previewRow";
 import {
   ref,
   onMounted,
@@ -95,6 +97,27 @@ import {
  * 类型定义已下沉到 ./previewPredicates，此处仅再导出，避免破坏既有类型消费者。
  */
 export type { SummaryCategory } from "./previewPredicates";
+
+/** element-plus `UploadRequestOptions.onError` 的入参类型（第三方类型，本仓不拥有） */
+type UploadErrorPayload = Parameters<
+  NonNullable<UploadRequestOptions["onError"]>
+>[0];
+
+/**
+ * 后端错误信封里的 message（#2879：原本散落 4 处 `catch (e: any)` 直接点
+ * `e?.response?.data?.message`）。异常是 `unknown`，取值必须显式收窄——
+ * 否则「不是 axios 错误」时点下去就是 TypeError，而在错误处理路径里再抛错，
+ * 用户看到的是另一个错。
+ */
+function backendMessageOf(e: unknown): string {
+  const resp = (e as { response?: { data?: { message?: unknown } } } | null)
+    ?.response;
+  const msg = resp?.data?.message;
+  return typeof msg === "string" ? msg : "";
+}
+
+/** 「按类型批量配置目标」的分组项（与 previewPipeline.groupAllocationByType 同源） */
+type AllocationGroup = ReturnType<typeof groupAllocationByType>[number];
 
 export function useImportWizard() {
   const router = useRouter();
@@ -202,14 +225,14 @@ export function useImportWizard() {
   // ── 核心状态 ──
   const currentStep = ref(0);
   const selectedMode = ref("standard");
-  const previewData = ref<any[]>([]);
+  const previewData = ref<PreviewRow[]>([]);
   const duplicateCount = ref(0);
   const errorCount = ref(0);
   // ── #2854 导入行数对账 ──
   /** 源文件数据行数（表头之外）；null = 非文件通道（AI 识别） */
   const sourceRowCount = ref<number | null>(null);
   /** 解析阶段未能纳入导入的行（未知操作名 / 行解析失败），带行号与原文操作名 */
-  const parseErrors = ref<any[]>([]);
+  const parseErrors = ref<ImportParseError[]>([]);
   const parseErrorCount = ref(0);
   /** 声明式「有意忽略」的非交易记录行数 */
   const ignoredRowCount = ref(0);
@@ -234,7 +257,7 @@ export function useImportWizard() {
   const newLedgerType = ref("stock");
   const newLedgerLinkedCashId = ref<number | null>(null);
   const newLedgerPortfolioId = ref<number | null>(null);
-  const newLedgerFeeConfig = ref<any>(null);
+  const newLedgerFeeConfig = ref<Record<string, unknown> | null>(null);
   const newLedgerSalesInstitutionId = ref<number | null>(null);
   /** 归属家庭成员（#1173，null=未归属/家庭共有）：向导内新建账户同样要能指定归属 */
   const newLedgerOwnerMemberId = ref<number | null>(null);
@@ -259,7 +282,7 @@ export function useImportWizard() {
   /** 批量修正面板（#1792 起为摘要下方内联展开，由摘要卡【批量修正】/筛选栏按钮切换） */
   const showFixPanel = ref(false);
   const batchCodeInput = ref("");
-  const importErrors = ref<any[]>([]);
+  const importErrors = ref<ImportErrorItem[]>([]);
   const duplicatesHandled = ref(false);
   const uploadError = ref("");
   const validRowsCount = ref(0);
@@ -455,7 +478,7 @@ export function useImportWizard() {
   );
 
   /** 四分区行源（#1792）：分桶不变量见 previewPipeline.ts 的 bucketFixSections */
-  const fixSectionRows = computed<Record<FixSectionKey, any[]>>(() =>
+  const fixSectionRows = computed<Record<FixSectionKey, PreviewRow[]>>(() =>
     bucketFixSections(previewData.value)
   );
 
@@ -486,21 +509,19 @@ export function useImportWizard() {
   );
 
   /** 逐条修正卡片数据源：section 决定卡片内表单形态 */
-  const singleFixRows = computed<Array<{ row: any; section: FixSectionKey }>>(
-    () => {
-      const keys: FixSectionKey[] =
-        singleFixScope.value === "all"
-          ? ["error", "missingCode", "missingQtyPrice", "mismatch"]
-          : [singleFixScope.value];
-      const out: Array<{ row: any; section: FixSectionKey }> = [];
-      keys.forEach(key =>
-        fixSectionRows.value[key].forEach(row =>
-          out.push({ row, section: key })
-        )
-      );
-      return out;
-    }
-  );
+  const singleFixRows = computed<
+    Array<{ row: PreviewRow; section: FixSectionKey }>
+  >(() => {
+    const keys: FixSectionKey[] =
+      singleFixScope.value === "all"
+        ? ["error", "missingCode", "missingQtyPrice", "mismatch"]
+        : [singleFixScope.value];
+    const out: Array<{ row: PreviewRow; section: FixSectionKey }> = [];
+    keys.forEach(key =>
+      fixSectionRows.value[key].forEach(row => out.push({ row, section: key }))
+    );
+    return out;
+  });
 
   /** 逆回购行：口径见 previewPipeline.ts 的 pickReverseRepoRows */
   const reverseRepoRows = computed(() =>
@@ -560,11 +581,13 @@ export function useImportWizard() {
   const enrichingNav = ref(false);
 
   // 需要填充净值的基金记录：非货币，有代码，有日期，但净值或份额为空
+  // #2879：原条件里还有一条 `row.type !== "money_fund"`——上一行已把它钉成 'fund'，
+  // 这条永远为真（类型化后才暴露的死分支）。删掉不改变任何行为，留着只会让人
+  // 以为这里真的在排除货币基金。
   const fundRecordsForNav = computed(() => {
     return previewData.value.filter(
       row =>
         row.type === "fund" &&
-        row.type !== "money_fund" &&
         row.symbol &&
         row.symbol !== "__CASH__" &&
         row.trade_date &&
@@ -600,7 +623,6 @@ export function useImportWizard() {
         previewData.value.forEach(row => {
           if (
             row.type === "fund" &&
-            row.type !== "money_fund" &&
             row.trade_date === date &&
             row.symbol &&
             symbols.includes(row.symbol)
@@ -644,7 +666,7 @@ export function useImportWizard() {
     )
   );
 
-  function isRowSelected(row: any): boolean {
+  function isRowSelected(row: PreviewRow): boolean {
     return selectedKeys.value.has(row._rowKey);
   }
 
@@ -825,17 +847,17 @@ export function useImportWizard() {
         selectedMode.value,
         selectedLedgerId.value
       );
-      const rawData = (res as any).data ?? [];
+      const rawData = res.data ?? [];
       previewData.value = addRowKeys(rawData);
       totalRows.value = previewData.value.length;
-      duplicateCount.value = (res as any).duplicate_count ?? 0;
-      errorCount.value = (res as any).error_count ?? 0;
+      duplicateCount.value = res.duplicate_count ?? 0;
+      errorCount.value = res.error_count ?? 0;
       // #2854 行数对账：errors 曾经只写不读，未知操作名整行静默消失，
       // 连 total 都是「丢过行」的数。这里接住后端下发的明细与源文件行数。
-      sourceRowCount.value = (res as any).source_row_count ?? null;
-      parseErrors.value = (res as any).parse_errors ?? [];
-      parseErrorCount.value = (res as any).parse_error_count ?? 0;
-      ignoredRowCount.value = (res as any).ignored_row_count ?? 0;
+      sourceRowCount.value = res.source_row_count ?? null;
+      parseErrors.value = res.parse_errors ?? [];
+      parseErrorCount.value = res.parse_error_count ?? 0;
+      ignoredRowCount.value = res.ignored_row_count ?? 0;
 
       const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
       const defaultAlloc = ledger?.default_allocation || "longterm";
@@ -856,7 +878,7 @@ export function useImportWizard() {
       recalcValidRowsCount();
       selectAllValid();
 
-      const warning = (res as any).compatibility_warning;
+      const warning = res.compatibility_warning;
       if (warning) {
         let confirmed = false;
         try {
@@ -879,7 +901,7 @@ export function useImportWizard() {
           // :1612/:1620/:1629 各自语义不同，本卡不扩大到那里），
           // 这里单独归零，避免「已放弃的解析」留下一个行数残值。
           totalRows.value = 0;
-          options.onError?.(new Error("用户取消导入") as any);
+          options.onError?.(new Error("用户取消导入") as UploadErrorPayload);
           return;
         }
         currentStep.value = 2;
@@ -890,9 +912,11 @@ export function useImportWizard() {
       // #1239 草稿层：进入预览步骤即保存草稿（含勾选状态，Set→数组序列化）
       await persistDraft();
       options.onSuccess(res);
-    } catch (e: any) {
+    } catch (e) {
       const errorMsg =
-        e?.response?.data?.message || e?.message || "文件解析失败";
+        backendMessageOf(e) ||
+        (e instanceof Error ? e.message : "") ||
+        "文件解析失败";
       uploadError.value = errorMsg;
       options.onError(e);
     } finally {
@@ -936,7 +960,7 @@ export function useImportWizard() {
     importing.value = true;
     try {
       const res = await confirmImportApi(rowsToImport);
-      const result = (res as any).data ?? {};
+      const result = res.data;
       importedCount.value = result.imported ?? 0;
       skippedCount.value = result.skipped ?? 0;
       cashTransfersCreated.value = result.cash_transfers_created ?? 0;
@@ -952,8 +976,8 @@ export function useImportWizard() {
       await discardDraft().catch(() => {});
       // #1789：导入已完成、无物可存——清脏标，避免结果页离开时误提示「未保存」
       draftDirty.value = false;
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "导入失败");
+    } catch (e) {
+      ElMessage.error(backendMessageOf(e) || "导入失败");
     } finally {
       importing.value = false;
     }
@@ -1154,7 +1178,7 @@ export function useImportWizard() {
     isIndeterminate.value = false;
   }
 
-  function handleRowCheckboxChange(row: any, checked: boolean) {
+  function handleRowCheckboxChange(row: PreviewRow, checked: boolean) {
     if (checked) selectedKeys.value.add(row._rowKey);
     else selectedKeys.value.delete(row._rowKey);
     selectedKeys.value = new Set(selectedKeys.value);
@@ -1162,7 +1186,7 @@ export function useImportWizard() {
   }
 
   /** 逐行忽略：标记该行不参与导入（与整类跳过 skipCategory 互补，针对单行）；再点一次恢复 */
-  function toggleIgnoreRow(row: any) {
+  function toggleIgnoreRow(row: PreviewRow) {
     row._ignored = !row._ignored;
     if (row._ignored) {
       selectedKeys.value.delete(row._rowKey);
@@ -1177,12 +1201,11 @@ export function useImportWizard() {
     updateSelectAllState();
   }
 
-  async function fillNavForRecords(rows: any[]) {
+  async function fillNavForRecords(rows: PreviewRow[]) {
     // 过滤出需要净值的记录：非货币、有代码、有日期、缺少价格或份额
     const needed = rows.filter(
       row =>
         row.type === "fund" &&
-        row.type !== "money_fund" &&
         row.symbol &&
         row.symbol !== "__CASH__" &&
         row.trade_date &&
@@ -1248,7 +1271,7 @@ export function useImportWizard() {
   function makeUndoEntry(
     scope: FixUndoEntry["scope"],
     label: string,
-    rows: any[]
+    rows: PreviewRow[]
   ): FixUndoEntry {
     return {
       scope,
@@ -1264,7 +1287,11 @@ export function useImportWizard() {
       fixUndoStack.value.shift();
   }
 
-  function pushUndo(scope: FixUndoEntry["scope"], label: string, rows: any[]) {
+  function pushUndo(
+    scope: FixUndoEntry["scope"],
+    label: string,
+    rows: PreviewRow[]
+  ) {
     if (undoSuppressed) return;
     pushUndoEntry(makeUndoEntry(scope, label, rows));
   }
@@ -1288,7 +1315,7 @@ export function useImportWizard() {
   }
 
   // ── 批量修正 ──
-  async function batchFillCode(rows: any[], code: string) {
+  async function batchFillCode(rows: PreviewRow[], code: string) {
     if (!code.trim()) return ElMessage.warning("请输入有效的证券代码");
     pushUndo("code", `填充证券代码 ${code.trim()}`, rows);
     rows.forEach(r => (r.symbol = code.trim()));
@@ -1309,7 +1336,7 @@ export function useImportWizard() {
     ElMessage.success(`已为 ${rows.length} 条记录设置代码「${code}」`);
   }
 
-  async function batchFixAmount(rows?: any[]) {
+  async function batchFixAmount(rows?: PreviewRow[]) {
     // 默认目标 = mismatch 分区（旧实现读 row.problems，但全仓无写者，回退恒为空数组）
     const target = rows || fixSectionRows.value.mismatch;
     if (!target.length) return;
@@ -1327,7 +1354,7 @@ export function useImportWizard() {
     ElMessage.success(`已修正 ${target.length} 条记录的金额`);
   }
 
-  async function skipCategory(rows: any[]) {
+  async function skipCategory(rows: PreviewRow[]) {
     if (!rows.length) return;
     pushUndo("skip", `跳过 ${rows.length} 条记录`, rows);
     rows.forEach(row => selectedKeys.value.delete(row._rowKey));
@@ -1384,7 +1411,7 @@ export function useImportWizard() {
 
   /** 逐条卡片的「应用」：写入草稿值，对侧仍缺失时按金额推算（smartFill 既有语义） */
   async function applyManualFill(
-    row: any,
+    row: PreviewRow,
     draft: { quantity?: string; price?: string }
   ) {
     const qty = parseFloat(draft.quantity ?? ""),
@@ -1427,7 +1454,7 @@ export function useImportWizard() {
    * 恢复会让行重新变成「单价缺失」被拦，故必须同步撤勾选并重算统计，
    * 否则底栏「已选择 N 条」会带着一条导不进去的行说谎。
    */
-  function restoreOriginalPrice(row: any): void {
+  function restoreOriginalPrice(row: PreviewRow): void {
     if (!restoreSmartFilledPrice(row)) return;
     if (isRowBlocked(row)) selectedKeys.value.delete(row._rowKey);
     selectedKeys.value = new Set(selectedKeys.value);
@@ -1461,7 +1488,7 @@ export function useImportWizard() {
   }
 
   /** 识别依据（【查看转换结果】展示用）：按代码前缀回溯解析期规则 */
-  function repoDetectBasis(row: any): string {
+  function repoDetectBasis(row: PreviewRow): string {
     const code = String(row.symbol || "");
     if (/^204\d{3}$/.test(code)) return "沪市 204 模式";
     if (/^1318\d{2}$/.test(code)) return "深市 1318 模式";
@@ -1575,7 +1602,7 @@ export function useImportWizard() {
    * 与 isAutoSelectableRow 的两处语义差异：本谓词允许重复行（卡片可勾），
    * 且转账行能否勾选取决于现金账户关联状态。
    */
-  function isRowSelectable(row: any): boolean {
+  function isRowSelectable(row: PreviewRow): boolean {
     // #2836：被配对规则消费的行不可勾——勾了后端也跳过，让复选框说谎不如直接禁用
     if (row.consumed_by) return false;
     if (row.error || row._ignored || isRowBlocked(row)) return false;
@@ -1650,7 +1677,10 @@ export function useImportWizard() {
     );
   }
 
-  function applyAllocationGroupSetting(group: any, allocation: string) {
+  function applyAllocationGroupSetting(
+    group: AllocationGroup,
+    allocation: string
+  ) {
     previewData.value.forEach(row => {
       if (
         row.is_duplicate ||
@@ -1670,7 +1700,7 @@ export function useImportWizard() {
     );
   }
 
-  function onRowAllocationChange(row: any) {
+  function onRowAllocationChange(row: PreviewRow) {
     row._allocationManual = true;
   }
 
@@ -1723,7 +1753,7 @@ export function useImportWizard() {
   }
 
   // ── 行编辑 ──
-  function startEdit(row: any, field: string) {
+  function startEdit(row: PreviewRow, field: EditField) {
     if (editingRowKey.value && editingRowKey.value !== row._rowKey) {
       saveAllEditingRows();
       closeAllEditing();
@@ -1743,7 +1773,7 @@ export function useImportWizard() {
     previewData.value = [...previewData.value]; // 新增
   }
 
-  function finishEdit(row: any, field: string, save: boolean = true) {
+  function finishEdit(row: PreviewRow, field: EditField, save: boolean = true) {
     const wasBlocked = isRowBlocked(row);
     if (!save) row[field] = row._oldValue;
     else {
@@ -1780,7 +1810,7 @@ export function useImportWizard() {
     updateSelectAllState();
   }
 
-  function cancelEdit(row: any, field: string) {
+  function cancelEdit(row: PreviewRow, field: EditField) {
     finishEdit(row, field, false);
   }
 
@@ -1850,15 +1880,15 @@ export function useImportWizard() {
         getLedgers(),
         getSalesInstitutions()
       ]);
-      ledgers.value = (res as any).data ?? [];
+      ledgers.value = res.data ?? [];
       salesInstitutionsForImport.value = instRes?.data ?? [];
     } catch (e) {
       console.error(e);
     }
   }
 
-  function getMissingRowsByType(rows: any[], type: string) {
-    return rows.filter((r: any) => r.type === type);
+  function getMissingRowsByType(rows: PreviewRow[], type: string) {
+    return rows.filter(r => r.type === type);
   }
 
   function resetNewLedgerForm() {
@@ -1908,7 +1938,7 @@ export function useImportWizard() {
    */
   const cashBindingBannerDismissed = ref(false);
   const hasCashTransferRows = computed(() =>
-    previewData.value.some((r: any) => r.is_cash_transfer)
+    previewData.value.some(r => r.is_cash_transfer)
   );
 
   /** 引导态：有转账行、未关联现金账户 */
@@ -1947,7 +1977,7 @@ export function useImportWizard() {
    * 保证「按钮处理的行数 == 卡片上写的行数」。疑似重复的转账行归 duplicate 卡、
    * 不在作用域内：#1882 定下「重复行要导需手动勾」，批量入口不能替用户做这个决定。
    */
-  function transferToggleRows(): any[] {
+  function transferToggleRows(): PreviewRow[] {
     return previewData.value.filter(
       row => row.is_cash_transfer && categorizeRow(row) === "complete"
     );
@@ -1986,15 +2016,15 @@ export function useImportWizard() {
       });
       await fetchLedgers();
       ElMessage.success("已关联现金账户");
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "关联失败");
+    } catch (e) {
+      ElMessage.error(backendMessageOf(e) || "关联失败");
     }
   }
 
   async function createLedger() {
     const name = newLedgerName.value.trim();
     if (!name) return;
-    const payload: any = { name };
+    const payload: Parameters<typeof createLedgerApi>[0] = { name };
     // #1101：统一以 channel_category 为创建入参（后端据其派生 ledger_type）。
     // 旧代码把渠道分组值当 ledger_type 下发，会命中后端「ledger_type→channel_category」
     // 的向后兼容回退映射（仅认 bank/stock/fund/property/e_account/family），产生错误类型。
@@ -2013,7 +2043,7 @@ export function useImportWizard() {
       payload.default_allocation = newLedgerAllocation.value;
     try {
       const res = await createLedgerApi(payload);
-      const ledger = (res as any).data;
+      const ledger = res.data;
       const newId = ledger?.id;
       const newType = ledger?.ledger_type;
       await fetchLedgers();
@@ -2035,8 +2065,8 @@ export function useImportWizard() {
       } else {
         ElMessage.success(`已创建账户「${name}」`);
       }
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "添加失败");
+    } catch (e) {
+      ElMessage.error(backendMessageOf(e) || "添加失败");
     }
   }
 

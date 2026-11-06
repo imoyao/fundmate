@@ -94,6 +94,8 @@ export interface ImportParseResponse {
   parse_errors: ImportParseError[];
   source_row_count: number | null;
   ignored_row_count: number;
+  /** 模板/券商兼容性提示（后端按模板差异下发；无提示时缺省） */
+  compatibility_warning?: string | null;
   message: string;
 }
 
