@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CloudUploadIcon from "@/components/CloudUploadIcon/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
 const {
@@ -28,7 +29,7 @@ const {
       class="golden-upload"
     >
       <template #default>
-        <IconifyIconOffline icon="lucide:cloud-upload" class="upload-icon" />
+        <CloudUploadIcon class="upload-icon" />
         <p class="upload-text">将文件拖到此处，或</p>
         <el-button
           plain

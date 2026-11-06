@@ -98,7 +98,9 @@ function handleItemClick(item: HomeSummaryItem) {
             <div class="wl-product">
               <!-- 置顶标记：图钉（不是星标——星标在全站表示「特别关注」）。
                    内联在名称前，与自选页 renderProduct 的置顶标记同位置同语义。
-                   置顶行的淡品牌底由 .is-pinned 提供，与自选页 .is-pinned-row 一致。 -->
+                   置顶行的淡品牌底由 .is-pinned 提供，与自选页 .is-pinned-row 一致。
+                   #2937：离线图标集只注册了 ep、且 ep 没有图钉，故此处内联 MDI `pin`
+                   的路径（与自选页在线取到的 mdi:pin 同一份图形），不引入新图标集。 -->
               <span
                 v-if="item.is_pinned === true"
                 class="wl-pin"
@@ -106,7 +108,17 @@ function handleItemClick(item: HomeSummaryItem) {
                 aria-label="已置顶"
                 role="img"
               >
-                <IconifyIconOffline icon="mdi:pin" />
+                <svg
+                  class="wl-pin__icon"
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  height="1em"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2z" />
+                </svg>
               </span>
 
               <!-- compact 两行：名称 / #代码 + 类型标签。与自选页 product 列同一组件、
@@ -308,6 +320,12 @@ function handleItemClick(item: HomeSummaryItem) {
   justify-content: center;
   width: 18px;
   color: var(--brand-700);
+}
+
+/* 内联图钉：`display: inline-block` 与 Iconify 渲染出的 svg 一致，
+   避免 inline 基线留白把行高撑起来（#2937）。 */
+.wl-pin__icon {
+  display: inline-block;
 }
 
 /* 空值占位：与 el-table.css 的 .cell-pending 同一语言（灰字，不用胶囊——

@@ -255,6 +255,18 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_smart_fill_parity.test.js',
         'covered': '只拦「另起一份补价并打 smartFilled 标记」；无标记的手抄除法识别不了',
     },
+    'scripts/guard_offline_icon_prefixes.mjs': {
+        'rule': '离线图标通道只允许引用已注册进离线集的图标集（`ep`），其余改写 ep 或内联 SVG',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_offline_icon_prefixes.test.js',
+        'covered': (
+            '判据是**前缀级**：`ep:typo-name`（集对、名字拼错）拦不住，需加载图标集数据才查得动名字。'
+            '动态 icon 名（`:icon="row.icon"` / `icon={item.meta.icon}`）是盲区——值在运行期才确定。'
+            '不判在线通道（`import { Icon } from "@iconify/vue"`，`views/profile/**` / '
+            '`components/ImageUploader` / `watchlist/columnRenderers.tsx` 都在此列，依赖联网但能出图）；'
+            '不判 `~icons/xx/yy`（unplugin-icons 编译期内联，与 iconify 运行时无关）'
+        ),
+    },
     'scripts/guard_a11y_interaction.py': {
         'rule': '交互可达性（图标按钮可访问名称 / 非交互元素挂 click）',
         'runner': 'ci',

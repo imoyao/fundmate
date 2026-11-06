@@ -18,7 +18,7 @@ function handleSearch() {
       @keydown.enter="handleSearch"
       @click="handleSearch"
     >
-      <IconifyIconOffline icon="ri/search-line" />
+      <IconifyIconOffline icon="ep:search" />
     </div>
     <SearchModal v-model:value="show" />
   </div>
