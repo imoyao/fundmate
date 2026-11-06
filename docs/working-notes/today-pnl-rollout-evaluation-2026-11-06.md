@@ -34,7 +34,7 @@
 
 **集合边界必须写清**：账户管理页「基金」卡 = `fund + money_fund`，首页「基金」列 = `fund`（不含货基）；两边同名不同集，小字不写清用户拿数字对不上会当成 bug。
 
-验证：后端 `test_today_pnl.py` 11 passed；`ruff` 全绿；前端 `ledger.spec.ts` 8 passed；`prettier --check` / `stylelint` / `check_vue_size` 通过；`eslint` / `vitest` 在 worktree 下因缺 `node_modules` 无法加载配置，已用主仓依赖复跑单测通过，其余交 CI。
+验证：后端 `test_today_pnl.py` 11 passed；`ruff` 全绿；前端 `ledger.spec.ts` 8 passed（在 worktree 内）、`eslint --max-warnings 0` 通过；`prettier --check` / `stylelint` / `check_vue_size` 通过。新 worktree 无 `node_modules`，用目录联接到主仓依赖后完成本地校验；CI 仍需复核全量门禁。
 
 ---
 
@@ -111,7 +111,7 @@ GET /api/summary/today-pnl/
   1. 数字层级低于总资产（用 `--text-num-strong` + `tabular-nums`，不用 hero 字号），只给最关键的 1 个数上强调色；
   2. 缺数显示 `—`，绝不 0.00，且不重复出现两套「估」语义（货基今日收益是另一条链路，需标注口径差异）；
   3. 复用同一个 `today-pnl` 端点，不新增算法。
-- 工作量：接口参数化后，前端只是消费一个字段 + 复用 `ValuationSourceBadge`；但 `LedgerDetailOverview.vue` 已 384 行、距 400 行阈值仅 16 行，新增逻辑必须下沉到 `useLedgerOverview.ts` 或新子组件，否则 `check_vue_size` 判 GROW 红。属于「不大」。
+- 工作量：接口参数化后，前端只是消费一个字段 + 复用 `ValuationSourceBadge`；`LedgerDetailOverview.vue` 实测 348 行、距 400 行阈值有 52 行余量，`LedgerCard.vue` 380 行（余量 20 行）更紧。新增逻辑仍建议下沉到 `useLedgerOverview.ts` 或新子组件，避免贴线文件继续变长。属于「不大」。
 
 ---
 
