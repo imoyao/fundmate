@@ -102,11 +102,10 @@ jobs:
           python-version: "3.12"
 
       - name: 安装 PDM
-        # hishel 2.0.0 删掉了 SyncSqliteStorage，而 pdm 2.29.6 只声明 hishel>=1.4.0
-        # 没有上界；2026-11-05 上游发版后 `pip install pdm` 会装到 2.0.0，
-        # `pdm install` 加载缓存插件时直接 AttributeError，CI 挂在安装阶段（pytest 没跑）。
-        # 钉住 <2，等 PDM 发布兼容版本后再解钉。
-        run: pip install pdm "hishel<2"
+        # 版本口径与踩坑理由都在脚本里（#2928 / #2803）：本文件只在 main 上生效，
+        # 把工具链版本写在这里等于把修复锁死在 main；改用脚本后改一次 dev 即生效。
+        # 本 job 的 defaults 是 working-directory: backend，故用 $GITHUB_WORKSPACE 定位。
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/install_pdm.sh"
 
       # 依赖缓存：避免每次 PR 全量重装 akshare/playwright/pypinyin 等重型依赖
       # （此前无缓存，仅安装就占 6~8 分钟，是 CI 耗时大头）。
