@@ -13,10 +13,7 @@
           class="eaccount-upload"
         >
           <template #default>
-            <IconifyIconOffline
-              icon="lucide:cloud-upload"
-              class="upload-icon"
-            />
+            <CloudUploadIcon class="upload-icon" />
             <p class="upload-text">将文件拖到此处，或</p>
             <el-button plain class="upload-btn" :loading="p.parsing">
               {{ p.parsing ? "正在解析..." : "点击上传" }}
@@ -73,6 +70,7 @@
 
 <script setup lang="ts">
 import { reactive } from "vue";
+import CloudUploadIcon from "@/components/CloudUploadIcon/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import type { useEaccountImport } from "../composables/useEaccountImport";
 

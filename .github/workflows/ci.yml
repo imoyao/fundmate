@@ -507,6 +507,16 @@ jobs:
       - name: 守卫:智能补价单一实现
         run: node ../scripts/guard_smart_fill_parity.mjs
 
+      # 守卫：离线图标通道只引用已注册的图标集（#2937）。
+      # 离线组件（`@iconify/vue/dist/offline`，`offlineIcon.ts` 只 addCollection 了 ep）
+      # 遇到未注册前缀时**渲染成一个空注释节点 `<!---->`**：不抛异常、不警告、
+      # 类型检查与构建全绿。正因如此，那 5 处 `lucide:` / `mdi:` / `ri:` 才能活很久
+      # （上传主图标、下载模板、顶栏搜索、自选卡图钉）。回潮形态就是「再写一个没注册的前缀」。
+      # 判据按 import 来源区分在线/离线通道，故 `Icon as IconifyIconOffline` 这类
+      # 别名（在线组件套离线名字，仓内 4 处）不会误报。
+      - name: 守卫:离线图标前缀
+        run: node ../scripts/guard_offline_icon_prefixes.mjs
+
       # 守卫：产品域 API 的 barrel 纯度（#2878）。`api/products.ts` 曾是 1364 行 /
       # 21 个端点的巨型客户端，拆到 products/*.ts 后，回潮形态是「新端点又写回公共入口」——
       # 调用点照常编译、测试照常绿，只有文件悄悄长回去。回归网
