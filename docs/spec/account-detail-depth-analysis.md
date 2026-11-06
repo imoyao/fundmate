@@ -291,7 +291,7 @@ owner 原话：`1.B 2.补导航 3.不做`。
 - **不改持仓分析聚合页**（不加 query 读取、不动其口径）——那是 #2595 的范围。
 - **不搬聚合页的整页内容**（口径切换器 / 超额四卡 / 日历 / 归因）——详情页已有，搬了才是冗余（§4 方案 D）。
 - **不改 `LedgerDetailHoldingsPane` 的「配置目标」列**（那是五笔钱 `allocation`，与持仓占比无关）。
-- **不做 P1 的其余项**（当前持仓、投资风格、股票分布、资金流向）——本次只收「集中度 + 行业分布」，其余仍为规划中，需另开卡。
+- **不做 P1 的其余项**（当前持仓、投资风格、股票分布、资金流向）——本次只收「集中度 + 行业分布」。其中「投资风格」已另开 #2943 并完成价值判断，**判定不做**（见 §11）；当前持仓 / 股票分布仍为规划中，需另开卡。
 - **不碰环形图决策**——2026-08-27 计划的「账户维度不显示资产配置环形图」结论继续有效（集中度面板内部另有资产类别占比，与环形图不是一回事）。
 
 ---
@@ -321,3 +321,61 @@ owner 原话：`1.B 2.补导航 3.不做`。
 - `frontend/src/views/asset/position-analysis/index.vue:7-12`（页面分工表 —— 歧义措辞**已于本 PR 更正**为「同源同口径」）
 - `docs/working-notes/ledger-detail-info-redesign-plan-2026-08-27.md`（2026-08-27 账户详情页重构计划，本文档为其 P1 收尾）
 - `frontend/src/views/asset/ledgers/__tests__/ledgerDepthAnalysisGuard.spec.ts`（本 PR 的回归网：占位卡 / 口径 / 锚点三类退化都会打红）
+- #2943（账户级投资风格面板的价值判断，判定不做；结论见本文 §11）
+
+---
+
+## 11. 账户级投资风格面板：价值判断（#2943，判定不做）
+
+> 2026-11-06 结项：**不做，关闭 #2943，不算欠账**。#2943 正文明确给出该分支——
+> 「若结论是『与家庭级高度重复、信息增量为零』⇒ 关掉本卡，不算欠账」。
+> 判定依据是 `origin/dev` 的代码事实，不是排期或工作量；结论明细留在本节，不依赖看板卡承载。
+
+### 11.1 后端能力早已齐备，缺口只在界面
+
+| 层 | 现状 | 位置 |
+|---|---|---|
+| 服务 | `portfolio_style_exposure(db, family_id, portfolio_id=None, ledger_id=None)` 三级口径，作用域统一委托 `services/scope.filter_positions_by_scope`；作用域内无持仓返回空结构、不回退家庭级 | `backend/app/services/fund_style_service.py` |
+| 端点 | `GET /api/funds/style/portfolio/?ledger_id=`；同传 `ledger_id` + `portfolio_id` 由 `scope.py` 抛 `ValueError` → 400 | `backend/app/domains/funds/views.py` |
+| 前端 API | `getPortfolioStyle({ ledger_id })` | `frontend/src/api/funds.ts` |
+| 面板 | `PortfolioStylePanel` 已有 `ledgerId?: number` prop，`load()` 组装 scope 且 `watch` 重载 | `frontend/src/views/asset/portfolio/PortfolioStylePanel.vue` |
+| 接线 | 全仓没有任何地方传 `:ledger-id`；账户详情页 `NAV_LABELS` 也没有 `nav-style` | `frontend/src/views/asset/ledgers/detail.vue` |
+
+⇒ 真要接线，成本只是 `LedgerDepthAnalysis.vue` 加一行、`NAV_LABELS` 加一条、补守卫断言。
+**正因为便宜，才必须先判价值**：#2943 与 #2749 都把「先做价值判断」写成动手前置条件。
+
+### 11.2 三条否决理由
+
+1. **唯一被允许的理由，本卡的形态满足不了**。#2943 规定「若要做的理由只能是『多基金账户之间的横向对比』」；
+   而账户详情页一屏只呈现一个账户，用户得切来切去在心里比，拿不到横向对比。
+   家庭级卡片加账户切换器已被 #1123「同一份数据只画一次」否决；能真正回答该问题的是
+   **跨账户并排视图**，不是往详情页塞第 8 个区块。
+2. **不是新数据，只是换一种聚合**。账户级 = 把家庭级 `fund / money_fund / etf` 持仓按
+   `positions.ledger_id` 重新做一次市值加权，8 分类风格箱仍取自各基金自己的月度箱体。
+   账户间差异完全来自「各账户持有哪些基金」——这在账户页的持仓明细与
+   `PositionStructurePanel` 的 Top N 里已经直接可见、且更可归因；单账户基金数少、
+   `fund_count` 与覆盖率更低、每只基金取「各自最新时点」（`period_from/to` 可跨月），
+   统计意义比家庭 / 组合级更弱。与 2026-08-27 计划以「100% 单切片、信息量为零」
+   否决账户级资产配置环形图是同构判断（§8「不碰环形图决策」）。
+3. **口径盲区在账户级会被放大，甚至给出反直觉数字**。`PORTFOLIO_STYLE_ASSET_TYPES`
+   只有 `fund / money_fund / etf`，股票 / 债券连分母都不进：
+
+   | 账户形态 | 后端结果 | 用户看到 |
+   |---|---|---|
+   | 纯股票 / 债券账户 | 作用域内零持仓 ⇒ 空结构（`styles: []`、`eligible_coverage_pct: None`） | 恒为「暂无数据」空卡，白占一个锚点 |
+   | 证券账户混持 ETF | 只有 ETF 计入；ETF 都有箱体时 `eligible_coverage_pct` 可显示 100%，而占比过半的股票根本不在口径内 | 覆盖率 100% 的「完整风格」，实际只是半仓口径 |
+   | 只有货基 / 现金 | 货基不进 `ELIGIBLE_COVERAGE_ASSET_TYPES` ⇒ `eligible_coverage_pct: None` | 「当前持仓没有可覆盖风格的品种」 |
+
+   叠加 QDII 口径存疑（#2943 边界明确不解决）：单账户一两只有疑义的箱体更容易主导整块结论，
+   比家庭级被更多持仓稀释时更危险。
+
+### 11.3 边界与后续
+
+- **不撤销任何后端能力**：`ledger_id` 三级口径、端点、API、`PortfolioStylePanel.ledgerId` prop
+  及其回归测试全部保留；家庭级 `StyleDistributionCard`、组合页视觉与口径一字未动。
+- 不给股票引入「风格」概念，不动 `fund_style_exposures` / 韭圈儿月度采集，不在账户详情页复制家庭级完整版式。
+- 本结论是**对当前形态的否决**，不是「账户级风格永远无价值」。若日后确有「多基金账户横向对比」
+  的真实需求，**另开卡做跨账户并排视图**，并先解决覆盖率口径提示（股票未计入）与 QDII 疑义；
+  不要以「补账户详情页面板」的形态复活本卡。
+- 旧记录同步：`docs/working-notes/ledger-detail-info-redesign-plan-2026-08-27.md`
+  P1 表格的「投资风格」行与「剩余项需另开卡」措辞已按本判定收口，避免再次按旧计划立卡。
