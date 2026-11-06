@@ -26,7 +26,7 @@ export default [
       // （如旧的「智能助手」），它只会残留在代码与文档里，成为第三个叫法。
       title: "账本精灵",
       icon: "ep:chat-dot-square",
-      rank: 3,
+      rank: 4,
       showLink: false // 唯一可见子项会被拍平，父级本身不渲染成菜单项（同 home.ts）
     },
     children: [

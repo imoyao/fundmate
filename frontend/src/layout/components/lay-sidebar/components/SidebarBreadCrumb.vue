@@ -16,8 +16,8 @@ const { breadcrumbMenus } = storeToRefs(usePermissionStoreHook());
  * 兜底：路由树不可用（首屏尚未组装 `breadcrumbMenus`）时退回 `route.matched`。
  *
  * 这条路经**必须**剔掉根 Layout（`path === "/"`）：静态路由被 `formatTwoStageRoutes`
- * 拍平挂到根下，matched 恒为 `[/, 当前页]`，而根节点的 title 是「资产概览」——
- * 留着它，任何页面都会显示成「资产概览 / 某页」，这正是 2026-10-30 实机盘查里
+ * 拍平挂到根下，matched 恒为 `[/, 当前页]`，而根节点的 title 是「概览」——
+ * 留着它，任何页面都会显示成「概览 / 某页」，这正是 2026-10-30 实机盘查里
  * 「导入持仓」「股票」「产品详情」等页面的错父级。
  */
 function matchedFallback(): BreadcrumbCrumb[] {

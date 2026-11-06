@@ -109,13 +109,13 @@ function isOneOfArray(a: Array<string>, b: Array<string>) {
  * 为什么需要第二棵树：面包屑回答「我在哪」，凡是用户能直达的页面都必须在链上——
  * 包括 showLink:false 的录入流程页（导入持仓 / 手动记账 / 录入资产）与 hidden 的
  * 详情页。而侧边栏树 `wholeMenus` 被 `filterTree` 剪掉了它们，面包屑拿它当数据源时
- * 只能「按路径前缀猜父级」或塌回 `route.matched`（首级恒为根 Layout「资产概览」），
+ * 只能「按路径前缀猜父级」或塌回 `route.matched`（首级恒为根 Layout「概览」），
  * 2026-10-30 实机盘查出 7 条错链：
  *
- *   /stocks                    → 资产概览 / 股票     （应：资产管理 / 股票）
- *   /investment/manual         → 资产概览 / 手动记账 （应：记账中心 / 手动记账）
- *   /asset/asset-entry         → 资产管理 / 录入资产 （应：记账中心 / 录入资产）
- *   /fund/004369               → 资产概览 / 产品详情 （应：产品详情）
+ *   /stocks                    → 概览 / 股票     （应：资产 / 股票）
+ *   /investment/manual         → 概览 / 手动记账 （应：记账 / 手动记账）
+ *   /asset/asset-entry         → 资产 / 录入资产 （应：记账 / 录入资产）
+ *   /fund/004369               → 概览 / 产品详情 （应：产品详情）
  *   …
  *
  * 权限维度仍必须过滤：低权限账号不该从面包屑里看到自己无权访问的页面名。

@@ -1,7 +1,7 @@
 const Layout = () => import("@/layout/index.vue");
 
-// 1. 「记账中心」占 rank 2 段（home 0 / asset 1 / record 2 / agent 3）
-const BASE_RANK = 2;
+// 1. 「记账」占 rank 3 段（home 0 / asset 1 / watch 2 / record 3 / agent 4）
+const BASE_RANK = 3;
 
 // 2. 工厂函数：子级 rank 用 0~99 的相对值
 const createRecordRoutes = (routeConfig: any) => {
@@ -38,14 +38,14 @@ const RecordRouteConfig = {
   redirect: "/inventory",
   meta: {
     icon: "ep:edit-pen",
-    title: "记账中心",
+    title: "记账",
     rank: BASE_RANK,
     showLink: true
   },
   children: [
     {
       // 页面副标题自述「选择资产大类，快速录入或导入」——它的实质是**录入工作台**，
-      // 不是只读的盘点报表。归本顶级而非「资产概览」，正名于此。
+      // 不是只读的盘点报表。归本顶级而非「概览」，正名于此。
       path: "/inventory",
       name: "Inventory",
       component: () => import("@/views/asset/inventory/index.vue"),

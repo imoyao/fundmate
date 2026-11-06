@@ -5,8 +5,8 @@
  * ## 为什么不再用 `route.matched`
  *
  * 静态路由经 `formatTwoStageRoutes` 拍平后，**所有页面都挂到根 `/`（Home）下**，
- * 于是 `route.matched` 恒为 `[Home, 页面]`，面包屑永远渲染成「总览 / 某页」——
- * 哪怕这个页面在侧边栏里属于「资产管理 → 品类持仓」。
+ * 于是 `route.matched` 恒为 `[Home, 页面]`，面包屑永远渲染成「概览 / 某页」——
+ * 哪怕这个页面在侧边栏里属于「自选 → 同类优选」。
  *
  * 这是有证据的（2026-10-29 实机走查，见下方用例）：点侧边栏「同类优选」，
  * 面包屑输出 `总览 / 同类优选`；点「账户管理」输出 `总览 / 账户管理`。
@@ -29,8 +29,8 @@
  * showLink/hidden 剪枝），而不是 `wholeMenus`（先被 `filterTree` 剪过）。
  * 用过滤后的树时，凡是 showLink:false 的页面（导入持仓 / 手动记账 / 录入资产）
  * 与 hidden 的详情页都不在树里，只能靠「路径前缀猜父级」，于是
- * `/asset/asset-entry`（实际归记账中心）被猜成「资产管理 / 录入资产」，
- * `/investment/manual` 干脆匹配不到、塌回 `route.matched` → 「资产概览 / 手动记账」。
+ * `/asset/asset-entry`（实际归记账）被猜成「资产 / 录入资产」，
+ * `/investment/manual` 干脆匹配不到、塌回 `route.matched` → 「概览 / 手动记账」。
  * 2026-10-30 实机盘查一次抓出 7 条这类错链，见 `docs/design/navigation-ia.md` §5.5。
  *
  * ## 为什么这一层是纯函数
@@ -121,14 +121,14 @@ function matchDynamicPath(pattern: string, target: string): boolean {
  * 在路由树里找一条链，优先级**必须**是这个顺序：
  *
  * 1. **静态精确命中**：`/stocks`、`/investment/manual` 这类不见于侧边栏但可达的
- *    页面，树里的结构父级就是它真正的归属（资产管理 / 记账中心）；
+ *    页面，树里的结构父级就是它真正的归属（资产 / 记账）；
  * 2. **最长前缀**：详情页（`/asset/ledgers/9`）不在树里，取最近的目录；
  * 3. **带参数路由精确命中**：`/fund/004369` → `/:assetType/:symbol`。
  *
  * 为什么 2 排在 3 前面：`/asset/ledgers/9` 同时能命中带参路由 `/asset/ledgers/:id`
  * （它是 `/asset` 的直接子级），但用户是从「账户管理」点进来的，按 3 会显示
- * 「资产管理 / 账户详情」，把他实际走过的两层抹掉；按 2 得到
- * 「资产管理 / 账户成员 / 账户管理」，与侧边栏一致。
+ * 「资产 / 账户详情」，把他实际走过的那层抹掉；按 2 得到「资产 / 账户管理」，
+ * 与侧边栏一致。
  */
 function findTrail(
   nodes: BreadcrumbNode[],
@@ -185,8 +185,8 @@ function toCrumbs(trail: BreadcrumbNode[]): BreadcrumbCrumb[] {
     // ⚠️ 这里**不能**按 `showLink:false` / `hidden:true` 跳过：那是「不进侧边栏」的
     // 标记，不是「不该出现在面包屑」。录入流程页（导入持仓 / 手动记账）、聚合下钻页
     // （/stocks、/funds）、详情页都靠它出现在链上。曾经跳过它们的结果是：面包屑只剩
-    // 父级、或整条链塌回 `route.matched` 兜底，首级变成根 Layout 的「资产概览」——
-    // 用户在「导入持仓」页看到「资产概览 / 导入持仓」（2026-10-30 实机盘查）。
+    // 父级、或整条链塌回 `route.matched` 兜底，首级变成根 Layout 的「概览」——
+    // 用户在「导入持仓」页看到「概览 / 导入持仓」（2026-10-30 实机盘查）。
     // 侧边栏已拍平的目录（单可见子项）不作为一级出现，否则层级对不上。
     // 末项不折叠：它本身就是当前页，折叠掉会把面包屑变成空的。
     const isLast = index === trail.length - 1;
