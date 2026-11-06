@@ -3,22 +3,7 @@ const Layout = () => import("@/layout/index.vue");
 // 1. 「自选」占 rank 2 段（home 0 / asset 1 / watch 2 / record 3 / agent 4）
 const BASE_RANK = 2;
 
-// 2. 工厂函数：子级 rank 用 0~99 的相对值
-const createWatchRoutes = (routeConfig: any) => {
-  const children = routeConfig.children.map((child: any) => ({
-    ...child,
-    meta: {
-      ...child.meta,
-      rank: (child.meta?.rank || 0) + 100
-    }
-  }));
-  return {
-    ...routeConfig,
-    children
-  };
-};
-
-// 3. 定义原始配置
+// 2. 定义原始配置
 //
 // 为什么自成一个顶级（2026-11-01）：
 //
@@ -37,6 +22,10 @@ const createWatchRoutes = (routeConfig: any) => {
 //
 // ⚠️ 名字只到「自选」两个汉字：这一级是用户最先扫的一列，短才扫得动；更长的
 // 「自选观察」「自选跟踪」都是新造词，语义并不比「自选」更准。
+//
+// ⚠️ 子级 rank 直接写终值（201/202/203，段式与 record.ts 的 1xx 互不重叠），
+// 不套 `createXxxRoutes` 工厂：工厂要为 `routeConfig` / `child` 标 `any`，
+// 而 `scripts/guard_ts_any.mjs` 对新文件是零容忍（只减不增）。三条路由手写更直白。
 const WatchRouteConfig = {
   path: "/watch",
   name: "Watch",
@@ -56,7 +45,7 @@ const WatchRouteConfig = {
       meta: {
         title: "我的自选",
         icon: "ep:star",
-        rank: 1,
+        rank: 201,
         keepAlive: true,
         // 高密度列表页：隐藏布局级页脚，把整块垂直空间交给表格（#1281）
         hideFooter: true,
@@ -71,7 +60,7 @@ const WatchRouteConfig = {
       path: "/the-road-not-taken",
       name: "Favourites",
       component: () => import("@/views/asset/favorites/index.vue"),
-      meta: { title: "特别关注", icon: "ep:opportunity", rank: 2 }
+      meta: { title: "特别关注", icon: "ep:opportunity", rank: 202 }
     },
     {
       // #167 收尾：按风险指标横向筛的列表页。端点（fund-risk-types /
@@ -84,7 +73,7 @@ const WatchRouteConfig = {
       meta: {
         title: "同类优选",
         icon: "ep:histogram",
-        rank: 3,
+        rank: 203,
         showLink: true,
         keepAlive: true
       }
@@ -92,5 +81,5 @@ const WatchRouteConfig = {
   ]
 };
 
-// 4. 导出
-export default createWatchRoutes(WatchRouteConfig);
+// 3. 导出
+export default [WatchRouteConfig];
