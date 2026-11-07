@@ -68,15 +68,30 @@ class GuardServiceSizeTest(unittest.TestCase):
 
     def test_baseline_covers_every_service_file(self) -> None:
         """BASELINE 必须覆盖每一个真实服务文件（防漏登记 / 防基线漂移）；
-        且每个真实文件要么在冻结集内（legacy），要么作为新文件压在 NEW_FILE_LIMITS 内。"""
+        且每个真实文件要么在冻结集内（legacy），要么作为新文件压在 NEW_FILE_LIMITS 内。
+
+        ⚠️ 新文件**不得**塞进 BASELINE：守卫本体对非 legacy 文件一律忽略基线条目、
+        只认 NEW_FILE_LIMITS（防 gaming，见 ``test_guard_blocks_new_file_with_fat_baseline_entry``）。
+        故本用例对新文件校验的是上限，而不是「必须在 BASELINE 里」——否则新增服务文件
+        会让守卫与回归网互相矛盾（#2944 实测踩到）。
+        """
         guard = self.guard
         services = guard._iter_services()
         self.assertTrue(services, "未扫描到任何服务文件，守卫的 rglob 可能失效")
         actual = {guard._rel(p) for p in services}
         # 冻结集由 BASELINE 派生，故两者键必须一致
         self.assertEqual(set(guard.BASELINE), set(guard.LEGACY_SERVICES))
-        for rel in actual:
-            self.assertIn(rel, guard.LEGACY_SERVICES, f"真实服务文件 {rel} 不在基线中")
+        for path in services:
+            rel = guard._rel(path)
+            if rel in guard.LEGACY_SERVICES:
+                continue
+            metrics = guard.collect_metrics(path)
+            for metric, limit in guard.NEW_FILE_LIMITS.items():
+                self.assertLessEqual(
+                    metrics[metric],
+                    limit,
+                    f"新增服务文件 {rel} 的 {metric} = {metrics[metric]} 超过新增上限 {limit}",
+                )
         # 反向：基线里的每个键都对应一个真实文件（防 stale 基线虚胖）
         stale = set(guard.BASELINE) - actual
         self.assertFalse(stale, f"基线里有已不存在的文件（stale）：{sorted(stale)}")
