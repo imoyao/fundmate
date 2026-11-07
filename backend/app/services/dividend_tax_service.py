@@ -63,6 +63,7 @@ from typing import Iterable, Optional
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
+from app.core.symbol_utils import strip_exchange_prefix
 from app.domains.positions.models import Position
 from app.domains.transactions.ledger_guard import dividend_tax_source_fields
 from app.domains.transactions.models import Transaction
@@ -178,13 +179,34 @@ def _reinvest_group_ids(db: Session, family_id: int) -> set[str]:
 
 
 def _position_asset_types(db: Session, family_id: int) -> dict[str, str]:
-    """标的代码 → 资产类型（持仓表快照；流水自带 `asset_type` 时优先用流水的）。"""
+    """标的代码 → 资产类型（持仓表快照；流水自带 `asset_type` 时优先用流水的）。
+
+    #1661 / 2026-11-07：货基持仓的 `asset_type` 仍是 `fund`，「是不是货币基金」
+    记在 `positions.is_money_fund` 上（见 `core/investment_tiers.py` 的说明）。
+    只读 `asset_type` 会让场内货基的收益被当成现金分红、误报「漏扣红利税」——
+    而货基收益本就不在 `_NO_DIVIDEND_TAX_ASSET_TYPES` 的应税范围里。
+
+    键同时存原码与剥前缀后的裸码：流水可能写 `SH511990` 而持仓存 `511990`
+    （或反过来），只按原码 get 会查不到 ⇒ 白名单静默失效。
+    """
     rows = (
-        db.query(Position.symbol, Position.asset_type)
+        db.query(Position.symbol, Position.asset_type, Position.is_money_fund)
         .filter(Position.family_id == family_id, Position.symbol.isnot(None))
         .all()
     )
-    return {symbol: asset_type for symbol, asset_type in rows if symbol}
+    out: dict[str, str] = {}
+    for symbol, asset_type, is_money_fund in rows:
+        if not symbol:
+            continue
+        value = 'money_fund' if is_money_fund is True else asset_type
+        if not value:
+            continue
+        raw = symbol.strip()
+        out.setdefault(raw, value)
+        bare = strip_exchange_prefix(raw)
+        if bare:
+            out.setdefault(bare, value)
+    return out
 
 
 def _is_dividend_income(txn: Transaction, asset_type: Optional[str]) -> bool:
@@ -338,7 +360,13 @@ def scan_pending_tax(
             continue
         if occurred < since:
             continue
-        asset_type = txn.asset_type or position_types.get((txn.symbol or '').strip())
+        raw_symbol = (txn.symbol or '').strip()
+        position_asset = position_types.get(strip_exchange_prefix(raw_symbol)) or position_types.get(raw_symbol)
+        asset_type = txn.asset_type or position_asset
+        # 持仓侧已判定为免税品种（is_money_fund=True 等）时优先于流水上的 'fund'：
+        # 货基标记不在 asset_type 上，流水写 'fund' 不能把它变成要交红利税的股票。
+        if position_asset in _NO_DIVIDEND_TAX_ASSET_TYPES:
+            asset_type = position_asset
         if not _is_dividend_income(txn, asset_type):
             continue
         dividends.append(txn)

@@ -1,6 +1,6 @@
 <template>
   <!--
-    三段式说明条：回答用户真正关心的三件事——「这是什么 / 为什么找我 /
+    三段式说明条：回答用户真正关心的三件事——「这是什么 / 放着不管会怎样 /
     处理后会怎样」。旧页面把这些信息塞在 CardBlock 的 :title / :description 上，
     而 CardBlock 是零 props 容器，用户一个字都没看到，这是「信息不完整」的根因。
   -->
@@ -76,7 +76,7 @@ const rows = computed(() => {
     const meta = taskMeta(props.task);
     return [
       { label: "这是什么", text: meta.what },
-      { label: "为什么找我", text: meta.why },
+      { label: "放着不管会怎样", text: meta.why },
       { label: "处理后会怎样", text: meta.next }
     ];
   }
@@ -86,8 +86,8 @@ const rows = computed(() => {
       text: "账上两处数字对不上、少记了一笔，或交易记录缺字段缺归属，都会集中列在下面。"
     },
     {
-      label: "为什么找我",
-      text: "这些数字会进资产报表，系统只在能确定归属时才自动处理，其余要你对照凭证判断。"
+      label: "放着不管会怎样",
+      text: "这些数会进资产报表。系统只在能确定归属时才自动处理，其余需要你对照凭证判断，不然报表会一直按错的数算。"
     },
     {
       label: "处理后会怎样",

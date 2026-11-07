@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, watch, type Ref } from "vue";
 import type { WorkbenchDomainKey } from "../constants/domainTabs";
 import {
   DOMAIN_TO_TASK,
@@ -90,6 +90,40 @@ export function useReconQueue(source: Ref<ReconQueueSource>) {
   const visibleItems = computed(() =>
     sortQueue(filterQueue(items.value, filter.value))
   );
+
+  /** 客户端分页：几百条待办不能全堆一页（owner 第二轮）。
+   *  visibleItems 仍是全量，计数 / 批量选择都以它为准，分页只管渲染。 */
+  const page = ref(1);
+  const pageSize = ref(10);
+  const pageCount = computed(() =>
+    Math.max(1, Math.ceil(visibleItems.value.length / pageSize.value))
+  );
+  const pagedItems = computed(() => {
+    const start = (page.value - 1) * pageSize.value;
+    return visibleItems.value.slice(start, start + pageSize.value);
+  });
+
+  /** 换任务 / 换状态 / 搜索都回到第一页 */
+  watch(
+    filter,
+    () => {
+      page.value = 1;
+    },
+    { deep: true }
+  );
+  /** 处理完一条后当前页可能整页消失，退回最后一页而不是留一片空白 */
+  watch(visibleItems, () => {
+    if (page.value > pageCount.value) page.value = pageCount.value;
+  });
+
+  function setPage(value: number): void {
+    page.value = Math.max(1, Math.min(value, pageCount.value));
+  }
+
+  function setPageSize(value: number): void {
+    pageSize.value = value;
+    page.value = 1;
+  }
 
   const batchOptions = computed(() => queueBatchOptions(items.value));
 
@@ -186,6 +220,12 @@ export function useReconQueue(source: Ref<ReconQueueSource>) {
     filter,
     items,
     visibleItems,
+    page,
+    pageSize,
+    pageCount,
+    pagedItems,
+    setPage,
+    setPageSize,
     taskCounts,
     recordCounts,
     readyCounts,

@@ -20,6 +20,7 @@
 import { TXN_TYPE_LABELS } from "@/constants";
 import { formatDate, formatDateTime } from "@/utils/date";
 import { formatAmount } from "@/utils/currency";
+import { specialSymbolLabel } from "./reconLabels";
 
 /** 交易类型兜底词：未知码也不许露英文（宁可说「其他类型」，不给用户看存储码） */
 const TXN_TYPE_FALLBACK = "其他类型";
@@ -124,9 +125,38 @@ export function reconQuantity(value: number | null | undefined): string {
  * 分组主标题。`group.key` 形如 `20|001982` 是后端复合主键，**不展示**；
  * 只用 `symbol`，缺失时给可执行的说明而不是空白或英文 none。
  */
-export function reconGroupTitle(symbol: string | null | undefined): string {
+export function reconGroupTitle(
+  symbol: string | null | undefined,
+  displayName?: string | null
+): string {
+  const name = displayName?.trim();
+  if (name) return name;
   const code = symbol?.trim();
-  return code ? code : "标的代码未填";
+  if (!code) return "标的代码未填";
+  return specialSymbolLabel(code) ?? code;
+}
+
+/** 原样代码，只用于「代码」这类技术行；展示标题一律走 reconGroupTitle */
+export function reconSymbolCode(symbol: string | null | undefined): string {
+  return symbol?.trim() || "标的代码未填";
+}
+
+/**
+ * 抽屉 / 弹窗标题：「产品名 · 代码」。
+ * 有名称时两者都给（用户认名字，也能拿代码去券商对账）；
+ * 没名称时退到 reconGroupTitle（特殊码给中文，普通码给代码）。
+ */
+export function reconAssetHeading(
+  symbol: string | null | undefined,
+  displayName?: string | null
+): string {
+  const code = symbol?.trim();
+  if (!code) return "标的代码未填";
+  const name = displayName?.trim();
+  if (name) return `${name} · ${code}`;
+  return specialSymbolLabel(code)
+    ? `${specialSymbolLabel(code)} · ${code}`
+    : code;
 }
 
 /** 标的副标题：有名称就补名称，没有就退到「标的代码」，不臆造产品名。 */
