@@ -77,6 +77,7 @@
           :index="Number(li)"
           :total="group.ledgers.length"
           :stale-count="p.staleCountByLedger[ledger.id] || 0"
+          :today-pnl="p.todayPnlByLedger.get(String(ledger.id)) ?? null"
           @open="p.goToDetail"
           @delete="p.openDeleteDialog"
           @toggle-archive="p.onToggleArchive"

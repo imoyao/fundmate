@@ -506,7 +506,12 @@ BASELINE: dict[str, dict[str, int]] = {
         # 估值定格 / 官方净值的状态判定）全部在服务层复用 `pnl_calendar._compute_days`，
         # 视图零 ORM 查询、零事务，`max_func` 43 不动（新端点函数体 14 行 ≤ 60）。
         # 与 #2616 / #2617 / #2685 同先例。
-        "lines": 441,
+        # 2026-11-07 收紧（D92 通用当日估值，**非放宽**）：441 → 438。
+        # `GET /summary/today-pnl/` 补 `dimension` / `ledger_id` / `portfolio_id`
+        # 三个可选入参，但端点 docstring 由 6 行压到 1 行、参数白名单下沉
+        # `TodayPnlQuery`、分组与作用域解析全在 `services/today_pnl.py`，视图
+        # 净减 3 行。orm_queries / commits / max_func 实测仍 0 / 0 / 43。
+        "lines": 438,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

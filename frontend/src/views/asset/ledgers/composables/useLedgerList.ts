@@ -23,6 +23,7 @@ import Sortable from "sortablejs";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { getChannelCategoryLabel } from "@/constants";
 import { formatDateTime } from "@/utils/date";
+import { useTodayPnlGroups } from "@/composables/useTodayPnlGroups";
 
 /**
  * 列表页的分组视图模型：一条 `LedgerGroup` = 界面上的一张分组卡
@@ -534,6 +535,17 @@ export function useLedgerList() {
     }
   }
 
+  // D92 当日估值：账户卡片按 `dimension=ledger` 一次批量取全部账户，
+  // 顶部两张聚合卡按 `dimension=class` 取股票 / 基金各自当日收益。
+  // 两份分组都由同一个端点出，口径与首页「最新收益」同源；取数底座自带
+  // immediate watch，与 fetchData 解耦——估值失败不拖累账户列表主数据。
+  const { byKey: todayPnlByLedger } = useTodayPnlGroups({
+    dimension: "ledger"
+  });
+  const { byKey: todayPnlByClass } = useTodayPnlGroups({
+    dimension: "class"
+  });
+
   // 只需一行，列表全自动刷新
   usePageRefresh(() => {
     fetchData();
@@ -576,6 +588,8 @@ export function useLedgerList() {
     goToDetail,
     goToFundAggregation,
     goToSecuritiesAggregation,
+    todayPnlByLedger,
+    todayPnlByClass,
     fetchData
   };
 }

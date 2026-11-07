@@ -74,7 +74,7 @@ import datetime as dt
 from bisect import bisect_right
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy import func, tuple_
@@ -1143,8 +1143,18 @@ def _compute_days(
     txns: Dict[int, List[_TxnRow]],
     attribution: Optional[dict] = None,
     class_breakdown: Optional[dict] = None,
+    bucket_of: Optional[Callable[[Position], Optional[str]]] = None,
+    bucket_keys: Optional[Iterable[str]] = None,
 ) -> List[dict]:
     """现算 `[loop_start, end]` 并返回**存储形态**（整数分 / 整数基点，供 `save_days`）。
+
+    `bucket_of`（D92 当日估值分桶）只与 `class_breakdown` 配套：把同一条水平值链
+    按调用方给的桶键聚合，桶可以是资产大类 / 账户 / 组合。默认 None ⇒
+    `class_of_position`，与首页原有行为**逐位等价**；日历主路径两者都传 None，
+    零额外分配。分桶只改「按什么键累加」，不改任何差分、状态、基准推进逻辑。
+    桶函数返回 None 表示「不进任何桶」（其它类资产 / 组合未归属持仓）：其水平值
+    仍计入 `daily_pnl`，此时 `Σ 分桶 pnl` 只是**已覆盖部分**的合计，调用方必须以
+    分桶和作为 `total_pnl`，不能取 `daily_pnl`（见 `services/today_pnl.py`）。
 
     `loop_start > start` 时只重算尾段，前段由调用方拿物化行拼（部分重算）。
     `shares` / `txns` 由调用方一次取好传入——`first_txn_date` 在全量命中路径上
@@ -1309,6 +1319,13 @@ def _compute_days(
     #   held / present  该大类持有笔数 / 当日有**真报价**的笔数（判断 confirmed/stale）
     #   estimated 该大类当日价是否含收盘估值定格（#2141）
     split = class_breakdown is not None
+    # 分桶键：默认资产大类（首页逐位等价）；调用方可换成账户 / 组合。
+    # 注意 `day_split_rows` 的 `class` 字段仍是**真实大类**（前端价格替换依赖它），
+    # 只有累加用的 `bucket` 会随 dimension 变化，两者不可混用。
+    bucket_key = bucket_of or class_of_position
+    # 写出时遍历的键集合：默认三类（首页逐位等价）；分桶时由调用方给出，
+    # 保证「没有当日值但有前值」的桶也写出正确的差分（卖出 / 清仓当日）。
+    emit_keys = tuple(bucket_keys) if bucket_keys is not None else tuple(CLASS_ORDER)
     prev_class_level: Dict[str, int] = {}
     prev_class_mv: Dict[str, int] = {}
     day_class_level: Dict[str, int] = {}
@@ -1407,13 +1424,19 @@ def _compute_days(
                     day_opening_level[pos.id] = level
             if split:
                 cls = class_of_position(pos)
-                day_class_level[cls] = day_class_level.get(cls, 0) + level
-                day_class_mv[cls] = day_class_mv.get(cls, 0) + market_value
-                if opening_uncosted:
-                    day_class_opening_level[cls] = day_class_opening_level.get(cls, 0) + level
-                if used_estimate:
-                    day_estimated_classes.add(cls)
+                bucket = bucket_key(pos)
+                # bucket=None 表示「不进任何桶」（其它类资产 / 组合未归属持仓）：
+                # 它的水平值仍计入 daily_pnl，但分桶合计只覆盖可估值、已归属的部分，
+                # 这是用户 2026-11-06 拍板的「只显示已归属部分，不含未归属」口径。
+                if bucket is not None:
+                    day_class_level[bucket] = day_class_level.get(bucket, 0) + level
+                    day_class_mv[bucket] = day_class_mv.get(bucket, 0) + market_value
+                    if opening_uncosted:
+                        day_class_opening_level[bucket] = day_class_opening_level.get(bucket, 0) + level
+                    if used_estimate:
+                        day_estimated_classes.add(bucket)
                 # 逐持仓当日价：供首页卡在前端用实时行情做**价格替换**（不重算盈亏）。
+                # 明细恒按真实大类写出，与分桶维度无关（前端 `_merge_holdings` 依赖）。
                 # 单位保持引擎内部尺度（价 0.0001 元 / 份额 0.0001 份），换算在出口一次做完。
                 day_split_rows.append(
                     {
@@ -1522,11 +1545,15 @@ def _compute_days(
                     # 基金真停发净值同样靠这条被标出来，不必再靠 7 天上限去误伤长假。
                     day_missing_ids.add(pos.id)
 
-            if split and held:
-                cls = class_of_position(pos)
-                day_class_held[cls] = day_class_held.get(cls, 0) + 1
-                if fresh_today:
-                    day_class_present[cls] = day_class_present.get(cls, 0) + 1
+            # 状态统计在**决策集**（家庭全量）上判定，但分桶只统计本作用域值集：
+            # 否则 scope=ledger 时家庭里其它账户的持仓会污染这个账户桶的 status。
+            # 家庭级调用 value_per_pos is decision_per_pos，故 `in` 恒真 ⇒ 逐位等价。
+            if split and held and pos.id in value_per_pos:
+                bucket = bucket_key(pos)
+                if bucket is not None:
+                    day_class_held[bucket] = day_class_held.get(bucket, 0) + 1
+                    if fresh_today:
+                        day_class_present[bucket] = day_class_present.get(bucket, 0) + 1
 
             price = price_of(pos, day)
             if price is None:
@@ -1728,12 +1755,12 @@ def _compute_days(
                         c: 0
                         if forced_zero
                         else day_class_level.get(c, 0) - prev_class_level.get(c, 0) - day_class_opening_level.get(c, 0)
-                        for c in CLASS_ORDER
+                        for c in emit_keys
                     },
-                    'mv': {c: day_class_mv.get(c, 0) for c in CLASS_ORDER},
-                    'prev_mv': {c: prev_class_mv.get(c, 0) for c in CLASS_ORDER},
-                    'held': {c: day_class_held.get(c, 0) for c in CLASS_ORDER},
-                    'present': {c: day_class_present.get(c, 0) for c in CLASS_ORDER},
+                    'mv': {c: day_class_mv.get(c, 0) for c in emit_keys},
+                    'prev_mv': {c: prev_class_mv.get(c, 0) for c in emit_keys},
+                    'held': {c: day_class_held.get(c, 0) for c in emit_keys},
+                    'present': {c: day_class_present.get(c, 0) for c in emit_keys},
                     'holdings': day_split_rows,
                 }
 

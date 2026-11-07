@@ -123,7 +123,7 @@ const AssetRouteConfig = {
     },
     // ── 隐藏下钻页（不进菜单，但保留在 /asset 直接子级以维持面包屑锚点）──
     {
-      // #1133 路由归并：场外基金 / 场内证券的聚合下钻页收敛为 /funds 与 /stocks，
+      // #1133 路由归并：基金 / 股票 的聚合下钻页收敛为 /funds 与 /stocks，
       // 与「资产总览 → 产品类型」的下钻目标合一。
       // 这两条**不是**可选装饰——`useLedgerList.ts`（点账户里的股票/基金持仓）与
       // `ResultSupplements.vue`（导入结果补录）都按 `{ name: "AssetStocks" }` /

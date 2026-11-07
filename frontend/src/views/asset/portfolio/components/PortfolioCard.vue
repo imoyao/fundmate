@@ -80,6 +80,25 @@
       </span>
     </div>
 
+    <!-- 次指标：当日收益（D92，与首页「最新收益」同源）。
+         组合维度只统计已归属持仓，集合边界由列表页一行小字统一说明；
+         没数（无当日报价 / 无估值口径）显示「—」，绝不画 0.00。 -->
+    <div class="portfolio-card__metric">
+      <span class="portfolio-card__label">当日收益</span>
+      <span class="portfolio-card__pnl">
+        <template v-if="todayPnl?.pnl != null">
+          <MoneyDisplay :value="todayPnl.pnl" size="md" />
+          <ValuationSourceBadge
+            v-if="todayPnl.status === 'estimated'"
+            :status="todayPnl.status"
+            size="sm"
+            tip="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
+          />
+        </template>
+        <span v-else class="portfolio-card__na">—</span>
+      </span>
+    </div>
+
     <div class="portfolio-card__divider" />
 
     <!-- 元信息：账户 / 持仓是「这张卡覆盖什么」，目标达成是唯一的比例型进度 -->
@@ -109,10 +128,16 @@
 import { computed } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import type { PortfolioItem } from "@/api/portfolio";
+import type { TodayPnlGroup } from "@/api/summary";
 import { formatTargetProgress, targetFillWidth } from "../portfolioCardModel";
 
-const props = defineProps<{ item: PortfolioItem }>();
+const props = defineProps<{
+  item: PortfolioItem;
+  /** 当日估值（`dimension=portfolio` 的分组行）；null = 该组合无可估值持仓 */
+  todayPnl?: TodayPnlGroup | null;
+}>();
 
 const emit = defineEmits<{
   /** 整卡点击 → 由页面负责路由（组件不碰路由，便于单测与复用） */
@@ -224,6 +249,11 @@ const progressText = computed(() =>
     display: inline-flex;
     gap: var(--space-2);
     align-items: baseline;
+  }
+
+  /* 「—」：没数不等于 0，用次级墨色与真实金额区分 */
+  &__na {
+    color: var(--text-tertiary-ink);
   }
 
   /* 比例胶囊：底用中性 --bg-soft、字由 MoneyDisplay 上语义色——

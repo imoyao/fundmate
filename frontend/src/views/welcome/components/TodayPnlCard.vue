@@ -4,7 +4,7 @@
   信息层级四层，从上到下：
     1. 最新收益（hero）+ 当日涨幅              ← 唯一的强色数字
     2. 投资类资产（次级）+ 占家庭总资产          ← 把两个刻度接起来
-    3. 场内权益 / 场外基金两列                  ← `TodayPnlClassColumns`
+    3. 股票 / 基金两列                          ← `TodayPnlClassColumns`
     4. 家庭口径 · 存量（三列 + 负债率 + 结构条）  ← `TodayPnlHouseholdBand`
 
   为什么第 3、4 层拆成子组件：这张卡从 370 行涨到 838 行，越过仓库
@@ -97,7 +97,7 @@
           <div class="today-pnl__invested">
             <el-tooltip
               placement="top"
-              content="只统计场内权益（股票/ETF/可转债）与场外基金；房产、现金、理财等见下方家庭净资产"
+              content="股票含 ETF、可转债；基金只含场外基金；房产、现金、理财等见下方家庭净资产"
             >
               <p class="today-pnl__label">投资类资产</p>
             </el-tooltip>
@@ -132,6 +132,19 @@
         :liability-ratio="liabilityRatio"
         :peek-guard="consumePeekClick"
       />
+
+      <!-- 累计总收益：与「最新收益」并存的第二个收益概念（用户 2026-11-06 拍板）。
+           只加这一行底注，不动家庭带的存量数字；数据来自 /summary/ 的
+           total_pnl_cny，不进 today-pnl 资源、不新增请求。 -->
+      <p class="today-pnl__cumulative">
+        <span>累计总收益</span>
+        <MoneyDisplay
+          :value="totalPnl"
+          size="xs"
+          :show-currency="false"
+          :auto-color="false"
+        />
+      </p>
     </div>
   </CardBlock>
 </template>
@@ -167,6 +180,8 @@ const props = defineProps<{
   totalLiabilities: number | null;
   /** 负债率（%，后端 `ratio_pct` 直出）；null = 总资产为 0，此时不显示比率 */
   liabilityRatio: number | null;
+  /** 累计总收益（`/summary/` 的 `total_pnl_cny` 直出）；null = 汇总未加载 */
+  totalPnl: number | null;
 }>();
 
 const emit = defineEmits<{ retry: [] }>();
@@ -305,6 +320,26 @@ function consumePeekClick(): boolean {
 /* 遮罩态的提示：只在金额被藏起来时出现，告诉用户「不是坏了，是藏了，长按能看」 */
 .today-pnl__peek-hint {
   color: var(--text-tertiary-ink);
+}
+
+/* 累计总收益底注：与家庭带用 --border-subtle 再切一层（存量 → 累计结论）。
+   数字只加字重 + tabular-nums，颜色恒中性：hero 才是这张卡唯一的主角，
+   底注若跟着涨跌染色会变成第二个主角。 */
+.today-pnl__cumulative {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding-top: var(--space-2, 8px);
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.today-pnl__cumulative :deep(.money-display.size-xs .number) {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 .is-rise {

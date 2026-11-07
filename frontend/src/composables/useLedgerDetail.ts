@@ -21,6 +21,7 @@ import {
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import type { PortfolioAssignment } from "@/views/asset/inventory/portfolioAssignModel";
 import type { MoneyFundIncomeData } from "@/api/performance";
+import type { TodayPnlData } from "@/api/summary";
 import { getLedgerTypeLabel } from "@/constants";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { useLedgerOverview } from "@/composables/ledger/useLedgerOverview";
@@ -73,6 +74,8 @@ export interface LedgerDetailApi {
   selectedPosition: Ref<LedgerHoldingRow | null>;
   summaryData: Ref<LedgerSummaryData | null>;
   moneyFundData: Ref<MoneyFundIncomeData | null>;
+  /** 账户级当日估值（D92，由 useLedgerOverview 透传） */
+  todayPnlData: Ref<TodayPnlData | null>;
   isCompositionLedger: ComputedRef<boolean>;
   compositionData: ComputedRef<{ name: string; value: number }[]>;
   compositionColorMap: Record<string, string>;
@@ -177,6 +180,7 @@ export function useLedgerDetail(): LedgerDetailApi {
   const {
     summaryData,
     moneyFundData,
+    todayPnlData,
     isCompositionLedger,
     compositionData,
     compositionColorMap,
@@ -539,6 +543,7 @@ export function useLedgerDetail(): LedgerDetailApi {
     selectedPosition,
     summaryData,
     moneyFundData,
+    todayPnlData,
     isCompositionLedger,
     compositionData,
     compositionColorMap,

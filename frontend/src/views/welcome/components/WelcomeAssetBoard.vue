@@ -53,6 +53,7 @@
         :net-assets="netAssets"
         :total-liabilities="totalLiabilities"
         :liability-ratio="liabilityRatio"
+        :total-pnl="totalPnl"
         @retry="onRetry"
       />
 
@@ -97,6 +98,11 @@ const totalLiabilities = computed(
   () => props.summary?.total_liabilities_cny ?? null
 );
 const liabilityRatio = computed(() => props.summary?.liability_ratio ?? null);
+
+// 累计总收益与「最新收益」是两个概念：前者是自开户以来的存量结论，后者是
+// 当日流量（估值 / 确认）。它属于 /api/summary/ 而不是 today-pnl 资源，
+// 故直接从 props.summary 取，不新增请求、不参与前端二次盈亏计算。
+const totalPnl = computed(() => props.summary?.total_pnl_cny ?? null);
 
 // 「投资类资产占家庭总资产」的分母必须与卡面「家庭总资产」是**同一个数**：
 // 传取值器而非值，summary 异步到时 overlay 会自动重算（详见 useTodayPnl 选项注释）

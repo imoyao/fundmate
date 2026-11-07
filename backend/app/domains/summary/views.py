@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.core.exceptions import internal_error_payload
 from app.core.time_utils import today_shanghai
 from app.core.validation import parse_query
-from app.domains.summary.schemas import MemberSliceQuery
+from app.domains.summary.schemas import MemberSliceQuery, TodayPnlQuery
 from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
 from app.services.bias.constants import BENCHMARK_INDICES
@@ -254,17 +254,14 @@ def pnl_calendar():
 
 @bp.get('/summary/today-pnl/')
 def today_pnl():
-    """首页「最新收益」卡（当日盈亏 + 股票/基金拆分 + 估/确认状态）。
-
-    与 `pnl-calendar` 同一次遍历、同一条盈亏口径（`services/pnl_calendar._compute_days`
-    的 `class_breakdown` 收集器），故 `Σ classes[].pnl ≡ 日历当日格`。
-    盘中 / 净值未出时 `date` 会回退到最近一个有当日报价的日子（`is_today=false`）
-    ——前端据此标明「截至某日」，不把「还没有数据」显示成 0。
-    """
+    """最新收益（单资源 + `dimension` 分组 + scope）；口径见 `services/today_pnl.py`。"""
+    query = parse_query(TodayPnlQuery)  # try 外：abort(422) 不能被 except 吞成 500
     try:
         with get_db() as db:
-            data = build_today_pnl(db, get_family_id())
+            data = build_today_pnl(db, get_family_id(), **query.model_dump())
         return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify(internal_error_payload(e, 'today_pnl', None)), 500
 
