@@ -34,6 +34,7 @@ from app.domains.ledgers.constants import (
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services import ledger_category_guard as guard
 from app.services.family_member_service import (
     FamilyMemberError,
     get_member,
@@ -278,7 +279,7 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
     # 校验关联的现金账户：用**派生后**的 ledger_type
     if linked_cash_id is not None:
         if ledger_type not in ('stock', 'fund'):
-            raise LedgerWriteError('只有证券账户或基金可以关联现金账户', 400, 1001)
+            raise LedgerWriteError(guard.CASH_LINK_DENIED, 400, 1001)
         cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
         if not cash_ledger or cash_ledger.family_id != family_id:
             raise LedgerWriteError('关联的现金账户不存在或类型不是现金账户', 400, 1001)
@@ -303,7 +304,7 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
     linked_money_fund_id = None
     if linked_money_fund_code:
         if ledger_type not in ('stock', 'fund'):
-            raise LedgerWriteError('只有证券账户或基金可以绑定活期+', 400, 1001)
+            raise LedgerWriteError(guard.MONEY_FUND_DENIED, 400, 1001)
         fund = resolve_money_fund(db, linked_money_fund_code)
         if not fund:
             raise LedgerWriteError('绑定的活期+不存在', 400, 1001)
@@ -424,7 +425,7 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
         if linked_cash_id is not None:
             current_type = ledger_type if ledger_type is not None else ledger.ledger_type
             if current_type not in ('stock', 'fund'):
-                raise LedgerWriteError('只有证券账户或基金可以关联现金账户', 400, 1001)
+                raise LedgerWriteError(guard.CASH_LINK_DENIED, 400, 1001)
             cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
             if not cash_ledger or cash_ledger.family_id != family_id:
                 raise LedgerWriteError('关联的现金账户不存在或类型不是现金账户', 400, 1001)
@@ -442,7 +443,7 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
             ledger.auto_purchase_money_fund = False
         else:
             if ledger.ledger_type not in ('stock', 'fund'):
-                raise LedgerWriteError('只有证券账户或基金可以绑定活期+', 400, 1001)
+                raise LedgerWriteError(guard.MONEY_FUND_DENIED, 400, 1001)
             fund = resolve_money_fund(db, fund_code)
             if not fund:
                 raise LedgerWriteError('绑定的活期+不存在', 400, 1001)
@@ -476,10 +477,8 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
         # 无论值是否为 None，均更新
         ledger.sales_institution_id = sales_institution_id
 
-    # 更新 channel_category（用户可见分组/类型标签，#1101 重设计）。
-    # 不反向改写 ledger_type（计算口径键）。
-    if 'channel_category' in data:
-        ledger.channel_category = data['channel_category']
+    # 分组↔口径一致性由 ledger_category_guard 统一守卫（#1101）。
+    guard.apply_channel_category(data, ledger, LedgerWriteError)
 
     # 更新 fee_config
     if 'fee_config' in data:
