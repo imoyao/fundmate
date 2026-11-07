@@ -12,6 +12,7 @@ import SoftBanner from "@/components/SoftBanner/index.vue";
 import { COLLAPSED_LIMIT } from "./helpers";
 import { useDiscrepancyBanner } from "./useDiscrepancyBanner";
 import { useDanglingRefBanner } from "./useDanglingRefBanner";
+import { useOrphanLedgerBanner } from "./useOrphanLedgerBanner";
 import DiscrepancyList from "./DiscrepancyList.vue";
 
 defineOptions({ name: "DiscrepancyBanner" });
@@ -37,6 +38,14 @@ const {
   routeAllowed: danglingRouteAllowed,
   goToDangling
 } = useDanglingRefBanner();
+
+/** 缺账本流水（#2875）同样是独立取数，不并入上面任一条链 */
+const {
+  count: orphanCount,
+  loading: orphanLoading,
+  routeAllowed: orphanRouteAllowed,
+  goToOrphanLedger
+} = useOrphanLedgerBanner();
 </script>
 
 <template>
@@ -109,6 +118,29 @@ const {
       </p>
       <button type="button" class="dangling-ref__action" @click="goToDangling">
         去查看悬空引用
+      </button>
+    </div>
+  </SoftBanner>
+
+  <!-- 缺账本孤儿流水（#2875）：第三条独立条件块，复用域 F 的排版类，不新增锚点 -->
+  <SoftBanner
+    v-if="orphanRouteAllowed && !orphanLoading && orphanCount > 0"
+    class="orphan-ledger-notice"
+    variant="warning"
+    icon="ep:warning-filled"
+  >
+    <div class="dangling-ref__body">
+      <p class="dangling-ref__title">
+        有
+        <span class="dangling-ref__count">{{ orphanCount }}</span>
+        条流水没有归属账本，不进任何账户视图
+      </p>
+      <button
+        type="button"
+        class="dangling-ref__action"
+        @click="goToOrphanLedger"
+      >
+        去查看缺账本流水
       </button>
     </div>
   </SoftBanner>

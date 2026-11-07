@@ -235,6 +235,10 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/nav_service.py": {'lines': 430, 'max_func': 71, 'max_cc': 12},
     "backend/app/services/notification_service.py": {'lines': 160, 'max_func': 22, 'max_cc': 8},
     "backend/app/services/ocr_service.py": {'lines': 100, 'max_func': 6, 'max_cc': 1},
+    # #2875 缺账本孤儿流水服务（只读暴露 / 显式回填 / 可撤销）。新增文件实测
+    # {465, 48, 9}，远低于新增上限 {800, 120, 20}；登记是为了让「只减不增」立刻生效，
+    # 而不是靠上限留 800 行的余量给未来堆职责。
+    "backend/app/services/orphan_ledger_service.py": {'lines': 465, 'max_func': 48, 'max_cc': 9},
     "backend/app/services/penetration.py": {'lines': 729, 'max_func': 404, 'max_cc': 96},
     "backend/app/services/performance/__init__.py": {'lines': 83, 'max_func': 50, 'max_cc': 3},
     "backend/app/services/performance/calculators.py": {'lines': 577, 'max_func': 70, 'max_cc': 24},

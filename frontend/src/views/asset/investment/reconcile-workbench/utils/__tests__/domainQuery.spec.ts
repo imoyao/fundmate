@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { normalizeDomain } from "../domainQuery";
 
 describe("normalizeDomain（URL query → 合法域标识，#2151）", () => {
-  it("六个合法域原样返回", () => {
+  it("七个合法域原样返回", () => {
     expect(normalizeDomain("A")).toBe("A");
     expect(normalizeDomain("B")).toBe("B");
     expect(normalizeDomain("C")).toBe("C");
     expect(normalizeDomain("D")).toBe("D");
     expect(normalizeDomain("E")).toBe("E");
     expect(normalizeDomain("F")).toBe("F");
+    expect(normalizeDomain("G")).toBe("G"); // #2875 域 G 已接入，不再是非法值
   });
 
   it("缺失 / 空串返回 null（回落策略交给调用方）", () => {
@@ -18,7 +19,7 @@ describe("normalizeDomain（URL query → 合法域标识，#2151）", () => {
   });
 
   it("非法值返回 null，不猜测、不回落", () => {
-    expect(normalizeDomain("G")).toBeNull(); // 域 F 已接入后，G 才是「不存在的域」
+    expect(normalizeDomain("H")).toBeNull(); // 域 G 已接入后，H 才是「不存在的域」
     expect(normalizeDomain("e")).toBeNull(); // 大小写敏感：域标识是内部枚举值
     expect(normalizeDomain(" A ")).toBeNull();
     expect(normalizeDomain(1)).toBeNull();

@@ -464,3 +464,106 @@ export function undoDanglingRefReattach(
     { data: { log_id: logId } }
   );
 }
+
+// ── 域 G：缺账本孤儿流水（#2875）─────────────────────────────────────────────
+// 这些流水 ledger_id / position_id 都是 NULL：不进任何账本视图，只能全表扫描发现。
+// 后端只在「同 family 下按 account_name 精确同名且唯一」时才允许回填，**只改
+// ledger_id 一列**、不动份额与其它列；字段逐字照抄契约，前端不二次推导归属。
+// 与域 F 的区别：域 F 需要用户选目标持仓并预览份额影响；域 G 的归属由后端
+// 唯一判定，前端负责把「每条流水 → 哪个账本」逐条摊开给用户看，再二次确认。
+
+/** 组内一条缺账本流水（GET /api/reconciliation/orphan-ledger/ 的 transactions 元素） */
+export interface OrphanLedgerTransaction {
+  id: number;
+  txn_type: string;
+  trade_date: string | null;
+  confirm_date: string | null;
+  symbol: string | null;
+  asset_type: string | null;
+  /** 账户名快照：归属判定唯一的输入 */
+  account_name: string | null;
+  /** 金额（元，后端已 /100）；quantity 不在响应里，本接口不碰份额 */
+  amount: number;
+  created_at: string | null;
+  /** 后端解析出的目标账本 id；null = 无法唯一归属 */
+  resolved_ledger_id: number | null;
+  /** 无法归属的具体原因；可归属时为 null */
+  block_reason: string | null;
+}
+
+/** 归属账本摘要 */
+export interface OrphanLedgerTarget {
+  id: number;
+  name: string | null;
+}
+
+/** 一个归属分组（可回填组 key 为 `ledger:{id}`；不可归属的固定为 `blocked`） */
+export interface OrphanLedgerGroup {
+  key: string;
+  resolved_ledger: OrphanLedgerTarget | null;
+  txn_count: number;
+  /** 组级原因：组内原因不一致时是概括说明，逐条真实原因看 transactions */
+  block_reason: string | null;
+  batch_id: number;
+  batch_label: string;
+  transactions: OrphanLedgerTransaction[];
+}
+
+/** 导入批次（按 created_at 相邻间隔 > 600 秒切分） */
+export interface OrphanLedgerBatch {
+  id: number;
+  label: string;
+  txn_count: number;
+}
+
+/** 域 G 列表响应（GET /api/reconciliation/orphan-ledger/ 的 data） */
+export interface OrphanLedgerList {
+  total: number;
+  /** 可唯一归属、可回填的流水条数 */
+  fixable_count: number;
+  blocked_count: number;
+  batch_count: number;
+  groups: OrphanLedgerGroup[];
+  batches: OrphanLedgerBatch[];
+}
+
+/** 回填结果（POST /api/reconciliation/orphan-ledger/backfill/ 的 data） */
+export interface OrphanLedgerBackfillResult {
+  log_id: number;
+  updated: number;
+  ledgers: Array<{ id: number; name: string | null; count: number }>;
+}
+
+/** 撤销结果（POST /api/reconciliation/orphan-ledger/undo/ 的 data） */
+export interface OrphanLedgerUndoResult {
+  restored: number;
+  log_id: number;
+}
+
+/** 列出缺账本孤儿流水的分组与批次（只读扫描，不写库） */
+export function listOrphanLedgers(): Promise<ApiResponse<OrphanLedgerList>> {
+  return http.get<ApiResponse<OrphanLedgerList>, unknown>(
+    "/reconciliation/orphan-ledger/"
+  );
+}
+
+/** 按用户显式给出的流水 id 回填账本（写操作，成功后凭 log_id 撤销） */
+export function backfillOrphanLedgers(payload: {
+  transaction_ids: number[];
+  reason?: string;
+}): Promise<ApiResponse<OrphanLedgerBackfillResult>> {
+  return http.post<ApiResponse<OrphanLedgerBackfillResult>, unknown>(
+    "/reconciliation/orphan-ledger/backfill/",
+    { data: payload }
+  );
+}
+
+/** 撤销一次回填（按 log_id 还原，成功后列表由调用方重拉） */
+export function undoOrphanLedgerBackfill(
+  logId: number
+): Promise<ApiResponse<OrphanLedgerUndoResult>> {
+  return http.post<ApiResponse<OrphanLedgerUndoResult>, unknown>(
+    "/reconciliation/orphan-ledger/undo/",
+    { data: { log_id: logId } }
+  );
+}
