@@ -265,7 +265,17 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
             raise LedgerWriteError('关联的销售机构不存在', 400, 1001)
         institution_org_type = institution.org_type
 
-    # 校验关联的现金账户
+    # 两套类型勿混用（#1101）：channel_category 是用户所选渠道，ledger_type 是内部计算口径。
+    # 派生须早于所有读 ledger_type 的校验（2026-11-07 P0：前端只传前者，用缺省 'bank'
+    # 校验会让「证券账户 + 现金账户」误报）；派生后下方校验一律读它，不得回读原始入参。
+    if channel_category:
+        ledger_type = map_channel_category_to_ledger_type(channel_category)
+    elif institution_org_type:
+        channel_category = map_org_type_to_channel_category(institution_org_type)
+    elif ledger_type:
+        channel_category = map_ledger_type_to_channel_category(ledger_type)
+
+    # 校验关联的现金账户：用**派生后**的 ledger_type
     if linked_cash_id is not None:
         if ledger_type not in ('stock', 'fund'):
             raise LedgerWriteError('只有证券账户或基金可以关联现金账户', 400, 1001)
@@ -285,17 +295,6 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         member = get_member(db, family_id, owner_member_id)
         if member is not None and not member.is_active:
             raise LedgerWriteError('不能把账户归属给已停用的成员', 400, 1001)
-
-    # 派生 channel_category / ledger_type（#1101 渠道分类重设计）：
-    #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
-    #   - 否则有销售机构 → 以 org_type 映射为准（权威，覆盖 ledger_type 的展示语义）；
-    #   - 否则按 ledger_type 反推 channel_category（向后兼容旧调用方）。
-    if channel_category:
-        ledger_type = map_channel_category_to_ledger_type(channel_category)
-    elif institution_org_type:
-        channel_category = map_org_type_to_channel_category(institution_org_type)
-    elif ledger_type:
-        channel_category = map_ledger_type_to_channel_category(ledger_type)
 
     # 类现金产品绑定（#1137）：入参用基金代码（前端搜索结果即 code），存储 funds.id。
     # 仅证券/基金平台可绑；开关默认关闭，未绑定时不允许开启。

@@ -6,9 +6,9 @@ import {
   institutionLabel,
   isInstitutionAllowedForLedgerType,
   orgTypeGroupLabel,
-  pickOtherInstitutions,
+  pickCommonInstitutions,
   shouldShowBankChannelHint,
-  sortCommonInstitutions
+  sortInstitutionsByPinyin
 } from "../accountFormModel";
 import {
   buildAnchor,
@@ -82,15 +82,27 @@ describe("accountFormModel：机构过滤", () => {
     expect(filterInstitutionsByKeyword(list, "")).toHaveLength(2);
   });
 
-  it("常用机构按 common_sort 升序，缺省排最后；非常用项原序", () => {
+  it("默认按拼音首字母 A→Z；常用机构不再置顶，缺失拼音沉底", () => {
+    // id=1 是 common_sort 最小的常用机构，旧口径会把它顶到第一；
+    // 新口径只看 pinyin_short：ALQH < HTZQ < ZSYX，缺失项最后。
     const list = [
-      inst({ id: 1, is_common: true, common_sort: 30 }),
-      inst({ id: 2, is_common: true, common_sort: 10 }),
-      inst({ id: 3, is_common: true, common_sort: null }),
-      inst({ id: 4, is_common: false })
+      inst({ id: 1, pinyin_short: "ZSYX", is_common: true, common_sort: 1 }),
+      inst({ id: 2, pinyin_short: "HTZQ", is_common: false }),
+      inst({ id: 3, pinyin_short: null }),
+      inst({ id: 4, pinyin_short: "ALQH", is_common: true, common_sort: 2 })
     ];
-    expect(sortCommonInstitutions(list).map(i => i.id)).toEqual([2, 1, 3]);
-    expect(pickOtherInstitutions(list).map(i => i.id)).toEqual([4]);
+    expect(sortInstitutionsByPinyin(list).map(i => i.id)).toEqual([4, 2, 1, 3]);
+    // 入参是 props 传来的共享数组，排序不得就地改写它
+    expect(list.map(i => i.id)).toEqual([1, 2, 3, 4]);
+    expect(pickCommonInstitutions(list).map(i => i.id)).toEqual([1, 4]);
+  });
+
+  it("同拼音时按名称兜底", () => {
+    const list = [
+      inst({ id: 1, pinyin_short: "AB", org_name: "B 机构" }),
+      inst({ id: 2, pinyin_short: "AB", org_name: "A 机构" })
+    ];
+    expect(sortInstitutionsByPinyin(list).map(i => i.id)).toEqual([2, 1]);
   });
 
   it("展示名：有别名时「全称（别名）」，否则只给全称", () => {

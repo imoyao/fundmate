@@ -28,9 +28,13 @@
         >
       </el-option>
     </el-select>
-    <p class="field-hint">
-      绑定后，卖出 /
-      赎回回款可自动申购该产品（类似「余额宝」）。支持场外货币基金与券商渠道现金管理产品
+    <!-- 说明文字压到一行：560px 弹窗里两行长提示会把 10 个字段顶到近 900px。
+         完整口径仍保留在 title，悬浮可读，不丢信息。 -->
+    <p
+      class="field-hint"
+      title="绑定后，卖出 / 赎回回款可自动申购该产品（类似「余额宝」）。支持场外货币基金与券商渠道现金管理产品"
+    >
+      绑定后回款可自动申购；支持场外货基与券商现金管理产品
     </p>
   </el-form-item>
 
@@ -40,12 +44,11 @@
       :disabled="!modelValue"
       @update:model-value="onAutoPurchaseChange"
     />
-    <p class="field-hint">
-      {{
-        modelValue
-          ? "开启后，卖出 / 赎回回款将自动申购已绑定的活期+"
-          : "请先绑定活期+，再开启自动申购"
-      }}
+    <p
+      class="field-hint"
+      title="开启后，卖出 / 赎回回款将自动申购已绑定的活期+；尚未绑定时请先选择活期+"
+    >
+      {{ modelValue ? "开启后回款自动申购已绑定产品" : "需先绑定活期+" }}
     </p>
   </el-form-item>
 </template>
@@ -156,10 +159,13 @@ function onAutoPurchaseChange(val: boolean) {
 <style scoped>
 /* 活期+绑定与自动申购的说明文字（#1137）：辅助层级，--text-tertiary */
 .field-hint {
-  margin: var(--space-3, 8px) 0 0;
+  margin: var(--space-2, 4px) 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-label, 13px);
   line-height: 18px;
   color: var(--text-tertiary-ink);
+  white-space: nowrap;
 }
 
 /* 活期+ 下拉中的「非货币基金」标注（全量搜索 + 选择时限制）：

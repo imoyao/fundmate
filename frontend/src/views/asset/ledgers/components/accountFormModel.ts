@@ -103,24 +103,33 @@ export function filterInstitutionsByKeyword(
   );
 }
 
-/** 常用机构组：is_common=true，按 common_sort 升序（缺省排最后） */
-export function sortCommonInstitutions(
+/**
+ * 默认排序：按名称拼音首字母 A→Z（#2026-11-07 用户反馈「排名乱序」）。
+ *
+ * 旧口径把 15 家常用机构按人工 `common_sort` 置顶、其余按 `org_name` 的
+ * Unicode 码点序排 —— 码点序是笔画/部首序，**不是拼音序**，看起来就是乱的。
+ * 现改用后端 AMAC job 派生的 `pinyin_short`（真库 394/394 覆盖，如 `ZSYX`），
+ * 缺失（旧环境未回填）排最后，同音再按中文名兜底。不修改入参数组。
+ */
+export function sortInstitutionsByPinyin(
   list: SalesInstitution[]
 ): SalesInstitution[] {
-  return list
-    .filter(inst => inst.is_common)
-    .sort(
-      (a, b) =>
-        (a.common_sort ?? Number.MAX_SAFE_INTEGER) -
-        (b.common_sort ?? Number.MAX_SAFE_INTEGER)
-    );
+  return [...list].sort((a, b) => {
+    const pa = (a.pinyin_short ?? "").toLowerCase();
+    const pb = (b.pinyin_short ?? "").toLowerCase();
+    // 缺失拼音的条目统一沉底，避免 null 被当成空串排到 A 组最前
+    if (!pa && pb) return 1;
+    if (pa && !pb) return -1;
+    if (pa !== pb) return pa < pb ? -1 : 1;
+    return a.org_name.localeCompare(b.org_name, "zh-Hans-CN");
+  });
 }
 
-/** 全部机构组：非常用项，维持后端默认排序（org_name 字典序） */
-export function pickOtherInstitutions(
+/** 「仅看常用」快捷筛选：常用标志来自后端 AMAC 策展，不再参与默认排序 */
+export function pickCommonInstitutions(
   list: SalesInstitution[]
 ): SalesInstitution[] {
-  return list.filter(inst => !inst.is_common);
+  return list.filter(inst => inst.is_common);
 }
 
 /** fund_platform 账户选中银行类机构时的轻提示开关（#1082 D8） */

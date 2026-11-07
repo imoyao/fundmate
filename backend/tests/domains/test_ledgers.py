@@ -616,6 +616,63 @@ class TestLedgerLinkedCash:
         data = resp.get_json()['data']
         assert data['linked_cash_ledger_id'] == cash_id
 
+    def test_create_securities_by_channel_category_with_cash_ledger(self, client, db):
+        """创建账户的真实前端路径：只下发 channel_category，再关联现金账户。
+
+        2026-11-07 P0：``create_ledger`` 原先把 ``channel_category → ledger_type`` 的
+        派生放在现金账户校验**之后**，校验读到 ``data.get('ledger_type', 'bank')`` 的
+        缺省值，于是「选证券 + 关联现金账户」必报「只有证券账户或基金可以关联现金账户」
+        ——报错与用户所选自相矛盾。本类其余 linked_cash 用例都显式传 ledger_type，
+        走不到这条路径，CI 因此全绿，故单列一张回归网。
+        """
+        cash_resp = client.post('/api/ledgers/', json={'name': '微众银行', 'channel_category': 'bank'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '招商证券',
+                'channel_category': 'securities',
+                'linked_cash_ledger_id': cash_id,
+            },
+        )
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'stock'
+        assert data['channel_category'] == 'securities'
+        assert data['linked_cash_ledger_id'] == cash_id
+
+    def test_create_fund_platform_by_channel_category_with_cash_ledger(self, client, db):
+        """同源路径：基金平台分组同样由 channel_category 派生，不得被缺省 bank 误判。"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '活钱账户', 'channel_category': 'bank'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '天天基金',
+                'channel_category': 'fund_platform',
+                'linked_cash_ledger_id': cash_id,
+            },
+        )
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'fund'
+        assert data['linked_cash_ledger_id'] == cash_id
+
+    def test_create_bank_by_channel_category_cannot_link_cash(self, client, db):
+        """反向验证：派生提前不能把校验放水，银行分组仍必须拒绝关联现金账户。"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '现金账户A', 'channel_category': 'bank'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '现金账户B',
+                'channel_category': 'bank',
+                'linked_cash_ledger_id': cash_id,
+            },
+        )
+        assert resp.status_code == 400
+        assert '只有证券账户或基金' in resp.get_json()['message']
+
     def test_create_fund_with_valid_cash_ledger(self, client, db):
         """基金平台关联有效的现金账户"""
         cash_resp = client.post('/api/ledgers/', json={'name': '余额宝', 'ledger_type': 'bank'})
@@ -2363,6 +2420,7 @@ class TestSalesInstitutionsAPI:
                     is_common=True,
                     common_sort=33,
                     display_name='同花顺',
+                    pinyin_short='ZJTHSJJXSYXGS',
                 ),
                 SalesInstitution(
                     org_name='蚂蚁（杭州）基金销售有限公司',
@@ -2372,15 +2430,23 @@ class TestSalesInstitutionsAPI:
                     display_name='支付宝',
                     pinyin_short='MYHZZJJJXSYXGS',
                 ),
-                SalesInstitution(org_name='中信证券', org_type='证券公司'),
-                SalesInstitution(org_name='招商银行', org_type='全国性商业银行', is_common=True, common_sort=2),
-                SalesInstitution(org_name='某期货公司', org_type='期货公司'),
+                SalesInstitution(org_name='中信证券', org_type='证券公司', pinyin_short='ZXZQ'),
+                SalesInstitution(
+                    org_name='招商银行', org_type='全国性商业银行', is_common=True, common_sort=2, pinyin_short='ZSYX'
+                ),
+                SalesInstitution(org_name='某期货公司', org_type='期货公司', pinyin_short='MQHGS'),
             ]
         )
         db.commit()
 
-    def test_new_fields_and_common_first_ordering(self, client, db):
-        """响应携带新字段；常用机构按 common_sort 升序置顶，其余字典序殿后。"""
+    def test_new_fields_and_pinyin_ordering(self, client, db):
+        """响应携带新字段；默认按拼音首字母 A→Z，不再让常用机构置顶打乱顺序。
+
+        旧排序是 ``is_common desc, common_sort asc, org_name asc``：15 家常用机构按
+        人工保有规模序置顶，其余按汉字 Unicode 码点序（不等于拼音序），用户按
+        首字母找不到机构。改用 AMAC job 派生的 pinyin_short 作主键（真库 394/394
+        覆盖），org_name 兜底；常用标志仍在响应里，供前端「仅看常用」筛选。
+        """
         self._seed(db)
         resp = client.get('/api/ledgers/sales-institutions/')
         assert resp.status_code == 200
@@ -2395,14 +2461,15 @@ class TestSalesInstitutionsAPI:
             'common_sort',
             'pinyin_short',
         }
-        commons = [r for r in data if r['is_common']]
-        assert [r['common_sort'] for r in commons] == [1, 2, 33]
-        assert commons[0]['display_name'] == '支付宝'
-        assert commons[0]['pinyin_short'] == 'MYHZZJJJXSYXGS'
-        first_non_common = next(i for i, r in enumerate(data) if not r['is_common'])
-        assert all(r['is_common'] for r in data[:first_non_common])
-        # 非常用段字典序：中信证券 < 某期货公司
-        assert [r['org_name'] for r in data[first_non_common:]] == ['中信证券', '某期货公司']
+        assert [r['pinyin_short'] for r in data] == [
+            'MQHGS',
+            'MYHZZJJJXSYXGS',
+            'ZJTHSJJXSYXGS',
+            'ZSYX',
+            'ZXZQ',
+        ]
+        assert sum(1 for r in data if r['is_common']) == 3
+        assert data[1]['display_name'] == '支付宝'
 
     def test_org_types_filter_single(self, client, db):
         """org_types 过滤：证券账户场景只看券商（#1082）。"""
@@ -2432,10 +2499,11 @@ class TestSalesInstitutionsAPI:
         assert resp.status_code == 200
         assert resp.get_json()['message'] == 'ok'
         data = resp.get_json()['data']
+        # 过滤后仍按拼音 A→Z：MYHZZ < ZJTHS < ZSYX（不再按 common_sort 置顶）
         assert [r['org_name'] for r in data] == [
             '蚂蚁（杭州）基金销售有限公司',
-            '招商银行',
             '浙江同花顺基金销售有限公司',
+            '招商银行',
         ]
 
 
