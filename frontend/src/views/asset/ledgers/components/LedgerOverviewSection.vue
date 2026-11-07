@@ -95,6 +95,21 @@
               :auto-color="false"
             />
           </div>
+          <!-- 当日收益：与首页「最新收益」同源（dimension=class 分组）。
+               ⚠️ 本卡市值含货币基金，但货基没有统一当日估值口径 ⇒ 收益只来自
+               fund，必须标「不含货基」，否则用户拿两个不同集合的数对不上。 -->
+          <p class="aggregation-today-pnl">
+            <span>当日收益（不含货基）</span>
+            <template v-if="fundTodayPnl?.pnl != null">
+              <MoneyDisplay :value="fundTodayPnl.pnl" size="xs" />
+              <ValuationSourceBadge
+                v-if="fundTodayPnl.status === 'estimated'"
+                :status="fundTodayPnl.status"
+                size="sm"
+              />
+            </template>
+            <span v-else>—</span>
+          </p>
         </div>
         <el-button type="primary" plain @click.stop="p.goToFundAggregation">
           <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
@@ -125,6 +140,19 @@
               :auto-color="false"
             />
           </div>
+          <!-- 股票侧集合边界与本卡一致（都含 ETF、可转债），无需额外括注 -->
+          <p class="aggregation-today-pnl">
+            <span>当日收益</span>
+            <template v-if="stockTodayPnl?.pnl != null">
+              <MoneyDisplay :value="stockTodayPnl.pnl" size="xs" />
+              <ValuationSourceBadge
+                v-if="stockTodayPnl.status === 'estimated'"
+                :status="stockTodayPnl.status"
+                size="sm"
+              />
+            </template>
+            <span v-else>—</span>
+          </p>
         </div>
         <el-button
           type="primary"
@@ -139,9 +167,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from "vue";
+import { computed, reactive } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import LedgerAllocationCard from "./LedgerAllocationCard.vue";
 import type { useLedgerList } from "../composables/useLedgerList";
 
@@ -154,6 +183,11 @@ defineOptions({ name: "LedgerOverviewSection" });
  */
 const props = defineProps<{ page: ReturnType<typeof useLedgerList> }>();
 const p = reactive(props.page);
+
+// 品类维度的当日收益：一次批量请求已由 useLedgerList 发出，这里只按 key 取。
+// 没数（null / 没这个桶）保持 null，模板显示「—」而不是 0。
+const fundTodayPnl = computed(() => p.todayPnlByClass.get("fund") ?? null);
+const stockTodayPnl = computed(() => p.todayPnlByClass.get("stock") ?? null);
 </script>
 
 <style scoped>
@@ -240,6 +274,22 @@ const p = reactive(props.page);
   font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-tertiary-ink);
+}
+
+/* 当日收益小字：与集合边界同色阶，数字只加字重 + 等宽，不抢上方主数字 */
+.aggregation-today-pnl {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin: 6px 0 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+.aggregation-today-pnl :deep(.number) {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 @media (width <= 767px) /* breakpoint-allow: 拆分随迁的存量写法，零变更不改输出 */ {

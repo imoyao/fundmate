@@ -21,6 +21,15 @@
       </el-button>
     </div>
 
+    <!-- 集合边界（#2965）：独立 v-if，放在整条 loading/empty/list 链之前，
+         不打断 v-else 链。后端只在确有未归属持仓时置 true。 -->
+    <p
+      v-if="portfolioTodayPnl?.excludes_unassigned"
+      class="portfolio-page__hint"
+    >
+      当日收益不含未归属持仓
+    </p>
+
     <!-- 加载状态 -->
     <div
       v-if="loading"
@@ -49,6 +58,7 @@
         v-for="item in portfolios"
         :key="item.id"
         :item="item"
+        :today-pnl="todayPnlByPortfolio.get(String(item.id)) ?? null"
         @open="openPortfolio"
         @delete="handleDelete"
       />
@@ -146,6 +156,7 @@ import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import { useTodayPnlGroups } from "@/composables/useTodayPnlGroups";
 import PortfolioCard from "@/views/asset/portfolio/components/PortfolioCard.vue";
 import {
   getPortfolios,
@@ -179,6 +190,12 @@ async function loadBenchmarks() {
 
 const portfolios = ref<PortfolioItem[]>([]);
 const loading = ref(true);
+
+// #2965 当日收益：一次请求拿全部组合的分组行，卡片按 id 查表，不一张卡发一次。
+// `excludes_unassigned` 为 true 时说明家庭里还有未归属持仓——按用户拍板，
+// 不单列「未归属」桶，只用页面级一行小字把集合边界讲清楚。
+const { byKey: todayPnlByPortfolio, data: portfolioTodayPnl } =
+  useTodayPnlGroups({ dimension: "portfolio" });
 const dialogVisible = ref(false);
 const saving = ref(false);
 
@@ -266,4 +283,11 @@ onMounted(() => {
 
 /* 卡片外观已随卡片组件迁到 components/PortfolioCard.vue（2026-10-30 重设计，
    样式与结构同处一文件，页面只负责栅格） */
+
+/* 集合边界小字：次级墨色、既有字阶，不与卡片主数字抢层级 */
+.portfolio-page__hint {
+  margin: 0 0 12px;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
 </style>

@@ -22,11 +22,15 @@ import {
   getMoneyFundIncome,
   type MoneyFundIncomeData
 } from "@/api/performance";
+import type { TodayPnlData } from "@/api/summary";
+import { useTodayPnlGroups } from "@/composables/useTodayPnlGroups";
 import type { LedgerSummaryData } from "./types";
 
 export interface LedgerOverviewApi {
   summaryData: Ref<LedgerSummaryData | null>;
   moneyFundData: Ref<MoneyFundIncomeData | null>;
+  /** 账户级当日估值（`today-pnl?ledger_id=...`）；与货基收益是两套口径，不相加 */
+  todayPnlData: Ref<TodayPnlData | null>;
   isCompositionLedger: ComputedRef<boolean>;
   compositionData: ComputedRef<{ name: string; value: number }[]>;
   compositionColorMap: Record<string, string>;
@@ -44,6 +48,13 @@ export function useLedgerOverview(
 
   // 货币基金收益（仅基金账户拉取）
   const moneyFundData = ref<MoneyFundIncomeData | null>(null);
+
+  // #2965 账户级当日估值：维度默认 class，作用域由路由 id 决定。
+  // 用 getter 传参，切账户时底座会自动重取，不会残留上一个账户的数。
+  // 与 `moneyFundData`（货基净值收益）并列展示，二者口径不同、禁止相加。
+  const { data: todayPnlData } = useTodayPnlGroups(() => ({
+    ledger_id: Number(ledgerId.value)
+  }));
 
   // 是否展示资产构成（仅股票 / 基金 / 信用账户有投资资产与现金类资产之分）
   const isCompositionLedger = computed(() =>
@@ -99,6 +110,7 @@ export function useLedgerOverview(
   return {
     summaryData,
     moneyFundData,
+    todayPnlData,
     isCompositionLedger,
     compositionData,
     compositionColorMap,

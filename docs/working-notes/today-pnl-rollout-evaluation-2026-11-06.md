@@ -1,8 +1,10 @@
-# 当日收益估值扩展 · 整体评估（第二轮，2026-11-06）
+# 当日收益估值扩展 · 整体评估与落地（2026-11-06 ~ 11-07）
 
-> 第一轮只做评估；本轮用户已逐条拍板，并落地第一批已闭合改动。
-> 代码基线：独立 worktree `D:/codes/fm-today-pnl-ui`，基于 `origin/dev` = `10a5bec195`（并发会话已推进）。
-> 本批只改文案 / UI / 决策文档，**未实现估值接口**——接口形态仍在讨论。
+> 第一轮只做评估；第二轮用户逐条拍板并落地术语 / UI / 决策（D91）；
+> 第三轮（2026-11-07）完成通用估值接口与首页 / 账户 / 组合全站接入（D92），详见 §8。
+> 代码基线：独立 worktree `D:/codes/fm-today-pnl-ui`，功能分支 `fix/today-pnl-labels`，
+> 基于 `origin/dev` = `10a5bec195`（远程后推进到 `d410061f2e`，改动文件不重叠）。
+> §3 ~ §7 保留评估当时推理；**最终契约以 §8 与 D92 为准**（含 `scope` 不入参等勘误）。
 
 ---
 
@@ -63,25 +65,31 @@ REST 的「域」是**资源边界**，不是**页面边界**。当日估值是�
 
 **一个接口 ≠ 把三个页面耦合起来**，前提是响应体是**稳定的通用契约**，后端完全不知道「这是首页还是账户页」。反例才是真耦合：后端为首页返回 `classes[]`、为账户页返回 `cards[]`、为组合页返回 `portfolios[]` 三套形状，或在服务层写 `if page == 'welcome'`。
 
-建议契约（单端点，参数化）：
+评估建议契约 → **最终落地契约**（2026-11-07，D92）：
 
 ```
 GET /api/summary/today-pnl/
-    ?scope=family|ledger|portfolio        # 作用域，默认 family
-    &ledger_id=|portfolio_id=              # 互斥，沿用 position-structure 同款 400
-    &dimension=class|ledger|portfolio     # 分组维度，默认 class
+    ?dimension=class|ledger|portfolio     # 分组维度，默认 class
+    &ledger_id=|portfolio_id=             # 互斥，沿用 position-structure 同款 400
 
-→ { date, is_today, status, scope, dimension,
-    total_pnl, total_rate, market_value,
-    groups: [{ key, label, pnl, rate, market_value, status, holdings }],
-    unvalued_count, holdings }
+→ { date, is_today, state, status, total_pnl, total_rate,
+    invested_value, invested_ratio_of_assets, other_value,
+    unvalued_count, unvalued_value,
+    scope, dimension, ledger_id, portfolio_id, excludes_unassigned,
+    groups: [{ key, label, pnl, rate, market_value, status }],
+    classes: [...], holdings: [...] }
 ```
 
-- 首页：`dimension=class`（`groups` 即现有两列，向后兼容 `classes` 别名）
+**勘误**：评估稿曾把 `scope` 也列为 query 入参；实现时按仓库 `position-structure`
+惯例**去掉**——`scope` 由两个 id 推导并在响应回带，不给调用方制造可能与 id 矛盾
+的第三种真相。另 `groups[]` 不含 `holdings`（价格替换明细只在 `dimension=class`
+的顶层 `holdings[]` 下发）。
+
+- 首页：不传参（`dimension=class` / `scope=family`）—— `classes` 与 `groups` 同源
 - 账户列表：`dimension=ledger` —— **一次遍历返回全部账户**，不要 N 次调用
-- 组合列表：`dimension=portfolio` —— 同上
-- 账户详情：`scope=ledger&ledger_id=X&dimension=class`
-- 组合详情：`scope=portfolio&portfolio_id=Y&dimension=class`
+- 组合列表：`dimension=portfolio` —— 同上，按 `excludes_unassigned` 标小字
+- 账户详情：`ledger_id=X`（维度默认 class）
+- 组合详情：`portfolio_id=Y`（维度默认 class）
 
 **为什么不用嵌套资源** `/ledgers/{id}/today-pnl/`：REST 允许，但列表页需要一次拿全部账户，嵌套会产生 N 个 URL + N 次全仓遍历，`Σ ≡ total` 也难验。本仓 `/summary/groups/?dimension=` 已给出答案。
 
@@ -111,35 +119,75 @@ GET /api/summary/today-pnl/
   1. 数字层级低于总资产（用 `--text-num-strong` + `tabular-nums`，不用 hero 字号），只给最关键的 1 个数上强调色；
   2. 缺数显示 `—`，绝不 0.00，且不重复出现两套「估」语义（货基今日收益是另一条链路，需标注口径差异）；
   3. 复用同一个 `today-pnl` 端点，不新增算法。
-- 工作量：接口参数化后，前端只是消费一个字段 + 复用 `ValuationSourceBadge`；`LedgerDetailOverview.vue` 实测 348 行、距 400 行阈值有 52 行余量，`LedgerCard.vue` 380 行（余量 20 行）更紧。新增逻辑仍建议下沉到 `useLedgerOverview.ts` 或新子组件，避免贴线文件继续变长。属于「不大」。
+- 工作量：接口参数化后，前端只是消费一个字段 + 复用 `ValuationSourceBadge`；**勘误**：评估时写的 348 / 380 行是旧快照，复核时 `LedgerDetailOverview.vue` 与 `LedgerCard.vue` 已分别约 385 / 394 行，距 `check_vue_size` 的 400 行阈值只剩十几行（行数随并发会话持续变化，不再写死）。落地时据此把逻辑下沉到 `useLedgerOverview.ts` 与新建的 `LedgerTodayPnlMetric.vue`，并压缩 `LedgerCard.vue` 顶部注释实现净减行数；CI 同款 `--mode fail --baseline` 门禁复核通过。属于「不大」。
 
 ---
 
-## 5. 剩余疑问（仅 3 个，均不阻塞本批改动）
+## 5. 三个剩余疑问：已拍板并落地（2026-11-06 用户答复）
 
-1. **累计总收益放哪**：概念已澄清（与最新收益是两个数），但展示位未定。候选：首页底注（现为家庭净资产 / 总负债）、账户管理首卡（现为净资产 + 配置）、账户卡（现为持仓盈亏）。建议**首页底注加一行**，不动已有 4 项存量数字——避免与账户管理首卡的重复继续扩大。
-2. **组合维度未归属持仓**：`Σ 组合 ≠ 家庭`（D71）。组合列表是只显示已归属部分并标注「不含未归属」，还是单列一个「未归属」桶保证可加总？
-3. **「最新收益」在无报价日**：沿用现有「回退最近有价交易日 + `is_today=false` + 标明截至日期 + 前端 replaceBase 实时价替换」，还是直接显示 `—`？建议沿用（现有 `today_pnl` 行为），需在验收标准里写死，避免各页面各做一套。
+1. **累计总收益放哪** → 按建议，**首页底注加一行**，取 `props.summary.total_pnl_cny`，不动家庭净资产 / 总负债 4 项存量数字，不新增请求。落地：`WelcomeAssetBoard.vue` → `TodayPnlCard.vue` 底部 `.today-pnl__cumulative`。
+2. **组合维度未归属持仓** → 用户拍板「只显示已归属部分，不单列未归属桶，并标记不含未归属」。落地：桶函数对未归属持仓返回 `None`，`total_pnl = Σ groups[].pnl` 天然只含已归属；响应 `excludes_unassigned` 为 true 时，组合列表页与组合详情收益卡各显示一行小字「当日收益不含未归属持仓」。
+3. **「最新收益」在无报价日** → 沿用现有方案（回退最近有价交易日 + `is_today=false` + 标截至日期 + 前端 `replaceBase`）。落地：`_pick_target` 改为按动态桶键判定有价日，新增直接单测钉住；首页与账户 / 组合页共用同一份 `date` / `is_today`。
 
-其余均已闭合：术语、集合边界小字、徽标、负债率去重、银行/贵金属排除、银行内基金按持仓估值、账户列表 + 详情、组合页范围。
+其余均已闭合：术语、集合边界小字、徽标、负债率去重、银行 / 贵金属排除、银行内基金按持仓估值、账户列表 + 详情、组合页范围。
 
 ---
 
-## 6. 下一批实施顺序（接口形态确认后）
+## 6. 实施顺序：已按此顺序落地（2026-11-07）
 
-1. `today_pnl.build_today_pnl` 参数化 `scope` / `dimension`，泛化 `_compute_days` 收集器为多桶；`services/scope.py` 统一解析；视图只加参数校验。
-2. 前端通用 `getTodayPnl(params)`，各页面自己的 composable 消费 `groups[]` 切片；文案 / 占比 / 排序留在页面侧。
-3. P1 账户列表 + 账户详情 + 两张聚合卡；P2 组合列表 + 组合详情；验收 `Σ groups.pnl ≡ total_pnl`（含未归属桶）、`null → —`、`estimated` 徽标同源。
-4. 银行理财 / 贵金属本期不做；`balance` 模式一律 `—`。
+1. ✅ `build_today_pnl` 参数化 `dimension` / `ledger_id` / `portfolio_id`；`_compute_days` 新增可选桶函数；`services/scope.py` 唯一解析；参数白名单下沉 `TodayPnlQuery`，视图净减 3 行。
+2. ✅ `getTodayPnl(params)` + 唯一取数底座 `useTodayPnlGroups.ts`；页面只消费 `groups[]`，文案 / 排序留页面侧。
+3. ✅ 账户列表 / 详情 / 两卡 + 组合列表 / 详情全接入；`Σ groups.pnl ≡ total_pnl`、`null → —`、`estimated` 徽标同源均有判据。**勘误**：「含未归属桶」是评估稿口径，用户拍板改为不单列，见 §5.2。
+4. ✅ 银行理财 / 贵金属本期不做；`balance` 模式一律 `—`（不入桶）。
 
 ---
 
 ## 7. 关键证据索引
 
 - 唯一盈亏口径：`backend/app/services/pnl_calendar.py:22-41, 991-998, 1287-1305, 1716-1738`
-- 当日收益出口：`backend/app/services/today_pnl.py`、`backend/app/domains/summary/views.py:255-269`
-- 参数化先例：`backend/app/domains/summary/views.py:99-126, 176-189, 276-313`
+- 当日收益出口：`backend/app/services/today_pnl.py`、`backend/app/domains/summary/views.py` 的 `today_pnl()`
+- 参数化先例：`backend/app/domains/summary/views.py` 的 `position-structure` / `pnl-attribution` 端点
 - 组合解析：`backend/app/services/scope.py`（D71）、`frontend/src/views/asset/portfolio/`
-- 账户卡死位：`backend/app/domains/ledgers/views.py:394-428`、`frontend/src/views/asset/ledgers/components/ledgerCard/LedgerCardMetrics.vue:35-47`
+- 账户卡当日盈亏槽位：`frontend/src/views/asset/ledgers/components/ledgerCard/LedgerCardMetrics.vue`（后端历史占位见 §8.4）
 - 治理：`AGENTS.md:2146-2153`（AI 提交标注）、`:944-953`（数据准入四问）；`scripts/guard_pr_four_questions.mjs:26-48`；`scripts/check_view_thickness.py`；`scripts/check_vue_size.mjs`
-- 决策：`docs/spec/decisions.md` D77 / D80 / D82 / **D91**
+- 决策：`docs/spec/decisions.md` D77 / D80 / D82 / **D91** / **D92**
+
+---
+
+## 8. 最终落地（2026-11-07）
+
+### 8.1 后端
+
+| 文件 | 改动 |
+|---|---|
+| `services/pnl_calendar.py` | `_compute_days` 新增可选 `bucket_of` / `bucket_keys`，默认 `class_of_position` 且逐位等价；桶函数返回 `None` = 不进任何桶，docstring 明确 `total_pnl` 必须取分桶和而非 `daily_pnl` |
+| `services/today_pnl.py` | `build_today_pnl(db, family_id, *, dimension, ledger_id, portfolio_id)`；`_dimension_buckets` 统一三种分组与「可估值 + 已归属」过滤；`_market_value_by_class` → `_market_value_by_bucket`；组装 `groups[]` 与 `excludes_unassigned` |
+| `domains/summary/schemas.py` | `TodayPnlQuery`：`dimension` 白名单 + 可选正整数 id |
+| `domains/summary/views.py` | `parse_query` 放在 try 外；`ValueError → 400`；`**query.model_dump()` 一行接线；端点 15 → 12 行 |
+| `scripts/check_view_thickness.py` | `summary/views.py` 基线 441 → 438（收紧，附 dated 注释） |
+
+三条写进模块 docstring 的硬口径：**决策集家庭全量 / 值集按 scope 缩小**；判据是持仓 `asset_type` 而非账户 `ledger_type`；**`total_pnl = Σ groups[].pnl`**。
+
+### 8.2 前端
+
+- `api/summary.ts`：`TodayPnlDimension` / `TodayPnlQuery` / `TodayPnlGroup`；`getTodayPnl(params?)`；`TodayPnlData` 补 `scope` / `dimension` / `groups` / `excludes_unassigned`。
+- `composables/useTodayPnlGroups.ts`：唯一取数底座，一次批量取数 + `byKey` 索引 + getter 参数 `watch` 自动重取；路由 id 为 `NaN` 时跳过请求。页面只消费，**不二次计算盈亏**。
+- 首页：`WelcomeAssetBoard` 直出 `total_pnl_cny`，`TodayPnlCard` 底注加「累计总收益」（`size="xs"` + 600 字重 + `tabular-nums`，中性色不抢 hero）。
+- 账户列表：`useLedgerList` 一次 `ledger` + 一次 `class` 批量取数；`LedgerCardMetrics` 把 `--` 换成数字 / `—` + `ValuationSourceBadge`；`LedgerOverviewSection` 两卡补当日收益小字，基金卡显式标「不含货基」（其市值含货基、当日收益不含，集合本就不同）。
+- 账户详情：`useLedgerOverview` → `useLedgerDetail` 透传 `todayPnlData`，新建 `LedgerTodayPnlMetric.vue`（父页仅 +2 行）。
+- 组合列表：`index.vue` 一次 `dimension=portfolio`，`PortfolioCard` 补「当日收益」，页面级小字按 `excludes_unassigned` 显示。
+- 组合详情：组级收益放进自含取数的 `PortfolioReturnCard`，`detail.vue` **零改动**（398 行贴线）。
+
+### 8.3 验收
+
+- 后端：`pytest tests/services/test_today_pnl.py -p no:xdist -q` → **20 passed**（11 条首页回归 + 9 条新用例）；`ruff` 绿；`check_view_thickness.py` 绿。
+- 前端：`pnpm typecheck`（tsc + vue-tsc）、`pnpm test:unit` **164 files / 2242 tests**、`eslint --max-warnings 0`、`prettier --check`、`stylelint`、CI 同款 `check_vue_size --mode fail --baseline` 全绿。
+- 关键回归：默认请求逐位等价、`Σ groups.pnl ≡ total_pnl`、scope 互斥与非法参数、组合「显式覆盖继承」与未归属排除、无估值资产不入桶、单次 `_compute_days`、动态桶键回退、账户级 `holdings` 裁剪。
+
+### 8.4 未做 / 边界
+
+- 银行理财、贵金属等 `balance` 模式本期不做，一律 `—`；不新增估值数据源。
+- 策略风格标签（多对多、`Σ 标签 ≠ 家庭`）不进 `dimension`。
+- 组合维度 `Σ 组合 ≠ 家庭`（D71）是口径而非缺陷，靠一行小字说明。
+- `origin/dev` 已推进到 `d410061f2e`（#2879 import 预览行重构），与本分支改动文件不重叠；分支只 push、暂未开 PR（待确认后再提，避免 auto-merge 抢在人工审阅前合并）。
+- **已知遗留**：`ledgers/views.py::get_ledger_summary()` 仍返回历史占位 `daily_pnl: None`，前端已不消费（当日盈亏一律走 `today-pnl`）。本批**未删**：该文件有 635 行视图厚度基线，连加一段说明注释都可能顶破，清理需同步收紧基线，另立处理，不塞进功能批次。

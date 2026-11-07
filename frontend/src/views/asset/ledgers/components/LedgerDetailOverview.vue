@@ -97,6 +97,8 @@
             >
             <MoneyDisplay :value="p.summaryData?.position_pnl || 0" size="lg" />
           </div>
+          <!-- 当日收益（#2965）：账户级作用域，与「货基今日收益」并列不相加 -->
+          <LedgerTodayPnlMetric :data="p.todayPnlData" />
           <!-- 持仓数量 -->
           <div class="flex flex-col">
             <span
@@ -303,6 +305,7 @@ import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
+import LedgerTodayPnlMetric from "./LedgerTodayPnlMetric.vue";
 import LedgerDepthAnalysis from "./LedgerDepthAnalysis.vue";
 import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
 import { excessDateRange, excessDegradHint } from "@/utils/benchmarkExcess";

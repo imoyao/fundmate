@@ -4,13 +4,19 @@
 // 多根片段（`div.ledger-metrics` + 条件渲染的 `div.ledger-liability`），不包 wrapper——
 // 它们在 `.ledger-card` 里本来就是并列的直接子元素，包一层会让卡片内边距多作用一级。
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
+import type { TodayPnlGroup } from "@/api/summary";
 import {
   hasLinkedLiability,
   pnlLabelOf,
   pnlMetricKindOf
 } from "./ledgerCardModel";
 
-defineProps<{ ledger: any }>();
+defineProps<{
+  ledger: any;
+  /** 当日估值（`dimension=ledger` 的分组行）；null = 该账户无可估值持仓 */
+  todayPnl?: TodayPnlGroup | null;
+}>();
 </script>
 
 <template>
@@ -32,18 +38,27 @@ defineProps<{ ledger: any }>();
     </div>
     <!-- 右侧两指标：独立竖排容器，垂直居中于卡片高度，互不挤压 -->
     <div class="metric-side">
-      <!-- 当日盈亏：暂无当日行情数据，保留占位符 -->
+      <!-- 当日盈亏：通用估值接口 `dimension=ledger` 按账户下发的分组行。
+           pnl 为 null（无当日报价 / 该账户只有理财、贵金属等无估值口径资产）
+           一律显示「—」，不画 0.00——0 会把「不知道」说成「今天没赚没亏」。 -->
       <div class="metric">
         <span
           class="metric-label"
           :style="{ color: 'var(--text-tertiary-ink)' }"
           >当日盈亏</span
         >
-        <span
-          class="metric-value"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-          >--</span
-        >
+        <span class="metric-value">
+          <template v-if="todayPnl?.pnl != null">
+            <MoneyDisplay :value="todayPnl.pnl" size="sm" />
+            <ValuationSourceBadge
+              v-if="todayPnl.status === 'estimated'"
+              :status="todayPnl.status"
+              size="sm"
+              tip="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
+            />
+          </template>
+          <span v-else :style="{ color: 'var(--text-tertiary-ink)' }">—</span>
+        </span>
       </div>
       <!-- 持仓盈亏：银行显示活期余额、实物显示估值项数 -->
       <div class="metric">
@@ -136,6 +151,12 @@ defineProps<{ ledger: any }>();
   font-size: var(--text-small, 14px);
   font-variant-numeric: tabular-nums;
   line-height: 22px;
+}
+
+/* 「估」徽标与数字同行：子组件根元素带父 scope，无需 :deep() */
+.metric-value .val-src-badge {
+  margin-left: 4px;
+  vertical-align: middle;
 }
 
 .ledger-liability {

@@ -841,6 +841,35 @@ export function getFundValuation(params?: {
 export type TodayPnlStatus =
   "estimated" | "confirmed" | "partial" | "empty" | "no_data";
 
+/** 当日估值的分组维度（#2965）：一份当日收益，三种切法 */
+export type TodayPnlDimension = "class" | "ledger" | "portfolio";
+
+/**
+ * `GET /summary/today-pnl/` 的通用查询参数（单资源 + 两个正交参数）。
+ *
+ * - `dimension` 决定 `groups[]` 怎么分组，默认 `class`（首页股票 / 基金）；
+ * - `ledger_id` / `portfolio_id` 决定作用域，**互斥**（同时传后端 400）；
+ *   均不传 = 家庭级。`scope` 由这两个 id 推导后回带，不作为入参。
+ */
+export type TodayPnlQuery = {
+  dimension?: TodayPnlDimension;
+  ledger_id?: number;
+  portfolio_id?: number;
+};
+
+/** 一行分组（品类 / 账户 / 组合），与 `total_pnl` 由后端构造保证可加总 */
+export type TodayPnlGroup = {
+  /** 品类维度为 `stock` / `fund`；账户 / 组合维度为对应 id 的字符串 */
+  key: string;
+  label: string;
+  /** 当日盈亏（元）；null = 该桶今天没有真报价 ⇒ 显示「—」，不是 0 */
+  pnl: number | null;
+  rate: number | null;
+  /** 当前市值（元），与账户页同源 */
+  market_value: number;
+  status: TodayPnlStatus;
+};
+
 /**
  * 分项大类（卡面只出「股票 / 基金」：只有这两类有统一的当日估值口径）。
  *
@@ -913,15 +942,40 @@ export type TodayPnlData = {
    */
   unvalued_count?: number;
   unvalued_value?: number | null;
+  /**
+   * 作用域 / 维度（#2965 通用化）：单资源的两个正交切面。
+   * `scope` 由 `ledger_id` / `portfolio_id` 推导后回带，前端别按 id 自己判。
+   */
+  scope: "family" | "ledger" | "portfolio";
+  dimension: TodayPnlDimension;
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  /**
+   * true = `total_pnl` 与 `groups` 只含已归属组合的持仓。
+   * 用户拍板：不单列未归属桶，只在这里标一句「不含未归属持仓」。
+   */
+  excludes_unassigned: boolean;
+  /** 按 `dimension` 分组；`Σ groups[].pnl ≡ total_pnl` 由后端构造保证 */
+  groups: TodayPnlGroup[];
   classes: TodayPnlClass[];
   holdings: TodayPnlHolding[];
 };
 
-/** 首页「最新收益」卡数据（家庭级） */
-export function getTodayPnl() {
+/**
+ * 当日估值（单资源，#2965）：首页 / 账户 / 组合 / 品类共用这一个端点。
+ *
+ * - 不传参 = 首页：股票 / 基金分项，与收益日历当日格同源；
+ * - `dimension=ledger` / `portfolio`：列表页**一次批量取数**，按 `groups[].key`
+ *   （id 字符串）映射，不要一张卡片发一个请求；
+ * - `ledger_id` / `portfolio_id` 互斥（后端 400），均不传 = 家庭级；
+ * - `excludes_unassigned` 为 true 时须标「不含未归属持仓」；
+ * - `groups[].pnl === null` 是「没数」，显示 `—`，绝不补 0。
+ */
+export function getTodayPnl(params?: TodayPnlQuery) {
   return http.request<ApiResponse<TodayPnlData>>(
     "get",
-    BASE_URL + "today-pnl/"
+    BASE_URL + "today-pnl/",
+    { params }
   );
 }
 

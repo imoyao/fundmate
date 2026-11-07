@@ -45,6 +45,22 @@
           <MoneyDisplay :value="xirrData.total_return" />
         </div>
       </div>
+      <!-- 当日收益（#2965）：与首页「最新收益」同源；没数显示「—」，不画 0 -->
+      <div class="xirr-item">
+        <span class="xirr-label">当日收益</span>
+        <div class="xirr-value">
+          <template v-if="todayPnl?.total_pnl != null">
+            <MoneyDisplay :value="todayPnl.total_pnl" size="md" />
+            <ValuationSourceBadge
+              v-if="todayPnl.status === 'estimated'"
+              :status="todayPnl.status"
+              size="sm"
+              tip="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
+            />
+          </template>
+          <span v-else>—</span>
+        </div>
+      </div>
     </div>
     <div v-else-if="!xirrLoading" class="xirr-empty">点击刷新获取收益数据</div>
     <div v-else class="xirr-empty">计算中...</div>
@@ -52,6 +68,10 @@
     <div v-if="metricsNote" class="xirr-note">{{ metricsNote }}</div>
     <!-- #871：TWR 口径下部分持仓无历史价格序列时的诚实提示（不缺数据画成 0） -->
     <div v-if="unvaluedHint" class="xirr-note">{{ unvaluedHint }}</div>
+    <!-- #2965：用户拍板「只显示已归属部分，不单列未归属桶」，故只标一行集合边界 -->
+    <div v-if="todayPnl?.excludes_unassigned" class="xirr-note">
+      当日收益不含未归属持仓
+    </div>
   </CardBlock>
 </template>
 
@@ -70,7 +90,9 @@ import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import { useTodayPnlGroups } from "@/composables/useTodayPnlGroups";
 
 /**
  * 组合收益卡（#871 从 portfolio/detail.vue 拆出，#980 上帝页面拆分）：
@@ -79,6 +101,14 @@ import { IconifyIconOffline } from "@/components/ReIcon";
  * 以 :deep() 下发（welcome/index.vue 同款约定）；.xirr-note 仅本卡用，随卡走。
  */
 const props = defineProps<{ portfolioId: number }>();
+
+// #2965 组级当日收益：与「累计收益」并列的第二个收益概念（当日流量 vs 存量结论）。
+// 作用域按组合 id、维度默认 class ⇒ `total_pnl` 就是该组合**已归属持仓**的当日合计；
+// 未归属部分不单列桶，由 `excludes_unassigned` 决定是否标一行集合边界小字。
+// getter 传参：切换组合时底座自动重取，不会残留上一个组合的数。
+const { data: todayPnl } = useTodayPnlGroups(() => ({
+  portfolio_id: props.portfolioId
+}));
 
 const xirrData = ref<XirrData | null>(null);
 const xirrLoading = ref(false);

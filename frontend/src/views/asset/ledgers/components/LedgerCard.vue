@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import type { TodayPnlGroup } from "@/api/summary";
 import LedgerCardMetrics from "./ledgerCard/LedgerCardMetrics.vue";
 import {
   archiveAriaLabel,
@@ -16,18 +17,16 @@ import {
 } from "./ledgerCard/ledgerCardModel";
 
 /**
- * 账户卡片（#984 ledgers/index.vue 拆分）。
- * 从 index.vue 原样迁移：标题行/核心指标/关联负债的展示逻辑不变；
- * 点击进详情、删除按钮经事件上抛，路由与删除流程仍由父页面编排。
- *
- * #980 再拆一层：核心指标区（总资产 / 当日盈亏 / 持仓盈亏 / 关联负债）挪进
- * `ledgerCard/LedgerCardMetrics.vue`，本文件只留「标题行 + 归档徽标 + 事件上抛」；
- * 文案与 aria-label 的三元判断收进 `ledgerCard/ledgerCardModel.ts`。
+ * 账户卡片（#984 / #980 拆分）：本文件只留标题行 + 归档徽标 + 事件上抛；
+ * 核心指标在 `ledgerCard/LedgerCardMetrics.vue`，文案与 aria 判断在 `ledgerCardModel.ts`。
+ * 路由与删除流程由父页面编排，卡片不自行取数。
  */
 defineProps<{
   ledger: any;
   /** 持仓快照一致性待核对项数（#1133 §4 温柔提醒）：>0 时显示中性色角标，绝不阻断操作 */
   staleCount?: number;
+  /** 当日估值（`dimension=ledger` 的分组行）；null = 该账户无可估值持仓 */
+  todayPnl?: TodayPnlGroup | null;
   /**
    * 本卡在所属分组内的位置（0 起）与该组总数（#1841）。
    * 键盘重排的 aria-label 与 Home/End 目标位都靠它——没有这两个数，
@@ -210,7 +209,7 @@ function onReorderKey(
     </div>
 
     <!-- 核心指标 + 关联负债 -->
-    <LedgerCardMetrics :ledger="ledger" />
+    <LedgerCardMetrics :ledger="ledger" :today-pnl="todayPnl" />
   </div>
 </template>
 
