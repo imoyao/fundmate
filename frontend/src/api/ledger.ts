@@ -40,6 +40,55 @@ export interface LedgerItem {
 }
 
 /**
+ * 账户**列表项**：账面字段 + 后端按 `ledger_type` 现算的摘要统计。
+ *
+ * 摘要字段全部可选，因为它们是 `LedgerService.attach_ledger_summary` 按类型**择一**
+ * 覆写的（`total_market_value` / `pnl` / `position_count` 是公共三项；`cash_balance`
+ * 仅 stock/bank/property；`linked_liability` / `money_fund_*` 仅 bank；
+ * `asset_count` 仅 property）。声明成「都有且必填」等于把「该类型没有这个口径」
+ * 谎报成「一定是 0」，页面会照常渲染一张 0 元卡。
+ */
+export interface LedgerListItem extends LedgerItem {
+  /** 该账户持仓 / 资产总市值（元） */
+  total_market_value?: number;
+  /** 持仓浮动盈亏（元） */
+  pnl?: number;
+  /** 持仓数量（property 类型下为资产条数） */
+  position_count?: number;
+  /** 现金余额（元）：仅 stock / bank / property 有口径 */
+  cash_balance?: number;
+  /** 实物资产条数：仅 property 有口径 */
+  asset_count?: number;
+  /** 关联负债（元）：仅 bank 有口径 */
+  linked_liability?: number;
+  /** 账户内货基市值（元）：仅 bank 有口径 */
+  money_fund_amount?: number;
+  /** 货基占账户总资产比例（0~1）：仅 bank 有口径 */
+  money_fund_ratio?: number;
+}
+
+/**
+ * 账户资金全景的**分组**（`GET /api/ledgers/overview/`）：
+ * 按 `ledger_type` 聚合的一组，`count` 是**来源组数**而非账户个数
+ * （`deleted` 组见 `LedgerService.get_overview_stats` 的注释）。
+ */
+export interface LedgerOverviewGroup {
+  type: string;
+  label: string;
+  count: number;
+  total: number;
+}
+
+/** 账户资金全景（`GET /api/ledgers/overview/`） */
+export interface LedgerOverviewData {
+  groups: LedgerOverviewGroup[];
+  /** 负债总额（元，正数） */
+  liability_total: number;
+  /** 净资产（元）= 各组 total 之和 − 负债总额，由后端算好，前端不得现算 */
+  net_worth: number;
+}
+
+/**
  * 基金销售机构（AMAC 权威名录，账户可选关联）。
  * is_common/common_sort/display_name 由后端 AMAC job 幂等策展（#1081）；
  * org_type 为 AMAC 原始 11 类，前端映射为展示标签组（独立/银行/券商/保险/其他）。
@@ -74,7 +123,7 @@ export function getSalesInstitutions(params?: { org_types?: string }) {
 
 /** 获取用户的所有账户列表。includeArchived=true 时一并取回已归档账户。 */
 export function getLedgers(includeArchived: boolean = false) {
-  return http.request<ApiResponse<LedgerItem[]>>("get", "/api/ledgers/", {
+  return http.request<ApiResponse<LedgerListItem[]>>("get", "/api/ledgers/", {
     params: { include_archived: includeArchived }
   });
 }
@@ -150,7 +199,10 @@ export function reorderLedgers(ledgerType: string, orderedIds: number[]) {
 }
 
 export function getLedgersOverview() {
-  return http.request("get", "/api/ledgers/overview/");
+  return http.request<ApiResponse<LedgerOverviewData>>(
+    "get",
+    "/api/ledgers/overview/"
+  );
 }
 
 /** 删除账户，可选择同时删除持仓 */

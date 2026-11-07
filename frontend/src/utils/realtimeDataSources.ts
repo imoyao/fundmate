@@ -9,6 +9,63 @@ const HISTORY_TIMEOUT = 8000; // 历史净值序列较大，单独放宽超时
 const FALLBACK_MAX_CODES = 50; // 降级通道最多处理的 codes 总数
 const FALLBACK_CONCURRENCY = 3; // 降级通道最大并发数
 
+/**
+ * 第三方源挂在 `window` 上的临时全局槽位。
+ *
+ * 本文件的行情源都是「`<script>` 注入 + 读全局变量」的老式 JSONP：天天 `jsonpgz`、
+ * 腾讯 `v_<code>`、东财 `__em*` 随机回调名。它们的变量名**在运行期拼出来**
+ * （随机串 / 代码派生），既没有 d.ts，也无法逐个字段声明进 `Window`。
+ *
+ * 故收成一个「只含 string 键」的索引视图：写进去的是函数/字符串，读出来是 `unknown`，
+ * 必须显式收窄（各解析函数与回调的入参类型），**不会回流成 `any`**。
+ */
+function globalSlot(): Record<string, unknown> {
+  return window as unknown as Record<string, unknown>;
+}
+
+/** 天天基金单只估值（`fundgz.1234567.com.cn/js/<code>.js`）的回调载荷 */
+interface TiantianFundGzPayload {
+  fundcode?: string;
+  /** 已公布单位净值（最近一个已确认交易日） */
+  dwjz?: string;
+  /** 盘中估算净值 */
+  gsz?: string;
+  /** 估算涨跌幅（%） */
+  gszzl?: string;
+  /** 净值日期 */
+  jzrq?: string;
+  /** 估值时刻 */
+  gztime?: string;
+}
+
+/** 天天基金批量估值（`FundValuationLast`）的回调载荷 */
+interface ValuationLastPayload {
+  data?: Array<{
+    FCODE?: string;
+    SHORTNAME?: string;
+    GSZ?: string;
+    GSZZL?: string;
+    GZTIME?: string;
+    NAV?: string;
+    PDATE?: string;
+  }>;
+}
+
+/** 东财分时（`stock/trends2/get`）的回调载荷 */
+interface IntradayTrendPayload {
+  data?: {
+    /** 昨收：分时线着色基准 */
+    preClose?: number | string;
+    /** 每分钟一行、逗号分隔的字段串（fields2 顺序见调用点） */
+    trends?: string[];
+  };
+}
+
+/** 东财 clist / ulist 的回调载荷（`diff` 结构见 `normalizeDiff`） */
+interface EastmoneyListPayload {
+  data?: { diff?: unknown };
+}
+
 // 纯文本 GET（带超时），用于 pingzhongdata 这类「JS 变量赋值」接口（非标准 JSONP 回调）。
 async function fetchTextWithTimeout(
   url: string,
@@ -83,12 +140,13 @@ function toExternalCode(symbol: string, type: "stock" | "fund"): string {
 
 // 解析腾讯行情原始字符串（v_xxx 全局变量内容，~ 分隔）。
 // 基金与股票字段索引不同，统一在此处理，供单只/批量两个入口复用。
+// 入参取 `unknown`：来源是运行时注入的全局变量，可能是字符串、也可能压根没写进来。
 function parseTencentQuote(
-  raw: string | undefined,
+  raw: unknown,
   symbol: string,
   type: "stock" | "fund"
 ): Quote | null {
-  if (!raw) return null;
+  if (typeof raw !== "string" || !raw) return null;
   const parts = raw.split("~");
   if (type === "fund") {
     // 基金格式：代码~名称~...~当前净值~累计净值~涨跌幅~日期
@@ -172,26 +230,26 @@ async function fetchTiantian(code: string): Promise<Quote | null> {
 
       function cleanup() {
         clearTimeout(timeoutId);
-        delete (window as any).jsonpgz;
+        delete globalSlot().jsonpgz;
         if (script.parentNode) script.parentNode.removeChild(script);
       }
 
       // 注册天天基金固定全局回调
-      (window as any).jsonpgz = (data: any) => {
+      globalSlot().jsonpgz = (data: TiantianFundGzPayload | null) => {
         cleanup();
         tiantianQueue = null; // 释放队列
         if (data && data.fundcode && data.gsz) {
           // dwjz = 最近一个已确认交易日的单位净值；jzrq = 该净值日期。
           // 基金净值公布后 jzrq 会推到当天，dwjz 随之变成当日确认净值——
           // 这正是「净值已更新」的信号（见 quoteStatus.isConfirmedQuote）。
-          const prevNav = parseFloat(data.dwjz);
+          const prevNav = parseFloat(data.dwjz ?? "");
           const officialPrice = !isNaN(prevNav) && prevNav > 0 ? prevNav : null;
           const gzTime = data.gztime || "";
           resolve({
             symbol: code,
             type: "fund",
             currentPrice: parseFloat(data.gsz),
-            changePct: parseFloat(data.gszzl || 0),
+            changePct: parseFloat(data.gszzl || "0"),
             prevClose: officialPrice ?? undefined,
             updateTime: gzTime,
             source: "tiantian",
@@ -238,12 +296,12 @@ async function fetchTencentData(
       // 移除 DOM
       if (script.parentNode) script.parentNode.removeChild(script);
       // 释放全局变量（注意：不能污染后续的请求，但必须在读取完后删）
-      delete (window as any)[varName];
+      delete globalSlot()[varName];
     }
 
     script.onload = () => {
       // 首先立刻读取全局挂载的变量，再清理 DOM 和全局变量
-      const raw = (window as any)[varName];
+      const raw = globalSlot()[varName];
       cleanup();
       resolve(parseTencentQuote(raw, code, type));
     };
@@ -287,12 +345,12 @@ async function fetchTencentBatch(
     function cleanup() {
       clearTimeout(timeoutId);
       if (script.parentNode) script.parentNode.removeChild(script);
-      varNames.forEach(n => delete (window as any)[n]);
+      varNames.forEach(n => delete globalSlot()[n]);
     }
 
     script.onload = () => {
       valid.forEach(({ symbol, full }) => {
-        const raw = (window as any)[`v_${full}`];
+        const raw = globalSlot()[`v_${full}`];
         const q = parseTencentQuote(raw, symbol, type);
         if (q) result.set(symbol, q);
       });
@@ -335,12 +393,12 @@ export async function fetchTencentIndexQuotes(
     function cleanup() {
       clearTimeout(timeoutId);
       if (script.parentNode) script.parentNode.removeChild(script);
-      valid.forEach(c => delete (window as any)[`v_${c}`]);
+      valid.forEach(c => delete globalSlot()[`v_${c}`]);
     }
 
     script.onload = () => {
       valid.forEach(code => {
-        const raw = (window as any)[`v_${code}`];
+        const raw = globalSlot()[`v_${code}`];
         const q = parseTencentQuote(raw, code.toUpperCase(), "stock");
         if (q) result.set(code, q);
       });
@@ -403,22 +461,22 @@ export async function fetchFundValuationLastBatch(
           function cleanup() {
             clearTimeout(timeoutId);
             if (script.parentNode) script.parentNode.removeChild(script);
-            delete (window as any)[cb];
+            delete globalSlot()[cb];
           }
 
-          (window as any)[cb] = (json: any) => {
+          globalSlot()[cb] = (json: ValuationLastPayload | null) => {
             cleanup();
-            const list: any[] = json?.data ?? [];
+            const list = json?.data ?? [];
             const got = new Set<string>();
             for (const it of list) {
               const code = String(it.FCODE || "").toUpperCase();
               if (!code) continue;
               got.add(code);
-              const price = parseFloat(it.GSZ);
-              const changePct = parseFloat(it.GSZZL);
+              const price = parseFloat(it.GSZ ?? "");
+              const changePct = parseFloat(it.GSZZL ?? "");
               // NAV = 上一确认日单位净值（请求 FIELDS 里本来就带着，此前解析时丢掉了）；
               // PDATE = 该净值日期。净值公布后 PDATE 推到当天 → 当日确认净值信号。
-              const prevNav = parseFloat(it.NAV);
+              const prevNav = parseFloat(it.NAV ?? "");
               const officialPrice =
                 !isNaN(prevNav) && prevNav > 0 ? prevNav : null;
               if (!isNaN(price)) {
@@ -546,20 +604,20 @@ export async function fetchIntradayTrendBySecid(
     function cleanup() {
       clearTimeout(timeoutId);
       if (script.parentNode) script.parentNode.removeChild(script);
-      delete (window as any)[cb];
+      delete globalSlot()[cb];
     }
 
-    (window as any)[cb] = (json: any) => {
+    globalSlot()[cb] = (json: IntradayTrendPayload | null) => {
       cleanup();
       const data = json?.data;
-      const lines: string[] = data?.trends ?? [];
+      const lines = data?.trends ?? [];
       const points: number[] = [];
       for (const line of lines) {
         // fields2 顺序：f51 时间, f52 开, f53 收, f54 高, f55 低, f56 量, f57 额, f58 均价
         const close = parseFloat(String(line).split(",")[2]);
         if (!isNaN(close) && close > 0) points.push(close);
       }
-      const prevClose = parseFloat(data?.preClose);
+      const prevClose = parseFloat(String(data?.preClose ?? ""));
       if (points.length < 2 || !(prevClose > 0)) {
         resolve(null);
         return;
@@ -647,10 +705,14 @@ export function toEastmoneyFundFlowSecid(
   return toEastmoneySecid(symbol, undefined);
 }
 
+/** 东财 clist/ulist 的单条记录：字段名（f3/f12/f14/f62…）由接口约定，取到就转，不做静态声明 */
+type DiffRecord = Record<string, unknown>;
+
 /** 把东财 clist/ulist 的 diff（可能是数组或「下标 → 对象」的字典）归一为数组 */
-function normalizeDiff(diff: any): any[] {
-  if (Array.isArray(diff)) return diff;
-  if (diff && typeof diff === "object") return Object.values(diff);
+function normalizeDiff(diff: unknown): DiffRecord[] {
+  if (Array.isArray(diff)) return diff as DiffRecord[];
+  if (diff && typeof diff === "object")
+    return Object.values(diff as Record<string, unknown>) as DiffRecord[];
   return [];
 }
 
@@ -686,10 +748,10 @@ export async function fetchStockFundFlow(
     function cleanup() {
       clearTimeout(timeoutId);
       if (script.parentNode) script.parentNode.removeChild(script);
-      delete (window as any)[cb];
+      delete globalSlot()[cb];
     }
 
-    (window as any)[cb] = (json: any) => {
+    globalSlot()[cb] = (json: EastmoneyListPayload | null) => {
       cleanup();
       const diff = normalizeDiff(json?.data?.diff);
       for (const d of diff) {
@@ -764,13 +826,13 @@ function fetchSectorFlowPage(
     function cleanup() {
       clearTimeout(timeoutId);
       if (script.parentNode) script.parentNode.removeChild(script);
-      delete (window as any)[cb];
+      delete globalSlot()[cb];
     }
 
-    (window as any)[cb] = (json: any) => {
+    globalSlot()[cb] = (json: EastmoneyListPayload | null) => {
       cleanup();
       const list: SectorFundFlow[] = normalizeDiff(json?.data?.diff)
-        .map((d: any) => ({
+        .map(d => ({
           code: String(d.f12 ?? ""),
           name: String(d.f14 ?? ""),
           // 停牌 / 无资金流口径的板块给 NaN，下面统一滤掉——早先兜底成 0
