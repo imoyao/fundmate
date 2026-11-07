@@ -91,10 +91,10 @@ export const domainTabs: WorkbenchDomainTab[] = [
   },
   {
     key: "F",
-    label: "悬空引用",
-    title: "流水指向已删除的持仓",
+    label: "数据缺失",
+    title: "有些交易记录信息不完整",
     description:
-      "这些流水仍指向已不存在的持仓行，部分报表会静默漏算；可指定持仓二次回补",
+      "这些交易找不到对应的持仓记录，或缺少标的代码、交易日期，部分报表会漏算；可在这里补上关联",
     badgeType: "fund"
   },
   {

@@ -1,11 +1,11 @@
 <template>
   <div class="dfd-done">
-    <p class="dfd-done__title">回补完成</p>
+    <p class="dfd-done__title">已补上关联</p>
     <p>
-      已回补 <strong>{{ result.updated }}</strong> 条流水，日志编号
+      已补上 <strong>{{ result.updated }}</strong> 条交易的归属，日志编号
       <strong>#{{ result.log_id }}</strong>
     </p>
-    <p>份额未改动：本次只回补流水归属，持仓份额保持原值。</p>
+    <p>份额未改动：本次只补了归属，持仓份额保持原值。</p>
     <el-button
       v-if="!undone"
       type="danger"
@@ -13,9 +13,9 @@
       :loading="undoing"
       @click="emit('undo')"
     >
-      撤销本次修复
+      撤销本次处理
     </el-button>
-    <p v-else class="dfd-done__undone">本次修复已撤销</p>
+    <p v-else class="dfd-done__undone">本次处理已撤销</p>
   </div>
 </template>
 

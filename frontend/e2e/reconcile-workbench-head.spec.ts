@@ -52,10 +52,11 @@ const GHOST_GROUP = {
 /**
  * 只打桩后端接口（vite 源码模块请求不能碰，否则整页白屏）。
  *
- * ⚠️ 前缀不是统一的 `/api/`，这是本页最容易打错桩的地方：
- * - `api/reconciliation.ts` 里的路径**不带** `/api` 前缀（`/reconciliation/run/` 等），
- *   靠 vite 代理转发；
- * - `api/eaccount.ts` 写死了 `/api/e-account/reconciliation/`。
+ * ⚠️ 桩路径必须与真实请求**逐字一致**，这是本页最容易打错桩的地方：
+ * - 所有后端接口都走 `/api/` 前缀（vite 只代理 `/api`，见 vite.config.ts）；
+ *   `api/reconciliation.ts` 曾漏写 `/api`，请求打到 vite 的 SPA 回退拿到 HTML
+ *   （HTTP 200），前端把 HTML 当数据 → 整页显示 0 条且不报错（#2866 实测）。
+ * - `api/eaccount.ts` 写死 `/api/e-account/reconciliation/`。
  * 初版只 match `/api/`，结果「运行对账」的 POST 与幽灵重复列表全落到 vite 代理上
  * （一个请求都没被记录），页面侧表现为「点了没反应」「横幅不出现」——**不报错**。
  *
@@ -88,9 +89,7 @@ async function mockApis(
 
   // 兜底：最宽，最先注册（后注册的具体桩会覆盖它）
   await page.route(
-    url =>
-      url.pathname.startsWith("/api/") ||
-      url.pathname.startsWith("/reconciliation/"),
+    url => url.pathname.startsWith("/api/"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -99,7 +98,7 @@ async function mockApis(
 
   // 域 B / C 的差异（本组用例只要 0 条，确保「B 无待办」）
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/discrepancies"),
+    url => url.pathname.startsWith("/api/reconciliation/discrepancies"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -108,7 +107,7 @@ async function mockApis(
 
   // 域 E 分红税
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/dividend-tax"),
+    url => url.pathname.startsWith("/api/reconciliation/dividend-tax"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -140,7 +139,7 @@ async function mockApis(
 
   // 域 D 幽灵重复（宽）——必须早于下面的 /ignored/
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/ghost-duplicates"),
+    url => url.pathname.startsWith("/api/reconciliation/ghost-duplicates"),
     route => {
       record(route);
       return route.fulfill({
@@ -151,7 +150,8 @@ async function mockApis(
 
   // 已忽略清单（窄，最后注册 → 最先匹配）
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/ghost-duplicates/ignored"),
+    url =>
+      url.pathname.startsWith("/api/reconciliation/ghost-duplicates/ignored"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -160,7 +160,7 @@ async function mockApis(
 
   // 运行对账
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/run"),
+    url => url.pathname.startsWith("/api/reconciliation/run"),
     route => {
       record(route);
       return route.fulfill({ json: { data: {}, message: "" } });
@@ -230,7 +230,7 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     await expect(head.getByRole("button", { name: "运行对账" })).toBeVisible();
 
     const before = calls.filter(c =>
-      c.path.startsWith("/reconciliation/discrepancies")
+      c.path.startsWith("/api/reconciliation/discrepancies")
     ).length;
 
     await head.getByRole("button", { name: "运行对账" }).click();
@@ -239,11 +239,12 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     await expect
       .poll(
         () =>
-          calls.filter(c => c.path.startsWith("/reconciliation/run")).length,
+          calls.filter(c => c.path.startsWith("/api/reconciliation/run"))
+            .length,
         { timeout: 15_000 }
       )
       .toBe(1);
-    const run = calls.find(c => c.path.startsWith("/reconciliation/run"))!;
+    const run = calls.find(c => c.path.startsWith("/api/reconciliation/run"))!;
     expect(run.method).toBe("POST");
     expect(run.body).toEqual({ domain: "B" });
 
@@ -256,8 +257,9 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     await expect
       .poll(
         () =>
-          calls.filter(c => c.path.startsWith("/reconciliation/discrepancies"))
-            .length,
+          calls.filter(c =>
+            c.path.startsWith("/api/reconciliation/discrepancies")
+          ).length,
         { timeout: 15_000 }
       )
       .toBeGreaterThan(before);

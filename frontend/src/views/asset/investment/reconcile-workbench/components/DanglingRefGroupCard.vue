@@ -3,7 +3,7 @@
     <header class="df-group__head">
       <div class="df-group__title">
         <span class="df-group__key">{{ group.key }}</span>
-        <span class="df-group__symbol">{{ group.symbol || "缺标的" }}</span>
+        <span class="df-group__symbol">{{ group.symbol || "缺标的代码" }}</span>
       </div>
       <el-button
         size="small"
@@ -12,24 +12,24 @@
         :disabled="!group.fixable"
         @click="emit('fix', group)"
       >
-        去修复
+        去处理
       </el-button>
     </header>
 
-    <!-- 不可回补必须说清「差什么」，不能只把按钮置灰让用户猜 -->
+    <!-- 不能处理时必须说清「差什么」，不能只把按钮置灰让用户猜 -->
     <p v-if="group.block_reason" class="df-group__block">
       {{ group.block_reason }}
     </p>
 
     <p class="df-group__meta">
-      {{ group.txn_count }} 条流水 · 净额 {{ group.net_units }}
+      {{ group.txn_count }} 条交易 · 净额 {{ group.net_units }}
       <template v-if="group.live_position">
         · 现存持仓 #{{ group.live_position.id }}（{{
           group.live_position.quantity
         }}
         份，{{ group.live_position.ownership_status }}）
       </template>
-      <template v-else> · 无现存持仓</template>
+      <template v-else> · 对应持仓记录已删除</template>
       · {{ group.batch_label }}
     </p>
 
@@ -48,18 +48,18 @@
       >
     </div>
 
-    <!-- 展开看逐条流水：每条都还带着那个已删除的 position_id -->
+    <!-- 展开看逐条交易：每条都还带着那个已删除的持仓编号 -->
     <el-collapse class="df-collapse">
       <el-collapse-item :name="group.key">
         <template #title
-          >查看 {{ group.transactions.length }} 条流水明细</template
+          >查看 {{ group.transactions.length }} 条交易明细</template
         >
         <ul class="df-txns">
           <li v-for="t in group.transactions" :key="t.id" class="df-txn">
             <span class="df-txn__id">#{{ t.id }} {{ t.txn_type }}</span>
             <span>{{ t.trade_date || "缺交易日期" }}</span>
             <span>{{ t.quantity }} 份 / {{ t.amount }} 元</span>
-            <span>原持仓 #{{ t.position_id }}</span>
+            <span>原持仓编号 #{{ t.position_id }}</span>
           </li>
         </ul>
       </el-collapse-item>

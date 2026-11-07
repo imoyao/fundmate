@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    :title="`二次回补 · ${group?.symbol || '悬空引用'}`"
+    :title="`补上关联 · ${group?.symbol || '数据缺失'}`"
     width="560px"
     append-to-body
     @update:model-value="emit('update:modelValue', $event)"
@@ -15,10 +15,11 @@
     />
     <template v-else>
       <p class="dfd-lead">
-        这些流水仍指向已删除的持仓行。先选目标持仓、查看影响预览，确认后才写入；写入可凭日志编号撤销。
+        这些交易找不到对应的持仓记录。先选好它应该归到哪笔持仓、看清改动预览，
+        确认后才写入；写错了可以凭日志编号撤销。
       </p>
       <el-form label-width="110px" size="default">
-        <el-form-item label="目标持仓">
+        <el-form-item label="归到哪笔持仓">
           <el-select
             v-model="selectedPositionId"
             placeholder="从候选持仓中选择"
@@ -34,11 +35,11 @@
           </el-select>
         </el-form-item>
         <el-form-item label="原因（选填）">
-          <el-input v-model="reason" placeholder="例如：按交割单核对后回补" />
+          <el-input v-model="reason" placeholder="例如：按交割单核对后补上" />
         </el-form-item>
       </el-form>
       <p class="dfd-warn">
-        本次只回补流水归属，系统不会自动改动持仓份额。挂回后如需让份额与流水对齐，请到持仓页手动重算。
+        本次只改交易的归属，不会自动改动持仓份额。补完后如需让份额与流水对齐，请到持仓页手动重算。
       </p>
       <DanglingRefPreviewPanel
         :preview="preview"
@@ -61,7 +62,7 @@
         :loading="submitting"
         @click="submit"
       >
-        确认回补
+        确认补上
       </el-button>
     </template>
   </el-dialog>
@@ -166,10 +167,10 @@ async function submit(): Promise<void> {
       reason: reason.value || undefined
     });
     result.value = res.data ?? null;
-    ElMessage.success("回补完成");
+    ElMessage.success("已补上关联");
     emit("submitted");
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "回补失败");
+    ElMessage.error(e?.response?.data?.message || "补上关联失败");
   } finally {
     submitting.value = false;
   }
@@ -180,7 +181,7 @@ async function undo(): Promise<void> {
   try {
     await undoDanglingRefReattach(result.value.log_id);
     undone.value = true;
-    ElMessage.success("已撤销本次修复");
+    ElMessage.success("已撤销本次处理");
     emit("submitted");
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "撤销失败");
