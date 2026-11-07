@@ -39,7 +39,7 @@ export function runReconciliation(
   domain = "B"
 ): Promise<ApiResponse<ReconciliationRunResult>> {
   return http.post<ApiResponse<ReconciliationRunResult>, unknown>(
-    "/reconciliation/run/",
+    "/api/reconciliation/run/",
     { data: { domain } }
   );
 }
@@ -50,7 +50,7 @@ export function listDiscrepancies(params?: {
   status?: string;
 }): Promise<ApiResponse<DiscrepancyItem[]>> {
   return http.get<ApiResponse<DiscrepancyItem[]>, unknown>(
-    "/reconciliation/discrepancies/",
+    "/api/reconciliation/discrepancies/",
     { params }
   );
 }
@@ -102,7 +102,7 @@ export function applyAdjustment(
   payload: AdjustmentPayload
 ): Promise<ApiResponse<AdjustmentResult>> {
   return http.post<ApiResponse<AdjustmentResult>, unknown>(
-    "/reconciliation/adjustments/",
+    "/api/reconciliation/adjustments/",
     { data: payload }
   );
 }
@@ -132,7 +132,7 @@ export function getLedgerConsistency(
     ApiResponse<{ items: LedgerConsistencyItem[] }>,
     { ledger_id?: number }
   >(
-    "/reconciliation/ledger-consistency/",
+    "/api/reconciliation/ledger-consistency/",
     ledgerId != null ? { params: { ledger_id: ledgerId } } : undefined
   );
 }
@@ -198,7 +198,7 @@ export function listGhostDuplicates(): Promise<
   ApiResponse<GhostDuplicateList>
 > {
   return http.get<ApiResponse<GhostDuplicateList>, unknown>(
-    "/reconciliation/ghost-duplicates/"
+    "/api/reconciliation/ghost-duplicates/"
   );
 }
 
@@ -207,7 +207,7 @@ export function listGhostDuplicateIgnores(): Promise<
   ApiResponse<GhostDuplicateIgnore[]>
 > {
   return http.get<ApiResponse<GhostDuplicateIgnore[]>, unknown>(
-    "/reconciliation/ghost-duplicates/ignored/"
+    "/api/reconciliation/ghost-duplicates/ignored/"
   );
 }
 
@@ -291,7 +291,7 @@ export function listDividendTaxPending(): Promise<
   ApiResponse<DividendTaxPendingData>
 > {
   return http.get<ApiResponse<DividendTaxPendingData>, unknown>(
-    "/reconciliation/dividend-tax/"
+    "/api/reconciliation/dividend-tax/"
   );
 }
 
@@ -319,7 +319,7 @@ export function recordDividendTax(payload: {
       confirm_date: string | null;
     }>,
     unknown
-  >("/reconciliation/dividend-tax/record/", { data: payload });
+  >("/api/reconciliation/dividend-tax/record/", { data: payload });
 }
 
 // ── 域 F：悬空引用（#2866）────────────────────────────────────────────────────
@@ -421,7 +421,7 @@ export interface DanglingRefUndoResult {
 /** 列出悬空引用分组、批次与汇总（只读扫描，不写库） */
 export function listDanglingRefs(): Promise<ApiResponse<DanglingRefList>> {
   return http.get<ApiResponse<DanglingRefList>, unknown>(
-    "/reconciliation/dangling-refs/"
+    "/api/reconciliation/dangling-refs/"
   );
 }
 
@@ -433,7 +433,7 @@ export function previewDanglingRefReattach(params: {
   return http.get<
     ApiResponse<DanglingRefPreview>,
     { transaction_ids: string; target_position_id: number }
-  >("/reconciliation/dangling-refs/preview/", {
+  >("/api/reconciliation/dangling-refs/preview/", {
     params: {
       transaction_ids: params.transaction_ids.join(","),
       target_position_id: params.target_position_id
@@ -450,7 +450,7 @@ export function reattachDanglingRefs(payload: {
   recompute?: boolean;
 }): Promise<ApiResponse<DanglingRefReattachResult>> {
   return http.post<ApiResponse<DanglingRefReattachResult>, unknown>(
-    "/reconciliation/dangling-refs/reattach/",
+    "/api/reconciliation/dangling-refs/reattach/",
     { data: payload }
   );
 }
@@ -460,7 +460,7 @@ export function undoDanglingRefReattach(
   logId: number
 ): Promise<ApiResponse<DanglingRefUndoResult>> {
   return http.post<ApiResponse<DanglingRefUndoResult>, unknown>(
-    "/reconciliation/dangling-refs/undo/",
+    "/api/reconciliation/dangling-refs/undo/",
     { data: { log_id: logId } }
   );
 }
@@ -543,7 +543,7 @@ export interface OrphanLedgerUndoResult {
 /** 列出缺账本孤儿流水的分组与批次（只读扫描，不写库） */
 export function listOrphanLedgers(): Promise<ApiResponse<OrphanLedgerList>> {
   return http.get<ApiResponse<OrphanLedgerList>, unknown>(
-    "/reconciliation/orphan-ledger/"
+    "/api/reconciliation/orphan-ledger/"
   );
 }
 
@@ -553,7 +553,7 @@ export function backfillOrphanLedgers(payload: {
   reason?: string;
 }): Promise<ApiResponse<OrphanLedgerBackfillResult>> {
   return http.post<ApiResponse<OrphanLedgerBackfillResult>, unknown>(
-    "/reconciliation/orphan-ledger/backfill/",
+    "/api/reconciliation/orphan-ledger/backfill/",
     { data: payload }
   );
 }
@@ -563,7 +563,7 @@ export function undoOrphanLedgerBackfill(
   logId: number
 ): Promise<ApiResponse<OrphanLedgerUndoResult>> {
   return http.post<ApiResponse<OrphanLedgerUndoResult>, unknown>(
-    "/reconciliation/orphan-ledger/undo/",
+    "/api/reconciliation/orphan-ledger/undo/",
     { data: { log_id: logId } }
   );
 }

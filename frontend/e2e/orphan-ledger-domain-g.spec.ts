@@ -15,16 +15,16 @@ import { injectSupabaseSession } from "./support/session";
  * 无 pageerror，只有一条 `[Vue warn]`。所以不能只数锚点或断言组件存在——
  * 必须断言**渲染出来的内容**，同时监听 pageerror 与含组件名的 Vue warn。
  *
- * ⚠️ 路径不带 `/api` 前缀：`api/reconciliation.ts` 写的是
- * `/reconciliation/orphan-ledger/`，靠 vite 代理转发（同 reconcile-workbench-head）。
+ * ⚠️ 后端接口统一走 `/api/` 前缀（vite 只代理 `/api`）。域 G 初版沿用
+ * `api/reconciliation.ts` 漏写前缀的旧路径，真页面会拿到 SPA 回退的 HTML（#2866）。
  * 注册顺序 = 后注册先匹配：兜底最宽、最先注册；三个 orphan 端点精确匹配、最后注册。
  */
 
 type Call = { method: string; path: string; body: unknown };
 
-const LIST_PATH = "/reconciliation/orphan-ledger/";
-const BACKFILL_PATH = "/reconciliation/orphan-ledger/backfill/";
-const UNDO_PATH = "/reconciliation/orphan-ledger/undo/";
+const LIST_PATH = "/api/reconciliation/orphan-ledger/";
+const BACKFILL_PATH = "/api/reconciliation/orphan-ledger/backfill/";
+const UNDO_PATH = "/api/reconciliation/orphan-ledger/undo/";
 
 const BATCH_LABEL = "2026-10-28 16:59";
 const LEDGER_NAME = "同花顺（银河证券）";
@@ -117,9 +117,7 @@ async function mockApis(page: Page, opts: MockOpts = {}): Promise<Call[]> {
 
   // 兜底最宽、最先注册（后注册的具体桩会覆盖它）
   await page.route(
-    url =>
-      url.pathname.startsWith("/api/") ||
-      url.pathname.startsWith("/reconciliation/"),
+    url => url.pathname.startsWith("/api/"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -364,12 +362,15 @@ test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）
     await mockApis(page);
     await page.goto("/#/panorama", { waitUntil: "commit" });
 
-    const notice = page.locator(".orphan-ledger-notice");
+    // #2866 改版：三类问题合并成一条全局紧凑提醒，这里只有域 G 有数据
+    const notice = page.locator(".recon-banner");
     await expect(notice).toBeVisible({ timeout: 150_000 });
-    await expect(notice.locator(".dangling-ref__count")).toHaveText("3");
-    await expect(notice).toContainText("条流水没有归属账本，不进任何账户视图");
+    await expect(notice.locator(".recon-notice__num")).toHaveText("3");
+    await expect(notice.locator(".recon-notice__meta")).toContainText(
+      "缺账本流水"
+    );
 
-    await notice.getByRole("button", { name: "去查看缺账本流水" }).click();
+    await notice.getByRole("button", { name: /去查看/ }).click();
     await expect(page).toHaveURL(/reconcile-workbench/);
     await expect(page).toHaveURL(/domain=G/);
     // 先证明工作台真渲染了，否则「横幅消失」可能只是白屏假绿
@@ -383,7 +384,7 @@ test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）
       page.locator(".workbench-tabs .el-tabs__item.is-active")
     ).toContainText("缺账本流水");
     await expect(page.locator(".domain-g-body")).toContainText(LEDGER_NAME);
-    await expect(page.locator(".orphan-ledger-notice")).toHaveCount(0);
+    await expect(page.locator(".recon-banner")).toHaveCount(0);
   });
 
   test("反向对照：桩返回 0 条时域 G 必须空态，桩特有文本一个都不出现", async ({

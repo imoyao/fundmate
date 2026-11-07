@@ -4,37 +4,37 @@
     <div class="df-summary">
       <div class="df-summary__item">
         <span class="df-summary__num">{{ data?.total ?? 0 }}</span>
-        <span>悬空流水总数</span>
+        <span>待处理记录</span>
       </div>
       <div class="df-summary__item">
         <span class="df-summary__num df-summary__num--ok">{{
           data?.fixable_count ?? 0
         }}</span>
-        <span>可直接回补</span>
+        <span>可直接补上关联</span>
       </div>
       <div class="df-summary__item">
         <span class="df-summary__num">{{ data?.group_count ?? 0 }}</span>
-        <span>待修复组数</span>
+        <span>待处理分组</span>
       </div>
       <div class="df-summary__item">
         <span class="df-summary__num">{{ data?.batch_count ?? 0 }}</span>
-        <span>批次数</span>
+        <span>导入批次</span>
       </div>
       <div class="df-summary__item">
         <span class="df-summary__num">{{ data?.null_symbol ?? 0 }}</span>
-        <span>缺标的数</span>
+        <span>缺标的代码</span>
       </div>
       <div class="df-summary__item">
         <span class="df-summary__num">{{ data?.null_trade_date ?? 0 }}</span>
-        <span>缺交易日期数</span>
+        <span>缺交易日期</span>
       </div>
     </div>
 
     <!-- 覆盖率如实告知：系统只在能确定归属时才允许写，其余不猜 -->
     <p v-if="data && data.total > data.fixable_count" class="df-hint">
-      其余
-      {{ data.total - data.fixable_count }} 条缺标的代码、或目标持仓行已不存在，
-      系统不会猜测归属；补全数据后重新扫描即可继续回补。
+      其中
+      {{ data.total - data.fixable_count }} 条暂时没法处理：有的没填标的代码，
+      有的对应持仓记录已被删除。系统不会替你猜归属，补全信息后重新检查即可继续。
     </p>
 
     <!-- 批次筛选：只收窄当前可见分组，不改变后端数据 -->
@@ -51,12 +51,10 @@
       </el-select>
     </div>
 
-    <div v-if="loading" v-loading="loading" class="df-state">
-      正在扫描悬空引用…
-    </div>
+    <div v-if="loading" v-loading="loading" class="df-state">正在检查数据…</div>
     <el-empty
       v-else-if="visibleGroups.length === 0"
-      description="没有指向已删除持仓的流水"
+      description="暂无数据缺失"
       :image-size="80"
     />
     <div v-else class="df-groups">

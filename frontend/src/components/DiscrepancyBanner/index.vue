@@ -1,261 +1,158 @@
 <!--
-  DiscrepancyBanner · 对账差异待处理横幅（挂在布局上，全局常驻）
+  DiscrepancyBanner · 全局「数据需要核对」提醒（挂在布局上，除对账中心外全局可见）
 
-  只显示「域 B（人工对账域）待处理」的差异，条数与落地页的「待裁决差异」一致。
-
-  #980 批 B8 拆分后本文件只剩「外壳」：图标 / 标题 / 操作排 / 说明句 / 关闭按钮。
-  - 明细行 → `DiscrepancyList.vue`
-  - 取数、会话级 dismiss、路由监听 → `useDiscrepancyBanner.ts`
+  设计约束（#2866 用户实测反馈）：
+  - 这里是**提醒 + 入口**，不是详情页。三类问题（域 B 对账差异 / 域 F 交易记录
+    信息不完整 / 域 G 缺账本流水）合并成一条紧凑横幅，明细一律去对账中心看。
+  - 不铺明细行、不提供「展开全部」、不放大段说明；最多两行文字 + 一个按钮。
+  - 三类各自独立取数、独立 catch 降级；显隐只由域 B 的 loading 决定，避免新接口
+    超时把整条提醒拖没（#2866 的教训）。
 -->
 <script setup lang="ts">
+import { computed } from "vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
-import { COLLAPSED_LIMIT } from "./helpers";
 import { useDiscrepancyBanner } from "./useDiscrepancyBanner";
 import { useDanglingRefBanner } from "./useDanglingRefBanner";
 import { useOrphanLedgerBanner } from "./useOrphanLedgerBanner";
-import DiscrepancyList from "./DiscrepancyList.vue";
 
 defineOptions({ name: "DiscrepancyBanner" });
 
-const {
-  loading,
-  dismissed,
-  expanded,
-  now,
-  count,
-  stalestDays,
-  visibleItems,
-  hiddenCount,
-  routeAllowed,
-  dismiss,
-  goToWorkbench
-} = useDiscrepancyBanner();
+const { loading, dismissed, count, routeAllowed, dismiss, goToWorkbench } =
+  useDiscrepancyBanner();
 
-/** 悬空引用是另一类问题，独立取数、独立显隐，绝不并入上面那条 await 链 */
-const {
-  count: danglingCount,
-  loading: danglingLoading,
-  routeAllowed: danglingRouteAllowed,
-  goToDangling
-} = useDanglingRefBanner();
+/** 后两类只取计数，不参与显隐判定：任一接口慢/挂都不该吞掉整条提醒 */
+const { count: danglingCount } = useDanglingRefBanner();
+const { count: orphanCount } = useOrphanLedgerBanner();
 
-/** 缺账本流水（#2875）同样是独立取数，不并入上面任一条链 */
-const {
-  count: orphanCount,
-  loading: orphanLoading,
-  routeAllowed: orphanRouteAllowed,
-  goToOrphanLedger
-} = useOrphanLedgerBanner();
+interface NoticePart {
+  label: string;
+  count: number;
+  domain: "B" | "F" | "G";
+}
+
+/** 只列真有数据的类别，0 条不占版面 */
+const parts = computed<NoticePart[]>(() =>
+  (
+    [
+      { label: "对账差异", count: count.value, domain: "B" },
+      {
+        label: "交易记录信息不完整",
+        count: danglingCount.value,
+        domain: "F"
+      },
+      { label: "缺账本流水", count: orphanCount.value, domain: "G" }
+    ] as NoticePart[]
+  ).filter(p => p.count > 0)
+);
+
+const visible = computed(
+  () =>
+    routeAllowed.value &&
+    !loading.value &&
+    !dismissed.value &&
+    parts.value.length > 0
+);
+
+/** 入口落到条目最多的一类，用户第一眼先看到量最大的那批 */
+const targetDomain = computed(() => {
+  if (!parts.value.length) return "B";
+  return [...parts.value].sort((a, b) => b.count - a.count)[0].domain;
+});
+
+function goToDetails(): void {
+  goToWorkbench(targetDomain.value);
+}
 </script>
 
 <template>
   <SoftBanner
-    v-if="routeAllowed && !loading && !dismissed && count > 0"
+    v-if="visible"
     class="recon-banner"
     variant="warning"
     icon="ep:warning-filled"
+    dense
     dismissible
     @close="dismiss"
   >
-    <div class="recon-banner__body">
-      <!-- 唯一的强调数字：待处理条数。字号走 --text-num-hero 字阶令牌（不写死 24px），
-           其余数字一律用次级墨色，避免整屏都在喊。 -->
-      <p class="recon-banner__title">
-        有
-        <span class="recon-banner__count">{{ count }}</span>
-        项对账差异待处理
-        <span v-if="stalestDays !== null" class="recon-banner__stalest">
-          ，最久一条已挂 {{ stalestDays }} 天
-        </span>
-      </p>
-
-      <DiscrepancyList :items="visibleItems" :now="now" />
-
-      <div class="recon-banner__actions">
-        <button
-          type="button"
-          class="recon-banner__primary"
-          @click="goToWorkbench"
-        >
-          去对账中心处理
-        </button>
-        <button
-          v-if="hiddenCount > 0"
-          type="button"
-          class="recon-banner__link"
-          @click="expanded = true"
-        >
-          展开全部 {{ count }} 项
-        </button>
-        <button
-          v-else-if="count > COLLAPSED_LIMIT"
-          type="button"
-          class="recon-banner__link"
-          @click="expanded = false"
-        >
-          收起，仅看前 {{ COLLAPSED_LIMIT }} 项
-        </button>
+    <div class="recon-notice">
+      <div class="recon-notice__text">
+        <p class="recon-notice__title">有 {{ parts.length }} 类数据需要核对</p>
+        <p class="recon-notice__meta">
+          <template v-for="(part, index) in parts" :key="part.domain">
+            <span v-if="index > 0" class="recon-notice__sep">·</span>
+            {{ part.label }}
+            <strong class="recon-notice__num">{{ part.count }}</strong>
+          </template>
+        </p>
       </div>
-
-      <p class="recon-banner__hint">
-        差异意味着账上的数量或成本与流水推演对不上，可能影响持仓市值与收益。请到对账中心核对处理。
-      </p>
-    </div>
-  </SoftBanner>
-
-  <!-- 悬空引用（#2866）：独立条件块，不复用域 B 横幅的 .recon-banner 锚点与文案 -->
-  <SoftBanner
-    v-if="danglingRouteAllowed && !danglingLoading && danglingCount > 0"
-    class="dangling-ref-notice"
-    variant="warning"
-    icon="ep:warning-filled"
-  >
-    <div class="dangling-ref__body">
-      <p class="dangling-ref__title">
-        有
-        <span class="dangling-ref__count">{{ danglingCount }}</span>
-        条流水指向已删除的持仓（悬空引用），部分报表会静默漏算
-      </p>
-      <button type="button" class="dangling-ref__action" @click="goToDangling">
-        去查看悬空引用
-      </button>
-    </div>
-  </SoftBanner>
-
-  <!-- 缺账本孤儿流水（#2875）：第三条独立条件块，复用域 F 的排版类，不新增锚点 -->
-  <SoftBanner
-    v-if="orphanRouteAllowed && !orphanLoading && orphanCount > 0"
-    class="orphan-ledger-notice"
-    variant="warning"
-    icon="ep:warning-filled"
-  >
-    <div class="dangling-ref__body">
-      <p class="dangling-ref__title">
-        有
-        <span class="dangling-ref__count">{{ orphanCount }}</span>
-        条流水没有归属账本，不进任何账户视图
-      </p>
-      <button
-        type="button"
-        class="dangling-ref__action"
-        @click="goToOrphanLedger"
-      >
-        去查看缺账本流水
+      <button type="button" class="recon-notice__action" @click="goToDetails">
+        去查看 <span aria-hidden="true">→</span>
       </button>
     </div>
   </SoftBanner>
 </template>
 
 <style scoped>
-/*
-  #2716 起壳（底色/边框/图标/close 按钮）由 SoftBanner warning variant 承担，
-  本文件只保留正文排版：标题 / 强调数字 / 行动排 / 说明句。
-*/
-.recon-banner__body {
+/* 壳（底色/边框/图标/关闭）由 SoftBanner warning + dense 承担，这里只排正文 */
+.recon-notice {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.recon-notice__text {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.recon-banner__title {
-  margin: 0 0 6px;
-  font-size: var(--text-body, 16px);
+.recon-notice__title {
+  margin: 0;
+  font-size: var(--text-body, 14px);
   font-weight: 600;
+  line-height: 1.45;
   color: var(--text-primary);
 }
 
-/* 唯一的强调数字：条数。字阶走令牌（--text-num-hero 24px），
-   数字等宽对齐（tabular-nums），避免刷新时宽度跳动。 */
-.recon-banner__count {
-  font-size: var(--text-num-hero, 24px);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  vertical-align: baseline;
-  color: var(--color-warning-ink);
-}
-
-/* 次级说明：挂在标题后的「最久一条」 */
-.recon-banner__stalest {
-  font-size: var(--text-label, 13px);
-  font-weight: 400;
+.recon-notice__meta {
+  margin: 2px 0 0;
+  font-size: var(--text-label, 12px);
+  line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
 
-.recon-banner__actions {
-  display: flex;
-  gap: 12px;
+.recon-notice__num {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-warning-ink);
+}
+
+.recon-notice__sep {
+  margin: 0 8px;
+  color: var(--text-disabled);
+}
+
+.recon-notice__action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
   align-items: center;
-  margin-top: 8px;
-}
-
-/* 主行动：实底主按钮，底色 --brand-solid、文字 --text-inverse（#1600 约定的唯一组合） */
-.recon-banner__primary {
-  padding: 4px 12px;
-  font-size: var(--text-label, 13px);
-  font-weight: 600;
-  color: var(--text-inverse);
-  cursor: pointer;
-  background: var(--brand-solid);
-  border: none;
-  border-radius: var(--radius-sm, 8px);
-  transition: opacity 0.15s ease;
-}
-
-.recon-banner__primary:hover {
-  opacity: 0.88;
-}
-
-.recon-banner__link {
-  padding: 4px 2px;
-  font-size: var(--text-label, 13px);
+  padding: 5px 12px;
+  font-size: var(--text-label, 12px);
   font-weight: 600;
   color: var(--color-warning-ink);
-  text-decoration: underline;
   cursor: pointer;
   background: transparent;
-  border: none;
-  border-radius: var(--radius-sm, 8px);
-  transition: background-color 0.15s ease;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
-.recon-banner__link:hover {
+.recon-notice__action:hover {
   background: var(--color-warning-20);
-}
-
-.recon-banner__hint {
-  margin: 6px 0 0;
-  font-size: var(--text-label, 13px);
-  line-height: 20px;
-  color: var(--text-tertiary-ink);
-}
-
-/* 悬空引用条目：只排正文，壳由 SoftBanner warning variant 承担 */
-.dangling-ref__body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.dangling-ref__title {
-  margin: 0;
-  font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-tertiary-ink);
-}
-
-.dangling-ref__count {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-warning-ink);
-}
-
-.dangling-ref__action {
-  padding: 4px 0;
-  margin-top: 6px;
-  font-size: var(--text-label);
-  font-weight: 600;
-  color: var(--color-warning-ink);
-  text-decoration: underline;
-  cursor: pointer;
-  background: transparent;
-  border: none;
+  border-color: var(--color-warning-ink);
 }
 </style>
