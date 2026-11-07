@@ -163,21 +163,30 @@ export function majorCategoryLabel(key: string): string {
   return MAJOR_CATEGORY_LABELS[key] ?? key;
 }
 
-/** 交易类型标签（buy/sell/dividend/deposit/withdraw/split/dividend_reinvest）
+/** 交易类型标签（全站唯一来源，与后端 `core/constants.py:OP_TYPE_LABEL` 逐码对齐）
  *
  * `dividend_cash` 必须给中文：历史导入写 `dividend`、新链路写 `dividend_cash`，
  * 真机两码并存（开发库实测 69 + 33 笔）。`txnTypeLabel` 的兜底是**原值**，
  * 漏一个码就会在表格里看见英文 `dividend_cash`。
+ *
+ * 2026-11-07 补齐后端已有的 4 个码（`dividend_tax` / `bond_redeem` / `tax` / `other`）：
+ * 对账中心的「数据缺失」「缺账本流水」列表会把 `txn_type` 直出，此前页面上出现
+ * `dividend_tax`、`bond_redeem` 这类英文原值（见用户三张截图）。补齐在**此处**而不是
+ * 在对账组件里另建一份映射，避免同一枚举两套中文、各自漂移。
  */
 export const TXN_TYPE_LABELS: Record<string, string> = {
   buy: "买入",
   sell: "卖出",
   dividend: "分红",
   dividend_cash: "分红",
+  dividend_tax: "红利税扣款",
+  bond_redeem: "债券兑付",
+  tax: "扣税",
   deposit: "存入",
   withdraw: "取出",
   split: "送股/拆分",
-  dividend_reinvest: "红利再投资"
+  dividend_reinvest: "红利再投资",
+  other: "其他类型"
 };
 
 export function txnTypeLabel(type: string): string {

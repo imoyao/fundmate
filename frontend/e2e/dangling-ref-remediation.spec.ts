@@ -329,13 +329,14 @@ function attachRenderProbes(page: Page): string[] {
 }
 
 async function openDomainF(page: Page) {
-  await page.goto("/#/investment/reconcile-workbench", { waitUntil: "commit" });
+  // 新 IA 不再有 7 个域 tab：站外入口与测试都用 `?domain=F` 直达「修正数据」任务，
+  // 页面自动展开该来源的处理区。域只作寻址，不作导航维度。
+  await page.goto("/#/investment/reconcile-workbench?domain=F", {
+    waitUntil: "commit"
+  });
   await expect(page.locator(".workbench-head__title")).toBeVisible({
     timeout: 150_000
   });
-  await page
-    .locator(".workbench-tabs .el-tabs__item", { hasText: "数据缺失" })
-    .click();
   await expect(page.locator(".df-summary")).toBeVisible();
   // 先等首屏取数收口，再做「不存在」类断言，避免 toHaveCount(0) 抢跑假绿
   await expect(page.locator(".df-state")).toHaveCount(0);
