@@ -20,6 +20,7 @@
 | `StatusBanner` | 系统状态页**大卡**（bg-card 底、左 4px 色条、radius-lg、阴影），形态不同 |
 | `ExploreConvBanner` | 匿名转化**营销卡**（品牌渐变底 + 大 CTA），不是警示 |
 | `RecognizerUsageBanner` / `OcrUsageBanner` | 额度**纯文字行**（作者注释明确「无背景无边框、用空间代替色块、弱化存在感」） |
+| `WelcomeGreeting` 状态三「N 条未读消息」 | 首页欢迎语**纯文字行 + 行内文字按钮**（`welcome-unread`，2026-11-03 v1.5）。入选理由同上一行，且更硬：它位于首屏最顶部、正上方就是 24px 的「你已记账 N 天」，加底色/边框会让 1 条弱提醒的视觉权重压过主数据。**不做迁移**；它的缺陷（裸 button 露出 UA 灰底、emoji 当图标、告警色表意）由 `welcome-greeting-spec.md` v1.5 就地修正，与本组件无关 |
 | el-alert ×12 | **已全部迁移**（#2723）。原「按 axe/对比度守卫判定、达标处不强求迁移」的前提不成立：真机取 computed style 实测 12 处**四型全部不达标**（info 2.80 / success 2.08 / warning 2.04 / error 2.61:1），无一处可豁免，见 §5.2 |
 | import/ledgers 页内零散 banner 块 | **已迁 3 处**（#2724：`draft-banner` / `usage-banner` / `cash-binding-banner`），见 §5 |
 | import/ledgers 剩余 3 处（`.conflict-banner` / `.soft-reconcile-banner` / `.orphan-banner`） | **已迁 3 处**（#2730）：前两者是 `brand-100` 品牌色底，第 3 处带 `border-left: 3px` 语义条。裁决见 §5.3——组件补 `brand` 档承载品牌色态；左语义条判为**冗余装饰**随壳删除，不加 `accent` prop |

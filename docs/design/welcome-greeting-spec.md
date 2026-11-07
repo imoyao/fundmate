@@ -1,8 +1,8 @@
 ---
-title: 多多贝 · 首页欢迎语位置设计规范 v1.4
+title: 多多贝 · 首页欢迎语位置设计规范 v1.5
 ---
 
-# 多多贝 · 首页欢迎语位置设计规范 v1.4
+# 多多贝 · 首页欢迎语位置设计规范 v1.5
 
 本文档规范「多多贝」登录后仪表盘顶部欢迎语位置的内容、状态与交互逻辑。
 此位置位于页面左上角，总资产卡片正上方，是用户登录后第一眼看到的内容区域。
@@ -57,13 +57,48 @@ title: 多多贝 · 首页欢迎语位置设计规范 v1.4
 ### 状态三：有未读站内信时（与状态一/二叠加）
 
 ```plain
-📬 你有 1 条未读消息 [查看]
-把涨跌交给市场，用复利丈量自己
+[铃铛图标] 你有 1 条未读消息：配比偏离：沪深300 当前 45.00%，目标 30.00%  [查看]
 ```
 
 - 消息提示条叠加在顶部，品牌定调语作为副行继续保留
-- 「查看」按钮复用 `lay-notice` 的未读跳转逻辑，不新建组件
+- **形态是「纯文字行 + 行内文字按钮」**，不加底色/边框：它承载 1 条弱提醒，视觉权重
+  必须低于下方 24px 的「你已记账 N 天」。`soft-banner.md §2` 已明确把「纯文字行」
+  排除在柔性提示条家族之外，此处不是 SoftBanner 的适用场景
+- 图标走 Iconify `ep:bell`，**不用 📬 emoji**：`conventions.md`（全站禁止 Emoji）与
+  `frontend-ui.md`（禁止用 emoji 替代组件符号）都禁止；且 emoji 在 Windows 上渲染为
+  彩色位图，与全站线条图标不是一套语言
+- 文案色 `--text-secondary`，**不用 `--color-warning-ink`**：未读消息不是告警，
+  用告警色会把「提醒读一下」升格成「出事了」。层次为 图标（`--text-tertiary-ink`）
+  < 说明文字（`--text-secondary`）< 未读数字（`--text-primary` + 600 字重 + `tabular-nums`）
+- 标题取自后端 `GET /api/notifications/` 的 `banner` 字段（最高优先级 1 条未读，
+  同级取最新），单行截断；超过 1 条时以数字补充
 - 右侧按钮逻辑见下文「右侧按钮逻辑矩阵」
+
+#### 「查看」的行为（v1.5 修订）
+
+```plain
+[收起] ← 点击后就地展开
+  正文（后端 body，配比偏离 / 分红扣税等客观陈述）
+  发生于 2026-11-03 10:20
+  [查看标的详情]  [标记已读]
+```
+
+- **「查看」= 就地展开这条消息的完整正文**，不是跳到一个消息中心页面。理由：
+  全仓没有消息中心路由（2026-11-03 核实，路由表零命中），v1.4 那句「复用 `lay-notice`
+  的未读跳转逻辑」**指向了一个不存在的实现**——`lay-notice` 的点击语义始终是
+  「标记已读」，从来没有跳转
+- 展开区展示：正文（`banner.body`，可为空）、发生时间、两个二级操作
+  - **查看标的详情**：仅当通知带 `source_key` 时出现，经 `resolveDetailPath()`
+    交后端判定品类后跳产品详情。**前端不得按 symbol 形态猜品类**（#1497 的同族错误）。
+    解析失败 / 产品未收录时须 `ElMessage` 明确告知，不得表现为「点了没反应」
+  - **标记已读**：调 `PATCH /api/notifications/<id>/read/`，成功后提示条计数减一并
+    换成下一条最高优先级消息；失败时重新拉取以恢复真实状态
+- 按钮必须显式重置 `background` / `border`：本仓未引入 Tailwind Preflight
+  （`tailwind.css` 只 import `theme` + `utilities`），`reset.scss` 对 `button` 只重置了
+  `background-image`——漏掉这一步会露出浏览器 UA 的灰底 + 2px outset 边框，
+  这正是 v1.4 里那个「长得像 90 年代控件」的按钮的成因
+- **待办（不在 v1.5 范围）**：消息中心页面 + 逐条详情页。落地后「查看」应改为深链到
+  该页，本节其余结论不变
 
 ### 右侧按钮逻辑矩阵
 
@@ -147,6 +182,12 @@ title: 多多贝 · 首页欢迎语位置设计规范 v1.4
 | 按钮圆角 | 9999px（欢迎语 CTA 例外） | `--radius-pill` |
 | 按钮高度 | 40px | 对齐 design.md 主按钮 |
 | 按钮内边距 | 8px 20px | 胶囊态微调 |
+| 未读提示图标 | 14px，`--text-tertiary-ink` | `--text-small` |
+| 未读提示文字 | 14px，`--text-secondary` | `--text-small` |
+| 未读数字 | 600 字重，`--text-primary`，`tabular-nums` | `--text-small` |
+| 展开区缩进 | 22px（图标 14 + 间距 8，与上方文字左对齐） | 与 `__line` 的 gap 联动 |
+| 展开区正文 | 14px / 1.6，`--text-secondary`，最大宽 640px | `--text-small` |
+| 行内文字按钮 | 14px，`--brand-ink`，hover 下划线 | `--text-small` |
 
 ---
 
@@ -161,6 +202,9 @@ title: 多多贝 · 首页欢迎语位置设计规范 v1.4
 
 - 问候语容器：`aria-live="polite"`，状态切换时读屏可感知
 - 「导入持仓，看清每日涨跌」按钮：`aria-label="导入持仓，看清每日涨跌"`
+- 未读提示的「查看」按钮：`aria-expanded` 表达展开态，`aria-controls` 指向展开区 id
+  （固定为 `welcome-unread-detail`），展开区本身不重复加 live region
+- 图标（铃铛）为纯装饰：`aria-hidden="true"`，语义由文字承担
 - 颜色不作为唯一信息载体：天数高亮同时有加粗与字号层级区分
 - 所有颜色变量变更须通过 axe-core / Lighthouse 对比度回归（design.md 强制约束）
 
@@ -175,7 +219,7 @@ title: 多多贝 · 首页欢迎语位置设计规范 v1.4
 
 ---
 
-文档版本：v1.4 | 更新日期：2026-09-30 | 作者：阿垚
+文档版本：v1.5 | 更新日期：2026-11-03 | 作者：阿垚
 
 变更记录：
 
@@ -187,3 +231,12 @@ title: 多多贝 · 首页欢迎语位置设计规范 v1.4
   改为 `/investment/eaccount-import`（命名路由），并说明「先有持仓才能算涨跌」的上手顺序理由（#936）
 - v1.4：导入页改名「导入持仓快照」——路由 path `/investment/eaccount-import` → `/investment/holding-import`，
   路由 name 同步改为 `InvestmentHoldingImport`，本 CTA 去向随之更新；同一版本该页新增「手动录入」第三分段（#1788）
+- v1.5（2026-11-03）：状态三从「能看见但点不动」改为可用。修掉三处实现缺陷并补一处设计缺口：
+  ①「查看」原实现只有 `console.debug` + TODO，而 v1.2~v1.4 写的「复用 `lay-notice` 的未读跳转逻辑」
+  指向了**不存在的实现**（`lay-notice` 从无跳转，其点击语义是标记已读）——改为就地展开正文，
+  并明确「消息中心页面尚未落地」这一前提；②按钮是裸 `<button>`，本仓未引 Tailwind Preflight 且
+  `reset.scss` 漏了 `background-color` / `border` 重置，UA 灰底 + outset 边框直接露出——补显式重置；
+  ③📬 emoji 违反 `conventions.md` / `frontend-ui.md` 的禁 emoji 约定，改 Iconify `ep:bell`；
+  ④文案由 `--color-warning-ink`（告警色）改为 `--text-secondary`（信息色），未读不是告警；
+  ⑤提示条开始消费后端一直返回却无人使用的 `banner` 字段，用户无需点开铃铛即可知道「是什么事」
+
