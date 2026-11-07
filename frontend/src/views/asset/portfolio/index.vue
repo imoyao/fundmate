@@ -21,7 +21,7 @@
       </el-button>
     </div>
 
-    <!-- 集合边界（#2965）：独立 v-if，放在整条 loading/empty/list 链之前，
+    <!-- 集合边界（D92）：独立 v-if，放在整条 loading/empty/list 链之前，
          不打断 v-else 链。后端只在确有未归属持仓时置 true。 -->
     <p
       v-if="portfolioTodayPnl?.excludes_unassigned"
@@ -191,7 +191,7 @@ async function loadBenchmarks() {
 const portfolios = ref<PortfolioItem[]>([]);
 const loading = ref(true);
 
-// #2965 当日收益：一次请求拿全部组合的分组行，卡片按 id 查表，不一张卡发一次。
+// D92 当日收益：一次请求拿全部组合的分组行，卡片按 id 查表，不一张卡发一次。
 // `excludes_unassigned` 为 true 时说明家庭里还有未归属持仓——按用户拍板，
 // 不单列「未归属」桶，只用页面级一行小字把集合边界讲清楚。
 const { byKey: todayPnlByPortfolio, data: portfolioTodayPnl } =

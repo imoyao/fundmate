@@ -45,7 +45,7 @@
           <MoneyDisplay :value="xirrData.total_return" />
         </div>
       </div>
-      <!-- 当日收益（#2965）：与首页「最新收益」同源；没数显示「—」，不画 0 -->
+      <!-- 当日收益（D92）：与首页「最新收益」同源；没数显示「—」，不画 0 -->
       <div class="xirr-item">
         <span class="xirr-label">当日收益</span>
         <div class="xirr-value">
@@ -68,7 +68,7 @@
     <div v-if="metricsNote" class="xirr-note">{{ metricsNote }}</div>
     <!-- #871：TWR 口径下部分持仓无历史价格序列时的诚实提示（不缺数据画成 0） -->
     <div v-if="unvaluedHint" class="xirr-note">{{ unvaluedHint }}</div>
-    <!-- #2965：用户拍板「只显示已归属部分，不单列未归属桶」，故只标一行集合边界 -->
+    <!-- D92：用户拍板「只显示已归属部分，不单列未归属桶」，故只标一行集合边界 -->
     <div v-if="todayPnl?.excludes_unassigned" class="xirr-note">
       当日收益不含未归属持仓
     </div>
@@ -102,7 +102,7 @@ import { useTodayPnlGroups } from "@/composables/useTodayPnlGroups";
  */
 const props = defineProps<{ portfolioId: number }>();
 
-// #2965 组级当日收益：与「累计收益」并列的第二个收益概念（当日流量 vs 存量结论）。
+// D92 组级当日收益：与「累计收益」并列的第二个收益概念（当日流量 vs 存量结论）。
 // 作用域按组合 id、维度默认 class ⇒ `total_pnl` 就是该组合**已归属持仓**的当日合计；
 // 未归属部分不单列桶，由 `excludes_unassigned` 决定是否标一行集合边界小字。
 // getter 传参：切换组合时底座自动重取，不会残留上一个组合的数。

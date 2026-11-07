@@ -444,7 +444,7 @@ def test_份额唯一事实源是positions_quantity(db, make_position, make_tran
     assert holdings['SH600519']['quantity'] == pytest.approx(300.0)
 
 
-# ── 通用当日估值（#2965）：单资源 + dimension/scope ───────────────────────
+# ── 通用当日估值（D92）：单资源 + dimension/scope ───────────────────────
 
 
 def _stock_in(

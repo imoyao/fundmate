@@ -97,7 +97,7 @@
             >
             <MoneyDisplay :value="p.summaryData?.position_pnl || 0" size="lg" />
           </div>
-          <!-- 当日收益（#2965）：账户级作用域，与「货基今日收益」并列不相加 -->
+          <!-- 当日收益（D92）：账户级作用域，与「货基今日收益」并列不相加 -->
           <LedgerTodayPnlMetric :data="p.todayPnlData" />
           <!-- 持仓数量 -->
           <div class="flex flex-col">

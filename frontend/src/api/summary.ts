@@ -841,7 +841,7 @@ export function getFundValuation(params?: {
 export type TodayPnlStatus =
   "estimated" | "confirmed" | "partial" | "empty" | "no_data";
 
-/** 当日估值的分组维度（#2965）：一份当日收益，三种切法 */
+/** 当日估值的分组维度（D92）：一份当日收益，三种切法 */
 export type TodayPnlDimension = "class" | "ledger" | "portfolio";
 
 /**
@@ -943,7 +943,7 @@ export type TodayPnlData = {
   unvalued_count?: number;
   unvalued_value?: number | null;
   /**
-   * 作用域 / 维度（#2965 通用化）：单资源的两个正交切面。
+   * 作用域 / 维度（D92 通用化）：单资源的两个正交切面。
    * `scope` 由 `ledger_id` / `portfolio_id` 推导后回带，前端别按 id 自己判。
    */
   scope: "family" | "ledger" | "portfolio";
@@ -962,7 +962,7 @@ export type TodayPnlData = {
 };
 
 /**
- * 当日估值（单资源，#2965）：首页 / 账户 / 组合 / 品类共用这一个端点。
+ * 当日估值（单资源，D92）：首页 / 账户 / 组合 / 品类共用这一个端点。
  *
  * - 不传参 = 首页：股票 / 基金分项，与收益日历当日格同源；
  * - `dimension=ledger` / `portfolio`：列表页**一次批量取数**，按 `groups[].key`

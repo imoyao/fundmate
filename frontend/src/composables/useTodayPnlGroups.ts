@@ -1,6 +1,6 @@
 // src/composables/useTodayPnlGroups.ts
 /**
- * 当日估值分组的取数底座（#2965）：首页 / 账户 / 组合 / 详情页共用。
+ * 当日估值分组的取数底座（D92）：首页 / 账户 / 组合 / 详情页共用。
  *
  * 只有一个端点 `GET /summary/today-pnl/`，靠 `dimension` + 互斥的
  * `ledger_id` / `portfolio_id` 切出不同视图。本模块只做三件事：

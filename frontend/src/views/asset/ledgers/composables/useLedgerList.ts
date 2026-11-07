@@ -535,7 +535,7 @@ export function useLedgerList() {
     }
   }
 
-  // #2965 当日估值：账户卡片按 `dimension=ledger` 一次批量取全部账户，
+  // D92 当日估值：账户卡片按 `dimension=ledger` 一次批量取全部账户，
   // 顶部两张聚合卡按 `dimension=class` 取股票 / 基金各自当日收益。
   // 两份分组都由同一个端点出，口径与首页「最新收益」同源；取数底座自带
   // immediate watch，与 fetchData 解耦——估值失败不拖累账户列表主数据。

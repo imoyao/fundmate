@@ -2,7 +2,7 @@
 """汇总域的查询参数模型。
 
 `MemberSliceQuery`（#1173）：按家庭成员切片。
-`TodayPnlQuery`（#2965）：当日估值的「单资源 + 分组维度 + 作用域」查询。
+`TodayPnlQuery`（D92）：当日估值的「单资源 + 分组维度 + 作用域」查询。
 
 放在 schemas 而不是视图里内联解析，有两个理由：
 - **非法值不能静默**：手写 `int(request.args.get(...))` 失败时会抛 ValueError，
@@ -29,7 +29,7 @@ class MemberSliceQuery(BaseModel):
 
 
 class TodayPnlQuery(BaseModel):
-    """`GET /summary/today-pnl/` 的通用查询参数（#2965）。
+    """`GET /summary/today-pnl/` 的通用查询参数（D92）。
 
     一个资源覆盖首页 / 账户 / 组合 / 品类四个页面，靠**两个正交参数**切：
 

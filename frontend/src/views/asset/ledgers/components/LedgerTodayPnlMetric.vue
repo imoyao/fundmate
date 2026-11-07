@@ -1,5 +1,5 @@
 <!--
-  LedgerTodayPnlMetric · 账户详情概览里的「当日收益」指标（#2965）
+  LedgerTodayPnlMetric · 账户详情概览里的「当日收益」指标（D92）
 
   单独成组件有两个理由：
   1. 详情页概览 `LedgerDetailOverview.vue` 已 385 行，逼近 400 行门禁；

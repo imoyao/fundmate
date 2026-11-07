@@ -49,7 +49,7 @@ export function useLedgerOverview(
   // 货币基金收益（仅基金账户拉取）
   const moneyFundData = ref<MoneyFundIncomeData | null>(null);
 
-  // #2965 账户级当日估值：维度默认 class，作用域由路由 id 决定。
+  // D92 账户级当日估值：维度默认 class，作用域由路由 id 决定。
   // 用 getter 传参，切账户时底座会自动重取，不会残留上一个账户的数。
   // 与 `moneyFundData`（货基净值收益）并列展示，二者口径不同、禁止相加。
   const { data: todayPnlData } = useTodayPnlGroups(() => ({

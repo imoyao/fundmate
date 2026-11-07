@@ -1148,7 +1148,7 @@ def _compute_days(
 ) -> List[dict]:
     """现算 `[loop_start, end]` 并返回**存储形态**（整数分 / 整数基点，供 `save_days`）。
 
-    `bucket_of`（#2965 当日估值分桶）只与 `class_breakdown` 配套：把同一条水平值链
+    `bucket_of`（D92 当日估值分桶）只与 `class_breakdown` 配套：把同一条水平值链
     按调用方给的桶键聚合，桶可以是资产大类 / 账户 / 组合。默认 None ⇒
     `class_of_position`，与首页原有行为**逐位等价**；日历主路径两者都传 None，
     零额外分配。分桶只改「按什么键累加」，不改任何差分、状态、基准推进逻辑。

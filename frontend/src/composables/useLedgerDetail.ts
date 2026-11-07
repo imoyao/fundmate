@@ -74,7 +74,7 @@ export interface LedgerDetailApi {
   selectedPosition: Ref<LedgerHoldingRow | null>;
   summaryData: Ref<LedgerSummaryData | null>;
   moneyFundData: Ref<MoneyFundIncomeData | null>;
-  /** 账户级当日估值（#2965，由 useLedgerOverview 透传） */
+  /** 账户级当日估值（D92，由 useLedgerOverview 透传） */
   todayPnlData: Ref<TodayPnlData | null>;
   isCompositionLedger: ComputedRef<boolean>;
   compositionData: ComputedRef<{ name: string; value: number }[]>;

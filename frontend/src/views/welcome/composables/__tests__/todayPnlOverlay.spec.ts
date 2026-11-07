@@ -50,7 +50,7 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
       { symbol: "SH600519", class: "stock", quantity: 100, price: 11 },
       { symbol: "000001", class: "fund", quantity: 1000, price: 1.1 }
     ],
-    // #2965 通用化后的契约字段：首页默认请求是 family / class、无未归属排除
+    // D92 通用化后的契约字段：首页默认请求是 family / class、无未归属排除
     scope: "family",
     dimension: "class",
     ledger_id: null,
