@@ -137,7 +137,9 @@ describe("#2854 导入行数对账", () => {
   it("换文件时清空对账状态，避免上一份文件的差额挂在新预览上", () => {
     const w = setup();
     w.sourceRowCount.value = 340;
-    w.parseErrors.value = [{ line: 4, raw_value: "快速取现" }];
+    w.parseErrors.value = [
+      { line: 4, field: null, message: "…", raw_value: "快速取现" }
+    ];
     w.parseErrorCount.value = 1;
     w.ignoredRowCount.value = 1;
     w.clearImportState();

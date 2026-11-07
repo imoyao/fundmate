@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { PreviewRow } from "../composables/previewRow";
 import TableControls from "./TableControls.vue";
 import RowSelectionCell from "./RowSelectionCell.vue";
 import StatusCell from "./StatusCell.vue";
@@ -45,16 +46,37 @@ function amountHint(row: any): string {
 }
 
 /** 缺数量或价格时返回对应字段名，供操作列「补全」一键定位编辑（基金模式暂不提供该捷径，修正走智能修正面板） */
-function missingField(row: any): "quantity" | "price" | null {
+function missingField(row: unknown): "quantity" | "price" | null {
+  const r = row as PreviewRow;
   if (isFundMode.value) return null;
   const qtyEmpty =
-    row.quantity === null || row.quantity === undefined || row.quantity === "";
+    r.quantity === null ||
+    r.quantity === undefined ||
+    (r.quantity as unknown) === "";
   const priceEmpty =
-    row.price === null || row.price === undefined || row.price === "";
+    r.price === null || r.price === undefined || (r.price as unknown) === "";
   if (qtyEmpty && priceEmpty) return "quantity";
   if (qtyEmpty) return "quantity";
   if (priceEmpty) return "price";
   return null;
+}
+
+/**
+ * el-table 的 `#default="{ row }"` 槽把行类型放宽成组件库自己的 `DefaultRow`
+ * （宽松索引类型），与 `PreviewRow` 无交集。在**边界**上收一次口，而不是把
+ * `any` 顺着事件回调漏进 composables（#2879）。
+ */
+function asPreviewRow(row: unknown): PreviewRow {
+  return row as PreviewRow;
+}
+
+function handleStartEdit(row: unknown): void {
+  const target = asPreviewRow(row);
+  startEdit(target, missingField(target)!);
+}
+
+function handleToggleIgnore(row: unknown): void {
+  toggleIgnoreRow(asPreviewRow(row));
 }
 </script>
 
@@ -136,7 +158,7 @@ function missingField(row: any): "quantity" | "price" | null {
                 link
                 type="primary"
                 size="small"
-                @click="startEdit(row, missingField(row)!)"
+                @click="handleStartEdit(row)"
                 >补全</el-button
               >
               <el-button
@@ -144,7 +166,7 @@ function missingField(row: any): "quantity" | "price" | null {
                 link
                 type="danger"
                 size="small"
-                @click="toggleIgnoreRow(row)"
+                @click="handleToggleIgnore(row)"
                 >忽略</el-button
               >
               <el-button
@@ -152,7 +174,7 @@ function missingField(row: any): "quantity" | "price" | null {
                 link
                 type="primary"
                 size="small"
-                @click="toggleIgnoreRow(row)"
+                @click="handleToggleIgnore(row)"
                 >恢复</el-button
               >
             </div>
