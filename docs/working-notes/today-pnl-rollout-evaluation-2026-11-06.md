@@ -184,6 +184,8 @@ GET /api/summary/today-pnl/
 - 前端：`pnpm typecheck`（tsc + vue-tsc）、`pnpm test:unit` **164 files / 2242 tests**、`eslint --max-warnings 0`、`prettier --check`、`stylelint`、CI 同款 `check_vue_size --mode fail --baseline` 全绿。
 - 关键回归：默认请求逐位等价、`Σ groups.pnl ≡ total_pnl`、scope 互斥与非法参数、组合「显式覆盖继承」与未归属排除、无估值资产不入桶、单次 `_compute_days`、动态桶键回退、账户级 `holdings` 裁剪。
 
+- **CI 首轮红灯与修复（提 PR 后补）**：本地只跑 `ruff check`、漏跑 `ruff format --check`，CI 抓到 `today_pnl.py` 两处多行调用需压行；`guard_service_size.py` 基线未随通用化回写（该判据要求基线与实测**逐项相等**，不是「不超过」），按 #2141 先例以 `--report` 实测值回写 `today_pnl` / `pnl_calendar`，并把 `asset_class` 压缩 docstring 后收紧到 63 行，附 dated 注释。教训：后端本地验证要跑全守卫（`ruff format --check .` + `guard_service_size.py` + 对应单测），不能只对改动文件跑 lint。
+
 ### 8.4 未做 / 边界
 
 - 银行理财、贵金属等 `balance` 模式本期不做，一律 `—`；不新增估值数据源。

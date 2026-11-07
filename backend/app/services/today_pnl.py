@@ -236,11 +236,7 @@ def _dimension_buckets(
         labels = {c: CLASS_LABELS[c] for c in CARD_CLASSES}
         inherited: Dict[int, Optional[int]] = {}
     else:
-        ledger_rows = (
-            db.query(Ledger.id, Ledger.name, Ledger.portfolio_id)
-            .filter(Ledger.family_id == family_id)
-            .all()
-        )
+        ledger_rows = db.query(Ledger.id, Ledger.name, Ledger.portfolio_id).filter(Ledger.family_id == family_id).all()
         inherited = {row.id: row.portfolio_id for row in ledger_rows}
         if dimension == DIMENSION_LEDGER:
             labels = {str(row.id): (row.name or f'账户 {row.id}') for row in ledger_rows}
@@ -406,9 +402,7 @@ def build_today_pnl(
         value_positions = all_positions
     scope = resolve_scope_label(ledger_id, portfolio_id)
 
-    labels, bucket_keys, bucket_of, unassigned_count = _dimension_buckets(
-        db, family_id, value_positions, dimension
-    )
+    labels, bucket_keys, bucket_of, unassigned_count = _dimension_buckets(db, family_id, value_positions, dimension)
     excludes_unassigned = dimension == DIMENSION_PORTFOLIO and unassigned_count > 0
     if not value_positions:
         return _empty_payload(
