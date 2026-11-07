@@ -1588,7 +1588,9 @@ class TestLedgerSummary:
         assert data['total_market_value'] == 12000.0  # 1000份 × 12元
         assert data['position_count'] == 1
         assert data['cash_balance'] == 500.0  # 50000分 -> 500元
-        assert data['daily_pnl'] is None
+        # 当日盈亏统一由 /summary/today-pnl/ 提供（D92）：本概览端点不再返回
+        # 恒 None 的占位字段，避免后来者误以为该在这里另算一套。
+        assert 'daily_pnl' not in data
         assert 'cumulative_return' in data
         assert 'allocation_distribution' in data
         # type_distribution：后端按资产大类聚合（asset_type 默认 None → '其他'）

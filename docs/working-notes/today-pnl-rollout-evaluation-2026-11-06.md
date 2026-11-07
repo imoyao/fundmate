@@ -190,4 +190,4 @@ GET /api/summary/today-pnl/
 - 策略风格标签（多对多、`Σ 标签 ≠ 家庭`）不进 `dimension`。
 - 组合维度 `Σ 组合 ≠ 家庭`（D71）是口径而非缺陷，靠一行小字说明。
 - `origin/dev` 已推进到 `d410061f2e`（#2879 import 预览行重构），与本分支改动文件不重叠；分支只 push、暂未开 PR（待确认后再提，避免 auto-merge 抢在人工审阅前合并）。
-- **已知遗留**：`ledgers/views.py::get_ledger_summary()` 仍返回历史占位 `daily_pnl: None`，前端已不消费（当日盈亏一律走 `today-pnl`）。本批**未删**：该文件有 635 行视图厚度基线，连加一段说明注释都可能顶破，清理需同步收紧基线，另立处理，不塞进功能批次。
+- **同批清理**：`ledgers/views.py::get_ledger_summary()` 的历史占位 `daily_pnl: None` 已删除。核实链路：`LedgerService` 三个 stats 方法均不产出该字段、`LedgerSummaryData` 全接口无声明、前端零消费；唯一消费方是 `test_ledgers.py` 里一条把占位钉住的 `assert data['daily_pnl'] is None`，已改为**正向契约判据** `assert 'daily_pnl' not in data`（防止死字段回潮）。留着这个字段会诱导后来者在这里另算一套当日盈亏（D92 要防的分叉）。删除**不增加行数**（只去掉一个 dict key），故 635 行视图厚度基线不受影响；字段归属说明并入原有 docstring 行。**过程勘误**：初查曾误判「测试零断言」，是 `test_ledgers.py` 全量单测跑出 `KeyError` 才暴露——判据以测试实跑为准，不以文本搜索为准。

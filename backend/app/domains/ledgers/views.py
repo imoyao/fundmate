@@ -393,13 +393,13 @@ def get_ledger_pending_estimate(ledger_id: int):
 
 @ledgers_bp.get('/<int:ledger_id>/summary/')
 def get_ledger_summary(ledger_id: int):
-    """获取单账户概览卡片数据，根据账户类型返回不同指标"""
+    """获取单账户概览卡片数据，根据账户类型返回不同指标（当日盈亏见 today-pnl，D92）"""
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
 
-        data = {'ledger_type': ledger.ledger_type, 'ledger_name': ledger.name, 'daily_pnl': None}
+        data = {'ledger_type': ledger.ledger_type, 'ledger_name': ledger.name}
 
         if ledger.ledger_type in ('stock', 'fund', 'e_account'):
             stats = LedgerService.get_portfolio_stats(db, ledger.id)
