@@ -59,7 +59,7 @@ export const domainTabs: WorkbenchDomainTab[] = [
     key: "C",
     label: "对账单导入",
     title: "对账单导入核对",
-    description: "导入交割单后自动比对孤儿持仓",
+    description: "导入交割单后自动找出缺流水的持仓",
     badgeType: "fund",
     entry: {
       title: "导入交割单后自动核对",

@@ -67,7 +67,7 @@
       <section class="recon-queue">
         <SectionHeader
           :title="`待办队列${taskLabel ? ` · ${taskLabel}` : ' · 全部任务'}`"
-          info="按「现在能不能动手」排序。点一条待办，下方会展开对应的处理区。"
+          info="按「现在能不能动手」排序。点一条待办，右侧会打开这条的来龙去脉、投资轨迹和处理动作。"
         />
 
         <ReconQueueFilter
@@ -100,7 +100,7 @@
         >
           <ul class="recon-queue__list">
             <ReconQueueCard
-              v-for="item in visibleItems"
+              v-for="item in pagedItems"
               :key="item.id"
               :item="item"
               :active="activeDetailId === item.id"
@@ -111,10 +111,20 @@
             />
           </ul>
         </ReconStatusState>
+
+        <ReconQueuePagination
+          :page="page"
+          :page-size="pageSize"
+          :total="visibleItems.length"
+          @update:page="setPage"
+          @update:page-size="setPageSize"
+          @changed="scrollQueueTop"
+        />
       </section>
 
       <ReconQueueDetail
         :item="activeItem"
+        :open="detailOpen"
         :domain="activeDomain"
         :ctx="detailContext"
         @close="closeDetail"
@@ -167,6 +177,7 @@ import RecognizerCandidatesPanel from "./components/RecognizerCandidatesPanel.vu
 import ReconQueueFilter from "./components/ReconQueueFilter.vue";
 import ReconStatusState from "./components/ReconStatusState.vue";
 import ReconQueueCard from "./components/ReconQueueCard.vue";
+import ReconQueuePagination from "./components/ReconQueuePagination.vue";
 import ReconQueueDetail from "./components/ReconQueueDetail.vue";
 import ReconBatchDialog from "./components/ReconBatchDialog.vue";
 import SupplementDialog from "./components/SupplementDialog.vue";
@@ -223,6 +234,11 @@ const queue = useReconQueue(queueSource);
 const {
   filter,
   visibleItems,
+  page,
+  pageSize,
+  pagedItems,
+  setPage,
+  setPageSize,
   taskCounts,
   recordCounts,
   readyCounts,
@@ -245,6 +261,7 @@ const {
 
 const {
   detailContext,
+  detailOpen,
   activeDetailId,
   activeDomain,
   activeItem,
@@ -260,6 +277,7 @@ const {
   goTo,
   openItem,
   closeDetail,
+  scrollQueueTop,
   focusBanner,
   openBatch,
   onBatchSubmitted

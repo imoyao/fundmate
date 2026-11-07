@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import type {
   DanglingRefGroup,
   DanglingRefList,
+  DiscrepancyItem,
   DividendTaxPendingItem,
   OrphanLedgerGroup,
   OrphanLedgerList
@@ -347,5 +348,109 @@ describe("和式不变量：卡片条数与状态计数与队列同源", () => {
     const options = queueBatchOptions(buildReconQueue(fullSource()));
     expect(options.map(o => o.id)).toEqual([1, 2]);
     expect(options[0].label).toContain("来自 2026-06-07 18:33 的导入");
+  });
+});
+
+/* ── 第二轮：产品名 / cash / 差异术语（owner 截图反馈） ───────────────── */
+describe("队列里不再出现「只有代码」「裸 cash」「孤儿」", () => {
+  function disc(over: Partial<DiscrepancyItem> = {}): DiscrepancyItem {
+    return {
+      id: 1,
+      domain: "B",
+      ledger_id: 20,
+      symbol: "SH688223",
+      discrepancy_type: "quantity",
+      expected_value: 100,
+      actual_value: 140,
+      diff: 40,
+      status: "pending",
+      is_permanent: false,
+      first_detected_at: null,
+      updated_at: null,
+      ...over
+    };
+  }
+
+  function visibleText(items: ReturnType<typeof buildReconQueue>): string {
+    return items
+      .map(i => `${i.title} ${i.summary} ${i.facts.join(" ")}`)
+      .join(" ");
+  }
+
+  it("后端给了 display_name 时标题用名称，代码仍留在事实行", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      discrepancies: [disc({ display_name: "××科创板基金" })]
+    });
+    const row = items.find(i => i.id === "disc-1");
+    expect(row?.title).toBe("××科创板基金");
+    expect(row?.facts.join(" ")).toContain("SH688223");
+    expect(row?.summary).toContain("份额对不上");
+  });
+
+  it("没有名称时退到代码，不臆造产品名", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      discrepancies: [disc()]
+    });
+    expect(items.find(i => i.id === "disc-1")?.title).toBe("SH688223");
+  });
+
+  it("差异数字改用「按流水算 / 账上记的 / 差多少」，不再说理论实际", () => {
+    const row = buildReconQueue({
+      ...emptySource(),
+      discrepancies: [disc()]
+    }).find(i => i.id === "disc-1");
+    const facts = row?.facts.join(" ") ?? "";
+    expect(facts).toContain("按流水算");
+    expect(facts).toContain("账上记的");
+    expect(facts).toContain("差多少");
+    expect(facts).not.toContain("理论");
+    expect(facts).not.toContain("实际");
+  });
+
+  it("orphan 说人话，界面零「孤儿」", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      discrepancies: [disc({ domain: "C", discrepancy_type: "orphan" })]
+    });
+    expect(visibleText(items)).not.toContain("孤儿");
+    expect(visibleText(items)).toContain("有持仓");
+  });
+
+  it("cash 分红显示成「现金」，可见文本零裸 cash", () => {
+    const cashTax: DividendTaxPendingItem = {
+      symbol: "cash",
+      name: "",
+      account_name: "测试账户",
+      year: 2026,
+      status: "未扣",
+      dividend_cents: 50000,
+      dividend_on: "2026-06-20",
+      tax_cents: 0,
+      tax_on: null,
+      ratio_pct: null
+    };
+    const items = buildReconQueue({ ...emptySource(), taxItems: [cashTax] });
+    expect(visibleText(items)).toContain("现金");
+    expect(visibleText(items)).not.toContain("cash");
+    expect(visibleText(items)).toContain("不是一只产品");
+  });
+});
+
+describe("畸形 200 响应不能把整页冻在加载态", () => {
+  it("清单字段被写成汇总对象时按空数组降级，不抛错", () => {
+    // e2e 实测：/ghost-duplicates/ignored/ 打错桩，宽桩返回 {groups, ignored_count}
+    // 被当成数组写进 ghostIgnored → buildReconQueue 的 for...of 抛错 → Vue 只报
+    // warn 并把 DOM 冻在「正在检查账上记录…」。这里钉住映射层必须自保。
+    const malformed = {
+      ...emptySource(),
+      ghostIgnored: { groups: [], ignored_count: 0 },
+      taxItems: { items: [] }
+    } as unknown as ReconQueueSource;
+
+    expect(() => buildReconQueue(malformed)).not.toThrow();
+    const items = buildReconQueue(malformed);
+    expect(items.map(i => i.id)).toEqual(["import-entry"]);
   });
 });

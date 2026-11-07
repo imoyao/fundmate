@@ -10,6 +10,8 @@ export interface DiscrepancyItem {
   domain: string;
   ledger_id: number | null;
   symbol: string;
+  /** 后端批量解析出的产品名（2026-11-07 第二轮）；为空时前端降级显示代码 */
+  display_name?: string | null;
   discrepancy_type: string; // quantity|cost|cash|orphan
   expected_value: number | null;
   actual_value: number | null;

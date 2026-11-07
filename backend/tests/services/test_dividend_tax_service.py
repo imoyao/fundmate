@@ -499,3 +499,46 @@ class TestApiEndpoint:
             ).status_code
             == 400
         )
+
+
+# ── 2026-11-07 第二轮：场内货币基金收益不是红利税应税范围 ──────────────
+# 根因：货基持仓的 asset_type 仍是 'fund'，「是不是货币基金」记在
+# positions.is_money_fund；只读 asset_type 时 _NO_DIVIDEND_TAX_ASSET_TYPES
+# 永远命中不了，收益被误报成「漏扣红利税」。
+@pytest.mark.parametrize(
+    'position_symbol, txn_symbol',
+    [('511990', '511990'), ('511990', 'SH511990'), ('SH511990', '511990')],
+)
+def test_money_fund_income_is_not_tax_pending(db, make_position, make_transaction, position_symbol, txn_symbol):
+    """三种存储组合都要排除：裸码对裸码、持仓裸码/流水带前缀、反之亦然。"""
+    pos = make_position(
+        symbol=position_symbol,
+        name='场内货币基金',
+        asset_type='fund',
+        is_money_fund=True,
+        account_name='测试账户',
+        quantity=1000,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    _div(pos, make_transaction, amount=300.0, symbol=txn_symbol, asset_type='fund')
+    db.commit()
+    assert scan_pending_tax(db, 1, today=TODAY) == []
+
+
+def test_ordinary_fund_dividend_still_pending(db, make_position, make_transaction):
+    """反向验证：把 is_money_fund 分支还原后上面三条必须转红，
+    同时普通基金分红不能被这条修复一起屏蔽掉。"""
+    pos = make_position(
+        symbol='110011',
+        name='普通混合基金',
+        asset_type='fund',
+        is_money_fund=False,
+        account_name='测试账户',
+        quantity=1000,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    _div(pos, make_transaction, amount=300.0, asset_type='fund')
+    db.commit()
+    assert len(scan_pending_tax(db, 1, today=TODAY)) == 1

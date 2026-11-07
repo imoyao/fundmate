@@ -74,11 +74,20 @@ export function useWorkbenchActions(
     void router.push(to);
   }
 
-  /** 点队列卡：只展开下方处理区，不切视图、不重挂载、不写 URL */
+  /** 处理区改成右侧抽屉：选中一条只切换抽屉内容，队列不位移、滚动位置不变 */
+  const detailOpen = computed(
+    () => activeDetailId.value !== null || activeDomain.value !== null
+  );
+
+  /** 点队列卡：开抽屉，不切视图、不重挂载、不写 URL，也不滚动页面 */
   function openItem(item: ReconQueueItem): void {
     activeDomain.value = item.sourceDomain;
     activeDetailId.value = item.id;
-    scrollTo(".recon-detail");
+  }
+
+  /** 翻页后把队列头带回视野，避免用户停在上一段的末尾 */
+  function scrollQueueTop(): void {
+    scrollTo(".recon-queue");
   }
 
   function closeDetail(): void {
@@ -158,6 +167,7 @@ export function useWorkbenchActions(
 
   return {
     detailContext,
+    detailOpen,
     activeDetailId,
     activeDomain,
     activeItem,
@@ -173,6 +183,7 @@ export function useWorkbenchActions(
     goTo,
     openItem,
     closeDetail,
+    scrollQueueTop,
     focusBanner,
     openBatch,
     onBatchSubmitted

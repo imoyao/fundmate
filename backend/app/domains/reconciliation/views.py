@@ -31,7 +31,11 @@ from flask import abort, jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.core.money import Money
+from app.core.symbol_utils import strip_exchange_prefix
+from app.domains.funds.models import Fund
+from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
+from app.domains.securities.models import Security
 from app.services.dividend_tax_service import (
     record_tax_from_payload,
     refresh_reminders,
@@ -122,6 +126,51 @@ def run_reconciliation():
         )
 
 
+def _resolve_display_names(db, family_id: int, symbols: list[str]) -> dict[str, str]:
+    """一次性把差异里的代码换成产品名（2026-11-07 第二轮）。
+
+    为什么在后端做：差异列表可能几百行，前端逐码调 resolve/search 会发几百个请求，
+    而且查不到时只能显示裸代码——owner 明确要求「用户得知道自己在改哪个产品」。
+    这里按 IN 批量查三张表，不新增端点、不改表结构。
+
+    优先级：持仓里用户自己记的名字 > 证券表 > 基金名录（裸码回退）。
+    查不到返回空串，由前端降级显示代码；**绝不因为缺名字丢掉差异行**。
+    """
+    raw = sorted({s.strip() for s in symbols if s and s.strip()})
+    if not raw:
+        return {}
+    out: dict[str, str] = {}
+
+    for sym, name in (
+        db.query(Position.symbol, Position.name).filter(Position.family_id == family_id, Position.symbol.in_(raw)).all()
+    ):
+        if sym and name:
+            out.setdefault(sym.strip(), name.strip())
+
+    for sym, name in db.query(Security.symbol, Security.name).filter(Security.symbol.in_(raw)).all():
+        if sym and name:
+            out.setdefault(sym.strip(), name.strip())
+
+    # 场内基金可能带 SH/SZ 前缀，funds 表存的是裸 6 位码
+    by_bare: dict[str, list[str]] = {}
+    for s in raw:
+        by_bare.setdefault(strip_exchange_prefix(s), []).append(s)
+    codes = [c for c in by_bare if c]
+    if codes:
+        fund_names = {
+            code: name
+            for code, name in (db.query(Fund.fund_code, Fund.name).filter(Fund.fund_code.in_(codes)).all())
+            if code and name
+        }
+        for code, originals in by_bare.items():
+            name = fund_names.get(code)
+            if not name:
+                continue
+            for s in originals:
+                out.setdefault(s, name.strip())
+    return out
+
+
 @bp.get('/discrepancies/')
 def list_discrepancies():
     """列出当前家庭活跃差异（可按域/状态筛；支持分页）。
@@ -151,12 +200,14 @@ def list_discrepancies():
             )
         else:
             items = query.order_by(ReconciliationDiscrepancy.updated_at.desc()).all()
+        names = _resolve_display_names(db, family_id, [d.symbol for d in items])
         data = [
             {
                 'id': d.id,
                 'domain': d.domain,
                 'ledger_id': d.ledger_id,
                 'symbol': d.symbol,
+                'display_name': names.get((d.symbol or '').strip(), ''),
                 'discrepancy_type': d.discrepancy_type,
                 'expected_value': Money.min_unit_to_shares(d.expected_value),
                 'actual_value': Money.min_unit_to_shares(d.actual_value),
