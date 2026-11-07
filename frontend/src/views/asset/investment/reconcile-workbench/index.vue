@@ -105,6 +105,14 @@
               @fix="openDanglingFix"
             />
 
+            <!-- 域 G：缺账本孤儿流水（#2875）——逐条确认归属后回填，状态内聚在主视图 -->
+            <DomainGOrphanLedger
+              v-else-if="tab.key === 'G'"
+              :data="orphanLedgers"
+              :loading="orphanLoading"
+              @submitted="loadOrphanLedgers"
+            />
+
             <!-- 域 C：导入交割单后自动比对孤儿持仓；后端只做孤儿检测，数量差异在域 B -->
             <template v-else-if="tab.key === 'C'">
               <!-- 识别候选（txn → 域 C，#1251）：AI 识别结果落草稿，确认后入库并触发域 C 对账 -->
@@ -186,6 +194,7 @@ import DomainDGhostTable from "./components/DomainDGhostTable.vue";
 import DomainEDividendTaxTable from "./components/DomainEDividendTaxTable.vue";
 import DomainFDanglingRefs from "./components/DomainFDanglingRefs.vue";
 import DanglingRefFixDialog from "./components/DanglingRefFixDialog.vue";
+import DomainGOrphanLedger from "./components/DomainGOrphanLedger.vue";
 import WorkbenchHead from "./components/WorkbenchHead.vue";
 import WorkbenchBanner from "./components/WorkbenchBanner.vue";
 import DomainTabLabel from "./components/DomainTabLabel.vue";
@@ -220,6 +229,9 @@ const {
   danglingRefs,
   danglingLoading,
   loadDanglingRefs,
+  orphanLedgers,
+  orphanLoading,
+  loadOrphanLedgers,
   loadDividendTax,
   recognizerCandidates,
   committing,
@@ -312,6 +324,7 @@ onMounted(() => {
   loadGhostDuplicates();
   loadDividendTax();
   loadDanglingRefs();
+  loadOrphanLedgers();
   loadRecognizerCandidates();
 });
 </script>

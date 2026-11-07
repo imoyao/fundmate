@@ -18,7 +18,8 @@ export function normalizeDomain(raw: unknown): WorkbenchDomainKey | null {
     v === "C" ||
     v === "D" ||
     v === "E" ||
-    v === "F"
+    v === "F" ||
+    v === "G"
     ? v
     : null;
 }

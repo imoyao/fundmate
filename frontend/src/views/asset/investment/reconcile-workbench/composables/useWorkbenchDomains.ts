@@ -10,7 +10,9 @@ import {
   undoGhostDuplicateIgnoreById,
   listDividendTaxPending,
   listDanglingRefs,
+  listOrphanLedgers,
   type DanglingRefList,
+  type OrphanLedgerList,
   type DividendTaxPendingItem,
   type DiscrepancyItem,
   type GhostDuplicateGroupItem,
@@ -75,6 +77,10 @@ export function useWorkbenchDomains() {
   const danglingRefs = ref<DanglingRefList | null>(null);
   const danglingLoading = ref(false);
 
+  /** 域 G：缺账本孤儿流水（#2875）——只读取数的分组 + 汇总；回填/撤销内聚在回填弹窗 */
+  const orphanLedgers = ref<OrphanLedgerList | null>(null);
+  const orphanLoading = ref(false);
+
   /** 域 B 差异：仅展示待处理（pending）行，使下方表格与顶部「待裁决差异」口径一致（#1259） */
   const bDiscs = computed(() =>
     discs.value.filter(d => d.domain === "B" && d.status === "pending")
@@ -118,6 +124,9 @@ export function useWorkbenchDomains() {
     if (key === "E") return taxItems.value.length;
     // 域 F 是只读扫描，待处理数即悬空流水总条数（修复后由重拉刷新）
     if (key === "F") return danglingRefs.value?.total ?? 0;
+    // 域 G 同理：待处理数即缺账本流水总条数（含 blocked，不能只报可修的那部分——
+    // 用户需要知道「还有多少条没归属」，否则 blocked 组会被数字静默吞掉）
+    if (key === "G") return orphanLedgers.value?.total ?? 0;
     return discs.value.filter(d => d.domain === key && d.status === "pending")
       .length;
   }
@@ -125,7 +134,7 @@ export function useWorkbenchDomains() {
     if (key === "A")
       return eItems.value.filter(i => i.status === "ignored").length;
     if (key === "D") return ghostIgnored.value.length;
-    if (key === "E" || key === "F") return 0;
+    if (key === "E" || key === "F" || key === "G") return 0;
     return discs.value.filter(d => d.domain === key && d.status === "ignored")
       .length;
   }
@@ -239,6 +248,21 @@ export function useWorkbenchDomains() {
       danglingRefs.value = null;
     } finally {
       danglingLoading.value = false;
+    }
+  }
+
+  /** 加载域 G：缺账本孤儿流水（#2875）。
+   *  与域 F 同构：只拉只读快照，写路径（回填 / 撤销）留在弹窗里；失败静默，
+   *  单个扫描接口超时不该让工作台的其它域一起白屏。 */
+  async function loadOrphanLedgers(): Promise<void> {
+    orphanLoading.value = true;
+    try {
+      const res = await listOrphanLedgers();
+      orphanLedgers.value = res.data ?? null;
+    } catch {
+      orphanLedgers.value = null;
+    } finally {
+      orphanLoading.value = false;
     }
   }
 
@@ -415,6 +439,9 @@ export function useWorkbenchDomains() {
     danglingRefs,
     danglingLoading,
     loadDanglingRefs,
+    orphanLedgers,
+    orphanLoading,
+    loadOrphanLedgers,
     loadDividendTax,
     loadDiscrepancies,
     loadEAccount,
