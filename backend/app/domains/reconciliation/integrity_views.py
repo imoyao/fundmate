@@ -4,8 +4,9 @@
 ## 为什么单独一个 blueprint
 
 ``views.py`` 在 ``scripts/check_view_thickness.py`` 的基线里冻结为 390 行（只减不增）。
-本域新增 7 个端点全是 HTTP 编排（业务规则全在 services 层：
-``dangling_ref_service.py`` / ``orphan_ledger_service.py``），与域 B/C/D/E 的既有端点
+本域新增 13 个端点全是 HTTP 编排（业务规则全在 services 层：
+``dangling_ref_service.py`` / ``orphan_ledger_service.py`` /
+``dangling_ref_remediation_service.py``），与域 B/C/D/E 的既有端点
 没有共享状态，故按域内子模块拆成独立 blueprint，而不是把既有视图压榨到基线以下、
 也不是重取基线。``VIEWS_GLOB = backend/app/domains/*/views.py`` 不匹配本文件是守卫的
 既有口径，**不是**绕过「业务规则下沉 services」这条约束：本文件不含任何 ORM 查询与业务判定。
@@ -16,10 +17,15 @@
 （真库实测 637 条）。自动修复不安全：从流水派生份额可能把 9000 份改成 48300 份。
 #2875 的 26 笔 ``ledger_id IS NULL`` 流水 symbol 全空，夜间回填 job 第一步即按
 ``no_identity`` 跳过（判据不看 ledger_id），故补账本不会触发自动重挂、不改份额。
-因此两组端点都遵守：
+#2866 后续另补 6 个端点让 532 条 blocked 数据可处置：补全只填空值（symbol /
+trade_date），删除要求后端硬校验 ``confirm is True`` 且 ``confirm_phrase == '删除'``，
+删除前把完整行快照写进审计日志以便精确恢复。
+
+因此三组端点都遵守：
 - ``GET`` 只读，不改任何数据；
-- ``POST /reattach/`` / ``POST /orphan-ledger/backfill/`` 只在用户显式指定时写，
-  **绝不重算份额**（前者只改 position_id、后者只改 ledger_id）；
+- ``POST /reattach/`` / ``POST /orphan-ledger/backfill/`` / ``POST /enrich/`` 只在
+  用户显式指定时写，**绝不重算份额**（分别只改 position_id / ledger_id / 空字段）；
+  ``POST /delete/`` 二次确认后物理删除，也绝不改动现存持仓份额；
 - 每次写入都记 ``adjustment_logs``，可凭 ``log_id`` 撤销。
 """
 
@@ -28,6 +34,14 @@ from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import user_session
+from app.services.dangling_ref_remediation_service import (
+    delete_transactions,
+    enrich_transactions,
+    preview_delete,
+    preview_enrichment,
+    undo_delete,
+    undo_enrichment,
+)
 from app.services.dangling_ref_service import (
     preview_reattach,
     reattach_transactions,
@@ -131,6 +145,133 @@ def undo_dangling_reattach():
     with user_session() as db:
         try:
             data = undo_reattach(db, family_id, body.get('log_id'))
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── #2866 后续：blocked 数据的「补全信息 / 显式删除」（域 F，6 个端点）────────
+
+
+@bp.get('/dangling-refs/enrich-preview/')
+def preview_dangling_enrichment():
+    """补全前预览（**纯只读**）。
+
+    query: ``transaction_ids=1,2&symbol=600519&trade_date=2026-11-07``
+    返回哪些字段会被补、补完后有没有同账本同标的的现存持仓可挂回。
+    """
+    ids = _parse_transaction_ids_arg(request.args.get('transaction_ids', ''))
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = preview_enrichment(
+                db,
+                family_id,
+                ids,
+                symbol=request.args.get('symbol'),
+                trade_date=request.args.get('trade_date'),
+            )
+        except ValueError as e:
+            abort(400, description=str(e))
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/enrich/')
+def enrich_dangling_refs():
+    """补全空字段（body: ``{ transaction_ids, symbol?, trade_date?, reason?, confirm }``）。
+
+    只补 ``symbol`` / ``trade_date`` 的空值，已有值不覆盖；只改流水列、不碰份额。
+    ``confirm`` 必须为 true（后端硬校验），写 ``dangling_ref_enrich`` 审计日志。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = enrich_transactions(
+                db,
+                family_id,
+                transaction_ids=body.get('transaction_ids'),
+                symbol=body.get('symbol'),
+                trade_date=body.get('trade_date'),
+                reason=body.get('reason'),
+                operator=body.get('operator'),
+                confirm=body.get('confirm', False),
+            )
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/enrich-undo/')
+def undo_dangling_enrichment():
+    """撤销一次补全（body: ``{ log_id: int }``），仅恢复未被后续改动的行。"""
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = undo_enrichment(db, family_id, body.get('log_id'))
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/dangling-refs/delete-preview/')
+def preview_dangling_delete():
+    """删除前预览（**纯只读**）。query: ``transaction_ids=1,2``。
+
+    展示将删除的记录、金额合计与完整快照列数；不删行、不写日志。
+    """
+    ids = _parse_transaction_ids_arg(request.args.get('transaction_ids', ''))
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = preview_delete(db, family_id, ids)
+        except ValueError as e:
+            abort(400, description=str(e))
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/delete/')
+def delete_dangling_refs():
+    """显式删除悬空流水（body: ``{ transaction_ids, reason?, confirm, confirm_phrase }``）。
+
+    后端硬校验 ``confirm is True`` 且 ``confirm_phrase == '删除'``；删除前把**完整行快照**
+    写进 ``adjustment_logs.before_json``，可凭 ``log_id`` 精确恢复。删除会影响已实现盈亏
+    与收益统计，但不改动现存持仓份额（这些流水的 position_id 指向已删除的持仓行）。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = delete_transactions(
+                db,
+                family_id,
+                transaction_ids=body.get('transaction_ids'),
+                reason=body.get('reason'),
+                operator=body.get('operator'),
+                confirm=body.get('confirm', False),
+                confirm_phrase=body.get('confirm_phrase'),
+            )
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/delete-undo/')
+def undo_dangling_delete():
+    """撤销一次删除（body: ``{ log_id: int }``），按完整快照逐行恢复。
+
+    若某个原 id 已被新流水占用则跳过、绝不覆盖；幂等且每次留痕。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = undo_delete(db, family_id, body.get('log_id'))
         except ValueError as e:
             abort(400, description=str(e))
         db.flush()

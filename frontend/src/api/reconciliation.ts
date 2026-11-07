@@ -567,3 +567,156 @@ export function undoOrphanLedgerBackfill(
     { data: { log_id: logId } }
   );
 }
+
+// ── 域 F 续：数据缺失流水的「补全信息 / 显式删除」（#2866）──────────────────
+// 532 条 blocked 数据在 #2926 里只能看、不能动。这两条写路径都要求用户显式动作：
+// 补全只填空值（symbol / trade_date），删除要求输入「删除」二字二次确认。
+// 后端在写入前会再次校验「仍悬空 + 同一 family」，并写 adjustment_logs 供撤销。
+// ⚠️ 路径必须带 /api 前缀：src/api/__tests__/reconciliationApiPrefix.spec.ts 会读源码
+// 钉死这一点（Vite 只代理 /api，漏前缀会拿到 index.html，页面静默显示全 0）。
+
+/** 补全前预览（GET /enrich-preview/ 的 data） */
+export interface DanglingRefEnrichPreview {
+  txn_count: number;
+  fill_symbol_count: number;
+  fill_date_count: number;
+  unchanged_count: number;
+  symbol: string | null;
+  trade_date: string | null;
+  candidate_positions: Array<{
+    id: number;
+    symbol: string;
+    ledger_id: number;
+    quantity: number;
+    ownership_status: string;
+  }>;
+  changes: Array<{
+    id: number;
+    symbol_before: string | null;
+    symbol_after: string | null;
+    trade_date_before: string | null;
+    trade_date_after: string | null;
+    asset_type: string | null;
+  }>;
+  warnings: string[];
+}
+
+/** 补全结果（POST /enrich/ 的 data） */
+export interface DanglingRefEnrichResult {
+  log_id: number;
+  updated: number;
+  skipped: number;
+  symbol: string | null;
+  trade_date: string | null;
+}
+
+/** 删除前预览（GET /delete-preview/ 的 data），数量是「份」、金额是「元」 */
+export interface DanglingRefDeletePreview {
+  txn_count: number;
+  transactions: Array<{
+    id: number;
+    txn_type: string;
+    trade_date: string | null;
+    symbol: string | null;
+    quantity: number;
+    amount: number;
+    position_id: number;
+    realized_pnl: number;
+    is_income: boolean | null;
+  }>;
+  snapshot_columns: number;
+  total_amount: number;
+  warnings: string[];
+}
+
+/** 删除结果（POST /delete/ 的 data） */
+export interface DanglingRefDeleteResult {
+  log_id: number;
+  deleted: number;
+  total_amount: number;
+  confirm_phrase: string;
+}
+
+/** 补全 / 删除的撤销结果 */
+export interface RemediationUndoResult {
+  restored: number;
+  skipped: number;
+  log_id: number;
+}
+
+/** 补全前预览：只算不改，并给出补完后可能可挂回的现存持仓 */
+export function previewDanglingRefEnrich(params: {
+  transaction_ids: number[];
+  symbol?: string;
+  trade_date?: string;
+}): Promise<ApiResponse<DanglingRefEnrichPreview>> {
+  return http.get<
+    ApiResponse<DanglingRefEnrichPreview>,
+    { transaction_ids: string; symbol?: string; trade_date?: string }
+  >("/api/reconciliation/dangling-refs/enrich-preview/", {
+    params: {
+      transaction_ids: params.transaction_ids.join(","),
+      symbol: params.symbol,
+      trade_date: params.trade_date
+    }
+  });
+}
+
+/** 补全空字段（写操作，成功后凭 log_id 撤销） */
+export function enrichDanglingRefs(payload: {
+  transaction_ids: number[];
+  symbol?: string;
+  trade_date?: string;
+  reason?: string;
+  confirm: boolean;
+}): Promise<ApiResponse<DanglingRefEnrichResult>> {
+  return http.post<ApiResponse<DanglingRefEnrichResult>, unknown>(
+    "/api/reconciliation/dangling-refs/enrich/",
+    { data: payload }
+  );
+}
+
+/** 撤销一次补全（幂等，列表由调用方重拉） */
+export function undoDanglingRefEnrich(
+  logId: number
+): Promise<ApiResponse<RemediationUndoResult>> {
+  return http.post<ApiResponse<RemediationUndoResult>, unknown>(
+    "/api/reconciliation/dangling-refs/enrich-undo/",
+    { data: { log_id: logId } }
+  );
+}
+
+/** 删除前预览：只算不删，展示将删除的记录与完整快照列数 */
+export function previewDanglingRefDelete(params: {
+  transaction_ids: number[];
+}): Promise<ApiResponse<DanglingRefDeletePreview>> {
+  return http.get<
+    ApiResponse<DanglingRefDeletePreview>,
+    { transaction_ids: string }
+  >("/api/reconciliation/dangling-refs/delete-preview/", {
+    params: { transaction_ids: params.transaction_ids.join(",") }
+  });
+}
+
+/** 显式删除（后端硬校验 confirm_phrase === "删除"，成功后凭 log_id 撤销） */
+export function deleteDanglingRefs(payload: {
+  transaction_ids: number[];
+  reason?: string;
+  confirm: boolean;
+  confirm_phrase: string;
+}): Promise<ApiResponse<DanglingRefDeleteResult>> {
+  return http.post<ApiResponse<DanglingRefDeleteResult>, unknown>(
+    "/api/reconciliation/dangling-refs/delete/",
+    { data: payload }
+  );
+}
+
+/** 撤销一次删除（按完整行快照恢复，列表由调用方重拉） */
+export function undoDanglingRefDelete(
+  logId: number
+): Promise<ApiResponse<RemediationUndoResult>> {
+  return http.post<ApiResponse<RemediationUndoResult>, unknown>(
+    "/api/reconciliation/dangling-refs/delete-undo/",
+    { data: { log_id: logId } }
+  );
+}
