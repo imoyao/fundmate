@@ -11,6 +11,8 @@ import {
   reorderLedgers,
   getFundAggregation,
   getSecuritiesAggregation,
+  type LedgerListItem,
+  type LedgerOverviewData,
   type SalesInstitution
 } from "@/api/ledger";
 import {
@@ -18,9 +20,56 @@ import {
   type LedgerConsistencyItem
 } from "@/api/reconciliation";
 import Sortable from "sortablejs";
-import { getPortfolios } from "@/api/portfolio";
+import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { getChannelCategoryLabel } from "@/constants";
 import { formatDateTime } from "@/utils/date";
+
+/**
+ * 列表页的分组视图模型：一条 `LedgerGroup` = 界面上的一张分组卡
+ * （分组头 + 组内账户卡片 + 幽灵「新增」按钮）。
+ *
+ * 与 `LedgerOverviewGroup` 的区别是**口径不同，不是同一张表的两个写法**：
+ * overview 的组是后端按 `ledger_type` 聚合的金额汇总（无账户明细，`stock`/`fund`
+ * 各自成组）；本类型的组按 `channel_category` 归并（`stock` 与 `fund` 都进
+ * `securities` / `fund_platform` 渠道），且带账户明细数组。故不复用。
+ */
+export interface LedgerGroup {
+  /** 渠道分组键（channel_category） */
+  type: string;
+  /** 分组中文名 */
+  label: string;
+  /** 组内账户市值合计（元） */
+  total: number;
+  count: number;
+  ledgers: LedgerListItem[];
+}
+
+/**
+ * 从 `unknown` 的 catch 值里取可展示文案。
+ *
+ * 为什么不写 `catch (e: any)` + `e?.message`：`catch` 收到的**可能是字符串**
+ * （`ElMessageBox` 取消时 reject 的就是 `"cancel"`），也可能是没有 `message`
+ * 的对象。用 `any` 时这些分支全靠运行时碰运气，`e.message` 在字符串上是
+ * `undefined`、在 `null` 上直接抛 TypeError（错误路径里二次抛错最难查）。
+ */
+function errorText(e: unknown, fallback: string): string {
+  if (typeof e === "string" && e) return e;
+  if (e && typeof e === "object" && "message" in e) {
+    const msg = (e as { message?: unknown }).message;
+    if (typeof msg === "string" && msg) return msg;
+  }
+  return fallback;
+}
+
+/** `ElMessageBox` 取消时 reject 的是 `"cancel"` 字符串或 `{ action: "cancel" }` */
+function isCancelReason(e: unknown): boolean {
+  if (e === "cancel") return true;
+  return (
+    !!e &&
+    typeof e === "object" &&
+    (e as { action?: unknown }).action === "cancel"
+  );
+}
 
 /**
  * 账户列表页状态单体（#980 P1-C 结构拆分）：
@@ -32,12 +81,8 @@ export function useLedgerList() {
   const router = useRouter();
 
   const loading = ref(true);
-  const allLedgers = ref<any[]>([]);
-  const overviewData = ref<{
-    net_worth: number;
-    liability_total: number;
-    groups: any[];
-  }>({
+  const allLedgers = ref<LedgerListItem[]>([]);
+  const overviewData = ref<LedgerOverviewData>({
     net_worth: 0,
     liability_total: 0,
     groups: []
@@ -59,40 +104,35 @@ export function useLedgerList() {
   const salesInstitutions = ref<SalesInstitution[]>([]);
 
   const cashLedgers = computed(() =>
-    allLedgers.value.filter((l: any) => l.ledger_type === "bank")
+    allLedgers.value.filter(l => l.ledger_type === "bank")
   );
   /** 已归档账户数量（用于工具栏徽标），数据来自全量列表 */
   const archivedCount = computed(
-    () => allLedgersRaw.value.filter((l: any) => l.is_active === false).length
+    () => allLedgersRaw.value.filter(l => l.is_active === false).length
   );
-  const portfolioList = ref<any[]>([]);
+  const portfolioList = ref<PortfolioItem[]>([]);
   const deleteDialogVisible = ref(false);
-  const deletingAccount = ref<any>(null);
+  const deletingAccount = ref<LedgerListItem | null>(null);
   /** 是否在列表显示已归档账户（默认隐藏，归档数据仍计入顶部净资产/配置图） */
   const showArchived = ref(false);
   /** 全量账户（含已归档），用于按开关过滤展示 + 统计归档数 */
-  const allLedgersRaw = ref<any[]>([]);
+  const allLedgersRaw = ref<LedgerListItem[]>([]);
 
   /** 各账户持仓快照一致性（#1133 §4 温柔提醒数据源）：拉一次后按 ledger 聚合待核对数 */
   const ledgerConsistencyItems = ref<LedgerConsistencyItem[]>([]);
   const staleCountByLedger = computed<Record<number, number>>(() =>
-    ledgerConsistencyItems.value.reduce(
-      (acc, it) => {
-        if (it.ledger_id != null)
-          acc[it.ledger_id] = (acc[it.ledger_id] ?? 0) + 1;
-        return acc;
-      },
-      {} as Record<number, number>
-    )
+    ledgerConsistencyItems.value.reduce<Record<number, number>>((acc, it) => {
+      if (it.ledger_id != null)
+        acc[it.ledger_id] = (acc[it.ledger_id] ?? 0) + 1;
+      return acc;
+    }, {})
   );
 
   // 总资产（从 overview groups 汇总）
   const totalAssets = computed(
     () =>
-      overviewData.value?.groups?.reduce(
-        (sum: number, g: any) => sum + (g.total || 0),
-        0
-      ) ?? 0
+      overviewData.value?.groups?.reduce((sum, g) => sum + (g.total || 0), 0) ??
+      0
   );
 
   // 负债率偏高警示：仅当负债 > 0 且超过总资产一半时显示（负债为 0 时不渲染刺眼文案）
@@ -114,7 +154,7 @@ export function useLedgerList() {
 
   // 已删除账户的持仓信息（来自 overview）
   const orphanGroup = computed(() =>
-    overviewData.value?.groups?.find((g: any) => g.type === "deleted")
+    overviewData.value?.groups?.find(g => g.type === "deleted")
   );
 
   // 分组展示（按渠道分组 channel_category，组内排序）：手动排序序号优先，回退按持仓金额降序（#1083）
@@ -125,13 +165,13 @@ export function useLedgerList() {
     fund: "fund_platform",
     property: "other"
   };
-  function channelOf(ledger: any): string {
+  function channelOf(ledger: LedgerListItem): string {
     if (ledger.channel_category) return ledger.channel_category;
     return LEGACY_TYPE_TO_CHANNEL[ledger.ledger_type] || "other";
   }
 
-  function buildGroups(ledgers: any[]) {
-    const groups: Record<string, any> = {};
+  function buildGroups(ledgers: LedgerListItem[]): LedgerGroup[] {
+    const groups: Record<string, LedgerGroup> = {};
     for (const ledger of ledgers) {
       const type = channelOf(ledger);
       if (!groups[type]) {
@@ -140,7 +180,7 @@ export function useLedgerList() {
           label: getChannelCategoryLabel(type),
           total: 0,
           count: 0,
-          ledgers: [] as any[]
+          ledgers: []
         };
       }
       groups[type].count++;
@@ -161,9 +201,7 @@ export function useLedgerList() {
     const restTypes = Object.keys(groups).filter(
       type => !orderedTypes.includes(type)
     );
-    const result = [...orderedTypes, ...restTypes].map(
-      type => groups[type]
-    ) as any[];
+    const result = [...orderedTypes, ...restTypes].map(type => groups[type]);
 
     // 未归置持仓不再作为分组卡片进入网格（2026-08 改版），统一由顶部警示 banner 承接
     // 组内排序：已手动排序（display_order 非 null）的卡片按 display_order 升序排在前面，
@@ -171,7 +209,7 @@ export function useLedgerList() {
     for (const g of result) {
       // 防御：分组结构异常（无 ledgers 数组）时跳过，避免一处脏数据让整页白屏
       if (!Array.isArray(g?.ledgers)) continue;
-      g.ledgers.sort((a: any, b: any) => {
+      g.ledgers.sort((a, b) => {
         const da = a.display_order ?? Infinity;
         const db = b.display_order ?? Infinity;
         if (da !== db) return da - db;
@@ -182,7 +220,7 @@ export function useLedgerList() {
   }
 
   // 实际渲染用的分组（可被拖拽直接重排：拖拽时修改该分组 ledgers 数组并落库）
-  const displayedGroups = ref<any[]>([]);
+  const displayedGroups = ref<LedgerGroup[]>([]);
 
   // ── 分组顺序（纯视图偏好，存 localStorage，不落库；与组内卡片排序分层）──
   const GROUP_ORDER_KEY = "fundmate:ledgerGroupOrder:v1";
@@ -198,8 +236,11 @@ export function useLedgerList() {
     try {
       const raw = localStorage.getItem(GROUP_ORDER_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.every(t => typeof t === "string")) {
+        const parsed: unknown = JSON.parse(raw);
+        if (
+          Array.isArray(parsed) &&
+          parsed.every((t): t is string => typeof t === "string")
+        ) {
           const stored = parsed.filter(t => DEFAULT_GROUP_ORDER.includes(t));
           const missing = DEFAULT_GROUP_ORDER.filter(t => !stored.includes(t));
           return [...stored, ...missing];
@@ -223,7 +264,7 @@ export function useLedgerList() {
   const groupsContainer = ref<HTMLElement | null>(null);
   // 拖拽中的分组类型：用于高亮当前被拖的分组，强化「正在重排整段」的反馈
   const draggingGroupType = ref<string | null>(null);
-  let groupSortable: any = null;
+  let groupSortable: Sortable | null = null;
   function destroyGroupSortable() {
     if (groupSortable) {
       groupSortable.destroy();
@@ -237,11 +278,12 @@ export function useLedgerList() {
       animation: 180,
       handle: ".group-drag-handle",
       ghostClass: "ledger-group--ghost",
-      onStart: (evt: any) => {
-        const moved = displayedGroups.value[evt.oldIndex];
+      onStart: (evt: Sortable.SortableEvent) => {
+        const from = evt.oldIndex;
+        const moved = from == null ? undefined : displayedGroups.value[from];
         draggingGroupType.value = moved?.type ?? null;
       },
-      onEnd: (evt: any) => {
+      onEnd: (evt: Sortable.SortableEvent) => {
         const { oldIndex, newIndex } = evt;
         draggingGroupType.value = null;
         if (oldIndex == null || newIndex == null || oldIndex === newIndex)
@@ -258,9 +300,9 @@ export function useLedgerList() {
   }
 
   // ── 拖拽排序（仅限同类型组内，#1083）──
-  const sortables: Record<string, any> = {};
+  const sortables: Record<string, Sortable> = {};
   function destroySortables() {
-    Object.values(sortables).forEach((s: any) => s.destroy());
+    Object.values(sortables).forEach(s => s.destroy());
     for (const k of Object.keys(sortables)) delete sortables[k];
   }
   function initSortables() {
@@ -275,11 +317,11 @@ export function useLedgerList() {
         handle: ".drag-handle",
         ghostClass: "ledger-card--ghost",
         chosenClass: "ledger-card--chosen",
-        onEnd: (evt: any) => onLedgerDragEnd(g.type, evt)
+        onEnd: (evt: Sortable.SortableEvent) => onLedgerDragEnd(g.type, evt)
       });
     }
   }
-  function onLedgerDragEnd(type: string, evt: any) {
+  function onLedgerDragEnd(type: string, evt: Sortable.SortableEvent) {
     const group = displayedGroups.value.find(g => g.type === type);
     if (!group) return;
     const { oldIndex, newIndex } = evt;
@@ -288,7 +330,7 @@ export function useLedgerList() {
     const [moved] = arr.splice(oldIndex, 1);
     if (!moved) return;
     arr.splice(newIndex, 0, moved);
-    const orderedIds = arr.map((l: any) => l.id);
+    const orderedIds = arr.map(l => l.id);
     // 落库按真实 ledger_type 排序（channel_category 由 ledger_type 派生，组内 ledger_type 一致）
     const ledgerType = group.ledgers[0]?.ledger_type ?? type;
     // 乐观更新已在 UI 生效；落库失败则回填并重拉，保证最终一致
@@ -337,13 +379,13 @@ export function useLedgerList() {
     const group = displayedGroups.value.find(g => g.type === groupType);
     if (!group) return false;
     const arr = group.ledgers;
-    const from = arr.findIndex((l: any) => l.id === ledgerId);
+    const from = arr.findIndex(l => l.id === ledgerId);
     if (from < 0) return false;
     const target = Math.max(0, Math.min(arr.length - 1, to));
     if (target === from) return false;
     const [moved] = arr.splice(from, 1);
     arr.splice(target, 0, moved);
-    const orderedIds = arr.map((l: any) => l.id);
+    const orderedIds = arr.map(l => l.id);
     const ledgerType = group.ledgers[0]?.ledger_type ?? groupType;
     try {
       await reorderLedgers(ledgerType, orderedIds);
@@ -364,13 +406,13 @@ export function useLedgerList() {
     showCreateDialog.value = true;
   }
 
-  function openDeleteDialog(account: any) {
+  function openDeleteDialog(account: LedgerListItem) {
     deletingAccount.value = account;
     deleteDialogVisible.value = true;
   }
 
   /** 归档/激活切换。归档有数据账户是安全的（保留全部数据、仅隐藏），但给一次确认。 */
-  async function onToggleArchive(ledger: any) {
+  async function onToggleArchive(ledger: LedgerListItem) {
     const archiving = ledger.is_active !== false;
     try {
       if (archiving) {
@@ -392,14 +434,14 @@ export function useLedgerList() {
         ElMessage.success(`已激活「${ledger.name}」`);
       }
       fetchData();
-    } catch (e: any) {
-      if (e !== "cancel" && e?.action !== "cancel") {
-        ElMessage.error(e?.message || "操作失败");
-      }
+    } catch (e) {
+      // 用户点「取消」不是失败：不提示错误
+      if (isCancelReason(e)) return;
+      ElMessage.error(errorText(e, "操作失败"));
     }
   }
 
-  function goToDetail(ledger: any) {
+  function goToDetail(ledger: LedgerListItem) {
     router.push({ name: "LedgerDetail", params: { id: ledger.id } });
   }
 
@@ -430,19 +472,18 @@ export function useLedgerList() {
           getPortfolios(),
           getSalesInstitutions()
         ]);
-      allLedgersRaw.value = (ledgersRes as any)?.data ?? [];
+      allLedgersRaw.value = ledgersRes?.data ?? [];
       // 按「显示已归档」开关过滤展示列表（归档数据始终计入顶部净资产/配置图）
       allLedgers.value = showArchived.value
         ? allLedgersRaw.value
-        : allLedgersRaw.value.filter((l: any) => l.is_active !== false);
-      overviewData.value = (overviewRes as any)?.data ?? {
+        : allLedgersRaw.value.filter(l => l.is_active !== false);
+      overviewData.value = overviewRes?.data ?? {
         net_worth: 0,
         liability_total: 0,
         groups: []
       };
-      portfolioList.value = (portfolioRes as any)?.data ?? [];
-      salesInstitutions.value =
-        (instRes as { data?: SalesInstitution[] })?.data ?? [];
+      portfolioList.value = portfolioRes?.data ?? [];
+      salesInstitutions.value = instRes?.data ?? [];
       // 快照一致性：独立请求，失败静默兜底不阻塞主列表（#ai-review）
       getLedgerConsistency()
         .then(res => {
@@ -459,8 +500,8 @@ export function useLedgerList() {
         initSortables();
         initGroupSortable();
       });
-    } catch (e: any) {
-      ElMessage.error(e?.message || "加载失败");
+    } catch (e) {
+      ElMessage.error(errorText(e, "加载失败"));
     } finally {
       loading.value = false;
     }
