@@ -329,8 +329,9 @@ test.describe("AI 识别入库弹窗（#980 拆分后的接线判据）", () => 
     });
     await expect(dialog).toBeHidden();
 
-    // 域 C 才挂 txn 候选面板（默认停在域 A）
-    await page.getByRole("tab", { name: "对账单导入" }).click();
+    // 识别草稿不再藏在某个域 tab 里：交易候选面板随草稿直接出现在工作台，
+    // 点队列里的「导入交割单」会展开对应的处理区（导入入口）。
+    await page.getByRole("button", { name: "导入交割单" }).click();
     await expect(
       page.locator(".recognizer-candidate-panel__title")
     ).toContainText("AI 识别候选（交易）· 2 条");

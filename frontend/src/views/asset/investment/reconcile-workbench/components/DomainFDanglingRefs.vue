@@ -1,24 +1,17 @@
 <template>
   <div class="domain-f-body">
-    <!-- 汇总条：五个数字都来自后端扫描结果，前端不做二次推导 -->
+    <!-- 汇总条：数字全部来自后端扫描结果，前端不做二次推导。
+         只留用户会拿来决策的四个，删掉「导入批次」「待处理分组」这类工程指标。 -->
     <div class="df-summary">
       <div class="df-summary__item">
         <span class="df-summary__num">{{ data?.total ?? 0 }}</span>
-        <span>待处理记录</span>
+        <span>受影响的交易</span>
       </div>
       <div class="df-summary__item">
         <span class="df-summary__num df-summary__num--ok">{{
           data?.fixable_count ?? 0
         }}</span>
-        <span>可直接补上关联</span>
-      </div>
-      <div class="df-summary__item">
-        <span class="df-summary__num">{{ data?.group_count ?? 0 }}</span>
-        <span>待处理分组</span>
-      </div>
-      <div class="df-summary__item">
-        <span class="df-summary__num">{{ data?.batch_count ?? 0 }}</span>
-        <span>导入批次</span>
+        <span>已找到可挂回的持仓</span>
       </div>
       <div class="df-summary__item">
         <span class="df-summary__num">{{ data?.null_symbol ?? 0 }}</span>
@@ -30,45 +23,47 @@
       </div>
     </div>
 
-    <!-- 覆盖率如实告知：系统只在能确定归属时才允许写，其余不猜 -->
+    <!-- 覆盖率如实告知，并给下一步：系统只在能确定归属时才允许写，其余不猜 -->
     <p v-if="data && data.total > data.fixable_count" class="df-hint">
-      其中
-      {{ data.total - data.fixable_count }} 条暂时没法处理：有的没填标的代码，
-      有的对应持仓记录已被删除。系统不会替你猜归属，补全信息后重新检查即可继续。
+      还有 {{ data.total - data.fixable_count }}
+      条暂时不能自动处理：缺标的代码，或对应持仓已删除。先补全信息，再回来批量挂回。
     </p>
 
-    <!-- 批次筛选：只收窄当前可见分组，不改变后端数据 -->
     <div v-if="batches.length" class="df-filter">
-      <span class="df-filter__label">按批次筛选</span>
-      <el-select v-model="selectedBatch" size="small" style="width: 220px">
-        <el-option label="全部批次" value="all" />
+      <span class="df-filter__label">来自哪次导入</span>
+      <el-select v-model="selectedBatch" size="small" style="width: 260px">
+        <el-option label="全部导入" value="all" />
         <el-option
           v-for="b in batches"
           :key="b.id"
-          :label="`${b.label}（${b.txn_count} 条）`"
+          :label="batchLabel(b.label, b.txn_count)"
           :value="b.id"
         />
       </el-select>
     </div>
 
-    <div v-if="loading" v-loading="loading" class="df-state">正在检查数据…</div>
-    <el-empty
-      v-else-if="visibleGroups.length === 0"
-      description="暂无数据缺失"
-      :image-size="80"
-    />
-    <div v-else class="df-groups">
-      <DanglingRefGroupCard
-        v-for="g in visibleGroups"
-        :key="g.key"
-        :group="g"
-        @fix="emit('fix', $event)"
-        @enrich="open('enrich', $event)"
-        @remove="open('remove', $event)"
-      />
-    </div>
+    <ReconStatusState
+      :loading="loading"
+      :error="error || null"
+      :empty="!loading && !error && visibleGroups.length === 0"
+      @retry="emit('retry')"
+    >
+      <template #empty>
+        <el-empty description="暂无数据缺失" :image-size="80" />
+      </template>
+      <div class="df-groups">
+        <DanglingRefGroupCard
+          v-for="g in visibleGroups"
+          :key="g.key"
+          :group="g"
+          @fix="emit('fix', $event)"
+          @enrich="open('enrich', $event)"
+          @remove="open('remove', $event)"
+        />
+      </div>
+    </ReconStatusState>
 
-    <!-- 补全信息 / 删除的状态内聚在本域：页面层只加一行 @refresh，不动 index.vue -->
+    <!-- 补全信息 / 删除的状态内聚在本域：页面层只加一行 @refresh -->
     <DanglingRefRemediationDialog
       v-model="dialogVisible"
       :group="activeGroup"
@@ -82,22 +77,29 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { DanglingRefGroup, DanglingRefList } from "@/api/reconciliation";
+import { reconBatchLabel } from "../utils/reconDisplay";
 import DanglingRefGroupCard from "./DanglingRefGroupCard.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
+import ReconStatusState from "./ReconStatusState.vue";
 
 /**
- * 域 F 数据缺失主视图（#2866）：只做「暴露 + 选组」；可处理的交给页面层既有弹窗，
- * 其余的补全信息 / 删除由本组件内聚的弹窗完成，避免动 index.vue 超过基线。
+ * 域 F 数据缺失主视图（#2866）：暴露 + 选组 + 四态。
+ * `error` 由 useWorkbenchDomains 的 loadErrors 传入：加载失败不再伪装成「暂无数据缺失」。
  */
-const props = defineProps<{
-  data: DanglingRefList | null;
-  loading: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    data: DanglingRefList | null;
+    loading: boolean;
+    error?: string;
+  }>(),
+  { error: "" }
+);
 const emit = defineEmits<{
   fix: [group: DanglingRefGroup];
   enrich: [group: DanglingRefGroup];
   remove: [group: DanglingRefGroup];
   refresh: [];
+  retry: [];
 }>();
 
 const batches = computed(() => props.data?.batches ?? []);
@@ -112,6 +114,10 @@ const visibleGroups = computed(() => {
 const activeMode = ref<"enrich" | "delete" | null>(null);
 const activeGroup = ref<DanglingRefGroup | null>(null);
 const dialogVisible = ref(false);
+
+function batchLabel(label: string, count: number): string {
+  return reconBatchLabel(label, count);
+}
 
 /** 「删除」按钮对应弹窗的 delete 模式（弹窗 mode 只有 enrich / delete 两态）。 */
 function open(mode: "enrich" | "remove", group: DanglingRefGroup): void {
@@ -150,44 +156,39 @@ function onDialogVisibleChange(visible: boolean): void {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 84px;
+  min-width: 96px;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .df-summary__num {
+  font-family: var(--font-mono);
   font-size: var(--text-body);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--color-warning-ink);
+  color: var(--text-primary);
 }
 
 .df-summary__num--ok {
-  color: var(--color-primary-ink);
+  color: var(--color-success-ink);
 }
 
 .df-hint {
   padding: 0 2px;
   margin: -4px 0 12px;
   font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-tertiary-ink);
+  line-height: 1.7;
+  color: var(--text-secondary);
 }
 
 .df-filter {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-}
-
-.df-state {
-  padding: 24px 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-  text-align: center;
 }
 
 .df-groups {

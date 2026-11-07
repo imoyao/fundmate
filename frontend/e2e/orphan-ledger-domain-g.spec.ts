@@ -213,9 +213,10 @@ async function openDomainG(page: Page): Promise<void> {
   await expect(page.locator(".domain-g-body")).toBeVisible({
     timeout: 150_000
   });
+  // 新 IA：域 G 归入「修正数据」任务卡，来源名只作队列卡上的小标签
   await expect(
-    page.locator(".workbench-tabs .el-tabs__item.is-active")
-  ).toContainText("缺账本流水");
+    page.locator(".workbench-tabs .recon-task-card.is-active")
+  ).toContainText("修正数据");
 }
 
 test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）", () => {
@@ -250,11 +251,12 @@ test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）
     const fixable = page.locator(".olg-group").nth(0);
     await expect(fixable.locator(".olg-group__key")).toHaveText(LEDGER_NAME);
     await expect(fixable.locator(".olg-group__sub")).toContainText("2 条流水");
+    // 用户语言：用账本名，不再把 `#12` 和「按账户名精确同名唯一判定」印在页面上
     await expect(fixable.locator(".olg-group__meta")).toContainText(
-      "目标账本 #12"
+      `拟归入：${LEDGER_NAME}`
     );
     await expect(
-      fixable.getByRole("button", { name: "逐条核对并回填" })
+      fixable.getByRole("button", { name: /核对.*归入账本/ })
     ).toBeEnabled();
 
     // blocked 组必须说清原因，且按钮禁用（后端不猜归属，前端也不能放行）
@@ -264,16 +266,20 @@ test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）
       "账户名为空"
     );
     await expect(
-      blocked.getByRole("button", { name: "逐条核对并回填" })
+      blocked.getByRole("button", { name: /核对.*归入账本/ })
     ).toBeDisabled();
     await expect(page.locator(".olg-hint")).toContainText("系统不会猜测归属");
 
-    // 展开组卡的逐条明细：桩里的流水 id 必须真的出现在 DOM（不是只数元素个数）
+    // 展开组卡的逐条明细：交易类型 / 金额 / 归属都必须是人话；
+    // 内部编号收进「记录编号」技术详情，不再当主视觉标识（#9001 / → #12 已下线）。
     await fixable.getByRole("button", { name: "查看 2 条流水明细" }).click();
     await expect(fixable.locator(".olg-txn")).toHaveCount(2);
-    await expect(fixable.locator(".olg-txns")).toContainText("#9001");
-    await expect(fixable.locator(".olg-txns")).toContainText("#9002");
-    await expect(fixable.locator(".olg-txns")).toContainText("→ #12");
+    await expect(fixable.locator(".olg-txns")).toContainText("买入");
+    await expect(fixable.locator(".olg-txns")).toContainText(
+      `可归入 ${LEDGER_NAME}`
+    );
+    await expect(fixable.locator(".olg-tech")).toContainText("记录编号 9001");
+    await expect(fixable.locator(".olg-tech")).toContainText("记录编号 9002");
 
     expectNoRuntimeErrors(signal);
   });
@@ -289,7 +295,7 @@ test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）
     await page
       .locator(".olg-group")
       .nth(0)
-      .getByRole("button", { name: "逐条核对并回填" })
+      .getByRole("button", { name: /核对.*归入账本/ })
       .click();
     const dialog = page.locator(".el-dialog");
     await expect(dialog.locator(".el-dialog__title")).toContainText(
@@ -381,8 +387,8 @@ test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）
       }
     );
     await expect(
-      page.locator(".workbench-tabs .el-tabs__item.is-active")
-    ).toContainText("缺账本流水");
+      page.locator(".workbench-tabs .recon-task-card.is-active")
+    ).toContainText("修正数据");
     await expect(page.locator(".domain-g-body")).toContainText(LEDGER_NAME);
     await expect(page.locator(".recon-banner")).toHaveCount(0);
   });

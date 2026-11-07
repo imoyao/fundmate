@@ -81,6 +81,55 @@ export function useWorkbenchDomains() {
   const orphanLedgers = ref<OrphanLedgerList | null>(null);
   const orphanLoading = ref(false);
 
+  /**
+   * 每个 loader 的失败原因。旧实现清一色 `catch { 置空 }`，网络挂了和「真的没有待办」
+   * 渲染得一模一样，用户会以为账已经对完了。这里只记原因、不改返回类型：
+   * 数据仍置空，由页面层的 `ReconStatusState` 把它显示成可重试的失败态。
+   */
+  const loadErrors = ref<Record<string, string>>({});
+
+  function clearError(key: string): void {
+    if (loadErrors.value[key]) {
+      const next = { ...loadErrors.value };
+      delete next[key];
+      loadErrors.value = next;
+    }
+  }
+
+  function markError(
+    key: string,
+    reason = "数据没能加载，检查网络后重试"
+  ): void {
+    loadErrors.value = { ...loadErrors.value, [key]: reason };
+  }
+
+  /** 按 loader 键重试，不整页重跑七个接口 */
+  async function reload(key: string): Promise<void> {
+    const loaders: Record<string, () => Promise<void>> = {
+      discrepancies: loadDiscrepancies,
+      eaccount: loadEAccount,
+      ghost: loadGhostDuplicates,
+      tax: loadDividendTax,
+      dangling: loadDanglingRefs,
+      orphan: loadOrphanLedgers,
+      candidates: loadRecognizerCandidates
+    };
+    await (loaders[key] ?? loadAll)();
+  }
+
+  /** 首屏与「全部重试」用：与旧 onMounted 的七个加载器顺序一致 */
+  async function loadAll(): Promise<void> {
+    await Promise.all([
+      loadDiscrepancies(),
+      loadEAccount(),
+      loadGhostDuplicates(),
+      loadDividendTax(),
+      loadDanglingRefs(),
+      loadOrphanLedgers(),
+      loadRecognizerCandidates()
+    ]);
+  }
+
   /** 域 B 差异：仅展示待处理（pending）行，使下方表格与顶部「待裁决差异」口径一致（#1259） */
   const bDiscs = computed(() =>
     discs.value.filter(d => d.domain === "B" && d.status === "pending")
@@ -143,8 +192,10 @@ export function useWorkbenchDomains() {
   async function loadRecognizerCandidates(): Promise<void> {
     try {
       recognizerCandidates.value = await getRecognizerCandidates();
+      clearError("candidates");
     } catch {
       recognizerCandidates.value = [];
+      markError("candidates", "识别草稿没能读取，重试一次即可继续");
     }
   }
 
@@ -206,8 +257,10 @@ export function useWorkbenchDomains() {
     try {
       const res = await listDiscrepancies();
       discs.value = res.data ?? [];
+      clearError("discrepancies");
     } catch {
       discs.value = [];
+      markError("discrepancies", "差异列表没能加载，检查网络后重试");
     } finally {
       loading.value = false;
     }
@@ -226,10 +279,12 @@ export function useWorkbenchDomains() {
       taxItems.value = res.data?.items ?? [];
       taxTotalCents.value = res.data?.total_cents ?? 0;
       taxPendingCount.value = res.data?.pending_count ?? 0;
+      clearError("tax");
     } catch {
       taxItems.value = [];
       taxTotalCents.value = 0;
       taxPendingCount.value = 0;
+      markError("tax", "分红扣税清单没能加载，检查网络后重试");
     } finally {
       taxLoading.value = false;
     }
@@ -244,8 +299,10 @@ export function useWorkbenchDomains() {
     try {
       const res = await listDanglingRefs();
       danglingRefs.value = res.data ?? null;
+      clearError("dangling");
     } catch {
       danglingRefs.value = null;
+      markError("dangling", "交易信息检查没能完成，检查网络后重试");
     } finally {
       danglingLoading.value = false;
     }
@@ -259,8 +316,10 @@ export function useWorkbenchDomains() {
     try {
       const res = await listOrphanLedgers();
       orphanLedgers.value = res.data ?? null;
+      clearError("orphan");
     } catch {
       orphanLedgers.value = null;
+      markError("orphan", "缺账本流水检查没能完成，检查网络后重试");
     } finally {
       orphanLoading.value = false;
     }
@@ -273,8 +332,10 @@ export function useWorkbenchDomains() {
       const res = await getEaccountReconciliation();
       const data = (res as any).data ?? {};
       eItems.value = (data.items ?? []) as ReconciliationItem[];
+      clearError("eaccount");
     } catch {
       eItems.value = [];
+      markError("eaccount", "E账户对账数据没能加载，检查网络后重试");
     } finally {
       eLoading.value = false;
     }
@@ -342,9 +403,11 @@ export function useWorkbenchDomains() {
       ]);
       ghostGroups.value = groupsRes.data?.groups ?? [];
       ghostIgnored.value = ignoredRes.data ?? [];
+      clearError("ghost");
     } catch {
       ghostGroups.value = [];
       ghostIgnored.value = [];
+      markError("ghost", "重复交易检查没能完成，检查网络后重试");
     } finally {
       ghostLoading.value = false;
     }
@@ -414,6 +477,9 @@ export function useWorkbenchDomains() {
   return {
     loading,
     running,
+    loadErrors,
+    reload,
+    loadAll,
     discs,
     bDiscs,
     cDiscs,

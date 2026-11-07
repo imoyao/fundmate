@@ -1,6 +1,7 @@
 <template>
-  <!-- 柔性 Warning Banner（§6.3）：点击切换到待处理域（#1259）。
-       #2716 起壳由 SoftBanner 承担；class 保留 e2e 锚点（reconcile-workbench-head.spec.ts） -->
+  <!-- 柔性提示条：点击落到有待办的那一类任务并定位到队列。
+       壳由 SoftBanner 承担；class 保留 e2e 锚点（reconcile-workbench-head.spec.ts）。
+       文案不再说「切换到对应域」——域是后端概念，用户要找的是待办。 -->
   <SoftBanner
     class="workbench-banner"
     variant="info"
@@ -8,7 +9,7 @@
     clickable
     @click="$emit('go')"
   >
-    有 {{ total }} 项差异待处理，点击切换到对应域处理
+    有 {{ total }} 项差异待处理，点击查看待办
   </SoftBanner>
 </template>
 
