@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SalesInstitution } from "@/api/ledger";
 import {
+  canLinkCashAccount,
   filterInstitutionsByKeyword,
   filterInstitutionsByLedgerType,
   institutionLabel,
@@ -224,6 +225,14 @@ describe("positionSummaryModel：锚点与键值派生", () => {
     expect(facts[1].showSign).toBe(false);
     expect(facts[1].autoColor).toBe(false);
     expect(facts[2].showSign).toBe(false);
+  });
+
+  it("证券侧字段只对 securities / fund_platform 分组可见（#2975 单一判据）", () => {
+    expect(canLinkCashAccount("securities")).toBe(true);
+    expect(canLinkCashAccount("fund_platform")).toBe(true);
+    for (const category of ["bank", "insurance", "futures", "other"]) {
+      expect(canLinkCashAccount(category)).toBe(false);
+    }
   });
 
   it("锚点：市值为主数值，盈亏/盈亏率成副行；都没有则无副行", () => {
