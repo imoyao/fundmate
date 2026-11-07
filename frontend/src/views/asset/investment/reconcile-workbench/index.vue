@@ -103,6 +103,7 @@
               :data="danglingRefs"
               :loading="danglingLoading"
               @fix="openDanglingFix"
+              @refresh="loadDanglingRefs"
             />
 
             <!-- 域 G：缺账本孤儿流水（#2875）——逐条确认归属后回填，状态内聚在主视图 -->

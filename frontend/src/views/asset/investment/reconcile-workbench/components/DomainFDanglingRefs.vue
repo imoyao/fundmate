@@ -63,8 +63,19 @@
         :key="g.key"
         :group="g"
         @fix="emit('fix', $event)"
+        @enrich="open('enrich', $event)"
+        @remove="open('remove', $event)"
       />
     </div>
+
+    <!-- 补全信息 / 删除的状态内聚在本域：页面层只加一行 @refresh，不动 index.vue -->
+    <DanglingRefRemediationDialog
+      v-model="dialogVisible"
+      :group="activeGroup"
+      :mode="activeMode ?? 'enrich'"
+      @submitted="emit('refresh')"
+      @update:model-value="onDialogVisibleChange"
+    />
   </div>
 </template>
 
@@ -72,16 +83,22 @@
 import { computed, ref } from "vue";
 import type { DanglingRefGroup, DanglingRefList } from "@/api/reconciliation";
 import DanglingRefGroupCard from "./DanglingRefGroupCard.vue";
+import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
 
 /**
- * 域 F 悬空引用主视图（#2866）。
- * 只做「暴露 + 选组」；预览 → 回补 → 撤销在 DanglingRefFixDialog 里完成。
+ * 域 F 数据缺失主视图（#2866）：只做「暴露 + 选组」；可处理的交给页面层既有弹窗，
+ * 其余的补全信息 / 删除由本组件内聚的弹窗完成，避免动 index.vue 超过基线。
  */
 const props = defineProps<{
   data: DanglingRefList | null;
   loading: boolean;
 }>();
-const emit = defineEmits<{ fix: [group: DanglingRefGroup] }>();
+const emit = defineEmits<{
+  fix: [group: DanglingRefGroup];
+  enrich: [group: DanglingRefGroup];
+  remove: [group: DanglingRefGroup];
+  refresh: [];
+}>();
 
 const batches = computed(() => props.data?.batches ?? []);
 const selectedBatch = ref<number | "all">("all");
@@ -91,6 +108,26 @@ const visibleGroups = computed(() => {
     ? all
     : all.filter(g => g.batch_id === selectedBatch.value);
 });
+
+const activeMode = ref<"enrich" | "delete" | null>(null);
+const activeGroup = ref<DanglingRefGroup | null>(null);
+const dialogVisible = ref(false);
+
+/** 「删除」按钮对应弹窗的 delete 模式（弹窗 mode 只有 enrich / delete 两态）。 */
+function open(mode: "enrich" | "remove", group: DanglingRefGroup): void {
+  activeMode.value = mode === "remove" ? "delete" : "enrich";
+  activeGroup.value = group;
+  dialogVisible.value = true;
+}
+
+/** 弹窗收起时清空选中组与模式，避免下次打开残留上一组。 */
+function onDialogVisibleChange(visible: boolean): void {
+  dialogVisible.value = visible;
+  if (!visible) {
+    activeGroup.value = null;
+    activeMode.value = null;
+  }
+}
 </script>
 
 <style scoped>

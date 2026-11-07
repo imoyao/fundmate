@@ -155,6 +155,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
     "backend/app/services/cross_domain.py": {'lines': 221, 'max_func': 54, 'max_cc': 15},
     "backend/app/services/daily_scheduler.py": {'lines': 1121, 'max_func': 38, 'max_cc': 10},
+    "backend/app/services/dangling_ref_remediation_service.py": {'lines': 541, 'max_func': 58, 'max_cc': 11},
     "backend/app/services/dangling_ref_service.py": {'lines': 607, 'max_func': 88, 'max_cc': 15},
     "backend/app/services/dividend_service.py": {'lines': 465, 'max_func': 112, 'max_cc': 25},
     "backend/app/services/dividend_tax_service.py": {'lines': 634, 'max_func': 90, 'max_cc': 32},

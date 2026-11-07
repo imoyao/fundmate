@@ -5,15 +5,30 @@
         <span class="df-group__key">{{ group.key }}</span>
         <span class="df-group__symbol">{{ group.symbol || "缺标的代码" }}</span>
       </div>
-      <el-button
-        size="small"
-        type="primary"
-        plain
-        :disabled="!group.fixable"
-        @click="emit('fix', group)"
-      >
-        去处理
-      </el-button>
+      <div class="df-group__actions">
+        <el-button
+          v-if="group.fixable"
+          size="small"
+          type="primary"
+          plain
+          @click="emit('fix', group)"
+        >
+          去处理
+        </el-button>
+        <template v-else>
+          <el-button size="small" @click="emit('enrich', group)">
+            补全信息
+          </el-button>
+          <el-button
+            size="small"
+            type="danger"
+            plain
+            @click="emit('remove', group)"
+          >
+            删除
+          </el-button>
+        </template>
+      </div>
     </header>
 
     <!-- 不能处理时必须说清「差什么」，不能只把按钮置灰让用户猜 -->
@@ -70,9 +85,14 @@
 <script setup lang="ts">
 import type { DanglingRefGroup } from "@/api/reconciliation";
 
-/** 域 F 单个分组卡（#2866）：只展示后端扫描结果，写动作交给「去修复」按钮。 */
+/** 域 F 单个分组卡（#2866）：只展示扫描结果；可处理的交给「去处理」，
+ *  其余交给「补全信息 / 删除」两个入口，动作一律上抛给主视图。 */
 defineProps<{ group: DanglingRefGroup }>();
-const emit = defineEmits<{ fix: [group: DanglingRefGroup] }>();
+const emit = defineEmits<{
+  fix: [group: DanglingRefGroup];
+  enrich: [group: DanglingRefGroup];
+  remove: [group: DanglingRefGroup];
+}>();
 </script>
 
 <style scoped>
@@ -87,6 +107,12 @@ const emit = defineEmits<{ fix: [group: DanglingRefGroup] }>();
   gap: 12px;
   align-items: center;
   justify-content: space-between;
+}
+
+.df-group__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
 }
 
 .df-group__title {
