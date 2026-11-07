@@ -12,7 +12,7 @@ import { injectSupabaseSession } from "./support/session";
  *    （v-if 从父模板挪到组件调用点，漏了就会给银行账户显示活期+）；
  * 2. 切回非渠道类型时必须清空关联值（`linkedCashId` / `feeConfig` / 活期+ / 自动申购），
  *    这条逻辑仍在父组件 `onTypeChange` 里，拆分后要确认 emit 链没断；
- * 3. 销售机构下拉的「常用机构 / 全部机构」分组由模型层过滤产出，
+ * 3. 销售机构下拉默认按拼音首字母 A→Z（#2026-11-07 起），常用机构不再置顶；
  *    props 传错（比如把 institutions 传成 undefined）只会变成一个空下拉。
  */
 
@@ -148,10 +148,9 @@ test.describe("账户表单拆分回归（#980 批 B1）", () => {
     await expect(dialog.getByText("现金账户", { exact: true })).toBeVisible();
     await expect(dialog.getByText("活期+", { exact: true })).toBeVisible();
     await expect(dialog.getByText("自动申购", { exact: true })).toBeVisible();
-    // 未绑定活期+ → 开关禁用 + 说明文案走「请先绑定」分支
-    await expect(
-      dialog.getByText("请先绑定活期+，再开启自动申购")
-    ).toBeVisible();
+    // 未绑定活期+ → 开关禁用 + 说明文案走「需先绑定」分支
+    // （#2026-11-07 弹窗重构把两行长提示压成一行，完整口径移到 title）
+    await expect(dialog.getByText("需先绑定活期+")).toBeVisible();
 
     await pickLedgerType(page, "银行");
 
@@ -159,7 +158,7 @@ test.describe("账户表单拆分回归（#980 批 B1）", () => {
     await expect(dialog.getByText("活期+", { exact: true })).toHaveCount(0);
   });
 
-  test("销售机构下拉：常用置顶 + 按账户类型过滤", async ({ page }) => {
+  test("销售机构下拉：拼音 A→Z 排序 + 按账户类型过滤", async ({ page }) => {
     await stubLedgers(page);
     const dialog = await openCreateDialog(page);
 
@@ -171,8 +170,14 @@ test.describe("账户表单拆分回归（#980 批 B1）", () => {
     const dropdownItem = (text: string) =>
       page.locator(".el-select-dropdown__item").filter({ hasText: text });
 
-    // 银行渠道：两类机构都能搜到（检索走 filter-method 三路匹配）
+    // 默认 A→Z：桩里「支付宝」(zfb) 是 common_sort=1 的常用机构，旧口径会
+    // 把它顶到第一；新口径按拼音简拼排，华泰(htzq) 必须在前。
     await instInput.click();
+    await expect(
+      page.locator(".el-select-dropdown__item:visible").first()
+    ).toContainText("华泰证券");
+
+    // 银行渠道：两类机构都能搜到（检索走 filter-method 三路匹配）
     await instInput.fill("华泰");
     await expect(dropdownItem("华泰证券")).toBeVisible();
 
@@ -186,5 +191,38 @@ test.describe("账户表单拆分回归（#980 批 B1）", () => {
     await expect(dropdownItem("支付宝")).toHaveCount(0);
     await instInput.fill("华泰");
     await expect(dropdownItem("华泰证券")).toBeVisible();
+  });
+
+  test("确认创建：只下发 channel_category，不回退成 ledger_type", async ({
+    page
+  }) => {
+    // 2026-11-07 P0 的前端侧回归网：后端已把派生提前到类型校验之前，
+    // 前端**不得**为了绕过报错而补发 ledger_type（会写进伪类型，且四个调用方漂移）。
+    await stubLedgers(page);
+    const dialog = await openCreateDialog(page);
+
+    const captured: { payload?: Record<string, unknown> } = {};
+    await page.route(/^https?:\/\/[^/]+\/api\/ledgers\/$/, async route => {
+      if (route.request().method() !== "POST") return route.fallback();
+      captured.payload = route.request().postDataJSON();
+      return route.fulfill({
+        status: 200,
+        json: { data: { id: 99, name: "招商证券" }, message: "ok" }
+      });
+    });
+
+    const nameItem = dialog
+      .locator(".el-form-item")
+      .filter({ hasText: "账户名称" })
+      .first();
+    await nameItem.locator("input").first().fill("招商证券");
+    await pickLedgerType(page, "证券");
+
+    await dialog.getByRole("button", { name: "确认创建" }).click();
+    await expect(dialog).toHaveCount(0);
+
+    expect(captured.payload).not.toBeUndefined();
+    expect(captured.payload).toMatchObject({ channel_category: "securities" });
+    expect(captured.payload).not.toHaveProperty("ledger_type");
   });
 });

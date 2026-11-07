@@ -252,6 +252,11 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         # 与下沉前 ``abort(400, '账户名称不能为空')`` 一致（响应体不含 error_code）
         raise LedgerWriteError('账户名称不能为空', 400, None)
 
+    # 两套「账户类型」口径，禁止混用：
+    #   - channel_category：用户所选渠道分组（bank/securities/fund_platform/...），
+    #     创建时由前端下发，是**唯一入参**；
+    #   - ledger_type：内部资产计算口径键（bank/stock/fund/...），仅用于校验与计算，
+    #     由上面的分组派生；显式下发只为兼容旧调用方。
     ledger_type = data.get('ledger_type', 'bank')
     channel_category = data.get('channel_category')
     linked_cash_id = data.get('linked_cash_ledger_id')
@@ -265,7 +270,25 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
             raise LedgerWriteError('关联的销售机构不存在', 400, 1001)
         institution_org_type = institution.org_type
 
-    # 校验关联的现金账户
+    # 派生 channel_category / ledger_type（#1101 渠道分类重设计）：
+    #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
+    #   - 否则有销售机构 → 以 org_type 映射为准（只定 channel_category，
+    #     不动 ledger_type，与下沉前行为一致）；
+    #   - 否则按 ledger_type 反推 channel_category（向后兼容旧调用方）。
+    #
+    # ⚠️ 派生必须在**所有**依赖 ledger_type 的校验之前完成（2026-11-07 P0）。
+    # 原先派生放在现金账户校验之后，校验读到的是 data.get('ledger_type', 'bank')
+    # 的缺省值：前端只下发 channel_category='securities' 时，用户选了证券却报
+    # 「只有证券账户或基金可以关联现金账户」，派生后的 stock 只用于落库、为时已晚。
+    # 派生后 ledger_type 即最终落库值，下方校验一律读它，不得回读原始入参。
+    if channel_category:
+        ledger_type = map_channel_category_to_ledger_type(channel_category)
+    elif institution_org_type:
+        channel_category = map_org_type_to_channel_category(institution_org_type)
+    elif ledger_type:
+        channel_category = map_ledger_type_to_channel_category(ledger_type)
+
+    # 校验关联的现金账户：用**派生后**的 ledger_type
     if linked_cash_id is not None:
         if ledger_type not in ('stock', 'fund'):
             raise LedgerWriteError('只有证券账户或基金可以关联现金账户', 400, 1001)
@@ -285,17 +308,6 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         member = get_member(db, family_id, owner_member_id)
         if member is not None and not member.is_active:
             raise LedgerWriteError('不能把账户归属给已停用的成员', 400, 1001)
-
-    # 派生 channel_category / ledger_type（#1101 渠道分类重设计）：
-    #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
-    #   - 否则有销售机构 → 以 org_type 映射为准（权威，覆盖 ledger_type 的展示语义）；
-    #   - 否则按 ledger_type 反推 channel_category（向后兼容旧调用方）。
-    if channel_category:
-        ledger_type = map_channel_category_to_ledger_type(channel_category)
-    elif institution_org_type:
-        channel_category = map_org_type_to_channel_category(institution_org_type)
-    elif ledger_type:
-        channel_category = map_ledger_type_to_channel_category(ledger_type)
 
     # 类现金产品绑定（#1137）：入参用基金代码（前端搜索结果即 code），存储 funds.id。
     # 仅证券/基金平台可绑；开关默认关闭，未绑定时不允许开启。

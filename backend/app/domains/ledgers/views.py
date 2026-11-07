@@ -104,8 +104,11 @@ def list_sales_institutions():
         org_types: 可选，逗号分隔的机构类型（原始 org_type 值），提供时仅返回命中
                    类型（#1082：按账户类型过滤可见机构，如证券账户只看券商）。
 
-    排序：常用机构（is_common）按 common_sort 升序置顶，其余按名称字典序——
-    前端据此拆「常用机构 / 全部机构」两个分组（#1081）。
+    排序：默认按名称拼音首字母（pinyin_short）A→Z，同音再按中文名兜底；
+    pinyin_short 缺失（AMAC job 未回填的旧环境）排最后并按中文名兜底。
+    is_common / common_sort 仍随响应下发，供前端「仅看常用」快捷筛选使用，
+    但**不再参与默认排序**：常用机构按人工保有规模置顶会打乱 A→Z，
+    用户按首字母找不到机构（2026-11-07 反馈）。
     """
     # 兼容两种传参：逗号分隔（org_types=A,B）或重复参数（org_types=A&org_types=B）
     org_types: list[str] = []
@@ -120,8 +123,7 @@ def list_sales_institutions():
         if org_types:
             query = query.filter(SalesInstitution.org_type.in_(org_types))
         institutions = query.order_by(
-            SalesInstitution.is_common.desc(),
-            SalesInstitution.common_sort.asc().nullslast(),
+            SalesInstitution.pinyin_short.asc().nullslast(),
             SalesInstitution.org_name.asc(),
         ).all()
         data = [

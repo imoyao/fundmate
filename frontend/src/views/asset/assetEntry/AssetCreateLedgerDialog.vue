@@ -130,6 +130,9 @@ onMounted(fetchSalesInstitutions);
             :value="inst.id"
           />
         </el-select>
+        <!-- 与 ledgers 页的 SalesInstitutionSelect 保持同一套口径：选中值会盖住
+             placeholder，检索与排序说明必须常显（#2026-11-07）。 -->
+        <p class="inst-helper-hint">A→Z 排列 · 支持名称 / 别名 / 首字母检索</p>
       </el-form-item>
     </el-form>
     <template #footer>
@@ -145,3 +148,12 @@ onMounted(fetchSalesInstitutions);
     </template>
   </el-dialog>
 </template>
+
+<style scoped>
+.inst-helper-hint {
+  margin: var(--space-2, 4px) 0 0;
+  font-size: var(--text-label, 13px);
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+</style>

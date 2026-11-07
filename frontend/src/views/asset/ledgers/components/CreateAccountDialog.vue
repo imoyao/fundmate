@@ -66,7 +66,10 @@ const EMPTY_FORM = {
   auto_purchase_money_fund: false,
   portfolio_id: null,
   fee_config: null,
-  sales_institution_id: null
+  sales_institution_id: null,
+  // 必须与 createForm 形状一致：useDialogForm 用 `form.value = next` 整体替换，
+  // 漏一个键就会让它变成 undefined（上线靠 JSON 省略侥幸正确，属静默形状漂移）
+  owner_member_id: null
 };
 
 /**
@@ -120,7 +123,11 @@ async function handleCreate() {
     emit("update:visible", false);
     emit("created");
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "创建失败");
+    // 后端 400 文案要给用户足够时间读完，默认 3s 一闪而过
+    ElMessage.error({
+      message: e?.response?.data?.message || "创建失败",
+      duration: 6000
+    });
   } finally {
     creating.value = false;
   }
@@ -131,16 +138,23 @@ async function handleCreate() {
   <el-dialog
     :model-value="visible"
     title="创建账户"
-    width="420px"
+    width="560px"
+    class="create-account-dialog"
+    align-center
     destroy-on-close
     :before-close="onBeforeClose"
     @update:model-value="emit('update:visible', $event)"
   >
-    <el-form :model="createForm" label-width="100px">
-      <el-form-item label="账户名称" required>
+    <!-- 420px + label 100px 时控件区只剩 ~260px，10 个字段纵堆到近 900px。
+         560px + label 88px 把控件区提到 ~430px；body 限高滚动、footer 常驻，
+         任何视口高度下「取消 / 确认创建」都不会被挤出屏幕。 -->
+    <el-form :model="createForm" label-width="88px" class="create-account-form">
+      <el-form-item label="账户名称" for="create-account-name" required>
         <el-input
+          id="create-account-name"
           v-model="createForm.name"
           placeholder="如：华泰证券、招商银行"
+          aria-required="true"
         />
       </el-form-item>
 
@@ -158,8 +172,12 @@ async function handleCreate() {
       />
       <OwnerMemberSelect v-model="createForm.owner_member_id" />
 
-      <el-form-item label="备注">
-        <el-input v-model="createForm.notes" placeholder="可选" />
+      <el-form-item label="备注" for="create-account-notes">
+        <el-input
+          id="create-account-notes"
+          v-model="createForm.notes"
+          placeholder="可选"
+        />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -173,3 +191,28 @@ async function handleCreate() {
     </template>
   </el-dialog>
 </template>
+
+<style scoped>
+/* 10 个字段的纵向节奏收紧到 12px：不改字段集，先省掉 ~60px 高度 */
+.create-account-form :deep(.el-form-item) {
+  margin-bottom: var(--space-3, 12px);
+}
+</style>
+
+<!--
+  el-dialog 是本组件的根元素且 teleport 到 body：scoped 的 `:deep(.el-dialog)`
+  编译成 `[data-v-x] .el-dialog`，要求它是带 scopeId 元素的**后代**，
+  匹配不到根元素自己（assetEntry 弹窗踩过）。故宽度/滚动用唯一类名 + 非 scoped 块。
+  颜色与圆角全部走 design token，不硬编码 hex。
+-->
+<style>
+.create-account-dialog {
+  max-width: calc(100vw - 32px);
+}
+
+.create-account-dialog .el-dialog__body {
+  max-height: min(66vh, 560px);
+  padding-right: 20px;
+  overflow-y: auto;
+}
+</style>
