@@ -253,11 +253,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # 若不下沉就得让 `_ledger_to_dict` 再涨 11 行（max_func 44 → 55，越 60 的硬上限虽未破，
     # 但基线已被顶破）。下沉后 ledgers 679 → 635 行、max_func 44 → 43，
     # `orm_queries` / `commits` 不动（10/0）。按 `--report` 实测**收紧**。
+    # 2026-11-07 收紧（非放宽）：销售机构默认排序改按 pinyin_short A→Z，
+    # 排序链少 1 行、docstring 压短 3 行 ⇒ 635→634 / 43→42，按 `--report` 回写。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 635,
+        "lines": 634,
         "orm_queries": 10,
         "commits": 0,
-        "max_func": 43,
+        "max_func": 42,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——

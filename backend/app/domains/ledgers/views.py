@@ -104,11 +104,8 @@ def list_sales_institutions():
         org_types: 可选，逗号分隔的机构类型（原始 org_type 值），提供时仅返回命中
                    类型（#1082：按账户类型过滤可见机构，如证券账户只看券商）。
 
-    排序：默认按名称拼音首字母（pinyin_short）A→Z，同音再按中文名兜底；
-    pinyin_short 缺失（AMAC job 未回填的旧环境）排最后并按中文名兜底。
-    is_common / common_sort 仍随响应下发，供前端「仅看常用」快捷筛选使用，
-    但**不再参与默认排序**：常用机构按人工保有规模置顶会打乱 A→Z，
-    用户按首字母找不到机构（2026-11-07 反馈）。
+    排序：默认按 pinyin_short 首字母 A→Z（缺失排最后），同音按中文名兜底；
+    is_common / common_sort 仍下发供快捷筛选，但不参与默认排序（2026-11-07）。
     """
     # 兼容两种传参：逗号分隔（org_types=A,B）或重复参数（org_types=A&org_types=B）
     org_types: list[str] = []
