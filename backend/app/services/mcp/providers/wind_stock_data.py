@@ -26,11 +26,10 @@
 > 基类，本类只声明「域 + 能力表」。地址解析、``_wire``、``tool_for``、``scope_of``
 > 全部由基类承担 —— 再新接一个域不再需要复制这些逻辑。
 
-## 能力表为什么只有两项
+## 能力表为什么只登记有下游消费方的能力
 
-``vserver_stock_data`` 暴露 10 个工具，但本域真正有下游消费方的只有两个。其余
-（``get_stock_fundamentals`` / ``get_stock_price_indicators`` / ``get_stock_events`` …）
-**留白**：登记了没人调用就是死代码，等有页面或 job 真读它们时再补（#2749 的教训）。
+``vserver_stock_data`` 暴露 10 个工具，登记了没人调用就是死代码（#2749 的教训）。
+``stock_valuation`` 已由 #2944 真机实测确认（详见 ``adapters/wind_stock_valuation.py``），其余工具仍留白。
 """
 
 from typing import Dict
@@ -47,6 +46,7 @@ _CAPABILITY_TOOLS: Dict[str, str] = {
     'stock_industry': 'get_stock_basicinfo',
     # 自然语言选股（按行业/概念/指标反查代码），留给人工探针与后续筛选页
     'stock_search': 'search_stocks',
+    'stock_valuation': 'get_stock_fundamentals',
 }
 
 
