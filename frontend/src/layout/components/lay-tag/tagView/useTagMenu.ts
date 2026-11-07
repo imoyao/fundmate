@@ -8,13 +8,15 @@
 
 import { nextTick, toRaw, unref } from "vue";
 import type { Ref } from "vue";
+import type { RouteLocationNormalizedLoaded, Router } from "vue-router";
 import NProgress from "@/utils/progress";
 import { getTopMenu, handleAliveRoute } from "@/router/utils";
 import { routerArrays } from "@/layout/types";
 import { useSettingStoreHook } from "@/store/modules/settings";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import { usePermissionStoreHook } from "@/store/modules/permission";
-import type { RouteConfigs } from "../../../types";
+import type { multiType } from "@/store/types";
+import type { RouteConfigs, tagsViewsType } from "../../../types";
 import {
   MENU_INDEX,
   applyMenuBody,
@@ -35,11 +37,11 @@ import Fullscreen from "~icons/ri/fullscreen-fill";
  * 改那份对界面无效——这是拆分时最容易踩的坑。
  */
 export function useTagMenu(options: {
-  route: any;
-  router: any;
-  multiTags: Ref<any[]>;
-  tagsViews: any[];
-  currentSelect: Ref<any>;
+  route: RouteLocationNormalizedLoaded;
+  router: Router;
+  multiTags: Ref<multiType[]>;
+  tagsViews: tagsViewsType[];
+  currentSelect: Ref<RouteConfigs>;
   visible: Ref<boolean>;
   buttonTop: Ref<number>;
   buttonLeft: Ref<number>;
@@ -139,10 +141,10 @@ export function useTagMenu(options: {
    * `tag` 是「删除范围」：`left` / `right` / `other` 对应批量删除，缺省是只删当前。
    * 删的若是**当前激活标签**，要自动切到剩下的第一个；删的是别人则只在必要时回补。
    */
-  function deleteDynamicTag(obj: any, current: string, tag?: string) {
+  function deleteDynamicTag(obj: RouteConfigs, current: string, tag?: string) {
     // 注意：这里的匹配用 `===` 比较 query/params 字符串，与 showMenuModel 的
     // `isEqual` 深比较**不是同一套口径**，不可合并——标签里的 query 是路由序列化产物。
-    const valueIndex: number = multiTags.value.findIndex((item: any) => {
+    const valueIndex: number = multiTags.value.findIndex((item: multiType) => {
       if (item.query) {
         if (item.path === obj.path) return item.query === obj.query;
       } else if (item.params) {
@@ -166,10 +168,12 @@ export function useTagMenu(options: {
           ].flat()
         );
       } else {
+        // `handleTags` 自身返回 `any`（各分支返回类型不同，见 store 里那段说明），
+        // 原先的 `as any` 只是把「已经松」的类型再断言一次，去掉不改变任何语义。
         useMultiTagsStoreHook().handleTags("splice", "", {
           startIndex,
           length
-        }) as any;
+        });
       }
       void dynamicTagView();
     };
@@ -206,7 +210,7 @@ export function useTagMenu(options: {
     }
   }
 
-  function deleteMenu(item, tag?: string) {
+  function deleteMenu(item: RouteConfigs, tag?: string) {
     deleteDynamicTag(item, item.path, tag);
     handleAliveRoute(route as ToRouteType);
   }
@@ -234,10 +238,14 @@ export function useTagMenu(options: {
   }
 
   /** 下拉菜单/右键菜单的统一分发（下标含义见 MENU_INDEX） */
-  function onClickDrop(key: number, item: any, selectRoute?: RouteConfigs) {
+  function onClickDrop(
+    key: number,
+    item: tagsViewsType,
+    selectRoute?: RouteConfigs
+  ) {
     if (item && item.disabled) return;
 
-    const selectTagRoute = selectRoute
+    const selectTagRoute: RouteConfigs = selectRoute
       ? {
           path: selectRoute.path,
           meta: selectRoute.meta,
@@ -282,13 +290,13 @@ export function useTagMenu(options: {
     });
   }
 
-  function handleCommand(command: any) {
+  function handleCommand(command: { key: number; item: tagsViewsType }) {
     const { key, item } = command;
     onClickDrop(key, item);
   }
 
   /** 触发右键菜单里的点击（右键菜单作用于 `currentSelect`，不是当前路由） */
-  function selectTag(key: number, item: any) {
+  function selectTag(key: number, item: tagsViewsType) {
     closeMenu();
     onClickDrop(key, item, currentSelect.value);
   }
@@ -299,7 +307,7 @@ export function useTagMenu(options: {
    * 三种特殊情形原样保留：右键固定标签（含顶级菜单）只给「重新加载」；
    * 右键的不是当前标签则隐藏「重新加载」；只剩两个标签时不给「关闭其他」。
    */
-  function openMenu(tag: any, e: MouseEvent) {
+  function openMenu(tag: RouteConfigs, e: MouseEvent) {
     closeMenu();
     if (tag.path === topPath || tag?.meta?.fixedTag) {
       showMenus(false);

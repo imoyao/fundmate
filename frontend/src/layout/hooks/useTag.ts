@@ -7,11 +7,12 @@ import {
   type CSSProperties,
   getCurrentInstance
 } from "vue";
-import type { tagsViewsType } from "../types";
+import type { RouteConfigs, tagsViewsType } from "../types";
 import { useRoute, useRouter } from "vue-router";
 import { responsiveStorageNameSpace } from "@/config";
 import { useSettingStoreHook } from "@/store/modules/settings";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
+import type { multiType } from "@/store/types";
 import {
   isEqual,
   isBoolean,
@@ -40,7 +41,7 @@ export function useTags() {
   const visible = ref(false);
   const activeIndex = ref(-1);
   // 当前右键选中的路由信息
-  const currentSelect = ref({});
+  const currentSelect = ref<RouteConfigs>({});
   const isScrolling = ref(false);
 
   /** 显示模式，默认灵动模式 */
@@ -50,13 +51,14 @@ export function useTags() {
     )?.showModel || "smart"
   );
   /** 是否隐藏标签页，默认显示 */
-  const showTags =
-    ref(
-      storageLocal().getItem<StorageConfigs>(
-        `${responsiveStorageNameSpace()}configure`
-      ).hideTabs
-    ) ?? ref("false");
-  const multiTags: any = computed(() => {
+  // 原写法 `ref(...) ?? ref("false")`：`ref()` 永远不是 null/undefined，
+  // 右侧分支是死代码（永不执行），且会把类型拖成 `Ref<boolean> | Ref<string>`。
+  const showTags = ref<boolean>(
+    storageLocal().getItem<StorageConfigs>(
+      `${responsiveStorageNameSpace()}configure`
+    ).hideTabs
+  );
+  const multiTags = computed<multiType[]>(() => {
     return useMultiTagsStoreHook().multiTags;
   });
 

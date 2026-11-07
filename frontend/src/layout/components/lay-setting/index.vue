@@ -97,7 +97,7 @@ const weekChange = (value): void => {
 const tagsChange = () => {
   const showVal = settings.tabsVal;
   storageConfigureChange("hideTabs", showVal);
-  emitter.emit("tagViewsChange", showVal as unknown as string);
+  emitter.emit("tagViewsChange", showVal);
 };
 
 /** 隐藏页脚设置 */

@@ -7,8 +7,10 @@
  */
 
 import { nextTick, ref } from "vue";
-import type { Ref } from "vue";
+import type { ComponentInternalInstance, Ref } from "vue";
+import type { RouteLocationNormalizedLoaded } from "vue-router";
 import { isAllEmpty, isEqual } from "@pureadmin/utils";
+import type { multiType } from "@/store/types";
 
 /** 标签滚到可视区后，与左右边缘之间留的间距（px） */
 export const TAB_NAV_PADDING = 10;
@@ -92,9 +94,9 @@ export function wheelOffset(deltaX: number, deltaY: number): number {
  * 只有 `instance.refs` 能拿到；换成 `useTemplateRef` 取不到这种按 index 生成的引用。
  */
 export function useTagScroll(options: {
-  instance: any;
-  route: any;
-  multiTags: Ref<any[]>;
+  instance: ComponentInternalInstance | null;
+  route: RouteLocationNormalizedLoaded;
+  multiTags: Ref<multiType[]>;
   translateX: Ref<number>;
   isScrolling: Ref<boolean>;
 }) {
@@ -112,8 +114,14 @@ export function useTagScroll(options: {
 
   const moveToView = async (index: number): Promise<void> => {
     await nextTick();
-    if (!instance.refs["dynamic" + index]) return;
-    const tabItemEl = instance.refs["dynamic" + index][0] as HTMLElement;
+    // `instance` 在 setup 之外调用时为 null（`getCurrentInstance()` 的返回类型如此），
+    // 原先声明成 any 时这层保护是缺失的：直接读 `.refs` 会在 null 上抛 TypeError。
+    // `refs` 的声明是 `Record<string, unknown>`，动态 ref 取出来必须先收窄再取下标。
+    const refs = instance?.refs;
+    if (!refs) return;
+    const target = refs["dynamic" + index];
+    if (!Array.isArray(target)) return;
+    const tabItemEl = target[0] as HTMLElement | undefined;
     if (!tabItemEl) return;
     const next = resolveTabScroll(
       {
