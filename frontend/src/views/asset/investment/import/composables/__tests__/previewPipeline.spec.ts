@@ -17,6 +17,8 @@ import {
   shouldShowPriceUpdateTip,
   summarizeErrors
 } from "../previewPipeline";
+import type { PreviewRow } from "../previewRow";
+import type { ErrorSummaryInput } from "../previewPipeline";
 
 /**
  * 预览行管线纯计算核（#2876 增量 4a）的黄金用例。
@@ -31,15 +33,52 @@ import {
  */
 
 let seq = 0;
-/** 补一个唯一 `_rowKey`：合并行的父 key 由它派生（`merged_<父行>`） */
-function keyed<T extends Record<string, any>>(row: T): T & { _rowKey: string } {
+
+/**
+ * 构造一条**字段齐全**的预览行：`PreviewRow` 的必填字段全部给默认值，
+ * 用例只覆盖自己关心的那几个。
+ *
+ * 为什么不再用 `Record<string, any>` 当 fixtures 底座：那等于把「行上到底能有什么
+ * 字段」重新交回 any 保管——拼错 `link_group_id` 这类字段名时单测照样绿，
+ * 因为覆盖对象走的是索引签名。现在覆盖对象是 `Partial<PreviewRow>`，
+ * 写错字段名当场报错。
+ */
+function mkRow(overrides: Partial<PreviewRow> = {}): PreviewRow {
   seq += 1;
-  return { _rowKey: `row_${seq}`, ...row } as T & { _rowKey: string };
+  const row: PreviewRow = {
+    _rowKey: `row_${seq}`,
+    symbol: "",
+    name: "",
+    type: "stock",
+    display_type: "",
+    op_type: "buy",
+    op_type_label: "",
+    quantity: 0,
+    price: 0,
+    amount: 0,
+    fee: 0,
+    trade_date: "",
+    account_name: "",
+    ledger_id: null,
+    contract_id: "",
+    is_cash_transfer: false,
+    error: null,
+    import_hash: "",
+    is_duplicate: false,
+    allocation: null,
+    link_group_id: null,
+    trade_amount: 0,
+    net_amount: 0,
+    notes: "",
+    source: "",
+    is_calculated: false
+  };
+  return { ...row, ...overrides };
 }
 
 /** 健康行：数量单价金额自洽，无代码/金额问题 */
-function baseRow(overrides: Record<string, any> = {}) {
-  return keyed({
+function baseRow(overrides: Partial<PreviewRow> = {}) {
+  return mkRow({
     symbol: "002311",
     name: "海大集团",
     op_type: "buy",
@@ -54,8 +93,8 @@ function baseRow(overrides: Record<string, any> = {}) {
 }
 
 /** 债券兑息行（丰山转债真实值：60 张、单价 1.5、利息 90 元） */
-function interestRow(overrides: Record<string, any> = {}) {
-  return keyed({
+function interestRow(overrides: Partial<PreviewRow> = {}) {
+  return mkRow({
     symbol: "SH113649",
     name: "丰山转债",
     op_type: "dividend_cash",
@@ -71,8 +110,8 @@ function interestRow(overrides: Record<string, any> = {}) {
 }
 
 /** 代扣个税行：沿用利息行的数量单价，金额 −18 */
-function taxRow(overrides: Record<string, any> = {}) {
-  return keyed({
+function taxRow(overrides: Partial<PreviewRow> = {}) {
+  return mkRow({
     symbol: "SH113649",
     name: "丰山转债",
     op_type: "tax",
@@ -98,7 +137,7 @@ describe("mergeLinkGroups：息 + 税折成一条净额行", () => {
     expect(merged.net_amount).toBe(72); // 90 + (−18)
     expect(merged.amount).toBe(72);
     expect(merged.children).toHaveLength(2);
-    expect(merged.children!.map((c: any) => c.op_type)).toEqual([
+    expect(merged.children!.map(c => c.op_type)).toEqual([
       "dividend_cash",
       "tax"
     ]);
@@ -321,7 +360,7 @@ describe("summarizeErrors：解析错误按原因汇总", () => {
       { error: "金额无法解析", name: "海大集团" },
       { error: "金额无法解析", symbol: "002311" },
       { error: null, name: "无代码行" }
-    ]);
+    ] satisfies ErrorSummaryInput[]);
 
     expect(groups).toEqual([
       { reason: "金额无法解析", count: 2, items: ["海大集团", "002311"] },
@@ -435,15 +474,15 @@ describe("applyRowFilters：五键过滤管线（#2876 增量 4b）", () => {
   });
 
   /** 待补全行（isRowBlocked 命中：qty=0 且不在豁免清单） */
-  const blockedRow = (over: Record<string, any> = {}) =>
+  const blockedRow = (over: Partial<PreviewRow> = {}) =>
     baseRow({ quantity: 0, price: 0, amount: 0, ...over });
   /** 金额对不上的行：|100×10 − 500| = 500，fee=0 解释不掉 → mismatch */
-  const mismatchRow = (over: Record<string, any> = {}) =>
+  const mismatchRow = (over: Partial<PreviewRow> = {}) =>
     baseRow({ amount: 500, ...over });
   /** 代码未匹配的行 */
-  const noCodeRow = (over: Record<string, any> = {}) =>
+  const noCodeRow = (over: Partial<PreviewRow> = {}) =>
     baseRow({ symbol: "", ...over });
-  const healthyRow = (over: Record<string, any> = {}) => baseRow(over);
+  const healthyRow = (over: Partial<PreviewRow> = {}) => baseRow(over);
 
   it("status=blocked：只留「待补全且不是重复/错误/转账」的行", () => {
     const rows = [

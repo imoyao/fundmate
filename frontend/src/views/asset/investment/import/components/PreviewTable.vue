@@ -36,7 +36,7 @@ const {
  * 明说三件事：交割单发生额、其中的手续费、入库采用的成交额——避免用户
  * 看到两个数字不一致时误点「修正金额」把线索改掉。
  */
-function amountHint(row: any): string {
+function amountHint(row: PreviewRow): string {
   const diff = feeDiffOf(row);
   const gross = Number(row.quantity) * Number(row.price);
   return (
@@ -132,8 +132,8 @@ function handleToggleIgnore(row: unknown): void {
           </template>
           <template v-else-if="col.slot === 'amount'" #default="{ row }">
             <el-tooltip
-              v-if="isFeeExplained(row)"
-              :content="amountHint(row)"
+              v-if="isFeeExplained(asPreviewRow(row))"
+              :content="amountHint(asPreviewRow(row))"
               placement="top"
             >
               <EditableCell :row="row" field="amount" />
