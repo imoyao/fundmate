@@ -71,6 +71,23 @@ export interface PreviewRow extends ImportPreviewRow {
  * 边界（别把它读成「运行时也校验」）：纯断言，不做字段检查——el-table 交来的
  * 就是 `previewData` 的元素（`addRowKeys` 补过 `_rowKey`），形状由写入侧保证。
  */
+/** 纯计算函数只读写行的部分字段：测试夹具与服务端中间态均可传入（#2879 第二刀）。 */
+export type PreviewRowLike = Partial<PreviewRow>;
+
 export function asPreviewRow(row: unknown): PreviewRow {
   return row as PreviewRow;
+}
+
+/**
+ * 数组版边界：`addRowKeys` 补过 `_rowKey` 的行进入 `previewData` 时，唯一一次断言。
+ *
+ * 为什么不把 `addRowKeys` 自己改成返回 `PreviewRow[]`：它是通用工具（有
+ * `addRowKeys([{ a: 1 }])` 这类单测），输入什么形状就得返回什么形状。预览行语义
+ * 属于向导，由 `useImportWizard` 的包装在这里收口；断言只写一次，下游全部受
+ * `PreviewRow` 约束，而不是把 `as any` 摊到十几个赋值点。
+ *
+ * 同 `asPreviewRow`：纯断言，不做运行时字段校验。
+ */
+export function asPreviewRows<T extends object>(rows: T[]): PreviewRow[] {
+  return rows as unknown as PreviewRow[];
 }

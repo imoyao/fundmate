@@ -1,3 +1,4 @@
+import { asPreviewRow, type PreviewRow } from "../previewRow";
 import { describe, expect, it } from "vitest";
 import {
   PRICE_NOT_DERIVABLE_OPS,
@@ -26,14 +27,14 @@ import { filledFieldsLabel } from "../../components/batchFixPanelModel";
  */
 
 /** 一条普通买入行：有份额、有金额、缺单价。 */
-function row(patch: Record<string, unknown> = {}): any {
-  return {
+function row(patch: Record<string, unknown> = {}): PreviewRow {
+  return asPreviewRow({
     op_type: "buy",
     quantity: "100",
     price: "",
     amount: "1234",
     ...patch
-  };
+  });
 }
 
 describe("fillSmartPrice 该补的行", () => {
@@ -145,7 +146,7 @@ describe("fillSmartPrice 不该补的行", () => {
 
 describe("#2903 的定案依据（机器证据，不是卡面叙述）", () => {
   /** 旧文件通道的 4 条件守卫，逐字照抄修复前的写法。 */
-  const legacyFileGuard = (r: any): boolean =>
+  const legacyFileGuard = (r: PreviewRow): boolean =>
     !isRowBlocked(r) && !r.is_cash_transfer && !r.error && !r.is_duplicate;
 
   it("旧守卫对普通缺价行恒 false：`!isRowBlocked` 与「缺价」互斥 ⇒ 该分支对它要服务的行从未执行", () => {
@@ -207,7 +208,7 @@ describe("#2902：装载期补价可见 + 逐行可恢复", () => {
   it("草稿往返（整行 JSON 持久化）后仍可恢复——撤销栈做不到这一点", () => {
     const r = row();
     fillSmartPrice(r);
-    const fromDraft = JSON.parse(JSON.stringify(r)) as any;
+    const fromDraft = JSON.parse(JSON.stringify(r)) as PreviewRow;
     expect(canRestoreSmartFilledPrice(fromDraft)).toBe(true);
     expect(restoreSmartFilledPrice(fromDraft)).toBe(true);
     expect(fromDraft.price).toBe("");
