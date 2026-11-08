@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import type { QuoteLike } from "../types";
 import { ref, reactive } from "vue";
 import { ElMessage } from "element-plus";
-import { useAssetSearch } from "@/composables/useAssetSearch";
+import {
+  useAssetSearch,
+  type AssetSearchItem
+} from "@/composables/useAssetSearch";
 import { getTypeLabel } from "@/constants/assetType";
 import CardBlock from "@/components/CardBlock/index.vue";
 
@@ -21,7 +25,7 @@ const props = defineProps<{
     quantity: number | null;
   }) => { success: boolean; message: string };
   /** 实时行情映射：选中建议后用现价预填成本 */
-  quotesMap: Record<string, any>;
+  quotesMap: Record<string, QuoteLike>;
 }>();
 
 // ================================================================
@@ -33,7 +37,10 @@ const {
   search
 } = useAssetSearch();
 
-const querySearch = (queryString: string, cb: (results: any[]) => void) => {
+const querySearch = (
+  queryString: string,
+  cb: (results: AssetSearchItem[]) => void
+) => {
   search(queryString, cb);
 };
 
@@ -41,7 +48,7 @@ const querySearch = (queryString: string, cb: (results: any[]) => void) => {
 // 新资产表单
 // ================================================================
 const adding = ref(false);
-const selectedAssetInfo = ref<any>(null);
+const selectedAssetInfo = ref<AssetSearchItem | null>(null);
 
 const newAsset = reactive({
   symbol: "",
@@ -50,10 +57,11 @@ const newAsset = reactive({
   quantityInput: ""
 });
 
-const handleSelect = (item: any) => {
+const handleSelect = (item: AssetSearchItem) => {
   if (!item || !item.code) return;
   newAsset.symbol = item.code;
-  newAsset.type = item.type || "stock";
+  newAsset.type =
+    item.type === "fund" || item.type === "etf" ? item.type : "stock";
   selectedAssetInfo.value = item;
   const quote = props.quotesMap?.[item.code];
   if (quote?.currentPrice) {

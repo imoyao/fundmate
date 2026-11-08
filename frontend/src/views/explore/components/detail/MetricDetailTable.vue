@@ -65,6 +65,7 @@
 </template>
 
 <script setup lang="ts">
+import type { MetricItem } from "../../types";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
@@ -80,7 +81,7 @@ defineOptions({ name: "MetricDetailTable" });
 withDefaults(
   defineProps<{
     /** 全部单值指标列表（已过滤核心指标，含 source / name / value / unit / label / note / stale 字段） */
-    items?: any[];
+    items?: MetricItem[];
   }>(),
   {
     items: () => []
@@ -89,7 +90,8 @@ withDefaults(
 
 /** 数据滞后行：整行降透明度，与 BiasTable / CrowdingTable 的「滞后」语义一致。
  *  属 el-table.css 规则 3 允许保留的「行内行为」样式，不涉及视觉基线。 */
-const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
+const rowClassName = ({ row }: { row: MetricItem }) =>
+  row?.stale ? "is-stale" : "";
 </script>
 
 <style lang="scss" scoped>

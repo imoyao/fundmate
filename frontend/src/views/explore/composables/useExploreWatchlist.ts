@@ -9,6 +9,7 @@
  * 边界：本 composable 只管**数据与列表行为**；页面级导航（去自选页 / 去登录）
  * 仍留在 index.vue，因为它属于页面编排职责。
  */
+import type { HoldingRow, QuoteLike } from "../types";
 import { ref, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useLocalHoldings } from "@/composables/useLocalHoldings";
@@ -88,11 +89,11 @@ export function useExploreWatchlist(router: Router) {
   );
 
   const quotesMap = computed(() => {
-    const map: Record<string, any> = {};
+    const map: Record<string, QuoteLike> = {};
     if (!items || !items.value) return map;
-    items.value.forEach((item: any) => {
+    items.value.forEach(item => {
       if (item.symbol) {
-        map[item.symbol] = item;
+        map[item.symbol] = item as unknown as QuoteLike;
       }
     });
     return map;
@@ -122,7 +123,7 @@ export function useExploreWatchlist(router: Router) {
 
   const tableData = computed(() => {
     try {
-      let hold: any[] = [];
+      let hold: HoldingRow[] = [];
       if (
         localHoldings &&
         typeof localHoldings.holdings === "object" &&
