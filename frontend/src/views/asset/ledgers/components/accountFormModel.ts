@@ -161,3 +161,17 @@ export function isInstitutionAllowedForLedgerType(
   if (!inst?.org_type) return true;
   return allowed.includes(inst.org_type);
 }
+
+/**
+ * 是否显示「关联现金账户 / 活期+ / 费率」这类证券侧字段。
+ *
+ * 入参是 channel_category（用户可见分组），**不是** ledger_type：模型铁律规定
+ * 分组 / 标签 / 显隐只读 channel_category。注意前后端判据并非同一套——后端按
+ * ledger_type 校验（stock / fund 可关联），这里是「只在证券 / 基金平台展示证券侧
+ * 字段」的产品可见性策略（futures 分组派生 stock 但不展示，属既有决策）。
+ * ledger_category_guard 保证编辑时两字段不矛盾，故不会出现「字段可见却被后端拒绝」。
+ * 改动 constants.py 映射表时须复核本函数（#2975）。
+ */
+export function canLinkCashAccount(category: string): boolean {
+  return category === "securities" || category === "fund_platform";
+}

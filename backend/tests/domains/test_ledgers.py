@@ -671,7 +671,7 @@ class TestLedgerLinkedCash:
             },
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金' in resp.get_json()['message']
+        assert '计算口径不支持' in resp.get_json()['message']
 
     def test_create_fund_with_valid_cash_ledger(self, client, db):
         """基金平台关联有效的现金账户"""
@@ -712,7 +712,7 @@ class TestLedgerLinkedCash:
             '/api/ledgers/', json={'name': '另一个现金', 'ledger_type': 'bank', 'linked_cash_ledger_id': cash_id}
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金' in resp.get_json()['message']
+        assert '计算口径不支持' in resp.get_json()['message']
 
     def test_update_ledger_link_cash(self, client, db):
         """更新账户关联现金账户"""
@@ -829,7 +829,7 @@ class TestLedgerMoneyFundBinding:
             json={'name': '招商银行', 'ledger_type': 'bank', 'linked_money_fund_code': fund.fund_code},
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金' in resp.get_json()['message']
+        assert '计算口径不支持' in resp.get_json()['message']
 
     def test_bind_nonexistent_fund_code(self, client, db):
         """绑定不存在的基金代码应拒绝"""
@@ -2648,6 +2648,48 @@ class TestLedgerTypeImmutability:
         updated = db.query(Ledger).filter_by(id=ledger.id).first()
         assert updated.ledger_type == 'fund'  # 计算口径键不变
         assert updated.channel_category == 'fund_platform'
+
+    def test_update_rejects_channel_category_mismatch(self, client, db):
+        """#2975：改分组不得造出「标签写证券、计算按现金账户」的账户。"""
+        ledger = Ledger(name='现金账户', ledger_type='bank', channel_category='bank', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': 'securities'})
+        assert resp.status_code == 409
+        body = resp.get_json()
+        assert body['error_code'] == 1003
+        assert '计算口径' in body['message'] and '归档后新建' in body['message']
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().channel_category == 'bank'
+
+    def test_update_unchanged_category_allows_legacy_inconsistency(self, client, db):
+        """守卫只在分组**变更**时生效：存量错配数据照常保存，不得被误拒。"""
+        ledger = Ledger(name='历史账户', ledger_type='stock', channel_category='other', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/',
+            json={'name': '历史账户2', 'channel_category': 'other'},
+        )
+        assert resp.status_code == 200
+
+    def test_update_allows_category_with_same_derived_type(self, client, db):
+        """securities / futures 都派生 stock，组内改归不作拒绝。"""
+        ledger = Ledger(name='证券', ledger_type='stock', channel_category='securities', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': 'futures'})
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().channel_category == 'futures'
+
+    def test_update_allows_special_ledger_type_and_clearing_category(self, client, db):
+        """e_account 等不在映射值域的特殊口径放行；清空分组也不拦。"""
+        ledger = Ledger(name='E账户汇总', ledger_type='e_account', channel_category='other', family_id=1)
+        db.add(ledger)
+        db.commit()
+        assert client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': 'bank'}).status_code == 200
+        assert client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': None}).status_code == 200
 
     def test_update_omitting_ledger_type_keeps_it(self, client, db):
         ledger = Ledger(name='证券X', ledger_type='stock', family_id=1)

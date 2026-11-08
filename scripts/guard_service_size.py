@@ -218,9 +218,11 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/ledger_migration_service.py": {'lines': 794, 'max_func': 97, 'max_cc': 18},
     "backend/app/services/ledger_presenter.py": {'lines': 82, 'max_func': 57, 'max_cc': 10},
     "backend/app/services/ledger_service.py": {'lines': 697, 'max_func': 120, 'max_cc': 23},
-    # 2026-11-07 收紧（非放宽）：P0 把 channel_category→ledger_type 派生上移到现金账户
-    # 校验之前，同时压掉冗余注释 ⇒ 665→664，按 `--report` 回写（max_func/max_cc 未变）。
-    "backend/app/services/ledger_write_service.py": {'lines': 664, 'max_func': 154, 'max_cc': 49},
+    # 2026-11-07 收紧（非放宽）：P0 派生上移 + 压注释 665→664；随后把「分组↔口径
+    # 一致性守卫」抽到 services/ledger_category_guard.py（新文件走 NEW_FILE_LIMITS），
+    # update_ledger 由 4 行分支收成 1 行调用 ⇒ 664→663 / 154→152 / 49→48。
+    # 按 `--report` 实测回写，三个维度都只减不增。
+    "backend/app/services/ledger_write_service.py": {'lines': 663, 'max_func': 152, 'max_cc': 48},
     "backend/app/services/login_identifier.py": {'lines': 62, 'max_func': 38, 'max_cc': 10},
     "backend/app/services/manager_code.py": {'lines': 68, 'max_func': 15, 'max_cc': 3},
     "backend/app/services/manager_holdings.py": {'lines': 362, 'max_func': 98, 'max_cc': 30},

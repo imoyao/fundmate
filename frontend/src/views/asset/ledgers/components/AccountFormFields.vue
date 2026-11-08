@@ -15,10 +15,7 @@
       </el-select>
     </el-form-item>
 
-    <el-form-item
-      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
-      label="现金账户"
-    >
+    <el-form-item v-if="canLinkCashAccount(ledgerType)" label="现金账户">
       <el-select
         :model-value="linkedCashId"
         class="w-full"
@@ -37,7 +34,7 @@
 
     <!-- 活期+绑定 + 自动申购（#1137）：「账户的余额宝」，卖出回款可自动申购 -->
     <MoneyFundBindingFields
-      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
+      v-if="canLinkCashAccount(ledgerType)"
       :model-value="linkedMoneyFundCode"
       :fund-name="linkedMoneyFundName"
       :auto-purchase="autoPurchaseMoneyFund"
@@ -99,10 +96,7 @@
       </el-form-item>
 
       <!-- 高级设置：费率信息 -->
-      <el-collapse
-        v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
-        class="mt-4"
-      >
+      <el-collapse v-if="canLinkCashAccount(ledgerType)" class="mt-4">
         <el-collapse-item title="高级设置（费率）" name="fee">
           <FeeConfigFields
             :ledger-type="ledgerType"
@@ -122,7 +116,10 @@ import type { PortfolioItem } from "@/api/portfolio";
 import FeeConfigFields from "./FeeConfigFields.vue";
 import MoneyFundBindingFields from "./MoneyFundBindingFields.vue";
 import SalesInstitutionSelect from "./SalesInstitutionSelect.vue";
-import { isInstitutionAllowedForLedgerType } from "./accountFormModel";
+import {
+  canLinkCashAccount,
+  isInstitutionAllowedForLedgerType
+} from "./accountFormModel";
 
 /**
  * 账户表单的公共字段（#980 拆分）。
@@ -181,8 +178,8 @@ const emit = defineEmits<{
 
 function onTypeChange(val: string) {
   emit("update:ledgerType", val);
-  // 如果切换到的渠道分组不是 securities/fund_platform，清空关联的现金账户
-  if (val !== "securities" && val !== "fund_platform") {
+  // 切换到的渠道分组不再支持证券侧字段时，清空关联项（判据与模板同源）
+  if (!canLinkCashAccount(val)) {
     emit("update:linkedCashId", null);
     emit("update:feeConfig", null);
     // 渠道分组不再支持活期+时，一并解绑并关闭自动申购
