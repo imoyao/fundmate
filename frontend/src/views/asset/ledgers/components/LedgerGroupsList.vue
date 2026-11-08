@@ -145,7 +145,7 @@ function onGroupKey(
 async function onCardKey(payload: { ledger: any; to: number }) {
   const { ledger, to } = payload;
   const group = p.displayedGroups.find(g =>
-    g.ledgers.some((l: any) => l.id === ledger.id)
+    g.ledgers.some(l => l.id === ledger.id)
   );
   if (!group) return;
   const total = group.ledgers.length;

@@ -11,12 +11,24 @@
 
 export type PnlMetricKind = "cash" | "count" | "pnl";
 
-export function isArchived(ledger: any): boolean {
+/** 账户卡片只读字段：不同入口的账户对象形状不一，全部可选 */
+interface LedgerLike {
+  id?: number;
+  is_active?: boolean;
+  ledger_type?: string;
+  linked_liability?: number;
+  cash_balance?: number | null;
+}
+const asLedger = (v: object): LedgerLike => v as LedgerLike;
+
+export function isArchived<T extends object>(raw: T): boolean {
+  const ledger = asLedger(raw);
   return ledger?.is_active === false;
 }
 
 /** 只有落到库里的账户（id 是数字）才有归档 / 删除按钮 */
-export function hasRowActions(ledger: any): boolean {
+export function hasRowActions<T extends object>(raw: T): boolean {
+  const ledger = asLedger(raw);
   return typeof ledger?.id === "number";
 }
 
@@ -26,7 +38,8 @@ export function showStaleBadge(staleCount?: number): boolean {
 }
 
 /** 关联负债只在「银行账户且有房贷」时出现 */
-export function hasLinkedLiability(ledger: any): boolean {
+export function hasLinkedLiability<T extends object>(raw: T): boolean {
+  const ledger = asLedger(raw);
   return ledger?.ledger_type === "bank" && ledger?.linked_liability > 0;
 }
 
@@ -44,7 +57,8 @@ export function pnlLabelOf(ledgerType?: string): string {
  * 此时要退回「持仓盈亏」而不是显示 `¥0.00`——把「没数据」显示成 0 会让用户
  * 以为账户余额真被清空了。
  */
-export function pnlMetricKindOf(ledger: any): PnlMetricKind {
+export function pnlMetricKindOf<T extends object>(raw: T): PnlMetricKind {
+  const ledger = asLedger(raw);
   const type = ledger?.ledger_type;
   const cash = ledger?.cash_balance;
   if (type === "bank" && cash !== undefined && cash !== null) return "cash";

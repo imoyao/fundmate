@@ -28,9 +28,7 @@ const props = defineProps<{
 // 按 ledger_type 聚合，集合固定（bank/stock/fund/e_account/property）→ ≤5 类，
 // 命中 components.md 的「≤6 类用环形」判据。
 const allocationGroups = computed(() =>
-  (props.groups ?? []).filter(
-    (g: any) => g.type !== "deleted" && (g.total || 0) > 0
-  )
+  (props.groups ?? []).filter(g => g.type !== "deleted" && (g.total || 0) > 0)
 );
 
 // 空态判定：无分组或全部 total=0 时不渲染图表
@@ -39,7 +37,7 @@ const hasAllocationData = computed(() => allocationGroups.value.length > 0);
 // 喂给统一组件的数据：name/value 与 donut 的 DonutDatum 同构，零转换。
 // 颜色不传 colorMap —— 原实现就是 --chart-01~08 循环，与 donut 缺失时的回退一致。
 const donutData = computed(() =>
-  allocationGroups.value.map((g: any) => ({
+  allocationGroups.value.map(g => ({
     name: g.label,
     value: g.total
   }))

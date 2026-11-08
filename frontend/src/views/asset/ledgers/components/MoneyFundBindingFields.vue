@@ -118,7 +118,7 @@ async function searchMoneyFund(query: string) {
   fundSearching.value = true;
   try {
     const res = await searchFunds(kw);
-    const list = ((res as any)?.data ?? []) as FundSearchItem[];
+    const list = (res?.data ?? []) as FundSearchItem[];
     // 全量搜索 + 选择时限制（#活期+ 扩源）：
     // 后端 is_money_fund 已升级为三态——true=货基 / false=明确非货基 / null=类型未知。
     // 搜索阶段**不再过滤**，全部命中项都进下拉；能否选中交给 el-option 的
