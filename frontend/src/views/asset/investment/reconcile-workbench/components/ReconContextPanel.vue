@@ -77,7 +77,10 @@ interface ContextTarget {
   when: string | null;
 }
 
-/** 队列项只带展示字段 + 原始对象引用；这里按 kind 取回可对照的原始数值 */
+/** 队列项只带展示字段 + 原始对象引用；这里按 kind 取回可对照的原始数值。
+ *  关键修复：dangling 组本身带有 ledger_id（交易实际所在的账本），曾经在 else 分支
+ *  被写死成 null，导致「来龙去脉」显示「未归账本」而「投资轨迹」却显示该账本名，
+ *  两处矛盾（owner 第三轮截图 1）。这里按 kind 取真实 ledger_id，与轨迹保持一致。 */
 const target = computed<ContextTarget | null>(() => {
   const item = props.item;
   if (!item) return null;
@@ -88,7 +91,7 @@ const target = computed<ContextTarget | null>(() => {
     return {
       symbol: row.symbol,
       name: row.display_name ?? null,
-      ledgerId: row.ledger_id,
+      ledgerId: row.ledger_id ?? null,
       issue: discrepancyIssue(row.discrepancy_type),
       expected: row.expected_value,
       actual: row.actual_value,
@@ -109,6 +112,20 @@ const target = computed<ContextTarget | null>(() => {
       when: row.dividend_on
     };
   }
+  if (payload.kind === "dangling") {
+    const row = payload.row;
+    return {
+      symbol: row.symbol,
+      name: null,
+      ledgerId: row.ledger_id ?? null,
+      issue: item.sourceLabel,
+      expected: null,
+      actual: null,
+      diff: null,
+      when: null
+    };
+  }
+  // eaccount / ghost / import：交易可能跨多个账本或无单一账本，账本名交给轨迹展示
   return {
     symbol: item.title,
     name: null,

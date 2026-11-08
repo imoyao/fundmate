@@ -393,4 +393,47 @@ test.describe("对账中心第二轮：抽屉 / 分页 / 用户语言", () => {
     expect(payload).not.toHaveProperty("confirm_date");
     expect(payload).toHaveProperty("snapshot_date");
   });
+
+  test("点开待办：处理动作只给这一条一个按钮，不再把整张域表重列一遍", async ({
+    page
+  }) => {
+    await stubApis(page);
+    await openWorkbench(page);
+
+    await page.locator(".recon-queue__title").first().click();
+
+    const drawer = page.locator(".recon-detail-drawer");
+    await expect(drawer).toBeVisible();
+
+    // 选中具体一条：处理动作区给出聚焦单条动作的组件
+    await expect(drawer.locator(".recon-item-action")).toBeVisible();
+    await expect(drawer.locator(".recon-item-action")).toContainText(
+      "补充这笔"
+    );
+
+    // 不应再把整张差异表（域面板）重列一遍——那和外面队列重复
+    await expect(drawer.locator(".disc-table")).toHaveCount(0);
+  });
+
+  test("任务卡：角标保留，下方不再重复同一数字，改成可处理 / 需判断口径", async ({
+    page
+  }) => {
+    await stubApis(page);
+    await openWorkbench(page);
+
+    // 带件数角标的那张卡（核对差异：12 条待办，全是「需判断」）
+    const card = page
+      .locator(".recon-task-card")
+      .filter({ has: page.locator(".domain-tab-count") })
+      .first();
+
+    // 角标（件数）仍在
+    await expect(card.locator(".domain-tab-count")).toBeVisible();
+
+    // 旧版「N 项待办」大数字与角标重复——必须消失
+    await expect(card).not.toContainText("项待办");
+
+    // 新口径：拆成「可一键处理 / 需逐条判断」，让自动与人工分开说明
+    await expect(card).toContainText("需你逐条判断");
+  });
 });

@@ -138,6 +138,7 @@
         @ghost-undo-ignore="handleGhostUndoIgnore"
         @ghost-delete-txn="handleGhostDeleteTxn"
         @go-to="goTo"
+        @fix-orphan="openOrphanFix"
       />
 
       <SupplementDialog
@@ -156,7 +157,7 @@
       />
       <ReconBatchDialog
         v-model="batchVisible"
-        :items="selectedItems"
+        :items="batchItems"
         @submitted="onBatchSubmitted"
       />
     </div>
@@ -280,7 +281,9 @@ const {
   scrollQueueTop,
   focusBanner,
   openBatch,
-  onBatchSubmitted
+  onBatchSubmitted,
+  openOrphanFix,
+  batchItems
 } = useWorkbenchActions(domains, queue);
 
 const selectableIds = computed(

@@ -56,94 +56,114 @@
         </template>
       </SoftBanner>
 
-      <DomainBDiscTable
-        v-if="detailDomain === 'B'"
-        :items="ctx.bDiscs"
-        :loading="ctx.loading"
+      <!-- ③ 处理动作：选中了具体一条待办时，只给这一条一个明确动作，
+           不再把整个域清单重列一遍（那和外面队列重复）。未选中具体条目的
+           `?domain=` 直达仍展示该域的完整面板，便于总览。 -->
+      <ReconItemAction
+        v-if="item"
+        :item="item"
         @supplement="emit('supplement', $event)"
         @ignore="emit('ignore', $event)"
+        @fix-dangling="emit('fixDangling', $event)"
+        @eaccount-cover="emit('eaccountCover', $event)"
+        @eaccount-ignore="emit('eaccountIgnore', $event)"
+        @ghost-ignore="emit('ghostIgnore', $event)"
+        @ghost-undo-ignore="emit('ghostUndoIgnore', $event)"
+        @go-to="emit('goTo', $event)"
+        @fix-orphan="emit('fixOrphan', $event)"
+        @refresh="emit('refresh', $event)"
       />
 
-      <template v-else-if="detailDomain === 'C'">
-        <div v-if="entry" class="domain-entry">
-          <div class="domain-entry__text">
-            <p class="domain-entry__title">{{ entry.title }}</p>
-            <p class="domain-entry__hint">{{ entry.hint }}</p>
-          </div>
-          <div class="domain-entry__actions">
-            <el-button
-              v-for="(link, i) in entry.links"
-              :key="i"
-              size="small"
-              :type="i === 0 ? 'primary' : 'default'"
-              :plain="i === 0"
-              @click="emit('goTo', link.to)"
-            >
-              {{ link.label }}
-            </el-button>
-          </div>
-        </div>
+      <template v-else>
         <DomainBDiscTable
-          :items="ctx.cDiscs"
+          v-if="detailDomain === 'B'"
+          :items="ctx.bDiscs"
           :loading="ctx.loading"
-          empty-text="暂无缺流水的持仓"
           @supplement="emit('supplement', $event)"
           @ignore="emit('ignore', $event)"
         />
+
+        <template v-else-if="detailDomain === 'C'">
+          <div v-if="entry" class="domain-entry">
+            <div class="domain-entry__text">
+              <p class="domain-entry__title">{{ entry.title }}</p>
+              <p class="domain-entry__hint">{{ entry.hint }}</p>
+            </div>
+            <div class="domain-entry__actions">
+              <el-button
+                v-for="(link, i) in entry.links"
+                :key="i"
+                size="small"
+                :type="i === 0 ? 'primary' : 'default'"
+                :plain="i === 0"
+                @click="emit('goTo', link.to)"
+              >
+                {{ link.label }}
+              </el-button>
+            </div>
+          </div>
+          <DomainBDiscTable
+            :items="ctx.cDiscs"
+            :loading="ctx.loading"
+            empty-text="暂无缺流水的持仓"
+            @supplement="emit('supplement', $event)"
+            @ignore="emit('ignore', $event)"
+          />
+        </template>
+
+        <EAccountDomainPanel
+          v-else-if="detailDomain === 'A'"
+          :items="ctx.eItems"
+          :loading="ctx.eLoading"
+          :acting="ctx.eActing"
+          @cover="emit('eaccountCover', $event)"
+          @ignore="emit('eaccountIgnore', $event)"
+        />
+
+        <DomainDGhostTable
+          v-else-if="detailDomain === 'D'"
+          :items="ctx.ghostGroups"
+          :ignored-items="ctx.ghostIgnored"
+          :loading="ctx.ghostLoading"
+          :deleting-id="ctx.ghostDeletingId"
+          :undoing-id="ctx.ghostUndoingId"
+          @ignore="emit('ghostIgnore', $event)"
+          @undo-ignore="emit('ghostUndoIgnore', $event)"
+          @delete-txn="emit('ghostDeleteTxn', $event)"
+        />
+
+        <DomainEDividendTaxTable
+          v-else-if="detailDomain === 'E'"
+          :items="ctx.taxItems"
+          :total-cents="ctx.taxTotalCents"
+          :pending-count="ctx.taxPendingCount"
+          :loading="ctx.taxLoading"
+          @recorded="emit('refresh', 'tax')"
+        />
+
+        <DomainFDanglingRefs
+          v-else-if="detailDomain === 'F'"
+          :data="ctx.danglingRefs"
+          :loading="ctx.danglingLoading"
+          :error="ctx.errors.dangling ?? ''"
+          @fix="emit('fixDangling', $event)"
+          @refresh="emit('refresh', 'dangling')"
+          @retry="emit('refresh', 'dangling')"
+        />
+
+        <DomainGOrphanLedger
+          v-else-if="detailDomain === 'G'"
+          :data="ctx.orphanLedgers"
+          :loading="ctx.orphanLoading"
+          :error="ctx.errors.orphan ?? ''"
+          @submitted="emit('refresh', 'orphan')"
+          @retry="emit('refresh', 'orphan')"
+        />
+
+        <p v-else class="recon-detail__hint">
+          这条待办的处理入口在下方按钮，选中的来源没有需要展开的记录表。
+        </p>
       </template>
-
-      <EAccountDomainPanel
-        v-else-if="detailDomain === 'A'"
-        :items="ctx.eItems"
-        :loading="ctx.eLoading"
-        :acting="ctx.eActing"
-        @cover="emit('eaccountCover', $event)"
-        @ignore="emit('eaccountIgnore', $event)"
-      />
-
-      <DomainDGhostTable
-        v-else-if="detailDomain === 'D'"
-        :items="ctx.ghostGroups"
-        :ignored-items="ctx.ghostIgnored"
-        :loading="ctx.ghostLoading"
-        :deleting-id="ctx.ghostDeletingId"
-        :undoing-id="ctx.ghostUndoingId"
-        @ignore="emit('ghostIgnore', $event)"
-        @undo-ignore="emit('ghostUndoIgnore', $event)"
-        @delete-txn="emit('ghostDeleteTxn', $event)"
-      />
-
-      <DomainEDividendTaxTable
-        v-else-if="detailDomain === 'E'"
-        :items="ctx.taxItems"
-        :total-cents="ctx.taxTotalCents"
-        :pending-count="ctx.taxPendingCount"
-        :loading="ctx.taxLoading"
-        @recorded="emit('refresh', 'tax')"
-      />
-
-      <DomainFDanglingRefs
-        v-else-if="detailDomain === 'F'"
-        :data="ctx.danglingRefs"
-        :loading="ctx.danglingLoading"
-        :error="ctx.errors.dangling ?? ''"
-        @fix="emit('fixDangling', $event)"
-        @refresh="emit('refresh', 'dangling')"
-        @retry="emit('refresh', 'dangling')"
-      />
-
-      <DomainGOrphanLedger
-        v-else-if="detailDomain === 'G'"
-        :data="ctx.orphanLedgers"
-        :loading="ctx.orphanLoading"
-        :error="ctx.errors.orphan ?? ''"
-        @submitted="emit('refresh', 'orphan')"
-        @retry="emit('refresh', 'orphan')"
-      />
-
-      <p v-else class="recon-detail__hint">
-        这条待办的处理入口在下方按钮，选中的来源没有需要展开的记录表。
-      </p>
     </div>
   </el-drawer>
 </template>
@@ -168,6 +188,7 @@ import {
 } from "../utils/reconDetail";
 import type { ReconQueueItem } from "../utils/reconQueue";
 import ReconContextPanel from "./ReconContextPanel.vue";
+import ReconItemAction from "./ReconItemAction.vue";
 import ReconInvestmentTrail from "./ReconInvestmentTrail.vue";
 import DomainBDiscTable from "./DomainBDiscTable.vue";
 import EAccountDomainPanel from "./EAccountDomainPanel.vue";
@@ -202,6 +223,7 @@ const emit = defineEmits<{
   ghostUndoIgnore: [item: GhostDuplicateIgnore];
   ghostDeleteTxn: [txn: GhostDuplicateTxn];
   goTo: [to: string | { name: string }];
+  fixOrphan: [item: ReconQueueItem];
 }>();
 
 const detailDomain = computed(
@@ -260,8 +282,10 @@ const errorKey = computed(() =>
 );
 const detailError = computed(() => props.ctx.errors[errorKey.value] ?? "");
 
-/** 失败时只重试负责这个来源的 loader，不整页重跑七个接口 */
+/** 失败时只重试负责这个来源的 loader，不整页重跑七个接口。
+ *  选中了具体一条待办时（item 存在）抽屉内容已由队列数据驱动，无需再盖加载遮罩。 */
 const detailLoading = computed(() => {
+  if (props.item) return false;
   if (props.ctx.errors[errorKey.value]) return false;
   switch (detailDomain.value) {
     case "A":

@@ -68,7 +68,7 @@ export type ReconQueuePayload =
   | { kind: "tax"; row: DividendTaxPendingItem }
   | { kind: "dangling"; row: DanglingRefGroup }
   | { kind: "orphan"; row: OrphanLedgerGroup }
-  | { kind: "import"; row: null };
+  | { kind: "import" };
 
 /** 一条「用户要处理的事」。所有展示字段都已翻译成中文，不含任何内部存储码。 */
 export interface ReconQueueItem {
@@ -350,7 +350,7 @@ function importItem(): ReconQueueItem {
     actionLabel: "查看导入入口",
     stateReason: "这是入口动作，不是待处理记录",
     batchId: null,
-    payload: { kind: "import", row: null }
+    payload: { kind: "import" }
   });
 }
 

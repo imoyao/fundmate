@@ -441,3 +441,64 @@ owner 指出的两个既有入口都成立，且**已有可复用资产**：
 - 后端 `apply_decision` 的 `set` 兜底仍用 `date.today()`（UTC 16:00–24:00 与上海业务日
   可能差一天）；前端已默认传本地日历日规避，后端统一 `today_shanghai()` 另开卡。
 - `el-pagination` 的 `small` prop 在 Element Plus 3.0 将废弃，全站一起换 `size` 时处理。
+
+## 12. 第三轮修复（2026-11-07，owner 实机复查）
+
+owner 用真数据跑了一遍，指出三个仍像 bug 的点，本轮一次性收口。判据：抽屉必须为
+「当前打开的这条待办」提供唯一明确的操作入口，而不是把整张域表再列一遍；卡片数字不许重复。
+
+### 12.1 抽屉「来龙去脉」账本名与外面队列矛盾
+
+- **现象**：队列卡 / 投资轨迹显示具体账户（如「天天基金」），但抽屉「来龙去脉」却写「未归账本」。
+- **根因**：`ReconContextPanel` 的 `target` computed 把 dangling / eaccount / ghost 的
+  `ledgerId` 一律写死 `null`，落到 `useReconLedger.nameOf(null)` → 显示「未归账本」；而
+  投资轨迹 `ReconInvestmentTrail` 对 dangling 读 `payload.row.ledger_id`（真实账户），两处口径不一。
+- **修法**：把 `else` 拆成显式 `dangling` 分支（`ledgerId: row.ledger_id ?? null`）与兜底分支；
+  eaccount / ghost 仍由轨迹展示。来龙去脉与轨迹、队列卡统一读真实 `ledger_id`。
+- **抽屉下滑看整体**：保留——抽屉是「看清楚再决定」的容器，三段（来龙去脉 / 投资轨迹 /
+  处理动作）本就该能滚完，不是 bug。
+
+### 12.2 「处理动作」把整张域表重列一遍 + 没有真正能处理这一条的按钮
+
+- **现象**：抽屉 ③ 又把整个域清单列了一遍（和外面队列重复）；点「去处理」弹出的抽屉里
+  找不到一个能直接处理当前这条的按钮。
+- **根因**：抽屉 ③ 直接渲染域面板（`DomainBDiscTable` 等），那是「总览全部」视角；但抽屉是
+  为「这一条」开的，视角错位。
+- **修法**：新增 `ReconItemAction.vue`（聚焦单条动作组件）。
+  - 选中具体一条时（`item` 存在）：抽屉 ③ 只渲染 `ReconItemAction`，按 `payload.kind`
+    给这一条一个明确按钮（差异→补充这笔 / 忽略；E账户→核对并归因；重复→忽略这组；
+    缺信息→补全信息自包含弹窗；红利税→补记这笔税自包含弹窗；孤儿 ready→核对并归入账本；
+    导入→前往交易导入）。**写路径零重写**——税 / 缺信息用自包含弹窗，其余 emit 复用
+    `index.vue` 已收口的弹窗与端点。
+  - 未选中具体条目（`?domain=` 入站直达）时：保留原域面板总览，保住 `.df-summary` /
+    `.disc-table` 等面板类 e2e。
+  - 深度链接 `?domain=` 不再自动选中首条（避免单条视图取代面板、打掉面板 e2e）。
+  - 单条孤儿「核对并归入账本」复用同一枚 `ReconBatchDialog`（`openOrphanFix(item)` 只传
+    这一条；`batchItems` 与 `selectedItems` 同形，二者共用同一个弹窗入口，不新开写路径）。
+
+### 12.3 任务卡数字重复 + 与队列对不上
+
+- **现象**：卡片角标（待办件数）与下方「N 项待办」大数字重复；角标总数与下方队列口径
+  用户觉得对不上，会疑惑。
+- **修法**：`WorkbenchTaskCards.vue` 去掉与角标重复的「N 项待办」大字，底部改为分诊口径——
+  「X 件可一键处理」+「另有 Y 件需你逐条判断」，把「系统已判定可一键处理 / 需人工判断」
+  拆开说明。角标（待办件数）保留，作为「要打开处理几次」的速读。
+- **已知残留**：任务卡角标数「待办件数」（不含已处理），而队列默认 `state=all` 含已处理项，
+  故点开卡片后队列条数可能多于角标——这是「待办摘要 vs 全量列表」的有意设计，不是口径错；
+  若要严格相等需把卡片点选的默认 state 改成排除 done（涉及产品决策与 e2e，未动）。
+
+### 12.4 验证增量
+
+| 项 | 结果 |
+|---|---|
+| 新增 e2e：点开待办→抽屉只给单条按钮、不再重列域表 | 已加，通过 |
+| 新增 e2e：任务卡角标保留、无「项待办」重复、出现分诊口径 | 已加，通过 |
+| `vue-tsc --noEmit --skipLibCheck` | 0 error |
+| 单测（本目录 8 个 spec） | 94 passed |
+
+- **一处 vue-tsc 假阳性（值得记）**：`ReconQueuePayload` 里 `import` 变体的判别字段原本写成
+  `row: null`，在 `useWorkbenchActions.ts`（通过参数 `ReturnType<typeof useReconQueue>` 拿到
+  该类型）里被解析成 `unknown`，导致 `batchItems` 传给 `ReconBatchDialog` 时报类型不符；同一
+  类型在 `index.vue` / `ReconQueueDetail.vue` 却正常。该字段没有任何消费者（各域只判 `kind`），
+  删掉这个 `null` 判别值后误报消失——**别为它加 `as unknown as` 转换**，那只是把假阳性藏起来。
+

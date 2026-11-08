@@ -4,7 +4,6 @@ import type { DanglingRefGroup, DiscrepancyItem } from "@/api/reconciliation";
 import { normalizeDomain } from "../utils/domainQuery";
 import type { WorkbenchDomainKey } from "../constants/domainTabs";
 import type { ReconDetailContext } from "../utils/reconDetail";
-import type { ReconQueueItem } from "../utils/reconQueue";
 import type { useWorkbenchDomains } from "./useWorkbenchDomains";
 import type { useReconQueue } from "./useReconQueue";
 
@@ -20,6 +19,10 @@ export function useWorkbenchActions(
 ) {
   const router = useRouter();
   const route = useRoute();
+
+  /** 元素类型直接从 useReconQueue 的 selectedItems 取（那里 ReconQueueItem 解析正常），
+   *  不走本文件直接 import —— 后者的 import.row 字面量在 vue-tsc 下偶发解析成 unknown。 */
+  type QueueItem = (typeof queue.selectedItems.value)[number];
 
   /** 既有域面板继续承载真实写路径与二次确认，这里只做只读快照的组装 */
   const detailContext = computed<ReconDetailContext>(() => ({
@@ -59,6 +62,10 @@ export function useWorkbenchActions(
   const danglingFixGroup = ref<DanglingRefGroup | null>(null);
   const batchVisible = ref(false);
   const batchBusy = ref(false);
+  /** 批量弹窗的数据源：批量勾选或单条孤儿都走 ReconBatchDialog，避免两套入口。
+   *  用 computed 暴露，与 useReconQueue 的 selectedItems 同形，vue-tsc 模板解包稳定。 */
+  const batchSource = ref<QueueItem[]>([]);
+  const batchItems = computed<QueueItem[]>(() => batchSource.value);
 
   function openSupplement(row: DiscrepancyItem): void {
     supplementTarget.value = row;
@@ -80,7 +87,7 @@ export function useWorkbenchActions(
   );
 
   /** 点队列卡：开抽屉，不切视图、不重挂载、不写 URL，也不滚动页面 */
-  function openItem(item: ReconQueueItem): void {
+  function openItem(item: QueueItem): void {
     activeDomain.value = item.sourceDomain;
     activeDetailId.value = item.id;
   }
@@ -103,6 +110,13 @@ export function useWorkbenchActions(
 
   function openBatch(): void {
     if (queue.selectedItems.value.length === 0) return;
+    batchSource.value = queue.selectedItems.value;
+    batchVisible.value = true;
+  }
+
+  /** 抽屉里单条孤儿「核对并归入账本」：复用同一枚 ReconBatchDialog，只传这一条 */
+  function openOrphanFix(item: QueueItem): void {
+    batchSource.value = [item];
     batchVisible.value = true;
   }
 
@@ -125,9 +139,11 @@ export function useWorkbenchActions(
   }
 
   /**
-   * `?domain=A…G` 入站寻址：落到对应任务并展开该类处理区。
+   * `?domain=A…G` 入站寻址：落到对应任务并展开该类处理区（总览面板）。
    * 域只用于寻址与「来源」标签，不重新变成导航维度。
-   * 首屏数据未回来时 items 为空，故用 pendingDomain 等队列就绪再定位具体一条。
+   * 入站只展开「域面板」总览、不自动选中某一条——抽屉 ③ 在选中具体待办时才换成
+   * 单条聚焦动作（ReconItemAction），避免 `?domain=` 直达也掉进单条视图、把面板 e2e 覆盖打掉。
+   * 首屏数据未回来时 items 为空，故用 pendingDomain 等队列就绪再定位域。
    */
   const pendingDomain = ref<WorkbenchDomainKey | null>(
     normalizeDomain(route.query.domain) ?? null
@@ -139,11 +155,8 @@ export function useWorkbenchActions(
       if (!pendingDomain.value) return;
       const domain = pendingDomain.value;
       activeDomain.value = domain;
-      const id = queue.focusDomain(domain);
-      if (id) {
-        activeDetailId.value = id;
-        pendingDomain.value = null;
-      }
+      queue.focusDomain(domain);
+      pendingDomain.value = null;
     },
     { immediate: true }
   );
@@ -155,7 +168,7 @@ export function useWorkbenchActions(
       if (!next) return;
       pendingDomain.value = next;
       activeDomain.value = next;
-      activeDetailId.value = queue.focusDomain(next);
+      activeDetailId.value = null;
     }
   );
 
@@ -186,6 +199,8 @@ export function useWorkbenchActions(
     scrollQueueTop,
     focusBanner,
     openBatch,
-    onBatchSubmitted
+    onBatchSubmitted,
+    openOrphanFix,
+    batchItems
   };
 }
