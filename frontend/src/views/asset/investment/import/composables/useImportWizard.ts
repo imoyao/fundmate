@@ -3,7 +3,7 @@ import type { ImportErrorItem, ImportParseError } from "@/api/importer";
 import { runReconciliation } from "@/api/reconciliation";
 import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
-import type { EditField, PreviewRow } from "./previewRow";
+import { asPreviewRows, type EditField, type PreviewRow } from "./previewRow";
 import {
   ref,
   onMounted,
@@ -61,7 +61,7 @@ import {
   formatFileSize,
   getFundTypeColor,
   getTypeColor,
-  addRowKeys,
+  addRowKeys as addKeysGeneric,
   getRowClassName,
   getCellClassName,
   getCategoryDesc,
@@ -97,6 +97,17 @@ import {
  * 类型定义已下沉到 ./previewPredicates，此处仅再导出，避免破坏既有类型消费者。
  */
 export type { SummaryCategory } from "./previewPredicates";
+
+/**
+ * 预览行加键（#2879 第二刀）。
+ *
+ * 通用 `addRowKeys` 保持「输入什么形状就返回什么形状」（`importPresentation.spec.ts`
+ * 用 `{ a: 1 }` 这种对象钉住它）；而在向导里，加完 `_rowKey` 的行**就是**预览行，
+ * 这条业务语义在此唯一断言一次。所有调用点（含 `previewData.value` 赋值与对外暴露的
+ * `addRowKeys`）都拿到 `PreviewRow[]`，下游消费受真源约束，不必各写一份 `as any`。
+ */
+const addRowKeys = <T extends object>(rows: T[]): PreviewRow[] =>
+  asPreviewRows(addKeysGeneric(rows));
 
 /** element-plus `UploadRequestOptions.onError` 的入参类型（第三方类型，本仓不拥有） */
 type UploadErrorPayload = Parameters<

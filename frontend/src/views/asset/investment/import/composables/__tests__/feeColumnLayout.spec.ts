@@ -1,3 +1,4 @@
+import { asPreviewRow } from "../previewRow";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useImportWizard } from "../useImportWizard";
 import { clearFeeBreakdownOnEdit } from "../cellEditLogic";
@@ -245,20 +246,20 @@ describe("手续费可编辑：手改总额真实生效", () => {
 
 describe("clearFeeBreakdownOnEdit 纯函数契约", () => {
   it("非 fee 字段一律不动", () => {
-    const row: any = { fee_commission: 1, fee_stamp_duty: 0 };
+    const row = asPreviewRow({ fee_commission: 1, fee_stamp_duty: 0 });
     expect(clearFeeBreakdownOnEdit(row, "amount")).toBe(false);
     expect(row.fee_commission).toBe(1);
   });
 
   it("空串与 null 混合也一并归零（后端对 ''+数字混合会抛 ValueError）", () => {
-    const row: any = { fee_commission: "", fee_stamp_duty: null };
+    const row = asPreviewRow({ fee_commission: "", fee_stamp_duty: null });
     // 清理动作做了（避免 '' 残留与数字混合），但没有数字明细 → 不提示
     expect(clearFeeBreakdownOnEdit(row, "fee")).toBe(false);
     expect(row.fee_commission).toBeNull();
   });
 
   it("全空 / 缺键的行不做任何事", () => {
-    const row: any = {};
+    const row = asPreviewRow({});
     expect(clearFeeBreakdownOnEdit(row, "fee")).toBe(false);
     expect("fee_commission" in row).toBe(false);
   });

@@ -1,3 +1,4 @@
+import type { PreviewRowLike } from "./previewRow";
 /**
  * 导入预览的「金额 ÷ 份额 补单价」（#2903）。
  *
@@ -84,7 +85,8 @@ export const PRICE_NOT_DERIVABLE_OPS = new Set([
  * 比不补更糟（入库必然错，且预览里看不出这是「符号问题」）。宁可留在「需修正」让用户
  * 看见，也不要用一个看起来完整的错值盖住它。`autoFillMissing` 的 `amt <= 0` 排除同源。
  */
-export function shouldSmartFillPrice(row: any): boolean {
+export function shouldSmartFillPrice<T extends object>(raw: T): boolean {
+  const row = raw as PreviewRowLike;
   if (row.error || row.is_duplicate || row.is_cash_transfer) return false;
   if (row.consumed_by) return false;
   if (PRICE_NOT_DERIVABLE_OPS.has(row.op_type)) return false;
@@ -107,7 +109,8 @@ export function shouldSmartFillPrice(row: any): boolean {
  * `smartFilled` 兼容旧标记，`_smartFillOrigin` 记下「改前 / 改后」供逐行恢复。
  * 先存 before 再写 price，顺序反了会把补过的值当成原始值。
  */
-export function fillSmartPrice(row: any): boolean {
+export function fillSmartPrice<T extends object>(raw: T): boolean {
+  const row = raw as PreviewRowLike;
   if (!shouldSmartFillPrice(row)) return false;
   const filled = parseFloat(
     (parseFloat(row.amount) / parseFloat(row.quantity)).toFixed(4)
@@ -131,7 +134,8 @@ export interface SmartFillOrigin {
  * 必须是补价行，且 price 仍是当初补进去的那个值——用户随后在表格里手改过单价、
  * 或批量修正又动过 price，就不该再让一个「恢复」按钮把他的输入覆盖掉。
  */
-export function canRestoreSmartFilledPrice(row: any): boolean {
+export function canRestoreSmartFilledPrice<T extends object>(raw: T): boolean {
+  const row = raw as PreviewRowLike;
   const origin = row._smartFillOrigin as SmartFillOrigin | undefined;
   return !!origin && row.price === origin.after;
 }
@@ -140,10 +144,11 @@ export function canRestoreSmartFilledPrice(row: any): boolean {
  * 把装载期补价整组退回：price 还原、清单标记移除、兼容标记与原始值一并清掉。
  * 返回是否真的恢复；只改行数据，不碰 Vue 状态——勾选与统计由调用方重算。
  */
-export function restoreSmartFilledPrice(row: any): boolean {
+export function restoreSmartFilledPrice<T extends object>(raw: T): boolean {
+  const row = raw as PreviewRowLike;
   if (!canRestoreSmartFilledPrice(row)) return false;
   const origin = row._smartFillOrigin as SmartFillOrigin;
-  row.price = origin.before;
+  row.price = origin.before as PreviewRowLike["price"];
   delete row._smartFillOrigin;
   delete row.smartFilled;
   const rest = (row._autoFilled || []).filter((f: string) => f !== "price");

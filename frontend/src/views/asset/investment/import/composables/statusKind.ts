@@ -1,3 +1,4 @@
+import type { PreviewRowLike } from "./previewRow";
 /**
  * 行状态标签的唯一判据（#2836）。
  *
@@ -39,10 +40,10 @@ export type StatusKind =
 
 /** StatusCell 需要的谓词；由 `useImportWizard()` 提供，测试可注入桩 */
 export interface StatusPredicates {
-  isRowBlocked(row: any): boolean;
-  isFeeExplained(row: any): boolean;
-  isAmountMismatch(row: any): boolean;
-  isMissingCode(row: any): boolean;
+  isRowBlocked(row: unknown): boolean;
+  isFeeExplained(row: unknown): boolean;
+  isAmountMismatch(row: unknown): boolean;
+  isMissingCode(row: unknown): boolean;
 }
 
 /**
@@ -55,7 +56,11 @@ export interface StatusPredicates {
  * 分支顺序与 `categorizeRow` 的 fix 分区顺序对齐（error → missingCode →
  * blocked → mismatch），保证「概览条说是哪一类」与「状态列写的是哪一类」一致。
  */
-export function statusKindOf(row: any, p: StatusPredicates): StatusKind {
+export function statusKindOf<T extends object>(
+  raw: T,
+  p: StatusPredicates
+): StatusKind {
+  const row = raw as PreviewRowLike;
   if (!row) return "ok";
   if (row.consumed_by) return "consumed";
   if (row.link_warning) return "linkWarning";

@@ -72,32 +72,36 @@ export function getTypeColor(type: string): string {
   return typeColorMap[type] || "var(--palette-stone-gray)";
 }
 
-export function addRowKeys(data: any[]) {
+export function addRowKeys<T extends object>(data: T[]) {
   return data.map((item, idx) => ({ ...item, _rowKey: `row_${idx}` }));
 }
 
-export function getRowClassName({ row }: { row: any }) {
-  if (row.is_duplicate) return "row-duplicate";
-  if (row.error || isRowBlocked(row)) return "row-blocked";
+export function getRowClassName({ row }: { row: unknown }) {
+  // el-table 的 DefaultRow 与本仓 PreviewRow 无交集，只在这个边界断言一次。
+  const r = row as import("./previewRow").PreviewRow;
+  if (r.is_duplicate) return "row-duplicate";
+  if (r.error || isRowBlocked(r)) return "row-blocked";
   return "";
 }
 
-export function getCellClassName({ row, column }: { row: any; column: any }) {
+export function getCellClassName({
+  row,
+  column
+}: {
+  row: unknown;
+  column: { property?: string };
+}) {
+  const r = row as import("./previewRow").PreviewRow;
   const prop = column.property;
-  if (
-    prop === "quantity" &&
-    isRowBlocked(row) &&
-    !row.is_duplicate &&
-    !row.error
-  )
+  if (prop === "quantity" && isRowBlocked(r) && !r.is_duplicate && !r.error)
     return "cell-blocked";
-  if (prop === "price" && isRowBlocked(row) && !row.is_duplicate && !row.error)
+  if (prop === "price" && isRowBlocked(r) && !r.is_duplicate && !r.error)
     return "cell-blocked";
   // cell-missing 随手续费列退场改挂金额列（#1790 列收敛，理由见 #1790 取舍说明）
-  if (prop === "amount" && isMissingAmount(row)) return "cell-missing";
+  if (prop === "amount" && isMissingAmount(r)) return "cell-missing";
   // 差额被手续费解释：金额列给淡黄底提示。列收敛（#1790）下不新增手续费列，
   // 解释线索改由金额列底色 + 该格 tooltip 承载（见 PreviewTable 的 amount slot）。
-  if (prop === "amount" && isFeeExplained(row)) return "cell-fee";
+  if (prop === "amount" && isFeeExplained(r)) return "cell-fee";
   return "";
 }
 

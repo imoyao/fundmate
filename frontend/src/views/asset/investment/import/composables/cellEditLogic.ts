@@ -1,3 +1,4 @@
+import type { PreviewRowLike } from "./previewRow";
 /**
  * 行内就地编辑的纯逻辑（#1790，规范 #783 §6.2）。
  *
@@ -9,7 +10,8 @@
  * 编辑字段自身为 NaN 时从另两项互推（原 useImportWizard.smartFill，#1792 前既有）。
  * 只补「缺的那个」，不重算金额——金额方向由 recalcAfterEdit 负责。
  */
-export function smartFill(row: any, field: string): void {
+export function smartFill<T extends object>(raw: T, field: string): void {
+  const row = raw as PreviewRowLike;
   const qty = parseFloat(row.quantity),
     prc = parseFloat(row.price),
     amt = parseFloat(row.amount);
@@ -32,7 +34,8 @@ export function smartFill(row: any, field: string): void {
  * （|数量×单价−金额| > 0.01 即判不符，见 categorizeRow）。
  * 注意：重算后的金额与数量×单价恒等，故本函数只可能消解「不符」、不会制造新不符。
  */
-export function recalcAfterEdit(row: any, field: string): void {
+export function recalcAfterEdit<T extends object>(raw: T, field: string): void {
+  const row = raw as PreviewRowLike;
   const qty = parseFloat(row.quantity),
     prc = parseFloat(row.price),
     amt = parseFloat(row.amount);
@@ -69,14 +72,18 @@ const FEE_BREAKDOWN_KEYS = [
  * 但 `''` 与数字**混合**时会走另一分支抛 ValueError。故清理动作必须把 `''` 一并
  * 归零，而提示只在真有数字明细时弹——全空行弹「已清除明细」是假告警。
  */
-export function clearFeeBreakdownOnEdit(row: any, field: string): boolean {
+export function clearFeeBreakdownOnEdit<T extends object>(
+  raw: T,
+  field: string
+): boolean {
+  const row = raw as PreviewRowLike;
   if (field !== "fee") return false;
   const present = FEE_BREAKDOWN_KEYS.some(
     k => row[k] !== null && row[k] !== undefined
   );
   if (!present) return false;
   const hadNumbers = FEE_BREAKDOWN_KEYS.some(
-    k => row[k] !== null && row[k] !== undefined && row[k] !== ""
+    k => row[k] !== null && row[k] !== undefined && String(row[k]) !== ""
   );
   FEE_BREAKDOWN_KEYS.forEach(k => {
     row[k] = null;
@@ -89,10 +96,11 @@ export function clearFeeBreakdownOnEdit(row: any, field: string): boolean {
  * 该高亮原挂手续费列，列收敛退场（#1790）后改挂金额列——金额是三个可编辑列之一，
  * 缺失时给左色条提示比挂在一个已删列上更有用。
  */
-export function isMissingAmount(row: any): boolean {
+export function isMissingAmount<T extends object>(raw: T): boolean {
+  const row = raw as PreviewRowLike;
   return (
     row.amount === null ||
     row.amount === undefined ||
-    isNaN(parseFloat(row.amount))
+    isNaN(parseFloat(String(row.amount ?? "")))
   );
 }

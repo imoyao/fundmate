@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useImportWizard } from "../useImportWizard";
+import type { OcrTxnRow } from "@/api/ocr";
 
 /**
  * #2903 的**接线层**回归：纯函数口径对不代表两条通道真的用了它。
@@ -72,15 +73,25 @@ beforeEach(() => {
   mocks.getLedgers.mockResolvedValue([]);
 });
 
-function ocrRow(patch: Record<string, unknown> = {}): any {
+/** OCR 通道的输入是 OcrTxnRow（不是预览行）：按入口契约造完整夹具 */
+function ocrRow(patch: Partial<OcrTxnRow> = {}): OcrTxnRow {
   return {
     symbol: "000001",
     name: "测试标的",
+    type: "fund",
+    display_type: "基金",
     op_type: "buy",
+    op_type_label: "买入",
     quantity: 100,
     price: 0,
     amount: 1234,
-    type: "fund",
+    fee: 0,
+    trade_date: "2026-03-12",
+    import_hash: "ocr-test",
+    source: "ocr",
+    is_duplicate: false,
+    error: null,
+    warnings: [],
     ...patch
   };
 }
