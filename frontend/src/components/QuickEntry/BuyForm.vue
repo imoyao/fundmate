@@ -55,7 +55,13 @@
       </div>
     </el-form-item>
 
-    <!-- ===== 核心三兄弟 ===== -->
+    <!-- ===== 核心字段 ===== -->
+
+    <!-- 0. 买入价格（股票/ETF/可转债）：与买入金额拆在同一层，见组件内注释 -->
+    <BuyPriceField
+      v-model:price="form.price"
+      :security-type="selectedSecurityOption?.type"
+    />
 
     <!-- 1. 买入金额（投顾组合的提示语文案在组件内部分叉） -->
     <BuyAmountField
@@ -156,6 +162,7 @@ import BuyAccountField from "./components/BuyAccountField.vue";
 import BuyAmountField from "./components/BuyAmountField.vue";
 import BuySecuritySearchField from "./components/BuySecuritySearchField.vue";
 import BuyFeeField from "./components/BuyFeeField.vue";
+import BuyPriceField from "./components/BuyPriceField.vue";
 import TradeNavPriceRow from "./components/TradeNavPriceRow.vue";
 import { useBuyFee } from "./composables/useBuyFee";
 import { useBuySharesLinkage } from "./composables/useBuySharesLinkage";
@@ -203,6 +210,7 @@ const showFeeField = computed(() => {
   const type = selectedSecurityOption.value?.type;
   return Boolean(type) && type !== "portfolio";
 });
+// 买入价格可手填的品种判定已随表单项下沉到 BuyPriceField（含口径说明）
 const showIsAfter15 = computed(() => {
   const type = currentLedger.value?.ledger_type;
   if (type === "fund" || type === "bank") return true;

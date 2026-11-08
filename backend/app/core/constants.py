@@ -223,6 +223,7 @@ class PositionSource(str, Enum):
     E_ACCOUNT = 'e_account_holding'  # 基金E账户持仓导入
     BROKER_TIANTIAN = 'tiantian_fund'  # 天天基金导出导入
     BROKER_THS = 'ths_stock'  # 同花顺导出导入
+    BROKER_CMS = 'cms_stock'  # 招商证券历史交割单导入
     BROKER_STD_FUND = 'standard_fund'  # 标准模板-基金导入
     BROKER_STD_STOCK = 'standard_stock'  # 标准模板-股票导入
     BROKER_ALIPAY = 'alipay_fund'  # 支付宝基金导出导入
@@ -240,6 +241,7 @@ POSITION_SOURCE_LABELS: dict[str, str] = {
     PositionSource.E_ACCOUNT.value: '基金E账户导入',
     PositionSource.BROKER_TIANTIAN.value: '天天基金导入',
     PositionSource.BROKER_THS.value: '同花顺导入',
+    PositionSource.BROKER_CMS.value: '招商证券导入',
     PositionSource.BROKER_STD_FUND.value: '标准模板-基金',
     PositionSource.BROKER_STD_STOCK.value: '标准模板-股票',
     PositionSource.BROKER_ALIPAY.value: '支付宝基金导入',

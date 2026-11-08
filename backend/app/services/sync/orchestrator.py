@@ -38,6 +38,7 @@ from app.services import pnl_snapshot_store
 from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
+from app.services.adapters.eastmoney_security_lookup import EastmoneySecurityLookupAdapter
 from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.adapters.jsl_bond_adjust_adapter import JslBondAdjustAdapter
 from app.services.adapters.manager_tenure import ManagerTenureAdapter
@@ -79,6 +80,7 @@ from app.services.sync.jobs.nav_backfill_job import NavBackfillJob
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
+from app.services.sync.jobs.securities_backfill_job import SecuritiesBackfillJob
 from app.services.sync.jobs.security_industry_map_job import SecurityIndustryMapSyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
@@ -281,6 +283,8 @@ class DataSyncOrchestrator:
     def _register_jobs(self) -> None:
         """注册所有同步任务，明确指定每个 Job 使用的数据源"""
         self.jobs['stock_list'] = StockListSyncJob(self.data_sources['akshare'], self.db)
+        # 名录定向补录：只补「流水里有、名录里没有」的几只，与 stock_list 全量刷新正交
+        self.jobs['securities_backfill'] = SecuritiesBackfillJob(EastmoneySecurityLookupAdapter(), self.db)
         # #1168：fund_list 选源可配置（默认 eastmoney），其余 Job 不变
         fund_list_src = SYNC__FUND_LIST_SOURCE
         if fund_list_src not in self.data_sources:

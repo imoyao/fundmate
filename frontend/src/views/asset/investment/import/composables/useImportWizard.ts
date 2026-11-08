@@ -308,7 +308,32 @@ export function useImportWizard() {
           .filter((v): v is string => !!v)
       )
     ];
-    return { source, imported, ignored, failed, balanced, ops };
+    // 逐条原因：后端 message 已是可操作文案（新股申购暂不支持 → 说明补救方式），
+    // 只显示 raw_value 会让用户看到「新股中签」却不知道该干什么。
+    // 排除「无法识别…」那类——它们由 ops + 下方映射表提示覆盖，重复展示只是噪声。
+    // 同类行往往刷出十几条完全相同的文案，去重后最多列 3 条。
+    const reasons = [
+      ...new Set(
+        parseErrors.value
+          .map(e => e.message)
+          .filter((m): m is string => !!m && !m.startsWith("无法识别"))
+      )
+    ].slice(0, 3);
+    // 「请在映射表登记」只对真正未登记的业务名成立。新股这类「已识别但不支持」的行
+    // 照抄这句会把用户引向错误动作（映射表里根本没有可登记的东西）。
+    const hasUnknownOp = parseErrors.value.some(e =>
+      (e.message || "").startsWith("无法识别")
+    );
+    return {
+      source,
+      imported,
+      ignored,
+      failed,
+      balanced,
+      ops,
+      reasons,
+      hasUnknownOp
+    };
   });
 
   const selectedLedgerName = computed(() => {
@@ -361,6 +386,11 @@ export function useImportWizard() {
       },
       { label: "同花顺交割单", value: "ths", logo: "/logos/tonghuashun.svg" },
       {
+        label: "招商证券交割单",
+        value: "cms_stock",
+        logo: "/logos/stock.svg"
+      },
+      {
         label: "基金标准模板",
         value: "standard_fund",
         logo: "/logos/standard.svg"
@@ -379,7 +409,10 @@ export function useImportWizard() {
     ];
     if (ledgerType.value === "stock")
       return allModes.filter(
-        m => m.value === "standard_stock" || m.value === "ths"
+        m =>
+          m.value === "standard_stock" ||
+          m.value === "ths" ||
+          m.value === "cms_stock"
       );
     if (ledgerType.value === "fund" || ledgerType.value === "cash")
       return allModes.filter(
@@ -418,6 +451,7 @@ export function useImportWizard() {
   });
   const formatName = computed(() => {
     if (selectedMode.value === "ths") return "同花顺";
+    if (selectedMode.value === "cms_stock") return "招商证券";
     if (selectedMode.value === "standard_fund") return "基金标准模板";
     if (selectedMode.value === "tiantian_fund") return "天天基金";
     return "股票标准模板";

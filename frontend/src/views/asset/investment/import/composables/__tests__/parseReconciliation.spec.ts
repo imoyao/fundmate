@@ -149,4 +149,51 @@ describe("#2854 导入行数对账", () => {
     expect(w.ignoredRowCount.value).toBe(0);
     expect(w.rowReconciliation.value).toBeNull();
   });
+
+  it("已识别但不支持的行（新股申购）→ 必须把原因与补救方式写出来", () => {
+    const w = setup();
+    w.totalRows.value = 2;
+    w.sourceRowCount.value = 4;
+    w.parseErrorCount.value = 2;
+    w.parseErrors.value = [
+      {
+        line: 2,
+        field: "业务名称",
+        message:
+          "业务名「新股中签」属于新股申购中签，当前版本仅支持可转债打新，该行未纳入导入；请在导入后手动补录这笔建仓",
+        raw_value: "新股中签"
+      },
+      {
+        line: 3,
+        field: "业务名称",
+        message:
+          "业务名「新股中签缴款」属于新股申购中签，当前版本仅支持可转债打新，该行未纳入导入；请在导入后手动补录这笔建仓",
+        raw_value: "新股中签缴款"
+      }
+    ];
+    const r = w.rowReconciliation.value!;
+    expect(r.reasons).toHaveLength(2);
+    expect(r.reasons[0]).toContain("仅支持可转债打新");
+    // 新股不是「未登记的业务名」，不能给「去映射表登记」这种错误指引
+    expect(r.hasUnknownOp).toBe(false);
+  });
+
+  it("未登记业务名的原因不与 ops 重复展示，且保留映射表指引", () => {
+    const w = setup();
+    w.totalRows.value = 338;
+    w.sourceRowCount.value = 340;
+    w.parseErrorCount.value = 1;
+    w.parseErrors.value = [
+      {
+        line: 42,
+        field: "业务名称",
+        message: "无法识别的业务名称「快速取现」，该行未纳入导入",
+        raw_value: "快速取现"
+      }
+    ];
+    const r = w.rowReconciliation.value!;
+    expect(r.ops).toEqual(["快速取现"]);
+    expect(r.reasons).toEqual([]);
+    expect(r.hasUnknownOp).toBe(true);
+  });
 });

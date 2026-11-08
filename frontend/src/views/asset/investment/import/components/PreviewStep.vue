@@ -85,7 +85,17 @@ const {
         未登记的操作类型：{{ rowReconciliation.ops.join("、") }}
         <span v-if="parseErrors.length">
           ，涉及行号 {{ parseErrors.map(e => e.line).join("、") }} </span
-        >。请在映射表登记后再导入，不要手工编造标的。
+        >。
+      </p>
+      <!-- 逐条原因：新股申购中签这类「已识别但不支持」的行，后端已给出补救方式，
+           只显示业务名等于让用户自己猜下一步。 -->
+      <ul v-if="rowReconciliation.reasons.length" class="text-xs mt-1">
+        <li v-for="(reason, index) in rowReconciliation.reasons" :key="index">
+          · {{ reason }}
+        </li>
+      </ul>
+      <p v-if="rowReconciliation.hasUnknownOp" class="text-xs mt-1">
+        请在映射表登记后再导入，不要手工编造标的。
       </p>
     </SoftBanner>
 
