@@ -155,13 +155,29 @@ function clearSymbolFilter() {
 }
 
 // 行内编辑
+/** 保存回写后用于就地刷新表格行的字段（来自编辑弹窗 saved 载荷） */
+interface SavedTxn {
+  id?: number;
+  asset_type?: string;
+  symbol?: string;
+  quantity?: number | null;
+  price?: number | null;
+  amount?: number | null;
+  fee?: number | null;
+  trade_date?: string | null;
+  confirm_date?: string | null;
+  notes?: string | null;
+  import_hash?: string | null;
+}
+
 const editDialogVisible = ref(false);
-const editingTxn = ref<any>(null);
-function openEdit(row: any) {
-  editingTxn.value = row;
+const editingTxn = ref<SavedTxn | null>(null);
+function openEdit(row: unknown) {
+  editingTxn.value = row as SavedTxn;
   editDialogVisible.value = true;
 }
-function handleSaved(data: any) {
+function handleSaved(raw: unknown) {
+  const data = raw as SavedTxn;
   const idx = transactions.value.findIndex(t => t.id === data?.id);
   if (idx !== -1) {
     Object.assign(transactions.value[idx], {

@@ -99,8 +99,8 @@ export function monthLabel(month: string): string {
  */
 export function buildFilterParams(
   filters: TransactionFilters
-): Record<string, any> {
-  const params: any = {};
+): Record<string, string | number> {
+  const params: Record<string, string | number> = {};
   if (filters.type) params.type = filters.type;
   if (filters.assetType) params.asset_type = filters.assetType;
   if (filters.status) params.status = filters.status;
@@ -120,7 +120,7 @@ export function buildTransactionParams(
   filters: TransactionFilters,
   page: number,
   pageSize: number
-): Record<string, any> {
+): Record<string, string | number> {
   return { page, per_page: pageSize, ...buildFilterParams(filters) };
 }
 

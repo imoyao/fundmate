@@ -24,7 +24,10 @@ const props = defineProps<{
   hasMore: boolean;
 }>();
 
-const emit = defineEmits<{ edit: [row: any]; "load-more": [] }>();
+const emit = defineEmits<{
+  edit: [row: TransactionRecord];
+  "load-more": [];
+}>();
 
 const openMonths = ref<string[]>([]);
 const scrollEl = ref<HTMLElement | null>(null);

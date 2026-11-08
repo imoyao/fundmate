@@ -118,6 +118,7 @@
 </template>
 
 <script setup lang="ts">
+import type { SankeyPayload, SummaryPayload } from "./panoramaTypes";
 import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, onMounted } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -148,7 +149,7 @@ const totalPnl = ref(0);
 // 不用 `any`：distributions 是后端下发的固定结构，`any` 会让下游三个消费方
 // （摘要卡 / 分类表 / 分组列表）都失去类型检查。字段口径见 `DistributionsData`。
 const distributions = ref<DistributionsData | null>(null);
-const sankeyData = ref<{ nodes: any[]; links: any[] }>({
+const sankeyData = ref<{ nodes: unknown[]; links: unknown[] }>({
   nodes: [],
   links: []
 });
@@ -185,14 +186,18 @@ async function fetchData() {
       getSnapshots()
     ]);
 
-    let sankeyRaw: any = {};
-    const sankData = (sankeyRes as any)?.data;
-    sankeyRaw = sankData && typeof sankData === "object" ? sankData : {};
+    let sankeyRaw: SankeyPayload = {};
+    const sankData = (sankeyRes as { data?: unknown } | null)?.data;
+    sankeyRaw =
+      sankData && typeof sankData === "object"
+        ? (sankData as SankeyPayload)
+        : {};
+    const summary = (sumRes as { data?: SummaryPayload } | null)?.data;
 
-    totalAssets.value = (sumRes as any)?.data?.total_assets_cny || 0;
-    totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny || 0;
-    netAssets.value = (sumRes as any)?.data?.net_assets_cny || 0;
-    totalPnl.value = (sumRes as any)?.data?.total_pnl_cny || 0;
+    totalAssets.value = summary?.total_assets_cny || 0;
+    totalLiabilities.value = summary?.total_liabilities_cny || 0;
+    netAssets.value = summary?.net_assets_cny || 0;
+    totalPnl.value = summary?.total_pnl_cny || 0;
     distributions.value = distRes?.data ?? null;
     sankeyData.value = {
       nodes: sankeyRaw.nodes || [],
@@ -200,7 +205,11 @@ async function fetchData() {
     };
 
     // 快照列表升序，取最后一条作为最新同比基准
-    const snapRaw = (snapRes as any)?.data;
+    const snapRaw = (
+      snapRes as {
+        data?: AssetSnapshotItem[] | { data?: AssetSnapshotItem[] };
+      } | null
+    )?.data;
     const snapList: AssetSnapshotItem[] = Array.isArray(snapRaw)
       ? snapRaw
       : snapRaw?.data || [];

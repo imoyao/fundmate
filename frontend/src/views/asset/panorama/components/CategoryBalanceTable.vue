@@ -194,13 +194,14 @@
 </template>
 
 <script setup lang="ts">
+import type { DistributionsData } from "@/api/summary";
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 
 const props = defineProps<{
-  distributions: any;
+  distributions: DistributionsData | null;
   totalAssets: number;
   totalLiabilities: number;
 }>();
@@ -240,7 +241,16 @@ const assetBalanceRows = computed(() => {
     }
   };
   // 消费后端 category_distribution（后端唯一聚合出口，含汇率换算）
-  const categoryMap: Record<string, any> = {};
+  const categoryMap: Record<
+    string,
+    {
+      name?: string;
+      value?: number;
+      color: string;
+      categoryKey: string;
+      detailRoute?: string;
+    }
+  > = {};
   for (const item of props.distributions?.category_distribution ?? []) {
     categoryMap[item.name] = {
       name: item.name,
