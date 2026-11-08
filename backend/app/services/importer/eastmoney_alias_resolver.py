@@ -68,7 +68,7 @@ class EastMoneyAliasResolver:
         http_get: Callable[..., requests.Response] = requests.get,
         enabled: bool = True,
         date_window_days: int = 5 * 365,
-        page_size: int = 1000,
+        page_size: int = 500,
         max_pages: int = 12,
     ):
         self._session_factory = session_factory
@@ -187,16 +187,25 @@ class EastMoneyAliasResolver:
     def _fetch_all_cb(self) -> Dict[str, List[Tuple[str, Optional[date]]]]:
         """分页拉全量可转债，返回 apply_code → [(listed_code, issue_date), ...]。
 
-        全表约 2000+ 只，单页 pageSize 取 1000，循环 pageNo 直到不足一页。
-        这是「一次批量」引导：一次导入只拉这一份，落库后后续导入不再联网。
+        全表约 1100 只（实测 2026-11）。两个分页要点（都是 2026-11-08 实测踩坑）：
+
+        - **参数名必须是 ``pageNumber``**：``pageNo`` 会被服务端静默忽略——响应
+          照样 200、照常返回数据，但每一页都是第一页的内容。只看「有没有拿到
+          数据」的翻页循环会毫无察觉地原地踏步。
+        - **终止条件不能依赖 ``len(data) < page_size``**：东财把单页行数封顶在
+          500（请求 1000 也只回 500），「不足一页就停」会在第一页后立刻断粮，
+          别名表只收得到最老的 500 只——2021 年后发行的转债全部缺席，而打新
+          恰恰集中在这个区间。改为按响应里的 ``count`` 判累计，count 缺失时
+          以空页为准（最后一页满页会多请求一次，可接受，max_pages 兜底）。
         """
         out: Dict[str, List[Tuple[str, Optional[date]]]] = {}
+        accumulated = 0
         for page in range(1, self._max_pages + 1):
             params = {
                 'reportName': EM_REPORT,
                 'columns': 'SECURITY_CODE,CORRECODE,PUBLIC_START_DATE',
                 'pageSize': self._page_size,
-                'pageNo': page,
+                'pageNumber': page,
                 'sortColumns': 'PUBLIC_START_DATE',
                 'sortTypes': 1,  # 升序：先拿到最早的，翻页稳定
                 'source': 'WEB',
@@ -212,7 +221,9 @@ class EastMoneyAliasResolver:
                 if not sub or not listed:
                     continue
                 out.setdefault(sub, []).append((listed, _parse_em_date(r.get('PUBLIC_START_DATE'))))
-            if len(data) < self._page_size:
+            accumulated += len(data)
+            total = result.get('count')
+            if not data or (isinstance(total, int) and accumulated >= total):
                 break
         return out
 

@@ -55,7 +55,7 @@ from app.core.asset_types import get_asset_type_label
 from app.core.constants import OwnershipStatus, PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
-from app.core.symbol_utils import normalize_by_venue
+from app.core.symbol_utils import is_subscription_code, normalize_by_venue
 from app.core.venues import resolve_venue
 from app.domains.positions.models import Position
 from app.domains.positions.state import is_covered_by_anchor, reactivate_cleared_position
@@ -416,6 +416,11 @@ def _validate_buy_inputs(
     if not data.get('skip_lot_check'):
         valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
         if not valid:
+            # 申购段不是可上市证券（D97）：走到这说明打新别名没命中，报真问题，别让用户去改数量
+            if is_subscription_code(symbol):
+                raise ValueError(
+                    f'申购码 {symbol} 未能解析上市代码，无法入账；请在导入预览页把该行标的代码补全为上市代码后重新导入'
+                )
             raise ValueError(err_msg)
 
     if price <= 0:  # pragma: no cover - 上方已拦；保留原实现的兜底错误码

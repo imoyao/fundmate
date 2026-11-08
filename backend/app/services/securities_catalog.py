@@ -37,7 +37,11 @@ from typing import List, Optional
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.core.symbol_utils import get_normalizer, market_of_cn_a_code
+from app.core.symbol_utils import (
+    SUBSCRIPTION_CODE_PREFIXES,
+    get_normalizer,
+    market_of_cn_a_code,
+)
 from app.domains.securities.models import Security
 from app.services.job_base import IN_CHUNK_SIZE
 from app.services.price_depth import held_symbols
@@ -92,17 +96,8 @@ def missing_catalog_symbols(db: Session) -> List[str]:
 
 
 #: 已知的**申购代码段**：它们是打新凭证，不等于上市代码，永远不会出现在名录里。
-#:
-#: 转债段 072 / 370 / 754 / 783 取自项目实证（`importer/mappings.py` 的
-#: `CMS_IPO_*` 注释：券商原文用的就是这几段）；730 / 732 是沪市新股市值申购号段。
-#:
-#: 为什么必须显式列：`370xxx` / `072xxx` 是三、零开头，`market_of_cn_a_code` 会
-#: 判成 `SZ`（「3 开头 = 创业板、0 开头 = 深市」），看起来完全像上市代码。
-#: 不排除的后果是**每次导入都为它报一次 failed** —— 噪声会把真缺口淹掉。
-#:
-#: 边界：日后出现本表未收录的新申购段，会表现为「该代码每次都进 failed」。
-#: 这不是静默错误（可见），届时在此补一段即可。
-_SUBSCRIPTION_CODE_PREFIXES = ('072', '370', '754', '783', '730', '732')
+#: 申购段口径已提升为公共常量 `symbol_utils.SUBSCRIPTION_CODE_PREFIXES`
+#: （2026-11-08：导入 commit 层判「申购码未解析上市代码」也要用同一份清单）。
 
 
 def _looks_like_listed_code(symbol: str) -> bool:
@@ -115,7 +110,7 @@ def _looks_like_listed_code(symbol: str) -> bool:
     code = text[2:] if len(text) == 8 and text[:2] in ('SH', 'SZ', 'BJ') else text
     if len(code) != 6 or not code.isdigit():
         return False
-    if code.startswith(_SUBSCRIPTION_CODE_PREFIXES):
+    if code.startswith(SUBSCRIPTION_CODE_PREFIXES):
         return False
     return market_of_cn_a_code(code) is not None
 

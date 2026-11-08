@@ -463,3 +463,16 @@ def derive_security_type(code: str, market: str | None = None) -> Optional[str]:
     if code[:2] in ('51', '56', '58', '15', '16'):
         return 'etf'
     return 'stock'
+
+
+#: 打新/配债的**申购段**代码前缀（不是可交易的上市证券）。
+#: 显式列出的理由：`370xxx` / `072xxx` 是三、零开头，`market_of_cn_a_code` 会把
+#: 它们误判成 SZ 存量股票段；而交割单里这些段只会以「申购/配售/中签」业务出现，
+#: 上市交易一律用 11x/12x 段。与 securities_catalog 名录补录共用同一口径。
+SUBSCRIPTION_CODE_PREFIXES = ('072', '370', '754', '783', '730', '732')
+
+
+def is_subscription_code(symbol: str) -> bool:
+    """symbol 是否为打新/配债申购段代码（不可上市交易，不能按标准交易入账）。"""
+    code = strip_exchange_prefix(symbol or '')
+    return len(code) == 6 and code.isdigit() and code.startswith(SUBSCRIPTION_CODE_PREFIXES)
