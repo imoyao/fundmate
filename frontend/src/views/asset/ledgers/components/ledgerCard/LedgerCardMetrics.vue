@@ -3,6 +3,7 @@
 //
 // 多根片段（`div.ledger-metrics` + 条件渲染的 `div.ledger-liability`），不包 wrapper——
 // 它们在 `.ledger-card` 里本来就是并列的直接子元素，包一层会让卡片内边距多作用一级。
+import type { LedgerLike } from "../ledgerTypes";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import type { TodayPnlGroup } from "@/api/summary";
@@ -13,7 +14,7 @@ import {
 } from "./ledgerCardModel";
 
 defineProps<{
-  ledger: any;
+  ledger: LedgerLike;
   /** 当日估值（`dimension=ledger` 的分组行）；null = 该账户无可估值持仓 */
   todayPnl?: TodayPnlGroup | null;
 }>();

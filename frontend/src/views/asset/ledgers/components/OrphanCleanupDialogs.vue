@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { LedgerLike, OverviewGroupLike } from "./ledgerTypes";
 import { errorMessageOf } from "@/utils/errorMessage";
 import { ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -25,9 +26,9 @@ import { formatQuantity } from "@/utils/format";
  */
 const props = defineProps<{
   /** overview 中 type=deleted 的分组（count/total） */
-  orphanGroup: any;
+  orphanGroup: OverviewGroupLike;
   /** 目标账户候选（禁用 orphan 虚拟行） */
-  allLedgers: any[];
+  allLedgers: LedgerLike[];
 }>();
 
 const emit = defineEmits<{

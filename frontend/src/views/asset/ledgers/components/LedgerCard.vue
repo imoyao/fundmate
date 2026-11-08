@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { LedgerLike } from "./ledgerTypes";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import type { TodayPnlGroup } from "@/api/summary";
@@ -22,7 +23,7 @@ import {
  * 路由与删除流程由父页面编排，卡片不自行取数。
  */
 defineProps<{
-  ledger: any;
+  ledger: LedgerLike;
   /** 持仓快照一致性待核对项数（#1133 §4 温柔提醒）：>0 时显示中性色角标，绝不阻断操作 */
   staleCount?: number;
   /** 当日估值（`dimension=ledger` 的分组行）；null = 该账户无可估值持仓 */
@@ -38,20 +39,20 @@ defineProps<{
 
 const emit = defineEmits<{
   /** 进入详情（卡片点击 / 回车） */
-  open: [ledger: any];
+  open: [ledger: LedgerLike];
   /** 删除按钮（已 stopPropagation，不触发卡片点击） */
-  delete: [ledger: any];
+  delete: [ledger: LedgerLike];
   /** 归档 / 激活切换（已 stopPropagation） */
-  toggleArchive: [ledger: any];
+  toggleArchive: [ledger: LedgerLike];
   /**
    * 键盘重排（#1841）：抓手 ↑/↓/Home/End 上抛目标下标，由页面调 reorderLedgers 落库。
    * 组件自己不落库——它不知道所属分组，跨组语义在页面层。
    */
-  reorderKey: [payload: { ledger: any; to: number }];
+  reorderKey: [payload: { ledger: LedgerLike; to: number }];
 }>();
 
 function onReorderKey(
-  ledger: any,
+  ledger: LedgerLike,
   key: ReorderKey,
   index?: number,
   total?: number
