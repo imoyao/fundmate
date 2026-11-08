@@ -1,12 +1,27 @@
 import { computed, ref, type Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { estimateRedeemFee, syncFundFees } from "@/api/funds";
+import {
+  estimateRedeemFee,
+  syncFundFees,
+  type RedeemFeeEstimateParams,
+  type RedeemFeeRuleItem
+} from "@/api/funds";
+import type { Position } from "@/api/types";
+import { apiErrorMessage } from "@/utils/apiError";
 
 interface SellFeeForm {
   type: string;
   trade_date: string;
   quantity: number | undefined;
   fee: number | undefined;
+}
+
+/** 费率分布弹窗的一行：全仓份额与本次卖出份额按 rate 聚合到一起 */
+export interface FeeMergeRow {
+  range: string;
+  rate: number;
+  holdShares: number;
+  sellShares: number;
 }
 
 /**
@@ -18,18 +33,18 @@ interface SellFeeForm {
  */
 export function useSellFee(deps: {
   form: SellFeeForm;
-  selectedPosition: Ref<any>;
+  selectedPosition: Ref<Position | null>;
 }) {
   const { form, selectedPosition } = deps;
 
   const feeError = ref("");
   const feeRateDialogVisible = ref(false);
   // 保留用于兼容，但主要使用 holdFeeDetails
-  const feeRateTableData = ref<any[]>([]);
+  const feeRateTableData = ref<RedeemFeeRuleItem[]>([]);
   /** 全仓持有分布 */
-  const holdFeeDetails = ref<any[]>([]);
+  const holdFeeDetails = ref<RedeemFeeRuleItem[]>([]);
   /** 指定份额分布 */
-  const sellFeeData = ref<any[]>([]);
+  const sellFeeData = ref<RedeemFeeRuleItem[]>([]);
   const feeManuallyChanged = ref(false);
 
   /** 计算实际可用于费率计算的买入总份额 */
@@ -44,15 +59,15 @@ export function useSellFee(deps: {
   });
 
   /** 合并全仓和指定份额数据，用于弹窗表格 */
-  const mergedFeeData = computed(() => {
+  const mergedFeeData = computed<FeeMergeRow[]>(() => {
     const holdData = holdFeeDetails.value;
     const sellData = sellFeeData.value;
     if (holdData.length === 0) return [];
     const sellMap: Record<number, number> = {};
-    sellData.forEach((item: any) => {
+    sellData.forEach(item => {
       sellMap[item.rate] = (sellMap[item.rate] || 0) + item.shares;
     });
-    return holdData.map((h: any) => ({
+    return holdData.map(h => ({
       range: h.range,
       rate: h.rate,
       holdShares: h.shares,
@@ -65,27 +80,19 @@ export function useSellFee(deps: {
     tradeDate: string,
     shares?: number
   ) => {
-    const payload: any = {
+    const payload: RedeemFeeEstimateParams = {
       position_id: positionId,
       sell_date: tradeDate
     };
     if (shares !== undefined && shares !== null && shares > 0) {
       payload.shares = shares;
     }
-    const res: any = await estimateRedeemFee(payload);
-    const data = res.data;
+    const { data } = await estimateRedeemFee(payload);
     return {
-      total_fee: data?.total_fee || 0,
-      holdings: (data?.holdings || []).map((r: any) => ({
-        range: r.range,
-        shares: r.shares,
-        rate: r.rate
-      })),
-      sell: (data?.sell || []).map((r: any) => ({
-        range: r.range,
-        shares: r.shares,
-        rate: r.rate
-      }))
+      total_fee: data.total_fee,
+      holdings: data.holdings,
+      // 后端未指定份额时给 null，下游按「空分布」处理，故这里统一成数组
+      sell: data.sell ?? []
     };
   };
 
@@ -127,14 +134,9 @@ export function useSellFee(deps: {
       sellFeeData.value = sell.length > 0 ? sell : [];
       feeRateTableData.value = holdings;
       feeError.value = "";
-    } catch (e: any) {
-      // 从 Axios 错误中提取后端返回的 message
-      let msg = "暂时无法获取费率分布";
-      if (e?.response?.data?.message) {
-        msg = e.response.data.message; // 后端返回的业务错误消息
-      } else if (e?.message) {
-        msg = e.message;
-      }
+    } catch (e) {
+      // 从 Axios 错误中提取后端返回的 message（信封 { data, message, error_code }）
+      const msg = apiErrorMessage(e, "暂时无法获取费率分布");
       console.warn("费率查询失败", msg, e);
       holdFeeDetails.value = [];
       sellFeeData.value = [];

@@ -157,13 +157,15 @@ import TradeNavPriceRow from "./components/TradeNavPriceRow.vue";
 import { defaultSellForm } from "./sellFormModel";
 import { buildSellPayload } from "./sellFormPayload";
 import { createSellRules } from "./sellFormRules";
+import type { LedgerItem } from "@/api/ledger";
+import type { Position } from "@/api/types";
 import { useSellPositions } from "./composables/useSellPositions";
 import { useSellFee } from "./composables/useSellFee";
 import { useSellNavSync } from "./composables/useSellNavSync";
 import { useSellFormActions } from "./composables/useSellFormActions";
 
 const props = defineProps<{
-  ledgers: any[];
+  ledgers: LedgerItem[];
   hideAccountSelect?: boolean;
   defaultLedgerId?: number | null;
 }>();
@@ -179,7 +181,7 @@ const positionSelectKey = ref(0);
 const showPositionSelect = ref(true);
 const form = reactive(defaultSellForm());
 const formRef = ref<FormInstance>();
-const selectedPosition = ref<any>(null);
+const selectedPosition = ref<Position | null>(null);
 
 // 交易日期禁用规则收敛到 utils/date（#1835）
 const disabledDate = disabledTradeDate;

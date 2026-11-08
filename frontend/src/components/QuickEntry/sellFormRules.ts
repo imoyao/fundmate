@@ -18,7 +18,13 @@ export function createSellRules(deps: {
   getType: () => string;
   stockPriceRange: StockPriceRange;
 }): FormRules {
-  const validateQuantity = (_rule: any, value: any, callback: any) => {
+  // Element Plus 的校验器参数由第三方类型（async-validator）决定，实际取值一律按
+  // `unknown` 收窄——与 `useSecurityPrice.createStockPriceValidator` 同一范式。
+  const validateQuantity = (
+    _rule: unknown,
+    value: unknown,
+    callback: (err?: Error) => void
+  ) => {
     if (value === undefined || value === null || value === "") {
       callback(
         new Error(
