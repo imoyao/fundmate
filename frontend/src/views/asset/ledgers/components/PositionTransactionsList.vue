@@ -69,14 +69,30 @@ const props = withDefaults(
 );
 
 // 交易记录状态
+interface PositionTxnRow {
+  id?: number;
+  txn_type?: string;
+  quantity?: number | null;
+  price?: number | null;
+  amount?: number | null;
+  fee?: number | null;
+  trade_date?: string | null;
+  confirm_date?: string | null;
+  notes?: string | null;
+  import_hash?: string | null;
+}
+const asTxnRow = (v: unknown): PositionTxnRow => v as PositionTxnRow;
+
 const loadingTransactions = ref(false);
-const transactionsList = ref<any[]>([]);
+const transactionsList = ref<PositionTxnRow[]>([]);
 const transactionsTotal = ref(0);
 
 /** 适配公共表格行：txn_type → type（spread 保留原字段，编辑弹窗所需的
     notes / import_hash 运行时仍在，仅类型层面不收）。 */
 const rows = computed<TransactionRow[]>(() =>
-  transactionsList.value.map(r => ({ ...r, type: r.txn_type }))
+  transactionsList.value.map(
+    r => ({ ...r, type: r.txn_type }) as TransactionRow
+  )
 );
 
 // 获取交易明细 API 调用
@@ -108,14 +124,15 @@ async function fetchTransactions() {
 
 // 行内编辑
 const editDialogVisible = ref(false);
-const editingTxn = ref<any>(null);
+const editingTxn = ref<PositionTxnRow | null>(null);
 
-function openEdit(row: any) {
-  editingTxn.value = row;
+function openEdit(row: unknown) {
+  editingTxn.value = asTxnRow(row);
   editDialogVisible.value = true;
 }
 
-function handleSaved(data: any) {
+function handleSaved(raw: unknown) {
+  const data = asTxnRow(raw);
   const idx = transactionsList.value.findIndex(t => t.id === data?.id);
   if (idx !== -1) {
     Object.assign(transactionsList.value[idx], {

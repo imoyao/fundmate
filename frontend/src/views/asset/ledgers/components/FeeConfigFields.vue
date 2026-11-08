@@ -84,6 +84,14 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 
+/** 费率配置对象：证券 / 基金平台两套结构，字段全部可选 */
+interface FeeConfigLike {
+  commission?: { rate?: number; min?: number };
+  stamp_duty?: { rate?: number; scope?: string };
+  transfer_fee?: { rate?: number; scope?: string };
+  subscription_discount?: number;
+}
+
 const props = withDefaults(
   defineProps<{
     channelCategory: string;
@@ -126,7 +134,7 @@ watch(
   { immediate: true }
 );
 
-function buildFeeConfig(): any {
+function buildFeeConfig(): FeeConfigLike | null {
   if (props.channelCategory === "securities") {
     return {
       commission: {
@@ -148,7 +156,7 @@ function emitFee() {
 
 function updateStockFee(key: string, value: number | undefined) {
   if (typeof value === "number") {
-    (feeStock.value as any)[key] = value;
+    (feeStock.value as Record<string, number | undefined>)[key] = value;
   }
   emitFee();
 }

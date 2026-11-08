@@ -87,7 +87,8 @@ async function handleMigrate() {
   migrating.value = true;
   try {
     const res = await migrateOrphanPositions(migrateTargetId.value);
-    const total = (res as any)?.data?.total ?? 0;
+    const total =
+      (res as { data?: { total?: number } } | null)?.data?.total ?? 0;
     ElMessage.success(`已将 ${total} 项未归置数据归入目标账户`);
     showMigrateDialog.value = false;
     emit("refresh");
@@ -115,9 +116,9 @@ async function handleOrphanCleanup() {
   cleaning.value = true;
   try {
     const res = await deleteOrphanPositions();
-    const data = (res as any)?.data ?? {};
+    const data = res?.data;
     ElMessage.success(
-      `已清理 ${data.position_count ?? 0} 笔持仓、${data.asset_count ?? 0} 项资产、${data.transaction_count ?? 0} 笔交易`
+      `已清理 ${data?.position_count ?? 0} 笔持仓、${data?.asset_count ?? 0} 项资产、${data?.transaction_count ?? 0} 笔交易`
     );
     emit("refresh");
   } catch (e) {

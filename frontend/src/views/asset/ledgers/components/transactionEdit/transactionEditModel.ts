@@ -22,6 +22,26 @@ export interface TransactionEditForm {
 }
 
 /** 基金类（含货币基金）按份额（小数）处理；其余按股 / 张（整数） */
+export interface TxnRecordLike {
+  id?: number;
+  ledger_id?: number;
+  symbol?: string;
+  import_hash?: string | null;
+  asset_type?: string;
+  type?: string;
+  security_type?: string;
+  position_type?: string;
+  txn_type?: string;
+  quantity?: number | null;
+  price?: number | null;
+  amount?: number | null;
+  fee?: number | null;
+  trade_date?: string | null;
+  confirm_date?: string | null;
+  notes?: string | null;
+}
+const asTxn = (v: object): TxnRecordLike => v as TxnRecordLike;
+
 export const FUND_ASSET_TYPES = ["fund", "money_fund"];
 
 /** 证券类：卖出价区间校验与日期联动只对这几类生效 */
@@ -33,7 +53,11 @@ export const STOCK_ASSET_TYPES = ["stock", "etf", "bond", "convertible"];
  * 四级兜底不是洁癖——同一条流水在三个入口（账户详情 / 持仓流水抽屉 / 流水列表）
  * 拿到的对象字段并不一致：有的带 `asset_type`，有的只有 `type`。
  */
-export function resolveAssetType(record: any, override?: string): string {
+export function resolveAssetType<T extends object>(
+  raw: T,
+  override?: string
+): string {
+  const record = asTxn(raw);
   return (
     override ||
     record?.asset_type ||
@@ -117,8 +141,8 @@ export function recalcAmount(
 }
 
 /** 打开弹窗时的表单快照（与交易记录逐字段对齐） */
-export function formSnapshotOf(record: any): TransactionEditForm {
-  const t = record || {};
+export function formSnapshotOf<T extends object>(raw: T): TransactionEditForm {
+  const t = asTxn(raw || {});
   return {
     quantity: t.quantity ?? null,
     price: t.price ?? null,

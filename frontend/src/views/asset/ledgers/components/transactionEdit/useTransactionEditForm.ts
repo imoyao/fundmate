@@ -17,6 +17,7 @@
  * 拆成子组件的话，`form` 要跨组件传、`formRef.validate()` 要 `defineExpose` 出去，
  * 顺序还看不见了——所以这里只搬状态，模板留在 SFC 里。
  */
+import type { TxnRecordLike } from "./transactionEditModel";
 import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, nextTick, ref, watch } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
@@ -46,13 +47,13 @@ import {
 
 export function useTransactionEditForm(opts: {
   /** 当前交易记录（用 getter 保持响应性） */
-  transaction: () => any;
+  transaction: () => TxnRecordLike;
   /** 产品代码，用于拉净值 */
   symbol: () => string | undefined;
   /** 外部传入的资产类型（优先级高于记录里的字段） */
   assetTypeOverride: () => string | undefined;
   /** 保存成功回调 */
-  onSaved: (data: any) => void;
+  onSaved: (data: unknown) => void;
   /** 请求父层把弹窗关掉（`update:modelValue → false`） */
   onClose: () => void;
 }) {
