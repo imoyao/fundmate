@@ -1,3 +1,4 @@
+import type { RouteConfigWithChildren } from "@/router/types";
 // const { VITE_HIDE_HOME } = import.meta.env;
 const Layout = () => import("@/layout/index.vue");
 
@@ -5,8 +6,8 @@ const Layout = () => import("@/layout/index.vue");
 const BASE_RANK = 0;
 
 // 2. 定义一个工厂函数，用来包裹并处理路由配置
-const createHomeRoutes = (routeConfig: any) => {
-  const children = routeConfig.children.map((child: any) => ({
+const createHomeRoutes = (routeConfig: RouteConfigWithChildren) => {
+  const children = (routeConfig.children ?? []).map(child => ({
     ...child,
     meta: {
       ...child.meta,

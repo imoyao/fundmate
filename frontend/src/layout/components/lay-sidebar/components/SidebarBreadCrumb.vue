@@ -55,7 +55,7 @@ const getBreadcrumb = (): void => {
   const currentTitle = route.meta?.title as string | undefined;
 
   const fromMenu = buildBreadcrumb(
-    breadcrumbMenus.value as any,
+    breadcrumbMenus.value as unknown as Parameters<typeof buildBreadcrumb>[0],
     path,
     currentTitle
   );

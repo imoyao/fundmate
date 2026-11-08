@@ -1,7 +1,6 @@
 import {
   type RouterHistory,
   type RouteRecordRaw,
-  type RouteComponent,
   createWebHistory,
   createWebHashHistory
 } from "vue-router";
@@ -25,9 +24,32 @@ const IFrame = () => import("@/layout/frame.vue");
 // https://cn.vitejs.dev/guide/features.html#glob-import
 const modulesRoutes = import.meta.glob("/src/views/**/*.{vue,tsx}");
 
-function handRank(routeInfo: any) {
-  const { name, path, parentId, meta } = routeInfo;
-  return isAllEmpty(parentId)
+/**
+ * 路由 / 菜单树在本文件里真正读取的字段（#2879）。
+ * 入口一律用无约束泛型保持调用方传进来的形状（RouteRecordRaw[] / menuType[] / …），
+ * 只在这个边界把节点收窄成 RouteLike —— 不放开整个数据形状。
+ */
+interface RouteLikeMeta {
+  rank?: number;
+  showLink?: boolean;
+  hidden?: boolean;
+  roles?: string[];
+  fixedTag?: boolean;
+  title?: string;
+  [key: string]: unknown;
+}
+interface RouteLike {
+  name?: string | symbol;
+  path?: string;
+  parentId?: unknown;
+  meta?: RouteLikeMeta | null;
+  children?: RouteLike[];
+}
+const asRoute = (v: unknown): RouteLike => v as RouteLike;
+
+function handRank(routeInfo: RouteLike) {
+  const { name, path, meta } = routeInfo;
+  return isAllEmpty(routeInfo.parentId)
     ? isAllEmpty(meta?.rank) ||
       (meta?.rank === 0 && name !== "Home" && path !== "/")
       ? true
@@ -36,23 +58,23 @@ function handRank(routeInfo: any) {
 }
 
 /** 按照路由中meta下的rank等级升序来排序路由 */
-function ascending(arr: any[]) {
+function ascending<T>(arr: T[]): T[] {
   arr.forEach((v, index) => {
-    // 确保 v.meta 存在，如果不存在则初始化为 {}，避免 undefined 错误
-    if (!v.meta) {
-      v.meta = {};
+    const node = asRoute(v);
+    // 确保 meta 存在，如果不存在则初始化为 {}，避免 undefined 错误
+    if (!node.meta) {
+      node.meta = {};
     }
     // 递归兜底：子路由的 meta 也可能缺失（如 redirect 子路由），同样补 {}
-    if (v.children && v.children.length) {
-      ascending(v.children);
+    if (node.children && node.children.length) {
+      ascending(node.children);
     }
     // 当rank不存在时，根据顺序自动创建，首页路由永远在第一位
-    if (handRank(v)) v.meta.rank = index + 2;
+    if (handRank(node)) node.meta.rank = index + 2;
   });
   return arr.sort(
-    (a: { meta: { rank: number } }, b: { meta: { rank: number } }) => {
-      return a?.meta.rank - b?.meta.rank;
-    }
+    (a, b) =>
+      (asRoute(a).meta?.rank as number) - (asRoute(b).meta?.rank as number)
   );
 }
 
@@ -72,32 +94,38 @@ function ascending(arr: any[]) {
  * - 只拦标签页、菜单照常 → hiddenTag（读取点在 multiTags.ts）。
  * （asset.ts 存在 showLink:false 与 hidden:true 双打的冗余写法，行为以 showLink 为准，
  *   新代码勿模仿。） */
-function filterTree(data: RouteComponent[]) {
+function filterTree<T>(data: T[]): T[] {
   const newTree = cloneDeep(data);
-  newTree.forEach((v: any) => {
-    if (v.children) v.children = filterTree(v.children);
+  newTree.forEach(v => {
+    const node = asRoute(v);
+    if (node.children) node.children = filterTree(node.children);
   });
   // 自身不可见（showLink:false 或 hidden:true）且无可见子项的节点才被移除
-  return newTree.filter(
-    (v: any) =>
-      (v.meta?.showLink !== false && !v.meta?.hidden) ||
-      (v.children && v.children.length !== 0)
-  );
+  return newTree.filter(v => {
+    const node = asRoute(v);
+    return (
+      (node.meta?.showLink !== false && !node.meta?.hidden) ||
+      (node.children && node.children.length !== 0)
+    );
+  });
 }
 
 /** 过滤children长度为0的的目录，当目录下没有菜单时，会过滤此目录，目录没有赋予roles权限，当目录下只要有一个菜单有显示权限，那么此目录就会显示 */
-function filterChildrenTree(data: RouteComponent[]) {
-  const newTree = cloneDeep(data).filter((v: any) => v?.children?.length !== 0);
-  newTree.forEach(
-    (v: { children }) => v.children && (v.children = filterTree(v.children))
+function filterChildrenTree<T>(data: T[]): T[] {
+  const newTree = cloneDeep(data).filter(
+    v => asRoute(v)?.children?.length !== 0
   );
+  newTree.forEach(v => {
+    const node = asRoute(v);
+    if (node.children) node.children = filterTree(node.children);
+  });
   return newTree;
 }
 
 /** 判断两个数组彼此是否存在相同值 */
-function isOneOfArray(a: Array<string>, b: Array<string>) {
+function isOneOfArray(a: unknown, b: Array<string>) {
   return Array.isArray(a) && Array.isArray(b)
-    ? intersection(a, b).length > 0
+    ? intersection(a as string[], b).length > 0
       ? true
       : false
     : true;
@@ -120,28 +148,30 @@ function isOneOfArray(a: Array<string>, b: Array<string>) {
  *
  * 权限维度仍必须过滤：低权限账号不该从面包屑里看到自己无权访问的页面名。
  */
-function filterNoPermissionMenus(data: RouteComponent[]) {
+function filterNoPermissionMenus<T>(data: T[]): T[] {
   const currentRoles =
     storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [];
-  const newTree = cloneDeep(data).filter((v: any) =>
-    isOneOfArray(v.meta?.roles, currentRoles)
+  const newTree = cloneDeep(data).filter(v =>
+    isOneOfArray(asRoute(v).meta?.roles, currentRoles)
   );
-  newTree.forEach((v: any) => {
-    if (v.children) v.children = filterNoPermissionMenus(v.children);
+  newTree.forEach(v => {
+    const node = asRoute(v);
+    if (node.children) node.children = filterNoPermissionMenus(node.children);
   });
   return newTree;
 }
 
 /** 从localStorage里取出当前登录用户的角色roles，过滤无权限的菜单 */
-function filterNoPermissionTree(data: RouteComponent[]) {
+function filterNoPermissionTree<T>(data: T[]): T[] {
   const currentRoles =
     storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [];
-  const newTree = cloneDeep(data).filter((v: any) =>
-    isOneOfArray(v.meta?.roles, currentRoles)
+  const newTree = cloneDeep(data).filter(v =>
+    isOneOfArray(asRoute(v).meta?.roles, currentRoles)
   );
-  newTree.forEach(
-    (v: any) => v.children && (v.children = filterNoPermissionTree(v.children))
-  );
+  newTree.forEach(v => {
+    const node = asRoute(v);
+    if (node.children) node.children = filterNoPermissionTree(node.children);
+  });
   return filterChildrenTree(newTree);
 }
 
@@ -234,12 +264,10 @@ function handleAsyncRoutes(routeList) {
           // 最终路由进行升序
           ascending(router.options.routes[0].children);
           if (!router.hasRoute(v?.name)) router.addRoute(v);
-          const flattenRouters: any = router
-            .getRoutes()
-            .find(n => n.path === "/");
+          const flattenRouters = router.getRoutes().find(n => n.path === "/");
           // 保持router.options.routes[0].children与path为"/"的children一致，防止数据不一致导致异常
-          flattenRouters.children = router.options.routes[0].children;
-          router.addRoute(flattenRouters);
+          flattenRouters!.children = router.options.routes[0].children;
+          router.addRoute(flattenRouters!);
         }
       }
     );
@@ -361,7 +389,7 @@ function addAsyncRoutes(arrRoutes: Array<RouteRecordRaw>) {
     } else {
       // 对后端传component组件路径和不传做兼容（如果后端传component组件路径，那么path可以随便写，如果不传，component组件路径会跟path保持一致）
       const index = v?.component
-        ? modulesRoutesKeys.findIndex(ev => ev.includes(v.component as any))
+        ? modulesRoutesKeys.findIndex(ev => ev.includes(String(v.component)))
         : modulesRoutesKeys.findIndex(ev => ev.includes(v.path));
       v.component = modulesRoutes[modulesRoutesKeys[index]];
     }
