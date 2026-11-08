@@ -321,3 +321,42 @@
     background: rgb(199 201 203); /* 滑块hover颜色 */
   }
 }
+
+/* ============================================================================
+   表单弹窗滚动契约（.form-dialog）· docs/design/account-dialog-form.md §4
+   ----------------------------------------------------------------------------
+   el-dialog 被 teleport 到 body，组件内 scoped 的 `:deep(.el-dialog)` 会编译成
+   `[data-v] .el-dialog`，要求 .el-dialog 是带 scopeId 元素的**后代**——它自己是根，
+   匹配不到（assetEntry 弹窗踩过同一坑）。故滚动契约写成全局类，账户族弹窗共用：
+   弹窗再长也只滚 body，「取消 / 保存」永远留在视口内。
+   宽度**不**在这里定：走 --dialog-width-form / --dialog-width-compact 令牌。
+   ============================================================================ */
+.form-dialog {
+  .el-dialog__body {
+    max-height: min(66vh, 560px);
+    overflow-y: auto;
+
+    /* 预留滚动条槽位：内容溢出时才出现滚动条，不预留会让整块表单在
+       「出现滚动条」瞬间横向抖动 ~8px（Chromium 94+ / Safari 18+） */
+    scrollbar-gutter: stable;
+  }
+
+  /* 让滚动条真的看得见：全局 `::-webkit-scrollbar` 只作用于 `.pure-scrollbar`，
+     弹窗 body 用的是浏览器默认条；而本主题的 --border-default(#e5ddd4) 与白底
+     对比只有 ~1.1:1，实测滑块「存在但看不出」（1080×648 下「归属成员」正好被裁
+     一半，用户不知道下面还有字段）。改用 --text-tertiary（对比 ~3.4:1，
+     该令牌本身即「描边 / 图形级」用途）。 */
+  .el-dialog__body::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .el-dialog__body::-webkit-scrollbar-thumb {
+    background-color: var(--text-tertiary);
+    border-radius: var(--radius-pill);
+  }
+
+  /* 常驻 footer 与滚动区之间留出呼吸位，避免最后一行的说明文字贴住分隔线 */
+  .el-dialog__footer {
+    padding-top: var(--space-3);
+  }
+}
