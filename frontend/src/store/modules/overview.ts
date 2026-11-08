@@ -1,7 +1,7 @@
 // frontend/src/store/modules/overview.ts
 import { defineStore } from "pinia";
 import { getSummary } from "@/api/summary";
-import type { SummaryData } from "@/api/types";
+// getSummary() 已带 ApiResponse<SummaryData>，响应无需再断言
 
 export interface OverviewData {
   netAsset: number | null;
@@ -89,7 +89,7 @@ export const useOverviewStore = defineStore("overview", {
       this.loading = true;
       try {
         const res = await getSummary();
-        const d = (res as any)?.data as SummaryData | undefined;
+        const d = res?.data;
         if (d) {
           const total = d.total_assets_cny ?? null;
           const pnl = d.total_pnl_cny ?? null;

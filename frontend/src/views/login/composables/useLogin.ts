@@ -314,11 +314,12 @@ export function useLogin() {
   // ============================================
   // 回车键提交
   // ============================================
-  const immediateDebounce: any = debounce(
-    formRef => onSubmit(formRef),
+  // 第三方 debounce 的声明不保留入参签名，在这唯一出口断言回实际调用形态
+  const immediateDebounce = debounce(
+    (formRef: FormInstance | undefined) => onSubmit(formRef),
     1000,
     true
-  );
+  ) as (formRef: FormInstance | undefined) => void;
 
   useEventListener(document, "keydown", ({ code }) => {
     if (

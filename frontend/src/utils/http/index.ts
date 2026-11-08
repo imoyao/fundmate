@@ -1,7 +1,8 @@
 import Axios, {
   type AxiosInstance,
   type AxiosRequestConfig,
-  type CustomParamsSerializer
+  type CustomParamsSerializer,
+  type InternalAxiosRequestConfig
 } from "axios";
 import type {
   PureHttpError,
@@ -48,15 +49,17 @@ class PureHttp {
   /** 请求拦截 */
   private httpInterceptorsRequest(): void {
     PureHttp.axiosInstance.interceptors.request.use(
-      async (config: PureHttpRequestConfig): Promise<any> => {
+      async (
+        config: PureHttpRequestConfig
+      ): Promise<InternalAxiosRequestConfig> => {
         // 优先判断post/get等方法是否传入回调，否则执行初始化设置等回调
         if (typeof config.beforeRequestCallback === "function") {
           config.beforeRequestCallback(config);
-          return config;
+          return config as InternalAxiosRequestConfig;
         }
         if (PureHttp.initConfig.beforeRequestCallback) {
           PureHttp.initConfig.beforeRequestCallback(config);
-          return config;
+          return config as InternalAxiosRequestConfig;
         }
         // token 来源：Supabase 会话（后端以 Bearer 头验签，见 D2）。
         // 探市/健康等免登录接口不强求带 token，未登录请求也直接放行。
@@ -65,7 +68,7 @@ class PureHttp {
         if (accessToken) {
           config.headers["Authorization"] = formatToken(accessToken);
         }
-        return config;
+        return config as InternalAxiosRequestConfig;
       },
       error => {
         return Promise.reject(error);

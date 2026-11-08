@@ -33,14 +33,17 @@ export function usePositionSubmit() {
   // 两份一旦漂移，服务端的 UNIQUE(ledger_id, import_hash) 拦截行为会按入口分裂）
 
   /** 后端错误 → 可读文案（422 携带字段级明细时逐项拼接） */
-  function parseSubmitError(e: any): string {
+  function parseSubmitError(e: unknown): string {
     let msg = errorMessageOf(e) || "记账失败，请重试";
     if (errorStatusOf(e) === 422) {
-      const detail = errorMessageOf(e);
+      const detail: unknown = errorMessageOf(e);
       if (detail) {
         if (typeof detail === "object") {
-          const errors = Object.entries(detail)
-            .map(([field, errs]) => `${field}: ${(errs as any).join(", ")}`)
+          const errors = Object.entries(detail as Record<string, unknown>)
+            .map(
+              ([field, errs]) =>
+                `${field}: ${Array.isArray(errs) ? errs.join(", ") : String(errs)}`
+            )
             .join("; ");
           msg = `数据错误 (422): ${errors}`;
         } else if (typeof detail === "string") {

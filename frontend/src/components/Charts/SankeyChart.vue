@@ -36,12 +36,14 @@ import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 import {
   computeManualLayout,
   computeMaxLevel,
-  hasDrawableData
+  hasDrawableData,
+  type SankeyDataNode,
+  type SankeyLink
 } from "./sankeyLayout";
 import { buildSankeyOption } from "./sankeyOption";
 
 const props = defineProps<{
-  data: { nodes: any[]; links: any[] };
+  data: { nodes: unknown[]; links: unknown[] };
   displayMode: "amount" | "percent" | "hidden";
 }>();
 
@@ -72,10 +74,13 @@ function paint(chart: echarts.ECharts, el: HTMLElement) {
     return;
   }
 
-  const maxLevel = computeMaxLevel(props.data.nodes, props.data.links);
+  // 页面只透传图元素，进入几何层前在唯一边界收窄到真源类型
+  const nodes = props.data.nodes as SankeyDataNode[];
+  const links = props.data.links as SankeyLink[];
+  const maxLevel = computeMaxLevel(nodes, links);
   const { nodes: layoutNodes, maxY } = computeManualLayout(
-    props.data.nodes,
-    props.data.links,
+    nodes,
+    links,
     el.clientWidth,
     maxLevel,
     LEFT_PAD,
@@ -90,7 +95,7 @@ function paint(chart: echarts.ECharts, el: HTMLElement) {
 
   chart.setOption(
     buildSankeyOption({
-      links: props.data.links,
+      links,
       layoutNodes,
       displayMode: props.displayMode,
       totalValue: totalValue.value,

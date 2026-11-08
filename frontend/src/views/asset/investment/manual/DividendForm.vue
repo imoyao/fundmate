@@ -164,6 +164,7 @@
 </template>
 
 <script setup lang="ts">
+import type { LedgerListItem } from "@/api/ledger";
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
@@ -171,11 +172,32 @@ import { getPositionsGroupedByAccount } from "@/api/positions";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
-import type { Position } from "@/api/types";
+import type { Position, PositionCreate } from "@/api/types";
 import { disabledTradeDate } from "@/utils/date";
 
+interface DividendSubmitBody {
+  symbol: string;
+  name?: string | null;
+  op_type: string;
+  position_id?: number | null;
+  market: string;
+  type: string;
+  ledger_id?: number | null;
+  account_name?: string;
+  trade_date: string;
+  confirm_date?: string;
+  currency?: string;
+  fee?: number;
+  notes?: string;
+  allocation?: null;
+  isAfter15?: boolean;
+  quantity?: number;
+  dividend_amount?: number;
+  nav?: number;
+}
+
 const props = defineProps<{
-  ledgers: any[];
+  ledgers: LedgerListItem[];
   hideAccountSelect?: boolean;
   defaultLedgerId?: number | null;
   mode: "dividend" | "dividend_reinvest" | "split";
@@ -199,7 +221,7 @@ const showPositionSelect = ref(true);
 const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
 const positionsByAccount = ref<Record<string, Position[]>>({});
-const selectedPosition = ref<any>(null);
+const selectedPosition = ref<Position | null>(null);
 
 const {
   confirmDate,
@@ -280,7 +302,7 @@ async function handleSubmit() {
       ? confirmDate.value
       : form.trade_date;
 
-  const body: any = {
+  const body: DividendSubmitBody = {
     symbol: selectedPosition.value.symbol,
     name: selectedPosition.value.name,
     op_type: props.mode,
@@ -310,7 +332,9 @@ async function handleSubmit() {
   }
 
   const { submitPosition } = usePositionSubmit();
-  const ok = await submitPosition(body);
+  // 表单载荷比通用提交层契约多若干分红字段、少 quantity/avg_price：
+  // 在唯一出口做一次断言，不让 any 扩散到下游
+  const ok = await submitPosition(body as unknown as PositionCreate);
   if (ok) emit("submit-success");
 }
 

@@ -343,7 +343,7 @@ export function useWorkbenchDomains() {
     eLoading.value = true;
     try {
       const res = await getEaccountReconciliation();
-      const data = (res as any).data ?? {};
+      const data = (res as { data?: { items?: unknown[] } } | null)?.data ?? {};
       eItems.value = (data.items ?? []) as ReconciliationItem[];
       clearError("eaccount");
     } catch {

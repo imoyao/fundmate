@@ -10,7 +10,7 @@ export default defineConfig([
   globalIgnores([
     "**/.*",
     "dist/*",
-    "*.d.ts",
+    "**/*.d.ts",
     "public/*",
     "src/assets/**",
     "src/**/iconfont/**"
@@ -78,7 +78,7 @@ export default defineConfig([
     rules: {
       "@typescript-eslint/no-redeclare": "error",
       "@typescript-eslint/ban-ts-comment": "off",
-      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/prefer-as-const": "warn",
       "@typescript-eslint/no-empty-function": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
@@ -103,46 +103,9 @@ export default defineConfig([
       ]
     }
   }),
-  // #2879：已清零文件的显式 any 零容忍区。守卫负责全仓「只减不增」，这里让
-  // 已清零文件在本地 eslint 阶段就报错；每收敛一批就在数组里补一批，
-  // 待全仓存量清零后把全局的 no-explicit-any 从 off 改成 error 并删除本块。
-  {
-    files: [
-      "src/components/Aggregation/AggregationBreakdownDonut.vue",
-      "src/components/CashFlowPanel/index.vue",
-      "src/components/Charts/sankeyOption.ts",
-      "src/components/Watchlist/SettingsDrawer.vue",
-      "src/composables/useEnumOptions.ts",
-      "src/composables/useLedgerDetail.ts",
-      "src/composables/useSupabaseAuth.ts",
-      "src/directives/ripple/index.ts",
-      "src/utils/globalPolyfills.ts",
-      "src/utils/message.ts",
-      "src/utils/print.ts",
-      "src/utils/theme.ts",
-      "src/views/asset/investment/eaccount-import/composables/useEaccountImport.ts",
-      "src/views/asset/investment/manual/conversion/useConversionEstimate.ts",
-      "src/views/asset/investment/manual/conversion/useConversionSubmit.ts",
-      "src/views/asset/investment/reconcile-workbench/components/DanglingRefFixDialog.vue",
-      "src/views/asset/investment/reconcile-workbench/components/SupplementDialog.vue",
-      "src/views/asset/ledgers/components/DeleteLedgerDialog.vue",
-      "src/views/asset/recurring/components/PlanFormDialog.vue",
-      "src/views/asset/recurring/index.vue",
-      "src/views/asset/transactionList/TransactionTableView.vue",
-      "src/views/explore/components/IndustryCrowdingTrend.vue",
-      "src/views/explore/components/IndustryPbroeScatter.vue",
-      "src/views/explore/components/TemperatureTrendChart.vue",
-      "src/views/profile/composables/useProfileData.ts",
-      "src/types/chart.ts",
-      "src/utils/errorMessage.ts"
-    ],
-    plugins: {
-      "@typescript-eslint": tseslint.plugin
-    },
-    rules: {
-      "@typescript-eslint/no-explicit-any": "error"
-    }
-  },
+  // #2879：业务侧显式 any 已清零，临时「零容忍区」退役。现在 TS/TSX 与 .vue
+  // 两条配置都直接开 no-explicit-any: error；上游 localforage typings 的 14 处
+  // 豁免由 globalIgnores 的 "*.d.ts" 排除，仍登记在 scripts/ts-any-baseline.json。
   {
     files: ["**/*.d.ts"],
     rules: {
@@ -189,6 +152,7 @@ export default defineConfig([
       ...pluginVue.configs.base.rules,
       ...pluginVue.configs.essential.rules,
       ...pluginVue.configs.recommended.rules,
+      "@typescript-eslint/no-explicit-any": "error",
       "no-undef": "off",
       "no-unused-vars": "off",
       "vue/no-v-html": "off",

@@ -96,12 +96,14 @@ async function handleCreateLedger() {
       fee_config: newLedgerForm.fee_config,
       owner_member_id: newLedgerForm.owner_member_id ?? null
     });
-    const newLedger = (res as any).data || res;
+    // 兼容后端裸对象与信封两种形态，断言只发生在这一处边界
+    const legacy = res as unknown as { id?: number; name?: string };
+    const newLedger = res?.data ?? legacy;
     ElMessage.success("账户已创建");
     visible.value = false;
     Object.assign(newLedgerForm, emptyForm());
     emit("created", {
-      id: newLedger.id ?? (res as any).id,
+      id: (newLedger.id ?? legacy.id) as number,
       name: newLedger.name || newLedgerForm.name
     });
   } catch (e) {

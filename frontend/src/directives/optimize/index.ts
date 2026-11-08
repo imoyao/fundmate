@@ -12,13 +12,13 @@ export interface OptimizeOptions {
   /** 事件名 */
   event: string;
   /** 事件触发的方法 */
-  fn: (...params: any) => any;
+  fn: (...params: unknown[]) => unknown;
   /** 是否立即执行 */
   immediate?: boolean;
   /** 防抖或节流的延迟时间（防抖默认：`200`毫秒、节流默认：`1000`毫秒） */
   timeout?: number;
   /** 传递的参数 */
-  params?: any;
+  params?: unknown[] | Record<string, unknown>;
 }
 
 /** 防抖（v-optimize或v-optimize:debounce）、节流（v-optimize:throttle）指令 */
@@ -29,7 +29,8 @@ export const optimize: Directive = {
     const type = ["debounce", "throttle"].find(t => t === optimizeType);
     if (type) {
       if (value && value.event && isFunction(value.fn)) {
-        let params = value?.params;
+        let params: unknown[] | undefined = value?.params as
+          unknown[] | undefined;
         if (params) {
           if (isArray(params) || isObject(params)) {
             params = isObject(params) ? Array.of(params) : params;
@@ -45,12 +46,12 @@ export const optimize: Directive = {
           value.event,
           type === "debounce"
             ? debounce(
-                params ? () => value.fn(...params) : value.fn,
+                params ? () => value.fn(...(params as unknown[])) : value.fn,
                 value?.timeout ?? 200,
                 value?.immediate ?? false
               )
             : throttle(
-                params ? () => value.fn(...params) : value.fn,
+                params ? () => value.fn(...(params as unknown[])) : value.fn,
                 value?.timeout ?? 1000
               )
         );
