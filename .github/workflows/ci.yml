@@ -834,6 +834,23 @@ jobs:
       - name: 上游列名契约守卫（阻断）
         run: python scripts/guard_upstream_column_contract.py
 
+      # 设计文档索引守卫（#2981）：docs/design/ 顶层 16 篇文档里有 10 篇没登记在
+      # index.md 的「设计资产索引」表里（account-dialog-form / reconcile-workbench-* /
+      # trade-rules …）。写新文档不需要改任何被 CI 覆盖的文件，所以「顺手补一行索引」
+      # 永远不会被提醒——失修是必然的，只能靠集合相等判据钉住。
+      # 判据：A（docs/design/*.md，不含 index.md，不递归 archive）= B（索引小节**表格首列**
+      # 放出的 .md 名）双向相等；只看表格首列是因为正文里故意交叉引用着 docs/features/*.md、
+      # roadmap.md，全文 includes 会被自己的正文喂饱（#2453 教训）。
+      # 自检探针：`--self-check` 跑「登记齐全 / 删一行 / 加幽灵行 / 改小节标题」四态，
+      # 断言 0/1/1/2——验的是守卫真的会红，不是输出长得像对的。
+      - name: 校验设计文档索引（阻断）
+        run: python scripts/check_design_doc_index.py
+
+      - name: 设计文档索引守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_check_design_doc_index -v
+        working-directory: ${{ github.workspace }}
+
       - name: 上游列名契约守卫回归网
         if: ${{ always() }}
         run: python -m unittest scripts.tests.test_upstream_column_contract -v
