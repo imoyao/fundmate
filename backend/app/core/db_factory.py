@@ -537,6 +537,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'watchlist_tag_defs': DOMAIN_USER,
     'watchlist_item_tags': DOMAIN_USER,
     'watchlist_alerts': DOMAIN_USER,
+    'watchlist_alert_settings': DOMAIN_USER,
     'cleared_positions': DOMAIN_USER,
     'strategy_tags': DOMAIN_USER,
     'position_strategy_tags': DOMAIN_USER,

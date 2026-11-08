@@ -841,6 +841,37 @@ def migrate_positions_symbol_norm(engine: Engine) -> str:
     return '[SKIP] positions.symbol_norm 列与唯一索引均已就绪'
 
 
+def migrate_watchlist_alert_indexes(engine: Engine) -> str:
+    """`watchlist_alerts` 补唯一索引（2026-11-08，自选提醒启用）。
+
+    表建于自选域早期，但一直零写入零读者（死表），因此从未有唯一约束。
+    本次启用后语义是「同一标的同一类型至多一行」，而 `create_all` **只给新表建约束、
+    不给存量表补**——不补的话老库上应用层 upsert（先查后插）在并发下会插出两行，
+    于是同一次越线会按两条规则各推一条通知。
+
+    PG / SQLite 都支持 `CREATE UNIQUE INDEX IF NOT EXISTS`，无需方言分支；
+    存量重复行（理论上不存在，因为从未有写入方）会在这里 fail，需人工确认——
+    宁可启动失败，也不要带着重复规则继续推通知。
+    """
+    if not _table_exists(engine, 'watchlist_alerts'):
+        return '[SKIP] watchlist_alerts 表不存在（空库，init_db 将按新模型建表）'
+
+    _ensure_index(
+        engine,
+        'uq_watchlist_alert_item_type',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_watchlist_alert_item_type ON watchlist_alerts (item_id, alert_type)',
+        table='watchlist_alerts',
+    )
+    _ensure_index(
+        engine,
+        'ix_watchlist_alerts_item',
+        'CREATE INDEX IF NOT EXISTS ix_watchlist_alerts_item ON watchlist_alerts (item_id)',
+        table='watchlist_alerts',
+    )
+    logger.info('[OK] watchlist_alerts 提醒索引已就绪')
+    return '[OK] watchlist_alerts 提醒索引已就绪'
+
+
 def migrate_channel_link_indexes(engine: Engine) -> str:
     """channel_links 补 to_symbol 索引（#1491 评审）。
 

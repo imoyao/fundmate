@@ -83,6 +83,9 @@
       :is-qieman="isQieman"
     />
 
+    <!-- 提醒放在备注之前：它是可执行项，备注是查阅项 -->
+    <QuickViewAlertSection :item="item" />
+
     <QuickViewNotesSection
       :item="item"
       :meta-text="notesMeta"
@@ -119,6 +122,7 @@ import { useQuickViewDetail } from "./quickView/useQuickViewDetail";
 import QuickViewHoldingSection from "./quickView/QuickViewHoldingSection.vue";
 import QuickViewAdvisorSection from "./quickView/QuickViewAdvisorSection.vue";
 import QuickViewAdjustSection from "./quickView/QuickViewAdjustSection.vue";
+import QuickViewAlertSection from "./quickView/QuickViewAlertSection.vue";
 import QuickViewNotesSection from "./quickView/QuickViewNotesSection.vue";
 
 const props = defineProps<{

@@ -63,6 +63,7 @@ from app.domains.users.identity import UserIdentity  # noqa: E402
 from app.domains.users.seed import seed_default_identity  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
+from app.domains.watchlist.alert_views import watchlist_alert_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 from app.models.mcp_call_log import McpCallLog  # noqa: F401, E402  # 确保 mcp_call_logs 表随 init_db 建表
 from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
@@ -128,6 +129,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(funds_bp)
     app.register_blueprint(overlap_bp)
     app.register_blueprint(watchlist_bp)
+    app.register_blueprint(watchlist_alert_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
     app.register_blueprint(e_account_bp)
