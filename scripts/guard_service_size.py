@@ -80,6 +80,16 @@ NEW_FILE_LIMITS = {
 # ⚠️ `today_pnl` 的 max_func 182 / max_cc 37 已超 NEW_FILE_LIMITS（120 / 20），
 # 属存量冻结文件的功能性增长，作为拆分债务登记在 PR 风险里，不在此假装没发生。
 # `asset_class.py` 因压缩 docstring 由 64 收紧到 63（只减不增）。
+#
+# 2026-11-08 招商证券交割单接入（D93/D96）按 `--report` 回写四个存量文件，理由留痕：
+# `daily_scheduler.py` 1121→1128（`_NOT_SCHEDULED` 新增 securities_backfill 条目及
+# 其不日跑的理由，注释已压到 3 行）、`importer/mappings.py` 239→306（按模块 docstring
+# 的约定「新增平台只需添加一个字典」新增 CMS 业务名 / 中签事件 / 有意忽略三组声明，
+# 注释已压过一轮）、`importer/registry.py` 63→65（import + `register_parser` 各一行，
+# 注册点无法外移）、`sync/orchestrator.py` 818→822 / max_func 113→115（import、
+# 新 job 注册各一行 + 一行注释）。四个增量都是「新增一家券商 / 一个新 job」的必要
+# 接线，没有借此放大任何既有函数的职责；新增服务文件本身均在
+# NEW_FILE_LIMITS（≤800 行 / max_func ≤120 / max_cc ≤20）之内。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -154,7 +164,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
     "backend/app/services/cross_domain.py": {'lines': 221, 'max_func': 54, 'max_cc': 15},
-    "backend/app/services/daily_scheduler.py": {'lines': 1121, 'max_func': 38, 'max_cc': 10},
+    "backend/app/services/daily_scheduler.py": {'lines': 1128, 'max_func': 38, 'max_cc': 10},
     "backend/app/services/dangling_ref_remediation_service.py": {'lines': 541, 'max_func': 58, 'max_cc': 11},
     "backend/app/services/dangling_ref_service.py": {'lines': 607, 'max_func': 88, 'max_cc': 15},
     "backend/app/services/dividend_service.py": {'lines': 465, 'max_func': 112, 'max_cc': 25},
@@ -189,7 +199,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/importer/base.py": {'lines': 215, 'max_func': 32, 'max_cc': 6},
     "backend/app/services/importer/candidates.py": {'lines': 96, 'max_func': 52, 'max_cc': 21},
     "backend/app/services/importer/linking.py": {'lines': 226, 'max_func': 50, 'max_cc': 16},
-    "backend/app/services/importer/mappings.py": {'lines': 239, 'max_func': 3, 'max_cc': 1},
+    "backend/app/services/importer/mappings.py": {'lines': 306, 'max_func': 3, 'max_cc': 1},
     "backend/app/services/importer/orchestrator.py": {'lines': 35, 'max_func': 4, 'max_cc': 1},
     "backend/app/services/importer/orchestrator_commit.py": {'lines': 567, 'max_func': 227, 'max_cc': 33},
     "backend/app/services/importer/orchestrator_holdings.py": {'lines': 1201, 'max_func': 120, 'max_cc': 27},
@@ -201,7 +211,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/importer/parsers/standard.py": {'lines': 317, 'max_func': 66, 'max_cc': 20},
     "backend/app/services/importer/parsers/ths_stock.py": {'lines': 511, 'max_func': 108, 'max_cc': 19},
     "backend/app/services/importer/parsers/tiantian_fund.py": {'lines': 131, 'max_func': 67, 'max_cc': 21},
-    "backend/app/services/importer/registry.py": {'lines': 63, 'max_func': 6, 'max_cc': 3},
+    "backend/app/services/importer/registry.py": {'lines': 65, 'max_func': 6, 'max_cc': 3},
     "backend/app/services/importer/template_config.py": {'lines': 46, 'max_func': 6, 'max_cc': 2},
     "backend/app/services/importer/utils.py": {'lines': 186, 'max_func': 35, 'max_cc': 8},
     "backend/app/services/index_metrics.py": {'lines': 411, 'max_func': 69, 'max_cc': 14},
@@ -356,7 +366,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/sync/jobs/security_industry_map_job.py": {'lines': 237, 'max_func': 40, 'max_cc': 11},
     "backend/app/services/sync/jobs/stock_list_job.py": {'lines': 104, 'max_func': 41, 'max_cc': 14},
     "backend/app/services/sync/name_match.py": {'lines': 351, 'max_func': 32, 'max_cc': 9},
-    "backend/app/services/sync/orchestrator.py": {'lines': 818, 'max_func': 113, 'max_cc': 8},
+    "backend/app/services/sync/orchestrator.py": {'lines': 822, 'max_func': 115, 'max_cc': 8},
     "backend/app/services/sync/pinyin_utils.py": {'lines': 28, 'max_func': 16, 'max_cc': 5},
     "backend/app/services/sync/snapshot.py": {'lines': 340, 'max_func': 83, 'max_cc': 16},
     "backend/app/services/tenure_display.py": {'lines': 167, 'max_func': 42, 'max_cc': 5},
