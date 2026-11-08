@@ -38,7 +38,7 @@ const {
       </el-form-item>
 
       <AccountFormFields
-        v-model:ledger-type="newLedgerType"
+        v-model:channel-category="newLedgerType"
         v-model:linked-cash-id="newLedgerLinkedCashId"
         v-model:portfolio-id="newLedgerPortfolioId"
         v-model:fee-config="newLedgerFeeConfig"

@@ -28,7 +28,7 @@
         </el-select>
       </el-form-item>
       <AccountFormFields
-        v-model:ledger-type="editForm.ledger_type"
+        v-model:channel-category="editForm.channel_category"
         v-model:linked-cash-id="editForm.linked_cash_ledger_id"
         v-model:linked-money-fund-code="editForm.linked_money_fund_code"
         v-model:auto-purchase-money-fund="editForm.auto_purchase_money_fund"
@@ -39,6 +39,7 @@
         :cash-ledgers="cashLedgers"
         :portfolio-list="portfolioList"
         :sales-institutions="salesInstitutions"
+        category-readonly
       />
       <!-- 归属成员（#1173）：组件自带成员候选加载，宿主只传 v-model -->
       <OwnerMemberSelect v-model="editForm.owner_member_id" />
@@ -79,7 +80,7 @@ import type { SalesInstitution } from "@/api/ledger";
 
 interface EditAccountForm {
   name: string;
-  ledger_type: string;
+  channel_category: string;
   default_allocation: string | null;
   notes: string;
   portfolio_id: number | null;
@@ -110,7 +111,7 @@ const emit = defineEmits<{
 function emptyEditForm(): EditAccountForm {
   return {
     name: "",
-    ledger_type: "bank",
+    channel_category: "bank",
     default_allocation: null,
     notes: "",
     portfolio_id: null,
@@ -147,8 +148,10 @@ watch(
       info
         ? {
             name: info.name,
-            // 用 channel_category 回填类型选择（与选项 value 一致），避免回退显示原始值（如 Fund）及提交报错
-            ledger_type: info.channel_category || info.ledger_type || "bank",
+            // 分组即所选（与选项 value 一致）；旧数据缺 channel_category 时回退 ledger_type，
+            // 避免显示原始口径值（如 Fund）而在提交时报错（#2977）
+            channel_category:
+              info.channel_category || info.ledger_type || "bank",
             default_allocation: info.default_allocation || null,
             notes: info.notes || "",
             portfolio_id: info.portfolio_id || null,
@@ -183,13 +186,10 @@ async function handleUpdate() {
   }
   saving.value = true;
   try {
-    // 编辑时 ledger_type（计算口径键）不可变，绝不要下发；表单里的 ledger_type 字段实际承载
-    // 的是渠道分组 channel_category，须映射到 channel_category 下发，否则后端比对真实
-    // ledger_type 不等会报「类型不可更改」（支付宝 fund_platform→fund / 证券 securities→stock）。
-    const payload: Record<string, any> = { ...editForm.value };
-    delete payload.ledger_type;
-    payload.channel_category = editForm.value.ledger_type;
-    await updateLedger(Number(props.ledgerId), payload);
+    // 表单字段就是 channel_category，原样下发。ledger_type（计算口径键）不可变且绝不下发——
+    // 后端会比对真实口径，不等即报「类型不可更改」（支付宝 fund_platform→fund /
+    // 证券 securities→stock）。#2980 起不再靠 delete+映射，字段名与语义一致。
+    await updateLedger(Number(props.ledgerId), { ...editForm.value });
     ElMessage.success("账户已更新");
     // 保存成功后把当前值记为新基线（#1896）：否则 isDirty 仍为 true，
     // 保存后关闭弹窗再离开页面仍会被问「账户信息已改动，确定放弃吗？」——

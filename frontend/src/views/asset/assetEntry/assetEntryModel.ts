@@ -143,37 +143,6 @@ export function buildAssetPayload(form: AssetEntryFormModel): AssetCreateInput {
   return payload;
 }
 
-/** 下拉展示：优先「权威全称（常用别名）」，无别名则仅全称 */
-export function institutionLabel(inst: {
-  org_name: string;
-  display_name?: string | null;
-}): string {
-  return inst.display_name
-    ? `${inst.org_name}（${inst.display_name}）`
-    : inst.org_name;
-}
-
-/**
- * 销售机构检索：汉字 / 常用别名 / 拼音首字母三路匹配（#1081）。
- * 关键词为空时返回全量——下拉初次展开要能看到完整名录。
- */
-export function filterInstitutions<
-  T extends {
-    org_name: string;
-    display_name?: string | null;
-    pinyin_short?: string | null;
-  }
->(list: T[], rawKeyword: string): T[] {
-  const kw = rawKeyword.trim().toLowerCase();
-  if (!kw) return list;
-  return list.filter(
-    inst =>
-      inst.org_name.toLowerCase().includes(kw) ||
-      (inst.display_name ?? "").toLowerCase().includes(kw) ||
-      (inst.pinyin_short ?? "").toLowerCase().includes(kw)
-  );
-}
-
 /** 大类下拉选项（供模板遍历，避免页面与子组件各 import 一次） */
 export const MAJOR_OPTIONS = MAJOR_CATEGORY_OPTIONS;
 export const ALLOCATION_OPTS = ALLOCATION_OPTIONS;

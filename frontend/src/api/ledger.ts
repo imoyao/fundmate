@@ -106,6 +106,8 @@ export interface SalesInstitution {
   common_sort?: number | null;
   /** 名称拼音首字母简拼（后端 AMAC job 派生），供下拉检索（如 ht=华泰证券） */
   pinyin_short?: string | null;
+  /** 名称+别名拼音全拼（空格分隔，后端派生 #2980），供全拼检索（如 zhifubao=支付宝） */
+  pinyin_full?: string | null;
 }
 
 /**

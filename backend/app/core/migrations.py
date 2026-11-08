@@ -2900,3 +2900,20 @@ def migrate_users_username_unique_lower(engine: Engine) -> str:
         logger.info('[OK] users.username 大小写不敏感唯一索引已建立（#2764）')
         return '[OK] 新建唯一索引 uq_users_username_lower'
     return '[SKIP] 唯一索引 uq_users_username_lower 已存在'
+
+
+def migrate_sales_institution_pinyin_full(engine: Engine) -> str:
+    """sales_institutions 补 ``pinyin_full`` 列（#2980 全拼检索）。
+
+    只加列**不回填**：值由 AMAC 同步 job 派生（``derive_pinyin``，含常用别名），
+    存量回填走 ``scripts/backfill_institution_pinyin.py``。不在此处回填，是因为
+    回填要 import services 层的派生函数，会违反 ``guard_layer_direction`` 的
+    分层方向（core 不 import 领域/服务层）。
+    """
+    if not _table_exists(engine, 'sales_institutions'):
+        return '[SKIP] sales_institutions 表不存在（空库，init_db 将按新模型建表）'
+    added = _add_columns_if_missing(engine, 'sales_institutions', [('pinyin_full', 'VARCHAR(400)')])
+    if added:
+        logger.info(f'[OK] sales_institutions 增加拼音全拼列: {added}（#2980）')
+        return f'[OK] sales_institutions 增加拼音全拼列 {added}'
+    return '[SKIP] sales_institutions 拼音全拼列已存在'

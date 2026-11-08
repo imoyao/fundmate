@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildAssetPayload,
   createEmptyForm,
-  filterInstitutions,
-  institutionLabel,
   isValidFixedSubtype,
   isValidMinorCategory,
   minorCategoryAppliesTo,
@@ -182,37 +180,5 @@ describe("buildAssetPayload：提交载荷", () => {
     expect(
       buildAssetPayload(form({ major_category: "cash" }))
     ).not.toHaveProperty("allocation");
-  });
-});
-
-describe("销售机构：展示与检索", () => {
-  const list = [
-    {
-      id: 1,
-      org_name: "招商银行股份有限公司",
-      display_name: "招商银行",
-      pinyin_short: "zsyh"
-    },
-    { id: 2, org_name: "蚂蚁财富", display_name: null, pinyin_short: "mycf" }
-  ];
-
-  it("有别名时展示「全称（别名）」，无别名时只展示全称", () => {
-    expect(institutionLabel(list[0])).toBe("招商银行股份有限公司（招商银行）");
-    expect(institutionLabel(list[1])).toBe("蚂蚁财富");
-  });
-
-  it("关键词为空返回全量（下拉初次展开要能看到完整名录）", () => {
-    expect(filterInstitutions(list, "  ")).toHaveLength(2);
-  });
-
-  it("三路匹配：汉字 / 别名 / 拼音首字母，且大小写不敏感", () => {
-    expect(filterInstitutions(list, "蚂蚁")).toHaveLength(1);
-    expect(filterInstitutions(list, "招商银行")).toHaveLength(1);
-    expect(filterInstitutions(list, "ZSYH")).toHaveLength(1);
-  });
-
-  it("搜不到给空数组，不改原数组", () => {
-    expect(filterInstitutions(list, "不存在的机构")).toEqual([]);
-    expect(list).toHaveLength(2);
   });
 });

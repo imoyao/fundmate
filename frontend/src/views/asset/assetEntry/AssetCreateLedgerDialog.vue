@@ -1,52 +1,69 @@
 <script setup lang="ts">
 /**
- * 新增账户弹窗（#980 拆分）。
+ * 新增账户弹窗（资产录入页）。
  *
- * 弹窗自己管自己的三件事：表单状态、销售机构候选（只有它用）、创建请求。
- * 建完只把 `{ id, name }` 抛给页面——页面要拿它回填「所属账户」，但不需要知道
- * 弹窗内部怎么取的数。
+ * 2026-11-08（#2980）：原先这里**自己手写**了一套表单——只有「名称 / 类型 / 销售机构」
+ * 三个字段，且复制了一份机构检索函数（`assetEntryModel.filterInstitutions`）。结果是
+ * 同一张账户表在三个入口长出三套字段集（账本页 6 项 / 导入向导 5 项 / 这里 3 项），
+ * 用户在资产录入页新建的账户永远缺归属成员与关联信息，且没有任何提示解释差异。
  *
- * 弹窗的 `:deep(.el-dialog...)` 样式**留在页面**（不随组件搬）：那三条是裸 `:deep`，
- * 编译成 `[data-v-x] .el-dialog`，要求 `.el-dialog` 是带 scopeId 元素的**后代**。
- * 搬进本组件后 el-dialog 就是根元素自己，既不是自己的后代、也匹配不上，
- * 弹窗背景与标题会静默退回 Element Plus 默认样式。
+ * 现在改为复用 `AccountFormFields` —— 字段集、机构检索、类型联动只有一处实现，
+ * 三个入口天然不漂移。`advanced-collapsed` 让「组合 / 费率」默认收起，保持本入口
+ * 的轻量感（它建的只是账户，主体仍是随后录入的资产）。
+ *
+ * 弹窗自己管三件事：表单状态、销售机构候选、创建请求。建完只把 `{ id, name }`
+ * 抛给页面——页面要拿它回填「所属账户」，不需要知道弹窗内部怎么取的数。
  */
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 
 import { createLedger, getSalesInstitutions } from "@/api/ledger";
-import type { SalesInstitution } from "@/api/ledger";
-import { LEDGER_TYPE_OPTIONS } from "@/constants";
-
-import { filterInstitutions, institutionLabel } from "./assetEntryModel";
+import type { LedgerItem, SalesInstitution } from "@/api/ledger";
+import AccountFormFields from "@/views/asset/ledgers/components/AccountFormFields.vue";
+import OwnerMemberSelect from "@/views/asset/ledgers/components/OwnerMemberSelect.vue";
 
 const visible = defineModel<boolean>("visible", { required: true });
+
+const props = withDefaults(
+  defineProps<{
+    /** 全量账户，用于派生「可关联的现金账户」候选（与账本页同口径） */
+    ledgers?: LedgerItem[];
+  }>(),
+  { ledgers: () => [] }
+);
 
 const emit = defineEmits<{
   (e: "created", ledger: { id: number; name: string }): void;
 }>();
 
 const creatingLedger = ref(false);
-const newLedgerForm = reactive({
-  name: "",
-  ledger_type: "bank",
-  sales_institution_id: null as number | null
-});
 
-/** 基金销售机构候选（AMAC 名录，新增账户可选关联） */
-const salesInstitutions = ref<SalesInstitution[]>([]);
-
-/** 销售机构下拉检索关键词（小写），支持汉字/别名/拼音首字母三路匹配（#1081） */
-const institutionFilter = ref("");
-const filteredInstitutions = computed(() =>
-  filterInstitutions(salesInstitutions.value, institutionFilter.value)
-);
-
-function filterInstitution(query: string) {
-  institutionFilter.value = query.trim().toLowerCase();
+/** 表单字段与 `CreateAccountDialog` / 导入向导同源（字段集一致，#2980） */
+function emptyForm() {
+  return {
+    name: "",
+    ledger_type: "bank",
+    linked_cash_ledger_id: null as number | null,
+    linked_money_fund_code: null as string | null,
+    auto_purchase_money_fund: false,
+    portfolio_id: null as number | null,
+    fee_config: null as Record<string, unknown> | null,
+    sales_institution_id: null as number | null,
+    owner_member_id: null as number | null
+  };
 }
 
-/** 销售机构候选加载：失败仅记日志，下拉留空（可选字段不阻塞页面） */
+const newLedgerForm = reactive(emptyForm());
+
+/** 基金销售机构候选（AMAC 名录） */
+const salesInstitutions = ref<SalesInstitution[]>([]);
+
+/** 可关联的现金账户：与 `useLedgerList` 同口径（计算口径为 bank 的账户） */
+const cashLedgers = computed(() =>
+  props.ledgers.filter(l => l.ledger_type === "bank")
+);
+
+/** 候选加载失败仅记日志：可选字段不阻塞建账户 */
 async function fetchSalesInstitutions() {
   try {
     const res = await getSalesInstitutions();
@@ -70,13 +87,18 @@ async function handleCreateLedger() {
       // ledger_type；若误作 ledger_type 下发会写入伪类型（如 fund_platform 而非 fund）。
       channel_category: newLedgerForm.ledger_type,
       currency: "CNY",
-      sales_institution_id: newLedgerForm.sales_institution_id ?? null
+      sales_institution_id: newLedgerForm.sales_institution_id ?? null,
+      linked_cash_ledger_id: newLedgerForm.linked_cash_ledger_id ?? null,
+      linked_money_fund_code: newLedgerForm.linked_money_fund_code ?? null,
+      auto_purchase_money_fund: newLedgerForm.auto_purchase_money_fund,
+      portfolio_id: newLedgerForm.portfolio_id ?? null,
+      fee_config: newLedgerForm.fee_config,
+      owner_member_id: newLedgerForm.owner_member_id ?? null
     });
     const newLedger = (res as any).data || res;
     ElMessage.success("账户已创建");
     visible.value = false;
-    newLedgerForm.name = "";
-    newLedgerForm.sales_institution_id = null;
+    Object.assign(newLedgerForm, emptyForm());
     emit("created", {
       id: newLedger.id ?? (res as any).id,
       name: newLedger.name || newLedgerForm.name
@@ -95,58 +117,42 @@ onMounted(fetchSalesInstitutions);
   <el-dialog
     v-model="visible"
     title="新增账户"
-    :width="'var(--dialog-width-compact)'"
+    :width="'var(--dialog-width-form)'"
     class="form-dialog"
+    align-center
     destroy-on-close
   >
-    <el-form :model="newLedgerForm" label-width="80px" size="large">
+    <el-form :model="newLedgerForm" label-width="100px">
       <el-form-item label="账户名称" required>
         <el-input
           v-model="newLedgerForm.name"
           placeholder="如：招商银行、华泰证券"
+          maxlength="30"
         />
       </el-form-item>
-      <el-form-item label="账户类型" required>
-        <el-select
-          v-model="newLedgerForm.ledger_type"
-          class="w-full"
-          placeholder="选择账户类型"
-        >
-          <el-option
-            v-for="opt in LEDGER_TYPE_OPTIONS"
-            :key="opt.value"
-            :label="opt.label"
-            :value="opt.value"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="销售机构">
-        <el-select
-          v-model="newLedgerForm.sales_institution_id"
-          class="w-full"
-          clearable
-          filterable
-          placeholder="可不选，支持汉字/别名/拼音首字母"
-          :filter-method="filterInstitution"
-        >
-          <el-option
-            v-for="inst in filteredInstitutions"
-            :key="inst.id"
-            :label="institutionLabel(inst)"
-            :value="inst.id"
-          />
-        </el-select>
-        <!-- 与 ledgers 页的 SalesInstitutionSelect 保持同一套口径：选中值会盖住
-             placeholder，检索与排序说明必须常显（#2026-11-07）。 -->
-        <p class="inst-helper-hint">A→Z 排列 · 支持名称 / 别名 / 首字母检索</p>
-      </el-form-item>
+      <AccountFormFields
+        v-model:channel-category="newLedgerForm.ledger_type"
+        v-model:linked-cash-id="newLedgerForm.linked_cash_ledger_id"
+        v-model:linked-money-fund-code="newLedgerForm.linked_money_fund_code"
+        v-model:auto-purchase-money-fund="
+          newLedgerForm.auto_purchase_money_fund
+        "
+        v-model:portfolio-id="newLedgerForm.portfolio_id"
+        v-model:fee-config="newLedgerForm.fee_config"
+        v-model:sales-institution-id="newLedgerForm.sales_institution_id"
+        :cash-ledgers="cashLedgers"
+        :portfolio-list="[]"
+        :sales-institutions="salesInstitutions"
+        :advanced-collapsed="true"
+      />
+      <OwnerMemberSelect v-model="newLedgerForm.owner_member_id" />
     </el-form>
     <template #footer>
-      <el-button size="large" @click="visible = false">取消</el-button>
+      <el-button @click="visible = false">取消</el-button>
       <el-button
         type="primary"
         :loading="creatingLedger"
-        size="large"
+        :disabled="!newLedgerForm.name.trim()"
         @click="handleCreateLedger"
       >
         确认创建
@@ -154,12 +160,3 @@ onMounted(fetchSalesInstitutions);
     </template>
   </el-dialog>
 </template>
-
-<style scoped>
-.inst-helper-hint {
-  margin: var(--space-2, 4px) 0 0;
-  font-size: var(--text-label, 13px);
-  line-height: 18px;
-  color: var(--text-secondary);
-}
-</style>

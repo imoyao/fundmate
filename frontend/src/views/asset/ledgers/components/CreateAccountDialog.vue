@@ -35,11 +35,11 @@ const emit = defineEmits<{
 }>();
 
 const creating = ref(false);
-// 表单的 ledger_type 字段此处承载「渠道分组」值（bank/securities/fund_platform/...），
-// 提交时作为 channel_category 下发，后端据其派生真实 ledger_type。
+// 表单字段直接叫 channel_category（用户可见分组，bank/securities/fund_platform/...），
+// 提交时原样下发，后端据其派生真实 ledger_type。
 const createForm = ref({
   name: "",
-  ledger_type: "bank",
+  channel_category: "bank",
   notes: "",
   linked_cash_ledger_id: null as number | null,
   // 类现金产品绑定（#1137）：基金代码 + 自动申购开关（默认关闭）
@@ -53,13 +53,13 @@ const createForm = ref({
 });
 
 // 每次打开重置表单（原 openCreateDialog 的重置语义迁移至此）；
-// ledger_type 取外部预置渠道分组（分组入口预填），未指定时维持默认 bank
+// channel_category 取外部预置分组（分组入口预填），未指定时维持默认 bank
 //
 // 快照声明**必须在 watch 之前**：`immediate: true` 会同步执行回调回填它，
 // 声明在后面就是 TDZ ReferenceError（vue-tsc 报 TS2304）。#1853
 const EMPTY_FORM = {
   name: "",
-  ledger_type: "bank",
+  channel_category: "bank",
   notes: "",
   linked_cash_ledger_id: null,
   linked_money_fund_code: null,
@@ -81,7 +81,7 @@ const EMPTY_FORM = {
  */
 const { isDirty, fillOnOpen, markSaved } = useDialogForm(createForm, () => ({
   ...EMPTY_FORM,
-  ledger_type: props.initialLedgerType || "bank"
+  channel_category: props.initialLedgerType || "bank"
 }));
 
 watch(
@@ -104,10 +104,10 @@ async function handleCreate() {
   }
   creating.value = true;
   try {
-    // 下发 channel_category（由表单 ledger_type 字段承载），后端据其派生 ledger_type
+    // 下发 channel_category，后端据其派生 ledger_type
     await createLedger({
       name: createForm.value.name,
-      channel_category: createForm.value.ledger_type,
+      channel_category: createForm.value.channel_category,
       notes: createForm.value.notes,
       linked_cash_ledger_id: createForm.value.linked_cash_ledger_id,
       linked_money_fund_code: createForm.value.linked_money_fund_code,
@@ -160,7 +160,7 @@ async function handleCreate() {
       </el-form-item>
 
       <AccountFormFields
-        v-model:ledger-type="createForm.ledger_type"
+        v-model:channel-category="createForm.channel_category"
         v-model:linked-cash-id="createForm.linked_cash_ledger_id"
         v-model:linked-money-fund-code="createForm.linked_money_fund_code"
         v-model:auto-purchase-money-fund="createForm.auto_purchase_money_fund"

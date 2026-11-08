@@ -1,6 +1,10 @@
 <template>
-  <div v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'">
-    <template v-if="ledgerType === 'securities'">
+  <div
+    v-if="
+      channelCategory === 'securities' || channelCategory === 'fund_platform'
+    "
+  >
+    <template v-if="channelCategory === 'securities'">
       <el-form-item label="佣金率">
         <el-input-number
           :model-value="feeStock.commission_rate"
@@ -56,7 +60,7 @@
       </el-form-item>
     </template>
 
-    <template v-if="ledgerType === 'fund_platform'">
+    <template v-if="channelCategory === 'fund_platform'">
       <el-form-item label="申购费折扣">
         <el-input-number
           :model-value="feeFund.subscription_discount"
@@ -82,7 +86,7 @@ import { ref, watch } from "vue";
 
 const props = withDefaults(
   defineProps<{
-    ledgerType: string;
+    channelCategory: string;
     feeConfig?: any; // 初始费率对象
   }>(),
   { feeConfig: null }
@@ -105,14 +109,14 @@ watch(
   () => props.feeConfig,
   val => {
     if (val) {
-      if (props.ledgerType === "securities") {
+      if (props.channelCategory === "securities") {
         feeStock.value = {
           commission_rate: val.commission?.rate || 0,
           commission_min: val.commission?.min,
           stamp_duty: val.stamp_duty?.rate || 0,
           transfer_fee: val.transfer_fee?.rate || 0
         };
-      } else if (props.ledgerType === "fund_platform") {
+      } else if (props.channelCategory === "fund_platform") {
         feeFund.value = {
           subscription_discount: val.subscription_discount || 0
         };
@@ -123,7 +127,7 @@ watch(
 );
 
 function buildFeeConfig(): any {
-  if (props.ledgerType === "securities") {
+  if (props.channelCategory === "securities") {
     return {
       commission: {
         rate: feeStock.value.commission_rate,
@@ -132,7 +136,7 @@ function buildFeeConfig(): any {
       stamp_duty: { rate: feeStock.value.stamp_duty, scope: "sell_only" },
       transfer_fee: { rate: feeStock.value.transfer_fee, scope: "both" }
     };
-  } else if (props.ledgerType === "fund_platform") {
+  } else if (props.channelCategory === "fund_platform") {
     return { subscription_discount: feeFund.value.subscription_discount };
   }
   return null;
