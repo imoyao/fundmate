@@ -9,6 +9,7 @@ export const POSITION_SOURCE = {
   E_ACCOUNT: "e_account_holding",
   BROKER_TIANTIAN: "tiantian_fund",
   BROKER_THS: "ths_stock",
+  BROKER_CMS: "cms_stock",
   BROKER_STD_FUND: "standard_fund",
   BROKER_STD_STOCK: "standard_stock",
   BROKER_ALIPAY: "alipay_fund",

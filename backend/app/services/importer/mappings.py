@@ -237,3 +237,70 @@ ALIPAY_OP_MAP = {
     '收益挑战包卖出': BusinessType.SELL.code,
     '收益挑战包买入': BusinessType.BUY.code,
 }
+
+# ── 招商证券平台映射（2026-11-07，真实交割单 522 行逐行实证）──
+#
+# 口径纪律：只收**有真实资金变动、且能落到确定标的**的业务名。其余不是「不认识」，
+# 而是「认识但当前不能正确入账」——放进 CMS_IGNORED_OPS 显式忽略并计入行数对账，
+# 绝不静默丢行，也绝不为了「看起来导入得多」而编造口径。
+CMS_OP_MAP = {
+    '证券买入': BusinessType.BUY.code,
+    '证券卖出': BusinessType.SELL.code,
+    '股息入账': BusinessType.DIVIDEND_CASH.code,
+    '利息归本': BusinessType.DIVIDEND_CASH.code,
+}
+
+# 银证转账：券商侧现金进出，落 cash + deposit/withdraw，由编排器在银行侧生成反向流水。
+# 方向以「发生金额」正负判定（样本：银行转存恒正、银行转取恒负），不按操作名硬编码。
+CMS_CASH_TRANSFER_OPS = frozenset({'银行转存', '银行转取'})
+
+# ── 招商证券「申购中签事件」声明（跨券商折叠器 IpoEventPolicy 的实参）──
+#
+# 打新是**一次建仓事件被拆成 N 行**，不是 N 笔流水：整体忽略会让上市后卖出没有
+# 成本来源（实证：6 笔中签对应 6 笔清仓卖出，其中至少 4 笔库内无任何买入/入账
+# 记录，只能落孤儿流水）；逐行导入又会把「扣款 −1000 / 回冲 +1000」重复计现金流、
+# 并让金额 0 的中签行卡在 validate。故交给 ipo_events.py 折叠成一条标准 buy，
+# 本金取组内净现金流、份额取「本金 ÷ 中签价」。
+#
+# 券商原文用申购代码（072/370/754/783 段），与上市代码（113/123/127/128 段）不同
+# 且**文件内无法可靠关联**（同名配对 0 对、流水号不共享、日期间隔不定）。这一层由
+# SymbolAliasResolver 承担，候选不唯一时保留申购码 + link_warning 让用户补全。
+CMS_IPO_ANCHOR_OPS = frozenset({'市值申购中签'})  # 开新事件，并提供中签价（样本恒 100）
+CMS_IPO_CASH_OPS = frozenset(
+    {
+        '市值申购中签',  # 金额 0
+        '市值申购中签扣款',  # −1000
+        '市值申购中签扣款回冲',  # +1000（冲正对）
+        '新股申购确认缴款',  # −1000
+        '托管转出',  # 金额 0
+    }
+)
+CMS_IPO_CREDIT_OPS = frozenset({'新股入账'})  # 携带上市代码，不参与申购码分组
+CMS_IPO_MEMBER_OPS = CMS_IPO_ANCHOR_OPS | CMS_IPO_CASH_OPS | CMS_IPO_CREDIT_OPS
+CMS_IPO_PRICE_OP = '市值申购中签'
+# 可转债上市代码段；用于判定「新股入账」行是否可作上市代码候选。
+CMS_IPO_LISTED_CODE_PREFIXES = ('110', '111', '113', '118', '123', '127', '128', '132')
+
+# ── 招商证券「有意忽略」业务名（同 THS_IGNORED_OPS 语义）──
+# 列在这里 = 有样本、确认过不能按标准交易入账；不在 CMS_OP_MAP、也不在
+# CMS_IPO_MEMBER_OPS 的新业务名一律抛 UnknownOperationError → 带行号与原文的
+# SBImportError，绝不静默丢行。
+#
+# 报价回购（拆出 / 购回卖，共 121 行）忽略，两条硬理由：①标的多为 JXB001（券商现金
+# 管理产品编号，非 6 位证券代码），normalizer 无法归一；②「成交价格」是年化收益率
+# 而非每份净值（样本：价 1.38 × 数量 20 = 27.6，而发生金额 2000），按 份额×净值
+# 入账会把 2000 元记成 27.6 元。它需单独的资产类型与计量口径，不能硬套股票买卖。
+CMS_IGNORED_OPS = frozenset(
+    {
+        '申购配号',  # 新股配号，无资金变动、无持仓变动（样本 90 行），不属于中签事件
+        '报价回购拆出',
+        '报价购回卖',
+    }
+)
+
+# 券商原文**不给证券代码/名称**的收益行资产类型兜底（同 THS_NO_CODE_INCOME_ASSET_TYPES）。
+# 判据：仅当代码为空时生效；兜成 'stock' 会让它显示成股票、计入投资收益，
+# 又因 symbol 为空被前端判「代码未匹配」而永远勾不上。
+CMS_NO_CODE_INCOME_ASSET_TYPES = {
+    '利息归本': 'cash',  # 资金账户结息，无标的、无持仓
+}

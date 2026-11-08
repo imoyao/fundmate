@@ -62,6 +62,11 @@ const {
           2. 文件是否完整，没有被修改过<br />
           3. 导出格式是否为"制表符分隔的文本文件"
         </template>
+        <template v-else-if="selectedMode === 'cms_stock'">
+          1. 是否为招商证券客户端导出的原始交割单<br />
+          2. 文件是否完整，没有用 Excel 另存过<br />
+          3. 表头是否含业务名称、成交日期、发生金额等关键列
+        </template>
         <template v-else-if="selectedMode === 'tiantian_fund'">
           1. 是否从天天基金网页完整复制了表格数据<br />
           2. 确认日期、基金代码、业务类型、确认金额等关键列是否存在<br />

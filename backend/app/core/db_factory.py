@@ -505,6 +505,9 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # 个股/可转债 → 行业映射（#1981）。随 securities 同域：公开证券主数据，
     # 无家庭私有字段，且 penetration 读它时要与 securities / price_history 同会话。
     'security_industry_maps': DOMAIN_MARKET,
+    # 申购代码 → 上市代码 别名表（打新中签建仓用，#打新折叠器第二阶段）。随 securities
+    # 同域：公开证券参考数据，无家庭私有字段，且解析落库时与 securities / positions 同会话。
+    'security_code_aliases': DOMAIN_MARKET,
     'market_single_values': DOMAIN_MARKET,
     'market_composites': DOMAIN_MARKET,
     'market_multi_items': DOMAIN_MARKET,

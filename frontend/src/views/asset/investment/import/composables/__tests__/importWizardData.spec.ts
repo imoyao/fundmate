@@ -11,6 +11,7 @@ const GUIDE_KEYS = [
   "standard_stock",
   "standard_fund",
   "ths",
+  "cms_stock",
   "tiantian_fund",
   "alipay_fund",
   "alipay_pdf"
@@ -29,7 +30,7 @@ const PROPS = [
 ];
 
 describe("createFormatGuides", () => {
-  it("恰好 6 个格式 key，多一个少一个都要红", () => {
+  it("恰好 7 个格式 key，多一个少一个都要红", () => {
     expect(Object.keys(createFormatGuides()).sort()).toEqual(
       [...GUIDE_KEYS].sort()
     );
@@ -47,10 +48,15 @@ describe("createFormatGuides", () => {
     }
   });
 
-  it("standard_fund 有 5 条 tips，其余格式各 4 条", () => {
+  it("standard_fund 有 5 条 tips、cms_stock 有 6 条，其余格式各 4 条", () => {
     const guides = createFormatGuides();
     expect(guides.standard_fund.tips).toHaveLength(5);
-    for (const key of GUIDE_KEYS.filter(k => k !== "standard_fund")) {
+    // 招商比其它模板多两条：GB18030 制表符文本不用另存、打新中签合并为一条买入且
+    // 申购码需补全为上市代码——这两条都是「不做就会算错」的操作，不能省。
+    expect(guides.cms_stock.tips).toHaveLength(6);
+    for (const key of GUIDE_KEYS.filter(
+      k => k !== "standard_fund" && k !== "cms_stock"
+    )) {
       expect(guides[key as keyof typeof guides].tips).toHaveLength(4);
     }
   });
@@ -59,6 +65,7 @@ describe("createFormatGuides", () => {
     const guides = createFormatGuides();
     expect(guides.alipay_pdf.tips.join("\n")).toContain("基金交易明细");
     expect(guides.ths.tips.join("\n")).toContain("制表符分隔的文本文件");
+    expect(guides.cms_stock.tips.join("\n")).toContain("制表符文本");
     expect(guides.standard_fund.tips.join("\n")).toContain("红利再投资");
   });
 

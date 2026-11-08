@@ -1,11 +1,61 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import { visibleSourceOp } from "../composables/sourceOpText";
 
 const props = defineProps<{ row: any }>();
 
 const { getFundTypeColor } = useImportWizardContext();
+
+/**
+ * 打新中签建仓的代码补全（后端 ipo_events.py 写入的 link_warning 前缀，前后端契约）。
+ *
+ * 券商交割单只给申购代码，上市代码无法从文件内可靠推导，故折叠器保留申购码并
+ * 标 link_warning。这里让**仅这一档**行的代码可就地编辑：改完直接写回 row.symbol，
+ * 而 commit_from_preview 正是取 row['symbol'] 落库（orchestrator_commit.py:136）。
+ * 不改数字字段的 EditableCell（它只接受数值），也不对整表开放代码编辑，避免误改。
+ */
+const SYMBOL_ALIAS_HINT = "打新中签建仓";
+// 与后端 CMS_IPO_LISTED_CODE_PREFIXES 一致：补全成可转债代码时同步资产类型，
+// 否则转债会被 preview 显示的 'stock' 带进错误的分类统计。
+const BOND_CODE_PREFIXES = [
+  "110",
+  "111",
+  "113",
+  "118",
+  "123",
+  "127",
+  "128",
+  "132"
+];
+const canEditSymbol = computed(() =>
+  String(props.row.link_warning || "").startsWith(SYMBOL_ALIAS_HINT)
+);
+const editingSymbol = ref(false);
+const symbolDraft = ref("");
+
+function startSymbolEdit() {
+  if (!canEditSymbol.value) return;
+  symbolDraft.value = String(props.row.symbol || "");
+  editingSymbol.value = true;
+}
+
+function saveSymbolEdit() {
+  if (!editingSymbol.value) return; // Enter 与 blur 会连发，第二次直接跳过
+  const next = symbolDraft.value.trim();
+  if (next) {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.row.symbol = next;
+    if (BOND_CODE_PREFIXES.some(prefix => next.startsWith(prefix))) {
+      // eslint-disable-next-line vue/no-mutating-props
+      props.row.type = "bond";
+    }
+    // 补全后撤下警示，行状态恢复正常（StatusCell 不再显示 linkWarning 档）
+    // eslint-disable-next-line vue/no-mutating-props
+    props.row.link_warning = "";
+  }
+  editingSymbol.value = false;
+}
 
 /**
  * 类型标签是否在本列显示。
@@ -52,7 +102,30 @@ const srcOp = computed(() => visibleSourceOp(props.row));
       >
     </div>
     <div class="product-code-row">
-      <span class="product-code"># {{ row.symbol || "--" }}</span>
+      <el-input
+        v-if="editingSymbol"
+        v-model="symbolDraft"
+        class="symbol-alias-input"
+        size="small"
+        autofocus
+        placeholder="填写上市代码"
+        @keyup.enter="saveSymbolEdit"
+        @blur="saveSymbolEdit"
+      />
+      <el-tooltip
+        v-else-if="canEditSymbol"
+        content="申购代码需改为上市代码，点击补全"
+        placement="top"
+      >
+        <button
+          type="button"
+          class="product-code product-code-editable"
+          @click="startSymbolEdit"
+        >
+          # {{ row.symbol || "--" }} ✎
+        </button>
+      </el-tooltip>
+      <span v-else class="product-code"># {{ row.symbol || "--" }}</span>
       <el-tag
         v-if="showTypeTag"
         size="small"
@@ -101,6 +174,27 @@ const srcOp = computed(() => visibleSourceOp(props.row));
   flex: 0 0 auto;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
+}
+
+/* 打新建仓行：代码可补全的视觉提示（与 linkWarning 警示档配套）。
+   用 <button> 承载点击而非 <span @click>：键盘可达是 #1842 守卫的硬要求，
+   补 role/tabindex/@keydown 也能过，但原生 button 免费拿到 Enter/Space 与
+   焦点环。故此处只把 button 的 UA 外观（边框/内边距/背景/字体）抹平，
+   让它看起来仍是行内文字。 */
+.product-code-editable {
+  padding: 0;
+  font-family: inherit;
+  line-height: inherit;
+  color: var(--el-color-warning);
+  text-decoration: underline dashed;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.symbol-alias-input {
+  flex: 0 0 auto;
+  width: 130px;
 }
 
 /* 备注：唯一可压缩项，超出截断（title 给全文）。

@@ -6,7 +6,7 @@
 
 """证券元数据模型（股票、ETF、可转债、期货等）"""
 
-from sqlalchemy import Column, Date, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, Index, Integer, String, UniqueConstraint
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 from app.core.db_utils import SafeNumeric
@@ -175,4 +175,41 @@ class ConvertibleBondAdjustLog(Base, PrimaryKeyMixin, TimestampMixin):
             name='uq_cb_adjust_log_symbol_meeting',
         ),
         Index('ix_cb_adjust_log_symbol_effective', 'symbol', 'effective_date'),
+    )
+
+
+class SecurityCodeAlias(Base, PrimaryKeyMixin, TimestampMixin):
+    """申购代码 → 上市代码 别名表（打新中签建仓用，#打新折叠器第二阶段）。
+
+    ## 为什么独立成表，而不是加到 securities / convertible_bond_terms
+
+    - 申购代码**不是可交易标的**（仅在申购窗口存在几天），放进证券主数据等于污染身份；
+    - ``securities`` 的 ``market`` / ``type`` / ``currency`` 都是 ``NOT NULL``，解析器若想
+      upsert 一条证券记录去挂这个字段，就必须**猜**这些字段，违反「不猜」纪律；
+    - 订阅码**跨年份会复用**（实测 ``070887`` → 2011 年中海转债），需要 ``(apply_code,
+      issue_date)`` 联合判定，单字段放证券表承载不了；
+    - **新股**订阅码（73/00/30 段）走同一张表，用 ``asset_kind`` 区分，不必为它再开表。
+
+    本表是「全局参考数据」（与 ``convertible_bond_terms`` 同性质，不含 ``family_id``），
+    由东财 ``RPT_BOND_CB_LIST`` 引导填充，落库后离线/跨文件/跨券商复用，导入不再依赖外网。
+
+    ## 唯一键为什么不只锁 apply_code
+
+    订阅码复用意味着同一 ``apply_code`` 可能对应**多个** ``listed_code``（不同年份）。
+    唯一键取 ``(apply_code, listed_code, asset_kind)``：允许两条，但禁止完全相同的重复行；
+    真正「哪个上市码属于这笔中签」由读取侧按 ``issue_date`` 与中签日做**日期就近**消歧。
+    """
+
+    __tablename__ = 'security_code_aliases'
+
+    apply_code = Column(String(20), nullable=False, index=True, comment='申购代码（打新时输入），如 754112')
+    listed_code = Column(String(20), nullable=False, comment='上市代码（交易用），如 113703')
+    asset_kind = Column(String(10), nullable=False, default='cb', comment='资产类别: cb(可转债) / stock_ipo(新股)')
+    issue_date = Column(Date, comment='申购日（东财 PUBLIC_START_DATE），用于跨年复用消歧')
+    source = Column(String(20), default='eastmoney', comment='数据来源')
+    fetched_at = Column(DateTime, comment='最近一次从来源刷新的时间')
+
+    __table_args__ = (
+        UniqueConstraint('apply_code', 'listed_code', 'asset_kind', name='uq_security_alias_apply_listed_kind'),
+        Index('ix_security_alias_apply_kind', 'apply_code', 'asset_kind'),
     )
