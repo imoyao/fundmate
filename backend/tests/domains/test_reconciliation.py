@@ -897,7 +897,7 @@ class TestLedgerSnapshotConsistency:
 # ── 2026-11-07 第二轮：差异列表出参批量补产品名 ──────────────────────
 def test_resolve_display_names_prefers_position_name(db, make_position):
     """持仓里用户自己记的名字优先；查不到返回空串，由前端降级显示代码、不丢行。"""
-    from app.domains.reconciliation.views import _resolve_display_names
+    from app.services.reconciliation_query import resolve_display_names
 
     make_position(
         symbol='600519',
@@ -907,7 +907,7 @@ def test_resolve_display_names_prefers_position_name(db, make_position):
         quantity=100,
         avg_price=10.0,
     )
-    names = _resolve_display_names(db, 1, ['600519', 'NO_SUCH_CODE', ''])
+    names = resolve_display_names(db, 1, ['600519', 'NO_SUCH_CODE', ''])
     assert names.get('600519') == '贵州茅台'
     assert 'NO_SUCH_CODE' not in names
     assert '' not in names
@@ -916,9 +916,9 @@ def test_resolve_display_names_prefers_position_name(db, make_position):
 def test_resolve_display_names_strips_exchange_prefix(db):
     """场内基金带 SH/SZ 前缀时，按裸 6 位码回退查基金名录。"""
     from app.domains.funds.models import Fund
-    from app.domains.reconciliation.views import _resolve_display_names
+    from app.services.reconciliation_query import resolve_display_names
 
     db.add(Fund(fund_code='511990', name='华宝添益'))
     db.commit()
-    names = _resolve_display_names(db, 1, ['SH511990'])
+    names = resolve_display_names(db, 1, ['SH511990'])
     assert names.get('SH511990') == '华宝添益'

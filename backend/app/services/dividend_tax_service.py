@@ -63,10 +63,10 @@ from typing import Iterable, Optional
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
-from app.core.symbol_utils import strip_exchange_prefix
 from app.domains.positions.models import Position
 from app.domains.transactions.ledger_guard import dividend_tax_source_fields
 from app.domains.transactions.models import Transaction
+from app.services.dividend_tax_rules import is_dividend_income, position_asset_types, resolve_asset_type
 from app.services.importer.mappings import THS_OP_MAP, BusinessType
 
 # 通知来源标识（写入 notifications.source_type）
@@ -92,16 +92,7 @@ SUSPECT_MIN_DIVIDEND_CENTS = 10_000  # 100 元
 # 20% 是差异化税率的**上限**，超过它就不可能是红利税。
 SUSPECT_RATIO_THRESHOLD = 0.20
 
-# 分红类流入的白名单关键词：操作名（`notes`）里出现这些才算「分红 / 派息」。
-# 取自活表 `importer/mappings.THS_OP_MAP` 里落成 `dividend_cash` 的操作名，
-# 外加「利息」——存款/理财利息也被映射成 dividend，这里用「含利息 ⇒ 排除」反着用。
-_DIVIDEND_KEYWORDS = ('红利', '分红', '派息', '股息', '兑息')
-# 非分红类的关键词：命中即排除（利息 / 兑付 / 退款 / 零款）。
-_NOT_DIVIDEND_KEYWORDS = ('利息', '兑付', '退款', '退息', '零款', '兑息')
-# 不给红利税补记提示的资产类型：可转债（`bond`）的派息是利息，货基/逆回购同理。
-# bank_wealth（银行理财）与 bank（银行存款）的到账是「理财收益 / 存款利息」，同样不是股息，
-# 提示红利税会让用户以为漏扣了税。
-_NO_DIVIDEND_TAX_ASSET_TYPES = frozenset({'bond', 'money_fund', 'reverse_repo', 'cash', 'bank', 'bank_wealth'})
+# 分红 / 免税口径与关键词表见 `app/services/dividend_tax_rules.py`（纯规则单独成模块）。
 # 归入「同一账户」的兜底键：账户为空（手动记账 / 老数据）时，空账户之间互相匹配。
 _EMPTY_ACCOUNT = ''
 
@@ -176,61 +167,6 @@ def _reinvest_group_ids(db: Session, family_id: int) -> set[str]:
         .all()
     )
     return {gid for (gid,) in rows if gid}
-
-
-def _position_asset_types(db: Session, family_id: int) -> dict[str, str]:
-    """标的代码 → 资产类型（持仓表快照；流水自带 `asset_type` 时优先用流水的）。
-
-    #1661 / 2026-11-07：货基持仓的 `asset_type` 仍是 `fund`，「是不是货币基金」
-    记在 `positions.is_money_fund` 上（见 `core/investment_tiers.py` 的说明）。
-    只读 `asset_type` 会让场内货基的收益被当成现金分红、误报「漏扣红利税」——
-    而货基收益本就不在 `_NO_DIVIDEND_TAX_ASSET_TYPES` 的应税范围里。
-
-    键同时存原码与剥前缀后的裸码：流水可能写 `SH511990` 而持仓存 `511990`
-    （或反过来），只按原码 get 会查不到 ⇒ 白名单静默失效。
-    """
-    rows = (
-        db.query(Position.symbol, Position.asset_type, Position.is_money_fund)
-        .filter(Position.family_id == family_id, Position.symbol.isnot(None))
-        .all()
-    )
-    out: dict[str, str] = {}
-    for symbol, asset_type, is_money_fund in rows:
-        if not symbol:
-            continue
-        value = 'money_fund' if is_money_fund is True else asset_type
-        if not value:
-            continue
-        raw = symbol.strip()
-        out.setdefault(raw, value)
-        bare = strip_exchange_prefix(raw)
-        if bare:
-            out.setdefault(bare, value)
-    return out
-
-
-def _is_dividend_income(txn: Transaction, asset_type: Optional[str]) -> bool:
-    """这笔 `txn_type='dividend'` 是不是「该考虑红利税」的那一类现金分红。
-
-    三道判据（任一命中即排除）：
-
-    1. 资产类型是债 / 货基 / 逆回购 / 存款——它们的派息是利息，与红利税无关；
-    2. 操作名里含「利息 / 兑付 / 退款 / 退息 / 零款」——同花顺把这些也映射成 dividend；
-    3. 操作名里既没有「红利 / 分红 / 派息 / 股息 / 兑息」，也不是空（手动记账常写
-       「现金分红」，含「分红」二字）。
-    """
-    if asset_type and asset_type in _NO_DIVIDEND_TAX_ASSET_TYPES:
-        return False
-    notes = (txn.notes or '').strip()
-    if notes:
-        # 注：`_DIVIDEND_KEYWORDS` 里也含「兑息」（基金/债券的派息说法），所以
-        # 排除表里必须显式带上「兑息」并**先判**——顺序不能反，否则「债券兑息」
-        # 会走成「这是分红」。
-        if any(word in notes for word in _NOT_DIVIDEND_KEYWORDS):
-            return False
-        return any(word in notes for word in _DIVIDEND_KEYWORDS)
-    # 手动记账 / 未标 notes 的分红：默认算分红（宁可提醒，不可漏）
-    return True
 
 
 def compute_import_hash(symbol: str, confirm_date: Optional[date]) -> str:
@@ -340,7 +276,7 @@ def scan_pending_tax(
         return []
 
     reinvest_groups = _reinvest_group_ids(db, family_id)
-    position_types = _position_asset_types(db, family_id)
+    position_types = position_asset_types(db, family_id)
 
     dividends: list[Transaction] = []
     taxes: list[Transaction] = []
@@ -360,14 +296,8 @@ def scan_pending_tax(
             continue
         if occurred < since:
             continue
-        raw_symbol = (txn.symbol or '').strip()
-        position_asset = position_types.get(strip_exchange_prefix(raw_symbol)) or position_types.get(raw_symbol)
-        asset_type = txn.asset_type or position_asset
-        # 持仓侧已判定为免税品种（is_money_fund=True 等）时优先于流水上的 'fund'：
-        # 货基标记不在 asset_type 上，流水写 'fund' 不能把它变成要交红利税的股票。
-        if position_asset in _NO_DIVIDEND_TAX_ASSET_TYPES:
-            asset_type = position_asset
-        if not _is_dividend_income(txn, asset_type):
+        asset_type = resolve_asset_type(txn.symbol, txn.asset_type, position_types)
+        if not is_dividend_income(txn, asset_type):
             continue
         dividends.append(txn)
 
