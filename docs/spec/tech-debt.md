@@ -1179,7 +1179,7 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 **待决策**：两套基准是否统一、以哪一侧为准。判据是「持仓多久同步一次」与
 「快照历史能否重算」，不靠拍脑袋换基准。
 
-## 2026-11-05 持仓状态机散落、不变量无库级兜底（#2875）
+## 2026-11-05 持仓状态机散落、不变量无库级兜底（#2875，已结项 2026-11-08）
 
 **现象**：`positions` 的状态迁移（清仓、清仓后再买入、锚点覆盖判定、无锚点时从流水派生）
 集中在 `position_service.py` 的若干私有函数里，只有服务层能调用；导入、重建、数据修复
@@ -1214,9 +1214,29 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 用例守住两侧：`test_cleared缺清仓时间不被拦`（不许多拦）与
 `test_迁移产物_有快照日无份额_不阻断启动且可写`（不许误伤升级路径）。
 
-**剩余（未做）**：`process_buy_or_deposit` 仍 403 行 / 圈复杂度 84（买入与卖出共用一套
-编排）；669 笔（35%）孤儿流水（`position_id IS NULL`）的归因与重挂时机未定 ——
-自动重挂会放大「重复计数」，需先有只读审计口径。
+**剩余（未做）→ 2026-11-08 结项移交**（本卡关闭，不再以「架构债」名义承载数据修复）：
+
+- `process_buy_or_deposit` 403 行 / 圈复杂度 84 → **已闭环**（#2873 八抽）：
+  `position_service.py` 2468 → **469 行**，买入 / 卖出 / 快照 / 转债命令各成文件
+  （`position_buy_command.py` / `position_sell_command.py` / `position_snapshot_command.py` /
+  `position_bond_command.py`），纯函数状态层为 `domains/positions/state.py`。
+- 孤儿流水（`position_id IS NULL`）的「归因与重挂时机」→ **口径已定、机制已落地**：
+  `services/sync/jobs/orphan_backfill_job.py` 按 `symbol_norm` 身份键扫描挂回（已注册每日调度，
+  `SCHEDULER_ORPHAN_BACKFILL_CRON` 默认 `30 23 * * *`），挂回后强制走
+  `recompute_position_from_transactions` 全量重算而非增量加减；同键命中多行一律跳过计
+  `ambiguous`，宁可不挂也不挂错。只读审计 `scripts/audit_orphan_batches.py` 按导入批次与
+  `legal_cash / reattachable / ambiguous / cleared_history / sell_without_buy / unpositioned`
+  定性，供按批决策（不代做 UPDATE）。
+- 存量孤儿流水的数据处置（**不是架构问题**）→ #3004：导入落库未按交易日重放，
+  时间倒序的交割单会让卖出先于买入入库、退化为孤儿；修在 `ImportOrchestrator.commit()`
+  入口，对全部解析器生效。其「遗留」段（期初持仓缺口需补更早交割单或期初快照）
+  才是剩余数据补齐项。
+- PG 侧约束真库验证 → #2874 / D81（CI 无真 PG，当前只钉 SQL 形态）。
+
+2026-11-08 只读复核（`backend/invest.db`，`mode=ro` + `PRAGMA query_only=ON`）：
+`position_id IS NULL` 共 **865 笔 / 9 个导入批次**。其中合法现金（存取、`__CASH__` 哨兵、
+货基 / 逆回购口径 A）**本就不该挂持仓**；可挂回批次由夜间 job 消化；「已清仓历史 /
+无源卖出」挂不回任何持仓行，属 #3004 遗留的数据补齐。故本卡架构侧已无剩余动作。
 
 ## 2026-11-08 #2879 显式 any 治理：护栏收口与剩余清单
 
