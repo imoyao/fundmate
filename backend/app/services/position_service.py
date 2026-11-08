@@ -63,8 +63,6 @@ from app.services.position_buy_command import (  # noqa: F401
 )
 from app.services.position_display import (  # noqa: F401
     build_position_list_impl,
-    list_position_transactions,
-    query_transactions_by_identity,
     resolve_ledger_change,
     resolve_portfolio_change,
     serialize_position_transaction,
@@ -83,12 +81,14 @@ from app.services.position_sell_command import (
     auto_purchase_money_fund,  # noqa: F401  re-export 保 facade，供外部脚本沿用旧导入路径
     run_sell_or_withdraw,
 )
+from app.services.position_sell_import import process_sell_or_withdraw_import
 from app.services.position_snapshot_command import (
     finalize_snapshot,
     resolve_snapshot_intent,
     upsert_anchor_position,
     upsert_import_meta,
 )
+from app.services.position_txn_read import list_position_transactions, query_transactions_by_identity  # noqa: F401
 
 # #2873 第二抽：写侧共用原语已下沉到 position_write_support，此处 re-export 保 facade，
 # 调用点与外部导入（conversion_service / repair_snapshot_double_count 等）一行不改。
@@ -549,8 +549,8 @@ class PositionService:
 
     @staticmethod
     def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
-        """孤儿流水路径：实现见 :mod:`app.services.position_orphan_flows`（#2873 第三抽）。"""
-        return position_orphan_flows.process_orphan_sell_or_withdraw(db, data)
+        """孤儿流水路径：实现见 :mod:`app.services.position_sell_import`（#3004 下沉）。"""
+        return process_sell_or_withdraw_import(db, data).position
 
     # ── 债券兑付（#2832）──
 

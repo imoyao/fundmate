@@ -32,50 +32,7 @@ from app.services.position_presenter import enrich_position_dict
 from app.services.position_scope import active_holdings
 from app.services.symbol_scope import (
     build_position_symbol_conditions,
-    build_transaction_symbol_conditions,
 )
-from app.services.transaction_service import order_by_effective_day
-
-
-def query_transactions_by_identity(db: Session, position: Position):
-    """按**身份键**构造流水查询（#2372）：``(ledger_id, symbol)``，未归档持仓只匹配未归档流水。
-
-    ## 为什么不是 ``(symbol, account_name)``
-
-    ``account_name`` 是 ``ledgers.name`` 的**可编辑快照**——账户改名后，改名前落库的
-    流水与新名字天然对不上；真库还存在重名账户（支付宝×2 / 天天基金×2），按名称过滤会
-    把**另一个账户**的交易一并卷进来。持仓明细页的兜底查询因此必须按 ``ledger_id`` 收敛。
-
-    ``ledger_id`` 为 NULL（未归档持仓 / 探市迁移行）时，只匹配同属未归档的流水——
-    宁可少查，也不拿名字去猜（猜错的表现是明细里混入别人账户的交易，且不会报错）。
-
-    ## 为什么放在 service 而不是视图层
-
-    视图层的判据是「只做 HTTP 编排」（``decisions.md`` 2026-09-19），且
-    ``scripts/check_view_thickness.py`` 会按行数拦截视图层变厚。同一段兜底过滤在
-    ``get_position_transactions`` 与 ``delete_position`` 两处都需要，下沉后一处定义、两处复用。
-    """
-    # 匹配口径走 symbol_scope（#1662 遗留项）：此前是字面量 `Transaction.symbol == position.symbol`，
-    # 而流水快照与持仓写法可以不同（实测流水 `SZ001937`、持仓 `001937`），字面量等值会漏掉整批流水。
-    query = db.query(Transaction).filter(or_(*build_transaction_symbol_conditions(position.symbol)))
-    if position.ledger_id is not None:
-        return query.filter(Transaction.ledger_id == position.ledger_id)
-    return query.filter(Transaction.ledger_id.is_(None))
-
-
-def list_position_transactions(db: Session, position: Position) -> list[Transaction]:
-    """某持仓的交易流水（持仓抽屉数据源）。
-
-    取数口径：#2372 的「优先 ``position_id``、悬空时按身份键兜底」保持不变；
-    排序统一走 ``order_by_effective_day``（#2712）——此前这里是
-    ``confirm_date DESC NULLS LAST, created_at DESC``，只有交易日的行被甩到末尾，
-    批量导入又退化成「导入批次顺序」（#2171），与详情页顺序对不上。
-    """
-    if position.id:
-        rows = db.query(Transaction).filter(Transaction.position_id == position.id).first()
-        if rows is not None:
-            return order_by_effective_day(db.query(Transaction).filter(Transaction.position_id == position.id)).all()
-    return order_by_effective_day(query_transactions_by_identity(db, position)).all()
 
 
 def serialize_position_transaction(txn: Transaction, position: Optional[Position] = None) -> dict:

@@ -21,6 +21,8 @@ from app.domains.transactions.models import Transaction
 from app.services import async_backfill
 from app.services.import_records import StandardTransactionRecord
 from app.services.importer.mappings import BusinessType
+from app.services.importer.operation_dispatch import UNSUPPORTED, dispatch_standard_operation
+from app.services.importer.replay_order import sort_records_for_replay
 from app.services.position_service import PositionService
 from app.services.sync.jobs.position_price_job import refresh_position_prices_after_import
 from app.services.trading import TransactionService
@@ -278,7 +280,9 @@ class CommitMixin:
         kept_duplicates = 0
         kept_duplicates_blocked = 0
 
-        for record in records:
+        # 升序重放（why 见 importer/replay_order.py）：导出文件多为时间倒序，
+        # 照文件顺序入库会让卖出先于买入落地 → 卖出降级孤儿 → 份额不扣。
+        for record in sort_records_for_replay(records):
             # 被配对规则消费的行（#2836）：它的效果已由同组主记录覆盖，入账就是重复。
             # 当前唯一来源是「债券兑付 + 股份转出」——兑付本身已清仓，转出行再扣一次
             # 就是把份额扣两遍（用户会看到持仓凭空少一半）。计入 skipped 让回执可解释。
@@ -443,26 +447,12 @@ class CommitMixin:
                             kept_duplicates += 1
                         continue
 
-                    # 常规操作 (BUY/DEPOSIT, SELL/WITHDRAW, DIVIDEND)
-                    if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code):
-                        result = PositionService.process_buy_or_deposit(self.db, data)
-                    elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
-                        result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
-                    elif bt == BusinessType.DIVIDEND_CASH.code:
-                        result = PositionService.process_orphan_dividend(self.db, data)
-                    elif bt == BusinessType.DIVIDEND_REINVEST.code:
-                        result = PositionService.process_orphan_dividend_reinvest(self.db, data)
-                    elif bt == BusinessType.SPLIT.code:
-                        result = PositionService.process_orphan_split(self.db, data)
-                    elif bt == BusinessType.DIVIDEND.code:
-                        # #541：自动抓取路径用的通用「分红」码（与手动导入的
-                        # dividend_cash 同落 txn_type='dividend'，只是不带再投语义）
-                        result = PositionService.process_orphan_dividend(self.db, data)
-                    else:
+                    # 常规操作派发（why 见 importer/operation_dispatch.py）
+                    result, is_orphan = dispatch_standard_operation(self.db, data, bt)
+                    if result is UNSUPPORTED:
                         skipped += 1
                         continue
-
-                    if result is None:
+                    if is_orphan:
                         orphan_count += 1
                     imported += 1
                     if record.keep_duplicate:  # #1882：勾选保留行入库单独计数

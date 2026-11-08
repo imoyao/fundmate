@@ -907,6 +907,103 @@ def test_cash_income_is_not_marked_as_cash_transfer(db):
     assert by_name['银行转证券']['is_cash_transfer'] is True
 
 
+# ── 落库顺序：按有效交易日升序重放（2026-11-08） ──
+#
+# 券商/基金平台导出的交割单是**时间倒序**（最新在首行）。旧实现照文件顺序逐条落库，
+# 卖出先于它的买入入库 ⇒ 持仓还不存在 ⇒ 卖出降级成孤儿流水（position_id=NULL），
+# 份额一点都不扣；随后买入照常累加，持仓永远停在「只买不卖」的累加值。
+# 实测账户 26：75 笔卖出全是孤儿，46 条持仓虚挂 20.9 万。
+
+
+def _trade(side, day, *, ledger_id, symbol='SH113053', name='隆22转债', shares='100', nav='100', source='cms_stock'):
+    """构造一条买卖记录（默认可转债 100 张 / 100 元）。"""
+    return StandardTransactionRecord(
+        confirm_date=day,
+        asset_type='bond',
+        symbol=symbol,
+        name=name,
+        business_type=side,
+        amount=Decimal(shares) * Decimal(nav),
+        account_name='顺序测试账户',
+        ledger_id=ledger_id,
+        shares=Decimal(shares),
+        nav=Decimal(nav),
+        source=source,
+    )
+
+
+def test_commit_replays_newest_first_export_in_chronological_order(db):
+    """倒序导出（卖出行在前）→ 仍须先建仓、再扣份额，卖出不得退化为孤儿。"""
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    sell = _trade('sell', date(2024, 1, 20), ledger_id=ledger.id)
+    buy = _trade('buy', date(2024, 1, 10), ledger_id=ledger.id)
+
+    result = orch.commit([sell, buy])  # 交割单行序：卖出在前
+
+    assert result['imported'] == 2
+    assert result['orphan_count'] == 0
+    pos = db.query(Position).filter_by(ledger_id=ledger.id, symbol='SH113053').one()
+    assert pos.quantity == 0  # 买 100 卖 100 → 归零，不再是「只买不卖」的 100
+    sell_txn = db.query(Transaction).filter_by(ledger_id=ledger.id, txn_type='sell').one()
+    assert sell_txn.position_id == pos.id  # 挂上持仓，抽屉里看得见
+    assert sell_txn.entry_status is None
+
+
+def test_commit_same_day_buy_precedes_sell(db):
+    """同日并列：买入排前（可转债/ETF 支持 T+0，当天买当天卖是常态）。"""
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    sell = _trade('sell', date(2024, 1, 10), ledger_id=ledger.id, symbol='SZ123088', name='威唐转债')
+    buy = _trade('buy', date(2024, 1, 10), ledger_id=ledger.id, symbol='SZ123088', name='威唐转债')
+
+    result = orch.commit([sell, buy])
+
+    assert result['orphan_count'] == 0
+    pos = db.query(Position).filter_by(ledger_id=ledger.id, symbol='SZ123088').one()
+    assert pos.quantity == 0
+
+
+def test_commit_sell_dated_before_any_buy_still_orphan(db):
+    """反证：排序只修正「顺序」，不掩盖真实的「无建仓卖出」。
+
+    卖出确实早于任何买入（期初持仓不在本批，例如更早的对账单没导）时，仍应落孤儿、
+    持仓不变——否则等于把缺口从「看得见的孤儿」藏成「看不见的少卖」。
+    """
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    sell = _trade('sell', date(2024, 1, 5), ledger_id=ledger.id)
+    buy = _trade('buy', date(2024, 1, 10), ledger_id=ledger.id)
+
+    result = orch.commit([sell, buy])
+
+    assert result['orphan_count'] == 1
+    pos = db.query(Position).filter_by(ledger_id=ledger.id, symbol='SH113053').one()
+    assert pos.quantity == Money.shares_to_min_unit(100)  # 只有那笔买入的 100 张
+    sell_txn = db.query(Transaction).filter_by(ledger_id=ledger.id, txn_type='sell').one()
+    assert sell_txn.position_id is None
+    assert sell_txn.entry_status == 'orphan'
+
+
+def test_sort_records_for_replay_is_parser_agnostic():
+    """排序在 commit 入口：任何 source（招商/同花顺/标准模板/AI 识别）都按日期重排。
+
+    顺带钉住 ``datetime`` 混入时的健壮性：``datetime`` 是 ``date`` 的子类，
+    直接比较会在混排时抛 TypeError，整批导入失败。
+    """
+    from app.services.importer.orchestrator_commit import sort_records_for_replay
+
+    records = [
+        _trade('sell', date(2024, 3, 1), ledger_id=1, symbol='C', source='ths_stock'),
+        _trade('buy', date(2024, 1, 1), ledger_id=1, symbol='A', source='cms_stock'),
+        _trade('buy', datetime(2024, 2, 1, 15, 0), ledger_id=1, symbol='B', source='standard_stock'),
+    ]
+    assert [r.symbol for r in sort_records_for_replay(records)] == ['A', 'B', 'C']
+
+
 def test_cash_income_reaches_cash_branch_without_symbol(db):
     """利息归本没有代码也能入库：它走的是现金分支，本来就不写 symbol。"""
     ledger = _make_ledger(db)
