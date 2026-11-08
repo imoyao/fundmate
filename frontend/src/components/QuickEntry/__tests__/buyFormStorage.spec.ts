@@ -48,8 +48,10 @@ class MemoryStorage {
 }
 
 beforeEach(() => {
-  (globalThis as any).sessionStorage = new MemoryStorage();
-  (globalThis as any).localStorage = new MemoryStorage();
+  (globalThis as unknown as { sessionStorage: Storage }).sessionStorage =
+    new MemoryStorage();
+  (globalThis as unknown as { localStorage: Storage }).localStorage =
+    new MemoryStorage();
 });
 
 function mkSnapshot(
@@ -120,14 +122,14 @@ describe("会话快照读写", () => {
   });
 
   it("存储抛错（配额满 / 私有模式）时静默失败", () => {
-    (globalThis as any).sessionStorage = {
+    (globalThis as unknown as { sessionStorage: Storage }).sessionStorage = {
       getItem() {
         throw new Error("quota");
       },
       setItem() {
         throw new Error("quota");
       }
-    };
+    } as unknown as Storage;
     expect(loadBuyLastSubmitted()).toBeNull();
     expect(() => saveBuyLastSubmitted(mkSnapshot())).not.toThrow();
   });
@@ -160,7 +162,7 @@ describe("快照 → 表单回填映射", () => {
       // 表单里还有 notes/allocation 等，快照不关心
       notes: "定投",
       allocation: "longterm"
-    } as any);
+    } as unknown as Parameters<typeof buildBuySnapshot>[0]);
     expect(Object.keys(snap).sort()).toEqual(
       [
         "buyAmount",

@@ -115,9 +115,9 @@ const multiTagsCacheChange = () => {
 
 function onChange(option: OptionsType) {
   const { value } = option;
-  markValue.value = value;
-  storageConfigureChange("showModel", value);
-  emitter.emit("tagViewsShowModel", value);
+  markValue.value = String(value);
+  storageConfigureChange("showModel", String(value));
+  emitter.emit("tagViewsShowModel", String(value));
 }
 
 /** 侧边栏Logo */

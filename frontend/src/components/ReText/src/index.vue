@@ -19,7 +19,7 @@ const props = defineProps({
 
 const slots = defineSlots<{
   content: () => TippyContent;
-  default: () => any;
+  default: () => unknown;
 }>();
 
 const textRef = ref();
