@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import { asPreviewRow } from "../composables/previewRow";
 import type { PreviewRow } from "../composables/previewRow";
 import TableControls from "./TableControls.vue";
 import RowSelectionCell from "./RowSelectionCell.vue";
@@ -62,14 +63,10 @@ function missingField(row: unknown): "quantity" | "price" | null {
 }
 
 /**
- * el-table 的 `#default="{ row }"` 槽把行类型放宽成组件库自己的 `DefaultRow`
- * （宽松索引类型），与 `PreviewRow` 无交集。在**边界**上收一次口，而不是把
- * `any` 顺着事件回调漏进 composables（#2879）。
+ * el-table 的 `#default="{ row }"` 槽把行类型放宽成组件库的 `DefaultRow`
+ * （宽松索引类型），与 `PreviewRow` 无交集。缺口统一在
+ * `composables/previewRow.ts` 的 `asPreviewRow` 边界收一次——这里不再各写一份。
  */
-function asPreviewRow(row: unknown): PreviewRow {
-  return row as PreviewRow;
-}
-
 function handleStartEdit(row: unknown): void {
   const target = asPreviewRow(row);
   startEdit(target, missingField(target)!);
@@ -107,7 +104,7 @@ function handleToggleIgnore(row: unknown): void {
             />
           </template>
           <template #default="{ row }">
-            <RowSelectionCell :row="row" />
+            <RowSelectionCell :row="asPreviewRow(row)" />
           </template>
         </el-table-column>
         <el-table-column
@@ -116,19 +113,19 @@ function handleToggleIgnore(row: unknown): void {
           v-bind="col"
         >
           <template v-if="col.slot === 'status'" #default="{ row }">
-            <StatusCell :row="row" />
+            <StatusCell :row="asPreviewRow(row)" />
           </template>
           <template v-else-if="col.slot === 'product'" #default="{ row }">
-            <ProductCell :row="row" />
+            <ProductCell :row="asPreviewRow(row)" />
           </template>
           <template v-else-if="col.slot === 'opType'" #default="{ row }">
-            <OpTypeCell :row="row" />
+            <OpTypeCell :row="asPreviewRow(row)" />
           </template>
           <template v-else-if="col.slot === 'quantity'" #default="{ row }">
-            <EditableCell :row="row" field="quantity" />
+            <EditableCell :row="asPreviewRow(row)" field="quantity" />
           </template>
           <template v-else-if="col.slot === 'price'" #default="{ row }">
-            <EditableCell :row="row" field="price" />
+            <EditableCell :row="asPreviewRow(row)" field="price" />
           </template>
           <template v-else-if="col.slot === 'amount'" #default="{ row }">
             <el-tooltip
@@ -136,15 +133,15 @@ function handleToggleIgnore(row: unknown): void {
               :content="amountHint(asPreviewRow(row))"
               placement="top"
             >
-              <EditableCell :row="row" field="amount" />
+              <EditableCell :row="asPreviewRow(row)" field="amount" />
             </el-tooltip>
-            <EditableCell v-else :row="row" field="amount" />
+            <EditableCell v-else :row="asPreviewRow(row)" field="amount" />
           </template>
           <template v-else-if="col.slot === 'fee'" #default="{ row }">
-            <EditableCell :row="row" field="fee" />
+            <EditableCell :row="asPreviewRow(row)" field="fee" />
           </template>
           <template v-else-if="col.slot === 'allocation'" #default="{ row }">
-            <AllocationSelect :row="row" />
+            <AllocationSelect :row="asPreviewRow(row)" />
           </template>
         </el-table-column>
         <!-- #2838：表头与行操作都靠右（align="right" + flex-end）。原先表头居中、单元格

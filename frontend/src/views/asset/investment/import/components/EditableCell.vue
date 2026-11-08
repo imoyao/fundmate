@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import type { InputInstance } from "element-plus";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { EditField, PreviewRow } from "../composables/previewRow";
 
-type EditField = "quantity" | "price" | "amount" | "fee";
-
-const props = defineProps<{ row: any; field: EditField }>();
+const props = defineProps<{ row: PreviewRow; field: EditField }>();
 
 const { startEdit, finishEdit, cancelEdit } = useImportWizardContext();
 
@@ -24,8 +24,30 @@ const editing = computed(() => {
   return !!r.isEditingAmount;
 });
 
+/**
+ * 四个可编辑字段在行上的「线上值」：正常是数字；被清空后写进去的是**空串哨兵**
+ * （见 `onInput`——`isRowBlocked` 据空串判缺项，行转「待补全」）。
+ *
+ * 空串不在 `ImportPreviewRow` 的类型里，而这是全仓**唯一**有意越界写这四个字段的
+ * 地方。收敛方式不是把行字段放宽成 `number | ""`（那会让所有读侧都以为可能拿到
+ * 空串、等于把 any 换个写法），而是把越界圈在下两行里：写走 `setEditableValue`，
+ * 读走 `editableValue`，其余代码照旧按 number 理解行值。
+ */
+type EditableValue = number | "";
+
+function editableValue(): EditableValue {
+  return (props.row as unknown as Record<EditField, EditableValue>)[
+    props.field
+  ];
+}
+
+function setEditableValue(value: EditableValue): void {
+  (props.row as unknown as Record<EditField, EditableValue>)[props.field] =
+    value;
+}
+
 const isEmpty = computed(() => {
-  const v = props.row[props.field];
+  const v = editableValue();
   return v === null || v === undefined || v === "";
 });
 
@@ -41,7 +63,7 @@ const feeText = computed(() => {
 });
 
 const displayRef = ref<HTMLElement | null>(null);
-const inputRef = ref<any>(null);
+const inputRef = ref<InputInstance | null>(null);
 /**
  * 输入草稿：行值随输入实时写回 row[field]（saveAllEditingRows / 点击切格兜底
  * 能拿到新值），Esc 统一由 finishEdit 从 _oldValue 还原——与既有弹层编辑的
@@ -53,10 +75,14 @@ const draft = ref("");
 const NUM_RE = /^-?\d*\.?\d*$/;
 
 function focusInput() {
-  const inst = inputRef.value as any;
-  const el: HTMLInputElement | undefined =
-    inst?.input ?? inst?.$el?.querySelector?.("input");
-  el?.focus?.();
+  const inst = inputRef.value;
+  // el-input 暴露了原生 input 元素；$el 兜底只在实例尚未完成挂载时走到
+  const el =
+    inst?.input ??
+    (inst?.$el as HTMLElement | undefined)?.querySelector<HTMLInputElement>(
+      "input"
+    );
+  el?.focus();
 }
 
 /** 就地进入编辑：状态由 useImportWizard 置位，草稿与聚焦统一交给下方 watch */
@@ -71,7 +97,7 @@ function enterEdit() {
  */
 watch(editing, on => {
   if (!on) return;
-  const v = props.row[props.field];
+  const v = editableValue();
   draft.value = v === null || v === undefined ? "" : String(v);
   nextTick(() => focusInput());
 });
@@ -79,15 +105,14 @@ watch(editing, on => {
 function onInput(val: string) {
   draft.value = val;
   if (val === "") {
-    // eslint-disable-next-line vue/no-mutating-props
-    props.row[props.field] = ""; // 清空 → isRowBlocked 视作缺项，行转待补全
+    // 清空 → isRowBlocked 视作缺项，行转待补全（空串哨兵，见 editableValue 注释）
+    setEditableValue("");
     return;
   }
   if (!NUM_RE.test(val)) return;
   const n = parseFloat(val);
   if (!isNaN(n)) {
-    // eslint-disable-next-line vue/no-mutating-props
-    props.row[props.field] = n;
+    setEditableValue(n);
   }
 }
 

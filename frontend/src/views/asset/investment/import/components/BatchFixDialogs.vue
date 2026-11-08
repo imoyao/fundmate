@@ -3,14 +3,16 @@
 // 放一起是因为它们共享 `.bf-dialog-note` 一条说明样式，且都属于「看一眼但不改数据」。
 import { filledFieldsLabel, allocationLabelOf } from "./batchFixPanelModel";
 import { canRestoreSmartFilledPrice } from "../composables/smartFillPrice";
+import { asPreviewRow } from "../composables/previewRow";
+import type { PreviewRow } from "../composables/previewRow";
 
 defineProps<{
   /** 已填充行（数量 / 单价由金额推算出来的那些） */
-  filledRows: any[];
+  filledRows: PreviewRow[];
   /** 解析期自动识别的逆回购行 */
-  reverseRepoRows: any[];
+  reverseRepoRows: PreviewRow[];
   /** 逆回购识别依据（由向导上下文提供，保持单一实现） */
-  detectBasis: (row: any) => string;
+  detectBasis: (row: PreviewRow) => string;
 }>();
 
 const filledVisible = defineModel<boolean>("filled-visible", {
@@ -20,7 +22,7 @@ const repoVisible = defineModel<boolean>("repo-visible", { required: true });
 
 /** #2902：装载期补价可逐行退回；批量修正的填充仍走顶部【撤销上一步】 */
 const emit = defineEmits<{
-  "restore-original": [row: any];
+  "restore-original": [row: PreviewRow];
 }>();
 </script>
 
@@ -36,7 +38,7 @@ const emit = defineEmits<{
       <el-table-column label="代码" prop="symbol" width="100" />
       <el-table-column label="已填充字段" min-width="110">
         <template #default="{ row }">
-          {{ filledFieldsLabel(row) }}
+          {{ filledFieldsLabel(asPreviewRow(row)) }}
         </template>
       </el-table-column>
       <el-table-column label="数量" prop="quantity" width="110" />
@@ -48,7 +50,7 @@ const emit = defineEmits<{
             link
             type="primary"
             size="small"
-            @click="emit('restore-original', row)"
+            @click="emit('restore-original', asPreviewRow(row))"
           >
             恢复原始值
           </el-button>
@@ -79,7 +81,7 @@ const emit = defineEmits<{
       <el-table-column label="金额" prop="amount" width="110" />
       <el-table-column label="识别依据" min-width="110">
         <template #default="{ row }">
-          {{ detectBasis(row) }}
+          {{ detectBasis(asPreviewRow(row)) }}
         </template>
       </el-table-column>
       <el-table-column label="配置目标" width="110">

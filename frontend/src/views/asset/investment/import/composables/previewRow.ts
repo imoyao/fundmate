@@ -31,8 +31,6 @@ export interface PreviewRow extends ImportPreviewRow {
   is_merged?: boolean;
   /** 合并行折叠掉的原始明细行（`mergeLinkGroups` 写入） */
   children?: PreviewRow[];
-  /** 被配对规则消费的行（后端 `importer/linking.py` 判定）：勾了也不入库，故默认不勾 */
-  consumed_by?: string | null;
   /** 「逐行忽略」标：由 `toggleIgnoreRow()` 翻转，仅前端语义 */
   _ignored?: boolean;
   /** 用户手动改过配置目标：批量「按类型套用」不得覆盖（#1447） */
@@ -61,4 +59,18 @@ export interface PreviewRow extends ImportPreviewRow {
   isEditingPrice?: boolean;
   isEditingAmount?: boolean;
   isEditingFee?: boolean;
+}
+
+/**
+ * el-table 的 `#default="{ row }"` 槽把行类型放宽成组件库的 `DefaultRow`
+ * （`Record<PropertyKey, any>`），与 `PreviewRow` **无交集**——索引签名不会满足必填字段，
+ * 所以 `:row="row"` 直接传会报「缺少属性」。类型收敛只能在这个**边界**上断言一次，
+ * 组件内部随后全按 `PreviewRow` 走；不要在调用点各写一份 `as any`，那等于把泄漏
+ * 又搬回十几个模板里。
+ *
+ * 边界（别把它读成「运行时也校验」）：纯断言，不做字段检查——el-table 交来的
+ * 就是 `previewData` 的元素（`addRowKeys` 补过 `_rowKey`），形状由写入侧保证。
+ */
+export function asPreviewRow(row: unknown): PreviewRow {
+  return row as PreviewRow;
 }

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { PreviewRow } from "../composables/previewRow";
 import { visibleSourceOp } from "../composables/sourceOpText";
 
-const props = defineProps<{ row: any }>();
+const props = defineProps<{ row: PreviewRow }>();
 
 const { getFundTypeColor } = useImportWizardContext();
 
