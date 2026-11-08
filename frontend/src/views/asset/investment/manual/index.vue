@@ -317,7 +317,7 @@ function onSubmitSuccess() {
       conversionFormRef.value?.resetForm();
       ElMessage.success("已重置，请继续录入");
     })
-    .catch((action: any) => {
+    .catch((action: unknown) => {
       if (action === "cancel") router.back();
     });
 }

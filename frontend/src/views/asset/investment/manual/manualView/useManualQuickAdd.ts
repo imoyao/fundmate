@@ -53,7 +53,8 @@ export function useManualQuickAdd(onCreated: (id: number) => void) {
       if (feeConfig) payload.fee_config = feeConfig;
 
       const res = await createLedger(payload);
-      const newLedger = (res as any)?.data ?? res;
+      const legacy = res as unknown as { id?: number; name?: string };
+      const newLedger = res?.data ?? legacy;
       await reload();
       if (newLedger?.id) {
         resetQuickAdd();

@@ -210,7 +210,8 @@ export function useRealtimeQuotes(
 
     try {
       const res = await http.get(`/api/utils/trading-days/${dateStr}/`);
-      const isTd = (res as any)?.data?.is_trading_day === true;
+      const payload = res as { data?: { is_trading_day?: boolean } } | null;
+      const isTd = payload?.data?.is_trading_day === true;
       tradingDayCache.set(dateStr, {
         isTradingDay: isTd,
         timestamp: Date.now()

@@ -109,7 +109,7 @@ export function useStrategyTags() {
     const name = rawName.trim();
     if (!name) return false;
     try {
-      const res: any = await createStrategyTag({ name });
+      const res = await createStrategyTag({ name });
       const newTag: StrategyTag = res?.data;
       if (!newTag?.id) throw new Error("创建标签失败");
 
@@ -129,7 +129,7 @@ export function useStrategyTags() {
     const name = rawName.trim();
     if (!name) return false;
     try {
-      const res: any = await createStrategyTag({ name });
+      const res = await createStrategyTag({ name });
       const newTag: StrategyTag = res?.data;
       if (!newTag?.id) throw new Error("创建失败");
 

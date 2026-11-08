@@ -52,7 +52,7 @@ import { useRoute, useRouter } from "vue-router";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 
-import { getLedgers } from "@/api/ledger";
+import { getLedgers, type LedgerListItem } from "@/api/ledger";
 import AssetEntryForm from "./assetEntry/AssetEntryForm.vue";
 import AssetCreateLedgerDialog from "./assetEntry/AssetCreateLedgerDialog.vue";
 import { parseInitialFromQuery } from "./assetEntry/assetEntryModel";
@@ -62,7 +62,7 @@ defineOptions({ name: "AssetEntry" });
 const route = useRoute();
 const router = useRouter();
 
-const ledgers = ref<any[]>([]);
+const ledgers = ref<LedgerListItem[]>([]);
 const showCreateLedgerDialog = ref(false);
 /** 弹窗刚建出来的账户，递给表单回填「所属账户」 */
 const pickedLedger = ref<{ id: number; name: string } | null>(null);
@@ -76,7 +76,7 @@ const initial = parseInitialFromQuery(route.query);
 async function fetchLedgers() {
   try {
     const res = await getLedgers();
-    ledgers.value = (res as any).data ?? [];
+    ledgers.value = res.data ?? [];
   } catch (e) {
     console.error(e);
   }

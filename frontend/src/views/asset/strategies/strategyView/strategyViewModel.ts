@@ -27,7 +27,6 @@ export interface EnrichedHolding {
    * **状态 = 后端字段契约**，前端禁止按日期自行推断。
    */
   settled_today?: boolean | null;
-  [key: string]: any;
 }
 
 /** 后端概览里的一条原始持仓（只声明这里用到的字段，其余原样透传） */
@@ -36,7 +35,8 @@ export interface RawHolding {
   quantity?: number | null;
   current_price?: number | null;
   avg_price?: number | null;
-  [key: string]: any;
+  /** 品种类型（fund / money_fund ...），后端行级下发 */
+  type?: string;
 }
 
 /**

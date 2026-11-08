@@ -62,6 +62,6 @@ export function getPluginsList(
     removeConsole({ external: ["src/assets/iconfont/iconfont.js"] }),
     lifecycle === "report"
       ? visualizer({ open: true, brotliSize: true, filename: "report.html" })
-      : (null as any)
+      : null
   ];
 }

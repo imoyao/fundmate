@@ -260,7 +260,10 @@ async function fetchList() {
   try {
     const res = await getPortfolios();
     // 兼容不同响应格式
-    portfolios.value = (res as any)?.data?.data ?? (res as any)?.data ?? [];
+    const raw = (
+      res as { data?: PortfolioItem[] | { data?: PortfolioItem[] } } | null
+    )?.data;
+    portfolios.value = Array.isArray(raw) ? raw : (raw?.data ?? []);
   } catch (e) {
     ElMessage.error("加载组合列表失败");
   } finally {
