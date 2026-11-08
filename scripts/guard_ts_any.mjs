@@ -118,8 +118,19 @@ const BASELINE_PATH = process.env.GUARD_TS_ANY_BASELINE
 const EXTS = new Set([".ts", ".vue"]);
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git"]);
 const ISSUE = 2879;
-/** 新增文件（或 --write 纳入新增文件）允许的 any 计数上限，超出即红。 */
-const NEW_FILE_ANY_LIMIT = 3;
+/**
+ * 新增文件（或 --write 纳入新增文件）允许的 any 计数上限。
+ * #2879 收口（2026-11-08）：从 3 收紧到 0 —— 新文件一律不许带显式 any，
+ * 也不再有「压到 3 处以内再登记基线」的口子；修法唯一：换成具体类型 / unknown。
+ */
+const NEW_FILE_ANY_LIMIT = 0;
+
+/**
+ * 上游第三方 typings 的显式豁免（#2879 卡内建议）：这些 `any` 是上游声明的
+ * 一部分，改成 unknown 只会引出成片 `as` 断言，且每次升级依赖都会被覆盖。
+ * 它们仍计入基线总数（不隐藏存量），但在报告里单列，便于区分「待收敛」与「豁免」。
+ */
+const EXEMPT_FILES = new Set(["utils/localforage/types.d.ts"]);
 
 // ── 依赖加载 ────────────────────────────────────────────────────────────────
 // ESM 顶层静态 import 不认 NODE_PATH，故用 createRequire 动态加载：
@@ -285,11 +296,19 @@ export function buildBaseline(counts) {
   const keys = Object.keys(counts).sort();
   return {
     $comment:
-      "issue #2879 第一刀：TS/Vue 显式 any 类型注解（TS AnyKeyword AST 口径）冻结基线，只减不增。" +
+      "issue #2879：TS/Vue 显式 any 类型注解（TS AnyKeyword AST 口径）冻结基线，只减不增。" +
       " 收录所有被扫文件（含 0：0 值条目钉住「本来干净」，0→1 也算回潮）。" +
+      " 2026-11-08 起新增文件零容忍（newFileAnyLimit=0）。" +
       " 由 `node scripts/guard_ts_any.mjs --write` 生成；实测低于基线请收紧，不要手工调大。",
     issue: ISSUE,
     newFileAnyLimit: NEW_FILE_ANY_LIMIT,
+    exemptions: [
+      {
+        path: "utils/localforage/types.d.ts",
+        reason:
+          "上游 localforage typings 自带 any；改 unknown 只会引出 as 断言且升级依赖即被覆盖，#2879 卡内建议保留并注明豁免。"
+      }
+    ],
     generatedAt: new Date().toISOString().slice(0, 10),
     files: Object.fromEntries(keys.map((k) => [k, counts[k]])),
   };
@@ -353,26 +372,28 @@ export function compareToBaseline(counts, base) {
       if (n > base[k]) violations.push({ kind: "GROW", key: k, n, b: base[k] });
       else if (n < base[k]) loose.push({ key: k, n, b: base[k] });
     } else if (n > NEW_FILE_ANY_LIMIT) {
+      // 零容忍：新文件含 any 一律拦，--write 也拒绝登记。旧版「1~3 处未登记」
+      // 分支在 limit=0 下并入本分支，修法统一为「换具体类型」，不再有登记后放行。
       violations.push({ kind: "NEW_OVER", key: k, n });
-    } else if (n > 0) {
-      // #2935：与回归网第 7 条「每个含 any 的文件都在基线里」对齐。
-      // 旧实现只打印提示并 exit 0，于是带 any 的新文件 PR 自己绿，等别的 PR
-      // 把两者合进 dev 才由回归网抓到 —— 典型「组合态才红」。
-      violations.push({ kind: "NEW_UNREGISTERED", key: k, n });
     }
     // 0 any 的新文件：静默放行，避免「新增一个纯类型文件」也刷提示；
-    // 它一旦 0→1 就会命中上面的 NEW_UNREGISTERED，仍堵得住。
+    // 它一旦 0→1 就会命中上面的 NEW_OVER，仍堵得住。
   }
   const stale = Object.keys(base).filter((k) => !(k in counts));
 
   // 总数不许涨（冗余于逐文件，但作为显式全局判据把冻结数字摆出来）。
   const totalRose = measuredExistingTotal > frozenTotal;
   const measuredAll = sumValues(counts);
+  const exemptTotal = Object.entries(counts).reduce(
+    (s, [k, n]) => s + (EXEMPT_FILES.has(k) ? n : 0),
+    0,
+  );
 
   if (violations.length === 0 && !totalRose) {
     console.log(
       `[TS any 守卫] OK：存量冻结 ${Object.keys(base).length} 个文件 / 冻结 any 总数 ${frozenTotal}；` +
-        `本轮实测 ${measuredAll} 处 any（已有文件 ${measuredExistingTotal} 处，共扫 ${Object.keys(counts).length} 个文件）；只减不增`,
+        `本轮实测 ${measuredAll} 处 any（已有文件 ${measuredExistingTotal} 处，共扫 ${Object.keys(counts).length} 个文件）；` +
+        `其中第三方声明豁免 ${exemptTotal} 处，业务待收敛 ${measuredAll - exemptTotal} 处；只减不增`,
     );
     if (loose.length) {
       console.log(
@@ -399,10 +420,6 @@ export function compareToBaseline(counts, base) {
       console.error(
         `  - ${v.key}: ${v.n} 处 any（基线 ${v.b}，+${v.n - v.b}）`,
       );
-    } else if (v.kind === "NEW_UNREGISTERED") {
-      console.error(
-        `  - ${v.key}: 新文件含 ${v.n} 处 any（≤ 上限 ${NEW_FILE_ANY_LIMIT}），但未纳入基线`,
-      );
     } else {
       console.error(
         `  - ${v.key}: 新文件 ${v.n} 处 any，超过新增文件上限 ${NEW_FILE_ANY_LIMIT}`,
@@ -410,10 +427,9 @@ export function compareToBaseline(counts, base) {
     }
   }
   console.error(
-    "\n  修法：把新增的 any 换成具体类型 / unknown；新文件确需 any 时先压到上限内，\n" +
-      "        并在同 PR 跑一次 `node scripts/guard_ts_any.mjs --write` 纳入基线\n" +
-      "        （--write 会连同 0 值新文件一起登记，已有条目数值一个不动）。\n" +
-      "        存量每消掉一处就用 --write 收紧一次。",
+    "\n  修法：把新增的 any 换成具体类型 / unknown（新文件零容忍，--write 也不会纳入）。\n" +
+      "        存量每消掉一处就跑一次 `node scripts/guard_ts_any.mjs --write` 收紧基线\n" +
+      "        （0 值新文件会一并登记，已有条目数值一个不动）。",
   );
   return 1;
 }

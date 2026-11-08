@@ -135,7 +135,7 @@ function withSandbox(files = SAMPLE, baseFiles = AST_COUNTS) {
   const baseline = join(dir, "baseline.json");
   writeFileSync(
     baseline,
-    `${JSON.stringify({ issue: 2879, newFileAnyLimit: 3, files: baseFiles }, null, 2)}\n`,
+    `${JSON.stringify({ issue: 2879, newFileAnyLimit: 0, files: baseFiles }, null, 2)}\n`,
     "utf8",
   );
   return {
@@ -149,7 +149,7 @@ test("真实基线 JSON 结构合法、键按路径字典序、计数为非负�
   assert.ok(existsSync(realBaseline), "scripts/ts-any-baseline.json 必须存在");
   const b = JSON.parse(readFileSync(realBaseline, "utf8"));
   assert.equal(b.issue, 2879);
-  assert.equal(b.newFileAnyLimit, 3);
+  assert.equal(b.newFileAnyLimit, 0);
   assert.ok(b.files && typeof b.files === "object" && !Array.isArray(b.files));
   const keys = Object.keys(b.files);
   assert.ok(keys.length > 0, "基线不应为空");
@@ -321,7 +321,7 @@ test(
   },
 );
 
-test("新增文件 any 超过上限(3) 必须转红", { skip: SKIP_NO_AST }, () => {
+test("新增文件含 any 必须转红（零容忍，上限 0）", { skip: SKIP_NO_AST }, () => {
   const sb = withSandbox();
   writeFileSync(
     join(sb.src, "brand-new.ts"),
@@ -329,37 +329,26 @@ test("新增文件 any 超过上限(3) 必须转红", { skip: SKIP_NO_AST }, () 
   );
   const r = run([], sb.env);
   assert.equal(r.code, 1);
-  assert.match(`${r.out}${r.err}`, /新增文件上限/);
+  assert.match(`${r.out}${r.err}`, /超过新增文件上限 0/);
 });
 
 test(
-  "新增文件含 any 但未纳入基线必须转红（#2935：与基线覆盖用例口径对齐）",
+  "1 处 any 的新文件同样转红，且 --write 不得把它洗进基线",
   { skip: SKIP_NO_AST },
   () => {
     const sb = withSandbox();
     writeFileSync(join(sb.src, "small-new.ts"), "const x: any = 1;\n");
     const r = run([], sb.env);
-    assert.equal(r.code, 1, "带 any 的新文件不得静默放行（旧实现 exit 0）");
+    assert.equal(r.code, 1, "新文件含 any 不得静默放行");
     assert.match(`${r.out}${r.err}`, /small-new\.ts/);
-    assert.match(`${r.out}${r.err}`, /未纳入基线/);
-    assert.match(`${r.out}${r.err}`, /--write/);
+    assert.match(`${r.out}${r.err}`, /超过新增文件上限 0/);
     assert.doesNotMatch(r.out, /只减不增/, "转红时不得同时宣布通过");
-  },
-);
 
-test(
-  "修法闭环：--write 纳入新文件后守卫转绿，且已有基线条目数值不动",
-  { skip: SKIP_NO_AST },
-  () => {
-    const sb = withSandbox();
-    writeFileSync(join(sb.src, "small-new.ts"), "const x: any = 1;\n");
-    assert.equal(run([], sb.env).code, 1, "前置：先确认它确实红");
     const w = run(["--write"], sb.env);
-    assert.equal(w.code, 0, `--write 应当能纳入：${w.out}\n${w.err}`);
+    assert.equal(w.code, 1, "--write 不得把新文件的 any 登记进基线");
     const after = JSON.parse(readFileSync(sb.baseline, "utf8"));
-    assert.equal(after.files["small-new.ts"], 1, "新文件按实测值登记");
+    assert.equal(after.files["small-new.ts"], undefined, "基线里不得出现该文件");
     assert.equal(after.files["a.ts"], AST_COUNTS["a.ts"], "已有条目不得被改写");
-    assert.equal(run([], sb.env).code, 0, "--write 后应当转绿");
   },
 );
 
@@ -389,7 +378,7 @@ test("--report 打印可直接写回的基线 JSON", { skip: SKIP_NO_AST }, () =
   assert.equal(r.code, 0);
   const parsed = JSON.parse(r.out);
   assert.equal(parsed.issue, 2879);
-  assert.equal(parsed.newFileAnyLimit, 3);
+  assert.equal(parsed.newFileAnyLimit, 0);
   assert.equal(parsed.files["a.ts"], AST_COUNTS["a.ts"]);
   assert.equal(parsed.files["sub/b.vue"], AST_COUNTS["sub/b.vue"]);
 });
