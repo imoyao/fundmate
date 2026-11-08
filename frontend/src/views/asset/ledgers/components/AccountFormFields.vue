@@ -120,6 +120,7 @@
 </template>
 
 <script setup lang="ts">
+import type { FeeConfigLike } from "./ledgerTypes";
 import { computed } from "vue";
 import { LEDGER_TYPE_OPTIONS } from "@/constants";
 import type { SalesInstitution, LedgerItem } from "@/api/ledger";
@@ -186,7 +187,7 @@ const emit = defineEmits<{
   "update:linkedMoneyFundCode": [value: string | null];
   "update:autoPurchaseMoneyFund": [value: boolean];
   "update:portfolioId": [value: number | null];
-  "update:feeConfig": [value: any];
+  "update:feeConfig": [value: FeeConfigLike | null];
   "update:salesInstitutionId": [value: number | null];
 }>();
 

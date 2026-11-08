@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { OverviewGroupLike } from "./ledgerTypes";
 import { computed } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -19,7 +20,7 @@ import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
  */
 const props = defineProps<{
   /** overview.groups 原始分组 */
-  groups: any[];
+  groups: OverviewGroupLike[];
   /** 总资产（中心覆盖层展示） */
   totalAssets: number;
 }>();

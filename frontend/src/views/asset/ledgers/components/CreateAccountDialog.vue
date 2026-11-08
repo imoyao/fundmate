@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { FeeConfigLike } from "./ledgerTypes";
 import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
@@ -47,7 +48,7 @@ const createForm = ref({
   linked_money_fund_code: null as string | null,
   auto_purchase_money_fund: false,
   portfolio_id: null as number | null,
-  fee_config: null as any,
+  fee_config: null as FeeConfigLike | null,
   sales_institution_id: null as number | null,
   // 归属家庭成员（#1173，null=未归属/家庭共有）
   owner_member_id: null as number | null

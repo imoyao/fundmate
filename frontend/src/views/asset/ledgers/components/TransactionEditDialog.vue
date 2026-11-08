@@ -162,13 +162,14 @@
 // 编辑交易弹窗。#980 拆分后本文件只剩「视图 + 接线」：
 // 联动与保存逻辑在 transactionEdit/useTransactionEditForm.ts，
 // 纯口径（反算 / 类型兜底 / 快照）在 transactionEdit/transactionEditModel.ts。
+import type { TxnRecordLike } from "./transactionEdit/transactionEditModel";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useTransactionEditForm } from "./transactionEdit/useTransactionEditForm";
 
 const props = defineProps<{
   modelValue: boolean;
-  transaction: any;
+  transaction: TxnRecordLike | null;
   assetType?: string;
   /** 基金代码（用于自动拉取净值，可从 positionData 或交易记录获取） */
   symbol?: string;
@@ -176,7 +177,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
-  saved: [data: any];
+  saved: [data: TxnRecordLike];
 }>();
 
 const {
@@ -198,10 +199,10 @@ const {
   requestClose,
   handleSave
 } = useTransactionEditForm({
-  transaction: () => props.transaction,
+  transaction: () => props.transaction ?? {},
   symbol: () => props.symbol,
   assetTypeOverride: () => props.assetType,
-  onSaved: data => emit("saved", data),
+  onSaved: data => emit("saved", data as TxnRecordLike),
   onClose: () => emit("update:modelValue", false)
 });
 </script>
