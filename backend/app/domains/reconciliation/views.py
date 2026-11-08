@@ -44,6 +44,7 @@ from app.services.ghost_duplicate_service import (
     undo_ignore,
     undo_ignore_by_id,
 )
+from app.services.reconciliation_query import list_active_discrepancies, resolve_display_names
 from app.services.reconciliation_service import apply_decision, get_ledger_snapshot_consistency
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
@@ -130,33 +131,23 @@ def list_discrepancies():
     未传 page_size 时返回全部（保持旧行为，前端工作台默认拉全量）。
     """
     family_id = get_family_id()
-    domain = request.args.get('domain')
-    status = request.args.get('status')
-    page = request.args.get('page', type=int)
-    page_size = request.args.get('page_size', type=int)
     with user_session() as db:
-        query = db.query(ReconciliationDiscrepancy).filter(ReconciliationDiscrepancy.family_id == family_id)
-        if domain:
-            query = query.filter(ReconciliationDiscrepancy.domain == domain)
-        if status:
-            query = query.filter(ReconciliationDiscrepancy.status == status)
-        total = query.count()
-        if page_size:
-            page = page or 1
-            items = (
-                query.order_by(ReconciliationDiscrepancy.updated_at.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-                .all()
-            )
-        else:
-            items = query.order_by(ReconciliationDiscrepancy.updated_at.desc()).all()
+        items, total = list_active_discrepancies(
+            db,
+            family_id,
+            domain=request.args.get('domain'),
+            status=request.args.get('status'),
+            page=request.args.get('page', type=int),
+            page_size=request.args.get('page_size', type=int),
+        )
+        names = resolve_display_names(db, family_id, [d.symbol for d in items])
         data = [
             {
                 'id': d.id,
                 'domain': d.domain,
                 'ledger_id': d.ledger_id,
                 'symbol': d.symbol,
+                'display_name': names.get((d.symbol or '').strip(), ''),
                 'discrepancy_type': d.discrepancy_type,
                 'expected_value': Money.min_unit_to_shares(d.expected_value),
                 'actual_value': Money.min_unit_to_shares(d.actual_value),

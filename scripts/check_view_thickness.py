@@ -404,9 +404,12 @@ BASELINE: dict[str, dict[str, int]] = {
     #   已按本守卫的正解先下沉业务规则：金额/日期解析与落库全在
     #   `services/dividend_tax_service.record_tax_from_payload`，视图只剩参数校验与组响应。
     #   增量是**两个新端点**（GET 扩字段 + POST 补记）的拆包与注释，不是业务规则回流。
+    # 2026-11-08：第二轮补产品名时把「批量查名 + 差异列表取数口径」写进了视图，
+    #   触发本守卫红线。按正解下沉到 `services/reconciliation_query.py`（视图只留
+    #   入参解析 + 调服务 + 组响应），实测回写 390/2 → 381/1（只减不增）。
     "backend/app/domains/reconciliation/views.py": {
-        "lines": 390,
-        "orm_queries": 2,
+        "lines": 381,
+        "orm_queries": 1,
         "commits": 0,
         "max_func": 48,
     },

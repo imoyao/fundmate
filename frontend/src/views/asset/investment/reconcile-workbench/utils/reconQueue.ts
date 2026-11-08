@@ -49,9 +49,15 @@ import {
   reconOwnership,
   reconQuantity,
   reconRecordRef,
+  reconSymbolCode,
   reconTradeDate,
   reconTxnType
 } from "./reconDisplay";
+import {
+  CASH_SYMBOL_HINT,
+  discrepancyIssue,
+  specialSymbolLabel
+} from "./reconLabels";
 
 /** 队列项对应的原始数据类型，供页面层分发动作（不做 any 透传） */
 export type ReconQueuePayload =
@@ -62,7 +68,7 @@ export type ReconQueuePayload =
   | { kind: "tax"; row: DividendTaxPendingItem }
   | { kind: "dangling"; row: DanglingRefGroup }
   | { kind: "orphan"; row: OrphanLedgerGroup }
-  | { kind: "import"; row: null };
+  | { kind: "import" };
 
 /** 一条「用户要处理的事」。所有展示字段都已翻译成中文，不含任何内部存储码。 */
 export interface ReconQueueItem {
@@ -117,36 +123,31 @@ function finish(
 
 /* ── 域 B / C：持仓快照差异、导入后孤儿持仓 ───────────────────────────── */
 
-const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
-  quantity: "份额",
-  cost: "成本",
-  cash: "资金",
-  orphan: "有持仓但缺交易流水"
-};
-
 function discrepancyItem(row: DiscrepancyItem): ReconQueueItem {
   const domain = (row.domain === "C" ? "C" : "B") as WorkbenchDomainKey;
-  const what = DISCREPANCY_TYPE_LABEL[row.discrepancy_type] ?? "记录";
+  const issue = discrepancyIssue(row.discrepancy_type);
   const done = row.status !== "pending";
+  const isCash = specialSymbolLabel(row.symbol) !== null;
   return finish({
     id: `disc-${row.id}`,
     task: DOMAIN_TO_TASK[domain],
     state: done ? "done" : "judge",
     sourceDomain: domain,
-    title: reconGroupTitle(row.symbol),
+    title: reconGroupTitle(row.symbol, row.display_name),
     summary: done
       ? "这条差异已经处理过了。"
       : domain === "C"
-        ? "有持仓记录，却找不到对应的交易流水。"
-        : `${what}在账本与快照里对不上，需要你决定按哪边记。`,
+        ? "账上有这笔持仓，却找不到对应的交易流水。"
+        : `${issue}，需要你对照流水决定按哪边记。`,
     facts: [
+      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
       row.expected_value !== null
-        ? `理论 ${reconQuantity(row.expected_value)}`
+        ? `按流水算 ${reconQuantity(row.expected_value)}`
         : "",
       row.actual_value !== null
-        ? `实际 ${reconQuantity(row.actual_value)}`
+        ? `账上记的 ${reconQuantity(row.actual_value)}`
         : "",
-      row.diff !== null ? `差额 ${reconQuantity(row.diff)}` : ""
+      row.diff !== null ? `差多少 ${reconQuantity(row.diff)}` : ""
     ].filter(Boolean),
     count: 1,
     actionLabel: done ? "查看记录" : "核对并处理",
@@ -234,21 +235,19 @@ function ghostIgnoredItem(row: GhostDuplicateIgnore): ReconQueueItem {
 
 function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
   const needRecord = row.status === "未扣";
-  const name = row.name?.trim();
+  const isCash = specialSymbolLabel(row.symbol) !== null;
   return finish({
     id: `tax-${row.symbol}-${row.dividend_on ?? row.year}`,
     task: "supplement",
     // 税额取决于买入批次的持股期，后端不推算，一律需要用户对照交割单判断
     state: "judge",
     sourceDomain: "E",
-    title: name || reconGroupTitle(row.symbol),
+    title: reconGroupTitle(row.symbol, row.name),
     summary: needRecord
       ? "这笔现金分红在交割单上扣了红利税，账里还没有这笔支出。"
       : "已记的扣税金额超过红利税上限，可能记错了品种，需要核对。",
     facts: [
-      reconGroupTitle(row.symbol) !== "标的代码未填"
-        ? `代码 ${reconGroupTitle(row.symbol)}`
-        : "",
+      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
       reconTradeDate(row.dividend_on),
       `税前分红 ${reconMoney(centsToYuan(row.dividend_cents))}`,
       row.tax_cents > 0
@@ -346,30 +345,41 @@ function importItem(): ReconQueueItem {
     title: "导入交割单",
     summary:
       "从券商或表格文件批量导入交易，系统会自动找出有持仓却没有交易流水的记录。",
-    facts: ["导入后自动核对孤儿持仓", "数量差异在「核对差异」里看"],
+    facts: ["导入后自动找出缺流水的持仓", "份额差异在「核对差异」里看"],
     count: 0,
     actionLabel: "查看导入入口",
     stateReason: "这是入口动作，不是待处理记录",
     batchId: null,
-    payload: { kind: "import", row: null }
+    payload: { kind: "import" }
   });
+}
+
+/**
+ * 数组守卫：后端一旦返回 HTTP 200 但 body 形状不对（例如把汇总对象当清单返回），
+ * `for...of` 会在 computed 里抛错。Vue 对渲染错误很「包容」——不白屏、不崩，
+ * 只把 DOM 冻在末次成功渲染（加载态），用户看到的是「一直转圈」而不是报错。
+ * 这里统一降级成空数组，让错误态由 loader 的 loadErrors 正常表达。
+ */
+function rowsOf<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
 }
 
 /** 把七域快照收敛成一条待办队列。顺序由调用方排序，本函数不排序。 */
 export function buildReconQueue(source: ReconQueueSource): ReconQueueItem[] {
   const items: ReconQueueItem[] = [];
 
-  for (const row of source.discrepancies) {
+  for (const row of rowsOf(source.discrepancies)) {
     if (row.domain === "B" || row.domain === "C")
       items.push(discrepancyItem(row));
   }
-  for (const row of source.eItems) items.push(eaccountItem(row));
-  for (const row of source.ghostGroups) items.push(ghostItem(row));
-  for (const row of source.ghostIgnored) items.push(ghostIgnoredItem(row));
-  for (const row of source.taxItems) items.push(taxItem(row));
-  for (const row of source.dangling?.groups ?? [])
+  for (const row of rowsOf(source.eItems)) items.push(eaccountItem(row));
+  for (const row of rowsOf(source.ghostGroups)) items.push(ghostItem(row));
+  for (const row of rowsOf(source.ghostIgnored))
+    items.push(ghostIgnoredItem(row));
+  for (const row of rowsOf(source.taxItems)) items.push(taxItem(row));
+  for (const row of rowsOf(source.dangling?.groups))
     items.push(danglingItem(row));
-  for (const row of source.orphan?.groups ?? []) items.push(orphanItem(row));
+  for (const row of rowsOf(source.orphan?.groups)) items.push(orphanItem(row));
 
   items.push(importItem());
   return items;

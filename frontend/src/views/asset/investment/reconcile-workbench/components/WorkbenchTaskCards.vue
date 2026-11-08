@@ -32,11 +32,23 @@
       </div>
       <p class="recon-task-card__hint">{{ task.hint }}</p>
       <div class="recon-task-card__foot">
-        <span class="recon-task-card__number">{{ counts[task.key] }}</span>
-        <span>项待办</span>
-        <span v-if="readyCounts[task.key] > 0" class="recon-task-card__ready">
-          · 其中 {{ readyCounts[task.key] }} 项可直接处理
+        <span v-if="counts[task.key] === 0" class="recon-task-card__none">
+          暂无待办
         </span>
+        <template v-else>
+          <!-- 角标已给总数，这里只把「能一键处理 / 得逐条判断」拆开说清，
+               避免用户拿脚注数字和角标对不上（第三轮反馈）。 -->
+          <span v-if="readyCounts[task.key] > 0" class="recon-task-card__ready">
+            {{ readyCounts[task.key] }} 件可一键处理
+          </span>
+          <span
+            v-if="manualCount(task.key) > 0"
+            class="recon-task-card__manual"
+          >
+            {{ readyCounts[task.key] > 0 ? "· 另有 " : ""
+            }}{{ manualCount(task.key) }} 件需你逐条判断
+          </span>
+        </template>
       </div>
     </div>
   </div>
@@ -47,16 +59,22 @@ import { RECON_TASKS, type ReconTaskKey } from "../constants/reconTasks";
 
 defineOptions({ name: "WorkbenchTaskCards" });
 
-defineProps<{
+const props = defineProps<{
   /** 当前选中的任务；`all` 表示未筛选 */
   active: ReconTaskKey | "all";
-  /** 三类任务的待办记录条数（与状态计数同源，见 utils/reconQueue.ts） */
+  /** 三类任务的待办件数（与队列条数同源，见 utils/reconQueue.ts） */
   counts: Record<ReconTaskKey, number>;
-  /** 其中「可直接处理」的项数 */
+  /** 其中「可直接处理（可一键处理）」的件数 */
   readyCounts: Record<ReconTaskKey, number>;
 }>();
 
 const emit = defineEmits<{ select: [key: ReconTaskKey] }>();
+
+/** 待办件数减去可一键处理的，即为需要人工逐一判断的件数。
+ *  把「可自动 / 需人工」拆开说明，避免角标总数与下方口径让用户对不上。 */
+function manualCount(key: ReconTaskKey): number {
+  return Math.max(0, props.counts[key] - props.readyCounts[key]);
+}
 </script>
 
 <style scoped>
@@ -152,15 +170,15 @@ const emit = defineEmits<{ select: [key: ReconTaskKey] }>();
   color: var(--text-tertiary-ink);
 }
 
-.recon-task-card__number {
-  font-family: var(--font-mono);
-  font-size: var(--text-num-strong);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
 .recon-task-card__ready {
   color: var(--color-success-ink);
+}
+
+.recon-task-card__manual {
+  color: var(--color-warning-ink);
+}
+
+.recon-task-card__none {
+  color: var(--text-tertiary-ink);
 }
 </style>

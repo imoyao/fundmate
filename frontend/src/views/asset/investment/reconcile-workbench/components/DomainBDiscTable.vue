@@ -6,53 +6,79 @@
       :image-size="80"
     />
     <template v-else>
+      <!-- 列名改成用户语言，并当场解释三个数是怎么来的（owner 第二轮：
+           「类型列 / 数量 / 理论 / 实际 / 差异，我不知道系统在说什么」） -->
+      <p class="disc-caliber">{{ DISC_CALIBER_HINT }}</p>
       <div class="disc-table-wrap">
         <el-table :data="pagedItems" stripe size="small" class="disc-table">
-          <el-table-column label="代码" prop="symbol" width="110" />
-          <el-table-column label="类型" width="90">
+          <el-table-column :label="DISC_COLUMN_LABELS.product" min-width="180">
+            <template #default="{ row }">
+              <div class="disc-product">
+                <span class="disc-product__name">{{
+                  reconGroupTitle(row.symbol, row.display_name)
+                }}</span>
+                <span class="disc-product__code">{{
+                  specialSymbolLabel(row.symbol)
+                    ? CASH_SYMBOL_HINT
+                    : `代码 ${reconSymbolCode(row.symbol)}`
+                }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="DISC_COLUMN_LABELS.issue" width="130">
             <template #default="{ row }">
               <span class="disc-type">{{
-                typeLabel(row.discrepancy_type)
+                discrepancyIssue(row.discrepancy_type)
               }}</span>
             </template>
           </el-table-column>
           <el-table-column
-            label="理论"
-            prop="expected_value"
-            width="100"
+            :label="DISC_COLUMN_LABELS.expected"
+            width="120"
             align="right"
-          />
+          >
+            <template #default="{ row }">
+              {{ reconQuantity(row.expected_value) }}
+            </template>
+          </el-table-column>
           <el-table-column
-            label="实际"
-            prop="actual_value"
-            width="100"
+            :label="DISC_COLUMN_LABELS.actual"
+            width="120"
             align="right"
-          />
-          <el-table-column label="差异" width="100" align="right">
+          >
+            <template #default="{ row }">
+              {{ reconQuantity(row.actual_value) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="DISC_COLUMN_LABELS.diff"
+            width="120"
+            align="right"
+          >
             <template #default="{ row }">
               <span :class="diffClass(row.diff)">{{
-                formatDiff(row.diff)
+                reconQuantity(row.diff)
               }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="90">
+          <el-table-column :label="DISC_COLUMN_LABELS.status" width="90">
             <template #default="{ row }">
               <span class="disc-status" :class="`disc-status--${row.status}`">
                 {{ statusLabel(row.status) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="200">
+          <el-table-column :label="DISC_COLUMN_LABELS.action" width="200">
             <template #default="{ row }">
               <template v-if="row.status === 'pending'">
-                <!-- 就地补充（§6.4）：工作台内直接补录，绝不跳「记一笔」 -->
+                <!-- 补录弹窗已带「补的是哪一条」上下文，标题不再叫「就地补充」 -->
                 <el-button
                   size="small"
                   text
                   type="primary"
                   @click="emit('supplement', row as DiscrepancyItem)"
                 >
-                  补充
+                  补录这笔
                 </el-button>
                 <el-button
                   size="small"
@@ -87,12 +113,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { DiscrepancyItem } from "@/api/reconciliation";
+import { statusLabel, diffClass } from "../utils/discFormat";
 import {
-  typeLabel,
-  statusLabel,
-  formatDiff,
-  diffClass
-} from "../utils/discFormat";
+  reconGroupTitle,
+  reconQuantity,
+  reconSymbolCode
+} from "../utils/reconDisplay";
+import {
+  CASH_SYMBOL_HINT,
+  DISC_CALIBER_HINT,
+  DISC_COLUMN_LABELS,
+  discrepancyIssue,
+  specialSymbolLabel
+} from "../utils/reconLabels";
 
 /** 域 B 持仓快照差异表（#980 拆分自 index.vue；2026-10-28 补客户端分页）。
  *  理论持仓 vs 实际持仓的待处理差异列表，补充 / 忽略操作经 emit 上抛由父级编排。
@@ -102,7 +135,7 @@ const props = withDefaults(
   defineProps<{
     items: DiscrepancyItem[];
     loading: boolean;
-    /** 空态文案（域 B「暂无待处理差异」/ 域 C「暂无孤儿持仓」） */
+    /** 空态文案（域 B「暂无待处理差异」/ 域 C「暂无缺流水的持仓」） */
     emptyText?: string;
   }>(),
   { emptyText: "暂无待处理差异" }
@@ -136,8 +169,33 @@ watch(
   padding: 4px 0;
 }
 
+.disc-caliber {
+  margin: 0 0 10px;
+  font-size: var(--text-label);
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
 .disc-table-wrap {
   overflow-x: auto;
+}
+
+.disc-product {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.disc-product__name {
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.disc-product__code {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
 }
 
 .disc-table {

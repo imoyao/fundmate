@@ -158,7 +158,10 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/dangling_ref_remediation_service.py": {'lines': 541, 'max_func': 58, 'max_cc': 11},
     "backend/app/services/dangling_ref_service.py": {'lines': 607, 'max_func': 88, 'max_cc': 15},
     "backend/app/services/dividend_service.py": {'lines': 465, 'max_func': 112, 'max_cc': 25},
-    "backend/app/services/dividend_tax_service.py": {'lines': 634, 'max_func': 90, 'max_cc': 32},
+    # 2026-11-08：货基免税判定（#1661）曾把服务推到 662 行 / cc 34，触发本守卫。
+    #   纯规则拆到 `services/dividend_tax_rules.py`（`is_dividend_income` /
+    #   `position_asset_types` / `resolve_asset_type`），实测回写 634→592、32→31。
+    "backend/app/services/dividend_tax_service.py": {'lines': 592, 'max_func': 90, 'max_cc': 31},
     "backend/app/services/entitlement_check.py": {'lines': 108, 'max_func': 45, 'max_cc': 7},
     "backend/app/services/enums_service.py": {'lines': 62, 'max_func': 32, 'max_cc': 1},
     "backend/app/services/etf_compare.py": {'lines': 352, 'max_func': 99, 'max_cc': 27},

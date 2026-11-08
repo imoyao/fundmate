@@ -1,125 +1,175 @@
 <template>
   <!--
-    队列 → 处理区的「主从」结构。选中一条待办后，这里渲染它所属来源的既有域面板：
-    队列负责说人话，域面板负责承载真实的写路径与二次确认。
-    没有新增纵向导航，也没有把后端域重新变回 tab。
+    队列 → 处理区改成「右侧抽屉」（owner 第二轮）。
+    旧版把处理区挂在队列下方：几百条待办时处理完一条要往回滚，
+    而且 520px 弹窗塞不下「缺哪条 / 交易流水 / 补充表单」三段上下文。
+    抽屉不占文档流，队列不位移；720px 宽度放得下三段的并排信息。
+
+    写路径零重写：下面各域面板与上一版完全一致，仍承载归因 / 忽略 /
+    补税 / 回填 / 撤销与二次确认。加载只加遮罩、不卸载内容，避免刷新时
+    连带关掉挂在面板内的弹窗（上一轮实机抓到过的回归）。
   -->
-  <!-- 加载只加遮罩，不替换内容：域面板内部挂着补全 / 回填 / 撤销弹窗，
-       一旦在刷新时卸载整个面板，弹窗会被连带关掉，用户看不到「已处理」结果。 -->
-  <CardBlock v-if="detailDomain" v-loading="detailLoading" class="recon-detail">
-    <SectionHeader
-      :title="`处理区 · ${item?.title || domainLabel}`"
-      :info="item?.stateReason || ''"
-    >
-      <template #action>
+  <el-drawer
+    :model-value="open"
+    :size="drawerSize"
+    direction="rtl"
+    append-to-body
+    class="recon-detail-drawer"
+    @update:model-value="onVisibility"
+  >
+    <template #header>
+      <div class="recon-detail__header">
+        <div class="recon-detail__heading">
+          <h2 class="recon-detail__title">{{ drawerTitle }}</h2>
+          <p class="recon-detail__sub">
+            {{ item?.sourceLabel || domainLabel }} ·
+            {{ item?.stateReason || "对照上面的记录再决定怎么处理" }}
+          </p>
+        </div>
         <el-button size="small" text @click="emit('close')">收起</el-button>
-      </template>
-    </SectionHeader>
-    <p v-if="item?.summary" class="recon-detail__lead">{{ item.summary }}</p>
-
-    <SoftBanner v-if="detailError" variant="warning" icon="ep:warning">
-      {{ detailError }}
-      <template #actions>
-        <el-button size="small" @click="emit('refresh', errorKey)">
-          重新加载
-        </el-button>
-      </template>
-    </SoftBanner>
-
-    <DomainBDiscTable
-      v-if="detailDomain === 'B'"
-      :items="ctx.bDiscs"
-      :loading="ctx.loading"
-      @supplement="emit('supplement', $event)"
-      @ignore="emit('ignore', $event)"
-    />
-
-    <template v-else-if="detailDomain === 'C'">
-      <div v-if="entry" class="domain-entry">
-        <div class="domain-entry__text">
-          <p class="domain-entry__title">{{ entry.title }}</p>
-          <p class="domain-entry__hint">{{ entry.hint }}</p>
-        </div>
-        <div class="domain-entry__actions">
-          <el-button
-            v-for="(link, i) in entry.links"
-            :key="i"
-            size="small"
-            :type="i === 0 ? 'primary' : 'default'"
-            :plain="i === 0"
-            @click="emit('goTo', link.to)"
-          >
-            {{ link.label }}
-          </el-button>
-        </div>
       </div>
-      <DomainBDiscTable
-        :items="ctx.cDiscs"
-        :loading="ctx.loading"
-        empty-text="暂无孤儿持仓"
-        @supplement="emit('supplement', $event)"
-        @ignore="emit('ignore', $event)"
-      />
     </template>
 
-    <EAccountDomainPanel
-      v-else-if="detailDomain === 'A'"
-      :items="ctx.eItems"
-      :loading="ctx.eLoading"
-      :acting="ctx.eActing"
-      @cover="emit('eaccountCover', $event)"
-      @ignore="emit('eaccountIgnore', $event)"
-    />
+    <div v-loading="detailLoading" class="recon-detail__body">
+      <!-- ① 来龙去脉：产品名 / 代码 / 账本 / 差额 / 发现时间 -->
+      <ReconContextPanel :item="item" />
 
-    <DomainDGhostTable
-      v-else-if="detailDomain === 'D'"
-      :items="ctx.ghostGroups"
-      :ignored-items="ctx.ghostIgnored"
-      :loading="ctx.ghostLoading"
-      :deleting-id="ctx.ghostDeletingId"
-      :undoing-id="ctx.ghostUndoingId"
-      @ignore="emit('ghostIgnore', $event)"
-      @undo-ignore="emit('ghostUndoIgnore', $event)"
-      @delete-txn="emit('ghostDeleteTxn', $event)"
-    />
+      <!-- ② 投资轨迹：该产品在该账本的交易流水（公共 TransactionTable） -->
+      <ReconInvestmentTrail
+        v-if="trail"
+        :symbol="trail.symbol"
+        :ledger-id="trail.ledgerId"
+      />
 
-    <DomainEDividendTaxTable
-      v-else-if="detailDomain === 'E'"
-      :items="ctx.taxItems"
-      :total-cents="ctx.taxTotalCents"
-      :pending-count="ctx.taxPendingCount"
-      :loading="ctx.taxLoading"
-      @recorded="emit('refresh', 'tax')"
-    />
+      <!-- ③ 处理动作：既有域面板，写路径零重写 -->
+      <SectionHeader
+        title="处理动作"
+        info="下面的操作会写回账本；有二次确认的会先弹确认。"
+      />
 
-    <DomainFDanglingRefs
-      v-else-if="detailDomain === 'F'"
-      :data="ctx.danglingRefs"
-      :loading="ctx.danglingLoading"
-      :error="ctx.errors.dangling ?? ''"
-      @fix="emit('fixDangling', $event)"
-      @refresh="emit('refresh', 'dangling')"
-      @retry="emit('refresh', 'dangling')"
-    />
+      <SoftBanner v-if="detailError" variant="warning" icon="ep:warning">
+        {{ detailError }}
+        <template #actions>
+          <el-button size="small" @click="emit('refresh', errorKey)">
+            重新加载
+          </el-button>
+        </template>
+      </SoftBanner>
 
-    <DomainGOrphanLedger
-      v-else-if="detailDomain === 'G'"
-      :data="ctx.orphanLedgers"
-      :loading="ctx.orphanLoading"
-      :error="ctx.errors.orphan ?? ''"
-      @submitted="emit('refresh', 'orphan')"
-      @retry="emit('refresh', 'orphan')"
-    />
+      <!-- ③ 处理动作：选中了具体一条待办时，只给这一条一个明确动作，
+           不再把整个域清单重列一遍（那和外面队列重复）。未选中具体条目的
+           `?domain=` 直达仍展示该域的完整面板，便于总览。 -->
+      <ReconItemAction
+        v-if="item"
+        :item="item"
+        @supplement="emit('supplement', $event)"
+        @ignore="emit('ignore', $event)"
+        @fix-dangling="emit('fixDangling', $event)"
+        @eaccount-cover="emit('eaccountCover', $event)"
+        @eaccount-ignore="emit('eaccountIgnore', $event)"
+        @ghost-ignore="emit('ghostIgnore', $event)"
+        @ghost-undo-ignore="emit('ghostUndoIgnore', $event)"
+        @go-to="emit('goTo', $event)"
+        @fix-orphan="emit('fixOrphan', $event)"
+        @refresh="emit('refresh', $event)"
+      />
 
-    <p v-else class="recon-detail__hint">
-      这条待办的处理入口在下方按钮，选中的来源没有需要展开的记录表。
-    </p>
-  </CardBlock>
+      <template v-else>
+        <DomainBDiscTable
+          v-if="detailDomain === 'B'"
+          :items="ctx.bDiscs"
+          :loading="ctx.loading"
+          @supplement="emit('supplement', $event)"
+          @ignore="emit('ignore', $event)"
+        />
+
+        <template v-else-if="detailDomain === 'C'">
+          <div v-if="entry" class="domain-entry">
+            <div class="domain-entry__text">
+              <p class="domain-entry__title">{{ entry.title }}</p>
+              <p class="domain-entry__hint">{{ entry.hint }}</p>
+            </div>
+            <div class="domain-entry__actions">
+              <el-button
+                v-for="(link, i) in entry.links"
+                :key="i"
+                size="small"
+                :type="i === 0 ? 'primary' : 'default'"
+                :plain="i === 0"
+                @click="emit('goTo', link.to)"
+              >
+                {{ link.label }}
+              </el-button>
+            </div>
+          </div>
+          <DomainBDiscTable
+            :items="ctx.cDiscs"
+            :loading="ctx.loading"
+            empty-text="暂无缺流水的持仓"
+            @supplement="emit('supplement', $event)"
+            @ignore="emit('ignore', $event)"
+          />
+        </template>
+
+        <EAccountDomainPanel
+          v-else-if="detailDomain === 'A'"
+          :items="ctx.eItems"
+          :loading="ctx.eLoading"
+          :acting="ctx.eActing"
+          @cover="emit('eaccountCover', $event)"
+          @ignore="emit('eaccountIgnore', $event)"
+        />
+
+        <DomainDGhostTable
+          v-else-if="detailDomain === 'D'"
+          :items="ctx.ghostGroups"
+          :ignored-items="ctx.ghostIgnored"
+          :loading="ctx.ghostLoading"
+          :deleting-id="ctx.ghostDeletingId"
+          :undoing-id="ctx.ghostUndoingId"
+          @ignore="emit('ghostIgnore', $event)"
+          @undo-ignore="emit('ghostUndoIgnore', $event)"
+          @delete-txn="emit('ghostDeleteTxn', $event)"
+        />
+
+        <DomainEDividendTaxTable
+          v-else-if="detailDomain === 'E'"
+          :items="ctx.taxItems"
+          :total-cents="ctx.taxTotalCents"
+          :pending-count="ctx.taxPendingCount"
+          :loading="ctx.taxLoading"
+          @recorded="emit('refresh', 'tax')"
+        />
+
+        <DomainFDanglingRefs
+          v-else-if="detailDomain === 'F'"
+          :data="ctx.danglingRefs"
+          :loading="ctx.danglingLoading"
+          :error="ctx.errors.dangling ?? ''"
+          @fix="emit('fixDangling', $event)"
+          @refresh="emit('refresh', 'dangling')"
+          @retry="emit('refresh', 'dangling')"
+        />
+
+        <DomainGOrphanLedger
+          v-else-if="detailDomain === 'G'"
+          :data="ctx.orphanLedgers"
+          :loading="ctx.orphanLoading"
+          :error="ctx.errors.orphan ?? ''"
+          @submitted="emit('refresh', 'orphan')"
+          @retry="emit('refresh', 'orphan')"
+        />
+
+        <p v-else class="recon-detail__hint">
+          这条待办的处理入口在下方按钮，选中的来源没有需要展开的记录表。
+        </p>
+      </template>
+    </div>
+  </el-drawer>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import CardBlock from "@/components/CardBlock/index.vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import type {
@@ -137,6 +187,9 @@ import {
   type ReconDetailContext
 } from "../utils/reconDetail";
 import type { ReconQueueItem } from "../utils/reconQueue";
+import ReconContextPanel from "./ReconContextPanel.vue";
+import ReconItemAction from "./ReconItemAction.vue";
+import ReconInvestmentTrail from "./ReconInvestmentTrail.vue";
 import DomainBDiscTable from "./DomainBDiscTable.vue";
 import EAccountDomainPanel from "./EAccountDomainPanel.vue";
 import DomainDGhostTable from "./DomainDGhostTable.vue";
@@ -148,6 +201,8 @@ defineOptions({ name: "ReconQueueDetail" });
 
 const props = defineProps<{
   item: ReconQueueItem | null;
+  /** 抽屉是否展开（入站 ?domain=G 时即使没有待办也要能看到空态） */
+  open: boolean;
   /**
    * 入站 `?domain=G` 直达时即使该类一条待办都没有，也要能看到对应处理区（空态）。
    * 故 domain 与 item 解耦：domain 决定渲染哪个面板，item 只决定标题与说明。
@@ -168,6 +223,7 @@ const emit = defineEmits<{
   ghostUndoIgnore: [item: GhostDuplicateIgnore];
   ghostDeleteTxn: [txn: GhostDuplicateTxn];
   goTo: [to: string | { name: string }];
+  fixOrphan: [item: ReconQueueItem];
 }>();
 
 const detailDomain = computed(
@@ -176,6 +232,48 @@ const detailDomain = computed(
 const domainLabel = computed(() =>
   detailDomain.value ? DOMAIN_SOURCE_LABEL[detailDomain.value] : "待办"
 );
+const drawerTitle = computed(() => props.item?.title || domainLabel.value);
+
+/** 抽屉在窄屏占满整屏，桌面固定 720px（el-drawer 的 size 是 inline style）。
+ *  断点用 matchMedia 而非裸 innerWidth：只在跨越阈值时触发，不跟着每一次 resize 抖动，
+ *  与全站移动端降级写法一致（ExploreWatchlistTable.vue）。 */
+const MOBILE_MQ = "(max-width: 768px)";
+const drawerSize = ref("720px");
+let mq: MediaQueryList | null = null;
+function onBreakpoint(e: MediaQueryListEvent | MediaQueryList): void {
+  drawerSize.value = e.matches ? "100%" : "720px";
+}
+onMounted(() => {
+  mq = window.matchMedia(MOBILE_MQ);
+  onBreakpoint(mq);
+  mq.addEventListener("change", onBreakpoint);
+});
+onBeforeUnmount(() => mq?.removeEventListener("change", onBreakpoint));
+
+/** 投资轨迹的取数键：只消费确实带 symbol 的原始对象 */
+const trail = computed<{ symbol: string; ledgerId: number | null } | null>(
+  () => {
+    const payload = props.item?.payload;
+    if (!payload) return null;
+    switch (payload.kind) {
+      case "discrepancy":
+        return { symbol: payload.row.symbol, ledgerId: payload.row.ledger_id };
+      case "tax":
+      case "eaccount":
+      case "ghost":
+        return { symbol: payload.row.symbol, ledgerId: null };
+      case "dangling":
+        return { symbol: payload.row.symbol, ledgerId: payload.row.ledger_id };
+      default:
+        return null;
+    }
+  }
+);
+
+function onVisibility(value: boolean): void {
+  if (!value) emit("close");
+}
+
 const entry = computed(
   () => domainTabs.find(t => t.key === "C")?.entry ?? null
 );
@@ -184,8 +282,10 @@ const errorKey = computed(() =>
 );
 const detailError = computed(() => props.ctx.errors[errorKey.value] ?? "");
 
-/** 失败时只重试负责这个来源的 loader，不整页重跑七个接口 */
+/** 失败时只重试负责这个来源的 loader，不整页重跑七个接口。
+ *  选中了具体一条待办时（item 存在）抽屉内容已由队列数据驱动，无需再盖加载遮罩。 */
 const detailLoading = computed(() => {
+  if (props.item) return false;
   if (props.ctx.errors[errorKey.value]) return false;
   switch (detailDomain.value) {
     case "A":
@@ -208,15 +308,34 @@ const detailLoading = computed(() => {
 </script>
 
 <style scoped>
-.recon-detail {
-  margin-top: var(--space-standard);
+.recon-detail__header {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
 }
 
-.recon-detail__lead {
-  margin: 0 0 var(--space-compact);
-  font-size: var(--text-small);
-  line-height: 1.7;
-  color: var(--text-secondary);
+.recon-detail__heading {
+  min-width: 0;
+}
+
+.recon-detail__title {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.recon-detail__sub {
+  margin: 4px 0 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
+}
+
+.recon-detail__body {
+  padding-bottom: var(--space-standard);
 }
 
 .recon-detail__hint {
