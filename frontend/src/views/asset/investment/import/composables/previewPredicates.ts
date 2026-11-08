@@ -12,6 +12,8 @@
  * 行对象），也避免继续在 3000+ 行的组合式里堆砌纯逻辑（#2876 防上帝模块复发的第一步）。
  */
 
+import type { PreviewRow } from "./previewRow";
+
 /** 问题摘要面板的三卡片分类（#1791）。三类**互斥完备**：每行恰属一类，卡片条数之和恒等于总行数。 */
 export type SummaryCategory = "complete" | "duplicate" | "fix";
 
@@ -25,7 +27,7 @@ export type SummaryCategory = "complete" | "duplicate" | "fix";
  * 按 missingCode 拦下会让用户勾不上、也算不进任何计数，只能对着一个
  * 「代码未匹配」标签干看（#2840 / #2843）。
  */
-export function isMissingCode(row: any): boolean {
+export function isMissingCode(row: PreviewRow): boolean {
   if (row.type === "cash" || row.type === "money_fund") return false;
   return !row.symbol || row.symbol === "UNKNOWN";
 }
@@ -66,7 +68,7 @@ export const AMOUNT_INDEPENDENT_OPS = new Set(["tax", "bond_redeem"]);
  * **组等式**：`数量 × 单价 − 组内税额 = 净额`。丰山转债 60 × 1.5 − 18 = 72，
  * 差额 0；不给合并行减掉组内税额的话，18 元的税会被当成 18 元的差额误报。
  */
-export function feeDiffOf(row: any): number {
+export function feeDiffOf(row: PreviewRow): number {
   if (AMOUNT_INDEPENDENT_OPS.has(row.op_type)) return 0;
   const qty = Number(row.quantity);
   const prc = Number(row.price);
@@ -79,8 +81,10 @@ export function feeDiffOf(row: any): number {
 }
 
 /** 合并行内已并入净额的税额合计（它们本来就从成交额里扣掉了）。 */
-export function taxTotalOf(row: any): number {
-  const children: any[] = Array.isArray(row.children) ? row.children : [];
+export function taxTotalOf(row: PreviewRow): number {
+  const children: PreviewRow[] = Array.isArray(row.children)
+    ? row.children
+    : [];
   return children
     .filter(c => c.op_type === "tax")
     .reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
@@ -95,7 +99,7 @@ export function taxTotalOf(row: any): number {
  * 解释得掉 → 归「数据完整」可导入；解释不掉 → 才进 mismatch 分区。
  * 旧版只看 `差额 > 0.01`，把全部带费行打成「需要修正」（#磁盘 152 条的成因）。
  */
-export function isFeeExplained(row: any): boolean {
+export function isFeeExplained(row: PreviewRow): boolean {
   const diff = feeDiffOf(row);
   if (diff <= 0.01) return false;
   return diff <= Math.abs(Number(row.fee) || 0) + 0.01;
@@ -106,7 +110,7 @@ export function isFeeExplained(row: any): boolean {
  * **超出**手续费能解释的范围。超出的那部分才是真对不上——费用列可能漏项
  * （只有佣金缺印花税/过户费），或金额本身被改过。
  */
-export function isAmountMismatch(row: any): boolean {
+export function isAmountMismatch(row: PreviewRow): boolean {
   const diff = feeDiffOf(row);
   if (diff <= 0.01) return false;
   return diff > Math.abs(Number(row.fee) || 0) + 0.01;
@@ -121,7 +125,7 @@ export function isAmountMismatch(row: any): boolean {
  * - complete：其余——含资金划转行（数据完整，是否入库由后端统一裁决 #1010）、
  *   含 _ignored 行（数据完整是质量口径，勾没勾是选择口径，二者分开）
  */
-export function categorizeRow(row: any): SummaryCategory {
+export function categorizeRow(row: PreviewRow): SummaryCategory {
   if (row.is_duplicate) return "duplicate";
   if (row.error) return "fix";
   if (row.is_cash_transfer) return "complete";
@@ -139,7 +143,7 @@ export function categorizeRow(row: any): SummaryCategory {
  * 这组干不干净。两处各写一份必然漂移，而漂移的后果就是「概览条说这组没问题、
  * 修正面板里却躺着一条」这种用户没法自己解释的矛盾。
  */
-export function hasFixProblem(row: any): boolean {
+export function hasFixProblem(row: PreviewRow): boolean {
   if (row.is_duplicate || row.is_cash_transfer) return false;
   return (
     Boolean(row.error) ||
@@ -149,7 +153,7 @@ export function hasFixProblem(row: any): boolean {
   );
 }
 
-export function isRowBlocked(row: any): boolean {
+export function isRowBlocked(row: PreviewRow): boolean {
   if (row.is_cash_transfer || row.error || row.is_duplicate) return false;
   // #2836：被配对消费的行不入账，自然不需要凑齐数量价格。真实交割单的
   // 「股份转出」只有份额（110 张）、没有价格——不豁免的话它会被判「待补全」，
@@ -169,7 +173,7 @@ export function isRowBlocked(row: any): boolean {
  * 解析错误 / 数量价格缺失 / 资金划转 / 已忽略行不参与。
  * selectAllValid 与 toggleIgnoreRow 恢复分支共用，保证两处口径一致。
  */
-export function isAutoSelectableRow(row: any): boolean {
+export function isAutoSelectableRow(row: PreviewRow): boolean {
   return (
     !row.is_duplicate &&
     !row.error &&

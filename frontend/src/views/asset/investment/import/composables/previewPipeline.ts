@@ -24,6 +24,7 @@ import {
   isAutoSelectableRow
 } from "./previewPredicates";
 import type { FixSectionKey, SectionCounts } from "./batchFixLogic";
+import type { PreviewRow } from "./previewRow";
 
 /**
  * link_group 合并（利息 + 税折叠为一条净额行）——分页与计数共用，保证两者一致。
@@ -36,8 +37,8 @@ import type { FixSectionKey, SectionCounts } from "./batchFixLogic";
  * 合并只发生在同步配对成功的息+税上（后端 `importer/linking.py` 打的组），
  * 所以「合并 = 这组已经核对干净」这个前提是站得住的。
  */
-export function mergeLinkGroups(list: any[]): any[] {
-  const mergedList: any[] = [];
+export function mergeLinkGroups(list: PreviewRow[]): PreviewRow[] {
+  const mergedList: PreviewRow[] = [];
   const processedGroupIds = new Set<string>();
   for (const row of list) {
     const groupId = row.link_group_id;
@@ -72,7 +73,7 @@ export function mergeLinkGroups(list: any[]): any[] {
   return mergedList;
 }
 
-export function countBlockedRows(rows: any[]): number {
+export function countBlockedRows(rows: PreviewRow[]): number {
   return rows.filter(
     row =>
       isRowBlocked(row) &&
@@ -90,7 +91,7 @@ export function countBlockedRows(rows: any[]): number {
  * UI 据此给出可见提示，避免「看不见自己要导什么」。
  */
 export function countHiddenSelectedDuplicates(
-  rows: any[],
+  rows: PreviewRow[],
   selectedKeys: Set<string>,
   duplicatesHandled: boolean
 ): number {
@@ -108,7 +109,7 @@ export function countHiddenSelectedDuplicates(
 }
 
 export function shouldShowPriceUpdateTip(
-  rows: any[],
+  rows: PreviewRow[],
   selectedKeys: Set<string>,
   importedCount: number
 ): boolean {
@@ -119,7 +120,7 @@ export function shouldShowPriceUpdateTip(
   });
 }
 
-export function groupAllocationByType(rows: any[]): Array<{
+export function groupAllocationByType(rows: PreviewRow[]): Array<{
   type: string;
   label: string;
   count: number;
@@ -150,8 +151,22 @@ export function groupAllocationByType(rows: any[]): Array<{
   return Object.entries(groups).map(([type, data]) => ({ type, ...data }));
 }
 
+/**
+ * `summarizeErrors` 的入参形状：三项都可缺。
+ *
+ * 为什么不是 `ImportErrorItem[]`：历史调用与单测会喂**半截对象**（只给 `error`+`name`，
+ * 或者 `error` 已判空），函数体本来就是防御式读取（`err.error || "未知错误"`）。
+ * 写成必填会让「本来就允许缺」变成「必须补空串」，那是在改调用侧的语义，
+ * 不是在收类型。`ImportErrorItem[]` 结构上可赋值给本类型，无需转换。
+ */
+export interface ErrorSummaryInput {
+  symbol?: string;
+  name?: string;
+  error?: string | null;
+}
+
 export function summarizeErrors(
-  errors: any[]
+  errors: ErrorSummaryInput[]
 ): Array<{ reason: string; count: number; items: string[] }> {
   const groups: Record<string, { count: number; items: string[] }> = {};
   errors.forEach(err => {
@@ -174,7 +189,7 @@ export function summarizeErrors(
  * `mergeLinkGroups` 只在「两行都没问题」时才合并（见该函数的 why），所以
  * fix 条数与 `fixSectionRows`（按原始行、供批量修正定位）始终一致。
  */
-export function countByCategory(rows: any[]): {
+export function countByCategory(rows: PreviewRow[]): {
   complete: number;
   duplicate: number;
   fix: number;
@@ -189,7 +204,7 @@ export function countByCategory(rows: any[]): {
  * （转账行若同时疑似重复则归 duplicate 卡，不计入此处），保证 chips 计数
  * ≤ 卡片条数；摘要卡据此提示「转账可导入 / 转账待关联」。
  */
-export function countCompleteTransfers(rows: any[]): number {
+export function countCompleteTransfers(rows: PreviewRow[]): number {
   let n = 0;
   rows.forEach(row => {
     if (row.is_cash_transfer && categorizeRow(row) === "complete") n++;
@@ -202,8 +217,10 @@ export function countCompleteTransfers(rows: any[]): number {
  * 不变量：某行进入且仅进入一个分区 ⟺ categorizeRow(row) === "fix"——
  * 摘要卡「需要修正」条数 = 四分区行数之和，结构性成立（沿 #1791 验收② 的共谓词纪律）。
  */
-export function bucketFixSections(rows: any[]): Record<FixSectionKey, any[]> {
-  const buckets: Record<FixSectionKey, any[]> = {
+export function bucketFixSections(
+  rows: PreviewRow[]
+): Record<FixSectionKey, PreviewRow[]> {
+  const buckets: Record<FixSectionKey, PreviewRow[]> = {
     error: [],
     missingCode: [],
     missingQtyPrice: [],
@@ -221,7 +238,7 @@ export function bucketFixSections(rows: any[]): Record<FixSectionKey, any[]> {
 
 /** 「需要修正」卡的细分统计：四分区行数直取，四桶之和恒等于 fix 条数 */
 export function sectionCountsOf(
-  buckets: Record<FixSectionKey, any[]>
+  buckets: Record<FixSectionKey, PreviewRow[]>
 ): SectionCounts {
   return {
     error: buckets.error.length,
@@ -232,7 +249,7 @@ export function sectionCountsOf(
 }
 
 /** 逆回购行：解析期由后端按代码模式识别（沪 204xxx / 深 1318xx），非问题分区——信息型 */
-export function pickReverseRepoRows(rows: any[]): any[] {
+export function pickReverseRepoRows(rows: PreviewRow[]): PreviewRow[] {
   return rows.filter(row => row.type === "reverse_repo");
 }
 
@@ -240,7 +257,9 @@ export function pickReverseRepoRows(rows: any[]): any[] {
  *
  * 入参是 `bucketFixSections(rows).missingQtyPrice` 那一桶，不再自行分桶（避免二次遍历）。
  */
-export function pickAutoFillableRows(missingQtyPriceRows: any[]): any[] {
+export function pickAutoFillableRows(
+  missingQtyPriceRows: PreviewRow[]
+): PreviewRow[] {
   return missingQtyPriceRows.filter(row => {
     const qty = Number(row.quantity),
       prc = Number(row.price),
@@ -253,7 +272,7 @@ export function pickAutoFillableRows(missingQtyPriceRows: any[]): any[] {
 }
 
 /** 已自动填充过的行（_autoFilled 记录字段名）——【查看已填充数据】的数据源 */
-export function pickFilledRows(rows: any[]): any[] {
+export function pickFilledRows(rows: PreviewRow[]): PreviewRow[] {
   return rows.filter(row => row._autoFilled?.length > 0);
 }
 
@@ -271,7 +290,7 @@ export function pickFilledRows(rows: any[]): any[] {
  * 转账行与已忽略行不计入：前者勾不勾取决于「是否关联现金账户」，不是待修问题；
  * 后者是用户主动做的决定，不该反复提醒。
  */
-export function countPendingFix(rows: any[]): number {
+export function countPendingFix(rows: PreviewRow[]): number {
   return rows.filter(
     row => !row.is_cash_transfer && !row._ignored && !isAutoSelectableRow(row)
   ).length;
@@ -279,7 +298,7 @@ export function countPendingFix(rows: any[]): number {
 
 /** 已选行里的银证转账条数：让「已选择 169 条」自己说清转账在不在里面 */
 export function countSelectedTransfers(
-  rows: any[],
+  rows: PreviewRow[],
   selectedKeys: Set<string>
 ): number {
   let n = 0;
@@ -319,7 +338,10 @@ export interface RowFilterState {
  * 调用方不要依赖这一点的副本语义，也不要在这里补 `.slice()`——它是历史行为，
  * #2876 增量 4b 只搬家不修行为。
  */
-export function applyRowFilters(base: any[], f: RowFilterState): any[] {
+export function applyRowFilters(
+  base: PreviewRow[],
+  f: RowFilterState
+): PreviewRow[] {
   let list = base;
   const status = f.tableStatusFilter;
   if (status === "blocked")
