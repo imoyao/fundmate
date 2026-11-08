@@ -191,7 +191,15 @@ describe("buildStyleHistoryOption", () => {
       ]
     };
     const colorOf = (i: number) => `#color${i}`;
-    const opt = buildStyleHistoryOption(history, colorOf) as any;
+    interface ChartOptionLike {
+      series: Array<{ lineStyle: { color: string }; data: unknown }>;
+      yAxis: { max: number };
+      xAxis: { data: string[] };
+    }
+    const opt = buildStyleHistoryOption(
+      history,
+      colorOf
+    ) as unknown as ChartOptionLike;
     expect(opt.series).toHaveLength(STYLE_DISPLAY_ORDER.length);
     // yAxis 取值 0-100
     expect(opt.yAxis.max).toBe(100);

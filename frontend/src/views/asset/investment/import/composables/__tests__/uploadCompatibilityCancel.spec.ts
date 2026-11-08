@@ -90,17 +90,27 @@ function setup() {
   // 真实前置态：用户选账户经 onAccountSelected 把 currentStep 置 1，再上传
   w.currentStep.value = 1;
   w.ledgers.value = [
-    { id: 1, name: "测试账户", default_allocation: "longterm" } as any
+    {
+      id: 1,
+      name: "测试账户",
+      default_allocation: "longterm"
+    } as unknown as ReturnType<
+      typeof useImportWizard
+    >["ledgers"]["value"][number]
   ];
   return w;
 }
+
+type HandleUploadOpts = Parameters<
+  ReturnType<typeof useImportWizard>["handleUpload"]
+>[0];
 
 function uploadOpts() {
   return {
     file: new File(["a,b"], "a.csv", { type: "text/csv" }),
     onSuccess: vi.fn(),
     onError: vi.fn()
-  } as any;
+  } as unknown as HandleUploadOpts;
 }
 
 beforeEach(() => {
