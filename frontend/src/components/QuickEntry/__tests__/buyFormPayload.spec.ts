@@ -227,3 +227,29 @@ describe("buildBuyPayload 其余字段", () => {
     expect(body.quantity).toBe(285.2857);
   });
 });
+
+describe("buildBuyPayload 打新中签（D95：买入价格可手填）", () => {
+  it("成交价不同于当日收盘价时，照实提交中签价与中签数量", () => {
+    // 新股中签的真实形态：发行价 7.35、中签 500 股、缴款 3675、无手续费。
+    // 价格框开放前，avg_price 只能等于回填的收盘价，这组数字根本传不出去
+    // （500 股必然被算成 500×收盘价），本次把这条路径钉住。
+    const body = buildBuyPayload({
+      ...base,
+      form: mkForm({
+        symbol: "603543",
+        name: "模拟新材",
+        type: "stock",
+        price: 7.35,
+        buyAmount: 3675,
+        fee: 0
+      }),
+      quantity: 500,
+      confirmDate: "2024-03-02"
+    });
+    expect(body.avg_price).toBe(7.35);
+    expect(body.quantity).toBe(500);
+    expect(body.amount).toBe(3675);
+    // 股票确认日仍等于交易日，不取 confirmDate（既有口径，勿随价格改动一起漂移）
+    expect(body.confirm_date).toBe("2026-10-23");
+  });
+});
