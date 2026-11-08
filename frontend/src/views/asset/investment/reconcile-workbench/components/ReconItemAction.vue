@@ -19,6 +19,9 @@
         <el-button type="primary" plain @click="taxVisible = true">
           补记这笔税
         </el-button>
+        <el-button text :loading="taxAcking" @click="ackTax">
+          确认无需记账
+        </el-button>
       </div>
       <p v-else class="recon-item-action__hint">
         红利税不会超过税前分红的
@@ -76,6 +79,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { ElMessage } from "element-plus";
+import { ackDividendTax } from "@/api/reconciliation";
 import type {
   DiscrepancyItem,
   DividendTaxPendingItem,
@@ -117,12 +122,39 @@ const doneText = computed(() => {
 const tax = computed(() => kind.value === "tax");
 const taxPending = computed(() => {
   const row = (props.item.payload as { row?: DividendTaxPendingItem }).row;
-  return row?.status === "未扣";
+  return row?.status === "待核对";
 });
 const taxRow = computed(
   () => (props.item.payload as { row: DividendTaxPendingItem }).row
 );
 const taxVisible = ref(false);
+const taxAcking = ref(false);
+
+/**
+ * 确认「这笔确实没有税」——红利税在派息时法定暂不扣缴，只有「已卖出、持股不足
+ * 一年、却仍没配上税」才会落到这里；用户看一眼交割单就能收尾。
+ * 不记 0 元流水（0 元不是「交了 0 元税」，是「无需纳税」）。
+ */
+async function ackTax(): Promise<void> {
+  const row = taxRow.value;
+  if (!row?.dividend_on) return;
+  taxAcking.value = true;
+  try {
+    await ackDividendTax({
+      symbol: row.symbol,
+      account_name: row.account_name,
+      dividend_on: row.dividend_on,
+      reason: "确认无需记账"
+    });
+    ElMessage.success("已确认这笔无需记账");
+    emit("refresh", "tax");
+  } catch (e) {
+    const err = e as { response?: { data?: { message?: string } } };
+    ElMessage.error(err?.response?.data?.message || "确认失败，请稍后重试");
+  } finally {
+    taxAcking.value = false;
+  }
+}
 
 const danglingIncomplete = computed(
   () => kind.value === "dangling" && props.item.state !== "ready"

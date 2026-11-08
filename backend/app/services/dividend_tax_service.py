@@ -12,38 +12,64 @@ A 股股息红利税是**差异化**的：按「买入批次实际持有期」�
 否掉的猜测数字**。加上一个猜出来的负数进账本，比不记更糟：它会污染已实现盈亏、
 股息率与 XIRR，且用户无从分辨哪笔是券商真值、哪笔是我们编的。
 
-## 这一层做什么
+## 关键制度事实（2026-11-08 修正，此前判据与它冲突）
 
-只回答两个用户自己能判断的问题：
+- 财税〔2015〕101 号：持股 >1 年**免税**；≤1 个月实际税负 20%；1 个月~1 年 10%。
+- **派息时一律暂不扣缴**——对持股 1 年以内（含）的，上市公司暂不扣，待个人
+  **转让股票时**才由中登按持股期计算、券商从资金账户扣收；持股超 1 年的，卖出时也不扣。
+- 财税〔2002〕128 号：个人从**基金**分配中取得的收入暂不征个税（该优惠经
+  财政部 税务总局公告 2018 年第 177 号确认继续有效）。
 
-1. **「哪一笔现金分红，还没有对应的扣税流水？」** → 该补记（`status='未扣'`）；
-2. **「哪一笔已经记了税，但扣的明显不像红利税？」** → 该核对（`status='已记-比例异常'`）。
+推论：「分红之后没有扣税流水」在**卖出之前是法定常态**，不是漏记。
+2026-11-08 之前的判据是「分红日起 30 天内配不到扣税流水 ⇒ 待补记」，于是：
 
-判据（全部是账内已有的事实，不做任何外部推断）：
+1. 对**任何尚未卖出**的分红误报（owner 用海大集团 30 元红利复现：派息时本就不扣）；
+2. 30 天窗口假定扣税紧跟分红，而实际可能在持有 11 个月后卖出时才扣 ⇒ 已卖出的也漏配；
+3. 免税品种漏了 `fund` ⇒ 基金/ETF 分红全部误报。
 
-- 取该家庭的 `txn_type='dividend'` 现金分红（红利再投不算、债券/存款派息不算）；
-- 对**每笔分红**（不是每年聚合）找「同一标的 + 同一账户 + 扣税日落在分红日之后
-  N 天内」的 `dividend_tax` 流水，按金额从大到小逐笔配对；
-- 配上了 ⇒ 这笔已结清；配不上 ⇒ 这笔该补记。
+## 这一层做什么（按「是否已卖出」分诊）
+
+对每笔现金分红，先问一个**账内可确定**的问题：该标的该账户在分红日之后有没有卖出过？
+
+| 情形 | 交割单 | 结论 | 进待办 |
+|---|---|---|---|
+| 未卖出 | 只有红利 | `暂不扣税`（法定暂缓） | 否 |
+| 已卖出，持股 >1 年 | 无税 | `依法免税` | 否 |
+| 已卖出，持股 ≤1 年 | 有税 | 已结清 | 否 |
+| 已卖出，持股 ≤1 年 | 无税 | `待核对`（漏导入 / 券商未扣） | 是 |
+| 用户已确认无需记账 | — | 不显示（`dividend_tax_acks`） | 否 |
+
+只有第四行需要用户动作。判据全部来自账内事实（`txn_type='sell'` 的日期、资产类型、
+已存在的确认记录），**不做外部推断**。
+
+### 为什么这条分诊不需要 lot 账
+
+「没卖出 ⇒ 一定没扣」是 101 号文给的**确定性**，与 FIFO 无关。
+只有「已卖出」才轮到持股期，而那时直接看交割单里有没有那笔税即可——系统只做
+匹配、不做推算。持股期只用于一个**粗判**（`EXEMPT_HOLDING_DAYS`）：
+明显超过一年就不打扰用户，判不准就请用户核对。粗判的偏差方向是**倾向判免税**，
+与下面「宁可少记一笔税，不要多记一笔假税」的取舍一致。
 
 ## 三个刻意的口径选择
 
 - **按笔、不按年**（2026-10-19 修正，此前是按年）：按年匹配会让「今年已经扣过一次」
   把整年的分红都当成已结清——于是第二次分红要等到明年才会被看见，
   而这正是用户投诉的「过了几个月才提醒，这消息有什么价值」。逐笔匹配才谈得上及时。
-  代价是券商的合并扣税会留下几笔「没配上」的尾巴，见下条。
 - **合并扣税不猜对应关系**：券商的「股息红利差异扣税」常把多笔分红合成一条，
   单笔金额对不上是常态。故配对判据**不看金额是否相等**，只看「同标的同账户、
-  扣税日在分红日之后 N 天内、金额还没被别的分红用光」。这对「A 分红 100 元、
-  B 分红 500 元、合并扣税 60 元」会把更大的那笔当已结清、更小的那笔继续提醒——
-  这是有意的：**两笔里必有一笔没对上，用户去交割单看一眼就能收尾**，
+  扣税日落在配对窗口内、金额还没被别的分红用光」。窗口上限取
+  `max(分红日 + 30 天, 末次卖出日 + 5 天)`：前者覆盖「次月合并扣」，
+  后者覆盖「持有大半年、卖出时才扣」。对「A 分红 100 元、B 分红 500 元、合并扣税
+  60 元」会把更大的那笔当已结清、更小的那笔继续提醒——这是有意的：
+  **两笔里必有一笔没对上，用户去交割单看一眼就能收尾**，
   比整年装死好。宁可多提醒一次（用户看一眼就关），不可漏提醒一笔（钱就少记了）。
 - **只认「分红类」现金流入**：`txn_type='dividend'` 是个大杂烩，同花顺的
   「利息归本」「债券兑息」「转股零款」「配股退款退息」全落成它，而
   「债券兑息兑付」甚至被映射成 `dividend_tax`。不排掉这些，用户会被推着去
   给一笔存款利息补红利税——提醒一次错的就是在教用户不信任提醒。
   判据用两样账内事实：标的资产类型（`positions.asset_type` / 流水 `asset_type`）
-  与操作名关键词（`notes`）。
+  与操作名关键词（`notes`）。基金（含场内 ETF）按 128 号文整类豁免，见
+  `dividend_tax_rules.NO_DIVIDEND_TAX_ASSET_TYPES`。
 - **只看现金分红**：红利再投已经改变了份额，不产生现金，也就没有「该扣的现金税」。
 
 ## 与 `dividend_service` 的关系
@@ -56,18 +82,49 @@ A 股股息红利税是**差异化**的：按「买入批次实际持有期」�
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Iterable, Optional
 
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
 from app.domains.positions.models import Position
+from app.domains.reconciliation.models import DividendTaxAck
 from app.domains.transactions.ledger_guard import dividend_tax_source_fields
 from app.domains.transactions.models import Transaction
-from app.services.dividend_tax_rules import is_dividend_income, position_asset_types, resolve_asset_type
+from app.services.dividend_tax_scan import (
+    STATUS_PENDING,
+    STATUS_SUSPECT,
+    PendingTaxItem,
+    scan_dividend_tax,
+    scan_pending_tax,
+)
 from app.services.importer.mappings import THS_OP_MAP, BusinessType
+
+# 对外契约保留在这里：调用方（视图 / 测试 / 导入钩子）历来从本模块 import，
+# 扫描逻辑搬家不该让它们跟着改。新增的 `STATUS_DEFERRED` / `STATUS_EXEMPT`
+# 只用于展示，不从这里导出。
+__all__ = [
+    'SOURCE_TYPE',
+    'SOURCE_TYPE_SUSPECT',
+    'REMINDER_LEVEL',
+    'STATUS_PENDING',
+    'STATUS_SUSPECT',
+    'PendingTaxItem',
+    'ack_dividend_tax',
+    'ack_from_payload',
+    'build_notification_candidates',
+    'compute_import_hash',
+    'is_tax_import_note',
+    'pending_after_import',
+    'record_tax',
+    'record_tax_from_payload',
+    'refresh_reminders',
+    'revoke_ack',
+    'revoke_from_payload',
+    'scan_dividend_tax',
+    'scan_pending_tax',
+]
 
 # 通知来源标识（写入 notifications.source_type）
 SOURCE_TYPE = 'dividend_tax_pending'  # 有一笔分红还没记扣税
@@ -75,98 +132,6 @@ SOURCE_TYPE_SUSPECT = 'dividend_tax_suspect'  # 已记扣税，但金额占分�
 
 # 级别：P1（消息盒 + 首页未读计数）。钱的事值得看见，但不至于占首页横栏挤掉紧急项。
 REMINDER_LEVEL = 'P1'
-# 只看最近 N 天的分红：更早的税早已在券商交割单里结清，催一年以上的旧账没有意义。
-DEFAULT_LOOKBACK_DAYS = 400
-# 扣税流水允许落在分红日之后多少天内（同一天记的算在窗口内）。
-# 券商实务：红利税多在红利发放后数日到数周内补扣，一周是常态。
-# 太窄会把「已扣过」判成「没扣」（多提醒，用户翻一次交割单就关）；
-# 太宽会把上一季的扣税串到这一笔上（漏提醒，钱就这么少记了）。
-# 故取 30 天：覆盖「次月合并扣」这个最常见的形态。
-DEFAULT_TAX_WINDOW_DAYS = 30
-# 只对「分红金额够大」的笔做「比例异常」复核：几块钱的分红扣了几毛钱，
-# 比例算出来 12% 还是 8% 都不说明问题，提示只会让人烦。
-SUSPECT_MIN_DIVIDEND_CENTS = 10_000  # 100 元
-# 已记税的占分红比例超过这个阈值 ⇒ 提示复核。
-# **这不是税率**：真实税率取决于买入批次持有期，本系统算不出来（见模块 docstring）。
-# 这里只回答一个更粗的问题——「这笔扣税大到不像红利税，是不是记错了品种？」
-# 20% 是差异化税率的**上限**，超过它就不可能是红利税。
-SUSPECT_RATIO_THRESHOLD = 0.20
-
-# 分红 / 免税口径与关键词表见 `app/services/dividend_tax_rules.py`（纯规则单独成模块）。
-# 归入「同一账户」的兜底键：账户为空（手动记账 / 老数据）时，空账户之间互相匹配。
-_EMPTY_ACCOUNT = ''
-
-STATUS_PENDING = '未扣'
-STATUS_SUSPECT = '已记-比例异常'
-
-
-@dataclass(frozen=True)
-class PendingTaxItem:
-    """一笔现金分红的扣税核对结果。
-
-    粒度是**一笔分红**（不是「某标的某年」）：用户拿着对账单一条条扫，
-    提醒里说得出「哪一天、多少钱」才有用；说「该标的今年有 3 笔共 1200 元未扣税」
-    等于让他自己再数一遍。
-    """
-
-    symbol: str
-    name: str
-    account_name: str
-    year: int
-    status: str
-    dividend_cents: int
-    dividend_on: Optional[date]
-    tax_cents: int
-    tax_on: Optional[date]
-
-    @property
-    def ratio_pct(self) -> Optional[float]:
-        """已记税占分红的百分比（无分红金额时为 None，不做除零）。"""
-        if self.dividend_cents <= 0 or self.tax_cents <= 0:
-            return None
-        return round(self.tax_cents * 100.0 / self.dividend_cents, 1)
-
-    def to_dict(self) -> dict:
-        return {
-            'symbol': self.symbol,
-            'name': self.name,
-            'account_name': self.account_name,
-            'year': self.year,
-            'status': self.status,
-            'dividend_cents': self.dividend_cents,
-            'dividend_on': self.dividend_on.isoformat() if self.dividend_on else None,
-            'tax_cents': self.tax_cents,
-            'tax_on': self.tax_on.isoformat() if self.tax_on else None,
-            'ratio_pct': self.ratio_pct,
-        }
-
-
-def _event_date(txn: Transaction) -> Optional[date]:
-    """流水发生日：确认日优先，未确认退回交易日（与 `dividend_service` 同口径）。"""
-    if txn.confirm_date is not None:
-        return txn.confirm_date
-    if txn.trade_date is None:
-        return None
-    return txn.trade_date.date() if isinstance(txn.trade_date, datetime) else txn.trade_date
-
-
-def _reinvest_group_ids(db: Session, family_id: int) -> set[str]:
-    """红利再投的配对组（与 `dividend_service._reinvest_group_ids` 同一判据）。
-
-    再投是「分红 + 申购」双流水，其中分红那一笔 `txn_type` 同样是 `dividend`。
-    不排除它，就会把再投也算成「该扣税却没扣」——而再投本就没有现金到手。
-    """
-    rows = (
-        db.query(Transaction.link_group_id)
-        .filter(
-            Transaction.family_id == family_id,
-            Transaction.txn_type == 'buy',
-            Transaction.link_group_id.isnot(None),
-        )
-        .distinct()
-        .all()
-    )
-    return {gid for (gid,) in rows if gid}
 
 
 def compute_import_hash(symbol: str, confirm_date: Optional[date]) -> str:
@@ -182,162 +147,6 @@ def compute_import_hash(symbol: str, confirm_date: Optional[date]) -> str:
     """
     day = (confirm_date or date.today()).isoformat()
     return f'dividend_tax|{symbol}|{day}'
-
-
-def _match_taxes(
-    dividends: list[Transaction],
-    taxes: list[Transaction],
-    window_days: int,
-) -> tuple[dict[int, Transaction], list[tuple[Transaction, Transaction]]]:
-    """把扣税流水配对到分红流水上。
-
-    返回 `(分红 id → 消耗掉的扣税笔列表的首笔, [(分红, 扣税), …])`，后者的第二项是
-    「配上了但比例异常」的候选。
-
-    配对规则（不猜券商怎么合并的）：
-
-    - 只配「同一标的 + 同一账户 + 扣税日 ∈ [分红日, 分红日 + window_days]」；
-    - 分红按日期升序、扣税按日期升序，各笔扣税**只能用一次**（用金额做额度，
-      扣税金额可以从多笔分红里「花掉」，直到花光）；
-    - 金额相等不是必要条件（合并扣税是常态），但**优先消耗金额最接近的那笔**，
-      避免「100 元的分红先吃掉一笔 60 元税」，把更该配的那笔留成尾巴。
-    """
-    matched: dict[int, Transaction] = {}
-    consumed: set[int] = set()
-    suspect: list[tuple[Transaction, Transaction]] = []
-
-    taxes_by_key: dict[tuple[str, str], list[Transaction]] = {}
-    for tax in taxes:
-        tax_day = _event_date(tax)
-        if tax_day is None or int(tax.amount or 0) >= 0:
-            continue
-        key = ((tax.symbol or '').strip(), tax.account_name or _EMPTY_ACCOUNT)
-        taxes_by_key.setdefault(key, []).append(tax)
-    for bucket in taxes_by_key.values():
-        bucket.sort(key=lambda t: (_event_date(t) or date.min, -abs(int(t.amount or 0))))
-
-    # 分红按**金额降序**配对：合并扣税（如 100 + 500 元两笔、合并扣 60 元）应优先结清
-    # 大额那笔——税是按股息金额收的，先贴给小额会把大额的税「藏」在尾巴里。
-    # 同额再按日期升序，保证同输入的配对结果稳定（用例与回放都要可复现）。
-    for div in sorted(dividends, key=lambda d: (-int(d.amount or 0), _event_date(d) or date.min)):
-        div_day = _event_date(div)
-        if div_day is None:
-            continue
-        key = ((div.symbol or '').strip(), div.account_name or _EMPTY_ACCOUNT)
-        candidates = [
-            t
-            for t in taxes_by_key.get(key, ())
-            if id(t) not in consumed
-            and (d := _event_date(t)) is not None
-            and div_day <= d <= div_day + timedelta(days=window_days)
-        ]
-        if not candidates:
-            continue
-        div_amount = int(div.amount or 0)
-        # 优先选「金额不超过这笔分红」的最近一笔；都超了就选金额最小的（它至少同键同日）
-        within = [t for t in candidates if abs(int(t.amount or 0)) <= div_amount]
-        pool = within or candidates
-        pool.sort(key=lambda t: (abs(abs(int(t.amount or 0)) - div_amount), _event_date(t) or date.min))
-        picked = pool[0]
-        consumed.add(id(picked))
-        matched[div.id] = picked
-        if (
-            div_amount >= SUSPECT_MIN_DIVIDEND_CENTS
-            and abs(int(picked.amount or 0)) > div_amount * SUSPECT_RATIO_THRESHOLD
-        ):
-            suspect.append((div, picked))
-    return matched, suspect
-
-
-def scan_pending_tax(
-    db: Session,
-    family_id: int,
-    *,
-    today: Optional[date] = None,
-    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
-    window_days: int = DEFAULT_TAX_WINDOW_DAYS,
-) -> list[PendingTaxItem]:
-    """列出需要用户看一眼的红利税项（未扣 + 比例异常），按分红日降序。
-
-    纯读、无副作用——对账台直接展示、通知生成直接消费。
-    """
-    today = today or date.today()
-    since = today - timedelta(days=lookback_days)
-
-    rows = (
-        db.query(Transaction)
-        .filter(
-            Transaction.family_id == family_id,
-            Transaction.txn_type.in_(('dividend', 'dividend_tax')),
-        )
-        .all()
-    )
-    if not rows:
-        return []
-
-    reinvest_groups = _reinvest_group_ids(db, family_id)
-    position_types = position_asset_types(db, family_id)
-
-    dividends: list[Transaction] = []
-    taxes: list[Transaction] = []
-    for txn in rows:
-        occurred = _event_date(txn)
-        if occurred is None:
-            continue
-        if not (txn.symbol or '').strip():
-            # 无代码的流水对不上任何持仓/事件，提醒也提醒不到有意义的东西
-            continue
-        if txn.txn_type == 'dividend_tax':
-            taxes.append(txn)
-            continue
-        if txn.link_group_id and txn.link_group_id in reinvest_groups:
-            continue
-        if int(txn.amount or 0) <= 0:
-            continue
-        if occurred < since:
-            continue
-        asset_type = resolve_asset_type(txn.symbol, txn.asset_type, position_types)
-        if not is_dividend_income(txn, asset_type):
-            continue
-        dividends.append(txn)
-
-    matched, suspect_pairs = _match_taxes(dividends, taxes, window_days)
-    suspect_ids = {div.id for div, _ in suspect_pairs}
-
-    items: list[PendingTaxItem] = []
-    for div in dividends:
-        div_day = _event_date(div)
-        tax = matched.get(div.id)
-        if tax is None:
-            items.append(
-                PendingTaxItem(
-                    symbol=(div.symbol or '').strip(),
-                    name=div.position_name or '',
-                    account_name=div.account_name or '',
-                    year=div_day.year if div_day else 0,
-                    status=STATUS_PENDING,
-                    dividend_cents=int(div.amount or 0),
-                    dividend_on=div_day,
-                    tax_cents=0,
-                    tax_on=None,
-                )
-            )
-        elif div.id in suspect_ids:
-            items.append(
-                PendingTaxItem(
-                    symbol=(div.symbol or '').strip(),
-                    name=div.position_name or '',
-                    account_name=div.account_name or '',
-                    year=div_day.year if div_day else 0,
-                    status=STATUS_SUSPECT,
-                    dividend_cents=int(div.amount or 0),
-                    dividend_on=div_day,
-                    tax_cents=abs(int(tax.amount or 0)),
-                    tax_on=_event_date(tax),
-                )
-            )
-    items.sort(key=lambda i: (i.dividend_on or date.min, i.symbol), reverse=True)
-    return items
 
 
 def _short(date_value: Optional[date]) -> str:
@@ -590,3 +399,127 @@ def record_tax_from_payload(db: Session, family_id: int, payload: dict) -> dict:
         'amount_cents': txn.amount,
         'confirm_date': txn.confirm_date.isoformat() if txn.confirm_date else None,
     }
+
+
+def _parse_iso_day(raw, *, label: str) -> Optional[date]:
+    """把 `YYYY-MM-DD` 解析成 date；空串/None 返回 None，格式错抛 ValueError。"""
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(str(raw), '%Y-%m-%d').date()
+    except ValueError:
+        raise ValueError(f'{label} 必须是 YYYY-MM-DD') from None
+
+
+def ack_dividend_tax(
+    db: Session,
+    family_id: int,
+    *,
+    symbol: str,
+    account_name: str = '',
+    dividend_on: date,
+    reason: str = '',
+) -> DividendTaxAck:
+    """确认「这笔分红确实没有税，别再提醒」（域 E，2026-11-08）。
+
+    WHY 不是「记一笔 0 元扣税」：0 元在税法上不是「交了 0 元税」，而是「无需纳税」，
+    是两个不同的法律事实。记一笔 0 元流水会虚构一次现金流出；更麻烦的是将来真卖出
+    被扣税时，这条假记录会参与 `_match_taxes` 的额度消耗，用户再也分不清哪笔是
+    券商真值、哪笔是我们编的——那正是模块 docstring 里「多记一笔假税比少记更坏」
+    要避免的。
+
+    幂等由唯一约束保证（同 `record_tax`）：撞约束时只回滚这一个 savepoint 并返回
+    既有行，语义 = 「这笔已经确认过了」。
+    """
+    from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
+    bare = (symbol or '').strip()
+    if not bare:
+        raise ValueError('缺少标的代码')
+    if dividend_on is None:
+        raise ValueError('缺少分红日')
+    account = (account_name or '').strip()
+
+    def _existing():
+        return (
+            db.query(DividendTaxAck)
+            .filter(
+                DividendTaxAck.family_id == family_id,
+                DividendTaxAck.symbol == bare,
+                DividendTaxAck.account_name == account,
+                DividendTaxAck.dividend_on == dividend_on,
+            )
+            .first()
+        )
+
+    found = _existing()
+    if found is not None:
+        return found
+
+    ack = DividendTaxAck(
+        family_id=family_id,
+        symbol=bare,
+        account_name=account,
+        dividend_on=dividend_on,
+        reason=(reason or '').strip() or None,
+    )
+    try:
+        with db.begin_nested():
+            db.add(ack)
+    except IntegrityError:
+        again = _existing()
+        if again is None:  # pragma: no cover - 约束冲突却查不到，属数据异常
+            raise
+        return again
+    return ack
+
+
+def revoke_ack(db: Session, family_id: int, *, symbol: str, account_name: str = '', dividend_on: date) -> bool:
+    """撤销确认（幂等：本来不存在返回 False）。"""
+    deleted = (
+        db.query(DividendTaxAck)
+        .filter(
+            DividendTaxAck.family_id == family_id,
+            DividendTaxAck.symbol == (symbol or '').strip(),
+            DividendTaxAck.account_name == (account_name or '').strip(),
+            DividendTaxAck.dividend_on == dividend_on,
+        )
+        .delete(synchronize_session=False)
+    )
+    return bool(deleted)
+
+
+def ack_from_payload(db: Session, family_id: int, payload: dict) -> dict:
+    """把 API payload 规整成 `ack_dividend_tax` 的参数（业务校验留在服务层）。"""
+    day = _parse_iso_day(payload.get('dividend_on'), label='dividend_on')
+    if day is None:
+        raise ValueError('缺少 dividend_on')
+    ack = ack_dividend_tax(
+        db,
+        family_id,
+        symbol=str(payload.get('symbol') or '').strip(),
+        account_name=str(payload.get('account_name') or ''),
+        dividend_on=day,
+        reason=str(payload.get('reason') or ''),
+    )
+    return {
+        'id': ack.id,
+        'symbol': ack.symbol,
+        'account_name': ack.account_name,
+        'dividend_on': ack.dividend_on.isoformat() if ack.dividend_on else None,
+    }
+
+
+def revoke_from_payload(db: Session, family_id: int, payload: dict) -> dict:
+    """撤销确认的 payload 规整；返回 `{deleted: bool}`（幂等）。"""
+    day = _parse_iso_day(payload.get('dividend_on'), label='dividend_on')
+    if day is None:
+        raise ValueError('缺少 dividend_on')
+    deleted = revoke_ack(
+        db,
+        family_id,
+        symbol=str(payload.get('symbol') or '').strip(),
+        account_name=str(payload.get('account_name') or ''),
+        dividend_on=day,
+    )
+    return {'deleted': deleted}

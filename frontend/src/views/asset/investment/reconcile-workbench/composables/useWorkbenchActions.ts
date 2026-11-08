@@ -40,6 +40,8 @@ export function useWorkbenchActions(
     taxItems: domains.taxItems.value,
     taxTotalCents: domains.taxTotalCents.value,
     taxPendingCount: domains.taxPendingCount.value,
+    taxDeferredCount: domains.taxDeferredCount.value,
+    taxExemptCount: domains.taxExemptCount.value,
     taxLoading: domains.taxLoading.value,
     danglingRefs: domains.danglingRefs.value,
     danglingLoading: domains.danglingLoading.value,

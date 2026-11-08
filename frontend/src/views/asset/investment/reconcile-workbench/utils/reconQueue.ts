@@ -234,7 +234,7 @@ function ghostIgnoredItem(row: GhostDuplicateIgnore): ReconQueueItem {
 /* ── 域 E：分红未记扣税 ─────────────────────────────────────────────── */
 
 function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
-  const needRecord = row.status === "未扣";
+  const needRecord = row.status === "待核对";
   const isCash = specialSymbolLabel(row.symbol) !== null;
   return finish({
     id: `tax-${row.symbol}-${row.dividend_on ?? row.year}`,
@@ -244,7 +244,7 @@ function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
     sourceDomain: "E",
     title: reconGroupTitle(row.symbol, row.name),
     summary: needRecord
-      ? "这笔现金分红在交割单上扣了红利税，账里还没有这笔支出。"
+      ? "已卖出但账里没配上这笔红利税，对照交割单确认有没有这笔扣款。"
       : "已记的扣税金额超过红利税上限，可能记错了品种，需要核对。",
     facts: [
       isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,

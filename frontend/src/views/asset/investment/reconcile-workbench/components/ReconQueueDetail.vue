@@ -137,6 +137,8 @@
           :items="ctx.taxItems"
           :total-cents="ctx.taxTotalCents"
           :pending-count="ctx.taxPendingCount"
+          :deferred-count="ctx.taxDeferredCount"
+          :exempt-count="ctx.taxExemptCount"
           :loading="ctx.taxLoading"
           @recorded="emit('refresh', 'tax')"
         />

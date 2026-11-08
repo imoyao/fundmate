@@ -33,9 +33,9 @@ from app.core.database import user_session
 from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
 from app.services.dividend_tax_service import (
+    ack_from_payload,
     record_tax_from_payload,
-    refresh_reminders,
-    scan_pending_tax,
+    revoke_from_payload,
 )
 from app.services.ghost_duplicate_service import (
     ignore_group,
@@ -44,7 +44,11 @@ from app.services.ghost_duplicate_service import (
     undo_ignore,
     undo_ignore_by_id,
 )
-from app.services.reconciliation_query import list_active_discrepancies, resolve_display_names
+from app.services.reconciliation_query import (
+    list_active_discrepancies,
+    list_dividend_tax_payload,
+    resolve_display_names,
+)
 from app.services.reconciliation_service import apply_decision, get_ledger_snapshot_consistency
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
@@ -303,41 +307,20 @@ def undo_ghost_duplicate_ignore_by_fingerprint(fingerprint: str):
 
 @bp.get('/dividend-tax/')
 def list_dividend_tax_pending():
-    """域 E：红利税待办清单（#541）。
+    """域 E：红利税待办清单（#541；2026-11-08 按「是否已卖出」重做分诊）。
 
-    行的粒度是**一笔分红**，`status` 只有两种：
+    `status` 四种，只有前两种进待办，后两种只回计数供前端折叠说明：
 
-    - `未扣`：这笔分红没有配到扣税流水 ⇒ 该补记（或确认持股超一年、无需补）；
-    - `已记-比例异常`：配到了，但金额占分红比例超过 20%（红利税的上限）⇒ 该核对
-      是不是把别的费用记成了红利税（典型误判源：同花顺把「债券兑息兑付」也映射成扣税）。
+    - `待核对`：已卖出、持股 ≤1 年、却没配到扣税流水（漏导入 / 券商未扣）；
+    - `已记-比例异常`：配到了，但金额超过分红的 20%（红利税上限）；
+    - `暂不扣税`：分红日之后还没卖出过——101 号文派息时暂不扣缴，此刻无税是法定的；
+    - `依法免税`：已卖出，但持股明显超过 1 年。
 
-    这一域不是「差异」——账内没有两处数字对不上，缺的是账外那笔券商扣税。
-    故不落 `reconciliation_discrepancies`（它描述的是「应然 vs 实然」的差额，
-    这里没有应然值可算），实时从 `transactions` 派生，与域 D 同一形态。
-
-    为什么不自动算税：见 `services/dividend_tax_service` 模块 docstring——
-    税率取决于买入批次持有期，本系统只有聚合持仓，反推出来的是会被券商否掉的猜数。
+    口径与制度依据见 `services/dividend_tax_scan` 与 `dividend_tax_service`。
     """
-    family_id = get_family_id()
     with user_session() as db:
-        items = scan_pending_tax(db, family_id)
-        # 顺带把提醒写进站内通知：对账台是用户主动来查差异的地方，也是「提醒该去哪看」
-        # 唯一的自然触发点。写在 GET 里是**有意的例外**——它不改变对账结果，只落一条
-        # 幂等通知（dedup_key = 来源:标的:分红日，同一笔分红只留一条），代价远小于
-        # 「用户根本不知道有这回事」。真正的写操作仍然只有用户手动补记。
-        created = refresh_reminders(db, family_id)
-        return jsonify(
-            {
-                'data': {
-                    'items': [i.to_dict() for i in items],
-                    'count': len(items),
-                    'pending_count': sum(1 for i in items if i.status == '未扣'),
-                    'total_cents': sum(i.dividend_cents for i in items if i.status == '未扣'),
-                    'reminders_created': created,
-                },
-                'message': 'ok',
-            }
-        )
+        data = list_dividend_tax_payload(db, get_family_id())
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.post('/dividend-tax/record/')
@@ -366,6 +349,23 @@ def record_dividend_tax():
     with user_session() as db:
         try:
             data = record_tax_from_payload(db, family_id, payload)
+        except ValueError as e:
+            abort(400, description=str(e))
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dividend-tax/ack/')
+@bp.post('/dividend-tax/ack/revoke/')
+def dividend_tax_ack():
+    """确认（`/ack/`）或撤销（`/ack/revoke/`）「这笔分红确实没有税」，两者都幂等（域 E）。
+
+    参数 `symbol` + `dividend_on`；`account_name` 必须回传，它参与身份匹配。
+    为什么不记 0 元扣税：见 `dividend_tax_service.ack_dividend_tax` 的 docstring。
+    """
+    handler = revoke_from_payload if request.path.endswith('/revoke/') else ack_from_payload
+    with user_session() as db:
+        try:
+            data = handler(db, get_family_id(), request.get_json(silent=True) or {})
         except ValueError as e:
             abort(400, description=str(e))
         return jsonify({'data': data, 'message': 'ok'})

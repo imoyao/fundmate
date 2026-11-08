@@ -29,10 +29,17 @@ from app.domains.transactions.models import Transaction
 DIVIDEND_KEYWORDS = ('红利', '分红', '派息', '股息', '兑息')
 # 非分红类的关键词：命中即排除（利息 / 兑付 / 退款 / 零款）。
 NOT_DIVIDEND_KEYWORDS = ('利息', '兑付', '退款', '退息', '零款', '兑息')
-# 不给红利税补记提示的资产类型：可转债（`bond`）的派息是利息，货基/逆回购同理。
-# bank_wealth（银行理财）与 bank（银行存款）的到账是「理财收益 / 存款利息」，同样不是股息，
-# 提示红利税会让用户以为漏扣了税。
-NO_DIVIDEND_TAX_ASSET_TYPES = frozenset({'bond', 'money_fund', 'reverse_repo', 'cash', 'bank', 'bank_wealth'})
+# 不给红利税补记提示的资产类型。三类来源，共同点是**持有人这一侧不产生「股息红利个税」**：
+#
+# 1. `fund` / `money_fund`：财税〔2002〕128 号「投资者（包括个人和机构投资者）从基金
+#    分配中取得的收入，暂不征收个人所得税」（该个税优惠经财政部 税务总局公告
+#    2018 年第 177 号确认继续有效）。基金从上市公司拿股息时已在**基金层面**代扣，
+#    与持有人无关；持有人收到的基金分红（含场内 ETF/LOF）不再有税可补。
+#    2026-11-08 补：此前只排除货基，普通基金分红被误报成「漏扣红利税」。
+# 2. `bond`：可转债派息是**利息**，不是股息，不适用股息红利差别化政策。
+# 3. `reverse_repo` / `cash` / `bank` / `bank_wealth`：逆回购、存款、银行理财的到账是
+#    「利息 / 理财收益」，同样按利息口径处理，提示补记只会让用户以为漏缴。
+NO_DIVIDEND_TAX_ASSET_TYPES = frozenset({'fund', 'money_fund', 'bond', 'reverse_repo', 'cash', 'bank', 'bank_wealth'})
 
 
 def position_asset_types(db: Session, family_id: int) -> dict[str, str]:
@@ -79,7 +86,8 @@ def is_dividend_income(txn: Transaction, asset_type: Optional[str]) -> bool:
 
     三道判据（任一命中即排除）：
 
-    1. 资产类型是债 / 货基 / 逆回购 / 存款——它们的派息是利息，与红利税无关；
+    1. 资产类型是基金（含货基/场内 ETF）/ 债 / 逆回购 / 存款——持有人侧不产生股息红利
+       个税（基金按财税〔2002〕128 号免税，其余派息本质是利息），与红利税无关；
     2. 操作名里含「利息 / 兑付 / 退款 / 退息 / 零款」——同花顺把这些也映射成 dividend；
     3. 操作名里既没有「红利 / 分红 / 派息 / 股息 / 兑息」，也不是空（手动记账常写
        「现金分红」，含「分红」二字）。

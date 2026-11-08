@@ -253,10 +253,21 @@ export function undoGhostDuplicateIgnore(
 // 所以这里只列「哪一笔分红还没配到扣税流水 / 扣税金额看着不像红利税」，
 // 由用户核对交割单后补记。
 
-/** 域 E 一行的状态：未扣（该补记） / 已记但比例异常（该核对） */
-export type DividendTaxStatus = "未扣" | "已记-比例异常";
+/**
+ * 域 E 一行的状态。
+ *
+ * `items` 里只会出现前两种（真待办）；后两种是「系统看过了、但按制度此刻不用处理」
+ * 的结论，只走计数（`deferred_count` / `exempt_count`），不进待办、不发提醒。
+ *
+ * - `待核对`：已卖出、持股 ≤1 年、却没配到扣税流水（漏导入 / 券商未扣）；
+ * - `已记-比例异常`：配到了，但金额超过分红的 20%（红利税上限）；
+ * - `暂不扣税`：分红日之后还没卖出过——财税〔2015〕101 号规定派息时暂不扣缴；
+ * - `依法免税`：已卖出，但持股明显超过 1 年。
+ */
+export type DividendTaxStatus =
+  "待核对" | "已记-比例异常" | "暂不扣税" | "依法免税";
 
-/** 一项红利税待办（后端 `dividend_tax_service.PendingTaxItem`，粒度 = **一笔分红**） */
+/** 一项红利税待办（后端 `dividend_tax_scan.PendingTaxItem`，粒度 = **一笔分红**） */
 export interface DividendTaxPendingItem {
   symbol: string;
   name: string;
@@ -268,22 +279,29 @@ export interface DividendTaxPendingItem {
   dividend_cents: number;
   /** 这笔分红的确认/除权日（YYYY-MM-DD） */
   dividend_on: string | null;
-  /** 已配到的扣税金额（正数，分）；未扣时恒为 0 */
+  /** 已配到的扣税金额（正数，分）；无税时为 0 */
   tax_cents: number;
-  /** 已配到的扣税日（YYYY-MM-DD）；未扣时为 null */
+  /** 已配到的扣税日（YYYY-MM-DD）；无税时为 null */
   tax_on: string | null;
-  /** 已记税占分红的百分比；未扣时为 null */
+  /** 已记税占分红的百分比；无税时为 null */
   ratio_pct: number | null;
 }
 
 /** `GET /api/reconciliation/dividend-tax/` 的 data 信封 */
 export interface DividendTaxPendingData {
+  /** 真待办：`待核对` + `已记-比例异常` */
   items: DividendTaxPendingItem[];
   count: number;
-  /** 其中「未扣」的条数（比例异常的项不计入待补记总数） */
+  /** 其中「待核对」的条数（比例异常的项不计入） */
   pending_count: number;
-  /** 待补记的分红金额合计（分） */
+  /** 待核对的分红金额合计（分） */
   total_cents: number;
+  /** 按制度暂不扣税（未卖出）的笔数 —— 不进待办，只在列表底部折叠说明 */
+  deferred_count: number;
+  deferred_dividend_cents: number;
+  /** 依法免税（已卖出且持股超一年）的笔数 */
+  exempt_count: number;
+  exempt_dividend_cents: number;
   /** 本次读取顺带写入的站内通知条数（幂等，重复读为 0） */
   reminders_created?: number;
 }
@@ -294,6 +312,53 @@ export function listDividendTaxPending(): Promise<
 > {
   return http.get<ApiResponse<DividendTaxPendingData>, unknown>(
     "/api/reconciliation/dividend-tax/"
+  );
+}
+
+/** 确认「这笔分红确实没有税」的身份（与待办项同源，缺一不可） */
+export interface DividendTaxAckPayload {
+  symbol: string;
+  /** 必须回传待办项上的账户名，否则匹配不到（空串代表未归账户） */
+  account_name?: string;
+  /** 分红日 YYYY-MM-DD */
+  dividend_on: string;
+  reason?: string;
+}
+
+/**
+ * 确认「这笔分红确实没有税」，之后不再提醒（幂等）。
+ *
+ * 为什么不记一笔 0 元扣税：0 元在税法上不是「交了 0 元税」，而是「无需纳税」。
+ * 记 0 元流水会虚构一次现金流出，将来真卖出被扣税时还会抢走配对额度。
+ */
+export function ackDividendTax(payload: DividendTaxAckPayload): Promise<
+  ApiResponse<{
+    id: number;
+    symbol: string;
+    account_name: string;
+    dividend_on: string | null;
+  }>
+> {
+  return http.post<
+    ApiResponse<{
+      id: number;
+      symbol: string;
+      account_name: string;
+      dividend_on: string | null;
+    }>,
+    unknown
+  >("/api/reconciliation/dividend-tax/ack/", { data: payload });
+}
+
+/** 撤销确认（幂等：本来不存在也返回 `deleted=false`） */
+export function revokeDividendTaxAck(
+  payload: DividendTaxAckPayload
+): Promise<ApiResponse<{ deleted: boolean }>> {
+  // 走 POST 子路径而不是 DELETE：项目 http 封装只暴露 get/post，独立路径比给封装
+  // 加方法影响面更小（`/ack/` 与 `/ack/revoke/` 在同一个后端函数里按路径分派）。
+  return http.post<ApiResponse<{ deleted: boolean }>, unknown>(
+    "/api/reconciliation/dividend-tax/ack/revoke/",
+    { data: payload }
   );
 }
 
