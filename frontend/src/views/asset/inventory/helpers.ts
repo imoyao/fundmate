@@ -6,6 +6,7 @@
  */
 
 import { getCssVarWithAlpha } from "@/composables/echarts/theme";
+import { apiErrorMessage } from "@/utils/apiError";
 import {
   ALLOCATION_OPTIONS,
   INVESTMENT_MINOR_CATEGORIES,
@@ -28,9 +29,12 @@ export interface AssetGroupRaw {
 /**
  * 取异常文案：兼容 axios 抛出的 Error 与后端信封返回的 `{ message }`，
  * 都没有时回退到调用方给的兜底文案。
+ *
+ * 收窄逻辑收敛到 `utils/apiError`（与 #2879 卖出费率链路共用一份），
+ * 本函数保留只为不改动调用点。
  */
 export function getErrorMessage(e: unknown, fallback: string): string {
-  return (e as { message?: string } | null)?.message || fallback;
+  return apiErrorMessage(e, fallback);
 }
 
 /** 语义色变量（可含 `var()` 包裹）+ 透明度 → `rgba()`，用于图标底衬等浅色填充。

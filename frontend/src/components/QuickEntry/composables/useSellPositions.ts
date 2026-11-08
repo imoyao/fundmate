@@ -1,5 +1,6 @@
 import { computed, ref, type Ref } from "vue";
 import { getPositionsGroupedByAccount } from "@/api/positions";
+import type { LedgerItem } from "@/api/ledger";
 import type { Position } from "@/api/types";
 import { getStep } from "@/utils/trading";
 
@@ -26,9 +27,9 @@ interface SellPositionsForm {
  */
 export function useSellPositions(deps: {
   /** 账户列表（父组件 props.ledgers，取函数以免解构丢响应性） */
-  getLedgers: () => any[];
+  getLedgers: () => LedgerItem[];
   form: SellPositionsForm;
-  selectedPosition: Ref<any>;
+  selectedPosition: Ref<Position | null>;
   /** 持仓加载完把涉及的 ledger_id 广播给父组件（页面据此预取） */
   onLoaded?: (ledgerIds: number[]) => void;
 }) {

@@ -28,6 +28,7 @@ vi.mock("@/api/funds", () => ({
 }));
 
 import { estimateRedeemFee } from "@/api/funds";
+import type { Position } from "@/api/types";
 import { useSellFee } from "../useSellFee";
 
 const mockedEstimate = vi.mocked(estimateRedeemFee);
@@ -42,6 +43,30 @@ function mkForm(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * 构造一条持仓：`Position` 的必填字段一次给全，避免用 `as any` 造半截对象
+ * （那样连「字段名写错」都不会被发现）。
+ */
+function mkPosition(overrides: Partial<Position> = {}): Position {
+  return {
+    id: 1,
+    symbol: "600519",
+    name: null,
+    market: "CN_A",
+    type: "stock",
+    account_name: "测试账户",
+    quantity: 200,
+    avg_price: 10,
+    currency: "CNY",
+    current_price: 10,
+    trade_date: "2026-01-05",
+    notes: null,
+    created_at: "2026-01-05T00:00:00",
+    updated_at: "2026-01-05T00:00:00",
+    ...overrides
+  };
+}
+
 describe("useSellFee.calculateFeeAndRate", () => {
   beforeEach(() => {
     mockedEstimate.mockReset();
@@ -49,7 +74,9 @@ describe("useSellFee.calculateFeeAndRate", () => {
 
   it("股票：保留用户填写的费用，不置 0、不请求赎回费率", async () => {
     const form = mkForm();
-    const selectedPosition = ref<any>({ id: 1, type: "stock" });
+    const selectedPosition = ref<Position | null>(
+      mkPosition({ type: "stock" })
+    );
     const { calculateFeeAndRate } = useSellFee({ form, selectedPosition });
 
     await calculateFeeAndRate();
@@ -60,7 +87,9 @@ describe("useSellFee.calculateFeeAndRate", () => {
 
   it("股票：未填费用时保持 undefined，不被动写成 0", async () => {
     const form = mkForm({ fee: undefined });
-    const selectedPosition = ref<any>({ id: 1, type: "stock" });
+    const selectedPosition = ref<Position | null>(
+      mkPosition({ type: "stock" })
+    );
     const { calculateFeeAndRate } = useSellFee({ form, selectedPosition });
 
     await calculateFeeAndRate();
@@ -70,14 +99,13 @@ describe("useSellFee.calculateFeeAndRate", () => {
 
   it("基金：仍按后端估算覆盖费用（未被本次修复影响）", async () => {
     mockedEstimate.mockResolvedValue({
-      data: { total_fee: 12.5, holdings: [], sell: [] }
-    } as any);
-    const form = mkForm({ type: "fund", fee: 0 });
-    const selectedPosition = ref<any>({
-      id: 2,
-      type: "fund",
-      confirm_date: "2026-01-05"
+      data: { total_fee: 12.5, holdings: [], sell: [] },
+      message: "ok"
     });
+    const form = mkForm({ type: "fund", fee: 0 });
+    const selectedPosition = ref<Position | null>(
+      mkPosition({ id: 2, type: "fund", confirm_date: "2026-01-05" })
+    );
     const { calculateFeeAndRate } = useSellFee({ form, selectedPosition });
 
     await calculateFeeAndRate();
