@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { PreviewRow } from "../composables/previewRow";
 import { statusKindOf } from "../composables/statusKind";
 
-const props = defineProps<{ row: any }>();
+const props = defineProps<{ row: PreviewRow }>();
 
 const {
   isRowBlocked,

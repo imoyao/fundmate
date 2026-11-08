@@ -10,11 +10,12 @@
 // 草稿由父层持有（按 `_rowKey` 懒建），本组件只做受控输入：拆开写会让「撤销后
 // 再回到这条时草稿还在」这个既有行为丢掉。
 import type { FixSectionKey } from "../composables/batchFixLogic";
+import type { PreviewRow } from "../composables/previewRow";
 import type { CardDraft } from "./batchFixPanelModel";
 import { SECTION_LABELS, mismatchDiffText } from "./batchFixPanelModel";
 
 defineProps<{
-  row: any;
+  row: PreviewRow;
   section: FixSectionKey;
   draft: CardDraft;
   tagType: "danger" | "warning" | "success" | "info";

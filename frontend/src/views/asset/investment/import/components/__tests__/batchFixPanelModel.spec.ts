@@ -6,6 +6,7 @@
  * 负号由 `toFixed` 自带，写反了就是「差额 -12.00」与「差额 +-12.00」两种事故。
  */
 import { describe, it, expect } from "vitest";
+import type { PreviewRow } from "../../composables/previewRow";
 import {
   AUTO_FIELD_LABELS,
   SECTION_LABELS,
@@ -17,6 +18,49 @@ import {
   repoRevertableOf,
   singleScopeLabelOf
 } from "../batchFixPanelModel";
+
+/**
+ * 构造一条**字段齐全**的预览行：`PreviewRow` 的必填字段全部给默认值，用例只覆盖
+ * 自己关心的那几个（同 `composables/__tests__/previewPipeline.spec.ts` 的 `mkRow`）。
+ *
+ * 为什么不再直接把半截对象喂给被测函数：这些函数上一轮的入参是 `any`，写错字段名
+ * （`_autoFilled` 拼成 `_autoFill`）单测照样绿；收紧成 `PreviewRow` 后拼错当场报错。
+ * 代价是每个用例要过一层工厂——比「断言绿着但测的是别的东西」便宜。
+ */
+function row(overrides: Partial<PreviewRow> = {}): PreviewRow {
+  return {
+    _rowKey: "row_1",
+    symbol: "",
+    name: "",
+    display_name: "",
+    type: "",
+    display_type: "",
+    op_type: "",
+    op_type_label: "",
+    quantity: 0,
+    price: 0,
+    amount: 0,
+    fee: 0,
+    trade_date: "",
+    account_name: "",
+    ledger_id: null,
+    contract_id: "",
+    is_cash_transfer: false,
+    error: null,
+    import_hash: "",
+    is_duplicate: false,
+    allocation: null,
+    link_group_id: null,
+    link_warning: "",
+    consumed_by: "",
+    trade_amount: 0,
+    net_amount: 0,
+    notes: "",
+    source: "",
+    is_calculated: false,
+    ...overrides
+  };
+}
 
 describe("modeLabelOf", () => {
   it("三种形态各有固定文案", () => {
@@ -44,45 +88,47 @@ describe("singleScopeLabelOf", () => {
 
 describe("mismatchDiffText", () => {
   it("差额为正时显式带「+」", () => {
-    expect(mismatchDiffText({ quantity: 100, price: 1.5, amount: 100 })).toBe(
-      "数量×价格 = 150.00，当前金额 100.00，差额 +50.00"
-    );
+    expect(
+      mismatchDiffText(row({ quantity: 100, price: 1.5, amount: 100 }))
+    ).toBe("数量×价格 = 150.00，当前金额 100.00，差额 +50.00");
   });
 
   it("差额为负时只带「-」，不出现「+-」", () => {
-    const text = mismatchDiffText({ quantity: 100, price: 1.5, amount: 200 });
+    const text = mismatchDiffText(
+      row({ quantity: 100, price: 1.5, amount: 200 })
+    );
     expect(text).toBe("数量×价格 = 150.00，当前金额 200.00，差额 -50.00");
     expect(text).not.toContain("+-");
   });
 
   it("差额为零时不带符号", () => {
-    expect(mismatchDiffText({ quantity: 10, price: 2, amount: 20 })).toContain(
-      "差额 0.00"
-    );
+    expect(
+      mismatchDiffText(row({ quantity: 10, price: 2, amount: 20 }))
+    ).toContain("差额 0.00");
   });
 
   it("字段缺失时保留 NaN 文案（既有实现如此，改它属于新的展示决策）", () => {
-    expect(mismatchDiffText({ quantity: 1, price: undefined, amount: 1 })).toBe(
-      "数量×价格 = NaN，当前金额 1.00，差额 NaN"
-    );
+    expect(
+      mismatchDiffText(row({ quantity: 1, price: undefined, amount: 1 }))
+    ).toBe("数量×价格 = NaN，当前金额 1.00，差额 NaN");
   });
 });
 
 describe("filledFieldsLabel", () => {
   it("键名翻成人话并用顿号连接", () => {
-    expect(filledFieldsLabel({ _autoFilled: ["quantity", "price"] })).toBe(
+    expect(filledFieldsLabel(row({ _autoFilled: ["quantity", "price"] }))).toBe(
       "数量、价格"
     );
   });
 
   it("未知键原样回显（便于发现新增字段漏配文案）", () => {
-    expect(filledFieldsLabel({ _autoFilled: ["quantity", "nav"] })).toBe(
+    expect(filledFieldsLabel(row({ _autoFilled: ["quantity", "nav"] }))).toBe(
       "数量、nav"
     );
   });
 
   it("没有 _autoFilled 时返回空串", () => {
-    expect(filledFieldsLabel({})).toBe("");
+    expect(filledFieldsLabel(row())).toBe("");
   });
 
   it("文案表只覆盖数量与价格两种（新增字段须同步这里）", () => {
@@ -110,16 +156,16 @@ describe("autoFixableCountOf", () => {
 describe("repoRevertableOf", () => {
   it("只收解析期自动置的活钱", () => {
     const rows = [
-      { symbol: "204001", allocation: "liquid" },
-      { symbol: "204002", allocation: "liquid", _allocationManual: true },
-      { symbol: "204003", allocation: "longterm" }
+      row({ symbol: "204001", allocation: "liquid" }),
+      row({ symbol: "204002", allocation: "liquid", _allocationManual: true }),
+      row({ symbol: "204003", allocation: "longterm" })
     ];
     expect(repoRevertableOf(rows).map(r => r.symbol)).toEqual(["204001"]);
   });
 
   it("手动改过的活钱不回退（用户的设置优先）", () => {
     expect(
-      repoRevertableOf([{ allocation: "liquid", _allocationManual: true }])
+      repoRevertableOf([row({ allocation: "liquid", _allocationManual: true })])
     ).toHaveLength(0);
   });
 

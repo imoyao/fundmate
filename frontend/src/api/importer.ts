@@ -5,6 +5,11 @@ import type { OcrHoldingRow } from "@/api/ocr";
 export interface ImportPreviewRow {
   symbol: string;
   name: string;
+  /**
+   * 展示名（#2844，只读派生、不入库）：券商原文不给标的的收益行（基金红利拨入 /
+   * 红利入账）靠它才看得出「这笔钱是什么」。回传 confirm 时用的仍是 `name`。
+   */
+  display_name: string;
   /** 资产类型（stock/fund/cash 等） */
   type: string;
   /** 产品细分类型（如「混合型」「货币型」，仅展示用） */
@@ -33,6 +38,13 @@ export interface ImportPreviewRow {
   allocation: string | null;
   /** 关联交易组 id（同一笔交易的配对行共享） */
   link_group_id: string | null;
+  /**
+   * 配对交叉校验提示（如「税率不符」）：只提示、不影响入库。
+   * 无提示时是**空串**而不是 null（后端 `rec.link_warning or ''`）。
+   */
+  link_warning: string;
+  /** 被配对规则消费（非空 = 不入账：效果已由同组主记录覆盖） */
+  consumed_by: string;
   /** 原始成交金额（同花顺专用） */
   trade_amount: number;
   /** 净发生金额绝对值（同花顺专用） */

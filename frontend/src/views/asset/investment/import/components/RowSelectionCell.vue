@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { PreviewRow } from "../composables/previewRow";
 
-defineProps<{ row: any }>();
+defineProps<{ row: PreviewRow }>();
 
 const {
   isRowSelected,
@@ -42,7 +43,7 @@ const {
   <el-checkbox
     v-else
     :model-value="isRowSelected(row)"
-    :disabled="row.error || isRowBlocked(row)"
+    :disabled="Boolean(row.error) || isRowBlocked(row)"
     @change="(val: boolean) => handleRowCheckboxChange(row, val)"
   />
 

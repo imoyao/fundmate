@@ -74,6 +74,7 @@ import ImageUploader from "@/components/ImageUploader/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
 import type { OcrTxnRow } from "@/api/ocr";
+import { apiErrorMessage } from "@/utils/apiError";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -193,24 +194,32 @@ const handleRecognize = async () => {
     } else {
       ElMessage.success(`识别到 ${rows.length} 条交易记录，进入预览核对`);
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     // 兜底：识别失败（超时/服务不可用）后端会返还配额，刷新余量避免显示虚低
     void fetchUsage();
-    const status = e?.response?.status;
+    // 分支判据要读 HTTP 状态与 axios 超时码，形状在这里收窄一次；
+    // 文案统一走 apiErrorMessage（信封 message 优先，抛字符串 / Error 都能读）
+    const err = e as {
+      code?: string;
+      message?: string;
+      response?: { status?: number };
+    };
+    const status = err.response?.status;
     if (status === 503) {
       ElMessage.error("AI 识别服务暂时繁忙，请稍后重试（失败不消耗次数）");
     } else if (status === 429) {
-      const msg =
-        e?.response?.data?.message || "今日持仓识别次数已用完，请明日再试";
-      ElMessage.warning(msg);
-    } else if (e?.code === "ECONNABORTED" || e?.message?.includes("timeout")) {
+      ElMessage.warning(
+        apiErrorMessage(e, "今日持仓识别次数已用完，请明日再试")
+      );
+    } else if (
+      err.code === "ECONNABORTED" ||
+      err.message?.includes("timeout")
+    ) {
       ElMessage.error(
         "识别超时，图片内容可能较多，请稍后重试（失败不消耗次数）"
       );
     } else {
-      const msg =
-        e?.response?.data?.message || e?.message || "识别失败，请重试";
-      ElMessage.error(msg);
+      ElMessage.error(apiErrorMessage(e, "识别失败，请重试"));
     }
   } finally {
     recognizing.value = false;
