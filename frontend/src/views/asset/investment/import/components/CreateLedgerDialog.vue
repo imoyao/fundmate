@@ -24,7 +24,8 @@ const {
   <el-dialog
     v-model="showCreateLedgerDialog"
     title="新建账户"
-    width="480px"
+    :width="'var(--dialog-width-form)'"
+    class="form-dialog"
     align-center
   >
     <el-form label-position="top">

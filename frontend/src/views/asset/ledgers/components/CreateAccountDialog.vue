@@ -138,16 +138,17 @@ async function handleCreate() {
   <el-dialog
     :model-value="visible"
     title="创建账户"
-    width="560px"
-    class="create-account-dialog"
+    :width="'var(--dialog-width-form)'"
+    class="form-dialog"
     align-center
     destroy-on-close
     :before-close="onBeforeClose"
     @update:model-value="emit('update:visible', $event)"
   >
-    <!-- 420px + label 100px 时控件区只剩 ~260px，10 个字段纵堆到近 900px。
-         560px + label 88px 把控件区提到 ~430px；body 限高滚动、footer 常驻，
-         任何视口高度下「取消 / 确认创建」都不会被挤出屏幕。 -->
+    <!-- 宽度走 --dialog-width-form（600px，docs/design/account-dialog-form.md §3）：
+         改前 420px + 标签 100px 时控件区只剩 ~260px，说明文案折成三行、10 个字段
+         纵堆到近 900px。滚动与 footer 常驻由全局 `.form-dialog` 承担（§4），
+         这里不再写 max-height / max-width 兜底。 -->
     <el-form :model="createForm" label-width="88px" class="create-account-form">
       <el-form-item label="账户名称" for="create-account-name" required>
         <el-input
@@ -196,23 +197,5 @@ async function handleCreate() {
 /* 10 个字段的纵向节奏收紧到 12px：不改字段集，先省掉 ~60px 高度 */
 .create-account-form :deep(.el-form-item) {
   margin-bottom: var(--space-3, 12px);
-}
-</style>
-
-<!--
-  el-dialog 是本组件的根元素且 teleport 到 body：scoped 的 `:deep(.el-dialog)`
-  编译成 `[data-v-x] .el-dialog`，要求它是带 scopeId 元素的**后代**，
-  匹配不到根元素自己（assetEntry 弹窗踩过）。故宽度/滚动用唯一类名 + 非 scoped 块。
-  颜色与圆角全部走 design token，不硬编码 hex。
--->
-<style>
-.create-account-dialog {
-  max-width: calc(100vw - 32px);
-}
-
-.create-account-dialog .el-dialog__body {
-  max-height: min(66vh, 560px);
-  padding-right: 20px;
-  overflow-y: auto;
 }
 </style>

@@ -225,4 +225,30 @@ test.describe("账户表单拆分回归（#980 批 B1）", () => {
     expect(captured.payload).toMatchObject({ channel_category: "securities" });
     expect(captured.payload).not.toHaveProperty("ledger_type");
   });
+
+  test("版式：宽度走 --dialog-width-form 令牌，短视口下 footer 常驻", async ({
+    page
+  }) => {
+    // docs/design/account-dialog-form.md §6 的机器化判据。
+    // 宽度若退回字面量（420/480/560），这条立刻红——库内已有四个弹窗四种宽度的先例。
+    await page.setViewportSize({ width: 1080, height: 648 });
+    await stubLedgers(page);
+    const dialog = await openCreateDialog(page);
+    await pickLedgerType(page, "证券");
+
+    const box = await dialog.boundingBox();
+    expect(Math.round(box!.width)).toBe(600);
+
+    // body 可以滚动，但「取消 / 确认创建」必须在视口内——这是用户当初报障的
+    // 原症状（按钮被挤出屏幕），只断言宽度不够。
+    const footerBox = await dialog.locator(".el-dialog__footer").boundingBox();
+    const viewport = page.viewportSize()!;
+    expect(footerBox!.y).toBeGreaterThanOrEqual(0);
+    expect(footerBox!.y + footerBox!.height).toBeLessThanOrEqual(
+      viewport.height
+    );
+    await expect(
+      dialog.getByRole("button", { name: "确认创建" })
+    ).toBeInViewport();
+  });
 });

@@ -92,7 +92,13 @@ onMounted(fetchSalesInstitutions);
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="新增账户" width="420px" destroy-on-close>
+  <el-dialog
+    v-model="visible"
+    title="新增账户"
+    :width="'var(--dialog-width-compact)'"
+    class="form-dialog"
+    destroy-on-close
+  >
     <el-form :model="newLedgerForm" label-width="80px" size="large">
       <el-form-item label="账户名称" required>
         <el-input

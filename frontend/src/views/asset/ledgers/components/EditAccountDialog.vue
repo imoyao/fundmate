@@ -2,7 +2,9 @@
   <el-dialog
     :model-value="visible"
     title="编辑账户"
-    width="420px"
+    :width="'var(--dialog-width-form)'"
+    class="form-dialog"
+    align-center
     destroy-on-close
     :before-close="onBeforeClose"
     @update:model-value="emit('update:visible', $event)"
