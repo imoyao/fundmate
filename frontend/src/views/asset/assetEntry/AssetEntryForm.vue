@@ -16,6 +16,7 @@
  * 现在一律用 `el-button type="primary"` 交给全局主题（`--brand-solid` 三态 + AA 对比度），
  * 本文件不再声明任何按钮颜色。
  */
+import { errorMessageOf } from "@/utils/errorMessage";
 import { reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -95,8 +96,8 @@ async function handleSubmit() {
     await createAsset(buildAssetPayload(form));
     ElMessage.success(`已录入资产「${form.name}」`);
     handleReset();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "录入失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "录入失败");
   } finally {
     submitting.value = false;
   }

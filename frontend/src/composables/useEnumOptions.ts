@@ -8,7 +8,7 @@ import { computed, type Ref, unref } from "vue";
  * @param labelField 作为选项 label 的字段名，若不传则使用 value 字段
  * @returns 去重后的选项数组，格式为 [{ value, label }]
  */
-export function useEnumOptions<T extends Record<string, any>>(
+export function useEnumOptions<T extends Record<string, unknown>>(
   data: Ref<T[]> | T[],
   field: keyof T,
   labelField?: keyof T

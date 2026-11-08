@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ChartCallbackParam } from "@/types/chart";
 import { computed } from "vue";
 import VChart from "vue-echarts";
 import {
@@ -69,7 +70,7 @@ const donutOption = computed(() => {
         color: getCssVar("--text-primary") || "#2d2a24",
         fontSize: 12
       },
-      formatter: (params: any) => {
+      formatter: (params: ChartCallbackParam) => {
         const pct = pctOf((params.value as number) * 100);
         return `${params.name}<br/>¥${Number(params.value).toLocaleString()}（${pct}%）`;
       }

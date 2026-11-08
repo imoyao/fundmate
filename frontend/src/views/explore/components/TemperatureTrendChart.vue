@@ -28,6 +28,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ChartCallbackParam, ChartInstance } from "@/types/chart";
 import { ref, computed, onMounted, watch } from "vue";
 import VChart from "vue-echarts";
 import { getTemperatureHistory } from "@/api/temperature";
@@ -78,7 +79,7 @@ const HISTORY_RANGE_OPTIONS = [
 ] as const;
 
 const historyDays = ref<30 | 90 | 180>(90);
-const chartRef = ref<any>(null);
+const chartRef = ref<ChartInstance | null>(null);
 
 const fetchHistory = async () => {
   try {
@@ -105,7 +106,7 @@ const chartOption = computed(() => {
   return {
     tooltip: {
       trigger: "axis",
-      formatter: (params: any) => {
+      formatter: (params: ChartCallbackParam) => {
         const p = params[0];
         const idx = p.dataIndex;
         const level = levels[idx] || "";
@@ -173,7 +174,7 @@ const chartOption = computed(() => {
           }
         },
         itemStyle: {
-          color: (params: any) => {
+          color: (params: ChartCallbackParam) => {
             const idx = params.dataIndex;
             return colors[idx] || getCssVar("--brand-700", "#e34f38");
           }

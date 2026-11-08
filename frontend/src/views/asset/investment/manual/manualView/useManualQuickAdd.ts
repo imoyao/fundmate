@@ -1,3 +1,4 @@
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 
@@ -59,10 +60,8 @@ export function useManualQuickAdd(onCreated: (id: number) => void) {
         onCreated(newLedger.id);
         ElMessage.success(`已创建账户「${newLedger.name || name}」并自动选中`);
       }
-    } catch (e: any) {
-      ElMessage.error(
-        e?.response?.data?.message || e?.message || "创建账户失败"
-      );
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "创建账户失败");
     } finally {
       creatingAccount.value = false;
     }

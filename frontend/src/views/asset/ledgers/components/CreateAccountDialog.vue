@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
@@ -122,10 +123,10 @@ async function handleCreate() {
     markSaved();
     emit("update:visible", false);
     emit("created");
-  } catch (e: any) {
+  } catch (e) {
     // 后端 400 文案要给用户足够时间读完，默认 3s 一闪而过
     ElMessage.error({
-      message: e?.response?.data?.message || "创建失败",
+      message: errorMessageOf(e) || "创建失败",
       duration: 6000
     });
   } finally {

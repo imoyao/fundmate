@@ -134,6 +134,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -165,8 +166,8 @@ const handleImportExploreData = async () => {
         result.skipped > 0 ? `，跳过已存在 ${result.skipped} 个` : ""
       }`
     );
-  } catch (e: any) {
-    ElMessage.error(e.message || "导入失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "导入失败");
   }
 };
 

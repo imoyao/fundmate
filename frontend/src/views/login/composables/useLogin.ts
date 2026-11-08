@@ -158,7 +158,7 @@ export function useLogin() {
       });
       if (error) throw error;
       // 成功时 Supabase 会重定向到 GitHub，无需手动处理
-    } catch (err: any) {
+    } catch (err) {
       message(toAuthErrorMessage(err), { type: "error" });
       githubLoading.value = false;
     }
@@ -204,7 +204,7 @@ export function useLogin() {
         // 防用户枚举：不区分邮箱是否存在，统一提示已发送
         message("重置邮件已发送，请查收邮箱", { type: "success" });
         forgotVisible.value = false;
-      } catch (err: any) {
+      } catch (err) {
         message(toAuthErrorMessage(err), { type: "error" });
       } finally {
         forgotLoading.value = false;
@@ -302,7 +302,7 @@ export function useLogin() {
           await initRouter();
           router.push("/welcome");
         }
-      } catch (err: any) {
+      } catch (err) {
         message(toAuthErrorMessage(err), { type: "error" });
       } finally {
         disabled.value = false;

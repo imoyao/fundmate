@@ -7,6 +7,7 @@
 //
 // 页面骨架按 docs/design/transaction-flow-redesign.md §二 的三条横带：
 // 页头（我是谁）→ 汇总条（这段时间发生了什么）→ 列表卡（具体哪一笔）。
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Download } from "@element-plus/icons-vue";
@@ -79,8 +80,8 @@ async function fetchData(isLoadMore = false) {
       : newData;
     total.value = res?.total ?? 0;
     hasMore.value = transactions.value.length < total.value;
-  } catch (e: any) {
-    ElMessage.error(e?.message || "加载流水失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "加载流水失败");
   } finally {
     loading.value = false;
     loadingMore.value = false;
@@ -187,8 +188,8 @@ const handleExport = async () => {
   exporting.value = true;
   try {
     await exportTransactions();
-  } catch (e: any) {
-    ElMessage.error(e?.message || "导出失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "导出失败");
   } finally {
     exporting.value = false;
   }

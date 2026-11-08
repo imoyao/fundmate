@@ -152,6 +152,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
@@ -236,9 +237,9 @@ async function handleSave() {
     ElMessage.success("组合已创建");
     dialogVisible.value = false;
     await fetchList();
-  } catch (e: any) {
+  } catch (e) {
     // 409 = 重名，后端已给出「组合「xxx」已存在」，直接透出，不再包一层泛化文案
-    ElMessage.error(e?.response?.data?.message || "创建失败");
+    ElMessage.error(errorMessageOf(e) || "创建失败");
   } finally {
     saving.value = false;
   }
@@ -249,8 +250,8 @@ async function handleDelete(id: number) {
     await deletePortfolio(id);
     ElMessage.success("组合已删除");
     await fetchList();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "删除失败");
   }
 }
 

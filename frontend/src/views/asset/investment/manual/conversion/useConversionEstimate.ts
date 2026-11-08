@@ -10,6 +10,7 @@
 // 3. **试算只在确认页跑**：`scheduleEstimate` 的 watch 里 `step !== 1` 直接 return，
 //    第 1 步填表时不发请求（填表阶段没有任何数字要展示）。
 
+import { errorMessageOf } from "@/utils/errorMessage";
 import {
   computed,
   reactive,
@@ -107,11 +108,10 @@ export function useConversionEstimate(options: {
         const first = estimate.value.refund.options[0];
         if (first) form.refundMode = first.type;
       }
-    } catch (e: any) {
+    } catch (e) {
       if (my !== estimateSeq) return;
       estimate.value = null;
-      estimateError.value =
-        e?.response?.data?.message || e?.message || "试算失败";
+      estimateError.value = errorMessageOf(e) || "试算失败";
     } finally {
       if (my === estimateSeq) estimating.value = false;
     }

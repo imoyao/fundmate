@@ -17,6 +17,7 @@
  * 拆成子组件的话，`form` 要跨组件传、`formRef.validate()` 要 `defineExpose` 出去，
  * 顺序还看不见了——所以这里只搬状态，模板留在 SFC 里。
  */
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, nextTick, ref, watch } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
@@ -264,8 +265,8 @@ export function useTransactionEditForm(opts: {
       opts.onSaved(data);
       opts.onClose();
       ElMessage.success("保存成功");
-    } catch (e: any) {
-      ElMessage.error(e?.message || "保存失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "保存失败");
     } finally {
       saving.value = false;
     }

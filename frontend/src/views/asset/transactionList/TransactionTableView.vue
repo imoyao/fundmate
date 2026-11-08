@@ -9,6 +9,7 @@
 // 行展开详情（设计 §十二-4）：**按需请求**。展开一行才取一行，取过就缓存；
 // 不在列表里预取，也不把详情字段并进列表接口。缓存的生命周期挂在本组件上——
 // 换页 / 换筛选时表格重建，缓存自然清空（旧页的详情在新页没有意义）。
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref } from "vue";
 import type { TransactionDetail, TransactionRecord } from "@/api/transactions";
 import { getTransactionDetail } from "@/api/transactions";
@@ -66,13 +67,13 @@ async function loadDetail(id: number) {
     const res = await getTransactionDetail(id);
     const data = (res as unknown as { data: TransactionDetail }).data;
     setDetail(id, { loading: false, data, error: null });
-  } catch (e: any) {
+  } catch (e) {
     // 界面上不甩原始异常：后端 404（流水已被别处删掉）与网络抖动对用户是同一句话
     // 「读不出来」，区别只在重试有没有用——所以给重试入口，不给堆栈。
     setDetail(id, {
       loading: false,
       data: null,
-      error: e?.message || "网络或服务异常"
+      error: errorMessageOf(e) || "网络或服务异常"
     });
   }
 }

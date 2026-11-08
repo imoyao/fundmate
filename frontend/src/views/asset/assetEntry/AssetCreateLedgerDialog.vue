@@ -14,6 +14,7 @@
  * 弹窗自己管三件事：表单状态、销售机构候选、创建请求。建完只把 `{ id, name }`
  * 抛给页面——页面要拿它回填「所属账户」，不需要知道弹窗内部怎么取的数。
  */
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 
@@ -103,8 +104,8 @@ async function handleCreateLedger() {
       id: newLedger.id ?? (res as any).id,
       name: newLedger.name || newLedgerForm.name
     });
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "创建失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "创建失败");
   } finally {
     creatingLedger.value = false;
   }
