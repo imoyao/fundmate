@@ -132,11 +132,15 @@ describe("diagnosisModel：翻译与格式化", () => {
     expect(actionLabel("buy")).toBe("买入区间");
     expect(actionLabel("sell")).toBe("离场区间");
     expect(actionLabel("hold")).toBe("持有区间");
-    expect(actionLabel("unknown" as any)).toBe("unknown");
+    expect(
+      actionLabel("unknown" as unknown as Parameters<typeof actionLabel>[0])
+    ).toBe("unknown");
   });
 
   it("策略名：有元信息用人话，否则退回 code", () => {
-    const metas = [{ code: "ma_cross", name: "均线交叉" }] as any;
+    const metas = [
+      { code: "ma_cross", name: "均线交叉" }
+    ] as unknown as Parameters<typeof strategyName>[0];
     expect(strategyName(metas, "ma_cross")).toBe("均线交叉");
     expect(strategyName(metas, "unknown")).toBe("unknown");
     expect(strategyName(undefined, "x")).toBe("x");
@@ -158,7 +162,7 @@ describe("diagnosisModel：翻译与格式化", () => {
   it("行为画像按 symbol 建索引", () => {
     const map = buildProfileMap({
       profiles: [{ symbol: "110011", trade_count: 3 }]
-    } as any);
+    } as unknown as Parameters<typeof buildProfileMap>[0]);
     expect(map["110011"].trade_count).toBe(3);
     expect(map["000001"]).toBeUndefined();
     expect(buildProfileMap(null)).toEqual({});

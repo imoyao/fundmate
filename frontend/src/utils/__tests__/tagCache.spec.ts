@@ -89,7 +89,9 @@ describe("sanitizeTags", () => {
   it("非数组（缓存被写成对象/字符串）→ 空数组，不抛错", () => {
     expect(sanitizeTags(null)).toEqual([]);
     expect(sanitizeTags(undefined)).toEqual([]);
-    expect(sanitizeTags({} as any)).toEqual([]);
+    expect(
+      sanitizeTags({} as unknown as Parameters<typeof sanitizeTags>[0])
+    ).toEqual([]);
   });
 
   it("判据非空转：全脏的缓存清洗后为空，调用方可回退到固定标签", () => {

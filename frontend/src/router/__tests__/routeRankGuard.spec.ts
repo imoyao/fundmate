@@ -342,7 +342,11 @@ describe("路由 rank 守卫（#2152）", () => {
         const title = n.meta?.title;
         // 跳过容器（相对 path）与带参路由（单独用 `/fund/004369` 那条用例覆盖）
         if (p.startsWith("/") && p !== "/" && !p.includes(":") && title) {
-          const crumbs = buildBreadcrumb(tree as any, p, title);
+          const crumbs = buildBreadcrumb(
+            tree as unknown as Parameters<typeof buildBreadcrumb>[0],
+            p,
+            title
+          );
           const last = crumbs[crumbs.length - 1];
           if (!last) offenders.push(`${p} → 面包屑为空`);
           else if (last.title !== title) {
@@ -361,7 +365,11 @@ describe("路由 rank 守卫（#2152）", () => {
   it("面包屑：隐藏页/下钻页不得塌回「概览 / 某页」（实机盘查回归）", () => {
     const tree = ascending(topLevelRoutes.map(cloneRoute));
     const chain = (p: string, title?: string) =>
-      buildBreadcrumb(tree as any, p, title).map(c => c.title);
+      buildBreadcrumb(
+        tree as unknown as Parameters<typeof buildBreadcrumb>[0],
+        p,
+        title
+      ).map(c => c.title);
 
     // 这些页面 showLink:false 或 hidden，不在侧边栏，但用户能直达：
     // 它们的父级必须来自路由结构（资产 / 记账），不是路径前缀猜的。

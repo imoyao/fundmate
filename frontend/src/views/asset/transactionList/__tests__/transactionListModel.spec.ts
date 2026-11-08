@@ -24,7 +24,7 @@ import {
   TXN_TYPE_OPTIONS
 } from "../transactionListModel";
 
-const txn = (over: Record<string, any> = {}) =>
+const txn = (over: Record<string, unknown> = {}) =>
   ({
     id: 1,
     type: "buy",
@@ -36,7 +36,7 @@ const txn = (over: Record<string, any> = {}) =>
     position_name: "沪深300",
     notes: null,
     ...over
-  }) as any;
+  }) as unknown as import("@/api/transactions").TransactionRecord;
 
 describe("defaultFilters", () => {
   it("每次返回新对象，不共享引用", () => {
