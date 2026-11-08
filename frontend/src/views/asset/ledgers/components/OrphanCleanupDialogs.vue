@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -65,8 +66,8 @@ async function openDetailDialog() {
   try {
     const res = await getOrphanDetail();
     orphanDetail.value = res.data ?? orphanDetail.value;
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "加载明细失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "加载明细失败");
   } finally {
     detailLoading.value = false;
   }
@@ -90,8 +91,8 @@ async function handleMigrate() {
     ElMessage.success(`已将 ${total} 项未归置数据归入目标账户`);
     showMigrateDialog.value = false;
     emit("refresh");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "归入失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "归入失败");
   } finally {
     migrating.value = false;
   }
@@ -119,8 +120,8 @@ async function handleOrphanCleanup() {
       `已清理 ${data.position_count ?? 0} 笔持仓、${data.asset_count ?? 0} 项资产、${data.transaction_count ?? 0} 笔交易`
     );
     emit("refresh");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "清理失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "清理失败");
   } finally {
     cleaning.value = false;
   }

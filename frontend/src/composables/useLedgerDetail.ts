@@ -1,3 +1,4 @@
+import { asErrorEnvelope, errorMessageOf } from "@/utils/errorMessage";
 import {
   ref,
   computed,
@@ -389,9 +390,9 @@ export function useLedgerDetail(): LedgerDetailApi {
       ledgers.value = res.data ?? [];
       await loadSummary();
       await loadHoldings();
-    } catch (e: any) {
-      if (e !== "cancel" && e?.action !== "cancel") {
-        ElMessage.error(e?.message || "操作失败");
+    } catch (e) {
+      if (e !== "cancel" && asErrorEnvelope(e).action !== "cancel") {
+        ElMessage.error(errorMessageOf(e) || "操作失败");
       }
     }
   }

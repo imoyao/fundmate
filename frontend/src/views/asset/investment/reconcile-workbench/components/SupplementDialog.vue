@@ -156,6 +156,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, reactive, ref, watch } from "vue";
 import {
   ElMessage,
@@ -368,8 +369,8 @@ async function submit(): Promise<void> {
     ElMessage.success(form.kind === "set" ? "持仓已改" : "这笔已补上");
     close(false);
     emit("submitted");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "没保存成功，稍后再试");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "没保存成功，稍后再试");
   } finally {
     submitting.value = false;
   }

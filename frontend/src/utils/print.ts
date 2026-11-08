@@ -105,7 +105,7 @@ Print.prototype = {
         const child = selects[k3].children;
         for (const i in child) {
           if (child[i].tagName == "OPTION") {
-            if ((child[i] as any).selected == true) {
+            if ((child[i] as HTMLOptionElement).selected == true) {
               child[i].setAttribute("selected", "selected");
             } else {
               child[i].removeAttribute("selected");

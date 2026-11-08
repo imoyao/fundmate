@@ -5,6 +5,7 @@
  * 这边只把这些结果填进 ECharts 的配置形状。拆成两个文件是因为几何是纯数学、
  * 值得单测；option 是配置字面量、改它通常是调视觉，两者改动的理由完全不同。
  */
+import type { ChartCallbackParam } from "@/types/chart";
 import type { SankeyLink } from "./sankeyLayout";
 import { formatNodeLabel, type VarReader } from "./sankeyLayout";
 
@@ -40,7 +41,7 @@ export function buildSankeyOption(input: SankeyOptionInput) {
       backgroundColor: "rgba(255,255,255,0.95)",
       borderColor: readVar("--border-light"),
       textStyle: { color: readVar("--text-primary"), fontSize: 12 },
-      formatter: (params: any) => {
+      formatter: (params: ChartCallbackParam) => {
         if (params.dataType === "node") {
           const disp =
             displayMode === "hidden"

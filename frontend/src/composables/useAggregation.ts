@@ -1,3 +1,4 @@
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref } from "vue";
 import type {
   AggregationDimension,
@@ -172,10 +173,10 @@ export function useAggregation(
       // 旧请求的响应：丢弃，别覆盖新筛选的结果（#1833）
       if (token !== loadToken) return;
       result.value = (res?.data as AggregationResult) ?? null;
-    } catch (e: any) {
+    } catch (e) {
       if (token !== loadToken) return;
       // 技术错误映射为用户友好文案，不暴露原始信息
-      const msg = String(e?.message ?? e ?? "");
+      const msg = errorMessageOf(e) || String(e ?? "");
       if (/timeout/i.test(msg)) {
         errorMsg.value = "请求超时，请稍后重试";
       } else if (/network|fetch|abort/i.test(msg)) {

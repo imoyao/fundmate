@@ -44,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ChartInstance } from "@/types/chart";
 import { ref, computed, watch, onMounted } from "vue";
 import VChart from "vue-echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
@@ -84,7 +85,7 @@ const FREQ_OPTIONS = [
 const indicator = ref("crowding");
 const freq = ref<"weekly" | "monthly">("weekly");
 const loading = ref(false);
-const chartRef = ref<any>(null);
+const chartRef = ref<ChartInstance | null>(null);
 const history = ref<CrowdingHistoryResponse["data"]>(null);
 const notice = ref("");
 

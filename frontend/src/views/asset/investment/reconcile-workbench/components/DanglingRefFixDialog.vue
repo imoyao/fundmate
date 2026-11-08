@@ -69,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import {
@@ -145,8 +146,8 @@ async function runPreview(): Promise<void> {
       target_position_id: selectedPositionId.value
     });
     preview.value = res.data ?? null;
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "预览失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "预览失败");
   } finally {
     previewing.value = false;
   }
@@ -169,8 +170,8 @@ async function submit(): Promise<void> {
     result.value = res.data ?? null;
     ElMessage.success("已补上关联");
     emit("submitted");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "补上关联失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "补上关联失败");
   } finally {
     submitting.value = false;
   }
@@ -183,8 +184,8 @@ async function undo(): Promise<void> {
     undone.value = true;
     ElMessage.success("已撤销本次处理");
     emit("submitted");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "撤销失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "撤销失败");
   } finally {
     undoing.value = false;
   }

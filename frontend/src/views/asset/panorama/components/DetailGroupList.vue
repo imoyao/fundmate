@@ -149,6 +149,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, computed, watch, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -234,10 +235,10 @@ async function loadDetailGroups() {
     if (token !== loadToken) return;
     const raw = (res as any)?.data;
     detailGroups.value = Array.isArray(raw) ? raw : raw?.data || [];
-  } catch (e: any) {
+  } catch (e) {
     if (token !== loadToken) return;
     detailGroups.value = [];
-    ElMessage.error(e?.message || "分组加载失败");
+    ElMessage.error(errorMessageOf(e) || "分组加载失败");
   } finally {
     if (token === loadToken) loading.value = false;
   }

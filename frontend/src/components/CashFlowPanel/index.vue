@@ -104,6 +104,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, onMounted, ref, watch } from "vue";
 import VChart from "vue-echarts";
 import dayjs from "dayjs";
@@ -158,11 +159,11 @@ async function fetchCashFlow() {
       start_date: dayjs().subtract(rangeDays.value, "day").format("YYYY-MM-DD")
     });
     data.value = res.data;
-  } catch (e: any) {
+  } catch (e) {
     // 端点 400（账户/组合不存在、跨家庭、作用域参数冲突）或网络错误：
     // 如实报，不留旧图（旧图 = 假数据）
     data.value = null;
-    loadError.value = e?.response?.data?.message || "资金流动数据加载失败";
+    loadError.value = errorMessageOf(e) || "资金流动数据加载失败";
     console.error("获取资金流动失败:", e);
   }
 }

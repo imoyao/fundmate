@@ -6,6 +6,11 @@
 // 两者只在「一个提交意图一个 UUID」这一点上重合，所以只共用
 // `@/utils/idempotency` 的键生成，编排各自保留。
 
+import {
+  errorMessageOf,
+  errorPayloadOf,
+  errorStatusOf
+} from "@/utils/errorMessage";
 import { ref, type ComputedRef, type Ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
@@ -66,13 +71,11 @@ export function useConversionSubmit(options: {
       );
       result.value = (res?.data ?? null) as ConversionSubmitResult | null;
       step.value = 3;
-    } catch (e: any) {
-      if (e?.response?.status === 409) {
+    } catch (e) {
+      if (errorStatusOf(e) === 409) {
         // 幂等命中（重复点击 / 网络重发）：已在库，直接进结果步展示原组号
-        const dup = e?.response?.data?.data;
-        ElMessage.info(
-          e?.response?.data?.message || "该笔转换已记录，请勿重复提交"
-        );
+        const dup = errorPayloadOf(e);
+        ElMessage.info(errorMessageOf(e) || "该笔转换已记录，请勿重复提交");
         result.value = buildDuplicateConversionResult({
           dup,
           form,
@@ -81,9 +84,7 @@ export function useConversionSubmit(options: {
         });
         step.value = 3;
       } else {
-        ElMessage.error(
-          e?.response?.data?.message || e?.message || "转换提交失败"
-        );
+        ElMessage.error(errorMessageOf(e) || "转换提交失败");
       }
     } finally {
       submitting.value = false;

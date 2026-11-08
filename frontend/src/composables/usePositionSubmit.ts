@@ -1,3 +1,4 @@
+import { errorMessageOf, errorStatusOf } from "@/utils/errorMessage";
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { createPosition } from "@/api/positions";
@@ -33,9 +34,9 @@ export function usePositionSubmit() {
 
   /** 后端错误 → 可读文案（422 携带字段级明细时逐项拼接） */
   function parseSubmitError(e: any): string {
-    let msg = e?.message || "记账失败，请重试";
-    if (e?.response?.status === 422) {
-      const detail = e?.response?.data?.message;
+    let msg = errorMessageOf(e) || "记账失败，请重试";
+    if (errorStatusOf(e) === 422) {
+      const detail = errorMessageOf(e);
       if (detail) {
         if (typeof detail === "object") {
           const errors = Object.entries(detail)
@@ -75,7 +76,7 @@ export function usePositionSubmit() {
       emitter.emit("refresh-ledger-data");
       idempotencyKey.value = "";
       return true;
-    } catch (e: any) {
+    } catch (e) {
       ElMessage.error(parseSubmitError(e));
       return false;
     } finally {

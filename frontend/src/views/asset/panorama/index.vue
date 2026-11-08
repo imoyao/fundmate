@@ -118,6 +118,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, onMounted } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
@@ -204,8 +205,8 @@ async function fetchData() {
       ? snapRaw
       : snapRaw?.data || [];
     latestSnapshot.value = snapList[snapList.length - 1] || null;
-  } catch (e: any) {
-    ElMessage.error(e?.message || "加载失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "加载失败");
   } finally {
     loading.value = false;
   }

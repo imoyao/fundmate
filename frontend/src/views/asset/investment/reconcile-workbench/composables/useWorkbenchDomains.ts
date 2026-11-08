@@ -1,3 +1,4 @@
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -387,8 +388,8 @@ export function useWorkbenchDomains() {
       // 域 B 是「算差异」，域 E 是「看有没有漏记税」——两件事但同一入口，
       // 一起刷新才符合用户对「运行对账」的预期（跑完看到的都是最新）。
       await Promise.all([loadDiscrepancies(), loadDividendTax()]);
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "对账失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "对账失败");
     } finally {
       running.value = false;
     }
@@ -400,8 +401,8 @@ export function useWorkbenchDomains() {
       await ignoreDiscrepancy(row.id, { permanent: false });
       ElMessage.success("已忽略");
       await loadDiscrepancies();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "忽略失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "忽略失败");
     }
   }
 
@@ -433,8 +434,8 @@ export function useWorkbenchDomains() {
       await ignoreGhostDuplicate(group.fingerprint);
       ElMessage.success("已忽略该组，可在下方撤销");
       await loadGhostDuplicates();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "忽略失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "忽略失败");
     }
   }
 
@@ -447,8 +448,8 @@ export function useWorkbenchDomains() {
       const res = await undoGhostDuplicateIgnoreById(item.id);
       ElMessage.success(res.data?.deleted ? "已撤销忽略" : "该记录已不存在");
       await loadGhostDuplicates();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "撤销失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "撤销失败");
     } finally {
       ghostUndoingId.value = null;
     }
@@ -479,8 +480,8 @@ export function useWorkbenchDomains() {
       // 删除后指纹里的账本集合可能变化，整组重新扫描比本地摘一条更可靠
       await loadGhostDuplicates();
       await loadDiscrepancies();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "删除失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "删除失败");
     } finally {
       ghostDeletingId.value = null;
     }
