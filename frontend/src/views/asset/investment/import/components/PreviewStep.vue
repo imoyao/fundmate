@@ -113,13 +113,14 @@ const {
         }}」关联现金账户：
       </span>
       <template #actions>
+        <!-- @change 显式无参：el-select 会把新值当第一参塞进来，直接绑方法名会让 options 形参吃到 select 值 -->
         <el-select
           v-model="bannerCashLedgerId"
           class="banner-select"
           size="small"
           clearable
           placeholder="选择现金账户"
-          @change="linkCashAccount"
+          @change="() => linkCashAccount()"
         >
           <el-option
             v-for="c in cashLedgersForImport"
@@ -139,13 +140,13 @@ const {
       </template>
     </SoftBanner>
 
-    <!-- #2281 轻量提示态：已关联仍告知能力存在（默认不勾选，由用户决定），可关闭 -->
+    <!-- #2281 轻量提示态（可关闭）；2026-11-08 起文案改「已默认勾选+退出口」，与行级 tooltip、底栏计数同口径 -->
     <div v-else-if="showCashTransferHint" class="cash-transfer-hint">
       <IconifyIconOffline icon="ep:info-filled" class="hint-icon" />
       <span class="hint-text">
         已为「{{ selectedLedgerName }}」关联现金账户「{{
           linkedCashLedgerName
-        }}」。转账行可勾选导入（默认不勾选，由你决定），导入后现金账户自动生成反向流水。
+        }}」。转账行已默认勾选导入，导入后现金账户自动生成反向流水；不需要的行可取消勾选。
       </span>
       <el-button
         class="hint-close-btn"

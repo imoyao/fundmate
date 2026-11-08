@@ -103,12 +103,17 @@ const mismatchHint = computed(() => {
   >
     <el-tag type="warning" size="small">金额不符</el-tag>
   </el-tooltip>
+  <!-- #2836 后续（2026-11-08）：差额被手续费解释 = 数据是对的，只是解释
+       「为什么金额 ≠ 数量×单价」。它归「数据完整」可导入（概览条不计入
+       需要修正），故不与 重复/金额不符 等真问题共用 warning 黄——用户把
+       黄读成 warning，会以为这笔有错。info 档：需要看一眼，但不是问题；
+       也不用 success：绿色会让用户以为金额严丝合缝，而差额确实存在。 -->
   <el-tooltip
     v-else-if="kind === 'feeExplained'"
     :content="feeHint"
     placement="top"
   >
-    <el-tag type="warning" size="small">含手续费</el-tag>
+    <el-tag type="info" size="small">含手续费</el-tag>
   </el-tooltip>
   <!-- 推算出来的行（缺价格用净值补、缺数量用金额反算）：肯定不算「正常」，
        但也不缺字段，所以不能落进「待补全」。原先这枚标签挂在勾选列，与状态列

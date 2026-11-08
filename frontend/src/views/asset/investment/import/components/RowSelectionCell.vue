@@ -35,11 +35,20 @@ const {
   >
     <el-checkbox :model-value="false" disabled />
   </el-tooltip>
-  <el-checkbox
+  <!-- #2281 已关联可勾；2026-11-08 起默认勾选（导入完整性取向）。
+       这枚 tooltip 是 #2281 方案第 5 条的另一半——「已关联：默认勾选的
+       理由与退出口」。原先已关联分支是裸 checkbox，「正常」状态列 + 空勾选框
+       的组合没有任何行级解释，用户只能靠猜。 -->
+  <el-tooltip
     v-else-if="row.is_cash_transfer"
-    :model-value="isRowSelected(row)"
-    @change="(val: boolean) => handleRowCheckboxChange(row, val)"
-  />
+    content="已默认勾选：导入后将在关联的现金账户生成对应流水（银行↔证券两本账配平）；不需要导这笔可取消勾选"
+    placement="top"
+  >
+    <el-checkbox
+      :model-value="isRowSelected(row)"
+      @change="(val: boolean) => handleRowCheckboxChange(row, val)"
+    />
+  </el-tooltip>
   <el-checkbox
     v-else
     :model-value="isRowSelected(row)"
