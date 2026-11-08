@@ -184,17 +184,19 @@ def fake_http(store, calls=None, fail=False):
     """东财 `RPT_BOND_CB_LIST` 的假实现；`fail=True` 模拟断网。"""
 
     def _get(url, params=None, headers=None, timeout=None):
+        # 与 test_eastmoney_alias_resolver.make_fake_http 同口径：只认 `pageNumber`
+        # （D97：`pageNo` 被东财静默忽略是生产事故根因之一），并回 count 供终止判定。
         if calls is not None:
-            calls.append((params or {}).get('pageNo', 1))
+            calls.append((params or {}).get('pageNumber', 1))
         if fail:
             raise RuntimeError('network down')
-        if int((params or {}).get('pageNo', 1)) > 1:
-            return FakeResp({'result': {'data': []}})
+        if int((params or {}).get('pageNumber', 1)) > 1:
+            return FakeResp({'result': {'data': [], 'count': len(store)}})
         data = [
             {'SECURITY_CODE': listed, 'CORRECODE': apply, 'PUBLIC_START_DATE': f'{issue} 00:00:00'}
             for apply, listed, issue in store
         ]
-        return FakeResp({'result': {'data': data}})
+        return FakeResp({'result': {'data': data, 'count': len(data)}})
 
     return _get
 

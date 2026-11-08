@@ -72,6 +72,9 @@ NEW_FILE_LIMITS = {
 # fund_service 1058 / watchlist_service 999 等），均为 #2873 拆分前的存量；它们被冻结在
 # 当前体量，只减不增——新增文件一律走 NEW_FILE_LIMITS，无法借存量基线开后门。
 #
+# 2026-11-08 D97 申购码防御报错按 --report 实测回写一项：position_buy_command.py
+# 693→698——`_validate_buy_inputs` 的 lot 失败分支新增「申购段代码报『未解析上市
+# 代码』而非『一手起买』」的必要路径（注释已压至 1 行），真实代码增长非放宽阈值。
 # 2026-11-07 通用当日估值（D92）按 `--report` 实测值回写三项，理由留痕：
 # `today_pnl.py` 由家庭级单视图泛化为「单资源 + dimension 分组」（379→553 行 /
 # max_func 123→182 / max_cc 27→37），`pnl_calendar.py` 新增可选桶函数
@@ -280,7 +283,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/pnl_snapshot_store.py": {'lines': 447, 'max_func': 61, 'max_cc': 22},
     "backend/app/services/portfolio_service.py": {'lines': 520, 'max_func': 118, 'max_cc': 19},
     "backend/app/services/position_aggregation.py": {'lines': 624, 'max_func': 163, 'max_cc': 47},
-    "backend/app/services/position_buy_command.py": {'lines': 693, 'max_func': 79, 'max_cc': 11},
+    "backend/app/services/position_buy_command.py": {'lines': 698, 'max_func': 79, 'max_cc': 11},
     "backend/app/services/position_display.py": {'lines': 291, 'max_func': 129, 'max_cc': 18},
     "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 60, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
