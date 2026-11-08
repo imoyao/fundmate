@@ -6,7 +6,7 @@
       class="w-full"
       clearable
       filterable
-      placeholder="输入机构名 / 别名 / 拼音首字母检索"
+      placeholder="输入机构名 / 别名 / 首字母 / 全拼检索"
       :filter-method="filterInstitution"
       @visible-change="onDropdownVisible"
       @update:model-value="emit('update:modelValue', $event)"
@@ -42,7 +42,7 @@
          用户看不出这里能搜索（#2026-11-07 用户反馈「需要支持搜索」）。 -->
     <div class="inst-helper">
       <span class="inst-helper__hint">
-        A→Z 排列 · 支持名称 / 别名 / 首字母（如 ht）
+        A→Z 排列 · 支持名称 / 别名 / 首字母 / 全拼（如 ht、zhifubao）
       </span>
       <el-checkbox
         v-model="commonOnly"
@@ -86,7 +86,7 @@ const props = withDefaults(
   defineProps<{
     modelValue?: number | null;
     /** 账户类型；决定可见机构类型（证券只列券商） */
-    ledgerType: string;
+    channelCategory: string;
     /** 销售机构候选列表（AMAC 名录，父组件加载传入） */
     institutions?: SalesInstitution[];
   }>(),
@@ -109,7 +109,7 @@ const commonOnly = ref(false);
 const visibleInstitutions = computed<SalesInstitution[]>(() => {
   const byType = filterInstitutionsByLedgerType(
     props.institutions,
-    props.ledgerType
+    props.channelCategory
   );
   const byKeyword = filterInstitutionsByKeyword(
     byType,
@@ -122,7 +122,7 @@ const visibleInstitutions = computed<SalesInstitution[]>(() => {
 
 const showBankChannelHint = computed(() =>
   shouldShowBankChannelHint(
-    props.ledgerType,
+    props.channelCategory,
     props.modelValue,
     props.institutions
   )

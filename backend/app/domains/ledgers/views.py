@@ -100,9 +100,8 @@ def list_sales_institutions():
     只返回 is_active=True 的机构：与导入匹配逻辑一致，下架机构不可再新关联；
     已关联的历史账户不受影响（展示名仍由名录实时解析）。
 
-    查询参数：
-        org_types: 可选，逗号分隔的机构类型（原始 org_type 值），提供时仅返回命中
-                   类型（#1082：按账户类型过滤可见机构，如证券账户只看券商）。
+    查询参数：org_types 可选（逗号分隔或重复参数），提供时仅返回命中类型
+              （#1082：按账户类型过滤可见机构，如证券账户只看券商）。
 
     排序：默认按 pinyin_short 首字母 A→Z（缺失排最后），同音按中文名兜底；
     is_common / common_sort 仍下发供快捷筛选，但不参与默认排序（2026-11-07）。
@@ -132,6 +131,7 @@ def list_sales_institutions():
                 'is_common': institution.is_common,
                 'common_sort': institution.common_sort,
                 'pinyin_short': institution.pinyin_short,
+                'pinyin_full': institution.pinyin_full,
             }
             for institution in institutions
         ]

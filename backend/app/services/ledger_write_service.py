@@ -418,6 +418,9 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
                 raise LedgerWriteError('不能把账户归属给已停用的成员', 400, 1001)
             ledger.owner_member_id = resolved
 
+    # 先于现金/活期+ 校验（#2980）：改分组又关联现金时须报 409 分组错配而非 400
+    guard.apply_channel_category(data, ledger, LedgerWriteError)
+
     # 更新 linked_cash_ledger_id（允许设置为 None）
     if 'linked_cash_ledger_id' in data:
         linked_cash_id = data['linked_cash_ledger_id']
@@ -476,9 +479,6 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
                 raise LedgerWriteError('关联的销售机构不存在', 400, 1001)
         # 无论值是否为 None，均更新
         ledger.sales_institution_id = sales_institution_id
-
-    # 分组↔口径一致性由 ledger_category_guard 统一守卫（#1101）。
-    guard.apply_channel_category(data, ledger, LedgerWriteError)
 
     # 更新 fee_config
     if 'fee_config' in data:

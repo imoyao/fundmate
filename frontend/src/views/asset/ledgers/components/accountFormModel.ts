@@ -38,7 +38,7 @@ export const BANK_ORG_TYPES = new Set([
  * - fund_platform 除期货公司外全部（券商代销场外基金，靠常用置顶 + 类型标识区分）
  * - 其余类型不在表内 → 不过滤，维持现状
  */
-export const LEDGER_TYPE_ORG_TYPES: Record<string, string[]> = {
+export const CHANNEL_CATEGORY_ORG_TYPES: Record<string, string[]> = {
   securities: ["证券公司"],
   fund_platform: [
     "独立基金销售机构",
@@ -76,18 +76,21 @@ export function institutionLabel(inst: SalesInstitution): string {
  */
 export function filterInstitutionsByLedgerType(
   list: SalesInstitution[],
-  ledgerType: string
+  channelCategory: string
 ): SalesInstitution[] {
-  const allowed = LEDGER_TYPE_ORG_TYPES[ledgerType];
+  const allowed = CHANNEL_CATEGORY_ORG_TYPES[channelCategory];
   if (!allowed) return list;
   const allowSet = new Set(allowed);
   return list.filter(inst => !inst.org_type || allowSet.has(inst.org_type));
 }
 
 /**
- * 文本检索（#1081 用户反馈）：支持汉字原文 / 常用别名 / 拼音首字母简拼
- * （pinyin_short 由后端 AMAC job 派生）三路匹配，大小写不敏感。
- * 空关键词视为不过滤。
+ * 文本检索（#1081，全拼为 #2980）：汉字原文 / 常用别名 / 首字母简拼 / 全拼四路匹配，
+ * 大小写不敏感，空关键词视为不过滤。
+ *
+ * 为什么必须有全拼：机构全名是「蚂蚁（杭州）基金销售有限公司」，用户按常用别名
+ * 「支付宝」记，输入 `zhifubao` —— 只匹配汉字与简拼（`ZFB`）时搜不到。
+ * `pinyin_full` 由后端同时派生全名与别名的全拼（空格分隔），故一次 includes 即可。
  */
 export function filterInstitutionsByKeyword(
   list: SalesInstitution[],
@@ -99,7 +102,8 @@ export function filterInstitutionsByKeyword(
     inst =>
       inst.org_name.toLowerCase().includes(kw) ||
       (inst.display_name ?? "").toLowerCase().includes(kw) ||
-      (inst.pinyin_short ?? "").toLowerCase().includes(kw)
+      (inst.pinyin_short ?? "").toLowerCase().includes(kw) ||
+      (inst.pinyin_full ?? "").toLowerCase().includes(kw)
   );
 }
 
@@ -134,11 +138,11 @@ export function pickCommonInstitutions(
 
 /** fund_platform 账户选中银行类机构时的轻提示开关（#1082 D8） */
 export function shouldShowBankChannelHint(
-  ledgerType: string,
+  channelCategory: string,
   salesInstitutionId: number | null | undefined,
   institutions: SalesInstitution[]
 ): boolean {
-  if (ledgerType !== "fund_platform" || salesInstitutionId == null) {
+  if (channelCategory !== "fund_platform" || salesInstitutionId == null) {
     return false;
   }
   const inst = institutions.find(i => i.id === salesInstitutionId);
@@ -148,15 +152,15 @@ export function shouldShowBankChannelHint(
 /**
  * 类型切换后，已选机构是否仍在新类型的可见范围内。
  *
- * 注意：调用方 emit 后 `props.ledgerType` 不会同步回流，必须基于**新值**判断，
+ * 注意：调用方 emit 后 `props.channelCategory` 不会同步回流，必须基于**新值**判断，
  * 不能复用 visibleInstitutions（其仍依赖旧 props 值）。
  * org_type 缺失视为始终可见，与 filterInstitutionsByLedgerType 的回退语义一致。
  */
 export function isInstitutionAllowedForLedgerType(
   inst: SalesInstitution | undefined,
-  ledgerType: string
+  channelCategory: string
 ): boolean {
-  const allowed = LEDGER_TYPE_ORG_TYPES[ledgerType];
+  const allowed = CHANNEL_CATEGORY_ORG_TYPES[channelCategory];
   if (!allowed) return true;
   if (!inst?.org_type) return true;
   return allowed.includes(inst.org_type);

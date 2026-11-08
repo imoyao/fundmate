@@ -2662,6 +2662,28 @@ class TestLedgerTypeImmutability:
         db.expire_all()
         assert db.query(Ledger).filter_by(id=ledger.id).first().channel_category == 'bank'
 
+    def test_update_mismatched_category_with_cash_link_reports_mismatch(self, client, db):
+        """#2980：同时提交「改错配分组 + 关联现金账户」须报分组错配（409/1003）。
+
+        两条错误文案都含「计算口径」，只有按「不一致的分组 / 不支持关联现金账户」
+        才能区分——若守卫排在现金校验之后，这里会拿到 400 而非 409。
+        """
+        cash = Ledger(name='招行储蓄', ledger_type='bank', channel_category='bank', family_id=1)
+        target = Ledger(name='待改账户', ledger_type='bank', channel_category='bank', family_id=1)
+        db.add_all([cash, target])
+        db.commit()
+        resp = client.patch(
+            f'/api/ledgers/{target.id}/',
+            json={'channel_category': 'securities', 'linked_cash_ledger_id': cash.id},
+        )
+        assert resp.status_code == 409
+        body = resp.get_json()
+        assert body['error_code'] == 1003
+        assert '不一致的分组' in body['message']
+        assert '不支持关联现金账户' not in body['message']
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=target.id).first().channel_category == 'bank'
+
     def test_update_unchanged_category_allows_legacy_inconsistency(self, client, db):
         """守卫只在分组**变更**时生效：存量错配数据照常保存，不得被误拒。"""
         ledger = Ledger(name='历史账户', ledger_type='stock', channel_category='other', family_id=1)

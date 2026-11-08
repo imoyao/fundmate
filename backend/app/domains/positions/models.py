@@ -520,6 +520,9 @@ class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
         Integer, nullable=True, comment='常用组内排序（小者在前），取中基协保有规模排名；非常用为 NULL'
     )
     pinyin_short = Column(String(100), nullable=True, comment='名称拼音首字母简拼（同步 job 派生，供前端检索过滤）')
+    pinyin_full = Column(
+        String(400), nullable=True, comment='名称+别名拼音全拼，空格分隔（同步 job 派生，供前端全拼检索 #2980）'
+    )
 
 
 # 注：`resolve_sales_institution_id` 已迁至 `app.services.institution_resolver`。

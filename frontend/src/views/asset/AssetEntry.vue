@@ -40,6 +40,7 @@
     <!-- 新增账户弹窗 -->
     <AssetCreateLedgerDialog
       v-model:visible="showCreateLedgerDialog"
+      :ledgers="ledgers"
       @created="onLedgerCreated"
     />
   </div>

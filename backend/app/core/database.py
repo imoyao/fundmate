@@ -53,6 +53,7 @@ from app.core.migrations import (
     migrate_positions_snapshot_anchor,
     migrate_positions_state_check_constraints,
     migrate_positions_symbol_norm,
+    migrate_sales_institution_pinyin_full,
     migrate_transaction_fee_breakdown,
     migrate_transaction_plan_id,
     migrate_transaction_symbol_from_position,
@@ -630,6 +631,7 @@ def init_db():
     # assets.major_category 归一 current→cash（#2136）：读侧已改回词表里的 'cash'，
     # 存量 'current' 行否则仍是隐形行（钱在库里、页面读不到）。只改数据不改结构、幂等。
     migrate_asset_major_category_current_to_cash(user_eng)
+    migrate_sales_institution_pinyin_full(user_eng)
     # watchlist.name 名称快照列（#1508）：create_all 不替存量表加列，迁移须先于结构校验，
     # 否则 _validate_schema 会因模型列多于库表而报错阻断启动（与下方投顾列同因）。
     migrate_watchlist_name_snapshot(user_eng)
@@ -780,6 +782,7 @@ def init_db_split():
         user_meta.create_all(bind=user_eng)
         # assets.major_category 归一 current→cash（#2136）：只改数据、幂等，同上须先于结构校验
         migrate_asset_major_category_current_to_cash(user_eng)
+        migrate_sales_institution_pinyin_full(user_eng)
         # watchlist.name 名称快照列（#1508）：同上，须先于结构校验
         migrate_watchlist_name_snapshot(user_eng)
         # positions.symbol_norm 归一身份列 + 唯一索引（#1662 后续）：create_all 不替存量表加列，
