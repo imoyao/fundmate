@@ -167,9 +167,13 @@ describe("computeManualLayout", () => {
 
   it("第 0 层的标签在左侧，其余在右侧（首列没有左邻居，标签会压到画布外）", () => {
     const { nodes: out } = layout();
-    const total = out.find(o => o.name === "总资产") as any;
+    const total = out.find(o => o.name === "总资产") as unknown as {
+      label: { position: string };
+    };
     expect(total.label.position).toBe("left");
-    const invest = out.find(o => o.name === "投资理财") as any;
+    const invest = out.find(o => o.name === "投资理财") as unknown as {
+      label: { position: string };
+    };
     expect(invest.label.position).toBe("right");
   });
 
@@ -220,7 +224,9 @@ describe("hasDrawableData", () => {
   });
 
   it("非数组同样不可画（后端异常时给对象而不是数组）", () => {
-    expect(hasDrawableData({ nodes: {} as any, links: [] })).toBe(false);
+    expect(
+      hasDrawableData({ nodes: {} as unknown as SankeyDataNode[], links: [] })
+    ).toBe(false);
   });
 });
 
