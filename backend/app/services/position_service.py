@@ -552,6 +552,11 @@ class PositionService:
         """孤儿流水路径：实现见 :mod:`app.services.position_orphan_flows`（#2873 第三抽）。"""
         return position_orphan_flows.process_orphan_sell_or_withdraw(db, data)
 
+    @staticmethod
+    def process_sell_or_withdraw_import(db: Session, data: dict) -> position_orphan_flows.SellOutcome:
+        """导入侧卖出：返回 ``SellOutcome``，用于区分「清仓」与「没归位」。"""
+        return position_orphan_flows.process_sell_or_withdraw_import(db, data)
+
     # ── 债券兑付（#2832）──
 
     # ── 债券兑付（#2832）──

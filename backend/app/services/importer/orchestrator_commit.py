@@ -31,6 +31,57 @@ from app.services.trading import TransactionService
 KEEP_HASH_SUFFIX = ':keep'
 
 
+# ── 落库顺序：按有效交易日「升序重放」──
+#
+# 券商/基金平台的导出文件普遍是**时间倒序**（最新一行在最前），例如招商证券交割单
+# 2023-08-16 在首行、2022-07-01 在末行。落库若照文件顺序逐条处理，卖出会先于它的
+# 买入入库：此时持仓还不存在，``process_orphan_sell_or_withdraw`` 只能把卖出降级成
+# 孤儿流水（``position_id=NULL``），份额一点都不扣；随后买入照常累加份额，**持仓就
+# 永远停在「只买不卖」的累加值**（实测账户 26：46 条持仓虚挂 20.9 万，75 笔卖出全是
+# 孤儿）。
+#
+# 因此落库前必须按时间正序重放，且**放在 commit() 入口**而不是各解析器里——顺序是
+# 「持仓随流水演进」这件事的前置条件，与哪个券商、哪种文件格式无关，九个解析器
+# （招商/同花顺/标准/天天/支付宝/AI 识别/OCR …）都必须受益，任何新增解析器也不用
+# 再记得排一次序。
+#
+# 同日并列时：**份额减少的操作排在份额增加之后**。可转债/ETF 支持 T+0，当天买当天卖
+# 是常态；反过来（先卖后买）在同一天里属于「卖了老的再买回」，先买后卖只会让成本价
+# 按两者均价重算，数量结果一致——两害相权取其轻。
+_SHRINKING_OP_CODES = frozenset(
+    {
+        BusinessType.SELL.code,
+        BusinessType.WITHDRAW.code,
+        BusinessType.BOND_REDEEM.code,
+    }
+)
+
+
+def replay_order_key(record: StandardTransactionRecord) -> tuple:
+    """落库重放键：有效交易日升序，同日「增仓类」在「减仓类」之前。
+
+    有效交易日取 ``trade_date or confirm_date``，与全站流水排序口径
+    （``transactions.dates`` 的 ``COALESCE(trade_date, confirm_date)``）一致。
+    缺日期时排到最后（``date.max``）——宁可让它读到当时的仓位，也不插到历史最前面。
+    """
+    day = record.trade_date or record.confirm_date
+    if isinstance(day, datetime):  # 个别链路混进 datetime，与 date 比较会 TypeError
+        day = day.date()
+    if not isinstance(day, date):
+        day = date.max  # 缺日期 / 类型异常：排到最后，绝不插到历史最前
+    shrinking = (record.business_type or '').lower() in _SHRINKING_OP_CODES
+    return (day, 1 if shrinking else 0)
+
+
+def sort_records_for_replay(records: List[StandardTransactionRecord]) -> List[StandardTransactionRecord]:
+    """按 :func:`replay_order_key` 稳定排序；同键保持解析器给出的原始相对顺序。
+
+    ``sorted`` 是稳定排序：同一交易日、同一档位的多条记录（例如拆股前后、配对组内的
+    主记录与从属记录）维持解析顺序，不引入新的不确定性。
+    """
+    return sorted(records, key=replay_order_key)
+
+
 def _opt_decimal(value) -> Optional[Decimal]:
     """可空十进制（#2137 费用拆分回传）：None / 空值 → None（未拆分），否则 Decimal。
 
@@ -278,7 +329,10 @@ class CommitMixin:
         kept_duplicates = 0
         kept_duplicates_blocked = 0
 
-        for record in records:
+        # 按有效交易日升序重放（见 replay_order_key 的 why）：导出文件多为时间倒序，
+        # 照文件顺序入库会让卖出先于买入落地 → 持仓还没建立 → 卖出降级孤儿 → 份额不减。
+        # 排序放在这里，所有解析器 / AI 识别 / OCR 回传的行都自动生效。
+        for record in sort_records_for_replay(records):
             # 被配对规则消费的行（#2836）：它的效果已由同组主记录覆盖，入账就是重复。
             # 当前唯一来源是「债券兑付 + 股份转出」——兑付本身已清仓，转出行再扣一次
             # 就是把份额扣两遍（用户会看到持仓凭空少一半）。计入 skipped 让回执可解释。
@@ -444,10 +498,14 @@ class CommitMixin:
                         continue
 
                     # 常规操作 (BUY/DEPOSIT, SELL/WITHDRAW, DIVIDEND)
+                    sell_outcome = None
                     if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code):
                         result = PositionService.process_buy_or_deposit(self.db, data)
                     elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
-                        result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
+                        # 卖出用带 is_orphan 的结果对象：``None`` 既可能是「清仓」也可能是
+                        # 「没归位」，只看 None 会把整只卖光错记成孤立（回执的「孤立 N 笔」虚高）。
+                        sell_outcome = PositionService.process_sell_or_withdraw_import(self.db, data)
+                        result = sell_outcome.position
                     elif bt == BusinessType.DIVIDEND_CASH.code:
                         result = PositionService.process_orphan_dividend(self.db, data)
                     elif bt == BusinessType.DIVIDEND_REINVEST.code:
@@ -462,7 +520,10 @@ class CommitMixin:
                         skipped += 1
                         continue
 
-                    if result is None:
+                    if sell_outcome is not None:
+                        if sell_outcome.is_orphan:
+                            orphan_count += 1
+                    elif result is None:
                         orphan_count += 1
                     imported += 1
                     if record.keep_duplicate:  # #1882：勾选保留行入库单独计数

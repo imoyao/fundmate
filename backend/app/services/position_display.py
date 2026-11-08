@@ -17,7 +17,7 @@
 
 from typing import Optional
 
-from sqlalchemy import false, func, or_
+from sqlalchemy import and_, false, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
@@ -55,26 +55,61 @@ def query_transactions_by_identity(db: Session, position: Position):
     ``scripts/check_view_thickness.py`` 会按行数拦截视图层变厚。同一段兜底过滤在
     ``get_position_transactions`` 与 ``delete_position`` 两处都需要，下沉后一处定义、两处复用。
     """
-    # 匹配口径走 symbol_scope（#1662 遗留项）：此前是字面量 `Transaction.symbol == position.symbol`，
-    # 而流水快照与持仓写法可以不同（实测流水 `SZ001937`、持仓 `001937`），字面量等值会漏掉整批流水。
-    query = db.query(Transaction).filter(or_(*build_transaction_symbol_conditions(position.symbol)))
-    if position.ledger_id is not None:
-        return query.filter(Transaction.ledger_id == position.ledger_id)
-    return query.filter(Transaction.ledger_id.is_(None))
+    return db.query(Transaction).filter(and_(*identity_conditions(position)))
+
+
+def identity_conditions(position: Position) -> list:
+    """身份键的**列条件**（``symbol`` 各写法 ∪ ``ledger_id`` 收敛），供各查询复用。
+
+    返回一个「AND 起来即身份相等」的条件列表：``[or_(symbol 各写法), ledger_id 条件]``。
+
+    ⚠️ ``build_transaction_symbol_conditions`` 返回的是**同一字段的多个写法变体**
+    （字面量 + 三种 venue 身份键），只能 ``or_``；直接把它们 AND 进去会要求
+    ``symbol_norm`` 同时等于三个值 → 一行都查不到（写这条注释前的实现正是如此）。
+
+    匹配口径走 symbol_scope（#1662 遗留项）：此前是字面量 ``Transaction.symbol == position.symbol``，
+    而流水快照与持仓写法可以不同（实测流水 ``SZ001937``、持仓 ``001937``），字面量等值会漏掉整批流水。
+    """
+    conditions = [or_(*build_transaction_symbol_conditions(position.symbol))]
+    conditions.append(
+        Transaction.ledger_id == position.ledger_id
+        if position.ledger_id is not None
+        else Transaction.ledger_id.is_(None)
+    )
+    return conditions
 
 
 def list_position_transactions(db: Session, position: Position) -> list[Transaction]:
     """某持仓的交易流水（持仓抽屉数据源）。
 
-    取数口径：#2372 的「优先 ``position_id``、悬空时按身份键兜底」保持不变；
-    排序统一走 ``order_by_effective_day``（#2712）——此前这里是
-    ``confirm_date DESC NULLS LAST, created_at DESC``，只有交易日的行被甩到末尾，
-    批量导入又退化成「导入批次顺序」（#2171），与详情页顺序对不上。
+    取数口径：#2372 的「优先 ``position_id``、悬空时按身份键兜底」，并补上**孤儿流水**
+    （``position_id IS NULL``）——它们与持仓同属一个身份键，只是导入时没挂上。
+
+    ## 为什么必须并上孤儿
+
+    旧实现是「只要 ``position_id`` 有任意命中，就只返回这一批」。而卖出在两种情况下会
+    落成孤儿：导入时该标的还没有持仓（导出文件时间倒序导致卖出先入库，已由
+    ``importer.orchestrator_commit.sort_records_for_replay`` 在落库侧修正）、或卖出量
+    超过当时持仓量。孤儿卖出 ``position_id`` 为 NULL ⇒ 抽屉里**一笔都看不见**，用户
+    看到的是「这只票只有买入、没有卖出」，与「持仓份额没被扣」是同一个 bug 的两张脸。
+
+    只并孤儿、不并「同身份的其它持仓行」：同一 symbol 可能存在重复持仓（历史脏数据），
+    把别人的行拉进来会变成多算。孤儿无主，归到本持仓是唯一合理归属。
     """
     if position.id:
-        rows = db.query(Transaction).filter(Transaction.position_id == position.id).first()
-        if rows is not None:
-            return order_by_effective_day(db.query(Transaction).filter(Transaction.position_id == position.id)).all()
+        has_own_rows = db.query(Transaction.id).filter(Transaction.position_id == position.id).first()
+        if has_own_rows is not None:
+            return order_by_effective_day(
+                db.query(Transaction).filter(
+                    or_(
+                        Transaction.position_id == position.id,
+                        and_(
+                            Transaction.position_id.is_(None),
+                            *identity_conditions(position),
+                        ),
+                    )
+                )
+            ).all()
     return order_by_effective_day(query_transactions_by_identity(db, position)).all()
 
 

@@ -207,17 +207,41 @@ def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int
         logger.info(f'货基建仓挂回孤儿流水 {len(matched)} 条（ledger={ledger_id}, symbol={symbol}）')
 
 
-@staticmethod
+class SellOutcome(NamedTuple):
+    """卖出/取出的落账结果（与 :class:`BondRedeemOutcome` 同构）。
+
+    ``position is None`` 有两种含义，导入回执**必须分开**：
+
+    - ``is_orphan=False`` → 卖出成功且已清仓（#2343：行保留 + ``cleared``，方法返回 None）；
+    - ``is_orphan=True``  → 没匹配到持仓，落的是孤儿流水。
+
+    旧实现让调用方用 ``if result is None: orphan_count += 1`` 判定，于是「整只卖光」
+    被记成「没归位」——导入回执里的「孤立 N 笔」凭空虚高，用户以为卖出没挂上持仓。
+    """
+
+    position: Optional['Position']
+    is_orphan: bool
+
+
 def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
+    """处理卖出/取出记录（旧契约：返回持仓，清仓 / 孤儿均为 None）。
+
+    新代码请用 :func:`process_sell_or_withdraw_import` 拿 :class:`SellOutcome`，
+    否则「清仓」与「没归位」仍然分不开。
     """
-    处理卖出/取出记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
-    """
+    return process_sell_or_withdraw_import(db, data).position
+
+
+def process_sell_or_withdraw_import(db: Session, data: dict) -> SellOutcome:
+    """导出侧卖出/取出：返回 :class:`SellOutcome`，让调用方区分清仓与孤儿。"""
     from app.services.position_service import PositionService  # noqa: PLC0415  循环依赖：核心卖出命令仍在主模块
 
     asset_type = _get_asset_type(data)
     if asset_type in ('money_fund', 'reverse_repo'):
+        # 货基/逆回购卖出走现金转移流水（不建仓），沿用原有「未归位」口径，
+        # 与本卡修的「清仓误计」区分开——那是两个不同语义。
         _create_cash_transfer_transaction(db, data, 'sell')
-        return None
+        return SellOutcome(position=None, is_orphan=True)
 
     symbol = data.get('symbol', '')
     qty = data.get('quantity', 0)
@@ -247,7 +271,7 @@ def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Positio
 
     if existing:
         try:
-            return PositionService.process_sell_or_withdraw(
+            position = PositionService.process_sell_or_withdraw(
                 db,
                 {
                     'position_id': existing.id,
@@ -263,6 +287,8 @@ def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Positio
                 },
                 skip_lot_check=True,
             )
+            # 返回 None 只代表「整只卖光已清仓」（#2343），不是没归位。
+            return SellOutcome(position=position, is_orphan=False)
         except ValueError as e:
             if '持仓数量不足' not in str(e):
                 raise
@@ -278,7 +304,7 @@ def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Positio
         amount=0,  # 自动计算
         notes=data.get('notes') or ('卖出' if data.get('op_type') == 'sell' else '取出'),
     )
-    return None
+    return SellOutcome(position=None, is_orphan=True)
 
 
 @staticmethod
