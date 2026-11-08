@@ -214,6 +214,8 @@ export function useImportWizard() {
     currentStep.value = 2;
     recalcValidRowsCount();
     selectAllValid();
+    // 同 handleUpload：OCR 通道的预览初始化也是默认态时点
+    preselectTransferRows();
   }
 
   /** 文案见 importWizardData.ts；reactive 包一层保持每实例独立 */
@@ -911,6 +913,9 @@ export function useImportWizard() {
       previewData.value = [...previewData.value];
       recalcValidRowsCount();
       selectAllValid();
+      // 导入完整性取向（见 preselectTransferRows）：预览初始化即把已关联的
+      // 转账行勾上，否则 99 条转账默认漏导、对账必出孤儿（2026-11-08 实测）。
+      preselectTransferRows();
 
       const warning = res.compatibility_warning;
       if (warning) {
@@ -1683,6 +1688,8 @@ export function useImportWizard() {
     previewData.value = [...previewData.value];
     recalcValidRowsCount();
     selectAllValid();
+    // 补完代码 = 这些行要导入；转账行同理回到默认勾选态（与新预览一致）
+    preselectTransferRows();
     updateSelectAllState();
     showFixPanel.value = false;
     tableStatusFilter.value = "";
@@ -2041,14 +2048,76 @@ export function useImportWizard() {
     updateSelectAllState();
   }
 
-  /** 在步骤3 横幅内直接关联现金账户并落库 */
-  async function linkCashAccount() {
+  /**
+   * 转账行默认勾选（2026-11-08 取向变更，取代 #2281 的「默认不勾」）。
+   *
+   * 用户立场是「导入即完整」：转账行不进账，证券账户的资金流就断在那里，
+   * 对账必然出「钱不知道从哪来/去」的孤儿。默认勾选的前置条件是已关联现金
+   * 账户（反向流水有地方落）；作用域与 transferToggleRows 同一谓词
+   * （转账行 && 归「数据完整」卡），疑似重复的转账行仍归 duplicate 卡、
+   * 留给用户手动决定（#1882 语义不变）。
+   *
+   * 实现是**幂等补齐**而非复用 toggleAllTransferRows 的翻转：翻转无法区分
+   * 「从未勾过」与「用户刚取消了一条」，会把显式取消覆盖掉。四个挂载时点
+   * （handleUpload / OCR 预览 / onMatchComplete / linkCashAccount 落库后）
+   * 中前三个本就跟随 selectAllValid 的「回到默认态」语义，第四个时点转账行
+   * 此前不可勾、不存在用户取消过的情况——补齐在此都安全。
+   * 批量动作（表头全选 / importNormalOnly）不勾转账行的 #2281 语义保持不变。
+   */
+  function preselectTransferRows() {
+    if (!selectedLedgerLinkedCash.value) return;
+    const rows = transferToggleRows();
+    if (!rows.length) return;
+    if (rows.every(r => selectedKeys.value.has(r._rowKey))) return;
+    const next = new Set(selectedKeys.value);
+    rows.forEach(r => next.add(r._rowKey));
+    selectedKeys.value = next;
+    updateSelectAllState();
+  }
+
+  /**
+   * 在步骤3 横幅内直接关联现金账户并落库。
+   *
+   * 落库前确认（2026-11-08）：默认勾选转账行后，关联错账本的代价从「转账没导」
+   * 升级为「N 条反向流水写进错误账本」——这是关联动作唯一不可靠的地方，必须在
+   * 写库前让用户看见条数与后果。取消即回退（清空下拉选择），不落库。
+   *
+   * skipConfirm：横幅里「+ 新建现金账户」链路（createLedger → 自动关联）传入——
+   * 用户刚亲手填完账户名创建，等于刚确认过一次身份，再弹同一问题是打断。
+   */
+  async function linkCashAccount(
+    options: { skipConfirm?: boolean } = {}
+  ): Promise<void> {
     if (!selectedLedgerId.value || !bannerCashLedgerId.value) return;
+    const cashId = bannerCashLedgerId.value;
+    const cashName =
+      ledgers.value.find(l => l.id === cashId)?.name || `#${cashId}`;
+    const transferCount = transferToggleRows().length;
+    if (!options.skipConfirm) {
+      const detail =
+        transferCount > 0
+          ? `本次导入有 ${transferCount} 条银证转账，确认后默认勾选导入，并会在「${cashName}」自动生成 ${transferCount} 条对应流水。如果关联错了账本，这些流水会记错地方——请确认「${cashName}」就是这笔券商资金实际的现金账户。`
+          : `本次导入暂无可导入的转账行，关联仅决定转账行能否勾选与后续导入的反向流水落点。`;
+      try {
+        await ElMessageBox.confirm(detail, `关联现金账户「${cashName}」`, {
+          confirmButtonText: "确认关联",
+          cancelButtonText: "再想想",
+          type: "warning"
+        });
+      } catch {
+        // 用户取消：清掉下拉选择回到未选态，横幅引导态原样保留
+        bannerCashLedgerId.value = null;
+        return;
+      }
+    }
     try {
       await updateLedgerApi(selectedLedgerId.value, {
-        linked_cash_ledger_id: bannerCashLedgerId.value
+        linked_cash_ledger_id: cashId
       });
       await fetchLedgers();
+      // 引导态横幅里现关联的场景：关联落库后转账行从「禁用」变「可勾」，
+      // 同样按默认态处理——立刻补勾，否则用户关联完还得自己找 131 行去点
+      preselectTransferRows();
       ElMessage.success("已关联现金账户");
     } catch (e) {
       ElMessage.error(backendMessageOf(e) || "关联失败");
@@ -2093,7 +2162,8 @@ export function useImportWizard() {
         // 步骤3（预览）：现场新建现金账户，自动回填进横幅并落库
         if (newType === "bank") {
           bannerCashLedgerId.value = newId;
-          await linkCashAccount();
+          // skipConfirm：账户名是用户刚填的，身份已确认过一次（见 linkCashAccount）
+          await linkCashAccount({ skipConfirm: true });
         }
         ElMessage.success(`已创建现金账户「${name}」`);
       } else {
@@ -2328,6 +2398,7 @@ export function useImportWizard() {
     dismissCashBindingBanner,
     transferRowsAllSelected,
     toggleAllTransferRows,
+    preselectTransferRows,
     completeTransferCount,
     linkCashAccount,
     activeCategoryFilter,
