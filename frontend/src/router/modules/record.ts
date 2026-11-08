@@ -1,11 +1,12 @@
+import type { RouteConfigWithChildren } from "@/router/types";
 const Layout = () => import("@/layout/index.vue");
 
 // 1. 「记账」占 rank 3 段（home 0 / asset 1 / watch 2 / record 3 / agent 4）
 const BASE_RANK = 3;
 
 // 2. 工厂函数：子级 rank 用 0~99 的相对值
-const createRecordRoutes = (routeConfig: any) => {
-  const children = routeConfig.children.map((child: any) => ({
+const createRecordRoutes = (routeConfig: RouteConfigWithChildren) => {
+  const children = (routeConfig.children ?? []).map(child => ({
     ...child,
     meta: {
       ...child.meta,

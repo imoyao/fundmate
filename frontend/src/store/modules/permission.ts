@@ -1,3 +1,4 @@
+import type { RouteRecordRaw } from "vue-router";
 import { defineStore } from "pinia";
 import {
   type cacheType,
@@ -33,13 +34,13 @@ export const usePermissionStore = defineStore("pure-permission", {
   }),
   actions: {
     /** 组装整体路由生成的菜单 */
-    handleWholeMenus(routes: any[]) {
+    handleWholeMenus(routes: RouteRecordRaw[]) {
       const merged = ascending(this.constantMenus.concat(routes));
       this.wholeMenus = filterNoPermissionTree(filterTree(merged));
       // 同一棵树，另一套剪枝口径：面包屑不过滤 showLink/hidden
       this.breadcrumbMenus = filterNoPermissionMenus(merged);
       this.flatteningRoutes = formatFlatteningRoutes(
-        this.constantMenus.concat(routes) as any
+        this.constantMenus.concat(routes) as RouteRecordRaw[]
       );
     },
     /** 监听缓存页面是否存在于标签页，不存在则删除 */

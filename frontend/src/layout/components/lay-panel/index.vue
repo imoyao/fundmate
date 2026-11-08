@@ -27,7 +27,7 @@ const iconClass = computed(() => {
 
 const { onReset } = useDataThemeChange();
 
-onClickOutside(target, (event: any) => {
+onClickOutside(target, (event: PointerEvent) => {
   if (event.clientX > target.value.offsetLeft) return;
   show.value = false;
 });

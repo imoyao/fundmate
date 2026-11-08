@@ -25,7 +25,7 @@ export type appType = {
 export type multiType = {
   path: string;
   name: string;
-  meta: any;
+  meta: Record<string, unknown>;
   query?: object;
   params?: object;
 };

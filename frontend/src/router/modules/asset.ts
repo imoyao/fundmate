@@ -1,3 +1,4 @@
+import type { RouteConfigWithChildren } from "@/router/types";
 const Layout = () => import("@/layout/index.vue");
 
 // 1. 「资产」占 rank 100 段，与 home.ts（0 段）、watch.ts（2 段）、record.ts（3 段）、
@@ -10,12 +11,12 @@ const BASE_RANK = 100;
 //    抛错——叠加 BASE_RANK 后会出现「13x ≡ 隐藏详情页」这类跨条目撞键（#2152 的老病）。
 const RELATIVE_RANK_LIMIT = 100;
 
-const createAssetRoutes = (routeConfig: any) => {
-  const children = routeConfig.children.map((child: any) => {
+const createAssetRoutes = (routeConfig: RouteConfigWithChildren) => {
+  const children = (routeConfig.children ?? []).map(child => {
     const rank = child.meta?.rank;
     if (typeof rank === "number" && rank >= RELATIVE_RANK_LIMIT) {
       throw new Error(
-        `[router] ${child.name ?? child.path} 的 rank=${rank} 不是相对值——` +
+        `[router] ${String(child.name ?? child.path)} 的 rank=${rank} 不是相对值——` +
           `/asset 直接子级请写 0~99，工厂会统一 +${BASE_RANK}`
       );
     }
