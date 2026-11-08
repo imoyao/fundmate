@@ -62,11 +62,15 @@ export function useWorkbenchDomains() {
   const ghostDeletingId = ref<number | null>(null);
   const ghostUndoingId = ref<number | null>(null);
 
-  /** 域 E：红利税待办（#541）——粒度是「一笔分红」，每行要么该补记、要么该核对 */
+  /** 域 E：红利税待办（#541）——粒度是「一笔分红」，每行要么该核对、要么比例异常 */
   const taxItems = ref<DividendTaxPendingItem[]>([]);
   const taxTotalCents = ref(0);
-  /** 其中「未扣」的笔数（比例异常的项不算待补记，但仍列出来供核对） */
+  /** 其中「待核对」的笔数（比例异常的项不算待核对，但仍列出来供核对） */
   const taxPendingCount = ref(0);
+  /** 按制度暂不扣税（未卖出）的笔数：不进待办，只在列表底部折叠说明 */
+  const taxDeferredCount = ref(0);
+  /** 依法免税（已卖出且持股超一年）的笔数 */
+  const taxExemptCount = ref(0);
   const taxLoading = ref(false);
 
   /** 域 A：E账户对账数据（P2 迁入） */
@@ -266,9 +270,13 @@ export function useWorkbenchDomains() {
     }
   }
 
-  /** 加载域 E：分红未记扣税（#541）。
+  /** 加载域 E：红利税核对（#541）。
    *
-   * 这个 GET 顺带幂等写一条站内提醒（后端 `dedup_key` 含年份，同标的同年只留一条），
+   * 返回的是**分诊结果**：`items` 只含真待办（已卖出、持股 ≤1 年、没配上税），
+   * `deferred_count` / `exempt_count` 是「按 101 号文此刻不该有税」的两类，
+   * 只在表底折叠成一句说明——它们不是待办，列出来这个列表就永远清不完。
+   *
+   * 这个 GET 顺带幂等写一条站内提醒（`dedup_key` 含分红日，同一笔分红只留一条），
    * 因此它也是「首页消息条能看到这条提醒」的触发点——用户不必专门来对账台，
    * 只要打开过任意一次工作台，铃铛就会有东西。失败静默：本域不是首屏主体，
    * 一次超时不该把整个工作台带崩。 */
@@ -279,11 +287,15 @@ export function useWorkbenchDomains() {
       taxItems.value = res.data?.items ?? [];
       taxTotalCents.value = res.data?.total_cents ?? 0;
       taxPendingCount.value = res.data?.pending_count ?? 0;
+      taxDeferredCount.value = res.data?.deferred_count ?? 0;
+      taxExemptCount.value = res.data?.exempt_count ?? 0;
       clearError("tax");
     } catch {
       taxItems.value = [];
       taxTotalCents.value = 0;
       taxPendingCount.value = 0;
+      taxDeferredCount.value = 0;
+      taxExemptCount.value = 0;
       markError("tax", "分红扣税清单没能加载，检查网络后重试");
     } finally {
       taxLoading.value = false;
@@ -501,6 +513,8 @@ export function useWorkbenchDomains() {
     taxItems,
     taxTotalCents,
     taxPendingCount,
+    taxDeferredCount,
+    taxExemptCount,
     taxLoading,
     danglingRefs,
     danglingLoading,

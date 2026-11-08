@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """对账列表的查询与命名（2026-11-08 从 `domains/reconciliation/views.py` 下沉）。
 
-两块都是「取数口径」，不是 HTTP 编排：
+三块都是「取数口径 + 响应组装」，不是 HTTP 编排：
 - `list_active_discrepancies`：哪些差异算「当前活跃」、怎么筛、怎么翻页；
-- `resolve_display_names`：把代码批量换成产品名。
+- `resolve_display_names`：把代码批量换成产品名；
+- `list_dividend_tax_payload`：域 E 的分诊结果（待办 / 暂不扣税 / 依法免税）。
 
 单独成模块的原因：视图层有体量闸门（`check_view_thickness.py`），而对账算法主体
 （`reconciliation_service.py`）也有体量闸门（`guard_service_size.py`）。塞进任何一边
@@ -17,6 +18,8 @@ from app.domains.funds.models import Fund
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import ReconciliationDiscrepancy
 from app.domains.securities.models import Security
+from app.services.dividend_tax_scan import STATUS_PENDING, scan_dividend_tax
+from app.services.dividend_tax_service import refresh_reminders
 
 
 def _merge_names(pairs, out: dict[str, str]) -> None:
@@ -99,3 +102,29 @@ def list_active_discrepancies(
         return ordered.all(), total
     offset = ((page or 1) - 1) * page_size
     return ordered.offset(offset).limit(page_size).all(), total
+
+
+def list_dividend_tax_payload(db: Session, family_id: int) -> dict:
+    """域 E 的完整响应体（2026-11-08 从视图下沉）。
+
+    为什么组响应也算「取数口径」：哪些项进 `items`（待办）、哪些只给计数
+    （`暂不扣税` / `依法免税`）本身就是分诊结果的一部分，分散在视图里迟早与
+    `dividend_tax_scan` 的口径分叉。视图只做「取 → jsonify」。
+
+    里面顺带写了幂等通知（`refresh_reminders`）。写在读接口里是**有意的例外**，
+    理由见 `dividend_tax_service.refresh_reminders` 的 docstring：它不改变对账结果，
+    只决定「用户会不会知道有这回事」。
+    """
+    scan = scan_dividend_tax(db, family_id)
+    pending = [item for item in scan.items if item.status == STATUS_PENDING]
+    return {
+        'items': [item.to_dict() for item in scan.items],
+        'count': len(scan.items),
+        'pending_count': len(pending),
+        'total_cents': sum(item.dividend_cents for item in pending),
+        'deferred_count': scan.deferred_count,
+        'deferred_dividend_cents': scan.deferred_dividend_cents,
+        'exempt_count': scan.exempt_count,
+        'exempt_dividend_cents': scan.exempt_dividend_cents,
+        'reminders_created': refresh_reminders(db, family_id),
+    }

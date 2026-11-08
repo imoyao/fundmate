@@ -31,6 +31,10 @@ export interface ReconDetailContext {
   taxItems: DividendTaxPendingItem[];
   taxTotalCents: number;
   taxPendingCount: number;
+  /** 按制度暂不扣税（未卖出）的笔数：不进待办，只在列表底部折叠说明 */
+  taxDeferredCount: number;
+  /** 依法免税（已卖出且持股满一年）的笔数 */
+  taxExemptCount: number;
   taxLoading: boolean;
   danglingRefs: DanglingRefList | null;
   danglingLoading: boolean;

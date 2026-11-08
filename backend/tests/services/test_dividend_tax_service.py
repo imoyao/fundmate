@@ -20,14 +20,21 @@ from datetime import date, timedelta
 import pytest
 
 from app.domains.transactions.models import Transaction
+from app.services.dividend_tax_scan import (
+    STATUS_DEFERRED,
+    STATUS_EXEMPT,
+    scan_dividend_tax,
+)
 from app.services.dividend_tax_service import (
     SOURCE_TYPE,
     SOURCE_TYPE_SUSPECT,
     STATUS_PENDING,
     STATUS_SUSPECT,
+    ack_dividend_tax,
     build_notification_candidates,
     compute_import_hash,
     record_tax,
+    revoke_ack,
     scan_pending_tax,
 )
 
@@ -47,9 +54,19 @@ def holding(make_position):
     )
 
 
-def _div(holding, make_transaction, *, amount=500.0, day=date(2026, 6, 20), **kwargs):
+def _div(holding, make_transaction, *, amount=500.0, day=date(2026, 6, 20), sold=True, sell_day=None, **kwargs):
+    """造一笔现金分红，并默认补一笔「分红之后的卖出」。
+
+    为什么默认要卖：财税〔2015〕101 号规定派息时**暂不扣缴**、个人转让股票时才结算，
+    所以「已卖出」才是「该有扣税流水」的前提；没卖出的分红属于「暂不扣税」，
+    压根不该被提醒（见 `dividend_tax_service` 模块 docstring 的分诊表）。
+    绝大多数用例要测的是「卖出后有没有记税」，故默认造卖出；专测「未卖出」的用例
+    显式传 `sold=False`。
+    """
     kwargs.setdefault('notes', '红利入账')
-    return make_transaction(
+    symbol = kwargs.pop('symbol', holding.symbol)
+    account = kwargs.get('account_name')
+    div = make_transaction(
         position_id=holding.id,
         ledger_id=holding.ledger_id,
         txn_type='dividend',
@@ -57,9 +74,22 @@ def _div(holding, make_transaction, *, amount=500.0, day=date(2026, 6, 20), **kw
         price=0,
         amount=amount,
         confirm_date=day,
-        symbol=kwargs.pop('symbol', holding.symbol),
+        symbol=symbol,
         **kwargs,
     )
+    if sold:
+        make_transaction(
+            position_id=holding.id,
+            ledger_id=holding.ledger_id,
+            txn_type='sell',
+            quantity=100.0,
+            price=10.0,
+            amount=1000.0,
+            confirm_date=sell_day or (day + timedelta(days=5)),
+            symbol=symbol,
+            account_name=account,
+        )
+    return div
 
 
 def _tax(holding, make_transaction, *, amount=100.0, day=date(2026, 6, 25), **kwargs):
@@ -526,9 +556,14 @@ def test_money_fund_income_is_not_tax_pending(db, make_position, make_transactio
     assert scan_pending_tax(db, 1, today=TODAY) == []
 
 
-def test_ordinary_fund_dividend_still_pending(db, make_position, make_transaction):
-    """反向验证：把 is_money_fund 分支还原后上面三条必须转红，
-    同时普通基金分红不能被这条修复一起屏蔽掉。"""
+def test_ordinary_fund_dividend_is_exempt(db, make_position, make_transaction):
+    """普通基金（非货基）分红同样不报——2026-11-08 纠正。
+
+    原用例叫 `..._still_pending`，断言「普通基金分红仍要待补记」，前提是错的：
+    财税〔2002〕128 号「投资者（包括个人和机构投资者）从基金分配中取得的收入，
+    暂不征收个人所得税」（该个税优惠经财政部 税务总局公告 2018 年第 177 号确认
+    继续有效）。基金从上市公司拿股息时已在**基金层面**代扣，持有人这一侧没有税可补。
+    """
     pos = make_position(
         symbol='110011',
         name='普通混合基金',
@@ -541,4 +576,174 @@ def test_ordinary_fund_dividend_still_pending(db, make_position, make_transactio
     )
     _div(pos, make_transaction, amount=300.0, asset_type='fund')
     db.commit()
-    assert len(scan_pending_tax(db, 1, today=TODAY)) == 1
+    assert scan_pending_tax(db, 1, today=TODAY) == []
+
+
+# ── 2026-11-08：「是否已卖出」分诊（财税〔2015〕101 号）─────────────────
+# 这组用例专门钉「卖出」这个开关。本文件其余用例的 `_div()` 默认补一笔卖出，
+# 测的是「卖出后有没有记税」；如果把 `_partition_by_sell` 整段删掉、只靠那些用例，
+# 不会有任何一条转红——所以这组是必需的，不是锦上添花。
+class TestSellAwareTriage:
+    def test_unsold_dividend_is_deferred_not_pending(self, db, holding, make_transaction):
+        """没卖出过 ⇒ 派息时法定暂不扣缴，此刻无税是正常的，不进待办。"""
+        _div(holding, make_transaction, amount=3000.0, sold=False)
+        db.commit()
+
+        assert scan_pending_tax(db, 1, today=TODAY) == []
+        scan = scan_dividend_tax(db, 1, today=TODAY)
+        assert [i.status for i in scan.deferred] == [STATUS_DEFERRED]
+        assert scan.deferred_dividend_cents == 300000
+        assert scan.exempt == []
+
+    def test_unsold_dividend_does_not_eat_another_dividends_tax(self, db, holding, make_transaction):
+        """未卖出的分红不参与配对。
+
+        否则按金额降序（5000 先配）会抢走另一个账户那笔已卖出的分红对应的税，
+        把本该结清的一笔挤成「待核对」——这正是分诊必须先于配对的原因。
+        """
+        _div(holding, make_transaction, amount=5000.0, sold=False, account_name='账户A')
+        _div(holding, make_transaction, amount=500.0, account_name='账户B')
+        _tax(holding, make_transaction, amount=50.0, account_name='账户B')
+        db.commit()
+
+        scan = scan_dividend_tax(db, 1, today=TODAY)
+        assert scan.items == []
+        assert len(scan.deferred) == 1
+        assert scan.deferred[0].account_name == '账户A'
+
+    def test_tax_settled_months_after_sell_is_matched(self, db, holding, make_transaction):
+        """1 月分红、9 月卖出并扣税——旧判据（分红+30 天）配不上，会误报。"""
+        div_day, sell_day = date(2026, 1, 20), date(2026, 9, 10)
+        _div(holding, make_transaction, amount=1000.0, day=div_day, sell_day=sell_day)
+        _tax(holding, make_transaction, amount=100.0, day=sell_day)
+        db.commit()
+
+        assert scan_pending_tax(db, 1, today=TODAY) == []
+
+    def test_sold_after_one_year_is_exempt(self, db, make_position, make_transaction):
+        """持股超一年卖出、交割单无税 ⇒ 依法免税，不提示。"""
+        pos = make_position(
+            symbol='002311',
+            name='海大集团',
+            asset_type='stock',
+            account_name='测试账户',
+            quantity=1000,
+            avg_price=10.0,
+            current_price=10.0,
+            confirm_date=date(2024, 3, 1),
+        )
+        _div(pos, make_transaction, amount=30.0, day=date(2026, 1, 20), sell_day=date(2026, 3, 1))
+        db.commit()
+
+        scan = scan_dividend_tax(db, 1, today=TODAY)
+        assert scan.items == []
+        assert [i.status for i in scan.exempt] == [STATUS_EXEMPT]
+
+    def test_sold_within_one_year_without_tax_is_pending(self, db, make_position, make_transaction):
+        """持股不足一年就卖出、却没有扣税流水 ⇒ 这才是真待核对。"""
+        pos = make_position(
+            symbol='002311',
+            name='海大集团',
+            asset_type='stock',
+            account_name='测试账户',
+            quantity=1000,
+            avg_price=10.0,
+            current_price=10.0,
+            confirm_date=date(2026, 3, 1),
+        )
+        _div(pos, make_transaction, amount=30.0, day=date(2026, 6, 20), sell_day=date(2026, 7, 1))
+        db.commit()
+
+        items = scan_pending_tax(db, 1, today=TODAY)
+        assert len(items) == 1
+        assert items[0].status == STATUS_PENDING
+
+    def test_fund_dividend_is_never_pending(self, db, make_position, make_transaction):
+        """ETF/基金分红对个人持有人免税（财税〔2002〕128 号），即使卖出也不提示。"""
+        pos = make_position(
+            symbol='510300',
+            name='沪深300ETF',
+            asset_type='fund',
+            account_name='测试账户',
+            quantity=10000,
+            avg_price=4.0,
+            current_price=4.0,
+            confirm_date=date(2026, 1, 1),
+        )
+        _div(pos, make_transaction, amount=800.0, day=date(2026, 6, 20), sell_day=date(2026, 7, 1))
+        db.commit()
+
+        scan = scan_dividend_tax(db, 1, today=TODAY)
+        assert scan.items == [] and scan.deferred == [] and scan.exempt == []
+
+
+class TestAck:
+    """「确认无需记账」：不记 0 元流水，只存一条确认事实。"""
+
+    def test_ack_hides_pending_item(self, db, holding, make_transaction):
+        _div(holding, make_transaction, amount=500.0)
+        db.commit()
+        assert len(scan_pending_tax(db, 1, today=TODAY)) == 1
+
+        ack_dividend_tax(
+            db, 1, symbol='600519', account_name='测试账户', dividend_on=date(2026, 6, 20), reason='确认无税'
+        )
+        db.commit()
+
+        assert scan_pending_tax(db, 1, today=TODAY) == []
+
+    def test_ack_is_idempotent(self, db, holding, make_transaction):
+        _div(holding, make_transaction, amount=500.0)
+        db.commit()
+
+        first = ack_dividend_tax(db, 1, symbol='600519', account_name='测试账户', dividend_on=date(2026, 6, 20))
+        db.commit()
+        again = ack_dividend_tax(db, 1, symbol='600519', account_name='测试账户', dividend_on=date(2026, 6, 20))
+        db.commit()
+
+        assert first.id == again.id
+
+    def test_revoke_ack_restores_pending(self, db, holding, make_transaction):
+        _div(holding, make_transaction, amount=500.0)
+        db.commit()
+        ack_dividend_tax(db, 1, symbol='600519', account_name='测试账户', dividend_on=date(2026, 6, 20))
+        db.commit()
+
+        assert revoke_ack(db, 1, symbol='600519', account_name='测试账户', dividend_on=date(2026, 6, 20)) is True
+        db.commit()
+
+        assert len(scan_pending_tax(db, 1, today=TODAY)) == 1
+
+
+class TestApiTriage:
+    """域 E 的响应形态与确认端点。"""
+
+    def test_payload_carries_deferred_counts(self, client, db, holding, make_transaction):
+        _div(holding, make_transaction, amount=3000.0, sold=False)
+        db.commit()
+
+        data = client.get('/api/reconciliation/dividend-tax/').get_json()['data']
+        assert data['count'] == 0
+        assert data['deferred_count'] == 1
+        assert data['deferred_dividend_cents'] == 300000
+        assert data['exempt_count'] == 0
+
+    def test_ack_endpoint_hides_item_and_delete_restores(self, client, db, holding, make_transaction):
+        _div(holding, make_transaction, amount=500.0)
+        db.commit()
+        body = {
+            'symbol': '600519',
+            'account_name': '测试账户',
+            'dividend_on': '2026-06-20',
+            'reason': '确认无税',
+        }
+
+        assert client.post('/api/reconciliation/dividend-tax/ack/', json=body).status_code == 200
+        assert client.get('/api/reconciliation/dividend-tax/').get_json()['data']['count'] == 0
+
+        assert client.post('/api/reconciliation/dividend-tax/ack/revoke/', json=body).status_code == 200
+        assert client.get('/api/reconciliation/dividend-tax/').get_json()['data']['count'] == 1
+
+    def test_ack_endpoint_requires_dividend_on(self, client, db):
+        resp = client.post('/api/reconciliation/dividend-tax/ack/', json={'symbol': '600519'})
+        assert resp.status_code == 400
