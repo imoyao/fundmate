@@ -59,6 +59,7 @@ from app.core.migrations import (
     migrate_transaction_symbol_from_position,
     migrate_transactions_symbol_norm,
     migrate_users_username_unique_lower,
+    migrate_watchlist_alert_indexes,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
@@ -702,6 +703,9 @@ def init_db():
     migrate_watchlist_venue_not_null(user_eng)
     migrate_watchlist_unique_key(user_eng)
     migrate_watchlist_family_scoped_unique_key(user_eng)
+    # watchlist_alerts 唯一索引（2026-11-08 自选提醒启用）：死表转正，存量库需补
+    # (item_id, alert_type) 唯一索引，否则并发 upsert 会插出重复规则 → 重复通知。
+    migrate_watchlist_alert_indexes(user_eng)
 
 
 def init_db_split():
@@ -827,6 +831,9 @@ def init_db_split():
         migrate_watchlist_venue_not_null(user_eng)
         migrate_watchlist_unique_key(user_eng)
         migrate_watchlist_family_scoped_unique_key(user_eng)
+        # watchlist_alerts 唯一索引：与单库模式同口径（生产 user 域是 Postgres，
+        # create_all 不给存量表补索引，故双库路径也必须跑）
+        migrate_watchlist_alert_indexes(user_eng)
 
 
 def _new_market_session() -> Session:
