@@ -6,6 +6,7 @@
  * Home/End 要跳首尾。
  */
 
+import type { RouteLocationNormalizedLoaded, Router } from "vue-router";
 import { computed, ref, watch } from "vue";
 
 export type PanelKey = "overview" | "detail" | "emotion";
@@ -62,7 +63,10 @@ export function nextTabIndex(
   }
 }
 
-export function usePanelSwitch(options: { route: any; router: any }) {
+export function usePanelSwitch(options: {
+  route: RouteLocationNormalizedLoaded;
+  router: Router;
+}) {
   const { route, router } = options;
 
   const activePanel = ref<PanelKey>(normalizePanel(route.query.view));

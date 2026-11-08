@@ -85,7 +85,7 @@ const { overview, freshness, fetchTemperature } = useTemperatureOverview();
 // 全部单值指标（过滤核心指标，按数据分层展示）
 const detailMetrics = computed(() => {
   const singles = overview.value?.singles || [];
-  return singles.filter((s: any) => !CORE_SINGLE_SOURCES.includes(s.source));
+  return singles.filter(s => !CORE_SINGLE_SOURCES.includes(s.source));
 });
 
 // ================================================================

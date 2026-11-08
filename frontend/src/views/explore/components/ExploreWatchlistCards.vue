@@ -75,6 +75,7 @@
 </template>
 
 <script setup lang="ts">
+import type { WatchlistRow } from "../types";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
@@ -92,7 +93,7 @@ interface ExploreRow {
 }
 
 defineProps<{
-  rows: any[];
+  rows: WatchlistRow[];
   loading: boolean;
   /** true = 未填成本份额的纯观察模式（隐藏两个盈亏指标） */
   isPureObservationMode: boolean;
