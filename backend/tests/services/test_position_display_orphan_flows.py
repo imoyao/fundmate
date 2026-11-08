@@ -11,7 +11,7 @@
 本文件只钉**读侧**：孤儿要能被看见，但**不能**把别的标的、别的账户的孤儿也卷进来。
 """
 
-from app.services.position_display import list_position_transactions
+from app.services.position_txn_read import list_position_transactions
 
 
 def test_position_transactions_include_orphan_sell(make_position, make_transaction, db):
