@@ -1217,3 +1217,34 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 **剩余（未做）**：`process_buy_or_deposit` 仍 403 行 / 圈复杂度 84（买入与卖出共用一套
 编排）；669 笔（35%）孤儿流水（`position_id IS NULL`）的归因与重挂时机未定 ——
 自动重挂会放大「重复计数」，需先有只读审计口径。
+
+## 2026-11-08 #2879 显式 any 治理：护栏收口与剩余清单
+
+**本轮已做**：47 处 `catch (e: any)` 与后端错误信封取值收敛到
+`frontend/src/utils/errorMessage.ts`（unknown 显式收窄）；图表 formatter / `chartRef`
+改用 `frontend/src/types/chart.ts` 的具体类型；`utils/message.ts`、
+`utils/globalPolyfills.ts`、`utils/theme.ts`、`utils/print.ts` 等补具体类型。
+守卫 AST 口径实测 304 → 239（本轮 -65）。
+
+**护栏（本轮收口）**：`scripts/guard_ts_any.mjs` 新增文件 any 上限 3 → 0（零容忍，
+`--write` 也不得把新文件 any 登记进基线），回归网 `guard_ts_any.test.js` 15/15；
+`scripts/ts-any-baseline.json` 收紧到 239 并刷新 `generatedAt`；
+`frontend/eslint.config.js` 对本轮 27 个已清零文件开 `no-explicit-any: error`
+（全仓仍为 off，待存量清零后改全局 error）；守卫报告单列「豁免 / 业务待收敛」。
+
+**剩余 225 处业务存量 + 14 处豁免（共 115 个非零文件）**：
+
+- 豁免：`utils/localforage/types.d.ts` 14 处是上游 typings 自带 any，改成 unknown
+  只会引出成片 `as` 断言且升级依赖即被覆盖 —— 卡内建议保留，已在基线
+  `exemptions` 字段登记理由，不计入待收敛数。
+- 大头：`utils/tree.ts` 16、`router/utils.ts` 11、`views/asset/panorama/index.vue` 10、
+  `views/explore/components/detail/useRankTables.ts` 7、
+  `views/asset/ledgers/components/OrphanCleanupDialogs.vue` 7、
+  `store/modules/multiTags.ts` 6、`views/asset/ledgers/components/LedgerCard.vue` 6 等；
+  其余多为每个文件 1~4 处的组件 props / 测试夹具断言。
+- 后续刀按文件族切，不要机械替换：本轮实测把 35 处收窄到 `PreviewRow` 会牵出 79 个
+  跨测试夹具与 el-table `DefaultRow` 边界错误；把 15 处 `Record<string, any>` 改
+  `unknown` 又牵出 18 个属性访问错误。每刀应先给测试夹具 / 边界补具体类型，再改实现，
+  并在同 PR 跑 `--write` 收紧基线（否则守卫只挡「比基线多」，挡不住原地不动）。
+- 口径：#2879 是 Q3-GREEN 持续治理，卡内明确「不追求一次清零」；权威存量以
+  `scripts/ts-any-baseline.json` 为准，本节只记录分刀依据与已踩过的坑。
