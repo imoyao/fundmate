@@ -13,6 +13,7 @@ import pytest
 
 from app.core.constants import CASH_SYMBOL, PositionSource
 from app.core.venues import EXCHANGE
+from app.services.importer.ipo_events import NullAliasResolver
 from app.services.importer.mappings import (
     CMS_CASH_TRANSFER_OPS,
     CMS_IGNORED_OPS,
@@ -378,3 +379,230 @@ class TestContract:
         assert not (set(CMS_OP_MAP) & CMS_IGNORED_OPS)
         assert not (set(CMS_OP_MAP) & CMS_CASH_TRANSFER_OPS)
         assert not (CMS_IGNORED_OPS & CMS_CASH_TRANSFER_OPS)
+
+
+# ── 旧版导出格式（2020 及以前，11 列）──
+
+LEGACY_HEADER = [
+    '证券代码',
+    '证券名称',
+    '买卖标志',
+    '成交日期',
+    '成交时间',
+    '成交价格',
+    '成交数量',
+    '成交金额',
+    '成交编号',
+    '委托编号',
+    '股东代码',
+]
+
+
+def _legacy_row(**overrides) -> list:
+    """构造一行 11 列的旧版模拟数据（公式文本外壳与真实导出一致）。"""
+    defaults = {
+        '证券代码': '',
+        '证券名称': '',
+        '买卖标志': '买入',
+        '成交日期': '20201201',
+        '成交时间': '15:00:00',
+        '成交价格': _f('0.0000'),
+        '成交数量': '0',
+        '成交金额': '0.00',
+        '成交编号': _f('0'),
+        '委托编号': _f('0'),
+        '股东代码': _f('0000000000'),
+    }
+    defaults.update(overrides)
+    return [defaults[name] for name in LEGACY_HEADER]
+
+
+def _legacy_file(rows) -> bytes:
+    lines = ['\t'.join(LEGACY_HEADER)] + ['\t'.join(cells) for cells in rows]
+    return ('\n'.join(lines) + '\n').encode('gb18030')
+
+
+@pytest.fixture
+def legacy_parser():
+    """旧版用例不需要申购码→上市码的在线解析，固定用 Null 解析器隔离网络与库。"""
+    return CMSStockParser(alias_resolver=NullAliasResolver())
+
+
+class TestLegacyExportSchema:
+    """旧版导出的三处口径差异：列名、业务名（买入/卖出）、金额符号（恒为正）。"""
+
+    def test_legacy_header_recognized_and_sell_mapped(self, legacy_parser):
+        row = _legacy_row(
+            证券代码='123001',
+            证券名称='示例转债',
+            买卖标志='卖出',
+            成交价格='110.0000',
+            成交数量='-10',
+            成交金额='1100.00',
+        )
+        records, errors = legacy_parser.parse(_legacy_file([row]))
+        assert errors == []
+        assert len(records) == 1
+        rec = records[0]
+        assert rec.business_type == 'sell'
+        assert rec.symbol == 'SZ123001'
+        assert rec.amount == Decimal('1100.00')
+        assert rec.shares == Decimal('10')
+        assert rec.nav == Decimal('110.0000')
+
+    def test_legacy_buy_mapped_to_buy(self, legacy_parser):
+        row = _legacy_row(
+            证券代码='600001',
+            证券名称='示例股份',
+            买卖标志='买入',
+            成交价格='10.0000',
+            成交数量='100',
+            成交金额='1000.00',
+        )
+        records, errors = legacy_parser.parse(_legacy_file([row]))
+        assert errors == []
+        assert records[0].business_type == 'buy'
+        assert records[0].symbol == 'SH600001'
+        assert records[0].shares == Decimal('100')
+        assert records[0].amount == Decimal('1000.00')
+
+    def test_legacy_sh_bond_lot_converted_to_sheets(self, legacy_parser):
+        """沪市 113 段：成交数量 1「手」= 10 张，金额 1450 = 145 × 10 张。"""
+        row = _legacy_row(
+            证券代码='113001',
+            证券名称='示例转债',
+            买卖标志='卖出',
+            成交价格='145.0000',
+            成交数量='-1',
+            成交金额='1450.00',
+        )
+        records, errors = legacy_parser.parse(_legacy_file([row]))
+        assert errors == []
+        assert records[0].shares == Decimal('10')
+        assert records[0].trade_amount == Decimal('1450.0000')
+
+    def test_legacy_ipo_chain_principal_is_net_cash(self, legacy_parser):
+        """旧版金额恒为正：中签链必须补号，否则「扣款/缴款」会把 1000 元本金算成 3000 元。"""
+        rows = [
+            _legacy_row(
+                证券代码='072001',
+                证券名称='示例发债',
+                买卖标志='市值申购中签',
+                成交日期='20201209',
+                成交价格='100.0000',
+                成交数量='10',
+                成交金额='0.00',
+            ),
+            _legacy_row(
+                证券代码='072001',
+                证券名称='示例发债',
+                买卖标志='市值申购中签扣款',
+                成交日期='20201210',
+                成交金额='1000.00',
+            ),
+            _legacy_row(
+                证券代码='072001',
+                证券名称='示例发债',
+                买卖标志='新股申购确认缴款',
+                成交日期='20201211',
+                成交价格='100.0000',
+                成交数量='10',
+                成交金额='1000.00',
+            ),
+            _legacy_row(
+                证券代码='072001',
+                证券名称='示例发债',
+                买卖标志='市值申购中签扣款回冲',
+                成交日期='20201211',
+                成交价格='100.0000',
+                成交金额='1000.00',
+            ),
+            _legacy_row(
+                证券代码='072001',
+                证券名称='示例发债',
+                买卖标志='托管转出',
+                成交日期='20201211',
+                成交价格='100.0000',
+                成交数量='-10',
+                成交金额='0.00',
+            ),
+        ]
+        records, errors = legacy_parser.parse(_legacy_file(rows))
+        assert errors == []
+        assert len(records) == 1
+        rec = records[0]
+        assert rec.business_type == 'buy'
+        assert rec.amount == Decimal('1000.00')  # 不是 3000：冲正对已抵消
+        assert rec.shares == Decimal('10.0000')
+        assert rec.shares * rec.nav == rec.amount
+        assert legacy_parser.ignored_row_count == 4  # 5 行折叠成 1 条，4 行被消耗
+
+    def test_legacy_repo_row_ignored_by_gross_ratio(self, legacy_parser):
+        """报价回购在旧版里被记成「买入」：价格是年化收益率，金额 ÷ (价格×数量) 不成 1:1。"""
+        row = _legacy_row(
+            证券代码='132007',
+            证券名称='示例宝',
+            买卖标志='买入',
+            成交价格='1.3800',
+            成交数量='10',
+            成交金额='1000.00',
+        )
+        records, errors = legacy_parser.parse(_legacy_file([row]))
+        assert records == [] and errors == []
+        assert legacy_parser.ignored_row_count == 1
+        assert legacy_parser.source_row_count == 1
+
+    def test_legacy_designated_account_row_ignored(self, legacy_parser):
+        """「指定或撤指定」是交易单元操作：无资金、无持仓，计入忽略而不是报错。"""
+        row = _legacy_row(
+            证券代码='799999',
+            证券名称='示例指定',
+            买卖标志='指定或撤指定',
+            成交价格='1.0000',
+            成交金额='0.00',
+        )
+        records, errors = legacy_parser.parse(_legacy_file([row]))
+        assert records == [] and errors == []
+        assert legacy_parser.ignored_row_count == 1
+
+    def test_legacy_row_count_identity(self, legacy_parser):
+        """#2854 对账恒等式在旧版格式上同样成立。"""
+        rows = [
+            _legacy_row(
+                证券代码='123001',
+                证券名称='示例转债',
+                买卖标志='卖出',
+                成交价格='110.0000',
+                成交数量='-10',
+                成交金额='1100.00',
+                成交编号=_f('000000000001'),
+            ),
+            _legacy_row(
+                证券代码='132007',
+                证券名称='示例宝',
+                买卖标志='买入',
+                成交价格='1.3800',
+                成交数量='10',
+                成交金额='1000.00',
+                成交编号=_f('000000000002'),
+            ),
+            _legacy_row(
+                证券代码='070001',
+                证券名称='示例配号',
+                买卖标志='申购配号',
+                成交数量='1000',
+                成交编号=_f('000000000003'),
+            ),
+        ]
+        records, errors = legacy_parser.parse(_legacy_file(rows))
+        assert errors == []
+        assert len(records) == 1
+        assert legacy_parser.source_row_count == len(records) + len(errors) + legacy_parser.ignored_row_count
+
+    def test_legacy_missing_required_column_reports_column_name(self, legacy_parser):
+        """缺「成交数量」时应点名缺列，而不是笼统报「未找到表头」。"""
+        header = [c for c in LEGACY_HEADER if c != '成交数量']
+        content = ('\t'.join(header) + '\n').encode('gb18030')
+        records, errors = legacy_parser.parse(content)
+        assert records == []
+        assert errors and '成交数量' in errors[0].message

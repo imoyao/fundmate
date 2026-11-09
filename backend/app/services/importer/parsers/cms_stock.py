@@ -27,6 +27,29 @@
 银行转账行只有 18 列。故一律按列索引补齐到表头长度，不能用 `csv.DictReader`
 （缺列会整体错位，把「业务名称」读成费用，且静默不报错）。
 
+## 旧版导出格式（2020 年及以前）
+
+同一家券商有两套导出格式，列集完全不同（11 列、纯 TSV）：
+
+    证券代码 / 证券名称 / 买卖标志 / 成交日期 / 成交时间 / 成交价格 /
+    成交数量 / 成交金额 / 成交编号 / 委托编号 / 股东代码
+
+差异不只是列名，**有三处会改变数值口径**，都在兼容层处理，主流程不分叉：
+
+1. 方向列叫「买卖标志」，取值只有「买入 / 卖出」（新版是「证券买入 / 证券卖出」）
+   → `CMS_LEGACY_OP_ALIASES` 归一；
+2. 「成交金额」**恒为正数**（中签扣款与扣款回冲都是 +1000），方向只靠业务名与
+   「成交数量」的正负体现。打新折叠器按组内现金流**净额**算本金，吃正数会把
+   1000 元算成 3000 元 → `CMS_LEGACY_AMOUNT_SIGNS` 按业务名补回符号；
+3. 旧版把**报价回购也记成「买入 / 卖出」**（2020 样本 36 行，代码 132007，价格 1.38
+   是年化收益率、金额 1000 是本金，`金额 / (价格×数量) ≈ 72.5`）。新版靠业务名
+   「报价回购拆出 / 报价购回卖」就能排除，旧版不能 → 改用**等比判据**：真实证券成交
+   恒有 `|金额| ≈ 价格 × 数量`（沪市转债按手→张换算后亦然），不成等比的按报价回购
+   忽略，并计入 `ignored_row_count`（不静默丢行）。
+
+旧版无费用明细列，`fee` 按缺失处理（0，四列全 None）；`币种` 列缺失时默认人民币
+（旧版导出只有人民币账户）。
+
 ## 金额口径（有 161 条买卖行逐行验证的恒等式）
 
 - `发生金额` 是**已扣/已加费用的净额**：卖出为正、买入为负、银行转取为负；
@@ -72,6 +95,8 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import List, Optional, Tuple
 
+from loguru import logger
+
 from app.core import database
 from app.core.config import IMPORTER__EASTMONEY_ALIAS
 from app.core.constants import CASH_SYMBOL, PositionSource
@@ -98,6 +123,12 @@ from app.services.importer.mappings import (
     CMS_NO_CODE_INCOME_ASSET_TYPES,
     CMS_OP_MAP,
     VALID_OP_TYPES,
+)
+from app.services.importer.mappings_legacy import (
+    CMS_LEGACY_AMOUNT_SIGNS,
+    CMS_LEGACY_COLUMN_ALIASES,
+    CMS_LEGACY_IGNORED_OPS,
+    CMS_LEGACY_OP_ALIASES,
 )
 from app.services.importer.utils import parse_date
 
@@ -151,7 +182,20 @@ class CMSStockParser(BaseImportParser):
     # 表头识别：前 20 行内找同时含这三个列名的行。刻意不含「业务名称」——
     # 它是必填列之一，缺它时应走「缺少必要列」报出具体列名，而不是笼统报「未找到表头」。
     HEADER_MARKERS = ('成交日期', '成交价格', '发生金额')
+    # 旧版导出（2020 及以前）：金额列叫「成交金额」，没有「发生金额」。
+    LEGACY_HEADER_MARKERS = ('成交日期', '成交价格', '成交金额')
     HEADER_SCAN_LINES = 20
+
+    # 旧版没有「币种」「合同编号/流水号」以外的账户列，必需列单列一张。
+    LEGACY_REQUIRED_COLUMNS = (
+        '证券名称',
+        '成交日期',
+        '成交价格',
+        '成交数量',
+        '发生金额',
+        '业务名称',
+        '证券代码',
+    )
 
     # 缺一列即判定「选错模板」，明确报错而不是解析出一堆错位数据。
     REQUIRED_COLUMNS = (
@@ -173,6 +217,10 @@ class CMSStockParser(BaseImportParser):
     # 沪市可转债「手 → 张」换算（1 手 = 10 张，价格按每张报价）。
     SH_CONVERTIBLE_BOND_LOT_PREFIXES = ('110', '111', '113', '118')
     LOT_TO_SHEET = Decimal('10')
+
+    # 旧版报价回购识别：真实成交恒有 |金额| ≈ 价格×数量（含手→张换算）。留 1% 余量
+    # 吸收券商四舍五入（样本零例外，报价回购偏离在 70 倍量级，不会被误判）。
+    LEGACY_GROSS_TOLERANCE = Decimal('0.01')
 
     SUPPORTED_CURRENCIES = frozenset({'', '人民币'})
 
@@ -209,7 +257,7 @@ class CMSStockParser(BaseImportParser):
             errors.append(SBImportError(0, None, '无法识别文件编码，请将文件另存为 UTF-8 或 GBK 文本后重新上传'))
             return records, errors
 
-        header_idx, header = self._locate_header(rows)
+        header_idx, header, legacy = self._locate_header(rows)
         if header is None:
             errors.append(
                 SBImportError(
@@ -220,7 +268,8 @@ class CMSStockParser(BaseImportParser):
             )
             return records, errors
 
-        missing = [c for c in self.REQUIRED_COLUMNS if c not in header]
+        required = self.LEGACY_REQUIRED_COLUMNS if legacy else self.REQUIRED_COLUMNS
+        missing = [c for c in required if c not in header]
         if missing:
             errors.append(
                 SBImportError(0, None, f'缺少必要列: {", ".join(missing)}。请确认上传的是招商证券历史交割单导出文件')
@@ -245,6 +294,8 @@ class CMSStockParser(BaseImportParser):
             line_num = header_idx + offset + 2
             row = self._row_to_dict(header, cells)
             op = self._text(row, '业务名称')
+            if legacy:
+                op = self._normalize_legacy_row(row, op)
             if folder.owns(op):
                 try:
                     folder.collect(self._ipo_row(row, op, line_num))
@@ -252,7 +303,7 @@ class CMSStockParser(BaseImportParser):
                     errors.append(SBImportError(line_num, None, f'打新中签行解析失败: {e}'))
                 continue
             try:
-                record = self._parse_row(row, fee_split)
+                record = self._parse_row(row, fee_split, legacy=legacy)
                 if record is not None:
                     records.append(record)
             except CmsIgnoredOperation:
@@ -293,12 +344,30 @@ class CMSStockParser(BaseImportParser):
                 return rows
         return None
 
-    def _locate_header(self, rows: List[List[str]]) -> Tuple[Optional[int], Optional[List[str]]]:
+    def _locate_header(self, rows: List[List[str]]) -> Tuple[Optional[int], Optional[List[str]], bool]:
+        """定位表头并判别新旧两套导出格式；返回 ``(行号, 归一后的表头, 是否旧版)``。"""
         for idx, cells in enumerate(rows[: self.HEADER_SCAN_LINES]):
             header = [self._clean_cell(c) for c in cells]
             if all(marker in header for marker in self.HEADER_MARKERS):
-                return idx, header
-        return None, None
+                return idx, header, False
+            if all(marker in header for marker in self.LEGACY_HEADER_MARKERS):
+                # 旧版列名就地归一成新版列名，后续整条流水线（取列名的地方）零改动。
+                return idx, [CMS_LEGACY_COLUMN_ALIASES.get(c, c) for c in header], True
+        return None, None, False
+
+    def _normalize_legacy_row(self, row: dict, op: str) -> str:
+        """旧版行归一：业务名补全（买入 → 证券买入）+ 金额补回符号（旧版恒为正）。
+
+        必须在 ``_ipo_row`` / ``_parse_row`` 之前调用：打新折叠器按组内现金流**净额**
+        算本金，正数会让「扣款 −1000 / 回冲 +1000」互相抵消失败（1000 元算成 3000）。
+        """
+        op = CMS_LEGACY_OP_ALIASES.get(op, op)
+        row['业务名称'] = op
+        amount = self._decimal(row.get('发生金额'))
+        sign = CMS_LEGACY_AMOUNT_SIGNS.get(op)
+        if sign is not None and amount != 0:
+            row['发生金额'] = str(abs(amount) * sign)
+        return op
 
     @staticmethod
     def _clean_cell(value: str) -> str:
@@ -329,11 +398,11 @@ class CMSStockParser(BaseImportParser):
             amount=to_decimal(row.get('发生金额')),
         )
 
-    def _parse_row(self, row: dict, fee_split: bool) -> StandardTransactionRecord:
+    def _parse_row(self, row: dict, fee_split: bool, legacy: bool = False) -> StandardTransactionRecord:
         op = self._text(row, '业务名称')
         if not op:
             raise CmsIgnoredOperation()  # 空行 / 汇总行
-        if op in CMS_IGNORED_OPS:
+        if op in CMS_IGNORED_OPS or op in CMS_LEGACY_IGNORED_OPS:
             raise CmsIgnoredOperation()
 
         trade_date = self._parse_trade_date(row)
@@ -375,6 +444,12 @@ class CMSStockParser(BaseImportParser):
         factor = self.LOT_TO_SHEET if symbol_raw[:3] in self.SH_CONVERTIBLE_BOND_LOT_PREFIXES else Decimal('1')
         shares = quantity * factor
         gross = price * quantity * factor
+
+        if legacy and business_type in ('buy', 'sell') and not self._is_market_trade(net, fee, gross):
+            # 旧版把报价回购混进「买入/卖出」（成交价格是年化收益率，金额是本金）。
+            # 真实成交恒有 |金额| ≈ 价格×数量，非等比即非证券成交 → 忽略并计数。
+            logger.debug('招商旧版行非等比（疑报价回购），按忽略处理: %s %s 金额=%s 毛额=%s', symbol, name, net, gross)
+            raise CmsIgnoredOperation()
 
         return StandardTransactionRecord(
             confirm_date=trade_date,
@@ -424,6 +499,12 @@ class CMSStockParser(BaseImportParser):
         )
 
     # ── 辅助 ──
+
+    def _is_market_trade(self, net: Decimal, fee: Decimal, gross: Decimal) -> bool:
+        """旧版判据：金额与「价格×数量」是否等比（真实成交恒等比，报价回购不等比）。"""
+        if gross <= 0:
+            return True  # 无价格/无数量（分红、结息等），不适用本判据
+        return abs(abs(net) - fee - gross) <= gross * self.LEGACY_GROSS_TOLERANCE
 
     @staticmethod
     def _unknown_op_message(op: str) -> str:
