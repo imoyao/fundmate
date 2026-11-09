@@ -78,6 +78,8 @@ export type CashFlow = {
   portfolio_id: number | null;
   start_date: string;
   end_date: string;
+  /** 「投资以来」起点（作用域内最早一笔资金流水）；无流水为 null */
+  first_txn_date: string | null;
   totals: CashFlowTotals;
   external_flows: CashFlowItem[];
   monthly: CashFlowMonth[];
@@ -489,6 +491,8 @@ export type PnlAttributionPayload = {
   portfolio_id: number | null;
   start_date: string;
   end_date: string;
+  /** 「投资以来」起点（作用域内最早一笔资金流水）；无流水为 null */
+  first_txn_date: string | null;
   /**
    * 区间合计盈亏（元）；整窗无可算日时为 null——诚实降级，不是 0
    *（0 会被读成「没赚没赔」，而真相是「算不了」）。

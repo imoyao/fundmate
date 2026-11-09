@@ -121,3 +121,47 @@ def resolve_scope_label(ledger_id: Optional[int], portfolio_id: Optional[int]) -
     if ledger_id is not None:
         return 'ledger'
     return 'family'
+
+
+#: 「全投资周期」区间哨兵：起止由后端按作用域自行解析，前端不必先取 first_txn_date
+#: 再发第二次请求（冷启动鸡生蛋问题，与 pnl-calendar 年视图同源）。
+INCEPTION = 'inception'
+
+
+def first_investment_date(
+    db: Session,
+    family_id: int,
+    ledger_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
+) -> Optional[str]:
+    """作用域内最早一笔资金流水生效日（YYYY-MM-DD），全周期复盘起点。
+
+    与 `pnl_calendar._first_txn_date` 的差别：那个只认改变份额的流水（份额起点，
+    服务日历年视图「投资以来」）；这里**含入金 / 出金**，因为资金流动必须从第一笔
+    钱进账户开始画，不能等第一笔买入。资金流动与收益归因共用本起点，保证「全周期」
+    在两处是同一段——此前前者写死 365 天、后者写死 1 年，前端无从复盘全周期。
+
+    `Transaction.ledger_id` 是唯一能跨作用域过滤 L1 出入金的字段（出入金流水通常
+    没有 `position_id`），组合级取 `member_ledger_ids` 成员集合。历史遗留的
+    「持仓在 A、流水记在 B」错配（#1916）可能让起点略晚，但绝不会把别家账户的
+    流水算进来——区间起点宁晚勿错。无流水返回 None，调用方回落到缺省窗口。
+    """
+    from sqlalchemy import func
+
+    from app.domains.transactions.models import Transaction
+
+    if ledger_id is not None and portfolio_id is not None:
+        raise ValueError(ERR_MUTEX)
+
+    eff = func.coalesce(Transaction.confirm_date, Transaction.trade_date)
+    query = db.query(func.min(eff)).filter(Transaction.family_id == family_id)
+    if ledger_id is not None:
+        query = query.filter(Transaction.ledger_id == ledger_id)
+    elif portfolio_id is not None:
+        member_ids = sorted(member_ledger_ids(db, family_id, portfolio_id))
+        if not member_ids:
+            return None
+        query = query.filter(Transaction.ledger_id.in_(member_ids))
+
+    value = query.scalar()
+    return str(value)[:10] if value else None
