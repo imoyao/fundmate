@@ -7,10 +7,13 @@ SQLite 无法把读快照升级成写锁，**立即**返回 ``database is locked
 导入确认的逐条 ``begin_nested()``（SAVEPOINT → SELECT 去重 → 首次写）正好踩这条，
 于是整批导入随机失败。
 
-判据分三层，缺一不可：
+判据分四层，缺一不可：
 1. 连接确实带 ``isolation_level='IMMEDIATE'``（配置没被方言覆盖掉）；
 2. SAVEPOINT 事务一开始就持有写锁（对端连写都写不进来）；
-3. 先读后写不再瞬间失败，而是「本事务写成功 + 对端排队等锁」。
+3. 先读后写不再瞬间失败，而是「本事务写成功 + 对端排队等锁」；
+4. **同一份库只有一个 engine**：两个 engine 指向同一文件时，一个 Session 的嵌套事务
+   会为两个域各占一条连接，而 SQLite 的写锁是**按文件**的 ⇒ 第二条连接的
+   ``BEGIN IMMEDIATE`` 等满 busy_timeout 报 locked（2026-11-09 第一版修复后的自锁形态）。
 另加一条反向守卫：PRAGMA / DDL 不得被裹进事务（否则 ``migrations.py`` 的
 ``PRAGMA foreign_keys=OFF`` 会静默失效，重建表流程会被毁掉）。
 """
@@ -20,10 +23,10 @@ import threading
 import time
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import Column, Integer, MetaData, Table, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.db_factory import DOMAIN_APP, DatabaseFactory
+from app.core.db_factory import DOMAIN_APP, DOMAIN_USER, DatabaseFactory
 
 
 @pytest.fixture()
@@ -120,3 +123,66 @@ def test_pragma_and_ddl_stay_outside_transaction(engine):
         assert _dbapi(conn).in_transaction is False
         conn.execute(text('CREATE TABLE ddl_probe (id INTEGER)'))
         assert _dbapi(conn).in_transaction is False
+
+
+def test_single_db_reuses_one_engine(monkeypatch, tmp_path):
+    """单库模式（user 域回退到同一个库）：两个域必须拿到**同一个** engine。"""
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('DEV_DATABASE_URL', f'sqlite:///{(tmp_path / "shared.db").as_posix()}')
+    monkeypatch.delenv('DEV_USER_DATABASE_URL', raising=False)
+    monkeypatch.delenv('DEV_FORCE_SUPABASE', raising=False)
+    DatabaseFactory.reset()
+    try:
+        user_engine = DatabaseFactory.create(DOMAIN_USER)
+        app_engine = DatabaseFactory.create(DOMAIN_APP)
+        assert user_engine is app_engine
+    finally:
+        DatabaseFactory.reset()
+
+
+def test_separate_user_file_keeps_two_engines(monkeypatch, tmp_path):
+    """本地双库模拟（显式 ``DEV_USER_DATABASE_URL`` 指向另一个文件）：仍是两个 engine。"""
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('DEV_DATABASE_URL', f'sqlite:///{(tmp_path / "market.db").as_posix()}')
+    monkeypatch.setenv('DEV_USER_DATABASE_URL', f'sqlite:///{(tmp_path / "user.db").as_posix()}')
+    DatabaseFactory.reset()
+    try:
+        assert DatabaseFactory.create(DOMAIN_USER) is not DatabaseFactory.create(DOMAIN_APP)
+    finally:
+        DatabaseFactory.reset()
+
+
+def test_nested_transaction_writes_two_domains_without_self_lock(monkeypatch, tmp_path):
+    """回归：单库模式下 Session 嵌套事务里「先读市场表、再写用户表」不得自锁。
+
+    修复前（两域各自一个 engine）：SAVEPOINT 先在默认 bind 上 ``BEGIN IMMEDIATE`` 拿了
+    写锁，随后 user bind 的 SAVEPOINT 再要同一把锁——SQLite 的写锁按**文件**算，同一线程
+    也不放行 ⇒ 等满 busy_timeout 后报 ``database is locked``（2026-11-09 导入确认实测）。
+    """
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('DEV_DATABASE_URL', f'sqlite:///{(tmp_path / "cross_domain.db").as_posix()}')
+    monkeypatch.delenv('DEV_USER_DATABASE_URL', raising=False)
+    monkeypatch.delenv('DEV_FORCE_SUPABASE', raising=False)
+    DatabaseFactory.reset()
+    app_engine = DatabaseFactory.create(DOMAIN_APP)
+    user_engine = DatabaseFactory.create(DOMAIN_USER)
+
+    meta = MetaData()
+    Table('market_probe', meta, Column('id', Integer, primary_key=True))
+    user_t = Table('user_probe', meta, Column('id', Integer, primary_key=True))
+    with app_engine.begin() as conn:
+        meta.create_all(conn)
+
+    session = sessionmaker(bind=app_engine, binds={user_t: user_engine}, autoflush=False)()
+    try:
+        session.begin_nested()
+        session.execute(text('SELECT COUNT(*) FROM market_probe')).fetchone()
+        session.execute(user_t.insert().values(id=1))  # 修复前：此处等满 timeout 报 locked
+        session.commit()
+    finally:
+        session.close()
+        app_engine.dispose()
+        DatabaseFactory.reset()
+
+    with app_engine.connect() as conn:
+        assert conn.execute(text('SELECT COUNT(*) FROM user_probe')).scalar() == 1
