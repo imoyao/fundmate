@@ -905,10 +905,52 @@ class DatabaseFactory:
 
         任一域都保证返回可用引擎：user 域未配 Supabase 时自动回退本地 SQLite，
         因此本地开发 / 测试零配置即可双库模拟。
+
+        **同一份库只保留一个 engine**（见 :meth:`_reuse_engine_for_same_url`）：
+        两个 engine 指向同一个 SQLite 文件时，一个 Session 会为两个域各占用一条连接，
+        而它们争的是同一把文件写锁——`BEGIN IMMEDIATE` 下这是**自锁**（2026-11-09
+        导入确认在 `BEGIN IMMEDIATE` 上等满 30s 报 locked 即此形态）。
         """
         if domain not in cls._engines:
-            cls._engines[domain] = cls.build(domain, env)
+            engine = cls.build(domain, env)
+            shared = cls._reuse_engine_for_same_url(engine, domain)
+            if shared is not None:
+                engine.dispose()  # 尚未建连，换成已有那个即可
+                engine = shared
+            cls._engines[domain] = engine
         return cls._engines[domain]
+
+    @classmethod
+    def _reuse_engine_for_same_url(cls, engine: Engine, domain: str) -> Optional[Engine]:
+        """已有 engine 与本 engine 指向同一 URL 时返回它（否则 ``None``）。
+
+        为什么按 URL 而不是按域：本地单库模式下 ``DatabaseConfig.for_app`` 与
+        ``for_user`` 都解析到 ``sqlite:///./invest.db``——物理上就是同一个库。
+        分别建两个 engine 只会让「同一逻辑事务」横跨两条连接：写入端持有写锁、
+        另一端就再也拿不到（SQLite 的写锁是**按文件**的，不认线程），等满
+        ``busy_timeout`` 后报 ``database is locked``。复用同一个 engine 后，
+        Session 按 engine 取连接 ⇒ 一个事务只有一条连接，`BEGIN IMMEDIATE` 的
+        「一开始就拿写锁」才是安全的。
+
+        生产不受影响：Turso（market）与 Supabase（user）URL 不同，仍各自一个 engine。
+        非 Engine 对象（测试里用哨兵 mock ``create_engine`` 的场景）一律跳过。
+        """
+        if not isinstance(engine, Engine):
+            return None
+        url = str(engine.url)
+        for other_domain, other in cls._engines.items():
+            if other is None or other is engine or not isinstance(other, Engine):
+                continue
+            if str(other.url) != url:
+                continue
+            logger.info(
+                '域 {} 与已缓存的 {} 解析到同一数据库 {}，复用同一 engine（避免同一事务跨连接争写锁）',
+                domain,
+                other_domain,
+                url,
+            )
+            return other
+        return None
 
     @classmethod
     def reset(cls) -> None:
