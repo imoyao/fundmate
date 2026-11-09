@@ -778,6 +778,71 @@ def _apply_sqlite_pragmas(engine: Engine) -> None:
         cursor.close()
 
 
+def _apply_sqlite_write_begin(engine: Engine) -> None:
+    """本地 SQLite：让**写事务一开始就拿写锁**（``BEGIN IMMEDIATE``），消除 WAL 下
+    「读快照升写锁」的瞬时 ``database is locked``。
+
+    ## 现象（2026-11-09 实测，日志 `backend/logs/fundmate_2026-11-09.log`）
+
+    dev 单库（market 与 user 域同一个 ``invest.db``）+ 进程内调度 + 导入期间派发的
+    ``services/async_backfill`` 回填线程共写一个文件时，**导入确认会随机整批失败**：
+
+        sqlite3.OperationalError: database is locked
+        [SQL: DELETE FROM pnl_daily_snapshots WHERE pnl_daily_snapshots.family_id = ?]
+
+    调用链固定在 ``importer.orchestrator_commit.commit`` 的逐条
+    ``with self.db.begin_nested()`` 内：SAVEPOINT → 去重 / 查持仓等 SELECT → 首次写
+    （该 DELETE 来自 ``pnl_snapshot_store._before_flush``）。
+
+    ## 机制（为什么 busy_timeout 救不了）
+
+    WAL 下事务一旦**读过**就持有快照；期间别的连接提交了写，SQLite 无法把这个读快照
+    升级成写锁，直接返回 ``SQLITE_BUSY_SNAPSHOT``（消息同样是 ``database is locked``）
+    ——**busy handler 不被调用**，``timeout=30`` 形同虚设。实测（``timeout=30``）：
+    SAVEPOINT → SELECT → 他人 commit → DELETE，0.001s 即失败；改成 IMMEDIATE 开始后，
+    同样的并发变成「排队等锁」，由 busy_timeout 正常兜住。
+
+    ## 两段各自负责什么（缺一不可）
+
+    1. ``isolation_level='IMMEDIATE'``：pysqlite 的隐式 BEGIN 由 DEFERRED 改为
+       IMMEDIATE。凡以 DML 开头的事务，一开始就排队拿写锁，顺带消掉「BEGIN 与首条
+       写语句之间被人插队」的窗口。
+    2. ``savepoint`` 事件补 ``BEGIN IMMEDIATE``：``session.begin_nested()`` 在**没有**
+       DBAPI 事务时是直接发 ``SAVEPOINT`` 的（不触发 pysqlite 的隐式 BEGIN），而 SQLite
+       对 SAVEPOINT 自己起的是 **DEFERRED** 事务——正是导入逐条处理那条路径，第 1 段
+       管不到。该事件在 SAVEPOINT 语句发出**之前**触发（见
+       ``Connection._savepoint_impl``），此刻补 BEGIN IMMEDIATE，整条 SAVEPOINT 事务
+       就都持写锁。
+
+    ## 刻意不做的
+
+    - **不动读路径**：SELECT 仍不 BEGIN，只读请求之间照旧并发，不因本改动被串行化。
+    - **不碰 DDL / PRAGMA**：``PRAGMA``、``CREATE/DROP/ALTER`` 都不是 DML，不触发隐式
+      BEGIN；``migrations.py`` 的 ``PRAGMA foreign_keys=OFF`` 仍在事务外生效（在事务内
+      执行该 PRAGMA 是静默 no-op，会毁掉重建表流程，这条必须守住）。
+    - **不适用于 Turso / Postgres**：只挂本地 SQLite（调用点见 ``build()``）。
+
+    ## 代价
+
+    写者被串行化到「同一时刻一个写事务」——这本就是 SQLite 的单写者模型，改动只是把
+    「事后撞锁」换成「事前排队」。因此**事务里不要放网络调用**：持锁时间等于事务时长，
+    长事务会把别的写者堵到 timeout。
+    """
+
+    @event.listens_for(engine, 'connect')
+    def set_immediate_isolation(dbapi_connection, connection_record):
+        # pysqlite 只在**隐式 BEGIN** 时读这个值（DML 前的 BEGIN 由它发出），
+        # 故 SELECT / PRAGMA / DDL 依旧不进事务，读并发与迁移语义都不受影响。
+        dbapi_connection.isolation_level = 'IMMEDIATE'
+
+    @event.listens_for(engine, 'savepoint')
+    def begin_write_before_savepoint(conn, name):
+        """SAVEPOINT 之前补 BEGIN IMMEDIATE（此时 SQLAlchemy 的 BEGIN 是逻辑的，DBAPI 还没有事务）。"""
+        dbapi_connection = conn.connection.dbapi_connection
+        if not getattr(dbapi_connection, 'in_transaction', False):
+            conn.exec_driver_sql('BEGIN IMMEDIATE')
+
+
 class DatabaseFactory:
     """按数据域构建并缓存 engine 的工厂。
 
@@ -829,6 +894,9 @@ class DatabaseFactory:
         # 仅本地 SQLite 需要 PRAGMA（按 URL 判断，避免 libsql / Postgres 误用）
         if _needs_sqlite_pragmas(url):
             _apply_sqlite_pragmas(engine)
+            # 写事务以 BEGIN IMMEDIATE 开始：否则 WAL 下「读快照升写锁」会立即
+            # 返回 database is locked，busy_timeout 不生效（见该函数 docstring）。
+            _apply_sqlite_write_begin(engine)
         return engine
 
     @classmethod

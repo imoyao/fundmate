@@ -299,13 +299,15 @@ def test_factory_create_user_mock_engine(monkeypatch):
     # 两次建引擎都必须落在 mock 内（#1727）：原实现把 app 域那次留在 with 之外，靠
     # 「环境里恰好没有 turso」这一隐含前提才成立；本机 .env 带真实 TURSO_DATABASE_URL 时，
     # 那次真实 create_engine 会因缺 libsql 方言直接 NoSuchModuleError——即测试假设了调用方环境。
-    # 一并 stub _apply_sqlite_pragmas：中和后的 app 域 URL 是本地 SQLite，build() 会对它接
-    # PRAGMA，而哨兵不是真 Engine（event.listens_for 会抛 InvalidRequestError）。
-    # 本用例只钉「工厂按域分别缓存」，PRAGMA 接线由
-    # test_factory_build_dev_sqlite_pragmas_skips_libsql 覆盖。
+    # 一并 stub _apply_sqlite_pragmas / _apply_sqlite_write_begin：中和后的 app 域 URL 是
+    # 本地 SQLite，build() 会对它接 PRAGMA 与 BEGIN IMMEDIATE，而哨兵不是真 Engine
+    # （event.listens_for 会抛 InvalidRequestError）。本用例只钉「工厂按域分别缓存」，
+    # 两处接线分别由 test_factory_build_dev_sqlite_pragmas_skips_libsql 与
+    # tests/core/test_db_write_begin.py 覆盖。
     with (
         mock.patch.object(db_factory, 'create_engine', side_effect=[user_engine, app_engine]) as m,
         mock.patch.object(db_factory, '_apply_sqlite_pragmas'),
+        mock.patch.object(db_factory, '_apply_sqlite_write_begin'),
     ):
         eng = DatabaseFactory.create(DOMAIN_USER)
         assert eng is user_engine
