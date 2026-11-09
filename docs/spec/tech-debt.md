@@ -1238,7 +1238,14 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 货基 / 逆回购口径 A）**本就不该挂持仓**；可挂回批次由夜间 job 消化；「已清仓历史 /
 无源卖出」挂不回任何持仓行，属 #3004 遗留的数据补齐。故本卡架构侧已无剩余动作。
 
-## 2026-11-08 #2879 显式 any 治理：护栏收口与剩余清单
+## 2026-11-08 #2879 显式 any 治理：业务侧已清零（含历史分刀依据）
+
+**结论（收尾复核，第一~第九刀全部合入 `dev` 后）**：业务侧显式 `any` 已清零，#2879 已关闭。
+`node scripts/guard_ts_any.mjs` 实测扫 1136 个文件，any 共 **14** 处，全部落在
+`utils/localforage/types.d.ts`（守卫 `EXEMPT_FILES` 唯一一项，三方 typings 自带 any），
+**业务待收敛 0 处**；`scripts/ts-any-baseline.json` 全零冻结。
+下文「本轮已做 / 剩余清单」保留为**当日中间态**记录——分刀依据与已踩过的坑仍然有效，
+存量数值以本节结论与基线为准。
 
 **本轮已做**：47 处 `catch (e: any)` 与后端错误信封取值收敛到
 `frontend/src/utils/errorMessage.ts`（unknown 显式收窄）；图表 formatter / `chartRef`
@@ -1250,9 +1257,10 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 `--write` 也不得把新文件 any 登记进基线），回归网 `guard_ts_any.test.js` 15/15；
 `scripts/ts-any-baseline.json` 收紧到 239 并刷新 `generatedAt`；
 `frontend/eslint.config.js` 对本轮 27 个已清零文件开 `no-explicit-any: error`
-（全仓仍为 off，待存量清零后改全局 error）；守卫报告单列「豁免 / 业务待收敛」。
+（收尾时这道「零容忍区」已退役：TS/TSX 与 `.vue` 两条配置现均直接
+`no-explicit-any: error`，`.d.ts` 由 `globalIgnores` 排除）；守卫报告单列「豁免 / 业务待收敛」。
 
-**剩余 225 处业务存量 + 14 处豁免（共 115 个非零文件）**：
+**当时中间态清单（业务存量已由后续九刀清零，仅存历史价值；14 处豁免仍在）**：
 
 - 豁免：`utils/localforage/types.d.ts` 14 处是上游 typings 自带 any，改成 unknown
   只会引出成片 `as` 断言且升级依赖即被覆盖 —— 卡内建议保留，已在基线
@@ -1268,3 +1276,6 @@ node scripts/axe_contrast_audit.mjs --theme dark \
   并在同 PR 跑 `--write` 收紧基线（否则守卫只挡「比基线多」，挡不住原地不动）。
 - 口径：#2879 是 Q3-GREEN 持续治理，卡内明确「不追求一次清零」；权威存量以
   `scripts/ts-any-baseline.json` 为准，本节只记录分刀依据与已踩过的坑。
+- 收口判据（复核用，两条都要满足）：`node scripts/guard_ts_any.mjs` 退出码 0 且报告
+  「业务待收敛 0 处」；`git show origin/dev:scripts/ts-any-baseline.json` 全零。
+  只看「守卫绿」不够——它只保证不比基线多，允许原地不动（正是本节 225 处能挂一层的原因）。
