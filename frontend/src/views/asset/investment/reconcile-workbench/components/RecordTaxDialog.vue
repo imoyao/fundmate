@@ -100,8 +100,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, toRef, watch } from "vue";
 import { ElMessage } from "element-plus";
+import { useNestedDialog } from "../composables/useNestedDialog";
 import { formatDate } from "@/utils/date";
 import { centsToYuan } from "@/utils/currency";
 import { recordDividendTax } from "@/api/reconciliation";
@@ -119,6 +120,8 @@ const emit = defineEmits<{
   "update:modelValue": [value: boolean];
   recorded: [];
 }>();
+
+useNestedDialog(toRef(props, "modelValue"));
 
 const amount = ref<number | null>(null);
 const taxOn = ref<string>("");
