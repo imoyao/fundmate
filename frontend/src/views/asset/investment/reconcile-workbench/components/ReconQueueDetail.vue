@@ -1,24 +1,21 @@
 <template>
-  <!--
-    队列 → 处理区改成「右侧抽屉」（owner 第二轮）。
-    旧版把处理区挂在队列下方：几百条待办时处理完一条要往回滚，
-    而且 520px 弹窗塞不下「缺哪条 / 交易流水 / 补充表单」三段上下文。
-    抽屉不占文档流，队列不位移；720px 宽度放得下三段的并排信息。
-
-    写路径零重写：下面各域面板与上一版完全一致，仍承载归因 / 忽略 /
-    补税 / 回填 / 撤销与二次确认。加载只加遮罩、不卸载内容，避免刷新时
-    连带关掉挂在面板内的弹窗（上一轮实机抓到过的回归）。
-  -->
+  <!-- 抽屉不占文档流，队列不位移；域面板写路径零重写，刷新只加遮罩、
+       不卸载内容，避免连带关掉挂在面板内的弹窗（实机回归）。
+       内部弹窗打开时关掉自身遮罩（见 composables/useNestedDialog）。 -->
   <el-drawer
     :model-value="open"
     :size="drawerSize"
     direction="rtl"
     append-to-body
+    :modal="!nestedDialogOpen"
     class="recon-detail-drawer"
     @update:model-value="onVisibility"
   >
     <template #header>
-      <div class="recon-detail__header">
+      <div
+        class="recon-detail__header"
+        :class="{ 'recon-detail--dimmed': nestedDialogOpen }"
+      >
         <div class="recon-detail__heading">
           <h2 class="recon-detail__title">{{ drawerTitle }}</h2>
           <p class="recon-detail__sub">
@@ -30,7 +27,11 @@
       </div>
     </template>
 
-    <div v-loading="detailLoading" class="recon-detail__body">
+    <div
+      v-loading="detailLoading"
+      class="recon-detail__body"
+      :class="{ 'recon-detail--dimmed': nestedDialogOpen }"
+    >
       <!-- ① 来龙去脉：产品名 / 代码 / 账本 / 差额 / 发现时间 -->
       <ReconContextPanel :item="item" />
 
@@ -172,6 +173,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { provideNestedDialog } from "../composables/useNestedDialog";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import type {
@@ -200,6 +202,9 @@ import DomainFDanglingRefs from "./DomainFDanglingRefs.vue";
 import DomainGOrphanLedger from "./DomainGOrphanLedger.vue";
 
 defineOptions({ name: "ReconQueueDetail" });
+
+/** 抽屉内弹窗打开时关掉自己的遮罩、内容退到背景，避免两层 modal 叠加。 */
+const nestedDialogOpen = provideNestedDialog();
 
 const props = defineProps<{
   item: ReconQueueItem | null;
@@ -338,6 +343,13 @@ const detailLoading = computed(() => {
 
 .recon-detail__body {
   padding-bottom: var(--space-standard);
+}
+
+/* 二级弹窗打开时抽屉只是背景，不再以「半可见的第三层」抢注意力 */
+.recon-detail--dimmed {
+  pointer-events: none;
+  opacity: 0.3;
+  transition: opacity 0.18s ease;
 }
 
 .recon-detail__hint {
