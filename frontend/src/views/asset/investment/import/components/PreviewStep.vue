@@ -2,6 +2,7 @@
 import SummaryPanel from "./SummaryPanel.vue";
 import PreviewTable from "./PreviewTable.vue";
 import BatchFixPanel from "./BatchFixPanel.vue";
+import RowReconciliationBanner from "./RowReconciliationBanner.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
@@ -64,40 +65,13 @@ const {
       </div>
     </div>
 
-    <!-- #2854：源文件行数对账。未知操作名曾整行静默消失，预览 total 是丢过行的数，
-         用户连「少了几行」都不知道。这里把差额与未登记的操作名显式写出来。 -->
-    <SoftBanner
+    <!-- #2854：源文件行数对账。呈现见 RowReconciliationBanner，口径在 useImportWizard；
+         未知操作名曾整行静默消失，预览 total 是丢过行的数，用户连「少了几行」都不知道。 -->
+    <RowReconciliationBanner
       v-if="rowReconciliation"
-      class="row-reconciliation-banner"
-      variant="warning"
-      icon="ep:warning-filled"
-    >
-      <span class="banner-text">
-        文件共 {{ rowReconciliation.source }} 行 = 可导入
-        {{ rowReconciliation.imported }} 行 + 有意忽略
-        {{ rowReconciliation.ignored }} 行 + 未能识别
-        {{ rowReconciliation.failed }} 行
-        <template v-if="!rowReconciliation.balanced">
-          （对不平，请检查源文件是否有合并行或空行）
-        </template>
-      </span>
-      <p v-if="rowReconciliation.ops.length" class="text-xs mt-1">
-        未登记的操作类型：{{ rowReconciliation.ops.join("、") }}
-        <span v-if="parseErrors.length">
-          ，涉及行号 {{ parseErrors.map(e => e.line).join("、") }} </span
-        >。
-      </p>
-      <!-- 逐条原因：新股申购中签这类「已识别但不支持」的行，后端已给出补救方式，
-           只显示业务名等于让用户自己猜下一步。 -->
-      <ul v-if="rowReconciliation.reasons.length" class="text-xs mt-1">
-        <li v-for="(reason, index) in rowReconciliation.reasons" :key="index">
-          · {{ reason }}
-        </li>
-      </ul>
-      <p v-if="rowReconciliation.hasUnknownOp" class="text-xs mt-1">
-        请在映射表登记后再导入，不要手工编造标的。
-      </p>
-    </SoftBanner>
+      :reconciliation="rowReconciliation"
+      :parse-errors="parseErrors"
+    />
 
     <!-- #2281 引导态：能力宣告 + 关联入口（未关联现金账户时；不可关闭，tooltip 指向此处）。
          #2724 起壳由 SoftBanner 承担，select 与跳转按钮走 #actions slot -->
