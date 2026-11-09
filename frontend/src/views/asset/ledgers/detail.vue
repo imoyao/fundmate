@@ -167,6 +167,7 @@
     <PositionTransactionsDrawer
       v-model:visible="drawerVisible"
       :position-data="selectedPosition"
+      @changed="refreshAfterPositionTxnChange"
     />
   </div>
 </template>
@@ -221,6 +222,7 @@ const {
   onAccountUpdated,
   sameTypeLedgers,
   loadHoldings,
+  refreshAfterPositionTxnChange,
   accountName,
   onMigrationCommitted,
   editTxnDialogVisible,

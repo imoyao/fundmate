@@ -16,9 +16,11 @@
         mode="compact"
         show-fee
         show-edit
+        show-delete
         :price-label="isFund ? '确认净值' : '单价'"
         :quantity-label="isFund ? '确认份额' : '数量'"
         @edit="openEdit"
+        @delete="onDelete"
       />
 
       <p v-if="transactionsList.length === 0" class="pd-hint pt-empty">
@@ -39,10 +41,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { getPositionTransactions } from "@/api/positions";
+import { deleteTransaction } from "@/api/transaction";
 import DrawerSection from "@/components/ProductDrawer/DrawerSection.vue";
 import TransactionTable from "@/components/TransactionTable/index.vue";
 import type { TransactionRow } from "@/components/TransactionTable/model";
+import { errorMessageOf } from "@/utils/errorMessage";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
 
 /**
@@ -62,11 +67,22 @@ const props = withDefaults(
     positionId?: number | string | null;
     assetType?: string | null;
     symbol?: string | null;
+    /** 持仓名称（删除确认文案里点明是哪只，避免删错） */
+    positionName?: string | null;
     /** 基金品类：表头用「确认净值 / 确认份额」 */
     isFund?: boolean;
   }>(),
-  { positionId: null, assetType: null, symbol: null, isFund: false }
+  {
+    positionId: null,
+    assetType: null,
+    symbol: null,
+    positionName: null,
+    isFund: false
+  }
 );
+
+/** 删除/编辑成功后通知外层：后端会按剩余流水重算份额与成本，抽屉外的持仓行与概览都过期了 */
+const emit = defineEmits<{ changed: [id: number | undefined] }>();
 
 // 交易记录状态
 interface PositionTxnRow {
@@ -145,6 +161,39 @@ function handleSaved(raw: unknown) {
       notes: data.notes,
       import_hash: data.import_hash
     });
+  }
+  // 改数量/价格同样会改份额与成本，外层持仓行过期
+  emit("changed", data?.id);
+}
+
+/**
+ * 删除单笔流水（DELETE /api/transactions/<id>/，后端随后按剩余流水重算持仓）。
+ *
+ * 为什么要确认框：删掉建仓那笔后该持仓会失去成本来源（后续只剩卖出/分红），
+ * 只剩浮盈而没有成本基准，纠错成本比删一笔高得多。
+ */
+async function onDelete(row: unknown) {
+  const txn = asTxnRow(row);
+  if (txn.id == null) return;
+
+  const label = props.positionName || props.symbol || "该持仓";
+  try {
+    await ElMessageBox.confirm(
+      `删除后「${label}」的份额与成本会按剩余流水重算；若删的是建仓那笔，持仓会失去成本来源。`,
+      "删除这笔交易？",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" }
+    );
+  } catch {
+    return; // 用户取消
+  }
+
+  try {
+    await deleteTransaction(txn.id);
+    ElMessage.success("交易已删除，持仓已重算");
+    await fetchTransactions();
+    emit("changed", txn.id);
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "删除失败");
   }
 }
 
