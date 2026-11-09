@@ -277,13 +277,14 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/performance/twr.py": {'lines': 336, 'max_func': 76, 'max_cc': 15},
     "backend/app/services/performance/xirr_engine.py": {'lines': 410, 'max_func': 109, 'max_cc': 15},
     # 2026-11-09 收益日历历史复盘（已清仓账户）按 --report 实测回写两项，理由留痕：
-    # pnl_calendar.py 2166→2258（新增按区间纳入 cleared 持仓的 _positions 分支、
-    # _first_txn_date 起点归集、空载荷携带起点及口径 docstring；max_func 681 /
-    # max_cc 106 均未变，没有放大任何既有函数职责），pnl_snapshot_store.py
-    # 447→450（CALIBER_VERSION 7→8 换版理由注释 3 行）。都是真实代码增长，
-    # 非放宽阈值；test_baseline_matches_current_metrics 要求逐项相等，留余量同样红。
-    # pnl_calendar.py 继续变厚属 #2873 存量上帝模块拆分债务，不在本卡拆。
-    "backend/app/services/pnl_calendar.py": {'lines': 2258, 'max_func': 681, 'max_cc': 106},
+    # pnl_calendar.py 2166→2274（新增按区间纳入 cleared 持仓的 _positions 分支、
+    # _first_txn_date 起点归集、_has_computable_days 判据、空载荷携带起点及
+    # 口径 docstring；max_func 681 / max_cc 106 均未变，没有放大任何既有函数
+    # 职责），pnl_snapshot_store.py 447→450（CALIBER_VERSION 7→8 换版理由注释）。
+    # 都是真实代码增长，非放宽阈值；test_baseline_matches_current_metrics
+    # 要求逐项相等，留余量同样判红。pnl_calendar.py 继续变厚属 #2873 存量
+    # 上帝模块拆分债务，不在本卡拆。
+    "backend/app/services/pnl_calendar.py": {'lines': 2274, 'max_func': 681, 'max_cc': 106},
     "backend/app/services/pnl_fees.py": {'lines': 97, 'max_func': 17, 'max_cc': 6},
     "backend/app/services/pnl_service.py": {'lines': 211, 'max_func': 36, 'max_cc': 7},
     "backend/app/services/pnl_settle.py": {'lines': 34, 'max_func': 11, 'max_cc': 3},

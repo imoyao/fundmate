@@ -1041,8 +1041,14 @@ def build_daily_pnl_series(
     # 缺口放大到 3502.91。判定集统一取家庭级全量后，各作用域丢同一批天、同步推进
     # 基准；而 day_total 按持仓可加（份额/已实现均按持仓归集），故
     # Σ账户级 month_total ≡ 家庭级 month_total。家庭级调用时两者为同一集合。
-    # 历史复盘同样传 `start`：账户级值与家庭级决策集必须按**同一个区间**
-    # 决定纳入哪些已清仓持仓，否则两边丢的天数又会对不上。
+    # 决策集与值集同区间（#1916）：各作用域按同一个 `start` 决定纳入哪些已清仓
+    # 持仓，丢同一批天、同步推进差分基准 ⇒ 「家庭级 = Σ 账户级」加性成立。
+    # 试过把决策集固定成「家庭全量 active」以求状态稳定，但全清仓账户的决策集
+    # 会变成空集，所有交易日被判 no_data、收益全 NULL；固定成「全量含已清仓」
+    # 又会让当下视图被无行情老标的拖成满屏 partial。故保持与值集同源。
+    # 已知限制：state 徽标会随请求区间略有差异（真库副本实测年视图写缓存时
+    # 243 天全 partial、单月现算 43 天 updown），但 daily_pnl 数字一致；
+    # `has_any_price` 已改判「有可算日」，不再受这个差异影响。
     decision_positions = positions if ledger_id is None else _positions(db, family_id, None, start)
     # 覆盖率诊断按**原始窗口**算，缓存命中与否都不影响它（见 `_price_presence`）。
     no_price_ids, latest_dt = _price_presence(db, decision_positions, start, end)
@@ -1122,7 +1128,7 @@ def build_daily_pnl_series(
     #   · 基准日那行本身取不到（罕见，如落在未物化的新鲜窗内）——宁可不报也不猜。
     baseline_meta = computed_by_date.get(baseline_day, metas.get(baseline_day))
     range_baseline = None if baseline_meta is None else baseline_meta['net_worth_cents']
-    has_computable = any(d['daily_pnl'] is not None for d in days)
+    has_computable = _has_computable_days(days)
     range_rate = (
         round(total_cents / abs(range_baseline) * 100, 2)
         if has_computable and range_baseline not in (None, 0)
@@ -1130,19 +1136,12 @@ def build_daily_pnl_series(
     )
 
     # ── 「投资以来」的起点（#1942 年视图）──
-    # 最早一笔**改变份额**的流水（买 / 卖 / 转入 / 转出）的生效日，按本作用域持仓过滤。
-    # 年视图要「投资以来每一年占一格」，前端必须知道起点；旧实现写死 3 年窗口
-    # （`YEAR_WINDOW`），窗口边界与真实建仓年份无关，年份一多就既看不全也对不上。
-    # `shares` 已按 position_id 归组且只含 `eff <= end` 的流水，故取键的最小值即得，
-    # 不需要再查一次库。
-    # D80 终点锚把校准量注入 `_SHARE_ANCHOR_EPOCH`，它不是流水、不是建仓日：
-    # 若不排除，`first_txn_date` 恒为 1970-01-01，年视图「投资以来」会画出
-    # 几十个空年份（真实库实测）。排除后取到的才是真正最早一笔份额变动。
-    scope_position_ids = {p.id for p in positions}
-    first_txn = min(
-        (day for pid in scope_position_ids for day in shares.get(pid, {}) if day != _SHARE_ANCHOR_EPOCH),
-        default=None,
-    )
+    # 按作用域内**全部持仓**（含 cleared）的最早份额流水取，与空载荷同源，
+    # 不随请求区间变化。旧实现从 `shares` 按本次 `positions` 归组取最小值：
+    # 历史复盘让 `positions` 随 `start` 裁剪 ⇒ 同一账户当月返回 2021-06-01、
+    # 年视图返回 2020-08-28（真库副本实测），前端按当月那个展开年视图会丢掉
+    # 2020 年。年视图是「投资以来」，起点必须是作用域级的唯一事实。
+    first_txn_date = _first_txn_date(db, family_id, ledger_id)
 
     logger.info(
         '收益日历派生完成 scope={} 区间={}~{} 天数={} 合计={} 物化补算={}',
@@ -1163,7 +1162,11 @@ def build_daily_pnl_series(
         'range_rate': range_rate,
         # 分母与 rate 同源（同一 range_baseline），#2134 组合级聚合用；见 docstring。
         'range_baseline': None if range_baseline is None else round(Money.cents_to_yuan(range_baseline), 2),
-        'has_any_price': any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in days),
+        # 「有可算日」而不是「状态恰为 updown/zero」：partial 是「部分断档但照常
+        # 出数」，把它判成空态会让整卡被占位替换（真库副本实测缓存路径 243 天
+        # 全 partial ⇒ has_any_price=False）。缺数据态的 daily_pnl 恒为 None，
+        # 仍会走空态，不违背「绝不补 0」。
+        'has_any_price': has_computable,
         # ── 覆盖率诊断（前端据此区分「你的标的无估值」与「这个月没数据」）──
         # 这两件事对用户完全不同的处置：前者是持仓属性（本来就不该有日估值），
         # 后者是数据缺口（该有却没有，多半是每日快照任务没跑）。
@@ -1172,7 +1175,7 @@ def build_daily_pnl_series(
         'coverage': _coverage(positions, no_price_ids),
         'latest_price_date': latest_price_date,
         # 「投资以来」起点：最早一笔改变份额的流水生效日；无持仓 / 无流水时 None
-        'first_txn_date': first_txn.isoformat() if first_txn else None,
+        'first_txn_date': first_txn_date,
         'days': days,
     }
 
@@ -2026,10 +2029,23 @@ def build_pnl_series(
     # start−1（= base_start−2，因为这里把 start 挪到了 scan_start），与刚覆盖的
     # range_rate 对不上；baseline（scan_start 净资产）才是上面这个 rate 的分母。
     payload['range_baseline'] = baseline
-    payload['has_any_price'] = any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in in_range)
+    # 与日粒度同判据：partial 照常出数，不该整卡空态。
+    payload['has_any_price'] = _has_computable_days(in_range)
     payload['periods'] = _aggregate_periods(in_range, granularity, baseline)
     payload['days'] = []  # 聚合下推：期间视图不再回日明细
     return payload
+
+
+def _has_computable_days(days: List[dict]) -> bool:
+    """「有可算日」判据：只要有一天 daily_pnl 非 None 就不该整卡空态。
+
+    不按 state 判：partial（部分行情断档但照常出数）曾经被排除在
+    updown/zero 之外，物化缓存命中时真库副本 243 天全 partial ⇒
+    has_any_price=False ⇒ 有数字的日历被空态占位整卡替换。
+    缺数据态（no_price / no_data / closed / no_position）的 daily_pnl
+    恒为 None，仍走空态，不违背「绝不补 0」。
+    """
+    return any(d.get('daily_pnl') is not None for d in days)
 
 
 def _first_txn_date(db: Session, family_id: int, ledger_id: Optional[int]) -> Optional[str]:
