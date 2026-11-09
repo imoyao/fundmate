@@ -106,6 +106,8 @@ export interface LedgerDetailApi {
     portfolioId: number | null
   ) => Promise<void>;
   openPositionDrawer: (row: LedgerHoldingRow) => void;
+  /** 持仓抽屉内改/删交易后：概览 + 持仓行 + 交易记录 Tab 全部重取（后端已重算份额成本） */
+  refreshAfterPositionTxnChange: () => Promise<void>;
   openEditDialog: () => Promise<void>;
   toggleArchiveDetail: (ledger: LedgerItem) => Promise<void>;
   /** 打开删除持仓确认对话框（#1830：删除分支收进对话框，取消位归位） */
@@ -292,6 +294,32 @@ export function useLedgerDetail(): LedgerDetailApi {
     if (activeTab.value === "transactions") {
       await transactionsApi.value?.loadTransactions();
     }
+  }
+
+  /**
+   * 持仓抽屉里改/删交易后的定点刷新。
+   *
+   * 后端（`transactions.delete`）删完会按剩余流水回滚份额与成本，编辑同理，因此过期的
+   * 有三处：页头概览（市值/成本）、持仓 Tab 的该行份额、交易记录 Tab（同一批流水）。
+   * 抽屉头部绑的是 `holdingsList` 里的对象，而 `loadHoldings()` 会整表替换成新对象，
+   * 旧引用会停在旧份额上——必须按 id 重新绑定，否则抽屉里的份额与外面永远对不上。
+   * 持仓若被删除（只剩锚点/无流水），顺手关掉抽屉，避免停在一条不存在的持仓上。
+   */
+  async function refreshAfterPositionTxnChange() {
+    await Promise.all([loadSummary(), loadHoldings(holdingsPage.value)]);
+    const current = selectedPosition.value;
+    if (current) {
+      const fresh = holdingsList.value.find(
+        h => String(h.id) === String(current.id)
+      );
+      if (fresh) {
+        selectedPosition.value = fresh;
+      } else {
+        selectedPosition.value = null;
+        drawerVisible.value = false;
+      }
+    }
+    await transactionsApi.value?.loadTransactions(1);
   }
 
   /** 销售机构候选加载：失败仅记日志，编辑弹窗下拉留空（可选字段不阻塞页面） */
@@ -565,6 +593,7 @@ export function useLedgerDetail(): LedgerDetailApi {
     resolveHoldingPortfolio,
     reassignPosition,
     openPositionDrawer,
+    refreshAfterPositionTxnChange,
     openEditDialog,
     toggleArchiveDetail,
     openDeletePositionDialog,

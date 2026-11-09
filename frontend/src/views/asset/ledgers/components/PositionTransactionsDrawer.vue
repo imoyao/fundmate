@@ -62,7 +62,9 @@
       :position-id="positionData?.id"
       :asset-type="positionData?.asset_type"
       :symbol="positionData?.symbol"
+      :position-name="positionData?.name"
       :is-fund="isFund"
+      @changed="handleTxnChanged"
     />
   </ProductDrawer>
 </template>
@@ -106,7 +108,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:visible": [value: boolean];
+  /** 抽屉内改/删了交易：份额与成本已被后端重算，外层要刷新持仓行与概览 */
+  changed: [id: number | undefined];
 }>();
+
+/** 交易变更后：份额变了年化要重算，同时把刷新信号抛给详情页 */
+function handleTxnChanged(id: number | undefined) {
+  fetchXirr();
+  emit("changed", id);
+}
 
 const router = useRouter();
 const detailLoading = ref(false);
