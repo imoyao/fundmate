@@ -27,6 +27,52 @@ def _pnl_by_symbol(attr):
     return {r['symbol']: r['pnl'] for r in attr['positions']}
 
 
+def test_全周期归因纳入已清仓持仓(db, make_position, make_transaction):
+    """`inception` + cleared：归因不再因 active 过滤返回空载荷（#3017 同源）。"""
+    d1 = dt.date(2024, 1, 8)
+    pos = make_position(
+        symbol='000201',
+        name='清仓品种',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='清仓账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000201',
+        asset_type='fund',
+    )
+    # 终点锚按 positions.quantity(=0) 校准：清仓造数必须「买 + 卖」闭环，
+    # 只留买入时校准量会抵消掉历史份额，整窗无市值 ⇒ 无可算日（真库流水是闭环的）。
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=1000,
+        price=1.1,
+        confirm_date=dt.date(2024, 1, 12),
+        symbol='000201',
+        asset_type='fund',
+    )
+    _add_nav(db, '000201', d1, 1.0)
+    _add_nav(db, '000201', dt.date(2024, 1, 10), 1.1)
+    _add_nav(db, '000201', dt.date(2024, 1, 12), 1.1)
+
+    result = compute_range_attribution(db, 1, 'inception', '2024-01-12', ledger_id=pos.ledger_id)
+
+    assert result['first_txn_date'] == '2024-01-08'
+    assert result['start_date'] == '2024-01-08'
+    assert result['has_any_computable'] is True
+    assert any(row['symbol'] == '000201' for row in result['positions'])
+
+
 def test_双品种贡献_与引擎月合计自洽(db, make_position, make_transaction):
     """一涨一跌：各自贡献等于经济真相，且 Σ ≡ 引擎 month_total。"""
     d1, d2 = dt.date(2026, 1, 5), dt.date(2026, 1, 6)

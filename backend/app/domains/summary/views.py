@@ -274,6 +274,8 @@ def cash_flow():
     组合级 = 成员账本集合一次聚合（`services/scope.member_ledger_ids`），组合内互转由
     `cashflow_layers.pair_internal_transfers` 配对抵消为 0，与「Σ 账户 ≡ 家庭」同一条可加性。
     累计指标恒为「自开户以来」，`start_date`/`end_date` 只影响逐笔流水、月度柱状与曲线。
+    `start_date=inception` 表示「投资以来」：起点由后端按作用域解析最早资金流水，
+    响应另带 `first_txn_date`（无流水为 null）——前端无需先取起点再发第二次请求。
     口径与现金残差推导见 `docs/spec/cashflow-layers.md`。
     """
     try:
@@ -298,6 +300,9 @@ def pnl_attribution():
     """#2135 区间收益归因（逐品种 / 大类贡献；复用 pnl 引擎唯一盈亏口径）。
 
     `start_date` / `end_date` 缺省同 pnl-calendar（end=今日，start=end−29）；
+    `start_date=inception` 拉「投资以来」全周期，起点由后端按作用域解析，
+    响应另带 `first_txn_date`（无流水为 null）。注意全周期归因强制逐日现算、
+    不读物化行，首次耗时明显高于近 1 月。
     `ledger_id` 与 `portfolio_id` 互斥（同时传 400）。Σ positions[].pnl ≡
     同窗 pnl-calendar 的 month_total（构造保证，见 services/pnl_calendar.py）。
     """

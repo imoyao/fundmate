@@ -13,7 +13,7 @@
 
 import type { PnlAttributionPayload } from "@/api/summary";
 
-export type RangeKey = "1m" | "3m" | "ytd" | "1y";
+export type RangeKey = "1m" | "3m" | "ytd" | "1y" | "all";
 export type Dimension = "position" | "category";
 
 /** 区间预设（SegmentedControl 入参）；顺序即按钮顺序 */
@@ -22,7 +22,8 @@ export const RANGE_OPTIONS: ReadonlyArray<{ label: string; value: RangeKey }> =
     { label: "近1月", value: "1m" },
     { label: "近3月", value: "3m" },
     { label: "今年", value: "ytd" },
-    { label: "近1年", value: "1y" }
+    { label: "近1年", value: "1y" },
+    { label: "投资以来", value: "all" }
   ];
 
 /** 归因维度（SegmentedControl 入参）；品种 ⇄ 大类是纯前端切换 */
@@ -60,6 +61,11 @@ export function presetRange(
   key: RangeKey,
   now: Date = new Date()
 ): { start_date: string; end_date: string } {
+  // 「投资以来」把起点交给后端解析：前端此刻还不知道 first_txn_date，
+  // 若先取一次再发第二次请求，冷启动会多一轮且区间口径可能漂移。
+  if (key === "all") {
+    return { start_date: "inception", end_date: fmtDate(now) };
+  }
   const end = now;
   const start = new Date(now.getTime());
   if (key === "ytd") {

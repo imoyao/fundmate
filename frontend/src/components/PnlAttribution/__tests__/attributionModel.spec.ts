@@ -61,9 +61,16 @@ describe("presetRange", () => {
   });
 
   it("终点恒为今天（所有预设共用一个 end）", () => {
-    for (const key of ["1m", "3m", "ytd", "1y"] as const) {
+    for (const key of ["1m", "3m", "ytd", "1y", "all"] as const) {
       expect(presetRange(key, NOW).end_date).toBe("2026-10-27");
     }
+  });
+
+  it("投资以来 = 起点交后端解析（inception 哨兵）", () => {
+    expect(presetRange("all", NOW)).toEqual({
+      start_date: "inception",
+      end_date: "2026-10-27"
+    });
   });
 });
 

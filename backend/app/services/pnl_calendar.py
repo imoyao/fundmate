@@ -96,7 +96,7 @@ from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
 )
-from app.services.scope import filter_positions_by_scope
+from app.services.scope import INCEPTION, filter_positions_by_scope, first_investment_date
 
 # 终点锚校准量的注入日（D80）：它不是流水，只是把 `positions.quantity` 与
 # 流水净额之间的差额折进起始份额的技术手段。`first_txn_date`（「投资以来」起点）
@@ -2118,11 +2118,14 @@ def _empty_attribution(
     portfolio_id: Optional[int],
     start: dt.date,
     end: dt.date,
+    first_txn_date: Optional[str] = None,
 ) -> dict:
     """无可算区间（无持仓 / 区间不合法）的归因空载荷。
 
     `total_pnl` 用 None 而不是 0.0：0.0 会被读成「区间没赚没赔」，
     而真相是「算不了」——「数据不足诚实降级」是 #2135 的验收项。
+    即便降级也要回带 `first_txn_date`：前端「投资以来」档要靠它标注区间，
+    否则已清仓账户的空态连「从哪天开始算的」都说不清。
     """
     return {
         'scope': 'portfolio' if portfolio_id is not None else ('ledger' if ledger_id is not None else 'family'),
@@ -2130,6 +2133,7 @@ def _empty_attribution(
         'portfolio_id': portfolio_id,
         'start_date': start.isoformat(),
         'end_date': end.isoformat(),
+        'first_txn_date': first_txn_date,
         'total_pnl': None,
         'has_any_computable': False,
         'positions': [],
@@ -2181,15 +2185,22 @@ def compute_range_attribution(
     if ledger_id is not None and portfolio_id is not None:
         raise ValueError('ledger_id 与 portfolio_id 互斥')
 
+    # 「投资以来」：起点由后端按作用域解析；与资金流动共用 scope.first_investment_date，
+    # 保证两个组件的全周期是同一段（此前归因写死 1m~1y、资金流动写死 365 天）。
+    inception_start = first_investment_date(db, family_id, ledger_id=ledger_id, portfolio_id=portfolio_id)
+    if start_date == INCEPTION:
+        start_date = inception_start
     start, end = _resolve_range(start_date, end_date)
     if start > end:
-        return _empty_attribution(ledger_id, portfolio_id, start, end)
+        return _empty_attribution(ledger_id, portfolio_id, start, end, inception_start)
 
     # 决策集恒为家庭全量（#1916：流水不按 ledger 过滤，份额 / 已实现按持仓归集，
-    # 归因沿用才保「Σ账户 ≡ 家庭」的可加性）。
-    decision_positions = _positions(db, family_id, None)
+    # 归因沿用才保「Σ账户 ≡ 家庭」的可加性）。与收益日历一致传 `start`：
+    # 否则已清仓账户被 `_positions` 的 active 过滤挡掉，全周期归因直接变空载荷
+    # ——清仓不是收益作废（#3017 同源修复）。
+    decision_positions = _positions(db, family_id, None, start)
     if ledger_id is not None:
-        positions = _positions(db, family_id, ledger_id)
+        positions = _positions(db, family_id, ledger_id, start)
     elif portfolio_id is not None:
         # #2595：组合级解析收敛到唯一出口（显式归属 + 成员账本继承，语义不变），
         # 此前的内联实现已抽到 services/scope.py，供穿透等端点共用同一口径。
@@ -2198,7 +2209,7 @@ def compute_range_attribution(
         positions = decision_positions
 
     if not positions:
-        return _empty_attribution(ledger_id, portfolio_id, start, end)
+        return _empty_attribution(ledger_id, portfolio_id, start, end, inception_start)
 
     no_price_ids, _ = _price_presence(db, decision_positions, start, end)
     shares, txns = _as_of_shares(db, family_id, end)
@@ -2220,7 +2231,7 @@ def compute_range_attribution(
 
     if not attribution['days']:
         # 整窗无任何可算日：合计与明细一起降级；unpriced 照报（它是真实信息）。
-        payload = _empty_attribution(ledger_id, portfolio_id, start, end)
+        payload = _empty_attribution(ledger_id, portfolio_id, start, end, inception_start)
         never = attribution['unpriced'] - attribution['priced']
         payload['unpriced_positions'] = [_attribution_meta(p) for p in positions if p.id in never]
         return payload
@@ -2266,6 +2277,7 @@ def compute_range_attribution(
         'portfolio_id': portfolio_id,
         'start_date': start.isoformat(),
         'end_date': end.isoformat(),
+        'first_txn_date': inception_start,
         'total_pnl': round(Money.cents_to_yuan(total_cents), 2),
         'has_any_computable': True,
         'positions': rows,
