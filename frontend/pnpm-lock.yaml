@@ -257,7 +257,7 @@ importers:
         version: 8.72.1(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
       unplugin-element-plus:
         specifier: ^0.11.2
-        version: 0.11.2(magic-string@1.4.3)
+        version: 0.11.2(magic-string@1.4.5)
       unplugin-icons:
         specifier: ^22.5.0
         version: 22.5.0(@vue/compiler-sfc@3.5.45)
@@ -280,8 +280,8 @@ importers:
         specifier: ^5.1.3
         version: 5.1.3(vue@3.5.45(typescript@5.9.3))
       vitest:
-        specifier: ^5.0.5
-        version: 5.0.5(@types/node@20.19.43)(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0))
+        specifier: ^5.1.0
+        version: 5.1.0(@types/node@20.19.43)(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0))
       vue-eslint-parser:
         specifier: ^10.4.1
         version: 10.4.1(eslint@9.39.5(jiti@2.7.0))
@@ -1701,8 +1701,8 @@ packages:
       vite: ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
       vue: ^3.2.25 || ^3.6.0-rc.10
 
-  '@vitest/mocker@5.0.5':
-    resolution: {integrity: sha512-xLL3lkDegJZw+MGoGaCCsFayDZthGgpAtr3Vziyfc4p7xH89K7KRPcRBBh/kEYm0Aqkt5DtTmkYpBtRV/FrHZg==}
+  '@vitest/mocker@5.1.0':
+    resolution: {integrity: sha512-5umB9/jlWcqVS6fsrFmv5Gdnpu6wAUio/lEOwAmvB7v+lFo/IW2B9FhAD0p19GCULTgMzLCdUmuCDCnAzWgppQ==}
     peerDependencies:
       msw: ^2.4.9 || ^3.0.0
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
@@ -1712,8 +1712,8 @@ packages:
       vite:
         optional: true
 
-  '@vitest/spy@5.0.5':
-    resolution: {integrity: sha512-lwJRExuH417257Q5wv9QYugN9IMJkoxcrKrYxGPQkBzl7wlNpTUxD/5yNX4ESKVUIShKPgkGchYPFMWOOk0wzw==}
+  '@vitest/spy@5.1.0':
+    resolution: {integrity: sha512-2DPO5OMHWKrBngC+fCmTQqemNF0gidRhp3lxbBmRhW+M1XJrfgPpqNqWVevXtn2f2ufD5ZaR1B6B641aAlcX5A==}
 
   '@volar/language-core@2.4.30':
     resolution: {integrity: sha512-73fjwEV8wat6aOZ6U/y/hqtE30ocrIWECg67b0txGczOMNw+MffLmvJ5fnFfN9drVUEYZzLdaNo6VAy6G6avMw==}
@@ -3021,8 +3021,8 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  magic-string@1.4.3:
-    resolution: {integrity: sha512-z12OxmaPGE0F4xlpGdjuAUckipLpQlTAuAmyGhNoD7ODpYUzvDfvtxUbjM/jwznyP178oju/KDdyi220wNJ0RQ==}
+  magic-string@1.4.5:
+    resolution: {integrity: sha512-oLLC2+YvQUfAa+vxoufE/yc1icb87M9iXIRqAoR/2EhE/8cb3SF/+Gi0c2By1B+5Vz2e2vQtUvHiu1+63Znh+w==}
 
   marked@18.1.2:
     resolution: {integrity: sha512-DfOnvLAQ6WYeWxWO1u4RyFOeqyHup6dks5PPqnoFiooU7ipRvidO/2j8plhAHIiZg574E9ZlzSjUiPMLAzFkgg==}
@@ -3900,8 +3900,8 @@ packages:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
 
-  tinybench@6.2.2:
-    resolution: {integrity: sha512-nIZ2N2dFpjBsg2hgitKu7mA+FvsIJuGJOwysRngmVRRmWgR/UyPjwJj8c/fT/dhm8EkHnF5EOogRf+0Z2qrimA==}
+  tinybench@6.2.3:
+    resolution: {integrity: sha512-Al01C2JIBnO2CXCAPbpAl6sUiOZHeThGtHYNTa51JRw9PyWOCdr+9Ong05R4qg/Sk3+H645E8ov1h2c58ityNw==}
     engines: {node: '>=20.0.0'}
 
   tinycolor2@1.6.0:
@@ -4110,20 +4110,20 @@ packages:
       yaml:
         optional: true
 
-  vitest@5.0.5:
-    resolution: {integrity: sha512-cPODOMF8YnkiiYtDdHo6n4wWmBrOBBbOIYH2d33M4l3CdNn72h+qMmO6uXffUN6A5AZFXNND/d+krS9mgkXRfg==}
+  vitest@5.1.0:
+    resolution: {integrity: sha512-MzmNFnrwa8v8lF1bLxw3UJ4EREwVOVb75VqJZmUDRjJ6EluK/x9th7qTbaeDk41WxE1GxWqmTXcdsfobfH5sOA==}
     engines: {node: ^22.12.0 || ^24.0.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
       '@opentelemetry/api': ^1.9.0
       '@types/node': ^22.0.0 || >=24.0.0
-      '@vitest/browser-playwright': 5.0.5
-      '@vitest/browser-preview': 5.0.5
+      '@vitest/browser-playwright': 5.1.0
+      '@vitest/browser-preview': 5.1.0
       '@vitest/browser-webdriverio': ^5.0.0-beta.5 || >=5.0.0
-      '@vitest/coverage-istanbul': 5.0.5
-      '@vitest/coverage-v8': 5.0.5
-      '@vitest/ui': 5.0.5
+      '@vitest/coverage-istanbul': 5.1.0
+      '@vitest/coverage-v8': 5.1.0
+      '@vitest/ui': 5.1.0
       happy-dom: '*'
       jsdom: '*'
       vite: ^6.4.0 || ^7.0.0 || ^8.0.0
@@ -5077,7 +5077,7 @@ snapshots:
       - magicast
     optional: true
 
-  '@nuxt/kit@4.5.2(magic-string@1.4.3)(unplugin@2.3.11)':
+  '@nuxt/kit@4.5.2(magic-string@1.4.5)(unplugin@2.3.11)':
     dependencies:
       c12: 3.3.4
       consola: 3.4.2
@@ -5097,7 +5097,7 @@ snapshots:
       scule: 1.3.0
       tinyglobby: 0.2.17
       ufo: 1.6.4
-      unctx: 3.0.1(magic-string@1.4.3)(unplugin@2.3.11)
+      unctx: 3.0.1(magic-string@1.4.5)(unplugin@2.3.11)
       untyped: 2.0.0
       verkit: 0.3.2
     transitivePeerDependencies:
@@ -5542,16 +5542,16 @@ snapshots:
       vite: 7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0)
       vue: 3.5.45(typescript@5.9.3)
 
-  '@vitest/mocker@5.0.5(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0))':
+  '@vitest/mocker@5.1.0(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
-      '@vitest/spy': 5.0.5
+      '@vitest/spy': 5.1.0
       estree-walker: 3.0.3
-      magic-string: 1.4.3
+      magic-string: 1.4.5
     optionalDependencies:
       vite: 7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0)
 
-  '@vitest/spy@5.0.5': {}
+  '@vitest/spy@5.1.0': {}
 
   '@volar/language-core@2.4.30':
     dependencies:
@@ -6993,7 +6993,7 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  magic-string@1.4.3:
+  magic-string@1.4.5:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
 
@@ -7813,7 +7813,7 @@ snapshots:
 
   tapable@2.3.3: {}
 
-  tinybench@6.2.2: {}
+  tinybench@6.2.3: {}
 
   tinycolor2@1.6.0: {}
 
@@ -7878,18 +7878,18 @@ snapshots:
       unplugin: 2.3.11
     optional: true
 
-  unctx@3.0.1(magic-string@1.4.3)(unplugin@2.3.11):
+  unctx@3.0.1(magic-string@1.4.5)(unplugin@2.3.11):
     optionalDependencies:
-      magic-string: 1.4.3
+      magic-string: 1.4.5
       unplugin: 2.3.11
 
   undici-types@6.21.0: {}
 
   universalify@2.0.1: {}
 
-  unplugin-element-plus@0.11.2(magic-string@1.4.3):
+  unplugin-element-plus@0.11.2(magic-string@1.4.5):
     dependencies:
-      '@nuxt/kit': 4.5.2(magic-string@1.4.3)(unplugin@2.3.11)
+      '@nuxt/kit': 4.5.2(magic-string@1.4.5)(unplugin@2.3.11)
       es-module-lexer: 2.3.2
       escape-string-regexp: 5.0.0
       rolldown-string: 0.2.1
@@ -7995,18 +7995,18 @@ snapshots:
       sass: 1.107.0
       yaml: 2.9.0
 
-  vitest@5.0.5(@types/node@20.19.43)(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0)):
+  vitest@5.1.0(@types/node@20.19.43)(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.5(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0))
+      '@vitest/mocker': 5.1.0(vite@7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
-      magic-string: 1.4.3
+      magic-string: 1.4.5
       obug: 3.0.0
       picomatch: 4.0.7
       std-env: 4.3.0
-      tinybench: 6.2.2
+      tinybench: 6.2.3
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
       vite: 7.3.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.107.0)(yaml@2.9.0)
