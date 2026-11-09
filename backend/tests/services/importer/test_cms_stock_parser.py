@@ -552,6 +552,47 @@ class TestLegacyExportSchema:
         assert legacy_parser.ignored_row_count == 1
         assert legacy_parser.source_row_count == 1
 
+    def test_legacy_dividend_tax_topup_mapped_to_tax(self, legacy_parser):
+        """股息红利税补缴：现金流出、份额不变 → tax（落 dividend_tax 负额），不是第 3 种未知操作。"""
+        row = _legacy_row(
+            证券代码='601012',
+            证券名称='示例股份',
+            买卖标志='股息红利税补缴',
+            成交价格='0.0000',
+            成交数量='0',
+            成交金额='2.50',
+        )
+        records, errors = legacy_parser.parse(_legacy_file([row]))
+        assert errors == []
+        assert len(records) == 1
+        rec = records[0]
+        assert rec.business_type == 'tax'
+        assert rec.amount == Decimal('2.50')
+        assert rec.shares == Decimal('0')
+        assert rec.symbol == 'SH601012'
+
+    def test_legacy_bonus_share_mapped_to_split(self, legacy_parser):
+        """红股入账：零成本增份额 → split；成交金额 0 不能被「金额不能为0」拦掉。"""
+        row = _legacy_row(
+            证券代码='601012',
+            证券名称='示例股份',
+            买卖标志='红股入账',
+            成交价格='0.0000',
+            成交数量='40',
+            成交金额='0.00',
+        )
+        records, errors = legacy_parser.parse(_legacy_file([row]))
+        assert errors == []
+        assert len(records) == 1
+        rec = records[0]
+        assert rec.business_type == 'split'
+        assert rec.shares == Decimal('40')
+        assert rec.amount == Decimal('0')
+        # 送股天然零金额：validate 必须放行，否则整批送股静默丢光
+        valid, validate_errors = legacy_parser.validate(records)
+        assert validate_errors == []
+        assert valid == records
+
     def test_legacy_designated_account_row_ignored(self, legacy_parser):
         """「指定或撤指定」是交易单元操作：无资金、无持仓，计入忽略而不是报错。"""
         row = _legacy_row(

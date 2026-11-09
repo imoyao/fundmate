@@ -123,12 +123,14 @@ from app.services.importer.mappings import (
     CMS_NO_CODE_INCOME_ASSET_TYPES,
     CMS_OP_MAP,
     VALID_OP_TYPES,
+    BusinessType,
 )
 from app.services.importer.mappings_legacy import (
     CMS_LEGACY_AMOUNT_SIGNS,
     CMS_LEGACY_COLUMN_ALIASES,
     CMS_LEGACY_IGNORED_OPS,
     CMS_LEGACY_OP_ALIASES,
+    CMS_LEGACY_OP_MAP,
 )
 from app.services.importer.utils import parse_date
 
@@ -414,7 +416,9 @@ class CMSStockParser(BaseImportParser):
         if op in CMS_CASH_TRANSFER_OPS:
             return self._parse_cash_transfer(row, op, trade_date)
 
-        business_type = CMS_OP_MAP.get(op)
+        # 旧版样本补充的业务名（股息红利税补缴 / 红股入账）与主表合并查询：
+        # 两套导出格式共用同一批业务名，分开查会让「新版有、旧版没有」的映射互相绊住。
+        business_type = CMS_OP_MAP.get(op) or CMS_LEGACY_OP_MAP.get(op)
         if business_type is None:
             raise CmsUnknownOperation(op)
         if business_type not in VALID_OP_TYPES:
@@ -586,7 +590,9 @@ class CMSStockParser(BaseImportParser):
             line_num = i + 2
             if not record.symbol:
                 errors.append(SBImportError(line_num, 'symbol', '证券代码不能为空'))
-            elif record.amount == Decimal('0'):
+            elif record.amount == Decimal('0') and record.business_type != BusinessType.SPLIT.code:
+                # 送股/拆分（红股入账）天然是零成本份额增加：成交金额 0 才是正确形态，
+                # 拿「金额不能为 0」拦掉等于把所有送股丢光。
                 errors.append(SBImportError(line_num, 'amount', '金额不能为0'))
             else:
                 valid.append(record)
