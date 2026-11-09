@@ -161,7 +161,16 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/bias/job.py": {'lines': 221, 'max_func': 27, 'max_cc': 4},
     "backend/app/services/bias/provider.py": {'lines': 119, 'max_func': 53, 'max_cc': 9},
     "backend/app/services/bias/schemas.py": {'lines': 64, 'max_func': 19, 'max_cc': 2},
-    "backend/app/services/cash_flow_service.py": {'lines': 248, 'max_func': 122, 'max_cc': 22},
+    # 2026-11-09 全周期复盘（资金流动 / 收益归因）按 `--report` 实测回写三项，理由留痕：
+    # cash_flow_service.py 248→264（新增「投资以来」起点解析、区间前累计净投入接续、
+    # first_txn_date 出参与口径 docstring；max_func 122→133 / max_cc 22→24 是同一处
+    # 分支带来的真实增长），pnl_calendar.py 2274→2286（compute_range_attribution 接
+    # inception / first_txn_date，并把 start 透传给 _positions 纳入历史 cleared；
+    # max_func 681 / max_cc 106 未变），scope.py 123→167（新增公共 INCEPTION 哨兵与
+    # first_investment_date，供资金流动、收益归因共用全周期起点；max_func 40 / max_cc 11
+    # 未变）。都是真实代码增长，非放宽阈值：`test_baseline_matches_current_metrics`
+    # 要求基线与实测逐项相等，留余量同样判红。
+    "backend/app/services/cash_flow_service.py": {'lines': 264, 'max_func': 133, 'max_cc': 24},
     "backend/app/services/cold_set_guard.py": {'lines': 240, 'max_func': 52, 'max_cc': 8},
     "backend/app/services/cold_set_write_scope.py": {'lines': 140, 'max_func': 42, 'max_cc': 8},
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
@@ -284,7 +293,9 @@ BASELINE: dict[str, dict[str, int]] = {
     # 都是真实代码增长，非放宽阈值；test_baseline_matches_current_metrics
     # 要求逐项相等，留余量同样判红。pnl_calendar.py 继续变厚属 #2873 存量
     # 上帝模块拆分债务，不在本卡拆。
-    "backend/app/services/pnl_calendar.py": {'lines': 2274, 'max_func': 681, 'max_cc': 106},
+    # 2026-11-09 全周期复盘再 +12 行（inception / first_txn_date / start 透传），
+    # 增长理由见 cash_flow_service.py 上方的本轮回写说明。
+    "backend/app/services/pnl_calendar.py": {'lines': 2286, 'max_func': 681, 'max_cc': 106},
     "backend/app/services/pnl_fees.py": {'lines': 97, 'max_func': 17, 'max_cc': 6},
     "backend/app/services/pnl_service.py": {'lines': 211, 'max_func': 36, 'max_cc': 7},
     "backend/app/services/pnl_settle.py": {'lines': 34, 'max_func': 11, 'max_cc': 3},
@@ -315,7 +326,9 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/reconciliation_service.py": {'lines': 540, 'max_func': 122, 'max_cc': 23},
     "backend/app/services/recurring_service.py": {'lines': 289, 'max_func': 33, 'max_cc': 12},
     "backend/app/services/related_symbols.py": {'lines': 141, 'max_func': 57, 'max_cc': 7},
-    "backend/app/services/scope.py": {'lines': 123, 'max_func': 40, 'max_cc': 11},
+    # 2026-11-09 全周期复盘 +44 行（INCEPTION 哨兵 + first_investment_date 及口径注释），
+    # 增长理由见 cash_flow_service.py 上方的本轮回写说明。
+    "backend/app/services/scope.py": {'lines': 167, 'max_func': 40, 'max_cc': 11},
     "backend/app/services/securities_type_backfill.py": {'lines': 121, 'max_func': 59, 'max_cc': 12},
     "backend/app/services/security_industry_map_service.py": {'lines': 310, 'max_func': 51, 'max_cc': 12},
     "backend/app/services/similar_fund_service.py": {'lines': 80, 'max_func': 37, 'max_cc': 6},

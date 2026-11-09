@@ -516,7 +516,13 @@ BASELINE: dict[str, dict[str, int]] = {
         # 三个可选入参，但端点 docstring 由 6 行压到 1 行、参数白名单下沉
         # `TodayPnlQuery`、分组与作用域解析全在 `services/today_pnl.py`，视图
         # 净减 3 行。orm_queries / commits / max_func 实测仍 0 / 0 / 43。
-        "lines": 438,
+        # 2026-11-09 重取（资金流动 / 收益归因全周期复盘，**补 API 契约说明**，非放宽）：
+        # 438 → 443。两个既有端点的 docstring 补 `start_date=inception`（投资以来）的
+        # 起点解析、响应新增 `first_txn_date`，以及全周期归因强制逐日现算的耗时提示；
+        # 视图零新增入参、零 ORM 查询、零事务，`orm_queries` / `commits` / `max_func`
+        # 实测仍 0 / 0 / 43。口径实现全在 `services/cash_flow_service.py` 与
+        # `services/pnl_calendar.py`。与 #2774 / #2681 同先例。
+        "lines": 443,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,
