@@ -113,6 +113,7 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
+import { formatAmount } from "@/utils/currency";
 import { RANGE_OPTIONS, useCashFlow } from "./useCashFlow";
 
 defineOptions({ name: "CashFlowPanel" });
@@ -248,13 +249,6 @@ const barOption = computed(() => {
     ]
   };
 });
-
-onMounted(fetchCashFlow);
-// 作用域或区间变化都要重取：路由参数切换（账户 A → B、组合 A → B）时组件会被复用
-watch(
-  [() => props.ledgerId, () => props.portfolioId, rangeDays],
-  fetchCashFlow
-);
 </script>
 
 <style scoped>
