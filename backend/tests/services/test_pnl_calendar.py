@@ -1528,16 +1528,31 @@ def test_已清仓账户历史区间仍算出每日收益(db, make_position, mak
     d1 = dt.date(2024, 1, 8)
     d2 = dt.date(2024, 1, 12)
     pos = make_position(
-        symbol='000092', name='已清仓基金', quantity=0, avg_price=1.0,
-        asset_type='fund', ownership_status='cleared', account_name='清仓账户',
+        symbol='000092',
+        name='已清仓基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='清仓账户',
     )
     make_transaction(
-        position_id=pos.id, ledger_id=pos.ledger_id, txn_type='buy',
-        quantity=1000, price=1.0, confirm_date=d1, symbol='000092',
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000092',
     )
     make_transaction(
-        position_id=pos.id, ledger_id=pos.ledger_id, txn_type='sell',
-        quantity=1000, price=1.1, confirm_date=d2, symbol='000092',
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=1000,
+        price=1.1,
+        confirm_date=d2,
+        symbol='000092',
     )
     _add_nav(db, '000092', d1, 1.0)
     _add_nav(db, '000092', dt.date(2024, 1, 10), 1.05)
@@ -1559,16 +1574,29 @@ def test_已清仓账户当期空载荷仍带投资起点(db, make_position, mak
     """看当期时不该纳入早年清完的持仓，但年视图要靠 first_txn_date 展开到历史。"""
     d1 = dt.date(2024, 1, 5)
     pos = make_position(
-        symbol='000093', name='早年清仓基金', quantity=0, avg_price=1.0,
-        asset_type='fund', ownership_status='cleared', account_name='早年账户',
+        symbol='000093',
+        name='早年清仓基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='早年账户',
     )
     make_transaction(
-        position_id=pos.id, ledger_id=pos.ledger_id, txn_type='buy',
-        quantity=1000, price=1.0, confirm_date=d1, symbol='000093',
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000093',
     )
 
     result = build_daily_pnl_series(
-        db, family_id=1, start_date='2026-11-01', end_date='2026-11-09',
+        db,
+        family_id=1,
+        start_date='2026-11-01',
+        end_date='2026-11-09',
         ledger_id=pos.ledger_id,
     )
 

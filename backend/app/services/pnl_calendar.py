@@ -2054,7 +2054,7 @@ def _first_txn_date(db: Session, family_id: int, ledger_id: Optional[int]) -> Op
             db.query(func.min(eff))
             .filter(
                 Transaction.family_id == family_id,
-                Transaction.position_id.in_(pids[i:i + 400]),
+                Transaction.position_id.in_(pids[i : i + 400]),
                 Transaction.txn_type.in_(types),
             )
             .scalar()
