@@ -1517,3 +1517,61 @@ def test_锚点日及之前的流水不重复计份额(db, make_position, make_t
 
     assert _worth_of(result, d2) == pytest.approx(1000.0, abs=0.01), '锚点日流水不得重复计份额'
     assert _pnl_of(result, d2) == pytest.approx(0.0, abs=0.01)
+
+
+def test_已清仓账户历史区间仍算出每日收益(db, make_position, make_transaction):
+    """清仓是账户终态，不是收益作废：历史区间必须仍能看到当日盈亏。
+
+    真库账户 26（招商证券）形态：112 条 cleared 持仓、594 笔流水、末笔
+    2024-06-20。改动前账户级日历在任何区间都返回空载荷，历史收益全不可见。
+    """
+    d1 = dt.date(2024, 1, 8)
+    d2 = dt.date(2024, 1, 12)
+    pos = make_position(
+        symbol='000092', name='已清仓基金', quantity=0, avg_price=1.0,
+        asset_type='fund', ownership_status='cleared', account_name='清仓账户',
+    )
+    make_transaction(
+        position_id=pos.id, ledger_id=pos.ledger_id, txn_type='buy',
+        quantity=1000, price=1.0, confirm_date=d1, symbol='000092',
+    )
+    make_transaction(
+        position_id=pos.id, ledger_id=pos.ledger_id, txn_type='sell',
+        quantity=1000, price=1.1, confirm_date=d2, symbol='000092',
+    )
+    _add_nav(db, '000092', d1, 1.0)
+    _add_nav(db, '000092', dt.date(2024, 1, 10), 1.05)
+    _add_nav(db, '000092', d2, 1.1)
+
+    kwargs = dict(family_id=1, start_date='2024-01-08', end_date='2024-01-15')
+    result = build_daily_pnl_series(db, ledger_id=pos.ledger_id, **kwargs)
+    family = build_daily_pnl_series(db, **kwargs)
+
+    assert result['coverage']['total_positions'] == 1, '历史区间必须纳入已清仓持仓'
+    assert result['first_txn_date'] == '2024-01-08'
+    assert _pnl_of(result, dt.date(2024, 1, 10)) is not None, '历史每日收益不能是 NULL'
+    assert _state_of(result, dt.date(2024, 1, 10)) in (STATE_UPDOWN, STATE_ZERO, STATE_PARTIAL)
+    assert _state_of(result, dt.date(2024, 1, 15)) == STATE_NO_POSITION, '清仓后不得继续产生假盈亏'
+    assert family['month_total'] == pytest.approx(result['month_total']), '#1916 家庭级 = Σ账户级'
+
+
+def test_已清仓账户当期空载荷仍带投资起点(db, make_position, make_transaction):
+    """看当期时不该纳入早年清完的持仓，但年视图要靠 first_txn_date 展开到历史。"""
+    d1 = dt.date(2024, 1, 5)
+    pos = make_position(
+        symbol='000093', name='早年清仓基金', quantity=0, avg_price=1.0,
+        asset_type='fund', ownership_status='cleared', account_name='早年账户',
+    )
+    make_transaction(
+        position_id=pos.id, ledger_id=pos.ledger_id, txn_type='buy',
+        quantity=1000, price=1.0, confirm_date=d1, symbol='000093',
+    )
+
+    result = build_daily_pnl_series(
+        db, family_id=1, start_date='2026-11-01', end_date='2026-11-09',
+        ledger_id=pos.ledger_id,
+    )
+
+    assert result['days'] == []
+    assert result['has_any_price'] is False
+    assert result['first_txn_date'] == '2024-01-05', '年视图据此展开到投资以来'

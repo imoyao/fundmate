@@ -308,11 +308,16 @@ def _as_of_shares(
 
     # 唯一事实源：账户页、聚合页、summary 读的都是这个派生值
     # （`position_service.compute_anchored_state` 的输出）。
+    # 纳入 cleared（真库实测其 quantity 恒为 0）是**终点锚**：历史重演把它们
+    # 带回作用域后，若流水不闭环（历史遗留删行等），正向累加会留下残余份额，
+    # 清仓之后每天继续产生假盈亏。终点锚 0 让残差归零；而日盈亏是相邻两日
+    # 之差，绝对水平平移不改变历史每日收益（见本函数 docstring）。
+    # shadow 仍排除：影子行没有 positions 层锚点。
     current_qty: Dict[int, int] = dict(
         db.query(Position.id, Position.quantity)
         .filter(
             Position.family_id == family_id,
-            Position.ownership_status == 'active',
+            Position.ownership_status != 'shadow',
         )
         .all()
     )
@@ -627,15 +632,56 @@ def _positions(
     db: Session,
     family_id: int,
     ledger_id: Optional[int],
+    start: Optional[dt.date] = None,
 ) -> List[Position]:
-    """目标持仓：family 下active；ledger_id 传则限定该账户（账户级），不传=家庭级全量。
+    """目标持仓：family 下 active；ledger_id 传则限定该账户（账户级），不传=家庭级全量。
 
     与 `summary_service._load_user_assets` 的 active 过滤口径一致。
+
+    ## 历史复盘：`start` 非空时纳入「区间内曾持有」的已清仓持仓
+
+    清仓是账户的正确终态，但收益是长期的——持仓归零不等于历史收益作废。
+    只读按 `ownership_status == 'active'` 过滤时，2024 年清仓的账户在
+    2020–2024 的日历里恒为空载荷，用户看不到任何历史收益。
+
+    纳入判据是「该持仓存在生效日 ≥ `start` 的份额流水」：末笔流水早于区间
+    起点，说明它在区间开始前就已清完，不该参与本区间重演。**不认
+    `cleared_at`**——它会被对账 / 导入刷新（真库实测 112 条 cleared 持仓的
+    `cleared_at` 最新到当天），不代表真实清仓日。
+
+    近期区间因此不会纳入老持仓：账户 26 末笔 2024-06-20，看 2026-11 时
+    一条流水都不满足 ⇒ 与改动前逐位等价，性能与当下视图都不受影响。
+    家庭级与账户级传同一个 `start`，判定集口径一致 ⇒ #1916 的
+    「家庭级 = Σ 账户级」加性保持。
     """
-    query = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active')
+    query = db.query(Position).filter(Position.family_id == family_id)
     if ledger_id is not None:
         query = query.filter(Position.ledger_id == ledger_id)
-    return query.all()
+    active = query.filter(Position.ownership_status == 'active').all()
+    if start is None:
+        return active
+
+    eff = func.coalesce(Transaction.confirm_date, Transaction.trade_date)
+    share_types = tuple(_INVEST_TXN_TYPES) + tuple(_DIVEST_TXN_TYPES)
+    live_ids = {
+        row[0]
+        for row in db.query(Transaction.position_id)
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.position_id.isnot(None),
+            Transaction.txn_type.in_(share_types),
+            eff >= start,
+        )
+        .distinct()
+        .all()
+    }
+    if not live_ids:
+        return active
+    cleared = query.filter(
+        Position.ownership_status == 'cleared',
+        Position.id.in_(live_ids),
+    ).all()
+    return active + cleared
 
 
 def _has_usable_cost(pos) -> bool:
@@ -982,11 +1028,11 @@ def build_daily_pnl_series(
     # as-of 份额 / 逐日循环全部按这个 end 办事，截断一次即可，不必逐处加日期上限。
     end = _clamp_to_today(end)
     if start > end:
-        return _empty_payload(ledger_id, start, end)
+        return _empty_payload(ledger_id, start, end, _first_txn_date(db, family_id, ledger_id))
 
-    positions = _positions(db, family_id, ledger_id)
+    positions = _positions(db, family_id, ledger_id, start)
     if not positions:
-        return _empty_payload(ledger_id, start, end)
+        return _empty_payload(ledger_id, start, end, _first_txn_date(db, family_id, ledger_id))
 
     # ── 状态判定集恒为家庭级全量（#1916）──
     # 丢天判定（覆盖不全 / 全无价 / 无持仓）若按账户各自计算，家庭级与各账户丢的
@@ -995,7 +1041,9 @@ def build_daily_pnl_series(
     # 缺口放大到 3502.91。判定集统一取家庭级全量后，各作用域丢同一批天、同步推进
     # 基准；而 day_total 按持仓可加（份额/已实现均按持仓归集），故
     # Σ账户级 month_total ≡ 家庭级 month_total。家庭级调用时两者为同一集合。
-    decision_positions = positions if ledger_id is None else _positions(db, family_id, None)
+    # 历史复盘同样传 `start`：账户级值与家庭级决策集必须按**同一个区间**
+    # 决定纳入哪些已清仓持仓，否则两边丢的天数又会对不上。
+    decision_positions = positions if ledger_id is None else _positions(db, family_id, None, start)
     # 覆盖率诊断按**原始窗口**算，缓存命中与否都不影响它（见 `_price_presence`）。
     no_price_ids, latest_dt = _price_presence(db, decision_positions, start, end)
     latest_price_date = latest_dt.isoformat() if latest_dt else None
@@ -1984,7 +2032,51 @@ def build_pnl_series(
     return payload
 
 
-def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> dict:
+def _first_txn_date(db: Session, family_id: int, ledger_id: Optional[int]) -> Optional[str]:
+    """作用域内最早一笔**改变份额**的流水生效日（按持仓归集，与 #1916 同源）。
+
+    不按 `Transaction.ledger_id` 过滤：历史遗留里存在「持仓在 A 账户、流水记在
+    B 账户」的错配，按 ledger 过滤会漏掉真实建仓日。用作用域内全部持仓
+    （含 cleared）的 id 归集，才是该账户真正的投资起点。分批 in_ 防 SQLite
+    变量上限（家庭级持仓可达数百）。
+    """
+    pq = db.query(Position.id).filter(Position.family_id == family_id)
+    if ledger_id is not None:
+        pq = pq.filter(Position.ledger_id == ledger_id)
+    pids = [r[0] for r in pq.all()]
+    if not pids:
+        return None
+    types = tuple(_INVEST_TXN_TYPES) + tuple(_DIVEST_TXN_TYPES)
+    eff = func.coalesce(Transaction.confirm_date, Transaction.trade_date)
+    earliest = None
+    for i in range(0, len(pids), 400):
+        val = (
+            db.query(func.min(eff))
+            .filter(
+                Transaction.family_id == family_id,
+                Transaction.position_id.in_(pids[i:i + 400]),
+                Transaction.txn_type.in_(types),
+            )
+            .scalar()
+        )
+        if val and (earliest is None or str(val) < str(earliest)):
+            earliest = val
+    return str(earliest)[:10] if earliest else None
+
+
+def _empty_payload(
+    ledger_id: Optional[int],
+    start: dt.date,
+    end: dt.date,
+    first_txn_date: Optional[str] = None,
+) -> dict:
+    """空载荷也要带「投资以来」起点。
+
+    已清仓账户在当期区间取不到 active 持仓，但历史流水仍在。若这里回 `None`，
+    前端 `firstInvestmentYear(null)` 回落到今年，年视图只请求一年 ⇒ 历史区间
+    永远不会被请求，历史重演等于没生效（冷启动尤其明显：日视图先取当月、
+    拿不到起点，再切年视图也展开不开）。
+    """
     return {
         'ledger_id': ledger_id,
         'scope': 'ledger' if ledger_id is not None else 'family',
@@ -1997,7 +2089,7 @@ def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> di
         'has_any_price': False,
         'coverage': {'total_positions': 0, 'priced_positions': 0, 'unpriced_positions': 0},
         'latest_price_date': None,
-        'first_txn_date': None,
+        'first_txn_date': first_txn_date,
         'days': [],
     }
 
