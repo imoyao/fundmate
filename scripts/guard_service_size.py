@@ -344,7 +344,10 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/strategy_engine/strategies/__init__.py": {'lines': 13, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/strategy_engine/strategies/trend.py": {'lines': 107, 'max_func': 61, 'max_cc': 9},
     "backend/app/services/strategy_service.py": {'lines': 123, 'max_func': 101, 'max_cc': 12},
-    "backend/app/services/summary_service.py": {'lines': 1542, 'max_func': 139, 'max_cc': 26},
+    # 2026-11-10 D94 桑基图收敛：get_sankey_data 及其 helper 下沉到 services/sankey_service.py
+    # （新文件走 NEW_FILE_LIMITS，实测 {311, 60, 13}）；本文件顺带删除随函数一并消失的
+    # 桑基节点常量（K_TOTAL/K_NET/K_LIABILITY 等），只减不增回写：1628→1397 / 221→107 / 53→16。
+    "backend/app/services/summary_service.py": {'lines': 1397, 'max_func': 107, 'max_cc': 16},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},
