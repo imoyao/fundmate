@@ -256,7 +256,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-07 收紧（非放宽）：销售机构默认排序改按 pinyin_short A→Z，
     # 排序链少 1 行、docstring 压短 3 行 ⇒ 635→634 / 43→42，按 `--report` 回写。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 634,
+        "lines": 630,
         "orm_queries": 10,
         "commits": 0,
         "max_func": 42,

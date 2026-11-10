@@ -64,6 +64,14 @@ export interface LedgerSummaryData {
   account_cash_amount?: number;
   linked_liability?: number;
   type_distribution?: Record<string, number>;
+  /**
+   * 累计盈亏三段（2026-11-10）：`total = 已实现 + 持仓浮盈 − 买入费`。
+   * **仅投资类账户（stock / fund / e_account）下发**；bank / property 缺这三个字段，
+   * 缺失即「没有这个口径」，不渲染，不得 `?? 0` 兜底。
+   */
+  realized_pnl?: number;
+  buy_fee?: number;
+  total_pnl?: number;
 }
 
 /** 账外类现金逐产品明细行（`cash_like_breakdown` 元素，#2155） */

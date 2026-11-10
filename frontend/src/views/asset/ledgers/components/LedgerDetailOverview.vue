@@ -56,7 +56,7 @@
   <SectionHeader id="nav-overview" title="账本概览" />
   <CardBlock class="mb-6">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-      <!-- 左栏：核心指标（总资产 + 持仓盈亏 / 持仓与余额） -->
+      <!-- 左栏：核心指标（总资产 + 持仓盈亏 / 累计盈亏 / 持仓与余额） -->
       <div
         :class="p.isCompositionLedger ? 'lg:col-span-7' : 'lg:col-span-12'"
         class="flex flex-col gap-5"
@@ -97,6 +97,9 @@
             >
             <MoneyDisplay :value="p.summaryData?.position_pnl || 0" size="lg" />
           </div>
+          <!-- 累计盈亏（2026-11-10）：= 持仓盈亏 + 已实现 − 买入费，见 LedgerCumulativePnlMetric。
+               非投资类账户后端不下发该字段，组件内部整格不渲染（不占位、不画 0）。 -->
+          <LedgerCumulativePnlMetric :value="p.summaryData?.total_pnl" />
           <!-- 当日收益（D92）：账户级作用域，与「货基今日收益」并列不相加 -->
           <LedgerTodayPnlMetric :data="p.todayPnlData" />
           <!-- 持仓数量 -->
@@ -306,6 +309,7 @@ import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
 import LedgerTodayPnlMetric from "./LedgerTodayPnlMetric.vue";
+import LedgerCumulativePnlMetric from "./LedgerCumulativePnlMetric.vue";
 import LedgerDepthAnalysis from "./LedgerDepthAnalysis.vue";
 import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
 import { excessDateRange, excessDegradHint } from "@/utils/benchmarkExcess";

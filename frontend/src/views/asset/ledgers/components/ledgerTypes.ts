@@ -23,6 +23,13 @@ export interface LedgerLike {
   display_order?: number | null;
   total?: number | null;
   stale_count?: number;
+  /**
+   * 累计盈亏（2026-11-10）：仅投资类账户下发，`undefined` = 该账户没有这个口径。
+   * 卡片据此决定「整项不渲染」，不要用 `?? 0` 兜底成 0 元。
+   */
+  realized_pnl?: number | null;
+  buy_fee?: number | null;
+  total_pnl?: number | null;
 }
 
 /** overview.groups 的分组行 */
