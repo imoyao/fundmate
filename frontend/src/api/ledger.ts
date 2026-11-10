@@ -65,6 +65,19 @@ export interface LedgerListItem extends LedgerItem {
   money_fund_amount?: number;
   /** 货基占账户总资产比例（0~1）：仅 bank 有口径 */
   money_fund_ratio?: number;
+  /**
+   * 累计盈亏三段（2026-11-10）：`total = 已实现 + 持仓浮盈 − 买入费`。
+   *
+   * **仅 stock / fund / e_account 下发**，bank / property 没有这套口径（bank 的成本基数
+   * 取流水净投入，与卡片上的「市值 − 成本」不是一回事）。故三者都是可选的：
+   * 缺失代表「该账户没有这个口径」，页面必须**整项不渲染**，不能 `?? 0` 画成 0 元
+   * ——那会被读成「不赚不亏」。
+   */
+  realized_pnl?: number;
+  /** 买入侧手续费（元，正数）：卖出费已在 `realized_pnl` 里扣过，不重复计 */
+  buy_fee?: number;
+  /** 累计盈亏（元）= `pnl + realized_pnl − buy_fee`，与卡片上两个数字逐分可加 */
+  total_pnl?: number;
 }
 
 /**

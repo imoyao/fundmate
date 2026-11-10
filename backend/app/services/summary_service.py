@@ -36,7 +36,8 @@ from app.services.family_member_service import ledger_ids_for_member
 
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
-from app.services.pnl_fees import buy_fee_by_position, family_buy_fee_cents
+from app.services.ledger_cumulative_pnl import buy_fee_by_ledger, realized_pnl_by_ledger
+from app.services.pnl_fees import family_buy_fee_cents
 from app.services.pnl_service import (
     family_realized_pnl_cents,
     net_invested_by_position,
@@ -1082,33 +1083,32 @@ def family_pnl_cents(db: Session, family_id: int = 1, member_id: int | None = No
 
 
 def get_ledger_pnl(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[int, dict[str, int]]:
-    """按账户聚合三段盈亏（分），供账户级快照落库（#1220）。
+    """按账户聚合三段盈亏（分）：账户级快照与「累计盈亏」展示共用（#1220）。
 
-    口径与 get_ledger_distributions 严格对齐：仅遍历 active 持仓，按 ledger_id 归组；
-    无账户归属归哨兵键 0（不单独立行）。已实现盈亏取自该账户 active 持仓的流水结转。
-    买入侧手续费按同一分组扣减（口径见 `pnl_service`），故
-    ``total = realized + unrealized − buy_fee``。
+    已实现 / 买入费走流水级、未实现逐持仓算（理由见 `ledger_cumulative_pnl`）；
+    账户键取两者并集，故全部清仓的账户仍会出现；键 0 是无账户归属的哨兵（写快照时跳过）。
     """
     positions, _ = _load_user_assets(db, family_id, member_id)
     member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
-    realized_map = realized_pnl_by_position(db, family_id, member_ledger_ids)
     invested_map = net_invested_by_position(db, family_id, member_ledger_ids)
-    fee_map = buy_fee_by_position(db, family_id, member_ledger_ids)
     totals: dict[int, dict[str, int]] = {}
+
+    def _bucket(ledger_id: int) -> dict[str, int]:
+        return totals.setdefault(ledger_id, {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'buy_fee_cents': 0})
+
     for p in positions:
-        rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        pnl = position_pnl_cents(
+        unrealized = position_pnl_cents(
             p,
-            rate=rate,
-            realized_cents=realized_map.get(p.id, 0),
+            rate=EXCHANGE_RATES.get(p.currency, 1.0),
             net_invested=invested_map.get(p.id, 0),
-            buy_fee_cents=fee_map.get(p.id, 0),
-        )
-        key = p.ledger_id or 0
-        bucket = totals.setdefault(key, {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'buy_fee_cents': 0})
-        bucket['realized_pnl_cents'] += pnl['realized_pnl_cents']
-        bucket['unrealized_pnl_cents'] += pnl['unrealized_pnl_cents']
-        bucket['buy_fee_cents'] += pnl['buy_fee_cents']
+        )['unrealized_pnl_cents']
+        _bucket(p.ledger_id or 0)['unrealized_pnl_cents'] += unrealized
+
+    for ledger_id, cents in realized_pnl_by_ledger(db, family_id, member_ledger_ids).items():
+        _bucket(ledger_id)['realized_pnl_cents'] = cents
+    for ledger_id, cents in buy_fee_by_ledger(db, family_id, member_ledger_ids).items():
+        _bucket(ledger_id)['buy_fee_cents'] = cents
+
     for b in totals.values():
         b['total_pnl_cents'] = b['realized_pnl_cents'] + b['unrealized_pnl_cents'] - b['buy_fee_cents']
     return totals

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 账户卡片的核心指标区：总资产（左，大号锚点）+ 当日盈亏 / 持仓盈亏（右，竖排）。
+// 账户卡片的核心指标区：总资产（左，大号锚点）+ 当日盈亏 / 持仓盈亏 / 累计盈亏（右，竖排）。
+// 累计盈亏只对投资类账户出现（后端不下发 ⇒ 不渲染），故右侧可能是两项或三项。
 //
 // 多根片段（`div.ledger-metrics` + 条件渲染的 `div.ledger-liability`），不包 wrapper——
 // 它们在 `.ledger-card` 里本来就是并列的直接子元素，包一层会让卡片内边距多作用一级。
@@ -91,6 +92,23 @@ defineProps<{
         <span v-else class="metric-value">
           <!-- 盈亏数字走 MoneyDisplay 自动涨红跌绿 -->
           <MoneyDisplay :value="ledger.pnl || 0" size="sm" />
+        </span>
+      </div>
+      <!-- 累计盈亏（2026-11-10）：= 持仓浮盈 + 已实现 − 买入费。
+           后端只对投资类账户下发，字段缺失（bank / property）即整项不渲染——
+           写 0 会被读成「不赚不亏」，比不显示更误导。 -->
+      <div
+        v-if="ledger.total_pnl != null"
+        class="metric"
+        title="持仓浮盈 + 已实现 − 买入费"
+      >
+        <span
+          class="metric-label"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
+          >累计盈亏</span
+        >
+        <span class="metric-value">
+          <MoneyDisplay :value="ledger.total_pnl" size="sm" />
         </span>
       </div>
     </div>
