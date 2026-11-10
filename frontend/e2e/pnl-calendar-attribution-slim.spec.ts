@@ -8,7 +8,7 @@ import { injectSupabaseSession } from "./support/session";
  * 为什么钉这三处：
  * 1. **合计行**整块搬进了 `PnlCalendarSummary.vue`，而它有两处易错的口径——
  *    金额与收益率**同时**显示（不随「金额/收益率」开关变化），以及 `range_rate === null`
- *    时显示「收益率 —」而不是 0.00%。这两条以前写在 `index.vue` 的模板里，
+ *    时显示「收益率 —（期初无持仓）」而不是 0.00%。这两条以前写在 `index.vue` 的模板里，
  *    搬进子组件时最容易被顺手写成 `v-if` 或 `?? 0`。
  * 2. **空态**搬进了 `PnlCalendarPlaceholder.vue`，判空仍由父级总控。若判空挪进子组件
  *    并写错，会把「数据缺口」说成「没有估值序列」——正是 #1812 上线首日的坑。
