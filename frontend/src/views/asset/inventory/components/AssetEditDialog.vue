@@ -8,6 +8,20 @@
   >
     <el-form :model="form" label-width="80px">
       <!--
+        名称：后端 AssetUpdate（schemas.py:55）与前端 AssetUpdateInput
+        （api/assets.ts:78）本就允许改，此前弹窗只暴露「金额 / 备注」，
+        与 #1849 补「子类」时一样属入口与能力对不上。
+        长度对齐 Asset.name 的 String(200)，保存前做非空校验，避免写空名后
+        「同名负债聚合」与账本迁移去重静默失真。
+      -->
+      <el-form-item label="资产名称">
+        <el-input
+          v-model="form.name"
+          maxlength="200"
+          placeholder="请输入资产名称"
+        />
+      </el-form-item>
+      <!--
         子类选择（#1849）：此前编辑弹窗只有「金额 / 备注」，而房产页与贵金属页的
         「去补分类」按钮恰恰指向这里 —— 提示说「未选择子类」，点进来却改不了，
         入口与能力对不上（半成品功能）。
@@ -55,7 +69,7 @@
 
 <script setup lang="ts">
 /**
- * 编辑资产弹窗（金额 + 备注）。
+ * 编辑资产弹窗（名称 + 金额 + 备注 + 条件显示的子类）。
  *
  * 自 `views/asset/inventory/index.vue` 拆出（#955）。弹窗自己持有表单与保存副作用，
  * 保存成功后抛 `saved`，由页面决定如何刷新（当前为整页重取）。
@@ -101,12 +115,14 @@ const isFixedCategory = computed(() => props.asset?.major_category === "fixed");
 
 const form = ref<{
   id: number | null;
+  name: string;
   amount: number;
   notes: string;
   /** 子类键（minor_category）：#1849 补分类入口所需 */
   minorCategory: string | null;
 }>({
   id: null,
+  name: "",
   amount: 0,
   notes: "",
   minorCategory: null
@@ -121,6 +137,7 @@ const form = ref<{
  */
 const EMPTY_FORM = {
   id: null,
+  name: "",
   amount: 0,
   notes: "",
   minorCategory: null
@@ -143,6 +160,7 @@ watch(
   open => {
     fillOnOpen(open, () => ({
       id: props.asset?.id ?? null,
+      name: props.asset?.name || "",
       amount: props.asset?.amount || 0,
       notes: props.asset?.notes || "",
       minorCategory: props.asset?.minor_category ?? null
@@ -154,15 +172,23 @@ watch(
 const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
   () => isDirty.value,
   {
-    message: "资产金额／备注已改动，确定放弃吗？"
+    message: "资产名称／金额／备注已改动，确定放弃吗？"
   }
 );
 
 async function save() {
   if (!form.value.id) return;
+  // name 是展示与多处聚合的隐式业务键（sankey_service / ledger_migration_service /
+  // summary_service 都按它分组或去重），写空名会让这些结果静默失真，前端先挡住。
+  const name = form.value.name.trim();
+  if (!name) {
+    ElMessage.warning("资产名称不能为空");
+    return;
+  }
   saving.value = true;
   try {
     await updateAsset(form.value.id, {
+      name,
       amount: form.value.amount,
       notes: form.value.notes,
       // 只在固定资产大类下提交子类：其余大类的 minor_category 有各自的语义
