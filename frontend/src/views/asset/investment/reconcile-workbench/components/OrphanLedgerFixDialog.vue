@@ -96,8 +96,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, toRef, watch } from "vue";
 import { ElMessage } from "element-plus";
+import { useNestedDialog } from "../composables/useNestedDialog";
 import {
   backfillOrphanLedgers,
   undoOrphanLedgerBackfill,
@@ -119,6 +120,8 @@ const emit = defineEmits<{
   "update:modelValue": [value: boolean];
   submitted: [];
 }>();
+
+useNestedDialog(toRef(props, "modelValue"));
 
 const previewSeen = ref(false);
 const confirmed = ref(false);

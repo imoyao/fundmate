@@ -42,15 +42,17 @@ from app.services.family_member_service import ledger_ids_for_member
 
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
-from app.services.pnl_fees import buy_fee_by_position, family_buy_fee_cents
+from app.services.ledger_cumulative_pnl import buy_fee_by_ledger, realized_pnl_by_ledger
+
+# 🔄 市值口径收口（#1174）：仪表盘市值统一委托唯一口径，override / balance / nav 一并覆盖
+from app.services.nav_service import NavService
+from app.services.pnl_fees import family_buy_fee_cents
 from app.services.pnl_service import (
     family_realized_pnl_cents,
     net_invested_by_position,
     position_pnl_cents,
     realized_pnl_by_position,
 )
-
-# 🔄 市值口径收口（#1174）：仪表盘市值统一委托唯一口径，override / balance / nav 一并覆盖
 from app.services.position_valuation import market_value_cents
 
 # ---------------------------------------------------------------------------
@@ -161,6 +163,11 @@ def _per_ledger_buckets(
     if positions is None or assets is None:
         positions, assets = _load_user_assets(db, family_id, member_id)
 
+    # 市值唯一基准=库内 T 日最新净值（与 position_aggregation.py:239 同源）；此前漏传 effective_nav_yuan 致双基准=TD-010 根因。
+    # 非基金无 NAV→None→回退快照价，与聚合侧一致；一次性批量取净值（非 N+1）注入 market_value_cents。
+    fund_symbols = [p.symbol for p in positions if p.symbol and p.asset_type in ('fund', 'money_fund')]
+    latest_navs = NavService.get_latest_navs(db, fund_symbols, allow_remote=False) if fund_symbols else {}
+
     totals: dict[int, dict[str, float]] = {}
 
     def _bucket(ledger_id) -> dict[str, float]:
@@ -173,7 +180,10 @@ def _per_ledger_buckets(
     # 1. 持仓市值：唯一口径 market_value_cents（override / balance / nav 三种情形在函数内统一）
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        _bucket(p.ledger_id)['total_assets'] += Money.cents_to_yuan(market_value_cents(p, rate=rate))
+        effective_nav = latest_navs.get(p.symbol) if (p.symbol and p.asset_type in ('fund', 'money_fund')) else None
+        _bucket(p.ledger_id)['total_assets'] += Money.cents_to_yuan(
+            market_value_cents(p, rate=rate, effective_nav_yuan=effective_nav)
+        )
 
     # 2. 通用资产：非正数跳过；负债类单独归桶（保持正数，净资产在出口处才相减）
     for a in assets:
@@ -943,33 +953,32 @@ def family_pnl_cents(db: Session, family_id: int = 1, member_id: int | None = No
 
 
 def get_ledger_pnl(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[int, dict[str, int]]:
-    """按账户聚合三段盈亏（分），供账户级快照落库（#1220）。
+    """按账户聚合三段盈亏（分）：账户级快照与「累计盈亏」展示共用（#1220）。
 
-    口径与 get_ledger_distributions 严格对齐：仅遍历 active 持仓，按 ledger_id 归组；
-    无账户归属归哨兵键 0（不单独立行）。已实现盈亏取自该账户 active 持仓的流水结转。
-    买入侧手续费按同一分组扣减（口径见 `pnl_service`），故
-    ``total = realized + unrealized − buy_fee``。
+    已实现 / 买入费走流水级、未实现逐持仓算（理由见 `ledger_cumulative_pnl`）；
+    账户键取两者并集，故全部清仓的账户仍会出现；键 0 是无账户归属的哨兵（写快照时跳过）。
     """
     positions, _ = _load_user_assets(db, family_id, member_id)
     member_ledger_ids = _member_ledger_ids(db, family_id, member_id)
-    realized_map = realized_pnl_by_position(db, family_id, member_ledger_ids)
     invested_map = net_invested_by_position(db, family_id, member_ledger_ids)
-    fee_map = buy_fee_by_position(db, family_id, member_ledger_ids)
     totals: dict[int, dict[str, int]] = {}
+
+    def _bucket(ledger_id: int) -> dict[str, int]:
+        return totals.setdefault(ledger_id, {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'buy_fee_cents': 0})
+
     for p in positions:
-        rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        pnl = position_pnl_cents(
+        unrealized = position_pnl_cents(
             p,
-            rate=rate,
-            realized_cents=realized_map.get(p.id, 0),
+            rate=EXCHANGE_RATES.get(p.currency, 1.0),
             net_invested=invested_map.get(p.id, 0),
-            buy_fee_cents=fee_map.get(p.id, 0),
-        )
-        key = p.ledger_id or 0
-        bucket = totals.setdefault(key, {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'buy_fee_cents': 0})
-        bucket['realized_pnl_cents'] += pnl['realized_pnl_cents']
-        bucket['unrealized_pnl_cents'] += pnl['unrealized_pnl_cents']
-        bucket['buy_fee_cents'] += pnl['buy_fee_cents']
+        )['unrealized_pnl_cents']
+        _bucket(p.ledger_id or 0)['unrealized_pnl_cents'] += unrealized
+
+    for ledger_id, cents in realized_pnl_by_ledger(db, family_id, member_ledger_ids).items():
+        _bucket(ledger_id)['realized_pnl_cents'] = cents
+    for ledger_id, cents in buy_fee_by_ledger(db, family_id, member_ledger_ids).items():
+        _bucket(ledger_id)['buy_fee_cents'] = cents
+
     for b in totals.values():
         b['total_pnl_cents'] = b['realized_pnl_cents'] + b['unrealized_pnl_cents'] - b['buy_fee_cents']
     return totals
@@ -1088,6 +1097,9 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         family_row.total_assets = Money.yuan_to_cents(dist['total_assets'])
         family_row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
         family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
+        # ⚠️ [DEPRECATED TD-011] 以下四列读 transactions.realized_pnl（移动加权平均口径），
+        # 已废弃为不可用；已实现盈亏唯一真值源 = FIFO（cleared_cycles）。此处仅保留存量兼容写盘，
+        # 不得作为盈亏展示真值（前端「已落袋表现」走 FIFO）。
         family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
         family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
         # 注意：本行三列**不再自洽**——`total = realized + unrealized − buy_fee`，而快照表
@@ -1137,6 +1149,8 @@ def _snapshot_payload(s: AssetSnapshot) -> dict[str, Any]:
         'total_assets': round(Money.cents_to_yuan(s.total_assets), 2),
         'total_liabilities': round(Money.cents_to_yuan(s.total_liabilities), 2),
         'net_worth': round(Money.cents_to_yuan(s.net_worth), 2),
+        # [DEPRECATED TD-011] 以下三列读 transactions.realized_pnl（移动加权平均），已废弃；
+        # 已实现盈亏唯一真值源 = FIFO（cleared_cycles），前端「已落袋表现」走它，不消费这里。
         'realized_pnl': round(Money.cents_to_yuan(s.realized_pnl_cents), 2),
         'unrealized_pnl': round(Money.cents_to_yuan(s.unrealized_pnl_cents), 2),
         'total_pnl': round(Money.cents_to_yuan(s.total_pnl_cents), 2),

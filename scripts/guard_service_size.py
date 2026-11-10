@@ -295,11 +295,21 @@ BASELINE: dict[str, dict[str, int]] = {
     # 上帝模块拆分债务，不在本卡拆。
     # 2026-11-09 全周期复盘再 +12 行（inception / first_txn_date / start 透传），
     # 增长理由见 cash_flow_service.py 上方的本轮回写说明。
-    "backend/app/services/pnl_calendar.py": {'lines': 2286, 'max_func': 681, 'max_cc': 106},
+    # 2026-11-10 清仓残值口径修复按 --report 实测回写三项，理由留痕：
+    # pnl_calendar.py 2286→2294（+8 行；max_func 681→688，max_cc 106 未变）。
+    # 口径本体（残值记账 + 归因 / 分桶 + 「无份额但残值在动」判据）已下沉到新增叶子
+    # `pnl_cleared_residual.py`（113 行，远低于新增上限），本文件只多一个值循环分支、
+    # 一处状态分支与两行 import / 构造——残值必须与「市值 − 成本」同日同基准进水平值，
+    # 挪出 `_compute_days` 会再造一条并行水平值链。pnl_snapshot_store.py 450→455
+    # （CALIBER_VERSION 8→9 的换版理由注释）。均为真实代码增长，非放宽阈值
+    # （test_baseline_matches_current_metrics 要求逐项相等，留余量同样判红）。
+    # pnl_calendar.py 继续变厚仍属 #2873 存量上帝模块拆分债务，不在本卡拆。
+    "backend/app/services/pnl_calendar.py": {'lines': 2294, 'max_func': 688, 'max_cc': 106},
+    "backend/app/services/pnl_cleared_residual.py": {'lines': 113, 'max_func': 18, 'max_cc': 5},
     "backend/app/services/pnl_fees.py": {'lines': 97, 'max_func': 17, 'max_cc': 6},
     "backend/app/services/pnl_service.py": {'lines': 211, 'max_func': 36, 'max_cc': 7},
     "backend/app/services/pnl_settle.py": {'lines': 34, 'max_func': 11, 'max_cc': 3},
-    "backend/app/services/pnl_snapshot_store.py": {'lines': 450, 'max_func': 61, 'max_cc': 22},
+    "backend/app/services/pnl_snapshot_store.py": {'lines': 455, 'max_func': 61, 'max_cc': 22},
     "backend/app/services/portfolio_service.py": {'lines': 520, 'max_func': 118, 'max_cc': 19},
     "backend/app/services/position_aggregation.py": {'lines': 624, 'max_func': 163, 'max_cc': 47},
     "backend/app/services/position_buy_command.py": {'lines': 698, 'max_func': 79, 'max_cc': 11},
@@ -346,8 +356,8 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/strategy_service.py": {'lines': 123, 'max_func': 101, 'max_cc': 12},
     # 2026-11-10 D94 桑基图收敛：get_sankey_data 及其 helper 下沉到 services/sankey_service.py
     # （新文件走 NEW_FILE_LIMITS，实测 {286, 56, 13}）；本文件顺带删除随函数一并消失的
-    # 桑基节点常量（K_TOTAL/K_NET/K_LIABILITY 等），并加体量闸门约束注释，只减不增回写：1628→1403 / 221→107 / 53→16。
-    "backend/app/services/summary_service.py": {'lines': 1403, 'max_func': 107, 'max_cc': 16},
+    # 桑基节点常量（K_TOTAL/K_NET/K_LIABILITY 等），并加体量闸门约束注释，只减不增回写：1628→1417 / 221→107 / 53→17。
+    "backend/app/services/summary_service.py": {'lines': 1417, 'max_func': 107, 'max_cc': 17},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},

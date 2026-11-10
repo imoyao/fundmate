@@ -267,6 +267,29 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '不判 `~icons/xx/yy`（unplugin-icons 编译期内联，与 iconify 运行时无关）'
         ),
     },
+    'scripts/guard_tech_debt_register.py': {
+        'rule': '技术债务状态唯一真源 = tech-debt-register.toml（结构化判据 + 新鲜度 + 自动复核）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_tech_debt_register.py',
+        'covered': (
+            '只判「状态是否与可复核的事实一致」，不判这条债值不值得做（价值排序由人拍板）。'
+            'command 类判据不自动执行（真机 axe / CI 真 PG / issue 状态依赖环境），'
+            '靠 90 天 verified_at 新鲜度闸门；--online 的 issue 覆盖度不接 CI，只报告不判红。'
+            'doc_ref 行号会漂移，只校验文件存在；登记表只收本次盘点覆盖的条目，'
+            '条目数不等于全仓技术债总数。'
+        ),
+    },
+    'scripts/guard_pg_migration_ci.py': {
+        'rule': 'CI 真 Postgres 迁移验证接线（services.postgres + TEST_POSTGRES_URL + 串行 -n 0 step + 真库用例 AST）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_pg_migration_ci.py',
+        'covered': (
+            '只钉「接线在不在」与用例里有没有真连接标识符，不连 PG、不判 PG 是否真的接受 DDL / 拒绝违规写入'
+            '（由 backend/tests/core/test_migrations_positions_state_check_pg.py 承担）。'
+            '本机无 TEST_POSTGRES_URL 时用例 skip 是设计内行为，语义结论只以 CI 日志为准；'
+            '不判 service 健康检查参数是否最优。'
+        ),
+    },
     'scripts/guard_a11y_interaction.py': {
         'rule': '交互可达性（图标按钮可访问名称 / 非交互元素挂 click）',
         'runner': 'ci',

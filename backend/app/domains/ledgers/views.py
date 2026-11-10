@@ -23,6 +23,7 @@ from app.services import ledger_write_service as ledger_write_svc
 from app.services.family_member_service import member_name_map
 from app.services.ledger_presenter import ledger_to_dict
 from app.services.ledger_service import LedgerService  # noqa: E402
+from app.services.ledger_summary_payload import attach_detail_cumulative_pnl, build_ledger_list_items
 from app.services.position_aggregation import (
     DEFAULT_PAGE_SIZE,
 )
@@ -185,15 +186,8 @@ def list_ledgers():
         last_used_map = {row.ledger_id: row.last_date for row in last_used_rows}
         # 归属成员称谓映射（#1173）：一次查全量贴名字，避免逐账户 join
         member_names = member_name_map(db, get_family_id())
-        result = []
-        for ledger in ledgers:
-            item = ledger_to_dict(ledger, last_used_map.get(ledger.id), member_names)
-            item['total_market_value'] = 0.0
-            item['pnl'] = 0.0
-            item['position_count'] = 0
-            item['cash_balance'] = 0.0  # 统一初始化 cash_balance
-            LedgerService.attach_ledger_summary(db, ledger, item)
-            result.append(item)
+        # 摘要统计与账户级「累计盈亏」整体下沉到 ledger_summary_payload（视图只做 HTTP 编排）
+        result = build_ledger_list_items(db, get_family_id(), ledgers, last_used_map, member_names)
         return jsonify({'data': result, 'message': 'ok'})
 
 
@@ -404,6 +398,8 @@ def get_ledger_summary(ledger_id: int):
             stats = LedgerService.get_portfolio_stats(db, ledger.id)
             data.update(stats)
             data['cumulative_return'] = LedgerService.get_cumulative_return(db, ledger.id)
+            # 「累计盈亏」三段：已实现/买入费走流水级（含已清仓持仓），未实现取上面的 position_pnl
+            attach_detail_cumulative_pnl(db, get_family_id(), ledger, data)
 
             if ledger.ledger_type == 'stock':
                 data['cash_balance'] = LedgerService.get_cash_balance(db, ledger)

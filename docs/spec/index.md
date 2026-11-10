@@ -33,7 +33,8 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [api.md](./api.md) | 核心 API 端点清单 | 随代码演进 | 事实标准 |
 | [frontend-ui.md](./frontend-ui.md) | 通用业务组件规范、前端区域布局与交互规范 | 随前端演进 | 硬约束 |
 | [roadmap.md](./roadmap.md) | 四象限定义 + 里程碑映射 + issue 反链 | 低（导航层，不含进度） | 查「某编号对应哪张卡」 |
-| [tech-debt.md](./tech-debt.md) | 技术债务与开口项明细 | 易腐烂（标核实日期） | 进度追踪 |
+| [tech-debt.md](./tech-debt.md) | 技术债务历史归档（发现过程 / 决策依据 / 实测证据），状态已迁出 | 低 | 历史归档 |
+| [tech-debt-register.toml](./tech-debt-register.toml) | 技术债务状态唯一权威（状态机 / 判据 / 复核日期） | 随状态变更 | CI 判定：`scripts/guard_tech_debt_register.py` |
 | [decisions.md](./decisions.md) | 重要决策完整记录表 | append-only | 永久回溯 |
 | [pricing-tier.md](./pricing-tier.md) | 付费/免费分层规范（判定准则、功能归属、双层估值开关、前端直连约束） | 低频 | 事实标准 |
 | [data-strategy.md](./data-strategy.md) | 数据策略（L1~L4 分层、数据准入四问、表/列/job 准入细则） | 低频 | 硬约束 |
@@ -60,6 +61,7 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [ai-review.md](./ai-review.md) | AI 代码审查链路机制与配置事实（配置分层、配额截断、降噪结论、排障指引） | 事实标准（依据包源码实测） |
 | [release-readiness.md](./release-readiness.md) | `dev → main` 发版判据：机械闸项、**语义闸中间态识别判据**、Closes 写法规则（base=main 时原生生效）、分叉修法 | 硬约束（发版前必读） |
 | [cashflow-layers.md](./cashflow-layers.md) | 资金流水分层口径（L1 外部资金流 / L2 资产转换 / L3 收益实现 / L4 估值），净投入与现金残差定义、内部划转配对、账户口径与降级 | 事实标准（#2615 起 XIRR 与资金流动视图的唯一口径入口） |
+| [net-worth-caliber.md](./net-worth-caliber.md) | 净资产口径（`net_worth`）与现金腿：账户 / 家庭净资产的**存量**定义、现金只存一处、`linked_cash_ledger_id` 只做展示、日历口径范围、历史余额回放与缺数据降级 | 事实标准（#3039 起收益日历分母与现金口径的唯一入口） |
 | [data-refresh-inventory.md](./data-refresh-inventory.md) | 数据自动更新清单（各数据项的分层 / 来源 job / 建议频率 / 实测现状 / 调度缺口） | 事实标准（现状列易腐烂，引用前先重跑诊断） |
 | [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |
 | [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |

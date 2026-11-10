@@ -40,6 +40,11 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
        ``transactions.realized_pnl``**（存量库该列全 0，与真零盈亏不可区分），
        而「已落袋表现」等前端页面用的是**FIFO 配对自算**口径——**两套口径并存**，
        故这四列不得直接展示给用户（详见 docs/spec/tech-debt.md 对应条目）。
+    ⚠️ **DEPRECATED（TD-011 裁决）**：四列属移动加权平均口径，已废弃为不可用；
+       已实现盈亏的**唯一口径** = FIFO 配对自算
+       （``services/analytics/cleared_cycles.py`` 的 ``build_cleared_cycles``，
+       经 ``summary/views.py:324 cleared_cycles()`` 暴露给前端「已落袋表现」）。
+       四列保留仅为存量兼容、不得作为盈亏真值源；新实现一律走 FIFO。
     """
 
     __tablename__ = 'asset_snapshots'
@@ -72,21 +77,21 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
         nullable=False,
         default=0,
         server_default=text('0'),
-        comment='已实现盈亏（分）：卖出结转+现金分红，以流水为事实源',
+        comment='[DEPRECATED TD-011] 已实现盈亏（分）：移动加权平均口径，已废弃为不可用；唯一真值源=FIFO（cleared_cycles）',
     )
     unrealized_pnl_cents = Column(
         Integer,
         nullable=False,
         default=0,
         server_default=text('0'),
-        comment='未实现盈亏（分）：市值−成本基数',
+        comment='[DEPRECATED TD-011] 未实现盈亏（分）：市值−成本基数；非唯一口径，仅供存量兼容',
     )
     total_pnl_cents = Column(
         Integer,
         nullable=False,
         default=0,
         server_default=text('0'),
-        comment='总盈亏（分）=已实现+未实现，与 XIRR 现金流口径一致',
+        comment='[DEPRECATED TD-011] 总盈亏（分）=已实现+未实现；非唯一口径，仅供存量兼容',
     )
     # #863 P1-5（D1）：当日货基收益（分），展示用途——快照随每日调度一并落库，
     # 供「货基收益走势/日历」查询。该列**不**参与 total_assets（自动收益仅展示，
@@ -96,7 +101,7 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
         Integer,
         nullable=True,
         default=None,
-        comment='当日货基收益（分，#863 P1-5 展示用，不入 total_assets；NULL=无货基）',
+        comment='[DEPRECATED TD-011] 当日货基收益（分，#863 P1-5 展示用，不入 total_assets；NULL=无货基）；非盈亏真值源',
     )
 
 
