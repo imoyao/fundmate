@@ -236,6 +236,16 @@ issue = 894
 verified_at = "2026-11-10"
 criterion = { type = "command", run = "gh issue view 894 --repo imoyao/fundmate --json state,body && grep -rn 'turso\\|libsql\\|edgeone' backend/app | head" }
 
+[[debt]]
+id = "TD-026"
+title = "美股数据来源（--online 覆盖度扫描发现的未登记 tech-debt open 卡）"
+status = "open"
+priority = "P3"
+doc_ref = "docs/spec/roadmap.md:1"
+issue = 1785
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "gh issue view 1785 --repo imoyao/fundmate --json state,body" }
+
 # ─────────────────────────────────────────────────────────────────────────────
 # C. 已实现但被外部条件卡住 / 已裁决不处理（不再用「暂缓」当垃圾桶）
 # ─────────────────────────────────────────────────────────────────────────────
