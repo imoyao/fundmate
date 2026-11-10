@@ -10,7 +10,8 @@
 5. 删掉一条 ``criterion`` ⇒ 红（判据不许退化成自然语言）；
 6. 顶层 ``updated_at`` 过期 ⇒ 红（新鲜度闸门）；
 7. 删头部 ``STATUS_AUTHORITY`` / 删 index 导航登记 ⇒ 红（双真源一致性）；
-8. 空登记表 / 登记表缺失 / 判据引用文件不存在 ⇒ **exit 2**（不得冒充通过）。
+8. 空登记表 / 登记表缺失 / 判据引用文件不存在 ⇒ **exit 2**（不得冒充通过）；
+9. P1 三卡（TD-018/019/020）判据反向验证：把锚点推到「满足态」⇒ 僵尸 open 红。
 
 反向验证：所有变异都先断言锚点真的落在文件里（``_mutate`` 的 assert），
 再跑守卫 —— 变异没落盘时用例会自己报错，而不是「全绿假象」（#2739 教训）。
@@ -58,6 +59,11 @@ CLONE_FILES = (
     'backend/app/services/summary_service.py',
     'backend/app/services/position_aggregation.py',
     'backend/app/domains/summary/models.py',
+    # P1 三卡判据纠偏后新增的 grep 目标 / doc_ref 依赖：grep 判据的文件缺失会抛
+    # InputError（exit 2），doc_ref 指向的文件缺失 R1 也会判红，缺任一克隆都不绿。
+    'docs/dev/auth-audit.md',
+    'docs/spec/api.md',
+    'backend/app/domains/auth/views.py',
 )
 
 
@@ -217,6 +223,32 @@ class MutationTest(unittest.TestCase):
         """guard 判据引用的脚本不存在 ⇒ 输入不可信，不得降级成「债务还没做」。"""
         (self.root / 'scripts/guard_pg_migration_ci.py').unlink()
         self.assertEqual(self._run(), 2)
+
+    def test_td018_checklist_cleared_is_red(self) -> None:
+        """TD-018：§8 三项未完成清单清零 ⇒ 判据转满足 ⇒ 僵尸 open 红。"""
+        _mutate(self.root, '- [ ]', '- [x]', rel='docs/dev/auth-audit.md', count=3)
+        self.assertNotIn('- [ ]', (self.root / 'docs/dev/auth-audit.md').read_text(encoding='utf-8'))
+        self.assertEqual(self._run(), 1)
+
+    def test_td019_dual_dimension_limit_is_red(self) -> None:
+        """TD-019：单维度 IP 键换成双维度 ⇒ 锚点消失 ⇒ 红。"""
+        _mutate(
+            self.root,
+            "ratelimit.check(f'resolve:{ip}'",
+            "ratelimit.check(f'resolve:{ip}:{identifier}'",
+            rel='backend/app/domains/auth/views.py',
+        )
+        self.assertEqual(self._run(), 1)
+
+    def test_td020_entitlement_endpoint_lands_is_red(self) -> None:
+        """TD-020：独立权益端点进 api.md 自动段 ⇒ 判据转满足 ⇒ 红。"""
+        _mutate(
+            self.root,
+            '| POST | `/api/agent/chat/` | `agent_chat` |',
+            '| GET | `/api/me/entitlements/` | `me_entitlements` |\n| POST | `/api/agent/chat/` | `agent_chat` |',
+            rel='docs/spec/api.md',
+        )
+        self.assertEqual(self._run(), 1)
 
 
 if __name__ == '__main__':
