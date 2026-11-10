@@ -61,6 +61,7 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [ai-review.md](./ai-review.md) | AI 代码审查链路机制与配置事实（配置分层、配额截断、降噪结论、排障指引） | 事实标准（依据包源码实测） |
 | [release-readiness.md](./release-readiness.md) | `dev → main` 发版判据：机械闸项、**语义闸中间态识别判据**、Closes 写法规则（base=main 时原生生效）、分叉修法 | 硬约束（发版前必读） |
 | [cashflow-layers.md](./cashflow-layers.md) | 资金流水分层口径（L1 外部资金流 / L2 资产转换 / L3 收益实现 / L4 估值），净投入与现金残差定义、内部划转配对、账户口径与降级 | 事实标准（#2615 起 XIRR 与资金流动视图的唯一口径入口） |
+| [net-worth-caliber.md](./net-worth-caliber.md) | 净资产口径（`net_worth`）与现金腿：账户 / 家庭净资产的**存量**定义、现金只存一处、`linked_cash_ledger_id` 只做展示、日历口径范围、历史余额回放与缺数据降级 | 事实标准（#3039 起收益日历分母与现金口径的唯一入口） |
 | [data-refresh-inventory.md](./data-refresh-inventory.md) | 数据自动更新清单（各数据项的分层 / 来源 job / 建议频率 / 实测现状 / 调度缺口） | 事实标准（现状列易腐烂，引用前先重跑诊断） |
 | [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |
 | [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |
