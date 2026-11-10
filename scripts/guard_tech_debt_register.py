@@ -24,10 +24,18 @@
 复核后真实触发器只有 2 个（依赖 bot 豁免），其余 6 个是注释里的说明文字：
 这是 #2453「注释/正文喂饱守卫」的又一次复现。
 
+**同一个坑在登记表自身又复发了一次**（2026-11-10 P0 批次复核）：TD-011 的判据是
+``grep summary.ts "只声明被消费的字段" present=false``，而这句话只存在于一行块注释里
+—— 删注释就判「已完成」，与盈亏口径统一毫无关系。故 R2 增加两条硬约束：
+``grep`` 判据的 ``text`` 不得是纯中文自然语言；代码文件的**整行注释**不参与命中判定。
+TD-010 则指向了错误的符号（第三套裸算实现而非两套基准），已改为人工裁决判据。
+判据本身写错，守卫越绿越危险 —— 这是本轮先修判据、再修债的原因。
+
 ## 判据
 
     R1 结构：必填字段 / 枚举 / id 唯一 / ISO 日期 / doc_ref 指向真实文件
-    R2 判据形态：结构化内联表、type 在白名单、command 不含空话、状态附加字段齐全
+    R2 判据形态：结构化内联表、type 在白名单、command 不含空话、状态附加字段齐全；
+                  grep.text 不得是纯中文自然语言；代码文件整行注释不参与命中
     R3 新鲜度：open/blocked/deferred 的 verified_at 与顶层 updated_at 超 90 天 ⇒ 红
     R4 自动复核：done 判据必须满足；open 判据必须不满足（僵尸 open ⇒ 红）
     R5 双真源：tech-debt.md 头部引用块有 STATUS_AUTHORITY 标记；
@@ -43,7 +51,7 @@
 ## 用法
 
     python scripts/guard_tech_debt_register.py                 # 0 通过 / 1 栅栏 / 2 输入不可信
-    python scripts/guard_tech_debt_register.py --self-check    # 7 态变异自检
+    python scripts/guard_tech_debt_register.py --self-check    # 10 态变异自检
     python scripts/guard_tech_debt_register.py --online        # 额外查 issue 状态（需 gh，不接 CI）
     python scripts/guard_tech_debt_register.py --root <repo>   # 测试用
 
@@ -78,6 +86,13 @@ CRITERION_TYPES = frozenset({'grep', 'file', 'guard', 'command'})
 ID_RE = re.compile(r'^TD-\d{3}$')
 GUARD_SCRIPT_RE = re.compile(r'^scripts/(?:guard_|check_)[A-Za-z0-9_]+\.py$')
 EMPTY_WORDS = ('待排期', '暂缓', '后续优化', '需拍板', '择机', '另行排期', '待定')
+#: 纯中文自然语言（含中文标点/空白），不含任何 ASCII 代码标识符特征。
+#: ``grep`` 判据里出现它，几乎必然是在引用一句注释文案 —— 删注释即假绿（#2453）。
+NATURAL_TEXT_RE = re.compile(r'^[\u4e00-\u9fff\s，。：、（）「」“”！？；·—\-]+$')
+#: 只有代码文件才剥注释；.md/.toml/.yml 的正文就是内容本身，剥了会误伤 U+FFFD 一类判据。
+CODE_SUFFIXES = frozenset({'.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.vue', '.scss', '.css'})
+PY_COMMENT_PREFIXES = ('#',)
+WEB_COMMENT_PREFIXES = ('//', '/*', '*', '*/', '<!--')
 DEFAULT_STALE_DAYS = 90
 BASE_FIELDS = ('id', 'title', 'status', 'priority', 'doc_ref', 'issue', 'verified_at', 'criterion')
 STATUS_EXTRA = {
@@ -198,6 +213,11 @@ def validate_structure(data: dict, root: pathlib.Path, v: Verdict) -> None:
         if ctype == 'grep':
             if not isinstance(crit.get('text'), str) or not crit['text']:
                 v.red(f'{tag} criterion.text 缺失')
+            elif NATURAL_TEXT_RE.match(crit['text']):
+                v.red(
+                    f'{tag} grep.text 是纯中文自然语言 {crit["text"]!r}：'
+                    '判据必须指向代码结构，注释文案删掉即假绿（#2453）'
+                )
             if not isinstance(crit.get('present'), bool):
                 v.red(f'{tag} criterion.present 必须是布尔')
         if ctype in ('file',) and not isinstance(crit.get('present'), bool):
@@ -235,6 +255,22 @@ def check_freshness(data: dict, v: Verdict, today: dt.date) -> None:
             v.red(f'[{debt.get("id")}] verified_at={verified} 已 {age} 天未复核（上限 {stale}）')
 
 
+def strip_comment_lines(text: str, path: pathlib.Path) -> str:
+    """剥掉代码文件里的**整行**注释，供 ``grep`` 判据使用（#2453）。
+
+    刻意只处理整行、不处理行尾注释与 Python docstring：行尾剥 ``#`` 会切断字符串里
+    的 URL / 颜色值；docstring 里也可能写着判据依赖的真实符号（TD-001 的
+    ``nav_per_10k`` 在 docstring 与代码里都有，剥不剥都不该改变结论）。文档类后缀
+    不剥——文档正文就是判据要读的内容（TD-004 的 U+FFFD 判据依赖此点）。
+    """
+    suffix = path.suffix.lower()
+    if suffix not in CODE_SUFFIXES:
+        return text
+    prefixes = PY_COMMENT_PREFIXES if suffix == '.py' else WEB_COMMENT_PREFIXES
+    kept = [line for line in text.splitlines() if not line.strip().startswith(prefixes)]
+    return '\n'.join(kept)
+
+
 def evaluate(crit: dict, root: pathlib.Path) -> bool | None:
     """返回判据是否满足；``command`` 返回 None（不自动判定）。
 
@@ -265,7 +301,8 @@ def evaluate(crit: dict, root: pathlib.Path) -> bool | None:
         return path.is_file() == crit['present']
     if not path.is_file():
         raise InputError(f'判据引用的文件不存在：{crit["path"]}')
-    hit = crit['text'] in path.read_text(encoding='utf-8', errors='replace')
+    body = strip_comment_lines(path.read_text(encoding='utf-8', errors='replace'), path)
+    hit = crit['text'] in body
     return hit == crit['present']
 
 
@@ -458,7 +495,7 @@ MIN_INDEX = f"""# 索引
 
 
 def self_check() -> int:
-    """7 态变异自检：验的是「守卫真的会红」，不是输出长得像对的。"""
+    """10 态变异自检：验的是「守卫真的会红」，不是输出长得像对的。"""
     today = dt.date.today()
     good_crit = '{ type = "file", path = "marker.txt", present = true }'
     bad_crit = '{ type = "file", path = "missing.txt", present = true }'
@@ -521,11 +558,53 @@ def self_check() -> int:
         actual = run(root, today=today)
         if actual != 1:
             failures.append(f'删权威标记: 期望 1 实得 {actual}')
+
+    # 第 9/10 态：#2453 复发防线。纯函数断言 + 集成红态，缺一不可——
+    # 只看集成 exit 1 分不清「剥注释咬住」还是「R2 咬住」。
+    if 'NavService.get_latest_navs' in strip_comment_lines('# NavService.get_latest_navs\n', pathlib.Path('m.py')):
+        failures.append('剥注释失效：整行注释里的符号仍参与命中')
+
+    def probe_grep(name: str, crit: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            spec = root / 'docs' / 'spec'
+            spec.mkdir(parents=True)
+            svc = root / 'backend' / 'app' / 'services'
+            svc.mkdir(parents=True)
+            (svc / 'mock.py').write_text(
+                '# NavService.get_latest_navs 只写在注释里\n# 只声明被消费的字段\n',
+                encoding='utf-8',
+            )
+            (spec / 'tech-debt.md').write_text(MIN_ARCHIVE, encoding='utf-8')
+            (spec / 'index.md').write_text(MIN_INDEX, encoding='utf-8')
+            (spec / REGISTER_NAME).write_text(
+                MIN_REGISTER.format(
+                    today=today.isoformat(),
+                    status='open',
+                    verified=today.isoformat(),
+                    extra='',
+                    crit=crit,
+                ),
+                encoding='utf-8',
+            )
+            actual = run(root, today=today)
+            if actual != 1:
+                failures.append(f'{name}: 期望 1 实得 {actual}')
+
+    probe_grep(
+        '判据只写在注释里',
+        '{ type = "grep", path = "backend/app/services/mock.py", '
+        'text = "NavService.get_latest_navs", present = false }',
+    )
+    probe_grep(
+        '纯中文自然语言判据',
+        '{ type = "grep", path = "backend/app/services/mock.py", text = "只声明被消费的字段", present = false }',
+    )
     if failures:
         for msg in failures:
             print(f'SELF-CHECK FAIL: {msg}')
         return 1
-    print('[guard_tech_debt_register] self-check OK：8 态变异全部咬住')
+    print('[guard_tech_debt_register] self-check OK：10 态变异全部咬住')
     return 0
 
 

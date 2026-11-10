@@ -3,8 +3,8 @@
 """回归网：``scripts/guard_tech_debt_register.py``（技术债务登记表守卫，2026-11-10）。
 
 覆盖：
-1. 真实仓库 26 条债务状态全部可判定（exit 0）；
-2. ``--self-check`` 的 8 态变异自检自身通过；
+1. 真实仓库 27 条债务状态全部可判定（exit 0）；
+2. ``--self-check`` 的 10 态变异自检自身通过；
 3. 登记表规模：条目数 >= 20 且五态齐全（防「删掉一堆条目守卫照样绿」）；
 4. 把任一 ``done`` 改成 ``open`` ⇒ 红（僵尸 open：判据已满足）；
 5. 删掉一条 ``criterion`` ⇒ 红（判据不许退化成自然语言）；
@@ -47,6 +47,11 @@ CLONE_FILES = (
     'backend/app/services/position_display.py',
     'backend/app/services/ledger_service.py',
     'frontend/src/api/summary.ts',
+    # TD-012 的 done 判据是 guard 类型，会在最小仓库里真跑一遍接线守卫；
+    # 这三份缺一，探针就会把「脚本/文件不存在」误读成守卫逻辑生效。
+    'scripts/guard_pg_migration_ci.py',
+    '.github/workflows/ci.yml',
+    'backend/tests/core/test_migrations_positions_state_check_pg.py',
 )
 
 
@@ -94,6 +99,21 @@ class GuardOnRealRepoTest(unittest.TestCase):
             {'open', 'done', 'blocked', 'deferred', 'wontfix'},
             '五态必须都有实例，否则状态机退化成摆设',
         )
+
+    def test_strip_comment_lines_ignores_code_comments(self) -> None:
+        """#2453：判据文本只写在代码注释里时，不得算命中。"""
+        src = '# NavService.get_latest_navs 只写在注释里\nrow.nav_per_10k = 1\n'
+        stripped = self.guard.strip_comment_lines(src, pathlib.Path('x.py'))
+        self.assertNotIn('NavService.get_latest_navs', stripped)
+        self.assertIn('row.nav_per_10k', stripped)
+        web = '// html.dark 只写在注释里\nhtml.dark { color: red; }\n'
+        self.assertNotIn('// html.dark', self.guard.strip_comment_lines(web, pathlib.Path('x.scss')))
+        self.assertIn('html.dark {', self.guard.strip_comment_lines(web, pathlib.Path('x.scss')))
+
+    def test_strip_comment_lines_keeps_docs(self) -> None:
+        """.md 正文就是判据要读的内容（TD-004 的 U+FFFD），不能剥。"""
+        src = '# 标题\n\ufffd 乱码\n'
+        self.assertEqual(self.guard.strip_comment_lines(src, pathlib.Path('x.md')), src)
 
 
 class MutationTest(unittest.TestCase):
@@ -170,6 +190,26 @@ class MutationTest(unittest.TestCase):
             'path = "backend/app/services/money_fund_income.py"',
             'path = "backend/app/services/no_such_file.py"',
         )
+        self.assertEqual(self._run(), 2)
+
+    def test_natural_language_grep_text_is_red(self) -> None:
+        """判据不许退化成中文注释文案：删注释即假绿。"""
+        _mutate(
+            self.root,
+            'text = "nav_per_10k", present = true',
+            'text = "只声明被消费的字段", present = true',
+        )
+        self.assertEqual(self._run(), 1)
+
+    def test_grep_text_only_in_comment_is_red(self) -> None:
+        """集成层：把判据符号只留在注释里，done 必须判「假闭环」。"""
+        target = self.root / 'backend/app/services/money_fund_income.py'
+        target.write_text('# nav_per_10k 只写在注释里\n', encoding='utf-8')
+        self.assertEqual(self._run(), 1)
+
+    def test_guard_criterion_script_missing_is_exit2(self) -> None:
+        """guard 判据引用的脚本不存在 ⇒ 输入不可信，不得降级成「债务还没做」。"""
+        (self.root / 'scripts/guard_pg_migration_ci.py').unlink()
         self.assertEqual(self._run(), 2)
 
 
