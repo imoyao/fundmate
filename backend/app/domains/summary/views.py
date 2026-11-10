@@ -24,11 +24,11 @@ from app.services.cash_flow_service import build_cash_flow
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series, compute_range_attribution
 from app.services.position_structure import build_position_structure
+from app.services.sankey_service import get_sankey_data
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
     get_position_groups,
-    get_sankey_data,
     get_snapshots,
     get_summary_data,
     list_fund_valuation_rows,

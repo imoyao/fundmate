@@ -4,6 +4,12 @@
 # File : backend/app/services/summary_service.py
 """仪表盘聚合与桑基图数据服务."""
 
+# ⚠️ 体量/复杂度冻结基线（2026-11-10 D94 收缩后写入 scripts/guard_service_size.py）：
+# 本文件是「存量服务」，**只减不增**。新增的大函数（如桑基图 get_sankey_data 一族，
+# 原 220+ 行 / 圈复杂度 53）必须下沉到独立子模块（见 app/services/sankey_service.py），
+# 否则会触发 CI 的「services 层体量/复杂度软闸门」回潮拦截。后端守卫单测
+# test_baseline_matches_current_metrics 强制要求基线 == 实测，改动后须同步回写基线。
+
 import hashlib
 from collections import defaultdict
 from datetime import date, datetime
@@ -57,10 +63,6 @@ _INVESTMENT_KEY = 'investment'
 _DEFAULT_ALLOC = 'longterm'
 _UNKNOWN_TYPE = '其他'
 _INVESTMENT_LABEL = CATEGORY_META['investment'][0]
-_CENTER_NODE = '总资产'
-_NET_NODE = '净资产'
-_LIABILITY_NODE = '总负债'
-_UNCONFIGURED_NODE = '未配置资产'
 
 
 def _member_ledger_ids(db: Session, family_id: int, member_id: int | None) -> Optional[List[int]]:
@@ -623,147 +625,6 @@ def get_summary_data(db: Session, family_id: int = 1, member_id: int | None = No
         'total_pnl_cny': round(Money.cents_to_yuan(realized_cents + unrealized_cents - buy_fee_cents), 2),
         'market_distribution': {k: round(v, 2) for k, v in market_distribution.items()},
     }
-
-
-def get_sankey_data(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[str, list[dict[str, Any]]]:
-    """返回桑基图数据（双流并行模型：资产流在上，负债流在下，无交叉）"""
-    positions, assets = _load_user_assets(db, family_id, member_id)
-
-    nodes: list[dict[str, Any]] = []
-    links: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def _add_node(name: str) -> None:
-        if name and name not in seen:
-            nodes.append({'name': name})
-            seen.add(name)
-
-    def _add_link(source: str, target: str, value: float) -> None:
-        if value > 0:
-            links.append(
-                {
-                    'source': source,
-                    'target': target,
-                    'value': round(value, 2),
-                }
-            )
-
-    # =====================================================================
-    # 数据聚合阶段：一次遍历完成所有分类统计，并收集负债明细
-    # 总资产/总负债不在此累加——交给唯一出口 family_totals（#2154），
-    # 否则这里的裸累加会与 get_summary_data 分叉（历史上正是这么岔的）。
-    # =====================================================================
-    category_totals: dict[str, float] = {k: 0.0 for k in CATEGORY_META}
-    liability_details: list[tuple[str, float]] = []  # 收集负债项，避免二次遍历
-
-    for a in assets:
-        amount = Money.cents_to_yuan(a.amount)
-        if amount <= 0:
-            continue
-        if a.major_category == _LIABILITY_KEY:
-            liability_details.append((a.name, amount))
-        else:
-            if a.major_category in category_totals:
-                category_totals[a.major_category] += amount
-
-    # 一次遍历 positions，同时完成投资理财总额、五笔钱分配、产品类型明细
-    investment_total = 0.0
-    alloc_map: dict[str, float] = defaultdict(float)
-    alloc_type_map: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    # #863 口径 A：现金等价物持仓市值（货基/逆回购）独立统计，分类归「流动资金」
-    cash_equiv_total = 0.0
-
-    for p in positions:
-        rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        # 市值唯一口径（#2154）：旧版裸算「份额 × 快照价」，balance 模式恒得 0
-        mv = Money.cents_to_yuan(market_value_cents(p, rate=rate))
-        if mv <= 0:
-            continue
-
-        investment_total += mv
-        if is_cash_equivalent_position(p):
-            # #863 口径 A：货基/逆回购持仓市值归「流动资金/cash」而非「投资理财」
-            cash_equiv_total += mv
-
-        # 五笔钱分配
-        alloc = p.allocation or _DEFAULT_ALLOC
-        alloc_map[alloc] += mv
-
-        # 产品类型明细（翻译为中文标签）
-        alloc_label = ALLOCATION_LABELS.get(alloc, alloc)
-        type_name = p.asset_type or _UNKNOWN_TYPE
-        display_name = TYPE_LABELS.get(type_name, type_name)
-        alloc_type_map[alloc_label][display_name] += mv
-
-    # 将投资理财总额归入大类（扣除现金等价物持仓，货基不占「投资理财」）
-    category_totals[_INVESTMENT_KEY] += investment_total - cash_equiv_total
-
-    # 现金等价物持仓市值 + 孤儿流水本金净额 + 渠道收益 并入「流动资金/cash」大类
-    net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    orphan_net = sum(net_map.values())
-    income_net = sum(income_map.values())
-    category_totals['cash'] += cash_equiv_total + Money.cents_to_yuan(orphan_net + income_net)
-
-    # 总资产 / 总负债 / 净资产 —— 委托唯一聚合出口（#2154）
-    totals = family_totals(db, family_id, positions=positions, assets=assets)
-
-    # 若无任何资产，返回空数据
-    if totals['total_assets'] == 0:
-        return {'nodes': [], 'links': []}
-
-    # =====================================================================
-    # 图结构构建阶段
-    # =====================================================================
-    # 第一层：资产大类节点
-    for cat_key, total_val in category_totals.items():
-        if total_val > 0:
-            cat_name, _ = CATEGORY_META[cat_key]
-            _add_node(cat_name)
-
-    # 第二层：大类 → 总资产
-    _add_node(_CENTER_NODE)
-    for cat_key, total_val in category_totals.items():
-        if total_val > 0:
-            cat_name, _ = CATEGORY_META[cat_key]
-            _add_link(cat_name, _CENTER_NODE, total_val)
-
-    total_liabilities = totals['total_liabilities']
-    net_worth = totals['net_worth']
-
-    # 净资产分支（先添加，使其在图表上方）
-    if net_worth > 0:
-        _add_node(_NET_NODE)
-        _add_link(_CENTER_NODE, _NET_NODE, net_worth)
-
-        # 五笔钱与未配置资产
-        configured_total = sum(alloc_map.values())
-        for alloc_key, total_val in alloc_map.items():
-            label = ALLOCATION_LABELS.get(alloc_key, alloc_key)
-            _add_node(label)
-            _add_link(_NET_NODE, label, total_val)
-
-        unconfigured = net_worth - configured_total
-        if unconfigured > 0:
-            _add_node(_UNCONFIGURED_NODE)
-            _add_link(_NET_NODE, _UNCONFIGURED_NODE, unconfigured)
-
-        # 五笔钱 → 产品类型
-        for alloc_label, type_map in alloc_type_map.items():
-            for type_name, total_val in type_map.items():
-                _add_node(type_name)
-                _add_link(alloc_label, type_name, total_val)
-
-    # 负债分支（后添加，使其在净资产下方）
-    if total_liabilities > 0:
-        _add_node(_LIABILITY_NODE)
-        # 1. 构建具体负债项
-        for name, amount in liability_details:
-            _add_node(name)
-            _add_link(_LIABILITY_NODE, name, amount)
-        # 2. 【关键】建立总资产到总负债的连线
-        _add_link(_CENTER_NODE, _LIABILITY_NODE, total_liabilities)
-
-    return {'nodes': nodes, 'links': links}
 
 
 def get_account_groups(db: Session, family_id: int = 1, member_id: int | None = None) -> list[dict]:

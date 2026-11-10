@@ -3,6 +3,10 @@
 # Date : 2026/5/11 22:01
 # File : test_summary.py
 
+from collections import defaultdict
+
+import pytest
+
 from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
@@ -147,7 +151,72 @@ def test_summary_with_pnl_and_multi_currency(client):
 
 
 class TestSankeyEndpoint:
-    """桑基图端点测试套件"""
+    """桑基图端点测试套件（2026-11-09 按 D94「单轴守恒图」契约重写）。
+
+    旧套件把「净资产 → 五笔钱 → 产品类型」钉成期望，其中
+    `test_liabilities_isolated_from_net_worth` 断言净资产 1.5 万却能流出
+    2 万持仓市值——**守恒破坏被测试固化**。新套件每个用例都过一遍
+    `_assert_sankey_conserved()`：桑基图是守恒流量图，一条链只能承载一个
+    分类轴（资金来源 → 资产运用），且 A = L + E 必须逐节点成立。
+
+    守卫本身也要自检（AGENTS.md：守门通过 ≠ 守门有效），见
+    `test_conservation_guard_is_effective`：故意破坏守恒 / 塞回「未配置资产」
+    都必须让守卫转红。
+    """
+
+    # 五笔钱配置目标与「未配置资产」属于正交分类轴，绝不能出现在这张图里
+    FORBIDDEN_NODES = {
+        '未配置资产',
+        '活钱',
+        '稳健底仓',
+        '长期增值',
+        '高风险博弈',
+        '保险保障',
+    }
+
+    @staticmethod
+    def _assert_sankey_conserved(data):
+        """通用守恒守卫：禁用节点 / 正流量 / 中间节点入=出 / 无孤立节点 / 方向。
+
+        只从 `nodes` 与 `links` 独立判断，不调用被测实现，避免「删掉实现后
+        守卫恒绿」这类假绿。返回 `(nodes, links)` 方便用例继续断言。
+        """
+        nodes = [n['name'] for n in data['nodes']]
+        links = data['links']
+        node_set = set(nodes)
+
+        assert len(nodes) == len(node_set), '节点名重复（_add_node 去重失效）'
+        assert not (node_set & TestSankeyEndpoint.FORBIDDEN_NODES), (
+            f'出现了被删除的正交分类轴节点：{node_set & TestSankeyEndpoint.FORBIDDEN_NODES}'
+        )
+        assert all(lk['value'] > 0 for lk in links), '桑基图不能画非正流量'
+
+        in_sum = defaultdict(float)
+        out_sum = defaultdict(float)
+        touched = set()
+        for lk in links:
+            in_sum[lk['target']] += lk['value']
+            out_sum[lk['source']] += lk['value']
+            touched.add(lk['source'])
+            touched.add(lk['target'])
+        assert node_set == touched, f'存在孤立节点：{node_set - touched}'
+
+        for name in node_set:
+            if in_sum[name] > 0 and out_sum[name] > 0:
+                assert abs(in_sum[name] - out_sum[name]) <= 0.02, (
+                    f'中间节点「{name}」入边 {in_sum[name]} ≠ 出边 {out_sum[name]}'
+                )
+
+        # 方向：资金来源侧只往总资产汇，总资产只往资产运用侧分流
+        edge_set = {(lk['source'], lk['target']) for lk in links}
+        assert ('总资产', '净资产') not in edge_set, '流向反了（旧拓扑）'
+        assert ('总资产', '总负债') not in edge_set, '流向反了（旧拓扑）'
+        assert all(lk['target'] == '总资产' for lk in links if lk['source'] == '净资产'), '净资产不能流向五笔钱'
+        assert all(lk['target'] == '总资产' for lk in links if lk['source'] == '总负债'), '总负债只能汇入总资产'
+
+        if in_sum['总资产'] > 0:
+            assert abs(in_sum['总资产'] - out_sum['总资产']) <= 0.02, '总资产入边 ≠ 出边'
+        return nodes, links
 
     def test_empty_data_returns_empty(self, client):
         """空数据库返回空 nodes 和 links，不报错"""
@@ -158,7 +227,7 @@ class TestSankeyEndpoint:
         assert data['links'] == []
 
     def test_only_positions_no_assets(self, client, db):
-        """仅有持仓数据时，负债分支消失，其他流向正常"""
+        """仅有持仓：无负债分支，产品类型作为资产明细挂在「投资理财」下"""
         pos = Position(
             symbol='SH600519',
             name='贵州茅台',
@@ -173,234 +242,445 @@ class TestSankeyEndpoint:
         db.add(pos)
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        assert resp.status_code == 200
-        data = resp.get_json()['data']
-        nodes = {n['name'] for n in data['nodes']}
-        links = {(link['source'], link['target']) for link in data['links']}
-
-        # 核心节点（资产大类、总资产、净资产、五笔钱、产品类型）
-        assert '投资理财' in nodes
-        assert '总资产' in nodes
-        assert '净资产' in nodes
-        assert '长期增值' in nodes
-        assert '股票' in nodes  # 翻译为中文
-        assert '负债' not in nodes
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        edges = {(lk['source'], lk['target']) for lk in links}
+        assert {'净资产', '总资产', '投资理财', '股票'} <= set(nodes)
         assert '总负债' not in nodes
-
-        # 链路验证
-        assert ('投资理财', '总资产') in links
-        assert ('总资产', '净资产') in links
-        assert ('净资产', '长期增值') in links
-        assert ('长期增值', '股票') in links
+        assert ('净资产', '总资产') in edges
+        assert ('总资产', '投资理财') in edges
+        assert ('投资理财', '股票') in edges
 
     def test_only_assets_no_positions(self, client, db):
-        """仅有通用资产数据，投资理财分支消失，负债分支正常"""
-        house = Asset(
-            user_id=1, major_category='fixed', name='阳光花园', amount=Money.yuan_to_cents(5_000_000), currency='CNY'
+        """仅有通用资产：负债明细在左侧汇入总负债，资产明细在右侧展开"""
+        db.add_all(
+            [
+                Asset(
+                    user_id=1,
+                    major_category='fixed',
+                    name='阳光花园',
+                    amount=Money.yuan_to_cents(5_000_000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='liability',
+                    name='招商银行信用卡',
+                    amount=Money.yuan_to_cents(5000),
+                    currency='CNY',
+                ),
+            ]
         )
-        credit = Asset(
-            user_id=1,
-            major_category='liability',
-            name='招商银行信用卡',
-            amount=Money.yuan_to_cents(5000),
-            currency='CNY',
-        )
-        db.add_all([house, credit])
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        assert resp.status_code == 200
-        data = resp.get_json()['data']
-        nodes = {n['name'] for n in data['nodes']}
-        links = {(link['source'], link['target']) for link in data['links']}
-
-        # 资产大类节点（不再有具体资产名）
-        assert '固定资产' in nodes
-        assert '总资产' in nodes
-        assert '净资产' in nodes
-        # 负债明细节点仍然存在
-        assert '总负债' in nodes
-        assert '招商银行信用卡' in nodes
-
-        # 链路
-        assert ('固定资产', '总资产') in links
-        assert ('总资产', '净资产') in links
-        assert ('总资产', '总负债') in links
-        assert ('总负债', '招商银行信用卡') in links
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        edges = {(lk['source'], lk['target']) for lk in links}
+        assert {'招商银行信用卡', '总负债', '净资产', '总资产', '固定资产', '阳光花园'} <= set(nodes)
+        assert ('招商银行信用卡', '总负债') in edges
+        assert ('总负债', '总资产') in edges
+        assert ('总资产', '固定资产') in edges
+        assert ('固定资产', '阳光花园') in edges
 
     def test_full_data_with_allocation(self, client, db):
-        """完整的混合数据，验证五笔钱分流和产品类型展开"""
-        stock = Position(
-            symbol='SH600519',
-            name='茅台',
-            market='SH',
-            asset_type='stock',
-            quantity=Money.shares_to_min_unit(50),
-            avg_price=Money.yuan_to_price_units(1600),
-            current_price=Money.yuan_to_price_units(1800),
-            currency='CNY',
-            allocation='longterm',
+        """混合数据：五笔钱配置目标完全不进图，负债只在资金来源侧出现一次"""
+        db.add_all(
+            [
+                Position(
+                    symbol='SH600519',
+                    name='茅台',
+                    market='SH',
+                    asset_type='stock',
+                    quantity=Money.shares_to_min_unit(50),
+                    avg_price=Money.yuan_to_price_units(1600),
+                    current_price=Money.yuan_to_price_units(1800),
+                    currency='CNY',
+                    allocation='longterm',
+                ),
+                Position(
+                    symbol='000001',
+                    name='某基金',
+                    market='SZ',
+                    asset_type='fund',
+                    quantity=Money.shares_to_min_unit(1000),
+                    avg_price=Money.yuan_to_price_units(1.5),
+                    current_price=Money.yuan_to_price_units(1.8),
+                    currency='CNY',
+                    allocation='stable',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='cash',
+                    name='活期存款',
+                    amount=Money.yuan_to_cents(200_000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='liability',
+                    name='房屋贷款',
+                    amount=Money.yuan_to_cents(100_000),
+                    currency='CNY',
+                ),
+            ]
         )
-        fund = Position(
-            symbol='000001',
-            name='某基金',
-            market='SZ',
-            asset_type='fund',
-            quantity=Money.shares_to_min_unit(1000),
-            avg_price=Money.yuan_to_price_units(1.5),
-            current_price=Money.yuan_to_price_units(1.8),
-            currency='CNY',
-            allocation='stable',
-        )
-        db.add_all([stock, fund])
-
-        cash = Asset(
-            user_id=1, major_category='cash', name='活期存款', amount=Money.yuan_to_cents(200_000), currency='CNY'
-        )
-        mortgage = Asset(
-            user_id=1, major_category='liability', name='房屋贷款', amount=Money.yuan_to_cents(100_000), currency='CNY'
-        )
-        db.add_all([cash, mortgage])
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        assert resp.status_code == 200
-        data = resp.get_json()['data']
-        nodes = {n['name'] for n in data['nodes']}
-        links = {(link['source'], link['target']) for link in data['links']}
-
-        # 资产大类（不再有“活期存款”节点）
-        assert '流动资金' in nodes
-        assert '投资理财' in nodes
-        assert '总资产' in nodes
-        assert '净资产' in nodes
-        assert '总负债' in nodes
-        assert '房屋贷款' in nodes  # 负债明细仍存在
-        assert '长期增值' in nodes
-        assert '稳健底仓' in nodes
-        assert '股票' in nodes
-        assert '基金' in nodes
-
-        # 链路
-        assert ('流动资金', '总资产') in links
-        assert ('投资理财', '总资产') in links
-        assert ('总资产', '净资产') in links
-        assert ('总资产', '总负债') in links
-        assert ('总负债', '房屋贷款') in links
-        assert ('净资产', '长期增值') in links
-        assert ('净资产', '稳健底仓') in links
-        assert ('长期增值', '股票') in links
-        assert ('稳健底仓', '基金') in links
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        edges = {(lk['source'], lk['target']) for lk in links}
+        assert {'流动资金', '投资理财', '总资产', '净资产', '总负债', '房屋贷款'} <= set(nodes)
+        assert {'活期存款', '股票', '基金'} <= set(nodes)
+        assert ('房屋贷款', '总负债') in edges
+        assert ('总资产', '流动资金') in edges
+        assert ('总资产', '投资理财') in edges
+        assert ('投资理财', '股票') in edges
+        assert ('投资理财', '基金') in edges
+        assert not (set(nodes) & {'长期增值', '稳健底仓', '活钱', '高风险博弈', '保险保障'})
 
     def test_currency_conversion(self, client, db):
-        """外币持仓正确换算为 CNY，验证汇率生效"""
-        pos = Position(
-            symbol='HK00700',
-            name='腾讯控股',
-            market='HK',
-            asset_type='stock',
-            quantity=Money.shares_to_min_unit(100),
-            avg_price=Money.yuan_to_price_units(300),
-            current_price=Money.yuan_to_price_units(350),
-            currency='HKD',
+        """外币持仓正确换算为 CNY，体现在 总资产 → 投资理财 的链接中"""
+        db.add(
+            Position(
+                symbol='HK00700',
+                name='腾讯控股',
+                market='HK',
+                asset_type='stock',
+                quantity=Money.shares_to_min_unit(100),
+                avg_price=Money.yuan_to_price_units(300),
+                current_price=Money.yuan_to_price_units(350),
+                currency='HKD',
+            )
         )
-        db.add(pos)
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        data = resp.get_json()['data']
-
-        # 市值 = 100 * 350 * 0.92 = 32200.0，应体现在 投资理财 → 总资产 的链接中
-        invest_link = next(
-            link for link in data['links'] if link['source'] == '投资理财' and link['target'] == '总资产'
-        )
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        _nodes, links = self._assert_sankey_conserved(data)
+        # 市值 = 100 * 350 * 0.92 = 32200.0
+        invest_link = next(lk for lk in links if lk['source'] == '总资产' and lk['target'] == '投资理财')
         assert invest_link['value'] == 32200.0
 
     def test_node_deduplication(self, client, db):
-        """重复节点名称不重复添加"""
-        p1 = Position(
-            symbol='A',
-            name='股A',
-            asset_type='stock',
-            quantity=Money.shares_to_min_unit(1),
-            current_price=Money.yuan_to_price_units(10),
+        """同产品类型的多笔持仓聚合成一个明细节点"""
+        db.add_all(
+            [
+                Position(
+                    symbol='A',
+                    name='股A',
+                    asset_type='stock',
+                    quantity=Money.shares_to_min_unit(1),
+                    current_price=Money.yuan_to_price_units(10),
+                ),
+                Position(
+                    symbol='B',
+                    name='股B',
+                    asset_type='stock',
+                    quantity=Money.shares_to_min_unit(1),
+                    current_price=Money.yuan_to_price_units(20),
+                ),
+            ]
         )
-        p2 = Position(
-            symbol='B',
-            name='股B',
-            asset_type='stock',
-            quantity=Money.shares_to_min_unit(1),
-            current_price=Money.yuan_to_price_units(20),
-        )
-        db.add_all([p1, p2])
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        data = resp.get_json()['data']
-
-        # '股票' 节点应仅出现一次
-        stock_nodes = [n for n in data['nodes'] if n['name'] == '股票']
-        assert len(stock_nodes) == 1
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, _links = self._assert_sankey_conserved(data)
+        assert nodes.count('股票') == 1
 
     def test_aggregation_by_category(self, client, db):
-        """同一大类多条资产正确聚合"""
-        # 两条流动资金
-        a1 = Asset(user_id=1, major_category='cash', name='银行卡A', amount=Money.yuan_to_cents(10000), currency='CNY')
-        a2 = Asset(user_id=1, major_category='cash', name='银行卡B', amount=Money.yuan_to_cents(20000), currency='CNY')
-        db.add_all([a1, a2])
+        """同一大类多条资产聚合成一个大类节点，明细逐项展开"""
+        db.add_all(
+            [
+                Asset(
+                    user_id=1, major_category='cash', name='银行卡A', amount=Money.yuan_to_cents(10000), currency='CNY'
+                ),
+                Asset(
+                    user_id=1, major_category='cash', name='银行卡B', amount=Money.yuan_to_cents(20000), currency='CNY'
+                ),
+            ]
+        )
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        data = resp.get_json()['data']
-
-        # 流动资金 → 总资产 的链接值应为 30000
-        cat_link = next(link for link in data['links'] if link['source'] == '流动资金' and link['target'] == '总资产')
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        assert nodes.count('流动资金') == 1
+        assert {'银行卡A', '银行卡B'} <= set(nodes)
+        cat_link = next(lk for lk in links if lk['source'] == '总资产' and lk['target'] == '流动资金')
         assert cat_link['value'] == 30000.0
 
     def test_liabilities_isolated_from_net_worth(self, client, db):
-        """负债不影响净资产流向五笔钱"""
-        # 持仓
-        pos = Position(
-            symbol='SH600519',
-            name='茅台',
-            market='SH',
-            asset_type='stock',
-            quantity=Money.shares_to_min_unit(10),
-            avg_price=Money.yuan_to_price_units(1000),
-            current_price=Money.yuan_to_price_units(2000),
-            currency='CNY',
-            allocation='speculative',
+        """负债不影响资产运用侧，且净资产本身就是 A − L（不再配平出「未配置资产」）。
+
+        旧用例断言「净资产(1.5万) → 高风险博弈 = 持仓市值(2万)」，等于把
+        入边 1.5 万 / 出边 2 万的守恒破坏钉成期望行为。现在净资产出边
+        只有「总资产」，持仓市值走 总资产 → 投资理财 → 股票。
+        """
+        db.add_all(
+            [
+                Position(
+                    symbol='SH600519',
+                    name='茅台',
+                    market='SH',
+                    asset_type='stock',
+                    quantity=Money.shares_to_min_unit(10),
+                    avg_price=Money.yuan_to_price_units(1000),
+                    current_price=Money.yuan_to_price_units(2000),
+                    currency='CNY',
+                    allocation='speculative',
+                ),
+                Asset(
+                    user_id=1, major_category='liability', name='花呗', amount=Money.yuan_to_cents(5000), currency='CNY'
+                ),
+            ]
         )
-        db.add(pos)
-        # 负债
-        liability = Asset(
-            user_id=1, major_category='liability', name='花呗', amount=Money.yuan_to_cents(5000), currency='CNY'
-        )
-        db.add(liability)
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        data = resp.get_json()['data']
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        _nodes, links = self._assert_sankey_conserved(data)
+        by_edge = {(lk['source'], lk['target']): lk['value'] for lk in links}
+        assert by_edge[('净资产', '总资产')] == 15000.0
+        assert by_edge[('花呗', '总负债')] == 5000.0
+        assert by_edge[('总负债', '总资产')] == 5000.0
+        assert by_edge[('总资产', '投资理财')] == 20000.0
+        assert by_edge[('投资理财', '股票')] == 20000.0
+        assert ('净资产', '高风险博弈') not in by_edge
 
-        # 净资产流向高风险博弈的金额 = 持仓市值（20000），而非减去负债
-        alloc_link = next(
-            link for link in data['links'] if link['source'] == '净资产' and link['target'] == '高风险博弈'
+    def test_house_and_loan_no_unconfigured_asset(self, client, db):
+        """用户原案例：零持仓 + 房 220万 + 房贷 176万，不得凭空造「未配置资产」。
+
+        旧版 `unconfigured = net_worth − Σ持仓市值` 在这里给出 44 万，
+        它其实是「非持仓资产净额」被错配到权益下面。
+        """
+        db.add_all(
+            [
+                Asset(
+                    user_id=1,
+                    major_category='fixed',
+                    name='自住房',
+                    amount=Money.yuan_to_cents(2_200_000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='liability',
+                    name='房贷',
+                    amount=Money.yuan_to_cents(1_760_000),
+                    currency='CNY',
+                ),
+            ]
         )
-        assert alloc_link['value'] == 20000.0
+        db.commit()
+
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        assert '未配置资产' not in nodes
+        by_edge = {(lk['source'], lk['target']): lk['value'] for lk in links}
+        assert by_edge[('净资产', '总资产')] == 440000.0
+        assert by_edge[('总资产', '固定资产')] == 2_200_000.0
+        assert by_edge[('固定资产', '自住房')] == 2_200_000.0
+
+    def test_allocation_does_not_change_graph(self, client, db):
+        """改五笔钱配置目标不改变图的任何金额：这条正交轴已被彻底移除"""
+        pos = Position(
+            symbol='FUND',
+            name='一支基金',
+            asset_type='fund',
+            quantity=Money.shares_to_min_unit(1),
+            current_price=Money.yuan_to_price_units(1000),
+            currency='CNY',
+            allocation='longterm',
+        )
+        db.add_all(
+            [
+                pos,
+                Asset(
+                    user_id=1,
+                    major_category='fixed',
+                    name='自住房',
+                    amount=Money.yuan_to_cents(2_200_000),
+                    currency='CNY',
+                ),
+            ]
+        )
+        db.commit()
+
+        first = client.get('/api/summary/sankey/').get_json()['data']
+        pos.allocation = 'liquid'
+        db.commit()
+        second = client.get('/api/summary/sankey/').get_json()['data']
+
+        self._assert_sankey_conserved(first)
+        self._assert_sankey_conserved(second)
+        assert first == second
+
+    def test_negative_net_worth_degrades_to_single_axis(self, client, db):
+        """资不抵债时 E ≤ 0 不能画成正流量：退化为「总资产 → 大类 → 明细」单轴图"""
+        db.add_all(
+            [
+                Asset(
+                    user_id=1,
+                    major_category='fixed',
+                    name='自住房',
+                    amount=Money.yuan_to_cents(2_200_000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='liability',
+                    name='房贷',
+                    amount=Money.yuan_to_cents(4_000_000),
+                    currency='CNY',
+                ),
+            ]
+        )
+        db.commit()
+
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        assert '净资产' not in nodes
+        assert '总负债' not in nodes
+        assert '房贷' not in nodes
+        assert nodes == ['总资产', '固定资产', '自住房']
+        assert {(lk['source'], lk['target']) for lk in links} == {('总资产', '固定资产'), ('固定资产', '自住房')}
 
     def test_zero_value_assets_ignored(self, client, db):
         """金额为 0 的资产不参与桑基图"""
-        zero_asset = Asset(
-            user_id=1, major_category='cash', name='空账户', amount=Money.yuan_to_cents(0), currency='CNY'
-        )
-        db.add(zero_asset)
+        db.add(Asset(user_id=1, major_category='cash', name='空账户', amount=Money.yuan_to_cents(0), currency='CNY'))
         db.commit()
 
-        resp = client.get('/api/summary/sankey/')
-        data = resp.get_json()['data']
-        node_names = [n['name'] for n in data['nodes']]
-        assert '空账户' not in node_names
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, _links = self._assert_sankey_conserved(data)
+        assert '空账户' not in nodes
+
+    def test_duplicate_liability_names_merged(self, client, db):
+        """同名负债（不同账户）合并成一条带，不产生两条同源同目标的边
+
+        桑基图以节点 name 为唯一键。同名明细若不聚合，会出现两条
+        source/target 完全相同的边，前端算重心时父节点被数两次。
+        """
+        db.add_all(
+            [
+                # 一笔正资产让净资产 > 0，资金来源侧才会绘制（否则触发资不抵债退化，
+                # 整个负债分支被跳过，合并边根本不会出现）
+                Asset(
+                    user_id=1,
+                    major_category='cash',
+                    name='活期存款',
+                    amount=Money.yuan_to_cents(3_000_000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='liability',
+                    name='房贷',
+                    account_name='A',
+                    amount=Money.yuan_to_cents(1_000_000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='liability',
+                    name='房贷',
+                    account_name='B',
+                    amount=Money.yuan_to_cents(500_000),
+                    currency='CNY',
+                ),
+            ]
+        )
+        db.commit()
+
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        edges = [lk for lk in links if lk['source'] == '房贷']
+        assert len(edges) == 1, f'同名负债应合并成一条边，实得 {edges}'
+        assert edges[0]['target'] == '总负债'
+        assert edges[0]['value'] == 1_500_000.0
+
+    def test_detail_name_colliding_with_category_has_no_self_loop(self, client, db):
+        """明细名撞大类名时不生成自环边（ECharts 判非 DAG 会让整图白屏）
+
+        用户完全可以把资产命名为「投资理财」「流动资金」。旧实现明细名取自
+        asset_type（股票/基金…）不会撞；改成用户自填资产名后必须显式去重。
+        """
+        db.add_all(
+            [
+                Asset(
+                    user_id=1,
+                    major_category='investment',
+                    name='投资理财',
+                    amount=Money.yuan_to_cents(300_000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='cash',
+                    name='流动资金',
+                    amount=Money.yuan_to_cents(100_000),
+                    currency='CNY',
+                ),
+            ]
+        )
+        db.commit()
+
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        assert not [lk for lk in links if lk['source'] == lk['target']], '出现了自环边'
+        # 大类节点仍是唯一的那个，撞名的明细被改名让开
+        assert nodes.count('投资理财') == 1
+        assert nodes.count('流动资金') == 1
+        assert '投资理财·2' in nodes
+        assert '流动资金·2' in nodes
+        assert len(set(nodes)) == len(nodes), '节点名必须全局唯一'
+
+    def test_unnamed_asset_falls_back_to_other_asset(self, client, db):
+        """无名的通用资产归到「其他资产」，不产生空名节点或空名边"""
+        db.add(Asset(user_id=1, major_category='cash', name=None, amount=Money.yuan_to_cents(80_000), currency='CNY'))
+        db.commit()
+
+        data = client.get('/api/summary/sankey/').get_json()['data']
+        nodes, links = self._assert_sankey_conserved(data)
+        assert '其他资产' in nodes
+        assert '' not in nodes
+        assert all(lk['source'] and lk['target'] for lk in links)
+
+    def test_conservation_guard_is_effective(self):
+        """守卫灵敏度探针：破坏守恒 / 孤立节点 / 禁用节点 / 反转方向 / 零流量都转红。
+
+        AGENTS.md：守门通过 ≠ 守门有效。若有人删掉守恒实现，这条探针
+        必须能证明守卫不是恒绿。
+        """
+        base = {
+            'nodes': [
+                {'name': '净资产'},
+                {'name': '总资产'},
+                {'name': '固定资产'},
+                {'name': '自住房'},
+            ],
+            'links': [
+                {'source': '净资产', 'target': '总资产', 'value': 100},
+                {'source': '总资产', 'target': '固定资产', 'value': 100},
+                {'source': '固定资产', 'target': '自住房', 'value': 100},
+            ],
+        }
+        self._assert_sankey_conserved(base)  # 基线先绿
+
+        def must_fail(mutate):
+            broken = {
+                'nodes': [dict(n) for n in base['nodes']],
+                'links': [dict(lk) for lk in base['links']],
+            }
+            mutate(broken)
+            with pytest.raises(AssertionError):
+                self._assert_sankey_conserved(broken)
+
+        must_fail(lambda d: d['links'][1].update(value=200))  # 入 100 / 出 200
+        must_fail(lambda d: d['nodes'].append({'name': '孤立节点'}))  # 无边的节点
+        must_fail(lambda d: d['nodes'].append({'name': '未配置资产'}))  # 禁用节点
+        must_fail(
+            lambda d: d['links'][0].update(  # 方向反转
+                source='总资产', target='净资产'
+            )
+        )
+        must_fail(lambda d: d['links'][2].update(value=0))  # 非正流量
 
 
 class TestDistributionsEndpoint:

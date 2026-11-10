@@ -27,12 +27,12 @@
 """
 
 from app.core.money import Money
+from app.services.sankey_service import get_sankey_data
 from app.services.summary_service import (
     family_totals,
     get_account_groups,
     get_distributions,
     get_ledger_distributions,
-    get_sankey_data,
     get_summary_data,
 )
 
@@ -195,7 +195,7 @@ class TestTotalAssetsSingleExit:
         assert all(x['name'] != 'E账户' for x in get_account_groups(db, 1))
 
     def test_sankey_center_agrees_with_summary(self, db, make_position, make_asset):
-        """桑基图「总资产 → 净资产」链路金额与 dashboard 总资产一致（#2154 附带修复）"""
+        """桑基图「净资产 → 总资产」链路金额与 dashboard 总资产一致（D94：方向反转为 E→A）"""
         make_position(
             symbol='SK001',
             name='投顾产品',
@@ -212,13 +212,14 @@ class TestTotalAssetsSingleExit:
         maken  # 确保负债存在但不影响净资产链路断言
 
         links = get_sankey_data(db, 1)['links']
-        total_to_net = [x for x in links if x['source'] == '总资产' and x['target'] == '净资产']
-        assert len(total_to_net) == 1, f'桑基图缺少 总资产→净资产 链路: {links}'
+        # D94：净资产 → 总资产（E 汇向 A），方向反转
+        net_to_center = [x for x in links if x['source'] == '净资产' and x['target'] == '总资产']
+        assert len(net_to_center) == 1, f'桑基图缺少 净资产→总资产 链路: {links}'
         # 总资产 50000 − 负债 1000 = 49000
-        assert total_to_net[0]['value'] == 49000.0
+        assert net_to_center[0]['value'] == 49000.0
 
     def test_sankey_category_node_uses_unique_valuation(self, db, make_position):
-        """桑基图的「投资理财」大类节点也必须走唯一市值口径（#2154）。
+        """桑基图的「投资理财」大类节点也必须走唯一市值口径（D94：方向反转为 总资产→投资理财）。
 
         桑基图自身不累加总资产，但它的**分类节点**是独立算的：旧版这里同样裸算
         「份额 × 快照价」，balance 模式持仓在图上就是缺的（总资产节点有、来源片没有）。
@@ -236,7 +237,8 @@ class TestTotalAssetsSingleExit:
             allocation='longterm',
         )
         links = get_sankey_data(db, 1)['links']
-        investment_links = [x for x in links if x['target'] == '总资产' and x['source'] == '投资理财']
+        # D94：总资产 → 投资理财（方向反转）
+        investment_links = [x for x in links if x['source'] == '总资产' and x['target'] == '投资理财']
         assert len(investment_links) == 1, f'桑基图「投资理财」大类缺失（balance 持仓未计）: {links}'
         assert investment_links[0]['value'] == 50000.0
 
