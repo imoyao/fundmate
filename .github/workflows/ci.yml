@@ -112,6 +112,24 @@ jobs:
       fail-fast: false
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
     timeout-minutes: 30
+    # TD-012：#2875 的库级 CHECK 此前只在 SQLite 真跑，PG 侧由 PgFake 钉 DDL 文本，
+    # 证不了「PG 接受该 DDL / 反射真回约束名 / 违规写入真被拒」。挂一个真 PG service，
+    # 由下方串行步骤跑真库用例。不新增 job ⇒ 不用动 gate.needs（#1559/#1560 两次事故）。
+    # 接线本身由 scripts/guard_pg_migration_ci.py 结构化钉住（注释里写一句不算数）。
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fundmate_test
+          POSTGRES_PASSWORD: fundmate_test
+          POSTGRES_DB: fundmate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fundmate_test -d fundmate_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -226,6 +244,20 @@ jobs:
           else
             pdm run python -m pytest -n auto -m "not slow" tests --ignore=tests/services
           fi
+
+      # TD-012 真 PG 迁移验证：必须**串行**（-n 0）。_pg_add_check_constraints 先
+      # inspect 反射判重再发 ALTER，两步非原子；上面常规测试是 2 片 × -n auto ≈ 8 worker，
+      # 并发跑同一个 PG 会互相撞 "already exists"（#2986 模板并发写坏是同源教训）。
+      # 只在 services 分片跑一次，避免两个 matrix 实例重复执行。
+      # ⚠️ TEST_POSTGRES_URL 必须**只挂本 step**：挂到 job 级会让上面常规
+      # `pytest -n auto ... tests --ignore=tests/services` 也收集这份用例且不 skip，
+      # 4 worker 并发撞反射判重（"already exists"）。step 级注入 ⇒ 常规分片自然 skip。
+      # 无该变量时用例自己 skip（本机开发），语义结论只以本步骤的 CI 日志为准。
+      - name: PG 真库迁移验证
+        if: ${{ matrix.shard == 'services' }}
+        env:
+          TEST_POSTGRES_URL: postgresql+psycopg://fundmate_test:fundmate_test@127.0.0.1:5432/fundmate_test
+        run: pdm run python -m pytest -n 0 -m "not slow" tests/core/test_migrations_positions_state_check_pg.py
 
       # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`
       # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加
@@ -853,6 +885,9 @@ jobs:
       # （done 判据必须满足、open 必须不满足）。回归网随下方 unittest discover 收。
       - name: 技术债务登记表状态一致性（阻断）
         run: python scripts/guard_tech_debt_register.py
+
+      - name: CI 真 Postgres 迁移验证接线（阻断）
+        run: python scripts/guard_pg_migration_ci.py
 
       - name: 设计文档索引守卫回归网
         if: ${{ always() }}

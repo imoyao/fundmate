@@ -279,6 +279,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '条目数不等于全仓技术债总数。'
         ),
     },
+    'scripts/guard_pg_migration_ci.py': {
+        'rule': 'CI 真 Postgres 迁移验证接线（services.postgres + TEST_POSTGRES_URL + 串行 -n 0 step + 真库用例 AST）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_pg_migration_ci.py',
+        'covered': (
+            '只钉「接线在不在」与用例里有没有真连接标识符，不连 PG、不判 PG 是否真的接受 DDL / 拒绝违规写入'
+            '（由 backend/tests/core/test_migrations_positions_state_check_pg.py 承担）。'
+            '本机无 TEST_POSTGRES_URL 时用例 skip 是设计内行为，语义结论只以 CI 日志为准；'
+            '不判 service 健康检查参数是否最优。'
+        ),
+    },
     'scripts/guard_a11y_interaction.py': {
         'rule': '交互可达性（图标按钮可访问名称 / 非交互元素挂 click）',
         'runner': 'ci',
