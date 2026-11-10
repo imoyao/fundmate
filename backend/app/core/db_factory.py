@@ -530,6 +530,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # 读取（先取键列表再 in_ 批查），不做跨域 JOIN；funds.company_id 仍由 market 域独占写权。
     'fund_company_observations': DOMAIN_USER,
     'assets': DOMAIN_USER,  # 静态资产（含 family_id）
+    'asset_value_events': DOMAIN_USER,  # 单资产值变动事件（D99/D100）：含 family_id，与 assets 同库同域
     'sales_institutions': DOMAIN_USER,  # 销售机构名录（被 ledgers 引用，随 user 域）
     'watchlist': DOMAIN_USER,
     'watchlist_groups': DOMAIN_USER,

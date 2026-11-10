@@ -85,6 +85,60 @@ class Asset(Base):
     )
 
 
+class AssetValueEvent(Base):
+    """单资产值变动事件（append-only，D99 / D100；设计见 docs/design/asset-value-history-design.md）。
+
+    房贷逐月还款、欠款增减、房产重估都落在这一张表：它们是 `assets` 表里两行
+    独立记录，「记录一次值变化」的存储结构完全相同，`kind` 只是展示标签。
+
+    ## 为什么只存 delta，不存 before/after
+
+    `assets.amount` 是**唯一当前值**，本表是**唯一真相源**（append-only）。
+    只存变动量时，补录一条更早日期的事件不需要重算任何存量行；若存绝对值，
+    插入更早事件会让所有后续 `after_amount` 失效，必须批量重算（设计 §4.2）。
+    锚点因此是派生量：`初始余额 = amount − Σdelta`，不落 `opening` 行。
+
+    ## 双时间戳（D99）
+
+    `effective_date` 由用户显式提供、允许早于今天，是唯一参与 as-of 查询的时间；
+    `recorded_at` 是系统墙钟，只回答「何时录入」，**绝不**参与时点取数。
+
+    ## append-only
+
+    没有 UPDATE / DELETE 路径；纠错 = 追加一条 `kind='correction'` 的反向记录，
+    不擦除历史行，否则 `amount − Σdelta` 不变量会被破坏（设计 §3.3）。
+    """
+
+    __tablename__ = 'asset_value_events'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    family_id = Column(Integer, nullable=False, default=1, index=True, comment='归属家庭 ID')
+    asset_id = Column(
+        Integer,
+        ForeignKey('assets.id', ondelete='RESTRICT'),
+        nullable=False,
+        index=True,
+        comment='资产 ID；RESTRICT 兜底禁止删资产行连带毁掉整条序列（D100）',
+    )
+
+    effective_date = Column(Date, nullable=False, comment='业务发生日（用户显式提供，D99）')
+    recorded_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment='录入墙钟；只做审计，不参与时点查询',
+    )
+
+    delta = Column(Integer, nullable=False, comment='变动量（分，带符号）；恒正余额口径，负债方向不在此变号')
+    kind = Column(String(20), nullable=False, default='adjustment', comment='展示标签：valuation/repayment/borrow/receivable_change/correction/adjustment')
+    notes = Column(String(500), nullable=True, comment='本次变动说明（与 assets.notes 分开）')
+    client_token = Column(String(64), nullable=False, unique=True, comment='幂等令牌（D71 同源，ON CONFLICT DO NOTHING）')
+
+    __table_args__ = (
+        Index('ix_asset_value_events_scope', 'family_id', 'asset_id', 'effective_date', 'id'),
+    )
+
+
 @event.listens_for(Asset, 'before_insert')
 @event.listens_for(Asset, 'before_update')
 def _fill_asset_account_name(mapper, connection, target: Asset) -> None:

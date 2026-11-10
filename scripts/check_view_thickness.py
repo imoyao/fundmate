@@ -170,9 +170,15 @@ NEW_FILE_LIMITS = {
 # 按 `--report` 实测回写：performance lines 86 → 83（max_func 31 不动——最长函数是
 # money-fund-income，本 PR 未触碰）。教训与 #1642 相同：**给视图加功能前先想好日志/校验
 # 落点**，否则「只加 5 行日志」也能顶穿冻结基线。
+# 2026-11-10 再取（**新增端点**，非放宽）：资产值变动记录（D99/D100）加
+# `GET /api/assets/<id>/value-events/` 与 `GET /api/assets/<id>/value-at/`。
+# 值变动字段的 delta/amount 兼容换算、事件字段校验全部下沉到
+# `services/asset_value_event_service.py::apply_patch_value_change`，视图只剩
+# 「解析 + 归属校验 + 调服务 + 信封」；`orm_queries` 4 / `commits` 0 /
+# `max_func` 44 三维实测**均不动**，仅 lines 208 → 244（两个 GET + 口径注释）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {
-        "lines": 208,
+        "lines": 244,
         "orm_queries": 4,
         "commits": 0,
         "max_func": 44,

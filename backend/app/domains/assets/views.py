@@ -5,6 +5,8 @@
 # -*- coding: utf-8 -*-
 """通用资产 API."""
 
+from datetime import date
+
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
@@ -19,6 +21,7 @@ from app.core.validation import parse_body
 from app.domains.assets.models import Asset
 from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate
 from app.domains.ledgers.models import Ledger
+from app.services.asset_value_event_service import apply_patch_value_change, list_value_events, value_asof
 
 bp = APIBlueprint('assets', __name__, url_prefix='/api/assets')
 
@@ -140,13 +143,46 @@ def update_asset(id):
                     }
                 ), 400
 
-        if 'amount' in update_data:
-            update_data['amount'] = Money.yuan_to_cents(update_data['amount'])
-        for field, value in update_data.items():
+        # 值变动字段不走 setattr：交给唯一写者在同一事务里写 append-only 事件 +
+        # 更新 assets.amount 投影。其余字段（name / notes / minor_category ...）
+        # 仍走原路径，避免「只改名」被误记成一次值变化（设计 §5.1 / §5.2）。
+        # 值变动字段（delta / amount / 日期 / 说明 / 幂等令牌）由唯一写者消费，
+        # 其余字段仍走原 setattr 路径；视图只做编排，不碰业务规则（#1606）。
+        remaining, error = apply_patch_value_change(db, asset, update_data)
+        if error:
+            return jsonify({'data': None, 'message': error}), 400
+        for field, value in remaining.items():
             setattr(asset, field, value)
         db.flush()
         db.refresh(asset)
         return jsonify({'data': _enrich_asset_dict(asset), 'message': 'ok'})
+
+
+@bp.get('/<int:id>/value-events/')
+def list_asset_value_events(id):
+    """单资产值变动时间线（按 effective_date, id 升序；family 隔离；分页）。"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    with get_db() as db:
+        asset = get_owned_or_404(db, Asset, id)
+        if not asset:
+            abort(404, description='资产不存在')
+        return jsonify(list_value_events(db, asset, page=page, per_page=per_page))
+
+
+@bp.get('/<int:id>/value-at/')
+def get_asset_value_at(id):
+    """时点值；start_date 未填或早于可信下界时返回 valid=false / value=null。"""
+    raw = request.args.get('date', '')
+    try:
+        target = date.fromisoformat(raw)
+    except ValueError:
+        return jsonify({'data': None, 'message': 'date 必须是 YYYY-MM-DD'}), 400
+    with get_db() as db:
+        asset = get_owned_or_404(db, Asset, id)
+        if not asset:
+            abort(404, description='资产不存在')
+        return jsonify({'data': value_asof(db, asset, target), 'message': 'ok'})
 
 
 @bp.delete('/<int:id>/')

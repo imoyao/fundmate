@@ -34,10 +34,16 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="130" fixed="right">
+      <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
           <el-button text size="small" @click="emit('edit', row as AssetRecord)"
             >编辑</el-button
+          >
+          <el-button
+            text
+            size="small"
+            @click="emit('detail', row as AssetRecord)"
+            >明细</el-button
           >
           <el-button
             text
@@ -81,6 +87,8 @@ defineProps<{
 const emit = defineEmits<{
   /** 点击行内「编辑」 */
   edit: [row: AssetRecord];
+  /** 点击行内「明细」：打开单资产值变动时间线抽屉 */
+  detail: [row: AssetRecord];
   /** 点击行内「删除」（二次确认由页面负责） */
   remove: [row: AssetRecord];
 }>();
