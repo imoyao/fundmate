@@ -4,6 +4,12 @@
 # File : backend/app/services/summary_service.py
 """仪表盘聚合与桑基图数据服务."""
 
+# ⚠️ 体量/复杂度冻结基线（2026-11-10 D94 收缩后写入 scripts/guard_service_size.py）：
+# 本文件是「存量服务」，**只减不增**。新增的大函数（如桑基图 get_sankey_data 一族，
+# 原 220+ 行 / 圈复杂度 53）必须下沉到独立子模块（见 app/services/sankey_service.py），
+# 否则会触发 CI 的「services 层体量/复杂度软闸门」回潮拦截。后端守卫单测
+# test_baseline_matches_current_metrics 强制要求基线 == 实测，改动后须同步回写基线。
+
 import hashlib
 from collections import defaultdict
 from datetime import date, datetime
