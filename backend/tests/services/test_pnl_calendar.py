@@ -1680,3 +1680,166 @@ def test_有可算日判据不把partial当成空态():
         {'date': '2026-01-07', 'state': STATE_NO_PRICE, 'daily_pnl': None},
     ]
     assert _has_computable_days(no_data) is False, '缺数据态仍应走空态，绝不补 0'
+
+
+def test_清仓当日不再记成反向假亏损(db, make_position, make_transaction):
+    """清仓持仓的水平值必须保留「已实现 − 买入费」，否则清仓当天反向记一次亏损。
+
+    旧实现 `held_shares <= 0` 直接 `continue`：清仓当日该持仓从
+    `市值 − 成本 + 已实现` 整段退出水平值，差额被差分记成**当日亏损**，
+    方向与该笔已实现完全相反。账户里还有别的持仓时（`day_held_count > 0`）
+    这笔记错直接进当日合计——真库账本 26 的 15 个清仓日全是这种形态，
+    最终各年合计精确抵消为 0（流水 realized ¥21,040.38，日历合计 ¥0.00，
+    而「累计盈亏」是 +¥20,846.55）。所以这里刻意放一笔**不清仓**的底仓：
+    只有它在场，清仓日的差分才会被真正写出来，否则整账户清完会落到
+    `no_position` 把数藏起来，测不到这条路径。
+    """
+    d1 = dt.date(2024, 3, 1)
+    d2 = dt.date(2024, 3, 5)
+    d3 = dt.date(2024, 3, 8)
+
+    closed = make_position(
+        symbol='000101',
+        name='清仓基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='元旦账户',
+    )
+    # 底仓：全程持有、净值不变 ⇒ 任何非零日盈亏都只能来自上面那笔清仓
+    holder = make_position(
+        symbol='000102',
+        name='底仓基金',
+        quantity=100,
+        avg_price=10.0,
+        asset_type='fund',
+        account_name='元旦账户',
+    )
+    make_transaction(
+        position_id=holder.id,
+        ledger_id=holder.ledger_id,
+        txn_type='buy',
+        quantity=100,
+        price=10.0,
+        confirm_date=d1,
+        symbol='000102',
+    )
+    make_transaction(
+        position_id=closed.id,
+        ledger_id=closed.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000101',
+    )
+    # 分两次卖：第一笔留下 500 份浮盈，第二笔才清空——差值里同时含
+    # 「当日涨跌」与「已实现」，只清一次的话两者会互相抵消，测不出方向错误。
+    make_transaction(
+        position_id=closed.id,
+        ledger_id=closed.ledger_id,
+        txn_type='sell',
+        quantity=500,
+        price=1.1,
+        realized_pnl=5000,
+        confirm_date=d2,
+        symbol='000101',
+    )
+    make_transaction(
+        position_id=closed.id,
+        ledger_id=closed.ledger_id,
+        txn_type='sell',
+        quantity=500,
+        price=1.1,
+        realized_pnl=5000,
+        confirm_date=d3,
+        symbol='000101',
+    )
+    for symbol, nav in (('000101', 1.0), ('000102', 10.0)):
+        _add_nav(db, symbol, d1, nav)
+    _add_nav(db, '000101', d2, 1.1)
+    _add_nav(db, '000101', d3, 1.1)
+    _add_nav(db, '000102', d2, 10.0)
+    _add_nav(db, '000102', d3, 10.0)
+
+    result = build_daily_pnl_series(
+        db,
+        family_id=1,
+        start_date='2024-03-01',
+        end_date='2024-03-08',
+        ledger_id=closed.ledger_id,
+    )
+
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01), '卖出日应记当日涨跌 + 已实现'
+    assert _pnl_of(result, d3) == pytest.approx(0.0, abs=0.01), '清仓当日不得出现反向亏损'
+    assert result['month_total'] == pytest.approx(100.0, abs=0.01), '区间合计 = Σ 已实现'
+
+
+def test_分红等非份额流水的已实现盈亏必须进日历(db, make_position, make_transaction):
+    """分红不改变份额，但它的 `realized_pnl` 是「累计已实现」的一部分。
+
+    旧实现在 `_as_of_shares` 里对非份额流水直接 `continue`，分红因此从未进过
+    日历——合计永远比「累计盈亏」少一笔分红（真库账本 26 实测：29 笔分红
+    realized 合计 ¥573.00）。清仓后再来的分红还额外覆盖状态链的「清仓当日」
+    分支：账户已无份额，但那天的差分是真收益，不能判成 `no_position`。
+    """
+    d1 = dt.date(2024, 3, 1)
+    d3 = dt.date(2024, 3, 8)
+    d5 = dt.date(2024, 3, 15)
+
+    pos = make_position(
+        symbol='000103',
+        name='分红基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='分红账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000103',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=1000,
+        price=1.1,
+        realized_pnl=10000,
+        confirm_date=d3,
+        symbol='000103',
+    )
+    # 清仓之后的现金分红：份额恒为 0，只有 realized 变化
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='dividend',
+        quantity=0,
+        price=0,
+        amount=20.0,
+        realized_pnl=2000,
+        confirm_date=d5,
+        symbol='000103',
+    )
+    _add_nav(db, '000103', d1, 1.0)
+    _add_nav(db, '000103', d3, 1.1)
+
+    result = build_daily_pnl_series(
+        db,
+        family_id=1,
+        start_date='2024-03-01',
+        end_date='2024-03-15',
+        ledger_id=pos.ledger_id,
+    )
+
+    assert _pnl_of(result, d3) == pytest.approx(100.0, abs=0.01), '清仓当日应记已实现收益'
+    assert _pnl_of(result, d5) == pytest.approx(20.0, abs=0.01), '分红必须进当日盈亏'
+    assert _state_of(result, d5) == STATE_UPDOWN, '清仓后的分红日不能被判成 no_position'
+    assert result['month_total'] == pytest.approx(120.0, abs=0.01), '合计 = 已实现 100 + 分红 20'
