@@ -26,7 +26,9 @@
                          其中 D−' = **上一 A 股开盘日**（非开盘日冻结基准，#2277：
                          周六 / 周日 / 节假日当日不出数，其间估值变动——货基周末
                          净值行、落在非交易日的当日预估——并入下一开盘日）；
-                         total_pnl_asof(D) = Σ_pos [ mv_asof(D) − cost_basis_asof(D) + realized_asof(D) ]
+                         total_pnl_asof(D) = Σ_pos [ mv_asof(D) − cost_basis_asof(D) + realized_asof(D) − buy_fee_asof(D) ]
+                         （份额归零的持仓不退场，只留残值 `realized − buy_fee`；分红等
+                          非份额流水的 `realized_pnl` 照样计入 —— 口径见 pnl_cleared_residual）
 
 **建仓日按买入成本起算（2026-11-04 用户裁定）**：份额由 0 变正的那天，前值
 水平值是「未持有」的 0，当日 `level = 市值 − 买入成本`——这正是「今天买的
@@ -42,7 +44,7 @@
 
 七态（缺数据绝不能画成 0，见设计文档 §2.3；#1917 加 partial、#1942 拆休市）
 --------------------------------------------------------------------------
-    updown       真实盈亏（有价格序列且 shares>0）
+    updown       真实盈亏（含**清仓残值变动日**，口径见 pnl_cleared_residual）
     zero         有价格序列但当日盈亏恰为 0
     partial      **部分断档**：当天有标的有真报价、也有标的没有 ⇒ 照常出数，
                  但标注「数据不完整」（#1917 的 C 方案，见状态判定处注释）
@@ -91,6 +93,7 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
 from app.services import pnl_snapshot_store
 from app.services.asset_class import CLASS_ORDER, class_of_position
+from app.services.pnl_cleared_residual import ResidualBook, cleared_residual_day
 from app.services.pnl_fees import fee_delta_cents
 from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
@@ -359,17 +362,15 @@ def _as_of_shares(
         anchor = anchors.get(pid)
         if anchor is not None and eff <= anchor[1]:
             # 份额已含在快照里，但已实现盈亏是累计量，仍要留着（见 docstring）
-            if eff <= start and (txn.txn_type in _INVEST_TXN_TYPES or txn.txn_type in _DIVEST_TXN_TYPES):
+            if eff <= start:
                 txns[pid].append(txn)
             continue
         if txn.txn_type in _INVEST_TXN_TYPES:
             deltas[pid][eff] = deltas[pid].get(eff, 0) + (txn.quantity or 0)
         elif txn.txn_type in _DIVEST_TXN_TYPES:
             deltas[pid][eff] = deltas[pid].get(eff, 0) - (txn.quantity or 0)
-        else:
-            # 分红 / 手续费等其他类型不改变份额
-            continue
-        # realized_pnl 存在流水上（清仓删持仓也不丢），as-of 已实现盈亏靠它累计
+        # 分红 / 手续费等不改变份额，但 `realized_pnl` 是「累计已实现」的一部分
+        # （分红收入 / 兑付差额），必须进 `txns`——按类型挑会把它漏掉（账本 26 少 ¥573.00）。
         if eff <= start:
             txns[pid].append(txn)
 
@@ -1433,17 +1434,21 @@ def _compute_days(
         # 它仍是 0——那个 0 是**缺省值**，不是「账户归零」（#2733 C）。
         day_valued_count = 0
 
+        # 清仓残值记账器：归因 / 分桶样板在 `pnl_cleared_residual`
+        residual_book = ResidualBook(day_level, attribution, day_class_level, bucket_key, split)
         for state in value_per_pos.values():
             pos: Position = state['pos']
+            held_shares = state['shares']
+            if held_shares <= 0:
+                # 份额归零不退场：`市值 − 成本` 归零，残值 `已实现 − 买入费` 留下
+                day_total_pnl += residual_book.add(state, pos)
+                continue
             price = price_of(pos, day)
             if price is None:
-                if collect and state['shares'] > 0:
+                if collect:
                     # 持有但当日无价：进降级清单（输出时与「曾有价」集合做差，
                     # 只留**整窗无价**的持仓，见 compute_range_attribution）。
                     attribution['unpriced'].add(pos.id)
-                continue
-            held_shares = state['shares']
-            if held_shares <= 0:
                 continue
             # #2141：该持仓当日价来自估值定格（merge 后 series[today] 即估值行）
             used_estimate = bool(day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes)
@@ -1663,6 +1668,9 @@ def _compute_days(
             # 但当日不显示盈亏——「固定休市」是展示口径，不是把收益抹掉。
             state_code = STATE_CLOSED
             daily_pnl = None
+        elif cleared_residual_day(day_held_count, day_opening, daily_pnl):
+            # 账户已无份额，但清仓残值这天动了（最后一笔卖出 / 迟到的分红）⇒ 是真收益。
+            state_code = STATE_UPDOWN
         elif day_priced_count == 0 and day_unpriced_count > 0:
             state_code = STATE_NO_PRICE
             daily_pnl = None
