@@ -200,8 +200,13 @@ class TestFifoCanonicalRealizedPnl:
         make_transaction(pos.id, pos.ledger_id, txn_type='buy', quantity=100, price=20.0, trade_date=_dt(2026, 1, 2))
         # 移动加权平均成本 = 15；部分卖出 100@14 → 移动平均已实现 = 100×(14−15) = −100
         make_transaction(
-            pos.id, pos.ledger_id, txn_type='sell', quantity=100, price=14.0,
-            realized_pnl=Money.yuan_to_cents(-100), trade_date=_dt(2026, 2, 1),
+            pos.id,
+            pos.ledger_id,
+            txn_type='sell',
+            quantity=100,
+            price=14.0,
+            realized_pnl=Money.yuan_to_cents(-100),
+            trade_date=_dt(2026, 2, 1),
         )
         result = write_asset_snapshot(db, 1, SNAP_DATE)
         snapshot_realized = result['realized_pnl']

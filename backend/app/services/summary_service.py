@@ -37,6 +37,7 @@ from app.services.family_member_service import ledger_ids_for_member
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
 from app.services.ledger_cumulative_pnl import buy_fee_by_ledger, realized_pnl_by_ledger
+
 # 🔄 市值口径收口（#1174）：仪表盘市值统一委托唯一口径，override / balance / nav 一并覆盖
 from app.services.nav_service import NavService
 from app.services.pnl_fees import family_buy_fee_cents
@@ -160,10 +161,8 @@ def _per_ledger_buckets(
     if positions is None or assets is None:
         positions, assets = _load_user_assets(db, family_id, member_id)
 
-    # 市值的唯一基准 = 库内 T 日最新净值（与品类聚合 position_aggregation.py:239 同源）。
-    # 此前本函数漏传 effective_nav_yuan，导致总资产/快照走 positions.current_price（T-1 快照价），
-    # 与聚合页出现「同一持仓两个市值」——TD-010 的根因。此处一次性批量取净值（非 N+1），
-    # 注入 market_value_cents；非基金（股票/ETF）无 NAV → None → 回退快照价，与聚合侧一致。
+    # 市值唯一基准=库内 T 日最新净值（与 position_aggregation.py:239 同源）；此前漏传 effective_nav_yuan 致双基准=TD-010 根因。
+    # 非基金无 NAV→None→回退快照价，与聚合侧一致；一次性批量取净值（非 N+1）注入 market_value_cents。
     fund_symbols = [p.symbol for p in positions if p.symbol and p.asset_type in ('fund', 'money_fund')]
     latest_navs = NavService.get_latest_navs(db, fund_symbols, allow_remote=False) if fund_symbols else {}
 
