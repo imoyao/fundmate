@@ -110,6 +110,7 @@
           <OtherInvestmentTable
             :assets="currentAssets"
             @edit="openEditAssetDialog"
+            @detail="openValueHistory"
             @remove="removeAsset"
           />
         </section>
@@ -133,6 +134,7 @@
           <CategoryAssetTable
             :assets="currentAssets"
             @edit="openEditAssetDialog"
+            @detail="openValueHistory"
             @remove="removeAsset"
           />
         </section>
@@ -144,6 +146,11 @@
       v-model="editDialogVisible"
       :asset="editingAsset"
       @saved="fetchData"
+    />
+    <!-- 单资产值变动时间线（只读）：数据来自 /value-events/，不写家庭快照 -->
+    <AssetValueHistoryDrawer
+      v-model="historyDrawerVisible"
+      :asset="historyAsset"
     />
   </div>
 </template>
@@ -185,6 +192,7 @@ import OtherInvestmentTable from "./components/OtherInvestmentTable.vue";
 import CashLikeTable from "./components/CashLikeTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";
+import AssetValueHistoryDrawer from "./components/AssetValueHistoryDrawer.vue";
 import StrategyInsightSection from "./components/StrategyInsightSection.vue";
 
 // 与路由 `router/modules/home.ts` 的 name 保持一致，保证 keep-alive 命中
@@ -282,6 +290,14 @@ const editingAsset = ref<AssetRecord | null>(null);
 function openEditAssetDialog(row: AssetRecord) {
   editingAsset.value = row;
   editDialogVisible.value = true;
+}
+
+const historyDrawerVisible = ref(false);
+const historyAsset = ref<AssetRecord | null>(null);
+
+function openValueHistory(row: AssetRecord) {
+  historyAsset.value = row;
+  historyDrawerVisible.value = true;
 }
 
 /**

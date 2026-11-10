@@ -26,10 +26,13 @@ function stripComments(src: string): string {
 
 const stripped = stripComments(source);
 
-/** 取出 save() 里 updateAsset 的请求体对象内容 */
+/**
+ * 取出 save() 里的请求体：第 2 期把内联对象抽成了 `payload` 变量
+ * （delta != 0 时才追加事件字段），所以判据跟着改为读这个变量。
+ */
 function saveBody(): string {
   const match = stripped.match(
-    /await updateAsset\(form\.value\.id, \{([\s\S]*?)\}\);/
+    /const payload: AssetUpdateInput = \{([\s\S]*?)\};/
   );
   return match?.[1] ?? "";
 }
@@ -57,7 +60,7 @@ describe("AssetEditDialog 名称可编辑（防回潮）", () => {
     expect(stripped).toContain('ElMessage.warning("资产名称不能为空")');
   });
 
-  it("未保存离开提示覆盖名称", () => {
-    expect(stripped).toContain("资产名称／金额／备注已改动");
+  it("未保存离开提示覆盖名称与新增的变动字段", () => {
+    expect(stripped).toContain("资产名称／变动量／变动日期／说明／备注已改动");
   });
 });

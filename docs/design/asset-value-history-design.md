@@ -179,7 +179,7 @@ value_asof(asset, d) = assets.amount − Σ(delta_i where effective_date_i > d)
 | 问 | 答案 |
 |---|---|
 | **谁在用？** | 读者 A：`GET /api/assets/<id>/value-events/` → 盘点页行内「明细」抽屉的时间线表 + 折线；读者 B：`GET /api/assets/<id>/value-at/?date=` → 时间线时点值；读者 C：不变量测试 I1–I5；读者 D：`client_token` 的幂等写入路径 |
-| **什么场景用？** | 用户复盘房贷逐月下降、欠款增减、房产重估；在编辑弹窗填「变动日期 + 变动后金额 + 说明」保存后，抽屉里按时间看到每一步与折线 |
+| **什么场景用？** | 用户复盘房贷逐月下降、欠款增减、房产重估；在编辑弹窗填「变动日期 + 本次变动量 + 说明」保存后，抽屉里按时间看到每一步与折线 |
 | **缺了会怎样？** | 只能看到当前值，用户诉求（历史追溯）**完全无法满足**，降级不可接受 ⇒ 必须存 |
 | **成本多大？** | 每行约 100 字节、单资产年均数十行；**零外部请求**、零抓取、零调度 job；一次单资产查询走复合索引 |
 
@@ -191,11 +191,19 @@ value_asof(asset, d) = assets.amount − Σ(delta_i where effective_date_i > d)
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `PATCH` | `/api/assets/<id>/` | 现有端点。新增可选 `effective_date` / `change_note` / `client_token`；金额变化时由 §5.1 服务写事件 + 更新 `amount`；**不传这些字段时行为与今天逐字相同**（向后兼容） |
+| `PATCH` | `/api/assets/<id>/` | 现有端点。新增可选 `delta` / `effective_date` / `change_note` / `client_token` / `change_kind`；`delta` 是**独立业务事实**（元，带符号），由 §5.1 服务写事件 + 更新 `amount`。`delta` 与 `amount` 不可同时传；**都不传时行为与第 2 期之前逐字相同**（向后兼容） |
 | `GET` | `/api/assets/<id>/value-events/` | 单资产事件列表，按 `(effective_date, id)` 升序；带 `family_id` 隔离；分页 |
 | `GET` | `/api/assets/<id>/value-at/?date=YYYY-MM-DD` | 返回 `{ value, valid }`；`valid=false` 时 `value=null`（`start_date` 未知或日期早于下界） |
 
 `GET /api/summary/snapshots/` **一行不改**；补录前后返回必须完全相同（D99 判据）。
+
+> **实现期修订（2026-11-10，用户拍板）**：初稿 §9.2 让弹窗填「变动后余额 / 估值」，
+> 与 §4.2「只存 delta、乱序补录零重算」**数学上不兼容**。实证：初始 100 万，
+> 先录 11 月 90 万、再补 10 月 95 万，按 `delta = 新值 − 当前值` 反推会得到
+> 10 月 105 万 / 11 月 95 万 / 当前 95 万——两个填写值都没对上，因为当前值
+> 已含后续变动，补录更早事件会平移后面整条曲线。改为提交 `delta` 后同一组数据
+> 得到 10 月 95 万 / 11 月 90 万 / 当前 90 万，求和可交换 ⇒ 乱序零重算成立。
+> 旧客户端的 `amount` 绝对值语义保留，由视图换算成 `after − before` 后仍走同一写者。
 
 ---
 
@@ -209,7 +217,8 @@ value_asof(asset, d) = assets.amount − Σ(delta_i where effective_date_i > d)
 
 ### 9.2 第 2 期：值变动录入 + 时间线
 
-- 编辑弹窗增加「变动日期」（`el-date-picker`，默认今天）与「变动说明」（写事件 `notes`，与资产级「备注」分开）；「金额」标签改「变动后余额 / 估值」，文案按 `major_category` 切换。
+- 编辑弹窗把「金额」改为**「本次变动量」**（`el-input-number`，默认 0、允许负数：负债还款填 −3000、房产重估填 +200000），下方实时预览「当前余额 → 变动后余额」；另增「变动日期」（`el-date-picker`，默认今天）与「变动说明」（写事件 `notes`，与资产级「备注」分开）。文案按 `major_category` 切换（负债叫「余额」、房产叫「估值」）。
+- **录入语义必须填 delta，不是变动后绝对值**：理由与实证数据见 §8 的实现期修订。`delta == 0` 时不提交金额字段，保证「只改名 / 只改备注」不写事件（A10）。
 - 盘点页表格行加「明细」→ `el-drawer`：上半部 `TimeSeriesChart`（通用折线，`frontend/src/components/Charts/TimeSeriesChart.vue`），下半部时间线列表（可借鉴 `TransactionTimelineView.vue` 的按月分组与 `transactionListModel.ts` 的 `groupByMonth` 纯函数；本项目 `el-timeline` 只注册未使用，不强行引入）。
 - 时间线每行显示：业务日期、变动量、变动后值、说明、`kind` 标签、`recorded_at`（「录入于 …」）；`correction` 行默认折叠。
 - 数据有缺口时显示「—」+ 成因文案，不画 0、不插值。

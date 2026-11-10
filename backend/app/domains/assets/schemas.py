@@ -63,8 +63,25 @@ class AssetUpdate(BaseModel):
     end_date: Optional[date] = None
     notes: Optional[str] = None
     extra: Optional[dict] = None
+    # ── 值变动事件（D99/D100，设计 §8）────────────────────────────────
+    # 全部可选；不传时 PATCH 的对外行为与第 2 期之前逐字相同。
+    # delta 是独立业务事实（求和可交换 ⇒ 乱序补录零重算），不能由
+    # 「新值 − 当前值」反推；amount 保留旧绝对值语义，由视图换算成 delta。
+    delta: Optional[float] = Field(None, description='本次变动量（元，带符号；负数=还款/减少）')
+    effective_date: Optional[date] = Field(None, description='业务发生日（用户显式提供，允许早于今天）')
+    change_note: Optional[str] = Field(None, max_length=500, description='本次变动说明，写事件 notes')
+    client_token: Optional[str] = Field(None, max_length=64, description='幂等令牌，重放不产生第二条事件')
+    change_kind: Optional[str] = Field(None, description='仅允许 correction（标记冲销/更正）')
 
     _check_major_category = field_validator('major_category')(_validate_major_category)
+
+    @field_validator('change_kind')
+    @classmethod
+    def _check_change_kind(cls, value: str | None) -> str | None:
+        # 其余 kind 由服务按 major_category 派生，避免前端再维护一份词表
+        if value is not None and value != 'correction':
+            raise ValueError('change_kind 仅支持 correction')
+        return value
 
 
 class AssetOut(BaseModel):
