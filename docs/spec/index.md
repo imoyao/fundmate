@@ -33,7 +33,8 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [api.md](./api.md) | 核心 API 端点清单 | 随代码演进 | 事实标准 |
 | [frontend-ui.md](./frontend-ui.md) | 通用业务组件规范、前端区域布局与交互规范 | 随前端演进 | 硬约束 |
 | [roadmap.md](./roadmap.md) | 四象限定义 + 里程碑映射 + issue 反链 | 低（导航层，不含进度） | 查「某编号对应哪张卡」 |
-| [tech-debt.md](./tech-debt.md) | 技术债务与开口项明细 | 易腐烂（标核实日期） | 进度追踪 |
+| [tech-debt.md](./tech-debt.md) | 技术债务历史归档（发现过程 / 决策依据 / 实测证据），状态已迁出 | 低 | 历史归档 |
+| [tech-debt-register.toml](./tech-debt-register.toml) | 技术债务状态唯一权威（状态机 / 判据 / 复核日期） | 随状态变更 | CI 判定：`scripts/guard_tech_debt_register.py` |
 | [decisions.md](./decisions.md) | 重要决策完整记录表 | append-only | 永久回溯 |
 | [pricing-tier.md](./pricing-tier.md) | 付费/免费分层规范（判定准则、功能归属、双层估值开关、前端直连约束） | 低频 | 事实标准 |
 | [data-strategy.md](./data-strategy.md) | 数据策略（L1~L4 分层、数据准入四问、表/列/job 准入细则） | 低频 | 硬约束 |

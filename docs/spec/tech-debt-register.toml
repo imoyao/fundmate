@@ -1,0 +1,308 @@
+# 技术债务登记表 —— 状态的唯一权威（2026-11-10 治理）
+#
+# 规则见 docs/working-notes/tech-debt-register-design-2026-11-10.md。
+# 判据由 scripts/guard_tech_debt_register.py 在 CI 中复核；本文件不是历史记录，
+# docs/spec/tech-debt.md 已降级为「发现过程 / 决策依据 / 实测证据」归档。
+#
+# 未收录条目 = tech-debt.md 里已标 ✅ 的历史条目与「低·不紧急」项，按历史归档处理。
+# 新增债务一律先登记到这里；只写进 tech-debt.md 正文等于没登记。
+
+schema = 1
+updated_at = "2026-11-10"
+status_authority = "docs/spec/tech-debt-register.toml"
+stale_days = 90
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A. 僵尸条目：文档仍写「未实现 / 上线前必查」，代码早已落地 ⇒ 本次批量更正为 done
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[debt]]
+id = "TD-001"
+title = "货币基金每日收益链路未打通（nav_per_10k 落库但无读取方）"
+status = "done"
+priority = "P0"
+doc_ref = "docs/spec/tech-debt.md:79"
+issue = 0
+verified_at = "2026-11-10"
+evidence = "backend/app/services/money_fund_income.py:19 定义日收益=持有金额×万份收益÷10000；money_fund_yield.py / fund_performance.py / sync/jobs/asset_snapshot_job.py 等 13 个文件消费"
+criterion = { type = "grep", path = "backend/app/services/money_fund_income.py", text = "nav_per_10k", present = true }
+
+[[debt]]
+id = "TD-002"
+title = "暗黑模式（深色主题）前端未适配"
+status = "done"
+priority = "P0"
+doc_ref = "docs/spec/tech-debt.md:80"
+issue = 0
+verified_at = "2026-11-10"
+evidence = "frontend/src/style/dark.scss:4 html.dark 全量令牌 + layout/hooks/useDataThemeChange.ts 切换链路"
+criterion = { type = "grep", path = "frontend/src/style/dark.scss", text = "html.dark", present = true }
+
+[[debt]]
+id = "TD-003"
+title = "账户卡片「当日盈亏」前后端均无能力"
+status = "done"
+priority = "P1"
+doc_ref = "docs/spec/tech-debt.md:84"
+issue = 0
+verified_at = "2026-11-10"
+evidence = "backend/app/services/today_pnl.py（553 行）+ 首页 views/welcome/components/TodayPnlCard.vue（2026-11-03 上线）"
+criterion = { type = "file", path = "backend/app/services/today_pnl.py", present = true }
+
+[[debt]]
+id = "TD-004"
+title = "14-B 五张高红旗：导入快照 / 统一提交层 / OCR / DB 快照 / 上线计划「完全未落地」"
+status = "done"
+priority = "P0"
+doc_ref = "docs/spec/tech-debt.md:121"
+issue = 937
+verified_at = "2026-11-10"
+evidence = "#937 CLOSED 2026-09-30、#933 CLOSED 09-05、#934 CLOSED 09-26、#825 CLOSED 10-24；§83 跟踪的 #913 CLOSED 08-12（gh issue view 逐个核对）"
+criterion = { type = "command", run = "for n in 937 933 934 825 913; do gh issue view $n --repo imoyao/fundmate --json number,state --jq '[.number,.state]|@tsv'; done" }
+
+[[debt]]
+id = "TD-005"
+title = "H2 残留：group_by=account 分支仍手写 dict 拼装（views.py:82-99）"
+status = "done"
+priority = "P2"
+doc_ref = "docs/spec/tech-debt.md:81"
+issue = 0
+verified_at = "2026-11-10"
+evidence = "已下沉 backend/app/services/position_display.py::build_position_list_impl（#1642 B 块）；views.py 只传 q.group_by，不再手写字典"
+criterion = { type = "file", path = "backend/app/services/position_display.py", present = true }
+
+[[debt]]
+id = "TD-006"
+title = "docs:lint-md 存量遗留：U+FFFD 自证文件被乱码守卫硬拦"
+status = "done"
+priority = "P2"
+doc_ref = "docs/spec/tech-debt.md:985"
+issue = 0
+verified_at = "2026-11-10"
+evidence = "docs/working-notes/amac-encoding-incident-2026-08-17.md 字面 U+FFFD 计数已为 0（改用转义写法）；scripts/guard_mojibake.py 现有 EXEMPT_COMMIT_MESSAGES 豁免表"
+criterion = { type = "grep", path = "docs/working-notes/amac-encoding-incident-2026-08-17.md", text = "\uFFFD", present = false }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B. 实证确认仍未处理（判据当前不满足 ⇒ 保持 open；判据满足时守卫会逼你改 done）
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[debt]]
+id = "TD-010"
+title = "品类聚合用库内最新净值、总资产用持仓快照价：两套市值基准并存"
+status = "open"
+priority = "P0"
+doc_ref = "docs/spec/tech-debt.md:1156"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "grep", path = "backend/app/services/ledger_service.py", text = "NavService.get_latest_navs", present = false }
+
+[[debt]]
+id = "TD-011"
+title = "asset_snapshots 四列与 FIFO 自算两套已实现盈亏口径并存"
+status = "open"
+priority = "P0"
+doc_ref = "docs/spec/tech-debt.md:1063"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "grep", path = "frontend/src/api/summary.ts", text = "只声明被消费的字段", present = false }
+
+[[debt]]
+id = "TD-012"
+title = "#2875 新增库级 CHECK 约束的 PG 侧只钉 SQL 形态，CI 无真 Postgres 验证（承接已关闭的 #2874）"
+status = "open"
+priority = "P0"
+doc_ref = "docs/spec/tech-debt.md:1234"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "python scripts/guard_migrations_pg_aware.py && grep -n 'postgres' .github/workflows/ci.yml" }
+
+[[debt]]
+id = "TD-013"
+title = "D81 裁决后的三项低风险改进：migrations.py 按域拆 + 有序注册表 + 61 个一次性脚本归档（承接已关闭的 #2874）"
+status = "open"
+priority = "P2"
+doc_ref = "docs/spec/tech-debt.md:831"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "grep -n 'MIGRATION_REGISTRY' backend/app/core/migrations.py && ls backend/scripts | grep -Ec '^(migrate_|fix_|clean_|dedupe_|purge_|backfill_|repair_)'" }
+
+[[debt]]
+id = "TD-014"
+title = "D20 持仓批量改派缺单事务端点（禁止前端循环 PATCH 兜着）"
+status = "open"
+priority = "P2"
+doc_ref = "docs/spec/tech-debt.md:1086"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "grep -n 'positions/portfolio' backend/app/domains/positions/views.py" }
+
+[[debt]]
+id = "TD-015"
+title = "文字色残留：65 处无 -ink 变体语义色、102 处 --brand-* 作文字，真机 axe 未复跑"
+status = "open"
+priority = "P2"
+doc_ref = "docs/spec/tech-debt.md:577"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "node scripts/audit_text_contrast.mjs --all && node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers,/" }
+
+[[debt]]
+id = "TD-016"
+title = "真库 14 张游离表（修复脚本备份 / 已改名旧表）未清理，须用户拍板"
+status = "open"
+priority = "P3"
+doc_ref = "docs/spec/tech-debt.md:213"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "sqlite3 backend/invest.db '.tables' | grep -E 'backup|temperature_single_values|temperature_multi_items'" }
+
+[[debt]]
+id = "TD-017"
+title = "前端命名规范 P2：utils / constants / config 边界未做（P0+P1 已于 2026-10-07 闭环）"
+status = "open"
+priority = "P3"
+doc_ref = "docs/spec/tech-debt.md:69"
+issue = 0
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "grep -n 'P2' docs/working-notes/frontend-naming-audit.md && ls frontend/src/utils frontend/src/constants frontend/src/config" }
+
+[[debt]]
+id = "TD-018"
+title = "邮箱变更无审计：改用 auth.users 触发器补台账（D76，#2764 拆出）"
+status = "open"
+priority = "P1"
+doc_ref = "docs/spec/decisions.md:18"
+issue = 2780
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "gh issue view 2780 --repo imoyao/fundmate --json state,body" }
+
+[[debt]]
+id = "TD-019"
+title = "/api/auth/resolve 可枚举：限流加固 + password grant 三问待决（D76）"
+status = "open"
+priority = "P1"
+doc_ref = "docs/spec/decisions.md:18"
+issue = 2781
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "gh issue view 2781 --repo imoyao/fundmate --json state,body" }
+
+[[debt]]
+id = "TD-020"
+title = "#2324 Pro 端点权益校验：三处已挂 @require_pro_feature，需按端点清单复核后收窄/关单"
+status = "open"
+priority = "P1"
+doc_ref = "docs/spec/tech-debt.md:126"
+issue = 2324
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "grep -n '@require_pro_feature' backend/app/domains/products/views.py && gh issue view 2324 --repo imoyao/fundmate --json state,body" }
+
+[[debt]]
+id = "TD-021"
+title = "行业拥挤度替换 fundfof 外部临时源（未授权依赖 → 需自有或授权数据源）"
+status = "open"
+priority = "P1"
+doc_ref = "docs/working-notes/issue-triage/auto/2026-11-06.md:16"
+issue = 1502
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "grep -rn 'fundfof' backend/app/services/industry_crowding.py; gh issue view 1502 --repo imoyao/fundmate --json state,body" }
+
+[[debt]]
+id = "TD-022"
+title = "择时类回测被阻断：温度历史仅 3 个月、拥挤度历史仅 30 周"
+status = "open"
+priority = "P1"
+doc_ref = "docs/spec/roadmap.md:1"
+issue = 2381
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "gh issue view 2381 --repo imoyao/fundmate --json state,body" }
+
+[[debt]]
+id = "TD-023"
+title = "user 域身份列（主键）缺失的补法，架构决策未拍板"
+status = "open"
+priority = "P1"
+doc_ref = "docs/spec/roadmap.md:1"
+issue = 2510
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "gh issue view 2510 --repo imoyao/fundmate --json state,body" }
+
+[[debt]]
+id = "TD-024"
+title = "上线计划（Turso 双备份 / EdgeOne 部署）代码零落地，文档仅为架构设想"
+status = "open"
+priority = "P1"
+doc_ref = "docs/spec/tech-debt.md:126"
+issue = 894
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "gh issue view 894 --repo imoyao/fundmate --json state,body && grep -rn 'turso\\|libsql\\|edgeone' backend/app | head" }
+
+[[debt]]
+id = "TD-026"
+title = "美股数据来源（--online 覆盖度扫描发现的未登记 tech-debt open 卡）"
+status = "open"
+priority = "P3"
+doc_ref = "docs/spec/roadmap.md:1"
+issue = 1785
+verified_at = "2026-11-10"
+criterion = { type = "command", run = "gh issue view 1785 --repo imoyao/fundmate --json state,body" }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C. 已实现但被外部条件卡住 / 已裁决不处理（不再用「暂缓」当垃圾桶）
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[debt]]
+id = "TD-025"
+title = "#2803 workflow 定义来源迁移：dev 侧已落地，等发版同步 main 后关单"
+status = "blocked"
+priority = "P0"
+doc_ref = "docs/working-notes/auto-merge-attribution-and-events-2026-11-01.md:1"
+issue = 2803
+verified_at = "2026-11-10"
+blocker = "默认分支 main 上的旧版 workflow 定义需随 dev → main 发版才会被替换；issue 仍标 in-progress"
+next_action = "发版后核对 main 侧 workflow 定义与 dev 一致，关闭 #2803"
+evidence = "python scripts/guard_workflow_definition_source.py exit 0；真实 pull_request_target 触发器只剩 2 个依赖 bot 豁免（首轮按全文计数误报 8 个，6 个是注释）"
+criterion = { type = "guard", script = "scripts/guard_workflow_definition_source.py" }
+
+[[debt]]
+id = "TD-030"
+title = "持久化无 Alembic：是否引入迁移框架"
+status = "wontfix"
+priority = "P2"
+doc_ref = "docs/spec/tech-debt.md:821"
+issue = 2874
+verified_at = "2026-11-10"
+decision = "decisions.md D81：暂不引入 Alembic；触发重评条件（多实例 / 需要 downgrade / CI 具备真 PG）已写实"
+criterion = { type = "command", run = "grep -n 'D81' docs/spec/decisions.md" }
+
+[[debt]]
+id = "TD-031"
+title = "把 audit_text_contrast 静态器 / 真机 axe 接进 per-PR 门禁"
+status = "wontfix"
+priority = "P3"
+doc_ref = "docs/spec/tech-debt.md:407"
+issue = 0
+verified_at = "2026-11-10"
+decision = "decisions.md 2026-09-18：静态近似信噪比不足；真机 axe 要起浏览器 + dev server，维持手动跑看报告"
+criterion = { type = "command", run = "grep -n '不做' docs/spec/tech-debt.md" }
+
+[[debt]]
+id = "TD-032"
+title = "Element Plus 伪按需 + 全量 CSS 改为 unplugin-vue-components 自动按需"
+status = "deferred"
+priority = "P3"
+doc_ref = "docs/spec/tech-debt.md:284"
+issue = 0
+verified_at = "2026-11-10"
+trigger = "pnpm build 体积或首屏指标恶化时重新评估；当前 OOM 已由 manualChunks + ECharts 按需修掉"
+criterion = { type = "command", run = "pnpm --dir frontend build" }
+
+[[debt]]
+id = "TD-033"
+title = "落地页鹦鹉螺深海氛围动效打磨"
+status = "deferred"
+priority = "P3"
+doc_ref = "docs/spec/tech-debt.md:76"
+issue = 0
+verified_at = "2026-11-10"
+trigger = "site/style.css 统一 + /about 骨架落地后再做视觉抛光"
+criterion = { type = "command", run = "grep -n 'shell-' site/style.css" }

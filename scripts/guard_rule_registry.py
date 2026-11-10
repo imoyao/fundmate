@@ -267,6 +267,18 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '不判 `~icons/xx/yy`（unplugin-icons 编译期内联，与 iconify 运行时无关）'
         ),
     },
+    'scripts/guard_tech_debt_register.py': {
+        'rule': '技术债务状态唯一真源 = tech-debt-register.toml（结构化判据 + 新鲜度 + 自动复核）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_tech_debt_register.py',
+        'covered': (
+            '只判「状态是否与可复核的事实一致」，不判这条债值不值得做（价值排序由人拍板）。'
+            'command 类判据不自动执行（真机 axe / CI 真 PG / issue 状态依赖环境），'
+            '靠 90 天 verified_at 新鲜度闸门；--online 的 issue 覆盖度不接 CI，只报告不判红。'
+            'doc_ref 行号会漂移，只校验文件存在；登记表只收本次盘点覆盖的条目，'
+            '条目数不等于全仓技术债总数。'
+        ),
+    },
     'scripts/guard_a11y_interaction.py': {
         'rule': '交互可达性（图标按钮可访问名称 / 非交互元素挂 click）',
         'runner': 'ci',
