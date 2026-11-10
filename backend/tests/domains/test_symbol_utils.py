@@ -6,6 +6,7 @@
 
 import pytest
 
+from app.core.constants import CASH_SYMBOL
 from app.core.symbol_utils import (
     StockCodeNormalizer,
     derive_security_type,
@@ -433,6 +434,20 @@ class TestVenueOfRow:
         assert venue_of_row('004369', None) == NO_VENUE
         assert venue_of_row('MGR_001', 'manager') == NO_VENUE
 
+    @pytest.mark.parametrize('asset_type', ['cash', 'stock', 'etf', 'fund', 'bond', None])
+    def test_cash_sentinel_has_no_venue_regardless_of_asset_type(self, asset_type):
+        """#3042：哨兵不是标的，场所不能由 asset_type 或显式声明推出来。
+
+        孤儿现金分红曾以 `__CASH__` 占位却带 `asset_type='stock'`，被推成 EXCHANGE ⇒
+        `symbol_norm` 落成 `EXCHANGE:__CASH__`、每次启动刷归一失败告警。
+        """
+        assert venue_of_row(CASH_SYMBOL, asset_type) == NO_VENUE
+        assert venue_of_row(CASH_SYMBOL, asset_type, EXCHANGE) == NO_VENUE
+        assert venue_of_row(CASH_SYMBOL, asset_type, OTC) == NO_VENUE
+
+    def test_cash_sentinel_variants_are_case_and_space_insensitive(self):
+        assert venue_of_row('  __cash__  ', 'stock') == NO_VENUE
+
     def test_get_venue_label_is_case_insensitive(self):
         assert get_venue_label('otc') == '场外'
         assert get_venue_label(EXCHANGE) == '场内'
@@ -479,6 +494,16 @@ class TestSymbolIdentity:
         assert symbol_identity('MGR_001', 'manager') == 'NO_VENUE:MGR_001'
         assert symbol_identity('CSI000300', 'index') == 'NO_VENUE:CSI000300'
         assert symbol_identity('ZH012345', 'portfolio') == 'NO_VENUE:ZH012345'
+
+    @pytest.mark.parametrize('asset_type', ['cash', 'stock', 'etf', 'fund', 'bond', None])
+    def test_cash_sentinel_identity_does_not_drift_with_asset_type(self, asset_type):
+        """#3042：同一哨兵恒为 `NO_VENUE:__CASH__`，不许随 asset_type 漂出三种身份。
+
+        修复前 stock/etf/bond → `EXCHANGE:__CASH__`（带告警）、fund → `OTC:__CASH__`
+        （静默错且无告警），只有 cash / None 才落到既定语义。
+        """
+        assert symbol_identity(CASH_SYMBOL, asset_type) == 'NO_VENUE:__CASH__'
+        assert symbol_identity(CASH_SYMBOL, asset_type, venue=EXCHANGE) == 'NO_VENUE:__CASH__'
 
     def test_explicit_venue_overrides_asset_type(self):
         """显式 venue 优先（写入侧本来就知道场所，不该被 asset_type 缺省覆盖）。"""
