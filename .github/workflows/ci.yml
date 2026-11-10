@@ -846,6 +846,14 @@ jobs:
       - name: 校验设计文档索引（阻断）
         run: python scripts/check_design_doc_index.py
 
+      # 技术债务登记表守卫（2026-11-10 治理）：tech-debt.md 1281 行把状态写成
+      # 「待排期 / 暂缓 / 需拍板」这类不可执行字符串，issue 关了不回流、代码写了不更新
+      # ⇒ 三条 🔴「上线前必查」的债早已落地仍挂着，而 11 月新债一条没登记。
+      # 登记表立为唯一状态真源：结构化判据 + 90 天新鲜度 + 自动复核
+      # （done 判据必须满足、open 必须不满足）。回归网随下方 unittest discover 收。
+      - name: 技术债务登记表状态一致性（阻断）
+        run: python scripts/guard_tech_debt_register.py
+
       - name: 设计文档索引守卫回归网
         if: ${{ always() }}
         run: python -m unittest scripts.tests.test_check_design_doc_index -v
