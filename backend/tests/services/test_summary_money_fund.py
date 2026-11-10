@@ -12,7 +12,8 @@ get_overview_stats）把孤儿流水净额正确并入，且与 positions/assets
 
 from app.domains.ledgers.models import Ledger
 from app.services.ledger_service import LedgerService
-from app.services.summary_service import get_account_groups, get_sankey_data, get_summary_data
+from app.services.sankey_service import get_sankey_data
+from app.services.summary_service import get_account_groups, get_summary_data
 
 
 def _make_orphan_txn(make_transaction, ledger_id, txn_type, amount_yuan):
@@ -131,14 +132,21 @@ class TestSankeyOrphanNet:
     """get_sankey_data：孤儿净额归入「流动资金/cash」大类"""
 
     def test_orphan_net_in_cash_category(self, db, make_transaction):
-        """正净额孤儿流水 → 流动资金节点 → 总资产"""
+        """正净额孤儿流水 → 流动资金大类 → 货基/逆回购净额明细（D94：大类→明细两级）"""
         _make_orphan_txn(make_transaction, None, 'buy', 100)
         data = get_sankey_data(db, 1)
         node_names = {n['name'] for n in data['nodes']}
         assert '流动资金' in node_names
-        link = next(lnk for lnk in data['links'] if lnk['source'] == '流动资金')
-        assert link['target'] == '总资产'
-        assert link['value'] == 100.0
+        # D94：总资产 → 流动资金（大类汇总）
+        center_to_cash = [lnk for lnk in data['links'] if lnk['source'] == '总资产' and lnk['target'] == '流动资金']
+        assert len(center_to_cash) == 1
+        assert center_to_cash[0]['value'] == 100.0
+        # D94：流动资金 → 货基/逆回购净额（明细）
+        cash_to_detail = [
+            lnk for lnk in data['links'] if lnk['source'] == '流动资金' and lnk['target'] == '货基/逆回购净额'
+        ]
+        assert len(cash_to_detail) == 1
+        assert cash_to_detail[0]['value'] == 100.0
 
     def test_negative_net_not_shown_as_positive_link(self, db, make_transaction):
         """负净额不产生正向流动资金连线（按负数处理，不特殊生成负债）"""
@@ -149,12 +157,14 @@ class TestSankeyOrphanNet:
         assert all(lnk['value'] > 0 for lnk in data['links'])
 
     def test_orphan_merged_with_assets_cash_category(self, db, make_asset, make_transaction):
-        """孤儿净额与通用现金资产合并进同一「流动资金」大类，不重复计数"""
+        """孤儿净额与通用现金资产合并进同一「流动资金」大类，不重复计数（D94）"""
         make_asset(major_category='cash', name='活期', amount=500)
         _make_orphan_txn(make_transaction, None, 'buy', 100)
         data = get_sankey_data(db, 1)
-        link = next(lnk for lnk in data['links'] if lnk['source'] == '流动资金')
-        assert link['value'] == 500.0 + 100.0
+        # D94：流动资金 大类的所有明细出边之和 = 通用现金（活期 500）+ 孤儿净额（100）
+        cash_out = [lnk for lnk in data['links'] if lnk['source'] == '流动资金']
+        assert len(cash_out) == 2  # 活期 + 货基/逆回购净额
+        assert round(sum(lnk['value'] for lnk in cash_out), 2) == 600.0
 
 
 class TestOverviewStatsOrphanNet:
