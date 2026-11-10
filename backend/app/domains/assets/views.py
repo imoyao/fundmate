@@ -150,7 +150,7 @@ def update_asset(id):
         # 其余字段仍走原 setattr 路径；视图只做编排，不碰业务规则（#1606）。
         remaining, error = apply_patch_value_change(db, asset, update_data)
         if error:
-            return jsonify({'data': None, 'message': error}), 400
+            return jsonify({'data': None, 'message': error, 'error_code': 1001}), 400
         for field, value in remaining.items():
             setattr(asset, field, value)
         db.flush()
@@ -177,7 +177,7 @@ def get_asset_value_at(id):
     try:
         target = date.fromisoformat(raw)
     except ValueError:
-        return jsonify({'data': None, 'message': 'date 必须是 YYYY-MM-DD'}), 400
+        return jsonify({'data': None, 'message': 'date 必须是 YYYY-MM-DD', 'error_code': 1001}), 400
     with get_db() as db:
         asset = get_owned_or_404(db, Asset, id)
         if not asset:
