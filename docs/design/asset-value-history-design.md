@@ -1,6 +1,6 @@
 # 资产值变动记录（余额 / 估值）设计
 
-> 状态：**设计定稿**；规范决策（D99 / D100）与本文档先独立合入 `dev`，事件表与时间线实现另从 `dev` 切功能分支。
+> 状态：**设计定稿 + 已实现闭环**。D99 / D100 与本文档由 `imoyao/fundmate#3045` 合入 `dev`；第 1 期名称可编辑由 `imoyao/fundmate#3044` 合入；第 2 期事件表与读路径由 `imoyao/fundmate#3046` 合入（merge commit `5f70598f78`）。第 3 期仍明确延后，另开卡。
 > 关联决策：`docs/spec/decisions.md` **D99**（双时间戳 / 补录边界）、**D100**（锚点业务日期）。
 > 上位规范：`conventions.md` §2.10、`data-strategy.md`（准入四问 + 域登记）、`net-worth-caliber.md`、D41 / D62 / D79 / D98。
 > 范围：`assets` 表单条通用资产（房贷、借款、房产、应收应付等）的**值变动历史**。
@@ -268,9 +268,9 @@ value_asof(asset, d) = assets.amount − Σ(delta_i where effective_date_i > d)
 
 | 期 | 内容 | 状态 |
 |---|---|---|
-| 0 | D99 / D100 决策记录 + 本设计文档 | **本次已完成** |
-| 1 | 名称可编辑（纯前端，独立小 PR） | **本次已完成代码，待走 PR** |
-| 2 | `asset_value_events` 表 + 域登记 + 写入收口 + 两个 GET 端点 + 明细抽屉 / 时间线 + A2–A11 判据 | 待从 `dev` 切 `feat/asset-value-events` |
+| 0 | D99 / D100 决策记录 + 本设计文档 | **已完成**，`imoyao/fundmate#3045` 合入 `dev` |
+| 1 | 名称可编辑（纯前端，独立小 PR） | **已完成**，`imoyao/fundmate#3044` 合入 `dev` |
+| 2 | `asset_value_events` 表 + 域登记 + 写入收口 + 两个 GET 端点 + 明细抽屉 / 时间线 + A2–A11 判据 | **已完成**，`imoyao/fundmate#3046` 合入 `dev` |
 | 3 | 家庭级历史联动、全仓 as-of、计息、改名审计 | 明确延后，另开卡 |
 
 **第 0 / 1 期本轮验证记录（2026-11-10，实测）**：
@@ -286,16 +286,37 @@ value_asof(asset, d) = assets.amount − Σ(delta_i where effective_date_i > d)
 | `check_vue_size.mjs` | 534 个 .vue 无超阈 |
 | `decisions.md` 表格结构 | 新增两行各 4 个竖线，表格未破 |
 
-**未执行 / 未创建**：未跑 Playwright e2e（本环境无浏览器；且本需求最易回潮点是「漏提交 `name`」，源码判据比 DOM 断言更直接，故按项目既有惯例改用结构判据，见 §9.1）；未创建 GitHub issue、未提交代码、未切功能分支——按 `AGENTS.md` 分支规范，从 `dev` 切 `fix/asset-name-editable` 走 PR 由用户执行。
+**第 2 期闭环验证记录（2026-11-11，实测）**：
+
+| 检查 | 结果 |
+|---|---|
+| 实现期口径修订 | 临时 pytest 探针实证「填变动后绝对值」在乱序补录下会平移后续曲线；经 owner 拍板改为提交独立业务事实 `delta`，§7 / §8 / §9.2 已同步修订 |
+| CI 三轮红灯 | ① 全仓 stylelint 字阶令牌 + `ruff format --check`（本地只跑了局部 lint）→ `a295297d37`；② `guard_error_envelope.py` 要求 400 带 `error_code` → `a175b172a5`；③ 全 PASS。均为格式 / 守卫类，未放宽任何守卫、未改断言 |
+| `质量门禁汇总`（唯一必需检查） | pass；前端类型检查 + Lint + 构建、后端测试 + Lint (rest)、后端测试 + Lint (services) 三项全 pass |
+| 后端判据 | `pytest tests/domains/test_asset_value_events.py tests/domains/test_assets.py` → 34 passed；CI 全量口径 `-n auto -m "not slow"` 由两个后端 job 全绿覆盖 |
+| 前端判据 | `assetValueChangeGuard.spec.ts` 10 例 + `assetEditDialogName.spec.ts` 6 例 = 16/16；`pnpm test:unit` 全量 178 files / 2411 tests |
+| lint / 守卫 | `ruff check app/`、`ruff format --check app/ tests/`（959 files）、全仓 stylelint、CI 口径 eslint、`check_vue_size.mjs`（535 个 .vue）、`check_css_vars.mjs`、五道 Python 守卫全 EXIT 0 |
+| 回退探针 | `value_asof` 的 `>` → `>=` 转红 6 failed / 12 passed；去掉 `delta==0` 短路 → 补 A10 显式断言后转红 1 failed / 17 passed；`payload.delta` → `payload.amount` 转红 2 failed / 7 passed；三次均还原复绿 |
+| 合并归因 | `gh pr merge --merge` 用 owner 凭据（非 `GITHUB_TOKEN`），merge commit `5f70598f78`；dev push 侧的「乱码守卫（dev push）」与「Dependabot 锁重生成」两个 run 均 success，证明 `push` / `pull_request: closed` 事件未被抑制（`AGENTS.md` 归因陷阱） |
+
+**执行边界与搜重结论（2026-11-11）**：
+
+| 项 | 结论 |
+|---|---|
+| Playwright e2e | 未跑。本环境无浏览器；且本需求最易回潮点是「漏提交 `name` / 把绝对值当 `delta`」，源码结构判据比 DOM 断言更直接（§9.1），按项目既有惯例改用结构判据 |
+| GitHub issue | **已联网搜重**：`gh search issues --repo imoyao/fundmate` 六组关键词（`资产值变动`、`资产 历史追溯`、`净值 历史`、`资产名称 可编辑`、`asset_value_events`、`值变动记录`，含 CLOSED）零同题命中。故不另立卡、不做「建卡再关」的形式闭环；本需求以三个 PR + 本文档 + §11 判据追踪 |
+| 代码与分支 | 三个 PR 均已合入 `dev`；功能分支合并后按 `AGENTS.md` 删除 |
 
 ---
 
-## 13. issue 卡面草案（供提卡，**本次未创建 GitHub issue**）
+## 13. 第 3 期提卡草案（本期经搜重未提卡）
 
-> 标题：`feat(assets): 单资产值变动记录与历史追溯（D99 / D100）`
+本期需求已在 GitHub 侧搜重确认无同题卡，且三张 PR 与 §11 判据已构成完整追踪链，**不另立卡、不做「建卡再关」的形式闭环**。以下草案仅保留给第 3 期（家庭级历史联动 / 全仓 as-of / 计息 / 改名审计）提卡时复用：
+
+> 标题：`feat(assets): 家庭级历史联动与全仓 as-of（第 3 期）`
 > 里程碑：按 `AGENTS.md` 归属规则挂 `#17 账本能力对齐` 或 `#2 基础数据`（提卡时确认）
-> 正文：粘贴 §7 四问答案 + §11 验收标准 A2–A11 + 本设计文档相对路径；标注「先有设计文档、再动代码」。
-> 依赖：第 1 期名称可编辑 PR 先行；无外部数据源依赖。
+> 正文：粘贴 §7 四问答案 + §11 验收标准形态 + 本设计文档相对路径；标注「先有设计文档、再动代码」。
+> 依赖：第 2 期已合入；家庭快照口径须先澄清 D62 与「单资产明细」的分叉，无外部数据源依赖。
 
 ---
 
@@ -303,7 +324,7 @@ value_asof(asset, d) = assets.amount − Σ(delta_i where effective_date_i > d)
 
 | 项 | 说明 |
 |---|---|
-| `name` 作为隐式业务键 | 改名会改变 `sankey_service` 同名负债聚合与 `ledger_migration_service` 去重匹配结果；A1 必须实测，不是理论推断 |
-| 规范文字偏差 | `conventions.md:105`「负债存负」与 `assets` 表恒正不一致；实现按实际口径，若将来真要改存储符号，须单独决策并同步本设计 |
-| GitHub 侧是否已有同题 issue | 文档侧（`docs/todo.md` / `roadmap.md` / issue 模板）只有账户／总资产层面的曲线诉求，**未联网核对 GitHub issue**；提卡前先搜重 |
-| 事件完整性由用户负责 | `value_asof` 的前提是 `delta` 序列完整；用户漏记时系统无法察觉，故 §6.3 的下界与「—」降级不可省 |
+| `name` 作为隐式业务键 | 改名会改变 `sankey_service` 同名负债聚合与 `ledger_migration_service` 去重匹配结果。**已实测关闭**：判据 `test_a10_rename_writes_no_event_and_keeps_totals` 断言改名后 `GET /api/assets/summary/` 前后相等，A1 成立 |
+| 规范文字偏差 | `conventions.md:105`「负债存负」与 `assets` 表恒正不一致；实现按实际口径，若将来真要改存储符号，须单独决策并同步本设计。**仍未消除**，属规范文档技术债，不影响本期实现 |
+| GitHub 侧是否已有同题 issue | **已联网核对并关闭（2026-11-11）**：`gh search issues --repo imoyao/fundmate` 六组关键词含 CLOSED 零同题命中；文档侧 `docs/todo.md` / `roadmap.md` 只有账户／总资产层面的曲线诉求。本期不提卡，第 3 期草案见 §13 |
+| 事件完整性由用户负责 | `value_asof` 的前提是 `delta` 序列完整；用户漏记时系统无法察觉，故 §6.3 的下界与「—」降级不可省。**仍成立**，属产品口径而非缺陷 |
