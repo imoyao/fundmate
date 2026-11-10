@@ -121,7 +121,7 @@ priority = "P0"
 doc_ref = "docs/spec/tech-debt.md:1234"
 issue = 0
 verified_at = "2026-11-10"
-evidence = "ci.yml backend job 加 services.postgres，TEST_POSTGRES_URL 只挂串行 pytest -n 0 step（挂 job 级会让常规 -n auto 分片并发撞约束）；backend/tests/core/test_migrations_positions_state_check_pg.py 真连 PG 验证约束反射/幂等/违规 IntegrityError；scripts/guard_pg_migration_ci.py 结构化钉住接线（含 5 态变异探针）。本地无 PG 时用例 skip，语义结论以 CI 日志为准。"
+evidence = "ci.yml backend job 加 services.postgres，TEST_POSTGRES_URL 只挂串行 pytest -n 0 step 且显式 +psycopg2 驱动（挂 job 级会让常规 -n auto 分片并发撞约束；+psycopg:// 首轮 CI 实测 ModuleNotFoundError）；backend/tests/core/test_migrations_positions_state_check_pg.py 真连 PG 验证约束反射/幂等/违规 IntegrityError；scripts/guard_pg_migration_ci.py 结构化钉住接线（含 6 态变异探针）。本地无 PG 时用例 skip，语义结论以 CI 日志为准。"
 # 旧判据 grep -n 'postgres' ci.yml 连注释都算，且 command 不自动执行。换成结构化 guard。
 criterion = { type = "guard", script = "scripts/guard_pg_migration_ci.py" }
 

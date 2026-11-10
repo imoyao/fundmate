@@ -19,8 +19,11 @@ PG 是否接受该 DDL、``inspect.get_check_constraints()`` 是否真回约束�
 ## 判据
 
 1. ``ci.yml`` 的 ``jobs.backend.services.postgres.image`` 以 ``postgres:`` 开头；
-2. 真 PG step 的 ``env.TEST_POSTGRES_URL`` 是 postgresql 连接串，且**不得挂到 job 级**
-   （job 级会让常规 ``pytest -n auto`` 分片也收集这份用例，并发撞反射判重）；
+2. 真 PG step 的 ``env.TEST_POSTGRES_URL`` 必须是 ``postgresql+psycopg2://`` 连接串，
+   且**不得挂到 job 级**（job 级会让常规 ``pytest -n auto`` 分片也收集这份用例，
+   并发撞反射判重）。驱动必须显式写 ``psycopg2``：本仓只装 ``psycopg2-binary``，
+   ``postgresql+psycopg://``（v3）会在 ``create_engine`` 处 ``ModuleNotFoundError``
+   —— 本 PR 首轮 CI 实测红灯，守卫把这条也钉住防回潮；
 3. ``jobs.backend.steps`` 里有一个 step 的 ``run`` 同时含真 PG 用例文件名与 ``-n 0``
    （串行：``_pg_add_check_constraints`` 的反射判重非原子，8 worker 并发会撞 ``already exists``）；
 4. 真 PG 用例存在，且其 AST 里真的出现 ``create_engine`` / ``IntegrityError`` /
@@ -35,7 +38,7 @@ PG 是否接受该 DDL、``inspect.get_check_constraints()`` 是否真回约束�
 ## 用法
 
     python scripts/guard_pg_migration_ci.py                 # 0 绿 / 1 红 / 2 输入不可信
-    python scripts/guard_pg_migration_ci.py --self-test     # 5 态变异自检
+    python scripts/guard_pg_migration_ci.py --self-test     # 6 态变异自检
     python scripts/guard_pg_migration_ci.py --root <repo>  # 测试用
 
 回归网：``scripts/tests/test_guard_pg_migration_ci.py``。
@@ -116,8 +119,11 @@ def check(root: pathlib.Path) -> list[str]:
     if not pg_steps:
         errors.append(f'jobs.backend.steps 缺「{PG_TEST_NAME} + -n 0」的串行执行步骤')
     urls = [str((s.get('env') or {}).get('TEST_POSTGRES_URL', '')) for s in pg_steps]
-    if not any('postgresql' in url for url in urls):
-        errors.append('真 PG step 的 env.TEST_POSTGRES_URL 缺失或不是 postgresql 连接串')
+    if not any(url.startswith('postgresql+psycopg2://') for url in urls):
+        errors.append(
+            '真 PG step 的 env.TEST_POSTGRES_URL 必须是 postgresql+psycopg2:// '
+            '（CI 只装 psycopg2-binary；+psycopg:// 会 ModuleNotFoundError）'
+        )
 
     test_path = root / PG_TEST_REL
     if not test_path.is_file():
@@ -157,7 +163,7 @@ def run(root: pathlib.Path) -> int:
 
 
 def self_test() -> int:
-    """5 态变异自检：接线被删/被注释替换/用例被掏空/URL 挂错层级，守卫都必须红。
+    """6 态变异自检：接线被删/被注释替换/用例被掏空/URL 挂错层级/驱动写错，守卫都必须红。
 
     变异走**结构化 dict 改写**再 dump，不依赖 ci.yml 的具体缩进文本 —— 否则
     调整 YAML 格式就会让探针悄悄失效（#2739 变异没落盘的同类坑）。
@@ -207,11 +213,20 @@ def self_test() -> int:
 
     probe('URL 挂回 job 级', move_url_to_job)
 
+    def swap_driver(job):
+        for step in job['steps']:
+            env = step.get('env') or {}
+            if 'TEST_POSTGRES_URL' in env:
+                env['TEST_POSTGRES_URL'] = env['TEST_POSTGRES_URL'].replace('+psycopg2://', '+psycopg://')
+                break
+
+    probe('URL 换成 psycopg v3 驱动', swap_driver)
+
     if failures:
         for msg in failures:
             print(f'SELF-TEST FAIL: {msg}')
         return 1
-    print('[guard_pg_migration_ci] self-test OK：5 态变异全部咬住')
+    print('[guard_pg_migration_ci] self-test OK：6 态变异全部咬住')
     return 0
 
 

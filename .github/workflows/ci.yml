@@ -256,7 +256,9 @@ jobs:
       - name: PG 真库迁移验证
         if: ${{ matrix.shard == 'services' }}
         env:
-          TEST_POSTGRES_URL: postgresql+psycopg://fundmate_test:fundmate_test@127.0.0.1:5432/fundmate_test
+          # 必须显式 +psycopg2：本仓只装 psycopg2-binary（backend/pyproject.toml:41），
+          # 写成 postgresql+psycopg:// 会在 create_engine 处 ModuleNotFoundError（本 PR 首轮 CI 实测）。
+          TEST_POSTGRES_URL: postgresql+psycopg2://fundmate_test:fundmate_test@127.0.0.1:5432/fundmate_test
         run: pdm run python -m pytest -n 0 -m "not slow" tests/core/test_migrations_positions_state_check_pg.py
 
       # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`

@@ -117,6 +117,18 @@ class MutationTest(unittest.TestCase):
 
         self._probe(move)
 
+    def test_psycopg_v3_driver_is_red(self) -> None:
+        """本仓只装 psycopg2-binary；+psycopg:// 会在 create_engine 处 ModuleNotFoundError。"""
+
+        def swap(job):
+            for step in job['steps']:
+                env = step.get('env') or {}
+                if 'TEST_POSTGRES_URL' in env:
+                    env['TEST_POSTGRES_URL'] = env['TEST_POSTGRES_URL'].replace('+psycopg2://', '+psycopg://')
+                    break
+
+        self._probe(swap)
+
     def test_missing_ci_is_exit2(self) -> None:
         (self.root / '.github' / 'workflows').mkdir(parents=True, exist_ok=True)
         (self.root / 'backend' / 'tests' / 'core').mkdir(parents=True, exist_ok=True)

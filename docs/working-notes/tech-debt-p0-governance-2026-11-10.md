@@ -52,6 +52,7 @@
 ## 4. 边界与风险
 
 - 真 PG 用例读 `TEST_POSTGRES_URL`，**本地无该变量即 skip**；本机无 Docker / psql，故「PG 真的接受约束、真的拒绝违规写入」这一结论**只以 CI 实测为准**，不得拿本地全绿冒充。
+- **首轮 CI 实测红灯（已修）**：URL 写成 `postgresql+psycopg://` 会在 `create_engine` 处 `ModuleNotFoundError: No module named 'psycopg'` —— 本仓只装 `psycopg2-binary`（`backend/pyproject.toml:41`），驱动必须显式写 `postgresql+psycopg2://`。接线守卫已把「驱动必须是 psycopg2」钉成判据并加变异探针，防止换 URL 时回潮。这正是「本地绿 ≠ CI 绿」的又一次实证。
 - 守卫只钉「接线存在且结构化」，不连 PG；PG 语义由上面的 pytest 用例承担。两者缺一不可：只有守卫会退化成「注释喂饱」，只有用例会退化成「CI 上跑了但没人知道该跑」。
 - 剥注释只处理**整行**注释标记（`#`、`//`、`/*`、`*`、`<!--`），不剥 Python docstring（TD-001 的 `nav_per_10k` 在 docstring 里但代码 `:144` 也有 `row.nav_per_10k`，不误伤）；行尾注释与字符串里的 `#` 不处理，属已知边界。
 - `.md` / `.toml` / `.yml` 判据仍扫全文——文档本身就是内容，剥注释无意义（TD-004 的 U+FFFD 判据依赖此点）。
@@ -60,7 +61,7 @@
 ## 5. 验收标准
 
 - 判据：`python scripts/guard_tech_debt_register.py` 全绿；`--self-check` 变异态数 ≥ 9 且全部咬住。
-- 判据：`python scripts/guard_pg_migration_ci.py` 全绿；其 `--self-test` 删掉 `services.postgres` / 删掉 step / 把接线只留注释 / 掏空用例 / 把 URL 挂回 job 级，五种变异均红。
+- 判据：`python scripts/guard_pg_migration_ci.py` 全绿；其 `--self-test` 删掉 `services.postgres` / 删掉 step / 把接线只留注释 / 掏空用例 / 把 URL 挂回 job 级 / 把驱动换成 psycopg v3，六种变异均红。
 - 判据：`python -m unittest scripts.tests.test_guard_tech_debt_register scripts.tests.test_guard_pg_migration_ci` 全绿。
 - 判据：`python scripts/guard_rule_registry.py` 登记数递增且预算不超。
 - 判据：CI backend job 的 `PG 真库迁移验证` step 真跑（日志里 4 条用例 pass 而非 skip），`gate` 全绿。
