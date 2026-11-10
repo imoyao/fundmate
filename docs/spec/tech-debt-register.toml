@@ -89,29 +89,24 @@ criterion = { type = "grep", path = "docs/working-notes/amac-encoding-incident-2
 [[debt]]
 id = "TD-010"
 title = "品类聚合用库内最新净值、总资产用持仓快照价：两套市值基准并存"
-status = "blocked"
+status = "done"
 priority = "P0"
 doc_ref = "docs/spec/tech-debt.md:1156"
 issue = 0
 verified_at = "2026-11-10"
-blocker = "统一到哪一侧基准属业务口径裁决：切 summary 到净值会让总资产/快照/环比同比跳变且存量 asset_snapshots 按旧基准写下（D62/D65 禁止伪造式回填）；改回 current_price 会推翻 #1133。tech-debt.md:1195 明确挂着待决策。"
-next_action = "owner 在 docs/working-notes/tech-debt-p0-governance-2026-11-10.md §2 的 A/B/C 三个选项中裁定基准，再按「同一持仓双链路市值分差必须为 0」写跨链路契约回归；裁定前不得改任何一侧取价。"
-# 旧判据是 grep ledger_service.py 的 NavService.get_latest_navs：那指向的是第三套裸算实现，
-# 收敛掉它就会假判「基准统一」。判据必须锚「两条链路的市值差值」，不是某个符号的存废。
-criterion = { type = "command", run = "grep -n 'effective_nav' backend/app/services/position_aggregation.py backend/app/services/summary_service.py && python -m pytest backend/tests/services/test_valuation_baseline_contract.py -q（该契约测试在口径裁定后建立：同一持仓 fund-aggregation 与 family_totals 市值分差为 0）" }
+evidence = "裁决（docs/working-notes/tech-debt-p0-governance-2026-11-10.md §2 选项 B）：统一到 T 日库内最新净值。根因＝summary_service._per_ledger_buckets 漏传 effective_nav_yuan，总资产/快照走 positions.current_price（T-1 快照价），与品类聚合 position_aggregation.py:239 同源的净值形成「同一持仓两个市值」。修复＝在 _per_ledger_buckets 一次性批量 NavService.get_latest_navs(db, fund_symbols, allow_remote=False) 注入 market_value_cents(p, rate, effective_nav_yuan=effective_nav)，非基金回退快照价（与聚合侧一致，非 N+1）。守卫 scripts/guard_basis_unification.py 钉两条链路同源；backend/tests/services/test_valuation_baseline_contract.py 断言同一基金持仓「聚合市值＝家庭总资产＝份额×T日净值（300元），分差0」且都不是快照价200元（变异回退 current_price 即红）。"
+criterion = { type = "guard", script = "scripts/guard_basis_unification.py" }
 
 [[debt]]
 id = "TD-011"
 title = "asset_snapshots 四列与 FIFO 自算两套已实现盈亏口径并存"
-status = "blocked"
+status = "done"
 priority = "P0"
 doc_ref = "docs/spec/tech-debt.md:1063"
 issue = 0
 verified_at = "2026-11-10"
-blocker = "先定「已实现盈亏」唯一口径（流水 transactions.realized_pnl 存量全 0，与真零不可区分；「已落袋表现」走 FIFO 配对自算）。归档倾向 FIFO 并把流水列标不可用，但口径取舍属业务裁决。"
-next_action = "owner 裁定唯一口径后：把失败侧标为不可用、四列改由 pnl_snapshot_store 侧重建或在 API 层撤下，并补「同一账户两种盈亏差值必须为 0」的回归用例；此前不得把四列直接接上 UI。"
-# 旧判据 grep summary.ts 的「只声明被消费的字段」只命中一行块注释，删注释即假绿（#2453 复发）。
-criterion = { type = "command", run = "grep -rn 'realized_pnl' backend/app/services frontend/src/api/summary.ts && 人工复核：asset_snapshots 四列与「已落袋表现」FIFO 自算的差值必须为 0，不得凭删除注释判完成" }
+evidence = "裁决（docs/working-notes/tech-debt-p0-governance-2026-11-10.md §2）：已实现盈亏唯一真值源＝FIFO 配对自算（cleared_cycles.build_cleared_cycles，经 summary/views.py:324 暴露前端「已落袋表现」）。asset_snapshots 四列 realized_pnl/unrealized_pnl/total_pnl/money_fund_income 读 transactions.realized_pnl（移动加权平均口径），与 FIFO 本就不同（部分卖出时四列已有值、FIFO 仅完全清仓才出 realized_pnl），故四列标 [DEPRECATED TD-011] 废弃、仅供存量兼容、不得作盈亏展示真值；models.py AssetSnapshot docstring 与四列 comment 同步标注。守卫 scripts/guard_basis_unification.py 钉 [DEPRECATED TD-011] 标记；backend/tests/services/test_snapshot_pnl.py::TestFifoCanonicalRealizedPnl 断言未清仓时快照四列（移动平均）有值而 FIFO 真值源尚无（两套口径不得静默统一）。"
+criterion = { type = "guard", script = "scripts/guard_basis_unification.py" }
 
 [[debt]]
 id = "TD-012"

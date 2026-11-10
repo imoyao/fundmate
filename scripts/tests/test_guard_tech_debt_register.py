@@ -52,6 +52,12 @@ CLONE_FILES = (
     'scripts/guard_pg_migration_ci.py',
     '.github/workflows/ci.yml',
     'backend/tests/core/test_migrations_positions_state_check_pg.py',
+    # TD-010/TD-011 的 done 判据同为 guard 类型，跑 scripts/guard_basis_unification.py；
+    # 该脚本静态 grep 这三份源码，缺任一即 InputError → 克隆不绿（exit 2）。
+    'scripts/guard_basis_unification.py',
+    'backend/app/services/summary_service.py',
+    'backend/app/services/position_aggregation.py',
+    'backend/app/domains/summary/models.py',
 )
 
 
