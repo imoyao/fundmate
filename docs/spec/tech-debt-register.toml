@@ -170,35 +170,53 @@ issue = 0
 verified_at = "2026-11-10"
 criterion = { type = "command", run = "grep -n 'P2' docs/working-notes/frontend-naming-audit.md && ls frontend/src/utils frontend/src/constants frontend/src/config" }
 
+# ── P1 安全三卡：判据纠偏（2026-11-10）──────────────────────────────────────
+# 原判据都是 command + `gh issue view <n>`：只查远端 issue 在不在，代码是否落地
+# 完全不进判据；而 command 不自动执行、只靠 R3 的 90 天新鲜度闸门 ⇒ 三条卡长期
+# 有「被复核过」的假象。改成结构化 grep 反向锚点：当前不满足 ⇒ open 绿；
+# 锚点消失/出现（真落地）⇒ R4 报「僵尸 open」逼人工复核。状态一律保持 open：
+# 关单条件属 owner 裁决，本轮不替 owner 改数据。若 owner 后来裁决「不做独立端点 /
+# 换等价验收形状」，须同步换判据并复核状态。
+
 [[debt]]
 id = "TD-018"
 title = "邮箱变更无审计：改用 auth.users 触发器补台账（D76，#2764 拆出）"
 status = "open"
 priority = "P1"
-doc_ref = "docs/spec/decisions.md:18"
+doc_ref = "docs/dev/auth-audit.md:220"
 issue = 2780
 verified_at = "2026-11-10"
-criterion = { type = "command", run = "gh issue view 2780 --repo imoyao/fundmate --json state,body" }
+# 判据＝docs/dev/auth-audit.md §8「未完成项」三项 checkbox 清零。触发器 DDL 只在
+# Supabase PG 生效（D76 已知边界①），本地可复核的只有这份生产执行清单；后端
+# source='backend' 流水已落地，故判据不指向它，免得「已实现的一层」替整条卡判完成。
+criterion = { type = "grep", path = "docs/dev/auth-audit.md", text = "- [ ]", present = false }
 
 [[debt]]
 id = "TD-019"
 title = "/api/auth/resolve 可枚举：限流加固 + password grant 三问待决（D76）"
 status = "open"
 priority = "P1"
-doc_ref = "docs/spec/decisions.md:18"
+doc_ref = "docs/spec/decisions.md:23"
 issue = 2781
 verified_at = "2026-11-10"
-criterion = { type = "command", run = "gh issue view 2781 --repo imoyao/fundmate --json state,body" }
+# 判据＝单维度 IP 限流键仍在。D76 要的「持久化 + IP/identifier 双维度 + 来源不可伪造」
+# 落地后这行调用形态必变，锚点消失 ⇒ 判据转满足 ⇒ 逼复核。password grant 三问属
+# owner 裁决，不进本判据。
+criterion = { type = "grep", path = "backend/app/domains/auth/views.py", text = "ratelimit.check(f'resolve:{ip}'", present = false }
 
 [[debt]]
 id = "TD-020"
 title = "#2324 Pro 端点权益校验：三处已挂 @require_pro_feature，需按端点清单复核后收窄/关单"
 status = "open"
 priority = "P1"
-doc_ref = "docs/spec/tech-debt.md:126"
+doc_ref = "docs/spec/api.md:64"
 issue = 2324
 verified_at = "2026-11-10"
-criterion = { type = "command", run = "grep -n '@require_pro_feature' backend/app/domains/products/views.py && gh issue view 2324 --repo imoyao/fundmate --json state,body" }
+# 代码侧复核已由 scripts/guard_pro_endpoint_registry.py 判定：Pro 形路由必须挂装饰器，
+# 唯一豁免 /pro/ 状态位（PUBLIC_PRO_ROUTES 逐条写明理由）⇒ 无漏挂。本判据钉 #2324
+# 验收第 1 条 owner 未拍板的「独立 GET /api/me/entitlements」；api.md 自动段由
+# check_api_conventions.py 从路由 AST 生成且 CI 逐条校验，端点真落地才会出现这一行。
+criterion = { type = "grep", path = "docs/spec/api.md", text = "/api/me/entitlements", present = true }
 
 [[debt]]
 id = "TD-021"
