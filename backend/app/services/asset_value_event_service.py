@@ -224,7 +224,7 @@ def list_value_events(db, asset: Asset, *, page: int = 1, per_page: int = 20) ->
         value_after[row.id] = running
 
     start = (page - 1) * per_page
-    items = [_event_dict(r, value_after[r.id]) for r in rows[start:start + per_page]]
+    items = [_event_dict(r, value_after[r.id]) for r in rows[start : start + per_page]]
     return {
         'data': items,
         'total': len(rows),

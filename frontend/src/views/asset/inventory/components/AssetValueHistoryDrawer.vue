@@ -183,69 +183,79 @@ const visibleEvents = computed(() =>
 
 <style scoped>
 .caliber-note {
-  margin: 0 0 12px;
   padding: 8px 10px;
-  font-size: 12px;
+  margin: 0 0 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
-  border-radius: 6px;
   color: var(--text-secondary);
   background: var(--bg-subtle);
+  border-radius: 6px;
 }
+
 .gap-note {
   margin: 0 0 12px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
+
 .state-line {
   padding: 16px 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
+
 .correction-toggle {
-  margin: 12px 0;
   padding: 4px 0;
-  border: 0;
-  background: none;
-  font-size: 12px;
-  cursor: pointer;
+  margin: 12px 0;
+  font-size: var(--text-label);
   color: var(--brand-600);
+  cursor: pointer;
+  background: none;
+  border: 0;
 }
+
 .event-list {
-  margin: 12px 0 0;
   padding: 0;
+  margin: 12px 0 0;
   list-style: none;
 }
+
 .event-row {
   padding: 10px 0;
   border-bottom: 1px solid var(--border-default);
 }
+
 .event-row.is-correction {
   opacity: 0.72;
 }
+
 .event-head,
 .event-body {
   display: flex;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
 }
+
 .event-date {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
+
 .event-kind {
-  font-size: 11px;
   padding: 1px 6px;
-  border-radius: 4px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-subtle);
+  border-radius: 4px;
 }
+
 .event-after,
 .event-note,
 .event-recorded {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

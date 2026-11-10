@@ -313,8 +313,8 @@ async function save() {
 <style scoped>
 .change-hint {
   margin: 4px 0 0;
+  font-size: var(--text-label);
   line-height: 1.5;
-  font-size: 12px;
   color: var(--text-tertiary-ink);
 }
 </style>

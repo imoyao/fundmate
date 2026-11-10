@@ -110,12 +110,12 @@ def test_a4_out_of_order_zero_recompute(client):
 
 
 INVARIANT_CASES = [
-    ('liability', 1_400_000, [-3000, -3000, -3000]),                   # 房贷逐月还款
-    ('liability', 1_400_000, [-1_260_000, +1_260_000]),                 # 输错后冲销（correction）
-    ('real_estate', 2_000_000, [+200000, -50000]),                      # 房产重估
-    ('receivable', 50_000, [+20000, -10000, -5000]),                    # 别人欠我们的钱
-    ('liability', 100_000, [+50_000, -10_000]),                         # 新增借款后部分归还
-    ('cash', 8_000, [+2000, -500, +100, -600]),                         # 现金账户双向变动
+    ('liability', 1_400_000, [-3000, -3000, -3000]),  # 房贷逐月还款
+    ('liability', 1_400_000, [-1_260_000, +1_260_000]),  # 输错后冲销（correction）
+    ('real_estate', 2_000_000, [+200000, -50000]),  # 房产重估
+    ('receivable', 50_000, [+20000, -10000, -5000]),  # 别人欠我们的钱
+    ('liability', 100_000, [+50_000, -10_000]),  # 新增借款后部分归还
+    ('cash', 8_000, [+2000, -500, +100, -600]),  # 现金账户双向变动
 ]
 
 
@@ -125,23 +125,21 @@ def test_a5_invariants_i1_i2(client, major, opening, deltas):
     aid = _new_asset(client, major=major, amount=opening, name=f'{major}-不变量')
     for i, delta in enumerate(deltas):
         day = f'2026-03-{i + 1:02d}'
-        assert _patch(
-            client, aid, delta=delta, effective_date=day, client_token=f'a5-{major}-{i}'
-        ).status_code == 200
+        assert _patch(client, aid, delta=delta, effective_date=day, client_token=f'a5-{major}-{i}').status_code == 200
 
     rows = _events(client, aid)['data']
     assert len(rows) == len(deltas)
     current = _amount(client, aid)
     total = sum(e['delta'] for e in rows)
     initial = current - total
-    assert initial == float(opening)          # I1
-    assert initial >= 0                       # I2（下界）
+    assert initial == float(opening)  # I1
+    assert initial >= 0  # I2（下界）
 
     running = initial
     for ev in rows:
         running += ev['delta']
-        assert ev['value_after'] == running   # 逐条「变动后值」读时折叠，不落库
-        assert ev['value_after'] >= 0         # I2
+        assert ev['value_after'] == running  # 逐条「变动后值」读时折叠，不落库
+        assert ev['value_after'] >= 0  # I2
         assert _asof(client, aid, ev['effective_date'])['value'] == running
     assert current == initial + total
 
@@ -180,9 +178,7 @@ def test_a8_family_snapshots_unchanged(client):
     before = client.get('/api/summary/snapshots/').get_json()
     assert before['data'], '快照列表不应为空，否则本判据恒真'
 
-    assert _patch(
-        client, aid, delta=-3000, effective_date='2026-01-15', client_token='a8'
-    ).status_code == 200
+    assert _patch(client, aid, delta=-3000, effective_date='2026-01-15', client_token='a8').status_code == 200
     after = client.get('/api/summary/snapshots/').get_json()
     assert after == before
 

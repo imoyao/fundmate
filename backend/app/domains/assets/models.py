@@ -130,13 +130,18 @@ class AssetValueEvent(Base):
     )
 
     delta = Column(Integer, nullable=False, comment='变动量（分，带符号）；恒正余额口径，负债方向不在此变号')
-    kind = Column(String(20), nullable=False, default='adjustment', comment='展示标签：valuation/repayment/borrow/receivable_change/correction/adjustment')
-    notes = Column(String(500), nullable=True, comment='本次变动说明（与 assets.notes 分开）')
-    client_token = Column(String(64), nullable=False, unique=True, comment='幂等令牌（D71 同源，ON CONFLICT DO NOTHING）')
-
-    __table_args__ = (
-        Index('ix_asset_value_events_scope', 'family_id', 'asset_id', 'effective_date', 'id'),
+    kind = Column(
+        String(20),
+        nullable=False,
+        default='adjustment',
+        comment='展示标签：valuation/repayment/borrow/receivable_change/correction/adjustment',
     )
+    notes = Column(String(500), nullable=True, comment='本次变动说明（与 assets.notes 分开）')
+    client_token = Column(
+        String(64), nullable=False, unique=True, comment='幂等令牌（D71 同源，ON CONFLICT DO NOTHING）'
+    )
+
+    __table_args__ = (Index('ix_asset_value_events_scope', 'family_id', 'asset_id', 'effective_date', 'id'),)
 
 
 @event.listens_for(Asset, 'before_insert')
