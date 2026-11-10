@@ -4,7 +4,10 @@ title: 净资产口径（net_worth）与现金腿
 
 # 净资产口径（`net_worth`）与现金腿
 
-> 状态：**生效**（2026-11-10，D98，源 [#3039](https://github.com/imoyao/fundmate/issues/3039)）
+> 状态：**口径生效 / 代码未落地**（2026-11-10，D98，源 [#3039](https://github.com/imoyao/fundmate/issues/3039)；逐项落地状态见 §7）
+>
+> 「口径生效」指本文件是**唯一事实标准**，后续改动必须照此收敛；**不**代表
+> `pnl_calendar` 已经按此实现——它目前仍是 `Σ市值 + Σrealized`（见 §7）。
 > 实现：`backend/app/services/pnl_calendar.py`（收益日历分母）、`backend/app/services/summary_service.py`（账户 / 家庭汇总）
 > 口径同源：[`cashflow-layers.md`](./cashflow-layers.md)（L1 外部资金流 / L2 资产转换 / 内部划转配对）
 
