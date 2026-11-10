@@ -2,12 +2,19 @@
   SankeyChart · 资产构成桑基图
 
   #980 批 B8 拆分后本文件只剩三件事：**容器与空态的模板**、**「什么时候画」**、
-  **ECharts 实例的生命周期接线**。几何与配置已分别搬到：
-  - `sankeyLayout.ts` —— 分层 BFS、资产负债分支、同层排序、取色（纯函数，可单测）
-  - `sankeyOption.ts` —— option 组装（改它通常是调视觉，与几何无关）
+  **ECharts 实例的生命周期接线**。数据与配置已分别搬到：
+  - `sankeyLayout.ts` —— 节点顺序、取色、标签朝向、最小绘图高度（纯函数，可单测）
+  - `sankeyOption.ts` —— option 组装（改它通常是调视觉，与数据无关）
 
-  `reuse: true` 而非默认的全量重建：桑基图每次都要按 `clientWidth` 重算手动布局，
-  重建实例会丢掉动画状态并肉眼可见地闪一下。
+  ECharts 6 已无 `layout: 'none'`，节点位置由自动布局决定；这里只负责把
+  `computeSankeyNodes` 算出的最小高度接到模板，并让 canvas 尺寸跟上容器高度。
+
+  2026-11-09 D94「单轴守恒图」后，`sankeyLayout.ts` 逐列按父节点重心排序并给
+  每个节点显式 `depth`，`sankeyOption.ts` 用细节点 + 单行 rich 标签的参考形态。
+  本文件不需要知道这些，但**不要**把 `chart.resize({ height: minHeight })` 删掉：
+  容器高度响应式变化后 canvas 仍按旧高度绘制，平行分层会挤成一团。
+
+  `reuse: true` 而非默认的全量重建：重建实例会丢掉动画状态并肉眼可见地闪一下。
 -->
 <template>
   <div class="sankey-chart-container">
@@ -34,9 +41,9 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import { getCssVar } from "@/composables/echarts/theme";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 import {
-  computeManualLayout,
-  computeMaxLevel,
+  computeSankeyNodes,
   hasDrawableData,
+  SANKEY_MIN_CHART_HEIGHT,
   type SankeyDataNode,
   type SankeyLink
 } from "./sankeyLayout";
@@ -50,15 +57,20 @@ const props = defineProps<{
 const chartRef = ref<HTMLElement | null>(null);
 const isEmpty = ref(true);
 const totalValue = ref(0);
-const containerHeight = ref(400);
+const containerHeight = ref(SANKEY_MIN_CHART_HEIGHT);
 // v-bind 在 <style> 中不能直接拼接字符串表达式，需在此先拼好带 px 的单位字符串
 const containerHeightPx = computed(() => `${containerHeight.value}px`);
 
-/** CSS 变量读取（生产实现；布局函数通过参数接收它，以便单测换假实现） */
+/** CSS 变量读取（生产实现；纯函数通过参数接收它，以便单测换假实现） */
 const readVar = (varName: string): string => getCssVar(varName);
 
-const LEFT_PAD = 100;
-const RIGHT_PAD = 80;
+/**
+ * 单行 rich 标签是「名称 + 两个空格 + 数值」横向排布，比旧的两行标签更宽：
+ * 左列标签朝左、右列标签朝右，两侧都要留够，否则「房产（自住）(我)  736.7万」
+ * 这类长标签会被裁掉。取值与用户认可的参考实现（130 / 190）一致。
+ */
+const LEFT_PAD = 130;
+const RIGHT_PAD = 190;
 
 /**
  * 把 option 画到**给定实例**上。init / dispose 归 composable，本函数只做绘制，
@@ -74,24 +86,24 @@ function paint(chart: echarts.ECharts, el: HTMLElement) {
     return;
   }
 
-  // 页面只透传图元素，进入几何层前在唯一边界收窄到真源类型
+  // 页面只透传图元素，进入数据层前在唯一边界收窄到真源类型
   const nodes = props.data.nodes as SankeyDataNode[];
   const links = props.data.links as SankeyLink[];
-  const maxLevel = computeMaxLevel(nodes, links);
-  const { nodes: layoutNodes, maxY } = computeManualLayout(
+  const { nodes: layoutNodes, minHeight } = computeSankeyNodes(
     nodes,
     links,
-    el.clientWidth,
-    maxLevel,
-    LEFT_PAD,
-    RIGHT_PAD,
     readVar
   );
 
-  containerHeight.value = Math.max(maxY + 40, 400);
+  containerHeight.value = minHeight;
 
   const totalNode = layoutNodes.find(n => n.name === "总资产");
   totalValue.value = (totalNode?.value as number) || 0;
+
+  // 容器高度是 Vue 响应式的，DOM 要等下一个 tick 才变；而复用模式下 composable
+  // 只在 window resize / onActivated 时调 chart.resize()。不显式同步尺寸的话，
+  // 高度随节点密度撑开时 canvas 仍按旧高度绘制，图会挤在上半截、下半留白。
+  chart.resize({ width: el.clientWidth, height: minHeight });
 
   chart.setOption(
     buildSankeyOption({
@@ -128,7 +140,7 @@ const { render } = useEchartsLifecycle(
   ],
   {
     keepAlive: true,
-    // 复用实例：桑基图每次都按 clientWidth 重算手动布局，重建会闪
+    // 复用实例：显示口径切换 / 主题重绘都只 setOption，重建会闪
     reuse: true,
     // 首次绘制交给下面的 watch（immediate + nextTick，等 DOM 挂载后再画）
     autoRenderOnMount: false

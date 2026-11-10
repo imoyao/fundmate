@@ -4,15 +4,26 @@ import { injectSupabaseSession } from "./support/session";
 /**
  * #980 批 B8 回归网：`SankeyChart` 拆分后的接线（447 → 168 行）。
  *
- * 几何算法搬去 `sankeyLayout.ts`（26 例纯函数单测），option 组装搬去
- * `sankeyOption.ts`。剩下真正会「静默坏掉」的东西只有一件：**布局算出来的
- * `maxY` 有没有被接回模板**——
+ * 节点数据搬去 `sankeyLayout.ts`（纯函数单测），option 组装搬去
+ * `sankeyOption.ts`。剩下真正会「静默坏掉」的东西只有一件：**按节点密度算出的
+ * `minHeight` 有没有被接回模板**——
  *
- *   maxY → `containerHeight = max(maxY + 40, 400)` → `v-bind(containerHeightPx)`
+ *   最密一列节点数 → `minHeight = max(400, n × (标签行高 16 + nodeGap 16) + 40)`
+ *   → `containerHeight` → `v-bind(containerHeightPx)`
  *
- * 这条线上任何一处断掉（解构改名、忘了 `.value`、CSS 里 v-bind 变量名大小写不一致），
- * 表现都只是「图挤在 400px 里、下半截看不见」或「容器虚高留白」，而 canvas 照样
- * 渲染、控制台一行错都不报。canvas 内部像素没法断言，但**容器高度是 maxY 的
+ * 2026-11-09 修正：ECharts 6 已移除 `layout: 'none'`，旧的「手算 y 累加出 maxY」
+ * 与实际几何脱钩。汇点一多，标签被压进几 px 厚的节点互相盖住。现在高度由
+ * **最密一列**决定，同时必须显式 `chart.resize({ height: minHeight })`，否则复用
+ * 实例下 canvas 仍按旧高度画。
+ *
+ * 2026-11-09 D94 修订：桑基图收敛为「资金来源 → 资产运用」单轴守恒图，标签改为
+ * 单行 rich（行高 16）、nodeGap 从 36 收到 16，因此高度公式里的单节点占位由
+ * 68px 变成 32px；桩数据也换成新拓扑。常量仍由 `sankeyLayout.spec.ts` 钉住，
+ * 本文件只验证「高度随数据变」这条接线没断。
+ *
+ * 这条线上任何一处断掉（解构改名、忘了 `.value`、CSS 里 v-bind 变量名大小写不一致、
+ * 漏了 resize），表现都只是「图挤在 400px 里」或「容器虚高留白」，而 canvas 照样
+ * 渲染、控制台一行错都不报。canvas 内部像素没法断言，但**容器高度是 minHeight 的
  * 唯一可见投影**，所以本文件用「高度随数据变」+「400 下限」两头夹住它。
  *
  * 另：空数据时 `paint` 会 `dispose()` 实例并留下空态遮罩，容器退回默认 400px
@@ -26,46 +37,36 @@ const SNAP_URL = /\/api\/summary\/snapshots\//;
 const DIST_URL = /\/api\/summary\/distributions\//;
 const SUMMARY_URL = /\/api\/summary\/(\?|$)/;
 
-/** 10 个资产叶 + 1 个负债叶：第 2 层堆到 yCursor=400，用来压出 440px 的高度 */
+/**
+ * D94 单轴守恒图 + 20 个资产明细（都落在最密的最后一列）：
+ * 20 × (16 + 16) + 40 = 680px。
+ * 汇点带显式 depth，不会被 nodeAlign:'justify' 的 moveSinksRight 推走，
+ * 所以最密列就是各拓扑层节点数的最大值。
+ */
+const LEAF_NAMES = Array.from({ length: 20 }, (_, i) => `资产明细${i + 1}`);
 const TALL_SANKEY = {
   nodes: [
-    { name: "总资产" },
-    { name: "投资理财" },
+    { name: "房贷" },
+    { name: "净资产" },
     { name: "总负债" },
-    ...[
-      "基金",
-      "股票",
-      "债券",
-      "现金",
-      "黄金",
-      "保险",
-      "房产",
-      "外汇",
-      "私募",
-      "信托"
-    ].map(name => ({ name })),
-    { name: "房贷" }
+    { name: "总资产" },
+    { name: "固定资产" },
+    { name: "流动资金" },
+    { name: "投资理财" },
+    ...LEAF_NAMES.map(name => ({ name }))
   ],
   links: [
+    { source: "房贷", target: "总负债", value: 40 },
+    { source: "总负债", target: "总资产", value: 40 },
+    { source: "净资产", target: "总资产", value: 160 },
+    { source: "总资产", target: "固定资产", value: 60 },
+    { source: "总资产", target: "流动资金", value: 40 },
     { source: "总资产", target: "投资理财", value: 100 },
-    { source: "总资产", target: "总负债", value: 40 },
-    ...[
-      "基金",
-      "股票",
-      "债券",
-      "现金",
-      "黄金",
-      "保险",
-      "房产",
-      "外汇",
-      "私募",
-      "信托"
-    ].map(target => ({ source: "投资理财", target, value: 10 })),
-    { source: "总负债", target: "房贷", value: 40 }
+    ...LEAF_NAMES.map(name => ({ source: "投资理财", target: name, value: 5 }))
   ]
 };
 
-/** 单链：maxY=50 ⇒ maxY+40=90 低于 400，验证下限生效 */
+/** 单链只有 1 个汇点：32 + 40 低于 400，验证下限生效 */
 const SHORT_SANKEY = {
   nodes: [{ name: "总资产" }, { name: "基金" }],
   links: [{ source: "总资产", target: "基金", value: 100 }]
@@ -119,7 +120,7 @@ test.describe("桑基图拆分后回归（#980 批 B8）", () => {
     await injectSupabaseSession(context, baseURL!);
   });
 
-  test("容器高度 = max(maxY + 40, 400)：深树压到 440px，图不会挤进 400px", async ({
+  test("容器高度 = 最密列节点数 × (标签行高 + 间距) + 40：20 个明细撑到 680px", async ({
     page
   }) => {
     await mockPanorama(page, TALL_SANKEY);
@@ -127,7 +128,7 @@ test.describe("桑基图拆分后回归（#980 批 B8）", () => {
 
     const container = page.locator(".sankey-chart-container");
     await expect(container).toHaveCount(1, { timeout: 90_000 });
-    await expect(container).toHaveCSS("height", "440px");
+    await expect(container).toHaveCSS("height", "680px");
 
     // 真的画了：ECharts 会往 .chart 里插 canvas
     await expect(page.locator(".chart canvas")).not.toHaveCount(0);
