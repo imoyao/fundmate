@@ -135,6 +135,68 @@ def evaluate(trace, expect):
     return True, ''
 
 
+PLAN_STEP_KEYS = frozenset({'tool', 'params_from'})
+
+
+def validate_plan_shape(plan):
+    """校验 expect.plan 结构，返回错误原因列表（空列表 = 合法）。
+
+    步骤形如 {tool: <名字或名字列表>, params_from: <更早步骤序号，可选>}。
+    params_from 只写「引用哪一步」，不写任何数值 —— 与 owner 裁定 D2
+    「中间数值不进模型」一致，评估集也不复制一份真实数值。
+    """
+    errors = []
+    if not isinstance(plan, list) or not plan:
+        return ['expect.plan 必须是非空列表']
+    for i, step in enumerate(plan):
+        if not isinstance(step, dict):
+            errors.append(f'步骤 {i + 1} 必须是映射')
+            continue
+        unknown = set(step) - PLAN_STEP_KEYS
+        if unknown:
+            errors.append(f'步骤 {i + 1} 含未知字段 {sorted(unknown)}')
+        tools = step.get('tool')
+        if not tools or not all(isinstance(t, str) and t for t in _as_list(tools)):
+            errors.append(f'步骤 {i + 1} 缺合法 tool')
+        ref = step.get('params_from')
+        if ref is not None and (isinstance(ref, bool) or not isinstance(ref, int) or ref < 0 or ref >= i):
+            errors.append(f'步骤 {i + 1} 的 params_from 必须引用更早的步骤序号')
+    return errors
+
+
+def evaluate_plan(traces, expect):
+    """按 expect.plan 判定多步执行序列；返回 (是否通过, 失败原因)。
+
+    只比对 execute_tool 且成功的 trace 的工具名序列与末轮 status，
+    **不读任何工具返回数值**：数值正确性归工具单测，评估集只钉执行结构。
+    既有 47 条用例仍走 evaluate(final, ...) 原路径，行为一字不变。
+    """
+    expect = expect or {}
+    plan = expect.get('plan')
+    errors = validate_plan_shape(plan)
+    if errors:
+        return False, 'expect.plan 结构非法：' + '; '.join(errors)
+    traces = traces or []
+    executed = [
+        t.tool_name
+        for t in traces
+        if getattr(t, 'intent', None) == 'execute_tool'
+        and getattr(t, 'status', None) == 'result'
+        and getattr(t, 'tool_name', None)
+    ]
+    if len(executed) < len(plan):
+        return False, f'只执行了 {len(executed)} 步，期望 {len(plan)} 步：{executed}'
+    for i, step in enumerate(plan):
+        allowed = _as_list(step['tool'])
+        if executed[i] not in allowed:
+            return False, f'第 {i + 1} 步 tool={executed[i]}，期望 {allowed}'
+    final = traces[-1] if traces else None
+    want_status = _as_list(expect.get('status'))
+    if final is None or getattr(final, 'status', None) not in want_status:
+        return False, f'末轮 status={getattr(final, "status", None)}，期望 {want_status}'
+    return True, ''
+
+
 def run_case(db, case):
     """单案例：新会话 → 按 turns 顺序跑真实链路 → 读该会话全部 trace 汇总。"""
     row = session_store.load_or_create(db, session_id=None, user_id=EVAL_USER_ID)
@@ -156,6 +218,8 @@ def run_case(db, case):
     final = traces[-1] if traces else None
     if error:
         ok, why = False, error
+    elif (case.get('expect') or {}).get('plan'):
+        ok, why = evaluate_plan(traces, case['expect'])
     else:
         ok, why = evaluate(final, case.get('expect') or {})
     return {
