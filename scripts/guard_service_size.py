@@ -143,7 +143,12 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/ai_recognizer/safety/repeat_tracker.py": {'lines': 114, 'max_func': 18, 'max_cc': 7},
     "backend/app/services/ai_recognizer/schemas.py": {'lines': 104, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/ai_recognizer/session_store.py": {'lines': 125, 'max_func': 23, 'max_cc': 6},
-    "backend/app/services/ai_recognizer/tools.py": {'lines': 619, 'max_func': 91, 'max_cc': 17},
+    # 2026-11-11 Q3 再平衡参考工具（#3049/#3050）按 --report 实测回写一项：
+    # tools.py 619→644（import / TOOLS_METADATA 一项 / register 一行，共 25 行必要接线）。
+    # 纯计算与取数已下沉到 services/analytics/rebalance_reference*.py（新文件走
+    # NEW_FILE_LIMITS），max_func 91 / max_cc 17 不变——没有放大任何既有函数职责。
+    # 理由与实施边界见 docs/spec/agent-rebalance-reference-tool.md §12.6。
+    "backend/app/services/ai_recognizer/tools.py": {'lines': 644, 'max_func': 91, 'max_cc': 17},
     "backend/app/services/analytics/__init__.py": {'lines': 39, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/analytics/behavior.py": {'lines': 340, 'max_func': 194, 'max_cc': 62},
     "backend/app/services/analytics/benchmark_comparison.py": {'lines': 307, 'max_func': 108, 'max_cc': 23},

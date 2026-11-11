@@ -33,6 +33,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.analytics.benchmark_comparison import build_benchmark_comparison
+from app.services.analytics.rebalance_reference import BROAD_INDEX_TARGETS, build_rebalance_reference
 from app.services.analytics.trading_behavior import build_trading_behavior
 from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.nav_service import NavService
@@ -343,6 +344,7 @@ register_tool('get_return_attribution', _tool_get_return_attribution)
 register_tool('get_fund_nav', _tool_get_fund_nav)
 register_tool('get_market_temperature', _tool_get_market_temperature)
 register_tool('get_watchlist_overview', _tool_get_watchlist_overview)
+register_tool('get_rebalance_reference', build_rebalance_reference)
 
 
 # 工具元信息：模型据此选工具，代码据此校验参数。
@@ -528,6 +530,29 @@ TOOLS_METADATA = [
                 'family_id': {
                     'type': 'integer',
                     'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+            },
+        },
+    },
+    {
+        'name': 'get_rebalance_reference',
+        'description': '持仓再平衡客观参考信号：单一标的占比（Top-N 与关注/警示档）、'
+        '宽基指数估值分位带，以及当前数据底座算不出的信号清单（missing_signals）。'
+        '当用户问「我的持仓集中度怎么样」「有没有需要关注的再平衡信号」「持仓是不是太集中」'
+        '这类**客观统计**问题时使用；问「我该不该卖」「推荐一只基金」属方向性投资建议，'
+        '不归本工具。全部数值由代码算出，顶部固定「客观参考，非投资建议」，'
+        '叙事轮只转述 signals 与 missing_signals，不得补算、不得发挥、不得给操作方向',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'family_id': {
+                    'type': 'integer',
+                    'description': '家庭 id（服务端自动注入，调用方无需提供）',
+                },
+                'benchmark': {
+                    'type': 'string',
+                    'enum': sorted(BROAD_INDEX_TARGETS),
+                    'description': '估值对照的宽基指数代码，缺省沪深300（000300.SH）',
                 },
             },
         },
