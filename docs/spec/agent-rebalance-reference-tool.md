@@ -5,7 +5,9 @@ title: 账本精灵「持仓再平衡参考」工具设计（Q3 专题）
 # 账本精灵「持仓再平衡参考」工具设计（Q3 专题）
 
 > 派生自 `agent-paradigm-selection.md` §9 真实测试向量与 §10 Q3 专题评估。
-> **性质**：设计依据（**未实施 / 待裁定**），不含实现清单；行号证据绑定当前 `origin/dev` @ `ac8c15d508`。
+> **性质**：**v1 已实施（客观信号子集）**。实施范围、对本文 §3/§4 数据底座的实测修正、
+> 以及 §10 四项待裁定的默认值处置，全部登记在 **§12**；范式选型 P&E 仍属 owner 决策面。
+> 行号证据绑定 `origin/dev` @ `ac8c15d508`。
 > 本文只解决 owner 四连问里的 **Q3（持仓/调仓建议）**，与 Q1/Q2/Q4 的编排问题正交（见 §2）。
 
 ## 0. 问题来源
@@ -131,4 +133,71 @@ Q1/Q2/Q4 属编排缺口，由 P&E 最小版解决；**Q3 是独立的「生成 
 | 基金估值快照 `fund_valuation_daily` | `models.py:320-354` |
 | 资产快照 job `asset_snapshot` | `scheduler.py:14-15` |
 | SW 一级行业常量 | `wind_valuation.py:29` |
-| eval 静态门禁 45 条契约 | `tests/agent_eval/test_cases.py:29-31` |
+| eval 静态门禁 47 条契约 | `tests/agent_eval/test_cases.py:29-31` |
+
+---
+
+## 12. v1 实施留痕（2026-11-11）
+
+### 12.1 已落地范围
+
+新增第 10 个**只读**工具 `get_rebalance_reference`（与既有 9 工具同构）：
+
+- `services/analytics/rebalance_reference_rules.py`：纯计算（权重 / 估值分位带 / 输出组装），
+  不接 DB、不调模型；固定 `disclaimer`，`level` 仅 `info / watch / caution`。
+- `services/analytics/rebalance_reference.py`：只从本地已落库数据取值 ——
+  持仓市值复用 `exclude_cleared` + `market_value_cents`（与 `list_position_pnl` 同口径），
+  估值分位读 `market_multi_items(source='wind_valuation', item_type='index')` 最新一条。
+  零外部请求、零新增 MCP 客户端。
+- `tools.py`：注册 + `TOOLS_METADATA` 一项（决策层靠 description 选工具）。
+- `cases.yaml` 的 `advice-01` 已按本文 §9 写明的目标态迁移为
+  `{ status: result, tool: get_rebalance_reference }`；评估集仍为 47 条，
+  `test_cases.py` 的所有 assert 未改，只把 docstring 里「9 个工具 / 45 条」改准。
+
+### 12.2 对 §3/§4 数据底座的实测修正（重要）
+
+实现时逐个核对模型，**发现两处设计假设不成立**，按 §4「不报错、不编造」的纪律
+把对应信号降级为显式缺口（`missing_signals`），没有用近似值顶替：
+
+| 信号 | 设计假设 | 实测 | v1 处置 |
+|---|---|---|---|
+| `industry_concentration` | 按 SW 一级行业聚合持仓权重 | `positions` 表**无行业 / 板块字段**，本地无「用户持仓 → 申万一级行业」权威映射；`wind_stock` 是外部查询且未落库 | 恒定进 `missing_signals`，写明原因 |
+| `deviation_from_mean` | 当前占比 vs `asset_snapshot` 历史序列均值 | `asset_snapshots` 只有家庭 / 账户级总资产、负债、净资产，**没有逐标的占比**；且模型 docstring 按 **D62** 明确「`snapshot_date` 只是标签、不是数据时点，禁止回填」，不可作历史序列 | 恒定进 `missing_signals`，写明原因 |
+
+v1 真正可算的只有 `single_position_weight` 与 `valuation_context` 两类；
+脏市值（None / 0 / 非数值）排除出分母并计入 `coverage.excluded_count`，不补 0。
+
+### 12.3 §10 四项待裁定的处置（默认值 + 留痕，可回填）
+
+1. **v1 仅本地指数估值**：按 §7 已写定的默认值落地，个基历史估值分位留 v2（依赖 A′）。
+2. **历史均值窗口 30/90/全期**：`deviation_from_mean` 因 §12.2 暂无数据，**未启用**；
+   常量预留 90 天，窗口本身尚未成为生效参数，等数据源具备后再由 owner 定。
+3. **集中度阈值**：默认 `WATCH_WEIGHT_PCT=20%` / `CAUTION_WEIGHT_PCT=35%` / `TOP_N=5`，
+   估值分位带 `>80% 偏高` / `<20% 偏低`。阈值只影响 `level` 标注，不改变权重数值，
+   也不引入买卖语义；owner 可回填调整。
+4. **意图路由落点**：v1 选择 **不改 `intent_guard`**，靠 `TOOLS_METADATA.description`
+   在决策层（护栏之后、工具选择之前，符合 §6 顺序）区分「客观参考」与「方向性建议」。
+   理由：扩 B2 正则要改被基线冻结的护栏文件，且会改动已验收的拦截语义，收益不抵风险。
+   实测 `advice-01` 问法 `check_input` 判 `query / blocked=False`，可正常进模型选工具。
+   **若 owner 裁定必须落在 `intent_guard`，请单独开卡，本 PR 不代拍。**
+
+### 12.4 实测护栏缺口（登记，不擅自修）
+
+`check_input('我该不该把这只基金卖掉？')` → `category=advice, blocked=False`：
+B2 正则的 `该不该(买|卖|…)` 要求动词紧跟，「该不该**把这只基金**卖掉」不命中，
+`(现在|当下)…卖` 也未命中。即 **§6「方向性建议由 B2 拦截」的假设不完全成立**。
+本次实现没有放宽任何护栏、也没有收紧 B2（避免顺手改语义），仅登记事实：
+`adv-jailbreak-02/03` 两条现有回归用例仍绿。此缺口应在 owner 裁定「意图路由落点」时一并处理。
+
+### 12.5 明确未做
+
+P&E 最小版（范式 §8 六项待裁定，含 `expect.plan`）、`chain-01` 的强断言升级、
+v2 个基估值分位、行业归属数据源、逐标的占比历史序列。四条硬红线零触碰：
+未动态接外部 MCP、未让模型自由生成建议、未引入 ReAct、未做向量检索或凭证加密。
+
+### 12.6 服务体量基线
+
+`tools.py` 属于 `guard_service_size.py` 冻结的存量文件。本次新增工具所需的
+import / metadata / register 三处必要接线使它变厚，按脚本既有惯例用 `--report`
+实测回写该文件的 BASELINE 并在此留下理由，**没有放宽任何阈值**：纯计算与取数
+都已下沉到 `services/analytics/` 的新文件（走 `NEW_FILE_LIMITS`）。

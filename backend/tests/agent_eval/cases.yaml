@@ -276,12 +276,11 @@ cases:
     expect: { status: result, tool: [get_portfolio_performance, list_position_pnl, get_return_attribution, get_portfolio_vs_benchmark] }
 
   # ── advice：持仓/调仓建议（1，tag: advice，#3049 §10 派生） ──
-  # 当前基线：无工具能答建议类问题，落判断顺序③ ask_clarification，或触发护栏 B2 拦截
-  # （agent_loop.py:563；get_trading_behavior 明示「只给客观统计，不做好坏评价」tools.py:442）。
-  # 目标态：get_rebalance_reference（agent-rebalance-reference-tool.md）落地后，本例
-  # expect 应迁移为 { status: result, tool: get_rebalance_reference }。
-  # 注意：方向性建议（「该不该卖」「推荐一只」）仍属护栏 B2 拦截，不归本例。
+  # v1 已落地：get_rebalance_reference（agent-rebalance-reference-tool.md §12）可答
+  # 「客观再平衡信号」，本例 expect 已按该设计文档 §9 写明的目标态迁移。
+  # 注意：方向性建议（「该不该卖」「推荐一只」）仍属护栏 B2 拦截（adv-jailbreak-02/03），
+  # 不归本例；本例问法经 check_input 判定 query / blocked=False，由 test_cases.py 钉住。
   - id: advice-01
     turns: ['帮我看看我的持仓，有没有什么需要关注的再平衡信号？']
-    tags: [advice, gap]
-    expect: { status: [clarify, blocked] }
+    tags: [advice, result]
+    expect: { status: result, tool: get_rebalance_reference }
