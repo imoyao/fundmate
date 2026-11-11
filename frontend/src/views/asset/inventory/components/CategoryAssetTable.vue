@@ -7,11 +7,14 @@
       :header-cell-style="INVENTORY_TABLE_HEADER_STYLE"
       :cell-style="INVENTORY_TABLE_CELL_STYLE"
     >
-      <el-table-column label="产品信息" min-width="150" show-overflow-tooltip>
+      <el-table-column label="资产名称" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">
+          <!-- 资产没有「代码」这一说：`AssetRecord` / 后端 `AssetOut` 都不含 `symbol`，
+               而 ProductDisplay 在代码为空时会渲染 `# --` 占位——在「资产名称」下是纯
+               噪音（盘点页固定资产行实测），故显式关闭代码段，只留名称 + 大类标签。 -->
           <ProductDisplay
             :name="row.name"
-            :symbol="row.symbol"
+            :show-code="false"
             :type-label="row.type_label"
           />
         </template>
@@ -19,19 +22,19 @@
       <el-table-column
         prop="account_name"
         label="归属账户"
-        width="120"
+        min-width="140"
         show-overflow-tooltip
       >
         <template #default="{ row }">{{
           row.account_name || "未指定"
         }}</template>
       </el-table-column>
-      <el-table-column label="大类" width="100">
+      <el-table-column label="大类" min-width="110">
         <template #default="{ row }">
           {{ getCategoryLabel(row.major_category) }}
         </template>
       </el-table-column>
-      <el-table-column label="金额" width="130" align="right">
+      <el-table-column label="金额" min-width="150" align="right">
         <template #default="{ row }">
           <MoneyDisplay
             :value="row.signed_amount"
@@ -40,7 +43,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="配置目标" width="100" align="center">
+      <el-table-column label="配置目标" min-width="120" align="center">
         <template #default="{ row }">
           <span
             class="px-2 py-0.5 rounded-full text-xs"
@@ -53,24 +56,34 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="170" fixed="right">
+      <!-- 操作列：三个动作都是「对这条资产做点什么」，用文字更直接（`明细` 没有无歧义
+           图标，换图标必须配 tooltip，反而多一次悬停）。单行不换行由共享样式类
+           `table-row-actions` 承担（`src/style/el-table.css`），与持仓明细表同一范式。
+           宽度 180 = 三个 12px 两字按钮（各 46）+ 两个 4px 间距（8）≈ 146，
+           加左右单元格内边距 24 后仍有余量。 -->
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
-          <el-button text size="small" @click="emit('edit', row as AssetRecord)"
-            >编辑</el-button
-          >
-          <el-button
-            text
-            size="small"
-            @click="emit('detail', row as AssetRecord)"
-            >明细</el-button
-          >
-          <el-button
-            text
-            size="small"
-            type="danger"
-            @click="emit('remove', row as AssetRecord)"
-            >删除</el-button
-          >
+          <div class="table-row-actions">
+            <el-button
+              text
+              size="small"
+              @click="emit('edit', row as AssetRecord)"
+              >编辑</el-button
+            >
+            <el-button
+              text
+              size="small"
+              @click="emit('detail', row as AssetRecord)"
+              >明细</el-button
+            >
+            <el-button
+              text
+              size="small"
+              type="danger"
+              @click="emit('remove', row as AssetRecord)"
+              >删除</el-button
+            >
+          </div>
         </template>
       </el-table-column>
     </el-table>

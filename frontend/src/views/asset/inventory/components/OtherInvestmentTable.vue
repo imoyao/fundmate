@@ -6,11 +6,12 @@
       :header-cell-style="INVENTORY_TABLE_HEADER_STYLE"
       :cell-style="INVENTORY_TABLE_CELL_STYLE"
     >
-      <el-table-column label="产品信息" min-width="150" show-overflow-tooltip>
+      <el-table-column label="资产名称" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">
+          <!-- 与 `CategoryAssetTable` 同口径：资产无代码，关闭 `# --` 占位 -->
           <ProductDisplay
             :name="row.name"
-            :symbol="row.symbol"
+            :show-code="false"
             :type-label="getMinorAssetLabel(row as AssetRecord)"
           />
         </template>
@@ -18,14 +19,14 @@
       <el-table-column
         prop="account_name"
         label="归属账户"
-        width="120"
+        min-width="140"
         show-overflow-tooltip
       >
         <template #default="{ row }">{{
           row.account_name || "未指定"
         }}</template>
       </el-table-column>
-      <el-table-column label="金额" width="130" align="right">
+      <el-table-column label="金额" min-width="150" align="right">
         <template #default="{ row }">
           <MoneyDisplay
             :value="row.signed_amount"
@@ -34,24 +35,30 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="170" fixed="right">
+      <!-- 操作列：文字一行不换行，与 `CategoryAssetTable` 共用 `table-row-actions` -->
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
-          <el-button text size="small" @click="emit('edit', row as AssetRecord)"
-            >编辑</el-button
-          >
-          <el-button
-            text
-            size="small"
-            @click="emit('detail', row as AssetRecord)"
-            >明细</el-button
-          >
-          <el-button
-            text
-            size="small"
-            type="danger"
-            @click="emit('remove', row as AssetRecord)"
-            >删除</el-button
-          >
+          <div class="table-row-actions">
+            <el-button
+              text
+              size="small"
+              @click="emit('edit', row as AssetRecord)"
+              >编辑</el-button
+            >
+            <el-button
+              text
+              size="small"
+              @click="emit('detail', row as AssetRecord)"
+              >明细</el-button
+            >
+            <el-button
+              text
+              size="small"
+              type="danger"
+              @click="emit('remove', row as AssetRecord)"
+              >删除</el-button
+            >
+          </div>
         </template>
       </el-table-column>
     </el-table>

@@ -102,3 +102,20 @@
 .el-table .el-table__row td.cell-fee {
   background-color: rgb(250 236 216 / 0.45);
 }
+
+/* 行内操作按钮组（「编辑 / 明细 / 删除」这类 2~3 个文字按钮）：
+   一行排版、永不换行。此前各页面按 el-button 默认流式排列——`el-button + el-button`
+   的 12px 左边距叠加单元格内边距后，3 个按钮在 170px 列里必然折行
+   （盘点页资产表实测「删除」被挤到第二行）。
+   `margin-left: 0` 清零默认相邻间距，改用 gap 统一控制；nowrap 是兜底：
+   列宽被压窄时宁可行内紧凑，也不折成两行破坏行高（全站行高 44px）。 */
+.table-row-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.table-row-actions .el-button + .el-button {
+  margin-left: 0;
+}
