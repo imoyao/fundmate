@@ -28,7 +28,7 @@ def _load():
 
 def test_count_and_unique_ids():
     cases = _load()
-    assert len(cases) == 45, f'评估集必须恰好 45 条（当前 {len(cases)}）'
+    assert len(cases) == 47, f'评估集必须恰好 47 条（当前 {len(cases)}）'
     ids = [c['id'] for c in cases]
     assert len(ids) == len(set(ids)), '用例 id 必须唯一'
 
