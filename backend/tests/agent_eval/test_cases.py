@@ -146,3 +146,42 @@ def test_plan_expectations_are_valid():
                 assert isinstance(ref, int) and not isinstance(ref, bool) and 0 <= ref < n, (
                     f'{c["id"]} 第 {n + 1} 步 params_from 必须引用更早步骤'
                 )
+
+
+def test_narrative_expectations_are_valid():
+    """D1 验收判据的静态防线：含 expect.narrative 的用例必须是可判定的覆盖规格。
+
+    防的是「橡皮章绿」：锚点组为空、整组只剩泛词、子问 id 重复，都会让运行时
+    判据恒真——那种绿比红更危险。运行时另有一份
+    ``agent_eval.validate_narrative_shape`` 防脏输入，两者职责不同（此处钉数据文件）。
+    """
+    cases = _load()
+    # 单独出现时几乎任何回答都会命中的万能词：整组只靠它们 = 判据恒真
+    generic = {'收益', '市场', '基金', '持仓', '数据', '组合', '分析', '情况', '建议', '原因'}
+    seen = 0
+    for c in cases:
+        expect = c.get('expect') or {}
+        spec = expect.get('narrative')
+        if spec is None:
+            continue
+        seen += 1
+        assert isinstance(spec, dict), f'{c["id"]} expect.narrative 必须是映射'
+        assert set(spec) == {'covers'}, f'{c["id"]} expect.narrative 只允许 covers（当前 {sorted(spec)}）'
+        covers = spec['covers']
+        assert isinstance(covers, list) and len(covers) >= 2, f'{c["id"]} 多子问覆盖至少要有 2 组'
+        statuses = expect.get('status')
+        statuses = statuses if isinstance(statuses, list) else [statuses]
+        assert 'result' in statuses, f'{c["id"]} 叙事判据只适用于 result 用例'
+        ids = []
+        for n, cover in enumerate(covers, 1):
+            assert isinstance(cover, dict), f'{c["id"]} 第 {n} 组必须是映射'
+            assert set(cover) == {'id', 'any'}, f'{c["id"]} 第 {n} 组只允许 id / any'
+            assert isinstance(cover['id'], str) and cover['id'].strip(), f'{c["id"]} 第 {n} 组缺合法 id'
+            words = cover['any']
+            assert isinstance(words, list) and len(words) >= 2, f'{c["id"]} 第 {n} 组至少 2 个同义锚点'
+            assert all(isinstance(w, str) and w.strip() for w in words), f'{c["id"]} 第 {n} 组含空锚点'
+            assert len(set(words)) == len(words), f'{c["id"]} 第 {n} 组锚点重复'
+            assert any(w not in generic for w in words), f'{c["id"]} 第 {n} 组全是泛词，判据会恒真'
+            ids.append(cover['id'])
+        assert len(set(ids)) == len(ids), f'{c["id"]} 子问 id 重复'
+    assert seen, '评估集里没有任何 expect.narrative 用例：D1 验收判据没有挂进数据'
