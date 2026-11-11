@@ -48,7 +48,7 @@ from sqlalchemy.orm import object_session
 
 from app.core.exceptions import ErrorCode, SBException
 from app.domains.agent.models import AgentSession, AgentTrace
-from app.services.ai_recognizer import cancellation, guards, llm, registry, safety, session_store
+from app.services.ai_recognizer import cancellation, guards, llm, plan_executor, registry, safety, session_store
 from app.services.ai_recognizer.narrative_blocks import parse_narrative_blocks
 from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
 
@@ -373,6 +373,7 @@ def _decision_system_prompt() -> str:
         + '\n可用工具清单（tool_name 必须取自 name，tool_params 必须符合 parameters 约束；'
         + 'description 标注「服务端自动注入」的参数不要由你提供）：\n'
         + json.dumps(TOOLS_METADATA, ensure_ascii=False)
+        + plan_executor.PLAN_INSTRUCTION
     )
 
 
@@ -405,16 +406,6 @@ def parse_agent_action(response_str: str) -> dict:
         obj['action'] = 'ask_clarification'
         obj['error'] = 'invalid_action'
     return obj
-
-
-def _tool_description(tool_name: Optional[str]) -> str:
-    """按工具名取 TOOLS_METADATA 的 description（叙事轮理解字段语义用）。"""
-    if not tool_name:
-        return ''
-    for meta in TOOLS_METADATA:
-        if meta.get('name') == tool_name:
-            return str(meta.get('description') or '')
-    return ''
 
 
 def run_agent(
@@ -627,12 +618,12 @@ def _run_agent_impl(
             }
 
         # execute_tool：校验 + 执行工具
-        tool_name = action.get('tool_name')
+        tool_name = plan_executor.primary_tool(action)
         tool_params = action.get('tool_params') or {}
         # 候选值合并：服务端已收集参数 + 模型本轮 tool_params；
         # 权威值（server_ctx）在 ToolExecutor.run 内覆盖同名候选（P1 越权修复）
         merged_params = {**state.get('collected_params', {}), **tool_params}
-        result = ToolExecutor.run(tool_name, merged_params, server_ctx=server_ctx)
+        result = plan_executor.execute(action, merged_params, server_ctx, ToolExecutor.run)
         if result['status'] == 'success':
             # 模型给出的候选参数回写工作内存：下轮起服务端直接续用（P2 消除前端持有）
             state['collected_params'] = {**state.get('collected_params', {}), **tool_params}
@@ -682,14 +673,14 @@ def _run_agent_impl(
     # 只会产出「市场温度总结」式的通用转述——用户问的三个子问题一个都没覆盖。
     # 同时附工具语义说明（TOOLS_METADATA.description），否则数据里的「短期情绪」
     # 与用户口中的「贪恐指数」无法建立映射。
-    tool_desc = _tool_description(tool_name)
+    tool_desc = plan_executor.describe(result, tool_name)
     # 输出契约（#1712）：固定三小节，后端解析为块结构；行级数据由系统成表，
     # 模型只写要点——禁止模型自行排版表格（数字易抄错，表格必须以工具数据为源）。
     narrative_prompt = (
         f'用户本轮提问：{_truncate(user_input, TURN_SIDE_CAP)}\n'
         + (f'该工具的语义说明（用于理解字段含义，不得超出数据本身发挥）：{tool_desc}\n' if tool_desc else '')
-        + f'基于以下分析数据（来自工具 {tool_name}）：{data_json}\n'
-        '输出必须严格分三个小节，每节以【】标题开头，顺序固定，不得增删：\n'
+        + plan_executor.source_line(result, tool_name, data_json)
+        + '输出必须严格分三个小节，每节以【】标题开头，顺序固定，不得增删：\n'
         '【结论】一句话结论先行，直接回答用户本轮提问；\n'
         '【明细】逐个覆盖用户本轮提问中能被上述数据回答的部分，逐条说明关键数字，不要遗漏'
         '（行级明细由系统自动渲染成表格，你只需补充要点，不要自己排版表格）；\n'
@@ -720,10 +711,10 @@ def _run_agent_impl(
     blocks = parse_narrative_blocks(narrative, data)
     if blocks is None:
         logger.warning('叙事未按小节契约输出，降级为纯文本渲染，name={}', tool_name)
-    _write_trace(
+    plan_executor.write_traces(
+        _write_trace,
         session,
-        intent='execute_tool',
-        status='result',
+        result,
         tool_name=tool_name,
         tool_params=merged_params,
         latency_ms=llm_ms,

@@ -121,3 +121,28 @@ def test_guard_expectations_match_intent_guard():
             assert verdict.blocked, f'{c["id"]} 期望拦截但护栏放行：{first}'
         if not wants_blocked:
             assert not verdict.blocked, f'被护栏误拦（改输入或修护栏，别让评估集静默失真）：{c["id"]} {first}'
+
+
+def test_plan_expectations_are_valid():
+    """owner 裁定 D3 后新增：含 expect.plan 的用例结构、工具名、引用序号必须合法。
+
+    能力先行、断言随实现升级：#3055 先落 evaluate_plan（chain-01 仍走弱断言，
+    避免造出必然 FAIL 的用例）；P&E 编排出多步 trace 后，chain-01 已升级为
+    expect.plan，本断言与 harness 即刻生效，不再需要改动判据。
+    """
+    cases = _load()
+    for c in cases:
+        plan = (c.get('expect') or {}).get('plan')
+        if plan is None:
+            continue
+        assert isinstance(plan, list) and plan, f'{c["id"]} expect.plan 必须是非空列表'
+        for n, step in enumerate(plan):
+            assert isinstance(step, dict) and step.get('tool'), f'{c["id"]} 第 {n + 1} 步缺 tool'
+            tools = step['tool'] if isinstance(step['tool'], list) else [step['tool']]
+            for t in tools:
+                assert t in TOOL_NAMES, f'{c["id"]} 第 {n + 1} 步未知工具 {t}'
+            ref = step.get('params_from')
+            if ref is not None:
+                assert isinstance(ref, int) and not isinstance(ref, bool) and 0 <= ref < n, (
+                    f'{c["id"]} 第 {n + 1} 步 params_from 必须引用更早步骤'
+                )
