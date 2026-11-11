@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.allocation_rules import normalize_allocation_source
+from app.core.allocation_source_stamp import AllocationSourceStampMixin
 from app.core.constants import ALLOCATION_LABELS
 
 
@@ -137,7 +138,7 @@ class ConversionSubmit(BaseModel):
     idempotency_key: str = Field(..., min_length=8, description='幂等键（前端生成的 UUID），重复提交返回同一结果')
 
 
-class PositionUpdate(BaseModel):
+class PositionUpdate(AllocationSourceStampMixin):
     name: Optional[str] = Field(None, description='名称')
     account_name: Optional[str] = Field(None, description='所属账户')
     ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增

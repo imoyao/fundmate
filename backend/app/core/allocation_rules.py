@@ -113,3 +113,44 @@ def derive_allocation(major_category: str | None, asset_type: str | None = None)
     if asset_type in CASH_EQUIVALENT_ASSET_TYPES:
         return LIQUID
     return MAJOR_CATEGORY_TO_ALLOCATION.get(major_category or '')
+
+
+def resolve_allocation_source(
+    *,
+    explicit: bool,
+    allocation: str | None = None,
+    path: str = 'form',
+) -> str:
+    """判定**增量写入**的来源标记（#3031 / G1-b），供三处写入侧共用。
+
+    WHY 不用「值是否等于 longterm」反推：那是 G1-a **存量迁移**在没有显式性信号时
+    的无奈近似（``migrations.py:2981``、``backfill_allocation.py:79-81``：
+    ``allocation <> 'longterm'`` ⇒ ``user``）。增量写入拿得到「调用方是否真的传过这个
+    字段」（``model_dump(exclude_unset=True)`` / attribute history），若仍退回值反推，
+    用户把 ``liquid`` **主动改回** ``longterm`` 就会掉回 ``default``，下次 G3 回填
+    覆盖掉他的选择——正是 P0-7 要防的事。故：显式 + 表单 ⇒ 一律 ``user``。
+
+    参数
+    ----
+    explicit
+        本次写入是否**显式设置了 allocation**。未显式 ⇒ 返回 ``default``，
+        保持列默认语义，让 G2 推导规则将来能覆盖（不抢在用户前面打保护标）。
+    allocation
+        本次写入的值；仅用于调用方自检与日志，不参与判定。
+    path
+        ``'form'``（资产表单 / 持仓行内编辑）或 ``'import'``（导入器）。
+        导入路径整体标 ``import``——回填判据只放 ``default``，故 ``import`` 与
+        ``user`` **同样受保护**，不丢数据；导入预览里人工改过的行是否升级为
+        ``user`` 属未定稿细节（设计文档 §4.2 已知缺口），此处不自行拍板。
+
+    只返回标记，**不修改任何 allocation 值**；调用方负责 setattr。
+    """
+    if path not in ('form', 'import'):
+        # 未知路径不许静默按 form 放行：那会让「本该 import 的写入」被标成 user，
+        # 表面仍受保护、实际丢了来源可追溯性（守卫失效须是红灯，不是静默通过）。
+        raise ValueError(f'未知 allocation 写入路径：{path!r}')
+    if not explicit:
+        return SOURCE_DEFAULT
+    if path == 'import':
+        return SOURCE_IMPORT
+    return SOURCE_USER

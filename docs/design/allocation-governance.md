@@ -90,6 +90,44 @@ G1 迁移尚未应用到真库，脚本按迁移打标规则在内存里推来�
 P0-5 的措辞应改为「持仓侧缺少现金类成员」，而不是「持仓值错」。
 G3 实改因此更没有理由现在跑：先让用户把现金录进来，回填才有对象。
 
+### 4.2 G1-b 增量写入侧接线（2026-11-11，已实现）
+
+**问题**：G1-a 只解决了**存量**——加列、迁移打标、出参归一；三条写入路径没有一处
+设置 `allocation_source`。用户刚在表单里设的配置目标仍落到列默认 `default`，
+下一次 G3 回填（只放 `default`）就会覆盖掉，P0-7 在增量侧依然成立。
+
+**实现**：判定逻辑收敛在 `app/core/allocation_rules.resolve_allocation_source`，
+由 `app/core/allocation_source_stamp.py` 的序列化混入在**入参 schema 的 `model_dump` 出口**
+条件附加标记，挂到 `AssetCreate` / `AssetUpdate`（资产表单）与 `PositionUpdate`（行内编辑）。
+现有 `model_dump` → `setattr` 链路原样复用，**视图层/services 层零改动**，因此不触碰
+`check_view_thickness.py` / `guard_service_size.py` 的「按文件冻结、只减不增」基线。
+
+三条判定（均有单测 + 变异反向验证）：
+
+1. **只在请求体显式带了 `allocation` 时才附加**。否则「只改个名字」的 PATCH 会把
+   该行原有的 `user` 标记冲成 `default`，保护被静默抹掉——比不接线更坏。
+2. **按显式性判定，不按值反推**。存量迁移没有显式性信号，只能近似成
+   `allocation <> 'longterm'` ⇒ `user`（`migrations.py:2981`）；增量写入拿得到
+   `model_fields_set`，用户主动把 `liquid` 改回 `longterm` 仍是 `user`。
+3. **`allocation_source` 不是入参字段**：前端硬塞该键会被判定结果覆盖或丢弃，
+   保持出参 schema 既有的「防伪造 user 绕过回填」约束。
+
+**导入路径为何不接**：`orchestrator_holdings.py` 构造持仓时硬编码
+`allocation='longterm'`（`:458` / `:932`），按上面第 2 条的冻结判据本就落 `default`
+——系统默认值可被 G2 推导覆盖，符合 §4.1「值本身没错」的结论，接线反而会把
+导入默认值错标成 `user`、`import`，属数据语义失真。`SOURCE_IMPORT` 枚举预留给
+「导入文件显式携带 allocation 列」的场景。
+
+**已知缺口（不在本批，须单独裁定/验证）**：
+
+- 导入预览里用户手工改过配置目标的行（`previewRow.ts` 的 `_allocationManual`）
+  是否升级为 `user`：当前预览标记未透传到服务端，属**范式细节待 owner 裁定**，
+  不自行拍板。注意两种取值在回填判据里**都受保护**，只是来源可追溯性有差别。
+- `PositionCreate`（手动记账，`extra='allow'` 的 dict 通道 → `dispatch_position_op`）
+  未接：需先确认 service 不会因新增 key 误写，属独立验证单元。
+- 本批**未碰**：46.5 万账外类现金的 G4 分母裁定、G3 实改、G4 统计出口、
+  G5 前端录入 UI、真实数据回填、任何既有测试断言/夹具。
+
 ## 五、对账核实结论（2026-11-10，只读）
 
 完整记录与复现脚本见 `docs/working-notes/cash-like-orphan-flows-2026-11-10.md`、`scripts/reconcile_orphan_cash_flows.py`。要点：
