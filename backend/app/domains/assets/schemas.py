@@ -10,6 +10,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.allocation_rules import normalize_allocation_source
 from app.core.asset_types import MAJOR_CATEGORY_VALUES
 
 
@@ -97,6 +98,8 @@ class AssetOut(BaseModel):
     account_name: Optional[str] = None
     allocation: Optional[str] = None
     allocation_label: Optional[str] = None
+    #: 只读输出：来源标记不接受前端写入，防止伪造 user 绕过回填（#3031 / G1）
+    allocation_source: str = 'default'
     type_label: Optional[str] = None  # 新增
     status: str = 'active'
     notes: Optional[str] = None
@@ -105,6 +108,12 @@ class AssetOut(BaseModel):
     extra: Optional[dict] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @field_validator('allocation_source', mode='before')
+    @classmethod
+    def _normalize_allocation_source(cls, value: str | None) -> str:
+        # ORM 纯内存对象拿不到 Column(default=...) 的值；归一只在出参层，不写回对象（#2406）
+        return normalize_allocation_source(value)
 
     class Config:
         from_attributes = True

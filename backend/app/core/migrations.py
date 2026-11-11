@@ -2948,3 +2948,39 @@ def migrate_sales_institution_pinyin_full(engine: Engine) -> str:
         logger.info(f'[OK] sales_institutions 增加拼音全拼列: {added}（#2980）')
         return f'[OK] sales_institutions 增加拼音全拼列 {added}'
     return '[SKIP] sales_institutions 拼音全拼列已存在'
+
+
+def migrate_allocation_source_columns(engine: Engine) -> str:
+    """``assets`` / ``positions`` 补 ``allocation_source`` 列（#3031 / G1）。
+
+    只加列 + 一次存量**打标**，绝不改任何 ``allocation`` 值——批量回填是 G3 的事，
+    必须先出 dry-run 报告再动（``docs/design/allocation-governance.md``）。
+
+    冻结口径：存量里「非默认 allocation」视为用户设过 ⇒ 标 ``user``（本机实测 3 条：
+    房子 ``stable`` / 借款应收 ``liquid``）；其余留 ``default``。
+    **只有本次真的加了列才打标**，重跑直接跳过，避免覆盖后续用户/治理写入（幂等）。
+
+    两张表都在 user 域，故由 ``init_db`` 的 user 分支调用；加列走
+    ``_add_columns_if_missing`` 单一通道，SQLite 与 PG 都覆盖（#2534）。
+    """
+    results = []
+    for table in ('assets', 'positions'):
+        if not _table_exists(engine, table):
+            results.append(f'{table}:[SKIP] 表不存在（空库，create_all 将按新模型建表）')
+            continue
+        added = _add_columns_if_missing(
+            engine, table, [('allocation_source', "VARCHAR(20) NOT NULL DEFAULT 'default'")]
+        )
+        if not added:
+            results.append(f'{table}:[SKIP] allocation_source 列已存在')
+            continue
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"UPDATE {table} SET allocation_source = 'user' "
+                    "WHERE allocation IS NOT NULL AND allocation <> 'longterm'"
+                )
+            )
+        logger.info(f'[OK] {table}.allocation_source 已加列并完成存量打标（#3031）')
+        results.append(f'{table}:[OK] 加列并打标')
+    return ' / '.join(results)
