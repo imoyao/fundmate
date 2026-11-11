@@ -4,6 +4,15 @@
 > 承接 [agent-dev-learning-plan-2026-09-25.md](./agent-dev-learning-plan-2026-09-25.md) §S6 / §6.2 与
 > [agent-interview-prep-plan-2026-09-25.md](./agent-interview-prep-plan-2026-09-25.md) §1 / §7。
 >
+> **取用前必读（2026-11-11 补记，非历史原文）**：本文是 `a072eb68c` 时点的**历史快照**。
+> 正文「6 工具 / 30 评估 / 46 护栏例 / 2269 全量」及全部 `file:line` 仅对应该提交，
+> **不是当前口径，也不是 §5 简历定稿可直接复制的口径**。当前 `ac8c15d508` 实测：
+> `TOOLS_METADATA` **9 个工具**、`cases.yaml` **45 条用例**；现行对外叙述见
+> `README.md:97-103`（已记「工具 6→9 后错选」及其根因）。取用前须先按当前口径改写数字，
+> 并按 §7 脚本重跑核对行号。复核命令（仓库根执行）：
+> `python -c "import ast;print(len(next(n for n in ast.parse(open('backend/app/services/ai_recognizer/tools.py',encoding='utf-8').read()).body if isinstance(n,ast.Assign) and getattr(n.targets[0],'id','')=='TOOLS_METADATA').value.elts))"`
+> 与 `python -c "import yaml;d=yaml.safe_load(open('backend/tests/agent_eval/cases.yaml',encoding='utf-8'));print(len(d.get('cases',d) if isinstance(d,dict) else d))"`。
+>
 > **证据基线**：`origin/dev` @ `a072eb68c`（2026-09-28，S1~S6 全部已合并、#1758 能力类修复后；
 > 行号与例数的刷新记录见进度卡 #10「刷新记录」，原基线 `a3376ac0d`）。下文所有 `file:line`
 > 均在该提交上实测存在（脚本核对，见 §7）。未标目录的 `agent_loop.py` / `tools.py` / `guards.py` /
