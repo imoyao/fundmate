@@ -11,6 +11,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.allocation_rules import normalize_allocation_source
+from app.core.allocation_source_stamp import AllocationSourceStampMixin
 from app.core.asset_types import MAJOR_CATEGORY_VALUES
 
 
@@ -28,7 +29,7 @@ def _validate_major_category(value: str | None) -> str | None:
     return value
 
 
-class AssetCreate(BaseModel):
+class AssetCreate(AllocationSourceStampMixin):
     """创建通用资产."""
 
     major_category: str = Field(..., max_length=20)
@@ -48,7 +49,7 @@ class AssetCreate(BaseModel):
     _check_major_category = field_validator('major_category')(_validate_major_category)
 
 
-class AssetUpdate(BaseModel):
+class AssetUpdate(AllocationSourceStampMixin):
     """更新通用资产（PATCH，所有字段可选）."""
 
     major_category: Optional[str] = None
