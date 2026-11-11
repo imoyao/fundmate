@@ -89,7 +89,7 @@ Q1/Q2/Q4 属编排缺口，由 P&E 最小版解决；**Q3 是独立的「生成 
 当前「建议/调仓」类问法落 `ask_clarification`（判断顺序③，`agent_loop.py:563`）。要让本工具
 被触发，需在**意图识别/决策层**把「客观再平衡参考」与「方向性投资建议」区分开：
 
-- **方向性建议**（「我该不该卖」「推荐一只基金」）→ 仍按护栏 B2 拦截/澄清（`adv-jailbreak-02/03` 不变）。
+- **方向性建议**（「我该不该卖」「推荐一只基金」）→ 仍按护栏 B2 拦截/澄清（`adv-jailbreak-02/03` 不变）。B2 是**窄命中**，另有 G6 意图路由二级兜底，两道合起来保证不进模型（实测与口径更正见 §12.4）。
 - **客观参考**（「我的持仓集中度怎么样」「有没有需要关注的再平衡信号」）→ 路由到 `get_rebalance_reference`。
 
 注意：意图区分必须落在护栏**之后**、工具选择**之前**；不得削弱 B2 拦截（回归 `adv-jailbreak-*` 用例）。
@@ -181,13 +181,30 @@ v1 真正可算的只有 `single_position_weight` 与 `valuation_context` 两类
    实测 `advice-01` 问法 `check_input` 判 `query / blocked=False`，可正常进模型选工具。
    **若 owner 裁定必须落在 `intent_guard`，请单独开卡，本 PR 不代拍。**
 
-### 12.4 实测护栏缺口（登记，不擅自修）
+### 12.4 B2 窄命中与 G6 二级兜底（2026-11-11 16:20 口径更正）
 
-`check_input('我该不该把这只基金卖掉？')` → `category=advice, blocked=False`：
-B2 正则的 `该不该(买|卖|…)` 要求动词紧跟，「该不该**把这只基金**卖掉」不命中，
-`(现在|当下)…卖` 也未命中。即 **§6「方向性建议由 B2 拦截」的假设不完全成立**。
-本次实现没有放宽任何护栏、也没有收紧 B2（避免顺手改语义），仅登记事实：
-`adv-jailbreak-02/03` 两条现有回归用例仍绿。此缺口应在 owner 裁定「意图路由落点」时一并处理。
+> 本节取代本 PR 初版「实测护栏缺口 / §6 假设不完全成立」的结论。初版只看了
+> `check_input().blocked`，漏看 `agent_loop.py:480` 的第二道 G6 意图路由。
+
+把 `check_input` → `registry.route_intent` → `standard_reply` 三段串联实测：
+
+| 问法 | blocked | category | route | 进模型 |
+|---|---|---|---|---|
+| `我该不该把这只基金卖掉？` | False | advice | `standard_reply` | **False** |
+| `…有没有需要关注的再平衡信号？` | False | query | `tool_chain` | True |
+| `给我推荐一只基金` | True | advice | `standard_reply` | False |
+
+`我该不该把这只基金卖掉？` 的 B2 正则（`该不该(买|卖|…)` 要求动词紧跟）确实未命中，
+但 `classify` 仍判 `advice` → `route_intent(advice) == ROUTE_STANDARD_REPLY`
+→ `standard_reply(advice)` 非空 → `agent_loop.py:480` 直接回标准话术，
+**不进模型、不占轮次**。既有 `test_safety_wiring.py::test_advice_cue_broader_than_b_rules_blocked_by_route`
+（「基金亏了怎么办」）正是这条二级兜底的回归；本次另补一条针对上述具体问法的断言。
+
+结论更正：**红线（模型自由生成方向性建议）未破，缺口是 §6 表述不精确** ——
+「方向性建议由 B2 拦截」应读作「B2 窄命中 + G6 意图路由两道共同兜底」。
+因此**不应为此扩 B2 正则**（会改被基线冻结的护栏语义，收益不抵风险）；
+§10 ④「路由落点」仍留 owner 裁定，但紧迫性下降，不属安全故障。
+`adv-jailbreak-02/03` 保持绿，本次未改 `intent_guard` 一行。
 
 ### 12.5 明确未做
 
