@@ -18,6 +18,7 @@ from app.core.allocation_rules import (
     LiabilityAllocationError,
     derive_allocation,
     is_allocation_member,
+    normalize_allocation_source,
 )
 
 
@@ -94,3 +95,23 @@ class TestDerivation:
         # 用户反馈「每个账户里类似现金的东西应该自动归入活钱」：
         # 即便大类写的是 investment，产品类型是货基也必须判 liquid
         assert derive_allocation('investment', 'money_fund') == LIQUID
+
+
+class TestSourceNormalization:
+    """出参归一（#3031 / G1）：ORM 纯内存对象该列为 ``None`` 时仍输出 ``default``。
+
+    CI services 组 10 例曾因 ``PositionOut.allocation_source`` 非 Optional 而全红：
+    纯函数测试 new 出来的 ``Position`` 拿不到 ``Column(default=...)`` 的值。
+    列本身 ``NOT NULL DEFAULT 'default'``，落库后必然是 ``default``，故归一与之等价；
+    不许靠改夹具、放宽出参类型或写回 ORM 对象绕过（#2406）。
+    """
+
+    def test_none_becomes_default(self):
+        assert normalize_allocation_source(None) == 'default'
+
+    def test_empty_string_becomes_default(self):
+        assert normalize_allocation_source('') == 'default'
+
+    @pytest.mark.parametrize('src', ['default', 'import', 'user', 'governance'])
+    def test_real_source_preserved(self, src):
+        assert normalize_allocation_source(src) == src

@@ -80,6 +80,20 @@ def is_allocation_member(major_category: str | None) -> bool:
     return major_category not in NON_MEMBER_MAJOR_CATEGORIES
 
 
+def normalize_allocation_source(value: str | None) -> str:
+    """来源标记**出参归一**（#3031 / G1），供 ``AssetOut`` / ``PositionOut`` 共用。
+
+    ORM 纯内存对象（未 flush、或纯函数测试自己 new 出来的）拿不到
+    ``Column(default='default')`` 的值——列默认值只在 INSERT 时生效，此时属性是
+    ``None``；而列本身 ``NOT NULL DEFAULT 'default'``，落库后必然是 ``default``。
+    故在出参边界把 ``None`` / 空串归一成同一个默认值，保持出参契约恒为字符串。
+
+    **不写回 ORM 对象**：#2406 的教训是「读函数为了过必填校验把兜底值塞回
+    ORM 对象，同 session flush 后污染了库」。归一只发生在 Pydantic 校验层。
+    """
+    return value or SOURCE_DEFAULT
+
+
 def derive_allocation(major_category: str | None, asset_type: str | None = None) -> str | None:
     """按大类 / 产品类型推导配置目标；``None`` = 不自动判，留人工。
 
