@@ -203,3 +203,35 @@ def test_capability_question_answered_without_model(monkeypatch):
     assert '资产总览' in out['content'] and '市场温度' in out['content'], '应回能力清单'
     assert '不支持' not in out['content']
     assert out['data'] == {}  # 无指标 chips（防前端渲染假数据）
+
+
+def test_b2_miss_still_never_reaches_model_via_g6_route(monkeypatch):
+    """B2 窄命中漏掉的问法仍由 G6 意图路由拦在模型之前（Q3 设计文档 §12.4）。
+
+    「我该不该把这只基金卖掉？」的 B2 正则要求动词紧跟「该不该」，故 blocked=False；
+    但 classify 判 advice → route_intent → standard_reply，实际进模型次数为 0。
+    钉住这一点，防后续维护者把 blocked=False 误读成「红线破了」而顺手扩 B2 正则
+    （那会改被基线冻结的护栏语义）。`blocked` 只是第一道，不等于「放行进模型」。
+    """
+    from app.services.ai_recognizer import registry
+    from app.services.ai_recognizer.safety.intent_guard import (
+        CATEGORY_ADVICE,
+        check_input,
+        standard_reply,
+    )
+
+    question = '我该不该把这只基金卖掉？'
+    verdict = check_input(question)
+    assert verdict.blocked is False, '本例刻意选 B2 未命中的句式，前置条件变了请换样本'
+    assert verdict.category == CATEGORY_ADVICE
+    assert registry.route_intent(verdict.category) == registry.ROUTE_STANDARD_REPLY
+    assert standard_reply(verdict.category), '缺话术会回退工具链，二级兜底不成立'
+
+    calls = _fake_llm(monkeypatch)
+    session = AgentSession(session_id='route-advice-b2miss-1', user_id=1, turn_count=0)
+    out = agent_loop.run_agent(question, session)
+
+    assert calls['n'] == 0, 'B2 未命中不等于放行；G6 必须把 advice 拦在模型之前'
+    assert session.turn_count == 0
+    assert out['type'] == 'result'
+    assert out['data'] == {}
