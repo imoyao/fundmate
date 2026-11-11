@@ -97,6 +97,8 @@ class AssetOut(BaseModel):
     account_name: Optional[str] = None
     allocation: Optional[str] = None
     allocation_label: Optional[str] = None
+    #: 只读输出：来源标记不接受前端写入，防止伪造 user 绕过回填（#3031 / G1）
+    allocation_source: str = 'default'
     type_label: Optional[str] = None  # 新增
     status: str = 'active'
     notes: Optional[str] = None

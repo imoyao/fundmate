@@ -106,6 +106,10 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     confirm_date = Column(Date)
     notes = Column(Text)
     allocation = Column(String(20), default='longterm')
+    #: 配置目标来源（#3031 / G1）：default=系统默认 / import=导入派生 /
+    #: user=用户显式设置 / governance=治理回填。批量回填只碰 default，
+    #: 否则会抹掉用户手工配置（P0-7）。
+    allocation_source = Column(String(20), nullable=False, default='default', server_default='default')
 
     # ── 快照锚点（修复「份额被快照 + 流水重复累加」）──
     # 背景：quantity 曾同时承担两种语义——upsert_from_holding 用 SET 写快照绝对值，

@@ -56,6 +56,9 @@ class Asset(Base):
     currency = Column(String(3), default='CNY')
 
     allocation = Column(String(20), default='longterm', comment='配置目标（五笔钱）')
+    #: 配置目标来源（#3031 / G1）：default / import / user / governance。
+    #: 批量回填只碰 default，user 行永不被覆盖（见 docs/design/allocation-governance.md）。
+    allocation_source = Column(String(20), nullable=False, default='default', server_default='default')
     status = Column(String(20), default='active', comment='active / closed')
     notes = Column(String(500), nullable=True)
 

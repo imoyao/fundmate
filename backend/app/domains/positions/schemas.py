@@ -213,6 +213,8 @@ class PositionOut(BaseModel):
     holding_days: Optional[int] = None  # 派生：截至今天持有时长（天），#862
     notes: Optional[str] = None
     allocation: Optional[str] = None
+    #: 只读输出：来源标记由服务端写入侧设置，不接受前端传入（#3031 / G1）
+    allocation_source: str = 'default'
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     type_label: Optional[str] = None
