@@ -194,6 +194,11 @@ def evaluate_plan(traces, expect):
     want_status = _as_list(expect.get('status'))
     if final is None or getattr(final, 'status', None) not in want_status:
         return False, f'末轮 status={getattr(final, "status", None)}，期望 {want_status}'
+    # 多步用例仍保留 expect.tool（静态契约要求 result 用例钉工具）：此处让它继续
+    # 校验**末步**，避免升级 plan 后 tool 字段沦为摆设。
+    want_tool = _as_list(expect['tool']) if expect.get('tool') else []
+    if want_tool and executed[-1] not in want_tool:
+        return False, f'末步 tool={executed[-1]}，期望 {want_tool}'
     return True, ''
 
 

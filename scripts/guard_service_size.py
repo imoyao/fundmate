@@ -93,6 +93,13 @@ NEW_FILE_LIMITS = {
 # 新 job 注册各一行 + 一行注释）。四个增量都是「新增一家券商 / 一个新 job」的必要
 # 接线，没有借此放大任何既有函数的职责；新增服务文件本身均在
 # NEW_FILE_LIMITS（≤800 行 / max_func ≤120 / max_cc ≤20）之内。
+#
+# 2026-11-11 agent P&E 最小编排（D101）按 `--report` **收紧**一项，理由留痕：
+# `ai_recognizer/agent_loop.py` 739→730（净减 9 行）——决策/执行/叙事/落 trace
+# 四处改走等行替换调用 `plan_executor`，并删掉接线后已成死代码的
+# `_tool_description`；编排逻辑全部下沉到新文件 `ai_recognizer/plan_executor.py`
+# （211 行 / max_func 40 / max_cc 15，走 NEW_FILE_LIMITS）。基线是向下收紧，
+# 不是放宽阈值；max_func 294 / max_cc 39 未变。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -123,7 +130,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/advisor_position.py": {'lines': 90, 'max_func': 45, 'max_cc': 7},
     "backend/app/services/advisor_profile.py": {'lines': 180, 'max_func': 59, 'max_cc': 6},
     "backend/app/services/ai_recognizer/__init__.py": {'lines': 34, 'max_func': 0, 'max_cc': 0},
-    "backend/app/services/ai_recognizer/agent_loop.py": {'lines': 739, 'max_func': 294, 'max_cc': 39},
+    "backend/app/services/ai_recognizer/agent_loop.py": {'lines': 730, 'max_func': 294, 'max_cc': 39},
     "backend/app/services/ai_recognizer/base.py": {'lines': 133, 'max_func': 20, 'max_cc': 10},
     "backend/app/services/ai_recognizer/cancellation.py": {'lines': 57, 'max_func': 12, 'max_cc': 4},
     "backend/app/services/ai_recognizer/catalog.py": {'lines': 161, 'max_func': 91, 'max_cc': 20},

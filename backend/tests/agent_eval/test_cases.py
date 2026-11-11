@@ -126,9 +126,9 @@ def test_guard_expectations_match_intent_guard():
 def test_plan_expectations_are_valid():
     """owner 裁定 D3 后新增：含 expect.plan 的用例结构、工具名、引用序号必须合法。
 
-    能力先于断言：chain-01 当前仍走弱断言（运行时一次只执行一个工具，
-    立刻升级只会造出必然 FAIL 的用例）。等 P&E 编排落地再把它的 expect
-    升级为 plan，本断言与 harness 的 evaluate_plan 即刻生效。
+    能力先行、断言随实现升级：#3055 先落 evaluate_plan（chain-01 仍走弱断言，
+    避免造出必然 FAIL 的用例）；P&E 编排出多步 trace 后，chain-01 已升级为
+    expect.plan，本断言与 harness 即刻生效，不再需要改动判据。
     """
     cases = _load()
     for c in cases:

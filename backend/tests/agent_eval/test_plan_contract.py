@@ -115,3 +115,19 @@ def test_existing_single_tool_evaluate_unchanged(contract):
         {'status': 'result', 'tool': 'list_position_pnl'},
     )
     assert not ok2
+
+
+def test_evaluate_plan_still_pins_final_tool(contract):
+    """升级 plan 后 expect.tool 不得沦为摆设：末步工具仍被校验。"""
+    # 第 3 步放行 c / x，让「x」能走到末步 tool 校验（否则会先被步骤比对拦下）
+    expect = {'status': 'result', 'plan': _plan('a', 'b', ['c', 'x']), 'tool': ['c', 'd']}
+    ok, why = contract.evaluate_plan([_trace('a'), _trace('b'), _trace('c')], expect)
+    assert ok, why
+    ok2, why2 = contract.evaluate_plan([_trace('a'), _trace('b'), _trace('x')], expect)
+    assert not ok2 and '末步 tool' in why2
+
+
+def test_evaluate_plan_without_tool_keeps_original_behavior(contract):
+    """expect 无 tool 时与 #3055 完全一致，合成用例不回归。"""
+    ok, why = contract.evaluate_plan([_trace('a'), _trace('b')], _expect(_plan('a', 'b')))
+    assert ok, why
