@@ -213,7 +213,8 @@ class TestTestIsolationGuard:
     为什么这条要单独钉住：`import_entry` 是 ``from ... import`` 早绑定，conftest 若把
     patch 打在 ``securities_catalog`` 模块属性上（或干脆删掉那行），本用例路径依然会
     起真线程——它会写**本用例的** ``_fixture_app.db`` 并发真实网络请求，期间持未提交
-    写事务，让同进程后续的 ``flush`` 撞 5s ``busy_timeout`` 报 ``database is locked``。
+    写事务，让同进程后续的 ``flush`` 报 ``database is locked``（锁升级路径**立即** BUSY、
+    不等 ``busy_timeout``，机制见 ``tests/test_db_locked_retry.py`` 的钉子用例）。
     实测已连续红两次（``test_importers.py::test_sell_with_existing_position`` 500）。
     """
 

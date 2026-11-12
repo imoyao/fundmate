@@ -200,10 +200,15 @@ def _disable_async_backfill(monkeypatch):
 
     **后果是可复现的 CI 红灯**：``securities_backfill`` job 先写一行（拿 RESERVED 写锁）
     再去发网络请求，期间不提交；同进程的主请求随后 flush ``UPDATE positions``，
-    撞上 5s ``busy_timeout`` 直接 ``database is locked``。实测两次连续红在
+    报 ``database is locked``。实测两次连续红在
     ``tests/domains/test_importers.py::TestStandardCSVParse::test_sell_with_existing_position``
-    （confirm 后 500）。本地已用最小脚本确认机制：另一连接持未提交写事务 → 5.56s 后
-    ``database is locked``。
+    （confirm 后 500）。
+
+    **不是「等满 5s 超时」**：请求级会话先 SELECT 过（持 SHARED），此时把 SHARED 升级成
+    RESERVED 会**立即**拿到 ``SQLITE_BUSY``——SQLite 的锁升级死锁预防，``busy_timeout``
+    根本不参与（CI 日志里 flush 失败距请求开始只有 6ms）。两种形态都存在：对面持未提交
+    写且我方**没先读**才会等满 timeout。机制钉子见
+    ``tests/test_db_locked_retry.py::test_lock_upgrade_fails_fast_when_peer_holds_reserved``。
 
     故这里 patch **调用点的那个名字**（早绑定只有一处调用，见 grep 结果），而不是
     ``securities_catalog`` 模块属性——后者会被 ``tests/services/test_securities_catalog.py``
