@@ -16,6 +16,7 @@ from app.core.retry import retry_on_db_locked
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services import cash_like_settle as cash_like_svc
 from app.services import ledger_migration_service as migration_svc
 from app.services import ledger_write_service as ledger_write_svc
 
@@ -628,3 +629,28 @@ def delete_orphan_data():
             'message': f'已清理 {total} 项未归置数据',
         }
     )
+
+
+# ────────────────────────────── 类现金：逆回购到期回款（#3087 / D114）─────────────────────────
+
+
+@ledgers_bp.post('/<int:ledger_id>/cash-like/reverse-repo/settle/')
+@retry_on_db_locked()
+def settle_reverse_repo_flow(ledger_id: int):
+    """把一笔逆回购结清：写一条回款流水（本金）+ 可选的利息流水（口径见 D114）。
+
+    参数：`symbol`（标的代码）、`settle_date`（回款日 YYYY-MM-DD）、`interest`（利息，元，可选）。
+    金额恒等于在途本金（整笔结清），不提供任意金额/方向——详见 `services/cash_like_settle.py`。
+    """
+    try:
+        payload = cash_like_svc.parse_settle_request(request.get_json() or {})
+    except cash_like_svc.SettleError as e:
+        return jsonify({'data': None, 'message': e.message, 'error_code': 1001}), e.status_code
+
+    with get_db() as db:
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        try:
+            result = cash_like_svc.settle_reverse_repo(db, family_id=get_family_id(), ledger_id=ledger.id, **payload)
+        except cash_like_svc.SettleError as e:
+            return jsonify({'data': None, 'message': e.message, 'error_code': 1001}), e.status_code
+        return jsonify({'data': result, 'message': cash_like_svc.settle_message(result)})

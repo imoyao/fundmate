@@ -11,6 +11,7 @@ from app.domains.assets.models import Asset
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
+from app.domains.transactions.models import Transaction
 
 
 class TestLedgerCRUD:
@@ -2790,3 +2791,76 @@ class TestSwapLinkedMoneyFund:
         assert len(a_sell) == 1 and a_sell[0].amount == 10000  # 赎回 A
         assert len(b_buy) == 1 and b_buy[0].amount == 10000  # 申购 B
         assert db.query(Ledger).filter_by(id=ledger.id).first().linked_money_fund_id == fund_b.id
+
+
+class TestCashLikeSettleApi:
+    """逆回购到期回款的 HTTP 契约（#3087 / D114）。
+
+    服务层判据不覆盖的两件事在这里钉住：① 路由真的挂在账户下面（带 ledger_id 归属校验，
+    跨账户写别人的流水是最坏的越权形态）；② 入参错误必须 400 而不是 500——前端拿到 500
+    只会显示「服务器错误」，用户不知道该填什么。
+    """
+
+    def _ledger(self, client) -> int:
+        return client.post('/api/ledgers/', json={'name': '券商'}).get_json()['data']['id']
+
+    def _buy(self, db, ledger_id: int, amount: int = 2100002) -> None:
+        db.add(
+            Transaction(
+                family_id=1,
+                ledger_id=ledger_id,
+                txn_type='buy',
+                asset_type='reverse_repo',
+                symbol='SH204001',
+                position_name='GC001',
+                amount=amount,
+                status='success',
+            )
+        )
+        db.commit()
+
+    def test_settle_returns_amounts(self, client, db):
+        ledger_id = self._ledger(client)
+        self._buy(db, ledger_id)
+
+        resp = client.post(
+            f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/',
+            json={'symbol': 'SH204001', 'settle_date': '2026-11-12', 'interest': 123.45},
+        )
+
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        data = resp.get_json()['data']
+        assert data['settled_amount'] == 21000.02
+        assert data['interest_amount'] == 123.45
+        assert len(data['transaction_ids']) == 2
+
+    def test_second_settle_returns_400(self, client, db):
+        ledger_id = self._ledger(client)
+        self._buy(db, ledger_id)
+        payload = {'symbol': 'SH204001', 'settle_date': '2026-11-12'}
+        assert client.post(f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/', json=payload).status_code == 200
+
+        resp = client.post(f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/', json=payload)
+
+        assert resp.status_code == 400
+        assert '没有在途本金' in resp.get_json()['message']
+
+    def test_bad_date_returns_400(self, client, db):
+        ledger_id = self._ledger(client)
+        self._buy(db, ledger_id)
+
+        resp = client.post(
+            f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/',
+            json={'symbol': 'SH204001', 'settle_date': '2026/11/12'},
+        )
+
+        assert resp.status_code == 400
+        assert 'YYYY-MM-DD' in resp.get_json()['message']
+
+    def test_missing_ledger_returns_404(self, client, db):
+        resp = client.post(
+            '/api/ledgers/99999/cash-like/reverse-repo/settle/',
+            json={'symbol': 'SH204001', 'settle_date': '2026-11-12'},
+        )
+
+        assert resp.status_code == 404
