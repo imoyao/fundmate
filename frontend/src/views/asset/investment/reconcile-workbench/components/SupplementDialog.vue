@@ -149,6 +149,7 @@ import {
   reconGroupTitle,
   reconQuantity
 } from "../utils/reconDisplay";
+import { inferSupplementOpType } from "../utils/reconSupplement";
 
 defineOptions({ name: "SupplementDialog" });
 
@@ -261,28 +262,15 @@ const rules = computed<FormRules>(() => ({
 }));
 
 /**
- * 预填买卖方向（owner：多了还是少了我们是知道的）。口径见 backend
- * reconciliation_service.py:171-198：diff = 账上份额(actual_value) − 按流水
- * 算的份额(expected_value)。diff<0 = 流水比账上多 = 少记了一笔卖出 ⇒ sell；
- * diff>0 = 少记了一笔买入 ⇒ buy；0/缺失不预填。只对 quantity 型生效：
- * orphan 是「持仓行没了、流水是对的」（#3066 按流水重建持仓处理，不能引导
- * 补一笔卖出），cost 与买卖方向无关。只预填方向，不预填数量（数量口径待
- * owner 拍板，不自作主张）。
+ * 预填买卖方向（owner：多了还是少了我们是知道的）。判据住在
+ * `utils/reconSupplement.ts`（纯函数 + 单测），这里只调用——方向搞反会静默
+ * 写成反向交易，必须能被测试咬住，所以不留在 `.vue` 里。
+ * 只预填方向，不预填数量（数量口径待 owner 拍板，不自作主张）。
  */
-function inferOpType(row: DiscrepancyItem | null): "buy" | "sell" | null {
-  if (!row || row.discrepancy_type !== "quantity") return null;
-  const { expected_value: e, actual_value: a, diff } = row;
-  // diff 缺失时按两值现算（backend :198 的同款口径），都没有则不预填
-  const d =
-    diff ?? (typeof e === "number" && typeof a === "number" ? a - e : null);
-  if (d === null || d === 0) return null;
-  return d < 0 ? "sell" : "buy";
-}
-
 function resetForm(): void {
   form.kind = "increment";
   // 按当前差异重新算方向（不是写死 buy）：打开弹窗 / 关闭后重开都要走这里
-  form.op_type = inferOpType(props.target) ?? "buy";
+  form.op_type = inferSupplementOpType(props.target) ?? "buy";
   form.quantity = undefined;
   form.avg_price = undefined;
   form.fee = undefined;
