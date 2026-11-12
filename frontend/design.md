@@ -909,7 +909,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | 形态 | 胶囊（`--radius-pill`），轨道底 `--bg-soft`，`gap: 2px` |
 | `default` 档 | 轨道 32px / `padding: 3px` / 1px `--border-default` 描边；选项 26px、`padding: 0 14px`、字号 `--text-label` |
 | `small` 档 | 轨道 24px / `padding: 2px` / 无描边；选项 20px、`padding: 0 10px`、字号 12px |
-| `block` | 轨道撑满父容器 + 选项 `flex: 1` 等分（如设置抽屉的 4 档刷新频率） |
+| `block` | 轨道撑满父容器 + 选项 `flex: 1` 等分（如设置抽屉的 4 档刷新频率、对账补录弹窗的交易类型 4 项） |
 | 未选中 | `--text-secondary` 字；hover 提到 `--text-primary` + `--bg-hover` |
 | 选中态 | `--brand-100` 底 + `--brand-700` 字 + `font-weight: 600`（软按钮规范），无边框 |
 | 数量徽章 | 可选（`SegmentedOption.count`）：`--text-tertiary-ink` + `tabular-nums`，选中态 `--brand-700`；字号 = 同级标签 −1px（`default` 12px / `small` 11px）。**传 `0` 照渲染**——筛选场景里「某类别 0 条」本身就是结论 |
