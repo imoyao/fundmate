@@ -60,6 +60,7 @@ JSON 一起吞掉。
 """
 
 import argparse
+import bisect
 import json
 import re
 import sys
@@ -215,6 +216,10 @@ NUM_DATE_SPAN = re.compile(r'\d{4}-\d{2}-\d{2}')
 NUM_PCT_SUFFIX = re.compile(r'\s*(?:%|％|个百分点|个点|百分)')
 NUM_YEAR_SUFFIX = re.compile(r'\s*年')
 NUM_CODE_SHAPE = re.compile(r'^\d{6}$')
+# 量级后缀：叙事几乎不会把「1630204.52 元」原样写出来，而是「163 万」。
+# 不认量级会把最常见的合法改写判成编造（反向判据）/ 判成回避（正向判据）。
+NUM_MAG_SUFFIX = re.compile(r'\s*(万|亿)(?:元|块)?')
+NUM_MAG_SCALE = {'万': 1e4, '亿': 1e8}
 
 
 def validate_narrative_shape(narrative):
@@ -323,8 +328,13 @@ def _collect_data_numbers(node, out):
             _collect_data_numbers(value, out)
 
 
-def _number_tokens(text):
-    """抽出文本里的数字及其上下文标记：[(raw, value, is_percent, is_year)]。"""
+def _number_token_spans(text):
+    """抽出文本里的数字 token 及其起始位置：[(start, (raw, value, is_percent, is_year, scale))]。
+
+    位置是「数字归属」判据的输入：要知道这个数落在哪个要点的段落里。
+    `scale` 是量级后缀（万 / 亿）带来的倍数，用户看到的是「163 万」而数据里是
+    1630204.52 —— 不认量级会把最常见的合法改写判成编造或回避。
+    """
     spans = [m.span() for m in NUM_DATE_SPAN.finditer(text)]
     tokens = []
     for match in NUM_TOKEN.finditer(text):
@@ -333,18 +343,28 @@ def _number_tokens(text):
             continue  # 日期整体跳过：YYYY-MM-DD 拆成 2026 / -11 只会制造假编造
         raw = match.group(0)
         tail = text[match.end() : match.end() + 6]
+        mag = NUM_MAG_SUFFIX.match(tail)
         tokens.append(
             (
-                raw,
-                float(raw.replace(',', '')),
-                bool(NUM_PCT_SUFFIX.match(tail)),
-                bool(NUM_YEAR_SUFFIX.match(tail)),
+                start,
+                (
+                    raw,
+                    float(raw.replace(',', '')),
+                    bool(NUM_PCT_SUFFIX.match(tail)),
+                    bool(NUM_YEAR_SUFFIX.match(tail)),
+                    NUM_MAG_SCALE[mag.group(1)] if mag else 1.0,
+                ),
             )
         )
     return tokens
 
 
-def _is_high_entropy(raw, value, is_percent, is_year):
+def _number_tokens(text):
+    """只要 token、不要位置（来源判据与引用判据都不关心落点）。"""
+    return [token for _, token in _number_token_spans(text)]
+
+
+def _is_high_entropy(raw, value, is_percent, is_year, scale=1.0):
     """哪些数字值得追来源——门槛定得太低，叙事里的普通计数会被打成一片红灯。
 
     豁免（刻意放弃检出，理由是可解释性优先于覆盖率）：
@@ -357,34 +377,43 @@ def _is_high_entropy(raw, value, is_percent, is_year):
 
     保留检出的：小数位 ≥ 2（工具比率与金额的真实精度都是 2 位小数）、
     绝对值 ≥ 1000 的整数（金额量级）、带百分比标记的 1 位小数。
+    `scale` 不参与门槛判断：精度承诺只看写出来的末位（「163 万」是 0 位小数，
+    不是 8 位精度），量级只影响比对容差，见 `_token_cites`。
     """
     if is_year or NUM_CODE_SHAPE.match(raw):
         return False
     decimals = len(raw.split('.')[1]) if '.' in raw else 0
-    if decimals >= 2 or abs(value) >= 1000:
+    base = abs(value) * scale
+    if decimals >= 2 or base >= 1000:
         return True
     return bool(is_percent and decimals >= 1)
 
 
-def _number_has_source(token, sources):
-    """文本数值能否在来源池里找到同一个数。
+def _token_cites(token, target):
+    """这一个 token 是否就是 `target` 这个数（写法随意：符号 / 百分号 / 千分位 / 万 / 亿 / 舍入）。
 
-    容差 = 文本末位的一半：写 20.7 允许 ±0.05、写 20.66 允许 ±0.005、
-    写 8388 允许 ±0.5 —— 即「在你承诺的精度下，这个数就是对的那个数」。
+    容差 = 文本末位的一半，并折算回原量级：写 20.7 允许 ±0.05、写 20.66 允许 ±0.005、
+    写「163 万」允许 ±5000 —— 即「在你承诺的精度下，这个数就是对的那个数」。
     固定比例容差在 8.1 vs 8.05（差 0.05）处会漏，ULP/2 不会。
 
     符号不参与判定：模型常把负号吸收进「亏损 / 回落 / 跑输」这类语义词，
     拿符号判会把正确表述判成编造。方向对错留给人工回放，这是刻意的边界。
     """
-    raw, value, is_percent, _ = token
+    raw, value, is_percent, _, scale = token
     decimals = len(raw.split('.')[1]) if '.' in raw else 0
-    tolerance = 0.5 * 10**-decimals
-    candidates = [value]
+    base = value * scale
+    tolerance = 0.5 * 10**-decimals * scale
+    candidates = [base]
     if is_percent:
-        candidates += [value * 100, value / 100]  # 20.66 与 0.2066 是同一个量
-    elif abs(value) < 1:
-        candidates.append(value * 100)  # 无百分号但写成小数，按小数化百分比认一次
-    return any(abs(abs(candidate) - abs(source)) <= tolerance + 1e-9 for candidate in candidates for source in sources)
+        candidates += [base * 100, base / 100]  # 20.66 与 0.2066 是同一个量
+    elif abs(base) < 1:
+        candidates.append(base * 100)  # 无百分号但写成小数，按小数化百分比认一次
+    return any(abs(abs(candidate) - abs(target)) <= tolerance + 1e-9 for candidate in candidates)
+
+
+def _number_has_source(token, sources):
+    """文本数值能否在来源池里找到同一个数（比对口径见 `_token_cites`）。"""
+    return any(_token_cites(token, source) for source in sources)
 
 
 def evaluate_numeric_sources(text, data):
@@ -395,7 +424,8 @@ def evaluate_numeric_sources(text, data):
 
     三条边界，别当它证明答案正确：
     - 抓不到**串台**：把沪深300 的 -12.61% 说成「你的组合跌了 12.61%」时，每个
-      数字都真实存在于某一步数据里，来源判据必然通过（缺的是数字归属，见 D103）；
+      数字都真实存在于某一步数据里，来源判据必然通过（缺的是数字归属 —— 由
+      evaluate_metric_presence 的**本段落归属**补上，见 D105）；
     - 抓不到**回避**：只写「近期收益不太好」不给数，本判据无事可做；
     - 高熵门槛之外的数（整数计数、1 位小数无标记）刻意不查，见 _is_high_entropy。
     """
@@ -466,27 +496,96 @@ def _metric_values(data, metric):
 
 
 def _text_cites_value(text, value):
-    """回答里有没有引用这个值（写法随意：带符号 / 带百分号 / 千分位 / 舍入）。"""
-    for token in _number_tokens(text):
-        raw, number, is_percent, _ = token
-        decimals = len(raw.split('.')[1]) if '.' in raw else 0
-        tolerance = 0.5 * 10**-decimals
-        candidates = [number]
-        if is_percent:
-            candidates += [number * 100, number / 100]
-        elif abs(number) < 1:
-            candidates.append(number * 100)
-        if any(abs(abs(candidate) - abs(value)) <= tolerance + 1e-9 for candidate in candidates):
-            return True
-    return False
+    """回答里有没有引用这个值（写法随意：带符号 / 带百分号 / 千分位 / 万 / 亿 / 舍入）。"""
+    return any(_token_cites(token, value) for token in _number_tokens(text))
+
+
+def _anchor_events(text, covers):
+    """所有锚点在文本里的出现区间，按位置升序：[(start, end, cover_index)]。
+
+    一个锚点出现多次就记多条：叙事里常在总述和分述各提一次同一问，
+    数字归属要按最近的那次算。区间（而不只是起点）是必要的：锚点自己会带数字
+    （「近3个月」的 3、「沪深300」的 300），那些是标签不是数据，判据要能跳过它们。
+    """
+    haystack = text.lower()
+    events = []
+    for index, cover in enumerate(covers):
+        for word in cover.get('any') or []:
+            needle = word.lower()
+            if not needle:
+                continue
+            start = haystack.find(needle)
+            while start != -1:
+                events.append((start, start + len(needle), index))
+                start = haystack.find(needle, start + 1)
+    events.sort()
+    return events
+
+
+def _line_spans(text):
+    """非空行的区间 [(start, end)]：归属判据里的「同一段」单位。
+
+    行是最小可解释单位：markdown 标题、列表项、表格行都是一行一件事。
+    把整篇当一段，就等于放弃归属；按句切分则会把「标题 + 数值」拆散。
+    """
+    spans = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if line.strip():
+            spans.append((offset, offset + len(line)))
+        offset += len(line)
+    return spans
+
+
+def _token_owners(token_spans, events, lines):
+    """每个数字 token 归属的要点下标集合；`None` = 不算数据（锚点自带的数字）。
+
+    两条来源取并集，都只认「就近」，不做跨段推断：
+    - **同段**：数字所在行里出现过的要点。一行里并列给「组合 -19.44%，沪深300
+      -13.11%」时，两个数都归这一行的要点——拆不出来就别装能拆；
+    - **就近**：数字之前最近一次被提到的要点。标题行写「1. 近3个月收益」、
+      数值另起一行的排版靠这条接住，不至于把正确回答判成错位。
+
+    都归不到（纯前言行、整段没有任何锚点）时返回空集，调用方回退全文判定：
+    归属拿不到证据时宁松不误杀。
+    """
+    line_owners = [
+        {cover for a_start, _a_end, cover in events if line_start <= a_start < line_end}
+        for line_start, line_end in lines
+    ]
+    starts = [lo for lo, _ in lines]
+
+    owners = []
+    cursor = 0
+    last_pos = None
+    last_set = frozenset()
+    for start, _token in token_spans:
+        if any(lo <= start < hi for lo, hi, _cover in events):
+            owners.append(None)  # 「近3个月」的 3、「沪深300」的 300：标签不是数据
+            continue
+        while cursor < len(events) and events[cursor][0] < start:
+            pos, _end, cover = events[cursor]
+            if last_pos is None or pos > last_pos:
+                last_pos, last_set = pos, {cover}
+            else:  # 同一位置的多个锚点（不同要点的词恰好挨着）一并算
+                last_set = last_set | {cover}
+            cursor += 1
+        index = bisect.bisect_right(starts, start) - 1
+        in_line = line_owners[index] if 0 <= index < len(lines) and start < lines[index][1] else set()
+        owners.append(frozenset(set(last_set) | in_line))
+    return owners
 
 
 def evaluate_metric_presence(text, data, covers):
-    """正向判据：该子问的关键指标**必须**在回答里出现。
+    """正向判据：该要点的关键指标**必须**在回答里出现，且**出现在该要点自己的段落里**。
 
     这是抓「回避」与「串台」的唯一可靠手段：
     - 回避：只写「近期收益不太好」不给数 → 本判据判红；
-    - 串台：组合区间收益是 -20.66%，模型却报了沪深300 的 -12.61% → 判红。
+    - 串台：组合区间收益是 -20.66%，模型却报了沪深300 的 -12.61% → 判红；
+    - 归属错位：四个数都报了，但「组合收益」那一段写的是超额的 -6.33、
+      「跑输」那一段写的是组合的 -19.44 → 全文存在性判据会放行，归属判据判红。
+      这就是 D105 把 metric 从「全文出现」收紧到「本段出现」的原因：数字对不等于
+      说对地方，用户读到的正是「哪一段配哪个数」。
 
     为什么不能只靠 evaluate_numeric_sources：真实数据实测（2026-11-12，266 条持仓、
     1861 个数值）显示，密集小值的池子会把微扰后的数接住——收益率微扰 1.5% 漏报 88%、
@@ -507,8 +606,10 @@ def evaluate_metric_presence(text, data, covers):
     """
     if not isinstance(text, str) or not text.strip():
         return False, '最终回答文本为空，无法判定指标引用'
+    token_spans = _number_token_spans(text)
+    owners = _token_owners(token_spans, _anchor_events(text, covers), _line_spans(text))
     missing = []
-    for cover in covers:
+    for index, cover in enumerate(covers):
         specs = cover.get('metric')
         if not specs:
             continue
@@ -518,9 +619,21 @@ def evaluate_metric_presence(text, data, covers):
             values.extend(_metric_values(data, spec))
         if not values:
             continue  # 无数据可比，交给数值来源判据兜底
-        if not any(_text_cites_value(text, value) for value in values):
-            labels = '/'.join(f'{spec["tool"]}.{spec["field"]}' for spec in specs)
-            missing.append(f'{cover["id"]}（{labels}={values[0]:g}）')
+        owned = [token for (_, token), own in zip(token_spans, owners) if own is not None and index in own]
+        # 收紧只在「本段确实有值得追来源的数」时生效：段里只有「沪深300」这类标签
+        # 数字（非高熵）就退回全文 —— 拿一个标签数当本段的数值池，只会把对的判成错的。
+        pool = (
+            owned
+            if any(_is_high_entropy(*token) for token in owned)
+            else [token for (_, token), own in zip(token_spans, owners) if own is not None]
+        )
+        if any(_token_cites(token, value) for token in pool for value in values):
+            continue
+        labels = '/'.join(f'{spec["tool"]}.{spec["field"]}' for spec in specs)
+        hint = ''
+        if any(_token_cites(token, value) for _, token in token_spans for value in values):
+            hint = '，该数值只出现在其他要点的段落里'
+        missing.append(f'{cover["id"]}（{labels}={values[0]:g}{hint}）')
     if missing:
         return False, '最终回答未引用本应给出的指标值：' + '；'.join(missing)
     return True, ''

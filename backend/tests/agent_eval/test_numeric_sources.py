@@ -178,17 +178,17 @@ def test_high_entropy_gate(contract, raw, value, is_percent, is_year, want):
 
 def test_tolerance_follows_written_precision(contract):
     """容差取文本末位一半：写 8.1 允许 ±0.05（命中 8.05），写 8 允许 ±0.5。"""
-    token_1dp = ('8.1', 8.1, True, False)
-    token_int = ('8', 8.0, True, False)
+    token_1dp = ('8.1', 8.1, True, False, 1.0)
+    token_int = ('8', 8.0, True, False, 1.0)
     assert contract._number_has_source(token_1dp, [-8.05])
     assert contract._number_has_source(token_int, [-8.05])
-    assert not contract._number_has_source(('8.6', 8.6, True, False), [-8.05])
+    assert not contract._number_has_source(('8.6', 8.6, True, False, 1.0), [-8.05])
 
 
 def test_precision_tightens_not_loosens(contract):
     """写得越精确要求越严：20.66 不能命中 20.7 的来源（差 0.04 > 0.005）。"""
-    assert not contract._number_has_source(('20.66', 20.66, True, False), [-20.7])
-    assert contract._number_has_source(('20.7', 20.7, True, False), [-20.66])
+    assert not contract._number_has_source(('20.66', 20.66, True, False, 1.0), [-20.7])
+    assert contract._number_has_source(('20.7', 20.7, True, False, 1.0), [-20.66])
 
 
 # ── 四、接线与开关 ────────────────────────────────────────────────
@@ -366,3 +366,107 @@ def test_run_case_wires_metric_presence(monkeypatch, contract):
     # numbers 判红，所以关掉 numbers 才能证明「跳过」而不是「碰巧通过」。
     metric_only = {**case, 'expect': {**case['expect'], 'narrative': {'covers': covers, 'numbers': False}}}
     assert contract.run_case(db, metric_only)['ok']
+
+
+# ── 六、量级改写：万 / 亿（D105） ────────────────────────────────
+# 中文叙事几乎不会把 1630204.52 原样写出来，而是「163 万」。不认量级时，
+# 最合规的回答会被反向判据打成「编造」、被正向判据打成「回避」——两头都是假红。
+
+NET_ASSETS = {'net_assets_cny': 1630204.52, 'total_assets_cny': 3390204.52}
+SINGLE_COVER = [
+    {'id': '净资产', 'any': ['净资产'], 'metric': {'tool': 'get_assets_overview', 'field': 'net_assets_cny'}}
+]
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        '你的净资产是 1630204.52 元。',
+        '你的净资产是 1,630,204.52 元。',
+        '你的净资产约 163 万。',  # 0 位小数 + 万：容差按 ±5000 折算
+        '你的净资产约 163.02 万。',
+        '净资产 163 万元。',
+    ],
+)
+def test_magnitude_rewrite_counts_as_cited(contract, text):
+    assert contract.evaluate_metric_presence(text, NET_ASSETS, SINGLE_COVER) == (True, '')
+
+
+@pytest.mark.parametrize('text', ['你的净资产约 168 万。', '你的净资产约 163.5 万。'])
+def test_magnitude_rewrite_still_catches_wrong_value(contract, text):
+    """认量级不等于放水：168 万与 163.5 万都不是这个数。"""
+    ok, why = contract.evaluate_metric_presence(text, NET_ASSETS, SINGLE_COVER)
+    assert not ok and '净资产' in why, why
+
+
+def test_magnitude_rewrite_not_flagged_as_fabrication(contract):
+    """反向判据同理：163 万 在数据里就是 1630204.52，不能算无来源。"""
+    ok, why = contract.evaluate_numeric_sources('你的净资产约 163 万，总资产 339 万。', NET_ASSETS)
+    assert ok, why
+    ok, why = contract.evaluate_numeric_sources('你的净资产约 188 万。', NET_ASSETS)
+    assert not ok and '无工具来源' in why, why
+
+
+def test_magnitude_scale_is_per_token(contract):
+    """量级只作用于紧跟其后的数：同一句里的百分数不受 万 影响。"""
+    data = {'items': [{'pnl': -8387.89}], 'turnover_pct': 323.52}
+    covers = [{'id': '换手', 'any': ['换手'], 'metric': {'tool': 'get_behavior', 'field': 'turnover_pct'}}]
+    assert contract.evaluate_metric_presence('换手率 323.52%，亏得最多的一只亏了 8388 元。', data, covers) == (True, '')
+    ok, why = contract.evaluate_metric_presence('换手率 3.24 万%。', data, covers)
+    assert not ok and '换手' in why, why
+
+
+# ── 七、数字归属到要点（D105） ───────────────────────────────────
+# 全文存在性判据的漏洞：四个数都报了，但「组合收益」那段写的是超额的 -6.33、
+# 「跑输」那段写的是组合的 -19.44 —— 数字全对、位置全错，用户读到的正是错的那句。
+
+ATTR_DATA = {
+    'steps': [
+        {
+            'tool': 'get_portfolio_vs_benchmark',
+            'data': {'range_rate': -19.44, 'excess_return': -6.33, 'benchmark_range_return': -13.11},
+        }
+    ]
+}
+ATTR_COVERS = [
+    {'id': '区间收益', 'any': ['近3个月收益'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'range_rate'}},
+    {'id': '相对基准', 'any': ['跑输'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'excess_return'}},
+]
+
+
+def test_attribution_passes_when_numbers_sit_in_their_own_section(contract):
+    text = '近3个月收益：-19.44%。\n\n跑输沪深300 -6.33 个百分点。'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_flags_swapped_numbers(contract):
+    """归属错位的唯一硬证据：两个数都在文本里，但各自落在对方那一段。"""
+    text = '近3个月收益：-6.33%。\n\n跑输沪深300 -19.44 个百分点。'
+    ok, why = contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS)
+    assert not ok, why
+    assert '其他要点的段落里' in why, why
+    assert '区间收益' in why and '相对基准' in why, why
+
+
+def test_attribution_accepts_heading_then_value_on_next_line(contract):
+    """标题行写要点、数值另起一行（markdown 常见排版）不能判成错位。"""
+    text = '### 近3个月收益\n-19.44%\n\n### 跑输沪深300\n-6.33 个百分点'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_accepts_single_line_reply(contract):
+    """整篇一行时归属无从谈起：退回全文判定，宁松不误杀。"""
+    text = '近3个月收益 -19.44%，同期沪深300 跌 13.11%，跑输 -6.33 个百分点。'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_falls_back_when_no_anchor_owns_the_number(contract):
+    """数值全写在没有锚点的前言里 → 归不到任何要点，退回全文而不是判红。"""
+    text = '你的数据如下：-19.44% 与 -6.33 个百分点。\n近3个月收益见上。\n跑输沪深300 见上。'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_keeps_avoidance_red(contract):
+    """归属收紧不能放过回避：整段不给数仍然判红。"""
+    ok, why = contract.evaluate_metric_presence('近3个月收益不太好。\n跑输沪深300 一些。', ATTR_DATA, ATTR_COVERS)
+    assert not ok and '未引用' in why, why

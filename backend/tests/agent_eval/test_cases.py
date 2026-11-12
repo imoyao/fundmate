@@ -154,6 +154,10 @@ def test_narrative_expectations_are_valid():
     防的是「橡皮章绿」：锚点组为空、整组只剩泛词、子问 id 重复，都会让运行时
     判据恒真——那种绿比红更危险。运行时另有一份
     ``agent_eval.validate_narrative_shape`` 防脏输入，两者职责不同（此处钉数据文件）。
+
+    两组以上的用例是「多子问」口径（至少一组要挂 metric）；单组用例是「单问必答」口径
+    （D105 把 metric 铺到 basic/bench/behav 等单问用例），此时该组**必须**挂 metric——
+    单问的锚点天然是泛词（问「净资产」答「净资产」），不钉值就只剩一个恒真判据。
     """
     cases = _load()
     # 单独出现时几乎任何回答都会命中的万能词：整组只靠它们 = 判据恒真
@@ -170,7 +174,7 @@ def test_narrative_expectations_are_valid():
             f'{c["id"]} expect.narrative 只允许 covers / numbers（当前 {sorted(spec)}）'
         )
         covers = spec['covers']
-        assert isinstance(covers, list) and len(covers) >= 2, f'{c["id"]} 多子问覆盖至少要有 2 组'
+        assert isinstance(covers, list) and covers, f'{c["id"]} expect.narrative.covers 必须是非空列表'
         statuses = expect.get('status')
         statuses = statuses if isinstance(statuses, list) else [statuses]
         assert 'result' in statuses, f'{c["id"]} 叙事判据只适用于 result 用例'
@@ -197,10 +201,18 @@ def test_narrative_expectations_are_valid():
                         assert isinstance(one.get(key), str) and one[key].strip(), (
                             f'{c["id"]} 第 {n} 组 metric[{m}] 缺 {key}'
                         )
+                    assert one['tool'] in TOOL_NAMES, (
+                        f'{c["id"]} 第 {n} 组 metric[{m}] 指向未注册工具 {one["tool"]}'
+                        f'（写错工具名 = 判据永远取不到值，等于没挂）'
+                    )
                     assert one.get('pick') in (None, 'min', 'max', 'abs_max'), (
                         f'{c["id"]} 第 {n} 组 metric[{m}] pick 非法'
                     )
             ids.append(cover['id'])
         assert len(set(ids)) == len(ids), f'{c["id"]} 子问 id 重复'
+        if len(covers) == 1:
+            assert 'metric' in covers[0], (
+                f'{c["id"]} 单要点用例必须挂 metric：单问锚点天然是泛词，不钉值就只剩一个恒真判据（D105）'
+            )
         assert metrics, f'{c["id"]} 至少一组要挂 metric：只有锚点判据抓不到回避与串台（D103）'
     assert seen, '评估集里没有任何 expect.narrative 用例：D1 验收判据没有挂进数据'
