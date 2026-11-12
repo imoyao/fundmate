@@ -65,6 +65,43 @@ class TestCompareWithLast:
         assert r.bloated is True
 
 
+class TestComparableBaseline:
+    """判定必须用「按上次 cutoff 重算」的值（#3076）。
+
+    cutoff = 今天 - 保留天数，它自己会随时间前移，把窗口推过老行。直接拿本次值比上次值，
+    时间流逝就被算成增长：真库实测本次 93,375 行、同口径 14,762 行、上次 28 行——前者差
+    9.3 万（其中 7.9 万纯漂移），后者差 1.47 万，才是真正写进来的老行。
+    """
+
+    def test_same_cutoff_value_overrides_current(self):
+        r = _report(93375)
+        r.max_growth = 21429
+        out = compare_with_last(r, {'total_stale': 28, 'cutoff': '2025-10-13'}, comparable_stale=14762)
+        assert out.growth == 14734
+        assert out.bloated is False
+
+    def test_displayed_and_recorded_values_untouched(self):
+        """展示的仍是上次记录值，本次值不被改写——落库要用它当下一次的基线。"""
+        r = _report(93375)
+        out = compare_with_last(r, {'total_stale': 28, 'cutoff': '2025-10-13'}, comparable_stale=14762)
+        assert out.prev_stale == 28
+        assert out.total_stale == 93375
+
+    def test_real_growth_still_detected(self):
+        """同口径值超出阈值仍要判膨胀——防「改成同口径后永远绿」。"""
+        r = _report(93375)
+        r.max_growth = 5000
+        out = compare_with_last(r, {'total_stale': 28}, comparable_stale=90000)
+        assert out.growth == 89972
+        assert out.bloated is True
+
+    def test_default_path_is_old_behavior(self):
+        """不传同口径值时退化为旧口径（既有调用与历史 stats 不受影响）。"""
+        out = compare_with_last(_report(600), {'total_stale': 100})
+        assert out.growth == 500
+        assert out.bloated is False
+
+
 class TestReportSerialization:
     def test_stats_round_trip(self):
         """stats 必须能 JSON 往返——它是唯一的时序载体。"""

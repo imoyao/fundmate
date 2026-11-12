@@ -3,26 +3,25 @@
 
 ## 为什么需要它
 
-`data-strategy.md` §4.3 的范围强制（`require_full_sync_scope`）只防住了「误跑全量」
-（裸 `--full-sync` 无目标池时 CLI 直接拒绝），但防不住「反复小批量灌」：每次给 50 只
-冷集基金补一次历史，单看合法，累起来把清理掉的 800 万行灌回来。而数据膨胀不会报错、
-不会失败、不会有人投诉（同文档 §0）。
+`data-strategy.md` §4.3 的范围强制（`require_full_sync_scope`）只防「误跑全量」（裸
+`--full-sync` 无目标池时 CLI 直接拒绝），防不住「反复小批量灌」：每次给 50 只冷集基金
+补一次历史，单看合法，累起来把清理掉的 800 万行灌回来。而膨胀不会报错、不会失败、
+不会有人投诉（同文档 §0）。
 
 ## 监测什么
 
-**冷集在保留窗口之外的行数**（`stale_rows`）——这才是「该清却没清掉」的量。清理执行
-到位后它应等于 floor 保护行数（实测 28 行）；P0-2 的按需取会合法地把它提上来，所以
-阈值要放得足够宽。
+**冷集在保留窗口之外的行数**（`stale_rows`）——该清却没清掉的量。清理到位后它应等于
+floor 保护行数（实测 28 行）；P0-2 的按需取会合法地把它提上来，故阈值放得足够宽。
 
 ## 为什么用 sync_logs 存时序
 
-判定「膨胀」需要上一次的数据，而项目已有每跑一次就落一行的审计表（`stats` 存 JSON）。
-复用它就不用新表、不用迁移；代价是它不保证按时间严格排序，因此取最近一条而不做时间匹配。
+判定需要上一次的数据，项目已有每跑一次就落一行的审计表（`stats` 存 JSON）——复用它
+不用新表、不用迁移；代价是不保证按时间严格排序，故取最近一条而不做时间匹配。
 
 ## 不进每日调度
 
-`daily_scheduler` 的准入判据是「数据日变化 + 用户直接看得见」，守卫两条都不满足；
-它是健康检查，真实频率应为周报级 / 手动。
+`daily_scheduler` 的准入判据是「数据日变化 + 用户直接看得见」，守卫两条都不满足——它是
+健康检查，真实频率应为周报级 / 手动；⚠️ 但它没有挂任何 cron，跑到哪天取决于有人想起来。
 """
 
 import json
@@ -99,11 +98,10 @@ def _table_exists(db: Session, table: str) -> bool:
 def _hot_codes(db: Session) -> set:
     """热集口径：持仓 ∪ 自选 ∪ 流水的 6 位数字代码。
 
-    与清理脚本同口径（`watchlist` 而非 `watchlist_items`——后者是 #2145 事故里的错表名）。
-    缺表直接报错：热集少算任一来源都会把「仅自选」的基金误判为冷集。
-
-    用原生 SQL 而非 ORM：这里只需要三张表的 `symbol` 列，为它把所有域模型拉进 mapper
-    注册会触发 `Ledger→Fund` 的关系解析顺序问题（实测 `InvalidRequestError`）。
+    与清理脚本同口径（`watchlist` 而非 `watchlist_items`——后者是 #2145 事故里的错表名）；
+    缺表直接报错：少算任一来源都会把「仅自选」的基金误判为冷集。用原生 SQL 而非 ORM：
+    只需三张表的 `symbol` 列，为它把所有域模型拉进 mapper 会触发 `Ledger→Fund` 的关系
+    解析顺序问题（实测 `InvalidRequestError`）。
     """
     parts = []
     for table in ('positions', 'watchlist', 'transactions'):
@@ -117,10 +115,10 @@ def _hot_codes(db: Session) -> set:
 
 
 def measure(db: Session, keep_days: int = RETENTION_DAYS) -> GuardReport:
-    """测量当前冷集过期程度（不写库）。
+    """测量当前冷集过期程度（不写库）：每表的总行数 / 冷集行数 / 过期行数。
 
-    对每张表分别统计：总行数、冷集行数（非热集代码）、过期行数（冷集且 date < cutoff）。
-    过期行才是「该清却没清掉」的量——它等于 floor 保护行数时说明清理执行到位。
+    过期行（冷集且 date < cutoff）是「该清却没清掉」的量，等于 floor 保护行数时说明清理
+    到位；`keep_days` 传「距上次 cutoff 的天数」即回到上次窗口，供同口径比较。
     """
     today = date.today()
     cutoff = (today - timedelta(days=keep_days)).isoformat()
@@ -170,11 +168,13 @@ def measure(db: Session, keep_days: int = RETENTION_DAYS) -> GuardReport:
     return report
 
 
-def compare_with_last(report: GuardReport, last_stats: Optional[Dict[str, Any]]) -> GuardReport:
-    """与上次巡检的 stats 对比，给出膨胀判定。
+def compare_with_last(
+    report: GuardReport, last_stats: Optional[Dict[str, Any]], comparable_stale: Optional[int] = None
+) -> GuardReport:
+    """与上次巡检的 stats 对比，给出膨胀判定；首轮（无基线）只记录不判定。
 
-    `last_stats` 为空（第一次跑）时不判定膨胀——没有基线就说不出「增长过快」，
-    此时只记录当前值作为下次的基线。
+    `comparable_stale` 是按上次 cutoff 重算的过期行数：cutoff 随当天前移，直接拿本次值
+    比上次值会把时间流逝算成增长（实测 30 天 ≈ 7.9 万行漂移，阈值 5,000 下隔两天必假红）。
     """
     if not last_stats:
         report.prev_stale = None
@@ -189,7 +189,8 @@ def compare_with_last(report: GuardReport, last_stats: Optional[Dict[str, Any]])
         report.bloated = False
         return report
 
-    report.growth = report.total_stale - int(prev)
+    current = report.total_stale if comparable_stale is None else comparable_stale
+    report.growth = current - int(prev)
     report.bloated = report.growth > report.max_growth
     return report
 
@@ -197,7 +198,7 @@ def compare_with_last(report: GuardReport, last_stats: Optional[Dict[str, Any]])
 def last_guard_stats(db: Session) -> Optional[Dict[str, Any]]:
     """读最近一次守卫巡检落库的 stats（解析失败按没有处理）。
 
-    同样用原生 SQL：`SyncLog` 走 ORM 会触发与 `_hot_codes` 相同的 mapper 解析顺序问题。
+    同样用原生 SQL（`SyncLog` 走 ORM 会触发与 `_hot_codes` 相同的 mapper 解析顺序问题）。
     """
     row = db.execute(
         text('SELECT stats FROM sync_logs WHERE job_name = :n ORDER BY started_at DESC LIMIT 1'),
@@ -214,8 +215,7 @@ def last_guard_stats(db: Session) -> Optional[Dict[str, Any]]:
 
 def record(db: Session, report: GuardReport, commit: bool = True) -> None:
     """把本次巡检结果落进 sync_logs（作为下次的基线）。
-
-    status 取 `bloated` 或 `ok`：前者让它在审计表里一眼可辨，不依赖任何额外通知渠道。
+    status 取 `bloated` / `ok`：前者让它在审计表里一眼可辨，不依赖任何额外通知渠道。
     """
     from app.core.time_utils import now_shanghai
 
