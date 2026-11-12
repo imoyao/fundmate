@@ -188,8 +188,29 @@ def _disable_async_backfill(monkeypatch):
 
     **只需 patch 源头一处**（#1608）：消费方（watchlist_service / position_service /
     importer.orchestrator_commit）一律以 ``async_backfill.trigger_backfill(...)`` 运行时
-    取属性调用，不再 from-import 早绑定，因此不再需要维护「模块名清单」。"""
+    取属性调用，不再 from-import 早绑定，因此不再需要维护「模块名清单」。
+
+    ## 名录补录线程（2026-11-12，CI 实测）
+
+    导入 confirm 成功后会调 ``securities_catalog.trigger_catalog_backfill_async()`` 起
+    daemon 线程补 ``securities`` 名录。它**不是**上面那个 seam：``import_entry`` 是
+    ``from ... import trigger_catalog_backfill_async`` 早绑定，patch 源头对它无效——
+    于是每次导入确认都在用例进程里真起一个联网线程，而这个线程经 ``get_db()`` 拿到的
+    是本用例的 ``_fixture_app.db``（``app.core.database.engine`` 已被 ``app`` 夹具重定向）。
+
+    **后果是可复现的 CI 红灯**：``securities_backfill`` job 先写一行（拿 RESERVED 写锁）
+    再去发网络请求，期间不提交；同进程的主请求随后 flush ``UPDATE positions``，
+    撞上 5s ``busy_timeout`` 直接 ``database is locked``。实测两次连续红在
+    ``tests/domains/test_importers.py::TestStandardCSVParse::test_sell_with_existing_position``
+    （confirm 后 500）。本地已用最小脚本确认机制：另一连接持未提交写事务 → 5.56s 后
+    ``database is locked``。
+
+    故这里 patch **调用点的那个名字**（早绑定只有一处调用，见 grep 结果），而不是
+    ``securities_catalog`` 模块属性——后者会被 ``tests/services/test_securities_catalog.py``
+    自己接管（它要断言触发/去重语义），互相打架。
+    """
     monkeypatch.setattr('app.services.async_backfill.trigger_backfill', lambda *a, **k: None)
+    monkeypatch.setattr('app.services.importer.import_entry.trigger_catalog_backfill_async', lambda *a, **k: None)
 
 
 @pytest.fixture(autouse=True)
