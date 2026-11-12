@@ -42,9 +42,7 @@
         @edit="openEdit"
         @delete="onDelete"
       />
-      <p class="recon-trail__tip">
-        流水记错了可以直接编辑或删除，改完抽屉上方的数字会重新对账。更完整的记录在产品详情页与该账本详情页里。
-      </p>
+      <p class="recon-trail__tip">{{ tipText }}</p>
     </template>
 
     <div v-else class="recon-trail__empty">
@@ -99,6 +97,16 @@ const loading = ref(false);
 const error = ref("");
 
 const ledgerName = computed(() => nameOf(props.ledgerId));
+/** 真正没归属的行：底部说明据此分叉，不再对整屏无条件承诺「可以直接编辑」 */
+const unassignedCount = computed(
+  () => rows.value.filter(r => r.ledger_id == null).length
+);
+/** 说明文案收在 script：模板里长中文与插值同行会被 prettier 拆成多段，读起来断句 */
+const tipText = computed(() =>
+  unassignedCount.value
+    ? `其中 ${unassignedCount.value} 笔还没归属账本，先在账户管理页「未归置数据」归入后才能编辑；其余流水可以直接编辑或删除。`
+    : "流水记错了可以直接编辑或删除，改完抽屉上方的数字会重新对账。更完整的记录在产品详情页与该账本详情页里。"
+);
 const emptyHint = computed(() =>
   props.ledgerId === null
     ? "这个产品还没有归属账本，账本详情页里也查不到它。先归置账本，或从交易导入补上流水。"

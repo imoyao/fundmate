@@ -1815,6 +1815,10 @@ class TestLedgerTransactions:
         item = data['items'][0]
         assert item['txn_type'] == 'buy'
         assert isinstance(item['fee'], (int, float))
+        # 归属必须随行下发：/api/transactions 与前端 TransactionRow 都有这个键。
+        # 缺了它，对账抽屉会把「按账本查出的流水」判成未归属、编辑置灰，
+        # 而同一屏头部却显示着账本名（显示与可操作不一致）。
+        assert item['ledger_id'] == stock.id
 
     def test_trade_date_is_date_only_and_asset_type_backfilled(self, client, db, make_position):
         """#2712：日期不带 `T00:00:00`；`asset_type` 快照为空时按持仓回解析。

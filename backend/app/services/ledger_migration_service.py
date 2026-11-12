@@ -690,7 +690,8 @@ def build_orphan_detail(db, family_id: int) -> dict:
 def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
     """将未归置数据（孤儿持仓/资产/交易）归入指定账户（单事务）。
 
-    返回各项计数；目标账户已有同名持仓（唯一键冲突）时回滚并抛 400。
+    交易范围与明细 / 删除同口径：明细列得出来的悬空流水点「归入现有账户」后都必须
+    真的落账。返回各项计数；目标账户已有同名持仓（唯一键冲突）时回滚并抛 400。
     """
     valid_ledger_ids = _valid_ledger_ids(db, family_id)
     orphan_cond = _orphan_position_condition(valid_ledger_ids)
@@ -710,13 +711,16 @@ def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
                 synchronize_session=False,
             )
         )
-        # 归入孤儿持仓对应的悬空交易（position_id 命中孤儿持仓，且 ledger_id 悬空）
+        # 归入全部悬空流水（含 position_id 为空的账户级流水），与明细 / 删除同口径：
+        # 此前只筛 position_id 命中孤儿持仓的行，明细列出来的流水点了归入却没动。
         transaction_count = (
             db.query(Transaction)
             .filter(
                 Transaction.family_id == family_id,
-                Transaction.position_id.in_(orphan_position_ids),
-                _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
+                or_(
+                    Transaction.position_id.in_(orphan_position_ids),
+                    _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
+                ),
             )
             .update(
                 {Transaction.ledger_id: target.id, Transaction.account_name: target.name},

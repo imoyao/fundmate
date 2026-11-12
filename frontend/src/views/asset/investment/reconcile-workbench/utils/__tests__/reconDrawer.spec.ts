@@ -103,10 +103,12 @@ describe("trailEditBlockReason：未归账本的流水编辑置灰（删除不�
     expect(trailEditBlockReason({ ledger_id: 12 })).toBe("");
   });
 
-  it("ledger_id 为 null：给一句能看懂的置灰原因，不是只灰不解释", () => {
+  it("ledger_id 为 null：给一句能看懂、且指得明去处的置灰原因", () => {
     const reason = trailEditBlockReason({ ledger_id: null });
     expect(reason).not.toBe("");
     expect(reason).toContain("账本");
+    // 不能只说「不能编辑」却不给下一步：归置入口是账户管理页的「未归置数据」
+    expect(reason).toContain("未归置数据");
   });
 
   it("ledger_id 缺失（后端老字段）：与 null 同判", () => {

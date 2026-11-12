@@ -353,6 +353,41 @@ class TestOrphan:
         # 归入后不应再有孤儿
         assert svc.build_orphan_detail(db, 1)['summary']['position_count'] == 0
 
+    def test_migrate_assigns_positionless_txn_listed_in_detail(self, db):
+        """明细里列得出来的无持仓流水，点「归入现有账户」必须真的被归入。
+
+        修复前 ``migrate_orphan_data`` 只更新 position_id 命中孤儿持仓的交易，
+        而 ``build_orphan_detail`` 把所有 ledger_id 悬空的流水都列给用户看，
+        于是这批流水点完「归入」仍在原地——显示出来的入口按了没用。
+        """
+        target = _ledger(db, '目标账户')
+        db.add(
+            Transaction(
+                position_id=None,
+                ledger_id=None,
+                family_id=1,
+                txn_type='buy',
+                symbol='',
+                position_name='红利税',
+                account_name='同花顺（银河证券）',
+                quantity=0,
+                price=0,
+                amount=Money.yuan_to_cents(-17.5),
+                status='success',
+            )
+        )
+        db.commit()
+
+        assert svc.build_orphan_detail(db, 1)['summary']['transaction_count'] == 1
+
+        counts = svc.migrate_orphan_data(db, target, 1)
+        assert counts['transaction_count'] == 1
+
+        txn = db.query(Transaction).one()
+        assert txn.ledger_id == target.id
+        assert txn.account_name == '目标账户'
+        assert svc.build_orphan_detail(db, 1)['summary']['transaction_count'] == 0
+
     def test_migrate_conflict_with_existing_symbol_raises_400(self, db):
         """归入会撞 uq_positions_ledger_symbol（目标已有同名持仓）→ 回滚 + 400。"""
         target = _ledger(db, '目标账户')

@@ -75,12 +75,16 @@ export function reconTrailQuery(
  * 为前提；`DELETE /api/transactions/<id>/` 只按 family_id 鉴权，删除不受限。
  *
  * 返回空串 = 可编辑；非空 = 置灰原因（同一句给行内 tooltip，说清为什么不能点）。
+ *
+ * 注意「没归属」只指流水自身 ledger_id 为空；抽屉头部那个「账本：X」是取数键，
+ * 不是每行的归属断言。按账本查出的流水后端会随行下发 ledger_id，不该再被判成
+ * 未归属——此前后端漏了这个字段，才出现「头部有账本名、行内却说没关联」。
  */
 export function trailEditBlockReason(row: {
   ledger_id?: number | null;
 }): string {
   if (row.ledger_id == null) {
-    return "这笔流水还没归属账本，归属后才能编辑";
+    return "这笔流水还没归属账本，先在账户管理页「未归置数据」归入，再来编辑";
   }
   return "";
 }

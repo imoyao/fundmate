@@ -674,6 +674,8 @@ class LedgerService:
             items.append(
                 {
                     'id': t.id,
+                    # 归属随行下发：漏了它，对账抽屉会把按账本查出的流水误判成未归属。
+                    'ledger_id': t.ledger_id,
                     # 日期一律 `YYYY-MM-DD`（#2712）：trade_date 是 DateTime，isoformat 会带
                     # `T00:00:00`，与 /api/transactions 的 strftime 口径分裂
                     'confirm_date': iso_date_only(t.confirm_date),
