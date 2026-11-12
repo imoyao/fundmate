@@ -83,6 +83,7 @@ from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.securities_backfill_job import SecuritiesBackfillJob
 from app.services.sync.jobs.security_industry_map_job import SecurityIndustryMapSyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
+from app.services.sync.target_guard import require_targets
 from app.services.thermometer.jobs import TemperatureJob
 
 BASE_DIR = Path(app.__path__[0]).parent
@@ -597,13 +598,10 @@ class DataSyncOrchestrator:
     # ── Job 执行 ──
 
     def run_job(self, job_name: str, full_sync: bool = False, targets: Optional[List[str]] = None) -> Dict[str, Any]:
-        """
-        执行单个同步任务。
+        """执行单个同步任务。
 
         Args:
-            job_name: 任务名（如 'fund_nav'）
-            full_sync: 是否全量同步
-            targets: 目标代码列表（可选，用于分层同步）
+            job_name: 任务名（如 'fund_nav'）；targets 为目标代码列表（可选，用于分层同步）
 
         Returns:
             包含 status 和 stats 的结果字典
@@ -612,6 +610,7 @@ class DataSyncOrchestrator:
             raise ValueError(f'未知任务: {job_name}')
 
         job = self.jobs[job_name]
+        require_targets(job_name, getattr(job, 'requires_targets', False), targets)
         logger.info(f'开始执行 {job_name} (全量={full_sync}, 目标数={len(targets) if targets else "全部"})')
 
         # 注入目标代码列表

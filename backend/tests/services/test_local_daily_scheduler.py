@@ -251,14 +251,20 @@ class TestLoadConfig:
         assert cfg.jobs[0].target_kind == 'fund'
 
     def test_new_jobs_have_no_target_kind(self):
-        """#1934 补进的四项目标池都不是「持仓+自选」，target_kind 必须为 None。
+        """#1934 补进的目标池都不是「持仓+自选」，target_kind 必须为 None。
 
         套成 'fund' / 'stock' 会拿到不相干的代码池：market_asset_daily 的对象是
-        「要落快照的大类资产」、industry_pbroe 是「全行业矩阵」、index_valuation 是固定指数清单、convertible_bond
-        按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
+        「要落快照的大类资产」、industry_pbroe 是「全行业矩阵」、index_valuation 是固定指数清单、
+        convertible_bond 按在库 symbol 全量 upsert。套错的结果是
         「每天记一条 success 但什么都没同步」的静默空跑。
         #2142 的 fund_valuation_reconcile 同理：目标池是「库里全部 estimated 行」，
         不是 fund/stock 代码池。
+
+        **`dividend_split` 已移出本清单（#3073）**：它的 `_fetch_data` 是
+        `for code in targets`，本来就按标的逐只抓分红/送转公告，fund + stock 正是它要的池。
+        此前把它归进「事件型数据、不需要目标池」，结果 27 次执行 27 次 `total=0`
+        ——**恰好是这条 docstring 想防的静默空跑，由分类本身制造出来**。
+        该 job 现在声明 `requires_targets`，判据见 `tests/services/sync/test_target_guard.py`。
         """
         cfg = ds.load_config({})
         for name in (
@@ -267,7 +273,6 @@ class TestLoadConfig:
             'industry_pbroe',
             'index_valuation',
             'convertible_bond',
-            'dividend_split',
             'fund_valuation_reconcile',
         ):
             spec = next(s for s in cfg.jobs if s.job_name == name)

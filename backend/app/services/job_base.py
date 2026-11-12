@@ -112,6 +112,9 @@ class SyncJob(ABC):
 
     # ── 可选覆盖 ──
 
+    #: `_fetch_data` 依赖调用方给目标池：True ⇒ 见 None 报错，不再以 `[]` 空跑（#3073）。
+    requires_targets: bool = False
+
     @property
     def _allow_empty_data(self) -> bool:
         """是否允许数据源返回空（如非交易日）"""
@@ -278,10 +281,8 @@ class SyncJob(ABC):
     def _log_phase_costs(self, costs: Dict[str, float]) -> None:
         """把各阶段累计耗时打成一行（#2522）。
 
-        为什么必须显式打：瓶颈在**远端写库**（Turso/Hrana 逐行往返），
-        本地 SQLite 上是毫秒级 ⇒ 本地测试永远看不到；而真机日志此前只有
-        「进入 / 完成」两端，8407 行写 28 分钟、28149 只 52 分钟零输出，
-        排查只能靠推断。有了这一行，下一次跑就能直接指出卡在抓取、去重还是写库。
+        瓶颈在**远端写库**（Turso/Hrana 逐行往返），本地 SQLite 是毫秒级、测试永远看不到；
+        真机日志原本只有「进入 / 完成」两端（8407 行写 28 分钟零输出），只能靠推断。
         """
         if not costs:
             return
@@ -301,9 +302,6 @@ class SyncJob(ABC):
 
                 if targets is None:
                     # 无外部目标列表：子类自己获取全部数据（适用于全量列表 Job）
-                    # #2522：逐阶段计时。写库慢在本地 SQLite 上不可见（毫秒级），
-                    # 真机日志此前只有「进入 / 完成」两端，8407 行写 28 分钟、
-                    # 28149 只 52 分钟零输出，只能靠推断定位。
                     phase_costs: Dict[str, float] = {}
                     started = time.perf_counter()
                     raw_data = self._fetch_data(full_sync, [])
