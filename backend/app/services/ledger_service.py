@@ -674,6 +674,11 @@ class LedgerService:
             items.append(
                 {
                     'id': t.id,
+                    # 归属必须随行下发：/api/transactions 与前端 TransactionRow 都有
+                    # ledger_id，本页此前漏了这个键，对账抽屉把「按账本查出的流水」
+                    # 误判成未归属、编辑置灰，而同一屏头部却显示着账本名。查询已按
+                    # ledger_id 过滤，取 t.ledger_id 即真实归属，不从入参反推。
+                    'ledger_id': t.ledger_id,
                     # 日期一律 `YYYY-MM-DD`（#2712）：trade_date 是 DateTime，isoformat 会带
                     # `T00:00:00`，与 /api/transactions 的 strftime 口径分裂
                     'confirm_date': iso_date_only(t.confirm_date),
