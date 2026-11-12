@@ -161,12 +161,23 @@ jobs:
         # PR #1414 / #1415 / #1417 三个 deep-review 红灯都是这个原因，与额度无关
         # （探测日志明确 CHOSEN: deepseek-v4-flash-ga-260731 (selected_ok=true)）。
         run: |
+          # 网络抖动不得打死整条审查链：本步骤装的是**预留依赖**（agent 模式当前关闭），
+          # 但 2026-11-11 PR #3056 实测 runner DNS 解析 azure.archive.ubuntu.com 失败 →
+          # apt-get exit 100 → 本 job 在跑审查之前就失败 → verdict='' →
+          # 判定 job 落到「deep-review 未给出结论」分支判红。
+          # 那个红灯的含义是「上游装包失败」，与 PR 代码零关系（同一 PR 三次重跑同因）。
+          # 故改为装不上就降级告警：rg 缺失只影响将来重开的 agent 模式，
+          # 不影响本轮的 inline / summary —— 真到那天由下面第二条告警点名。
           if command -v rg >/dev/null 2>&1; then
             echo "runner 已预装：$(rg --version | head -1)"
           else
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ripgrep
-            echo "已安装：$(rg --version | head -1)"
+            sudo apt-get update -qq || echo "::warning::apt-get update 失败（网络 / DNS），跳过 ripgrep 安装"
+            sudo apt-get install -y -qq ripgrep || echo "::warning::ripgrep 安装失败，本轮不阻塞审查"
+          fi
+          if command -v rg >/dev/null 2>&1; then
+            echo "rg 可用：$(rg --version | head -1)"
+          else
+            echo "::warning::本次没有任何可用的 rg。agent 模式已关闭，本轮 inline/summary 不受影响；若日后重开 agent.enabled，此告警即故障前兆（agent 会 FileNotFoundError 崩溃 → 零评论 → 判红）。"
           fi
 
       - name: 记录审查前评论数
