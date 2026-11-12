@@ -33,6 +33,27 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 
 
+def _coerce_day(value) -> date | None:
+    """把 str / date / datetime 归一成 `date`；无法解析返回 None。
+
+    卖出/导入路径可能直接透传 ISO 字符串（未经 `_resolve_confirm_date` 归一），
+    故这里必须自己解析——两条判定（锚点覆盖 / 历史回填）共用同一份日期口径，
+    避免各自写一份 strptime。
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            return datetime.strptime(value[:10], '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
 def is_covered_by_anchor(position: Position, effective_date) -> bool:
     """这笔流水是否已包含在持仓快照锚点里（包含则**不得**再驱动 quantity）。
 
@@ -47,19 +68,42 @@ def is_covered_by_anchor(position: Position, effective_date) -> bool:
         return False
     if position.ownership_status != 'active':
         return False
-    if effective_date is None:
+    day = _coerce_day(effective_date)
+    if day is None:
         return False
-    if isinstance(effective_date, str):
-        # 卖出/导入路径可能直接透传 ISO 字符串（未经 _resolve_confirm_date 归一）
-        try:
-            day = datetime.strptime(effective_date[:10], '%Y-%m-%d').date()
-        except (ValueError, TypeError):
-            return False
-    elif hasattr(effective_date, 'date'):
-        day = effective_date.date()
-    else:
-        day = effective_date
     return day <= position.snapshot_date
+
+
+def is_backfill_of_past(position: Position, effective_date) -> bool:
+    """这笔**卖出**是否只是「历史回填」，即只该落流水、不该驱动份额。
+
+    两条并列来源，任一命中即「已包含在持仓状态里」：
+
+    1. 快照锚点覆盖（`is_covered_by_anchor`，既有口径）；
+    2. **已清仓**持仓，且流水日 <= `cleared_at` —— 清仓这件事本身（`quantity = 0`）
+       已经包含了它。
+
+    为什么需要第 2 条（SH600027 实测，2026-11-12）：对账中心把 `active` 之外的持仓
+    视为「没有持仓」，于是「流水净额 > 0 且无 active 行」判为 orphan，界面提示用户
+    「补一笔流水」；而补这笔卖出时 `prepare_sell` 只认第 1 条，而锚点判定对非 active
+    持仓恒返 False、清仓行通常也没有锚点 ⇒ 必然落到「当前持有 0 < 拟操作 N」。
+    两条口径互相死锁：**系统自己建议的修复路径永远走不通**。
+
+    边界：清仓日**之后**的卖出不受豁免（那才是真正的超卖）；清仓后再买入会把状态
+    改回 active 并重置锚点，不会误命中本分支。
+    """
+    if is_covered_by_anchor(position, effective_date):
+        return True
+    if position is None or position.ownership_status != OwnershipStatus.CLEARED.value:
+        return False
+    if position.cleared_at is None:
+        return False
+    day = _coerce_day(effective_date)
+    if day is None:
+        return False
+    cleared_at = position.cleared_at
+    cleared_day = cleared_at.date() if isinstance(cleared_at, datetime) else cleared_at
+    return day <= cleared_day
 
 
 def mark_position_cleared(position: Position, when=None) -> None:
