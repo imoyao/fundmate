@@ -166,22 +166,41 @@ def test_narrative_expectations_are_valid():
             continue
         seen += 1
         assert isinstance(spec, dict), f'{c["id"]} expect.narrative 必须是映射'
-        assert set(spec) == {'covers'}, f'{c["id"]} expect.narrative 只允许 covers（当前 {sorted(spec)}）'
+        assert set(spec) <= {'covers', 'numbers'}, (
+            f'{c["id"]} expect.narrative 只允许 covers / numbers（当前 {sorted(spec)}）'
+        )
         covers = spec['covers']
         assert isinstance(covers, list) and len(covers) >= 2, f'{c["id"]} 多子问覆盖至少要有 2 组'
         statuses = expect.get('status')
         statuses = statuses if isinstance(statuses, list) else [statuses]
         assert 'result' in statuses, f'{c["id"]} 叙事判据只适用于 result 用例'
         ids = []
+        metrics = 0
         for n, cover in enumerate(covers, 1):
             assert isinstance(cover, dict), f'{c["id"]} 第 {n} 组必须是映射'
-            assert set(cover) == {'id', 'any'}, f'{c["id"]} 第 {n} 组只允许 id / any'
+            assert set(cover) <= {'id', 'any', 'metric'}, f'{c["id"]} 第 {n} 组只允许 id / any / metric'
             assert isinstance(cover['id'], str) and cover['id'].strip(), f'{c["id"]} 第 {n} 组缺合法 id'
             words = cover['any']
             assert isinstance(words, list) and len(words) >= 2, f'{c["id"]} 第 {n} 组至少 2 个同义锚点'
             assert all(isinstance(w, str) and w.strip() for w in words), f'{c["id"]} 第 {n} 组含空锚点'
             assert len(set(words)) == len(words), f'{c["id"]} 第 {n} 组锚点重复'
             assert any(w not in generic for w in words), f'{c["id"]} 第 {n} 组全是泛词，判据会恒真'
+            if 'metric' in cover:
+                metrics += 1
+                metric = cover['metric']
+                specs = metric if isinstance(metric, list) else [metric]
+                assert specs, f'{c["id"]} 第 {n} 组 metric 列表不能为空'
+                for m, one in enumerate(specs, 1):
+                    assert isinstance(one, dict), f'{c["id"]} 第 {n} 组 metric[{m}] 必须是映射'
+                    assert set(one) <= {'tool', 'field', 'pick'}, f'{c["id"]} 第 {n} 组 metric[{m}] 含未知字段'
+                    for key in ('tool', 'field'):
+                        assert isinstance(one.get(key), str) and one[key].strip(), (
+                            f'{c["id"]} 第 {n} 组 metric[{m}] 缺 {key}'
+                        )
+                    assert one.get('pick') in (None, 'min', 'max', 'abs_max'), (
+                        f'{c["id"]} 第 {n} 组 metric[{m}] pick 非法'
+                    )
             ids.append(cover['id'])
         assert len(set(ids)) == len(ids), f'{c["id"]} 子问 id 重复'
+        assert metrics, f'{c["id"]} 至少一组要挂 metric：只有锚点判据抓不到回避与串台（D103）'
     assert seen, '评估集里没有任何 expect.narrative 用例：D1 验收判据没有挂进数据'
