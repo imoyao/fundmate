@@ -110,11 +110,10 @@ def test_custom区间坏参数不筛空(db, make_position, make_transaction):
 
 
 def _create_via_service(db, **kw):
-    from app.services.trading import TransactionService
-
     # 汇点现在校验「非空 ledger_id 必须指向本家庭真实账本」，故夹具补建 id=1。
     # #2875 撤掉的只是「NULL 即报错」的硬拦，NULL 仍是合法形态。
     from app.domains.ledgers.models import Ledger
+    from app.services.trading import TransactionService
 
     if db.query(Ledger).filter_by(id=1).first() is None:
         db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
