@@ -10,6 +10,7 @@
    不报错、日志全绿（本文件最后两组用例就是钉这个）。
 """
 
+import ast
 from types import SimpleNamespace
 
 import pytest
@@ -169,6 +170,135 @@ class TestLastRunAt:
 
     def test_never_run_returns_none(self):
         assert local_checks.last_run_at(_empty_db(), cold_set_guard.GUARD_JOB_NAME) is None
+
+
+def _log(db, status: str, days_ago: int, job_name=None):
+    """插一行审计记录（`_empty_db` 只有 sync_logs，时间由天偏移给定）。"""
+    from datetime import timedelta
+
+    from app.core.time_utils import now_shanghai
+
+    at = now_shanghai() - timedelta(days=days_ago)
+    db.execute(
+        text(
+            'INSERT INTO sync_logs (job_name, status, full_sync, stats, started_at, finished_at) '
+            "VALUES (:j, :s, 0, '{}', :t, :t)"
+        ),
+        {'j': job_name or cold_set_guard.GUARD_JOB_NAME, 's': status, 't': at},
+    )
+    db.commit()
+
+
+class TestDueChecks:
+    """到期判据（#3081）：两条入口共用这一份，判错任一方向都有具体后果。"""
+
+    def test_never_run_is_due(self):
+        assert local_checks.due_checks(_empty_db()) == local_checks.build_checks({})
+
+    def test_recent_ok_is_not_due(self):
+        db = _empty_db()
+        _log(db, 'ok', 2)
+        assert local_checks.due_checks(db) == ()
+
+    def test_recent_bloated_is_not_due(self):
+        """**判了膨胀也算「跑过」**：若不算，下一轮会再记一次基线，`growth` 恒为 0。
+
+        这是本组最贵的一条——把 `bloated` 排除在外，守卫就变成瞎的：它每周重设基线，
+        永远算不出增长，而日志里全是「正常」。
+        """
+        db = _empty_db()
+        _log(db, 'bloated', 2)
+        assert local_checks.due_checks(db) == ()
+
+    def test_error_retries_daily(self):
+        """失败不算「跑过」：巡检坏了要按日重试，而不是等满一周（同 `_skip_if_recent` 的理由）。"""
+        db = _empty_db()
+        _log(db, 'error', 2)
+        assert len(local_checks.due_checks(db)) == 1
+
+    def test_due_at_interval_boundary(self):
+        db = _empty_db()
+        _log(db, 'ok', local_checks.MIN_INTERVAL_DAYS)
+        assert len(local_checks.due_checks(db)) == 1, '满间隔即到期'
+
+    def test_not_due_one_day_before_interval(self):
+        db = _empty_db()
+        _log(db, 'ok', local_checks.MIN_INTERVAL_DAYS - 1)
+        assert local_checks.due_checks(db) == ()
+
+
+class TestRunDueChecks:
+    """`run_due_checks` 是部署侧唯一入口，必须真跑、且只跑该跑的。"""
+
+    @staticmethod
+    def _spec(ran, name='fake_check'):
+        return local_checks.LocalCheckSpec(
+            job_name=name,
+            cron='10 4 * * mon',
+            runner=lambda: ran.append(name) or {'job_name': name, 'status': 'success', 'stats': {}},
+            description='测试用',
+        )
+
+    def test_runs_due_check(self, monkeypatch):
+        db = _empty_db()
+        ran = []
+        monkeypatch.setattr(local_checks, 'build_checks', lambda env=None: (self._spec(ran),))
+        monkeypatch.setattr(database, 'get_session', lambda: db)
+
+        results = local_checks.run_due_checks()
+        assert ran == ['fake_check']
+        assert results[0]['status'] == 'success'
+
+    def test_skips_recent_check(self, monkeypatch):
+        db = _empty_db()
+        _log(db, 'ok', 1, job_name='fake_check')
+        ran = []
+        monkeypatch.setattr(local_checks, 'build_checks', lambda env=None: (self._spec(ran),))
+        monkeypatch.setattr(database, 'get_session', lambda: db)
+
+        assert local_checks.run_due_checks() == []
+        assert ran == [], '不到期就不该跑——否则每次重设基线，增长永远看不见'
+
+
+class TestOneShotReachability:
+    """部署侧（`daily-snapshot.yml`）只跑 `pdm run scheduler` 这个一次性进程。
+
+    它不启动 APScheduler ⇒ 只在 `daily_scheduler.start()` 注册的巡检在 CI 上永远轮不到。
+    这条判据用 ast 读源码而非 import：`app.tools.scheduler` 顶层会加载 ORM 与 dotenv，
+    CI 的纯脚本环境跑不动（同 `guard_job_schedule_coverage` 的理由）。
+    """
+
+    @staticmethod
+    def _main_calls():
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parents[2] / 'app' / 'tools' / 'scheduler.py'
+        tree = ast.parse(src.read_text(encoding='utf-8'), filename=str(src))
+        main = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        return [n for n in ast.walk(main) if isinstance(n, ast.Call)]
+
+    def test_called_after_sync_and_before_exit(self):
+        calls = self._main_calls()
+
+        def lines(pred):
+            return [c.lineno for c in calls if pred(c)]
+
+        due = lines(lambda c: isinstance(c.func, ast.Name) and c.func.id == 'run_due_checks')
+        run_all = lines(lambda c: isinstance(c.func, ast.Attribute) and c.func.attr == 'run_all_jobs')
+        # 只认 `sys.exit(EXIT_JOB_FAILED)` 那一次：本函数里另有三处退出（参数校验 / 中断 /
+        # 兜底异常），拿「所有 sys.exit」取最小值会挑到参数校验那一处，判据就变成恒假。
+        fail_exit = [
+            c.lineno
+            for c in calls
+            if isinstance(c.func, ast.Attribute)
+            and c.func.attr == 'exit'
+            and c.args
+            and isinstance(c.args[0], ast.Name)
+            and c.args[0].id == 'EXIT_JOB_FAILED'
+        ]
+        assert due, '一次性路径没调 run_due_checks ⇒ 巡检在 CI 上等于不存在'
+        assert run_all and due[0] > run_all[0], '必须在同步跑完之后（量的是写完之后的状态）'
+        assert fail_exit and due[0] < fail_exit[0], '必须在失败退出之前，否则 job 一失败巡检也被跳过'
 
 
 if __name__ == '__main__':

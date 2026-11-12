@@ -18,6 +18,18 @@
 
 「想让它定期跑」本身**不是**理由——否则任何检查都能借这条路挤进进程内调度。
 
+## 两条入口，同一份到期判据
+
+本仓有两条调度通道，巡检必须**两条都能到**，否则修一半：
+
+- 本机常驻（`SCHEDULER_ENABLED=1` / `pdm run scheduler-daemon`）→ `register_checks` 把它
+  注册进 APScheduler；
+- 部署侧（GitHub Actions `daily-snapshot.yml` 的 cron）→ 跑的是 `pdm run scheduler` 这个
+  **一次性**进程，只会 `orch.run_all_jobs()`，从不启动 APScheduler ⇒ 巡检在那条通道上不会
+  被注册。故 `app/tools/scheduler.py` 在同步跑完后调 `run_due_checks()`（#3081）。
+
+两条入口共用 `due_checks` 的「距上次判定 ≥ 6 天」判据，所以既不会重复跑也不会互相漏。
+
 清单写成模块级常量而非纯配置读取：**新增一项必须同时改
 `backend/tests/services/test_local_checks.py` 的白名单断言**，那一步就是 review 会看到的
 闸门（写进文档的规则会被绕开，需要改测试才能通过的规则不会）。
@@ -113,8 +125,8 @@ def build_checks(env: Optional[Mapping[str, str]] = None) -> Tuple[LocalCheckSpe
     return tuple(checks)
 
 
-def last_run_at(db, job_name: str):
-    """该巡检最近一次运行的时间（**任何 status 都算**，没跑过返回 None）。
+def last_run(db, job_name: str):
+    """该巡检最近一次运行的审计行（**任何 status 都算**，没跑过返回 None）。
 
     不能用 `SyncLog.get_last_sync_time`：它只认 `status == 'success'`，而巡检落库的 status
     是 `ok` / `bloated`（后者恰恰是最该被看见的那一半），用它会把「跑过且判了膨胀」和
@@ -124,8 +136,67 @@ def last_run_at(db, job_name: str):
 
     from app.models.sync_log import SyncLog
 
-    row = db.query(SyncLog).filter(SyncLog.job_name == job_name).order_by(desc(SyncLog.started_at)).first()
+    return db.query(SyncLog).filter(SyncLog.job_name == job_name).order_by(desc(SyncLog.started_at)).first()
+
+
+def last_run_at(db, job_name: str):
+    """最近一次运行的时间（口径同 `last_run`）。"""
+    row = last_run(db, job_name)
     return row.started_at if row else None
+
+
+# 与 `orchestrator.WEEKLY_JOB_MIN_INTERVAL_DAYS` 同值同理由（CI 起跑有最长约 10 分钟的
+# jitter，卡 7 天会让「每周一次」漂成 8 天）。巡检不走编排器那道门控，故在这里单独定义。
+MIN_INTERVAL_DAYS = 6
+# 「判定已经发生」的状态：`ok` 与 `bloated` 都算。若把 `bloated` 排除在外，下一轮会再记
+# 一次基线，`growth` 恒为 0 ⇒ 膨胀永远看不见，那是比假红更贵的失效。
+_JUDGED_STATUSES = ('ok', 'bloated')
+
+
+def due_checks(db, now=None, min_interval_days: int = MIN_INTERVAL_DAYS, checks=None) -> Tuple[LocalCheckSpec, ...]:
+    """本轮该跑的巡检（一次性执行路径与 APScheduler 共用这一份到期判据）。
+
+    判据与 `orchestrator._skip_if_recent` 方向一致、口径不同：日跑 job 只认 `success`
+    （失败那次不该算「刚跑过」）；巡检认 `ok` / `bloated`——两者都表示**判定已经发生**。
+    `error` 与其它未知状态一律视为「没跑成」，按日重试，而不是等满一周。
+    """
+    from app.core.time_utils import now_shanghai
+
+    now = now or now_shanghai()
+    specs = build_checks() if checks is None else checks
+    due = []
+    for spec in specs:
+        row = last_run(db, spec.job_name)
+        judged = row is not None and (row.status or '') in _JUDGED_STATUSES
+        # 用日期差而非时间差：`started_at` 从 SQLite 读回是 naive 东八区墙钟，直接与
+        # aware 的 now 相减会抛 TypeError（同 #1793 的形态）；周频按天判定也够用。
+        if not judged or (now.date() - row.started_at.date()).days >= min_interval_days:
+            due.append(spec)
+    return tuple(due)
+
+
+def run_due_checks(now=None, env: Optional[Mapping[str, str]] = None) -> list:
+    """在**一次性**执行路径里跑掉本轮到期的巡检（`pdm run scheduler`）。
+
+    为什么需要这条入口：部署侧（`daily-snapshot.yml` 的 cron）跑的是 `pdm run scheduler`
+    这个一次性进程，它只调 `orch.run_all_jobs()`，**从不启动 APScheduler**——只在
+    `daily_scheduler.start()` 里注册的巡检在那条通道上永远不会跑，等于 #3078 的修复只覆盖
+    了「本机常驻」一半。两条入口共用 `due_checks`，所以既不会重复跑也不会互相漏。
+    """
+    from app.core.database import get_session
+
+    db = get_session()
+    try:
+        specs = due_checks(db, now=now, checks=build_checks(env))
+    finally:
+        # 先关掉判定用的会话再跑：巡检自己开会话（`get_session`），SQLite 上两个会话
+        # 同时持有读事务没有意义，只会给锁等待留口子。
+        db.close()
+
+    if not specs:
+        logger.info('[本地巡检] 本轮无到期巡检')
+        return []
+    return [run_local_check(spec) for spec in specs]
 
 
 def register_checks(scheduler, tzinfo, checks) -> None:
