@@ -12,14 +12,34 @@
 - 导入预览行缺账本 ⇒ 计入 `commit_errors`（与现金分支 B4 同口径），不静默落库。
 """
 
+from app.domains.ledgers.models import Ledger
 from app.domains.transactions.models import Transaction
+
+
+def validate_ledger_ref(db, ledger_id, family_id=None) -> None:
+    """非空的 ledger_id 必须指向本家庭真实存在的账本；NULL 保持合法（#2875 定案）。
+
+    SQLite 的 FK 在 ``PRAGMA foreign_keys=OFF`` 下形同虚设，而迁移脚本大量在该
+    模式下重建表，历史库因此留下「账本已删、流水还挂着旧 id」的悬空引用。导入
+    预览行的 ledger_id 由前端回传、红利税补记继承历史流水的 id，二者此前都只判
+    「非空」，不判存在性与家庭归属。故在唯一写入汇点 ``TransactionService.create``
+    校验一次，堵住所有路径；NULL 是手工建仓 / 探市的合法形态，不在拦截范围。
+    """
+    if ledger_id is None:
+        return
+    ledger = db.get(Ledger, ledger_id)
+    if ledger is None:
+        raise ValueError(f'账本 {ledger_id} 不存在，不能写入流水')
+    if family_id is not None and ledger.family_id != family_id:
+        raise ValueError(f'账本 {ledger_id} 不属于当前家庭，不能写入流水')
 
 
 def dividend_tax_source_fields(db, family_id, symbol, position, account_name=''):
     """返回可直接展开进 ``Transaction(**kwargs)`` 的账本归属字段。
 
     ``account_name`` 由调用方显式给出时优先（手工补记可指定账户），否则继承
-    持仓 / 最近一笔同标的分红流水。两者都没有 ⇒ ValueError。
+    持仓 / 最近一笔同标的分红流水。两者都没有 ⇒ ValueError。继承来的 id 还要
+    过 :func:`validate_ledger_ref`：账本可能已被删除，只判非空会复制悬空引用。
     """
     source = position
     if source is None:
@@ -34,8 +54,9 @@ def dividend_tax_source_fields(db, family_id, symbol, position, account_name='')
             .order_by(Transaction.id.desc())
             .first()
         )
-    if source is None:
-        raise ValueError(f'无法定位账本：标的 {symbol} 既无持仓也无历史分红流水，请先记一笔买入或分红')
+    if source is None or source.ledger_id is None:
+        raise ValueError(f'无法定位账本：标的 {symbol} 的持仓 / 分红流水没有有效账本，请先归置账本')
+    validate_ledger_ref(db, source.ledger_id, family_id)
     return {
         'account_name': account_name or source.account_name or '',
         'ledger_id': source.ledger_id,

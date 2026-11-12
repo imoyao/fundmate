@@ -110,10 +110,14 @@ def test_custom区间坏参数不筛空(db, make_position, make_transaction):
 
 
 def _create_via_service(db, **kw):
+    # 汇点现在校验「非空 ledger_id 必须指向本家庭真实账本」，故夹具补建 id=1。
+    # #2875 撤掉的只是「NULL 即报错」的硬拦，NULL 仍是合法形态。
+    from app.domains.ledgers.models import Ledger
     from app.services.trading import TransactionService
 
-    # ledger_id=1 是夹具里的合法账本；#2875 的账本校验只在导入路径，
-    # 写入汇点不拦（见 test_账本校验只在导入路径不在写入汇点）。
+    if db.query(Ledger).filter_by(id=1).first() is None:
+        db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+        db.flush()
     kw.setdefault('ledger_id', 1)
     txn = TransactionService.create(db=db, symbol='000400', txn_type='buy', quantity=0, price=0, amount=0, **kw)
     db.flush()
@@ -142,12 +146,13 @@ def test_create显式trade_date不被覆盖(db):
     assert txn.trade_date == td
 
 
-def test_账本校验只在导入路径不在写入汇点(db):
-    """#2875 定案（owner 2026-11-05）：唯一构造汇点不硬拦 ledger_id。
+def test_汇点不拦合法NULL(db):
+    """#2875 定案（owner 2026-11-05）：唯一构造汇点不硬拦 NULL。
 
     全仓十余处 create 调用里手工建仓 / API 等合法路径不带账本，汇点硬拦会让
-    它们 400（CI 实测 65 例回归）。真实 26 笔无账本流水全部来自导入器，
-    由 orchestrator_commit 的显式护栏负责；本例钉住「别把硬校验加回汇点」。
+    它们 400（CI 实测 65 例回归）。现在汇点校验的是**另一件事**：非空 id 必须
+    指向本家庭真实账本（防止导入预览行 / 红利税继承复制已删账本的悬空 id），
+    见 test_ledger_ref_guard.py。本例钉住「NULL 仍可写」，两者不冲突。
     """
     txn = _create_via_service(db, status='success', ledger_id=None)
     assert txn.trade_date is not None  # 日期兜底仍在汇点，不受本次口径变更影响

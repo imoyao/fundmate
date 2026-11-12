@@ -410,7 +410,12 @@ class TestRecordTax:
 
         红利税是分红的减项，语义上本来就属于那次分红的账本；此前这里落
         ledger_id=NULL（真实库 26 笔「不进任何账本」的税行的另一个源头）。
+        账本引用校验后继承的 id 必须指向真实账本，故这里补建 id=7 的账本。
         """
+        from app.domains.ledgers.models import Ledger
+
+        db.add(Ledger(id=7, name='银河账户', ledger_type='fund', family_id=1))
+        db.commit()
         make_transaction(
             position_id=None,
             ledger_id=7,

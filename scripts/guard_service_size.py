@@ -244,7 +244,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/importer/linking.py": {'lines': 226, 'max_func': 50, 'max_cc': 16},
     "backend/app/services/importer/mappings.py": {'lines': 306, 'max_func': 3, 'max_cc': 1},
     "backend/app/services/importer/orchestrator.py": {'lines': 35, 'max_func': 4, 'max_cc': 1},
-    "backend/app/services/importer/orchestrator_commit.py": {'lines': 557, 'max_func': 215, 'max_cc': 28},
+    "backend/app/services/importer/orchestrator_commit.py": {'lines': 559, 'max_func': 217, 'max_cc': 28},
     "backend/app/services/importer/orchestrator_holdings.py": {'lines': 1201, 'max_func': 120, 'max_cc': 27},
     "backend/app/services/importer/orchestrator_parse.py": {'lines': 553, 'max_func': 101, 'max_cc': 35},
     "backend/app/services/importer/parsers/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
@@ -268,12 +268,15 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/institution_resolver.py": {'lines': 179, 'max_func': 36, 'max_cc': 14},
     "backend/app/services/job_base.py": {'lines': 407, 'max_func': 106, 'max_cc': 14},
     "backend/app/services/jsl_session.py": {'lines': 126, 'max_func': 29, 'max_cc': 6},
-    # 2026-11-12 对账中心「显示账本名却判未归属 / 归入按钮无效」修复，按 --report
-    # 实测回写两项：ledger_migration_service.py 794→798（归入范围补齐到全部悬空
-    # 流水，注释已压至 2 行）、ledger_service.py 697→699（随行下发 ledger_id）。
-    # 均为真实代码增长、非放宽阈值；max_func / max_cc 未变，逐项相等仍由
-    # test_baseline_matches_current_metrics 守住。
-    "backend/app/services/ledger_migration_service.py": {'lines': 798, 'max_func': 97, 'max_cc': 18},
+    # 2026-11-12 两次修复均按 --report 实测回写，真实代码增长、非放宽阈值：
+    # ① #3075 显示与可操作一致性：ledger_migration_service.py 794→798、
+    #   ledger_service.py 697→699（随行下发 ledger_id）；
+    # ② 孤儿数据根因修复：ledger_migration_service.py 798→806（孤儿交易判据
+    #   抽成 _orphan_transaction_condition，明细 / 归入 / 清理三处共用）、
+    #   trading.py 137→140 与 orchestrator_commit.py 557→559（写入汇点校验
+    #   账本引用、现金分支不写悬空 id）。
+    # 逐项相等仍由 test_baseline_matches_current_metrics 守住。
+    "backend/app/services/ledger_migration_service.py": {'lines': 806, 'max_func': 97, 'max_cc': 18},
     "backend/app/services/ledger_presenter.py": {'lines': 82, 'max_func': 57, 'max_cc': 10},
     "backend/app/services/ledger_service.py": {'lines': 699, 'max_func': 120, 'max_cc': 23},
     # 2026-11-07 收紧（非放宽）：P0 派生上移 + 压注释 665→664；随后把「分组↔口径
@@ -457,7 +460,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/thermometer/wind_valuation.py": {'lines': 122, 'max_func': 36, 'max_cc': 7},
     "backend/app/services/today_pnl.py": {'lines': 553, 'max_func': 182, 'max_cc': 37},
     "backend/app/services/trade_timeline.py": {'lines': 497, 'max_func': 235, 'max_cc': 35},
-    "backend/app/services/trading.py": {'lines': 137, 'max_func': 28, 'max_cc': 10},
+    "backend/app/services/trading.py": {'lines': 140, 'max_func': 28, 'max_cc': 10},
     "backend/app/services/transaction_service.py": {'lines': 492, 'max_func': 69, 'max_cc': 10},
     "backend/app/services/txn_name_resolver.py": {'lines': 258, 'max_func': 64, 'max_cc': 31},
     "backend/app/services/user_profile.py": {'lines': 88, 'max_func': 49, 'max_cc': 9},

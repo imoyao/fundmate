@@ -31,6 +31,13 @@ def _confirm(client, db, rows):
     parse 返回的预览行总带 ``ledger_id`` 键（parse 阶段 enrich 回填，测试未传则是
     None），必须显式赋值而不是 setdefault——None 已占位时 setdefault 不生效。
     """
+    from app.domains.ledgers.models import Ledger
+
+    # 预览行回传的 ledger_id 必须指向真实账本：写入汇点现在会校验引用，
+    # 此前硬编码 1 却不建账本，等于在测「悬空 id 也能入库」。
+    if db.query(Ledger).count() == 0:
+        db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+        db.commit()
     for r in rows:
         if not r.get('ledger_id'):
             r['ledger_id'] = 1
