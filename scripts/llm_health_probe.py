@@ -43,17 +43,69 @@ API_URLS = {
 # **被限额暂停的模型一律保留在列表里**：探测会把它们标成 429 并自动跳过，不影响其余候选；
 # 方舟「模型开通」页恢复开通后，无需改动本文件即可自动重新参与（删掉反而要多改一次代码）。
 CANDIDATES = [
-    ("ark", "doubao-seed-2-1-pro-260915", "pro"),      # 2026-09-15 最新豆包 Pro（当前默认首选）
-    ("ark", "deepseek-v4-pro-ga-260813", "pro"),       # 方舟 DeepSeek Pro（暂停中，恢复后自动可用）
-    ("ark", "deepseek-v4-1-flash-260910", "cheap"),    # 2026-09-14 最新 DeepSeek V4.1
-    ("ark", "glm-5-3-flash-260828", "cheap"),          # 2026-09-03 GLM 5.3（方舟托管）
-    ("ark", "deepseek-v4-flash-ga-260731", "cheap"),   # 方舟 DeepSeek Flash（暂停中，恢复后自动可用）
+    (
+        "ark",
+        "doubao-seed-2-1-pro-260915",
+        "pro",
+    ),  # 2026-09-15 最新豆包 Pro（当前默认首选）
+    (
+        "ark",
+        "deepseek-v4-pro-ga-260813",
+        "pro",
+    ),  # 方舟 DeepSeek Pro（暂停中，恢复后自动可用）
+    ("ark", "deepseek-v4-1-flash-260910", "cheap"),  # 2026-09-14 最新 DeepSeek V4.1
+    ("ark", "glm-5-3-flash-260828", "cheap"),  # 2026-09-03 GLM 5.3（方舟托管）
+    (
+        "ark",
+        "deepseek-v4-flash-ga-260731",
+        "cheap",
+    ),  # 方舟 DeepSeek Flash（暂停中，恢复后自动可用）
     ("ark", "doubao-seed-2-1-turbo-260628", "cheap"),  # 2026-06-16 同族轻量兜底
 ]
 
 KEY_ENV = {
     "ark": "ARK_API_KEY_CODEREVIEW",
 }
+
+
+def _classify_429(body: str):
+    """把 429 的响应体分成两类：额度/模型限额（换模型未必有解）与限流（等一等或换模型有解）。
+
+    WHY：历史实现**丢弃了响应体**，只打「429 限流/额度用尽」一个标签。这两种含义的处置
+    完全不同——额度用尽要等额度恢复 / 换 key，限流则过几分钟重跑就行——混成一个标签后，
+    「额度到底够不够」无法从日志回答（2026-11-12 排查 #3056 时就被卡在这里）。
+    方舟及 OpenAI 兼容端点的错误码都在 error.code / error.type / message 里，实测见过
+    QuotaExceeded、SetLimitExceeded（单模型被安全体验模式限额）、RateLimitExceeded。
+    """
+    code = ""
+    try:
+        payload = json.loads(body or "{}")
+    except (TypeError, ValueError):
+        payload = None
+    if isinstance(payload, dict):
+        err = payload.get("error")
+        if isinstance(err, dict):
+            code = str(err.get("code") or err.get("type") or "")
+        elif isinstance(payload.get("code"), str):
+            code = str(payload["code"])
+
+    haystack = f"{code} {body or ''}".lower()
+    rate_words = (
+        "ratelimit",
+        "rate_limit",
+        "rate limit",
+        "rpm",
+        "tpm",
+        "qps",
+        "too_many_requests",
+        "too many requests",
+    )
+    if any(w in haystack for w in rate_words):
+        return ("rate_limit", f"429 限流（{code or '无错误码'}）")
+    if not code and not haystack.strip():
+        # 响应体读不到：保留历史标签，避免把「未知」伪装成「已知的限流」
+        return ("quota", "429 限流/额度用尽（响应体不可读）")
+    return ("quota", f"429 额度/模型限额（{code or '无错误码'}）")
 
 
 def probe(provider: str, model: str):
@@ -88,7 +140,11 @@ def probe(provider: str, model: str):
     except urllib.error.HTTPError as exc:
         code = exc.code
         if code == 429:
-            return ("quota", "429 限流/额度用尽")
+            try:
+                body = exc.read().decode("utf-8", "replace")
+            except Exception:  # noqa: BLE001 - 响应体读不到不影响分类的兜底分支
+                body = ""
+            return _classify_429(body)
         if code in (401, 403):
             return ("auth", str(code))
         if code == 404:
@@ -96,6 +152,17 @@ def probe(provider: str, model: str):
         return (f"http_{code}", str(code))
     except Exception as exc:  # noqa: BLE001 - 网络/超时等统一归类
         return ("error", type(exc).__name__)
+
+
+def _all_throttled(results):
+    """所有探测过的候选都是 429（额度 / 限流）⇒ 换模型重试必然同样失败。
+
+    这不是「猜」：第 2 轮之所以存在，是为了绕开**单个**模型不可用；当整池都被同一把
+    key 的 429 挡住时，再跑一轮只是多烧 40 秒 runner 和一批必然失败的请求。
+    """
+    if not results:
+        return False
+    return all(r["status"] in ("quota", "rate_limit") for r in results)
 
 
 def main():
@@ -106,12 +173,17 @@ def main():
     ]
     review_tier = os.environ.get("REVIEW_TIER", "default")
     # 换模型重试（workflow 第 2 轮）会传入上一轮失败的模型，直接跳过、不浪费一次探测
-    excluded = {m.strip() for m in os.environ.get("EXCLUDE_MODELS", "").split(",") if m.strip()}
+    excluded = {
+        m.strip() for m in os.environ.get("EXCLUDE_MODELS", "").split(",") if m.strip()
+    }
 
     results = []
     for provider, model, tier in CANDIDATES:
         if model in excluded:
-            print(f"{provider:<7} {model:<32} {tier:<6} {'excluded':<10} 已排除（EXCLUDE_MODELS）", flush=True)
+            print(
+                f"{provider:<7} {model:<32} {tier:<6} {'excluded':<10} 已排除（EXCLUDE_MODELS）",
+                flush=True,
+            )
             continue
         status, detail = probe(provider, model)
         results.append(
@@ -146,10 +218,18 @@ def main():
         chosen = ordered[0] if ordered else None
 
     selected_ok = "true" if (chosen and chosen["status"] == "ok") else "false"
+    all_throttled = _all_throttled(results)
+    fail_reason = chosen["status"] if chosen else "none"
     print(
         f"\nCHOSEN: {chosen['model'] if chosen else 'NONE'} (selected_ok={selected_ok})",
         flush=True,
     )
+    if all_throttled:
+        print(
+            "ALL_THROTTLED: 所有候选均 429（额度 / 限流），换模型重试必然同样失败；"
+            "按探测详情区分「额度用尽」与「限流」，处置不同（前者等额度或换 key，后者稍后重跑）",
+            flush=True,
+        )
 
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
@@ -160,6 +240,8 @@ def main():
             else:
                 fh.write("model=\nprovider=\ntier=\n")
             fh.write(f"selected_ok={selected_ok}\n")
+            fh.write(f"fail_reason={fail_reason}\n")
+            fh.write(f"all_throttled={'true' if all_throttled else 'false'}\n")
             fh.write(f"status_json={json.dumps(results, ensure_ascii=False)}\n")
 
     # 即便没有 ok 的模型也退出 0：让后续 AI 步骤尽力一试，
