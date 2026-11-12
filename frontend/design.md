@@ -812,6 +812,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - **默认状态**：操作按钮保持 `opacity: 0` 或 `visibility: hidden`。
 - **Hover 状态**：仅当鼠标 `Hover` 或触控"长按"触及到**特定行**时，操作按钮通过 `200ms ease-out` 缓动淡入浮现，并提供 `--shadow-raised` 或 `--bg-soft` 的轻量底纹反馈。
 - **目的**：最大化降低行内视觉噪音，让用户聚焦于数据，而非操作。
+- **置灰语义（2026-11-12 补）**：某行不可编辑时编辑按钮**不隐藏、置灰**（`--text-disabled`），并以 tooltip 说明原因（如流水未归账本、暂不支持修改），让「为什么点不动」可见。判据写成纯函数返回原因文案（空串=可编辑），由 `TransactionTable` 的 `editDisabledReason` prop 按行承载；原生 `disabled` 按钮不派发鼠标事件，tooltip 触发层须用外层 `<span>` 包裹。删除按钮不受该判据约束。
 
 #### [新增] 冻结列与横向滚动规范
 表头与左侧锚点列的"视口留驻"是金融表格的专业基石。
@@ -1233,6 +1234,14 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - **关闭入口唯一**：`el-dialog` / `el-drawer` 自带的右上角 × 与自定义「收起 / 关闭」文字按钮是同一件事，**只保留 ×**，不要做成两个（历史反例：对账抽屉 header 里「收起」+ × 并存）。
 - **交易录入字段顺序全站一律「先日期、后量价费」**：交易类型 → 交易日期 → 成交数量 → 成交价格 → 手续费。QuickEntry `BuyForm` / `SellForm` 既有此序（交易日期紧跟标的/持仓）；补录弹窗（`reconcile-workbench/SupplementTradeFields`）2026-11-12 对齐——此前「交易日期」排在量价费之后，用户先想到「哪天成交的」却被排在最后。标签仍走 `TRADE_FIELD_LABELS`，禁止自造叫法。
 - **「卖出全仓」是单值快捷填充，不是比例档位（防第二份档位表回潮）**：对账补录弹窗成交数量的「卖出全仓」按钮只在卖出时出现，点击把数量填成**按流水算的份额**（差异行 `DiscrepancyItem.expected_value`）。它属**单值快捷填充**——数值来自对账差异行，无档位可切；与快速记账 / 快速卖出的**比例档位** `QuickRatioPicker`（档位表 `utils/trading.ts` 的 `SELL_QUICK_RATIOS`，全部/1/4/…）分工：比例档位解决「按持仓比例切」，单值快捷填充解决「按流水直接补」。在该场景再新增百分比按钮组 / 第二份档位表 / 自写 segmented 样式块均属回潮（`guard_segmented.py` 拦样式块）。数据缺失（`expected_value` 空或 ≤0）时按钮 disabled + helper 文案说明，**禁止静默填 0**；点击后仍可手改，不锁输入框、不高亮成「已选比例」；按钮走次按钮语言，不抢弹窗「补上这笔」的主按钮焦点。
+
+## 对账抽屉信息层级（2026-11-12）
+
+> 对账中心队列抽屉（`reconcile-workbench/ReconQueueDetail` + `ReconContextPanel` + `ReconInvestmentTrail`）已落地，后续抽屉类容器遵循。
+
+- **产品标识全抽屉只说一次**：产品名称 + 代码唯一出处是抽屉头部（`reconAssetHeading`，见 `reconcile-workbench/utils/reconDrawer.ts`）。「来龙去脉」卡禁止再渲染产品名标题——同一信息两处各说一遍属于冗余层级，不是强调。
+- **判断句归头部**：「需要你对照……」这类 lead 判断句只在头部语境出现；差异类型（discrepancy）待办的卡内 lead 不渲染（数字格已承载结论），其余 kind 保留。
+- **行内编辑置灰 + tooltip**：投资轨迹流水的可编辑性由纯函数 `trailEditBlockReason` 判定（空串=可编辑，非空=置灰原因兼 tooltip 文案）；未归账本流水（`ledger_id == null`）编辑置灰并说明原因，删除照给。编辑弹窗必须复用 `TransactionEditDialog`，禁止另写表单。
 
 ## 提示性 Banner 品牌色规范（2026-08-15）
 

@@ -117,9 +117,36 @@ export function useWorkbenchDomains() {
       tax: loadDividendTax,
       dangling: loadDanglingRefs,
       orphan: loadOrphanLedgers,
-      candidates: loadRecognizerCandidates
+      candidates: loadRecognizerCandidates,
+      trail: reloadAfterTrailChange
     };
     await (loaders[key] ?? loadAll)();
+  }
+
+  /**
+   * 抽屉「投资轨迹」编辑 / 删除流水后的刷新（reload("trail")）。
+   *
+   * 写路径只重算持仓；域 B 的差异是**算出来落库**的——GET /discrepancies/
+   * 只读 stored 行（`reconciliation_query.list_active_discrepancies`），
+   * 只重拉清单数字不会变，必须先跑一次域 B 对账再拉。域 A / D / E / F 是
+   * 实时派生扫描，重拉即拿到重算后的结果。对账失败要显式报出来，
+   * 不许把「数字还是上一轮的」静默降级成成功。
+   */
+  async function reloadAfterTrailChange(): Promise<void> {
+    try {
+      await runReconciliation("B");
+    } catch (e) {
+      ElMessage.error(
+        errorMessageOf(e) || "对账没跑成，差异数字还是上一轮结果"
+      );
+    }
+    await Promise.all([
+      loadDiscrepancies(),
+      loadEAccount(),
+      loadGhostDuplicates(),
+      loadDividendTax(),
+      loadDanglingRefs()
+    ]);
   }
 
   /** 首屏与「全部重试」用：与旧 onMounted 的七个加载器顺序一致 */
