@@ -32,11 +32,7 @@ from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
-from app.services.dividend_tax_service import (
-    ack_from_payload,
-    record_tax_from_payload,
-    revoke_from_payload,
-)
+from app.services.dividend_tax_service import ack_from_payload, record_tax_from_payload, revoke_from_payload
 from app.services.ghost_duplicate_service import (
     ignore_group,
     list_ignores,
