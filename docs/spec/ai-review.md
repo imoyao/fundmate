@@ -116,11 +116,34 @@ v0.76.0 的 agent 模式在本仓环境下**必然失败**：
   > skipped 读成通过。要看本轮到底有没有出结论：看该 job 的状态
   > （success=已审查 / skipped=未执行 / failure=自身缺陷），或 job summary 里的 verdict。
 
+### 429 的两种含义：额度 / 模型限额 vs 限流（2026-11-12）
+
+历史实现把 429 一律打成「429 限流/额度用尽」，并**丢弃响应体**——于是「额度到底够不够」
+无法从日志回答。2026-11-12 排查 #3056 时就卡在这里：连续 6 次运行探测结果**六个候选全 429**，
+`verdict=upstream_unavailable` 往前追到 2026-11-10 16:32，而 PR 代码与审查链路毫无关系。
+
+现在 `scripts/llm_health_probe.py` 读 `error.code` / `message` 并分类，新增两个 step output：
+
+| fail_reason | 判据（实现口径） | 处置 |
+|---|---|---|
+| `quota` | 除限流词以外的所有 429：`QuotaExceeded`、`SetLimitExceeded`（单模型被限额）、未知错误码、响应体读不到（保留历史标签） | 等额度恢复 / 换 key；**换模型无效** |
+| `rate_limit` | 响应体含 `RateLimit` / `rpm` / `tpm` / `qps` / `too many requests` | 过几分钟重跑 |
+
+`all_throttled=true`（探测过的候选**全部** 429）时，workflow **跳过第 2 轮探测与两轮审查步骤**：
+第 2 轮的意义是绕开**单个**模型不可用，整池被同一把 key 挡住时再跑只白烧约 40 秒 runner
+和一批必然失败的请求。job summary 会写清是哪一种 429，`deep-review-verdict` 照旧 skipped。
+
+⚠️ 这条**不等于「审查恢复」**：它只解决「可诊断性」与「不浪费」，额度用尽时审查仍然不跑。
+
+回归用例：`scripts/tests/test_llm_health_probe.py`——含**接线证据**（把 429 分支退回
+「不读响应体、只给一个标签」的旧写法，该用例即转红），以及 `main()` 的 `GITHUB_OUTPUT`
+键名契约（`fail_reason` / `all_throttled` 被 workflow 的 `if:` 直接读取，键名漂了会静默失效）。
+
 ## 9. 相关文件
 
 - 配置：`.ai-review-deep.yaml`（仓库根目录）
 - 提示词：`docs/configs/ai-review-prompt.md`、`docs/configs/ai-review-system-summary.md`、`docs/configs/ai-review-known-false-positives.md`
-- 护栏与探测：`scripts/verify_ai_review_config.py`、`scripts/llm_health_probe.py`
+- 护栏与探测：`scripts/verify_ai_review_config.py`、`scripts/llm_health_probe.py`（回归用例 `scripts/tests/test_llm_health_probe.py`，2026-11-12 起）
 - 产出判定（两轮共用；2026-10-10 起 guard **只输出 verdict，不再自己决定红绿**）：`scripts/ai_review_verify_guard.js`——**回归用例**：`scripts/tests/ai_review_verify_guard.test.js`（#1584；`pnpm test:scripts`，或 CI job「守卫:脚本单测 (scripts)」；零新依赖、纯 mock 无网络）。
   - **2026-09-18 起（#1581）**：该脚本另统计 AI 评论里的「生成标记」类幻觉（`# added` 等固定形态，inline + summary 双通道）并写进 job summary：**只计数、不删除评论、不改变 job 成败**。
   - **2026-10-10 修订（用户裁决）**：verdict 三态 → 由 `.github/workflows/ai-review.yml` 的 `deep-review-verdict` job 用 `if` 承接成三种 **check 状态**：
