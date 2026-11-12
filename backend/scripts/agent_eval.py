@@ -499,9 +499,11 @@ def evaluate_metric_presence(text, data, covers):
 
     `metric` 可以是单条映射，也可以是**列表**（多个等价口径任一命中即通过）：
     真实口径实测——同一句「区间收益」，`get_portfolio_vs_benchmark.range_rate`
-    是金额（-10214.99 元），`get_portfolio_performance.xirr` 是小数（0.3675 →
-    36.75%），两者都能合法回答同一问。只钉一个字段会把另一种口径判成回避。
-    但候选里**不得**放入「错误答案」（如 benchmark_range_return），否则串台就抓不住了。
+    是百分比（近 3 月窗口 -19.44），`get_portfolio_performance.xirr` 是小数
+    （0.3675 → 36.75%），两者都能合法回答同一问。只钉一个字段会把另一种口径
+    判成回避（2026-11-12 复核：`range_rate` 从来不是金额，D104 修正了 D103 的误读）。
+    但候选里**不得**放入「错误答案」（如回答区间收益时放 benchmark_range_return），
+    否则串台就抓不住了。
     """
     if not isinstance(text, str) or not text.strip():
         return False, '最终回答文本为空，无法判定指标引用'

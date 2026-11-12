@@ -49,6 +49,10 @@ export function excessDegradHint(data: BenchmarkExcessResult | null): string {
       return "组合暂无关联账户";
     case "no_position":
       return "区间内无持仓";
+    // 区间起点净资产被入金稀释到极小（真库全期窗口仅 519.38 元），简单区间收益率
+    // 会被放大到无意义量级（−10214.99%），后端直接降级不报数（见 benchmark_excess 口径 4）
+    case "baseline_not_representative":
+      return "区间起点资产过小，收益率无可比性";
     default:
       return "暂无可比数据";
   }

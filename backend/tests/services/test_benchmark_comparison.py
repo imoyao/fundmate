@@ -97,6 +97,61 @@ def test_基准不足两点_显式不可用并给缺口区间(db, make_position,
     assert d['range_rate'] == pytest.approx(10.0, abs=0.01)
 
 
+def test_区间收益率失真_显式不可用且不拿两基期相减(db, make_position, make_transaction):
+    """期初净资产被区间内大额建仓稀释 ⇒ 收益率不成立，`unavailable_reason` 透出原因。
+
+    真库形态：家庭全期窗口期初净资产 519.38 元、区间盈亏 −53054.60 元 ⇒
+    `range_rate=-10214.99`、`excess_return=-10199.61`（「跑输一万个百分点」）。
+    本用例把量级缩到 1000 / −5000，触发条件相同。
+    """
+    small = make_position(
+        symbol='000031', name='期初小仓', quantity=1000, avg_price=1.0, asset_type='fund', account_name='失真账户'
+    )
+    make_transaction(
+        position_id=small.id,
+        ledger_id=small.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=D1,
+        symbol='000031',
+    )
+    big = make_position(
+        symbol='000046',
+        name='区间内大额建仓',
+        quantity=10000,
+        avg_price=1.0,
+        asset_type='fund',
+        account_name='失真账户',
+    )
+    make_transaction(
+        position_id=big.id,
+        ledger_id=big.ledger_id,
+        txn_type='buy',
+        quantity=10000,
+        price=1.0,
+        confirm_date=D2,  # 建仓日当天盈亏被引擎剔除
+        symbol='000046',
+    )
+    db.commit()
+    for date, nav in [(D1, 1.0), (D2, 1.0), (D3, 1.0), (D4, 1.0)]:
+        _add_nav(db, '000031', date, nav)
+    for date, nav in [(D1, 1.0), (D2, 1.0), (D3, 0.5), (D4, 0.5)]:
+        _add_nav(db, '000046', date, nav)
+    _add_index(db, '000300.SH', D2, 4000.0)
+    _add_index(db, '000300.SH', D4, 3800.0)
+
+    d = build_benchmark_comparison(db, family_id=1, start_date=D2.isoformat(), end_date=D4.isoformat())
+
+    assert d['available'] is False
+    assert d['range_rate'] is None
+    assert d['unavailable_reason'] == 'baseline_not_representative'
+    # 超额必须一起是 None：两个不同基期的数相减出来的「百分点」是假结论
+    assert d['excess_return'] is None
+    # 基准侧是独立事实，照常给（不因收益侧降级而丢弃）
+    assert d['benchmark_range_return'] == pytest.approx(-5.0, abs=0.01)
+
+
 def test_基准覆盖不全_缺口只报缺的那一段(db, make_position, make_transaction):
     """基准从 D3 才有报价（D2 缺）⇒ 缺口 = [D2, D2]，且 cover 起不够仍降级。"""
     _seed_position(db, make_position, make_transaction, navs=[1.0, 0.95, 1.05, 1.10])

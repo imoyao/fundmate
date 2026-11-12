@@ -19,6 +19,8 @@
    **不造 0**。响应带 `bench_start_date` / `bench_end_date` 供复核对账。
 3. **超额 `excess_return` = range_rate − 指数区间涨跌幅**（百分点）；任一为 None
    → None。所有算不出的都带 `*_reason` 落原因，前端显示「—」。
+4. **`range_rate` 的失真下限**：分母被入金稀释到极小时简单区间收益率会放大到无意义量级
+   （真库全期 −10214.99%）⇒ 出口降级 `baseline_not_representative`（超额与曲线一并，见 D104）。
 
 ## 基准选取（`resolve_benchmark_code`，复核实施要点 1/3）
 
@@ -33,8 +35,7 @@
 - 空（组合未设 / 账户级无此字段）→ 默认 `000300.SH` 沪深300。
 
 数据准入（AGENTS.md 数据策略四问）：零新增表、零新增外部请求——指数序列复用
-`index_daily_job` 已同步的 `index_daily`（公开市场数据、已在本地库），与
-analytics 包纪律 1「不引入**外部**数据源」不冲突（本卡复核结论同）。
+`index_daily_job` 已同步的 `index_daily`，与 analytics 包纪律 1「不引入**外部**数据源」不冲突。
 """
 
 import datetime as dt
@@ -47,17 +48,16 @@ from app.domains.indices.models import IndexDaily
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
+from app.services.analytics.interval_rate_guard import apply_rate_floor
 from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.pnl_calendar import build_daily_pnl_series
 
 DEFAULT_BENCHMARK_CODE = '000300.SH'
-# 非 A股市场：宽基表没有对应序列 ⇒ 诚实降级，不拿沪深300 顶替（复核实施要点 3）。
-# 未知/历史形态一律落进本集合的方向（未识别 ⇒ 降级），宁可降级不造数。
+# 非 A股市场：宽基表没有对应序列 ⇒ 诚实降级，不拿沪深300 顶替（未知/历史形态同降级）。
 NON_CN_A_MARKETS = frozenset({'CN_HK', 'US', 'CRYPTO'})
 # scope 市场判定中视为「A 股可比」的值：规范形态 CN_A；''/NULL = 现金类/无市场属性。
 A_SHARE_MARKERS = frozenset({'CN_A', '', None})
-# text → code 归一化糖：只认 BENCHMARK_INDICES 已有的 code（CSI300/CSI500 是
-# `Portfolio.benchmark` 字段注释给出的存储惯例）。归一结果必须 ∈ BENCHMARK_INDICES。
+# text → code 归一化糖：只认 BENCHMARK_INDICES 已有 code（CSI300/CSI500 是存储惯例）。
 _BENCHMARK_TEXT_ALIASES: Dict[str, str] = {
     'CSI300': '000300.SH',
     'HS300': '000300.SH',
@@ -406,4 +406,4 @@ def build_scope_excess(
         bench['reason'] or bench['code'],
         excess,
     )
-    return result
+    return apply_rate_floor(result)  # 失真下限：守卫在 interval_rate_guard（本文件冻结基线）

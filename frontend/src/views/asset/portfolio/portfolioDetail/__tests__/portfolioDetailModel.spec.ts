@@ -216,4 +216,25 @@ describe("超额收益说明", () => {
       excessCaptionOf(excess({ range_reason: "baseline_missing" }), RANGE)
     ).toBe("暂无可比数据");
   });
+
+  it("期初资产过小的降级要给专用文案，不能落到兜底", () => {
+    expect(
+      excessCaptionOf(
+        excess({
+          range_rate: null,
+          range_reason: "baseline_not_representative"
+        }),
+        RANGE
+      )
+    ).toBe("区间起点资产过小，收益率无可比性");
+    expect(
+      benchmarkCaptionOf(
+        excess(
+          { range_reason: "baseline_not_representative" },
+          { range_return: null }
+        ),
+        RANGE
+      )
+    ).toBe("区间起点资产过小，收益率无可比性 · 近 90 天");
+  });
 });

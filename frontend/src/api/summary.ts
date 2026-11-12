@@ -418,7 +418,12 @@ export type BenchmarkExcessResult = {
    * 前端**禁止**拿它二次计算收益率（口径唯一，见 AGENTS.md）。
    */
   range_baseline: number | null;
-  /** null=正常；否则 range_rate 为 null 的原因（no_position / no_members / baseline_missing…） */
+  /**
+   * null=正常；否则 range_rate 为 null 的原因
+   * （no_position / no_members / baseline_missing / baseline_not_representative…）。
+   * `baseline_not_representative`：区间起点净资产被入金稀释到极小，简单区间收益率
+   * 会被放大到无意义量级，后端降级不报数（也不给超额与曲线）。
+   */
   range_reason: string | null;
   benchmark: {
     code: string | null;
