@@ -8,12 +8,12 @@
     标签一律走 TRADE_FIELD_LABELS（全站唯一来源，禁止各页自造同义叫法）。
   -->
   <el-form-item label="交易类型">
-    <el-select v-model="opTypeModel" style="width: 100%">
-      <el-option label="买入" value="buy" />
-      <el-option label="卖出" value="sell" />
-      <el-option label="存入" value="deposit" />
-      <el-option label="取出" value="withdraw" />
-    </el-select>
+    <SegmentedControl
+      v-model="opTypeModel"
+      :options="OP_TYPE_OPTIONS"
+      block
+      aria-label="交易类型"
+    />
   </el-form-item>
   <el-form-item :label="TRADE_FIELD_LABELS.quantity" prop="quantity">
     <el-input-number
@@ -66,8 +66,18 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { TRADE_FIELD_LABELS } from "@/constants";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 
 defineOptions({ name: "SupplementTradeFields" });
+
+// 交易类型 4 项：选项值与后端 op_type 契约一一对应（buy/sell/deposit/withdraw），
+// 禁止在别处另造同义选项表；块级铺满 + 32px 档与同表单 el-input-number 同高（design.md「Segmented」）。
+const OP_TYPE_OPTIONS = [
+  { label: "买入", value: "buy" },
+  { label: "卖出", value: "sell" },
+  { label: "存入", value: "deposit" },
+  { label: "取出", value: "withdraw" }
+] as const;
 
 const props = defineProps<{
   opType: string;
