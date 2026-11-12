@@ -7,9 +7,8 @@
     完整的买卖记录不塞进弹窗，放右侧抽屉的「这个产品的投资轨迹」（见
     ReconInvestmentTrail），弹窗里给一句明确的指引。
 
-    写路径零重写：仍调 POST /api/reconciliation/adjustments/，仍由后端分派
-    increment（补一笔流水）/ set（覆盖式 SET 锚点）。本期不合并手动录入持仓端点，
-    只对齐字段口径、补齐校验与二次确认（owner 拍板）。
+    写路径零重写：仍调 POST /api/reconciliation/adjustments/，由后端分派
+    increment（补一笔流水）/ set（覆盖式 SET 锚点），不合并手动录入端点。
   -->
   <el-dialog
     :model-value="modelValue"
@@ -65,6 +64,7 @@
             v-model:avg-price="form.avg_price"
             v-model:fee="form.fee"
             v-model:trade-date="form.confirm_date"
+            :expected-quantity="target.expected_value"
           />
         </template>
 
@@ -149,6 +149,7 @@ import {
   reconGroupTitle,
   reconQuantity
 } from "../utils/reconDisplay";
+import { inferSupplementOpType } from "../utils/reconSupplement";
 
 defineOptions({ name: "SupplementDialog" });
 
@@ -212,11 +213,7 @@ const submitLabel = computed(() =>
  * 单价 > 0。缺账本时直接挡住，别让用户填完表单才吃一个 400。
  */
 const ledgerMissing = computed(
-  () =>
-    props.target === null ||
-    props.target.ledger_id === null ||
-    props.target.ledger_id === undefined ||
-    !Number.isFinite(props.target.ledger_id)
+  () => !props.target || !Number.isFinite(props.target.ledger_id)
 );
 const modeExplain = computed(() =>
   form.kind === "set"
@@ -264,9 +261,16 @@ const rules = computed<FormRules>(() => ({
   ]
 }));
 
+/**
+ * 预填买卖方向（owner：多了还是少了我们是知道的）。判据住在
+ * `utils/reconSupplement.ts`（纯函数 + 单测），这里只调用——方向搞反会静默
+ * 写成反向交易，必须能被测试咬住，所以不留在 `.vue` 里。
+ * 只预填方向，不预填数量（数量口径待 owner 拍板，不自作主张）。
+ */
 function resetForm(): void {
   form.kind = "increment";
-  form.op_type = "buy";
+  // 按当前差异重新算方向（不是写死 buy）：打开弹窗 / 关闭后重开都要走这里
+  form.op_type = inferSupplementOpType(props.target) ?? "buy";
   form.quantity = undefined;
   form.avg_price = undefined;
   form.fee = undefined;
