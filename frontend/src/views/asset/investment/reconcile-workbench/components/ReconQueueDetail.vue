@@ -35,15 +35,19 @@
       class="recon-detail__body"
       :class="{ 'recon-detail--dimmed': nestedDialogOpen }"
     >
-      <!-- ① 来龙去脉：产品名 / 代码 / 账本 / 差额 / 发现时间 -->
+      <!-- ① 来龙去脉：差异类型 / 账本 / 差额 / 发现时间。
+           产品标识只在抽屉头部说一次（design.md「对账抽屉信息层级」）。 -->
       <ReconContextPanel :item="item" />
 
-      <!-- ② 投资轨迹：该产品在该账本的交易流水（公共 TransactionTable）
+      <!-- ② 投资轨迹：该产品在该账本的交易流水（公共 TransactionTable）。
+           行内可编辑 / 删除，改完经 refresh("trail") 重算队列数字。
            recon-symbol-allow: 这里的 symbol 只作查询条件传给流水表（不渲染成标题）。 -->
       <ReconInvestmentTrail
         v-if="trail"
         :symbol="trail.symbol"
         :ledger-id="trail.ledgerId"
+        :product-name="item?.title"
+        @changed="emit('refresh', 'trail')"
       />
 
       <!-- ③ 处理动作：既有域面板，写路径零重写 -->
@@ -194,6 +198,8 @@ import {
   DETAIL_ERROR_KEY,
   type ReconDetailContext
 } from "../utils/reconDetail";
+import { reconItemAsset, reconTrailQuery } from "../utils/reconDrawer";
+import { reconAssetHeading } from "../utils/reconDisplay";
 import type { ReconQueueItem } from "../utils/reconQueue";
 import ReconContextPanel from "./ReconContextPanel.vue";
 import ReconItemAction from "./ReconItemAction.vue";
@@ -243,7 +249,14 @@ const detailDomain = computed(
 const domainLabel = computed(() =>
   detailDomain.value ? DOMAIN_SOURCE_LABEL[detailDomain.value] : "待办"
 );
-const drawerTitle = computed(() => props.item?.title || domainLabel.value);
+/** 产品标识的全抽屉唯一出处（design.md「对账抽屉信息层级」）：有产品用
+ *  reconAssetHeading 的「名称 · 代码」，头部说一遍就够，「来龙去脉」卡不再复述；
+ *  orphan / import 指认的是账本或入口（判据 reconItemAsset），退回队列项原标题。 */
+const drawerTitle = computed(() => {
+  const asset = props.item?.payload ? reconItemAsset(props.item.payload) : null;
+  if (asset?.symbol) return reconAssetHeading(asset.symbol, asset.name);
+  return props.item?.title || domainLabel.value;
+});
 
 /** 抽屉在窄屏占满整屏，桌面固定 720px（el-drawer 的 size 是 inline style）。
  *  断点用 matchMedia 而非裸 innerWidth：只在跨越阈值时触发，不跟着每一次 resize 抖动，
@@ -261,24 +274,9 @@ onMounted(() => {
 });
 onBeforeUnmount(() => mq?.removeEventListener("change", onBreakpoint));
 
-/** 投资轨迹的取数键：只消费确实带 symbol 的原始对象 */
-const trail = computed<{ symbol: string; ledgerId: number | null } | null>(
-  () => {
-    const payload = props.item?.payload;
-    if (!payload) return null;
-    switch (payload.kind) {
-      case "discrepancy":
-        return { symbol: payload.row.symbol, ledgerId: payload.row.ledger_id };
-      case "tax":
-      case "eaccount":
-      case "ghost":
-        return { symbol: payload.row.symbol, ledgerId: null };
-      case "dangling":
-        return { symbol: payload.row.symbol, ledgerId: payload.row.ledger_id };
-      default:
-        return null;
-    }
-  }
+/** 投资轨迹的取数键：判据在 utils/reconDrawer（纯函数 + 单测），组件只消费 */
+const trail = computed(() =>
+  props.item?.payload ? reconTrailQuery(props.item.payload) : null
 );
 
 function onVisibility(value: boolean): void {

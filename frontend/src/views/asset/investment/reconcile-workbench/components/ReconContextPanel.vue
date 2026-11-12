@@ -1,17 +1,17 @@
 <template>
   <!--
     抽屉第 ① 段「来龙去脉」。
-    用户点开一条待办时，第一屏必须能回答：改的是哪个产品、在哪本账、
-    哪里对不上、差多少、现在要我做什么。旧补充弹窗只有一张表单，
-    这些一个字都没有（owner 第二轮截图 2）。
+    信息归属（owner 截图去重，2026-11-12）：产品标识由抽屉头部说一次
+    （reconAssetHeading，唯一契约），本卡只留它独有的东西——差异类型胶囊、
+    数字格（账本 / 按流水算 / 账上记的 / 差多少 / 发现时间）、未归账本警告、
+    接下来；差异类待办的「需要你对照…」判断句由头部副标题承载，卡内不再复述。
   -->
   <section v-if="target" class="recon-context">
     <div class="recon-context__head">
-      <h3 class="recon-context__title">{{ heading }}</h3>
       <span class="recon-context__issue">{{ target.issue }}</span>
     </div>
 
-    <p class="recon-context__lead">{{ item?.summary }}</p>
+    <p v-if="showLead" class="recon-context__lead">{{ item?.summary }}</p>
 
     <dl class="recon-context__grid">
       <div class="recon-context__cell">
@@ -52,7 +52,7 @@ import { computed, onMounted } from "vue";
 import { formatDate } from "@/utils/date";
 import { useReconLedger } from "../composables/useReconLedger";
 import { discrepancyIssue } from "../utils/reconLabels";
-import { reconAssetHeading, reconQuantity } from "../utils/reconDisplay";
+import { reconQuantity } from "../utils/reconDisplay";
 import type { ReconQueueItem } from "../utils/reconQueue";
 
 defineOptions({ name: "ReconContextPanel" });
@@ -67,8 +67,6 @@ onMounted(() => {
 });
 
 interface ContextTarget {
-  symbol: string;
-  name: string | null;
   ledgerId: number | null;
   issue: string;
   expected: number | null;
@@ -89,8 +87,6 @@ const target = computed<ContextTarget | null>(() => {
   if (payload.kind === "discrepancy") {
     const row = payload.row;
     return {
-      symbol: row.symbol,
-      name: row.display_name ?? null,
       ledgerId: row.ledger_id ?? null,
       issue: discrepancyIssue(row.discrepancy_type),
       expected: row.expected_value,
@@ -102,8 +98,6 @@ const target = computed<ContextTarget | null>(() => {
   if (payload.kind === "tax") {
     const row = payload.row;
     return {
-      symbol: row.symbol,
-      name: row.name || null,
       ledgerId: null,
       issue: "现金分红还没记扣税",
       expected: null,
@@ -115,9 +109,6 @@ const target = computed<ContextTarget | null>(() => {
   if (payload.kind === "dangling") {
     const row = payload.row;
     return {
-      symbol: row.symbol,
-      // 名称走后端 display_name（transactions.position_name 回退 positions.name）
-      name: row.display_name ?? null,
       ledgerId: row.ledger_id ?? null,
       issue: item.sourceLabel,
       expected: null,
@@ -127,11 +118,8 @@ const target = computed<ContextTarget | null>(() => {
     };
   }
   if (payload.kind === "ghost" || payload.kind === "ghostIgnored") {
-    const row = payload.row;
     return {
-      symbol: row.symbol ?? "",
-      // 名称走后端 display_name；无单一账本，账本名交给轨迹展示
-      name: row.display_name ?? null,
+      // 无单一账本，账本名交给轨迹展示
       ledgerId: null,
       issue: item.sourceLabel,
       expected: null,
@@ -142,8 +130,6 @@ const target = computed<ContextTarget | null>(() => {
   }
   // eaccount / import：交易可能跨多个账本或无单一账本，账本名交给轨迹展示
   return {
-    symbol: item.title,
-    name: null,
     ledgerId: null,
     issue: item.sourceLabel,
     expected: null,
@@ -153,9 +139,9 @@ const target = computed<ContextTarget | null>(() => {
   };
 });
 
-const heading = computed(() =>
-  target.value ? reconAssetHeading(target.value.symbol, target.value.name) : ""
-);
+/** 差异类待办：issue 胶囊已说「哪里对不上」，判断句由头部副标题承载——
+ *  卡内 lead 只会第三遍复述，不再渲染（design.md「对账抽屉信息层级」）。 */
+const showLead = computed(() => props.item?.payload.kind !== "discrepancy");
 const ledgerName = computed(() => nameOf(target.value?.ledgerId ?? null));
 const hasNumbers = computed(
   () =>
@@ -187,13 +173,6 @@ const whenLabel = computed(() => {
   gap: var(--space-2);
   align-items: center;
   justify-content: space-between;
-}
-
-.recon-context__title {
-  margin: 0;
-  font-size: var(--text-body);
-  font-weight: 600;
-  color: var(--text-primary);
 }
 
 .recon-context__issue {

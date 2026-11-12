@@ -48,6 +48,7 @@ import DrawerSection from "@/components/ProductDrawer/DrawerSection.vue";
 import TransactionTable from "@/components/TransactionTable/index.vue";
 import type { TransactionRow } from "@/components/TransactionTable/model";
 import { errorMessageOf } from "@/utils/errorMessage";
+import { transactionDeleteConfirmText } from "@/utils/transactionDeleteConfirm";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
 
 /**
@@ -171,6 +172,8 @@ function handleSaved(raw: unknown) {
  *
  * 为什么要确认框：删掉建仓那笔后该持仓会失去成本来源（后续只剩卖出/分红），
  * 只剩浮盈而没有成本基准，纠错成本比删一笔高得多。
+ * 确认文案是共享纯函数 transactionDeleteConfirmText（对账抽屉投资轨迹同用，
+ * 禁止再抄第二份），这里只接弹窗与删除后的刷新控制流。
  */
 async function onDelete(row: unknown) {
   const txn = asTxnRow(row);
@@ -179,7 +182,7 @@ async function onDelete(row: unknown) {
   const label = props.positionName || props.symbol || "该持仓";
   try {
     await ElMessageBox.confirm(
-      `删除后「${label}」的份额与成本会按剩余流水重算；若删的是建仓那笔，持仓会失去成本来源。`,
+      transactionDeleteConfirmText(label),
       "删除这笔交易？",
       { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" }
     );

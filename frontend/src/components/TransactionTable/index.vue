@@ -45,6 +45,7 @@ import { formatQuantity } from "@/utils/format";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { txnStatusLabel } from "@/utils/transactionStatus";
 import TransactionAccountCell from "./TransactionAccountCell.vue";
+import TransactionActionsCell from "./TransactionActionsCell.vue";
 import TransactionAssetCell from "./TransactionAssetCell.vue";
 import TransactionDetailPanel from "./TransactionDetailPanel.vue";
 import TransactionNotesCell from "./TransactionNotesCell.vue";
@@ -95,6 +96,12 @@ const props = withDefaults(
     priceLabel?: string;
     /** 数量列标签覆写（基金抽屉传「确认份额」） */
     quantityLabel?: string;
+    /**
+     * 行级编辑判据（可选；不传 = 所有行可编辑，既有调用零变化）。
+     * 非空返回值 = 该行编辑按钮置灰，返回值同时作为 tooltip 说明原因。
+     * 判据本体（纯函数）与置灰语义见 TransactionActionsCell / design.md。
+     */
+    editDisabledReason?: (row: TransactionRow) => string;
   }>(),
   {
     showAsset: false,
@@ -283,27 +290,19 @@ const { handleExpandChange } = createExpandAccordion({
          因为 el-table-column 的作用域只能来自 el-table 的默认 slot。 -->
     <slot name="extra-columns" />
 
-    <!-- 操作列：右冻结。hover 行才淡入（200ms ease-out），:focus-within 保键盘可达。
-         这是 design.md 明确允许保留的「行内行为样式」，不触视觉基线。 -->
+    <!-- 操作列：右冻结。按钮本体与 hover 淡入 / 置灰 tooltip 收在
+         TransactionActionsCell（与 TransactionNotesCell 同款拆分，400 行门禁），
+         行级编辑判据 editDisabledReason 由容器传入，缺省 = 所有行可编辑（既有调用零变化）。 -->
     <el-table-column v-if="hasActions" label="操作" width="140" fixed="right">
       <template #default="{ row }">
-        <div class="txn-table__actions">
-          <el-button
-            v-if="showEdit"
-            text
-            size="small"
-            @click.stop="emit('edit', row as TransactionRow)"
-            >编辑</el-button
-          >
-          <el-button
-            v-if="showDelete"
-            text
-            size="small"
-            type="danger"
-            @click.stop="emit('delete', row as TransactionRow)"
-            >删除</el-button
-          >
-        </div>
+        <TransactionActionsCell
+          :row="row as TransactionRow"
+          :show-edit="showEdit"
+          :show-delete="showDelete"
+          :edit-disabled-reason="editDisabledReason"
+          @edit="emit('edit', $event)"
+          @delete="emit('delete', $event)"
+        />
       </template>
     </el-table-column>
   </el-table>
@@ -355,31 +354,12 @@ const { handleExpandChange } = createExpandAccordion({
   border-radius: var(--radius-xs);
 }
 
-/* 行内操作 hover 淡入（design.md「行内操作交互规范」：默认 opacity 0，
-   hover 行 200ms ease-out 淡入）。两个可达性兜底（guard_a11y_interaction）：
-   - :focus-within：键盘 Tab 到按钮即显现；
-   - @media (hover: none)：触屏设备没有 hover 态，按钮常驻——
-     否则触屏用户永远点不到「编辑」。 */
-.txn-table__actions {
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 200ms ease-out;
-}
-
-:deep(.el-table__row:hover) .txn-table__actions {
+/* 行 hover → 操作列淡入。**必须留在本文件**：`.el-table__row` 是
+   `TransactionActionsCell` 根元素的祖先，子组件里的 `:deep()` 只能穿透后代，
+   写在那边会编译成 `[data-v-cell] .el-table__row:hover …` 而永不匹配
+   （2026-11-12 实测编译产物，表现为鼠标用户看不到编辑 / 删除按钮）。
+   整段包进 `:deep()` 才能命中子组件渲染的 `.txn-table__actions`。 */
+:deep(.el-table__row:hover .txn-table__actions) {
   opacity: 1;
-}
-
-.txn-table__actions:focus-within {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .txn-table__actions {
-    opacity: 1;
-  }
 }
 </style>

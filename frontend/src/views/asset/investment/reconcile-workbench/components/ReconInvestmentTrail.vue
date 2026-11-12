@@ -1,7 +1,8 @@
 <template>
   <!--
     抽屉第 ② 段「投资轨迹」。
-    owner 原话：「首先要看到这个产品的投资轨迹，或者买卖记录，这样才知道缺了哪些内容」。
+    owner 原话：「首先要看到这个产品的投资轨迹，或者买卖记录，这样才知道缺了哪些内容」；
+    后续补充：记错的流水要在**这一段**直接改（编辑 / 删除），而不是去新增一条。
     数据源走已统一的 TransactionTable（#2104，产品详情 / 账本 Tab / 持仓抽屉共用），
     容器各自取数：有账本按账本 + 代码查，没账本按代码查，并明确显示「未归账本」。
   -->
@@ -33,11 +34,16 @@
         mode="compact"
         show-account
         show-fee
+        show-edit
+        show-delete
+        :edit-disabled-reason="editDisabledReason"
         table-id="recon-investment-trail"
         :max-height="260"
+        @edit="openEdit"
+        @delete="onDelete"
       />
       <p class="recon-trail__tip">
-        对照上面的买卖记录，就能看出缺的是哪一笔。更完整的记录在产品详情页与该账本详情页里。
+        流水记错了可以直接编辑或删除，改完抽屉上方的数字会重新对账。更完整的记录在产品详情页与该账本详情页里。
       </p>
     </template>
 
@@ -45,25 +51,46 @@
       <p>{{ emptyHint }}</p>
       <el-button size="small" @click="goImport">前往交易导入</el-button>
     </div>
+
+    <!-- 行内编辑弹窗：复用账本抽屉的唯一实现，禁止另写一份编辑表单 -->
+    <TransactionEditDialog
+      v-model="editVisible"
+      :transaction="editingTxn"
+      :asset-type="editingAssetType"
+      :symbol="symbol ?? undefined"
+      @saved="handleSaved"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { ElMessage, ElMessageBox } from "element-plus";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import TransactionTable from "@/components/TransactionTable/index.vue";
 import type { TransactionRow } from "@/components/TransactionTable/model";
 import { getLedgerTransactions } from "@/api/ledger";
 import { getTransactions } from "@/api/transactions";
+import { deleteTransaction } from "@/api/transaction";
+import { errorMessageOf } from "@/utils/errorMessage";
+import { transactionDeleteConfirmText } from "@/utils/transactionDeleteConfirm";
+import type { TxnRecordLike } from "@/views/asset/ledgers/components/transactionEdit/transactionEditModel";
+import TransactionEditDialog from "@/views/asset/ledgers/components/TransactionEditDialog.vue";
 import { useReconLedger } from "../composables/useReconLedger";
+import { trailEditBlockReason } from "../utils/reconDrawer";
 
 defineOptions({ name: "ReconInvestmentTrail" });
 
 const props = defineProps<{
   symbol: string | null;
   ledgerId: number | null;
+  /** 产品名（删除确认文案里点明是哪只，避免删错）；头部已展示，代码兜底 */
+  productName?: string | null;
 }>();
+
+/** 改完 / 删完通知外层：持仓已按剩余流水重算，差异卡与队列卡都过期了 */
+const emit = defineEmits<{ changed: [] }>();
 
 const router = useRouter();
 const { ensure, nameOf } = useReconLedger();
@@ -127,6 +154,62 @@ async function load(): Promise<void> {
 
 function goImport(): void {
   void router.push("/inventory/investment/import");
+}
+
+/* ── 行内编辑 / 删除 ──────────────────────────────────────────────
+ * 编辑弹窗复用 TransactionEditDialog（唯一实现）；删除确认文案走
+ * utils/transactionDeleteConfirm（与持仓抽屉共用，不许再写第二份）。 */
+
+const editVisible = ref(false);
+const editingTxn = ref<TxnRecordLike | null>(null);
+const editingAssetType = computed(
+  () => editingTxn.value?.asset_type ?? undefined
+);
+
+/** 未归属账本的行编辑置灰（后端 PATCH 只接受已归账本的流水）；删除照常可用 */
+function editDisabledReason(row: TransactionRow): string {
+  return trailEditBlockReason(row);
+}
+
+function openEdit(row: unknown): void {
+  editingTxn.value = row as TxnRecordLike;
+  editVisible.value = true;
+}
+
+function handleSaved(data: TxnRecordLike): void {
+  const updated = (data ?? {}) as Partial<TransactionRow>;
+  const idx = rows.value.findIndex(t => t.id === updated.id);
+  if (idx !== -1) {
+    Object.assign(rows.value[idx], updated);
+  }
+  // 数量 / 价格同样会改份额与成本：抽屉上方数字与队列卡过期
+  emit("changed");
+}
+
+/** 删除单笔流水：确认文案与控制流沿用持仓抽屉口径（后端按剩余流水重算持仓） */
+async function onDelete(row: unknown): Promise<void> {
+  const txn = row as TransactionRow;
+  if (txn.id == null) return;
+
+  const label = props.productName || props.symbol || "该产品";
+  try {
+    await ElMessageBox.confirm(
+      transactionDeleteConfirmText(label),
+      "删除这笔交易？",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" }
+    );
+  } catch {
+    return; // 用户取消
+  }
+
+  try {
+    await deleteTransaction(txn.id);
+    ElMessage.success("交易已删除，持仓已重算");
+    await load();
+    emit("changed");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "删除失败");
+  }
 }
 
 onMounted(() => {
