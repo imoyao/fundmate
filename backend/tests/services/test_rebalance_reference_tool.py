@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Q3 第 10 个只读工具的接线单测（ToolExecutor 真实链路，内存 SQLite）。
 
-钉住三件事：工具真被注册且能跑通、输出沿用「算不出就声明缺口」的诚实纪律、
-以及 P1 服务端权威 family_id 覆盖仍然生效（新增工具不得开越权口子）。
+钉住四件事：工具真被注册且能跑通、输出沿用「算不出就声明缺口」的诚实纪律、
+v2 事实能从取数层流到信号层，以及 P1 服务端权威 family_id 覆盖仍然生效
+（新增工具不得开越权口子）。
 """
 
 from datetime import date
@@ -28,7 +29,8 @@ def test_empty_db_declares_gaps_without_fabricating_numbers():
     assert data['coverage']['total_market_value_yuan'] == 0
     assert [s for s in data['signals'] if s['type'] == 'single_position_weight'] == []
     declared = {m['type'] for m in data['missing_signals']}
-    assert {'industry_concentration', 'deviation_from_mean'} <= declared
+    assert {'industry_concentration', 'deviation_from_mean', 'fund_valuation_percentile'} <= declared
+    assert all(m['reason'] for m in data['missing_signals'])
 
 
 def test_positions_produce_real_weights(db, make_position):
@@ -80,6 +82,49 @@ def test_local_valuation_percentile_is_used_when_present(db):
     assert valuation[0]['note'] == '估值偏高'
     assert valuation[0]['level'] == 'watch'
     assert not any(m['type'] == 'valuation_context' for m in r['data']['missing_signals'])
+
+
+def test_v2_facts_flow_into_tool_output(monkeypatch, db, make_position):
+    """取数层事实齐备时，工具必须产出三类 v2 信号并撤下对应缺口声明。"""
+    make_position(
+        symbol='110011',
+        name='甲基金',
+        asset_type='fund',
+        quantity=100,
+        avg_price=1.0,
+        current_price=1.1,
+        account_name='测试账户',
+    )
+    industry_fact = {
+        'scheme': 'csrc',
+        'scheme_label': '证监会门类',
+        'penetrated_ratio': 0.6,
+        'industries': [{'code': 'C', 'name': '制造业', 'value_cny': 110.0}],
+    }
+    history_fact = {'sample_days': 13, 'means': {'110011': 70.0}}
+    fund_fact = {'items': [{'symbol': '110011', 'pe_percentile': 88}]}
+    monkeypatch.setattr(
+        'app.services.analytics.rebalance_reference.build_industry_fact',
+        lambda db, family_id: industry_fact,
+    )
+    monkeypatch.setattr(
+        'app.services.analytics.rebalance_reference.build_history_fact',
+        lambda db, family_id, positions: history_fact,
+    )
+    monkeypatch.setattr(
+        'app.services.analytics.rebalance_reference.build_fund_valuation_fact',
+        lambda db, symbols: fund_fact,
+    )
+    r = ToolExecutor.run(TOOL, {})
+    assert r['status'] == 'success', r.get('msg')
+    kinds = {s['type'] for s in r['data']['signals']}
+    assert {'industry_concentration', 'deviation_from_mean', 'fund_valuation_percentile'} <= kinds
+    industry = next(s for s in r['data']['signals'] if s['type'] == 'industry_concentration')
+    assert industry['scheme'] == 'csrc' and industry['coverage_pct'] == 60.0
+    deviation = next(s for s in r['data']['signals'] if s['type'] == 'deviation_from_mean')
+    assert deviation['current_pct'] == 100.0 and deviation['delta_pct'] == 30.0
+    declared = {m['type'] for m in r['data']['missing_signals']}
+    assert not {'industry_concentration', 'deviation_from_mean', 'fund_valuation_percentile'} & declared
 
 
 def test_server_ctx_overrides_frontend_family_id():
