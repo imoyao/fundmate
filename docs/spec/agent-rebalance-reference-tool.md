@@ -5,9 +5,10 @@ title: 账本精灵「持仓再平衡参考」工具设计（Q3 专题）
 # 账本精灵「持仓再平衡参考」工具设计（Q3 专题）
 
 > 派生自 `agent-paradigm-selection.md` §9 真实测试向量与 §10 Q3 专题评估。
-> **性质**：**v1 已实施（客观信号子集）**。实施范围、对本文 §3/§4 数据底座的实测修正、
-> 以及 §10 四项待裁定的默认值处置，全部登记在 **§12**；范式选型 P&E 仍属 owner 决策面。
-> 行号证据绑定 `origin/dev` @ `ac8c15d508`。
+> **性质**：**v1 + v2 已实施**。v1 客观信号子集与对本文 §3/§4 数据底座的实测修正见 **§12**；
+> v2 三类附加信号、§10 四项待裁定的正式裁定与 D115 留痕见 **§13**。
+> 范式选型 P&E 最小编排已落地并经 D115 裁定（见 `./agent-paradigm-selection.md` §13），不再是决策面。
+> 行号证据绑定历史提交 `origin/dev` @ `ac8c15d508`（**拍板后已漂移，引用前回 `origin/dev` 复核**）。
 > 本文只解决 owner 四连问里的 **Q3（持仓/调仓建议）**，与 Q1/Q2/Q4 的编排问题正交（见 §2）。
 
 ## 0. 问题来源
@@ -50,8 +51,13 @@ Q1/Q2/Q4 属编排缺口，由 P&E 最小版解决；**Q3 是独立的「生成 
 
 - **关键**：指数/行业估值分位已在 `market_multi_items` 落库，本工具读它即可，与 A′「消费已
   同步行情」同款底座——**不新增任何 MCP 客户端接入，不碰 `services/mcp/` 红线**。
-- **缺口（v2，依赖 A′）**：单只基金的**历史估值分位**需在 Wind/且慢已同步数据中暴露；目前
-  `market_multi_items` 仅含指数/行业分位，个基分位口径待 A′ 确认。
+- **v2 实测修正（D115）**：上表「个股 / 可转债行业映射」与「基金行业配置」两处数据源**当时就已落库**
+  （`security_industry_maps` / `fund_industry_allocs`，读侧 `penetration.build_penetration`）。
+  §12.2 所称「本地无权威映射」只对**申万一级**成立，不等于「无映射」；基金侧只有 csrc / gics，
+  故 §4 的行业集中度口径在 v2 改为 csrc + 覆盖率披露，见 §13.2。
+- **缺口（v2，依赖 A′，D115 裁定不落地）**：单只基金的**历史估值分位**至今无表 / 无 job /
+  无 `item_type='fund'` 写入；`fund_valuation_daily` 只有 GSZ 估值净值，`stock_valuation_service`
+  是个股且不落库。保留只读接入点，落库后自动生效，**绝不拿宽基分位替代**（§13.3）。
 
 ## 4. 计算逻辑（代码侧，确定性阈值）
 
@@ -108,17 +114,20 @@ Q1/Q2/Q4 属编排缺口，由 P&E 最小版解决；**Q3 是独立的「生成 
 
 ## 9. 验收（eval 用例，见 cases.yaml）
 
-- `advice-01`（§10 派生）：当前基线 `expect: { status: clarify }`；本工具落地后迁移至
-  `result + get_rebalance_reference`。
-- `chain-01`（§9 派生）：四连问之一轮，当前基线「只答一个子问」（`status: result` +
-  4 个相关工具之一）；完整 4 子问覆盖需 harness 支持 `expect.plan`（范式文档 §8 #5，未实现）。
+- `advice-01`（§10 派生）：v1 已迁移至 `result + get_rebalance_reference`（§12.1）。
+- `chain-01`（§9 派生）：`expect.plan` 强断言与四子问覆盖判据已由 GitHub #3055 / `#3056` 落地，
+  D103~D106 补上指标引用、数值溯源、本段归属与结构判据（评估集现 49 条）。
+- `advice-02` / `advice-03`（D115 新增）：分别覆盖 v2 的行业集中度与历史占比偏离问法，
+  只钉「选对工具」——信号可能为空，挂 metric 会把「如实说没有数据」误判成回避。
 
-## 10. 待裁定（owner）
+## 10. 待裁定（owner，已于 2026-11-12 由 D115 裁定，结论见 §13.4）
 
-1. v1 是否先只用本地指数估值，个基分位留 v2（依赖 A′）？
-2. 历史均值窗口（30 / 90 / 全期）？
-3. 集中度阈值（Top-N 占比 vs HHI）？
-4. 意图路由落点：扩 `intent_guard` 还是决策层关键词？
+原四问保留作追溯：① v1 是否先只用本地指数估值，个基分位留 v2（依赖 A′）？
+② 历史均值窗口（30 / 90 / 全期）？③ 集中度阈值（Top-N 占比 vs HHI）？
+④ 意图路由落点：扩 `intent_guard` 还是决策层关键词？
+**裁定**：① A′ 不落地、保留只读接入点；② 90 天 + 每 5 个开盘日采样、至少 2 个有价样本；
+③ 权重 20/35、Top-N 5、估值带 80/20，新增偏离 5/10 个百分点、行业 40/60%；
+④ 不改 `intent_guard`，沿用 B2 窄命中 + G6 二级兜底（§12.4 已实测）。
 
 ## 11. 证据复核清单
 
@@ -206,15 +215,83 @@ v1 真正可算的只有 `single_position_weight` 与 `valuation_context` 两类
 §10 ④「路由落点」仍留 owner 裁定，但紧迫性下降，不属安全故障。
 `adv-jailbreak-02/03` 保持绿，本次未改 `intent_guard` 一行。
 
-### 12.5 明确未做
+### 12.5 v1 当时明确未做（状态已由 D115 更新）
 
-P&E 最小版（范式 §8 六项待裁定，含 `expect.plan`）、`chain-01` 的强断言升级、
+v1 收口时未做：P&E 最小版（范式 §8 六项待裁定，含 `expect.plan`）、`chain-01` 强断言升级、
 v2 个基估值分位、行业归属数据源、逐标的占比历史序列。四条硬红线零触碰：
 未动态接外部 MCP、未让模型自由生成建议、未引入 ReAct、未做向量检索或凭证加密。
+**后续状态**：前两项已由 GitHub #3055 / `#3056` 落地；行业归属与历史序列由 v2 落地（§13）；
+个基估值分位经 D115 裁定不落地（无权威数据源），保留只读接入点。
 
 ### 12.6 服务体量基线
 
-`tools.py` 属于 `guard_service_size.py` 冻结的存量文件。本次新增工具所需的
+`tools.py` 属于 `guard_service_size.py` 冻结的存量文件。v1 新增工具所需的
 import / metadata / register 三处必要接线使它变厚，按脚本既有惯例用 `--report`
 实测回写该文件的 BASELINE 并在此留下理由，**没有放宽任何阈值**：纯计算与取数
 都已下沉到 `services/analytics/` 的新文件（走 `NEW_FILE_LIMITS`）。
+v2 未改 `tools.py` / `pnl_calendar.py` 一行：新增 `rebalance_reference_v2.py` 与
+规则层拆分后的函数都走 `NEW_FILE_LIMITS`（lines ≤800 / 最长函数 ≤120 / 圈复杂度 ≤20），
+守卫本体与其 9 条回归网均通过。
+
+---
+
+## 13. v2 实施留痕（2026-11-12，D115）
+
+> 完整决策正文见 `decisions.md` 的 D115。v1 的「恒定缺口」在 v2 改为
+> **「有事实就出数、没事实就逐条声明原因」**，`missing_signals` 契约保持不变。
+
+### 13.1 三类信号状态
+
+| 信号 | v1 | v2（D115） |
+|---|---|---|
+| `single_position_weight` / `valuation_context` | 可算 | 口径不变 |
+| `industry_concentration` | 恒定缺口 | **可算**：csrc 主口径 + 已穿透部分 HHI + `coverage_pct` |
+| `deviation_from_mean` | 恒定缺口 | **可算**：当前占比 − 近 90 天 as-of 采样均值 |
+| `fund_valuation_percentile` | 未定义 | **仍为缺口**：A′ 无数据源，保留只读接入点 |
+| 方向性「买/卖」建议 | 禁 | 仍禁（B2 窄命中 + G6 二级兜底 + 叙事契约） |
+
+### 13.2 行业集中度：口径改写而非硬套设计 §4
+
+- 设计 §4 写的是「SW 一级行业 + HHI」。实测基金侧 `fund_industry_allocs` 只有 **csrc / gics**，
+  申万一级只存在于 `security_industry_maps`（直持腿）；按穿透模块硬口径
+  **csrc / sw1 / gics 禁止跨体系相加**，故 v2 主口径取 csrc，并在信号里带
+  `scheme` / `scheme_label` / `coverage_pct` 明示口径与覆盖边界。
+- `share_pct` 与 HHI **只按已穿透部分计算**，未穿透的钱不归一化进分母；
+  覆盖率低时信号照出，但 `coverage_pct` 如实披露，不假装覆盖整个组合。
+- 取数复用 `penetration.build_penetration`（纯读侧、零外部请求），不新增 MCP 客户端。
+
+### 13.3 个基估值分位：A′ 裁定不落地
+
+- 复核结论：`market_multi_items` 的 wind_valuation job 只写 `item_type=index/industry`；
+  `fund_valuation_daily` 只有 GSZ 估值净值；`stock_valuation_service` 是个股且不落库。
+  **没有一条可支撑「单只基金历史估值分位」的权威数据**，硬做只能编造或拿宽基分位冒充。
+- 处置：新增 `build_fund_valuation_fact`，只读 `item_type='fund'` 的本地记录；
+  有数据即产出 `fund_valuation_percentile` 信号，无数据则进 `missing_signals` 并写明 A′ 未落地。
+  **接入点与数据落库解耦**：将来 A′ 真落库、写入同名 item_type，无需改代码即自动生效。
+
+### 13.4 历史占比偏离：as-of 现算，不回填快照
+
+- 全仓没有逐标的权重快照表，`asset_snapshots` 按 D62 禁止把 `snapshot_date` 当时点回填。
+  故 v2 走**按需现算**：份额复用 `pnl_calendar._as_of_shares`（流水 + 快照锚点 +
+  `positions.quantity` 终点校准），价格复用同模块的 `_collect_fund_nav` /
+  `_collect_price_history` / `_price_series_of` / `_price_for`（前值回填、停牌锚点）。
+  跨模块引用私有函数是刻意的：**口径只有一份**，各写一遍必然漂移（同 `penetration`
+  引用 `summary_service._load_user_assets` 的先例）；且**不改被基线冻结的 `pnl_calendar.py`**。
+- 窗口 90 天，按 A 股开盘日每 5 个取 1 个采样点；至少 2 个有价样本才出数，
+  无份额 / 无价格的标的不进分母也不补 0。输出 `current_pct` / `mean_pct` /
+  `delta_pct` / `sample_days`，正值表示比历史更集中，`level` 只做标注不含操作语义。
+
+### 13.5 §10 四项裁定汇总
+
+① A′ 不落地、保留接入点；② 90 天 + 每 5 个开盘日采样 + 至少 2 样本；
+③ 权重 20/35、Top-N 5、估值带 80/20，新增偏离 5/10 个百分点、行业 40/60%；
+④ 不改 `intent_guard`，沿用 B2 窄命中 + G6 二级兜底（§12.4 实测结论）。
+
+### 13.6 验证与边界
+
+- Q3 三组单测 **42 passed**（规则层 / 工具接线 / v2 取数层），评估集与 harness **145 passed**，
+  评估集 47 → **49 条**（`advice-02` / `advice-03`）；ruff check / format --check、
+  `guard_service_size.py` 及其 9 条回归网全绿。
+- 边界：v2 完全依赖本地已落库数据，**空库时三类信号全部进 `missing_signals`**；
+  历史序列是现算而非物化，窗口外不补；行业口径与覆盖率如实披露；
+  四条硬红线（外部 MCP / 模型自由给建议 / ReAct / 向量检索与凭证加密）零触碰。
