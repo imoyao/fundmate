@@ -468,14 +468,14 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         None,
         '可转债条款 + 集思录强赎计数（#1393 的列依赖它；#1400）',
     ),
-    # 分红送股（#1179）：target_kind=None —— 事件型数据（分红/送股公告），
-    # 按 import_hash 幂等去重，重跑不产生重复行。
+    # 分红送股（#1179 / #3073）：target_kind=('fund','stock') —— `_fetch_data` 按标的逐只
+    # 抓公告，收到空池就一次都不循环；此前配 None 让它 27 次执行 27 次 total=0 空转。
     (
         'dividend_split',
         ENV_DIVIDEND_SPLIT_ENABLED,
         ENV_DIVIDEND_SPLIT_CRON,
         DEFAULT_DIVIDEND_SPLIT_CRON,
-        None,
+        ('fund', 'stock'),
         '分红 / 送股事件（akshare 公告口径，按 import_hash 幂等；#1179）',
     ),
     (

@@ -39,6 +39,9 @@ from app.services.sync.jobs.stock_list_job import StockListSyncJob
 class SecuritiesBackfillJob(StockListSyncJob):
     """按缺口逐只补录名录；查不到的标的记进 `stats['failed']` 并保留为缺口。"""
 
+    #: 缺口清单只能由调用方给（本 job 不兜底成全量），见 #3073。
+    requires_targets = True
+
     def get_name(self) -> str:
         return 'securities_backfill'
 

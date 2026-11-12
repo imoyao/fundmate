@@ -41,8 +41,7 @@ from app.services.import_records import StandardTransactionRecord, compute_recor
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.job_base import SyncJob
 
-# 事件回看窗口：方案抓的是全history，但只有「最近」的事件才可能有对应持仓变动，
-# 太久远的历史方案既算不准也不该补记。留 400 天覆盖年报 + 中期两次分红。
+# 事件回看窗口：全 history 抓取，但只有最近的事件才可能有对应持仓变动；400 天覆盖年报 + 中期。
 EVENT_LOOKBACK_DAYS = 400
 
 # 分红方式（position_import_meta.dividend_preference，E账户导入时带过来）
@@ -50,7 +49,9 @@ _REINVEST_HINTS = ('红利转投', '红利再投', '再投资')
 
 
 class DividendSplitSyncJob(SyncJob):
-    """分红 / 送转 / 配股抓取与记账"""
+    """分红 / 送转 / 配股抓取与记账（按标的逐只抓 ⇒ 必须有目标池）"""
+
+    requires_targets = True
 
     def get_name(self) -> str:
         return 'dividend_split'
@@ -157,8 +158,7 @@ class DividendSplitSyncJob(SyncJob):
         **以库内持仓的 asset_type 为准**，代码段只作没有持仓时的兜底。
         反例（#541 实测踩到）：`000001` 既是平安银行（股票）也是华夏成长混合（基金），
         裸 6 位码在两个代码空间里是同一串数字——按代码段推断必然有一半判错，
-        于是手里是华夏成长，却去抓了平安银行的历年分红。
-        数据源和代码段都不认人，只有**用户自己的持仓**知道手里是什么。
+        于是手里是华夏成长，却去抓了平安银行的历年分红：只有**用户自己的持仓**知道手里是什么。
         """
         types = {p.asset_type for p in (positions or []) if p.asset_type}
         if len(types) == 1:
