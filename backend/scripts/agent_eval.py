@@ -61,6 +61,7 @@ JSON 一起吞掉。
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -202,16 +203,29 @@ def evaluate_plan(traces, expect):
     return True, ''
 
 
-NARRATIVE_KEYS = frozenset({'covers'})
-NARRATIVE_COVER_KEYS = frozenset({'id', 'any'})
+NARRATIVE_KEYS = frozenset({'covers', 'numbers'})
+NARRATIVE_COVER_KEYS = frozenset({'id', 'any', 'metric'})
+METRIC_KEYS = frozenset({'tool', 'field', 'pick'})
+METRIC_PICKS = frozenset({'min', 'max', 'abs_max'})
+
+# 数值来源判据（D103）。三处豁免与两条归一化是同一件事的两面：
+# **既不把合理表述判成编造，也不给编造留后门**，取舍逐条写在函数 docstring 里。
+NUM_TOKEN = re.compile(r'-?\d+(?:,\d{3})*(?:\.\d+)?')
+NUM_DATE_SPAN = re.compile(r'\d{4}-\d{2}-\d{2}')
+NUM_PCT_SUFFIX = re.compile(r'\s*(?:%|％|个百分点|个点|百分)')
+NUM_YEAR_SUFFIX = re.compile(r'\s*年')
+NUM_CODE_SHAPE = re.compile(r'^\d{6}$')
 
 
 def validate_narrative_shape(narrative):
     """校验 expect.narrative 结构，返回错误原因列表（空列表 = 合法）。
 
-    形态：``{covers: [{id: <子问名>, any: [<同义锚点>, ...]}, ...]}``。
-    只做**存在性**判据：证明每个子问在最终回答里留下了落点，不判答案对错，
-    也不读任何工具数值（D2：中间数值不经模型决策，评估集同样不复制一份）。
+    形态：``{covers: [{id: <子问名>, any: [<同义锚点>, ...]}, ...],
+    numbers: <bool 可选，默认 true>}``。
+
+    两个维度互相独立：`covers` 是纯文本存在性判据（证明每个子问有落点），
+    `numbers` 关掉后只剩前者。数值来源判据在**评估侧**读工具返回值做比对，
+    与 D2 不冲突——D2 约束的是「中间数值不进模型决策轮」，评估跑在模型之外。
     """
     errors = []
     if not isinstance(narrative, dict):
@@ -219,6 +233,8 @@ def validate_narrative_shape(narrative):
     unknown = set(narrative) - NARRATIVE_KEYS
     if unknown:
         errors.append(f'含未知字段 {sorted(unknown)}')
+    if 'numbers' in narrative and not isinstance(narrative['numbers'], bool):
+        errors.append('expect.narrative.numbers 必须是布尔')
     covers = narrative.get('covers')
     if not isinstance(covers, list) or not covers:
         return errors + ['expect.narrative.covers 必须是非空列表']
@@ -234,6 +250,34 @@ def validate_narrative_shape(narrative):
         words = cover.get('any')
         if not isinstance(words, list) or not words or not all(isinstance(w, str) and w.strip() for w in words):
             errors.append(f'子问 {i + 1} 的 any 必须是非空字符串列表')
+        if 'metric' in cover:
+            errors.extend(_validate_metric(cover['metric'], i))
+    return errors
+
+
+def _validate_metric(metric, index, suffix=''):
+    """校验 cover.metric（单条映射，或多条等价口径的列表）。"""
+    label = f'子问 {index + 1} 的 metric{suffix}'
+    if isinstance(metric, list):
+        if not metric:
+            return [f'{label} 列表不能为空']
+        errors = []
+        for n, item in enumerate(metric, 1):
+            errors.extend(_validate_metric(item, index, suffix=f'[{n}]'))
+        return errors
+    if not isinstance(metric, dict):
+        return [f'{label} 必须是映射或映射列表']
+    errors = []
+    extra = set(metric) - METRIC_KEYS
+    if extra:
+        errors.append(f'{label} 含未知字段 {sorted(extra)}')
+    for key in ('tool', 'field'):
+        value = metric.get(key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f'{label} 的 {key} 必须是非空字符串')
+    pick = metric.get('pick')
+    if pick is not None and pick not in METRIC_PICKS:
+        errors.append(f'{label} 的 pick 仅支持 {sorted(METRIC_PICKS)}')
     return errors
 
 
@@ -261,15 +305,236 @@ def evaluate_narrative(text, expect):
     return True, ''
 
 
+def _collect_data_numbers(node, out):
+    """递归收集工具数据里的数值，作为可溯源来源池。
+
+    只认 int/float，**不解析字符串**：symbol「000001」、日期「2026-11-11」里的
+    数字不是可引用数值，收进来源池只会让「编造的数碰巧命中」概率上升。
+    """
+    if isinstance(node, bool):  # bool 是 int 子类，先排除，避免 True 被当成 1
+        return
+    if isinstance(node, (int, float)):
+        out.append(float(node))
+    elif isinstance(node, dict):
+        for value in node.values():
+            _collect_data_numbers(value, out)
+    elif isinstance(node, (list, tuple)):
+        for value in node:
+            _collect_data_numbers(value, out)
+
+
+def _number_tokens(text):
+    """抽出文本里的数字及其上下文标记：[(raw, value, is_percent, is_year)]。"""
+    spans = [m.span() for m in NUM_DATE_SPAN.finditer(text)]
+    tokens = []
+    for match in NUM_TOKEN.finditer(text):
+        start = match.start(0)
+        if any(lo <= start < hi for lo, hi in spans):
+            continue  # 日期整体跳过：YYYY-MM-DD 拆成 2026 / -11 只会制造假编造
+        raw = match.group(0)
+        tail = text[match.end() : match.end() + 6]
+        tokens.append(
+            (
+                raw,
+                float(raw.replace(',', '')),
+                bool(NUM_PCT_SUFFIX.match(tail)),
+                bool(NUM_YEAR_SUFFIX.match(tail)),
+            )
+        )
+    return tokens
+
+
+def _is_high_entropy(raw, value, is_percent, is_year):
+    """哪些数字值得追来源——门槛定得太低，叙事里的普通计数会被打成一片红灯。
+
+    豁免（刻意放弃检出，理由是可解释性优先于覆盖率）：
+    - 年份（19xx/20xx 紧邻「年」）：叙事里的时间坐标不是指标；
+    - 纯整数且绝对值 < 1000：月数、只数、名次、整数百分比（「近 3 个月」
+      「前 5 大」「占比 30%」），与指标值无法区分；
+    - 1 位小数且无百分比标记：「86.5 万元」这类量级改写会让直接比对落空，
+      强行比对会把正确表述判成编造；
+    - 6 位纯数字：基金/股票代码形态（「000001」），不是被引用的数值。
+
+    保留检出的：小数位 ≥ 2（工具比率与金额的真实精度都是 2 位小数）、
+    绝对值 ≥ 1000 的整数（金额量级）、带百分比标记的 1 位小数。
+    """
+    if is_year or NUM_CODE_SHAPE.match(raw):
+        return False
+    decimals = len(raw.split('.')[1]) if '.' in raw else 0
+    if decimals >= 2 or abs(value) >= 1000:
+        return True
+    return bool(is_percent and decimals >= 1)
+
+
+def _number_has_source(token, sources):
+    """文本数值能否在来源池里找到同一个数。
+
+    容差 = 文本末位的一半：写 20.7 允许 ±0.05、写 20.66 允许 ±0.005、
+    写 8388 允许 ±0.5 —— 即「在你承诺的精度下，这个数就是对的那个数」。
+    固定比例容差在 8.1 vs 8.05（差 0.05）处会漏，ULP/2 不会。
+
+    符号不参与判定：模型常把负号吸收进「亏损 / 回落 / 跑输」这类语义词，
+    拿符号判会把正确表述判成编造。方向对错留给人工回放，这是刻意的边界。
+    """
+    raw, value, is_percent, _ = token
+    decimals = len(raw.split('.')[1]) if '.' in raw else 0
+    tolerance = 0.5 * 10**-decimals
+    candidates = [value]
+    if is_percent:
+        candidates += [value * 100, value / 100]  # 20.66 与 0.2066 是同一个量
+    elif abs(value) < 1:
+        candidates.append(value * 100)  # 无百分号但写成小数，按小数化百分比认一次
+    return any(abs(abs(candidate) - abs(source)) <= tolerance + 1e-9 for candidate in candidates for source in sources)
+
+
+def evaluate_numeric_sources(text, data):
+    """反向判据：回答里的具体数值必须能在本轮工具数据里找到来源。
+
+    抓的是**编造数字**（幻觉里最严重的一类）：回答里出现的指标值在工具返回的数据里
+    根本不存在。数据为空却报出具体数值，是最硬的铁证，因此**不跳过**。
+
+    三条边界，别当它证明答案正确：
+    - 抓不到**串台**：把沪深300 的 -12.61% 说成「你的组合跌了 12.61%」时，每个
+      数字都真实存在于某一步数据里，来源判据必然通过（缺的是数字归属，见 D103）；
+    - 抓不到**回避**：只写「近期收益不太好」不给数，本判据无事可做；
+    - 高熵门槛之外的数（整数计数、1 位小数无标记）刻意不查，见 _is_high_entropy。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定数值来源'
+    sources = []
+    _collect_data_numbers(data, sources)
+    unsourced = [
+        token[0]
+        for token in _number_tokens(text)
+        if _is_high_entropy(*token) and not _number_has_source(token, sources)
+    ]
+    if unsourced:
+        suffix = '（本轮工具数据里没有任何数值）' if not sources else ''
+        return False, '最终回答出现无工具来源的数值：' + '、'.join(unsourced) + suffix
+    return True, ''
+
+
+def _collect_by_path(node, parts):
+    """按点号路径取值并汇总成列表；`*` 展开列表，数字段取下标，缺失返回空。"""
+    if not parts:
+        return [node]
+    head, rest = parts[0], parts[1:]
+    if head == '*':
+        if not isinstance(node, list):
+            return []
+        out = []
+        for item in node:
+            out.extend(_collect_by_path(item, rest))
+        return out
+    if isinstance(node, dict):
+        return _collect_by_path(node.get(head), rest) if head in node else []
+    if isinstance(node, list) and head.isdigit():
+        index = int(head)
+        return _collect_by_path(node[index], rest) if 0 <= index < len(node) else []
+    return []
+
+
+def _metric_values(data, metric):
+    """取单条 metric 声明的指标值。
+
+    plan 路径按 `tool` 名挑出对应步骤的 data（同名工具多步时全部参与）；
+    单工具路径直接用它自己（工具名已由 expect.tool 钉住）。
+    `pick` 在多个候选中挑一个：min / max / abs_max（如「亏得最多的标的」= min）。
+    """
+    steps = data.get('steps') if isinstance(data, dict) else None
+    if isinstance(steps, list) and steps:
+        nodes = [step.get('data') for step in steps if isinstance(step, dict) and step.get('tool') == metric['tool']]
+        if not nodes:
+            return []
+    else:
+        nodes = [data]
+
+    values = []
+    for node in nodes:
+        values.extend(_collect_by_path(node, metric['field'].split('.')))
+    numbers = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    pick = metric.get('pick')
+    if not numbers:
+        return []
+    if pick == 'min':
+        return [min(numbers)]
+    if pick == 'max':
+        return [max(numbers)]
+    if pick == 'abs_max':
+        return [max(numbers, key=abs)]
+    return numbers
+
+
+def _text_cites_value(text, value):
+    """回答里有没有引用这个值（写法随意：带符号 / 带百分号 / 千分位 / 舍入）。"""
+    for token in _number_tokens(text):
+        raw, number, is_percent, _ = token
+        decimals = len(raw.split('.')[1]) if '.' in raw else 0
+        tolerance = 0.5 * 10**-decimals
+        candidates = [number]
+        if is_percent:
+            candidates += [number * 100, number / 100]
+        elif abs(number) < 1:
+            candidates.append(number * 100)
+        if any(abs(abs(candidate) - abs(value)) <= tolerance + 1e-9 for candidate in candidates):
+            return True
+    return False
+
+
+def evaluate_metric_presence(text, data, covers):
+    """正向判据：该子问的关键指标**必须**在回答里出现。
+
+    这是抓「回避」与「串台」的唯一可靠手段：
+    - 回避：只写「近期收益不太好」不给数 → 本判据判红；
+    - 串台：组合区间收益是 -20.66%，模型却报了沪深300 的 -12.61% → 判红。
+
+    为什么不能只靠 evaluate_numeric_sources：真实数据实测（2026-11-12，266 条持仓、
+    1861 个数值）显示，密集小值的池子会把微扰后的数接住——收益率微扰 1.5% 漏报 88%、
+    价格 72%（大金额 0%）。存在性判据对「值域窄、样本多」的字段天然失效，
+    只有「按字段比对单个值」才抓得住。
+
+    字段无值（工具没跑 / 字段为 None / 数据为空）时**跳过**，不判红：
+    否则空库或有缺口的数据会把「如实说没有数据」误判成回避。跳过后的空档由
+    evaluate_numeric_sources 兜底（数据为空却报数 = 铁证幻觉）。
+
+    `metric` 可以是单条映射，也可以是**列表**（多个等价口径任一命中即通过）：
+    真实口径实测——同一句「区间收益」，`get_portfolio_vs_benchmark.range_rate`
+    是金额（-10214.99 元），`get_portfolio_performance.xirr` 是小数（0.3675 →
+    36.75%），两者都能合法回答同一问。只钉一个字段会把另一种口径判成回避。
+    但候选里**不得**放入「错误答案」（如 benchmark_range_return），否则串台就抓不住了。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定指标引用'
+    missing = []
+    for cover in covers:
+        specs = cover.get('metric')
+        if not specs:
+            continue
+        specs = specs if isinstance(specs, list) else [specs]
+        values = []
+        for spec in specs:
+            values.extend(_metric_values(data, spec))
+        if not values:
+            continue  # 无数据可比，交给数值来源判据兜底
+        if not any(_text_cites_value(text, value) for value in values):
+            labels = '/'.join(f'{spec["tool"]}.{spec["field"]}' for spec in specs)
+            missing.append(f'{cover["id"]}（{labels}={values[0]:g}）')
+    if missing:
+        return False, '最终回答未引用本应给出的指标值：' + '；'.join(missing)
+    return True, ''
+
+
 def run_case(db, case):
     """单案例：新会话 → 按 turns 顺序跑真实链路 → 读该会话全部 trace 汇总。
 
-    expect.narrative 存在时，在 status/tool/plan 判定**通过后**追加一次最终回答
-    的子问覆盖判定；无该字段的用例仍走原路径，行为一字不变。
+    expect.narrative 存在时，在 status/tool/plan 判定**通过后**追加两次判定：
+    子问覆盖（covers）与数值来源（numbers，默认开启，`numbers: false` 可关）。
+    无该字段的用例仍走原路径，行为一字不变。
     """
     row = session_store.load_or_create(db, session_id=None, user_id=EVAL_USER_ID)
     error = ''
     reply = ''
+    payload = None
     try:
         for text in case['turns']:
             out = agent_loop.run_agent(text, row)
@@ -277,6 +542,9 @@ def run_case(db, case):
             # TURN_SIDE_CAP=800 截断，用它做覆盖判据会把长回答误判成丢子问。
             if isinstance(out, dict):
                 reply = out.get('content') or ''
+                # 工具数据同理只认返回值（plan 路径为 {'steps': [{tool, data}]}）；
+                # 它是数值来源判据的唯一依据，不从库或 messages 里二次推断。
+                payload = out.get('data')
         db.flush()
     except Exception as exc:  # noqa: BLE001  单案例炸不中断跑批（记入报告）
         error = f'exception={exc!r}'
@@ -296,8 +564,13 @@ def run_case(db, case):
         ok, why = evaluate_plan(traces, expect)
     else:
         ok, why = evaluate(final, expect)
-    if ok and expect.get('narrative'):
+    narrative = expect.get('narrative')
+    if ok and narrative:
         ok, why = evaluate_narrative(reply, expect)
+    if ok and isinstance(narrative, dict):
+        ok, why = evaluate_metric_presence(reply, payload, narrative['covers'])
+    if ok and isinstance(narrative, dict) and narrative.get('numbers', True):
+        ok, why = evaluate_numeric_sources(reply, payload)
     return {
         'id': case['id'],
         'input': case['turns'][-1],
