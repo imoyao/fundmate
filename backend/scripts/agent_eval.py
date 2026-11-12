@@ -66,6 +66,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple, Optional
 
 # 让脚本能 import 项目包（backend/ 在 sys.path[0]，同 sync_metadata 约定）
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -221,6 +222,108 @@ NUM_CODE_SHAPE = re.compile(r'^\d{6}$')
 NUM_MAG_SUFFIX = re.compile(r'\s*(万|亿)(?:元|块)?')
 NUM_MAG_SCALE = {'万': 1e4, '亿': 1e8}
 
+# 中文数量词（D106）：真实回答常写「两成」「六个点」「一百六十三万」，整段不带
+# 阿拉伯数字。扫不到 token 时反向判据天然放过（漏报）、正向判据判成回避（假红）——
+# 两头都错，所以必须认。但中文数量词是**粗粒度**的：它只证明「说到了这个量级」，
+# 不证明「用的是精确值」，因此只进正向判据的数值池，**不进**反向的编造检出
+# （拿「约两成」去证伪精确值必然误杀）。
+CN_DIGITS = {'零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+CN_UNITS = {'十': 10, '百': 100, '千': 1000}
+CN_BIG_UNITS = {'万': 1e4, '亿': 1e8}
+_CN_RUN = '[零〇一二两三四五六七八九十百千万亿]'
+# (正则, 单位类型, 换算倍数, 固定容差)。容差 = 这种说法的**固有粗粒度**：
+# 「一成」是 10 个百分点一级的话（±5），「六个点」是整数级（±0.5）；
+# 金额不写死容差，按用到的最大量级现算（「一百六十三万」= ±5000）。
+CN_PERCENT_TOL = 0.5
+CN_CHENG_TOL = 5.0
+CN_PATTERNS = (
+    (re.compile(r'百分之\s*(' + _CN_RUN + r'+)'), 'percent', 1.0, CN_PERCENT_TOL),
+    (re.compile(r'(' + _CN_RUN + r'+)\s*成'), 'percent', 10.0, CN_CHENG_TOL),
+    (re.compile(r'(' + _CN_RUN + r'+)\s*个百分点'), 'point', 1.0, CN_PERCENT_TOL),
+    (re.compile(r'(' + _CN_RUN + r'+)\s*个点'), 'point', 1.0, CN_PERCENT_TOL),
+    # 金额必须「数字在前、万/亿在后」：「三个」「一项」是计数与修饰；而裸的
+    # 「万」会被解析成 0，再叠加 ±5000 的粗容差就能命中任意中等数值 —— 必须挡住。
+    (
+        re.compile(r'([零〇一二两三四五六七八九十百千]+[万亿][零〇一二两三四五六七八九十百千万亿]*)'),
+        'amount',
+        1.0,
+        None,
+    ),
+)
+
+
+class NumToken(NamedTuple):
+    """一个被抽出来的数值，以及「它有多可信」。
+
+    `tolerance` 为 None 表示按写出来的末位精度现算（阿拉伯数字走这条路）；
+    中文数量词自带粗粒度，直接写死，否则「两成」会被 0.5 的严容差判成没说到。
+    `approximate=True` 是**只做正向命中**的标记：反向判据拿它证伪精确值必误杀。
+    """
+
+    raw: str
+    value: float
+    is_percent: bool = False
+    is_year: bool = False
+    scale: float = 1.0
+    approximate: bool = False
+    tolerance: Optional[float] = None
+
+
+def _as_token(token):
+    """把 5 元组 / 7 元组统一成 NumToken（测试与旧调用点直接传元组）。"""
+    return token if isinstance(token, NumToken) else NumToken(*token)
+
+
+def _parse_cn_number(run):
+    """中文数字 → 数值：「一百六十三」→163、「两亿三千万」→2.3e8、「十五」→15。"""
+    total = 0.0
+    section = 0.0
+    number = 0.0
+    for char in run:
+        if char in CN_DIGITS:
+            number = float(CN_DIGITS[char])
+        elif char in CN_UNITS:
+            unit = CN_UNITS[char]
+            if number == 0:  # 「十五」的「十」前面没有数字，按 1 算
+                number = 1.0
+            section += number * unit
+            number = 0.0
+        elif char in CN_BIG_UNITS:
+            section += number
+            number = 0.0
+            if char == '万':
+                total += section * CN_BIG_UNITS['万']
+            else:
+                total = (total + section) * CN_BIG_UNITS['亿']
+            section = 0.0
+        else:
+            return None
+    return total + section + number
+
+
+def _cn_tokens(text):
+    """抽中文数量词：[(start, NumToken)]。只认带单位后缀的形态。"""
+    tokens = []
+    for pattern, kind, factor, tolerance in CN_PATTERNS:
+        for match in pattern.finditer(text):
+            run = match.group(1)
+            number = _parse_cn_number(run)
+            if number is None:
+                continue
+            if kind == 'amount':
+                if number <= 0:
+                    continue  # 解析出 0 说明只是撞见了「万」字本身，不是数值
+                biggest = CN_BIG_UNITS['亿'] if '亿' in run else CN_BIG_UNITS['万']
+                tokens.append((match.start(1), NumToken(run, number, approximate=True, tolerance=0.5 * biggest)))
+            else:
+                tokens.append(
+                    (
+                        match.start(1),
+                        NumToken(run, number * factor, is_percent=True, approximate=True, tolerance=tolerance),
+                    )
+                )
+    return tokens
+
 
 def validate_narrative_shape(narrative):
     """校验 expect.narrative 结构，返回错误原因列表（空列表 = 合法）。
@@ -329,11 +432,13 @@ def _collect_data_numbers(node, out):
 
 
 def _number_token_spans(text):
-    """抽出文本里的数字 token 及其起始位置：[(start, (raw, value, is_percent, is_year, scale))]。
+    """抽出文本里的数字 token 及其起始位置：[(start, NumToken)]，按位置升序。
 
     位置是「数字归属」判据的输入：要知道这个数落在哪个要点的段落里。
     `scale` 是量级后缀（万 / 亿）带来的倍数，用户看到的是「163 万」而数据里是
     1630204.52 —— 不认量级会把最常见的合法改写判成编造或回避。
+    中文数量词（「两成」「六个点」「一百六十三万」）并入同一序列：它们同样要参与
+    归属，否则「用中文写的回答」在归属判据里等于没给数。
     """
     spans = [m.span() for m in NUM_DATE_SPAN.finditer(text)]
     tokens = []
@@ -347,15 +452,17 @@ def _number_token_spans(text):
         tokens.append(
             (
                 start,
-                (
+                NumToken(
                     raw,
                     float(raw.replace(',', '')),
-                    bool(NUM_PCT_SUFFIX.match(tail)),
-                    bool(NUM_YEAR_SUFFIX.match(tail)),
-                    NUM_MAG_SCALE[mag.group(1)] if mag else 1.0,
+                    is_percent=bool(NUM_PCT_SUFFIX.match(tail)),
+                    is_year=bool(NUM_YEAR_SUFFIX.match(tail)),
+                    scale=NUM_MAG_SCALE[mag.group(1)] if mag else 1.0,
                 ),
             )
         )
+    tokens.extend(_cn_tokens(text))
+    tokens.sort(key=lambda item: item[0])
     return tokens
 
 
@@ -364,7 +471,7 @@ def _number_tokens(text):
     return [token for _, token in _number_token_spans(text)]
 
 
-def _is_high_entropy(raw, value, is_percent, is_year, scale=1.0):
+def _is_high_entropy(raw, value, is_percent, is_year, scale=1.0, approximate=False, *_rest):
     """哪些数字值得追来源——门槛定得太低，叙事里的普通计数会被打成一片红灯。
 
     豁免（刻意放弃检出，理由是可解释性优先于覆盖率）：
@@ -373,14 +480,17 @@ def _is_high_entropy(raw, value, is_percent, is_year, scale=1.0):
       「前 5 大」「占比 30%」），与指标值无法区分；
     - 1 位小数且无百分比标记：「86.5 万元」这类量级改写会让直接比对落空，
       强行比对会把正确表述判成编造；
-    - 6 位纯数字：基金/股票代码形态（「000001」），不是被引用的数值。
+    - 6 位纯数字：基金/股票代码形态（「000001」），不是被引用的数值；
+    - **中文数量词**（approximate）：「约两成」「六个点」「一百六十三万」是粗粒度
+      的概数，用它证伪精确值必然误杀正确回答，因此只进正向命中、不进编造检出。
 
     保留检出的：小数位 ≥ 2（工具比率与金额的真实精度都是 2 位小数）、
     绝对值 ≥ 1000 的整数（金额量级）、带百分比标记的 1 位小数。
     `scale` 不参与门槛判断：精度承诺只看写出来的末位（「163 万」是 0 位小数，
     不是 8 位精度），量级只影响比对容差，见 `_token_cites`。
+    末尾 `*_rest` 吞掉 token 里后续新增的字段（容差等），免得每加一个字段就改签名。
     """
-    if is_year or NUM_CODE_SHAPE.match(raw):
+    if approximate or is_year or NUM_CODE_SHAPE.match(raw):
         return False
     decimals = len(raw.split('.')[1]) if '.' in raw else 0
     base = abs(value) * scale
@@ -395,20 +505,26 @@ def _token_cites(token, target):
     容差 = 文本末位的一半，并折算回原量级：写 20.7 允许 ±0.05、写 20.66 允许 ±0.005、
     写「163 万」允许 ±5000 —— 即「在你承诺的精度下，这个数就是对的那个数」。
     固定比例容差在 8.1 vs 8.05（差 0.05）处会漏，ULP/2 不会。
+    中文数量词自带容差（「两成」±5、「六个点」±0.5）：它的精度不是末位决定的，
+    而是这种说法本身的粗粒度。
+
+    容差必须**跟着候选值的量纲一起缩放**：比 0.2 时容差是 ±0.0005 而不是 ±5，
+    否则「两成」的粗容差会顺带命中任何小数值（实测：把 −3.0 认成 20% 的同义词）。
 
     符号不参与判定：模型常把负号吸收进「亏损 / 回落 / 跑输」这类语义词，
     拿符号判会把正确表述判成编造。方向对错留给人工回放，这是刻意的边界。
     """
-    raw, value, is_percent, _, scale = token
-    decimals = len(raw.split('.')[1]) if '.' in raw else 0
-    base = value * scale
-    tolerance = 0.5 * 10**-decimals * scale
-    candidates = [base]
-    if is_percent:
-        candidates += [base * 100, base / 100]  # 20.66 与 0.2066 是同一个量
+    token = _as_token(token)
+    decimals = len(token.raw.split('.')[1]) if '.' in token.raw else 0
+    base = token.value * token.scale
+    tolerance = token.tolerance if token.tolerance is not None else 0.5 * 10**-decimals * token.scale
+    candidates = [(base, tolerance)]
+    if token.is_percent:
+        # 20.66 与 0.2066 是同一个量：换算后容差同步换算，不能沿用原量纲的绝对值
+        candidates += [(base * 100, tolerance * 100), (base / 100, tolerance / 100)]
     elif abs(base) < 1:
-        candidates.append(base * 100)  # 无百分号但写成小数，按小数化百分比认一次
-    return any(abs(abs(candidate) - abs(target)) <= tolerance + 1e-9 for candidate in candidates)
+        candidates.append((base * 100, tolerance * 100))  # 无百分号但写成小数，按小数化百分比认一次
+    return any(abs(abs(candidate) - abs(target)) <= margin + 1e-9 for candidate, margin in candidates)
 
 
 def _number_has_source(token, sources):
@@ -427,14 +543,15 @@ def evaluate_numeric_sources(text, data):
       数字都真实存在于某一步数据里，来源判据必然通过（缺的是数字归属 —— 由
       evaluate_metric_presence 的**本段落归属**补上，见 D105）；
     - 抓不到**回避**：只写「近期收益不太好」不给数，本判据无事可做；
-    - 高熵门槛之外的数（整数计数、1 位小数无标记）刻意不查，见 _is_high_entropy。
+    - 高熵门槛之外的数（整数计数、1 位小数无标记、中文概数）刻意不查，
+      见 _is_high_entropy。
     """
     if not isinstance(text, str) or not text.strip():
         return False, '最终回答文本为空，无法判定数值来源'
     sources = []
     _collect_data_numbers(data, sources)
     unsourced = [
-        token[0]
+        token.raw
         for token in _number_tokens(text)
         if _is_high_entropy(*token) and not _number_has_source(token, sources)
     ]
@@ -576,6 +693,44 @@ def _token_owners(token_spans, events, lines):
     return owners
 
 
+def evaluate_layout(text, covers):
+    """结构判据（D106）：需要区分数值的多子问回答，不能把所有要点挤在同一行。
+
+    为什么这是判据而不是文风建议：`evaluate_metric_presence` 的归属靠「同一行 ∪ 就近」。
+    所有锚点在同一行时，每个 token 的归属集合都等于「全部要点」——各问的数值池完全
+    相同，归属判据退化成全文比对，而且它会**静默通过**。闸门看起来在、实际不设防，
+    比没有闸门更糟；所以把「退化」本身变成红灯：宁可对回答格式提硬要求，也不让判据
+    悄悄失效（fail-loud 而不是 fail-open）。
+
+    触发条件刻意收窄到「≥2 个要点声明了 metric」：只有一个要问数时不存在「这个数属于
+    哪一问」的歧义，单行回答是合理的，不拦。锚点缺失同样不在此判——那是覆盖判据的活。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定结构'
+    gauged = {index for index, cover in enumerate(covers) if cover.get('metric')}
+    if len(gauged) < 2:
+        return True, ''  # 不需要区分数值，结构要求无从谈起
+    lines = _line_spans(text)
+    starts = [lo for lo, _ in lines]
+    hit_lines = {}
+    for pos, _end, cover in _anchor_events(text, covers):
+        if cover not in gauged:
+            continue
+        index = bisect.bisect_right(starts, pos) - 1
+        if 0 <= index < len(lines) and pos < lines[index][1]:
+            hit_lines.setdefault(cover, set()).add(index)
+    if len(hit_lines) < len(gauged):
+        return True, ''  # 有子问还没被提到：交给覆盖判据判，不在这里重复红灯
+    spread = set().union(*hit_lines.values())
+    if len(spread) >= 2:
+        return True, ''
+    only = next(iter(spread)) if spread else 0
+    return False, (
+        f'多子问回答未分段：{len(gauged)} 个需要区分数值的要点锚点全落在第 {only + 1} 行，'
+        '数字归属判据会退化为全文比对（判不出这个数属于哪一问）；要求每个子问单独成段'
+    )
+
+
 def evaluate_metric_presence(text, data, covers):
     """正向判据：该要点的关键指标**必须**在回答里出现，且**出现在该要点自己的段落里**。
 
@@ -620,11 +775,13 @@ def evaluate_metric_presence(text, data, covers):
         if not values:
             continue  # 无数据可比，交给数值来源判据兜底
         owned = [token for (_, token), own in zip(token_spans, owners) if own is not None and index in own]
-        # 收紧只在「本段确实有值得追来源的数」时生效：段里只有「沪深300」这类标签
-        # 数字（非高熵）就退回全文 —— 拿一个标签数当本段的数值池，只会把对的判成错的。
+        # 收紧只在「本段确实有值得追的数」时生效：段里只有「沪深300」这类标签数字
+        # （非高熵）就退回全文 —— 拿一个标签数当本段的数值池，只会把对的判成错的。
+        # 中文概数（「约两成」）也算「值得追」：它是段内给数的合法形态，若不算，
+        # 用中文写的回答会退回全文池，本轮想要的收紧就白做了。
         pool = (
             owned
-            if any(_is_high_entropy(*token) for token in owned)
+            if any(_is_high_entropy(*token) or token.approximate for token in owned)
             else [token for (_, token), own in zip(token_spans, owners) if own is not None]
         )
         if any(_token_cites(token, value) for token in pool for value in values):
@@ -682,6 +839,10 @@ def run_case(db, case):
     narrative = expect.get('narrative')
     if ok and narrative:
         ok, why = evaluate_narrative(reply, expect)
+    if ok and isinstance(narrative, dict):
+        # 结构在数值判定之前：归属判据失效时先说「为什么它判不了」，
+        # 而不是把退化后的宽松结果当答案（D106）。
+        ok, why = evaluate_layout(reply, narrative['covers'])
     if ok and isinstance(narrative, dict):
         ok, why = evaluate_metric_presence(reply, payload, narrative['covers'])
     if ok and isinstance(narrative, dict) and narrative.get('numbers', True):
