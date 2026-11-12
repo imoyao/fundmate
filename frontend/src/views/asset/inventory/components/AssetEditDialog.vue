@@ -39,6 +39,33 @@
         </el-select>
       </el-form-item>
       <!--
+        配置目标（五笔钱，G5）：负债不参与五笔钱（conventions 冻结），故整项不渲染；
+        现金类由后端按大类强制推导成「活钱」（P0-4），这里只读展示，不给用户改错的机会。
+      -->
+      <el-form-item v-if="!isLiability && isCashCategory" label="配置目标">
+        <span>活钱</span>
+        <p class="change-hint">
+          现金类资产固定归活钱，按大类自动推导，无需配置
+        </p>
+      </el-form-item>
+      <el-form-item v-else-if="!isLiability" label="配置目标">
+        <el-select
+          v-model="form.allocation"
+          class="w-full"
+          placeholder="请选择"
+        >
+          <el-option
+            v-for="opt in ALLOCATION_OPTIONS"
+            :key="opt.value"
+            :label="opt.label"
+            :value="opt.value"
+          />
+        </el-select>
+        <p class="change-hint">
+          这笔钱算进哪一笔——活钱／稳健底仓／长期增值／高风险博弈／保险保障
+        </p>
+      </el-form-item>
+      <!--
         值变动（D99/D100）：填的是「本次变动量」这个**独立业务事实**，
         不是变动后绝对值。绝对值无法支持乱序补录：当前值已含后续变动，
         用「新值 − 当前值」反推 delta 会把后面整条曲线平移。
@@ -120,6 +147,7 @@ import {
 } from "@/composables/useUnsavedChangesGuard";
 import { formatAmount } from "@/utils/currency";
 import { formatDate } from "@/utils/date";
+import { ALLOCATION_OPTIONS } from "@/constants";
 import { getErrorMessage } from "../helpers";
 import { ASSET_TYPE_MAP } from "../constants";
 
@@ -149,6 +177,24 @@ const fixedSubtypeOptions = ASSET_TYPE_MAP.fixed;
 /** 固定资产大类才补子类：其余大类的 minor_category 语义不同 */
 const isFixedCategory = computed(() => props.asset?.major_category === "fixed");
 
+/** 负债不参与五笔钱（conventions 冻结），配置目标整项不渲染 */
+const isLiability = computed(() => props.asset?.major_category === "liability");
+
+/** 现金类由后端按大类推导成「活钱」（P0-4），表单只读展示、不提交该键 */
+const isCashCategory = computed(() => props.asset?.major_category === "cash");
+
+/**
+ * 配置目标是否真的被改过。只在为真时提交 `allocation`——后端凭「请求体是否
+ * 显式带该键」判定 `allocation_source`，无条件提交会把 `default` 行误标成
+ * `user` 并被 G3 回填永久跳过（见 save() 内的注释）。
+ */
+const allocationChanged = computed(
+  () =>
+    !isLiability.value &&
+    !isCashCategory.value &&
+    (form.value.allocation ?? null) !== (props.asset?.allocation ?? null)
+);
+
 /** 负债/应收叫「余额」，房产等叫「估值」，避免与持仓 NAV 混（设计 §3.1） */
 const valueNoun = computed(() =>
   ["liability", "receivable"].includes(props.asset?.major_category ?? "")
@@ -172,6 +218,8 @@ const form = ref<{
   notes: string;
   /** 子类键（minor_category）：#1849 补分类入口所需 */
   minorCategory: string | null;
+  /** 五笔钱配置目标（G5）；只在用户改过时才提交，见 save() */
+  allocation: string | null;
 }>({
   id: null,
   name: "",
@@ -180,7 +228,8 @@ const form = ref<{
   changeNote: "",
   isCorrection: false,
   notes: "",
-  minorCategory: null
+  minorCategory: null,
+  allocation: null
 });
 
 /**
@@ -195,7 +244,8 @@ const EMPTY_FORM = {
   changeNote: "",
   isCorrection: false,
   notes: "",
-  minorCategory: null
+  minorCategory: null,
+  allocation: null
 };
 
 const { isDirty, fillOnOpen, markSaved } = useDialogForm(form, () => ({
@@ -232,7 +282,8 @@ watch(
       changeNote: "",
       isCorrection: false,
       notes: props.asset?.notes || "",
-      minorCategory: props.asset?.minor_category ?? null
+      minorCategory: props.asset?.minor_category ?? null,
+      allocation: props.asset?.allocation ?? null
     }));
   },
   { immediate: true }
@@ -241,7 +292,8 @@ watch(
 const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
   () => isDirty.value,
   {
-    message: "资产名称／变动量／变动日期／说明／备注已改动，确定放弃吗？"
+    message:
+      "资产名称／配置目标／变动量／变动日期／说明／备注已改动，确定放弃吗？"
   }
 );
 
@@ -273,7 +325,12 @@ async function save() {
       // 只在固定资产大类下提交子类：其余大类的 minor_category 有各自的语义
       ...(isFixedCategory.value
         ? { minor_category: form.value.minorCategory || null }
-        : {})
+        : {}),
+      // 配置目标**只在值真的变了才提交**：后端按「请求体是否显式带 allocation」
+      // 判定来源（G1-b），无条件提交会把 default 行静默标成 user，该行从此
+      // 被 G3 回填永久跳过——界面看不出任何异常。负债 / 现金（后端强制推导）
+      // 两条路径本就不提交。
+      ...(allocationChanged.value ? { allocation: form.value.allocation } : {})
     };
     if (delta !== 0) {
       // 失败重试时若用户改了变动要点，必须换 token：否则后端按「重放」返回

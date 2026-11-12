@@ -36,6 +36,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.summary.models import AssetSnapshot
 from app.domains.transactions.models import Transaction
+from app.services.allocation_breakdown import allocation_group_items, allocation_payload
 
 # 成员切片的账户集合唯一出口（#1173）
 from app.services.family_member_service import ledger_ids_for_member
@@ -60,7 +61,6 @@ from app.services.position_valuation import market_value_cents
 # ---------------------------------------------------------------------------
 _LIABILITY_KEY = 'liability'
 _INVESTMENT_KEY = 'investment'
-_DEFAULT_ALLOC = 'longterm'
 _UNKNOWN_TYPE = '其他'
 _INVESTMENT_LABEL = CATEGORY_META['investment'][0]
 
@@ -697,7 +697,6 @@ def get_distributions(db: Session, family_id: int = 1, member_id: int | None = N
         return Money.cents_to_yuan(market_value_cents(p, rate=rate))
 
     type_map: dict[str, float] = defaultdict(float)
-    alloc_map: dict[str, float] = defaultdict(float)
     market_map: dict[str, float] = defaultdict(float)
     account_map: dict[str, float] = defaultdict(float)
     positions_total_mv = 0.0
@@ -709,7 +708,6 @@ def get_distributions(db: Session, family_id: int = 1, member_id: int | None = N
             # #863 口径 A：货基/逆回购持仓市值统计入「流动资金」分类（非「投资理财」）
             cash_equiv_total += mv
         type_map[TYPE_LABELS.get(p.asset_type, p.asset_type or _UNKNOWN_TYPE)] += mv
-        alloc_map[ALLOCATION_LABELS.get(p.allocation, p.allocation or _DEFAULT_ALLOC)] += mv
         market_map[MARKET_LABELS.get(p.market, p.market or _UNKNOWN_TYPE)] += mv
         account_map[p.account_name or '未指定账户'] += mv
 
@@ -744,7 +742,7 @@ def get_distributions(db: Session, family_id: int = 1, member_id: int | None = N
 
     return {
         'type_distribution': _to_list(type_map),
-        'allocation_distribution': _to_list(alloc_map),
+        **allocation_payload(positions, assets, pos_value=_pos_mv, liabilities_total=totals['total_liabilities']),
         'market_distribution': _to_list(market_map),
         'account_distribution': _to_list(account_map),
         'category_distribution': _to_list(category_map),
@@ -867,9 +865,8 @@ def get_position_groups(
                 continue
             _add(a.account_name or '未指定账户', _asset_group_payload(a))
     elif dimension == 'allocation':
-        for p in positions:
-            key = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
-            _add(key, _pos_group_payload(p))
+        for key, payload in allocation_group_items(positions, assets, _pos_group_payload, _asset_group_payload):
+            _add(key, payload)
     else:
         for p in positions:
             key = TYPE_LABELS.get(p.asset_type, p.asset_type or _UNKNOWN_TYPE)

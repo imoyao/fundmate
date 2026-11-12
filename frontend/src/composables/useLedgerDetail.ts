@@ -106,6 +106,13 @@ export interface LedgerDetailApi {
     portfolioId: number | null
   ) => Promise<void>;
   openPositionDrawer: (row: LedgerHoldingRow) => void;
+  /**
+   * 只重取账户概览（不含持仓 / 流水）。
+   *
+   * 供「账户概览以外的轻量写入」定点刷新用：账户现金（G5）写入后只有
+   * `account_cash_amount` / `cash_like_amount` 变了，重取整页数据属浪费。
+   */
+  loadSummary: () => Promise<void>;
   /** 持仓抽屉内改/删交易后：概览 + 持仓行 + 交易记录 Tab 全部重取（后端已重算份额成本） */
   refreshAfterPositionTxnChange: () => Promise<void>;
   openEditDialog: () => Promise<void>;
@@ -593,6 +600,7 @@ export function useLedgerDetail(): LedgerDetailApi {
     resolveHoldingPortfolio,
     reassignPosition,
     openPositionDrawer,
+    loadSummary,
     refreshAfterPositionTxnChange,
     openEditDialog,
     toggleArchiveDetail,

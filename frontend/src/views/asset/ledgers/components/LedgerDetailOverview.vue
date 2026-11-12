@@ -269,7 +269,12 @@
        （并进去会重演 #1606 的「投资资产 -63.2%」负数 bug，口径解耦见 D59）。
        #2739：anchor-id 让本块在有内容时挂上页内导航锚点（整块不渲染时
        锚点随之消失，导航项不留死链）。 -->
-  <LedgerCashLikeCard anchor-id="nav-cash-like" :summary="p.summaryData" />
+  <LedgerCashLikeCard
+    anchor-id="nav-cash-like"
+    :summary="p.summaryData"
+    :ledger-id="p.ledgerIdNum"
+    @saved="p.loadSummary"
+  />
 
   <!-- #1812：收益日历已落地（账户级，传 ledgerId 走该账户的 as-of 派生序列）。
        与 welcome 第三排 / panorama「资产大类 ⇄ 收益日历」原地切换是**同一组件的三处容器**，
