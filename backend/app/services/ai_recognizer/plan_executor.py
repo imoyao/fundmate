@@ -27,9 +27,16 @@ PLAN_INSTRUCTION = (
     '仍用 action=execute_tool，但改输出 plan 数组，不要输出 tool_name。\n'
     '每步形如 {"tool":"清单里的 name","tool_params":{...},"params_from":<更早步骤序号,可选>}；'
     '按依赖顺序排列，最多 ' + str(MAX_STEPS) + ' 步，每步 tool 必须取自上面的工具清单。\n'
-    '后一步需要前一步的结果时，把该参数值写成引用占位 '
-    '{"$from_step":0,"path":"rows.0.symbol"}（path 用点号分隔，数字表示数组下标）；'
-    'params_from 写被引用的步骤序号。不要凭空猜测任何数值，也不要把中间数值写进参数。\n'
+    '后一步需要前一步的结果时，把该参数值写成引用占位对象 '
+    '{"$from_step":0,"path":"rows.0.symbol"}（path 用点号分隔，数字表示数组下标），'
+    'params_from 写被引用的步骤序号。占位**必须是一个 JSON 对象**：不要写成字符串、'
+    '不要用 {{ }} 或 ${} 包裹、也不要把键名与序号拼成 $from_step:0,path:x 这类文本。'
+    '完整示例（两步，第 2 步取第 1 步结果的字段）：'
+    '{"action":"execute_tool","plan":['
+    '{"tool":"list_position_pnl","tool_params":{}},'
+    '{"tool":"get_fund_nav","tool_params":{"symbol":{"$from_step":0,"path":"rows.0.symbol"}},'
+    '"params_from":0}]}。'
+    '不要凭空猜测任何数值，也不要把中间数值写进参数。\n'
     '服务端按序执行、把真实数值注入下一步参数，你不会看到中间结果。\n'
     '覆盖要求：先把用户提问拆成独立子问；每个能由工具回答的子问在 plan 里各占一步，'
     '不要用一步数据敷衍多个子问，也不要丢弃任何一个子问；同一工具可重复出现在不同步骤'
@@ -88,6 +95,25 @@ def _dig(obj: Any, path: str) -> Any:
     return cur
 
 
+_DANGLING_HINT = (
+    '引用占位必须是一个 JSON 对象 {"$from_step":0,"path":"rows.0.symbol"}，'
+    '不能写成字符串，也不能用 {{ }} / ${} 包裹或拼成 $from_step:0,path:x'
+)
+
+
+def _reject_dangling_ref(value: str) -> str:
+    """字符串里残留 `$from_step` ⇒ 模型把占位写成了文本模板，提前给出可照做的错误。
+
+    WHY：这类占位若原样透传，报错出在工具参数校验里（「symbol 类型不对」），
+    模型看不出真正原因是占位格式，2026-11-11 真实数据 eval 就因此连错两轮、
+    整轮 0 步成功。在这里拦下，错误信息直接说明正确写法，主循环的
+    「带错误反馈重试一次」才有机会救回来。
+    """
+    if _REF_KEY in value:
+        raise ValueError(f'参数值 {value!r} 是未展开的引用占位文本：{_DANGLING_HINT}')
+    return value
+
+
 def _resolve(value: Any, outputs: list) -> Any:
     """把参数里的引用占位换成上一步真实数值；这是纯代码侧注入，模型看不到。"""
     if isinstance(value, dict):
@@ -99,6 +125,8 @@ def _resolve(value: Any, outputs: list) -> Any:
         return _dig(outputs[idx], value.get('path', ''))
     if isinstance(value, list):
         return [_resolve(v, outputs) for v in value]
+    if isinstance(value, str):
+        return _reject_dangling_ref(value)
     return value
 
 
