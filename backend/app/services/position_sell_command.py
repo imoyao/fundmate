@@ -64,7 +64,7 @@ from app.core.money import Money
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
-from app.domains.positions.state import is_covered_by_anchor, mark_position_cleared
+from app.domains.positions.state import is_backfill_of_past, mark_position_cleared
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.position_write_support import (
     _fee_breakdown_kwargs,
@@ -130,10 +130,10 @@ def prepare_sell(
     if qty_units <= 0:
         raise ValueError('操作数量必须大于 0')
 
-    # 锚点判定：这笔卖出若已包含在快照里（confirm_date <= 锚点日），快照份额已经
-    # 反映了它，**不再扣减** quantity，否则会把快照值减成「快照 - 已含卖出」。
-    # 同时跳过数量校验：被包含的卖出不该受当前派生份额约束（它已经发生过了）。
-    covered_by_anchor = is_covered_by_anchor(existing, data.get('confirm_date'))
+    # 历史回填判定：这笔卖出若已包含在快照里（confirm_date <= 锚点日）或属于已清仓
+    # 周期（confirm_date <= cleared_at），持仓份额已经反映了它，**不再扣减** quantity，
+    # 同时跳过数量校验：已发生过的卖出不该受当前份额约束（`is_backfill_of_past`）。
+    covered_by_anchor = is_backfill_of_past(existing, data.get('confirm_date'))
 
     if not covered_by_anchor:
         if existing.quantity < qty_units:
@@ -211,7 +211,7 @@ def apply_sell_to_position(db: Session, intent: SellIntent, data: dict) -> bool:
             mark_position_cleared(existing, data.get('confirm_date') or data.get('trade_date'))
     else:
         logger.debug(
-            '卖出已含在快照锚点内，仅落流水: position={} symbol={} confirm={} anchor={}',
+            '卖出已含在快照锚点/已清仓周期内，仅落流水: position={} symbol={} confirm={} anchor={}',
             existing.id,
             existing.symbol,
             data.get('confirm_date'),
