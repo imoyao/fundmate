@@ -100,6 +100,15 @@ NEW_FILE_LIMITS = {
 # `_tool_description`；编排逻辑全部下沉到新文件 `ai_recognizer/plan_executor.py`
 # （211 行 / max_func 40 / max_cc 15，走 NEW_FILE_LIMITS）。基线是向下收紧，
 # 不是放宽阈值；max_func 294 / max_cc 39 未变。
+#
+# 2026-11-12 「分红送股静默空跑」（#3073）按 `--report` **收紧**两项，理由留痕：
+# `job_base.py` 409→407 / max_func 109→106、`sync/orchestrator.py` 822→821。
+# 前者新增 `requires_targets` 声明（3 行），但校验体下沉到新文件
+# `sync/target_guard.py`（48 行，走 NEW_FILE_LIMITS），并压掉既有等价的注释行，
+# 净减 2 行；后者加一行 `require_targets(...)` 调用、压掉两行注释，净减 1 行。
+# 三个维度都只减不增；`dividend_split_job.py` 554 行与基线一致，无需改动。
+# ⚠️ 守住「贴合」不是多余：只把代码改瘦、不回写基线，`test_baseline_matches_current_metrics`
+# 会判红（本 PR 首轮 CI 即因 `407 != 409` 失败），而该维度的「只减不增」也会静默失效。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -247,7 +256,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/insight/engine.py": {'lines': 156, 'max_func': 27, 'max_cc': 6},
     "backend/app/services/insight/rules.py": {'lines': 255, 'max_func': 40, 'max_cc': 10},
     "backend/app/services/institution_resolver.py": {'lines': 179, 'max_func': 36, 'max_cc': 14},
-    "backend/app/services/job_base.py": {'lines': 409, 'max_func': 109, 'max_cc': 14},
+    "backend/app/services/job_base.py": {'lines': 407, 'max_func': 106, 'max_cc': 14},
     "backend/app/services/jsl_session.py": {'lines': 126, 'max_func': 29, 'max_cc': 6},
     # 2026-11-12 对账中心「显示账本名却判未归属 / 归入按钮无效」修复，按 --report
     # 实测回写两项：ledger_migration_service.py 794→798（归入范围补齐到全部悬空
@@ -423,7 +432,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/sync/jobs/security_industry_map_job.py": {'lines': 237, 'max_func': 40, 'max_cc': 11},
     "backend/app/services/sync/jobs/stock_list_job.py": {'lines': 104, 'max_func': 41, 'max_cc': 14},
     "backend/app/services/sync/name_match.py": {'lines': 351, 'max_func': 32, 'max_cc': 9},
-    "backend/app/services/sync/orchestrator.py": {'lines': 822, 'max_func': 115, 'max_cc': 8},
+    "backend/app/services/sync/orchestrator.py": {'lines': 821, 'max_func': 115, 'max_cc': 8},
     "backend/app/services/sync/pinyin_utils.py": {'lines': 28, 'max_func': 16, 'max_cc': 5},
     "backend/app/services/sync/snapshot.py": {'lines': 340, 'max_func': 83, 'max_cc': 16},
     "backend/app/services/tenure_display.py": {'lines': 167, 'max_func': 42, 'max_cc': 5},
