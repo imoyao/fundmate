@@ -363,6 +363,14 @@ def main() -> None:
                 logger.info(f'每日调度完成，耗时 {elapsed:.1f}s，失败: {failed or "无"}')
                 # 机器可读的一行：告警卡正文与人工排查都直接用它
                 logger.info('DAILY_RUN_SUMMARY ' + json.dumps(summary, ensure_ascii=False))
+                # 周频本地巡检（#3081）：部署侧跑的正是这条一次性路径，它不启动 APScheduler，
+                # 只在 `daily_scheduler.start()` 注册的巡检在 CI 上永远轮不到。放在这里而不是
+                # `--job` 分支——单 job 是人工验证，不该顺手改基线；也刻意放在失败退出**之前**：
+                # job 失败时更该看一眼数据健康度。异常已在 `run_local_check` 内收敛。
+                from app.services.local_checks import run_due_checks
+
+                for check in run_due_checks():
+                    logger.info(f'  巡检 {check.get("job_name")}: {check.get("status")}')
                 if failed:
                     # 有 job 失败 ⇒ 退出码非 0（#2457）。
                     # 旧行为是「失败只打进日志、进程照样退 0」，于是 workflow 判绿、
