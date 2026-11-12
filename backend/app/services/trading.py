@@ -14,6 +14,7 @@
 from sqlalchemy.orm import Session
 
 from app.domains.transactions.dates import prepare_write_kwargs
+from app.domains.transactions.ledger_guard import validate_ledger_ref
 from app.domains.transactions.models import Transaction
 
 # ---------- 规则配置 ----------
@@ -125,9 +126,11 @@ class TransactionService:
 
         写入收敛点（唯一构造汇点，全仓 16 处调用）在
         `domains/transactions/dates.prepare_write_kwargs`：只兜底 trade_date（#2914）。
-        #2875 的账本校验放在导入路径（见 orchestrator_commit），不在汇点硬拦。
+        #2875 撤销的是「ledger_id 为空即报错」的硬拦（手工建仓 / API 的 NULL 合法）；
+        本次只校验**非空**的 id 必须存在且属于本家庭，两者不冲突。
         source（#1232 决策 11）：可选，透传到 Transaction.source（复用 PositionSource）。
         """
+        validate_ledger_ref(db, kwargs.get('ledger_id'), kwargs.get('family_id'))
         prepare_write_kwargs(kwargs)
         txn = Transaction(**kwargs)
         db.add(txn)

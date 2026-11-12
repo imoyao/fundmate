@@ -588,12 +588,26 @@ def _valid_ledger_ids(db, family_id: int) -> list[int]:
     return [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
 
 
+def _orphan_transaction_condition(valid_ledger_ids, orphan_position_ids):
+    """孤儿交易判定的**唯一真源**：明细 / 归入 / 清理三处共用，禁止各写一套。
+
+    两个分支：账本悬空（NULL 或指向已删账户），或挂在孤儿持仓下（持仓要归入/删掉，
+    它的流水必须一起动，否则持仓去了目标账本、流水还留在原账本）。此前同一文件里
+    三处手写条件各不一样：明细只看前者、归入/清理加了后者，于是「明细列出来的」
+    与「点了按钮实际动的」不是同一批行，修一处就与别处漂移。
+    """
+    return or_(
+        Transaction.position_id.in_(orphan_position_ids),
+        _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
+    )
+
+
 def build_orphan_detail(db, family_id: int) -> dict:
     """未归置数据（孤儿）明细：孤儿持仓/资产/交易清单 + 汇总。
 
     前端此前只能看到汇总数字（N 个持仓、合计 ¥X），无法定位具体是哪些数据；
-    本函数补齐明细，孤儿判定与归入/清理完全一致（ledger_id 为空或不在当前家庭
-    有效账户 id 集合内），保证「明细展示 → 归入/清理」所见即所得。
+    本函数补齐明细，交易判定与归入 / 清理共用 _orphan_transaction_condition，
+    保证「明细展示 → 归入 / 清理」操作的是同一批行。
     """
     valid_ledger_ids = _valid_ledger_ids(db, family_id)
 
@@ -641,13 +655,13 @@ def build_orphan_detail(db, family_id: int) -> dict:
             }
         )
 
-    # ── 孤儿交易：ledger_id 悬空（与归入交易的判定一致）。
+    # ── 孤儿交易：与归入 / 清理共用 _orphan_transaction_condition，所见即所得。
     #    交易是流水而非存量，金额不计入 total_market_value，避免与持仓/资产重复计算
     orphan_txns = (
         db.query(Transaction)
         .filter(
             Transaction.family_id == family_id,
-            _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
+            _orphan_transaction_condition(valid_ledger_ids, [p.id for p in orphan_positions]),
         )
         .all()
     )
@@ -690,8 +704,9 @@ def build_orphan_detail(db, family_id: int) -> dict:
 def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
     """将未归置数据（孤儿持仓/资产/交易）归入指定账户（单事务）。
 
-    交易范围与明细 / 删除同口径：明细列得出来的悬空流水点「归入现有账户」后都必须
-    真的落账。返回各项计数；目标账户已有同名持仓（唯一键冲突）时回滚并抛 400。
+    交易范围由 _orphan_transaction_condition 统一给出，与明细 / 清理共用，
+    明细列得出来的行点「归入现有账户」后都必须真的落账。返回各项计数；
+    目标账户已有同名持仓（唯一键冲突）时回滚并抛 400。
     """
     valid_ledger_ids = _valid_ledger_ids(db, family_id)
     orphan_cond = _orphan_position_condition(valid_ledger_ids)
@@ -711,16 +726,12 @@ def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
                 synchronize_session=False,
             )
         )
-        # 归入全部悬空流水（含 position_id 为空的账户级流水），与明细 / 删除同口径：
-        # 此前只筛 position_id 命中孤儿持仓的行，明细列出来的流水点了归入却没动。
+        # 归入孤儿交易（判据与明细 / 清理共用，见 _orphan_transaction_condition）
         transaction_count = (
             db.query(Transaction)
             .filter(
                 Transaction.family_id == family_id,
-                or_(
-                    Transaction.position_id.in_(orphan_position_ids),
-                    _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
-                ),
+                _orphan_transaction_condition(valid_ledger_ids, orphan_position_ids),
             )
             .update(
                 {Transaction.ledger_id: target.id, Transaction.account_name: target.name},
@@ -764,15 +775,12 @@ def delete_orphan_data(db, family_id: int) -> dict:
         pid for (pid,) in db.query(Position.id).filter(Position.family_id == family_id, orphan_cond).all()
     ]
 
-    # 先删交易：position 命中孤儿持仓 或 ledger_id 悬空
+    # 先删交易：判据与明细 / 归入共用，见 _orphan_transaction_condition
     transaction_count = (
         db.query(Transaction)
         .filter(
             Transaction.family_id == family_id,
-            or_(
-                Transaction.position_id.in_(orphan_position_ids),
-                _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
-            ),
+            _orphan_transaction_condition(valid_ledger_ids, orphan_position_ids),
         )
         .delete(synchronize_session=False)
     )

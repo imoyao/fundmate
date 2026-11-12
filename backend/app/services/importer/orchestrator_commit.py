@@ -341,9 +341,11 @@ class CommitMixin:
                         ledger_id = data['ledger_id']
                         target_ledger = self.db.query(Ledger).filter_by(id=ledger_id, family_id=self.family_id).first()
                         if not target_ledger:
-                            # 目标账本完全不存在时才置 pending_cash（record.ledger_id 已校验，几乎不发生）
+                            # 账本不存在时不写悬空 id（汇点会拦）：保留 pending_cash，
+                            # 流水以无账本形态落库，再由「未归置数据」归置。
                             entry_status = 'pending_cash'
                             data['account_name'] = data.get('account_name', '')
+                            data['ledger_id'] = None
                         else:
                             # #1067 现金归属口径（2026-08-29 修正，见 issue #1137）：
                             # 卖出/赎回/分红/货基等回款一律「留在投资账本本身」，不再改写 ledger_id 到

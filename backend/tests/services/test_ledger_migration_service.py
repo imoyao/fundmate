@@ -280,6 +280,48 @@ class TestCommit:
         assert db.query(Position).filter(Position.ledger_id == target.id).count() == 0
 
 
+def _four_txn_shapes(db):
+    """构造孤儿交易的四种形态，返回 (目标账户, {标签: Transaction})。
+
+    刻意补上此前从未被测到的两类行：``ledger_id`` 指向已删除账户、以及
+    「账本有效但挂在孤儿持仓下」。明细 / 归入 / 清理必须把它们当成同一批。
+    """
+    target = _ledger(db, '目标账户')
+    kept = _ledger(db, '正常账户')
+    orphan_pos = _pos(db, '510300', None, name='孤儿持仓')
+    normal_pos = _pos(db, '600000', kept, name='正常持仓')
+
+    def add(ledger_id, position_id, name):
+        txn = Transaction(
+            position_id=position_id,
+            ledger_id=ledger_id,
+            family_id=1,
+            txn_type='buy',
+            symbol='',
+            position_name=name,
+            account_name='',
+            quantity=0,
+            price=0,
+            amount=Money.yuan_to_cents(1),
+            status='success',
+        )
+        db.add(txn)
+        return txn
+
+    rows = {
+        'null': add(None, None, 'NULL 无持仓'),
+        'dangling': add(999_999, None, '指向已删账户'),
+        'orphan_child': add(kept.id, orphan_pos.id, '有效账本但挂孤儿持仓'),
+        'normal': add(kept.id, normal_pos.id, '正常流水'),
+    }
+    db.commit()
+    return target, rows
+
+
+def _expected_orphan_txn_ids(rows):
+    return {rows['null'].id, rows['dangling'].id, rows['orphan_child'].id}
+
+
 class TestOrphan:
     """孤儿（未归置）数据：明细 / 归入 / 清理，服务层直接驱动。"""
 
@@ -387,6 +429,29 @@ class TestOrphan:
         assert txn.ledger_id == target.id
         assert txn.account_name == '目标账户'
         assert svc.build_orphan_detail(db, 1)['summary']['transaction_count'] == 0
+
+    def test_detail_and_migrate_share_same_transaction_set(self, db):
+        """明细列出的交易 ≡ 归入更新的交易：三处判据共用 _orphan_transaction_condition。"""
+        target, rows = _four_txn_shapes(db)
+        detail = svc.build_orphan_detail(db, 1)
+        assert {t['id'] for t in detail['transactions']} == _expected_orphan_txn_ids(rows)
+
+        counts = svc.migrate_orphan_data(db, target, 1)
+        assert counts['transaction_count'] == 3
+        db.expire_all()
+        for key in ('null', 'dangling', 'orphan_child'):
+            assert rows[key].ledger_id == target.id
+        assert rows['normal'].ledger_id != target.id
+
+    def test_detail_and_delete_share_same_transaction_set(self, db):
+        """明细列出的交易 ≡ 清理删除的交易；正常账本下的流水绝不能被误删。"""
+        _target, rows = _four_txn_shapes(db)
+        detail = svc.build_orphan_detail(db, 1)
+        assert {t['id'] for t in detail['transactions']} == _expected_orphan_txn_ids(rows)
+
+        counts = svc.delete_orphan_data(db, 1)
+        assert counts['transaction_count'] == 3
+        assert {t.id for t in db.query(Transaction).all()} == {rows['normal'].id}
 
     def test_migrate_conflict_with_existing_symbol_raises_400(self, db):
         """归入会撞 uq_positions_ledger_symbol（目标已有同名持仓）→ 回滚 + 400。"""

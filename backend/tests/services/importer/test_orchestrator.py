@@ -71,8 +71,10 @@ def test_commit_split_records_orphan_when_no_position(db):
     """P2-2：导入送股无关联持仓时记孤儿流水（份额计入、价格/金额为零），不阻断导入。
 
     #2875：record 必须带 ledger_id——缺账本的行现在会被写入守卫拦截进 commit_errors，
-    不再静默落成「不进任何账本」的脏行。
+    不再静默落成「不进任何账本」的脏行。写入汇点还会校验引用，故补建真实账本。
     """
+    db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+    db.commit()
     orch = ImportOrchestrator(db, family_id=1)
     record = StandardTransactionRecord(
         confirm_date=date(2026, 8, 1),
@@ -99,6 +101,8 @@ def test_commit_split_records_orphan_when_no_position(db):
 
 def test_commit_split_associates_existing_position(db):
     """P2-2：导入送股有关联持仓时计入份额、均价被零成本份额稀释。"""
+    db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+    db.commit()
     PositionService.process_buy_or_deposit(
         db,
         {

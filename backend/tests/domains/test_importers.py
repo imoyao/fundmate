@@ -8,10 +8,24 @@ import hashlib
 import io
 from datetime import date
 
+import pytest
+
 from app.core.constants import OP_TYPE_LABEL
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+
+
+@pytest.fixture(autouse=True)
+def _default_ledger(db):
+    """写入汇点会校验账本引用：老夹具硬编码的 ledger_id=1 必须真有账本。
+
+    #2875 只要求「confirm 行带账本」，夹具因此统一补 1；现在还要求这个 id
+    指向真实存在的账本，否则等价于前端回传了一个已删除账户的 id。
+    """
+    if db.query(Ledger).filter_by(id=1).first() is None:
+        db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+        db.commit()
 
 
 def _with_ledger(rows, ledger_id=1):
