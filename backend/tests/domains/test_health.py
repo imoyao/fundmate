@@ -24,10 +24,15 @@ def _naive_now() -> datetime:
     return now_shanghai().replace(tzinfo=None)
 
 
-def _insert_success_log(db, started_at: datetime) -> None:
+def _insert_success_log(db, started_at: datetime, job_name: str = 'asset_snapshot') -> None:
+    """写一条成功审计行。
+
+    默认写心跳 job（`asset_snapshot`）——#3085 起「调度在跑」只认它；写别的 job
+    模拟的是「手动单跑了某一个 job」，那**不该**让停摆显示成正常。
+    """
     db.add(
         SyncLog(
-            job_name='temperature',
+            job_name=job_name,
             status='success',
             full_sync=False,
             started_at=started_at,
@@ -132,11 +137,83 @@ def test_health_keeps_disabled_even_with_recent_success_log(client, db, monkeypa
 
     判反了会出现最坏组合：用户以为自己在跑调度（页面显示一切正常），
     而实际上抓取早已停止——这正是 #1720 记录的「静默陈旧」形态。
+
+    #3085 起这条更精确：写入的是 `temperature`（非心跳 job）的成功行，
+    即「手动单跑过某个 job」——那不能证明每日调度在跑。
     """
-    _insert_success_log(db, _naive_now())
+    _insert_success_log(db, _naive_now(), job_name='temperature')
     monkeypatch.setenv('SCHEDULER_ENABLED', '0')
 
     sched = _health_scheduler(client, monkeypatch)
 
     assert sched['last_success_run'] is not None, '前提：有近期成功记录'
     assert sched['status'] == 'disabled', '开关关闭时不得因有历史成功记录就显示 healthy'
+
+
+# ---------------------------------------------------------------------------
+# 心跳 job 口径与「形态无关」（#3085）
+#
+# 上一组用例只回答「开关关了要显示出来」。这一组回答的是另一半：**调度停了**也要
+# 显示出来，而旧口径两个方向都会漏——手动单跑任何 job 都能续命；部署库（外部 cron
+# 驱动、从不设 SCHEDULER_ENABLED）停摆多久都只报 disabled，而 disabled 不拉低整体。
+# ---------------------------------------------------------------------------
+
+
+def test_manual_job_success_does_not_mask_dead_scheduler(client, db, monkeypatch):
+    """反向钉：只有非心跳 job 的近期成功，调度仍算停摆。
+
+    旧口径取「任意 success 行的 max」，所以「停摆 10 天 + 今天手动跑了一次 nav_backfill」
+    会显示健康——查故障的人第一眼就被这句话劝退。
+    """
+    _insert_success_log(db, _naive_now() - timedelta(days=10))
+    _insert_success_log(db, _naive_now(), job_name='nav_backfill')
+
+    sched = _scheduler_component(client, monkeypatch)
+
+    assert sched['status'] == 'unhealthy', '手动单跑的 success 不得让停摆显示正常'
+    assert sched['heartbeat_job'] == 'asset_snapshot'
+    assert 'asset_snapshot' in sched['message'], '消息要点名是哪个 heartbeat 没跑'
+
+
+def test_external_cron_form_is_healthy_without_scheduler_enabled(client, db, monkeypatch):
+    """部署形态：本机常驻没开，但库里有近期心跳 ⇒ 外部定时器在跑，判健康。
+
+    旧口径在这里报 `disabled`（"不会自动更新"），把正在跑的部署库说成没启用。
+    """
+    _insert_success_log(db, _naive_now())
+    monkeypatch.delenv('SCHEDULER_ENABLED', raising=False)
+
+    sched = _health_scheduler(client, monkeypatch)
+
+    assert sched['enabled'] is False, '开关本身仍是关的（字段如实反映）'
+    assert sched['status'] == 'healthy'
+    assert '外部定时器' in sched['message'], '必须说清是谁在驱动它'
+
+
+def test_external_cron_form_stale_is_degraded(client, db, monkeypatch):
+    """部署形态停摆 ⇒ `degraded`：本进程看不到那个定时器，不能下定论，但必须显示。
+
+    报 `disabled` 的后果是「进程全停」这件事在状态页上完全不可见——正是 #3085 要修的。
+    """
+    _insert_success_log(db, _naive_now() - timedelta(days=10))
+    monkeypatch.delenv('SCHEDULER_ENABLED', raising=False)
+
+    sched = _health_scheduler(client, monkeypatch)
+
+    assert sched['status'] == 'degraded'
+    assert '外部定时器可能已停' in sched['message']
+
+
+def test_heartbeat_job_is_daily_scheduled():
+    """心跳 job 必须真的在每日调度表里，且 cron 是日频。
+
+    否则这套判定会以「一个从不运行的 job」为基准：它永远没有成功记录，
+    或者反过来永远新鲜——两种都会让结论与事实脱钩。
+    """
+    from app.services.daily_scheduler import _JOB_TEMPLATES
+
+    rows = {t[0]: t for t in _JOB_TEMPLATES}
+    assert 'asset_snapshot' in rows, '心跳 job 不在 _JOB_TEMPLATES ⇒ 它不会每日运行'
+    cron = rows['asset_snapshot'][3]
+    # 五段式 cron 的第 3 段是「日」；写成 `*/2` 或 `1` 就不是每日
+    assert cron.split()[2] == '*', f'心跳 job 的 cron 不是日频：{cron}'
