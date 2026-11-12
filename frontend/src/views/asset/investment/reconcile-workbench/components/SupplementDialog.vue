@@ -149,7 +149,10 @@ import {
   reconGroupTitle,
   reconQuantity
 } from "../utils/reconDisplay";
-import { inferSupplementOpType } from "../utils/reconSupplement";
+import {
+  inferSupplementOpType,
+  inferSupplementQuantity
+} from "../utils/reconSupplement";
 
 defineOptions({ name: "SupplementDialog" });
 
@@ -262,16 +265,17 @@ const rules = computed<FormRules>(() => ({
 }));
 
 /**
- * 预填买卖方向（owner：多了还是少了我们是知道的）。判据住在
+ * 预填买卖方向与成交数量（owner：多了还是少了我们是知道的）。判据住在
  * `utils/reconSupplement.ts`（纯函数 + 单测），这里只调用——方向搞反会静默
  * 写成反向交易，必须能被测试咬住，所以不留在 `.vue` 里。
- * 只预填方向，不预填数量（数量口径待 owner 拍板，不自作主张）。
+ * 数量预填的是**差额绝对值**（补完两边相等），与「卖出全仓」（按流水算的份额，
+ * 清仓语义）是两个不同的默认值，都保留，用户按实际成交选。
  */
 function resetForm(): void {
   form.kind = "increment";
-  // 按当前差异重新算方向（不是写死 buy）：打开弹窗 / 关闭后重开都要走这里
+  // 按当前差异重新算方向与数量（不是写死 buy / 空）：打开弹窗、关闭后重开都走这里
   form.op_type = inferSupplementOpType(props.target) ?? "buy";
-  form.quantity = undefined;
+  form.quantity = inferSupplementQuantity(props.target) ?? undefined;
   form.avg_price = undefined;
   form.fee = undefined;
   form.confirm_date = "";

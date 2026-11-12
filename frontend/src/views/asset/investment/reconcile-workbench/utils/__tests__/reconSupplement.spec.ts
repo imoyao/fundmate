@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DiscrepancyItem } from "@/api/reconciliation";
-import { inferSupplementOpType } from "../reconSupplement";
+import {
+  inferSupplementOpType,
+  inferSupplementQuantity
+} from "../reconSupplement";
 
 /**
  * 方向判据的回归网。
@@ -101,5 +104,73 @@ describe("inferSupplementOpType", () => {
       diff: 1.1
     });
     expect(inferSupplementOpType(row)).toBeNull();
+  });
+});
+
+describe("inferSupplementQuantity", () => {
+  it("预填的是差额绝对值（补完两边就相等）", () => {
+    expect(
+      inferSupplementQuantity(
+        makeRow({ expected_value: 2500, actual_value: 1500, diff: -1000 })
+      )
+    ).toBe(1000);
+    expect(
+      inferSupplementQuantity(
+        makeRow({ expected_value: 1000, actual_value: 1500, diff: 500 })
+      )
+    ).toBe(500);
+  });
+
+  it("diff 缺失时按 actual - expected 现算再取绝对值", () => {
+    expect(
+      inferSupplementQuantity(
+        makeRow({ expected_value: 3000, actual_value: 1000, diff: null })
+      )
+    ).toBe(2000);
+  });
+
+  it("差额为 0 不预填（0 会被读成「已填好」）", () => {
+    expect(
+      inferSupplementQuantity(
+        makeRow({ expected_value: 1500, actual_value: 1500, diff: 0 })
+      )
+    ).toBeNull();
+  });
+
+  it("orphan 不预填数量：持仓行没了不等于有差额要补", () => {
+    expect(
+      inferSupplementQuantity(
+        makeRow({
+          discrepancy_type: "orphan",
+          expected_value: 3700,
+          actual_value: 0,
+          diff: -3700
+        })
+      )
+    ).toBeNull();
+  });
+
+  it("cost 差异与数量无关，不预填", () => {
+    expect(
+      inferSupplementQuantity(
+        makeRow({ discrepancy_type: "cost", expected_value: 1.1, diff: 1.1 })
+      )
+    ).toBeNull();
+  });
+
+  it("两值都缺时不预填", () => {
+    expect(inferSupplementQuantity(makeRow({ diff: null }))).toBeNull();
+    expect(inferSupplementQuantity(null)).toBeNull();
+  });
+
+  it("与「卖出全仓」不是同一个数：差额 ≠ 按流水算的份额", () => {
+    const row = makeRow({
+      expected_value: 2500,
+      actual_value: 1500,
+      diff: -1000
+    });
+    // 预填数量 = 差额 1000；「卖出全仓」按钮填的是 expected_value 2500
+    expect(inferSupplementQuantity(row)).toBe(1000);
+    expect(row.expected_value).toBe(2500);
   });
 });
