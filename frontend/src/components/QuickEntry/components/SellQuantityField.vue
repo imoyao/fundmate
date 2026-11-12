@@ -1,9 +1,9 @@
 <template>
-  <!-- 卖出份额 / 数量 + 快捷档位 + 最小单位提示（#980 拆分自 SellForm.vue） -->
-  <el-form-item
-    :label="type === 'fund' ? '卖出份额' : '卖出数量'"
-    prop="quantity"
-  >
+  <!-- 卖出数量 + 快捷档位 + 最小单位提示（#980 拆分自 SellForm.vue）。
+       标签走 TRADE_FIELD_LABELS.quantity（成交数量）：基金叫份额、股票叫股/张
+       的区分保留在辅助文案里（「每笔最少 0.0001 份 / {{ min }} 股/张」），
+       输入框本身同一件事只允许一个叫法（2026-11-12 全站标签统一）。 -->
+  <el-form-item :label="TRADE_FIELD_LABELS.quantity" prop="quantity">
     <div class="flex flex-col gap-2 w-full">
       <el-input-number
         v-model="qtyModel"
@@ -48,6 +48,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import QuickRatioPicker from "@/components/QuickRatioPicker/index.vue";
+import { TRADE_FIELD_LABELS } from "@/constants";
 
 const props = defineProps<{
   quantity: number | undefined;

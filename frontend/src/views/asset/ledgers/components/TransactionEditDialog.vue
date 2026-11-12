@@ -95,8 +95,8 @@
         </div>
       </el-form-item>
 
-      <!-- 手续费：2 位小数 -->
-      <el-form-item label="手续费(元)">
+      <!-- 手续费：2 位小数（标签走全站唯一来源，单位进 placeholder） -->
+      <el-form-item :label="TRADE_FIELD_LABELS.fee">
         <el-input-number
           v-model="form.fee"
           style="width: 100%"
@@ -105,7 +105,7 @@
           :min="0"
           :precision="2"
           :step="0.01"
-          placeholder="0.00"
+          placeholder="0.00 元"
         />
       </el-form-item>
 
@@ -165,6 +165,7 @@
 import type { TxnRecordLike } from "./transactionEdit/transactionEditModel";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
+import { TRADE_FIELD_LABELS } from "@/constants";
 import { useTransactionEditForm } from "./transactionEdit/useTransactionEditForm";
 
 const props = defineProps<{
@@ -225,13 +226,9 @@ const {
   --input-height: 40px;
 }
 
-/* el-input-number controls=false 后文字默认居中，强制左对齐。
-   用原生 input 元素匹配（而非 .el-input__inner），既避开 EP 同特异性的
-   `.el-input-number .el-input__inner{text-align:center}`，也避免本文件
-   再次命中「三个禁改选择器」。 */
-:deep(.el-input-number input) {
-  text-align: left;
-}
+/* 数字输入左对齐已由 element-plus.scss「数字输入对齐基线」全局接管
+   （.el-input-number.is-without-controls），此处不再重复 :deep 覆盖
+   （同一件事只允许一份实现，2026-11-12 收敛）。 */
 
 /* 日期选择器：强制 100% 宽度，与数字输入框等宽（高度由上面的高度令牌接管） */
 :deep(.el-date-editor.el-input) {

@@ -12,8 +12,8 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
+from app.services.reconciliation_consistency import get_ledger_snapshot_consistency
 from app.services.reconciliation_service import (
-    get_ledger_snapshot_consistency,
     run_domain_b_reconciliation,
     run_reconciliation,
 )
@@ -709,6 +709,136 @@ class TestInContextSupplement:
         """缺 symbol → 400。"""
         resp = client.post('/api/reconciliation/adjustments/', json={'kind': 'increment', 'op_type': 'buy'})
         assert resp.status_code == 400
+
+    def _make_sell_target(self, db, symbol='SZ159869', hold_qty=10000):
+        """构造一笔可卖出的 ETF 持仓（卖出量用 100 的整数倍，避免被整手校验挡住）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        pos = Position(
+            symbol=symbol,
+            name='华夏中证动漫游戏ETF',
+            asset_type='etf',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(hold_qty),
+            avg_price=Money.yuan_to_price_units(1.365),
+            current_price=Money.yuan_to_price_units(1.365),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.commit()
+        return ledger, pos
+
+    def test_sell_supplement_resolves_position_id(self, client, db):
+        """卖出补录不带 position_id → 按统一身份键定位持仓，200 且扣减份额。
+
+        用户实测：POST adjustments 补一笔卖出（payload 只有 symbol/ledger_id）返回 500，
+        栈为 position_sell_command.prepare_sell 的 `KeyError: 'position_id'` ——
+        对账补录没有持仓下拉，给不出 id；本用例钉住修复后的行为。
+        """
+        ledger, pos = self._make_sell_target(db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'sell',
+                'symbol': 'SZ159869',
+                'name': '华夏中证动漫游戏ETF',
+                'ledger_id': ledger.id,
+                'quantity': 6500,
+                'avg_price': 1.365,
+                'fee': 5,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['action'] == 'supplement'
+        assert data['after']['position_id'] == pos.id
+
+        # 持仓份额按卖出量减少（10000 - 6500 = 3500）
+        db.refresh(pos)
+        assert pos.quantity == Money.shares_to_min_unit(3500)
+        # 卖出流水已写，费用按分落库（fee=5 元 → 500 分）
+        txn = db.query(Transaction).filter_by(position_id=pos.id, txn_type='sell').one()
+        assert txn.quantity == Money.shares_to_min_unit(6500)
+        assert txn.fee == 500
+
+    def test_withdraw_supplement_resolves_position_id(self, client, db):
+        """取出（withdraw）补录同样不带 position_id → 200 且扣减份额。"""
+        ledger, pos = self._make_sell_target(db, symbol='SZ000001', hold_qty=2000)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'withdraw',
+                'symbol': 'SZ000001',
+                'name': '某股票',
+                'ledger_id': ledger.id,
+                'quantity': 500,
+                'avg_price': 10.0,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(pos)
+        assert pos.quantity == Money.shares_to_min_unit(1500)
+        txn = db.query(Transaction).filter_by(position_id=pos.id, txn_type='withdraw').one()
+        assert txn.quantity == Money.shares_to_min_unit(500)
+
+    def test_sell_supplement_position_not_found_returns_400(self, client, db):
+        """symbol 与任何持仓都不匹配 → 400（ValueError 转译），不新增流水。"""
+        ledger, _ = self._make_sell_target(db)
+        txn_count_before = db.query(Transaction).count()
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'sell',
+                'symbol': 'SH999999',
+                'name': '不存在的标的',
+                'ledger_id': ledger.id,
+                'quantity': 100,
+                'avg_price': 1.0,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 400
+        assert '找不到这笔持仓' in resp.get_json()['message']
+        # 不新增流水
+        assert db.query(Transaction).count() == txn_count_before
+
+    def test_sell_supplement_explicit_position_id_passthrough(self, client, db):
+        """显式传 position_id 的既有路径仍 200（helper 不得覆盖正常入参）。"""
+        ledger, pos = self._make_sell_target(db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'sell',
+                'position_id': pos.id,
+                'symbol': 'SZ159869',
+                'name': '华夏中证动漫游戏ETF',
+                'ledger_id': ledger.id,
+                'quantity': 100,
+                'avg_price': 1.365,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(pos)
+        assert pos.quantity == Money.shares_to_min_unit(9900)
+        txn = db.query(Transaction).filter_by(position_id=pos.id, txn_type='sell').one()
+        assert txn.quantity == Money.shares_to_min_unit(100)
 
 
 class TestLedgerSnapshotConsistency:

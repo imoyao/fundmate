@@ -194,6 +194,24 @@ export function txnTypeLabel(type: string): string {
   return TXN_TYPE_LABELS[type] ?? type;
 }
 
+/** 买卖成交字段标签（全站唯一来源）：同一件事只允许一个叫法。
+ *
+ * 与 TXN_TYPE_LABELS 同一纪律——一处改、多处漂移的教训。此前同一字段
+ * 各页各写各的：份额叫过「这笔的份额 / 卖出份额 / 卖出数量」、价格叫过
+ * 「成交单价 / 买入价格 / 卖出价格」、费用叫过「卖出费用 / 手续费(元)」，
+ * 用户在对账补录、快速记账、编辑交易三个入口看到的叫法对不上。
+ *
+ * 边界：只覆盖「买卖成交」这一层语义。页面专属语境不受本表约束——
+ * 编辑弹窗的只读净值（净值(元)）、卖出预估金额、set 口径的成本单价
+ * 都不是成交字段，不得套用本表。 */
+export const TRADE_FIELD_LABELS = {
+  tradeDate: "交易日期",
+  quantity: "成交数量",
+  price: "成交价格",
+  fee: "手续费",
+  notes: "备注"
+} as const;
+
 /** 对账差异类型标签（quantity/cost/cash/orphan）
  *
  * 单一来源：对账中心（`reconcile-workbench/utils/discFormat.ts`）与全局差异提醒

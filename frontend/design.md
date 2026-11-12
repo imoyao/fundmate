@@ -1223,6 +1223,15 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - **金额/统计数字**：`.metric-value`、指标区、关联负债行等数字容器显式补 `font-variant-numeric: tabular-nums`（与根容器双保险），消除数字宽度抖动与锯齿感。
 - **MoneyDisplay 组件**：内部已自带 `tabular-nums` 与等宽数字字体，外层容器无需重复处理，仅需保证不覆盖其字体/字距。
 
+## 表单字段标签与数字输入对齐规范（2026-11-12）
+
+> 对账中心补录弹窗（`reconcile-workbench/SupplementDialog`）、快速记账（`QuickEntry`）、编辑交易（`TransactionEditDialog`）已落地，全站新页面遵循。
+
+- **买卖成交字段标签唯一来源**：`src/constants/index.ts` 的 `TRADE_FIELD_LABELS`（交易日期 / 成交数量 / 成交价格 / 手续费 / 备注）。同一字段全站只允许一个叫法，页面**禁止自造同义标签**——历史反例：份额叫过「这笔的份额 / 卖出份额 / 卖出数量」、价格叫过「成交单价 / 买入价格 / 卖出价格」、费用叫过「卖出费用 / 手续费(元)」，三个入口三个叫法。品类差异（基金份额 vs 股票股/张）下沉到输入框下方的辅助提示文案，不进标签。
+- **边界**：页面专属语境不受本表约束——编辑弹窗的只读净值（净值(元)）、卖出预估金额、覆盖式改持仓的成本单价都不是成交字段，不得套用本表。
+- **无步进器数字输入统一左对齐**：Element Plus 默认把 `.el-input-number` 里的数字**居中**，与同表单普通文本框（左对齐）混排时输入起点不一致。全站默认已在 `src/style/element-plus.scss` 写死 `.el-input-number.is-without-controls .el-input__inner { text-align: left; }` 并叠加 `font-variant-numeric: tabular-nums`；页面**禁止再各写一份 `:deep` 对齐覆盖**。带步进器（`controls` 默认开启）的保留 EP 居中——两侧步进按钮已框定文本区。
+- **关闭入口唯一**：`el-dialog` / `el-drawer` 自带的右上角 × 与自定义「收起 / 关闭」文字按钮是同一件事，**只保留 ×**，不要做成两个（历史反例：对账抽屉 header 里「收起」+ × 并存）。
+
 ## 提示性 Banner 品牌色规范（2026-08-15）
 
 > 账户管理页「未归置持仓提示」banner 已由危险色改为品牌色，全站提示性 banner 遵循。

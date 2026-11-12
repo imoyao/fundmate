@@ -82,6 +82,10 @@ export interface AdjustmentPayload {
   account_name?: string;
   quantity?: number;
   avg_price?: number;
+  /** 手续费（元）：仅 increment 的 buy/sell 会带；空值不传，后端按 0 计 */
+  fee?: number;
+  /** 成交日期（YYYY-MM-DD）：补录时与 confirm_date 同值，让流水按真实成交日排序 */
+  trade_date?: string;
   confirm_date?: string;
   snapshot_date?: string;
   [key: string]: unknown;

@@ -59,52 +59,22 @@
         </SoftBanner>
 
         <template v-if="form.kind === 'increment'">
-          <el-form-item label="这笔是">
-            <el-select v-model="form.op_type" style="width: 100%">
-              <el-option label="买入" value="buy" />
-              <el-option label="卖出" value="sell" />
-              <el-option label="存入" value="deposit" />
-              <el-option label="取出" value="withdraw" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="这笔的份额" prop="quantity">
-            <el-input-number
-              v-model="form.quantity"
-              :min="0"
-              :precision="4"
-              :controls="false"
-              style="width: 100%"
-              placeholder="这笔成交了多少份"
-            />
-          </el-form-item>
-          <el-form-item label="成交单价" prop="avg_price">
-            <el-input-number
-              v-model="form.avg_price"
-              :min="0"
-              :precision="4"
-              :controls="false"
-              style="width: 100%"
-              placeholder="每份成交价（元）"
-            />
-          </el-form-item>
-          <el-form-item label="确认日期">
-            <el-date-picker
-              v-model="form.confirm_date"
-              type="date"
-              value-format="YYYY-MM-DD"
-              style="width: 100%"
-              placeholder="这笔哪天确认的"
-            />
-          </el-form-item>
+          <SupplementTradeFields
+            v-model:op-type="form.op_type"
+            v-model:quantity="form.quantity"
+            v-model:avg-price="form.avg_price"
+            v-model:fee="form.fee"
+            v-model:trade-date="form.confirm_date"
+          />
         </template>
 
         <template v-else>
-          <el-form-item label="账上现在">
+          <el-form-item label="账上现有">
             <span class="recon-supplement__current">
               {{ reconQuantity(target.actual_value) }}
             </span>
           </el-form-item>
-          <el-form-item label="改成多少份" prop="quantity">
+          <el-form-item label="目标份额" prop="quantity">
             <el-input-number
               v-model="form.quantity"
               :min="0"
@@ -135,7 +105,7 @@
           </el-form-item>
         </template>
 
-        <el-form-item label="备注">
+        <el-form-item :label="TRADE_FIELD_LABELS.notes">
           <el-input
             v-model="form.reason"
             type="textarea"
@@ -172,6 +142,8 @@ import {
   type DiscrepancyItem
 } from "@/api/reconciliation";
 import SupplementContext from "./SupplementContext.vue";
+import SupplementTradeFields from "./SupplementTradeFields.vue";
+import { TRADE_FIELD_LABELS } from "@/constants";
 import {
   reconAssetHeading,
   reconGroupTitle,
@@ -205,6 +177,7 @@ const form = reactive({
   op_type: "buy",
   quantity: undefined as number | undefined,
   avg_price: undefined as number | undefined,
+  fee: undefined as number | undefined,
   confirm_date: "",
   snapshot_date: "",
   reason: ""
@@ -296,6 +269,7 @@ function resetForm(): void {
   form.op_type = "buy";
   form.quantity = undefined;
   form.avg_price = undefined;
+  form.fee = undefined;
   form.confirm_date = "";
   form.snapshot_date = todayLocal();
   form.reason = "";
@@ -361,7 +335,17 @@ async function submit(): Promise<void> {
     };
     if (form.kind === "increment") {
       payload.op_type = form.op_type;
+      // 用户填的是成交当天：trade_date 与 confirm_date 都传这个日期。
+      // 后端 `resolve_trade_date` 的口径本就是 trade_date 缺省回落 confirm_date，
+      // 显式补上 trade_date，让流水列表按真实成交日排序（此前只有确认日）。
+      payload.trade_date = form.confirm_date || undefined;
       payload.confirm_date = form.confirm_date || undefined;
+      // 手续费：只有买入/卖出有成交费。存入/取出是银证转账，字段虽已隐藏，
+      // 但用户可能先填了手续费再切过来（值不清空），故此处按 op_type 收口，
+      // 否则会给一笔转账记上佣金。空值不传（后端按 0 计），填 0 也照传。
+      const hasTradeFee = form.op_type === "buy" || form.op_type === "sell";
+      payload.fee =
+        hasTradeFee && typeof form.fee === "number" ? form.fee : undefined;
     } else {
       payload.snapshot_date = form.snapshot_date || todayLocal();
     }

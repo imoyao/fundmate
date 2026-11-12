@@ -44,12 +44,13 @@ from app.services.ghost_duplicate_service import (
     undo_ignore,
     undo_ignore_by_id,
 )
+from app.services.reconciliation_consistency import get_ledger_snapshot_consistency
 from app.services.reconciliation_query import (
     list_active_discrepancies,
     list_dividend_tax_payload,
     resolve_display_names,
 )
-from app.services.reconciliation_service import apply_decision, get_ledger_snapshot_consistency
+from app.services.reconciliation_service import apply_decision
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
 bp = APIBlueprint('reconciliation', __name__, url_prefix='/api/reconciliation')

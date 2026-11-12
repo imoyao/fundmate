@@ -352,6 +352,9 @@ test.describe("对账中心第二轮：抽屉 / 分页 / 用户语言", () => {
     await dialog.getByRole("tab", { name: "把持仓改成" }).click();
     await expect(dialog).toContainText("改完不会新增买卖记录");
 
+    // set 分支只有 份额 / 成本 两个数字框：手续费只出现在 increment 分支
+    // （存入/取出无成交费，set 是覆盖式锚点不记流水），故 nth 序号不会错位。
+    // 若日后 set 分支也加字段，这里必须改成按 label 定位，别再数序号。
     const numbers = dialog.locator(".el-input-number input");
     await numbers.nth(0).fill("120");
     await numbers.nth(0).press("Tab");

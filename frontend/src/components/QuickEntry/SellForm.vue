@@ -23,7 +23,7 @@
 
     <template v-if="form.positionId">
       <!-- 1. 交易日期 -->
-      <el-form-item label="交易日期" prop="trade_date">
+      <el-form-item :label="TRADE_FIELD_LABELS.tradeDate" prop="trade_date">
         <div class="flex items-center gap-3 w-full">
           <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
                `:class` 落不到 DOM（曾用 `showIsAfter15 ? 'flex-1' : 'w-full'`）。 -->
@@ -63,7 +63,11 @@
       />
 
       <!-- 3. 卖出价格（仅股票显示） -->
-      <el-form-item v-if="form.type !== 'fund'" label="卖出价格" prop="price">
+      <el-form-item
+        v-if="form.type !== 'fund'"
+        :label="TRADE_FIELD_LABELS.price"
+        prop="price"
+      >
         <el-input-number
           v-model="form.price"
           style="width: 100%"
@@ -71,7 +75,6 @@
           :min="0"
           :step="0.01"
           :precision="2"
-          placeholder="卖出价格"
         />
         <span class="text-xs text-gray-500 mt-1"
           >默认为成本价，可按实际成交价修改</span
@@ -103,7 +106,7 @@
     </template>
 
     <!-- 备注 -->
-    <el-form-item label="备注">
+    <el-form-item :label="TRADE_FIELD_LABELS.notes">
       <el-input
         v-model="form.notes"
         type="textarea"
@@ -147,6 +150,7 @@ import {
   checkPriceInRange
 } from "@/composables/useSecurityPrice";
 import { disabledTradeDate } from "@/utils/date";
+import { TRADE_FIELD_LABELS } from "@/constants";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import SellPositionField from "./components/SellPositionField.vue";

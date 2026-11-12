@@ -20,15 +20,14 @@
 import json
 from datetime import date, datetime
 
-from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.constants import AnchorKind, PositionSource
-from app.core.money import Money
-from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
+from app.services.position_write_support import _find_existing_position
 
 # 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致：buy/deposit/split 增、sell/withdraw 减；
 # 分红/税费等现金事件 quantity=0 不影响份额，未知非零份额类型在快照一致性计算中会告警，避免静默漏算）
@@ -312,6 +311,26 @@ def _clear_stale_discrepancies(
     summary['cleared'] += cleared_count
 
 
+def _resolve_sell_position_id(db: Session, family_id: int, data: dict) -> dict:
+    """卖出/取出补录缺 `position_id` 时按统一身份键定位持仓并回填，原样返回 data。
+
+    为什么这里要自己定位：对账补录的 payload 只有 `(symbol, ledger_id)`，没有
+    「完整记账」UI 的持仓下拉，而卖出汇点 `prepare_sell` 第一行就是
+    `data['position_id']` —— 用户实测补一笔卖出直接 500（KeyError: 'position_id'）。
+    买入侧无此问题（`position_buy_command` 自己按身份键查/建持仓）。`venue=''`：
+    payload 通常不带 asset_type/market，强判场所会把 asset_type 为 NULL 的存量行
+    漏掉；`ledger_id` 允许 None（positions.ledger_id 可为 NULL，差异本就由持仓派生）。
+    显式传了 `position_id` 时透传不覆盖；找不到时 ValueError → views 层转 400。
+    """
+    if data.get('position_id') is not None:
+        return data
+    pos = _find_existing_position(db, data.get('ledger_id'), family_id, data.get('symbol', ''), '')
+    if pos is None:
+        raise ValueError('找不到这笔持仓：可能已清仓或换了账本，先在持仓里核对后再补录')
+    data['position_id'] = pos.id
+    return data
+
+
 def apply_decision(
     db: Session,
     family_id: int,
@@ -400,7 +419,7 @@ def apply_decision(
         # 增量型：走交易处理汇点（写 Transaction + 更新 Position）
         op_type = data.get('op_type', 'buy')
         if op_type in ('sell', 'withdraw'):
-            position = PositionService.process_sell_or_withdraw(db, data)
+            position = PositionService.process_sell_or_withdraw(db, _resolve_sell_position_id(db, family_id, data))
         else:
             position = PositionService.process_buy_or_deposit(db, data)
         after = {
@@ -433,108 +452,3 @@ def apply_decision(
 
     db.flush()
     return {'action': action, 'before': before, 'after': after, 'log_id': log.id}
-
-
-def get_ledger_snapshot_consistency(db: Session, family_id: int, ledger_id: int | None = None) -> list[dict]:
-    """只读：计算各账户持仓快照一致性（#1133 §4 温柔提醒数据源）。
-
-    不写 discrepancies 表（那是工作台域 B 对账的落点），本函数提供按需、轻量的检查视图，
-    供前端在账户列表 / 账本详情页以「温柔、非阻断」方式提示快照可能滞后。
-
-    口径（#1133 §4，2026-10-18 按锚点模型修正）：
-    - 取 active 持仓 + `anchor_date`（positions.snapshot_date，缺失回退
-      position_import_meta.snapshot_date）。
-    - **theoretical = snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)**。
-      快照是独立绝对值，不是流水的推导结果——旧口径「只算 <= snapshot_date 的流水」
-      把快照当成流水的结果，与锚点模型正好相反，会对正确数据误报。
-    - `snapshot_quantity IS NULL`（迁移后待修复的存量行）→ **跳过**：没有基线份额
-      就算不出理论值，宁可沉默也不要编造差异。
-    - diff = positions.quantity − theoretical。
-    - 边界：该 (ledger_id, symbol) 无任何流水 → 纯快照模式（如 E账户持仓导入不建流水），
-      跳过，禁止误报。
-    - diff != 0 → 标记「可能对不上」，返回明细（份额换算为可读单位）。
-    """
-    rows_q = (
-        db.query(Position, PositionImportMeta.snapshot_date)
-        .join(PositionImportMeta, PositionImportMeta.position_id == Position.id)
-        .filter(
-            Position.family_id == family_id,
-            Position.ownership_status == 'active',
-            PositionImportMeta.snapshot_date.isnot(None),
-        )
-    )
-    if ledger_id is not None:
-        rows_q = rows_q.filter(Position.ledger_id == ledger_id)
-    rows = rows_q.all()
-    if not rows:
-        return []
-
-    # 该 family 全部流水一次性拉取，按业务键聚合（避免逐持仓查库放大 N+1）
-    txn_q = db.query(
-        Transaction.ledger_id,
-        Transaction.symbol,
-        Transaction.txn_type,
-        Transaction.quantity,
-        Transaction.confirm_date,
-    ).filter(Transaction.family_id == family_id)
-    if ledger_id is not None:
-        txn_q = txn_q.filter(Transaction.ledger_id == ledger_id)
-    txn_rows = txn_q.all()
-    txn_by_key: dict[tuple, list] = {}
-    for ledger_id, symbol, txn_type, quantity, confirm_date in txn_rows:
-        if ledger_id is None or not symbol:
-            continue
-        txn_by_key.setdefault((ledger_id, symbol), []).append((txn_type, quantity or 0, confirm_date))
-
-    items: list[dict] = []
-    for pos, meta_snapshot_date in rows:
-        # 锚点日以 positions 层为准，缺失才回退 meta（迁移只回填了日期，份额仍是 NULL）
-        anchor_date = pos.snapshot_date or meta_snapshot_date
-        # 没有基线份额 → 算不出理论值。禁止回退「全量流水」蒙一个数字：
-        # 那正是旧口径误报的来源，且会让用户以为持仓真的错了。
-        if pos.snapshot_quantity is None or anchor_date is None:
-            continue
-        key = (pos.ledger_id, pos.symbol)
-        txns = txn_by_key.get(key)
-        if not txns:
-            # 纯快照模式（无流水）：跳过，禁止误报（#1133 §4 边界）
-            continue
-        theoretical = int(pos.snapshot_quantity)
-        last_txn_date = None
-        for txn_type, quantity, confirm_date in txns:
-            if confirm_date is None:
-                continue
-            # 记录最新交易日期（用于温柔提醒文案：快照后是否还有交易活动）
-            if last_txn_date is None or confirm_date > last_txn_date:
-                last_txn_date = confirm_date
-            # 只看**快照日之后**的流水：之前的已被快照包含，再加一遍就是重复计数
-            if confirm_date <= anchor_date:
-                continue
-            if txn_type in _ADD_TYPES:
-                theoretical += quantity
-            elif txn_type in _SELL_TYPES:
-                theoretical -= quantity
-            else:
-                # 未知/非增减类型：现金事件（分红、税费等）通常 quantity=0 不影响份额，静默跳过；
-                # 若带非零份额却未分类，告警以免静默漏算 theoretical（#ai-review 次要建议 1）
-                if quantity:
-                    logger.warning(
-                        '快照一致性忽略未分类交易类型 {}(quantity={})，可能影响 theoretical 计算',
-                        txn_type,
-                        quantity,
-                    )
-        diff = pos.quantity - theoretical
-        if diff != 0:
-            items.append(
-                {
-                    'ledger_id': pos.ledger_id,
-                    'symbol': pos.symbol,
-                    'name': pos.name,
-                    'snapshot_date': anchor_date.isoformat(),
-                    'last_txn_date': last_txn_date.isoformat() if last_txn_date else None,
-                    'expected_qty': Money.min_unit_to_shares(theoretical),
-                    'actual_qty': Money.min_unit_to_shares(pos.quantity),
-                    'diff_qty': Money.min_unit_to_shares(diff),
-                }
-            )
-    return items
