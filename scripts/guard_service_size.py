@@ -101,6 +101,16 @@ NEW_FILE_LIMITS = {
 # （211 行 / max_func 40 / max_cc 15，走 NEW_FILE_LIMITS）。基线是向下收紧，
 # 不是放宽阈值；max_func 294 / max_cc 39 未变。
 #
+# 2026-11-12 冷集膨胀守卫进调度（#3078 / D110）按 `--report` 回写一项，理由留痕：
+# `daily_scheduler.py` 1128→1136 / max_func 38→39（max_cc 10 未变）。增量全部是**接线**：
+# 配置字段 `checks` 一行、`load_config` 一行、`_register_jobs` / `describe_status` 各一行
+# 调用（各带 1 行注释），外加一行 import。注册细节（cron 解析 / id 命名 / 为何不受休市
+# 跳过）与 `--status` 展示全部下沉到新文件 `local_checks.py`（178 行 / max_func 23 /
+# max_cc 4），判定流程下沉到 `cold_set_check.py`（111 / 21 / 5），两者都走
+# NEW_FILE_LIMITS。max_func +1 是 `describe_status` 多了那一行 `lines.extend`：
+# 巡检的 status 是 `ok`/`bloated` 而非 `success`，不能复用日跑那行的
+# `SyncLog.get_last_sync_time`，只能另起一行——这是判据要求的可见性，不是职责扩张。
+#
 # 2026-11-12 「分红送股静默空跑」（#3073）按 `--report` **收紧**两项，理由留痕：
 # `job_base.py` 409→407 / max_func 109→106、`sync/orchestrator.py` 822→821。
 # 前者新增 `requires_targets` 声明（3 行），但校验体下沉到新文件
@@ -197,7 +207,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
     "backend/app/services/cross_domain.py": {'lines': 221, 'max_func': 54, 'max_cc': 15},
-    "backend/app/services/daily_scheduler.py": {'lines': 1128, 'max_func': 38, 'max_cc': 10},
+    "backend/app/services/daily_scheduler.py": {'lines': 1136, 'max_func': 39, 'max_cc': 10},
     "backend/app/services/dangling_ref_remediation_service.py": {'lines': 541, 'max_func': 58, 'max_cc': 11},
     "backend/app/services/dangling_ref_service.py": {'lines': 607, 'max_func': 88, 'max_cc': 15},
     "backend/app/services/dividend_service.py": {'lines': 465, 'max_func': 112, 'max_cc': 25},

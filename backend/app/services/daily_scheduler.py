@@ -86,6 +86,7 @@ from app.core.jitter import apply_jitter, random_gap, resolve_jitter_seconds
 from app.core.time_utils import today_shanghai
 from app.core.trading_calendar import calendar_coverage, calendar_covers, is_trading_day
 from app.models.sync_log import SyncLog
+from app.services.local_checks import LocalCheckSpec, build_checks, describe_checks, register_checks
 
 # ── 环境变量名（集中在此，便于 .env.example 与文档对齐） ──────────────────
 
@@ -278,6 +279,8 @@ class DailySchedulerConfig:
     skip_non_trading_day: bool
     run_on_start: bool
     startup_delay_seconds: int
+    # 本地巡检（#3078）：与 `jobs` 并列，但**不是** SyncJob，准入判据见 `local_checks`。
+    checks: Tuple[LocalCheckSpec, ...] = ()
     lock_file: Path = DEFAULT_LOCK_FILE
 
     def job_names(self) -> List[str]:
@@ -639,6 +642,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> DailySchedulerConfig
         skip_non_trading_day=_truthy(source.get(ENV_SKIP_NON_TRADING_DAY), True),
         run_on_start=_truthy(source.get(ENV_RUN_ON_START), True),
         startup_delay_seconds=_int_or(source.get(ENV_STARTUP_DELAY), DEFAULT_STARTUP_DELAY_SECONDS),
+        checks=build_checks(source),
     )
 
 
@@ -967,6 +971,9 @@ class DailyScheduler:
                 replace_existing=True,
             )
 
+        # 巡检的注册细节（cron / id / 为何不受休市跳过）在 `local_checks`：本模块只管起停。
+        register_checks(scheduler, tzinfo, self.config.checks)
+
         if self.config.run_on_start:
             # 启动补跑：应用一起就开始更新（当天已过点却没成功时），而不是干等到明天
             run_date = datetime.now(tzinfo) + timedelta(seconds=self.config.startup_delay_seconds)
@@ -1120,6 +1127,7 @@ def describe_status(config: Optional[DailySchedulerConfig] = None) -> List[str]:
                     f'今日触发={fire.strftime("%H:%M") if fire else "不触发"} '
                     f'上次成功={last.strftime("%Y-%m-%d %H:%M") if last else "无记录"}  {spec.description}'
                 )
+            lines.extend(describe_checks(db, resolved.checks, now))
     except Exception as exc:  # noqa: BLE001 - 只读命令，DB 不可用时降级提示
         lines.append(f'  · 读取 sync_logs 失败（数据库不可用？）：{exc}')
 
