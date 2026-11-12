@@ -153,7 +153,18 @@ def trigger_catalog_backfill_async() -> bool:
 
 
 def _run_backfill() -> None:
-    """后台线程主体：自建会话跑一轮补录，异常一律吞掉。"""
+    """后台线程主体：自建会话**先算缺口**，再把缺口清单喂给补录 job；异常一律吞掉。
+
+    为什么必须显式传 ``targets``（2026-11-12 修）：``SecuritiesBackfillJob._fetch_data``
+    只按 ``targets`` 逐只查上游，**自己不兜底成全量**（见该 job 的 docstring）。
+    旧实现调 ``run_job('securities_backfill')`` 时不传 targets → 基类走
+    ``targets is None`` 分支 → ``_fetch_data(full_sync, [])`` 拿空列表 → 日志
+    「数据源返回空数据（已允许），跳过同步」+「缺口 0」，补录从未真正跑过。
+
+    症状之所以难查：日志看起来一切正常（线程起了、job 跑了、状态 SUCCESS、缺口 0），
+    实际是「缺口算都没算」。所以这里把「无缺口」与「有空跑」分开打日志，
+    前者是真的没活干，后者（旧行为）是不该出现的。
+    """
     global _backfill_running
     try:
         # 后台线程不是请求上下文，get_db() 在这里每调用产生独立会话、只关闭不提交，
@@ -162,8 +173,12 @@ def _run_backfill() -> None:
         from app.services.sync.orchestrator import DataSyncOrchestrator
 
         with get_db() as db:
+            targets = missing_catalog_symbols(db)
+            if not targets:
+                logger.info('名录补录：无缺口，跳过')
+                return
             orchestrator = DataSyncOrchestrator(db)
-            result = orchestrator.run_job('securities_backfill')
+            result = orchestrator.run_job('securities_backfill', targets=targets)
         stats = result.get('stats') or {}
         logger.info(
             f'名录补录完成：缺口 {stats.get("total", 0)}，补上 {stats.get("success", 0)}，仍缺 {stats.get("failed", 0)}'
