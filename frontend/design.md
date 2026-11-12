@@ -1231,6 +1231,8 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - **边界**：页面专属语境不受本表约束——编辑弹窗的只读净值（净值(元)）、卖出预估金额、覆盖式改持仓的成本单价都不是成交字段，不得套用本表。
 - **无步进器数字输入统一左对齐**：Element Plus 默认把 `.el-input-number` 里的数字**居中**，与同表单普通文本框（左对齐）混排时输入起点不一致。全站默认已在 `src/style/element-plus.scss` 写死 `.el-input-number.is-without-controls .el-input__inner { text-align: left; }` 并叠加 `font-variant-numeric: tabular-nums`；页面**禁止再各写一份 `:deep` 对齐覆盖**。带步进器（`controls` 默认开启）的保留 EP 居中——两侧步进按钮已框定文本区。
 - **关闭入口唯一**：`el-dialog` / `el-drawer` 自带的右上角 × 与自定义「收起 / 关闭」文字按钮是同一件事，**只保留 ×**，不要做成两个（历史反例：对账抽屉 header 里「收起」+ × 并存）。
+- **交易录入字段顺序全站一律「先日期、后量价费」**：交易类型 → 交易日期 → 成交数量 → 成交价格 → 手续费。QuickEntry `BuyForm` / `SellForm` 既有此序（交易日期紧跟标的/持仓）；补录弹窗（`reconcile-workbench/SupplementTradeFields`）2026-11-12 对齐——此前「交易日期」排在量价费之后，用户先想到「哪天成交的」却被排在最后。标签仍走 `TRADE_FIELD_LABELS`，禁止自造叫法。
+- **「卖出全仓」是单值快捷填充，不是比例档位（防第二份档位表回潮）**：对账补录弹窗成交数量的「卖出全仓」按钮只在卖出时出现，点击把数量填成**按流水算的份额**（差异行 `DiscrepancyItem.expected_value`）。它属**单值快捷填充**——数值来自对账差异行，无档位可切；与快速记账 / 快速卖出的**比例档位** `QuickRatioPicker`（档位表 `utils/trading.ts` 的 `SELL_QUICK_RATIOS`，全部/1/4/…）分工：比例档位解决「按持仓比例切」，单值快捷填充解决「按流水直接补」。在该场景再新增百分比按钮组 / 第二份档位表 / 自写 segmented 样式块均属回潮（`guard_segmented.py` 拦样式块）。数据缺失（`expected_value` 空或 ≤0）时按钮 disabled + helper 文案说明，**禁止静默填 0**；点击后仍可手改，不锁输入框、不高亮成「已选比例」；按钮走次按钮语言，不抢弹窗「补上这笔」的主按钮焦点。
 
 ## 提示性 Banner 品牌色规范（2026-08-15）
 

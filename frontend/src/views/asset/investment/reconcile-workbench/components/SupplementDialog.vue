@@ -7,9 +7,8 @@
     完整的买卖记录不塞进弹窗，放右侧抽屉的「这个产品的投资轨迹」（见
     ReconInvestmentTrail），弹窗里给一句明确的指引。
 
-    写路径零重写：仍调 POST /api/reconciliation/adjustments/，仍由后端分派
-    increment（补一笔流水）/ set（覆盖式 SET 锚点）。本期不合并手动录入持仓端点，
-    只对齐字段口径、补齐校验与二次确认（owner 拍板）。
+    写路径零重写：仍调 POST /api/reconciliation/adjustments/，由后端分派
+    increment（补一笔流水）/ set（覆盖式 SET 锚点），不合并手动录入端点。
   -->
   <el-dialog
     :model-value="modelValue"
@@ -65,6 +64,7 @@
             v-model:avg-price="form.avg_price"
             v-model:fee="form.fee"
             v-model:trade-date="form.confirm_date"
+            :expected-quantity="target.expected_value"
           />
         </template>
 
@@ -212,11 +212,7 @@ const submitLabel = computed(() =>
  * 单价 > 0。缺账本时直接挡住，别让用户填完表单才吃一个 400。
  */
 const ledgerMissing = computed(
-  () =>
-    props.target === null ||
-    props.target.ledger_id === null ||
-    props.target.ledger_id === undefined ||
-    !Number.isFinite(props.target.ledger_id)
+  () => !props.target || !Number.isFinite(props.target.ledger_id)
 );
 const modeExplain = computed(() =>
   form.kind === "set"
@@ -264,9 +260,29 @@ const rules = computed<FormRules>(() => ({
   ]
 }));
 
+/**
+ * 预填买卖方向（owner：多了还是少了我们是知道的）。口径见 backend
+ * reconciliation_service.py:171-198：diff = 账上份额(actual_value) − 按流水
+ * 算的份额(expected_value)。diff<0 = 流水比账上多 = 少记了一笔卖出 ⇒ sell；
+ * diff>0 = 少记了一笔买入 ⇒ buy；0/缺失不预填。只对 quantity 型生效：
+ * orphan 是「持仓行没了、流水是对的」（#3066 按流水重建持仓处理，不能引导
+ * 补一笔卖出），cost 与买卖方向无关。只预填方向，不预填数量（数量口径待
+ * owner 拍板，不自作主张）。
+ */
+function inferOpType(row: DiscrepancyItem | null): "buy" | "sell" | null {
+  if (!row || row.discrepancy_type !== "quantity") return null;
+  const { expected_value: e, actual_value: a, diff } = row;
+  // diff 缺失时按两值现算（backend :198 的同款口径），都没有则不预填
+  const d =
+    diff ?? (typeof e === "number" && typeof a === "number" ? a - e : null);
+  if (d === null || d === 0) return null;
+  return d < 0 ? "sell" : "buy";
+}
+
 function resetForm(): void {
   form.kind = "increment";
-  form.op_type = "buy";
+  // 按当前差异重新算方向（不是写死 buy）：打开弹窗 / 关闭后重开都要走这里
+  form.op_type = inferOpType(props.target) ?? "buy";
   form.quantity = undefined;
   form.avg_price = undefined;
   form.fee = undefined;
