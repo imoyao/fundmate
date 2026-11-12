@@ -208,6 +208,8 @@ jobs:
       - name: AI 深度审查（第 1 轮）
         id: review_1
         # 失败不终局：本轮是否真产出由下方校验判定；零产出则由「第 2 轮」换模型重试
+        # 整池 429（额度 / 限流）时不启动：这次调用必然失败，只白烧 Actions 分钟。
+        if: ${{ steps.probe.outputs.all_throttled != 'true' }}
         continue-on-error: true
         uses: Nikita-Filonov/ai-review@v0.77.0
         with:
@@ -263,7 +265,8 @@ jobs:
       # ============================================================================
       - name: 探测可用模型（第 2 轮 · 排除第 1 轮模型）
         id: probe_2
-        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' }}
+        # 整池 429 时第 2 轮必然同样失败（换模型绕不开同一把 key 的额度/限流），直接跳过。
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' && steps.probe.outputs.all_throttled != 'true' }}
         env:
           ARK_API_KEY_CODEREVIEW: ${{ secrets.ARK_API_KEY_CODEREVIEW }}
           REVIEW_TIER: ${{ steps.resolve-labels.outputs.tier }}
@@ -274,7 +277,7 @@ jobs:
 
       - name: AI 深度审查（第 2 轮 · 换模型）
         id: review_2
-        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' }}
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' && steps.probe.outputs.all_throttled != 'true' }}
         continue-on-error: true
         uses: Nikita-Filonov/ai-review@v0.77.0
         with:
@@ -310,12 +313,38 @@ jobs:
 
       - name: 故障转移结果
         if: ${{ always() && steps.verify_1.outputs.verdict != 'audited' }}
+        # 一律经 env 传值，不把 ${{ }} 插进 shell（未定义上下文会留字面量、`bad substitution`）
+        env:
+          ALL_THROTTLED: ${{ steps.probe.outputs.all_throttled }}
+          FAIL_REASON: ${{ steps.probe.outputs.fail_reason }}
+          MODEL_1: ${{ steps.probe.outputs.model }}
+          MODEL_2: ${{ steps.probe_2.outputs.model }}
+          VERDICT: ${{ steps.verify_2.outputs.verdict || steps.verify_1.outputs.verdict }}
         run: |
-          if [ "${{ steps.verify_2.outputs.verdict }}" = "audited" ]; then
-            echo "::notice::第 1 轮（${{ steps.probe.outputs.model }}）零产出，已自动换模型（${{ steps.probe_2.outputs.model }}）重试成功。"
-          else
-            echo "::warning::两轮 AI 审查均未产出评论（verdict=${{ steps.verify_2.outputs.verdict || steps.verify_1.outputs.verdict }}）：第 1 轮 ${{ steps.probe.outputs.model }}、第 2 轮 ${{ steps.probe_2.outputs.model }}。判定 job 将按 verdict 显示为 skipped（上游不可用）或 failure（自身缺陷）。"
+          if [ "$VERDICT" = "audited" ]; then
+            echo "::notice::第 1 轮（$MODEL_1）零产出，已自动换模型（$MODEL_2）重试成功。"
+            exit 0
           fi
+          # 整池 429：换模型绕不开同一把 key 的额度/限流，第 2 轮与两轮审查步骤都已被跳过。
+          # 这里必须把「额度」与「限流」分开说——处置完全不同，混成一个 429 会让人以为代码坏了。
+          if [ "$ALL_THROTTLED" = "true" ]; then
+            if [ "$FAIL_REASON" = "rate_limit" ]; then
+              echo "::warning::本次未执行 AI 审查：全部候选模型 429 限流。过几分钟重跑即可，与 PR 代码无关。"
+              SUMMARY="全部候选 429 **限流**（fail_reason=rate_limit）：稍后重跑即可，与代码无关。"
+            else
+              echo "::warning::本次未执行 AI 审查：全部候选模型 429 额度/模型限额（fail_reason=$FAIL_REASON）。需确认方舟额度或改用另一把 key；换模型无效，与 PR 代码无关。"
+              SUMMARY="全部候选 429 **额度 / 模型限额**（fail_reason=$FAIL_REASON）：需确认方舟额度或改用另一把 key；换模型无效，与代码无关。"
+            fi
+            {
+              echo "### AI 审查未执行：上游 429"
+              echo ""
+              echo "$SUMMARY"
+              echo ""
+              echo "第 2 轮探测与两轮审查步骤已按 all_throttled 跳过——换模型绕不开同一把 key。"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::warning::两轮 AI 审查均未产出评论（verdict=$VERDICT）：第 1 轮 $MODEL_1、第 2 轮 $MODEL_2。判定 job 将按 verdict 显示为 skipped（上游不可用）或 failure（自身缺陷）。"
 
   # ── 判定 job（2026-10-10 新增）：把「没审查」与「审查通过」分开 ────────────────────
   #
