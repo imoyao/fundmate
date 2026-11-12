@@ -215,6 +215,48 @@ def test_missing_ref_path_is_reported_not_silently_none():
     assert result['status'] == 'error' and '路径不可解析' in result['msg']
 
 
+def test_string_template_placeholder_is_rejected_with_actionable_hint():
+    """占位写成 {{$from_step:0,path:x}} 这类文本模板时，错误必须点名正确写法。
+
+    2026-11-11 真实数据 eval 实测：模型这么写 → 模板文本被当真实参数传给
+    get_fund_nav → 报「symbol 类型不对」→ 模型看不出真因 → 连错两轮、整轮 0 步。
+    """
+    called = []
+
+    def runner(name, params, server_ctx=None):
+        called.append(name)
+        return _out({'rows': [{'symbol': '000001'}]})
+
+    plan = [{'tool': T1}, {'tool': T2, 'tool_params': {'symbol': '{{$from_step:0,path:rows.0.symbol}}'}}]
+    result = plan_executor.execute({'action': 'execute_tool', 'plan': plan}, {}, None, runner)
+    assert result['status'] == 'error'
+    assert '第 2 步参数注入失败' in result['msg']
+    assert 'JSON 对象' in result['msg'] and '$from_step' in result['msg'], result['msg']
+    assert called == [T1], '占位格式错时不得把模板文本当真实参数传给工具'
+
+
+def test_plain_string_param_without_ref_still_passes_through():
+    """反向保护：普通字符串参数不得被这条判据误伤。"""
+    seen = []
+
+    def runner(name, params, server_ctx=None):
+        seen.append(dict(params))
+        return _out({'ok': True})
+
+    plan = [{'tool': T1, 'tool_params': {'keyword': '沪深的净值走势'}}]
+    result = plan_executor.execute({'action': 'execute_tool', 'plan': plan}, {}, None, runner)
+    assert result['status'] == 'success'
+    assert seen == [{'keyword': '沪深的净值走势'}]
+
+
+def test_plan_instruction_pins_object_placeholder_and_full_example():
+    text = plan_executor.PLAN_INSTRUCTION
+    assert '"$from_step":0,"path":"rows.0.symbol"' in text
+    assert '不要写成字符串' in text, '必须显式禁止把占位写成字符串'
+    assert '{{ }}' in text, '必须显式禁止模板包裹形态（实测漂移就出在这）'
+    assert '"action":"execute_tool","plan":[' in text, '缺少完整 plan 示例，模型只能凭猜'
+
+
 def test_step_failure_aborts_plan_with_step_number():
     seen = []
 

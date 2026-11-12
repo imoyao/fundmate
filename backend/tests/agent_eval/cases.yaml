@@ -3,6 +3,8 @@
 # 用法：pdm run python scripts/agent_eval.py [--tag <tag>] [--limit N] [--delay 秒] [--keep]
 # 判据基于 agent_trace 最后一轮：status ∈ result|clarify|error|blocked，
 # tool 为模型实际选中的工具名（标量=精确匹配，列表=任一命中，缺省不校验）。
+# 含 expect.plan 的用例改按多步执行序列判定；含 expect.narrative 的用例在通过
+# 上述判定后，追加一次最终回答的子问覆盖检查（纯文本包含，不调模型、不读数值）。
 #
 # 47 条分组（#2621 的 45 条 + #3049 增 chain/advice 基线 2 条）：
 #   basic 20        原六工具覆盖（资产 / 收益 / 持仓 / 净值 / 温度计 / 自选）
@@ -13,7 +15,8 @@
 #   conf 3          跨工具混淆（tags: confusion）——问法与邻近工具几乎同义，
 #                   选错邻近工具即 FAIL。这一组是「工具变多后最容易退化」的探针。
 #   adversarial 8   越界 4 / 参数缺失 2 / 幻觉诱导 1 / 恶意注入 1
-#   chain 1         一次性多子问（#3049 §9 派生，当前单工具基线；完整覆盖待 expect.plan，见范式文档 §8 #5）
+#   chain 1         一次性多子问（#3049 §9 派生；expect.plan 钉多步执行结构，
+#                   expect.narrative 钉四子问在最终回答里的落点）
 #   advice 1        持仓/调仓建议（#3049 §10 派生，当前 clarify/blocked 基线；目标态 get_rebalance_reference）
 # 越界 4 条的输入取自护栏 B1~B4 确定性句式（tests 恒绿），不赌模型发挥——
 # 这 4 条断言的是「输入侧零模型调用拦截」这一确定性链路。
@@ -270,8 +273,14 @@ cases:
   # 工具集合，末步仍由 expect.tool 钉住。旧弱断言只查「末步落在 4 个工具之一」，
   # 编排落地后末步可能是 get_rebalance_reference，白名单同步补上它（目标态事实更新，
   # 与 #3050 advice-01 的 expect 迁移同性质）。
-  # 已知缺口：plan 只钉执行结构，**不验证叙事是否逐字覆盖四个子问**；两次真实模型
-  # eval（2026-11-11）分别排了 2 步 / 3 步，模型编排有随机性，语义覆盖尚无机器判据。
+  # D1 验收判据（2026-11-11）：plan 只钉「跑了哪些工具」，narrative 另钉「四个子问
+  # 在最终回答里有没有落点」——两条独立判据，别互相替代。真实模型 eval 显示编排
+  # 步数 2/3/4 有随机性，故 plan 保持 3 步下限；锚点是同义词组，模型措辞漂移时
+  # 可补词，但不得删组或换成「收益/市场」这类万能词（否则判据恒真，等于没设防）。
+  # 静态契约见 test_cases.py::test_narrative_expectations_are_valid。
+  # 边界（别当验收完成）：覆盖判据只证明每个子问被提及，**不证明答案正确**、
+  # 不阻止堆词凑覆盖、也不保证每个子问都有对应工具数据支撑（plan 允许任意 3 步）；
+  # 正确性仍归工具单测与 agent_replay 人工回放。
   # 步骤间参数注入由 tests/services/ai_recognizer/test_plan_executor.py 单测钉住，
   # 评估集不复制真实数值（D2 中间数值不进模型）。
   - id: chain-01
@@ -288,6 +297,16 @@ cases:
                  get_portfolio_vs_benchmark, get_rebalance_reference]
         - tool: [get_portfolio_performance, list_position_pnl, get_return_attribution,
                  get_portfolio_vs_benchmark, get_rebalance_reference]
+      narrative:
+        covers:
+          - id: 近3个月持仓收益
+            any: ['近3个月', '近三个月', '3个月', '近三月', '区间收益']
+          - id: 亏得最多的标的
+            any: ['亏得最多', '亏损最大', '浮亏最大', '最大浮亏', '亏得最狠']
+          - id: 调仓参考
+            any: ['再平衡', '调仓', '权重', '估值分位']
+          - id: 没跟上市场还是自身问题
+            any: ['基准', '跑输', '跑赢', '超额', '归因', '没跟上市场', '相对市场']
 
   # ── advice：持仓/调仓建议（1，tag: advice，#3049 §10 派生） ──
   # v1 已落地：get_rebalance_reference（agent-rebalance-reference-tool.md §12）可答

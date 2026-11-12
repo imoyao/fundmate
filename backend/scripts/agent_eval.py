@@ -202,13 +202,81 @@ def evaluate_plan(traces, expect):
     return True, ''
 
 
+NARRATIVE_KEYS = frozenset({'covers'})
+NARRATIVE_COVER_KEYS = frozenset({'id', 'any'})
+
+
+def validate_narrative_shape(narrative):
+    """校验 expect.narrative 结构，返回错误原因列表（空列表 = 合法）。
+
+    形态：``{covers: [{id: <子问名>, any: [<同义锚点>, ...]}, ...]}``。
+    只做**存在性**判据：证明每个子问在最终回答里留下了落点，不判答案对错，
+    也不读任何工具数值（D2：中间数值不经模型决策，评估集同样不复制一份）。
+    """
+    errors = []
+    if not isinstance(narrative, dict):
+        return ['expect.narrative 必须是映射']
+    unknown = set(narrative) - NARRATIVE_KEYS
+    if unknown:
+        errors.append(f'含未知字段 {sorted(unknown)}')
+    covers = narrative.get('covers')
+    if not isinstance(covers, list) or not covers:
+        return errors + ['expect.narrative.covers 必须是非空列表']
+    for i, cover in enumerate(covers):
+        if not isinstance(cover, dict):
+            errors.append(f'子问 {i + 1} 必须是映射')
+            continue
+        extra = set(cover) - NARRATIVE_COVER_KEYS
+        if extra:
+            errors.append(f'子问 {i + 1} 含未知字段 {sorted(extra)}')
+        if not isinstance(cover.get('id'), str) or not cover['id'].strip():
+            errors.append(f'子问 {i + 1} 缺合法 id')
+        words = cover.get('any')
+        if not isinstance(words, list) or not words or not all(isinstance(w, str) and w.strip() for w in words):
+            errors.append(f'子问 {i + 1} 的 any 必须是非空字符串列表')
+    return errors
+
+
+def evaluate_narrative(text, expect):
+    """按 expect.narrative 判定最终回答是否逐子问留痕；返回 (是否通过, 失败原因)。
+
+    纯字符串包含（大小写不敏感），不调模型、不读工具数据：主观上的答案对错
+    归工具单测与人工回放，这里只把「多子问被静默丢掉」变成可见红灯。
+    判据不阻止堆词凑覆盖，边界与正确性结论见 cases.yaml 的 chain-01 注释。
+    """
+    spec = (expect or {}).get('narrative')
+    errors = validate_narrative_shape(spec)
+    if errors:
+        return False, 'expect.narrative 结构非法：' + '; '.join(errors)
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定子问覆盖'
+    haystack = text.lower()
+    missed = [
+        f'{cover["id"]}（期望任一：{cover["any"]}）'
+        for cover in spec['covers']
+        if not any(word.lower() in haystack for word in cover['any'])
+    ]
+    if missed:
+        return False, '最终回答未覆盖子问：' + '；'.join(missed)
+    return True, ''
+
+
 def run_case(db, case):
-    """单案例：新会话 → 按 turns 顺序跑真实链路 → 读该会话全部 trace 汇总。"""
+    """单案例：新会话 → 按 turns 顺序跑真实链路 → 读该会话全部 trace 汇总。
+
+    expect.narrative 存在时，在 status/tool/plan 判定**通过后**追加一次最终回答
+    的子问覆盖判定；无该字段的用例仍走原路径，行为一字不变。
+    """
     row = session_store.load_or_create(db, session_id=None, user_id=EVAL_USER_ID)
     error = ''
+    reply = ''
     try:
         for text in case['turns']:
-            agent_loop.run_agent(text, row)
+            out = agent_loop.run_agent(text, row)
+            # 叙事原文只从返回值取：session.messages 的 assistant 侧被
+            # TURN_SIDE_CAP=800 截断，用它做覆盖判据会把长回答误判成丢子问。
+            if isinstance(out, dict):
+                reply = out.get('content') or ''
         db.flush()
     except Exception as exc:  # noqa: BLE001  单案例炸不中断跑批（记入报告）
         error = f'exception={exc!r}'
@@ -221,12 +289,15 @@ def run_case(db, case):
 
     traces = db.query(AgentTrace).filter_by(session_id=row.session_id).order_by(AgentTrace.id).all()
     final = traces[-1] if traces else None
+    expect = case.get('expect') or {}
     if error:
         ok, why = False, error
-    elif (case.get('expect') or {}).get('plan'):
-        ok, why = evaluate_plan(traces, case['expect'])
+    elif expect.get('plan'):
+        ok, why = evaluate_plan(traces, expect)
     else:
-        ok, why = evaluate(final, case.get('expect') or {})
+        ok, why = evaluate(final, expect)
+    if ok and expect.get('narrative'):
+        ok, why = evaluate_narrative(reply, expect)
     return {
         'id': case['id'],
         'input': case['turns'][-1],
