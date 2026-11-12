@@ -60,7 +60,21 @@ describe("AssetEditDialog 名称可编辑（防回潮）", () => {
     expect(stripped).toContain('ElMessage.warning("资产名称不能为空")');
   });
 
-  it("未保存离开提示覆盖名称与新增的变动字段", () => {
-    expect(stripped).toContain("资产名称／变动量／变动日期／说明／备注已改动");
+  it("未保存离开提示覆盖全部可改字段（含 G5 新增的配置目标）", () => {
+    // 这句提示是用户**唯一能看见的脏字段清单**。新增一个可改字段却不同步文案，
+    // 用户会以为这次只改了无关项、放心点 ×（配置目标就此静默丢失）。
+    // 故逐项断言而不是比对整句：既拦住漏字段，也不因调整语序/连接符而假红。
+    const match = stripped.match(/message:\s*\n?\s*"([^"]*已改动[^"]*)"/);
+    expect(match, "找不到未保存离开提示文案").not.toBeNull();
+    for (const field of [
+      "资产名称",
+      "配置目标",
+      "变动量",
+      "变动日期",
+      "说明",
+      "备注"
+    ]) {
+      expect(match![1], `提示未覆盖「${field}」`).toContain(field);
+    }
   });
 });
