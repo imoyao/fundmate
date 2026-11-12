@@ -4,7 +4,12 @@
 # 判据基于 agent_trace 最后一轮：status ∈ result|clarify|error|blocked，
 # tool 为模型实际选中的工具名（标量=精确匹配，列表=任一命中，缺省不校验）。
 # 含 expect.plan 的用例改按多步执行序列判定；含 expect.narrative 的用例在通过
-# 上述判定后，追加一次最终回答的子问覆盖检查（纯文本包含，不调模型、不读数值）。
+# 上述判定后，追加两次最终回答检查（都不调模型）：
+#   ① covers —— 每个要点在回答里有没有落点（纯文本包含）；
+#   ② metric —— 该要点的指标值有没有被引用，且**是否引在它自己那一段**（D105）。
+# 铺开范围：27 条（chain-01 + basic 15 + attr 2 + bench 4 + behav 3 + conf 2）。
+# 单问用例只有一组 cover，此时 metric 是必填——单问的锚点天然是泛词（问「净资产」
+# 答「净资产」），不钉值就只剩一个恒真判据。哪些用例故意不挂见各条注释。
 #
 # 47 条分组（#2621 的 45 条 + #3049 增 chain/advice 基线 2 条）：
 #   basic 20        原六工具覆盖（资产 / 收益 / 持仓 / 净值 / 温度计 / 自选）
@@ -26,32 +31,82 @@ cases:
   - id: basic-01
     turns: ['我的组合这些年一共赚了多少百分比']
     tags: [basic]
-    expect: { status: result, tool: get_portfolio_performance }
+    expect:
+      status: result
+      tool: get_portfolio_performance
+      narrative:
+        covers:
+          - id: 累计收益
+            any: ['年化', '一共', '总共', '累计', '赚了']
+            # 两个口径任一命中即算：xirr 是年化小数（0.3675→36.75%），total_return
+            # 是累计金额（518809.65 元）。问「百分比」时前者更贴题，但模型常先给
+            # 累计金额再给年化，两种表述都算给出了数。
+            metric:
+              - { tool: get_portfolio_performance, field: xirr }
+              - { tool: get_portfolio_performance, field: total_return }
 
   - id: basic-02
     turns: ['我的投资组合年化收益率是多少']
     tags: [basic]
-    expect: { status: result, tool: get_portfolio_performance }
+    expect:
+      status: result
+      tool: get_portfolio_performance
+      narrative:
+        covers:
+          - id: 年化收益率
+            any: ['年化', '每年', 'xirr']
+            metric: { tool: get_portfolio_performance, field: xirr }
 
   - id: basic-03
     turns: ['组合总共赚了多少钱']
     tags: [basic]
-    expect: { status: result, tool: get_portfolio_performance }
+    expect:
+      status: result
+      tool: get_portfolio_performance
+      narrative:
+        covers:
+          - id: 累计赚到的钱
+            any: ['总共', '一共', '累计', '总收益', '赚了']
+            metric: { tool: get_portfolio_performance, field: total_return }
 
   - id: basic-04
     turns: ['看看家庭资产总览']
     tags: [basic]
-    expect: { status: result, tool: get_assets_overview }
+    expect:
+      status: result
+      tool: get_assets_overview
+      narrative:
+        covers:
+          - id: 家庭资产总览
+            any: ['总资产', '净资产', '资产总计']
+            # 总览至少要报一个总量。两个口径任一命中：模型有的先说总资产、有的先说净资产。
+            metric:
+              - { tool: get_assets_overview, field: total_assets_cny }
+              - { tool: get_assets_overview, field: net_assets_cny }
 
   - id: basic-05
     turns: ['我现在有多少净资产']
     tags: [basic]
-    expect: { status: result, tool: get_assets_overview }
+    expect:
+      status: result
+      tool: get_assets_overview
+      narrative:
+        covers:
+          - id: 净资产
+            any: ['净资产', '资产净值']
+            metric: { tool: get_assets_overview, field: net_assets_cny }
 
   - id: basic-06
     turns: ['我的总负债有多少']
     tags: [basic]
-    expect: { status: result, tool: get_assets_overview }
+    expect:
+      status: result
+      tool: get_assets_overview
+      narrative:
+        covers:
+          - id: 总负债
+            any: ['负债', '欠款', '贷款']
+            metric: { tool: get_assets_overview, field: total_liabilities_cny }
 
   - id: basic-07
     turns: ['我哪些持仓在亏钱']
@@ -66,7 +121,17 @@ cases:
   - id: basic-09
     turns: ['亏得最多的是哪只基金']
     tags: [basic]
-    expect: { status: result, tool: list_position_pnl }
+    expect:
+      status: result
+      tool: list_position_pnl
+      narrative:
+        covers:
+          - id: 亏得最多的标的
+            any: ['亏得最多', '亏损最大', '浮亏最大', '亏得最狠']
+            # 「最多」可以按金额也可以按比例：两种都是合法答案，任一命中即算。
+            metric:
+              - { tool: list_position_pnl, field: items.*.pnl, pick: min }
+              - { tool: list_position_pnl, field: items.*.pnl_rate, pick: min }
 
   - id: basic-10
     turns: ['我的持仓成本和浮亏']
@@ -77,22 +142,53 @@ cases:
   - id: basic-11
     turns: ['查一下 110011 的净值']
     tags: [basic]
-    expect: { status: result, tool: get_fund_nav }
+    expect:
+      status: result
+      tool: get_fund_nav
+      narrative:
+        covers:
+          - id: 净值
+            any: ['110011', '净值']
+            metric: { tool: get_fund_nav, field: navs.*.unit_nav }
 
   - id: basic-12
     turns: ['110011 和 161725 的最新净值']
     tags: [basic]
-    expect: { status: result, tool: get_fund_nav }
+    expect:
+      status: result
+      tool: get_fund_nav
+      narrative:
+        covers:
+          - id: 两只基金净值
+            any: ['净值', '110011', '161725']
+            # 只要求报出至少一个净值：拆成两条「必须各报一个」会把只答一只的
+            # 部分回答当成完全回避，判据要打的是「一个数都不给」。
+            metric: { tool: get_fund_nav, field: navs.*.unit_nav }
 
   - id: basic-13
     turns: ['现在市场温度是多少']
     tags: [basic]
-    expect: { status: result, tool: get_market_temperature }
+    expect:
+      status: result
+      tool: get_market_temperature
+      narrative:
+        covers:
+          - id: 市场温度
+            any: ['温度', '偏低', '偏高', '适中']
+            # composite_temperature 是 {value, level} 结构，要取值不能取整块。
+            metric: { tool: get_market_temperature, field: composite_temperature.value }
 
   - id: basic-14
     turns: ['现在市场情绪怎么样，是贪婪还是恐惧']
     tags: [basic]
-    expect: { status: result, tool: get_market_temperature }
+    expect:
+      status: result
+      tool: get_market_temperature
+      narrative:
+        covers:
+          - id: 情绪与温度
+            any: ['贪婪', '恐惧', '情绪', '温度']
+            metric: { tool: get_market_temperature, field: composite_temperature.value }
 
   - id: basic-15
     turns: ['温度计数据更新到最新日期了吗']
@@ -102,22 +198,52 @@ cases:
   - id: basic-16
     turns: ['我的自选列表现在什么情况']
     tags: [basic]
-    expect: { status: result, tool: get_watchlist_overview }
+    expect:
+      status: result
+      tool: get_watchlist_overview
+      narrative:
+        covers:
+          - id: 自选概况
+            any: ['自选', '置顶', '关注']
+            metric: { tool: get_watchlist_overview, field: items.*.change_pct }
 
   - id: basic-17
     turns: ['自选里置顶的标的涨跌如何']
     tags: [basic]
-    expect: { status: result, tool: get_watchlist_overview }
+    expect:
+      status: result
+      tool: get_watchlist_overview
+      narrative:
+        covers:
+          - id: 置顶标的涨跌
+            any: ['置顶', '涨跌', '涨幅']
+            metric: { tool: get_watchlist_overview, field: items.*.change_pct }
 
   - id: basic-18
     turns: ['查一下 519674 的净值']
     tags: [basic]
-    expect: { status: result, tool: get_fund_nav }
+    expect:
+      status: result
+      tool: get_fund_nav
+      narrative:
+        covers:
+          - id: 净值
+            any: ['519674', '净值']
+            # 本机真库里 519674 无净值（navs=[]）⇒ 字段无值时跳过，
+            # 判据此时应放过「如实说查不到」，不能把数据缺口判成回避。
+            metric: { tool: get_fund_nav, field: navs.*.unit_nav }
 
   - id: basic-19
     turns: ['最近一周市场温度有什么变化']
     tags: [basic]
-    expect: { status: result, tool: get_market_temperature }
+    expect:
+      status: result
+      tool: get_market_temperature
+      narrative:
+        covers:
+          - id: 温度变化
+            any: ['温度', '一周', '变化']
+            metric: { tool: get_market_temperature, field: composite_temperature.value }
 
   - id: basic-20
     turns: ['110011 今天更新净值了吗']
@@ -145,7 +271,15 @@ cases:
   - id: attr-02
     turns: ['亏损主要来自哪一块']
     tags: [attribution]
-    expect: { status: result, tool: get_return_attribution }
+    expect:
+      status: result
+      tool: get_return_attribution
+      narrative:
+        covers:
+          - id: 亏损主要来源
+            any: ['亏损', '亏', '主要']
+            # 「哪一块」的答案必须点名最大那笔亏损额，否则只是复述「整体是亏的」。
+            metric: { tool: get_return_attribution, field: items.*.pnl, pick: min }
 
   - id: attr-03
     turns: ['收益都来自哪个账户']
@@ -155,29 +289,76 @@ cases:
   - id: attr-04
     turns: ['我的收益构成里贡献最大的是哪只']
     tags: [attribution]
-    expect: { status: result, tool: get_return_attribution }
+    expect:
+      status: result
+      tool: get_return_attribution
+      narrative:
+        covers:
+          - id: 贡献最大的标的
+            any: ['贡献', '最大', '哪只']
+            # 「贡献最大」按绝对盈亏挑，占比与金额指向同一行，两种表述都算给出。
+            metric:
+              - { tool: get_return_attribution, field: items.*.pnl, pick: abs_max }
+              - { tool: get_return_attribution, field: items.*.contribution_pct, pick: abs_max }
 
   # ── bench：同期基准对比（4，tag: benchmark，#2620 新工具） ──
   # 分工：基准对比回答「跑赢没 / 超额多少」，组合收益回答「本身赚了多少」。
   - id: bench-01
     turns: ['我今年跑赢沪深300了吗']
     tags: [benchmark]
-    expect: { status: result, tool: get_portfolio_vs_benchmark }
+    expect:
+      status: result
+      tool: get_portfolio_vs_benchmark
+      narrative:
+        covers:
+          - id: 相对基准
+            any: ['跑赢', '跑输', '超额', '沪深300', '沪深 300']
+            # 超额与基准区间涨跌幅同意量纲（百分点，D104），任一口径都算给了相对市场的数。
+            metric:
+              - { tool: get_portfolio_vs_benchmark, field: excess_return }
+              - { tool: get_portfolio_vs_benchmark, field: benchmark_range_return }
 
   - id: bench-02
     turns: ['我的收益是本事还是市场给的']
     tags: [benchmark]
-    expect: { status: result, tool: get_portfolio_vs_benchmark }
+    expect:
+      status: result
+      tool: get_portfolio_vs_benchmark
+      narrative:
+        covers:
+          - id: 收益来自本事还是市场
+            any: ['跑赢', '跑输', '超额', '本事']
+            metric:
+              - { tool: get_portfolio_vs_benchmark, field: excess_return }
+              - { tool: get_portfolio_vs_benchmark, field: benchmark_range_return }
 
   - id: bench-03
     turns: ['跟标普500比，我这几年表现如何']
     tags: [benchmark]
-    expect: { status: result, tool: get_portfolio_vs_benchmark }
+    expect:
+      status: result
+      tool: get_portfolio_vs_benchmark
+      narrative:
+        covers:
+          - id: 与标普500对比
+            any: ['标普', '跑赢', '跑输', '超额']
+            # 只钉基准涨跌幅：标普序列可能不可用（available=False），此时字段无值
+            # 直接跳过；若钉 excess_return 会把「基准取不到」和「模型回避」混在一起。
+            metric: { tool: get_portfolio_vs_benchmark, field: benchmark_range_return }
 
   - id: bench-04
     turns: ['我的组合和上证指数比谁涨得多']
     tags: [benchmark]
-    expect: { status: result, tool: get_portfolio_vs_benchmark }
+    expect:
+      status: result
+      tool: get_portfolio_vs_benchmark
+      narrative:
+        covers:
+          - id: 与上证指数对比
+            any: ['上证', '涨得多', '跑赢', '超额']
+            metric:
+              - { tool: get_portfolio_vs_benchmark, field: range_rate }
+              - { tool: get_portfolio_vs_benchmark, field: benchmark_range_return }
 
   # ── behav：交易行为画像（4，tag: behavior，#2619 新工具） ──
   # 分工：行为画像只给客观操作统计（持有期 / 买卖比 / 换手 / 买点分位），不涉及盈亏。
@@ -189,17 +370,40 @@ cases:
   - id: behav-02
     turns: ['我是不是爱加仓']
     tags: [behavior]
-    expect: { status: result, tool: get_trading_behavior }
+    expect:
+      status: result
+      tool: get_trading_behavior
+      narrative:
+        covers:
+          - id: 买卖结构
+            any: ['加仓', '买卖比', '买入']
+            metric: { tool: get_trading_behavior, field: trading.buy_sell_ratio }
 
   - id: behav-03
     turns: ['我的换手率高不高']
     tags: [behavior]
-    expect: { status: result, tool: get_trading_behavior }
+    expect:
+      status: result
+      tool: get_trading_behavior
+      narrative:
+        covers:
+          - id: 换手率
+            any: ['换手', '周转']
+            metric: { tool: get_trading_behavior, field: trading.turnover_pct }
 
   - id: behav-04
     turns: ['我是不是跌了才买']
     tags: [behavior]
-    expect: { status: result, tool: get_trading_behavior }
+    expect:
+      status: result
+      tool: get_trading_behavior
+      narrative:
+        covers:
+          - id: 买点分位
+            any: ['分位', '买点', '跌']
+            # 分位均值可能因覆盖不足而偏低（真库 coverage_pct=77.71），消费方须一并
+            # 说明样本覆盖；这里只钉「给出了分位这个数」。
+            metric: { tool: get_trading_behavior, field: buy_price_percentile.mean }
 
   # ── confusion：跨工具混淆（3，tag: confusion，#2621 新增对抗类） ──
   # 每条都与同组正例「只差一个词」：问的是邻近工具的口径，选错即 FAIL。
@@ -208,13 +412,30 @@ cases:
     turns: ['亏得最多的那只到底亏了多少']
     tags: [confusion]
     # 「多少」（绝对额）→ 逐持仓明细；「哪一块」（占比）→ 归因（对照 attr-02）
-    expect: { status: result, tool: list_position_pnl }
+    expect:
+      status: result
+      tool: list_position_pnl
+      narrative:
+        covers:
+          - id: 亏得最多的金额
+            any: ['亏得最多', '亏了', '亏损']
+            # 问句里就有「多少」，必须给出金额，不能只报基金名。
+            metric: { tool: list_position_pnl, field: items.*.pnl, pick: min }
 
   - id: conf-02
     turns: ['我的组合绝对收益是多少']
     tags: [confusion]
     # 「绝对收益」→ 组合收益本身；「超额」→ 基准对比（对照 bench-01）
-    expect: { status: result, tool: get_portfolio_performance }
+    expect:
+      status: result
+      tool: get_portfolio_performance
+      narrative:
+        covers:
+          - id: 绝对收益
+            any: ['绝对收益', '总收益', '赚了']
+            # 只钉 total_return：这时把 xirr 也算通过，等于放过「问绝对收益却只报年化」
+            # 这个正是本组要抓的口径混淆。
+            metric: { tool: get_portfolio_performance, field: total_return }
 
   - id: conf-03
     turns: ['我最近买的这只现在赚了多少']
@@ -303,6 +524,10 @@ cases:
   # 对「值域窄、样本多」的字段天然失效，抓回避/串台只能靠按字段比对单个值。
   # 仍不覆盖：数字归属到具体子问以外的语义错误、只说「两成」这类中文数值、以及
   # 模型复述工具口径时的措辞偏差；正确性最终仍归工具单测与 agent_replay 人工回放。
+  # ③ 归属（D105，2026-11-12）：metric 不再「全文出现即算」，而是要求数值出现在
+  #    **该要点自己的段落**里（同段锚点 ∪ 最近提到的要点）。四个数全报、但「组合收益」
+  #    那段写的是超额的 -6.33、「跑输」那段写的是组合的 -19.44 —— 全文判据会放行，
+  #    而这正是用户读到的那句错话。段落里没有可归属的高熵数值时退回全文，宁松不误杀。
   - id: chain-01
     turns: ['我近 3 个月的持仓收益如何？哪一个亏得最多？针对亏得最多的那个产品，给我一些调仓建议，它亏的原因是什么——是没有跟上市场还是自己出问题了？']
     tags: [chain, gap]
