@@ -4,6 +4,8 @@
 # File : views.py
 """资金容器 API — 基本 CRUD"""
 
+from datetime import datetime
+
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
@@ -16,6 +18,7 @@ from app.core.retry import retry_on_db_locked
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services import cash_like_settle as cash_like_svc
 from app.services import ledger_migration_service as migration_svc
 from app.services import ledger_write_service as ledger_write_svc
 
@@ -628,3 +631,57 @@ def delete_orphan_data():
             'message': f'已清理 {total} 项未归置数据',
         }
     )
+
+
+# ────────────────────────────── 类现金：逆回购到期回款（#3087 / D114）─────────────────────────
+
+
+@ledgers_bp.post('/<int:ledger_id>/cash-like/reverse-repo/settle/')
+@retry_on_db_locked()
+def settle_reverse_repo_flow(ledger_id: int):
+    """把一笔逆回购结清：写一条回款流水（本金）+ 可选的利息流水。
+
+    为什么需要这个入口：逆回购不建持仓、按孤儿流水记账，而导入只带来「买入」那一半
+    （真库 4 笔全是 `buy`，202,000.84 元在途）——类现金统计只增不减、总资产把这笔钱
+    算两遍。本仓没有通用「手工新建流水」接口，所以这里给一条**受限**的写入路径：
+    金额恒等于在途本金（整笔结清），不提供任意金额/方向。
+
+    参数：`symbol`（标的代码）、`settle_date`（回款日 YYYY-MM-DD）、`interest`（利息，元，可选）。
+    """
+    data = request.get_json() or {}
+    symbol = str(data.get('symbol') or '').strip()
+    raw_date = str(data.get('settle_date') or '').strip()
+    try:
+        settle_date = datetime.strptime(raw_date, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'data': None, 'message': '回款日格式应为 YYYY-MM-DD', 'error_code': 1001}), 400
+
+    try:
+        interest_cents = Money.yuan_to_cents(data.get('interest') or 0)
+    except (TypeError, ValueError):
+        return jsonify({'data': None, 'message': '利息必须是数字', 'error_code': 1001}), 400
+    if interest_cents < 0:
+        return jsonify({'data': None, 'message': '利息不能为负', 'error_code': 1001}), 400
+
+    with get_db() as db:
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        try:
+            result = cash_like_svc.settle_reverse_repo(
+                db,
+                family_id=get_family_id(),
+                ledger_id=ledger.id,
+                symbol=symbol,
+                settle_date=settle_date,
+                interest_cents=interest_cents,
+            )
+        except cash_like_svc.SettleError as e:
+            return jsonify({'data': None, 'message': e.message, 'error_code': 1001}), e.status_code
+        return jsonify(
+            {
+                'data': result,
+                'message': (
+                    f'已登记回款：本金 ¥{result["settled_amount"]:.2f}'
+                    + (f'，利息 ¥{result["interest_amount"]:.2f}' if result['interest_amount'] else '')
+                ),
+            }
+        )

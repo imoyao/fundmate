@@ -759,3 +759,41 @@ export function getSecuritiesAggregation(params: AggregationQuery = {}) {
     { params }
   );
 }
+
+/**
+ * 逆回购到期回款（#3087 / D114）。
+ *
+ * 逆回购不建持仓、按孤儿流水记账，导入只带「买入」那一半；没有这条入口，
+ * 在途本金只增不减（真库 4 笔全 buy，202,000.84 元），总资产会把它连同
+ * 回到现金账户的那笔钱算两遍。
+ *
+ * 服务端口径：**整笔结清**（金额恒等于当前在途本金，不接受任意金额），
+ * 利息单独成一行收益流水；重复提交会被拒（没有在途本金）。
+ */
+export interface SettleReverseRepoPayload {
+  /** 标的代码（如 SH204001 / SZ131801），与「类现金」明细行一致 */
+  symbol: string;
+  /** 回款日 YYYY-MM-DD */
+  settle_date: string;
+  /** 利息（元，可选）。它是收益行，不是本金 */
+  interest?: number;
+}
+
+export interface SettleReverseRepoResult {
+  /** 结清的本金（元） */
+  settled_amount: number;
+  /** 登记的利息（元） */
+  interest_amount: number;
+  transaction_ids: number[];
+}
+
+export function settleReverseRepo(
+  ledgerId: number,
+  payload: SettleReverseRepoPayload
+) {
+  return http.request<ApiResponse<SettleReverseRepoResult>>(
+    "post",
+    `/api/ledgers/${ledgerId}/cash-like/reverse-repo/settle/`,
+    { data: payload }
+  );
+}
