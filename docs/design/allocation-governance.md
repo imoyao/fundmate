@@ -128,6 +128,90 @@ G3 实改因此更没有理由现在跑：先让用户把现金录进来，回�
 - 本批**未碰**：46.5 万账外类现金的 G4 分母裁定、G3 实改、G4 统计出口、
   G5 前端录入 UI、真实数据回填、任何既有测试断言/夹具。
 
+### 4.3 G4 + P0-4 统计出口与录入默认值（2026-11-12，已实现）
+
+#### G4：五笔钱成员边界落到统计出口
+
+新增 `app/services/allocation_breakdown.py` 作为**唯一实现**（`summary_service.py` 被
+`guard_service_size.py` 按文件冻结，聚合只能外置；dev 基线 1417 行 → 本批后 1414 行）：
+
+| 出口 | 改动 |
+|:---|:---|
+| `/api/summary/distributions/` | `allocation_distribution` 由该模块产出：持仓 + **非负债成员资产行**（`is_allocation_member`）|
+| 同上（新增键） | `allocation_scope`：`{denominator, excluded_total, excluded[], liabilities_total}` |
+| `/api/summary/groups/?type=allocation`（`get_position_groups`）| 成员序列改为 `allocation_group_items`：持仓 + 成员资产行，资产行 payload 带 `allocation` / `allocation_label`，故「活钱」可下钻 |
+
+**恒等判据**：`Σ allocation_distribution.value == allocation_scope.denominator`（严格相等，
+两侧都由同一批已 round 到分位的输入相加）。**负债零命中**：负债只出现在
+`liabilities_total`，既不在分布、也不在 `allocation_group_items` 序列里——
+`derive_allocation` 对负债抛 `LiabilityAllocationError`，是给「聚合侧漏过滤」准备的规则级守卫，
+聚合侧必须**先过滤再调用**（`allocation_breakdown.py` 不替它兜底）。
+
+**成员值的取法**（优先级链，与 §3.2 一致）：`allocation_source` ∈ `{user, import, governance}`
+且存储值非空 → 用存储值；否则按大类推导（cash ⇒ `liquid`）；推导为 `None`（投机类留人工）→
+回落存储值，再回落 `longterm`。
+
+**未纳入**：房产 / 应收 / 固定资产 / 车辆 / 贵金属 / custom 进 `allocation_scope.excluded`，
+按大类中文名聚合成行、**不进任何桶**。静默丢弃会让用户在「总资产 338 万、五笔钱只见 66.9 万」
+时以为算错——这是 §3.1 要求 UI 明示的那个数的**后端来源**。
+
+**本轮不纳入**：账外 222 笔类现金流水（¥465,178.56，用户 2026-11-12 拍板）。故
+`allocation_breakdown.py` **不读 `transactions`**；将来放行时应由调用方把「已核实类现金」
+作为一笔显式成员金额传入，而不是在聚合模块里偷读流水。
+
+#### P0-4：现金资产不再默认落「长期增值」
+
+修在**入参 schema 出口**而非视图层（`assets/views.py` 被 `check_view_thickness.py` 冻结在 244 行）：
+`AssetCreate` 的 `@model_validator(mode='after')` 调 `derive_allocation` 推导，
+`liability` 跳过，`speculative` 等推导为 `None` 时保留默认。
+
+**关键细节：推导完成后必须 `model_fields_set.discard('allocation')`。** G1-b 的序列化混入按
+「`allocation` 是否在 `model_fields_set` 里」判定来源——若推导把该键留在集合里，一笔用户从未配置过的
+现金资产会被标成 `user`，从此**被 G3 回填永久跳过**，而界面看不出任何异常。丢弃后它仍是
+`default`（可被推导规则接管），语义与「用户没设过」一致。
+
+**已知缺口（本批不修，须单独裁定）**：
+
+- `AssetUpdate` 在 `major_category` 变更时**不重新推导**（只补创建路径）；
+- 导入路径仍硬编码 `longterm`（`orchestrator_holdings.py`），按 §4.2 判据本就落 `default`，不接线；
+- `ledger_service.py:230/261` 的**按账本** `allocation_distribution` 仍只算持仓，
+  与全局出口不同源——本轮未纳入范围，属下一步收敛项。
+
+### 4.4 G5 录入入口（2026-11-12，已实现）
+
+§4.1 的结论是「真正让活钱有内容的是 G5 与 G4」，故 G5 不是 UI 打磨，它是这条链的**入口**。
+
+| 位置 | 改动 |
+|:---|:---|
+| `views/asset/inventory/components/AssetEditDialog.vue` | 补「配置目标」下拉（选项复用 `@/constants` 的 `ALLOCATION_OPTIONS`）；**负债行整项不渲染**；**现金类只读显示「活钱」** |
+| `views/asset/ledgers/components/LedgerCashEntryDialog.vue`（新增） | 账户现金录入 / 修改弹窗；本账户无 cash 行 ⇒ `createAsset`（填余额），已有 ⇒ `updateAsset` 的 `delta`（填变动量） |
+| `views/asset/ledgers/components/LedgerCashLikeCard.vue` | 「账户现金」卡加录入入口；空态判定由「有值才渲染」改为「有账户 id 就渲染」；修正已被证伪的告警文案 |
+| `views/asset/ledgers/components/LedgerDetailOverview.vue` | 下发 `ledgerId`，`@saved` 调 `p.loadSummary` 定点刷新概览 |
+| `composables/useLedgerDetail.ts` | 导出 `loadSummary`（只重取概览，不连带持仓 / 流水） |
+
+**四条不可省的实现细节**（每一条都对应一个静默失败形态）：
+
+1. **只在值真的变了才提交 `allocation`**。来源标记（G1-b）按「请求体是否显式带该键」判定，
+   无条件提交会把 `default` 行标成 `user`，该行从此被 G3 回填永久跳过，界面无任何异常。
+2. **创建现金行时不传 `allocation`**。现金 ⇒ 活钱是系统规则（P0-4 在 schema 层推导），
+   显式传等于把系统默认值伪装成用户配置，并让它脱离后续规则接管。
+3. **保存前必须先查出本账户已有的 cash 行**。`account_cash_amount` 是
+   `ledger_id + major_category='cash'` 上的求和；查不到就按「新建」处理会让用户建出第二行、
+   账户现金被重复计入。查询失败 ⇒ **关掉弹窗**，不猜。
+4. **修改走 `delta`，不提交绝对值**。绝对值会把补录历史退化成覆盖当前值并平移后续曲线
+   （`asset-value-history-design.md` §8）。
+
+**空态判定为什么改了**：原先是「类现金为 0 就不渲染整块」（避免给普通基金账户加空卡）。
+但录入口在块内 ⇒ 块不渲染时用户**永远没有地方录账户现金**，「活钱」恒为空态正是这么来的。
+改为「有账户 id 就渲染」，用一句空态说明替代四张 0.00 指标卡控制噪声；
+副产品是该页「类现金」页内导航项从「有内容才出现」变为恒存在（伪账户页无 id，仍收起）。
+
+**账外流水告警文案已更正**：原文「可能混有跨账本重复导入」在 §五的实测（groups=0、指纹复算 0）
+下不成立，已改为「缺少来源信息（交易日 / 代码 / 来源渠道多为空），无法逐笔下钻对账」。
+
+**仍未做**：`allocation_scope` 的「未纳入」金额尚未在分布图上显式呈现（§3.1 要求），
+前端 `api/summary.ts` 也未声明该键——属下一步，不在本批。
+
 ## 五、对账核实结论（2026-11-10，只读）
 
 完整记录与复现脚本见 `docs/working-notes/cash-like-orphan-flows-2026-11-10.md`、`scripts/reconcile_orphan_cash_flows.py`。要点：

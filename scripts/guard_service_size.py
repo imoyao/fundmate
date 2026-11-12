@@ -369,7 +369,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-10 D94 桑基图收敛：get_sankey_data 及其 helper 下沉到 services/sankey_service.py
     # （新文件走 NEW_FILE_LIMITS，实测 {286, 56, 13}）；本文件顺带删除随函数一并消失的
     # 桑基节点常量（K_TOTAL/K_NET/K_LIABILITY 等），并加体量闸门约束注释，只减不增回写：1628→1417 / 221→107 / 53→17。
-    "backend/app/services/summary_service.py": {'lines': 1417, 'max_func': 107, 'max_cc': 17},
+    # 2026-11-12 #3031 G4：五笔钱成员边界与分桶下沉到 allocation_breakdown.py
+    # （资产行纳入 + 「未纳入」出口），并删除随实现消失的死常量 _DEFAULT_ALLOC；
+    # 1417 → 1415 为真实缩减，按 --report 回写（只减不增）。
+    "backend/app/services/summary_service.py": {'lines': 1414, 'max_func': 107, 'max_cc': 17},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},

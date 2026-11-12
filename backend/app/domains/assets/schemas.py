@@ -8,9 +8,9 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.core.allocation_rules import normalize_allocation_source
+from app.core.allocation_rules import derive_allocation, normalize_allocation_source
 from app.core.allocation_source_stamp import AllocationSourceStampMixin
 from app.core.asset_types import MAJOR_CATEGORY_VALUES
 
@@ -47,6 +47,35 @@ class AssetCreate(AllocationSourceStampMixin):
     extra: Optional[dict] = None
 
     _check_major_category = field_validator('major_category')(_validate_major_category)
+
+    @model_validator(mode='after')
+    def _derive_allocation_default(self) -> 'AssetCreate':
+        """未显式给配置目标时按大类推导（#3031 / P0-4）。
+
+        WHY 在 schema 层而不是视图层：``assets/views.py`` 被
+        ``scripts/check_view_thickness.py`` 冻结在 244 行，加一行即红；而「创建时
+        该归哪一笔钱」本就是入参语义，推导规则仍在 ``core/allocation_rules`` 一份。
+
+        三条边界：
+
+        1. **只在请求体没带 allocation 时生效**（``model_fields_set`` 判定），
+           用户显式写 ``longterm`` 就尊重用户（P0-7：显式性优先于值反推）。
+        2. **负债直接跳过**：``derive_allocation`` 对负债抛 ``LiabilityAllocationError``
+           是给「聚合侧忘了过滤负债」准备的规则级守卫，不该把它变成用户的 400。
+        3. **推导结果不进 ``model_fields_set``**：否则 ``AllocationSourceStampMixin``
+           会把它标成 ``user``，G3 回填从此不敢碰这些行——系统默认值被误记成用户配置。
+        """
+        if 'allocation' in self.model_fields_set:
+            return self
+        if self.major_category == 'liability':
+            return self
+        derived = derive_allocation(self.major_category)
+        if derived is not None:
+            self.allocation = derived
+            # Pydantic v2 的赋值会把键写进 model_fields_set，等于把「系统推导」伪装成
+            # 「请求体显式传入」——必须当场摘掉，否则来源标记会被混入判成 user。
+            self.model_fields_set.discard('allocation')
+        return self
 
 
 class AssetUpdate(AllocationSourceStampMixin):

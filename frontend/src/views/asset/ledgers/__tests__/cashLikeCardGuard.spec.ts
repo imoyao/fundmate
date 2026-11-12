@@ -75,11 +75,22 @@ describe("账外类现金出口（#2155）", () => {
     expect(cardTemplate).toContain("formatAmount(totalMarketValue)");
   });
 
-  it("账外孤儿非 0 时即使合计为 0 也要显示（否则回到「钱在库里、页面没出口」）", () => {
-    // 买 1000 卖 1000 的账户合计为 0，但账外流水真实存在，明细仍应可见。
-    const match = card.match(/const visible = computed\(\s*([\s\S]*?)\n\);/);
+  it("块是否渲染不得只看金额：拿到账户 id 即渲染，账外孤儿非 0 时合计为 0 也要显示", () => {
+    // 两条都是「改回去也不会有人发现」的形态：
+    // ① 历史口径「有值才显示」会把录入入口一起藏掉（入口在块内，G5）——
+    //    块不渲染 ⇒ 用户永远没地方录账户现金 ⇒「活钱」恒为空态；
+    // ② 买 1000 卖 1000 的账户合计为 0，但账外流水真实存在，明细仍应可见。
+    const match = card.match(/const visible = computed\(([\s\S]*?)\);/);
     expect(match, "找不到 visible 的 computed 定义").not.toBeNull();
-    expect(match![1]).toContain("orphanNet.value !== 0");
+    expect(match![1]).toContain("!isEmpty.value");
+    expect(match![1]).toContain("props.ledgerId != null");
+
+    // 渲染条件放宽了，但「空」的判据不能被顺手削弱：孤儿净额与明细两项必须还在，
+    // 否则 ② 会退化成「只要 total 为 0 就收起」。
+    const empty = card.match(/const isEmpty = computed\(([\s\S]*?)\n\);/);
+    expect(empty, "找不到 isEmpty 的 computed 定义").not.toBeNull();
+    expect(empty![1]).toContain("orphanNet.value === 0");
+    expect(empty![1]).toContain("breakdown.value.length === 0");
   });
 
   it("已挂到账户详情页（真的开标签，不是注释掉的一行）", () => {
