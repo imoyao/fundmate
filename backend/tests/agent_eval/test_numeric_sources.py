@@ -470,3 +470,88 @@ def test_attribution_keeps_avoidance_red(contract):
     """归属收紧不能放过回避：整段不给数仍然判红。"""
     ok, why = contract.evaluate_metric_presence('近3个月收益不太好。\n跑输沪深300 一些。', ATTR_DATA, ATTR_COVERS)
     assert not ok and '未引用' in why, why
+
+
+# ── 八、中文数量词（D106） ───────────────────────────────────────
+# 真实回答常写「约两成」「六个点」「一百六十三万」，整段没有阿拉伯数字：
+# 抽不到 token 时反向判据漏报、正向判据把「用中文给了数」判成回避。
+# 但它们是概数——只能证明「说到了这个量」，不能用来证伪精确值，两个方向分开钉。
+
+
+@pytest.mark.parametrize(
+    ('text', 'want'),
+    [
+        ('近3个月收益约两成。\n\n跑输沪深300 六个点。', True),
+        ('近3个月收益亏了两成。\n\n跑输沪深300 六个百分点。', True),
+        # 「百分之十九」是 −19.44% 的四舍五入；「百分之二十」不是（差 0.56 > 0.5），
+        # 与阿拉伯写法同口径：写 20 就承诺了 20±0.5，不接受「约」字放宽。
+        ('近3个月收益约百分之十九。\n\n跑输沪深300 六个点。', True),
+        ('近3个月收益大亏。\n\n跑输沪深300 一点。', False),  # 「一点」不是数量承诺
+    ],
+)
+def test_cn_numerals_can_satisfy_metric_presence(contract, text, want):
+    ok, why = contract.evaluate_metric_presence(text, {'range_rate': -19.44, 'excess_return': -6.33}, ATTR_COVERS)
+    assert ok is want, why
+
+
+def test_cn_numerals_are_coarse_not_exact(contract):
+    """「两成」是 20% ±5：能接住 −19.44%，也该接住 −16%，但不该接住 −3%。"""
+    base = {'range_rate': -19.44, 'excess_return': -6.33}
+    assert contract._token_cites(contract._cn_tokens('两成')[0][1], -19.44)
+    assert contract._token_cites(contract._cn_tokens('两成')[0][1], -16.0)
+    assert not contract._token_cites(contract._cn_tokens('两成')[0][1], -3.0)
+
+
+def test_cn_amount_matches_data(contract):
+    """「一百六十三万」= 1630204.52 的合法口语改写；「两百万」不是。"""
+    assert contract.evaluate_metric_presence('你的净资产一百六十三万。', NET_ASSETS, SINGLE_COVER) == (True, '')
+    ok, why = contract.evaluate_metric_presence('你的净资产两百万。', NET_ASSETS, SINGLE_COVER)
+    assert not ok and '净资产' in why, why
+
+
+def test_cn_numerals_never_evidence_fabrication(contract):
+    """反向判据刻意不查中文概数：拿「约两成」或「一百六十三万」证伪精确值必然误杀。
+
+    金额形态是真正的守卫：「一百六十三万」在数字门槛里是 1630000（≥1000，本该被查），
+    靠 approximate 标记才豁免；百分比形态本来就会被「0 位小数」规则放过，钉不住这一点。
+    """
+    for text in ('你的净资产约两成，亏损三成。', '你的净资产一百六十三万。'):
+        ok, why = contract.evaluate_numeric_sources(text, {})
+        assert ok, f'{text!r} 被误判成编造：{why}'
+    assert contract._is_high_entropy('两', 20.0, True, False, 1.0, True) is False
+    assert contract._is_high_entropy('一百六十三万', 1630000.0, False, False, 1.0, True) is False
+    # 对照：阿拉伯写法「163 万」是精确承诺，数据为空时仍要判红
+    ok, why = contract.evaluate_numeric_sources('你的净资产 163 万。', {})
+    assert not ok and '无工具来源' in why, why
+
+
+@pytest.mark.parametrize(
+    ('run', 'want'),
+    [
+        ('两', 2.0),
+        ('十五', 15.0),
+        ('二十三', 23.0),
+        ('一百六十三', 163.0),
+        ('一百六十三万', 1630000.0),
+        ('两亿三千万', 230000000.0),
+        ('十万', 100000.0),
+    ],
+)
+def test_parse_cn_number(contract, run, want):
+    assert contract._parse_cn_number(run) == pytest.approx(want)
+
+
+def test_cn_counting_words_are_not_numbers(contract):
+    """「一样」「一起」「三十年」是计数与修饰，抽成数值只会制造假编造。"""
+    text = '这只和那只一样，我们一起看，一定有三十年经验，两个点要注意。'
+    raw = [token.raw for _, token in contract._number_token_spans(text)]
+    assert raw == ['两'], raw  # 只有「两个点」是数量承诺
+
+
+def test_cn_token_carries_own_tolerance(contract):
+    """中文概数的精度不是末位决定的，而是这个说法本身的粗粒度。"""
+    start, token = contract._cn_tokens('约两成')[0]
+    assert token.raw == '两' and token.value == pytest.approx(20.0)
+    assert token.is_percent and token.approximate
+    assert token.tolerance == pytest.approx(5.0)
+    assert start == 1
