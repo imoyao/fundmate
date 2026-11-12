@@ -69,6 +69,7 @@ def _mk_txn(
     created_at=_BASE,
     trade_date=None,
     confirm_date=None,
+    position_name=None,
 ):
     """建一条流水：默认两个归属列都为 NULL（#2875 的检出对象）。
 
@@ -89,6 +90,7 @@ def _mk_txn(
         trade_date=trade_date,
         confirm_date=confirm_date,
         created_at=created_at,
+        position_name=position_name,
     )
     db.add(t)
     db.flush()
@@ -238,6 +240,19 @@ def test_scan_groups_fixable_and_blocked(db, ledger):
     assert '为空' in reasons[no_name.id]
     # 组内原因不一致时组级给概括，逐条真实原因留在 transactions[].block_reason
     assert '逐条' in blocked['block_reason']
+
+
+def test_txn_display_name_takes_position_name(db, ledger):
+    """transactions[].display_name 直取流水快照 position_name；该域 symbol 多为空，名字只能靠它。"""
+    named = _mk_txn(db, position_name='2025 年度红利税')
+    unnamed = _mk_txn(db)
+
+    data = svc.scan_orphan_ledgers(db, _FAMILY)
+    by_id = {x['id']: x for g in data['groups'] for x in g['transactions']}
+    assert by_id[named.id]['display_name'] == '2025 年度红利税'
+    assert by_id[unnamed.id]['display_name'] is None
+    # 契约不变：流水明细里没有 quantity / position_id 等持仓列
+    assert 'quantity' not in by_id[named.id]
 
 
 def test_blocked_group_single_reason_is_specific(db, ledger):

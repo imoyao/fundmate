@@ -1508,3 +1508,51 @@ class TestClearedCyclesEndpoint:
         assert c['post_clear_pct'] == 5.5  # 10.55 / 10.0 − 1，而非 close 口径的 −5%
         assert c['post_clear_basis'] == 'adj_close'
         assert c['post_clear_as_of'] == '2026-10-30'
+
+
+def test_cross_ledger_duplicates_display_name(db):
+    """跨账本重复组带 display_name：组内任一行 position_name 非空即取，全空给 None。
+
+    域 D 卡片此前只拿到裸编码（SH515250），名称其实一直在 ``transactions.position_name``
+    里——本用例钉住 payload 里必须真的带上它，且空时是 None 而不是报错。
+    """
+    from datetime import date, datetime
+
+    from app.domains.ledgers.models import Ledger
+    from app.domains.transactions.models import Transaction
+    from app.services.summary_service import scan_cross_ledger_duplicates
+
+    a = Ledger(name='券商A', ledger_type='stock', family_id=1)
+    b = Ledger(name='券商B', ledger_type='stock', family_id=1)
+    db.add_all([a, b])
+    db.flush()
+
+    def mk(ledger_id, symbol, position_name=None, amount=100000):
+        t = Transaction(
+            ledger_id=ledger_id,
+            family_id=1,
+            account_name='券商',
+            symbol=symbol,
+            txn_type='buy',
+            quantity=100,
+            price=100000,
+            fee=0,
+            amount=amount,
+            confirm_date=date(2026, 8, 1),
+            trade_date=datetime(2026, 8, 1),
+            import_hash=f'dn-{ledger_id}-{symbol}-{amount}',
+            status='success',
+            position_name=position_name,
+        )
+        db.add(t)
+        return t
+
+    mk(a.id, '000001', position_name='平安银行')
+    mk(b.id, '000001')
+    mk(a.id, '600000')
+    mk(b.id, '600000')
+    db.commit()
+
+    groups = {g['symbol']: g for g in scan_cross_ledger_duplicates(db, 1)}
+    assert groups['000001']['display_name'] == '平安银行'
+    assert groups['600000']['display_name'] is None

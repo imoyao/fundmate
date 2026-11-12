@@ -788,6 +788,25 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '后端返回值的业务语义不在此判据覆盖范围'
         ),
     },
+    'scripts/guard_recon_symbol_display.py': {
+        'rule': '对账工作台模板的产品身份展示必须走 reconDisplay 契约：标题经 reconGroupTitle，'
+        '编码经 reconSymbolCode / specialSymbolLabel（裸插 .symbol 已两次把编码当标题印给用户）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_recon_symbol_display.test.js',
+        # 行级判据（模板段内 .symbol 行须带契约调用），宁窄勿宽：
+        # 已知不覆盖（登记时必须说清，见 AGENTS.md 三之二）——
+        # ① 非 .vue 的 .ts 构造函数：标题在 TS 里拼好再传进模板（composables /
+        #    utils 里的模板串），模板判据看不见构造侧；
+        # ② 运行时拼接：变量换名（const s = row.symbol 后插 {{ s }}）静态判不出；
+        # ③ script 段的字符串拼接不判（取数不是展示）；
+        # ④ recon-symbol-allow 是显式逃生口，豁免台账随输出打印但不会被强制作废。
+        'covered': (
+            '只扫 reconcile-workbench/**/*.vue 的模板段（script/style/HTML 注释剔除）；'
+            '已知不覆盖：非 .vue 的 .ts 构造函数（标题在 TS 里拼好再传进来）、'
+            '运行时换名拼接的标题、script 段里的字符串拼接；'
+            '编码经 reconSymbolCode / specialSymbolLabel 的次要事实展示属合法放行'
+        ),
+    },
 }
 
 

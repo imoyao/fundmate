@@ -140,6 +140,7 @@ import { computed, toRef } from "vue";
 import type { DanglingRefGroup } from "@/api/reconciliation";
 import { useNestedDialog } from "../composables/useNestedDialog";
 import { useDanglingRefRemediation } from "../composables/useDanglingRefRemediation";
+import { reconGroupTitle } from "../utils/reconDisplay";
 import DanglingRefEnrichSteps from "./DanglingRefEnrichSteps.vue";
 import DanglingRefRemediationPreview from "./DanglingRefRemediationPreview.vue";
 
@@ -186,11 +187,13 @@ const {
 useNestedDialog(toRef(props, "modelValue"));
 
 const dialogTitle = computed(() => {
-  const code = props.group?.symbol?.trim();
-  const suffix = code ? `标的代码 ${code}` : "数据缺失";
+  // 标题一律 reconGroupTitle（名称优先，代码兜底），不裸插值 symbol
+  const subject = props.group
+    ? reconGroupTitle(props.group.symbol, props.group.display_name)
+    : "数据缺失";
   return props.mode === "enrich"
-    ? `补全信息 · ${suffix}`
-    : `删除交易 · ${suffix}`;
+    ? `补全信息 · ${subject}`
+    : `删除交易 · ${subject}`;
 });
 const footerHint = computed(() =>
   props.mode === "enrich"

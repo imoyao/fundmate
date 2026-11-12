@@ -67,24 +67,24 @@ const props = defineProps<{
 
 const candidateLines = computed(() =>
   (props.enrichPreview?.candidate_positions ?? []).map(
+    // 以下是「改前/改后」定位明细行，不是标题级裸编码：契约（DanglingRefPosition）
+    // 暂无名称字段，展示「#id 代码 · 份额 · 状态」属预览内容本身
     c => `#${c.id} ${c.symbol} · ${c.quantity} 份 · ${c.ownership_status}`
   )
 );
 const enrichChangeLines = computed(() =>
-  (props.enrichPreview?.changes ?? [])
-    .slice(0, 8)
-    .map(
-      ch =>
-        `#${ch.id} 标的 ${ch.symbol_before || "缺"} → ${ch.symbol_after || "缺"} · 日期 ${ch.trade_date_before || "缺"} → ${ch.trade_date_after || "缺"}`
-    )
+  (props.enrichPreview?.changes ?? []).slice(0, 8).map(
+    // 「标的 A → B」是补全动作的改前/改后对比，属于预览内容本身，不是标题
+    ch =>
+      `#${ch.id} 标的 ${ch.symbol_before || "缺"} → ${ch.symbol_after || "缺"} · 日期 ${ch.trade_date_before || "缺"} → ${ch.trade_date_after || "缺"}`
+  )
 );
 const deleteDetailLines = computed(() =>
-  (props.deletePreview?.transactions ?? [])
-    .slice(0, 8)
-    .map(
-      t =>
-        `#${t.id} ${t.txn_type} · ${t.trade_date || "缺交易日期"} · ${t.symbol || "缺标的代码"} · ${t.quantity} 份 / ${t.amount} 元`
-    )
+  (props.deletePreview?.transactions ?? []).slice(0, 8).map(
+    // 删除明细行要保留被删数据的原始代码作定位依据，不是标题级展示
+    t =>
+      `#${t.id} ${t.txn_type} · ${t.trade_date || "缺交易日期"} · ${t.symbol || "缺标的代码"} · ${t.quantity} 份 / ${t.amount} 元`
+  )
 );
 /** 后端 warnings 有 3~4 条，面板只铺前 3 条，避免长文案把弹窗撑满。 */
 function firstWarnings(list: string[]): string[] {

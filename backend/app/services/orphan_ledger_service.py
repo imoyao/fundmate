@@ -112,8 +112,7 @@ def _normalize_ids(raw) -> list[int]:
         if isinstance(v, bool) or not isinstance(v, int):
             raise ValueError(f'transaction_ids 元素必须是整数，收到 {v!r}')
         normalized.append(v)
-    seen = set()
-    uniq = []
+    seen, uniq = set(), []
     for v in normalized:
         if v not in seen:
             seen.add(v)
@@ -215,7 +214,7 @@ def _serialize_txn(t: Transaction, resolved: dict) -> dict:
     """单条流水明细（纯只读）。amount 经 Money /100 成「元」；日期 isoformat 或 None。
 
     ``block_reason`` 由 resolve_ledger 的空串原因转成 ``None``（契约 ``str|null``）。
-    ``quantity`` 及任何持仓列都不出现在这里——本接口一个字节都不碰它们。
+    ``quantity`` 及任何持仓列都不出现在这里——本接口一个字节都不碰它们；``display_name`` 直取流水自带 position_name（该域 symbol 多为空）。
     """
     lid, reason = resolved[t.id]
     return {
@@ -226,6 +225,7 @@ def _serialize_txn(t: Transaction, resolved: dict) -> dict:
         'symbol': t.symbol,
         'asset_type': t.asset_type,
         'account_name': t.account_name,
+        'display_name': t.position_name,
         'amount': Money.cents_to_yuan(t.amount),
         'created_at': t.created_at.isoformat() if t.created_at else None,
         'resolved_ledger_id': lid,

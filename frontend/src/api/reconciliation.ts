@@ -166,6 +166,11 @@ export interface GhostDuplicateGroupItem {
   /** 稳定 id（sha256(确认日|归一身份|类型|金额|账本集合)），忽略/撤销的定位键 */
   fingerprint: string;
   symbol: string;
+  /**
+   * 标的展示名（后端取 transactions.position_name，回退 positions.name）；
+   * 可能为 null —— null 时前端退回代码，不许臆造名称。
+   */
+  display_name?: string | null;
   /** 归一身份：同一标的的写法变体（600519 / SH600519）归为一组 */
   symbol_identity: string;
   confirm_date: string | null;
@@ -191,6 +196,11 @@ export interface GhostDuplicateIgnore {
   fingerprint: string;
   /** 以下为忽略当时的快照，可能为 null（快照解析失败时降级） */
   symbol: string | null;
+  /**
+   * 忽略当时的标的展示名快照（来源同组接口：transactions.position_name，
+   * 回退 positions.name）；可能为 null，前端退回代码。
+   */
+  display_name?: string | null;
   confirm_date: string | null;
   txn_type: string | null;
   amount_yuan: number | null;
@@ -404,6 +414,11 @@ export function recordDividendTax(payload: {
 export interface DanglingRefPosition {
   id: number;
   symbol: string;
+  /**
+   * 持仓行上的标的名称（`positions.name`）；历史数据可能为空 —— 空时退回代码，
+   * 不许臆造。下游用它把下拉 / 标题显示成「名称 · 代码」。
+   */
+  name?: string | null;
   quantity: number;
   ownership_status: string;
 }
@@ -425,6 +440,11 @@ export interface DanglingRefGroup {
   key: string;
   ledger_id: number;
   symbol: string;
+  /**
+   * 组内流水的标的展示名（后端取 transactions.position_name，回退 positions.name）；
+   * 可能为 null —— null 时前端退回代码，不许臆造名称。
+   */
+  display_name?: string | null;
   txn_count: number;
   dangling_position_ids: number[];
   net_units: number;
@@ -635,6 +655,11 @@ export interface OrphanLedgerTransaction {
   trade_date: string | null;
   confirm_date: string | null;
   symbol: string | null;
+  /**
+   * 流水标的展示名（后端取 transactions.position_name，回退 positions.name）；
+   * 可能为 null，前端退回代码。
+   */
+  display_name?: string | null;
   asset_type: string | null;
   /** 账户名快照：归属判定唯一的输入 */
   account_name: string | null;

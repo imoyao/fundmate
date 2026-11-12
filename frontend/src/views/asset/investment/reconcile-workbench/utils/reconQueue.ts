@@ -191,14 +191,17 @@ function eaccountItem(row: ReconciliationItem): ReconQueueItem {
 
 function ghostItem(row: GhostDuplicateGroupItem): ReconQueueItem {
   const names = [...new Set(row.ledger_names.filter(Boolean))].join("、");
+  const isCash = specialSymbolLabel(row.symbol) !== null;
   return finish({
     id: `ghost-${row.fingerprint}`,
     task: "verify",
     state: "judge",
     sourceDomain: "D",
-    title: reconGroupTitle(row.symbol),
+    title: reconGroupTitle(row.symbol, row.display_name),
     summary: `同一笔${reconTxnType(row.txn_type)}疑似在 ${row.count} 个账本里各记了一次，需要你决定留哪一份。`,
     facts: [
+      // 代码只作次要事实行：标题优先名称（reconGroupTitle 唯一口径）
+      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
       reconTradeDate(row.confirm_date),
       reconMoneyPhrase(row.amount_yuan),
       names ? `涉及账本 ${names}` : ""
@@ -212,14 +215,21 @@ function ghostItem(row: GhostDuplicateGroupItem): ReconQueueItem {
 }
 
 function ghostIgnoredItem(row: GhostDuplicateIgnore): ReconQueueItem {
+  const isCash = specialSymbolLabel(row.symbol) !== null;
   return finish({
     id: `ghost-ignored-${row.id}`,
     task: "verify",
     state: "done",
     sourceDomain: "D",
-    title: row.symbol?.trim() || "重复交易分组",
+    // 忽略快照可能 symbol 为 null：reconGroupTitle 统一给出可执行的降级文案
+    title: reconGroupTitle(row.symbol, row.display_name),
     summary: "这组重复交易已被忽略，可以撤销后重新核对。",
     facts: [
+      isCash
+        ? CASH_SYMBOL_HINT
+        : row.symbol
+          ? `代码 ${reconSymbolCode(row.symbol)}`
+          : "",
       row.confirm_date ? reconTradeDate(row.confirm_date) : "",
       row.amount_yuan !== null ? reconMoneyPhrase(row.amount_yuan) : ""
     ].filter(Boolean),
@@ -270,6 +280,7 @@ function danglingItem(row: DanglingRefGroup): ReconQueueItem {
   const ready = row.fixable;
   const live = row.live_position;
   const flags = row.flags.map(reconFlag);
+  const isCash = specialSymbolLabel(row.symbol) !== null;
   const summary = ready
     ? `这 ${row.txn_count} 笔交易还挂在一条已删除的持仓上。已找到现存持仓，可以挂回去。`
     : row.block_reason ||
@@ -279,9 +290,11 @@ function danglingItem(row: DanglingRefGroup): ReconQueueItem {
     task: "repair",
     state: ready ? "ready" : "incomplete",
     sourceDomain: "F",
-    title: reconGroupTitle(row.symbol),
+    title: reconGroupTitle(row.symbol, row.display_name),
     summary,
     facts: [
+      // 代码只作次要事实行：标题优先名称（reconGroupTitle 唯一口径）
+      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
       reconCount(row.txn_count),
       `净额 ${reconQuantity(row.net_units)}`,
       live

@@ -2,7 +2,9 @@
   <article class="df-group">
     <header class="df-group__head">
       <div class="df-group__title">
-        <span class="df-group__key">{{ reconGroupTitle(group.symbol) }}</span>
+        <span class="df-group__key">{{
+          reconGroupTitle(group.symbol, group.display_name)
+        }}</span>
         <span class="df-group__symbol">{{ subtitle }}</span>
       </div>
       <div class="df-group__actions">

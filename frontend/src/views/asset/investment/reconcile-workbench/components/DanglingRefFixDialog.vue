@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    :title="`补上关联 · ${group?.symbol || '数据缺失'}`"
+    :title="dialogTitle"
     width="560px"
     append-to-body
     @update:model-value="emit('update:modelValue', $event)"
@@ -20,6 +20,8 @@
       </p>
       <el-form label-width="110px" size="default">
         <el-form-item label="归到哪笔持仓">
+          <!-- 候选持仓现在带名称（`DanglingRefPosition.name`，来自 positions.name）：
+               下拉按「名称（代码）· 份额 · 状态」显示，代码只作括注，与卡片 / 抽屉同口径。 -->
           <el-select
             v-model="selectedPositionId"
             placeholder="从候选持仓中选择"
@@ -29,7 +31,7 @@
             <el-option
               v-for="c in group?.candidates ?? []"
               :key="c.id"
-              :label="`#${c.id} ${c.symbol} · ${c.quantity} 份 · ${c.ownership_status}`"
+              :label="`#${c.id} ${reconGroupTitle(c.symbol, c.name)}（${reconSymbolCode(c.symbol)}）· ${c.quantity} 份 · ${c.ownership_status}`"
               :value="c.id"
             />
           </el-select>
@@ -84,6 +86,7 @@ import {
   canSubmitReattach,
   submitBlockReason
 } from "../utils/danglingRefFixGuard";
+import { reconGroupTitle, reconSymbolCode } from "../utils/reconDisplay";
 import DanglingRefPreviewPanel from "./DanglingRefPreviewPanel.vue";
 import DanglingRefFixResult from "./DanglingRefFixResult.vue";
 
@@ -96,6 +99,14 @@ const emit = defineEmits<{
   "update:modelValue": [value: boolean];
   submitted: [];
 }>();
+
+// 标题一律 reconGroupTitle（名称优先，代码兜底）；整组缺失才说「数据缺失」
+const dialogTitle = computed(() => {
+  const subject = props.group
+    ? reconGroupTitle(props.group.symbol, props.group.display_name)
+    : "数据缺失";
+  return `补上关联 · ${subject}`;
+});
 
 const selectedPositionId = ref<number | null>(null);
 const reason = ref("");
