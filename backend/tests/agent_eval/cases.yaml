@@ -287,8 +287,13 @@ cases:
   # ① 正向 metric（抓回避与串台）：cover.metric 声明「这一问必须引用的指标字段」，
   #    从该步工具 data 取值后要求回答里出现（写法随意：带符号/百分号/千分位/舍入）。
   #    区间收益声明 range_rate / xirr 两个等价口径（任一命中即算）；亏得最多声明
-  #    items.*.pnl 的 min。「调仓参考」「跟上市场」不声明：前者信号可能为空，后者
-  #    excess_return 与 benchmark_range_return 量纲不一致（金额 vs 百分比），声明哪边都误伤。
+  #    items.*.pnl 的 min；「跟上市场」声明 excess_return / benchmark_range_return
+  #    （说「跑输 6.33 个点」或「沪深300 也跌了 13.11%」都算给了相对市场的数）。
+  #    「调仓参考」不声明：再平衡信号本身可能为空，钉字段会把「暂无可调仓信号」判红。
+  #    ⚠️ D104（2026-11-12）更正：此处原先写「excess_return 与 benchmark_range_return
+  #    量纲不一致（金额 vs 百分比）」是误读——range_rate 一直是百分比，那组
+  #    -10214.99 / -10199.61 出自期初净资产仅 519.38 元的全期窗口，已被
+  #    baseline_not_representative 守卫降级，两栏量纲本来就一致。
   #    字段无值（工具没跑 / None / 空库）时跳过，不判红：否则「如实说没有数据」会被误判成回避。
   # ② 反向 numbers（抓凭空编造）：回答里的小数位 ≥2、绝对值 ≥1000 或带百分比标记的
   #    1 位小数，必须能在本轮工具数据里找到来源；容差取文本末位一半，符号不参与判定。
@@ -316,8 +321,10 @@ cases:
         covers:
           - id: 近3个月持仓收益
             any: ['近3个月', '近三个月', '3个月', '近三月', '区间收益']
-            # 两个等价口径任一命中即算给出：range_rate 是金额（元），xirr 是小数（0.3675→36.75%）。
-            # 只钉一个会把另一种合法口径判成回避，实测两者都能回答同一问（2026-11-12）。
+            # 两个等价口径任一命中即算给出：range_rate 是百分比（近 3 月窗口 -19.44），
+            # xirr 是小数（0.3675→36.75%）。只钉一个会把另一种合法口径判成回避。
+            # 近 3 月窗口在真库可算；模型若没传日期（缺省全期）range_rate 会是 None
+            # （baseline_not_representative），字段无值跳过，不判红。
             metric:
               - { tool: get_portfolio_vs_benchmark, field: range_rate }
               - { tool: get_portfolio_performance, field: xirr }
@@ -328,9 +335,12 @@ cases:
             any: ['再平衡', '调仓', '权重', '估值分位']
           - id: 没跟上市场还是自身问题
             any: ['基准', '跑输', '跑赢', '超额', '归因', '没跟上市场', '相对市场']
-            # 刻意不声明 metric：实测 excess_return=-10199.61 与 benchmark_range_return=-15.38
-            # 不同量纲（区间收益是金额、基准是百分比），声明任何一边都会把另一种正确表述判红。
-            # 该口径混乱属既有问题，不在本判据范围内修。
+            # 两个口径任一命中即算：excess_return（超额百分点）与 benchmark_range_return
+            # （基准区间涨跌幅）量纲一致，都是百分比（D104 复核实测 -6.33 / -13.11）。
+            # 说「跑输 6.33 个点」或「沪深300 同期跌 13.11%」都算给出了相对市场的数。
+            metric:
+              - { tool: get_portfolio_vs_benchmark, field: excess_return }
+              - { tool: get_portfolio_vs_benchmark, field: benchmark_range_return }
 
   # ── advice：持仓/调仓建议（1，tag: advice，#3049 §10 派生） ──
   # v1 已落地：get_rebalance_reference（agent-rebalance-reference-tool.md §12）可答
