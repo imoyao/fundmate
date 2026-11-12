@@ -91,7 +91,7 @@ def recompute_from_transactions(db: Session, position_id: int) -> Optional[Posit
         _apply_derived_state(db, pos, net_qty, avg_price_units)
         return pos
 
-    return _rebuild_position_from_txns(db, txns, net_qty, avg_price_units)
+    return rebuild_position_from_txns(db, txns, net_qty, avg_price_units)
 
 
 def _settle_non_positive(db: Session, pos: Optional[Position], net_qty: int) -> None:
@@ -159,16 +159,16 @@ def _apply_derived_state(
     _silent_reconcile_watchlist(db, pos.family_id, pos.symbol)
 
 
-def _rebuild_position_from_txns(
+def rebuild_position_from_txns(
     db: Session,
     txns: list[Transaction],
     net_qty: int,
     avg_price_units: int,
 ) -> Position:
     """持仓行已被整笔卖出物理删除时的重建路径（历史残留，见模块 docstring）。
-
-    `Transaction` 不携带 `market` / `currency`，重建行取默认值——这是已知边界，
-    不是遗漏：真正带场所的是持仓行本身，而它已经不在了。
+    公开（无下划线）：重算引擎要 position_id，而这里手上只有一组悬空流水 —— 那正是缺的。
+    `Transaction` 不携带 `market` / `currency`，重建行取默认值——已知边界，不是遗漏：
+    真正带场所的是持仓行本身，而它已经不在了。
     """
     # 函数内导入：同上，避免与主模块成环。
     from app.services.position_service import _silent_reconcile_watchlist  # noqa: PLC0415

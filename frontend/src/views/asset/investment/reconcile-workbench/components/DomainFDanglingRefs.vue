@@ -59,17 +59,24 @@
           @fix="emit('fix', $event)"
           @enrich="open('enrich', $event)"
           @remove="open('remove', $event)"
+          @rebuild="openRebuild($event)"
         />
       </div>
     </ReconStatusState>
 
-    <!-- 补全信息 / 删除的状态内聚在本域：页面层只加一行 @refresh -->
+    <!-- 补全信息 / 删除 / 重建持仓的状态内聚在本域：页面层只加一行 @refresh -->
     <DanglingRefRemediationDialog
       v-model="dialogVisible"
       :group="activeGroup"
       :mode="activeMode ?? 'enrich'"
       @submitted="emit('refresh')"
       @update:model-value="onDialogVisibleChange"
+    />
+    <DanglingRefRebuildDialog
+      v-model="rebuildVisible"
+      :group="rebuildGroup"
+      @rebuilt="emit('refresh')"
+      @update:model-value="onRebuildVisibleChange"
     />
   </div>
 </template>
@@ -80,6 +87,7 @@ import type { DanglingRefGroup, DanglingRefList } from "@/api/reconciliation";
 import { reconBatchLabel } from "../utils/reconDisplay";
 import DanglingRefGroupCard from "./DanglingRefGroupCard.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
+import DanglingRefRebuildDialog from "./DanglingRefRebuildDialog.vue";
 import ReconStatusState from "./ReconStatusState.vue";
 
 /**
@@ -133,6 +141,20 @@ function onDialogVisibleChange(visible: boolean): void {
     activeGroup.value = null;
     activeMode.value = null;
   }
+}
+
+/** 「重建持仓」弹窗：与 enrich / remove 同样的内聚方式，单独一组状态。 */
+const rebuildVisible = ref(false);
+const rebuildGroup = ref<DanglingRefGroup | null>(null);
+
+function openRebuild(group: DanglingRefGroup): void {
+  rebuildGroup.value = group;
+  rebuildVisible.value = true;
+}
+
+function onRebuildVisibleChange(visible: boolean): void {
+  rebuildVisible.value = visible;
+  if (!visible) rebuildGroup.value = null;
 }
 </script>
 

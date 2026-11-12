@@ -326,7 +326,7 @@ def _resolve_sell_position_id(db: Session, family_id: int, data: dict) -> dict:
         return data
     pos = _find_existing_position(db, data.get('ledger_id'), family_id, data.get('symbol', ''), '')
     if pos is None:
-        raise ValueError('找不到这笔持仓：可能已清仓或换了账本，先在持仓里核对后再补录')
+        raise ValueError('找不到这笔持仓：可能已清仓、换了账本，或持仓记录已被删除。若已删除，去「修正数据」按流水重建')
     data['position_id'] = pos.id
     return data
 

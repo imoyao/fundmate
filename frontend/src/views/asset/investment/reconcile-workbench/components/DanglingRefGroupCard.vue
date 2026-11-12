@@ -16,6 +16,15 @@
           去处理
         </el-button>
         <template v-else>
+          <!-- 重建持仓：按流水建回被删掉的持仓行（与补字段 / 删数据是三件独立的事） -->
+          <el-button
+            v-if="canRebuild"
+            size="small"
+            plain
+            @click="emit('rebuild', group)"
+          >
+            重建持仓
+          </el-button>
           <el-button size="small" @click="emit('enrich', group)">
             补全信息
           </el-button>
@@ -95,9 +104,12 @@ const emit = defineEmits<{
   fix: [group: DanglingRefGroup];
   enrich: [group: DanglingRefGroup];
   remove: [group: DanglingRefGroup];
+  rebuild: [group: DanglingRefGroup];
 }>();
 
 const flags = computed(() => props.group.flags.map(reconFlag));
+/** 缺代码的组连建哪个持仓都不知道，不显示重建入口 */
+const canRebuild = computed(() => !!props.group.symbol.trim());
 const detailLines = computed(() =>
   props.group.transactions.map(danglingDetailLine)
 );
