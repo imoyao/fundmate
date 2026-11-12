@@ -206,8 +206,13 @@ def test_bank_wealth_accepts_balance_mode(db):
     """balance 模式下应能正常建仓，并把市值落到 market_value_override。
 
     #2875：data 必须带 ledger_id——前端真实路径总带账本，此前夹具漏传会静默
-    落成「无账本持仓 + 无账本流水」，现在被写入守卫拦截。
+    落成「无账本持仓 + 无账本流水」，现在被写入守卫拦截。写入汇点还会校验
+    这个 id 必须指向真实账本，故夹具补建。
     """
+    from app.domains.ledgers.models import Ledger
+
+    db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+    db.commit()
     pos = PositionService.process_buy_or_deposit(
         db,
         {
