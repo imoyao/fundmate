@@ -249,9 +249,14 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/institution_resolver.py": {'lines': 179, 'max_func': 36, 'max_cc': 14},
     "backend/app/services/job_base.py": {'lines': 409, 'max_func': 109, 'max_cc': 14},
     "backend/app/services/jsl_session.py": {'lines': 126, 'max_func': 29, 'max_cc': 6},
-    "backend/app/services/ledger_migration_service.py": {'lines': 794, 'max_func': 97, 'max_cc': 18},
+    # 2026-11-12 对账中心「显示账本名却判未归属 / 归入按钮无效」修复，按 --report
+    # 实测回写两项：ledger_migration_service.py 794→798（归入范围补齐到全部悬空
+    # 流水，注释已压至 2 行）、ledger_service.py 697→699（随行下发 ledger_id）。
+    # 均为真实代码增长、非放宽阈值；max_func / max_cc 未变，逐项相等仍由
+    # test_baseline_matches_current_metrics 守住。
+    "backend/app/services/ledger_migration_service.py": {'lines': 798, 'max_func': 97, 'max_cc': 18},
     "backend/app/services/ledger_presenter.py": {'lines': 82, 'max_func': 57, 'max_cc': 10},
-    "backend/app/services/ledger_service.py": {'lines': 697, 'max_func': 120, 'max_cc': 23},
+    "backend/app/services/ledger_service.py": {'lines': 699, 'max_func': 120, 'max_cc': 23},
     # 2026-11-07 收紧（非放宽）：P0 派生上移 + 压注释 665→664；随后把「分组↔口径
     # 一致性守卫」抽到 services/ledger_category_guard.py（新文件走 NEW_FILE_LIMITS），
     # update_ledger 由 4 行分支收成 1 行调用 ⇒ 664→663 / 154→152 / 49→48。

@@ -690,11 +690,8 @@ def build_orphan_detail(db, family_id: int) -> dict:
 def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
     """将未归置数据（孤儿持仓/资产/交易）归入指定账户（单事务）。
 
-    交易范围与 `build_orphan_detail` 的明细、`delete_orphan_data` 的删除同口径：
-    命中孤儿持仓的流水和所有 ledger_id 悬空的流水都要归入，否则明细里列得出来的
-    记录点「归入现有账户」后仍在原地，等于给了一个按了没用的按钮。
-
-    返回各项计数；目标账户已有同名持仓（唯一键冲突）时回滚并抛 400。
+    交易范围与明细 / 删除同口径：明细列得出来的悬空流水点「归入现有账户」后都必须
+    真的落账。返回各项计数；目标账户已有同名持仓（唯一键冲突）时回滚并抛 400。
     """
     valid_ledger_ids = _valid_ledger_ids(db, family_id)
     orphan_cond = _orphan_position_condition(valid_ledger_ids)
@@ -714,10 +711,8 @@ def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
                 synchronize_session=False,
             )
         )
-        # 归入全部悬空流水：与 build_orphan_detail 的明细、delete_orphan_data 的
-        # 删除同口径。此前只筛 position_id 命中孤儿持仓的行，position_id IS NULL
-        # 的流水（账户级红利税、兑付等）在「查看明细」里列得出来，点「归入现有
-        # 账户」却纹丝不动。
+        # 归入全部悬空流水（含 position_id 为空的账户级流水），与明细 / 删除同口径：
+        # 此前只筛 position_id 命中孤儿持仓的行，明细列出来的流水点了归入却没动。
         transaction_count = (
             db.query(Transaction)
             .filter(
