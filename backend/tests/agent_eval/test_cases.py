@@ -2,7 +2,7 @@
 """cases.yaml 静态判据（#1736 S4，45 条契约见 #2621）：评估集自身的防回潮红线。
 
 为什么不跑真链路：真实跑批要花钱调模型（scripts/agent_eval.py，人工/本地），
-CI 只钉**评估集这个数据文件**的结构契约——47 条、对抗 8 条 / 混淆 3 条可辨识、
+CI 只钉**评估集这个数据文件**的结构契约——49 条、对抗 8 条 / 混淆 3 条可辨识、
 每个注册工具逐个有覆盖、状态枚举与工具名合法、越界输入与护栏现状一致。
 模型相关的通过率由本地跑批看。
 """
@@ -28,7 +28,7 @@ def _load():
 
 def test_count_and_unique_ids():
     cases = _load()
-    assert len(cases) == 47, f'评估集必须恰好 47 条（当前 {len(cases)}）'
+    assert len(cases) == 49, f'评估集必须恰好 49 条（当前 {len(cases)}）'
     ids = [c['id'] for c in cases]
     assert len(ids) == len(set(ids)), '用例 id 必须唯一'
 
