@@ -27,6 +27,7 @@
   不引入额外的「已结清」标记列——那会多出一份可以与流水漂移的状态。
 """
 
+from datetime import datetime
 from typing import Any, Dict
 
 from loguru import logger
@@ -152,3 +153,35 @@ def settle_reverse_repo(
         'interest_amount': Money.cents_to_yuan(interest_cents),
         'transaction_ids': [txn.id for txn in created],
     }
+
+
+def parse_settle_request(data: Dict[str, Any]) -> Dict[str, Any]:
+    """把 HTTP 入参（字符串日期 / 元为单位的利息）翻成服务层参数。
+
+    校验放在这里而不是视图里：视图只做「取值 → 调服务 → 组信封」（#1606 视图层厚度），
+    而且这些规则（日期格式、利息非负）本身是业务约束，换个入口（CLI / 批量任务）
+    也该一致。任何不合法都抛 `SettleError(400)`，由视图统一转信封。
+    """
+    symbol = str((data or {}).get('symbol') or '').strip()
+    if not symbol:
+        raise SettleError('缺少标的代码，无法确定回款哪一笔逆回购')
+    raw_date = str((data or {}).get('settle_date') or '').strip()
+    try:
+        settle_date = datetime.strptime(raw_date, '%Y-%m-%d')
+    except ValueError:
+        raise SettleError('回款日格式应为 YYYY-MM-DD') from None
+    try:
+        interest_cents = Money.yuan_to_cents((data or {}).get('interest') or 0)
+    except (TypeError, ValueError):
+        raise SettleError('利息必须是数字') from None
+    if interest_cents < 0:
+        raise SettleError('利息不能为负')
+    return {'symbol': symbol, 'settle_date': settle_date, 'interest_cents': interest_cents}
+
+
+def settle_message(result: Dict[str, Any]) -> str:
+    """回款成功后的提示语（含本金与利息，给用户一个可核对的数）。"""
+    text = f'已登记回款：本金 ¥{result["settled_amount"]:.2f}'
+    if result.get('interest_amount'):
+        text += f'，利息 ¥{result["interest_amount"]:.2f}'
+    return text
