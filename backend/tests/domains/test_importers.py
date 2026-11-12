@@ -752,3 +752,34 @@ class TestLedgerBinding:
         data2 = confirm2.get_json()['data']
         assert data2['imported'] == 0
         assert data2['skipped'] >= 1
+
+
+class TestCatalogBackfillRealChain:
+    """端到端：导入一笔名录外的标的后，补录线程**确实**去上游查它（2026-11-12 修 targets）。
+
+    旧实现 `run_job('securities_backfill')` 不传 targets，job 用空列表取数，日志一片
+    正常（线程起了 / SUCCESS / 缺口 0）却什么也没补——只有端到端跑一次才能发现。
+    """
+
+    def test_backfill_queries_the_imported_symbol(self, client, db, monkeypatch):
+        from app.services import securities_catalog
+        from app.services.adapters.eastmoney_security_lookup import EastmoneySecurityLookupAdapter
+
+        csv_content = TestStandardCSVParse.STOCK_HEADER + (
+            '2025-01-10,2025-01-10,601318,中国平安,买入,200,50.00,10000.00,5.00,华泰证券,\n'
+        )
+        resp = client.post('/api/importers/parse', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'buy.csv')})
+        rows = resp.get_json()['data']
+        assert client.post('/api/importers/confirm', json=_with_ledger(rows)).status_code == 200
+
+        fetched = []
+
+        def _probe(symbol):
+            fetched.append(symbol)
+            return None  # 上游查不到：job 会记进 errors 并保留缺口，不影响本用例判据
+
+        monkeypatch.setattr(EastmoneySecurityLookupAdapter, 'fetch_security_by_symbol', staticmethod(_probe))
+
+        securities_catalog._run_backfill()
+
+        assert fetched == ['SH601318'], '补录没有去查本批导入的标的 —— 缺口清单没传给 job'

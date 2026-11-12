@@ -213,7 +213,8 @@ class TestTestIsolationGuard:
     为什么这条要单独钉住：`import_entry` 是 ``from ... import`` 早绑定，conftest 若把
     patch 打在 ``securities_catalog`` 模块属性上（或干脆删掉那行），本用例路径依然会
     起真线程——它会写**本用例的** ``_fixture_app.db`` 并发真实网络请求，期间持未提交
-    写事务，让同进程后续的 ``flush`` 撞 5s ``busy_timeout`` 报 ``database is locked``。
+    写事务，让同进程后续的 ``flush`` 报 ``database is locked``（锁升级路径**立即** BUSY、
+    不等 ``busy_timeout``，机制见 ``tests/test_db_locked_retry.py`` 的钉子用例）。
     实测已连续红两次（``test_importers.py::test_sell_with_existing_position`` 500）。
     """
 
@@ -225,3 +226,39 @@ class TestTestIsolationGuard:
             '测试内不得真起名录补录线程：早绑定点没被 conftest 的 _disable_async_backfill 覆盖'
         )
         assert securities_catalog._backfill_running is False
+
+
+class TestRunBackfillTargets:
+    """补录线程必须把**缺口清单**喂给 job（2026-11-12：不传 targets ⇒ 永天空转）。
+
+    旧实现调 ``run_job('securities_backfill')`` 不带 targets，基类走 ``targets is None``
+    分支、用空列表取数，日志一片正常（线程起了 / job SUCCESS / 缺口 0），实际什么也没补。
+    """
+
+    def _run(self, app, monkeypatch, gap):
+        calls = []
+
+        class FakeOrchestrator:
+            def __init__(self, db):
+                self.db = db
+
+            def run_job(self, job_name, targets=None):
+                calls.append((job_name, targets))
+                return {'stats': {'total': len(targets or []), 'success': 0, 'failed': 0}}
+
+        monkeypatch.setattr(securities_catalog, 'missing_catalog_symbols', lambda db: list(gap))
+        monkeypatch.setattr('app.services.sync.orchestrator.DataSyncOrchestrator', FakeOrchestrator)
+        monkeypatch.setattr(securities_catalog, '_backfill_running', True)
+
+        securities_catalog._run_backfill()
+
+        assert securities_catalog._backfill_running is False, '补录标志未复位 → 之后永远触发不了'
+        return calls
+
+    def test_passes_gap_as_targets(self, app, monkeypatch):
+        calls = self._run(app, monkeypatch, ['SH601318'])
+        assert calls == [('securities_backfill', ['SH601318'])]
+
+    def test_no_job_when_gap_is_empty(self, app, monkeypatch):
+        calls = self._run(app, monkeypatch, [])
+        assert calls == [], '无缺口仍跑 job —— 白打一次上游往返，还会把「没活干」记成同步日志'
