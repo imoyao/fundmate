@@ -54,6 +54,15 @@
 #   手动验证要即时反馈，6 分钟随机抖动只会让人以为卡住了）。
 #   ⚠️ 单 job 运行**不会**写 `data/last_run_summary.json`，也**不参与**告警卡生命周期
 #   （否则「只跑了一个 job 成功」会被当成「每日调度已恢复」，把真故障的卡关掉）。
+#
+# ── #3083 巡检告警卡（2026-11-12，决策 D112）──
+#   本地巡检（冷集膨胀等，见 backend/app/services/local_checks.py）的结论此前只落在摘要里，
+#   而告警卡只在 `failure()` 时开——巡检判了 `bloated` / `error` 时进程照常退 0，
+#   于是「判了膨胀，谁看得见？」的答案是**没人**。这里给它单独一张自愈型卡：
+#   `check_alert_needed=true` 开/更新，`false` 关掉，`unknown`（摘要缺失 / 本轮无到期巡检）
+#   一律不动作——「没跑」不能当成「健康」，否则卡会假自愈。
+#   与「每日调度失败」卡分开是有意的：故障处置动作不同（那边重跑/修数据源，这边查数据健康），
+#   混在一张卡里会让「今天到底哪件事没好」读不出来。
 name: 每日定时调度
 
 on:
@@ -265,6 +274,91 @@ jobs:
               });
               core.notice(`已创建告警 issue #${created.data.number}`);
             }
+
+      # 巡检告警卡（#3083）：巡检异常不是 job 失败（进程退 0、workflow 判绿），
+      # 所以它只能靠这条独立的 `if` 打开——挂在 `failure()` 上等于永远不触发。
+      - name: 巡检告警（自动开/更新 issue）
+        if: steps.job-failures.outputs.check_alert_needed == 'true' && !github.event.inputs.job
+        uses: actions/github-script@v7
+        env:
+          CHECK_DETAIL: ${{ steps.job-failures.outputs.check_alert_detail }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = '【自动告警】本地巡检发现异常';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              '本地巡检报告了需要关注的数据健康问题（#3083）：它**不是** job 失败，',
+              '每日调度本身跑通了，所以 workflow 是绿的。',
+              '',
+              process.env.CHECK_DETAIL || '（未取到巡检明细，请直接看运行摘要 / sync_logs）',
+              '',
+              `- 运行日志：${runUrl}`,
+              `- 执行代码 ref：\`${process.env.SCHEDULER_REF || 'dev'}\``,
+              `- 时间（UTC）：${new Date().toISOString()}`,
+              '',
+              '> 本 issue 由 workflow 自动创建/更新；下一次**巡检判定正常**时会自动关闭（见末尾步骤）。',
+              '> 若「本轮无到期巡检」，本卡保持现状——周频判定没跑不等于恢复。',
+            ].join('\n');
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = openIssues.find(
+              (it) => it.title === title && !it.pull_request,
+            );
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number, body,
+              });
+              core.notice(`已评论既有巡检告警 issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner, repo, title, body,
+              });
+              core.notice(`已创建巡检告警 issue #${created.data.number}`);
+            }
+
+      # 自愈（#3083）：本轮巡检**真的判过且正常**才收口。`check_alert_needed` 为
+      # `unknown`（摘要缺失 / 本轮无到期巡检）时这里不会命中——把「没跑」当「恢复」
+      # 会让卡在最需要它的时候自己关掉。
+      - name: 巡检恢复正常则自动关闭告警 issue
+        if: success() && steps.job-failures.outputs.check_alert_needed == 'false' && !github.event.inputs.job
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = '【自动告警】本地巡检发现异常';
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = openIssues.find(
+              (it) => it.title === title && !it.pull_request,
+            );
+            if (!existing) {
+              core.info('没有开着的巡检告警 issue，无需关闭');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existing.number,
+              body: [
+                '本轮巡检**判定正常**，自动关闭本告警卡。',
+                '',
+                `- 时间（UTC）：${new Date().toISOString()}`,
+                `- 运行日志：${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+                '',
+                '> 若再次判定异常，workflow 会重新开/复用本卡（见 #3083）。',
+              ].join('\n'),
+            });
+            await github.rest.issues.update({
+              owner, repo, issue_number: existing.number,
+              state: 'closed', state_reason: 'completed',
+            });
+            core.notice(`已自动关闭巡检告警 issue #${existing.number}`);
 
       # 告警生命周期收口（#1434）：「7 天全红无人知」的另一半是「恢复了也没人收口」——
       # 成功运行即自动关闭仍开着的告警卡，避免「已恢复但卡还开着」的假信号（自愈型告警的通行做法）。

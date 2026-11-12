@@ -34,7 +34,7 @@ import sys
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -263,11 +263,17 @@ EXIT_JOB_FAILED = 2
 #: 逐 job 结果摘要的落盘位置（`backend/data/` 已被 .gitignore 忽略，不会脏工作区）。
 RUN_SUMMARY_PATH = Path(__file__).resolve().parents[2] / 'data' / 'last_run_summary.json'
 
+#: 巡检「健康」状态：`ok`（巡检自己的口径）与 `success`（与 `run_sync_job` 同构的那一半）
+#: 都算。其余（`bloated` / `error` / 未知）一律进 `checks_attention`——`error` 不能因为
+#: 「没算出膨胀」而被读成健康（同 #171 的「空 ≠ 没拿到」）。
+CHECK_HEALTHY_STATUSES = ('ok', 'success')
+
 
 def build_run_summary(
     results: Dict[str, Any],
     elapsed: float,
     started_at: Optional[str] = None,
+    checks: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """把逐 job 结果整理成机器可读的摘要。
 
@@ -279,7 +285,7 @@ def build_run_summary(
     # 单独成一栏，否则「名录类今天没跑」会被读成「名录类坏了」（#1490）。
     failed = sorted(name for name, status in jobs.items() if status not in ('success', 'skipped'))
     skipped = sorted(name for name, status in jobs.items() if status == 'skipped')
-    return {
+    summary = {
         'started_at': started_at or now_shanghai().isoformat(),
         'elapsed_seconds': round(float(elapsed), 1),
         'total': len(jobs),
@@ -287,6 +293,27 @@ def build_run_summary(
         'skipped': skipped,
         'jobs': jobs,
     }
+    # 巡检结论必须进摘要（#3083，决策 D112）：`run_due_checks` 原本跑在**写摘要之后**，
+    # 判了 `bloated` 也只有日志里一行 warning——workflow 判绿、告警卡（`if: failure()`）
+    # 不触发 ⇒ 「判了膨胀，谁看得见？」。这里连 `stats` 一起落：卡正文要能写出
+    # 「膨胀 +14,734 行」这种数字，只说「有异常」等于把排查成本推回去（同 #2457）。
+    #
+    # `checks` 为 None（未传）⇒ 键整个不出现，表示「本轮有没有巡检说不清」；
+    # 传了空列表 ⇒ 键存在但为空，表示「本轮没有到期巡检」。两者必须能区分，
+    # 否则「没跑巡检」会被读成「巡检正常、可以关掉告警卡」。
+    if checks is not None:
+        check_rows = {
+            str((row or {}).get('job_name') or 'unknown'): {
+                'status': (row or {}).get('status', 'unknown'),
+                'stats': (row or {}).get('stats') or {},
+            }
+            for row in checks
+        }
+        summary['checks'] = check_rows
+        summary['checks_attention'] = sorted(
+            name for name, row in check_rows.items() if row['status'] not in CHECK_HEALTHY_STATUSES
+        )
+    return summary
 
 
 def write_run_summary(summary: Dict[str, Any], path: Path = RUN_SUMMARY_PATH) -> Path:
@@ -355,22 +382,33 @@ def main() -> None:
                 start = time.time()
                 results = orch.run_all_jobs(full_sync=args.full)
                 elapsed = time.time() - start
-                summary = build_run_summary(results, elapsed)
-                write_run_summary(summary)
-                failed = summary['failed']
-                for name, res in results.items():
-                    logger.info(f'  {name}: {res.get("status")}')
-                logger.info(f'每日调度完成，耗时 {elapsed:.1f}s，失败: {failed or "无"}')
-                # 机器可读的一行：告警卡正文与人工排查都直接用它
-                logger.info('DAILY_RUN_SUMMARY ' + json.dumps(summary, ensure_ascii=False))
                 # 周频本地巡检（#3081）：部署侧跑的正是这条一次性路径，它不启动 APScheduler，
                 # 只在 `daily_scheduler.start()` 注册的巡检在 CI 上永远轮不到。放在这里而不是
                 # `--job` 分支——单 job 是人工验证，不该顺手改基线；也刻意放在失败退出**之前**：
                 # job 失败时更该看一眼数据健康度。异常已在 `run_local_check` 内收敛。
+                #
+                # 顺序本身也是判据（#3083）：必须在 `build_run_summary` **之前**跑，否则判定
+                # 结论落在摘要之外，只剩日志里一行——workflow 判绿、没人看得见（见 D112）。
                 from app.services.local_checks import run_due_checks
 
-                for check in run_due_checks():
+                checks = run_due_checks()
+                summary = build_run_summary(results, elapsed, checks=checks)
+                write_run_summary(summary)
+                failed = summary['failed']
+                for name, res in results.items():
+                    logger.info(f'  {name}: {res.get("status")}')
+                for check in checks:
                     logger.info(f'  巡检 {check.get("job_name")}: {check.get("status")}')
+                logger.info(f'每日调度完成，耗时 {elapsed:.1f}s，失败: {failed or "无"}')
+                # 机器可读的一行：告警卡正文与人工排查都直接用它
+                logger.info('DAILY_RUN_SUMMARY ' + json.dumps(summary, ensure_ascii=False))
+                if summary['checks_attention']:
+                    # 巡检异常不是 job 失败（进程照常退 0），所以它的可见性只能靠
+                    # 摘要 → workflow 的「巡检告警卡」那条链路，不能靠退出码。
+                    logger.warning(
+                        f'本地巡检需要关注：{", ".join(summary["checks_attention"])}'
+                        '——已写入运行摘要，由 workflow 开/更新巡检告警卡（#3083）'
+                    )
                 if failed:
                     # 有 job 失败 ⇒ 退出码非 0（#2457）。
                     # 旧行为是「失败只打进日志、进程照样退 0」，于是 workflow 判绿、
