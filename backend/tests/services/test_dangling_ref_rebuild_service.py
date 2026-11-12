@@ -230,9 +230,7 @@ def test_rebuild_rejects_net_non_positive(db, ledger):
     data = svc.preview_rebuild(db, _FAMILY, [buy.id, sell.id])
     assert data['rebuildable'] is False and '净额' in data['block_reason']
 
-    _assert_rejected(
-        db, lambda: svc.rebuild_position(db, _FAMILY, [buy.id, sell.id], confirm=True), '净额'
-    )
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [buy.id, sell.id], confirm=True), '净额')
 
 
 def test_rebuild_rejects_existing_position_row(db, ledger):
@@ -243,9 +241,7 @@ def test_rebuild_rejects_existing_position_row(db, ledger):
     data = svc.preview_rebuild(db, _FAMILY, [t.id])
     assert data['rebuildable'] is False and '回补关联' in data['block_reason']
 
-    _assert_rejected(
-        db, lambda: svc.rebuild_position(db, _FAMILY, [t.id], confirm=True), '回补关联'
-    )
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [t.id], confirm=True), '回补关联')
 
 
 def test_rebuild_rejects_cross_ledger_group(db, ledger, ledger2):
@@ -256,9 +252,7 @@ def test_rebuild_rejects_cross_ledger_group(db, ledger, ledger2):
     data = svc.preview_rebuild(db, _FAMILY, [t1.id, t2.id])
     assert data['rebuildable'] is False and '账本' in data['block_reason']
 
-    _assert_rejected(
-        db, lambda: svc.rebuild_position(db, _FAMILY, [t1.id, t2.id], confirm=True), '账本'
-    )
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [t1.id, t2.id], confirm=True), '账本')
 
 
 def test_rebuild_rejects_missing_symbol(db, ledger):
@@ -268,9 +262,7 @@ def test_rebuild_rejects_missing_symbol(db, ledger):
     data = svc.preview_rebuild(db, _FAMILY, [t.id])
     assert data['rebuildable'] is False and '补全信息' in data['block_reason']
 
-    _assert_rejected(
-        db, lambda: svc.rebuild_position(db, _FAMILY, [t.id], confirm=True), '补全信息'
-    )
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [t.id], confirm=True), '补全信息')
 
 
 def test_rebuild_rejects_buy_without_price(db, ledger):
@@ -282,9 +274,7 @@ def test_rebuild_rejects_buy_without_price(db, ledger):
     data = svc.preview_rebuild(db, _FAMILY, [t.id])
     assert data['rebuildable'] is False and '成交价' in data['block_reason']
 
-    _assert_rejected(
-        db, lambda: svc.rebuild_position(db, _FAMILY, [t.id], confirm=True), '成交价'
-    )
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [t.id], confirm=True), '成交价')
 
 
 def test_rebuild_rejects_non_dangling_or_other_family(db, ledger):
