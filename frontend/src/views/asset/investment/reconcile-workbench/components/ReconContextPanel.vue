@@ -116,7 +116,8 @@ const target = computed<ContextTarget | null>(() => {
     const row = payload.row;
     return {
       symbol: row.symbol,
-      name: null,
+      // 名称走后端 display_name（transactions.position_name 回退 positions.name）
+      name: row.display_name ?? null,
       ledgerId: row.ledger_id ?? null,
       issue: item.sourceLabel,
       expected: null,
@@ -125,7 +126,21 @@ const target = computed<ContextTarget | null>(() => {
       when: null
     };
   }
-  // eaccount / ghost / import：交易可能跨多个账本或无单一账本，账本名交给轨迹展示
+  if (payload.kind === "ghost" || payload.kind === "ghostIgnored") {
+    const row = payload.row;
+    return {
+      symbol: row.symbol ?? "",
+      // 名称走后端 display_name；无单一账本，账本名交给轨迹展示
+      name: row.display_name ?? null,
+      ledgerId: null,
+      issue: item.sourceLabel,
+      expected: null,
+      actual: null,
+      diff: null,
+      when: null
+    };
+  }
+  // eaccount / import：交易可能跨多个账本或无单一账本，账本名交给轨迹展示
   return {
     symbol: item.title,
     name: null,

@@ -42,8 +42,8 @@ def ledger2(db):
     return lg
 
 
-def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_status='active'):
-    """按「份」建持仓（内部转最小单位）。
+def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_status='active', name=None):
+    """按「份」建持仓（内部转最小单位）。name 传 '' 可造空名（display_name 回退链的用例）。
 
     cleared 行必须 quantity=0 —— positions 模型有 CheckConstraint
     ``ownership_status <> 'cleared' OR quantity = 0``，造非零 cleared 会 flush 失败。
@@ -53,7 +53,7 @@ def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_statu
         family_id=family_id,
         ledger_id=ledger_id,
         symbol=symbol,
-        name=symbol,
+        name=symbol if name is None else name,
         market='CN_A',
         currency='CNY',
         quantity=qty,
@@ -79,6 +79,7 @@ def _mk_txn(
     created_at=None,
     trade_date=None,
     confirm_date=None,
+    position_name=None,
 ):
     """建一条流水。position_id 默认指向不存在的持仓（悬空）；传 None 造 NULL 孤儿。"""
     t = Transaction(
@@ -94,6 +95,7 @@ def _mk_txn(
         trade_date=trade_date,
         confirm_date=confirm_date,
         created_at=created_at if created_at is not None else _BASE,
+        position_name=position_name,
     )
     db.add(t)
     db.flush()
@@ -240,6 +242,34 @@ def test_list_counts_and_flags(db, ledger):
     assert blocked['fixable'] is False
     assert 'symbol' in blocked['block_reason']
     assert blocked['candidates'] == []
+
+
+def test_group_display_name_prefers_live_then_txn_snapshot(db, ledger):
+    """组级 display_name 取名链：live 名 → 候选名 → 组内流水快照 position_name，首个非空。
+
+    「只有 candidate 而无 live」经 ``_group_candidates`` 的不变量（candidates[0] 就是
+    live）不可单独构造，中间链由「live 名为空 → 回退流水快照」那条覆盖。
+    """
+    # live 存在 → 取 live.name
+    _mk_pos(db, ledger.id, '000001', 1.0, name='平安银行')
+    _mk_txn(db, ledger.id, symbol='000001')
+    # 无任何同标的持仓（无 live 无候选）→ 回退组内流水快照 position_name
+    _mk_txn(db, ledger.id, symbol='600000', position_name='浦发银行')
+    # live / 候选 / 流水快照全空 → None
+    _mk_txn(db, ledger.id, symbol='300750')
+    # live 存在但名为空（候选[0] 即 live，名同为空）→ 继续回退到流水快照
+    _mk_pos(db, ledger.id, '600519', 1.0, name='')
+    _mk_txn(db, ledger.id, symbol='600519', position_name='贵州茅台')
+
+    by_key = {g['key']: g for g in svc.scan_dangling_refs(db, _FAMILY)['groups']}
+    assert by_key[f'{ledger.id}|000001']['display_name'] == '平安银行'
+    assert by_key[f'{ledger.id}|600000']['display_name'] == '浦发银行'
+    assert by_key[f'{ledger.id}|300750']['display_name'] is None
+    assert by_key[f'{ledger.id}|600519']['display_name'] == '贵州茅台'
+    # 组内流水明细与持仓摘要同步直出名，前端不必再拼
+    assert by_key[f'{ledger.id}|600519']['transactions'][0]['position_name'] == '贵州茅台'
+    assert by_key[f'{ledger.id}|000001']['live_position']['name'] == '平安银行'
+    assert by_key[f'{ledger.id}|000001']['candidates'][0]['name'] == '平安银行'
 
 
 def test_fixable_requires_same_symbol_live_position(db, ledger):

@@ -205,3 +205,23 @@ class TestTriggerGuard:
             time.sleep(0.01)
         assert done == [1]
         assert securities_catalog._backfill_running is False
+
+
+class TestTestIsolationGuard:
+    """回归网：测试进程里**不得**真起名录补录线程（2026-11-12，CI 实测红灯）。
+
+    为什么这条要单独钉住：`import_entry` 是 ``from ... import`` 早绑定，conftest 若把
+    patch 打在 ``securities_catalog`` 模块属性上（或干脆删掉那行），本用例路径依然会
+    起真线程——它会写**本用例的** ``_fixture_app.db`` 并发真实网络请求，期间持未提交
+    写事务，让同进程后续的 ``flush`` 撞 5s ``busy_timeout`` 报 ``database is locked``。
+    实测已连续红两次（``test_importers.py::test_sell_with_existing_position`` 500）。
+    """
+
+    def test_import_confirm_path_does_not_start_real_backfill(self):
+        from app.services.importer import import_entry
+
+        # patch 生效时返回 None（lambda）；真函数返回 bool 并起线程。
+        assert import_entry.trigger_catalog_backfill_async() is None, (
+            '测试内不得真起名录补录线程：早绑定点没被 conftest 的 _disable_async_backfill 覆盖'
+        )
+        assert securities_catalog._backfill_running is False

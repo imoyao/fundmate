@@ -38,7 +38,8 @@
       <!-- ① 来龙去脉：产品名 / 代码 / 账本 / 差额 / 发现时间 -->
       <ReconContextPanel :item="item" />
 
-      <!-- ② 投资轨迹：该产品在该账本的交易流水（公共 TransactionTable） -->
+      <!-- ② 投资轨迹：该产品在该账本的交易流水（公共 TransactionTable）
+           recon-symbol-allow: 这里的 symbol 只作查询条件传给流水表（不渲染成标题）。 -->
       <ReconInvestmentTrail
         v-if="trail"
         :symbol="trail.symbol"

@@ -15,6 +15,7 @@ import type {
   DanglingRefList,
   DiscrepancyItem,
   DividendTaxPendingItem,
+  GhostDuplicateGroupItem,
   OrphanLedgerGroup,
   OrphanLedgerList
 } from "@/api/reconciliation";
@@ -348,6 +349,126 @@ describe("和式不变量：卡片条数与状态计数与队列同源", () => {
     const options = queueBatchOptions(buildReconQueue(fullSource()));
     expect(options.map(o => o.id)).toEqual([1, 2]);
     expect(options[0].label).toContain("来自 2026-06-07 18:33 的导入");
+  });
+});
+
+/* ── 第三轮：D/F/G 统一口径「标题=名称、代码作次要事实行」 ─────────────── */
+describe("D/F/G 条目标题取 display_name，代码降级为事实行", () => {
+  function ghostGroup(
+    over: Partial<GhostDuplicateGroupItem> = {}
+  ): GhostDuplicateGroupItem {
+    return {
+      fingerprint: "fp-ghost",
+      symbol: "SH515250",
+      symbol_identity: "515250",
+      confirm_date: "2026-10-20",
+      txn_type: "buy",
+      amount_yuan: 17000,
+      ledger_ids: [1, 2],
+      ledger_names: ["主账本", "备用账本"],
+      count: 2,
+      transactions: [],
+      ...over
+    };
+  }
+
+  it("域 D：display_name 存在时标题是名称，事实行含「代码 X」", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      ghostGroups: [ghostGroup({ display_name: "中证 500ETF 联接" })]
+    });
+    const row = items.find(i => i.payload.kind === "ghost")!;
+    expect(row.title).toBe("中证 500ETF 联接");
+    expect(row.facts.join(" ")).toContain("代码 SH515250");
+  });
+
+  it("域 D：display_name 为 null 时标题回落代码", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      ghostGroups: [ghostGroup({ display_name: null })]
+    });
+    const row = items.find(i => i.payload.kind === "ghost")!;
+    expect(row.title).toBe("SH515250");
+    expect(row.facts.join(" ")).toContain("代码 SH515250");
+  });
+
+  it("域 D 已忽略条目同样走名称口径，不再裸插值 symbol", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      ghostIgnored: [
+        {
+          id: 1,
+          fingerprint: "fp-1",
+          symbol: "SH515250",
+          display_name: "中证 500ETF 联接",
+          confirm_date: "2026-10-20",
+          txn_type: "buy",
+          amount_yuan: 17000,
+          ledger_names: ["主账本"],
+          reason: null,
+          ignored_at: null
+        }
+      ]
+    });
+    const row = items.find(i => i.payload.kind === "ghostIgnored")!;
+    expect(row.title).toBe("中证 500ETF 联接");
+    expect(row.facts.join(" ")).toContain("代码 SH515250");
+  });
+
+  it("域 D 已忽略条目 symbol 快照为 null 时标题给可执行提示而非空白", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      ghostIgnored: [
+        {
+          id: 1,
+          fingerprint: "fp-1",
+          symbol: null,
+          display_name: null,
+          confirm_date: null,
+          txn_type: null,
+          amount_yuan: null,
+          ledger_names: [],
+          reason: null,
+          ignored_at: null
+        }
+      ]
+    });
+    const row = items.find(i => i.payload.kind === "ghostIgnored")!;
+    expect(row.title).toBe("标的代码未填");
+  });
+
+  it("域 F：display_name 存在时标题是名称，事实行含「代码 X」", () => {
+    const source = emptySource();
+    source.dangling = {
+      total: 7,
+      group_count: 1,
+      batch_count: 1,
+      null_symbol: 0,
+      null_trade_date: 0,
+      fixable_count: 7,
+      groups: [danglingGroup({ display_name: "华安创业板 50" })],
+      batches: []
+    } satisfies DanglingRefList;
+    const row = buildReconQueue(source).find(i => i.sourceDomain === "F")!;
+    expect(row.title).toBe("华安创业板 50");
+    expect(row.facts.join(" ")).toContain("代码 001982");
+  });
+
+  it("域 F：display_name 为 null 时标题回落代码（含修复既有断言口径）", () => {
+    const source = emptySource();
+    source.dangling = {
+      total: 7,
+      group_count: 1,
+      batch_count: 1,
+      null_symbol: 0,
+      null_trade_date: 0,
+      fixable_count: 7,
+      groups: [danglingGroup({ display_name: null })],
+      batches: []
+    } satisfies DanglingRefList;
+    const row = buildReconQueue(source).find(i => i.sourceDomain === "F")!;
+    expect(row.title).toBe("001982");
+    expect(row.facts.join(" ")).toContain("代码 001982");
   });
 });
 

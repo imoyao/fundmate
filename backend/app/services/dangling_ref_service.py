@@ -36,8 +36,7 @@
   内部计算仍用最小单位整数，只在序列化边界换算，避免浮点误差进入求和。
 - **净额**：Σ(buy/deposit/split 的 quantity) − Σ(sell/withdraw 的 quantity)，再 /10000。
   其余 txn_type（分红/兑付/扣税等）不进净额；amount 不参与净额。
-- **批次**：全部悬空流水按 created_at 排序，相邻间隔 **> 600 秒**切新批；
-  ``batch_label`` 取该批首条 created_at 的 ``YYYY-MM-DD HH:MM``。created_at 为空的流水
+- **批次**：全部悬空流水按 created_at 排序，相邻间隔 **> 600 秒**切新批；``batch_label`` 取该批首条 created_at 的 ``YYYY-MM-DD HH:MM``。created_at 为空的流水
   不参与间隔判定、附到当前批（排序时排最前），label 降级为 '未知时间'。
 - **候选与可否回补（判据只在后端一处）**：``candidates`` 只列「同账本且同标的」的
   现存持仓（reattach 会硬校验 symbol 一致，列别的标的等于诱导挂错）；空 symbol 组
@@ -49,8 +48,7 @@
   （同标的现存行是 cleared）、``blocked``（fixable=False）。live_position 为空时
   net_mismatch 不置位；candidates 最多 20 条、按 id 升序，首条即 live_position。
 - **preview 的 quantity_if_recomputed 是「预估」不是精确重算结果**：口径为
-  「目标持仓现存份额 + 本批流水净额」的保守近似。真正的
-  ``recompute_position_from_transactions`` 是「从该持仓全部流水派生」，含快照锚点、
+  「目标持仓现存份额 + 本批流水净额」的保守近似。真正的 ``recompute_position_from_transactions`` 是「从该持仓全部流水派生」，含快照锚点、
   清仓复活 / 标记 cleared / 删行等状态变化，二者可能不一致。preview 纯只读，
   **绝不调用真正的 recompute 来预览**。
 - **自动重算已禁用**：``recompute=true`` 一律 ``ValueError``（HTTP 400）。真正的
@@ -59,8 +57,7 @@
   不属于「安全的二次回补」。挂回只改 ``position_id``，份额一字不动
   （``quantity_after == quantity_before``）；用户如需对齐份额，到持仓页手动重算。
   ``preview.quantity_if_recomputed`` 仅用于让用户看清「手动重算会怎样」，不触发任何写。
-- **undo 幂等但每次留痕**：仅当 txn 当前 position_id 仍等于 after 值才恢复；重复撤销
-  ``restored=0``、数据不变，但仍会追加一条 ``dangling_ref_undo`` 审计日志（如实记录每次操作）。
+- **undo 幂等但每次留痕**：仅当 txn 当前 position_id 仍等于 after 值才恢复；重复撤销 ``restored=0``、数据不变，但仍会追加一条 ``dangling_ref_undo`` 审计日志（如实记录每次操作）。
 """
 
 import json
@@ -134,8 +131,7 @@ def _normalize_ids(raw) -> list[int]:
         if isinstance(v, bool) or not isinstance(v, int):
             raise ValueError(f'transaction_ids 元素必须是整数，收到 {v!r}')
         normalized.append(v)
-    seen = set()
-    uniq = []
+    seen, uniq = set(), []
     for v in normalized:
         if v not in seen:
             seen.add(v)
@@ -210,10 +206,11 @@ def _cluster_batches(rows: list[Transaction]) -> list[list[Transaction]]:
 
 
 def _pos_brief(p: Position) -> dict:
-    """持仓摘要。quantity 换算成「份」，与 net_units / preview.quantity_* 同口径。"""
+    """持仓摘要。quantity 换算成「份」，与 net_units / preview.quantity_* 同口径；name 直出，供组级 display_name 取名。"""
     return {
         'id': p.id,
         'symbol': p.symbol,
+        'name': p.name,
         'quantity': _shares(p.quantity),
         'ownership_status': p.ownership_status,
     }
@@ -222,7 +219,7 @@ def _pos_brief(p: Position) -> dict:
 def _txn_brief(t: Transaction) -> dict:
     """流水明细。quantity 换算成「份」、amount 换算成「元」；日期 isoformat 或 None。
 
-    前端直接显示这两个数并标「份 / 元」，不得再做一次 /10000 或 /100。
+    前端直接显示这两个数并标「份 / 元」，不得再做一次 /10000 或 /100；position_name 直出流水快照的标的名。
     """
     return {
         'id': t.id,
@@ -230,6 +227,7 @@ def _txn_brief(t: Transaction) -> dict:
         'trade_date': t.trade_date.isoformat() if t.trade_date else None,
         'confirm_date': t.confirm_date.isoformat() if t.confirm_date else None,
         'symbol': t.symbol,
+        'position_name': t.position_name,
         'quantity': _shares(t.quantity),
         'amount': Money.cents_to_yuan(t.amount),
         'position_id': t.position_id,
@@ -358,14 +356,17 @@ def _build_group(
     first_batch_id: int,
     batch_label: str,
 ) -> dict:
-    """组装单个 (ledger, symbol) 分组；判据全部来自 ``_group_*`` 系列函数。"""
+    """组装单个 (ledger, symbol) 分组；判据全部来自 ``_group_*`` 系列函数。display_name 取名链 live→候选→流水快照，首个非空。"""
     cands, live = _group_candidates(ledger_positions, symbol)
     fixable, block_reason = _group_block_reason(symbol, cands)
     net_units = _shares(_net_min_units(txns))
+    # display_name 与域 B/C 对齐：悬空流水引用的持仓已删，名字只能从 live / 候选 / 流水快照按优先级捞
+    name_pool = [live.name if live is not None else None, *(p.name for p in cands), *(t.position_name for t in txns)]
     return {
         'key': f'{ledger_id}|{symbol}',
         'ledger_id': ledger_id,
         'symbol': symbol,
+        'display_name': next((n for n in name_pool if n), None),
         'txn_count': len(txns),
         'dangling_position_ids': sorted({t.position_id for t in txns if t.position_id is not None}),
         'net_units': net_units,
@@ -582,8 +583,7 @@ def undo_reattach(db: Session, family_id: int, log_id) -> dict:
 
     before_map = {item['id']: item['position_id'] for item in before}
     after_map = {item['id']: item['position_id'] for item in after.get('transactions', [])}
-    restored = 0
-    skipped = 0
+    restored, skipped = 0, 0
     for tid, before_pid in before_map.items():
         txn = db.query(Transaction).filter(Transaction.id == tid, Transaction.family_id == family_id).first()
         if txn is None or txn.position_id != after_map.get(tid):

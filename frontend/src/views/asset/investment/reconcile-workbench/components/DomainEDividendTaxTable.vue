@@ -23,8 +23,10 @@
         class="tax-item"
       >
         <header class="tax-item__head">
-          <span class="tax-item__symbol">{{ it.name || it.symbol }}</span>
-          <span class="tax-item__code">{{ it.symbol }}</span>
+          <span class="tax-item__symbol">{{
+            reconGroupTitle(it.symbol, it.name)
+          }}</span>
+          <span class="tax-item__code">{{ reconSymbolCode(it.symbol) }}</span>
           <span
             class="tax-item__state"
             :class="it.status === '待核对' ? 'is-pending' : 'is-abnormal'"
@@ -95,7 +97,11 @@ import {
   ackDividendTax,
   type DividendTaxPendingItem
 } from "@/api/reconciliation";
-import { reconMoney } from "../utils/reconDisplay";
+import {
+  reconGroupTitle,
+  reconMoney,
+  reconSymbolCode
+} from "../utils/reconDisplay";
 import RecordTaxDialog from "./RecordTaxDialog.vue";
 
 /**

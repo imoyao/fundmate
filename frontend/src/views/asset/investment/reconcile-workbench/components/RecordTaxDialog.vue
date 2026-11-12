@@ -15,11 +15,11 @@
       <dl class="tax-dialog__context">
         <div>
           <dt>标的</dt>
-          <dd>{{ item.name || item.symbol }}</dd>
+          <dd>{{ reconGroupTitle(item.symbol, item.name) }}</dd>
         </div>
         <div>
           <dt>标的代码</dt>
-          <dd>{{ item.symbol }}</dd>
+          <dd>{{ reconSymbolCode(item.symbol) }}</dd>
         </div>
         <div>
           <dt>分红日</dt>
@@ -107,7 +107,11 @@ import { formatDate } from "@/utils/date";
 import { centsToYuan } from "@/utils/currency";
 import { recordDividendTax } from "@/api/reconciliation";
 import type { DividendTaxPendingItem } from "@/api/reconciliation";
-import { reconMoney } from "../utils/reconDisplay";
+import {
+  reconGroupTitle,
+  reconMoney,
+  reconSymbolCode
+} from "../utils/reconDisplay";
 
 defineOptions({ name: "RecordTaxDialog" });
 

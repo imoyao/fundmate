@@ -918,6 +918,22 @@ jobs:
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
 
+      # 对账工作台产品身份展示契约（本卡）：卡片 / 抽屉标题裸插 `.symbol` 编码
+      # （用户看到 `SH515250` 而不是「智能汽车」）**已经回归过两次**，根因都是
+      # 「每个组件各写各的插值」。约定后的唯一口径在
+      # `reconcile-workbench/utils/reconDisplay.ts`：标题走 reconGroupTitle，
+      # 编码走 reconSymbolCode / specialSymbolLabel。本守卫行级判据：模板段内
+      # 出现 `.symbol` 的行必须带着契约调用，否则逐条报 `file:line`；
+      # 「编码本身就是内容」的场景用行内 `recon-symbol-allow` 注释放行，
+      # 放行清单随输出打印（豁免必须可见，不许悄悄堆积）。
+      # 自带失败态：扫不到 .vue 时退 2 并声明结论不可信，不退化成「零命中 = 通过」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 回归网在 scripts/tests/guard_recon_symbol_display.test.js（7 条，含修复前
+      # 真实行回退探针 + 空输入失败态），由本 job 顶部的
+      # `node --test "scripts/tests/*.test.js"` 统一收。
+      - name: 对账工作台产品身份展示契约（阻断）
+        run: python scripts/guard_recon_symbol_display.py
+
       # 暗色模式死选择器（本轮 panorama 页清理时一并扫出的同型问题）：
       # 暗色由 <html> 上的 `.dark` 类驱动、变量由 dark.scss 的 `:root.dark` 覆盖同名令牌；
       # `data-theme` 属性只承载**配色主题名**（light/default/.../showbuy），永远不会是 dark。

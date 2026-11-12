@@ -1252,13 +1252,11 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
 
     #2151：返回值扩展 `fingerprint` / `symbol_identity` / `transactions`：
     - `fingerprint`：稳定 id（见 `build_ghost_fingerprint`），供忽略记录定位；
-    - `symbol_identity`：**归一身份**，同一个标的的不同写法（`600519` / `SH600519`）
-      从此归为一组，不再因写法差异漏报（此前按字面量 symbol 分组，实测漏报）；
-    - `transactions`：组内明细（id / ledger_id / quantity / price / 日期），
-      供对账工作台域 D 直接展示「删掉多余那一份」。
+    - `symbol_identity`：**归一身份**，同一个标的的不同写法（`600519` / `SH600519`）从此归为一组，不再因写法差异漏报（此前按字面量 symbol 分组，实测漏报）；
+    - `transactions`：组内明细（id / ledger_id / quantity / price / 日期），供对账工作台域 D 直接展示「删掉多余那一份」。
 
-    返回：每组 {fingerprint, symbol, symbol_identity, confirm_date, txn_type,
-              amount_yuan, ledger_ids, ledger_names, count, transactions}
+    返回：每组 {fingerprint, symbol, symbol_identity, display_name, confirm_date, txn_type,
+              amount_yuan, ledger_ids, ledger_names, count, transactions}；display_name 组内任一行 position_name 非空即取
     """
     ledger_name_map = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
 
@@ -1286,6 +1284,7 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
             Transaction.quantity,
             Transaction.price,
             Transaction.ledger_id,
+            Transaction.position_name,
         )
         .filter(
             Transaction.family_id == family_id,
@@ -1316,6 +1315,7 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
             {
                 'fingerprint': build_ghost_fingerprint(confirm_date, identity, txn_type, amount, ledger_ids),
                 'symbol': symbol,
+                'display_name': next((t.position_name for t in txns if t.position_name), None),
                 'symbol_identity': identity,
                 'confirm_date': confirm_date.isoformat() if confirm_date else None,
                 'txn_type': txn_type,
