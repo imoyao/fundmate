@@ -40,53 +40,27 @@
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import sys
-from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core import database  # noqa: E402
 from app.services import cold_set_guard as guard  # noqa: E402
 
+# 判定流程与调度器共用一份（`cold_set_check`）：两处各写一遍的话，漂移的表现是
+# 「同一份库两次判定不同」，不报错、不失败。这里是**薄入口**，只负责参数与打印。
+# `WEEKLY_BASIS_DAYS` / `growth_limit` / `resolve_baseline` 一并再导出：它们原来定义在
+# 本脚本，测试与下游 import 的都是这个名字，改路径会让既有判据无声失效。
+from app.services.cold_set_check import (  # noqa: E402,F401
+    WEEKLY_BASIS_DAYS,
+    growth_limit,
+    resolve_baseline,
+    run_check,
+    run_check_and_record,
+)
+
 W = 84
-# 阈值的基准周期：`--max-growth` 按 7 天的量理解，实际阈值按间隔天数折算。
-WEEKLY_BASIS_DAYS = 7
-
-
-def resolve_baseline(g_mod, db, last, today_cutoff):
-    """按上次巡检的 cutoff 在今天的数据上重算过期行，得到**同口径**的当前值。
-
-    `cutoff = 今天 - keep_days`，所以「回到上次的窗口」= 拿「今天 - 上次 cutoff」天
-    当 keep_days 重算一次（`measure` 因此不必新增 cutoff 参数——那里已顶满体量基线）。
-    返回 `(同口径过期行, 间隔天数)`；上次记录缺 cutoff / 同一天重跑时过期行为 None。
-
-    注意两个天数不是一回事：**间隔** = 两次 cutoff 之差（keep_days 不变时等于已过天数），
-    **重现旧窗口的 keep_days** = 今天 - 上次 cutoff（实测 395，不是 30）——混用会算成
-    「近 30 天」的过期行，比真实值大一个数量级。
-    """
-    if not last or not last.get('cutoff'):
-        return None, None
-    try:
-        prev_cutoff = date.fromisoformat(str(last['cutoff']))
-        days = (date.fromisoformat(today_cutoff) - prev_cutoff).days
-    except ValueError:
-        return None, None
-    if days < 1:
-        return None, days
-    return g_mod.measure(db, keep_days=(date.today() - prev_cutoff).days).total_stale, days
-
-
-def growth_limit(max_growth, days):
-    """把「7 天允许的增量」按实际间隔折算。
-
-    不折算的话，同一份数据「跑得勤就绿、隔得久就红」——判定变成频率的函数，与
-    「灌得多快」无关，而后者才是要拦的东西。
-    """
-    if not days or days <= WEEKLY_BASIS_DAYS:
-        return max_growth
-    return math.ceil(max_growth * days / WEEKLY_BASIS_DAYS)
 
 
 def main() -> int:
@@ -105,11 +79,11 @@ def main() -> int:
 
     db = database.get_session()
     try:
-        report = guard.measure(db, keep_days=args.keep_days)
-        last = guard.last_guard_stats(db)
-        comparable, days = resolve_baseline(guard, db, last, report.cutoff)
-        report.max_growth = growth_limit(args.max_growth, days)
-        guard.compare_with_last(report, last, comparable)
+        if args.record:
+            outcome = run_check_and_record(db, max_growth=args.max_growth, keep_days=args.keep_days)
+        else:
+            outcome = run_check(db, max_growth=args.max_growth, keep_days=args.keep_days)
+        report = outcome.report
 
         print('=' * W)
         print('冷集膨胀守卫 · %s' % ('RECORD（落库）' if args.record else 'DRY-RUN（只读）'))
@@ -123,10 +97,10 @@ def main() -> int:
             print('  过期行    %9d 行（冷集且早于 cutoff，floor 保护行就在这里）' % t.stale_rows)
             print('')
         print('合计过期行 %d' % report.total_stale)
-        if comparable is not None:
+        if outcome.comparable is not None:
             print(
                 '同口径重算 %d 行（按上次 cutoff=%s 统计，间隔 %d 天；折算阈值 %d 行）'
-                % (comparable, last['cutoff'], days, report.max_growth)
+                % (outcome.comparable, outcome.prev_cutoff, outcome.days, report.max_growth)
             )
         if report.prev_stale is None:
             print('上次巡检   无记录（首次巡检，只建立基线，不判定膨胀）')
@@ -138,7 +112,6 @@ def main() -> int:
         print('')
 
         if args.record:
-            guard.record(db, report)
             print(
                 '已落库 sync_logs（job_name=%s, status=%s）'
                 % (guard.GUARD_JOB_NAME, 'bloated' if report.bloated else 'ok')

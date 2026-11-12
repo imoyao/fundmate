@@ -791,3 +791,49 @@ class TestAssetSnapshotScheduled:
         spec = next(t for t in ds._JOB_TEMPLATES if t[0] == 'asset_snapshot')
         assert '账面值' in spec[5]
         assert 'D63' in spec[5] or '#2132' in spec[5]
+
+
+# ══════════════════════════════════════════════════════════════════
+# #3078：本地巡检进进程内调度（不是 SyncJob，走独立通道）
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestLocalCheckScheduling:
+    """`cold_set_bloat_guard` 必须真的被注册成定时任务。
+
+    卡的起因是「docstring 写着周报级、实际只有人手点才会跑」——判据因此不能只断言
+    「配置里有它」，必须断言 APScheduler 里真的多了一个 job，且走的是巡检通道。
+    """
+
+    def test_registered_in_scheduler(self, tmp_path):
+        from app.services import local_checks
+
+        check = local_checks.build_checks({})[0]
+        cfg = _config(lock_file=tmp_path / 's7.lock', checks=(check,))
+        holder = ds.DailyScheduler(cfg)
+        assert holder.start() is True
+        try:
+            job = holder._scheduler.get_job(check.job_name)
+            assert job is not None, '没注册进 APScheduler ⇒ 仍然是「没人让它跑」'
+            # 走 run_local_check 而不是 _run_job：后者的休市跳过对巡检不适用
+            # （休市日同样会有回填写入，而周频只有一次机会）。
+            assert job.func is local_checks.run_local_check
+        finally:
+            holder.shutdown()
+
+    def test_registered_job_is_not_a_sync_job(self):
+        """巡检不注入目标池：`DailyJobSpec` 那条通道会被要求 target_kind。"""
+        from app.services import local_checks
+
+        check = local_checks.build_checks({})[0]
+        assert not isinstance(check, ds.DailyJobSpec)
+        assert not hasattr(check, 'target_kind'), '巡检不吃目标池；有 target_kind 说明又被塞回 job 通道'
+
+    def test_check_ids_do_not_collide_with_scheduled_jobs(self, tmp_path):
+        """撞名时 APScheduler 的 replace_existing 会静默顶掉一个日跑 job。"""
+        from app.services import local_checks
+
+        cfg = ds.load_config({'SCHEDULER_COLD_SET_GUARD_ENABLED': '1'})
+        overlap = {c.job_name for c in cfg.checks} & {j.job_name for j in cfg.jobs}
+        assert not overlap
+        assert local_checks.build_checks({}), '缺省启用'
