@@ -4,9 +4,9 @@
 ## 为什么单独一个 blueprint
 
 ``views.py`` 在 ``scripts/check_view_thickness.py`` 的基线里冻结为 390 行（只减不增）。
-本域新增 13 个端点全是 HTTP 编排（业务规则全在 services 层：
+本域新增 16 个端点全是 HTTP 编排（业务规则全在 services 层：
 ``dangling_ref_service.py`` / ``orphan_ledger_service.py`` /
-``dangling_ref_remediation_service.py``），与域 B/C/D/E 的既有端点
+``dangling_ref_remediation_service.py`` / ``dangling_ref_rebuild_service.py``），与域 B/C/D/E 的既有端点
 没有共享状态，故按域内子模块拆成独立 blueprint，而不是把既有视图压榨到基线以下、
 也不是重取基线。``VIEWS_GLOB = backend/app/domains/*/views.py`` 不匹配本文件是守卫的
 既有口径，**不是**绕过「业务规则下沉 services」这条约束：本文件不含任何 ORM 查询与业务判定。
@@ -21,11 +21,13 @@
 trade_date），删除要求后端硬校验 ``confirm is True`` 且 ``confirm_phrase == '删除'``，
 删除前把完整行快照写进审计日志以便精确恢复。
 
-因此三组端点都遵守：
+因此四组端点都遵守：
 - ``GET`` 只读，不改任何数据；
 - ``POST /reattach/`` / ``POST /orphan-ledger/backfill/`` / ``POST /enrich/`` 只在
   用户显式指定时写，**绝不重算份额**（分别只改 position_id / ledger_id / 空字段）；
   ``POST /delete/`` 二次确认后物理删除，也绝不改动现存持仓份额；
+- ``POST /rebuild/`` 是唯一**会新建持仓行**的端点：份额与成本由这一组流水派生（没有
+  持仓行可改），仍要求二次确认、仍留审计与撤销；
 - 每次写入都记 ``adjustment_logs``，可凭 ``log_id`` 撤销。
 """
 
@@ -34,6 +36,11 @@ from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import user_session
+from app.services.dangling_ref_rebuild_service import (
+    preview_rebuild,
+    rebuild_position,
+    undo_rebuild,
+)
 from app.services.dangling_ref_remediation_service import (
     delete_transactions,
     enrich_transactions,
@@ -272,6 +279,72 @@ def undo_dangling_delete():
     with user_session() as db:
         try:
             data = undo_delete(db, family_id, body.get('log_id'))
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── 按流水重建持仓（域 F 的第三条写路径）：预览 / 重建 / 撤销 ────────────────────
+# 适用场景：持仓行被旧版「整笔卖出删行」物理删除、买入流水还在（真库 637 条悬空
+# 引用里的一部分）。既有两条路都救不了它——「回补关联」只认现存候选持仓，
+# 「补全信息」只改 symbol / trade_date。业务口径全在 services 层。
+
+
+@bp.get('/dangling-refs/rebuild-preview/')
+def preview_dangling_rebuild():
+    """重建前预览（**纯只读**）。query: ``transaction_ids=1,2``。
+
+    返回将建出的份额 / 成本 / 账本 / 日期区间、可否重建及不可重建的可执行原因。
+    """
+    ids = _parse_transaction_ids_arg(request.args.get('transaction_ids', ''))
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = preview_rebuild(db, family_id, ids)
+        except ValueError as e:
+            abort(400, description=str(e))
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/rebuild/')
+def rebuild_dangling_position():
+    """按流水重建持仓并把这一组流水挂回去。
+
+    body: ``{ transaction_ids, reason?, operator?, confirm }``；``confirm`` 必须是布尔
+    ``true``（后端硬校验）。重建出的持仓份额 / 成本由流水派生，写前写后各留一条审计快照，
+    可凭 ``log_id`` 撤销。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = rebuild_position(
+                db,
+                family_id,
+                transaction_ids=body.get('transaction_ids'),
+                reason=body.get('reason'),
+                operator=body.get('operator'),
+                confirm=body.get('confirm', False),
+            )
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/rebuild-undo/')
+def undo_dangling_rebuild():
+    """撤销一次重建（body: ``{ log_id: int }``）：流水回到原悬空状态、新持仓删掉。
+
+    仅当持仓份额 / 成本与流水归属都还是重建时那一份才真正回滚；否则 ``skipped=1``
+    并给 ``skip_reason``（例如用户已经补录了卖出），绝不抹掉后来的业务事实。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = undo_rebuild(db, family_id, body.get('log_id'))
         except ValueError as e:
             abort(400, description=str(e))
         db.flush()

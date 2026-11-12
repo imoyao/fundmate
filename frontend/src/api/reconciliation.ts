@@ -536,6 +536,91 @@ export function undoDanglingRefReattach(
   );
 }
 
+// ── 域 F 第三条写路径：按流水重建持仓 ─────────────────────────────────────────
+// 适用场景：持仓行被旧版「整笔卖出删行」物理删除，而买入流水还在（position_id 指向
+// 已不存在的行）。既有的「回补关联」只认**现存**候选持仓，「补全信息」只改 symbol /
+// trade_date，都救不了这类数据 —— 于是补录卖出会报「找不到这笔持仓」。
+// 本组端点以流水为真相源建那一行：份额与成本由流水派生，不是用户手填。
+
+/** 重建前预览（GET /api/reconciliation/dangling-refs/rebuild-preview/ 的 data） */
+export interface DanglingRefRebuildPreview {
+  txn_count: number;
+  /** 组内唯一标的；多标的会被后端判为不可重建 */
+  symbol: string | null;
+  /** 标的名称（来源 transactions.position_name）；标题用它，代码只作事实行 */
+  display_name: string | null;
+  ledger_id: number | null;
+  ledger_name: string | null;
+  asset_type: string | null;
+  /** 组内最早 / 最晚生效日（YYYY-MM-DD），用于让用户对照账单确认范围 */
+  first_date: string | null;
+  last_date: string | null;
+  /** 派生出的净份额（份）与成本均价（元）——用户不必自己算 */
+  net_units: number;
+  avg_price: number;
+  /** 后端一处判据：缺代码 / 跨账本 / 已有同标的持仓行 / 净额 ≤ 0 时为 false */
+  rebuildable: boolean;
+  /** 不可重建时给出可执行的下一步，前端只显示不自行推导 */
+  block_reason: string | null;
+  /** 口径与已知边界（不是「还原历史」，是按这组流水派生），必须原样展示 */
+  warnings: string[];
+}
+
+/** 重建结果（POST /api/reconciliation/dangling-refs/rebuild/ 的 data） */
+export interface DanglingRefRebuildResult {
+  log_id: number;
+  position_id: number;
+  symbol: string;
+  display_name: string | null;
+  quantity: number;
+  avg_price: number;
+  txn_count: number;
+}
+
+/** 撤销重建结果（POST /api/reconciliation/dangling-refs/rebuild-undo/ 的 data） */
+export interface DanglingRefRebuildUndoResult {
+  restored: number;
+  /** 1 = 期间被动过（已补卖出等），本次不撤销；数据不变但留痕 */
+  skipped: number;
+  log_id: number;
+  skip_reason: string | null;
+}
+
+/** 预览按流水重建持仓会得到什么（只读，提交前必须先展示） */
+export function previewDanglingRefRebuild(
+  transactionIds: number[]
+): Promise<ApiResponse<DanglingRefRebuildPreview>> {
+  return http.get<
+    ApiResponse<DanglingRefRebuildPreview>,
+    { transaction_ids: string }
+  >("/api/reconciliation/dangling-refs/rebuild-preview/", {
+    params: { transaction_ids: transactionIds.join(",") }
+  });
+}
+
+/** 按流水重建持仓并把这一组流水挂回去（写操作，成功后凭 log_id 撤销） */
+export function rebuildDanglingRefPosition(payload: {
+  transaction_ids: number[];
+  reason?: string;
+  /** 后端硬校验 `is True`：二次确认后才允许写入 */
+  confirm: boolean;
+}): Promise<ApiResponse<DanglingRefRebuildResult>> {
+  return http.post<ApiResponse<DanglingRefRebuildResult>, unknown>(
+    "/api/reconciliation/dangling-refs/rebuild/",
+    { data: payload }
+  );
+}
+
+/** 撤销一次重建（流水回到悬空、新持仓删除；期间被动过则 skipped=1 并给原因） */
+export function undoDanglingRefRebuild(
+  logId: number
+): Promise<ApiResponse<DanglingRefRebuildUndoResult>> {
+  return http.post<ApiResponse<DanglingRefRebuildUndoResult>, unknown>(
+    "/api/reconciliation/dangling-refs/rebuild-undo/",
+    { data: { log_id: logId } }
+  );
+}
+
 // ── 域 G：缺账本孤儿流水（#2875）─────────────────────────────────────────────
 // 这些流水 ledger_id / position_id 都是 NULL：不进任何账本视图，只能全表扫描发现。
 // 后端只在「同 family 下按 account_name 精确同名且唯一」时才允许回填，**只改
