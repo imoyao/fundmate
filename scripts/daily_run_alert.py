@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把每日调度的运行摘要渲染成告警卡正文片段（#2457）。
+"""把每日调度的运行摘要渲染成告警卡正文片段（#2457 / #3083）。
 
 ## WHY：告警卡要指名道姓，不能只说「运行失败」
 
@@ -9,6 +9,24 @@
 
 但一张只写「每日调度失败」的卡，排查的人还是得自己去翻 20 个 job 的日志。
 本脚本把摘要渲染成**可直接贴进卡片正文**的片段：哪几个 job 坏了、各自什么状态。
+
+## 巡检结论（#3083）
+
+摘要里还有 `checks`（本地巡检的结论）。它和 job 失败是**两件事**：巡检异常（如冷集
+判定膨胀）时进程照常退 0、workflow 判绿，所以只有把它单独渲染成一张**自愈型**告警卡，
+「判了膨胀」才有人看得见。
+
+三态必须分开（本脚本输出 `check_alert_needed`）：
+
+| 摘要 | `check_alert_needed` | 含义 |
+| --- | --- | --- |
+| 不存在 / `checks` 键缺失 | `unknown` | **说不清**——不能开卡，更不能关掉已开着的卡 |
+| `checks` 为空 | `unknown` | 本轮没有到期巡检（周频），同样不构成「健康」 |
+| 有巡检且全部 `ok` | `false` | 健康 ⇒ 可关掉巡检告警卡 |
+| 有巡检且任一项非 `ok` | `true` | 开/更新巡检告警卡 |
+
+把「没跑」和「跑完且正常」混成同一个值，等于让告警卡自己假自愈（同 #171 的
+「空 ≠ 没拿到」）。
 
 ## 失败语义（#171 的「空 ≠ 没拿到」）
 
@@ -37,6 +55,10 @@ from typing import Any
 
 #: 默认摘要位置：仓库根/backend/data/last_run_summary.json（scripts/ 的上一级是仓库根）。
 DEFAULT_SUMMARY_PATH = Path(__file__).resolve().parent.parent / 'backend' / 'data' / 'last_run_summary.json'
+
+#: 与 `app/tools/scheduler.py::CHECK_HEALTHY_STATUSES` 同口径（两边各写一份是刻意的：
+#: 本脚本在 CI 里被 `python3` 直接执行，import 后端会拉起整套 ORM 依赖）。
+HEALTHY_CHECK_STATUSES = ('ok', 'success')
 
 
 def load_summary(path: Path) -> dict[str, Any] | None:
@@ -86,6 +108,53 @@ def render_detail(summary: dict[str, Any] | None, summary_path: Path | None = No
     return '\n'.join(lines)
 
 
+def _brief_stats(stats: dict[str, Any] | None, limit: int = 6) -> str:
+    """把 stats 里**标量**字段压成一行（`total_stale=93375，growth=14734`）。
+
+    跳过列表 / 字典（`tables` 那种逐表明细）与布尔 False：卡正文要的是「多少」，
+    明细在 `sync_logs.stats` 里，翻起来不难；把整份 JSON 贴进卡只会没人看。
+    """
+    pairs: list[str] = []
+    for key in sorted(stats or {}):
+        value = (stats or {})[key]
+        if isinstance(value, (list, tuple, dict, bool)):
+            continue
+        pairs.append(f'{key}={value}')
+        if len(pairs) >= limit:
+            break
+    return ('（' + '，'.join(pairs) + '）') if pairs else ''
+
+
+def render_checks(summary: dict[str, Any] | None) -> tuple[str, str]:
+    """渲染巡检结论，返回 `(状态, 正文)`，状态 ∈ `attention` / `healthy` / `none` / `unknown`。
+
+    `unknown` 覆盖两种「说不清」：摘要读不到、摘要里根本没有 `checks` 键（巡检没接线 /
+    代码版本旧）。它们**既不构成异常也不构成健康**——调用方据此只做「不动作」。
+    """
+    if summary is None:
+        return 'unknown', '⚠️ **未找到运行摘要**——**无法确认巡检结论**（不等于巡检正常）。'
+    if 'checks' not in summary:
+        return 'unknown', '⚠️ 摘要里**没有巡检结论**（本轮未执行巡检，或代码版本过旧）——**不能当作巡检正常**。'
+
+    checks = summary.get('checks') or {}
+    if not checks:
+        return 'none', '· 本轮无到期巡检（周频判定），本次没有新的巡检结论。'
+
+    attention = list(summary.get('checks_attention') or [])
+    if not attention:
+        return 'healthy', '✅ 本轮巡检结论正常：' + '、'.join(f'`{name}`' for name in sorted(checks))
+
+    lines = [f'❌ **巡检需要关注：{len(attention)} 项** —— ' + '、'.join(f'`{name}`' for name in attention)]
+    lines.append('')
+    lines.append('逐项结论：')
+    for name in attention:
+        row = checks.get(name) or {}
+        lines.append(f'- `{name}`：{row.get("status", "unknown")}{_brief_stats(row.get("stats"))}')
+    lines.append('')
+    lines.append('> 巡检异常不等于 job 失败：进程照常退 0，所以它只在这张卡上出现（#3083）。')
+    return 'attention', '\n'.join(lines)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description='渲染每日调度 job 级失败明细（#2457）')
     parser.add_argument('--summary', default=str(DEFAULT_SUMMARY_PATH), help='运行摘要 JSON 路径')
@@ -96,6 +165,9 @@ def main(argv: list[str]) -> int:
     path = Path(args.summary)
     summary = load_summary(path)
     detail = render_detail(summary, path)
+    check_state, check_detail = render_checks(summary)
+    # 三态显式落到输出里：`unknown` 不能折叠成 `false`，否则「巡检没跑」会去关掉告警卡。
+    needed = {'attention': 'true', 'healthy': 'false'}.get(check_state, 'unknown')
 
     if args.github_output:
         # GitHub 输出文件：多行值要用 heredoc 语法，不能直接写 key=value
@@ -103,7 +175,13 @@ def main(argv: list[str]) -> int:
             fh.write('job_failure_detail<<EOF\n')
             fh.write(detail)
             fh.write('\nEOF\n')
+            fh.write(f'check_alert_needed={needed}\n')
+            fh.write('check_alert_detail<<EOF\n')
+            fh.write(check_detail)
+            fh.write('\nEOF\n')
     print(detail)
+    print()
+    print(check_detail)
 
     if args.strict and summary is None:
         return 2
