@@ -9,7 +9,7 @@ type StockPriceRange = ReturnType<typeof useSecurityPriceRange>["priceRange"];
 /**
  * 卖出表单校验规则（#980 从 SellForm 拆出）。
  *
- * - 份额必填，文案随品类变（基金「份额」/ 股票「数量」）；
+ * - 份额必填，校验文案与全站统一标签对齐（成交数量，TRADE_FIELD_LABELS.quantity）；
  * - 价格只在股票生效，走 useSecurityPrice 的区间校验（#948 统一约束）；
  * - 账户/持仓/日期只判必填。
  */
@@ -26,11 +26,9 @@ export function createSellRules(deps: {
     callback: (err?: Error) => void
   ) => {
     if (value === undefined || value === null || value === "") {
-      callback(
-        new Error(
-          deps.getType() === "fund" ? "请输入卖出份额" : "请输入卖出数量"
-        )
-      );
+      // 文案与新标签对齐（TRADE_FIELD_LABELS.quantity = 成交数量）：
+      // 基金份额 / 股票股数的区分由输入框下方的最小单位提示承担，不再分叉
+      callback(new Error("请输入成交数量"));
     } else {
       callback();
     }

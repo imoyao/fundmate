@@ -4,7 +4,7 @@
        股票 / ETF：`simple` 模式，只收一个实收金额 —— 佣金有「免五不免五」、
        各家费率不同，费率模式既算不准也多一层心智负担（与卖出侧对称）。
        状态仍住父层（提交时要换算），区块只负责呈现与透传。 -->
-  <el-form-item label="手续费" prop="fee">
+  <el-form-item :label="TRADE_FIELD_LABELS.fee" prop="fee">
     <div class="flex flex-col gap-2 w-full">
       <!-- 第一行：模式切换（仅基金）+ 数值输入 -->
       <div class="flex items-center gap-3 w-full">
@@ -67,6 +67,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import { TRADE_FIELD_LABELS } from "@/constants";
 import {
   FEE_DISCOUNT_OPTIONS,
   type FeeMode

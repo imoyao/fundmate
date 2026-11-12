@@ -26,7 +26,7 @@
     />
 
     <!-- 交易日期与下单时间 -->
-    <el-form-item label="交易日期" prop="trade_date">
+    <el-form-item :label="TRADE_FIELD_LABELS.tradeDate" prop="trade_date">
       <div class="flex items-center gap-3 w-full">
         <!-- 日期框外层必须自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
              class（曾用 `:class="showIsAfter15 ? 'flex-1' : 'w-full'"`）根本落不到
@@ -137,7 +137,7 @@
     </el-form-item>
 
     <!-- 备注 -->
-    <el-form-item label="备注">
+    <el-form-item :label="TRADE_FIELD_LABELS.notes">
       <el-input
         v-model="form.notes"
         type="textarea"
@@ -156,7 +156,7 @@ import { useFormDirtySnapshot } from "@/composables/useFormDirtySnapshot";
 import type { LedgerItem } from "@/api/ledger";
 import { useSecurityPriceRange } from "@/composables/useSecurityPrice";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
-import { ALLOCATION_OPTIONS } from "@/constants";
+import { ALLOCATION_OPTIONS, TRADE_FIELD_LABELS } from "@/constants";
 import { disabledTradeDate } from "@/utils/date";
 import BuyAccountField from "./components/BuyAccountField.vue";
 import BuyAmountField from "./components/BuyAmountField.vue";

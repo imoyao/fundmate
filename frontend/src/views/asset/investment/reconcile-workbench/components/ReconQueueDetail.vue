@@ -12,6 +12,10 @@
     @update:model-value="onVisibility"
   >
     <template #header>
+      <!-- 关闭入口只有右上角 ×（el-drawer 自带）：此前 header 里还有
+           一个「收起」文字按钮，两个入口描述同一件事，徒增决策负担；
+           × 走 update:modelValue(false) → onVisibility → emit('close')，
+           删掉自定义按钮不损失关闭能力。 -->
       <div
         class="recon-detail__header"
         :class="{ 'recon-detail--dimmed': nestedDialogOpen }"
@@ -23,7 +27,6 @@
             {{ item?.stateReason || "对照上面的记录再决定怎么处理" }}
           </p>
         </div>
-        <el-button size="small" text @click="emit('close')">收起</el-button>
       </div>
     </template>
 
@@ -315,11 +318,9 @@ const detailLoading = computed(() => {
 </script>
 
 <style scoped>
+/* header 现在只剩标题区一个子元素（「收起」按钮已删，关闭走抽屉自带的 ×），
+   原来的 justify-content: space-between 是为托住按钮而设，一并撤掉。 */
 .recon-detail__header {
-  display: flex;
-  gap: var(--space-2);
-  align-items: flex-start;
-  justify-content: space-between;
   width: 100%;
 }
 

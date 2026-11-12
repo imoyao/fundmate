@@ -413,8 +413,12 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-08：第二轮补产品名时把「批量查名 + 差异列表取数口径」写进了视图，
     #   触发本守卫红线。按正解下沉到 `services/reconciliation_query.py`（视图只留
     #   入参解析 + 调服务 + 组响应），实测回写 390/2 → 381/1（只减不增）。
+    # 2026-11-12：`get_ledger_snapshot_consistency` 下沉到 `services/reconciliation_consistency.py`
+    #   （`services/reconciliation_service.py` 已顶 `guard_service_size` 冻结基线，新增 helper 无处可放）。
+    #   视图因此多一行 import；同块内 `dividend_tax_service` 三个名字本是单行可容纳，
+    #   现合并为一行（106 列），净减 3 行 ⇒ 379→378，仍只减不增。
     "backend/app/domains/reconciliation/views.py": {
-        "lines": 381,
+        "lines": 378,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 48,

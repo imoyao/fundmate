@@ -7,7 +7,7 @@
     只给基金，股票卖出永远记不到费用 ⇒ 已实现盈亏虚高、回款多算一笔。
     基金仍保留「查询费率」（按持有天数匹配赎回费率）；股票/ETF 按交割单实收金额手填。
   -->
-  <el-form-item label="卖出费用" prop="fee">
+  <el-form-item :label="TRADE_FIELD_LABELS.fee" prop="fee">
     <div class="flex flex-col gap-2 w-full">
       <div class="flex items-center gap-3 w-full">
         <el-input-number
@@ -40,6 +40,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { TRADE_FIELD_LABELS } from "@/constants";
 
 const props = defineProps<{
   fee: number | undefined;
