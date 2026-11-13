@@ -40,6 +40,7 @@ from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import user_session
+from app.services import dangling_ref_mislink_service as mislink_svc
 from app.services import orphan_coverage_service as coverage_svc
 from app.services.dangling_ref_rebuild_service import (
     preview_rebuild,
@@ -350,6 +351,87 @@ def undo_dangling_rebuild():
     with user_session() as db:
         try:
             data = undo_rebuild(db, family_id, body.get('log_id'))
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── 挂错标的（position_id 指向别的标的的现存持仓）：检出 / 改挂 / 撤销 ──────────
+# 既有的两条修法都够不到它：「回补关联」与「按流水重建持仓」的前置都要求
+# `position_id` 悬空（持仓行不存在），而这里持仓**存在**、只是标的对不上。
+# 业务口径全在 services 层（dangling_ref_mislink_service）。
+
+
+@bp.get('/dangling-refs/mislinked/')
+def list_mislinked_refs():
+    """列出 position_id 指向**别的标的**现存持仓的流水（只读，域 F 新阶段）。
+
+    组的形状与 `/dangling-refs/` 兼容，另有 ``mislinked`` / ``fix_mode`` /
+    ``wrong_positions`` 三个字段说明「这笔现在挂在哪、怎么改」。
+    判据比的是归一后的**证券代码**，不是含交易场所的 ``symbol_norm``——
+    后者会把「同一代码、场内/场外标注不一致」误报成挂错标的。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        return jsonify({'data': mislink_svc.scan_mislinked_refs(db, family_id), 'message': 'ok'})
+
+
+@bp.get('/dangling-refs/mislink-preview/')
+def preview_dangling_mislink():
+    """改挂前预览（**纯只读**）。query: ``transaction_ids=1,2``。
+
+    返回将落到哪条持仓（``target_position``，为空表示会按流水新建一行）、
+    派生份额 / 成本、可否改挂与不可改挂的可执行原因。
+    """
+    ids = _parse_transaction_ids_arg(request.args.get('transaction_ids', ''))
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = mislink_svc.preview_mislink_fix(db, family_id, ids)
+        except ValueError as e:
+            abort(400, description=str(e))
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/mislink/')
+def fix_dangling_mislink():
+    """把一批挂错标的的流水改挂到正确标的（body: ``{ transaction_ids, reason?, operator?, confirm }``）。
+
+    同账本已有同标的持仓行 ⇒ 只改 ``position_id``（份额一字不动）；没有 ⇒ 按这组流水
+    新建一条再挂回（份额/成本由流水派生）。``confirm`` 必须是布尔 ``true``；
+    写 ``dangling_ref_mislink`` 审计日志，可凭 ``log_id`` 撤销。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = mislink_svc.fix_mislink(
+                db,
+                family_id,
+                transaction_ids=body.get('transaction_ids'),
+                reason=body.get('reason'),
+                operator=body.get('operator'),
+                confirm=body.get('confirm', False),
+            )
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/mislink-undo/')
+def undo_dangling_mislink():
+    """撤销一次改挂（body: ``{ log_id: int }``）：流水放回原持仓、本次新建的持仓删掉。
+
+    仅当流水归属与持仓份额/成本都还是改挂时那一份才真正回滚，否则 ``skipped=1``
+    并给 ``skip_reason``；幂等，且每次撤销都留痕。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = mislink_svc.undo_mislink(db, family_id, body.get('log_id'))
         except ValueError as e:
             abort(400, description=str(e))
         db.flush()

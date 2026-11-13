@@ -35,14 +35,21 @@
     </template>
 
     <!-- 域 F 执行区（漏斗，2026-11-13）：按 payload.stage 给唯一主动作 + 删除。
-         删除是域 F 渲染树里唯一的 danger 入口；两个动作都先经各自的确认弹窗。 -->
+         删除是域 F 渲染树里唯一的 danger 入口；两个动作都先经各自的确认弹窗。
+         错挂组不给「删除」：后端的删除端点只认**悬空**流水（position_id 指向已不存在的
+         持仓行），这类流水挂着现存持仓，点了必然 400 —— 不给必然失败的动作。 -->
     <template v-else-if="danglingPayload">
       <p class="recon-item-action__lead">{{ item.summary }}</p>
       <div class="recon-item-action__buttons">
         <el-button type="primary" plain @click="runPrimary">
           {{ item.actionLabel }}
         </el-button>
-        <el-button type="danger" plain @click="openRemediation('delete')">
+        <el-button
+          v-if="!stageIsMislink"
+          type="danger"
+          plain
+          @click="openRemediation('delete')"
+        >
           删除
         </el-button>
       </div>
@@ -57,6 +64,12 @@
         v-model="rebuildVisible"
         :group="stageGroup"
         @rebuilt="emit('refresh', 'dangling')"
+      />
+      <DanglingRefMislinkDialog
+        v-if="stageIsMislink"
+        v-model="mislinkVisible"
+        :group="stageGroup"
+        @fixed="emit('refresh', 'dangling')"
       />
     </template>
 
@@ -103,6 +116,7 @@ import type { DanglingStagePayload, ReconQueueItem } from "../utils/reconQueue";
 import RecordTaxDialog from "./RecordTaxDialog.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
 import DanglingRefRebuildDialog from "./DanglingRefRebuildDialog.vue";
+import DanglingRefMislinkDialog from "./DanglingRefMislinkDialog.vue";
 
 defineOptions({ name: "ReconItemAction" });
 
@@ -177,16 +191,21 @@ const stageGroup = computed(() => danglingPayload.value?.groups[0] ?? null);
 const stageIsRebuild = computed(
   () => danglingPayload.value?.stage === "rebuild"
 );
+/** 挂错标的组：走自己的弹窗（既不是悬空、也不满足重建的前置） */
+const stageIsMislink = computed(
+  () => danglingPayload.value?.stage === "mislink"
+);
 const remediationVisible = ref(false);
 const remediationMode = ref<"enrich" | "delete">("enrich");
 const rebuildVisible = ref(false);
+const mislinkVisible = ref(false);
 
 function openRemediation(mode: "enrich" | "delete"): void {
   remediationMode.value = mode;
   remediationVisible.value = true;
 }
 
-/** 主按钮按阶段分发：reattach 走既有 fix 弹窗、rebuild 走重建、fill 走补全 */
+/** 主按钮按阶段分发：reattach 走既有 fix 弹窗、rebuild 走重建、fill 走补全、mislink 走改挂 */
 function runPrimary(): void {
   const payload = danglingPayload.value;
   if (!payload) return;
@@ -196,6 +215,10 @@ function runPrimary(): void {
   }
   if (payload.stage === "rebuild") {
     rebuildVisible.value = true;
+    return;
+  }
+  if (payload.stage === "mislink") {
+    mislinkVisible.value = true;
     return;
   }
   openRemediation("enrich");

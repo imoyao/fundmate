@@ -32,7 +32,8 @@ export function reconTxnType(type: string | null | undefined): string {
 }
 
 /**
- * 域 F 的 flags 中文（后端 `dangling_ref_service.py:47-49` 全集）。
+ * 域 F 的 flags 中文（后端 `dangling_ref_service.py:47-49` 全集，
+ * 外加「挂错标的」一类的 `dangling_ref_mislink_service._mislink_flags`）。
  * 未知 flag 归「其他异常」，绝不把 `some_new_flag` 直接印给用户。
  */
 const DANGLING_FLAG_LABELS: Record<string, string> = {
@@ -40,7 +41,10 @@ const DANGLING_FLAG_LABELS: Record<string, string> = {
   has_candidate: "已找到可挂回的持仓",
   net_mismatch: "份额与流水不一致",
   cleared_target: "目标持仓已清仓",
-  blocked: "暂时不能自动处理"
+  blocked: "暂时不能自动处理",
+  mislinked: "挂在别的标的的持仓上",
+  no_target: "同标的没有持仓记录",
+  venue_conflict: "同代码有不同场所的持仓"
 };
 
 export function reconFlag(flag: string): string {
