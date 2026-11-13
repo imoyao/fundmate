@@ -321,6 +321,14 @@ test.describe("自选行速览抽屉（#980 拆分回归）", () => {
 
     const drawer = await openQuickView(page, "023887");
 
+    // ── 外壳契约：抽屉必须挂到 body（#3101）──
+    // 留在页面容器里时，点「查看详情」会与路由 fade-transform 抢帧：父级过渡的
+    // transform 改写 `position: fixed` 遮罩的包含块，抽屉与遮罩跟着整页位移淡出。
+    // 这条断言守的是 `append-to-body` 这一个属性，删掉它只有真机采样才看得出来。
+    expect(
+      await drawer.evaluate(el => el.closest(".main-content") === null)
+    ).toBe(true);
+
     // ── 头部（外壳渲染）：名称 / 代码（带 # 前缀）/ 品类胶囊 ──
     await expect(drawer.locator(".pd-name")).toHaveText("某某混合A");
     await expect(drawer.locator(".pd-meta__code")).toHaveText("#023887");
