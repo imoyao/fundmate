@@ -34,7 +34,29 @@
       :id="anchorId"
       title="类现金"
       info="类现金 = 随时可变现、不承担净值波动的资金。含四部分：持仓内货基、账外孤儿货基/逆回购流水、账户现金。"
-    />
+    >
+      <!-- 操作统一放标题行右侧（全站 #action 惯例）：此前「录入账户现金」夹在
+           指标卡与说明段落之间，看起来像说明文字的行首。窄容器会收缩 #action，
+           故槽内 flex-wrap（SectionHeader 头注释 #2039）。 -->
+      <template #action>
+        <div class="cash-like-actions">
+          <LedgerCashLikeSettle
+            :ledger-id="ledgerId"
+            :rows="breakdown"
+            @saved="emit('saved')"
+          />
+          <el-button
+            v-if="ledgerId"
+            size="small"
+            type="primary"
+            plain
+            @click="cashDialogVisible = true"
+          >
+            {{ accountCash > 0 ? "修改账户现金" : "录入账户现金" }}
+          </el-button>
+        </div>
+      </template>
+    </SectionHeader>
     <CardBlock class="mb-6">
       <!-- 四项并列。合计放最左并 featured：它是这一区块最该被记住的数。
            全为 0 时不画四个 0.00 指标卡（那是噪声），改为一句诚实的空态说明
@@ -74,22 +96,8 @@
         （银行活期、余额等）请在此录入，录完即归「活钱」。
       </p>
 
-      <!-- 账户现金的录入 / 修改入口（G5）：现金类不建持仓、也不进流水，此前页面上
-           没有任何地方能把它录进来，五笔钱的「活钱」因此恒为空态。一账户一条
-           `major_category='cash'` 资产行（设计 §三），不改 ledgers schema。 -->
-      <div v-if="ledgerId" class="cash-like-actions">
-        <el-button
-          size="small"
-          type="primary"
-          plain
-          @click="cashDialogVisible = true"
-        >
-          {{ accountCash > 0 ? "修改账户现金" : "录入账户现金" }}
-        </el-button>
-        <span class="cash-like-actions__hint">
-          录进来即归「活钱」，与持仓内货基、账外流水并列统计
-        </span>
-      </div>
+      <!-- G5：账户现金的录入 / 修改入口已上移到 SectionHeader #action。
+           一账户一条 `major_category='cash'` 资产行（设计 §三），不改 ledgers schema。 -->
 
       <!-- 与「总资产」的关系必须在 UI 上说清楚（卡面验收第 2 条）。
            环形图合计 = 总资产 = 持仓市值，账外类现金不在其中 —— 这是 D59 解耦的
@@ -105,6 +113,10 @@
           另有账外渠道收益
           {{ formatAmount(orphanIncome) }} 元（已计入家庭总资产，
           不重复计本金）。
+        </p>
+        <p class="cash-like-notes__line">
+          账户现金录进来即归「活钱」，与持仓内货基、账外流水并列统计；
+          逆回购到期后点「到期回款」结清，即卖出这笔在途本金。
         </p>
         <p
           v-if="hasOrphan"
@@ -197,6 +209,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import LedgerCashEntryDialog from "./LedgerCashEntryDialog.vue";
+import LedgerCashLikeSettle from "./LedgerCashLikeSettle.vue";
 import { formatAmount } from "@/utils/currency";
 import type { LedgerSummaryData } from "@/composables/ledger/types";
 
@@ -296,20 +309,14 @@ const cashDialogVisible = ref(false);
   margin-top: var(--space-compact);
 }
 
-/* 录入 / 修改账户现金的入口行（G5）：与说明文字同层级的轻量操作区 */
+/* 标题行 #action 槽内的操作组。SectionHeader 在窄容器会收缩该槽（#2039），
+   靠 flex-wrap 折行而不是溢出；这里不再有 margin-top——按钮已不在说明文字流里。 */
 .cash-like-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-top: var(--space-compact);
-
-  &__hint {
-    margin: 0;
-    font-size: var(--text-label);
-    line-height: 1.5;
-    color: var(--text-tertiary-ink);
-  }
+  justify-content: flex-end;
 }
 
 .cash-like-table-wrap {
