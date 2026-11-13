@@ -25,6 +25,7 @@
       detailOpenable ? '查看完整业绩、持仓与历史记录' : '该品类暂无详情页'
     "
     :disclaimer="PRODUCT_DISCLAIMER"
+    :instant-close="instantClose"
     @update:model-value="emit('update:modelValue', $event)"
     @detail="goDetail"
   >
@@ -95,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { WatchlistItem } from "@/api/watchlist";
@@ -145,6 +146,21 @@ const detailOpenable = computed(() =>
   isDetailAssetType(props.item?.asset_type)
 );
 
+/**
+ * 本次关闭不播收起动画（跳详情页专用）。
+ *
+ * 关闭动画 0.3s 与路由 fade-transform 0.5s 会交叠成两段抢帧的动画（见
+ * `_pd.scss` 末尾）；跳转这一路把收起动画按 0 处理，视觉上只剩一次页面切换。
+ * 每次重新打开都复位，否则上一次跳转会把后续 ESC / 点遮罩的正常关闭也变成瞬时。
+ */
+const instantClose = ref(false);
+watch(
+  () => props.modelValue,
+  visible => {
+    if (visible) instantClose.value = false;
+  }
+);
+
 async function goDetail() {
   const it = props.item;
   if (!it) return;
@@ -161,6 +177,7 @@ async function goDetail() {
       return;
     }
     // 先关抽屉再跳：否则抽屉会盖住刚打开的详情页
+    instantClose.value = true;
     emit("update:modelValue", false);
     await router.push(path);
   } catch {

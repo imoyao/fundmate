@@ -13,14 +13,22 @@
   壳的行为约定：
   - 抽屉宽度唯一来源是 `--drawer-width`（style/colors.css），组件内不写字面量；
   - 打开时焦点进 `.pd-head`（`tabindex="-1"`），关闭时归还给打开前的元素
-    （元素已被销毁则不归还，避免把焦点丢到 body）。
+    （元素已被销毁则不归还，避免把焦点丢到 body）；
+  - `append-to-body`：抽屉与遮罩挂到 body。EP 的 `append-to-body` 默认 false，
+    不写就渲染在调用页面的 DOM 里（实测链：`.el-drawer > .el-overlay >
+    .watchlist-page.main-content > .el-scrollbar__view`）。页面一旦处于路由过渡
+    （`.fade-transform-leave-to` 的 `transform`/`opacity`），`position: fixed` 的遮罩
+    与抽屉会被父级 transform 改写包含块、跟着整页位移并一起淡出，观感像 bug；
+  - `instantClose`：跳详情页前的一次关闭不播收起动画，理由见 `_pd.scss` 末尾。
 -->
 <template>
   <el-drawer
     :model-value="modelValue"
     :size="'var(--drawer-width)'"
     direction="rtl"
+    append-to-body
     destroy-on-close
+    :modal-class="instantClose ? 'pd-instant-close' : ''"
     class="product-drawer"
     data-testid="product-drawer"
     @update:model-value="emit('update:modelValue', $event)"
@@ -117,6 +125,8 @@ const props = withDefaults(
     detailLoading?: boolean;
     /** 免责声明（取 `ProductDrawer/disclaimer.ts` 的常量） */
     disclaimer?: string | null;
+    /** 本次关闭**不播**收起动画（跳详情页专用，见 `_pd.scss` 末尾） */
+    instantClose?: boolean;
   }>(),
   {
     name: null,
@@ -127,7 +137,8 @@ const props = withDefaults(
     detailAvailable: true,
     detailHint: "",
     detailLoading: false,
-    disclaimer: null
+    disclaimer: null,
+    instantClose: false
   }
 );
 

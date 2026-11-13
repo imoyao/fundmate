@@ -11,6 +11,7 @@
     "
     :detail-loading="detailLoading"
     :disclaimer="PRODUCT_DISCLAIMER"
+    :instant-close="instantClose"
     @update:model-value="emit('update:visible', $event)"
     @detail="goDetail"
   >
@@ -126,6 +127,15 @@ const detailAvailable = computed(() =>
   isDetailAssetType(props.positionData?.asset_type)
 );
 
+/** 跳详情页那一次关闭不播收起动画（否则与路由 fade-transform 交叠，见 `_pd.scss`） */
+const instantClose = ref(false);
+watch(
+  () => props.visible,
+  visible => {
+    if (visible) instantClose.value = false;
+  }
+);
+
 /**
  * 跳详情页（#1965）。
  *
@@ -147,6 +157,7 @@ async function goDetail() {
       return;
     }
     // 先关抽屉再跳（沿用 TransactionDrawer 的既有范式）
+    instantClose.value = true;
     emit("update:visible", false);
     await router.push(path);
   } catch {
