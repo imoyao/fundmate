@@ -107,3 +107,24 @@ export function bucketByStage(groups: DanglingRefGroup[]): Record<DanglingStage,
 - 不改后端接口、不加写路径、不动 `danglingNextStep` 的语义；
 - 不动 A/B/C/D/E/G 各域的入口形态（它们各自只有一套动作面）；
 - 不把「删除流水」挪去流水页（owner 已定：留在执行区）。
+
+## 6. 追加：第 4 个阶段 `mislink`（同日，§1~§5 之后）
+
+§1 把域 F 收成「三条修法覆盖全部脏数据」时漏了一类：流水的 `position_id` 指向一条**别的标的**的现存持仓。它不属于悬空（持仓存在）、不属于缺代码、也不能重建（同标的持仓已有），三条既有修法全都够不到，而对应 orphan 差异会永久 pending。
+
+漏斗因此扩成四阶段，顺序 `fill → reattach → mislink → rebuild`：
+
+| 阶段 | 判据 | 主动作 | 次动作 |
+|---|---|---|---|
+| `mislink` | 后端组标 `mislinked`：`position_id` 指向的持仓，其归一证券代码 ≠ 流水代码 | 改挂到正确标的 | **无**（删除端点只认悬空流水，点了必 400） |
+
+改动落点（与 §3 并列，不覆盖）：
+
+- 判据层：`DanglingStage` 增加 `"mislink"`；`groupStage` 首行 `if (group.mislinked) return "mislink"`（后端已判定，前端不重算）；
+- 队列：`mislink` 阶段 `state = "judge"`（要人判断改成哪种），不显示批次事实，不进批量；
+- 后端：新增写路径 `POST /dangling-refs/mislink/` + 预览/撤销/列表，服务 `services/dangling_ref_mislink_service.py`。两条实现口径：同账本同身份已有持仓 ⇒ 只改指针（`remount`），否则按流水重建一行（`rebuild`）；份额一律不自动重算。
+
+**§5 第一条因此失效**：本节起域 F 有第四个写路径。它的写入仍走「预览 → `confirm is True` → `adjustment_logs` 可撤销」同一口径。
+
+同类相邻缺陷（同 PR 内修，属对账服务自身）：`run_reconciliation` 的 `seen_keys` 过去只按 `(ledger_id, symbol)` 登记，而差异行身份是 `(ledger_id, symbol, discrepancy_type)`。补建持仓把「孤儿」变成「数量差异」后，旧 orphan 行会永久留在 pending 且再无任何入口能修——正是改挂/重建动作的必然副作用。已改为按三元组登记。
+
