@@ -98,8 +98,11 @@ describe("补全弹窗三步准入的展示态", () => {
     });
     expect(state.current).toBe(1);
     expect(state.blocked).toBe(true);
-    expect(state.guide).toContain("都已填写");
+    expect(state.guide).toContain("都已齐全");
     expect(state.guide).toContain("没有可补的字段");
+    // 引导语必须指向界面上真有的那个按钮（2026-11-13 死胡同：旧文案让人去「补建持仓」，
+    // 而唯一的入口是「按流水重建持仓」）
+    expect(state.guide).toContain("按流水重建持仓");
     expect(state.guide).not.toContain("请至少");
   });
 });

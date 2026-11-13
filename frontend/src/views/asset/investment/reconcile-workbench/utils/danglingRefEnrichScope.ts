@@ -67,6 +67,39 @@ export function inspectGroupNeeds(txns: readonly EnrichTxnLike[]): GroupNeeds {
   };
 }
 
+/**
+ * 这组流水的「下一步真正该做什么」。
+ *
+ * 为什么需要它：域 F 的不可回补组有两种完全不同的成因——
+ * ① **缺标的代码**：能靠补字段解决；② **代码齐了、但没有同标的的现存持仓行**：
+ * 补字段一点用都没有，真正要做的是「按流水重建持仓」。
+ *
+ * 此前界面把两种都翻成「补全信息」，于是 ② 的用户被送进一个「没有可补的字段」的
+ * 死弹窗，弹窗让他「去补建持仓」，而唯一的入口在另一个卡片上（2026-11-13 owner 截图：
+ * 两边来回踢皮球）。判据在这里收成一条，列表动作 / 分组卡 / 弹窗都读同一个结论。
+ *
+ * 四种状态，每一种在界面上都必须有出口：
+ * - `reattach`：已有可挂回的现存持仓 → 回补关联
+ * - `fill`：缺标的代码 → 补全信息
+ * - `rebuild`：代码齐全但没有持仓行 → 按流水重建持仓
+ * - `empty`：空组（后端不该给出，防御用）→ 不给动作
+ */
+export type DanglingNextStep = "reattach" | "fill" | "rebuild" | "empty";
+
+export interface NextStepInput {
+  /** 组内已有的标的代码（`inspectGroupNeeds().symbol`） */
+  symbol: string | null;
+  /** 后端判据：同账本存在同标的的现存持仓行（`DanglingRefGroup.fixable`） */
+  fixable: boolean;
+  txnCount: number;
+}
+
+export function danglingNextStep(input: NextStepInput): DanglingNextStep {
+  if (input.txnCount === 0) return "empty";
+  if (input.fixable) return "reattach";
+  return isBlank(input.symbol) ? "fill" : "rebuild";
+}
+
 /** 预览 changes 一行的最小形状（对应 `DanglingRefEnrichPreview.changes`） */
 export interface EnrichChangeLike {
   symbol_before?: string | null;

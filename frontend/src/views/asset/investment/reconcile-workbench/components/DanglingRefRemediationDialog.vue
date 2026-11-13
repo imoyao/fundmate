@@ -41,8 +41,11 @@
           <p v-if="mode === 'enrich'" class="dr-intro__sub">
             本组共 {{ txnCount }} 条交易。
           </p>
-          <p v-if="mode === 'enrich'" class="dr-intro__sub dr-intro__sub--note">
-            补全后系统会重新核查；若仍缺持仓，还需补建持仓或补录流水。
+          <p
+            v-if="mode === 'enrich' && needsFill"
+            class="dr-intro__sub dr-intro__sub--note"
+          >
+            补全后系统会重新核查；若仍缺持仓，可按流水重建持仓。
           </p>
           <p v-else class="dr-intro__sub">删除会写入日志，可凭日志编号撤销。</p>
         </div>
@@ -54,6 +57,8 @@
             表单只渲染「真正要补的字段」：分组键是 (ledger_id, symbol)，组内代码必然
             相同 ⇒ 对有代码的组，代码输入框永远补 0 条（owner 2026-11-12 截图里那个
             `SZ128021 → SZ128021`）。齐了的那一项改成只读一行，让人看见这组的键是什么。
+            可补 0 条时（`v-else`）不给表单：那不是「用户没填」，而是下一步不在这张表单里，
+            所以那一支直接给出真正能做完这件事的按钮（2026-11-13）。
           -->
           <el-form v-if="needsFill" label-width="90px" size="default">
             <el-form-item v-if="needs.needSymbol > 0" label="标的代码">
@@ -88,8 +93,10 @@
               />
             </el-form-item>
           </el-form>
-          <!-- 可补 0 条：如实说明，并指向真正能处理它的两条路径 -->
-          <p v-else class="dr-static-warn">{{ noFieldNote }}</p>
+          <div v-else class="dr-next">
+            <p class="dr-next__main">{{ noFieldNote }}</p>
+            <p class="dr-next__hint">{{ nextStepHint }}</p>
+          </div>
           <template v-if="needsFill">
             <DanglingRefEnrichSteps
               :state="stepState"
@@ -133,9 +140,17 @@
       <el-button @click="close(false)">{{
         result ? "关闭" : "取消"
       }}</el-button>
+      <!-- 没有可补字段时，主按钮换成真正能做完这件事的那一步：重建持仓 -->
+      <el-button
+        v-if="!result && rebuildActionVisible"
+        type="primary"
+        @click="emit('requestRebuild')"
+      >
+        按流水重建持仓
+      </el-button>
       <!-- 缺什么只在悬浮时说明，不再一打开就把报错挂在左下角 -->
       <el-tooltip
-        v-if="!result"
+        v-if="!result && !rebuildActionVisible"
         :content="footerHint"
         :disabled="canSubmit"
         placement="top"
@@ -160,6 +175,7 @@ import { computed, toRef } from "vue";
 import type { DanglingRefGroup } from "@/api/reconciliation";
 import { useNestedDialog } from "../composables/useNestedDialog";
 import { useDanglingRefRemediation } from "../composables/useDanglingRefRemediation";
+import { danglingNextStep } from "../utils/danglingRefEnrichScope";
 import { reconGroupTitle } from "../utils/reconDisplay";
 import DanglingRefEnrichSteps from "./DanglingRefEnrichSteps.vue";
 import DanglingRefRemediationPreview from "./DanglingRefRemediationPreview.vue";
@@ -173,6 +189,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
   submitted: [];
+  /** 没有可补字段时，把「按流水重建持仓」这一步交回宿主（弹窗本身不重复实现写路径） */
+  requestRebuild: [];
 }>();
 
 const {
@@ -241,7 +259,30 @@ const dateStatic = computed(
 );
 const noFieldNote = computed(
   () =>
-    `这组 ${txnCount.value} 条流水的标的代码与交易日期都已填写，没有可补的字段。要继续处理，需补建持仓或补录交易流水。`
+    `这组 ${txnCount.value} 条流水的标的代码与交易日期都已齐全，没有可补的字段。`
+);
+
+/**
+ * 「下一步真正该做什么」——与队列卡、分组卡读同一个判据（`danglingNextStep`）。
+ * 只有 `rebuild` 这一种能在本弹窗里给出按钮；`reattach` 要回列表，`fill` 本来就走表单。
+ */
+const nextStep = computed(() =>
+  danglingNextStep({
+    symbol: needs.value.symbol,
+    fixable: !!props.group?.fixable,
+    txnCount: txnCount.value
+  })
+);
+
+const rebuildActionVisible = computed(
+  () =>
+    props.mode === "enrich" && !needsFill.value && nextStep.value === "rebuild"
+);
+
+const nextStepHint = computed(() =>
+  nextStep.value === "rebuild"
+    ? "按流水重建持仓：新建一行持仓并把这几条流水挂回去，写错了可凭日志编号撤销。"
+    : "这组已有可挂回的现存持仓，回到列表点「回补关联」即可。"
 );
 
 function close(value: boolean): void {
@@ -288,6 +329,29 @@ function close(value: boolean): void {
   background: var(--bg-soft);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
+}
+
+/* 「可补 0 条」是常态，不是报错：中性色 + 一句「下一步做什么」，不用 danger 红去吓人 */
+.dr-next {
+  padding: 8px 10px;
+  margin: 8px 0;
+  background: var(--bg-soft);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.dr-next__main {
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.dr-next__hint {
+  margin: 4px 0 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
 }
 
 .dr-confirm {

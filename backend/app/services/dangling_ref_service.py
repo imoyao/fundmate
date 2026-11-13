@@ -318,11 +318,11 @@ def _group_candidates(ledger_positions: list[Position], symbol: str) -> tuple[li
 
 
 def _group_block_reason(symbol: str, cands: list[Position]) -> tuple[bool, str | None]:
-    """可否安全回补的单一真相源：前端只显示判据结果，不自行推导（避免两处口径漂移）。"""
+    """可否安全回补的单一真相源（前端只显示结果，不自行推导）；文案须指向界面上真有的按钮。"""
     if not symbol:
         return False, '这批流水缺标的代码，无法判定归属；需先补全 symbol 才能回补'
     if not cands:
-        return False, '同账本没有同标的的现存持仓行，无法安全挂回；需先补建持仓或补录流水'
+        return False, '同账本没有同标的的现存持仓行，无法挂回；可按流水重建持仓'
     return True, None
 
 

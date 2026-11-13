@@ -16,10 +16,22 @@ export interface TransactionEditForm {
   price: number | null;
   amount: number | null;
   fee: number | null;
+  /**
+   * **日期框里显示的那一天**，不一定是流水的 `trade_date`。
+   *
+   * 库里 `trade_date` 可以为空（全库 2673 条里 1483 条如此，`confirm_date` 都有值）。
+   * 以前这里只取 `trade_date`，日期框就是空的：必填项空着，用户哪怕只想改备注，
+   * 也得先编一个日期才能保存——等于把「确认日」伪造成「成交日」，基金 T+1 会错一天。
+   * 现在回落到 `confirm_date`（见 `formSnapshotOf`），写回时由
+   * `buildUpdatePayload` 的 `writeTradeDate` 决定要不要真的落库。
+   */
   trade_date: string | null;
   confirm_date: string | null;
   notes: string;
 }
+
+/** 日期框里的值是从哪来的：流水自己的成交日 / 回落的确认日 / 两个都没有 */
+export type TradeDateOrigin = "trade" | "confirm" | "none";
 
 /** 基金类（含货币基金）按份额（小数）处理；其余按股 / 张（整数） */
 export interface TxnRecordLike {
@@ -140,7 +152,26 @@ export function recalcAmount(
   return Math.round(Number(quantity) * Number(price) * 100) / 100;
 }
 
-/** 打开弹窗时的表单快照（与交易记录逐字段对齐） */
+/**
+ * 日期框取值的来源。判据只有一条：**流水自己有没有成交日**。
+ *
+ * `trade_date` 与 `confirm_date` 在库里 2673 条中只有 20 条不相等（基金 T+1），
+ * 所以「有 trade_date 就用它」永远是首选；回落只发生在 `trade_date` 为空时。
+ */
+export function tradeDateOriginOf<T extends object>(raw: T): TradeDateOrigin {
+  const t = asTxn(raw || {});
+  if (t.trade_date) return "trade";
+  if (t.confirm_date) return "confirm";
+  return "none";
+}
+
+/**
+ * 打开弹窗时的表单快照（与交易记录逐字段对齐）。
+ *
+ * 日期框回落 `confirm_date`：`trade_date` 为空时若给 null，必填校验立刻报错，
+ * 用户看到的是一张「明明有日期、却说你没填」的表单（owner 2026-11-13 截图）。
+ * 回落只影响**显示**，写不写回由 `buildUpdatePayload` 的 `writeTradeDate` 决定。
+ */
 export function formSnapshotOf<T extends object>(raw: T): TransactionEditForm {
   const t = asTxn(raw || {});
   return {
@@ -148,7 +179,7 @@ export function formSnapshotOf<T extends object>(raw: T): TransactionEditForm {
     price: t.price ?? null,
     amount: t.amount ?? null,
     fee: t.fee ?? null,
-    trade_date: t.trade_date || null,
+    trade_date: t.trade_date || t.confirm_date || null,
     confirm_date: t.confirm_date || null,
     notes: t.notes ?? ""
   };
@@ -167,16 +198,25 @@ export function blankForm(): TransactionEditForm {
   };
 }
 
-/** 保存请求体：只提交可编辑的 7 个字段，空日期转 null */
+/**
+ * 保存请求体：只提交可编辑的 7 个字段，空日期转 null。
+ *
+ * `writeTradeDate: false` 用于「日期框里显示的是回落的确认日、用户没改过」这一态：
+ * 后端对 `trade_date: null` 是 **no-op**（`ledger_write_service.update_ledger_transaction`
+ * 只在非 null 时赋值），所以传 null 等于「保持原样」；反过来，把回落的确认日当真写进
+ * `trade_date`，就是把确认日伪造成成交日（基金 T+1 会整体错一天），而且此后无法区分。
+ */
 export function buildUpdatePayload(
-  form: TransactionEditForm
+  form: TransactionEditForm,
+  options: { writeTradeDate?: boolean } = {}
 ): LedgerTransactionUpdateInput {
   return {
     quantity: form.quantity,
     price: form.price,
     amount: form.amount,
     fee: form.fee,
-    trade_date: form.trade_date || null,
+    trade_date:
+      options.writeTradeDate === false ? null : form.trade_date || null,
     confirm_date: form.confirm_date || null,
     notes: form.notes
   } as LedgerTransactionUpdateInput;

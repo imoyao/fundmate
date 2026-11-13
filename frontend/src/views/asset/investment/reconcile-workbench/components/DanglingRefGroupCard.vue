@@ -27,7 +27,7 @@
           >
             重建持仓
           </el-button>
-          <el-button size="small" @click="emit('enrich', group)">
+          <el-button v-if="canFill" size="small" @click="emit('enrich', group)">
             补全信息
           </el-button>
           <el-button
@@ -86,6 +86,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { DanglingRefGroup } from "@/api/reconciliation";
+import {
+  danglingNextStep,
+  inspectGroupNeeds
+} from "../utils/danglingRefEnrichScope";
 import { danglingDetailLine } from "../utils/reconQueue";
 import {
   reconBatchLabel,
@@ -110,8 +114,24 @@ const emit = defineEmits<{
 }>();
 
 const flags = computed(() => props.group.flags.map(reconFlag));
-/** 缺代码的组连建哪个持仓都不知道，不显示重建入口 */
-const canRebuild = computed(() => !!props.group.symbol.trim());
+/**
+ * 两个入口读**同一条判据**（`danglingNextStep`），与队列卡 / 补全弹窗一致：
+ * - `rebuild`：代码齐全、只缺持仓行 ⇒ 只给「重建持仓」（点「补全信息」进去是一张
+ *   没有可补字段的死弹窗，而它唯一能做的事就在旁边这个按钮上，2026-11-13）；
+ * - `fill`：缺标的代码 ⇒ 只给「补全信息」（缺代码时连建哪个持仓都不知道）。
+ *
+ * 两者互斥：此前它们各自算一次条件，同一组会同时出现两个按钮，用户选哪个都可能
+ * 走回死胡同。判据收在纯函数里，单测直接钉住（SFC 里再写一份就又会漂）。
+ */
+const step = computed(() =>
+  danglingNextStep({
+    symbol: inspectGroupNeeds(props.group.transactions).symbol,
+    fixable: props.group.fixable,
+    txnCount: props.group.txn_count
+  })
+);
+const canRebuild = computed(() => step.value === "rebuild");
+const canFill = computed(() => step.value === "fill");
 const detailLines = computed(() =>
   props.group.transactions.map(danglingDetailLine)
 );

@@ -42,6 +42,8 @@ import {
   recalcAmount,
   recalcShares,
   resolveAssetType,
+  tradeDateOriginOf,
+  type TradeDateOrigin,
   type TransactionEditForm
 } from "./transactionEditModel";
 
@@ -63,6 +65,11 @@ export function useTransactionEditForm(opts: {
 
   // 初始化标记：防止 initForm 赋值时触发 watch 覆盖原始金额
   const isInitializing = ref(false);
+
+  // 日期框里的值从哪来（流水自己的成交日 / 回落的确认日）+ 打开时的原值。
+  // 两者一起决定「保存时要不要真的写 trade_date」，见 handleSave。
+  const dateOrigin = ref<TradeDateOrigin>("none");
+  const initialTradeDate = ref<string | null>(null);
 
   // ── 手动份额优先（净值回填的对手语义）──
   // 用户在弹窗里手改过份额后，amount/price/fee 的反算不得再覆盖份额；
@@ -106,6 +113,25 @@ export function useTransactionEditForm(opts: {
   // 是否手工编辑记录（未导入，import_hash 为空）：弹窗内展示对账提示，无需保存后弹窗
   const isManual = computed(() => opts.transaction()?.import_hash == null);
 
+  /** 用户是否动过日期框（与打开时的值比，改回原值也算没动） */
+  const dateEdited = computed(
+    () => form.value.trade_date !== initialTradeDate.value
+  );
+
+  /**
+   * 日期框下面那行说明。只在「日期是回落的确认日」时出现，回答两个问题：
+   * 这个日期是哪来的、改了会怎样。没有它，用户会以为流水本来就有成交日，
+   * 于是「顺手改一下日期」就把确认日写成了成交日（基金 T+1 会整体错一天）。
+   *
+   * 文案走 computed 而不是模板内联插值：长句内联会被 prettier 拆成多段。
+   */
+  const dateSourceHint = computed(() => {
+    if (dateOrigin.value !== "confirm") return "";
+    if (dateEdited.value)
+      return `已改为成交日 ${form.value.trade_date ?? "（空）"}，保存后写入这条流水。`;
+    return `这条流水没有单独记录成交日，此处按确认日 ${initialTradeDate.value} 显示；不改动则保持原样。`;
+  });
+
   const quantityPrecision = computed(
     () => quantityMeta(assetType.value).precision
   );
@@ -146,6 +172,9 @@ export function useTransactionEditForm(opts: {
     isAfter15.value = false;
     sharesTouched.value = false;
     form.value = formSnapshotOf(t);
+    // 日期框的取值来源与打开时的原值：保存时据此判断「要不要把日期写成成交日」
+    dateOrigin.value = tradeDateOriginOf(t);
+    initialTradeDate.value = form.value.trade_date;
     // 展示已有确认日期（若交易记录里有）
     confirmDateDisplay.value = t.confirm_date || "";
     // 未保存离开保护（#1835）的基线：弹窗打开时的表单快照
@@ -166,6 +195,8 @@ export function useTransactionEditForm(opts: {
    */
   function resetAfterClose() {
     form.value = blankForm();
+    dateOrigin.value = "none";
+    initialTradeDate.value = null;
     confirmDateDisplay.value = "";
     markClean();
   }
@@ -213,9 +244,15 @@ export function useTransactionEditForm(opts: {
 
   // 核心联动：交易日期变化 → 自动计算确认日期 → 自动拉取净值
   // 统一走 useFundTradeDate composable，与 BuyForm / SellForm 共用同一套逻辑
+  //
+  // `isInitializing` 这一道是必须的：`initForm` 把 `form.value` 整体换掉，日期 getter
+  // 因此「变化」一次。少了它，**光是打开弹窗**就会按 trade_date 重算确认日、并把基金
+  // 价格覆写成当日净值——用户什么都没改，保存后数据已经变了（2026-11-13 修日期回显时
+  // 一并收口；否则「日期回落到确认日」会把确认日再往后推一天）。
   watch(
     [() => form.value.trade_date, () => isAfter15.value],
     async ([newDate]) => {
+      if (isInitializing.value) return;
       if (!newDate) {
         confirmDateDisplay.value = "";
         return;
@@ -257,7 +294,11 @@ export function useTransactionEditForm(opts: {
     }
     saving.value = true;
     try {
-      const payload = buildUpdatePayload(form.value);
+      // 日期框回落的确认日 + 用户没动过 ⇒ 不写 trade_date（后端对 null 是 no-op）。
+      // 写了就等于把确认日伪造成成交日，基金 T+1 会整体错一天，且事后无法区分。
+      const payload = buildUpdatePayload(form.value, {
+        writeTradeDate: !(dateOrigin.value === "confirm" && !dateEdited.value)
+      });
       const res = await updateLedgerTransaction(t.ledger_id, t.id, payload);
       const data = res.data;
       // 保存成功后重置脏基线：否则紧接着的关闭会弹「放弃修改？」，问得毫无意义（#1835）
@@ -282,6 +323,7 @@ export function useTransactionEditForm(opts: {
     navLoading,
     isManual,
     isFund,
+    dateSourceHint,
     quantityPrecision,
     quantityStep,
     disabledDate,

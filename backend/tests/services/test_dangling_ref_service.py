@@ -282,7 +282,7 @@ def test_fixable_requires_same_symbol_live_position(db, ledger):
     g = data['groups'][0]
     assert g['fixable'] is False and g['live_position'] is None
     assert g['candidates'] == []
-    assert '补建持仓' in g['block_reason']
+    assert '重建持仓' in g['block_reason']
 
 
 def test_cleared_target_flag_only_for_same_symbol(db, ledger):

@@ -663,10 +663,9 @@ class LedgerService:
         # 批量导入又按「导入批次」排，与详情页顺序相反（#2171 / #2712）。
         txn_list = order_by_effective_day(query).offset((page - 1) * per_page).limit(per_page).all()
 
-        # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」
-        pos_names, _ledger_names = resolve_transaction_display_names(db, txn_list)
-        # #2712：asset_type 快照为 NULL 时按持仓/基金名录回解析——前端价格列靠它决定
-        # 位数（基金 4 位 / 其余 2 位），缺失会把净值 1.2200 显示成 1.22。
+        # #2372：position_name / account_name 快照漏写时按 position_id / ledger_id 回解析
+        pos_names, ledger_names = resolve_transaction_display_names(db, txn_list)
+        # #2712：asset_type 快照为 NULL 时按持仓/基金名录回解析——价格列靠它定小数位（1.22 还是 1.2200）
         asset_types = resolve_transaction_asset_types(db, txn_list)
 
         items = []
@@ -676,8 +675,7 @@ class LedgerService:
                     'id': t.id,
                     # 归属随行下发：漏了它，对账抽屉会把按账本查出的流水误判成未归属。
                     'ledger_id': t.ledger_id,
-                    # 日期一律 `YYYY-MM-DD`（#2712）：trade_date 是 DateTime，isoformat 会带
-                    # `T00:00:00`，与 /api/transactions 的 strftime 口径分裂
+                    # 日期一律 `YYYY-MM-DD`（#2712）：trade_date 是 DateTime，isoformat 会带 `T00:00:00`
                     'confirm_date': iso_date_only(t.confirm_date),
                     'trade_date': iso_date_only(t.trade_date),
                     'txn_type': t.txn_type,
@@ -688,6 +686,8 @@ class LedgerService:
                         txn_type=t.txn_type,
                     ),
                     'symbol': t.symbol or '',
+                    # 账户名随行下发：漏了它，前端在「有 ledger_id、快照为空」时兜「未知账户」
+                    'account_name': t.account_name or ledger_names.get(t.id) or '未知账户',
                     'price': Money.price_units_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),
                     'amount': Money.cents_to_yuan(t.amount),

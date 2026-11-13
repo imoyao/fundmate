@@ -38,7 +38,21 @@
     <template v-else-if="danglingIncomplete">
       <p class="recon-item-action__lead">{{ item.summary }}</p>
       <div class="recon-item-action__buttons">
-        <el-button type="primary" plain @click="remediationVisible = true">
+        <!-- 动作名与「点进去真的能做完」一致：代码齐、只缺持仓行时直接给重建持仓 -->
+        <el-button
+          v-if="danglingStep === 'rebuild'"
+          type="primary"
+          plain
+          @click="rebuildVisible = true"
+        >
+          重建持仓
+        </el-button>
+        <el-button
+          v-else-if="danglingStep === 'fill'"
+          type="primary"
+          plain
+          @click="remediationVisible = true"
+        >
           补全信息
         </el-button>
       </div>
@@ -47,6 +61,12 @@
         :group="danglingRow"
         mode="enrich"
         @submitted="emit('refresh', 'dangling')"
+        @request-rebuild="onRequestRebuild"
+      />
+      <DanglingRefRebuildDialog
+        v-model="rebuildVisible"
+        :group="danglingRow"
+        @rebuilt="emit('refresh', 'dangling')"
       />
     </template>
 
@@ -92,6 +112,8 @@ import type { ReconciliationItem } from "@/api/eaccount";
 import type { ReconQueueItem } from "../utils/reconQueue";
 import RecordTaxDialog from "./RecordTaxDialog.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
+import DanglingRefRebuildDialog from "./DanglingRefRebuildDialog.vue";
+import { danglingNextStep } from "../utils/danglingRefEnrichScope";
 
 defineOptions({ name: "ReconItemAction" });
 
@@ -163,6 +185,26 @@ const danglingRow = computed(
   () => (props.item.payload as { row: DanglingRefGroup }).row
 );
 const remediationVisible = ref(false);
+const rebuildVisible = ref(false);
+
+/**
+ * 与队列卡 / 分组卡读同一条判据（`danglingNextStep`）：代码齐全但没有同标的持仓行时，
+ * 真正的下一步是「按流水重建持仓」，不是「补全信息」——后者点进去没有可补的字段，
+ * 只能把用户再指回这张卡（2026-11-13 owner 截图里的来回踢皮球）。
+ */
+const danglingStep = computed(() =>
+  danglingNextStep({
+    symbol: danglingRow.value.symbol,
+    fixable: danglingRow.value.fixable,
+    txnCount: danglingRow.value.txn_count
+  })
+);
+
+/** 补全弹窗里点「按流水重建持仓」：收起补全，再开重建（两层弹窗不叠） */
+function onRequestRebuild(): void {
+  remediationVisible.value = false;
+  rebuildVisible.value = true;
+}
 
 /** 除税 / 缺信息两类自包含弹窗外，其余域给出这一条应做的动作；
  *  用 emit 复用 index.vue 已收口的弹窗与端点，不新增写路径。 */
