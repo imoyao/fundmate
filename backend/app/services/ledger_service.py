@@ -663,8 +663,9 @@ class LedgerService:
         # 批量导入又按「导入批次」排，与详情页顺序相反（#2171 / #2712）。
         txn_list = order_by_effective_day(query).offset((page - 1) * per_page).limit(per_page).all()
 
-        # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」
-        pos_names, _ledger_names = resolve_transaction_display_names(db, txn_list)
+        # #2372：position_name / account_name 快照漏写时按 position_id / ledger_id 回解析，
+        # 不直接显示「未知资产 / 未知账户」。
+        pos_names, ledger_names = resolve_transaction_display_names(db, txn_list)
         # #2712：asset_type 快照为 NULL 时按持仓/基金名录回解析——前端价格列靠它决定
         # 位数（基金 4 位 / 其余 2 位），缺失会把净值 1.2200 显示成 1.22。
         asset_types = resolve_transaction_asset_types(db, txn_list)
@@ -688,6 +689,11 @@ class LedgerService:
                         txn_type=t.txn_type,
                     ),
                     'symbol': t.symbol or '',
+                    # 账户名随行下发（2026-11-13）：本端点此前漏了这个键，前端
+                    # `TransactionAccountCell` 在「有 ledger_id 但快照为空」时兜「未知账户」，
+                    # 于是账户 ID 明明确定、表格却显示「未知账户」。口径与
+                    # `transaction_service.transaction_row` 完全一致，不另立一套。
+                    'account_name': t.account_name or ledger_names.get(t.id) or '未知账户',
                     'price': Money.price_units_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),
                     'amount': Money.cents_to_yuan(t.amount),

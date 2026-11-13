@@ -128,6 +128,13 @@
           <TradeSlotSwitch v-if="isFund" v-model="isAfter15" />
         </div>
         <div
+          v-if="dateSourceHint"
+          class="text-xs mt-1"
+          style="color: var(--text-tertiary-ink)"
+        >
+          {{ dateSourceHint }}
+        </div>
+        <div
           v-if="isFund"
           class="text-xs mt-1"
           style="color: var(--text-tertiary-ink)"
@@ -190,6 +197,7 @@ const {
   navLoading,
   isManual,
   isFund,
+  dateSourceHint,
   quantityPrecision,
   quantityStep,
   disabledDate,

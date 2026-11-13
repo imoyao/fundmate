@@ -559,6 +559,74 @@ describe("队列里不再出现「只有代码」「裸 cash」「孤儿」", ()
   });
 });
 
+/**
+ * 2026-11-13：不可回补组有两种成因，动作名必须分开。
+ *
+ * 代码齐全、只缺持仓行的组，点「补全信息」进去是一张「没有可补的字段」的死弹窗，
+ * 而弹窗又把用户指回列表去「补建持仓」——两边来回踢皮球（owner 截图）。
+ * 判据收在 `danglingNextStep`，队列卡的动作名必须与它一致。
+ */
+describe("域 F 的下一步动作与判据同源", () => {
+  function danglingSource(group: DanglingRefGroup): ReconQueueSource {
+    return {
+      ...emptySource(),
+      dangling: {
+        total: group.txn_count,
+        group_count: 1,
+        batch_count: 1,
+        null_symbol: 0,
+        null_trade_date: 0,
+        fixable_count: group.fixable ? group.txn_count : 0,
+        groups: [group],
+        batches: []
+      } satisfies DanglingRefList
+    };
+  }
+
+  it("代码齐、没有同标的持仓行 → 动作是「重建持仓」，不是「补全信息」", () => {
+    const item = buildReconQueue(
+      danglingSource(
+        danglingGroup({
+          fixable: false,
+          live_position: null,
+          block_reason:
+            "同账本没有同标的的现存持仓行，无法挂回；可按流水重建持仓"
+        })
+      )
+    ).find(i => i.sourceDomain === "F")!;
+
+    expect(item.actionLabel).toBe("重建持仓");
+    expect(item.state).toBe("incomplete");
+    // 原因要说清「缺的是持仓行」，不是「缺字段」——后者会让人去填一张没有字段的表单
+    expect(item.stateReason).toBe("流水完整，缺的是它对应的持仓行");
+  });
+
+  it("缺标的代码 → 动作仍是「补全信息」（补字段真的能解决）", () => {
+    const item = buildReconQueue(
+      danglingSource(
+        danglingGroup({
+          symbol: "",
+          fixable: false,
+          live_position: null,
+          block_reason: "这批流水缺标的代码，无法判定归属"
+        })
+      )
+    ).find(i => i.sourceDomain === "F")!;
+
+    expect(item.actionLabel).toBe("补全信息");
+    expect(item.stateReason).toBe("缺标的代码，补齐后才能判断归属");
+  });
+
+  it("已找到现存持仓 → 动作是「回补关联」", () => {
+    const item = buildReconQueue(danglingSource(danglingGroup())).find(
+      i => i.sourceDomain === "F"
+    )!;
+
+    expect(item.actionLabel).toBe("回补关联");
+    expect(item.state).toBe("ready");
+  });
+});
+
 describe("畸形 200 响应不能把整页冻在加载态", () => {
   it("清单字段被写成汇总对象时按空数组降级，不抛错", () => {
     // e2e 实测：/ghost-duplicates/ignored/ 打错桩，宽桩返回 {groups, ignored_count}

@@ -58,6 +58,10 @@ import {
   discrepancyIssue,
   specialSymbolLabel
 } from "./reconLabels";
+import {
+  danglingNextStep,
+  type DanglingNextStep
+} from "./danglingRefEnrichScope";
 
 /** 队列项对应的原始数据类型，供页面层分发动作（不做 any 透传） */
 export type ReconQueuePayload =
@@ -275,9 +279,33 @@ function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
 
 /* ── 域 F：悬空引用 / 数据缺失 ──────────────────────────────────────── */
 
+/**
+ * 「下一步」→ 队列卡上的动作名 / 原因。两处必须同时改，否则卡片会写着 A、点进去做 B。
+ * `empty` 不给动作：空组由后端过滤，走到这里说明数据异常，只如实说明。
+ */
+const DANGLING_ACTION_LABEL: Record<DanglingNextStep, string> = {
+  reattach: "回补关联",
+  fill: "补全信息",
+  rebuild: "重建持仓",
+  empty: "核对数据"
+};
+
+const DANGLING_STATE_REASON: Record<DanglingNextStep, string> = {
+  reattach: "系统已找到可挂回的持仓",
+  fill: "缺标的代码，补齐后才能判断归属",
+  rebuild: "流水完整，缺的是它对应的持仓行",
+  empty: "这一组没有可处理的交易"
+};
+
 function danglingItem(row: DanglingRefGroup): ReconQueueItem {
-  // 只翻译后端判据，不自行推导：fixable 由 dangling_ref_service 一次算出
+  // 只翻译后端判据，不自行推导：fixable 由 dangling_ref_service 一次算出；
+  // 「下一步做什么」由 `danglingNextStep` 一次算出（补字段 / 重建持仓 / 回补关联）。
   const ready = row.fixable;
+  const step = danglingNextStep({
+    symbol: row.symbol,
+    fixable: row.fixable,
+    txnCount: row.txn_count
+  });
   const live = row.live_position;
   const flags = row.flags.map(reconFlag);
   const isCash = specialSymbolLabel(row.symbol) !== null;
@@ -304,8 +332,10 @@ function danglingItem(row: DanglingRefGroup): ReconQueueItem {
       reconBatchLabel(row.batch_label, row.txn_count)
     ],
     count: row.txn_count,
-    actionLabel: ready ? "回补关联" : "补全信息",
-    stateReason: ready ? "系统已找到可挂回的持仓" : "需先补全缺失信息",
+    // 动作名必须与「点进去真的能做完」一致：代码齐、只缺持仓行时是「重建持仓」，
+    // 不是「补全信息」（后者点进去没有可补的字段，只能再被指回来）。
+    actionLabel: DANGLING_ACTION_LABEL[step],
+    stateReason: DANGLING_STATE_REASON[step],
     batchId: row.batch_id,
     payload: { kind: "dangling", row }
   });

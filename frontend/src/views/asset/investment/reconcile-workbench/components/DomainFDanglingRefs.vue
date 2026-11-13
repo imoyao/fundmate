@@ -70,6 +70,7 @@
       :group="activeGroup"
       :mode="activeMode ?? 'enrich'"
       @submitted="emit('refresh')"
+      @request-rebuild="onEnrichRequestRebuild"
       @update:model-value="onDialogVisibleChange"
     />
     <DanglingRefRebuildDialog
@@ -141,6 +142,19 @@ function onDialogVisibleChange(visible: boolean): void {
     activeGroup.value = null;
     activeMode.value = null;
   }
+}
+
+/**
+ * 补全弹窗里点「按流水重建持仓」：先收起补全，再开重建。
+ *
+ * 顺序不能反——`onDialogVisibleChange(false)` 会清空 `activeGroup`，所以必须先把组
+ * 取出来；两层弹窗也不叠着开（el-dialog 都是 append-to-body，叠起来会互相遮罩）。
+ */
+function onEnrichRequestRebuild(): void {
+  const group = activeGroup.value;
+  if (!group) return;
+  onDialogVisibleChange(false);
+  openRebuild(group);
 }
 
 /** 「重建持仓」弹窗：与 enrich / remove 同样的内聚方式，单独一组状态。 */

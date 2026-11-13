@@ -1820,6 +1820,9 @@ class TestLedgerTransactions:
         # 缺了它，对账抽屉会把「按账本查出的流水」判成未归属、编辑置灰，
         # 而同一屏头部却显示着账本名（显示与可操作不一致）。
         assert item['ledger_id'] == stock.id
+        # 账户名必须随行下发（2026-11-13）：缺了它，前端在「有 ledger_id、快照为空」时
+        # 兜「未知账户」——账户 ID 明明确定，表格却说不知道是哪个账户。
+        assert item['account_name'] == '测试证券'
 
     def test_trade_date_is_date_only_and_asset_type_backfilled(self, client, db, make_position):
         """#2712：日期不带 `T00:00:00`；`asset_type` 快照为空时按持仓回解析。
@@ -1865,6 +1868,39 @@ class TestLedgerTransactions:
         item = resp.get_json()['data']['items'][0]
         assert item['trade_date'] == '2026-06-03'
         assert item['asset_type'] == 'fund'
+
+    def test_account_name_backfilled_when_snapshot_missing(self, client, db):
+        """账户名快照为空时按 ledger_id 回解析，不得退化成「未知账户」。
+
+        前端 `TransactionAccountCell` 的兜底是「有 ledger_id 但名字为空 ⇒ 未知账户」；
+        本端点此前连 `account_name` 这个键都没有，于是**每一条**流水都落到那个兜底
+        （owner 2026-11-13 截图：账户 ID 确定、表格显示「未知账户」）。
+        """
+        from app.domains.transactions.models import Transaction
+
+        ledger = Ledger(name='同花顺（银河证券）', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+
+        db.add(
+            Transaction(
+                txn_type='buy',
+                symbol='600519',
+                position_name='贵州茅台',
+                account_name=None,  # 历史导入漏写快照
+                ledger_id=ledger.id,
+                quantity=100,
+                price=100000,
+                amount=10000000,
+                fee=0,
+            )
+        )
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/transactions/?page=1&per_page=10')
+        assert resp.status_code == 200
+        item = resp.get_json()['data']['items'][0]
+        assert item['account_name'] == '同花顺（银河证券）'
 
     def test_position_transactions_date_and_asset_type(self, client, db, make_position):
         """#2712：持仓抽屉接口同样要日期粒度 + 资产类型（它此前连 asset_type 都不返回）。"""
