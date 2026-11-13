@@ -158,7 +158,7 @@ def run_reconciliation(
         pos_by_key[(p.ledger_id, p.symbol)] = p
 
     summary = {'pending': 0, 'cleared': 0, 'ignored': 0, 'orphan': 0}
-    seen_keys: set[tuple] = set()
+    seen_keys: set[tuple] = set()  # (ledger_id, symbol, disc_type)：与 upsert 身份键对齐
 
     # 3) 对每个「有流水」的业务键做比对
     for key, txns in txn_by_key.items():
@@ -188,7 +188,7 @@ def run_reconciliation(
                 summary,
             )
             summary['orphan'] += 1
-            seen_keys.add(key)
+            seen_keys.add((*key, 'orphan'))
             continue
 
         # 域 C：只做孤儿检测，不做数量比对（§6.2；补录差异留 P2 工作台）
@@ -211,7 +211,7 @@ def run_reconciliation(
                 diff,
                 summary,
             )
-            seen_keys.add(key)
+            seen_keys.add((*key, 'quantity'))
 
     # 4) 本 run 未检测到的既有 pending 差异 → cleared（差异消失）
     #    必须按本次 run 的域清理：否则域 C（导入后自动触发）会把域 B 的待裁决差异误置 cleared，
@@ -302,7 +302,7 @@ def _clear_stale_discrepancies(
     )
     cleared_count = 0
     for d in discrepancies:
-        key = (d.ledger_id, d.symbol)
+        key = (d.ledger_id, d.symbol, d.discrepancy_type)
         if key not in seen_keys:
             d.status = 'cleared'
             d.last_run_id = run_id

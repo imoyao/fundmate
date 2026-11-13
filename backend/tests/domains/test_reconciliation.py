@@ -292,6 +292,91 @@ class TestDomainBReconciliation:
         assert summary2['cleared'] == 1
         assert summary2['pending'] == 0
 
+    def test_orphan_cleared_when_key_becomes_quantity_gap(self, db):
+        """孤儿 → 补建持仓后仍有份额缺口：旧 orphan 行须置 cleared，不留幽灵 pending。
+
+        回归：`seen_keys` 曾只登记 (ledger_id, symbol)，而差异行身份是
+        (ledger_id, symbol, discrepancy_type)。同一业务键「孤儿 → 数量差异」后，
+        补建持仓的动作（模板/改挂/重建）都会把旧 orphan 行永久留在 pending，
+        而它已不可能被任何入口修掉。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.commit()
+
+        run1, _ = run_domain_b_reconciliation(db, 1)
+        orphan = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1').one()
+        assert orphan.discrepancy_type == 'orphan'
+        assert orphan.last_run_id == run1.id
+
+        # 补建持仓但份额不足（另一条同标的流水仍悬空）→ 该键改走数量比对分支
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+        run2, _ = run_domain_b_reconciliation(db, 1)
+
+        db.refresh(orphan)
+        assert orphan.status == 'cleared'
+        assert orphan.last_run_id == run2.id
+        pending = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1', status='pending').all()
+        assert [d.discrepancy_type for d in pending] == ['quantity']
+
+    def test_quantity_cleared_when_position_goes_inactive(self, db):
+        """数量差异 → 持仓退出后同键转孤儿：旧 quantity 行须置 cleared（反向同源）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.commit()
+
+        run1, _ = run_domain_b_reconciliation(db, 1)
+        quantity = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1').one()
+        assert quantity.discrepancy_type == 'quantity'
+        assert quantity.last_run_id == run1.id
+
+        pos.ownership_status = 'closed'
+        db.commit()
+        run2, _ = run_domain_b_reconciliation(db, 1)
+
+        db.refresh(quantity)
+        assert quantity.status == 'cleared'
+        assert quantity.last_run_id == run2.id
+        pending = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1', status='pending').all()
+        assert [d.discrepancy_type for d in pending] == ['orphan']
+
     def test_summary_ignored_count(self, db):
         """永久忽略的差异在后续 run 中 ignored 计数正确。"""
         from app.domains.ledgers.models import Ledger
