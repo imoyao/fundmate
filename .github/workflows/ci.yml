@@ -76,6 +76,12 @@ jobs:
               # （同 backend filter 里 scripts/bridge/** 的教训）。
               - 'scripts/guard_net_assets_source.py'
               - 'scripts/tests/test_guard_net_assets_source.py'
+              # 页面规模门禁（#980）同理：判据、基线、回归网三件都住在 scripts/ 下，
+              # 而基线是**会被单独改**的东西（拆小了要手动收紧豁免）——只改基线不登记，
+              # 这条守卫就不会在它自己那次改动上跑，等于「改判据的那一次没人看」。
+              - 'scripts/check_vue_size.mjs'
+              - 'scripts/vue-size-baseline.json'
+              - 'scripts/tests/check_vue_size.test.js'
               # TS any 防回潮守卫（#2879 第一刀）：守卫 / 基线 / 回归网都住在 scripts/ 下，
               # 只改它们的 PR 不碰 frontend/**，不登记则 frontend job 不会被唤起、守卫静默不跑。
               - 'scripts/guard_ts_any.mjs'
