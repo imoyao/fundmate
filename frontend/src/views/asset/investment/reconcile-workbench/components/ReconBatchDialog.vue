@@ -137,7 +137,10 @@ const steps = computed<BatchStep[]>(() => {
   const dangling: DanglingRefGroup[] = [];
   const orphan: OrphanLedgerGroup[] = [];
   for (const item of props.items) {
-    if (item.payload.kind === "dangling") dangling.push(item.payload.row);
+    if (item.payload.kind === "danglingStage") {
+      // 阶段聚合项拍平 groups（2026-11-13 恢复批量纳入）：逐组按目标持仓分组
+      dangling.push(...item.payload.groups);
+    }
     if (item.payload.kind === "orphan") orphan.push(item.payload.row);
   }
 

@@ -3,7 +3,20 @@
  * 的三条纯判据，2026-11-12 从组件里下沉：组件要守 `check_vue_size.mjs` 的
  * 400 行门禁，判据本体离开 Vue 上下文才能被 vitest 直接覆盖。
  */
+import type { DanglingRefGroup } from "@/api/reconciliation";
 import type { ReconQueuePayload } from "./reconQueue";
+
+/**
+ * 单组执行区才给产品标识 / 轨迹取数键：只有 `groups.length === 1` 时
+ * 「这笔」有唯一标的与唯一账本可指认；多组阶段聚合（导航项）返回 null，
+ * 头部退回阶段标题、轨迹不开启——聚合项没有单一标的，硬取 groups[0]
+ * 会把整阶段流水伪装成一笔。
+ */
+function singleDanglingGroup(
+  groups: DanglingRefGroup[]
+): DanglingRefGroup | null {
+  return groups.length === 1 ? groups[0] : null;
+}
 
 /** 抽屉头部要的「产品标识」：payload 里能取到的 symbol + 名称 */
 export interface ReconAssetRef {
@@ -24,11 +37,16 @@ export function reconItemAsset(
 ): ReconAssetRef | null {
   switch (payload.kind) {
     case "discrepancy":
-    case "dangling":
       return {
         symbol: payload.row.symbol,
         name: payload.row.display_name ?? null
       };
+    case "danglingStage": {
+      const group = singleDanglingGroup(payload.groups);
+      return group
+        ? { symbol: group.symbol, name: group.display_name ?? null }
+        : null;
+    }
     case "tax":
       return { symbol: payload.row.symbol, name: payload.row.name || null };
     case "ghost":
@@ -60,8 +78,10 @@ export function reconTrailQuery(
     case "eaccount":
     case "ghost":
       return { symbol: payload.row.symbol, ledgerId: null };
-    case "dangling":
-      return { symbol: payload.row.symbol, ledgerId: payload.row.ledger_id };
+    case "danglingStage": {
+      const group = singleDanglingGroup(payload.groups);
+      return group ? { symbol: group.symbol, ledgerId: group.ledger_id } : null;
+    }
     default:
       return null;
   }

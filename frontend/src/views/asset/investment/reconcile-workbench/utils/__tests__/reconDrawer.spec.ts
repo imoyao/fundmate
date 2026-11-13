@@ -16,12 +16,38 @@ import {
   trailEditBlockReason
 } from "../reconDrawer";
 
-/** 按 kind 造一个最小 payload（行字段按需给，用不到的交给类型断言） */
+/**
+ * 按 kind 造一个最小 payload（字段按需给，用不到的交给类型断言）。
+ * 顶层载荷形状按 kind 分两派：danglingStage 的 stage/groups 在顶层，
+ * 其余 kind 的业务字段都包在 row 里——拍平会直接打进 reconDrawer 的
+ * `payload.row.symbol` 读取点，测试看似在测顶层字段、实际全踩空。
+ */
 function payload(
   kind: ReconQueuePayload["kind"],
-  row: object
+  extra: object
 ): ReconQueuePayload {
-  return { kind, row } as unknown as ReconQueuePayload;
+  return kind === "danglingStage"
+    ? ({ kind, ...extra } as unknown as ReconQueuePayload)
+    : ({ kind, row: extra } as unknown as ReconQueuePayload);
+}
+
+/** 造一个最小悬空组（只给判据要用的字段） */
+function danglingGroup(
+  extra: Partial<{
+    symbol: string;
+    ledger_id: number;
+    display_name: string | null;
+  }>
+): object {
+  return {
+    key: "g",
+    ledger_id: 12,
+    symbol: "SZ000725",
+    display_name: null,
+    txn_count: 1,
+    fixable: false,
+    ...extra
+  };
 }
 
 describe("reconItemAsset：头部产品标识的唯一来源", () => {
@@ -33,10 +59,26 @@ describe("reconItemAsset：头部产品标识的唯一来源", () => {
     ).toEqual({ symbol: "SZ000725", name: "京东方 A" });
   });
 
-  it("display_name 缺失时给 null，不臆造名称", () => {
-    expect(reconItemAsset(payload("dangling", { symbol: "SH600000" }))).toEqual(
-      { symbol: "SH600000", name: null }
-    );
+  it("display_name 缺失时给 null，不臆造名称（单组执行区）", () => {
+    expect(
+      reconItemAsset(
+        payload("danglingStage", {
+          stage: "reattach",
+          groups: [danglingGroup({})]
+        })
+      )
+    ).toEqual({ symbol: "SZ000725", name: null });
+  });
+
+  it("danglingStage 多组聚合：没有单一产品可指认，头部退回阶段标题", () => {
+    expect(
+      reconItemAsset(
+        payload("danglingStage", {
+          stage: "fill",
+          groups: [danglingGroup({}), danglingGroup({ symbol: "SH600000" })]
+        })
+      )
+    ).toBeNull();
   });
 
   it("tax：name 为空串时归一成 null", () => {
@@ -70,7 +112,7 @@ describe("reconItemAsset：头部产品标识的唯一来源", () => {
 });
 
 describe("reconTrailQuery：投资轨迹的取数键", () => {
-  it("discrepancy / dangling 带 ledger_id（按账本 + 代码查）", () => {
+  it("discrepancy 带 ledger_id（按账本 + 代码查）；danglingStage 单组同样给键", () => {
     expect(
       reconTrailQuery(
         payload("discrepancy", { symbol: "SZ000725", ledger_id: 12 })
@@ -78,9 +120,23 @@ describe("reconTrailQuery：投资轨迹的取数键", () => {
     ).toEqual({ symbol: "SZ000725", ledgerId: 12 });
     expect(
       reconTrailQuery(
-        payload("dangling", { symbol: "SZ000725", ledger_id: null })
+        payload("danglingStage", {
+          stage: "reattach",
+          groups: [danglingGroup({ symbol: "SH600000", ledger_id: 7 })]
+        })
       )
-    ).toEqual({ symbol: "SZ000725", ledgerId: null });
+    ).toEqual({ symbol: "SH600000", ledgerId: 7 });
+  });
+
+  it("danglingStage 多组聚合不开轨迹：没有单一标的可画", () => {
+    expect(
+      reconTrailQuery(
+        payload("danglingStage", {
+          stage: "rebuild",
+          groups: [danglingGroup({}), danglingGroup({})]
+        })
+      )
+    ).toBeNull();
   });
 
   it("tax / eaccount / ghost 无单一账本，按代码查", () => {

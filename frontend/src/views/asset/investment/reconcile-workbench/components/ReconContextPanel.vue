@@ -106,10 +106,11 @@ const target = computed<ContextTarget | null>(() => {
       when: row.dividend_on
     };
   }
-  if (payload.kind === "dangling") {
-    const row = payload.row;
+  if (payload.kind === "danglingStage") {
+    const row = payload.groups[0];
     return {
-      ledgerId: row.ledger_id ?? null,
+      // 多组聚合没有单一账本可指认；单组执行区取该组的真实账本
+      ledgerId: row?.ledger_id ?? null,
       issue: item.sourceLabel,
       expected: null,
       actual: null,

@@ -41,12 +41,10 @@ import {
   reconAccountName,
   reconBatchLabel,
   reconCount,
-  reconFlag,
   reconGroupTitle,
   reconLedgerName,
   reconMoney,
   reconMoneyPhrase,
-  reconOwnership,
   reconQuantity,
   reconRecordRef,
   reconSymbolCode,
@@ -59,9 +57,22 @@ import {
   specialSymbolLabel
 } from "./reconLabels";
 import {
-  danglingNextStep,
-  type DanglingNextStep
+  DANGLING_ACTION_LABEL,
+  DANGLING_STAGES,
+  bucketByStage,
+  type DanglingStage
 } from "./danglingRefEnrichScope";
+
+/**
+ * 域 F 按阶段聚合后的载荷：执行区（ReconItemAction）按 `stage` 分支给主动作，
+ * 阶段面板按 `groups` 逐组列出。单组执行区也复用它（只含一组的 groups），
+ * 同一份数据只有这一个形状（design.md「一个数据只有一个可用入口」）。
+ */
+export interface DanglingStagePayload {
+  kind: "danglingStage";
+  stage: DanglingStage;
+  groups: DanglingRefGroup[];
+}
 
 /** 队列项对应的原始数据类型，供页面层分发动作（不做 any 透传） */
 export type ReconQueuePayload =
@@ -70,7 +81,7 @@ export type ReconQueuePayload =
   | { kind: "ghost"; row: GhostDuplicateGroupItem }
   | { kind: "ghostIgnored"; row: GhostDuplicateIgnore }
   | { kind: "tax"; row: DividendTaxPendingItem }
-  | { kind: "dangling"; row: DanglingRefGroup }
+  | DanglingStagePayload
   | { kind: "orphan"; row: OrphanLedgerGroup }
   | { kind: "import" };
 
@@ -277,68 +288,108 @@ function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
   });
 }
 
-/* ── 域 F：悬空引用 / 数据缺失 ──────────────────────────────────────── */
+/* ── 域 F：悬空流水，按阶段聚合（漏斗，2026-11-13） ────────────────────
+ *
+ * 为什么不再是逐组一条：同一组数据在两个渲染点各出现一次、动作集还不一样
+ * （队列给三个动作、域 F 面板多一个「删除」），用户看到的「下一步」取决于
+ * 从哪个入口进来。现在队列只出**每阶段一条导航项**（点开进阶段面板），
+ * 动作只存在于抽屉执行区（ReconItemAction）一个地方。
+ * 阶段判据与动作名都取自 `danglingRefEnrichScope`，本层只做翻译不判据。
+ */
+
+/** 阶段 → 队列卡标题：说这批流水处在什么状态，不逐组点名标的 */
+const DANGLING_STAGE_TITLE: Record<DanglingStage, string> = {
+  fill: "缺标的代码的流水",
+  reattach: "可挂回的流水",
+  rebuild: "待重建的流水"
+};
+
+/** 阶段 → 一句话说清「这批是什么、现在卡在哪」（与 DANGLING_ACTION_LABEL 同套阶段键） */
+const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
+  fill: "这些交易挂在已删除的持仓上，而且没有标的代码，补上后才能判断归属。",
+  reattach: "这些交易挂在已删除的持仓上，系统已找到现存持仓，可以挂回去。",
+  rebuild:
+    "这些交易挂在已删除的持仓上，但找不到它们对应的持仓记录，需要按流水重建。"
+};
+
+/** 阶段 → 为什么不能立刻动手（stateReason） */
+const DANGLING_STAGE_REASON: Record<DanglingStage, string> = {
+  fill: "缺标的代码，补齐后才能判断归属",
+  reattach: "系统已找到可挂回的持仓",
+  rebuild: "流水完整，缺的是它对应的持仓行"
+};
 
 /**
- * 「下一步」→ 队列卡上的动作名 / 原因。两处必须同时改，否则卡片会写着 A、点进去做 B。
- * `empty` 不给动作：空组由后端过滤，走到这里说明数据异常，只如实说明。
+ * 一个阶段一条队列项。`count` 是该阶段各组 `txn_count` 之和——保持和式
+ * 不变量（design.md:858）：分诊卡条数 = 队列项 count 之和，聚合前后必须相等。
+ * 阶段无组时调用方不调用本函数（空阶段不渲染，design.md「空阶段不渲染」）。
  */
-const DANGLING_ACTION_LABEL: Record<DanglingNextStep, string> = {
-  reattach: "回补关联",
-  fill: "补全信息",
-  rebuild: "重建持仓",
-  empty: "核对数据"
-};
-
-const DANGLING_STATE_REASON: Record<DanglingNextStep, string> = {
-  reattach: "系统已找到可挂回的持仓",
-  fill: "缺标的代码，补齐后才能判断归属",
-  rebuild: "流水完整，缺的是它对应的持仓行",
-  empty: "这一组没有可处理的交易"
-};
-
-function danglingItem(row: DanglingRefGroup): ReconQueueItem {
-  // 只翻译后端判据，不自行推导：fixable 由 dangling_ref_service 一次算出；
-  // 「下一步做什么」由 `danglingNextStep` 一次算出（补字段 / 重建持仓 / 回补关联）。
-  const ready = row.fixable;
-  const step = danglingNextStep({
-    symbol: row.symbol,
-    fixable: row.fixable,
-    txnCount: row.txn_count
-  });
-  const live = row.live_position;
-  const flags = row.flags.map(reconFlag);
-  const isCash = specialSymbolLabel(row.symbol) !== null;
-  const summary = ready
-    ? `这 ${row.txn_count} 笔交易还挂在一条已删除的持仓上。已找到现存持仓，可以挂回去。`
-    : row.block_reason ||
-      "这些交易缺标的代码，或找不到对应的持仓记录，暂时不能自动回补。";
+export function danglingStageItem(
+  stage: DanglingStage,
+  groups: DanglingRefGroup[]
+): ReconQueueItem {
+  const count = danglingStageTxnCount(groups);
+  // 阶段内各组批次一致才带批次筛选；跨批次聚合不带（否则筛选会丢掉一部分组，
+  // 和「这一项代表全部该阶段流水」的口径自相矛盾）
+  const batchIds = new Set(groups.map(g => g.batch_id));
+  const batchId = batchIds.size === 1 ? groups[0].batch_id : null;
+  // 净额合计仍是用户要补回/重建的份额总量，聚合后只有合计有意义
+  const netUnits = groups.reduce((sum, g) => sum + g.net_units, 0);
+  const titles = [
+    ...new Set(groups.map(g => reconGroupTitle(g.symbol, g.display_name)))
+  ];
+  // 标的行只在前三个之外还多时收成「等 N 个标的」；fill 阶段全组没代码，
+  // reconGroupTitle 会全是「标的代码未填」，那行反而成了噪音 → 只在能认出
+  // 标的阶段（reattach / rebuild）保留
+  const nameable = stage !== "fill" && titles.length > 0;
+  const symbolFact = !nameable
+    ? ""
+    : titles.length <= 3
+      ? `涉及标的 ${titles.join("、")}`
+      : `涉及标的 ${titles.slice(0, 3).join("、")} 等 ${titles.length} 个`;
   return finish({
-    id: `dangling-${row.key}`,
-    task: "repair",
-    state: ready ? "ready" : "incomplete",
+    id: `dangling-${stage}`,
+    // rebuild 从「修正数据」里拆出去自成任务：它缺的不是字段，是整条持仓行
+    task: stage === "rebuild" ? "rebuild" : "repair",
+    state: stage === "reattach" ? "ready" : "incomplete",
     sourceDomain: "F",
-    title: reconGroupTitle(row.symbol, row.display_name),
-    summary,
+    title: DANGLING_STAGE_TITLE[stage],
+    summary: DANGLING_STAGE_SUMMARY[stage],
     facts: [
-      // 代码只作次要事实行：标题优先名称（reconGroupTitle 唯一口径）
-      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
-      reconCount(row.txn_count),
-      `净额 ${reconQuantity(row.net_units)}`,
-      live
-        ? `现存持仓 ${reconQuantity(live.quantity)}（${reconOwnership(live.ownership_status)}）`
-        : "对应持仓记录已删除",
-      ...flags.slice(0, 2),
-      reconBatchLabel(row.batch_label, row.txn_count)
-    ],
-    count: row.txn_count,
-    // 动作名必须与「点进去真的能做完」一致：代码齐、只缺持仓行时是「重建持仓」，
-    // 不是「补全信息」（后者点进去没有可补的字段，只能再被指回来）。
-    actionLabel: DANGLING_ACTION_LABEL[step],
-    stateReason: DANGLING_STATE_REASON[step],
-    batchId: row.batch_id,
-    payload: { kind: "dangling", row }
+      `涉及 ${reconCount(groups.length, "组")}`,
+      symbolFact,
+      `净额合计 ${reconQuantity(netUnits)}`,
+      batchId !== null
+        ? reconBatchLabel(groups[0].batch_label, count)
+        : "来自多个批次的导入"
+    ].filter(Boolean),
+    count,
+    // 动作名与阶段判据同源（DANGLING_ACTION_LABEL），不会出现「写着 A 点进去做 B」
+    actionLabel: DANGLING_ACTION_LABEL[stage],
+    stateReason: DANGLING_STAGE_REASON[stage],
+    batchId,
+    payload: { kind: "danglingStage", stage, groups }
   });
+}
+
+/** 一个阶段的流水条数（各组 txn_count 之和）。单组执行区与阶段标题共用这一个和式。 */
+export function danglingStageTxnCount(
+  groups: readonly DanglingRefGroup[]
+): number {
+  return groups.reduce((sum, g) => sum + g.txn_count, 0);
+}
+
+/**
+ * 阶段面板小节标题：`回补关联 · 3 组 7 条`。
+ * 收口进本文件（与 DANGLING_STAGE_TITLE 同地）而不是散在组件里——标题里的
+ * 条数必须与队列项 count 同源（danglingStageTxnCount），否则分诊卡 / 队列 /
+ * 阶段面板三处各数一遍，聚合口径一改就漂。
+ */
+export function danglingStageHeading(
+  stage: DanglingStage,
+  groups: readonly DanglingRefGroup[]
+): string {
+  return `${DANGLING_ACTION_LABEL[stage]} · ${groups.length} 组 ${danglingStageTxnCount(groups)} 条`;
 }
 
 /* ── 域 G：缺账本孤儿流水 ───────────────────────────────────────────── */
@@ -420,8 +471,12 @@ export function buildReconQueue(source: ReconQueueSource): ReconQueueItem[] {
   for (const row of rowsOf(source.ghostIgnored))
     items.push(ghostIgnoredItem(row));
   for (const row of rowsOf(source.taxItems)) items.push(taxItem(row));
-  for (const row of rowsOf(source.dangling?.groups))
-    items.push(danglingItem(row));
+  // 域 F 按阶段聚合：每阶段最多一条导航项，空阶段不产出（漏斗，2026-11-13）
+  const danglingBuckets = bucketByStage(rowsOf(source.dangling?.groups));
+  for (const stage of DANGLING_STAGES) {
+    const groups = danglingBuckets[stage];
+    if (groups.length > 0) items.push(danglingStageItem(stage, groups));
+  }
   for (const row of rowsOf(source.orphan?.groups)) items.push(orphanItem(row));
 
   items.push(importItem());
@@ -530,10 +585,12 @@ export function queueBatchOptions(items: ReconQueueItem[]): Array<{
 
 /** 可供批量处理的项：只有「可直接处理」且后端判定可修的才能进批量 */
 export function batchableItems(items: ReconQueueItem[]): ReconQueueItem[] {
+  // 域 F 的阶段聚合项（payload.groups 可能是多组）也纳入：ReconBatchDialog
+  // 会把 groups 拍平按目标持仓分组，逐组走既有回补通道（2026-11-13 恢复）。
   return items.filter(
     i =>
       i.state === "ready" &&
-      (i.payload.kind === "dangling" || i.payload.kind === "orphan")
+      (i.payload.kind === "orphan" || i.payload.kind === "danglingStage")
   );
 }
 

@@ -8,37 +8,16 @@
         <span class="df-group__symbol">{{ subtitle }}</span>
       </div>
       <div class="df-group__actions">
+        <!-- 唯一动作（漏斗，2026-11-13）：阶段动作名由面板标题说一次，
+             按钮只叫「处理」；写操作统一在抽屉执行区，导航层零写入口 -->
         <el-button
-          v-if="group.fixable"
           size="small"
           type="primary"
           plain
-          @click="emit('fix', group)"
+          @click="emit('openItem', group)"
         >
-          去处理
+          处理
         </el-button>
-        <template v-else>
-          <!-- 重建持仓：按流水建回被删掉的持仓行（与补字段 / 删数据是三件独立的事） -->
-          <el-button
-            v-if="canRebuild"
-            size="small"
-            plain
-            @click="emit('rebuild', group)"
-          >
-            重建持仓
-          </el-button>
-          <el-button v-if="canFill" size="small" @click="emit('enrich', group)">
-            补全信息
-          </el-button>
-          <el-button
-            size="small"
-            type="danger"
-            plain
-            @click="emit('remove', group)"
-          >
-            删除
-          </el-button>
-        </template>
       </div>
     </header>
 
@@ -55,13 +34,12 @@
           reconOwnership(group.live_position.ownership_status)
         }}）
       </template>
-      <template v-else> · 对应持仓记录已删除</template>
+      <template v-else> · 暂无现存持仓记录</template>
     </p>
 
-    <!-- flags 是后端枚举，翻译成中文再上屏；不把 has_candidate 这类码给用户 -->
-    <div class="df-group__flags">
+    <!-- flags 是后端枚举，翻译成中文再上屏；无 flags 时整个容器不渲染 -->
+    <div v-if="flags.length" class="df-group__flags">
       <span v-for="f in flags" :key="f" class="df-group__flag">{{ f }}</span>
-      <span v-if="!flags.length" class="df-group__noflag">没有附加异常</span>
     </div>
 
     <el-collapse class="df-collapse">
@@ -86,10 +64,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { DanglingRefGroup } from "@/api/reconciliation";
-import {
-  danglingNextStep,
-  inspectGroupNeeds
-} from "../utils/danglingRefEnrichScope";
 import { danglingDetailLine } from "../utils/reconQueue";
 import {
   reconBatchLabel,
@@ -101,37 +75,15 @@ import {
 } from "../utils/reconDisplay";
 
 /**
- * 域 F 单个分组卡（#2866）：只展示扫描结果，写动作一律上抛。
+ * 域 F 单个分组卡（#2866 → 漏斗 2026-11-13）：只展示扫描结果 + 一个「处理」
+ * 导航动作；阶段归属已由上游 bucketByStage 决定，本卡不再自己算第二遍。
  * `group.key` 是 `20|001982` 这种后端复合主键，只作 `:key` / 折叠面板 name，
  * 不进视觉层；内部 ID 降级到明细行末尾的「记录编号」。
  */
 const props = defineProps<{ group: DanglingRefGroup }>();
-const emit = defineEmits<{
-  fix: [group: DanglingRefGroup];
-  enrich: [group: DanglingRefGroup];
-  remove: [group: DanglingRefGroup];
-  rebuild: [group: DanglingRefGroup];
-}>();
+const emit = defineEmits<{ openItem: [group: DanglingRefGroup] }>();
 
 const flags = computed(() => props.group.flags.map(reconFlag));
-/**
- * 两个入口读**同一条判据**（`danglingNextStep`），与队列卡 / 补全弹窗一致：
- * - `rebuild`：代码齐全、只缺持仓行 ⇒ 只给「重建持仓」（点「补全信息」进去是一张
- *   没有可补字段的死弹窗，而它唯一能做的事就在旁边这个按钮上，2026-11-13）；
- * - `fill`：缺标的代码 ⇒ 只给「补全信息」（缺代码时连建哪个持仓都不知道）。
- *
- * 两者互斥：此前它们各自算一次条件，同一组会同时出现两个按钮，用户选哪个都可能
- * 走回死胡同。判据收在纯函数里，单测直接钉住（SFC 里再写一份就又会漂）。
- */
-const step = computed(() =>
-  danglingNextStep({
-    symbol: inspectGroupNeeds(props.group.transactions).symbol,
-    fixable: props.group.fixable,
-    txnCount: props.group.txn_count
-  })
-);
-const canRebuild = computed(() => step.value === "rebuild");
-const canFill = computed(() => step.value === "fill");
 const detailLines = computed(() =>
   props.group.transactions.map(danglingDetailLine)
 );
@@ -211,11 +163,6 @@ const subtitle = computed(() =>
   color: var(--text-secondary);
   background: var(--bg-soft);
   border-radius: var(--radius-pill);
-}
-
-.df-group__noflag {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
 }
 
 .df-collapse {

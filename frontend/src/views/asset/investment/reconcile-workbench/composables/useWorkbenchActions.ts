@@ -3,6 +3,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { DanglingRefGroup, DiscrepancyItem } from "@/api/reconciliation";
 import { normalizeDomain } from "../utils/domainQuery";
 import type { WorkbenchDomainKey } from "../constants/domainTabs";
+import type { DanglingStage } from "../utils/danglingRefEnrichScope";
 import type { ReconDetailContext } from "../utils/reconDetail";
 import type { useWorkbenchDomains } from "./useWorkbenchDomains";
 import type { useReconQueue } from "./useReconQueue";
@@ -53,6 +54,11 @@ export function useWorkbenchActions(
   const activeDetailId = ref<string | null>(null);
   /** 与 item 解耦：入站寻址即使该类一条待办都没有，也要能看到空态处理区 */
   const activeDomain = ref<WorkbenchDomainKey | null>(null);
+  /**
+   * 域 F 的当前阶段（漏斗，2026-11-13）：阶段聚合项点开的是「阶段面板」，
+   * 只列该阶段的组，动作在执行区。非 null 蕴含 activeDomain === "F"。
+   */
+  const activeStage = ref<DanglingStage | null>(null);
   const activeItem = computed(
     () => queue.items.value.find(i => i.id === activeDetailId.value) ?? null
   );
@@ -90,8 +96,26 @@ export function useWorkbenchActions(
 
   /** 点队列卡：开抽屉，不切视图、不重挂载、不写 URL，也不滚动页面 */
   function openItem(item: QueueItem): void {
+    // 域 F 的阶段聚合项（漏斗，2026-11-13）：点开的是阶段面板，不是单条
+    // 执行区——聚合项没有单一载荷，落进单条视图动作只会作用于 groups[0]。
+    if (item.payload.kind === "danglingStage") {
+      openStage(item.payload.stage);
+      return;
+    }
     activeDomain.value = item.sourceDomain;
     activeDetailId.value = item.id;
+    // 单条聚焦不是阶段面板：换条目时把上一阶段的面板退掉，两个视图不叠加
+    activeStage.value = null;
+  }
+
+  /**
+   * 点域 F 的阶段聚合项（payload.kind === "danglingStage"）：开域 F 的阶段
+   * 面板，只列该阶段的组。面板只导航不做写操作（漏斗：动作唯一入口在执行区）。
+   */
+  function openStage(stage: DanglingStage): void {
+    activeDomain.value = "F";
+    activeStage.value = stage;
+    activeDetailId.value = null;
   }
 
   /** 翻页后把队列头带回视野，避免用户停在上一段的末尾 */
@@ -102,11 +126,24 @@ export function useWorkbenchActions(
   function closeDetail(): void {
     activeDomain.value = null;
     activeDetailId.value = null;
+    activeStage.value = null;
   }
 
   function focusBanner(): void {
-    activeDetailId.value = queue.focusFirstPending();
-    activeDomain.value = activeItem.value?.sourceDomain ?? null;
+    const firstId = queue.focusFirstPending();
+    const first = firstId
+      ? (queue.items.value.find(i => i.id === firstId) ?? null)
+      : null;
+    // 聚合项不落单条执行区：多组聚合的载荷没有单条 row，硬选会把动作
+    // 限成只作用于 groups[0]。与 openItem 的分支保持同一判据。
+    if (first?.payload.kind === "danglingStage") {
+      openStage(first.payload.stage);
+      scrollTo(".recon-queue");
+      return;
+    }
+    activeDetailId.value = firstId;
+    activeDomain.value = first?.sourceDomain ?? null;
+    activeStage.value = null;
     scrollTo(".recon-queue");
   }
 
@@ -157,6 +194,7 @@ export function useWorkbenchActions(
       if (!pendingDomain.value) return;
       const domain = pendingDomain.value;
       activeDomain.value = domain;
+      activeStage.value = null;
       queue.focusDomain(domain);
       pendingDomain.value = null;
     },
@@ -171,6 +209,7 @@ export function useWorkbenchActions(
       pendingDomain.value = next;
       activeDomain.value = next;
       activeDetailId.value = null;
+      activeStage.value = null;
     }
   );
 
@@ -185,6 +224,7 @@ export function useWorkbenchActions(
     detailOpen,
     activeDetailId,
     activeDomain,
+    activeStage,
     activeItem,
     recognizerVisible,
     supplementVisible,
@@ -197,6 +237,7 @@ export function useWorkbenchActions(
     openDanglingFix,
     goTo,
     openItem,
+    openStage,
     closeDetail,
     scrollQueueTop,
     focusBanner,

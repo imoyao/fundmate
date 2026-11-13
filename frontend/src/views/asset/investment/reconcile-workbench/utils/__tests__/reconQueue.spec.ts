@@ -120,7 +120,7 @@ const TAX_ROW: DividendTaxPendingItem = {
 };
 
 describe("翻译完整性：队列的可见文本里没有后端存储码", () => {
-  it("域 F 的复合主键 / flags / active / ISO 时间都不出现", () => {
+  it("域 F 的复合主键 / flags / active / ISO 时间都不出现（阶段聚合项）", () => {
     const source = emptySource();
     source.dangling = {
       total: 7,
@@ -133,18 +133,21 @@ describe("翻译完整性：队列的可见文本里没有后端存储码", () =
       batches: []
     } satisfies DanglingRefList;
 
+    // 漏斗（2026-11-13）：域 F 在队列里是每阶段一条聚合项，标题是阶段名，
+    // 标的退到事实行；flags / 存储码 / ISO 一律不出现。
     const item = buildReconQueue(source).find(i => i.sourceDomain === "F")!;
     const visible = [item.title, item.summary, ...item.facts].join(" ");
 
-    expect(item.title).toBe("001982");
+    expect(item.id).toBe("dangling-reattach");
+    expect(item.title).toBe("可挂回的流水");
     expect(visible).not.toContain("20|001982");
     expect(visible).not.toContain("has_candidate");
     expect(visible).not.toContain("net_mismatch");
     expect(visible).not.toContain("active");
     expect(visible).not.toContain("T00:00:00");
     expect(visible).not.toContain("#697");
-    expect(visible).toContain("已找到可挂回的持仓");
-    expect(visible).toContain("有效");
+    expect(visible).toContain("已找到现存持仓");
+    expect(visible).toContain("001982");
   });
 
   it("域 G 的 dividend_tax / -17.5 元 / → #12 / 实现说明都不出现", () => {
@@ -196,6 +199,7 @@ describe("状态只翻译后端判据，前端不自行推导", () => {
 
     const items = buildReconQueue(source).filter(i => i.sourceDomain === "F");
     expect(items.map(i => i.state)).toEqual(["ready", "incomplete"]);
+    // 批量件数 = 可直接处理聚合项的组数（2026-11-13 恢复纳入 danglingStage）
     expect(batchableItems(items)).toHaveLength(1);
   });
 
@@ -437,7 +441,7 @@ describe("D/F/G 条目标题取 display_name，代码降级为事实行", () => 
     expect(row.title).toBe("标的代码未填");
   });
 
-  it("域 F：display_name 存在时标题是名称，事实行含「代码 X」", () => {
+  it("域 F：display_name 存在时名称进事实行，标题让位阶段名（漏斗聚合）", () => {
     const source = emptySource();
     source.dangling = {
       total: 7,
@@ -450,11 +454,12 @@ describe("D/F/G 条目标题取 display_name，代码降级为事实行", () => 
       batches: []
     } satisfies DanglingRefList;
     const row = buildReconQueue(source).find(i => i.sourceDomain === "F")!;
-    expect(row.title).toBe("华安创业板 50");
-    expect(row.facts.join(" ")).toContain("代码 001982");
+    // 聚合项代表一个阶段而不是一组流水，标题不再点名标的；名称进事实行
+    expect(row.title).toBe("可挂回的流水");
+    expect(row.facts.join(" ")).toContain("华安创业板 50");
   });
 
-  it("域 F：display_name 为 null 时标题回落代码（含修复既有断言口径）", () => {
+  it("域 F：display_name 为 null 时事实行退回代码，不臆造名称", () => {
     const source = emptySource();
     source.dangling = {
       total: 7,
@@ -467,8 +472,8 @@ describe("D/F/G 条目标题取 display_name，代码降级为事实行", () => 
       batches: []
     } satisfies DanglingRefList;
     const row = buildReconQueue(source).find(i => i.sourceDomain === "F")!;
-    expect(row.title).toBe("001982");
-    expect(row.facts.join(" ")).toContain("代码 001982");
+    expect(row.title).toBe("可挂回的流水");
+    expect(row.facts.join(" ")).toContain("001982");
   });
 });
 
@@ -595,6 +600,9 @@ describe("域 F 的下一步动作与判据同源", () => {
       )
     ).find(i => i.sourceDomain === "F")!;
 
+    expect(item.id).toBe("dangling-rebuild");
+    // rebuild 自成任务（待重建持仓），不再挂在「修正数据」下
+    expect(item.task).toBe("rebuild");
     expect(item.actionLabel).toBe("重建持仓");
     expect(item.state).toBe("incomplete");
     // 原因要说清「缺的是持仓行」，不是「缺字段」——后者会让人去填一张没有字段的表单
@@ -613,6 +621,8 @@ describe("域 F 的下一步动作与判据同源", () => {
       )
     ).find(i => i.sourceDomain === "F")!;
 
+    expect(item.id).toBe("dangling-fill");
+    expect(item.task).toBe("repair");
     expect(item.actionLabel).toBe("补全信息");
     expect(item.stateReason).toBe("缺标的代码，补齐后才能判断归属");
   });
@@ -622,8 +632,170 @@ describe("域 F 的下一步动作与判据同源", () => {
       i => i.sourceDomain === "F"
     )!;
 
+    expect(item.id).toBe("dangling-reattach");
+    expect(item.task).toBe("repair");
     expect(item.actionLabel).toBe("回补关联");
     expect(item.state).toBe("ready");
+  });
+});
+
+/**
+ * 阶段聚合（漏斗，2026-11-13）：队列里域 F 是「每阶段一条」，不是逐组一条。
+ * 钉住四件事：每阶段最多一条、count 等于各组 txn_count 之和、空阶段不产出、
+ * 和式不变量（design.md:858）跨四张分诊卡仍成立。
+ */
+describe("域 F 按阶段聚合：每阶段一条、条数求和、空阶段不产出", () => {
+  function danglingSource(groups: DanglingRefGroup[]): ReconQueueSource {
+    return {
+      ...emptySource(),
+      dangling: {
+        total: groups.reduce((sum, g) => sum + g.txn_count, 0),
+        group_count: groups.length,
+        batch_count: 1,
+        null_symbol: 0,
+        null_trade_date: 0,
+        fixable_count: groups
+          .filter(g => g.fixable)
+          .reduce((sum, g) => sum + g.txn_count, 0),
+        groups,
+        batches: []
+      } satisfies DanglingRefList
+    };
+  }
+
+  it("三个阶段各只有一条聚合项，id 为 dangling-<stage>", () => {
+    const items = buildReconQueue(
+      danglingSource([
+        danglingGroup(), // reattach
+        danglingGroup({
+          key: "20|001983",
+          symbol: "001983",
+          fixable: false,
+          live_position: null,
+          txn_count: 4,
+          transactions: []
+        }), // rebuild
+        danglingGroup({
+          key: "20|",
+          symbol: "",
+          fixable: false,
+          live_position: null,
+          txn_count: 3,
+          transactions: []
+        }) // fill
+      ])
+    ).filter(i => i.sourceDomain === "F");
+
+    expect(items.map(i => i.id)).toEqual([
+      "dangling-fill",
+      "dangling-reattach",
+      "dangling-rebuild"
+    ]);
+  });
+
+  it("count = 该阶段各组 txn_count 之和，payload 带阶段与组清单", () => {
+    const items = buildReconQueue(
+      danglingSource([
+        danglingGroup(), // reattach：7
+        danglingGroup({ key: "20|600519", symbol: "600519", txn_count: 2 }), // reattach：2
+        danglingGroup({
+          key: "20|001983",
+          symbol: "001983",
+          fixable: false,
+          live_position: null,
+          txn_count: 4,
+          transactions: []
+        }) // rebuild：4
+      ])
+    );
+    const reattach = items.find(i => i.id === "dangling-reattach")!;
+    const rebuild = items.find(i => i.id === "dangling-rebuild")!;
+
+    expect(reattach.count).toBe(9); // 7 + 2
+    expect(reattach.payload).toEqual({
+      kind: "danglingStage",
+      stage: "reattach",
+      groups: expect.any(Array)
+    });
+    if (reattach.payload.kind === "danglingStage") {
+      expect(reattach.payload.groups).toHaveLength(2);
+    }
+    expect(rebuild.count).toBe(4);
+  });
+
+  it("某阶段没有组 → 队列里没有它的项（空阶段不渲染）", () => {
+    const items = buildReconQueue(
+      danglingSource([danglingGroup()]) // 只有 reattach
+    ).filter(i => i.sourceDomain === "F");
+    expect(items.map(i => i.id)).toEqual(["dangling-reattach"]);
+  });
+
+  it("空清单 → 域 F 一条项都不产出", () => {
+    const items = buildReconQueue(danglingSource([])).filter(
+      i => i.sourceDomain === "F"
+    );
+    expect(items).toHaveLength(0);
+  });
+
+  it("和式不变量：四张分诊卡 count 之和 = 全部队列项 count 之和", () => {
+    const source = danglingSource([
+      danglingGroup(), // reattach 7
+      danglingGroup({
+        key: "20|001983",
+        symbol: "001983",
+        fixable: false,
+        live_position: null,
+        txn_count: 4,
+        transactions: []
+      }) // rebuild 4
+    ]);
+    source.orphan = {
+      total: 26,
+      fixable_count: 26,
+      blocked_count: 0,
+      batch_count: 1,
+      groups: [orphanGroup()],
+      batches: []
+    } satisfies OrphanLedgerList;
+    source.taxItems = [TAX_ROW];
+
+    const items = buildReconQueue(source);
+    const taskSum = (["verify", "supplement", "repair", "rebuild"] as const)
+      .map(task => countByTask(items, task))
+      .reduce((a, b) => a + b, 0);
+    const queueSum = items
+      .filter(i => i.state !== "done")
+      .reduce((sum, i) => sum + i.count, 0);
+    expect(taskSum).toBe(queueSum);
+    // 聚合前后域 F 的记录条数不变：reattach 7 归 repair，rebuild 4 归 rebuild
+    expect(countByTask(items, "repair")).toBe(7 + 26);
+    expect(countByTask(items, "rebuild")).toBe(4);
+  });
+
+  it("阶段内批次一致才带批次筛选；跨批次聚合不带（否则筛掉一部分组）", () => {
+    const items = buildReconQueue(
+      danglingSource([
+        danglingGroup({ batch_id: 1 }), // 同批次 → 带 batchId
+        danglingGroup({ key: "20|600519", symbol: "600519", batch_id: 3 })
+      ])
+    );
+    const reattach = items.find(i => i.id === "dangling-reattach")!;
+    expect(reattach.batchId).toBeNull();
+  });
+
+  it("reattach 聚合项进批量集合，批量件数 = 组数（2026-11-13 恢复纳入）", () => {
+    const items = buildReconQueue(
+      danglingSource([
+        danglingGroup(), // reattach：7
+        danglingGroup({ key: "20|600519", symbol: "600519", txn_count: 2 }) // reattach：2
+      ])
+    );
+    const batchable = batchableItems(items);
+    // 唯一的 reattach 聚合项可勾选；弹窗拍平 groups 后批量件数 = 组数 2
+    expect(batchable.map(i => i.id)).toEqual(["dangling-reattach"]);
+    const groups = batchable[0].payload;
+    if (groups.kind !== "danglingStage") throw new Error("kind 漂移");
+    expect(groups.groups).toHaveLength(2);
   });
 });
 

@@ -35,16 +35,10 @@
         <p v-else-if="undone" class="drb-done__undone">此次重建已撤销</p>
       </div>
       <template v-else>
-        <!-- ① 前置说明：一句话说清这是什么、以及它是写动作、可撤销 -->
-        <div class="drb-intro">
-          <p class="drb-intro__main">
-            这几条流水找不到对应的持仓，系统可以按流水把持仓重建出来。
-          </p>
-          <p class="drb-intro__sub">
-            这是写操作：会新建一行持仓并把这组流水挂回去；写错了可凭日志编号撤销。
-          </p>
-        </div>
-        <!-- ② 预览：打开即自动拉取；数字全部来自后端派生，前端不二次计算 -->
+        <!-- 预览只给结构区（将按哪份流水建、派生出什么），不再配说明句：
+             派生口径与「可凭日志编号撤销」属文档与日志（design.md「先删，再重排」②），
+             后端 warnings 不整体进界面；唯一例外是「成本均价 = 0」的后果——
+              它是用户点下去的那个决定的后果，括注贴在值行尾说一次。 -->
         <p v-if="previewing" class="drb-loading">正在核对流水，生成重建预览…</p>
         <template v-else-if="preview">
           <div class="drb-facts">
@@ -57,13 +51,9 @@
             </p>
             <p>
               按流水派生：净份额 {{ reconQuantity(preview.net_units) }} ·
-              成本均价 {{ previewAvgPrice }} 元
+              成本均价 {{ previewAvgPrice }} 元{{ avgPriceNote }}
             </p>
           </div>
-          <!-- 重建 ≠ 还原历史：口径与边界逐条原样列出，不折叠成一句「有风险」 -->
-          <ul v-if="preview.warnings.length" class="drb-warnings">
-            <li v-for="(w, i) in preview.warnings" :key="i">{{ w }}</li>
-          </ul>
           <p v-if="!preview.rebuildable" class="drb-block">
             {{ preview.block_reason || "这组流水暂不能重建持仓" }}
           </p>
@@ -174,6 +164,11 @@ const previewAvgPrice = computed(() =>
 );
 const resultAvgPrice = computed(() =>
   formatPrice(result.value?.avg_price, preview.value?.asset_type)
+);
+
+/** 成本均价为 0 的后果贴在值上说一次（后端 _rebuild_warnings 第 4 条的现场化，不渲染 warnings 列表） */
+const avgPriceNote = computed(() =>
+  preview.value?.avg_price === 0 ? "（组内没有买入流水，需在持仓页补成本）" : ""
 );
 
 /** 不可重建时给出可执行的下一步（后端原文），不只把按钮置灰让人猜 */
@@ -291,15 +286,6 @@ function close(value: boolean): void {
 </script>
 
 <style scoped>
-.drb-intro__main {
-  margin: 0;
-  font-size: var(--text-body);
-  font-weight: 600;
-  line-height: 1.6;
-  color: var(--text-primary);
-}
-
-.drb-intro__sub,
 .drb-loading {
   margin: 4px 0 12px;
   font-size: var(--text-label);
@@ -324,18 +310,6 @@ function close(value: boolean): void {
 
 .drb-facts p {
   margin: 0;
-}
-
-.drb-warnings {
-  padding: 0;
-  margin: 0 0 10px;
-  list-style: disc inside;
-}
-
-.drb-warnings li {
-  font-size: var(--text-label);
-  line-height: 1.7;
-  color: var(--color-warning-ink);
 }
 
 .drb-block {

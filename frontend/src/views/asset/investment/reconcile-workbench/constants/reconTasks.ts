@@ -1,11 +1,16 @@
 /**
- * 对账中心任务卡与待办状态的展示层元数据（2026-11-07 重构）。
+ * 对账中心任务卡与待办状态的展示层元数据（2026-11-07 重构；2026-11-13 漏斗重构 3 → 4 张）。
  *
  * ## 为什么不是「7 个域」
- * A~G 是后端扫描器编号，不是用户要做的事。用户打开这个页面只关心三件事：
- * 「两处数字对不上要我裁决」「账外少一笔要我补记」「记录不全要我修正」，
- * 以及更关键的「我现在能处理什么」。故一级导航按**财务动作**分三张卡，
+ * A~G 是后端扫描器编号，不是用户要做的事。用户打开这个页面只关心四件事：
+ * 「两处数字对不上要我裁决」「账外少一笔要我补记」「记录不全要我修正」
+ * 「有一段持仓要按流水重新建」，
+ * 以及更关键的「我现在能处理什么」。故一级导航按**财务动作**分四张卡，
  * 队列内部按**待办状态**筛选；域编号降级为卡片上的「来源」标签。
+ *
+ * ⚠️ 「待重建持仓」从「修正数据」拆出来的原因：这类事缺的不是字段或归属，
+ * 是整条持仓记录——补全 / 回补路径对它完全不适用（design.md「一个数据只有
+ * 一个可用入口」：它有自己的阶段面板与执行区动作）。
  *
  * ⚠️ 本文件只管展示元数据与映射，不持有数据、不推导状态。
  * 可否处理的判据一律以后端 `fixable` / `block_reason` 为准（见 api/reconciliation.ts），
@@ -14,8 +19,8 @@
 
 import type { WorkbenchDomainKey } from "./domainTabs";
 
-/** 三类财务动作 */
-export type ReconTaskKey = "verify" | "supplement" | "repair";
+/** 四类财务动作 */
+export type ReconTaskKey = "verify" | "supplement" | "repair" | "rebuild";
 
 /** 队列的待办状态：按「用户此刻能不能动手」划分，不按数据来源划分 */
 export type ReconQueueState = "ready" | "judge" | "incomplete" | "done";
@@ -34,8 +39,9 @@ export interface ReconTaskMeta {
   next: string;
   /** 收纳的原域（仅供来源标签与 ?domain= 入站寻址，不作导航维度） */
   domains: WorkbenchDomainKey[];
-  /** 卡片语义色：任务性质，不表示「有多少条」 */
-  tone: "info" | "warning" | "brand";
+  /** 卡片语义色：任务性质，不表示「有多少条」。四张卡各取一个值，
+   *  新增取值须同步补 `recon-task-card--<tone>` 样式（WorkbenchTaskCards.vue）。 */
+  tone: "info" | "warning" | "brand" | "neutral";
 }
 
 export const RECON_TASKS: readonly ReconTaskMeta[] = [
@@ -63,11 +69,24 @@ export const RECON_TASKS: readonly ReconTaskMeta[] = [
     key: "repair",
     label: "修正数据",
     hint: "记录缺字段或缺归属，报表会漏算",
-    what: "有些交易找不到对应的持仓，或没填代码、没填日期、没有归属账本。",
+    what: "有些交易没填代码、没填日期，或没有归属账本。",
     why: "它们不进任何账户视图，持仓明细、收益和资产报表都会漏掉这部分。",
-    next: "系统只在能确定归属时才允许挂回，不会替你猜。补全缺失信息后能批量处理；每次回补、补全、删除都记日志，可凭日志编号撤销。",
+    next: "系统只在能确定归属时才允许挂回，不会替你猜。补全缺失信息后能批量处理；每次回补、补全都记日志。",
     domains: ["F", "G"],
     tone: "warning"
+  },
+  {
+    key: "rebuild",
+    label: "待重建持仓",
+    hint: "交易还挂在账里，但持仓记录没了，收益会漏掉这一段",
+    what: "这些交易的持仓记录被删掉了，交易本身还挂着。账里也没有同标的的持仓，挂不回去。",
+    why: "它们不进任何账户视图，这部分持仓的份额和收益都会漏掉。",
+    next: "按流水重建会重新生成持仓行，再把交易挂回去；也可以直接删掉这些交易，删了就不能恢复。",
+    domains: ["F"],
+    // 与「修正数据」区分：缺的是整条持仓记录，不是字段——既非信息缺失（warning
+    // 的语义），也非核对/补记，用中性色；样式待 WorkbenchTaskCards.vue 补
+    // .recon-task-card--neutral（组件不在本 lane 范围）。
+    tone: "neutral"
   }
 ] as const;
 
@@ -99,7 +118,13 @@ export const RECON_QUEUE_STATES: readonly {
   }
 ] as const;
 
-/** 原域 → 所属任务。`?domain=F` 入站时据此定位到任务卡，不改变域本身的含义 */
+/**
+ * 原域 → 所属任务，**只**用于 `?domain=` 入站寻址（focusDomain 据此设任务筛选），
+ * 队列归集一律读队列项自己的 `task`，不许查这张表。
+ * ⚠️ 域 F 2026-11-13 起横跨 repair（补全 / 回补）与 rebuild（待重建持仓）两个任务，
+ * 这里的 F → repair 只是入站默认落点（阶段面板按 activeStage 覆盖全部 F 组），
+ * 不是「域 F 全部属于修正数据」的断言。
+ */
 export const DOMAIN_TO_TASK: Record<WorkbenchDomainKey, ReconTaskKey> = {
   A: "verify",
   B: "verify",
