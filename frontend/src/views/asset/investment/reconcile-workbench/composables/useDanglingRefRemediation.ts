@@ -29,6 +29,7 @@ import {
   type DeleteGuardInput,
   type EnrichGuardInput
 } from "../utils/danglingRefRemediationGuard";
+import { inspectGroupNeeds } from "../utils/danglingRefEnrichScope";
 import { describeEnrichSteps } from "../utils/enrichSteps";
 
 interface DoneResult {
@@ -69,6 +70,16 @@ export function useDanglingRefRemediation(options: RemediationOptions) {
     (group.value?.transactions ?? []).map(t => t.id)
   );
   const txnCount = computed(() => transactionIds.value.length);
+  /**
+   * 这组还缺什么。判据在 `danglingRefEnrichScope`（纯函数 + 单测），这里只做装配：
+   * 有代码的组不给「标的代码」输入框，全齐的组直接挡在提交前。
+   */
+  const needs = computed(() =>
+    inspectGroupNeeds(group.value?.transactions ?? [])
+  );
+  const needsFill = computed(
+    () => !needs.value.complete && needs.value.txnCount > 0
+  );
   const hasField = computed(
     () => !!(symbolInput.value.trim() || tradeDateInput.value)
   );
@@ -81,6 +92,7 @@ export function useDanglingRefRemediation(options: RemediationOptions) {
   const enrichGuard = computed<EnrichGuardInput>(() => ({
     preview: enrichPreview.value,
     hasField: hasField.value,
+    needsFill: needsFill.value,
     fieldSignature: fieldSignature.value,
     confirmed: confirmed.value,
     previewing: previewing.value,
@@ -248,6 +260,8 @@ export function useDanglingRefRemediation(options: RemediationOptions) {
     undone,
     result,
     txnCount,
+    needs,
+    needsFill,
     hasField,
     stepState,
     blockReason,
