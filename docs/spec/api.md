@@ -63,7 +63,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **250** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **256** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -256,6 +256,12 @@ title: 核心 API 端点清单（api）
 | GET | `/api/summary/benchmarks/` | `benchmarks` |
 | GET | `/api/summary/cash-flow/` | `cash_flow` |
 | GET | `/api/summary/cash-like/` | `cash_like` |
+| GET | `/api/summary/cash-like/flows/` | `list_flows` |
+| POST | `/api/summary/cash-like/flows/` | `create_flow` |
+| DELETE | `/api/summary/cash-like/flows/<int:txn_id>/` | `delete_flow` |
+| PATCH | `/api/summary/cash-like/flows/<int:txn_id>/` | `update_flow` |
+| POST | `/api/summary/cash-like/reconcile/` | `reconcile` |
+| GET | `/api/summary/cash-like/targets/` | `list_targets` |
 | GET | `/api/summary/cleared-cycles/` | `cleared_cycles` |
 | GET | `/api/summary/distributions/` | `distributions` |
 | GET | `/api/summary/fund-valuation/` | `fund_valuation` |

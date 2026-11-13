@@ -41,6 +41,15 @@
           />
         </template>
       </el-table-column>
+      <!-- 逐产品管理入口：带上本行的账户与产品名，弹窗据此定位该组流水。
+           放这里而不是 index.vue，是为了不改宿主页面的接线（#980 页面规模）。 -->
+      <el-table-column label="操作" width="90" fixed="right">
+        <template #default="{ row }">
+          <el-button text size="small" @click="openManage(row as CashLikeItem)">
+            管理
+          </el-button>
+        </template>
+      </el-table-column>
 
       <template #append>
         <div class="cash-like-footer">
@@ -54,6 +63,13 @@
         </div>
       </template>
     </el-table>
+
+    <CashLikeManageDialog
+      v-model:visible="manageVisible"
+      :ledger-id="activeLedgerId"
+      :seed-query="seedQuery"
+      @changed="onChanged"
+    />
   </CardBlock>
 </template>
 
@@ -69,15 +85,21 @@
  * ① 只展示、不参与持仓盈亏与占比；② 金额不得再加进页面任何合计（双计）。
  *
  * 数据源 `GET /api/summary/cash-like/`（家庭级，按「账户 + 产品」归组）。
+ * 每行「管理」打开逐笔弹窗（补录到期回款 / 编辑 / 删除 / 归置），
+ * 写入后 emit('changed') 由宿主刷新，避免归置后页面还显示旧净额。
  */
+import { ref } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import type { CashLikeItem } from "@/api/summary";
+import CashLikeManageDialog from "./CashLikeManageDialog.vue";
 import {
   INVENTORY_TABLE_CELL_STYLE,
   INVENTORY_TABLE_HEADER_STYLE
 } from "../constants";
+
+defineOptions({ name: "CashLikeTable" });
 
 defineProps<{
   /** 类现金明细（调用方保证非空才渲染本组件） */
@@ -86,6 +108,23 @@ defineProps<{
   total: number;
   loading?: boolean;
 }>();
+
+const emit = defineEmits<{ changed: [] }>();
+
+const manageVisible = ref(false);
+const activeLedgerId = ref<number | null>(null);
+const seedQuery = ref("");
+
+function openManage(row: CashLikeItem) {
+  activeLedgerId.value = row.ledger_id;
+  seedQuery.value =
+    row.name && row.name !== "未命名" ? row.name : row.symbol || "";
+  manageVisible.value = true;
+}
+
+function onChanged() {
+  emit("changed");
+}
 </script>
 
 <style scoped lang="scss">

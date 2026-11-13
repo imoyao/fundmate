@@ -25,6 +25,7 @@ from app.core.instance_guard import enforce_web_instance_or_exit  # noqa: E402
 from app.domains.agent.views import agent_bp  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
+from app.domains.cash_like.views import bp as cash_like_bp  # noqa: E402
 from app.domains.dividends.views import dividends_bp  # noqa: E402
 from app.domains.families.member_views import member_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
@@ -122,6 +123,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(assets_bp)
     app.register_blueprint(transactions_bp)
     app.register_blueprint(summary_bp)
+    app.register_blueprint(cash_like_bp)
     app.register_blueprint(dividends_bp)
     app.register_blueprint(securities_bp)
     app.register_blueprint(stocks_bp)

@@ -101,6 +101,7 @@
             :items="cashLikeItems"
             :total="cashLikeTotal"
             :loading="cashLikeLoading"
+            @changed="fetchData"
           />
         </section>
 

@@ -1,6 +1,13 @@
 ﻿<template>
   <!-- 持仓明细 Tab -->
   <el-tab-pane label="持仓明细" name="holdings">
+    <!-- 账外类现金（货基 / 逆回购）不建持仓行，持仓表查不到；
+         独立命中区标口径、不进持仓合计，并给出逐笔管理入口。 -->
+    <CashLikeSearchHits
+      :query="p.activeSearch"
+      :ledger-id="Number(p.ledgerId)"
+      @changed="p.loadHoldings()"
+    />
     <!-- 盈亏双线（#1104）：口径说明 + 实时估值开关就地给出（本 Tab 没有 SectionHeader 可挂） -->
     <div class="flex items-center justify-end gap-2 mb-2">
       <el-tooltip :content="PNL_DUAL_SCOPE_TIP" placement="top">
@@ -244,6 +251,7 @@ import DeletePositionDialog from "./DeletePositionDialog.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import PortfolioAssignCell from "@/views/asset/inventory/components/PortfolioAssignCell.vue";
+import CashLikeSearchHits from "@/views/asset/inventory/components/CashLikeSearchHits.vue";
 import { updateLedgerPosition } from "@/api/ledger";
 import { ALLOCATION_OPTIONS } from "@/constants";
 import { pricePrecision } from "@/utils/pricePrecision";

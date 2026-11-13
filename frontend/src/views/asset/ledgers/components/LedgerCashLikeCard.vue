@@ -89,6 +89,9 @@
         <span class="cash-like-actions__hint">
           录进来即归「活钱」，与持仓内货基、账外流水并列统计
         </span>
+        <el-button size="small" plain @click="manageVisible = true">
+          管理账外流水
+        </el-button>
       </div>
 
       <!-- 与「总资产」的关系必须在 UI 上说清楚（卡面验收第 2 条）。
@@ -174,6 +177,15 @@
           </table>
         </div>
       </template>
+
+      <!-- 账外类现金流水（孤儿货基 / 逆回购）的逐笔管理：补录到期回款、
+         编辑 / 删除、归置到已有持仓。写入后 emit('saved') 让宿主刷新概览。 -->
+      <CashLikeManageDialog
+        v-if="ledgerId != null"
+        v-model:visible="manageVisible"
+        :ledger-id="ledgerId ?? null"
+        @changed="emit('saved')"
+      />
     </CardBlock>
 
     <!-- 录入 / 修改账户现金（G5）：一账户一条 cash 行，两条写入路径的语义差异
@@ -197,6 +209,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import LedgerCashEntryDialog from "./LedgerCashEntryDialog.vue";
+import CashLikeManageDialog from "@/views/asset/inventory/components/CashLikeManageDialog.vue";
 import { formatAmount } from "@/utils/currency";
 import type { LedgerSummaryData } from "@/composables/ledger/types";
 
@@ -260,6 +273,8 @@ const rowKey = (row: { symbol?: string | null; name?: string | null }) =>
 // 账户现金录入 / 修改弹窗（G5）：写入逻辑与两条路径的语义差异全部下沉到
 // LedgerCashEntryDialog，本卡片只负责入口与刷新信号（文件规模门禁 400 行）。
 const cashDialogVisible = ref(false);
+// 账外类现金流水（孤儿货基 / 逆回购）的逐笔管理弹窗
+const manageVisible = ref(false);
 </script>
 
 <style lang="scss" scoped>
