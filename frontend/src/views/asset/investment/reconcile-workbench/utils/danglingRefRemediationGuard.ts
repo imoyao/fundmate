@@ -2,7 +2,8 @@
  * 「数据缺失」分组「补全信息 / 删除」弹窗的提交准入（#2866 后续）。
  *
  * 与 danglingRefFixGuard 同一条硬规矩：**没看过影响预览，就不许写**。
- * 补全额外要求：至少填一个字段、预览对应的输入未变（防拿 A 输入的预览去提交
+ * 补全额外要求：这组确实有可补字段（否则整组代码日期已齐，动作不成立）、
+ * 至少填一个字段、预览对应的输入未变（防拿 A 输入的预览去提交
  * B 输入）、二次勾选确认；删除额外要求：输入「删除」二字（后端也会硬校验，
  * 这里只是不把明显不合格的请求发出去）。
  *
@@ -24,6 +25,13 @@ export interface DeletePreviewLike {
 export interface EnrichGuardInput {
   preview: EnrichPreviewLike | null;
   hasField: boolean;
+  /**
+   * 这组是否**还有**可补的字段（`inspectGroupNeeds().complete` 的反面）。
+   * 组内代码与日期全齐时，补全动作在语义上不成立——不是「用户没填」，
+   * 所以这条判据必须排在 `hasField` 之前，否则会把原因说成
+   * 「请至少填写标的代码或交易日期」，让用户以为是自己漏填了。
+   */
+  needsFill: boolean;
   fieldSignature: string;
   confirmed: boolean;
   previewing: boolean;
@@ -41,6 +49,7 @@ export interface DeleteGuardInput {
 
 export type EnrichBlockReason =
   | "该组没有可处理的交易"
+  | "这组没有可补的字段"
   | "请至少填写标的代码或交易日期"
   | "正在查看影响"
   | "正在提交"
@@ -68,6 +77,7 @@ export function buildFieldSignature(
 /** 返回禁止提交的原因；返回 null 才允许提交。顺序即优先级：先挡住「还没看清」。 */
 export function enrichBlockReason(input: EnrichGuardInput): EnrichBlockReason {
   if (input.txnCount === 0) return "该组没有可处理的交易";
+  if (!input.needsFill) return "这组没有可补的字段";
   if (!input.hasField) return "请至少填写标的代码或交易日期";
   if (input.previewing) return "正在查看影响";
   if (input.submitting) return "正在提交";

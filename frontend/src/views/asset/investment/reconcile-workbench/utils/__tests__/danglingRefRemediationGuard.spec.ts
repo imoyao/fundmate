@@ -23,6 +23,7 @@ import {
 const ENRICH_READY: EnrichGuardInput = {
   preview: { symbol: "600519", trade_date: "2026-11-07" },
   hasField: true,
+  needsFill: true,
   fieldSignature: "600519|2026-11-07",
   confirmed: true,
   previewing: false,
@@ -60,6 +61,22 @@ describe("补全信息的提交准入（#2866 后续）", () => {
     const input = { ...ENRICH_READY, hasField: false };
     expect(enrichBlockReason(input)).toBe("请至少填写标的代码或交易日期");
     expect(canSubmitEnrich(input)).toBe(false);
+  });
+
+  it("这组没有可补的字段：不许提交，且原因不是「你没填」", () => {
+    const input = { ...ENRICH_READY, needsFill: false, hasField: false };
+    expect(enrichBlockReason(input)).toBe("这组没有可补的字段");
+    expect(canSubmitEnrich(input)).toBe(false);
+  });
+
+  it("判据顺序：无可补字段优先于「请至少填写」（否则会把语义问题说成漏填）", () => {
+    const input = { ...ENRICH_READY, needsFill: false, hasField: false };
+    expect(enrichBlockReason(input)).not.toBe("请至少填写标的代码或交易日期");
+  });
+
+  it("判据顺序：空组优先于无可补字段", () => {
+    const input = { ...ENRICH_READY, txnCount: 0, needsFill: false };
+    expect(enrichBlockReason(input)).toBe("该组没有可处理的交易");
   });
 
   it("预览请求进行中不允许提交", () => {

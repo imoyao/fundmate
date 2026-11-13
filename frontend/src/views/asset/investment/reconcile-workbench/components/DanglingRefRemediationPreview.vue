@@ -16,10 +16,17 @@
       <p v-else class="dr-muted">
         暂无同标的现存持仓，补全信息后仍需补建持仓或补录流水。
       </p>
-      <p class="dr-sub">前 8 条变更</p>
-      <ul class="dr-list">
-        <li v-for="(line, i) in enrichChangeLines" :key="i">{{ line }}</li>
-      </ul>
+      <!-- 只列「真正会变」的行：后端把未变化的行也一并返回，无条件列出来就会被
+           读成「7 条变更」，与上一句「无需改动 7 条」自相矛盾（owner 截图 A）。 -->
+      <template v-if="changedRows.length">
+        <p class="dr-sub">{{ changedTitle }}</p>
+        <ul class="dr-list">
+          <li v-for="(line, i) in enrichChangeLines" :key="i">{{ line }}</li>
+        </ul>
+      </template>
+      <p v-else class="dr-muted">
+        没有字段会被改动：组内这些流水的标的代码与交易日期都已填好。
+      </p>
       <ul v-if="enrichPreview.warnings.length" class="dr-warnings">
         <li v-for="(w, i) in firstWarnings(enrichPreview.warnings)" :key="i">
           {{ w }}
@@ -55,6 +62,7 @@ import type {
   DanglingRefDeletePreview,
   DanglingRefEnrichPreview
 } from "@/api/reconciliation";
+import { pickChangedRows } from "../utils/danglingRefEnrichScope";
 
 /** 「补全信息 / 删除」的影响预览面板（#2866 后续）：纯展示，不含任何写动作。
  *  从主弹窗拆出，避免单文件超过 check_vue_size.mjs 的 400 行阈值。 */
@@ -72,13 +80,25 @@ const candidateLines = computed(() =>
     c => `#${c.id} ${c.symbol} · ${c.quantity} 份 · ${c.ownership_status}`
   )
 );
+/** 真正会被写的行（判据在 utils/danglingRefEnrichScope，单测覆盖空白/等值边界） */
+const changedRows = computed(() =>
+  pickChangedRows(props.enrichPreview?.changes ?? [])
+);
 const enrichChangeLines = computed(() =>
-  (props.enrichPreview?.changes ?? []).slice(0, 8).map(
+  changedRows.value.slice(0, 8).map(
     // 「标的 A → B」是补全动作的改前/改后对比，属于预览内容本身，不是标题
     ch =>
       `#${ch.id} 标的 ${ch.symbol_before || "缺"} → ${ch.symbol_after || "缺"} · 日期 ${ch.trade_date_before || "缺"} → ${ch.trade_date_after || "缺"}`
   )
 );
+/** 标题只说会改几条；超过 8 条时补一句「共 N 条」，不让「前 8」看起来是全部 */
+const changedTitle = computed(() => {
+  const total = changedRows.value.length;
+  const shown = Math.min(total, 8);
+  return total > shown
+    ? `将改动的前 ${shown} 条（共 ${total} 条）`
+    : `将改动的 ${total} 条`;
+});
 const deleteDetailLines = computed(() =>
   (props.deletePreview?.transactions ?? []).slice(0, 8).map(
     // 删除明细行要保留被删数据的原始代码作定位依据，不是标题级展示

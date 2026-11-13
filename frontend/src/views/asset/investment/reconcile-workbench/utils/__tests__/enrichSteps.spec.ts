@@ -10,6 +10,7 @@ import type { EnrichGuardInput } from "../danglingRefRemediationGuard";
 const READY: EnrichGuardInput = {
   preview: { symbol: "600519", trade_date: "2026-11-07" },
   hasField: true,
+  needsFill: true,
   fieldSignature: "600519|2026-11-07",
   confirmed: true,
   previewing: false,
@@ -85,5 +86,20 @@ describe("补全弹窗三步准入的展示态", () => {
     const state = describeEnrichSteps({ ...READY, txnCount: 0 });
     expect(state.current).toBe(1);
     expect(state.guide).toContain("没有可处理的交易");
+  });
+
+  it("无可补字段：停在第 1 步，且引导语说清「都已填写」并给出下一步", () => {
+    const state = describeEnrichSteps({
+      ...READY,
+      needsFill: false,
+      hasField: false,
+      preview: null,
+      confirmed: false
+    });
+    expect(state.current).toBe(1);
+    expect(state.blocked).toBe(true);
+    expect(state.guide).toContain("都已填写");
+    expect(state.guide).toContain("没有可补的字段");
+    expect(state.guide).not.toContain("请至少");
   });
 });

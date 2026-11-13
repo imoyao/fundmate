@@ -29,8 +29,11 @@
       <template v-else>
         <!-- 说明分两层：一句说清「现在是什么问题」，小字说清「补完会怎样」 -->
         <div class="dr-intro">
-          <p v-if="mode === 'enrich'" class="dr-intro__main">
+          <p v-if="mode === 'enrich' && needsFill" class="dr-intro__main">
             这些交易缺标的代码或交易日期，找不到对应的持仓。
+          </p>
+          <p v-else-if="mode === 'enrich'" class="dr-intro__main">
+            这些交易找不到对应的持仓，但标的代码与交易日期都已填写。
           </p>
           <p v-else class="dr-intro__main">
             这些交易找不到对应的持仓记录，删除前请先核对明细。
@@ -47,23 +50,36 @@
           删除这些交易会影响已实现盈亏与收益统计；现存持仓份额不会改变；可凭日志编号撤销本次处理。
         </p>
         <template v-if="mode === 'enrich'">
-          <el-form label-width="90px" size="default">
-            <el-form-item label="标的代码">
+          <!--
+            表单只渲染「真正要补的字段」：分组键是 (ledger_id, symbol)，组内代码必然
+            相同 ⇒ 对有代码的组，代码输入框永远补 0 条（owner 2026-11-12 截图里那个
+            `SZ128021 → SZ128021`）。齐了的那一项改成只读一行，让人看见这组的键是什么。
+          -->
+          <el-form v-if="needsFill" label-width="90px" size="default">
+            <el-form-item v-if="needs.needSymbol > 0" label="标的代码">
               <el-input
                 v-model="symbolInput"
                 placeholder="例如 600519"
                 maxlength="30"
               />
+              <p class="dr-hint">{{ symbolHint }}</p>
             </el-form-item>
-            <el-form-item label="交易日期">
+            <el-form-item v-else label="标的代码">
+              <span class="dr-static-value">{{ symbolStatic }}</span>
+            </el-form-item>
+            <el-form-item v-if="needs.needDate > 0" label="交易日期">
               <el-date-picker
                 v-model="tradeDateInput"
                 type="date"
                 value-format="YYYY-MM-DD"
                 format="YYYY-MM-DD"
-                placeholder="选择交易日期"
+                placeholder="选择成交当天"
                 style="width: 100%"
               />
+              <p class="dr-hint">{{ dateHint }}</p>
+            </el-form-item>
+            <el-form-item v-else label="交易日期">
+              <span class="dr-static-value">{{ dateStatic }}</span>
             </el-form-item>
             <el-form-item label="原因（选填）">
               <el-input
@@ -72,21 +88,25 @@
               />
             </el-form-item>
           </el-form>
-          <DanglingRefEnrichSteps
-            :state="stepState"
-            :previewing="previewing"
-            :can-preview="hasField"
-            @preview="runEnrichPreview"
-          />
-          <DanglingRefRemediationPreview
-            :mode="mode"
-            :enrich-preview="enrichPreview"
-            :delete-preview="deletePreview"
-            :previewing="previewing"
-          />
-          <el-checkbox v-model="confirmed" class="dr-confirm">
-            我已核对，确认补全
-          </el-checkbox>
+          <!-- 可补 0 条：如实说明，并指向真正能处理它的两条路径 -->
+          <p v-else class="dr-static-warn">{{ noFieldNote }}</p>
+          <template v-if="needsFill">
+            <DanglingRefEnrichSteps
+              :state="stepState"
+              :previewing="previewing"
+              :can-preview="hasField"
+              @preview="runEnrichPreview"
+            />
+            <DanglingRefRemediationPreview
+              :mode="mode"
+              :enrich-preview="enrichPreview"
+              :delete-preview="deletePreview"
+              :previewing="previewing"
+            />
+            <el-checkbox v-model="confirmed" class="dr-confirm">
+              我已核对，确认补全
+            </el-checkbox>
+          </template>
         </template>
         <template v-else>
           <DanglingRefRemediationPreview
@@ -169,6 +189,8 @@ const {
   undone,
   result,
   txnCount,
+  needs,
+  needsFill,
   hasField,
   stepState,
   blockReason,
@@ -199,6 +221,27 @@ const footerHint = computed(() =>
   props.mode === "enrich"
     ? stepState.value.guide
     : blockReason.value || "可以提交"
+);
+
+/** 字段说明回答「这个字段填什么、填了会怎样」，比 placeholder 更具体。 */
+const symbolHint = computed(
+  () =>
+    `组内 ${needs.value.needSymbol} 条没有标的代码，填一次统一补上；已有代码的不改。`
+);
+const dateHint = computed(
+  () =>
+    `组内 ${needs.value.needDate} 条没有交易日期。这里填的是成交当天，会统一写入这 ${needs.value.needDate} 条；若它们不是同一天成交，这个入口补不了。`
+);
+/** 该字段已齐：改成只读事实，让人看见这组的键是什么，而不是给一个永远补 0 条的输入框。 */
+const symbolStatic = computed(
+  () => `${needs.value.symbol ?? "—"} · 组内 ${needs.value.txnCount} 条都已填写`
+);
+const dateStatic = computed(
+  () => `组内 ${needs.value.txnCount} 条都已有交易日期`
+);
+const noFieldNote = computed(
+  () =>
+    `这组 ${txnCount.value} 条流水的标的代码与交易日期都已填写，没有可补的字段。要继续处理，需补建持仓或补录交易流水。`
 );
 
 function close(value: boolean): void {
@@ -249,6 +292,23 @@ function close(value: boolean): void {
 
 .dr-confirm {
   margin-top: 4px;
+}
+
+/* 字段说明必须独占一行：`el-form-item__content` 是 flex+wrap，输入框占满宽度后
+   说明文字会落在下一行，但不给 100% 就会跟输入框挤成一段。 */
+.dr-hint {
+  width: 100%;
+  margin: 4px 0 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
+}
+
+/* 不需要补的字段改成只读事实：告诉人「这组的键是什么」，而不是给一个空输入框 */
+.dr-static-value {
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
 }
 
 .dr-footer__submit {
