@@ -127,7 +127,17 @@ def fetch_rows(db_path: pathlib.Path) -> list[dict]:
     con.row_factory = sqlite3.Row
     try:
         placeholders = ','.join('?' for _ in ORPHAN_ASSET_TYPES)
-        sql = f'SELECT * FROM transactions WHERE position_id IS NULL AND asset_type IN ({placeholders})'
+        # #3089：已归置流水由持仓市值承接，不再属于账外类现金；旧库可能还没跑过
+        # 加列迁移，此时显式告警而不是让脚本直接崩在「no such column」。
+        columns = {r['name'] for r in con.execute('PRAGMA table_info(transactions)')}
+        has_coverage = 'covered_position_id' in columns
+        if not has_coverage:
+            print(
+                '[warn] 库里没有 covered_position_id 列，本次结论可能含已归置流水（请先启动一次应用以跑迁移）',
+                file=sys.stderr,
+            )
+        covered = ' AND covered_position_id IS NULL' if has_coverage else ''
+        sql = f'SELECT * FROM transactions WHERE position_id IS NULL AND asset_type IN ({placeholders}){covered}'
         return [dict(r) for r in con.execute(sql, ORPHAN_ASSET_TYPES)]
     finally:
         con.close()

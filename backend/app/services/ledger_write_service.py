@@ -170,6 +170,7 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
             # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
             or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
             Transaction.position_id.is_(None),
+            Transaction.covered_position_id.is_(None),
             Transaction.txn_type.in_(('buy', 'deposit')),
         )
         .scalar()
@@ -185,6 +186,7 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
             # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
             or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
             Transaction.position_id.is_(None),
+            Transaction.covered_position_id.is_(None),
             Transaction.txn_type.in_(('sell', 'withdraw')),
         )
         .scalar()

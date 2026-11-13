@@ -79,6 +79,8 @@ def _collect_orphan_flows(
     """
     query = db.query(Transaction).filter(
         Transaction.position_id.is_(None),
+        # #3089：已归置流水的本金不由孤儿净额承载，不进每日货基收益的持有基线
+        Transaction.covered_position_id.is_(None),
         Transaction.asset_type.in_(_ORPHAN_ASSET_TYPES),
         Transaction.family_id == family_id,
         # #863 D1：收益行（is_income）不进本金基线，防止收益再产生收益

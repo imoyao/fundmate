@@ -317,6 +317,8 @@ def transaction_row(
         'id': t.id,
         'ledger_id': t.ledger_id,
         'position_id': t.position_id,
+        # #3089：非空 = 这批账外类现金已由该持仓体现，列表据此显示只读标记、不隐藏流水。
+        'covered_position_id': t.covered_position_id,
         # #2844：收益类流水（券商原文不给标的）用「资产类型 + 收益种类」兜底，
         # 不再一律显示「未知资产」——判据与文案都在 display_asset_name 里，改一处即可。
         'position_name': display_asset_name(
@@ -380,8 +382,15 @@ def build_transaction_detail(db, family_id: int, transaction_id: int):
         asset_types=asset_types,
         position_states=position_states,
     )
+    # #3089：归置指向的持仓名只在展开一行时查（列表 20 行不必为此各查一次）。
+    covered_name = (
+        db.query(Position.name).filter(Position.id == t.covered_position_id, Position.family_id == family_id).scalar()
+        if t.covered_position_id
+        else None
+    )
     row.update(
         {
+            'covered_position_name': covered_name,
             # 以下键**列表里没有**，正是「展开才取」的理由：
             'import_hash': t.import_hash,
             'updated_at': t.updated_at.isoformat() if t.updated_at else None,

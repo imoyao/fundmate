@@ -67,6 +67,8 @@ def outstanding_cents(db, family_id: int, ledger_id: int, symbol: str) -> int:
             Transaction.asset_type == REVERSE_REPO_ASSET_TYPE,
             Transaction.symbol == symbol,
             Transaction.position_id.is_(None),
+            # #3089：已由持仓体现的流水不是「在途本金」，不得再被回款结清
+            Transaction.covered_position_id.is_(None),
         )
         .all()
     )

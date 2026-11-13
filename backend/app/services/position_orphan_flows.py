@@ -176,6 +176,8 @@ def find_orphan_cash_flows(db: Session, ledger_id, symbol: str, family_id: int) 
         .filter(
             Transaction.ledger_id == ledger_id,
             Transaction.position_id.is_(None),
+            # #3089：已归置流水由持仓市值承接，不得再被自动挂回（会双计成本）
+            Transaction.covered_position_id.is_(None),
             Transaction.family_id == family_id,
             Transaction.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
             or_(Transaction.is_income.is_(None), Transaction.is_income.is_(False)),

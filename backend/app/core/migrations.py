@@ -2984,3 +2984,31 @@ def migrate_allocation_source_columns(engine: Engine) -> str:
         logger.info(f'[OK] {table}.allocation_source 已加列并完成存量打标（#3031）')
         results.append(f'{table}:[OK] 加列并打标')
     return ' / '.join(results)
+
+
+def migrate_transaction_covered_position(engine: Engine) -> str:
+    """transactions 补 ``covered_position_id``（#3089 归置，方案 A）。
+
+    ## 为什么需要
+
+    真库出现过「持仓 #247 已含这只货基」与「152 笔同产品孤儿流水」并存，
+    同一笔钱被持仓市值与账外类现金净额各算一遍。归置只表达「这批流水已由
+    某持仓体现」，**不改 position_id**：后者是持仓成本/份额的输入，指过去会
+    让成本翻倍（#3089 方案 B 已否决）。
+
+    ## 方言与幂等（#2534 纪律）
+
+    走 ``_add_columns_if_missing`` 单一通道：SQLite / libsql 直接加列、
+    Postgres ``ADD COLUMN IF NOT EXISTS``，收尾自校验；**不写「非 SQLite 就跳过」**
+    ——生产 user 域是 Postgres，跳过会让 ``_validate_schema`` 拒绝启动。
+
+    只加列不回填：哪些孤儿流水已由持仓体现只能由人指认（symbol / trade_date 大面积为空），
+    NULL = 未归置（正确语义），清空该列即撤销。
+    """
+    if not _table_exists(engine, 'transactions'):
+        return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
+    added = _add_columns_if_missing(engine, 'transactions', [('covered_position_id', 'INTEGER')])
+    if added:
+        logger.info('[OK] transactions 增加归置列 covered_position_id（#3089）')
+        return f'[OK] transactions 增加 covered_position_id={added}'
+    return '[SKIP] transactions.covered_position_id 已存在'

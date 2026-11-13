@@ -55,6 +55,7 @@ from app.core.migrations import (
     migrate_positions_state_check_constraints,
     migrate_positions_symbol_norm,
     migrate_sales_institution_pinyin_full,
+    migrate_transaction_covered_position,
     migrate_transaction_fee_breakdown,
     migrate_transaction_plan_id,
     migrate_transaction_symbol_from_position,
@@ -668,6 +669,9 @@ def init_db():
     migrate_transaction_fee_breakdown(user_eng)
     # transactions.plan_id（#2138）：定投计划与流水的关联列 + 索引，同上须先于结构校验
     migrate_transaction_plan_id(user_eng)
+    # transactions.covered_position_id（#3089）：孤儿流水「已由某持仓体现」的归置列。
+    # 只加列不回填（哪些行该归置只能由人指认），须先于结构校验。
+    migrate_transaction_covered_position(user_eng)
     # transactions.symbol_norm 归一身份列 + asset_type 回填（#1662 遗留项）：#1677 只给
     # positions 做了这件事，流水侧被漏掉，导致 `SZ001937` 与 `001937` 各算各的。
     # 与 positions 同因同法，须先于结构校验（模型已加列，库表不同步会拒绝启动）。
