@@ -70,8 +70,8 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [account-detail-depth-analysis.md](./account-detail-depth-analysis.md) | 账户详情页「持仓集中度 / 行业分布」占位卡处置（#2739）：能力已上线的事实取证、四页面对照矩阵、独立冗余评估与方案对比（B′ 就地内嵌缺失两块 vs 入口卡 vs 删除 vs 照搬整页）；§11 记 #2943 账户级风格面板的价值判断（判定不做） | 设计依据（**已实现**，§0 有 owner 裁定与落地摘要，§6 记录裁定过程） |
 | [account-detail-depth-analysis-eval.md](./account-detail-depth-analysis-eval.md) | 上述文档的证据附录：聚合页 / 账户详情页 / 组合详情页 / 复盘页的分析块对照矩阵与「同源组件 ≠ 功能冗余」的独立评估 | 事实标准（§1 是实现前快照，落地后状态见文末 §5；矩阵易腐烂，引用前回 `origin/dev` 复核） |
 | [position-structure-view-by-ledger-type.md](./position-structure-view-by-ledger-type.md) | 持仓结构视角由账户类型（`ledger_type`）决定、不由用户切换：两个账户类型字段的职责边界、ETF 归权益侧与货基走类现金的口径细则、组合/家庭级为何保留切换 | 口径依据（**已实现**，§2 的字段选择与 §3 的实测数据是判据依据） |
-| [agent-paradigm-selection.md](./agent-paradigm-selection.md) | 账本精灵推理范式选型（ReAct / Plan-and-Execute / Reflection + 不改范式第四方案）：第一性区分、12 条已验收约束盘点、决策树、代价对比与待裁定问题 | 选型分析（**未实施 / 待裁定**，不含实现清单；判定为 P&E 最小版优先，实现范围下一轮 owner 裁定） |
-| [agent-rebalance-reference-tool.md](./agent-rebalance-reference-tool.md) | 账本精灵「持仓再平衡参考」工具设计（#3049 Q3 专题）：只读计算型工具 `get_rebalance_reference` 的目标/边界/数据底座/计算逻辑/输出 schema/护栏集成点，与 P&E/A′ 正交 | 设计依据（**未实施 / 待裁定**，不含实现清单；行号绑定 origin/dev @ ac8c15d508） |
+| [agent-paradigm-selection.md](./agent-paradigm-selection.md) | 账本精灵推理范式选型（ReAct / Plan-and-Execute / Reflection + 不改范式第四方案）：第一性区分、12 条已验收约束盘点、决策树、代价对比与裁定留痕 | 选型分析（**已裁定，D115**；§1~§11 为判定依据，P&E 最小编排已落地，§13 记裁定与落地事实） |
+| [agent-rebalance-reference-tool.md](./agent-rebalance-reference-tool.md) | 账本精灵「持仓再平衡参考」工具设计（#3049 Q3 专题）：只读计算型工具 `get_rebalance_reference` 的目标/边界/数据底座/计算逻辑/输出 schema/护栏集成点，与 P&E/A′ 正交 | 设计依据（**v1 + v2 已实施，D115**；§12 记 v1、§13 记 v2；行号绑定历史提交，引用前复核） |
 | [internal-index.md](./internal-index.md) | 内部资产 / 备忘索引（钩子清单） | 索引页（`srcExclude`，不参与构建） |
 
 ## 视觉设计语言（权威入口）

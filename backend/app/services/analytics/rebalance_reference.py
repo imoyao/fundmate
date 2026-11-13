@@ -21,6 +21,11 @@ from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.temperature.models import MarketMultiItem
 from app.services.analytics.rebalance_reference_rules import build_rebalance_report
+from app.services.analytics.rebalance_reference_v2 import (
+    build_fund_valuation_fact,
+    build_history_fact,
+    build_industry_fact,
+)
 from app.services.position_scope import exclude_cleared
 from app.services.position_valuation import market_value_cents
 from app.services.thermometer.wind_valuation import BROAD_INDEX_TARGETS, WIND_VALUATION_SOURCE
@@ -71,11 +76,17 @@ def build_rebalance_reference(params: dict) -> dict:
             for p in positions
         ]
         valuation = _latest_index_percentile(db, benchmark)
+        industry = build_industry_fact(db, family_id)
+        history = build_history_fact(db, family_id, positions)
+        fund_valuation = build_fund_valuation_fact(db, [r['symbol'] for r in rows])
     return build_rebalance_report(
         positions=rows,
         as_of=now_shanghai().date().isoformat(),
         scope=f'family_id={family_id}',
         valuation=valuation,
+        industry=industry,
+        history=history,
+        fund_valuation=fund_valuation,
     )
 
 
