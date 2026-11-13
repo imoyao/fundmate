@@ -119,6 +119,14 @@ NEW_FILE_LIMITS = {
 # 三个维度都只减不增；`dividend_split_job.py` 554 行与基线一致，无需改动。
 # ⚠️ 守住「贴合」不是多余：只把代码改瘦、不回写基线，`test_baseline_matches_current_metrics`
 # 会判红（本 PR 首轮 CI 即因 `407 != 409` 失败），而该维度的「只减不增」也会静默失效。
+#
+# 2026-11-13 归置列（#3089 / D116）按 `--report` 实测回写六个存量文件，理由留痕：
+# 每个文件只加 `covered_position_id IS NULL` 过滤（1~3 行）或列表回显字段，没有新增函数/分支：
+# summary_service 1414→1420（三处口径 + 模块注释 + 公共别名）、ledger_write_service 663→665、
+# money_fund_income 301→303、position_orphan_flows 423→425、
+# sync/jobs/orphan_backfill_job 302→304 / max_func 64→66、transaction_service 492→501
+# （列表行字段 + 详情按需查持仓名）。max_cc 全部未变。归置/撤销的全部新逻辑下沉到
+# 新文件 orphan_coverage_service.py（245/47/9，走 NEW_FILE_LIMITS），未放大存量函数职责。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -283,7 +291,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 一致性守卫」抽到 services/ledger_category_guard.py（新文件走 NEW_FILE_LIMITS），
     # update_ledger 由 4 行分支收成 1 行调用 ⇒ 664→663 / 154→152 / 49→48。
     # 按 `--report` 实测回写，三个维度都只减不增。
-    "backend/app/services/ledger_write_service.py": {'lines': 663, 'max_func': 152, 'max_cc': 48},
+    "backend/app/services/ledger_write_service.py": {'lines': 665, 'max_func': 152, 'max_cc': 48},
     "backend/app/services/login_identifier.py": {'lines': 62, 'max_func': 38, 'max_cc': 10},
     "backend/app/services/manager_code.py": {'lines': 68, 'max_func': 15, 'max_cc': 3},
     "backend/app/services/manager_holdings.py": {'lines': 362, 'max_func': 98, 'max_cc': 30},
@@ -308,7 +316,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/mcp/providers/wind_stock_data.py": {'lines': 61, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/mcp/registry.py": {'lines': 64, 'max_func': 15, 'max_cc': 3},
     "backend/app/services/mcp/transport.py": {'lines': 369, 'max_func': 35, 'max_cc': 10},
-    "backend/app/services/money_fund_income.py": {'lines': 301, 'max_func': 63, 'max_cc': 13},
+    "backend/app/services/money_fund_income.py": {'lines': 303, 'max_func': 63, 'max_cc': 13},
     "backend/app/services/money_fund_yield.py": {'lines': 195, 'max_func': 84, 'max_cc': 19},
     "backend/app/services/nav_service.py": {'lines': 430, 'max_func': 71, 'max_cc': 12},
     "backend/app/services/notification_service.py": {'lines': 160, 'max_func': 22, 'max_cc': 8},
@@ -355,7 +363,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/position_display.py": {'lines': 248, 'max_func': 129, 'max_cc': 18},
     "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 60, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
-    "backend/app/services/position_orphan_flows.py": {'lines': 423, 'max_func': 81, 'max_cc': 14},
+    "backend/app/services/position_orphan_flows.py": {'lines': 425, 'max_func': 81, 'max_cc': 14},
     "backend/app/services/position_sell_command.py": {'lines': 362, 'max_func': 96, 'max_cc': 17},
     "backend/app/services/position_bond_command.py": {'lines': 269, 'max_func': 69, 'max_cc': 16},
     "backend/app/services/position_recompute.py": {'lines': 200, 'max_func': 44, 'max_cc': 9},
@@ -399,7 +407,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-12 #3031 G4：五笔钱成员边界与分桶下沉到 allocation_breakdown.py
     # （资产行纳入 + 「未纳入」出口），并删除随实现消失的死常量 _DEFAULT_ALLOC；
     # 1417 → 1415 为真实缩减，按 --report 回写（只减不增）。
-    "backend/app/services/summary_service.py": {'lines': 1414, 'max_func': 107, 'max_cc': 17},
+    "backend/app/services/summary_service.py": {'lines': 1420, 'max_func': 107, 'max_cc': 17},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},
@@ -439,7 +447,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/sync/jobs/manager_tenure_job.py": {'lines': 238, 'max_func': 111, 'max_cc': 14},
     "backend/app/services/sync/jobs/market_asset_daily_job.py": {'lines': 80, 'max_func': 10, 'max_cc': 7},
     "backend/app/services/sync/jobs/nav_backfill_job.py": {'lines': 227, 'max_func': 53, 'max_cc': 15},
-    "backend/app/services/sync/jobs/orphan_backfill_job.py": {'lines': 302, 'max_func': 64, 'max_cc': 11},
+    "backend/app/services/sync/jobs/orphan_backfill_job.py": {'lines': 304, 'max_func': 66, 'max_cc': 11},
     "backend/app/services/sync/jobs/position_price_job.py": {'lines': 414, 'max_func': 152, 'max_cc': 39},
     "backend/app/services/sync/jobs/price_history_job.py": {'lines': 563, 'max_func': 125, 'max_cc': 21},
     "backend/app/services/sync/jobs/security_industry_map_job.py": {'lines': 237, 'max_func': 40, 'max_cc': 11},
@@ -461,7 +469,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/today_pnl.py": {'lines': 553, 'max_func': 182, 'max_cc': 37},
     "backend/app/services/trade_timeline.py": {'lines': 497, 'max_func': 235, 'max_cc': 35},
     "backend/app/services/trading.py": {'lines': 140, 'max_func': 28, 'max_cc': 10},
-    "backend/app/services/transaction_service.py": {'lines': 492, 'max_func': 69, 'max_cc': 10},
+    "backend/app/services/transaction_service.py": {'lines': 501, 'max_func': 69, 'max_cc': 10},
     "backend/app/services/txn_name_resolver.py": {'lines': 258, 'max_func': 64, 'max_cc': 31},
     "backend/app/services/user_profile.py": {'lines': 88, 'max_func': 49, 'max_cc': 9},
     "backend/app/services/watchlist_display.py": {'lines': 1772, 'max_func': 239, 'max_cc': 68},

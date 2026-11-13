@@ -142,6 +142,8 @@ class OrphanBackfillJob(SyncJob):
             self.db.query(Transaction)
             .filter(
                 Transaction.position_id.is_(None),
+                # #3089：已归置流水不得被夜间回填挂回持仓（会双计成本）
+                Transaction.covered_position_id.is_(None),
                 # 收益行属「孤儿净额」桶语义，不参与回填（见模块 docstring）
                 (Transaction.is_income.is_(None)) | (Transaction.is_income.is_(False)),
             )

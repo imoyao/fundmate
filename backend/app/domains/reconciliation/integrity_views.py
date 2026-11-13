@@ -29,6 +29,10 @@ trade_date），删除要求后端硬校验 ``confirm is True`` 且 ``confirm_ph
 - ``POST /rebuild/`` 是唯一**会新建持仓行**的端点：份额与成本由这一组流水派生（没有
   持仓行可改），仍要求二次确认、仍留审计与撤销；
 - 每次写入都记 ``adjustment_logs``，可凭 ``log_id`` 撤销。
+
+#3089「归置」沿用同一套边界：``POST /orphan-coverage/`` 与 ``/undo/``
+只 UPDATE ``transactions.covered_position_id`` 一列，不改 ``position_id`` /
+金额 / 账本、不重算份额、不删流水，归置与撤销都留审计日志。
 """
 
 from apiflask import APIBlueprint
@@ -36,6 +40,7 @@ from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import user_session
+from app.services import orphan_coverage_service as coverage_svc
 from app.services.dangling_ref_rebuild_service import (
     preview_rebuild,
     rebuild_position,
@@ -408,6 +413,53 @@ def undo_orphan_ledger_backfill():
             abort(400, description=str(e))
         db.flush()
         return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── #3089 同一笔钱两处记账：账外类现金流水归置 / 撤销 ──────────────────────
+
+
+@bp.post('/orphan-coverage/')
+def cover_orphan_cash_flows():
+    """把用户显式指认的一批孤儿流水标记为「已由某持仓体现」（只改一列）。
+
+    body: ``{ transaction_ids: int[], covered_position_id: int, reason?: str, operator?: int }``
+    服务层逐条硬校验「本家庭 + 账外类现金 + 未被归置」且持仓存在，任一不满足整体 400、零写入；
+    ``adjustment_logs`` 记录 before/after，凭返回的 ``log_id`` 撤销。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = coverage_svc.cover_orphan_flows(
+                db,
+                family_id,
+                transaction_ids=body.get('transaction_ids'),
+                covered_position_id=body.get('covered_position_id'),
+                reason=body.get('reason'),
+                operator=body.get('operator'),
+            )
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': coverage_svc.cover_message(data)})
+
+
+@bp.post('/orphan-coverage/undo/')
+def undo_orphan_cash_flows():
+    """撤销一次归置（body: ``{ log_id: int }``），幂等、每次留痕。
+
+    仅当流水当前 ``covered_position_id`` 仍等于归置后的值才恢复成 NULL；
+    拒绝非 ``orphan_flow_cover`` 的日志。撤销后类现金与总资产回到归置前。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = coverage_svc.undo_cover(db, family_id, body.get('log_id'))
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': f'已撤销归置：恢复 {data["restored"]} 笔流水'})
 
 
 def _json_object() -> dict:

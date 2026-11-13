@@ -272,9 +272,12 @@ def family_totals(
 # get_overview_stats）统一经 orphan_money_fund_totals_by_ledger 并入，保证只计一次。
 # 判定用 position_id IS NULL 而非 entry_status='orphan'：新建路径两者等价，
 # 但历史导入器早期数据的 entry_status 可能不统一，position_id IS NULL 更可靠、更宽松。
+# #3089：covered_position_id 非空 = 已由某持仓体现，四处口径一律排除；position_id 仍保持 NULL。
 # #863 D1：本金净额口径排除 is_income 收益行——收益只进收益桶，不膨胀本金。
 # ---------------------------------------------------------------------------
 _ORPHAN_FLOW_ASSET_TYPES = ('money_fund', 'reverse_repo')
+#: 对外只读别名：归置/对账等读侧复用同一份判据，禁止另抄一份资产类型清单。
+ORPHAN_FLOW_ASSET_TYPES = _ORPHAN_FLOW_ASSET_TYPES
 _ORPHAN_FLOW_POSITIVE_TYPES = ('buy', 'deposit')
 _ORPHAN_FLOW_NEGATIVE_TYPES = ('sell', 'withdraw')
 #: 收益发放 / 代扣税：进「收益桶」，**绝不进本金桶**（#2844）
@@ -335,7 +338,7 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
     （NULL / False / True），`bool(is_income)` 恰好把它切成「非收益 / 收益」两组，
     与原两条 SQL **完全等价** —— 这是能合并成一个查询、又不用在 SQL 里做条件聚合的关键。
 
-    共同口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL；
+    共同口径：asset_type IN ('money_fund','reverse_repo')、position_id IS NULL 且未被归置；
     逐笔分桶判据见 `orphan_flow_delta`（本金 / 收益 / 不进桶）。金额为分、全程整数运算，
     禁止裸 float 乘除。为 0 的组直接丢弃，避免产生空分组。
     两张表都把悬空 ledger（None/已删）归 0 键，由各调用方按「游离」处理。
@@ -351,6 +354,7 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
             Transaction.family_id == family_id,
             Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
             Transaction.position_id.is_(None),
+            Transaction.covered_position_id.is_(None),
         )
         .all()
     )
@@ -386,7 +390,7 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
     没有任何可读的构成。只补一个汇总出口等于没答这个问题。
 
     ⚠️ 口径必须与本模块 `orphan_money_fund_totals_by_ledger` 完全一致
-    （资产类型、`position_id IS NULL`、buy/deposit 正 / sell/withdraw 负、
+    （资产类型、`position_id IS NULL`、未被归置、buy/deposit 正 / sell/withdraw 负、
     dividend 记收益桶正 / dividend_tax 记收益桶负、`is_income` 三态切分），
     否则汇总与明细会对不上——
     所以本函数**刻意**不复用另一条 SQL 的聚合结果去反推明细，而是同处定义。
@@ -405,6 +409,7 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
             Transaction.ledger_id == ledger_id,
             Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
             Transaction.position_id.is_(None),
+            Transaction.covered_position_id.is_(None),
         )
         .all()
     )
@@ -467,7 +472,7 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
       net_amount, income_amount, total_amount, txn_count}`（金额为元、已 round(2)）。
 
     ⚠️ 口径红线（与 `orphan_money_fund_totals_by_ledger` 完全一致，改一处必改另一处）：
-    `asset_type IN ('money_fund','reverse_repo')`、`position_id IS NULL`、
+    `asset_type IN ('money_fund','reverse_repo')`、`position_id IS NULL`、未被归置、
     buy/deposit 记正 / sell/withdraw 记负、dividend 记收益桶正 / dividend_tax 记负、
     `is_income` 三态切分——判据本体在 `orphan_flow_delta`，此处不再重复。
 
@@ -488,6 +493,7 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
             Transaction.family_id == family_id,
             Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
             Transaction.position_id.is_(None),
+            Transaction.covered_position_id.is_(None),
         )
         .all()
     )

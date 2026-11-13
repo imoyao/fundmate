@@ -63,7 +63,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **251** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **253** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -223,6 +223,8 @@ title: 核心 API 端点清单（api）
 | GET | `/api/reconciliation/ghost-duplicates/ignored/` | `list_ghost_duplicate_ignores` |
 | DELETE | `/api/reconciliation/ghost-duplicates/ignored/<int:ignore_id>/` | `undo_ghost_duplicate_ignore` |
 | GET | `/api/reconciliation/ledger-consistency/` | `ledger_consistency` |
+| POST | `/api/reconciliation/orphan-coverage/` | `cover_orphan_cash_flows` |
+| POST | `/api/reconciliation/orphan-coverage/undo/` | `undo_orphan_cash_flows` |
 | GET | `/api/reconciliation/orphan-ledger/` | `list_orphan_ledger` |
 | POST | `/api/reconciliation/orphan-ledger/backfill/` | `backfill_orphan_ledger` |
 | POST | `/api/reconciliation/orphan-ledger/undo/` | `undo_orphan_ledger_backfill` |
