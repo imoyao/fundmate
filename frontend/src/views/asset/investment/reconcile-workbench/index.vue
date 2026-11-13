@@ -37,11 +37,12 @@
       <WorkbenchTaskCards
         :active="filter.task"
         :counts="taskCounts"
-        :ready-counts="readyCounts"
         @select="selectTask"
       />
 
+      <!-- 「全部待办」不给说明条：待办总数、可直接处理数、三张任务卡已经在上面说清了 -->
       <ReconTaskBrief
+        v-if="filter.task !== 'all'"
         :task="filter.task"
         :count="activeRecordCount"
         @clear="clearTask"
@@ -66,8 +67,7 @@
 
       <section class="recon-queue">
         <SectionHeader
-          :title="`待办队列${taskLabel ? ` · ${taskLabel}` : ' · 全部任务'}`"
-          info="按「现在能不能动手」排序。点一条待办，右侧会打开这条的来龙去脉、投资轨迹和处理动作。"
+          :title="taskLabel ? `待办队列 · ${taskLabel}` : '待办队列'"
         />
 
         <ReconQueueFilter
@@ -77,7 +77,6 @@
           :batch-id="filter.batchId"
           :batch-options="batchOptions"
           :result-count="visibleItems.length"
-          :task-label="taskLabel"
           :selectable-count="selectableItems.length"
           :selected-count="selectedItems.length"
           :selected-records="selectedRecords"
@@ -88,7 +87,6 @@
           @update:batch-id="setBatch"
           @toggle-all="toggleAll"
           @batch="openBatch"
-          @clear-task="clearTask"
           @reset="resetFilter"
         />
 
@@ -127,6 +125,7 @@
         :open="detailOpen"
         :domain="activeDomain"
         :ctx="detailContext"
+        :active-stage="activeStage"
         @close="closeDetail"
         @refresh="reload"
         @supplement="openSupplement"
@@ -266,6 +265,7 @@ const {
   activeDetailId,
   activeDomain,
   activeItem,
+  activeStage,
   recognizerVisible,
   supplementVisible,
   supplementTarget,

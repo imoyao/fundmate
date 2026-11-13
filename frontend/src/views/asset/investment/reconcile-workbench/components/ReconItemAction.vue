@@ -34,38 +34,28 @@
       />
     </template>
 
-    <!-- 域 F 缺信息：补全缺失信息（自包含弹窗，复用 DomainFDanglingRefs 里的同一组件） -->
-    <template v-else-if="danglingIncomplete">
+    <!-- 域 F 执行区（漏斗，2026-11-13）：按 payload.stage 给唯一主动作 + 删除。
+         删除是域 F 渲染树里唯一的 danger 入口；两个动作都先经各自的确认弹窗。 -->
+    <template v-else-if="danglingPayload">
       <p class="recon-item-action__lead">{{ item.summary }}</p>
       <div class="recon-item-action__buttons">
-        <!-- 动作名与「点进去真的能做完」一致：代码齐、只缺持仓行时直接给重建持仓 -->
-        <el-button
-          v-if="danglingStep === 'rebuild'"
-          type="primary"
-          plain
-          @click="rebuildVisible = true"
-        >
-          重建持仓
+        <el-button type="primary" plain @click="runPrimary">
+          {{ item.actionLabel }}
         </el-button>
-        <el-button
-          v-else-if="danglingStep === 'fill'"
-          type="primary"
-          plain
-          @click="remediationVisible = true"
-        >
-          补全信息
+        <el-button type="danger" plain @click="openRemediation('delete')">
+          删除
         </el-button>
       </div>
       <DanglingRefRemediationDialog
         v-model="remediationVisible"
-        :group="danglingRow"
-        mode="enrich"
+        :group="stageGroup"
+        :mode="remediationMode"
         @submitted="emit('refresh', 'dangling')"
-        @request-rebuild="onRequestRebuild"
       />
       <DanglingRefRebuildDialog
+        v-if="stageIsRebuild"
         v-model="rebuildVisible"
-        :group="danglingRow"
+        :group="stageGroup"
         @rebuilt="emit('refresh', 'dangling')"
       />
     </template>
@@ -109,11 +99,10 @@ import type {
   GhostDuplicateIgnore
 } from "@/api/reconciliation";
 import type { ReconciliationItem } from "@/api/eaccount";
-import type { ReconQueueItem } from "../utils/reconQueue";
+import type { DanglingStagePayload, ReconQueueItem } from "../utils/reconQueue";
 import RecordTaxDialog from "./RecordTaxDialog.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
 import DanglingRefRebuildDialog from "./DanglingRefRebuildDialog.vue";
-import { danglingNextStep } from "../utils/danglingRefEnrichScope";
 
 defineOptions({ name: "ReconItemAction" });
 
@@ -178,32 +167,38 @@ async function ackTax(): Promise<void> {
   }
 }
 
-const danglingIncomplete = computed(
-  () => kind.value === "dangling" && props.item.state !== "ready"
+/** 域 F 阶段载荷（漏斗，2026-11-13）：阶段已在 payload.stage，组件不再重算判据 */
+const danglingPayload = computed(() =>
+  kind.value === "danglingStage"
+    ? (props.item.payload as DanglingStagePayload)
+    : null
 );
-const danglingRow = computed(
-  () => (props.item.payload as { row: DanglingRefGroup }).row
+const stageGroup = computed(() => danglingPayload.value?.groups[0] ?? null);
+const stageIsRebuild = computed(
+  () => danglingPayload.value?.stage === "rebuild"
 );
 const remediationVisible = ref(false);
+const remediationMode = ref<"enrich" | "delete">("enrich");
 const rebuildVisible = ref(false);
 
-/**
- * 与队列卡 / 分组卡读同一条判据（`danglingNextStep`）：代码齐全但没有同标的持仓行时，
- * 真正的下一步是「按流水重建持仓」，不是「补全信息」——后者点进去没有可补的字段，
- * 只能把用户再指回这张卡（2026-11-13 owner 截图里的来回踢皮球）。
- */
-const danglingStep = computed(() =>
-  danglingNextStep({
-    symbol: danglingRow.value.symbol,
-    fixable: danglingRow.value.fixable,
-    txnCount: danglingRow.value.txn_count
-  })
-);
+function openRemediation(mode: "enrich" | "delete"): void {
+  remediationMode.value = mode;
+  remediationVisible.value = true;
+}
 
-/** 补全弹窗里点「按流水重建持仓」：收起补全，再开重建（两层弹窗不叠） */
-function onRequestRebuild(): void {
-  remediationVisible.value = false;
-  rebuildVisible.value = true;
+/** 主按钮按阶段分发：reattach 走既有 fix 弹窗、rebuild 走重建、fill 走补全 */
+function runPrimary(): void {
+  const payload = danglingPayload.value;
+  if (!payload) return;
+  if (payload.stage === "reattach") {
+    emit("fixDangling", payload.groups[0]!);
+    return;
+  }
+  if (payload.stage === "rebuild") {
+    rebuildVisible.value = true;
+    return;
+  }
+  openRemediation("enrich");
 }
 
 /** 除税 / 缺信息两类自包含弹窗外，其余域给出这一条应做的动作；
@@ -263,14 +258,6 @@ const actions = computed(() => {
               "ghostUndoIgnore",
               (item.payload as { row: GhostDuplicateIgnore }).row
             )
-        }
-      ];
-    case "dangling":
-      return [
-        {
-          label: "回补关联",
-          run: () =>
-            emit("fixDangling", (item.payload as { row: DanglingRefGroup }).row)
         }
       ];
     case "orphan":

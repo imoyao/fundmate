@@ -104,8 +104,8 @@ const unassignedCount = computed(
 /** 说明文案收在 script：模板里长中文与插值同行会被 prettier 拆成多段，读起来断句 */
 const tipText = computed(() =>
   unassignedCount.value
-    ? `其中 ${unassignedCount.value} 笔还没归属账本，先在账户管理页「未归置数据」归入后才能编辑；其余流水可以直接编辑或删除。`
-    : "流水记错了可以直接编辑或删除，改完抽屉上方的数字会重新对账。更完整的记录在产品详情页与该账本详情页里。"
+    ? `其中 ${unassignedCount.value} 笔还没归属账本，先在账户管理页「未归置数据」归入后才能编辑；其余可直接编辑或删除。`
+    : "流水记错了可以直接编辑或删除。"
 );
 const emptyHint = computed(() =>
   props.ledgerId === null

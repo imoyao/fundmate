@@ -14,7 +14,6 @@
         <p>
           {{ result.summary }}，日志编号 <strong>#{{ result.log_id }}</strong>
         </p>
-        <p>可凭日志编号撤销本次处理。</p>
         <el-button
           v-if="!undone"
           type="danger"
@@ -27,38 +26,20 @@
         <p v-else class="dr-done__undone">本次处理已撤销</p>
       </div>
       <template v-else>
-        <!-- 说明分两层：一句说清「现在是什么问题」，小字说清「补完会怎样」 -->
-        <div class="dr-intro">
-          <p v-if="mode === 'enrich' && needsFill" class="dr-intro__main">
-            这些交易缺标的代码或交易日期，找不到对应的持仓。
-          </p>
-          <p v-else-if="mode === 'enrich'" class="dr-intro__main">
-            这些交易找不到对应的持仓，但标的代码与交易日期都已填写。
-          </p>
-          <p v-else class="dr-intro__main">
-            这些交易找不到对应的持仓记录，删除前请先核对明细。
-          </p>
-          <p v-if="mode === 'enrich'" class="dr-intro__sub">
-            本组共 {{ txnCount }} 条交易。
-          </p>
-          <p
-            v-if="mode === 'enrich' && needsFill"
-            class="dr-intro__sub dr-intro__sub--note"
-          >
-            补全后系统会重新核查；若仍缺持仓，可按流水重建持仓。
-          </p>
-          <p v-else class="dr-intro__sub">删除会写入日志，可凭日志编号撤销。</p>
-        </div>
-        <p v-if="mode === 'delete'" class="dr-static-warn">
-          删除这些交易会影响已实现盈亏与收益统计；现存持仓份额不会改变；可凭日志编号撤销本次处理。
+        <!-- 一行说清「现在是什么问题」就停：机制承诺与跨阶段指路句已删
+             （design.md「先删，再重排」②、spec §3.6）；删除的影响在下方
+             预览面板里逐条列出，不在这里复述。 -->
+        <p v-if="mode === 'enrich'" class="dr-intro__main">
+          这些交易缺标的代码或交易日期，找不到对应的持仓。
         </p>
+        <p v-else class="dr-intro__main">这些交易找不到对应的持仓记录。</p>
         <template v-if="mode === 'enrich'">
           <!--
             表单只渲染「真正要补的字段」：分组键是 (ledger_id, symbol)，组内代码必然
             相同 ⇒ 对有代码的组，代码输入框永远补 0 条（owner 2026-11-12 截图里那个
             `SZ128021 → SZ128021`）。齐了的那一项改成只读一行，让人看见这组的键是什么。
-            可补 0 条时（`v-else`）不给表单：那不是「用户没填」，而是下一步不在这张表单里，
-            所以那一支直接给出真正能做完这件事的按钮（2026-11-13）。
+            漏斗重构后（2026-11-13）只有 `fill` 阶段的组会进本弹窗，`needsFill === false`
+            的分支不再渲染任何兜底块——`rebuild` / `reattach` 组各有自己的阶段面板与动作面。
           -->
           <el-form v-if="needsFill" label-width="90px" size="default">
             <el-form-item v-if="needs.needSymbol > 0" label="标的代码">
@@ -93,10 +74,6 @@
               />
             </el-form-item>
           </el-form>
-          <div v-else class="dr-next">
-            <p class="dr-next__main">{{ noFieldNote }}</p>
-            <p class="dr-next__hint">{{ nextStepHint }}</p>
-          </div>
           <template v-if="needsFill">
             <DanglingRefEnrichSteps
               :state="stepState"
@@ -140,17 +117,10 @@
       <el-button @click="close(false)">{{
         result ? "关闭" : "取消"
       }}</el-button>
-      <!-- 没有可补字段时，主按钮换成真正能做完这件事的那一步：重建持仓 -->
-      <el-button
-        v-if="!result && rebuildActionVisible"
-        type="primary"
-        @click="emit('requestRebuild')"
-      >
-        按流水重建持仓
-      </el-button>
-      <!-- 缺什么只在悬浮时说明，不再一打开就把报错挂在左下角 -->
+      <!-- 缺什么只在悬浮时说明，不再一打开就把报错挂在左下角；
+           「重建持仓」不再经由本弹窗（rebuild 组有自己的阶段，spec §3.5）。 -->
       <el-tooltip
-        v-if="!result && !rebuildActionVisible"
+        v-if="!result"
         :content="footerHint"
         :disabled="canSubmit"
         placement="top"
@@ -175,12 +145,13 @@ import { computed, toRef } from "vue";
 import type { DanglingRefGroup } from "@/api/reconciliation";
 import { useNestedDialog } from "../composables/useNestedDialog";
 import { useDanglingRefRemediation } from "../composables/useDanglingRefRemediation";
-import { danglingNextStep } from "../utils/danglingRefEnrichScope";
 import { reconGroupTitle } from "../utils/reconDisplay";
 import DanglingRefEnrichSteps from "./DanglingRefEnrichSteps.vue";
 import DanglingRefRemediationPreview from "./DanglingRefRemediationPreview.vue";
 
-/** 数据缺失分组「补全信息 / 删除」向导：准入判据全走 guard，写路径全走 composable。 */
+/** 数据缺失分组「补全信息 / 删除」向导：准入判据全走 guard，写路径全走 composable。
+ *  漏斗重构（2026-11-13）：只有 `fill` 阶段的组走 enrich、删除只走 mode="delete"；
+ *  `rebuild` 组不再进入本弹窗（弹窗不再抛 requestRebuild，重建入口只在阶段面板）。 */
 const props = defineProps<{
   modelValue: boolean;
   group: DanglingRefGroup | null;
@@ -189,8 +160,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
   submitted: [];
-  /** 没有可补字段时，把「按流水重建持仓」这一步交回宿主（弹窗本身不重复实现写路径） */
-  requestRebuild: [];
 }>();
 
 const {
@@ -206,7 +175,6 @@ const {
   undoing,
   undone,
   result,
-  txnCount,
   needs,
   needsFill,
   hasField,
@@ -257,33 +225,6 @@ const symbolStatic = computed(
 const dateStatic = computed(
   () => `组内 ${needs.value.txnCount} 条都已有交易日期`
 );
-const noFieldNote = computed(
-  () =>
-    `这组 ${txnCount.value} 条流水的标的代码与交易日期都已齐全，没有可补的字段。`
-);
-
-/**
- * 「下一步真正该做什么」——与队列卡、分组卡读同一个判据（`danglingNextStep`）。
- * 只有 `rebuild` 这一种能在本弹窗里给出按钮；`reattach` 要回列表，`fill` 本来就走表单。
- */
-const nextStep = computed(() =>
-  danglingNextStep({
-    symbol: needs.value.symbol,
-    fixable: !!props.group?.fixable,
-    txnCount: txnCount.value
-  })
-);
-
-const rebuildActionVisible = computed(
-  () =>
-    props.mode === "enrich" && !needsFill.value && nextStep.value === "rebuild"
-);
-
-const nextStepHint = computed(() =>
-  nextStep.value === "rebuild"
-    ? "按流水重建持仓：新建一行持仓并把这几条流水挂回去，写错了可凭日志编号撤销。"
-    : "这组已有可挂回的现存持仓，回到列表点「回补关联」即可。"
-);
 
 function close(value: boolean): void {
   emit("update:modelValue", value);
@@ -308,47 +249,8 @@ function close(value: boolean): void {
   color: var(--text-primary);
 }
 
-.dr-intro__sub,
 .dr-done p {
   margin: 4px 0 12px;
-  font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-tertiary-ink);
-}
-
-.dr-intro__sub--note {
-  margin-top: -8px;
-}
-
-.dr-static-warn {
-  padding: 8px 10px;
-  margin: 8px 0;
-  font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--color-danger-ink);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-}
-
-/* 「可补 0 条」是常态，不是报错：中性色 + 一句「下一步做什么」，不用 danger 红去吓人 */
-.dr-next {
-  padding: 8px 10px;
-  margin: 8px 0;
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-}
-
-.dr-next__main {
-  margin: 0;
-  font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-secondary);
-}
-
-.dr-next__hint {
-  margin: 4px 0 0;
   font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);

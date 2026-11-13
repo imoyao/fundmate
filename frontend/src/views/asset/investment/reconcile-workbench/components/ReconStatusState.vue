@@ -52,8 +52,7 @@ withDefaults(
     error: null,
     empty: false,
     emptyTitle: "这一类现在没有待办",
-    emptyHint:
-      "账上记录都核对过了。导入新数据或重新检查后，新的待办会出现在这里。"
+    emptyHint: "账上记录都核对过了。"
   }
 );
 

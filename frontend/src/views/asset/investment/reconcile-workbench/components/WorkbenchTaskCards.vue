@@ -1,6 +1,7 @@
 <template>
   <!--
-    三张任务分诊卡（design.md「导入预览问题摘要三卡片」形态）。
+    四张任务分诊卡（design.md「导入预览问题摘要三卡片」形态；2026-11-13 起
+    待重建持仓自成一卡，共四张）。
 
     ⚠️ 这不是 tab：卡是数据摘要 + 过滤器，点它只过滤下方队列、不切换视图。
     语义用 role="button" + aria-pressed（沿用姐妹页 CategoryTabs.vue），
@@ -35,20 +36,6 @@
         <span v-if="counts[task.key] === 0" class="recon-task-card__none">
           暂无待办
         </span>
-        <template v-else>
-          <!-- 角标已给总数，这里只把「能一键处理 / 得逐条判断」拆开说清，
-               避免用户拿脚注数字和角标对不上（第三轮反馈）。 -->
-          <span v-if="readyCounts[task.key] > 0" class="recon-task-card__ready">
-            {{ readyCounts[task.key] }} 件可一键处理
-          </span>
-          <span
-            v-if="manualCount(task.key) > 0"
-            class="recon-task-card__manual"
-          >
-            {{ readyCounts[task.key] > 0 ? "· 另有 " : ""
-            }}{{ manualCount(task.key) }} 件需你逐条判断
-          </span>
-        </template>
       </div>
     </div>
   </div>
@@ -59,32 +46,40 @@ import { RECON_TASKS, type ReconTaskKey } from "../constants/reconTasks";
 
 defineOptions({ name: "WorkbenchTaskCards" });
 
-const props = defineProps<{
+defineProps<{
   /** 当前选中的任务；`all` 表示未筛选 */
   active: ReconTaskKey | "all";
-  /** 三类任务的待办件数（与队列条数同源，见 utils/reconQueue.ts） */
+  /** 四类任务的待办件数（与队列条数同源，见 utils/reconQueue.ts） */
   counts: Record<ReconTaskKey, number>;
-  /** 其中「可直接处理（可一键处理）」的件数 */
-  readyCounts: Record<ReconTaskKey, number>;
 }>();
 
 const emit = defineEmits<{ select: [key: ReconTaskKey] }>();
-
-/** 待办件数减去可一键处理的，即为需要人工逐一判断的件数。
- *  把「可自动 / 需人工」拆开说明，避免角标总数与下方口径让用户对不上。 */
-function manualCount(key: ReconTaskKey): number {
-  return Math.max(0, props.counts[key] - props.readyCounts[key]);
-}
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
+/* 确定性栅格 + 断点单一来源（_breakpoints.scss）：任何宽度都不出现 3+1 孤行
+   （旧 auto-fit 在 4 卡、容器约 964–1168px 时会把第 4 张甩到第二行左侧） */
 .workbench-tabs {
   display: grid;
-
-  /* auto-fit 让窄屏自动收成单列，无需裸像素媒体查询（guard_breakpoints.py） */
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: 1fr; /* 默认单列（手机） */
   gap: var(--space-3);
   margin-bottom: var(--space-standard);
+}
+
+/* ≥640px：两列两行 */
+@include bp.above("sm") {
+  .workbench-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ≥1024px：一行四张（桌面工作台常态） */
+@include bp.above("lg") {
+  .workbench-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .recon-task-card {
@@ -168,14 +163,6 @@ function manualCount(key: ReconTaskKey): number {
   align-items: baseline;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-}
-
-.recon-task-card__ready {
-  color: var(--color-success-ink);
-}
-
-.recon-task-card__manual {
-  color: var(--color-warning-ink);
 }
 
 .recon-task-card__none {

@@ -1,6 +1,6 @@
 # 工作备忘索引（working-notes）
 
-> 共 **153 张**，2026-10-19 按主题归类。**一张未删**——本表只解决「找不到」，不解决「该不该留」。
+> 共 **155 张**，2026-10-19 按主题归类。**一张未删**——本表只解决「找不到」，不解决「该不该留」。
 > 归位与归档的判断依据见 [docs-audit-2026-10-19.md](./docs-audit-2026-10-19.md)。
 > 「摘要」列是卡片开头若干字符的**机械截取**，不是结论——结论以卡片本体为准。
 
@@ -125,10 +125,12 @@
 | [product-detail-page-design-2026-10-08](./product-detail-page-design-2026-10-08.md) | 434 | ✅ 📌 | 一套详情页体系：按品类分 URL、两个入口、Epic 汇总卡带分项子卡。 |
 | [advisor-detail-page-design-2026-10-29](./advisor-detail-page-design-2026-10-29.md) | 437 | ◐ 📌 | 投顾组合仍留在产品详情页内做区块，不新开独立页；把「持仓明细」从快照升级为「持仓 + 业绩 + 调仓」三件套，数据缺口集中在净值序列与档案字段填充率，靠「Port 加可选方法 + 新表 + 走势卡零改动点亮」的最小路径补齐 |
 
-## 前端与设计（19 张）
+## 前端与设计（21 张）
 
 | 卡片 | 行 | 标记 | 摘要 |
 |:---|---:|:---:|---|
+| [recon-funnel-2026-11-13](./recon-funnel-2026-11-13.md) | 109 | — | 对账中心域 F 阶段漏斗的结构 spec：同一组 `DanglingRefGroup` 原本在队列与域面板各出现一次、动作集不同（删除只有一条路能到）；改为 `danglingNextStep` 当阶段键（fill / reattach / rebuild）、队列每阶段一条聚合项、分诊卡 3→4、面板只导航、执行区唯一动作面。 |
+| [recon-funnel-visual-2026-11-13](./recon-funnel-visual-2026-11-13.md) | 173 | — | 对账中心阶段漏斗的视觉与文案实现口径：分诊卡 3→4（第 4 张「待重建持仓」的 tone/栅格/删脚注拆分）、队列标题删旁白、抽屉阶段面板只导航、组卡删四按钮只留「处理」、执行区唯一动作面与删除的语义色口径； |
 | [unified-import-entry-evaluation-2026-08-16](./unified-import-entry-evaluation-2026-08-16.md) | 119 | ✅ 📌 | 数据导入功能目前确实散落在四个入口，且都未进入侧边栏（showLink:false），托盘入口又默认隐藏，可发现性存 |
 | [frontend-api-reorg-2026-08-09](./frontend-api-reorg-2026-08-09.md) | 110 | ✅ | - AssetPanorama 瀑布图：initWaterfallChart（L691-780）硬编码（上期末 28 |
 | [ghost-duplicate-domain-d-frontend-2026-10-16](./ghost-duplicate-domain-d-frontend-2026-10-16.md) | 64 | ✅ | 关联：CNB duoduobei/fundmate#477 / GitHub https://github.com/ |

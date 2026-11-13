@@ -193,13 +193,16 @@ export function useReconQueue(source: Ref<ReconQueueSource>) {
   /**
    * `?domain=A…G` 入站：落到该域所属任务，并把第一条相关待办选中。
    * 域只作寻址与「来源」标签，不重新变成导航维度。
+   * 域 F 例外（漏斗，2026-11-13）：阶段聚合项跨 repair / rebuild 两个任务，
+   * 若按 DOMAIN_TO_TASK 只筛 repair 会把 rebuild 阶段整个滤掉——故 F 不设
+   * 任务筛选，其余域维持原判据。
    * 返回选中的队列项 id，供页面层展开处理区。
    */
   function focusDomain(domain: WorkbenchDomainKey): string | null {
-    filter.value = {
-      ...DEFAULT_QUEUE_FILTER,
-      task: DOMAIN_TO_TASK[domain]
-    };
+    filter.value =
+      domain === "F"
+        ? { ...DEFAULT_QUEUE_FILTER }
+        : { ...DEFAULT_QUEUE_FILTER, task: DOMAIN_TO_TASK[domain] };
     const match = sortQueue(
       items.value.filter(i => i.sourceDomain === domain)
     )[0];

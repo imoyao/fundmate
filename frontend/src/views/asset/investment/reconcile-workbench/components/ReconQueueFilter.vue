@@ -40,12 +40,6 @@
 
     <div class="recon-filter__meta">
       <span>找到 {{ resultCount }} 项待办</span>
-      <template v-if="taskLabel">
-        <span>· 仅看「{{ taskLabel }}」</span>
-        <el-button size="small" text @click="emit('clearTask')">
-          查看全部任务
-        </el-button>
-      </template>
       <el-button
         v-if="keyword || state !== 'all' || batchId !== 'all'"
         size="small"
@@ -97,7 +91,6 @@ defineProps<{
   batchId: number | "all";
   batchOptions: Array<{ id: number; label: string }>;
   resultCount: number;
-  taskLabel: string | null;
   selectableCount: number;
   selectedCount: number;
   selectedRecords: number;
@@ -111,7 +104,6 @@ const emit = defineEmits<{
   "update:batchId": [value: number | "all"];
   toggleAll: [];
   batch: [];
-  clearTask: [];
   reset: [];
 }>();
 </script>
