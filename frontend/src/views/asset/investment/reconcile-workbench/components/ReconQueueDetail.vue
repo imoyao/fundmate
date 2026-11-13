@@ -29,7 +29,7 @@
       <!-- ① 来龙去脉：差异类型 / 账本 / 差额 / 发现时间；产品标识只在头部说一次 -->
       <ReconContextPanel :item="drawerItem" />
 
-      <!-- ② 投资轨迹：该产品在该账本的交易流水（公共 TransactionTable） -->
+      <!-- ② 投资轨迹（公共 TransactionTable）。recon-symbol-allow：symbol 只作流水查询条件，不渲染成标题。 -->
       <ReconInvestmentTrail
         v-if="trail"
         :symbol="trail.symbol"
