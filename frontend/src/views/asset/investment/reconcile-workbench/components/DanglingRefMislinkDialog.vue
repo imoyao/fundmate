@@ -11,16 +11,16 @@
       <div v-if="result" class="drm-done">
         <p class="drm-done__title">已改挂</p>
         <p>
-          {{ result.txn_count }} 笔流水现在挂在
-          {{ reconAssetHeading(result.symbol, result.display_name) }}
-          （{{ reconRecordRef(result.position_id) }}）。
+          {{ result.txn_count }} 笔流水现在挂在 {{ resultHeading }} （{{
+            reconRecordRef(result.position_id)
+          }}）。
         </p>
         <p v-if="result.created_position_id !== null">
           这条持仓是新按流水建的：{{ reconQuantity(result.quantity) }}，成本均价
           {{ resultAvgPrice }} 元。
         </p>
         <p v-else>这是既有持仓，只改了流水的归属，份额没有变动。</p>
-        <p class="drm-done__log">
+        <p>
           日志编号 <strong>#{{ result.log_id }}</strong>
         </p>
         <p v-if="undoSkippedNote" class="drm-done__skip">
@@ -45,13 +45,9 @@
             <p>标的：{{ heading }}</p>
             <p>现在挂在：{{ wrongLabel }}</p>
             <p v-if="preview.target_position">
-              将改挂到：{{
-                reconAssetHeading(
-                  preview.target_position.symbol,
-                  preview.target_position.name
-                )
-              }}
-              （{{ reconRecordRef(preview.target_position.id) }}），现有
+              将改挂到：{{ targetHeading }} （{{
+                reconRecordRef(preview.target_position.id)
+              }}），现有
               {{ reconQuantity(preview.target_position.quantity) }}
             </p>
             <p v-else>
@@ -132,7 +128,6 @@ import {
  * 这类流水 `position_id` 指着的持仓**存在**、只是标的对不上：既进不了
  * 「回补关联」（要求悬空），也进不了「按流水重建」（前置同样是悬空），
  * 所以在后端修好之前它们永远 pending、且没有任何入口。
- *
  * 后端只有一条修法（同账本有同标的持仓 ⇒ 只改指针；没有 ⇒ 按流水新建），
  * 前端不提供「只摘下来」的半个动作 —— 摘下来只是把脏数据换成悬空数据。
  */
@@ -159,20 +154,29 @@ const transactionIds = computed(() =>
   (props.group?.transactions ?? []).map(t => t.id)
 );
 
-/** 加载中回退到组本身的 symbol；有预览后用预览的名称 + 代码 */
+/** 三条标题都在脚本里拼好，模板不放裸 `.symbol`（guard_recon_symbol_display） */
 const heading = computed(() =>
   preview.value
     ? reconAssetHeading(preview.value.symbol, preview.value.display_name)
     : reconAssetHeading(props.group?.symbol)
 );
-
-/** 现在挂在哪：优先用组上的持仓快照（列表已带），预览回来后以预览为准 */
-const wrongLabel = computed(() => {
-  const labels = (props.group?.wrong_positions ?? []).map(
-    p => `${p.symbol || "标的代码未填"}（${reconRecordRef(p.id)}）`
-  );
-  return labels.length ? labels.join("、") : "别的标的的持仓";
+const resultHeading = computed(() =>
+  result.value
+    ? reconAssetHeading(result.value.symbol, result.value.display_name)
+    : ""
+);
+const targetHeading = computed(() => {
+  const target = preview.value?.target_position;
+  return target ? reconAssetHeading(target.symbol, target.name) : "";
 });
+
+/** 现在挂在哪：优先用组上的持仓快照（列表已带），预览回来后以预览为准 */ const wrongLabel =
+  computed(() => {
+    const labels = (props.group?.wrong_positions ?? []).map(
+      p => `${p.symbol || "标的代码未填"}（${reconRecordRef(p.id)}）`
+    );
+    return labels.length ? labels.join("、") : "别的标的的持仓";
+  });
 
 /** 价格位数走唯一真源 pricePrecision，不手写 toFixed */
 const previewAvgPrice = computed(() =>
@@ -198,9 +202,9 @@ const blockNote = computed(() => {
   if (previewing.value) return "正在生成预览";
   if (previewError.value) return previewError.value;
   if (!preview.value) return "";
-  if (!preview.value.fixable)
-    return preview.value.block_reason || "这批流水暂不能改挂";
-  return "";
+  return preview.value.fixable
+    ? ""
+    : preview.value.block_reason || "这批流水暂不能改挂";
 });
 
 const canSubmit = computed(
@@ -311,7 +315,6 @@ function close(value: boolean): void {
 .drm-loading {
   margin: 4px 0 12px;
   font-size: var(--text-label);
-  line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
 
@@ -369,6 +372,7 @@ function close(value: boolean): void {
 .drm-done p {
   margin: 4px 0 12px;
   font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
@@ -377,10 +381,6 @@ function close(value: boolean): void {
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--color-success-ink);
-}
-
-.drm-done__log {
-  font-variant-numeric: tabular-nums;
 }
 
 .drm-done__skip {
