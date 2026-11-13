@@ -450,13 +450,24 @@ export interface DanglingRefGroup {
   net_units: number;
   live_position: DanglingRefPosition | null;
   candidates: DanglingRefPosition[];
-  batch_id: number;
+  /** 错挂组没有「导入批次」语义（它按标的归属聚合，不按导入时间），故可为 null */
+  batch_id: number | null;
   batch_label: string;
   flags: string[];
   /** 后端一处判据：缺标的代码 / 无同标的现存持仓行时为 false */
   fixable: boolean;
   /** 不可回补时给出可执行的下一步，前端只显示不自行推导 */
   block_reason: string | null;
+  /**
+   * 错挂（`position_id` 指向**别的标的**的现存持仓）标记 + 修复方式。
+   * 这三个字段只有 `/dangling-refs/mislinked/` 返回的组才有；悬空组为 undefined。
+   * 有它 ⇒ 阶段判据由后端给出（`mislink`），不再走「悬空流水下一步」的派生。
+   */
+  mislinked?: true;
+  /** remount=改挂到现存持仓（只改指针）/ rebuild=按流水新建一行再挂回 */
+  fix_mode?: "remount" | "rebuild";
+  /** 这些流水**现在**挂在哪几条持仓上（错误标的），供用户核对后再确认 */
+  wrong_positions?: DanglingRefPosition[];
   transactions: DanglingRefTransaction[];
 }
 
@@ -637,6 +648,106 @@ export function undoDanglingRefRebuild(
 ): Promise<ApiResponse<DanglingRefRebuildUndoResult>> {
   return http.post<ApiResponse<DanglingRefRebuildUndoResult>, unknown>(
     "/api/reconciliation/dangling-refs/rebuild-undo/",
+    { data: { log_id: logId } }
+  );
+}
+
+// ── 域 F 第四类：挂错标的（position_id 指向别的标的的现存持仓）──────────────────
+// 既有的「回补关联」与「按流水重建持仓」都要求 position_id **悬空**（持仓行不存在），
+// 而这里持仓**存在**、只是标的对不上 —— 两条修法都拒绝，数据既看不见也修不了。
+// 后端检出比的是归一后的**证券代码**（不含交易场所），修法只有一条：
+// 同账本有同标的持仓 ⇒ 只改指针；没有 ⇒ 按这组流水新建一行再挂回。
+
+/** 错挂分组的列表（GET /api/reconciliation/dangling-refs/mislinked/ 的 data） */
+export interface MislinkedRefList {
+  total: number;
+  group_count: number;
+  fixable_count: number;
+  /** 形状与 DanglingRefGroup 兼容，另有 mislinked / fix_mode / wrong_positions */
+  groups: DanglingRefGroup[];
+}
+
+/** 改挂前预览（GET /api/reconciliation/dangling-refs/mislink-preview/ 的 data） */
+export interface MislinkedRefPreview {
+  txn_count: number;
+  symbol: string | null;
+  display_name: string | null;
+  ledger_id: number | null;
+  asset_type: string | null;
+  /** remount=只改指针 / rebuild=按流水新建一行 */
+  mode: "remount" | "rebuild";
+  /** 将改挂到的持仓；null 表示会按流水新建一行 */
+  target_position: DanglingRefPosition | null;
+  /** 这几笔流水**现在**挂在哪几条持仓上（错误标的） */
+  wrong_position_ids: number[];
+  net_units: number;
+  avg_price: number;
+  fixable: boolean;
+  block_reason: string | null;
+  /** 口径与已知边界（尤其是「错误持仓份额不会自动重算」），必须原样展示 */
+  warnings: string[];
+}
+
+/** 改挂结果（POST /api/reconciliation/dangling-refs/mislink/ 的 data） */
+export interface MislinkedRefFixResult {
+  log_id: number;
+  mode: "remount" | "rebuild";
+  position_id: number;
+  /** 本次新建的持仓 id；remount 模式为 null */
+  created_position_id: number | null;
+  symbol: string;
+  display_name: string | null;
+  quantity: number;
+  avg_price: number;
+  txn_count: number;
+}
+
+/** 撤销改挂结果（POST /api/reconciliation/dangling-refs/mislink-undo/ 的 data） */
+export interface MislinkedRefUndoResult {
+  restored: number;
+  skipped: number;
+  log_id: number;
+  skip_reason: string | null;
+}
+
+/** 列出「挂错标的」的流水分组（只读扫描，不写库） */
+export function listMislinkedRefs(): Promise<ApiResponse<MislinkedRefList>> {
+  return http.get<ApiResponse<MislinkedRefList>, unknown>(
+    "/api/reconciliation/dangling-refs/mislinked/"
+  );
+}
+
+/** 预览把这一批流水改挂到正确标的后会落到哪条持仓（只读） */
+export function previewMislinkedRefFix(
+  transactionIds: number[]
+): Promise<ApiResponse<MislinkedRefPreview>> {
+  return http.get<
+    ApiResponse<MislinkedRefPreview>,
+    { transaction_ids: string }
+  >("/api/reconciliation/dangling-refs/mislink-preview/", {
+    params: { transaction_ids: transactionIds.join(",") }
+  });
+}
+
+/** 把一批挂错标的的流水改挂到正确标的（写操作，成功后凭 log_id 撤销） */
+export function fixMislinkedRefs(payload: {
+  transaction_ids: number[];
+  reason?: string;
+  /** 后端硬校验 `is True`：二次确认后才允许写入 */
+  confirm: boolean;
+}): Promise<ApiResponse<MislinkedRefFixResult>> {
+  return http.post<ApiResponse<MislinkedRefFixResult>, unknown>(
+    "/api/reconciliation/dangling-refs/mislink/",
+    { data: payload }
+  );
+}
+
+/** 撤销一次改挂（流水放回原持仓；本次新建的持仓删掉，期间被动过则 skipped=1） */
+export function undoMislinkedRefFix(
+  logId: number
+): Promise<ApiResponse<MislinkedRefUndoResult>> {
+  return http.post<ApiResponse<MislinkedRefUndoResult>, unknown>(
+    "/api/reconciliation/dangling-refs/mislink-undo/",
     { data: { log_id: logId } }
   );
 }

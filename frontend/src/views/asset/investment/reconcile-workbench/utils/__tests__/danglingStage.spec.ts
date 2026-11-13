@@ -62,9 +62,9 @@ describe("danglingStageOf：全部输入组合的阶段归属", () => {
   });
 });
 
-describe("DANGLING_STAGES：固定顺序 fill → reattach → rebuild", () => {
-  it("顺序稳定且恰好三个阶段", () => {
-    expect(DANGLING_STAGES).toEqual(["fill", "reattach", "rebuild"]);
+describe("DANGLING_STAGES：固定顺序 fill → reattach → mislink → rebuild", () => {
+  it("顺序稳定且恰好四个阶段", () => {
+    expect(DANGLING_STAGES).toEqual(["fill", "reattach", "mislink", "rebuild"]);
   });
 
   it("每个阶段都有动作名（动作名与阶段键同源，不允许缺项）", () => {
@@ -73,6 +73,7 @@ describe("DANGLING_STAGES：固定顺序 fill → reattach → rebuild", () => {
     }
     expect(DANGLING_ACTION_LABEL.fill).toBe("补全信息");
     expect(DANGLING_ACTION_LABEL.reattach).toBe("回补关联");
+    expect(DANGLING_ACTION_LABEL.mislink).toBe("改挂到正确标的");
     expect(DANGLING_ACTION_LABEL.rebuild).toBe("重建持仓");
   });
 });
@@ -95,6 +96,30 @@ describe("groupStage：组级判据走同一条派生链", () => {
       groupStage({ symbol: "001982", fixable: true, txn_count: 0 })
     ).toBeNull();
   });
+
+  /**
+   * 错挂组（`mislinked`）不参与 `danglingNextStep` 派生：
+   * 它的 `fixable` 含义是「有同标的持仓可改挂」，照派生规则（fixable → reattach）
+   * 会被判成「回补关联」，点进去却做「改挂」—— 卡片写着 A、点进去做 B。
+   */
+  it("错挂组归 mislink，不因 fixable=true 被误判成 reattach", () => {
+    expect(
+      groupStage({
+        symbol: "SZ127041",
+        fixable: true,
+        txn_count: 1,
+        mislinked: true
+      })
+    ).toBe("mislink");
+    expect(
+      groupStage({
+        symbol: "SZ127041",
+        fixable: false,
+        txn_count: 1,
+        mislinked: true
+      })
+    ).toBe("mislink");
+  });
 });
 
 describe("bucketByStage：分桶与顺序", () => {
@@ -103,17 +128,26 @@ describe("bucketByStage：分桶与顺序", () => {
   const reattachA = { key: "c", symbol: "001982", fixable: true, txn_count: 7 };
   const reattachB = { key: "d", symbol: "600519", fixable: true, txn_count: 1 };
   const rebuildA = { key: "e", symbol: "001983", fixable: false, txn_count: 4 };
+  const mislinkA = {
+    key: "mislink|12|SZ127041",
+    symbol: "SZ127041",
+    fixable: true,
+    txn_count: 1,
+    mislinked: true
+  };
 
-  it("三桶互斥完备：每一组恰好落进一个桶", () => {
+  it("四桶互斥完备：每一组恰好落进一个桶", () => {
     const buckets = bucketByStage([
       fillA,
       reattachA,
       rebuildA,
       fillB,
-      reattachB
+      reattachB,
+      mislinkA
     ]);
     expect(buckets.fill).toEqual([fillA, fillB]);
     expect(buckets.reattach).toEqual([reattachA, reattachB]);
+    expect(buckets.mislink).toEqual([mislinkA]);
     expect(buckets.rebuild).toEqual([rebuildA]);
   });
 
@@ -128,12 +162,20 @@ describe("bucketByStage：分桶与顺序", () => {
       { key: "empty", symbol: "001982", fixable: true, txn_count: 0 }
     ]);
     const total =
-      buckets.fill.length + buckets.reattach.length + buckets.rebuild.length;
+      buckets.fill.length +
+      buckets.reattach.length +
+      buckets.mislink.length +
+      buckets.rebuild.length;
     expect(total).toBe(1);
   });
 
-  it("空输入 → 三桶全空（调用方据此跳过空阶段，不产出队列项）", () => {
+  it("空输入 → 四桶全空（调用方据此跳过空阶段，不产出队列项）", () => {
     const buckets = bucketByStage([]);
-    expect(buckets).toEqual({ fill: [], reattach: [], rebuild: [] });
+    expect(buckets).toEqual({
+      fill: [],
+      reattach: [],
+      mislink: [],
+      rebuild: []
+    });
   });
 });

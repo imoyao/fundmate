@@ -11,6 +11,7 @@ import {
   undoGhostDuplicateIgnoreById,
   listDividendTaxPending,
   listDanglingRefs,
+  listMislinkedRefs,
   listOrphanLedgers,
   type DanglingRefList,
   type OrphanLedgerList,
@@ -33,6 +34,7 @@ import {
   useReconDraft,
   type RecognizerCandidate
 } from "@/composables/useReconDraft";
+import { mergeDanglingLists } from "../utils/danglingRefMerge";
 
 /**
  * 对账中心三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
@@ -333,12 +335,22 @@ export function useWorkbenchDomains() {
   /** 加载域 F：悬空引用分组 + 汇总（#2866）。
    *  预览 / 回补 / 撤销是写路径上的三段独立交互，留在修复弹窗里各自调用，
    *  本函数只负责「进页面 / 修复完成后」把只读快照拉回来。失败静默：单个扫描
-   *  接口超时不该让整个工作台的其它域一起白屏。 */
+   *  接口超时不该让整个工作台的其它域一起白屏。
+   *
+   *  2026-11-13 起同时拉「挂错标的」一组（`/mislinked/`）并按结构兼容合并：
+   *  那类流水既不是悬空（持仓行存在），又进不了任何既有修法，不合并就等于
+   *  把它藏起来还宣称已经清干净。合并口径见 `utils/danglingRefMerge`。 */
   async function loadDanglingRefs(): Promise<void> {
     danglingLoading.value = true;
     try {
-      const res = await listDanglingRefs();
-      danglingRefs.value = res.data ?? null;
+      const [refs, mislinked] = await Promise.all([
+        listDanglingRefs(),
+        listMislinkedRefs()
+      ]);
+      danglingRefs.value = mergeDanglingLists(
+        refs.data ?? null,
+        mislinked.data
+      );
       clearError("dangling");
     } catch {
       danglingRefs.value = null;

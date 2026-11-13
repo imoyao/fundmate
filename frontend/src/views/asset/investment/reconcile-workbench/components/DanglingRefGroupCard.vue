@@ -37,6 +37,11 @@
       <template v-else> · 暂无现存持仓记录</template>
     </p>
 
+    <!-- 错挂组必须说清「现在挂在哪」：用户点「处理」前要能核对是哪条持仓被污染 -->
+    <p v-if="wrongLabels" class="df-group__wrong">
+      现在挂在 {{ wrongLabels }} 的持仓上
+    </p>
+
     <!-- flags 是后端枚举，翻译成中文再上屏；无 flags 时整个容器不渲染 -->
     <div v-if="flags.length" class="df-group__flags">
       <span v-for="f in flags" :key="f" class="df-group__flag">{{ f }}</span>
@@ -71,7 +76,8 @@ import {
   reconFlag,
   reconGroupTitle,
   reconOwnership,
-  reconQuantity
+  reconQuantity,
+  reconRecordRef
 } from "../utils/reconDisplay";
 
 /**
@@ -84,11 +90,33 @@ const props = defineProps<{ group: DanglingRefGroup }>();
 const emit = defineEmits<{ openItem: [group: DanglingRefGroup] }>();
 
 const flags = computed(() => props.group.flags.map(reconFlag));
+/**
+ * 错挂组：这笔流水**现在**挂在哪条持仓上（错误标的）。空表示不是错挂组
+ * （悬空组的 position_id 指向已删除的行，没有可点名的持仓）。
+ */
+const wrongLabels = computed(() =>
+  (props.group.wrong_positions ?? [])
+    .map(p => `${p.symbol || "标的代码未填"}（${reconRecordRef(p.id)}）`)
+    .join("、")
+);
+/** 逐笔明细的归属说明：错挂组按「挂在 X 的持仓上」写，其余按悬空口径 */
+function noteOf(positionId: number): string | undefined {
+  const wrong = (props.group.wrong_positions ?? []).find(
+    p => p.id === positionId
+  );
+  return wrong
+    ? `挂在 ${wrong.symbol || "标的代码未填"} 的持仓上（${reconRecordRef(positionId)}）`
+    : undefined;
+}
 const detailLines = computed(() =>
-  props.group.transactions.map(danglingDetailLine)
+  props.group.transactions.map(t =>
+    danglingDetailLine(t, noteOf(t.position_id))
+  )
 );
 const subtitle = computed(() =>
-  reconBatchLabel(props.group.batch_label, props.group.txn_count)
+  props.group.mislinked
+    ? "挂错标的"
+    : reconBatchLabel(props.group.batch_label, props.group.txn_count)
 );
 </script>
 
@@ -148,6 +176,13 @@ const subtitle = computed(() =>
   color: var(--color-warning-ink);
   background: var(--color-warning-20);
   border-radius: var(--radius-sm);
+}
+
+.df-group__wrong {
+  margin: 0 0 6px;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--color-warning-ink);
 }
 
 .df-group__flags {

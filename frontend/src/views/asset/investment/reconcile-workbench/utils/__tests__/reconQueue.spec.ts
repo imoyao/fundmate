@@ -203,6 +203,63 @@ describe("状态只翻译后端判据，前端不自行推导", () => {
     expect(batchableItems(items)).toHaveLength(1);
   });
 
+  /**
+   * 错挂阶段（2026-11-13）：这类流水挂着**现存**持仓、只是标的对不上，
+   * 既不是悬空也不是「待重建」—— 它要单独一个阶段，否则那批数据在界面上
+   * 完全不可见（既不在悬空列表里，又进不了任何既有修法）。
+   */
+  it("错挂组自成一个阶段：状态是「需要我判断」，不进批量，也不冒充回补/重建", () => {
+    const source = emptySource();
+    source.dangling = {
+      total: 8,
+      group_count: 2,
+      batch_count: 0,
+      null_symbol: 0,
+      null_trade_date: 0,
+      fixable_count: 1,
+      groups: [
+        danglingGroup({ batch_id: null }),
+        danglingGroup({
+          key: "mislink|12|SZ127041",
+          symbol: "SZ127041",
+          ledger_id: 12,
+          fixable: true,
+          txn_count: 1,
+          batch_id: null,
+          batch_label: "",
+          flags: ["mislinked", "no_target"],
+          mislinked: true,
+          fix_mode: "rebuild",
+          wrong_positions: [
+            {
+              id: 488,
+              symbol: "SZ128033",
+              quantity: 30,
+              ownership_status: "active"
+            }
+          ]
+        })
+      ],
+      batches: []
+    } satisfies DanglingRefList;
+
+    const items = buildReconQueue(source).filter(i => i.sourceDomain === "F");
+    const mislink = items.find(i => i.id === "dangling-mislink")!;
+
+    expect(mislink.task).toBe("repair");
+    expect(mislink.state).toBe("judge");
+    expect(mislink.actionLabel).toBe("改挂到正确标的");
+    expect(mislink.count).toBe(1);
+    expect(mislink.summary).toContain("别的标的");
+    expect(mislink.facts).toContain("涉及标的 SZ127041");
+    // 错挂组没有导入批次语义，不许编一条假批次（"来自多个批次的导入" 同样是假话）
+    expect(mislink.facts.some(f => f.includes("批次"))).toBe(false);
+    expect(mislink.batchId).toBeNull();
+    // 「需要我判断」不进批量：没有任何一键批量改挂的写路径
+    expect(batchableItems(items)).toHaveLength(1);
+    expect(batchableItems(items)[0]!.id).toBe("dangling-reattach");
+  });
+
   it("组级可回填但逐条有一条 blocked → 整组仍需先补全（不吞掉 blocked 行）", () => {
     const source = emptySource();
     source.orphan = {

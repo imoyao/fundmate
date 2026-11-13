@@ -301,6 +301,7 @@ function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
 const DANGLING_STAGE_TITLE: Record<DanglingStage, string> = {
   fill: "缺标的代码的流水",
   reattach: "可挂回的流水",
+  mislink: "挂错标的的流水",
   rebuild: "待重建的流水"
 };
 
@@ -308,6 +309,8 @@ const DANGLING_STAGE_TITLE: Record<DanglingStage, string> = {
 const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
   fill: "这些交易挂在已删除的持仓上，而且没有标的代码，补上后才能判断归属。",
   reattach: "这些交易挂在已删除的持仓上，系统已找到现存持仓，可以挂回去。",
+  mislink:
+    "这些交易挂在了别的标的的持仓上：份额和成本被算进了那只标的，它们自己的持仓反而没有记录。",
   rebuild:
     "这些交易挂在已删除的持仓上，但找不到它们对应的持仓记录，需要按流水重建。"
 };
@@ -316,6 +319,7 @@ const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
 const DANGLING_STAGE_REASON: Record<DanglingStage, string> = {
   fill: "缺标的代码，补齐后才能判断归属",
   reattach: "系统已找到可挂回的持仓",
+  mislink: "改挂会改流水归属，需你确认目标",
   rebuild: "流水完整，缺的是它对应的持仓行"
 };
 
@@ -351,7 +355,13 @@ export function danglingStageItem(
     id: `dangling-${stage}`,
     // rebuild 从「修正数据」里拆出去自成任务：它缺的不是字段，是整条持仓行
     task: stage === "rebuild" ? "rebuild" : "repair",
-    state: stage === "reattach" ? "ready" : "incomplete",
+    // 改挂会改流水归属（可能还会新建一条持仓），必须先让用户看清目标再点
+    state:
+      stage === "reattach"
+        ? "ready"
+        : stage === "mislink"
+          ? "judge"
+          : "incomplete",
     sourceDomain: "F",
     title: DANGLING_STAGE_TITLE[stage],
     summary: DANGLING_STAGE_SUMMARY[stage],
@@ -359,9 +369,12 @@ export function danglingStageItem(
       `涉及 ${reconCount(groups.length, "组")}`,
       symbolFact,
       `净额合计 ${reconQuantity(netUnits)}`,
-      batchId !== null
-        ? reconBatchLabel(groups[0].batch_label, count)
-        : "来自多个批次的导入"
+      // 错挂组没有导入批次语义（按标的归属聚合，不按导入时间），不编一条假批次
+      stage === "mislink"
+        ? ""
+        : batchId !== null
+          ? reconBatchLabel(groups[0].batch_label, count)
+          : "来自多个批次的导入"
     ].filter(Boolean),
     count,
     // 动作名与阶段判据同源（DANGLING_ACTION_LABEL），不会出现「写着 A 点进去做 B」
@@ -595,14 +608,18 @@ export function batchableItems(items: ReconQueueItem[]): ReconQueueItem[] {
 }
 
 /** 明细行的用户语言（供卡片展开区复用，不再手写 `#57 buy ...`） */
-export function danglingDetailLine(t: {
-  id: number;
-  txn_type: string;
-  trade_date: string | null;
-  quantity: number;
-  amount: number;
-  position_id: number;
-}): {
+export function danglingDetailLine(
+  t: {
+    id: number;
+    txn_type: string;
+    trade_date: string | null;
+    quantity: number;
+    amount: number;
+    position_id: number;
+  },
+  /** 归属说明：默认按悬空口径写；错挂组由调用方给出「挂在 X 的持仓上」 */
+  note?: string
+): {
   date: string;
   type: string;
   quantity: string;
@@ -614,7 +631,7 @@ export function danglingDetailLine(t: {
     type: reconTxnType(t.txn_type),
     quantity: reconQuantity(t.quantity),
     amount: reconMoneyPhrase(t.amount),
-    note: `指向已删除的持仓（${reconRecordRef(t.position_id)}）`
+    note: note ?? `指向已删除的持仓（${reconRecordRef(t.position_id)}）`
   };
 }
 

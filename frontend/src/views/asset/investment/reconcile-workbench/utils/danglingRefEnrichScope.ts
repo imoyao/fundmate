@@ -80,11 +80,16 @@ export function inspectGroupNeeds(txns: readonly EnrichTxnLike[]): GroupNeeds {
  * 死弹窗，弹窗让他「去补建持仓」，而唯一的入口在另一个卡片上（2026-11-13 owner 截图：
  * 两边来回踢皮球）。判据在这里收成一条，列表动作 / 分组卡 / 弹窗都读同一个结论。
  *
+/**
  * 四种状态，每一种在界面上都必须有出口：
  * - `reattach`：已有可挂回的现存持仓 → 回补关联
  * - `fill`：缺标的代码 → 补全信息
  * - `rebuild`：代码齐全但没有持仓行 → 按流水重建持仓
  * - `empty`：空组（后端不该给出，防御用）→ 不给动作
+ *
+ * 另有一个**不属于**本派生的阶段 `mislink`（见 `DanglingStage`）：
+ * 那类组根本不是悬空流水（`position_id` 指着的持仓**存在**，只是标的对不上），
+ * 它的下一步由后端检出结果给出，不经过 `danglingNextStep`。
  */
 export type DanglingNextStep = "reattach" | "fill" | "rebuild" | "empty";
 
@@ -111,13 +116,22 @@ export function danglingNextStep(input: NextStepInput): DanglingNextStep {
  * `DANGLING_ACTION_LABEL` 因此与阶段键同文件收口，改判据必须同步看见动作名。
  */
 
-/** 阶段键 = `danglingNextStep` 去掉 `empty`。`empty` 不是阶段：空组不展示。 */
-export type DanglingStage = Exclude<DanglingNextStep, "empty">;
+/**
+ * 阶段键 = `danglingNextStep` 去掉 `empty`，另加 `mislink`。
+ *
+ * `mislink`（挂错标的）**不是**悬空流水的下一步：它的组由后端 `/mislinked/` 检出，
+ * `position_id` 指着的持仓存在、只是属于别的标的。把它并进 `danglingNextStep`
+ * 会让「缺代码 → 补全」这类派生判据去解释一个根本不是悬空的组（真库里
+ * 24 条 symbol_norm 不等的挂接中 21 条是场所标注问题，派生器无从分辨）。
+ * 故它的阶段归属由组上的 `mislinked` 标记直接给出，见 `groupStage`。
+ */
+export type DanglingStage = Exclude<DanglingNextStep, "empty"> | "mislink";
 
-/** 阶段的固定展示顺序：先补字段、再挂回、最后才是重建（漏斗从轻到重） */
+/** 阶段的固定展示顺序：先补字段、再挂回、再改错挂、最后才是重建（漏斗从轻到重） */
 export const DANGLING_STAGES: readonly DanglingStage[] = [
   "fill",
   "reattach",
+  "mislink",
   "rebuild"
 ];
 
@@ -142,12 +156,18 @@ export interface DanglingStageGroupLike {
   fixable: boolean;
   /** 组内流水条数 */
   txn_count: number;
+  /** 错挂组标记（只在 `/mislinked/` 的组上有）；有它 ⇒ 阶段直接是 `mislink` */
+  mislinked?: boolean;
 }
 
 /** 一个组属于哪个阶段；空组（txn_count === 0）返回 null（不展示） */
 export function groupStage(
   group: DanglingStageGroupLike
 ): DanglingStage | null {
+  if (group.txn_count === 0) return null;
+  // 错挂组不参与「悬空流水下一步」的派生：它的 `fixable` 含义不同
+  // （有同标的持仓可改挂），照派生规则会被判成 `reattach`，点进去却做「改挂」。
+  if (group.mislinked) return "mislink";
   return danglingStageOf({
     symbol: group.symbol,
     fixable: group.fixable,
@@ -165,6 +185,7 @@ export function bucketByStage<T extends DanglingStageGroupLike>(
   const buckets: Record<DanglingStage, T[]> = {
     fill: [],
     reattach: [],
+    mislink: [],
     rebuild: []
   };
   for (const group of groups) {
@@ -181,6 +202,7 @@ export function bucketByStage<T extends DanglingStageGroupLike>(
 export const DANGLING_ACTION_LABEL: Record<DanglingStage, string> = {
   fill: "补全信息",
   reattach: "回补关联",
+  mislink: "改挂到正确标的",
   rebuild: "重建持仓"
 };
 
