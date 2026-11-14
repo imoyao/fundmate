@@ -14,6 +14,8 @@ import { injectSupabaseSession } from "./support/session";
  *    并写错，会把「数据缺口」说成「没有估值序列」——正是 #1812 上线首日的坑。
  * 3. **归因行**搬进了 `PnlAttributionRows.vue`，贡献条的归一分母从「父级算」改成
  *    「子组件按当前行集算」。分母算错时数值不错、只有条的宽度全一样，肉眼极难发现。
+ *    （后来收益归因按盈亏拆成两列：分母改由父级按**全量行**回传给子组件，
+ *    判据不变——100 元盈利满格、50 元亏损半格，两列必须可比。）
  *
  * 页面：账本详情（`/#/asset/ledgers/1`）同时挂着这两个组件，且用的是**非 hostHeader**
  * 模式（组件自画标题与控件排），因此能一起回归。
@@ -216,7 +218,7 @@ test.describe("收益日历 / 收益归因拆分后回归（#980 批 B4）", () 
     const rows = page.locator(".pnl-attribution__list .pnl-attribution__row");
     await expect(rows).toHaveCount(2, { timeout: 30_000 });
 
-    // 归一化写在子组件里（PnlAttributionRows 按当前行集算分母）：
+    // 归一化由父级把「全量行的最大 |pnl|」传下来（盈利 / 亏损两列共用同一分母）：
     // 100 与 -50 对应满格与半格。写错分母时数值照旧、只有条变一样长，肉眼难查。
     await expect(rows.nth(0).locator(".pnl-attribution__bar")).toHaveAttribute(
       "style",
