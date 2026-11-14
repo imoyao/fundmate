@@ -7,16 +7,20 @@
   - 基准不可算（港美股持仓 / 未识别 / 指数覆盖不足）时只画组合线并给降级文案，
     **不画一条 0 线冒充基准**；
   - 换基准 = 改组合设置（`Portfolio.benchmark` 存指数代码）+ 重取，不引入第二份映射表。
+
+  ## 周期筛选（#3109）
+
+  以前写死近 90 天。现在由 `ChartRangeTabs` 提供九档（近1月…成立来），
+  **受控**：区间值由父页持有并同步喂给上方指标卡——曲线末点与卡片的「超额收益」
+  必须同区间，两个组件各存一份状态迟早分叉。档位含义与起止日换算全在
+  `utils/chartRange.ts`，本组件不出现任何天数常量。
 -->
 <template>
   <CardBlock>
     <div class="excess-trend__head">
       <div>
         <h3 class="excess-trend__title">超额走势</h3>
-        <p class="excess-trend__caption">
-          {{ rangeLabel }}：组合累计收益 vs
-          基准累计收益（末点与上方卡片口径一致）
-        </p>
+        <p class="excess-trend__caption">{{ captionText }}</p>
       </div>
       <el-select
         :model-value="currentCode"
@@ -48,6 +52,11 @@
       :height="260"
     />
 
+    <!-- 周期筛选（图下方，与产品图同位置）：一排常用档 + 「更多」下拉 -->
+    <div class="excess-trend__range">
+      <ChartRangeTabs v-model="range" aria-label="超额走势区间" />
+    </div>
+
     <p v-if="benchmarkHint" class="excess-trend__hint">
       {{ benchmarkHint }}
     </p>
@@ -58,6 +67,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import CardBlock from "@/components/CardBlock/index.vue";
+import ChartRangeTabs from "@/components/ChartRangeTabs/index.vue";
 import TimeSeriesChart, {
   type TimeSeriesItem
 } from "@/components/Charts/TimeSeriesChart.vue";
@@ -68,7 +78,12 @@ import {
   type BenchmarkOption
 } from "@/api/summary";
 import { updatePortfolio } from "@/api/portfolio";
-import { EXCESS_RANGE_DAYS, excessDateRange } from "@/utils/benchmarkExcess";
+import {
+  CHART_RANGE_INCEPTION,
+  chartRangeLabel,
+  chartRangeParams,
+  type ChartRangeKey
+} from "@/utils/chartRange";
 
 defineOptions({ name: "PortfolioExcessTrend" });
 
@@ -77,19 +92,41 @@ const props = defineProps<{
   portfolioId: number;
 }>();
 
+/** 区间受控：父页与「基准 / 超额收益」两张卡共用同一个值（见模板上方注释） */
+const range = defineModel<ChartRangeKey>("range", { default: "3m" });
+
 const emit = defineEmits<{ updated: [] }>();
 
 const excess = ref<BenchmarkExcessResult | null>(null);
 const benchmarks = ref<BenchmarkOption[]>([]);
 const benchmarksLoading = ref(false);
 const loadError = ref("");
-const rangeLabel = `近 ${EXCESS_RANGE_DAYS} 天`;
 
 const series = computed(() => excess.value?.series ?? []);
 const categories = computed(() => series.value.map(item => item.date));
 const hasBenchmark = computed(() =>
   series.value.some(item => item.benchmark_cum_pct !== null)
 );
+
+/**
+ * 数据不够长时的实际起点提示（「近5年」在只运行一年的组合上只画得出一年的线）。
+ *
+ * 「成立来」不提示：后端解析出的起点本身就是真实起点，没有「比请求更短」这回事。
+ */
+const actualStartHint = computed(() => {
+  const data = excess.value;
+  if (!data?.start_date) return "";
+  const requested = chartRangeParams(range.value).start_date;
+  if (requested === CHART_RANGE_INCEPTION) return "";
+  // YYYY-MM-DD 的字典序即时间序，无需再解析成 Date 比较
+  return data.start_date > requested ? `（数据自 ${data.start_date} 起）` : "";
+});
+
+/** 说明文案：档位标签 +（数据不够长时）实际起点 */
+const captionText = computed(() => {
+  const label = chartRangeLabel(range.value);
+  return `${label}${actualStartHint.value}：组合累计收益 vs 基准累计收益（末点与上方卡片口径一致）`;
+});
 
 /** 当前选中基准：以后端归一后的代码为准（降级时为空，让用户重选） */
 const currentCode = computed(() => excess.value?.benchmark?.code ?? "");
@@ -132,7 +169,7 @@ async function fetchExcess() {
   loadError.value = "";
   try {
     const res = await getBenchmarkExcess({
-      ...excessDateRange(),
+      ...chartRangeParams(range.value),
       portfolio_id: props.portfolioId
     });
     excess.value = res.data;
@@ -175,6 +212,8 @@ onMounted(async () => {
 });
 
 watch(() => props.portfolioId, fetchExcess);
+// 切档即重取：range 由父页与「超额收益」卡共用，两边不可能各自停在一段区间
+watch(range, fetchExcess);
 </script>
 
 <style scoped>
@@ -201,6 +240,12 @@ watch(() => props.portfolioId, fetchExcess);
 .excess-trend__select {
   flex: none;
   width: 160px;
+}
+
+/* 周期筛选独立成行（与产品图同位置）：左对齐、与图表留一道呼吸 */
+.excess-trend__range {
+  display: flex;
+  margin-top: 10px;
 }
 
 .excess-trend__hint {

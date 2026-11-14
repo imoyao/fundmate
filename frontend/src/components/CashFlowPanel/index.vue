@@ -31,12 +31,7 @@
         </p>
       </template>
       <template #action>
-        <SegmentedControl
-          v-model="range"
-          :options="RANGE_OPTIONS"
-          size="small"
-          aria-label="资金流动区间"
-        />
+        <ChartRangeTabs v-model="range" aria-label="资金流动区间" />
       </template>
     </SectionHeader>
 
@@ -111,10 +106,10 @@ import { computed } from "vue";
 import VChart from "vue-echarts";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import ChartRangeTabs from "@/components/ChartRangeTabs/index.vue";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 import { formatAmount } from "@/utils/currency";
-import { RANGE_OPTIONS, useCashFlow } from "./useCashFlow";
+import { useCashFlow } from "./useCashFlow";
 
 defineOptions({ name: "CashFlowPanel" });
 

@@ -1,10 +1,10 @@
 /**
  * 区间收益归因的纯计算（#980 批 B4 从 `index.vue` 抽到 `attributionModel.ts` 时补的网）。
  *
- * 两条容易写反的口径：
- * ① 区间预设的边界（「今年」必须是 1-1 起，不是「近 12 个月」）；
- * ② 空态那两句话不能混用——「数据不足」与「没有可归因持仓」是两件事，
- *    混了用户就会去翻持仓，而真正缺的是数据。
+ * 区间档位与「档位 → 日期」已迁到 `utils/chartRange.ts`（#3109），边界由
+ * `utils/__tests__/chartRange.spec.ts` 钉住（今年来=1-1 起、月回退、月末不溢出、
+ * inception 哨兵）。本文件只钉**展示层**那一件容易写反的事：
+ * 「数据不足」与「没有可归因持仓」不能混用 —— 混了用户会去翻持仓，而真正缺的是数据。
  */
 import { describe, expect, it } from "vitest";
 import type { PnlAttributionPayload } from "@/api/summary";
@@ -13,13 +13,9 @@ import {
   buildRows,
   computeMaxAbs,
   emptyTextFor,
-  fmtDate,
-  presetRange,
   sectionInfoFor,
   type ViewRow
 } from "../attributionModel";
-
-const NOW = new Date(2026, 9, 27); // 2026-10-27 本地时区
 
 function payload(
   over: Partial<PnlAttributionPayload> = {}
@@ -38,41 +34,6 @@ function payload(
     ...over
   } as PnlAttributionPayload;
 }
-
-describe("fmtDate", () => {
-  it("月 / 日补零", () => {
-    expect(fmtDate(new Date(2026, 0, 5))).toBe("2026-01-05");
-    expect(fmtDate(new Date(2026, 11, 31))).toBe("2026-12-31");
-  });
-});
-
-describe("presetRange", () => {
-  it("今年 = 1-1 起（不是「近 12 个月」）", () => {
-    expect(presetRange("ytd", NOW)).toEqual({
-      start_date: "2026-01-01",
-      end_date: "2026-10-27"
-    });
-  });
-
-  it("近1月 / 近3月 / 近1年按月回退", () => {
-    expect(presetRange("1m", NOW).start_date).toBe("2026-09-27");
-    expect(presetRange("3m", NOW).start_date).toBe("2026-07-27");
-    expect(presetRange("1y", NOW).start_date).toBe("2025-10-27");
-  });
-
-  it("终点恒为今天（所有预设共用一个 end）", () => {
-    for (const key of ["1m", "3m", "ytd", "1y", "all"] as const) {
-      expect(presetRange(key, NOW).end_date).toBe("2026-10-27");
-    }
-  });
-
-  it("投资以来 = 起点交后端解析（inception 哨兵）", () => {
-    expect(presetRange("all", NOW)).toEqual({
-      start_date: "inception",
-      end_date: "2026-10-27"
-    });
-  });
-});
 
 describe("buildRows", () => {
   it("无载荷 ⇒ 空行", () => {

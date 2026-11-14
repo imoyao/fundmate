@@ -71,8 +71,9 @@
             />
           </MetricGrid>
 
-          <!-- 超额走势（#2685）：曲线与上方「超额收益」卡同口径，末点相等 -->
+          <!-- 超额走势（#2685/#3109）：周期由本页持有后喂给两者，曲线末点 ≡ 上方卡片 -->
           <PortfolioExcessTrend
+            v-model:range="range"
             class="mb-6"
             :portfolio-id="portfolioId"
             @updated="fetchExcess"
@@ -304,6 +305,7 @@ async function fetchHoldings() {
 // ---------- 区间收益 vs 基准（#2134）----------
 const {
   fetchExcess,
+  range,
   benchmarkLabel,
   benchmarkCaption,
   excessValue,
