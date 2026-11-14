@@ -17,6 +17,11 @@
     · 区间预设、行构造、贡献条归一、空态文案 → `attributionModel.ts`（纯函数）
     · 明细列表（含贡献条样式）→ `PnlAttributionRows.vue`
   本文件只留取数、工具条、空态与无价降级。
+
+  列表形态（后续调整）：原来是一条按 |pnl| 混排的长列表，赚亏交替、几十个持仓能占
+  整屏。现在按符号拆成「盈利 / 亏损 / 持平」三列并排（空组不渲染），每组默认只露
+  前 `PREVIEW_SIZE`(=10) 条，超出才出「展开全部 N 个」。贡献条分母由本文件传给子组件
+  （全量行的最大 |pnl|），保证两列可比、展开收起时条宽不跳。
 -->
 <template>
   <template v-if="visible">
@@ -52,10 +57,38 @@
       <div v-else-if="error" class="pnl-attribution__placeholder">
         {{ error }}
       </div>
-      <div v-else-if="!rows.length" class="pnl-attribution__placeholder">
+      <div v-else-if="!groups.length" class="pnl-attribution__placeholder">
         {{ emptyText }}
       </div>
-      <PnlAttributionRows v-else :rows="rows" />
+      <!-- 赚的与亏的分两列并排：一眼看出方向，行数也减半（原来是一条混排长列表） -->
+      <div v-else class="pnl-attribution__groups">
+        <section
+          v-for="group in groups"
+          :key="group.key"
+          class="pnl-attribution__group"
+          :aria-label="`${group.label} ${group.rows.length} 个`"
+        >
+          <header class="pnl-attribution__group-head">
+            <span
+              class="pnl-attribution__group-label"
+              :class="`is-${group.key}`"
+              >{{ group.label }}</span
+            >
+          </header>
+          <PnlAttributionRows :rows="visibleRowsOf(group)" :max-abs="maxAbs" />
+          <button
+            v-if="group.rows.length > PREVIEW_SIZE"
+            type="button"
+            class="pnl-attribution__more"
+            :aria-expanded="expanded[group.key] === true"
+            @click="toggleGroup(group.key)"
+          >
+            {{
+              expanded[group.key] ? "收起" : `展开全部 ${group.rows.length} 个`
+            }}
+          </button>
+        </section>
+      </div>
 
       <!-- 无价降级：不进合计，折叠列出（卡面验收「依赖数据不足时诚实降级」） -->
       <details
@@ -90,10 +123,14 @@ import ChartRangeTabs from "@/components/ChartRangeTabs/index.vue";
 import PnlAttributionRows from "./PnlAttributionRows.vue";
 import {
   DIMENSION_OPTIONS,
+  PREVIEW_SIZE,
   buildRows,
+  computeMaxAbs,
   emptyTextFor,
   sectionInfoFor,
-  type Dimension
+  splitByPnl,
+  type Dimension,
+  type PnlGroup
 } from "./attributionModel";
 import { chartRangeParams, type ChartRangeKey } from "@/utils/chartRange";
 import { getPnlAttribution, type PnlAttributionPayload } from "@/api/summary";
@@ -113,6 +150,8 @@ const dimension = ref<Dimension>("position");
 const data = ref<PnlAttributionPayload | null>(null);
 const loading = ref(false);
 const error = ref("");
+/** 每组的展开态；缺省 = 折叠（只露 PREVIEW_SIZE 条） */
+const expanded = ref<Record<string, boolean>>({});
 
 const { assetTypeLabel } = useEnumLabels();
 
@@ -129,6 +168,8 @@ async function load() {
     if (props.portfolioId) params.portfolio_id = props.portfolioId;
     const res = await getPnlAttribution(params);
     data.value = res.data;
+    // 换区间 / 换范围后重新折回「前 10」：新数据不该继承旧数据的展开态
+    expanded.value = {};
   } catch (e) {
     data.value = null;
     error.value =
@@ -145,6 +186,36 @@ watch(() => [props.ledgerId, props.portfolioId], load, { immediate: true });
 const rows = computed(() =>
   buildRows(data.value, dimension.value, assetTypeLabel)
 );
+
+/**
+ * 明细按「盈利 / 亏损 / 持平」分组成列（#980 后续）。
+ *
+ * 原来是一条按 |pnl| 混排的长列表：赚的和亏的交替出现，用户得自己看符号，
+ * 而且几十个持仓时这一块能占掉整屏。分组后两列并排，页高减半。
+ */
+const groups = computed(() => splitByPnl(rows.value));
+
+/**
+ * 贡献条分母取**全量行**（不是可见行）：
+ * 展开 / 收起时条宽不跳；盈利与亏损两列也只有共用同一个分母才可比
+ * ——各列各自归一的话，100 元盈利与 50 元亏损都会画成满格。
+ */
+const maxAbs = computed(() => computeMaxAbs(rows.value));
+
+function visibleRowsOf(group: PnlGroup) {
+  return expanded.value[group.key]
+    ? group.rows
+    : group.rows.slice(0, PREVIEW_SIZE);
+}
+
+function toggleGroup(key: string) {
+  expanded.value = { ...expanded.value, [key]: !expanded.value[key] };
+}
+
+// 品种 ⇄ 大类是纯前端切换，行数与量级都变了，展开态必须复位
+watch(dimension, () => {
+  expanded.value = {};
+});
 
 const emptyText = computed(() => emptyTextFor(data.value));
 
@@ -188,6 +259,63 @@ const sectionInfo = computed(() => sectionInfoFor(data.value));
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.pnl-attribution__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px 20px;
+  align-items: start;
+}
+
+.pnl-attribution__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pnl-attribution__group-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: var(--text-label, 13px);
+}
+
+.pnl-attribution__group-label {
+  font-weight: 600;
+}
+
+.pnl-attribution__group-label.is-gain {
+  color: var(--color-rise-ink);
+}
+
+.pnl-attribution__group-label.is-loss {
+  color: var(--color-fall-ink);
+}
+
+.pnl-attribution__group-label.is-flat {
+  color: var(--text-tertiary-ink);
+}
+
+.pnl-attribution__more {
+  align-self: flex-start;
+  padding: 0;
+  font-size: var(--text-label);
+  color: var(--brand-700, var(--brand-500));
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.pnl-attribution__more:hover {
+  text-decoration: underline;
+}
+
+.pnl-attribution__more:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 4px);
 }
 
 .pnl-attribution__placeholder {

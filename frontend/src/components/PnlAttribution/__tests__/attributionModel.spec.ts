@@ -9,11 +9,13 @@
 import { describe, expect, it } from "vitest";
 import type { PnlAttributionPayload } from "@/api/summary";
 import {
+  PREVIEW_SIZE,
   barWidthFor,
   buildRows,
   computeMaxAbs,
   emptyTextFor,
   sectionInfoFor,
+  splitByPnl,
   type ViewRow
 } from "../attributionModel";
 
@@ -131,6 +133,45 @@ describe("computeMaxAbs / barWidthFor", () => {
 
   it("空行 ⇒ 分母 0", () => {
     expect(computeMaxAbs([])).toBe(0);
+  });
+});
+
+describe("splitByPnl", () => {
+  const row = (key: string, pnl: number): ViewRow => ({
+    key,
+    name: key,
+    sub: "",
+    pnl,
+    pct: null
+  });
+
+  it("按符号分成 盈利 / 亏损 / 持平，且顺序固定（持平垫底）", () => {
+    const groups = splitByPnl([
+      row("a", 100),
+      row("b", -50),
+      row("c", 0),
+      row("d", 30)
+    ]);
+    expect(groups.map(g => g.key)).toEqual(["gain", "loss", "flat"]);
+    expect(groups.map(g => g.label)).toEqual(["盈利", "亏损", "持平"]);
+    expect(groups[0].rows.map(r => r.key)).toEqual(["a", "d"]);
+    expect(groups[1].rows.map(r => r.key)).toEqual(["b"]);
+    expect(groups[2].rows.map(r => r.key)).toEqual(["c"]);
+  });
+
+  it("只分组不排序：组内保持后端给的 |pnl| 降序（前 10 的语义前提）", () => {
+    const groups = splitByPnl([row("a", 100), row("b", 20), row("c", 300)]);
+    expect(groups[0].rows.map(r => r.key)).toEqual(["a", "b", "c"]);
+  });
+
+  it("空组不返回（不给用户一条空列表 + 一个 0）", () => {
+    expect(splitByPnl([row("a", 5)]).map(g => g.key)).toEqual(["gain"]);
+    expect(splitByPnl([row("a", -5)]).map(g => g.key)).toEqual(["loss"]);
+    expect(splitByPnl([])).toEqual([]);
+  });
+
+  it("折叠态每侧条数沿用「前十大」心智（10）", () => {
+    expect(PREVIEW_SIZE).toBe(10);
   });
 });
 

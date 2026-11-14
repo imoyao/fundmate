@@ -1,7 +1,7 @@
 /**
  * PnlAttribution 的纯计算（#980 从 `index.vue` 抽出）。
  *
- * 这里只做**展示层的型变换**：载荷 → 行、行的贡献条宽度归一。
+ * 这里只做**展示层的型变换**：载荷 → 行、行 → 盈亏分组、行的贡献条宽度归一。
  * 盈亏本身一律由后端算（`services/pnl_calendar.py: compute_range_attribution`），
  * 前端**不二次计算、不对账**——`Σ positions[].pnl ≡ 同窗 pnl-calendar 的 month_total`
  * 是后端构造保证的。
@@ -65,6 +65,55 @@ export function buildRows(
       : r.symbol,
     pnl: r.pnl,
     pct: r.pct
+  }));
+}
+
+/**
+ * 折叠态每侧展示的条数。
+ *
+ * 取 10 沿用「前十大」既有心智（同 `ProductHoldingSection.PREVIEW_SIZE`），
+ * 不另设魔数；行数不超过它时**不出**「展开」按钮——那种按钮是纯噪声。
+ */
+export const PREVIEW_SIZE = 10;
+
+/** 归因分组：赚的 / 亏的 / 持平分开展示，用户不必在一条混排列表里自己找正负 */
+export type PnlGroupKey = "gain" | "loss" | "flat";
+
+export type PnlGroup = {
+  key: PnlGroupKey;
+  label: string;
+  rows: ViewRow[];
+};
+
+const GROUP_LABELS: Record<PnlGroupKey, string> = {
+  gain: "盈利",
+  loss: "亏损",
+  flat: "持平"
+};
+
+/** 组序固定：先赚后亏，「持平」永远垫底（它没有可看的信息量） */
+const GROUP_ORDER: readonly PnlGroupKey[] = ["gain", "loss", "flat"];
+
+/**
+ * 行 → 盈利 / 亏损 / 持平三组。
+ *
+ * ⚠️ 只做**稳定分组**（filter，不排序）：后端已按 |pnl| 降序给行，
+ * 「每组前 10」的语义完全依赖这个前提。谁要改排序，先回来读这一句。
+ * 空组不返回——页面不该给用户一条空列表 + 一个 0。
+ */
+export function splitByPnl(rows: ViewRow[]): PnlGroup[] {
+  const buckets: Record<PnlGroupKey, ViewRow[]> = {
+    gain: [],
+    loss: [],
+    flat: []
+  };
+  for (const r of rows) {
+    buckets[r.pnl > 0 ? "gain" : r.pnl < 0 ? "loss" : "flat"].push(r);
+  }
+  return GROUP_ORDER.filter(k => buckets[k].length > 0).map(k => ({
+    key: k,
+    label: GROUP_LABELS[k],
+    rows: buckets[k]
   }));
 }
 
