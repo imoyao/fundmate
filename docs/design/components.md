@@ -576,24 +576,59 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - **不给副标题加截断 / tooltip**：纵排后副标题本就拿满整行，截断反而丢信息。
 - 断点取值见 `frontend/design.md` §Viewport「断点单一来源」，勿在此另写 px。
 
-## ChatBubble · 对话气泡（账本精灵 `views/agent/index.vue`，#1121 S1-B，2026-09-26 参考竞品截图二次打磨）
+## ChatWorkbench · 账本精灵工作台（`views/agent/`，2026-11 布局重构）
 
-三态渲染：`clarify` / `result` → 助手气泡；`error` 与网络层错误 → 服务提示气泡；用户消息右对齐。全部走语义令牌，暗色自动生效（`design.dark.md` 无额外规则）。
+> 取代旧「页头 + 折叠历史卡 + 居中 hero + 贴底 chips dock」形态。改版动因是四条实测问题：最新回复落在视口外且不自动滚动、空态是营销海报且两处重复入口、消息列 820px 与满宽 dock 不等宽、历史栏用旧配色族（`--bg-muted` / `--border-light`）像浮起来的浅蓝方块。
+
+### 布局（`index.vue`）
+
+- **页高钉在视口内**：`height: calc(100vh - var(--layout-topbar-height))`。**不能写 `min-height`**——那只是下限，内容一多页面就跟着长高，`.chat-list` 永远撑开不产生滚动，最后一条答案被 sticky dock 压住（改版前实测：内容底 879 / dock 顶 819）。钉死后外层 `el-scrollbar` 不滚（实测 `scrollHeight === clientHeight`），全页只有消息区一条滚动条。
+- **左栏 `.agent-rail`**（232px，右侧 1px `--border-subtle`）：`新对话` 按钮 + `SessionHistory`。≥lg 常驻，**用 `v-if`（`useMediaQuery("(min-width: 64rem)")`）而非 CSS 隐藏**——隐藏后组件仍会 mount 并白拉一次 `GET /api/agent/sessions/`。
+- **会话列 `.chat-main`**：`.chat-list` 是唯一滚动容器（`flex: 1; min-height: 0; overflow-y: auto`，`min-height: 0` 必写，否则 flex 子项按内容撑高）；输入 dock 在列底。消息列上限 760px 居中，与 dock 同宽。
+- **<lg**：左栏不渲染；页头操作槽出现「历史 / 新对话」，历史走 `el-drawer`（标题「会话记录」），内容 `v-if` 只在打开时挂载。
+- **滚动到底**：`scrollChat` 用末尾锚点 `bottomRef.scrollIntoView({ block: "end" })`，**不再**写 `el.scrollTop`——后者要求调用方确知哪一层才是滚动容器，改版前就是写给了 `overflow: visible` 的元素、赋值静默无效。
+
+### 空态：能力目录（`AgentHero.vue`）
+
+- 标题「问一句，我把账户里的事实查给你」+ 一句合规声明（不预测涨跌 / 不给建议）；**不再用品牌渐变口号**。
+- 「试着问一句」小标签（`--text-label` + `--text-tertiary`，**E2E 锚点文案不得改**）+ 8 项能力目录（`agentQuickActions.ts` 的 `AGENT_CAPABILITIES`，与后端 `TOOLS_METADATA` 的 10 个工具一一对应）。
+- 每项 = 图标 + 能力名（`--text-small` 600）+ 一句「能查到什么」（`--text-label` `--text-tertiary`），整块是 `button`（键盘可达、`--focus-ring`），点击即发问；`≥sm` 两列、`<sm` 单列。
+- **只列后端工具已支撑的能力**：新增条目必须先在工具注册表里有对应工具，否则是承诺没兑现的空入口。
+
+### 消息（`AgentMessageItem.vue`）
+
+| 角色 | 形态 | 底色 / 文字 |
+|------|------|------|
+| 用户 | 右对齐气泡，≤78%（`<md` 88%），尾角收小 `--radius-sm` | `--brand-solid` / `--text-inverse` |
+| 助手 | **无框答案块**，占满消息列，正文 1.75 行高 | 透明 / `--text-primary` |
+| 服务提示 | 左对齐气泡 | `--bg-soft` / `--text-primary`，描边 `--color-danger` |
+| 等待态 | 胶囊一行「分析中」+ CSS 省略号（`steps` 关键帧，不用 Emoji） | `--bg-soft` / `--text-tertiary` |
+
+- **助手不再套气泡**：旧版把结构化回答塞进气泡 78% 宽度里，表格挤成豆腐块。现在表格拿到整列宽度。
+- **角色徽标**：助手 / 服务提示 / 等待态上方一行 20px 圆形徽标（助手 `--brand-100` 底 `--brand-700` 图标 `MagicStick`；服务提示 `--color-danger-10` 底 `--color-danger-ink` 图标 `WarningFilled`）+ `--text-label` 角色名；用户侧不显示。
+- **结构化表格**：自带卡片（`--bg-card` + `--border-subtle` + `--radius-md`），横向可滚，首末列去左右内边距贴边，`tabular-nums`；行级 `kind='pnl'` 列染 `--color-rise-ink` / `--color-fall-ink`（涨红跌绿）。
+- **指标 chips（result 态）**：仅当 `data` 为扁平标量记录时渲染；`--bg-subtle` 底 + `--border-subtle` + `--radius-pill`，key `--text-tertiary`、value `--text-primary` 500 字重 + `tabular-nums`。**不给指标染涨跌色**——汇总值不是涨跌语义。
+- 模型输出渲染前剔除 Emoji：全站禁 Emoji 只有约定没有 lint 兜底，页面内就是那道兜底。
+
+### 输入 dock（`AgentComposer.vue`）
+
+- 只保留**胶囊输入**（`--radius-pill` 容器 + `--border-default`，`focus-within` 走 `--focus-ring`，内层 textarea 去边框透明）+ **44px 圆形发送/停止复合按钮**（`ArrowUp` → 12px 方块，`aria-label` 随态切换）。
+- **不再放能力 chips**：与空态目录重复（空态 8 项、chips 3 项，同一批入口渲染两遍）。快捷键说明留在 placeholder「Enter 发送，Shift+Enter 换行」。
+- **状态文案只在思考中 / 刚被停止时出现**；空闲返回空串、不渲染那一行（旧版常驻「回车发送 · 信息不全会先确认」是噪音）。
+
+## ChatBubble · 对话气泡（历史约定，语义仍适用）
+
+三态渲染：`clarify` / `result` → 助手；`error` 与网络层错误 → 服务提示；用户消息右对齐。全部走语义令牌，暗色自动生效（`design.dark.md` 无额外规则）。
 
 | 角色 | 底色 | 文字 | 描边 |
 |------|------|------|------|
 | 用户（右侧） | `--brand-solid` | `--text-inverse` | 透明 |
-| 助手（左侧） | `--bg-soft` | `--text-primary` | `--border-subtle` 1px |
 | 服务提示（左侧） | `--bg-soft` | `--text-primary`（角色标签 `--color-danger`） | `--color-danger` 1px |
-| 等待态 | 同助手 | `--text-tertiary` + CSS 动画省略号（`steps` 关键帧，不用 Emoji） | 同助手 |
+| 等待态 | `--bg-soft` | `--text-tertiary` + CSS 动画省略号 | 同服务提示 |
 
-- 形态：`--radius-lg` + **尾角收小**（助手左下 / 用户右下为 `--radius-sm`，经典聊天气泡指向）；内边距 `--space-3` × `--space-compact`；最大宽度 78%（`< md` 92%）；`white-space: pre-wrap`。
-- **头像行**：助手 / 服务提示 / 等待态气泡上方一行 `msg__head`——24px 圆形头像（助手 & 等待 `--brand-100` 底 `--brand-700` 图标 `MagicStick`；服务提示 `--color-danger-10` 底 `--color-danger-ink` 图标 `WarningFilled`）+ 角色标签（`--text-label` + `--text-tertiary`，error 为 `--color-danger`）；用户消息不显示。
-- **指标 chips（result 态）**：仅当 `data` 为扁平标量记录时渲染（嵌套结构只走自然语言，避免 `[object Object]`）；`--bg-subtle` 底 + `--border-subtle` + `--radius-pill` 胶囊，key `--text-tertiary`、value `--text-primary` 500 字重 + `tabular-nums`。**不给指标染涨跌色**——汇总值不是涨跌语义，涨红跌绿只留给行级行情数据。
-- **空态 hero**（替代旧居中 chips 版）：两行大标题（`--text-title` 600 字重，`< md` 降为 `--text-heading`），其中「账本精灵」为**品牌渐变词**（`linear-gradient(135deg, --brand-700, --brand-900)` + `background-clip: text`；不支持时 `@supports` 回退 `--brand-700` 实色，防文字被 `transparent` 藏掉）；「试着问一句」小标签（`--text-label` + `--text-tertiary`，E2E 锚点文案不得改）；下方示例问题**块列表**（`--bg-soft` 底 + `--radius-md`，左侧 `MagicStick` 图标 `--brand-700`，hover 转 `--bg-hover` + `--border-default`）。
-- **底部 dock**：上边框 `--border-subtle`；上层**能力快捷 chips**横滚（`scrollbar-width: none`，胶囊 `--bg-soft` 底 + 图标 + 短标签，hover `--brand-ink` 字，`pending` 时禁用）——只列后端已有工具支撑的能力（投资表现 / 持仓价值 / 市场温度），**不放后端没有的能力**（如行为解读）；下层**胶囊输入**（`--radius-pill` 容器 + `--border-default`，`focus-within` 走 `--brand-700` + `--focus-ring`，内层 textarea 去边框透明）+ **圆形发送按钮**（44px `circle` `type=primary`，`ArrowUp` 图标，`aria-label="发送"` 供 E2E/读屏定位，`loading` 时转圈）。
-- 空态 / 输入区的示例问题与能力 chips **同源**（`QUICK_ACTIONS` → `EXAMPLES`），改文案只改一处。
-- 模型输出渲染前剔除 Emoji：全站禁 Emoji 只有约定没有 lint 兜底，页面内就是那道兜底。
+- 气泡形态：`--radius-lg` + 尾角收小（用户右下 `--radius-sm`）；内边距 `--space-3` × `--space-compact`；`white-space: pre-wrap`。
+- 助手消息自 2026-11 起是**无框答案块**（见上节），不再使用气泡形态。
+- 空态 / 输入区的示例问句**单源**：`agentQuickActions.ts` 的 `AGENT_CAPABILITIES[].ask`，改文案只改一处。
 
 ## PageFooter / MarketFooter · 探市 / 温度计页脚（复用）
 
