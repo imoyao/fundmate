@@ -134,8 +134,36 @@ def allocation_payload(
             'excluded_total': round(sum(row['value'] for row in excluded_rows), 2),
             'excluded': excluded_rows,
             'liabilities_total': round(liabilities_total, 2),
+            'buckets': _buckets_with_zeros(buckets),
         },
     }
+
+
+def _buckets_with_zeros(buckets: dict[str, float]) -> list[dict[str, Any]]:
+    """五笔钱**全档位**（含 0 值），顺序即 ``ALLOCATION_LABELS`` 的声明序。
+
+    为什么不复用 ``allocation_distribution``：那是图表契约，``> 0`` 过滤是对的——
+    饼图/桑基图不该画零值扇区。但首页「心理账户」卡要回答的是「我这五笔钱各是多少」，
+    **空档本身就是信息**（保命钱为 0 是财务健康信号，静默不显示等于替用户藏了一件事）。
+
+    故另开一个键而非改老键：改 ``allocation_distribution`` 会把 0 值扇区塞进所有图表。
+    两键的恒等关系一致——``Σ buckets.value == allocation_scope.denominator``。
+
+    ``key`` / ``label`` 一律由后端输出，前端只展示不翻译（``conventions.md`` §2.9）。
+    兜底：存储值不在枚举内时，``buckets`` 字典的键是中文字面量（如「未分类」），
+    此类条目追加在末尾，``key`` 与 ``label`` 同值。
+    """
+    known = set(ALLOCATION_LABELS.values())
+    rows = [
+        {'key': key, 'label': label, 'value': round(buckets.get(label, 0.0), 2)}
+        for key, label in ALLOCATION_LABELS.items()
+    ]
+    rows.extend(
+        {'key': name, 'label': name, 'value': round(value, 2)}
+        for name, value in sorted(buckets.items(), key=lambda kv: -kv[1])
+        if name not in known
+    )
+    return rows
 
 
 def allocation_group_items(

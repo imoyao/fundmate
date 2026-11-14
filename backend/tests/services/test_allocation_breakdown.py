@@ -6,7 +6,8 @@
 - ``test_liability_never_hits_any_bucket``：负债若进桶，本用例必须红；
 - ``test_cash_asset_falls_into_liquid``：若把资产行重新排除出分布（P0-1 回潮），必须红；
 - ``test_buckets_sum_equals_scope_denominator``：恒等断言，防「Σ桶 ≠ 分母」的双算；
-- ``test_user_source_overrides_derivation``：显式配置被推导规则改写，必须红。
+- ``test_user_source_overrides_derivation``：显式配置被推导规则改写，必须红；
+- ``test_scope_buckets_keep_empty_slots``：五笔钱空档被过滤掉（首页「保命钱 0」看不见了），必须红。
 """
 
 from app.core.constants import ALLOCATION_LABELS
@@ -163,6 +164,51 @@ class TestAllocationPayload:
         data = allocation_payload([], db.query(Asset).all(), pos_value=_pos_value, liabilities_total=0.0)
         assert data['allocation_distribution'] == []
         assert data['allocation_scope']['denominator'] == 0.0
+
+    def test_scope_buckets_keep_empty_slots(self, db):
+        """五档全在、顺序固定、空档为 0.0 —— 首页「心理账户」卡靠它显示「保命钱为 0」。
+
+        反向验证锚点：若 ``_buckets_with_zeros`` 退回成「只返回非零档」或直接复用
+        ``allocation_distribution``，本用例必须红（那正是 #3115 D4 要防的形态：
+        卡片只显示一档有钱，其余四笔钱静默消失）。
+        """
+        _make_pos(db)
+        db.commit()
+
+        data = allocation_payload(
+            db.query(Position).all(),
+            db.query(Asset).all(),
+            pos_value=_pos_value,
+            liabilities_total=0.0,
+        )
+        buckets = data['allocation_scope']['buckets']
+        assert [b['key'] for b in buckets] == list(ALLOCATION_LABELS)
+        assert [b['label'] for b in buckets] == list(ALLOCATION_LABELS.values())
+        assert {b['key']: b['value'] for b in buckets} == {
+            'liquid': 0.0,
+            'stable': 0.0,
+            'longterm': 100000.0,
+            'speculative': 0.0,
+            'security': 0.0,
+        }
+        # 两个键用途不同：distribution 是图表契约（不出零值扇区），buckets 是「五笔钱各多少」
+        assert data['allocation_distribution'] == [{'name': '长期增值', 'value': 100000.0}]
+
+    def test_scope_buckets_sum_equals_denominator(self, db):
+        """``Σ buckets.value ≡ denominator``——与 distribution 同一恒等关系。"""
+        _make_pos(db, allocation='longterm')
+        _make_pos(db, symbol='B', allocation='stable', quantity=10, price=100)
+        _make_asset(db, name='活期', major_category='cash', amount=33333.33)
+        db.commit()
+
+        data = allocation_payload(
+            db.query(Position).all(),
+            db.query(Asset).all(),
+            pos_value=_pos_value,
+            liabilities_total=0.0,
+        )
+        total = round(sum(b['value'] for b in data['allocation_scope']['buckets']), 2)
+        assert total == data['allocation_scope']['denominator'] == 134333.33
 
 
 class TestAllocationGroupItems:

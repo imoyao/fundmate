@@ -54,7 +54,10 @@
     <!-- ===== 第四排：财务晴雨表 + 心理账户（统一 12 列栅格 + 等宽右栏） ===== -->
     <WelcomeFinanceFeed
       :home-feed="homeFeed"
-      :mental-accounts="mentalAccounts"
+      :mental-account-view="mentalAccountView"
+      :loading="mentalAccountLoading"
+      :error="mentalAccountError"
+      @retry="fetchDistributions"
     />
   </div>
 </template>
@@ -95,12 +98,15 @@ const {
   temperatureConclusion,
   bandPillStyle,
   homeFeed,
-  mentalAccounts,
+  mentalAccountView,
+  mentalAccountLoading,
+  mentalAccountError,
   fetchSummary,
   fetchXirr,
   fetchTemperature,
   fetchRecordStats,
   fetchUnreadNotifications,
+  fetchDistributions,
   summaryError,
   xirrError,
   retryAssetLoad
@@ -116,8 +122,12 @@ const onRetryAsset = async () => {
   await retryAssetLoad();
 };
 
-// 记账 / 导入等写操作完成后，汇总与年化不能停在上一轮数字
-usePageRefresh(() => void retryAssetLoad());
+// 记账 / 导入等写操作完成后，汇总与年化不能停在上一轮数字；
+// 五笔钱分布同理——在账户页录一笔现金回来，首页不该还显示上一轮的空档。
+usePageRefresh(() => {
+  void retryAssetLoad();
+  void fetchDistributions();
+});
 
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
 onMounted(() => {
@@ -126,6 +136,8 @@ onMounted(() => {
   fetchTemperature();
   fetchRecordStats();
   fetchUnreadNotifications();
+  // 心理账户卡唯一数据源（#3115 D4）；与上面几个并行，不排在汇总之后
+  fetchDistributions();
   startTicker();
 });
 </script>
