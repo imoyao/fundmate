@@ -186,7 +186,9 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/analytics/__init__.py": {'lines': 39, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/analytics/behavior.py": {'lines': 340, 'max_func': 194, 'max_cc': 62},
     "backend/app/services/analytics/benchmark_comparison.py": {'lines': 307, 'max_func': 108, 'max_cc': 23},
-    "backend/app/services/analytics/benchmark_excess.py": {'lines': 409, 'max_func': 130, 'max_cc': 29},
+    # #3109 收紧（409/130/29 → 407/128/28）：组合成员规范化下沉到
+    # analytics/excess_members.py，`build_scope_excess` 的成员循环缩成一次调用。
+    "backend/app/services/analytics/benchmark_excess.py": {'lines': 407, 'max_func': 128, 'max_cc': 28},
     "backend/app/services/analytics/cleared_cycles.py": {'lines': 747, 'max_func': 155, 'max_cc': 47},
     "backend/app/services/analytics/correlation.py": {'lines': 119, 'max_func': 44, 'max_cc': 9},
     "backend/app/services/analytics/trading_behavior.py": {'lines': 257, 'max_func': 96, 'max_cc': 21},
