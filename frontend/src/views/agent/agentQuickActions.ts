@@ -2,17 +2,24 @@
  * 空态能力目录（唯一来源）。
  *
  * 设计约束：只列**后端工具已支撑**的能力（`services/ai_recognizer/tools.py` 的
- * TOOLS_METADATA，共 10 个工具）。少一项用户点了会得到「做不到」，多一项就是
- * 承诺没兑现的空入口——新增条目必须先在工具注册表里有对应工具。
+ * TOOLS_METADATA + `tools_fund.py` 的 FUND_TOOLS_METADATA，共 14 个工具：10 个账户级
+ * + 4 个基金级）。少一项用户点了会得到「做不到」，多一项就是承诺没兑现的空入口——
+ * 新增条目必须先在工具注册表里有对应工具。
  *
  * 2026-11 改版：原先是「3 个快捷 chips + 3 个示例问句」同源两份写法，
  * 空态与输入区各渲染一遍同样那 3 件事（重复入口，观感像 demo）。
- * 改为一份 8 项目录、只在空态渲染一次；输入区不再放 chips。
+ * 改为一份目录、只在空态渲染一次；输入区不再放 chips。
+ *
+ * 2026-11 增补（#3111）：后端补了基金级工具后追加 2 项「单只基金」——粒度从账户递进
+ * 到单只标的。示范问句一律用**数据查询**句式，避开「这只基金怎么样」这类会被
+ * `intent_guard` B3 当建议拦掉的问法（那种问法点了必然被拒，等于空入口）。
  */
 
 import {
   Coin,
   DataAnalysis,
+  Document,
+  Grid,
   Histogram,
   PieChart,
   Star,
@@ -90,5 +97,19 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
     hint: "综合温度、分档结论与数据新鲜度",
     icon: Sunny,
     ask: "现在市场温度是多少？"
+  },
+  {
+    key: "fund-profile",
+    label: "基金档案",
+    hint: "类型、规模、经理、费率与最新净值",
+    icon: Document,
+    ask: "110011 的规模多大、申购费率多少？"
+  },
+  {
+    key: "fund-holdings",
+    label: "持仓与风格",
+    hint: "行业配置、前十大持仓、风格是否漂移",
+    icon: Grid,
+    ask: "110011 重仓什么行业？"
   }
 ];
