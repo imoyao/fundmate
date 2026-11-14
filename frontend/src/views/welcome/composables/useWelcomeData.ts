@@ -1,5 +1,6 @@
 import { ref, onUnmounted, computed } from "vue";
-import { getSummary } from "@/api/summary";
+import { getSummary, getDistributions } from "@/api/summary";
+import type { DistributionsData } from "@/api/summary";
 import {
   getNotifications,
   markNotificationRead,
@@ -9,8 +10,8 @@ import { getPortfolioXirr, type XirrData } from "@/api/performance";
 import { getRecordStats } from "@/api/users";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import type { SummaryData } from "@/api/types";
-import { useOverviewStore } from "@/store/modules/overview";
 import { useUserStoreHook } from "@/store/modules/user";
+import { buildMentalAccountView } from "./mentalAccounts";
 
 /** 欢迎语状态：loading=加载中 / empty=未记账 / data=有数据 */
 export type WelcomeState = "loading" | "empty" | "data";
@@ -31,14 +32,6 @@ export type TemperatureBands = {
 /** 近期动态 feed 条目（真实数据派生，避免空壳） */
 export type HomeFeedItem = { key: string; text: string; color: string };
 
-/** 心理账户展示条目（金额格式化交给模板中的 MoneyDisplay 组件） */
-export type MentalAccountItem = {
-  name: string;
-  amount: number;
-  percent: number;
-  color: string;
-};
-
 /**
  * 首页数据单体（#980 拆分）：欢迎语 / 播报 ticker / 汇总 / XIRR / 温度 /
  * 心理账户 / 近期动态的全部状态与请求。API 拉取与 ticker 启动仍由页面
@@ -49,10 +42,14 @@ export function useWelcomeData() {
   // ===== 数据 =====
   const summary = ref<SummaryData | null>(null);
   /*
-   * #2034：本页曾并行拉 `/api/summary/distributions/` 供资产看板的「资产构成分布」
-   * 环形图使用。该图与资产总览构成图同字段同口径（结构拆解归资产总览），已整体移除，
-   * 那次请求也随之删掉——首页少一次无消费方的请求。
+   * #2034 曾删掉本页对 `/api/summary/distributions/` 的请求：当时它只服务「资产构成分布」
+   * 环形图，而那张图与资产总览同口径，已整体移除——首页少一次无消费方的请求。
+   *
+   * #3115 D4 把它请回来，但**换了消费方**：心理账户卡要的就是 `allocation_scope`
+   * （五笔钱全档位 + 分母 + 未纳入），这个口径没有第二个出口。请求数回到 1 次，
+   * 不是回潮——若将来又有人想删它，先确认心理账户卡已经有别的数据源。
    */
+  const distributions = ref<DistributionsData | null>(null);
   const portfolioXirr = ref<XirrData | null>(null);
   // #1354：年化收益是否纳入现金等价物（货币基金/逆回购/现金）；默认 false=仅主动投资，反映真实投资水准
   const includeCashEquivalents = ref(false);
@@ -183,29 +180,29 @@ export function useWelcomeData() {
     backgroundColor: levelBgVar[level] || levelBgVar["未知"]
   });
 
-  // 心理账户：接入 overview store（store 内为示例数据，待后端提供真实接口）
-  const overviewStore = useOverviewStore();
-  const mentalAccounts = computed<MentalAccountItem[]>(() => {
-    const accounts = overviewStore.psychAccount.accounts;
-    const parsed = accounts.map(a => ({
-      name: a.label,
-      tone: a.tone,
-      amount: Number(String(a.value).replace(/[^\d.]/g, "")) || 0
-    }));
-    const total = parsed.reduce((s, a) => s + a.amount, 0) || 1;
-    const toneColor: Record<string, string> = {
-      safe: "var(--color-success)",
-      neutral: "var(--brand-700)",
-      warning: "var(--color-warning-ink)",
-      danger: "var(--color-danger)"
-    };
-    return parsed.map(a => ({
-      name: a.name,
-      amount: a.amount, // 金额格式化交给模板中的 MoneyDisplay 组件
-      percent: Math.round((a.amount / total) * 100),
-      color: toneColor[a.tone] || "var(--brand-700)"
-    }));
-  });
+  // 心理账户：唯一数据源是 `/api/summary/distributions/` 的 allocation_scope（#3115 D4）。
+  // 此前读 overview store 里写死的四条假数据——那不是空态，是四个编造的数字。
+  // 派生逻辑（空档保留、占比文案、未纳入脚注）收在 mentalAccounts.ts，可单独测试。
+  const mentalAccountView = computed(() =>
+    buildMentalAccountView(distributions.value)
+  );
+  const mentalAccountError = ref(false);
+  const mentalAccountLoading = ref(true);
+
+  const fetchDistributions = async (): Promise<void> => {
+    mentalAccountLoading.value = true;
+    try {
+      const res = await getDistributions();
+      distributions.value = res.data ?? null;
+      mentalAccountError.value = false;
+    } catch {
+      // 失败不静默降级成假数：卡面显示「加载失败 + 重试」，与资产卡同一处置
+      mentalAccountError.value = true;
+      distributions.value = null;
+    } finally {
+      mentalAccountLoading.value = false;
+    }
+  };
 
   // ===== 近期动态 feed：真实数据派生，避免空壳（后端事件日志就绪后可替换为事件流） =====
   const homeFeed = computed<HomeFeedItem[]>(() => {
@@ -386,13 +383,16 @@ export function useWelcomeData() {
     temperatureConclusion,
     bandPillStyle,
     // 派生列表
-    mentalAccounts,
+    mentalAccountView,
+    mentalAccountLoading,
+    mentalAccountError,
     homeFeed,
     // 请求入口（页面 onMounted 编排，保持拆分前的调用顺序）
     fetchSummary,
     fetchXirr,
     fetchTemperature,
     fetchRecordStats,
-    fetchUnreadNotifications
+    fetchUnreadNotifications,
+    fetchDistributions
   };
 }

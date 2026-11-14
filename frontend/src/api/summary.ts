@@ -118,6 +118,29 @@ export function getSankeyData() {
 /** 分布分布聚合项：{name, value} */
 export type DistributionItem = { name: string; value: number };
 
+/**
+ * 五笔钱单个档位。`key` / `label` **由后端枚举输出**，前端只展示不翻译
+ * （`conventions.md` §2.9：配置标签文本的唯一真相源在后端）。
+ */
+export type AllocationBucket = { key: string; label: string; value: number };
+
+/**
+ * 五笔钱成员边界说明（#3031 / G4）。
+ *
+ * - `denominator`：分母 = 持仓 + 非负债成员资产行（房产 / 应收 / 负债都不进）；
+ * - `excluded`：未纳入项（房产、应收…），**必须显式可见**——静默消失就是「少算 220 万」；
+ * - `buckets`：全五档（含 0 值）。`allocation_distribution` 是图表契约，只列非零桶；
+ *   卡片要回答「五笔钱各是多少」，空档本身是信息，故另开此键。
+ *   恒等：`Σ buckets.value ≡ denominator ≡ Σ allocation_distribution.value`。
+ */
+export type AllocationScope = {
+  denominator: number;
+  excluded_total: number;
+  excluded: DistributionItem[];
+  liabilities_total: number;
+  buckets?: AllocationBucket[];
+};
+
 /** 家庭级多维市值分布（后端唯一聚合出口，Overview/资产总览分布图表消费） */
 export type DistributionsData = {
   type_distribution: DistributionItem[];
@@ -130,6 +153,7 @@ export type DistributionsData = {
   total_liabilities: number;
   net_worth: number;
   positions_total_mv: number;
+  allocation_scope?: AllocationScope;
 };
 
 /** 获取家庭级多维市值分布 */
