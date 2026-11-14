@@ -61,6 +61,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import WelcomeGreeting from "./components/WelcomeGreeting.vue";
 import WelcomeAssetBoard from "./components/WelcomeAssetBoard.vue";
@@ -114,6 +115,9 @@ const assetBoardRef = ref<InstanceType<typeof WelcomeAssetBoard> | null>(null);
 const onRetryAsset = async () => {
   await retryAssetLoad();
 };
+
+// 记账 / 导入等写操作完成后，汇总与年化不能停在上一轮数字
+usePageRefresh(() => void retryAssetLoad());
 
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
 onMounted(() => {

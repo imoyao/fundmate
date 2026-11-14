@@ -127,6 +127,14 @@ NEW_FILE_LIMITS = {
 # sync/jobs/orphan_backfill_job 302→304 / max_func 64→66、transaction_service 492→501
 # （列表行字段 + 详情按需查持仓名）。max_cc 全部未变。归置/撤销的全部新逻辑下沉到
 # 新文件 orphan_coverage_service.py（245/47/9，走 NEW_FILE_LIMITS），未放大存量函数职责。
+#
+# 2026-11-14 补录后差异重算（#3106）按 `--report` **收紧**一项，理由留痕：
+# `reconciliation_service.py` 453→442（max_func 121 / max_cc 15 未变；变基到
+# #3105 后重取实测）。修复「补录一次没平却从待办队列消失」时，新增的
+# 「是否轧平」判定一度把三个维度顶到 476/142/17；按守卫要求把该判定下沉到
+# 新文件 `reconciliation_adjustment.py`（39/22/3，走 NEW_FILE_LIMITS），
+# 并把 `apply_decision` 的设计说明压缩进新模块 docstring，主文件净减 11 行。
+# 基线向下收紧，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -380,7 +388,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/product_identity.py": {'lines': 267, 'max_func': 116, 'max_cc': 29},
     "backend/app/services/product_pro_status.py": {'lines': 84, 'max_func': 35, 'max_cc': 5},
     "backend/app/services/product_trend.py": {'lines': 386, 'max_func': 116, 'max_cc': 15},
-    "backend/app/services/reconciliation_service.py": {'lines': 453, 'max_func': 121, 'max_cc': 15},
+    "backend/app/services/reconciliation_service.py": {'lines': 442, 'max_func': 121, 'max_cc': 15},
     "backend/app/services/recurring_service.py": {'lines': 289, 'max_func': 33, 'max_cc': 12},
     "backend/app/services/related_symbols.py": {'lines': 141, 'max_func': 57, 'max_cc': 7},
     # 2026-11-09 全周期复盘 +44 行（INCEPTION 哨兵 + first_investment_date 及口径注释），

@@ -780,8 +780,8 @@ class TestInContextSupplement:
         txns = db.query(Transaction).filter_by(symbol='000002').all()
         assert txns == []
 
-    def test_supplement_clears_linked_discrepancy(self, client, db):
-        """补充关联差异后，该差异置 cleared。"""
+    def _make_partial_supplement_target(self, client, db):
+        """造一条「流水 100 股 / 持仓 60 股」的数量差异，返回 disc_id。"""
         from app.domains.ledgers.models import Ledger
 
         ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
@@ -805,31 +805,77 @@ class TestInContextSupplement:
         db.commit()
         client.post('/api/reconciliation/run/')
         discs = client.get('/api/reconciliation/discrepancies/').get_json()['data']
-        disc_id = discs[0]['id']
+        assert discs and discs[0]['diff'] != 0
+        return ledger.id, discs[0]['id']
+
+    @staticmethod
+    def _increment_payload(ledger_id, disc_id, confirm_date):
+        return {
+            'kind': 'increment',
+            'op_type': 'buy',
+            'discrepancy_id': disc_id,
+            'symbol': 'S1',
+            'name': '股1',
+            'asset_type': 'stock',
+            'market': 'CN_A',
+            'ledger_id': ledger_id,
+            'account_name': '账户A',
+            # A股买入受整手限制（min_unit=100），补充量须合法
+            'quantity': 100,
+            'avg_price': 10,
+            'confirm_date': confirm_date,
+        }
+
+    def test_partial_supplement_keeps_discrepancy_pending(self, client, db):
+        """只补一部分没轧平 → 差异保持 pending，同一条还能再补第二笔。
+
+        回归：旧实现补录成功后无条件置 cleared，而工作台队列只展示 pending，
+        「账上 1000 股、只补了 200 股」这条差异处理一次后立刻消失，剩下的补不了。
+        """
+        ledger_id, disc_id = self._make_partial_supplement_target(client, db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json=self._increment_payload(ledger_id, disc_id, '2026-05-02'),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['discrepancy']['status'] == 'pending'
+        after = client.get('/api/reconciliation/discrepancies/').get_json()['data']
+        target = [d for d in after if d['id'] == disc_id]
+        assert target and target[0]['status'] == 'pending' and target[0]['diff'] != 0
+
+        # 「无法继续补账」的直接判据：同一个 disc_id 再补一笔仍然成功、仍然待办
+        second = client.post(
+            '/api/reconciliation/adjustments/',
+            json=self._increment_payload(ledger_id, disc_id, '2026-05-03'),
+        )
+        assert second.status_code == 200
+        assert second.get_json()['data']['discrepancy']['status'] == 'pending'
+        assert second.get_json()['data']['log_id'] != resp.get_json()['data']['log_id']
+
+    def test_supplement_clears_discrepancy_when_balanced(self, client, db):
+        """真正轧平（把持仓校准到理论值）→ 差异才置 cleared。"""
+        ledger_id, disc_id = self._make_partial_supplement_target(client, db)
 
         resp = client.post(
             '/api/reconciliation/adjustments/',
             json={
-                'kind': 'increment',
-                'op_type': 'buy',
+                'kind': 'set',
                 'discrepancy_id': disc_id,
                 'symbol': 'S1',
                 'name': '股1',
                 'asset_type': 'stock',
                 'market': 'CN_A',
-                'ledger_id': ledger.id,
+                'ledger_id': ledger_id,
                 'account_name': '账户A',
-                # A股买入受整手限制（min_unit=100），补充量须合法
                 'quantity': 100,
                 'avg_price': 10,
-                'confirm_date': '2026-05-02',
             },
         )
         assert resp.status_code == 200
+        assert resp.get_json()['data']['discrepancy']['status'] == 'cleared'
         after = client.get('/api/reconciliation/discrepancies/').get_json()['data']
-        target = [d for d in after if d['id'] == disc_id]
-        assert target
-        assert target[0]['status'] == 'cleared'
+        assert [d for d in after if d['id'] == disc_id][0]['status'] == 'cleared'
 
     def test_adjustment_requires_symbol(self, client):
         """缺 symbol → 400。"""

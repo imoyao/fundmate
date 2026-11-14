@@ -28,6 +28,7 @@ from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscr
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
 from app.services.position_write_support import _find_existing_position
+from app.services.reconciliation_adjustment import recompute_linked_discrepancy
 
 # 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致：buy/deposit/split 增、sell/withdraw 减；
 # 分红/税费等现金事件 quantity=0 不影响份额，未知非零份额类型在快照一致性计算中会告警，避免静默漏算）
@@ -335,24 +336,13 @@ def apply_decision(
     family_id: int,
     payload: dict,
 ) -> dict:
-    """就地补充/调整裁决（#1232 §5.4 / P2）——生成调整凭证 + 审计日志。
+    """就地补充/调整裁决（#1232 §5.4 / P2）：生成调整凭证 + 审计日志。
 
-    **不新建调整表**：按语义分派到既有汇点，聚合层天然可见（§5.4）：
-    - 增量型（补一笔缺失买卖，`op_type` in buy/sell/deposit/withdraw）
-      → `process_buy_or_deposit` / `process_sell_or_withdraw`（写 Transaction + Position）
-    - 设定型（期初建仓 / 直接改数量成本，`kind='set'`）
-      → `upsert_from_holding`（SET 语义，不建流水；硬约束）
-
-    审计：写 `adjustment_logs`（before_json/after_json），action=supplement|adjust。
-    若携带 `discrepancy_id`，处理成功后该差异置 `cleared`。
-
-    payload 关键字段：
-        kind:        'increment'（默认）| 'set'
-        op_type:     buy|sell|deposit|withdraw（increment 必填）
-        discrepancy_id: 可选，关联差异
-        reason:      可选，操作原因
-        operator:    可选，操作用户 ID
-        其余字段透传给汇点（symbol/ledger_id/quantity/avg_price/confirm_date/...）
+    不新建调整表：increment → 买卖汇点（Transaction + Position）；
+    set → `upsert_from_holding`（SET 语义、不建流水）。审计写 `adjustment_logs`。
+    携带 `discrepancy_id` 时，完成后由 `recompute_linked_discrepancy` 重算差异：
+    真正轧平才 cleared，差额仍在则保持 pending，用户可继续补第二笔。
+    payload：kind / op_type / discrepancy_id / reason / operator + 汇点字段。
     """
     kind = payload.get('kind', 'increment')
     disc_id = payload.get('discrepancy_id')
@@ -443,11 +433,10 @@ def apply_decision(
         operator=operator,
     )
     db.add(log)
-
-    # 处理成功后：关联差异置 cleared（该差异已被裁决）
-    if disc:
-        disc.status = 'cleared'
-        disc.last_run_id = None
-
+    # 先落审计日志拿到 log.id，也让本次补录对重算可见（autoflush=False）
     db.flush()
-    return {'action': action, 'before': before, 'after': after, 'log_id': log.id}
+    result = {'action': action, 'before': before, 'after': after, 'log_id': log.id}
+    if disc:
+        result['discrepancy'] = recompute_linked_discrepancy(db, family_id, disc)
+    db.flush()
+    return result

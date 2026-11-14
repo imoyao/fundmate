@@ -9,6 +9,7 @@
 // 页头（我是谁）→ 汇总条（这段时间发生了什么）→ 列表卡（具体哪一笔）。
 import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, onMounted, ref, watch } from "vue";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import { useRoute, useRouter } from "vue-router";
 import { Download } from "@element-plus/icons-vue";
 import {
@@ -221,6 +222,13 @@ const onSizeChange = (size: number) => {
   currentPage.value = 1;
   fetchData();
 };
+
+/** 任何页面记完账都要重拉列表与汇总：编辑交易只做本地 Object.assign 时，
+ *  分页 / 排序 / 总数仍是旧快照，被 keepAlive 复用后更不会自己更新。 */
+usePageRefresh(() => {
+  void fetchData();
+  fetchSummary();
+});
 
 onMounted(() => {
   // #2160：先按 query 定筛选再取数，否则会先用「无 symbol」的参数拉一次全量再改
