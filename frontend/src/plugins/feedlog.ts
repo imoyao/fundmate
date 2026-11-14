@@ -105,7 +105,12 @@ export function initFeedlogWidget(): void {
     baseUrl: BASE_URL,
     theme: currentTheme(),
     zIndex: 1050,
-    launcher: { alignment: "right", state: "button" },
+    // 启动器形态（2026-11 用户报障后调整）：
+    //   'button' = 48px 圆形浮标，压在内容右下角、与贴底操作区抢位（账本精灵的发送键、
+    //              列表末行都被它盖住），用户要求「默认收起，只留侧边小入口」；
+    //   'tab'    = 贴右边缘的竖向窄条，默认不展开面板，需要反馈时自己点开。
+    // SDK 的 LauncherState 只有 button / tab / hidden 三态，'tab' 就是那个侧边入口。
+    launcher: { alignment: "right", state: "tab" },
     // locale 不传：SDK 默认 auto（按浏览器语言解析中/英）
     // auth（#1998）：已登录用户带真实身份提交反馈；未登录由 getToken 回 null
     // 自动落回游客模式（allowGuest 已开），两种身份都能提交。

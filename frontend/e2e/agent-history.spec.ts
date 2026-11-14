@@ -2,11 +2,14 @@ import { expect, test } from "@playwright/test";
 import { injectSupabaseSession } from "./support/session";
 
 /**
- * 历史会话栏（#1719，方案 A 页内折叠）。
+ * 历史会话（2026-11 形态：≥lg 常驻左栏 / 窄屏抽屉）。
  *
  * 与 agent-chat.spec.ts 同因 mock：本仓 E2E 取舍是「不依赖后端」（见
- * playwright.config.ts）。这里验证**前端**接线——默认折叠不发请求、展开可见、
- * 点击回放、新对话复位；端点真实行为由 backend/tests/domains/test_agent_sessions.py 覆盖。
+ * playwright.config.ts）。这里验证**前端**接线：
+ * - 桌面端左栏常驻，首屏即拉列表（不再有「展开才请求」这回事）；
+ * - 窄屏左栏**不挂载**（v-if，不是 CSS 隐藏），所以仍然零请求；点页头「历史」开抽屉；
+ * - 点击条目回放原文、抽屉自动收起；新对话复位。
+ * 端点真实行为由 backend/tests/domains/test_agent_sessions.py 覆盖。
  */
 
 /** 列表信封：分页家规 {data,total,page,per_page}；preview 故意避开示例问题文案，避免定位歧义 */
@@ -57,8 +60,8 @@ const detailEnvelope = {
   message: "ok"
 };
 
-test.describe("历史会话栏（#1719 方案 A 页内折叠）", () => {
-  test("默认折叠不发请求 → 展开可见历史 → 点击回放 → 新对话复位", async ({
+test.describe("历史会话（常驻左栏 / 窄屏抽屉）", () => {
+  test("桌面：左栏常驻首屏即加载 → 点击回放 → 新对话复位", async ({
     page,
     context,
     baseURL
@@ -78,22 +81,20 @@ test.describe("历史会话栏（#1719 方案 A 页内折叠）", () => {
       await route.fulfill({ json: listEnvelope });
     });
 
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/#/agent/chat");
     await expect(page).toHaveURL(/#\/agent\/chat/);
 
-    // 刷新首屏：面板不可见且**不发列表请求**（默认折叠，不给首屏加负担）
-    await expect(page.getByText("历史会话", { exact: true })).toHaveCount(0);
-    expect(listCalls).toBe(0);
-
-    // 展开：历史栏可见（刷新后历史可见的验收点）
-    await page.getByRole("button", { name: "历史" }).click();
-    await expect(page.getByText("历史会话", { exact: true })).toBeVisible();
+    // 桌面端左栏常驻：不再需要点「历史」开关，首屏就应该看见列表
+    const rail = page.locator(".agent-rail");
+    await expect(rail).toBeVisible();
+    await expect(rail.getByText("历史会话", { exact: true })).toBeVisible();
     await expect(page.getByText("核对白酒持仓成本与浮亏")).toBeVisible();
     await expect(page.getByText("9 月定投扣款是否到账")).toBeVisible();
     await expect(page.getByText("2 条")).toBeVisible();
     expect(listCalls).toBe(1);
 
-    // 点击条目：拉详情回放（用户 + 助手原文都上屏），面板收起
+    // 点击条目：拉详情回放（用户 + 助手原文都上屏）
     await page.getByTitle("核对白酒持仓成本与浮亏").click();
     await expect(
       page.getByText("持仓成本 15200.00 元，当前浮亏 8.4%。")
@@ -101,7 +102,6 @@ test.describe("历史会话栏（#1719 方案 A 页内折叠）", () => {
     await expect(
       page.getByText("近半年该标的回撤 11.2%，跑输基准。")
     ).toBeVisible();
-    await expect(page.getByText("历史会话", { exact: true })).toHaveCount(0);
 
     // 新对话：清空回空态（会话 id 与消息列表一起复位）
     await page.getByRole("button", { name: "新对话" }).click();
@@ -114,5 +114,48 @@ test.describe("历史会话栏（#1719 方案 A 页内折叠）", () => {
     await page.screenshot({
       path: "test-results/agent-history-panel.png"
     });
+  });
+
+  test("窄屏：左栏不挂载（零请求）→ 点历史开抽屉 → 选完自动收起", async ({
+    page,
+    context,
+    baseURL
+  }) => {
+    await injectSupabaseSession(context, baseURL!);
+
+    let listCalls = 0;
+    await page.route(
+      /\/api\/agent\/sessions\/sess-hist-1\/?(?:\?.*)?$/,
+      async route => {
+        await route.fulfill({ json: detailEnvelope });
+      }
+    );
+    await page.route(/\/api\/agent\/sessions\/?(?:\?.*)?$/, async route => {
+      listCalls += 1;
+      await route.fulfill({ json: listEnvelope });
+    });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/#/agent/chat");
+    await expect(page).toHaveURL(/#\/agent\/chat/);
+
+    // v-if 而非 CSS 隐藏：窄屏连节点都不该存在，列表请求一次都不发
+    await expect(page.locator(".agent-rail")).toHaveCount(0);
+    await expect(page.getByText("历史会话", { exact: true })).toHaveCount(0);
+    expect(listCalls).toBe(0);
+
+    // 抽屉打开才挂载 → 此时才发一次列表请求
+    // exact 必写：能力目录里「自选与净值」的 hint 含「基金历史净值」，模糊匹配会命中两个按钮
+    await page.getByRole("button", { name: "历史", exact: true }).click();
+    await expect(page.getByText("历史会话", { exact: true })).toBeVisible();
+    await expect(page.getByText("核对白酒持仓成本与浮亏")).toBeVisible();
+    expect(listCalls).toBe(1);
+
+    // 选条目：回放并自动收起抽屉（否则用户回不到对话本身）
+    await page.getByTitle("核对白酒持仓成本与浮亏").click();
+    await expect(
+      page.getByText("持仓成本 15200.00 元，当前浮亏 8.4%。")
+    ).toBeVisible();
+    await expect(page.getByText("历史会话", { exact: true })).toHaveCount(0);
   });
 });

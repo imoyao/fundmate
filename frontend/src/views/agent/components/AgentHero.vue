@@ -1,38 +1,54 @@
 <!--
-  空态 hero（功能型空态，插画资产就绪前的过渡方案，已同步 design.md）：
-  两行大标题 + 品牌渐变词 + 示例问题块。示例问题是**直达入口**——点一下直接发问，
-  不是装饰文案，故每条都渲染成 button（键盘可达、有焦点态）。
+  空态：能力目录（功能型空态，不是营销落地页）。
+
+  2026-11 改版要点（原版是「两行大标题 + 品牌渐变词 + 3 个示例块」）：
+  - 去掉口号式文案：这页是工作台，第一屏该回答「我能查什么」，不是讲品牌故事；
+  - 3 个示例 → 8 项能力目录：与后端 10 个工具对齐（见 agentQuickActions.ts），
+    空态成为一次性的能力导航，用后即消失（有对话就不占地方）；
+  - 每项都是 button（点一下直接发问、键盘可达、有焦点环），不是装饰文案；
+  - 不再用 `min-height: calc(100vh - 260px)` 猜视口高——那个魔法数字在 375px 高
+    屏上把内容顶到输入区下面（实测第三条示例被 dock 压住）。改自然流 + 上下留白。
 -->
 <template>
   <div class="chat-hero">
-    <h2 class="chat-hero__title">
-      你未曾留意的账<br />
-      <span class="chat-hero__brand">账本精灵</span>全部记清
-    </h2>
+    <div class="chat-hero__intro">
+      <h2 class="chat-hero__title">问一句，我把账户里的事实查给你</h2>
+      <p class="chat-hero__desc">
+        只读查询，不改任何数据；不预测涨跌，不给买卖建议。
+      </p>
+    </div>
+
     <p class="chat-hero__label">试着问一句</p>
-    <div class="chat-hero__questions">
+
+    <div class="chat-hero__grid">
       <button
-        v-for="ex in examples"
-        :key="ex"
+        v-for="cap in capabilities"
+        :key="cap.key"
         type="button"
-        class="chat-hero__q"
-        @click="emit('ask', ex)"
+        class="chat-cap"
+        :data-cap="cap.key"
+        @click="emit('ask', cap.ask)"
       >
-        <el-icon class="chat-hero__q-icon"><MagicStick /></el-icon>
-        <span>{{ ex }}</span>
+        <el-icon class="chat-cap__icon">
+          <component :is="cap.icon" />
+        </el-icon>
+        <span class="chat-cap__body">
+          <span class="chat-cap__label">{{ cap.label }}</span>
+          <span class="chat-cap__hint">{{ cap.hint }}</span>
+        </span>
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { MagicStick } from "@element-plus/icons-vue";
+import type { AgentCapability } from "../agentQuickActions";
 
-defineOptions({ name: "AgentHero" });
+defineOptions({ name: "AgentCapabilityGrid" });
 
 defineProps<{
-  /** 示例问题（与输入区 chips 同源，见 agentQuickActions.ts） */
-  examples: readonly string[];
+  /** 能力目录（唯一来源见 agentQuickActions.ts 的 AGENT_CAPABILITIES） */
+  capabilities: readonly AgentCapability[];
 }>();
 
 const emit = defineEmits<{
@@ -43,97 +59,106 @@ const emit = defineEmits<{
 <style lang="scss" scoped>
 @use "@/style/breakpoints" as bp;
 
-// —— 空态 hero（参考竞品：两行大标题 + 品牌渐变词 + 示例问题块）——
 .chat-hero {
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-  align-items: flex-start;
-  justify-content: center;
+  gap: var(--space-compact);
+  padding: clamp(8px, 3vh, 32px) 0 var(--space-standard);
+}
 
-  /* 空态垂直居中：页面改为「外层滚动」后，这里没有可撑开的确定高度参照，
-     故用一个视口高估算（顶栏 + 页头 + 输入 dock ≈ 260px）。
-     它只影响空态留白，不参与滚动行为（真正的滚动在外层，见 index.vue 注释） */
-  min-height: calc(100vh - var(--layout-topbar-height) - 260px);
-  padding: var(--space-6) var(--space-2) var(--space-standard);
+.chat-hero__intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .chat-hero__title {
   margin: 0;
-  font-size: var(--text-title);
+  font-size: var(--text-heading);
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--text-primary);
 }
 
-// 品牌渐变词：@supports 条件与块内声明**同写法**，只用不带前缀的
-// background-clip:text——stylelint 的 property-no-vendor-prefix（standard 预设）
-// 会把 -webkit-background-clip 剥成 background-clip，既制造重复声明（CI 红灯），
-// 又会让「条件认 -webkit-、声明只认标准属性」的老浏览器进块拿到
-// transparent 却裁不了背景，文字直接消失。不支持的浏览器整块不生效，
-// 落回上面的 --brand-700 实色。
-.chat-hero__brand {
-  color: var(--brand-700);
-}
-
-@supports (background-clip: text) {
-  .chat-hero__brand {
-    color: transparent;
-    background: linear-gradient(135deg, var(--brand-700), var(--brand-900));
-    background-clip: text;
-  }
+.chat-hero__desc {
+  margin: 0;
+  font-size: var(--text-small);
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
 
 .chat-hero__label {
-  margin: 0;
+  margin: var(--space-2) 0 0;
   font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 
-.chat-hero__questions {
-  display: flex;
-  flex-direction: column;
+/* 目录：≥sm 两列（一行两项，扫读快、不做成「设置菜单」），窄屏一列 */
+.chat-hero__grid {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--space-2);
-  width: 100%;
-  max-width: 640px;
+
+  @include bp.above("sm") {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.chat-hero__q {
+.chat-cap {
   display: flex;
   gap: var(--space-3);
-  align-items: center;
-  padding: 14px 18px;
-  font-size: var(--text-body);
-  color: var(--text-primary);
+  align-items: flex-start;
+  padding: 12px 14px;
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
-  background-color: var(--bg-soft);
-  border: 1px solid transparent;
+  background-color: transparent;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease;
 
   &:hover {
-    background-color: var(--bg-hover);
+    background-color: var(--bg-soft);
     border-color: var(--border-default);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
 }
 
-.chat-hero__q-icon {
+.chat-cap__icon {
   flex: 0 0 auto;
+  margin-top: 2px;
   font-size: var(--text-body);
   color: var(--brand-700);
 }
 
-@include bp.below("md") {
-  .chat-hero {
-    padding-top: var(--space-standard);
-  }
+.chat-cap__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 
+.chat-cap__label {
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-cap__hint {
+  font-size: var(--text-label);
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+@include bp.below("md") {
   .chat-hero__title {
-    font-size: var(--text-heading);
+    font-size: var(--text-body);
   }
 }
 </style>
