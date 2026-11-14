@@ -53,6 +53,14 @@ export function excessDegradHint(data: BenchmarkExcessResult | null): string {
     // 会被放大到无意义量级（−10214.99%），后端直接降级不报数（见 benchmark_excess 口径 4）
     case "baseline_not_representative":
       return "区间起点资产过小，收益率无可比性";
+    // 后两档来自组合级成员规范化（`excess_members`）：区间开始时整组还没有资产
+    // （成员都在区间内才建仓 / 才导入持仓），或某个老成员缺期初净资产
+    case "no_baseline":
+      return "区间起点组合尚无资产（成员都在区间内才建仓）";
+    case "baseline_missing":
+      return "有成员缺期初净资产，组合基线不完整";
+    case "no_computable_day":
+      return "区间内没有一天算得出盈亏";
     default:
       return "暂无可比数据";
   }

@@ -212,9 +212,20 @@ describe("超额收益说明", () => {
   });
 
   it("未知降级原因给兜底文案", () => {
+    // 用真正「后端将来新加、前端还不认识」的原因码——`baseline_missing` 已有专文，
+    // 拿它当「未知」示例等于让兜底分支失去唯一的覆盖点。
+    expect(
+      excessCaptionOf(excess({ range_reason: "something_new" }), RANGE)
+    ).toBe("暂无可比数据");
+  });
+
+  it("组合级新增的两档降级各有文案", () => {
     expect(
       excessCaptionOf(excess({ range_reason: "baseline_missing" }), RANGE)
-    ).toBe("暂无可比数据");
+    ).toBe("有成员缺期初净资产，组合基线不完整");
+    expect(
+      excessCaptionOf(excess({ range_reason: "no_baseline" }), RANGE)
+    ).toContain("尚无资产");
   });
 
   it("期初资产过小的降级要给专用文案，不能落到兜底", () => {

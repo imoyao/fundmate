@@ -61,7 +61,7 @@
               :value="benchmarkLabel"
               :caption="benchmarkCaption"
             />
-            <!-- #2134：区间超额（近 90 天 vs 基准同期）；缺数据由 MetricCard 显示「--」，不造 0 -->
+            <!-- #2134：区间超额（区间由本页 `range` 持有，与下方曲线同档）；缺数据由 MetricCard 显示「--」，不造 0 -->
             <MetricCard
               title="超额收益"
               :value="excessValue"
@@ -71,8 +71,9 @@
             />
           </MetricGrid>
 
-          <!-- 超额走势（#2685）：曲线与上方「超额收益」卡同口径，末点相等 -->
+          <!-- 超额走势（#2685/#3107）：周期由本页持有后喂给两者，曲线末点 ≡ 上方卡片 -->
           <PortfolioExcessTrend
+            v-model:range="range"
             class="mb-6"
             :portfolio-id="portfolioId"
             @updated="fetchExcess"
@@ -304,6 +305,7 @@ async function fetchHoldings() {
 // ---------- 区间收益 vs 基准（#2134）----------
 const {
   fetchExcess,
+  range,
   benchmarkLabel,
   benchmarkCaption,
   excessValue,

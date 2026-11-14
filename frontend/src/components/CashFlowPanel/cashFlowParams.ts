@@ -1,23 +1,23 @@
 import dayjs from "dayjs";
+import { chartRangeParams, type ChartRangeKey } from "@/utils/chartRange";
 
 /**
- * 资金流动区间枚举与请求参数（纯函数，不依赖 Vue / API 运行时）。
+ * 资金流动的请求参数（纯函数，不依赖 Vue / API 运行时）。
  *
  * 从 `useCashFlow.ts` 独立出来的理由：区间口径是「全周期复盘」的核心约定，
  * 必须能单测；而 composable 一导入就把 Vue 生命周期、http、格式化工具全拖进来，
- * node 环境下的单测会被这些运行时依赖绑住。这里只有 dayjs。
+ * node 环境下的单测会被这些运行时依赖绑住。
  *
- * `inception` 是哨兵：起点由后端按作用域解析最早一笔资金流水（含入金），
+ * ## 区间枚举已归一到 `utils/chartRange.ts`（#3107）
+ *
+ * 这里曾经自带一份 `180 / 365 / 1095 / inception` 的枚举，与同页「超额走势」
+ * （写死 90 天）、「收益归因」（1m/3m/ytd/1y/all）三套并存——同一个「近1年」
+ * 在三处能落在不同起点。现在三处共用一份档位表，本文件只负责把它翻成请求参数。
+ *
+ * `inception` 仍是哨兵：起点由后端按作用域解析最早一笔资金流水（含入金），
  * 前端无需先取 `first_txn_date` 再发第二次请求（冷启动鸡生蛋）。
  */
-export const RANGE_OPTIONS = [
-  { label: "半年", value: 180 },
-  { label: "1 年", value: 365 },
-  { label: "3 年", value: 1095 },
-  { label: "投资以来", value: "inception" }
-] as const;
-
-export type CashFlowRange = (typeof RANGE_OPTIONS)[number]["value"];
+export type CashFlowRange = ChartRangeKey;
 
 export type CashFlowScope = {
   ledgerId?: number;
@@ -40,10 +40,7 @@ export function cashFlowParams(
   today: ReturnType<typeof dayjs> = dayjs()
 ): CashFlowParams {
   const params: CashFlowParams = {
-    start_date:
-      range === "inception"
-        ? "inception"
-        : today.subtract(range, "day").format("YYYY-MM-DD")
+    start_date: chartRangeParams(range, today).start_date
   };
   if (scope.ledgerId != null) params.ledger_id = scope.ledgerId;
   if (scope.portfolioId != null) params.portfolio_id = scope.portfolioId;

@@ -34,8 +34,7 @@
   归一结果必须落在 `BENCHMARK_INDICES`，**不是第二份指数映射表**；
 - 空（组合未设 / 账户级无此字段）→ 默认 `000300.SH` 沪深300。
 
-数据准入（AGENTS.md 数据策略四问）：零新增表、零新增外部请求——指数序列复用
-`index_daily_job` 已同步的 `index_daily`，与 analytics 包纪律 1「不引入**外部**数据源」不冲突。
+数据准入（AGENTS.md 数据策略四问）：零新增表、零新增外部请求——指数序列复用已同步的 `index_daily`。
 """
 
 import datetime as dt
@@ -48,6 +47,7 @@ from app.domains.indices.models import IndexDaily
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
+from app.services.analytics.excess_members import build_member_payloads
 from app.services.analytics.interval_rate_guard import apply_rate_floor
 from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.pnl_calendar import build_daily_pnl_series
@@ -324,11 +324,9 @@ def build_scope_excess(
             range_baseline = None
             range_reason = 'no_members'
         else:
-            payload_by_id = {
-                lid: build_daily_pnl_series(db, family_id, start_date, end_date, ledger_id=lid) for lid in member_ids
-            }
-            # 分母任一成员取不到 ⇒ 组合基线不完整，整组不报（引擎对单账户同规则：
-            # baseline None ⇒ rate None，不借 0 兜底）。
+            payload_by_id = build_member_payloads(db, family_id, member_ids, start_date, end_date)
+            # 分母任一成员取不到 ⇒ 组合基线不完整，整组不报（baseline None ⇒ rate None，
+            # 不借 0 兜底）。空成员已剔除、新建成员基线归零——见 excess_members。
             baselines = [p['range_baseline'] for p in payload_by_id.values()]
             range_pnl = round(sum(p['month_total'] for p in payload_by_id.values()), 2)
             has_computable = any(d['daily_pnl'] is not None for p in payload_by_id.values() for d in p['days'])

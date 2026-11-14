@@ -9,7 +9,8 @@
   - `total_pnl === null` = 整窗无可算日，显示「—」而不是 0——0 会被读成「没赚没赔」；
   - `unpriced_positions` 持有但整窗无价，不进合计，折叠提示列出（诚实降级，卡面验收②）。
 
-  区间预设由前端算（近1月 / 近3月 / 今年 / 近1年），传 start_date / end_date 给后端；
+  区间档位由 `ChartRangeTabs` 提供（九档，与组合页超额走势 / 资金流动同一份
+  `utils/chartRange.ts`，#3107），换算成 start_date / end_date 后传后端；
   品种 ⇄ 大类是纯前端切换（同一次响应里两组数据都有）。
 
   #980 拆分（纯搬运，零视觉/行为变更）：
@@ -37,12 +38,7 @@
           >
         </div>
         <div class="pnl-attribution__controls">
-          <SegmentedControl
-            v-model="rangeKey"
-            size="small"
-            :options="RANGE_OPTIONS"
-            aria-label="归因区间"
-          />
+          <ChartRangeTabs v-model="rangeKey" aria-label="归因区间" />
           <SegmentedControl
             v-model="dimension"
             size="small"
@@ -90,17 +86,16 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import ChartRangeTabs from "@/components/ChartRangeTabs/index.vue";
 import PnlAttributionRows from "./PnlAttributionRows.vue";
 import {
   DIMENSION_OPTIONS,
-  RANGE_OPTIONS,
   buildRows,
   emptyTextFor,
-  presetRange,
   sectionInfoFor,
-  type Dimension,
-  type RangeKey
+  type Dimension
 } from "./attributionModel";
+import { chartRangeParams, type ChartRangeKey } from "@/utils/chartRange";
 import { getPnlAttribution, type PnlAttributionPayload } from "@/api/summary";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 
@@ -113,7 +108,7 @@ const props = defineProps<{
   portfolioId?: number;
 }>();
 
-const rangeKey = ref<RangeKey>("1m");
+const rangeKey = ref<ChartRangeKey>("1m");
 const dimension = ref<Dimension>("position");
 const data = ref<PnlAttributionPayload | null>(null);
 const loading = ref(false);
@@ -125,7 +120,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const range = presetRange(rangeKey.value);
+    const range = chartRangeParams(rangeKey.value);
     const params: Record<string, number | string> = {
       start_date: range.start_date,
       end_date: range.end_date

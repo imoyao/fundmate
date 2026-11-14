@@ -84,6 +84,7 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
+from app.core.request_memo import memoized
 from app.core.time_utils import now_shanghai
 from app.core.trading_calendar import is_trading_day
 from app.core.venues import EXCHANGE, OTC, venue_of_row
@@ -1047,16 +1048,15 @@ def build_daily_pnl_series(
     # 试过把决策集固定成「家庭全量 active」以求状态稳定，但全清仓账户的决策集
     # 会变成空集，所有交易日被判 no_data、收益全 NULL；固定成「全量含已清仓」
     # 又会让当下视图被无行情老标的拖成满屏 partial。故保持与值集同源。
-    # 已知限制：state 徽标会随请求区间略有差异（真库副本实测年视图写缓存时
-    # 243 天全 partial、单月现算 43 天 updown），但 daily_pnl 数字一致；
-    # `has_any_price` 已改判「有可算日」，不再受这个差异影响。
+    # 已知限制：state 徽标随请求区间略有差异（真库副本实测年视图 243 天全 partial、单月现算 43 天 updown），
+    # 但 daily_pnl 数字一致；`has_any_price` 已改判「有可算日」，不受该差异影响。
     decision_positions = positions if ledger_id is None else _positions(db, family_id, None, start)
-    # 覆盖率诊断按**原始窗口**算，缓存命中与否都不影响它（见 `_price_presence`）。
-    no_price_ids, latest_dt = _price_presence(db, decision_positions, start, end)
+    # 覆盖率诊断按**原始窗口**算（见 `_price_presence`）；`memoized` 只在 `request_memo()` 里生效，其余直算。
+    pk = ('presence', family_id, start, end)
+    no_price_ids, latest_dt = memoized(db, pk, lambda: _price_presence(db, decision_positions, start, end))
     latest_price_date = latest_dt.isoformat() if latest_dt else None
-    # as-of 份额/流水在此取一次：`first_txn_date` 在**全量命中**路径上也要用到，
-    # 而那条路根本不进 `_compute_days`；留在里面取会变成命中即白查一次。
-    shares, txns = _as_of_shares(db, family_id, end)
+    # as-of 份额/流水在此取一次：全量命中路径也要用 `first_txn_date`，留在 `_compute_days` 里取会白查一次。
+    shares, txns = memoized(db, ('shares', family_id, end), lambda: _as_of_shares(db, family_id, end))
 
     # ── 取物化行（含 `start - 1`：`range_rate` 的分母要区间前一天的净资产）──
     baseline_day = start - dt.timedelta(days=1)
@@ -1248,13 +1248,13 @@ def _compute_days(
     # 多取这 7 天只让 SQL 区间加宽 7 天（IN 过滤下增量可忽略）。
     fetch_start = scan_start - dt.timedelta(days=_STALE_CARRY_DAYS)
     fund_nav = _collect_fund_nav(db, fetch_start, end, otc_codes)
-    # #2141 当日预估回退：官方净值未落的基金用收盘估值定格补「今天」，
-    # 严格 date==today（详见 `_merge_today_estimates` docstring——这条限定
-    # 同时保证预估永不进物化快照，等价域与 CALIBER_VERSION 都不受影响）。
-    # 区间不含今日（end < today）则整段跳过，历史读路径零额外查询。
+    # #2141 当日预估回退：官方净值未落的基金用收盘估值定格补「今天」，严格 date==today
+    # （详见 `_merge_today_estimates` docstring）；区间不含今日则整段跳过，历史读路径零额外查询。
     today = now_shanghai().date()
     estimated_codes = _merge_today_estimates(db, fund_nav, otc_codes) if end >= today else set()
-    exchange_prices = _collect_price_history(db, ex_symbols, fetch_start, end)
+    # 判定集恒家庭级全量 ⇒ 场内代码集/窗口只随 (fetch_start, end, 判定集大小) 变；逐成员重取重拉 N 遍（12 次 ≈ 1.5s）。
+    ek = ('prices', family_id, fetch_start, end, len(decision_positions))
+    exchange_prices = memoized(db, ek, lambda: _collect_price_history(db, ex_symbols, fetch_start, end))
 
     # ── as-of 份额 / 成本 / 已实现盈亏 ──
     # `shares`/`txns` 已按 `end` 截断后传入（而非按 `scan_start`）：`_as_of_shares`

@@ -4,7 +4,6 @@ import { errorMessageOf } from "@/utils/errorMessage";
 import { formatAmount } from "@/utils/currency";
 import {
   cashFlowParams,
-  RANGE_OPTIONS,
   type CashFlowRange,
   type CashFlowScope
 } from "./cashFlowParams";
@@ -12,20 +11,20 @@ import {
 /**
  * 资金流动的取数与区间状态（从 `index.vue` 抽出）。
  *
- * 抽出的直接理由：`index.vue` 已 397 行、贴近 vue-size 的 400 行阈值，
- * 再加「投资以来」档会判 `[NEW]` 红；把取数收敛到 composable 后主文件净减。
+ * 抽出的直接理由：`index.vue` 已贴近 vue-size 的 400 行阈值，
+ * 把取数收敛到 composable 后主文件净减。
  * 另一层理由：区间枚举与请求参数以前埋在组件里，全周期口径无法单测，
  * 现在收敛到无依赖的 `cashFlowParams.ts` 纯函数并配单测。
  *
+ * 档位表本身在 `utils/chartRange.ts`（#3107 与超额走势 / 收益归因共用）；
  * `inception` 由后端按作用域解析最早资金流水，前端无需先取 first_txn_date
  * 再发第二次请求（冷启动鸡生蛋）。
  */
-// 组件仍从本模块取区间枚举，保持原有 import 路径不变。
-export { RANGE_OPTIONS };
 export type { CashFlowScope };
 
 export function useCashFlow(scope: CashFlowScope) {
-  const range = ref<CashFlowRange>(365);
+  /** 默认近1年：与改造前的 365 天等价，切档带来的口径变化不该由默认值承担 */
+  const range = ref<CashFlowRange>("1y");
   const data = ref<CashFlow | null>(null);
   const loadError = ref("");
 
