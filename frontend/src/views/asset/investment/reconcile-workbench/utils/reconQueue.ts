@@ -29,6 +29,7 @@ import type {
 } from "@/api/reconciliation";
 import type { ReconciliationItem } from "@/api/eaccount";
 import { centsToYuan } from "@/utils/currency";
+import { isRebuildOnlyDiscrepancy, rebuildCoveredKeys } from "./rebuildOnly";
 import type { WorkbenchDomainKey } from "../constants/domainTabs";
 import {
   DOMAIN_SOURCE_LABEL,
@@ -475,9 +476,13 @@ function rowsOf<T>(value: T[] | null | undefined): T[] {
 export function buildReconQueue(source: ReconQueueSource): ReconQueueItem[] {
   const items: ReconQueueItem[] = [];
 
+  // 入口唯一：被域 F 悬空组覆盖的孤儿差异只在「修正数据」里出现，不进本队列。
+  // 判据与页面计数同源（`utils/rebuildOnly`），否则会出现「角标有 1 条、列表里找不到」。
+  const rebuildOnly = rebuildCoveredKeys(source.dangling);
   for (const row of rowsOf(source.discrepancies)) {
-    if (row.domain === "B" || row.domain === "C")
-      items.push(discrepancyItem(row));
+    if (row.domain !== "B" && row.domain !== "C") continue;
+    if (isRebuildOnlyDiscrepancy(row, rebuildOnly)) continue;
+    items.push(discrepancyItem(row));
   }
   for (const row of rowsOf(source.eItems)) items.push(eaccountItem(row));
   for (const row of rowsOf(source.ghostGroups)) items.push(ghostItem(row));

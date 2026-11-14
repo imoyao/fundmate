@@ -338,8 +338,14 @@ class TestDomainBReconciliation:
         pending = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1', status='pending').all()
         assert [d.discrepancy_type for d in pending] == ['quantity']
 
-    def test_quantity_cleared_when_position_goes_inactive(self, db):
-        """数量差异 → 持仓退出后同键转孤儿：旧 quantity 行须置 cleared（反向同源）。"""
+    def test_quantity_stays_quantity_when_position_cleared(self, db):
+        """持仓清仓（`cleared` + 份额归零）但流水净额仍 > 0 → 仍是**数量差异**，不是孤儿。
+
+        为什么不是孤儿：孤儿的口径是「系统里**没有**这只标的的持仓行」（前端据此把人指向
+        「按流水重建持仓」），而这里持仓行在、只是份额被清零。判成孤儿会让用户点进
+        「补充这笔」后被拦下，改去「修正数据」又会因「同账本已有持仓行」被拒——两条路
+        都是死胡同（真库实测 8 条，2026-11-14）。判成数量差异才有唯一可用入口。
+        """
         from app.domains.ledgers.models import Ledger
 
         ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
@@ -367,15 +373,50 @@ class TestDomainBReconciliation:
         assert quantity.discrepancy_type == 'quantity'
         assert quantity.last_run_id == run1.id
 
-        pos.ownership_status = 'closed'
+        # 清仓：行保留、份额归零（库级 CHECK：cleared ⇒ quantity = 0）
+        pos.ownership_status = 'cleared'
+        pos.quantity = 0
         db.commit()
         run2, _ = run_domain_b_reconciliation(db, 1)
 
         db.refresh(quantity)
-        assert quantity.status == 'cleared'
+        assert quantity.discrepancy_type == 'quantity'
+        assert quantity.status == 'pending'
         assert quantity.last_run_id == run2.id
+        assert quantity.actual_value == 0
+        assert quantity.diff == -Money.shares_to_min_unit(100)
         pending = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1', status='pending').all()
-        assert [d.discrepancy_type for d in pending] == ['orphan']
+        assert [d.discrepancy_type for d in pending] == ['quantity'], '不得再生出一条孤儿行'
+
+    def test_orphan_when_only_non_literal_symbol_notation(self, db):
+        """持仓写成 `SZ004369`、流水写成 `004369` → 同一只标的，不得判成孤儿（#1662 同源）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, '004369', 100, date(2026, 5, 1))
+        db.add(
+            Position(
+                symbol='SZ004369',
+                name='测试基金',
+                asset_type='fund',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(100),
+                avg_price=Money.yuan_to_price_units(1),
+                current_price=Money.yuan_to_price_units(1),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+
+        assert db.query(ReconciliationDiscrepancy).count() == 0, '同一标的两种写法不是孤儿、也没有数量差'
+        assert json.loads(run.summary_json)['orphan'] == 0
 
     def test_summary_ignored_count(self, db):
         """永久忽略的差异在后续 run 中 ignored 计数正确。"""

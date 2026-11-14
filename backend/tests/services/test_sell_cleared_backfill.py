@@ -11,13 +11,18 @@
 
 两处判断用了**两套持仓口径**：
 
-- `run_reconciliation` 只把 `ownership_status='active'` 的持仓放进 map，
+- `run_reconciliation` 当时只把 `ownership_status='active'` 的持仓放进 map，
   已清仓行等于「没有持仓」⇒ 流水净额 > 0 ⇒ 报 orphan，建议补流水；
 - `prepare_sell` 唯一的豁免是 `is_covered_by_anchor`，而它对非 active 持仓
   **恒返 False**，清仓行又通常没有锚点 ⇒ 必然落到「当前持有 0 < 拟操作 N」。
 
-结果：**系统自己建议的修复路径永远走不通**。修复见 `is_backfill_of_past`：
-「已清仓且流水日 <= cleared_at」与「锚点覆盖」并列，同属「只落流水、不驱动份额」。
+结果：**系统自己建议的修复路径永远走不通**。两处各修了一半：
+
+- 写入侧见 `is_backfill_of_past`：「已清仓且流水日 <= cleared_at」与「锚点覆盖」
+  并列，同属「只落流水、不驱动份额」；
+- 对账侧（#3105）比对改走写入层的同一判据
+  `_find_existing_position(active_only=False)`，清仓行不再等于「没有持仓」⇒
+  这类数据判**数量差异**（`quantity`）而不是 `orphan`，两侧从此不可能给出两个答案。
 
 本文件锁住：
 1. 判定矩阵（清仓日边界 / 无 cleared_at / active 无锚点 / 日期不可解析）；
@@ -25,7 +30,7 @@
 3. 清仓日**之后**的卖出仍被拦（真正的超卖不被放过）；
 4. active 持仓超卖仍被拦（不回归）；
 5. `apply_decision` 端到端（真实用户场景，payload 不带 `position_id`）；
-6. 补完后 orphan 差异消失（两套口径重新一致）。
+6. 补完后这条差异消失（两套口径重新一致）。
 """
 
 from datetime import date, datetime
@@ -188,8 +193,14 @@ def test_apply_decision_backfills_cleared_sell(db, ledger):
     assert db.query(Transaction).one().quantity == 13_000_000
 
 
-def test_backfill_makes_orphan_discrepancy_disappear(db, ledger):
-    """补完这笔卖出后，流水净额归零 → 对账不再报 orphan（两套口径重新一致）。"""
+def test_backfill_makes_discrepancy_disappear(db, ledger):
+    """补完这笔卖出后，流水净额归零 → 对账不再报这条差异（两套口径重新一致）。
+
+    差异类型在 #3105 起由 `orphan` 改为 `quantity`：对账比对改走写入层的同一判据
+    `_find_existing_position(active_only=False)`，清仓行（份额 0、`cleared`）不再
+    等于「没有持仓」。**本用例锁的是「差异会被报出来 + 系统自己给的路走得通」**，
+    不是差异类型的字面量——类型变了但它仍然是同一条死锁回归网。
+    """
     pos = _position(db, ledger.id)
     # 流水里只有买入 1300（卖出的那笔缺失）——正是用户看到的「按流水算 1300 / 账上 0」
     db.add(
@@ -209,12 +220,10 @@ def test_backfill_makes_orphan_discrepancy_disappear(db, ledger):
     db.flush()
 
     run_reconciliation(db, 1, DOMAIN_B)
-    pending = (
-        db.query(ReconciliationDiscrepancy)
-        .filter_by(family_id=1, symbol=SYMBOL, discrepancy_type='orphan', status='pending')
-        .all()
+    pending = db.query(ReconciliationDiscrepancy).filter_by(family_id=1, symbol=SYMBOL, status='pending').all()
+    assert [d.discrepancy_type for d in pending] == ['quantity'], (
+        '先确认这条差异真的会被报出来（否则下面的用例没有意义）；清仓行按写入层判据不再判孤儿，应判数量差异'
     )
-    assert len(pending) == 1, '先确认这条 orphan 真的会被报出来（否则下面的用例没有意义）'
 
     apply_decision(
         db,
@@ -232,9 +241,5 @@ def test_backfill_makes_orphan_discrepancy_disappear(db, ledger):
     run_reconciliation(db, 1, DOMAIN_B)
 
     db.expire_all()
-    still_pending = (
-        db.query(ReconciliationDiscrepancy)
-        .filter_by(family_id=1, symbol=SYMBOL, discrepancy_type='orphan', status='pending')
-        .all()
-    )
-    assert still_pending == [], '补完漏掉的卖出后，orphan 必须消失'
+    still_pending = db.query(ReconciliationDiscrepancy).filter_by(family_id=1, symbol=SYMBOL, status='pending').all()
+    assert still_pending == [], '补完漏掉的卖出后，这条差异必须消失'

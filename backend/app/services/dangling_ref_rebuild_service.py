@@ -63,6 +63,7 @@ from app.services.dangling_ref_service import (
     _dangling_condition,
     _load_dangling_by_ids,
     _normalize_ids,
+    scan_dangling_refs,
 )
 from app.services.position_recompute import rebuild_position_from_txns
 from app.services.position_write_support import _find_existing_position
@@ -341,3 +342,150 @@ def _write_undo_log(db: Session, family_id: int, ref_log_id, operator, *, restor
         )
     )
     db.flush()
+
+
+# ── 批量重建（一次请求内逐组 plan → 写） ────────────────────────────────────
+#
+# 为什么不是前端循环：真库 rebuild 阶段实测 90 组（2026-11-14），逐组「预览 + 写入」
+# = 180 次往返，而组与组之间用户没有任何决策点。批量把往返压成 2 次（预览一次、
+# 写入一次），但**没有**降低校验强度——写入侧仍逐组重新 plan，业务上不可重建的组
+# 只跳过并报出原因，不静默、也不硬建。
+#
+# 风险口径与单组一致（见模块 docstring「为什么不是自动重建」）：批量不改变「以流水为
+# 真相源」这件事，只是把用户点 90 次变成点 1 次。预览必须先把每组将建出的份额摊开，
+# 用户仍要对照账单确认日期区间——这一步没有被批量省掉。
+
+#: 一次批量最多几组 / 几条流水。上限只挡「误点清库」，不是性能调优：
+#: 真库全量 rebuild 是 90 组，留一倍余量。
+MAX_BATCH_GROUPS = 200
+MAX_BATCH_TXN_IDS = 2000
+
+
+def _normalize_groups(groups) -> list[list[int]]:
+    """校验批量重建的组列表：非空、组数 ≤200、id 总数 ≤2000，单组沿用既有 500 条上限。"""
+    if not isinstance(groups, (list, tuple)) or len(groups) == 0:
+        raise ValueError('没有选中要重建的组')
+    if len(groups) > MAX_BATCH_GROUPS:
+        raise ValueError(f'一次最多重建 {MAX_BATCH_GROUPS} 组')
+    normalized: list[list[int]] = []
+    total = 0
+    for raw in groups:
+        ids = _normalize_ids(raw)
+        total += len(ids)
+        if total > MAX_BATCH_TXN_IDS:
+            raise ValueError(f'一次最多处理 {MAX_BATCH_TXN_IDS} 条流水')
+        normalized.append(ids)
+    return normalized
+
+
+def _ledger_names(db: Session, family_id: int, ledger_ids) -> dict:
+    """一次查全部账本名：预览要逐组显示「建到哪个账本」，逐组查会变成 N+1。"""
+    wanted = {lid for lid in ledger_ids if lid}
+    if not wanted:
+        return {}
+    rows = db.query(Ledger.id, Ledger.name).filter(Ledger.family_id == family_id, Ledger.id.in_(wanted)).all()
+    return {ledger_id: name for ledger_id, name in rows}
+
+
+def _group_symbol(db: Session, family_id: int, ids: list[int]) -> str | None:
+    """组内标的代码（给「被跳过」的组一个能认出来的名字）。取不到唯一值就返回 None。"""
+    rows = db.query(Transaction.symbol).filter(Transaction.id.in_(ids), Transaction.family_id == family_id).all()
+    symbols = {symbol.strip() for (symbol,) in rows if symbol and symbol.strip()}
+    return next(iter(symbols)) if len(symbols) == 1 else None
+
+
+def _blocked_preview(group: dict, ids: list[int], reason: str) -> dict:
+    """plan 都取不到的组（例如流水刚被别处处理掉）在预览里如实标成不可重建，不吞掉整次预览。"""
+    return {
+        'txn_count': len(ids),
+        'symbol': group.get('symbol'),
+        'display_name': group.get('display_name'),
+        'ledger_id': group.get('ledger_id'),
+        'asset_type': None,
+        'first_date': None,
+        'last_date': None,
+        'net_units': 0.0,
+        'avg_price': 0.0,
+        'rebuildable': False,
+        'block_reason': reason,
+        'warnings': [],
+    }
+
+
+def preview_rebuild_batch(db: Session, family_id: int) -> dict:
+    """批量重建预览（GET /rebuild-batch-preview/，**纯只读**）。
+
+    分组口径与 `/dangling-refs/` 同源（复用 ``scan_dangling_refs``），逐组跑同一份
+    ``plan_rebuild``——预览与写入不可能给出两套结论。不可重建的组照常返回并带
+    ``block_reason``，由前端摊开给用户看，而不是在服务端悄悄筛掉。
+    """
+    scan = scan_dangling_refs(db, family_id)
+    ledger_names = _ledger_names(db, family_id, [g.get('ledger_id') for g in scan['groups']])
+    groups = []
+    for group in scan['groups']:
+        ids = [t['id'] for t in group['transactions']]
+        try:
+            plan = public_plan(plan_rebuild(db, family_id, ids))
+        except ValueError as e:
+            plan = _blocked_preview(group, ids, str(e))
+        plan['transaction_ids'] = ids
+        plan['ledger_name'] = ledger_names.get(group.get('ledger_id'))
+        groups.append(plan)
+    rebuildable = [g for g in groups if g['rebuildable']]
+    return {
+        'group_count': len(groups),
+        'rebuildable_count': len(rebuildable),
+        'blocked_count': len(groups) - len(rebuildable),
+        # 流水合计只算可重建的组：用户看到的「M 条流水」必须与「将重建 N 组」同一范围
+        'txn_count': sum(g['txn_count'] for g in rebuildable),
+        'groups': groups,
+    }
+
+
+def rebuild_batch(db: Session, family_id: int, groups, reason=None, operator=None, confirm=False) -> dict:
+    """批量重建（POST /rebuild-batch/ 的数据源）：逐组 plan → 写。
+
+    **部分成功是设计的一部分**：业务上不可重建的组（已有同标的持仓 / 净额 ≤ 0 /
+    流水已不是悬空状态）记进 ``skipped`` 并给后端原话原因，其余组照常建成——
+    否则一组脏数据就会卡住整批，用户只能回头逐组试。
+
+    **意外异常不是**：除 ``ValueError`` 外的异常直接上抛，由视图的 ``user_session()``
+    整批回滚，不会留下「建了一半的持仓 + 半批审计日志」这种谁都说不清的状态。
+    """
+    _require_confirm(confirm)
+    normalized = _normalize_groups(groups)
+    rebuilt: list[dict] = []
+    skipped: list[dict] = []
+    log_ids: list[int] = []
+    for ids in normalized:
+        try:
+            # 逐组重新 plan：预览之后数据可能变了，这里不信任前端传回来的结论
+            result = rebuild_position(db, family_id, ids, reason=reason, operator=operator, confirm=True)
+        except ValueError as e:
+            skipped.append({'transaction_ids': ids, 'symbol': _group_symbol(db, family_id, ids), 'reason': str(e)})
+            continue
+        rebuilt.append({**result, 'transaction_ids': ids})
+        log_ids.append(result['log_id'])
+    return {'rebuilt': rebuilt, 'skipped': skipped, 'log_ids': log_ids}
+
+
+def undo_rebuild_batch(db: Session, family_id: int, log_ids) -> dict:
+    """批量撤销重建（POST /rebuild-batch-undo/）：逐条 ``undo_rebuild``，互不牵连。
+
+    单条撤销失败（日志不属于本家庭 / 持仓已被改动 / 日志类型不对）只记进 ``results``，
+    不中断其余——撤销是「把能退的退掉」，不是全或无。重复撤销幂等
+    （``restored=0, skipped=1`` 并留痕），与单组撤销同一口径。
+    """
+    ids = _normalize_ids(log_ids)
+    results: list[dict] = []
+    restored = 0
+    skipped = 0
+    for log_id in ids:
+        try:
+            result = undo_rebuild(db, family_id, log_id)
+        except ValueError as e:
+            result = {'restored': 0, 'skipped': 1, 'log_id': log_id, 'skip_reason': str(e)}
+        results.append(result)
+        restored += result['restored']
+        skipped += result['skipped']
+    return {'results': results, 'restored': restored, 'skipped': skipped}

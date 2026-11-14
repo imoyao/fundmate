@@ -63,7 +63,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **257** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **260** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -211,6 +211,9 @@ title: 核心 API 端点清单（api）
 | GET | `/api/reconciliation/dangling-refs/mislinked/` | `list_mislinked_refs` |
 | GET | `/api/reconciliation/dangling-refs/preview/` | `preview_dangling_reattach` |
 | POST | `/api/reconciliation/dangling-refs/reattach/` | `reattach_dangling_refs` |
+| GET | `/api/reconciliation/dangling-refs/rebuild-batch-preview/` | `preview_dangling_rebuild_batch` |
+| POST | `/api/reconciliation/dangling-refs/rebuild-batch-undo/` | `undo_dangling_rebuild_batch` |
+| POST | `/api/reconciliation/dangling-refs/rebuild-batch/` | `rebuild_dangling_position_batch` |
 | GET | `/api/reconciliation/dangling-refs/rebuild-preview/` | `preview_dangling_rebuild` |
 | POST | `/api/reconciliation/dangling-refs/rebuild-undo/` | `undo_dangling_rebuild` |
 | POST | `/api/reconciliation/dangling-refs/rebuild/` | `rebuild_dangling_position` |

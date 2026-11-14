@@ -348,3 +348,156 @@ def test_undo_rejects_foreign_or_wrong_log(db, ledger):
     db.flush()
     with pytest.raises(ValueError, match='撤销记录不存在'):
         svc.undo_rebuild(db, _FAMILY, other_log.id)
+
+
+# ── 批量：预览 / 写入 / 撤销 ───────────────────────────────────────────────
+# 真库 rebuild 阶段实测 90 组（2026-11-14）：逐组点 = 180 次往返，组与组之间用户没有
+# 任何决策点。批量只把往返压成 2 次，**校验强度一条不降**——写入侧仍逐组重新 plan。
+
+
+def _two_rebuildable_groups(db, ledger, ledger2):
+    """两个可重建的悬空组（不同账本、不同标的），批量用例共用。"""
+    a = _mk_txn(db, ledger.id, shares=100)
+    b = _mk_txn(db, ledger2.id, symbol='SZ159915', position_name='创业板', shares=200)
+    return [a.id], [b.id]
+
+
+def test_preview_batch_enumerates_all_groups_and_is_readonly(db, ledger, ledger2):
+    """批量预览枚举**全部**悬空组：可重建的给将建出的持仓，不可重建的照常返回并带原因。"""
+    ok_a, ok_b = _two_rebuildable_groups(db, ledger, ledger2)
+    blocked = _mk_txn(db, ledger.id, symbol='', position_name=None, shares=50)
+
+    data = svc.preview_rebuild_batch(db, _FAMILY)
+
+    assert data['group_count'] == 3
+    assert data['rebuildable_count'] == 2
+    assert data['blocked_count'] == 1
+    assert data['txn_count'] == 2, '流水合计只算可重建组，与「将重建 N 组」同一范围'
+    by_ids = {tuple(g['transaction_ids']): g for g in data['groups']}
+    assert by_ids[tuple(ok_a)]['ledger_name'] == '重建-测试账户'
+    assert by_ids[tuple(ok_b)]['ledger_name'] == '重建-第二账户'
+    assert by_ids[tuple(ok_b)]['net_units'] == pytest.approx(200.0)
+    assert by_ids[(blocked.id,)]['rebuildable'] is False
+    assert by_ids[(blocked.id,)]['block_reason']
+    # 纯只读：不建持仓、不写审计日志、不动流水归属
+    assert db.query(Position).count() == 0
+    assert db.query(AdjustmentLog).count() == 0
+    assert db.query(Transaction).filter_by(id=blocked.id).one().position_id == _DANGLING_PID
+
+
+def test_preview_batch_is_scoped_to_family(db, ledger):
+    """别的家庭的悬空流水不进本家庭的批量预览（分组口径与 ``/dangling-refs/`` 同源）。"""
+    _mk_txn(db, ledger.id, family_id=_OTHER_FAMILY, shares=100)
+
+    data = svc.preview_rebuild_batch(db, _FAMILY)
+
+    assert data['group_count'] == 0
+    assert data['groups'] == []
+
+
+def test_rebuild_batch_requires_strict_confirm(db, ledger):
+    """``confirm`` 必须是布尔 ``True``：``1`` / ``'true'`` 一律拒绝且零写入。"""
+    ids, _ = _two_rebuildable_groups(db, ledger, ledger)
+
+    _assert_rejected(db, lambda: svc.rebuild_batch(db, _FAMILY, [ids], confirm=1), 'confirm 必须为 true')
+    _assert_rejected(db, lambda: svc.rebuild_batch(db, _FAMILY, [ids], confirm='true'), 'confirm 必须为 true')
+
+
+def test_rebuild_batch_rebuilds_every_group(db, ledger, ledger2):
+    """整批可重建 → 每组各建一行持仓、各一条审计日志，``log_ids`` 可整批撤销。"""
+    ids_a, ids_b = _two_rebuildable_groups(db, ledger, ledger2)
+
+    data = svc.rebuild_batch(db, _FAMILY, [ids_a, ids_b], reason='批量补建', confirm=True)
+
+    assert len(data['rebuilt']) == 2
+    assert data['skipped'] == []
+    assert len(data['log_ids']) == 2
+    assert db.query(Position).count() == 2
+    for txn_ids, rebuilt in zip((ids_a, ids_b), data['rebuilt']):
+        pos = db.query(Position).filter_by(id=rebuilt['position_id']).one()
+        assert db.query(Transaction).filter_by(id=txn_ids[0]).one().position_id == pos.id
+    assert db.query(AdjustmentLog).filter_by(action=svc.ACTION_REBUILD).count() == 2
+
+
+def test_rebuild_batch_skips_blocked_group_and_reports_reason(db, ledger):
+    """一组脏数据不卡住整批：不可重建的组进 ``skipped`` 并给后端原话原因，其余照常建成。"""
+    ok_ids, _ = _two_rebuildable_groups(db, ledger, ledger)
+    blocked = _mk_txn(db, ledger.id, symbol='', position_name=None, shares=50)
+
+    data = svc.rebuild_batch(db, _FAMILY, [ok_ids, [blocked.id]], confirm=True)
+
+    assert len(data['rebuilt']) == 1
+    assert len(data['skipped']) == 1
+    skip = data['skipped'][0]
+    assert skip['transaction_ids'] == [blocked.id]
+    assert '补全信息' in skip['reason']
+    assert db.query(Transaction).filter_by(id=blocked.id).one().position_id == _DANGLING_PID, '被跳过的组不得被动过'
+
+
+def test_rebuild_batch_skips_group_no_longer_dangling(db, ledger):
+    """预览之后别处已把它修好（不再悬空）→ 跳过并说明，不重复挂一次。"""
+    pos = _mk_pos(db, ledger.id, _SYMBOL, 10)
+    attached = _mk_txn(db, ledger.id, position_id=pos.id, shares=1)
+    good = _mk_txn(db, ledger.id, symbol='SZ159915', position_name='创业板', shares=100)
+
+    data = svc.rebuild_batch(db, _FAMILY, [[good.id], [attached.id]], confirm=True)
+
+    assert len(data['rebuilt']) == 1
+    assert '并非悬空' in data['skipped'][0]['reason']
+    assert db.query(Transaction).filter_by(id=attached.id).one().position_id == pos.id
+
+
+def test_normalize_groups_rejects_empty_and_oversized():
+    """组列表本身要能被机器校验：空、组数超限、流水总数超限都在写之前拒绝。"""
+    with pytest.raises(ValueError, match='没有选中'):
+        svc._normalize_groups([])
+    with pytest.raises(ValueError, match='没有选中'):
+        svc._normalize_groups(None)
+    with pytest.raises(ValueError, match=f'最多重建 {svc.MAX_BATCH_GROUPS} 组'):
+        svc._normalize_groups([[i] for i in range(svc.MAX_BATCH_GROUPS + 1)])
+    with pytest.raises(ValueError, match=f'最多处理 {svc.MAX_BATCH_TXN_IDS} 条'):
+        svc._normalize_groups([list(range(i * 11, i * 11 + 11)) for i in range(svc.MAX_BATCH_GROUPS)])
+
+
+def test_undo_rebuild_batch_restores_all_groups(db, ledger, ledger2):
+    """整批撤销：两行持仓都删掉、流水都回到悬空；重复撤销幂等留痕。"""
+    ids_a, ids_b = _two_rebuildable_groups(db, ledger, ledger2)
+    built = svc.rebuild_batch(db, _FAMILY, [ids_a, ids_b], confirm=True)
+
+    data = svc.undo_rebuild_batch(db, _FAMILY, built['log_ids'])
+
+    assert data['restored'] == 2 and data['skipped'] == 0
+    assert db.query(Position).count() == 0
+    for txn_ids in (ids_a, ids_b):
+        assert db.query(Transaction).filter_by(id=txn_ids[0]).one().position_id == _DANGLING_PID
+
+    again = svc.undo_rebuild_batch(db, _FAMILY, built['log_ids'])
+    assert again['restored'] == 0 and again['skipped'] == 2
+    assert all(r['skip_reason'] for r in again['results'])
+
+
+def test_undo_rebuild_batch_keeps_going_after_one_skipped(db, ledger, ledger2):
+    """一条期间被改过只跳过那一条，其余照常回滚——撤销是「把能退的退掉」，不是全或无。"""
+    ids_a, ids_b = _two_rebuildable_groups(db, ledger, ledger2)
+    built = svc.rebuild_batch(db, _FAMILY, [ids_a, ids_b], confirm=True)
+    touched = db.query(Position).filter_by(id=built['rebuilt'][1]['position_id']).one()
+    touched.quantity = Money.shares_to_min_unit(7)
+    db.flush()
+
+    data = svc.undo_rebuild_batch(db, _FAMILY, built['log_ids'])
+
+    assert data['restored'] == 1 and data['skipped'] == 1
+    assert len(data['results']) == 2
+    assert db.query(Position).filter_by(id=built['rebuilt'][1]['position_id']).first() is not None
+    assert db.query(Position).filter_by(id=built['rebuilt'][0]['position_id']).first() is None
+
+
+def test_undo_rebuild_batch_rejects_foreign_log_ids(db, ledger):
+    """别的家庭的日志只跳过不抛整批错误：results 里逐条给原因，其余不受影响。"""
+    ids_a, _ = _two_rebuildable_groups(db, ledger, ledger)
+    built = svc.rebuild_batch(db, _FAMILY, [ids_a], confirm=True)
+
+    data = svc.undo_rebuild_batch(db, _OTHER_FAMILY, built['log_ids'])
+
+    assert data['restored'] == 0 and data['skipped'] == 1
+    assert '撤销记录不存在' in data['results'][0]['skip_reason']

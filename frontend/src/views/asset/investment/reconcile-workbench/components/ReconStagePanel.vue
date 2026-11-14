@@ -26,7 +26,19 @@
         :key="seg.stage"
         class="recon-stage__seg"
       >
-        <SectionHeader :title="danglingStageHeading(seg.stage, seg.groups)" />
+        <SectionHeader :title="danglingStageHeading(seg.stage, seg.groups)">
+          <!-- 批量只出现在「重建」段且 ≥2 组：1 组走单组弹窗，不给同一数据两套入口。
+               按钮不带组数——准确的可重建组数只有预览接口知道（组内可能仍有不可重建的），
+               写一个对不上的数字比不写更糟。 -->
+          <template
+            v-if="seg.stage === 'rebuild' && seg.groups.length >= 2"
+            #action
+          >
+            <el-button size="small" @click="batchVisible = true">
+              批量重建持仓
+            </el-button>
+          </template>
+        </SectionHeader>
         <DomainFDanglingRefs
           :groups="seg.groups"
           :loading="loading"
@@ -36,6 +48,11 @@
         />
       </section>
     </template>
+
+    <ReconRebuildBatchDialog
+      v-model="batchVisible"
+      @rebuilt="emit('refresh', 'rebuilt')"
+    />
   </div>
 </template>
 
@@ -49,6 +66,7 @@ import { danglingStageHeading, danglingStageItem } from "../utils/reconQueue";
 import type { ReconQueueItem } from "../utils/reconQueue";
 import DomainFDanglingRefs from "./DomainFDanglingRefs.vue";
 import ReconItemAction from "./ReconItemAction.vue";
+import ReconRebuildBatchDialog from "./ReconRebuildBatchDialog.vue";
 
 defineOptions({ name: "ReconStagePanel" });
 
@@ -87,6 +105,9 @@ const segments = computed<StageSegment[]>(() => {
 
 /** 聚焦的是组的 key（组卡稳定键），合成项由 danglingStageItem 现算 */
 const focusKey = ref<string | null>(null);
+
+/** 批量重建弹窗（只有「重建」段 ≥2 组时才开得了） */
+const batchVisible = ref(false);
 const focusedItem = computed<ReconQueueItem | null>(() => {
   if (focusKey.value === null) return null;
   for (const seg of segments.value) {

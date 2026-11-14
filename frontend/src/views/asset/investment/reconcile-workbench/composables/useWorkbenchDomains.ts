@@ -35,6 +35,7 @@ import {
   type RecognizerCandidate
 } from "@/composables/useReconDraft";
 import { mergeDanglingLists } from "../utils/danglingRefMerge";
+import { withoutRebuildOnly } from "../utils/rebuildOnly";
 
 /**
  * 对账中心三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
@@ -120,7 +121,11 @@ export function useWorkbenchDomains() {
       dangling: loadDanglingRefs,
       orphan: loadOrphanLedgers,
       candidates: loadRecognizerCandidates,
-      trail: reloadAfterTrailChange
+      trail: reloadAfterTrailChange,
+      // 重建持仓（单组 / 批量）同样改了持仓行与流水归属 ⇒ 必须与「轨迹改动」
+      // 走同一条重算路径：域 B 的差异是算出来落库的，只重拉 dangling 会让
+      // 刚修好的孤儿差异继续挂在核对差异里。
+      rebuilt: reloadAfterTrailChange
     };
     await (loaders[key] ?? loadAll)();
   }
@@ -164,21 +169,37 @@ export function useWorkbenchDomains() {
     ]);
   }
 
+  /**
+   * 剔除「唯一入口在修正数据」的差异（见 `utils/rebuildOnly`）。
+   *
+   * 一条 orphan 差异若已被域 F 的悬空组覆盖，它在核对差异里的「补充这笔」必然在最后一步
+   * 失败（持仓行不存在），唯一的修法是修正数据的「按流水重建持仓」。两个入口里一个是
+   * 死路，就不该存在——同一条数据只留能修的那一个。
+   *
+   * 这里与队列（`utils/reconQueue` 的 `buildReconQueue`）用**同一个纯函数**，
+   * 保证「列表条数 / 域角标 / 队列项」不会各数一遍。
+   */
+  const visibleDiscs = computed(() =>
+    withoutRebuildOnly(discs.value, danglingRefs.value)
+  );
+
   /** 域 B 差异：仅展示待处理（pending）行，使下方表格与顶部「待裁决差异」口径一致（#1259） */
   const bDiscs = computed(() =>
-    discs.value.filter(d => d.domain === "B" && d.status === "pending")
+    visibleDiscs.value.filter(d => d.domain === "B" && d.status === "pending")
   );
 
   /** 域 C 差异：导入后自动对账产出的孤儿持仓（有仓位、没有对应流水）。
    *  后端域 C 目前只做孤儿检测、不做数量比对（`reconciliation_service.py` §6.2），
    *  所以这里拿到的 `discrepancy_type` 只会是 `orphan`。 */
   const cDiscs = computed(() =>
-    discs.value.filter(d => d.domain === "C" && d.status === "pending")
+    visibleDiscs.value.filter(d => d.domain === "C" && d.status === "pending")
   );
 
   /** 全局待处理总数，仅用于 Banner 提醒（不要求与单表对齐） */
   const totalPending = computed(() => {
-    const fromDiscs = discs.value.filter(d => d.status === "pending").length;
+    const fromDiscs = visibleDiscs.value.filter(
+      d => d.status === "pending"
+    ).length;
     const fromE = eItems.value.filter(i => i.status === "pending").length;
     // 域 D/E 是实时派生扫描，不进 discrepancies 表，单独计数
     return fromDiscs + fromE + ghostGroups.value.length + taxItems.value.length;
@@ -210,16 +231,18 @@ export function useWorkbenchDomains() {
     // 域 G 同理：待处理数即缺账本流水总条数（含 blocked，不能只报可修的那部分——
     // 用户需要知道「还有多少条没归属」，否则 blocked 组会被数字静默吞掉）
     if (key === "G") return orphanLedgers.value?.total ?? 0;
-    return discs.value.filter(d => d.domain === key && d.status === "pending")
-      .length;
+    return visibleDiscs.value.filter(
+      d => d.domain === key && d.status === "pending"
+    ).length;
   }
   function domainIgnored(key: string): number {
     if (key === "A")
       return eItems.value.filter(i => i.status === "ignored").length;
     if (key === "D") return ghostIgnored.value.length;
     if (key === "E" || key === "F" || key === "G") return 0;
-    return discs.value.filter(d => d.domain === key && d.status === "ignored")
-      .length;
+    return visibleDiscs.value.filter(
+      d => d.domain === key && d.status === "ignored"
+    ).length;
   }
 
   /** 加载识别候选草稿（P3-1 / #1250）：AI 识别结果落 recon-draft:recognizer，跨页/刷新承接不丢 */
