@@ -6,6 +6,7 @@
  */
 
 import type { LedgerItem } from "@/api/ledger";
+import type { BenchmarkExcessResult } from "@/api/summary";
 
 /** 组合持仓（后端 /api/portfolios/{id}/holdings/ 返回，字段按现有代码使用为准） */
 export interface PortfolioHolding {
@@ -96,6 +97,26 @@ export function ledgerTypeLabel(type: string): string {
   if (type === "cash") return "现金账户";
   if (type === "family") return "家庭账户";
   return "通用账户";
+}
+
+/**
+ * 区间超额的一次取数结果（#3112）。
+ *
+ * 详情页的「超额收益」「基准指数」两张卡与下方「超额走势」曲线用的是**同一个端点、
+ * 同一组参数**（`/api/summary/benchmark-excess/`）。以前它们各自发一次请求：同一档
+ * 切一次档，后端把一个 6 成员 × 5 年的聚合计两遍，真库实测 3.06s + 5.80s = 6.7s，
+ * 而两遍的输入完全相同 —— 纯重复。
+ *
+ * 现在由页面（`usePortfolioExcess`）取一次，`PortfolioExcessTrend` 只负责画。
+ * `loading` / `error` 一并放在这里，是为了让「卡片显示 --」与「曲线显示降级文案」
+ * 出自同一次请求的同一个状态：分开存的话，一个说成功一个说失败，用户看到的
+ * 就是自相矛盾的半屏。
+ */
+export interface ExcessState {
+  data: BenchmarkExcessResult | null;
+  loading: boolean;
+  /** 空串 = 没出错（不要用 null，模板里 `v-if` 会把它当「有错」） */
+  error: string;
 }
 
 // #2595：超额五段派生（benchmarkLabelOf / benchmarkCaptionOf / excessValueText /

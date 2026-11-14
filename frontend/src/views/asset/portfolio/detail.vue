@@ -71,9 +71,10 @@
             />
           </MetricGrid>
 
-          <!-- 超额走势（#2685/#3107）：周期由本页持有后喂给两者，曲线末点 ≡ 上方卡片 -->
+          <!-- 超额走势（#2685/#3107/#3112）：周期与数据都由本页持有，曲线只负责画 -->
           <PortfolioExcessTrend
             v-model:range="range"
+            :state="excessState"
             class="mb-6"
             :portfolio-id="portfolioId"
             @updated="fetchExcess"
@@ -203,7 +204,6 @@ import {
 
 /**
  * 组合详情页（/asset/portfolios/:id）。
- *
  * #980 拆分后只留「页面骨架」：PageHeaderBar 页头、四张指标卡、页内导航
  * （PageNav / PageToc，2026-10-25 接入）与十一个纵向区块（收益 / 货基 / 资金流动 /
  * 归因 / 结构 / 穿透 / 风格 / 明细 / 重叠 / 未归档 / 关联账户）、编辑对话框。四张表与两块取数各自成组件：
@@ -214,7 +214,6 @@ import {
  * - `PortfolioMoneyFundCard`：货基收益（自含取数）
  *
  * 派生文案进 `usePortfolioExcess`，信封解包 / 排序分页 / 账户类型文案进 `portfolioDetailModel.ts`。
- *
  * 结构段三个面板口径共享：`PositionStructurePanel`（大类占比 / Top N / 集中度）、
  * `PenetrationPanel`（行业穿透）、`PortfolioStylePanel`（风格构成）都上移/落到
  * `components/` 或本目录，且都收 `portfolio-id` 走组合口径（#2595 / #2617）。
@@ -305,6 +304,7 @@ async function fetchHoldings() {
 // ---------- 区间收益 vs 基准（#2134）----------
 const {
   fetchExcess,
+  excessState,
   range,
   benchmarkLabel,
   benchmarkCaption,
