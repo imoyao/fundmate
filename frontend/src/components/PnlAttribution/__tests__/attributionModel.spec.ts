@@ -1,7 +1,7 @@
 /**
  * 区间收益归因的纯计算（#980 批 B4 从 `index.vue` 抽到 `attributionModel.ts` 时补的网）。
  *
- * 区间档位与「档位 → 日期」已迁到 `utils/chartRange.ts`（#3109），边界由
+ * 区间档位与「档位 → 日期」已迁到 `utils/chartRange.ts`（#3107），边界由
  * `utils/__tests__/chartRange.spec.ts` 钉住（今年来=1-1 起、月回退、月末不溢出、
  * inception 哨兵）。本文件只钉**展示层**那一件容易写反的事：
  * 「数据不足」与「没有可归因持仓」不能混用 —— 混了用户会去翻持仓，而真正缺的是数据。

@@ -1,5 +1,5 @@
 <!--
-  图表周期筛选（`#3109`）：一排常用档 + 「更多」下拉，口径见 `utils/chartRange.ts`。
+  图表周期筛选（`#3107`）：一排常用档 + 「更多」下拉，口径见 `utils/chartRange.ts`。
 
   ## 为什么不是一个纯 SegmentedControl
 

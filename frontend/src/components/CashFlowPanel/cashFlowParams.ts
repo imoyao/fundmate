@@ -8,7 +8,7 @@ import { chartRangeParams, type ChartRangeKey } from "@/utils/chartRange";
  * 必须能单测；而 composable 一导入就把 Vue 生命周期、http、格式化工具全拖进来，
  * node 环境下的单测会被这些运行时依赖绑住。
  *
- * ## 区间枚举已归一到 `utils/chartRange.ts`（#3109）
+ * ## 区间枚举已归一到 `utils/chartRange.ts`（#3107）
  *
  * 这里曾经自带一份 `180 / 365 / 1095 / inception` 的枚举，与同页「超额走势」
  * （写死 90 天）、「收益归因」（1m/3m/ytd/1y/all）三套并存——同一个「近1年」

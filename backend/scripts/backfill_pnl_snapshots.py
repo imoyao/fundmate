@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Author : imoyao
-"""`pnl_daily_snapshots` 历史回填 CLI（#3109 图表长周期提速）。
+"""`pnl_daily_snapshots` 历史回填 CLI（#3107 图表长周期提速）。
 
 ## 为什么需要它
 

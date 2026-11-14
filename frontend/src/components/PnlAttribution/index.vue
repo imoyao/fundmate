@@ -10,7 +10,7 @@
   - `unpriced_positions` 持有但整窗无价，不进合计，折叠提示列出（诚实降级，卡面验收②）。
 
   区间档位由 `ChartRangeTabs` 提供（九档，与组合页超额走势 / 资金流动同一份
-  `utils/chartRange.ts`，#3109），换算成 start_date / end_date 后传后端；
+  `utils/chartRange.ts`，#3107），换算成 start_date / end_date 后传后端；
   品种 ⇄ 大类是纯前端切换（同一次响应里两组数据都有）。
 
   #980 拆分（纯搬运，零视觉/行为变更）：

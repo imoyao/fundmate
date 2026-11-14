@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""#3109 基准超额曲线的区间左界（`start_date=inception` 哨兵）。
+"""#3107 基准超额曲线的区间左界（`start_date=inception` 哨兵）。
 
 锁定三件事：
 
