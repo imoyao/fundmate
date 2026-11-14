@@ -17,9 +17,10 @@
  *   也会让两次请求的区间口径各算一遍而漂移；
  * - 月 / 年回退用 dayjs（月末夹取到当月最后一天）。原生 `Date.setMonth` 会把
  *   3-31 减一月溢出成 3-03，那是错的起点；
- * - 档位给的是**请求**区间。数据本身不够长时，由调用方用响应里的实际区间提示
- *   （见 `excessCaptionOf` / `rangeCaptionOf`），不改档位标签——「近5年」在只有
- *   一年数据的组合上仍是用户点的那个意思，只是备注「数据自 X 起」。
+ * - 档位给的是**请求**区间，不做「数据不够长就换一档」的偷换——「近5年」在只有
+ *   一年数据的组合上仍是用户点的那个意思。数据撑不住时后端回 `range_reason`
+ *   降级（如 `no_baseline` / `baseline_not_representative`），由调用方翻成人话，
+ *   档位标签一个字不改。
  */
 import dayjs from "dayjs";
 
@@ -103,29 +104,4 @@ export function chartRangeParams(
     start_date: now.subtract(months, "month").format("YYYY-MM-DD"),
     end_date: end
   };
-}
-
-/**
- * 在给定档位集合里挑出可用的：请求起点早于作用域最早数据日的档不收。
- *
- * 例：组合 2025-06 才建仓，「近5年」与「成立来」画出来是**同一条线**，
- * 留着两个按钮等于让用户点两次拿到同一张图（假可操作性）。`inception` 恒保留。
- *
- * `earliest` 为空（起点未知 / 后端未给）时**不过滤**——不知道就别猜，
- * 少一档比多一档可疑更糟。
- */
-export function availableRangeKeys(
-  keys: readonly ChartRangeKey[],
-  earliest: string | null | undefined,
-  now: dayjs.Dayjs = dayjs()
-): ChartRangeKey[] {
-  if (!earliest) return [...keys];
-  const first = dayjs(earliest);
-  if (!first.isValid()) return [...keys];
-  return keys.filter(key => {
-    if (key === CHART_RANGE_INCEPTION) return true;
-    const { start_date } = chartRangeParams(key, now);
-    // 起点不早于最早数据日 ⇒ 这档被数据完整覆盖（含相等：建仓当天即区间首日）
-    return !dayjs(start_date).isBefore(first, "day");
-  });
 }

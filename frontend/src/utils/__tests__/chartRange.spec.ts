@@ -5,7 +5,6 @@ import {
   CHART_RANGE_LABELS,
   MORE_CHART_RANGE_KEYS,
   PRIMARY_CHART_RANGE_KEYS,
-  availableRangeKeys,
   chartRangeLabel,
   chartRangeParams
 } from "../chartRange";
@@ -74,30 +73,5 @@ describe("档位表", () => {
       expect(CHART_RANGE_LABELS[key]).toBeTruthy();
       expect(chartRangeLabel(key)).toBe(CHART_RANGE_LABELS[key]);
     }
-  });
-});
-
-describe("availableRangeKeys（数据不够长的档位不收）", () => {
-  it("成立日 2025-06-01：近2年以上的档与成立来同线，只留能看出不同的档", () => {
-    const keys = availableRangeKeys(ALL_CHART_RANGE_KEYS, "2025-06-01", NOW);
-    expect(keys).toEqual(["1m", "3m", "6m", "1y", "ytd", "inception"]);
-  });
-
-  it("成立来恒保留（它就是「最早那天起」）", () => {
-    const keys = availableRangeKeys(MORE_CHART_RANGE_KEYS, "2026-11-01", NOW);
-    expect(keys).toContain("inception");
-  });
-
-  it("起点未知时不过滤（不知道就别猜）", () => {
-    expect(availableRangeKeys(ALL_CHART_RANGE_KEYS, null, NOW)).toHaveLength(9);
-    expect(availableRangeKeys(ALL_CHART_RANGE_KEYS, "", NOW)).toHaveLength(9);
-    expect(
-      availableRangeKeys(ALL_CHART_RANGE_KEYS, "not-a-date", NOW)
-    ).toHaveLength(9);
-  });
-
-  it("起点恰好等于档位起点：该档保留（建仓当天即区间首日，不是「不够长」）", () => {
-    const keys = availableRangeKeys(["1m"], "2026-10-14", NOW);
-    expect(keys).toEqual(["1m"]);
   });
 });

@@ -194,7 +194,8 @@ function pick(value: ChartRangeKey | number | string | undefined) {
 }
 
 .chart-range__caret {
-  font-size: 10px;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
 }
 
 .chart-range__item {

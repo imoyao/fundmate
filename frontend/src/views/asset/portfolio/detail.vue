@@ -61,7 +61,7 @@
               :value="benchmarkLabel"
               :caption="benchmarkCaption"
             />
-            <!-- #2134：区间超额（近 90 天 vs 基准同期）；缺数据由 MetricCard 显示「--」，不造 0 -->
+            <!-- #2134：区间超额（区间由本页 `range` 持有，与下方曲线同档）；缺数据由 MetricCard 显示「--」，不造 0 -->
             <MetricCard
               title="超额收益"
               :value="excessValue"
