@@ -132,7 +132,7 @@ NEW_FILE_LIMITS = {
 # `reconciliation_service.py` 453→442（max_func 121 / max_cc 15 未变；变基到
 # #3105 后重取实测）。修复「补录一次没平却从待办队列消失」时，新增的
 # 「是否轧平」判定一度把三个维度顶到 476/142/17；按守卫要求把该判定下沉到
-# 新文件 `reconciliation_adjustment.py`（41/24/3，走 NEW_FILE_LIMITS），
+# 新文件 `reconciliation_adjustment.py`（39/22/3，走 NEW_FILE_LIMITS），
 # 并把 `apply_decision` 的设计说明压缩进新模块 docstring，主文件净减 11 行。
 # 基线向下收紧，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {

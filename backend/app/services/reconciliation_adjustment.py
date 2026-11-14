@@ -15,9 +15,7 @@ from sqlalchemy.orm import Session
 from app.domains.reconciliation.models import ReconciliationDiscrepancy
 
 
-def recompute_linked_discrepancy(
-    db: Session, family_id: int, disc: ReconciliationDiscrepancy
-) -> dict:
+def recompute_linked_discrepancy(db: Session, family_id: int, disc: ReconciliationDiscrepancy) -> dict:
     """按域重算关联差异，返回前端需要的状态与当前差额。
 
     真正轧平 → `cleared`；差额仍在 → `pending`，队列里可继续补第二笔。
