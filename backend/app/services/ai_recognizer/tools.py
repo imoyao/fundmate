@@ -1,22 +1,18 @@
 # -*- coding: utf-8 -*-
 """账本精灵工具包（ToolExecutor + 工具注册表）。
 
-职责（D19 铁律）：工具内只做**只读查询与数值计算**，绝不让模型写代码；
-执行结果只回传指标值给 AgentLoop 拼回 prompt 叙事。
+职责（D19 铁律）：工具内只做**只读查询与数值计算**，绝不让模型写代码；执行结果只回传指标值给 AgentLoop 拼回 prompt 叙事。
 
 - TOOLS_METADATA：工具元信息（name / description / parameters），同时给模型看 + 给代码做 schema 校验；
 - ToolExecutor.run：服务端上下文覆盖（P1）→ schema 校验 → 派发 → {status, data|msg}；
 - 出错时上层 AgentLoop 负责「最多 1 次重试」（error-as-observation），本层不重试、不崩；
-- 每次执行必留 `[agent.tool]` 结构化日志（成功 ok / 失败 fail，含耗时），
-  线上排障按 tag 过滤（#1121 S1-C）。
+- 每次执行必留 `[agent.tool]` 结构化日志（成功 ok / 失败 fail，含耗时），线上排障按 tag 过滤（#1121 S1-C）。
 
-P1 越权防护（2026-09-26，#1121 S1-A）：
-前端回传的 collected_params 与模型生成的 tool_params 都只是**候选值**；
-服务端权威值（server_ctx，如 family_id）在 run() 内强制覆盖同名候选。
-覆盖只对「该工具 schema 声明过的键」生效——未声明 family_id 的工具（如 get_fund_nav）
-若被塞入 family_id，会在校验期被当**未知参数**拒绝，两头都堵死。
-服务端不传 server_ctx 时 family_id 回退 1，与 core.auth.get_family_id 的单用户口径一致；
-HTTP 路径由 views 层必传，不存在「前端可指定」的入口。
+P1 越权防护（2026-09-26，#1121 S1-A）：前端回传的 collected_params 与模型生成的
+tool_params 都只是**候选值**；服务端权威值（server_ctx，如 family_id）在 run() 内强制
+覆盖同名候选，且只对「该工具 schema 声明过的键」生效——未声明 family_id 的工具
+（如 get_fund_nav）若被塞入会在校验期当**未知参数**拒绝，两头都堵死。服务端不传时
+family_id 回退 1（与 core.auth.get_family_id 单用户口径一致）；HTTP 路径由 views 层必传。
 """
 
 import re
@@ -32,6 +28,7 @@ from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.ai_recognizer.tools_fund import install_fund_tools
 from app.services.analytics.benchmark_comparison import build_benchmark_comparison
 from app.services.analytics.rebalance_reference import BROAD_INDEX_TARGETS, build_rebalance_reference
 from app.services.analytics.trading_behavior import build_trading_behavior
@@ -639,6 +636,9 @@ class ToolExecutor:
                 e,
             )
             return {'status': 'error', 'msg': str(e)}
+
+
+install_fund_tools(register_tool, TOOLS_METADATA)  # 基金级工具（#3111）定义与投影见 tools_fund 模块
 
 
 __all__ = ['TOOLS_METADATA', 'ToolExecutor', 'apply_server_context', 'register_tool']

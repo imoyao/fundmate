@@ -9,20 +9,17 @@
 
 - **日涨跌**：funds 域没有任何端点直接给。它必须由「最近两日单位净值」算出，
   照搬前端拼装就是两次串行请求（``?date=`` 当日 + 前一日），详情页首屏直接被拉长；
-- **基金经理**：funds 域**没有「某只基金的经理」端点**——唯一暴露经理的
-  ``/api/funds/managers/search/`` 是按经理姓名模糊搜，与「某只基金有哪些经理」无关。
-  注意：**关系本身在数据层是完整的**（``fund_managers`` 关联表，含任期起止 ``start_date``
-  与代表作品标记 ``is_classic``，并有同步 job 维护），funds 域缺的只是把这条关系
-  **读出来**的 HTTP 出口——故此处经关联表 join 取经理；
+- **基金经理**：funds 域没有「某只基金的经理」端点（``managers/search`` 是按姓名模糊搜），
+  但关系本身在数据层是完整的（``fund_managers`` 关联表含任期起止与代表作标记），
+  缺的只是「读出来」的出口——故此处经关联表 join 取经理；
 - 费率虽有 ``/api/funds/<code>/fee-rates/``，但与净值/经理分属不同步的请求。
 
 故此处**一次查完**并返回，前端一次请求拿到首屏所需全部字段。字段缺失一律返回
 ``None`` 由前端降级为「—」，不编造占位值。
 
 **唯一例外是「基金公司」**：``company_id`` 覆盖率仅约 11.5%，缺失时走
-``fund_company_backfill.ensure_fund_company`` 按 symbol 单只回填（#2037 方案 A ·
-L3 按需取）。故本函数**不是纯只读**——它可能在末尾写一次库。回填放在拼装之后
-（见该处注释），失败一律降级 ``None``，不影响其余字段。
+``fund_company_backfill.ensure_fund_company`` 按 symbol 单只回填（#2037 方案 A · L3 按需取）。
+故默认**不是纯只读**（末尾可能写一次库）；工具路径须传 ``allow_backfill=False``。
 """
 
 from __future__ import annotations
@@ -61,9 +58,6 @@ def _managers_of(db: Session, fund) -> List[Dict[str, Any]]:
     显式 join ``fund_managers`` 关联表，而非遍历 ``fund.managers`` relationship——因为
     ``is_classic``（代表作品）与 ``start_date``（任职起始）**只存在于关联表**，走
     relationship 只能拿到 Manager 自己的列。
-
-    顺带说明：经理关系在**数据层本来就是完整的**（``fund_managers`` 关联表 + 同步 job
-    维护，含任期起止与代表作品标记），funds 域缺的只是「读出这条关系」的 HTTP 出口。
     """
     from app.domains.funds.models import FundManager, Manager
 
@@ -101,9 +95,16 @@ def _fee_rates_of(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
+def _company_or_none(db: Session, code: str, allow_backfill: bool) -> Optional[str]:
+    """按需回填基金公司；``allow_backfill=False``（工具路径）不写库、不出网，直接回 None。"""
+    return ensure_fund_company(db, code) if allow_backfill else None
+
+
+def build_fund_profile(db: Session, fund_code: str, *, allow_backfill: bool = True) -> Optional[Dict[str, Any]]:
     """一次拼出单只基金的资料（首屏四项 + 费率 / 经理 / 类型 / 规模）。
 
+    Args:
+        allow_backfill: ``False`` 时跳过「基金公司」回填——工具路径须纯只读（不写库不出网）。
     Returns:
         资料 dict；**基金不存在时返回 None**（由调用方转 404）。
     """
@@ -161,12 +162,10 @@ def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
         'source': FUND_NAV_SOURCE_LABEL,
     }
 
-    # 「基金公司」按需回填（#2037 方案 A）：`company_id` 为空时按 symbol 单只回填并落库。
-    # 查不到/抓取失败一律降级 None（前端显示「—」），绝不因此让整个资料 500。
-    # 触达不到的基金永远不请求、永远不存——全库覆盖率不是本方案的目标。
-    #
-    # 为什么放在拼装**之后**：回填会 `db.commit()`，会话内 ORM 实例随之过期，此时再读
-    # `fund.xxx` 会触发逐字段 refresh SELECT。先把资料拼完，回填只覆盖 `company` 一个键。
+    # 「基金公司」按需回填（#2037 方案 A）：`company_id` 为空时按 symbol 单只回填并落库；
+    # 查不到/抓取失败一律降级 None（前端显示「—」），绝不因此让整个资料 500；触达不到的
+    # 基金永远不请求、永远不存——全库覆盖率不是本方案的目标。
+    # 放在拼装之后：回填会 commit，会话内 ORM 实例随之过期，再读 fund.xxx 要逐字段 refresh。
     if profile['company'] is None:
-        profile['company'] = ensure_fund_company(db, code)
+        profile['company'] = _company_or_none(db, code, allow_backfill)
     return profile
