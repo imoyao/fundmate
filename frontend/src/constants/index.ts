@@ -229,13 +229,19 @@ export function discrepancyTypeLabel(type: string): string {
   return DISCREPANCY_TYPE_LABELS[type] ?? type;
 }
 
-// 建议放在 src/constants/index.ts 末尾
-export const ALLOCATION_COLORS: Record<string, string> = {
-  liquid: "#7A9AA8",
-  stable: "#9D81A9",
-  longterm: "#7A7FA8",
-  speculative: "#C83E66",
-  security: "#B88A8A"
+/**
+ * 五笔钱配置目标 → 颜色令牌（桑基图 / 分布图 / 首页「心理账户」共用，唯一来源）。
+ *
+ * 用 CSS 变量而不是 hex：暗色主题与「调整档位色」只需改 `style/colors.css` 一处。
+ * 本表取代了原先的 `ALLOCATION_COLORS`（hex 硬编码，全仓零消费方）——
+ * 两份取值表并存必然漂移，而漂移的表现是「同一个『长期增值』在两个页面是两个颜色」。
+ */
+export const ALLOCATION_COLOR_VARS: Record<string, string> = {
+  liquid: "var(--sankey-liquid)",
+  stable: "var(--sankey-stable)",
+  longterm: "var(--sankey-longterm)",
+  speculative: "var(--sankey-speculative)",
+  security: "var(--sankey-security)"
 };
 
 /** 工具函数 */

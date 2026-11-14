@@ -8,6 +8,7 @@
 import { getCssVarWithAlpha } from "@/composables/echarts/theme";
 import { apiErrorMessage } from "@/utils/apiError";
 import {
+  ALLOCATION_COLOR_VARS,
   ALLOCATION_OPTIONS,
   INVESTMENT_MINOR_CATEGORIES,
   majorCategoryLabel
@@ -80,15 +81,6 @@ export function getMinorAssetLabel(row: AssetRecord): string {
   return majorCategoryLabel(row.major_category);
 }
 
-/** 配置目标 key → 语义色变量（桑基图配色，与分布图保持一致） */
-const ALLOCATION_COLOR_MAP: Record<string, string> = {
-  liquid: "var(--sankey-liquid)",
-  stable: "var(--sankey-stable)",
-  longterm: "var(--sankey-longterm)",
-  speculative: "var(--sankey-speculative)",
-  security: "var(--sankey-security)"
-};
-
 /** 配置目标 key → 中文标签（未配置 / 未知 key 原样兜底） */
 export function getAllocationLabel(key: string | null): string {
   if (!key) return "未配置";
@@ -96,9 +88,9 @@ export function getAllocationLabel(key: string | null): string {
   return opt ? opt.label : key;
 }
 
-/** 配置目标 key → 前景色 */
+/** 配置目标 key → 前景色（配色表在 `constants` 里，与首页「心理账户」共用一份） */
 export function getAllocationColor(key: string | null): string {
-  return ALLOCATION_COLOR_MAP[key || ""] || "var(--text-primary)";
+  return ALLOCATION_COLOR_VARS[key || ""] || "var(--text-primary)";
 }
 
 /** 配置目标 key → 胶囊底色（前景色降透明度） */
