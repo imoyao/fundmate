@@ -59,7 +59,7 @@ def apply_adjustment():
     body:
         kind: 'increment'（默认，补一笔缺失买卖）| 'set'（期初建仓/直接改数量成本）
         op_type: buy|sell|deposit|withdraw（increment 必填）
-        discrepancy_id: 可选，关联差异（处理成功后置 cleared）
+        discrepancy_id: 可选，关联差异（补录后重算，没轧平则仍留在待办队列）
         reason / operator: 可选
         其余字段透传给汇点（symbol/ledger_id/quantity/avg_price/confirm_date/...）
 

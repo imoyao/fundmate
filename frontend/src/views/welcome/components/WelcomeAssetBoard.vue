@@ -72,6 +72,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import type { SummaryData } from "@/api/types";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TodayPnlCard from "./TodayPnlCard.vue";
@@ -109,6 +110,8 @@ const totalPnl = computed(() => props.summary?.total_pnl_cny ?? null);
 const { view, loading, error, subtitle, refresh, showSkeleton } = useTodayPnl({
   householdAssets: () => props.summary?.total_assets_cny ?? null
 });
+// 记完账当日盈亏会变，卡片不能只在进页面时取一次
+usePageRefresh(() => void refresh());
 
 // 隐私模式：状态是全局单例，这里只负责切换按钮
 const { masked, toggle } = usePrivacyMode();

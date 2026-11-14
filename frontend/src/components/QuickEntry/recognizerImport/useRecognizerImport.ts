@@ -8,6 +8,7 @@ import {
 } from "@/api/ocr";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 import { useReconDraft } from "@/composables/useReconDraft";
+import { emitter } from "@/utils/mitt";
 import {
   DEFAULT_QUOTA,
   EMPTY_QUOTA_HINT,
@@ -222,6 +223,9 @@ export function useRecognizerImport(opts: {
         )
       });
       ElMessage.success("已存入对账草稿，可在工作台确认入库");
+      // 草稿落 localForage，不走 HTTP 拦截器，统一广播覆盖不到：显式发一次，
+      // 让已经打开的工作台重拉「识别候选」面板。
+      emitter.emit("refresh-ledger-data");
       opts.onSaved(domain);
       opts.onClose();
       resetPreview();

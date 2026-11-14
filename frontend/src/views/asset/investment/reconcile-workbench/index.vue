@@ -165,6 +165,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import RecognizerImportModal from "@/components/QuickEntry/RecognizerImportModal.vue";
@@ -218,6 +219,10 @@ const {
   commitCandidates,
   discardCandidates
 } = domains;
+
+/** 任何写操作（本页或其它页）之后全量重拉七个域：旧实现只刷命中的那一域，
+ *  其余域的计数与队列仍是上一轮快照，用户会以为操作没生效。防抖 300ms 会自动合并。 */
+usePageRefresh(() => void loadAll());
 
 /** 七个后端域的原始快照 → 一条用户待办队列（纯函数，见 utils/reconQueue.ts） */
 const queueSource = computed<ReconQueueSource>(() => ({

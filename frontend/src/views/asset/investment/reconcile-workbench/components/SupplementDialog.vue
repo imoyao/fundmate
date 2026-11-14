@@ -353,8 +353,13 @@ async function submit(): Promise<void> {
     } else {
       payload.snapshot_date = form.snapshot_date || todayLocal();
     }
-    await applyAdjustment(payload);
-    ElMessage.success(form.kind === "set" ? "持仓已改" : "这笔已补上");
+    const res = await applyAdjustment(payload);
+    if (res?.data?.discrepancy?.status === "pending") {
+      // 没轧平：这条差异仍在队列里，要明说还能接着补，不能报成「已完成」
+      ElMessage.success("这笔已补上，账还没平，可以在队列里继续补");
+    } else {
+      ElMessage.success(form.kind === "set" ? "持仓已改" : "这笔已补上");
+    }
     close(false);
     emit("submitted");
   } catch (e) {

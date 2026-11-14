@@ -20,6 +20,7 @@
 import json
 from datetime import date, datetime
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.constants import AnchorKind, PositionSource
@@ -344,7 +345,9 @@ def apply_decision(
       → `upsert_from_holding`（SET 语义，不建流水；硬约束）
 
     审计：写 `adjustment_logs`（before_json/after_json），action=supplement|adjust。
-    若携带 `discrepancy_id`，处理成功后该差异置 `cleared`。
+    若携带 `discrepancy_id`，补录后**重算该域差异**：真正轧平才置 `cleared`，
+    差额仍在则保持 `pending`，用户可继续补第二笔。旧实现无条件置 `cleared`，
+    「账上 1000 股只补 200 股」这条差异会立刻从待办队列消失，剩下的再也补不了。
 
     payload 关键字段：
         kind:        'increment'（默认）| 'set'
@@ -443,11 +446,30 @@ def apply_decision(
         operator=operator,
     )
     db.add(log)
+    # 先落审计日志拿到 log.id，也让本次补录的流水/持仓对下面的重算可见
+    # （SessionLocal 是 autoflush=False，不 flush 则重算读到的还是补录前的数据）。
+    db.flush()
+    result = {'action': action, 'before': before, 'after': after, 'log_id': log.id}
 
-    # 处理成功后：关联差异置 cleared（该差异已被裁决）
+    # 补录 ≠ 账已平：按重算后的差额决定这条差异是否还要留在待办队列。
+    # 复用 run_reconciliation 是刻意的：锚点 / 流水净额 / 孤儿的差额口径只有这一处，
+    # 在这里另写一份「是否平」的判定必然与全量对账分叉（正是旧 bug 的成因）。
     if disc:
-        disc.status = 'cleared'
-        disc.last_run_id = None
+        try:
+            run_reconciliation(db, family_id, domain=disc.domain, triggered_by='manual')
+        except Exception:
+            # 重算失败不能吞掉已成功的补录，更不能把差异误标「已平」：
+            # 保守保持 pending，用户仍能在队列里看到并继续补第二笔。
+            logger.exception('补录后重算对账失败，差异保持待处理: discrepancy_id={}', disc.id)
+            if not disc.is_permanent:
+                disc.status = 'pending'
+        result['discrepancy'] = {
+            'id': disc.id,
+            'status': disc.status,
+            'diff': disc.diff,
+            'expected_value': disc.expected_value,
+            'actual_value': disc.actual_value,
+        }
 
     db.flush()
-    return {'action': action, 'before': before, 'after': after, 'log_id': log.id}
+    return result

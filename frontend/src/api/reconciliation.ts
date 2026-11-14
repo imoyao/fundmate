@@ -97,6 +97,14 @@ export interface AdjustmentResult {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
   log_id: number;
+  /** 补录后关联差异的重算结果：status=pending 表示还没平，仍留在队列里继续补 */
+  discrepancy?: {
+    id: number;
+    status: string;
+    diff: number | null;
+    expected_value: number | null;
+    actual_value: number | null;
+  };
 }
 
 /**
