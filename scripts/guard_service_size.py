@@ -380,7 +380,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/product_identity.py": {'lines': 267, 'max_func': 116, 'max_cc': 29},
     "backend/app/services/product_pro_status.py": {'lines': 84, 'max_func': 35, 'max_cc': 5},
     "backend/app/services/product_trend.py": {'lines': 386, 'max_func': 116, 'max_cc': 15},
-    "backend/app/services/reconciliation_service.py": {'lines': 454, 'max_func': 122, 'max_cc': 15},
+    "backend/app/services/reconciliation_service.py": {'lines': 453, 'max_func': 121, 'max_cc': 15},
     "backend/app/services/recurring_service.py": {'lines': 289, 'max_func': 33, 'max_cc': 12},
     "backend/app/services/related_symbols.py": {'lines': 141, 'max_func': 57, 'max_cc': 7},
     # 2026-11-09 全周期复盘 +44 行（INCEPTION 哨兵 + first_investment_date 及口径注释），

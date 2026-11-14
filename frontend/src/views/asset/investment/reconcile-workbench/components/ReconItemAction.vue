@@ -63,7 +63,7 @@
         v-if="stageIsRebuild"
         v-model="rebuildVisible"
         :group="stageGroup"
-        @rebuilt="emit('refresh', 'dangling')"
+        @rebuilt="emit('refresh', 'rebuilt')"
       />
       <DanglingRefMislinkDialog
         v-if="stageIsMislink"

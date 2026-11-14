@@ -622,6 +622,91 @@ describe("队列里不再出现「只有代码」「裸 cash」「孤儿」", ()
 });
 
 /**
+ * 一个数据只有一个唯一入口（2026-11-14，owner 截图）。
+ *
+ * 被域 F 悬空组覆盖的 orphan 差异，唯一能修的地方是「修正数据 → 按流水重建持仓」；
+ * 核对差异里那行点进去补录，最后一步会被后端拦下（持仓行不存在）并把人指回修正数据。
+ * 所以它不进队列。**没被覆盖的 orphan 要留下**——真库 8 条持仓行还在（份额已清零），
+ * 一刀切剔除等于把真差异藏起来。
+ */
+describe("入口唯一：域 F 覆盖的孤儿差异不进核对差异", () => {
+  function orphanRow(over: Partial<DiscrepancyItem> = {}): DiscrepancyItem {
+    return {
+      id: 9,
+      domain: "B",
+      ledger_id: 20,
+      symbol: "001982",
+      discrepancy_type: "orphan",
+      expected_value: 71.68,
+      actual_value: 0,
+      diff: -71.68,
+      status: "pending",
+      is_permanent: false,
+      first_detected_at: null,
+      updated_at: null,
+      ...over
+    };
+  }
+
+  function sourceWithOrphan(
+    rows: DiscrepancyItem[],
+    groups: DanglingRefGroup[]
+  ): ReconQueueSource {
+    return {
+      ...emptySource(),
+      discrepancies: rows,
+      dangling: {
+        total: groups.reduce((sum, g) => sum + g.txn_count, 0),
+        group_count: groups.length,
+        batch_count: 0,
+        null_symbol: 0,
+        null_trade_date: 0,
+        fixable_count: 0,
+        groups,
+        batches: []
+      }
+    };
+  }
+
+  it("同键悬空组在 → 该 orphan 差异不出现在队列里", () => {
+    const items = buildReconQueue(
+      sourceWithOrphan([orphanRow()], [danglingGroup()])
+    );
+    expect(items.find(i => i.id === "disc-9")).toBeUndefined();
+    // 域 F 自己的阶段项仍在（入口移到那里，不是丢掉）
+    expect(items.some(i => i.sourceDomain === "F")).toBe(true);
+  });
+
+  it("域 F 没覆盖（持仓行还在、份额已清零）→ 仍留在队列里", () => {
+    const items = buildReconQueue(
+      sourceWithOrphan(
+        [orphanRow({ symbol: "SH600103" })],
+        [danglingGroup({ symbol: "001982", key: "20|001982" })]
+      )
+    );
+    expect(items.find(i => i.id === "disc-9")?.title).toBe("SH600103");
+  });
+
+  it("同键的 quantity 差异不受影响：它的修法本来就在核对差异里", () => {
+    const items = buildReconQueue(
+      sourceWithOrphan(
+        [orphanRow({ discrepancy_type: "quantity", diff: -40 })],
+        [danglingGroup()]
+      )
+    );
+    expect(items.find(i => i.id === "disc-9")).toBeDefined();
+  });
+
+  it("域 F 数据没加载成功（null）时不剔除任何差异：宁多显示，不静默隐藏", () => {
+    const items = buildReconQueue({
+      ...emptySource(),
+      discrepancies: [orphanRow()]
+    });
+    expect(items.find(i => i.id === "disc-9")).toBeDefined();
+  });
+});
+
+/**
  * 2026-11-13：不可回补组有两种成因，动作名必须分开。
  *
  * 代码齐全、只缺持仓行的组，点「补全信息」进去是一张「没有可补的字段」的死弹窗，

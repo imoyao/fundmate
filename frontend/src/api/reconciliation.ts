@@ -652,6 +652,77 @@ export function undoDanglingRefRebuild(
   );
 }
 
+// ── 域 F 重建的批量档：一次请求处理多组 ─────────────────────────────────────
+// 真库 rebuild 阶段实测 90 组（2026-11-14），逐组「预览 + 写入」= 180 次往返，而组与组
+// 之间用户没有任何决策点。批量**不新增写路径**：后端仍逐组跑同一份 plan、每组一条审计
+// 日志，只是把往返压成 2 次（预览一次、写入一次）。业务上不可重建的组会被跳过并回报原因。
+
+/** 批量预览里的一组（单组预览 + 组内流水 id + 账本名） */
+export interface DanglingRefBatchPreviewGroup extends DanglingRefRebuildPreview {
+  /** 这一组的流水 id，原样回传给写入端点 */
+  transaction_ids: number[];
+}
+
+/** 批量预览（GET /api/reconciliation/dangling-refs/rebuild-batch-preview/ 的 data） */
+export interface DanglingRefBatchPreview {
+  group_count: number;
+  rebuildable_count: number;
+  blocked_count: number;
+  /** 只统计可重建组的流水条数，与「将重建 N 组」同一范围 */
+  txn_count: number;
+  groups: DanglingRefBatchPreviewGroup[];
+}
+
+/** 批量重建结果（POST /api/reconciliation/dangling-refs/rebuild-batch/ 的 data） */
+export interface DanglingRefBatchRebuildResult {
+  rebuilt: Array<DanglingRefRebuildResult & { transaction_ids: number[] }>;
+  /** 业务上不可重建的组：跳过并给后端原话原因，不静默 */
+  skipped: Array<{
+    transaction_ids: number[];
+    symbol: string | null;
+    reason: string;
+  }>;
+  log_ids: number[];
+}
+
+/** 批量撤销结果（POST /api/reconciliation/dangling-refs/rebuild-batch-undo/ 的 data） */
+export interface DanglingRefBatchUndoResult {
+  results: DanglingRefRebuildUndoResult[];
+  restored: number;
+  skipped: number;
+}
+
+/** 枚举全部悬空组并逐组给出将建出的持仓（只读，无参数） */
+export function previewDanglingRefRebuildBatch(): Promise<
+  ApiResponse<DanglingRefBatchPreview>
+> {
+  return http.get<ApiResponse<DanglingRefBatchPreview>, unknown>(
+    "/api/reconciliation/dangling-refs/rebuild-batch-preview/"
+  );
+}
+
+/** 批量按流水重建持仓（写操作；`confirm` 必须是 `true`，后端硬校验） */
+export function rebuildDanglingRefPositionBatch(payload: {
+  groups: number[][];
+  reason?: string;
+  confirm: boolean;
+}): Promise<ApiResponse<DanglingRefBatchRebuildResult>> {
+  return http.post<ApiResponse<DanglingRefBatchRebuildResult>, unknown>(
+    "/api/reconciliation/dangling-refs/rebuild-batch/",
+    { data: payload }
+  );
+}
+
+/** 批量撤销重建：逐条回滚，期间被改过的那条 skipped=1 并给原因，不影响其余 */
+export function undoDanglingRefRebuildBatch(
+  logIds: number[]
+): Promise<ApiResponse<DanglingRefBatchUndoResult>> {
+  return http.post<ApiResponse<DanglingRefBatchUndoResult>, unknown>(
+    "/api/reconciliation/dangling-refs/rebuild-batch-undo/",
+    { data: { log_ids: logIds } }
+  );
+}
+
 // ── 域 F 第四类：挂错标的（position_id 指向别的标的的现存持仓）──────────────────
 // 既有的「回补关联」与「按流水重建持仓」都要求 position_id **悬空**（持仓行不存在），
 // 而这里持仓**存在**、只是标的对不上 —— 两条修法都拒绝，数据既看不见也修不了。

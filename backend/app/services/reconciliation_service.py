@@ -162,17 +162,16 @@ def run_reconciliation(
 
     # 3) 对每个「有流水」的业务键做比对
     for key, txns in txn_by_key.items():
-        if not _find_holding(txns):
+        if not _find_holding(txns) and key not in pos_by_key:
             # 流水净额 <= 0（已清仓）且无持仓 → 不算孤儿
-            if key not in pos_by_key:
-                continue
+            continue
         ledger_id, symbol = key
-        pos = pos_by_key.get(key)
-        actual_qty = pos.quantity if pos is not None else 0
+        # 字面量查不到就退回写入层的同一判据（#1662：同一基金两种写法并存，#3097）
+        pos = pos_by_key.get(key) or _find_existing_position(db, ledger_id, family_id, symbol, '')
         # 锚点口径：快照基线 + 快照日之后的流水；无锚点份额时退回全量流水（见 _theoretical_qty）
         theoretical_qty = _theoretical_qty(txns, pos)
 
-        if key not in pos_by_key:
+        if pos is None:
             # 孤儿：流水推演净额 > 0 但系统无该持仓（§6.1 边界；域 B/C 均检测）
             _upsert_discrepancy(
                 db,
@@ -195,7 +194,7 @@ def run_reconciliation(
         if domain == DOMAIN_C:
             continue
 
-        diff = actual_qty - theoretical_qty
+        diff = pos.quantity - theoretical_qty
         if diff != 0:
             # 数量差异（域 B）
             _upsert_discrepancy(
@@ -207,7 +206,7 @@ def run_reconciliation(
                 symbol,
                 'quantity',
                 theoretical_qty,
-                actual_qty,
+                pos.quantity,
                 diff,
                 summary,
             )

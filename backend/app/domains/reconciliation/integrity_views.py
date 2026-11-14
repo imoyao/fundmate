@@ -44,8 +44,11 @@ from app.services import dangling_ref_mislink_service as mislink_svc
 from app.services import orphan_coverage_service as coverage_svc
 from app.services.dangling_ref_rebuild_service import (
     preview_rebuild,
+    preview_rebuild_batch,
+    rebuild_batch,
     rebuild_position,
     undo_rebuild,
+    undo_rebuild_batch,
 )
 from app.services.dangling_ref_remediation_service import (
     delete_transactions,
@@ -351,6 +354,67 @@ def undo_dangling_rebuild():
     with user_session() as db:
         try:
             data = undo_rebuild(db, family_id, body.get('log_id'))
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── 批量重建：与上面三件套一一对应，只是把「一组」换成「一次多组」 ──────────────
+# 真库 rebuild 阶段实测 90 组（2026-11-14），逐组点 = 180 次往返。批量**不新增写路径**：
+# 每组仍走 `rebuild_position`（同一份 plan、同一条审计日志），只是收在一次请求里。
+
+
+@bp.get('/dangling-refs/rebuild-batch-preview/')
+def preview_dangling_rebuild_batch():
+    """批量重建预览（**纯只读**，无参数）：枚举全部悬空组，逐组给出将建出的持仓。
+
+    与 ``/rebuild-preview/`` 同一份 plan，只是把「一组」换成「全部组」。不可重建的组
+    照常返回并带 ``block_reason``——服务端不替用户筛，前端要能摊开说明为什么跳过。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        return jsonify({'data': preview_rebuild_batch(db, family_id), 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/rebuild-batch/')
+def rebuild_dangling_position_batch():
+    """批量按流水重建持仓（body: ``{ groups: [[txn_id...], ...], reason?, operator?, confirm }``）。
+
+    逐组重新 plan：业务上不可重建的组进 ``skipped``（带原话原因），其余照常建成；
+    ``confirm`` 必须是布尔 ``true``（后端硬校验）。每组一条审计日志，凭 ``log_ids``
+    可整批撤销。除 ``ValueError`` 外的异常整批回滚。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = rebuild_batch(
+                db,
+                family_id,
+                groups=body.get('groups'),
+                reason=body.get('reason'),
+                operator=body.get('operator'),
+                confirm=body.get('confirm', False),
+            )
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.flush()
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/dangling-refs/rebuild-batch-undo/')
+def undo_dangling_rebuild_batch():
+    """批量撤销重建（body: ``{ log_ids: int[] }``）：逐条回滚，单条失败不影响其余。
+
+    每条都走 ``undo_rebuild`` 的同一份「期间有没有被改过」判据；被改过的那条
+    ``skipped=1`` 并给 ``skip_reason``，绝不抹掉后来的业务事实。
+    """
+    body = _json_object()
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = undo_rebuild_batch(db, family_id, body.get('log_ids'))
         except ValueError as e:
             abort(400, description=str(e))
         db.flush()
