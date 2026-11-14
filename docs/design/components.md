@@ -591,9 +591,9 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 ### 空态：能力目录（`AgentHero.vue`）
 
 - 标题「问一句，我把账户里的事实查给你」+ 一句合规声明（不预测涨跌 / 不给建议）；**不再用品牌渐变口号**。
-- 「试着问一句」小标签（`--text-label` + `--text-tertiary`，**E2E 锚点文案不得改**）+ 8 项能力目录（`agentQuickActions.ts` 的 `AGENT_CAPABILITIES`，与后端 `TOOLS_METADATA` 的 10 个工具一一对应）。
+- 「试着问一句」小标签（`--text-label` + `--text-tertiary`，**E2E 锚点文案不得改**）+ 10 项能力目录（`agentQuickActions.ts` 的 `AGENT_CAPABILITIES`，与后端 14 个工具对应：`TOOLS_METADATA` 10 个账户级 + `tools_fund.py` 4 个基金级）。
 - 每项 = 图标 + 能力名（`--text-small` 600）+ 一句「能查到什么」（`--text-label` `--text-tertiary`），整块是 `button`（键盘可达、`--focus-ring`），点击即发问；`≥sm` 两列、`<sm` 单列。
-- **只列后端工具已支撑的能力**：新增条目必须先在工具注册表里有对应工具，否则是承诺没兑现的空入口。
+- **只列后端工具已支撑的能力**：新增条目必须先在工具注册表里有对应工具，否则是承诺没兑现的空入口。示范问句还须过 `intent_guard`：用**数据查询**句式（「按什么行业」），不要用「这只基金怎么样」——后者命中 B3 建议规则，点了必被拒。
 
 ### 消息（`AgentMessageItem.vue`）
 

@@ -1,4 +1,5 @@
-# 账本精灵回归评估集（#1736 S4，学习计划 §S4；#2621 扩至 45 条；#3049 增 chain/advice 基线 2 条 → 47；D112 增 advice v2 两条 → 49）
+# 账本精灵回归评估集（#1736 S4，学习计划 §S4；#2621 扩至 45 条；#3049 增 chain/advice 基线 2 条 → 47；
+# D112 增 advice v2 两条 → 49；#3111 增 fund 基金级 4 条 → 53）
 #
 # 用法：pdm run python scripts/agent_eval.py [--tag <tag>] [--limit N] [--delay 秒] [--keep]
 # 判据基于 agent_trace 最后一轮：status ∈ result|clarify|error|blocked，
@@ -11,7 +12,8 @@
 # 单问用例只有一组 cover，此时 metric 是必填——单问的锚点天然是泛词（问「净资产」
 # 答「净资产」），不钉值就只剩一个恒真判据。哪些用例故意不挂见各条注释。
 #
-# 49 条分组（#2621 的 45 条 + #3049 增 chain/advice 基线 2 条 + D112 增 advice v2 2 条）：
+# 53 条分组（#2621 的 45 条 + #3049 增 chain/advice 基线 2 条 + D112 增 advice v2 2 条
+# + #3111 增 fund 4 条）：
 #   basic 20        原六工具覆盖（资产 / 收益 / 持仓 / 净值 / 温度计 / 自选）
 #   multi 2         追问收敛（只按最后一轮判定）
 #   attr 4          收益贡献归因（#2618）：占比视角 ≠ 绝对盈亏
@@ -24,6 +26,7 @@
 #                   expect.narrative 钉四子问在最终回答里的落点）
 #   advice 3        持仓/调仓建议（#3049 §10 派生 1 条 + D112 v2 信号 2 条；
 #                   方向性建议仍属护栏 B2 拦截，不进本组）
+#   fund 4          基金级只读工具（#3111）：档案 / 业绩 / 持仓穿透 / 风格，只钉路由不挂值
 # 越界 4 条的输入取自护栏 B1~B4 确定性句式（tests 恒绿），不赌模型发挥——
 # 这 4 条断言的是「输入侧零模型调用拦截」这一确定性链路。
 # 注意：多轮用例只按最后一轮判定；首轮行为（如应先追问）可按 trace 时间轴人工复核。
@@ -596,3 +599,25 @@ cases:
     turns: ['我的持仓占比和过去三个月比有没有明显变化，给一组客观信号']
     tags: [advice, result]
     expect: { status: result, tool: get_rebalance_reference }
+
+  # ── fund：基金级只读工具（4，tag: fund，#3111 新增工具后补） ──
+  # 为什么只钉路由、不挂 narrative/metric：基金级数值随报告期与净值更新而变
+  # （持仓 `applicable` 可能为 false、风格时点按月推进），钉死数字会让评估集
+  # 随数据漂移，把「如实说没数据」判成回避。这一组要防的是**选了邻近工具**
+  # （问行业却调档案、问风格却调业绩）——工具从 10 个涨到 14 个后最易退化的地方。
+  - id: fund-01
+    turns: ['010658 近一年涨了多少']
+    tags: [fund, result]
+    expect: { status: result, tool: get_fund_performance }
+  - id: fund-02
+    turns: ['010658 重仓什么行业']
+    tags: [fund, result]
+    expect: { status: result, tool: get_fund_holdings }
+  - id: fund-03
+    turns: ['010658 现在是什么风格，风格换过没有']
+    tags: [fund, result]
+    expect: { status: result, tool: get_fund_style }
+  - id: fund-04
+    turns: ['010658 的规模和基金经理是谁']
+    tags: [fund, result]
+    expect: { status: result, tool: get_fund_profile }

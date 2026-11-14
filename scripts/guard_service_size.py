@@ -246,7 +246,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/fund_nav_on_demand.py": {'lines': 159, 'max_func': 49, 'max_cc': 13},
     "backend/app/services/fund_peer_rank.py": {'lines': 119, 'max_func': 42, 'max_cc': 14},
     "backend/app/services/fund_performance.py": {'lines': 551, 'max_func': 110, 'max_cc': 21},
-    "backend/app/services/fund_profile.py": {'lines': 172, 'max_func': 69, 'max_cc': 14},
+    "backend/app/services/fund_profile.py": {'lines': 171, 'max_func': 69, 'max_cc': 14},
     "backend/app/services/fund_risk_metrics.py": {'lines': 795, 'max_func': 130, 'max_cc': 25},
     "backend/app/services/fund_risk_ranking.py": {'lines': 359, 'max_func': 84, 'max_cc': 16},
     "backend/app/services/fund_service.py": {'lines': 1058, 'max_func': 125, 'max_cc': 22},
