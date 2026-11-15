@@ -15,17 +15,18 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <section class="auth-guide">
+  <section class="auth-guide" data-region="explore-auth-guide">
     <div class="auth-guide__inner">
-      <div class="auth-guide__text">
-        <div class="auth-guide__title">已登录，可前往自选页管理资产</div>
-        <div class="auth-guide__desc">
-          探市页仅用于浏览市场数据；分组、标签、AI
-          批量导入等功能已迁移至自选页统一管理。
-        </div>
-      </div>
+      <!-- 标题、说明、按钮原本把「去自选页」说了三遍：标题「可前往自选页管理资产」、
+           说明「功能已迁移至自选页」、按钮「前往自选页」。收敛成一行具体的功能清单，
+           按钮只承担动作；探市只做浏览由页面本身（无编辑入口）自明，不必再写一遍。 -->
+      <div class="auth-guide__title">分组、标签、AI 导入已迁至自选页</div>
       <div class="auth-guide__actions">
-        <el-button type="primary" @click="emit('watchlist')">
+        <el-button
+          type="primary"
+          data-action="go-watchlist"
+          @click="emit('watchlist')"
+        >
           前往自选页
           <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
         </el-button>
@@ -34,6 +35,7 @@ const emit = defineEmits<{
           class="auth-guide__close"
           title="不再提示"
           aria-label="不再提示"
+          data-action="dismiss"
           @click="emit('dismiss')"
         >
           <IconifyIconOffline icon="ep:close" />
@@ -68,14 +70,6 @@ const emit = defineEmits<{
     font-size: var(--text-body);
     font-weight: 600;
     color: var(--text-primary);
-  }
-
-  &__desc {
-    max-width: 860px;
-    margin-top: 4px;
-    font-size: var(--text-label);
-    line-height: 1.6;
-    color: var(--text-secondary);
   }
 
   &__actions {

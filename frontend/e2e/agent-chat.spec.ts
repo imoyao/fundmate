@@ -108,8 +108,14 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
       page.locator(".sidebar-container").getByText("账本精灵", { exact: true })
     ).toBeVisible();
 
-    // 空态：示例问题（功能型空态）
-    await expect(page.getByText("试着问一句")).toBeVisible();
+    // 空态：能力目录（用语义锚定位，别靠「试着问一句」这类会被清理的标语）
+    await expect(
+      page.locator('[data-region="agent-capabilities"]')
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-action="ask-capability"]').first()
+    ).toBeVisible();
+    await expect(page.getByText("试着问一句")).toHaveCount(0);
 
     // 第一轮 → clarify：追问 fund_codes
     await page
@@ -139,7 +145,9 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
 
     // 新对话清空回空态
     await page.getByRole("button", { name: "新对话" }).click();
-    await expect(page.getByText("试着问一句")).toBeVisible();
+    await expect(
+      page.locator('[data-region="agent-capabilities"]')
+    ).toBeVisible();
     await expect(page.getByText("已超出分析轮次")).toHaveCount(0);
   });
 

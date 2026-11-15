@@ -10,7 +10,7 @@
     屏上把内容顶到输入区下面（实测第三条示例被 dock 压住）。改自然流 + 上下留白。
 -->
 <template>
-  <div class="chat-hero">
+  <div class="chat-hero" data-region="agent-capabilities">
     <div class="chat-hero__intro">
       <h2 class="chat-hero__title">问一句，我把账户里的事实查给你</h2>
       <p class="chat-hero__desc">
@@ -18,8 +18,8 @@
       </p>
     </div>
 
-    <p class="chat-hero__label">试着问一句</p>
-
+    <!-- 能力按钮本身就是可点的问句，原先「试着问一句」只是把标题里的「问一句」
+         再说一遍；删掉后目录与标题直接相邻，靠间距分组即可，不丢信息。 -->
     <div class="chat-hero__grid">
       <button
         v-for="cap in capabilities"
@@ -27,6 +27,7 @@
         type="button"
         class="chat-cap"
         :data-cap="cap.key"
+        data-action="ask-capability"
         @click="emit('ask', cap.ask)"
       >
         <el-icon class="chat-cap__icon">
@@ -85,12 +86,6 @@ const emit = defineEmits<{
   font-size: var(--text-small);
   line-height: 1.6;
   color: var(--text-secondary);
-}
-
-.chat-hero__label {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
 }
 
 /* 目录：≥sm 两列（一行两项，扫读快、不做成「设置菜单」），窄屏一列 */
