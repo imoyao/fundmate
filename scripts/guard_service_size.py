@@ -146,6 +146,13 @@ NEW_FILE_LIMITS = {
 # 665→586（max_func 152 / max_cc 48 未变）。审计本身只加了一个 4 行 facade，顶破基线的是
 # 「活期+ 换绑」那 97 行——它与审计无关，只是同行者，故原样搬到 `ledger_fund_swap.py`
 # （116/92/4，走 NEW_FILE_LIMITS）。基线向下收紧，不是放宽阈值。
+# 2026-11-15 「无锚点差异」单列 no_anchor（#3125）按 `--report` **收紧**一项：
+# `reconciliation_service.py` 388→293、max_func 120→113、max_cc 15→13。域 B 只是把
+# 「有锚点才算数量差异」写进判据（净增 4 行就顶破 max_func），故按既定路径把整条
+# 「就地裁决」链路下沉到新文件 `reconciliation_decision.py`（185/73/9，走
+# NEW_FILE_LIMITS），主文件只留 `apply_decision` 转发壳；「写锚点」动作另起
+# `reconciliation_anchor.py`（107/54/7）。裁决与「只读比对」本就是两件职责，
+# 拆开后各自只有一条。基线向下收紧，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -401,7 +408,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/product_identity.py": {'lines': 267, 'max_func': 116, 'max_cc': 29},
     "backend/app/services/product_pro_status.py": {'lines': 84, 'max_func': 35, 'max_cc': 5},
     "backend/app/services/product_trend.py": {'lines': 386, 'max_func': 116, 'max_cc': 15},
-    "backend/app/services/reconciliation_service.py": {'lines': 388, 'max_func': 120, 'max_cc': 15},
+    "backend/app/services/reconciliation_service.py": {'lines': 293, 'max_func': 113, 'max_cc': 13},
     "backend/app/services/recurring_service.py": {'lines': 289, 'max_func': 33, 'max_cc': 12},
     "backend/app/services/related_symbols.py": {'lines': 141, 'max_func': 57, 'max_cc': 7},
     # 2026-11-09 全周期复盘 +44 行（INCEPTION 哨兵 + first_investment_date 及口径注释），
