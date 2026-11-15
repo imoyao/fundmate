@@ -45,7 +45,7 @@ def ledger2(db):
     return lg
 
 
-def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_status='active'):
+def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_status='active', asset_type=None):
     """按「份」建现存持仓。cleared 行必须 quantity=0（模型 CHECK 约束）。"""
     qty = Money.shares_to_min_unit(0 if ownership_status == 'cleared' else shares)
     p = Position(
@@ -59,6 +59,7 @@ def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_statu
         avg_price=Money.yuan_to_price_units(1.0),
         current_price=Money.yuan_to_price_units(1.0),
         ownership_status=ownership_status,
+        asset_type=asset_type,
     )
     db.add(p)
     db.flush()
@@ -808,3 +809,28 @@ def test_enrich_transactions_still_allows_single_product_batch(db, ledger):
 
     assert res['updated'] == 2
     assert t1.symbol == t2.symbol == 'SZ127078'
+
+
+def test_enrich_candidates_match_equivalent_symbol_forms(db, ledger):
+    """补全后的候选按「同一标的」匹配：裸码补进带前缀的持仓时要列出来。
+
+    真库 2026-08-29 的导入写的是裸 6 位码、持仓行带 `SZ` 前缀；按字面量比时补全完
+    候选仍为空，用户会以为「补全没生效」，而重建侧又指回「请用回补关联」。
+    """
+    pos = _mk_pos(db, ledger.id, 'SZ127078', 1.0, asset_type='bond')
+    t = _mk_txn(db, ledger.id, symbol='', position_name='优彩转债', asset_type='bond')
+
+    data = svc.preview_enrichment(db, _FAMILY, [t.id], symbol='127078', trade_date=_DATE_STR)
+
+    assert [c['id'] for c in data['candidate_positions']] == [pos.id]
+
+
+def test_enrich_candidates_exclude_other_venue_same_code(db, ledger):
+    """反向对照：同一裸码、场所不同（场外基金 vs 场内股票）不能当候选。"""
+    other = _mk_pos(db, ledger.id, 'SZ000001', 1.0, asset_type='stock')
+    t = _mk_txn(db, ledger.id, symbol='', position_name='华夏成长', asset_type='fund')
+
+    data = svc.preview_enrichment(db, _FAMILY, [t.id], symbol='000001', trade_date=_DATE_STR)
+
+    assert data['candidate_positions'] == []
+    assert other.id not in [c['id'] for c in data['candidate_positions']]

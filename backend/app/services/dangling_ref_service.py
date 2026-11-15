@@ -34,8 +34,7 @@
   ``live_position.quantity``、``candidates[].quantity``、``target_position.quantity``
   **一律是「份」**（已 /10000）；``transactions[].amount`` **一律是「元」**（分 /100）。
   内部计算仍用最小单位整数，只在序列化边界换算，避免浮点误差进入求和。
-- **净额**：Σ(buy/deposit/split 的 quantity) − Σ(sell/withdraw 的 quantity)，再 /10000。
-  其余 txn_type（分红/兑付/扣税等）不进净额；amount 不参与净额。
+- **净额**：Σ(buy/deposit/split) − Σ(sell/withdraw) 的 quantity 再 /10000；分红/兑付/扣税等不进净额，amount 不参与。
 - **批次**：全部悬空流水按 created_at 排序，相邻间隔 **> 600 秒**切新批；``batch_label`` 取该批首条 created_at 的 ``YYYY-MM-DD HH:MM``。created_at 为空的流水
   不参与间隔判定、附到当前批（排序时排最前），label 降级为 '未知时间'。
 - **候选与可否回补（判据只在后端一处）**：``candidates`` 只列「同账本且同标的」的
@@ -78,6 +77,7 @@ from app.services.dangling_identity import (
     name_symbol_index,
     position_candidates,
     require_single_identity,
+    same_identity,
 )
 
 #: 净额方向：进入持仓 / 离开持仓（口径由契约给定，与 audit_orphan_batches 的 BUY/SELL 略不同：
@@ -232,7 +232,7 @@ def _assess_safety(txns: list[Transaction], target: Position):
         warnings.append(
             f'净额 {net_units} 份与目标持仓现存份额 {quantity_before} 份差异超过 {NET_MISMATCH_TOLERANCE}（net_mismatch）'
         )
-    bad_symbol = [t.id for t in txns if (t.symbol or '') != (target.symbol or '')]
+    bad_symbol = [t.id for t in txns if not same_identity(t.symbol, t.asset_type, target.symbol, target.asset_type)]
     if bad_symbol:
         safe = False
         warnings.append(f'流水 {bad_symbol} 的 symbol 与目标持仓 {target.symbol!r} 不一致')
@@ -320,7 +320,7 @@ def _build_group(
     """组装单个分组；判据来自 ``_group_*``。``key`` 供核对差异的覆盖判定（ledger|symbol），
     ``group_id`` 才是唯一键——symbol 为空时同一账本按标的名拆成多组，key 会重复。
     """
-    cands, live = position_candidates(ledger_positions, symbol)
+    cands, live = position_candidates(ledger_positions, symbol, txns[0].asset_type)
     identity = identity_count(txns, name_index)
     fixable, reason = block_reason(symbol, cands, identity)
     net_units = _shares(_net_min_units(txns))
@@ -476,7 +476,7 @@ def reattach_transactions(
     txns = _load_dangling_by_ids(db, family_id, ids)
     target = _load_target(db, family_id, target_position_id)
 
-    # 约束 3 / 3b：ledger 一致且非空；symbol 非空且与目标持仓完全一致。
+    # 约束 3 / 3b：ledger 一致且非空；symbol 非空且与目标持仓是同一标的（写法归一 + 场所相容）。
     # 真库 295 条悬空流水缺 symbol，只校验 ledger 会让用户把 A 标的流水挂到 B 标的上。
     for t in txns:
         if t.ledger_id is None:
@@ -487,9 +487,9 @@ def reattach_transactions(
             )
         if not t.symbol:
             raise ValueError(f'流水 {t.id} 缺标的代码，无法判定归属；请先补全 symbol 再回补')
-        if t.symbol != target.symbol:
+        if not same_identity(t.symbol, t.asset_type, target.symbol, target.asset_type):
             raise ValueError(
-                f'流水 {t.id} 的 symbol={t.symbol!r} 与目标持仓 {target.symbol!r} 不一致，拒绝挂到别的标的上'
+                f'流水 {t.id} 的 symbol={t.symbol!r} 与目标持仓 {target.symbol!r} 不是同一标的，拒绝挂到别的标的上'
             )
 
     # 约束 3c：symbol 一致 ≠ 同一标的（真库 293 条、114 个标的同被写成 127078）

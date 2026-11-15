@@ -52,7 +52,7 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.models import Transaction
-from app.services.dangling_identity import require_single_identity as _require_single_identity
+from app.services.dangling_identity import matching_positions, require_single_identity, symbol_forms
 from app.services.dangling_ref_service import (
     _load_dangling_by_ids,
     _normalize_ids,
@@ -187,10 +187,10 @@ def _public_change(item: dict) -> dict:
 
 
 def _candidate_positions(db: Session, family_id: int, txns, symbol) -> list[dict]:
-    """补全后可能可挂回的现存持仓：同 family + 同账本 + 同新标的，最多 20 条。
+    """补全后可能可挂回的现存持仓：同 family + 同账本 + 同一标的，最多 20 条。
 
-    空 symbol 或组内没有 ledger_id 时不给候选（回补会硬校验 ledger 一致，
-    列出别的账本等于诱导挂错）。quantity 换算成「份」。
+    空 symbol 或组内没有 ledger_id 时不给候选（回补会硬校验 ledger 一致，列出别的账本
+    等于诱导挂错）。标的比对走 ``same_identity``：``127078`` 与 ``SZ127078`` 是同一只。
     """
     ledger_ids = {t.ledger_id for t in txns if t.ledger_id is not None}
     if symbol is None or not ledger_ids:
@@ -199,7 +199,7 @@ def _candidate_positions(db: Session, family_id: int, txns, symbol) -> list[dict
         db.query(Position)
         .filter(
             Position.family_id == family_id,
-            Position.symbol == symbol,
+            Position.symbol.in_(sorted(symbol_forms(symbol))),
             Position.ledger_id.in_(ledger_ids),
         )
         .order_by(Position.id)
@@ -214,7 +214,7 @@ def _candidate_positions(db: Session, family_id: int, txns, symbol) -> list[dict
             'quantity': _shares(p.quantity),
             'ownership_status': p.ownership_status,
         }
-        for p in rows
+        for p in matching_positions(rows, symbol, txns[0].asset_type)
     ]
 
 
@@ -243,7 +243,7 @@ def preview_enrichment(db: Session, family_id: int, transaction_ids, symbol=None
     new_date = _normalize_trade_date(trade_date)
     _require_field(new_symbol, new_date)
     txns = _load_dangling_by_ids(db, family_id, ids)
-    _require_single_identity(db, family_id, txns, '补全', new_symbol)
+    require_single_identity(db, family_id, txns, '补全', new_symbol)
     plan = _plan_enrichment(txns, new_symbol, new_date)
     cands = _candidate_positions(db, family_id, txns, new_symbol)
     return {
@@ -280,7 +280,7 @@ def enrich_transactions(
     new_date = _normalize_trade_date(trade_date)
     _require_field(new_symbol, new_date)
     txns = _load_dangling_by_ids(db, family_id, ids)
-    _require_single_identity(db, family_id, txns, '补全', new_symbol)
+    require_single_identity(db, family_id, txns, '补全', new_symbol)
     plan = _plan_enrichment(txns, new_symbol, new_date)
     to_change = [p for p in plan if p['_fill_symbol'] or p['_fill_date']]
     if not to_change:
