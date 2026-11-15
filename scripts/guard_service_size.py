@@ -142,6 +142,10 @@ NEW_FILE_LIMITS = {
 # 刷新；顶破基线的是随之带进来的判据，故按正当路径把「理论持仓口径」6 个函数整体
 # 下沉到 `reconciliation_theory.py`（91/22/9）——补录闸门要判「这笔会不会与既有流水
 # 重复」，必须与本体用同一份折算，抽成公共模块正好让两侧同源。基线向下收紧。
+# 2026-11-15 交易编辑审计按 `--report` **收紧**一项：`ledger_write_service.py`
+# 665→586（max_func 152 / max_cc 48 未变）。审计本身只加了一个 4 行 facade，顶破基线的是
+# 「活期+ 换绑」那 97 行——它与审计无关，只是同行者，故原样搬到 `ledger_fund_swap.py`
+# （116/92/4，走 NEW_FILE_LIMITS）。基线向下收紧，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -308,7 +312,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 一致性守卫」抽到 services/ledger_category_guard.py（新文件走 NEW_FILE_LIMITS），
     # update_ledger 由 4 行分支收成 1 行调用 ⇒ 664→663 / 154→152 / 49→48。
     # 按 `--report` 实测回写，三个维度都只减不增。
-    "backend/app/services/ledger_write_service.py": {'lines': 665, 'max_func': 152, 'max_cc': 48},
+    "backend/app/services/ledger_write_service.py": {'lines': 586, 'max_func': 152, 'max_cc': 48},
     "backend/app/services/login_identifier.py": {'lines': 62, 'max_func': 38, 'max_cc': 10},
     "backend/app/services/manager_code.py": {'lines': 68, 'max_func': 15, 'max_cc': 3},
     "backend/app/services/manager_holdings.py": {'lines': 362, 'max_func': 98, 'max_cc': 30},
