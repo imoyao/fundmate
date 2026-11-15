@@ -30,7 +30,6 @@
         aria-label="行业视图"
       />
     </div>
-    <p class="panel-view-hint">{{ viewHint }}</p>
     <!-- 诚实降级：主口径没有「个股→行业」映射时结构图必然缺一块，
          把后端给的成因原样透出，避免用户把缺口读成计算缺陷 -->
     <SoftBanner
@@ -86,16 +85,42 @@ const VIEW_OPTIONS = [
 
 const view = ref<"direct" | "penetrated">("penetrated");
 
+/**
+ * 条形列表最多显示几个行业，其余折成一行「其余 N 个行业」。
+ *
+ * 2026-11-15：实测证券账户 19 个门类里 12 个是 0.1~0.4%，条形短到看不见，
+ * 却占了整整一屏。行业分布要回答的是「钱主要压在哪」，长尾合并成一行不丢信息
+ * （合计占比照算），也不再用十几个 0.1% 把前三个真答案稀释掉。
+ */
+const MAX_INDUSTRIES = 6;
+
 /** 行业行：条形以「已穿透」为分母，右侧数值仍按总市值占比（两个分母不同，别混） */
-const penetratedRows = computed(() =>
-  props.data.industries.map(row => ({
+const penetratedRows = computed(() => {
+  const all = props.data.industries;
+  const rows = all.slice(0, MAX_INDUSTRIES).map(row => ({
     key: row.code,
     name: row.name,
     title: `${row.name}（${row.code}）· ${row.fund_count} 只基金持有`,
     width: barWidth(row.ratio_of_penetrated),
     value: percent(row.ratio_of_total)
-  }))
-);
+  }));
+  const tail = all.slice(MAX_INDUSTRIES);
+  if (tail.length) {
+    const restTotal = tail.reduce((sum, row) => sum + row.ratio_of_total, 0);
+    const restPenetrated = tail.reduce(
+      (sum, row) => sum + row.ratio_of_penetrated,
+      0
+    );
+    rows.push({
+      key: "__rest__",
+      name: `其余 ${tail.length} 个行业`,
+      title: `合计占总市值 ${percent(restTotal)}，逐项均小于前列`,
+      width: barWidth(restPenetrated),
+      value: percent(restTotal)
+    });
+  }
+  return rows;
+});
 
 /**
  * 持仓结构（#2617 原「直接持有」口径）的环形图数据：
@@ -150,12 +175,6 @@ const structureData = computed(() => {
   }
   return rows;
 });
-
-const viewHint = computed(() =>
-  view.value === "direct"
-    ? "持仓结构：基金整块显示为「基金」不拆底层——这张图回答「我自己直接买了什么」。"
-    : "穿透持仓：基金按底层持仓并入行业——这张图回答「我的钱最终押在哪些行业」。"
-);
 
 /** 持仓结构缺映射时的成因提示；无缺口或不在该视图时为空 */
 const mappingHint = computed(() => {

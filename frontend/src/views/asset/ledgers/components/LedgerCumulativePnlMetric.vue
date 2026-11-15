@@ -17,12 +17,16 @@ defineProps<{
 
 <template>
   <div v-if="value != null" class="flex flex-col">
-    <span class="text-xs mb-1" :style="{ color: 'var(--text-tertiary-ink)' }"
+    <!-- 口径（「持仓浮盈 + 已实现 − 买入费」）改走 title：它原来单独占一行，
+         把这一格撑成三行、和旁边两行格高低不齐；悬浮/聚焦仍读得到。 -->
+    <span
+      class="text-xs mb-1"
+      :style="{ color: 'var(--text-tertiary-ink)' }"
+      title="持仓浮盈 + 已实现 − 买入费"
       >累计盈亏</span
     >
-    <MoneyDisplay :value="value" size="lg" />
-    <span class="text-xs mt-1" :style="{ color: 'var(--text-tertiary-ink)' }"
-      >持仓浮盈 + 已实现 − 买入费</span
-    >
+    <!-- 字号与同排其余指标统一为 md(16px)：此前是 lg(24px)，同一行里
+         「累计盈亏」比其他数字大一档，基线也对不齐（2026-11-15 截图实测）。 -->
+    <MoneyDisplay :value="value" size="md" />
   </div>
 </template>

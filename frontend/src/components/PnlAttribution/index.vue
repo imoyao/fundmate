@@ -90,6 +90,11 @@
         </section>
       </div>
 
+      <!-- 持平组的交代：0 贡献不列表，但必须说清「还有几个」才不丢账 -->
+      <p v-if="flatCount" class="pnl-attribution__flat">
+        另有 {{ flatCount }} 个持仓区间内没有盈亏（0.00），不计入贡献对比
+      </p>
+
       <!-- 无价降级：不进合计，折叠列出（卡面验收「依赖数据不足时诚实降级」） -->
       <details
         v-if="data && data.unpriced_positions.length"
@@ -193,7 +198,22 @@ const rows = computed(() =>
  * 原来是一条按 |pnl| 混排的长列表：赚的和亏的交替出现，用户得自己看符号，
  * 而且几十个持仓时这一块能占掉整屏。分组后两列并排，页高减半。
  */
-const groups = computed(() => splitByPnl(rows.value));
+const allGroups = computed(() => splitByPnl(rows.value));
+
+/**
+ * 「持平」组不进列表，只留一句计数（2026-11-15）。
+ *
+ * 贡献为 0 的行对「谁贡献了这段收益」没有增量信息：实测证券账户的持平组
+ * 是 4 行 `¥0.00 / 0.00%` + 四条空条，占掉整整一行版面，读到的仍是「它们没动」。
+ * 组的存在仍要交代（否则「N 个持仓怎么只列了 M 个」对不上账），故折成一行小字。
+ */
+const groups = computed(() =>
+  allGroups.value.filter(group => group.key !== "flat")
+);
+
+const flatCount = computed(
+  () => allGroups.value.find(group => group.key === "flat")?.rows.length ?? 0
+);
 
 /**
  * 贡献条分母取**全量行**（不是可见行）：
@@ -323,6 +343,12 @@ const sectionInfo = computed(() => sectionInfoFor(data.value));
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
+}
+
+.pnl-attribution__flat {
+  margin: 12px 0 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
 }
 
 .pnl-attribution__unpriced {

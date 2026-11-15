@@ -11,25 +11,22 @@
   显示 `—`；与「货基今日收益」是两套口径，并列展示但**不相加**，也不画 0。
 -->
 <template>
-  <div class="flex flex-col">
+  <!-- 没有当日口径就**整格不渲染**（2026-11-15）：原来画一个「—」占着格子，
+       让一行 7 格变成「6 个数 + 1 个破折号」，破折号比数字还显眼。
+       缺数据时少一格，比多一格灰噪点诚实——口径同 overviewMetrics.ts。 -->
+  <div v-if="data?.total_pnl != null" class="flex flex-col">
     <span class="text-xs mb-1" :style="{ color: 'var(--text-tertiary-ink)' }"
       >当日收益</span
     >
-    <span
-      class="text-lg font-semibold"
-      :style="{ color: 'var(--text-primary)' }"
-    >
-      <template v-if="data?.total_pnl != null">
-        <!-- 中性色：这一排已有多个涨跌色数字，再添一个会互相抢注意力 -->
-        <MoneyDisplay :value="data.total_pnl" size="md" :auto-color="false" />
-        <ValuationSourceBadge
-          v-if="data.status === 'estimated'"
-          :status="data.status"
-          size="sm"
-          tip="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
-        />
-      </template>
-      <template v-else>—</template>
+    <span class="flex items-center gap-1">
+      <!-- 中性色：这一排已有多个涨跌色数字，再添一个会互相抢注意力 -->
+      <MoneyDisplay :value="data.total_pnl" size="md" :auto-color="false" />
+      <ValuationSourceBadge
+        v-if="data.status === 'estimated'"
+        :status="data.status"
+        size="sm"
+        tip="当日价含基金收盘估值，官方净值公布后自动更新为确认值"
+      />
     </span>
   </div>
 </template>

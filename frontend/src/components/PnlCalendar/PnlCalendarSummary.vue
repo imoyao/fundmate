@@ -31,9 +31,11 @@
     >
       收益率 —（期初无持仓）
     </span>
-    <span class="pnl-calendar__summary-note">
-      口径：当日盈亏＝总盈亏变动，存取款不计入
-    </span>
+    <!-- 2026-11-15：原来这里常驻一句「口径：当日盈亏＝总盈亏变动，存取款不计入」。
+         它与标题行 ⓘ 的 `PnlCalendarCaliberTip` 第一条完全同义（后者还多解释了
+         「先有 1 万浮盈、再充 5 万」），两个载体并存只是把合计行拉长。
+         口径不删、只收进 ⓘ：所有容器（含 host-header 模式用 CaliberIcon）
+         都挂同一份 Tip，信息一处不丢。 -->
   </div>
 </template>
 
@@ -93,12 +95,6 @@ const rateUnavailableReason =
   color: var(--text-tertiary-ink);
 }
 
-.pnl-calendar__summary-note {
-  margin-left: auto;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
 /* 响应式：窄屏（弹窗 / 半宽容器）让合计行换行。
    断点走 _breakpoints.scss 单一来源（`bp.below("sm")` = < 640px），
    禁手写像素——guard_breakpoints.py 会拦。
@@ -106,11 +102,6 @@ const rateUnavailableReason =
 @include bp.below("sm") {
   .pnl-calendar__summary {
     flex-wrap: wrap;
-  }
-
-  .pnl-calendar__summary-note {
-    width: 100%;
-    margin-left: 0;
   }
 }
 </style>
