@@ -21,8 +21,8 @@ from app.core.money import Money
 from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.transactions.models import Transaction
 
-# 与 reconciliation_service 域 B 轧差共用同一份流水类型口径
-from app.services.reconciliation_service import _ADD_TYPES, _SELL_TYPES  # noqa: PLC2701
+# 与 reconciliation_service 域 B 轧差共用同一份流水类型口径（唯一真源已下沉到 theory 模块）
+from app.services.reconciliation_theory import _ADD_TYPES, _SELL_TYPES  # noqa: PLC2701
 
 
 def _group_txns_by_key(db: Session, family_id: int, ledger_id: int | None) -> dict[tuple, list]:

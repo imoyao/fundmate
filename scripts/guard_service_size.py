@@ -135,6 +135,13 @@ NEW_FILE_LIMITS = {
 # 新文件 `reconciliation_adjustment.py`（39/22/3，走 NEW_FILE_LIMITS），
 # 并把 `apply_decision` 的设计说明压缩进新模块 docstring，主文件净减 11 行。
 # 基线向下收紧，不是放宽阈值。
+#
+# 2026-11-15 对账可信度三处修复（域 C 陈旧卡 / 补录查重 / 悬空同标的闸门）按
+# `--report` **收紧**一项：`reconciliation_service.py` 442→388、max_func 121→120
+# （max_cc 15 未变）。修复本身只给 apply_decision 加一行闸门、给域 B 的 run 加两行
+# 刷新；顶破基线的是随之带进来的判据，故按正当路径把「理论持仓口径」6 个函数整体
+# 下沉到 `reconciliation_theory.py`（91/22/9）——补录闸门要判「这笔会不会与既有流水
+# 重复」，必须与本体用同一份折算，抽成公共模块正好让两侧同源。基线向下收紧。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -390,7 +397,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/product_identity.py": {'lines': 267, 'max_func': 116, 'max_cc': 29},
     "backend/app/services/product_pro_status.py": {'lines': 84, 'max_func': 35, 'max_cc': 5},
     "backend/app/services/product_trend.py": {'lines': 386, 'max_func': 116, 'max_cc': 15},
-    "backend/app/services/reconciliation_service.py": {'lines': 442, 'max_func': 121, 'max_cc': 15},
+    "backend/app/services/reconciliation_service.py": {'lines': 388, 'max_func': 120, 'max_cc': 15},
     "backend/app/services/recurring_service.py": {'lines': 289, 'max_func': 33, 'max_cc': 12},
     "backend/app/services/related_symbols.py": {'lines': 141, 'max_func': 57, 'max_cc': 7},
     # 2026-11-09 全周期复盘 +44 行（INCEPTION 哨兵 + first_investment_date 及口径注释），

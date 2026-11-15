@@ -29,71 +29,15 @@ from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
 from app.services.position_write_support import _find_existing_position
 from app.services.reconciliation_adjustment import recompute_linked_discrepancy
+from app.services.reconciliation_integrity import assert_supplement_is_new, refresh_domain_c_orphans
+from app.services.reconciliation_theory import find_holding as _find_holding
+from app.services.reconciliation_theory import group_by_business_key
+from app.services.reconciliation_theory import theoretical_qty as _theoretical_qty
 
 # 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致：buy/deposit/split 增、sell/withdraw 减；
 # 分红/税费等现金事件 quantity=0 不影响份额，未知非零份额类型在快照一致性计算中会告警，避免静默漏算）
-_BUY_TYPES = ('buy', 'deposit')
-_SELL_TYPES = ('sell', 'withdraw')
-_ADD_TYPES = ('buy', 'deposit', 'split')
-
 DOMAIN_B = 'B'
 DOMAIN_C = 'C'
-
-
-def _txn_type(t) -> str:
-    """兼容 Transaction 对象与 dict 两种流水表示。"""
-    return t.txn_type if not isinstance(t, dict) else t['txn_type']
-
-
-def _txn_quantity(t) -> int:
-    """兼容 Transaction 对象与 dict 两种流水表示。"""
-    return t.quantity if not isinstance(t, dict) else t['quantity']
-
-
-def _txn_net_quantity(txns) -> int:
-    """从流水计算净份额（最小单位）：Σ买入/存入/送股 − Σ卖出/取出。"""
-    buy_qty = sum(_txn_quantity(t) for t in txns if _txn_type(t) in _ADD_TYPES)
-    sell_qty = sum(_txn_quantity(t) for t in txns if _txn_type(t) in _SELL_TYPES)
-    return buy_qty - sell_qty
-
-
-def _txn_confirm_date(t):
-    return t.confirm_date if not isinstance(t, dict) else t.get('confirm_date')
-
-
-def _theoretical_qty(txns, position) -> int:
-    """锚点口径的理论持仓（**快照基线 + 快照日之后的流水净额**）。
-
-    ## 为什么不能再用「全量流水净额」
-
-    快照是独立绝对值，不是流水的推导结果。加入锚点后
-    `positions.quantity = snapshot_quantity + Σ(confirm_date > snapshot_date)`，
-    若这里仍拿全量流水去比，只要「快照值 ≠ 快照前流水净额」（有分红、有漏录、
-    有手续费尾差都会发生），就会**恒报数量差异**——修复上线即制造一批假红。
-
-    ## 无锚点份额时退回旧口径
-
-    迁移只回填 `snapshot_date`、`snapshot_quantity` 留空（历史份额已丢失，盲猜会
-    改坏另一半账户）。这类持仓退回「全量流水净额」，与修复前行为一致，不制造新红；
-    待修复工具写入锚点后自动切换到锚点口径。
-    """
-    if position is not None and position.snapshot_quantity is not None and position.snapshot_date is not None:
-        total = int(position.snapshot_quantity)
-        for t in txns:
-            d = _txn_confirm_date(t)
-            if d is None or d <= position.snapshot_date:
-                continue
-            if _txn_type(t) in _ADD_TYPES:
-                total += _txn_quantity(t)
-            elif _txn_type(t) in _SELL_TYPES:
-                total -= _txn_quantity(t)
-        return total
-    return _txn_net_quantity(txns)
-
-
-def _find_holding(txns):
-    """从流水推断理论持仓是否存在：净份额 > 0 即存在（对齐孤儿检测）。"""
-    return _txn_net_quantity(txns) > 0
 
 
 def run_domain_b_reconciliation(db: Session, family_id: int) -> tuple[ReconciliationRun, bool]:
@@ -138,14 +82,7 @@ def run_reconciliation(
         .all()
     )  # yield_per 分批拉取，避免家庭流水量大时一次性 .all() 撑爆内存（AI review #5）
     # 按业务键聚合流水（confirm_date 供锚点口径过滤「快照日之前」的流水）
-    txn_by_key: dict[tuple, list] = {}
-    for ledger_id, symbol, txn_type, quantity, confirm_date in rows:
-        if ledger_id is None or not symbol:
-            continue
-        key = (ledger_id, symbol)
-        txn_by_key.setdefault(key, []).append(
-            {'txn_type': txn_type, 'quantity': quantity or 0, 'confirm_date': confirm_date}
-        )
+    txn_by_key = group_by_business_key(rows)
 
     # 2) 当前持仓 map：业务键 → quantity
     positions = (
@@ -159,7 +96,8 @@ def run_reconciliation(
         pos_by_key[(p.ledger_id, p.symbol)] = p
 
     summary = {'pending': 0, 'cleared': 0, 'ignored': 0, 'orphan': 0}
-    seen_keys: set[tuple] = set()  # (ledger_id, symbol, disc_type)：与 upsert 身份键对齐
+    seen_keys: set[tuple] = set()
+    orphan_qty: dict[tuple, int] = {}  # (ledger_id, symbol, disc_type)：与 upsert 身份键对齐
 
     # 3) 对每个「有流水」的业务键做比对
     for key, txns in txn_by_key.items():
@@ -189,6 +127,7 @@ def run_reconciliation(
             )
             summary['orphan'] += 1
             seen_keys.add((*key, 'orphan'))
+            orphan_qty[key] = theoretical_qty
             continue
 
         # 域 C：只做孤儿检测，不做数量比对（§6.2；补录差异留 P2 工作台）
@@ -217,6 +156,10 @@ def run_reconciliation(
     #    必须按本次 run 的域清理：否则域 C（导入后自动触发）会把域 B 的待裁决差异误置 cleared，
     #    同时域 C 自身的陈旧差异永远清不掉。
     _clear_stale_discrepancies(db, family_id, run.id, seen_keys, domain, summary)
+    if domain == DOMAIN_B:
+        # 域 C 的孤儿卡只在导入时重算（见 reconciliation_integrity 模块 docstring），
+        # 数据修好之后卡片会一直停在导入那一刻 —— 域 B 的覆盖范围是它的超集，同源刷新。
+        refresh_domain_c_orphans(db, family_id, run.id, orphan_qty, summary)
 
     summary_json = json.dumps(summary)
     run.summary_json = summary_json
@@ -407,6 +350,9 @@ def apply_decision(
     else:
         # 增量型：走交易处理汇点（写 Transaction + 更新 Position）
         op_type = data.get('op_type', 'buy')
+        # 补录是「修差异」，不是「记账」：既有的同笔流水、同标的缺归属流水都必须先处置，
+        # 否则差异会被重复录入「轧平」成假修复（reconciliation_integrity 模块 docstring）。
+        assert_supplement_is_new(db, family_id, data)
         if op_type in ('sell', 'withdraw'):
             position = PositionService.process_sell_or_withdraw(db, _resolve_sell_position_id(db, family_id, data))
         else:
