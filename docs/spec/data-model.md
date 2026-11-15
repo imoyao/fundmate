@@ -482,7 +482,8 @@ GICS 板块（`gics`，两位数字）。两套体系语义不重叠（GICS 的�
 - **已实现含在水平值内**（`level = 市值 − 成本 + 累计已实现`，`transactions.realized_pnl` 单位为分）：
   区间内部分清仓的品种不丢失贡献。
 - **响应**（`ApiResponse` 信封）：`total_pnl`（元；整窗无可算日 = **null** 不造 0——0 会被读成
-  「没赚没赔」）、`positions[]`（pnl + pct，`|pnl|` 降序；合计为 0 时 pct = null 不是 0%）、
+  「没赚没赔」）、`positions[]`（pnl + pct，`|pnl|` 降序；**pct = pnl ÷ |区间合计| × 100**，
+  符号恒随 pnl、不随合计方向翻转；合计为 0 时 pct = null 不是 0%）、
   `categories[]`（asset_type 聚合）、`unpriced_positions[]`（整窗无价，**不进合计**，前端折叠提示）、
   `has_any_computable`。
 - **组合口径**与 `portfolio_service.build_portfolio_holdings` 一致：持仓显式 `portfolio_id` 归属 +

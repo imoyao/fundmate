@@ -120,6 +120,59 @@ def test_双品种贡献_与引擎月合计自洽(db, make_position, make_transa
     assert attr['categories'][0]['positions_count'] == 2
 
 
+def test_合计为负时占比符号随盈亏方向(db, make_position, make_transaction):
+    """亏损区间：赚的行仍是正号、亏的行是负号（占比分母取 |合计|）。
+
+    旧口径是 `pnl / 合计`，合计为负时两行同时反号，界面就会读成
+    「+¥104.68 −1.32%」——金额说赚、占比说亏，正是用户报的那处怪。
+
+    数据：A 1000 份 1.0→1.1（+100）、B 2000 份 1.0→0.8（−400）⇒ 合计 −300。
+    占比 = pnl ÷ |−300|：A +33.33%、B −133.33%（Σ = −100%，与合计方向一致）。
+
+    变异探针：去掉分母的 `abs()` ⇒ 两行 pct 同时翻号，本用例的符号断言与
+    Σ = −100 断言同时转红。
+    """
+    d1, d2 = dt.date(2026, 1, 5), dt.date(2026, 1, 6)
+
+    pos_a = make_position(symbol='000113', name='小赚基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos_a.id,
+        ledger_id=pos_a.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000113',
+    )
+    _add_nav(db, '000113', d1, 1.0)
+    _add_nav(db, '000113', d2, 1.1)
+    pos_b = make_position(symbol='000114', name='大亏基金', quantity=2000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos_b.id,
+        ledger_id=pos_b.ledger_id,
+        txn_type='buy',
+        quantity=2000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000114',
+    )
+    _add_nav(db, '000114', d1, 1.0)
+    _add_nav(db, '000114', d2, 0.8)
+
+    attr = compute_range_attribution(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+
+    assert attr['total_pnl'] == pytest.approx(-300.0, abs=0.001)
+    pct = {r['symbol']: r['pct'] for r in attr['positions']}
+    assert pct['000113'] == pytest.approx(100 / 300 * 100, abs=0.01)
+    assert pct['000114'] == pytest.approx(-400 / 300 * 100, abs=0.01)
+    # 符号恒随 pnl（这就是用户看到的那处「正负号很奇怪」）
+    assert all((r['pct'] > 0) == (r['pnl'] > 0) for r in attr['positions'])
+    # 占比仍可加：Σ pct = 合计方向 × 100
+    assert sum(pct.values()) == pytest.approx(-100.0, abs=0.05)
+    # 大类行与品种行同口径
+    assert attr['categories'][0]['pct'] == pytest.approx(-100.0, abs=0.05)
+
+
 def test_建仓日按买入成本计入_期中建仓不漏计(db, make_position, make_transaction):
     """期中建仓（2026-11-04 D77）：建仓日收益 = 当日价 − **买入价**。
 

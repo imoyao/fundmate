@@ -211,12 +211,12 @@ def _tool_get_return_attribution(params: dict) -> dict:
 
     与 `list_position_pnl`（#1711）的分工——**明细 ≠ 归因**：
     前者是每行绝对盈亏，各行不可相加成组合总收益（分母不同）；本工具把区间
-    收益额拆到每个标的/账户，`contribution_pct` 各行相加 ≈ 100。
+    收益额拆到每个标的/账户，`contribution_pct` 各行相加 ≈ ±100（符号随合计方向）。
 
     口径（全部复用既有唯一算账，不在本层重写）：
     - 收益额来自 `pnl_calendar.compute_range_attribution`（#2135），与收益日历
       同一次 `_compute_days` 遍历 ⇒ `Σ items.pnl ≡ 区间合计` 由构造保证；
-    - 占比 = 该标的分位整数分 / 区间合计整数分 × 100（合计为 0 时 None，
+    - 占比 = 该标的分位整数分 / **|区间合计整数分|** × 100（符号随 pnl，合计为 0 时 None，
       「没赚没赔」的占比无意义，与 #2135 的 `pct` 同纪律）；
     - 缺省区间为**全期**（最早一笔流水的确认日起），显式传日期则按传入区间；
     - 整窗无价的持仓进 `unpriced_count`、不进合计（不造 0 明细）。
@@ -246,7 +246,7 @@ def _tool_get_return_attribution(params: dict) -> dict:
     total_cents = Money.yuan_to_cents(attr['total_pnl']) if attr['total_pnl'] is not None else None
 
     def _pct(pnl_cents: int) -> Optional[float]:
-        return round(pnl_cents / total_cents * 100, 2) if total_cents else None
+        return round(pnl_cents / abs(total_cents) * 100, 2) if total_cents else None
 
     if dimension == 'account':
         buckets: Dict[Optional[int], dict] = {}

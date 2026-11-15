@@ -2,7 +2,7 @@
 """#2618 收益贡献归因工具测试。
 
 锁定五件事：
-1. **占比可加**——正负贡献混合时 Σ 各行 `contribution_pct` ≈ 100；
+1. **占比可加**——正负贡献混合时 Σ 各行 `contribution_pct` ≈ ±100（符号随合计方向）；
 2. **明细 ≠ 归因**——收益额与 `compute_range_attribution`（#2135）逐位同源，
    本工具不另算一套账；
 3. **合计为 0 时占比 None**（不是 0%），与 #2135 同纪律；
@@ -68,6 +68,31 @@ def test_正负贡献混合_占比相加为100(db, make_position, make_transacti
     assert sum(it['contribution_pct'] for it in data['items']) == pytest.approx(100.0, abs=0.05)
     # 按贡献绝对值降序
     assert data['items'][0]['symbol'] == '000201'
+
+
+def test_亏损区间占比符号随贡献方向(db, make_position, make_transaction):
+    """合计为负时占比分母取 |合计|：赚的标的仍为正、亏的仍为负。
+
+    旧口径（分母取合计本身）会把两行同时反号，模型据此会说「赚的那只在负贡献」。
+    数据：A +100、B −400 ⇒ 合计 −300 ⇒ 33.33% / −133.33%，Σ = −100。
+    """
+    d1, d2 = dt.date(2026, 1, 5), dt.date(2026, 1, 6)
+    _seed_one(db, make_position, make_transaction, symbol='000210', name='小赚', navs=[(d1, 1.0), (d2, 1.1)])
+    _seed_one(
+        db, make_position, make_transaction, symbol='000211', name='大亏', navs=[(d1, 1.0), (d2, 0.8)], quantity=2000
+    )
+
+    r = ToolExecutor.run('get_return_attribution', {'start_date': '2026-01-05', 'end_date': '2026-01-06'})
+    assert r['status'] == 'success', r.get('msg')
+    data = r['data']
+
+    assert data['total_pnl'] == pytest.approx(-300.0, abs=0.001)
+    by_symbol = {it['symbol']: it for it in data['items']}
+    assert by_symbol['000210']['contribution_pct'] == pytest.approx(100 / 300 * 100, abs=0.01)
+    assert by_symbol['000211']['contribution_pct'] == pytest.approx(-400 / 300 * 100, abs=0.01)
+    # 符号恒随 pnl / 可加性：Σ = 合计方向 × 100
+    assert all((it['contribution_pct'] > 0) == (it['pnl'] > 0) for it in data['items'])
+    assert sum(it['contribution_pct'] for it in data['items']) == pytest.approx(-100.0, abs=0.05)
 
 
 def test_合计为零时占比为None而非0(db, make_position, make_transaction):

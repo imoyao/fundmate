@@ -204,4 +204,10 @@ describe("sectionInfoFor", () => {
     expect(text).not.toContain("undefined");
     expect(text).toContain("逐品种贡献之和与区间合计一致");
   });
+
+  it("交代行内百分比是占比、不是品种收益率", () => {
+    // 反号曾被读成「赚了但收益率是负的」：口径必须写在说明里，而不是靠用户猜
+    expect(sectionInfoFor(null)).toContain("不是该品种收益率");
+    expect(sectionInfoFor(payload())).toContain("占区间合计绝对值");
+  });
 });

@@ -2257,8 +2257,8 @@ def compute_range_attribution(
             {
                 **_attribution_meta(pos),
                 'pnl': round(Money.cents_to_yuan(pnl_cents), 2),
-                # 合计为 0（没赚没赔）时占比无意义 ⇒ None，不是 0%
-                'pct': round(pnl_cents / total_cents * 100, 2) if total_cents else None,
+                # 分母取 |合计|：符号只由 pnl 承担，合计为负时占比不反号；合计 0 ⇒ None
+                'pct': round(pnl_cents / abs(total_cents) * 100, 2) if total_cents else None,
             }
         )
         key = pos.asset_type or '未分类'
@@ -2272,7 +2272,7 @@ def compute_range_attribution(
             'asset_type': c['asset_type'],
             'pnl': round(Money.cents_to_yuan(c['pnl_cents']), 2),
             'positions_count': c['positions_count'],
-            'pct': round(c['pnl_cents'] / total_cents * 100, 2) if total_cents else None,
+            'pct': round(c['pnl_cents'] / abs(total_cents) * 100, 2) if total_cents else None,
         }
         for c in sorted(categories_map.values(), key=lambda c: abs(c['pnl_cents']), reverse=True)
     ]

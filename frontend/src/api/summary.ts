@@ -499,7 +499,14 @@ export type PnlAttributionRow = {
   ledger_id: number | null;
   /** 区间盈亏（元，已含已实现） */
   pnl: number;
-  /** 占区间合计的百分比；合计为 0（没赚没赔）时为 null（不是 0%） */
+  /**
+   * 占 **|区间合计|** 的百分比（= pnl ÷ |total_pnl| × 100）。
+   *
+   * 分母取绝对值，**符号恒随 `pnl`**：亏损区间里盈利行是正号、亏损行是负号，
+   * 不会出现「+¥104.68 −1.32%」这种金额与占比反号的读法（占比反号曾被误读成
+   * 「这笔是亏的」）。因此 `pct × |total_pnl|` = 该行 `pnl`。
+   * 合计为 0（没赚没赔）时为 null（不是 0%）。
+   */
   pct: number | null;
 };
 
@@ -508,6 +515,7 @@ export type PnlAttributionCategory = {
   asset_type: string;
   pnl: number;
   positions_count: number;
+  /** 与 `PnlAttributionRow.pct` 同口径（分母取 |合计|，符号随 pnl） */
   pct: number | null;
 };
 
