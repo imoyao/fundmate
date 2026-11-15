@@ -21,6 +21,7 @@ from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.models import Transaction
 from app.services import dangling_ref_rebuild_service as svc
+from app.services.dangling_identity import unclaimed_flows
 
 _FAMILY = 1
 _OTHER_FAMILY = 2
@@ -160,25 +161,106 @@ def test_preview_warns_when_no_buy_leg(db, ledger):
 
 
 def test_preview_warns_when_sibling_txns_not_selected(db, ledger):
-    """同账本同标的还有没选进来的悬空流水 → 必须提示份额会偏小（最大真实风险）。"""
+    """同账本同标的还有未被承接的买入流水 → 必须提示份额会偏小（最大真实风险）。"""
     chosen = _mk_txn(db, ledger.id, shares=100)
-    _mk_txn(db, ledger.id, shares=200)  # 同标的另一条悬空流水，故意不选
+    _mk_txn(db, ledger.id, shares=200)  # 同标的另一条无归属流水，故意不选
 
     data = svc.preview_rebuild(db, _FAMILY, [chosen.id])
 
     assert data['rebuildable'] is True
     assert data['net_units'] == pytest.approx(100.0)
-    assert any('没有选进来' in w for w in data['warnings'])
+    assert any('没有被任何持仓承接' in w and '偏小' in w for w in data['warnings'])
 
 
 def test_preview_has_no_sibling_warning_when_all_selected(db, ledger):
-    """把同标的悬空流水全选上就不该有该提示（否则是噪声，会让人忽略真提示）。"""
+    """把同标的无归属流水全选上就不该有该提示（否则是噪声，会让人忽略真提示）。"""
     a = _mk_txn(db, ledger.id, shares=100)
     b = _mk_txn(db, ledger.id, shares=200)
 
     data = svc.preview_rebuild(db, _FAMILY, [a.id, b.id])
 
-    assert not any('没有选进来' in w for w in data['warnings'])
+    assert not any('没有被任何持仓承接' in w for w in data['warnings'])
+
+
+# ── #3127：卖出腿没进组时重建会造出「卖完了还持仓」 ───────────────────────
+
+
+def test_preview_blocks_when_unclaimed_sell_leg_exists(db, ledger):
+    """缺码卖腿 + 同标的买腿：重建会留下卖不掉的份额 ⇒ 必须拦下，不是只警告。
+
+    真库原型（#3127，联创转债 #1012）：08-29 导入时买腿带 ``SZ128101``、四条卖腿
+    ``symbol`` 为空；09:14 只按买入腿重建出 270 张，10:28 卖腿补码回补后份额不再重算，
+    于是「卖完了还挂着 270 张、active」。旧判据只扫悬空流水且按 symbol 字面量比，
+    这条卖腿（缺码，且回补后不再悬空）完全看不见，只警告「份额会偏小」——方向还反了。
+    """
+    buy = _mk_txn(db, ledger.id, shares=100)
+    _mk_txn(db, ledger.id, shares=100, symbol=None, txn_type='sell')  # 缺码卖腿，同名
+
+    data = svc.preview_rebuild(db, _FAMILY, [buy.id])
+
+    assert data['rebuildable'] is False
+    assert '卖出多于买入' in (data['block_reason'] or '')
+    assert '卖不掉' in (data['block_reason'] or '')
+
+
+def test_preview_blocks_even_when_sell_leg_has_symbol(db, ledger):
+    """卖腿已补码（不再悬空）同样要拦：缺口判据不能只认 ``dangling_condition``。"""
+    buy = _mk_txn(db, ledger.id, shares=100)
+    _mk_txn(db, ledger.id, shares=50, txn_type='sell', position_id=None)
+
+    data = svc.preview_rebuild(db, _FAMILY, [buy.id])
+
+    assert data['rebuildable'] is False
+    assert '卖出多于买入' in (data['block_reason'] or '')
+
+
+def test_preview_warns_not_blocks_when_unclaimed_buy_leg_exists(db, ledger):
+    """缺口只有买入腿时只警告：份额偏小用户看得见，且可能是有意分批建仓。"""
+    chosen = _mk_txn(db, ledger.id, shares=100)
+    _mk_txn(db, ledger.id, shares=200, symbol=None, txn_type='buy')
+
+    data = svc.preview_rebuild(db, _FAMILY, [chosen.id])
+
+    assert data['rebuildable'] is True
+    assert any('没有被任何持仓承接' in w and '偏小' in w for w in data['warnings'])
+
+
+def test_unclaimed_gap_ignores_flows_owned_by_live_position(db, ledger):
+    """同账本同标的的**另一条正常持仓**名下流水不算缺口（否则每组合法重建都误报）。
+
+    这里直接调 ``unclaimed_flows`` 而不是 ``preview_rebuild``：本场景存在同名持仓行，
+    预览会先被「已有持仓请走回补关联」的既有门禁拦下，走不到缺口判据那一层。
+    """
+    live = Position(
+        ledger_id=ledger.id,
+        family_id=_FAMILY,
+        symbol='SZ128021',
+        name='兄弟转债',
+        asset_type='bond',
+        quantity=Money.shares_to_min_unit(30),
+        avg_price=Money.yuan_to_price_units(120),
+        ownership_status='active',
+    )
+    db.add(live)
+    db.flush()
+    _mk_txn(
+        db, ledger.id, symbol='SZ128021', position_name='兄弟转债', asset_type='bond', shares=30, position_id=live.id
+    )
+    chosen = _mk_txn(db, ledger.id, symbol='SZ128021', position_name='兄弟转债', asset_type='bond', shares=10)
+
+    flows = unclaimed_flows(db, _FAMILY, ledger.id, [chosen])
+
+    assert flows == []
+
+
+def test_unclaimed_gap_matches_by_name_across_symbol_forms(db, ledger):
+    """裸码与带前缀是同一只（``128021`` / ``SZ128021``）：缺口判据不能按字面量比。"""
+    chosen = _mk_txn(db, ledger.id, symbol='SZ128021', position_name='兄弟转债', asset_type='bond', shares=10)
+    _mk_txn(db, ledger.id, symbol='128021', position_name='兄弟转债', asset_type='bond', txn_type='sell', shares=4)
+
+    data = svc.preview_rebuild(db, _FAMILY, [chosen.id])
+
+    assert data['rebuildable'] is False
 
 
 # ── rebuild：正常重建并挂回 ───────────────────────────────────────────────

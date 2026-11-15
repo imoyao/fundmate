@@ -58,9 +58,9 @@ from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.dates import order_by_effective_day
 from app.domains.transactions.models import Transaction
 from app.services.dangling_identity import (
-    dangling_condition,
     identity_count,
     name_symbol_index,
+    unclaimed_flows,
 )
 from app.services.dangling_ref_remediation_service import _load_log, _require_confirm
 from app.services.dangling_ref_service import (
@@ -159,7 +159,9 @@ def plan_rebuild(db: Session, family_id: int, transaction_ids) -> dict:
         'warnings': [],
     }
 
-    identity = identity_count(ordered, name_symbol_index(db, family_id))
+    # 索引只建一次：批量预览是 90 组 × 每组一次，重复建索引会把扫描放大成 N+1。
+    name_index = name_symbol_index(db, family_id)
+    identity = identity_count(ordered, name_index)
     reason = _identity_block(ordered, symbol, plan['ledger_id'], asset_types, identity)
     if reason is None:
         reason = _cost_block(db, family_id, ordered, plan, symbol or '')
@@ -172,37 +174,51 @@ def plan_rebuild(db: Session, family_id: int, transaction_ids) -> dict:
     if net_qty < MIN_NET_MIN_UNITS:
         return _block(plan, '这批流水买卖已对冲（净额 ≤ 0），重建不出有效持仓；如这些流水是历史残留，走「删除」')
     plan['warnings'] = _rebuild_warnings(ordered)
-    gap = _sibling_gap_warning(db, family_id, ordered, plan['symbol'] or '', plan['ledger_id'])
-    if gap is not None:
-        plan['warnings'].append(gap)
+    unclaimed, unclaimed_net = _unclaimed_gap(db, family_id, ordered, plan['ledger_id'], name_index)
+    if unclaimed_net < 0:
+        # 卖出腿没进来 → 重建出的份额**大于**真实持仓，持仓行会带着卖不掉的份额。
+        # 这不是「份额偏小」那种用户一眼能看出的偏差，而是造一条幽灵持仓（#3127），故拦下。
+        return _block(plan, _unclaimed_sell_reason(len(unclaimed)))
+    if unclaimed_net > 0:
+        plan['warnings'].append(_unclaimed_buy_warning(len(unclaimed), unclaimed_net))
     return plan
 
 
-def _sibling_gap_warning(db: Session, family_id: int, ordered: list[Transaction], symbol: str, ledger_id) -> str | None:
-    """同账本同标的还有**没选进来**的悬空流水 → 重建出的份额会偏小，必须点出来。
+def _unclaimed_gap(
+    db: Session,
+    family_id: int,
+    ordered: list[Transaction],
+    ledger_id,
+    name_index: dict[str, set[str]],
+) -> tuple[list[Transaction], int]:
+    """组外的「无归属同标的流水」及其净额（判据在 ``dangling_identity.unclaimed_flows``）。"""
+    flows = unclaimed_flows(db, family_id, ledger_id, ordered, name_index=name_index)
+    return flows, (derive_state_from_txns(flows, 0, 0)[0] if flows else 0)
 
-    这是本动作最大的真实风险（不是「重建会算错」，而是「只用了一部分流水去算」）。
-    检测得到就告知；检测不到也不算保证——用户仍要对照券商账单核对日期区间。
-    """
-    sibling_ids = {
-        row.id
-        for row in db.query(Transaction.id).filter(
-            dangling_condition(family_id),
-            Transaction.ledger_id == ledger_id,
-            Transaction.symbol == symbol,
-        )
-    }
-    extra = sibling_ids - {t.id for t in ordered}
-    if not extra:
-        return None
-    return f'同一账本同一标的还有 {len(extra)} 条流水没有选进来；只用选中的这批重建，份额会偏小。'
+
+def _unclaimed_sell_reason(count: int) -> str:
+    """缺口里有卖出席位时的阻断文案（必须指向界面真有的按钮，见 #3127）。"""
+    return (
+        f'同一账本同一标的还有 {count} 条流水没有被任何持仓承接，且卖出多于买入（净额 < 0）；'
+        '只用这批流水重建，这条持仓会留下卖不掉的份额。'
+        '先把这些流水回补到目标持仓、或按它们单独重建，再回来处理这一组'
+    )
+
+
+def _unclaimed_buy_warning(count: int, net_qty: int) -> str:
+    """缺口只有买入腿时只警告：份额偏小用户在持仓页看得见，且可能是有意分批建仓。"""
+    return (
+        f'同一账本同一标的还有 {count} 条流水没有被任何持仓承接'
+        f'（净额 {Money.min_unit_to_shares(net_qty)} 份为买入）；只用这批流水重建，份额会偏小。'
+    )
 
 
 def _rebuild_warnings(txns: list[Transaction]) -> list[str]:
     """如实说明重建的口径与已知边界，不粉饰「重建 ≠ 还原历史」。"""
     warnings = [
         '份额与成本按这组流水派生：买入份额与成本加权、卖出份额扣减。'
-        '若这组流水不是该标的的全部历史（例如早期只导入了卖出腿），重建出的份额会偏小，请对照券商账单核对。',
+        '若这组流水不是该标的的全部历史，份额两个方向都会错：只导入了卖出腿会偏小，'
+        '只导入了买入腿会偏大（卖完了还留着持仓）。请对照券商账单核对日期区间。',
         '成交场所与币种取默认值（CN_A / CNY）：流水里没有这两个字段，这一层信息无法还原。',
         '重建后这几条流水的归属会指向新持仓，可在结果里凭日志编号撤销。',
     ]

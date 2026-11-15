@@ -71,6 +71,7 @@ from app.domains.positions.state import derive_state_from_txns
 from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.dates import order_by_effective_day
 from app.domains.transactions.models import Transaction
+from app.services.dangling_identity import unclaimed_flows
 from app.services.dangling_ref_remediation_service import _load_log, _require_confirm
 from app.services.dangling_ref_service import (
     _net_min_units,
@@ -335,27 +336,33 @@ def _fix_warnings(
             '同账本没有同标的的持仓行，本次会按这几笔流水新建一条（份额与成本由流水派生，'
             '不是还原历史）；若这不是该标的的全部流水，新建的份额会偏小，请对照券商账单核对。'
         )
-    siblings = _sibling_count(db, family_id, ordered, ledger_id)
+    siblings, sibling_net = _unclaimed_gap(db, family_id, ordered, ledger_id)
     if siblings:
-        warnings.append(f'同账本同标的还有 {siblings} 条流水没有选进来；只用选中的这批改挂，新建份额会偏小。')
+        if sibling_net < 0:
+            warnings.append(
+                f'同账本同标的还有 {siblings} 条流水没有被任何持仓承接，且卖出多于买入；'
+                '只用选中的这批改挂，新建的份额会偏大（卖完了还留着份额），请对照券商账单核对。'
+            )
+        else:
+            warnings.append(
+                f'同账本同标的还有 {siblings} 条流水没有被任何持仓承接；只用选中的这批改挂，新建份额会偏小。'
+            )
     return warnings
 
 
-def _sibling_count(db: Session, family_id: int, ordered: list[Transaction], ledger_id) -> int:
-    """同账本同标的、**没被选中**的流水条数（不含已挂到目标持仓上的那些）。"""
-    symbol = ordered[0].symbol
-    chosen = {t.id for t in ordered}
-    target_ids = {t.position_id for t in ordered}
-    rows = (
-        db.query(Transaction.id, Transaction.position_id)
-        .filter(
-            Transaction.family_id == family_id,
-            Transaction.ledger_id == ledger_id,
-            Transaction.symbol == symbol,
-        )
-        .all()
+def _unclaimed_gap(db: Session, family_id: int, ordered: list[Transaction], ledger_id) -> tuple[int, int]:
+    """组外的「无归属同标的流水」条数与净额（判据在 ``dangling_identity.unclaimed_flows``）。
+
+    与重建侧同源：``symbol`` 字面量比 + 只扫悬空会漏掉缺码卖腿（#3127），而本服务的
+    ``MODE_REBUILD`` 分支同样会按这批流水新建持仓。
+    """
+    flows = unclaimed_flows(
+        db,
+        family_id,
+        ledger_id,
+        ordered,
     )
-    return sum(1 for tid, pid in rows if tid not in chosen and pid not in target_ids)
+    return len(flows), (derive_state_from_txns(flows, 0, 0)[0] if flows else 0)
 
 
 def public_plan(plan: dict) -> dict:

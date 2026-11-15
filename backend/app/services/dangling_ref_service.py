@@ -54,8 +54,11 @@
   ``recompute_position_from_transactions`` 会从该持仓全部流水派生份额，含快照锚点、
   清仓复活 / 标记 cleared / 删空壳行等状态变化，份额变更不可逆且 undo 无法回滚，
   不属于「安全的二次回补」。挂回只改 ``position_id``，份额一字不动
-  （``quantity_after == quantity_before``）；用户如需对齐份额，到持仓页手动重算。
+  （``quantity_after == quantity_before``）；用户如需对齐份额，到持仓页用「按流水重算份额」。
   ``preview.quantity_if_recomputed`` 仅用于让用户看清「手动重算会怎样」，不触发任何写。
+- **挂回后回报一致性差异**：返回体带 ``share_check``（``position_recompute_entry.share_check``），
+  用同一派生入口算出「若此刻重算应是多少份」与当前份额并排返回，差异超阈值即
+  ``recompute_suggested`` 指向重算入口。只读，契约仍是「不自动重算」（#3127）。
 - **undo 幂等但每次留痕**：仅当 txn 当前 position_id 仍等于 after 值才恢复；重复撤销 ``restored=0``、数据不变，但仍会追加一条 ``dangling_ref_undo`` 审计日志（如实记录每次操作）。
 """
 
@@ -79,6 +82,7 @@ from app.services.dangling_identity import (
     require_single_identity,
     same_identity,
 )
+from app.services.position_recompute_entry import reattach_payload
 
 #: 净额方向：进入持仓 / 离开持仓（口径由契约给定，与 audit_orphan_batches 的 BUY/SELL 略不同：
 #: 这里把 deposit/split/withdraw 也纳入，且 sell/withdraw 直接减 quantity、不取 abs）。
@@ -519,13 +523,7 @@ def reattach_transactions(
     )
     db.add(log)
     db.flush()
-    return {
-        'log_id': log.id,
-        'updated': len(txns),
-        'recompute': False,
-        'quantity_before': q_before,
-        'quantity_after': q_after,
-    }
+    return reattach_payload(db, log, target, len(txns), q_before, q_after)
 
 
 def undo_reattach(db: Session, family_id: int, log_id) -> dict:

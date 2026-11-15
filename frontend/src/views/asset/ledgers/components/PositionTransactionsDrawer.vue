@@ -51,6 +51,17 @@
 
     <!-- 键值网格：份额 / 成本 / 净值 / 时长 / 年化（市值与盈亏已升到锚点） -->
     <DrawerSection title="持仓概况">
+      <!-- 重算入口（#3127）：回补关联只改归属不改份额，这里是把两者对齐的唯一出口 -->
+      <template #action>
+        <el-button
+          text
+          size="small"
+          :loading="recomputing"
+          @click="confirmRecompute"
+        >
+          按流水重算份额
+        </el-button>
+      </template>
       <PositionSummaryGrid
         :position-data="positionData"
         :xirr="xirr"
@@ -73,8 +84,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { getPositionXirr } from "@/api/performance";
+import { recomputePositionShares } from "@/api/positions";
+import { errorMessageOf } from "@/utils/errorMessage";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDrawer from "@/components/ProductDrawer/index.vue";
@@ -117,6 +130,54 @@ const emit = defineEmits<{
 function handleTxnChanged(id: number | undefined) {
   fetchXirr();
   emit("changed", id);
+}
+
+/**
+ * 按流水重算份额（#3127）。
+ *
+ * 为什么需要用户确认：这是**不可逆**的写——份额与成本会被流水派生值覆盖，净额归零会被
+ * 标记清仓，无流水且无锚点的空壳行会被删。回补关联按契约只改归属，两条链路合起来才
+ * 能修「卖完了还挂着份额」，所以入口必须点得明白、说明写得清。
+ */
+const recomputing = ref(false);
+
+async function confirmRecompute() {
+  const pos = props.positionData;
+  const id = Number(pos?.id);
+  if (!Number.isFinite(id) || recomputing.value) return;
+  try {
+    await ElMessageBox.confirm(
+      "将按该持仓名下的全部流水重算份额与成本（含快照锚点口径）：" +
+        "流水净额归零会标记为已清仓，没有流水也没有快照的空壳行会被删除。此操作不可逆。",
+      "按流水重算份额",
+      {
+        type: "warning",
+        confirmButtonText: "重算",
+        cancelButtonText: "取消"
+      }
+    );
+  } catch {
+    return; // 用户取消
+  }
+  recomputing.value = true;
+  try {
+    const res = await recomputePositionShares(id, "用户手动按流水重算");
+    const d = res.data;
+    if (d.deleted) {
+      ElMessage.warning("该持仓既无流水也无快照锚点，空壳行已删除");
+    } else if (d.changed) {
+      ElMessage.success(
+        `份额已重算：${d.quantity_before} → ${d.quantity_after} 份`
+      );
+    } else {
+      ElMessage.info("重算后份额没有变化，已留审计记录");
+    }
+    handleTxnChanged(id);
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "重算份额失败");
+  } finally {
+    recomputing.value = false;
+  }
 }
 
 const router = useRouter();
