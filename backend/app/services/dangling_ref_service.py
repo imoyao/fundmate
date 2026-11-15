@@ -54,8 +54,13 @@
   ``recompute_position_from_transactions`` 会从该持仓全部流水派生份额，含快照锚点、
   清仓复活 / 标记 cleared / 删空壳行等状态变化，份额变更不可逆且 undo 无法回滚，
   不属于「安全的二次回补」。挂回只改 ``position_id``，份额一字不动
-  （``quantity_after == quantity_before``）；用户如需对齐份额，到持仓页手动重算。
+  （``quantity_after == quantity_before``）；用户如需对齐份额，到持仓页用「按流水重算份额」。
   ``preview.quantity_if_recomputed`` 仅用于让用户看清「手动重算会怎样」，不触发任何写。
+- **挂回后必须回报一致性差异**：``share_check``（``_share_check``）用同一派生入口
+  （``compute_anchored_state``，含锚点）算出「若此刻重算应是多少份」，与当前份额并排返回，
+  差异超阈值即 ``recompute_suggested=True`` 并在 ``hint`` 里指向重算入口。**只读、不写**：
+  契约仍是「不自动重算」，但「挂回后份额与流水不自洽」这件事必须当场可见——#3127 真库
+  95 条幽灵持仓（卖完了还挂着份额）正是因为它一路无人回答。
 - **undo 幂等但每次留痕**：仅当 txn 当前 position_id 仍等于 after 值才恢复；重复撤销 ``restored=0``、数据不变，但仍会追加一条 ``dangling_ref_undo`` 审计日志（如实记录每次操作）。
 """
 
@@ -158,6 +163,40 @@ def _net_min_units(txns: list[Transaction]) -> int:
 def _shares(min_units) -> float:
     """最小单位 → 份（1 份 = 10000 最小单位），走 Money 遵守仓库金融精度纪律。"""
     return Money.min_unit_to_shares(min_units or 0)
+
+
+# 份额差异判定阈值（份）：与 `features` 的 net_mismatch 同量级，只用来区分浮点噪声。
+_SHARE_EPSILON = 0.0001
+
+
+def _share_check(db: Session, target: Position, quantity_now: float) -> dict:
+    """挂回后「持仓份额 vs 按现有流水派生」的差异（**只读**，不改任何值）。
+
+    回补按契约只改归属、不重算份额，于是「挂回后份额是否仍与流水自洽」没有任何人回答
+    ——#3127 真库 95 条幽灵持仓就是这么来的：买入腿先建成 270 张，卖腿补码挂回，份额不动。
+
+    这里在挂回后立刻用**同一个派生入口**（`compute_anchored_state`，含快照锚点）算一遍
+    「若此刻重算应是多少份」，与当前份额并排返回。判据必须走这个入口而不是自己求和：
+    有锚点的持仓，非锚点流水的净额本来就不等于份额，自己算会造出一堆假差异。
+    """
+    from app.services.position_service import compute_anchored_state  # noqa: PLC0415
+
+    net_units, _ = compute_anchored_state(db, target)
+    expected = _shares(net_units)
+    diff = round(expected - quantity_now, 4)
+    suggested = abs(diff) > _SHARE_EPSILON
+    return {
+        'quantity_now': quantity_now,
+        'quantity_if_recomputed': expected,
+        'diff': diff,
+        'recompute_suggested': suggested,
+        'hint': (
+            f'挂回只改归属、不改份额：按现有流水派生应为 {expected:g} 份，当前持仓 {quantity_now:g} 份'
+            f'（差 {diff:+g}）。若要以此为准，请用「按流水重算份额」对齐；本接口不会自动改。'
+        )
+        if suggested
+        else None,
+    }
 
 
 def _cluster_batches(rows: list[Transaction]) -> list[list[Transaction]]:
@@ -525,6 +564,7 @@ def reattach_transactions(
         'recompute': False,
         'quantity_before': q_before,
         'quantity_after': q_after,
+        'share_check': _share_check(db, target, q_after),
     }
 
 

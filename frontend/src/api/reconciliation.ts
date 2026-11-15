@@ -521,6 +521,20 @@ export interface DanglingRefPreview {
   warnings: string[];
 }
 
+/** 回补后「份额 vs 按流水派生」的一致性差异（后端只读派生，不动份额） */
+export interface DanglingRefShareCheck {
+  /** 当前持仓份额（本次回补没有改动它） */
+  quantity_now: number;
+  /** 若此刻按流水重算应得的份额（含快照锚点的同一派生入口） */
+  quantity_if_recomputed: number;
+  /** 上面两者之差（expected − now）；负数＝持仓多于流水，即「卖完了还留着份额」 */
+  diff: number;
+  /** 差异超阈值时为真：份额与流水已不自洽，需用户决定是否重算 */
+  recompute_suggested: boolean;
+  /** 给用户看的中文说明，无差异时为 null */
+  hint: string | null;
+}
+
 /** 回补结果（POST /api/reconciliation/dangling-refs/reattach/ 的 data） */
 export interface DanglingRefReattachResult {
   log_id: number;
@@ -528,6 +542,8 @@ export interface DanglingRefReattachResult {
   recompute: boolean;
   quantity_before: number;
   quantity_after: number;
+  /** #3127：挂回只改归属，份额可能因此与流水不自洽，必须当场回报 */
+  share_check: DanglingRefShareCheck;
 }
 
 /** 撤销结果（POST /api/reconciliation/dangling-refs/undo/ 的 data） */

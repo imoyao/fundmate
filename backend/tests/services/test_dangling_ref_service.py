@@ -9,7 +9,7 @@ Session 传给纯业务函数；这与视图 ``with user_session() as db:`` 的�
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -458,6 +458,70 @@ def test_reattach_allowed_when_data_inconsistent(db, ledger):
     assert data['updated'] == 1
     assert db.query(Transaction).filter_by(id=t.id).one().position_id == target.id
     assert db.query(Position).filter_by(id=target.id).one().quantity == Money.shares_to_min_unit(1.0)
+
+
+def test_reattach_reports_share_mismatch_after_attach(db, ledger):
+    """#3127 形态：买入腿早已挂在该持仓上、卖腿挂回后净额归零，份额却不动 ⇒ 必须当场报差异。
+
+    契约仍是「不自动重算」（``quantity_after == quantity_before``），但「挂回后份额与流水
+    不自洽」这件事要可见——真库 95 条幽灵持仓正是因为一路无人回答才留了下来。
+    """
+    target = _mk_pos(db, ledger.id, 'SZ128101', 2.0)
+    _mk_txn(db, ledger.id, position_id=target.id, symbol='SZ128101', txn_type='buy', shares=2.0)
+    sell = _mk_txn(db, ledger.id, symbol='SZ128101', txn_type='sell', shares=2.0)
+
+    data = svc.reattach_transactions(db, _FAMILY, [sell.id], target.id)
+
+    assert data['quantity_after'] == pytest.approx(2.0)  # 契约：份额一字不动
+    check = data['share_check']
+    assert check['quantity_now'] == pytest.approx(2.0)
+    assert check['quantity_if_recomputed'] == pytest.approx(0.0)
+    assert check['diff'] == pytest.approx(-2.0)
+    assert check['recompute_suggested'] is True
+    assert '重算' in (check['hint'] or '')
+    assert db.query(Position).filter_by(id=target.id).one().quantity == Money.shares_to_min_unit(2.0)
+
+
+def test_reattach_share_check_clean_when_flows_match(db, ledger):
+    """挂回后份额与流水自洽 ⇒ 不提示（否则每次都弹，真提示会被忽略）。"""
+    target = _mk_pos(db, ledger.id, '000001', 2.0)
+    _mk_txn(db, ledger.id, position_id=target.id, symbol='000001', txn_type='buy', shares=3.0)
+    sell = _mk_txn(db, ledger.id, symbol='000001', txn_type='sell', shares=1.0)
+
+    data = svc.reattach_transactions(db, _FAMILY, [sell.id], target.id)
+
+    check = data['share_check']
+    assert check['quantity_if_recomputed'] == pytest.approx(2.0)
+    assert check['recompute_suggested'] is False
+    assert check['hint'] is None
+
+
+def test_reattach_share_check_respects_anchor(db, ledger):
+    """有锚点的持仓：锚点前的流水本来就不计入份额，不能算成差异（否则每笔都假报）。
+
+    这条钉住「必须复用 ``compute_anchored_state``」：换成自己按流水求和会得到 8 份，
+    与真实 5 份差 3，把一笔合法挂回报成「份额错了」。
+    """
+    target = _mk_pos(db, ledger.id, '000001', 5.0)
+    target.snapshot_quantity = Money.shares_to_min_unit(5.0)
+    target.snapshot_avg_price = Money.yuan_to_price_units(1.0)
+    target.snapshot_date = date(2026, 6, 30)
+    db.flush()
+    older = _mk_txn(
+        db,
+        ledger.id,
+        symbol='000001',
+        txn_type='buy',
+        shares=3.0,
+        trade_date=datetime(2025, 12, 1, 9, 0, 0),
+        confirm_date=date(2025, 12, 1),  # confirm_date 是 Date 列，与 snapshot_date 同型
+    )
+
+    data = svc.reattach_transactions(db, _FAMILY, [older.id], target.id)
+
+    check = data['share_check']
+    assert check['quantity_if_recomputed'] == pytest.approx(5.0)
+    assert check['recompute_suggested'] is False
 
 
 # ── undo ──────────────────────────────────────────────────────────────────

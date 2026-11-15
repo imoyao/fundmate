@@ -6,6 +6,12 @@
       <strong>#{{ result.log_id }}</strong>
     </p>
     <p>份额未改动：本次只补了归属，持仓份额保持原值。</p>
+    <p
+      v-if="result.share_check?.recompute_suggested"
+      class="dfd-done__mismatch"
+    >
+      <strong>份额与流水已不自洽：</strong>{{ result.share_check.hint }}
+    </p>
     <el-button
       v-if="!undone"
       type="danger"
@@ -47,5 +53,10 @@ const emit = defineEmits<{ undo: [] }>();
 .dfd-done__undone {
   font-weight: 600;
   color: var(--color-info-ink);
+}
+
+/* 份额与流水不自洽：这是需要用户决策的事（要不要重算），不是普通说明文字 */
+.dfd-done__mismatch {
+  color: var(--color-warning-ink);
 }
 </style>
