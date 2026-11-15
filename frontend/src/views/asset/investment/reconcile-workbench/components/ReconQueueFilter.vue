@@ -40,12 +40,7 @@
 
     <div class="recon-filter__meta">
       <span>找到 {{ resultCount }} 项待办</span>
-      <el-button
-        v-if="keyword || state !== 'all' || batchId !== 'all'"
-        size="small"
-        text
-        @click="emit('reset')"
-      >
+      <el-button v-if="dirty" size="small" text @click="emit('reset')">
         清除筛选
       </el-button>
     </div>
@@ -75,16 +70,20 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
-import type { ReconQueueState } from "../constants/reconTasks";
+import {
+  DEFAULT_QUEUE_FILTER,
+  type ReconQueueScope
+} from "../utils/reconQueue";
 
 defineOptions({ name: "ReconQueueFilter" });
 
-defineProps<{
-  state: ReconQueueState | "all";
+const props = defineProps<{
+  state: ReconQueueScope;
   options: readonly {
     label: string;
-    value: ReconQueueState | "all";
+    value: ReconQueueScope;
     count: number;
   }[];
   keyword: string;
@@ -99,13 +98,21 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  "update:state": [value: ReconQueueState | "all"];
+  "update:state": [value: ReconQueueScope];
   "update:keyword": [value: string];
   "update:batchId": [value: number | "all"];
   toggleAll: [];
   batch: [];
   reset: [];
 }>();
+
+/** 与默认筛选逐项比较：默认档是 `state: "open"`，写死 `!== "all"` 会让按钮常显。 */
+const dirty = computed(
+  () =>
+    props.keyword !== DEFAULT_QUEUE_FILTER.keyword ||
+    props.state !== DEFAULT_QUEUE_FILTER.state ||
+    props.batchId !== DEFAULT_QUEUE_FILTER.batchId
+);
 </script>
 
 <style scoped>

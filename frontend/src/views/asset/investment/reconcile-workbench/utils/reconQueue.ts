@@ -510,19 +510,36 @@ export function sortQueue(items: ReconQueueItem[]): ReconQueueItem[] {
   });
 }
 
+/**
+ * 状态筛选的取值范围：三个单档 + 两个范围档。
+ *
+ * `"open"` = 待处理（ready / judge / incomplete），是**默认档**。
+ * 为什么默认不再是 `"all"`：`"all"` 会把已处理项（done）混进待办列表——E账户影子
+ * 记录按 `status !== 'pending'` 全算 done，真库 93 条里 85 条 attributed + 8 条
+ * verified，于是「核对差异」角标是 0 件、列表却满屏「这条已经核对过了」。角标与
+ * 列表两个口径必须同源，默认落在用户此刻能动手的那一档；已处理项仍在 `"all"` 与
+ * `"done"` 档可回看 / 撤销，不是藏起来。
+ */
+export type ReconQueueScope = ReconQueueState | "all" | "open";
+
 export interface ReconQueueFilter {
   task: ReconTaskKey | "all";
-  state: ReconQueueState | "all";
+  state: ReconQueueScope;
   keyword: string;
   batchId: number | "all";
 }
 
 export const DEFAULT_QUEUE_FILTER: ReconQueueFilter = {
   task: "all",
-  state: "all",
+  state: "open",
   keyword: "",
   batchId: "all"
 };
+
+/** 一条记录是否落在「待处理」范围内：只有 done 被排除，其余三档全算待处理 */
+function inOpenScope(item: ReconQueueItem): boolean {
+  return item.state !== "done";
+}
 
 /** 筛选：四个维度同时生效，全部走纯函数，页面只传值 */
 export function filterQueue(
@@ -532,7 +549,11 @@ export function filterQueue(
   const keyword = filter.keyword.trim().toLowerCase();
   return items.filter(item => {
     if (filter.task !== "all" && item.task !== filter.task) return false;
-    if (filter.state !== "all" && item.state !== filter.state) return false;
+    if (filter.state === "open") {
+      if (!inOpenScope(item)) return false;
+    } else if (filter.state !== "all" && item.state !== filter.state) {
+      return false;
+    }
     if (filter.batchId !== "all" && item.batchId !== filter.batchId)
       return false;
     if (keyword && !item.searchText.includes(keyword)) return false;
@@ -583,6 +604,19 @@ export function countByState(
     counts[item.state] += 1;
   }
   return counts;
+}
+
+/**
+ * 「待处理」档的条数。判据与 {@link filterQueue} 的 `state === "open"` 同源
+ * （同一个 `inOpenScope`），否则分段器上的数字会与点开后看到的行数对不上。
+ */
+export function countOpenScope(
+  items: ReconQueueItem[],
+  task: ReconTaskKey | "all"
+): number {
+  return items.filter(
+    i => (task === "all" || i.task === task) && inOpenScope(i)
+  ).length;
 }
 
 /** 批次下拉选项（去重 + 稳定排序），只列真实存在的批次 */
