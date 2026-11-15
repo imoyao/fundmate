@@ -13,10 +13,9 @@
   全量流水净额 —— 两种口径见 `reconciliation_theory` 模块 docstring。
 - 孤儿检测（§6.1）：流水推演净份额 > 0 但系统无对应持仓 → 报 orphan。
 - 数量差异：理论值与实际（positions.quantity）不一致 → 报 quantity；无锚点、**active**
-  且流水净额 > 0（流水没反证份额）时报 no_anchor（#3125：缺基准不是数据错，补录解决
-  不了，卡片给「以此为准」写锚点）。净额 ≤ 0 却仍有份额是 #3127 的幽灵持仓/超卖，
-  份额本身可能有误，保持 quantity 交人工；判据与写锚点动作共用
-  `reconciliation_theory.is_missing_baseline` / `flow_disproves_position`。
+  且净额 > 0 时报 no_anchor（#3125：缺基准不是数据错，补录解决不了，卡片给「以此为准」
+  写锚点）。净额 ≤ 0 却仍有份额是 #3127 的幽灵持仓/超卖，保持 quantity 交人工；
+  判据共用 `is_missing_baseline` / `flow_disproves_position`（#3135 收尾常驻巡检）。
 
 差异结果按业务键 upsert 到 `discrepancies`（§8.1），并记录 `reconciliation_runs`。
 """
@@ -29,14 +28,14 @@ from sqlalchemy.orm import Session
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
+from app.services.position_share_audit import report_to_summary
 from app.services.position_write_support import _find_existing_position
 from app.services.reconciliation_integrity import refresh_domain_c_orphans
 from app.services.reconciliation_theory import find_holding as _find_holding
 from app.services.reconciliation_theory import group_by_business_key, is_missing_baseline
 from app.services.reconciliation_theory import theoretical_qty as _theoretical_qty
 
-# 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致：buy/deposit/split 增、sell/withdraw 减；
-# 分红/税费等现金事件 quantity=0 不影响份额，未知非零份额类型在快照一致性计算中会告警，避免静默漏算）
+# 数量轧差的流水类型见 reconciliation_theory；分红/税费 quantity=0 不影响份额。
 DOMAIN_B = 'B'
 DOMAIN_C = 'C'
 
@@ -178,6 +177,7 @@ def _finalize_run(
     _clear_stale_discrepancies(db, family_id, run.id, seen_keys, domain, summary)
     if domain == DOMAIN_B:
         refresh_domain_c_orphans(db, family_id, run.id, orphan_qty, summary)
+    report_to_summary(db, family_id, summary)  # #3135 常驻判据：只读报数，不建卡不写持仓
     run.summary_json = json.dumps(summary)
     run.finished_at = datetime.utcnow()
     return run, True
