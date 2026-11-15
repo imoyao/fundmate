@@ -57,15 +57,15 @@ def apply_adjustment():
     """就地补充/调整裁决（§5.4 / P2）：生成调整凭证 + 审计日志。
 
     body:
-        kind: 'increment'（默认，补一笔缺失买卖）| 'set'（期初建仓/直接改数量成本）
+        kind: increment（默认，补一笔）| set（改数量成本）| anchor（以持仓现值写锚点）
+              | recompute（按流水重算份额）
         op_type: buy|sell|deposit|withdraw（increment 必填）
         discrepancy_id: 可选，关联差异（补录后重算，没轧平则仍留在待办队列）
-        reason / operator: 可选
-        其余字段透传给汇点（symbol/ledger_id/quantity/avg_price/confirm_date/...）
+        reason / operator: 可选；其余字段透传给汇点（symbol/ledger_id/quantity/...）
 
     语义分派（不新建调整表）：
-        increment → process_buy_or_deposit / process_sell_or_withdraw（Transaction+Position）
-        set → upsert_from_holding（SET 语义，不建流水）
+        increment → 买卖汇点（Transaction+Position）| set → upsert_from_holding（不建流水）
+        anchor → 写人工锚点 | recompute → 按流水覆写持仓份额（只改持仓，不建流水）
     """
     payload = request.get_json(silent=True)
     if payload is None:

@@ -5,6 +5,7 @@ import {
   runReconciliation,
   listDiscrepancies,
   ignoreDiscrepancy,
+  applyAdjustment,
   listGhostDuplicates,
   listGhostDuplicateIgnores,
   ignoreGhostDuplicate,
@@ -37,6 +38,11 @@ import {
 } from "@/composables/useReconDraft";
 import { mergeDanglingLists } from "../utils/danglingRefMerge";
 import { withoutRebuildOnly } from "../utils/rebuildOnly";
+import {
+  buildRecomputePayload,
+  recomputeResultMessage
+} from "../utils/adjustmentPayload";
+import { reconQuantity } from "../utils/reconDisplay";
 
 /**
  * 对账中心三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
@@ -472,6 +478,38 @@ export function useWorkbenchDomains() {
     }
   }
 
+  /**
+   * 「按流水重算份额」（#3134）：`quantity` 差异里唯一能真正改变差额的动作之一。
+   *
+   * 补录（increment）同时写流水与持仓，差额两端同步移动 ⇒ 恒等于补录前的值，所以
+   * 这条差异原先在工作台上是**死路**。这里改写持仓这一侧，差额才会动。
+   *
+   * 二次确认必须报出两个数：账上现在多少、流水算出来多少。它是改写持仓、且净额为 0
+   * 时会把持仓标记为已清仓，用户得先看见「会改成什么」再点。
+   */
+  async function handleRecompute(row: DiscrepancyItem): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        `将按这条持仓名下的流水重算份额：账上现在是 ${reconQuantity(
+          row.actual_value
+        )}，流水算出来是 ${reconQuantity(
+          row.expected_value
+        )}。重算后账上会改成流水的结果，流水净额为 0 时这条持仓会被标记为已清仓。`,
+        "按流水重算份额",
+        { type: "warning", confirmButtonText: "重算", cancelButtonText: "取消" }
+      );
+    } catch {
+      return; // 用户取消
+    }
+    try {
+      const res = await applyAdjustment(buildRecomputePayload(row));
+      ElMessage.success(recomputeResultMessage(res.data));
+      await loadDiscrepancies();
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "重算失败");
+    }
+  }
+
   /** 加载域 D：未忽略组 + 已忽略清单（一个接口拿不到两者，两次调用并发） */
   async function loadGhostDuplicates(): Promise<void> {
     ghostLoading.value = true;
@@ -601,6 +639,7 @@ export function useWorkbenchDomains() {
     discardCandidates,
     handleRun,
     handleIgnore,
+    handleRecompute,
     handleEAccountCover,
     handleEAccountIgnore
   };

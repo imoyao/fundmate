@@ -72,12 +72,16 @@ export function ignoreDiscrepancy(
 export interface AdjustmentPayload {
   /**
    * increment 补一笔流水 / set 用户手填份额成本 / anchor 以持仓现值写锚点（#3125）
+   * / recompute 按流水重算份额（#3134）
    *
    * `anchor` 与 `set` 的区别只有一个：份额与成本由**后端从持仓读取**，不由用户手填。
    * 差异行只有份额（`actual_value`）没有成本价，让它代劳要么前端多取一次持仓、
    * 要么用户手抄——后者正是 no_anchor 卡片要避免的事。
+   *
+   * `recompute` 只传差异编号 + 标的，份额按该持仓名下流水派生；`quantity` 类差异
+   * 走 `increment` 是**无效动作**（同时写流水与持仓，差额两端同步移动）。
    */
-  kind?: "increment" | "set" | "anchor";
+  kind?: "increment" | "set" | "anchor" | "recompute";
   op_type?: string;
   discrepancy_id?: number;
   reason?: string;
@@ -112,12 +116,28 @@ export interface AdjustmentResult {
     expected_value: number | null;
     actual_value: number | null;
   };
+  /** kind=recompute 的重算明细（份额 / 成本改前改后、是否删行） */
+  recompute?: {
+    log_id: number;
+    position_id: number;
+    symbol: string;
+    /** 无流水且无锚点 ⇒ 空壳行被物理删除（此时 quantity_after 记 0） */
+    deleted: boolean;
+    changed: boolean;
+    quantity_before: number;
+    quantity_after: number;
+    avg_price_before: number;
+    avg_price_after: number;
+    ownership_status_before: string;
+    ownership_status_after: string;
+  };
 }
 
 /**
  * 就地补充/调整（§5.4 / P2）：工作台内直接补录，绝不跳「记一笔」。
  * - increment：补一笔缺失买卖 → process_buy_or_deposit / process_sell_or_withdraw（写流水+持仓）
  * - set：期初建仓 / 直接改数量成本 → upsert_from_holding（SET 语义，不建流水）
+ * - recompute：按流水派生结果覆写持仓份额 → recompute_discrepancy_shares（#3134）
  */
 export function applyAdjustment(
   payload: AdjustmentPayload

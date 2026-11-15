@@ -14,7 +14,12 @@
  * 放在 `.vue` 里只能靠人肉走查，放到这里就能被 `vitest` 咬住。
  */
 
-import type { AdjustmentPayload, DiscrepancyItem } from "@/api/reconciliation";
+import type {
+  AdjustmentPayload,
+  AdjustmentResult,
+  DiscrepancyItem
+} from "@/api/reconciliation";
+import { reconQuantity } from "./reconDisplay";
 
 /** 三种裁决形态（与后端 `apply_decision` 的 kind 对齐） */
 export type SupplementKind = "increment" | "set" | "anchor";
@@ -93,6 +98,45 @@ export function adjustmentSuccessMessage(
   return kind === "set" ? "持仓已改" : "这笔已补上";
 }
 
+/**
+ * 「按流水重算份额」的请求体（#3134）。
+ *
+ * 只传差异编号 + 标的：份额、成本一律由后端按持仓名下流水派生，前端多传一个数字就是
+ * 多一个把持仓写错的机会（与 `anchor` 同一约定）。`symbol` / `ledger_id` 只用于报错时
+ * 指认对象——后端以差异行为准。
+ */
+export function buildRecomputePayload(row: DiscrepancyItem): AdjustmentPayload {
+  return {
+    kind: "recompute",
+    discrepancy_id: row.id,
+    symbol: row.symbol,
+    ledger_id: row.ledger_id
+  };
+}
+
+/**
+ * 重算后的结果文案。
+ *
+ * 三种结局都必须说清，因为它们的下一步完全相反：
+ * - 行被删了（流水一条都没有）—— 持仓没了，得回去补流水重建；
+ * - 差额平了 —— 收工；
+ * - 差额还在 —— 说明流水本身与账单不符，别在这里反复点，去对照投资轨迹。
+ */
+export function recomputeResultMessage(
+  result: AdjustmentResult | undefined
+): string {
+  const done = result?.recompute;
+  if (!done) return "已按流水重算份额";
+  if (done.deleted) {
+    return `这条持仓没有任何流水支撑，已删除（原 ${reconQuantity(done.quantity_before)}）。要用它请在记完流水后重新建仓`;
+  }
+  const after = reconQuantity(done.quantity_after);
+  if (result?.discrepancy?.status === "cleared") {
+    return `已按流水改成 ${after}，这条差异已平`;
+  }
+  return `已按流水改成 ${after}，但差额仍在：对照「投资轨迹」看看是不是流水本身没记全`;
+}
+
 /** 弹窗里与模式相关的三段文案 */
 export interface SupplementLabels {
   /** 动作短名（弹窗标题与按钮共用，避免「标题说补录、按钮写基准」） */
@@ -115,7 +159,7 @@ export function supplementLabels(kind: SupplementKind): SupplementLabels {
   }
   if (kind === "set") {
     return {
-      action: "补录这笔",
+      action: "改成账单份额",
       explain:
         "把账上的份额和成本直接改成你填的数。适合券商账单显示的就是当前持仓、只是我们这边记错了的情况。",
       submit: "改成这个持仓"
