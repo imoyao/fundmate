@@ -61,7 +61,10 @@ import { computed, ref, watch } from "vue";
 import type { DanglingRefGroup } from "@/api/reconciliation";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type { DanglingStage } from "../utils/danglingRefEnrichScope";
-import { DANGLING_STAGES } from "../utils/danglingRefEnrichScope";
+import {
+  DANGLING_STAGES,
+  groupUniqueKey
+} from "../utils/danglingRefEnrichScope";
 import { danglingStageHeading, danglingStageItem } from "../utils/reconQueue";
 import type { ReconQueueItem } from "../utils/reconQueue";
 import DomainFDanglingRefs from "./DomainFDanglingRefs.vue";
@@ -111,14 +114,14 @@ const batchVisible = ref(false);
 const focusedItem = computed<ReconQueueItem | null>(() => {
   if (focusKey.value === null) return null;
   for (const seg of segments.value) {
-    const group = seg.groups.find(g => g.key === focusKey.value);
+    const group = seg.groups.find(g => groupUniqueKey(g) === focusKey.value);
     if (group) return danglingStageItem(seg.stage, [group]);
   }
   return null;
 });
 
 function focusGroup(stage: DanglingStage, group: DanglingRefGroup): void {
-  focusKey.value = group.key;
+  focusKey.value = groupUniqueKey(group);
   emit("update:focusItem", danglingStageItem(stage, [group]));
 }
 
@@ -133,7 +136,9 @@ function clearFocus(): void {
 watch(segments, segs => {
   if (
     focusKey.value !== null &&
-    !segs.some(seg => seg.groups.some(g => g.key === focusKey.value))
+    !segs.some(seg =>
+      seg.groups.some(g => groupUniqueKey(g) === focusKey.value)
+    )
   ) {
     clearFocus();
   }

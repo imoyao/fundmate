@@ -446,13 +446,21 @@ export interface DanglingRefTransaction {
 /** 一个待修复分组（GET /api/reconciliation/dangling-refs/ 的 groups 元素） */
 export interface DanglingRefGroup {
   key: string;
+  /**
+   * 组卡唯一键：`key` 是 `ledger|symbol`（核对差异的覆盖判定按它比对），symbol 为空的
+   * 组会按标的名拆成多组、`key` 因此可能重复；`group_id` 才是 `:key` / 折叠面板用的唯一键。
+   */
+  group_id?: string;
   ledger_id: number;
   symbol: string;
   /**
    * 组内流水的标的展示名（后端取 transactions.position_name，回退 positions.name）；
-   * 可能为 null —— null 时前端退回代码，不许臆造名称。
+   * 可能为 null —— null 时前端退回代码，不许臆造名称。组内混了多个标的时会写成
+   * 「优彩转债 等 114 个标的」，不会再只报第一个名字。
    */
   display_name?: string | null;
+  /** 这组流水实际涉及几个标的（按标的名反查 symbol 合并）；>1 时后端判 blocked */
+  identity_count?: number;
   txn_count: number;
   dangling_position_ids: number[];
   net_units: number;

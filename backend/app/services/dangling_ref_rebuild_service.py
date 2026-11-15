@@ -37,8 +37,7 @@
 - ``Transaction`` 不携带 ``market`` / ``currency``，重建行取默认值（``CN_A`` / ``CNY``）；
 - 重建行的 ``source`` 是模型默认值（``manual``）：流水里没有「这条持仓从哪来」的信息，
   来源以审计日志为准，不去猜 ``PositionSource`` 的枚举值；
-- 净额 ≤ 0 的组**拒绝重建**：买卖已对冲、没有有效持仓可建，硬建只会得到一行 0 份额的
-  空壳。这类组应走「回补关联」或「删除」。
+- 净额 ≤ 0 的组**拒绝重建**（买卖已对冲，硬建只得到 0 份额空壳），这类组走「回补」或「删除」。
 
 ## 事务边界
 
@@ -58,9 +57,13 @@ from app.domains.positions.state import derive_state_from_txns
 from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.dates import order_by_effective_day
 from app.domains.transactions.models import Transaction
+from app.services.dangling_identity import (
+    dangling_condition,
+    identity_count,
+    name_symbol_index,
+)
 from app.services.dangling_ref_remediation_service import _load_log, _require_confirm
 from app.services.dangling_ref_service import (
-    _dangling_condition,
     _load_dangling_by_ids,
     _normalize_ids,
     scan_dangling_refs,
@@ -90,8 +93,12 @@ def _resolve_symbol_and_name(txns: list[Transaction]) -> tuple[str | None, str |
     return symbol, name
 
 
-def _identity_block(ordered: list[Transaction], symbol: str | None, ledger_id, asset_types: set) -> str | None:
+def _identity_block(
+    ordered: list[Transaction], symbol: str | None, ledger_id, asset_types: set, identity_count: int
+) -> str | None:
     """身份类拒绝原因（标的 / 账本 / 资产类型）——这几条决定「要建的是哪一个持仓」。"""
+    if identity_count > 1:
+        return f'这批流水分属 {identity_count} 个不同标的，不能合并成一个持仓；请按标的分别重建'
     if any(not (t.symbol or '').strip() for t in ordered):
         return '这批流水里有的没填标的代码，无法确定要重建哪个持仓；先在「补全信息」里补上代码'
     if symbol is None:
@@ -152,7 +159,8 @@ def plan_rebuild(db: Session, family_id: int, transaction_ids) -> dict:
         'warnings': [],
     }
 
-    reason = _identity_block(ordered, symbol, plan['ledger_id'], asset_types)
+    identity = identity_count(ordered, name_symbol_index(db, family_id))
+    reason = _identity_block(ordered, symbol, plan['ledger_id'], asset_types, identity)
     if reason is None:
         reason = _cost_block(db, family_id, ordered, plan, symbol or '')
     if reason is not None:
@@ -179,7 +187,7 @@ def _sibling_gap_warning(db: Session, family_id: int, ordered: list[Transaction]
     sibling_ids = {
         row.id
         for row in db.query(Transaction.id).filter(
-            _dangling_condition(family_id),
+            dangling_condition(family_id),
             Transaction.ledger_id == ledger_id,
             Transaction.symbol == symbol,
         )

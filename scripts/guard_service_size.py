@@ -226,8 +226,8 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
     "backend/app/services/cross_domain.py": {'lines': 221, 'max_func': 54, 'max_cc': 15},
     "backend/app/services/daily_scheduler.py": {'lines': 1136, 'max_func': 39, 'max_cc': 10},
-    "backend/app/services/dangling_ref_remediation_service.py": {'lines': 541, 'max_func': 58, 'max_cc': 11},
-    "backend/app/services/dangling_ref_service.py": {'lines': 607, 'max_func': 88, 'max_cc': 15},
+    "backend/app/services/dangling_ref_remediation_service.py": {'lines': 539, 'max_func': 58, 'max_cc': 11},
+    "backend/app/services/dangling_ref_service.py": {'lines': 587, 'max_func': 86, 'max_cc': 15},
     "backend/app/services/dividend_service.py": {'lines': 465, 'max_func': 112, 'max_cc': 25},
     # 2026-11-08：货基免税判定（#1661）曾把服务推到 662 行 / cc 34，触发本守卫。
     #   纯规则拆到 `services/dividend_tax_rules.py`（`is_dividend_income` /

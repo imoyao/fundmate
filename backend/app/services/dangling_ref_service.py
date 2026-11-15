@@ -64,13 +64,21 @@ import json
 from collections import defaultdict
 from datetime import datetime
 
-from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.models import Transaction
+from app.services.dangling_identity import (
+    block_reason,
+    dangling_condition,
+    display_name,
+    identity_count,
+    name_symbol_index,
+    position_candidates,
+    require_single_identity,
+)
 
 #: 净额方向：进入持仓 / 离开持仓（口径由契约给定，与 audit_orphan_batches 的 BUY/SELL 略不同：
 #: 这里把 deposit/split/withdraw 也纳入，且 sell/withdraw 直接减 quantity、不取 abs）。
@@ -85,35 +93,6 @@ MAX_TRANSACTION_IDS = 500
 
 #: 净额与现存份额的可容忍差异（份），超过即 net_mismatch。
 NET_MISMATCH_TOLERANCE = 0.0001
-
-#: 候选持仓最多返回条数。
-MAX_CANDIDATES = 20
-
-
-def _dangling_condition(family_id: int):
-    """悬空检出条件（#2866 契约口径），返回可直接喂给 ``filter()`` 的表达式。
-
-    ``Transaction.position_id IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM positions p
-                       WHERE p.id = transactions.position_id
-                         AND p.family_id = :family_id)
-       AND transactions.family_id = :family_id``
-
-    ``.correlate(Transaction.__table__)`` 把 transactions 从子查询 FROM 里排除、作为外层
-    引用：否则 EXISTS 会退化成「全库任意一条流水匹配任意持仓」的非相关子查询，库里只要
-    存在一条正常流水 NOT EXISTS 就恒假，检出彻底失效。相关子查询能在「有持仓行 / 无持仓行」
-    两种情况下精确区分，是本模块正确性的命门（见测试的变异探针）。
-    """
-    live = exists(
-        select(Position.id)
-        .where(Position.id == Transaction.position_id, Position.family_id == family_id)
-        .correlate(Transaction.__table__)
-    )
-    return and_(
-        Transaction.family_id == family_id,
-        Transaction.position_id.isnot(None),
-        ~live,
-    )
 
 
 def _normalize_ids(raw) -> list[int]:
@@ -145,7 +124,7 @@ def _load_dangling_by_ids(db: Session, family_id: int, ids: list[int]) -> list[T
     这是硬约束 2 的落点：防止把已修好（position_id 已指向现存持仓）的 id 再挂一次。
     任一 id 不在检出集合里 → 整体抛 ValueError，不写任何东西。
     """
-    rows = db.query(Transaction).filter(_dangling_condition(family_id), Transaction.id.in_(ids)).all()
+    rows = db.query(Transaction).filter(dangling_condition(family_id), Transaction.id.in_(ids)).all()
     found = {t.id: t for t in rows}
     missing = [i for i in ids if i not in found]
     if missing:
@@ -304,37 +283,18 @@ def _build_batches(rows: list[Transaction]) -> tuple[list[dict], dict, dict]:
     return batches, txn_to_batch, {b['id']: b['label'] for b in batches}
 
 
-def _group_candidates(ledger_positions: list[Position], symbol: str) -> tuple[list[Position], Position | None]:
-    """候选只列「同账本且同标的」的现存持仓；空 symbol 一律不给候选。
-
-    reattach 硬校验 symbol 一致，列出别的标的只会诱导用户挂错。真库最大一组是
-    293 条空 symbol 卖出流水，旧实现给它 20 个无关候选（同账本任意持仓前 20 条），
-    等于让用户瞎猜。
-    """
-    if not symbol:
-        return [], None
-    same_symbol = [p for p in ledger_positions if (p.symbol or '') == symbol]
-    return same_symbol[:MAX_CANDIDATES], (same_symbol[0] if same_symbol else None)
-
-
-def _group_block_reason(symbol: str, cands: list[Position]) -> tuple[bool, str | None]:
-    """可否安全回补的单一真相源（前端只显示结果，不自行推导）；文案须指向界面上真有的按钮。"""
-    if not symbol:
-        return False, '这批流水缺标的代码，无法判定归属；需先补全 symbol 才能回补'
-    if not cands:
-        return False, '同账本没有同标的的现存持仓行，无法挂回；可按流水重建持仓'
-    return True, None
-
-
 def _group_flags(
     symbol: str,
     cands: list[Position],
     live: Position | None,
     net_units: float,
     fixable: bool,
+    identity_count: int = 1,
 ) -> list[str]:
     """分组标签。net_mismatch 只作展示提示，不阻断「只改指针」的回补动作。"""
     flags = []
+    if identity_count > 1:
+        flags.append('mixed_identity')
     if not symbol:
         flags.append('no_symbol')
     if cands:
@@ -355,18 +315,28 @@ def _build_group(
     ledger_positions: list[Position],
     first_batch_id: int,
     batch_label: str,
+    name_index: dict[str, set[str]],
 ) -> dict:
-    """组装单个 (ledger, symbol) 分组；判据全部来自 ``_group_*`` 系列函数。display_name 取名链 live→候选→流水快照，首个非空。"""
-    cands, live = _group_candidates(ledger_positions, symbol)
-    fixable, block_reason = _group_block_reason(symbol, cands)
+    """组装单个分组；判据来自 ``_group_*``。``key`` 供核对差异的覆盖判定（ledger|symbol），
+    ``group_id`` 才是唯一键——symbol 为空时同一账本按标的名拆成多组，key 会重复。
+    """
+    cands, live = position_candidates(ledger_positions, symbol)
+    identity = identity_count(txns, name_index)
+    fixable, reason = block_reason(symbol, cands, identity)
     net_units = _shares(_net_min_units(txns))
     # display_name 与域 B/C 对齐：悬空流水引用的持仓已删，名字只能从 live / 候选 / 流水快照按优先级捞
     name_pool = [live.name if live is not None else None, *(p.name for p in cands), *(t.position_name for t in txns)]
+    one_name = next((n for n in name_pool if n), None)
+    shown_name = display_name(one_name, identity)
+    name_key = (txns[0].position_name or '').strip() if not symbol else ''
+    group_id = f'{ledger_id}|{symbol}|{name_key}' if name_key else f'{ledger_id}|{symbol}'
     return {
         'key': f'{ledger_id}|{symbol}',
+        'group_id': group_id,
         'ledger_id': ledger_id,
         'symbol': symbol,
-        'display_name': next((n for n in name_pool if n), None),
+        'display_name': shown_name,
+        'identity_count': identity,
         'txn_count': len(txns),
         'dangling_position_ids': sorted({t.position_id for t in txns if t.position_id is not None}),
         'net_units': net_units,
@@ -374,9 +344,9 @@ def _build_group(
         'candidates': [_pos_brief(p) for p in cands],
         'batch_id': first_batch_id,
         'batch_label': batch_label,
-        'flags': _group_flags(symbol, cands, live, net_units, fixable),
+        'flags': _group_flags(symbol, cands, live, net_units, fixable, identity),
         'fixable': fixable,
-        'block_reason': block_reason,
+        'block_reason': reason,
         'transactions': [_txn_brief(t) for t in txns],
     }
 
@@ -385,13 +355,14 @@ def scan_dangling_refs(db: Session, family_id: int) -> dict:
     """列出当前家庭全部悬空流水（GET /dangling-refs/ 的数据源，纯只读）。
 
     返回结构与前端契约一一对应：total / group_count / batch_count / null_symbol /
-    null_trade_date 为全局计数；groups 按 (ledger_id, symbol or '') 分组，空 symbol
-    独立成组（不与有 symbol 的组混合）；batches 是全局按 created_at 聚簇的批次。
+    null_trade_date 为全局计数；groups 按 (ledger_id, symbol) 分组，symbol 为空时再按
+    标的名拆开（缺码流水彼此之间只有标的名能证明是不是同一只）；batches 是全局按
+    created_at 聚簇的批次。
 
     职责拆成「取数 → 批次 → 分组 → 单组组装」四段，单函数圈复杂度留给
     ``scripts/guard_service_size.py`` 守住（新增服务 max_cc ≤ 20）。
     """
-    dangling = db.query(Transaction).filter(_dangling_condition(family_id)).all()
+    dangling = db.query(Transaction).filter(dangling_condition(family_id)).all()
     total = len(dangling)
     # 全局计数（对全部悬空流水统计，不是分组求和）
     null_symbol = sum(1 for t in dangling if not t.symbol)
@@ -400,14 +371,17 @@ def scan_dangling_refs(db: Session, family_id: int) -> dict:
     rows = sorted(dangling, key=lambda t: (t.created_at is None, t.created_at or datetime.min, t.id))
     batches, txn_to_batch, batch_labels = _build_batches(rows)
     by_ledger = _load_positions_by_ledger(db, family_id)
+    name_index = name_symbol_index(db, family_id)
 
-    # 分组键 (ledger_id, symbol or '')；rows 已按 created_at 排好，组内顺序稳定。
+    # 分组键 (ledger_id, symbol, name_key)：symbol 存在时 name_key 为空（同一标的的不同
+    # 写法不该拆组）；为空时按标的名拆，否则整本账的缺码流水并成一组、被一次补全刷成同一代码。
     grouped = {}
     for t in rows:
-        grouped.setdefault((t.ledger_id, t.symbol or ''), []).append(t)
+        name_key = '' if t.symbol else (t.position_name or '').strip()
+        grouped.setdefault((t.ledger_id, t.symbol or '', name_key), []).append(t)
 
     groups = []
-    for (ledger_id, symbol), txns in grouped.items():
+    for (ledger_id, symbol, _name_key), txns in grouped.items():
         # 一个组可能跨多个批次，这里取组内最早一条流水所属的批次（组内按 created_at 升序）。
         first_batch_id = txn_to_batch[txns[0].id]
         groups.append(
@@ -418,6 +392,7 @@ def scan_dangling_refs(db: Session, family_id: int) -> dict:
                 by_ledger.get(ledger_id, []),
                 first_batch_id,
                 batch_labels[first_batch_id],
+                name_index,
             )
         )
 
@@ -447,6 +422,13 @@ def preview_reattach(db: Session, family_id: int, transaction_ids, target_positi
     txns = _load_dangling_by_ids(db, family_id, ids)
     target = _load_target(db, family_id, target_position_id)
     safe, warnings, q_before, q_if, delta = _assess_safety(txns, target)
+    # 混标的的组不能挂：symbol 一致只能证明「写着同一个代码」，不能证明「同一只标的」
+    # （真库 2026-11-15：293 条 114 个标的被补成同一个 symbol）。这条与写入时的校验同源，
+    # 预览不拦就只会在点确认后 400，等于让用户白点一次。
+    identity = identity_count(txns, name_symbol_index(db, family_id))
+    if identity > 1:
+        safe = False
+        warnings.insert(0, f'选中的流水混了 {identity} 个不同标的，整组回补会挂错标的；请按标的分别处理')
     return {
         'txn_count': len(txns),
         'target_position': _pos_brief(target),
@@ -494,7 +476,8 @@ def reattach_transactions(
     txns = _load_dangling_by_ids(db, family_id, ids)
     target = _load_target(db, family_id, target_position_id)
 
-    # 约束 3：ledger 一致，且 txn.ledger_id 不得为 NULL（否则无法判定归属）。
+    # 约束 3 / 3b：ledger 一致且非空；symbol 非空且与目标持仓完全一致。
+    # 真库 295 条悬空流水缺 symbol，只校验 ledger 会让用户把 A 标的流水挂到 B 标的上。
     for t in txns:
         if t.ledger_id is None:
             raise ValueError(f'流水 {t.id} 的 ledger_id 为空，无法判定目标持仓归属，拒绝挂回')
@@ -502,18 +485,15 @@ def reattach_transactions(
             raise ValueError(
                 f'流水 {t.id} 的 ledger_id={t.ledger_id} 与目标持仓 ledger_id={target.ledger_id} 不一致，拒绝跨账户挂回'
             )
-
-    # 约束 3b：symbol 必须非空且与目标持仓完全一致。
-    # 真库 295 条悬空流水缺 symbol、最大一组 293 条全是卖出；若只校验 ledger，
-    # 用户从「同账本 20 个候选」里随手选一个就会把 A 标的流水挂到 B 标的上。
-    # safe=false 只是数据不自洽的提示，不能替代这条硬校验（挂错标的比不改更坏）。
-    for t in txns:
         if not t.symbol:
             raise ValueError(f'流水 {t.id} 缺标的代码，无法判定归属；请先补全 symbol 再回补')
         if t.symbol != target.symbol:
             raise ValueError(
                 f'流水 {t.id} 的 symbol={t.symbol!r} 与目标持仓 {target.symbol!r} 不一致，拒绝挂到别的标的上'
             )
+
+    # 约束 3c：symbol 一致 ≠ 同一标的（真库 293 条、114 个标的同被写成 127078）
+    require_single_identity(db, family_id, txns, '回补', txns[0].symbol)
 
     # —— 以下才开始写；任何抛错分支都在上面，保证「整体 400、不写任何东西」——
     # 份额在挂回前后一字不动：这里取一次值，写后不重算、不读回（读回也只会相同）。
