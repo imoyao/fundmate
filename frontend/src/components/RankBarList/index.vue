@@ -83,16 +83,16 @@ defineProps<{
 
 .rank-bar-name {
   overflow: hidden;
-  color: var(--text-primary);
   text-overflow: ellipsis;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
 .rank-bar-sub {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
