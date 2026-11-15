@@ -30,11 +30,29 @@
 -->
 <template>
   <template v-if="visible">
-    <SectionHeader
-      :id="anchorId"
-      title="类现金"
-      info="类现金 = 随时可变现、不承担净值波动的资金。含四部分：持仓内货基、账外孤儿货基/逆回购流水、账户现金。"
-    >
+    <SectionHeader :id="anchorId" title="类现金" info-label="类现金口径说明">
+      <!-- 口径说明移进 ⓘ（2026-11-15）：原来卡片下面平铺 4 段、共 6 行的解释，
+           把「我今天有多少活钱」压成了一段方法论。这里保留完整口径（原样、不改写），
+           但只在需要时才展开；卡面只留数字。 -->
+      <template #info>
+        <p>
+          类现金 = 随时可变现、不承担净值波动的资金：持仓内货基、账外孤儿货基 /
+          逆回购流水、账户现金。
+        </p>
+        <p>
+          环形图两片是「持仓市值的划分」，合计等于上方总资产
+          {{ formatAmount(totalMarketValue) }}
+          元；「账外孤儿流水」与「账户现金」
+          不建持仓、不在环形图内，故环形图合计 ≠ 类现金合计。
+        </p>
+        <p v-if="orphanIncome > 0">
+          另有账外渠道收益 {{ formatAmount(orphanIncome) }}
+          元（已计入家庭总资产，不重复计本金）。
+        </p>
+        <p>
+          账户现金录进来即归「活钱」，与持仓内货基、账外流水并列统计；逆回购到期后点「到期回款」结清。
+        </p>
+      </template>
       <!-- 操作统一放标题行右侧（全站 #action 惯例）：此前「录入账户现金」夹在
            指标卡与说明段落之间，看起来像说明文字的行首。窄容器会收缩 #action，
            故槽内 flex-wrap（SectionHeader 头注释 #2039）。 -->
@@ -62,30 +80,38 @@
            全为 0 时不画四个 0.00 指标卡（那是噪声），改为一句诚实的空态说明
            + 录入入口（G5 的前提：空态要能让用户当场动手，而不只是「没有数据」）。 -->
       <MetricGrid v-if="!isEmpty">
+        <!-- 只有一个成员时，「合计」与它逐字相等（实测：账外孤儿 465,275.78 与合计
+             一模一样），并列两个数只会让人以为看花眼——此时不画合计。 -->
         <MetricCard
+          v-if="memberCount > 1"
           title="类现金合计"
           :value="formatAmount(total)"
           unit="元"
           featured
-          caption="下列四项之和"
+          caption="下列各项之和"
         />
+        <!-- 成员值为 0 就不画（2026-11-15）：证券账户的「持仓内货基 0.00」这种格子
+             只贡献一个 0，却占 1/3 行宽，把真正的「账外孤儿流水」挤到右边。 -->
         <MetricCard
+          v-if="inPositions > 0"
           title="持仓内货基"
           :value="formatAmount(inPositions)"
           unit="元"
-          caption="已建持仓，在环形图内"
+          caption="已建持仓，计入持仓市值"
         />
         <MetricCard
+          v-if="orphanNet !== 0"
           title="账外孤儿流水"
           :value="formatAmount(orphanNet)"
           unit="元"
-          caption="不建持仓，故不在环形图内"
+          caption="不建持仓，不计入持仓市值"
         />
         <MetricCard
+          v-if="accountCash > 0"
           title="账户现金"
           :value="formatAmount(accountCash)"
           unit="元"
-          caption="不建持仓，故不在环形图内"
+          caption="不建持仓，不计入持仓市值"
         />
       </MetricGrid>
 
@@ -102,30 +128,15 @@
       <!-- 与「总资产」的关系必须在 UI 上说清楚（卡面验收第 2 条）。
            环形图合计 = 总资产 = 持仓市值，账外类现金不在其中 —— 这是 D59 解耦的
            可见后果，不说就会变成「新增一个困惑」。 -->
-      <div v-if="!isEmpty" class="cash-like-notes">
-        <p class="cash-like-notes__line">
-          环形图两片是「持仓市值的划分」，合计等于上方总资产
-          {{ formatAmount(totalMarketValue) }}
-          元；「账外孤儿流水」与「账户现金」不建持仓、不在环形图内，故
-          <strong>环形图合计 ≠ 类现金合计</strong>。
-        </p>
-        <p v-if="orphanIncome > 0" class="cash-like-notes__line">
-          另有账外渠道收益
-          {{ formatAmount(orphanIncome) }} 元（已计入家庭总资产，
-          不重复计本金）。
-        </p>
-        <p class="cash-like-notes__line">
-          账户现金录进来即归「活钱」，与持仓内货基、账外流水并列统计；
-          逆回购到期后点「到期回款」结清，即卖出这笔在途本金。
-        </p>
-        <p
-          v-if="hasOrphan"
-          class="cash-like-notes__line cash-like-notes__line--warn"
-        >
-          这笔账外流水缺少来源信息（交易日 / 代码 / 来源渠道多为空），
-          无法逐笔下钻对账。去对账中心核对之前，请把本区块视为「待核实」口径。
-        </p>
-      </div>
+      <!-- 只剩「这条要看仔细」的一句：其余口径解释已进 ⓘ。原来这里 4 段 6 行，
+           视觉上比数字本身还重。 -->
+      <p
+        v-if="hasOrphan"
+        class="cash-like-notes__line cash-like-notes__line--warn"
+      >
+        这笔账外流水缺少来源信息（交易日 / 代码 /
+        渠道），无法逐笔下钻对账——核对前请按「待核实」看待。
+      </p>
 
       <!-- 逐产品明细：卡面验收第 2 条「给出可见的解释与去向」的载体。 -->
       <template v-if="breakdown.length">
@@ -245,6 +256,14 @@ const total = computed(() => props.summary?.cash_like_amount ?? 0);
 const totalMarketValue = computed(() => props.summary?.total_market_value ?? 0);
 
 const hasOrphan = computed(() => orphanNet.value !== 0);
+
+/** 有金额的成员个数（0 = 空态；1 = 只画那一个成员，不画合计）。 */
+const memberCount = computed(
+  () =>
+    (inPositions.value > 0 ? 1 : 0) +
+    (orphanNet.value !== 0 ? 1 : 0) +
+    (accountCash.value > 0 ? 1 : 0)
+);
 
 /**
  * 本账户完全没有任何类现金成员（无持仓内货基、无账外流水、无现金行）。

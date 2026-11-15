@@ -15,7 +15,20 @@
 -->
 <template>
   <div class="position-structure">
-    <SectionHeader title="持仓结构" :info="panelInfo">
+    <SectionHeader title="持仓结构" info-label="持仓结构口径说明">
+      <!-- 口径（含后端下发的 notes）收进 ⓘ：原来它是区块尾部 5 段小字，
+           占 200+px 且把 Top 榜推走。原样展示、不改写，只是换了个入口。 -->
+      <template #info>
+        <p>{{ panelInfo }}</p>
+        <p v-for="(note, i) in data?.notes ?? []" :key="i">{{ note }}</p>
+        <p v-if="hasCashLike">
+          另有类现金
+          {{
+            formatAmount(data?.cash_like_cny ?? 0)
+          }}（货币基金等现金等价物）未计入上述持仓，故各类占比之和为 100%
+          的持仓口径，不含这部分现金。
+        </p>
+      </template>
       <template #action>
         <SegmentedControl
           v-if="showSwitcher"
@@ -33,27 +46,21 @@
     </SoftBanner>
 
     <template v-else-if="data">
+      <!-- 金额为 0 的类别不占格（2026-11-15）：证券账户恒有「基金 0.00 / 其他 0.00」
+           两张空卡，把「股票 99 万」挤成三选一。 -->
       <MetricGrid>
         <MetricCard
-          title="股票"
-          :value="classAmount('stock')"
-          :caption="`占${scopeUnit} ${classRatio('stock')} · ${groupCount('stock')} 只`"
-          featured
-        />
-        <MetricCard
-          title="基金"
-          :value="classAmount('fund')"
-          :caption="`占${scopeUnit} ${classRatio('fund')} · ${groupCount('fund')} 只`"
-        />
-        <MetricCard
-          title="其他"
-          :value="classAmount('other')"
-          :caption="`占${scopeUnit} ${classRatio('other')}（债 / 货基 / 逆回购）`"
+          v-for="cls in nonEmptyClasses"
+          :key="cls.key"
+          :title="cls.label"
+          :value="classAmount(cls.key)"
+          :caption="cls.caption"
+          :featured="cls.key === 'stock'"
         />
         <MetricCard
           title="前 5 集中度"
           :value="pct(data.concentration.top5_ratio_of_total)"
-          :caption="`前 5 大持仓占${scopeUnit}（含债/货基，故常高于组内集中度）`"
+          :caption="`前 5 大持仓占${scopeUnit}`"
         />
       </MetricGrid>
 
@@ -62,11 +69,14 @@
           <h4 class="group-title">
             {{ activeGroup.label }} Top {{ activeGroup.top.length }}
           </h4>
-          <p class="group-meta">
-            组内前 5 集中度 {{ pct(activeGroup.top5_ratio_of_group) }} · 占{{
-              scopeUnit
-            }}
-            {{ pct(activeGroup.top5_ratio_of_total) }}
+          <!-- 组内集中度只在**真的与上方卡片不同**时才写（2026-11-15）：
+               证券账户的股票类就是整个账户，卡片「前 5 集中度 15.7%」与这里
+               「组内前 5 集中度 15.7%」逐字相同，两个 15.7% 并排只会让人以为看错。 -->
+          <p v-if="showGroupRatio" class="group-meta">
+            组内前 5 集中度 {{ pct(activeGroup.top5_ratio_of_group) }}
+            <template v-if="showTotalRatioCol">
+              · 占{{ scopeUnit }} {{ pct(activeGroup.top5_ratio_of_total) }}
+            </template>
           </p>
         </div>
 
@@ -78,7 +88,9 @@
             <tr>
               <th>标的</th>
               <th class="detail-table__num">市值</th>
-              <th class="detail-table__num">占{{ scopeUnit }}</th>
+              <th v-if="showTotalRatioCol" class="detail-table__num">
+                占{{ scopeUnit }}
+              </th>
               <th class="detail-table__num">占{{ activeGroup.label }}</th>
             </tr>
           </thead>
@@ -94,26 +106,14 @@
               <td class="detail-table__num">
                 {{ formatAmount(row.value_cny) }}
               </td>
-              <td class="detail-table__num">{{ pct(row.ratio_of_total) }}</td>
+              <td v-if="showTotalRatioCol" class="detail-table__num">
+                {{ pct(row.ratio_of_total) }}
+              </td>
               <td class="detail-table__num">{{ pct(row.ratio_of_group) }}</td>
             </tr>
           </tbody>
         </table>
       </CardBlock>
-
-      <div class="structure-footnote">
-        <span class="structure-footnote__label">口径说明</span>
-        <ul class="notes-list">
-          <li v-for="(note, i) in data.notes" :key="i">{{ note }}</li>
-          <!-- 账户级排除了走类现金的货基 ⇒ 占比分母是「持仓总额」而非账户总资产，
-               必须显式说明，否则三类占比之和对不上用户心里的账户总额，像数据丢了。 -->
-          <li v-if="hasCashLike">
-            另有类现金
-            {{ formatAmount(data.cash_like_cny) }}（货币基金等现金等价物）
-            未计入上述持仓，故各类占比之和为 100% 的持仓口径，不含这部分现金。
-          </li>
-        </ul>
-      </div>
     </template>
   </div>
 </template>
@@ -188,6 +188,69 @@ const hasCashLike = computed(() => (data.value?.cash_like_cny ?? 0) > 0);
 const activeGroup = computed(
   () => data.value?.groups?.[fixedView.value ?? activeClass.value]
 );
+
+/** 类别金额（元）。0 = 该账户没有这一类持仓。 */
+function classValue(key: string): number {
+  return (
+    data.value?.by_asset_class.find(item => item.key === key)?.value_cny ?? 0
+  );
+}
+
+/**
+ * 只渲染**有金额**的类别卡（2026-11-15）。
+ *
+ * 证券账户恒为「股票 99 万 / 基金 0.00 / 其他 0.00」——两张 0 卡把唯一有数的
+ * 那张挤成三选一，读起来还像「基金一块钱都没了」。金额为 0 即整卡不渲染。
+ */
+const nonEmptyClasses = computed(() => {
+  const meta = [
+    { key: "stock", label: "股票" },
+    { key: "fund", label: "基金" },
+    { key: "other", label: "其他" }
+  ];
+  return meta
+    .filter(item => classValue(item.key) > 0)
+    .map(item => ({
+      key: item.key,
+      label: item.label,
+      caption:
+        item.key === "other"
+          ? `占${scopeUnit.value} ${classRatio("other")}（债 / 货基 / 逆回购）`
+          : `占${scopeUnit.value} ${classRatio(item.key)} · ${
+              data.value?.groups?.[item.key as ClassKey]?.count ?? 0
+            } 只`
+    }));
+});
+
+/**
+ * 「占账户」列是否与「占该类」列有区别。
+ *
+ * 证券账户的股票类**就是**整个账户 ⇒ 两列逐行恒等（实测 5 行全是 3.5%/3.5%）。
+ * 这时第二列是纯噪声，隐掉；跨类别作用域（组合/家庭）两者不同，两列都留。
+ */
+const showTotalRatioCol = computed(() => {
+  const rows = activeGroup.value?.top ?? [];
+  return rows.some(
+    row =>
+      Math.abs((row.ratio_of_total ?? 0) - (row.ratio_of_group ?? 0)) > 0.05
+  );
+});
+
+/**
+ * 表头的「组内前 5 集中度」是否值得写。
+ *
+ * 与上方「前 5 集中度」卡片同因：单类别账户里组内分母 == 账户分母，
+ * 两个数字逐字相等（实测 15.7% / 15.7%）。只保留卡片那一个。
+ */
+const showGroupRatio = computed(() => {
+  const group = activeGroup.value;
+  if (!group) return false;
+  return (
+    Math.abs(
+      (group.top5_ratio_of_group ?? 0) - (group.top5_ratio_of_total ?? 0)
+    ) > 0.05
+  );
+});
 
 const panelInfo = computed(() => {
   const base =
@@ -292,28 +355,5 @@ watch(() => [props.ledgerId, props.portfolioId], load);
   color: var(--text-secondary);
   background: var(--bg-muted);
   border-radius: var(--radius-button);
-}
-
-.structure-footnote {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact);
-  margin-top: var(--space-standard);
-  color: var(--text-tertiary);
-}
-
-.structure-footnote__label {
-  font-size: var(--text-label);
-  font-weight: 600;
-}
-
-.notes-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact);
-  padding-left: var(--space-standard);
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
 }
 </style>

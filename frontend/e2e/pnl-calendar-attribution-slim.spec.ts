@@ -189,7 +189,7 @@ test.describe("收益日历 / 收益归因拆分后回归（#980 批 B4）", () 
     await injectSupabaseSession(context, baseURL!);
   });
 
-  test("合计行：金额与收益率同时显示，且带口径说明", async ({ page }) => {
+  test("合计行：金额与收益率同时显示，口径说明收进标题 ⓘ", async ({ page }) => {
     await mockApis(page, { variant: "ok" });
     await openLedger(page);
 
@@ -203,9 +203,17 @@ test.describe("收益日历 / 收益归因拆分后回归（#980 批 B4）", () 
     // 金额（1234.56）与收益率（2.34%）同处一行：任一缺失都说明搬错了
     await expect(summary).toContainText("1,234.56");
     await expect(summary).toContainText("2.34");
-    // 口径说明是合计行的一部分，不能丢（用户据此理解「存取款不计入」）
-    await expect(summary.locator(".pnl-calendar__summary-note")).toContainText(
-      "口径：当日盈亏＝总盈亏变动，存取款不计入"
+    // 口径说明**不再常驻**合计行（2026-11-15 收敛）：它与标题行 ⓘ 的第一条
+    // 完全同义，两处并存只会把「这个区间到底赚没赚」那一行拉长。
+    // 判据用 toHaveCount(0)：旧代码把小字加回来就必须立刻红，而不是靠
+    // 「文案变了」这种软判断蒙混过去。
+    await expect(summary.locator(".pnl-calendar__summary-note")).toHaveCount(0);
+
+    // 但信息本身不能丢：hover ⓘ 后，同一条口径仍要可读（两种容器共用
+    // `PnlCalendarCaliberTip` / `PnlCalendarCaliberIcon`，各挂一份）。
+    await page.locator(".pnl-calendar .section-header__info").first().hover();
+    await expect(page.locator(".rich-tip .caliber-tip")).toContainText(
+      "充值与提现不计入"
     );
   });
 
