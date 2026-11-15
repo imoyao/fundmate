@@ -72,6 +72,7 @@ def _mk_txn(
     position_id=_DANGLING_PID,
     family_id=_FAMILY,
     symbol='000001',
+    position_name=None,
     asset_type='stock',
     txn_type='buy',
     shares=1.0,
@@ -88,6 +89,7 @@ def _mk_txn(
         position_id=position_id,
         ledger_id=ledger_id,
         symbol=symbol,
+        position_name=position_name,
         asset_type=asset_type,
         txn_type=txn_type,
         quantity=Money.shares_to_min_unit(shares),
@@ -755,3 +757,54 @@ def test_undo_delete_rejects_other_action_log(db, ledger):
         svc.undo_delete(db, _FAMILY, log.id)
     assert db.query(AdjustmentLog).filter_by(action='dangling_ref_delete_undo').count() == 0
     assert db.query(Transaction).filter_by(id=t.id).count() == 1
+
+
+# ── 标的身份闸门（2026-11-15 真库事故：293 条 114 个标的被补成同一个代码） ──
+
+
+def _mk_two_product_pool(db, ledger):
+    """两只债的流水池：正常流水给「标的名 → symbol」建索引，悬空流水待补全。"""
+    pos_a = _mk_pos(db, ledger.id, 'SZ127078', 1.0)
+    pos_b = _mk_pos(db, ledger.id, 'SH110074', 1.0)
+    _mk_txn(db, ledger.id, position_id=pos_a.id, symbol='SZ127078', position_name='优彩转债')
+    _mk_txn(db, ledger.id, position_id=pos_b.id, symbol='SH110074', position_name='精达转债')
+    t1 = _mk_txn(db, ledger.id, symbol=None, position_name='优彩转债')
+    t2 = _mk_txn(db, ledger.id, symbol=None, position_name='精达转债')
+    return t1, t2
+
+
+def test_preview_enrichment_rejects_batch_mixing_multiple_products(db, ledger):
+    """预览阶段就拦：一批分属多个标的的流水不能补成同一个代码。
+
+    293 条流水（114 个标的）被同一次补全写成 127078 后，只能靠 position_name
+    才认得出各自是谁。预览不拦会让用户点确认后才撞 400。
+    """
+    t1, t2 = _mk_two_product_pool(db, ledger)
+
+    with pytest.raises(ValueError, match='不同标的'):
+        svc.preview_enrichment(db, _FAMILY, [t1.id, t2.id], symbol='127078')
+
+
+def test_enrich_transactions_rejects_batch_mixing_multiple_products(db, ledger):
+    """写入闸门：跨标的的批次一律拒绝，且拒绝分支一个字都不改。"""
+    t1, t2 = _mk_two_product_pool(db, ledger)
+    logs_before = db.query(AdjustmentLog).count()
+
+    with pytest.raises(ValueError, match='不同标的'):
+        svc.enrich_transactions(db, _FAMILY, [t1.id, t2.id], symbol='127078', confirm=True)
+
+    assert t1.symbol is None and t2.symbol is None, '拒绝分支不得写 symbol'
+    assert db.query(AdjustmentLog).count() == logs_before, '拒绝分支不得写审计日志'
+
+
+def test_enrich_transactions_still_allows_single_product_batch(db, ledger):
+    """单标的的批次不受影响：同名的两条流水照常补全（闸门不能把正常路径拦掉）。"""
+    pos_a = _mk_pos(db, ledger.id, 'SZ127078', 1.0)
+    _mk_txn(db, ledger.id, position_id=pos_a.id, symbol='SZ127078', position_name='优彩转债')
+    t1 = _mk_txn(db, ledger.id, symbol=None, position_name='优彩转债')
+    t2 = _mk_txn(db, ledger.id, symbol=None, position_name='优彩转债')
+
+    res = svc.enrich_transactions(db, _FAMILY, [t1.id, t2.id], symbol='SZ127078', confirm=True)
+
+    assert res['updated'] == 2
+    assert t1.symbol == t2.symbol == 'SZ127078'

@@ -176,6 +176,21 @@ export function groupStage(
 }
 
 /**
+ * 组卡的稳定唯一键。
+ *
+ * `key` 是后端复合主键 `ledger|symbol`，核对差异的覆盖判定按它比对，**不能**把
+ * 标的名拼进去；但 symbol 为空的组会按标的名拆成多组（真库 2026-11-15：293 条
+ * 缺码流水分属 114 个标的），此时 key 会重复 —— 用它做 `:key` / 折叠面板 name
+ * 会让多张卡互相串台。`group_id` 是后端给的唯一键，缺省时退回 `key`。
+ */
+export function groupUniqueKey(group: {
+  key: string;
+  group_id?: string;
+}): string {
+  return group.group_id ?? group.key;
+}
+
+/**
  * 按阶段分桶。空组落不进任何桶（groupStage 为 null 直接跳过）；
  * 桶内保持输入顺序，不排序——展示顺序由 DANGLING_STAGES 决定。
  */

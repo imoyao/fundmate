@@ -48,7 +48,7 @@
     </div>
 
     <el-collapse class="df-collapse">
-      <el-collapse-item :name="group.key">
+      <el-collapse-item :name="groupUniqueKey(group)">
         <template #title
           >查看 {{ group.transactions.length }} 条交易明细</template
         >
@@ -79,6 +79,7 @@ import {
   reconQuantity,
   reconRecordRef
 } from "../utils/reconDisplay";
+import { groupUniqueKey } from "../utils/danglingRefEnrichScope";
 
 /**
  * 域 F 单个分组卡（#2866 → 漏斗 2026-11-13）：只展示扫描结果 + 一个「处理」

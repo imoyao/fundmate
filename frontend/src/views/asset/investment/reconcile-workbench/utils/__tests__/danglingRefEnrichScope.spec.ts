@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   changeActuallyWrites,
   danglingNextStep,
+  groupUniqueKey,
   inspectGroupNeeds,
   pickChangedRows
 } from "../danglingRefEnrichScope";
@@ -184,5 +185,19 @@ describe("danglingNextStep：四种状态各有出口", () => {
     expect(danglingNextStep({ symbol: null, fixable: true, txnCount: 3 })).toBe(
       "reattach"
     );
+  });
+});
+
+describe("groupUniqueKey：组卡的唯一键", () => {
+  it("有 group_id 时用它（symbol 为空的组按标的名拆分，key 会重复）", () => {
+    // 真库 2026-11-15：293 条缺码流水按 114 个标的名拆组，key 全是同一个
+    const a = { key: "12|", group_id: "12||优彩转债" };
+    const b = { key: "12|", group_id: "12||精达转债" };
+    expect(groupUniqueKey(a)).toBe("12||优彩转债");
+    expect(groupUniqueKey(a)).not.toBe(groupUniqueKey(b));
+  });
+
+  it("后端没给 group_id 时退回 key（老接口/错挂组）", () => {
+    expect(groupUniqueKey({ key: "20|001982" })).toBe("20|001982");
   });
 });

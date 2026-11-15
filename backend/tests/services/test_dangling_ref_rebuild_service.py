@@ -501,3 +501,29 @@ def test_undo_rebuild_batch_rejects_foreign_log_ids(db, ledger):
 
     assert data['restored'] == 0 and data['skipped'] == 1
     assert '撤销记录不存在' in data['results'][0]['skip_reason']
+
+
+# ── 标的身份闸门（2026-11-15：293 条 114 个标的被写成同一代码后又被当成一组重建） ──
+
+
+def test_rebuild_rejects_batch_mixing_multiple_products(db, ledger):
+    """一批流水若分属多个标的，重建会把它们合成同一条持仓行。
+
+    symbol 一致不足以证明同一标的：真库 2026-11-15 那 293 条被补全写成同一个
+    symbol，按 symbol 判就会把 114 个标的的历史并成一只债的持仓。
+    """
+    pos_a = _mk_pos(db, ledger.id, 'SZ127078', 1.0)
+    pos_b = _mk_pos(db, ledger.id, 'SH110074', 1.0)
+    _mk_txn(db, ledger.id, position_id=pos_a.id, symbol='SZ127078', position_name='优彩转债')
+    _mk_txn(db, ledger.id, position_id=pos_b.id, symbol='SH110074', position_name='精达转债')
+    t1 = _mk_txn(db, ledger.id, symbol='127078', position_name='优彩转债')
+    t2 = _mk_txn(db, ledger.id, symbol='127078', position_name='精达转债')
+
+    def call():
+        return svc.plan_rebuild(db, _FAMILY, [t1.id, t2.id])
+
+    plan = call()
+    assert plan['rebuildable'] is False
+    assert '2 个不同标的' in plan['block_reason']
+    # 写入路径复用同一份 plan：预览说不可重建，真写也必须拒绝且不留痕
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [t1.id, t2.id], confirm=True), '不同标的')

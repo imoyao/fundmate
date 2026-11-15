@@ -595,3 +595,76 @@ def test_endpoint_bad_params_return_400(client):
         == 400
     )
     assert client.post('/api/reconciliation/dangling-refs/undo/', json={'log_id': 999999}).status_code == 400
+
+
+# ── 标的分组身份（2026-11-15 真库事故：293 条 114 个标的被一次补全写成同一代码） ──
+
+
+def test_scan_splits_blank_symbol_groups_by_product_name(db, ledger):
+    """缺标的代码的流水按标的名拆组，不许把整本账的缺码流水并成一组。
+
+    真库 2026-11-15：293 条空 symbol 流水（114 个标的）并成一组，组名取首个
+    ``position_name`` 显示成「优彩转债」，一次「补全信息」就把 114 个标的刷成
+    同一个代码。拆组后每组只有一个标的名，补全才有意义。
+
+    **变异探针**：把分组键里的 ``name_key`` 去掉（退回 ``(ledger, symbol)``），
+    本用例 groups 由 2 变 1、display_name 只剩一个 —— 断言随之失败。
+    """
+    _mk_txn(db, ledger.id, symbol=None, position_name='优彩转债')
+    _mk_txn(db, ledger.id, symbol=None, position_name='精达转债')
+
+    groups = svc.scan_dangling_refs(db, _FAMILY)['groups']
+
+    assert len(groups) == 2
+    assert {g['display_name'] for g in groups} == {'优彩转债', '精达转债'}
+    # key 仍是 ledger|symbol（核对差异的覆盖判定按它比对），group_id 才唯一
+    assert {g['key'] for g in groups} == {f'{ledger.id}|'}
+    assert len({g['group_id'] for g in groups}) == 2
+
+
+def test_scan_blocks_group_mixing_multiple_products(db, ledger):
+    """symbol 相同但标的名分属不同标的 ⇒ 整组不可回补/重建，并点出「等 N 个标的」。
+
+    293 条流水被补成 127078 后，symbol 一致而标的并不一致；只看 symbol 会判
+    「可回补」，一键就把 114 个标的挂到同一行。
+
+    **变异探针**：去掉 ``_group_block_reason`` 的 identity_count 分支，本用例
+    ``fixable`` 由 False 变 True、flags 丢 ``mixed_identity`` —— 断言失败。
+    """
+    a = _mk_pos(db, ledger.id, 'SZ127078', 1.0)
+    b = _mk_pos(db, ledger.id, 'SH110074', 1.0)
+    # 正常流水只用来给「标的名 → symbol」建索引（悬空流水自身不参与建索引）
+    _mk_txn(db, ledger.id, position_id=a.id, symbol='SZ127078', position_name='优彩转债')
+    _mk_txn(db, ledger.id, position_id=b.id, symbol='SH110074', position_name='精达转债')
+    _mk_txn(db, ledger.id, symbol='127078', position_name='优彩转债')
+    _mk_txn(db, ledger.id, symbol='127078', position_name='精达转债')
+
+    groups = svc.scan_dangling_refs(db, _FAMILY)['groups']
+
+    assert len(groups) == 1
+    group = groups[0]
+    assert group['identity_count'] == 2
+    assert group['fixable'] is False
+    assert 'mixed_identity' in group['flags']
+    assert '2 个不同标的' in group['block_reason']
+    assert group['display_name'].endswith('等 2 个标的')
+
+
+def test_reattach_rejects_batch_mixing_multiple_products(db, ledger):
+    """回补写入前必须再过一道标的身份：symbol 全一致也不算同一批。
+
+    只校验 symbol 的话，293 条（114 个标的、全被写成 127078）会被整体挂到
+    优彩转债那一行，且每次挂回都会写审计日志、看起来"操作成功"。
+    """
+    a = _mk_pos(db, ledger.id, 'SZ127078', 1.0)
+    b = _mk_pos(db, ledger.id, 'SH110074', 1.0)
+    _mk_txn(db, ledger.id, position_id=a.id, symbol='SZ127078', position_name='优彩转债')
+    _mk_txn(db, ledger.id, position_id=b.id, symbol='SH110074', position_name='精达转债')
+    t1 = _mk_txn(db, ledger.id, symbol='127078', position_name='优彩转债')
+    t2 = _mk_txn(db, ledger.id, symbol='127078', position_name='精达转债')
+    target = _mk_pos(db, ledger.id, '127078', 1.0)
+
+    with pytest.raises(ValueError, match='不同标的'):
+        svc.reattach_transactions(db, _FAMILY, [t1.id, t2.id], target.id)
+    # 拒绝分支不留痕：两条流水的归属一字未动
+    assert all(t.position_id == _DANGLING_PID for t in (t1, t2))

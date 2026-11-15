@@ -15,7 +15,7 @@
       <div class="df-groups">
         <DanglingRefGroupCard
           v-for="g in groups"
-          :key="g.key"
+          :key="groupUniqueKey(g)"
           :group="g"
           @open-item="emit('openItem', $event)"
         />
@@ -26,6 +26,7 @@
 
 <script setup lang="ts">
 import type { DanglingRefGroup } from "@/api/reconciliation";
+import { groupUniqueKey } from "../utils/danglingRefEnrichScope";
 import DanglingRefGroupCard from "./DanglingRefGroupCard.vue";
 import ReconStatusState from "./ReconStatusState.vue";
 

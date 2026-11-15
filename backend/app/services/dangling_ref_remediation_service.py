@@ -20,17 +20,13 @@
   不得留下 ``db.new / db.dirty / db.deleted``，也不得写审计日志。
 - 删除要求 ``confirm is True`` **且** ``confirm_phrase == '删除'``（后端硬校验，
   不信任前端）；补全要求 ``confirm is True``。
-- ``symbol_norm`` 是 mapper ``before_insert`` / ``before_update`` 按
-  ``symbol_identity(symbol, asset_type)`` 重算的**派生列**：补全、撤销、删除恢复
-  一律不手改，否则会与单一真相源漂移。撤销删除构造 ``Transaction(**payload)`` 时
-  刻意排除该列，交给事件重算；审计快照仍记录原值，满足「完整快照」要求。
+- ``symbol_norm`` 是 mapper 事件按 ``symbol_identity(symbol, asset_type)`` 重算的**派生列**：
+  补全 / 撤销 / 删除恢复一律不手改（撤销构造 ``Transaction(**payload)`` 时排除该列）。
 - 快照键用 **ORM 属性名**（``txn_type`` 而非 DB 列名 ``type``），datetime/date 转
   isoformat 字符串；恢复时按列类型 parse 回 ``datetime`` / ``date``，否则 SQLAlchemy
   的 DateTime 列拒收字符串。
-- 不动 ``quantity`` / ``amount`` / ``realized_pnl`` / ``import_hash`` / ``source`` /
-  任何持仓份额列；删除会改变已实现盈亏与收益统计（如实写在 warnings 里），
-  但**不会改动现存持仓份额**（这些流水的 position_id 指向已删除行，不参与
-  现存持仓的重算）。
+- 不动 ``quantity`` / ``amount`` / ``realized_pnl`` / ``import_hash`` / ``source`` 与任何
+  持仓份额列；删除会改变已实现盈亏（如实写在 warnings 里），但不改现存持仓份额。
 
 ## 事务边界（与 dangling_ref_service 同构）
 
@@ -56,6 +52,7 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.models import Transaction
+from app.services.dangling_identity import require_single_identity as _require_single_identity
 from app.services.dangling_ref_service import (
     _load_dangling_by_ids,
     _normalize_ids,
@@ -246,6 +243,7 @@ def preview_enrichment(db: Session, family_id: int, transaction_ids, symbol=None
     new_date = _normalize_trade_date(trade_date)
     _require_field(new_symbol, new_date)
     txns = _load_dangling_by_ids(db, family_id, ids)
+    _require_single_identity(db, family_id, txns, '补全', new_symbol)
     plan = _plan_enrichment(txns, new_symbol, new_date)
     cands = _candidate_positions(db, family_id, txns, new_symbol)
     return {
@@ -273,9 +271,8 @@ def enrich_transactions(
 ) -> dict:
     """补全一批悬空流水的空字段（POST /enrich/ 的数据源）。
 
-    硬约束见模块 docstring：confirm 二次确认、只补空值、目标仍悬空、
-    校验全在写之前、审计日志 before/after 逐条记录、可凭 log_id 撤销。
-    ``updated==0`` 也整体拒绝，避免产生「什么都没改」的假成功日志。
+    硬约束见模块 docstring：confirm 二次确认、只补空值、目标仍悬空、校验全在写之前、
+    审计日志 before/after 逐条记录、可凭 log_id 撤销；``updated==0`` 整体拒绝。
     """
     _require_confirm(confirm)
     ids = _normalize_ids(transaction_ids)
@@ -283,6 +280,7 @@ def enrich_transactions(
     new_date = _normalize_trade_date(trade_date)
     _require_field(new_symbol, new_date)
     txns = _load_dangling_by_ids(db, family_id, ids)
+    _require_single_identity(db, family_id, txns, '补全', new_symbol)
     plan = _plan_enrichment(txns, new_symbol, new_date)
     to_change = [p for p in plan if p['_fill_symbol'] or p['_fill_date']]
     if not to_change:
