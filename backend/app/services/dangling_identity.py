@@ -23,23 +23,65 @@ from collections import defaultdict
 from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session
 
+from app.core.venues import venue_of_asset_type
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.fund_utils import normalize_fund_code
 
 #: 候选持仓最多返回条数。
 MAX_CANDIDATES = 20
 
 
-def position_candidates(ledger_positions: list[Position], symbol: str) -> tuple[list[Position], Position | None]:
-    """候选只列「同账本且同 symbol」的现存持仓；空 symbol 一律不给候选。
+def symbol_forms(symbol: str | None) -> set[str]:
+    """同一标的的全部代码写法：字面量 + 裸 6 位码 + 三个交易所前缀。
 
-    reattach 硬校验 symbol 一致，列出别的标的只会诱导用户挂错。早前一组缺码流水拿到
-    的是「同账本任意持仓前 20 条」，等于让用户瞎猜。这里仍是字面量比较：symbol 写法
-    归一（``127078`` / ``SZ127078``）属于另一件事，改它要连带改回补的硬校验，不在本模块。
+    ``127078`` 与 ``SZ127078`` 是同一只债的两种写法（真库 2026-11-15：券商交割单导入
+    写的是裸码，持仓行带 ``SZ`` 前缀）。按字面量比，同一只标的会被当成两只。
+    """
+    if not symbol or not symbol.strip():
+        return set()
+    value = symbol.strip().upper()
+    code = normalize_fund_code(value)
+    if not code:
+        return {value}
+    return {value, code, f'SH{code}', f'SZ{code}', f'BJ{code}'}
+
+
+def same_identity(symbol_a, asset_type_a, symbol_b, asset_type_b) -> bool:
+    """两个「代码 + 资产类型」是否指向同一标的：场所必须相容、归一码必须有交集。
+
+    只看归一码不够：``000001`` 既是场外基金（华夏成长），也是 ``SZ000001`` 平安银行。
+    场所（``asset_type → venue``）两侧都判得出且不同 → 直接判「不是同一标的」；
+    任一侧判不出场所时退回「同归一码即同标的」，与 ``_find_existing_position`` 同口径。
+    """
+    if not symbol_a or not symbol_b:
+        return False
+    if symbol_a.strip().upper() == symbol_b.strip().upper():
+        return True
+    venue_a = venue_of_asset_type(asset_type_a)
+    venue_b = venue_of_asset_type(asset_type_b)
+    if venue_a and venue_b and venue_a != venue_b:
+        return False
+    return bool(symbol_forms(symbol_a) & symbol_forms(symbol_b))
+
+
+def matching_positions(positions: list[Position], symbol, asset_type=None) -> list[Position]:
+    """按「同一标的」筛持仓（写法归一 + 场所相容），顺序保持不变。"""
+    return [p for p in positions if same_identity(p.symbol, p.asset_type, symbol, asset_type)]
+
+
+def position_candidates(
+    ledger_positions: list[Position], symbol: str, asset_type=None
+) -> tuple[list[Position], Position | None]:
+    """候选只列「同账本且同一标的」的现存持仓；空 symbol 一律不给候选。
+
+    reattach 硬校验标的身份，列出别的标的只会诱导用户挂错。早前一组缺码流水拿到的
+    是「同账本任意持仓前 20 条」，等于让用户瞎猜。比对走 ``same_identity``：``127078``
+    与 ``SZ127078`` 视为同一只（字面量比较会造出「候选 0 条 / 重建又说请去回补」的死锁）。
     """
     if not symbol:
         return [], None
-    same_symbol = [p for p in ledger_positions if (p.symbol or '') == symbol]
+    same_symbol = matching_positions(ledger_positions, symbol, asset_type)
     return same_symbol[:MAX_CANDIDATES], (same_symbol[0] if same_symbol else None)
 
 
@@ -139,6 +181,20 @@ def identity_count(txns, name_index: dict[str, set[str]]) -> int:
     return len(symbols)
 
 
+def names_include(index: dict[str, set[str]], txns, symbol) -> bool:
+    """组内每个标的名是否都把 ``symbol`` 列为候选（名字歧义可由显式代码收敛）。
+
+    「旅游ETF」同时对应 ``SH562510`` / ``SZ159766`` 两只 —— 这类名字让组内标的数算成 2，
+    但它不是「混了标的」，而是「一个名字有多个候选码」。用户显式指定其中一个时应当放行，
+    否则这类组永远无法补全（连单条也判 2 个标的）。名字反查不到、或候选里没有该代码 →
+    不放行，仍按混标的拒绝。
+    """
+    names = {(t.position_name or '').strip() for t in txns if (t.position_name or '').strip()}
+    if not names:
+        return False
+    return all(symbol in (index.get(name) or set()) for name in names)
+
+
 def require_single_identity(db: Session, family_id: int, txns, action: str, symbol=None) -> None:
     """写路径的统一闸门：一批流水分属多个标的时拒绝，并说明为什么不能一起做。
 
@@ -147,9 +203,13 @@ def require_single_identity(db: Session, family_id: int, txns, action: str, symb
     只校验 symbol 会把 114 个标的的历史并成一只债。
 
     ``symbol`` 传 None 表示这次写入不改标的（例如只补 trade_date），没有可冲突的对象。
+    名字本身歧义（一码多名）且每个名字都把 ``symbol`` 列为候选时放行（``names_include``）：
+    那是「候选码不止一个」，不是「混了好几个标的」。
     """
     if symbol is None:
         return
-    identity = identity_count(txns, name_symbol_index(db, family_id))
-    if identity > 1:
-        raise ValueError(f'选中的流水混了 {identity} 个不同标的，不能一起{action}；请按标的分别处理')
+    index = name_symbol_index(db, family_id)
+    identity = identity_count(txns, index)
+    if identity <= 1 or names_include(index, txns, symbol):
+        return
+    raise ValueError(f'选中的流水混了 {identity} 个不同标的，不能一起{action}；请按标的分别处理')

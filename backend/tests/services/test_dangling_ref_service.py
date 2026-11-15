@@ -42,7 +42,7 @@ def ledger2(db):
     return lg
 
 
-def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_status='active', name=None):
+def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_status='active', name=None, asset_type=None):
     """按「份」建持仓（内部转最小单位）。name 传 '' 可造空名（display_name 回退链的用例）。
 
     cleared 行必须 quantity=0 —— positions 模型有 CheckConstraint
@@ -60,6 +60,7 @@ def _mk_pos(db, ledger_id, symbol, shares, *, family_id=_FAMILY, ownership_statu
         avg_price=Money.yuan_to_price_units(1.0),
         current_price=Money.yuan_to_price_units(1.0),
         ownership_status=ownership_status,
+        asset_type=asset_type,
     )
     db.add(p)
     db.flush()
@@ -80,6 +81,7 @@ def _mk_txn(
     trade_date=None,
     confirm_date=None,
     position_name=None,
+    asset_type=None,
 ):
     """建一条流水。position_id 默认指向不存在的持仓（悬空）；传 None 造 NULL 孤儿。"""
     t = Transaction(
@@ -87,6 +89,7 @@ def _mk_txn(
         position_id=position_id,
         ledger_id=ledger_id,
         symbol=symbol,
+        asset_type=asset_type,
         txn_type=txn_type,
         quantity=Money.shares_to_min_unit(shares),
         price=Money.yuan_to_price_units(1.0),
@@ -667,4 +670,93 @@ def test_reattach_rejects_batch_mixing_multiple_products(db, ledger):
     with pytest.raises(ValueError, match='不同标的'):
         svc.reattach_transactions(db, _FAMILY, [t1.id, t2.id], target.id)
     # 拒绝分支不留痕：两条流水的归属一字未动
+    assert all(t.position_id == _DANGLING_PID for t in (t1, t2))
+
+
+# ── 标的身份：代码写法归一（裸码 ⇄ 带前缀）+ 场所相容 ──────────────────────
+
+
+def test_reattach_accepts_bare_code_against_prefixed_position(db, ledger):
+    """`127078` 与 `SZ127078` 是同一只标的：挂回必须放行。
+
+    真库 2026-08-29 的券商交割单导入把 symbol 写成裸 6 位码，持仓行是 `SZ` 前缀。
+    按字面量比较时，回补候选 0 条、手动指定目标又被同一处字面量判据拒绝，而重建侧
+    按六位码展开查到既有持仓、回一句「请用回补关联」—— 整张卡两边互指、无路可走。
+    """
+    target = _mk_pos(db, ledger.id, 'SZ127078', 1.0, asset_type='bond')
+    t = _mk_txn(db, ledger.id, symbol='127078', asset_type='bond', txn_type='sell', shares=1.0)
+
+    out = svc.reattach_transactions(db, _FAMILY, [t.id], target.id)
+
+    assert out['updated'] == 1
+    assert db.query(Transaction).filter_by(id=t.id).one().position_id == target.id
+
+
+def test_reattach_rejects_same_code_across_venues(db, ledger):
+    """裸码撞车不能只靠归一码放行：`000001` 场外基金 ≠ `SZ000001` 平安银行。
+
+    这是「写法归一」必须带场所约束的原因 —— 只比归一码会把场内股票流水挂到场外基金行上，
+    比原来的字面量比较更糟（错账且看起来"通过校验"）。
+    """
+    target = _mk_pos(db, ledger.id, 'SZ000001', 1.0, asset_type='stock')
+    t = _mk_txn(db, ledger.id, symbol='000001', asset_type='fund', txn_type='buy', shares=1.0)
+
+    with pytest.raises(ValueError, match='不是同一标的'):
+        svc.reattach_transactions(db, _FAMILY, [t.id], target.id)
+    assert db.query(Transaction).filter_by(id=t.id).one().position_id == _DANGLING_PID
+    assert db.query(AdjustmentLog).count() == 0
+
+
+def test_scan_lists_candidates_for_equivalent_symbol_forms(db, ledger):
+    """分组候选也要按同一标的匹配：否则「有候选」这件事永远显示为没有。"""
+    pos = _mk_pos(db, ledger.id, 'SZ127078', 1.0, name='优彩转债', asset_type='bond')
+    _mk_txn(db, ledger.id, symbol='127078', asset_type='bond', txn_type='sell', shares=1.0, position_name='优彩转债')
+
+    group = svc.scan_dangling_refs(db, _FAMILY)['groups'][0]
+
+    assert [c['id'] for c in group['candidates']] == [pos.id]
+    assert group['fixable'] is True
+    assert group['block_reason'] is None
+
+
+def test_preview_does_not_warn_symbol_mismatch_for_equivalent_forms(db, ledger):
+    """挂回预览的 safe/warnings 与写入判据同源：等价写法不该被报成「symbol 不一致」。"""
+    target = _mk_pos(db, ledger.id, 'SZ127078', 1.0, asset_type='bond')
+    t = _mk_txn(db, ledger.id, symbol='127078', asset_type='bond', txn_type='sell', shares=1.0)
+
+    data = svc.preview_reattach(db, _FAMILY, [t.id], target.id)
+
+    assert not [w for w in data['warnings'] if 'symbol' in w]
+
+
+def test_reattach_allows_ambiguous_name_resolved_by_symbol(db, ledger):
+    """一码多名（旅游ETF → SH562510 / SZ159766）时，显式指定的代码就是消歧结果，必须放行。
+
+    否则这类组永远补不了：组内标的数按名字反查算成 2，连「一条流水」也被判成混标的，
+    界面上没有任何按钮能走通 —— 与本次要除掉的死锁是同一类。
+    """
+    a = _mk_pos(db, ledger.id, 'SH562510', 180.0, name='旅游ETF', asset_type='etf')
+    _mk_pos(db, ledger.id, 'SZ159766', 97.0, name='旅游ETF', asset_type='etf')
+    t1 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='旅游ETF', asset_type='etf', txn_type='sell')
+    t2 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='旅游ETF', asset_type='etf', txn_type='sell')
+
+    out = svc.reattach_transactions(db, _FAMILY, [t1.id, t2.id], a.id)
+
+    assert out['updated'] == 2
+    assert all(db.query(Transaction).filter_by(id=t.id).one().position_id == a.id for t in (t1, t2))
+
+
+def test_reattach_still_rejects_batch_whose_names_do_not_cover_symbol(db, ledger):
+    """反向对照：名字里有一个不把该代码列为候选，就不是「一码多名」，仍按混标的拒绝。
+
+    这条守的是真库那 293 条（114 个名字被写成同一个 `127078`）：只要有一个名字反查不到
+    这个代码，整批就不能一起挂。
+    """
+    a = _mk_pos(db, ledger.id, 'SH562510', 180.0, name='旅游ETF', asset_type='etf')
+    _mk_pos(db, ledger.id, 'SH600000', 1.0, name='浦发银行', asset_type='stock')
+    t1 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='旅游ETF', asset_type='etf')
+    t2 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='浦发银行', asset_type='stock')
+
+    with pytest.raises(ValueError, match='不同标的'):
+        svc.reattach_transactions(db, _FAMILY, [t1.id, t2.id], a.id)
     assert all(t.position_id == _DANGLING_PID for t in (t1, t2))
