@@ -149,6 +149,9 @@ describe("结果文案", () => {
     expect(supplementLabels("anchor").action).toBe("以此为准");
     expect(supplementLabels("anchor").submit).toBe("以此为准");
     expect(supplementLabels("anchor").explain).toContain("不用你填");
+    // #3127：不能只说「缺基准、不用管」。账上份额未必可信，文案必须给出
+    // 「怀疑份额本身错」时的另一条路，否则 manual 锚点会把真错固化。
+    expect(supplementLabels("anchor").explain).toContain("按流水重算份额");
     expect(supplementLabels("increment").action).toBe("补录这笔");
   });
 });

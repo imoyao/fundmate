@@ -1,20 +1,24 @@
 # -*- coding: utf-8 -*-
 """对账工作台的「以此为准」写锚点动作（#3125 A 方案）。
 
-## 为什么需要它
+## 为什么需要它（#3127 修订了适用范围）
 
-域 B 的 119 条数量差异全部来自**无锚点持仓**（`snapshot_quantity IS NULL`）：持仓份额
-来自券商快照，流水是另一条独立记录，缺基准时两者本来就不该互校（真库实测：101 条理论
-值 0、4 条理论值为负，说明流水压根没覆盖建仓，不是份额记错）。
-
-用户面对这类卡片的正确动作不是「补录这笔」——那等于让用户编造一笔不存在的交易去凑数；
+域 B 的存量数量差异里，有一部分来自**无锚点持仓**（`snapshot_quantity IS NULL`）：
+持仓份额来自券商快照，流水是另一条独立记录，缺基准时两者本来就不该互校。
+对这部分，正确动作不是「补录这笔」——那等于让用户编造一笔不存在的交易去凑数；
 而是「承认当前持仓为准」：写一条**人工锚点**，此后只核对锚点日之后的流水。
+
+⚠️ 初版把 119 条整体判成「缺基准」（理由：101 条理论值 0、4 条为负，像是流水
+没覆盖建仓）。#3127 用审计日志证伪了：**理论值 0 的那批是 `dangling_ref_rebuild`
+只重建买入腿留下的幽灵持仓，份额是真错**，#3128 已按流水重算清仓；理论值为负的
+超卖形态同样不能一键固化。故本动作只服务「流水净额 > 0、覆盖不全」这一支，
+判据见 `reconciliation_theory.flow_disproves_position`（检测与动作共用）。
 
 ## 为什么不新增写库路径
 
 `kind='set'` 已经是写人工锚点的唯一入口（`upsert_from_holding` + `anchor_kind=manual`
 + `allow_anchor_rewind=True`）。本动作与它的区别只有一个：**份额与成本取持仓当前值，
-不由用户手填**。这不是新语义，是同一语义的「免手抄」形式——119 条差异逐条手抄成本价，
+不由用户手填**。这不是新语义，是同一语义的「免手抄」形式——这类差异逐条手抄成本价，
 等于把锚点债原样摊回给用户。
 
 ## 为什么不复用 `apply_decision` 的 set 分支
@@ -22,6 +26,14 @@
 set 分支要求 payload 带 `quantity` 与 `avg_price`，而差异行只有份额（`actual_value`），
 没有成本价。让它代劳要么让前端多取一次持仓（多一个失败点），要么让用户手填（正是要
 避免的）。这里直接读持仓，两条都省掉；失败情形一律给出「改用哪个入口」的具体指引。
+
+## 为什么写之前要重新判一次（#3127）
+
+差异卡片是**某次 run** 生成的，用户点「以此为准」是之后的事，中间持仓/流水可能被
+别的链路改过（真库实测：两次对账之间 #3128 把 101 条幽灵持仓重算成清仓）。所以不能
+信任卡片类型，必须在写库这一刻用与检测同源的 `flow_disproves_position` 重新判：
+流水净额 ≤ 0 而账上仍有份额 ⇒ 拒绝，指向「按流水重算份额」。少这一层就会把
+#3127 已证明的真错固化成人工锚点，且 `anchor_kind=manual` 还会挡住后续快照覆盖。
 """
 
 from typing import Optional
@@ -33,7 +45,9 @@ from app.core.constants import AnchorKind, PositionSource
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
 from app.domains.positions.models import Position
+from app.domains.transactions.models import Transaction
 from app.services.position_write_support import _find_existing_position
+from app.services.reconciliation_theory import flow_disproves_position
 
 
 def write_anchor_from_position(
@@ -66,6 +80,23 @@ def write_anchor_from_position(
         raise ValueError('这只持仓当前份额为 0，不能作为基准。请改用「按流水重建持仓」')
     if not position.avg_price:
         raise ValueError('这只持仓没有成本价，无法写基准。请改用「把持仓改成」并填成本单价')
+
+    # 与域 B 检测同源的时点防线：卡片可能已过时，此处按**当前**流水重新判。
+    txns = (
+        db.query(Transaction)
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.ledger_id == disc.ledger_id,
+            Transaction.symbol == disc.symbol,
+        )
+        .all()
+    )
+    if flow_disproves_position(txns, position):
+        raise ValueError(
+            '流水显示这只标的已经卖完或超卖，账上却仍有份额——份额本身可能有误（多见于'
+            '「重建持仓」只算了买入腿）。这种情况不能把当前份额固定成基准，请到持仓详情'
+            '用「按流水重算份额」，或先补上缺失的买入流水'
+        )
 
     data = {
         'symbol': position.symbol,

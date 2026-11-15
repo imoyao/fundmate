@@ -12,8 +12,11 @@
   「快照 + 快照日之后流水」推演；**无锚点**（迁移产物只回填了日期、份额已丢失）退回
   全量流水净额 —— 两种口径见 `reconciliation_theory` 模块 docstring。
 - 孤儿检测（§6.1）：流水推演净份额 > 0 但系统无对应持仓 → 报 orphan。
-- 数量差异：理论值与实际（positions.quantity）不一致 → 报 quantity；**无锚点时**报
-  no_anchor（#3125：缺基准不是数据错，补录解决不了，卡片给「以此为准」写锚点）。
+- 数量差异：理论值与实际（positions.quantity）不一致 → 报 quantity；无锚点、**active**
+  且流水净额 > 0（流水没反证份额）时报 no_anchor（#3125：缺基准不是数据错，补录解决
+  不了，卡片给「以此为准」写锚点）。净额 ≤ 0 却仍有份额是 #3127 的幽灵持仓/超卖，
+  份额本身可能有误，保持 quantity 交人工；判据与写锚点动作共用
+  `reconciliation_theory.is_missing_baseline` / `flow_disproves_position`。
 
 差异结果按业务键 upsert 到 `discrepancies`（§8.1），并记录 `reconciliation_runs`。
 """
@@ -29,7 +32,7 @@ from app.domains.transactions.models import Transaction
 from app.services.position_write_support import _find_existing_position
 from app.services.reconciliation_integrity import refresh_domain_c_orphans
 from app.services.reconciliation_theory import find_holding as _find_holding
-from app.services.reconciliation_theory import group_by_business_key, has_anchor
+from app.services.reconciliation_theory import group_by_business_key, is_missing_baseline
 from app.services.reconciliation_theory import theoretical_qty as _theoretical_qty
 
 # 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致：buy/deposit/split 增、sell/withdraw 减；
@@ -133,13 +136,10 @@ def run_reconciliation(
 
         diff = pos.quantity - theoretical_qty
         if diff != 0:
-            # 有锚点才是「数量差异」；**active 且无锚点**才叫「缺基准」（#3125）：
-            # 这类持仓的份额来自券商快照、流水是另一条记录，缺基准时本就不该互校。
-            # 清仓行（份额 0、非 active）不能算进去——它写不了锚点（份额必须 > 0），
-            # 「以此为准」是死胡同；而份额 0 与流水净额 > 0 的矛盾是真差异，补录是它
-            # 唯一可用入口（见 test_quantity_stays_quantity_when_position_cleared）。
-            missing_baseline = not has_anchor(pos) and pos.ownership_status == 'active'
-            disc_type = 'no_anchor' if missing_baseline else 'quantity'
+            # 「缺基准」不等于「流水与持仓对不上」：净额 ≤ 0 却仍有份额是 #3127
+            # 的幽灵持仓 / 超卖（真错），判成 no_anchor 会被「以此为准」固化。
+            # 判据与写锚点动作共用一个函数，见 reconciliation_theory（含时点差说明）。
+            disc_type = 'no_anchor' if is_missing_baseline(txns, pos) else 'quantity'
             _upsert_discrepancy(
                 db,
                 family_id,

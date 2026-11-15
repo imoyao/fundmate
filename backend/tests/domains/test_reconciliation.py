@@ -239,6 +239,80 @@ class TestDomainBReconciliation:
         assert [d.discrepancy_type for d in discs] == ['quantity']
         assert discs[0].actual_value == 0
 
+    def test_ghost_position_stays_quantity(self, db):
+        """买卖腿齐平（净额 0）却仍挂份额 → `quantity`，不是 no_anchor（#3127）。
+
+        这是 #3127 用审计日志逐条证明的幽灵持仓：`dangling_ref_rebuild` 只重建了
+        买入腿、卖腿补码后没重算份额，于是「卖完了还挂着 270 张」。判成 no_anchor
+        会让卡片说「缺基准、以当前持仓为准」，把真错固化成人工锚点，且 manual 锚点
+        还会挡住后续快照覆盖 —— 与 #3127 的修复方向完全相反。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        _sell_txn(db, ledger.id, 'S1', 100, date(2026, 5, 2))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].expected_value == 0
+        assert discs[0].actual_value == Money.shares_to_min_unit(60)
+        assert json.loads(run.summary_json)['no_anchor'] == 0
+
+    def test_oversold_position_stays_quantity(self, db):
+        """超卖（净额 < 0）却仍挂份额 → 也是 `quantity`（#3127 明确交人工）。
+
+        卖出多于买入多半是买入腿缺失，份额来源存疑。#3127 的存量脚本刻意**不动**
+        这一类（批量清仓会抹掉真实持仓）；同理这里也不能给「以当前持仓为准」。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        _sell_txn(db, ledger.id, 'S1', 150, date(2026, 5, 2))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].expected_value == Money.shares_to_min_unit(-50)
+
     def test_orphan_detection(self, db):
         """流水推演净额 > 0 但系统无持仓 → 报 orphan。"""
         from app.domains.ledgers.models import Ledger
