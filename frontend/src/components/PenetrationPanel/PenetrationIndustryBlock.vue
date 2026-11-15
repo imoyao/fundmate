@@ -50,7 +50,7 @@
       >
         暂无可用的行业配置数据。
       </p>
-      <PenetrationBarList v-else :rows="penetratedRows" />
+      <RankBarList v-else :rows="penetratedRows" />
     </template>
 
     <!-- 持仓结构：环形图（构成问题用构成图，中心不写字、图例带占比） -->
@@ -70,7 +70,7 @@ import { computed, ref } from "vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
-import PenetrationBarList from "./PenetrationBarList.vue";
+import RankBarList from "@/components/RankBarList/index.vue";
 import { barWidth, percent } from "./format";
 import type { PenetrationData } from "@/api/summary";
 

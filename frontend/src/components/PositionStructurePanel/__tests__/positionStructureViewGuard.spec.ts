@@ -71,3 +71,29 @@ describe("持仓结构视角由账户类型决定（#2739）", () => {
     expect(panel).toContain("视角已按账户类型固定");
   });
 });
+
+describe("Top 榜只有一套渲染器、只有一个占比（2026-11-15 反馈）", () => {
+  it("与穿透面板共用 RankBarList，不再手写表格", () => {
+    // 同一个页面两块 Top 榜各写一套：条列表 vs 手写 <table>，同一个问题两种长相
+    expect(panel).toContain(
+      'import RankBarList from "@/components/RankBarList/index.vue"'
+    );
+    expect(panel).toMatch(/<RankBarList[^>]*:rows="groupRows"/);
+    expect(panel).not.toContain('<table class="detail-table">');
+  });
+
+  it("逐行只有一个占比（占组合 / 占账户），组内占比只留在标题行", () => {
+    // 反号的两列（占组合 5.6% / 占股票 8.6%）并排实测读不出区别，用户要求去掉一个
+    expect(panel).not.toMatch(/pct\(row\.ratio_of_group\)/);
+    expect(panel).toMatch(/pct\(row\.ratio_of_total\)/);
+    // 组内集中度仍在标题行，且写明分母
+    expect(panel).toMatch(/组内前 5 集中度[\s\S]{0,80}top5_ratio_of_group/);
+  });
+
+  it("标题行不再重复「占组合」的集中度（与逐行的占比重叠）", () => {
+    // 原来这里是「组内前 5 集中度 34.4% · 占组合 22.4%」，
+    // 后半个数与逐行的占组合列讲同一件事，只多一个数字要读。
+    expect(panel).not.toContain("showTotalRatioCol");
+    expect(panel).not.toMatch(/· 占\{\{ scopeUnit \}\}/);
+  });
+});

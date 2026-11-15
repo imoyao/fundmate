@@ -69,50 +69,26 @@
           <h4 class="group-title">
             {{ activeGroup.label }} Top {{ activeGroup.top.length }}
           </h4>
-          <!-- 组内集中度只在**真的与上方卡片不同**时才写（2026-11-15）：
-               证券账户的股票类就是整个账户，卡片「前 5 集中度 15.7%」与这里
-               「组内前 5 集中度 15.7%」逐字相同，两个 15.7% 并排只会让人以为看错。 -->
+          <!-- 表头只留**一个**百分比（2026-11-15 二次收敛）：原来这里并排写
+               「组内前 5 集中度 34.4% · 占组合 22.4%」，每行又各有一对
+               「占组合 / 占股票」——同一张卡上四个百分比，两个同量纲数字读不出
+               区别，用户实测反馈「两个百分占比让人很困惑」。现在逐行只给
+               占组合（占账户 / 占全家庭），组内口径由这一句交代。
+               且只在它真的与上方卡片不同时才写：单类别账户里两者逐字相同，
+               并排只会让人以为看错。 -->
           <p v-if="showGroupRatio" class="group-meta">
-            组内前 5 集中度 {{ pct(activeGroup.top5_ratio_of_group) }}
-            <template v-if="showTotalRatioCol">
-              · 占{{ scopeUnit }} {{ pct(activeGroup.top5_ratio_of_total) }}
-            </template>
+            组内前 5 集中度 {{ pct(activeGroup.top5_ratio_of_group) }}（占{{
+              activeGroup.label
+            }}）
           </p>
         </div>
 
         <p v-if="activeGroup.count === 0" class="group-empty">
           该作用域没有{{ activeGroup.label }}持仓。
         </p>
-        <table v-else class="detail-table">
-          <thead>
-            <tr>
-              <th>标的</th>
-              <th class="detail-table__num">市值</th>
-              <th v-if="showTotalRatioCol" class="detail-table__num">
-                占{{ scopeUnit }}
-              </th>
-              <th class="detail-table__num">占{{ activeGroup.label }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in activeGroup.top" :key="row.symbol ?? row.name">
-              <td>
-                <span class="cell-name">{{ row.name || row.symbol }}</span>
-                <span class="cell-symbol">{{ row.symbol }}</span>
-                <span v-if="row.accounts > 1" class="cell-badge">
-                  {{ row.accounts }} 个账户合并
-                </span>
-              </td>
-              <td class="detail-table__num">
-                {{ formatAmount(row.value_cny) }}
-              </td>
-              <td v-if="showTotalRatioCol" class="detail-table__num">
-                {{ pct(row.ratio_of_total) }}
-              </td>
-              <td class="detail-table__num">{{ pct(row.ratio_of_group) }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <!-- 与下方「持仓穿透 · 个股层 Top 5」共用 components/RankBarList：
+             同一页两块榜同一套长相，条长与占比都由父级按各自口径算好传进去。 -->
+        <RankBarList v-else :rows="groupRows" />
       </CardBlock>
     </template>
   </div>
@@ -126,6 +102,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
+import RankBarList from "@/components/RankBarList/index.vue";
 import {
   getPositionStructure,
   type PositionStructureData
@@ -223,17 +200,42 @@ const nonEmptyClasses = computed(() => {
 });
 
 /**
- * 「占账户」列是否与「占该类」列有区别。
+ * Top 5 的行（交给共享条列表 `RankBarList` 渲染）：
+ * 名称 + 代码/合并账户副标题 + 条 + **一个**占比；市值只在悬浮提示里
+ *（精确金额在页面下方的持仓明细表里，行内不再挤第二个数字）。
  *
- * 证券账户的股票类**就是**整个账户 ⇒ 两列逐行恒等（实测 5 行全是 3.5%/3.5%）。
- * 这时第二列是纯噪声，隐掉；跨类别作用域（组合/家庭）两者不同，两列都留。
+ * 占比只给「占组合（账户 / 全家庭）」一种口径：
+ * - 它跨类别可比，且与上方类别卡 caption 同分母，一眼能对上；
+ * - 组内占比（占该类）由表头「组内前 5 集中度」一处交代就够——逐行再列一遍，
+ *   就是两个同量纲百分比并排，实测读不出区别（2026-11-15 用户反馈）。
+ *
+ * 条长按**本组最大值**归一，不按「各行之和」：Top 5 之和不是 100%，按和归一
+ * 会把每根条都画得比真实权重长（同 `docs/design/components.md` 的表内嵌条纪律）。
  */
-const showTotalRatioCol = computed(() => {
+const groupRows = computed(() => {
   const rows = activeGroup.value?.top ?? [];
-  return rows.some(
-    row =>
-      Math.abs((row.ratio_of_total ?? 0) - (row.ratio_of_group ?? 0)) > 0.05
+  const maxRatio = rows.reduce(
+    (max, row) => Math.max(max, row.ratio_of_total ?? 0),
+    0
   );
+  return rows.map(row => {
+    const name = row.name || row.symbol || "—";
+    const accounts = row.accounts > 1 ? `${row.accounts} 个账户合并` : "";
+    const ratio = pct(row.ratio_of_total);
+    return {
+      key: String(row.symbol ?? name),
+      name,
+      sub: [row.symbol, accounts].filter(Boolean).join(" · "),
+      title: `${name}（${row.symbol}）· 市值 ${formatAmount(
+        row.value_cny
+      )} · 占${scopeUnit.value} ${ratio}`,
+      width:
+        maxRatio > 0
+          ? `${(((row.ratio_of_total ?? 0) / maxRatio) * 100).toFixed(2)}%`
+          : "0%",
+      value: ratio
+    };
+  });
 });
 
 /**
@@ -256,7 +258,10 @@ const panelInfo = computed(() => {
   const base =
     "钱压在哪：按股票 / 基金 / 其他拆开看占比与前 5 集中度（" +
     scopeLabel.value +
-    "口径）。股票与基金分开排名——份额与价格不可比，合并榜单没有意义。";
+    "口径）。股票与基金分开排名——份额与价格不可比，合并榜单没有意义。" +
+    "榜内行尾百分比是占" +
+    scopeUnit.value +
+    "的比重（跨类别可比）；「组内前 5 集中度」只看该类内部，分母是该类合计。";
   if (fixedView.value === null) return base;
   return (
     base +
@@ -278,10 +283,6 @@ function classAmount(key: string): string {
 function classRatio(key: string): string {
   const row = data.value?.by_asset_class.find(item => item.key === key);
   return pct(row?.ratio_of_total);
-}
-
-function groupCount(key: ClassKey): number {
-  return data.value?.groups?.[key]?.count ?? 0;
 }
 
 async function load() {
@@ -335,25 +336,5 @@ watch(() => [props.ledgerId, props.portfolioId], load);
   margin: var(--space-standard) 0 0;
   font-size: var(--text-small);
   color: var(--text-tertiary);
-}
-
-.cell-name {
-  color: var(--text-primary);
-}
-
-.cell-symbol {
-  margin-left: var(--space-compact);
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
-}
-
-.cell-badge {
-  display: inline-block;
-  padding: 1px var(--space-compact);
-  margin-left: var(--space-compact);
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-  background: var(--bg-muted);
-  border-radius: var(--radius-button);
 }
 </style>
