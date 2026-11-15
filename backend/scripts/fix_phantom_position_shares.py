@@ -64,15 +64,19 @@ _REASON = '存量修复(#3127)：流水净额≤0 但持仓仍 active 且份额>
 
 
 def _backup(url: str) -> Path | None:
-    """sqlite 文件库整库备份；非文件库（Turso 等）不备份，返回 None 由调用方如实告知。"""
+    """sqlite 文件库整库备份；非文件库（Turso 等）不备份，返回 None 由调用方如实告知。
+
+    相对路径按 **cwd** 解析（引擎就是这么解析 `sqlite:///./invest.db` 的），不能按脚本目录
+    ——跨 worktree 跑时脚本在 worktree、库在主仓 cwd，按脚本目录会找不到文件而**静默跳过备份**。
+    """
     if not url.startswith('sqlite'):
         return None
     raw = url.split('sqlite:///', 1)[-1]
     src = Path(raw)
     if not src.is_absolute():
-        src = Path(BACKEND) / src
+        src = Path.cwd() / src
     if not src.exists():
-        return None
+        raise SystemExit(f'备份失败：找不到库文件 {src}（相对路径按 cwd 解析），已中止、未写任何数据')
     dst = src.with_name(f'backup_{src.stem}_{datetime.now():%Y%m%d_%H%M%S}{src.suffix}')
     shutil.copy2(src, dst)
     return dst
