@@ -417,13 +417,19 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '存量 12 处幽灵令牌冻结为基线，只拦新增',
     },
     'scripts/guard_price_precision.mjs': {
-        'rule': '价格 / 净值展示一律走 @/utils/pricePrecision 契约（禁止硬编码 toFixed）',
+        'rule': (
+            '价格 / 净值位数一律走 @/utils/pricePrecision 契约：展示禁硬编码 toFixed，'
+            '录入禁写死 el-input-number 的 precision'
+        ),
         'runner': 'ci',
         'tests': 'scripts/tests/guard_price_precision.test.js',
         'covered': (
-            '只拦**新增**硬编码；存量 13 处冻结为基线（只减不增）。'
+            '展示侧只拦**新增**硬编码；存量 8 处冻结为基线（只减不增）。'
             '运算回写 / 金额 / 份额 / 百分比形态靠正则豁免，形态写怪了会漏；'
-            '位数写对与否不判（那是代码审查的事，守卫只保证新增处被人看过一眼）'
+            '位数写对与否不判（那是代码审查的事，守卫只保证新增处被人看过一眼）。'
+            '录入侧只认 el-input-number + v-model 含 price/nav 词根，'
+            '自定义封装组件（如 MoneyDisplay 的 inputs）与 el-input 文本录入不在口径内；'
+            '「有精度但值不对」不判，只判有没有绕过契约。'
         ),
     },
     'scripts/check_router_links.mjs': {

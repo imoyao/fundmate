@@ -88,7 +88,8 @@
             <el-input-number
               v-model="form.avg_price"
               :min="0"
-              :precision="4"
+              :precision="priceInput.precision"
+              :step="priceInput.step"
               :controls="false"
               style="width: 100%"
               placeholder="每份成本价（元）"
@@ -144,6 +145,7 @@ import {
 import SupplementContext from "./SupplementContext.vue";
 import SupplementTradeFields from "./SupplementTradeFields.vue";
 import { TRADE_FIELD_LABELS } from "@/constants";
+import { priceInputMeta } from "@/utils/pricePrecision";
 import {
   reconAssetHeading,
   reconGroupTitle,
@@ -206,6 +208,10 @@ const dialogTitle = computed(() =>
 const submitLabel = computed(() =>
   form.kind === "set" ? "改成这个持仓" : "补上这笔"
 );
+
+// 成本单价录入档：差异行不带 asset_type，按契约未知档（4 位），与改造前的
+// 字面量 4 位等价；换成契约后守卫才能拦住「新增写死精度」（#3120）。
+const priceInput = computed(() => priceInputMeta());
 
 /**
  * `set` 是覆盖式 SET 锚点（backend/services/reconciliation_service.py:383-398），

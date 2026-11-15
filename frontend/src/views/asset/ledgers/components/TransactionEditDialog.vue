@@ -61,7 +61,9 @@
         >
           <template #append>元/份</template>
         </el-input>
-        <!-- 股票：价格可编辑，2位小数 -->
+        <!-- 证券：单价可编辑，位数按品种最小报价单位（股票 2 位 / 可转债·ETF 3 位）。
+             写死 2 位时 el-input-number 边输边四舍五入，可转债 116.036 会变成
+             116.04、金额跟着错，且没有提示（issue #3120）。 -->
         <el-input-number
           v-else
           v-model="form.price"
@@ -69,9 +71,9 @@
           class="w-full"
           :controls="false"
           :min="0"
-          :precision="2"
-          :step="0.01"
-          placeholder="0.00"
+          :precision="priceInput.precision"
+          :step="priceInput.step"
+          :placeholder="`0.${'0'.repeat(priceInput.precision)}`"
         />
       </el-form-item>
 
@@ -200,6 +202,7 @@ const {
   dateSourceHint,
   quantityPrecision,
   quantityStep,
+  priceInput,
   disabledDate,
   rules,
   initForm,

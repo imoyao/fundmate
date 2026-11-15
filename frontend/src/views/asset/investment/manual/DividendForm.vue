@@ -112,7 +112,8 @@
             v-model="form.nav"
             style="width: 100%"
             :controls="false"
-            :precision="4"
+            :precision="fundPriceInput.precision"
+            :step="fundPriceInput.step"
             :min="0"
             placeholder="输入申购净值"
           />
@@ -174,6 +175,7 @@ import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import type { Position, PositionCreate } from "@/api/types";
 import { disabledTradeDate } from "@/utils/date";
+import { priceInputMeta } from "@/utils/pricePrecision";
 
 interface DividendSubmitBody {
   symbol: string;
@@ -222,6 +224,10 @@ const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
 const positionsByAccount = ref<Record<string, Position[]>>({});
 const selectedPosition = ref<Position | null>(null);
+
+// 红利再投的申购净值：品种固定是基金，走契约的基金档（4 位），
+// 不写死字面量（守卫 guard_price_precision.mjs 会拦，见 issue #3120）。
+const fundPriceInput = priceInputMeta("fund");
 
 const {
   confirmDate,
@@ -385,14 +391,8 @@ defineExpose({ handleSubmit, resetForm, isDirty });
 </script>
 
 <style scoped>
-.text-xs {
-  font-size: 0.75rem;
-}
-
-/* 输入框高度：走 #1772 输入基线的高度令牌（与 BuyForm/SellForm 一致，
-   本表单是 40px 视觉高度）。底色 / 边框 / hover / focus / 圆角已由基线统一，
-   原先两条以 `.el-input__wrapper` 为目标的 :deep 块（含一条 `.el-select .el-input__wrapper`
-   死规则 —— el-select 树里没有 .el-input__wrapper）即因此删除。 */
+/* 只留 #1772 输入基线的高度令牌（40px，与 BuyForm/SellForm 一致）；原先的
+   `:deep(.el-input__wrapper)` 覆盖与本地 `.text-xs`（Tailwind v4 默认即 0.75rem）已删。 */
 .el-form {
   --input-height: 40px;
 }
