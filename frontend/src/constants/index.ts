@@ -222,7 +222,10 @@ export const DISCREPANCY_TYPE_LABELS: Record<string, string> = {
   quantity: "数量",
   cost: "成本",
   cash: "资金",
-  orphan: "孤儿"
+  orphan: "孤儿",
+  // #3125：持仓缺快照锚点时的差异。与 quantity 分开是因为它表达「口径缺前提」，
+  // 不是「数据错」——漏了这张表，界面会直接露出英文枚举。
+  no_anchor: "无基准"
 };
 
 export function discrepancyTypeLabel(type: string): string {

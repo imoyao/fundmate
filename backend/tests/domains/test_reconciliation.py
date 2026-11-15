@@ -141,6 +141,10 @@ class TestDomainBReconciliation:
             current_price=Money.yuan_to_price_units(10),
             source='manual',
             ownership_status='active',
+            # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+            # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+            snapshot_quantity=0,
+            snapshot_date=date(2026, 4, 1),
         )
         db.add(pos)
         db.commit()
@@ -154,6 +158,160 @@ class TestDomainBReconciliation:
         assert d.expected_value == Money.shares_to_min_unit(100)
         assert d.actual_value == Money.shares_to_min_unit(60)
         assert d.diff == Money.shares_to_min_unit(-40)
+
+    def test_no_anchor_mismatch_is_no_anchor_not_quantity(self, db):
+        """active 持仓**无锚点**且流水与持仓不符 → 报 no_anchor，不是 quantity（#3125）。
+
+        为什么必须分开：无锚点时段理论值退回「全量流水净额」，而这类持仓的份额来自
+        券商快照、流水是另一条独立记录 —— 缺基准时两者本就不该互校（真库 119 条里
+        101 条理论值为 0、4 条为负，说明流水压根没覆盖建仓，不是份额记错）。
+        判成 quantity 会把「缺前提」显示成「数据错」，用户只有「补录这笔」一条路，
+        等于被引导去编造一笔不存在的交易凑数；no_anchor 的修法是「以当前持仓为准写锚点」。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert len(discs) == 1
+        d = discs[0]
+        assert d.discrepancy_type == 'no_anchor'
+        # 数值口径不变（仍是「理论 vs 实际」），变的只是类型与随之而来的修法
+        assert d.expected_value == Money.shares_to_min_unit(100)
+        assert d.actual_value == Money.shares_to_min_unit(60)
+        assert d.diff == Money.shares_to_min_unit(-40)
+        assert json.loads(run.summary_json)['no_anchor'] == 1
+
+    def test_cleared_position_without_anchor_stays_quantity(self, db):
+        """清仓行（份额 0、**无锚点**）与流水净额矛盾 → 仍是 quantity，不是 no_anchor。
+
+        边界理由：no_anchor 的唯一修法是「以此为准」写锚点，而写锚点要求份额 > 0
+        （`resolve_snapshot_intent`），清仓行走不通 —— 那又是一条死胡同。这类数据的
+        矛盾是真的（份额 0 vs 流水净额 100），补录卖出是唯一可用入口，故归 quantity。
+        这条与 `test_quantity_stays_quantity_when_position_cleared` 成对：那条锁
+        「有锚点的清仓行」，这条锁「无锚点的清仓行」。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=0,
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='cleared',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].actual_value == 0
+
+    def test_ghost_position_stays_quantity(self, db):
+        """买卖腿齐平（净额 0）却仍挂份额 → `quantity`，不是 no_anchor（#3127）。
+
+        这是 #3127 用审计日志逐条证明的幽灵持仓：`dangling_ref_rebuild` 只重建了
+        买入腿、卖腿补码后没重算份额，于是「卖完了还挂着 270 张」。判成 no_anchor
+        会让卡片说「缺基准、以当前持仓为准」，把真错固化成人工锚点，且 manual 锚点
+        还会挡住后续快照覆盖 —— 与 #3127 的修复方向完全相反。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        _sell_txn(db, ledger.id, 'S1', 100, date(2026, 5, 2))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].expected_value == 0
+        assert discs[0].actual_value == Money.shares_to_min_unit(60)
+        assert json.loads(run.summary_json)['no_anchor'] == 0
+
+    def test_oversold_position_stays_quantity(self, db):
+        """超卖（净额 < 0）却仍挂份额 → 也是 `quantity`（#3127 明确交人工）。
+
+        卖出多于买入多半是买入腿缺失，份额来源存疑。#3127 的存量脚本刻意**不动**
+        这一类（批量清仓会抹掉真实持仓）；同理这里也不能给「以当前持仓为准」。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        _sell_txn(db, ledger.id, 'S1', 150, date(2026, 5, 2))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].expected_value == Money.shares_to_min_unit(-50)
 
     def test_orphan_detection(self, db):
         """流水推演净额 > 0 但系统无持仓 → 报 orphan。"""
@@ -327,6 +485,10 @@ class TestDomainBReconciliation:
                 current_price=Money.yuan_to_price_units(10),
                 source='manual',
                 ownership_status='active',
+                # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+                # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+                snapshot_quantity=0,
+                snapshot_date=date(2026, 4, 1),
             )
         )
         db.commit()
@@ -364,6 +526,10 @@ class TestDomainBReconciliation:
             current_price=Money.yuan_to_price_units(10),
             source='manual',
             ownership_status='active',
+            # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+            # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+            snapshot_quantity=0,
+            snapshot_date=date(2026, 4, 1),
         )
         db.add(pos)
         db.commit()
@@ -562,6 +728,10 @@ class TestReconciliationAPI:
             current_price=Money.yuan_to_price_units(10),
             source='manual',
             ownership_status='active',
+            # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+            # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+            snapshot_quantity=0,
+            snapshot_date=date(2026, 4, 1),
         )
         db.add(pos)
         db.commit()

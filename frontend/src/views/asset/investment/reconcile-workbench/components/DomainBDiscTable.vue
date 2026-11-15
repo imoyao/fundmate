@@ -71,14 +71,17 @@
           <el-table-column :label="DISC_COLUMN_LABELS.action" width="200">
             <template #default="{ row }">
               <template v-if="row.status === 'pending'">
-                <!-- 补录弹窗已带「补的是哪一条」上下文，标题不再叫「就地补充」 -->
+                <!-- 文案按类型选（判据在 utils/discAction.ts，有单测）：no_anchor 是
+                     「没有基准」，弹窗里走「以此为准」模式；quantity 是真差异，给它
+                     「以此为准」会把错数据固化成基准。事件仍是 supplement——裁决入口
+                     只有一个（补录弹窗），模式在里面分流。 -->
                 <el-button
                   size="small"
                   text
                   type="primary"
                   @click="emit('supplement', row as DiscrepancyItem)"
                 >
-                  补录这笔
+                  {{ DISC_ACTION_LABELS[discActionOf(row as DiscrepancyItem)] }}
                 </el-button>
                 <el-button
                   size="small"
@@ -126,6 +129,7 @@ import {
   discrepancyIssue,
   specialSymbolLabel
 } from "../utils/reconLabels";
+import { DISC_ACTION_LABELS, discActionOf } from "../utils/discAction";
 
 /** 域 B 持仓快照差异表（#980 拆分自 index.vue；2026-10-28 补客户端分页）。
  *  理论持仓 vs 实际持仓的待处理差异列表，补充 / 忽略操作经 emit 上抛由父级编排。

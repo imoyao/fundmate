@@ -22,11 +22,22 @@ import {
 } from "../reconDisplay";
 
 describe("差异类型：不再说「数量 / 孤儿」", () => {
-  it("四种枚举都换成用户能看懂的问题", () => {
+  it("五种枚举都换成用户能看懂的问题", () => {
     expect(discrepancyIssue("quantity")).toBe("份额对不上");
     expect(discrepancyIssue("cost")).toBe("成本对不上");
     expect(discrepancyIssue("cash")).toBe("资金对不上");
     expect(discrepancyIssue("orphan")).toBe("有持仓、缺流水");
+    expect(discrepancyIssue("no_anchor")).toBe("缺基准，核对不了");
+  });
+
+  it("后端可能出现的每种类型都在这张表里（新增枚举不许漏翻）", () => {
+    // 与后端 discrepancy_type 的取值集合对齐：quantity / cost / cash / orphan / no_anchor。
+    // 漏一个的表现是界面露出英文原值（`?? "记录有出入"` 兜底），没人会报障，故钉住集合。
+    const backendTypes = ["quantity", "cost", "cash", "orphan", "no_anchor"];
+    for (const t of backendTypes) {
+      expect(DISCREPANCY_ISSUE_LABEL[t], `${t} 缺中文`).toBeTruthy();
+      expect(DISCREPANCY_ISSUE_LABEL[t]).not.toBe(t);
+    }
   });
 
   it("未知枚举与空值也不许露英文或空白", () => {

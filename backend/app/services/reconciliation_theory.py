@@ -44,6 +44,20 @@ def net_quantity(txns) -> int:
     return buy_qty - sell_qty
 
 
+def has_anchor(position) -> bool:
+    """持仓是否带**份额锚点**（快照绝对值 + 快照日俱全）。
+
+    这个判据必须只有一个来源：`theoretical_qty` 用它选口径，域 B 用它区分
+    「数量差异」与「缺基准」（#3125）。两处各写一遍条件的话，一旦一边漏判，
+    就会出现「理论值走了锚点分支、差异类型却报缺基准」的口径分裂——那比错报
+    更难查，因为两个数各自都算得通。
+
+    注意「有 `snapshot_date`、无 `snapshot_quantity`」是迁移的合法常态
+    （历史快照份额已丢失，见 `migrate_positions_snapshot_anchor`），不算锚点。
+    """
+    return position is not None and position.snapshot_quantity is not None and position.snapshot_date is not None
+
+
 def theoretical_qty(txns, position) -> int:
     """锚点口径的理论持仓（**快照基线 + 快照日之后的流水净额**）。
 
@@ -54,7 +68,7 @@ def theoretical_qty(txns, position) -> int:
     若这里仍拿全量流水去比，只要「快照值 ≠ 快照前流水净额」（有分红、有漏录、
     有手续费尾差都会发生），就会**恒报数量差异**——修复上线即制造一批假红。
     """
-    if position is not None and position.snapshot_quantity is not None and position.snapshot_date is not None:
+    if has_anchor(position):
         total = int(position.snapshot_quantity)
         for t in txns:
             d = txn_confirm_date(t)
@@ -66,6 +80,50 @@ def theoretical_qty(txns, position) -> int:
                 total -= txn_quantity(t)
         return total
     return net_quantity(txns)
+
+
+def flow_disproves_position(txns, position) -> bool:
+    """流水**反证**了账上份额：净额 ≤ 0，持仓却还挂着正份额（#3127）。
+
+    - 净额 = 0 而份额 > 0：买卖腿齐平、份额本应为 0。真库里这类是
+      `dangling_ref_rebuild` 只重建了买入腿留下的幽灵持仓（#3127 有审计日志
+      逐条证明），份额是**真错**，不是「券商快照与流水两条独立记录」。
+    - 净额 < 0（超卖）：卖出多于买入，多半是买入腿缺失，份额来源存疑，
+      #3127 明确「不敢批量清仓、只报数交人工」。
+
+    这两种形态都不能用「以当前持仓为准」把份额固化成基准：那等于把真错
+    洗成「不用管」，与 #3127 的修复方向正好相反。检测判据与写锚点动作
+    必须共用本函数——卡片是某次 run 生成的，用户点按钮时数据可能已被
+    别的链路改过（本次真库就发生了：两次对账之间 #3128 重算了 101 条持仓）。
+
+    有锚点时**不适用**：理论值走「快照 + 期后流水」口径，全量净额 ≤ 0 是
+    正常现象（快照前的流水本就不该算进来），拿它当反证会误拒合法校准。
+    """
+    return (
+        position is not None
+        and position.quantity is not None
+        and position.quantity > 0
+        and not has_anchor(position)
+        and net_quantity(txns) <= 0
+    )
+
+
+def is_missing_baseline(txns, position) -> bool:
+    """「缺基准」判据（域 B 分类 + 写锚点动作共用的唯一来源，#3125 / #3127）。
+
+    三个条件缺一不可：
+
+    - `active`：清仓行（份额 0）写不了锚点，「以此为准」是死路；
+    - 无锚点：有锚点时理论值本就该与持仓互校，差异是真的；
+    - 流水**没有反证**份额：净额 > 0 但覆盖不全才叫缺基准；净额 ≤ 0 而
+      仍有份额属于 #3127 的幽灵持仓 / 超卖，保持 `quantity` 交人工核对。
+    """
+    return (
+        position is not None
+        and position.ownership_status == 'active'
+        and not has_anchor(position)
+        and not flow_disproves_position(txns, position)
+    )
 
 
 def find_holding(txns) -> bool:
