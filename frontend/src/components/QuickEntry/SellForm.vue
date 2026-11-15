@@ -73,8 +73,8 @@
           style="width: 100%"
           :controls="false"
           :min="0"
-          :step="0.01"
-          :precision="2"
+          :precision="priceInput.precision"
+          :step="priceInput.step"
         />
         <span class="text-xs text-gray-500 mt-1"
           >默认为成本价，可按实际成交价修改</span
@@ -150,6 +150,7 @@ import {
   checkPriceInRange
 } from "@/composables/useSecurityPrice";
 import { disabledTradeDate } from "@/utils/date";
+import { priceInputMeta } from "@/utils/pricePrecision";
 import { TRADE_FIELD_LABELS } from "@/constants";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
@@ -189,6 +190,10 @@ const selectedPosition = ref<Position | null>(null);
 
 // 交易日期禁用规则收敛到 utils/date（#1835）
 const disabledDate = disabledTradeDate;
+
+// 卖出价位数 / 步进按品种最小报价单位（股票 2 位、可转债·ETF 3 位）。写死 2 位时
+// el-input-number 边输边四舍五入，可转债成交价 116.036 会被改成 116.04（#3120）。
+const priceInput = computed(() => priceInputMeta(form.type));
 
 // 账户 → 持仓 → 可卖量 / 步长 / 快捷档位
 const {

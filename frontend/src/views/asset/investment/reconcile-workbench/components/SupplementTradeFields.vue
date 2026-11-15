@@ -57,10 +57,13 @@
     </div>
   </el-form-item>
   <el-form-item :label="TRADE_FIELD_LABELS.price" prop="avg_price">
+    <!-- 位数走 @/utils/pricePrecision 的录入档（此处拿不到品种，按后端上限 4 位）；
+         写死字面量精度会被 guard_price_precision.mjs 拦下（issue #3120）。 -->
     <el-input-number
       v-model="avgPriceModel"
       :min="0"
-      :precision="4"
+      :precision="priceInput.precision"
+      :step="priceInput.step"
       :controls="false"
       style="width: 100%"
       placeholder="每份成交价（元）"
@@ -89,6 +92,7 @@
 import { computed } from "vue";
 import { TRADE_FIELD_LABELS } from "@/constants";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import { priceInputMeta } from "@/utils/pricePrecision";
 import { reconQuantity } from "../utils/reconDisplay";
 
 defineOptions({ name: "SupplementTradeFields" });
@@ -140,6 +144,10 @@ const tradeDateModel = computed({
   get: () => props.tradeDate,
   set: val => emit("update:tradeDate", val)
 });
+
+// 成交价录入档：这里拿不到品种（差异行不带 asset_type），按契约的未知档 4 位，
+// 与改造前的字面量 4 位等价 —— 换成契约是为了让守卫能拦「新增写死精度」（#3120）。
+const priceInput = computed(() => priceInputMeta());
 
 /**
  * 卖出全仓：单值快捷填充（不是 QuickRatioPicker 的比例档位，分工见 design.md）。

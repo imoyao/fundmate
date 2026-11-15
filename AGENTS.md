@@ -817,7 +817,7 @@ if code == 1:
 - 份额：最小单位（份×10000）。
 - 净值：`DECIMAL(18,6)`。
 - 换算必须走 `app/core/money.py` 的 `Money`（`yuan_to_cents`/`shares_to_min_unit`），业务代码禁止直接乘除 float。
-- **前端价格 / 净值展示的位数一律走 `@/utils/pricePrecision`**（基金 / ETF / 货币基金 4 位，其余 2 位）；组件用 `:precision="pricePrecision(assetType)"`，echarts 轴标签 / tooltip / 标注这类非组件出口用 `formatPrice(v, assetType)`。禁止在各处手写 `.toFixed(n)`——契约早在，但只有表格类组件遵守，走势图 y 轴就因此只剩 1 位（净值 4.8124 显示成 4.8）。判据：`scripts/guard_price_precision.mjs`（存量 13 处冻结为基线，只拦新增）。
+- **前端价格 / 净值的位数一律走 `@/utils/pricePrecision`**，展示与录入是两个轴，别互相顶替：展示侧（基金 / ETF / 货币基金 4 位、可转债 3 位、其余 2 位）组件用 `:precision="pricePrecision(assetType)"`，echarts 轴标签 / tooltip / 标注这类非组件出口用 `formatPrice(v, assetType)`；录入侧（股票 2 位、可转债·ETF 3 位、净值 4 位、未知 4 位）用 `priceInputMeta(assetType)` 的 `precision` + `step`。禁止各处手写 `.toFixed(n)`，也禁止给价格语义的 `el-input-number` 写死 `:precision`——展示侧曾因只有表格类组件遵守而让走势图 y 轴只剩 1 位（净值 4.8124 显示成 4.8）；录入侧写死 2 位则更贵，`el-input-number` 的 precision 是**边输边四舍五入**，可转债 116.036 一进框就变 116.04、金额跟着算错且没有提示（#3120）。判据：`scripts/guard_price_precision.mjs`（展示存量冻结为基线、录入零基线，两个出口都只拦新增）。
 
 ### 资产正负
 

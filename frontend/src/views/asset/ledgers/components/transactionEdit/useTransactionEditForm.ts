@@ -32,6 +32,7 @@ import {
 } from "@/composables/useUnsavedChangesGuard";
 import { ElMessage } from "element-plus";
 import { disabledTradeDate } from "@/utils/date";
+import { priceInputMeta } from "@/utils/pricePrecision";
 import {
   blankForm,
   buildUpdatePayload,
@@ -136,6 +137,11 @@ export function useTransactionEditForm(opts: {
     () => quantityMeta(assetType.value).precision
   );
   const quantityStep = computed(() => quantityMeta(assetType.value).step);
+
+  // 单价录入位数按品种最小报价单位（股票 2 / 可转债·ETF 3 / 基金净值 4）：
+  // 写死 2 位时 `el-input-number` 会**边输边四舍五入**，可转债 116.036 一进框就
+  // 变成 116.04，金额跟着算错，且没有提示（issue #3120）。
+  const priceInput = computed(() => priceInputMeta(assetType.value));
 
   // 交易日期必填（确认日期由系统自动计算，不需用户输入）
   const rules = {
@@ -326,6 +332,7 @@ export function useTransactionEditForm(opts: {
     dateSourceHint,
     quantityPrecision,
     quantityStep,
+    priceInput,
     disabledDate,
     rules,
     initForm,

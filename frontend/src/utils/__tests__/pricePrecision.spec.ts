@@ -19,6 +19,7 @@ import {
   PRICE_PLACEHOLDER,
   formatPrice,
   priceAxisLabelFormatter,
+  priceInputMeta,
   pricePrecision
 } from "@/utils/pricePrecision";
 
@@ -29,9 +30,13 @@ describe("pricePrecision：按资产类型分档", () => {
     expect(pricePrecision("money_fund")).toBe(4);
   });
 
-  it("其余证券 = 2 位", () => {
+  it("股票 = 2 位（A 股最小价格变动 0.01 元）", () => {
     expect(pricePrecision("stock")).toBe(2);
-    expect(pricePrecision("bond")).toBe(2);
+  });
+
+  it("可转债 = 3 位（最小价格变动 0.001 元；2 位会把 116.036 显示成 116.04，#3120）", () => {
+    expect(pricePrecision("bond")).toBe(3);
+    expect(pricePrecision("convertible")).toBe(3);
   });
 
   it("未知 / 缺失按证券口径 2 位（猜成 4 位会让股价出现无意义尾数）", () => {
@@ -42,10 +47,47 @@ describe("pricePrecision：按资产类型分档", () => {
   });
 });
 
+describe("priceInputMeta：录入侧按品种最小报价单位", () => {
+  it("股票 2 位 / 0.01", () => {
+    expect(priceInputMeta("stock")).toEqual({ precision: 2, step: 0.01 });
+  });
+
+  it("可转债与 ETF 3 位 / 0.001（交易所最小变动）", () => {
+    expect(priceInputMeta("bond")).toEqual({ precision: 3, step: 0.001 });
+    expect(priceInputMeta("convertible")).toEqual({
+      precision: 3,
+      step: 0.001
+    });
+    expect(priceInputMeta("etf")).toEqual({ precision: 3, step: 0.001 });
+  });
+
+  it("基金 / 货币基金 4 位 / 0.0001（场外净值）", () => {
+    expect(priceInputMeta("fund")).toEqual({ precision: 4, step: 0.0001 });
+    expect(priceInputMeta("money_fund")).toEqual({
+      precision: 4,
+      step: 0.0001
+    });
+  });
+
+  it("未知品种取后端上限 4 位（录入侧重「不截断」，与展示侧的 2 位方向相反）", () => {
+    for (const t of [undefined, null, "", "some_new_type"]) {
+      expect(priceInputMeta(t)).toEqual({ precision: 4, step: 0.0001 });
+    }
+    // 方向不对称是刻意的：展示少给尾数只是难看，录入少给位数会静默改掉真实成交价
+    expect(priceInputMeta().precision).toBeGreaterThanOrEqual(
+      pricePrecision("stock")
+    );
+  });
+});
+
 describe("formatPrice：与位数同源的格式化", () => {
   it("净值 4 位、股价 2 位，同一个函数两种口径", () => {
     expect(formatPrice(4.8124, "fund")).toBe("4.8124");
     expect(formatPrice(4.8124, "stock")).toBe("4.81");
+  });
+
+  it("可转债报价 3 位不被截断（116.036 不能显示成 116.04）", () => {
+    expect(formatPrice(116.036, "bond")).toBe("116.036");
   });
 
   it("补零到约定位数（4.8 不能只显示一位）", () => {

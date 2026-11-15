@@ -80,10 +80,14 @@
                 />
               </td>
               <td class="col-num">
+                <!-- 这一列是**成本价**（含费用摊销，如 12.3456），不是场内报价，
+                     故走契约的未知档（4 位）而不是按品种取最小报价单位——按品种给
+                     2 位会把成本价静默改成 12.35（#3120 同一类故障）。 -->
                 <el-input-number
                   v-model="row.price"
                   :min="0"
-                  :precision="4"
+                  :precision="costPriceInput.precision"
+                  :step="costPriceInput.step"
                   :controls="false"
                   placeholder="0"
                 />
@@ -150,6 +154,7 @@
 import { computed, reactive } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getTypeLabel } from "@/constants/assetType";
+import { priceInputMeta } from "@/utils/pricePrecision";
 import type {
   ManualHoldingDraft,
   useEaccountImport
@@ -164,6 +169,9 @@ const MANUAL_TYPE_OPTIONS = ["fund", "stock", "etf", "bond"].map(v => ({
 }));
 
 const props = defineProps<{ page: ReturnType<typeof useEaccountImport> }>();
+
+/** 成本价录入档：成本价不是场内报价（含费用摊销），取契约未知档 4 位，与 backend 0.0001 元上限一致 */
+const costPriceInput = priceInputMeta();
 
 /**
  * 共享状态单体（useEaccountImport）的响应式视图：

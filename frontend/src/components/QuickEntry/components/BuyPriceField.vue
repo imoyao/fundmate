@@ -16,8 +16,8 @@
       class="w-full"
       :controls="false"
       :min="0"
-      :step="0.01"
-      :precision="2"
+      :precision="priceInput.precision"
+      :step="priceInput.step"
     />
     <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
       默认填入当日收盘价，可按实际成交价修改（打新中签请填中签价）
@@ -28,6 +28,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { TRADE_FIELD_LABELS } from "@/constants";
+import { priceInputMeta } from "@/utils/pricePrecision";
 
 const props = defineProps<{
   price: number | undefined;
@@ -42,6 +43,10 @@ const priceModel = computed({
   get: () => props.price,
   set: val => emit("update:price", val)
 });
+
+// 位数 / 步进按品种最小报价单位（股票 2 位、可转债·ETF 3 位）。写死 2 位时
+// el-input-number 边输边四舍五入，可转债 116.036 会变成 116.04 且无提示（#3120）。
+const priceInput = computed(() => priceInputMeta(props.securityType));
 
 // 可手填价格的品种：股票 / ETF / 可转债。基金的价格是净值（由 useBuyNavSync 回填，
 // 手填会与净值回填互相覆盖）；投顾组合没有份额与价格概念（D70）。
