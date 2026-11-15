@@ -301,6 +301,7 @@ function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
 /** 阶段 → 队列卡标题：说这批流水处在什么状态，不逐组点名标的 */
 const DANGLING_STAGE_TITLE: Record<DanglingStage, string> = {
   fill: "缺标的代码的流水",
+  unowned: "无持仓承接的流水",
   reattach: "可挂回的流水",
   mislink: "挂错标的的流水",
   rebuild: "待重建的流水"
@@ -309,6 +310,8 @@ const DANGLING_STAGE_TITLE: Record<DanglingStage, string> = {
 /** 阶段 → 一句话说清「这批是什么、现在卡在哪」（与 DANGLING_ACTION_LABEL 同套阶段键） */
 const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
   fill: "这些交易挂在已删除的持仓上，而且没有标的代码，补上后才能判断归属。",
+  unowned:
+    "这些交易没有挂到任何持仓上，任何持仓视图里都看不到；补上标的或删除后才能清掉。",
   reattach: "这些交易挂在已删除的持仓上，系统已找到现存持仓，可以挂回去。",
   mislink:
     "这些交易挂在了别的标的的持仓上：份额和成本被算进了那只标的，它们自己的持仓反而没有记录。",
@@ -319,6 +322,7 @@ const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
 /** 阶段 → 为什么不能立刻动手（stateReason） */
 const DANGLING_STAGE_REASON: Record<DanglingStage, string> = {
   fill: "缺标的代码，补齐后才能判断归属",
+  unowned: "没有持仓承接，需先补全标的或删除",
   reattach: "系统已找到可挂回的持仓",
   mislink: "改挂会改流水归属，需你确认目标",
   rebuild: "流水完整，缺的是它对应的持仓行"
@@ -345,8 +349,9 @@ export function danglingStageItem(
   ];
   // 标的行只在前三个之外还多时收成「等 N 个标的」；fill 阶段全组没代码，
   // reconGroupTitle 会全是「标的代码未填」，那行反而成了噪音 → 只在能认出
-  // 标的阶段（reattach / rebuild）保留
-  const nameable = stage !== "fill" && titles.length > 0;
+  // 标的阶段（reattach / rebuild）保留。unowned 与 fill 同理：组里大量缺码，
+  // 聚合后标题行会混进一串「标的代码未填」（标的细节看组卡，不在这里点名）。
+  const nameable = stage !== "fill" && stage !== "unowned" && titles.length > 0;
   const symbolFact = !nameable
     ? ""
     : titles.length <= 3

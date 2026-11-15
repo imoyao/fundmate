@@ -10,7 +10,9 @@ import { describe, expect, it } from "vitest";
 import type {
   DanglingRefGroup,
   DanglingRefList,
-  MislinkedRefList
+  MislinkedRefList,
+  UnownedRefGroup,
+  UnownedRefList
 } from "@/api/reconciliation";
 import { mergeDanglingLists } from "../danglingRefMerge";
 
@@ -32,6 +34,11 @@ function group(over: Partial<DanglingRefGroup> = {}): DanglingRefGroup {
     transactions: [],
     ...over
   };
+}
+
+/** 无归属组夹具：在悬空组形状上钉死 `unowned: true`（契约必带） */
+function unownedGroup(over: Partial<DanglingRefGroup> = {}): UnownedRefGroup {
+  return { ...group(over), unowned: true };
 }
 
 const dangling: DanglingRefList = {
@@ -117,5 +124,93 @@ describe("mergeDanglingLists", () => {
   it("悬空接口没数据 → 返回 null（不凭错挂数据伪造一份悬空快照）", () => {
     expect(mergeDanglingLists(null, mislinked)).toBeNull();
     expect(mergeDanglingLists(undefined, undefined)).toBeNull();
+  });
+});
+
+/**
+ * 无归属流水（#3126）合并的回归网。钉住的事与错挂组同族：
+ * 合并 groups 必须同步加 total / group_count；但 `fixable_count` **必须不涨** ——
+ * 契约里无归属组的 fixable 恒 0（没有可挂回的持仓指针，reattach / rebuild /
+ * mislink 一律 400），把组里带代码的行算进「可回补」会让分诊卡宣称能处理一个
+ * 实际只有「补全标的或删除」两条路的阶段。
+ */
+describe("mergeDanglingLists：无归属组（#3126）", () => {
+  const unowned: UnownedRefList = {
+    total: 254,
+    group_count: 2,
+    batch_count: 2,
+    null_symbol: 244,
+    null_trade_date: 10,
+    fixable_count: 0,
+    groups: [
+      unownedGroup({
+        key: "unowned|20|",
+        symbol: "",
+        txn_count: 250,
+        dangling_position_ids: [],
+        candidates: [],
+        fixable: false,
+        batch_id: null,
+        batch_label: "",
+        flags: ["no_symbol", "no_candidate"],
+        block_reason: "这些交易没有挂到任何持仓上。"
+      }),
+      unownedGroup({
+        key: "unowned|20|SZ128081",
+        symbol: "SZ128081",
+        txn_count: 4,
+        dangling_position_ids: [],
+        candidates: [],
+        fixable: false,
+        batch_id: 9,
+        batch_label: "2026-01-02 09:00",
+        flags: ["auto_attach_after_enrich"],
+        block_reason: "这些交易没有挂到任何持仓上。"
+      })
+    ],
+    batches: [
+      {
+        id: 9,
+        label: "2026-01-02 09:00",
+        txn_count: 4,
+        ledger_ids: [20],
+        symbol_count: 1
+      }
+    ]
+  };
+
+  it("组并进 groups，total / group_count 同步涨，fixable_count 不涨", () => {
+    const merged = mergeDanglingLists(dangling, mislinked, unowned)!;
+
+    expect(merged.groups).toHaveLength(5);
+    expect(merged.total).toBe(263);
+    expect(merged.group_count).toBe(5);
+    // 无归属组即使带标的代码（SZ128081 那组）也不进「可回补」口径
+    expect(merged.fixable_count).toBe(8);
+  });
+
+  it("只有无归属数据、没有错挂数据时同样正确合并", () => {
+    const merged = mergeDanglingLists(dangling, null, unowned)!;
+
+    expect(merged.groups).toHaveLength(3);
+    expect(merged.total).toBe(261);
+    expect(merged.group_count).toBe(3);
+    expect(merged.fixable_count).toBe(7);
+  });
+
+  it("无归属组不污染悬空口径的计数与批次清单", () => {
+    const merged = mergeDanglingLists(dangling, mislinked, unowned)!;
+
+    expect(merged.null_symbol).toBe(dangling.null_symbol);
+    expect(merged.null_trade_date).toBe(dangling.null_trade_date);
+    expect(merged.batch_count).toBe(dangling.batch_count);
+    expect(merged.batches).toEqual(dangling.batches);
+  });
+
+  it("无归属接口没数据 → 与两参调用结果一致（原样返回 base）", () => {
+    expect(mergeDanglingLists(dangling, mislinked, null)).toEqual(
+      mergeDanglingLists(dangling, mislinked)
+    );
+    expect(mergeDanglingLists(dangling, null, null)).toBe(dangling);
   });
 });

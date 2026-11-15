@@ -44,7 +44,12 @@ const DANGLING_FLAG_LABELS: Record<string, string> = {
   blocked: "暂时不能自动处理",
   mislinked: "挂在别的标的的持仓上",
   no_target: "同标的没有持仓记录",
-  venue_conflict: "同代码有不同场所的持仓"
+  venue_conflict: "同代码有不同场所的持仓",
+  // 无归属族（#3126，/dangling-refs/unowned/ 的组）。组级身份由 `unowned` 字段给出、
+  // 阶段标题已说是「无持仓承接」，故这里只翻译用户还不知道的两件事：缺代码、有没有
+  // 可挂回的持仓（`unowned` / `has_symbol` 不上屏，避免同一个事实说两遍）。
+  no_candidate: "未找到相关持仓",
+  auto_attach_after_enrich: "补全后夜间回填会自动挂回"
 };
 
 export function reconFlag(flag: string): string {

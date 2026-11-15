@@ -66,6 +66,7 @@ import json
 from collections import defaultdict
 from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
@@ -81,6 +82,7 @@ from app.services.dangling_identity import (
     position_candidates,
     require_single_identity,
     same_identity,
+    unowned_condition,
 )
 from app.services.position_recompute_entry import reattach_payload
 
@@ -122,13 +124,25 @@ def _normalize_ids(raw) -> list[int]:
     return uniq
 
 
-def _load_dangling_by_ids(db: Session, family_id: int, ids: list[int]) -> list[Transaction]:
-    """按 id 取流水，并**再次用 EXISTS 校验**每条确实属于本 family 且确实悬空。
+def _load_dangling_by_ids(
+    db: Session, family_id: int, ids: list[int], include_unowned: bool = False
+) -> list[Transaction]:
+    """按 id 取流水，并**再次校验**每条确实属于本 family 且确实可处置（悬空 / 无归属）。
 
-    这是硬约束 2 的落点：防止把已修好（position_id 已指向现存持仓）的 id 再挂一次。
+    默认 ``include_unowned=False`` 只认「悬空」（``dangling_condition``：position_id
+    指向已删除持仓）——**这个默认值就是安全边界，新增写路径不要随手传 True**：
+    reattach / rebuild / mislink 的目标校验都走它，而 unowned 行（#3126，
+    ``position_id`` 为空、无持仓承接）没有「挂回现存持仓」的合法目标，强行挂只会
+    制造新的错账。目前只有 enrich 与 delete 显式传 True——补全 / 删除对无持仓承接
+    的行同样成立，且它们不碰持仓份额。
+
+    这是硬约束 2 的落点：防止把已修好（position_id 已指向现存持仓）的 id 再动一次。
     任一 id 不在检出集合里 → 整体抛 ValueError，不写任何东西。
     """
-    rows = db.query(Transaction).filter(dangling_condition(family_id), Transaction.id.in_(ids)).all()
+    cond = dangling_condition(family_id)
+    if include_unowned:
+        cond = or_(cond, unowned_condition(family_id))
+    rows = db.query(Transaction).filter(cond, Transaction.id.in_(ids)).all()
     found = {t.id: t for t in rows}
     missing = [i for i in ids if i not in found]
     if missing:

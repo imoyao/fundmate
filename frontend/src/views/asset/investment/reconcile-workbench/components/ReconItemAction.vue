@@ -37,7 +37,9 @@
     <!-- 域 F 执行区（漏斗，2026-11-13）：按 payload.stage 给唯一主动作 + 删除。
          删除是域 F 渲染树里唯一的 danger 入口；两个动作都先经各自的确认弹窗。
          错挂组不给「删除」：后端的删除端点只认**悬空**流水（position_id 指向已不存在的
-         持仓行），这类流水挂着现存持仓，点了必然 400 —— 不给必然失败的动作。 -->
+         持仓行），这类流水挂着现存持仓，点了必然 400 —— 不给必然失败的动作。
+         无归属组（#3126）两个动作都在：主动作走补全弹窗、删除后端已放开校验；
+         主动作不经 runPrimary 特判，落进兜底 openRemediation("enrich")。 -->
     <template v-else-if="danglingPayload">
       <p class="recon-item-action__lead">{{ item.summary }}</p>
       <div class="recon-item-action__buttons">

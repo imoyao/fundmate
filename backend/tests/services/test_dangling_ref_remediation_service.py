@@ -18,7 +18,10 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog
 from app.domains.transactions.models import Transaction
+from app.services import dangling_ref_rebuild_service as rebuild_svc
 from app.services import dangling_ref_remediation_service as svc
+from app.services import dangling_ref_service as dangling_ref_svc
+from app.services.dangling_ref_unowned_service import scan_unowned_flows
 
 _FAMILY = 1
 _OTHER_FAMILY = 2
@@ -834,3 +837,81 @@ def test_enrich_candidates_exclude_other_venue_same_code(db, ledger):
 
     assert data['candidate_positions'] == []
     assert other.id not in [c['id'] for c in data['candidate_positions']]
+
+
+# ── #3126：unowned 行（position_id 为空、无持仓承接）可走 enrich / delete ──────
+# unowned 形状：position_id=None + 账本非空 + quantity≠0 + asset_type 为 NULL
+# （真库 10 条历史卖出的形状）。enrich / delete 是它仅有的两条写路径；
+# reattach / rebuild / mislink 必须继续拒绝（无悬空引用可挂回）。
+
+
+def _mk_unowned_txn(db, ledger_id, *, symbol='', position_name='华夏成长混合', txn_type='sell', shares=100.0):
+    """真库 #3126 形状：position_id 为空、账本非空、quantity 非零、asset_type 为 NULL。"""
+    return _mk_txn(
+        db,
+        ledger_id,
+        position_id=None,
+        symbol=symbol,
+        position_name=position_name,
+        asset_type=None,
+        txn_type=txn_type,
+        shares=shares,
+    )
+
+
+def test_unowned_row_can_enrich_preview_and_write(db, ledger):
+    """unowned 行可走补全：预览只读、写入只补空值；补完仍在 unowned 清单（谓词不看 symbol）。"""
+    t = _mk_unowned_txn(db, ledger.id)
+    logs_before = db.query(AdjustmentLog).count()
+
+    preview = svc.preview_enrichment(db, _FAMILY, [t.id], symbol='000001')
+    assert preview['txn_count'] == 1
+    assert preview['fill_symbol_count'] == 1
+    # 预览纯只读：零写入
+    assert db.query(AdjustmentLog).count() == logs_before
+    assert db.query(Transaction).filter_by(id=t.id).one().symbol == ''
+
+    ret = svc.enrich_transactions(db, _FAMILY, [t.id], symbol='000001', confirm=True)
+    assert ret['updated'] == 1
+    assert db.query(Transaction).filter_by(id=t.id).one().symbol == '000001'
+
+    # 谓词不看 symbol：补全后必须仍留在 unowned 清单——夜间回填会按「同账本同标的」
+    # 把它自动挂回持仓；谓词若看 symbol，补全动作会让它再次凭空消失。
+    data = scan_unowned_flows(db, _FAMILY)
+    ids = [x['id'] for g in data['groups'] for x in g['transactions']]
+    assert ids == [t.id]
+
+
+def test_unowned_row_can_delete_with_confirm_phrase(db, ledger):
+    """unowned 行可走删除：confirm_phrase 硬校验照常，完整快照入审计日志可撤销。"""
+    t = _mk_unowned_txn(db, ledger.id)
+
+    ret = svc.delete_transactions(db, _FAMILY, [t.id], confirm=True, confirm_phrase='删除')
+
+    assert ret['deleted'] == 1
+    assert db.query(Transaction).filter_by(id=t.id).count() == 0
+    log = db.query(AdjustmentLog).filter_by(action=svc.ACTION_DELETE).one()
+    snapshot = json.loads(log.before_json)[0]
+    assert snapshot['id'] == t.id
+    assert snapshot['position_id'] is None  # 完整快照含「未挂持仓」这一事实
+
+
+def test_unowned_row_rejected_by_reattach_and_rebuild(db, ledger):
+    """unowned 行打回补 / 重建必须拒绝（端点层 400）：无悬空引用可挂回，强行挂会制造错账。
+
+    **变异探针**：把 ``_load_dangling_by_ids`` 的默认 ``include_unowned=False`` 改成
+    True（或三处写路径随手传 True），本用例立即转红——默认值就是安全边界。
+    """
+    t = _mk_unowned_txn(db, ledger.id)
+    any_target_id = 1
+
+    with pytest.raises(ValueError, match='并非悬空'):
+        dangling_ref_svc.preview_reattach(db, _FAMILY, [t.id], any_target_id)
+    with pytest.raises(ValueError, match='并非悬空'):
+        dangling_ref_svc.reattach_transactions(db, _FAMILY, [t.id], any_target_id)
+    with pytest.raises(ValueError, match='并非悬空'):
+        rebuild_svc.preview_rebuild(db, _FAMILY, [t.id])
+
+    # 拒绝分支零写入：归属一字未动、无审计日志
+    assert db.query(Transaction).filter_by(id=t.id).one().position_id is None
+    assert db.query(AdjustmentLog).count() == 0

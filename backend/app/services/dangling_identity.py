@@ -20,7 +20,7 @@
 
 from collections import defaultdict
 
-from sqlalchemy import and_, exists, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.venues import venue_of_asset_type
@@ -122,6 +122,52 @@ def dangling_condition(family_id: int):
         Transaction.family_id == family_id,
         Transaction.position_id.isnot(None),
         ~live,
+    )
+
+
+#: 归置域（#3089）专属的账外类现金类型：``orphan_coverage_service`` 只收这两类，
+#: 无归属清单必须排除它们，否则同一行会被两个端点同时报出、用户拿到两套「修法」。
+UNOWNED_EXCLUDED_ASSET_TYPES = ('money_fund', 'reverse_repo')
+
+
+def unowned_condition(family_id: int):
+    """「无持仓承接」流水（#3126 新类）的检出条件，返回可直接喂给 ``filter()`` 的表达式。
+
+    逐条理由（每条都在与一类既有脏数据划界，勿合并、勿删）：
+
+    - ``family_id`` 匹配：多家庭隔离，与 ``dangling_condition`` 同口径。
+    - ``position_id IS NULL``：与域 F（``dangling_condition`` 要求 ``position_id IS NOT
+      NULL`` 且引用悬空）互斥——同一行绝不进两个清单，主扫描的契约（NULL 孤儿不进
+      域 F）不被破坏。
+    - ``covered_position_id IS NULL``：已被「归置」（#3089）标记「已由某持仓体现」的
+      行有了承接，不再是无归属。
+    - ``ledger_id IS NOT NULL``：与域 G（``orphan_ledger_service._orphan_condition``
+      要求 ``ledger_id IS NULL``）互斥——缺账本走那条修法，不在这里双报。
+    - ``quantity != 0``：真库 254 条界外流水里，146 条货基买卖与 77 条分红/红利税
+      实测全为 0——它们不改变持仓份额、没有「卖出消失」的风险，报出来只是噪声。
+      ``quantity`` 存的是最小单位（份×10000），比较用整数，绝不经 float。
+    - ``asset_type`` 排除 ``money_fund`` / ``reverse_repo``：这两类归「归置」域收，
+      排除避免双报（见 ``UNOWNED_EXCLUDED_ASSET_TYPES``）。
+
+    **刻意不看 ``symbol``**：补全标的（``/dangling-refs/enrich/``）之后，该行必须仍
+    留在本清单里——夜间回填会按「同账本同标的」把它自动挂回持仓；谓词若看 symbol，
+    补全动作会让它再次凭空消失。
+
+    ⚠️ ``asset_type`` 可能为 NULL：SQL 里 ``NOT IN`` 遇 NULL 结果是 NULL（被当成
+    false 而**漏掉整行**），故必须写成 ``or_(is_(None), ~in_(...))`` 的显式形式。
+    真库那 10 条的 ``asset_type`` 恰好全是 NULL——写成 ``NOT IN`` 一条都检不出，
+    且语法检查、类型检查全绿，只有测试能咬住（见 test_dangling_ref_unowned_service）。
+    """
+    return and_(
+        Transaction.family_id == family_id,
+        Transaction.position_id.is_(None),
+        Transaction.covered_position_id.is_(None),
+        Transaction.ledger_id.isnot(None),
+        Transaction.quantity != 0,
+        or_(
+            Transaction.asset_type.is_(None),
+            ~Transaction.asset_type.in_(UNOWNED_EXCLUDED_ASSET_TYPES),
+        ),
     )
 
 
