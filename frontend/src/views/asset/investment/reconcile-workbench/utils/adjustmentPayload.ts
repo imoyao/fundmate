@@ -28,6 +28,15 @@ export type SupplementKind = "increment" | "set" | "anchor";
 export interface SupplementFormValue {
   kind: SupplementKind;
   op_type: string;
+  /**
+   * 买入金额（元）：**只用于反算份额**，不单独提交。
+   *
+   * 2026-11-15 与记一笔对齐：基金买入时用户手里有金额与日期，份额是要算出来的那个数
+   * （口径见 `@/utils/tradeAmountMath`，与 `useSharesLinkage` 共用）。提交给
+   * `/reconciliation/adjustments/` 的仍是 `quantity` + `avg_price`——后端只认份额与
+   * 成交价，多传一个金额就是多一个可以被改错的数。
+   */
+  buy_amount?: number;
   quantity?: number;
   avg_price?: number;
   fee?: number;

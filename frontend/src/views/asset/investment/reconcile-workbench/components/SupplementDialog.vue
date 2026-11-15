@@ -78,6 +78,9 @@
             v-model:avg-price="form.avg_price"
             v-model:fee="form.fee"
             v-model:trade-date="form.confirm_date"
+            v-model:amount="form.buy_amount"
+            :asset-type="assetType"
+            :nav-hint="navHint"
             :expected-quantity="target.expected_value"
           />
         </template>
@@ -142,13 +145,8 @@
 
 <script setup lang="ts">
 import { errorMessageOf } from "@/utils/errorMessage";
-import { computed, reactive, ref, watch } from "vue";
-import {
-  ElMessage,
-  ElMessageBox,
-  type FormInstance,
-  type FormRules
-} from "element-plus";
+import { computed, ref, watch } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import {
@@ -160,19 +158,21 @@ import SupplementContext from "./SupplementContext.vue";
 import SupplementTradeFields from "./SupplementTradeFields.vue";
 import { TRADE_FIELD_LABELS } from "@/constants";
 import { priceInputMeta } from "@/utils/pricePrecision";
+import { useSharesLinkage } from "@/composables/useSharesLinkage";
+import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import {
   reconAssetHeading,
   reconGroupTitle,
   reconQuantity
 } from "../utils/reconDisplay";
-import { inferSupplementOpType } from "../utils/reconSupplement";
-import { defaultSupplementKind, discActionOf } from "../utils/discAction";
+import { useSupplementForm } from "../composables/useSupplementForm";
+import { useSupplementNavSync } from "../composables/useSupplementNavSync";
+import { discActionOf } from "../utils/discAction";
 import {
   adjustmentSuccessMessage,
   buildAdjustmentPayload,
   supplementLabels,
-  type SupplementKind,
-  type SupplementFormValue
+  type SupplementKind
 } from "../utils/adjustmentPayload";
 
 defineOptions({ name: "SupplementDialog" });
@@ -195,19 +195,16 @@ const emit = defineEmits<{
   submitted: [];
 }>();
 
-const formRef = ref<FormInstance>();
 const submitting = ref(false);
 
-const form = reactive<SupplementFormValue>({
-  kind: "increment",
-  op_type: "buy",
-  quantity: undefined as number | undefined,
-  avg_price: undefined as number | undefined,
-  fee: undefined as number | undefined,
-  confirm_date: "",
-  snapshot_date: "",
-  reason: ""
-});
+// 表单模型 / 校验 / 重置：`composables/useSupplementForm`（含方向预填的判据调用）
+const {
+  form,
+  formRef,
+  rules,
+  resetForm: resetFormFields,
+  clearValidate
+} = useSupplementForm(() => props.target);
 
 /** 本地日历日，不用 toISOString（UTC 会把上海时间的凌晨算成前一天） */
 function todayLocal(): string {
@@ -234,9 +231,12 @@ const dialogTitle = computed(() =>
 );
 const submitLabel = computed(() => labels.value.submit);
 
-// 成本单价录入档：差异行不带 asset_type，按契约未知档（4 位），与改造前的
-// 字面量 4 位等价；换成契约后守卫才能拦住「新增写死精度」（#3120）。
-const priceInput = computed(() => priceInputMeta());
+// 差异行标的的品种（后端 `serialize_discrepancies`）：决定「能不能按金额 + 当日净值填」
+const assetType = computed(() => props.target?.asset_type ?? "");
+
+// 成本单价录入档：按品种取档（基金 4 位净值、股票 2 位、场内 3 位）；未知品种回落
+// 契约的 4 位上限 —— 写死字面量会被 guard_price_precision 拦下（#3120）。
+const priceInput = computed(() => priceInputMeta(assetType.value));
 
 /**
  * `set` 是覆盖式 SET 锚点（backend/services/reconciliation_service.py:383-398），
@@ -253,59 +253,47 @@ const setHint = computed(() =>
     : "改完不会新增买卖记录，这笔差异会标记为已处理。份额和成本单价都要大于 0。"
 );
 
-const rules = computed<FormRules>(() => ({
-  quantity: [
-    {
-      validator: (_rule, value, callback) => {
-        if (typeof value !== "number" || !Number.isFinite(value)) {
-          callback(new Error("份额还没填"));
-          return;
-        }
-        if (value <= 0) {
-          callback(new Error("份额要大于 0"));
-          return;
-        }
-        callback();
-      },
-      trigger: "change"
-    }
-  ],
-  avg_price: [
-    {
-      validator: (_rule, value, callback) => {
-        if (typeof value !== "number" || !Number.isFinite(value)) {
-          callback(new Error("单价还没填"));
-          return;
-        }
-        if (value <= 0) {
-          callback(new Error("单价要大于 0"));
-          return;
-        }
-        callback();
-      },
-      trigger: "change"
-    }
-  ]
-}));
+/**
+ * 交易日期 → 确认净值（只对场外基金买入生效）。
+ *
+ * 与「记一笔」同一个口径：先算确认日、再按实际净值日拉净值（`useFundTradeDate`）。
+ * 拉不到就置 `navMissing`，由表单提示「份额和净值请手填」，**不猜一个净值**。
+ */
+const { calcConfirmAndNav } = useFundTradeDate();
+const { navMissing, navHint } = useSupplementNavSync({
+  form,
+  assetType,
+  symbol: () => props.target?.symbol ?? "",
+  calcConfirmAndNav
+});
 
 /**
- * 预填买卖方向（owner：多了还是少了我们是知道的）。判据住在
- * `utils/reconSupplement.ts`（纯函数 + 单测），这里只调用——方向搞反会静默
- * 写成反向交易，必须能被测试咬住，所以不留在 `.vue` 里。
- * 只预填方向，不预填数量（数量口径待 owner 拍板，不自作主张）。
+ * 金额 ⇄ 份额 ⇄ 净值 ⇄ 手续费 四者联动：与「记一笔」共用
+ * `@/composables/useSharesLinkage`（字段名不同靠访问器适配，载荷一字不改）。
+ *
+ * 只在「补一笔交易 + 买入」启用：卖出 / 存入 / 取出填的是份额（账单上写的就是份额），
+ * 「把持仓改成」更是覆盖式 SET——在那种模式下改成本单价会顺手改写用户填的目标份额。
  */
+useSharesLinkage({
+  navMissing,
+  enabled: () => form.kind === "increment" && form.op_type === "buy",
+  fields: {
+    amount: () => form.buy_amount,
+    setAmount: value => {
+      form.buy_amount = value;
+    },
+    shares: () => form.quantity,
+    setShares: value => {
+      form.quantity = value;
+    },
+    price: () => form.avg_price,
+    fee: () => form.fee
+  }
+});
+
+/** 预填方向/默认模式的判据住在 `useSupplementForm` + `utils/reconSupplement`（纯函数 + 单测） */
 function resetForm(): void {
-  // no_anchor 差异没有「补一笔」的选项：补的金额是编出来的，只会把「缺基准」写歪
-  form.kind = defaultSupplementKind(props.target);
-  // 按当前差异重新算方向（不是写死 buy）：打开弹窗 / 关闭后重开都要走这里
-  form.op_type = inferSupplementOpType(props.target) ?? "buy";
-  form.quantity = undefined;
-  form.avg_price = undefined;
-  form.fee = undefined;
-  form.confirm_date = "";
-  form.snapshot_date = todayLocal();
-  form.reason = "";
-  formRef.value?.clearValidate();
+  resetFormFields(todayLocal());
 }
 
 function close(value: boolean): void {
@@ -322,7 +310,7 @@ watch(
 );
 watch(
   () => form.kind,
-  () => formRef.value?.clearValidate()
+  () => clearValidate()
 );
 
 async function confirmOverwrite(): Promise<boolean> {
