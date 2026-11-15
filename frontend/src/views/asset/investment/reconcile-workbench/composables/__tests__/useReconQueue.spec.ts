@@ -99,7 +99,9 @@ describe("focusDomain：?domain= 入站的筛选口径", () => {
     const matchId = queue.focusDomain("F");
 
     expect(queue.filter.value.task).toBe("all");
-    expect(queue.filter.value.state).toBe("all");
+    // 入站只重置任务维度，状态维度仍是默认档「待处理」（不是「全部」——默认档含 done
+    // 会把已核对记录混进待办，见 reconQueue.ts 的 ReconQueueScope 注释）
+    expect(queue.filter.value.state).toBe("open");
     // 定位到该域排序后的第一条（ready 最靠前）
     expect(matchId).toBe("dangling-reattach");
     // 两个阶段的聚合项都在可见列表里，缺一不可

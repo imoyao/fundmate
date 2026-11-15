@@ -38,7 +38,7 @@
       </div>
     </dl>
 
-    <p v-if="target.ledgerId === null" class="recon-context__warn">
+    <p v-if="showLedgerWarn" class="recon-context__warn">
       这条记录还没归到任何账本，账本详情页里看不到它。先归置账本，再回来核对。
     </p>
     <p v-if="item?.actionLabel" class="recon-context__next">
@@ -68,6 +68,8 @@ onMounted(() => {
 
 interface ContextTarget {
   ledgerId: number | null;
+  /** 后端已给出账本名、但没给 id 的场合（E账户归因结果 `attributed_to`）：直接用，不再查表 */
+  ledgerName?: string | null;
   issue: string;
   expected: number | null;
   actual: number | null;
@@ -129,7 +131,23 @@ const target = computed<ContextTarget | null>(() => {
       when: null
     };
   }
-  // eaccount / import：交易可能跨多个账本或无单一账本，账本名交给轨迹展示
+  if (payload.kind === "eaccount") {
+    const row = payload.row;
+    return {
+      // 影子记录的 ledger_id 按设计就是 NULL（它不落在任何账本里），真正有账本的是
+      // 归因结果 attributed_to（后端只给名称、不给 id）。曾经与 import 一起被写死成
+      // null，于是 93 条影子记录（85 条 attributed + 8 条 verified）全部显示「未归账本」，
+      // 还要被建议「先归置账本，再回来核对」——对已核对项是彻底的错误引导。
+      ledgerId: null,
+      ledgerName: row.attributed_to,
+      issue: item.sourceLabel,
+      expected: null,
+      actual: null,
+      diff: null,
+      when: null
+    };
+  }
+  // import：入口动作，没有单条记录的账本可指认
   return {
     ledgerId: null,
     issue: item.sourceLabel,
@@ -143,7 +161,19 @@ const target = computed<ContextTarget | null>(() => {
 /** 差异类待办：issue 胶囊已说「哪里对不上」，判断句由头部副标题承载——
  *  卡内 lead 只会第三遍复述，不再渲染（design.md「对账抽屉信息层级」）。 */
 const showLead = computed(() => props.item?.payload.kind !== "discrepancy");
-const ledgerName = computed(() => nameOf(target.value?.ledgerId ?? null));
+const ledgerName = computed(
+  () => target.value?.ledgerName || nameOf(target.value?.ledgerId ?? null)
+);
+/** 「先归置账本」是**未处理项**的下一步；已处理项（含 E账户 verified：份额差 ≤0.001，
+ *  本来就不需要归置）不该再收到这条指令，否则同一张卡上「已经核对过了」与「先去归置」
+ *  自相矛盾（owner 2026-11-15 截图）。 */
+const showLedgerWarn = computed(
+  () =>
+    !!target.value &&
+    target.value.ledgerId === null &&
+    !target.value.ledgerName &&
+    props.item?.state !== "done"
+);
 const hasNumbers = computed(
   () =>
     target.value?.expected !== null &&

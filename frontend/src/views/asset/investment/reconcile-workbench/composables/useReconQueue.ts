@@ -4,7 +4,6 @@ import {
   DOMAIN_TO_TASK,
   RECON_QUEUE_STATES,
   RECON_TASKS,
-  type ReconQueueState,
   type ReconTaskKey
 } from "../constants/reconTasks";
 import {
@@ -14,11 +13,13 @@ import {
   countByState,
   countByTask,
   countOpenItemsByTask,
+  countOpenScope,
   filterQueue,
   queueBatchOptions,
   sortQueue,
   type ReconQueueFilter,
   type ReconQueueItem,
+  type ReconQueueScope,
   type ReconQueueSource
 } from "../utils/reconQueue";
 
@@ -73,12 +74,27 @@ export function useReconQueue(source: Ref<ReconQueueSource>) {
     countByState(items.value, filter.value.task)
   );
 
-  const stateOptions = computed(() => {
-    const scoped = items.value.filter(
+  /** 当前任务范围内的全部项（含已处理），供「全部」与「待处理」两档计数 */
+  const scopedItems = computed(() =>
+    items.value.filter(
       i => filter.value.task === "all" || i.task === filter.value.task
-    );
+    )
+  );
+
+  const stateOptions = computed(() => {
     return [
-      { label: "全部", value: "all" as const, count: scoped.length },
+      // 默认档排第一：只看此刻能动手的，已处理项不与待办混排
+      {
+        label: "待处理",
+        value: "open" as const,
+        count: countOpenScope(items.value, filter.value.task)
+      },
+      // 「全部」保留：回看 / 撤销已处理记录的唯一入口
+      {
+        label: "全部",
+        value: "all" as const,
+        count: scopedItems.value.length
+      },
       ...RECON_QUEUE_STATES.map(state => ({
         label: state.label,
         value: state.value,
@@ -151,7 +167,7 @@ export function useReconQueue(source: Ref<ReconQueueSource>) {
     pruneSelection();
   }
 
-  function setState(state: ReconQueueState | "all"): void {
+  function setState(state: ReconQueueScope): void {
     filter.value.state = state;
   }
 

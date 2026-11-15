@@ -19,12 +19,15 @@ import type {
   OrphanLedgerGroup,
   OrphanLedgerList
 } from "@/api/reconciliation";
+import type { ReconciliationItem } from "@/api/eaccount";
 import {
+  DEFAULT_QUEUE_FILTER,
   batchableItems,
   buildReconQueue,
   countByState,
   countByTask,
   countOpenItemsByTask,
+  countOpenScope,
   filterQueue,
   queueBatchOptions,
   sortQueue,
@@ -955,5 +958,87 @@ describe("畸形 200 响应不能把整页冻在加载态", () => {
     expect(() => buildReconQueue(malformed)).not.toThrow();
     const items = buildReconQueue(malformed);
     expect(items.map(i => i.id)).toEqual(["import-entry"]);
+  });
+});
+
+describe("默认只看待处理：已核对记录不与待办混排", () => {
+  /** E账户影子记录：verified = 份额差 ≤0.001 份，本来就没东西可做 */
+  function eaccountRow(
+    recordId: number,
+    status: ReconciliationItem["status"]
+  ): ReconciliationItem {
+    return {
+      record_id: recordId,
+      symbol: "110043",
+      name: "华安转债",
+      source_broker: "银河证券",
+      fund_manager: null,
+      eaccount_quantity: 40,
+      eaccount_total: 40,
+      system_quantity: 40,
+      diff: 0,
+      status,
+      attributed_to: null,
+      is_ignored: status === "ignored"
+    };
+  }
+
+  /** 一条已核对（done）+ 一条未核对（judge）+ 一条待判断的持仓差异 */
+  function mixedSource(): ReconQueueSource {
+    const source = emptySource();
+    source.eItems = [eaccountRow(901, "verified"), eaccountRow(902, "pending")];
+    source.discrepancies = [
+      {
+        id: 7,
+        domain: "B",
+        ledger_id: 12,
+        symbol: "127078",
+        discrepancy_type: "quantity",
+        expected_value: 40,
+        actual_value: 30,
+        diff: -10,
+        status: "pending",
+        is_permanent: false,
+        first_detected_at: null,
+        updated_at: null
+      }
+    ];
+    return source;
+  }
+
+  it("默认档是「待处理」，已核对项不进列表", () => {
+    expect(DEFAULT_QUEUE_FILTER.state).toBe("open");
+    const items = buildReconQueue(mixedSource());
+    const visible = filterQueue(items, { ...DEFAULT_QUEUE_FILTER });
+
+    expect(visible.map(i => i.id)).not.toContain("eacc-901");
+    // 未核对的 E账户项、持仓差异、导入入口（入口本身就是一件待办）都在
+    expect(visible.map(i => i.id)).toEqual(
+      expect.arrayContaining(["eacc-902", "disc-7"])
+    );
+    expect(visible).toHaveLength(3);
+  });
+
+  it("「全部」与「已处理」两档仍能回看已核对项（撤销入口没被藏掉）", () => {
+    const items = buildReconQueue(mixedSource());
+
+    expect(
+      filterQueue(items, { ...DEFAULT_QUEUE_FILTER, state: "all" })
+    ).toHaveLength(4);
+    expect(
+      filterQueue(items, { ...DEFAULT_QUEUE_FILTER, state: "done" }).map(
+        i => i.id
+      )
+    ).toEqual(["eacc-901"]);
+  });
+
+  it("「待处理」档的计数与点开后看到的行数同源", () => {
+    const items = buildReconQueue(mixedSource());
+    const visible = filterQueue(items, { ...DEFAULT_QUEUE_FILTER });
+
+    expect(countOpenScope(items, "all")).toBe(visible.length);
+    // 任务筛选联动：核对差异下 2 条待处理（E账户未核对 + 持仓差异）
+    expect(countOpenScope(items, "verify")).toBe(2);
+    expect(countByState(items, "all").done).toBe(1);
   });
 });
