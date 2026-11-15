@@ -128,12 +128,19 @@ export function barWidthFor(pnl: number, maxAbs: number): string {
   return `${(Math.abs(pnl) / maxAbs) * 100}%`;
 }
 
-/** 标题旁的 ⓘ：把「这个数是哪一段」和「为什么不等于逐日相加」说清楚 */
+/**
+ * 标题旁的 ⓘ：把「这个数是哪一段」「为什么不等于逐日相加」「行内百分比是什么」说清楚。
+ *
+ * 末句专门交代占比口径：它挨着金额渲染，最容易被读成该品种的收益率（+¥104.68 −1.32%
+ * 曾被读成「赚了但收益率是负的」）。口径本身由后端算（分母取 |区间合计|、符号随 pnl），
+ * 这里只说清「它是什么」。
+ */
 export function sectionInfoFor(payload: PnlAttributionPayload | null): string {
   return (
     "选定区间内各持仓对总盈亏的贡献拆解" +
     (payload ? `（${payload.start_date} ~ ${payload.end_date}）` : "") +
-    "；逐品种贡献之和与区间合计一致，已实现盈亏含在对应品种内。"
+    "；逐品种贡献之和与区间合计一致，已实现盈亏含在对应品种内" +
+    "；行内百分比是占区间合计绝对值的比重、符号随盈亏方向，不是该品种收益率。"
   );
 }
 
