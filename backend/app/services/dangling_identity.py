@@ -181,6 +181,20 @@ def identity_count(txns, name_index: dict[str, set[str]]) -> int:
     return len(symbols)
 
 
+def names_include(index: dict[str, set[str]], txns, symbol) -> bool:
+    """组内每个标的名是否都把 ``symbol`` 列为候选（名字歧义可由显式代码收敛）。
+
+    「旅游ETF」同时对应 ``SH562510`` / ``SZ159766`` 两只 —— 这类名字让组内标的数算成 2，
+    但它不是「混了标的」，而是「一个名字有多个候选码」。用户显式指定其中一个时应当放行，
+    否则这类组永远无法补全（连单条也判 2 个标的）。名字反查不到、或候选里没有该代码 →
+    不放行，仍按混标的拒绝。
+    """
+    names = {(t.position_name or '').strip() for t in txns if (t.position_name or '').strip()}
+    if not names:
+        return False
+    return all(symbol in (index.get(name) or set()) for name in names)
+
+
 def require_single_identity(db: Session, family_id: int, txns, action: str, symbol=None) -> None:
     """写路径的统一闸门：一批流水分属多个标的时拒绝，并说明为什么不能一起做。
 
@@ -189,9 +203,13 @@ def require_single_identity(db: Session, family_id: int, txns, action: str, symb
     只校验 symbol 会把 114 个标的的历史并成一只债。
 
     ``symbol`` 传 None 表示这次写入不改标的（例如只补 trade_date），没有可冲突的对象。
+    名字本身歧义（一码多名）且每个名字都把 ``symbol`` 列为候选时放行（``names_include``）：
+    那是「候选码不止一个」，不是「混了好几个标的」。
     """
     if symbol is None:
         return
-    identity = identity_count(txns, name_symbol_index(db, family_id))
-    if identity > 1:
-        raise ValueError(f'选中的流水混了 {identity} 个不同标的，不能一起{action}；请按标的分别处理')
+    index = name_symbol_index(db, family_id)
+    identity = identity_count(txns, index)
+    if identity <= 1 or names_include(index, txns, symbol):
+        return
+    raise ValueError(f'选中的流水混了 {identity} 个不同标的，不能一起{action}；请按标的分别处理')

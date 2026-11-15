@@ -727,3 +727,36 @@ def test_preview_does_not_warn_symbol_mismatch_for_equivalent_forms(db, ledger):
     data = svc.preview_reattach(db, _FAMILY, [t.id], target.id)
 
     assert not [w for w in data['warnings'] if 'symbol' in w]
+
+
+def test_reattach_allows_ambiguous_name_resolved_by_symbol(db, ledger):
+    """一码多名（旅游ETF → SH562510 / SZ159766）时，显式指定的代码就是消歧结果，必须放行。
+
+    否则这类组永远补不了：组内标的数按名字反查算成 2，连「一条流水」也被判成混标的，
+    界面上没有任何按钮能走通 —— 与本次要除掉的死锁是同一类。
+    """
+    a = _mk_pos(db, ledger.id, 'SH562510', 180.0, name='旅游ETF', asset_type='etf')
+    _mk_pos(db, ledger.id, 'SZ159766', 97.0, name='旅游ETF', asset_type='etf')
+    t1 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='旅游ETF', asset_type='etf', txn_type='sell')
+    t2 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='旅游ETF', asset_type='etf', txn_type='sell')
+
+    out = svc.reattach_transactions(db, _FAMILY, [t1.id, t2.id], a.id)
+
+    assert out['updated'] == 2
+    assert all(db.query(Transaction).filter_by(id=t.id).one().position_id == a.id for t in (t1, t2))
+
+
+def test_reattach_still_rejects_batch_whose_names_do_not_cover_symbol(db, ledger):
+    """反向对照：名字里有一个不把该代码列为候选，就不是「一码多名」，仍按混标的拒绝。
+
+    这条守的是真库那 293 条（114 个名字被写成同一个 `127078`）：只要有一个名字反查不到
+    这个代码，整批就不能一起挂。
+    """
+    a = _mk_pos(db, ledger.id, 'SH562510', 180.0, name='旅游ETF', asset_type='etf')
+    _mk_pos(db, ledger.id, 'SH600000', 1.0, name='浦发银行', asset_type='stock')
+    t1 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='旅游ETF', asset_type='etf')
+    t2 = _mk_txn(db, ledger.id, symbol='SH562510', position_name='浦发银行', asset_type='stock')
+
+    with pytest.raises(ValueError, match='不同标的'):
+        svc.reattach_transactions(db, _FAMILY, [t1.id, t2.id], a.id)
+    assert all(t.position_id == _DANGLING_PID for t in (t1, t2))
