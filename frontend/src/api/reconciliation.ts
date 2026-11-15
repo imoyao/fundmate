@@ -70,7 +70,14 @@ export function ignoreDiscrepancy(
 
 /** 就地补充/调整裁决请求（§5.4 / P2） */
 export interface AdjustmentPayload {
-  kind?: "increment" | "set";
+  /**
+   * increment 补一笔流水 / set 用户手填份额成本 / anchor 以持仓现值写锚点（#3125）
+   *
+   * `anchor` 与 `set` 的区别只有一个：份额与成本由**后端从持仓读取**，不由用户手填。
+   * 差异行只有份额（`actual_value`）没有成本价，让它代劳要么前端多取一次持仓、
+   * 要么用户手抄——后者正是 no_anchor 卡片要避免的事。
+   */
+  kind?: "increment" | "set" | "anchor";
   op_type?: string;
   discrepancy_id?: number;
   reason?: string;

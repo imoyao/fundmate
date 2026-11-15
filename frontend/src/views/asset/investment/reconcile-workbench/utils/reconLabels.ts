@@ -13,7 +13,10 @@ export const DISCREPANCY_ISSUE_LABEL: Record<string, string> = {
   quantity: "份额对不上",
   cost: "成本对不上",
   cash: "资金对不上",
-  orphan: "有持仓、缺流水"
+  orphan: "有持仓、缺流水",
+  // #3125：不是「对不上」而是「没法对」——持仓份额来自券商快照，流水是另一条记录，
+  // 缺基准时两边本就不该互校。文案必须说清这点，否则用户以为要自己去补 119 笔。
+  no_anchor: "缺基准，核对不了"
 };
 
 export function discrepancyIssue(type: string | null | undefined): string {

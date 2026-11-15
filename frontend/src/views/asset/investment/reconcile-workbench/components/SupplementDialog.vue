@@ -31,7 +31,8 @@
         label-width="96px"
         size="default"
       >
-        <el-form-item label="补录方式">
+        <!-- no_anchor 只有一种修法（以此为准），没有可选项就不给选择器 -->
+        <el-form-item v-if="!isNoAnchor" label="补录方式">
           <SegmentedControl
             v-model="form.kind"
             :options="KIND_OPTIONS"
@@ -41,7 +42,19 @@
         <p class="recon-supplement__explain">{{ modeExplain }}</p>
 
         <SoftBanner
-          v-if="form.kind === 'set'"
+          v-if="form.kind === 'anchor'"
+          variant="info"
+          icon="ep:info-filled"
+          dense
+        >
+          这条差异是「缺基准」而不是「记错了」：账上现有
+          {{
+            reconQuantity(target.actual_value)
+          }}，但流水里没有与之对应的建仓记录，
+          两边本来就不该互相核对。以当前持仓为准后，之前的流水不再参与份额推导。
+        </SoftBanner>
+        <SoftBanner
+          v-else-if="form.kind === 'set'"
           variant="warning"
           icon="ep:warning"
           dense
@@ -68,7 +81,7 @@
           />
         </template>
 
-        <template v-else>
+        <template v-else-if="form.kind === 'set'">
           <el-form-item label="账上现有">
             <span class="recon-supplement__current">
               {{ reconQuantity(target.actual_value) }}
@@ -152,6 +165,14 @@ import {
   reconQuantity
 } from "../utils/reconDisplay";
 import { inferSupplementOpType } from "../utils/reconSupplement";
+import { defaultSupplementKind, discActionOf } from "../utils/discAction";
+import {
+  adjustmentSuccessMessage,
+  buildAdjustmentPayload,
+  supplementLabels,
+  type SupplementKind,
+  type SupplementFormValue
+} from "../utils/adjustmentPayload";
 
 defineOptions({ name: "SupplementDialog" });
 
@@ -160,7 +181,8 @@ const KIND_OPTIONS = [
   { label: "把持仓改成", value: "set" }
 ] as const;
 
-type Kind = (typeof KIND_OPTIONS)[number]["value"];
+/** 三种裁决形态的文案/请求体判据在 `utils/adjustmentPayload`；这里只列可选模式 */
+type Kind = SupplementKind;
 
 const props = defineProps<{
   modelValue: boolean;
@@ -175,8 +197,8 @@ const emit = defineEmits<{
 const formRef = ref<FormInstance>();
 const submitting = ref(false);
 
-const form = reactive({
-  kind: "increment" as Kind,
+const form = reactive<SupplementFormValue>({
+  kind: "increment",
   op_type: "buy",
   quantity: undefined as number | undefined,
   avg_price: undefined as number | undefined,
@@ -200,14 +222,16 @@ const heading = computed(() =>
     ? reconAssetHeading(props.target.symbol, props.target.display_name)
     : ""
 );
+const isNoAnchor = computed(
+  () => !!props.target && discActionOf(props.target) === "anchor"
+);
+const labels = computed(() => supplementLabels(form.kind));
 const dialogTitle = computed(() =>
   props.target
-    ? `补录这笔 · ${reconGroupTitle(props.target.symbol, props.target.display_name)}`
-    : "补录这笔"
+    ? `${labels.value.action} · ${reconGroupTitle(props.target.symbol, props.target.display_name)}`
+    : labels.value.action
 );
-const submitLabel = computed(() =>
-  form.kind === "set" ? "改成这个持仓" : "补上这笔"
-);
+const submitLabel = computed(() => labels.value.submit);
 
 // 成本单价录入档：差异行不带 asset_type，按契约未知档（4 位），与改造前的
 // 字面量 4 位等价；换成契约后守卫才能拦住「新增写死精度」（#3120）。
@@ -221,11 +245,7 @@ const priceInput = computed(() => priceInputMeta());
 const ledgerMissing = computed(
   () => !props.target || !Number.isFinite(props.target.ledger_id)
 );
-const modeExplain = computed(() =>
-  form.kind === "set"
-    ? "把账上的份额和成本直接改成你填的数。适合券商账单显示的就是当前持仓、只是我们这边记错了的情况。"
-    : "补上缺的那笔买卖，会同时记一条交易流水并重算持仓。适合少记了一笔买入或卖出的情况。"
-);
+const modeExplain = computed(() => labels.value.explain);
 const setHint = computed(() =>
   ledgerMissing.value
     ? "这条差异还没归到任何账本，不能直接改持仓。先归置账本，或改用「补一笔交易」。"
@@ -274,7 +294,8 @@ const rules = computed<FormRules>(() => ({
  * 只预填方向，不预填数量（数量口径待 owner 拍板，不自作主张）。
  */
 function resetForm(): void {
-  form.kind = "increment";
+  // no_anchor 差异没有「补一笔」的选项：补的金额是编出来的，只会把「缺基准」写歪
+  form.kind = defaultSupplementKind(props.target);
   // 按当前差异重新算方向（不是写死 buy）：打开弹窗 / 关闭后重开都要走这里
   form.op_type = inferSupplementOpType(props.target) ?? "buy";
   form.quantity = undefined;
@@ -323,6 +344,10 @@ async function confirmOverwrite(): Promise<boolean> {
 async function submit(): Promise<void> {
   const row = props.target;
   if (!row) return;
+  if (form.kind === "anchor" && ledgerMissing.value) {
+    ElMessage.warning("这条差异还没归账本，先归置账本再设定基准");
+    return;
+  }
   if (form.kind === "set" && ledgerMissing.value) {
     ElMessage.warning("这条差异还没归账本，先归置账本，或改用「补一笔交易」");
     return;
@@ -333,39 +358,14 @@ async function submit(): Promise<void> {
 
   submitting.value = true;
   try {
-    const payload: AdjustmentPayload = {
-      kind: form.kind,
-      discrepancy_id: row.id,
-      symbol: row.symbol,
-      name: row.display_name || undefined,
-      ledger_id: row.ledger_id,
-      quantity: form.quantity,
-      avg_price: form.avg_price,
-      reason: form.reason || undefined
-    };
-    if (form.kind === "increment") {
-      payload.op_type = form.op_type;
-      // 用户填的是成交当天：trade_date 与 confirm_date 都传这个日期。
-      // 后端 `resolve_trade_date` 的口径本就是 trade_date 缺省回落 confirm_date，
-      // 显式补上 trade_date，让流水列表按真实成交日排序（此前只有确认日）。
-      payload.trade_date = form.confirm_date || undefined;
-      payload.confirm_date = form.confirm_date || undefined;
-      // 手续费：只有买入/卖出有成交费。存入/取出是银证转账，字段虽已隐藏，
-      // 但用户可能先填了手续费再切过来（值不清空），故此处按 op_type 收口，
-      // 否则会给一笔转账记上佣金。空值不传（后端按 0 计），填 0 也照传。
-      const hasTradeFee = form.op_type === "buy" || form.op_type === "sell";
-      payload.fee =
-        hasTradeFee && typeof form.fee === "number" ? form.fee : undefined;
-    } else {
-      payload.snapshot_date = form.snapshot_date || todayLocal();
-    }
+    const payload = buildAdjustmentPayload(row, form, todayLocal());
     const res = await applyAdjustment(payload);
-    if (res?.data?.discrepancy?.status === "pending") {
-      // 没轧平：这条差异仍在队列里，要明说还能接着补，不能报成「已完成」
-      ElMessage.success("这笔已补上，账还没平，可以在队列里继续补");
-    } else {
-      ElMessage.success(form.kind === "set" ? "持仓已改" : "这笔已补上");
-    }
+    ElMessage.success(
+      adjustmentSuccessMessage(
+        form.kind,
+        res?.data?.discrepancy?.status === "pending"
+      )
+    );
     close(false);
     emit("submitted");
   } catch (e) {
