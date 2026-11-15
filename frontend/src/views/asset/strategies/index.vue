@@ -12,8 +12,9 @@
           策略视图
         </h2>
         <!-- 口径说明不常驻：原先标题副标与橙色横幅把「不是独立组合收益率」
-             说了两遍。收进标题 ⓘ 按需展开，信息不丢，首屏少两行噪音。 -->
-        <el-tooltip placement="top" :popper-class="RICH_TIP_CLASS">
+             说了两遍。收进标题 ⓘ 按需展开，信息不丢，首屏少两行噪音。
+             页面标题贴着顶栏，placement 只能向下：向上弹会盖住面包屑。 -->
+        <el-tooltip placement="bottom" :popper-class="RICH_TIP_CLASS">
           <span
             class="strategy-scope__info"
             role="img"
