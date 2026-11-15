@@ -75,7 +75,7 @@
             （{{ basisText }}）
           </span>
         </h4>
-        <PenetrationBarList :rows="shownStockRows" />
+        <RankBarList :rows="shownStockRows" />
         <el-button
           v-if="data.stocks.length > STOCK_LIMIT"
           text
@@ -161,7 +161,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
-import PenetrationBarList from "./PenetrationBarList.vue";
+import RankBarList from "@/components/RankBarList/index.vue";
 import PenetrationIndustryBlock from "./PenetrationIndustryBlock.vue";
 import PenetrationGapTable from "./PenetrationGapTable.vue";
 import { barWidth, percent } from "./format";
