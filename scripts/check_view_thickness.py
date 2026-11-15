@@ -423,8 +423,12 @@ BASELINE: dict[str, dict[str, int]] = {
     #   （`services/reconciliation_service.py` 已顶 `guard_service_size` 冻结基线，新增 helper 无处可放）。
     #   视图因此多一行 import；同块内 `dividend_tax_service` 三个名字本是单行可容纳，
     #   现合并为一行（106 列），净减 3 行 ⇒ 379→378，仍只减不增。
+    # 2026-11-15：差异出参加 `asset_type`（补录表单要判「能不能按金额 + 当日净值填」）。
+    #   按正解把整段「份额换算 + 产品名 + 品种」下沉到
+    #   `services/reconciliation_query.serialize_discrepancies`，视图只留入参解析与信封；
+    #   实测回写 378→358，其余三维不动（只减不增）。
     "backend/app/domains/reconciliation/views.py": {
-        "lines": 378,
+        "lines": 358,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 48,

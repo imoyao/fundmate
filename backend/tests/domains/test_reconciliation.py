@@ -1394,3 +1394,58 @@ def test_resolve_display_names_strips_exchange_prefix(db):
     db.commit()
     names = resolve_display_names(db, 1, ['SH511990'])
     assert names.get('SH511990') == '华宝添益'
+
+
+# ── 2026-11-15：差异出参加品种（补录表单要判「能不能按金额 + 当日净值填」）──
+def test_resolve_asset_types_prefers_position_then_fund_directory(db, make_position):
+    """持仓里的品种优先；没有持仓行时按基金名录回退 `fund`；都没有就留空（不猜）。"""
+    from app.domains.funds.models import Fund
+    from app.services.reconciliation_query import resolve_asset_types
+
+    make_position(
+        symbol='600519',
+        name='贵州茅台',
+        asset_type='stock',
+        account_name='测试',
+        quantity=100,
+        avg_price=10.0,
+    )
+    db.add(Fund(fund_code='013883', name='交银施罗德启明混合C'))
+    db.commit()
+
+    types = resolve_asset_types(db, 1, ['600519', 'SZ013883', 'NO_SUCH_CODE', ''])
+    assert types.get('600519') == 'stock'
+    # 裸码回退：名录里查得到即场外基金（补录表单据此启用「金额 + 当日净值」）
+    assert types.get('SZ013883') == 'fund'
+    assert 'NO_SUCH_CODE' not in types
+    assert '' not in types
+
+
+def test_discrepancies_api_returns_asset_type(client, db):
+    """列表接口给出品种，前端补录表单不用再按「未知品种」处理（旧版只能 4 位精度兜底）。"""
+    from app.domains.ledgers.models import Ledger
+
+    ledger = Ledger(name='账户A', ledger_type='fund', family_id=1)
+    db.add(ledger)
+    db.flush()
+    _buy_txn(db, ledger.id, '013883', 100, date(2026, 5, 1))
+    db.add(
+        Position(
+            symbol='013883',
+            name='交银施罗德启明混合C',
+            asset_type='fund',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+    )
+    db.commit()
+
+    client.post('/api/reconciliation/run/')
+    discs = client.get('/api/reconciliation/discrepancies/').get_json()['data']
+    assert discs and discs[0]['asset_type'] == 'fund'

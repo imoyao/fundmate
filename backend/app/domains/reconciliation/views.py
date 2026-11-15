@@ -30,7 +30,6 @@ from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import user_session
-from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
 from app.services.dividend_tax_service import ack_from_payload, record_tax_from_payload, revoke_from_payload
 from app.services.ghost_duplicate_service import (
@@ -44,7 +43,7 @@ from app.services.reconciliation_consistency import get_ledger_snapshot_consiste
 from app.services.reconciliation_query import (
     list_active_discrepancies,
     list_dividend_tax_payload,
-    resolve_display_names,
+    serialize_discrepancies,
 )
 from app.services.reconciliation_service import apply_decision
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
@@ -141,26 +140,7 @@ def list_discrepancies():
             page=request.args.get('page', type=int),
             page_size=request.args.get('page_size', type=int),
         )
-        names = resolve_display_names(db, family_id, [d.symbol for d in items])
-        data = [
-            {
-                'id': d.id,
-                'domain': d.domain,
-                'ledger_id': d.ledger_id,
-                'symbol': d.symbol,
-                'display_name': names.get((d.symbol or '').strip(), ''),
-                'discrepancy_type': d.discrepancy_type,
-                'expected_value': Money.min_unit_to_shares(d.expected_value),
-                'actual_value': Money.min_unit_to_shares(d.actual_value),
-                'diff': Money.min_unit_to_shares(d.diff),
-                'status': d.status,
-                'is_permanent': d.is_permanent,
-                'first_detected_at': d.first_detected_at.isoformat() if d.first_detected_at else None,
-                'updated_at': d.updated_at.isoformat() if d.updated_at else None,
-            }
-            for d in items
-        ]
-        return jsonify({'data': data, 'total': total, 'message': 'ok'})
+        return jsonify({'data': serialize_discrepancies(db, family_id, items), 'total': total, 'message': 'ok'})
 
 
 @bp.post('/discrepancies/<int:discrepancy_id>/ignore/')
