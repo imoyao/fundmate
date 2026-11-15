@@ -21,7 +21,6 @@ import json
 from datetime import datetime
 
 from loguru import logger
-from sqlalchemy import func, or_
 
 from app.core.money import Money
 from app.domains.assets.models import Asset
@@ -35,15 +34,15 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services import ledger_category_guard as guard
+from app.services import transaction_edit
 from app.services.family_member_service import (
     FamilyMemberError,
     get_member,
     resolve_owner_member,
 )
 from app.services.fund_service import FundService
+from app.services.ledger_fund_swap import swap_linked_money_fund
 from app.services.position_service import PositionService
-from app.services.symbol_scope import build_transaction_symbol_conditions
-from app.services.trading import TransactionService
 
 
 class LedgerWriteError(Exception):
@@ -148,100 +147,6 @@ def sync_account_name_snapshots(db, ledger_id: int, account_name: str, family_id
         .filter(Transaction.ledger_id == ledger_id, Transaction.family_id == family_id)
         .update({Transaction.account_name: account_name}, synchronize_session=False),
     }
-
-
-def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, family_id: int) -> None:
-    """#1137 换绑活期+：将账户内原绑定货基 A 的净额持仓赎回，并申购新绑定货基 B（业务规则下沉）。
-
-    货基以孤儿流水记账（不建持仓），故「持仓」= 该账户下 A 的 money_fund 流水净额。
-    净额<=0 表示无实际持仓，跳过（避免凭空造流水）。仅生成两条孤儿流水（赎回 A /
-    申购 B），资产中性、不影响其他账户；失败仅记录告警不抛出，避免阻断换绑主流程。
-    """
-    family_id = family_id
-    # 货基以孤儿流水记账（不建持仓），净额口径与 summary_service.orphan_money_fund_totals_by_ledger
-    # 一致：buy/deposit 加、sell/withdraw 减，且仅计 position_id IS NULL 的孤儿流水，全程整数分。
-    positive = (
-        db.query(func.coalesce(func.sum(Transaction.amount), 0))
-        .filter(
-            Transaction.ledger_id == ledger.id,
-            Transaction.family_id == family_id,
-            Transaction.asset_type == 'money_fund',
-            # 身份键匹配（#1662 遗留项）：货基流水的 symbol 快照可能是带前缀形态，
-            # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
-            or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
-            Transaction.position_id.is_(None),
-            Transaction.covered_position_id.is_(None),
-            Transaction.txn_type.in_(('buy', 'deposit')),
-        )
-        .scalar()
-        or 0
-    )
-    negative = (
-        db.query(func.coalesce(func.sum(Transaction.amount), 0))
-        .filter(
-            Transaction.ledger_id == ledger.id,
-            Transaction.family_id == family_id,
-            Transaction.asset_type == 'money_fund',
-            # 身份键匹配（#1662 遗留项）：货基流水的 symbol 快照可能是带前缀形态，
-            # 字面量等值会把净额算成 0（→ 换绑时误判「无持仓」而跳过）。
-            or_(*build_transaction_symbol_conditions(old_fund.fund_code)),
-            Transaction.position_id.is_(None),
-            Transaction.covered_position_id.is_(None),
-            Transaction.txn_type.in_(('sell', 'withdraw')),
-        )
-        .scalar()
-        or 0
-    )
-    net_cents = int(positive) - int(negative)
-    if net_cents <= 0:
-        return
-    today = datetime.now().date()
-    # 赎回原绑定货基 A
-    TransactionService.create(
-        db=db,
-        position_id=None,
-        symbol=old_fund.fund_code,
-        txn_type='sell',
-        trade_date=today,
-        confirm_date=today,
-        asset_type='money_fund',
-        quantity=0,
-        price=0,
-        fee=0,
-        amount=net_cents,
-        status='success',
-        position_name=old_fund.name,
-        ledger_id=ledger.id,
-        account_name=ledger.name,
-        notes='更换活期+，赎回原绑定产品',
-        entry_status='orphan',
-        family_id=family_id,
-    )
-    # 申购新绑定货基 B（活期+内迁移，保持资产中性）
-    TransactionService.create(
-        db=db,
-        position_id=None,
-        symbol=new_fund.fund_code,
-        txn_type='buy',
-        trade_date=today,
-        confirm_date=today,
-        asset_type='money_fund',
-        quantity=0,
-        price=0,
-        fee=0,
-        amount=net_cents,
-        status='success',
-        position_name=new_fund.name,
-        ledger_id=ledger.id,
-        account_name=ledger.name,
-        notes='更换活期+，申购新绑定产品',
-        entry_status='orphan',
-        family_id=family_id,
-    )
-    logger.info(
-        f'账户 {ledger.id} 换绑活期+：{old_fund.fund_code} → {new_fund.fund_code}，'
-        f'净额 {net_cents} 分已迁移（赎回 A / 申购 B）'
-    )
 
 
 def create_ledger(db, family_id: int, data: dict) -> Ledger:
@@ -564,6 +469,22 @@ def delete_ledger(db, ledger: Ledger, delete_positions: bool, family_id: int) ->
 
 
 def update_ledger_transaction(db, ledger, txn, data: dict) -> Transaction:
+    """编辑账户内交易 = 字段补丁 + 留痕。
+
+    补丁逻辑（校验、金额重算、份额联动持仓、`import_hash` 清空）全在
+    `_patch_ledger_transaction`。这里只做一件补丁不该关心的事：**改之前拍快照**，
+    改完写一条 `transaction_edit` 审计（见 `transaction_edit` 模块 docstring：
+    2026-11-15 排查补录日志与落库行不一致时，只能靠 `updated_at` 猜「这行被改过」）。
+    无字段变化时不写日志，故重复提交同一份表单不会刷噪声。
+    """
+    before = transaction_edit.snapshot(txn)
+    txn = _patch_ledger_transaction(db, ledger, txn, data)
+    transaction_edit.record(db, txn, before, data)
+    db.flush()
+    return txn
+
+
+def _patch_ledger_transaction(db, ledger, txn, data: dict) -> Transaction:
     """编辑账户内交易（金额/数量/价格/日期/备注，见 issue #1112，业务规则下沉）。
 
     - 允许修改 quantity/price/amount/fee/trade_date/confirm_date/notes；
