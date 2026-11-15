@@ -12,6 +12,8 @@ import type { DiscrepancyItem } from "@/api/reconciliation";
 import {
   adjustmentSuccessMessage,
   buildAdjustmentPayload,
+  buildRecomputePayload,
+  recomputeResultMessage,
   supplementLabels,
   type SupplementFormValue
 } from "../adjustmentPayload";
@@ -153,5 +155,86 @@ describe("结果文案", () => {
     // 「怀疑份额本身错」时的另一条路，否则 manual 锚点会把真错固化。
     expect(supplementLabels("anchor").explain).toContain("按流水重算份额");
     expect(supplementLabels("increment").action).toBe("补录这笔");
+  });
+});
+
+describe("recompute：只传差异编号 + 标的（#3134）", () => {
+  it("不带 quantity / avg_price，份额由后端按流水派生", () => {
+    // 前端多传一个数字就是多一个把持仓写错的地方（与 anchor 同一约定）。
+    const p = buildRecomputePayload(row({ discrepancy_type: "quantity" }));
+    expect(Object.keys(p).sort()).toEqual([
+      "discrepancy_id",
+      "kind",
+      "ledger_id",
+      "symbol"
+    ]);
+    expect(p.kind).toBe("recompute");
+    expect(p.discrepancy_id).toBe(42);
+    expect(p.symbol).toBe("SH600027");
+    expect(p.ledger_id).toBe(7);
+  });
+});
+
+describe("recompute 结果文案", () => {
+  const result = (over: {
+    deleted?: boolean;
+    quantity_after?: number;
+    status?: string;
+  }) => ({
+    action: "recompute",
+    before: {},
+    after: {},
+    log_id: 1,
+    recompute: {
+      log_id: 1,
+      position_id: 944,
+      symbol: "SZ159981",
+      deleted: over.deleted ?? false,
+      changed: true,
+      quantity_before: 1000,
+      quantity_after: over.quantity_after ?? 0,
+      avg_price_before: 1,
+      avg_price_after: 1,
+      ownership_status_before: "active",
+      ownership_status_after: over.deleted ? "deleted" : "cleared"
+    },
+    discrepancy: over.status
+      ? {
+          id: 378,
+          status: over.status,
+          diff: null,
+          expected_value: null,
+          actual_value: null
+        }
+      : undefined
+  });
+
+  it("差额平了：报出改后的份额并说已平", () => {
+    const msg = recomputeResultMessage(result({ status: "cleared" }));
+    expect(msg).toContain("已平");
+    expect(msg).toContain("0 份");
+  });
+
+  it("差额还在：说清不是点错了，而是流水本身没记全", () => {
+    const msg = recomputeResultMessage(result({ status: "pending" }));
+    expect(msg).toContain("差额仍在");
+    expect(msg).toContain("投资轨迹");
+  });
+
+  it("持仓被删：必须报出来（否则用户以为只是改了个数）", () => {
+    const msg = recomputeResultMessage(result({ deleted: true }));
+    expect(msg).toContain("已删除");
+    expect(msg).toContain("1,000 份");
+  });
+
+  it("缺字段时退回一句中性的成功提示，不抛异常", () => {
+    expect(
+      recomputeResultMessage({
+        action: "recompute",
+        before: {},
+        after: {},
+        log_id: 1
+      })
+    ).toBe("已按流水重算份额");
   });
 });

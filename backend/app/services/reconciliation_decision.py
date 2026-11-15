@@ -6,6 +6,11 @@
     increment  补一笔缺失买卖 → 买卖汇点（写 Transaction + 重算 Position）
     set        用户手填份额/成本 → 写人工锚点（`upsert_from_holding`，不建流水）
     anchor     以持仓**当前值**写人工锚点（#3125，免手抄；见 `reconciliation_anchor`）
+    recompute  按流水派生结果覆写持仓份额（#3134，见 `reconciliation_recompute`）
+
+> `increment` 对 `quantity` 类差异是**无效动作**：它同时写流水与持仓，而差额是两者之差，
+> 恒等于操作前的值。这条留在这里，是因为前端判据（`utils/discAction.ts`）把 `quantity`
+> 指向 `recompute` / `set`，而 `increment` 只服务 `cost` / `cash` 那几类。
 
 ## 为什么从 service 下沉
 
@@ -33,6 +38,7 @@ from app.services.position_write_support import _find_existing_position
 from app.services.reconciliation_adjustment import recompute_linked_discrepancy
 from app.services.reconciliation_anchor import anchor_after_payload, write_anchor_from_position
 from app.services.reconciliation_integrity import assert_supplement_is_new
+from app.services.reconciliation_recompute import recompute_discrepancy_shares
 
 
 def resolve_sell_position_id(db: Session, family_id: int, data: dict) -> dict:
@@ -114,7 +120,8 @@ def apply_decision(db: Session, family_id: int, payload: dict) -> dict:
     """就地补充/调整裁决（#1232 §5.4 / P2）：生成调整凭证 + 审计日志。
 
     不新建调整表：increment → 买卖汇点（Transaction + Position）；
-    set → `upsert_from_holding`（SET 语义、不建流水）；anchor → 以持仓现值写锚点。
+    set → `upsert_from_holding`（SET 语义、不建流水）；anchor → 以持仓现值写锚点；
+    recompute → 按流水派生结果覆写持仓份额（不建流水、不写锚点）。
     审计写 `adjustment_logs`。携带 `discrepancy_id` 时，完成后由
     `recompute_linked_discrepancy` 重算差异：真正轧平才 cleared，差额仍在则保持
     pending，用户可继续补第二笔。payload：kind / op_type / discrepancy_id / reason
@@ -134,6 +141,12 @@ def apply_decision(db: Session, family_id: int, payload: dict) -> dict:
         )
         if not disc:
             raise ValueError('差异不存在或无权访问')
+
+    if kind == 'recompute':
+        # 「按流水重算份额」（#3134）：写的是**持仓**（以流水派生结果为准），既不建流水也不
+        # 写锚点。差额两端只有持仓这一侧会动，所以它是 quantity 差异唯一有效的补录之外的动作。
+        # 审计由 `recompute_with_audit` 记（带 discrepancy_id），这里提前返回、不重复记一条。
+        return recompute_discrepancy_shares(db, family_id, disc, reason=reason, operator=operator)
 
     data = {k: v for k, v in payload.items() if k not in ('kind', 'discrepancy_id', 'reason', 'operator')}
     data['family_id'] = family_id

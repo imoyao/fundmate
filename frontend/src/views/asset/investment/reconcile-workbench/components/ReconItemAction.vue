@@ -98,6 +98,11 @@
       >
         系统按账户名找不到唯一对应的账本，不会替你猜。先核对账户名与账本名一致，再回来归账。
       </p>
+      <!-- 一行动作解释：三个动作改的是不同的一侧（补流水 / 改持仓 / 写基准），
+           不写清楚时用户只能靠点一次看结果来分辨，而写库是不可逆的 -->
+      <p v-if="discAction" class="recon-item-action__hint">
+        {{ DISC_ACTION_HINTS[discAction] }}
+      </p>
     </template>
   </div>
 </template>
@@ -115,6 +120,12 @@ import type {
 } from "@/api/reconciliation";
 import type { ReconciliationItem } from "@/api/eaccount";
 import type { DanglingStagePayload, ReconQueueItem } from "../utils/reconQueue";
+import {
+  DISC_ACTION_HINTS,
+  DISC_ACTION_LABELS,
+  discActionEvent,
+  discActionOf
+} from "../utils/discAction";
 import RecordTaxDialog from "./RecordTaxDialog.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
 import DanglingRefRebuildDialog from "./DanglingRefRebuildDialog.vue";
@@ -126,6 +137,7 @@ const props = defineProps<{ item: ReconQueueItem }>();
 
 const emit = defineEmits<{
   supplement: [row: DiscrepancyItem];
+  recompute: [row: DiscrepancyItem];
   ignore: [row: DiscrepancyItem];
   fixDangling: [group: DanglingRefGroup];
   eaccountCover: [row: ReconciliationItem];
@@ -226,24 +238,42 @@ function runPrimary(): void {
   openRemediation("enrich");
 }
 
+/** 单条差异行（判据与文案都要它；只在 discrepancy 类待办上非空） */
+const discRow = computed<DiscrepancyItem | null>(() =>
+  kind.value === "discrepancy"
+    ? (props.item.payload as { row: DiscrepancyItem }).row
+    : null
+);
+const discAction = computed(() =>
+  discRow.value ? discActionOf(discRow.value) : null
+);
+
 /** 除税 / 缺信息两类自包含弹窗外，其余域给出这一条应做的动作；
  *  用 emit 复用 index.vue 已收口的弹窗与端点，不新增写路径。 */
 const actions = computed(() => {
   const item = props.item;
   switch (kind.value) {
-    case "discrepancy":
+    case "discrepancy": {
+      // 文案与事件都按差异类型选（判据在 utils/discAction.ts，有单测）：这里原先是
+      // 硬编码的「补充这笔」，于是从抽屉进来永远只有补录一条路——而 quantity 差异补录
+      // 后差额不变（#3134），用户在那儿点多少次都平不了账。
+      const row = discRow.value;
+      const action = discAction.value;
+      if (!row || !action) return [];
       return [
         {
-          label: "补充这笔",
-          run: () =>
-            emit("supplement", (item.payload as { row: DiscrepancyItem }).row)
+          label: DISC_ACTION_LABELS[action],
+          run: () => {
+            if (discActionEvent(action) === "recompute") emit("recompute", row);
+            else emit("supplement", row);
+          }
         },
         {
           label: "忽略这条",
-          run: () =>
-            emit("ignore", (item.payload as { row: DiscrepancyItem }).row)
+          run: () => emit("ignore", row)
         }
       ];
+    }
     case "eaccount":
       return [
         {

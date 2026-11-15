@@ -129,6 +129,7 @@
         @close="closeDetail"
         @refresh="reload"
         @supplement="openSupplement"
+        @recompute="handleRecompute"
         @ignore="handleIgnore"
         @fix-dangling="openDanglingFix"
         @eaccount-cover="handleEAccountCover"
@@ -211,6 +212,7 @@ const {
   loadAll,
   handleRun,
   handleIgnore,
+  handleRecompute,
   handleEAccountCover,
   handleEAccountIgnore,
   handleGhostIgnore,

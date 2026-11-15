@@ -80,6 +80,8 @@ def recompute_with_audit(
     *,
     reason: str | None = None,
     operator=None,
+    discrepancy_id: int | None = None,
+    run_id: int | None = None,
 ) -> dict:
     """按流水重算某条持仓的份额，并把「改前 / 改后」写进审计日志（#3127 的补救入口）。
 
@@ -93,6 +95,9 @@ def recompute_with_audit(
 
     返回里 ``deleted`` 为真表示「无流水且无锚点 ⇒ 空壳行被删」，此时 ``quantity_after`` 记 0
     ——调用方要让用户看到这件事，不能只报成功。
+
+    ``discrepancy_id`` / ``run_id`` 只有对账工作台会传（#3134）：从差异卡点「按流水重算份额」时，
+    审计要能回指是哪条差异、哪一轮对账触发的，否则复盘时只能凭时间猜。
     """
     from app.services.position_recompute import recompute_from_transactions  # noqa: PLC0415
 
@@ -120,6 +125,8 @@ def recompute_with_audit(
 
     log = AdjustmentLog(
         family_id=family_id,
+        discrepancy_id=discrepancy_id,
+        run_id=run_id,
         action='position_recompute',
         before_json=json.dumps(before, ensure_ascii=False),
         after_json=json.dumps(after, ensure_ascii=False),

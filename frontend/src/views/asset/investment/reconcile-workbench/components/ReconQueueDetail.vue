@@ -55,6 +55,7 @@
         v-if="drawerItem && detailDomain !== 'F'"
         :item="drawerItem"
         @supplement="emit('supplement', $event)"
+        @recompute="emit('recompute', $event)"
         @ignore="emit('ignore', $event)"
         @fix-dangling="emit('fixDangling', $event)"
         @eaccount-cover="emit('eaccountCover', $event)"
@@ -72,9 +73,9 @@
           :items="ctx.bDiscs"
           :loading="ctx.loading"
           @supplement="emit('supplement', $event)"
+          @recompute="emit('recompute', $event)"
           @ignore="emit('ignore', $event)"
         />
-
         <template v-else-if="detailDomain === 'C'">
           <div v-if="entry" class="domain-entry">
             <div class="domain-entry__text">
@@ -99,10 +100,10 @@
             :loading="ctx.loading"
             empty-text="暂无缺流水的持仓"
             @supplement="emit('supplement', $event)"
+            @recompute="emit('recompute', $event)"
             @ignore="emit('ignore', $event)"
           />
         </template>
-
         <EAccountDomainPanel
           v-else-if="detailDomain === 'A'"
           :items="ctx.eItems"
@@ -111,7 +112,6 @@
           @cover="emit('eaccountCover', $event)"
           @ignore="emit('eaccountIgnore', $event)"
         />
-
         <DomainDGhostTable
           v-else-if="detailDomain === 'D'"
           :items="ctx.ghostGroups"
@@ -123,7 +123,6 @@
           @undo-ignore="emit('ghostUndoIgnore', $event)"
           @delete-txn="emit('ghostDeleteTxn', $event)"
         />
-
         <DomainEDividendTaxTable
           v-else-if="detailDomain === 'E'"
           :items="ctx.taxItems"
@@ -134,7 +133,6 @@
           :loading="ctx.taxLoading"
           @recorded="emit('refresh', 'tax')"
         />
-
         <ReconStagePanel
           v-else-if="detailDomain === 'F'"
           :stage="activeStage"
@@ -146,7 +144,6 @@
           @refresh="emit('refresh', $event)"
           @retry="emit('refresh', 'dangling')"
         />
-
         <DomainGOrphanLedger
           v-else-if="detailDomain === 'G'"
           :data="ctx.orphanLedgers"
@@ -155,7 +152,6 @@
           @submitted="emit('refresh', 'orphan')"
           @retry="emit('refresh', 'orphan')"
         />
-
         <p v-else class="recon-detail__hint">
           这条待办的处理入口在下方按钮，选中的来源没有需要展开的记录表。
         </p>
@@ -220,6 +216,7 @@ const emit = defineEmits<{
   close: [];
   refresh: [key: string];
   supplement: [row: DiscrepancyItem];
+  recompute: [row: DiscrepancyItem];
   ignore: [row: DiscrepancyItem];
   fixDangling: [group: DanglingRefGroup];
   eaccountCover: [row: ReconciliationItem];

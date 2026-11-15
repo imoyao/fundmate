@@ -71,15 +71,15 @@
           <el-table-column :label="DISC_COLUMN_LABELS.action" width="200">
             <template #default="{ row }">
               <template v-if="row.status === 'pending'">
-                <!-- 文案按类型选（判据在 utils/discAction.ts，有单测）：no_anchor 是
-                     「没有基准」，弹窗里走「以此为准」模式；quantity 是真差异，给它
-                     「以此为准」会把错数据固化成基准。事件仍是 supplement——裁决入口
-                     只有一个（补录弹窗），模式在里面分流。 -->
+                <!-- 文案与事件都按类型选（判据在 utils/discAction.ts，有单测）：
+                     no_anchor 走「以此为准」、quantity 走「按流水重算份额」（超卖改「改成账单
+                     份额」）、其余才是「补录这笔」。quantity 走补录是无效动作——补录同时写
+                     流水与持仓，差额两端同步移动（#3134）。 -->
                 <el-button
                   size="small"
                   text
                   type="primary"
-                  @click="emit('supplement', row as DiscrepancyItem)"
+                  @click="onAction(row as DiscrepancyItem)"
                 >
                   {{ DISC_ACTION_LABELS[discActionOf(row as DiscrepancyItem)] }}
                 </el-button>
@@ -129,7 +129,11 @@ import {
   discrepancyIssue,
   specialSymbolLabel
 } from "../utils/reconLabels";
-import { DISC_ACTION_LABELS, discActionOf } from "../utils/discAction";
+import {
+  DISC_ACTION_LABELS,
+  discActionEvent,
+  discActionOf
+} from "../utils/discAction";
 
 /** 域 B 持仓快照差异表（#980 拆分自 index.vue；2026-10-28 补客户端分页）。
  *  理论持仓 vs 实际持仓的待处理差异列表，补充 / 忽略操作经 emit 上抛由父级编排。
@@ -147,8 +151,19 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   supplement: [row: DiscrepancyItem];
+  recompute: [row: DiscrepancyItem];
   ignore: [row: DiscrepancyItem];
 }>();
+
+/** 主动作按判据分发：重算有独立事件（写路径不同：只改持仓、不建流水），其余仍进补录弹窗 */
+function onAction(row: DiscrepancyItem): void {
+  const event = discActionEvent(discActionOf(row));
+  if (event === "recompute") {
+    emit("recompute", row);
+    return;
+  }
+  emit("supplement", row);
+}
 
 /** 客户端分页（与域 A 面板口径一致：默认 50，可选 100 / 200） */
 const page = ref(1);
