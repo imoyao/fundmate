@@ -195,6 +195,91 @@ def names_include(index: dict[str, set[str]], txns, symbol) -> bool:
     return all(symbol in (index.get(name) or set()) for name in names)
 
 
+def matches_target(
+    t: Transaction,
+    symbol: str,
+    asset_type,
+    name_index: dict[str, set[str]],
+    group_names: set[str] | None = None,
+) -> bool:
+    """这条流水是否属于给定标的：有码走身份归一，缺码走「同名」再退回标的名反查。
+
+    缺码这一支正是 #3127 的成因：08-29 导入时同一标的的买腿带 ``SZ128101``、四条卖腿
+    ``symbol`` 为空，重建按 ``(ledger, symbol)`` 分组把卖腿分到了另一组（且被 ``no_symbol``
+    挡住）⇒ 只拿买入腿建出 270 张；卖腿随后补码回补，份额却不再重算。判「缺口」必须能
+    看见「缺码但同名」的那些流水，否则这类幽灵持仓会被判成「份额偏小」而放过。
+
+    ``group_names``（组内已有的标的名）必须参与，因为 ``name_symbol_index`` **刻意不索引
+    悬空流水**——而待重建的那批流水按定义全是悬空的，靠索引反查等于查不到自己这一组。
+    「同账本 + 同名」在本域足够可靠：同账本内同名不同标的没有出现过，且已按账本过滤。
+    """
+    if not symbol:
+        return False
+    if (t.symbol or '').strip():
+        return same_identity(t.symbol, t.asset_type, symbol, asset_type)
+    name = (t.position_name or '').strip()
+    if not name:
+        return False
+    venue_t = venue_of_asset_type(t.asset_type)
+    venue_g = venue_of_asset_type(asset_type)
+    if venue_t and venue_g and venue_t != venue_g:
+        return False
+    if name in (group_names or set()):
+        return True
+    mapped = name_index.get(name) or set()
+    return any(same_identity(s, t.asset_type, symbol, asset_type) for s in mapped)
+
+
+def unclaimed_flows(
+    db: Session,
+    family_id: int,
+    ledger_id,
+    group: list[Transaction],
+    *,
+    symbol: str | None = None,
+    asset_type=None,
+    name_index: dict[str, set[str]] | None = None,
+) -> list[Transaction]:
+    """同账本、同一标的、**未被任何存活持仓承接**、又不在 ``group`` 里的流水。
+
+    这是「重建 / 改挂只用了一部分流水」这条风险的单一真相源。旧判据（``_sibling_gap_warning``
+    / ``_sibling_count``）各写一份，且都是 ``Transaction.symbol == symbol`` 字面量比 + 只扫悬空，
+    于是漏掉两类：① 缺码或补码后再也不「悬空」的卖出腿（#3127 真库 95 例）；② 裸码与带前缀
+    两种写法（``127078`` vs ``SZ127078``）。
+
+    「未被承接」是后半个判据的关键：同账本同标的还可以有**另一条正常持仓**，它名下的流水
+    本来就不该算进本组缺口，否则每组合法重建都会被误报。``position_id is NULL`` 的流水算缺口
+    ——它们同样会改变真实份额，只是还没人认领。
+
+    参数取整组 ``group`` 而不只是 ``exclude_ids``：缺码流水要靠「与组内同名」才能认出来
+    （``name_symbol_index`` 刻意不索引悬空流水），拆成两个参数调用方一定会漏传后者。
+    """
+    if not group:
+        return []
+    symbol = symbol if symbol is not None else (group[0].symbol or '')
+    asset_type = asset_type if asset_type is not None else group[0].asset_type
+    skip = {t.id for t in group}
+    group_names = {(t.position_name or '').strip() for t in group} - {''}
+    live_ids = {pid for (pid,) in db.query(Position.id).filter(Position.family_id == family_id)}
+    index = name_index if name_index is not None else name_symbol_index(db, family_id)
+    rows = (
+        db.query(Transaction)
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.ledger_id == ledger_id,
+            Transaction.quantity != 0,
+        )
+        .all()
+    )
+    return [
+        t
+        for t in rows
+        if t.id not in skip
+        and not (t.position_id is not None and t.position_id in live_ids)
+        and matches_target(t, symbol, asset_type, index, group_names)
+    ]
+
+
 def require_single_identity(db: Session, family_id: int, txns, action: str, symbol=None) -> None:
     """写路径的统一闸门：一批流水分属多个标的时拒绝，并说明为什么不能一起做。
 
