@@ -204,6 +204,35 @@ test.describe("策略视图（#980 拆分）", () => {
     await expect(growthGroup.locator(".el-pagination")).toHaveCount(0);
   });
 
+  test("口径说明：不再两处常驻，收进标题 ⓘ 后仍可读", async ({ page }) => {
+    await stubStrategy(page);
+    await openPage(page);
+
+    const header = page.locator('[data-region="strategy-header"]');
+    await expect(header).toBeVisible();
+
+    // 旧实现把「不是独立组合收益率」写在标题副标 + 橙色警示横幅两处。
+    // 判据必须用旧代码里真实存在的结构/文案，否则 toHaveCount(0) 是恒真空断言：
+    // `.bg-orange-50` 就是那条横幅的类，`此为纯分析功能` 就是副标的原句。
+    await expect(page.locator(".strategies-page > .bg-orange-50")).toHaveCount(
+      0
+    );
+    await expect(
+      page.getByText("此为纯分析功能", { exact: false })
+    ).toHaveCount(0);
+
+    // 信息不能丢：hover ⓘ 后，两条口径在说明卡里都读得到
+    await header.locator('[data-action="strategy-scope-info"]').hover();
+    const tip = page.locator(".rich-tip");
+    await expect(tip).toContainText("按投资风格标签分组查看持仓表现");
+    await expect(tip).toContainText("不参与组合收益率计算");
+    await expect(tip).toContainText("创建投资组合并关联账户");
+
+    // 删横幅不该顺手删掉功能：汇总卡与标签管理入口都还在
+    await expect(page.locator(".summary-card")).toHaveCount(4);
+    await expect(page.getByRole("button", { name: "管理标签" })).toBeVisible();
+  });
+
   test("标签：勾选触发绑定、取消触发解绑，管理对话框可新建标签", async ({
     page
   }) => {

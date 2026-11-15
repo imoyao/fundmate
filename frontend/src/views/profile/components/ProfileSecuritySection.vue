@@ -4,13 +4,8 @@
     <SectionHeader title="账号安全" />
 
     <!-- 邮箱行 -->
-    <div class="setting-row">
-      <div class="setting-row__label">
-        <span class="setting-row__name">登录邮箱</span>
-        <span class="setting-row__desc"
-          >用来接收你的专属通知，也守护着你的账户登录</span
-        >
-      </div>
+    <div class="setting-row" data-field="email">
+      <span class="setting-row__name">登录邮箱</span>
       <div class="setting-row__main">
         <span class="field-value field-value--mono">{{
           p.email || "未设置"
@@ -26,13 +21,8 @@
     </div>
 
     <!-- 密码行 -->
-    <div class="setting-row">
-      <div class="setting-row__label">
-        <span class="setting-row__name">登录密码</span>
-        <span class="setting-row__desc"
-          >安全护盾，隔段时间加固一次，更安心</span
-        >
-      </div>
+    <div class="setting-row" data-field="password">
+      <span class="setting-row__name">登录密码</span>
       <div class="setting-row__main">
         <span class="field-value field-value--mono">••••••••</span>
         <button
@@ -46,11 +36,8 @@
     </div>
 
     <!-- 危险操作区 -->
-    <div class="danger-zone">
-      <div class="danger-zone__text">
-        <span class="danger-zone__label">退出登录</span>
-        <span class="danger-zone__desc">我们不说再见，只说后会有期</span>
-      </div>
+    <div class="danger-zone" data-action="logout">
+      <span class="danger-zone__label">退出登录</span>
       <button type="button" class="danger-btn" @click="p.onLogout">退出</button>
     </div>
 
@@ -105,25 +92,14 @@ const p = reactive(props.page);
   padding-bottom: var(--space-3);
 }
 
-.setting-row__label {
-  display: flex;
-  flex-shrink: 0;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 100px;
-}
-
+/* 标签与值各占一端；删掉说明小字后左列不再需要 flex column 容器 */
 .setting-row__name {
+  flex-shrink: 0;
+  min-width: 100px;
   font-size: var(--text-small);
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
-}
-
-.setting-row__desc {
-  font-size: var(--text-label);
-  line-height: 1.4;
-  color: var(--text-tertiary-ink);
 }
 
 .setting-row__main {
@@ -182,24 +158,11 @@ const p = reactive(props.page);
   border-top: 1px solid var(--border-subtle);
 }
 
-.danger-zone__text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
 .danger-zone__label {
   font-size: var(--text-small);
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
-}
-
-.danger-zone__desc {
-  font-size: var(--text-label);
-  line-height: 1.4;
-  color: var(--text-tertiary-ink);
 }
 
 /* ===== 危险幽灵按钮 ===== */
@@ -266,8 +229,7 @@ const p = reactive(props.page);
     align-items: flex-start;
   }
 
-  .setting-row__label {
-    flex-basis: auto;
+  .setting-row__name {
     min-width: 0;
   }
 

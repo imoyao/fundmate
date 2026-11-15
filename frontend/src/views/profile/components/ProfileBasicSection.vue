@@ -63,12 +63,9 @@
     </div>
 
     <!-- 昵称字段 -->
-    <div class="field-block">
+    <div class="field-block" data-field="nickname">
       <div class="field-block__row-top">
-        <div class="field-block__label-group">
-          <span class="field-block__label">昵称</span>
-          <span class="field-block__desc">你希望我们这样称呼你</span>
-        </div>
+        <span class="field-block__label">昵称</span>
       </div>
       <div class="field-block__input-row">
         <el-input
@@ -99,12 +96,9 @@
     </div>
 
     <!-- 用户名字段 -->
-    <div class="field-block">
+    <div class="field-block" data-field="username">
       <div class="field-block__row-top">
-        <div class="field-block__label-group">
-          <span class="field-block__label">用户名</span>
-          <span class="field-block__desc">它会陪你见证你的每一次复利成长</span>
-        </div>
+        <span class="field-block__label">用户名</span>
       </div>
       <div class="field-block__input-row">
         <el-input
@@ -292,23 +286,11 @@ const p = reactive(props.page);
   margin-bottom: var(--space-2);
 }
 
-.field-block__label-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .field-block__label {
   font-size: var(--text-small);
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
-}
-
-.field-block__desc {
-  font-size: var(--text-label);
-  line-height: 1.4;
-  color: var(--text-tertiary-ink);
 }
 
 .field-block__input-row {
