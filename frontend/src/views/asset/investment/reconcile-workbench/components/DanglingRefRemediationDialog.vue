@@ -29,10 +29,7 @@
         <!-- 一行说清「现在是什么问题」就停：机制承诺与跨阶段指路句已删
              （design.md「先删，再重排」②、spec §3.6）；删除的影响在下方
              预览面板里逐条列出，不在这里复述。 -->
-        <p v-if="mode === 'enrich'" class="dr-intro__main">
-          这些交易缺标的代码或交易日期，找不到对应的持仓。
-        </p>
-        <p v-else class="dr-intro__main">这些交易找不到对应的持仓记录。</p>
+        <p class="dr-intro__main">{{ introMain }}</p>
         <template v-if="mode === 'enrich'">
           <!--
             表单只渲染「真正要补的字段」：分组键是 (ledger_id, symbol)，组内代码必然
@@ -208,6 +205,17 @@ const footerHint = computed(() =>
     ? stepState.value.guide
     : blockReason.value || "可以提交"
 );
+
+/**
+ * 开场白按组形态说事实：无归属组（#3126）的问题不是「缺字段」——组里可能带
+ * 标的代码，缺的是持仓承接；写「缺标的代码或交易日期」对这类组是假话。
+ */
+const introMain = computed(() => {
+  if (props.mode === "delete") return "这些交易找不到对应的持仓记录。";
+  return props.group?.unowned
+    ? "这些交易没有挂到任何持仓上，在任何持仓视图里都看不到。"
+    : "这些交易缺标的代码或交易日期，找不到对应的持仓。";
+});
 
 /** 字段说明回答「这个字段填什么、填了会怎样」，比 placeholder 更具体。 */
 const symbolHint = computed(

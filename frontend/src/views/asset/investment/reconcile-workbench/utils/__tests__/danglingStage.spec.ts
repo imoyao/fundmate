@@ -62,9 +62,15 @@ describe("danglingStageOf：全部输入组合的阶段归属", () => {
   });
 });
 
-describe("DANGLING_STAGES：固定顺序 fill → reattach → mislink → rebuild", () => {
-  it("顺序稳定且恰好四个阶段", () => {
-    expect(DANGLING_STAGES).toEqual(["fill", "reattach", "mislink", "rebuild"]);
+describe("DANGLING_STAGES：固定顺序 fill → unowned → reattach → mislink → rebuild", () => {
+  it("顺序稳定且恰好五个阶段", () => {
+    expect(DANGLING_STAGES).toEqual([
+      "fill",
+      "unowned",
+      "reattach",
+      "mislink",
+      "rebuild"
+    ]);
   });
 
   it("每个阶段都有动作名（动作名与阶段键同源，不允许缺项）", () => {
@@ -72,6 +78,7 @@ describe("DANGLING_STAGES：固定顺序 fill → reattach → mislink → rebui
       expect(DANGLING_ACTION_LABEL[stage]).toBeTruthy();
     }
     expect(DANGLING_ACTION_LABEL.fill).toBe("补全信息");
+    expect(DANGLING_ACTION_LABEL.unowned).toBe("补全标的");
     expect(DANGLING_ACTION_LABEL.reattach).toBe("回补关联");
     expect(DANGLING_ACTION_LABEL.mislink).toBe("改挂到正确标的");
     expect(DANGLING_ACTION_LABEL.rebuild).toBe("重建持仓");
@@ -120,6 +127,43 @@ describe("groupStage：组级判据走同一条派生链", () => {
       })
     ).toBe("mislink");
   });
+
+  /**
+   * 无归属组（#3126）**必须短路**，这条是它的核心回归：
+   * 组上没有任何持仓指针（fixable 恒 false、candidates 为空），三个写端点
+   * （reattach / rebuild / mislink）对这类行一律 400。若不短路，补上标的代码后
+   * 派生规则「代码齐 + fixable=false → rebuild」会把它派生成 rebuild ——
+   * 用户照界面提示点下去，后端必红。补全之后也必须仍落 unowned。
+   */
+  it("无归属组归 unowned，补上 symbol 后仍落 unowned（不被派生成 rebuild）", () => {
+    // 缺码形态：照 fill 的派生规则会落 fill，但 unowned 标记优先
+    expect(
+      groupStage({
+        symbol: "",
+        fixable: false,
+        txn_count: 7,
+        unowned: true
+      })
+    ).toBe("unowned");
+    // 核心回归：补上代码后，照派生规则会落 rebuild，必须仍停在 unowned
+    expect(
+      groupStage({
+        symbol: "SZ128081",
+        fixable: false,
+        txn_count: 7,
+        unowned: true
+      })
+    ).toBe("unowned");
+    // 防御：即便后端误给 fixable=true，也不能派生成 reattach
+    expect(
+      groupStage({
+        symbol: "SZ128081",
+        fixable: true,
+        txn_count: 7,
+        unowned: true
+      })
+    ).toBe("unowned");
+  });
 });
 
 describe("bucketByStage：分桶与顺序", () => {
@@ -135,17 +179,26 @@ describe("bucketByStage：分桶与顺序", () => {
     txn_count: 1,
     mislinked: true
   };
+  const unownedA = {
+    key: "unowned|20|",
+    symbol: "",
+    fixable: false,
+    txn_count: 250,
+    unowned: true
+  };
 
-  it("四桶互斥完备：每一组恰好落进一个桶", () => {
+  it("五桶互斥完备：每一组恰好落进一个桶", () => {
     const buckets = bucketByStage([
       fillA,
       reattachA,
       rebuildA,
       fillB,
       reattachB,
-      mislinkA
+      mislinkA,
+      unownedA
     ]);
     expect(buckets.fill).toEqual([fillA, fillB]);
+    expect(buckets.unowned).toEqual([unownedA]);
     expect(buckets.reattach).toEqual([reattachA, reattachB]);
     expect(buckets.mislink).toEqual([mislinkA]);
     expect(buckets.rebuild).toEqual([rebuildA]);
@@ -161,18 +214,18 @@ describe("bucketByStage：分桶与顺序", () => {
       fillA,
       { key: "empty", symbol: "001982", fixable: true, txn_count: 0 }
     ]);
-    const total =
-      buckets.fill.length +
-      buckets.reattach.length +
-      buckets.mislink.length +
-      buckets.rebuild.length;
+    const total = DANGLING_STAGES.reduce(
+      (sum, stage) => sum + buckets[stage].length,
+      0
+    );
     expect(total).toBe(1);
   });
 
-  it("空输入 → 四桶全空（调用方据此跳过空阶段，不产出队列项）", () => {
+  it("空输入 → 五桶全空（调用方据此跳过空阶段，不产出队列项）", () => {
     const buckets = bucketByStage([]);
     expect(buckets).toEqual({
       fill: [],
+      unowned: [],
       reattach: [],
       mislink: [],
       rebuild: []

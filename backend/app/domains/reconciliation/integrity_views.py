@@ -41,6 +41,7 @@ from flask import abort, jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.services import dangling_ref_mislink_service as mislink_svc
+from app.services import dangling_ref_unowned_service as unowned_svc
 from app.services import orphan_coverage_service as coverage_svc
 from app.services.dangling_ref_rebuild_service import (
     preview_rebuild,
@@ -256,7 +257,8 @@ def delete_dangling_refs():
 
     后端硬校验 ``confirm is True`` 且 ``confirm_phrase == '删除'``；删除前把**完整行快照**
     写进 ``adjustment_logs.before_json``，可凭 ``log_id`` 精确恢复。删除会影响已实现盈亏
-    与收益统计，但不改动现存持仓份额（这些流水的 position_id 指向已删除的持仓行）。
+    与收益统计，但不改动现存持仓份额（悬空行的持仓已不存在、无归属行本来就没挂持仓）。
+    ``#3126`` 起无归属行（position_id 为空）同样在可删范围。
     """
     body = _json_object()
     family_id = get_family_id()
@@ -500,6 +502,27 @@ def undo_dangling_mislink():
             abort(400, description=str(e))
         db.flush()
         return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── #3126 无归属流水（position_id 为空、无持仓承接）：只读暴露 ──────────────────
+# 既有的三类修法都够不到它：域 F 要求 position_id 悬空、域 G 要求账本为空、
+# 「归置」只收 money_fund / reverse_repo。这批流水（真库 10 笔 quantity≠0，多为
+# 历史卖出）界面上完全不可见。业务口径全在 services 层（dangling_ref_unowned_service）。
+
+
+@bp.get('/dangling-refs/unowned/')
+def list_unowned_flows():
+    """列出「无持仓承接」的流水（只读，#3126 新类）。
+
+    检出 = position_id 为空 + 账本非空 + 数量非零 + 非账外类现金（money_fund /
+    reverse_repo 归「归置」域）。组的形状与 ``/dangling-refs/`` 兼容，另带
+    ``unowned`` 标记；``fixable`` 恒为 false——本类**只读、不含挂回/重建动作**：
+    唯一的两条出路是「补全标的」（``/dangling-refs/enrich/``，补完由夜间回填自动
+    挂回同账本同标的持仓）与「删除」（``/dangling-refs/delete/``）。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        return jsonify({'data': unowned_svc.scan_unowned_flows(db, family_id), 'message': 'ok'})
 
 
 # ── #2875 缺账本孤儿流水（域 G）：只读暴露 / 显式回填 / 可撤销 ──────────────────

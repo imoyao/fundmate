@@ -251,8 +251,24 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
     "backend/app/services/cross_domain.py": {'lines': 221, 'max_func': 54, 'max_cc': 15},
     "backend/app/services/daily_scheduler.py": {'lines': 1136, 'max_func': 39, 'max_cc': 10},
-    "backend/app/services/dangling_ref_remediation_service.py": {'lines': 539, 'max_func': 58, 'max_cc': 11},
-    "backend/app/services/dangling_ref_service.py": {'lines': 585, 'max_func': 80, 'max_cc': 15},
+    # 2026-11-15 无归属卖出流水检出（GitHub #3126，CNB 侧镜像卡同主题）按 --report
+    # 实测回写两项，理由留痕：
+    # dangling_ref_remediation_service.py 539→563（enrich / delete 两条写路径放开
+    # 「无归属卖出」行：4 处调用点传 include_unowned=True + _delete_warnings 按行
+    # 条件分支替代对 unowned 行失实的统一措辞；max_func 58→59 是 _delete_warnings
+    # 分支带来的真实增长），dangling_ref_service.py 585→599（_load_dangling_by_ids
+    # 新增 include_unowned=False 安全默认值——7 个既有调用点行为零改动，仅
+    # remediation 显式传 True；max_func 80 / max_cc 15 未变，没有放大任何既有函数
+    # 职责）。都是真实代码增长，非放宽阈值：test_baseline_matches_current_metrics
+    # 要求基线与实测逐项相等，留余量同样判红。
+    "backend/app/services/dangling_ref_remediation_service.py": {'lines': 563, 'max_func': 59, 'max_cc': 11},
+    "backend/app/services/dangling_ref_service.py": {'lines': 599, 'max_func': 80, 'max_cc': 15},
+    # #3126 新增「无归属卖出」只读检出服务（scan_unowned_flows），谓词复用
+    # dangling_identity.unowned_condition，组结构复用 dangling_ref_service 的
+    # _txn_brief/_shares/_net_min_units/_build_batches。实测 {174, 53, 12}，远低于
+    # 新增上限 {800, 120, 20}；登记是为了让「只减不增」立刻生效（参照
+    # orphan_ledger_service #2875 先例），而不是靠 800 行余量给未来堆职责。
+    "backend/app/services/dangling_ref_unowned_service.py": {'lines': 174, 'max_func': 53, 'max_cc': 12},
     "backend/app/services/dividend_service.py": {'lines': 465, 'max_func': 112, 'max_cc': 25},
     # 2026-11-08：货基免税判定（#1661）曾把服务推到 662 行 / cc 34，触发本守卫。
     #   纯规则拆到 `services/dividend_tax_rules.py`（`is_dividend_income` /

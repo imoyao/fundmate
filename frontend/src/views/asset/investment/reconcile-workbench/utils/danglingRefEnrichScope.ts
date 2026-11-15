@@ -117,19 +117,28 @@ export function danglingNextStep(input: NextStepInput): DanglingNextStep {
  */
 
 /**
- * 阶段键 = `danglingNextStep` 去掉 `empty`，另加 `mislink`。
+ * 阶段键 = `danglingNextStep` 去掉 `empty`，另加 `mislink` 与 `unowned`。
  *
  * `mislink`（挂错标的）**不是**悬空流水的下一步：它的组由后端 `/mislinked/` 检出，
  * `position_id` 指着的持仓存在、只是属于别的标的。把它并进 `danglingNextStep`
  * 会让「缺代码 → 补全」这类派生判据去解释一个根本不是悬空的组（真库里
  * 24 条 symbol_norm 不等的挂接中 21 条是场所标注问题，派生器无从分辨）。
  * 故它的阶段归属由组上的 `mislinked` 标记直接给出，见 `groupStage`。
+ *
+ * `unowned`（无归属，#3126）同理：组上**没有任何持仓指针**（`dangling_position_ids`
+ * 与 `candidates` 均为空、`fixable` 恒 false），reattach / rebuild / mislink 三个
+ * 端点对这类行一律 400。**必须短路**：否则补上标的代码后，派生规则
+ * 「代码齐 + fixable=false → rebuild」会把它派生成 rebuild——后端必 400，
+ * 等于给用户一条点了就红的路。它的归属由组上的 `unowned` 标记直接给出，
+ * 补全之后也永远停在 `unowned`（列表重拉后该组要么已挂回、要么仍无归属）。
  */
-export type DanglingStage = Exclude<DanglingNextStep, "empty"> | "mislink";
+export type DanglingStage =
+  Exclude<DanglingNextStep, "empty"> | "mislink" | "unowned";
 
-/** 阶段的固定展示顺序：先补字段、再挂回、再改错挂、最后才是重建（漏斗从轻到重） */
+/** 阶段的固定展示顺序：先补字段，再到无归属，再挂回、改错挂，最后才是重建（漏斗从轻到重） */
 export const DANGLING_STAGES: readonly DanglingStage[] = [
   "fill",
+  "unowned",
   "reattach",
   "mislink",
   "rebuild"
@@ -158,6 +167,8 @@ export interface DanglingStageGroupLike {
   txn_count: number;
   /** 错挂组标记（只在 `/mislinked/` 的组上有）；有它 ⇒ 阶段直接是 `mislink` */
   mislinked?: boolean;
+  /** 无归属组标记（只在 `/unowned/` 的组上有）；有它 ⇒ 阶段直接是 `unowned` */
+  unowned?: boolean;
 }
 
 /** 一个组属于哪个阶段；空组（txn_count === 0）返回 null（不展示） */
@@ -168,6 +179,11 @@ export function groupStage(
   // 错挂组不参与「悬空流水下一步」的派生：它的 `fixable` 含义不同
   // （有同标的持仓可改挂），照派生规则会被判成 `reattach`，点进去却做「改挂」。
   if (group.mislinked) return "mislink";
+  // 无归属组同理**必须短路**：组上没有任何持仓指针，三个写端点（reattach /
+  // rebuild / mislink）对这类行一律 400。尤其补上标的代码后，派生规则
+  // 「代码齐 + fixable=false → rebuild」会把它派生成 rebuild——一条点了
+  // 就红的路。补全之后也停在 unowned（重拉后该组要么已挂回、要么仍无归属）。
+  if (group.unowned) return "unowned";
   return danglingStageOf({
     symbol: group.symbol,
     fixable: group.fixable,
@@ -199,6 +215,7 @@ export function bucketByStage<T extends DanglingStageGroupLike>(
 ): Record<DanglingStage, T[]> {
   const buckets: Record<DanglingStage, T[]> = {
     fill: [],
+    unowned: [],
     reattach: [],
     mislink: [],
     rebuild: []
@@ -216,6 +233,7 @@ export function bucketByStage<T extends DanglingStageGroupLike>(
  */
 export const DANGLING_ACTION_LABEL: Record<DanglingStage, string> = {
   fill: "补全信息",
+  unowned: "补全标的",
   reattach: "回补关联",
   mislink: "改挂到正确标的",
   rebuild: "重建持仓"

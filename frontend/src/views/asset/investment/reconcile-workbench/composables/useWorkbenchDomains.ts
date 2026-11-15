@@ -12,6 +12,7 @@ import {
   listDividendTaxPending,
   listDanglingRefs,
   listMislinkedRefs,
+  listUnownedRefs,
   listOrphanLedgers,
   type DanglingRefList,
   type OrphanLedgerList,
@@ -360,19 +361,22 @@ export function useWorkbenchDomains() {
    *  本函数只负责「进页面 / 修复完成后」把只读快照拉回来。失败静默：单个扫描
    *  接口超时不该让整个工作台的其它域一起白屏。
    *
-   *  2026-11-13 起同时拉「挂错标的」一组（`/mislinked/`）并按结构兼容合并：
-   *  那类流水既不是悬空（持仓行存在），又进不了任何既有修法，不合并就等于
-   *  把它藏起来还宣称已经清干净。合并口径见 `utils/danglingRefMerge`。 */
+   *  2026-11-13 起同时拉「挂错标的」一组（`/mislinked/`）、2026-11-15 起
+   *  再拉「无归属流水」一组（`/unowned/`）并按结构兼容合并：这两类流水都
+   *  进不了任何既有修法或视图，不合并就等于把它们藏起来还宣称已经清干净。
+   *  合并口径见 `utils/danglingRefMerge`。 */
   async function loadDanglingRefs(): Promise<void> {
     danglingLoading.value = true;
     try {
-      const [refs, mislinked] = await Promise.all([
+      const [refs, mislinked, unowned] = await Promise.all([
         listDanglingRefs(),
-        listMislinkedRefs()
+        listMislinkedRefs(),
+        listUnownedRefs()
       ]);
       danglingRefs.value = mergeDanglingLists(
         refs.data ?? null,
-        mislinked.data
+        mislinked.data,
+        unowned.data
       );
       clearError("dangling");
     } catch {

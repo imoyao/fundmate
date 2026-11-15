@@ -491,6 +491,13 @@ export interface DanglingRefGroup {
   fix_mode?: "remount" | "rebuild";
   /** 这些流水**现在**挂在哪几条持仓上（错误标的），供用户核对后再确认 */
   wrong_positions?: DanglingRefPosition[];
+  /**
+   * 无归属流水（`/dangling-refs/unowned/` 返回的组）标记：既无标的归属、
+   * 也未挂任何持仓。有它 ⇒ 阶段判据由该标记直接给出（`unowned`），
+   * 不走「悬空流水下一步」的派生 —— 补上代码后也不许被派生成 rebuild
+   * （rebuild 端点对这类行 400：没有指针可修、没有持仓可挂）。
+   */
+  unowned?: true;
   transactions: DanglingRefTransaction[];
 }
 
@@ -859,6 +866,39 @@ export function undoMislinkedRefFix(
   return http.post<ApiResponse<MislinkedRefUndoResult>, unknown>(
     "/api/reconciliation/dangling-refs/mislink-undo/",
     { data: { log_id: logId } }
+  );
+}
+
+// ── 域 F 第五类：无归属流水（#3126）──────────────────────────────────────────
+// 这些流水既没有标的代码归属、也没挂到任何持仓上：不进任何持仓视图，全库扫描
+// 之外一处都看不见。修法只有两条（其余端点对这类行一律 400 —— position_id 为空，
+// 没有指针可修、没有持仓可挂，reattach / rebuild / mislink 都不适用）：
+// 补全标的（enrich，后端已放开对这类行的校验）或显式删除。组形状与悬空组兼容，
+// 额外只有 unowned 标记；fixable 恒 false、live_position 为 null、candidates /
+// dangling_position_ids 均为空 —— 前端照抄，不二次推导。
+
+/** 无归属分组（GET /api/reconciliation/dangling-refs/unowned/ 的 groups 元素） */
+export interface UnownedRefGroup extends DanglingRefGroup {
+  unowned: true;
+}
+
+/** 无归属列表响应（GET /api/reconciliation/dangling-refs/unowned/ 的 data） */
+export interface UnownedRefList {
+  total: number;
+  group_count: number;
+  batch_count: number;
+  null_symbol: number;
+  null_trade_date: number;
+  /** 恒为 0：这类组没有可挂回的持仓指针，「可直接回补」口径不适用 */
+  fixable_count: number;
+  groups: UnownedRefGroup[];
+  batches: DanglingRefBatch[];
+}
+
+/** 列出无归属流水的分组与批次（只读扫描，不写库） */
+export function listUnownedRefs(): Promise<ApiResponse<UnownedRefList>> {
+  return http.get<ApiResponse<UnownedRefList>, unknown>(
+    "/api/reconciliation/dangling-refs/unowned/"
   );
 }
 

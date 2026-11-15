@@ -14,8 +14,9 @@
 
 ## 安全边界（每条都有测试钉死）
 
-- 目标必须**再次**通过 ``_load_dangling_by_ids``：仍属于本 family 且 position_id
-  仍悬空。任一不满足整体抛 ``ValueError``、零写入，防止把已修好的流水再动一次。
+- 目标必须**再次**通过 ``_load_dangling_by_ids``：仍属于本 family 且可处置（悬空，
+  或 #3126 的无归属行——``include_unowned=True`` 只在 enrich / delete 传入）。
+  任一不满足整体抛 ``ValueError``、零写入，防止把已修好的流水再动一次。
 - 所有校验（含 confirm / confirm_phrase / updated==0）**排在写操作之前**：拒绝分支
   不得留下 ``db.new / db.dirty / db.deleted``，也不得写审计日志。
 - 删除要求 ``confirm is True`` **且** ``confirm_phrase == '删除'``（后端硬校验，
@@ -237,12 +238,14 @@ def preview_enrichment(db: Session, family_id: int, transaction_ids, symbol=None
 
     只用查询与纯计算：不 UPDATE、不 add、不 flush。``candidate_positions``
     帮用户判断「补这个代码之后有没有现存持仓可挂回」，避免补完仍卡在 blocked。
+    ``include_unowned=True``：#3126 的无归属行（position_id 为空）同样可补全标的——
+    补完后夜间回填会按「同账本同标的」自动挂回，这正是它的两条出路之一。
     """
     ids = _normalize_ids(transaction_ids)
     new_symbol = _normalize_symbol(symbol)
     new_date = _normalize_trade_date(trade_date)
     _require_field(new_symbol, new_date)
-    txns = _load_dangling_by_ids(db, family_id, ids)
+    txns = _load_dangling_by_ids(db, family_id, ids, include_unowned=True)
     require_single_identity(db, family_id, txns, '补全', new_symbol)
     plan = _plan_enrichment(txns, new_symbol, new_date)
     cands = _candidate_positions(db, family_id, txns, new_symbol)
@@ -271,15 +274,16 @@ def enrich_transactions(
 ) -> dict:
     """补全一批悬空流水的空字段（POST /enrich/ 的数据源）。
 
-    硬约束见模块 docstring：confirm 二次确认、只补空值、目标仍悬空、校验全在写之前、
-    审计日志 before/after 逐条记录、可凭 log_id 撤销；``updated==0`` 整体拒绝。
+    硬约束见模块 docstring：confirm 二次确认、只补空值、目标仍可处置（悬空 / 无归属）、
+    校验全在写之前、审计日志 before/after 逐条记录、可凭 log_id 撤销；``updated==0``
+    整体拒绝。
     """
     _require_confirm(confirm)
     ids = _normalize_ids(transaction_ids)
     new_symbol = _normalize_symbol(symbol)
     new_date = _normalize_trade_date(trade_date)
     _require_field(new_symbol, new_date)
-    txns = _load_dangling_by_ids(db, family_id, ids)
+    txns = _load_dangling_by_ids(db, family_id, ids, include_unowned=True)
     require_single_identity(db, family_id, txns, '补全', new_symbol)
     plan = _plan_enrichment(txns, new_symbol, new_date)
     to_change = [p for p in plan if p['_fill_symbol'] or p['_fill_date']]
@@ -362,26 +366,45 @@ def _delete_preview_row(t: Transaction) -> dict:
     }
 
 
-def _delete_warnings() -> list[str]:
-    """删除的三层风险如实告知，前端另有一句静态硬文案。"""
-    return [
+def _delete_warnings(txns: list[Transaction]) -> list[str]:
+    """删除的三层风险如实告知，前端另有一句静态硬文案。
+
+    第二条按行分支：域 F 悬空行（position_id 指向已删除持仓）与 #3126 无归属行
+    （position_id 为空）「为什么不影响现存持仓份额」的成因不同，混在一起说会有一半
+    是失实的。两类混合的批次两条都给。
+    """
+    warnings = [
         '删除会影响已实现盈亏与收益统计：这些流水虽不进现存持仓份额，但仍是历史交易记录。',
-        '现存持仓份额不会改变：这些流水的 position_id 指向已删除的持仓行，不参与现存持仓的重算。',
-        '删除前会保存每一行的完整快照到审计日志，可凭日志编号撤销；若期间新增流水占用了原编号，该行会跳过恢复。',
-        '不改 import_hash / source / 金额 / 份额等其它列，撤销按快照原样恢复。',
     ]
+    if any(t.position_id is not None for t in txns):
+        warnings.append('现存持仓份额不会改变：这些流水的 position_id 指向已删除的持仓行，不参与现存持仓的重算。')
+    if any(t.position_id is None for t in txns):
+        warnings.append(
+            '现存持仓份额不会改变：这些流水没有挂任何持仓（position_id 为空），本来就不参与现存持仓的重算。'
+        )
+    warnings.extend(
+        [
+            '删除前会保存每一行的完整快照到审计日志，可凭日志编号撤销；若期间新增流水占用了原编号，该行会跳过恢复。',
+            '不改 import_hash / source / 金额 / 份额等其它列，撤销按快照原样恢复。',
+        ]
+    )
+    return warnings
 
 
 def preview_delete(db: Session, family_id: int, transaction_ids) -> dict:
-    """删除前预览（GET /delete-preview/ 的数据源，**纯只读，绝不写库**）。"""
+    """删除前预览（GET /delete-preview/ 的数据源，**纯只读，绝不写库**）。
+
+    ``include_unowned=True``：#3126 的无归属行同样可删（它们界面上本就无承接，
+    删除是「历史卖出确实不要了」的显式出口），完整行快照照存、可撤销。
+    """
     ids = _normalize_ids(transaction_ids)
-    txns = _load_dangling_by_ids(db, family_id, ids)
+    txns = _load_dangling_by_ids(db, family_id, ids, include_unowned=True)
     return {
         'txn_count': len(txns),
         'transactions': [_delete_preview_row(t) for t in txns],
         'snapshot_columns': len(_column_attrs()),
         'total_amount': sum(Money.cents_to_yuan(t.amount) for t in txns),
-        'warnings': _delete_warnings(),
+        'warnings': _delete_warnings(txns),
     }
 
 
@@ -399,12 +422,13 @@ def delete_transactions(
     后端硬校验 ``confirm is True`` 且 ``confirm_phrase == '删除'``，前端的
     二次确认只是第一道门。删除前把**完整行快照**写进 ``before_json``，
     ``after_json`` 记 deleted_ids；撤销端点据此逐行恢复。
+    ``include_unowned=True``：#3126 的无归属行同样在可删范围（见 ``preview_delete``）。
     """
     _require_confirm(confirm)
     if confirm_phrase != DELETE_CONFIRM_PHRASE:
         raise ValueError(f'confirm_phrase 必须严格等于「{DELETE_CONFIRM_PHRASE}」二字，才能二次确认删除')
     ids = _normalize_ids(transaction_ids)
-    txns = _load_dangling_by_ids(db, family_id, ids)
+    txns = _load_dangling_by_ids(db, family_id, ids, include_unowned=True)
 
     # —— 校验全部通过，以下才开始写 ——
     before = [_full_snapshot(t) for t in txns]

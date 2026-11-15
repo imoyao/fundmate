@@ -128,3 +128,35 @@ export function bucketByStage(groups: DanglingRefGroup[]): Record<DanglingStage,
 
 同类相邻缺陷（同 PR 内修，属对账服务自身）：`run_reconciliation` 的 `seen_keys` 过去只按 `(ledger_id, symbol)` 登记，而差异行身份是 `(ledger_id, symbol, discrepancy_type)`。补建持仓把「孤儿」变成「数量差异」后，旧 orphan 行会永久留在 pending 且再无任何入口能修——正是改挂/重建动作的必然副作用。已改为按三元组登记。
 
+## 7. 追加：第 5 个阶段 `unowned`（2026-11-15，#3126）
+
+§6 之后仍有第三类界外流水：`symbol` 为空**且** `position_id IS NULL`。真库 2026-11-15 实测 **254 条**，界面上**一处都看不到**——
+
+- 不进对账（`run_reconciliation` 对缺 symbol 的行直接跳过）；
+- 不进域 F（`dangling_condition` 硬要求 `position_id IS NOT NULL`）；
+- 不进域 G（要求 `ledger_id IS NULL`）、不进归置（只收 `money_fund` / `reverse_repo`）。
+
+其中 `quantity != 0` 的 **10 条**（9 笔基金卖出 + 1 笔转债兑付，`position_name` 已填、`asset_type` 为 NULL）意味着**历史卖出凭空消失**：流水页没有、持仓页份额照样算。
+
+**判据（`dangling_identity.unowned_condition`，刻意不看 `symbol`）**：
+
+```
+family_id == fid
+AND position_id IS NULL           -- 与域 F 互斥
+AND covered_position_id IS NULL   -- 与归置写入互斥
+AND ledger_id IS NOT NULL         -- 与域 G 互斥
+AND quantity != 0                 -- 挡掉 146 条货基买卖 + 77 条分红/红利税（实测全为 0）
+AND (asset_type IS NULL OR asset_type NOT IN ('money_fund','reverse_repo'))
+```
+
+**不看 `symbol`** 是全节的要害：补全标的之后 `position_id` 仍为空，谓词若看 symbol，补全动作会让这一行**再次凭空消失**。留着它，补全后有三条出路——同账本有唯一同标的持仓则夜间 `orphan_backfill_job` 自动挂回并重算份额；没有持仓行（卖出腿的常态）则在清单上继续显示「未找到相关持仓」，用户可先去建仓或删除；歧义则如实停留。
+
+改动落点（与 §3 / §6 并列）：
+
+- 后端：新只读端点 `GET /api/reconciliation/dangling-refs/unowned/`（载荷与 `DanglingRefList` 结构兼容），服务 `services/dangling_ref_unowned_service.py`；写路径只放开 `enrich` 与 `delete`（`_load_dangling_by_ids(..., include_unowned=True)`，默认 `False` 即安全边界），`reattach` / `rebuild` / `mislink` 对这类行继续 400——没有指针可修、没有持仓可挂。
+- 判据层：`DanglingStage` 增加 `"unowned"`，顺序 `fill → unowned → reattach → mislink → rebuild`；`groupStage` **必须短路** `if (group.unowned) return "unowned"`——不短路的话，补上代码后 `danglingNextStep` 会把它派生成 `rebuild`，而 rebuild 端点对这类行必 400。这与 §6 里 `mislinked` 的短路是同一个理由：**后端已判定的身份，前端不重算**。
+- 前端数据源：与错挂同一口径，在 `useWorkbenchDomains` 的 `Promise.all` 里第三次请求、`mergeDanglingLists` 合并；`fixable_count` 不涨（这类组恒不可回补，算进去等于宣称能处理一个只有两条路的阶段）。
+- 队列 / 抽屉：新阶段自动被 `DANGLING_STAGES` 驱动的段渲染吸收，`ReconQueueDetail.vue` 一行未改。
+
+**§5 第一条与 §6 的「第四个写路径」继续有效**：本节没有新增写路径，只是把既有 `enrich` / `delete` 的目标校验放宽到这一类行。
+
