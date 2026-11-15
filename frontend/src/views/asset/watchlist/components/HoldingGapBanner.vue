@@ -19,13 +19,17 @@
     class="holding-gap-banner"
     variant="warning"
     icon="ep:warning-filled"
+    data-region="holding-gap-banner"
   >
-    <p class="gap-banner__title">
+    <!-- 「持仓即自选」的规则说明只在明细弹窗里留一份（HoldingGapDialog.vue）：
+         横幅标题已说清「有 N 个没进自选、暂无法打标签」，副标与弹窗逐字重复，
+         却让一条 warning 常驻两行解释。规则文本挂 title，鼠标/读屏/Agent 仍可取到。 -->
+    <p
+      class="gap-banner__title"
+      title="持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。"
+    >
       有 {{ gaps.length }} 个持仓产品尚未加入自选，暂无法打标签 / 写备注。
     </p>
-    <span class="gap-banner__desc"
-      >持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。</span
-    >
 
     <!-- 明细预览：品类 + 名称 + 编码，用户据此核对「到底缺的是哪几只」。
          类型胶囊走 AssetTypeBadge（components.md 强制复用，禁止页面自定类型色）。 -->
@@ -47,6 +51,7 @@
         size="small"
         plain
         :loading="reconciling"
+        data-action="add-all"
         @click="emit('add-all')"
       >
         一键加入自选
@@ -55,6 +60,7 @@
         v-if="restCount > 0"
         size="small"
         text
+        data-action="view-all"
         @click="emit('view-all')"
       >
         还有 {{ restCount }} 个，查看全部
@@ -106,10 +112,6 @@ function typeLabelOf(gap: HoldingGap): string {
 /* 原 el-alert 的 content 是 column + gap:4px；换成 SoftBanner 后由消费方补齐这点间距 */
 .gap-banner__title {
   margin-bottom: 2px;
-}
-
-.gap-banner__desc {
-  color: var(--text-secondary);
 }
 
 /* 明细预览：单列纵向排布。名称可截断（title 兜全名），编码等宽字体防宽度跳动 */

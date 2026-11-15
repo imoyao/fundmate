@@ -105,7 +105,9 @@ test.describe("历史会话（常驻左栏 / 窄屏抽屉）", () => {
 
     // 新对话：清空回空态（会话 id 与消息列表一起复位）
     await page.getByRole("button", { name: "新对话" }).click();
-    await expect(page.getByText("试着问一句")).toBeVisible();
+    await expect(
+      page.locator('[data-region="agent-capabilities"]')
+    ).toBeVisible();
     await expect(
       page.getByText("近半年该标的回撤 11.2%，跑输基准。")
     ).toHaveCount(0);
