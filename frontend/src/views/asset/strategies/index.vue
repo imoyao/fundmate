@@ -3,27 +3,31 @@
     class="strategies-page p-4 md:p-6 min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <div class="mb-6">
-      <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
-        策略视图
-      </h2>
-      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
-        按投资风格标签分组查看持仓表现。此为纯分析功能，不参与组合收益率计算。
-      </p>
-    </div>
-
-    <!-- 风险提示横幅 -->
-    <div
-      class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6 text-sm flex items-start gap-2"
-      :style="{ color: 'var(--text-secondary)' }"
-    >
-      <IconifyIconOffline
-        icon="ep:warning-filled"
-        class="text-orange-400 mt-0.5 shrink-0"
-      />
-      <span
-        >注：策略视图为持仓风格分析，非独立投资组合收益率。若需独立计算收益率，请创建投资组合并关联账户。</span
-      >
+    <div class="mb-6" data-region="strategy-header">
+      <div class="flex items-center gap-2">
+        <h2
+          class="text-2xl font-bold"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          策略视图
+        </h2>
+        <!-- 口径说明不常驻：原先标题副标与橙色横幅把「不是独立组合收益率」
+             说了两遍。收进标题 ⓘ 按需展开，信息不丢，首屏少两行噪音。 -->
+        <el-tooltip placement="top" :popper-class="RICH_TIP_CLASS">
+          <span
+            class="strategy-scope__info"
+            role="img"
+            tabindex="0"
+            aria-label="策略视图口径"
+            data-action="strategy-scope-info"
+          >
+            <IconifyIconOffline icon="ep:info-filled" aria-hidden="true" />
+          </span>
+          <template #content>
+            <p v-for="(line, i) in STRATEGY_SCOPE_TIP" :key="i">{{ line }}</p>
+          </template>
+        </el-tooltip>
+      </div>
     </div>
 
     <!-- 加载状态 -->
@@ -116,6 +120,7 @@ import {
   PNL_DUAL_SCOPE_TIP,
   usePositionValuation
 } from "@/composables/usePositionValuation";
+import { RICH_TIP_CLASS } from "@/utils/tooltipText";
 import { getStrategyOverview } from "@/api/strategy";
 import StrategySummaryCards from "./strategyView/StrategySummaryCards.vue";
 import StrategyGroupSection from "./strategyView/StrategyGroupSection.vue";
@@ -143,6 +148,12 @@ import {
  * - 四张汇总卡、标签单元格、标签管理对话框各自成组件
  */
 defineOptions({ name: "Strategies" });
+
+/** 标题 ⓘ 的口径：原副标与橙色横幅两处同义文案合并，按句分行 */
+const STRATEGY_SCOPE_TIP = [
+  "按投资风格标签分组查看持仓表现，不参与组合收益率计算。",
+  "策略视图展示的是持仓风格分析，不是独立投资组合的收益率。若需独立计算收益率，请创建投资组合并关联账户。"
+];
 
 const loading = ref(true);
 const rawHoldings = ref<EnrichedHolding[]>([]);
@@ -224,6 +235,21 @@ onMounted(() => {
 
   /* 数字等宽对齐：消除金额/计数宽度抖动（design.md「数字等宽对齐」） */
   font-variant-numeric: tabular-nums;
+}
+
+/* 标题口径 ⓘ：与 SectionHeader 的信息图标同款交互（hover / 键盘聚焦） */
+.strategy-scope__info {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-body);
+  color: var(--text-tertiary-ink);
+  cursor: help;
+}
+
+.strategy-scope__info:hover,
+.strategy-scope__info:focus-visible {
+  color: var(--brand-700);
+  outline: none;
 }
 
 /* 产品单元格 */
