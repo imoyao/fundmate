@@ -1,4 +1,5 @@
-import { nextTick, ref, watch, type Ref } from "vue";
+import type { Ref } from "vue";
+import { useSharesLinkage } from "@/composables/useSharesLinkage";
 
 interface SharesLinkageForm {
   buyAmount: number | undefined;
@@ -8,79 +9,34 @@ interface SharesLinkageForm {
 }
 
 /**
- * 买入金额 / 手续费 / 份额 / 净值的双向联动（历史最易回归的一块，单独成模块 + 单测）。
+ * 记一笔（`BuyForm`）的「金额 / 手续费 / 份额 / 净值」联动。
  *
- * 三条 watch 的执行顺序不能乱：
- * 1. 金额变 → 算份额（净额 = 金额 − 手续费，再除净值）
- * 2. 份额变 → 反算金额（份额 × 净值 + 手续费）
- * 3. 金额 / 手续费 / 净值任一变 → 重算份额（覆盖「先填金额、后回填净值」的路径）
+ * 实现已上提为通用 composable `@/composables/useSharesLinkage`（2026-11-15）：
+ * 对账工作台的补录弹窗也要同一份口径（owner 指出「基金买入按金额自动算份额，
+ * 补录却不遵守」），而两边字段名不同（这边是 `buyAmount / shares / price`，
+ * 那边是 `quantity / avg_price`），用访问器适配即可共用，不必改任何一侧的载荷。
  *
- * `isUpdating` 是防循环锁：写份额时会把 1/3 里的写入再触发回 2，锁住直到 nextTick。
- * 净值缺失（navMissing）时一律不参与联动——无价可算，份额留给用户手填或留空。
+ * 这里保留原签名与单测（`__tests__/useBuySharesLinkage.spec.ts`）：
+ * 行为逐字不变，测试同时钉住「共用后记一笔没被改坏」。
  */
 export function useBuySharesLinkage(deps: {
   form: SharesLinkageForm;
   navMissing: Ref<boolean>;
 }) {
   const { form, navMissing } = deps;
-  // 是否正在更新（防死循环锁）
-  const isUpdating = ref(false);
-
-  // 金额变化，联动计算份额
-  watch(
-    () => form.buyAmount,
-    newVal => {
-      if (isUpdating.value || newVal === undefined) return;
-      if (navMissing.value) return; // 净值缺失：无价可算，份额留空或由用户手填
-      if (!form.price || form.price <= 0) {
-        form.shares = undefined;
-        return;
-      }
-      isUpdating.value = true;
-      const fee = form.fee || 0;
-      form.shares = parseFloat(((newVal - fee) / form.price).toFixed(4));
-      nextTick(() => {
-        isUpdating.value = false;
-      });
+  return useSharesLinkage({
+    navMissing,
+    fields: {
+      amount: () => form.buyAmount,
+      setAmount: value => {
+        form.buyAmount = value;
+      },
+      shares: () => form.shares,
+      setShares: value => {
+        form.shares = value;
+      },
+      price: () => form.price,
+      fee: () => form.fee
     }
-  );
-
-  // 份额变化，联动计算金额
-  watch(
-    () => form.shares,
-    newVal => {
-      if (isUpdating.value || newVal === undefined) return;
-      if (navMissing.value) return; // 净值缺失：无价可算
-      if (!form.price || form.price <= 0) return;
-      isUpdating.value = true;
-      const fee = form.fee || 0;
-      form.buyAmount = parseFloat((newVal * form.price + fee).toFixed(2));
-      nextTick(() => {
-        isUpdating.value = false;
-      });
-    }
-  );
-
-  // 统一监听【买入金额、手续费、基金净值】：三个值全了就立刻联动，绝不卡住
-  watch(
-    [() => form.buyAmount, () => form.fee, () => form.price],
-    ([newBuy, newFee, newPrice]) => {
-      if (isUpdating.value || navMissing.value) return;
-      if (newBuy === undefined || newBuy <= 0 || !newPrice || newPrice <= 0) {
-        if (form.shares !== undefined) form.shares = undefined;
-        return;
-      }
-      isUpdating.value = true;
-      const fee = newFee || 0;
-      const calculated = parseFloat(((newBuy - fee) / newPrice).toFixed(4));
-      if (form.shares !== calculated) {
-        form.shares = calculated;
-      }
-      nextTick(() => {
-        isUpdating.value = false;
-      });
-    }
-  );
-
-  return { isUpdating };
+  });
 }
