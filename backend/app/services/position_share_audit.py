@@ -33,13 +33,24 @@
 ## 只报数、不自动修
 
 超卖（派生份额 < 0）多半缺买入腿，#3127 明确「不敢批量清仓、只报数交人工」。
-故本模块**只读**，是否重算由用户点入口决定；巡检脚本同样不写库。
+故本模块**只读业务表**（巡检只落自己的 ``sync_logs`` 审计行），是否重算由用户点入口
+决定；巡检脚本同样不改份额。
+
+## 「成因」也要报（2026-11-16，#3135 收尾）
+
+只报「账上 1000 / 流水 0」不解释这 1000 从哪来，用户唯一想得到的动作就是「补录一笔卖出」
+——而那恰好是制造这批脏数据的动作（补录同时改流水与份额，差额恒定）。所以命中项额外带
+``adjustment_txns``：这条持仓名下所有 ``source=reconciliation_adjustment`` 的流水。
+有它时 ``remedy`` 改成「先核对/回滚补录再重算」，不再诱导一键清仓。
 """
 
+import json
 from collections import defaultdict
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.constants import PositionSource
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
@@ -54,6 +65,17 @@ OVERSOLD_HINT = (
     '超卖（流水净额为负）多半缺买入腿，重算会直接清仓：请先核对流水是否齐全，'
     '确认后再到持仓详情点「按流水重算份额」或调用 POST {endpoint}（需带登录态）'
 )
+ADJUSTED_HINT = (
+    '该持仓名下有 {count} 笔「对账补录」流水（#{ids}）：补录会同时改流水与份额，'
+    '差额因此恒定；重算会把它们一起算进去。请先到「交易记录」核对这几笔补录是否成立'
+    '（不成立就删掉，删除会自动重算份额），再回来点「按流水重算份额」。'
+)
+
+# 巡检落库用（`local_checks` 的每日通道；status 与 `due_checks` 的判据同源）
+JOB_NAME = 'share_integrity_guard'
+STATUS_OK = 'ok'
+STATUS_FLAGGED = 'flagged'
+ADJUSTMENT_SOURCE = PositionSource.RECONCILIATION_ADJUSTMENT.value
 
 
 def _flows_by_position(db: Session, family_id: int) -> dict[int, list[dict]]:
@@ -128,7 +150,120 @@ def scan_disproved_shares(db: Session, family_id: int) -> list[dict]:
                 },
             }
         )
+    _attach_adjustment_evidence(db, family_id, found)
     return found
+
+
+def _attach_adjustment_evidence(db: Session, family_id: int, found: list[dict]) -> None:
+    """给命中项补上「对账补录」流水，并把 remedy 改成先核对再重算。
+
+    ``found`` 可能被测试整体替成只带 ``position_id`` 的假数据（见
+    ``test_report_to_summary_truncates_ids``），所以逐条 `get`，缺 ``remedy`` 就跳过。
+    """
+    position_ids = [row.get('position_id') for row in found if row.get('position_id')]
+    grouped = _adjustment_txns(db, family_id, position_ids)
+    for row in found:
+        txns = grouped.get(row.get('position_id'), [])
+        row['adjustment_txns'] = txns
+        remedy = row.get('remedy')
+        if not remedy or not txns:
+            continue
+        remedy['action'] = 'review_adjustment'
+        remedy['blocked'] = True
+        remedy['hint'] = ADJUSTED_HINT.format(
+            count=len(txns),
+            ids=', '.join(str(t['id']) for t in txns),
+        )
+
+
+def _adjustment_txns(db: Session, family_id: int, position_ids: list[int]) -> dict[int, list[dict]]:
+    """这些持仓名下由「对账补录」写出来的流水（份额级），按持仓分组。
+
+    只查命中项（通常个位数），不放进 ``_flows_by_position`` 的全量扫描里：
+    补录只是解释成因用的旁证，不该让每次对账都多读几列。
+    """
+    if not position_ids:
+        return {}
+    rows = (
+        db.query(
+            Transaction.id,
+            Transaction.position_id,
+            Transaction.txn_type,
+            Transaction.quantity,
+            Transaction.price,
+            Transaction.trade_date,
+            Transaction.confirm_date,
+            Transaction.source,
+        )
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.position_id.in_(position_ids),
+            Transaction.source == ADJUSTMENT_SOURCE,
+            Transaction.quantity > 0,
+        )
+        .order_by(Transaction.id)
+        .all()
+    )
+    grouped: dict[int, list[dict]] = defaultdict(list)
+    for txn_id, position_id, txn_type, quantity, price, trade_date, confirm_date, _src in rows:
+        when = trade_date or confirm_date
+        grouped[position_id].append(
+            {
+                'id': txn_id,
+                'txn_type': txn_type,
+                'quantity': Money.min_unit_to_shares(quantity or 0),
+                'price': Money.price_units_to_yuan(price or 0),
+                # `trade_date` 是 DateTime、`confirm_date` 是 Date：两者都有 isoformat，
+                # 取前 10 位即可，不用 `.date()`（date 对象没有这个方法）。
+                'trade_date': when.isoformat()[:10] if when else None,
+                'source': ADJUSTMENT_SOURCE,
+            }
+        )
+    return dict(grouped)
+
+
+def scan_all_families(db: Session) -> list[dict]:
+    """跨家庭扫描（巡检没有请求上下文，拿不到 ``get_family_id()``）。"""
+    family_ids = sorted({row[0] for row in db.query(Position.family_id).distinct().all() if row[0] is not None})
+    found: list[dict] = []
+    for family_id in family_ids:
+        found.extend(scan_disproved_shares(db, family_id))
+    return found
+
+
+def run_and_record(db: Session, *, commit: bool = True) -> dict:
+    """巡检一次并把结论落进 ``sync_logs``（唯一的写，与 ``cold_set_guard.record`` 同口径）。
+
+    命中即 ``flagged``：`local_checks` 会按「非 success」打 warning，让它出现在日志与
+    ``--status`` 里，而不是只在某个用户恰好点开对账时才被看见。
+    """
+    from app.core.time_utils import now_shanghai
+
+    found = scan_all_families(db)
+    now = now_shanghai()
+    stats = {
+        'hits': len(found),
+        'position_ids': [row['position_id'] for row in found[:SUMMARY_IDS_LIMIT]],
+    }
+    db.execute(
+        text(
+            'INSERT INTO sync_logs '
+            '(job_name, status, full_sync, stats, data_source, started_at, finished_at) '
+            'VALUES (:job, :status, :full_sync, :stats, :src, :started, :finished)'
+        ),
+        {
+            'job': JOB_NAME,
+            'status': STATUS_FLAGGED if found else STATUS_OK,
+            'full_sync': False,
+            'stats': json.dumps(stats, ensure_ascii=False),
+            'src': 'local',
+            'started': now,
+            'finished': now,
+        },
+    )
+    if commit:
+        db.commit()
+    return {'status': STATUS_FLAGGED if found else STATUS_OK, 'stats': stats}
 
 
 def report_to_summary(db: Session, family_id: int, summary: dict) -> list[dict]:

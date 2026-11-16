@@ -15,15 +15,18 @@ import {
   listMislinkedRefs,
   listUnownedRefs,
   listOrphanLedgers,
+  getShareIntegrity,
   type DanglingRefList,
   type OrphanLedgerList,
   type DividendTaxPendingItem,
   type DiscrepancyItem,
   type GhostDuplicateGroupItem,
   type GhostDuplicateIgnore,
-  type GhostDuplicateTxn
+  type GhostDuplicateTxn,
+  type ShareIntegrityItem
 } from "@/api/reconciliation";
 import { deleteTransaction } from "@/api/transaction";
+import { recomputePositionShares } from "@/api/positions";
 import {
   getEaccountReconciliation,
   type ReconciliationItem
@@ -96,6 +99,12 @@ export function useWorkbenchDomains() {
   const orphanLedgers = ref<OrphanLedgerList | null>(null);
   const orphanLoading = ref(false);
 
+  /** #3135：份额被流水反证的持仓（只读扫描）。与对账收尾报数同源，单独一条线索：
+   *  用户不点「运行对账」也能在打开页面时看见「账上还有份额、流水已经卖掉」。 */
+  const shareItems = ref<ShareIntegrityItem[]>([]);
+  const shareLoading = ref(false);
+  const shareActingId = ref<number | null>(null);
+
   /**
    * 每个 loader 的失败原因。旧实现清一色 `catch { 置空 }`，网络挂了和「真的没有待办」
    * 渲染得一模一样，用户会以为账已经对完了。这里只记原因、不改返回类型：
@@ -127,6 +136,7 @@ export function useWorkbenchDomains() {
       tax: loadDividendTax,
       dangling: loadDanglingRefs,
       orphan: loadOrphanLedgers,
+      shareIntegrity: loadShareIntegrity,
       candidates: loadRecognizerCandidates,
       trail: reloadAfterTrailChange,
       // 重建持仓（单组 / 批量）同样改了持仓行与流水归属 ⇒ 必须与「轨迹改动」
@@ -159,7 +169,8 @@ export function useWorkbenchDomains() {
       loadEAccount(),
       loadGhostDuplicates(),
       loadDividendTax(),
-      loadDanglingRefs()
+      loadDanglingRefs(),
+      loadShareIntegrity()
     ]);
   }
 
@@ -172,6 +183,7 @@ export function useWorkbenchDomains() {
       loadDividendTax(),
       loadDanglingRefs(),
       loadOrphanLedgers(),
+      loadShareIntegrity(),
       loadRecognizerCandidates()
     ]);
   }
@@ -327,6 +339,26 @@ export function useWorkbenchDomains() {
       markError("discrepancies", "差异列表没能加载，检查网络后重试");
     } finally {
       loading.value = false;
+    }
+  }
+
+  /**
+   * 加载「份额被流水反证」的持仓（#3135）。
+   *
+   * 失败置空 + 记原因：这一块是解释性线索，不是首屏主体，一次超时不该把工作台带崩；
+   * 但也不能静默——`loadErrors` 会让页面顶部的重试条出现。
+   */
+  async function loadShareIntegrity(): Promise<void> {
+    shareLoading.value = true;
+    try {
+      const res = await getShareIntegrity();
+      shareItems.value = res.data?.items ?? [];
+      clearError("shareIntegrity");
+    } catch {
+      shareItems.value = [];
+      markError("shareIntegrity", "份额自洽检查没能加载，检查网络后重试");
+    } finally {
+      shareLoading.value = false;
     }
   }
 
@@ -510,6 +542,49 @@ export function useWorkbenchDomains() {
     }
   }
 
+  /**
+   * 对「份额被流水反证」的持仓重算份额（#3135）。
+   *
+   * 二次确认必须报出「账上多少 / 流水算出来多少」，并明确「结果为 0 会标记清仓」——
+   * 与差异卡的 `handleRecompute` 同口径。**带对账补录的那类不给这条路径**：
+   * 补录同时改流水与份额，盲目重算会把假补录一起算进去（真库 #944 会 1000 → 0），
+   * 必须先回交易记录核对/删除补录，故面板上只提供「去核对补录流水」。
+   */
+  async function handleShareRecompute(item: ShareIntegrityItem): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        `将按「${item.name || item.symbol}」名下流水重算份额：账上现在是 ${reconQuantity(
+          item.quantity_now
+        )}，流水算出来是 ${reconQuantity(
+          item.quantity_if_recomputed
+        )}。重算后账上会改成流水的结果，流水净额为 0 时这条持仓会被标记为已清仓。`,
+        "按流水重算份额",
+        { type: "warning", confirmButtonText: "重算", cancelButtonText: "取消" }
+      );
+    } catch {
+      return; // 用户取消
+    }
+    shareActingId.value = item.position_id;
+    try {
+      const res = await recomputePositionShares(
+        item.position_id,
+        "对账工作台：份额被流水反证"
+      );
+      const after = res.data?.quantity_after;
+      ElMessage.success(
+        after == null
+          ? "已重算，份额已按流水更新"
+          : `已重算：账上份额改为 ${reconQuantity(after)}`
+      );
+      // 域 B 的差异是算出来落库的：重算后必须跑一次对账，卡片才会跟着消失。
+      await reloadAfterTrailChange();
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "重算失败");
+    } finally {
+      shareActingId.value = null;
+    }
+  }
+
   /** 加载域 D：未忽略组 + 已忽略清单（一个接口拿不到两者，两次调用并发） */
   async function loadGhostDuplicates(): Promise<void> {
     ghostLoading.value = true;
@@ -624,6 +699,11 @@ export function useWorkbenchDomains() {
     danglingRefs,
     danglingLoading,
     loadDanglingRefs,
+    shareItems,
+    shareLoading,
+    shareActingId,
+    loadShareIntegrity,
+    handleShareRecompute,
     orphanLedgers,
     orphanLoading,
     loadOrphanLedgers,

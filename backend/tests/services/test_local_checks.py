@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core import database
 from app.models.sync_log import SyncLog
-from app.services import cold_set_check, cold_set_guard, local_checks
+from app.services import cold_set_check, cold_set_guard, local_checks, position_share_audit
 from app.services.cold_set_check import CheckOutcome
 from app.services.cold_set_guard import GuardReport
 from app.services.daily_scheduler import _JOB_TEMPLATES, load_config
@@ -57,7 +57,10 @@ class TestCheckWhitelist:
         允许进来的三条判据见 `local_checks` 模块 docstring（零外部请求 / 只读业务表 /
         判定口径已存在）。「想让它定期跑」不是理由。
         """
-        assert [c.job_name for c in local_checks.build_checks({})] == [cold_set_guard.GUARD_JOB_NAME]
+        assert [c.job_name for c in local_checks.build_checks({})] == [
+            cold_set_guard.GUARD_JOB_NAME,
+            position_share_audit.JOB_NAME,
+        ]
 
     def test_check_names_do_not_collide_with_daily_jobs(self):
         """与编排器 job 撞名会让 APScheduler 静默顶掉一个日跑 job。"""
@@ -77,18 +80,48 @@ class TestCheckWhitelist:
         CronTrigger.from_crontab(cron)  # 解析失败即抛
         assert cron.split()[4] != '*', '巡检不该按天跑'
 
-    def test_can_be_disabled(self):
-        assert local_checks.build_checks({local_checks.ENV_COLD_SET_GUARD_ENABLED: '0'}) == ()
+    def test_share_integrity_is_daily(self):
+        """份额反证是**新数据产生**的（导入 / 挂回 / 补录都会新增），必须日频。
+
+        同时钉住 `min_interval_days=1`：只改 cron 不改这条，一次性执行路径
+        （`pdm run scheduler`）仍会按周频判到期，日频 cron 等于只在本机常驻时生效。
+        """
+        from apscheduler.triggers.cron import CronTrigger
+
+        spec = {c.job_name: c for c in local_checks.build_checks({})}[position_share_audit.JOB_NAME]
+        CronTrigger.from_crontab(spec.cron)
+        assert spec.cron.split()[4] == '*', '份额反证巡检必须按天跑'
+        assert spec.min_interval_days == 1
+
+    def test_can_be_disabled_one_by_one(self):
+        """两个开关互不影响：关掉一个不能把另一个也关掉。"""
+        assert [c.job_name for c in local_checks.build_checks({local_checks.ENV_COLD_SET_GUARD_ENABLED: '0'})] == [
+            position_share_audit.JOB_NAME
+        ]
+        assert [c.job_name for c in local_checks.build_checks({local_checks.ENV_SHARE_INTEGRITY_ENABLED: '0'})] == [
+            cold_set_guard.GUARD_JOB_NAME
+        ]
 
     def test_cron_can_be_overridden(self):
         spec = local_checks.build_checks({local_checks.ENV_COLD_SET_GUARD_CRON: '0 5 * * sun'})[0]
         assert spec.cron == '0 5 * * sun'
 
+    def test_share_integrity_cron_can_be_overridden(self):
+        spec = {c.job_name: c for c in local_checks.build_checks({local_checks.ENV_SHARE_INTEGRITY_CRON: '5 6 * * *'})}[
+            position_share_audit.JOB_NAME
+        ]
+        assert spec.cron == '5 6 * * *'
+
     def test_scheduler_config_carries_checks(self):
         """接线：配置里拿得到巡检，否则注册环节永远为空。"""
-        cfg = load_config({local_checks.ENV_COLD_SET_GUARD_ENABLED: '0'})
-        assert cfg.checks == ()
-        assert load_config({}).checks, '缺省应启用（否则守卫又回到「只有人手点才会跑」）'
+        disabled_all = load_config(
+            {
+                local_checks.ENV_COLD_SET_GUARD_ENABLED: '0',
+                local_checks.ENV_SHARE_INTEGRITY_ENABLED: '0',
+            }
+        )
+        assert disabled_all.checks == ()
+        assert load_config({}).checks, '缺省应启用（否则巡检又回到「只有人手点才会跑」）'
 
 
 class TestRunLocalCheck:
@@ -190,15 +223,23 @@ def _log(db, status: str, days_ago: int, job_name=None):
 
 
 class TestDueChecks:
-    """到期判据（#3081）：两条入口共用这一份，判错任一方向都有具体后果。"""
+    """到期判据（#3081）：两条入口共用这一份，判错任一方向都有具体后果。
+
+    周频那一组显式只传冷集巡检（`_cold_only`）：份额反证巡检是日频、从未跑过时恒到期，
+    混在一起会让「最近跑过就不该再跑」的断言变成在考另一个对象。
+    """
+
+    @staticmethod
+    def _cold_only():
+        return local_checks.build_checks({local_checks.ENV_SHARE_INTEGRITY_ENABLED: '0'})
 
     def test_never_run_is_due(self):
-        assert local_checks.due_checks(_empty_db()) == local_checks.build_checks({})
+        assert local_checks.due_checks(_empty_db(), checks=self._cold_only()) == self._cold_only()
 
     def test_recent_ok_is_not_due(self):
         db = _empty_db()
         _log(db, 'ok', 2)
-        assert local_checks.due_checks(db) == ()
+        assert local_checks.due_checks(db, checks=self._cold_only()) == ()
 
     def test_recent_bloated_is_not_due(self):
         """**判了膨胀也算「跑过」**：若不算，下一轮会再记一次基线，`growth` 恒为 0。
@@ -208,23 +249,47 @@ class TestDueChecks:
         """
         db = _empty_db()
         _log(db, 'bloated', 2)
-        assert local_checks.due_checks(db) == ()
+        assert local_checks.due_checks(db, checks=self._cold_only()) == ()
+
+    def test_recent_flagged_is_not_due(self):
+        """`flagged`（份额反证命中）也代表「判定已经发生」，否则日频巡检会重复落库。"""
+        db = _empty_db()
+        _log(db, 'flagged', 0, job_name=position_share_audit.JOB_NAME)
+        assert position_share_audit.JOB_NAME not in [c.job_name for c in local_checks.due_checks(db)]
 
     def test_error_retries_daily(self):
         """失败不算「跑过」：巡检坏了要按日重试，而不是等满一周（同 `_skip_if_recent` 的理由）。"""
         db = _empty_db()
         _log(db, 'error', 2)
-        assert len(local_checks.due_checks(db)) == 1
+        assert len(local_checks.due_checks(db, checks=self._cold_only())) == 1
 
     def test_due_at_interval_boundary(self):
         db = _empty_db()
         _log(db, 'ok', local_checks.MIN_INTERVAL_DAYS)
-        assert len(local_checks.due_checks(db)) == 1, '满间隔即到期'
+        assert len(local_checks.due_checks(db, checks=self._cold_only())) == 1, '满间隔即到期'
 
     def test_not_due_one_day_before_interval(self):
         db = _empty_db()
         _log(db, 'ok', local_checks.MIN_INTERVAL_DAYS - 1)
-        assert local_checks.due_checks(db) == ()
+        assert local_checks.due_checks(db, checks=self._cold_only()) == ()
+
+    def test_daily_check_uses_its_own_interval(self):
+        """日频巡检自带 `min_interval_days=1`：当天跑过就不再跑，隔天即到期。
+
+        没有这个字段时 `run_due_checks`（部署侧唯一入口）会按 6 天判到期，
+        日频 cron 实际退化成周频——本组用同一条数据分别按 1 天与 6 天判一次，
+        差异必须体现在结果里。
+        """
+        spec = {c.job_name: c for c in local_checks.build_checks({local_checks.ENV_COLD_SET_GUARD_ENABLED: '0'})}[
+            position_share_audit.JOB_NAME
+        ]
+        db = _empty_db()
+        _log(db, 'ok', 0, job_name=spec.job_name)
+        assert local_checks.due_checks(db, checks=(spec,)) == ()
+
+        yesterday = _empty_db()
+        _log(yesterday, 'ok', 1, job_name=spec.job_name)
+        assert local_checks.due_checks(yesterday, checks=(spec,)) == (spec,), '日频：隔天就该跑'
 
 
 class TestRunDueChecks:
