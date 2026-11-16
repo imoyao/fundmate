@@ -28,6 +28,13 @@ _FAMILY = 1
 _OTHER_FAMILY = 2
 _DANGLING_PID = 990001  # 不存在的持仓 id（position_id 无外键，可安全写入）
 _BASE = datetime(2026, 1, 1, 9, 0, 0)
+#: `remedy.hint` 会被面板原样铺给用户看（`ShareIntegrityPanel`），技术信息一律不许进（D118）。
+_TECH_WORDS = ('/api/', 'POST ', 'GET ', 'curl', 'endpoint', '登录态', 'status_code')
+
+
+def _assert_user_copy(text: str) -> None:
+    for word in _TECH_WORDS:
+        assert word not in text, f'用户可见文案里不该出现 {word!r}：{text}'
 
 
 @pytest.fixture
@@ -132,6 +139,7 @@ def test_scan_detects_unrecomputed_shares_after_reattach(db, ledger):
     assert row['remedy']['action'] == VERIFY_FLOWS
     assert row['remedy']['blocked'] is True
     assert '改成账单份额' in row['remedy']['hint']
+    _assert_user_copy(row['remedy']['hint'])
 
     with pytest.raises(ValueError, match='改成账单份额'):
         recompute_with_audit(db, _FAMILY, pos.id)
@@ -198,7 +206,9 @@ def test_scan_marks_oversold_as_manual_only(db, ledger):
     assert len(found) == 1
     assert found[0]['position_id'] == pos.id
     assert found[0]['flow_state'] == 'oversold'
-    assert '先核对' in found[0]['remedy']['hint']
+    assert '核对' in found[0]['remedy']['hint']
+    # 这句曾经写成「……或调用 POST /api/positions/39/recompute/（需带登录态）」，直接怼在面板上
+    _assert_user_copy(found[0]['remedy']['hint'])
 
 
 def test_scan_skips_anchored_positions(db, ledger):

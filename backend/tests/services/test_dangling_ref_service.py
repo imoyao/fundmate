@@ -480,7 +480,9 @@ def test_reattach_reports_share_mismatch_after_attach(db, ledger):
     assert check['recompute_suggested'] is True
     # 净额 0 ⇒ 提示必须指向「核对流水 / 按账单填 0」，不再建议按流水重算（2026-11-16 定调）
     assert '改成账单份额' in (check['hint'] or '')
-    assert '不能据此清仓' in (check['hint'] or '')
+    assert '不能照着它清仓' in (check['hint'] or '')
+    # 这句会显示在挂回结果里：不许出现接口路径 / 「本接口」这类开发话术（D118）
+    assert '/api/' not in (check['hint'] or '') and '本接口' not in (check['hint'] or '')
     assert db.query(Position).filter_by(id=target.id).one().quantity == Money.shares_to_min_unit(2.0)
 
 
