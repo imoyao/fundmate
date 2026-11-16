@@ -1,5 +1,8 @@
 import type { Ref } from "vue";
-import { useSharesLinkage } from "@/composables/useSharesLinkage";
+import {
+  useSharesLinkage,
+  type SharesLinkageMode
+} from "@/composables/useSharesLinkage";
 
 interface SharesLinkageForm {
   buyAmount: number | undefined;
@@ -18,14 +21,18 @@ interface SharesLinkageForm {
  *
  * 这里保留原签名与单测（`__tests__/useBuySharesLinkage.spec.ts`）：
  * 行为逐字不变，测试同时钉住「共用后记一笔没被改坏」。
+ * `mode`（2026-11-16 新增）由 BuyForm 按品种给出：基金 fund、股票/ETF/可转债 trade。
  */
 export function useBuySharesLinkage(deps: {
   form: SharesLinkageForm;
   navMissing: Ref<boolean>;
+  /** 联动方向（默认 fund）；trade = 数量为主量、金额派生 */
+  mode?: () => SharesLinkageMode;
 }) {
   const { form, navMissing } = deps;
   return useSharesLinkage({
     navMissing,
+    mode: deps.mode,
     fields: {
       amount: () => form.buyAmount,
       setAmount: value => {

@@ -18,7 +18,11 @@ interface Form {
   fee?: number;
 }
 
-function setup(init: Form = {}, enabled = () => true) {
+function setup(
+  init: Form = {},
+  enabled = () => true,
+  mode?: () => "fund" | "trade"
+) {
   const form = reactive<Form>({ fee: 0, ...init });
   const navMissing = ref(false);
   const scope = effectScope();
@@ -26,6 +30,7 @@ function setup(init: Form = {}, enabled = () => true) {
     useSharesLinkage({
       navMissing,
       enabled,
+      mode,
       fields: {
         amount: () => form.buy_amount,
         setAmount: value => {
@@ -97,6 +102,70 @@ describe("useSharesLinkage（对账补录字段名）", () => {
     s.form.buy_amount = 0;
     await nextTick();
     expect(s.form.quantity).toBeUndefined();
+    s.stop();
+  });
+});
+
+/**
+ * trade 方向（2026-11-16）：股票 / ETF / 可转债的成交数量是主量，
+ * 金额恒由「数量 × 成交价 + 手续费」派生，且**绝不**反算数量。
+ *
+ * 反面判据（回归网）：把 trade 方向的 1 / 3 号 watch 打开，下面第一条会立刻红
+ * ——「填 5200 元 ⇒ 数量被改写成 999.7981 股」，正是后端 validate_buy 会拒的碎股。
+ */
+describe("useSharesLinkage（trade 方向：数量为主量）", () => {
+  const trade = () => "trade" as const;
+
+  it("填数量 ⇒ 金额 = 数量 × 价格 + 手续费（1000 × 5.20 + 1.05 = 5201.05）", async () => {
+    const s = setup({ avg_price: 5.2, fee: 1.05 }, undefined, trade);
+    s.form.quantity = 1000;
+    await nextTick();
+    expect(s.form.buy_amount).toBe(5201.05);
+    expect(s.form.quantity).toBe(1000);
+    s.stop();
+  });
+
+  it("改手续费 ⇒ 只重算金额，数量原样不动", async () => {
+    const s = setup({ avg_price: 5.2, fee: 0 }, undefined, trade);
+    s.form.quantity = 1000;
+    await nextTick();
+    expect(s.form.buy_amount).toBe(5200);
+
+    s.form.fee = 5;
+    await nextTick();
+    expect(s.form.buy_amount).toBe(5205);
+    expect(s.form.quantity).toBe(1000);
+    s.stop();
+  });
+
+  it("改成交价格 ⇒ 只重算金额（打新中签价 5.20 → 7.35，数量不被改写）", async () => {
+    const s = setup({ avg_price: 5.2, quantity: 1000 }, undefined, trade);
+    await nextTick();
+    s.form.avg_price = 7.35;
+    await nextTick();
+    expect(s.form.buy_amount).toBe(7350);
+    expect(s.form.quantity).toBe(1000);
+    s.stop();
+  });
+
+  it("金额被程序改写时不反算数量（金额是只读派生量）", async () => {
+    const s = setup({ avg_price: 5.2, quantity: 1000 }, undefined, trade);
+    await nextTick();
+    s.form.buy_amount = 5200;
+    await nextTick();
+    expect(s.form.quantity).toBe(1000);
+    s.stop();
+  });
+
+  it("清空数量 ⇒ 金额一并清空，不留上一次的残留值", async () => {
+    const s = setup({ avg_price: 5.2 }, undefined, trade);
+    s.form.quantity = 1000;
+    await nextTick();
+    expect(s.form.buy_amount).toBe(5200);
+
+    s.form.quantity = undefined;
+    await nextTick();
+    expect(s.form.buy_amount).toBeUndefined();
     s.stop();
   });
 });
