@@ -17,7 +17,8 @@
  * `quantity` 差异的定义是「持仓份额 − 按流水算出的份额」。补录（increment）走买卖汇点，
  * **同时**写流水与持仓，两端同步移动 ⇒ 差额恒等于补录前的值（#3134 真库实测：补了一笔
  * 卖出 3000，持仓 4000→1000、流水 3000→0，差额仍是 1000 份）。能改变差额的只有改持仓
- * 这一侧：有流水可依时按流水重算（`recompute`），流水本身不可信时由用户照账单填（`set`）。
+ * 这一侧：流水算出来仍是正份额时按流水重算（`recompute`），流水算到 0 / 负数时由用户
+ * 照账单填（`set`）——那多半是流水缺腿，系统不许据此清仓（2026-11-16 用户定调）。
  */
 
 import type { DiscrepancyItem } from "@/api/reconciliation";
@@ -34,17 +35,20 @@ type DiscActionRow = Pick<DiscrepancyItem, "discrepancy_type"> & {
  * 按差异类型选动作。
  *
  * - `no_anchor` → `anchor`：缺基准，写当前值为基准；
- * - `quantity` 且理论份额 ≥ 0 → `recompute`：按流水重算份额，差额会真的变；
- * - `quantity` 且理论份额 < 0 → `set`：卖出多于买入（买入腿缺失），照流水重算会把它
- *   清零，而清仓是 #3127 明确「不敢批量做」的动作 ⇒ 交给用户照账单填；
+ * - `quantity` 且理论份额 > 0 → `recompute`：流水与账单都指向「还持有」，只是数量
+ *   对不上；按流水改份额是可回滚的正向调整（改前 / 改后都写进审计）；
+ * - `quantity` 且理论份额 ≤ 0 → `set`：流水算到 0 或负数，说明流水缺了买入腿（或
+ *   多记了一笔卖出），**不是真的清仓**。按流水重算会把它清零（后端
+ *   `assert_recompute_keeps_position` 已硬拦），而份额的真相是账单 ⇒ 交给用户照
+ *   账单填；账单上确实没有了这只就填 0（这是唯一合法的清仓入口）。
  * - 其余（cost / cash / orphan）→ `supplement`：补一笔缺失的流水才有意义。
  */
 export function discActionOf(row: DiscActionRow): DiscAction {
   if (row.discrepancy_type === "no_anchor") return "anchor";
   if (row.discrepancy_type === "quantity") {
-    return typeof row.expected_value === "number" && row.expected_value < 0
-      ? "set"
-      : "recompute";
+    return typeof row.expected_value === "number" && row.expected_value > 0
+      ? "recompute"
+      : "set";
   }
   return "supplement";
 }
@@ -64,8 +68,8 @@ export function discActionEvent(
 /**
  * 补录弹窗打开时默认选中的模式。
  *
- * 与 `discActionOf` 同源：`no_anchor` → 「以此为准」、`quantity` 超卖 → 「改成这个持仓」
- * （set），其余 → 「补一笔交易」。这行判据若在弹窗里另写一遍
+ * 与 `discActionOf` 同源：`no_anchor` → 「以此为准」、`quantity` 且流水算到 ≤ 0 →
+ * 「改成这个持仓」（set，含填 0 清仓），其余 → 「补一笔交易」。这行判据若在弹窗里另写一遍
  * （`discrepancy_type === "no_anchor"`），两处迟早分叉——表现是「按钮说以此为准，
  * 弹窗默认补一笔」，用户照着填就编出一笔不存在的交易。
  */
@@ -91,6 +95,6 @@ export const DISC_ACTION_LABELS: Record<DiscAction, string> = {
 export const DISC_ACTION_HINTS: Record<DiscAction, string> = {
   supplement: "补一笔漏记的买卖，会同时记流水并重算持仓",
   anchor: "把当前份额固定为基准，之后只核对新流水",
-  recompute: "按已有流水改持仓份额，差额会跟着变",
-  set: "按券商账单上的份额改持仓，不走流水"
+  recompute: "只改持仓、不动流水；确认这只的流水确实记得全再点",
+  set: "按券商账单上的份额改持仓，不走流水；账单上没有这只了就填 0"
 };

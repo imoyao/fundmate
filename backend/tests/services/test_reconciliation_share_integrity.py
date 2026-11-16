@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""#3135 常驻判据：份额被流水反证的持仓必须被检出，且带可执行的重算入口。
+"""#3135 常驻判据：份额被流水反证的持仓必须被检出，且只带「核对流水 / 按账单填 0」入口。
 
 真库现场（2026-11-15，positions#944 / SZ159981）：11-13 按买入腿重建 3000 份、
 买腿与卖腿先后经 ``dangling_ref_reattach`` 挂回（``recompute:false``）；14:14 的
 #3127 一次性扫描时净额仍为 +3000，没进名单；当晚补录一笔卖出后净额归零、账上仍
 1000 份，而没有任何机制回头再扫一遍。本文件把这条时间轴钉成回归网。
 
-验收覆盖两态：「reattach 后份额未重算 → 被检出」与「重算后不再检出」，
-另加「对账收尾常驻报数」与四类不得误报的边界。
+验收覆盖两态：「reattach 后份额未重算 → 被检出」与「按账单显式清仓后不再检出」，
+另加「按流水重算被拒绝」「对账收尾常驻报数」与四类不得误报的边界。
 """
 
 import json
@@ -21,8 +21,8 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services import dangling_ref_service as svc
 from app.services.position_recompute_entry import recompute_with_audit
-from app.services.position_share_audit import report_to_summary, scan_disproved_shares
-from app.services.reconciliation_service import DOMAIN_B, run_reconciliation
+from app.services.position_share_audit import VERIFY_FLOWS, report_to_summary, scan_disproved_shares
+from app.services.reconciliation_service import DOMAIN_B, apply_decision, run_reconciliation
 
 _FAMILY = 1
 _OTHER_FAMILY = 2
@@ -112,7 +112,11 @@ def _ghost_after_reattach(db, ledger, *, shares=4.0):
 
 
 def test_scan_detects_unrecomputed_shares_after_reattach(db, ledger):
-    """核心两态：reattach 后份额未重算 ⇒ 检出且带可执行入口；重算后 ⇒ 不再检出。"""
+    """核心两态：reattach 后份额未重算 ⇒ 检出；按流水重算 ⇒ **被拒绝**、仍然检出。
+
+    这里的 remedy 不再指向「一键重算」：净额 0 说明流水与持仓至少有一边是残缺的，
+    而系统没有证据判断是哪一边（2026-11-16 用户定调：只应该把错的改对）。
+    """
     pos = _ghost_after_reattach(db, ledger)
 
     found = scan_disproved_shares(db, _FAMILY)
@@ -125,14 +129,37 @@ def test_scan_detects_unrecomputed_shares_after_reattach(db, ledger):
     assert row['flow_state'] == 'netted_out'
     assert row['quantity_if_recomputed'] == pytest.approx(0.0)
     assert row['diff'] == pytest.approx(-4.0)
-    assert row['remedy']['action'] == 'position_recompute'
-    assert row['remedy']['method'] == 'POST'
-    assert row['remedy']['endpoint'] == f'/api/positions/{pos.id}/recompute/'
-    assert '重算' in row['remedy']['hint']
+    assert row['remedy']['action'] == VERIFY_FLOWS
+    assert row['remedy']['blocked'] is True
+    assert '改成账单份额' in row['remedy']['hint']
 
-    result = recompute_with_audit(db, _FAMILY, pos.id)
-    assert result['quantity_after'] == pytest.approx(0.0)
-    assert result['ownership_status_after'] == 'cleared'
+    with pytest.raises(ValueError, match='改成账单份额'):
+        recompute_with_audit(db, _FAMILY, pos.id)
+    db.refresh(pos)
+    assert pos.quantity == Money.shares_to_min_unit(4.0), '持仓不得被流水清零'
+    assert len(scan_disproved_shares(db, _FAMILY)) == 1
+
+
+def test_clear_by_bill_resolves_the_hit(db, ledger):
+    """账单确认没有了这只 ⇒ 「改成账单份额 = 0」把命中清掉（唯一合法的清仓路径）。"""
+    pos = _ghost_after_reattach(db, ledger)
+
+    apply_decision(
+        db,
+        _FAMILY,
+        {
+            'kind': 'set',
+            'symbol': pos.symbol,
+            'ledger_id': pos.ledger_id,
+            'quantity': 0.0,
+            'snapshot_date': '2026-11-16',
+        },
+    )
+    db.commit()
+
+    db.refresh(pos)
+    assert pos.quantity == 0
+    assert pos.ownership_status == 'cleared'
     assert scan_disproved_shares(db, _FAMILY) == []
 
 
@@ -145,7 +172,18 @@ def test_reconciliation_run_reports_share_integrity_every_time(db, ledger):
     assert summary['share_integrity'] == 1
     assert summary['share_integrity_positions'] == [pos.id]
 
-    recompute_with_audit(db, _FAMILY, pos.id)
+    apply_decision(
+        db,
+        _FAMILY,
+        {
+            'kind': 'set',
+            'symbol': pos.symbol,
+            'ledger_id': pos.ledger_id,
+            'quantity': 0.0,
+            'snapshot_date': '2026-11-16',
+        },
+    )
+    db.commit()
     run2, _ = run_reconciliation(db, _FAMILY, DOMAIN_B)
     assert json.loads(run2.summary_json)['share_integrity'] == 0
 
@@ -234,7 +272,7 @@ def test_plain_flows_are_not_marked_as_adjustment(db, ledger):
     found = scan_disproved_shares(db, _FAMILY)
     assert found[0]['position_id'] == pos.id
     assert found[0]['adjustment_txns'] == []
-    assert found[0]['remedy']['action'] == 'position_recompute'
+    assert found[0]['remedy']['action'] == VERIFY_FLOWS
 
 
 def test_endpoint_lists_hits_with_envelope(client, db, ledger):
@@ -266,7 +304,6 @@ def test_run_and_record_flags_hits_for_the_daily_check(db, ledger):
     """巡检落库：命中即 flagged（`local_checks` 会打 warning），清干净后回到 ok。"""
     from app.models.sync_log import SyncLog  # noqa: PLC0415
     from app.services import position_share_audit as audit  # noqa: PLC0415
-    from app.services.position_recompute_entry import recompute_with_audit as recompute  # noqa: PLC0415
 
     pos = _ghost_after_reattach(db, ledger)
     first = audit.run_and_record(db)
@@ -276,7 +313,19 @@ def test_run_and_record_flags_hits_for_the_daily_check(db, ledger):
     logged = db.query(SyncLog).filter(SyncLog.job_name == audit.JOB_NAME).order_by(SyncLog.id.desc()).first()
     assert logged is not None and logged.status == 'flagged'
 
-    recompute(db, _FAMILY, pos.id)
+    # 按账单显式清仓（不是按流水重算）才把命中清掉
+    apply_decision(
+        db,
+        _FAMILY,
+        {
+            'kind': 'set',
+            'symbol': pos.symbol,
+            'ledger_id': pos.ledger_id,
+            'quantity': 0.0,
+            'snapshot_date': '2026-11-16',
+        },
+    )
+    db.commit()
     second = audit.run_and_record(db)
     assert second['status'] == audit.STATUS_OK
     assert second['stats']['hits'] == 0

@@ -5,8 +5,8 @@
 净额 **0**（买 270 / 卖 270）——买入腿先被重建建成持仓、卖腿补码后回补，而回补按契约
 只改归属不重算，于是「卖完了还挂着份额」。全库同形态 104 条（95 条由重建造出）。
 
-本文件钉住补救入口的三件事：净额归零必须清仓（不是丢份额）、重复重算无副作用、
-以及每次重算都留审计（改前 / 改后都要能回放）。
+本文件钉住补救入口的三件事：**净额归零不得据此清仓**（份额的真相是账单，不是流水，
+2026-11-16 用户定调）、重复重算无副作用、以及每次重算都留审计（改前 / 改后都要能回放）。
 """
 
 from datetime import datetime
@@ -76,13 +76,37 @@ def _mk_txn(db, ledger, pos, *, txn_type, shares, symbol='SZ128101'):
     return t
 
 
-def test_recompute_clears_position_whose_flows_netted_out(db, ledger):
-    """#3127 现场：份额 270、流水净额 0 ⇒ 重算必须清仓（保留行），并留审计。"""
+def test_recompute_refuses_to_clear_position_by_flows(db, ledger):
+    """净额 0 而账上仍有份额 ⇒ **拒绝**，不得按流水清仓（2026-11-16 用户定调）。
+
+    份额的真相是账单：净额归零既可能是「真的卖完了」（#3127 的幽灵持仓），
+    也可能是流水缺了一条买入腿（或补录多记了一笔卖出）——后者里持仓是对的，
+    按流水清仓就是拿「流水没记全」去改一条正确数据，市值 / 净值 / 收益会一起变。
+    系统没有证据区分这两者，所以只报数，由用户看账单决定。
+    """
     pos = _mk_pos(db, ledger, shares=270.0)
     _mk_txn(db, ledger, pos, txn_type='buy', shares=270.0)
     _mk_txn(db, ledger, pos, txn_type='sell', shares=270.0)
 
-    data = recompute_with_audit(db, _FAMILY, pos.id, reason='回补后份额与流水不自洽')
+    with pytest.raises(ValueError, match='改成账单份额'):
+        recompute_with_audit(db, _FAMILY, pos.id, reason='回补后份额与流水不自洽')
+
+    row = db.query(Position).filter_by(id=pos.id).one()
+    assert row.quantity == Money.shares_to_min_unit(270.0), '持仓份额不得被流水改掉'
+    assert row.ownership_status == 'active'
+    assert db.query(AdjustmentLog).filter_by(action='position_recompute').count() == 0
+
+
+def test_recompute_with_allow_clear_still_clears_for_repair_scripts(db, ledger):
+    """``allow_clear=True`` 是给**逐条复核过**的修复脚本留的：它仍能按流水清仓。
+
+    证据来自脚本前置的筛选与逐条打印（``--apply`` 前用户确认），不是「UI 上顺手点一下」。
+    """
+    pos = _mk_pos(db, ledger, shares=270.0)
+    _mk_txn(db, ledger, pos, txn_type='buy', shares=270.0)
+    _mk_txn(db, ledger, pos, txn_type='sell', shares=270.0)
+
+    data = recompute_with_audit(db, _FAMILY, pos.id, reason='幽灵持仓批量修复', allow_clear=True)
 
     assert data['quantity_before'] == pytest.approx(270.0)
     assert data['quantity_after'] == pytest.approx(0.0)
@@ -96,7 +120,7 @@ def test_recompute_clears_position_whose_flows_netted_out(db, ledger):
 
     log = db.query(AdjustmentLog).filter_by(action='position_recompute').one()
     assert data['log_id'] == log.id
-    assert log.reason == '回补后份额与流水不自洽'
+    assert log.reason == '幽灵持仓批量修复'
 
 
 def test_recompute_is_idempotent(db, ledger):
@@ -113,9 +137,24 @@ def test_recompute_is_idempotent(db, ledger):
     assert second['quantity_after'] == pytest.approx(4.0)
 
 
-def test_recompute_deletes_empty_shell_and_says_so(db, ledger):
-    """无流水且无锚点 ⇒ 空壳行被删。#1868 的判据：调用方要把 deleted 如实报出来。"""
+def test_recompute_refuses_to_delete_position_without_flows(db, ledger):
+    """无流水、无锚点、却仍有份额 ⇒ 拒绝删行（2026-11-16）。
+
+    纯粹「有份额、没流水」的持仓在真库并不罕见（手工建仓 / 只导了持仓快照却没导明细）。
+    以前这条会把它当空壳行物理删除——删的正是用户想保住的那条。
+    """
     pos = _mk_pos(db, ledger, shares=7.0)
+
+    with pytest.raises(ValueError, match='改成账单份额'):
+        recompute_with_audit(db, _FAMILY, pos.id)
+
+    assert db.query(Position).filter_by(id=pos.id).first() is not None
+    assert db.query(AdjustmentLog).filter_by(action='position_recompute').count() == 0
+
+
+def test_recompute_deletes_zero_share_shell_and_says_so(db, ledger):
+    """零份额空壳行（没有可改错的份额）才允许删。#1868：调用方要把 deleted 如实报出来。"""
+    pos = _mk_pos(db, ledger, shares=0.0)
 
     data = recompute_with_audit(db, _FAMILY, pos.id)
 
@@ -150,3 +189,19 @@ def test_recompute_route_returns_before_after(client, db, ledger):
 
     missing = client.post('/api/positions/999999/recompute/', json={})
     assert missing.status_code == 404
+
+
+def test_recompute_route_returns_400_when_flows_would_clear(client, db, ledger):
+    """路由层也挡住清仓：400 + 中文信封，前端能直接把这句话显示给用户。"""
+    pos = _mk_pos(db, ledger, shares=270.0)
+    _mk_txn(db, ledger, pos, txn_type='buy', shares=270.0)
+    _mk_txn(db, ledger, pos, txn_type='sell', shares=270.0)
+    db.commit()
+
+    resp = client.post(f'/api/positions/{pos.id}/recompute/', json={'reason': '手工核对'})
+
+    assert resp.status_code == 400
+    assert '改成账单份额' in resp.get_json()['message']
+    row = db.query(Position).filter_by(id=pos.id).one()
+    assert row.quantity == Money.shares_to_min_unit(270.0)
+    assert db.query(AdjustmentLog).filter_by(action='position_recompute').count() == 0

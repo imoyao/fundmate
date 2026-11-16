@@ -20,6 +20,39 @@ from app.domains.reconciliation.models import AdjustmentLog
 # 份额差异判定阈值（份）：与 dangling 检出的 ``net_mismatch`` 同量级，只用于区分浮点噪声。
 SHARE_EPSILON = 0.0001
 
+#: 重算只会「改份额」、绝不「清仓」时给出的退路文案（工作台 / 持仓页共用一句）。
+CLEAR_REFUSED_MESSAGE = (
+    '按现有流水算出来是 {net:g} 份，而账上还有 {current:g} 份。流水算到 0 或负数，'
+    '通常是流水缺了买入腿（或补录多记了一笔卖出），并不等于这只已经清仓——'
+    '据此重算会把一条可能正确的持仓清零，而份额一旦归零，市值 / 净值 / 收益会一起变。'
+    '系统不再按流水清仓：请先到「交易记录」核对这批流水是否齐全；'
+    '若账单确认已经没有这只了，用「改成账单份额」把份额填成 0。'
+)
+
+
+def assert_recompute_keeps_position(db: Session, position: Position) -> None:
+    """按流水重算**不得**把仍有份额的持仓清零（2026-11-16 用户定调）。
+
+    ## 为什么这条闸门必须在写库之前
+
+    份额有两个来源：券商账单（快照 / 手填）与流水（买卖记录）。两者不一致时，
+    「按流水派生」只是一个**猜测**，而清仓是它最激进的一个结论——真实数据里
+    「账上有份额、流水净额却 ≤ 0」多半是**流水缺了一条腿**（#3127 的超卖形态），
+    不是持仓错。旧行为会把它直接标成 cleared，等于拿「流水没记全」去改一条正确数据。
+
+    只挡「归零 / 删行」这一个方向：正份额之间的大小调整仍由用户逐条确认（改前 /
+    改后两个数都摆在确认框里，审计可回滚）。零份额行（本就清仓）不受影响
+    ——它没有可改错的份额，重算只是把空壳行收拾干净。
+    """
+    net_units, _ = _anchored(db, position)
+    if position.quantity > 0 and net_units <= 0:
+        raise ValueError(
+            CLEAR_REFUSED_MESSAGE.format(
+                net=Money.min_unit_to_shares(net_units),
+                current=Money.min_unit_to_shares(position.quantity),
+            )
+        )
+
 
 def _anchored(db: Session, position: Position) -> tuple[int, int]:
     """取「锚点感知」的份额与成本（函数内导入，避免与 position_service 成环）。"""
@@ -46,13 +79,23 @@ def share_check(db: Session, target: Position, quantity_now: float) -> dict:
         'quantity_if_recomputed': expected,
         'diff': diff,
         'recompute_suggested': suggested,
-        'hint': (
-            f'挂回只改归属、不改份额：按现有流水派生应为 {expected:g} 份，当前持仓 {quantity_now:g} 份'
-            f'（差 {diff:+g}）。若要以此为准，请用「按流水重算份额」对齐；本接口不会自动改。'
-        )
-        if suggested
-        else None,
+        'hint': _share_check_hint(expected, quantity_now, diff) if suggested else None,
     }
+
+
+def _share_check_hint(expected: float, quantity_now: float, diff: float) -> str:
+    """挂回后的提示：分「流水仍指向持有」与「流水算到 0 / 负数」两种，别给死路建议。
+
+    后者（净额 ≤ 0）以前会建议「点按流水重算份额」，但那条路 2026-11-16 起已被闸门挡住
+    ——流水算到 0 多半是缺腿，据此清仓会把正确持仓清零。故改成「核对流水 / 按账单填 0」。
+    """
+    head = f'挂回只改归属、不改份额：按现有流水派生应为 {expected:g} 份，当前持仓 {quantity_now:g} 份（差 {diff:+g}）。'
+    if expected > 0:
+        return head + '若要以此为准，请用「按流水重算份额」对齐；本接口不会自动改。'
+    return (
+        head + '流水算到 0 或负数，多半缺了买入腿，不能据此清仓：请先到「交易记录」核对流水；'
+        '若账单确认已经没有这只，用「改成账单份额」把份额填 0。本接口不会自动改。'
+    )
 
 
 def reattach_payload(
@@ -82,6 +125,7 @@ def recompute_with_audit(
     operator=None,
     discrepancy_id: int | None = None,
     run_id: int | None = None,
+    allow_clear: bool = False,
 ) -> dict:
     """按流水重算某条持仓的份额，并把「改前 / 改后」写进审计日志（#3127 的补救入口）。
 
@@ -98,12 +142,19 @@ def recompute_with_audit(
 
     ``discrepancy_id`` / ``run_id`` 只有对账工作台会传（#3134）：从差异卡点「按流水重算份额」时，
     审计要能回指是哪条差异、哪一轮对账触发的，否则复盘时只能凭时间猜。
+
+    ``allow_clear`` 只给**明确以「清掉幽灵持仓」为目的**的修复脚本用（
+    ``scripts/fix_phantom_position_shares.py``）：那里已经逐条复核过「流水齐平 + 份额是
+    重建造出的假数据」，属于有证据的清仓。所有 UI 入口一律不传，走
+    :func:`assert_recompute_keeps_position` 的闸门。
     """
     from app.services.position_recompute import recompute_from_transactions  # noqa: PLC0415
 
     pos = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
     if pos is None:
         raise ValueError(f'持仓 {position_id} 不存在或不属于当前家庭')
+    if not allow_clear:
+        assert_recompute_keeps_position(db, pos)
 
     # 改前快照：份额按「份」、均价按「元」，与接口对外单位一致（内部一律最小单位整数）。
     before = {

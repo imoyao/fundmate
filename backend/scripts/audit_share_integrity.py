@@ -7,15 +7,15 @@
 本脚本是**常驻巡检**，判据与 ``reconciliation_service._finalize_run`` 每次收尾调用的
 ``position_share_audit.scan_disproved_shares`` 完全同源（复用
 ``reconciliation_theory.flow_disproves_position``）。它不写库、不重算、不建卡，
-只把命中的持仓连同**可执行的重算入口**一起列出来：
+只把命中的持仓连同**下一步核对入口**一起列出来：
 
-- 接口：``POST /api/positions/<id>/recompute/``（#3128，带改前/改后审计）；
-- 界面：持仓详情 → 「按流水重算份额」；
+- 界面：交易记录 → 核对这只的流水；账单确认已没有这只时用「改成账单份额」填 0；
 - ``--json`` 供定时作业消费、``--strict`` 命中即非零退出（发现即建卡用）。
 
-判据会把「净额归零」与「超卖（净额为负）」分开标注：后者多半缺买入腿，
-#3127 明确只报数交人工、不要无脑重算清仓。脚本不写业务数据；``create_app()``
-会跑幂等 migration 与调度器初始化，与仓库其它巡检脚本一致。
+**不再推荐「按流水重算份额」**（2026-11-16 用户定调）：净额 ≤ 0 时流水缺腿与真清仓
+无法区分，按流水清仓会把一条可能正确的持仓清零。判据仍把「净额归零」与「超卖
+（净额为负）」分开标注，但两者都只报数、交人工核对。脚本不写业务数据；
+``create_app()`` 会跑幂等 migration 与调度器初始化，与仓库其它巡检脚本一致。
 
 真库 2026-11-15 现场：``positions#944``（SZ159981 能源化工）账上 1000 份、名下流水
 净额 0、无锚点、active ⇒ 命中。14:14 那次 #3127 批量扫描时净额还是 +3000 份，
@@ -46,11 +46,13 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 
-def _curl_hint(row, base_url: str) -> str:
-    """给出可直接复制的命令；登录态由调用方补（-H 'Cookie: ...'）。"""
-    endpoint = row['remedy']['endpoint']
-    body = json.dumps({'reason': '巡检(#3135)：份额与流水不自洽'}, ensure_ascii=False)
-    return f"curl -X POST '{base_url.rstrip('/')}{endpoint}' -H 'Content-Type: application/json' -d '{body}'"
+def _manual_hint(row, base_url: str) -> str:
+    """给出下一步的人工核对路径（不提供一键清仓的 curl：那正是本卡要挡掉的动作）。"""
+    return (
+        f'交易记录按 symbol={row["symbol"]} 核对流水；'
+        f'账单确认已清仓则 POST {base_url.rstrip("/")}/api/reconciliation/adjustments/ '
+        f'(kind=set, quantity=0, ledger_id={row["ledger_id"]}, symbol={row["symbol"]})'
+    )
 
 
 def main() -> int:
@@ -81,23 +83,21 @@ def main() -> int:
     print(f'命中 {len(found)} 条「active + 份额>0 + 无锚点 + 名下流水净额 ≤ 0」的持仓\n')
     for row in found[: args.limit]:
         risk = (
-            '⚠ 超卖：净额为负，多半缺买入腿，重算会清仓，请先核对流水'
+            '⚠ 超卖：净额为负，多半缺买入腿，不能据此清仓'
             if row['flow_state'] == 'oversold'
-            else '净额归零：流水齐全即可重算清仓'
+            else '净额归零：可能真卖完了，也可能流水缺腿，不能据此清仓'
         )
         print(
             f'  #{row["position_id"]} {row["symbol"]} {row["name"] or ""} ledger={row["ledger_id"]}\n'
             f'    账上 {row["quantity_now"]:g} 份 / 按流水派生 {row["quantity_if_recomputed"]:g} 份'
             f' / 差 {row["diff"]:+g} 份 / 流水净额 {row["flow_net"]:g} 份\n'
             f'    判读    : {risk}\n'
-            f'    修复入口: {row["remedy"]["method"]} {row["remedy"]["endpoint"]}\n'
-            f'    界面    : 持仓详情 → 「按流水重算份额」\n'
-            f'    命令    : {_curl_hint(row, args.base_url)}  （需带登录 Cookie）\n'
+            f'    下一步  : {_manual_hint(row, args.base_url)}\n'
         )
     if len(found) > args.limit:
         print(f'  …另有 {len(found) - args.limit} 条（--limit 调大或 --json 取全）\n')
     if found:
-        print('提示：本脚本只报数，是否重算由用户决定；超卖条目请先核对买入腿是否缺失。')
+        print('提示：本脚本只报数，不清仓也不重算；请核对流水后按账单决定份额（清仓填 0）。')
     return 1 if args.strict and found else 0
 
 

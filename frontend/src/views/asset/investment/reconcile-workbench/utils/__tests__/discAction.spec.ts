@@ -26,18 +26,19 @@ describe("差异类型 → 动作", () => {
     expect(DISC_ACTION_LABELS.anchor).toBe("以此为准");
   });
 
-  it("quantity 且理论份额 ≥ 0 走「按流水重算份额」", () => {
-    expect(
-      discActionOf({ discrepancy_type: "quantity", expected_value: 0 })
-    ).toBe("recompute");
+  it("quantity 且理论份额 > 0 走「按流水重算份额」", () => {
     expect(
       discActionOf({ discrepancy_type: "quantity", expected_value: 1600 })
     ).toBe("recompute");
     expect(DISC_ACTION_LABELS.recompute).toBe("按流水重算份额");
   });
 
-  it("quantity 且理论份额为负（超卖）走「改成账单份额」", () => {
-    // 照流水重算会把这只持仓清零，而 #3127 明确不敢批量清仓 ⇒ 交用户照账单填。
+  it("quantity 且理论份额 ≤ 0 走「改成账单份额」（不许按流水清仓）", () => {
+    // 流水算到 0 / 负数，多半是缺了买入腿；按流水重算会清零，而持仓可能才是对的
+    // （2026-11-16 用户定调：只应该把错的改对）⇒ 交用户照账单填，填 0 才是清仓。
+    expect(
+      discActionOf({ discrepancy_type: "quantity", expected_value: 0 })
+    ).toBe("set");
     expect(
       discActionOf({ discrepancy_type: "quantity", expected_value: -60064 })
     ).toBe("set");
@@ -89,12 +90,15 @@ describe("弹窗打开时的默认模式", () => {
     );
   });
 
-  it("quantity 超卖进来就是「改成这个持仓」（set），不预填补一笔", () => {
+  it("quantity 流水算到 ≤ 0 进来就是「改成这个持仓」（set），不预填补一笔", () => {
     expect(
       defaultSupplementKind({
         discrepancy_type: "quantity",
         expected_value: -100000
       })
+    ).toBe("set");
+    expect(
+      defaultSupplementKind({ discrepancy_type: "quantity", expected_value: 0 })
     ).toBe("set");
   });
 

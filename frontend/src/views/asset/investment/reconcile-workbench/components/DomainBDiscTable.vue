@@ -72,9 +72,9 @@
             <template #default="{ row }">
               <template v-if="row.status === 'pending'">
                 <!-- 文案与事件都按类型选（判据在 utils/discAction.ts，有单测）：
-                     no_anchor 走「以此为准」、quantity 走「按流水重算份额」（超卖改「改成账单
-                     份额」）、其余才是「补录这笔」。quantity 走补录是无效动作——补录同时写
-                     流水与持仓，差额两端同步移动（#3134）。 -->
+                     no_anchor 走「以此为准」、quantity 走「按流水重算份额」（流水算到 ≤ 0 时
+                     改「改成账单份额」——那多半是流水缺腿，不许据此清仓）、其余才是「补录这笔」。
+                     quantity 走补录是无效动作——补录同时写流水与持仓，差额两端同步移动（#3134）。 -->
                 <el-button
                   size="small"
                   text

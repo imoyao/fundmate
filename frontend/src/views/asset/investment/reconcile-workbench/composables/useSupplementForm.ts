@@ -31,6 +31,14 @@ export function useSupplementForm(getTarget: () => DiscrepancyItem | null) {
     reason: ""
   });
 
+  /**
+   * 「改成账单份额 = 0」= 按账单清仓：唯一合法的清仓入口（2026-11-16）。
+   * 份额 0 时成本单价没有意义（清仓行不参与市值），故一并放过。
+   */
+  const clearingByBill = computed(
+    () => form.kind === "set" && form.quantity === 0
+  );
+
   const rules = computed<FormRules>(() => ({
     quantity: [
       {
@@ -39,7 +47,8 @@ export function useSupplementForm(getTarget: () => DiscrepancyItem | null) {
             callback(new Error("份额还没填"));
             return;
           }
-          if (value <= 0) {
+          // set 模式允许 0：账单上已经没有这只了
+          if (value < 0 || (value === 0 && form.kind !== "set")) {
             callback(new Error("份额要大于 0"));
             return;
           }
@@ -51,6 +60,10 @@ export function useSupplementForm(getTarget: () => DiscrepancyItem | null) {
     avg_price: [
       {
         validator: (_rule, value, callback) => {
+          if (clearingByBill.value) {
+            callback();
+            return;
+          }
           if (typeof value !== "number" || !Number.isFinite(value)) {
             callback(new Error("单价还没填"));
             return;
@@ -90,5 +103,5 @@ export function useSupplementForm(getTarget: () => DiscrepancyItem | null) {
     formRef.value?.clearValidate();
   }
 
-  return { form, formRef, rules, resetForm, clearValidate };
+  return { form, formRef, rules, clearingByBill, resetForm, clearValidate };
 }

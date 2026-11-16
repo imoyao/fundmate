@@ -10,12 +10,11 @@
 
 四条不容退让的判据：
 
-1. 净额为 0 的幽灵持仓（买卖腿齐平却还挂着份额）⇒ 重算后份额 0 + `cleared`，差异自行消失；
+1. 净额 ≤ 0 的持仓（买卖腿齐平 / 超卖，却还挂着份额）⇒ **拒绝**，不得按流水清仓
+   —— 份额的真相是账单，流水缺一条腿时持仓才是对的（2026-11-16 用户定调）；
 2. 有锚点的持仓 ⇒ 重算按「锚点 + 期后流水」覆写份额（不把快照前的流水算进来）；
-3. 净额为**负**（卖出多于买入，缺买入腿）⇒ **拒绝**，且错误信息指向手填入口
-   —— 把「流水缺一条腿」当成「已清仓」是 #3127 明确禁止的批量清零；
-4. 标的以**差异行**为准，payload 里的 symbol / ledger_id 不参与定位；
-5. 流水一条都没挂到持仓上（悬空流水）⇒ **拒绝**，不得按「无流水且无锚点 ⇒ 删行」把一条
+3. 标的以**差异行**为准，payload 里的 symbol / ledger_id 不参与定位；
+4. 流水一条都没挂到持仓上（悬空流水）⇒ **拒绝**，不得按「无流水且无锚点 ⇒ 删行」把一条
    有份额的持仓物理删除 —— 对账按 `(ledger_id, symbol)` 取流水、重算按 `position_id` 取，
    两套口径在那一刻分叉，而删行是静默且不可撤销的。
 
@@ -91,8 +90,14 @@ def _quantity_discrepancy(db):
     return db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id, discrepancy_type='quantity').one()
 
 
-def test_recompute_clears_ghost_position_and_discrepancy(db, ledger):
-    """净额 0 却还挂着 60 份 ⇒ 重算成清仓，差异自己消失（不是被 ignore 掉）。"""
+def test_recompute_refuses_to_clear_netted_out_position(db, ledger):
+    """净额 0 却还挂着 60 份 ⇒ **拒绝重算**，持仓与差异原样留着（2026-11-16 用户定调）。
+
+    这张卡上的两个数（账上 60 / 流水 0）本身说不出谁对：可能是卖完了没清仓，
+    也可能是流水缺了一条买入腿。按流水清仓等于替用户做出「这只已经没有了」的结论，
+    而它一旦错了，市值 / 净值 / 收益会一起跟着错。所以系统只报数——
+    清仓要走「改成账单份额 = 0」这条显式路径（`reconciliation_decision._clear_position_by_bill`）。
+    """
     pos = _position(db, ledger.id, shares=60)
     _txn(db, pos, 'buy', 60)
     _txn(db, pos, 'sell', 60)
@@ -101,25 +106,16 @@ def test_recompute_clears_ghost_position_and_discrepancy(db, ledger):
     disc = _quantity_discrepancy(db)
     assert disc.status == 'pending'
 
-    result = apply_decision(db, 1, {'kind': 'recompute', 'discrepancy_id': disc.id, 'reason': '按流水对齐'})
+    with pytest.raises(ValueError, match='改成账单份额'):
+        apply_decision(db, 1, {'kind': 'recompute', 'discrepancy_id': disc.id, 'reason': '按流水对齐'})
     db.commit()
 
-    # 1) 份额归零 + cleared（#2343 起不删行，锚点/历史位保留）
     db.refresh(pos)
-    assert pos.quantity == 0
-    assert pos.ownership_status == OwnershipStatus.CLEARED.value
-    # 2) 差异被重算轧平，队列里看不到它了
+    assert pos.quantity == Money.shares_to_min_unit(60), '持仓份额不得被流水改掉'
+    assert pos.ownership_status == OwnershipStatus.ACTIVE.value
     db.refresh(disc)
-    assert disc.status == 'cleared'
-    assert result['discrepancy']['status'] == 'cleared'
-    # 3) 重算是**只改持仓**：流水条数一条没变（补录才会新增流水）
-    assert db.query(Transaction).filter_by(ledger_id=ledger.id, symbol=_SYMBOL).count() == 2
-    # 4) 审计能回指这条差异
-    log = db.query(AdjustmentLog).filter_by(action='position_recompute').one()
-    assert log.discrepancy_id == disc.id
-    assert log.reason == '按流水对齐'
-    assert result['recompute']['quantity_before'] == 60
-    assert result['recompute']['quantity_after'] == 0
+    assert disc.status == 'pending', '差异仍在，等用户按账单裁决'
+    assert db.query(AdjustmentLog).filter_by(action='position_recompute').count() == 0
 
 
 def test_recompute_follows_anchor_plus_post_anchor_flows(db, ledger):
@@ -232,6 +228,44 @@ def test_recompute_refuses_when_flows_are_unlinked(db, ledger):
     assert db.query(AdjustmentLog).filter_by(action='position_recompute').count() == 0
 
 
+def test_set_to_zero_clears_position_by_bill(db, ledger):
+    """「改成账单份额 = 0」是唯一合法的清仓路径：结论来自账单，动作来自用户。
+
+    清仓必须同时重置锚点（0 份 / 账单日），否则下一次净值回填会按旧锚点把这条持仓
+    复活——那等于「刚清完又被系统改回来」。
+    """
+    pos = _position(db, ledger.id, shares=60)
+    _txn(db, pos, 'buy', 60)
+    _txn(db, pos, 'sell', 60)
+    db.commit()
+
+    disc = _quantity_discrepancy(db)
+    result = apply_decision(
+        db,
+        1,
+        {
+            'kind': 'set',
+            'discrepancy_id': disc.id,
+            'symbol': _SYMBOL,
+            'ledger_id': ledger.id,
+            'quantity': 0.0,
+            'snapshot_date': _DAY.isoformat(),
+        },
+    )
+    db.commit()
+
+    db.refresh(pos)
+    assert pos.quantity == 0
+    assert pos.ownership_status == OwnershipStatus.CLEARED.value
+    assert pos.snapshot_quantity == 0, '锚点必须一起归零，否则净值回填会复活持仓'
+    assert pos.snapshot_date == _DAY
+    log = db.query(AdjustmentLog).one()
+    assert log.action == 'clear', '审计里清仓与改份额必须是两件事'
+    db.refresh(disc)
+    assert disc.status == 'cleared'
+    assert result['discrepancy']['status'] == 'cleared'
+
+
 def test_recompute_requires_discrepancy(db, ledger):
     """没有差异就没有「按流水重算」的对象 —— 拒绝，而不是猜一只持仓来改。"""
     pos = _position(db, ledger.id, shares=60)
@@ -243,10 +277,23 @@ def test_recompute_requires_discrepancy(db, ledger):
 
 
 def test_recompute_uses_discrepancy_symbol_not_payload(db, ledger):
-    """标的以差异行为准：payload 传别的标的也不能改到它。"""
-    pos = _position(db, ledger.id, shares=60)
-    _txn(db, pos, 'buy', 60)
-    _txn(db, pos, 'sell', 60)
+    """标的以差异行为准：payload 传别的标的也不能改到它。
+
+    用「锚点 60 + 期后卖出 10 ⇒ 50 份」这个正向差额：清仓方向已被闸门挡住
+    （见上一条），这条只验证定位，不验证清零。带锚点也让分类落在 `quantity`
+    ——无锚点的正差额属于 `no_anchor`（缺基准），动作是「以此为准」。
+    """
+    pos = _position(
+        db,
+        ledger.id,
+        shares=60,
+        anchor={
+            'snapshot_quantity': Money.shares_to_min_unit(60),
+            'snapshot_date': _DAY,
+            'anchor_kind': AnchorKind.MANUAL.value,
+        },
+    )
+    _txn(db, pos, 'sell', 10, day=date(2024, 6, 13))
     other = Position(
         symbol='SZ000001',
         name='平安银行',
@@ -272,5 +319,5 @@ def test_recompute_uses_discrepancy_symbol_not_payload(db, ledger):
 
     db.refresh(pos)
     db.refresh(other)
-    assert pos.quantity == 0, '差异指向的持仓被重算'
+    assert pos.quantity == Money.shares_to_min_unit(50), '差异指向的持仓被重算'
     assert other.quantity == Money.shares_to_min_unit(500), 'payload 里的标的不得被改'

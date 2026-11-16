@@ -198,7 +198,7 @@ def test_anchor_decision_rejects_stale_card_when_flow_disproves(db, ledger):
     _sell(db, ledger.id, shares=100, day=date(2024, 6, 13))
     db.commit()
 
-    with pytest.raises(ValueError, match='按流水重算份额'):
+    with pytest.raises(ValueError, match='改成账单份额'):
         apply_decision(db, 1, {'kind': 'anchor', 'discrepancy_id': disc.id})
     db.refresh(pos)
     assert pos.snapshot_quantity is None, '被拒时不得留下半条锚点'

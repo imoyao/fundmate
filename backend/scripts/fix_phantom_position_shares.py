@@ -174,7 +174,10 @@ def main() -> int:
 
         for pid, family_id, *_ in candidates:
             try:
-                data = recompute_with_audit(db, family_id, pid, reason=_REASON)
+                # allow_clear：本脚本的唯一目的就是清掉「流水齐平、份额是重建假象」的
+                # 幽灵持仓（--apply 前已逐条列给用户确认）。UI 入口一律不带这个开关，
+                # 因为那里的「流水算到 0」不缺证据、缺的是账单（见 position_recompute_entry）。
+                data = recompute_with_audit(db, family_id, pid, reason=_REASON, allow_clear=True)
                 db.commit()
                 fixed += 1
                 print(
