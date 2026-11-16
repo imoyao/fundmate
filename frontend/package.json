@@ -121,7 +121,7 @@
     "postcss-html": "^1.8.1",
     "postcss-load-config": "^6.0.1",
     "postcss-scss": "^4.0.9",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "rimraf": "^6.1.4",
     "rollup-plugin-visualizer": "^6.0.11",
