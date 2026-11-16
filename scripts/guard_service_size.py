@@ -167,6 +167,11 @@ NEW_FILE_LIMITS = {
 # `economic_query_indicator_series`、`beginDate` 改 `startDate`，而实现与测试白名单一起
 # 写死旧名 ⇒ 换手率维度长期静默降级。修复只改名 + 补契约注释，净减 1 行来自压缩模块头
 # 冗余段落。基线向下收紧，不是放宽阈值。
+# 2026-11-16 决策轮工具预算预筛按 `--report` 收紧一项、新增一项，理由留痕：
+# `ai_recognizer/agent_loop.py` 730→726（净减 4 行）——「决策轮 system prompt 拼装」
+# 整体下沉到新文件 `ai_recognizer/tool_budget.py`（157/14/5，走 NEW_FILE_LIMITS），
+# 主文件只留 `_decision_system_prompt` 一行委托；没有借此放大任何既有函数职责
+# （max_func 294 / max_cc 39 未变）。基线向下收紧，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -197,7 +202,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/advisor_position.py": {'lines': 90, 'max_func': 45, 'max_cc': 7},
     "backend/app/services/advisor_profile.py": {'lines': 180, 'max_func': 59, 'max_cc': 6},
     "backend/app/services/ai_recognizer/__init__.py": {'lines': 34, 'max_func': 0, 'max_cc': 0},
-    "backend/app/services/ai_recognizer/agent_loop.py": {'lines': 730, 'max_func': 294, 'max_cc': 39},
+    "backend/app/services/ai_recognizer/agent_loop.py": {'lines': 726, 'max_func': 294, 'max_cc': 39},
     "backend/app/services/ai_recognizer/base.py": {'lines': 133, 'max_func': 20, 'max_cc': 10},
     "backend/app/services/ai_recognizer/cancellation.py": {'lines': 57, 'max_func': 12, 'max_cc': 4},
     "backend/app/services/ai_recognizer/catalog.py": {'lines': 161, 'max_func': 91, 'max_cc': 20},
@@ -217,6 +222,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/ai_recognizer/safety/repeat_tracker.py": {'lines': 114, 'max_func': 18, 'max_cc': 7},
     "backend/app/services/ai_recognizer/schemas.py": {'lines': 104, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/ai_recognizer/session_store.py": {'lines': 125, 'max_func': 23, 'max_cc': 6},
+    "backend/app/services/ai_recognizer/tool_budget.py": {'lines': 157, 'max_func': 14, 'max_cc': 5},
     # 2026-11-11 Q3 再平衡参考工具（#3049/#3050）按 --report 实测回写一项：
     # tools.py 619→644（import / TOOLS_METADATA 一项 / register 一行，共 25 行必要接线）。
     # 纯计算与取数已下沉到 services/analytics/rebalance_reference*.py（新文件走

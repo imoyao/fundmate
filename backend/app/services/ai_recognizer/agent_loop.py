@@ -48,9 +48,18 @@ from sqlalchemy.orm import object_session
 
 from app.core.exceptions import ErrorCode, SBException
 from app.domains.agent.models import AgentSession, AgentTrace
-from app.services.ai_recognizer import cancellation, guards, llm, plan_executor, registry, safety, session_store
+from app.services.ai_recognizer import (
+    cancellation,
+    guards,
+    llm,
+    plan_executor,
+    registry,
+    safety,
+    session_store,
+    tool_budget,
+)
 from app.services.ai_recognizer.narrative_blocks import parse_narrative_blocks
-from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
+from app.services.ai_recognizer.tools import ToolExecutor
 
 # ── 分层记忆参数（#1121 S2，步骤卡 #4）────────────────────────────────────
 # 每层各有硬上限 → 单轮 prompt 字符数与轮次无关（验收「收敛有上界」由此保证）
@@ -359,22 +368,9 @@ _L1_DATA_TRUTH = (
 )
 
 
-def _decision_system_prompt() -> str:
-    """决策轮 system prompt：附可用工具清单。
-
-    模型必须据此选择 tool_name 与参数——此前从未把 TOOLS_METADATA 给模型，
-    真实调用时模型是在盲猜工具名（测试 mock 掩盖了这一点，2026-09-26 修复）。
-    清单每轮都占 context，这是无状态 FC 循环的固有成本（工具规模上来后由 S5 MCP 分担）。
-    """
-    return (
-        AGENT_SYSTEM_PROMPT
-        + '\n'
-        + _L1_DATA_TRUTH
-        + '\n可用工具清单（tool_name 必须取自 name，tool_params 必须符合 parameters 约束；'
-        + 'description 标注「服务端自动注入」的参数不要由你提供）：\n'
-        + json.dumps(TOOLS_METADATA, ensure_ascii=False)
-        + plan_executor.PLAN_INSTRUCTION
-    )
+def _decision_system_prompt(user_input: str = '') -> str:
+    """决策轮 system prompt（工具清单按问题域预筛，拼装见 ``tool_budget.decision_prompt``）。"""
+    return tool_budget.decision_prompt(AGENT_SYSTEM_PROMPT, _L1_DATA_TRUTH, plan_executor.PLAN_INSTRUCTION, user_input)
 
 
 def parse_agent_action(response_str: str) -> dict:
@@ -580,7 +576,7 @@ def _run_agent_impl(
         _t0 = time.monotonic()
         raw = llm.call_llm(
             content=[{'type': 'text', 'text': prompt}],
-            system_prompt=_decision_system_prompt(),
+            system_prompt=_decision_system_prompt(user_input),
             response_format={'type': 'json_object'},
             temperature=0.1,
             usage_sink=usage,
