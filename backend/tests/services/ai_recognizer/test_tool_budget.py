@@ -35,6 +35,10 @@ GOLDEN = (
     ('我买卖基金的频率正常吗', 'get_trading_behavior'),
     ('今年赚了多少', 'get_portfolio_performance'),
     ('估值分位高不高', 'get_market_temperature'),
+    ('最近 GDP 增速多少', 'query_macro_indicator'),
+    ('CPI 高不高', 'query_macro_indicator'),
+    ('制造业 PMI 是多少', 'query_macro_indicator'),
+    ('现在 LPR 多少', 'query_macro_indicator'),
 )
 
 
@@ -78,6 +82,30 @@ def test_narrow_question_actually_saves_budget():
     assert fund['saved_ratio'] > 0.5, fund
     market = tool_budget.budget_stats('现在市场温度多少')
     assert market['saved_ratio'] > 0.8, market
+
+
+def test_macro_question_is_narrow_and_saves_budget():
+    """宏观域只装「常驻 2 + 宏观 1」：15 个工具里只给 3 个。"""
+    stats = tool_budget.budget_stats('最近 GDP 增速多少')
+
+    assert stats['domains'] == ('macro',)
+    assert stats['tools'] == 3
+    assert stats['saved_ratio'] > 0.75, stats
+
+
+def test_macro_cues_do_not_leak_into_fund_or_account_questions():
+    """「同比 / 增长 / 数据」这类词在基金与账户提问里也出现——宏观线索刻意不含它们。
+
+    漏配这几条，纯基金提问会把宏观工具白装进去（省 60% 掉回省 50%），
+    而错配的代价不会报错，只会悄悄变贵。
+    """
+    for question in (
+        '这只基金近一年同比涨了多少',
+        '基金规模增长快吗',
+        '帮我看看持仓数据',
+        '我的收益同比增长了吗',
+    ):
+        assert 'macro' not in tool_budget.matched_domains(question), question
 
 
 def test_subset_keeps_full_metadata_order():
