@@ -54,9 +54,8 @@
   ``recompute_position_from_transactions`` 会从该持仓全部流水派生份额，含快照锚点、
   清仓复活 / 标记 cleared / 删空壳行等状态变化，份额变更不可逆且 undo 无法回滚，
   不属于「安全的二次回补」。挂回只改 ``position_id``，份额一字不动
-  （``quantity_after == quantity_before``）；用户如需对齐份额，可在持仓页用「按流水重算份额」
-  ——但派生份额 ≤ 0 时那条入口会拒绝（多半是流水缺腿，不能据此清仓，2026-11-16 定调）。
-  ``preview.quantity_if_recomputed`` 仅用于让用户看清「手动重算会怎样」，不触发任何写。
+  （``quantity_after == quantity_before``）；份额对齐走持仓页「按流水重算份额」，但派生额 ≤ 0
+  时那条入口会拒绝（流水缺腿，不能据此清仓）。``preview.quantity_if_recomputed`` 只读预览。
 - **挂回后回报一致性差异**：返回体带 ``share_check``（``position_recompute_entry.share_check``），
   用同一派生入口算出「若此刻重算应是多少份」与当前份额并排返回，差异超阈值即
   ``recompute_suggested`` 提示用户去核对。只读，契约仍是「不自动重算」（#3127）。
