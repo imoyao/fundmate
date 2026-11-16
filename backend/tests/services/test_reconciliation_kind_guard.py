@@ -142,15 +142,41 @@ def test_unknown_kind_message_names_supported_actions_and_next_step(db):
 
 
 def test_recompute_kind_still_dispatches(db, ledger):
-    """白名单不得误伤现有动作：净额 0 的幽灵持仓按流水重算 → 标记清仓。"""
+    """白名单不得误伤现有动作：派生额 > 0 时 recompute 照常执行并改写份额。
+
+    旧版夹具是「净额 0 的幽灵持仓 → 标记清仓」，断言的恰是 #3135 **废除**的行为
+    （份额真相是账单不是流水，派生 ≤ 0 不再等于清仓）。继续用那个夹具验证「能派发」，
+    等于给已废除的契约背书。换成派生 40 份 / 账上 60 份：判据仍是「recompute 不被白名单
+    误伤」，落点改为份额对齐到 40，且**不清仓**——清仓改由「改成账单份额 = 0」显式完成。
+    """
     pos = _position(db, ledger.id, shares=60)
-    _txn(db, ledger.id, pos, 'buy', 60)
+    _txn(db, ledger.id, pos, 'buy', 100)
     _txn(db, ledger.id, pos, 'sell', 60, day=date(2026, 5, 2))
-    disc = _disc(db, ledger.id, expected=0, actual=60)
+    disc = _disc(db, ledger.id, expected=40, actual=60)
 
     result = apply_decision(db, _FAMILY, {'kind': 'recompute', 'discrepancy_id': disc.id})
 
     assert result['action'] == 'recompute'
     db.refresh(pos)
-    assert pos.quantity == 0
-    assert pos.ownership_status == 'cleared'
+    assert pos.quantity == Money.shares_to_min_unit(40), '派生额 > 0 时应改写为派生份额'
+    assert pos.ownership_status == 'active', '重算只对齐份额，不改持有状态'
+
+
+def test_recompute_kind_refuses_to_clear_when_flows_net_zero(db, ledger):
+    """派生额 ≤ 0 时 recompute 必须拒绝，且份额与审计一字不动（#3135）。
+
+    这条是旧用例「净额 0 → 清仓」的**反向**：流水算到 0 多半是缺腿，据此清仓会把
+    正确持仓清零。拒绝发生在写库之前，所以连审计都不该留。
+    """
+    pos = _position(db, ledger.id, shares=60)
+    _txn(db, ledger.id, pos, 'buy', 60)
+    _txn(db, ledger.id, pos, 'sell', 60, day=date(2026, 5, 2))
+    disc = _disc(db, ledger.id, expected=0, actual=60)
+
+    with pytest.raises(ValueError, match='不再按流水清仓'):
+        apply_decision(db, _FAMILY, {'kind': 'recompute', 'discrepancy_id': disc.id})
+
+    db.refresh(pos)
+    assert pos.quantity == Money.shares_to_min_unit(60), '拒绝时不得改份额'
+    assert pos.ownership_status == 'active', '拒绝时不得把持仓标成 cleared'
+    assert db.query(AdjustmentLog).filter_by(action='position_recompute').count() == 0, '拒绝时不得写审计'
