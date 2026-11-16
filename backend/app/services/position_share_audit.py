@@ -12,8 +12,8 @@
 当晚补录一笔卖出后净额归零、账上仍 1000 份，而脚本不会回头再跑。
 
 本模块把判据做成**每次对账收尾都会执行**的常驻检查，并且每条命中都带 ``remedy``
-（#3128 的「按流水重算份额」入口），不新建重复差异卡：域 B 已经会为这类持仓生成
-``quantity`` 卡（见 ``is_missing_baseline``），#3134 负责把那张卡的动作接成重算。
+（指向「核对流水 / 按账单填份额」），不新建重复差异卡：域 B 已经会为这类持仓生成
+``quantity`` 卡（见 ``is_missing_baseline``），由那张卡承载用户裁决。
 
 ## 判据口径（与重算动作同源）
 
@@ -30,11 +30,13 @@
 有锚点的持仓不适用：锚点前流水本就不计入份额，全量净额 ≤ 0 是正常现象
 （``flow_disproves_position`` 内部已判 ``has_anchor``）。
 
-## 只报数、不自动修
+## 只报数、更不按流水清仓
 
 超卖（派生份额 < 0）多半缺买入腿，#3127 明确「不敢批量清仓、只报数交人工」。
-故本模块**只读业务表**（巡检只落自己的 ``sync_logs`` 审计行），是否重算由用户点入口
-决定；巡检脚本同样不改份额。
+2026-11-16 用户进一步定调：**份额的真相是账单，不是流水**——净额归零同样可能是
+流水缺腿（或补录多记了一笔卖出），按流水重算会把一条正确持仓清零。
+故本模块**只读业务表**（巡检只落自己的 ``sync_logs`` 审计行），``remedy`` 统一是
+``verify_flows``（去核对流水 / 按账单填 0），不再给一键重算入口。
 
 ## 「成因」也要报（2026-11-16，#3135 收尾）
 
@@ -56,19 +58,25 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.reconciliation_theory import flow_disproves_position, net_quantity
 
-RECOMPUTE_ENDPOINT = '/api/positions/{position_id}/recompute/'
 SUMMARY_KEY = 'share_integrity'
 SUMMARY_IDS_KEY = 'share_integrity_positions'
 SUMMARY_IDS_LIMIT = 20
-REMEDY_HINT = '到持仓详情点「按流水重算份额」，或调用 POST {endpoint}（需带登录态）'
+#: 命中项的统一动作：**只核对、不代改**（2026-11-16 用户定调，见 scan_disproved_shares）。
+VERIFY_FLOWS = 'verify_flows'
+REMEDY_HINT = (
+    '账上还有 {now:g} 份、名下流水净额 ≤ 0：这可能是流水缺了一条腿，也可能是持仓确实已清仓。'
+    '系统不按流水清仓——先到「交易记录」逐笔核对这只的流水：缺腿就补上；'
+    '若账单确认已经没有了这只，用「改成账单份额」把份额填 0。'
+)
 OVERSOLD_HINT = (
-    '超卖（流水净额为负）多半缺买入腿，重算会直接清仓：请先核对流水是否齐全，'
-    '确认后再到持仓详情点「按流水重算份额」或调用 POST {endpoint}（需带登录态）'
+    '超卖（流水净额为负）多半缺买入腿，更不能用它清仓。'
+    '请先核对流水是否齐全（到「交易记录」看这只有没有漏记的买入）；'
+    '若账单确认已没有这只，用「改成账单份额」填 0。'
 )
 ADJUSTED_HINT = (
     '该持仓名下有 {count} 笔「对账补录」流水（#{ids}）：补录会同时改流水与份额，'
-    '差额因此恒定；重算会把它们一起算进去。请先到「交易记录」核对这几笔补录是否成立'
-    '（不成立就删掉，删除会自动重算份额），再回来点「按流水重算份额」。'
+    '差额因此恒定。请先到「交易记录」核对这几笔补录是否成立（不成立就删掉，'
+    '删除会自动重算份额），再回来按账单确认份额。'
 )
 
 # 巡检落库用（`local_checks` 的每日通道；status 与 `due_checks` 的判据同源）
@@ -128,7 +136,6 @@ def scan_disproved_shares(db: Session, family_id: int) -> list[dict]:
         expected_units, _ = compute_anchored_state(db, pos)
         now = Money.min_unit_to_shares(pos.quantity)
         expected = Money.min_unit_to_shares(expected_units)
-        endpoint = RECOMPUTE_ENDPOINT.format(position_id=pos.id)
         net_units = net_quantity(txns)
         oversold = net_units < 0  # #3127：超卖不敢批量清仓，只报数交人工
         found.append(
@@ -143,10 +150,9 @@ def scan_disproved_shares(db: Session, family_id: int) -> list[dict]:
                 'flow_net': Money.min_unit_to_shares(net_units),
                 'flow_state': 'oversold' if oversold else 'netted_out',
                 'remedy': {
-                    'action': 'position_recompute',
-                    'method': 'POST',
-                    'endpoint': endpoint,
-                    'hint': (OVERSOLD_HINT if oversold else REMEDY_HINT).format(endpoint=endpoint),
+                    'action': VERIFY_FLOWS,
+                    'blocked': True,
+                    'hint': (OVERSOLD_HINT if oversold else REMEDY_HINT).format(now=now),
                 },
             }
         )

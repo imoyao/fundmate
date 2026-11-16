@@ -380,12 +380,13 @@ export interface ShareIntegrityAdjustmentTxn {
   source: string;
 }
 
-/** 后端给出的可执行重算入口；`blocked` 为真时前端不得提供一键重算 */
+/** 后端给出的下一步；`blocked` 为真时前端不得提供一键重算（2026-11-16 起一律如此） */
 export interface ShareIntegrityRemedy {
-  /** review_adjustment = 先核对/回滚补录流水；position_recompute = 可直接重算 */
-  action: "review_adjustment" | "position_recompute";
-  method: string;
-  endpoint: string;
+  /**
+   * review_adjustment = 先核对/回滚补录流水；
+   * verify_flows = 去核对流水，账单确认已清仓则用「改成账单份额」填 0。
+   */
+  action: "review_adjustment" | "verify_flows";
   hint: string;
   blocked?: boolean;
 }

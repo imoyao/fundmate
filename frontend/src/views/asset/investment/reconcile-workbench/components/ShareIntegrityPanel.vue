@@ -1,14 +1,17 @@
 <template>
   <!-- #3135：这些持仓账上还有份额，名下流水却已经卖掉（挂回流水按契约不重算份额）。
        卡片上的「理论 0 / 实际 1000」只报差额，说不出这 1000 从哪来——这里把成因
-       （含对账补录流水）和可执行动作一起摆出来，否则用户唯一想得到的就是再补录一笔。 -->
+       （含对账补录流水）和下一步摆出来，否则用户唯一想得到的就是再补录一笔。
+       2026-11-16 起不再提供「按流水重算份额」：净额 ≤ 0 时流水缺腿与真清仓无法区分，
+       按流水清仓会把一条可能是对的持仓清零（用户定调「只把错的改对」）。 -->
   <section class="share-integrity" aria-label="份额与流水不自洽">
     <header class="share-integrity__head">
       <h3 class="share-integrity__title">
         份额与流水不自洽 · {{ items.length }} 条
       </h3>
       <p class="share-integrity__desc">
-        这些持仓账上还有份额，但名下流水已经卖掉：挂回流水只改归属、不会自动重算份额。
+        这些持仓账上还有份额，但名下流水已经卖掉。系统不会按流水替你清仓：
+        先核对流水有没有缺腿；账单确认已经没有这只了，用「改成账单份额」填 0。
       </p>
     </header>
 
@@ -70,21 +73,12 @@
 
         <div class="share-integrity__actions">
           <el-button
-            v-if="item.adjustment_txns.length"
-            size="small"
-            @click="emit('go-transactions', item)"
-          >
-            去核对补录流水
-          </el-button>
-          <el-button
-            v-else
             size="small"
             type="primary"
             plain
-            :loading="actingId === item.position_id"
-            @click="emit('recompute', item)"
+            @click="emit('go-transactions', item)"
           >
-            按流水重算份额
+            {{ item.adjustment_txns.length ? "去核对补录流水" : "去核对流水" }}
           </el-button>
         </div>
       </li>
@@ -104,12 +98,9 @@ defineOptions({ name: "ShareIntegrityPanel" });
 
 defineProps<{
   items: ShareIntegrityItem[];
-  /** 正在重算的持仓 id（只锁住那一行，不整块禁用） */
-  actingId?: number | null;
 }>();
 
 const emit = defineEmits<{
-  (e: "recompute", item: ShareIntegrityItem): void;
   (e: "go-transactions", item: ShareIntegrityItem): void;
 }>();
 

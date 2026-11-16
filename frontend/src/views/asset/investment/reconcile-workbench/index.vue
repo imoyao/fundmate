@@ -39,8 +39,6 @@
       <ShareIntegrityPanel
         v-if="shareItems.length > 0"
         :items="shareItems"
-        :acting-id="shareActingId"
-        @recompute="handleShareRecompute"
         @go-transactions="goShareTransactions"
       />
 
@@ -217,8 +215,6 @@ const {
   danglingRefs,
   orphanLedgers,
   shareItems,
-  shareActingId,
-  handleShareRecompute,
   recognizerCandidates,
   committing,
   dataDateLabel,

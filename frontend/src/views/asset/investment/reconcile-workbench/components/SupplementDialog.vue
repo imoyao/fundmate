@@ -52,7 +52,7 @@
             reconQuantity(target.actual_value)
           }}，但流水没完整覆盖建仓，两边本来就不该互相核对。以当前持仓为准后，
           之前的流水不再参与份额推导。请先确认账上份额与券商账单一致；若怀疑份额本身有误，
-          请关掉这里，到持仓详情用「按流水重算份额」。
+          请关掉这里，先到「交易记录」核对流水，再按账单改份额。
         </SoftBanner>
         <SoftBanner
           v-else-if="form.kind === 'set'"
@@ -202,6 +202,7 @@ const {
   form,
   formRef,
   rules,
+  clearingByBill,
   resetForm: resetFormFields,
   clearValidate
 } = useSupplementForm(() => props.target);
@@ -250,7 +251,9 @@ const modeExplain = computed(() => labels.value.explain);
 const setHint = computed(() =>
   ledgerMissing.value
     ? "这条差异还没归到任何账本，不能直接改持仓。先归置账本，或改用「补一笔交易」。"
-    : "改完不会新增买卖记录，这笔差异会标记为已处理。份额和成本单价都要大于 0。"
+    : clearingByBill.value
+      ? "份额填 0 = 按账单清仓：这条持仓会标记为已清仓，流水原样保留。系统只认你从账单确认的这个结论，不会按流水替你清。"
+      : "改完不会新增买卖记录，这笔差异会标记为已处理。份额（大于 0）与成本单价都按券商账单填；账单上已经没有这只了就把份额填 0。"
 );
 
 /**
@@ -314,10 +317,13 @@ watch(
 );
 
 async function confirmOverwrite(): Promise<boolean> {
+  const sentence = clearingByBill.value
+    ? `把「${heading.value}」按账单清仓（份额改成 0）？流水会原样保留，持仓标记为已清仓。`
+    : `把「${heading.value}」的持仓直接改成 ${reconQuantity(form.quantity)}、成本单价 ${form.avg_price} 元？这一步不会新增买卖记录，原有快照会被覆盖。`;
   try {
     await ElMessageBox.confirm(
-      `把「${heading.value}」的持仓直接改成 ${reconQuantity(form.quantity)}、成本单价 ${form.avg_price} 元？这一步不会新增买卖记录，原有快照会被覆盖。`,
-      "确认改成这个持仓",
+      sentence,
+      clearingByBill.value ? "确认按账单清仓" : "确认改成这个持仓",
       {
         type: "warning",
         confirmButtonText: "确认修改",

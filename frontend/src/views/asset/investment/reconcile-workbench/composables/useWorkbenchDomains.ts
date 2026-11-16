@@ -26,7 +26,7 @@ import {
   type ShareIntegrityItem
 } from "@/api/reconciliation";
 import { deleteTransaction } from "@/api/transaction";
-import { recomputePositionShares } from "@/api/positions";
+
 import {
   getEaccountReconciliation,
   type ReconciliationItem
@@ -103,7 +103,6 @@ export function useWorkbenchDomains() {
    *  用户不点「运行对账」也能在打开页面时看见「账上还有份额、流水已经卖掉」。 */
   const shareItems = ref<ShareIntegrityItem[]>([]);
   const shareLoading = ref(false);
-  const shareActingId = ref<number | null>(null);
 
   /**
    * 每个 loader 的失败原因。旧实现清一色 `catch { 置空 }`，网络挂了和「真的没有待办」
@@ -516,8 +515,9 @@ export function useWorkbenchDomains() {
    * 补录（increment）同时写流水与持仓，差额两端同步移动 ⇒ 恒等于补录前的值，所以
    * 这条差异原先在工作台上是**死路**。这里改写持仓这一侧，差额才会动。
    *
-   * 二次确认必须报出两个数：账上现在多少、流水算出来多少。它是改写持仓、且净额为 0
-   * 时会把持仓标记为已清仓，用户得先看见「会改成什么」再点。
+   * 只用于「流水算出来仍是正份额」的差异（判据在 `utils/discAction.ts`）：二次确认
+   * 报出两个数——账上现在多少、流水算出来多少。流水算到 0 / 负数的差异走
+   * 「改成账单份额」，后端也会拒绝用它清仓（`assert_recompute_keeps_position`）。
    */
   async function handleRecompute(row: DiscrepancyItem): Promise<void> {
     try {
@@ -526,7 +526,8 @@ export function useWorkbenchDomains() {
           row.actual_value
         )}，流水算出来是 ${reconQuantity(
           row.expected_value
-        )}。重算后账上会改成流水的结果，流水净额为 0 时这条持仓会被标记为已清仓。`,
+        )}。重算后账上会改成流水的结果——如果这只的流水没记全，改完反而更不对；` +
+          "确认流水是齐的再点。",
         "按流水重算份额",
         { type: "warning", confirmButtonText: "重算", cancelButtonText: "取消" }
       );
@@ -539,49 +540,6 @@ export function useWorkbenchDomains() {
       await loadDiscrepancies();
     } catch (e) {
       ElMessage.error(errorMessageOf(e) || "重算失败");
-    }
-  }
-
-  /**
-   * 对「份额被流水反证」的持仓重算份额（#3135）。
-   *
-   * 二次确认必须报出「账上多少 / 流水算出来多少」，并明确「结果为 0 会标记清仓」——
-   * 与差异卡的 `handleRecompute` 同口径。**带对账补录的那类不给这条路径**：
-   * 补录同时改流水与份额，盲目重算会把假补录一起算进去（真库 #944 会 1000 → 0），
-   * 必须先回交易记录核对/删除补录，故面板上只提供「去核对补录流水」。
-   */
-  async function handleShareRecompute(item: ShareIntegrityItem): Promise<void> {
-    try {
-      await ElMessageBox.confirm(
-        `将按「${item.name || item.symbol}」名下流水重算份额：账上现在是 ${reconQuantity(
-          item.quantity_now
-        )}，流水算出来是 ${reconQuantity(
-          item.quantity_if_recomputed
-        )}。重算后账上会改成流水的结果，流水净额为 0 时这条持仓会被标记为已清仓。`,
-        "按流水重算份额",
-        { type: "warning", confirmButtonText: "重算", cancelButtonText: "取消" }
-      );
-    } catch {
-      return; // 用户取消
-    }
-    shareActingId.value = item.position_id;
-    try {
-      const res = await recomputePositionShares(
-        item.position_id,
-        "对账工作台：份额被流水反证"
-      );
-      const after = res.data?.quantity_after;
-      ElMessage.success(
-        after == null
-          ? "已重算，份额已按流水更新"
-          : `已重算：账上份额改为 ${reconQuantity(after)}`
-      );
-      // 域 B 的差异是算出来落库的：重算后必须跑一次对账，卡片才会跟着消失。
-      await reloadAfterTrailChange();
-    } catch (e) {
-      ElMessage.error(errorMessageOf(e) || "重算失败");
-    } finally {
-      shareActingId.value = null;
     }
   }
 
@@ -701,9 +659,7 @@ export function useWorkbenchDomains() {
     loadDanglingRefs,
     shareItems,
     shareLoading,
-    shareActingId,
     loadShareIntegrity,
-    handleShareRecompute,
     orphanLedgers,
     orphanLoading,
     loadOrphanLedgers,

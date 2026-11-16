@@ -478,7 +478,9 @@ def test_reattach_reports_share_mismatch_after_attach(db, ledger):
     assert check['quantity_if_recomputed'] == pytest.approx(0.0)
     assert check['diff'] == pytest.approx(-2.0)
     assert check['recompute_suggested'] is True
-    assert '重算' in (check['hint'] or '')
+    # 净额 0 ⇒ 提示必须指向「核对流水 / 按账单填 0」，不再建议按流水重算（2026-11-16 定调）
+    assert '改成账单份额' in (check['hint'] or '')
+    assert '不能据此清仓' in (check['hint'] or '')
     assert db.query(Position).filter_by(id=target.id).one().quantity == Money.shares_to_min_unit(2.0)
 
 

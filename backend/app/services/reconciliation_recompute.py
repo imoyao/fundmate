@@ -17,9 +17,12 @@
 
 差异卡片是某次 run 生成的，用户点按钮时数据可能已被别的链路改过
 （`reconciliation_anchor` 记了同款时点差：#3128 就是两次对账之间把 101 条持仓重算清仓的）。
-若此刻按流水派生的净额为**负**（卖出多于买入，典型是买入腿没挂回来），重算会把这只
-持仓清零——那是把「流水缺一条腿」误判成「已清仓」。#3127 明确「不敢批量清仓、只报数
-交人工」，故负数一律拒绝，并把用户指向手填入口（`kind='set'`，前端标为「改成账单份额」）。
+若此刻按流水派生的净额为**零或负**（买卖齐平 / 卖出多于买入，典型是买入腿没补回来），
+重算会把这只持仓清零——那是把「流水缺一条腿」误判成「已清仓」。用户 2026-11-16 定调：
+**份额的真相是账单，不是流水；不能按流水直接清仓**。#3127 早就写了「不敢批量清仓、
+只报数交人工」，本次把这条口径收紧成硬闸门（`position_recompute_entry.
+assert_recompute_keeps_position`），并把用户指向手填入口（`kind='set'`，前端标为
+「改成账单份额」——账单说没有这只了就填 0，这才是显式清仓）。
 
 ## 两套流水口径必须先对账
 
@@ -33,10 +36,9 @@
 
 from sqlalchemy.orm import Session
 
-from app.core.money import Money
 from app.domains.reconciliation.models import ReconciliationDiscrepancy
 from app.domains.transactions.models import Transaction
-from app.services.position_recompute_entry import recompute_with_audit
+from app.services.position_recompute_entry import assert_recompute_keeps_position, recompute_with_audit
 from app.services.position_write_support import _find_existing_position
 from app.services.reconciliation_adjustment import recompute_linked_discrepancy
 from app.services.reconciliation_theory import has_anchor
@@ -44,25 +46,14 @@ from app.services.reconciliation_theory import has_anchor
 DEFAULT_REASON = '对账工作台：按流水重算份额'
 
 
-def _derived_net_units(db: Session, position) -> int:
-    """该持仓按现有流水派生出的份额（锚点感知，最小单位）。
-
-    函数内导入：`position_service` 在模块级会牵进一大串依赖，本模块只在这条写路径上用一次。
-    """
-    from app.services.position_service import compute_anchored_state  # noqa: PLC0415
-
-    net_units, _ = compute_anchored_state(db, position)
-    return net_units
-
-
 def _assert_flows_support_position(db: Session, position) -> None:
-    """负数派生额 ⇒ 拒绝重算（见模块 docstring「为什么写之前要再判一次」）。"""
-    net_units = _derived_net_units(db, position)
-    if net_units < 0:
-        raise ValueError(
-            f'按现有流水算是 {Money.min_unit_to_shares(net_units):g} 份（卖出多于买入，缺买入流水），'
-            '据此重算会把持仓清零。请先补齐缺失的买入流水，或改用「改成账单份额」按账单填当前份额'
-        )
+    """派生额 ≤ 0 而账上仍有份额 ⇒ 拒绝重算（见模块 docstring「为什么写之前要再判一次」）。
+
+    闸门实现只有一处（``position_recompute_entry.assert_recompute_keeps_position``）：
+    工作台、持仓页、巡检面板面对的是同一个问题——流水派生的清仓结论不可信。
+    这里保留一个包壳是为了让「工作台的写前检查」在调用链上仍然显式可见。
+    """
+    assert_recompute_keeps_position(db, position)
 
 
 def _has_key_flows(db: Session, disc: ReconciliationDiscrepancy) -> bool:
@@ -123,8 +114,10 @@ def recompute_discrepancy_shares(
         raise ValueError(
             '这条差异找不到对应持仓：可能已被删除或归到了别的账本。若持仓行确实没了，先去「修正数据」按流水重建持仓'
         )
-    _assert_flows_support_position(db, position)
+    # 先判「两套口径看到的是不是同一批流水」：悬空流水是更具体的成因，
+    # 报「流水没挂回来」比报「流水算出来是 0」更能把用户指到对的那一步。
     _assert_same_flow_set(db, position, disc)
+    _assert_flows_support_position(db, position)
 
     result = recompute_with_audit(
         db,

@@ -4,9 +4,11 @@
 四种裁决形态，语义各不相同（混用会把「改持仓」和「补流水」写成一件事）：
 
     increment  补一笔缺失买卖 → 买卖汇点（写 Transaction + 重算 Position）
-    set        用户手填份额/成本 → 写人工锚点（`upsert_from_holding`，不建流水）
+    set        用户手填份额/成本 → 写人工锚点（`upsert_from_holding`，不建流水）；
+               份额填 **0** = 按账单清仓（唯一合法的清仓入口，见 `_clear_position_by_bill`）
     anchor     以持仓**当前值**写人工锚点（#3125，免手抄；见 `reconciliation_anchor`）
-    recompute  按流水派生结果覆写持仓份额（#3134，见 `reconciliation_recompute`）
+    recompute  按流水派生结果覆写持仓份额（#3134，见 `reconciliation_recompute`）；
+               派生额 ≤ 0 时拒绝，不会清仓（2026-11-16，见 `assert_recompute_keeps_position`）
 
 > **未知 kind 一律拒绝**（`ADJUSTMENT_KINDS`）。原先 `if/elif` 的 `else` 兜底把没见过的
 > kind 静默当成 `increment`（补录买入）：2026-11-16 真机实测，`--no-reload` 起的旧后端
@@ -38,6 +40,8 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from app.core.constants import AnchorKind, PositionSource
+from app.core.money import Money
+from app.domains.positions.state import mark_position_cleared
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
 from app.services.position_service import PositionService
 from app.services.position_write_support import _find_existing_position
@@ -92,8 +96,12 @@ def _normalize_dates(data: dict) -> None:
                 raise ValueError(f'日期格式错误: {key}={raw!r}，应为 YYYY-MM-DD')
 
 
-def _apply_set(db: Session, data: dict):
+def _apply_set(db: Session, family_id: int, data: dict):
     """设定型：写**人工锚点**（不是普通快照导入）。"""
+    # 账单说「这只已经没有了」：份额 0 不是快照能表达的（``upsert_from_holding`` 要求 > 0），
+    # 但它是唯一合法的清仓入口——按流水重算已被闸门挡住（见 ``position_recompute_entry``）。
+    if data.get('quantity') is not None and float(data['quantity'] or 0) == 0:
+        return _clear_position_by_bill(db, family_id, data)
     # - anchor_kind='manual'：同日外部快照不得覆盖它（见 _assert_anchor_accepts）；
     # - allow_anchor_rewind=True：用户显式要求设定持仓，不属于「导入旧快照」，
     #   不受「更旧日期拒绝」约束——这是唯一的合法回退入口；
@@ -106,6 +114,38 @@ def _apply_set(db: Session, data: dict):
         'symbol': position.symbol,
         'quantity': position.quantity,
         'avg_price': position.avg_price,
+    }
+
+
+def _clear_position_by_bill(db: Session, family_id: int, data: dict):
+    """「改成账单份额 = 0」：按**账单**清仓（行保留 + 锚点重置为当日 0 份）。
+
+    为什么不是直接用 ``mark_position_cleared`` 收工：清仓行仍走锚点派生
+    （``compute_anchored_state`` 对 cleared 不豁免），旧锚点还写着 60 份时，
+    下一次净值回填会把这条持仓**复活**成 60。故锚点必须一起改成
+    「0 份 / 0 成本额 / 账单日 / manual」——与 #2343 再买入时的
+    ``reactivate_cleared_position`` 同一套写法，只是方向相反。
+
+    清仓是**人**的结论（账单上没有这只了），不是流水派生出来的结论：
+    2026-11-16 用户定调「只应该把错的改对，不应该把对的改错」，
+    所以这条路径只认显式填 0，不再由任何「按流水重算」触发。
+    """
+    position = _find_existing_position(db, data.get('ledger_id'), family_id, data.get('symbol') or '', '')
+    if position is None:
+        raise ValueError('找不到要清仓的持仓：可能已删除或归到了别的账本，请先刷新对账队列')
+    cleared_on = data.get('snapshot_date') or date.today()
+    mark_position_cleared(position, cleared_on)
+    position.snapshot_quantity = 0
+    position.snapshot_avg_price = 0
+    position.snapshot_date = cleared_on
+    position.anchor_kind = AnchorKind.MANUAL.value
+    db.flush()
+    return position, {
+        'position_id': position.id,
+        'symbol': position.symbol,
+        'quantity': 0,
+        'avg_price': Money.price_units_to_yuan(position.avg_price or 0),
+        'cleared': True,
     }
 
 
@@ -189,8 +229,9 @@ def apply_decision(db: Session, family_id: int, payload: dict) -> dict:
         after = anchor_after_payload(position)
         action = 'anchor'
     elif kind == 'set':
-        position, after = _apply_set(db, data)
-        action = 'adjust' if disc else 'supplement'
+        position, after = _apply_set(db, family_id, data)
+        # 清仓与「改份额」在审计里必须是两件事：复盘时一眼能看出这次动作把持仓归零了。
+        action = 'clear' if after.get('cleared') else ('adjust' if disc else 'supplement')
     else:
         position, after = _apply_increment(db, family_id, data)
         action = 'supplement'
