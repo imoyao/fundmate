@@ -66,14 +66,14 @@ GATEWAY_CALL_TOOL = 'market_call_tool'
 MARKET_SEARCH_TOOL = 'market_search_tools'
 
 #: 能力名 → 上游工具名（**只登记实测确认过工具名的能力**；生产链路不做自然语言检索，§6.3）。
-#: EDB 双工具 2026-10-25 真机实测（search 列清单 / query 取时间序列，
-#: 返回 ``metrics`` 形状与表格不同，解析在 :mod:`app.services.adapters.wind_edb`）。
+#: EDB 双工具 2026-11-16 经 ``market_search_tools`` 复核（**非 tools/list**：数据工具是网关入参）；
+#: 旧名 ``search_economic_indicator`` 等已被上游废弃，改回即静默降级到空（adapter 的 except 会吞）。
 _CAPABILITY_TOOLS: Dict[str, str] = {
     'index_kline': 'get_index_kline',
     'index_basicinfo': 'get_index_basicinfo',
     'index_technicals': 'get_index_technicals',
-    'edb_search': 'search_economic_indicator',
-    'edb_query': 'query_economic_indicator_data',
+    'edb_search': 'economic_search_indicator',
+    'edb_query': 'economic_query_indicator_series',
     # 注意：个股档案（`get_stock_basicinfo`）**不在这里**——它属于
     # `/vserver_stock_data` 那个**独立 vserver**，走标准 tools/call 而不是本域的
     # `market_call_tool` 二级网关。硬塞进来只会得到「工具不存在: market_call_tool」
