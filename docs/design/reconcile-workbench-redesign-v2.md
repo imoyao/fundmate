@@ -502,3 +502,54 @@ owner 用真数据跑了一遍，指出三个仍像 bug 的点，本轮一次性
   类型在 `index.vue` / `ReconQueueDetail.vue` 却正常。该字段没有任何消费者（各域只判 `kind`），
   删掉这个 `null` 判别值后误报消失——**别为它加 `as unknown as` 转换**，那只是把假阳性藏起来。
 
+---
+
+## 13. 第四轮：补录按金额买入，与「记一笔」同口径（2026-11-15）
+
+### 13.1 owner 指出的问题
+
+> 「基金买入的时候不是按照金额自动拉取净值计算吗？怎么这里又不遵守了？组件没有共用？」
+
+实机现场：对账工作台的「补录这笔 · 交银施罗德启明混合C」只有「成交数量 / 成交价格」，
+用户手里有的是**金额与日期**（支付宝账单口径），份额恰恰是要算出来的那个数。
+同一件事两个入口两套口径 —— 记一笔填金额自动算份额，补录却要人反着手填份额。
+
+**这不是「设计如此」，是没做完的遗留**：§2.5 当时已把「表单缺金额与手续费」记为风险，
+手续费后来补了，金额没补。根因有两条：
+
+1. 换算只住在 `QuickEntry/composables/useBuySharesLinkage.ts` 的 watch 回调里，
+   别的入口拿不到（既不是纯函数，也不在共享目录）；
+2. **差异行不带品种**（`asset_type`）——前端不知道这支是不是场外基金，也就无从判断
+   「能不能拉当日净值」。旧代码为此在补录表单里写了一句「这里拿不到品种，按未知档 4 位」。
+
+### 13.2 修法（共用算术 + 共用组件，不动载荷）
+
+| 层 | 改动 | 判据 |
+|---|---|---|
+| 后端出参 | 差异列表加 `asset_type`（`positions.type`，名录回退 `fund`）；整段序列化下沉 `services/reconciliation_query.serialize_discrepancies` | `test_discrepancies_api_returns_asset_type` / `test_resolve_asset_types_prefers_position_then_fund_directory` |
+| 换算 | 抽纯函数 `@/utils/tradeAmountMath`（`sharesFromAmount` / `amountFromShares`） | `utils/__tests__/tradeAmountMath.spec.ts` |
+| 联动 | 上提为通用 `@/composables/useSharesLinkage`（访问器适配字段名）；`useBuySharesLinkage` 退化成薄包装 | 记一笔既有 6 条 spec **一行未改全绿** + 新增 6 条（补录字段名 / `enabled` 关闭） |
+| 净值 | 新增 `useSupplementNavSync`：交易日期 → 确认日 → 拉当日净值，写进「确认净值」 | `useSupplementNavSync.spec.ts` 5 条（含「净值查不到时只清系统填的值」） |
+| 表单 | 买入档复用 `QuickEntry/components/BuyAmountField.vue`（新增 `fieldProp` 适配字段名），价格框在场外基金买入时改称「确认净值」 | 页面规模门禁通过（`SupplementDialog` 净减，未顶 400） |
+
+**刻意没做的事**：
+
+- **不合并四套表单的端点**（§2.5 / §11.6 的遗留仍在）：`/adjustments/` 的载荷与审计语义
+  是另一件事，本轮只让**算术与组件**共用，请求体仍是 `quantity` + `avg_price`；
+- **卖出 / 存入 / 取出不加金额**：卖出时账单上写的就是份额，多一个金额只会多一个
+  可以被改错的数；
+- **`set`（把持仓改成）模式不联动**：覆盖式 SET 要的是「账单上的份额」，联动会在改成本
+  单价时顺手改写用户刚填的目标份额；
+- **净值查不到不猜**：置 `navMissing` → 联动停手、提示「份额和净值请手填」，
+  绝不按估算净值静默写成本。
+
+### 13.3 验证增量
+
+| 项 | 结果 |
+|---|---|
+| 前端单测（4 个文件，含记一笔回归） | 23 passed |
+| 后端 `tests/domains/test_reconciliation.py` + 视图体量守卫测试 | 48 passed |
+| `vue-tsc --noEmit` | 0 error |
+| ESLint / Prettier / Stylelint / `guard_price_precision` / `check_vue_size` | 全绿 |
+| `check_view_thickness` | 该视图 378 → 358（只减不增，已回写基线） |
+

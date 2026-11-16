@@ -12,6 +12,13 @@ export interface DiscrepancyItem {
   symbol: string;
   /** 后端批量解析出的产品名（2026-11-07 第二轮）；为空时前端降级显示代码 */
   display_name?: string | null;
+  /**
+   * 品种（`positions.type`，名录回退 `fund`；查不到为空串）——2026-11-15。
+   *
+   * 补录表单靠它决定「能不能按金额 + 当日净值填」：只有场外基金有当日净值；
+   * 也让价格输入框按品种取精度档，而不是一律按未知档 4 位兜底。
+   */
+  asset_type?: string | null;
   discrepancy_type: string; // quantity|cost|cash|orphan
   expected_value: number | null;
   actual_value: number | null;

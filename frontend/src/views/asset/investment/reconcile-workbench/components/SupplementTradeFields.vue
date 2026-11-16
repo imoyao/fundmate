@@ -26,6 +26,14 @@
       placeholder="这笔哪天成交的"
     />
   </el-form-item>
+  <!-- 买入金额：与「记一笔」同一个组件、同一份换算（@/utils/tradeAmountMath）。
+       基金买入时手里有金额与日期、份额才是要算的那个数——此前只能反着手填份额。 -->
+  <BuyAmountField
+    v-if="opTypeModel === 'buy'"
+    v-model:amount="amountModel"
+    :is-portfolio="false"
+    field-prop="buy_amount"
+  />
   <el-form-item :label="TRADE_FIELD_LABELS.quantity" prop="quantity">
     <div class="supplement-fields__quantity">
       <el-input-number
@@ -56,8 +64,8 @@
       这条差异没有按流水算出的份额，核对流水后直接手填数量
     </div>
   </el-form-item>
-  <el-form-item :label="TRADE_FIELD_LABELS.price" prop="avg_price">
-    <!-- 位数走 @/utils/pricePrecision 的录入档（此处拿不到品种，按后端上限 4 位）；
+  <el-form-item :label="priceLabel" prop="avg_price">
+    <!-- 位数走 @/utils/pricePrecision 的录入档（差异行现在带 asset_type，按品种取档）；
          写死字面量精度会被 guard_price_precision.mjs 拦下（issue #3120）。 -->
     <el-input-number
       v-model="avgPriceModel"
@@ -66,8 +74,15 @@
       :step="priceInput.step"
       :controls="false"
       style="width: 100%"
-      placeholder="每份成交价（元）"
+      :placeholder="isFundBuy ? '自动填入当日净值，可改' : '每份成交价（元）'"
     />
+    <div
+      v-if="navHint"
+      class="text-xs mt-1"
+      style="color: var(--text-tertiary-ink)"
+    >
+      {{ navHint }}
+    </div>
   </el-form-item>
   <el-form-item
     v-if="opTypeModel === 'buy' || opTypeModel === 'sell'"
@@ -92,6 +107,7 @@
 import { computed } from "vue";
 import { TRADE_FIELD_LABELS } from "@/constants";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import BuyAmountField from "@/components/QuickEntry/components/BuyAmountField.vue";
 import { priceInputMeta } from "@/utils/pricePrecision";
 import { reconQuantity } from "../utils/reconDisplay";
 
@@ -112,6 +128,12 @@ const props = defineProps<{
   avgPrice: number | undefined;
   fee: number | undefined;
   tradeDate: string;
+  /** 买入金额（元）：只在买入档展示，用来反算份额（口径见 @/utils/tradeAmountMath） */
+  amount: number | undefined;
+  /** 品种：`fund` 时价格框是「确认净值」并带自动填入提示 */
+  assetType: string;
+  /** 净值来源提示（空串则隐藏）；文案由 `useSupplementNavSync` 产出 */
+  navHint: string;
   /** 按流水算的份额（差异行 expected_value，单位份）；空或 ≤0 时「卖出全仓」降级禁用 */
   expectedQuantity: number | null;
 }>();
@@ -122,6 +144,7 @@ const emit = defineEmits<{
   "update:avgPrice": [value: number | undefined];
   "update:fee": [value: number | undefined];
   "update:tradeDate": [value: string];
+  "update:amount": [value: number | undefined];
 }>();
 
 const opTypeModel = computed({
@@ -144,10 +167,22 @@ const tradeDateModel = computed({
   get: () => props.tradeDate,
   set: val => emit("update:tradeDate", val)
 });
+const amountModel = computed({
+  get: () => props.amount,
+  set: val => emit("update:amount", val)
+});
 
-// 成交价录入档：这里拿不到品种（差异行不带 asset_type），按契约的未知档 4 位，
-// 与改造前的字面量 4 位等价 —— 换成契约是为了让守卫能拦「新增写死精度」（#3120）。
-const priceInput = computed(() => priceInputMeta());
+/** 场外基金买入：这个框装的是确认净值，不是成交价（标签要跟着变，别让人以为是两回事） */
+const isFundBuy = computed(
+  () => props.assetType === "fund" && props.opType === "buy"
+);
+const priceLabel = computed(() =>
+  isFundBuy.value ? "确认净值" : TRADE_FIELD_LABELS.price
+);
+
+// 成交价录入档：差异行现在带 asset_type（后端 `serialize_discrepancies`），按品种取档；
+// 未知品种仍回落契约的 4 位上限 —— 写死字面量会被守卫拦下（#3120）。
+const priceInput = computed(() => priceInputMeta(props.assetType));
 
 /**
  * 卖出全仓：单值快捷填充（不是 QuickRatioPicker 的比例档位，分工见 design.md）。
