@@ -25,7 +25,9 @@ def _validate_major_category(value: str | None) -> str | None:
     if value is None:
         return None
     if value not in MAJOR_CATEGORY_VALUES:
-        raise ValueError(f'major_category 非法：{value!r}；合法取值见 /api/utils/enums/ 的 asset_category')
+        # 这句会作为 400 的 message 显示给用户（见 docs/spec/decisions.md D118）：
+        # 只说要用户做什么，不写接口路径 / 字段名——那是给前端开发的，用户看了只会糊涂。
+        raise ValueError(f'资产大类「{value}」不支持，请在下拉里重新选择')
     return value
 
 

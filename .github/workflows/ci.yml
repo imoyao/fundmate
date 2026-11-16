@@ -226,6 +226,14 @@ jobs:
       - name: 守卫:services 层体量/复杂度软闸门
         run: python ../scripts/guard_service_size.py
 
+      # 守卫：用户可见文案不许出现接口路径 / HTTP 方法 / 登录态（D118）。
+      # 源 2026-11-16 用户反馈：份额巡检的提示直接渲染在面板上，却写着
+      # 「或调用 POST /api/positions/39/recompute/（需带登录态）」——那是给开发看的。
+      # 只扫响应正文类字符串（abort description / raise 文案 / hint-message 字典值），
+      # logger 文案不扫（日志归开发）。回归网：scripts/tests/test_guard_user_facing_copy.py
+      - name: 守卫:用户可见文案
+        run: python ../scripts/guard_user_facing_copy.py
+
       # 守卫：跨域模型同语句（#1643：双库「零外键、零 SQL join」）。
       # **本 job 是这条约束唯一的机器化拦截层**：门禁与全部单测都跑单库
       # （conftest 把 engine / user_engine patch 成同一个内存引擎），跨域 join 在两域
