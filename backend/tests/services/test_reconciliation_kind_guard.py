@@ -173,7 +173,9 @@ def test_recompute_kind_refuses_to_clear_when_flows_net_zero(db, ledger):
     _txn(db, ledger.id, pos, 'sell', 60, day=date(2026, 5, 2))
     disc = _disc(db, ledger.id, expected=0, actual=60)
 
-    with pytest.raises(ValueError, match='不再按流水清仓'):
+    # 判据绑「退路动作」而不是语气词：文案措辞会改（D118 就改过一次），
+    # 「改成账单份额」是这条拒绝稳定给出的唯一出路，绑它不会因换句话就误红。
+    with pytest.raises(ValueError, match='改成账单份额'):
         apply_decision(db, _FAMILY, {'kind': 'recompute', 'discrepancy_id': disc.id})
 
     db.refresh(pos)
