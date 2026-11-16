@@ -160,6 +160,13 @@ NEW_FILE_LIMITS = {
 # `reconciliation_theory.is_missing_baseline`，检测与写锚点动作共用同一份；
 # 上述括号里的体量是**下沉当时**的记录，theory/anchor 因新增判据与防线分别长到
 # 149/24/7 与 138/71/8，仍远低于 NEW_FILE_LIMITS（800/120/20）。
+#
+# 2026-11-16 Wind EDB 工具名/参数名修复（#1502 步骤 1）按 `--report` **收紧**一项：
+# `wind_edb.py` lines 153→152。上游已把 `search_economic_indicator` /
+# `query_economic_indicator_data` 改名为 `economic_search_indicator` /
+# `economic_query_indicator_series`、`beginDate` 改 `startDate`，而实现与测试白名单一起
+# 写死旧名 ⇒ 换手率维度长期静默降级。修复只改名 + 补契约注释，净减 1 行来自压缩模块头
+# 冗余段落。基线向下收紧，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -179,7 +186,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/adapters/qieman_advisor_adapter.py": {'lines': 474, 'max_func': 50, 'max_cc': 16},
     "backend/app/services/adapters/qieman_fetcher.py": {'lines': 651, 'max_func': 63, 'max_cc': 18},
     "backend/app/services/adapters/tiantian_advisor_adapter.py": {'lines': 442, 'max_func': 43, 'max_cc': 11},
-    "backend/app/services/adapters/wind_edb.py": {'lines': 153, 'max_func': 52, 'max_cc': 15},
+    "backend/app/services/adapters/wind_edb.py": {'lines': 152, 'max_func': 52, 'max_cc': 15},
     "backend/app/services/adapters/wind_fund.py": {'lines': 354, 'max_func': 74, 'max_cc': 11},
     "backend/app/services/adapters/wind_index.py": {'lines': 147, 'max_func': 40, 'max_cc': 6},
     "backend/app/services/adapters/wind_index_valuation.py": {'lines': 237, 'max_func': 98, 'max_cc': 22},
