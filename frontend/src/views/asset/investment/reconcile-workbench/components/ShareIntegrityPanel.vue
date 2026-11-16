@@ -20,8 +20,10 @@
       >
         <div class="share-integrity__row-title">
           <span class="share-integrity__name">
-            {{ item.name || item.symbol }}
-            <span class="share-integrity__symbol">{{ item.symbol }}</span>
+            {{ reconGroupTitle(item.symbol, item.name) }}
+            <span class="share-integrity__symbol">
+              {{ reconSymbolCode(item.symbol) }}
+            </span>
           </span>
           <el-tag
             v-if="item.adjustment_txns.length"
@@ -92,7 +94,11 @@
 
 <script setup lang="ts">
 import type { ShareIntegrityItem } from "@/api/reconciliation";
-import { reconQuantity } from "../utils/reconDisplay";
+import {
+  reconGroupTitle,
+  reconQuantity,
+  reconSymbolCode
+} from "../utils/reconDisplay";
 
 defineOptions({ name: "ShareIntegrityPanel" });
 
