@@ -64,7 +64,7 @@
     "axios": "^1.21.0",
     "dayjs": "^1.11.21",
     "echarts": "^6.1.0",
-    "element-plus": "^2.14.7",
+    "element-plus": "^2.14.8",
     "js-cookie": "^3.0.8",
     "localforage": "^1.10.0",
     "marked": "^18.2.0",
