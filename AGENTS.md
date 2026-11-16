@@ -2174,6 +2174,7 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 | 场景 | 命令 |
 |------|------|
 | 一键启动（根目录） | `./scripts/dev.sh`（macOS/Linux/WSL）或 `dev.cmd`（Windows） |
+| 只重启后端（开发） | `./scripts/restart-backend.ps1`（默认 `--debug` reload；`-NoReload` 只能显式指定——冻结进程会让后合入的功能「不存在」） |
 | 后端测试 | `cd backend && pdm run pytest -p no:xdist` |
 | 后端 Lint | `cd backend && pdm run ruff check .` |
 | 后端格式 | `cd backend && pdm run ruff format .` |

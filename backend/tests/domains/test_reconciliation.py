@@ -1182,6 +1182,52 @@ class TestInContextSupplement:
         txn = db.query(Transaction).filter_by(position_id=pos.id, txn_type='sell').one()
         assert txn.quantity == Money.shares_to_min_unit(100)
 
+    def test_unknown_kind_returns_400_instead_of_supplementing(self, client, db):
+        """未知 kind → 400 且说清「后端不认识这个动作」，不静默当补录买入。
+
+        事故形态（2026-11-16）：`--no-reload` 起的旧后端收到新前端的
+        `kind='recompute'`，落到兜底分支变成「补录一笔买入」，用户看到的是
+        「数量必须大于 0」。payload 里带 quantity 时它会真的写进一笔流水。
+        """
+        ledger_id, disc_id = self._make_partial_supplement_target(client, db)
+        txn_before = db.query(Transaction).count()
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'recompute_v2',
+                'discrepancy_id': disc_id,
+                'symbol': 'S1',
+                'ledger_id': ledger_id,
+                # 旧兜底分支正是拿这两个字段写买入
+                'quantity': 100,
+                'avg_price': 10,
+            },
+        )
+
+        assert resp.status_code == 400
+        message = resp.get_json()['message']
+        assert '未知的裁决类型' in message
+        assert 'recompute' in message
+        assert db.query(Transaction).count() == txn_before, '拒绝时不得写入流水'
+
+    def test_anchor_does_not_require_symbol(self, client, db):
+        """「以此为准」不传 symbol 也必须走通（前端就是这么发的）。
+
+        路由原先无条件要求 symbol，而 `buildAdjustmentPayload` 的 anchor 分支只发
+        `kind/discrepancy_id/reason`（份额取持仓现值、标的由差异行定位）⇒ 工作台上
+        点「以此为准」必 400「缺少 symbol」。symbol 只对按标的定位的 increment/set 必需。
+        """
+        _ledger_id, disc_id = self._make_partial_supplement_target(client, db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={'kind': 'anchor', 'discrepancy_id': disc_id, 'reason': '券商快照为准'},
+        )
+
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['action'] == 'anchor'
+
 
 class TestLedgerSnapshotConsistency:
     """账户持仓快照一致性（#1133 §4 温柔提醒数据源）：只读、不写 discrepancies 表。"""

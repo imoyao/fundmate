@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
 """对账差异的**就地裁决**（#1232 §5.4 / P2；#3125 从 `reconciliation_service` 下沉）。
 
-三种裁决形态，语义各不相同（混用会把「改持仓」和「补流水」写成一件事）：
+四种裁决形态，语义各不相同（混用会把「改持仓」和「补流水」写成一件事）：
 
     increment  补一笔缺失买卖 → 买卖汇点（写 Transaction + 重算 Position）
     set        用户手填份额/成本 → 写人工锚点（`upsert_from_holding`，不建流水）
     anchor     以持仓**当前值**写人工锚点（#3125，免手抄；见 `reconciliation_anchor`）
     recompute  按流水派生结果覆写持仓份额（#3134，见 `reconciliation_recompute`）
+
+> **未知 kind 一律拒绝**（`ADJUSTMENT_KINDS`）。原先 `if/elif` 的 `else` 兜底把没见过的
+> kind 静默当成 `increment`（补录买入）：2026-11-16 真机实测，`--no-reload` 起的旧后端
+> （早于 #3134）收到新前端的 `kind='recompute'` 就落到那次兜底，用户点「按流水重算份额」
+> 得到的提示是「数量必须大于 0」——与操作毫无关系；更糟的是 payload 若带 quantity，
+> 它会**真的写进一笔买入**。未知动作没有默认语义，只能拒绝并说清原因。
 
 > `increment` 对 `quantity` 类差异是**无效动作**：它同时写流水与持仓，而差额是两者之差，
 > 恒等于操作前的值。这条留在这里，是因为前端判据（`utils/discAction.ts`）把 `quantity`
@@ -39,6 +45,12 @@ from app.services.reconciliation_adjustment import recompute_linked_discrepancy
 from app.services.reconciliation_anchor import anchor_after_payload, write_anchor_from_position
 from app.services.reconciliation_integrity import assert_supplement_is_new
 from app.services.reconciliation_recompute import recompute_discrepancy_shares
+
+#: 「就地裁决」唯一合法动作集，与前端 `reconcile-workbench/utils/discAction.ts` 的 4 个动作
+#: 一一对应。为什么是白名单而不是 if/elif 的兜底：兜底会把未识别的 kind 静默当成
+#: `increment`（见模块 docstring 里 2026-11-16 的真机事故），未知动作必须拒绝。
+ADJUSTMENT_KINDS = ('increment', 'set', 'anchor', 'recompute')
+_KINDS_LABEL = ' / '.join(ADJUSTMENT_KINDS)
 
 
 def resolve_sell_position_id(db: Session, family_id: int, data: dict) -> dict:
@@ -128,6 +140,13 @@ def apply_decision(db: Session, family_id: int, payload: dict) -> dict:
     / operator + 汇点字段。
     """
     kind = payload.get('kind', 'increment')
+    if kind not in ADJUSTMENT_KINDS:
+        # 未知动作不得有默认语义（见模块 docstring）：拒绝并说清「后端不认识它」，
+        # 前端比后端新时用户看到的第一句话就是「重启后端」，而不是一句报错的买入口径。
+        raise ValueError(
+            f'未知的裁决类型 kind={kind!r}：后端只支持 {_KINDS_LABEL}。'
+            '前端可能比后端新，请重启后端后再试（开发模式下 --debug 会自动重载）；本次未写入任何数据'
+        )
     disc_id = payload.get('discrepancy_id')
     reason = payload.get('reason')
     operator = payload.get('operator')
