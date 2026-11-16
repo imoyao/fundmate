@@ -34,6 +34,16 @@
         :open-records="openRecords"
       />
 
+      <!-- #3135：差异卡只说「理论 0 / 实际 1000」，说不出这 1000 从哪来。
+           这一块把成因（含对账补录流水）与可执行动作随页面一起摆出来。 -->
+      <ShareIntegrityPanel
+        v-if="shareItems.length > 0"
+        :items="shareItems"
+        :acting-id="shareActingId"
+        @recompute="handleShareRecompute"
+        @go-transactions="goShareTransactions"
+      />
+
       <WorkbenchTaskCards
         :active="filter.task"
         :counts="taskCounts"
@@ -167,6 +177,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
+import type { ShareIntegrityItem } from "@/api/reconciliation";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import RecognizerImportModal from "@/components/QuickEntry/RecognizerImportModal.vue";
@@ -184,6 +195,7 @@ import ReconQueueDetail from "./components/ReconQueueDetail.vue";
 import ReconBatchDialog from "./components/ReconBatchDialog.vue";
 import SupplementDialog from "./components/SupplementDialog.vue";
 import DanglingRefFixDialog from "./components/DanglingRefFixDialog.vue";
+import ShareIntegrityPanel from "./components/ShareIntegrityPanel.vue";
 import { taskMeta } from "./constants/reconTasks";
 import type { ReconQueueSource } from "./utils/reconQueue";
 import { useWorkbenchDomains } from "./composables/useWorkbenchDomains";
@@ -204,6 +216,9 @@ const {
   taxItems,
   danglingRefs,
   orphanLedgers,
+  shareItems,
+  shareActingId,
+  handleShareRecompute,
   recognizerCandidates,
   committing,
   dataDateLabel,
@@ -292,6 +307,12 @@ const {
   openOrphanFix,
   batchItems
 } = useWorkbenchActions(domains, queue);
+
+/** 「去核对补录流水」：交易流水页支持 `?symbol=` 预置筛选（TransactionList 的既有能力），
+ *  按标的带过去比按持仓 id 更贴近那一页的筛选口径。 */
+function goShareTransactions(item: ShareIntegrityItem): void {
+  goTo(`/transactions?symbol=${encodeURIComponent(item.symbol)}`);
+}
 
 const selectableIds = computed(
   () => new Set(selectableItems.value.map(i => i.id))

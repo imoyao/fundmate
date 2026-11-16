@@ -70,6 +70,7 @@ from app.services.orphan_ledger_service import (
     scan_orphan_ledgers,
     undo_backfill,
 )
+from app.services.position_share_audit import scan_disproved_shares
 
 bp = APIBlueprint('reconciliation_integrity', __name__, url_prefix='/api/reconciliation')
 
@@ -502,6 +503,27 @@ def undo_dangling_mislink():
             abort(400, description=str(e))
         db.flush()
         return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── #3135 份额被流水反证（reattach 漏网持仓）：只读暴露 ────────────────────────
+# 判据与判定口径全在 `position_share_audit`（对账收尾每次都会报数），这里只做 HTTP 编排。
+# 单独开一个 GET 的理由：工作台要一条能**随页面打开就看见**的线索——只写进
+# `reconciliation_runs.summary_json` 的话，用户不点「运行对账」就永远看不到。
+
+
+@bp.get('/share-integrity/')
+def list_share_integrity():
+    """列出「份额被流水反证」的持仓（只读，不写库、不重算）。
+
+    每条含：账上份额 / 按流水派生份额 / 差额 / 流水净额 / ``remedy``（重算入口），
+    以及 ``adjustment_txns``——该持仓名下由「对账补录」写出的流水。有补录时
+    ``remedy.action`` 是 ``review_adjustment``：先核对/回滚补录再重算，否则重算会把
+    假补录一起算进去（补录同时改流水与份额，差额恒定）。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        items = scan_disproved_shares(db, family_id)
+    return jsonify({'data': {'items': items, 'total': len(items)}, 'message': 'ok'})
 
 
 # ── #3126 无归属流水（position_id 为空、无持仓承接）：只读暴露 ──────────────────

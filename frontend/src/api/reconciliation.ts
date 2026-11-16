@@ -362,6 +362,68 @@ export interface DividendTaxPendingData {
   reminders_created?: number;
 }
 
+// ── #3135 份额被流水反证（reattach 漏网持仓）────────────────────────────────
+// 判据与对账收尾报数同源（后端 `position_share_audit`）。单独一个 GET 的理由：工作台要
+// 一条**随页面打开就看得见**的线索——只写进 `reconciliation_runs.summary_json` 的话，
+// 用户不点「运行对账」就永远看不到，而本卡的痛点正是「界面上无法说明这 1000 从哪来」。
+
+/** 命中持仓名下由「对账补录」写出的流水（成因证据，非普通流水） */
+export interface ShareIntegrityAdjustmentTxn {
+  id: number;
+  txn_type: string;
+  /** 份额（份） */
+  quantity: number;
+  /** 单价（元） */
+  price: number;
+  /** 成交日 / 确认日（YYYY-MM-DD），两者皆空时为 null */
+  trade_date: string | null;
+  source: string;
+}
+
+/** 后端给出的可执行重算入口；`blocked` 为真时前端不得提供一键重算 */
+export interface ShareIntegrityRemedy {
+  /** review_adjustment = 先核对/回滚补录流水；position_recompute = 可直接重算 */
+  action: "review_adjustment" | "position_recompute";
+  method: string;
+  endpoint: string;
+  hint: string;
+  blocked?: boolean;
+}
+
+/** 一条「账上还有份额、流水已反证」的持仓 */
+export interface ShareIntegrityItem {
+  position_id: number;
+  symbol: string;
+  name: string;
+  ledger_id: number | null;
+  /** 账上份额（份） */
+  quantity_now: number;
+  /** 按流水派生应得的份额（份） */
+  quantity_if_recomputed: number;
+  /** 差额 = 派生 − 账上（份），负数即「账上多出来的」 */
+  diff: number;
+  /** 名下流水净额（份） */
+  flow_net: number;
+  /** oversold = 净额为负（多半缺买入腿，重算会直接清仓） */
+  flow_state: "oversold" | "netted_out";
+  /** 对账补录流水；非空时 remedy 一定被改成先核对 */
+  adjustment_txns: ShareIntegrityAdjustmentTxn[];
+  remedy: ShareIntegrityRemedy;
+}
+
+/** `GET /api/reconciliation/share-integrity/` 的 data 信封 */
+export interface ShareIntegrityList {
+  items: ShareIntegrityItem[];
+  total: number;
+}
+
+/** 列出「份额被流水反证」的持仓（只读扫描，不写库、不重算） */
+export function getShareIntegrity(): Promise<ApiResponse<ShareIntegrityList>> {
+  return http.get<ApiResponse<ShareIntegrityList>, unknown>(
+    "/api/reconciliation/share-integrity/"
+  );
+}
+
 /** 列出红利税待办（顺带幂等写站内提醒） */
 export function listDividendTaxPending(): Promise<
   ApiResponse<DividendTaxPendingData>

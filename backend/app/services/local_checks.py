@@ -57,6 +57,13 @@ ENV_COLD_SET_GUARD_CRON = 'SCHEDULER_COLD_SET_GUARD_CRON'
 # 防抖的慢速路径），从不来自日更，日跑换不到新信息（#3078 的判据）。
 DEFAULT_COLD_SET_GUARD_CRON = '10 4 * * mon'
 
+ENV_SHARE_INTEGRITY_ENABLED = 'SCHEDULER_SHARE_INTEGRITY_ENABLED'
+ENV_SHARE_INTEGRITY_CRON = 'SCHEDULER_SHARE_INTEGRITY_CRON'
+# 每天 04:20（紧跟周一的冷集巡检之后）。**日频**与 #3078 的判据不冲突：
+# 「份额被流水反证」是新数据产生的（导入 / 挂回 / 补录都会新增），隔一天就可能多一条，
+# 而且它只有两条纯本地查询（positions + transactions），代价与日更同量级。
+DEFAULT_SHARE_INTEGRITY_CRON = '20 4 * * *'
+
 
 @dataclass(frozen=True)
 class LocalCheckSpec:
@@ -69,12 +76,16 @@ class LocalCheckSpec:
         runner: 无参可调用对象，返回 `{'job_name', 'status', 'stats'}` 形态（与
             `run_sync_job` 同构，便于调度器用同一套日志口径）。
         description: 人可读说明，进日志与 `--status`。
+        min_interval_days: `due_checks` 的到期间隔；`None` 表示沿用模块级
+            `MIN_INTERVAL_DAYS`（6 天，周频巡检用）。日频巡检显式给 1——否则一次性
+            执行路径（`pdm run scheduler`）会把日频巡检当成周频，隔 6 天才跑一次。
     """
 
     job_name: str
     cron: str
     runner: Callable[[], Dict[str, Any]]
     description: str
+    min_interval_days: Optional[int] = None
 
 
 def _run_cold_set_bloat_guard() -> Dict[str, Any]:
@@ -102,6 +113,28 @@ def _run_cold_set_bloat_guard() -> Dict[str, Any]:
     }
 
 
+def _run_share_integrity_guard() -> Dict[str, Any]:
+    """跑一次「份额被流水反证」巡检并落库（#3135）。
+
+    只读业务表：扫描口径全在 `position_share_audit.scan_disproved_shares`（与对账收尾、
+    巡检脚本同一份），唯一的写是它自己的 `sync_logs` 审计行。命中即 `flagged`——
+    它不是执行失败，但必须被看见（同 `bloated` 的处理）。
+    """
+    from app.core.database import get_session
+    from app.services import position_share_audit
+
+    db = get_session()
+    try:
+        outcome = position_share_audit.run_and_record(db)
+    finally:
+        db.close()
+    return {
+        'job_name': position_share_audit.JOB_NAME,
+        'status': outcome['status'],
+        'stats': outcome['stats'],
+    }
+
+
 def _enabled(raw: Optional[str], default: bool) -> bool:
     """解析开关型环境变量：空/未设 → default；1/true/yes/on → True。"""
     if raw is None or not raw.strip():
@@ -120,6 +153,18 @@ def build_checks(env: Optional[Mapping[str, str]] = None) -> Tuple[LocalCheckSpe
                 cron=(source.get(ENV_COLD_SET_GUARD_CRON) or DEFAULT_COLD_SET_GUARD_CRON).strip(),
                 runner=_run_cold_set_bloat_guard,
                 description='冷集膨胀巡检（周频，纯本地只读）',
+            )
+        )
+    if _enabled(source.get(ENV_SHARE_INTEGRITY_ENABLED), True):
+        from app.services import position_share_audit  # noqa: PLC0415 - 与 runner 同理由，惰性导入
+
+        checks.append(
+            LocalCheckSpec(
+                job_name=position_share_audit.JOB_NAME,
+                cron=(source.get(ENV_SHARE_INTEGRITY_CRON) or DEFAULT_SHARE_INTEGRITY_CRON).strip(),
+                runner=_run_share_integrity_guard,
+                description='份额被流水反证巡检（日频，纯本地只读，命中即 flagged）',
+                min_interval_days=1,
             )
         )
     return tuple(checks)
@@ -148,9 +193,11 @@ def last_run_at(db, job_name: str):
 # 与 `orchestrator.WEEKLY_JOB_MIN_INTERVAL_DAYS` 同值同理由（CI 起跑有最长约 10 分钟的
 # jitter，卡 7 天会让「每周一次」漂成 8 天）。巡检不走编排器那道门控，故在这里单独定义。
 MIN_INTERVAL_DAYS = 6
-# 「判定已经发生」的状态：`ok` 与 `bloated` 都算。若把 `bloated` 排除在外，下一轮会再记
-# 一次基线，`growth` 恒为 0 ⇒ 膨胀永远看不见，那是比假红更贵的失效。
-_JUDGED_STATUSES = ('ok', 'bloated')
+# 「判定已经发生」的状态：`ok` / `bloated` / `flagged` 都算。若把 `bloated` 排除在外，
+# 下一轮会再记一次基线，`growth` 恒为 0 ⇒ 膨胀永远看不见，那是比假红更贵的失效；
+# `flagged`（份额被流水反证命中）同理由：它表示**判定已经发生且结论是有问题**，
+# 排除在外会让日频巡检每轮重跑并重复落库。
+_JUDGED_STATUSES = ('ok', 'bloated', 'flagged')
 
 
 def due_checks(db, now=None, min_interval_days: int = MIN_INTERVAL_DAYS, checks=None) -> Tuple[LocalCheckSpec, ...]:
@@ -168,9 +215,11 @@ def due_checks(db, now=None, min_interval_days: int = MIN_INTERVAL_DAYS, checks=
     for spec in specs:
         row = last_run(db, spec.job_name)
         judged = row is not None and (row.status or '') in _JUDGED_STATUSES
+        # 每条巡检可以自带间隔（日频给 1），缺省沿用模块级的周频口径。
+        interval = spec.min_interval_days or min_interval_days
         # 用日期差而非时间差：`started_at` 从 SQLite 读回是 naive 东八区墙钟，直接与
-        # aware 的 now 相减会抛 TypeError（同 #1793 的形态）；周频按天判定也够用。
-        if not judged or (now.date() - row.started_at.date()).days >= min_interval_days:
+        # aware 的 now 相减会抛 TypeError（同 #1793 的形态）；按天判定也够用。
+        if not judged or (now.date() - row.started_at.date()).days >= interval:
             due.append(spec)
     return tuple(due)
 

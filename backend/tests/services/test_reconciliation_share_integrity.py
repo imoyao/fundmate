@@ -70,6 +70,7 @@ def _mk_txn(
     shares=1.0,
     family_id=_FAMILY,
     confirm_date=None,
+    source=None,
 ):
     t = Transaction(
         family_id=family_id,
@@ -85,6 +86,7 @@ def _mk_txn(
         status='success',
         trade_date=_BASE,
         confirm_date=confirm_date,
+        source=source,
         created_at=_BASE,
         updated_at=_BASE,
     )
@@ -192,6 +194,106 @@ def test_scan_skips_cleared_rows_and_other_families(db, ledger):
 
     assert scan_disproved_shares(db, _FAMILY) == []
     assert [r['symbol'] for r in scan_disproved_shares(db, _OTHER_FAMILY)] == ['SZ159982']
+
+
+def test_adjustment_txns_explain_the_gap_and_block_one_click_recompute(db, ledger):
+    """真库 #944 的成因必须随命中一起报出来，且不再诱导一键重算。
+
+    用户看到的只有「账上 1000 / 流水 0」，唯一想得到的动作是「补录一笔卖出」——
+    而那正是 11-15 18:49 制造这批脏数据的动作（补录同时改流水与份额，差额恒定）。
+    所以有补录流水时必须把 remedy 改成「先核对/回滚补录」。
+    """
+    from app.core.constants import PositionSource  # noqa: PLC0415
+
+    pos = _ghost_after_reattach(db, ledger)
+    adj = _mk_txn(
+        db,
+        ledger.id,
+        position_id=pos.id,
+        txn_type='sell',
+        shares=3.0,
+        source=PositionSource.RECONCILIATION_ADJUSTMENT.value,
+    )
+
+    found = scan_disproved_shares(db, _FAMILY)
+    assert len(found) == 1
+    row = found[0]
+    assert [t['id'] for t in row['adjustment_txns']] == [adj.id]
+    assert row['adjustment_txns'][0]['txn_type'] == 'sell'
+    assert row['adjustment_txns'][0]['quantity'] == pytest.approx(3.0)
+    assert row['adjustment_txns'][0]['source'] == 'reconciliation_adjustment'
+    assert row['remedy']['action'] == 'review_adjustment'
+    assert row['remedy']['blocked'] is True
+    assert '补录' in row['remedy']['hint']
+
+
+def test_plain_flows_are_not_marked_as_adjustment(db, ledger):
+    """没有补录流水时 remedy 保持原样：不能把每一条命中都当成「被补录污染」。"""
+    pos = _ghost_after_reattach(db, ledger)
+
+    found = scan_disproved_shares(db, _FAMILY)
+    assert found[0]['position_id'] == pos.id
+    assert found[0]['adjustment_txns'] == []
+    assert found[0]['remedy']['action'] == 'position_recompute'
+
+
+def test_endpoint_lists_hits_with_envelope(client, db, ledger):
+    """GET /share-integrity/ 是工作台「打开就能看见」的那条线索，信封与既有端点一致。"""
+    from app.core.constants import PositionSource  # noqa: PLC0415
+
+    pos = _ghost_after_reattach(db, ledger)
+    _mk_txn(
+        db,
+        ledger.id,
+        position_id=pos.id,
+        txn_type='sell',
+        shares=3.0,
+        source=PositionSource.RECONCILIATION_ADJUSTMENT.value,
+    )
+    db.commit()
+
+    body = client.get('/api/reconciliation/share-integrity/').get_json()
+    assert body['message'] == 'ok'
+    assert body['data']['total'] == 1
+    item = body['data']['items'][0]
+    assert item['position_id'] == pos.id
+    assert item['quantity_now'] == pytest.approx(4.0)
+    assert item['remedy']['action'] == 'review_adjustment'
+    assert len(item['adjustment_txns']) == 1
+
+
+def test_run_and_record_flags_hits_for_the_daily_check(db, ledger):
+    """巡检落库：命中即 flagged（`local_checks` 会打 warning），清干净后回到 ok。"""
+    from app.models.sync_log import SyncLog  # noqa: PLC0415
+    from app.services import position_share_audit as audit  # noqa: PLC0415
+    from app.services.position_recompute_entry import recompute_with_audit as recompute  # noqa: PLC0415
+
+    pos = _ghost_after_reattach(db, ledger)
+    first = audit.run_and_record(db)
+    assert first['status'] == audit.STATUS_FLAGGED
+    assert first['stats']['hits'] == 1
+    assert first['stats']['position_ids'] == [pos.id]
+    logged = db.query(SyncLog).filter(SyncLog.job_name == audit.JOB_NAME).order_by(SyncLog.id.desc()).first()
+    assert logged is not None and logged.status == 'flagged'
+
+    recompute(db, _FAMILY, pos.id)
+    second = audit.run_and_record(db)
+    assert second['status'] == audit.STATUS_OK
+    assert second['stats']['hits'] == 0
+
+
+def test_scan_all_families_covers_every_family(db, ledger):
+    """巡检没有请求上下文：两个家庭的命中都要被扫到，不能只看 family 1。"""
+    from app.services.position_share_audit import scan_all_families  # noqa: PLC0415
+
+    _ghost_after_reattach(db, ledger)
+    other = _mk_pos(db, ledger.id, 'SZ159982', 2.0, family_id=_OTHER_FAMILY)
+    _mk_txn(db, ledger.id, position_id=other.id, symbol='SZ159982', txn_type='buy', shares=1.0, family_id=_OTHER_FAMILY)
+    _mk_txn(
+        db, ledger.id, position_id=other.id, symbol='SZ159982', txn_type='sell', shares=1.0, family_id=_OTHER_FAMILY
+    )
+
+    assert {row['symbol'] for row in scan_all_families(db)} == {'SZ159981', 'SZ159982'}
 
 
 def test_report_to_summary_truncates_ids(db, ledger, monkeypatch):
