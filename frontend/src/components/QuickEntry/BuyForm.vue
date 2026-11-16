@@ -63,10 +63,22 @@
       :security-type="selectedSecurityOption?.type"
     />
 
-    <!-- 1. 买入金额（投顾组合的提示语文案在组件内部分叉） -->
+    <!-- 1a. 成交数量（股票/ETF/可转债）：先有成交数量与成交价，金额是派生量。
+         与基金相反 —— 基金申购时净值未知，只能按金额算份额（见 3.） -->
+    <BuyQuantityField
+      v-if="quantityMeta.mode === 'trade'"
+      v-model:shares="form.shares"
+      :type="selectedSecurityOption?.type"
+      :ledger-type="currentLedger?.ledger_type"
+      :market="form.market"
+      :symbol="form.symbol"
+    />
+
+    <!-- 1b. 买入金额（投顾组合的提示语文案在组件内部分叉；非基金为只读派生量） -->
     <BuyAmountField
       v-model:amount="form.buyAmount"
       :is-portfolio="form.type === 'portfolio'"
+      :derived="quantityMeta.amountDerived"
     />
 
     <!-- 2. 手续费（基金：金额/费率双模式 + 申购折扣；股票/ETF：实收金额直填） -->
@@ -80,29 +92,16 @@
       @discount-change="onFundFeeDiscountChange"
     />
 
-    <!-- 3. 确认份额（字号放大，用户可编辑微调）；投顾组合无份额概念，整块隐藏（D70） -->
-    <el-form-item
-      v-if="form.type !== 'portfolio'"
-      label="确认份额"
-      prop="shares"
-    >
-      <el-input-number
-        v-model="form.shares"
-        style="width: 100%"
-        class="w-full font-bold text-lg"
-        :controls="false"
-        :precision="selectedSecurityOption?.type === 'fund' ? 2 : 0"
-        :min="0"
-        :placeholder="
-          selectedSecurityOption?.type === 'fund'
-            ? '自动计算或手动微调份额'
-            : '买入数量'
-        "
-      />
-      <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-        买入金额扣除手续费后的确认份额，可手动微调
-      </div>
-    </el-form-item>
+    <!-- 3. 确认份额（基金：金额扣除手续费后按净值算份额，可手动微调）；
+         投顾组合无份额概念，整块隐藏（D70） -->
+    <BuyQuantityField
+      v-if="quantityMeta.mode === 'fund'"
+      v-model:shares="form.shares"
+      :type="selectedSecurityOption?.type"
+      :ledger-type="currentLedger?.ledger_type"
+      :market="form.market"
+      :symbol="form.symbol"
+    />
 
     <!-- 4. 确认净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
     <TradeNavPriceRow
@@ -119,33 +118,11 @@
       当日净值暂不可用，仍可先记账：份额可留空（或按估算填写），官方净值发布后将自动回填份额与成本。
     </div>
 
-    <!-- 配置目标 -->
-    <el-form-item label="配置目标" prop="allocation">
-      <el-select
-        v-model="form.allocation"
-        class="w-full"
-        style="display: block; width: 100%"
-        placeholder="选择配置目标"
-      >
-        <el-option
-          v-for="opt in ALLOCATION_OPTIONS"
-          :key="opt.value"
-          :label="opt.label"
-          :value="opt.value"
-        />
-      </el-select>
-    </el-form-item>
-
-    <!-- 备注 -->
-    <el-form-item :label="TRADE_FIELD_LABELS.notes">
-      <el-input
-        v-model="form.notes"
-        type="textarea"
-        :rows="2"
-        placeholder="补充交易理由（选填）"
-        style="width: 100%"
-      />
-    </el-form-item>
+    <!-- 配置目标 / 备注（#980：整体拆到 BuyExtraFields，本文件守 400 行门禁） -->
+    <BuyExtraFields
+      v-model:allocation="form.allocation"
+      v-model:notes="form.notes"
+    />
   </el-form>
 </template>
 
@@ -156,13 +133,15 @@ import { useFormDirtySnapshot } from "@/composables/useFormDirtySnapshot";
 import type { LedgerItem } from "@/api/ledger";
 import { useSecurityPriceRange } from "@/composables/useSecurityPrice";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
-import { ALLOCATION_OPTIONS, TRADE_FIELD_LABELS } from "@/constants";
+import { TRADE_FIELD_LABELS } from "@/constants";
 import { disabledTradeDate } from "@/utils/date";
 import BuyAccountField from "./components/BuyAccountField.vue";
 import BuyAmountField from "./components/BuyAmountField.vue";
 import BuySecuritySearchField from "./components/BuySecuritySearchField.vue";
+import BuyExtraFields from "./components/BuyExtraFields.vue";
 import BuyFeeField from "./components/BuyFeeField.vue";
 import BuyPriceField from "./components/BuyPriceField.vue";
+import BuyQuantityField from "./components/BuyQuantityField.vue";
 import TradeNavPriceRow from "./components/TradeNavPriceRow.vue";
 import { useBuyFee } from "./composables/useBuyFee";
 import { useBuySharesLinkage } from "./composables/useBuySharesLinkage";
@@ -175,6 +154,7 @@ import {
   snapshotToFormPatch,
   snapshotToSecurityOption
 } from "./buyLastSubmitted";
+import { buyQuantityMeta } from "./buyQuantityMeta";
 import { createBuyFormDefaults } from "./buyFormModel";
 
 // ── Props & Emits ──
@@ -204,6 +184,16 @@ const currentLedger = computed(
 const accountName = computed(() => currentLedger.value?.name ?? "");
 const isFundSecurity = computed(
   () => selectedSecurityOption.value?.type === "fund"
+);
+// 数量字段口径（品种×账户）：基金「确认份额 / 金额为主量」，股票等「成交数量 / 金额派生」。
+// 标签、精度、一手、提示语与提交校验全从 buyQuantityMeta 取，别在模板里另写一套。
+const quantityMeta = computed(() =>
+  buyQuantityMeta({
+    type: selectedSecurityOption.value?.type,
+    ledgerType: currentLedger.value?.ledger_type,
+    market: form.market,
+    symbol: form.symbol
+  })
 );
 // 投顾组合不收申购费（服务费在组合侧扣，载荷里恒 0），不显示输入框
 const showFeeField = computed(() => {
@@ -270,8 +260,13 @@ watch(
   }
 );
 
-// ── 金额 ⇄ 份额联动（三条 watch 的注册顺序由 composable 固定，勿随意挪调用位置）──
-useBuySharesLinkage({ form, navMissing });
+// ── 金额 ⇄ 份额联动（watch 的注册顺序由 composable 固定，勿随意挪调用位置）──
+// 基金：金额 → 份额；股票/ETF/可转债：数量 → 金额（金额只读，反算会得出碎股）
+useBuySharesLinkage({
+  form,
+  navMissing,
+  mode: () => (quantityMeta.value.amountDerived ? "trade" : "fund")
+});
 
 // ── 交易日 / 确认日 / 净值 ──
 const {
@@ -298,6 +293,7 @@ const { rules, handleSubmit } = useBuySubmit({
   selectedSecurityOption,
   stockPriceRange,
   navMissing,
+  quantityMeta,
   getAccountName: () => accountName.value,
   confirmDate,
   actualNavDate,

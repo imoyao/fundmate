@@ -13,12 +13,15 @@ import { describe, it, expect } from "vitest";
 import { effectScope, nextTick, reactive, ref } from "vue";
 import { useBuySharesLinkage } from "../useBuySharesLinkage";
 
-function setup(init: {
-  price?: number;
-  buyAmount?: number;
-  shares?: number;
-  fee?: number;
-}) {
+function setup(
+  init: {
+    price?: number;
+    buyAmount?: number;
+    shares?: number;
+    fee?: number;
+  },
+  mode?: () => "fund" | "trade"
+) {
   const form = reactive({
     price: init.price,
     buyAmount: init.buyAmount,
@@ -28,7 +31,7 @@ function setup(init: {
   const navMissing = ref(false);
   // watch 在组件实例外注册需要独立作用域，否则跨用例串味（同一 tick 里互相触发）
   const scope = effectScope();
-  scope.run(() => useBuySharesLinkage({ form, navMissing }));
+  scope.run(() => useBuySharesLinkage({ form, navMissing, mode }));
   return { form, navMissing, stop: () => scope.stop() };
 }
 
@@ -102,6 +105,19 @@ describe("useBuySharesLinkage", () => {
     s.form.buyAmount = 3675;
     await nextTick();
     expect(s.form.shares).toBeUndefined();
+    s.stop();
+  });
+
+  it("mode='trade'（股票/ETF/可转债）：数量为主量，金额按数量派生且不反算数量", async () => {
+    const s = setup({ price: 5.2, fee: 1.05 }, () => "trade");
+    s.form.shares = 1000;
+    await nextTick();
+    expect(s.form.buyAmount).toBe(5201.05);
+
+    // 金额侧的任何残留值都不许改写数量（A 股须整手，反算会得碎股）
+    s.form.buyAmount = 5200;
+    await nextTick();
+    expect(s.form.shares).toBe(1000);
     s.stop();
   });
 });
