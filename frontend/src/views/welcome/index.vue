@@ -57,7 +57,11 @@
       :mental-account-view="mentalAccountView"
       :loading="mentalAccountLoading"
       :error="mentalAccountError"
+      :financial-health-view="financialHealthView"
+      :health-loading="healthLoading"
+      :health-error="healthError"
       @retry="fetchDistributions"
+      @retry-health="fetchFinancialHealth"
     />
   </div>
 </template>
@@ -101,6 +105,10 @@ const {
   mentalAccountView,
   mentalAccountLoading,
   mentalAccountError,
+  financialHealthView,
+  healthLoading,
+  healthError,
+  fetchFinancialHealth,
   fetchSummary,
   fetchXirr,
   fetchTemperature,
@@ -127,6 +135,7 @@ const onRetryAsset = async () => {
 usePageRefresh(() => {
   void retryAssetLoad();
   void fetchDistributions();
+  void fetchFinancialHealth();
 });
 
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
@@ -138,6 +147,9 @@ onMounted(() => {
   fetchUnreadNotifications();
   // 心理账户卡唯一数据源（#3115 D4）；与上面几个并行，不排在汇总之后
   fetchDistributions();
+  // 财务晴雨表四项（#3165）：summary 由 fetchSummary 并行拉取，类现金占比
+  // 的分母在摘要返回后由 computed 补上，不需等待顺序。
+  void fetchFinancialHealth();
   startTicker();
 });
 </script>

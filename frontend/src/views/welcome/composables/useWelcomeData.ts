@@ -1,6 +1,19 @@
 import { ref, onUnmounted, computed } from "vue";
-import { getSummary, getDistributions } from "@/api/summary";
-import type { DistributionsData } from "@/api/summary";
+import {
+  getSummary,
+  getDistributions,
+  getPositionStructure,
+  getCashLikeBreakdown
+} from "@/api/summary";
+import type {
+  DistributionsData,
+  PositionStructureData,
+  CashLikeBreakdown
+} from "@/api/summary";
+import { getDividendSummary } from "@/api/dividends";
+import type { DividendSummary } from "@/api/dividends";
+import { getPortfolios } from "@/api/portfolio";
+import type { PortfolioItem } from "@/api/portfolio";
 import {
   getNotifications,
   markNotificationRead,
@@ -12,6 +25,8 @@ import { useTemperatureOverview } from "@/composables/temperature/useTemperature
 import type { SummaryData } from "@/api/types";
 import { useUserStoreHook } from "@/store/modules/user";
 import { buildMentalAccountView } from "./mentalAccounts";
+import { buildFinancialHealthView } from "./financialHealth";
+import type { FinancialHealthView } from "./financialHealth";
 
 /** 欢迎语状态：loading=加载中 / empty=未记账 / data=有数据 */
 export type WelcomeState = "loading" | "empty" | "data";
@@ -204,6 +219,64 @@ export function useWelcomeData() {
     }
   };
 
+  // ===== 财务晴雨表：四项资产健康度（#3165）=====
+  // 五个数据源互不阻塞，各自失败只影响自己那一格——任一接口挂掉不能把整卡带崩。
+  // 派生口径集中在 financialHealth.ts（与 mentalAccounts.ts 同模式，node 可单测）。
+  const healthStructure = ref<PositionStructureData | null>(null);
+  const healthCashLike = ref<CashLikeBreakdown | null>(null);
+  const healthDividend = ref<DividendSummary | null>(null);
+  const healthPortfolios = ref<PortfolioItem[] | null>(null);
+  const healthError = ref(false);
+  const healthLoading = ref(true);
+
+  const financialHealthView = computed<FinancialHealthView | null>(() => {
+    // 全部还没回来时不渲染半张卡（会显示成「0」）；部分回来则照常渲染，
+    // 缺失项在纯函数里是 null → 组件显示「—」。
+    const anyLoaded =
+      healthStructure.value ||
+      healthCashLike.value ||
+      healthDividend.value ||
+      healthPortfolios.value;
+    if (!anyLoaded && healthLoading.value) return null;
+    return buildFinancialHealthView({
+      structure: healthStructure.value,
+      cashLike: healthCashLike.value,
+      dividend: healthDividend.value,
+      portfolios: healthPortfolios.value,
+      summary: summary.value
+    });
+  });
+
+  const fetchFinancialHealth = async (): Promise<void> => {
+    healthLoading.value = true;
+    // 每项独立 try：一个接口失败不影响其余三项渲染（失败格由 ratio=null 显示「—」，
+    // 并置 healthError 让卡面给出「部分指标暂不可用」的明确提示）。
+    const results = await Promise.allSettled([
+      getPositionStructure(),
+      getCashLikeBreakdown(),
+      getDividendSummary({ months: 12 }),
+      getPortfolios()
+    ]);
+    healthStructure.value =
+      results[0].status === "fulfilled"
+        ? (results[0].value.data ?? null)
+        : null;
+    healthCashLike.value =
+      results[1].status === "fulfilled"
+        ? (results[1].value.data ?? null)
+        : null;
+    healthDividend.value =
+      results[2].status === "fulfilled"
+        ? (results[2].value.data ?? null)
+        : null;
+    healthPortfolios.value =
+      results[3].status === "fulfilled"
+        ? (results[3].value.data ?? null)
+        : null;
+    healthError.value = results.some(r => r.status === "rejected");
+    healthLoading.value = false;
+  };
+
   // ===== 近期动态 feed：真实数据派生，避免空壳（后端事件日志就绪后可替换为事件流） =====
   const homeFeed = computed<HomeFeedItem[]>(() => {
     const items: HomeFeedItem[] = [];
@@ -386,6 +459,10 @@ export function useWelcomeData() {
     mentalAccountView,
     mentalAccountLoading,
     mentalAccountError,
+    // 财务晴雨表（#3165）
+    financialHealthView,
+    healthLoading,
+    healthError,
     homeFeed,
     // 请求入口（页面 onMounted 编排，保持拆分前的调用顺序）
     fetchSummary,
@@ -393,6 +470,7 @@ export function useWelcomeData() {
     fetchTemperature,
     fetchRecordStats,
     fetchUnreadNotifications,
-    fetchDistributions
+    fetchDistributions,
+    fetchFinancialHealth
   };
 }
