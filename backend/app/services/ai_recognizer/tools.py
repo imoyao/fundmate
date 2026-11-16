@@ -28,7 +28,7 @@ from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
-from app.services.ai_recognizer.tools_fund import install_fund_tools
+from app.services.ai_recognizer.tools_domain import install_domain_tools
 from app.services.analytics.benchmark_comparison import build_benchmark_comparison
 from app.services.analytics.rebalance_reference import BROAD_INDEX_TARGETS, build_rebalance_reference
 from app.services.analytics.trading_behavior import build_trading_behavior
@@ -638,7 +638,7 @@ class ToolExecutor:
             return {'status': 'error', 'msg': str(e)}
 
 
-install_fund_tools(register_tool, TOOLS_METADATA)  # 基金级工具（#3111）定义与投影见 tools_fund 模块
+install_domain_tools(register_tool, TOOLS_METADATA)  # 域工具装配（基金 #3111 / 宏观 #1502）见 tools_domain
 
 
 __all__ = ['TOOLS_METADATA', 'ToolExecutor', 'apply_server_context', 'register_tool']
