@@ -89,10 +89,7 @@ def _share_check_hint(expected: float, quantity_now: float, diff: float) -> str:
     后者（净额 ≤ 0）以前会建议「点按流水重算份额」，但那条路 2026-11-16 起已被闸门挡住
     ——流水算到 0 多半是缺腿，据此清仓会把正确持仓清零。故改成「核对流水 / 按账单填 0」。
     """
-    head = (
-        f'挂回只改归属、不改份额：按现有流水派生应为 {expected:g} 份，当前持仓 {quantity_now:g} 份'
-        f'（差 {diff:+g}）。'
-    )
+    head = f'挂回只改归属、不改份额：按现有流水派生应为 {expected:g} 份，当前持仓 {quantity_now:g} 份（差 {diff:+g}）。'
     if expected > 0:
         return head + '若要以此为准，请用「按流水重算份额」对齐；本接口不会自动改。'
     return (
