@@ -189,3 +189,19 @@ def test_recompute_route_returns_before_after(client, db, ledger):
 
     missing = client.post('/api/positions/999999/recompute/', json={})
     assert missing.status_code == 404
+
+
+def test_recompute_route_returns_400_when_flows_would_clear(client, db, ledger):
+    """路由层也挡住清仓：400 + 中文信封，前端能直接把这句话显示给用户。"""
+    pos = _mk_pos(db, ledger, shares=270.0)
+    _mk_txn(db, ledger, pos, txn_type='buy', shares=270.0)
+    _mk_txn(db, ledger, pos, txn_type='sell', shares=270.0)
+    db.commit()
+
+    resp = client.post(f'/api/positions/{pos.id}/recompute/', json={'reason': '手工核对'})
+
+    assert resp.status_code == 400
+    assert '改成账单份额' in resp.get_json()['message']
+    row = db.query(Position).filter_by(id=pos.id).one()
+    assert row.quantity == Money.shares_to_min_unit(270.0)
+    assert db.query(AdjustmentLog).filter_by(action='position_recompute').count() == 0
