@@ -105,6 +105,7 @@ def _project(pick: dict, row: dict, ordered: List, periods: int, begin: date, en
     """叙事投影：只留叙事要用的字段，并把口径写进 ``caveats``。"""
     latest_day, latest_val = ordered[-1]
     prev = ordered[-2] if len(ordered) > 1 else None
+    cache_note = _cache_note(row)
     return {
         'found': True,
         'indicator': row['name'],
@@ -119,12 +120,28 @@ def _project(pick: dict, row: dict, ordered: List, periods: int, begin: date, en
         'points': [{'date': day.isoformat(), 'value': value} for day, value in ordered],
         'source': 'Wind EDB',
         'as_of': end.isoformat(),
+        'cached': row.get('cache') or 'live',
         'caveats': [
             'points 是上游原值，单位随指标（百分比 / 亿元 / 点等），本工具不做换算。',
             'change_vs_prev = 最新值 − 上期值；若指标本身是同比/环比，这是增速的变化（百分点），不是涨跌幅。',
             '缺失期表示上游无值，未补 0；只回已发布数据，不含预测。',
+            *cache_note,
         ],
     }
+
+
+def _cache_note(row: dict) -> List[str]:
+    """缓存来源必须写进 ``caveats``：用户有权知道这是不是刚取的数。
+
+    ``stale`` 与 ``hit`` 分开说——前者是「上游坏了，这是旧数」，后者只是「同一天内复用」，
+    混成一句会让模型把降级路径讲成正常路径。
+    """
+    tag, at = row.get('cache'), row.get('fetched_at')
+    if tag == 'stale':
+        return [f'⚠️ 上游当前不可用（可能额度耗尽），以上是 {at or "较早时间"} 采到的缓存数据，可能缺最新一期。']
+    if tag == 'hit':
+        return [f'本结果读自本地缓存（采集于 {at or "本次会话更早"}），未重新请求上游。']
+    return []
 
 
 def _tool_query_macro_indicator(params: dict) -> dict:
