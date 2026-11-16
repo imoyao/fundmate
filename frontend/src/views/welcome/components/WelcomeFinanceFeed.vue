@@ -1,27 +1,15 @@
 <template>
   <!-- ===== 第四排：财务晴雨表 + 心理账户（统一 12 列栅格 + 等宽右栏） ===== -->
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
-    <!-- 财务晴雨表：尚未接入测算，空态占位（不展示编造百分比） -->
+    <!-- 财务晴雨表：四项资产健康度（#3165），每项「比率 + 金额」，全真实数据 -->
     <div class="lg:col-span-8 flex flex-col gap-3">
-      <SectionHeader
-        title="财务晴雨表"
-        info="基于你的资产负债表与现金流测算的四项关键财务健康度指标"
+      <SectionHeader title="财务晴雨表" :info="HEALTH_INFO" />
+      <WelcomeBarometer
+        :view="view4"
+        :loading="healthLoading"
+        :error="healthError"
+        @retry="emit('retryHealth')"
       />
-      <CardBlock
-        class="flex-1 flex flex-col items-center justify-center text-center gap-2 min-h-[120px]"
-      >
-        <span
-          class="text-sm font-medium"
-          :style="{ color: 'var(--text-secondary)' }"
-          >财务晴雨表 · 即将上线</span
-        >
-        <span
-          class="text-[11px] max-w-xs"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-        >
-          接入资产负债表与现金流测算后，在此展示资产负债率、预估储蓄率、财务自由度等指标。
-        </span>
-      </CardBlock>
       <!-- 近期动态：真实数据派生的事件 feed（后端事件日志就绪后可替换为事件流） -->
       <CardBlock class="flex-1 card-hover">
         <div class="flex justify-between items-center mb-4">
@@ -169,11 +157,13 @@ import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import WelcomeBarometer from "./WelcomeBarometer.vue";
 import type { HomeFeedItem } from "../composables/useWelcomeData";
 import {
   scopeFootnote,
   type MentalAccountView
 } from "../composables/mentalAccounts";
+import type { FinancialHealthView } from "../composables/financialHealth";
 
 defineOptions({ name: "WelcomeFinanceFeed" });
 
@@ -183,11 +173,16 @@ const props = defineProps<{
   mentalAccountView: MentalAccountView | null;
   loading?: boolean;
   error?: boolean;
+  /** 财务晴雨表（#3165） */
+  financialHealthView?: FinancialHealthView | null;
+  healthLoading?: boolean;
+  healthError?: boolean;
 }>();
 
-const emit = defineEmits<{ retry: [] }>();
+const emit = defineEmits<{ retry: []; retryHealth: [] }>();
 
 const view = computed(() => props.mentalAccountView);
+const view4 = computed(() => props.financialHealthView ?? null);
 
 /** 占比条只画有金额的档位——0 值段没有宽度，留在 DOM 里只是噪音 */
 const nonEmptyItems = computed(() =>
@@ -202,6 +197,18 @@ const SCOPE_INFO =
   "五笔钱只统计可投资的资产端：持仓市值 + 账户里录过的现金类资产。" +
   "房产、应收款这类不变现的钱算「未纳入」，负债单独列示、不参与占比。" +
   "所以这里的合计会小于家庭总资产，差额在卡片底部逐项写明。";
+
+/**
+ * 晴雨表口径说明（#3165）。四项各自的分母不同，**不可相加**：
+ * 集中度相对持仓市值、类现金相对家庭总资产、股息率相对在管持仓市值，
+ * 组合达成率是各组合「市值/目标」的均值。分红金额含已清仓、股息率只算在管，
+ * 两者不同源——必须在气泡里说清，否则用户会把 ¥2,509 与 0.23% 当成同一笔账。
+ */
+const HEALTH_INFO =
+  "四项资产健康度各自分母不同，仅为观察角度，不可相加。" +
+  "持仓集中度 = 前五大 / 持仓市值；类现金占比 = 账外货基逆回购 / 家庭总资产（已含在总资产，不重复计）；" +
+  "近 12 月净分红金额含已清仓标的，而股息率只算在管持仓，两者不同源；" +
+  "组合目标达成 = 已设目标组合的达成率均值。负债率已在资产看板单独展示，此处不复述。";
 </script>
 
 <style lang="scss" scoped>
