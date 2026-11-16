@@ -100,6 +100,48 @@ def test_caveats_state_the_change_semantics(monkeypatch):
     assert '未补 0' in caveats
 
 
+def test_stale_source_is_disclosed_as_upstream_down(monkeypatch):
+    """回退缓存的数必须被标成「上游不可用」，否则模型会把它讲成刚取到的最新值。"""
+    _stub(
+        monkeypatch,
+        candidates=[{'name': 'A', 'freq': '月'}],
+        series=[
+            dict(_series('A', {date(2026, 10, 31): 51.2}, freq='月')[0], cache='stale', fetched_at='2026-11-16 10:00')
+        ],
+    )
+
+    out = tools_macro._tool_query_macro_indicator({'question': 'A'})
+
+    assert out['cached'] == 'stale'
+    assert any('上游当前不可用' in c and '2026-11-16 10:00' in c for c in out['caveats'])
+
+
+def test_cache_hit_and_live_are_distinguishable(monkeypatch):
+    """命中与实时都要能分辨：hit 只说「读自缓存」，live 不加任何缓存说明。"""
+    _stub(
+        monkeypatch,
+        candidates=[{'name': 'A', 'freq': '月'}],
+        series=[
+            dict(_series('A', {date(2026, 10, 31): 51.2}, freq='月')[0], cache='hit', fetched_at='2026-11-16 10:00')
+        ],
+    )
+    hit = tools_macro._tool_query_macro_indicator({'question': 'A'})
+
+    assert hit['cached'] == 'hit'
+    assert any('读自本地缓存' in c for c in hit['caveats'])
+    assert not any('上游当前不可用' in c for c in hit['caveats'])
+
+    _stub(
+        monkeypatch,
+        candidates=[{'name': 'A', 'freq': '月'}],
+        series=_series('A', {date(2026, 10, 31): 51.2}, freq='月'),
+    )
+    live = tools_macro._tool_query_macro_indicator({'question': 'A'})
+
+    assert live['cached'] == 'live'
+    assert not any('缓存' in c for c in live['caveats'])
+
+
 # ── 歧义：只回候选，绝不取数 ─────────────────────────────────────────────
 def test_ambiguous_returns_candidates_and_skips_fetch(monkeypatch):
     calls = _stub(

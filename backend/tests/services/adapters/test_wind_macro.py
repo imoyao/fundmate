@@ -14,7 +14,8 @@ from datetime import date
 
 import pytest
 
-from app.services.adapters import wind_macro
+from app.services.adapters import macro_cache, wind_macro
+from app.services.mcp.errors import McpBillingError
 
 
 class _StubTransport:
@@ -62,6 +63,17 @@ def stub(monkeypatch):
         return provider
 
     return _install
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cache(monkeypatch, tmp_path):
+    """本模块新增的复用缓冲层是**跨调用状态**：每个用例一个独立目录，避免互相喂数据。
+
+    不隔的后果很具体：``test_fetch_drops_out_of_range_and_unparsable_points`` 会为 'X'
+    写入缓存，紧接着 ``test_fetch_skips_series_without_points`` 就命中它拿到非空——
+    两个用例单独跑都绿、一起跑红。
+    """
+    monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path))
 
 
 # ── search_indicators ────────────────────────────────────────────────────
@@ -174,6 +186,59 @@ def test_fetch_skips_series_without_points(stub):
     """有名字但窗口内一个点都没有的条目直接丢：回一个空序列只会让上层误判「有数据」。"""
     stub({'metrics': [{'meta': {'name': 'X'}, 'date': [], 'value': []}]})
     assert wind_macro.fetch_series('X', date(2026, 1, 1), date(2026, 1, 31)) == []
+
+
+# ── 复用缓冲层（成本红线） ────────────────────────────────────────────────
+def test_fetch_reuses_cache_and_marks_hit(stub):
+    """同指标同窗口第二次不再打上游——每打一次都扣积分，这是硬成本。"""
+    provider = stub({'metrics': [{'meta': {'name': 'CPI', 'freq': '月'}, 'date': ['20261031'], 'value': ['0.7']}]})
+
+    first = wind_macro.fetch_series('CPI', date(2026, 1, 1), date(2026, 11, 16))
+    second = wind_macro.fetch_series('CPI', date(2026, 1, 1), date(2026, 11, 16))
+
+    assert len(provider.transport.calls) == 1, '第二次必须命中缓存，不能重复计费'
+    assert 'cache' not in first[0], '首次是实时数据，不该被标记成缓存'
+    assert second[0]['cache'] == 'hit'
+    assert second[0]['points'] == {date(2026, 10, 31): 0.7}
+
+
+def test_fetch_falls_back_to_stale_when_billing_fails(stub, monkeypatch):
+    """额度耗尽时回过期缓存并标 ``stale``：比抛错让用户看到「结构异常」有用得多。"""
+    stub({'metrics': [{'meta': {'name': 'CPI', 'freq': '月'}, 'date': ['20261031'], 'value': ['0.7']}]})
+    wind_macro.fetch_series('CPI', date(2026, 1, 1), date(2026, 11, 16))
+    monkeypatch.setattr(macro_cache, 'ttl_seconds', lambda freq: -1)  # 让缓存立刻算过期
+
+    def _billing(*args, **kwargs):
+        raise McpBillingError('账户积分余额不足')
+
+    monkeypatch.setattr(wind_macro, '_call', _billing)
+
+    got = wind_macro.fetch_series('CPI', date(2026, 1, 1), date(2026, 11, 16))
+
+    assert got[0]['cache'] == 'stale'
+    assert got[0]['fetched_at'], 'stale 必须带采集时间，叙事要能交代数据时点'
+    assert got[0]['points'] == {date(2026, 10, 31): 0.7}
+
+
+def test_fetch_without_cache_keeps_calling_upstream(stub):
+    """``use_cache=False`` 必须真的每次都打——排障时需要一个「确认上游现状」的开关。"""
+    provider = stub({'metrics': [{'meta': {'name': 'CPI'}, 'date': ['20261031'], 'value': ['0.7']}]})
+
+    wind_macro.fetch_series('CPI', date(2026, 1, 1), date(2026, 11, 16), use_cache=False)
+    wind_macro.fetch_series('CPI', date(2026, 1, 1), date(2026, 11, 16), use_cache=False)
+
+    assert len(provider.transport.calls) == 2
+
+
+def test_search_reuses_cache_for_same_question(stub):
+    """检索也计费；同一问句在 Agent 重试 / 多轮里重复出现，命中缓存即省一次。"""
+    provider = stub({'metrics': [{'meta': {'name': '中国:GDP:不变价:当季同比', 'freq': '季'}}]})
+
+    wind_macro.search_indicators('中国GDP同比')
+    again = wind_macro.search_indicators('中国GDP同比')
+
+    assert len(provider.transport.calls) == 1
+    assert again[0]['cache'] == 'hit'
 
 
 # ── normalize ────────────────────────────────────────────────────────────

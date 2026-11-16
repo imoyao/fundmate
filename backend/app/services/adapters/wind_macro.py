@@ -35,11 +35,13 @@ import json
 from datetime import date
 from typing import Dict, List, Optional
 
-from app.services.adapters import wind_edb
+from loguru import logger
+
+from app.services.adapters import macro_cache, wind_edb
 from app.services.adapters.wind_edb import _parse_edb_date, _parse_value, _post_factory
 from app.services.mcp import get_provider
 from app.services.mcp.credentials import resolve_token
-from app.services.mcp.errors import McpBadResponse
+from app.services.mcp.errors import McpBadResponse, McpError
 
 #: 上游两个能力的实现名（真相源是 ``market_search_tools``，**不是** ``tools/list``——
 #: 数据工具是 ``market_call_tool`` 的入参，根本没有独立条目；见 #3145 的教训）。
@@ -86,11 +88,13 @@ def _meta_of(metric: dict) -> dict:
     return meta if isinstance(meta, dict) else metric
 
 
-def search_indicators(question: str) -> List[dict]:
+def search_indicators(question: str, *, use_cache: bool = True) -> List[dict]:
     """自然语言 → 上游指标清单。
 
     Args:
         question: 用户问法或半精确指标名（如 ``中国GDP当季同比``）。
+        use_cache: 是否走复用缓冲层（默认 True）。上游 search 也计费，同一问句在
+            Agent 重试/多轮里会重复出现；命中缓存的条目标 ``cache`` / ``fetched_at``。
 
     Returns:
         ``[{'name': 精确指标名, 'code': 上游内部码, 'freq': 频率}]``，按上游顺序。
@@ -99,6 +103,25 @@ def search_indicators(question: str) -> List[dict]:
     Raises:
         McpBadResponse: 上游返回不可解析（形状漂移显式报错）。
     """
+    if use_cache:
+        hit = macro_cache.read_search(question)
+        if hit is not None:
+            return hit
+    try:
+        rows = _search_upstream(question)
+    except McpError as e:
+        stale = macro_cache.read_search_stale(question) if use_cache else None
+        if stale is None:
+            raise
+        logger.warning(f'宏观检索失败回退缓存（{e.kind}）：{question}')
+        return stale
+    if use_cache:
+        macro_cache.write_search(question, rows)
+    return rows
+
+
+def _search_upstream(question: str) -> List[dict]:
+    """真正打上游的那一段（缓存与兜底由 :func:`search_indicators` 包）。"""
     payload = _call(_CAPABILITIES['search'], {'question': question})
     out: List[dict] = []
     for metric in _metrics_of(payload):
@@ -116,16 +139,21 @@ def search_indicators(question: str) -> List[dict]:
     return out
 
 
-def fetch_series(name: str, begin: date, end: date) -> List[dict]:
+def fetch_series(name: str, begin: date, end: date, *, use_cache: bool = True) -> List[dict]:
     """按指标名取序列，回**上游返回的全部条目**（同族不过滤）。
 
     不过滤的理由：精确名查询上游仍会混回同族口径（实测换手率一次回 10 个行业），
     但哪一条才是调用方要的，只有调用方（拿着用户原话）判得准。过滤放在上层，
     本层只负责「如实搬运 + 丢掉解析不了的点」。
 
+    **这是计费接口**，故默认走 :mod:`macro_cache`：新鲜期内同指标不重取；上游失败
+    （尤其额度耗尽）回退过期缓存并标 ``cache='stale'``，让叙事能如实交代数据时点。
+    返回值里的 ``cache`` / ``fetched_at`` 只由缓存层添加，写缓存时会被剥掉。
+
     Args:
         name: 指标名（通常是 :func:`search_indicators` 返回里的 ``name``）。
         begin / end: 取数窗口（含）。
+        use_cache: 是否走复用缓冲层（默认 True）；测试或排障可显式关掉。
 
     Returns:
         ``[{'name', 'freq', 'unit', 'points': {date: value}}]``，``points`` 升序由
@@ -134,6 +162,25 @@ def fetch_series(name: str, begin: date, end: date) -> List[dict]:
     Raises:
         McpBadResponse: 上游返回不可解析。
     """
+    if use_cache:
+        hit = macro_cache.read_series(name, begin, end)
+        if hit is not None:
+            return hit
+    try:
+        rows = _fetch_series_upstream(name, begin, end)
+    except McpError as e:
+        stale = macro_cache.read_series_stale(name, begin, end) if use_cache else None
+        if stale is None:
+            raise
+        logger.warning(f'宏观序列上游失败回退缓存（{e.kind}）：{name}')
+        return stale
+    if use_cache:
+        macro_cache.write_series(name, rows, begin, end)
+    return rows
+
+
+def _fetch_series_upstream(name: str, begin: date, end: date) -> List[dict]:
+    """真正打上游的那一段（缓存与兜底由 :func:`fetch_series` 包）。"""
     payload = _call(
         _CAPABILITIES['series'],
         {'question': name, 'startDate': begin.isoformat(), 'endDate': end.isoformat()},
