@@ -7,6 +7,7 @@
 
 视图只做参数校验与编排；金额单位换算、null 语义在 services/financial_plan_service.py。
 """
+
 from apiflask import APIBlueprint
 from flask import jsonify
 
@@ -16,9 +17,7 @@ from app.core.validation import parse_body
 from app.domains.financial_plan.schemas import FinancialPlanUpdate
 from app.services.financial_plan_service import read_plan, upsert_plan
 
-financial_plan_bp = APIBlueprint(
-    'financial_plan', __name__, url_prefix='/api/financial-plan'
-)
+financial_plan_bp = APIBlueprint('financial_plan', __name__, url_prefix='/api/financial-plan')
 
 
 @financial_plan_bp.get('/')

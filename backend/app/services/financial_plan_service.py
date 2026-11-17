@@ -8,6 +8,7 @@
 与 0 严格区分——0 元是用户真的填了 0，会让自由度分母为 0（不可算），
 null 是还没填，两者在前端的提示文案不同。
 """
+
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -19,11 +20,7 @@ from app.domains.financial_plan.schemas import FinancialPlanUpdate
 
 def read_plan(db: Session, family_id: int) -> dict[str, Any]:
     """读取家庭财务规划配置（元）。未配置返回两个 None，不抛 404。"""
-    row = (
-        db.query(FamilyFinancialPlan)
-        .filter(FamilyFinancialPlan.family_id == family_id)
-        .first()
-    )
+    row = db.query(FamilyFinancialPlan).filter(FamilyFinancialPlan.family_id == family_id).first()
     if row is None:
         return {'estimated_annual_expense': None, 'estimated_annual_income': None}
     return {
@@ -45,20 +42,14 @@ def _to_cents(value: Optional[float]) -> Optional[int]:
     return None if value is None else Money.yuan_to_cents(value)
 
 
-def upsert_plan(
-    db: Session, family_id: int, payload: FinancialPlanUpdate
-) -> dict[str, Any]:
+def upsert_plan(db: Session, family_id: int, payload: FinancialPlanUpdate) -> dict[str, Any]:
     """写入 / 更新家庭财务规划。调用方负责 commit。
 
     只更新 payload **显式传入**的字段（`model_fields_set`）：
     前端可能只改年收入、不碰年支出，整体覆盖会把没动的那项清掉。
     显式传 null 才清除该项（存 None）。
     """
-    row = (
-        db.query(FamilyFinancialPlan)
-        .filter(FamilyFinancialPlan.family_id == family_id)
-        .first()
-    )
+    row = db.query(FamilyFinancialPlan).filter(FamilyFinancialPlan.family_id == family_id).first()
     if row is None:
         row = FamilyFinancialPlan(family_id=family_id)
         db.add(row)
