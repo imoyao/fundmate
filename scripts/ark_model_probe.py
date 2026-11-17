@@ -37,10 +37,13 @@ CANDIDATES = [
     "doubao-seed-2-0-pro-260215",  # 用户询问（注册面 Retiring，实测 404）
     "doubao-seed-2-1-pro-260915",  # deep-review pro 首选
     "doubao-seed-2-1-turbo-260628",  # deep-review cheap 兜底
+    "doubao-seed-evolving",  # 2026-11-17 用户询问：HTTP 200，但叙事轮 60s ReadTimeout ×2
     "deepseek-v4-pro-ga-260813",  # deep-review pro
-    "deepseek-v4-1-flash-economy-261017",  # 账本精灵 agent 默认（ARK_MODEL_AGENT 缺省值）
+    "deepseek-v4-1-flash-economy-261017",  # 原账本精灵 agent 默认（2026-11-17 实测 429 暂停）
     "deepseek-v4-1-flash-260910",  # deep-review cheap
     "deepseek-v4-flash-ga-260731",  # deep-review cheap
+    "deepseek-v4-pro-260425",  # 2026-11-17 用户询问：实测 404 InvalidEndpointOrModel.NotFound
+    "glm-5-2-260617",  # 账本精灵 agent 默认（ARK_MODEL_AGENT 缺省值，2026-11-17 起）
     "glm-5-3-flash-260828",  # deep-review cheap（方舟托管 GLM）
 ]
 

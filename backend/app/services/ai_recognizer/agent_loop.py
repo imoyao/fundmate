@@ -29,7 +29,7 @@ S3 护栏（2026-09-27，#1121 步骤卡 #5，设计 agent-guardrail-layer-desig
 - 前置拦截与重复追问**不消耗轮次闸、不产生模型调用**（零 token 成本）；
   三者均为纯函数/规则，可确定性单测，不依赖 mock LLM。
 
-模型档位：账本精灵走 ARK_MODEL_AGENT（2026-10-25 起 deepseek-v4-1-flash-economy，纯文本推理模型），
+模型档位：账本精灵走 ARK_MODEL_AGENT（2026-11-17 起 glm-5-2-260617，纯文本推理模型），
 OCR 仍走 ARK_MODEL（视觉档）；两者同端点、OpenAI 兼容协议，换模型只改常量。
 
 历史说明（2026-09-09 合并 session_manager.py）：对外符号 SessionState /

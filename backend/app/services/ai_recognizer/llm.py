@@ -41,10 +41,10 @@ ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-1-lite-260915')
 # 不关思考会超过 ARK_TIMEOUT(60s) 直接 ReadTimeout→503，故默认 disabled；
 # 若换回不支持该参数的模型（如 doubao-seed-2-0 系）置 none。
 ARK_OCR_THINKING = os.getenv('ARK_OCR_THINKING', 'disabled').strip().lower()
-# 账本精灵（对话 Agent）档：与 OCR 解耦的独立档（2026-10-25 用户指定切换）。
-# 该模型为纯文本推理模型（input_modalities=text，reasoning 会额外烧 token），
-# 只用于对话/工具决策/摘要/叙事，不得用于图片识别。
-ARK_MODEL_AGENT = os.getenv('ARK_MODEL_AGENT', 'deepseek-v4-1-flash-economy-261017')
+# 账本精灵（对话 Agent）档：与 OCR 解耦（2026-11-17 起 glm-5-2-260617，纯文本推理系）；
+# 旧 deepseek-v4-1-flash-economy 触发 429 SetLimitExceeded（按模型封顶，非账号级）。
+# 思考缺省不传（服务端默认）；实测开思考会推理失控（单次叙事 37k token / 200s+），A/B 见下。
+ARK_MODEL_AGENT = os.getenv('ARK_MODEL_AGENT', 'glm-5-2-260617')
 # LLM 单次请求超时（秒）：图片/长文本识别较慢，30s 在数据量大时易 ReadTimeout → 503
 ARK_TIMEOUT = int(os.getenv('ARK_TIMEOUT', '60'))
 # 可重试类失败（429/5xx/超时/响应体异常）的最大重试次数（0 = 不重试）
@@ -108,7 +108,7 @@ def call_llm(
     response_format: Optional[dict] = None,
     usage_sink: Optional[dict] = None,
     model: Optional[str] = None,
-    thinking: Optional[str] = None,
+    thinking: Optional[str] = os.getenv('ARK_AGENT_THINKING'),
 ) -> str:
     """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
 
@@ -123,9 +123,9 @@ def call_llm(
             重试路径不累加（失败响应无 usage），与 _record_tokens 口径一致。
         model: 覆盖默认档（缺省 ARK_MODEL）。**图片输入必须留在默认档**；
             账本精灵等纯文本对话传 ARK_MODEL_AGENT（见该常量注释）。
-        thinking: 深度思考开关，仅取 'enabled' / 'disabled'（其余值一律不传该参数）。
-            OCR 链路传 `thinking=ARK_OCR_THINKING`——开着思考时单张图 112s、9000 token，
-            远超 60s 超时，务必关掉（实测数据见 ARK_OCR_THINKING 注释）。
+        thinking: 深度思考开关，仅取 'enabled' / 'disabled'（其余值不传）。缺省读 ARK_AGENT_THINKING，
+            空 = 不传（服务端默认）：agent 三条链路靠它 A/B——实测 glm 开思考会出现 37k token /
+            200s+ 的推理失控，关思考 5~17s；OCR 链路传 ARK_OCR_THINKING，见该常量注释。
 
     兜底设计（用户反馈 503 直报问题）：
     - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
