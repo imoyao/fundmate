@@ -10,10 +10,10 @@ import type {
   PositionStructureData,
   CashLikeBreakdown
 } from "@/api/summary";
-import { getDividendSummary } from "@/api/dividends";
-import type { DividendSummary } from "@/api/dividends";
-import { getPortfolios } from "@/api/portfolio";
-import type { PortfolioItem } from "@/api/portfolio";
+import { getAssetsSummary } from "@/api/assets";
+import type { AssetSummaryItem } from "@/api/assets";
+import { getFinancialPlan } from "@/api/financialPlan";
+import type { FinancialPlanData } from "@/api/financialPlan";
 import {
   getNotifications,
   markNotificationRead,
@@ -219,13 +219,13 @@ export function useWelcomeData() {
     }
   };
 
-  // ===== 财务晴雨表：四项资产健康度（#3165）=====
-  // 五个数据源互不阻塞，各自失败只影响自己那一格——任一接口挂掉不能把整卡带崩。
+  // ===== 财务晴雨表：六项家庭财务健康度（#3165 四项 + v2 两项自由度）=====
+  // 六个数据源互不阻塞，各自失败只影响自己那一格——任一接口挂掉不能把整卡带崩。
   // 派生口径集中在 financialHealth.ts（与 mentalAccounts.ts 同模式，node 可单测）。
   const healthStructure = ref<PositionStructureData | null>(null);
   const healthCashLike = ref<CashLikeBreakdown | null>(null);
-  const healthDividend = ref<DividendSummary | null>(null);
-  const healthPortfolios = ref<PortfolioItem[] | null>(null);
+  const healthAssetsSummary = ref<AssetSummaryItem[] | null>(null);
+  const healthPlan = ref<FinancialPlanData | null>(null);
   const healthError = ref(false);
   const healthLoading = ref(true);
 
@@ -235,15 +235,17 @@ export function useWelcomeData() {
     const anyLoaded =
       healthStructure.value ||
       healthCashLike.value ||
-      healthDividend.value ||
-      healthPortfolios.value;
+      healthAssetsSummary.value ||
+      healthPlan.value;
     if (!anyLoaded && healthLoading.value) return null;
     return buildFinancialHealthView({
       structure: healthStructure.value,
       cashLike: healthCashLike.value,
-      dividend: healthDividend.value,
-      portfolios: healthPortfolios.value,
-      summary: summary.value
+      summary: summary.value,
+      // 年化收益率复用首页已拉的 XIRR（fetchXirr 独立并行，失败为 null → 显示「—」）
+      xirr: portfolioXirr.value,
+      assetsSummary: healthAssetsSummary.value,
+      plan: healthPlan.value
     });
   });
 
@@ -254,8 +256,8 @@ export function useWelcomeData() {
     const results = await Promise.allSettled([
       getPositionStructure(),
       getCashLikeBreakdown(),
-      getDividendSummary({ months: 12 }),
-      getPortfolios()
+      getAssetsSummary(),
+      getFinancialPlan()
     ]);
     healthStructure.value =
       results[0].status === "fulfilled"
@@ -265,11 +267,11 @@ export function useWelcomeData() {
       results[1].status === "fulfilled"
         ? (results[1].value.data ?? null)
         : null;
-    healthDividend.value =
+    healthAssetsSummary.value =
       results[2].status === "fulfilled"
         ? (results[2].value.data ?? null)
         : null;
-    healthPortfolios.value =
+    healthPlan.value =
       results[3].status === "fulfilled"
         ? (results[3].value.data ?? null)
         : null;
