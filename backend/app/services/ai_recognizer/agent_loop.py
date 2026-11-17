@@ -7,7 +7,7 @@
   （推理模型还会先输出 reasoning_content），故 parse_agent_action 复用 extract_json_array
   的容错思路解析单对象，解析失败一律当澄清；
 - 所有数值只在 ToolExecutor 执行后注入 prompt，追问阶段模型只聊逻辑，属防幻觉安全区；
-- 本函数内只做「单次决策 + 工具失败最多 1 次重试」（共 2 次模型调用上限）。
+- 单轮调用预算：追问 1 次；正常 2 次（决策 + 叙事轮）；工具失败 3 次；记忆压缩另加 1 次。
 
 S2 记忆层（2026-09-26）：
 - 会话状态 / 原文 / 轮次由**服务端持有**（agent_session 行，session_store 加载后传入），
@@ -567,7 +567,7 @@ def _run_agent_impl(
     # S4（#1736）：本轮 LLM token / 上游耗时汇总（决策 + 叙事，含重试）
     usage = {'tokens': 0}
     llm_ms = 0.0
-    # 工具执行失败的最多重试：最多 2 次模型调用（带错误反馈 1 次）
+    # 决策最多 2 次：首次 + 工具失败后带错误反馈重试 1 次（叙事轮在循环外，不计入这 2 次）
     for attempt in range(2):
         # 检查点①：循环开头（对首次迭代无意义但无害；重试迭代是真实取消窗口）
         cancelled = _cancel_checkpoint()
