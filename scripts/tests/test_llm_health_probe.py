@@ -75,6 +75,24 @@ class Classify429Test(unittest.TestCase):
         self.assertIn("SomeBrandNewCode", detail)
 
 
+class SharedClassifierWiringTest(unittest.TestCase):
+    """判据 5：分类判据与运行时共用一份（防止两处词表各自漂移）。
+
+    2026-11-18：探针曾与 `llm._classify_failure` 各有一份 429 判断，症状是「探针报
+    额度耗尽、运行时还在白重试」。现在词表只有 `backend/.../retry_policy.py` 一份，
+    探针按文件加载它——这条用例钉住「真的加载了那一份」，而不是又内联了一遍。
+    """
+
+    def test_probe_loads_backend_classifier_file(self):
+        path = str(probe_mod.retry_policy.__file__).replace("\\", "/")
+        self.assertTrue(
+            path.endswith("backend/app/services/ai_recognizer/retry_policy.py"),
+            path,
+        )
+        label, code = probe_mod.retry_policy.classify_429(_body("SetLimitExceeded"))
+        self.assertEqual((label, code), ("quota", "SetLimitExceeded"))
+
+
 class ProbeWiringTest(unittest.TestCase):
     """判据 2：分类真的接在 probe() 上，而不是一个没人调用的纯函数。"""
 

@@ -29,7 +29,7 @@
 | `doubao-seed-2-1-turbo-260628` | 在售 | ❌ 429 | deep-review cheap 兜底，同账号限额暂停 |
 | `deepseek-v4-pro-ga-260813` | 在售 | ✅ OK | deep-review pro——⚠️ **09-27 曾 429 暂停，09-28 实测已恢复** |
 | `deepseek-v4-1-flash-260910` | 在售 | ❌ 429 | deep-review cheap，账号限额暂停 |
-| `deepseek-v4-1-flash-economy-261017` | 在售 | ✅ OK | **账本精灵默认**（`llm.py` `ARK_MODEL_AGENT` 缺省值，2026-10-25 复测）——纯文本推理模型，见下方「注意事项」 |
+| `deepseek-v4-1-flash-economy-261017` | 在售 | ❌ 429 | **原**账本精灵默认（`llm.py` `ARK_MODEL_AGENT` 缺省值）——2026-11-17 实测 `SetLimitExceeded`（该模型已暂停），已换档，见下节 |
 | `deepseek-v4-flash-ga-260731` | 在售 | ✅ OK | deep-review cheap——⚠️ **曾暂停，已恢复** |
 | `glm-5-3-flash-260828` | 在售 | ✅ OK | deep-review cheap（方舟托管 GLM） |
 
@@ -38,8 +38,41 @@
 
 **当前健康集（实测 OK，可直接选用）**：`2-0-lite`、`2-1-lite`、
 `deepseek-v4-pro-ga`、`deepseek-v4-flash-ga`、`glm-5-3-flash`、
-`deepseek-v4-1-flash-economy-261017`（2026-10-25 补测）。
+`glm-5-2-260617`（2026-11-17 补测，现为 agent 缺省）。
 ⚠️ `2-0-mini` 已于 2026-10-25 掉出健康集（429 用量上限暂停，非退役）。
+⚠️ `deepseek-v4-1-flash-economy-261017` 已于 2026-11-17 掉出健康集（429 该模型暂停）。
+
+## 2026-11-17 换档：agent 档改 `glm-5-2-260617`
+
+背景：agent 档原 `deepseek-v4-1-flash-economy-261017` 触发 429（该模型被暂停）。用户指定核验三个候选：
+
+| 模型 | 第 3 层实测 | 结论 |
+|---|---|---|
+| `glm-5-2-260617` | 200；`agent_eval --limit 3` **3/3 PASS**；全量跑到第 26 条时该模型额度耗尽，**实跑 26 条 21 通过（80.8%）** | **采用**——`llm.py` `ARK_MODEL_AGENT` 缺省值已改 |
+| `doubao-seed-evolving` | 200 但**链路跑不动**：决策轮 9.25s 正常，叙事轮连续两次 60s ReadTimeout | 弃用，见下方「HTTP 200 ≠ 能跑完一轮」 |
+| `deepseek-v4-pro-260425` | 404 `InvalidEndpointOrModel.NotFound` | 无权限 / 不存在——存在性与权限仍混在一个报错里，先查 `/api/v3/models` 注册面再下结论 |
+
+### 教训：HTTP 200 不等于能跑完一轮（2026-11-17）
+
+`max_tokens=1` 的 ping 只证明「模型存在且账号没对该模型限额」，**不证明它能在 `ARK_TIMEOUT` 内答完真实 prompt**。doubao-seed-evolving 的 ping 4.3s / 200，换成 7213 字符工具目录 + 分层记忆的真实决策与叙事，被 60s 超时打回。故 agent 档判「可用」的最低成本动作是 `backend/scripts/agent_eval.py --limit 3`（真实 prompt + 真实工具），不是 ping。
+
+### 思考开关：做成可配（`ARK_AGENT_THINKING`），缺省不传 = 保持服务端默认
+
+`call_llm` 的 `thinking` 缺省值改为读 `ARK_AGENT_THINKING`（空 = 不传该参数）：OCR 链路本来就显式传
+`ARK_OCR_THINKING`，所以这个开关只作用于 agent 三条链路，**默认行为与换档前完全一致**。
+
+两侧代价都实测过，方向相反：
+
+| 维度 | 开思考（默认） | `ARK_AGENT_THINKING=disabled` |
+|---|---|---|
+| 单次调用耗时 | 大 payload 用例出现 **82 / 119 / 211s**，撞 `ARK_TIMEOUT` 后成片 429/503 | 全量跑下来最长 **41s**，多数 2–10s |
+| 单次 token | 大 payload 调用 **37k–38k** | 整条用例最高 **33k**（大头是工具出参 prompt） |
+| 格式纪律 | 稳定（`34.38%`） | 退化：同一题写成「百分之34.38」，两把尺子（指标具名 / 数值有出处）都按字面匹配 `34.38%`，判红（`basic-02`） |
+
+结论：**缺省留服务端默认，不擅自关**。真要为延迟关掉时，得同时补一条 prompt 约束（数值用阿拉伯数字 + `%`），
+否则会换来一批格式化判红——这不是模型算错，是表达不合判据。
+
+⚠️ 跑真实评估时用 `ARK_TIMEOUT=120` 覆盖 `.env` 的 60：长叙事撞自设超时会被判红，与模型能力无关。
 
 ## 注意事项：`doubao-seed-2-1-lite` 做 OCR 必须关深度思考（2026-10-25）
 
@@ -55,7 +88,7 @@
 注意 `max_tokens` **限制不住 reasoning token**（探测里 `max_tokens=300` 仍产生 8467 reasoning）。
 换回不支持该参数的模型（如 `doubao-seed-2-0` 系）时把 `ARK_OCR_THINKING` 设为 `none`。
 
-## 注意事项：`deepseek-v4-1-flash-economy` 是「纯文本推理模型」（2026-10-25）
+## 注意事项：`deepseek-v4-1-flash-economy` 是「纯文本推理模型」（2026-10-25，已于 2026-11-17 掉出健康集）
 
 注册面元数据与实际调用共同确认三点，换模型/排查时必须记得：
 
@@ -71,7 +104,7 @@
 
 1. `backend/app/services/ai_recognizer/llm.py`——**两档**（2026-10-25 拆分，`.env` 均可覆盖）：
    - `ARK_MODEL` 缺省 `doubao-seed-2-1-lite-260915`：OCR / 结构化识别，**必须支持图片输入**；
-   - `ARK_MODEL_AGENT` 缺省 `deepseek-v4-1-flash-economy-261017`：账本精灵（对话 / 工具决策 /
+   - `ARK_MODEL_AGENT` 缺省 `glm-5-2-260617`（2026-11-17 换）：账本精灵（对话 / 工具决策 /
      摘要 / 叙事），纯文本即可；
    - `ARK_OCR_THINKING` 缺省 `disabled`：OCR 档深度思考开关（`none` = 不传该参数）。
 2. `scripts/llm_health_probe.py`——`CANDIDATES` 池（deep-review 自动选型；CI 用
