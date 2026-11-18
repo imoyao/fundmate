@@ -1907,8 +1907,10 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 
 ### CI 守卫（PR 四问格式）
 
-工作流 `.github/workflows/pr-four-questions-guard.yml`（`pull_request_target`，不检出 PR 代码）：
+工作流 `.github/workflows/pr-four-questions-guard.yml`（`pull_request` + 显式 `ref: dev`，不检 PR 的代码，见 `#2803`）：
 
+- **正文有预填充模板**：`.github/PULL_REQUEST_TEMPLATE.md`（2026-11-18 加）。网页开 PR 自动带上；命令行要走 `gh pr create -T .github/PULL_REQUEST_TEMPLATE.md`（或按同一骨架写 `--body-file`）——**`--fill` 不读模板**，它只取提交信息。此前没有模板，于是每个 PR 都手抄四问，手抄漏一节就被守卫判红（`#3174` 正文全空即是此形态）。
+- 模板里的填写提示写成 HTML 注释，守卫**先剥注释再判定**（第三层判据）⇒ 一份没人动过的模板照样判红。**预填充省的是抄结构，不是省思考**：若让注释算内容，模板就等于给所有 PR 预置了通过样本，那是把闸门关掉还留着灯。
 - 判据脚本 `scripts/guard_pr_four_questions.mjs`：PR 描述须含四问小节——**谁的什么问题 / 验收标准 / 风险 / 替代方案**；
 - **验收标准每条须带判据引用**（`scripts/guard_pr_four_questions.mjs` 第二层判据）：反引号里的测试名 / 文件 / 命令，或 `测试：` / `判据：` / `走查：` / `验证：` 等冒号前缀标记；真机走查类验收没有测试名，写「走查：dev 环境点击截图」即合格。这拦的是「验收标准写成愿望清单」——条目既无测试名也无走查点，收口时只能靠回忆判断过没过（#2449）；
 - **只检查「有没有写」，不判断「写得对不对」**。这是有意的降级：「需求是否合理」是主观判断（写进文档就会被绕开），「有没有写这四行」是客观存在性（CI 拦得住）。守卫保证的是**判断发生过并留下痕迹**，四问内容是否成立仍由 owner 评审时判断；

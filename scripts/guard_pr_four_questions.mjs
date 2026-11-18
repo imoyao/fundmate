@@ -47,6 +47,16 @@
  * 「有没有想清楚怎么验」，不是「验得够不够」**——后者是主观判断，
  * 放进 CI 就是 #2410 那类必然被绕开的软约束换马甲，本守卫不重蹈。
  *
+ * ## 第三层：HTML 注释不算「写过」
+ *
+ * 仓库从 2026-11-18 起有 `.github/PULL_REQUEST_TEMPLATE.md` 预填四个小节。模板里必须
+ * 放填写提示，而**注释是唯一不污染渲染的提示形态**——但这正好撞上本守卫的软肋：
+ * 判据原本是「该小节下有非空行」，`<!-- 一句话：谁被卡住了 -->` 就是非空行 ⇒
+ * **一份没人动过的模板直接判绿**。那是「预填充」换来的假绿，比不加模板更糟。
+ *
+ * 故 `splitSections` 先剥掉 HTML 注释再切小节：注释是**模板占位**，不是思考的痕迹。
+ * 顺带补上一个本来就存在的洞：`## 风险` + `<!-- 待补 -->` 过去也能过。
+ *
  * ## 豁免（**必须**有，否则第一天就会把仓库堵死）
  *
  *   - **机器人作者**：dependabot / github-actions / cnblogs-ci / Claude / Codex 等
@@ -174,6 +184,17 @@ export function acceptanceItemsWithoutEvidence(lines) {
 }
 
 /**
+ * 剥掉 HTML 注释（含跨行）。注释只承载**模板占位提示**，不承载任何判断，
+ * 因此不得被当成「该小节写过内容」——理由见文件头「第三层：HTML 注释不算写过」。
+ *
+ * @param {string} body PR 描述全文
+ * @returns {string} 去掉注释后的正文（保留换行，行号仍可与原文大致对齐）
+ */
+export function stripHtmlComments(body) {
+  return String(body || '').replace(/<!--[\s\S]*?-->/g, '');
+}
+
+/**
  * 解析小节切分：返回「小节键 → 该小节下的正文行（找不到标题时为 null）」。
  *
  * 形状选择说明：用「标题行 + 后随正文」而不是「全局正则找关键词」，
@@ -185,7 +206,7 @@ export function acceptanceItemsWithoutEvidence(lines) {
  */
 export function splitSections(body) {
   const out = { problem: null, acceptance: null, risk: null, alternative: null };
-  const lines = String(body || '').split(/\r?\n/);
+  const lines = stripHtmlComments(body).split(/\r?\n/);
   let cur = null;
 
   for (const raw of lines) {
