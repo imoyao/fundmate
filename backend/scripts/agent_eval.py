@@ -215,6 +215,10 @@ METRIC_PICKS = frozenset({'min', 'max', 'abs_max'})
 NUM_TOKEN = re.compile(r'-?\d+(?:,\d{3})*(?:\.\d+)?')
 NUM_DATE_SPAN = re.compile(r'\d{4}-\d{2}-\d{2}')
 NUM_PCT_SUFFIX = re.compile(r'\s*(?:%|％|个百分点|个点|百分)')
+# 百分号的**中文前缀**写法：「百分之34.38」。只认后缀时它会被反向判据打成编造
+# （34.38 有 2 位小数、命中高熵门槛，又少了「除以 100」那次归一化，与 0.3438 对不上），
+# 正向判据则判成回避——两头都是假红（2026-11-17 全量评估 basic-02/03 实测）。
+NUM_PCT_PREFIX = re.compile(r'百分之\s*$')
 NUM_YEAR_SUFFIX = re.compile(r'\s*年')
 NUM_CODE_SHAPE = re.compile(r'^\d{6}$')
 # 量级后缀：叙事几乎不会把「1630204.52 元」原样写出来，而是「163 万」。
@@ -437,6 +441,9 @@ def _number_token_spans(text):
     位置是「数字归属」判据的输入：要知道这个数落在哪个要点的段落里。
     `scale` 是量级后缀（万 / 亿）带来的倍数，用户看到的是「163 万」而数据里是
     1630204.52 —— 不认量级会把最常见的合法改写判成编造或回避。
+    百分号两种写法都要认：后缀（`34.38%` / `34.38 个百分点`）与前缀（`百分之34.38`）。
+    只认后缀时，「百分之34.38」既拿不到 `/100` 归一化、又照 2 位小数进高熵门槛，
+    于是写对了也被判成编造（2026-11-17 评估 basic-02/03 实测）。
     中文数量词（「两成」「六个点」「一百六十三万」）并入同一序列：它们同样要参与
     归属，否则「用中文写的回答」在归属判据里等于没给数。
     """
@@ -449,13 +456,14 @@ def _number_token_spans(text):
         raw = match.group(0)
         tail = text[match.end() : match.end() + 6]
         mag = NUM_MAG_SUFFIX.match(tail)
+        is_percent = bool(NUM_PCT_SUFFIX.match(tail)) or bool(NUM_PCT_PREFIX.search(text[:start]))
         tokens.append(
             (
                 start,
                 NumToken(
                     raw,
                     float(raw.replace(',', '')),
-                    is_percent=bool(NUM_PCT_SUFFIX.match(tail)),
+                    is_percent=is_percent,
                     is_year=bool(NUM_YEAR_SUFFIX.match(tail)),
                     scale=NUM_MAG_SCALE[mag.group(1)] if mag else 1.0,
                 ),

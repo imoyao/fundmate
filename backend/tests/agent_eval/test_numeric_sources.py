@@ -555,3 +555,55 @@ def test_cn_token_carries_own_tolerance(contract):
     assert token.is_percent and token.approximate
     assert token.tolerance == pytest.approx(5.0)
     assert start == 1
+
+
+# ── 九、百分号的中文前缀写法（2026-11-18） ──────────────────────
+# 模型把小数口径（xirr=0.3438）写成「百分之34.38」是合规表述，但旧判据只认**后缀**：
+# 34.38 有 2 位小数 → 进高熵门槛，却拿不到「除以 100」那次归一化 ⇒ 与 0.3438 对不上，
+# 反向判据判成编造、正向判据判成回避。2026-11-17 全量评估里 basic-02/03 就是这么红的。
+
+_XIRR_DATA = {'xirr': 0.3438}
+_XIRR_COVERS = [{'id': '年化收益', 'any': ['年化'], 'metric': {'tool': 'get_portfolio_performance', 'field': 'xirr'}}]
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        '这两年你的年化收益是百分之34.38。',
+        '这两年你的年化收益是百分之 34.38。',  # 中间带空格
+        '这两年你的年化收益是 34.38%。',  # 对照：后缀本来就认
+    ],
+)
+def test_cn_percent_prefix_counts_as_source(contract, text):
+    ok, why = contract.evaluate_numeric_sources(text, _XIRR_DATA)
+    assert ok, f'「百分之34.38」被误判为编造：{text!r} -> {why}'
+
+
+def test_cn_percent_prefix_does_not_open_a_backdoor(contract):
+    """兼容写法 ≠ 放水：编造的「百分之99.99」仍然判红并点名。"""
+    ok, why = contract.evaluate_numeric_sources('这两年你的年化收益是百分之99.99。', _XIRR_DATA)
+    assert not ok
+    assert '99.99' in why, why
+
+
+def test_cn_percent_prefix_satisfies_metric_presence(contract):
+    """正向判据走同一条 token 路径，前缀写法同样算「引用了这个值」。"""
+    assert contract.evaluate_metric_presence('年化收益百分之34.38。', _XIRR_DATA, _XIRR_COVERS) == (True, '')
+    ok, why = contract.evaluate_metric_presence('年化收益百分之99.99。', _XIRR_DATA, _XIRR_COVERS)
+    assert not ok and '年化收益' in why, why
+
+
+def test_cn_percent_prefix_marks_token_as_percent(contract):
+    """判据侧的单一改动点：前缀写法必须把 token 标成百分比，值仍是字面 34.38。"""
+    start, token = contract._number_token_spans('年化百分之34.38')[0]
+    assert token.is_percent and token.raw == '34.38' and token.value == pytest.approx(34.38)
+    assert start == len('年化百分之')
+    # 「百分」出现在**别的数**后面时不能把下一个数当成百分比（只看紧邻前缀）
+    _, other = contract._number_token_spans('占比百分之 34.38，另有 12.5 元')[1]
+    assert not other.is_percent
+
+
+def test_cn_percent_prefix_keeps_avoidance_red(contract):
+    """前缀兼容不能让「不给数」蒙混：只写「收益不错」仍然判红。"""
+    ok, why = contract.evaluate_metric_presence('年化收益还不错。', _XIRR_DATA, _XIRR_COVERS)
+    assert not ok and '未引用' in why, why
