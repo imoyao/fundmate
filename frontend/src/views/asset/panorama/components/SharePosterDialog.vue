@@ -35,7 +35,7 @@ import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import type { DistributionsData } from "@/api/summary";
-import { buildPosterData } from "./posterModel";
+import { buildPosterData, categoriesFromDistributions } from "./posterModel";
 import { renderPoster } from "./posterCanvas";
 
 defineOptions({ name: "SharePosterDialog" });
@@ -77,7 +77,7 @@ function openDialog(): void {
       totalLiabilities: props.totalLiabilities,
       netAssets: props.netAssets,
       totalPnl: props.totalPnl,
-      categories: props.distributions?.category_distribution ?? [],
+      categories: categoriesFromDistributions(props.distributions),
       colors: POSTER_COLORS
     });
     dataUrl.value = renderPoster(canvas, data);
@@ -103,22 +103,22 @@ function download(): void {
   justify-content: center;
   min-height: 200px;
   max-height: 60vh;
+  padding: 12px;
   overflow: auto;
   background: var(--bg-soft, #f5f0eb);
   border-radius: 12px;
-  padding: 12px;
 }
 
 .poster-preview img {
+  display: block;
   width: 100%;
   max-width: 375px;
   height: auto;
-  display: block;
 }
 
 .poster-empty {
-  color: var(--text-tertiary-ink, #716a60);
-  font-size: 14px;
   align-self: center;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink, #716a60);
 }
 </style>

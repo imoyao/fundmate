@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPosterData,
+  categoriesFromDistributions,
   formatYuan,
   slicePercentages,
   type PosterSlice
@@ -120,6 +121,18 @@ describe("buildPosterData", () => {
     expect(data.slices).toEqual([]);
     expect(data.figures.every(f => f.value === 0)).toBe(true);
     expect(formatYuan(data.figures[0].value)).toBe("¥0.00");
+  });
+});
+
+describe("categoriesFromDistributions", () => {
+  it("取资产大类数组；null / 缺字段时回退空数组", () => {
+    expect(
+      categoriesFromDistributions({
+        category_distribution: [{ name: "基金", value: 100 }]
+      })
+    ).toEqual([{ name: "基金", value: 100 }]);
+    expect(categoriesFromDistributions(null)).toEqual([]);
+    expect(categoriesFromDistributions({})).toEqual([]);
   });
 });
 

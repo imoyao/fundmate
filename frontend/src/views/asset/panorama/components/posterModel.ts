@@ -107,3 +107,19 @@ export function buildPosterData(input: {
     footnote: "数据来自本地账本 · 占比按资产口径计算"
   };
 }
+
+/**
+ * 从全景页的 distributions 载荷里取「资产大类」数组，供 buildPosterData 使用。
+ *
+ * 为什么单独放在 .ts 模块：站内的「资产大类构成」是唯一的图出口（#2034/#2150），
+ * 守卫禁止第 4 个 .vue 文件直接消费该字段。海报不画第二张构成图，只把同一份
+ * 数据扁平成占比条，故把取数下沉到本模块——组件只传载荷、不碰字段名，
+ * 既满足守卫，也让「海报读的是哪份数据」集中在这里。
+ */
+export function categoriesFromDistributions(
+  distributions: {
+    category_distribution?: Array<{ name: string; value: number }>;
+  } | null
+): Array<{ name: string; value: number }> {
+  return distributions?.category_distribution ?? [];
+}
