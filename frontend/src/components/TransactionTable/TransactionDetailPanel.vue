@@ -73,6 +73,15 @@ const sourceText = computed(() => {
   return positionSourceLabel(source);
 });
 
+/** #3089：归置是只读标记，流水仍显示在列表里，只是不再计入账外类现金 */
+const coveredPositionText = computed(() => {
+  const id = props.detail?.covered_position_id;
+  if (!id) return null;
+  const name = props.detail?.covered_position_name;
+  const label = name ? ` #${id}（${name}）` : ` #${id}`;
+  return `已由持仓${label}体现，不再计入账外类现金`;
+});
+
 const positionText = computed(() => {
   const brief = props.detail?.position;
   if (state.value === "account") return "资金流水，不关联持仓";
@@ -138,6 +147,13 @@ const noteView = computed(() => parseMigrationNote(props.detail?.notes));
           <div v-if="detail.plan_id" class="txn-detail__field">
             <dt>定投计划</dt>
             <dd>#{{ detail.plan_id }}</dd>
+          </div>
+          <div
+            v-if="coveredPositionText"
+            class="txn-detail__field txn-detail__field--wide"
+          >
+            <dt>归置</dt>
+            <dd>{{ coveredPositionText }}</dd>
           </div>
           <div class="txn-detail__field txn-detail__field--wide">
             <dt>持仓现状</dt>

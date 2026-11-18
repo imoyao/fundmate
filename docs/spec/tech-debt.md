@@ -4,8 +4,24 @@ title: 技术债务与开口项明细（tech-debt）
 
 # 技术债务与开口项明细（tech-debt）
 
-> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-10-11**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
+> 🔒 **状态权威（2026-11-10 治理）**：本文件自本节起降级为**历史归档**，只保留「发现过程 / 决策依据 / 实测证据」，**不再承载债务状态**。
+> STATUS_AUTHORITY: tech-debt-register.toml
+> 当前状态的唯一权威是 [`tech-debt-register.toml`](./tech-debt-register.toml)，由 `scripts/guard_tech_debt_register.py` 在 CI 中判定；状态机与判据 DSL 见 `docs/working-notes/tech-debt-register-design-2026-11-10.md`。新增或变更债务状态一律改登记表，只写进本文件正文等于没登记。
+> 最后核实日期：**2026-11-10**（逐条回代码 / issue 实证；头部旧值 2026-10-11 已失实，git 最后提交为 11-09）。历史条目逐字保留（请勿删除）。
 >
+
+**2026-11-10 批量状态更正**（正文里的 🔴 / 「待排期」等旧标记不再作准，以登记表为准）：
+
+| 原条目 | 旧标记 | 实证 | 登记表 |
+|---|---|---|---|
+| §79 / §128 货币基金每日收益链路 | 🔴 上线前必查「无任何代码读取 `nav_per_10k`」 | `money_fund_income.py:19` 等 13 个文件已消费 | TD-001 `done` |
+| §80 暗黑模式 | 🔴 上线前必查「前端未实际接入」 | `style/dark.scss:4` + `useDataThemeChange.ts` | TD-002 `done` |
+| §84 账户卡片当日盈亏 | 「前后端均无能力」 | `services/today_pnl.py` + 首页 `TodayPnlCard.vue` | TD-003 `done` |
+| §121–127 五张高红旗 | 「完全未落地」 | #937/#933/#934/#825 全部 CLOSED，#913 于 08-12 关闭 | TD-004 `done` |
+| §81 H2 `group_by=account` 手写 dict | 「待排期」 | 已下沉 `services/position_display.py` | TD-005 `done` |
+| §985 U+FFFD 自证文件被守卫硬拦 | 「任何 PR 触碰即红灯」 | 该文件字面替换符已清零 | TD-006 `done` |
+| #2803 workflow 定义来源 | 首轮盘点误报「8 个 workflow 仍用 `pull_request_target`」 | 真实触发器只剩 2 个依赖 bot 豁免，其余 6 个是注释；`guard_workflow_definition_source.py` exit 0 | TD-025 `blocked`（等发版同步 main 后关单） |
+
 > **看板同步（2026-08-14）**：本文档技术债务已全量同步至 GitHub Project 看板（多多贝·投资账本 #3）并按四象限赋级——补登被引用但未进看板的 #796/#230/#507/#911；将 §1/§9–§12 中无 issue 编号的独立债务条目提升为 issue #948–#976 并赋象限；其余被引用的 issue（#821/#825/#869/#894/#898/#912/#913/#820/#824/#933/#934/#937/#947 等）统一补挂象限。交叉引用以 issue 编号为准。
 >
 > **占位 issue 复盘清理（2026-08-14，用户复核）**：同步时批量提升的 #948–#976（另 #947）共约 30 个占位 issue 未经实质验收、且未标注 AI 身份，经用户指出。已关闭其中 15 个冗余/无行动项——#952/#953/#954/#956/#957/#958/#959/#960/#961/#962/#963/#964/#969/#970/#971（与 #899 重复，或债务本身写明「暂不处理 / 放弃追踪 / 当前方案够用 / 待实现」）；保留 15 个可执行项 #947/#948/#949/#950/#951/#955/#965/#966/#967/#968/#972/#973/#974/#975/#976 并补「AI 创建」标注。关闭项的债务明细仍以本文档为准，不在看板另行占卡。AI 创建/关闭须标注身份的规则已写入记忆（#14890672）。
@@ -818,6 +834,20 @@ cd backend && pdm run pytest tests/test_company_resolver.py \
   tests/test_eastmoney_adapter.py -p no:xdist -q
 ```
 
+### 2026-11-05 持久化无 Alembic（#2874，需决策）
+
+现状：仓库采用 `create_all` + `backend/app/core/migrations.py`（2663 行、34 个 `migrate_*(engine)` 幂等函数，SQLite 走整表重建、PG 走 ALTER 分支）+ `database.py::_validate_schema` 拒绝带病启动，无 Alembic（依赖/配置/代码全 0 命中）。`backend/scripts/` 下 42 个 `migrate_*` + 19 个 `fix_/clean_/dedupe_/purge_/backfill_/repair_*` 共 61 个一次性脚本（该目录 `.py` 合计 81 个）。
+
+计数口径（可复算）：`cd backend/scripts && ls | grep -Ec '^(migrate_|fix_|clean_|dedupe_|purge_|backfill_|repair_)'` = 61。
+
+> **2026-11-05 复核订正**：本条目初版写的「79 个（42 + 37）」与同段「66 个（42 + 24）」都不可复现——37 / 24 在任何前缀口径下都对不上（`fix_/clean_/dedupe_/purge_/backfill_` 实测 15，加 `repair_` 19，再加 `merge_` 20，最宽口径把 `cleanup_` 算进去也只有 63）。且 2026-10-25 以来 `backend/scripts/` 无任何文件删除（`git log --diff-filter=D` 为空），排除「审计后被归档」的可能。故统一订正为 61，`decisions.md` D81 同步。
+
+评估（#2874 架构体检提议引入 Alembic）：技术可行但属架构改造，须先解决双引擎方言（生产 market=Turso/libSQL、user=Supabase PG、本地 SQLite）、CI 无真 PG 验证、启动期 `init_db` 语义重定、本地库无 `alembic_version` 基线、Supabase 用户域 DDL 归属口径矛盾。脚本构成上，DDL 占多数：42 个 `migrate_*` 里 38 个涉及建表 / 加列 / 建索引（其中 6 个走 `Base.metadata.create_all` 补表、1 个委托 `migrations.py`），只有 4 个是纯数据回填。这批 DDL 脚本恰是 Alembic 本可接管的；`fix_*` 族那 19 个才是 Alembic 管不了的（口径改版后的老数据收编）。但「本可接管」不等于「现在就该换」——真正根因在 #2875（库级约束/写路径不变量）。项目单实例、无 downgrade/多部署/多人并行改 schema 需求，数据安全已被幂等 + 拒绝启动 + 漂移校验 + `guard_migrations_pg_aware.py` 守卫 + 17 个迁移测试覆盖。2026-08-01 代码审计曾建议 Phase 4 建 Alembic 但未落地，仓库后续明确选自建迁移并持续投入。
+
+裁决：**暂不引入 Alembic**（对应 `decisions.md` D81）。低风险改进（不换框架）：① `migrations.py` 按域拆模块 + 显式有序注册表，消除 `init_db`/`init_db_split` 两串硬编码重复；② CI 加真 Postgres service，守卫扩为「新迁移必须带双引擎测试」；③ 一次性脚本归档分类，能追因的并入 #2875。
+
+触发重评条件：多实例/多部署各自升级、需要 downgrade、对外分发带版本快照、CI 具备真 PG、多人并行改 schema。
+
 ## 2026-09-19 错误响应统一信封（#1610，D27）：63 处已补齐 + 守卫上线
 
 ### 已完成
@@ -1164,3 +1194,104 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 **待决策**：两套基准是否统一、以哪一侧为准。判据是「持仓多久同步一次」与
 「快照历史能否重算」，不靠拍脑袋换基准。
+
+## 2026-11-05 持仓状态机散落、不变量无库级兜底（#2875，已结项 2026-11-08）
+
+**现象**：`positions` 的状态迁移（清仓、清仓后再买入、锚点覆盖判定、无锚点时从流水派生）
+集中在 `position_service.py` 的若干私有函数里，只有服务层能调用；导入、重建、数据修复
+脚本各自照抄一遍。任何一条写路径只改一半，库就停在「`cleared` 但仍有份额」这类自相矛盾态，
+而读侧（总资产、市值、锚点口径）会**静默**按错的那半算。
+
+**本轮已做**（2026-11-05，切片 A + B）：
+
+- 切片 A：`positions` 加库级 CHECK `ck_positions_cleared_zero_qty`（清仓态必须零份额）与
+  `ck_positions_anchor_qty_needs_date`（锚点有份额就必须有日期）。
+  迁移 `migrate_positions_state_check_constraints` 双引擎：SQLite 整表重建（含索引重建 +
+  外键 PRAGMA 关/开 + 自校验）、PG 走 `ALTER TABLE ADD CONSTRAINT`。
+  真实库副本实测（281 行持仓 / 1930 笔流水 / 212 条 import_meta）：三条子表行数、
+  8 个索引、37 列全部原样；存量 0 违反，故**不改任何数据**。
+- 切片 B：`is_covered_by_anchor` / `mark_position_cleared` /
+  `reactivate_cleared_position` / `derive_state_from_txns` 迁到
+  `app/domains/positions/state.py`（纯函数、不碰 Session），服务层改为导入。
+  `position_service.py` 2468 → 2339 行，基线同 PR 收紧。
+
+**一条刻意不做、一条改方向式**（首轮 CI 9 例转红，把「看起来显然的不变量」打回）：
+
+- `cleared ⇒ cleared_at IS NOT NULL` **不做**：`migrate_positions_cleared_at` 把该列 NULL
+  定义为「无已知清仓时间」，旧库允许该形态，加了会让这类库拒绝启动且无法自动修复。
+- 锚点「两列同空同非空」**改成方向式**：只禁「有份额却无日期」
+  （`snapshot_quantity IS NOT NULL AND snapshot_date IS NULL`），反向放行。对称式必须
+  放弃——`migrate_positions_snapshot_anchor` 的官方升级路径就是「回填 `snapshot_date`、
+  **份额列保持 NULL**」（历史份额已丢），而本迁移违反时 fail closed，对称式会让每个跑过
+  锚点迁移的真实库下次启动被直接拦死。反向则必须禁：`_is_covered_by_anchor` 见
+  `snapshot_date is None` 恒返回 False，锚点被静默忽略、重算退回全量流水口径，
+  正是 #1968 / #2382 那类「份额重复累加」的复发形态。
+
+用例守住两侧：`test_cleared缺清仓时间不被拦`（不许多拦）与
+`test_迁移产物_有快照日无份额_不阻断启动且可写`（不许误伤升级路径）。
+
+**剩余（未做）→ 2026-11-08 结项移交**（本卡关闭，不再以「架构债」名义承载数据修复）：
+
+- `process_buy_or_deposit` 403 行 / 圈复杂度 84 → **已闭环**（#2873 八抽）：
+  `position_service.py` 2468 → **469 行**，买入 / 卖出 / 快照 / 转债命令各成文件
+  （`position_buy_command.py` / `position_sell_command.py` / `position_snapshot_command.py` /
+  `position_bond_command.py`），纯函数状态层为 `domains/positions/state.py`。
+- 孤儿流水（`position_id IS NULL`）的「归因与重挂时机」→ **口径已定、机制已落地**：
+  `services/sync/jobs/orphan_backfill_job.py` 按 `symbol_norm` 身份键扫描挂回（已注册每日调度，
+  `SCHEDULER_ORPHAN_BACKFILL_CRON` 默认 `30 23 * * *`），挂回后强制走
+  `recompute_position_from_transactions` 全量重算而非增量加减；同键命中多行一律跳过计
+  `ambiguous`，宁可不挂也不挂错。只读审计 `scripts/audit_orphan_batches.py` 按导入批次与
+  `legal_cash / reattachable / ambiguous / cleared_history / sell_without_buy / unpositioned`
+  定性，供按批决策（不代做 UPDATE）。
+- 存量孤儿流水的数据处置（**不是架构问题**）→ #3004：导入落库未按交易日重放，
+  时间倒序的交割单会让卖出先于买入入库、退化为孤儿；修在 `ImportOrchestrator.commit()`
+  入口，对全部解析器生效。其「遗留」段（期初持仓缺口需补更早交割单或期初快照）
+  才是剩余数据补齐项。
+- PG 侧约束真库验证 → #2874 / D81（CI 无真 PG，当前只钉 SQL 形态）。
+
+2026-11-08 只读复核（`backend/invest.db`，`mode=ro` + `PRAGMA query_only=ON`）：
+`position_id IS NULL` 共 **865 笔 / 9 个导入批次**。其中合法现金（存取、`__CASH__` 哨兵、
+货基 / 逆回购口径 A）**本就不该挂持仓**；可挂回批次由夜间 job 消化；「已清仓历史 /
+无源卖出」挂不回任何持仓行，属 #3004 遗留的数据补齐。故本卡架构侧已无剩余动作。
+
+## 2026-11-08 #2879 显式 any 治理：业务侧已清零（含历史分刀依据）
+
+**结论（收尾复核，第一~第九刀全部合入 `dev` 后）**：业务侧显式 `any` 已清零，#2879 已关闭。
+`node scripts/guard_ts_any.mjs` 实测扫 1136 个文件，any 共 **14** 处，全部落在
+`utils/localforage/types.d.ts`（守卫 `EXEMPT_FILES` 唯一一项，三方 typings 自带 any），
+**业务待收敛 0 处**；`scripts/ts-any-baseline.json` 全零冻结。
+下文「本轮已做 / 剩余清单」保留为**当日中间态**记录——分刀依据与已踩过的坑仍然有效，
+存量数值以本节结论与基线为准。
+
+**本轮已做**：47 处 `catch (e: any)` 与后端错误信封取值收敛到
+`frontend/src/utils/errorMessage.ts`（unknown 显式收窄）；图表 formatter / `chartRef`
+改用 `frontend/src/types/chart.ts` 的具体类型；`utils/message.ts`、
+`utils/globalPolyfills.ts`、`utils/theme.ts`、`utils/print.ts` 等补具体类型。
+守卫 AST 口径实测 304 → 239（本轮 -65）。
+
+**护栏（本轮收口）**：`scripts/guard_ts_any.mjs` 新增文件 any 上限 3 → 0（零容忍，
+`--write` 也不得把新文件 any 登记进基线），回归网 `guard_ts_any.test.js` 15/15；
+`scripts/ts-any-baseline.json` 收紧到 239 并刷新 `generatedAt`；
+`frontend/eslint.config.js` 对本轮 27 个已清零文件开 `no-explicit-any: error`
+（收尾时这道「零容忍区」已退役：TS/TSX 与 `.vue` 两条配置现均直接
+`no-explicit-any: error`，`.d.ts` 由 `globalIgnores` 排除）；守卫报告单列「豁免 / 业务待收敛」。
+
+**当时中间态清单（业务存量已由后续九刀清零，仅存历史价值；14 处豁免仍在）**：
+
+- 豁免：`utils/localforage/types.d.ts` 14 处是上游 typings 自带 any，改成 unknown
+  只会引出成片 `as` 断言且升级依赖即被覆盖 —— 卡内建议保留，已在基线
+  `exemptions` 字段登记理由，不计入待收敛数。
+- 大头：`utils/tree.ts` 16、`router/utils.ts` 11、`views/asset/panorama/index.vue` 10、
+  `views/explore/components/detail/useRankTables.ts` 7、
+  `views/asset/ledgers/components/OrphanCleanupDialogs.vue` 7、
+  `store/modules/multiTags.ts` 6、`views/asset/ledgers/components/LedgerCard.vue` 6 等；
+  其余多为每个文件 1~4 处的组件 props / 测试夹具断言。
+- 后续刀按文件族切，不要机械替换：本轮实测把 35 处收窄到 `PreviewRow` 会牵出 79 个
+  跨测试夹具与 el-table `DefaultRow` 边界错误；把 15 处 `Record<string, any>` 改
+  `unknown` 又牵出 18 个属性访问错误。每刀应先给测试夹具 / 边界补具体类型，再改实现，
+  并在同 PR 跑 `--write` 收紧基线（否则守卫只挡「比基线多」，挡不住原地不动）。
+- 口径：#2879 是 Q3-GREEN 持续治理，卡内明确「不追求一次清零」；权威存量以
+  `scripts/ts-any-baseline.json` 为准，本节只记录分刀依据与已踩过的坑。
+- 收口判据（复核用，两条都要满足）：`node scripts/guard_ts_any.mjs` 退出码 0 且报告
+  「业务待收敛 0 处」；`git show origin/dev:scripts/ts-any-baseline.json` 全零。
+  只看「守卫绿」不够——它只保证不比基线多，允许原地不动（正是本节 225 处能挂一层的原因）。

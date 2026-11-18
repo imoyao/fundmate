@@ -10,7 +10,7 @@ export default defineConfig([
   globalIgnores([
     "**/.*",
     "dist/*",
-    "*.d.ts",
+    "**/*.d.ts",
     "public/*",
     "src/assets/**",
     "src/**/iconfont/**"
@@ -78,7 +78,7 @@ export default defineConfig([
     rules: {
       "@typescript-eslint/no-redeclare": "error",
       "@typescript-eslint/ban-ts-comment": "off",
-      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/prefer-as-const": "warn",
       "@typescript-eslint/no-empty-function": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
@@ -103,6 +103,9 @@ export default defineConfig([
       ]
     }
   }),
+  // #2879：业务侧显式 any 已清零，临时「零容忍区」退役。现在 TS/TSX 与 .vue
+  // 两条配置都直接开 no-explicit-any: error；上游 localforage typings 的 14 处
+  // 豁免由 globalIgnores 的 "*.d.ts" 排除，仍登记在 scripts/ts-any-baseline.json。
   {
     files: ["**/*.d.ts"],
     rules: {
@@ -149,6 +152,7 @@ export default defineConfig([
       ...pluginVue.configs.base.rules,
       ...pluginVue.configs.essential.rules,
       ...pluginVue.configs.recommended.rules,
+      "@typescript-eslint/no-explicit-any": "error",
       "no-undef": "off",
       "no-unused-vars": "off",
       "vue/no-v-html": "off",

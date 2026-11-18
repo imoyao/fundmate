@@ -54,6 +54,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      nav_visibility: ${{ steps.filter.outputs.nav_visibility }}
     steps:
       - uses: dorny/paths-filter@v3
         id: filter
@@ -70,6 +71,34 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              # 净资产单一出口守卫及其回归网住在 scripts/ 下：只改守卫 / 只改回归网的 PR
+              # 不碰 frontend/**，若不加这两条，frontend job 不会被唤起、守卫静默不跑
+              # （同 backend filter 里 scripts/bridge/** 的教训）。
+              - 'scripts/guard_net_assets_source.py'
+              - 'scripts/tests/test_guard_net_assets_source.py'
+              # 页面规模门禁（#980）同理：判据、基线、回归网三件都住在 scripts/ 下，
+              # 而基线是**会被单独改**的东西（拆小了要手动收紧豁免）——只改基线不登记，
+              # 这条守卫就不会在它自己那次改动上跑，等于「改判据的那一次没人看」。
+              - 'scripts/check_vue_size.mjs'
+              - 'scripts/vue-size-baseline.json'
+              - 'scripts/tests/check_vue_size.test.js'
+              # TS any 防回潮守卫（#2879 第一刀）：守卫 / 基线 / 回归网都住在 scripts/ 下，
+              # 只改它们的 PR 不碰 frontend/**，不登记则 frontend job 不会被唤起、守卫静默不跑。
+              - 'scripts/guard_ts_any.mjs'
+              - 'scripts/ts-any-baseline.json'
+              - 'scripts/tests/guard_ts_any.test.js'
+              - '.github/workflows/ci.yml'
+            # 导航区可见性巡检（2026-10-31）：只有改动「导航/布局/样式/store」的 PR
+            # 才付费跑浏览器。命中才跑，不命中 skipped —— gate 把 skipped 视为通过，
+            # 所以不会把「没改前端的 PR」卡死（改 ci.yml 自身也算命中，便于验证接线）。
+            nav_visibility:
+              - 'frontend/src/layout/**'
+              - 'frontend/src/style/**'
+              - 'frontend/src/router/**'
+              - 'frontend/src/store/**'
+              - 'frontend/src/utils/breadcrumb.ts'
+              - 'frontend/src/utils/tagCache.ts'
+              - 'frontend/e2e/**'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -89,6 +118,24 @@ jobs:
       fail-fast: false
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
     timeout-minutes: 30
+    # TD-012：#2875 的库级 CHECK 此前只在 SQLite 真跑，PG 侧由 PgFake 钉 DDL 文本，
+    # 证不了「PG 接受该 DDL / 反射真回约束名 / 违规写入真被拒」。挂一个真 PG service，
+    # 由下方串行步骤跑真库用例。不新增 job ⇒ 不用动 gate.needs（#1559/#1560 两次事故）。
+    # 接线本身由 scripts/guard_pg_migration_ci.py 结构化钉住（注释里写一句不算数）。
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fundmate_test
+          POSTGRES_PASSWORD: fundmate_test
+          POSTGRES_DB: fundmate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fundmate_test -d fundmate_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -102,9 +149,10 @@ jobs:
           python-version: "3.12"
 
       - name: 安装 PDM
-        # 版本口径与踩坑理由都在脚本里（#2928 / #2803）：本文件只在 main 上生效，
-        # 把工具链版本写在这里等于把修复锁死在 main；改用脚本后改一次 dev 即生效。
-        # 本 job 的 defaults 是 working-directory: backend，故用 $GITHUB_WORKSPACE 定位。
+        # 版本口径与踩坑理由都在脚本里（#2928 / #2803）：`schedule` /
+        # `pull_request_target` 只读 main 上的 workflow 定义，工具链版本写在这里
+        # 等于把修复锁死在 main；放进脚本才能「改一次、下次运行即生效」。
+        # 本 job 的 defaults 是 working-directory: backend，故用 $GITHUB_WORKSPACE 定位脚本。
         run: bash "$GITHUB_WORKSPACE/scripts/ci/install_pdm.sh"
 
       # 依赖缓存：避免每次 PR 全量重装 akshare/playwright/pypinyin 等重型依赖
@@ -171,6 +219,21 @@ jobs:
       - name: 守卫:视图层厚度
         run: python ../scripts/check_view_thickness.py
 
+      # 守卫：services 层体量 / 复杂度软闸门（防 #2873 类上帝模块复发）。
+      # 同样并入本 job 而不新增 job——不新增 job 就不必改 gate.needs（#1559/#1560 两次事故
+      # 都是合并冲突弄丢 needs）。存量按 BASELINE 冻结、只减不增，新增文件走 NEW_FILE_LIMITS
+      # （lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20）；判据边界与回退探针见脚本 docstring。
+      - name: 守卫:services 层体量/复杂度软闸门
+        run: python ../scripts/guard_service_size.py
+
+      # 守卫：用户可见文案不许出现接口路径 / HTTP 方法 / 登录态（D118）。
+      # 源 2026-11-16 用户反馈：份额巡检的提示直接渲染在面板上，却写着
+      # 「或调用 POST /api/positions/39/recompute/（需带登录态）」——那是给开发看的。
+      # 只扫响应正文类字符串（abort description / raise 文案 / hint-message 字典值），
+      # logger 文案不扫（日志归开发）。回归网：scripts/tests/test_guard_user_facing_copy.py
+      - name: 守卫:用户可见文案
+        run: python ../scripts/guard_user_facing_copy.py
+
       # 守卫：跨域模型同语句（#1643：双库「零外键、零 SQL join」）。
       # **本 job 是这条约束唯一的机器化拦截层**：门禁与全部单测都跑单库
       # （conftest 把 engine / user_engine patch 成同一个内存引擎），跨域 join 在两域
@@ -195,6 +258,22 @@ jobs:
           else
             pdm run python -m pytest -n auto -m "not slow" tests --ignore=tests/services
           fi
+
+      # TD-012 真 PG 迁移验证：必须**串行**（-n 0）。_pg_add_check_constraints 先
+      # inspect 反射判重再发 ALTER，两步非原子；上面常规测试是 2 片 × -n auto ≈ 8 worker，
+      # 并发跑同一个 PG 会互相撞 "already exists"（#2986 模板并发写坏是同源教训）。
+      # 只在 services 分片跑一次，避免两个 matrix 实例重复执行。
+      # ⚠️ TEST_POSTGRES_URL 必须**只挂本 step**：挂到 job 级会让上面常规
+      # `pytest -n auto ... tests --ignore=tests/services` 也收集这份用例且不 skip，
+      # 4 worker 并发撞反射判重（"already exists"）。step 级注入 ⇒ 常规分片自然 skip。
+      # 无该变量时用例自己 skip（本机开发），语义结论只以本步骤的 CI 日志为准。
+      - name: PG 真库迁移验证
+        if: ${{ matrix.shard == 'services' }}
+        env:
+          # 必须显式 +psycopg2：本仓只装 psycopg2-binary（backend/pyproject.toml:41），
+          # 写成 postgresql+psycopg:// 会在 create_engine 处 ModuleNotFoundError（本 PR 首轮 CI 实测）。
+          TEST_POSTGRES_URL: postgresql+psycopg2://fundmate_test:fundmate_test@127.0.0.1:5432/fundmate_test
+        run: pdm run python -m pytest -n 0 -m "not slow" tests/core/test_migrations_positions_state_check_pg.py
 
       # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`
       # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加
@@ -482,6 +561,30 @@ jobs:
       - name: 守卫:路由死链
         run: node ../scripts/check_router_links.mjs
 
+      # 守卫：导入预览「金额 ÷ 份额 补单价」单一实现（#2903）。
+      # 同一条规则曾在 OCR 与文件上传两条通道各写一份，文件通道还把 `!isRowBlocked`
+      # 当门禁、方向写反（该补的一个没补、不该补的全补了）。回潮形态是「再内联一份
+      # 并打 smartFilled 标记」——纯函数测试看不见它，因为它只测那一个实现。
+      - name: 守卫:智能补价单一实现
+        run: node ../scripts/guard_smart_fill_parity.mjs
+
+      # 守卫：离线图标通道只引用已注册的图标集（#2937）。
+      # 离线组件（`@iconify/vue/dist/offline`，`offlineIcon.ts` 只 addCollection 了 ep）
+      # 遇到未注册前缀时**渲染成一个空注释节点 `<!---->`**：不抛异常、不警告、
+      # 类型检查与构建全绿。正因如此，那 5 处 `lucide:` / `mdi:` / `ri:` 才能活很久
+      # （上传主图标、下载模板、顶栏搜索、自选卡图钉）。回潮形态就是「再写一个没注册的前缀」。
+      # 判据按 import 来源区分在线/离线通道，故 `Icon as IconifyIconOffline` 这类
+      # 别名（在线组件套离线名字，仓内 4 处）不会误报。
+      - name: 守卫:离线图标前缀
+        run: node ../scripts/guard_offline_icon_prefixes.mjs
+
+      # 守卫：产品域 API 的 barrel 纯度（#2878）。`api/products.ts` 曾是 1364 行 /
+      # 21 个端点的巨型客户端，拆到 products/*.ts 后，回潮形态是「新端点又写回公共入口」——
+      # 调用点照常编译、测试照常绿，只有文件悄悄长回去。回归网
+      # scripts/tests/guard_products_api.test.js 由 scripts_test job 统一收。
+      - name: 守卫:产品 API barrel 纯度
+        run: node ../scripts/guard_products_api.mjs
+
       - name: 类型检查
         run: pnpm typecheck
 
@@ -543,8 +646,105 @@ jobs:
         run: node --test scripts/tests/guard_price_precision.test.js
         working-directory: ${{ github.workspace }}
 
+      # TS 显式 any 类型注解防回潮（#2879 第一刀）：用 TypeScript Compiler API +
+      # @vue/compiler-sfc 数 AnyKeyword 节点，冻结存量、只减不增。散文规范拦不住
+      # 「顺手 any 一下」——tsc 允许显式 any、eslint 可关、构建照绿，故做成 CI 判据。
+      # 并入本 job 而非另起 job（不新增 job 就不必动 gate.needs）；cwd=frontend/，
+      # 依赖由上面的 pnpm install 装好，守卫走 AST 主口径。判据边界见脚本 docstring。
+      - name: 守卫:TS 显式 any 类型注解只减不增
+        run: node ../scripts/guard_ts_any.mjs
+
+      # 上条的回归网（灵敏度正/反例 + 基线覆盖 + 空输入 exit 2）。与价格精度守卫
+      # 同理，cwd 要回到仓库根；此处有前端依赖，回归网走 AST 口径。
+      - name: TS any 守卫回归网
+        if: ${{ always() }}
+        run: node --test scripts/tests/guard_ts_any.test.js
+        working-directory: ${{ github.workspace }}
+
+      # 净资产单一出口守卫（#119 / #2883）：资产全景页左卡曾在页面层写
+      # 「总资产 − 总负债」，绕过 /api/summary/ 的 net_assets_cny 直出。两条路径当前数值
+      # 相同，但口径一变就会三处分叉且无契约测试能发现。本守卫把 #119 从散文规范钉成 CI 判据。
+      # 并入本 job 而非另起 job（不新增 job 就不必动 gate.needs）；回归网另挂在 scripts_test。
+      - name: 守卫:净资产单一出口
+        run: python ../scripts/guard_net_assets_source.py
+
       - name: 构建
         run: pnpm build
+
+  # 导航区文字可见性（2026-10-31，阻断）
+  #
+  # 背景：「激活标签白字白底」这个缺陷存在了很久，所有既有判据都是**结构断言**
+  #   （面包屑文字对不对、标签有没有生成、层级是否对齐）。DOM 里文字确实在、
+  #   `innerText` 读得到，于是一路绿灯，用户界面上只剩一个 × 按钮 —— 用户连着
+  #   两轮追问「没做可见性测试吗」。结论：**DOM 里有文字 ≠ 屏幕上看得到**。
+  #
+  # 判据（`frontend/e2e/nav-visibility.spec.ts` + `tag-active-contrast.spec.ts`）：
+  #   10 个页面 × 侧边栏全部菜单项 / 面包屑每一项 / 标签栏每个标签，逐个查
+  #   ① 宽度 > 0（被 flex 压扁或溢出裁剪会是 0）② 不被裁出视口
+  #   ③ 文字与其**实际渲染背景**的对比度 ≥ 4.5:1（WCAG AA）。
+  #   反证：把 `.tag-title` 还原成 `var(--text-inverse)` 时逐条报「对比度 1:1」。
+  #
+  # 成本边界：只在**改动命中导航/布局/样式/store 路径**时跑（changes.nav_visibility），
+  #   且只跑上述 2 个 spec（约 2–3 分钟），不跑全量 E2E —— 全量仍留给夜间 e2e.yml。
+  #   不命中时本 job skipped，gate 把 skipped 视为通过，不会卡住无关 PR。
+  #
+  # 为什么不用 e2e.yml 挂 `pull_request`：那样只会在 PR 页上标红，**不是** required
+  #   check，拦不住合并；要真拦住必须并入本 workflow 的 gate（required 是 gate 本身）。
+  nav_visibility:
+    name: 前端可见性（导航区文字 / 对比度）
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.nav_visibility == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖（frozen-lockfile）
+        run: pnpm install --frozen-lockfile
+
+      # 浏览器缓存 key 跟 @playwright/test 版本（与 e2e.yml 同一策略），未命中才下载
+      - name: 解析 Playwright 版本
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: 安装 Chromium（缓存未命中时）
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: 可见性巡检（宽度 / 视口 / 对比度 ≥ 4.5:1）
+        run: |
+          pnpm exec playwright test \
+            e2e/nav-visibility.spec.ts \
+            e2e/tag-active-contrast.spec.ts
+
+      - name: 上传失败现场（报告 + 截图 + trace）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nav-visibility-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
 
   # 合并门禁汇总（2026-09-11 新增）：把上面各 job 的结论收敛为**单一** required status check。
   #
@@ -682,9 +882,46 @@ jobs:
       - name: 上游列名契约守卫（阻断）
         run: python scripts/guard_upstream_column_contract.py
 
+      # 设计文档索引守卫（#2981）：docs/design/ 顶层 16 篇文档里有 10 篇没登记在
+      # index.md 的「设计资产索引」表里（account-dialog-form / reconcile-workbench-* /
+      # trade-rules …）。写新文档不需要改任何被 CI 覆盖的文件，所以「顺手补一行索引」
+      # 永远不会被提醒——失修是必然的，只能靠集合相等判据钉住。
+      # 判据：A（docs/design/*.md，不含 index.md，不递归 archive）= B（索引小节**表格首列**
+      # 放出的 .md 名）双向相等；只看表格首列是因为正文里故意交叉引用着 docs/features/*.md、
+      # roadmap.md，全文 includes 会被自己的正文喂饱（#2453 教训）。
+      # 自检探针：`--self-check` 跑「登记齐全 / 删一行 / 加幽灵行 / 改小节标题」四态，
+      # 断言 0/1/1/2——验的是守卫真的会红，不是输出长得像对的。
+      - name: 校验设计文档索引（阻断）
+        run: python scripts/check_design_doc_index.py
+
+      # 技术债务登记表守卫（2026-11-10 治理）：tech-debt.md 1281 行把状态写成
+      # 「待排期 / 暂缓 / 需拍板」这类不可执行字符串，issue 关了不回流、代码写了不更新
+      # ⇒ 三条 🔴「上线前必查」的债早已落地仍挂着，而 11 月新债一条没登记。
+      # 登记表立为唯一状态真源：结构化判据 + 90 天新鲜度 + 自动复核
+      # （done 判据必须满足、open 必须不满足）。回归网随下方 unittest discover 收。
+      - name: 技术债务登记表状态一致性（阻断）
+        run: python scripts/guard_tech_debt_register.py
+
+      - name: CI 真 Postgres 迁移验证接线（阻断）
+        run: python scripts/guard_pg_migration_ci.py
+
+      - name: 设计文档索引守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_check_design_doc_index -v
+        working-directory: ${{ github.workspace }}
+
       - name: 上游列名契约守卫回归网
         if: ${{ always() }}
         run: python -m unittest scripts.tests.test_upstream_column_contract -v
+        working-directory: ${{ github.workspace }}
+
+      # 净资产单一出口守卫回归网（#2883）：9 条 unittest，含合成命中 / 放行
+      # （占比分母、注释举例、反向净负债）/ 真实文件回退探针 / 失败态 exit 2。
+      # 本 job 无条件跑（非 bridge 分支），是守卫本体的第二道执行点——
+      # 只改守卫脚本的 PR 即使 frontend job 被路径过滤跳过，这里也会拦下。
+      - name: 净资产单一出口守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_guard_net_assets_source -v
         working-directory: ${{ github.workspace }}
 
       # 跨仓引用守卫（源 CNB 卡）：CNB 的正文/评论里裸 `#N` 会被解析成**本仓**编号，
@@ -694,6 +931,22 @@ jobs:
       # 判据边界与豁免方式见脚本 docstring；回归网在 scripts/tests/guard_cross_repo_refs.test.js。
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
+
+      # 对账工作台产品身份展示契约（本卡）：卡片 / 抽屉标题裸插 `.symbol` 编码
+      # （用户看到 `SH515250` 而不是「智能汽车」）**已经回归过两次**，根因都是
+      # 「每个组件各写各的插值」。约定后的唯一口径在
+      # `reconcile-workbench/utils/reconDisplay.ts`：标题走 reconGroupTitle，
+      # 编码走 reconSymbolCode / specialSymbolLabel。本守卫行级判据：模板段内
+      # 出现 `.symbol` 的行必须带着契约调用，否则逐条报 `file:line`；
+      # 「编码本身就是内容」的场景用行内 `recon-symbol-allow` 注释放行，
+      # 放行清单随输出打印（豁免必须可见，不许悄悄堆积）。
+      # 自带失败态：扫不到 .vue 时退 2 并声明结论不可信，不退化成「零命中 = 通过」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 回归网在 scripts/tests/guard_recon_symbol_display.test.js（7 条，含修复前
+      # 真实行回退探针 + 空输入失败态），由本 job 顶部的
+      # `node --test "scripts/tests/*.test.js"` 统一收。
+      - name: 对账工作台产品身份展示契约（阻断）
+        run: python scripts/guard_recon_symbol_display.py
 
       # 暗色模式死选择器（本轮 panorama 页清理时一并扫出的同型问题）：
       # 暗色由 <html> 上的 `.dark` 类驱动、变量由 dark.scss 的 `:root.dark` 覆盖同名令牌；
@@ -725,11 +978,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/guard_now_capacity.mjs
 
-      # PR 四问格式（被 pr-four-questions-guard.yml 调用）。此处在 CI 里**显式跑一遍自测**，
-      # 只为让「它属于哪条通道」在日志里看得见——真正的拦截发生在 PR 事件上。
-      # 判据边界（只校验有无、不判断好坏）见脚本 docstring。
-      - name: PR 四问格式守卫可用性（自检）
-        run: node scripts/guard_pr_four_questions.mjs --body-file .github/ISSUE_TEMPLATE/README.md || true
+      # PR 四问格式（**阻断**）：原先只有独立 workflow `pr-four-questions-guard.yml`，
+      # 而它不在 required check 里 —— `#3174` 正文全空、连红两次照样合入（2026-11-18 实测）。
+      # 本步骤把同一份判据挂进 `scripts_test` ⇒ 经 `gate` 的 `质量门禁汇总` 真正拦截，
+      # 且**不新增 job**（不新增就不必动 `gate.needs`）。独立 workflow 保留为秒级快速反馈，
+      # 但「能不能合」以这里为准。
+      #
+      # ⚠️ ci 不订阅 `pull_request.edited`：订阅它会让 `cancel-in-progress: true`
+      # 取消正在跑的后端测试，而 `changes` 在 edited 事件下又会把重活跳过 ⇒
+      # 可能出现「gate 绿、后端没跑」的假绿。故作者改完正文需重跑本 run
+      # （`gh run rerun <run-id>` 或随便推一个提交），这是有意取舍。
+      - name: PR 四问格式（阻断）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > /tmp/pr-body.md
+          # 作者 / draft 必须显式传入：豁免面在脚本里，不传就等于把 dependabot 判红。
+          # 注意 `${PR_DRAFT:+--draft}` 是错的：GitHub 传的是字符串 "false"，非空 ⇒ 永远带 --draft。
+          draft_flag=""
+          if [ "${PR_DRAFT}" = "true" ]; then draft_flag="--draft"; fi
+          node scripts/guard_pr_four_questions.mjs --body-file /tmp/pr-body.md \
+            --author "${PR_AUTHOR}" ${draft_flag}
 
       # 认领同步（源 2026-10-19 两个 agent 同时改 #2406 的撞车事故）。
       # 由 issue-claim-sync.yml 在 PR 事件上调用；此处显式跑一遍解析自检，
@@ -834,6 +1107,17 @@ jobs:
       # 不新增 job——并入本 job，也就不必动 gate.needs。
       - name: 迁移 PG-aware 守卫（阻断）
         run: python scripts/guard_migrations_pg_aware.py
+
+      # watchlist 当前持仓口径（023887）：自选页曾把 E账户 `shadow` 镜像行算进持仓，
+      # 而产品详情页只算 `active` —— 同一个 BatchContext 里「代表持仓行过滤了、
+      # 数值聚合没过滤」，是典型的「改了一半」。本守卫要求两个 watchlist 模块的每个
+      # query/select(Position...) 都从 active_holdings() 进，裸字面量与漏过滤一律红；
+      # 刻意全量的 5 处走精确白名单，且白名单不许陈旧。
+      # 不新增 job——并入本 job，也就不必动 gate.needs。
+      # 回归网：scripts/tests/test_guard_watchlist_active_scope.py（21 条，含真实代码
+      # 回退探针，随 unittest discover 收进来）。
+      - name: watchlist 当前持仓口径（阻断）
+        run: python scripts/guard_watchlist_active_scope.py
 
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
@@ -1062,7 +1346,7 @@ jobs:
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard, scripts_test]
+    needs: [changes, backend, frontend, nav_visibility, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard, scripts_test]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）

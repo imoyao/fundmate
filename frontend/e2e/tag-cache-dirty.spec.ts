@@ -69,11 +69,11 @@ test("历史脏标签缓存：不渲染空白块，且缓存被自愈写回", as
   expect(titles).toEqual(["首页", "我的自选"]);
 
   // 判据二：脏条目被清洗并写回缓存（只清一次，不会每次刷新又长回来）
-  const cached = await page.evaluate(
+  const cached = (await page.evaluate(
     key => JSON.parse(localStorage.getItem(key) ?? "[]"),
     TAGS_KEY
-  );
-  expect(cached.map((t: any) => t.path)).toEqual(["/welcome", "/watchlist"]);
+  )) as Array<{ path?: string }>;
+  expect(cached.map(t => t.path)).toEqual(["/welcome", "/watchlist"]);
 
   // 判据三：不再有「读不到 title」的运行时异常
   expect(pageErrors).toEqual([]);

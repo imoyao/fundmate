@@ -18,6 +18,7 @@ from app.core.constants import PositionSource
 from app.services.importer.base import BaseHoldingParser, BaseImportParser
 from app.services.importer.parsers.alipay_fund import AlipayFundParser
 from app.services.importer.parsers.alipay_pdf import AlipayPDFParser
+from app.services.importer.parsers.cms_stock import CMSStockParser
 from app.services.importer.parsers.e_account_holding import EAccountHoldingParser
 from app.services.importer.parsers.standard import FundStandardParser, StockStandardParser
 from app.services.importer.parsers.ths_stock import THSStockParser
@@ -56,6 +57,7 @@ register_parser('standard', StockStandardParser())
 register_parser('standard_stock', StockStandardParser())
 register_parser('ths_stock', THSStockParser())
 register_parser('ths', THSStockParser())  # 兼容旧前端参数
+register_parser(PositionSource.BROKER_CMS.value, CMSStockParser())  # 招商证券历史交割单
 register_parser('tiantian_fund', TiantianFundParser())
 register_parser('alipay_fund', AlipayFundParser())
 register_parser('alipay_pdf', AlipayPDFParser())

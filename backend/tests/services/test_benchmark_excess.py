@@ -22,6 +22,10 @@ from app.services.analytics.benchmark_excess import (
     interval_benchmark_return,
     resolve_benchmark_code,
 )
+from app.services.analytics.interval_rate_guard import (
+    BASELINE_NOT_REPRESENTATIVE,
+    unrepresentative_rate_reason,
+)
 from app.services.pnl_calendar import build_daily_pnl_series
 
 D1 = dt.date(2026, 1, 5)  # 买入日（基线前一日的资产从这天起有值）
@@ -356,6 +360,85 @@ def test_曲线_基准缺价日断线(db, make_position, make_transaction):
     by_date = {p['date']: p for p in out['series']}
     assert by_date['2026-01-07']['benchmark_cum_pct'] is None
     assert by_date['2026-01-08']['benchmark_cum_pct'] == pytest.approx(10.0)
+
+
+# ── 7. 收益率失真下限（期初净资产被稀释）──────────────────────────
+@pytest.mark.parametrize(
+    'rate,expected',
+    [
+        (-100.0, None),  # −100% = 亏光期初净资产，仍成立（不降级）
+        (-99.99, None),
+        (-100.01, BASELINE_NOT_REPRESENTATIVE),
+        (-10214.99, BASELINE_NOT_REPRESENTATIVE),  # 真库全期窗口实测值
+        (0.0, None),
+        (9633.0, None),  # 上界刻意不判：长期 10 倍是真会发生的
+        (None, None),
+    ],
+)
+def test_失真下限判据只卡下界(rate, expected):
+    """−100% 是「亏光期初净资产」的数学极限；跨过它只能是分母问题。"""
+    assert unrepresentative_rate_reason(rate) == expected
+
+
+def _seed_diluted_baseline(db, make_position, make_transaction):
+    """期初净资产 1000 元，区间内一笔 10000 元建仓跌一半 ⇒ 区间收益率 −500%。
+
+    真库家庭全期窗口的形态：期初是首笔入金前的现金余额（519.38 元），区间盈亏
+    −53054.60 元 ⇒ −10214.99%。这里把量级缩小到测试可读，触发条件相同。
+    """
+    small = make_position(
+        symbol='000031', name='期初小仓', quantity=1000, avg_price=1.0, asset_type='fund', account_name='失真账户'
+    )
+    make_transaction(
+        position_id=small.id,
+        ledger_id=small.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=D1,
+        symbol='000031',
+    )
+    big = make_position(
+        symbol='000046',
+        name='区间内大额建仓',
+        quantity=10000,
+        avg_price=1.0,
+        asset_type='fund',
+        account_name='失真账户',
+    )
+    make_transaction(
+        position_id=big.id,
+        ledger_id=big.ledger_id,
+        txn_type='buy',
+        quantity=10000,
+        price=1.0,
+        confirm_date=D2,  # 建仓日 D2 的盈亏被引擎剔除，跌的是 D2→D3
+        symbol='000046',
+    )
+    db.commit()
+    for code, navs in (('000031', {D1: 1.0, D2: 1.0, D3: 1.0}), ('000046', {D1: 1.0, D2: 1.0, D3: 0.5})):
+        for day, nav in navs.items():
+            _add_nav(db, code, day, nav)
+    return small
+
+
+def test_期初净资产过小_收益率超额曲线三者一起降级(db, make_position, make_transaction):
+    """分母不代表区间资本规模时：range_rate → None + 原因，超额不拿两个不可比基期相减。"""
+    pos = _seed_diluted_baseline(db, make_position, make_transaction)
+    _add_index(db, '000300.SH', D2, 4000.0)
+    _add_index(db, '000300.SH', D3, 3800.0)
+
+    out = build_scope_excess(db, 1, '2026-01-06', '2026-01-07', ledger_id=pos.ledger_id)
+
+    assert out['range_reason'] == BASELINE_NOT_REPRESENTATIVE
+    assert out['range_rate'] is None
+    # 事实类字段仍如实回填，供复核「为什么降级」
+    assert out['range_baseline'] == pytest.approx(1000.0)
+    assert out['range_pnl'] == pytest.approx(-5000.0)
+    assert out['benchmark']['range_return'] == pytest.approx(-5.0)  # 基准侧照常给
+    assert out['excess_return'] is None
+    # 曲线与单值同源（同一分母），单值不可信则曲线一并降级，避免末点≠单值
+    assert out['series'] == []
 
 
 def test_基准清单端点_含中证800(client):

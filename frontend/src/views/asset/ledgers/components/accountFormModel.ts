@@ -38,7 +38,7 @@ export const BANK_ORG_TYPES = new Set([
  * - fund_platform 除期货公司外全部（券商代销场外基金，靠常用置顶 + 类型标识区分）
  * - 其余类型不在表内 → 不过滤，维持现状
  */
-export const LEDGER_TYPE_ORG_TYPES: Record<string, string[]> = {
+export const CHANNEL_CATEGORY_ORG_TYPES: Record<string, string[]> = {
   securities: ["证券公司"],
   fund_platform: [
     "独立基金销售机构",
@@ -76,18 +76,21 @@ export function institutionLabel(inst: SalesInstitution): string {
  */
 export function filterInstitutionsByLedgerType(
   list: SalesInstitution[],
-  ledgerType: string
+  channelCategory: string
 ): SalesInstitution[] {
-  const allowed = LEDGER_TYPE_ORG_TYPES[ledgerType];
+  const allowed = CHANNEL_CATEGORY_ORG_TYPES[channelCategory];
   if (!allowed) return list;
   const allowSet = new Set(allowed);
   return list.filter(inst => !inst.org_type || allowSet.has(inst.org_type));
 }
 
 /**
- * 文本检索（#1081 用户反馈）：支持汉字原文 / 常用别名 / 拼音首字母简拼
- * （pinyin_short 由后端 AMAC job 派生）三路匹配，大小写不敏感。
- * 空关键词视为不过滤。
+ * 文本检索（#1081，全拼为 #2980）：汉字原文 / 常用别名 / 首字母简拼 / 全拼四路匹配，
+ * 大小写不敏感，空关键词视为不过滤。
+ *
+ * 为什么必须有全拼：机构全名是「蚂蚁（杭州）基金销售有限公司」，用户按常用别名
+ * 「支付宝」记，输入 `zhifubao` —— 只匹配汉字与简拼（`ZFB`）时搜不到。
+ * `pinyin_full` 由后端同时派生全名与别名的全拼（空格分隔），故一次 includes 即可。
  */
 export function filterInstitutionsByKeyword(
   list: SalesInstitution[],
@@ -99,37 +102,47 @@ export function filterInstitutionsByKeyword(
     inst =>
       inst.org_name.toLowerCase().includes(kw) ||
       (inst.display_name ?? "").toLowerCase().includes(kw) ||
-      (inst.pinyin_short ?? "").toLowerCase().includes(kw)
+      (inst.pinyin_short ?? "").toLowerCase().includes(kw) ||
+      (inst.pinyin_full ?? "").toLowerCase().includes(kw)
   );
 }
 
-/** 常用机构组：is_common=true，按 common_sort 升序（缺省排最后） */
-export function sortCommonInstitutions(
+/**
+ * 默认排序：按名称拼音首字母 A→Z（#2026-11-07 用户反馈「排名乱序」）。
+ *
+ * 旧口径把 15 家常用机构按人工 `common_sort` 置顶、其余按 `org_name` 的
+ * Unicode 码点序排 —— 码点序是笔画/部首序，**不是拼音序**，看起来就是乱的。
+ * 现改用后端 AMAC job 派生的 `pinyin_short`（真库 394/394 覆盖，如 `ZSYX`），
+ * 缺失（旧环境未回填）排最后，同音再按中文名兜底。不修改入参数组。
+ */
+export function sortInstitutionsByPinyin(
   list: SalesInstitution[]
 ): SalesInstitution[] {
-  return list
-    .filter(inst => inst.is_common)
-    .sort(
-      (a, b) =>
-        (a.common_sort ?? Number.MAX_SAFE_INTEGER) -
-        (b.common_sort ?? Number.MAX_SAFE_INTEGER)
-    );
+  return [...list].sort((a, b) => {
+    const pa = (a.pinyin_short ?? "").toLowerCase();
+    const pb = (b.pinyin_short ?? "").toLowerCase();
+    // 缺失拼音的条目统一沉底，避免 null 被当成空串排到 A 组最前
+    if (!pa && pb) return 1;
+    if (pa && !pb) return -1;
+    if (pa !== pb) return pa < pb ? -1 : 1;
+    return a.org_name.localeCompare(b.org_name, "zh-Hans-CN");
+  });
 }
 
-/** 全部机构组：非常用项，维持后端默认排序（org_name 字典序） */
-export function pickOtherInstitutions(
+/** 「仅看常用」快捷筛选：常用标志来自后端 AMAC 策展，不再参与默认排序 */
+export function pickCommonInstitutions(
   list: SalesInstitution[]
 ): SalesInstitution[] {
-  return list.filter(inst => !inst.is_common);
+  return list.filter(inst => inst.is_common);
 }
 
 /** fund_platform 账户选中银行类机构时的轻提示开关（#1082 D8） */
 export function shouldShowBankChannelHint(
-  ledgerType: string,
+  channelCategory: string,
   salesInstitutionId: number | null | undefined,
   institutions: SalesInstitution[]
 ): boolean {
-  if (ledgerType !== "fund_platform" || salesInstitutionId == null) {
+  if (channelCategory !== "fund_platform" || salesInstitutionId == null) {
     return false;
   }
   const inst = institutions.find(i => i.id === salesInstitutionId);
@@ -139,16 +152,30 @@ export function shouldShowBankChannelHint(
 /**
  * 类型切换后，已选机构是否仍在新类型的可见范围内。
  *
- * 注意：调用方 emit 后 `props.ledgerType` 不会同步回流，必须基于**新值**判断，
+ * 注意：调用方 emit 后 `props.channelCategory` 不会同步回流，必须基于**新值**判断，
  * 不能复用 visibleInstitutions（其仍依赖旧 props 值）。
  * org_type 缺失视为始终可见，与 filterInstitutionsByLedgerType 的回退语义一致。
  */
 export function isInstitutionAllowedForLedgerType(
   inst: SalesInstitution | undefined,
-  ledgerType: string
+  channelCategory: string
 ): boolean {
-  const allowed = LEDGER_TYPE_ORG_TYPES[ledgerType];
+  const allowed = CHANNEL_CATEGORY_ORG_TYPES[channelCategory];
   if (!allowed) return true;
   if (!inst?.org_type) return true;
   return allowed.includes(inst.org_type);
+}
+
+/**
+ * 是否显示「关联现金账户 / 活期+ / 费率」这类证券侧字段。
+ *
+ * 入参是 channel_category（用户可见分组），**不是** ledger_type：模型铁律规定
+ * 分组 / 标签 / 显隐只读 channel_category。注意前后端判据并非同一套——后端按
+ * ledger_type 校验（stock / fund 可关联），这里是「只在证券 / 基金平台展示证券侧
+ * 字段」的产品可见性策略（futures 分组派生 stock 但不展示，属既有决策）。
+ * ledger_category_guard 保证编辑时两字段不矛盾，故不会出现「字段可见却被后端拒绝」。
+ * 改动 constants.py 映射表时须复核本函数（#2975）。
+ */
+export function canLinkCashAccount(category: string): boolean {
+  return category === "securities" || category === "fund_platform";
 }

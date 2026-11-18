@@ -24,7 +24,8 @@ const {
   <el-dialog
     v-model="showCreateLedgerDialog"
     title="新建账户"
-    width="480px"
+    :width="'var(--dialog-width-form)'"
+    class="form-dialog"
     align-center
   >
     <el-form label-position="top">
@@ -37,7 +38,7 @@ const {
       </el-form-item>
 
       <AccountFormFields
-        v-model:ledger-type="newLedgerType"
+        v-model:channel-category="newLedgerType"
         v-model:linked-cash-id="newLedgerLinkedCashId"
         v-model:portfolio-id="newLedgerPortfolioId"
         v-model:fee-config="newLedgerFeeConfig"

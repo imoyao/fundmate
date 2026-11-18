@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { LedgerLike, OverviewGroupLike } from "./ledgerTypes";
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -24,9 +26,9 @@ import { formatQuantity } from "@/utils/format";
  */
 const props = defineProps<{
   /** overview 中 type=deleted 的分组（count/total） */
-  orphanGroup: any;
+  orphanGroup: OverviewGroupLike;
   /** 目标账户候选（禁用 orphan 虚拟行） */
-  allLedgers: any[];
+  allLedgers: LedgerLike[];
 }>();
 
 const emit = defineEmits<{
@@ -65,8 +67,8 @@ async function openDetailDialog() {
   try {
     const res = await getOrphanDetail();
     orphanDetail.value = res.data ?? orphanDetail.value;
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "加载明细失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "加载明细失败");
   } finally {
     detailLoading.value = false;
   }
@@ -86,12 +88,13 @@ async function handleMigrate() {
   migrating.value = true;
   try {
     const res = await migrateOrphanPositions(migrateTargetId.value);
-    const total = (res as any)?.data?.total ?? 0;
+    const total =
+      (res as { data?: { total?: number } } | null)?.data?.total ?? 0;
     ElMessage.success(`已将 ${total} 项未归置数据归入目标账户`);
     showMigrateDialog.value = false;
     emit("refresh");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "归入失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "归入失败");
   } finally {
     migrating.value = false;
   }
@@ -114,13 +117,13 @@ async function handleOrphanCleanup() {
   cleaning.value = true;
   try {
     const res = await deleteOrphanPositions();
-    const data = (res as any)?.data ?? {};
+    const data = res?.data;
     ElMessage.success(
-      `已清理 ${data.position_count ?? 0} 笔持仓、${data.asset_count ?? 0} 项资产、${data.transaction_count ?? 0} 笔交易`
+      `已清理 ${data?.position_count ?? 0} 笔持仓、${data?.asset_count ?? 0} 项资产、${data?.transaction_count ?? 0} 笔交易`
     );
     emit("refresh");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "清理失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "清理失败");
   } finally {
     cleaning.value = false;
   }

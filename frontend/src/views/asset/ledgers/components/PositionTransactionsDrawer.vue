@@ -11,6 +11,7 @@
     "
     :detail-loading="detailLoading"
     :disclaimer="PRODUCT_DISCLAIMER"
+    :instant-close="instantClose"
     @update:model-value="emit('update:visible', $event)"
     @detail="goDetail"
   >
@@ -50,6 +51,17 @@
 
     <!-- 键值网格：份额 / 成本 / 净值 / 时长 / 年化（市值与盈亏已升到锚点） -->
     <DrawerSection title="持仓概况">
+      <!-- 重算入口（#3127）：回补关联只改归属不改份额，这里是把两者对齐的唯一出口 -->
+      <template #action>
+        <el-button
+          text
+          size="small"
+          :loading="recomputing"
+          @click="confirmRecompute"
+        >
+          按流水重算份额
+        </el-button>
+      </template>
       <PositionSummaryGrid
         :position-data="positionData"
         :xirr="xirr"
@@ -62,7 +74,9 @@
       :position-id="positionData?.id"
       :asset-type="positionData?.asset_type"
       :symbol="positionData?.symbol"
+      :position-name="positionData?.name"
       :is-fund="isFund"
+      @changed="handleTxnChanged"
     />
   </ProductDrawer>
 </template>
@@ -70,8 +84,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { getPositionXirr } from "@/api/performance";
+import { recomputePositionShares } from "@/api/positions";
+import { errorMessageOf } from "@/utils/errorMessage";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDrawer from "@/components/ProductDrawer/index.vue";
@@ -106,7 +122,64 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:visible": [value: boolean];
+  /** 抽屉内改/删了交易：份额与成本已被后端重算，外层要刷新持仓行与概览 */
+  changed: [id: number | undefined];
 }>();
+
+/** 交易变更后：份额变了年化要重算，同时把刷新信号抛给详情页 */
+function handleTxnChanged(id: number | undefined) {
+  fetchXirr();
+  emit("changed", id);
+}
+
+/**
+ * 按流水重算份额（#3127）。
+ *
+ * 为什么需要用户确认：这是写操作——份额与成本会被流水派生值覆盖。
+ * 2026-11-16 起**不会清仓、也不会删行**：流水算到 0 / 负数时后端直接拒绝（那多半是
+ * 缺了买入腿，而持仓可能才是对的）；要清仓请按账单把份额改成 0。
+ */
+const recomputing = ref(false);
+
+async function confirmRecompute() {
+  const pos = props.positionData;
+  const id = Number(pos?.id);
+  if (!Number.isFinite(id) || recomputing.value) return;
+  try {
+    await ElMessageBox.confirm(
+      "将按该持仓名下的全部流水重算份额与成本（含快照锚点口径），只改份额、不新增流水。" +
+        "若流水算出来是 0 或负数（多半缺了买入腿），系统会拒绝执行——那说明流水没记全，" +
+        "请先核对流水，或按账单把份额改成 0 来清仓。",
+      "按流水重算份额",
+      {
+        type: "warning",
+        confirmButtonText: "重算",
+        cancelButtonText: "取消"
+      }
+    );
+  } catch {
+    return; // 用户取消
+  }
+  recomputing.value = true;
+  try {
+    const res = await recomputePositionShares(id, "用户手动按流水重算");
+    const d = res.data;
+    if (d.deleted) {
+      ElMessage.warning("该持仓既无流水也无快照锚点，空壳行已删除");
+    } else if (d.changed) {
+      ElMessage.success(
+        `份额已重算：${d.quantity_before} → ${d.quantity_after} 份`
+      );
+    } else {
+      ElMessage.info("重算后份额没有变化，已留审计记录");
+    }
+    handleTxnChanged(id);
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "重算份额失败");
+  } finally {
+    recomputing.value = false;
+  }
+}
 
 const router = useRouter();
 const detailLoading = ref(false);
@@ -114,6 +187,15 @@ const detailLoading = ref(false);
 /** 品类白名单单点判定：没有详情页就不渲染按钮，只留原因（§5） */
 const detailAvailable = computed(() =>
   isDetailAssetType(props.positionData?.asset_type)
+);
+
+/** 跳详情页那一次关闭不播收起动画（否则与路由 fade-transform 交叠，见 `_pd.scss`） */
+const instantClose = ref(false);
+watch(
+  () => props.visible,
+  visible => {
+    if (visible) instantClose.value = false;
+  }
 );
 
 /**
@@ -137,6 +219,7 @@ async function goDetail() {
       return;
     }
     // 先关抽屉再跳（沿用 TransactionDrawer 的既有范式）
+    instantClose.value = true;
     emit("update:visible", false);
     await router.push(path);
   } catch {

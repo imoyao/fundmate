@@ -65,6 +65,7 @@
 | `transactions` | 交易（存 `symbol` 快照） | 增长慢 |
 | `watchlist`（含 watchlist_groups / item_group / tag_defs / item_tags / alerts / cleared_positions） | **用户自选关系**（非种子清单） | 按用户数×关注数增长，不受美股/港股扩展影响 |
 | `strategy`（strategy_tags / position_strategy_tags） | 策略标签 | 轻量 |
+| `assets`（asset_value_events，D99/D100） | 单资产值变动事件：房贷/欠款余额与房产估值的 append-only 变动流水，含 `family_id`、与 `assets` 同域同库；只存 `delta`（分），锚点由 `amount − Σdelta` 派生 | 单资产年均数十行，每行约 100 字节，零外部请求 |
 | `summary`（asset_snapshots） | 资产快照（family_id 隔离） | 中等 |
 | `summary`（pnl_daily_snapshots，#1926） | 收益日历逐日物化快照（`family_id` × `ledger_id`(NULL=家庭级) × `date` 唯一） | 按家庭数 × (账户数+1) × 天数增长；无家庭读过日历即无行（读时回填），失效靠 `pnl_snapshot_store` 的口径版本 / `before_flush` 事件 / `full_sync` 全清 |
 | `reconciliation`（ghost_duplicate_ignores，域 D 幽灵重复） | 幽灵重复忽略（`family_id` × `fingerprint` 唯一；只存「忽略」这一个事实，扫描结果减去已忽略即为用户可见组；2026-10-16 随 #2255 收敛补登记） | 按家庭数 × 忽略组数增长，撤销即删行 |

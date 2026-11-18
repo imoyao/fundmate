@@ -98,11 +98,13 @@ QIEMAN_BUCKET_TO_ALLOCATION = {
 # 已收口到 app/core/asset_types.ASSET_CATEGORY_LABELS（本文件顶部 import），勿在此手写。
 
 # ── 桑基图节点名称常量 ──
+# D94（2026-11-09）：桑基图收敛为「资金来源 → 资产运用」单轴守恒图，
+# 「未配置资产」（权益 E − 毛持仓 P 的错账塞子）与「长期增值」等五笔钱节点
+# 已从图中整支删除，对应常量一并移除，避免有人再照着旧名拼回第二条分类轴。
+# 五笔钱分布请走 /api/summary/distributions/ 的 allocation_distribution。
 K_TOTAL = '总资产'
 K_NET = '净资产'
 K_LIABILITY = '总负债'
-K_UNCONFIGURED = '未配置资产'
-K_LONGTERM = '长期增值'
 
 # ── 桑基图资产大类元组（名称，颜色键已废弃，保留兼容）──
 # 标签与 ASSET_CATEGORY_LABELS 单一来源保持一致；liability 由 summary 单独处理，不进大类分布。
@@ -223,6 +225,7 @@ class PositionSource(str, Enum):
     E_ACCOUNT = 'e_account_holding'  # 基金E账户持仓导入
     BROKER_TIANTIAN = 'tiantian_fund'  # 天天基金导出导入
     BROKER_THS = 'ths_stock'  # 同花顺导出导入
+    BROKER_CMS = 'cms_stock'  # 招商证券历史交割单导入
     BROKER_STD_FUND = 'standard_fund'  # 标准模板-基金导入
     BROKER_STD_STOCK = 'standard_stock'  # 标准模板-股票导入
     BROKER_ALIPAY = 'alipay_fund'  # 支付宝基金导出导入
@@ -240,6 +243,7 @@ POSITION_SOURCE_LABELS: dict[str, str] = {
     PositionSource.E_ACCOUNT.value: '基金E账户导入',
     PositionSource.BROKER_TIANTIAN.value: '天天基金导入',
     PositionSource.BROKER_THS.value: '同花顺导入',
+    PositionSource.BROKER_CMS.value: '招商证券导入',
     PositionSource.BROKER_STD_FUND.value: '标准模板-基金',
     PositionSource.BROKER_STD_STOCK.value: '标准模板-股票',
     PositionSource.BROKER_ALIPAY.value: '支付宝基金导入',

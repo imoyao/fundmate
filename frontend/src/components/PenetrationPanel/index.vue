@@ -1,15 +1,14 @@
 <template>
   <div class="penetration-panel">
-    <SectionHeader
-      title="持仓穿透"
-      :info="
-        '你的钱最终压在哪些行业与个股上（' +
-        (data?.scheme_label ?? '') +
-        '口径' +
-        scopeSuffix +
-        '）。穿透仅覆盖持仓，不含房产/现金等通用资产。'
-      "
-    >
+    <SectionHeader title="持仓穿透" info-label="持仓穿透口径说明">
+      <!-- 口径（含后端 notes，原样展示）从区块尾部 343px 的小字堆移进 ⓘ
+           （2026-11-15）：位置变了，内容一个字没删。 -->
+      <template #info>
+        <p>{{ panelInfo }}</p>
+        <p v-for="(note, i) in data?.notes ?? []" :key="i">{{ note }}</p>
+        <p v-if="scopeNote">{{ scopeNote }}</p>
+        <p v-if="data">数据日期 {{ data.as_of }}</p>
+      </template>
       <template #action>
         <SegmentedControl
           v-model="scheme"
@@ -33,7 +32,6 @@
           title="已穿透"
           :value="formatAmount(data.coverage.penetrated_cny)"
           :caption="`占持仓市值 ${percent(data.coverage.penetrated_ratio)}`"
-          featured
         />
         <MetricCard
           title="未穿透"
@@ -48,13 +46,13 @@
         <MetricCard
           title="非权益部分"
           :value="formatAmount(data.industry_non_equity_cny)"
-          caption="行业内合计不足 100% 的差额＝债券/现金，不是缺失"
+          caption="差额＝债券/现金，不是缺失"
         />
       </MetricGrid>
       <!-- 覆盖率的作用域口径（#2595 验收第 3 条）：拆到账户 / 组合后分母变小、
-           波动更大，不给这句话，用户会拿两个不可比的覆盖率比大小。
+           波动更大。这句话仍必须存在（不给它，用户会拿两个不可比的覆盖率比大小），
+           但它是读数的**前提**而非内容，2026-11-15 起移进标题行的 ⓘ；
            家庭级不渲染（它是基准线本身）——文案见 ./coverageNote.ts -->
-      <p v-if="scopeNote" class="coverage-scope-note">{{ scopeNote }}</p>
       <!-- 行业分布：两档分工不同，呈现也不同（2026-10-30 改）——
            「持仓结构」是构成问题（基金整块不拆底层），用环形图；
            「穿透持仓」是排序问题（行业多，饼图读不出量级差），仍用横向条形。
@@ -64,10 +62,12 @@
         <PenetrationIndustryBlock :data="data" />
       </CardBlock>
 
-      <!-- 个股层：季报只披露前十大，故标明口径强度 -->
-      <CardBlock class="mt-4">
+      <!-- 个股层：季报只披露前十大，故标明口径强度。
+           2026-11-15 折叠：实测 21 行里 19 行是 0.1~0.3%，条形短到看不见，
+           两屏只为证明「很分散」。默认 5 行 + 展开。 -->
+      <CardBlock v-if="data.stocks.length" class="mt-4">
         <h4 class="panel-subtitle">
-          个股层 Top {{ data.stocks.length }}
+          个股层 Top {{ shownStockRows.length }}
           <span
             v-if="Object.keys(data.stocks_coverage.fund_count_by_basis).length"
             class="panel-subtitle-note"
@@ -75,18 +75,48 @@
             （{{ basisText }}）
           </span>
         </h4>
-        <PenetrationBarList v-if="data.stocks.length" :rows="stockRows" />
-        <p v-else class="text-sm" :style="{ color: 'var(--text-secondary)' }">
-          暂无可穿透的个股持仓。
-        </p>
+        <RankBarList :rows="shownStockRows" />
+        <el-button
+          v-if="data.stocks.length > STOCK_LIMIT"
+          text
+          size="small"
+          class="stock-toggle"
+          :aria-expanded="stocksExpanded"
+          @click="stocksExpanded = !stocksExpanded"
+        >
+          {{
+            stocksExpanded
+              ? "收起"
+              : `展开其余 ${data.stocks.length - shownStockRows.length} 只`
+          }}
+        </el-button>
       </CardBlock>
+      <p v-else class="text-sm" :style="{ color: 'var(--text-secondary)' }">
+        暂无可穿透的个股持仓。
+      </p>
       <!-- 未穿透清单：逐条带 reason（「本质无股票敞口」与「待补真缺口」分开） -->
       <CardBlock class="mt-4">
         <PenetrationGapTable :rows="data.unpenetrated" />
       </CardBlock>
-      <!-- 非主口径：单列且**明写它不是另一套等价分类**（实测 GICS 只标注港股） -->
+      <!-- 非主口径：单列且**明写它不是另一套等价分类**（实测 GICS 只标注港股）。
+           2026-11-15 折叠：两块「非主口径」卡合计 542px，且都写着「不可并列或相加」
+           ——它们是参考材料，不是主答案。默认收起，标题行按名字列出有哪些。 -->
+      <el-button
+        v-if="otherSchemeList.length"
+        text
+        size="small"
+        class="other-toggle"
+        :aria-expanded="showOtherSchemes"
+        @click="showOtherSchemes = !showOtherSchemes"
+      >
+        {{
+          showOtherSchemes
+            ? "收起其他口径"
+            : `其他口径（${otherSchemeList.map(s => s.label).join(" / ")}）`
+        }}
+      </el-button>
       <CardBlock
-        v-for="(info, key) in data.other_schemes"
+        v-for="(info, key) in showOtherSchemes ? data.other_schemes : {}"
         :key="key"
         class="mt-4"
       >
@@ -120,20 +150,6 @@
           </div>
         </div>
       </CardBlock>
-
-      <!-- 口径说明：后端写死的 notes，原样展示（前端不改写、不隐藏）。
-           2026-10-25 由独立 CardBlock 降为区块尾注：口径是元信息不是内容，
-           单独成卡会与「行业分布 / 个股层 / 未穿透」抢同一层视觉层级，
-           还把正文往下顶；降权小字 + 无卡片壳，可见性不变。 -->
-      <div class="penetration-footnote mt-4">
-        <span class="penetration-footnote__label">口径说明</span>
-        <ul class="notes-list">
-          <li v-for="(note, i) in data.notes" :key="i">
-            {{ note }}
-          </li>
-        </ul>
-        <p class="penetration-footnote__meta">数据日期 {{ data.as_of }}</p>
-      </div>
     </template>
   </div>
 </template>
@@ -145,7 +161,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
-import PenetrationBarList from "./PenetrationBarList.vue";
+import RankBarList from "@/components/RankBarList/index.vue";
 import PenetrationIndustryBlock from "./PenetrationIndustryBlock.vue";
 import PenetrationGapTable from "./PenetrationGapTable.vue";
 import { barWidth, percent } from "./format";
@@ -218,10 +234,33 @@ const scopeSuffix = computed(() => {
 /** 覆盖率作用域提示：只认后端回显的 scope，不从 props 猜（props 可能是组合页漏传前的默认值） */
 const scopeNote = computed(() => coverageScopeNote(data.value?.scope));
 
+/** 标题行 ⓘ 的一句话口径（原 SectionHeader `info` 表达式，逐字保留）。 */
+const panelInfo = computed(
+  () =>
+    "你的钱最终压在哪些行业与个股上（" +
+    (data.value?.scheme_label ?? "") +
+    "口径" +
+    scopeSuffix.value +
+    "）。穿透仅覆盖持仓，不含房产/现金等通用资产。"
+);
+
+/** 个股层折叠前显示条数（实测 21 行里 19 行是 0.1~0.3%，几乎全是噪声）。 */
+const STOCK_LIMIT = 5;
+const stocksExpanded = ref(false);
+
+/** 非主口径默认收起（两块合计 542px，且都标注「不可与主口径并列」）。 */
+const showOtherSchemes = ref(false);
+
+const otherSchemeList = computed(() =>
+  Object.values(data.value?.other_schemes ?? {}).map(info => ({
+    label: info.label
+  }))
+);
+
 /** 比率一律按后端给的 0~1 值格式化；分母口径由后端决定，前端不重算。
  *  `percent` / `barWidth` 与两个子组件共用同一份实现（见 ./format.ts）。 */
 /** 个股行：季报只披露前十大、故用第二色与行业层区分；条形与数值同用总市值占比 */
-const stockRows = computed(() =>
+const allStockRows = computed(() =>
   (data.value?.stocks ?? []).map(row => ({
     key: row.code,
     name: row.name,
@@ -232,6 +271,12 @@ const stockRows = computed(() =>
     value: percent(row.ratio_of_total),
     alt: true
   }))
+);
+
+const shownStockRows = computed(() =>
+  stocksExpanded.value
+    ? allStockRows.value
+    : allStockRows.value.slice(0, STOCK_LIMIT)
 );
 
 /** 个股口径强度：季报只披露前十大，半年报是全量，两者不可混看 */
@@ -253,15 +298,6 @@ onMounted(load);
 <style scoped lang="scss">
 .penetration-panel {
   width: 100%;
-}
-
-/* 覆盖率作用域提示：小字、不套卡片壳——它是读数的**前提**，不是又一块内容。
-   用 -ink 文字级墨色（--text-tertiary 是图形级，正文里用会过淡）。 */
-.coverage-scope-note {
-  margin: var(--space-compact) 0 0;
-  font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-tertiary-ink);
 }
 
 .panel-subtitle {
@@ -313,32 +349,10 @@ onMounted(load);
   color: var(--text-tertiary);
 }
 
-/* 口径说明尾注：与产品详情页「口径脚注」同款降权——小字 + 次级墨色，
-   不再用卡片壳与 h4（否则与内容区块同级，元信息抢内容的层级）。 */
-.penetration-footnote {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact);
-  color: var(--text-tertiary);
-}
-
-.penetration-footnote__label {
-  font-size: var(--text-label);
-  font-weight: 600;
-}
-
-.penetration-footnote__meta {
-  margin: 0;
-  font-size: var(--text-label);
-}
-
-.notes-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact);
-  padding-left: var(--space-standard);
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
+/* 折叠开关（个股层 / 非主口径）：贴着内容左缘，不另起一块卡片。 */
+.stock-toggle,
+.other-toggle {
+  padding: 0;
+  margin-top: var(--space-compact);
 }
 </style>

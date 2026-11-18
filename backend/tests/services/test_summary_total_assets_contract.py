@@ -27,12 +27,12 @@
 """
 
 from app.core.money import Money
+from app.services.sankey_service import get_sankey_data
 from app.services.summary_service import (
     family_totals,
     get_account_groups,
     get_distributions,
     get_ledger_distributions,
-    get_sankey_data,
     get_summary_data,
 )
 
@@ -195,7 +195,7 @@ class TestTotalAssetsSingleExit:
         assert all(x['name'] != 'E账户' for x in get_account_groups(db, 1))
 
     def test_sankey_center_agrees_with_summary(self, db, make_position, make_asset):
-        """桑基图「总资产 → 净资产」链路金额与 dashboard 总资产一致（#2154 附带修复）"""
+        """桑基图「净资产 → 总资产」链路金额与 dashboard 总资产一致（D94：方向反转为 E→A）"""
         make_position(
             symbol='SK001',
             name='投顾产品',
@@ -212,13 +212,14 @@ class TestTotalAssetsSingleExit:
         maken  # 确保负债存在但不影响净资产链路断言
 
         links = get_sankey_data(db, 1)['links']
-        total_to_net = [x for x in links if x['source'] == '总资产' and x['target'] == '净资产']
-        assert len(total_to_net) == 1, f'桑基图缺少 总资产→净资产 链路: {links}'
+        # D94：净资产 → 总资产（E 汇向 A），方向反转
+        net_to_center = [x for x in links if x['source'] == '净资产' and x['target'] == '总资产']
+        assert len(net_to_center) == 1, f'桑基图缺少 净资产→总资产 链路: {links}'
         # 总资产 50000 − 负债 1000 = 49000
-        assert total_to_net[0]['value'] == 49000.0
+        assert net_to_center[0]['value'] == 49000.0
 
     def test_sankey_category_node_uses_unique_valuation(self, db, make_position):
-        """桑基图的「投资理财」大类节点也必须走唯一市值口径（#2154）。
+        """桑基图的「投资理财」大类节点也必须走唯一市值口径（D94：方向反转为 总资产→投资理财）。
 
         桑基图自身不累加总资产，但它的**分类节点**是独立算的：旧版这里同样裸算
         「份额 × 快照价」，balance 模式持仓在图上就是缺的（总资产节点有、来源片没有）。
@@ -236,7 +237,8 @@ class TestTotalAssetsSingleExit:
             allocation='longterm',
         )
         links = get_sankey_data(db, 1)['links']
-        investment_links = [x for x in links if x['target'] == '总资产' and x['source'] == '投资理财']
+        # D94：总资产 → 投资理财（方向反转）
+        investment_links = [x for x in links if x['source'] == '总资产' and x['target'] == '投资理财']
         assert len(investment_links) == 1, f'桑基图「投资理财」大类缺失（balance 持仓未计）: {links}'
         assert investment_links[0]['value'] == 50000.0
 
@@ -444,7 +446,17 @@ class TestDimensionGroupsShareTheSameValuation:
         assert group['total_pnl'] == 0.0
 
     def test_group_totals_match_position_value_total(self, db, make_position, make_asset):
-        """分组合计 == 持仓市值合计（通用资产不进 type/allocation 维度）。"""
+        """分组合计 == **该维度自己的成员口径**合计（G4 起 allocation 不再等于持仓市值）。
+
+        ⚠️ 口径变更（#3031 / G4）：五笔钱的分母是「持仓 + 非负债成员资产行」
+        （`core/allocation_rules.is_allocation_member`），账户现金归「活钱」后必然计入。
+        旧断言「通用资产不进 type/allocation 两个维度」正是 P0-1 的成员缺失本身
+        ——拿它当契约，等于把「活钱永远是 0」钉成期望。
+
+        故本条改为钉「同一口径的两个出口必须相等」：`get_position_groups('allocation')`
+        与 `get_distributions()['allocation_scope']['denominator']` 是同一批成员，
+        允许各自实现、不允许各自算对。
+        """
         make_position(
             symbol='GRP003',
             name='股票',
@@ -469,9 +481,19 @@ class TestDimensionGroupsShareTheSameValuation:
             allocation='longterm',
         )
         make_asset(account_name='银行', major_category='cash', name='活期', amount=10000)
+        # 未纳入大类（房产）：既不进 allocation 维度，也不进 distribution 的桶
+        make_asset(account_name='房产', major_category='fixed', name='自住房', amount=200000)
 
         positions_value = 200 * 50.0 + 80000
+        cash_in_scope = 10000
+        # type 维度仍只含持仓：资产行没有「产品类型」语义，把它塞进去会造出「银行」这种类型桶
         assert self._sum_groups(db, 'type') == positions_value
-        assert self._sum_groups(db, 'allocation') == positions_value
-        # account 维度含非负债通用资产：10000 + 10000 + 80000
-        assert self._sum_groups(db, 'account') == positions_value + 10000
+        # allocation 维度 = 持仓 + 非负债成员资产行（G4 的成员边界）
+        assert self._sum_groups(db, 'allocation') == positions_value + cash_in_scope
+        # 与统计出口同一口径：两个出口必须相等（G4 恒等式，跨出口断言）
+        scope = get_distributions(db, 1)['allocation_scope']
+        assert self._sum_groups(db, 'allocation') == scope['denominator']
+        # 未纳入的房产只出现在 excluded，不进任何桶
+        assert scope['excluded_total'] == 200000.0
+        # account 维度含**全部**非负债通用资产（不限成员）：10000 + 200000 + 10000 + 80000
+        assert self._sum_groups(db, 'account') == positions_value + 10000 + 200000

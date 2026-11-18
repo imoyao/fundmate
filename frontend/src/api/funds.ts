@@ -31,21 +31,34 @@ export interface FundSearchItem {
   is_money_fund?: boolean | null;
 }
 
-interface RedeemFeeEstimateParams {
+/** 赎回费估算入参（`POST /api/funds/redeem-fee/estimate/`） */
+export interface RedeemFeeEstimateParams {
   position_id: number;
-  shares: number;
+  /** 卖出份额：省略或 `<= 0` 时后端只算全仓分布，`sell` 返回 `null` */
+  shares?: number;
   sell_date: string;
 }
 
-interface RedeemFeeRuleItem {
+/** 赎回费率分布的**一档**（`range` 是后端拼好的中文区间标签，如「≥730天」） */
+export interface RedeemFeeRuleItem {
   range: string;
   shares: number;
   rate: number;
 }
 
-interface RedeemFeeEstimateResponse {
+/**
+ * 赎回费估算结果（对齐后端 `FundService.estimate_redeem_fee`）。
+ *
+ * ⚠️ #2879 修正：本声明此前写的是 `{ total_fee, details }`，与后端实际返回的
+ * `{ total_fee, holdings, sell }` 不符——`details` 从来不存在，`sell` 也**不是数组**
+ * （未指定份额时是 `null`）。错声明把整条调用链逼成了 `res: any` + 逐个 `(r: any)`
+ * 手工取字段，等于类型护栏在这条链上完全失效（`useSellFee` 11 处 any 全由它引出）。
+ */
+export interface RedeemFeeEstimateResult {
   total_fee: number;
-  details: RedeemFeeRuleItem[];
+  holdings: RedeemFeeRuleItem[];
+  /** 未指定份额（或 `<= 0`）时为 `null`，**不是空数组** */
+  sell: RedeemFeeRuleItem[] | null;
 }
 
 /** 申购费率阶梯（对齐 FundService.get_fund_fee_rates；金额为元） */
@@ -85,7 +98,7 @@ export function calcFundNav(symbols: string[], date: string) {
 
 // 2. 预估基金卖出费率与手续费
 export function estimateRedeemFee(params: RedeemFeeEstimateParams) {
-  return http.request<RedeemFeeEstimateResponse>(
+  return http.request<ApiResponse<RedeemFeeEstimateResult>>(
     "post",
     "/api/funds/redeem-fee/estimate/",
     {

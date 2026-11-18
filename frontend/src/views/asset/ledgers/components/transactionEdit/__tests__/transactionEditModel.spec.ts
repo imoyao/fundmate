@@ -15,7 +15,8 @@ import {
   quantityMeta,
   recalcAmount,
   recalcShares,
-  resolveAssetType
+  resolveAssetType,
+  tradeDateOriginOf
 } from "../transactionEditModel";
 
 describe("resolveAssetType", () => {
@@ -100,27 +101,29 @@ describe("recalcShares（金额 → 份额）", () => {
 });
 
 describe("recalcAmount（数量 → 金额）", () => {
-  it("qty * price + fee，保留 2 位小数", () => {
-    expect(recalcAmount(100, 1.23, 5)).toBe(128);
-    expect(recalcAmount(100, 2, 0)).toBe(200);
+  // 阶段 0 口径修正：amount 是**成交毛额**（数量 × 单价），手续费单列在 fee。
+  // 旧实现 `qty*price+fee` 只在 fee=0 时与后端一致；费用可填之后会把成交额写虚增。
+  it("qty * price（毛额），保留 2 位小数", () => {
+    expect(recalcAmount(100, 1.23)).toBe(123);
+    expect(recalcAmount(100, 2)).toBe(200);
   });
 
   it("浮点误差被抹平（0.1 × 3 不出现 0.30000000000000004）", () => {
-    expect(recalcAmount(3, 0.1, 0)).toBe(0.3);
+    expect(recalcAmount(3, 0.1)).toBe(0.3);
   });
 
   it("数量或单价为空时返回 null（不写回）", () => {
-    expect(recalcAmount(null, 2, 0)).toBeNull();
-    expect(recalcAmount(100, null, 0)).toBeNull();
+    expect(recalcAmount(null, 2)).toBeNull();
+    expect(recalcAmount(100, null)).toBeNull();
   });
 
   it("负数不计算", () => {
-    expect(recalcAmount(-1, 2, 0)).toBeNull();
-    expect(recalcAmount(100, -2, 0)).toBeNull();
+    expect(recalcAmount(-1, 2)).toBeNull();
+    expect(recalcAmount(100, -2)).toBeNull();
   });
 
-  it("数量为 0 时金额 = 手续费", () => {
-    expect(recalcAmount(0, 2, 5)).toBe(5);
+  it("数量为 0 时金额为 0（费用不进 amount）", () => {
+    expect(recalcAmount(0, 2)).toBe(0);
   });
 });
 
@@ -151,6 +154,28 @@ describe("formSnapshotOf / blankForm", () => {
     const snap = formSnapshotOf({});
     expect(Object.keys(snap).sort()).toEqual(Object.keys(blankForm()).sort());
     expect(snap).toEqual(blankForm());
+  });
+
+  // 2026-11-13：库里 2673 条流水有 1483 条 trade_date 为空、confirm_date 有值。
+  // 只取 trade_date 的旧写法会让日期框空着，用户改个备注也被迫编一个日期。
+  it("trade_date 为空时日期框回落到 confirm_date", () => {
+    const snap = formSnapshotOf({
+      trade_date: null,
+      confirm_date: "2026-05-14",
+      notes: "追加买入"
+    });
+    expect(snap.trade_date).toBe("2026-05-14");
+    // confirm_date 原样保留：写回时它是真值，不能被回落值顶掉
+    expect(snap.confirm_date).toBe("2026-05-14");
+  });
+
+  it("trade_date 与 confirm_date 都在时优先 trade_date（T+1 的 20 条不能错一天）", () => {
+    const snap = formSnapshotOf({
+      trade_date: "2026-06-03",
+      confirm_date: "2026-06-04"
+    });
+    expect(snap.trade_date).toBe("2026-06-03");
+    expect(snap.confirm_date).toBe("2026-06-04");
   });
 
   it("传入 null 也给全字段快照", () => {
@@ -198,5 +223,55 @@ describe("buildUpdatePayload", () => {
     });
     expect(payload.trade_date).toBeNull();
     expect(payload.confirm_date).toBeNull();
+  });
+
+  // 日期框回落到确认日、用户又没动过时：送 null 让后端 no-op，而不是把确认日
+  // 当成交日写进去（`ledger_write_service` 对 trade_date=null 不赋值）。
+  it("writeTradeDate=false 时不写 trade_date，confirm_date 照旧送", () => {
+    const payload = buildUpdatePayload(
+      {
+        ...blankForm(),
+        trade_date: "2026-05-14",
+        confirm_date: "2026-05-14",
+        notes: "只改了备注"
+      },
+      { writeTradeDate: false }
+    );
+    expect(payload.trade_date).toBeNull();
+    expect(payload.confirm_date).toBe("2026-05-14");
+    expect(payload.notes).toBe("只改了备注");
+  });
+
+  it("默认（未传 options）照旧写 trade_date——用户真改过日期时走这条", () => {
+    const payload = buildUpdatePayload({
+      ...blankForm(),
+      trade_date: "2026-06-01",
+      confirm_date: "2026-06-02"
+    });
+    expect(payload.trade_date).toBe("2026-06-01");
+  });
+});
+
+describe("tradeDateOriginOf", () => {
+  it("有成交日就是 trade（即便确认日不同，T+1 也不能顶掉它）", () => {
+    expect(
+      tradeDateOriginOf({
+        trade_date: "2026-06-03",
+        confirm_date: "2026-06-04"
+      })
+    ).toBe("trade");
+  });
+
+  it("只有确认日时回落为 confirm", () => {
+    expect(
+      tradeDateOriginOf({ trade_date: null, confirm_date: "2026-05-14" })
+    ).toBe("confirm");
+  });
+
+  it("两个都没有时为 none（用户必须自己选日期）", () => {
+    expect(tradeDateOriginOf({})).toBe("none");
+    expect(tradeDateOriginOf({ trade_date: "", confirm_date: "" })).toBe(
+      "none"
+    );
   });
 });

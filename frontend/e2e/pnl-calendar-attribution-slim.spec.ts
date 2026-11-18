@@ -8,12 +8,14 @@ import { injectSupabaseSession } from "./support/session";
  * 为什么钉这三处：
  * 1. **合计行**整块搬进了 `PnlCalendarSummary.vue`，而它有两处易错的口径——
  *    金额与收益率**同时**显示（不随「金额/收益率」开关变化），以及 `range_rate === null`
- *    时显示「收益率 —」而不是 0.00%。这两条以前写在 `index.vue` 的模板里，
+ *    时显示「收益率 —（期初无持仓）」而不是 0.00%。这两条以前写在 `index.vue` 的模板里，
  *    搬进子组件时最容易被顺手写成 `v-if` 或 `?? 0`。
  * 2. **空态**搬进了 `PnlCalendarPlaceholder.vue`，判空仍由父级总控。若判空挪进子组件
  *    并写错，会把「数据缺口」说成「没有估值序列」——正是 #1812 上线首日的坑。
  * 3. **归因行**搬进了 `PnlAttributionRows.vue`，贡献条的归一分母从「父级算」改成
  *    「子组件按当前行集算」。分母算错时数值不错、只有条的宽度全一样，肉眼极难发现。
+ *    （后来收益归因按盈亏拆成两列：分母改由父级按**全量行**回传给子组件，
+ *    判据不变——100 元盈利满格、50 元亏损半格，两列必须可比。）
  *
  * 页面：账本详情（`/#/asset/ledgers/1`）同时挂着这两个组件，且用的是**非 hostHeader**
  * 模式（组件自画标题与控件排），因此能一起回归。
@@ -187,7 +189,7 @@ test.describe("收益日历 / 收益归因拆分后回归（#980 批 B4）", () 
     await injectSupabaseSession(context, baseURL!);
   });
 
-  test("合计行：金额与收益率同时显示，且带口径说明", async ({ page }) => {
+  test("合计行：金额与收益率同时显示，口径说明收进标题 ⓘ", async ({ page }) => {
     await mockApis(page, { variant: "ok" });
     await openLedger(page);
 
@@ -201,9 +203,17 @@ test.describe("收益日历 / 收益归因拆分后回归（#980 批 B4）", () 
     // 金额（1234.56）与收益率（2.34%）同处一行：任一缺失都说明搬错了
     await expect(summary).toContainText("1,234.56");
     await expect(summary).toContainText("2.34");
-    // 口径说明是合计行的一部分，不能丢（用户据此理解「存取款不计入」）
-    await expect(summary.locator(".pnl-calendar__summary-note")).toContainText(
-      "口径：当日盈亏＝总盈亏变动，存取款不计入"
+    // 口径说明**不再常驻**合计行（2026-11-15 收敛）：它与标题行 ⓘ 的第一条
+    // 完全同义，两处并存只会把「这个区间到底赚没赚」那一行拉长。
+    // 判据用 toHaveCount(0)：旧代码把小字加回来就必须立刻红，而不是靠
+    // 「文案变了」这种软判断蒙混过去。
+    await expect(summary.locator(".pnl-calendar__summary-note")).toHaveCount(0);
+
+    // 但信息本身不能丢：hover ⓘ 后，同一条口径仍要可读（两种容器共用
+    // `PnlCalendarCaliberTip` / `PnlCalendarCaliberIcon`，各挂一份）。
+    await page.locator(".pnl-calendar .section-header__info").first().hover();
+    await expect(page.locator(".rich-tip .caliber-tip")).toContainText(
+      "充值与提现不计入"
     );
   });
 
@@ -216,7 +226,7 @@ test.describe("收益日历 / 收益归因拆分后回归（#980 批 B4）", () 
     const rows = page.locator(".pnl-attribution__list .pnl-attribution__row");
     await expect(rows).toHaveCount(2, { timeout: 30_000 });
 
-    // 归一化写在子组件里（PnlAttributionRows 按当前行集算分母）：
+    // 归一化由父级把「全量行的最大 |pnl|」传下来（盈利 / 亏损两列共用同一分母）：
     // 100 与 -50 对应满格与半格。写错分母时数值照旧、只有条变一样长，肉眼难查。
     await expect(rows.nth(0).locator(".pnl-attribution__bar")).toHaveAttribute(
       "style",

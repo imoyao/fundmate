@@ -74,6 +74,37 @@ export function getPositionTransactions(id: number) {
   );
 }
 
+/** 「按流水重算份额」的结果（#3127 补救入口） */
+export interface PositionRecomputeResult {
+  log_id: number;
+  position_id: number;
+  symbol: string;
+  /** 无流水且无锚点 ⇒ 空壳行被删除（要如实展示，不能只报成功） */
+  deleted: boolean;
+  /** 份额 / 状态是否真的变了；重复点会得到 false */
+  changed: boolean;
+  quantity_before: number;
+  quantity_after: number;
+  avg_price_before: number;
+  avg_price_after: number;
+  ownership_status_before: string;
+  ownership_status_after: string;
+}
+
+/**
+ * 按该持仓名下的流水重算份额与成本（不可逆，调用前必须让用户确认）。
+ *
+ * 判据全在后端：份额走锚点派生（快照口径），净额归零是**标记清仓保留行**而不是删行，
+ * 无流水且无锚点的空壳行才会被删。审计写 `adjustment_logs`（action=`position_recompute`）。
+ */
+export function recomputePositionShares(id: number, reason?: string) {
+  return http.request<ApiResponse<PositionRecomputeResult>>(
+    "post",
+    `${BASE_URL}${id}/recompute/`,
+    { data: { reason } }
+  );
+}
+
 /**
  * 投顾组合持仓的主理人上下文（调仓提示，#2740 / D70）。
  *

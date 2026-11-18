@@ -148,7 +148,7 @@ type ButtonProps = {
 
 interface DialogOptions extends DialogProps {
   /** 内容区组件的 `props`，可通过 `defineProps` 接收 */
-  props?: any;
+  props?: Record<string, unknown>;
   /** 是否隐藏 `Dialog` 按钮操作区的内容 */
   hideFooter?: boolean;
   /** 确定按钮的 `Popconfirm` 气泡确认框相关配置 */
@@ -210,7 +210,7 @@ interface DialogOptions extends DialogProps {
   }: {
     options: DialogOptions;
     index: number;
-    args: any;
+    args: unknown;
   }) => void;
   /** 点击全屏按钮时的回调 */
   fullscreenCallBack?: ({

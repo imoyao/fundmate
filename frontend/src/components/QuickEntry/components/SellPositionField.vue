@@ -86,14 +86,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import type { LedgerItem } from "@/api/ledger";
+import type { Position } from "@/api/types";
 
 const props = defineProps<{
   /** 拥有持仓的账户（父层已过滤） */
-  accounts: any[];
+  accounts: LedgerItem[];
   ledgerId: number | null;
   positionId: number | null;
   /** 当前账户下的持仓 */
-  positions: any[];
+  positions: Position[];
   hideAccountSelect?: boolean;
   showPositionSelect: boolean;
   /** 换 key 强制重建持仓下拉（清空/切换账户后的复位手段） */

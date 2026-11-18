@@ -1,0 +1,609 @@
+# -*- coding: utf-8 -*-
+"""expect.narrative 数值来源判据（D103）：回答里的指标值必须能溯源到工具数据。
+
+用合成数据证明三件事，且每件都单独钉住：
+1. 合理表述（舍入 / 千分位 / 负号被「亏损」吸收）**不误判**为编造；
+2. 编造的数（含数据为空却报数）**一定判红**并点名；
+3. 判据真接进了 run_case（写好了不接线 = 登记了从不跑，比没有更糟）。
+
+不调用真实模型，也不依赖 cases.yaml 的具体数值。
+"""
+
+import importlib.util
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+_SCRIPT = BACKEND_DIR / 'scripts' / 'agent_eval.py'
+
+# 真实数据副本（2026-11-11）那次的四个数：组合区间收益 / 沪深300 / 超额 / 单只持仓盈亏
+PLAN_DATA = {
+    'steps': [
+        {'tool': 'get_portfolio_vs_benchmark', 'data': {'range_rate': -20.66, 'benchmark_range_return': -12.61}},
+        {
+            'tool': 'list_position_pnl',
+            'data': {'items': [{'name': '金地集团', 'pnl': -8387.89, 'pnl_rate': -35.2}], 'count': 1},
+        },
+        {'tool': 'get_rebalance_reference', 'data': {'excess_return': -8.05}},
+    ]
+}
+COVERS = [{'id': '近3个月收益', 'any': ['近3个月', '区间收益']}]
+
+
+@pytest.fixture(scope='module')
+def contract():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    spec = importlib.util.spec_from_file_location('agent_eval_numeric_sources', _SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _expect(**narrative_extra):
+    return {'status': 'result', 'tool': 'tool_a', 'narrative': {'covers': COVERS, **narrative_extra}}
+
+
+class _FakeQuery:
+    def __init__(self, traces):
+        self._traces = traces
+
+    def filter_by(self, **_kwargs):
+        return self
+
+    def order_by(self, *_args):
+        return self
+
+    def all(self):
+        return list(self._traces)
+
+
+class _FakeDB:
+    def __init__(self, traces):
+        self._traces = traces
+
+    def query(self, *_args):
+        return _FakeQuery(self._traces)
+
+    def flush(self):
+        return None
+
+    def rollback(self):
+        return None
+
+
+def _wire(monkeypatch, contract, reply, data):
+    """把 run_case 的外部依赖换成合成实现；data 就是工具返回值里的 data 字段。"""
+    monkeypatch.setattr(
+        contract.session_store,
+        'load_or_create',
+        lambda db, session_id, user_id: SimpleNamespace(session_id='s-eval'),
+    )
+    monkeypatch.setattr(
+        contract.agent_loop,
+        'run_agent',
+        lambda text, row: {'type': 'result', 'content': reply, 'data': data},
+    )
+    trace = SimpleNamespace(intent='execute_tool', status='result', tool_name='tool_a', blocked=False, tokens=10)
+    return _FakeDB([trace])
+
+
+# ── 一、合理表述不误判 ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        '近3个月组合收益 -20.66%。',
+        '近3个月组合收益 -20.7%。',  # 1 位小数舍入
+        '近3个月亏损 20.66%。',  # 负号被语义词吸收
+        '近3个月回落了 20.7 个百分点',
+        '近3个月下跌 0.2066',  # 小数化百分比
+        '近3个月跑输 8.1 个点',  # ULP/2 才命中，固定 0.5% 会漏
+        '金地集团亏了 8388 元',  # 整数舍入
+        '金地集团 -8,387.89 元',  # 千分位
+        '近3个月收益 -20.66%，沪深300 -12.61%，跑输 8.05 个点，金地集团 -8387.89 元。',
+    ],
+)
+def test_plausible_restatements_have_sources(contract, text):
+    ok, why = contract.evaluate_numeric_sources(text, PLAN_DATA)
+    assert ok, f'合理表述被误判为编造：{text!r} -> {why}'
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        '近3个月收益不好，共 4 只持仓，前 5 大占比 30%。',
+        '数据截至 2026 年 11 月，近 3 个月无记录。',
+        '区间起点 2026-11-01，近3个月无记录。',  # 日期整体豁免
+        '基金 000001 的近3个月无数据。',  # 代码形态豁免
+    ],
+)
+def test_counts_and_dates_are_exempt(contract, text):
+    ok, why = contract.evaluate_numeric_sources(text, {})
+    assert ok, f'普通计数被误判成编造：{text!r} -> {why}'
+
+
+# ── 二、编造必须判红 ──────────────────────────────────────────────
+
+
+def test_fabricated_number_is_flagged_and_named(contract):
+    ok, why = contract.evaluate_numeric_sources('近3个月组合跌了 25.33%。', PLAN_DATA)
+    assert not ok
+    assert '25.33' in why, why
+
+
+def test_fabricated_number_flagged_even_when_data_is_empty(contract):
+    """数据为空却报具体数值，是最硬的幻觉铁证——不能因为「没法比对」就跳过。"""
+    ok, why = contract.evaluate_numeric_sources('近3个月组合收益 -20.66%。', None)
+    assert not ok
+    assert '-20.66' in why, why
+    assert '没有任何数值' in why, why
+
+
+def test_bool_is_not_a_numeric_source(contract):
+    """True/False 是 int 子类，若不排除会让「1」凭空获得来源。"""
+    ok, why = contract.evaluate_numeric_sources('近3个月收益 1.00%', {'ok': True, 'done': False})
+    assert not ok, why
+
+
+def test_string_numbers_are_not_sources(contract):
+    """字符串里的数字不算来源：symbol / 日期里的数字不是可引用指标。"""
+    ok, why = contract.evaluate_numeric_sources('近3个月收益 12.34%', {'symbol': '12.34', 'date': '2026-11-11'})
+    assert not ok, why
+
+
+# ── 三、门槛与归一化细节 ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ('raw', 'value', 'is_percent', 'is_year', 'want'),
+    [
+        ('20.66', 20.66, False, False, True),  # 2 位小数
+        ('20.7', 20.7, True, False, True),  # 1 位小数 + 百分比标记
+        ('20.7', 20.7, False, False, False),  # 1 位小数无标记（可能是万元换算）
+        ('3', 3, False, False, False),  # 普通计数
+        ('2026', 2026, False, True, False),  # 年份
+        ('8388', 8388, False, False, True),  # 金额量级
+        ('000001', 1.0, False, False, False),  # 代码形态
+    ],
+)
+def test_high_entropy_gate(contract, raw, value, is_percent, is_year, want):
+    assert contract._is_high_entropy(raw, value, is_percent, is_year) is want
+
+
+def test_tolerance_follows_written_precision(contract):
+    """容差取文本末位一半：写 8.1 允许 ±0.05（命中 8.05），写 8 允许 ±0.5。"""
+    token_1dp = ('8.1', 8.1, True, False, 1.0)
+    token_int = ('8', 8.0, True, False, 1.0)
+    assert contract._number_has_source(token_1dp, [-8.05])
+    assert contract._number_has_source(token_int, [-8.05])
+    assert not contract._number_has_source(('8.6', 8.6, True, False, 1.0), [-8.05])
+
+
+def test_precision_tightens_not_loosens(contract):
+    """写得越精确要求越严：20.66 不能命中 20.7 的来源（差 0.04 > 0.005）。"""
+    assert not contract._number_has_source(('20.66', 20.66, True, False, 1.0), [-20.7])
+    assert contract._number_has_source(('20.7', 20.7, True, False, 1.0), [-20.66])
+
+
+# ── 四、接线与开关 ────────────────────────────────────────────────
+
+
+def test_run_case_wires_numeric_sources(monkeypatch, contract):
+    """判据接进 run_case 的证据：同一段回答，有数据来源过、无来源判红。"""
+    reply = '近3个月区间收益 -20.66%。'
+
+    db = _wire(monkeypatch, contract, reply, PLAN_DATA)
+    result = contract.run_case(db, {'id': 'synth-01', 'turns': ['q'], 'expect': _expect()})
+    assert result['ok'], result
+
+    db = _wire(monkeypatch, contract, reply, {'steps': []})
+    result = contract.run_case(db, {'id': 'synth-02', 'turns': ['q'], 'expect': _expect()})
+    assert not result['ok']
+    assert '无工具来源' in result['why'], result
+
+
+def test_numbers_false_disables_check(monkeypatch, contract):
+    db = _wire(monkeypatch, contract, '近3个月收益 -99.99%。', {})
+    case = {'id': 'synth-03', 'turns': ['q'], 'expect': _expect(numbers=False)}
+    assert contract.run_case(db, case)['ok']
+
+
+def test_shape_accepts_numbers_bool_and_rejects_others(contract):
+    assert contract.validate_narrative_shape({'covers': COVERS, 'numbers': False}) == []
+    for bad in ('false', 0, 1, None):
+        assert contract.validate_narrative_shape({'covers': COVERS, 'numbers': bad}), f'未拦住 numbers={bad!r}'
+
+
+def test_empty_reply_is_rejected(contract):
+    ok, why = contract.evaluate_numeric_sources('   ', PLAN_DATA)
+    assert not ok and '文本为空' in why, why
+
+
+# ── 五、正向 metric（抓回避与串台）────────────────────────────────
+
+METRIC_DATA = {
+    'steps': [
+        {
+            'tool': 'get_portfolio_vs_benchmark',
+            'data': {'range_rate': -20.66, 'excess_return': -8.05, 'benchmark_range_return': -12.61},
+        },
+        {
+            'tool': 'list_position_pnl',
+            'data': {'items': [{'name': 'A', 'pnl': -100.0}, {'name': 'B', 'pnl': -8387.89}], 'count': 2},
+        },
+    ]
+}
+METRIC_COVERS = [
+    {'id': '区间收益', 'any': ['区间收益'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'range_rate'}},
+    {
+        'id': '亏得最多',
+        'any': ['亏得最多'],
+        'metric': {'tool': 'list_position_pnl', 'field': 'items.*.pnl', 'pick': 'min'},
+    },
+    {'id': '调仓参考', 'any': ['调仓']},
+    {'id': '跟上市场', 'any': ['跑输'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'excess_return'}},
+]
+
+
+def test_metric_presence_passes_when_all_cited(contract):
+    text = '区间收益 -20.66%，亏得最多的一只 -8387.89 元，跑输 8.05 个点；调仓方面暂无明显信号。'
+    ok, why = contract.evaluate_metric_presence(text, METRIC_DATA, METRIC_COVERS)
+    assert ok, why
+
+
+def test_metric_presence_accepts_rounding_and_percent_forms(contract):
+    text = '区间收益亏损 20.7%，那只亏了 8388 元，跑输 8.1 个点。'
+    ok, why = contract.evaluate_metric_presence(text, METRIC_DATA, METRIC_COVERS)
+    assert ok, why
+
+
+def test_metric_presence_flags_avoidance(contract):
+    """只写「收益不好」不给数 = 回避，必须判红并点名缺哪个字段。"""
+    ok, why = contract.evaluate_metric_presence(
+        '区间收益不太好，亏得最多的是 B，调仓暂无信号，跑输基准。', METRIC_DATA, METRIC_COVERS
+    )
+    assert not ok
+    assert '区间收益' in why and 'range_rate' in why, why
+
+
+def test_metric_presence_flags_cross_talk(contract):
+    """串台：把沪深300 的 -12.61% 当成组合区间收益 → range_rate 未被引用，判红。"""
+    text = '区间收益 -12.61%，亏得最多的一只 -8387.89 元，跑输 8.05 个点。'
+    ok, why = contract.evaluate_metric_presence(text, METRIC_DATA, METRIC_COVERS)
+    assert not ok
+    assert 'range_rate' in why, why
+
+
+def test_metric_presence_skips_when_field_has_no_value(contract):
+    """字段为 None / 工具没跑 → 跳过，不能把「如实说没有数据」判成回避。"""
+    text = '区间收益、亏损、调仓、跑输都暂无数据。'
+    ok, why = contract.evaluate_metric_presence(
+        text, {'steps': [{'tool': 'get_portfolio_vs_benchmark', 'data': {'range_rate': None}}]}, METRIC_COVERS
+    )
+    assert ok, why
+    ok, why = contract.evaluate_metric_presence(text, None, METRIC_COVERS)
+    assert ok, why
+
+
+def test_metric_presence_ignores_covers_without_metric(contract):
+    covers = [{'id': '调仓参考', 'any': ['调仓']}]
+    assert contract.evaluate_metric_presence('调仓方面暂无信号。', {}, covers) == (True, '')
+
+
+def test_metric_values_supports_single_tool_shape(contract):
+    """单工具路径没有 steps，data 就是工具输出本身。"""
+    data = {'range_rate': -3.14}
+    metrics = [{'id': 'x', 'any': ['x'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'range_rate'}}]
+    assert contract.evaluate_metric_presence('区间 -3.14%', data, metrics) == (True, '')
+
+
+def test_metric_multi_source_accepts_either_caliber(contract):
+    """同一问有多个等价口径（金额 / 年化小数）时，报任一个都算给出。"""
+    covers = [
+        {
+            'id': '区间收益',
+            'any': ['区间收益'],
+            'metric': [
+                {'tool': 'get_portfolio_vs_benchmark', 'field': 'range_rate'},
+                {'tool': 'get_portfolio_performance', 'field': 'xirr'},
+            ],
+        }
+    ]
+    data = {
+        'steps': [
+            {'tool': 'get_portfolio_vs_benchmark', 'data': {'range_rate': -10214.99}},
+            {'tool': 'get_portfolio_performance', 'data': {'xirr': 0.3675}},
+        ]
+    }
+    assert contract.evaluate_metric_presence('区间收益 -10214.99 元', data, covers) == (True, '')
+    assert contract.evaluate_metric_presence('区间年化 36.75%', data, covers) == (True, '')
+    ok, why = contract.evaluate_metric_presence('区间收益 -15.38%', data, covers)
+    assert not ok and '区间收益' in why, why
+
+
+@pytest.mark.parametrize(
+    'bad',
+    [
+        'not-a-dict',
+        {},
+        {'tool': 'x'},
+        {'field': 'y'},
+        {'tool': 'x', 'field': 'y', 'pick': 'average'},
+        {'tool': 'x', 'field': 'y', 'extra': 1},
+    ],
+)
+def test_metric_shape_rejected(contract, bad):
+    ok, why = contract.evaluate_narrative(
+        '区间收益', {'narrative': {'covers': [{'id': 'a', 'any': ['区间收益'], 'metric': bad}]}}
+    )
+    assert not ok and 'metric' in why, why
+
+
+def test_run_case_wires_metric_presence(monkeypatch, contract):
+    """接线证据：同一条回答，有 metric 数据时判红、字段无值时放过。"""
+    reply = '区间收益 -12.61%，亏得最多的一只 -8387.89 元，跑输 8.05 个点。'
+    covers = [
+        {'id': '区间收益', 'any': ['区间收益'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'range_rate'}}
+    ]
+
+    db = _wire(monkeypatch, contract, reply, METRIC_DATA)
+    case = {
+        'id': 'synth-m1',
+        'turns': ['q'],
+        'expect': {'status': 'result', 'tool': 'tool_a', 'narrative': {'covers': covers}},
+    }
+    result = contract.run_case(db, case)
+    assert not result['ok'] and 'range_rate' in result['why'], result
+
+    db = _wire(monkeypatch, contract, reply, {'steps': []})
+    # 隔离出 metric 一层：字段无值时它必须放过；这条回答的数值在空数据里会被
+    # numbers 判红，所以关掉 numbers 才能证明「跳过」而不是「碰巧通过」。
+    metric_only = {**case, 'expect': {**case['expect'], 'narrative': {'covers': covers, 'numbers': False}}}
+    assert contract.run_case(db, metric_only)['ok']
+
+
+# ── 六、量级改写：万 / 亿（D105） ────────────────────────────────
+# 中文叙事几乎不会把 1630204.52 原样写出来，而是「163 万」。不认量级时，
+# 最合规的回答会被反向判据打成「编造」、被正向判据打成「回避」——两头都是假红。
+
+NET_ASSETS = {'net_assets_cny': 1630204.52, 'total_assets_cny': 3390204.52}
+SINGLE_COVER = [
+    {'id': '净资产', 'any': ['净资产'], 'metric': {'tool': 'get_assets_overview', 'field': 'net_assets_cny'}}
+]
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        '你的净资产是 1630204.52 元。',
+        '你的净资产是 1,630,204.52 元。',
+        '你的净资产约 163 万。',  # 0 位小数 + 万：容差按 ±5000 折算
+        '你的净资产约 163.02 万。',
+        '净资产 163 万元。',
+    ],
+)
+def test_magnitude_rewrite_counts_as_cited(contract, text):
+    assert contract.evaluate_metric_presence(text, NET_ASSETS, SINGLE_COVER) == (True, '')
+
+
+@pytest.mark.parametrize('text', ['你的净资产约 168 万。', '你的净资产约 163.5 万。'])
+def test_magnitude_rewrite_still_catches_wrong_value(contract, text):
+    """认量级不等于放水：168 万与 163.5 万都不是这个数。"""
+    ok, why = contract.evaluate_metric_presence(text, NET_ASSETS, SINGLE_COVER)
+    assert not ok and '净资产' in why, why
+
+
+def test_magnitude_rewrite_not_flagged_as_fabrication(contract):
+    """反向判据同理：163 万 在数据里就是 1630204.52，不能算无来源。"""
+    ok, why = contract.evaluate_numeric_sources('你的净资产约 163 万，总资产 339 万。', NET_ASSETS)
+    assert ok, why
+    ok, why = contract.evaluate_numeric_sources('你的净资产约 188 万。', NET_ASSETS)
+    assert not ok and '无工具来源' in why, why
+
+
+def test_magnitude_scale_is_per_token(contract):
+    """量级只作用于紧跟其后的数：同一句里的百分数不受 万 影响。"""
+    data = {'items': [{'pnl': -8387.89}], 'turnover_pct': 323.52}
+    covers = [{'id': '换手', 'any': ['换手'], 'metric': {'tool': 'get_behavior', 'field': 'turnover_pct'}}]
+    assert contract.evaluate_metric_presence('换手率 323.52%，亏得最多的一只亏了 8388 元。', data, covers) == (True, '')
+    ok, why = contract.evaluate_metric_presence('换手率 3.24 万%。', data, covers)
+    assert not ok and '换手' in why, why
+
+
+# ── 七、数字归属到要点（D105） ───────────────────────────────────
+# 全文存在性判据的漏洞：四个数都报了，但「组合收益」那段写的是超额的 -6.33、
+# 「跑输」那段写的是组合的 -19.44 —— 数字全对、位置全错，用户读到的正是错的那句。
+
+ATTR_DATA = {
+    'steps': [
+        {
+            'tool': 'get_portfolio_vs_benchmark',
+            'data': {'range_rate': -19.44, 'excess_return': -6.33, 'benchmark_range_return': -13.11},
+        }
+    ]
+}
+ATTR_COVERS = [
+    {'id': '区间收益', 'any': ['近3个月收益'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'range_rate'}},
+    {'id': '相对基准', 'any': ['跑输'], 'metric': {'tool': 'get_portfolio_vs_benchmark', 'field': 'excess_return'}},
+]
+
+
+def test_attribution_passes_when_numbers_sit_in_their_own_section(contract):
+    text = '近3个月收益：-19.44%。\n\n跑输沪深300 -6.33 个百分点。'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_flags_swapped_numbers(contract):
+    """归属错位的唯一硬证据：两个数都在文本里，但各自落在对方那一段。"""
+    text = '近3个月收益：-6.33%。\n\n跑输沪深300 -19.44 个百分点。'
+    ok, why = contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS)
+    assert not ok, why
+    assert '其他要点的段落里' in why, why
+    assert '区间收益' in why and '相对基准' in why, why
+
+
+def test_attribution_accepts_heading_then_value_on_next_line(contract):
+    """标题行写要点、数值另起一行（markdown 常见排版）不能判成错位。"""
+    text = '### 近3个月收益\n-19.44%\n\n### 跑输沪深300\n-6.33 个百分点'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_accepts_single_line_reply(contract):
+    """整篇一行时归属无从谈起：退回全文判定，宁松不误杀。"""
+    text = '近3个月收益 -19.44%，同期沪深300 跌 13.11%，跑输 -6.33 个百分点。'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_falls_back_when_no_anchor_owns_the_number(contract):
+    """数值全写在没有锚点的前言里 → 归不到任何要点，退回全文而不是判红。"""
+    text = '你的数据如下：-19.44% 与 -6.33 个百分点。\n近3个月收益见上。\n跑输沪深300 见上。'
+    assert contract.evaluate_metric_presence(text, ATTR_DATA, ATTR_COVERS) == (True, '')
+
+
+def test_attribution_keeps_avoidance_red(contract):
+    """归属收紧不能放过回避：整段不给数仍然判红。"""
+    ok, why = contract.evaluate_metric_presence('近3个月收益不太好。\n跑输沪深300 一些。', ATTR_DATA, ATTR_COVERS)
+    assert not ok and '未引用' in why, why
+
+
+# ── 八、中文数量词（D106） ───────────────────────────────────────
+# 真实回答常写「约两成」「六个点」「一百六十三万」，整段没有阿拉伯数字：
+# 抽不到 token 时反向判据漏报、正向判据把「用中文给了数」判成回避。
+# 但它们是概数——只能证明「说到了这个量」，不能用来证伪精确值，两个方向分开钉。
+
+
+@pytest.mark.parametrize(
+    ('text', 'want'),
+    [
+        ('近3个月收益约两成。\n\n跑输沪深300 六个点。', True),
+        ('近3个月收益亏了两成。\n\n跑输沪深300 六个百分点。', True),
+        # 「百分之十九」是 −19.44% 的四舍五入；「百分之二十」不是（差 0.56 > 0.5），
+        # 与阿拉伯写法同口径：写 20 就承诺了 20±0.5，不接受「约」字放宽。
+        ('近3个月收益约百分之十九。\n\n跑输沪深300 六个点。', True),
+        ('近3个月收益大亏。\n\n跑输沪深300 一点。', False),  # 「一点」不是数量承诺
+    ],
+)
+def test_cn_numerals_can_satisfy_metric_presence(contract, text, want):
+    ok, why = contract.evaluate_metric_presence(text, {'range_rate': -19.44, 'excess_return': -6.33}, ATTR_COVERS)
+    assert ok is want, why
+
+
+def test_cn_numerals_are_coarse_not_exact(contract):
+    """「两成」是 20% ±5：能接住 −19.44%，也该接住 −16%，但不该接住 −3%。"""
+    base = {'range_rate': -19.44, 'excess_return': -6.33}
+    assert contract._token_cites(contract._cn_tokens('两成')[0][1], -19.44)
+    assert contract._token_cites(contract._cn_tokens('两成')[0][1], -16.0)
+    assert not contract._token_cites(contract._cn_tokens('两成')[0][1], -3.0)
+
+
+def test_cn_amount_matches_data(contract):
+    """「一百六十三万」= 1630204.52 的合法口语改写；「两百万」不是。"""
+    assert contract.evaluate_metric_presence('你的净资产一百六十三万。', NET_ASSETS, SINGLE_COVER) == (True, '')
+    ok, why = contract.evaluate_metric_presence('你的净资产两百万。', NET_ASSETS, SINGLE_COVER)
+    assert not ok and '净资产' in why, why
+
+
+def test_cn_numerals_never_evidence_fabrication(contract):
+    """反向判据刻意不查中文概数：拿「约两成」或「一百六十三万」证伪精确值必然误杀。
+
+    金额形态是真正的守卫：「一百六十三万」在数字门槛里是 1630000（≥1000，本该被查），
+    靠 approximate 标记才豁免；百分比形态本来就会被「0 位小数」规则放过，钉不住这一点。
+    """
+    for text in ('你的净资产约两成，亏损三成。', '你的净资产一百六十三万。'):
+        ok, why = contract.evaluate_numeric_sources(text, {})
+        assert ok, f'{text!r} 被误判成编造：{why}'
+    assert contract._is_high_entropy('两', 20.0, True, False, 1.0, True) is False
+    assert contract._is_high_entropy('一百六十三万', 1630000.0, False, False, 1.0, True) is False
+    # 对照：阿拉伯写法「163 万」是精确承诺，数据为空时仍要判红
+    ok, why = contract.evaluate_numeric_sources('你的净资产 163 万。', {})
+    assert not ok and '无工具来源' in why, why
+
+
+@pytest.mark.parametrize(
+    ('run', 'want'),
+    [
+        ('两', 2.0),
+        ('十五', 15.0),
+        ('二十三', 23.0),
+        ('一百六十三', 163.0),
+        ('一百六十三万', 1630000.0),
+        ('两亿三千万', 230000000.0),
+        ('十万', 100000.0),
+    ],
+)
+def test_parse_cn_number(contract, run, want):
+    assert contract._parse_cn_number(run) == pytest.approx(want)
+
+
+def test_cn_counting_words_are_not_numbers(contract):
+    """「一样」「一起」「三十年」是计数与修饰，抽成数值只会制造假编造。"""
+    text = '这只和那只一样，我们一起看，一定有三十年经验，两个点要注意。'
+    raw = [token.raw for _, token in contract._number_token_spans(text)]
+    assert raw == ['两'], raw  # 只有「两个点」是数量承诺
+
+
+def test_cn_token_carries_own_tolerance(contract):
+    """中文概数的精度不是末位决定的，而是这个说法本身的粗粒度。"""
+    start, token = contract._cn_tokens('约两成')[0]
+    assert token.raw == '两' and token.value == pytest.approx(20.0)
+    assert token.is_percent and token.approximate
+    assert token.tolerance == pytest.approx(5.0)
+    assert start == 1
+
+
+# ── 九、百分号的中文前缀写法（2026-11-18） ──────────────────────
+# 模型把小数口径（xirr=0.3438）写成「百分之34.38」是合规表述，但旧判据只认**后缀**：
+# 34.38 有 2 位小数 → 进高熵门槛，却拿不到「除以 100」那次归一化 ⇒ 与 0.3438 对不上，
+# 反向判据判成编造、正向判据判成回避。2026-11-17 全量评估里 basic-02/03 就是这么红的。
+
+_XIRR_DATA = {'xirr': 0.3438}
+_XIRR_COVERS = [{'id': '年化收益', 'any': ['年化'], 'metric': {'tool': 'get_portfolio_performance', 'field': 'xirr'}}]
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        '这两年你的年化收益是百分之34.38。',
+        '这两年你的年化收益是百分之 34.38。',  # 中间带空格
+        '这两年你的年化收益是 34.38%。',  # 对照：后缀本来就认
+    ],
+)
+def test_cn_percent_prefix_counts_as_source(contract, text):
+    ok, why = contract.evaluate_numeric_sources(text, _XIRR_DATA)
+    assert ok, f'「百分之34.38」被误判为编造：{text!r} -> {why}'
+
+
+def test_cn_percent_prefix_does_not_open_a_backdoor(contract):
+    """兼容写法 ≠ 放水：编造的「百分之99.99」仍然判红并点名。"""
+    ok, why = contract.evaluate_numeric_sources('这两年你的年化收益是百分之99.99。', _XIRR_DATA)
+    assert not ok
+    assert '99.99' in why, why
+
+
+def test_cn_percent_prefix_satisfies_metric_presence(contract):
+    """正向判据走同一条 token 路径，前缀写法同样算「引用了这个值」。"""
+    assert contract.evaluate_metric_presence('年化收益百分之34.38。', _XIRR_DATA, _XIRR_COVERS) == (True, '')
+    ok, why = contract.evaluate_metric_presence('年化收益百分之99.99。', _XIRR_DATA, _XIRR_COVERS)
+    assert not ok and '年化收益' in why, why
+
+
+def test_cn_percent_prefix_marks_token_as_percent(contract):
+    """判据侧的单一改动点：前缀写法必须把 token 标成百分比，值仍是字面 34.38。"""
+    start, token = contract._number_token_spans('年化百分之34.38')[0]
+    assert token.is_percent and token.raw == '34.38' and token.value == pytest.approx(34.38)
+    assert start == len('年化百分之')
+    # 「百分」出现在**别的数**后面时不能把下一个数当成百分比（只看紧邻前缀）
+    _, other = contract._number_token_spans('占比百分之 34.38，另有 12.5 元')[1]
+    assert not other.is_percent
+
+
+def test_cn_percent_prefix_keeps_avoidance_red(contract):
+    """前缀兼容不能让「不给数」蒙混：只写「收益不错」仍然判红。"""
+    ok, why = contract.evaluate_metric_presence('年化收益还不错。', _XIRR_DATA, _XIRR_COVERS)
+    assert not ok and '未引用' in why, why

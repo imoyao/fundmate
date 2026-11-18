@@ -27,6 +27,52 @@ def _pnl_by_symbol(attr):
     return {r['symbol']: r['pnl'] for r in attr['positions']}
 
 
+def test_全周期归因纳入已清仓持仓(db, make_position, make_transaction):
+    """`inception` + cleared：归因不再因 active 过滤返回空载荷（#3017 同源）。"""
+    d1 = dt.date(2024, 1, 8)
+    pos = make_position(
+        symbol='000201',
+        name='清仓品种',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='清仓账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000201',
+        asset_type='fund',
+    )
+    # 终点锚按 positions.quantity(=0) 校准：清仓造数必须「买 + 卖」闭环，
+    # 只留买入时校准量会抵消掉历史份额，整窗无市值 ⇒ 无可算日（真库流水是闭环的）。
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=1000,
+        price=1.1,
+        confirm_date=dt.date(2024, 1, 12),
+        symbol='000201',
+        asset_type='fund',
+    )
+    _add_nav(db, '000201', d1, 1.0)
+    _add_nav(db, '000201', dt.date(2024, 1, 10), 1.1)
+    _add_nav(db, '000201', dt.date(2024, 1, 12), 1.1)
+
+    result = compute_range_attribution(db, 1, 'inception', '2024-01-12', ledger_id=pos.ledger_id)
+
+    assert result['first_txn_date'] == '2024-01-08'
+    assert result['start_date'] == '2024-01-08'
+    assert result['has_any_computable'] is True
+    assert any(row['symbol'] == '000201' for row in result['positions'])
+
+
 def test_双品种贡献_与引擎月合计自洽(db, make_position, make_transaction):
     """一涨一跌：各自贡献等于经济真相，且 Σ ≡ 引擎 month_total。"""
     d1, d2 = dt.date(2026, 1, 5), dt.date(2026, 1, 6)
@@ -72,6 +118,59 @@ def test_双品种贡献_与引擎月合计自洽(db, make_position, make_transa
     assert len(attr['categories']) == 1
     assert attr['categories'][0]['asset_type'] == 'fund'
     assert attr['categories'][0]['positions_count'] == 2
+
+
+def test_合计为负时占比符号随盈亏方向(db, make_position, make_transaction):
+    """亏损区间：赚的行仍是正号、亏的行是负号（占比分母取 |合计|）。
+
+    旧口径是 `pnl / 合计`，合计为负时两行同时反号，界面就会读成
+    「+¥104.68 −1.32%」——金额说赚、占比说亏，正是用户报的那处怪。
+
+    数据：A 1000 份 1.0→1.1（+100）、B 2000 份 1.0→0.8（−400）⇒ 合计 −300。
+    占比 = pnl ÷ |−300|：A +33.33%、B −133.33%（Σ = −100%，与合计方向一致）。
+
+    变异探针：去掉分母的 `abs()` ⇒ 两行 pct 同时翻号，本用例的符号断言与
+    Σ = −100 断言同时转红。
+    """
+    d1, d2 = dt.date(2026, 1, 5), dt.date(2026, 1, 6)
+
+    pos_a = make_position(symbol='000113', name='小赚基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos_a.id,
+        ledger_id=pos_a.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000113',
+    )
+    _add_nav(db, '000113', d1, 1.0)
+    _add_nav(db, '000113', d2, 1.1)
+    pos_b = make_position(symbol='000114', name='大亏基金', quantity=2000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos_b.id,
+        ledger_id=pos_b.ledger_id,
+        txn_type='buy',
+        quantity=2000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000114',
+    )
+    _add_nav(db, '000114', d1, 1.0)
+    _add_nav(db, '000114', d2, 0.8)
+
+    attr = compute_range_attribution(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+
+    assert attr['total_pnl'] == pytest.approx(-300.0, abs=0.001)
+    pct = {r['symbol']: r['pct'] for r in attr['positions']}
+    assert pct['000113'] == pytest.approx(100 / 300 * 100, abs=0.01)
+    assert pct['000114'] == pytest.approx(-400 / 300 * 100, abs=0.01)
+    # 符号恒随 pnl（这就是用户看到的那处「正负号很奇怪」）
+    assert all((r['pct'] > 0) == (r['pnl'] > 0) for r in attr['positions'])
+    # 占比仍可加：Σ pct = 合计方向 × 100
+    assert sum(pct.values()) == pytest.approx(-100.0, abs=0.05)
+    # 大类行与品种行同口径
+    assert attr['categories'][0]['pct'] == pytest.approx(-100.0, abs=0.05)
 
 
 def test_建仓日按买入成本计入_期中建仓不漏计(db, make_position, make_transaction):
@@ -134,7 +233,10 @@ def test_已实现盈亏进品种贡献(db, make_position, make_transaction):
     """
     d1, d2, d3 = dt.date(2026, 1, 5), dt.date(2026, 1, 6), dt.date(2026, 1, 7)
 
-    pos = make_position(symbol='000105', name='清仓基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    # quantity 是「当前份额」的派生值：买 1000 后卖 500 ⇒ 当前应为 500。
+    # 写成 1000 会与流水自相矛盾，终点锚校准（_as_of_shares 以 quantity 为准）
+    # 就会多注入 500 份，把本用例的 +200 改成 +150。
+    pos = make_position(symbol='000105', name='清仓基金', quantity=500, avg_price=1.0, asset_type='fund')
     make_transaction(
         position_id=pos.id,
         ledger_id=pos.ledger_id,

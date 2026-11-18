@@ -1,9 +1,10 @@
+import { asPreviewRow } from "../previewRow";
 import { describe, expect, it } from "vitest";
 import { isMissingAmount, recalcAfterEdit, smartFill } from "../cellEditLogic";
 
 /** 最小行形态：只带被测字段与互算所需的邻居字段 */
 function makeRow(partial: Record<string, unknown>) {
-  return partial as any;
+  return asPreviewRow(partial);
 }
 
 describe("smartFill（编辑字段自身 NaN 时从另两项互推）", () => {

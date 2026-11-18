@@ -1,3 +1,4 @@
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
@@ -50,8 +51,8 @@ export function useStrategyTags() {
         tagName
       );
       ElMessage.success("已移除标签");
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "操作失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "操作失败");
     }
   }
 
@@ -108,7 +109,7 @@ export function useStrategyTags() {
     const name = rawName.trim();
     if (!name) return false;
     try {
-      const res: any = await createStrategyTag({ name });
+      const res = await createStrategyTag({ name });
       const newTag: StrategyTag = res?.data;
       if (!newTag?.id) throw new Error("创建标签失败");
 
@@ -117,8 +118,8 @@ export function useStrategyTags() {
       positionTagMap.value = withTag(positionTagMap.value, positionId, name);
       ElMessage.success("标签已添加并绑定");
       return true;
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "创建失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "创建失败");
       return false;
     }
   }
@@ -128,15 +129,15 @@ export function useStrategyTags() {
     const name = rawName.trim();
     if (!name) return false;
     try {
-      const res: any = await createStrategyTag({ name });
+      const res = await createStrategyTag({ name });
       const newTag: StrategyTag = res?.data;
       if (!newTag?.id) throw new Error("创建失败");
 
       allTags.value.push(newTag);
       ElMessage.success("标签已创建");
       return true;
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "创建失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "创建失败");
       return false;
     }
   }
@@ -155,8 +156,8 @@ export function useStrategyTags() {
         );
       }
       ElMessage.success("标签已删除");
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "删除失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "删除失败");
     }
   }
 

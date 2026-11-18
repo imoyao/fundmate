@@ -37,6 +37,7 @@
       class="mb-6"
       :total-assets="totalAssets"
       :total-liabilities="totalLiabilities"
+      :net-assets="netAssets"
       :total-pnl="totalPnl"
       :latest-snapshot="latestSnapshot"
       :distributions="distributions"
@@ -117,6 +118,8 @@
 </template>
 
 <script setup lang="ts">
+import type { SankeyPayload, SummaryPayload } from "./panoramaTypes";
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, onMounted } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
@@ -140,11 +143,13 @@ defineOptions({ name: "AssetPanorama" });
 
 const totalAssets = ref(0);
 const totalLiabilities = ref(0);
+// #119 / #2883：净资产取 /api/summary/ 的 net_assets_cny 直出，页面层不做减法
+const netAssets = ref(0);
 const totalPnl = ref(0);
 // 不用 `any`：distributions 是后端下发的固定结构，`any` 会让下游三个消费方
 // （摘要卡 / 分类表 / 分组列表）都失去类型检查。字段口径见 `DistributionsData`。
 const distributions = ref<DistributionsData | null>(null);
-const sankeyData = ref<{ nodes: any[]; links: any[] }>({
+const sankeyData = ref<{ nodes: unknown[]; links: unknown[] }>({
   nodes: [],
   links: []
 });
@@ -181,13 +186,18 @@ async function fetchData() {
       getSnapshots()
     ]);
 
-    let sankeyRaw: any = {};
-    const sankData = (sankeyRes as any)?.data;
-    sankeyRaw = sankData && typeof sankData === "object" ? sankData : {};
+    let sankeyRaw: SankeyPayload = {};
+    const sankData = (sankeyRes as { data?: unknown } | null)?.data;
+    sankeyRaw =
+      sankData && typeof sankData === "object"
+        ? (sankData as SankeyPayload)
+        : {};
+    const summary = (sumRes as { data?: SummaryPayload } | null)?.data;
 
-    totalAssets.value = (sumRes as any)?.data?.total_assets_cny || 0;
-    totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny || 0;
-    totalPnl.value = (sumRes as any)?.data?.total_pnl_cny || 0;
+    totalAssets.value = summary?.total_assets_cny || 0;
+    totalLiabilities.value = summary?.total_liabilities_cny || 0;
+    netAssets.value = summary?.net_assets_cny || 0;
+    totalPnl.value = summary?.total_pnl_cny || 0;
     distributions.value = distRes?.data ?? null;
     sankeyData.value = {
       nodes: sankeyRaw.nodes || [],
@@ -195,13 +205,17 @@ async function fetchData() {
     };
 
     // 快照列表升序，取最后一条作为最新同比基准
-    const snapRaw = (snapRes as any)?.data;
+    const snapRaw = (
+      snapRes as {
+        data?: AssetSnapshotItem[] | { data?: AssetSnapshotItem[] };
+      } | null
+    )?.data;
     const snapList: AssetSnapshotItem[] = Array.isArray(snapRaw)
       ? snapRaw
       : snapRaw?.data || [];
     latestSnapshot.value = snapList[snapList.length - 1] || null;
-  } catch (e: any) {
-    ElMessage.error(e?.message || "加载失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "加载失败");
   } finally {
     loading.value = false;
   }

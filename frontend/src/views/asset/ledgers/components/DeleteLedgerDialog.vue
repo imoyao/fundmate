@@ -26,6 +26,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, watch } from "vue";
 import { deleteLedgerWithOptions } from "@/api/ledger";
 import { ElMessage } from "element-plus";
@@ -63,8 +64,8 @@ async function handleConfirm() {
     ElMessage.success("账户已删除");
     emit("update:visible", false);
     emit("deleted");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "删除失败");
   } finally {
     loading.value = false;
   }

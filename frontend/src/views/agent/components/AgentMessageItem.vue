@@ -1,11 +1,18 @@
 <!--
-  单条对话消息（#980 拆分产物）。三态渲染：
-  - clarify / 降级：纯文本气泡；
+  单条对话消息。三态渲染：
+  - clarify / 降级：纯文本；
   - result（#1712 结构化）：结论加粗置顶 / 明细文本 / 行级盈亏表（涨红跌绿）/ 风险提示弱化，
-    blocks 缺失（后端契约漂移降级）回退纯文本气泡，两态互斥；
-  - error：服务提示气泡。
-  另带一个 `pending` 变体（思考中气泡）：它与消息共用 `.msg*` 全套样式，
-  单独抽组件会把这些样式复制一份，故用同一个组件按 `pending` 切换。
+    blocks 缺失（后端契约漂移降级）回退纯文本，两态互斥；
+  - error：服务提示。
+  另带 `pending` 变体（思考中）——它复用 `.msg*` 样式，故不做成独立组件。
+
+  2026-11 改版（去掉「demo 感」的关键一步）：
+  - **助手回复不再套气泡**。旧版每条助手消息都是「头像 + 角色名 + 灰底圆角气泡」，
+    一条结构化回答被塞进气泡 78% 宽度里，表格挤成豆腐块——读起来像聊天插件截图，
+    而不像一份查数结果。现在助手侧是无框的「答案块」占满消息列，表格拿到整列宽度。
+  - **只有用户发言是气泡**（品牌色、右对齐）：对话里唯一的「人」的痕迹，视觉重心也就落在提问上。
+  - 角色标签只在助手侧保留一个 20px 徽标行（它是「这堆数字是机器查的」的唯一提示），
+    用户侧不重复「我」。
 -->
 <template>
   <div class="msg" :class="rootClass">
@@ -18,8 +25,7 @@
       <span class="msg__role">{{ headLabel }}</span>
     </div>
 
-    <!-- 思考态只有气泡：停止动作收口到输入区复合按钮（#1714 UI 复核：
-         停止键不是独立按钮，而是发送键就地切换的形态） -->
+    <!-- 思考态只有一行提示：停止动作收口到输入区复合按钮（#1714 UI 复核） -->
     <div v-if="pending" class="msg__bubble msg__bubble--pending">分析中</div>
 
     <template v-else-if="message">
@@ -80,7 +86,7 @@ const props = withDefaults(
   defineProps<{
     /** 要渲染的消息；`pending` 为 true 时可省略 */
     message?: ChatMessage | null;
-    /** 思考中气泡（与消息共用 .msg* 样式，故同组件不同变体） */
+    /** 思考中（与消息共用 .msg* 样式，故同组件不同变体） */
     pending?: boolean;
   }>(),
   { message: null, pending: false }
@@ -91,7 +97,7 @@ const role = computed<ChatMessage["role"]>(
   () => props.message?.role ?? "assistant"
 );
 
-/** 但根类名保留 `msg--pending`（不是 `msg--assistant`）：与拆分前 DOM 逐字一致 */
+/** 根类名：pending 保留独立类名（与拆分前 DOM 逐字一致） */
 const rootClass = computed(() =>
   props.pending ? "msg--pending" : `msg--${role.value}`
 );
@@ -113,39 +119,55 @@ const icon = computed(() =>
 <style lang="scss" scoped>
 @use "@/style/breakpoints" as bp;
 
-// —— 消息：头像 + 角色标签行，气泡尾角收小 ——
 .msg {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-width: 78%;
-  margin-bottom: var(--space-compact);
+  width: 100%;
+  margin-bottom: var(--space-5);
 }
 
+/* 用户：气泡右对齐，收窄行宽（提问短，不需要整列） */
 .msg--user {
   align-items: flex-end;
-  margin-left: auto;
+
+  .msg__bubble {
+    max-width: 78%;
+    color: var(--text-inverse);
+    background-color: var(--brand-solid);
+    border-color: transparent;
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm)
+      var(--radius-lg);
+  }
 }
 
 .msg--assistant,
 .msg--pending,
 .msg--error {
   align-items: flex-start;
-  margin-right: auto;
+}
+
+/* 助手答案块：无框、占满消息列——结构化表格才有地方铺开 */
+.msg--assistant .msg__bubble {
+  max-width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
 }
 
 .msg__head {
   display: flex;
   gap: var(--space-2);
   align-items: center;
+  height: 20px;
 }
 
 .msg__avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   font-size: var(--text-label);
   color: var(--brand-700);
   background-color: var(--brand-100);
@@ -167,25 +189,16 @@ const icon = computed(() =>
 }
 
 .msg__bubble {
+  max-width: 100%;
   padding: var(--space-3) var(--space-compact);
   font-size: var(--text-body);
-  line-height: 1.6;
+  line-height: 1.75;
   color: var(--text-primary);
   overflow-wrap: break-word;
   white-space: pre-wrap;
   background-color: var(--bg-soft);
   border: 1px solid var(--border-subtle);
-  // 尾角收小：助手左下 / 用户右下，聊天气泡的经典指向
-  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg)
-    var(--radius-sm);
-}
-
-.msg--user .msg__bubble {
-  color: var(--text-inverse);
-  background-color: var(--brand-solid);
-  border-color: transparent;
-  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm)
-    var(--radius-lg);
+  border-radius: var(--radius-lg);
 }
 
 .msg--error .msg__bubble {
@@ -193,7 +206,11 @@ const icon = computed(() =>
 }
 
 .msg__bubble--pending {
+  padding: 4px 10px;
+  font-size: var(--text-small);
   color: var(--text-tertiary);
+  background-color: var(--bg-soft);
+  border-radius: var(--radius-pill);
 
   // 三个动态省略号点，不用 Emoji；宽度恒定 1.5em（动画只改 clip-path 不触发布局），
   // 否则 width 动画每步 reflow，气泡在思考期间反复变宽变窄（#1311 讨论期发现的抖动）
@@ -209,13 +226,13 @@ const icon = computed(() =>
 
 // —— 结构化块（#1712）：结论加粗 / 明细文本 / 行级盈亏表 / 风险提示弱化 ——
 .msg__bubble--structured {
-  min-width: 320px;
+  min-width: 0;
 
   // 块间间距（文本块 / 表格任意相邻组合），首块不加顶部外边距
   .msg__block + .msg__block,
   .msg__block + .msg__table-wrap,
   .msg__table-wrap + .msg__block {
-    margin-top: var(--space-2);
+    margin-top: var(--space-3);
   }
 }
 
@@ -233,8 +250,13 @@ const icon = computed(() =>
   color: var(--text-tertiary);
 }
 
+/* 表格自带卡片：与正文区分开，横向可滚（窄屏 8 列时不撑破消息列） */
 .msg__table-wrap {
+  padding: 4px var(--space-3) var(--space-2);
   overflow-x: auto;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
 }
 
 .msg__table {
@@ -244,7 +266,7 @@ const icon = computed(() =>
 
   th,
   td {
-    padding: 4px 10px;
+    padding: 6px 10px;
     text-align: right;
     white-space: nowrap;
   }
@@ -261,9 +283,19 @@ const icon = computed(() =>
     border-bottom: 1px solid var(--border-subtle);
   }
 
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
   th:first-child,
   td:first-child {
+    padding-left: 0;
     text-align: left;
+  }
+
+  th:last-child,
+  td:last-child {
+    padding-right: 0;
   }
 }
 
@@ -286,7 +318,7 @@ const icon = computed(() =>
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .msg__metric {
@@ -321,8 +353,8 @@ const icon = computed(() =>
 }
 
 @include bp.below("md") {
-  .msg {
-    max-width: 92%;
+  .msg--user .msg__bubble {
+    max-width: 88%;
   }
 }
 </style>

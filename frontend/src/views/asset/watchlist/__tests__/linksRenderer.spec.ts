@@ -61,7 +61,7 @@ describe("关联列的适用范围（#2503 判据）", () => {
     expect(linksDef().appliesTo).toContain("fund");
   });
 
-  it("不新增列：关联列仍只有一个（列宽预算 ≤1040px）", () => {
+  it("不新增列：关联列仍只有一个（列宽预算 ≤1088px）", () => {
     expect(watchlistColumnDefs.filter(d => d.key === "links")).toHaveLength(1);
   });
 });

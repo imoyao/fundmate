@@ -21,8 +21,7 @@ from app.domains.reconciliation.models import GhostDuplicateIgnore
 from app.services.summary_service import scan_cross_ledger_duplicates
 
 #: 单家庭忽略记录上限（写侧封顶）。
-#: 为什么需要：忽略表只增不改，而扫描器对「金额/账本集合变化」会产生新指纹——
-#: 用户反复操作理论上可无限累积。真实量级是「几十条」，设 200 是给异常留余量；
+#: 为什么需要：忽略表只增不改，而扫描器对「金额/账本集合变化」会产生新指纹——用户反复操作理论上可无限累积。真实量级是「几十条」，设 200 是给异常留余量；
 #: 超过时**拒绝新的忽略**（而不是静默丢弃），并把已忽略清单交给用户自行撤销。
 MAX_IGNORES_PER_FAMILY = 200
 
@@ -41,7 +40,7 @@ def scan_visible_groups(db: Session, family_id: int) -> list[dict]:
 
 
 def list_ignores(db: Session, family_id: int) -> list[dict]:
-    """已忽略清单（可撤销；展示当初忽略的组快照）。"""
+    """已忽略清单（可撤销；展示当初忽略的组快照）。快照缺 display_name（历史记录）时给 None，撤销只认 fingerprint、摘要可降级。"""
     rows = (
         db.query(GhostDuplicateIgnore)
         .filter(GhostDuplicateIgnore.family_id == family_id)
@@ -66,6 +65,7 @@ def list_ignores(db: Session, family_id: int) -> list[dict]:
                 'txn_type': snapshot.get('txn_type'),
                 'amount_yuan': snapshot.get('amount_yuan'),
                 'ledger_names': snapshot.get('ledger_names') or [],
+                'display_name': snapshot.get('display_name'),
                 'reason': row.ignored_reason,
                 'ignored_at': row.ignored_at.isoformat() if row.ignored_at else None,
             }
@@ -78,10 +78,9 @@ def ignore_group(
 ) -> dict:
     """忽略一组跨账本重复（幂等）。
 
-    幂等条件：该家庭 + 该指纹已存在 → 直接返回既有记录，不报错也不重复写。
-    为什么幂等重要：前端「忽略」与「刷新」可能并发/重放，报错会让用户看到无意义的红字。
+    幂等条件：该家庭 + 该指纹已存在 → 直接返回既有记录，不报错也不重复写。为什么幂等重要：前端「忽略」与「刷新」可能并发/重放，报错会让用户看到无意义的红字。
 
-    返回 {'id', 'fingerprint', 'created'}；`created=False` 表示原本已忽略。
+    返回 {'id', 'fingerprint', 'created'}；`created=False` 表示原本已忽略。快照里的 display_name 随忽略动作定格（组随后可能消失/改名，清单按当时快照展示）。
     """
     existing = (
         db.query(GhostDuplicateIgnore)
@@ -108,6 +107,7 @@ def ignore_group(
                 'txn_type': current['txn_type'],
                 'amount_yuan': current['amount_yuan'],
                 'ledger_names': current['ledger_names'],
+                'display_name': current['display_name'],
             },
             ensure_ascii=False,
         )

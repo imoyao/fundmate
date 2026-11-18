@@ -1,0 +1,161 @@
+/* 自选实时估值汇总条样式。
+ *
+ * WHY 外置（2026-11-05）：汇总条从单个「当日盈亏」指标拆成「今日估算 / 昨日盈亏」
+ * 两个后，`WatchlistSummaryBar.vue` 涨到 401 行，越过 `.vue` 行数门禁的 400 阈值
+ * （scripts/check_vue_size.mjs，issue #980「只减不增」）。样式与逻辑本就零耦合，
+ * 抽成同目录 CSS 是最干净的「拆出等量行数」——主文件回到约 253 行，行为零变化。
+ *
+ * ⚠️ 引回时必须带 scoped：这里的 `.metric-group`、`.pct`、`.text-up` 等类名较通用，
+ * 去掉 scoped 会污染全局。同目录 WatchlistTableSection.vue 外链的
+ * compositeSortHeader.css（非 scoped）是另一类先例，那一份本来就要跨组件命中表头
+ * DOM，与本文件诉求不同。
+ *
+ * ⚠️ 注释里不要写字面的 style 标签：stylelint 的 postcss-html 会把它当成真实标签
+ * 解析，随后把注释里的斜杠误判成选择器（2026-11-05 实测报 Cannot parse selector）。 */
+
+/* #1281 第二轮：从 --space-2(8) 回到 --space-3(12)。
+   第一轮为压高度收到 8px，估值条与上下区块几乎贴在一起，整页失去呼吸感；
+   现在的取舍是「留白回到规范档位 + 滚动时整条收起」，两种状态各自干净。 */
+
+/* 下外边距逐步收紧：--space-3(12) → --space-2(8) → 4px（2026-09-05）。
+   本条是「顶部第三层」，与头部行/横幅叠加吃掉的都是首屏行数；4px 已贴近下表格，
+   靠底部分割线分区，视觉可接受。 */
+.summary-bar {
+  margin-bottom: var(--space-1);
+}
+
+/* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右）
+   （多轮收紧后 padding 落定 4px：本条无卡片背景、靠细线分区，4px 呼吸足够） */
+.summary-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: var(--space-1) 0;
+}
+
+.summary-row__status {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+}
+
+.summary-row__metrics {
+  display: flex;
+  flex-shrink: 0;
+  gap: 12px;
+  align-items: center;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-trading {
+  background: var(--color-rise);
+}
+
+.status-closed,
+.status-idle {
+  background: var(--text-secondary);
+}
+
+.status-error {
+  background: var(--color-danger);
+}
+
+.status-text {
+  font-size: var(--text-label);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.update-time {
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+}
+
+/* 休市说明（#2338）：与状态文案同级字号，避免「少了一行」被读成数据出错。
+   用 --text-secondary（5.77:1）而非 --text-tertiary —— 后者作正文不足 4.5:1。 */
+.closed-hint {
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 刷新控件组：休市时整组置灰，tooltip 落在本包裹层（disabled 控件自身不派发事件） */
+.refresh-controls {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 汇总指标紧凑数据组：label 12px 次级 + value 等宽数字，细分隔线分区 */
+.metric-group {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+/* 汇总指标：#1281 第四轮整体降一档（label 12→11、value 14→13、主指标 18→16）。
+   顶部右侧这三个数字曾占据很大一块视觉重量，与下方表格争抢注意力；
+   降档后仍是「label + 等宽数字」结构，可读性不变，视觉重心回到列表。 */
+.metric-label {
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+}
+
+.metric-value {
+  font-size: var(--text-label);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* 主指标（总盈亏）：16px/800 视觉锚点，红涨绿跌走 --color-rise/--color-fall */
+.metric-value--pnl {
+  font-size: var(--text-body);
+  font-weight: 800;
+}
+
+.metric-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  background-color: var(--border-subtle);
+}
+
+/* 刷新图标按钮：无文字，loading 时由 EP 自带 loading 图标替代 */
+.refresh-icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.refresh-icon-btn:hover {
+  color: var(--text-primary) !important;
+}
+
+.text-up {
+  color: var(--color-rise-ink);
+}
+
+.text-down {
+  color: var(--color-fall-ink);
+}
+
+.text-flat {
+  color: var(--text-secondary);
+}
+
+.pct {
+  font-size: var(--text-label);
+  font-weight: 400;
+  opacity: 0.8;
+}

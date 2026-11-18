@@ -16,11 +16,11 @@ import { usePermissionStoreHook } from "./permission";
 import { sanitizeTags, isRenderableTag } from "@/utils/tagCache";
 
 /** 固定标签（首页等）：缓存为空/全是脏数据时用它兜底 */
-function defaultTags(): any[] {
+function defaultTags(): multiType[] {
   return sanitizeTags([
     ...routerArrays,
     ...usePermissionStoreHook().flatteningRoutes.filter(v => v?.meta?.fixedTag)
-  ] as any);
+  ] as unknown as multiType[]);
 }
 
 export const useMultiTagsStore = defineStore("pure-multiTags", {
@@ -29,13 +29,17 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
     const cached = storageLocal().getItem<StorageConfigs>(
       `${responsiveStorageNameSpace()}configure`
     )?.multiTagsCache
-      ? (storageLocal().getItem<StorageConfigs>(tagsKey) as any)
+      ? (storageLocal().getItem<StorageConfigs>(
+          tagsKey
+        ) as unknown as multiType[])
       : null;
 
     // 缓存清洗（2026-10-30）：历史版本写进缓存的「无标题条目」会渲染成空白标签块，
     // 且只存在用户本地，干净的 CI/新装环境永远复现不到（用户反馈「好久了」）。
     // 清洗结果**写回缓存**：脏数据只清一次，不会每次刷新又长回来。
-    const tags: any[] = cached ? sanitizeTags(cached) : defaultTags();
+    const tags: multiType[] = cached
+      ? (sanitizeTags(cached) as multiType[])
+      : defaultTags();
     if (cached && tags.length !== cached.length) {
       storageLocal().setItem(tagsKey, tags);
     }
@@ -81,10 +85,14 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
      * 本函数各分支返回类型本来就不同（多数分支返回 `undefined`），
      * 泛型只是假安全感，收成 `any` 更诚实。
      */
-    handleTags(mode: string, value?: any, position?: positionType): any {
+    handleTags(
+      mode: string,
+      value?: unknown,
+      position?: positionType
+    ): multiType[] | void {
       switch (mode) {
         case "equal":
-          this.multiTags = value;
+          this.multiTags = value as multiType[];
           this.tagsCache(this.multiTags);
           break;
         case "push":
@@ -113,7 +121,7 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
             if (tagHasExits) return;
 
             // 动态路由可打开的最大数量
-            const dynamicLevel = tagVal?.meta?.dynamicLevel ?? -1;
+            const dynamicLevel = Number(tagVal?.meta?.dynamicLevel ?? -1);
             if (dynamicLevel > 0) {
               if (
                 this.multiTags.filter(e => e?.path === tagPath).length >=
@@ -126,7 +134,7 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
                 index !== -1 && this.multiTags.splice(index, 1);
               }
             }
-            this.multiTags.push(value);
+            this.multiTags.push(value as multiType);
             this.tagsCache(this.multiTags);
             if (
               getConfig()?.MaxTagsLevel &&
@@ -140,7 +148,9 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
           break;
         case "splice":
           if (!position) {
-            const index = this.multiTags.findIndex(v => v.path === value);
+            const index = this.multiTags.findIndex(
+              v => v.path === (value as string)
+            );
             if (index === -1) return;
             this.multiTags.splice(index, 1);
           } else {

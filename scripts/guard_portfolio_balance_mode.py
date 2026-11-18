@@ -16,8 +16,9 @@ WHY（缺口是真实发生过的，不是假想）
 
 判据（三条，全部静态可判）
 --------------------------
-1. **写入侧**：`backend/app/services/position_service.py` 的 `process_buy_or_deposit` 内，
-   必须有一个 `if` 语句，其条件同时满足——
+1. **写入侧**：`backend/app/services/position_buy_command.py` 的
+   `_assert_balance_only_asset_type` 内（#2873 第四抽把买入命令从 `position_service`
+   下沉到该模块，判据跟着写入路径走），必须有一个 `if` 语句，其条件同时满足——
    a) 出现 `'portfolio'` 字面量；b) 含「非 balance」判定（`not is_balance`，或
    `... != ValuationMode.BALANCE` / `... == ValuationMode.NAV` 这类比较）；
    c) 该分支体内 `raise`。
@@ -45,8 +46,9 @@ WHY（缺口是真实发生过的，不是假想）
 - **不判前端**：买入表单是否提交 `valuation_mode='balance'` 由
   `frontend/src/components/QuickEntry/__tests__/buyFormPayload.spec.ts` 钉住。
 - **不判 `assets` 表**：投顾组合是否也能记成静态资产属另一条口径（D70 只谈 positions）。
-- **只认 `process_buy_or_deposit` 这一个写入入口**：本仓手动记账 / 导入 / 编辑三条路径
-  都汇到这里。若将来出现第二入口而不经过它，先扩判据再合并。
+- **只认 `_assert_balance_only_asset_type` 这一处判定**：本仓手动记账 / 导入 / 编辑三条
+  路径都汇到 `position_buy_command.run_buy_or_deposit`，其解析阶段必经该函数。若将来出现
+  第二入口而不经过它，先扩判据再合并。
 
 用法
 ----
@@ -62,12 +64,13 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-POSITION_SERVICE = 'backend/app/services/position_service.py'
+POSITION_SERVICE = 'backend/app/services/position_buy_command.py'
 ASSET_TYPES = 'backend/app/core/asset_types.py'
 DECISIONS = 'docs/spec/decisions.md'
 
-#: 写入路径上的目标函数；D70 的约束必须落在它体内。
-WRITE_FUNC = 'process_buy_or_deposit'
+#: 写入路径上的目标函数；D70 的约束必须落在它体内（#2873 第四抽后从
+#: `position_service.process_buy_or_deposit` 移到该模块的买入解析阶段）。
+WRITE_FUNC = '_assert_balance_only_asset_type'
 
 #: 违规的旧表述标记：出现在「提到 portfolio 的注释行」上即视为回归。
 STALE_PHRASES = ('不进 positions', '不进 positions 表', '一律不进 positions')
@@ -186,7 +189,7 @@ def _module_level_string_sets(tree: ast.Module) -> dict[str, set[str]]:
 
 
 def check_write_guard(source: str, path: Path) -> list[str]:
-    """判据 1：`process_buy_or_deposit` 里必须有「portfolio 非 balance ⇒ raise」。"""
+    """判据 1：`_assert_balance_only_asset_type` 里必须有「portfolio 非 balance ⇒ raise」。"""
     tree = _parse(path, source)
     func = _find_function(tree, WRITE_FUNC)
     if func is None:

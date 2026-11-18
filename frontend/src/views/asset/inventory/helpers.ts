@@ -6,7 +6,9 @@
  */
 
 import { getCssVarWithAlpha } from "@/composables/echarts/theme";
+import { apiErrorMessage } from "@/utils/apiError";
 import {
+  ALLOCATION_COLOR_VARS,
   ALLOCATION_OPTIONS,
   INVESTMENT_MINOR_CATEGORIES,
   majorCategoryLabel
@@ -28,9 +30,12 @@ export interface AssetGroupRaw {
 /**
  * 取异常文案：兼容 axios 抛出的 Error 与后端信封返回的 `{ message }`，
  * 都没有时回退到调用方给的兜底文案。
+ *
+ * 收窄逻辑收敛到 `utils/apiError`（与 #2879 卖出费率链路共用一份），
+ * 本函数保留只为不改动调用点。
  */
 export function getErrorMessage(e: unknown, fallback: string): string {
-  return (e as { message?: string } | null)?.message || fallback;
+  return apiErrorMessage(e, fallback);
 }
 
 /** 语义色变量（可含 `var()` 包裹）+ 透明度 → `rgba()`，用于图标底衬等浅色填充。
@@ -76,15 +81,6 @@ export function getMinorAssetLabel(row: AssetRecord): string {
   return majorCategoryLabel(row.major_category);
 }
 
-/** 配置目标 key → 语义色变量（桑基图配色，与分布图保持一致） */
-const ALLOCATION_COLOR_MAP: Record<string, string> = {
-  liquid: "var(--sankey-liquid)",
-  stable: "var(--sankey-stable)",
-  longterm: "var(--sankey-longterm)",
-  speculative: "var(--sankey-speculative)",
-  security: "var(--sankey-security)"
-};
-
 /** 配置目标 key → 中文标签（未配置 / 未知 key 原样兜底） */
 export function getAllocationLabel(key: string | null): string {
   if (!key) return "未配置";
@@ -92,9 +88,9 @@ export function getAllocationLabel(key: string | null): string {
   return opt ? opt.label : key;
 }
 
-/** 配置目标 key → 前景色 */
+/** 配置目标 key → 前景色（配色表在 `constants` 里，与首页「心理账户」共用一份） */
 export function getAllocationColor(key: string | null): string {
-  return ALLOCATION_COLOR_MAP[key || ""] || "var(--text-primary)";
+  return ALLOCATION_COLOR_VARS[key || ""] || "var(--text-primary)";
 }
 
 /** 配置目标 key → 胶囊底色（前景色降透明度） */

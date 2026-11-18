@@ -12,8 +12,8 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
+from app.services.reconciliation_consistency import get_ledger_snapshot_consistency
 from app.services.reconciliation_service import (
-    get_ledger_snapshot_consistency,
     run_domain_b_reconciliation,
     run_reconciliation,
 )
@@ -141,6 +141,10 @@ class TestDomainBReconciliation:
             current_price=Money.yuan_to_price_units(10),
             source='manual',
             ownership_status='active',
+            # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+            # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+            snapshot_quantity=0,
+            snapshot_date=date(2026, 4, 1),
         )
         db.add(pos)
         db.commit()
@@ -154,6 +158,160 @@ class TestDomainBReconciliation:
         assert d.expected_value == Money.shares_to_min_unit(100)
         assert d.actual_value == Money.shares_to_min_unit(60)
         assert d.diff == Money.shares_to_min_unit(-40)
+
+    def test_no_anchor_mismatch_is_no_anchor_not_quantity(self, db):
+        """active 持仓**无锚点**且流水与持仓不符 → 报 no_anchor，不是 quantity（#3125）。
+
+        为什么必须分开：无锚点时段理论值退回「全量流水净额」，而这类持仓的份额来自
+        券商快照、流水是另一条独立记录 —— 缺基准时两者本就不该互校（真库 119 条里
+        101 条理论值为 0、4 条为负，说明流水压根没覆盖建仓，不是份额记错）。
+        判成 quantity 会把「缺前提」显示成「数据错」，用户只有「补录这笔」一条路，
+        等于被引导去编造一笔不存在的交易凑数；no_anchor 的修法是「以当前持仓为准写锚点」。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert len(discs) == 1
+        d = discs[0]
+        assert d.discrepancy_type == 'no_anchor'
+        # 数值口径不变（仍是「理论 vs 实际」），变的只是类型与随之而来的修法
+        assert d.expected_value == Money.shares_to_min_unit(100)
+        assert d.actual_value == Money.shares_to_min_unit(60)
+        assert d.diff == Money.shares_to_min_unit(-40)
+        assert json.loads(run.summary_json)['no_anchor'] == 1
+
+    def test_cleared_position_without_anchor_stays_quantity(self, db):
+        """清仓行（份额 0、**无锚点**）与流水净额矛盾 → 仍是 quantity，不是 no_anchor。
+
+        边界理由：no_anchor 的唯一修法是「以此为准」写锚点，而写锚点要求份额 > 0
+        （`resolve_snapshot_intent`），清仓行走不通 —— 那又是一条死胡同。这类数据的
+        矛盾是真的（份额 0 vs 流水净额 100），补录卖出是唯一可用入口，故归 quantity。
+        这条与 `test_quantity_stays_quantity_when_position_cleared` 成对：那条锁
+        「有锚点的清仓行」，这条锁「无锚点的清仓行」。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=0,
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='cleared',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].actual_value == 0
+
+    def test_ghost_position_stays_quantity(self, db):
+        """买卖腿齐平（净额 0）却仍挂份额 → `quantity`，不是 no_anchor（#3127）。
+
+        这是 #3127 用审计日志逐条证明的幽灵持仓：`dangling_ref_rebuild` 只重建了
+        买入腿、卖腿补码后没重算份额，于是「卖完了还挂着 270 张」。判成 no_anchor
+        会让卡片说「缺基准、以当前持仓为准」，把真错固化成人工锚点，且 manual 锚点
+        还会挡住后续快照覆盖 —— 与 #3127 的修复方向完全相反。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        _sell_txn(db, ledger.id, 'S1', 100, date(2026, 5, 2))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].expected_value == 0
+        assert discs[0].actual_value == Money.shares_to_min_unit(60)
+        assert json.loads(run.summary_json)['no_anchor'] == 0
+
+    def test_oversold_position_stays_quantity(self, db):
+        """超卖（净额 < 0）却仍挂份额 → 也是 `quantity`（#3127 明确交人工）。
+
+        卖出多于买入多半是买入腿缺失，份额来源存疑。#3127 的存量脚本刻意**不动**
+        这一类（批量清仓会抹掉真实持仓）；同理这里也不能给「以当前持仓为准」。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        _sell_txn(db, ledger.id, 'S1', 150, date(2026, 5, 2))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+        discs = db.query(ReconciliationDiscrepancy).filter_by(last_run_id=run.id).all()
+        assert [d.discrepancy_type for d in discs] == ['quantity']
+        assert discs[0].expected_value == Money.shares_to_min_unit(-50)
 
     def test_orphan_detection(self, db):
         """流水推演净额 > 0 但系统无持仓 → 报 orphan。"""
@@ -291,6 +449,140 @@ class TestDomainBReconciliation:
         summary2 = json.loads(run2.summary_json)
         assert summary2['cleared'] == 1
         assert summary2['pending'] == 0
+
+    def test_orphan_cleared_when_key_becomes_quantity_gap(self, db):
+        """孤儿 → 补建持仓后仍有份额缺口：旧 orphan 行须置 cleared，不留幽灵 pending。
+
+        回归：`seen_keys` 曾只登记 (ledger_id, symbol)，而差异行身份是
+        (ledger_id, symbol, discrepancy_type)。同一业务键「孤儿 → 数量差异」后，
+        补建持仓的动作（模板/改挂/重建）都会把旧 orphan 行永久留在 pending，
+        而它已不可能被任何入口修掉。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.commit()
+
+        run1, _ = run_domain_b_reconciliation(db, 1)
+        orphan = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1').one()
+        assert orphan.discrepancy_type == 'orphan'
+        assert orphan.last_run_id == run1.id
+
+        # 补建持仓但份额不足（另一条同标的流水仍悬空）→ 该键改走数量比对分支
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+                # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+                # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+                snapshot_quantity=0,
+                snapshot_date=date(2026, 4, 1),
+            )
+        )
+        db.commit()
+        run2, _ = run_domain_b_reconciliation(db, 1)
+
+        db.refresh(orphan)
+        assert orphan.status == 'cleared'
+        assert orphan.last_run_id == run2.id
+        pending = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1', status='pending').all()
+        assert [d.discrepancy_type for d in pending] == ['quantity']
+
+    def test_quantity_stays_quantity_when_position_cleared(self, db):
+        """持仓清仓（`cleared` + 份额归零）但流水净额仍 > 0 → 仍是**数量差异**，不是孤儿。
+
+        为什么不是孤儿：孤儿的口径是「系统里**没有**这只标的的持仓行」（前端据此把人指向
+        「按流水重建持仓」），而这里持仓行在、只是份额被清零。判成孤儿会让用户点进
+        「补充这笔」后被拦下，改去「修正数据」又会因「同账本已有持仓行」被拒——两条路
+        都是死胡同（真库实测 8 条，2026-11-14）。判成数量差异才有唯一可用入口。
+        """
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+            # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+            # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+            snapshot_quantity=0,
+            snapshot_date=date(2026, 4, 1),
+        )
+        db.add(pos)
+        db.commit()
+
+        run1, _ = run_domain_b_reconciliation(db, 1)
+        quantity = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1').one()
+        assert quantity.discrepancy_type == 'quantity'
+        assert quantity.last_run_id == run1.id
+
+        # 清仓：行保留、份额归零（库级 CHECK：cleared ⇒ quantity = 0）
+        pos.ownership_status = 'cleared'
+        pos.quantity = 0
+        db.commit()
+        run2, _ = run_domain_b_reconciliation(db, 1)
+
+        db.refresh(quantity)
+        assert quantity.discrepancy_type == 'quantity'
+        assert quantity.status == 'pending'
+        assert quantity.last_run_id == run2.id
+        assert quantity.actual_value == 0
+        assert quantity.diff == -Money.shares_to_min_unit(100)
+        pending = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1', status='pending').all()
+        assert [d.discrepancy_type for d in pending] == ['quantity'], '不得再生出一条孤儿行'
+
+    def test_orphan_when_only_non_literal_symbol_notation(self, db):
+        """持仓写成 `SZ004369`、流水写成 `004369` → 同一只标的，不得判成孤儿（#1662 同源）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, '004369', 100, date(2026, 5, 1))
+        db.add(
+            Position(
+                symbol='SZ004369',
+                name='测试基金',
+                asset_type='fund',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(100),
+                avg_price=Money.yuan_to_price_units(1),
+                current_price=Money.yuan_to_price_units(1),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run, _ = run_domain_b_reconciliation(db, 1)
+
+        assert db.query(ReconciliationDiscrepancy).count() == 0, '同一标的两种写法不是孤儿、也没有数量差'
+        assert json.loads(run.summary_json)['orphan'] == 0
 
     def test_summary_ignored_count(self, db):
         """永久忽略的差异在后续 run 中 ignored 计数正确。"""
@@ -436,6 +728,10 @@ class TestReconciliationAPI:
             current_price=Money.yuan_to_price_units(10),
             source='manual',
             ownership_status='active',
+            # 锚点先行：本用例测的是「有基准时的数量差异」。同为「流水与持仓不符」，
+            # 无锚点的 active 持仓判 no_anchor（不同卡片、不同修法，见下面专项用例）。
+            snapshot_quantity=0,
+            snapshot_date=date(2026, 4, 1),
         )
         db.add(pos)
         db.commit()
@@ -654,8 +950,8 @@ class TestInContextSupplement:
         txns = db.query(Transaction).filter_by(symbol='000002').all()
         assert txns == []
 
-    def test_supplement_clears_linked_discrepancy(self, client, db):
-        """补充关联差异后，该差异置 cleared。"""
+    def _make_partial_supplement_target(self, client, db):
+        """造一条「流水 100 股 / 持仓 60 股」的数量差异，返回 disc_id。"""
         from app.domains.ledgers.models import Ledger
 
         ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
@@ -679,36 +975,258 @@ class TestInContextSupplement:
         db.commit()
         client.post('/api/reconciliation/run/')
         discs = client.get('/api/reconciliation/discrepancies/').get_json()['data']
-        disc_id = discs[0]['id']
+        assert discs and discs[0]['diff'] != 0
+        return ledger.id, discs[0]['id']
+
+    @staticmethod
+    def _increment_payload(ledger_id, disc_id, confirm_date):
+        return {
+            'kind': 'increment',
+            'op_type': 'buy',
+            'discrepancy_id': disc_id,
+            'symbol': 'S1',
+            'name': '股1',
+            'asset_type': 'stock',
+            'market': 'CN_A',
+            'ledger_id': ledger_id,
+            'account_name': '账户A',
+            # A股买入受整手限制（min_unit=100），补充量须合法
+            'quantity': 100,
+            'avg_price': 10,
+            'confirm_date': confirm_date,
+        }
+
+    def test_partial_supplement_keeps_discrepancy_pending(self, client, db):
+        """只补一部分没轧平 → 差异保持 pending，同一条还能再补第二笔。
+
+        回归：旧实现补录成功后无条件置 cleared，而工作台队列只展示 pending，
+        「账上 1000 股、只补了 200 股」这条差异处理一次后立刻消失，剩下的补不了。
+        """
+        ledger_id, disc_id = self._make_partial_supplement_target(client, db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json=self._increment_payload(ledger_id, disc_id, '2026-05-02'),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['discrepancy']['status'] == 'pending'
+        after = client.get('/api/reconciliation/discrepancies/').get_json()['data']
+        target = [d for d in after if d['id'] == disc_id]
+        assert target and target[0]['status'] == 'pending' and target[0]['diff'] != 0
+
+        # 「无法继续补账」的直接判据：同一个 disc_id 再补一笔仍然成功、仍然待办
+        second = client.post(
+            '/api/reconciliation/adjustments/',
+            json=self._increment_payload(ledger_id, disc_id, '2026-05-03'),
+        )
+        assert second.status_code == 200
+        assert second.get_json()['data']['discrepancy']['status'] == 'pending'
+        assert second.get_json()['data']['log_id'] != resp.get_json()['data']['log_id']
+
+    def test_supplement_clears_discrepancy_when_balanced(self, client, db):
+        """真正轧平（把持仓校准到理论值）→ 差异才置 cleared。"""
+        ledger_id, disc_id = self._make_partial_supplement_target(client, db)
 
         resp = client.post(
             '/api/reconciliation/adjustments/',
             json={
-                'kind': 'increment',
-                'op_type': 'buy',
+                'kind': 'set',
                 'discrepancy_id': disc_id,
                 'symbol': 'S1',
                 'name': '股1',
                 'asset_type': 'stock',
                 'market': 'CN_A',
-                'ledger_id': ledger.id,
+                'ledger_id': ledger_id,
                 'account_name': '账户A',
-                # A股买入受整手限制（min_unit=100），补充量须合法
                 'quantity': 100,
                 'avg_price': 10,
-                'confirm_date': '2026-05-02',
             },
         )
         assert resp.status_code == 200
+        assert resp.get_json()['data']['discrepancy']['status'] == 'cleared'
         after = client.get('/api/reconciliation/discrepancies/').get_json()['data']
-        target = [d for d in after if d['id'] == disc_id]
-        assert target
-        assert target[0]['status'] == 'cleared'
+        assert [d for d in after if d['id'] == disc_id][0]['status'] == 'cleared'
 
     def test_adjustment_requires_symbol(self, client):
         """缺 symbol → 400。"""
         resp = client.post('/api/reconciliation/adjustments/', json={'kind': 'increment', 'op_type': 'buy'})
         assert resp.status_code == 400
+
+    def _make_sell_target(self, db, symbol='SZ159869', hold_qty=10000):
+        """构造一笔可卖出的 ETF 持仓（卖出量用 100 的整数倍，避免被整手校验挡住）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        pos = Position(
+            symbol=symbol,
+            name='华夏中证动漫游戏ETF',
+            asset_type='etf',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(hold_qty),
+            avg_price=Money.yuan_to_price_units(1.365),
+            current_price=Money.yuan_to_price_units(1.365),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.commit()
+        return ledger, pos
+
+    def test_sell_supplement_resolves_position_id(self, client, db):
+        """卖出补录不带 position_id → 按统一身份键定位持仓，200 且扣减份额。
+
+        用户实测：POST adjustments 补一笔卖出（payload 只有 symbol/ledger_id）返回 500，
+        栈为 position_sell_command.prepare_sell 的 `KeyError: 'position_id'` ——
+        对账补录没有持仓下拉，给不出 id；本用例钉住修复后的行为。
+        """
+        ledger, pos = self._make_sell_target(db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'sell',
+                'symbol': 'SZ159869',
+                'name': '华夏中证动漫游戏ETF',
+                'ledger_id': ledger.id,
+                'quantity': 6500,
+                'avg_price': 1.365,
+                'fee': 5,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['action'] == 'supplement'
+        assert data['after']['position_id'] == pos.id
+
+        # 持仓份额按卖出量减少（10000 - 6500 = 3500）
+        db.refresh(pos)
+        assert pos.quantity == Money.shares_to_min_unit(3500)
+        # 卖出流水已写，费用按分落库（fee=5 元 → 500 分）
+        txn = db.query(Transaction).filter_by(position_id=pos.id, txn_type='sell').one()
+        assert txn.quantity == Money.shares_to_min_unit(6500)
+        assert txn.fee == 500
+
+    def test_withdraw_supplement_resolves_position_id(self, client, db):
+        """取出（withdraw）补录同样不带 position_id → 200 且扣减份额。"""
+        ledger, pos = self._make_sell_target(db, symbol='SZ000001', hold_qty=2000)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'withdraw',
+                'symbol': 'SZ000001',
+                'name': '某股票',
+                'ledger_id': ledger.id,
+                'quantity': 500,
+                'avg_price': 10.0,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(pos)
+        assert pos.quantity == Money.shares_to_min_unit(1500)
+        txn = db.query(Transaction).filter_by(position_id=pos.id, txn_type='withdraw').one()
+        assert txn.quantity == Money.shares_to_min_unit(500)
+
+    def test_sell_supplement_position_not_found_returns_400(self, client, db):
+        """symbol 与任何持仓都不匹配 → 400（ValueError 转译），不新增流水。"""
+        ledger, _ = self._make_sell_target(db)
+        txn_count_before = db.query(Transaction).count()
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'sell',
+                'symbol': 'SH999999',
+                'name': '不存在的标的',
+                'ledger_id': ledger.id,
+                'quantity': 100,
+                'avg_price': 1.0,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 400
+        assert '找不到这笔持仓' in resp.get_json()['message']
+        # 不新增流水
+        assert db.query(Transaction).count() == txn_count_before
+
+    def test_sell_supplement_explicit_position_id_passthrough(self, client, db):
+        """显式传 position_id 的既有路径仍 200（helper 不得覆盖正常入参）。"""
+        ledger, pos = self._make_sell_target(db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'sell',
+                'position_id': pos.id,
+                'symbol': 'SZ159869',
+                'name': '华夏中证动漫游戏ETF',
+                'ledger_id': ledger.id,
+                'quantity': 100,
+                'avg_price': 1.365,
+                'confirm_date': '2026-05-08',
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(pos)
+        assert pos.quantity == Money.shares_to_min_unit(9900)
+        txn = db.query(Transaction).filter_by(position_id=pos.id, txn_type='sell').one()
+        assert txn.quantity == Money.shares_to_min_unit(100)
+
+    def test_unknown_kind_returns_400_instead_of_supplementing(self, client, db):
+        """未知 kind → 400 且说清「后端不认识这个动作」，不静默当补录买入。
+
+        事故形态（2026-11-16）：`--no-reload` 起的旧后端收到新前端的
+        `kind='recompute'`，落到兜底分支变成「补录一笔买入」，用户看到的是
+        「数量必须大于 0」。payload 里带 quantity 时它会真的写进一笔流水。
+        """
+        ledger_id, disc_id = self._make_partial_supplement_target(client, db)
+        txn_before = db.query(Transaction).count()
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'recompute_v2',
+                'discrepancy_id': disc_id,
+                'symbol': 'S1',
+                'ledger_id': ledger_id,
+                # 旧兜底分支正是拿这两个字段写买入
+                'quantity': 100,
+                'avg_price': 10,
+            },
+        )
+
+        assert resp.status_code == 400
+        message = resp.get_json()['message']
+        assert '未知的裁决类型' in message
+        assert 'recompute' in message
+        assert db.query(Transaction).count() == txn_before, '拒绝时不得写入流水'
+
+    def test_anchor_does_not_require_symbol(self, client, db):
+        """「以此为准」不传 symbol 也必须走通（前端就是这么发的）。
+
+        路由原先无条件要求 symbol，而 `buildAdjustmentPayload` 的 anchor 分支只发
+        `kind/discrepancy_id/reason`（份额取持仓现值、标的由差异行定位）⇒ 工作台上
+        点「以此为准」必 400「缺少 symbol」。symbol 只对按标的定位的 increment/set 必需。
+        """
+        _ledger_id, disc_id = self._make_partial_supplement_target(client, db)
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={'kind': 'anchor', 'discrepancy_id': disc_id, 'reason': '券商快照为准'},
+        )
+
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['action'] == 'anchor'
 
 
 class TestLedgerSnapshotConsistency:
@@ -892,3 +1410,88 @@ class TestLedgerSnapshotConsistency:
         # None 日期流水被跳过 → theoretical=1000 == 持仓 1000 → 不报
         # （修复前会误算 theoretical=1500，diff=-500 而误报）
         assert items == []
+
+
+# ── 2026-11-07 第二轮：差异列表出参批量补产品名 ──────────────────────
+def test_resolve_display_names_prefers_position_name(db, make_position):
+    """持仓里用户自己记的名字优先；查不到返回空串，由前端降级显示代码、不丢行。"""
+    from app.services.reconciliation_query import resolve_display_names
+
+    make_position(
+        symbol='600519',
+        name='贵州茅台',
+        asset_type='stock',
+        account_name='测试',
+        quantity=100,
+        avg_price=10.0,
+    )
+    names = resolve_display_names(db, 1, ['600519', 'NO_SUCH_CODE', ''])
+    assert names.get('600519') == '贵州茅台'
+    assert 'NO_SUCH_CODE' not in names
+    assert '' not in names
+
+
+def test_resolve_display_names_strips_exchange_prefix(db):
+    """场内基金带 SH/SZ 前缀时，按裸 6 位码回退查基金名录。"""
+    from app.domains.funds.models import Fund
+    from app.services.reconciliation_query import resolve_display_names
+
+    db.add(Fund(fund_code='511990', name='华宝添益'))
+    db.commit()
+    names = resolve_display_names(db, 1, ['SH511990'])
+    assert names.get('SH511990') == '华宝添益'
+
+
+# ── 2026-11-15：差异出参加品种（补录表单要判「能不能按金额 + 当日净值填」）──
+def test_resolve_asset_types_prefers_position_then_fund_directory(db, make_position):
+    """持仓里的品种优先；没有持仓行时按基金名录回退 `fund`；都没有就留空（不猜）。"""
+    from app.domains.funds.models import Fund
+    from app.services.reconciliation_query import resolve_asset_types
+
+    make_position(
+        symbol='600519',
+        name='贵州茅台',
+        asset_type='stock',
+        account_name='测试',
+        quantity=100,
+        avg_price=10.0,
+    )
+    db.add(Fund(fund_code='013883', name='交银施罗德启明混合C'))
+    db.commit()
+
+    types = resolve_asset_types(db, 1, ['600519', 'SZ013883', 'NO_SUCH_CODE', ''])
+    assert types.get('600519') == 'stock'
+    # 裸码回退：名录里查得到即场外基金（补录表单据此启用「金额 + 当日净值」）
+    assert types.get('SZ013883') == 'fund'
+    assert 'NO_SUCH_CODE' not in types
+    assert '' not in types
+
+
+def test_discrepancies_api_returns_asset_type(client, db):
+    """列表接口给出品种，前端补录表单不用再按「未知品种」处理（旧版只能 4 位精度兜底）。"""
+    from app.domains.ledgers.models import Ledger
+
+    ledger = Ledger(name='账户A', ledger_type='fund', family_id=1)
+    db.add(ledger)
+    db.flush()
+    _buy_txn(db, ledger.id, '013883', 100, date(2026, 5, 1))
+    db.add(
+        Position(
+            symbol='013883',
+            name='交银施罗德启明混合C',
+            asset_type='fund',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+    )
+    db.commit()
+
+    client.post('/api/reconciliation/run/')
+    discs = client.get('/api/reconciliation/discrepancies/').get_json()['data']
+    assert discs and discs[0]['asset_type'] == 'fund'

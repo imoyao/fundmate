@@ -4,10 +4,16 @@ import { useTags } from "../../hooks/useTag";
 import { onClickOutside } from "@vueuse/core";
 import TagChrome from "./components/TagChrome.vue";
 import { ref, watch, unref, computed, onBeforeUnmount } from "vue";
+import type {
+  LocationQueryRaw,
+  RouteParamsRaw,
+  RouteRecordRaw
+} from "vue-router";
 import { isRenderableTag } from "@/utils/tagCache";
 import { useTagScroll } from "./tagView/useTagScroll";
 import { useTagMenu } from "./tagView/useTagMenu";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
+import type { multiType } from "@/store/types";
 import { delay, useResizeObserver } from "@pureadmin/utils";
 
 import ArrowDown from "~icons/ri/arrow-down-s-line";
@@ -93,8 +99,8 @@ function dynamicRouteTag(value: string): void {
   const hasValue = multiTags.value.some(item => item.path === value);
   if (hasValue) return;
 
-  function concatPath(arr: object[], path: string) {
-    arr.forEach((arrItem: any) => {
+  function concatPath(arr: readonly RouteRecordRaw[], path: string) {
+    arr.forEach((arrItem: RouteRecordRaw) => {
       if (arrItem.path === path) {
         useMultiTagsStoreHook().handleTags("push", {
           path,
@@ -106,17 +112,19 @@ function dynamicRouteTag(value: string): void {
       }
     });
   }
-  concatPath(router.options.routes as any, value);
+  concatPath(router.options.routes, value);
 }
 
 /** 触发 tags 标签切换：按 name/query/params 优先，退化为 path */
-function tagOnClick(item: any): void {
+function tagOnClick(item: multiType): void {
   const { name, path } = item;
   if (name) {
     if (item.query) {
-      router.push({ name, query: item.query });
+      // `multiType.query` 声明为 `object`（标签里的 query 是路由序列化产物），
+      // push 需要的是 `LocationQueryRaw`，这里只是把声明对齐到实际形态，不做转换。
+      router.push({ name, query: item.query as LocationQueryRaw });
     } else if (item.params) {
-      router.push({ name, params: item.params });
+      router.push({ name, params: item.params as RouteParamsRaw });
     } else {
       router.push({ name });
     }
@@ -140,9 +148,9 @@ onMounted(() => {
   showMenuModel(route.fullPath);
 
   // 触发隐藏标签页
-  emitter.on("tagViewsChange", (key: any) => {
-    if (unref(showTags as any) === key) return;
-    (showTags as any).value = key;
+  emitter.on("tagViewsChange", key => {
+    if (unref(showTags) === key) return;
+    showTags.value = key;
   });
 
   // 改变标签风格

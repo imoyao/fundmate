@@ -33,6 +33,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_perf_columns,
     migrate_advisor_portfolio_provenance,
+    migrate_allocation_source_columns,
     migrate_asset_major_category_current_to_cash,
     migrate_channel_link_indexes,
     migrate_conversion_in_leg_snapshot,
@@ -51,12 +52,16 @@ from app.core.migrations import (
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
     migrate_positions_snapshot_anchor,
+    migrate_positions_state_check_constraints,
     migrate_positions_symbol_norm,
+    migrate_sales_institution_pinyin_full,
+    migrate_transaction_covered_position,
     migrate_transaction_fee_breakdown,
     migrate_transaction_plan_id,
     migrate_transaction_symbol_from_position,
     migrate_transactions_symbol_norm,
     migrate_users_username_unique_lower,
+    migrate_watchlist_alert_indexes,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
@@ -629,6 +634,10 @@ def init_db():
     # assets.major_category 归一 current→cash（#2136）：读侧已改回词表里的 'cash'，
     # 存量 'current' 行否则仍是隐形行（钱在库里、页面读不到）。只改数据不改结构、幂等。
     migrate_asset_major_category_current_to_cash(user_eng)
+    migrate_sales_institution_pinyin_full(user_eng)
+    # assets/positions 配置目标来源标记（#3031 / G1）：create_all 不替存量表加列，
+    # 须先于下面 _validate_schema，否则「模型有列、库没列」直接拒绝启动。
+    migrate_allocation_source_columns(user_eng)
     # watchlist.name 名称快照列（#1508）：create_all 不替存量表加列，迁移须先于结构校验，
     # 否则 _validate_schema 会因模型列多于库表而报错阻断启动（与下方投顾列同因）。
     migrate_watchlist_name_snapshot(user_eng)
@@ -645,6 +654,9 @@ def init_db():
     # positions.cleared_at（#2343）：清仓不再删行，需要「何时清仓」作为周期下界。
     # 只加列不回填（历史清仓行已被删除，无可靠数据源），同上须先于结构校验。
     migrate_positions_cleared_at(user_eng)
+    # positions 状态一致性 CHECK（#2875 切片 A）：cleared⇒零份额、锚点有份额必须有日期。
+    # 必须排在 cleared_at 之后（约束引用该列）；存量 0 违反，只加结构不改数据。
+    migrate_positions_state_check_constraints(user_eng)
     # positions / transactions 的 account_name 冗余快照空值回填：基金转换「转入腿」
     # 只传 ledger_id 漏传 account_name，存量行会留 NULL（按账户分组时 jsonify 崩）。
     # 只补数据、不动结构，故放在结构校验之前也无副作用。
@@ -657,6 +669,9 @@ def init_db():
     migrate_transaction_fee_breakdown(user_eng)
     # transactions.plan_id（#2138）：定投计划与流水的关联列 + 索引，同上须先于结构校验
     migrate_transaction_plan_id(user_eng)
+    # transactions.covered_position_id（#3089）：孤儿流水「已由某持仓体现」的归置列。
+    # 只加列不回填（哪些行该归置只能由人指认），须先于结构校验。
+    migrate_transaction_covered_position(user_eng)
     # transactions.symbol_norm 归一身份列 + asset_type 回填（#1662 遗留项）：#1677 只给
     # positions 做了这件事，流水侧被漏掉，导致 `SZ001937` 与 `001937` 各算各的。
     # 与 positions 同因同法，须先于结构校验（模型已加列，库表不同步会拒绝启动）。
@@ -696,6 +711,9 @@ def init_db():
     migrate_watchlist_venue_not_null(user_eng)
     migrate_watchlist_unique_key(user_eng)
     migrate_watchlist_family_scoped_unique_key(user_eng)
+    # watchlist_alerts 唯一索引（2026-11-08 自选提醒启用）：死表转正，存量库需补
+    # (item_id, alert_type) 唯一索引，否则并发 upsert 会插出重复规则 → 重复通知。
+    migrate_watchlist_alert_indexes(user_eng)
 
 
 def init_db_split():
@@ -776,6 +794,9 @@ def init_db_split():
         user_meta.create_all(bind=user_eng)
         # assets.major_category 归一 current→cash（#2136）：只改数据、幂等，同上须先于结构校验
         migrate_asset_major_category_current_to_cash(user_eng)
+        migrate_sales_institution_pinyin_full(user_eng)
+        # assets/positions 配置目标来源标记（#3031 / G1）：同上，须先于结构校验
+        migrate_allocation_source_columns(user_eng)
         # watchlist.name 名称快照列（#1508）：同上，须先于结构校验
         migrate_watchlist_name_snapshot(user_eng)
         # positions.symbol_norm 归一身份列 + 唯一索引（#1662 后续）：create_all 不替存量表加列，
@@ -789,6 +810,9 @@ def init_db_split():
         migrate_positions_snapshot_anchor(user_eng)
         # positions.cleared_at（#2343）：只加列不回填，幂等（见迁移 docstring）
         migrate_positions_cleared_at(user_eng)
+        # positions 状态一致性 CHECK（#2875 切片 A）：与单库模式同口径，双库模式也必须加
+        # （生产 user 域是 Postgres，SQLite 专用路径覆盖不到，故迁移自身双引擎）
+        migrate_positions_state_check_constraints(user_eng)
         # account_name 冗余快照空值回填：与单库模式同口径，双库模式也必须收编存量行
         migrate_account_name_snapshot(user_eng)
         # 转入腿 name / market 漏传的存量收编（#2406），与单库模式同口径
@@ -817,6 +841,9 @@ def init_db_split():
         migrate_watchlist_venue_not_null(user_eng)
         migrate_watchlist_unique_key(user_eng)
         migrate_watchlist_family_scoped_unique_key(user_eng)
+        # watchlist_alerts 唯一索引：与单库模式同口径（生产 user 域是 Postgres，
+        # create_all 不给存量表补索引，故双库路径也必须跑）
+        migrate_watchlist_alert_indexes(user_eng)
 
 
 def _new_market_session() -> Session:

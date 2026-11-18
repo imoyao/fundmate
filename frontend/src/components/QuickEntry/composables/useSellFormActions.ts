@@ -1,5 +1,6 @@
 import { nextTick, type ComputedRef, type Ref } from "vue";
 import type { FormInstance } from "element-plus";
+import type { Position } from "@/api/types";
 import { defaultSellForm, type SellFormModel } from "../sellFormModel";
 
 /**
@@ -12,9 +13,9 @@ import { defaultSellForm, type SellFormModel } from "../sellFormModel";
 export function useSellFormActions(deps: {
   form: SellFormModel;
   formRef: Ref<FormInstance | undefined>;
-  selectedPosition: Ref<any>;
+  selectedPosition: Ref<Position | null>;
   /** 当前账户下的持仓（选持仓时按 id 回查） */
-  accountPositions: ComputedRef<any[]>;
+  accountPositions: ComputedRef<Position[]>;
   qtyTouched: Ref<boolean>;
   showPositionSelect: Ref<boolean>;
   positionSelectKey: Ref<number>;
@@ -32,10 +33,9 @@ export function useSellFormActions(deps: {
     showPositionSelect.value = false;
     nextTick(() => {
       const currentLedgerId = form.ledger_id;
-      const defaults = defaultSellForm();
-      Object.keys(defaults).forEach(key => {
-        (form as any)[key] = (defaults as any)[key];
-      });
+      // 整体重置再恢复 ledger_id：等价于按 key 逐个赋默认值，但不需要
+      // `(form as any)[key]` 这种绕类型的写法（Object.assign 同样只覆盖自有可枚举字段）。
+      Object.assign(form, defaultSellForm());
       form.ledger_id = currentLedgerId;
       form.positionId = null;
 
@@ -55,13 +55,11 @@ export function useSellFormActions(deps: {
   }
 
   function onPositionSelect(positionId: number) {
-    const pos = deps.accountPositions.value.find(
-      (p: any) => p.id === positionId
-    );
+    const pos = deps.accountPositions.value.find(p => p.id === positionId);
     if (!pos) return;
     selectedPosition.value = pos;
     form.symbol = pos.symbol;
-    form.name = pos.name;
+    form.name = pos.name ?? "";
     form.market = pos.market;
     form.type = pos.type;
     form.currency = pos.currency;

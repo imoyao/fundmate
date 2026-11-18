@@ -16,6 +16,7 @@ from app.core.retry import retry_on_db_locked
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services import cash_like_settle as cash_like_svc
 from app.services import ledger_migration_service as migration_svc
 from app.services import ledger_write_service as ledger_write_svc
 
@@ -23,6 +24,7 @@ from app.services import ledger_write_service as ledger_write_svc
 from app.services.family_member_service import member_name_map
 from app.services.ledger_presenter import ledger_to_dict
 from app.services.ledger_service import LedgerService  # noqa: E402
+from app.services.ledger_summary_payload import attach_detail_cumulative_pnl, build_ledger_list_items
 from app.services.position_aggregation import (
     DEFAULT_PAGE_SIZE,
 )
@@ -100,12 +102,11 @@ def list_sales_institutions():
     只返回 is_active=True 的机构：与导入匹配逻辑一致，下架机构不可再新关联；
     已关联的历史账户不受影响（展示名仍由名录实时解析）。
 
-    查询参数：
-        org_types: 可选，逗号分隔的机构类型（原始 org_type 值），提供时仅返回命中
-                   类型（#1082：按账户类型过滤可见机构，如证券账户只看券商）。
+    查询参数：org_types 可选（逗号分隔或重复参数），提供时仅返回命中类型
+              （#1082：按账户类型过滤可见机构，如证券账户只看券商）。
 
-    排序：常用机构（is_common）按 common_sort 升序置顶，其余按名称字典序——
-    前端据此拆「常用机构 / 全部机构」两个分组（#1081）。
+    排序：默认按 pinyin_short 首字母 A→Z（缺失排最后），同音按中文名兜底；
+    is_common / common_sort 仍下发供快捷筛选，但不参与默认排序（2026-11-07）。
     """
     # 兼容两种传参：逗号分隔（org_types=A,B）或重复参数（org_types=A&org_types=B）
     org_types: list[str] = []
@@ -120,8 +121,7 @@ def list_sales_institutions():
         if org_types:
             query = query.filter(SalesInstitution.org_type.in_(org_types))
         institutions = query.order_by(
-            SalesInstitution.is_common.desc(),
-            SalesInstitution.common_sort.asc().nullslast(),
+            SalesInstitution.pinyin_short.asc().nullslast(),
             SalesInstitution.org_name.asc(),
         ).all()
         data = [
@@ -133,6 +133,7 @@ def list_sales_institutions():
                 'is_common': institution.is_common,
                 'common_sort': institution.common_sort,
                 'pinyin_short': institution.pinyin_short,
+                'pinyin_full': institution.pinyin_full,
             }
             for institution in institutions
         ]
@@ -186,15 +187,8 @@ def list_ledgers():
         last_used_map = {row.ledger_id: row.last_date for row in last_used_rows}
         # 归属成员称谓映射（#1173）：一次查全量贴名字，避免逐账户 join
         member_names = member_name_map(db, get_family_id())
-        result = []
-        for ledger in ledgers:
-            item = ledger_to_dict(ledger, last_used_map.get(ledger.id), member_names)
-            item['total_market_value'] = 0.0
-            item['pnl'] = 0.0
-            item['position_count'] = 0
-            item['cash_balance'] = 0.0  # 统一初始化 cash_balance
-            LedgerService.attach_ledger_summary(db, ledger, item)
-            result.append(item)
+        # 摘要统计与账户级「累计盈亏」整体下沉到 ledger_summary_payload（视图只做 HTTP 编排）
+        result = build_ledger_list_items(db, get_family_id(), ledgers, last_used_map, member_names)
         return jsonify({'data': result, 'message': 'ok'})
 
 
@@ -393,18 +387,20 @@ def get_ledger_pending_estimate(ledger_id: int):
 
 @ledgers_bp.get('/<int:ledger_id>/summary/')
 def get_ledger_summary(ledger_id: int):
-    """获取单账户概览卡片数据，根据账户类型返回不同指标"""
+    """获取单账户概览卡片数据，根据账户类型返回不同指标（当日盈亏见 today-pnl，D92）"""
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
 
-        data = {'ledger_type': ledger.ledger_type, 'ledger_name': ledger.name, 'daily_pnl': None}
+        data = {'ledger_type': ledger.ledger_type, 'ledger_name': ledger.name}
 
         if ledger.ledger_type in ('stock', 'fund', 'e_account'):
             stats = LedgerService.get_portfolio_stats(db, ledger.id)
             data.update(stats)
             data['cumulative_return'] = LedgerService.get_cumulative_return(db, ledger.id)
+            # 「累计盈亏」三段：已实现/买入费走流水级（含已清仓持仓），未实现取上面的 position_pnl
+            attach_detail_cumulative_pnl(db, get_family_id(), ledger, data)
 
             if ledger.ledger_type == 'stock':
                 data['cash_balance'] = LedgerService.get_cash_balance(db, ledger)
@@ -633,3 +629,28 @@ def delete_orphan_data():
             'message': f'已清理 {total} 项未归置数据',
         }
     )
+
+
+# ────────────────────────────── 类现金：逆回购到期回款（#3087 / D114）─────────────────────────
+
+
+@ledgers_bp.post('/<int:ledger_id>/cash-like/reverse-repo/settle/')
+@retry_on_db_locked()
+def settle_reverse_repo_flow(ledger_id: int):
+    """把一笔逆回购结清：写一条回款流水（本金）+ 可选的利息流水（口径见 D114）。
+
+    参数：`symbol`（标的代码）、`settle_date`（回款日 YYYY-MM-DD）、`interest`（利息，元，可选）。
+    金额恒等于在途本金（整笔结清），不提供任意金额/方向——详见 `services/cash_like_settle.py`。
+    """
+    try:
+        payload = cash_like_svc.parse_settle_request(request.get_json() or {})
+    except cash_like_svc.SettleError as e:
+        return jsonify({'data': None, 'message': e.message, 'error_code': 1001}), e.status_code
+
+    with get_db() as db:
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        try:
+            result = cash_like_svc.settle_reverse_repo(db, family_id=get_family_id(), ledger_id=ledger.id, **payload)
+        except cash_like_svc.SettleError as e:
+            return jsonify({'data': None, 'message': e.message, 'error_code': 1001}), e.status_code
+        return jsonify({'data': result, 'message': cash_like_svc.settle_message(result)})

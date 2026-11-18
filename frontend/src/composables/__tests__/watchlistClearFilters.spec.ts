@@ -9,6 +9,7 @@
  */
 import { ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
 import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
 import {
@@ -63,6 +64,10 @@ function flush() {
 }
 
 beforeEach(() => {
+  // #2922：每页条数 / 复合列口径已下沉到 store（跨挂载点共享），
+  // 单测里 composable 直接调 store ⇒ 必须先装一个 pinia 实例。
+  // 每个用例新建实例也让这两项偏好在用例之间互不残留（旧实现是模块级单例，会串）。
+  setActivePinia(createPinia());
   vi.clearAllMocks();
   m.getItems.mockResolvedValue({ data: [], total: 0 });
 });

@@ -149,11 +149,16 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, computed, watch, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
-import { getPositionGroups, type GroupDimension } from "@/api/summary";
+import {
+  getPositionGroups,
+  type GroupDimension,
+  type PositionGroup
+} from "@/api/summary";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -162,7 +167,7 @@ const props = defineProps<{
 }>();
 
 const router = useRouter();
-const detailGroups = ref<any[]>([]);
+const detailGroups = ref<PositionGroup[]>([]);
 const loading = ref(false);
 
 /** 加载占位卡数量：只决定占位高度，与真实分组数无关（产品类型 6 组 / 账户 / 配置目标） */
@@ -232,12 +237,14 @@ async function loadDetailGroups() {
   try {
     const res = await getPositionGroups(dim as GroupDimension);
     if (token !== loadToken) return;
-    const raw = (res as any)?.data;
-    detailGroups.value = Array.isArray(raw) ? raw : raw?.data || [];
-  } catch (e: any) {
+    const raw = (
+      res as { data?: PositionGroup[] | { data?: PositionGroup[] } } | null
+    )?.data;
+    detailGroups.value = Array.isArray(raw) ? raw : (raw?.data ?? []);
+  } catch (e) {
     if (token !== loadToken) return;
     detailGroups.value = [];
-    ElMessage.error(e?.message || "分组加载失败");
+    ElMessage.error(errorMessageOf(e) || "分组加载失败");
   } finally {
     if (token === loadToken) loading.value = false;
   }

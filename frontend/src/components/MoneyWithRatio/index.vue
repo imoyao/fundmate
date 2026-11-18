@@ -47,14 +47,18 @@ const props = withDefaults(defineProps<Props>(), {
 
 <template>
   <div class="money-with-ratio" :class="{ 'is-right': alignRight }">
-    <MoneyDisplay
-      :value="value"
-      :show-sign="showSign"
-      :show-currency="showCurrency"
-      :size="moneySize"
-      :auto-color="autoColor"
-      :empty-text="emptyText"
-    />
+    <div class="money-with-ratio__main">
+      <!-- 前缀插槽：如「当日盈亏」列的「估」徽章，渲染在金额数字之前、同一行 -->
+      <slot name="prefix" />
+      <MoneyDisplay
+        :value="value"
+        :show-sign="showSign"
+        :show-currency="showCurrency"
+        :size="moneySize"
+        :auto-color="autoColor"
+        :empty-text="emptyText"
+      />
+    </div>
     <RiseFallText
       v-if="ratio !== null && ratio !== undefined && ratio !== ''"
       class="money-with-ratio__ratio"
@@ -78,6 +82,15 @@ const props = withDefaults(defineProps<Props>(), {
 .money-with-ratio.is-right {
   align-items: flex-end;
   text-align: right;
+}
+
+/* 主行容器：金额与「估」徽章等同行。徽章由 prefix 插槽注入，
+   空插槽不渲染节点 → 不会影响无徽章场景的间距。
+   外层 .is-right 用 align-items:flex-end 把本行推到右侧，故此处不必自行右对齐。 */
+.money-with-ratio__main {
+  display: inline-flex;
+  gap: 2px;
+  align-items: baseline;
 }
 
 /* 比例为辅：明显小于主金额并弱化，形成主次之分。

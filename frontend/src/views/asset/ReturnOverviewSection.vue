@@ -37,7 +37,7 @@
         title="累计收益"
         :value="xirrReturnLabel"
         value-color="var(--brand-ink)"
-        caption="当前市值 − 净投入（含已实现）"
+        caption="当前市值 − 净投入（含已实现，已扣手续费）"
       />
       <MetricCard
         title="当前市值"
@@ -50,6 +50,15 @@
         :value="xirrNetInvestedLabel"
         value-color="var(--brand-ink)"
         caption="累计买入 − 累计卖出/分红"
+      />
+      <!-- 累计费用：回答「我的收益里被手续费拿走了多少」。
+           与左侧三张卡同一份响应、同一口径（不含现金等价物的主动投资），
+           且这笔费用**已经从「累计收益」里扣过了**——文案必须写清楚，
+           否则用户会以为还要再减一次。 -->
+      <MetricCard
+        title="累计费用"
+        :value="xirrFeesLabel"
+        caption="佣金 / 印花税 / 过户费，买卖双边合计；已从累计收益中扣除"
       />
     </MetricGrid>
   </section>
@@ -113,6 +122,17 @@ const xirrNetInvestedLabel = computed(() => {
   const d = xirr.value;
   if (!d || d.cashflow_count <= 0) return null;
   return formatYuan(d.net_invested ?? d.total_invested - d.total_withdrawn);
+});
+/**
+ * 累计费用（元）。两种情况都显示 `--`，**不补 0**：
+ * - `cashflow_count <= 0`：没有可算的流水，与同页其它卡（净投入 / 收益）同一降级口径；
+ * - `fees == null`：`method=twr` 走日净资产序列，没有交易级费用。
+ * 补 0 会让用户读成「查过了，一分手续费都没花」。
+ */
+const xirrFeesLabel = computed(() => {
+  const d = xirr.value;
+  if (!d || d.cashflow_count <= 0 || d.fees == null) return null;
+  return formatYuan(d.fees);
 });
 const xirrCaption = computed(() => {
   const d = xirr.value;

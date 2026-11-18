@@ -1,7 +1,9 @@
 import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
+import type { ImportErrorItem, ImportParseError } from "@/api/importer";
 import { runReconciliation } from "@/api/reconciliation";
 import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
+import { asPreviewRows, type EditField, type PreviewRow } from "./previewRow";
 import {
   ref,
   onMounted,
@@ -22,7 +24,6 @@ import {
 import type { LedgerItem, SalesInstitution } from "@/api/ledger";
 import type { OcrTxnRow } from "@/api/ocr";
 import { ALLOCATION_OPTIONS } from "@/constants";
-import { getTypeLabel } from "@/constants/assetType";
 import { useReconDraft, type ReconDomain } from "@/composables/useReconDraft";
 import {
   classifyFixMode,
@@ -36,16 +37,98 @@ import {
 } from "./batchFixLogic";
 import {
   clearFeeBreakdownOnEdit,
-  isMissingAmount,
   recalcAfterEdit,
   smartFill
 } from "./cellEditLogic";
+import { fillSmartPrice, restoreSmartFilledPrice } from "./smartFillPrice";
+import {
+  isMissingCode,
+  isRowBlocked,
+  categorizeRow,
+  feeDiffOf,
+  taxTotalOf,
+  isFeeExplained,
+  isAmountMismatch,
+  hasFixProblem,
+  isAutoSelectableRow,
+  QTY_PRICE_OPTIONAL_OPS,
+  AMOUNT_INDEPENDENT_OPS,
+  type SummaryCategory
+} from "./previewPredicates";
+import {
+  ledgerTypeMap,
+  getTemplateKeyForLedger,
+  formatFileSize,
+  getFundTypeColor,
+  getTypeColor,
+  addRowKeys as addKeysGeneric,
+  getRowClassName,
+  getCellClassName,
+  getCategoryDesc,
+  getCategoryTagType
+} from "./importPresentation";
+import {
+  createFormatGuides,
+  IMPORT_WIZARD_STEPS,
+  columnsForMode
+} from "./importWizardData";
+import {
+  applyRowFilters,
+  mergeLinkGroups,
+  countBlockedRows,
+  countHiddenSelectedDuplicates,
+  shouldShowPriceUpdateTip,
+  groupAllocationByType,
+  summarizeErrors,
+  countByCategory,
+  countCompleteTransfers,
+  bucketFixSections,
+  sectionCountsOf,
+  pickReverseRepoRows,
+  pickAutoFillableRows,
+  pickFilledRows,
+  countPendingFix,
+  countSelectedTransfers
+} from "./previewPipeline";
 
 /**
  * 问题摘要面板的三卡片分类（#1791）。
  * 三类**互斥完备**：每行恰属一类，卡片条数之和恒等于总行数（验收②的和式不变量）。
+ * 类型定义已下沉到 ./previewPredicates，此处仅再导出，避免破坏既有类型消费者。
  */
-export type SummaryCategory = "complete" | "duplicate" | "fix";
+export type { SummaryCategory } from "./previewPredicates";
+
+/**
+ * 预览行加键（#2879 第二刀）。
+ *
+ * 通用 `addRowKeys` 保持「输入什么形状就返回什么形状」（`importPresentation.spec.ts`
+ * 用 `{ a: 1 }` 这种对象钉住它）；而在向导里，加完 `_rowKey` 的行**就是**预览行，
+ * 这条业务语义在此唯一断言一次。所有调用点（含 `previewData.value` 赋值与对外暴露的
+ * `addRowKeys`）都拿到 `PreviewRow[]`，下游消费受真源约束，不必各写一份 `as any`。
+ */
+const addRowKeys = <T extends object>(rows: T[]): PreviewRow[] =>
+  asPreviewRows(addKeysGeneric(rows));
+
+/** element-plus `UploadRequestOptions.onError` 的入参类型（第三方类型，本仓不拥有） */
+type UploadErrorPayload = Parameters<
+  NonNullable<UploadRequestOptions["onError"]>
+>[0];
+
+/**
+ * 后端错误信封里的 message（#2879：原本散落 4 处 `catch (e: any)` 直接点
+ * `e?.response?.data?.message`）。异常是 `unknown`，取值必须显式收窄——
+ * 否则「不是 axios 错误」时点下去就是 TypeError，而在错误处理路径里再抛错，
+ * 用户看到的是另一个错。
+ */
+function backendMessageOf(e: unknown): string {
+  const resp = (e as { response?: { data?: { message?: unknown } } } | null)
+    ?.response;
+  const msg = resp?.data?.message;
+  return typeof msg === "string" ? msg : "";
+}
+
+/** 「按类型批量配置目标」的分组项（与 previewPipeline.groupAllocationByType 同源） */
+type AllocationGroup = ReturnType<typeof groupAllocationByType>[number];
 
 export function useImportWizard() {
   const router = useRouter();
@@ -130,16 +213,10 @@ export function useImportWizard() {
         price: row.price || 0
       }))
     );
-    // 智能补价：有份额无价格但有金额 → 金额/份额（与文件解析预览同口径）
-    normalized.forEach(row => {
-      const qty = parseFloat(row.quantity),
-        prc = parseFloat(row.price),
-        amt = parseFloat(row.amount);
-      if (!isNaN(qty) && qty > 0 && (isNaN(prc) || prc <= 0) && !isNaN(amt)) {
-        row.price = parseFloat((amt / qty).toFixed(4));
-        row.smartFilled = true;
-      }
-    });
+    // 智能补价：有份额无价格但有金额 → 金额/份额。
+    // #2903：判据抽到 smartFillPrice.ts，与文件上传通道共用同一份（原两处各写一份、
+    // 守卫条件还不一致）。
+    normalized.forEach(fillSmartPrice);
 
     previewData.value = normalized;
     totalRows.value = normalized.length;
@@ -148,121 +225,27 @@ export function useImportWizard() {
     currentStep.value = 2;
     recalcValidRowsCount();
     selectAllValid();
+    // 同 handleUpload：OCR 通道的预览初始化也是默认态时点
+    preselectTransferRows();
   }
 
-  const fundTypeColorMap: Record<string, string> = {
-    股票型: "var(--asset-cat-stock)",
-    混合型: "var(--asset-cat-fund)",
-    债券型: "var(--asset-cat-bond)",
-    货币型: "var(--asset-cat-money-fund)",
-    指数型: "var(--asset-cat-etf)",
-    QDII: "var(--asset-cat-fund)",
-    FOF: "var(--asset-cat-portfolio)"
-  };
-
-  // 类型中文标签统一走后端唯一来源 frontend/src/constants/assetType（getTypeLabel），不再在此私藏副本（#1171 枚举一致性）。
-
-  // 品种 → 颜色：真相源是 `--asset-cat-*`（#1602）。此处曾用 `--palette-*` 装饰色表达品种
-  // （stock 用 muted-blue、fund 用 rose-taupe……），与 getLedgerColor 的 `--asset-cat-*` 并存，
-  // 导致「同一个股票」在导入向导是蓝灰、在自选 / 买卖表单是紫 —— 这正是 colors.css 里
-  // 「业务代码禁止再借用 --palette-* 装饰色表达品种」要拦的情形，本处属 #1604 漏改。
-  // cash / static 在 12 槽位里无同名槽位：现金取货币基金（同属现金管理工具）、static 回退中性色。
-  const typeColorMap: Record<string, string> = {
-    stock: "var(--asset-cat-stock)",
-    fund: "var(--asset-cat-fund)",
-    bond: "var(--asset-cat-bond)",
-    etf: "var(--asset-cat-etf)",
-    crypto: "var(--asset-cat-crypto)",
-    saving: "var(--asset-cat-saving)",
-    cash: "var(--asset-cat-money-fund)",
-    static: "var(--color-neutral)"
-  };
-
-  const ledgerTypeMap: Record<string, string> = {
-    stock: "股票账户",
-    fund: "基金账户",
-    cash: "现金账户",
-    general: "综合账户",
-    family: "家庭账户"
-  };
-
-  const formatGuides = reactive({
-    standard_stock: {
-      title: "股票标准模板格式说明",
-      tips: [
-        "下载 CSV 模板填写数据，或直接上传同花顺等券商导出的 Excel/CSV 文件",
-        "代码格式：A股 6 位数字，港股 5 位数字，美股字母代码",
-        "日期格式：YYYY-MM-DD，如 2026-01-15",
-        "业务类型：买入(BUY)、卖出(SELL)、现金分红(DIVIDEND_CASH)、送股(SPLIT)"
-      ]
-    },
-    standard_fund: {
-      title: "基金标准模板格式说明",
-      tips: [
-        "下载 CSV 模板填写数据，或直接上传基金平台导出的 CSV 文件",
-        "代码为6位基金代码（如 014330）",
-        "日期格式：YYYY-MM-DD，如 2023-06-01",
-        "业务类型：申购(BUY)、赎回(SELL)、现金分红(DIVIDEND_CASH)、红利再投资(DIVIDEND_REINVEST)",
-        "份额、净值为选填，手续费默认为0"
-      ]
-    },
-    ths: {
-      title: "同花顺交割单导出说明",
-      tips: [
-        "打开同花顺客户端 → 交易记录 → 历史交割单",
-        '选择日期范围，点击"导出" → 选择"导出全部"',
-        '导出格式选择"制表符分隔的文本文件"',
-        "直接上传导出的文件即可，无需修改"
-      ]
-    },
-    tiantian_fund: {
-      title: "天天基金导入说明",
-      tips: [
-        "在天天基金网页版 → 我的 → 交易查询 → 对账单查询",
-        "拖动选中历史交易明细表格 → Ctrl+C 复制",
-        "打开基金标准模板 CSV 文件，粘贴数据覆盖示例行",
-        "保存 CSV，在 多多贝 选择“天天基金”格式上传"
-      ]
-    },
-    alipay_fund: {
-      title: "支付宝导入说明",
-      tips: [
-        "在支付宝 → 我的 → 账单 → 更多 → 开具交易流水证明",
-        "申请“用于个人对账”的流水，下载后解压得到 .csv 文件",
-        "在 多多贝 选择“支付宝”格式上传该文件即可",
-        "余额宝交易将自动归入活钱，不产生持仓"
-      ]
-    },
-    alipay_pdf: {
-      title: "支付宝 PDF 导入说明",
-      tips: [
-        "在支付宝 → 我的 → 账单 → 开具交易流水证明",
-        "申请“基金交易明细”（PDF 格式）",
-        "下载后直接上传该 PDF 文件即可",
-        "自动提取确认日期、份额、净值、手续费等完整信息"
-      ]
-    }
-  });
+  /** 文案见 importWizardData.ts；reactive 包一层保持每实例独立 */
+  const formatGuides = reactive(createFormatGuides());
 
   // ── 步骤定义 ──
-  const steps = [
-    { title: "选择导入账户" },
-    { title: "上传交易文件" },
-    { title: "预览与修正" },
-    { title: "导入完成" }
-  ];
+  const steps = IMPORT_WIZARD_STEPS;
 
   // ── 核心状态 ──
   const currentStep = ref(0);
   const selectedMode = ref("standard");
-  const previewData = ref<any[]>([]);
+  const previewData = ref<PreviewRow[]>([]);
   const duplicateCount = ref(0);
   const errorCount = ref(0);
   // ── #2854 导入行数对账 ──
   /** 源文件数据行数（表头之外）；null = 非文件通道（AI 识别） */
   const sourceRowCount = ref<number | null>(null);
   /** 解析阶段未能纳入导入的行（未知操作名 / 行解析失败），带行号与原文操作名 */
-  const parseErrors = ref<any[]>([]);
+  const parseErrors = ref<ImportParseError[]>([]);
   const parseErrorCount = ref(0);
   /** 声明式「有意忽略」的非交易记录行数 */
   const ignoredRowCount = ref(0);
@@ -276,7 +259,6 @@ export function useImportWizard() {
   const orphanCount = ref(0);
   const importing = ref(false);
   const parsing = ref(false);
-  const uploading = ref(false);
   const fileSize = ref("");
   const editingRowKey = ref<string | null>(null);
   const newLedgerAllocation = ref("longterm");
@@ -288,7 +270,7 @@ export function useImportWizard() {
   const newLedgerType = ref("stock");
   const newLedgerLinkedCashId = ref<number | null>(null);
   const newLedgerPortfolioId = ref<number | null>(null);
-  const newLedgerFeeConfig = ref<any>(null);
+  const newLedgerFeeConfig = ref<Record<string, unknown> | null>(null);
   const newLedgerSalesInstitutionId = ref<number | null>(null);
   /** 归属家庭成员（#1173，null=未归属/家庭共有）：向导内新建账户同样要能指定归属 */
   const newLedgerOwnerMemberId = ref<number | null>(null);
@@ -296,7 +278,6 @@ export function useImportWizard() {
   const salesInstitutionsForImport = ref<SalesInstitution[]>([]);
   /** 步骤3 软提示横幅：用户现场选中的现金账户 */
   const bannerCashLedgerId = ref<number | null>(null);
-  const ledgerTouched = ref(false);
   const activeCategoryFilter = ref("");
   const downloadLoading = ref(false);
 
@@ -314,11 +295,10 @@ export function useImportWizard() {
   /** 批量修正面板（#1792 起为摘要下方内联展开，由摘要卡【批量修正】/筛选栏按钮切换） */
   const showFixPanel = ref(false);
   const batchCodeInput = ref("");
-  const importErrors = ref<any[]>([]);
+  const importErrors = ref<ImportErrorItem[]>([]);
   const duplicatesHandled = ref(false);
   const uploadError = ref("");
   const validRowsCount = ref(0);
-  const isDragover = ref(false);
 
   // ── 计算属性 ──
   /**
@@ -341,7 +321,32 @@ export function useImportWizard() {
           .filter((v): v is string => !!v)
       )
     ];
-    return { source, imported, ignored, failed, balanced, ops };
+    // 逐条原因：后端 message 已是可操作文案（新股申购暂不支持 → 说明补救方式），
+    // 只显示 raw_value 会让用户看到「新股中签」却不知道该干什么。
+    // 排除「无法识别…」那类——它们由 ops + 下方映射表提示覆盖，重复展示只是噪声。
+    // 同类行往往刷出十几条完全相同的文案，去重后最多列 3 条。
+    const reasons = [
+      ...new Set(
+        parseErrors.value
+          .map(e => e.message)
+          .filter((m): m is string => !!m && !m.startsWith("无法识别"))
+      )
+    ].slice(0, 3);
+    // 「请在映射表登记」只对真正未登记的业务名成立。新股这类「已识别但不支持」的行
+    // 照抄这句会把用户引向错误动作（映射表里根本没有可登记的东西）。
+    const hasUnknownOp = parseErrors.value.some(e =>
+      (e.message || "").startsWith("无法识别")
+    );
+    return {
+      source,
+      imported,
+      ignored,
+      failed,
+      balanced,
+      ops,
+      reasons,
+      hasUnknownOp
+    };
   });
 
   const selectedLedgerName = computed(() => {
@@ -394,6 +399,11 @@ export function useImportWizard() {
       },
       { label: "同花顺交割单", value: "ths", logo: "/logos/tonghuashun.svg" },
       {
+        label: "招商证券交割单",
+        value: "cms_stock",
+        logo: "/logos/stock.svg"
+      },
+      {
         label: "基金标准模板",
         value: "standard_fund",
         logo: "/logos/standard.svg"
@@ -412,7 +422,10 @@ export function useImportWizard() {
     ];
     if (ledgerType.value === "stock")
       return allModes.filter(
-        m => m.value === "standard_stock" || m.value === "ths"
+        m =>
+          m.value === "standard_stock" ||
+          m.value === "ths" ||
+          m.value === "cms_stock"
       );
     if (ledgerType.value === "fund" || ledgerType.value === "cash")
       return allModes.filter(
@@ -451,6 +464,7 @@ export function useImportWizard() {
   });
   const formatName = computed(() => {
     if (selectedMode.value === "ths") return "同花顺";
+    if (selectedMode.value === "cms_stock") return "招商证券";
     if (selectedMode.value === "standard_fund") return "基金标准模板";
     if (selectedMode.value === "tiantian_fund") return "天天基金";
     return "股票标准模板";
@@ -462,207 +476,22 @@ export function useImportWizard() {
       selectedMode.value === "tiantian_fund"
   );
 
-  /**
-   * 表格列（#1790 → #783 §6.1 口径；2026-11-02 手续费列回归）：数据列 9 +
-   * 勾选 + 操作 = **11 列**，最小宽合计 1056px（预算 1060），1200px 视口内无横向滚动。
-   *
-   * 数据列一律 `minWidth`——design.md「冻结列与横向滚动规范」第 4 条：只有冻结列
-   * 才用固定 `width`（否则 EP 不把该列纳入余量分配，宽屏右侧留白，#1421 根因 2）；
-   * §6.1 的 px 值即各列最小宽。
-   *
-   * 列取舍（写明理由、不静默超宽，见 #1790 取舍说明）：
-   * - **2026-11-02 手续费列回归（换列，不加列）**：#1790 为守住 11 列/1060px 把
-   *   手续费列退场，可见性改由金额列 tooltip 承担。实测这不够——tooltip 只能
-   *   「解释」已有差额，**补录不了缺失值**，而手续费直接进买入成本与卖出已实现
-   *   （pnl_service），漏记即静默少算。故移除「备注」列（内容折进产品信息第二行）、
-   *   配置目标 110→106，腾出的宽度给手续费列 70px，列数仍为 11。
-   * - 合同编号 / 发生金额（股票模式）仍退场——行数据完整携带、导入载荷不受影响，
-   *   发生金额由金额列 tooltip 呈现。
-   * - 勾选 50 / 数量单价金额各 90 / 操作 120 维持 §6.1；状态 60→68（「待补全」三字
-   *   标签在 60px 内会折行）；
-   *   操作类型 110→104、日期 100→112（+ 不折行：实测 109px 时文本 111px 会折成
-   *   「2026-09- / 01」，读起来像两条记录）、产品信息 160→170（余量给的，备注不再被
-   *   压成「备…」）。产品信息列内不再重复显示资产类型标签（「操作类型」列已有）。
-   */
-  const tableColumns = computed(() => {
-    if (isFundMode.value) {
-      return [
-        {
-          prop: "status",
-          label: "状态",
-          minWidth: 68,
-          slot: "status",
-          align: "center"
-        },
-        {
-          prop: "product",
-          label: "产品信息",
-          // 宽度保持 160 不用加（#2836）：备注从「代码行」挪到「名称行」后，省下了
-          // `# 113649` 占的约 66px，同样 160px 下 4 字名称 + 6 字备注正好放得下
-          // （160 - 24 内边距 - 48 名称 - 6 间距 = 82px ≈ 6.8 个中文字）。
-          minWidth: 160,
-          slot: "product"
-        },
-        {
-          prop: "opType",
-          label: "操作类型",
-          // #2836：104 → 116。「债转股」(36) + 间距(6) + 「可转债」标签(48) +
-          // 单元格内边距(24) = 114，104 下标签被截成「可转」——资产类型直接丢失。
-          // 只加 12px：宽度预算 1060 是硬的（1200 视口不横向滚动），见
-          // feeColumnLayout.spec.ts；这 12px 从日期列让（112→96，日期定长 88px 够用）。
-          minWidth: 104,
-          slot: "opType"
-        },
-        {
-          prop: "trade_date",
-          label: "日期",
-          minWidth: 112,
-          // 日期是定长 10 字符 + 制表数字，折成「2026-09- / 01」比截断更糟：两行看起来像两条记录
-          className: "col-date"
-        },
-        {
-          prop: "quantity",
-          label: "份额",
-          minWidth: 90,
-          slot: "quantity",
-          align: "right"
-        },
-        {
-          prop: "price",
-          label: "确认净值",
-          minWidth: 90,
-          slot: "price",
-          align: "right"
-        },
-        {
-          prop: "amount",
-          label: "金额",
-          minWidth: 90,
-          slot: "amount",
-          align: "right"
-        },
-        {
-          prop: "fee",
-          label: "手续费",
-          minWidth: 66,
-          slot: "fee",
-          align: "right"
-        },
-        {
-          prop: "allocation",
-          label: "配置目标",
-          minWidth: 106,
-          slot: "allocation"
-        }
-      ];
-    }
-    return [
-      {
-        prop: "status",
-        label: "状态",
-        // #2836：68 → 72。新增的「金额不符」是最长的一枚状态标签（4 字 = 48px），
-        // 加内边距 24px 需要 72；68 下它会被截成「金额不…」。
-        minWidth: 72,
-        slot: "status",
-        align: "center"
-      },
-      {
-        prop: "product",
-        label: "产品信息",
-        // 宽度保持 160 不用加（#2836）：备注从「代码行」挪到「名称行」后，省下了
-        // `# 113649` 占的约 66px，同样 160px 下 4 字名称 + 6 字备注正好放得下
-        // （160 - 24 内边距 - 48 名称 - 6 间距 = 82px ≈ 6.8 个中文字）。
-        minWidth: 160,
-        slot: "product"
-      },
-      {
-        prop: "opType",
-        label: "操作类型",
-        // #2836：104 → 116。「债转股」(36) + 间距(6) + 「可转债」标签(48) +
-        // 单元格内边距(24) = 114，104 下标签被截成「可转」——资产类型直接丢失。
-        // 只加 12px：宽度预算 1060 是硬的（1200 视口不横向滚动），见
-        // feeColumnLayout.spec.ts；这 12px 从日期列让（112→96，日期定长 88px 够用）。
-        minWidth: 104,
-        slot: "opType"
-      },
-      {
-        prop: "trade_date",
-        label: "日期",
-        // 日期是定长 10 字符 + 制表数字，折成「2026-09- / 01」比截断更糟：两行看起来像两条记录
-        // #2836：112 → 96，把宽度让给「操作类型」列（可转债标签被截成「可转」）。
-        // 实测 10 字符制表数字约 64px + 内边距 24px = 88px，96 仍有余量。
-        minWidth: 112,
-        className: "col-date"
-      },
-      {
-        prop: "quantity",
-        label: "数量",
-        minWidth: 90,
-        slot: "quantity",
-        align: "right"
-      },
-      {
-        prop: "price",
-        label: "单价",
-        minWidth: 90,
-        slot: "price",
-        align: "right"
-      },
-      {
-        prop: "amount",
-        label: "交易金额",
-        minWidth: 90,
-        slot: "amount",
-        align: "right"
-      },
-      {
-        prop: "fee",
-        label: "手续费",
-        minWidth: 66,
-        slot: "fee",
-        align: "right"
-      },
-      {
-        prop: "allocation",
-        label: "配置目标",
-        minWidth: 106,
-        slot: "allocation"
-      }
-    ];
-  });
+  /** 列定义、宽度预算与取舍理由见 importWizardData.ts */
+  const tableColumns = computed(() => columnsForMode(isFundMode.value));
 
-  const blockedCount = computed(() => {
-    return previewData.value.filter(
-      row =>
-        isRowBlocked(row) &&
-        !row.is_duplicate &&
-        !row.error &&
-        !row.is_cash_transfer
-    ).length;
-  });
+  /** 判据见 previewPipeline.ts 的 countBlockedRows */
+  const blockedCount = computed(() => countBlockedRows(previewData.value));
 
   const selectedCount = computed(() => selectedKeys.value.size);
 
-  /**
-   * 已隐藏但仍被勾选的重复行数（#2274）。
-   * 「取消显示重复行」只切显隐、不动勾选（导入载荷与「已选择 N 条」均以
-   * selectedKeys 为唯一真相源）：这些行不出现在「只看问题数据」视图里，
-   * 却会随 selectedKeys 进入导入载荷（keep_duplicate 真插入）。
-   * UI 据此给出可见提示，避免「看不见自己要导什么」。
-   */
-  const hiddenSelectedDuplicateCount = computed(() => {
-    if (!duplicatesHandled.value) return 0;
-    let count = 0;
-    for (const row of previewData.value) {
-      if (
-        row.is_duplicate &&
-        row._duplicateHandled &&
-        selectedKeys.value.has(row._rowKey)
-      )
-        count++;
-    }
-    return count;
-  });
+  /** #2274 判据见 previewPipeline.ts 的 countHiddenSelectedDuplicates */
+  const hiddenSelectedDuplicateCount = computed(() =>
+    countHiddenSelectedDuplicates(
+      previewData.value,
+      selectedKeys.value,
+      duplicatesHandled.value
+    )
+  );
 
   const nothingImported = computed(
     () =>
@@ -671,259 +500,43 @@ export function useImportWizard() {
       importErrors.value.length > 0
   );
 
-  const showPriceUpdateTip = computed(() => {
-    if (importedCount.value === 0) return false;
-    return previewData.value.some(row => {
-      if (!selectedKeys.value.has(row._rowKey)) return false;
-      return ["stock", "fund", "etf", "bond"].includes(row.type);
-    });
-  });
+  const showPriceUpdateTip = computed(() =>
+    shouldShowPriceUpdateTip(
+      previewData.value,
+      selectedKeys.value,
+      importedCount.value
+    )
+  );
 
-  const allocationGroupsByType = computed(() => {
-    const groups: Record<
-      string,
-      { label: string; count: number; currentAllocation: string }
-    > = {};
-    previewData.value.forEach(row => {
-      if (
-        row.is_duplicate ||
-        row.error ||
-        row.is_cash_transfer ||
-        isRowBlocked(row) ||
-        row._allocationManual
-      )
-        return;
-      const type = row.type || "unknown";
-      if (!groups[type])
-        groups[type] = {
-          label: getTypeLabel(type),
-          count: 0,
-          currentAllocation: row.allocation || "longterm"
-        };
-      groups[type].count++;
-    });
-    return Object.entries(groups).map(([type, data]) => ({ type, ...data }));
-  });
+  const allocationGroupsByType = computed(() =>
+    groupAllocationByType(previewData.value)
+  );
 
   const currentAllocationGroups = computed(() => allocationGroupsByType.value);
 
-  const errorSummary = computed(() => {
-    const groups: Record<string, { count: number; items: string[] }> = {};
-    importErrors.value.forEach(err => {
-      const reason = err.error || "未知错误";
-      const name = err.name || err.symbol || "--";
-      if (!groups[reason]) groups[reason] = { count: 0, items: [] };
-      groups[reason].count++;
-      groups[reason].items.push(name);
-    });
-    return Object.entries(groups).map(([reason, data]) => ({
-      reason,
-      ...data
-    }));
-  });
+  const errorSummary = computed(() => summarizeErrors(importErrors.value));
 
-  // ── 三卡片分类（#1791）：互斥完备，卡片计数 / fix 细分 / 表格状态过滤共用同一谓词 ──
+  /** 按显示单元计数的口径与 #2836 教训见 previewPipeline.ts 的 countByCategory */
+  const summaryCounts = computed(() => countByCategory(previewData.value));
 
-  /**
-   * 代码未匹配（fixSectionRows 的 missingCode 分区谓词）。
-   *
-   * `cash` / `money_fund` 直接放行：这两类入库走同一分支（后端
-   * `orchestrator_commit` 的「现金管理类」），**根本不写 symbol**——要它填代码
-   * 等于要它填一个自己都不用的字段。券商原文这些行本来就不给代码
-   * （table1101.xls 实测：利息归本 2 条、基金红利拨入 5 条，两列皆空），
-   * 按 missingCode 拦下会让用户勾不上、也算不进任何计数，只能对着一个
-   * 「代码未匹配」标签干看（#2840 / #2843）。
-   */
-  function isMissingCode(row: any): boolean {
-    if (row.type === "cash" || row.type === "money_fund") return false;
-    return !row.symbol || row.symbol === "UNKNOWN";
-  }
+  /** #2281 口径见 previewPipeline.ts 的 countCompleteTransfers */
+  const completeTransferCount = computed(() =>
+    countCompleteTransfers(previewData.value)
+  );
 
-  /**
-   * 入账不要求「数量 + 价格」齐全的类型。这些行的金额另有来源（税额、派息额、
-   * 兑付到账额），没有成交价格是正常的——`bond_redeem` 是 #2835 之后的常态：
-   * 交割单的兑付行只给「发生金额」，成交均价一栏常常是 0。
-   */
-  const QTY_PRICE_OPTIONAL_OPS = new Set([
-    "tax",
-    "dividend",
-    "dividend_cash",
-    "dividend_reinvest",
-    "split",
-    "bond_redeem"
-  ]);
+  /** 四分区行源（#1792）：分桶不变量见 previewPipeline.ts 的 bucketFixSections */
+  const fixSectionRows = computed<Record<FixSectionKey, PreviewRow[]>>(() =>
+    bucketFixSections(previewData.value)
+  );
 
-  /**
-   * 金额与「数量 × 价格」**无关**的类型：拿成交口径去比对必然误报。
-   *
-   * - `tax`：税额 = 税率 × 利息。真实交割单的交割「数量/单价」沿用了利息行的
-   *   60 / 1.5，于是 |60 × 1.5 − (−18)| = 108 元差额——一分钱问题都没有，
-   *   却被判成「数据不一致」，把好好的兑息组染红（#2836 实测）。
-   * - `bond_redeem`：兑付到账额 = 面值 × 数量 + 应计利息 − 税，本就不等于
-   *   单价 × 数量。
-   *
-   * 与 `QTY_PRICE_OPTIONAL_OPS` 分开而不是合并：那份管「缺不缺字段」，
-   * 这份管「金额该不该这么算」，混成一个集合会让两处判据都无法单独演进。
-   */
-  const AMOUNT_INDEPENDENT_OPS = new Set(["tax", "bond_redeem"]);
+  const fixSectionCounts = computed<SectionCounts>(() =>
+    sectionCountsOf(fixSectionRows.value)
+  );
 
-  /**
-   * 金额差额（元）= |数量×单价 − 金额|。任一端缺失返回 0——缺失由
-   * `isMissingAmount` / `isRowBlocked` 负责，此处不重复报警。
-   *
-   * 两类例外见 `AMOUNT_INDEPENDENT_OPS`；合并行（息 + 税折成的净额行）另用
-   * **组等式**：`数量 × 单价 − 组内税额 = 净额`。丰山转债 60 × 1.5 − 18 = 72，
-   * 差额 0；不给合并行减掉组内税额的话，18 元的税会被当成 18 元的差额误报。
-   */
-  function feeDiffOf(row: any): number {
-    if (AMOUNT_INDEPENDENT_OPS.has(row.op_type)) return 0;
-    const qty = Number(row.quantity);
-    const prc = Number(row.price);
-    const amt = Number(row.amount);
-    if (isNaN(qty) || qty <= 0) return 0;
-    if (isNaN(prc) || prc <= 0) return 0;
-    if (isNaN(amt)) return 0;
-    const groupTax = row.is_merged ? taxTotalOf(row) : 0;
-    return Math.abs(qty * prc - groupTax - amt);
-  }
-
-  /** 合并行内已并入净额的税额合计（它们本来就从成交额里扣掉了）。 */
-  function taxTotalOf(row: any): number {
-    const children: any[] = Array.isArray(row.children) ? row.children : [];
-    return children
-      .filter(c => c.op_type === "tax")
-      .reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
-  }
-
-  /**
-   * 差额**被手续费解释**（2026-11-02）：同花顺交割单的「发生金额」是含手续费的发生额，
-   * 而入库 `amount` 恒按 单价×数量 重算（`position_service.py` 卖出/买入分支）、fee 另列，
-   * 于是带费行在预览里天然差一笔 fee。判据 `差额 ≤ |fee| + 0.01` 即视为已解释。
-   *
-   * 与 `isAmountMismatch` **互斥且互补**（差额 ≤ 0.01 时两者皆 false）：
-   * 解释得掉 → 归「数据完整」可导入；解释不掉 → 才进 mismatch 分区。
-   * 旧版只看 `差额 > 0.01`，把全部带费行打成「需要修正」（#磁盘 152 条的成因）。
-   */
-  function isFeeExplained(row: any): boolean {
-    const diff = feeDiffOf(row);
-    if (diff <= 0.01) return false;
-    return diff <= Math.abs(Number(row.fee) || 0) + 0.01;
-  }
-
-  /**
-   * 金额不一致（fixSectionRows 的 mismatch 分区谓词）：有份额有价格，但差额
-   * **超出**手续费能解释的范围。超出的那部分才是真对不上——费用列可能漏项
-   * （只有佣金缺印花税/过户费），或金额本身被改过。
-   */
-  function isAmountMismatch(row: any): boolean {
-    const diff = feeDiffOf(row);
-    if (diff <= 0.01) return false;
-    return diff > Math.abs(Number(row.fee) || 0) + 0.01;
-  }
-
-  /**
-   * 三卡片分类谓词——卡片条数、fix 细分统计、表格状态过滤三处共用（#1791 验收②：
-   * 「卡片条数 = 展开后表格条数」靠共用谓词结构性成立，而不是两处各数一遍对数）。
-   *
-   * - duplicate：解析期已判重（(ledger_id, import_hash) 已在库）
-   * - fix：解析错误 → 代码未匹配 → 数量/价格缺失 → 金额不一致（顺序对齐 fixSectionRows 分区）
-   * - complete：其余——含资金划转行（数据完整，是否入库由后端统一裁决 #1010）、
-   *   含 _ignored 行（数据完整是质量口径，勾没勾是选择口径，二者分开）
-   */
-  function categorizeRow(row: any): SummaryCategory {
-    if (row.is_duplicate) return "duplicate";
-    if (row.error) return "fix";
-    if (row.is_cash_transfer) return "complete";
-    if (isMissingCode(row)) return "fix";
-    if (isRowBlocked(row)) return "fix";
-    if (isAmountMismatch(row)) return "fix";
-    return "complete";
-  }
-
-  /**
-   * 这行有没有「需要修正」的问题——与 `fixSectionRows` 的分区判据同源
-   * （顺序也对齐：error → missingCode → missingQtyPrice → mismatch）。
-   *
-   * 抽出来是因为 `mergeLinkGroups` 要问同一个问题：能不能把一组折起来，取决于
-   * 这组干不干净。两处各写一份必然漂移，而漂移的后果就是「概览条说这组没问题、
-   * 修正面板里却躺着一条」这种用户没法自己解释的矛盾。
-   */
-  function hasFixProblem(row: any): boolean {
-    if (row.is_duplicate || row.is_cash_transfer) return false;
-    return (
-      Boolean(row.error) ||
-      isMissingCode(row) ||
-      isRowBlocked(row) ||
-      isAmountMismatch(row)
-    );
-  }
-
-  /** 三卡片条数：按**显示单元**统计（息+税折成一行），故 sum === 表格总行数。
-   *
-   * 为什么不能按原始行统计（#2836 实测教训）：一组兑息+代扣税原先是两行，表格
-   * 折叠成一行后仍按两行计数——概览条说「共 2 条」而表格只有 1 行，用户数不出来。
-   * `mergeLinkGroups` 只在「两行都没问题」时才合并（见该函数的 why），所以
-   * fix 条数与 `fixSectionRows`（按原始行、供批量修正定位）始终一致。
-   */
-  const summaryCounts = computed(() => {
-    const counts = { complete: 0, duplicate: 0, fix: 0 };
-    mergeLinkGroups(previewData.value).forEach(
-      row => counts[categorizeRow(row)]++
-    );
-    return counts;
-  });
-
-  /**
-   * #2281：「数据完整」卡内的转账行条数。与 categorizeRow 同口径取子集
-   * （转账行若同时疑似重复则归 duplicate 卡，不计入此处），保证 chips 计数
-   * ≤ 卡片条数；摘要卡据此提示「转账可导入 / 转账待关联」。
-   */
-  const completeTransferCount = computed(() => {
-    let n = 0;
-    previewData.value.forEach(row => {
-      if (row.is_cash_transfer && categorizeRow(row) === "complete") n++;
-    });
-    return n;
-  });
-
-  /**
-   * 四分区行源（#1792）：修正面板与 fixBreakdown 共用的唯一分桶。
-   * 不变量：某行进入且仅进入一个分区 ⟺ categorizeRow(row) === "fix"——
-   * 摘要卡「需要修正」条数 = 四分区行数之和，结构性成立（沿 #1791 验收② 的共谓词纪律）。
-   */
-  const fixSectionRows = computed<Record<FixSectionKey, any[]>>(() => {
-    const rows: Record<FixSectionKey, any[]> = {
-      error: [],
-      missingCode: [],
-      missingQtyPrice: [],
-      mismatch: []
-    };
-    previewData.value.forEach(row => {
-      if (row.is_duplicate || row.is_cash_transfer) return;
-      if (row.error) rows.error.push(row);
-      else if (isMissingCode(row)) rows.missingCode.push(row);
-      else if (isRowBlocked(row)) rows.missingQtyPrice.push(row);
-      else if (isAmountMismatch(row)) rows.mismatch.push(row);
-    });
-    return rows;
-  });
-
-  /** 「需要修正」卡的细分统计：四分区行数直取，四桶之和恒等于 fix 条数 */
-  const fixBreakdown = computed(() => ({
-    error: fixSectionRows.value.error.length,
-    missingCode: fixSectionRows.value.missingCode.length,
-    missingQtyPrice: fixSectionRows.value.missingQtyPrice.length,
-    mismatch: fixSectionRows.value.mismatch.length
-  }));
+  /** 与 fixSectionCounts 同源：本文件曾逐字重复两份（#2876 合并），保留旧名避免改 4 个消费组件 */
+  const fixBreakdown = fixSectionCounts;
 
   // ── #1792 修正形态（#783 §4 阈值）与逐条卡片数据源 ──
-
-  const fixSectionCounts = computed<SectionCounts>(() => ({
-    error: fixSectionRows.value.error.length,
-    missingCode: fixSectionRows.value.missingCode.length,
-    missingQtyPrice: fixSectionRows.value.missingQtyPrice.length,
-    mismatch: fixSectionRows.value.mismatch.length
-  }));
 
   /** §4 阈值判定（纯函数 classifyFixMode，单测覆盖 ≤10 / >10 切换） */
   const fixMode = computed<FixMode>(() =>
@@ -943,171 +556,50 @@ export function useImportWizard() {
   );
 
   /** 逐条修正卡片数据源：section 决定卡片内表单形态 */
-  const singleFixRows = computed<Array<{ row: any; section: FixSectionKey }>>(
-    () => {
-      const keys: FixSectionKey[] =
-        singleFixScope.value === "all"
-          ? ["error", "missingCode", "missingQtyPrice", "mismatch"]
-          : [singleFixScope.value];
-      const out: Array<{ row: any; section: FixSectionKey }> = [];
-      keys.forEach(key =>
-        fixSectionRows.value[key].forEach(row =>
-          out.push({ row, section: key })
-        )
-      );
-      return out;
-    }
-  );
+  const singleFixRows = computed<
+    Array<{ row: PreviewRow; section: FixSectionKey }>
+  >(() => {
+    const keys: FixSectionKey[] =
+      singleFixScope.value === "all"
+        ? ["error", "missingCode", "missingQtyPrice", "mismatch"]
+        : [singleFixScope.value];
+    const out: Array<{ row: PreviewRow; section: FixSectionKey }> = [];
+    keys.forEach(key =>
+      fixSectionRows.value[key].forEach(row => out.push({ row, section: key }))
+    );
+    return out;
+  });
 
-  /** 逆回购行：解析期由后端按代码模式识别（沪 204xxx / 深 1318xx），非问题分区——信息型 */
+  /** 逆回购行：口径见 previewPipeline.ts 的 pickReverseRepoRows */
   const reverseRepoRows = computed(() =>
-    previewData.value.filter(row => row.type === "reverse_repo")
+    pickReverseRepoRows(previewData.value)
   );
 
-  /** 自动填充可推算行：只缺一个（数量或价格）且金额在——缺的那个 = 金额 ÷ 另一个 */
+  /** 自动填充可推算行：入参是已算好的 missingQtyPrice 桶，口径见 previewPipeline.ts 的 pickAutoFillableRows */
   const autoFillableRows = computed(() =>
-    fixSectionRows.value.missingQtyPrice.filter(row => {
-      const qty = Number(row.quantity),
-        prc = Number(row.price),
-        amt = Number(row.amount);
-      const qtyMissing = isNaN(qty) || qty <= 0;
-      const prcMissing = isNaN(prc) || prc <= 0;
-      if (isNaN(amt) || amt <= 0) return false;
-      return (qtyMissing && !prcMissing) || (!qtyMissing && prcMissing);
-    })
+    pickAutoFillableRows(fixSectionRows.value.missingQtyPrice)
   );
 
-  /** 已自动填充过的行（_autoFilled 记录字段名）——【查看已填充数据】的数据源 */
-  const filledRows = computed(() =>
-    previewData.value.filter(row => row._autoFilled?.length > 0)
-  );
+  /** 已自动填充过的行：口径见 previewPipeline.ts 的 pickFilledRows */
+  const filledRows = computed(() => pickFilledRows(previewData.value));
 
-  /**
-   * 表格行过滤（状态 + 子分类 + 问题开关 + 关键词 + 类型）。
-   * #1791 起分页数据与总条数共用本函数——此前是两处 90 行近重复实现，新增过滤键
-   * 只改一边就会出现「分页显示与底部总条数对不上」的漂移。
-   * 旧键 normal / problem / error 是 SummaryStats 胶囊 Tab 的写入值，胶囊已随本卡
-   * 删除（#1791 要做的事 7：两套分类法合并），死分支一并移除。
-   */
-  function applyRowFilters(base: any[]): any[] {
-    let list = base;
-    const status = tableStatusFilter.value;
-    if (status === "blocked")
-      list = list.filter(
-        row =>
-          isRowBlocked(row) &&
-          !row.is_duplicate &&
-          !row.error &&
-          !row.is_cash_transfer
-      );
-    else if (
-      status === "complete" ||
-      status === "duplicate" ||
-      status === "fix"
-    )
-      // 三卡片状态键：与卡片计数同谓词（categorizeRow）
-      list = list.filter(row => categorizeRow(row) === status);
-
-    if (activeCategoryFilter.value === "missingCode")
-      list = list.filter(
-        row =>
-          isMissingCode(row) &&
-          !row.is_duplicate &&
-          !row.error &&
-          !row.is_cash_transfer
-      );
-    else if (activeCategoryFilter.value === "mismatch")
-      list = list.filter(row => {
-        if (row.is_duplicate || row.error || row.is_cash_transfer) return false;
-        return isAmountMismatch(row);
-      });
-    else if (activeCategoryFilter.value === "error")
-      list = list.filter(
-        row => !!row.error && !row.is_duplicate && !row.is_cash_transfer
-      );
-
-    if (showProblemOnly.value)
-      list = list.filter(row => {
-        // 与概览条三卡同谓词（`categorizeRow`）。这里曾经手写了一份
-        // 「缺字段 || 解析错误 || 重复 || 编辑中」，漏掉「代码未匹配」和
-        // 「金额对不上」——于是卡片说「需要修正 1 条」，切到只看问题数据
-        // 却是「暂无数据」（#2836 实测）。
-        const cat = categorizeRow(row);
-        if (cat === "fix") return true;
-        if (cat === "duplicate")
-          return !(row.is_duplicate && row._duplicateHandled);
-        // 就地编辑中的行即使已经改好也要留在原地，否则一按键整行就消失
-        return Boolean(
-          row.isEditingQty ||
-          row.isEditingPrice ||
-          row.isEditingAmount ||
-          row.isEditingFee
-        );
-      });
-    if (tableFilterKeyword.value) {
-      const kw = tableFilterKeyword.value.toLowerCase();
-      list = list.filter(
-        row =>
-          String(row.symbol).toLowerCase().includes(kw) ||
-          String(row.name).toLowerCase().includes(kw)
-      );
-    }
-    if (tableTypeFilter.value.length > 0)
-      list = list.filter(row => tableTypeFilter.value.includes(row.type));
-    return list;
-  }
-
-  /**
-   * link_group 合并（利息 + 税折叠为一条净额行）——分页与计数共用，保证两者一致。
+  /** 过滤 + 合并后的完整列表——分页切片与总条数的唯一来源
    *
-   * **只合并两行都没问题的情况**：任一行解析错、缺代码、待补全或金额对不上，
-   * 就各自原样展示。理由：合并行的 `_rowKey` 是合成的（`merged_<父行>`），
-   * 用户在修正面板里改它改不到真实数据（后端认的是原始行的 `_rowKey`）；
-   * 而且「这一组有问题」时用户必须看见是哪一行有问题，折起来只会多一次展开。
-   *
-   * 合并只发生在同步配对成功的息+税上（后端 `importer/linking.py` 打的组），
-   * 所以「合并 = 这组已经核对干净」这个前提是站得住的。
+   * 过滤口径（状态 + 子分类 + 问题开关 + 关键词 + 类型）见 previewPipeline.ts 的
+   * applyRowFilters；合并口径与「只合并两行都没问题」的理由见同文件的 mergeLinkGroups。
+   * 五个筛选键在此从 ref 展开成显式入参（#2876 增量 4b）——过滤函数从此不读任何
+   * Vue 运行时状态，单测直接喂行对象即可。
    */
-  function mergeLinkGroups(list: any[]): any[] {
-    const mergedList: any[] = [];
-    const processedGroupIds = new Set<string>();
-    for (const row of list) {
-      const groupId = row.link_group_id;
-      if (groupId && !processedGroupIds.has(groupId)) {
-        const groupRows = list.filter(r => r.link_group_id === groupId);
-        const healthy =
-          groupRows.length === 2 && groupRows.every(r => !hasFixProblem(r));
-        if (healthy) {
-          const interestRow =
-            groupRows.find(r => r.op_type !== "tax") || groupRows[0];
-          const taxRow =
-            groupRows.find(r => r.op_type === "tax") || groupRows[1];
-          const netAmount = (interestRow.amount || 0) + (taxRow.amount || 0);
-          const parentKey = `merged_${interestRow._rowKey}`;
-          const detailRows = groupRows.map(r => ({ ...r }));
-          mergedList.push({
-            ...interestRow,
-            _rowKey: parentKey,
-            amount: netAmount,
-            net_amount: netAmount,
-            is_merged: true,
-            children: detailRows,
-            notes: `税前${interestRow.amount?.toFixed(2)}元，扣税${Math.abs(taxRow.amount || 0).toFixed(2)}元，实收${netAmount.toFixed(2)}元`,
-            op_type_label: "利息收入"
-          });
-          processedGroupIds.add(groupId);
-        } else {
-          groupRows.forEach(r => mergedList.push(r));
-          processedGroupIds.add(groupId);
-        }
-      } else if (!groupId) mergedList.push(row);
-    }
-    return mergedList;
-  }
-
-  /** 过滤 + 合并后的完整列表——分页切片与总条数的唯一来源 */
   const filteredMergedData = computed(() =>
-    mergeLinkGroups(applyRowFilters(previewData.value))
+    mergeLinkGroups(
+      applyRowFilters(previewData.value, {
+        tableStatusFilter: tableStatusFilter.value,
+        activeCategoryFilter: activeCategoryFilter.value,
+        showProblemOnly: showProblemOnly.value,
+        tableFilterKeyword: tableFilterKeyword.value,
+        tableTypeFilter: tableTypeFilter.value
+      })
+    )
   );
 
   const filteredPagedData = computed(() => {
@@ -1136,11 +628,13 @@ export function useImportWizard() {
   const enrichingNav = ref(false);
 
   // 需要填充净值的基金记录：非货币，有代码，有日期，但净值或份额为空
+  // #2879：原条件里还有一条 `row.type !== "money_fund"`——上一行已把它钉成 'fund'，
+  // 这条永远为真（类型化后才暴露的死分支）。删掉不改变任何行为，留着只会让人
+  // 以为这里真的在排除货币基金。
   const fundRecordsForNav = computed(() => {
     return previewData.value.filter(
       row =>
         row.type === "fund" &&
-        row.type !== "money_fund" &&
         row.symbol &&
         row.symbol !== "__CASH__" &&
         row.trade_date &&
@@ -1176,7 +670,6 @@ export function useImportWizard() {
         previewData.value.forEach(row => {
           if (
             row.type === "fund" &&
-            row.type !== "money_fund" &&
             row.trade_date === date &&
             row.symbol &&
             symbols.includes(row.symbol)
@@ -1214,59 +707,13 @@ export function useImportWizard() {
   const filteredTotal = computed(() => filteredMergedData.value.length);
 
   // ── 辅助函数 ──
-  function getTemplateKeyForLedger(ledger: LedgerItem | null): string {
-    if (!ledger) return "";
-    switch (ledger.ledger_type) {
-      case "stock":
-        return "standard_stock";
-      case "fund":
-      case "cash":
-        return "standard_fund";
-      default:
-        return "";
-    }
-  }
-
   const lockedTemplateKey = computed(() =>
     getTemplateKeyForLedger(
       ledgers.value.find(l => l.id === selectedLedgerId.value) || null
     )
   );
 
-  function isRowBlocked(row: any): boolean {
-    if (row.is_cash_transfer || row.error || row.is_duplicate) return false;
-    // #2836：被配对消费的行不入账，自然不需要凑齐数量价格。真实交割单的
-    // 「股份转出」只有份额（110 张）、没有价格——不豁免的话它会被判「待补全」，
-    // 用户被迫去填一个根本用不到的单价。
-    if (row.consumed_by) return false;
-    // #2836：豁免清单收敛到 QTY_PRICE_OPTIONAL_OPS（原先是就地写死的 5 个 op_type，
-    // 加 bond_redeem 时漏改就会让「兑付无价格」被判待补全——而这已是常态）
-    if (QTY_PRICE_OPTIONAL_OPS.has(row.op_type)) return false;
-    if (row.type === "money_fund" || row.type === "reverse_repo") return false;
-    const qty = Number(row.quantity),
-      prc = Number(row.price);
-    return isNaN(qty) || qty <= 0 || isNaN(prc) || prc <= 0;
-  }
-
-  function formatFileSize(bytes: number): string {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-  }
-
-  function getFundTypeColor(typeName: string): string {
-    return fundTypeColorMap[typeName] || "var(--palette-stone-gray)";
-  }
-
-  function getTypeColor(type: string): string {
-    return typeColorMap[type] || "var(--palette-stone-gray)";
-  }
-
-  function addRowKeys(data: any[]) {
-    return data.map((item, idx) => ({ ...item, _rowKey: `row_${idx}` }));
-  }
-
-  function isRowSelected(row: any): boolean {
+  function isRowSelected(row: PreviewRow): boolean {
     return selectedKeys.value.has(row._rowKey);
   }
 
@@ -1277,27 +724,8 @@ export function useImportWizard() {
     validRowsCount.value = previewData.value.filter(isAutoSelectableRow).length;
   }
 
-  /**
-   * 「暂不导入」条数（#2836）——底栏「另有 N 条暂不导入」与「跳过这 N 条」按钮共用。
-   *
-   * 判据是 `!isAutoSelectableRow`（**默认不会被选中**），不是 `!isRowSelectable`：
-   * 疑似重复的行虽然默认不选，却允许用户手动勾上强制导入（#1882），
-   * 用「能不能勾」会把它们漏掉。这里要回答的是「点『跳过这些』会跳过哪些」。
-   *
-   * 为什么不再用 `duplicate + blocked + error` 加法：加法每加一类问题就得改一次，
-   * 而且**已经漏过一次**——实测底栏写「另有 168 条」，概览条写「需要修正 1 条 =
-   * 代码未匹配 1」，那 1 条既不在「已选择」里、也不在 168 里，凭空消失。
-   *
-   * 转账行与已忽略行不计入：前者勾不勾取决于「是否关联现金账户」，不是待修问题；
-   * 后者是用户主动做的决定，不该反复提醒。
-   */
-  const pendingFixCount = computed(
-    () =>
-      previewData.value.filter(
-        row =>
-          !row.is_cash_transfer && !row._ignored && !isAutoSelectableRow(row)
-      ).length
-  );
+  /** 「暂不导入」条数（#2836）：判据与三次漂移教训见 previewPipeline.ts 的 countPendingFix */
+  const pendingFixCount = computed(() => countPendingFix(previewData.value));
 
   /**
    * 底栏补数：未勾选条数 = 全部行 − 已选。
@@ -1316,13 +744,9 @@ export function useImportWizard() {
   );
 
   /** 已选行里的银证转账条数：让「已选择 169 条」自己说清转账在不在里面 */
-  const selectedTransferCount = computed(() => {
-    let n = 0;
-    previewData.value.forEach(row => {
-      if (row.is_cash_transfer && selectedKeys.value.has(row._rowKey)) n++;
-    });
-    return n;
-  });
+  const selectedTransferCount = computed(() =>
+    countSelectedTransfers(previewData.value, selectedKeys.value)
+  );
 
   function updateSelectAllState() {
     // 按成员判定，不用尺寸比较：#1791 放开疑似重复行的勾选后 selectedKeys.size
@@ -1406,16 +830,15 @@ export function useImportWizard() {
     setTimeout(() => (downloadLoading.value = false), 1500);
   }
 
+  /**
+   * #2904：这里原本还有一段「给 `.ledger-select-area .el-select` 加 600ms
+   * `ledger-select-flash` 类」的 DOM 操作，想在未选账户时闪一下提示。它两层都失效，且不可修：
+   * 账户选择搬到了第 0 步（`LedgerSelectStep`），`.ledger-select-area` 里现在只有
+   * 只读 el-tag + 「更换账户」按钮，`querySelector` 恒返回 null；而那个类全仓也没有 CSS 定义。
+   * 故一并删除（含只写不读的 `ledgerTouched`），只留下面这条兜底提示。
+   */
   function handleUploadClick() {
-    if (!selectedLedgerId.value) {
-      ElMessage.warning("请先选择交易所属账户");
-      const el = document.querySelector(".ledger-select-area .el-select");
-      if (el) {
-        el.classList.add("ledger-select-flash");
-        setTimeout(() => el.classList.remove("ledger-select-flash"), 600);
-      }
-      ledgerTouched.value = true;
-    }
+    if (!selectedLedgerId.value) ElMessage.warning("请先选择交易所属账户");
   }
 
   const uploadAccept = computed(() => {
@@ -1471,17 +894,17 @@ export function useImportWizard() {
         selectedMode.value,
         selectedLedgerId.value
       );
-      const rawData = (res as any).data ?? [];
+      const rawData = res.data ?? [];
       previewData.value = addRowKeys(rawData);
       totalRows.value = previewData.value.length;
-      duplicateCount.value = (res as any).duplicate_count ?? 0;
-      errorCount.value = (res as any).error_count ?? 0;
+      duplicateCount.value = res.duplicate_count ?? 0;
+      errorCount.value = res.error_count ?? 0;
       // #2854 行数对账：errors 曾经只写不读，未知操作名整行静默消失，
       // 连 total 都是「丢过行」的数。这里接住后端下发的明细与源文件行数。
-      sourceRowCount.value = (res as any).source_row_count ?? null;
-      parseErrors.value = (res as any).parse_errors ?? [];
-      parseErrorCount.value = (res as any).parse_error_count ?? 0;
-      ignoredRowCount.value = (res as any).ignored_row_count ?? 0;
+      sourceRowCount.value = res.source_row_count ?? null;
+      parseErrors.value = res.parse_errors ?? [];
+      parseErrorCount.value = res.parse_error_count ?? 0;
+      ignoredRowCount.value = res.ignored_row_count ?? 0;
 
       const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
       const defaultAlloc = ledger?.default_allocation || "longterm";
@@ -1491,43 +914,47 @@ export function useImportWizard() {
             ? row.account_name
             : ledger?.name || "";
         if (row.allocation == null) row.allocation = defaultAlloc;
-        if (
-          !isRowBlocked(row) &&
-          !row.is_cash_transfer &&
-          !row.error &&
-          !row.is_duplicate
-        ) {
-          const qty = parseFloat(row.quantity),
-            prc = parseFloat(row.price),
-            amt = parseFloat(row.amount);
-          if (
-            !isNaN(qty) &&
-            qty > 0 &&
-            (isNaN(prc) || prc <= 0) &&
-            !isNaN(amt)
-          ) {
-            row.price = parseFloat((amt / qty).toFixed(4));
-            row.smartFilled = true;
-          }
-        }
+        // 智能补价：#2903 起与 OCR 通道共用 smartFillPrice 的判据。
+        // 旧守卫 `!isRowBlocked && !is_cash_transfer && !row.error && !is_duplicate` 把
+        // 条件写反了——isRowBlocked 在「单价缺失」时恒为 true，与补价前提互斥，
+        // 于是该补的普通成交行一个没补、不该补的豁免类型（税额/兑付/分红）全补了。
+        fillSmartPrice(row);
       });
 
       previewData.value = [...previewData.value];
       recalcValidRowsCount();
       selectAllValid();
+      // 导入完整性取向（见 preselectTransferRows）：预览初始化即把已关联的
+      // 转账行勾上，否则 99 条转账默认漏导、对账必出孤儿（2026-11-08 实测）。
+      preselectTransferRows();
 
-      const warning = (res as any).compatibility_warning;
+      const warning = res.compatibility_warning;
       if (warning) {
-        await ElMessageBox.confirm(warning, "文件格式提醒", {
-          confirmButtonText: "继续导入",
-          cancelButtonText: "返回重选",
-          type: "warning"
-        })
-          .then(() => (currentStep.value = 2))
-          .catch(() => {
-            parsing.value = false;
-            return;
+        let confirmed = false;
+        try {
+          await ElMessageBox.confirm(warning, "文件格式提醒", {
+            confirmButtonText: "继续导入",
+            cancelButtonText: "返回重选",
+            type: "warning"
           });
+          confirmed = true;
+        } catch {
+          // 用户点「返回重选」：交给下面的放弃分支，不在这里 return
+        }
+        if (!confirmed) {
+          // #2901「返回重选」= 放弃本次导入。旧写法在 .catch 回调里 return，
+          // 只退出回调、退不出 handleUpload，于是照样落草稿并向上报成功。
+          // clearImportState() 会清空 previewData，使 hasUnsavedDraftWork 判假，
+          // 避免 30s 自动保存（2714-2728）把这份被放弃的草稿又写回去。
+          clearImportState();
+          // totalRows 不在 clearImportState 的重置清单里（它的另外 3 个调用点
+          // :1612/:1620/:1629 各自语义不同，本卡不扩大到那里），
+          // 这里单独归零，避免「已放弃的解析」留下一个行数残值。
+          totalRows.value = 0;
+          options.onError?.(new Error("用户取消导入") as UploadErrorPayload);
+          return;
+        }
+        currentStep.value = 2;
       } else {
         ElMessage.success(`解析完成，共识别 ${totalRows.value} 条记录`);
         currentStep.value = 2;
@@ -1535,9 +962,11 @@ export function useImportWizard() {
       // #1239 草稿层：进入预览步骤即保存草稿（含勾选状态，Set→数组序列化）
       await persistDraft();
       options.onSuccess(res);
-    } catch (e: any) {
+    } catch (e) {
       const errorMsg =
-        e?.response?.data?.message || e?.message || "文件解析失败";
+        backendMessageOf(e) ||
+        (e instanceof Error ? e.message : "") ||
+        "文件解析失败";
       uploadError.value = errorMsg;
       options.onError(e);
     } finally {
@@ -1581,7 +1010,7 @@ export function useImportWizard() {
     importing.value = true;
     try {
       const res = await confirmImportApi(rowsToImport);
-      const result = (res as any).data ?? {};
+      const result = res.data;
       importedCount.value = result.imported ?? 0;
       skippedCount.value = result.skipped ?? 0;
       cashTransfersCreated.value = result.cash_transfers_created ?? 0;
@@ -1597,8 +1026,8 @@ export function useImportWizard() {
       await discardDraft().catch(() => {});
       // #1789：导入已完成、无物可存——清脏标，避免结果页离开时误提示「未保存」
       draftDirty.value = false;
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "导入失败");
+    } catch (e) {
+      ElMessage.error(backendMessageOf(e) || "导入失败");
     } finally {
       importing.value = false;
     }
@@ -1782,20 +1211,6 @@ export function useImportWizard() {
    * 解析错误 / 数量价格缺失 / 资金划转 / 已忽略行不参与。
    * selectAllValid 与 toggleIgnoreRow 恢复分支共用，保证两处口径一致。
    */
-  function isAutoSelectableRow(row: any): boolean {
-    return (
-      !row.is_duplicate &&
-      !row.error &&
-      !isRowBlocked(row) &&
-      // #2836：代码未匹配的行没有产品可落，后端建不出持仓——默认勾上等于
-      // 让用户在「确认导入」之后才吃一次失败回执
-      !isMissingCode(row) &&
-      !row.is_cash_transfer &&
-      !row._ignored &&
-      // #2836：被消费的行勾了也白勾（后端跳过），默认不选才是诚实的选择
-      !row.consumed_by
-    );
-  }
 
   function selectAllValid() {
     const newKeys = new Set<string>();
@@ -1813,7 +1228,7 @@ export function useImportWizard() {
     isIndeterminate.value = false;
   }
 
-  function handleRowCheckboxChange(row: any, checked: boolean) {
+  function handleRowCheckboxChange(row: PreviewRow, checked: boolean) {
     if (checked) selectedKeys.value.add(row._rowKey);
     else selectedKeys.value.delete(row._rowKey);
     selectedKeys.value = new Set(selectedKeys.value);
@@ -1821,7 +1236,7 @@ export function useImportWizard() {
   }
 
   /** 逐行忽略：标记该行不参与导入（与整类跳过 skipCategory 互补，针对单行）；再点一次恢复 */
-  function toggleIgnoreRow(row: any) {
+  function toggleIgnoreRow(row: PreviewRow) {
     row._ignored = !row._ignored;
     if (row._ignored) {
       selectedKeys.value.delete(row._rowKey);
@@ -1836,12 +1251,11 @@ export function useImportWizard() {
     updateSelectAllState();
   }
 
-  async function fillNavForRecords(rows: any[]) {
+  async function fillNavForRecords(rows: PreviewRow[]) {
     // 过滤出需要净值的记录：非货币、有代码、有日期、缺少价格或份额
     const needed = rows.filter(
       row =>
         row.type === "fund" &&
-        row.type !== "money_fund" &&
         row.symbol &&
         row.symbol !== "__CASH__" &&
         row.trade_date &&
@@ -1907,7 +1321,7 @@ export function useImportWizard() {
   function makeUndoEntry(
     scope: FixUndoEntry["scope"],
     label: string,
-    rows: any[]
+    rows: PreviewRow[]
   ): FixUndoEntry {
     return {
       scope,
@@ -1923,7 +1337,11 @@ export function useImportWizard() {
       fixUndoStack.value.shift();
   }
 
-  function pushUndo(scope: FixUndoEntry["scope"], label: string, rows: any[]) {
+  function pushUndo(
+    scope: FixUndoEntry["scope"],
+    label: string,
+    rows: PreviewRow[]
+  ) {
     if (undoSuppressed) return;
     pushUndoEntry(makeUndoEntry(scope, label, rows));
   }
@@ -1947,7 +1365,7 @@ export function useImportWizard() {
   }
 
   // ── 批量修正 ──
-  async function batchFillCode(rows: any[], code: string) {
+  async function batchFillCode(rows: PreviewRow[], code: string) {
     if (!code.trim()) return ElMessage.warning("请输入有效的证券代码");
     pushUndo("code", `填充证券代码 ${code.trim()}`, rows);
     rows.forEach(r => (r.symbol = code.trim()));
@@ -1968,7 +1386,7 @@ export function useImportWizard() {
     ElMessage.success(`已为 ${rows.length} 条记录设置代码「${code}」`);
   }
 
-  async function batchFixAmount(rows?: any[]) {
+  async function batchFixAmount(rows?: PreviewRow[]) {
     // 默认目标 = mismatch 分区（旧实现读 row.problems，但全仓无写者，回退恒为空数组）
     const target = rows || fixSectionRows.value.mismatch;
     if (!target.length) return;
@@ -1986,7 +1404,7 @@ export function useImportWizard() {
     ElMessage.success(`已修正 ${target.length} 条记录的金额`);
   }
 
-  async function skipCategory(rows: any[]) {
+  async function skipCategory(rows: PreviewRow[]) {
     if (!rows.length) return;
     pushUndo("skip", `跳过 ${rows.length} 条记录`, rows);
     rows.forEach(row => selectedKeys.value.delete(row._rowKey));
@@ -2000,6 +1418,16 @@ export function useImportWizard() {
   /**
    * 自动填充缺失数量/价格（四分区之二）：可推算行的缺项 = 金额 ÷ 另一项；
    * 填充后解除阻塞的行自动勾选（对齐 finishEdit 的既有行为）。
+   *
+   * #2903：这是**用户显式点按钮**触发的第三条路径，与装载时的智能补价
+   * （`smartFillPrice.fillSmartPrice`）刻意不共用实现，两点理由：
+   * - 它还要处理**缺数量**方向（金额 ÷ 单价），而 `fillSmartPrice` 只补价；
+   * - 候选集来自 `isRowBlocked` 为真的行（`fixSectionRows.missingQtyPrice`），
+   *   豁免类型（tax / dividend / bond_redeem / money_fund / reverse_repo）天然不在其中，
+   *   排除面已等价，再套一层是重复判据。
+   *
+   * 反过来说：装载路径原先把 `!isRowBlocked` 当门禁，方向恰好写反——见
+   * `smartFillPrice.ts` 头注释。两处对同一个谓词的用法相反，是本卡的核心证据。
    */
   async function autoFillMissing() {
     const targets = autoFillableRows.value;
@@ -2033,7 +1461,7 @@ export function useImportWizard() {
 
   /** 逐条卡片的「应用」：写入草稿值，对侧仍缺失时按金额推算（smartFill 既有语义） */
   async function applyManualFill(
-    row: any,
+    row: PreviewRow,
     draft: { quantity?: string; price?: string }
   ) {
     const qty = parseFloat(draft.quantity ?? ""),
@@ -2070,6 +1498,23 @@ export function useImportWizard() {
   }
 
   /**
+   * #2902【恢复原始值】：把装载期补价退回用户上传时的原始单价。
+   *
+   * 刻意不入撤销栈（撤的是批量修正，不是解析期规范化，理由见 smartFillPrice.ts 头注释）。
+   * 恢复会让行重新变成「单价缺失」被拦，故必须同步撤勾选并重算统计，
+   * 否则底栏「已选择 N 条」会带着一条导不进去的行说谎。
+   */
+  function restoreOriginalPrice(row: PreviewRow): void {
+    if (!restoreSmartFilledPrice(row)) return;
+    if (isRowBlocked(row)) selectedKeys.value.delete(row._rowKey);
+    selectedKeys.value = new Set(selectedKeys.value);
+    recalcValidRowsCount();
+    updateSelectAllState();
+    previewData.value = [...previewData.value];
+    ElMessage.success("已恢复原始单价");
+  }
+
+  /**
    * 逆回购分区【撤销】（四分区之四）：撤的是解析期自动置的配置目标（活钱 → 长期增值）。
    * 类型识别本身是按代码模式（沪 204xxx / 深 1318xx）得出的解析事实，不提供撤销；
    * 用户手动改过的行（_allocationManual）不在撤销范围。
@@ -2093,7 +1538,7 @@ export function useImportWizard() {
   }
 
   /** 识别依据（【查看转换结果】展示用）：按代码前缀回溯解析期规则 */
-  function repoDetectBasis(row: any): string {
+  function repoDetectBasis(row: PreviewRow): string {
     const code = String(row.symbol || "");
     if (/^204\d{3}$/.test(code)) return "沪市 204 模式";
     if (/^1318\d{2}$/.test(code)) return "深市 1318 模式";
@@ -2207,7 +1652,7 @@ export function useImportWizard() {
    * 与 isAutoSelectableRow 的两处语义差异：本谓词允许重复行（卡片可勾），
    * 且转账行能否勾选取决于现金账户关联状态。
    */
-  function isRowSelectable(row: any): boolean {
+  function isRowSelectable(row: PreviewRow): boolean {
     // #2836：被配对规则消费的行不可勾——勾了后端也跳过，让复选框说谎不如直接禁用
     if (row.consumed_by) return false;
     if (row.error || row._ignored || isRowBlocked(row)) return false;
@@ -2254,6 +1699,8 @@ export function useImportWizard() {
     previewData.value = [...previewData.value];
     recalcValidRowsCount();
     selectAllValid();
+    // 补完代码 = 这些行要导入；转账行同理回到默认勾选态（与新预览一致）
+    preselectTransferRows();
     updateSelectAllState();
     showFixPanel.value = false;
     tableStatusFilter.value = "";
@@ -2282,7 +1729,10 @@ export function useImportWizard() {
     );
   }
 
-  function applyAllocationGroupSetting(group: any, allocation: string) {
+  function applyAllocationGroupSetting(
+    group: AllocationGroup,
+    allocation: string
+  ) {
     previewData.value.forEach(row => {
       if (
         row.is_duplicate ||
@@ -2302,7 +1752,7 @@ export function useImportWizard() {
     );
   }
 
-  function onRowAllocationChange(row: any) {
+  function onRowAllocationChange(row: PreviewRow) {
     row._allocationManual = true;
   }
 
@@ -2355,7 +1805,7 @@ export function useImportWizard() {
   }
 
   // ── 行编辑 ──
-  function startEdit(row: any, field: string) {
+  function startEdit(row: PreviewRow, field: EditField) {
     if (editingRowKey.value && editingRowKey.value !== row._rowKey) {
       saveAllEditingRows();
       closeAllEditing();
@@ -2375,7 +1825,7 @@ export function useImportWizard() {
     previewData.value = [...previewData.value]; // 新增
   }
 
-  function finishEdit(row: any, field: string, save: boolean = true) {
+  function finishEdit(row: PreviewRow, field: EditField, save: boolean = true) {
     const wasBlocked = isRowBlocked(row);
     if (!save) row[field] = row._oldValue;
     else {
@@ -2412,7 +1862,7 @@ export function useImportWizard() {
     updateSelectAllState();
   }
 
-  function cancelEdit(row: any, field: string) {
+  function cancelEdit(row: PreviewRow, field: EditField) {
     finishEdit(row, field, false);
   }
 
@@ -2446,63 +1896,6 @@ export function useImportWizard() {
     });
     editingRowKey.value = null;
     previewData.value = [...previewData.value]; // 新增
-  }
-
-  function getRowClassName({ row }: { row: any }) {
-    if (row.is_duplicate) return "row-duplicate";
-    if (row.error || isRowBlocked(row)) return "row-blocked";
-    return "";
-  }
-
-  function getCellClassName({ row, column }: { row: any; column: any }) {
-    const prop = column.property;
-    if (
-      prop === "quantity" &&
-      isRowBlocked(row) &&
-      !row.is_duplicate &&
-      !row.error
-    )
-      return "cell-blocked";
-    if (
-      prop === "price" &&
-      isRowBlocked(row) &&
-      !row.is_duplicate &&
-      !row.error
-    )
-      return "cell-blocked";
-    // cell-missing 随手续费列退场改挂金额列（#1790 列收敛，理由见 #1790 取舍说明）
-    if (prop === "amount" && isMissingAmount(row)) return "cell-missing";
-    // 差额被手续费解释：金额列给淡黄底提示。列收敛（#1790）下不新增手续费列，
-    // 解释线索改由金额列底色 + 该格 tooltip 承载（见 PreviewTable 的 amount slot）。
-    if (prop === "amount" && isFeeExplained(row)) return "cell-fee";
-    return "";
-  }
-
-  function getCategoryDesc(key: string): string {
-    const map: Record<string, string> = {
-      error: "解析错误，无法在面板内修正",
-      missingCode: "系统无法识别以下证券代码",
-      missingQtyPrice: "数量或价格缺失",
-      mismatch: "金额与数量×价格不符，且差额超过手续费"
-    };
-    return map[key] || "";
-  }
-
-  /**
-   * 分区条数 tag 的颜色档：按**问题性质**定档，不比条数。
-   *
-   * 旧实现按条数分档（>200 danger / >50 warning / >10 info / 其余 success），于是
-   * 「代码未匹配 5 条」被染成 success 绿——把「有问题、需处理」显示成「通过」。
-   * 条数只说明规模，不说明性质；5 条匹配失败和 500 条一样不可导入。
-   *
-   * 现口径与状态列三态同源：阻断（不可导入）= danger，可导入但需留意 = warning。
-   */
-  function getCategoryTagType(
-    key: string
-  ): "danger" | "warning" | "success" | "info" {
-    if (key === "error" || key === "missingQtyPrice") return "danger";
-    if (key === "missingCode" || key === "mismatch") return "warning";
-    return "info";
   }
 
   function isCategoryActive(key: string): boolean {
@@ -2539,15 +1932,15 @@ export function useImportWizard() {
         getLedgers(),
         getSalesInstitutions()
       ]);
-      ledgers.value = (res as any).data ?? [];
+      ledgers.value = res.data ?? [];
       salesInstitutionsForImport.value = instRes?.data ?? [];
     } catch (e) {
       console.error(e);
     }
   }
 
-  function getMissingRowsByType(rows: any[], type: string) {
-    return rows.filter((r: any) => r.type === type);
+  function getMissingRowsByType(rows: PreviewRow[], type: string) {
+    return rows.filter(r => r.type === type);
   }
 
   function resetNewLedgerForm() {
@@ -2597,7 +1990,7 @@ export function useImportWizard() {
    */
   const cashBindingBannerDismissed = ref(false);
   const hasCashTransferRows = computed(() =>
-    previewData.value.some((r: any) => r.is_cash_transfer)
+    previewData.value.some(r => r.is_cash_transfer)
   );
 
   /** 引导态：有转账行、未关联现金账户 */
@@ -2636,7 +2029,7 @@ export function useImportWizard() {
    * 保证「按钮处理的行数 == 卡片上写的行数」。疑似重复的转账行归 duplicate 卡、
    * 不在作用域内：#1882 定下「重复行要导需手动勾」，批量入口不能替用户做这个决定。
    */
-  function transferToggleRows(): any[] {
+  function transferToggleRows(): PreviewRow[] {
     return previewData.value.filter(
       row => row.is_cash_transfer && categorizeRow(row) === "complete"
     );
@@ -2666,24 +2059,86 @@ export function useImportWizard() {
     updateSelectAllState();
   }
 
-  /** 在步骤3 横幅内直接关联现金账户并落库 */
-  async function linkCashAccount() {
+  /**
+   * 转账行默认勾选（2026-11-08 取向变更，取代 #2281 的「默认不勾」）。
+   *
+   * 用户立场是「导入即完整」：转账行不进账，证券账户的资金流就断在那里，
+   * 对账必然出「钱不知道从哪来/去」的孤儿。默认勾选的前置条件是已关联现金
+   * 账户（反向流水有地方落）；作用域与 transferToggleRows 同一谓词
+   * （转账行 && 归「数据完整」卡），疑似重复的转账行仍归 duplicate 卡、
+   * 留给用户手动决定（#1882 语义不变）。
+   *
+   * 实现是**幂等补齐**而非复用 toggleAllTransferRows 的翻转：翻转无法区分
+   * 「从未勾过」与「用户刚取消了一条」，会把显式取消覆盖掉。四个挂载时点
+   * （handleUpload / OCR 预览 / onMatchComplete / linkCashAccount 落库后）
+   * 中前三个本就跟随 selectAllValid 的「回到默认态」语义，第四个时点转账行
+   * 此前不可勾、不存在用户取消过的情况——补齐在此都安全。
+   * 批量动作（表头全选 / importNormalOnly）不勾转账行的 #2281 语义保持不变。
+   */
+  function preselectTransferRows() {
+    if (!selectedLedgerLinkedCash.value) return;
+    const rows = transferToggleRows();
+    if (!rows.length) return;
+    if (rows.every(r => selectedKeys.value.has(r._rowKey))) return;
+    const next = new Set(selectedKeys.value);
+    rows.forEach(r => next.add(r._rowKey));
+    selectedKeys.value = next;
+    updateSelectAllState();
+  }
+
+  /**
+   * 在步骤3 横幅内直接关联现金账户并落库。
+   *
+   * 落库前确认（2026-11-08）：默认勾选转账行后，关联错账本的代价从「转账没导」
+   * 升级为「N 条反向流水写进错误账本」——这是关联动作唯一不可靠的地方，必须在
+   * 写库前让用户看见条数与后果。取消即回退（清空下拉选择），不落库。
+   *
+   * skipConfirm：横幅里「+ 新建现金账户」链路（createLedger → 自动关联）传入——
+   * 用户刚亲手填完账户名创建，等于刚确认过一次身份，再弹同一问题是打断。
+   */
+  async function linkCashAccount(
+    options: { skipConfirm?: boolean } = {}
+  ): Promise<void> {
     if (!selectedLedgerId.value || !bannerCashLedgerId.value) return;
+    const cashId = bannerCashLedgerId.value;
+    const cashName =
+      ledgers.value.find(l => l.id === cashId)?.name || `#${cashId}`;
+    const transferCount = transferToggleRows().length;
+    if (!options.skipConfirm) {
+      const detail =
+        transferCount > 0
+          ? `本次导入有 ${transferCount} 条银证转账，确认后默认勾选导入，并会在「${cashName}」自动生成 ${transferCount} 条对应流水。如果关联错了账本，这些流水会记错地方——请确认「${cashName}」就是这笔券商资金实际的现金账户。`
+          : `本次导入暂无可导入的转账行，关联仅决定转账行能否勾选与后续导入的反向流水落点。`;
+      try {
+        await ElMessageBox.confirm(detail, `关联现金账户「${cashName}」`, {
+          confirmButtonText: "确认关联",
+          cancelButtonText: "再想想",
+          type: "warning"
+        });
+      } catch {
+        // 用户取消：清掉下拉选择回到未选态，横幅引导态原样保留
+        bannerCashLedgerId.value = null;
+        return;
+      }
+    }
     try {
       await updateLedgerApi(selectedLedgerId.value, {
-        linked_cash_ledger_id: bannerCashLedgerId.value
+        linked_cash_ledger_id: cashId
       });
       await fetchLedgers();
+      // 引导态横幅里现关联的场景：关联落库后转账行从「禁用」变「可勾」，
+      // 同样按默认态处理——立刻补勾，否则用户关联完还得自己找 131 行去点
+      preselectTransferRows();
       ElMessage.success("已关联现金账户");
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "关联失败");
+    } catch (e) {
+      ElMessage.error(backendMessageOf(e) || "关联失败");
     }
   }
 
   async function createLedger() {
     const name = newLedgerName.value.trim();
     if (!name) return;
-    const payload: any = { name };
+    const payload: Parameters<typeof createLedgerApi>[0] = { name };
     // #1101：统一以 channel_category 为创建入参（后端据其派生 ledger_type）。
     // 旧代码把渠道分组值当 ledger_type 下发，会命中后端「ledger_type→channel_category」
     // 的向后兼容回退映射（仅认 bank/stock/fund/property/e_account/family），产生错误类型。
@@ -2702,7 +2157,7 @@ export function useImportWizard() {
       payload.default_allocation = newLedgerAllocation.value;
     try {
       const res = await createLedgerApi(payload);
-      const ledger = (res as any).data;
+      const ledger = res.data;
       const newId = ledger?.id;
       const newType = ledger?.ledger_type;
       await fetchLedgers();
@@ -2718,14 +2173,15 @@ export function useImportWizard() {
         // 步骤3（预览）：现场新建现金账户，自动回填进横幅并落库
         if (newType === "bank") {
           bannerCashLedgerId.value = newId;
-          await linkCashAccount();
+          // skipConfirm：账户名是用户刚填的，身份已确认过一次（见 linkCashAccount）
+          await linkCashAccount({ skipConfirm: true });
         }
         ElMessage.success(`已创建现金账户「${name}」`);
       } else {
         ElMessage.success(`已创建账户「${name}」`);
       }
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "添加失败");
+    } catch (e) {
+      ElMessage.error(backendMessageOf(e) || "添加失败");
     }
   }
 
@@ -2927,7 +2383,6 @@ export function useImportWizard() {
     orphanCount,
     importing,
     parsing,
-    uploading,
     fileSize,
     editingRowKey,
     newLedgerAllocation,
@@ -2954,9 +2409,9 @@ export function useImportWizard() {
     dismissCashBindingBanner,
     transferRowsAllSelected,
     toggleAllTransferRows,
+    preselectTransferRows,
     completeTransferCount,
     linkCashAccount,
-    ledgerTouched,
     activeCategoryFilter,
     downloadLoading,
     currentPage,
@@ -2991,7 +2446,6 @@ export function useImportWizard() {
     selectedTransferCount,
     // #2836：默认勾选谓词（= selectAllValid 的判据），供测试与「暂不导入」共用
     isAutoSelectableRow,
-    isDragover,
     selectedLedgerName,
     ledgerType,
     ledgerTypeLabel,
@@ -3029,6 +2483,7 @@ export function useImportWizard() {
     undoLastFix,
     autoFillMissing,
     applyManualFill,
+    restoreOriginalPrice,
     revertRepoAllocation,
     errorSummary,
     filteredPagedData,
@@ -3045,6 +2500,7 @@ export function useImportWizard() {
     onAiRowsFound,
     fetchAndFillFundNav,
     confirmAllCalculated,
+    // #2876 增量 2：展示/格式化 helper 已下沉到 ./importPresentation，以下名字继续经返回值导出，组件与 spec 零感知。
     getTemplateKeyForLedger,
     isRowBlocked,
     // 共谓词（#1791）：卡片计数 / 分区 / 表格过滤 / 回归测试共用同一判据
@@ -3056,6 +2512,12 @@ export function useImportWizard() {
     // #2836：状态标签判据（composables/statusKind.ts）需要它——「代码未匹配」
     // 是 fix 分类里最容易漏配标签的一档，行本身字段齐全，漏了就会显示成「正常」
     isMissingCode,
+    // #2876 增量 1：以下原组合式内联常量/谓词已下沉至 ./previewPredicates，
+    // 此处继续随返回值导出，消除任何隐藏消费者风险（行为零变化）。
+    taxTotalOf,
+    hasFixProblem,
+    QTY_PRICE_OPTIONAL_OPS,
+    AMOUNT_INDEPENDENT_OPS,
     formatFileSize,
     getFundTypeColor,
     getTypeColor,

@@ -49,23 +49,10 @@ import { type LedgerItem } from "@/api/ledger";
 import { updatePosition } from "@/api/positions";
 import { updateAsset } from "@/api/assets";
 import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
-
-interface LedgerHoldingRow {
-  id: number;
-  symbol?: string;
-  name?: string | null;
-  asset_type?: string;
-  type_label?: string;
-  market_value?: number;
-  pnl?: number;
-  pnl_rate?: number;
-  avg_price?: number;
-  current_price?: number;
-  allocation?: string | null;
-  allocation_label?: string;
-  quantity?: number;
-  account_name?: string;
-}
+// #2931（D87）：本组件原有一份**手抄**的 `LedgerHoldingRow`（14 个字段，缺
+// `holding_days` / `price_date` / `settled_today` / `portfolio_id`），与父 composable
+// 里的真定义各走各的——后端加字段时它不会跟着报错，属静默漂移。改为引用唯一真源。
+import type { LedgerHoldingRow } from "@/composables/ledger/types";
 
 const props = defineProps<{
   ledgerId: string;

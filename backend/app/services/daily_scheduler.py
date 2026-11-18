@@ -86,6 +86,7 @@ from app.core.jitter import apply_jitter, random_gap, resolve_jitter_seconds
 from app.core.time_utils import today_shanghai
 from app.core.trading_calendar import calendar_coverage, calendar_covers, is_trading_day
 from app.models.sync_log import SyncLog
+from app.services.local_checks import LocalCheckSpec, build_checks, describe_checks, register_checks
 
 # ── 环境变量名（集中在此，便于 .env.example 与文档对齐） ──────────────────
 
@@ -278,6 +279,8 @@ class DailySchedulerConfig:
     skip_non_trading_day: bool
     run_on_start: bool
     startup_delay_seconds: int
+    # 本地巡检（#3078）：与 `jobs` 并列，但**不是** SyncJob，准入判据见 `local_checks`。
+    checks: Tuple[LocalCheckSpec, ...] = ()
     lock_file: Path = DEFAULT_LOCK_FILE
 
     def job_names(self) -> List[str]:
@@ -468,14 +471,14 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         None,
         '可转债条款 + 集思录强赎计数（#1393 的列依赖它；#1400）',
     ),
-    # 分红送股（#1179）：target_kind=None —— 事件型数据（分红/送股公告），
-    # 按 import_hash 幂等去重，重跑不产生重复行。
+    # 分红送股（#1179 / #3073）：target_kind=('fund','stock') —— `_fetch_data` 按标的逐只
+    # 抓公告，收到空池就一次都不循环；此前配 None 让它 27 次执行 27 次 total=0 空转。
     (
         'dividend_split',
         ENV_DIVIDEND_SPLIT_ENABLED,
         ENV_DIVIDEND_SPLIT_CRON,
         DEFAULT_DIVIDEND_SPLIT_CRON,
-        None,
+        ('fund', 'stock'),
         '分红 / 送股事件（akshare 公告口径，按 import_hash 幂等；#1179）',
     ),
     (
@@ -531,6 +534,13 @@ _NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
         '随 temperature（20:00 内联）/ 手动补跑',
     ),
     'stock_list': ('全库列表型：单次调用即换全市场股票列表，日变更量极小', '月度 / 手动'),
+    # 定向补录只补「流水里有、名录里没有」的几只（0.04~0.25s/只）。缺口从「用户导入 /
+    # 建仓」那一刻才产生，导入成功后已由 securities_catalog 立即补过一轮，日常进调度
+    # 绝大多数时候缺口为空 = 每天空跑；名录全量刷新是 stock_list 的事，两者范围正交。
+    'securities_backfill': (
+        '按缺口定向补录，导入成功后已异步触发；缺口为空时无事可做，进每日调度只换来空跑',
+        '导入后自动触发 / 手动',
+    ),
     'fund_list': ('全库列表型：同上；且东财/天天源对全库频抓敏感（限流）', '月度 / 手动'),
     'fund_detail_enrich': ('逐只详情（基金经理/费率/持仓等），成本高、日变更量小', '月度'),
     'fund_manager': ('基金经理任期变更，季报级披露', '季度 / 事件驱动'),
@@ -632,6 +642,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> DailySchedulerConfig
         skip_non_trading_day=_truthy(source.get(ENV_SKIP_NON_TRADING_DAY), True),
         run_on_start=_truthy(source.get(ENV_RUN_ON_START), True),
         startup_delay_seconds=_int_or(source.get(ENV_STARTUP_DELAY), DEFAULT_STARTUP_DELAY_SECONDS),
+        checks=build_checks(source),
     )
 
 
@@ -960,6 +971,9 @@ class DailyScheduler:
                 replace_existing=True,
             )
 
+        # 巡检的注册细节（cron / id / 为何不受休市跳过）在 `local_checks`：本模块只管起停。
+        register_checks(scheduler, tzinfo, self.config.checks)
+
         if self.config.run_on_start:
             # 启动补跑：应用一起就开始更新（当天已过点却没成功时），而不是干等到明天
             run_date = datetime.now(tzinfo) + timedelta(seconds=self.config.startup_delay_seconds)
@@ -1113,6 +1127,7 @@ def describe_status(config: Optional[DailySchedulerConfig] = None) -> List[str]:
                     f'今日触发={fire.strftime("%H:%M") if fire else "不触发"} '
                     f'上次成功={last.strftime("%Y-%m-%d %H:%M") if last else "无记录"}  {spec.description}'
                 )
+            lines.extend(describe_checks(db, resolved.checks, now))
     except Exception as exc:  # noqa: BLE001 - 只读命令，DB 不可用时降级提示
         lines.append(f'  · 读取 sync_logs 失败（数据库不可用？）：{exc}')
 

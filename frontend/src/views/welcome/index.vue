@@ -8,11 +8,13 @@
       :welcome-state="welcomeState"
       :has-unread="hasUnread"
       :unread-count="unreadCount"
+      :unread-banner="unreadBanner"
       :user-title="userTitle"
       :greeting-text="greetingText"
       :record-days="recordDays"
       :ticker-index="tickerIndex"
       :current-home-message="currentHomeMessage"
+      @mark-read="markUnreadRead"
     />
 
     <!-- ===== 第一排：最新收益卡（2026-11-03 用户拍板：hero 换成当日收益） ===== -->
@@ -52,13 +54,21 @@
     <!-- ===== 第四排：财务晴雨表 + 心理账户（统一 12 列栅格 + 等宽右栏） ===== -->
     <WelcomeFinanceFeed
       :home-feed="homeFeed"
-      :mental-accounts="mentalAccounts"
+      :mental-account-view="mentalAccountView"
+      :loading="mentalAccountLoading"
+      :error="mentalAccountError"
+      :financial-health-view="financialHealthView"
+      :health-loading="healthLoading"
+      :health-error="healthError"
+      @retry="fetchDistributions"
+      @retry-health="fetchFinancialHealth"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import WelcomeGreeting from "./components/WelcomeGreeting.vue";
 import WelcomeAssetBoard from "./components/WelcomeAssetBoard.vue";
@@ -82,6 +92,8 @@ const {
   userTitle,
   hasUnread,
   unreadCount,
+  unreadBanner,
+  markUnreadRead,
   tickerIndex,
   currentHomeMessage,
   startTicker,
@@ -90,12 +102,19 @@ const {
   temperatureConclusion,
   bandPillStyle,
   homeFeed,
-  mentalAccounts,
+  mentalAccountView,
+  mentalAccountLoading,
+  mentalAccountError,
+  financialHealthView,
+  healthLoading,
+  healthError,
+  fetchFinancialHealth,
   fetchSummary,
   fetchXirr,
   fetchTemperature,
   fetchRecordStats,
   fetchUnreadNotifications,
+  fetchDistributions,
   summaryError,
   xirrError,
   retryAssetLoad
@@ -111,6 +130,14 @@ const onRetryAsset = async () => {
   await retryAssetLoad();
 };
 
+// 记账 / 导入等写操作完成后，汇总与年化不能停在上一轮数字；
+// 五笔钱分布同理——在账户页录一笔现金回来，首页不该还显示上一轮的空档。
+usePageRefresh(() => {
+  void retryAssetLoad();
+  void fetchDistributions();
+  void fetchFinancialHealth();
+});
+
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
 onMounted(() => {
   fetchSummary();
@@ -118,6 +145,11 @@ onMounted(() => {
   fetchTemperature();
   fetchRecordStats();
   fetchUnreadNotifications();
+  // 心理账户卡唯一数据源（#3115 D4）；与上面几个并行，不排在汇总之后
+  fetchDistributions();
+  // 财务晴雨表四项（#3165）：summary 由 fetchSummary 并行拉取，类现金占比
+  // 的分母在摘要返回后由 computed 补上，不需等待顺序。
+  void fetchFinancialHealth();
   startTicker();
 });
 </script>

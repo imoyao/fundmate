@@ -505,6 +505,9 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # 个股/可转债 → 行业映射（#1981）。随 securities 同域：公开证券主数据，
     # 无家庭私有字段，且 penetration 读它时要与 securities / price_history 同会话。
     'security_industry_maps': DOMAIN_MARKET,
+    # 申购代码 → 上市代码 别名表（打新中签建仓用，#打新折叠器第二阶段）。随 securities
+    # 同域：公开证券参考数据，无家庭私有字段，且解析落库时与 securities / positions 同会话。
+    'security_code_aliases': DOMAIN_MARKET,
     'market_single_values': DOMAIN_MARKET,
     'market_composites': DOMAIN_MARKET,
     'market_multi_items': DOMAIN_MARKET,
@@ -527,6 +530,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # 读取（先取键列表再 in_ 批查），不做跨域 JOIN；funds.company_id 仍由 market 域独占写权。
     'fund_company_observations': DOMAIN_USER,
     'assets': DOMAIN_USER,  # 静态资产（含 family_id）
+    'asset_value_events': DOMAIN_USER,  # 单资产值变动事件（D99/D100）：含 family_id，与 assets 同库同域
     'sales_institutions': DOMAIN_USER,  # 销售机构名录（被 ledgers 引用，随 user 域）
     'watchlist': DOMAIN_USER,
     'watchlist_groups': DOMAIN_USER,
@@ -534,10 +538,12 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'watchlist_tag_defs': DOMAIN_USER,
     'watchlist_item_tags': DOMAIN_USER,
     'watchlist_alerts': DOMAIN_USER,
+    'watchlist_alert_settings': DOMAIN_USER,
     'cleared_positions': DOMAIN_USER,
     'strategy_tags': DOMAIN_USER,
     'position_strategy_tags': DOMAIN_USER,
     'dividend_targets': DOMAIN_USER,  # 家庭股息目标（#872）：用户私有配置，一家庭一条
+    'family_financial_plans': DOMAIN_USER,  # 家庭财务规划（晴雨表 v2）：含 family_id，一家庭一条
     'notifications': DOMAIN_USER,  # 站内通知（#2236）：含 family_id，家庭级消息盒
     'target_allocations': DOMAIN_USER,  # 目标配比（#2237）：含 family_id，用户自定的目标占比
     'asset_snapshots': DOMAIN_USER,
@@ -550,6 +556,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
     'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
     'ghost_duplicate_ignores': DOMAIN_USER,  # 幽灵重复忽略（域 D；FamilyScopedMixin 含 family_id）
+    'dividend_tax_acks': DOMAIN_USER,  # 红利税「确认无需记账」（域 E；FamilyScopedMixin 含 family_id）
     'entitlements': DOMAIN_USER,  # 家庭级 Pro 功能权益（含 family_id，随 user 域）
     'recurring_plans': DOMAIN_USER,  # 定投计划（#2138）：含 family_id、外键引 ledgers（同 user 域）
 }
@@ -773,6 +780,71 @@ def _apply_sqlite_pragmas(engine: Engine) -> None:
         cursor.close()
 
 
+def _apply_sqlite_write_begin(engine: Engine) -> None:
+    """本地 SQLite：让**写事务一开始就拿写锁**（``BEGIN IMMEDIATE``），消除 WAL 下
+    「读快照升写锁」的瞬时 ``database is locked``。
+
+    ## 现象（2026-11-09 实测，日志 `backend/logs/fundmate_2026-11-09.log`）
+
+    dev 单库（market 与 user 域同一个 ``invest.db``）+ 进程内调度 + 导入期间派发的
+    ``services/async_backfill`` 回填线程共写一个文件时，**导入确认会随机整批失败**：
+
+        sqlite3.OperationalError: database is locked
+        [SQL: DELETE FROM pnl_daily_snapshots WHERE pnl_daily_snapshots.family_id = ?]
+
+    调用链固定在 ``importer.orchestrator_commit.commit`` 的逐条
+    ``with self.db.begin_nested()`` 内：SAVEPOINT → 去重 / 查持仓等 SELECT → 首次写
+    （该 DELETE 来自 ``pnl_snapshot_store._before_flush``）。
+
+    ## 机制（为什么 busy_timeout 救不了）
+
+    WAL 下事务一旦**读过**就持有快照；期间别的连接提交了写，SQLite 无法把这个读快照
+    升级成写锁，直接返回 ``SQLITE_BUSY_SNAPSHOT``（消息同样是 ``database is locked``）
+    ——**busy handler 不被调用**，``timeout=30`` 形同虚设。实测（``timeout=30``）：
+    SAVEPOINT → SELECT → 他人 commit → DELETE，0.001s 即失败；改成 IMMEDIATE 开始后，
+    同样的并发变成「排队等锁」，由 busy_timeout 正常兜住。
+
+    ## 两段各自负责什么（缺一不可）
+
+    1. ``isolation_level='IMMEDIATE'``：pysqlite 的隐式 BEGIN 由 DEFERRED 改为
+       IMMEDIATE。凡以 DML 开头的事务，一开始就排队拿写锁，顺带消掉「BEGIN 与首条
+       写语句之间被人插队」的窗口。
+    2. ``savepoint`` 事件补 ``BEGIN IMMEDIATE``：``session.begin_nested()`` 在**没有**
+       DBAPI 事务时是直接发 ``SAVEPOINT`` 的（不触发 pysqlite 的隐式 BEGIN），而 SQLite
+       对 SAVEPOINT 自己起的是 **DEFERRED** 事务——正是导入逐条处理那条路径，第 1 段
+       管不到。该事件在 SAVEPOINT 语句发出**之前**触发（见
+       ``Connection._savepoint_impl``），此刻补 BEGIN IMMEDIATE，整条 SAVEPOINT 事务
+       就都持写锁。
+
+    ## 刻意不做的
+
+    - **不动读路径**：SELECT 仍不 BEGIN，只读请求之间照旧并发，不因本改动被串行化。
+    - **不碰 DDL / PRAGMA**：``PRAGMA``、``CREATE/DROP/ALTER`` 都不是 DML，不触发隐式
+      BEGIN；``migrations.py`` 的 ``PRAGMA foreign_keys=OFF`` 仍在事务外生效（在事务内
+      执行该 PRAGMA 是静默 no-op，会毁掉重建表流程，这条必须守住）。
+    - **不适用于 Turso / Postgres**：只挂本地 SQLite（调用点见 ``build()``）。
+
+    ## 代价
+
+    写者被串行化到「同一时刻一个写事务」——这本就是 SQLite 的单写者模型，改动只是把
+    「事后撞锁」换成「事前排队」。因此**事务里不要放网络调用**：持锁时间等于事务时长，
+    长事务会把别的写者堵到 timeout。
+    """
+
+    @event.listens_for(engine, 'connect')
+    def set_immediate_isolation(dbapi_connection, connection_record):
+        # pysqlite 只在**隐式 BEGIN** 时读这个值（DML 前的 BEGIN 由它发出），
+        # 故 SELECT / PRAGMA / DDL 依旧不进事务，读并发与迁移语义都不受影响。
+        dbapi_connection.isolation_level = 'IMMEDIATE'
+
+    @event.listens_for(engine, 'savepoint')
+    def begin_write_before_savepoint(conn, name):
+        """SAVEPOINT 之前补 BEGIN IMMEDIATE（此时 SQLAlchemy 的 BEGIN 是逻辑的，DBAPI 还没有事务）。"""
+        dbapi_connection = conn.connection.dbapi_connection
+        if not getattr(dbapi_connection, 'in_transaction', False):
+            conn.exec_driver_sql('BEGIN IMMEDIATE')
+
+
 class DatabaseFactory:
     """按数据域构建并缓存 engine 的工厂。
 
@@ -824,6 +896,9 @@ class DatabaseFactory:
         # 仅本地 SQLite 需要 PRAGMA（按 URL 判断，避免 libsql / Postgres 误用）
         if _needs_sqlite_pragmas(url):
             _apply_sqlite_pragmas(engine)
+            # 写事务以 BEGIN IMMEDIATE 开始：否则 WAL 下「读快照升写锁」会立即
+            # 返回 database is locked，busy_timeout 不生效（见该函数 docstring）。
+            _apply_sqlite_write_begin(engine)
         return engine
 
     @classmethod
@@ -832,10 +907,52 @@ class DatabaseFactory:
 
         任一域都保证返回可用引擎：user 域未配 Supabase 时自动回退本地 SQLite，
         因此本地开发 / 测试零配置即可双库模拟。
+
+        **同一份库只保留一个 engine**（见 :meth:`_reuse_engine_for_same_url`）：
+        两个 engine 指向同一个 SQLite 文件时，一个 Session 会为两个域各占用一条连接，
+        而它们争的是同一把文件写锁——`BEGIN IMMEDIATE` 下这是**自锁**（2026-11-09
+        导入确认在 `BEGIN IMMEDIATE` 上等满 30s 报 locked 即此形态）。
         """
         if domain not in cls._engines:
-            cls._engines[domain] = cls.build(domain, env)
+            engine = cls.build(domain, env)
+            shared = cls._reuse_engine_for_same_url(engine, domain)
+            if shared is not None:
+                engine.dispose()  # 尚未建连，换成已有那个即可
+                engine = shared
+            cls._engines[domain] = engine
         return cls._engines[domain]
+
+    @classmethod
+    def _reuse_engine_for_same_url(cls, engine: Engine, domain: str) -> Optional[Engine]:
+        """已有 engine 与本 engine 指向同一 URL 时返回它（否则 ``None``）。
+
+        为什么按 URL 而不是按域：本地单库模式下 ``DatabaseConfig.for_app`` 与
+        ``for_user`` 都解析到 ``sqlite:///./invest.db``——物理上就是同一个库。
+        分别建两个 engine 只会让「同一逻辑事务」横跨两条连接：写入端持有写锁、
+        另一端就再也拿不到（SQLite 的写锁是**按文件**的，不认线程），等满
+        ``busy_timeout`` 后报 ``database is locked``。复用同一个 engine 后，
+        Session 按 engine 取连接 ⇒ 一个事务只有一条连接，`BEGIN IMMEDIATE` 的
+        「一开始就拿写锁」才是安全的。
+
+        生产不受影响：Turso（market）与 Supabase（user）URL 不同，仍各自一个 engine。
+        非 Engine 对象（测试里用哨兵 mock ``create_engine`` 的场景）一律跳过。
+        """
+        if not isinstance(engine, Engine):
+            return None
+        url = str(engine.url)
+        for other_domain, other in cls._engines.items():
+            if other is None or other is engine or not isinstance(other, Engine):
+                continue
+            if str(other.url) != url:
+                continue
+            logger.info(
+                '域 {} 与已缓存的 {} 解析到同一数据库 {}，复用同一 engine（避免同一事务跨连接争写锁）',
+                domain,
+                other_domain,
+                url,
+            )
+            return other
+        return None
 
     @classmethod
     def reset(cls) -> None:

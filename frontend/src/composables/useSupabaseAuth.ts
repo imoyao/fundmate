@@ -1,3 +1,4 @@
+import { errorStatusOf } from "@/utils/errorMessage";
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessageBox, ElMessage } from "element-plus";
@@ -200,9 +201,9 @@ export function useSupabaseAuth() {
             import_hash: exploreHash
           });
         }
-      } catch (e: any) {
+      } catch (e) {
         // 已在自选中 → 跳过不算失败；其余记入失败
-        if (e?.response?.status === 409) {
+        if (errorStatusOf(e) === 409) {
           skipped++;
         } else {
           failed.push(h.symbol);

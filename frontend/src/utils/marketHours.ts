@@ -73,3 +73,19 @@ export function shouldFetchRealtimeQuotes(params: {
 }): boolean {
   return params.isTradingDay && isWithinTradingWindow(params.now);
 }
+
+/**
+ * 是否已收盘（交易日 15:00 之后，端点外开）。
+ *
+ * 用途：盘后「收盘快照」取数——交易日 15:00 后取一次已确认价
+ * （股票收盘价 / 基金官方净值），注入实时通道供「当日盈亏」列展示真实值，
+ * 但**不轮询、不点亮交易态**。仅判时钟；交易日判定由调用方先拿到
+ * （与 `shouldFetchRealtimeQuotes` 同一纪律，不在此自己猜日历）。
+ *
+ * 端点：`15:00:00` 仍视作盘中（同 `isWithinTradingWindow`），`15:00:01` 起才算收盘。
+ * 开盘前（< 9:30）返回 false：盘前数据与上一交易日收盘同源，无需重复快照。
+ */
+export function isAfterTradingClose(now: Date): boolean {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  return minutes > TRADING_WINDOW_END_MINUTE;
+}

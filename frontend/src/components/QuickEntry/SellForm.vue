@@ -23,7 +23,7 @@
 
     <template v-if="form.positionId">
       <!-- 1. 交易日期 -->
-      <el-form-item label="交易日期" prop="trade_date">
+      <el-form-item :label="TRADE_FIELD_LABELS.tradeDate" prop="trade_date">
         <div class="flex items-center gap-3 w-full">
           <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
                `:class` 落不到 DOM（曾用 `showIsAfter15 ? 'flex-1' : 'w-full'`）。 -->
@@ -63,43 +63,31 @@
       />
 
       <!-- 3. 卖出价格（仅股票显示） -->
-      <el-form-item v-if="form.type !== 'fund'" label="卖出价格" prop="price">
+      <el-form-item
+        v-if="form.type !== 'fund'"
+        :label="TRADE_FIELD_LABELS.price"
+        prop="price"
+      >
         <el-input-number
           v-model="form.price"
           style="width: 100%"
           :controls="false"
           :min="0"
-          :step="0.01"
-          :precision="2"
-          placeholder="卖出价格"
+          :precision="priceInput.precision"
+          :step="priceInput.step"
         />
         <span class="text-xs text-gray-500 mt-1"
           >默认为成本价，可按实际成交价修改</span
         >
       </el-form-item>
 
-      <!-- 4. 卖出费用（纯金额模式） -->
-      <template v-if="form.type === 'fund'">
-        <el-form-item label="卖出费用" prop="fee">
-          <div class="flex flex-col gap-2 w-full">
-            <div class="flex items-center gap-3 w-full">
-              <el-input-number
-                v-model="form.fee"
-                class="flex-1"
-                :controls="false"
-                :precision="2"
-                :min="0"
-                placeholder="输入手续费金额"
-                @change="onFeeManualChange"
-              />
-              <el-button @click="openFeeRateDialog">查询费率</el-button>
-            </div>
-          </div>
-          <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-            按持仓天数自动匹配费率，可手动修改
-          </div>
-        </el-form-item>
-      </template>
+      <!-- 4. 卖出费用（全品种；基金可查费率，股票/ETF 按券商实收填） -->
+      <SellFeeField
+        v-model:fee="form.fee"
+        :type="form.type"
+        @fee-manual-change="onFeeManualChange"
+        @open-rate-dialog="openFeeRateDialog"
+      />
 
       <!-- 5. 对应净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
       <TradeNavPriceRow
@@ -118,7 +106,7 @@
     </template>
 
     <!-- 备注 -->
-    <el-form-item label="备注">
+    <el-form-item :label="TRADE_FIELD_LABELS.notes">
       <el-input
         v-model="form.notes"
         type="textarea"
@@ -162,22 +150,27 @@ import {
   checkPriceInRange
 } from "@/composables/useSecurityPrice";
 import { disabledTradeDate } from "@/utils/date";
+import { priceInputMeta } from "@/utils/pricePrecision";
+import { TRADE_FIELD_LABELS } from "@/constants";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import SellPositionField from "./components/SellPositionField.vue";
 import SellQuantityField from "./components/SellQuantityField.vue";
+import SellFeeField from "./components/SellFeeField.vue";
 import SellFeeRateDialog from "./components/SellFeeRateDialog.vue";
 import TradeNavPriceRow from "./components/TradeNavPriceRow.vue";
 import { defaultSellForm } from "./sellFormModel";
 import { buildSellPayload } from "./sellFormPayload";
 import { createSellRules } from "./sellFormRules";
+import type { LedgerItem } from "@/api/ledger";
+import type { Position } from "@/api/types";
 import { useSellPositions } from "./composables/useSellPositions";
 import { useSellFee } from "./composables/useSellFee";
 import { useSellNavSync } from "./composables/useSellNavSync";
 import { useSellFormActions } from "./composables/useSellFormActions";
 
 const props = defineProps<{
-  ledgers: any[];
+  ledgers: LedgerItem[];
   hideAccountSelect?: boolean;
   defaultLedgerId?: number | null;
 }>();
@@ -193,10 +186,14 @@ const positionSelectKey = ref(0);
 const showPositionSelect = ref(true);
 const form = reactive(defaultSellForm());
 const formRef = ref<FormInstance>();
-const selectedPosition = ref<any>(null);
+const selectedPosition = ref<Position | null>(null);
 
 // 交易日期禁用规则收敛到 utils/date（#1835）
 const disabledDate = disabledTradeDate;
+
+// 卖出价位数 / 步进按品种最小报价单位（股票 2 位、可转债·ETF 3 位）。写死 2 位时
+// el-input-number 边输边四舍五入，可转债成交价 116.036 会被改成 116.04（#3120）。
+const priceInput = computed(() => priceInputMeta(form.type));
 
 // 账户 → 持仓 → 可卖量 / 步长 / 快捷档位
 const {

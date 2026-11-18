@@ -42,6 +42,8 @@ import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import PnlEstimateLine from "@/components/PnlEstimateLine/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
+import { ESTIMATE_DISCLAIMER } from "@/composables/usePositionValuation";
 import {
   getAdvisorPlatformLabel,
   isCompositeAssetType
@@ -85,6 +87,13 @@ export interface DerivedValue {
   value: number | null;
   /** 辅比例（%），null 表示不展示比例行（而非显示 0.00%） */
   ratio: number | null;
+  /**
+   * 确认态（仅当日盈亏列有意义）：
+   * - `estimated`：用的是盘中估值（股票实时价 / 基金估算净值 GSZ）→ 挂「估」徽章；
+   * - `confirmed`：用的是今日已确认价（股票收盘价 / 基金已公布净值）→ 不挂徽章；
+   * - null：算不出 → 单元格渲染 `—`。
+   */
+  status?: "confirmed" | "estimated" | null;
 }
 
 /** 渲染上下文：承载页面级状态与方法（避免 renderer 直接耦合大组件） */
@@ -101,9 +110,16 @@ export interface RenderCtx {
    * renderer 不直接依赖 groups composable。
    */
   groupNames: Record<number, string>;
-  /** 派生计算列的取值函数（注入 index.vue 的 addedReturnAmount 等） */
+  /**
+   * 派生计算列的取值函数（注入 index.vue / useWatchlistTable 的 addedReturnAmount 等）。
+   *
+   * ⚠️ `todayEstimate` 与 `yesterdayPnl` 必须是**两个** kind（2026-11-05 拆列）：
+   * 前者只在实时行情有效时有值、盘中随轮询跳动；后者恒为已确认真实值。共用一个
+   * kind 就会退回「拿昨天的值冒充今天」的老问题，而且编译期不会报错——只能靠
+   * 类型与命名把这条边界钉死。
+   */
   derived: (
-    kind: "addedReturn" | "marketValue" | "dayPnl",
+    kind: "addedReturn" | "marketValue" | "todayEstimate" | "yesterdayPnl",
     row: WatchlistRow
   ) => DerivedValue;
   /** 打开标签编辑弹窗（product 列 add-tag 按钮） */
@@ -440,21 +456,52 @@ const renderMoneyRatio: FunctionalComponent<{
   if (def.derived) {
     const d = ctx.derived(def.derived, row);
     const isMarketValue = def.derived === "marketValue";
-    return h(MoneyWithRatio, {
-      value: d.value,
-      ratio: d.ratio,
-      moneySize: "sm",
-      // 持仓市值：金额是余额不是涨跌 → 不带 +/- 号、保留 ¥ 符号
-      // 添加后收益 / 当日盈亏：都是真盈亏 → 带 +/- 号、不带 ¥
-      showSign: !isMarketValue,
-      showCurrency: isMarketValue,
-      // 「持仓市值」的比例是市值占比（恒为正的仓位权重），非涨跌语义：必须中性色，
-      // 且不带 +/- 号（showRatioSign 默认 true 会让 RiseFallText 拼出无意义的「+」，#2209）；
-      // 「添加后涨幅」「当日盈亏」的 % 是真涨跌，保留符号与默认涨红跌绿
-      // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
-      ratioAutoColor: !isMarketValue,
-      showRatioSign: !isMarketValue
-    });
+    // 「当日盈亏」仅估值态挂「估」徽章：已确认真实值 / 无值不挂。
+    const showEstimateBadge =
+      def.derived === "todayEstimate" &&
+      d.status === "estimated" &&
+      (d.value != null || d.ratio != null);
+
+    const money = h(
+      MoneyWithRatio,
+      {
+        value: d.value,
+        ratio: d.ratio,
+        moneySize: "sm",
+        // 持仓市值：金额是余额不是涨跌 → 不带 +/- 号、保留 ¥ 符号
+        // 添加后收益 / 当日盈亏 / 昨日盈亏：都是真盈亏 → 带 +/- 号、不带 ¥
+        showSign: !isMarketValue,
+        showCurrency: isMarketValue,
+        // 「持仓市值」的比例是市值占比（恒为正的仓位权重），非涨跌语义：必须中性色，
+        // 且不带 +/- 号（showRatioSign 默认 true 会让 RiseFallText 拼出无意义的「+」，#2209）；
+        // 「添加后涨幅」「当日盈亏」「昨日盈亏」的 % 是真涨跌，保留符号与默认涨红跌绿
+        // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
+        ratioAutoColor: !isMarketValue,
+        showRatioSign: !isMarketValue
+      },
+      showEstimateBadge
+        ? {
+            // 「估」徽章作为前缀渲染在金额数字之前（与金额同行，不再独占一行）；
+            // 仅估值态挂（已确认真实值 / 无值不挂），复用 ValuationSourceBadge(status="estimated")，
+            // 免责 tooltip 走 ESTIMATE_DISCLAIMER 单一出口。
+            prefix: () =>
+              h(
+                ElTooltip,
+                { content: ESTIMATE_DISCLAIMER, placement: "top" },
+                {
+                  default: () =>
+                    h(ValuationSourceBadge, {
+                      status: "estimated",
+                      tip: ESTIMATE_DISCLAIMER,
+                      size: "sm"
+                    })
+                }
+              )
+          }
+        : {}
+    );
+
+    return money;
   }
   // 直接字段列（持仓收益）：value=def.key, ratio=props.ratioKey
   const value = Number(field(row, def.key)) || 0;

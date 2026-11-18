@@ -43,6 +43,133 @@
   border-radius: 8px;
 }
 
+/* ===== 未读站内信提示条（WelcomeGreeting 状态三，v1.5） =====
+   刻意做成纯文字行：它承载 1 条弱提醒，视觉权重必须低于下方 24px 的记账天数。
+   不加底色/边框的另一个理由见 soft-banner.md §2——「纯文字行」不属于柔性提示条家族。 */
+:deep(.welcome-unread) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+}
+
+:deep(.welcome-unread__line) {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+/* 图标最弱一档：它是识别符号，不是信息本身 */
+:deep(.welcome-unread__icon) {
+  flex: none;
+  font-size: var(--text-small);
+  color: var(--text-tertiary-ink);
+}
+
+:deep(.welcome-unread__text) {
+  display: flex;
+  min-width: 0;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 数字提一档，其余说明文字保持次级——层次：图标 < 说明 < 数字 */
+:deep(.welcome-unread__count) {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* 消息标题可能到 120 字：单行截断，完整内容在展开区 */
+:deep(.welcome-unread__title) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 「查看 / 收起」文字按钮。
+   ⚠️ 必须显式写 background/border：本仓未引 Tailwind Preflight（tailwind.css 只
+   import theme + utilities），reset.scss 对 button 只重置了 background-image，
+   UA 的灰底 + 2px outset 边框会原样露出来——这正是 v1.4 里那个丑陋按钮的成因。 */
+:deep(.welcome-unread__action) {
+  flex: none;
+  padding: 0;
+  font-size: var(--text-small);
+  color: var(--brand-ink);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+:deep(.welcome-unread__action:hover) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+:deep(.welcome-unread__action:focus-visible) {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+/* 展开区：左缩进与上方文字对齐（图标 14px + gap 8px） */
+:deep(.welcome-unread__detail) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: 22px;
+}
+
+:deep(.welcome-unread__body) {
+  max-width: 640px;
+  font-size: var(--text-small);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+:deep(.welcome-unread__meta) {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+:deep(.welcome-unread__ops) {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+:deep(.welcome-unread__op) {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--text-label);
+  color: var(--brand-ink);
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease;
+}
+
+:deep(.welcome-unread__op--muted) {
+  color: var(--text-secondary);
+}
+
+:deep(.welcome-unread__op:hover) {
+  background: var(--bg-hover);
+}
+
+:deep(.welcome-unread__op:focus-visible) {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+:deep(.welcome-unread__op:disabled) {
+  cursor: default;
+  opacity: 0.5;
+}
+
 /* 顶部消息播报轮动过渡 */
 :deep(.ticker-fade-enter-active),
 :deep(.ticker-fade-leave-active) {

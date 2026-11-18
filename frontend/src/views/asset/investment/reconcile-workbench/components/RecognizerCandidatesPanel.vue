@@ -37,7 +37,7 @@
       <el-table-column label="名称" prop="name" min-width="120" />
       <el-table-column label="操作" width="90">
         <template #default="{ row }">
-          {{ (row as any).op_type_label || row.op_type }}
+          {{ row.op_type_label || row.op_type }}
         </template>
       </el-table-column>
       <el-table-column label="数量" prop="quantity" width="100" align="right" />

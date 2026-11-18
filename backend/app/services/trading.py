@@ -13,6 +13,8 @@
 
 from sqlalchemy.orm import Session
 
+from app.domains.transactions.dates import prepare_write_kwargs
+from app.domains.transactions.ledger_guard import validate_ledger_ref
 from app.domains.transactions.models import Transaction
 
 # ---------- 规则配置 ----------
@@ -76,14 +78,8 @@ def validate_buy(symbol: str, market: str, asset_type: str, order_qty: float) ->
 
 
 def validate_sell(symbol: str, market: str, asset_type: str, total_hold: float, order_qty: float) -> tuple[bool, str]:
-    """
-    卖出数量校验。
-    :param asset_type:
-    :param market:
-    :param symbol:
-    :param total_hold: 总持仓数量（份额，可带小数）
-    :param order_qty: 本次卖出数量（份额，可带小数）
-    """
+    """卖出数量校验：持仓上限只在这里管（买入校验不得卷入持仓量，见 validate_buy）；
+    整手 / 最小单位规则由 `_get_rule` 提供，碎股只能一次性清仓。"""
     if order_qty <= 0:
         return False, '卖出数量必须大于0'
     if order_qty > total_hold:
@@ -128,9 +124,14 @@ class TransactionService:
     def create(db: Session, **kwargs) -> Transaction:
         """构造并添加流水到会话，由调用方统一提交。
 
+        写入收敛点（唯一构造汇点，全仓 16 处调用）在
+        `domains/transactions/dates.prepare_write_kwargs`：只兜底 trade_date（#2914）。
+        #2875 撤销的是「ledger_id 为空即报错」的硬拦（手工建仓 / API 的 NULL 合法）；
+        本次只校验**非空**的 id 必须存在且属于本家庭，两者不冲突。
         source（#1232 决策 11）：可选，透传到 Transaction.source（复用 PositionSource）。
-        缺省 None（存量未标记来源语义）。记一笔/对账补录/交易导入由汇点层按场景传入。
         """
+        validate_ledger_ref(db, kwargs.get('ledger_id'), kwargs.get('family_id'))
+        prepare_write_kwargs(kwargs)
         txn = Transaction(**kwargs)
         db.add(txn)
         return txn

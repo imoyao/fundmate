@@ -1,5 +1,6 @@
 import { watch, type Ref } from "vue";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
+import type { Position } from "@/api/types";
 
 interface SellNavForm {
   trade_date: string;
@@ -19,7 +20,7 @@ interface SellNavForm {
  */
 export function useSellNavSync(deps: {
   form: SellNavForm;
-  selectedPosition: Ref<any>;
+  selectedPosition: Ref<Position | null>;
 }) {
   const { form, selectedPosition } = deps;
   const {

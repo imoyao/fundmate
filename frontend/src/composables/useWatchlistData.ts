@@ -1,126 +1,28 @@
 import { ref, computed, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
-import {
-  getWatchlistItems,
-  updateWatchlistItem,
-  deleteWatchlistItem,
-  removeItemFromGroup,
-  addItemToGroup,
-  type WatchlistItem
-} from "@/api/watchlist";
+import { storeToRefs } from "pinia";
+import { ElMessage } from "element-plus";
+import { getWatchlistItems, type WatchlistItem } from "@/api/watchlist";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
-import { localForage } from "@/utils/localforage";
+import { useWatchlistRowActions } from "@/composables/watchlist/useWatchlistRowActions";
 import {
   sortRowsForClient,
   type ClientSortKey,
   type ClientSortOrder
 } from "@/views/asset/watchlist/clientSort";
+import type { SortMetric } from "@/views/asset/watchlist/sortMetric";
 import {
-  DEFAULT_SORT_METRIC,
-  normalizeSortMetric,
-  type SortMetric
-} from "@/views/asset/watchlist/sortMetric";
-
-/** 每页条数可选档位（issue #1335）：与后端 per_page 限幅 [1,200] 对齐，不超出范围 */
-export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
-const PAGE_SIZE_STORAGE_KEY = "watchlist-page-size";
-const DEFAULT_PAGE_SIZE = 20;
+  PAGE_SIZE_OPTIONS,
+  useWatchlistPrefsStore
+} from "@/store/modules/watchlistPrefs";
 
 /**
- * 每页条数偏好（issue #1335）：纯前端本地持久化（localforage），不落数据库——
- * 跨设备同步依赖后端 user_preferences 基建，本期不做（见 issue 关联说明）。
- * 模块级单例：自选页与设置抽屉共享同一份状态，且只从本地加载一次。
+ * 每页条数与复合列排序口径已下沉到 `store/modules/watchlistPrefs`（#2922）：
+ * 二者是**跨挂载点共享**的本地视图偏好（自选页表格 + 设置抽屉同一份），
+ * 原先以模块级单例住在本文件顶层，属于「状态归属说不清」的技术债。
+ * 此处 re-export 保持既有导入路径可用（`useWatchlistData` 的调用方无需改）。
  */
-const pageSize = ref(DEFAULT_PAGE_SIZE);
-// 记忆化「加载本地每页条数」Promise：多个挂载点（自选页 + 设置抽屉）并发调用 initPageSize 时，
-// 共享同一次加载，避免第二个挂载点在首个 await 完成前即返回、用默认 20 发起首屏请求，
-// 随后被记忆值（如 50）覆盖导致「数据按 20 拉取、分页器按 50 显示」的短暂不一致。
-let pageSizeLoadPromise: Promise<void> | null = null;
-
-async function loadPageSize(): Promise<void> {
-  try {
-    const saved = await localForage().getItem<number>(PAGE_SIZE_STORAGE_KEY);
-    if (
-      typeof saved === "number" &&
-      (PAGE_SIZE_OPTIONS as readonly number[]).includes(saved)
-    ) {
-      pageSize.value = saved;
-    }
-  } catch {
-    /* 读取失败按默认处理 */
-  }
-}
-
-function persistPageSize(): void {
-  localForage()
-    .setItem<number>(PAGE_SIZE_STORAGE_KEY, pageSize.value)
-    .catch(() => {
-      /* 持久化失败不影响会话内生效（IndexedDB 不可用时库内部降级 localStorage） */
-    });
-}
-
-/**
- * 复合列的排序口径（按列 key 记忆，2026-10-30 二次优化）。
- *
- * 三个复合列各有各的两行数（当日盈亏：金额/涨幅；持仓市值：金额/占比；
- * 持仓收益：金额/收益率），故记忆的是 `{ [列 key]: SortMetric }` 而不是单个值——
- * 首版只服务当日盈亏，用的是单值 ref，扩到三列后必须按列存，否则切一列会把
- * 另一列的口径一起改掉。
- *
- * 纯本地记忆（与 pageSize 同模式，不上云）：它是「我怎么看这张表」的偏好，
- * 跨设备同步的价值低于实现成本；服务端的 user_preferences 里也还没有这一项。
- * 模块级单例：表头徽标与数据层共享同一份，切换即时生效。
- */
-const SORT_METRICS_STORAGE_KEY = "watchlist-sort-metrics";
-/** 首版的单值键（只存当日盈亏，取值 amount/pct）：读一次做迁移，之后不再写 */
-const LEGACY_DAY_PNL_METRIC_STORAGE_KEY = "watchlist-day-pnl-metric";
-const sortMetrics = ref<Record<string, SortMetric>>({});
-let sortMetricsLoadStarted = false;
-
-async function loadSortMetrics(): Promise<void> {
-  if (sortMetricsLoadStarted) return;
-  sortMetricsLoadStarted = true;
-  try {
-    const saved = await localForage().getItem<Record<string, unknown>>(
-      SORT_METRICS_STORAGE_KEY
-    );
-    const next: Record<string, SortMetric> = {};
-    if (saved && typeof saved === "object") {
-      for (const [key, raw] of Object.entries(saved)) {
-        const metric = normalizeSortMetric(raw);
-        if (metric) next[key] = metric;
-      }
-    }
-    // 迁移：老用户存过「按涨幅排序」，不读旧键会静默回落成「按金额」
-    if (!next.day_pnl) {
-      const legacy = await localForage().getItem<unknown>(
-        LEGACY_DAY_PNL_METRIC_STORAGE_KEY
-      );
-      const migrated = normalizeSortMetric(legacy);
-      if (migrated) next.day_pnl = migrated;
-    }
-    sortMetrics.value = next;
-  } catch {
-    /* 读取失败按默认（金额，与列主行一致） */
-  }
-}
-
-/** 取某列的当前口径；未存过 → 金额（与列主行一致） */
-function sortMetricOf(key: string): SortMetric {
-  return sortMetrics.value[key] ?? DEFAULT_SORT_METRIC;
-}
-
-function setSortMetric(key: string, metric: SortMetric): void {
-  if (sortMetricOf(key) === metric) return;
-  // 换新对象而不是改属性：引用变化让读它的 computed（整组排序）稳定重算
-  sortMetrics.value = { ...sortMetrics.value, [key]: metric };
-  localForage()
-    .setItem(SORT_METRICS_STORAGE_KEY, sortMetrics.value)
-    .catch(() => {
-      /* 持久化失败不影响本次会话 */
-    });
-}
+export { PAGE_SIZE_OPTIONS };
 
 /**
  * 自选列表「数据 + 分页 + 筛选 + 行操作 + 批量」编排逻辑（从 watchlist/index.vue 抽离，2026-08-20）。
@@ -162,8 +64,13 @@ export function useWatchlistData(
     batchMoveGroupId
   } = toolbar;
 
+  // 跨挂载点共享的本地偏好（每页条数 / 复合列口径）由 store 持有（#2922）；
+  // 本 composable 只用它的 ref 参与 watch 与模板，值本身不进本文件。
+  const prefs = useWatchlistPrefsStore();
+  const { pageSize, sortMetrics } = storeToRefs(prefs);
+
   // 口径偏好首屏前恢复（幂等；失败静默回默认「金额」）
-  void loadSortMetrics();
+  void prefs.loadSortMetrics();
 
   const loading = ref(false);
   const items = ref<WatchlistItem[]>([]);
@@ -400,26 +307,28 @@ export function useWatchlistData(
 
   /**
    * 首屏前加载本地每页条数偏好（#1335），确保第一次 fetch 即使用已记忆的档位。
-   * 幂等：返回记忆化的加载 Promise，所有调用方（自选页、设置抽屉等挂载点）等待同一次加载完成，
-   * 避免并发挂载点时第二个调用方提前返回、用默认档位发起首屏请求而产生短暂不一致。
+   * 幂等由 store 内部保证（记忆化的加载 Promise），此处只做转发。
    */
-  async function initPageSize(): Promise<void> {
-    if (!pageSizeLoadPromise) {
-      pageSizeLoadPromise = loadPageSize();
-    }
-    return pageSizeLoadPromise;
+  function initPageSize(): Promise<void> {
+    return prefs.initPageSize();
   }
 
   /** 切换每页条数（#1335）：记忆选择 → 回到第一页 → 重新拉取。
-   *  仅接受预定义档位，越界值回退默认，避免与后端 per_page 限幅 [1,200] 冲突。 */
+   *  档位归一（越界回退默认、拒绝重复档位）在 store 里判；此处只负责「变了才刷新」。 */
   function setPageSize(size: number) {
-    const allowed = PAGE_SIZE_OPTIONS as readonly number[];
-    const next = allowed.includes(size) ? size : DEFAULT_PAGE_SIZE;
-    if (next === pageSize.value) return;
-    pageSize.value = next;
-    persistPageSize();
+    if (!prefs.changePageSize(size)) return;
     currentPage.value = 1;
     fetchData();
+  }
+
+  /** 取某列的当前口径（转发 store；未存过 → 金额，与列主行一致） */
+  function sortMetricOf(key: string): SortMetric {
+    return prefs.sortMetricOf(key);
+  }
+
+  /** 切某列口径（转发 store；持久化与引用替换在 store 内完成） */
+  function setSortMetric(key: string, metric: SortMetric): void {
+    prefs.setSortMetric(key, metric);
   }
 
   /** 搜索防抖：输入 300ms 后重置分页并刷新 */
@@ -450,74 +359,33 @@ export function useWatchlistData(
   // 行内操作（置顶 / 特别关注 / 移除）
   // ─────────────────────────────────────────────
 
-  /** 虚拟持仓行（id=null）无自选记录，置顶操作无意义，直接跳过 */
+  /**
+   * 行内与批量操作已下沉到 `watchlist/useWatchlistRowActions`（#2931，D88）：
+   * 子域**没有** `fetchData`，只返回「是否已写库」信号；刷新一律由本文件发起
+   * ⇒ 刷新出口唯一，不会出现「操作自己刷一次 + 别处又刷一次」。下面这些同名
+   * wrapper 就是那唯一出口（页面与 `useWatchlistTable` 的接线零改动）。
+   */
+  const rowActions = useWatchlistRowActions(
+    { activeCustomGroupId, currentIsCustom },
+    { batchMode, selectedItems, batchMoveGroupId }
+  );
+
+  /** 置顶 / 取消置顶 */
   async function handleTogglePin(row: WatchlistItem) {
-    if (row.id == null) return;
-    try {
-      await updateWatchlistItem(row.id, { is_pinned: !row.is_pinned });
-      ElMessage.success(row.is_pinned ? "已取消置顶" : "已置顶");
-      fetchData();
-    } catch (e) {
-      ElMessage.error("置顶操作失败");
-      console.error("置顶错误：", e);
-    }
+    if (await rowActions.togglePin(row)) fetchData();
   }
 
-  /** 虚拟持仓行（id=null）无自选记录，特别关注操作无意义，直接跳过 */
+  /** 特别关注 / 取消特别关注 */
   async function handleToggleFavorite(row: WatchlistItem) {
-    if (row.id == null) return;
-    try {
-      await updateWatchlistItem(row.id, { favorite: !row.favorite });
-      ElMessage.success(row.favorite ? "已取消特别关注" : "已设为特别关注");
-      fetchData();
-    } catch (e) {
-      ElMessage.error("关注操作失败");
-      console.error("关注错误：", e);
-    }
+    if (await rowActions.toggleFavorite(row)) fetchData();
   }
 
-  const removingItem = ref<WatchlistItem | null>(null);
-  const removeScope = ref<"all" | "current">("all");
-  const removeDialogVisible = ref(false);
+  const { confirmRemove, removingItem, removeScope, removeDialogVisible } =
+    rowActions;
 
-  /** 点击移除：记录待移除项并弹确认框；虚拟持仓行直接跳过 */
-  function confirmRemove(row: WatchlistItem) {
-    if (row.id == null) return;
-    removingItem.value = row;
-    // 默认范围按**用户所在视图**分流（用户心智模型：在哪个视图里点的移除，就先做那个视图
-    // 对应的移除）——自定义分组内默认「仅从当前分组移除」；系统分组/全部视图没有
-    // 「当前分组」可言，默认彻底删除。破坏性的「从所有分组移除并删除」必须由用户显式改选
-    // （弹窗内另有警示文案，双保险，见 WatchlistRemoveDialog）。
-    removeScope.value = currentIsCustom.value ? "current" : "all";
-    removeDialogVisible.value = true;
-  }
-
-  /** 执行移除：从当前分组移除（仅自定义分组）或彻底删除自选 */
+  /** 执行移除（弹窗确认后） */
   async function executeRemove() {
-    const item = removingItem.value;
-    if (!item || item.id == null) return;
-    try {
-      if (removeScope.value === "current" && activeCustomGroupId.value) {
-        await removeItemFromGroup(item.id, activeCustomGroupId.value);
-        ElMessage.success("已从当前分组移除");
-      } else {
-        // 防御性闸门：持仓资产禁止彻底删除（持仓即自选 #1458，删除无意义）。
-        // 正常路径已被两层 UI 挡住——系统分组视图操作列按钮禁用、自定义分组视图
-        // 弹窗「从所有分组移除并删除」单选禁用；这里兜底防止状态残留或未来复用
-        // 本函数的新入口绕过两层 UI 直接删。
-        if (item.status === "HOLDING") {
-          ElMessage.warning("持仓资产无法从自选彻底删除，请先处理持仓");
-          return;
-        }
-        await deleteWatchlistItem(item.id);
-        ElMessage.success("已移除自选");
-      }
-      removeDialogVisible.value = false;
-      fetchData();
-    } catch (e) {
-      ElMessage.error("移除操作失败");
-      console.error("移除错误：", e);
-    }
+    if (await rowActions.executeRemove()) fetchData();
   }
 
   /** 行内标签编辑：无自选记录（id 为 null，如草稿态/聚合虚拟行）给出提示而非静默无反应；
@@ -551,76 +419,17 @@ export function useWatchlistData(
   }
 
   // ─────────────────────────────────────────────
-  // 批量操作
+  // 批量操作（写库与批量态收尾在子域，刷新同样只在这里发起）
   // ─────────────────────────────────────────────
 
-  function handleSelectionChange(selection: WatchlistItem[]) {
-    selectedItems.value = selection;
-  }
+  const { handleSelectionChange } = rowActions;
 
   async function handleBatchDelete() {
-    if (selectedItems.value.length === 0) return;
-    // 持仓资产不可彻底删除（持仓即自选 #1458，删除无意义）：与单行移除按钮、
-    // executeRemove 的闸门保持一致——批量删除同样跳过持仓行并明示数量，
-    // 否则「单行拦得住、批量拦不住」，语义分裂（虚拟持仓行 id=null 本就不可删，一并过滤）。
-    const deletable = selectedItems.value.filter(
-      (item): item is WatchlistItem & { id: number } =>
-        item.id != null && item.status !== "HOLDING"
-    );
-    const holdingCount = selectedItems.value.length - deletable.length;
-    if (deletable.length === 0) {
-      ElMessage.warning(
-        selectedItems.value.some(item => item.status === "HOLDING")
-          ? "选中的均为持仓资产，无法从自选彻底删除，请先处理持仓"
-          : "选中的自选资产缺少主键，无法删除，请刷新后重试"
-      );
-      return;
-    }
-    try {
-      await ElMessageBox.confirm(
-        holdingCount > 0
-          ? `确定要移除选中的 ${deletable.length} 个自选资产吗？` +
-              `（持仓资产 ${holdingCount} 个不可删除，将跳过）`
-          : `确定要移除选中的 ${deletable.length} 个自选资产吗？`,
-        "批量移除",
-        { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
-      );
-      for (const item of deletable) {
-        try {
-          await deleteWatchlistItem(item.id);
-        } catch {
-          /* ignore */
-        }
-      }
-      ElMessage.success("批量移除完成");
-      batchMode.value = false;
-      selectedItems.value = [];
-      fetchData();
-    } catch {
-      /* 用户取消 */
-    }
+    if (await rowActions.batchDelete()) fetchData();
   }
 
   const handleBatchMoveToGroup = async (groupId: number | null | undefined) => {
-    if (!groupId || selectedItems.value.length === 0) return;
-    try {
-      // 虚拟持仓行（id=null）无自选记录，不可移动，过滤后仅对真实自选行发起请求
-      const promises = selectedItems.value
-        .filter(
-          (item): item is WatchlistItem & { id: number } => item.id != null
-        )
-        .map(item => addItemToGroup(item.id, groupId));
-      await Promise.all(promises);
-      ElMessage.success(
-        `已将 ${selectedItems.value.length} 个资产移动到所选分组`
-      );
-      batchMoveGroupId.value = undefined;
-      batchMode.value = false;
-      selectedItems.value = [];
-      fetchData();
-    } catch {
-      ElMessage.error("批量移动失败");
-    }
+    if (await rowActions.batchMoveToGroup(groupId)) fetchData();
   };
 
   /** 导出：沿用当前筛选条件打开后端导出端点 */

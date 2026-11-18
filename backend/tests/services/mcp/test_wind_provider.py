@@ -143,10 +143,15 @@ def test_every_registered_tool_is_a_real_upstream_tool():
         'get_index_kline',
         'get_index_basicinfo',
         'get_index_technicals',
-        # #1502 步骤 1：EDB 双工具在 2026-10-25 真机 tools/list 实测确认（精确指标名
+        # #1502 步骤 1：EDB 双工具 2026-11-16 经 market_search_tools 复核（精确指标名
         # 逐行业查换手率走这条路）。仍守「只许登记实测过的工具名」这条判据。
-        'search_economic_indicator',
-        'query_economic_indicator_data',
+        #
+        # 教训：本白名单 2026-10-25 曾按 tools/list 抄成 search_economic_indicator /
+        # query_economic_indicator_data —— 但数据工具**不在 tools/list 里**（它们是
+        # market_call_tool 的入参），抄来的名字与实现一起错，等于给「上游改名」发了
+        # 合格证。正确来源是 market_search_tools 的返回；改工具名必须两边一起改。
+        'economic_search_indicator',
+        'economic_query_indicator_series',
         MARKET_SEARCH_TOOL,
     }
 

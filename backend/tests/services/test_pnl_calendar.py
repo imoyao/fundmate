@@ -803,6 +803,31 @@ def test_回报投资以来起点_供年视图取全区间(db, make_position, ma
     assert empty['first_txn_date'] is None
 
 
+def test_终点锚校准量不污染投资以来起点(db, make_position, make_transaction):
+    """D80 终点锚：校准量注入 1970-01-01，它是技术手段、不是流水。
+
+    `positions.quantity` 与流水净额不一致时必有 correction 注入锚点日；
+    若 `first_txn_date` 取到它，年视图「投资以来」会从 1970 年开始，
+    画出几十个空年份（真实库实测 first_txn_date=1970-01-01）。
+    """
+    buy = dt.date(2024, 3, 15)
+    pos = make_position(symbol='000075', name='份额分叉', quantity=1500, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=buy,
+        symbol='000075',
+    )
+    _add_nav(db, '000075', dt.date(2026, 1, 5), 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+
+    assert result['first_txn_date'] == buy.isoformat()
+
+
 def test_整月未同步的期间状态是no_data(db, make_position, make_transaction):
     """整月一条净值都没有 ⇒ 期间报「未同步」，不是「休市」（#1942 聚合层）。"""
     pos = make_position(symbol='000074', name='整月没同步', quantity=1000, avg_price=1.0, asset_type='fund')
@@ -1427,3 +1452,394 @@ def test_当天没有持仓时净资产仍为0(db, make_position, make_transacti
 
     after = dt.date(2026, 1, 8)
     assert _worth_of(result, after) == 1000.0, '有价的持仓日照常给出市值'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 快照锚点（2026-11-04，源「账户页基金 30 万、首页十几万」）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_快照锚点份额计入日历市值与收益(db, make_position):
+    """导入的当前持仓（只有快照、没有买入流水）必须计入市值与收益。
+
+    `positions.quantity` = `snapshot_quantity + Σ(锚点后流水)`，而 `_as_of_shares`
+    曾只累计流水 ⇒ 快照型持仓份额恒为 0，日历 / 首页整笔不计市值。真实库实测：
+    账户页基金 30 万+、首页只十几万，差额全是这类持仓。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    pos = make_position(symbol='000090', name='快照持仓', quantity=1000, avg_price=1.0, asset_type='fund')
+    pos.snapshot_quantity = Money.shares_to_min_unit(1000)
+    pos.snapshot_avg_price = Money.yuan_to_price_units(1.0)
+    pos.snapshot_date = d1
+    db.commit()
+
+    _add_nav(db, '000090', d1, 1.0)
+    _add_nav(db, '000090', d2, 1.1)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    assert _state_of(result, d2) == STATE_UPDOWN
+    assert _worth_of(result, d2) == pytest.approx(1100.0, abs=0.01), '快照份额必须计入市值'
+    # 常日按快照成本起算：d1 = 0（建仓日），d2 = +100
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01)
+
+
+def test_锚点日及之前的流水不重复计份额(db, make_position, make_transaction):
+    """锚点日（含）之前的流水已被快照包含，不能再加一遍。
+
+    重复计就是 012708「精确 2 倍」那个老病：快照已有 1000 份，
+    同日确认的买入流水再 +1000 ⇒ 2000 份，市值凭空翻倍。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    pos = make_position(symbol='000091', name='快照+同日流水', quantity=1000, avg_price=1.0, asset_type='fund')
+    pos.snapshot_quantity = Money.shares_to_min_unit(1000)
+    pos.snapshot_avg_price = Money.yuan_to_price_units(1.0)
+    pos.snapshot_date = d1
+    db.commit()
+
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000091',
+    )
+    _add_nav(db, '000091', d1, 1.0)
+    _add_nav(db, '000091', d2, 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    assert _worth_of(result, d2) == pytest.approx(1000.0, abs=0.01), '锚点日流水不得重复计份额'
+    assert _pnl_of(result, d2) == pytest.approx(0.0, abs=0.01)
+
+
+def test_已清仓账户历史区间仍算出每日收益(db, make_position, make_transaction):
+    """清仓是账户终态，不是收益作废：历史区间必须仍能看到当日盈亏。
+
+    真库账户 26（招商证券）形态：112 条 cleared 持仓、594 笔流水、末笔
+    2024-06-20。改动前账户级日历在任何区间都返回空载荷，历史收益全不可见。
+    """
+    d1 = dt.date(2024, 1, 8)
+    d2 = dt.date(2024, 1, 12)
+    pos = make_position(
+        symbol='000092',
+        name='已清仓基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='清仓账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000092',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=1000,
+        price=1.1,
+        confirm_date=d2,
+        symbol='000092',
+    )
+    _add_nav(db, '000092', d1, 1.0)
+    _add_nav(db, '000092', dt.date(2024, 1, 10), 1.05)
+    _add_nav(db, '000092', d2, 1.1)
+
+    kwargs = dict(family_id=1, start_date='2024-01-08', end_date='2024-01-15')
+    result = build_daily_pnl_series(db, ledger_id=pos.ledger_id, **kwargs)
+    family = build_daily_pnl_series(db, **kwargs)
+
+    assert result['coverage']['total_positions'] == 1, '历史区间必须纳入已清仓持仓'
+    assert result['first_txn_date'] == '2024-01-08'
+    assert _pnl_of(result, dt.date(2024, 1, 10)) is not None, '历史每日收益不能是 NULL'
+    assert _state_of(result, dt.date(2024, 1, 10)) in (STATE_UPDOWN, STATE_ZERO, STATE_PARTIAL)
+    assert _state_of(result, dt.date(2024, 1, 15)) == STATE_NO_POSITION, '清仓后不得继续产生假盈亏'
+    assert family['month_total'] == pytest.approx(result['month_total']), '#1916 家庭级 = Σ账户级'
+
+
+def test_已清仓账户当期空载荷仍带投资起点(db, make_position, make_transaction):
+    """看当期时不该纳入早年清完的持仓，但年视图要靠 first_txn_date 展开到历史。"""
+    d1 = dt.date(2024, 1, 5)
+    pos = make_position(
+        symbol='000093',
+        name='早年清仓基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='早年账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000093',
+    )
+
+    result = build_daily_pnl_series(
+        db,
+        family_id=1,
+        start_date='2026-11-01',
+        end_date='2026-11-09',
+        ledger_id=pos.ledger_id,
+    )
+
+    assert result['days'] == []
+    assert result['has_any_price'] is False
+    assert result['first_txn_date'] == '2024-01-05', '年视图据此展开到投资以来'
+
+
+def test_投资起点不随请求区间漂移(db, make_position, make_transaction):
+    """年视图是「投资以来」：冷启动当月与历史区间必须回同一个 first_txn_date。
+
+    真库副本实测：旧实现从本次 `positions` 归组取最小值，历史复盘让
+    `positions` 随 start 裁剪 ⇒ 当月回 2021-06-01、年视图回 2020-08-28，
+    前端按当月那个展开年视图就会丢掉 2020 年。
+    """
+    d1 = dt.date(2020, 8, 28)
+    d2 = dt.date(2024, 6, 20)
+    pos = make_position(
+        symbol='000094',
+        name='跨年清仓基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='跨年账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000094',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=1000,
+        price=1.1,
+        confirm_date=d2,
+        symbol='000094',
+    )
+
+    cold = build_daily_pnl_series(
+        db,
+        family_id=1,
+        start_date='2026-11-01',
+        end_date='2026-11-09',
+        ledger_id=pos.ledger_id,
+    )
+    hist = build_daily_pnl_series(
+        db,
+        family_id=1,
+        start_date='2020-01-01',
+        end_date='2020-12-31',
+        ledger_id=pos.ledger_id,
+    )
+
+    assert cold['first_txn_date'] == '2020-08-28'
+    assert hist['first_txn_date'] == cold['first_txn_date']
+
+
+def test_有可算日判据不把partial当成空态():
+    """全区间 partial 但照常出数时，旧判据（只看 updown/zero）会误报空态。
+
+    真库副本实测：物化缓存命中时 243 天全被判 partial，has_any_price=False
+    ⇒ 前端把有数字的日历整卡替换成空态占位。
+    """
+    from app.services.pnl_calendar import _has_computable_days
+
+    days = [
+        {'date': '2026-01-06', 'state': STATE_PARTIAL, 'daily_pnl': 100.0},
+        {'date': '2026-01-07', 'state': STATE_PARTIAL, 'daily_pnl': 0.0},
+    ]
+    assert _has_computable_days(days) is True, 'partial 照常出数，不该整卡空态'
+
+    no_data = [
+        {'date': '2026-01-06', 'state': STATE_CLOSED, 'daily_pnl': None},
+        {'date': '2026-01-07', 'state': STATE_NO_PRICE, 'daily_pnl': None},
+    ]
+    assert _has_computable_days(no_data) is False, '缺数据态仍应走空态，绝不补 0'
+
+
+def test_清仓当日不再记成反向假亏损(db, make_position, make_transaction):
+    """清仓持仓的水平值必须保留「已实现 − 买入费」，否则清仓当天反向记一次亏损。
+
+    旧实现 `held_shares <= 0` 直接 `continue`：清仓当日该持仓从
+    `市值 − 成本 + 已实现` 整段退出水平值，差额被差分记成**当日亏损**，
+    方向与该笔已实现完全相反。账户里还有别的持仓时（`day_held_count > 0`）
+    这笔记错直接进当日合计——真库账本 26 的 15 个清仓日全是这种形态，
+    最终各年合计精确抵消为 0（流水 realized ¥21,040.38，日历合计 ¥0.00，
+    而「累计盈亏」是 +¥20,846.55）。所以这里刻意放一笔**不清仓**的底仓：
+    只有它在场，清仓日的差分才会被真正写出来，否则整账户清完会落到
+    `no_position` 把数藏起来，测不到这条路径。
+    """
+    d1 = dt.date(2024, 3, 1)
+    d2 = dt.date(2024, 3, 5)
+    d3 = dt.date(2024, 3, 8)
+
+    closed = make_position(
+        symbol='000101',
+        name='清仓基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='元旦账户',
+    )
+    # 底仓：全程持有、净值不变 ⇒ 任何非零日盈亏都只能来自上面那笔清仓
+    holder = make_position(
+        symbol='000102',
+        name='底仓基金',
+        quantity=100,
+        avg_price=10.0,
+        asset_type='fund',
+        account_name='元旦账户',
+    )
+    make_transaction(
+        position_id=holder.id,
+        ledger_id=holder.ledger_id,
+        txn_type='buy',
+        quantity=100,
+        price=10.0,
+        confirm_date=d1,
+        symbol='000102',
+    )
+    make_transaction(
+        position_id=closed.id,
+        ledger_id=closed.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000101',
+    )
+    # 分两次卖：第一笔留下 500 份浮盈，第二笔才清空——差值里同时含
+    # 「当日涨跌」与「已实现」，只清一次的话两者会互相抵消，测不出方向错误。
+    make_transaction(
+        position_id=closed.id,
+        ledger_id=closed.ledger_id,
+        txn_type='sell',
+        quantity=500,
+        price=1.1,
+        realized_pnl=5000,
+        confirm_date=d2,
+        symbol='000101',
+    )
+    make_transaction(
+        position_id=closed.id,
+        ledger_id=closed.ledger_id,
+        txn_type='sell',
+        quantity=500,
+        price=1.1,
+        realized_pnl=5000,
+        confirm_date=d3,
+        symbol='000101',
+    )
+    for symbol, nav in (('000101', 1.0), ('000102', 10.0)):
+        _add_nav(db, symbol, d1, nav)
+    _add_nav(db, '000101', d2, 1.1)
+    _add_nav(db, '000101', d3, 1.1)
+    _add_nav(db, '000102', d2, 10.0)
+    _add_nav(db, '000102', d3, 10.0)
+
+    result = build_daily_pnl_series(
+        db,
+        family_id=1,
+        start_date='2024-03-01',
+        end_date='2024-03-08',
+        ledger_id=closed.ledger_id,
+    )
+
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01), '卖出日应记当日涨跌 + 已实现'
+    assert _pnl_of(result, d3) == pytest.approx(0.0, abs=0.01), '清仓当日不得出现反向亏损'
+    assert result['month_total'] == pytest.approx(100.0, abs=0.01), '区间合计 = Σ 已实现'
+
+
+def test_分红等非份额流水的已实现盈亏必须进日历(db, make_position, make_transaction):
+    """分红不改变份额，但它的 `realized_pnl` 是「累计已实现」的一部分。
+
+    旧实现在 `_as_of_shares` 里对非份额流水直接 `continue`，分红因此从未进过
+    日历——合计永远比「累计盈亏」少一笔分红（真库账本 26 实测：29 笔分红
+    realized 合计 ¥573.00）。清仓后再来的分红还额外覆盖状态链的「清仓当日」
+    分支：账户已无份额，但那天的差分是真收益，不能判成 `no_position`。
+    """
+    d1 = dt.date(2024, 3, 1)
+    d3 = dt.date(2024, 3, 8)
+    d5 = dt.date(2024, 3, 15)
+
+    pos = make_position(
+        symbol='000103',
+        name='分红基金',
+        quantity=0,
+        avg_price=1.0,
+        asset_type='fund',
+        ownership_status='cleared',
+        account_name='分红账户',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000103',
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='sell',
+        quantity=1000,
+        price=1.1,
+        realized_pnl=10000,
+        confirm_date=d3,
+        symbol='000103',
+    )
+    # 清仓之后的现金分红：份额恒为 0，只有 realized 变化
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='dividend',
+        quantity=0,
+        price=0,
+        amount=20.0,
+        realized_pnl=2000,
+        confirm_date=d5,
+        symbol='000103',
+    )
+    _add_nav(db, '000103', d1, 1.0)
+    _add_nav(db, '000103', d3, 1.1)
+
+    result = build_daily_pnl_series(
+        db,
+        family_id=1,
+        start_date='2024-03-01',
+        end_date='2024-03-15',
+        ledger_id=pos.ledger_id,
+    )
+
+    assert _pnl_of(result, d3) == pytest.approx(100.0, abs=0.01), '清仓当日应记已实现收益'
+    assert _pnl_of(result, d5) == pytest.approx(20.0, abs=0.01), '分红必须进当日盈亏'
+    assert _state_of(result, d5) == STATE_UPDOWN, '清仓后的分红日不能被判成 no_position'
+    assert result['month_total'] == pytest.approx(120.0, abs=0.01), '合计 = 已实现 100 + 分红 20'

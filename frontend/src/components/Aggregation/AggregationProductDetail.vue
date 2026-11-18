@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { AggregationProductGroup } from "@/api/ledger";
@@ -45,6 +45,15 @@ const emit = defineEmits<{
 const router = useRouter();
 const detailLoading = ref(false);
 
+/** 跳详情页那一次关闭不播收起动画（否则与路由 fade-transform 交叠，见 `_pd.scss`） */
+const instantClose = ref(false);
+watch(
+  () => props.modelValue,
+  visible => {
+    if (visible) instantClose.value = false;
+  }
+);
+
 /**
  * 跳详情页（#1965）。
  *
@@ -61,6 +70,7 @@ async function goDetail() {
       ElMessage.warning("该品类详情页暂未开放");
       return;
     }
+    instantClose.value = true;
     emit("update:modelValue", false);
     await router.push(path);
   } catch {
@@ -85,6 +95,7 @@ function handleSaved() {
     detail-hint="查看完整资料、持仓与历史记录"
     :detail-loading="detailLoading"
     :disclaimer="PRODUCT_DISCLAIMER"
+    :instant-close="instantClose"
     class="product-detail-drawer"
     @update:model-value="emit('update:modelValue', $event)"
     @detail="goDetail"

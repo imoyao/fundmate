@@ -194,6 +194,31 @@ def test_cash_and_null_symbol_rows_untouched(tmp_path):
     assert got[3] == 'NO_VENUE:__CASH__'
 
 
+def test_cash_sentinel_with_stock_asset_type_stays_no_venue(tmp_path):
+    """#3042：孤儿现金分红用 `__CASH__` 占位、`asset_type` 却是 `stock`。
+
+    修复前 `venue_of_row` 只按 asset_type 推 EXCHANGE ⇒ `symbol_norm` 落成
+    `EXCHANGE:__CASH__`，且迁移每次启动逐行算期望值时都刷一条归一失败告警。
+    哨兵没有交易场所，身份必须与同表其余 235 行 `cash` 哨兵完全一致；
+    二次运行 `[SKIP]` 钉住「不会每次启动都重算这一行」。
+    """
+    db = tmp_path / 'invest.db'
+    _make_old_db(
+        db,
+        txn_rows=[
+            (1, '__CASH__', 'stock', '现金分红', None, 12, 1),
+            (2, '__CASH__', 'cash', None, None, 12, 1),
+        ],
+    )
+    engine = _engine_for(db)
+
+    assert migrate_transactions_symbol_norm(engine).startswith('[OK]')
+    got = dict(_rows(engine, 'SELECT id, symbol_norm FROM transactions'))
+    assert got[1] == 'NO_VENUE:__CASH__'
+    assert got[2] == 'NO_VENUE:__CASH__'
+    assert migrate_transactions_symbol_norm(engine).startswith('[SKIP]')
+
+
 def test_idempotent(tmp_path):
     """二次执行必须 `[SKIP]`：空 symbol 行不能每次都被当成「待回填」重算一遍。"""
     db = tmp_path / 'invest.db'

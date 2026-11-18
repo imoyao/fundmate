@@ -15,7 +15,15 @@ _hash_seq = 0
 
 
 def _mk_txn(
-    db, ledger_id, family_id, symbol='000001', confirm_date=_CDATE, txn_type='buy', amount=100000, status='success'
+    db,
+    ledger_id,
+    family_id,
+    symbol='000001',
+    confirm_date=_CDATE,
+    txn_type='buy',
+    amount=100000,
+    status='success',
+    position_name=None,
 ):
     global _hash_seq
     _hash_seq += 1
@@ -33,6 +41,7 @@ def _mk_txn(
         trade_date=_CDTIME,
         import_hash=f'txn-{ledger_id}-{symbol}-{confirm_date}-{_hash_seq}',
         status=status,
+        position_name=position_name,
     )
     db.add(t)
     return t
@@ -214,6 +223,30 @@ def test_ignore_hides_group_and_undo_restores(db):
     assert undo_ignore(db, 1, fp) is True
     db.commit()
     assert len(scan_visible_groups(db, 1)) == 1
+
+
+def test_ignore_list_reads_back_display_name(db):
+    """list_ignores 从快照读回 display_name；快照缺该键（历史记录）时降级 None、不抛错。"""
+    from app.services.ghost_duplicate_service import ignore_group, list_ignores
+
+    a, b = _mk_ledgers(db)
+    _mk_txn(db, a.id, 1, position_name='贵州茅台')
+    _mk_txn(db, b.id, 1, position_name='贵州茅台')
+    db.commit()
+
+    fp = scan_cross_ledger_duplicates(db, 1)[0]['fingerprint']
+    ignore_group(db, 1, fp, reason='重复导入')
+    db.commit()
+
+    ignored = list_ignores(db, 1)
+    assert len(ignored) == 1
+    assert ignored[0]['display_name'] == '贵州茅台'
+
+    # 忽略时组已查不到（过期指纹）→ 快照整体为空，display_name 一并降级 None
+    ignore_group(db, 1, 'x' * 64)
+    db.commit()
+    legacy = [r for r in list_ignores(db, 1) if r['fingerprint'] == 'x' * 64]
+    assert legacy[0]['display_name'] is None
 
 
 def test_ignore_is_idempotent(db):

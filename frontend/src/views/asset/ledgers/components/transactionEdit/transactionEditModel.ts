@@ -2,7 +2,8 @@
  * 编辑交易弹窗的口径（#980 拆分时抽出）。
  *
  * 三处「看起来是 UI、实际是业务口径」的东西收在这里：
- * - **金额为权威**：基金按「金额 → 份额」反算，股票按「数量 × 单价 + 手续费」正算；
+ * - **金额为权威**：基金按「金额 → 份额」反算，股票按「数量 × 单价」正算毛额
+ *   （手续费单列，不加进金额——见 `recalcAmount`）；
  *   两边都保留 4 / 2 位小数的 `Math.round` 而不是 `toFixed`（后者返回字符串，会污染数字输入框）；
  * - **资产类型的四级兜底**（外部传入 → asset_type → type → security_type → position_type）；
  * - **份额与该不该被反算覆盖**：靠调用方的 `sharesTouched` 标志，这里只负责算。
@@ -15,12 +16,44 @@ export interface TransactionEditForm {
   price: number | null;
   amount: number | null;
   fee: number | null;
+  /**
+   * **日期框里显示的那一天**，不一定是流水的 `trade_date`。
+   *
+   * 库里 `trade_date` 可以为空（全库 2673 条里 1483 条如此，`confirm_date` 都有值）。
+   * 以前这里只取 `trade_date`，日期框就是空的：必填项空着，用户哪怕只想改备注，
+   * 也得先编一个日期才能保存——等于把「确认日」伪造成「成交日」，基金 T+1 会错一天。
+   * 现在回落到 `confirm_date`（见 `formSnapshotOf`），写回时由
+   * `buildUpdatePayload` 的 `writeTradeDate` 决定要不要真的落库。
+   */
   trade_date: string | null;
   confirm_date: string | null;
   notes: string;
 }
 
+/** 日期框里的值是从哪来的：流水自己的成交日 / 回落的确认日 / 两个都没有 */
+export type TradeDateOrigin = "trade" | "confirm" | "none";
+
 /** 基金类（含货币基金）按份额（小数）处理；其余按股 / 张（整数） */
+export interface TxnRecordLike {
+  id?: number;
+  ledger_id?: number;
+  symbol?: string;
+  import_hash?: string | null;
+  asset_type?: string;
+  type?: string;
+  security_type?: string;
+  position_type?: string;
+  txn_type?: string;
+  quantity?: number | null;
+  price?: number | null;
+  amount?: number | null;
+  fee?: number | null;
+  trade_date?: string | null;
+  confirm_date?: string | null;
+  notes?: string | null;
+}
+const asTxn = (v: object): TxnRecordLike => v as TxnRecordLike;
+
 export const FUND_ASSET_TYPES = ["fund", "money_fund"];
 
 /** 证券类：卖出价区间校验与日期联动只对这几类生效 */
@@ -32,7 +65,11 @@ export const STOCK_ASSET_TYPES = ["stock", "etf", "bond", "convertible"];
  * 四级兜底不是洁癖——同一条流水在三个入口（账户详情 / 持仓流水抽屉 / 流水列表）
  * 拿到的对象字段并不一致：有的带 `asset_type`，有的只有 `type`。
  */
-export function resolveAssetType(record: any, override?: string): string {
+export function resolveAssetType<T extends object>(
+  raw: T,
+  override?: string
+): string {
+  const record = asTxn(raw);
   return (
     override ||
     record?.asset_type ||
@@ -85,14 +122,25 @@ export function recalcShares(
 }
 
 /**
- * 股票 / 可转债：由数量正算金额 `qty * price + fee`，保留 2 位小数。
+ * 股票 / 可转债：由数量正算金额 `qty × price`（**毛额**），保留 2 位小数。
+ *
+ * 为什么**不把手续费加进去**（阶段 0 口径修正）：交易流水的 `amount` 全场统一是
+ * **成交毛额**，费用单独记在 `fee`：
+ *
+ * - 卖出写入侧 `position_service.process_sell_or_withdraw` 落 `价格×数量`；
+ * - 买入写入侧同（非 balance 模式落 `价格×数量`）；
+ * - 编辑接口在调用方未显式给 `amount` 时也按 `价格×数量` 重算毛额
+ *   （`ledger_write_service.update_ledger_transaction`）。
+ *
+ * 此前这里写 `qty × price + fee`，只有 `fee = 0` 时才与后端一致；一旦开始记费用
+ * （股票卖出费用可填之后），编辑一次就会把成交额写成「毛额 + 费用」，
+ * 而「卖出回款净额 = amount − fee」在别处已经减过一次，等于重复扣减。
  *
  * 同样返回 `null` 表示「不该写回」。
  */
 export function recalcAmount(
   quantity: number | null | undefined,
-  price: number | null | undefined,
-  fee: number | null | undefined
+  price: number | null | undefined
 ): number | null {
   if (
     quantity == null ||
@@ -101,21 +149,37 @@ export function recalcAmount(
     Number(price) < 0
   )
     return null;
-  return (
-    Math.round((Number(quantity) * Number(price) + Number(fee || 0)) * 100) /
-    100
-  );
+  return Math.round(Number(quantity) * Number(price) * 100) / 100;
 }
 
-/** 打开弹窗时的表单快照（与交易记录逐字段对齐） */
-export function formSnapshotOf(record: any): TransactionEditForm {
-  const t = record || {};
+/**
+ * 日期框取值的来源。判据只有一条：**流水自己有没有成交日**。
+ *
+ * `trade_date` 与 `confirm_date` 在库里 2673 条中只有 20 条不相等（基金 T+1），
+ * 所以「有 trade_date 就用它」永远是首选；回落只发生在 `trade_date` 为空时。
+ */
+export function tradeDateOriginOf<T extends object>(raw: T): TradeDateOrigin {
+  const t = asTxn(raw || {});
+  if (t.trade_date) return "trade";
+  if (t.confirm_date) return "confirm";
+  return "none";
+}
+
+/**
+ * 打开弹窗时的表单快照（与交易记录逐字段对齐）。
+ *
+ * 日期框回落 `confirm_date`：`trade_date` 为空时若给 null，必填校验立刻报错，
+ * 用户看到的是一张「明明有日期、却说你没填」的表单（owner 2026-11-13 截图）。
+ * 回落只影响**显示**，写不写回由 `buildUpdatePayload` 的 `writeTradeDate` 决定。
+ */
+export function formSnapshotOf<T extends object>(raw: T): TransactionEditForm {
+  const t = asTxn(raw || {});
   return {
     quantity: t.quantity ?? null,
     price: t.price ?? null,
     amount: t.amount ?? null,
     fee: t.fee ?? null,
-    trade_date: t.trade_date || null,
+    trade_date: t.trade_date || t.confirm_date || null,
     confirm_date: t.confirm_date || null,
     notes: t.notes ?? ""
   };
@@ -134,16 +198,25 @@ export function blankForm(): TransactionEditForm {
   };
 }
 
-/** 保存请求体：只提交可编辑的 7 个字段，空日期转 null */
+/**
+ * 保存请求体：只提交可编辑的 7 个字段，空日期转 null。
+ *
+ * `writeTradeDate: false` 用于「日期框里显示的是回落的确认日、用户没改过」这一态：
+ * 后端对 `trade_date: null` 是 **no-op**（`ledger_write_service.update_ledger_transaction`
+ * 只在非 null 时赋值），所以传 null 等于「保持原样」；反过来，把回落的确认日当真写进
+ * `trade_date`，就是把确认日伪造成成交日（基金 T+1 会整体错一天），而且此后无法区分。
+ */
 export function buildUpdatePayload(
-  form: TransactionEditForm
+  form: TransactionEditForm,
+  options: { writeTradeDate?: boolean } = {}
 ): LedgerTransactionUpdateInput {
   return {
     quantity: form.quantity,
     price: form.price,
     amount: form.amount,
     fee: form.fee,
-    trade_date: form.trade_date || null,
+    trade_date:
+      options.writeTradeDate === false ? null : form.trade_date || null,
     confirm_date: form.confirm_date || null,
     notes: form.notes
   } as LedgerTransactionUpdateInput;

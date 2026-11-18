@@ -87,66 +87,12 @@ def _make_file_engine(db_path):
 
 
 # ---- #1722 模板库机制（均匀慢根治：每测试省全套 DDL + init_db 重活）----
-# 首个进 app fixture 的测试走完整路径建「完成态模板」（schema + migrations + seed、
-# 零业务数据）；后续测试 shutil.copyfile 秒级落地并跳过 init_db。
-# 模板按源码指纹分目录存放（app/**.py + 本文件内容 hash），schema/迁移逻辑一变
-# 指纹即变、自动重建，杜绝「模板过期 -> 缺表假红」。
-_FINGERPRINT_CACHE = None
-
-
-def _schema_fingerprint():
-    """进程内只算一次的源码指纹——任何 app 源码或 conftest 变更都使旧模板失效。"""
-    global _FINGERPRINT_CACHE
-    if _FINGERPRINT_CACHE is None:
-        import hashlib
-        from pathlib import Path
-
-        root = Path(__file__).resolve().parents[1] / 'app'
-        h = hashlib.sha256()
-        for p in sorted(root.rglob('*.py')):
-            h.update(str(p.relative_to(root)).encode('utf-8'))
-            h.update(p.read_bytes())
-        h.update(Path(__file__).read_bytes())
-        _FINGERPRINT_CACHE = h.hexdigest()[:16]
-    return _FINGERPRINT_CACHE
-
-
-def _template_dir():
-    from pathlib import Path
-
-    d = Path(__file__).resolve().parents[1] / '.pytest_cache' / 'fixture_tpl' / _schema_fingerprint()
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _copy_template_into(tmp_path):
-    """模板 -> 本测试 tmp_path；无模板（首测试）返回 False。"""
-    import shutil
-
-    d = _template_dir()
-    src_app, src_market = d / 'app.db', d / 'market.db'
-    if src_app.exists() and src_market.exists():
-        shutil.copyfile(src_app, tmp_path / '_fixture_app.db')
-        shutil.copyfile(src_market, tmp_path / '_fixture_market.db')
-        return True
-    return False
-
-
-def _save_template(tmp_path):
-    """首测试完成态 -> 模板，并清理其它指纹目录（只保留当前）。
-
-    调用点必须在 create_app（init_db 完成）之后、测试体执行**之前**，且先
-    dispose 断开全部连接（回滚未提交页、确保主文件完整）——否则首测试写入的
-    业务数据会随模板污染后续所有测试。
-    """
-    import shutil
-
-    d = _template_dir()
-    shutil.copyfile(tmp_path / '_fixture_app.db', d / 'app.db')
-    shutil.copyfile(tmp_path / '_fixture_market.db', d / 'market.db')
-    for old in d.parent.iterdir():
-        if old != d and old.is_dir():
-            shutil.rmtree(old, ignore_errors=True)
+# 机制本体（指纹、模板目录、原子发布）已抽到 tests/_template_cache.py：
+#   * 首个进 app fixture 的测试建「完成态模板」，后续测试 copyfile 秒级落地并跳过 init_db；
+#   * 抽出去的动机是 #2986——「多 worker 并发写坏共享模板」只能靠并发复现来验，
+#     而留在本文件里时 import 一次就会重跑下面的环境改写，测试自身带副作用。
+from tests._template_cache import copy_template_into as _copy_template_into  # noqa: E402
+from tests._template_cache import save_template as _save_template  # noqa: E402
 
 
 @pytest.fixture
@@ -242,8 +188,34 @@ def _disable_async_backfill(monkeypatch):
 
     **只需 patch 源头一处**（#1608）：消费方（watchlist_service / position_service /
     importer.orchestrator_commit）一律以 ``async_backfill.trigger_backfill(...)`` 运行时
-    取属性调用，不再 from-import 早绑定，因此不再需要维护「模块名清单」。"""
+    取属性调用，不再 from-import 早绑定，因此不再需要维护「模块名清单」。
+
+    ## 名录补录线程（2026-11-12，CI 实测）
+
+    导入 confirm 成功后会调 ``securities_catalog.trigger_catalog_backfill_async()`` 起
+    daemon 线程补 ``securities`` 名录。它**不是**上面那个 seam：``import_entry`` 是
+    ``from ... import trigger_catalog_backfill_async`` 早绑定，patch 源头对它无效——
+    于是每次导入确认都在用例进程里真起一个联网线程，而这个线程经 ``get_db()`` 拿到的
+    是本用例的 ``_fixture_app.db``（``app.core.database.engine`` 已被 ``app`` 夹具重定向）。
+
+    **后果是可复现的 CI 红灯**：``securities_backfill`` job 先写一行（拿 RESERVED 写锁）
+    再去发网络请求，期间不提交；同进程的主请求随后 flush ``UPDATE positions``，
+    报 ``database is locked``。实测两次连续红在
+    ``tests/domains/test_importers.py::TestStandardCSVParse::test_sell_with_existing_position``
+    （confirm 后 500）。
+
+    **不是「等满 5s 超时」**：请求级会话先 SELECT 过（持 SHARED），此时把 SHARED 升级成
+    RESERVED 会**立即**拿到 ``SQLITE_BUSY``——SQLite 的锁升级死锁预防，``busy_timeout``
+    根本不参与（CI 日志里 flush 失败距请求开始只有 6ms）。两种形态都存在：对面持未提交
+    写且我方**没先读**才会等满 timeout。机制钉子见
+    ``tests/test_db_locked_retry.py::test_lock_upgrade_fails_fast_when_peer_holds_reserved``。
+
+    故这里 patch **调用点的那个名字**（早绑定只有一处调用，见 grep 结果），而不是
+    ``securities_catalog`` 模块属性——后者会被 ``tests/services/test_securities_catalog.py``
+    自己接管（它要断言触发/去重语义），互相打架。
+    """
     monkeypatch.setattr('app.services.async_backfill.trigger_backfill', lambda *a, **k: None)
+    monkeypatch.setattr('app.services.importer.import_entry.trigger_catalog_backfill_async', lambda *a, **k: None)
 
 
 @pytest.fixture(autouse=True)

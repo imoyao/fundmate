@@ -24,12 +24,7 @@ import {
   formatTwoStageRoutes,
   formatFlatteningRoutes
 } from "./utils";
-import {
-  type Router,
-  type RouteRecordRaw,
-  type RouteComponent,
-  createRouter
-} from "vue-router";
+import { type Router, type RouteRecordRaw, createRouter } from "vue-router";
 import {
   type DataInfo,
   userKey,
@@ -47,7 +42,7 @@ import { supabase } from "@/utils/supabase";
  * 如何匹配所有文件请看：https://github.com/mrmlnc/fast-glob#basic-syntax
  * 如何排除文件请看：https://cn.vitejs.dev/guide/features.html#negative-patterns
  */
-const modules: Record<string, any> = import.meta.glob(
+const modules = import.meta.glob<{ default: RouteRecordRaw }>(
   [
     "./modules/**/*.ts",
     "!./modules/**/remaining.ts",
@@ -64,7 +59,7 @@ const modules: Record<string, any> = import.meta.glob(
 );
 
 /** 原始静态路由（未做任何处理） */
-const routes = [];
+const routes: RouteRecordRaw[] = [];
 
 Object.keys(modules).forEach(key => {
   routes.push(modules[key].default);
@@ -79,9 +74,9 @@ export const constantRoutes: Array<RouteRecordRaw> = formatTwoStageRoutes(
 const initConstantRoutes: Array<RouteRecordRaw> = cloneDeep(constantRoutes);
 
 /** 用于渲染菜单，保持原始层级 */
-export const constantMenus: Array<RouteComponent> = ascending(
+export const constantMenus: Array<RouteRecordRaw> = ascending(
   routes.flat(Infinity)
-).concat(...remainingRouter);
+).concat(...(remainingRouter as RouteRecordRaw[]));
 
 /** 不参与菜单的路由 */
 export const remainingPaths = Object.keys(remainingRouter).map(v => {
@@ -91,7 +86,7 @@ export const remainingPaths = Object.keys(remainingRouter).map(v => {
 /** 创建路由实例 */
 export const router: Router = createRouter({
   history: getHistoryMode(import.meta.env.VITE_ROUTER_HISTORY),
-  routes: constantRoutes.concat(...(remainingRouter as any)),
+  routes: constantRoutes.concat(...(remainingRouter as RouteRecordRaw[])),
   strict: true,
   scrollBehavior(to, from, savedPosition) {
     return new Promise(resolve => {
@@ -123,7 +118,9 @@ export function resetLoadedPaths() {
 /** 重置路由 */
 export function resetRouter() {
   router.clearRoutes();
-  for (const route of initConstantRoutes.concat(...(remainingRouter as any))) {
+  for (const route of initConstantRoutes.concat(
+    ...(remainingRouter as RouteRecordRaw[])
+  )) {
     router.addRoute(route);
   }
   // clearRoutes 把 catch-all 一并清掉了，补挂回去（#1915）

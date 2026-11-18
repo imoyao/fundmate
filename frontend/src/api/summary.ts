@@ -78,6 +78,8 @@ export type CashFlow = {
   portfolio_id: number | null;
   start_date: string;
   end_date: string;
+  /** 「投资以来」起点（作用域内最早一笔资金流水）；无流水为 null */
+  first_txn_date: string | null;
   totals: CashFlowTotals;
   external_flows: CashFlowItem[];
   monthly: CashFlowMonth[];
@@ -116,6 +118,29 @@ export function getSankeyData() {
 /** 分布分布聚合项：{name, value} */
 export type DistributionItem = { name: string; value: number };
 
+/**
+ * 五笔钱单个档位。`key` / `label` **由后端枚举输出**，前端只展示不翻译
+ * （`conventions.md` §2.9：配置标签文本的唯一真相源在后端）。
+ */
+export type AllocationBucket = { key: string; label: string; value: number };
+
+/**
+ * 五笔钱成员边界说明（#3031 / G4）。
+ *
+ * - `denominator`：分母 = 持仓 + 非负债成员资产行（房产 / 应收 / 负债都不进）；
+ * - `excluded`：未纳入项（房产、应收…），**必须显式可见**——静默消失就是「少算 220 万」；
+ * - `buckets`：全五档（含 0 值）。`allocation_distribution` 是图表契约，只列非零桶；
+ *   卡片要回答「五笔钱各是多少」，空档本身是信息，故另开此键。
+ *   恒等：`Σ buckets.value ≡ denominator ≡ Σ allocation_distribution.value`。
+ */
+export type AllocationScope = {
+  denominator: number;
+  excluded_total: number;
+  excluded: DistributionItem[];
+  liabilities_total: number;
+  buckets?: AllocationBucket[];
+};
+
 /** 家庭级多维市值分布（后端唯一聚合出口，Overview/资产总览分布图表消费） */
 export type DistributionsData = {
   type_distribution: DistributionItem[];
@@ -128,6 +153,7 @@ export type DistributionsData = {
   total_liabilities: number;
   net_worth: number;
   positions_total_mv: number;
+  allocation_scope?: AllocationScope;
 };
 
 /** 获取家庭级多维市值分布 */
@@ -416,7 +442,12 @@ export type BenchmarkExcessResult = {
    * 前端**禁止**拿它二次计算收益率（口径唯一，见 AGENTS.md）。
    */
   range_baseline: number | null;
-  /** null=正常；否则 range_rate 为 null 的原因（no_position / no_members / baseline_missing…） */
+  /**
+   * null=正常；否则 range_rate 为 null 的原因
+   * （no_position / no_members / baseline_missing / baseline_not_representative…）。
+   * `baseline_not_representative`：区间起点净资产被入金稀释到极小，简单区间收益率
+   * 会被放大到无意义量级，后端降级不报数（也不给超额与曲线）。
+   */
   range_reason: string | null;
   benchmark: {
     code: string | null;
@@ -468,7 +499,14 @@ export type PnlAttributionRow = {
   ledger_id: number | null;
   /** 区间盈亏（元，已含已实现） */
   pnl: number;
-  /** 占区间合计的百分比；合计为 0（没赚没赔）时为 null（不是 0%） */
+  /**
+   * 占 **|区间合计|** 的百分比（= pnl ÷ |total_pnl| × 100）。
+   *
+   * 分母取绝对值，**符号恒随 `pnl`**：亏损区间里盈利行是正号、亏损行是负号，
+   * 不会出现「+¥104.68 −1.32%」这种金额与占比反号的读法（占比反号曾被误读成
+   * 「这笔是亏的」）。因此 `pct × |total_pnl|` = 该行 `pnl`。
+   * 合计为 0（没赚没赔）时为 null（不是 0%）。
+   */
   pct: number | null;
 };
 
@@ -477,6 +515,7 @@ export type PnlAttributionCategory = {
   asset_type: string;
   pnl: number;
   positions_count: number;
+  /** 与 `PnlAttributionRow.pct` 同口径（分母取 |合计|，符号随 pnl） */
   pct: number | null;
 };
 
@@ -489,6 +528,8 @@ export type PnlAttributionPayload = {
   portfolio_id: number | null;
   start_date: string;
   end_date: string;
+  /** 「投资以来」起点（作用域内最早一笔资金流水）；无流水为 null */
+  first_txn_date: string | null;
   /**
    * 区间合计盈亏（元）；整窗无可算日时为 null——诚实降级，不是 0
    *（0 会被读成「没赚没赔」，而真相是「算不了」）。
@@ -841,10 +882,40 @@ export function getFundValuation(params?: {
 export type TodayPnlStatus =
   "estimated" | "confirmed" | "partial" | "empty" | "no_data";
 
+/** 当日估值的分组维度（D92）：一份当日收益，三种切法 */
+export type TodayPnlDimension = "class" | "ledger" | "portfolio";
+
 /**
- * 分项大类（卡面只出「场内权益 / 场外基金」：只有这两类有统一的当日估值口径）。
+ * `GET /summary/today-pnl/` 的通用查询参数（单资源 + 两个正交参数）。
  *
- * 2026-11-04 起 `stock` 覆盖股票 / ETF / 可转债（`asset_class` 按定价方式分桶），
+ * - `dimension` 决定 `groups[]` 怎么分组，默认 `class`（首页股票 / 基金）；
+ * - `ledger_id` / `portfolio_id` 决定作用域，**互斥**（同时传后端 400）；
+ *   均不传 = 家庭级。`scope` 由这两个 id 推导后回带，不作为入参。
+ */
+export type TodayPnlQuery = {
+  dimension?: TodayPnlDimension;
+  ledger_id?: number;
+  portfolio_id?: number;
+};
+
+/** 一行分组（品类 / 账户 / 组合），与 `total_pnl` 由后端构造保证可加总 */
+export type TodayPnlGroup = {
+  /** 品类维度为 `stock` / `fund`；账户 / 组合维度为对应 id 的字符串 */
+  key: string;
+  label: string;
+  /** 当日盈亏（元）；null = 该桶今天没有真报价 ⇒ 显示「—」，不是 0 */
+  pnl: number | null;
+  rate: number | null;
+  /** 当前市值（元），与账户页同源 */
+  market_value: number;
+  status: TodayPnlStatus;
+};
+
+/**
+ * 分项大类（卡面只出「股票 / 基金」：只有这两类有统一的当日估值口径）。
+ *
+ * 2026-11-04（D77）起 `stock` 覆盖股票 / ETF / 可转债（`asset_class` 按定价方式分桶）；
+ * 2026-11-06（D91）起用户可见标签统一为「股票 / 基金」，集合边界由前端小字说明。
  * 标签由后端 `CLASS_LABELS` 下发——前端不要按 asset_type 自己判类。
  */
 export type TodayPnlClass = {
@@ -855,6 +926,15 @@ export type TodayPnlClass = {
   /** 当日收益率（%）；分母 = 前一基准日该大类市值，null = 分母缺失 */
   rate: number | null;
   market_value: number;
+  /**
+   * 该大类占「投资类资产」的比例（%，后端 `summary_service.ratio_pct` 统一舍入）。
+   *
+   * 前端**不做**这道除法：占比与卡面上的两个金额必须是同一次计算的两个切面，
+   * 各算一遍就会出现「金额能对上、百分比差 0.1」的观感 bug。盘中的价格替换
+   * 由 `todayPnlOverlay` 用同一规则重算（见其 `ratioPct`）。
+   * null = 投资类资产为 0（无股票无基金），此时不显示该项。
+   */
+  share_of_invested: number | null;
   status: TodayPnlStatus;
 };
 
@@ -883,19 +963,60 @@ export type TodayPnlData = {
   total_pnl: number | null;
   /** 当日收益率（%）；null = 分母缺失 */
   total_rate: number | null;
-  /** 投资类资产市值（元）= 场内权益 + 场外基金；null = 无持仓 */
+  /** 投资类资产市值（元）= 股票 + 基金；null = 无持仓 */
   invested_value: number | null;
-  /** 「其他」类市值（货基 / 理财 / 实物等，无当日估值口径，卡面不列，仅供口径说明） */
+  /**
+   * 投资类资产占**家庭总资产**的比例（%，后端直出）。
+   *
+   * 它回答的是卡面最容易断掉的那个问题：411,679 在 3,395,884 里算什么。
+   * 分母是 `/api/summary/` 的总资产（同一个 `family_totals`），前端不自己除——
+   * 否则卡面「总资产」与这个占比可能来自两次聚合，口径对不上。
+   * null = 家庭总资产为 0 或未加载到（**不是 0%**，见后端 `ratio_pct`）。
+   */
+  invested_ratio_of_assets: number | null;
+  /** 「其他」类市值（债券 / 货基 / 理财 / 实物等，无当日估值口径，卡面不列，仅供口径说明） */
   other_value: number | null;
+  /**
+   * 无当日报价、但市值已按账户页同一口径计入的持仓（笔数 / 元）。
+   * 这些标的的当日收益是 null，不能当成「没赚没亏」；卡面副标题据此标注，
+   * 避免用户以为市值漏了一块。后端必出，可选类型仅为兼容旧缓存与测试桩。
+   */
+  unvalued_count?: number;
+  unvalued_value?: number | null;
+  /**
+   * 作用域 / 维度（D92 通用化）：单资源的两个正交切面。
+   * `scope` 由 `ledger_id` / `portfolio_id` 推导后回带，前端别按 id 自己判。
+   */
+  scope: "family" | "ledger" | "portfolio";
+  dimension: TodayPnlDimension;
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  /**
+   * true = `total_pnl` 与 `groups` 只含已归属组合的持仓。
+   * 用户拍板：不单列未归属桶，只在这里标一句「不含未归属持仓」。
+   */
+  excludes_unassigned: boolean;
+  /** 按 `dimension` 分组；`Σ groups[].pnl ≡ total_pnl` 由后端构造保证 */
+  groups: TodayPnlGroup[];
   classes: TodayPnlClass[];
   holdings: TodayPnlHolding[];
 };
 
-/** 首页「最新收益」卡数据（家庭级） */
-export function getTodayPnl() {
+/**
+ * 当日估值（单资源，D92）：首页 / 账户 / 组合 / 品类共用这一个端点。
+ *
+ * - 不传参 = 首页：股票 / 基金分项，与收益日历当日格同源；
+ * - `dimension=ledger` / `portfolio`：列表页**一次批量取数**，按 `groups[].key`
+ *   （id 字符串）映射，不要一张卡片发一个请求；
+ * - `ledger_id` / `portfolio_id` 互斥（后端 400），均不传 = 家庭级；
+ * - `excludes_unassigned` 为 true 时须标「不含未归属持仓」；
+ * - `groups[].pnl === null` 是「没数」，显示 `—`，绝不补 0。
+ */
+export function getTodayPnl(params?: TodayPnlQuery) {
   return http.request<ApiResponse<TodayPnlData>>(
     "get",
-    BASE_URL + "today-pnl/"
+    BASE_URL + "today-pnl/",
+    { params }
   );
 }
 

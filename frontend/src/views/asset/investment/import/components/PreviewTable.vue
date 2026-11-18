@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import { asPreviewRow } from "../composables/previewRow";
+import type { PreviewRow } from "../composables/previewRow";
 import TableControls from "./TableControls.vue";
 import RowSelectionCell from "./RowSelectionCell.vue";
 import StatusCell from "./StatusCell.vue";
@@ -35,7 +37,7 @@ const {
  * 明说三件事：交割单发生额、其中的手续费、入库采用的成交额——避免用户
  * 看到两个数字不一致时误点「修正金额」把线索改掉。
  */
-function amountHint(row: any): string {
+function amountHint(row: PreviewRow): string {
   const diff = feeDiffOf(row);
   const gross = Number(row.quantity) * Number(row.price);
   return (
@@ -45,16 +47,33 @@ function amountHint(row: any): string {
 }
 
 /** 缺数量或价格时返回对应字段名，供操作列「补全」一键定位编辑（基金模式暂不提供该捷径，修正走智能修正面板） */
-function missingField(row: any): "quantity" | "price" | null {
+function missingField(row: unknown): "quantity" | "price" | null {
+  const r = row as PreviewRow;
   if (isFundMode.value) return null;
   const qtyEmpty =
-    row.quantity === null || row.quantity === undefined || row.quantity === "";
+    r.quantity === null ||
+    r.quantity === undefined ||
+    (r.quantity as unknown) === "";
   const priceEmpty =
-    row.price === null || row.price === undefined || row.price === "";
+    r.price === null || r.price === undefined || (r.price as unknown) === "";
   if (qtyEmpty && priceEmpty) return "quantity";
   if (qtyEmpty) return "quantity";
   if (priceEmpty) return "price";
   return null;
+}
+
+/**
+ * el-table 的 `#default="{ row }"` 槽把行类型放宽成组件库的 `DefaultRow`
+ * （宽松索引类型），与 `PreviewRow` 无交集。缺口统一在
+ * `composables/previewRow.ts` 的 `asPreviewRow` 边界收一次——这里不再各写一份。
+ */
+function handleStartEdit(row: unknown): void {
+  const target = asPreviewRow(row);
+  startEdit(target, missingField(target)!);
+}
+
+function handleToggleIgnore(row: unknown): void {
+  toggleIgnoreRow(asPreviewRow(row));
 }
 </script>
 
@@ -85,7 +104,7 @@ function missingField(row: any): "quantity" | "price" | null {
             />
           </template>
           <template #default="{ row }">
-            <RowSelectionCell :row="row" />
+            <RowSelectionCell :row="asPreviewRow(row)" />
           </template>
         </el-table-column>
         <el-table-column
@@ -94,35 +113,35 @@ function missingField(row: any): "quantity" | "price" | null {
           v-bind="col"
         >
           <template v-if="col.slot === 'status'" #default="{ row }">
-            <StatusCell :row="row" />
+            <StatusCell :row="asPreviewRow(row)" />
           </template>
           <template v-else-if="col.slot === 'product'" #default="{ row }">
-            <ProductCell :row="row" />
+            <ProductCell :row="asPreviewRow(row)" />
           </template>
           <template v-else-if="col.slot === 'opType'" #default="{ row }">
-            <OpTypeCell :row="row" />
+            <OpTypeCell :row="asPreviewRow(row)" />
           </template>
           <template v-else-if="col.slot === 'quantity'" #default="{ row }">
-            <EditableCell :row="row" field="quantity" />
+            <EditableCell :row="asPreviewRow(row)" field="quantity" />
           </template>
           <template v-else-if="col.slot === 'price'" #default="{ row }">
-            <EditableCell :row="row" field="price" />
+            <EditableCell :row="asPreviewRow(row)" field="price" />
           </template>
           <template v-else-if="col.slot === 'amount'" #default="{ row }">
             <el-tooltip
-              v-if="isFeeExplained(row)"
-              :content="amountHint(row)"
+              v-if="isFeeExplained(asPreviewRow(row))"
+              :content="amountHint(asPreviewRow(row))"
               placement="top"
             >
-              <EditableCell :row="row" field="amount" />
+              <EditableCell :row="asPreviewRow(row)" field="amount" />
             </el-tooltip>
-            <EditableCell v-else :row="row" field="amount" />
+            <EditableCell v-else :row="asPreviewRow(row)" field="amount" />
           </template>
           <template v-else-if="col.slot === 'fee'" #default="{ row }">
-            <EditableCell :row="row" field="fee" />
+            <EditableCell :row="asPreviewRow(row)" field="fee" />
           </template>
           <template v-else-if="col.slot === 'allocation'" #default="{ row }">
-            <AllocationSelect :row="row" />
+            <AllocationSelect :row="asPreviewRow(row)" />
           </template>
         </el-table-column>
         <!-- #2838：表头与行操作都靠右（align="right" + flex-end）。原先表头居中、单元格
@@ -136,7 +155,7 @@ function missingField(row: any): "quantity" | "price" | null {
                 link
                 type="primary"
                 size="small"
-                @click="startEdit(row, missingField(row)!)"
+                @click="handleStartEdit(row)"
                 >补全</el-button
               >
               <el-button
@@ -144,7 +163,7 @@ function missingField(row: any): "quantity" | "price" | null {
                 link
                 type="danger"
                 size="small"
-                @click="toggleIgnoreRow(row)"
+                @click="handleToggleIgnore(row)"
                 >忽略</el-button
               >
               <el-button
@@ -152,7 +171,7 @@ function missingField(row: any): "quantity" | "price" | null {
                 link
                 type="primary"
                 size="small"
-                @click="toggleIgnoreRow(row)"
+                @click="handleToggleIgnore(row)"
                 >恢复</el-button
               >
             </div>

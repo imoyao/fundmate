@@ -35,7 +35,7 @@ from app.services.position_service import (
     serialize_position_transaction,
 )
 from app.services.position_valuation import allocate_value
-from app.services.price_range_service import resolve_security_price_range
+from app.services.price_range_service import validate_trade_price_within_range
 from app.services.trading import TradeService
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
@@ -93,34 +93,8 @@ def get_position_advisor_context(id: int):
         return jsonify({'data': data, 'message': 'ok'})
 
 
-_PRICE_RANGE_OP_TYPES = {'buy', 'sell', 'deposit', 'withdraw'}
-
 # create_position 支持的操作类型（据此 abort，避免被 except Exception 兜底成 500）；bond_redeem（#2832）＝债券到期兑付/强赎，扣份额但金额口径是「到账净额」
 _KNOWN_OP_TYPES = {'buy', 'deposit', 'sell', 'withdraw', 'dividend', 'dividend_reinvest', 'split', 'bond_redeem'}
-
-
-def _validate_price_within_range(data: dict) -> None:
-    """后端成交价区间拦截（#948 续）：成交价须落在交易日 [low, high] 内（前端校验外的最终防线）。
-
-    本地 PriceHistory 优先、缺失时实时兜底（腾讯当日 / akshare 历史日）取真实区间；
-    任一来源不可达则降级放行，不会误拦。与前端 getSecurityPriceRange 同口径。
-    """
-    op_type = data.get('op_type')
-    if op_type not in _PRICE_RANGE_OP_TYPES:
-        return
-    symbol = data.get('symbol')
-    avg_price = data.get('avg_price')
-    trade_date = data.get('trade_date')
-    # nav_pending 占位价 / <=0 未知价不参与区间拦截（占位价不是真实成交价，
-    # 必填性由 process_buy_or_deposit 自校验；见其「净值缺失先记账」注释）
-    if not symbol or avg_price is None or not trade_date or avg_price <= 0 or data.get('nav_pending'):
-        return
-    rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=True)
-    if not rng:
-        return
-    low, high = rng['low'], rng['high']
-    if avg_price < low or avg_price > high:
-        raise ValueError(f'价格 {avg_price} 超出 {rng["date"]} 交易日区间（{low} ~ {high}），请核对后重新提交')
 
 
 @bp.post('/')
@@ -137,7 +111,7 @@ def create_position():
     """
     json_data = parse_body(PositionCreate)
     data = json_data.model_dump()
-    _validate_price_within_range(data)
+    validate_trade_price_within_range(data)
     data['family_id'] = get_family_id()
     op_type = data.get('op_type', 'buy')
     # #863 P0-3：手动记账 type 归一——货基代码被误标普通 fund 时自动修正为 money_fund

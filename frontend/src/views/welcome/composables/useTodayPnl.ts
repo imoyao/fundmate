@@ -16,10 +16,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getTodayPnl, type TodayPnlData } from "@/api/summary";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
+import { useSkeletonThreshold } from "@/composables/useSkeletonThreshold";
 import {
   applyPriceOverlay,
   shanghaiTodayIso,
-  todayPnlSubtitle
+  todayPnlSubtitle,
+  unvaluedNote
 } from "./todayPnlOverlay";
 
 /** 官方净值公布时间不定（19:00~23:00 都有），收盘后低频问一次即可 */
@@ -28,14 +30,35 @@ const CONFIRM_POLL_MS = 5 * 60 * 1000;
 const CONFIRM_POLL_UNTIL_HOUR = 23;
 const CONFIRM_POLL_UNTIL_MINUTE = 30;
 
-export function useTodayPnl() {
+export interface UseTodayPnlOptions {
+  /**
+   * 家庭总资产（元）的取值器——「投资类资产占家庭总资产」的分母。
+   *
+   * 用取值器而不是传值：`summary` 是异步加载的，先挂载后到达；传值会在第一次
+   * 渲染时把 undefined 固化进闭包后面的计算里。
+   * 不传 = 占比沿用后端值（后端已经用它自己的分母算过一遍）。
+   */
+  householdAssets?: () => number | null;
+}
+
+export function useTodayPnl(options: UseTodayPnlOptions = {}) {
   const data = ref<TodayPnlData | null>(null);
   const loading = ref(false);
   /** 只有「一次都没成功过」才算错误态：盘中抖动不该把已有数字清成加载失败 */
   const error = ref(false);
 
+  // 骨架屏 200ms 阈值（docs/design/components.md 铁律 4）：快请求全程不渲染骨架，
+  // 避免「刚出现就消失」的闪屏。本卡实测后端 280~360ms（冷启动 1.5s），
+  // 通常都会越过阈值；家庭口径那一层走 `/api/summary/`（约 60ms），不等这里。
+  const {
+    showSkeleton: skeletonReady,
+    startSkeleton,
+    settleSkeleton
+  } = useSkeletonThreshold();
+
   async function fetchTodayPnl(): Promise<void> {
     loading.value = true;
+    startSkeleton();
     try {
       const res = await getTodayPnl();
       data.value = res?.data ?? null;
@@ -43,9 +66,15 @@ export function useTodayPnl() {
     } catch {
       error.value = data.value == null;
     } finally {
+      settleSkeleton();
       loading.value = false;
     }
   }
+
+  /** 已有数据时的后台刷新（收盘确认轮询 / 切回前台）绝不点亮骨架屏 */
+  const showSkeleton = computed(
+    () => skeletonReady.value && data.value == null
+  );
 
   /** 后端当日取价索引（实时行情缺失时的兜底价 + 价格替换的基准） */
   const holdingBySymbol = computed(
@@ -87,7 +116,11 @@ export function useTodayPnl() {
       // 后端日期不是今天（盘中今日无价）时，实时增量代表**今天**的全量收益，
       // 只能替换、不能叠到昨天那笔上
       replaceBase: data.value.is_today === false,
-      todayIso: shanghaiTodayIso()
+      todayIso: shanghaiTodayIso(),
+      // 占比分母：与卡面「家庭总资产」同一份 summary 数据，不另取一份
+      householdAssets: options.householdAssets
+        ? options.householdAssets()
+        : undefined
     });
   });
 
@@ -102,14 +135,17 @@ export function useTodayPnl() {
     const current = view.value;
     if (!current) return "";
     if (live.value) {
-      return realtime.lastUpdateTime.value
+      const base = realtime.lastUpdateTime.value
         ? `盘中估值 · 更新于 ${realtime.lastUpdateTime.value}`
         : "盘中估值 · 随行情刷新";
+      const note = unvaluedNote(current.unvalued_count);
+      return note ? `${base} · ${note}` : base;
     }
     return todayPnlSubtitle({
       status: current.status,
       isToday: current.is_today,
-      date: current.date
+      date: current.date,
+      unvaluedCount: current.unvalued_count
     });
   });
 
@@ -176,6 +212,7 @@ export function useTodayPnl() {
     error,
     live,
     subtitle,
+    showSkeleton,
     realtime,
     refresh: fetchTodayPnl
   };

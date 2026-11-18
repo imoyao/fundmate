@@ -13,3 +13,8 @@ import os
 
 # fund_list 任务使用的数据源：'eastmoney'（默认）或 'akshare'
 SYNC__FUND_LIST_SOURCE = os.getenv('SYNC__FUND_LIST_SOURCE', 'eastmoney').strip().lower()
+
+# 打新中签折叠器的「申购代码 → 上市代码」别名引导：默认开启（接东财 RPT_BOND_CB_LIST）。
+# 置 '0' 关闭——关闭后折叠器对无法在本地表查到的申购码回落 link_warning 手动补全，
+# 导入不依赖外网。关闭不影响已落库的别名复用。
+IMPORTER__EASTMONEY_ALIAS = os.getenv('IMPORTER__EASTMONEY_ALIAS', '1').strip() != '0'

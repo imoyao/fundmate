@@ -77,6 +77,7 @@
           :index="Number(li)"
           :total="group.ledgers.length"
           :stale-count="p.staleCountByLedger[ledger.id] || 0"
+          :today-pnl="p.todayPnlByLedger.get(String(ledger.id)) ?? null"
           @open="p.goToDetail"
           @delete="p.openDeleteDialog"
           @toggle-archive="p.onToggleArchive"
@@ -104,6 +105,7 @@
 </template>
 
 <script setup lang="ts">
+import type { LedgerLike } from "./ledgerTypes";
 import { reactive, ref } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -141,14 +143,14 @@ function onGroupKey(
   }
 }
 
-async function onCardKey(payload: { ledger: any; to: number }) {
+async function onCardKey(payload: { ledger: LedgerLike; to: number }) {
   const { ledger, to } = payload;
   const group = p.displayedGroups.find(g =>
-    g.ledgers.some((l: any) => l.id === ledger.id)
+    g.ledgers.some(l => l.id === ledger.id)
   );
   if (!group) return;
   const total = group.ledgers.length;
-  const ok = await p.moveLedgerByKeyboard(group.type, ledger.id, to);
+  const ok = await p.moveLedgerByKeyboard(group.type, ledger.id as number, to);
   if (!ok) {
     // 已在首位/末位，或落库失败（composable 已提示并回滚）——这里不再重复播报
     return;

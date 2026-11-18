@@ -40,7 +40,7 @@ const {
         :disabled="downloadLoading"
         @click="handleDownloadTemplate"
       >
-        <IconifyIconOffline icon="lucide:download" class="download-icon" />
+        <IconifyIconOffline icon="ep:download" class="download-icon" />
         <span>{{
           downloadLoading ? "下载中..." : `下载${templateNameForAccount}模板`
         }}</span>

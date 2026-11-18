@@ -7,7 +7,7 @@
   （推理模型还会先输出 reasoning_content），故 parse_agent_action 复用 extract_json_array
   的容错思路解析单对象，解析失败一律当澄清；
 - 所有数值只在 ToolExecutor 执行后注入 prompt，追问阶段模型只聊逻辑，属防幻觉安全区；
-- 本函数内只做「单次决策 + 工具失败最多 1 次重试」（共 2 次模型调用上限）。
+- 单轮调用预算：追问 1 次；正常 2 次（决策 + 叙事轮）；工具失败 3 次；记忆压缩另加 1 次。
 
 S2 记忆层（2026-09-26）：
 - 会话状态 / 原文 / 轮次由**服务端持有**（agent_session 行，session_store 加载后传入），
@@ -29,7 +29,7 @@ S3 护栏（2026-09-27，#1121 步骤卡 #5，设计 agent-guardrail-layer-desig
 - 前置拦截与重复追问**不消耗轮次闸、不产生模型调用**（零 token 成本）；
   三者均为纯函数/规则，可确定性单测，不依赖 mock LLM。
 
-模型档位：账本精灵走 ARK_MODEL_AGENT（2026-10-25 起 deepseek-v4-1-flash-economy，纯文本推理模型），
+模型档位：账本精灵走 ARK_MODEL_AGENT（2026-11-17 起 glm-5-2-260617，纯文本推理模型），
 OCR 仍走 ARK_MODEL（视觉档）；两者同端点、OpenAI 兼容协议，换模型只改常量。
 
 历史说明（2026-09-09 合并 session_manager.py）：对外符号 SessionState /
@@ -48,9 +48,18 @@ from sqlalchemy.orm import object_session
 
 from app.core.exceptions import ErrorCode, SBException
 from app.domains.agent.models import AgentSession, AgentTrace
-from app.services.ai_recognizer import cancellation, guards, llm, registry, safety, session_store
+from app.services.ai_recognizer import (
+    cancellation,
+    guards,
+    llm,
+    plan_executor,
+    registry,
+    safety,
+    session_store,
+    tool_budget,
+)
 from app.services.ai_recognizer.narrative_blocks import parse_narrative_blocks
-from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
+from app.services.ai_recognizer.tools import ToolExecutor
 
 # ── 分层记忆参数（#1121 S2，步骤卡 #4）────────────────────────────────────
 # 每层各有硬上限 → 单轮 prompt 字符数与轮次无关（验收「收敛有上界」由此保证）
@@ -359,21 +368,9 @@ _L1_DATA_TRUTH = (
 )
 
 
-def _decision_system_prompt() -> str:
-    """决策轮 system prompt：附可用工具清单。
-
-    模型必须据此选择 tool_name 与参数——此前从未把 TOOLS_METADATA 给模型，
-    真实调用时模型是在盲猜工具名（测试 mock 掩盖了这一点，2026-09-26 修复）。
-    清单每轮都占 context，这是无状态 FC 循环的固有成本（工具规模上来后由 S5 MCP 分担）。
-    """
-    return (
-        AGENT_SYSTEM_PROMPT
-        + '\n'
-        + _L1_DATA_TRUTH
-        + '\n可用工具清单（tool_name 必须取自 name，tool_params 必须符合 parameters 约束；'
-        + 'description 标注「服务端自动注入」的参数不要由你提供）：\n'
-        + json.dumps(TOOLS_METADATA, ensure_ascii=False)
-    )
+def _decision_system_prompt(user_input: str = '') -> str:
+    """决策轮 system prompt（工具清单按问题域预筛，拼装见 ``tool_budget.decision_prompt``）。"""
+    return tool_budget.decision_prompt(AGENT_SYSTEM_PROMPT, _L1_DATA_TRUTH, plan_executor.PLAN_INSTRUCTION, user_input)
 
 
 def parse_agent_action(response_str: str) -> dict:
@@ -405,16 +402,6 @@ def parse_agent_action(response_str: str) -> dict:
         obj['action'] = 'ask_clarification'
         obj['error'] = 'invalid_action'
     return obj
-
-
-def _tool_description(tool_name: Optional[str]) -> str:
-    """按工具名取 TOOLS_METADATA 的 description（叙事轮理解字段语义用）。"""
-    if not tool_name:
-        return ''
-    for meta in TOOLS_METADATA:
-        if meta.get('name') == tool_name:
-            return str(meta.get('description') or '')
-    return ''
 
 
 def run_agent(
@@ -580,7 +567,7 @@ def _run_agent_impl(
     # S4（#1736）：本轮 LLM token / 上游耗时汇总（决策 + 叙事，含重试）
     usage = {'tokens': 0}
     llm_ms = 0.0
-    # 工具执行失败的最多重试：最多 2 次模型调用（带错误反馈 1 次）
+    # 决策最多 2 次：首次 + 工具失败后带错误反馈重试 1 次（叙事轮在循环外，不计入这 2 次）
     for attempt in range(2):
         # 检查点①：循环开头（对首次迭代无意义但无害；重试迭代是真实取消窗口）
         cancelled = _cancel_checkpoint()
@@ -589,7 +576,7 @@ def _run_agent_impl(
         _t0 = time.monotonic()
         raw = llm.call_llm(
             content=[{'type': 'text', 'text': prompt}],
-            system_prompt=_decision_system_prompt(),
+            system_prompt=_decision_system_prompt(user_input),
             response_format={'type': 'json_object'},
             temperature=0.1,
             usage_sink=usage,
@@ -627,12 +614,12 @@ def _run_agent_impl(
             }
 
         # execute_tool：校验 + 执行工具
-        tool_name = action.get('tool_name')
+        tool_name = plan_executor.primary_tool(action)
         tool_params = action.get('tool_params') or {}
         # 候选值合并：服务端已收集参数 + 模型本轮 tool_params；
         # 权威值（server_ctx）在 ToolExecutor.run 内覆盖同名候选（P1 越权修复）
         merged_params = {**state.get('collected_params', {}), **tool_params}
-        result = ToolExecutor.run(tool_name, merged_params, server_ctx=server_ctx)
+        result = plan_executor.execute(action, merged_params, server_ctx, ToolExecutor.run)
         if result['status'] == 'success':
             # 模型给出的候选参数回写工作内存：下轮起服务端直接续用（P2 消除前端持有）
             state['collected_params'] = {**state.get('collected_params', {}), **tool_params}
@@ -682,14 +669,14 @@ def _run_agent_impl(
     # 只会产出「市场温度总结」式的通用转述——用户问的三个子问题一个都没覆盖。
     # 同时附工具语义说明（TOOLS_METADATA.description），否则数据里的「短期情绪」
     # 与用户口中的「贪恐指数」无法建立映射。
-    tool_desc = _tool_description(tool_name)
+    tool_desc = plan_executor.describe(result, tool_name)
     # 输出契约（#1712）：固定三小节，后端解析为块结构；行级数据由系统成表，
     # 模型只写要点——禁止模型自行排版表格（数字易抄错，表格必须以工具数据为源）。
     narrative_prompt = (
         f'用户本轮提问：{_truncate(user_input, TURN_SIDE_CAP)}\n'
         + (f'该工具的语义说明（用于理解字段含义，不得超出数据本身发挥）：{tool_desc}\n' if tool_desc else '')
-        + f'基于以下分析数据（来自工具 {tool_name}）：{data_json}\n'
-        '输出必须严格分三个小节，每节以【】标题开头，顺序固定，不得增删：\n'
+        + plan_executor.source_line(result, tool_name, data_json)
+        + '输出必须严格分三个小节，每节以【】标题开头，顺序固定，不得增删：\n'
         '【结论】一句话结论先行，直接回答用户本轮提问；\n'
         '【明细】逐个覆盖用户本轮提问中能被上述数据回答的部分，逐条说明关键数字，不要遗漏'
         '（行级明细由系统自动渲染成表格，你只需补充要点，不要自己排版表格）；\n'
@@ -720,10 +707,10 @@ def _run_agent_impl(
     blocks = parse_narrative_blocks(narrative, data)
     if blocks is None:
         logger.warning('叙事未按小节契约输出，降级为纯文本渲染，name={}', tool_name)
-    _write_trace(
+    plan_executor.write_traces(
+        _write_trace,
         session,
-        intent='execute_tool',
-        status='result',
+        result,
         tool_name=tool_name,
         tool_params=merged_params,
         latency_ms=llm_ms,

@@ -16,19 +16,20 @@ from app.core.database import get_db
 from app.core.exceptions import internal_error_payload
 from app.core.time_utils import today_shanghai
 from app.core.validation import parse_query
-from app.domains.summary.schemas import MemberSliceQuery
+from app.domains.summary.schemas import MemberSliceQuery, TodayPnlQuery
 from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
+from app.services.analytics.excess_range import resolve_scope_start
 from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.cash_flow_service import build_cash_flow
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series, compute_range_attribution
 from app.services.position_structure import build_position_structure
+from app.services.sankey_service import get_sankey_data
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
     get_position_groups,
-    get_sankey_data,
     get_snapshots,
     get_summary_data,
     list_fund_valuation_rows,
@@ -254,17 +255,14 @@ def pnl_calendar():
 
 @bp.get('/summary/today-pnl/')
 def today_pnl():
-    """首页「最新收益」卡（当日盈亏 + 股票/基金拆分 + 估/确认状态）。
-
-    与 `pnl-calendar` 同一次遍历、同一条盈亏口径（`services/pnl_calendar._compute_days`
-    的 `class_breakdown` 收集器），故 `Σ classes[].pnl ≡ 日历当日格`。
-    盘中 / 净值未出时 `date` 会回退到最近一个有当日报价的日子（`is_today=false`）
-    ——前端据此标明「截至某日」，不把「还没有数据」显示成 0。
-    """
+    """最新收益（单资源 + `dimension` 分组 + scope）；口径见 `services/today_pnl.py`。"""
+    query = parse_query(TodayPnlQuery)  # try 外：abort(422) 不能被 except 吞成 500
     try:
         with get_db() as db:
-            data = build_today_pnl(db, get_family_id())
+            data = build_today_pnl(db, get_family_id(), **query.model_dump())
         return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify(internal_error_payload(e, 'today_pnl', None)), 500
 
@@ -277,6 +275,8 @@ def cash_flow():
     组合级 = 成员账本集合一次聚合（`services/scope.member_ledger_ids`），组合内互转由
     `cashflow_layers.pair_internal_transfers` 配对抵消为 0，与「Σ 账户 ≡ 家庭」同一条可加性。
     累计指标恒为「自开户以来」，`start_date`/`end_date` 只影响逐笔流水、月度柱状与曲线。
+    `start_date=inception` 表示「投资以来」：起点由后端按作用域解析最早资金流水，
+    响应另带 `first_txn_date`（无流水为 null）——前端无需先取起点再发第二次请求。
     口径与现金残差推导见 `docs/spec/cashflow-layers.md`。
     """
     try:
@@ -301,6 +301,9 @@ def pnl_attribution():
     """#2135 区间收益归因（逐品种 / 大类贡献；复用 pnl 引擎唯一盈亏口径）。
 
     `start_date` / `end_date` 缺省同 pnl-calendar（end=今日，start=end−29）；
+    `start_date=inception` 拉「投资以来」全周期，起点由后端按作用域解析，
+    响应另带 `first_txn_date`（无流水为 null）。注意全周期归因强制逐日现算、
+    不读物化行，首次耗时明显高于近 1 月。
     `ledger_id` 与 `portfolio_id` 互斥（同时传 400）。Σ positions[].pnl ≡
     同窗 pnl-calendar 的 month_total（构造保证，见 services/pnl_calendar.py）。
     """
@@ -358,9 +361,8 @@ def benchmarks():
     """可选基准清单（#2685）：唯一出口 `BENCHMARK_INDICES`，前端下拉不再各自硬编码。
 
     历史上前端把选项写死成 `CSI300/CSI500/SPX`，而 `SPX` 不在清单里 ⇒ 选中必走
-    `unrecognized_benchmark` 降级、永远显示「--」。返回顺序 = 常量声明顺序（稳定，
-    前端不做二次排序）。值一律为指数代码（`000300.SH`），旧的 `CSI300` 文本仍由
-    `_BENCHMARK_TEXT_ALIASES` 解析，存量不迁移。
+    `unrecognized_benchmark` 降级、永远显示「--」。返回顺序 = 常量声明顺序，值一律为
+    指数代码（`000300.SH`），旧的 `CSI300` 文本仍由 `_BENCHMARK_TEXT_ALIASES` 解析。
     """
     data = [{'code': code, 'name': name} for code, name in BENCHMARK_INDICES.items()]
     return jsonify({'data': data, 'message': 'ok'})
@@ -370,10 +372,9 @@ def benchmarks():
 def benchmark_excess():
     """#2134 账户/组合/家庭区间收益 vs 基准指数超额收益（账本对齐-D）。
 
-    查询参数：`start_date` / `end_date`（YYYY-MM-DD，**必填**）、`ledger_id` /
-    `portfolio_id`（互斥，均不传=家庭级）。三条口径（scope 区间收益 / 指数区间
-    涨跌幅 / 超额）与全部降级原因见 services/analytics/benchmark_excess.py——
-    基准缺失一律诚实降级 None，不拿别的指数顶替。
+    `start_date` / `end_date` 必填，`start_date` 可传 `inception`（成立来：起点由后端
+    按作用域最早流水解析）。`ledger_id` / `portfolio_id` 互斥，均不传=家庭级。三条口径
+    与全部降级原因见 services/analytics/benchmark_excess.py——基准不可算一律降级 None。
     """
     try:
         start_date = request.args.get('start_date')
@@ -383,6 +384,7 @@ def benchmark_excess():
         ledger_id = request.args.get('ledger_id', type=int)
         portfolio_id = request.args.get('portfolio_id', type=int)
         with get_db() as db:
+            start_date = resolve_scope_start(db, get_family_id(), start_date, end_date, ledger_id, portfolio_id)
             data = build_scope_excess(
                 db,
                 get_family_id(),

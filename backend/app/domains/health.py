@@ -5,6 +5,13 @@
 成功运行为准（编排器每跑完一个 job 写一行），无需新建心跳表。普通探市页不调用本端点，
 故「调度未运行」这类运维细节只在此对维护者可见，符合分层（终端页仅展示数据延迟提示）。
 
+#3085：上述口径有两处漏判，已改为**心跳 job + 形态无关**：① 只有 `asset_snapshot`
+（每日 23:45 落账）的成功才算「调度在跑」——手动单跑任意 job 也写 success，
+旧口径下「每日调度停了 5 天、只手动跑过一次 nav_backfill」会显示成正常；
+② `SCHEDULER_ENABLED` 不再决定「该不该判」，只回答「本机常驻开没开」——
+部署库由 GitHub Actions 的外部 cron 驱动、从不设该 env，旧口径下它停摆多久都只报
+`disabled`，而 `disabled` 不拉低整体 ⇒ 生产侧停摆永远绿。
+
 本端点为免登录公开（监控/探活用），因此**不做任何实时外部调用**（如 LLM 连通性探测、
 第三方适配器 ping），避免被匿名请求滥用触发外部费用或 SSRF。组件仅暴露：
 - database：内部 DB 连通性（SELECT 1）+ 方言，安全；
@@ -30,8 +37,16 @@ from app.services.mcp.registry import provider_names
 
 bp = APIBlueprint('health', __name__, url_prefix='/api')
 
-# 调度健康判定：开启但超过该自然日数无任何成功运行即视为异常（容纳周末 + 单个短假期）。
+# 调度健康判定：心跳 job 超过该自然日数无成功运行即视为异常（容纳周末 + 单个短假期）。
+# 不能收到 2 天：`SCHEDULER_SKIP_NON_TRADING_DAY` 默认开启，周末两天本就不跑，
+# 周一早上必然是「3 天前」——判据会把每个周一都判成红。
 _SCHEDULER_STALE_DAYS = 3
+
+#: 心跳 job（#3085）：每日 23:45 的资产快照落账，纯本地、不依赖上游开不开门，
+#: 「它没跑成」等价于「整条每日调度链没跑成」。改动它必须同步改
+#: `tests/domains/test_health.py::test_heartbeat_job_is_daily_scheduled`（会核对
+#: `daily_scheduler._JOB_TEMPLATES` 里确有此 job 且 cron 是日频）。
+_SCHEDULER_HEARTBEAT_JOB = 'asset_snapshot'
 
 #: 24h 内出现这些失败 ⇒ **人必须处理**（换 Token / 等额度 / 联系服务商），拉低整体状态。
 #: 其余失败（unavailable / rate_limit / bad_response）只算 ``degraded``，不拉低整体——
@@ -163,8 +178,16 @@ def health_check():
         }
 
     # ── 调度组件 ──
+    # #3085（D113）：停摆判定改看**心跳 job**，不再用「任意一条 success 行」。
+    # 旧口径三处失效，每一处都会把「每日调度已停」显示成正常：
+    #   ① 手动单跑一个 job（`pdm run scheduler --job nav_backfill`）也写 success；
+    #   ② 不区分是哪个 job 成功了——「只有 nav_backfill 在跑」与「19 个 job 都在跑」一样绿；
+    #   ③ 巡检落的是 `ok`/`bloated`（D110），本来就不在 success 里。
+    # 心跳取 `asset_snapshot`（每日 23:45 落账，纯本地、不依赖上游是否开门），
+    # 它没跑成就说明整条调度链没跑成。
     scheduler_enabled = os.getenv('SCHEDULER_ENABLED', '').lower() in ('1', 'true', 'yes', 'on')
     last_success = None
+    heartbeat = None
     try:
         with get_db() as db:
             # SQLite 不保留时区偏移，读回的 started_at 是 naive 的东八区墙钟时间，
@@ -172,26 +195,56 @@ def health_check():
             last_success = as_shanghai(
                 db.query(func.max(SyncLog.started_at)).filter(SyncLog.status == 'success').scalar()
             )
+            heartbeat = as_shanghai(
+                db.query(func.max(SyncLog.started_at))
+                .filter(SyncLog.job_name == _SCHEDULER_HEARTBEAT_JOB, SyncLog.status == 'success')
+                .scalar()
+            )
     except Exception as exc:  # 健康端点本身绝不应因 DB 抖动而 500
         logger.warning(f'health: 查询 sync_logs 失败：{exc}')
 
-    if not scheduler_enabled:
-        sched_status = 'disabled'
-        sched_message = '本机每日调度未开启（默认），温度/净值等不会自动更新；需手动抓取或开启 SCHEDULER_ENABLED'
-    elif last_success is None:
-        sched_status = 'unhealthy'
-        sched_message = '调度已开启但无任何成功运行记录，请检查调度进程是否启动'
-    elif (now_shanghai() - last_success).days > _SCHEDULER_STALE_DAYS:
-        sched_status = 'unhealthy'
+    # 形态无关（#3085）：本仓有两条调度通道（D111）——本机常驻与部署侧外部 cron。
+    # 旧实现把 `SCHEDULER_ENABLED` 当成「调度该不该在跑」的唯一开关，于是**部署库**
+    # （由 GitHub Actions 驱动、从不设该 env）无论停摆多久都只报 `disabled`，
+    # 而 `disabled` 不拉低整体状态 ⇒ 生产侧停摆永远绿。现在「有没有心跳」才是事实来源，
+    # 开关只回答「本机常驻开没开」。
+    stale = heartbeat is not None and (now_shanghai() - heartbeat).days > _SCHEDULER_STALE_DAYS
+    stale_msg = (
+        f'心跳 job `{_SCHEDULER_HEARTBEAT_JOB}` 最后成功在 {heartbeat.date()}（超过 {_SCHEDULER_STALE_DAYS} 天）'
+        if stale
+        else ''
+    )
+    if heartbeat is None:
+        if scheduler_enabled:
+            sched_status = 'unhealthy'
+            sched_message = f'调度已开启但心跳 job `{_SCHEDULER_HEARTBEAT_JOB}` 从未成功运行，请检查调度进程是否启动'
+        else:
+            sched_status = 'disabled'
+            sched_message = (
+                '本机每日调度未开启（默认），且这份库没有任何日更成功记录；需手动抓取或开启 SCHEDULER_ENABLED'
+            )
+    elif stale:
+        # 本机常驻没开、但这份库曾经在日更 ⇒ 大概率是部署侧的外部定时器停了。
+        # 报 `degraded` 而非 `unhealthy`：本进程看不到那个定时器，不能替它下定论；
+        # 但**必须显示出来**，否则「进程全停」这件事依旧只能靠人想起来。
+        sched_status = 'unhealthy' if scheduler_enabled else 'degraded'
         sched_message = (
-            f'调度已开启但最近一次成功运行在 {last_success.date()}（超过 {_SCHEDULER_STALE_DAYS} 天），可能已停止'
+            f'每日调度已停止：{stale_msg}'
+            if scheduler_enabled
+            else f'本机常驻调度未开启，且这份库的日更记录已陈旧：{stale_msg}——若这是部署库，外部定时器可能已停'
         )
     else:
         sched_status = 'healthy'
-        sched_message = f'调度正常，最近成功运行 {last_success.date()}'
+        sched_message = (
+            f'调度正常，最近日更成功 {heartbeat.date()}'
+            if scheduler_enabled
+            else f'本机常驻调度未开启，但 {heartbeat.date()} 有日更成功记录（由外部定时器驱动）'
+        )
     components['scheduler'] = {
         'enabled': scheduler_enabled,
         'last_success_run': last_success.isoformat() if last_success else None,
+        'heartbeat_job': _SCHEDULER_HEARTBEAT_JOB,
+        'last_heartbeat_run': heartbeat.isoformat() if heartbeat else None,
         'status': sched_status,
         'message': sched_message,
     }

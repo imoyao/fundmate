@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { injectSupabaseSession } from "./support/session";
+import { fundProfileFixture, withoutFields } from "./fixtures/productDetail";
 
 /**
  * 详情页页内导航回归网（#1968 子卡：顶部锚点胶囊 + xl 右目录 rail）。
@@ -149,22 +150,13 @@ async function stubProductApis(page: Page, opts?: { hasPosition?: boolean }) {
       }
     })
   );
+  // #2958：此前这里只写 8 个字段，而 FundProfileResult 有 21 个——本文件 12 个用例
+  // 全部跑在「字段缺失 ⇒ 降级为 —」的防御态上，看到的页面和用户看到的不是同一个。
+  // 完整桩收口在 e2e/fixtures/productDetail.ts，「缺字段」语义只由 #2191 那条显式构造。
   await page.route("**/api/products/fund-profile/**", route =>
     route.fulfill({
       status: 200,
-      json: {
-        data: {
-          fund_code: SYMBOL,
-          name: NAME,
-          fund_type: "指数型-股票",
-          company: "永赢基金管理有限公司",
-          unit_nav: 0.8234,
-          nav_date: "2026-10-09",
-          change_pct: 0.402,
-          source: "天天基金"
-        },
-        message: "ok"
-      }
+      json: { data: fundProfileFixture(), message: "ok" }
     })
   );
   await page.route("**/api/products/fund-holdings-detail/**", route =>
@@ -466,12 +458,62 @@ test.describe("详情页页内导航（#1968）", () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test("基金资料：完整响应下经理/费率/晨星真渲染（#2958）", async ({
+    page
+  }) => {
+    // #2958：本文件 12 个用例此前共用一份只有 8 个字段的 fund-profile 桩，基金资料
+    // 区块全程是「—」——经理、费率、晨星三条渲染分支在 e2e 里从未见过真实数据。
+    // 本用例先钉住「完整响应下页面到底长什么样」，字段被误删或格式化函数改坏都会红。
+    const pageErrors: string[] = [];
+    page.on("pageerror", e => pageErrors.push(e.message));
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const fund = page.locator("#nav-fund");
+    await expect(fund).toBeVisible({ timeout: 60_000 });
+
+    // 先证明桩接上了：区块渲染出真实内容，而非「暂无可展示」空态（取数失败时
+    // 下面所有 toContainText 都会假绿）
+    await expect(fund.locator(".fund-section__nav")).toBeVisible();
+
+    const cell = (label: string) =>
+      fund.locator(".facts-grid__cell", { hasText: label });
+
+    // 基金经理：姓名真渲染，代表作徽标只挂在 is_classic 那一只上
+    await expect(cell("基金经理")).toContainText("测试经理");
+    await expect(cell("基金经理")).toContainText("协同经理");
+    await expect(cell("基金经理").locator(".fund-section__badge")).toHaveCount(
+      1
+    );
+
+    // 与经理无关的字段一并证明「整份响应到了」：规模 / 成立日期 / 业绩基准
+    await expect(cell("规模")).toContainText("12.34 亿元");
+    await expect(cell("成立日期")).toContainText("2022-03-15");
+    await expect(fund).toContainText("中证北证50");
+
+    // 晨星（#1440）：口径在纯函数里有单测，但「组件有没有把算好的值渲染进 DOM」
+    // 这一环在 e2e 里此前是零覆盖（`grep morningstar e2e/` 曾 0 命中）
+    await expect(cell("晨星评级")).toContainText("4 星（3年期）");
+    await expect(cell("晨星评级")).toContainText("较上期 升1星");
+
+    // 费率：申购取最低档（含条件与「分档递减」标记），赎回取首档惩罚档
+    await expect(cell("申购费率")).toContainText("1.20%");
+    await expect(cell("申购费率")).toContainText("100 万以下");
+    await expect(cell("赎回费率")).toContainText("1.50%");
+    await expect(cell("赎回费率")).toContainText("不足 7 天");
+
+    expect(pageErrors).toEqual([]);
+  });
+
   test("基金经理字段缺失：降级为「—」，不抛错不消失（#2191）", async ({
     page
   }) => {
-    // #2191：模板曾裸取 profile.managers.length，fund-profile 响应缺该字段时
-    // 渲染抛 TypeError。Vue 把渲染错误吞进子组件（父级透传的 #nav-fund 锚点
-    // 可能还在），整块基金资料渲染成空、页面无可见报错——本用例钉两条：
+    // 本用例是 e2e 中**唯一**允许 fund-profile 缺字段的地方（#2958）：其余用例一律
+    // 走 fundProfileFixture() 的完整 21 字段。缺字段语义只在这里显式构造，否则
+    // 「降级路径真的生效」与「基线本来就没这个字段、一路陪跑」在 DOM 上不可分辨。
+    //
+    // #2191：模板曾裸取 profile.managers.length，缺该字段时渲染抛 TypeError。Vue 把
+    // 渲染错误吞进子组件（父级透传的 #nav-fund 锚点可能还在），整块基金资料渲染成
+    // 空、页面无可见报错——本用例钉两条：
     // ① 基金经理行降级为「—」（与基金类型/规模等字段同一契约，见
     //    FundProfileResult「字段缺失一律为 null，前端据此降级」）；
     // ② 加载全程零 pageerror。
@@ -479,21 +521,34 @@ test.describe("详情页页内导航（#1968）", () => {
     const pageErrors: string[] = [];
     page.on("pageerror", e => pageErrors.push(e.message));
 
+    // 后注册的 route 优先：覆盖 beforeEach 里的完整桩，只摘掉 managers 一个键
+    await page.route("**/api/products/fund-profile/**", route =>
+      route.fulfill({
+        status: 200,
+        json: {
+          data: withoutFields(fundProfileFixture(), ["managers"]),
+          message: "ok"
+        }
+      })
+    );
+
     await page.goto(`/#/fund/${SYMBOL}`);
     await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
 
-    // 先证明桩接上了：区块必须渲染真实内容而非「暂无可展示」空态——
-    // 取数失败时下面的断言会假绿，所以先钉死这一条
+    // 先证明桩接上了、且缺的**只是 managers**：与它无关的字段必须照常有值。
+    // （此前这里断言 `.fund-section__hint` 计数为 0 —— 该类名在 src 里根本不存在，
+    //  是恒真空断言；换成「同区块其它字段有值」，取数失败时才不会假绿。）
     const fund = page.locator("#nav-fund");
     await expect(fund).toBeVisible();
-    await expect(fund.locator(".fund-section__hint")).toHaveCount(0);
+    await expect(fund.locator(".fund-section__nav")).toBeVisible();
+    await expect(
+      fund.locator(".facts-grid__cell", { hasText: "基金公司" })
+    ).toContainText("永赢基金管理有限公司");
+    await expect(
+      fund.locator(".facts-grid__cell", { hasText: "规模" })
+    ).toContainText("12.34 亿元");
 
-    // ⚠️ 选择器由 `.fund-section__fact` 改为 `.facts-grid__cell`：
-    // 「基金经理」行已随 facts-grid 重构从 ProductFundSection 的旧 fact 结构挪进
-    // `<dl class="facts-grid">`（ProductFundSection.vue:125，现为
-    // `<dt class="facts-grid__label">基金经理</dt>`），该区块内只剩「业绩基准」
-    // 一行还带 `.fund-section__fact`（:175）。旧选择器匹配不到 ⇒ 本用例一直红，
-    // 但红的原因是选择器失效、**不是** #2191 回归——降级逻辑完好（:135 `v-else {{ DASH }}`）。
+    // 缺失的那一格降级为「—」（`ProductFundSection.vue` 的 `v-else {{ DASH }}`）
     await expect(
       fund.locator(".facts-grid__cell", { hasText: "基金经理" })
     ).toContainText("—");

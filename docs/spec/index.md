@@ -33,7 +33,8 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [api.md](./api.md) | 核心 API 端点清单 | 随代码演进 | 事实标准 |
 | [frontend-ui.md](./frontend-ui.md) | 通用业务组件规范、前端区域布局与交互规范 | 随前端演进 | 硬约束 |
 | [roadmap.md](./roadmap.md) | 四象限定义 + 里程碑映射 + issue 反链 | 低（导航层，不含进度） | 查「某编号对应哪张卡」 |
-| [tech-debt.md](./tech-debt.md) | 技术债务与开口项明细 | 易腐烂（标核实日期） | 进度追踪 |
+| [tech-debt.md](./tech-debt.md) | 技术债务历史归档（发现过程 / 决策依据 / 实测证据），状态已迁出 | 低 | 历史归档 |
+| [tech-debt-register.toml](./tech-debt-register.toml) | 技术债务状态唯一权威（状态机 / 判据 / 复核日期） | 随状态变更 | CI 判定：`scripts/guard_tech_debt_register.py` |
 | [decisions.md](./decisions.md) | 重要决策完整记录表 | append-only | 永久回溯 |
 | [pricing-tier.md](./pricing-tier.md) | 付费/免费分层规范（判定准则、功能归属、双层估值开关、前端直连约束） | 低频 | 事实标准 |
 | [data-strategy.md](./data-strategy.md) | 数据策略（L1~L4 分层、数据准入四问、表/列/job 准入细则） | 低频 | 硬约束 |
@@ -60,14 +61,17 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [ai-review.md](./ai-review.md) | AI 代码审查链路机制与配置事实（配置分层、配额截断、降噪结论、排障指引） | 事实标准（依据包源码实测） |
 | [release-readiness.md](./release-readiness.md) | `dev → main` 发版判据：机械闸项、**语义闸中间态识别判据**、Closes 写法规则（base=main 时原生生效）、分叉修法 | 硬约束（发版前必读） |
 | [cashflow-layers.md](./cashflow-layers.md) | 资金流水分层口径（L1 外部资金流 / L2 资产转换 / L3 收益实现 / L4 估值），净投入与现金残差定义、内部划转配对、账户口径与降级 | 事实标准（#2615 起 XIRR 与资金流动视图的唯一口径入口） |
+| [net-worth-caliber.md](./net-worth-caliber.md) | 净资产口径（`net_worth`）与现金腿：账户 / 家庭净资产的**存量**定义、现金只存一处、`linked_cash_ledger_id` 只做展示、日历口径范围、历史余额回放与缺数据降级 | 事实标准（#3039 起收益日历分母与现金口径的唯一入口） |
 | [data-refresh-inventory.md](./data-refresh-inventory.md) | 数据自动更新清单（各数据项的分层 / 来源 job / 建议频率 / 实测现状 / 调度缺口） | 事实标准（现状列易腐烂，引用前先重跑诊断） |
 | [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |
 | [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |
 | [fund-nav-retention.md](./fund-nav-retention.md) | 基金净值数据保留期与瘦身（冷热分层保留：热集留全历史 / 冷集留 1 年；自算 vs 上游拉的承重关系；先补后清的执行顺序） | 数据策略决策（**已拍板**，现状数字易腐烂待核实） |
 | [soft-banner.md](./soft-banner.md) | 「柔性提示条」（页面顶部非阻断警示）通用组件 `SoftBanner` 的 API、variant 色表、迁移映射与**未完成批次**（#2716；v1 实现已落地，§7 三项仍待做） | 设计依据 + 事实标准（迁移进度列易腐烂，引用前回 `origin/dev` 复核） |
-| [account-detail-depth-analysis.md](./account-detail-depth-analysis.md) | 账户详情页「持仓集中度 / 行业分布」占位卡处置（#2739）：能力已上线的事实取证、四页面对照矩阵、独立冗余评估与方案对比（B′ 就地内嵌缺失两块 vs 入口卡 vs 删除 vs 照搬整页） | 设计依据（**已实现**，§0 有 owner 裁定与落地摘要，§6 记录裁定过程） |
+| [account-detail-depth-analysis.md](./account-detail-depth-analysis.md) | 账户详情页「持仓集中度 / 行业分布」占位卡处置（#2739）：能力已上线的事实取证、四页面对照矩阵、独立冗余评估与方案对比（B′ 就地内嵌缺失两块 vs 入口卡 vs 删除 vs 照搬整页）；§11 记 #2943 账户级风格面板的价值判断（判定不做） | 设计依据（**已实现**，§0 有 owner 裁定与落地摘要，§6 记录裁定过程） |
 | [account-detail-depth-analysis-eval.md](./account-detail-depth-analysis-eval.md) | 上述文档的证据附录：聚合页 / 账户详情页 / 组合详情页 / 复盘页的分析块对照矩阵与「同源组件 ≠ 功能冗余」的独立评估 | 事实标准（§1 是实现前快照，落地后状态见文末 §5；矩阵易腐烂，引用前回 `origin/dev` 复核） |
 | [position-structure-view-by-ledger-type.md](./position-structure-view-by-ledger-type.md) | 持仓结构视角由账户类型（`ledger_type`）决定、不由用户切换：两个账户类型字段的职责边界、ETF 归权益侧与货基走类现金的口径细则、组合/家庭级为何保留切换 | 口径依据（**已实现**，§2 的字段选择与 §3 的实测数据是判据依据） |
+| [agent-paradigm-selection.md](./agent-paradigm-selection.md) | 账本精灵推理范式选型（ReAct / Plan-and-Execute / Reflection + 不改范式第四方案）：第一性区分、12 条已验收约束盘点、决策树、代价对比与裁定留痕 | 选型分析（**已裁定，D115**；§1~§11 为判定依据，P&E 最小编排已落地，§13 记裁定与落地事实） |
+| [agent-rebalance-reference-tool.md](./agent-rebalance-reference-tool.md) | 账本精灵「持仓再平衡参考」工具设计（#3049 Q3 专题）：只读计算型工具 `get_rebalance_reference` 的目标/边界/数据底座/计算逻辑/输出 schema/护栏集成点，与 P&E/A′ 正交 | 设计依据（**v1 + v2 已实施，D115**；§12 记 v1、§13 记 v2；行号绑定历史提交，引用前复核） |
 | [internal-index.md](./internal-index.md) | 内部资产 / 备忘索引（钩子清单） | 索引页（`srcExclude`，不参与构建） |
 
 ## 视觉设计语言（权威入口）

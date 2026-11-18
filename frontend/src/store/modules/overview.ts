@@ -1,7 +1,7 @@
 // frontend/src/store/modules/overview.ts
 import { defineStore } from "pinia";
 import { getSummary } from "@/api/summary";
-import type { SummaryData } from "@/api/types";
+// getSummary() 已带 ApiResponse<SummaryData>，响应无需再断言
 
 export interface OverviewData {
   netAsset: number | null;
@@ -27,18 +27,8 @@ export interface OverviewData {
   sharpe: number | null;
 }
 
-export interface PsychAccount {
-  info: string;
-  accounts: Array<{
-    label: string;
-    value: string;
-    tone: "neutral" | "safe" | "warning" | "danger";
-  }>;
-}
-
 interface OverviewState {
   overview: OverviewData;
-  psychAccount: PsychAccount;
   loading: boolean;
 }
 
@@ -66,21 +56,9 @@ const emptyOverview = (): OverviewData => ({
   sharpe: null
 });
 
-/** 心理账户：示例数据，待接入真实 API */
-const mockPsychAccount = (): PsychAccount => ({
-  info: "按用途划分的资金池，帮助你克制冲动交易",
-  accounts: [
-    { label: "活钱", value: "¥120,000", tone: "neutral" },
-    { label: "保命钱", value: "¥300,000", tone: "safe" },
-    { label: "长久钱", value: "¥520,000", tone: "neutral" },
-    { label: "赌钱", value: "¥45,000", tone: "warning" }
-  ]
-});
-
 export const useOverviewStore = defineStore("overview", {
   state: (): OverviewState => ({
     overview: emptyOverview(),
-    psychAccount: mockPsychAccount(),
     loading: false
   }),
   actions: {
@@ -89,7 +67,7 @@ export const useOverviewStore = defineStore("overview", {
       this.loading = true;
       try {
         const res = await getSummary();
-        const d = (res as any)?.data as SummaryData | undefined;
+        const d = res?.data;
         if (d) {
           const total = d.total_assets_cny ?? null;
           const pnl = d.total_pnl_cny ?? null;

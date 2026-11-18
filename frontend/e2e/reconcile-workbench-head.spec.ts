@@ -52,10 +52,11 @@ const GHOST_GROUP = {
 /**
  * 只打桩后端接口（vite 源码模块请求不能碰，否则整页白屏）。
  *
- * ⚠️ 前缀不是统一的 `/api/`，这是本页最容易打错桩的地方：
- * - `api/reconciliation.ts` 里的路径**不带** `/api` 前缀（`/reconciliation/run/` 等），
- *   靠 vite 代理转发；
- * - `api/eaccount.ts` 写死了 `/api/e-account/reconciliation/`。
+ * ⚠️ 桩路径必须与真实请求**逐字一致**，这是本页最容易打错桩的地方：
+ * - 所有后端接口都走 `/api/` 前缀（vite 只代理 `/api`，见 vite.config.ts）；
+ *   `api/reconciliation.ts` 曾漏写 `/api`，请求打到 vite 的 SPA 回退拿到 HTML
+ *   （HTTP 200），前端把 HTML 当数据 → 整页显示 0 条且不报错（#2866 实测）。
+ * - `api/eaccount.ts` 写死 `/api/e-account/reconciliation/`。
  * 初版只 match `/api/`，结果「运行对账」的 POST 与幽灵重复列表全落到 vite 代理上
  * （一个请求都没被记录），页面侧表现为「点了没反应」「横幅不出现」——**不报错**。
  *
@@ -88,9 +89,7 @@ async function mockApis(
 
   // 兜底：最宽，最先注册（后注册的具体桩会覆盖它）
   await page.route(
-    url =>
-      url.pathname.startsWith("/api/") ||
-      url.pathname.startsWith("/reconciliation/"),
+    url => url.pathname.startsWith("/api/"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -99,7 +98,7 @@ async function mockApis(
 
   // 域 B / C 的差异（本组用例只要 0 条，确保「B 无待办」）
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/discrepancies"),
+    url => url.pathname.startsWith("/api/reconciliation/discrepancies"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -108,7 +107,7 @@ async function mockApis(
 
   // 域 E 分红税
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/dividend-tax"),
+    url => url.pathname.startsWith("/api/reconciliation/dividend-tax"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -140,7 +139,7 @@ async function mockApis(
 
   // 域 D 幽灵重复（宽）——必须早于下面的 /ignored/
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/ghost-duplicates"),
+    url => url.pathname.startsWith("/api/reconciliation/ghost-duplicates"),
     route => {
       record(route);
       return route.fulfill({
@@ -151,7 +150,8 @@ async function mockApis(
 
   // 已忽略清单（窄，最后注册 → 最先匹配）
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/ghost-duplicates/ignored"),
+    url =>
+      url.pathname.startsWith("/api/reconciliation/ghost-duplicates/ignored"),
     route => {
       record(route);
       return route.fulfill({ json: { data: [], message: "" } });
@@ -160,7 +160,7 @@ async function mockApis(
 
   // 运行对账
   await page.route(
-    url => url.pathname.startsWith("/reconciliation/run"),
+    url => url.pathname.startsWith("/api/reconciliation/run"),
     route => {
       record(route);
       return route.fulfill({ json: { data: {}, message: "" } });
@@ -213,39 +213,40 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     await injectSupabaseSession(context, baseURL!);
   });
 
-  test("页头两枚按钮的 emit 都接通：运行对账发 POST domain=B 并刷新差异", async ({
+  test("页头两枚按钮的 emit 都接通：重新检查持仓差异发 POST domain=B 并刷新差异", async ({
     page
   }) => {
     const calls = await mockApis(page);
     await openWorkbench(page);
 
     // 标题 / 副标题随组件搬迁仍在页头
-    await expect(page.locator(".workbench-head__title")).toHaveText(
-      "对账工作台"
-    );
+    await expect(page.locator(".workbench-head__title")).toHaveText("对账中心");
     await expect(page.locator(".workbench-head__subtitle")).toContainText(
       "统一处理 E账户对账"
     );
 
     const head = page.locator(".workbench-head");
     await expect(head.getByRole("button", { name: "AI 识别" })).toBeVisible();
-    await expect(head.getByRole("button", { name: "运行对账" })).toBeVisible();
+    await expect(
+      head.getByRole("button", { name: "重新检查持仓差异" })
+    ).toBeVisible();
 
     const before = calls.filter(c =>
-      c.path.startsWith("/reconciliation/discrepancies")
+      c.path.startsWith("/api/reconciliation/discrepancies")
     ).length;
 
-    await head.getByRole("button", { name: "运行对账" }).click();
+    await head.getByRole("button", { name: "重新检查持仓差异" }).click();
 
     // 请求体带 domain=B（域 B 是「算差异」的入口）
     await expect
       .poll(
         () =>
-          calls.filter(c => c.path.startsWith("/reconciliation/run")).length,
+          calls.filter(c => c.path.startsWith("/api/reconciliation/run"))
+            .length,
         { timeout: 15_000 }
       )
       .toBe(1);
-    const run = calls.find(c => c.path.startsWith("/reconciliation/run"))!;
+    const run = calls.find(c => c.path.startsWith("/api/reconciliation/run"))!;
     expect(run.method).toBe("POST");
     expect(run.body).toEqual({ domain: "B" });
 
@@ -258,8 +259,9 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     await expect
       .poll(
         () =>
-          calls.filter(c => c.path.startsWith("/reconciliation/discrepancies"))
-            .length,
+          calls.filter(c =>
+            c.path.startsWith("/api/reconciliation/discrepancies")
+          ).length,
         { timeout: 15_000 }
       )
       .toBeGreaterThan(before);
@@ -280,7 +282,7 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     );
   });
 
-  test("Tab 角标只在有待办时出现；点横幅按固定顺序跳到第一个有待办的域", async ({
+  test("任务卡角标只在有待办时出现；点横幅落到第一个有待办的任务", async ({
     page
   }) => {
     // B / C / A / E 全空，只有 D 有 1 组 → pickFirstPendingDomain 必须越过 B 落到 D
@@ -291,21 +293,27 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     const banner = page.locator(".workbench-banner");
     await expect(banner).toContainText("有 1 项差异待处理");
 
-    // 角标：只有「跨账本重复」这一页签挂角标，其余 tab 不许挂 0
+    // 角标：只有「核对差异」这张卡挂角标，其余卡不许挂 0。
+    // 域 D 的重复交易归入「核对差异」，来源标签仍在队列卡上，但不再是一级导航。
     const badges = page.locator(".workbench-tabs .domain-tab-count");
     await expect(badges).toHaveCount(1);
     await expect(badges.first()).toHaveText("1");
     await expect(
-      page.locator(".workbench-tabs .el-tabs__item", { hasText: "跨账本重复" })
+      page.locator(".workbench-tabs .recon-task-card", {
+        hasText: "核对差异"
+      })
     ).toContainText("1");
 
-    // 点击横幅 → 切到域 D。这是**页内**切换，只该换下半屏内容，
-    // 不得重挂载整个页面组件，更不得把域写进 URL（#2706）。
+    // 点击横幅 → 落到有待办的第一个任务并展开对应待办。这是**页内**切换，
+    // 只该换队列区，不得重挂载整个页面组件，更不得把域写进 URL（#2706）。
     await probeSurvivesRemount(page);
     await banner.click();
     await expect(
-      page.locator(".workbench-tabs .el-tabs__item.is-active")
-    ).toContainText("跨账本重复");
+      page.locator(".workbench-tabs .recon-task-card.is-active")
+    ).toContainText("核对差异");
+    await expect(page.locator(".recon-queue__item.is-active")).toContainText(
+      "跨账本重复"
+    );
     // ⚠️ 必须先等过渡结束：Vue 的重渲染在 nextTick，out-in 离场动画还要再占几百毫秒，
     // 点击后立刻断言"标记还在"会抢在重挂载之前通过——那是竞态，不是判据（初版即栽在这里）。
     await settleAfterSwitch(page);
@@ -315,7 +323,7 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     expect(new URL(page.url()).hash).not.toContain("domain=");
   });
 
-  test("切 tab 不重挂载页面：URL 不变、首屏加载器不重跑（#2706）", async ({
+  test("点任务卡不重挂载页面：URL 不变、首屏加载器不重跑（#2706）", async ({
     page
   }) => {
     const calls = await mockApis(page, { ghostGroups: 1 });
@@ -326,15 +334,15 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     await probeSurvivesRemount(page);
     const before = calls.length;
 
-    // ⚠️ 必须点一个**非默认域**的 tab：默认落在域 B，点「持仓快照」等于原地不动，
-    // `activeDomain` 不变化就不会触发下文的写回——用例会变成空转（初版即栽在这里）。
+    // ⚠️ 默认筛选是「全部任务」，点任意一张卡都会真正改变筛选状态；
+    // 选「补记缺漏」是因为它在本桩里没有待办，能顺带验证空态不会触发补拉数据。
     await page
-      .locator(".workbench-tabs .el-tabs__item", { hasText: "分红未扣税" })
+      .locator(".workbench-tabs .recon-task-card", { hasText: "补记缺漏" })
       .click();
 
     await expect(
-      page.locator(".workbench-tabs .el-tabs__item.is-active")
-    ).toContainText("分红未扣税");
+      page.locator(".workbench-tabs .recon-task-card.is-active")
+    ).toContainText("补记缺漏");
     // 等过渡结束再看：重挂载 ⇒ onMounted 跑五个加载器 ⇒ 请求数必然增长
     await settleAfterSwitch(page);
     // 组件实例没被销毁（重挂载会连 `.workbench-head` 一起重建，标记随之消失）

@@ -21,7 +21,7 @@ describe("resolveLedgerBadge", () => {
 
   it("渠道类别齐全时按渠道给字", () => {
     expect(resolveLedgerBadge({ channelCategory: "securities" }).label).toBe(
-      "证"
+      "股"
     );
     expect(resolveLedgerBadge({ channelCategory: "fund_platform" }).label).toBe(
       "基"

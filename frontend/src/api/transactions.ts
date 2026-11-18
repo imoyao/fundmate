@@ -8,6 +8,11 @@ export interface TransactionRecord {
   ledger_id: number | null;
   /** 关联持仓 id；账户级流水（存入/税费等）为 null */
   position_id: number | null;
+  /**
+   * #3089 归置标记：非空表示这笔账外类现金流水已由该持仓体现，
+   * 类现金口径不再计入它。`position_id` 仍为 null（不进持仓成本/份额）。
+   */
+  covered_position_id?: number | null;
   position_name: string;
   /** 资产代码（后端 `transactions.symbol` 快照；账户级流水可能为 null） */
   symbol?: string | null;
@@ -77,6 +82,8 @@ export interface TransactionPositionBrief {
  */
 export interface TransactionDetail extends TransactionRecord {
   fee_breakdown: TransactionFeeBreakdown | null;
+  /** #3089 归置指向的持仓名；持仓已删或不可见时为 null */
+  covered_position_name?: string | null;
   import_hash: string | null;
   updated_at: string | null;
   /** 来源定投计划（#2138）；`null` = 非定投 */

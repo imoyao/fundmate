@@ -17,26 +17,29 @@
 <template>
   <CardBlock class="cash-flow">
     <SectionHeader title="资金流动">
+      <!-- 口径全部收在 ⓘ（2026-11-15）：卡片下方原有两行小字重复讲「现金残差是
+           推导值」，与这里第三段同义；一并移到这里后，卡面只剩数字和两张图。
+           ⚠️ 原文用 `**加粗**` 写在文本节点里——Markdown 语法在 Vue 模板中不生效，
+           页面上真的显示了两对星号。改用 <strong>，「⭐」这段是 bug 修复而非改文案。 -->
       <template #info>
         <p>
-          入金 / 出金只统计**跨出{{
-            scopeWord
-          }}**的钱；买入、卖出是内部换形态，不算。
+          入金 / 出金只统计<strong>跨出{{ scopeWord }}</strong
+          >的钱；买入、卖出是内部换形态，不算。
         </p>
         <p>净投入 = 累计入金 − 累计出金，自开户以来统计，不随时间区间变化。</p>
         <p>
-          净值线为**持仓市值**；现金残差
+          净值线为<strong>持仓市值</strong>；现金残差
           <strong>{{ money(totals?.cash_residual) }}</strong>
           由流水推导（缺流水会偏），未计入曲线。
         </p>
+        <p>
+          期末资产 = 持仓市值 + 现金残差（推导值）；累计收益 = 期末资产 −
+          净投入。
+        </p>
+        <p>柱状图为每月入金 / 出金，正负分色；月份缺数据时不留空柱。</p>
       </template>
       <template #action>
-        <SegmentedControl
-          v-model="rangeDays"
-          :options="RANGE_OPTIONS"
-          size="small"
-          aria-label="资金流动区间"
-        />
+        <ChartRangeTabs v-model="range" aria-label="资金流动区间" />
       </template>
     </SectionHeader>
 
@@ -82,6 +85,9 @@
       <div class="cash-flow__legend">
         <span class="legend legend--worth">持仓市值</span>
         <span class="legend legend--invested">累计净投入</span>
+        <span v-if="inceptionLabel" class="legend">
+          投资起点 {{ inceptionLabel }}
+        </span>
         <span v-if="missingDays > 0" class="legend legend--missing">
           {{ missingDays }} 天无价格（断线，不补 0）
         </span>
@@ -94,25 +100,19 @@
           class="chart chart--bar"
         />
       </div>
-
-      <p class="cash-flow__caliber">
-        期末资产 = 持仓市值 + 现金残差（推导值）；累计收益 = 期末资产 − 净投入。
-        柱状图为每月入金 / 出金，正负分色；月份缺数据时不留空柱。
-      </p>
     </template>
   </CardBlock>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed } from "vue";
 import VChart from "vue-echarts";
-import dayjs from "dayjs";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import SegmentedControl from "@/components/SegmentedControl/index.vue";
-import { getCashFlow, type CashFlow } from "@/api/summary";
-import { formatAmount } from "@/utils/currency";
+import ChartRangeTabs from "@/components/ChartRangeTabs/index.vue";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
+import { formatAmount } from "@/utils/currency";
+import { useCashFlow } from "./useCashFlow";
 
 defineOptions({ name: "CashFlowPanel" });
 
@@ -128,44 +128,8 @@ const scopeWord = computed(() =>
   props.portfolioId != null ? "本组合" : "本账户"
 );
 
-const RANGE_OPTIONS = [
-  { label: "半年", value: 180 },
-  { label: "1 年", value: 365 },
-  { label: "3 年", value: 1095 }
-] as const;
-
-const rangeDays = ref<(typeof RANGE_OPTIONS)[number]["value"]>(365);
-const data = ref<CashFlow | null>(null);
-const loadError = ref("");
-
-const totals = computed(() => data.value?.totals ?? null);
-const missingDays = computed(() => data.value?.coverage?.missing_nav_days ?? 0);
-
-function money(value?: number | null): string {
-  if (value === null || value === undefined) return "—";
-  return `¥${formatAmount(value)}`;
-}
-
-async function fetchCashFlow() {
-  if (props.ledgerId == null && props.portfolioId == null) return;
-  const scope: { ledger_id?: number; portfolio_id?: number } = {};
-  if (props.ledgerId != null) scope.ledger_id = props.ledgerId;
-  if (props.portfolioId != null) scope.portfolio_id = props.portfolioId;
-  loadError.value = "";
-  try {
-    const res = await getCashFlow({
-      ...scope,
-      start_date: dayjs().subtract(rangeDays.value, "day").format("YYYY-MM-DD")
-    });
-    data.value = res.data;
-  } catch (e: any) {
-    // 端点 400（账户/组合不存在、跨家庭、作用域参数冲突）或网络错误：
-    // 如实报，不留旧图（旧图 = 假数据）
-    data.value = null;
-    loadError.value = e?.response?.data?.message || "资金流动数据加载失败";
-    console.error("获取资金流动失败:", e);
-  }
-}
+const { range, data, loadError, totals, missingDays, inceptionLabel, money } =
+  useCashFlow(props);
 
 const themeTick = useThemeTick();
 
@@ -283,13 +247,6 @@ const barOption = computed(() => {
     ]
   };
 });
-
-onMounted(fetchCashFlow);
-// 作用域或区间变化都要重取：路由参数切换（账户 A → B、组合 A → B）时组件会被复用
-watch(
-  [() => props.ledgerId, () => props.portfolioId, rangeDays],
-  fetchCashFlow
-);
 </script>
 
 <style scoped>
@@ -332,9 +289,10 @@ watch(
   color: var(--brand-ink);
 }
 
+/* `.cash-flow__caliber` 已随脚注删除（2026-11-15，内容并入 SectionHeader ⓘ），
+   选择器同步移除——留着的死类名会让下一个人以为那里还有东西。 */
 .cash-flow__hint,
-.cash-flow__error,
-.cash-flow__caliber {
+.cash-flow__error {
   margin: 8px 0 0;
   font-size: var(--text-label);
   line-height: 1.6;

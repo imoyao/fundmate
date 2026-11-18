@@ -1,25 +1,23 @@
 /**
  * 区间收益归因的纯计算（#980 批 B4 从 `index.vue` 抽到 `attributionModel.ts` 时补的网）。
  *
- * 两条容易写反的口径：
- * ① 区间预设的边界（「今年」必须是 1-1 起，不是「近 12 个月」）；
- * ② 空态那两句话不能混用——「数据不足」与「没有可归因持仓」是两件事，
- *    混了用户就会去翻持仓，而真正缺的是数据。
+ * 区间档位与「档位 → 日期」已迁到 `utils/chartRange.ts`（#3107），边界由
+ * `utils/__tests__/chartRange.spec.ts` 钉住（今年来=1-1 起、月回退、月末不溢出、
+ * inception 哨兵）。本文件只钉**展示层**那一件容易写反的事：
+ * 「数据不足」与「没有可归因持仓」不能混用 —— 混了用户会去翻持仓，而真正缺的是数据。
  */
 import { describe, expect, it } from "vitest";
 import type { PnlAttributionPayload } from "@/api/summary";
 import {
+  PREVIEW_SIZE,
   barWidthFor,
   buildRows,
   computeMaxAbs,
   emptyTextFor,
-  fmtDate,
-  presetRange,
   sectionInfoFor,
+  splitByPnl,
   type ViewRow
 } from "../attributionModel";
-
-const NOW = new Date(2026, 9, 27); // 2026-10-27 本地时区
 
 function payload(
   over: Partial<PnlAttributionPayload> = {}
@@ -38,34 +36,6 @@ function payload(
     ...over
   } as PnlAttributionPayload;
 }
-
-describe("fmtDate", () => {
-  it("月 / 日补零", () => {
-    expect(fmtDate(new Date(2026, 0, 5))).toBe("2026-01-05");
-    expect(fmtDate(new Date(2026, 11, 31))).toBe("2026-12-31");
-  });
-});
-
-describe("presetRange", () => {
-  it("今年 = 1-1 起（不是「近 12 个月」）", () => {
-    expect(presetRange("ytd", NOW)).toEqual({
-      start_date: "2026-01-01",
-      end_date: "2026-10-27"
-    });
-  });
-
-  it("近1月 / 近3月 / 近1年按月回退", () => {
-    expect(presetRange("1m", NOW).start_date).toBe("2026-09-27");
-    expect(presetRange("3m", NOW).start_date).toBe("2026-07-27");
-    expect(presetRange("1y", NOW).start_date).toBe("2025-10-27");
-  });
-
-  it("终点恒为今天（所有预设共用一个 end）", () => {
-    for (const key of ["1m", "3m", "ytd", "1y"] as const) {
-      expect(presetRange(key, NOW).end_date).toBe("2026-10-27");
-    }
-  });
-});
 
 describe("buildRows", () => {
   it("无载荷 ⇒ 空行", () => {
@@ -166,6 +136,45 @@ describe("computeMaxAbs / barWidthFor", () => {
   });
 });
 
+describe("splitByPnl", () => {
+  const row = (key: string, pnl: number): ViewRow => ({
+    key,
+    name: key,
+    sub: "",
+    pnl,
+    pct: null
+  });
+
+  it("按符号分成 盈利 / 亏损 / 持平，且顺序固定（持平垫底）", () => {
+    const groups = splitByPnl([
+      row("a", 100),
+      row("b", -50),
+      row("c", 0),
+      row("d", 30)
+    ]);
+    expect(groups.map(g => g.key)).toEqual(["gain", "loss", "flat"]);
+    expect(groups.map(g => g.label)).toEqual(["盈利", "亏损", "持平"]);
+    expect(groups[0].rows.map(r => r.key)).toEqual(["a", "d"]);
+    expect(groups[1].rows.map(r => r.key)).toEqual(["b"]);
+    expect(groups[2].rows.map(r => r.key)).toEqual(["c"]);
+  });
+
+  it("只分组不排序：组内保持后端给的 |pnl| 降序（前 10 的语义前提）", () => {
+    const groups = splitByPnl([row("a", 100), row("b", 20), row("c", 300)]);
+    expect(groups[0].rows.map(r => r.key)).toEqual(["a", "b", "c"]);
+  });
+
+  it("空组不返回（不给用户一条空列表 + 一个 0）", () => {
+    expect(splitByPnl([row("a", 5)]).map(g => g.key)).toEqual(["gain"]);
+    expect(splitByPnl([row("a", -5)]).map(g => g.key)).toEqual(["loss"]);
+    expect(splitByPnl([])).toEqual([]);
+  });
+
+  it("折叠态每侧条数沿用「前十大」心智（10）", () => {
+    expect(PREVIEW_SIZE).toBe(10);
+  });
+});
+
 describe("emptyTextFor", () => {
   it("整窗算不了 ⇒ 说数据不足", () => {
     expect(emptyTextFor(payload({ has_any_computable: false }))).toBe(
@@ -194,5 +203,11 @@ describe("sectionInfoFor", () => {
     expect(text).not.toContain("（");
     expect(text).not.toContain("undefined");
     expect(text).toContain("逐品种贡献之和与区间合计一致");
+  });
+
+  it("交代行内百分比是占比、不是品种收益率", () => {
+    // 反号曾被读成「赚了但收益率是负的」：口径必须写在说明里，而不是靠用户猜
+    expect(sectionInfoFor(null)).toContain("不是该品种收益率");
+    expect(sectionInfoFor(payload())).toContain("占区间合计绝对值");
   });
 });

@@ -8,14 +8,16 @@
  * 于是：
  *
  * - 后端 `change_pct` = **昨天的涨跌幅**，`(current_price - prev_close) * qty` = **昨天的**
- *   当日盈亏（两个值都来自同一根 T-1 收盘价，等于把昨天的数当今天）；
+ *   盈亏（两个值都来自同一根 T-1 收盘价，等于把昨天的数当今天）——这正是 2026-11-05
+ *   拆列后「昨日盈亏」列的值，当时却被 #2640 命名成「当日盈亏」；
  * - 前端列里显示的却是实时价算出来的**今天的**值（`useRealtimeQuotes` 浏览器直连腾讯/天天）。
  *
  * 「按今天的涨幅排序」因此**不可能靠后端 `sort_by` 实现**——那会按昨天的数排，序与列里
  * 的数字毫无关系。旧实现对这两列退化成「只排当前页」（#1333），于是第 2 页重新从头上开始，
  * 用户看到的就是「点了排序但顺序很乱」。
  *
- * 现口径：**这两列（以及同样吃实时价的最新价）一律在客户端对全量结果排**，再本地切页。
+ * 现口径：**吃实时价 / 前端派生的这几列一律在客户端对全量结果排**，再本地切页
+ * （2026-11-05 起为「今日估算 / 昨日盈亏 / 最新价」三列）。
  * 全量结果来自 `allItems`（`fields=lite`，已含 prev_close / holding_quantity，见
  * `useWatchlistData.fetchAllItems`），实时行情也覆盖全量 symbol（`getHoldings` 读 allItems）。
  *
@@ -34,14 +36,26 @@ export type ClientSortOrder = "asc" | "desc";
 /**
  * 走客户端整组排序的列（**唯一名单**）。
  *
- * 判据只有一条：**列里的数是前端实时算的，后端那份是上一交易日快照**。
- * 目前只有 `current_price`（最新价）与 `day_pnl`（当日盈亏，2026-10-30 整组化）。
+ * 判据只有一条：**列里的数是前端现算的，后端没有同口径的字段**
+ * （后端那份是上一交易日快照，或干脆没有这个派生值）。
+ * 目前是 `day_pnl`（今日估算）、`yesterday_pnl`（昨日盈亏）与
+ * `current_price`（最新价，2026-10-30 整组化）。
+ *
+ * 2026-11-05 拆列补记：
+ * - `day_pnl` key 保留以兼容用户已持久化的排序 / 口径偏好，语义已换成「今日估算」；
+ * - `yesterday_pnl` 是新增列，值 = `(T-1 确认价 − T-2 确认价) × 份额`，
+ *   后端**没有**这个派生字段（库里只有 close / prev_close 两根价），
+ *   代理到任何 `sort_by` 都会排出与列里数字无关的顺序。
  *
  * 2026-10-30 二次优化时复核过「持仓市值 / 持仓收益」两列：它们的主行取自
  * positions 快照 + 库内行情，后端 `sort_by` 排的就是列里显示的那个数，
  * 故仍走后端排序（跨页一致由后端保证），不扩这份名单。
  */
-export const CLIENT_SORT_KEYS = ["day_pnl", "current_price"] as const;
+export const CLIENT_SORT_KEYS = [
+  "day_pnl",
+  "yesterday_pnl",
+  "current_price"
+] as const;
 
 export type ClientSortKey = (typeof CLIENT_SORT_KEYS)[number];
 

@@ -146,10 +146,17 @@ test.describe("「问这个」行内入口（#1764）", () => {
       timeout: 120_000
     });
 
-    // EP 固定右列会克隆单元格（一份在固定包装层可见、一份主表内是占位），取可见的那份
-    const btn = page.locator('button[aria-label="问这个"]:visible').first();
-    await btn.hover();
-    await btn.click();
+    // 2026-11-02 操作列收敛（方案 B）：「问这个」从常驻按钮收进 ··· 低频道菜单，
+    // 行内已无 `button[aria-label="问这个"]`——直接找它会永远等不到（夜间 E2E 因它超时）。
+    // 现在的动线是：点行内「更多操作」→ 选菜单项「问这个」。
+    // EP 固定右列会克隆单元格（一份在固定包装层可见、一份主表内是占位），取可见的那份。
+    const more = page.locator('button[aria-label="更多操作"]:visible').first();
+    await more.click();
+    await page
+      .locator(".el-dropdown-menu__item:visible")
+      .filter({ hasText: "问这个" })
+      .first()
+      .click();
     await expect(page).toHaveURL(/\/#\/agent\/chat\?/, { timeout: 60_000 });
 
     // 轻提示：进入后 3s 内可见（挂载即弹，断言在跳转后立刻开始等待）

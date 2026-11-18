@@ -110,6 +110,36 @@ class GhostDuplicateIgnore(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMi
     )
 
 
+class DividendTaxAck(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
+    """「这笔分红确实没有税，别再提醒」的用户确认记录（域 E，2026-11-08）。
+
+    WHY 单独一张表，而不是复用 `discrepancies` 或 `notifications`：
+
+    - 域 E 的行是**实时派生**（`services.dividend_tax_service` 现算），没有「本期 run
+      重建」这一步，`discrepancies` 的业务键与状态机都用不上；硬塞还会造出一列假的
+      「应有税额」——那正是域 E 刻意不做的事。
+    - 「用户看过通知」不等于「账务上确认无需记账」：通知会被清理、会按新 dedup_key
+      重发，而这条确认必须在**每一次扫描**时稳定生效，否则提醒去而复返，用户就不再信它。
+
+    粒度与派生键一致：`(symbol, account_name, dividend_on)` 唯一确定一笔现金分红
+    （与 `PendingTaxItem` 的 dedup_key 同源），故确认后同一笔不会再冒出来。
+    撤销 = 删行（与 `GhostDuplicateIgnore` 同形态，不引入状态列）。
+    """
+
+    __tablename__ = 'dividend_tax_acks'
+
+    symbol = Column(String(30), nullable=False, comment='标的代码（与流水的 symbol 同口径）')
+    account_name = Column(String(100), nullable=False, default='', comment='账户名；空串代表未归账户')
+    dividend_on = Column(Date, nullable=False, comment='分红确认日（这笔分红的身份之一）')
+    reason = Column(Text, nullable=True, comment='用户填写的确认原因（可空）')
+
+    __table_args__ = (
+        # 同一笔分红只有一条确认（确认幂等；撤销 = 删行，故无状态列）
+        UniqueConstraint('family_id', 'symbol', 'account_name', 'dividend_on', name='uq_dividend_tax_ack'),
+        Index('idx_dividend_tax_ack_family', 'family_id', 'dividend_on'),
+    )
+
+
 class AdjustmentLog(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     """审计日志（仅用户主动操作，§5.5）。
 

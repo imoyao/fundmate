@@ -41,8 +41,10 @@ export function useAgentChat() {
   const historyOpen = ref(false);
   /** 每完成一轮 / 新对话 +1，通知历史栏重拉列表 */
   const historyRefreshToken = ref(0);
-  /** 消息滚动容器：只由本页滚动定位，无需响应式 */
+  /** 消息滚动容器（.chat-list，页面内唯一滚动元素） */
   const listRef = ref<HTMLElement>();
+  /** 滚动锚点（消息列末尾的空 div）：滚它比滚容器可靠——见 scrollChat */
+  const bottomRef = ref<HTMLElement>();
   /** 本轮请求的控制器（abort 用，无需响应式） */
   let abortRef: AbortController | null = null;
 
@@ -55,19 +57,28 @@ export function useAgentChat() {
   );
 
   /**
-   * 工具栏提示只说用户视角：快捷键说明在 placeholder、只读保证在页头副标题，
-   * 内部机制（两轮模型 / 工具）不外显（#1311 讨论期确认的文案口径）
+   * 状态一句话：**只在需要时出现**（思考中 / 刚被停止）。空闲返回空串，
+   * 调用方据此不渲染那一行——常驻的「回车发送 · 信息不全会先确认」是噪音，
+   * 快捷键说明留在输入框 placeholder 里。
    */
   const statusText = computed(() => {
     if (pending.value) return "正在整理分析结果，约 10~60 秒";
     if (stopped.value) return "已停止本轮分析，可直接再问";
-    return "回车发送 · 信息不全会先确认";
+    return "";
   });
 
+  /**
+   * 滚到最新一条。
+   *
+   * 用锚点 `scrollIntoView` 而不是 `el.scrollTop = el.scrollHeight`：
+   * 后者要求调用方**确知**哪一层才是滚动容器。上一版就是写给了 `overflow: visible`
+   * 的 `.chat-list`，赋值静默无效——连问 3 轮后最新答案落在视口外（实测底部 1404px /
+   * 视口 900px），用户以为「没反应」。`scrollIntoView` 让浏览器自己找滚动祖先，
+   * 布局怎么改都不会再失效。
+   */
   function scrollChat(): void {
     void nextTick().then(() => {
-      const el = listRef.value;
-      if (el) el.scrollTop = el.scrollHeight;
+      bottomRef.value?.scrollIntoView({ block: "end" });
     });
   }
 
@@ -202,6 +213,7 @@ export function useAgentChat() {
     historyOpen,
     historyRefreshToken,
     listRef,
+    bottomRef,
     sendDisabled,
     statusText,
     send,

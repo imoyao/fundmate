@@ -21,6 +21,8 @@ export type routeMetaType = {
   showLink?: boolean;
   savedPosition?: boolean;
   auths?: Array<string>;
+  /** 固定标签：不允许关闭（`routerArrays` 与各模块路由的 `meta.fixedTag`） */
+  fixedTag?: boolean;
 };
 
 export type RouteConfigs = {

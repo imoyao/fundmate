@@ -35,7 +35,7 @@ from app.core.time_utils import today_shanghai
 from app.domains.ledgers.models import Ledger
 from app.services.performance import cashflow_layers
 from app.services.pnl_calendar import build_daily_pnl_series
-from app.services.scope import ERR_MUTEX, member_ledger_ids
+from app.services.scope import ERR_MUTEX, INCEPTION, first_investment_date, member_ledger_ids
 
 #: 缺省区间长度（天）：与 pnl-calendar 的缺省口径保持一致的量级（近一年）
 DEFAULT_RANGE_DAYS = 365
@@ -90,15 +90,20 @@ def _monthly(l1_flows: list, start: dt.date, end: dt.date) -> list:
     return result
 
 
-def _net_worth_series(days: list, inception_flows: list) -> list:
-    """日净资产 + 累计净投入阶梯线（同一天多条流水先合并，避免同 x 多点）。"""
+def _net_worth_series(days: list, inception_flows: list, start: dt.date) -> list:
+    """日净资产 + 累计净投入阶梯线（同一天多条流水先合并，避免同 x 多点）。
+
+    `cumulative` 必须带上**区间起点之前**的累计净投入：旧实现从 0 起只累加窗口内
+    流水，切到近一年时阶梯线从 0 起步，而 `totals.net_invested` 是「自开户以来」
+    的累计值——同一屏两个「累计」打架，全周期复盘更是完全失真。
+    """
     by_day: dict = {}
     for flow in inception_flows:
         delta = flow['amount'] if flow['txn_type'] == 'deposit' else -flow['amount']
         by_day[flow['date']] = by_day.get(flow['date'], 0.0) + delta
 
+    cumulative = sum(delta for day, delta in by_day.items() if day < start)
     series = []
-    cumulative = 0.0
     for day in days:
         day_date = dt.date.fromisoformat(day['date'])
         cumulative += by_day.get(day_date, 0.0)
@@ -130,6 +135,8 @@ def build_cash_flow(
             `services/scope.member_ledger_ids`（含组合存在性 / 归属校验）。
         start_date / end_date: 区间视图（逐笔流水 / 月度柱状 / 净值曲线）；累计指标不受影响。
             缺省 end = 今日（上海），start = end − 365 天。
+            `start_date='inception'` ⇒ 起点为作用域内最早一笔资金流水（含入金），
+            即「投资以来」全周期；无流水时回落到缺省 365 天。
 
     `ledger_id` 与 `portfolio_id` **二选一**：同传抛 `ValueError`（与穿透 / 归因同款
     文案），都不传也抛（不再有「默认取谁」的隐式语义）。
@@ -171,7 +178,15 @@ def build_cash_flow(
         scope = 'portfolio'
 
     end = _parse_date(end_date) or today_shanghai()
-    start = _parse_date(start_date) or (end - dt.timedelta(days=DEFAULT_RANGE_DAYS))
+    # 「投资以来」起点按作用域解析一次，既用于区间左界也回带给前端：
+    # 前端不必先发一次请求拿 first_txn_date 再发第二次（冷启动鸡生蛋）。
+    inception_start = first_investment_date(db, family_id, ledger_id=ledger_id, portfolio_id=portfolio_id)
+    if start_date == INCEPTION:
+        start = (
+            dt.date.fromisoformat(inception_start) if inception_start else end - dt.timedelta(days=DEFAULT_RANGE_DAYS)
+        )
+    else:
+        start = _parse_date(start_date) or (end - dt.timedelta(days=DEFAULT_RANGE_DAYS))
     if start > end:
         raise ValueError('start_date 不能晚于 end_date')
 
@@ -212,6 +227,7 @@ def build_cash_flow(
         'portfolio_id': portfolio_id,
         'start_date': start.isoformat(),
         'end_date': end.isoformat(),
+        'first_txn_date': inception_start,
         'totals': {
             'deposit': float(totals_raw['deposit']),
             'withdraw': float(totals_raw['withdraw']),
@@ -226,7 +242,7 @@ def build_cash_flow(
         },
         'external_flows': [_flow_payload(flow) for flow in ranged_l1],
         'monthly': _monthly(ranged_l1, start, end),
-        'net_worth_series': _net_worth_series(days, inception_l1),
+        'net_worth_series': _net_worth_series(days, inception_l1, start),
         'coverage': {
             'has_any_price': series.get('has_any_price'),
             'days': len(days),

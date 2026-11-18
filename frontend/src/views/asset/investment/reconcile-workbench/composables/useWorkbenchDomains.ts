@@ -1,21 +1,32 @@
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   runReconciliation,
   listDiscrepancies,
   ignoreDiscrepancy,
+  applyAdjustment,
   listGhostDuplicates,
   listGhostDuplicateIgnores,
   ignoreGhostDuplicate,
   undoGhostDuplicateIgnoreById,
   listDividendTaxPending,
+  listDanglingRefs,
+  listMislinkedRefs,
+  listUnownedRefs,
+  listOrphanLedgers,
+  getShareIntegrity,
+  type DanglingRefList,
+  type OrphanLedgerList,
   type DividendTaxPendingItem,
   type DiscrepancyItem,
   type GhostDuplicateGroupItem,
   type GhostDuplicateIgnore,
-  type GhostDuplicateTxn
+  type GhostDuplicateTxn,
+  type ShareIntegrityItem
 } from "@/api/reconciliation";
 import { deleteTransaction } from "@/api/transaction";
+
 import {
   getEaccountReconciliation,
   type ReconciliationItem
@@ -28,6 +39,13 @@ import {
   useReconDraft,
   type RecognizerCandidate
 } from "@/composables/useReconDraft";
+import { mergeDanglingLists } from "../utils/danglingRefMerge";
+import { withoutRebuildOnly } from "../utils/rebuildOnly";
+import {
+  buildRecomputePayload,
+  recomputeResultMessage
+} from "../utils/adjustmentPayload";
+import { reconQuantity } from "../utils/reconDisplay";
 
 /**
  * 对账中心三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
@@ -58,32 +76,148 @@ export function useWorkbenchDomains() {
   const ghostDeletingId = ref<number | null>(null);
   const ghostUndoingId = ref<number | null>(null);
 
-  /** 域 E：红利税待办（#541）——粒度是「一笔分红」，每行要么该补记、要么该核对 */
+  /** 域 E：红利税待办（#541）——粒度是「一笔分红」，每行要么该核对、要么比例异常 */
   const taxItems = ref<DividendTaxPendingItem[]>([]);
   const taxTotalCents = ref(0);
-  /** 其中「未扣」的笔数（比例异常的项不算待补记，但仍列出来供核对） */
+  /** 其中「待核对」的笔数（比例异常的项不算待核对，但仍列出来供核对） */
   const taxPendingCount = ref(0);
+  /** 按制度暂不扣税（未卖出）的笔数：不进待办，只在列表底部折叠说明 */
+  const taxDeferredCount = ref(0);
+  /** 依法免税（已卖出且持股超一年）的笔数 */
+  const taxExemptCount = ref(0);
   const taxLoading = ref(false);
 
   /** 域 A：E账户对账数据（P2 迁入） */
   const eItems = ref<ReconciliationItem[]>([]);
   const eLoading = ref(false);
 
+  /** 域 F：悬空引用（#2866）——只读取数的分组 + 汇总；预览/回补/撤销内聚在修复弹窗 */
+  const danglingRefs = ref<DanglingRefList | null>(null);
+  const danglingLoading = ref(false);
+
+  /** 域 G：缺账本孤儿流水（#2875）——只读取数的分组 + 汇总；回填/撤销内聚在回填弹窗 */
+  const orphanLedgers = ref<OrphanLedgerList | null>(null);
+  const orphanLoading = ref(false);
+
+  /** #3135：份额被流水反证的持仓（只读扫描）。与对账收尾报数同源，单独一条线索：
+   *  用户不点「运行对账」也能在打开页面时看见「账上还有份额、流水已经卖掉」。 */
+  const shareItems = ref<ShareIntegrityItem[]>([]);
+  const shareLoading = ref(false);
+
+  /**
+   * 每个 loader 的失败原因。旧实现清一色 `catch { 置空 }`，网络挂了和「真的没有待办」
+   * 渲染得一模一样，用户会以为账已经对完了。这里只记原因、不改返回类型：
+   * 数据仍置空，由页面层的 `ReconStatusState` 把它显示成可重试的失败态。
+   */
+  const loadErrors = ref<Record<string, string>>({});
+
+  function clearError(key: string): void {
+    if (loadErrors.value[key]) {
+      const next = { ...loadErrors.value };
+      delete next[key];
+      loadErrors.value = next;
+    }
+  }
+
+  function markError(
+    key: string,
+    reason = "数据没能加载，检查网络后重试"
+  ): void {
+    loadErrors.value = { ...loadErrors.value, [key]: reason };
+  }
+
+  /** 按 loader 键重试，不整页重跑七个接口 */
+  async function reload(key: string): Promise<void> {
+    const loaders: Record<string, () => Promise<void>> = {
+      discrepancies: loadDiscrepancies,
+      eaccount: loadEAccount,
+      ghost: loadGhostDuplicates,
+      tax: loadDividendTax,
+      dangling: loadDanglingRefs,
+      orphan: loadOrphanLedgers,
+      shareIntegrity: loadShareIntegrity,
+      candidates: loadRecognizerCandidates,
+      trail: reloadAfterTrailChange,
+      // 重建持仓（单组 / 批量）同样改了持仓行与流水归属 ⇒ 必须与「轨迹改动」
+      // 走同一条重算路径：域 B 的差异是算出来落库的，只重拉 dangling 会让
+      // 刚修好的孤儿差异继续挂在核对差异里。
+      rebuilt: reloadAfterTrailChange
+    };
+    await (loaders[key] ?? loadAll)();
+  }
+
+  /**
+   * 抽屉「投资轨迹」编辑 / 删除流水后的刷新（reload("trail")）。
+   *
+   * 写路径只重算持仓；域 B 的差异是**算出来落库**的——GET /discrepancies/
+   * 只读 stored 行（`reconciliation_query.list_active_discrepancies`），
+   * 只重拉清单数字不会变，必须先跑一次域 B 对账再拉。域 A / D / E / F 是
+   * 实时派生扫描，重拉即拿到重算后的结果。对账失败要显式报出来，
+   * 不许把「数字还是上一轮的」静默降级成成功。
+   */
+  async function reloadAfterTrailChange(): Promise<void> {
+    try {
+      await runReconciliation("B");
+    } catch (e) {
+      ElMessage.error(
+        errorMessageOf(e) || "对账没跑成，差异数字还是上一轮结果"
+      );
+    }
+    await Promise.all([
+      loadDiscrepancies(),
+      loadEAccount(),
+      loadGhostDuplicates(),
+      loadDividendTax(),
+      loadDanglingRefs(),
+      loadShareIntegrity()
+    ]);
+  }
+
+  /** 首屏与「全部重试」用：与旧 onMounted 的七个加载器顺序一致 */
+  async function loadAll(): Promise<void> {
+    await Promise.all([
+      loadDiscrepancies(),
+      loadEAccount(),
+      loadGhostDuplicates(),
+      loadDividendTax(),
+      loadDanglingRefs(),
+      loadOrphanLedgers(),
+      loadShareIntegrity(),
+      loadRecognizerCandidates()
+    ]);
+  }
+
+  /**
+   * 剔除「唯一入口在修正数据」的差异（见 `utils/rebuildOnly`）。
+   *
+   * 一条 orphan 差异若已被域 F 的悬空组覆盖，它在核对差异里的「补充这笔」必然在最后一步
+   * 失败（持仓行不存在），唯一的修法是修正数据的「按流水重建持仓」。两个入口里一个是
+   * 死路，就不该存在——同一条数据只留能修的那一个。
+   *
+   * 这里与队列（`utils/reconQueue` 的 `buildReconQueue`）用**同一个纯函数**，
+   * 保证「列表条数 / 域角标 / 队列项」不会各数一遍。
+   */
+  const visibleDiscs = computed(() =>
+    withoutRebuildOnly(discs.value, danglingRefs.value)
+  );
+
   /** 域 B 差异：仅展示待处理（pending）行，使下方表格与顶部「待裁决差异」口径一致（#1259） */
   const bDiscs = computed(() =>
-    discs.value.filter(d => d.domain === "B" && d.status === "pending")
+    visibleDiscs.value.filter(d => d.domain === "B" && d.status === "pending")
   );
 
   /** 域 C 差异：导入后自动对账产出的孤儿持仓（有仓位、没有对应流水）。
    *  后端域 C 目前只做孤儿检测、不做数量比对（`reconciliation_service.py` §6.2），
    *  所以这里拿到的 `discrepancy_type` 只会是 `orphan`。 */
   const cDiscs = computed(() =>
-    discs.value.filter(d => d.domain === "C" && d.status === "pending")
+    visibleDiscs.value.filter(d => d.domain === "C" && d.status === "pending")
   );
 
   /** 全局待处理总数，仅用于 Banner 提醒（不要求与单表对齐） */
   const totalPending = computed(() => {
-    const fromDiscs = discs.value.filter(d => d.status === "pending").length;
+    const fromDiscs = visibleDiscs.value.filter(
+      d => d.status === "pending"
+    ).length;
     const fromE = eItems.value.filter(i => i.status === "pending").length;
     // 域 D/E 是实时派生扫描，不进 discrepancies 表，单独计数
     return fromDiscs + fromE + ghostGroups.value.length + taxItems.value.length;
@@ -110,24 +244,33 @@ export function useWorkbenchDomains() {
     if (key === "D") return ghostGroups.value.length;
     // 域 E 同理：待办项实时派生，没有「已忽略」概念（记完税即自然消失）
     if (key === "E") return taxItems.value.length;
-    return discs.value.filter(d => d.domain === key && d.status === "pending")
-      .length;
+    // 域 F 是只读扫描，待处理数即悬空流水总条数（修复后由重拉刷新）
+    if (key === "F") return danglingRefs.value?.total ?? 0;
+    // 域 G 同理：待处理数即缺账本流水总条数（含 blocked，不能只报可修的那部分——
+    // 用户需要知道「还有多少条没归属」，否则 blocked 组会被数字静默吞掉）
+    if (key === "G") return orphanLedgers.value?.total ?? 0;
+    return visibleDiscs.value.filter(
+      d => d.domain === key && d.status === "pending"
+    ).length;
   }
   function domainIgnored(key: string): number {
     if (key === "A")
       return eItems.value.filter(i => i.status === "ignored").length;
     if (key === "D") return ghostIgnored.value.length;
-    if (key === "E") return 0;
-    return discs.value.filter(d => d.domain === key && d.status === "ignored")
-      .length;
+    if (key === "E" || key === "F" || key === "G") return 0;
+    return visibleDiscs.value.filter(
+      d => d.domain === key && d.status === "ignored"
+    ).length;
   }
 
   /** 加载识别候选草稿（P3-1 / #1250）：AI 识别结果落 recon-draft:recognizer，跨页/刷新承接不丢 */
   async function loadRecognizerCandidates(): Promise<void> {
     try {
       recognizerCandidates.value = await getRecognizerCandidates();
+      clearError("candidates");
     } catch {
       recognizerCandidates.value = [];
+      markError("candidates", "识别草稿没能读取，重试一次即可继续");
     }
   }
 
@@ -189,16 +332,42 @@ export function useWorkbenchDomains() {
     try {
       const res = await listDiscrepancies();
       discs.value = res.data ?? [];
+      clearError("discrepancies");
     } catch {
       discs.value = [];
+      markError("discrepancies", "差异列表没能加载，检查网络后重试");
     } finally {
       loading.value = false;
     }
   }
 
-  /** 加载域 E：分红未记扣税（#541）。
+  /**
+   * 加载「份额被流水反证」的持仓（#3135）。
    *
-   * 这个 GET 顺带幂等写一条站内提醒（后端 `dedup_key` 含年份，同标的同年只留一条），
+   * 失败置空 + 记原因：这一块是解释性线索，不是首屏主体，一次超时不该把工作台带崩；
+   * 但也不能静默——`loadErrors` 会让页面顶部的重试条出现。
+   */
+  async function loadShareIntegrity(): Promise<void> {
+    shareLoading.value = true;
+    try {
+      const res = await getShareIntegrity();
+      shareItems.value = res.data?.items ?? [];
+      clearError("shareIntegrity");
+    } catch {
+      shareItems.value = [];
+      markError("shareIntegrity", "份额自洽检查没能加载，检查网络后重试");
+    } finally {
+      shareLoading.value = false;
+    }
+  }
+
+  /** 加载域 E：红利税核对（#541）。
+   *
+   * 返回的是**分诊结果**：`items` 只含真待办（已卖出、持股 ≤1 年、没配上税），
+   * `deferred_count` / `exempt_count` 是「按 101 号文此刻不该有税」的两类，
+   * 只在表底折叠成一句说明——它们不是待办，列出来这个列表就永远清不完。
+   *
+   * 这个 GET 顺带幂等写一条站内提醒（`dedup_key` 含分红日，同一笔分红只留一条），
    * 因此它也是「首页消息条能看到这条提醒」的触发点——用户不必专门来对账台，
    * 只要打开过任意一次工作台，铃铛就会有东西。失败静默：本域不是首屏主体，
    * 一次超时不该把整个工作台带崩。 */
@@ -209,12 +378,66 @@ export function useWorkbenchDomains() {
       taxItems.value = res.data?.items ?? [];
       taxTotalCents.value = res.data?.total_cents ?? 0;
       taxPendingCount.value = res.data?.pending_count ?? 0;
+      taxDeferredCount.value = res.data?.deferred_count ?? 0;
+      taxExemptCount.value = res.data?.exempt_count ?? 0;
+      clearError("tax");
     } catch {
       taxItems.value = [];
       taxTotalCents.value = 0;
       taxPendingCount.value = 0;
+      taxDeferredCount.value = 0;
+      taxExemptCount.value = 0;
+      markError("tax", "分红扣税清单没能加载，检查网络后重试");
     } finally {
       taxLoading.value = false;
+    }
+  }
+
+  /** 加载域 F：悬空引用分组 + 汇总（#2866）。
+   *  预览 / 回补 / 撤销是写路径上的三段独立交互，留在修复弹窗里各自调用，
+   *  本函数只负责「进页面 / 修复完成后」把只读快照拉回来。失败静默：单个扫描
+   *  接口超时不该让整个工作台的其它域一起白屏。
+   *
+   *  2026-11-13 起同时拉「挂错标的」一组（`/mislinked/`）、2026-11-15 起
+   *  再拉「无归属流水」一组（`/unowned/`）并按结构兼容合并：这两类流水都
+   *  进不了任何既有修法或视图，不合并就等于把它们藏起来还宣称已经清干净。
+   *  合并口径见 `utils/danglingRefMerge`。 */
+  async function loadDanglingRefs(): Promise<void> {
+    danglingLoading.value = true;
+    try {
+      const [refs, mislinked, unowned] = await Promise.all([
+        listDanglingRefs(),
+        listMislinkedRefs(),
+        listUnownedRefs()
+      ]);
+      danglingRefs.value = mergeDanglingLists(
+        refs.data ?? null,
+        mislinked.data,
+        unowned.data
+      );
+      clearError("dangling");
+    } catch {
+      danglingRefs.value = null;
+      markError("dangling", "交易信息检查没能完成，检查网络后重试");
+    } finally {
+      danglingLoading.value = false;
+    }
+  }
+
+  /** 加载域 G：缺账本孤儿流水（#2875）。
+   *  与域 F 同构：只拉只读快照，写路径（回填 / 撤销）留在弹窗里；失败静默，
+   *  单个扫描接口超时不该让工作台的其它域一起白屏。 */
+  async function loadOrphanLedgers(): Promise<void> {
+    orphanLoading.value = true;
+    try {
+      const res = await listOrphanLedgers();
+      orphanLedgers.value = res.data ?? null;
+      clearError("orphan");
+    } catch {
+      orphanLedgers.value = null;
+      markError("orphan", "缺账本流水检查没能完成，检查网络后重试");
+    } finally {
+      orphanLoading.value = false;
     }
   }
 
@@ -223,10 +446,12 @@ export function useWorkbenchDomains() {
     eLoading.value = true;
     try {
       const res = await getEaccountReconciliation();
-      const data = (res as any).data ?? {};
+      const data = (res as { data?: { items?: unknown[] } } | null)?.data ?? {};
       eItems.value = (data.items ?? []) as ReconciliationItem[];
+      clearError("eaccount");
     } catch {
       eItems.value = [];
+      markError("eaccount", "E账户对账数据没能加载，检查网络后重试");
     } finally {
       eLoading.value = false;
     }
@@ -266,8 +491,8 @@ export function useWorkbenchDomains() {
       // 域 B 是「算差异」，域 E 是「看有没有漏记税」——两件事但同一入口，
       // 一起刷新才符合用户对「运行对账」的预期（跑完看到的都是最新）。
       await Promise.all([loadDiscrepancies(), loadDividendTax()]);
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "对账失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "对账失败");
     } finally {
       running.value = false;
     }
@@ -279,8 +504,42 @@ export function useWorkbenchDomains() {
       await ignoreDiscrepancy(row.id, { permanent: false });
       ElMessage.success("已忽略");
       await loadDiscrepancies();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "忽略失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "忽略失败");
+    }
+  }
+
+  /**
+   * 「按流水重算份额」（#3134）：`quantity` 差异里唯一能真正改变差额的动作之一。
+   *
+   * 补录（increment）同时写流水与持仓，差额两端同步移动 ⇒ 恒等于补录前的值，所以
+   * 这条差异原先在工作台上是**死路**。这里改写持仓这一侧，差额才会动。
+   *
+   * 只用于「流水算出来仍是正份额」的差异（判据在 `utils/discAction.ts`）：二次确认
+   * 报出两个数——账上现在多少、流水算出来多少。流水算到 0 / 负数的差异走
+   * 「改成账单份额」，后端也会拒绝用它清仓（`assert_recompute_keeps_position`）。
+   */
+  async function handleRecompute(row: DiscrepancyItem): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        `将按这条持仓名下的流水重算份额：账上现在是 ${reconQuantity(
+          row.actual_value
+        )}，流水算出来是 ${reconQuantity(
+          row.expected_value
+        )}。重算后账上会改成流水的结果——如果这只的流水没记全，改完反而更不对；` +
+          "确认流水是齐的再点。",
+        "按流水重算份额",
+        { type: "warning", confirmButtonText: "重算", cancelButtonText: "取消" }
+      );
+    } catch {
+      return; // 用户取消
+    }
+    try {
+      const res = await applyAdjustment(buildRecomputePayload(row));
+      ElMessage.success(recomputeResultMessage(res.data));
+      await loadDiscrepancies();
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "重算失败");
     }
   }
 
@@ -294,9 +553,11 @@ export function useWorkbenchDomains() {
       ]);
       ghostGroups.value = groupsRes.data?.groups ?? [];
       ghostIgnored.value = ignoredRes.data ?? [];
+      clearError("ghost");
     } catch {
       ghostGroups.value = [];
       ghostIgnored.value = [];
+      markError("ghost", "重复交易检查没能完成，检查网络后重试");
     } finally {
       ghostLoading.value = false;
     }
@@ -310,8 +571,8 @@ export function useWorkbenchDomains() {
       await ignoreGhostDuplicate(group.fingerprint);
       ElMessage.success("已忽略该组，可在下方撤销");
       await loadGhostDuplicates();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "忽略失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "忽略失败");
     }
   }
 
@@ -324,8 +585,8 @@ export function useWorkbenchDomains() {
       const res = await undoGhostDuplicateIgnoreById(item.id);
       ElMessage.success(res.data?.deleted ? "已撤销忽略" : "该记录已不存在");
       await loadGhostDuplicates();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "撤销失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "撤销失败");
     } finally {
       ghostUndoingId.value = null;
     }
@@ -356,8 +617,8 @@ export function useWorkbenchDomains() {
       // 删除后指纹里的账本集合可能变化，整组重新扫描比本地摘一条更可靠
       await loadGhostDuplicates();
       await loadDiscrepancies();
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || "删除失败");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "删除失败");
     } finally {
       ghostDeletingId.value = null;
     }
@@ -366,6 +627,9 @@ export function useWorkbenchDomains() {
   return {
     loading,
     running,
+    loadErrors,
+    reload,
+    loadAll,
     discs,
     bDiscs,
     cDiscs,
@@ -387,7 +651,18 @@ export function useWorkbenchDomains() {
     taxItems,
     taxTotalCents,
     taxPendingCount,
+    taxDeferredCount,
+    taxExemptCount,
     taxLoading,
+    danglingRefs,
+    danglingLoading,
+    loadDanglingRefs,
+    shareItems,
+    shareLoading,
+    loadShareIntegrity,
+    orphanLedgers,
+    orphanLoading,
+    loadOrphanLedgers,
     loadDividendTax,
     loadDiscrepancies,
     loadEAccount,
@@ -400,6 +675,7 @@ export function useWorkbenchDomains() {
     discardCandidates,
     handleRun,
     handleIgnore,
+    handleRecompute,
     handleEAccountCover,
     handleEAccountIgnore
   };

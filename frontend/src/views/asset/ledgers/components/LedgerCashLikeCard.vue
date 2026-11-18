@@ -23,69 +23,120 @@
   落在块内标题行（SectionHeader 根节点）上——与本页其余锚点同一手法
   （锚点 = 区块标题行的顶边，跳转后标题正好停在吸顶导航下方）。
   锚点挂在**块内**而非块外：本块整块不渲染时锚点随之消失，
-  导航项被 usePageNav 的 DOM 存在性过滤收走，不留死链
-  （类现金为 0 的普通基金账户占绝大多数，不挂准就会留下一个点不动的导航项）。
+  导航项被 usePageNav 的 DOM 存在性过滤收走，不留死链。
+  ⚠️ G5 起**账户详情页恒有 `ledgerId` ⇒ 本块恒渲染**（录入入口就在块内，
+  块不渲染用户就没地方录账户现金），故该页的「类现金」导航项从此恒存在；
+  无 `ledgerId` 的调用方（伪账户页）仍按空态收起，导航项随之消失。
 -->
 <template>
   <template v-if="visible">
-    <SectionHeader
-      :id="anchorId"
-      title="类现金"
-      info="类现金 = 随时可变现、不承担净值波动的资金。含四部分：持仓内货基、账外孤儿货基/逆回购流水、账户现金。"
-    />
+    <SectionHeader :id="anchorId" title="类现金" info-label="类现金口径说明">
+      <!-- 口径说明移进 ⓘ（2026-11-15）：原来卡片下面平铺 4 段、共 6 行的解释，
+           把「我今天有多少活钱」压成了一段方法论。这里保留完整口径（原样、不改写），
+           但只在需要时才展开；卡面只留数字。 -->
+      <template #info>
+        <p>
+          类现金 = 随时可变现、不承担净值波动的资金：持仓内货基、账外孤儿货基 /
+          逆回购流水、账户现金。
+        </p>
+        <p>
+          环形图两片是「持仓市值的划分」，合计等于上方总资产
+          {{ formatAmount(totalMarketValue) }}
+          元；「账外孤儿流水」与「账户现金」
+          不建持仓、不在环形图内，故环形图合计 ≠ 类现金合计。
+        </p>
+        <p v-if="orphanIncome > 0">
+          另有账外渠道收益 {{ formatAmount(orphanIncome) }}
+          元（已计入家庭总资产，不重复计本金）。
+        </p>
+        <p>
+          账户现金录进来即归「活钱」，与持仓内货基、账外流水并列统计；逆回购到期后点「到期回款」结清。
+        </p>
+      </template>
+      <!-- 操作统一放标题行右侧（全站 #action 惯例）：此前「录入账户现金」夹在
+           指标卡与说明段落之间，看起来像说明文字的行首。窄容器会收缩 #action，
+           故槽内 flex-wrap（SectionHeader 头注释 #2039）。 -->
+      <template #action>
+        <div class="cash-like-actions">
+          <LedgerCashLikeSettle
+            :ledger-id="ledgerId"
+            :rows="breakdown"
+            @saved="emit('saved')"
+          />
+          <el-button
+            v-if="ledgerId"
+            size="small"
+            type="primary"
+            plain
+            @click="cashDialogVisible = true"
+          >
+            {{ accountCash > 0 ? "修改账户现金" : "录入账户现金" }}
+          </el-button>
+        </div>
+      </template>
+    </SectionHeader>
     <CardBlock class="mb-6">
-      <!-- 四项并列。合计放最左并 featured：它是这一区块最该被记住的数。 -->
-      <MetricGrid>
+      <!-- 四项并列。合计放最左并 featured：它是这一区块最该被记住的数。
+           全为 0 时不画四个 0.00 指标卡（那是噪声），改为一句诚实的空态说明
+           + 录入入口（G5 的前提：空态要能让用户当场动手，而不只是「没有数据」）。 -->
+      <MetricGrid v-if="!isEmpty">
+        <!-- 只有一个成员时，「合计」与它逐字相等（实测：账外孤儿 465,275.78 与合计
+             一模一样），并列两个数只会让人以为看花眼——此时不画合计。 -->
         <MetricCard
+          v-if="memberCount > 1"
           title="类现金合计"
           :value="formatAmount(total)"
           unit="元"
           featured
-          caption="下列四项之和"
+          caption="下列各项之和"
         />
+        <!-- 成员值为 0 就不画（2026-11-15）：证券账户的「持仓内货基 0.00」这种格子
+             只贡献一个 0，却占 1/3 行宽，把真正的「账外孤儿流水」挤到右边。 -->
         <MetricCard
+          v-if="inPositions > 0"
           title="持仓内货基"
           :value="formatAmount(inPositions)"
           unit="元"
-          caption="已建持仓，在环形图内"
+          caption="已建持仓，计入持仓市值"
         />
         <MetricCard
+          v-if="orphanNet !== 0"
           title="账外孤儿流水"
           :value="formatAmount(orphanNet)"
           unit="元"
-          caption="不建持仓，故不在环形图内"
+          caption="不建持仓，不计入持仓市值"
         />
         <MetricCard
+          v-if="accountCash > 0"
           title="账户现金"
           :value="formatAmount(accountCash)"
           unit="元"
-          caption="不建持仓，故不在环形图内"
+          caption="不建持仓，不计入持仓市值"
         />
       </MetricGrid>
+
+      <!-- 空态：本账户还没有任何类现金成员（无货基持仓 / 无账外流水 / 无现金行）。
+           不画 0.00 的四张卡，而是说清「钱可以从哪来」，并把录入入口放在同一行。 -->
+      <p v-if="isEmpty" class="cash-like-empty">
+        本账户还没有类现金记录。持仓内的货币基金会自动计入；账户里留存的现金
+        （银行活期、余额等）请在此录入，录完即归「活钱」。
+      </p>
+
+      <!-- G5：账户现金的录入 / 修改入口已上移到 SectionHeader #action。
+           一账户一条 `major_category='cash'` 资产行（设计 §三），不改 ledgers schema。 -->
 
       <!-- 与「总资产」的关系必须在 UI 上说清楚（卡面验收第 2 条）。
            环形图合计 = 总资产 = 持仓市值，账外类现金不在其中 —— 这是 D59 解耦的
            可见后果，不说就会变成「新增一个困惑」。 -->
-      <div class="cash-like-notes">
-        <p class="cash-like-notes__line">
-          环形图两片是「持仓市值的划分」，合计等于上方总资产
-          {{ formatAmount(totalMarketValue) }}
-          元；「账外孤儿流水」与「账户现金」不建持仓、不在环形图内，故
-          <strong>环形图合计 ≠ 类现金合计</strong>。
-        </p>
-        <p v-if="orphanIncome > 0" class="cash-like-notes__line">
-          另有账外渠道收益
-          {{ formatAmount(orphanIncome) }} 元（已计入家庭总资产，
-          不重复计本金）。
-        </p>
-        <p
-          v-if="hasOrphan"
-          class="cash-like-notes__line cash-like-notes__line--warn"
-        >
-          这笔账外流水金额较大时，可能混有跨账本重复导入（同一份交割单在两个账本各导一次）。
-          去对账中心核对之前，请把本区块视为「待核实」口径。
-        </p>
-      </div>
+      <!-- 只剩「这条要看仔细」的一句：其余口径解释已进 ⓘ。原来这里 4 段 6 行，
+           视觉上比数字本身还重。 -->
+      <p
+        v-if="hasOrphan"
+        class="cash-like-notes__line cash-like-notes__line--warn"
+      >
+        这笔账外流水缺少来源信息（交易日 / 代码 /
+        渠道），无法逐笔下钻对账——核对前请按「待核实」看待。
+      </p>
 
       <!-- 逐产品明细：卡面验收第 2 条「给出可见的解释与去向」的载体。 -->
       <template v-if="breakdown.length">
@@ -147,6 +198,16 @@
         </div>
       </template>
     </CardBlock>
+
+    <!-- 录入 / 修改账户现金（G5）：一账户一条 cash 行，两条写入路径的语义差异
+         见 `LedgerCashEntryDialog.vue` 头注释。 -->
+    <LedgerCashEntryDialog
+      v-if="ledgerId"
+      v-model="cashDialogVisible"
+      :ledger-id="ledgerId"
+      :account-cash="accountCash"
+      @saved="emit('saved')"
+    />
   </template>
 </template>
 
@@ -158,8 +219,10 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import LedgerCashEntryDialog from "./LedgerCashEntryDialog.vue";
+import LedgerCashLikeSettle from "./LedgerCashLikeSettle.vue";
 import { formatAmount } from "@/utils/currency";
-import type { LedgerSummaryData } from "@/composables/useLedgerDetail";
+import type { LedgerSummaryData } from "@/composables/ledger/types";
 
 defineOptions({ name: "LedgerCashLikeCard" });
 
@@ -167,6 +230,17 @@ const props = defineProps<{
   summary: LedgerSummaryData | null;
   /** #2739 页内导航锚点 id（落在块内标题行上，见文件头注释）。可空 = 不挂锚点。 */
   anchorId?: string;
+  /**
+   * 当前账户 id（G5）。账户现金是 `assets` 里 `ledger_id = 本账户` 的那条
+   * `major_category='cash'` 行（`ledger_service.py:375-381`），故录入/修改
+   * 必须有账户 id；拿不到时整块操作入口不渲染（不猜「全家庭」档）。
+   */
+  ledgerId?: number;
+}>();
+
+const emit = defineEmits<{
+  /** 账户现金已写入（调用方负责刷新账户概览） */
+  saved: [];
 }>();
 
 const expanded = ref(false);
@@ -183,23 +257,51 @@ const totalMarketValue = computed(() => props.summary?.total_market_value ?? 0);
 
 const hasOrphan = computed(() => orphanNet.value !== 0);
 
-/**
- * 只在两个条件任一成立时渲染整块。
- *
- * ⚠️ 为什么不是「有值就显示」：类现金为 0 的普通基金账户（绝大多数）不该多一张空卡，
- * 那只会把页面撑长。但**账外孤儿非 0 时即使合计数为 0 也必须显示**——否则又回到
- * 「钱在库里、页面上没有出口」的原点，而账外孤儿是唯一可能被净额抵消到 0 的项
- * （买 1000 卖 1000）。
- */
-const visible = computed(
-  () => total.value !== 0 || orphanNet.value !== 0 || breakdown.value.length > 0
+/** 有金额的成员个数（0 = 空态；1 = 只画那一个成员，不画合计）。 */
+const memberCount = computed(
+  () =>
+    (inPositions.value > 0 ? 1 : 0) +
+    (orphanNet.value !== 0 ? 1 : 0) +
+    (accountCash.value > 0 ? 1 : 0)
 );
+
+/**
+ * 本账户完全没有任何类现金成员（无持仓内货基、无账外流水、无现金行）。
+ *
+ * `total` 是三项之和且三项非负，故 `total === 0` 已蕴含其余两项为 0；`breakdown`
+ * 条件只兜「净额被抵消成 0 但仍留明细」（买 1000 卖 1000）。
+ */
+const isEmpty = computed(
+  () =>
+    total.value === 0 && orphanNet.value === 0 && breakdown.value.length === 0
+);
+
+/**
+ * 是否渲染整块。
+ *
+ * ⚠️ 历史口径是「有值才显示」（类现金为 0 的普通基金账户不该多一张空卡）。G5 之后
+ * **录入口就在本块内**——块不渲染，用户就永远没地方录账户现金，「活钱」恒为空态。
+ * 故改为：**拿到账户 id 就渲染**，用一句空态说明代替四张 0.00 指标卡控制噪声；
+ * 账外孤儿非 0 时即使合计为 0 也必须显示（净额抵消那一类）。
+ */
+const visible = computed(() => !isEmpty.value || props.ledgerId != null);
 
 const rowKey = (row: { symbol?: string | null; name?: string | null }) =>
   `${row.symbol || ""}|${row.name || ""}`;
+
+// 账户现金录入 / 修改弹窗（G5）：写入逻辑与两条路径的语义差异全部下沉到
+// LedgerCashEntryDialog，本卡片只负责入口与刷新信号（文件规模门禁 400 行）。
+const cashDialogVisible = ref(false);
 </script>
 
 <style lang="scss" scoped>
+.cash-like-empty {
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
 .cash-like-notes {
   display: flex;
   flex-direction: column;
@@ -224,6 +326,16 @@ const rowKey = (row: { symbol?: string | null; name?: string | null }) =>
 .cash-like-toggle {
   padding: 0;
   margin-top: var(--space-compact);
+}
+
+/* 标题行 #action 槽内的操作组。SectionHeader 在窄容器会收缩该槽（#2039），
+   靠 flex-wrap 折行而不是溢出；这里不再有 margin-top——按钮已不在说明文字流里。 */
+.cash-like-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .cash-like-table-wrap {

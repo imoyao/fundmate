@@ -423,6 +423,18 @@
      组件内禁止再写字面量 720px（外壳 `:size="'var(--drawer-width)'"`）。 */
   --drawer-width: min(720px, 100vw);
 
+  /* 表单弹窗宽度档位（唯一来源，docs/design/account-dialog-form.md §3）。
+     账户族四个弹窗改前为 560/420/480/420 四种形状、无令牌；「编辑账户」的 420px
+     塞 10 个字段，控件区只剩 ~260px，说明文案被折成三行，正是用户报的「太窄、
+     高度特别高」。按字段数分两档，窄屏回退写进 min()，组件内禁止再写
+     `max-width: calc(100vw - 32px)` 之类的兜底。
+     用法与 --drawer-width 同源：`:width="'var(--dialog-width-form)'"`。 */
+  --dialog-width-form: min(
+    600px,
+    calc(100vw - 32px)
+  ); /* 长表单：字段 ≥5（创建 / 编辑 / 导入建账户） */
+  --dialog-width-compact: 440px; /* 短表单：字段 ≤3（资产录入新增账户） */
+
   /* ===== 圆角 ===== */
   --radius-sm: 6px;
   --radius-md: 12px;

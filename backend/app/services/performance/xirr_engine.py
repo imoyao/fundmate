@@ -38,6 +38,12 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
 from app.services.performance import cashflow_layers
+from app.services.performance.fee_cash import Cashflows, fee_yuan, flow_fee_yuan, signed_cash
+
+#: 组合口径（持仓）的「投入 / 回收」类型：买入与红利再投都是掏钱，卖出是回款。
+#: 与 `generate_cashflows` 的 `outflow_types` / `inflow_types` 同口径，只是不含入金/出金。
+_PORTFOLIO_OUT_TYPES = (BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code)
+_PORTFOLIO_IN_TYPES = (BusinessType.SELL.code,)
 
 
 def _safe_return(value: float) -> float:
@@ -208,7 +214,7 @@ def generate_cashflows(
     current_value: float = 0.0,
     end_date: Optional[dt.date] = None,
     include_cash_equivalents: bool = False,
-) -> List[Tuple[dt.date, float]]:
+) -> Cashflows:
     """
     从交易记录生成 XIRR 所需的现金流列表。
 
@@ -220,16 +226,18 @@ def generate_cashflows(
         transactions: 交易记录列表，需包含 confirm_date, txn_type, amount 属性
         current_value: 当前持仓总市值，大于0时会作为最后一笔正现金流加入
         end_date: 计算截止日期，默认今天
-
     Returns:
-        按日期升序排列的现金流列表：[(日期, 金额), ...]，支出为负，收入为正
+        :class:`fee_cash.Cashflows`（`list` 子类）：按日期升序的 ``[(日期, 金额)]``，
+        支出为负、收入为正；``.fees_total`` 是这批流水的**含费额**（口径见 `fee_cash`，
+        与 `pnl_fees` 的 ``realized + unrealized − buy_fee`` 同数）。
     """
     if end_date is None:
         end_date = dt.date.today()
     elif isinstance(end_date, dt.datetime):
         end_date = end_date.date()
 
-    cashflows: List[Tuple[dt.date, float]] = []
+    cashflows = Cashflows()
+    fees_total = 0.0
 
     # 负现金流（现金流出）
     outflow_types = {
@@ -262,16 +270,18 @@ def generate_cashflows(
         except (TypeError, ValueError):
             continue
 
-        # 根据交易类型确定方向
+        # 根据交易类型确定方向（含费口径见 `fee_cash.signed_cash`）
         txn_type = txn.txn_type  # Transaction 模型字段
-        if txn_type in outflow_types:
-            cashflows.append((txn_date, -amount))
-        elif txn_type in inflow_types:
-            cashflows.append((txn_date, amount))
+        signed, used_fee = signed_cash(txn_type, amount, fee_yuan(txn), outflow_types, inflow_types)
+        if signed is not None:
+            cashflows.append((txn_date, signed))
+            fees_total += used_fee
 
     # 虚拟卖出
     if current_value > 1e-8:
         cashflows.append((end_date, current_value))
+
+    cashflows.fees_total = round(fees_total, 2)
 
     cashflows.sort(key=lambda x: x[0])
     return cashflows
@@ -297,7 +307,7 @@ def generate_portfolio_cashflows(
     family_id: int = 1,
     include_cash_equivalents: bool = False,
     basis_sink: Optional[dict] = None,
-) -> List[Tuple[dt.date, float]]:
+) -> Cashflows:
     """为指定投资组合生成 XIRR 现金流列表（**持仓口径**，D20 二期）。
 
     **金额单位必须与 `generate_cashflows` 一致（元）**：`transactions.amount` 存的是
@@ -368,13 +378,17 @@ def generate_portfolio_cashflows(
     # 4. 持仓口径组装：买入 = 投入，卖出/分红 = 回收
     #    L1（入金/出金）是账户级事实、没有持仓归属，故不消费——这也意味着本函数不再需要
     #    内部划转配对：配对解决的是「账户间转账被当成一进一出」，而这里根本不看 L1。
-    investment_cf: List[Tuple[dt.date, float]] = []
+    investment_cf = Cashflows()
+    fees_total = 0.0
     for flow in flows:
         if flow['layer'] == cashflow_layers.L2_TRANSFER:
-            if flow['txn_type'] in (BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code):
-                investment_cf.append((flow['date'], -flow['amount']))
-            elif flow['txn_type'] == BusinessType.SELL.code:
-                investment_cf.append((flow['date'], flow['amount']))
+            # 与 `generate_cashflows` 同口径：买入流出含费、卖出流入扣费（见 `fee_cash`）
+            signed, used_fee = signed_cash(
+                flow['txn_type'], flow['amount'], flow_fee_yuan(flow), _PORTFOLIO_OUT_TYPES, _PORTFOLIO_IN_TYPES
+            )
+            if signed is not None:
+                investment_cf.append((flow['date'], signed))
+                fees_total += used_fee
         elif flow['layer'] == cashflow_layers.L3_REALIZED and flow['txn_type'] in (
             BusinessType.DIVIDEND.code,
             BusinessType.DIVIDEND_CASH.code,
@@ -391,5 +405,6 @@ def generate_portfolio_cashflows(
     if current_value > 1e-8:
         investment_cf.append((end_date, current_value))
 
+    investment_cf.fees_total = round(fees_total, 2)
     investment_cf.sort(key=lambda x: x[0])
     return investment_cf

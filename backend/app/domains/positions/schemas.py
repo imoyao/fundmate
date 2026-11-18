@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.allocation_rules import normalize_allocation_source
+from app.core.allocation_source_stamp import AllocationSourceStampMixin
 from app.core.constants import ALLOCATION_LABELS
 
 
@@ -136,7 +138,7 @@ class ConversionSubmit(BaseModel):
     idempotency_key: str = Field(..., min_length=8, description='幂等键（前端生成的 UUID），重复提交返回同一结果')
 
 
-class PositionUpdate(BaseModel):
+class PositionUpdate(AllocationSourceStampMixin):
     name: Optional[str] = Field(None, description='名称')
     account_name: Optional[str] = Field(None, description='所属账户')
     ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增
@@ -213,11 +215,19 @@ class PositionOut(BaseModel):
     holding_days: Optional[int] = None  # 派生：截至今天持有时长（天），#862
     notes: Optional[str] = None
     allocation: Optional[str] = None
+    #: 只读输出：来源标记由服务端写入侧设置，不接受前端传入（#3031 / G1）
+    allocation_source: str = 'default'
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     type_label: Optional[str] = None
     market_label: Optional[str] = None
     allocation_label: Optional[str] = None
+
+    @field_validator('allocation_source', mode='before')
+    @classmethod
+    def _normalize_allocation_source(cls, value: str | None) -> str:
+        # ORM 纯内存对象拿不到 Column(default=...) 的值；归一只在出参层，不写回对象（#2406）
+        return normalize_allocation_source(value)
 
 
 PositionOut.model_rebuild()

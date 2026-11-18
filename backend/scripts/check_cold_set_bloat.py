@@ -13,6 +13,12 @@
 到位后它应等于 floor 保护行数（实测 28 行）；P0-2 的按需取会合法地把它提上来，所以
 阈值要放得足够宽（默认单次增量 5,000 行，见 `cold_set_guard.DEFAULT_MAX_GROWTH`）。
 
+⚠️ 但 `cutoff` 是「今天 - 保留天数」，**它会随时间自己往前挪**，把窗口推过老行 ⇒
+直接拿两次的绝对值相减，会把「时间流逝」也算成增长（真库实测 30 天 ≈ 7.9 万行漂移，
+阈值 5,000 下只要间隔超过两天就必然判膨胀）。故判定前先按**上次的 cutoff** 在今天
+的数据上重算一次（`resolve_baseline`），只让「真正新写进来的老行」计入增量；
+阈值同时按间隔折算（`growth_limit`），避免「判定取决于跑得多勤」。
+
 ## 为什么用 sync_logs 当时序
 
 判定「膨胀」需要上一次的数据，而项目已有每跑一次就落一行的审计表（`stats` 存 JSON）。
@@ -42,6 +48,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.core import database  # noqa: E402
 from app.services import cold_set_guard as guard  # noqa: E402
 
+# 判定流程与调度器共用一份（`cold_set_check`）：两处各写一遍的话，漂移的表现是
+# 「同一份库两次判定不同」，不报错、不失败。这里是**薄入口**，只负责参数与打印。
+# `WEEKLY_BASIS_DAYS` / `growth_limit` / `resolve_baseline` 一并再导出：它们原来定义在
+# 本脚本，测试与下游 import 的都是这个名字，改路径会让既有判据无声失效。
+from app.services.cold_set_check import (  # noqa: E402,F401
+    WEEKLY_BASIS_DAYS,
+    growth_limit,
+    resolve_baseline,
+    run_check,
+    run_check_and_record,
+)
+
 W = 84
 
 
@@ -61,10 +79,11 @@ def main() -> int:
 
     db = database.get_session()
     try:
-        report = guard.measure(db, keep_days=args.keep_days)
-        last = guard.last_guard_stats(db)
-        report.max_growth = args.max_growth
-        guard.compare_with_last(report, last)
+        if args.record:
+            outcome = run_check_and_record(db, max_growth=args.max_growth, keep_days=args.keep_days)
+        else:
+            outcome = run_check(db, max_growth=args.max_growth, keep_days=args.keep_days)
+        report = outcome.report
 
         print('=' * W)
         print('冷集膨胀守卫 · %s' % ('RECORD（落库）' if args.record else 'DRY-RUN（只读）'))
@@ -78,6 +97,11 @@ def main() -> int:
             print('  过期行    %9d 行（冷集且早于 cutoff，floor 保护行就在这里）' % t.stale_rows)
             print('')
         print('合计过期行 %d' % report.total_stale)
+        if outcome.comparable is not None:
+            print(
+                '同口径重算 %d 行（按上次 cutoff=%s 统计，间隔 %d 天；折算阈值 %d 行）'
+                % (outcome.comparable, outcome.prev_cutoff, outcome.days, report.max_growth)
+            )
         if report.prev_stale is None:
             print('上次巡检   无记录（首次巡检，只建立基线，不判定膨胀）')
         else:
@@ -88,7 +112,6 @@ def main() -> int:
         print('')
 
         if args.record:
-            guard.record(db, report)
             print(
                 '已落库 sync_logs（job_name=%s, status=%s）'
                 % (guard.GUARD_JOB_NAME, 'bloated' if report.bloated else 'ok')

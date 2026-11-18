@@ -25,6 +25,13 @@ import RefreshIcon from "@/assets/table-bar/refresh.svg?component";
 import SettingIcon from "@/assets/table-bar/settings.svg?component";
 import CollapseIcon from "@/assets/table-bar/collapse.svg?component";
 
+/** el-table 实例在本组件里真正被读到的三处能力（#2879 第四刀） */
+interface TableRefLike {
+  data: unknown;
+  size?: string;
+  toggleRowExpansion: (row: unknown, expanded: boolean) => void;
+}
+
 const props = {
   /** 头部最左边的标题 */
   title: {
@@ -33,7 +40,7 @@ const props = {
   },
   /** 对于树形表格，如果想启用展开和折叠功能，传入当前表格的ref即可 */
   tableRef: {
-    type: Object as PropType<any>
+    type: Object as PropType<TableRefLike>
   },
   /** 需要展示的列 */
   columns: {
@@ -189,8 +196,12 @@ export default defineComponent({
       event.preventDefault();
       nextTick(() => {
         const wrapper: HTMLElement = (
-          instance?.proxy?.$refs[`GroupRef${unref(props.tableKey)}`] as any
-        ).$el.firstElementChild;
+          instance?.proxy?.$refs[
+            `GroupRef${unref(props.tableKey)}`
+          ] as unknown as {
+            $el: HTMLElement;
+          }
+        ).$el.firstElementChild as HTMLElement;
         Sortable.create(wrapper, {
           animation: 300,
           handle: ".drag-btn",

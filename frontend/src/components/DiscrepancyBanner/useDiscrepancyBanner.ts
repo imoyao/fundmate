@@ -137,11 +137,14 @@ export function useDiscrepancyBanner(
   /** 当前路由是否该展示（工作台页自带提醒，不重复） */
   const routeAllowed = computed(() => shouldShowOnRoute(route.name as string));
 
-  /** 去对账中心域 B 处理：横幅上的数字与落地后的「待裁决差异」一致 */
-  function goToWorkbench(): void {
+  /**
+   * 去对账中心处理。默认落域 B（单测与历史口径）；全局横幅合并三类问题后，
+   * 由消费方传入条目最多的那一类对应的域，用户第一眼就看到量最大的那批。
+   */
+  function goToWorkbench(domain: string = "B"): void {
     router.push({
       path: "/investment/reconcile-workbench",
-      query: { domain: "B" }
+      query: { domain }
     });
   }
 

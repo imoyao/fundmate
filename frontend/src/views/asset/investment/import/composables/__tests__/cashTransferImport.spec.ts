@@ -7,8 +7,9 @@ import { useImportWizard } from "../useImportWizard";
  * 被测不变量（本期核心契约）：
  * 1. 转账行可勾选取决于现金账户关联状态：未关联禁用（isRowSelectable=false），
  *    已关联放开（isRowSelectable=true）——「能勾 = 能导」；
- * 2. 可勾但不默认勾：selectAllValid / 卡片批量勾选 / importNormalOnly
- *    均不纳入转账行，只有用户逐行显式勾选才进载荷；
+ * 2. 批量动作不纳入转账行：selectAllValid / 卡片批量勾选 / importNormalOnly
+ *    均不勾转账行（#2281 语义）；默认态时点（预览初始化 / 匹配完成 / 关联落库）
+ *    由 preselectTransferRows 幂等补齐（2026-11-08 导入完整性取向，见文末一组）；
  * 3. 批量取消（卡片复选框取消）走宽口径，手动勾上的转账行一并清除；
  * 4. 横幅双态：未关联引导态 → 关联后轻量提示态（不消失）→ 可关闭；
  * 5. 「可导入」徽章一次性：勾选或点击后本会话不再显示；
@@ -23,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   confirmImportApi: vi.fn(),
   runReconciliation: vi.fn(),
   getLedgers: vi.fn(),
+  updateLedger: vi.fn(),
+  elMessageBoxConfirm: vi.fn(),
   elMessage: {
     success: vi.fn(),
     warning: vi.fn(),
@@ -37,7 +40,7 @@ vi.mock("vue-router", () => ({
 
 vi.mock("element-plus", () => ({
   ElMessage: mocks.elMessage,
-  ElMessageBox: { confirm: vi.fn() }
+  ElMessageBox: { confirm: mocks.elMessageBoxConfirm }
 }));
 
 vi.mock("@/composables/useReconDraft", () => ({
@@ -64,7 +67,7 @@ vi.mock("@/api/reconciliation", () => ({
 vi.mock("@/api/ledger", () => ({
   getLedgers: mocks.getLedgers,
   createLedger: vi.fn(),
-  updateLedger: vi.fn(),
+  updateLedger: mocks.updateLedger,
   getSalesInstitutions: vi.fn()
 }));
 
@@ -126,6 +129,8 @@ beforeEach(() => {
   mocks.saveDraft.mockResolvedValue(undefined);
   mocks.getDraftWithSet.mockResolvedValue(null);
   mocks.discardDraft.mockResolvedValue(undefined);
+  mocks.updateLedger.mockResolvedValue({ data: { id: 1 } });
+  mocks.elMessageBoxConfirm.mockResolvedValue(undefined);
   mocks.confirmImportApi.mockResolvedValue({
     data: { imported: 1, skipped: 0, cash_transfers_created: 1 }
   });
@@ -330,5 +335,122 @@ describe("#2281 摘要 chips 计数：与 categorizeRow 同口径", () => {
     expect(w.completeTransferCount.value).toBeLessThanOrEqual(
       w.summaryCounts.value.complete
     );
+  });
+});
+
+/*
+ * 2026-11-08 取向变更：#2281 的「默认不勾」只在**批量动作**层面保留，
+ * 默认态层面改为「导入即完整」——用户实测 99 条转账默认漏导后证券账户
+ * 资金流断裂、对账必出孤儿。默认勾选的前置条件是已关联现金账户；
+ * 疑似重复的转账行仍归 duplicate 卡、留给用户手动决定。
+ * 批量动作（selectAllValid / 卡片勾选 / importNormalOnly）的 #2281 语义
+ * 由上面那组用例继续看守，两取向并存不冲突。
+ */
+describe("2026-11-08 导入完整性：默认态时点转账行自动补齐", () => {
+  it("preselectTransferRows：已关联时补齐 complete 转账行，正常行不受影响", () => {
+    const { w, rows } = setupWizard(true);
+    w.selectAllValid();
+    // 前置：批量动作不勾转账行（#2281 语义不变）
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(false);
+
+    w.preselectTransferRows();
+
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(true);
+    expect(w.selectedKeys.value.has(rows[0]._rowKey)).toBe(true);
+  });
+
+  it("幂等：重复调用不翻转、已勾的行不丢失", () => {
+    const { w, rows } = setupWizard(true);
+    w.selectAllValid();
+    w.preselectTransferRows();
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(true);
+    expect(w.selectedKeys.value.has(rows[0]._rowKey)).toBe(true);
+    w.preselectTransferRows();
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(true);
+    expect(w.selectedKeys.value.has(rows[0]._rowKey)).toBe(true);
+  });
+
+  it("未关联时是空操作：不勾出一批「勾了也导不进去」的行", () => {
+    const { w, rows } = setupWizard(false);
+    w.selectAllValid();
+    w.preselectTransferRows();
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(false);
+  });
+
+  it("疑似重复的转账行不补勾（归 duplicate 卡，#1882 手动决定不变）", () => {
+    const { w } = setupWizard(true);
+    w.previewData.value = w.addRowKeys([
+      makeNormalRow(),
+      makeTransferRow({ is_duplicate: true })
+    ]);
+    w.selectAllValid();
+    w.preselectTransferRows();
+    const dupTransfer = w.previewData.value.find(r => r.is_duplicate);
+    expect(w.selectedKeys.value.has(dupTransfer!._rowKey)).toBe(false);
+  });
+
+  it("端到端判据：默认态直接确认导入，转账行进载荷（对账完整的最终形态）", async () => {
+    const { w, rows } = setupWizard(true);
+    w.selectAllValid();
+    w.preselectTransferRows();
+    await w.confirmImport();
+
+    const payload = mocks.confirmImportApi.mock.calls[0][0] as Array<
+      Record<string, unknown>
+    >;
+    expect(payload).toHaveLength(2);
+    expect(payload.some(r => r._rowKey === rows[1]._rowKey)).toBe(true);
+  });
+});
+
+/*
+ * 2026-11-08 关联落库前确认：默认勾选转账行后，关联错账本的代价升级为
+ * 「N 条反向流水写进错误账本」，必须在写库前让用户看见条数与后果。
+ */
+describe("2026-11-08 关联落库前确认：条数与后果前置可见", () => {
+  it("下拉选择关联：先弹确认（含转账条数），确认后才落库并补勾", async () => {
+    const { w, rows } = setupWizard(false);
+    w.bannerCashLedgerId.value = 2;
+    // 落库后 fetchLedgers 重新拉取：返回已关联状态（否则补勾 guard 会挡住）
+    mocks.getLedgers.mockResolvedValue({
+      data: [
+        {
+          id: 1,
+          name: "测试证券账户",
+          ledger_type: "stock",
+          linked_cash_ledger_id: 2
+        },
+        { id: 2, name: "测试现金账户", ledger_type: "bank" }
+      ]
+    });
+    await w.linkCashAccount();
+
+    expect(mocks.elMessageBoxConfirm).toHaveBeenCalledTimes(1);
+    const [detail] = mocks.elMessageBoxConfirm.mock.calls[0] as [string];
+    expect(detail).toContain("1 条银证转账");
+    expect(detail).toContain("测试现金账户");
+    expect(mocks.updateLedger).toHaveBeenCalledTimes(1);
+    // 落库成功后按默认态补勾转账行
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(true);
+  });
+
+  it("用户取消确认：不落库、清空下拉选择、不补勾", async () => {
+    const { w, rows } = setupWizard(false);
+    w.bannerCashLedgerId.value = 2;
+    mocks.elMessageBoxConfirm.mockRejectedValueOnce("cancel");
+    await w.linkCashAccount();
+
+    expect(mocks.updateLedger).not.toHaveBeenCalled();
+    expect(w.bannerCashLedgerId.value).toBeNull();
+    expect(w.selectedKeys.value.has(rows[1]._rowKey)).toBe(false);
+  });
+
+  it("skipConfirm（新建现金账户链路）：不弹确认直接落库", async () => {
+    const { w } = setupWizard(false);
+    w.bannerCashLedgerId.value = 2;
+    await w.linkCashAccount({ skipConfirm: true });
+
+    expect(mocks.elMessageBoxConfirm).not.toHaveBeenCalled();
+    expect(mocks.updateLedger).toHaveBeenCalledTimes(1);
   });
 });

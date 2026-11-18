@@ -101,6 +101,22 @@ NON_COMMIT_STAGES = ('commit-msg', 'push')
 #   stage  : pre-commit 时的钩子阶段（默认默认阶段）
 #   covered: 该判据**已知不覆盖**的形态（登记时必须非空——写「无」也算一次思考）
 RULE_REGISTRY: dict[str, dict[str, str]] = {
+    'scripts/guard_watchlist_active_scope.py': {
+        'rule': 'watchlist 的「当前持仓」查询必须统一走 active_holdings()（023887 / 防「改了一半」）',
+        # 源 023887：自选页把 E账户 `shadow` 镜像行算进持仓（84,282.0222 份 /
+        # ¥59,720.99），产品详情页只算 `active`（42,850.4322 份 / ¥28,949.76）——
+        # 同一个 BatchContext 里「代表持仓行 meta 过滤了、数值聚合没过滤」。
+        # 只把漏掉的几段补上字面量仍拦不住下一个新查询再漏一次，故把 17 处口径
+        # 收敛到统一入口，再用静态判据钉住「每个 query/select(Position...) 都在口径内」。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_watchlist_active_scope.py',
+        'covered': (
+            '只判静态接线：裸状态字面量、query/select(Position...) 是否经 active_holdings()、'
+            '白名单是否陈旧、统一入口是否被掏空。不判运行时数字（由 '
+            'backend/tests/domains/test_watchlist_holding_scope.py 钉），也不扫 watchlist 之外的模块；'
+            '刻意全量的 5 处查询走精确白名单，故「新写的全量查询」会先红、需显式登记理由。'
+        ),
+    },
     'scripts/guard_all_pb.py': {
         'rule': '温度计基线数据 all_pb.csv 禁止删除 / 清空',
         # **只挂本地 pre-commit**：CI 里没有独立的 all_pb 步骤。
@@ -233,6 +249,47 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '不带 role 的手写切换控件仍不覆盖（登记于 #1731 C 项）',
     },
+    'scripts/guard_smart_fill_parity.mjs': {
+        'rule': '导入预览的「金额 ÷ 份额 补单价」单一实现，OCR 与文件通道共用',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_smart_fill_parity.test.js',
+        'covered': '只拦「另起一份补价并打 smartFilled 标记」；无标记的手抄除法识别不了',
+    },
+    'scripts/guard_offline_icon_prefixes.mjs': {
+        'rule': '离线图标通道只允许引用已注册进离线集的图标集（`ep`），其余改写 ep 或内联 SVG',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_offline_icon_prefixes.test.js',
+        'covered': (
+            '判据是**前缀级**：`ep:typo-name`（集对、名字拼错）拦不住，需加载图标集数据才查得动名字。'
+            '动态 icon 名（`:icon="row.icon"` / `icon={item.meta.icon}`）是盲区——值在运行期才确定。'
+            '不判在线通道（`import { Icon } from "@iconify/vue"`，`views/profile/**` / '
+            '`components/ImageUploader` / `watchlist/columnRenderers.tsx` 都在此列，依赖联网但能出图）；'
+            '不判 `~icons/xx/yy`（unplugin-icons 编译期内联，与 iconify 运行时无关）'
+        ),
+    },
+    'scripts/guard_tech_debt_register.py': {
+        'rule': '技术债务状态唯一真源 = tech-debt-register.toml（结构化判据 + 新鲜度 + 自动复核）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_tech_debt_register.py',
+        'covered': (
+            '只判「状态是否与可复核的事实一致」，不判这条债值不值得做（价值排序由人拍板）。'
+            'command 类判据不自动执行（真机 axe / CI 真 PG / issue 状态依赖环境），'
+            '靠 90 天 verified_at 新鲜度闸门；--online 的 issue 覆盖度不接 CI，只报告不判红。'
+            'doc_ref 行号会漂移，只校验文件存在；登记表只收本次盘点覆盖的条目，'
+            '条目数不等于全仓技术债总数。'
+        ),
+    },
+    'scripts/guard_pg_migration_ci.py': {
+        'rule': 'CI 真 Postgres 迁移验证接线（services.postgres + TEST_POSTGRES_URL + 串行 -n 0 step + 真库用例 AST）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_pg_migration_ci.py',
+        'covered': (
+            '只钉「接线在不在」与用例里有没有真连接标识符，不连 PG、不判 PG 是否真的接受 DDL / 拒绝违规写入'
+            '（由 backend/tests/core/test_migrations_positions_state_check_pg.py 承担）。'
+            '本机无 TEST_POSTGRES_URL 时用例 skip 是设计内行为，语义结论只以 CI 日志为准；'
+            '不判 service 健康检查参数是否最优。'
+        ),
+    },
     'scripts/guard_a11y_interaction.py': {
         'rule': '交互可达性（图标按钮可访问名称 / 非交互元素挂 click）',
         'runner': 'ci',
@@ -256,6 +313,19 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'ci',
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '只判「登记 / 引擎 / 生命周期 / 预算」四件事；规则内容对不对仍要靠人',
+    },
+    'scripts/guard_service_size.py': {
+        'rule': 'services 层模块体量 / 复杂度软闸门（防 #2873 类上帝模块复发）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_service_size.py',
+        'covered': (
+            '只量体量（物理行数）/ 最长函数行数 / 函数最大圈复杂度（McCabe，AST 决策点计）；'
+            '存量按 BASELINE 冻结、只减不增，新增文件走 NEW_FILE_LIMITS'
+            '（lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20）。'
+            '不判「该不该拆」「拆得对不对」（那是 code review 的事）；不扫 services 之外的模块；'
+            '不判运行时行为。基线虚胖（实测低于基线未回写）只提示不阻断——该收敛由 '
+            'scripts/tests/test_guard_service_size.py::test_baseline_matches_current_metrics 钉死'
+        ),
     },
     'scripts/bridge/check_branch_divergence.py': {
         'rule': '仓内 main 不得领先 dev（发版前先合并）',
@@ -347,13 +417,19 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '存量 12 处幽灵令牌冻结为基线，只拦新增',
     },
     'scripts/guard_price_precision.mjs': {
-        'rule': '价格 / 净值展示一律走 @/utils/pricePrecision 契约（禁止硬编码 toFixed）',
+        'rule': (
+            '价格 / 净值位数一律走 @/utils/pricePrecision 契约：展示禁硬编码 toFixed，'
+            '录入禁写死 el-input-number 的 precision'
+        ),
         'runner': 'ci',
         'tests': 'scripts/tests/guard_price_precision.test.js',
         'covered': (
-            '只拦**新增**硬编码；存量 13 处冻结为基线（只减不增）。'
+            '展示侧只拦**新增**硬编码；存量 8 处冻结为基线（只减不增）。'
             '运算回写 / 金额 / 份额 / 百分比形态靠正则豁免，形态写怪了会漏；'
-            '位数写对与否不判（那是代码审查的事，守卫只保证新增处被人看过一眼）'
+            '位数写对与否不判（那是代码审查的事，守卫只保证新增处被人看过一眼）。'
+            '录入侧只认 el-input-number + v-model 含 price/nav 词根，'
+            '自定义封装组件（如 MoneyDisplay 的 inputs）与 el-input 文本录入不在口径内；'
+            '「有精度但值不对」不判，只判有没有绕过契约。'
         ),
     },
     'scripts/check_router_links.mjs': {
@@ -361,6 +437,27 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'ci',
         'tests': 'scripts/tests/check_router_links.test.js',
         'covered': '只认字面量路径；拼接出来的 to= 看不见',
+    },
+    'scripts/guard_ts_any.mjs': {
+        'rule': ('TS/Vue 显式 any 类型注解冻结基线、只减不增；新文件含 any 必须同步进基线'
+                 '（防 #2879 类类型护栏泄漏回潮 / #2935 类组合态才红）'),
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_ts_any.test.js',
+        'covered': (
+            '用 TypeScript Compiler API 数 ts.SyntaxKind.AnyKeyword（.vue 的 script 块由 '
+            '@vue/compiler-sfc 的 parse 取出再交给 TS），故注释 / 字符串 / 标识符 / '
+            'JSDoc 里的 any 不计；只扫 frontend/src 的 .ts / .vue（.tsx / .js / .jsx '
+            '不在口径内，.d.ts 声明照计）；不判该 any 是否合理、能否换 unknown，'
+            '也不判运行时类型是否安全。存量按 scripts/ts-any-baseline.json 冻结'
+            '（收录所有文件含 0 值）；新增文件 any > 3 拦截，含 1~3 处 any 但未纳入基线'
+            '也拦截（#2935：与回归网「基线覆盖」用例口径对齐，跑 --write 后转绿）；'
+            '0 处 any 的新文件静默放行，一旦 0→1 即按上条拦截。'
+            '实测低于基线只提示收紧、不阻断。'
+            'typescript 与 @vue/compiler-sfc 任一不可用时即判 exit 2、不产出结论'
+            '（实测降级正则 539 处 vs AST 540 处，口径不同不得与同一份基线比对而宣布通过）；'
+            '正式判据只在 frontend job（已装前端依赖）跑，--report / --write 在依赖缺失时同样拒绝；'
+            '降级只作解析层纯函数测试（回归网 import 后验证注释/字符串里的 any 不计）。'
+        ),
     },
     'scripts/check_pnpm_overrides.mjs': {
         'rule': '安全 override 必须在锁文件里真实生效',
@@ -557,6 +654,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '收编前须先判定该表语义（资产 / 探市 / 自选是另一种密度语义）。'
         ),
     },
+    'scripts/guard_net_assets_source.py': {
+        'rule': '净资产一律取 /api/summary/ 的 net_assets_cny 直出（#119 / #2883，页面层不得现算）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_net_assets_source.py',
+        'covered': (
+            '只拦页面层「总资产 − 总负债」减法（R1 命名族 + R2 词根族）；'
+            '注释举例、两值分别作占比分母、反向净负债均放行。'
+            '刻意不覆盖「先赋给无词根别名再相减」；不判数值是否相等、不判后端口径对不对'
+            '（那是契约测试与代码审查的事）。回归网含真实文件回退探针 + 失败态 exit 2'
+        ),
+    },
     'scripts/guard_pro_endpoint_registry.py': {
         'rule': 'Pro 端点必须挂 @require_pro_feature，权益位必须登记在 PRO_FEATURES',
         'runner': 'ci',
@@ -579,9 +687,10 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_guard_portfolio_balance_mode.py',
         # 边界写清楚，避免下一个人以为它保证「portfolio 一定记得对」。
         'covered': (
-            '只判三件事的**存在与位置**：`process_buy_or_deposit` 里那段约束还在（AST 认'
-            '「portfolio 字面量 + 非 balance 判定 + 分支体内 raise」）；`asset_types.py` 的'
-            '旧表述没回归、新口径写在注释里；`decisions.md` 有 D70 行。'
+            '只判三件事的**存在与位置**：`position_buy_command._assert_balance_only_asset_type`'
+            '（#2873 第四抽后买入命令从 `position_service` 下沉到该模块，判据跟着写入路径走）'
+            '里那段约束还在（AST 认「portfolio 字面量 + 非 balance 判定 + 分支体内 raise」）；'
+            '`asset_types.py` 的旧表述没回归、新口径写在注释里；`decisions.md` 有 D70 行。'
             '**不判运行时行为**（真的拒绝由 test_positions.py::TestPortfolioBalanceMode 管）；'
             '**不判前端**（买入表单提交 balance 由 buyFormPayload.spec.ts 管）；'
             '**不判 assets 表**（D70 只谈 positions）；'
@@ -669,6 +778,39 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '不入库的 frontend/.env 与 .env.development 读不到；'
             '只判「凭证在不在、形态对不对、示例里有没有真实值」，'
             '不判 anon key 是否有效、也不判 dev 与 prod 是否同项目'
+        ),
+    },
+    'scripts/guard_products_api.mjs': {
+        'rule': '产品域 API 公共入口只做 barrel，21 个端点按子域落在 products/*.ts（#2878）',
+        # 源 #2878：products.ts 曾是 1364 行 / 21 个端点的巨型客户端。拆分后 51 个
+        # 既有调用点仍从公共入口导入，回潮形态是「新端点又写回 barrel」——编译、
+        # 单测照常绿，只有文件悄悄长回去，故用静态判据钉住分层与转发完整性。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_products_api.test.js',
+        'covered': (
+            '只判 frontend/src/api/products.ts 与 products/*.ts 的静态结构'
+            '（barrel 纯度 / 转发不断链 / 无孤儿模块 / 行数上限 / 无反向 import）；'
+            '端点 method、URL 与参数映射由 productsBarrel.spec.ts 钉住，'
+            '后端返回值的业务语义不在此判据覆盖范围'
+        ),
+    },
+    'scripts/guard_recon_symbol_display.py': {
+        'rule': '对账工作台模板的产品身份展示必须走 reconDisplay 契约：标题经 reconGroupTitle，'
+        '编码经 reconSymbolCode / specialSymbolLabel（裸插 .symbol 已两次把编码当标题印给用户）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_recon_symbol_display.test.js',
+        # 行级判据（模板段内 .symbol 行须带契约调用），宁窄勿宽：
+        # 已知不覆盖（登记时必须说清，见 AGENTS.md 三之二）——
+        # ① 非 .vue 的 .ts 构造函数：标题在 TS 里拼好再传进模板（composables /
+        #    utils 里的模板串），模板判据看不见构造侧；
+        # ② 运行时拼接：变量换名（const s = row.symbol 后插 {{ s }}）静态判不出；
+        # ③ script 段的字符串拼接不判（取数不是展示）；
+        # ④ recon-symbol-allow 是显式逃生口，豁免台账随输出打印但不会被强制作废。
+        'covered': (
+            '只扫 reconcile-workbench/**/*.vue 的模板段（script/style/HTML 注释剔除）；'
+            '已知不覆盖：非 .vue 的 .ts 构造函数（标题在 TS 里拼好再传进来）、'
+            '运行时换名拼接的标题、script 段里的字符串拼接；'
+            '编码经 reconSymbolCode / specialSymbolLabel 的次要事实展示属合法放行'
         ),
     },
 }

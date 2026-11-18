@@ -1,24 +1,27 @@
 <!--
-  历史会话栏（#1719，方案 A 页内折叠）：
+  历史会话列表：
   - 读 GET /api/agent/sessions/（分页，服务端已按 user_id 过滤，跨用户不可见）；
-  - 点击某条 → emit select 由父组件拉详情回放，本组件只负责列表与折叠态；
-  - 默认折叠：父组件用 v-if 控制显隐，未展开时**不发任何请求**（不给探市/首屏加负担）。
+  - 点击某条 → emit select 由父组件拉详情回放；
+  - 本组件**只管列表**：外壳（常驻左栏 / 抽屉）、显隐、请求时机都由父组件控制。
+    窄屏抽屉用 v-if 挂载，故「不打开就不发请求」这条仍然成立。
+
+  2026-11：去掉自带的卡片外壳与旧配色族（--bg-muted / --border-light / --color-primary），
+  那套色是上一代界面语言，嵌在暖色页面里像一个浮起来的浅蓝方块。
+  现在条目用暖色 hover/active，容器由父级（左栏 / 抽屉）负责。
 -->
 <template>
   <div class="session-history">
-    <!-- 头部只保留标题与条数：「新对话」常驻页头操作槽（#1714 UI 复核），
-         左栏内再放一个就是重复入口 -->
     <div class="session-history__head">
       <span class="session-history__title">历史会话</span>
       <span class="session-history__total">{{ total }} 条</span>
     </div>
 
-    <div v-if="loading && items.length === 0" class="session-history__empty">
-      正在加载历史会话
-    </div>
-    <div v-else-if="items.length === 0" class="session-history__empty">
+    <p v-if="loading && items.length === 0" class="session-history__empty">
+      正在加载
+    </p>
+    <p v-else-if="items.length === 0" class="session-history__empty">
       还没有历史会话，发出第一条消息后会出现在这里。
-    </div>
+    </p>
     <ul v-else class="session-history__list">
       <li v-for="it in items" :key="it.session_id">
         <button
@@ -102,47 +105,36 @@ function formatTime(iso: string | null): string {
 </script>
 
 <style lang="scss" scoped>
-/* 页内左栏（#1714 UI 复核）：定宽 + 自身滚动。旧形态是插在卡片顶部的折叠块
-   （max-height: 40vh），展开时把消息区整体挤下去，观感像下拉面板而非侧栏 */
 .session-history {
-  position: sticky;
-  top: var(--space-compact);
   display: flex;
-  flex: 0 0 auto;
+  flex: 1;
   flex-direction: column;
-  align-self: flex-start;
-  width: 260px;
-
-  /* 页面改为「外层唯一滚动」后（#1714 复核），左栏必须自己限高 + 自己滚动：
-     否则历史条目一多就把整页拉长；sticky + align-self:flex-start 则让它在滚动时留在视野里 */
-  max-height: calc(100vh - var(--layout-topbar-height) - 120px);
-  padding: var(--space-compact);
-  background-color: var(--bg-muted);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
+  gap: var(--space-2);
+  min-height: 0; /* 列表自身滚动（容器给高度时） */
 }
 
 .session-history__head {
   display: flex;
-  gap: var(--space-compact);
-  align-items: center;
-  padding-bottom: var(--space-compact);
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 var(--space-2);
 }
 
 .session-history__title {
-  font-size: var(--text-small);
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
 }
 
 .session-history__total {
-  font-size: var(--text-small);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
 }
 
 .session-history__list {
   flex: 1;
-  min-height: 0; // 列表自身滚动（栏高度 = 会话区高度）
+  min-height: 0;
   padding: 0;
   margin: 0;
   overflow-y: auto;
@@ -154,22 +146,33 @@ function formatTime(iso: string | null): string {
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: var(--space-compact) var(--space-3);
+  padding: 8px var(--space-2);
+  margin-bottom: 2px;
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
   background: none;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
-}
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease;
 
-.session-history__item:hover {
-  background-color: var(--bg-card);
-  border-color: var(--border-light);
+  &:hover {
+    background-color: var(--bg-soft);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
 }
 
 .session-history__item--active {
-  background-color: var(--bg-card);
-  border-color: var(--color-primary);
+  background-color: var(--bg-soft);
+
+  .session-history__preview {
+    font-weight: 600;
+    color: var(--brand-700);
+  }
 }
 
 .session-history__preview {
@@ -186,8 +189,10 @@ function formatTime(iso: string | null): string {
 }
 
 .session-history__empty {
-  padding: var(--space-3) 0;
-  font-size: var(--text-small);
+  padding: 0 var(--space-2);
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
   color: var(--text-tertiary);
 }
 </style>

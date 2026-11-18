@@ -60,10 +60,13 @@ JSON 一起吞掉。
 """
 
 import argparse
+import bisect
 import json
+import re
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple, Optional
 
 # 让脚本能 import 项目包（backend/ 在 sys.path[0]，同 sync_metadata 约定）
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -135,13 +138,693 @@ def evaluate(trace, expect):
     return True, ''
 
 
+PLAN_STEP_KEYS = frozenset({'tool', 'params_from'})
+
+
+def validate_plan_shape(plan):
+    """校验 expect.plan 结构，返回错误原因列表（空列表 = 合法）。
+
+    步骤形如 {tool: <名字或名字列表>, params_from: <更早步骤序号，可选>}。
+    params_from 只写「引用哪一步」，不写任何数值 —— 与 owner 裁定 D2
+    「中间数值不进模型」一致，评估集也不复制一份真实数值。
+    """
+    errors = []
+    if not isinstance(plan, list) or not plan:
+        return ['expect.plan 必须是非空列表']
+    for i, step in enumerate(plan):
+        if not isinstance(step, dict):
+            errors.append(f'步骤 {i + 1} 必须是映射')
+            continue
+        unknown = set(step) - PLAN_STEP_KEYS
+        if unknown:
+            errors.append(f'步骤 {i + 1} 含未知字段 {sorted(unknown)}')
+        tools = step.get('tool')
+        if not tools or not all(isinstance(t, str) and t for t in _as_list(tools)):
+            errors.append(f'步骤 {i + 1} 缺合法 tool')
+        ref = step.get('params_from')
+        if ref is not None and (isinstance(ref, bool) or not isinstance(ref, int) or ref < 0 or ref >= i):
+            errors.append(f'步骤 {i + 1} 的 params_from 必须引用更早的步骤序号')
+    return errors
+
+
+def evaluate_plan(traces, expect):
+    """按 expect.plan 判定多步执行序列；返回 (是否通过, 失败原因)。
+
+    只比对 execute_tool 且成功的 trace 的工具名序列与末轮 status，
+    **不读任何工具返回数值**：数值正确性归工具单测，评估集只钉执行结构。
+    既有 47 条用例仍走 evaluate(final, ...) 原路径，行为一字不变。
+    """
+    expect = expect or {}
+    plan = expect.get('plan')
+    errors = validate_plan_shape(plan)
+    if errors:
+        return False, 'expect.plan 结构非法：' + '; '.join(errors)
+    traces = traces or []
+    executed = [
+        t.tool_name
+        for t in traces
+        if getattr(t, 'intent', None) == 'execute_tool'
+        and getattr(t, 'status', None) == 'result'
+        and getattr(t, 'tool_name', None)
+    ]
+    if len(executed) < len(plan):
+        return False, f'只执行了 {len(executed)} 步，期望 {len(plan)} 步：{executed}'
+    for i, step in enumerate(plan):
+        allowed = _as_list(step['tool'])
+        if executed[i] not in allowed:
+            return False, f'第 {i + 1} 步 tool={executed[i]}，期望 {allowed}'
+    final = traces[-1] if traces else None
+    want_status = _as_list(expect.get('status'))
+    if final is None or getattr(final, 'status', None) not in want_status:
+        return False, f'末轮 status={getattr(final, "status", None)}，期望 {want_status}'
+    # 多步用例仍保留 expect.tool（静态契约要求 result 用例钉工具）：此处让它继续
+    # 校验**末步**，避免升级 plan 后 tool 字段沦为摆设。
+    want_tool = _as_list(expect['tool']) if expect.get('tool') else []
+    if want_tool and executed[-1] not in want_tool:
+        return False, f'末步 tool={executed[-1]}，期望 {want_tool}'
+    return True, ''
+
+
+NARRATIVE_KEYS = frozenset({'covers', 'numbers'})
+NARRATIVE_COVER_KEYS = frozenset({'id', 'any', 'metric'})
+METRIC_KEYS = frozenset({'tool', 'field', 'pick'})
+METRIC_PICKS = frozenset({'min', 'max', 'abs_max'})
+
+# 数值来源判据（D103）。三处豁免与两条归一化是同一件事的两面：
+# **既不把合理表述判成编造，也不给编造留后门**，取舍逐条写在函数 docstring 里。
+NUM_TOKEN = re.compile(r'-?\d+(?:,\d{3})*(?:\.\d+)?')
+NUM_DATE_SPAN = re.compile(r'\d{4}-\d{2}-\d{2}')
+NUM_PCT_SUFFIX = re.compile(r'\s*(?:%|％|个百分点|个点|百分)')
+# 百分号的**中文前缀**写法：「百分之34.38」。只认后缀时它会被反向判据打成编造
+# （34.38 有 2 位小数、命中高熵门槛，又少了「除以 100」那次归一化，与 0.3438 对不上），
+# 正向判据则判成回避——两头都是假红（2026-11-17 全量评估 basic-02/03 实测）。
+NUM_PCT_PREFIX = re.compile(r'百分之\s*$')
+NUM_YEAR_SUFFIX = re.compile(r'\s*年')
+NUM_CODE_SHAPE = re.compile(r'^\d{6}$')
+# 量级后缀：叙事几乎不会把「1630204.52 元」原样写出来，而是「163 万」。
+# 不认量级会把最常见的合法改写判成编造（反向判据）/ 判成回避（正向判据）。
+NUM_MAG_SUFFIX = re.compile(r'\s*(万|亿)(?:元|块)?')
+NUM_MAG_SCALE = {'万': 1e4, '亿': 1e8}
+
+# 中文数量词（D106）：真实回答常写「两成」「六个点」「一百六十三万」，整段不带
+# 阿拉伯数字。扫不到 token 时反向判据天然放过（漏报）、正向判据判成回避（假红）——
+# 两头都错，所以必须认。但中文数量词是**粗粒度**的：它只证明「说到了这个量级」，
+# 不证明「用的是精确值」，因此只进正向判据的数值池，**不进**反向的编造检出
+# （拿「约两成」去证伪精确值必然误杀）。
+CN_DIGITS = {'零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+CN_UNITS = {'十': 10, '百': 100, '千': 1000}
+CN_BIG_UNITS = {'万': 1e4, '亿': 1e8}
+_CN_RUN = '[零〇一二两三四五六七八九十百千万亿]'
+# (正则, 单位类型, 换算倍数, 固定容差)。容差 = 这种说法的**固有粗粒度**：
+# 「一成」是 10 个百分点一级的话（±5），「六个点」是整数级（±0.5）；
+# 金额不写死容差，按用到的最大量级现算（「一百六十三万」= ±5000）。
+CN_PERCENT_TOL = 0.5
+CN_CHENG_TOL = 5.0
+CN_PATTERNS = (
+    (re.compile(r'百分之\s*(' + _CN_RUN + r'+)'), 'percent', 1.0, CN_PERCENT_TOL),
+    (re.compile(r'(' + _CN_RUN + r'+)\s*成'), 'percent', 10.0, CN_CHENG_TOL),
+    (re.compile(r'(' + _CN_RUN + r'+)\s*个百分点'), 'point', 1.0, CN_PERCENT_TOL),
+    (re.compile(r'(' + _CN_RUN + r'+)\s*个点'), 'point', 1.0, CN_PERCENT_TOL),
+    # 金额必须「数字在前、万/亿在后」：「三个」「一项」是计数与修饰；而裸的
+    # 「万」会被解析成 0，再叠加 ±5000 的粗容差就能命中任意中等数值 —— 必须挡住。
+    (
+        re.compile(r'([零〇一二两三四五六七八九十百千]+[万亿][零〇一二两三四五六七八九十百千万亿]*)'),
+        'amount',
+        1.0,
+        None,
+    ),
+)
+
+
+class NumToken(NamedTuple):
+    """一个被抽出来的数值，以及「它有多可信」。
+
+    `tolerance` 为 None 表示按写出来的末位精度现算（阿拉伯数字走这条路）；
+    中文数量词自带粗粒度，直接写死，否则「两成」会被 0.5 的严容差判成没说到。
+    `approximate=True` 是**只做正向命中**的标记：反向判据拿它证伪精确值必误杀。
+    """
+
+    raw: str
+    value: float
+    is_percent: bool = False
+    is_year: bool = False
+    scale: float = 1.0
+    approximate: bool = False
+    tolerance: Optional[float] = None
+
+
+def _as_token(token):
+    """把 5 元组 / 7 元组统一成 NumToken（测试与旧调用点直接传元组）。"""
+    return token if isinstance(token, NumToken) else NumToken(*token)
+
+
+def _parse_cn_number(run):
+    """中文数字 → 数值：「一百六十三」→163、「两亿三千万」→2.3e8、「十五」→15。"""
+    total = 0.0
+    section = 0.0
+    number = 0.0
+    for char in run:
+        if char in CN_DIGITS:
+            number = float(CN_DIGITS[char])
+        elif char in CN_UNITS:
+            unit = CN_UNITS[char]
+            if number == 0:  # 「十五」的「十」前面没有数字，按 1 算
+                number = 1.0
+            section += number * unit
+            number = 0.0
+        elif char in CN_BIG_UNITS:
+            section += number
+            number = 0.0
+            if char == '万':
+                total += section * CN_BIG_UNITS['万']
+            else:
+                total = (total + section) * CN_BIG_UNITS['亿']
+            section = 0.0
+        else:
+            return None
+    return total + section + number
+
+
+def _cn_tokens(text):
+    """抽中文数量词：[(start, NumToken)]。只认带单位后缀的形态。"""
+    tokens = []
+    for pattern, kind, factor, tolerance in CN_PATTERNS:
+        for match in pattern.finditer(text):
+            run = match.group(1)
+            number = _parse_cn_number(run)
+            if number is None:
+                continue
+            if kind == 'amount':
+                if number <= 0:
+                    continue  # 解析出 0 说明只是撞见了「万」字本身，不是数值
+                biggest = CN_BIG_UNITS['亿'] if '亿' in run else CN_BIG_UNITS['万']
+                tokens.append((match.start(1), NumToken(run, number, approximate=True, tolerance=0.5 * biggest)))
+            else:
+                tokens.append(
+                    (
+                        match.start(1),
+                        NumToken(run, number * factor, is_percent=True, approximate=True, tolerance=tolerance),
+                    )
+                )
+    return tokens
+
+
+def validate_narrative_shape(narrative):
+    """校验 expect.narrative 结构，返回错误原因列表（空列表 = 合法）。
+
+    形态：``{covers: [{id: <子问名>, any: [<同义锚点>, ...]}, ...],
+    numbers: <bool 可选，默认 true>}``。
+
+    两个维度互相独立：`covers` 是纯文本存在性判据（证明每个子问有落点），
+    `numbers` 关掉后只剩前者。数值来源判据在**评估侧**读工具返回值做比对，
+    与 D2 不冲突——D2 约束的是「中间数值不进模型决策轮」，评估跑在模型之外。
+    """
+    errors = []
+    if not isinstance(narrative, dict):
+        return ['expect.narrative 必须是映射']
+    unknown = set(narrative) - NARRATIVE_KEYS
+    if unknown:
+        errors.append(f'含未知字段 {sorted(unknown)}')
+    if 'numbers' in narrative and not isinstance(narrative['numbers'], bool):
+        errors.append('expect.narrative.numbers 必须是布尔')
+    covers = narrative.get('covers')
+    if not isinstance(covers, list) or not covers:
+        return errors + ['expect.narrative.covers 必须是非空列表']
+    for i, cover in enumerate(covers):
+        if not isinstance(cover, dict):
+            errors.append(f'子问 {i + 1} 必须是映射')
+            continue
+        extra = set(cover) - NARRATIVE_COVER_KEYS
+        if extra:
+            errors.append(f'子问 {i + 1} 含未知字段 {sorted(extra)}')
+        if not isinstance(cover.get('id'), str) or not cover['id'].strip():
+            errors.append(f'子问 {i + 1} 缺合法 id')
+        words = cover.get('any')
+        if not isinstance(words, list) or not words or not all(isinstance(w, str) and w.strip() for w in words):
+            errors.append(f'子问 {i + 1} 的 any 必须是非空字符串列表')
+        if 'metric' in cover:
+            errors.extend(_validate_metric(cover['metric'], i))
+    return errors
+
+
+def _validate_metric(metric, index, suffix=''):
+    """校验 cover.metric（单条映射，或多条等价口径的列表）。"""
+    label = f'子问 {index + 1} 的 metric{suffix}'
+    if isinstance(metric, list):
+        if not metric:
+            return [f'{label} 列表不能为空']
+        errors = []
+        for n, item in enumerate(metric, 1):
+            errors.extend(_validate_metric(item, index, suffix=f'[{n}]'))
+        return errors
+    if not isinstance(metric, dict):
+        return [f'{label} 必须是映射或映射列表']
+    errors = []
+    extra = set(metric) - METRIC_KEYS
+    if extra:
+        errors.append(f'{label} 含未知字段 {sorted(extra)}')
+    for key in ('tool', 'field'):
+        value = metric.get(key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f'{label} 的 {key} 必须是非空字符串')
+    pick = metric.get('pick')
+    if pick is not None and pick not in METRIC_PICKS:
+        errors.append(f'{label} 的 pick 仅支持 {sorted(METRIC_PICKS)}')
+    return errors
+
+
+def evaluate_narrative(text, expect):
+    """按 expect.narrative 判定最终回答是否逐子问留痕；返回 (是否通过, 失败原因)。
+
+    纯字符串包含（大小写不敏感），不调模型、不读工具数据：主观上的答案对错
+    归工具单测与人工回放，这里只把「多子问被静默丢掉」变成可见红灯。
+    判据不阻止堆词凑覆盖，边界与正确性结论见 cases.yaml 的 chain-01 注释。
+    """
+    spec = (expect or {}).get('narrative')
+    errors = validate_narrative_shape(spec)
+    if errors:
+        return False, 'expect.narrative 结构非法：' + '; '.join(errors)
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定子问覆盖'
+    haystack = text.lower()
+    missed = [
+        f'{cover["id"]}（期望任一：{cover["any"]}）'
+        for cover in spec['covers']
+        if not any(word.lower() in haystack for word in cover['any'])
+    ]
+    if missed:
+        return False, '最终回答未覆盖子问：' + '；'.join(missed)
+    return True, ''
+
+
+def _collect_data_numbers(node, out):
+    """递归收集工具数据里的数值，作为可溯源来源池。
+
+    只认 int/float，**不解析字符串**：symbol「000001」、日期「2026-11-11」里的
+    数字不是可引用数值，收进来源池只会让「编造的数碰巧命中」概率上升。
+    """
+    if isinstance(node, bool):  # bool 是 int 子类，先排除，避免 True 被当成 1
+        return
+    if isinstance(node, (int, float)):
+        out.append(float(node))
+    elif isinstance(node, dict):
+        for value in node.values():
+            _collect_data_numbers(value, out)
+    elif isinstance(node, (list, tuple)):
+        for value in node:
+            _collect_data_numbers(value, out)
+
+
+def _number_token_spans(text):
+    """抽出文本里的数字 token 及其起始位置：[(start, NumToken)]，按位置升序。
+
+    位置是「数字归属」判据的输入：要知道这个数落在哪个要点的段落里。
+    `scale` 是量级后缀（万 / 亿）带来的倍数，用户看到的是「163 万」而数据里是
+    1630204.52 —— 不认量级会把最常见的合法改写判成编造或回避。
+    百分号两种写法都要认：后缀（`34.38%` / `34.38 个百分点`）与前缀（`百分之34.38`）。
+    只认后缀时，「百分之34.38」既拿不到 `/100` 归一化、又照 2 位小数进高熵门槛，
+    于是写对了也被判成编造（2026-11-17 评估 basic-02/03 实测）。
+    中文数量词（「两成」「六个点」「一百六十三万」）并入同一序列：它们同样要参与
+    归属，否则「用中文写的回答」在归属判据里等于没给数。
+    """
+    spans = [m.span() for m in NUM_DATE_SPAN.finditer(text)]
+    tokens = []
+    for match in NUM_TOKEN.finditer(text):
+        start = match.start(0)
+        if any(lo <= start < hi for lo, hi in spans):
+            continue  # 日期整体跳过：YYYY-MM-DD 拆成 2026 / -11 只会制造假编造
+        raw = match.group(0)
+        tail = text[match.end() : match.end() + 6]
+        mag = NUM_MAG_SUFFIX.match(tail)
+        is_percent = bool(NUM_PCT_SUFFIX.match(tail)) or bool(NUM_PCT_PREFIX.search(text[:start]))
+        tokens.append(
+            (
+                start,
+                NumToken(
+                    raw,
+                    float(raw.replace(',', '')),
+                    is_percent=is_percent,
+                    is_year=bool(NUM_YEAR_SUFFIX.match(tail)),
+                    scale=NUM_MAG_SCALE[mag.group(1)] if mag else 1.0,
+                ),
+            )
+        )
+    tokens.extend(_cn_tokens(text))
+    tokens.sort(key=lambda item: item[0])
+    return tokens
+
+
+def _number_tokens(text):
+    """只要 token、不要位置（来源判据与引用判据都不关心落点）。"""
+    return [token for _, token in _number_token_spans(text)]
+
+
+def _is_high_entropy(raw, value, is_percent, is_year, scale=1.0, approximate=False, *_rest):
+    """哪些数字值得追来源——门槛定得太低，叙事里的普通计数会被打成一片红灯。
+
+    豁免（刻意放弃检出，理由是可解释性优先于覆盖率）：
+    - 年份（19xx/20xx 紧邻「年」）：叙事里的时间坐标不是指标；
+    - 纯整数且绝对值 < 1000：月数、只数、名次、整数百分比（「近 3 个月」
+      「前 5 大」「占比 30%」），与指标值无法区分；
+    - 1 位小数且无百分比标记：「86.5 万元」这类量级改写会让直接比对落空，
+      强行比对会把正确表述判成编造；
+    - 6 位纯数字：基金/股票代码形态（「000001」），不是被引用的数值；
+    - **中文数量词**（approximate）：「约两成」「六个点」「一百六十三万」是粗粒度
+      的概数，用它证伪精确值必然误杀正确回答，因此只进正向命中、不进编造检出。
+
+    保留检出的：小数位 ≥ 2（工具比率与金额的真实精度都是 2 位小数）、
+    绝对值 ≥ 1000 的整数（金额量级）、带百分比标记的 1 位小数。
+    `scale` 不参与门槛判断：精度承诺只看写出来的末位（「163 万」是 0 位小数，
+    不是 8 位精度），量级只影响比对容差，见 `_token_cites`。
+    末尾 `*_rest` 吞掉 token 里后续新增的字段（容差等），免得每加一个字段就改签名。
+    """
+    if approximate or is_year or NUM_CODE_SHAPE.match(raw):
+        return False
+    decimals = len(raw.split('.')[1]) if '.' in raw else 0
+    base = abs(value) * scale
+    if decimals >= 2 or base >= 1000:
+        return True
+    return bool(is_percent and decimals >= 1)
+
+
+def _token_cites(token, target):
+    """这一个 token 是否就是 `target` 这个数（写法随意：符号 / 百分号 / 千分位 / 万 / 亿 / 舍入）。
+
+    容差 = 文本末位的一半，并折算回原量级：写 20.7 允许 ±0.05、写 20.66 允许 ±0.005、
+    写「163 万」允许 ±5000 —— 即「在你承诺的精度下，这个数就是对的那个数」。
+    固定比例容差在 8.1 vs 8.05（差 0.05）处会漏，ULP/2 不会。
+    中文数量词自带容差（「两成」±5、「六个点」±0.5）：它的精度不是末位决定的，
+    而是这种说法本身的粗粒度。
+
+    容差必须**跟着候选值的量纲一起缩放**：比 0.2 时容差是 ±0.0005 而不是 ±5，
+    否则「两成」的粗容差会顺带命中任何小数值（实测：把 −3.0 认成 20% 的同义词）。
+
+    符号不参与判定：模型常把负号吸收进「亏损 / 回落 / 跑输」这类语义词，
+    拿符号判会把正确表述判成编造。方向对错留给人工回放，这是刻意的边界。
+    """
+    token = _as_token(token)
+    decimals = len(token.raw.split('.')[1]) if '.' in token.raw else 0
+    base = token.value * token.scale
+    tolerance = token.tolerance if token.tolerance is not None else 0.5 * 10**-decimals * token.scale
+    candidates = [(base, tolerance)]
+    if token.is_percent:
+        # 20.66 与 0.2066 是同一个量：换算后容差同步换算，不能沿用原量纲的绝对值
+        candidates += [(base * 100, tolerance * 100), (base / 100, tolerance / 100)]
+    elif abs(base) < 1:
+        candidates.append((base * 100, tolerance * 100))  # 无百分号但写成小数，按小数化百分比认一次
+    return any(abs(abs(candidate) - abs(target)) <= margin + 1e-9 for candidate, margin in candidates)
+
+
+def _number_has_source(token, sources):
+    """文本数值能否在来源池里找到同一个数（比对口径见 `_token_cites`）。"""
+    return any(_token_cites(token, source) for source in sources)
+
+
+def evaluate_numeric_sources(text, data):
+    """反向判据：回答里的具体数值必须能在本轮工具数据里找到来源。
+
+    抓的是**编造数字**（幻觉里最严重的一类）：回答里出现的指标值在工具返回的数据里
+    根本不存在。数据为空却报出具体数值，是最硬的铁证，因此**不跳过**。
+
+    三条边界，别当它证明答案正确：
+    - 抓不到**串台**：把沪深300 的 -12.61% 说成「你的组合跌了 12.61%」时，每个
+      数字都真实存在于某一步数据里，来源判据必然通过（缺的是数字归属 —— 由
+      evaluate_metric_presence 的**本段落归属**补上，见 D105）；
+    - 抓不到**回避**：只写「近期收益不太好」不给数，本判据无事可做；
+    - 高熵门槛之外的数（整数计数、1 位小数无标记、中文概数）刻意不查，
+      见 _is_high_entropy。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定数值来源'
+    sources = []
+    _collect_data_numbers(data, sources)
+    unsourced = [
+        token.raw
+        for token in _number_tokens(text)
+        if _is_high_entropy(*token) and not _number_has_source(token, sources)
+    ]
+    if unsourced:
+        suffix = '（本轮工具数据里没有任何数值）' if not sources else ''
+        return False, '最终回答出现无工具来源的数值：' + '、'.join(unsourced) + suffix
+    return True, ''
+
+
+def _collect_by_path(node, parts):
+    """按点号路径取值并汇总成列表；`*` 展开列表，数字段取下标，缺失返回空。"""
+    if not parts:
+        return [node]
+    head, rest = parts[0], parts[1:]
+    if head == '*':
+        if not isinstance(node, list):
+            return []
+        out = []
+        for item in node:
+            out.extend(_collect_by_path(item, rest))
+        return out
+    if isinstance(node, dict):
+        return _collect_by_path(node.get(head), rest) if head in node else []
+    if isinstance(node, list) and head.isdigit():
+        index = int(head)
+        return _collect_by_path(node[index], rest) if 0 <= index < len(node) else []
+    return []
+
+
+def _metric_values(data, metric):
+    """取单条 metric 声明的指标值。
+
+    plan 路径按 `tool` 名挑出对应步骤的 data（同名工具多步时全部参与）；
+    单工具路径直接用它自己（工具名已由 expect.tool 钉住）。
+    `pick` 在多个候选中挑一个：min / max / abs_max（如「亏得最多的标的」= min）。
+    """
+    steps = data.get('steps') if isinstance(data, dict) else None
+    if isinstance(steps, list) and steps:
+        nodes = [step.get('data') for step in steps if isinstance(step, dict) and step.get('tool') == metric['tool']]
+        if not nodes:
+            return []
+    else:
+        nodes = [data]
+
+    values = []
+    for node in nodes:
+        values.extend(_collect_by_path(node, metric['field'].split('.')))
+    numbers = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    pick = metric.get('pick')
+    if not numbers:
+        return []
+    if pick == 'min':
+        return [min(numbers)]
+    if pick == 'max':
+        return [max(numbers)]
+    if pick == 'abs_max':
+        return [max(numbers, key=abs)]
+    return numbers
+
+
+def _text_cites_value(text, value):
+    """回答里有没有引用这个值（写法随意：带符号 / 带百分号 / 千分位 / 万 / 亿 / 舍入）。"""
+    return any(_token_cites(token, value) for token in _number_tokens(text))
+
+
+def _anchor_events(text, covers):
+    """所有锚点在文本里的出现区间，按位置升序：[(start, end, cover_index)]。
+
+    一个锚点出现多次就记多条：叙事里常在总述和分述各提一次同一问，
+    数字归属要按最近的那次算。区间（而不只是起点）是必要的：锚点自己会带数字
+    （「近3个月」的 3、「沪深300」的 300），那些是标签不是数据，判据要能跳过它们。
+    """
+    haystack = text.lower()
+    events = []
+    for index, cover in enumerate(covers):
+        for word in cover.get('any') or []:
+            needle = word.lower()
+            if not needle:
+                continue
+            start = haystack.find(needle)
+            while start != -1:
+                events.append((start, start + len(needle), index))
+                start = haystack.find(needle, start + 1)
+    events.sort()
+    return events
+
+
+def _line_spans(text):
+    """非空行的区间 [(start, end)]：归属判据里的「同一段」单位。
+
+    行是最小可解释单位：markdown 标题、列表项、表格行都是一行一件事。
+    把整篇当一段，就等于放弃归属；按句切分则会把「标题 + 数值」拆散。
+    """
+    spans = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if line.strip():
+            spans.append((offset, offset + len(line)))
+        offset += len(line)
+    return spans
+
+
+def _token_owners(token_spans, events, lines):
+    """每个数字 token 归属的要点下标集合；`None` = 不算数据（锚点自带的数字）。
+
+    两条来源取并集，都只认「就近」，不做跨段推断：
+    - **同段**：数字所在行里出现过的要点。一行里并列给「组合 -19.44%，沪深300
+      -13.11%」时，两个数都归这一行的要点——拆不出来就别装能拆；
+    - **就近**：数字之前最近一次被提到的要点。标题行写「1. 近3个月收益」、
+      数值另起一行的排版靠这条接住，不至于把正确回答判成错位。
+
+    都归不到（纯前言行、整段没有任何锚点）时返回空集，调用方回退全文判定：
+    归属拿不到证据时宁松不误杀。
+    """
+    line_owners = [
+        {cover for a_start, _a_end, cover in events if line_start <= a_start < line_end}
+        for line_start, line_end in lines
+    ]
+    starts = [lo for lo, _ in lines]
+
+    owners = []
+    cursor = 0
+    last_pos = None
+    last_set = frozenset()
+    for start, _token in token_spans:
+        if any(lo <= start < hi for lo, hi, _cover in events):
+            owners.append(None)  # 「近3个月」的 3、「沪深300」的 300：标签不是数据
+            continue
+        while cursor < len(events) and events[cursor][0] < start:
+            pos, _end, cover = events[cursor]
+            if last_pos is None or pos > last_pos:
+                last_pos, last_set = pos, {cover}
+            else:  # 同一位置的多个锚点（不同要点的词恰好挨着）一并算
+                last_set = last_set | {cover}
+            cursor += 1
+        index = bisect.bisect_right(starts, start) - 1
+        in_line = line_owners[index] if 0 <= index < len(lines) and start < lines[index][1] else set()
+        owners.append(frozenset(set(last_set) | in_line))
+    return owners
+
+
+def evaluate_layout(text, covers):
+    """结构判据（D106）：需要区分数值的多子问回答，不能把所有要点挤在同一行。
+
+    为什么这是判据而不是文风建议：`evaluate_metric_presence` 的归属靠「同一行 ∪ 就近」。
+    所有锚点在同一行时，每个 token 的归属集合都等于「全部要点」——各问的数值池完全
+    相同，归属判据退化成全文比对，而且它会**静默通过**。闸门看起来在、实际不设防，
+    比没有闸门更糟；所以把「退化」本身变成红灯：宁可对回答格式提硬要求，也不让判据
+    悄悄失效（fail-loud 而不是 fail-open）。
+
+    触发条件刻意收窄到「≥2 个要点声明了 metric」：只有一个要问数时不存在「这个数属于
+    哪一问」的歧义，单行回答是合理的，不拦。锚点缺失同样不在此判——那是覆盖判据的活。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定结构'
+    gauged = {index for index, cover in enumerate(covers) if cover.get('metric')}
+    if len(gauged) < 2:
+        return True, ''  # 不需要区分数值，结构要求无从谈起
+    lines = _line_spans(text)
+    starts = [lo for lo, _ in lines]
+    hit_lines = {}
+    for pos, _end, cover in _anchor_events(text, covers):
+        if cover not in gauged:
+            continue
+        index = bisect.bisect_right(starts, pos) - 1
+        if 0 <= index < len(lines) and pos < lines[index][1]:
+            hit_lines.setdefault(cover, set()).add(index)
+    if len(hit_lines) < len(gauged):
+        return True, ''  # 有子问还没被提到：交给覆盖判据判，不在这里重复红灯
+    spread = set().union(*hit_lines.values())
+    if len(spread) >= 2:
+        return True, ''
+    only = next(iter(spread)) if spread else 0
+    return False, (
+        f'多子问回答未分段：{len(gauged)} 个需要区分数值的要点锚点全落在第 {only + 1} 行，'
+        '数字归属判据会退化为全文比对（判不出这个数属于哪一问）；要求每个子问单独成段'
+    )
+
+
+def evaluate_metric_presence(text, data, covers):
+    """正向判据：该要点的关键指标**必须**在回答里出现，且**出现在该要点自己的段落里**。
+
+    这是抓「回避」与「串台」的唯一可靠手段：
+    - 回避：只写「近期收益不太好」不给数 → 本判据判红；
+    - 串台：组合区间收益是 -20.66%，模型却报了沪深300 的 -12.61% → 判红；
+    - 归属错位：四个数都报了，但「组合收益」那一段写的是超额的 -6.33、
+      「跑输」那一段写的是组合的 -19.44 → 全文存在性判据会放行，归属判据判红。
+      这就是 D105 把 metric 从「全文出现」收紧到「本段出现」的原因：数字对不等于
+      说对地方，用户读到的正是「哪一段配哪个数」。
+
+    为什么不能只靠 evaluate_numeric_sources：真实数据实测（2026-11-12，266 条持仓、
+    1861 个数值）显示，密集小值的池子会把微扰后的数接住——收益率微扰 1.5% 漏报 88%、
+    价格 72%（大金额 0%）。存在性判据对「值域窄、样本多」的字段天然失效，
+    只有「按字段比对单个值」才抓得住。
+
+    字段无值（工具没跑 / 字段为 None / 数据为空）时**跳过**，不判红：
+    否则空库或有缺口的数据会把「如实说没有数据」误判成回避。跳过后的空档由
+    evaluate_numeric_sources 兜底（数据为空却报数 = 铁证幻觉）。
+
+    `metric` 可以是单条映射，也可以是**列表**（多个等价口径任一命中即通过）：
+    真实口径实测——同一句「区间收益」，`get_portfolio_vs_benchmark.range_rate`
+    是百分比（近 3 月窗口 -19.44），`get_portfolio_performance.xirr` 是小数
+    （0.3675 → 36.75%），两者都能合法回答同一问。只钉一个字段会把另一种口径
+    判成回避（2026-11-12 复核：`range_rate` 从来不是金额，D104 修正了 D103 的误读）。
+    但候选里**不得**放入「错误答案」（如回答区间收益时放 benchmark_range_return），
+    否则串台就抓不住了。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False, '最终回答文本为空，无法判定指标引用'
+    token_spans = _number_token_spans(text)
+    owners = _token_owners(token_spans, _anchor_events(text, covers), _line_spans(text))
+    missing = []
+    for index, cover in enumerate(covers):
+        specs = cover.get('metric')
+        if not specs:
+            continue
+        specs = specs if isinstance(specs, list) else [specs]
+        values = []
+        for spec in specs:
+            values.extend(_metric_values(data, spec))
+        if not values:
+            continue  # 无数据可比，交给数值来源判据兜底
+        owned = [token for (_, token), own in zip(token_spans, owners) if own is not None and index in own]
+        # 收紧只在「本段确实有值得追的数」时生效：段里只有「沪深300」这类标签数字
+        # （非高熵）就退回全文 —— 拿一个标签数当本段的数值池，只会把对的判成错的。
+        # 中文概数（「约两成」）也算「值得追」：它是段内给数的合法形态，若不算，
+        # 用中文写的回答会退回全文池，本轮想要的收紧就白做了。
+        pool = (
+            owned
+            if any(_is_high_entropy(*token) or token.approximate for token in owned)
+            else [token for (_, token), own in zip(token_spans, owners) if own is not None]
+        )
+        if any(_token_cites(token, value) for token in pool for value in values):
+            continue
+        labels = '/'.join(f'{spec["tool"]}.{spec["field"]}' for spec in specs)
+        hint = ''
+        if any(_token_cites(token, value) for _, token in token_spans for value in values):
+            hint = '，该数值只出现在其他要点的段落里'
+        missing.append(f'{cover["id"]}（{labels}={values[0]:g}{hint}）')
+    if missing:
+        return False, '最终回答未引用本应给出的指标值：' + '；'.join(missing)
+    return True, ''
+
+
 def run_case(db, case):
-    """单案例：新会话 → 按 turns 顺序跑真实链路 → 读该会话全部 trace 汇总。"""
+    """单案例：新会话 → 按 turns 顺序跑真实链路 → 读该会话全部 trace 汇总。
+
+    expect.narrative 存在时，在 status/tool/plan 判定**通过后**追加两次判定：
+    子问覆盖（covers）与数值来源（numbers，默认开启，`numbers: false` 可关）。
+    无该字段的用例仍走原路径，行为一字不变。
+    """
     row = session_store.load_or_create(db, session_id=None, user_id=EVAL_USER_ID)
     error = ''
+    reply = ''
+    payload = None
     try:
         for text in case['turns']:
-            agent_loop.run_agent(text, row)
+            out = agent_loop.run_agent(text, row)
+            # 叙事原文只从返回值取：session.messages 的 assistant 侧被
+            # TURN_SIDE_CAP=800 截断，用它做覆盖判据会把长回答误判成丢子问。
+            if isinstance(out, dict):
+                reply = out.get('content') or ''
+                # 工具数据同理只认返回值（plan 路径为 {'steps': [{tool, data}]}）；
+                # 它是数值来源判据的唯一依据，不从库或 messages 里二次推断。
+                payload = out.get('data')
         db.flush()
     except Exception as exc:  # noqa: BLE001  单案例炸不中断跑批（记入报告）
         error = f'exception={exc!r}'
@@ -154,10 +837,24 @@ def run_case(db, case):
 
     traces = db.query(AgentTrace).filter_by(session_id=row.session_id).order_by(AgentTrace.id).all()
     final = traces[-1] if traces else None
+    expect = case.get('expect') or {}
     if error:
         ok, why = False, error
+    elif expect.get('plan'):
+        ok, why = evaluate_plan(traces, expect)
     else:
-        ok, why = evaluate(final, case.get('expect') or {})
+        ok, why = evaluate(final, expect)
+    narrative = expect.get('narrative')
+    if ok and narrative:
+        ok, why = evaluate_narrative(reply, expect)
+    if ok and isinstance(narrative, dict):
+        # 结构在数值判定之前：归属判据失效时先说「为什么它判不了」，
+        # 而不是把退化后的宽松结果当答案（D106）。
+        ok, why = evaluate_layout(reply, narrative['covers'])
+    if ok and isinstance(narrative, dict):
+        ok, why = evaluate_metric_presence(reply, payload, narrative['covers'])
+    if ok and isinstance(narrative, dict) and narrative.get('numbers', True):
+        ok, why = evaluate_numeric_sources(reply, payload)
     return {
         'id': case['id'],
         'input': case['turns'][-1],

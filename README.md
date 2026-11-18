@@ -42,6 +42,10 @@
 └───────────────────────────────────────────────────────────────┘
 ```
 
+### agent 层
+
+![pnHcVBQ.png (1696×1454)](https://s41.ax1x.com/2026/11/18/pnHcVBQ.png)
+
 ## 技术栈
 
 | 层 | 技术 |
@@ -207,6 +211,15 @@ cd backend
 pdm install                      # 首次或依赖变更时
 pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000
 ```
+
+> **开发环境一律带 reload（`--debug`），别用 `--no-reload` 起后端。** `--no-reload` 的进程会一直跑启动时那份代码，之后合进来的功能它根本不知道——2026-11-16 的真实事故：后端 14:04 起、`#3134` 21:03 合入，新前端点「按流水重算份额」被旧后端当成「补录一笔买入」，用户看到的是「数量必须大于 0」。
+>
+> 只想重启后端时用脚本（默认 reload 开，自带端口清理与 `/api/health` 探活）：
+>
+> ```powershell
+> .\scripts\restart-backend.ps1              # reload 开（--debug）
+> .\scripts\restart-backend.ps1 -NoReload    # 仅当你确实要一个冻结的进程
+> ```
 
 数据同步：
 

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ALLOCATION_OPTIONS } from "@/constants";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { PreviewRow } from "../composables/previewRow";
 
-const props = defineProps<{ row: any }>();
+const props = defineProps<{ row: PreviewRow }>();
 const { onRowAllocationChange } = useImportWizardContext();
 
 function handleChange(val: string) {
@@ -17,7 +18,7 @@ function handleChange(val: string) {
   <el-select
     :model-value="row.allocation"
     size="small"
-    :disabled="row.is_cash_transfer || row.is_duplicate || row.error"
+    :disabled="Boolean(row.is_cash_transfer || row.is_duplicate || row.error)"
     @change="handleChange"
   >
     <el-option

@@ -170,9 +170,15 @@ NEW_FILE_LIMITS = {
 # 按 `--report` 实测回写：performance lines 86 → 83（max_func 31 不动——最长函数是
 # money-fund-income，本 PR 未触碰）。教训与 #1642 相同：**给视图加功能前先想好日志/校验
 # 落点**，否则「只加 5 行日志」也能顶穿冻结基线。
+# 2026-11-10 再取（**新增端点**，非放宽）：资产值变动记录（D99/D100）加
+# `GET /api/assets/<id>/value-events/` 与 `GET /api/assets/<id>/value-at/`。
+# 值变动字段的 delta/amount 兼容换算、事件字段校验全部下沉到
+# `services/asset_value_event_service.py::apply_patch_value_change`，视图只剩
+# 「解析 + 归属校验 + 调服务 + 信封」；`orm_queries` 4 / `commits` 0 /
+# `max_func` 44 三维实测**均不动**，仅 lines 208 → 244（两个 GET + 口径注释）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {
-        "lines": 208,
+        "lines": 244,
         "orm_queries": 4,
         "commits": 0,
         "max_func": 44,
@@ -253,11 +259,19 @@ BASELINE: dict[str, dict[str, int]] = {
     # 若不下沉就得让 `_ledger_to_dict` 再涨 11 行（max_func 44 → 55，越 60 的硬上限虽未破，
     # 但基线已被顶破）。下沉后 ledgers 679 → 635 行、max_func 44 → 43，
     # `orm_queries` / `commits` 不动（10/0）。按 `--report` 实测**收紧**。
+    # 2026-11-07 收紧（非放宽）：销售机构默认排序改按 pinyin_short A→Z，
+    # 排序链少 1 行、docstring 压短 3 行 ⇒ 635→634 / 43→42，按 `--report` 回写。
+    # 2026-11-12 重取（#3087，**新增端点**，非放宽）：630 → 656。新增
+    # `POST /ledgers/<id>/cash-like/reverse-repo/settle/`（逆回购到期回款，D114）——
+    # 入参解析/校验与提示语全部在 `services/cash_like_settle.py`（`parse_settle_request`
+    # / `settle_message`），归属校验复用 `get_owned_or_404`，视图只剩 19 行
+    # 「取参 → 调服务 → 组信封」。`orm_queries` 10 / `commits` 0 / `max_func` 42 三项实测不动
+    # （与 #2481 / #2616 / #2685 同先例：新增纯编排端点只重取 lines）。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 635,
+        "lines": 656,
         "orm_queries": 10,
         "commits": 0,
-        "max_func": 43,
+        "max_func": 42,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
@@ -340,8 +354,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # max_func 57 / commits 0 不动。之所以不做净零：本文件其余部分是价格区间拦截 / 货基归一
     # 等既有规则，动它们属另一件事（范围外），换行数的正当路径是**下沉规则**而不是
     # 把无关重构塞进这张卡；端点本身已无进一步下沉空间（服务不再拥有 HTTP 语义）。
+    # 2026-11-04 收紧（307 → 282，**净减**）：写路径的成交价区间拦截整段下沉为
+    # `services/price_range_service.validate_trade_price_within_range`（形态正是守卫要的
+    # 「视图只做 HTTP 编排」）。同批修复场外品种误入区间校验的缺陷：此前不判场所，
+    # 场外基金裸码会被归一成场内代码去抓日线，且与深市股票同码时（000001 华夏成长 vs
+    # 平安银行）会拿股票区间拦截基金申购。orm_queries / commits / max_func 三项不动。
     "backend/app/domains/positions/views.py": {
-        "lines": 307,
+        "lines": 281,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 57,
@@ -397,9 +416,20 @@ BASELINE: dict[str, dict[str, int]] = {
     #   已按本守卫的正解先下沉业务规则：金额/日期解析与落库全在
     #   `services/dividend_tax_service.record_tax_from_payload`，视图只剩参数校验与组响应。
     #   增量是**两个新端点**（GET 扩字段 + POST 补记）的拆包与注释，不是业务规则回流。
+    # 2026-11-08：第二轮补产品名时把「批量查名 + 差异列表取数口径」写进了视图，
+    #   触发本守卫红线。按正解下沉到 `services/reconciliation_query.py`（视图只留
+    #   入参解析 + 调服务 + 组响应），实测回写 390/2 → 381/1（只减不增）。
+    # 2026-11-12：`get_ledger_snapshot_consistency` 下沉到 `services/reconciliation_consistency.py`
+    #   （`services/reconciliation_service.py` 已顶 `guard_service_size` 冻结基线，新增 helper 无处可放）。
+    #   视图因此多一行 import；同块内 `dividend_tax_service` 三个名字本是单行可容纳，
+    #   现合并为一行（106 列），净减 3 行 ⇒ 379→378，仍只减不增。
+    # 2026-11-15：差异出参加 `asset_type`（补录表单要判「能不能按金额 + 当日净值填」）。
+    #   按正解把整段「份额换算 + 产品名 + 品种」下沉到
+    #   `services/reconciliation_query.serialize_discrepancies`，视图只留入参解析与信封；
+    #   实测回写 378→358，其余三维不动（只减不增）。
     "backend/app/domains/reconciliation/views.py": {
-        "lines": 390,
-        "orm_queries": 2,
+        "lines": 358,
+        "orm_queries": 1,
         "commits": 0,
         "max_func": 48,
     },
@@ -501,7 +531,18 @@ BASELINE: dict[str, dict[str, int]] = {
         # 估值定格 / 官方净值的状态判定）全部在服务层复用 `pnl_calendar._compute_days`，
         # 视图零 ORM 查询、零事务，`max_func` 43 不动（新端点函数体 14 行 ≤ 60）。
         # 与 #2616 / #2617 / #2685 同先例。
-        "lines": 441,
+        # 2026-11-07 收紧（D92 通用当日估值，**非放宽**）：441 → 438。
+        # `GET /summary/today-pnl/` 补 `dimension` / `ledger_id` / `portfolio_id`
+        # 三个可选入参，但端点 docstring 由 6 行压到 1 行、参数白名单下沉
+        # `TodayPnlQuery`、分组与作用域解析全在 `services/today_pnl.py`，视图
+        # 净减 3 行。orm_queries / commits / max_func 实测仍 0 / 0 / 43。
+        # 2026-11-09 重取（资金流动 / 收益归因全周期复盘，**补 API 契约说明**，非放宽）：
+        # 438 → 443。两个既有端点的 docstring 补 `start_date=inception`（投资以来）的
+        # 起点解析、响应新增 `first_txn_date`，以及全周期归因强制逐日现算的耗时提示；
+        # 视图零新增入参、零 ORM 查询、零事务，`orm_queries` / `commits` / `max_func`
+        # 实测仍 0 / 0 / 43。口径实现全在 `services/cash_flow_service.py` 与
+        # `services/pnl_calendar.py`。与 #2774 / #2681 同先例。
+        "lines": 443,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

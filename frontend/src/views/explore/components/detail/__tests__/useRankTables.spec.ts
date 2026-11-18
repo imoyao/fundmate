@@ -26,7 +26,9 @@ function item(code: string, name = code) {
 function respond(payload: Record<string, unknown>) {
   mocked.mockImplementation((source: string) => {
     const data = payload[source];
-    return Promise.resolve({ data } as any);
+    return Promise.resolve({ data } as unknown as Awaited<
+      ReturnType<typeof getMultiItems>
+    >);
   });
 }
 
@@ -129,11 +131,9 @@ describe("useRankTables", () => {
     const t = useRankTables();
     await t.fetchRankTables();
 
-    expect(t.activeCrowdingItems.value.map((i: any) => i.item_code)).toEqual([
-      "sw_1"
-    ]);
+    expect(t.activeCrowdingItems.value.map(i => i.item_code)).toEqual(["sw_1"]);
     t.rankCategory.value = "track";
-    expect(t.activeCrowdingItems.value.map((i: any) => i.item_code)).toEqual([
+    expect(t.activeCrowdingItems.value.map(i => i.item_code)).toEqual([
       "t_1",
       "t_2"
     ]);
@@ -160,9 +160,12 @@ describe("useRankTables", () => {
   it("loading 在请求前后翻转（首屏骨架依赖它）", async () => {
     // 三张表并发，各自持有一个未决 promise —— 收集 release 逐个放行，
     // 只解一个会让 Promise.all 永远等另外两个（第一版就踩了这个超时）。
-    const releases: Array<(v: any) => void> = [];
+    const releases: Array<(v: unknown) => void> = [];
     mocked.mockImplementation(
-      () => new Promise(res => releases.push(res)) as any
+      () =>
+        new Promise<unknown>(res =>
+          releases.push(res)
+        ) as unknown as ReturnType<typeof getMultiItems>
     );
     const t = useRankTables();
     const pending = t.fetchRankTables();

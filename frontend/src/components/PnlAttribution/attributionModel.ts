@@ -1,29 +1,20 @@
 /**
  * PnlAttribution 的纯计算（#980 从 `index.vue` 抽出）。
  *
- * 这里只做**展示层的型变换**：区间预设 → 日期、载荷 → 行、行的贡献条宽度归一。
+ * 这里只做**展示层的型变换**：载荷 → 行、行 → 盈亏分组、行的贡献条宽度归一。
  * 盈亏本身一律由后端算（`services/pnl_calendar.py: compute_range_attribution`），
  * 前端**不二次计算、不对账**——`Σ positions[].pnl ≡ 同窗 pnl-calendar 的 month_total`
  * 是后端构造保证的。
  *
- * 抽出来的另一个理由：区间预设与「空态该说哪句话」以前埋在 `.vue` 里，只能靠跑页面观察；
- * 现在它们是纯函数，单测能直接钉住 `ytd` 的起点、以及「数据不足」与「没有可归因持仓」
- * 这两句不能混用。
+ * 区间不再由本模块定义（#3107）：档位与「档位 → 日期」的换算统一在
+ * `utils/chartRange.ts`，与组合页「超额走势」「资金流动」共用一份，
+ * 避免同一个「近1年」在三处落在不同起点。本模块只剩「空态该说哪句话」这类纯展示派生
+ * ——它必须能单测，所以仍留在 `.vue` 之外。
  */
 
 import type { PnlAttributionPayload } from "@/api/summary";
 
-export type RangeKey = "1m" | "3m" | "ytd" | "1y";
 export type Dimension = "position" | "category";
-
-/** 区间预设（SegmentedControl 入参）；顺序即按钮顺序 */
-export const RANGE_OPTIONS: ReadonlyArray<{ label: string; value: RangeKey }> =
-  [
-    { label: "近1月", value: "1m" },
-    { label: "近3月", value: "3m" },
-    { label: "今年", value: "ytd" },
-    { label: "近1年", value: "1y" }
-  ];
 
 /** 归因维度（SegmentedControl 入参）；品种 ⇄ 大类是纯前端切换 */
 export const DIMENSION_OPTIONS: ReadonlyArray<{
@@ -42,34 +33,6 @@ export type ViewRow = {
   pnl: number;
   pct: number | null;
 };
-
-export function fmtDate(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-/**
- * 区间预设 → 闭区间（end=今日；今年=1月1日起；其余按月回退）。
- *
- * `now` 可注入只为让单测不依赖当天日期；生产路径永远走默认值。
- * ⚠️ 月末回退沿用 `Date.setMonth` 的原生语义（3-31 减 1 月会落到 3-03，因为 2-31
- * 会被顺延）。这是历史行为，本批不修——改口径要单独出 PR 并核对后端区间含义。
- */
-export function presetRange(
-  key: RangeKey,
-  now: Date = new Date()
-): { start_date: string; end_date: string } {
-  const end = now;
-  const start = new Date(now.getTime());
-  if (key === "ytd") {
-    start.setMonth(0, 1);
-  } else {
-    const months = key === "1m" ? 1 : key === "3m" ? 3 : 12;
-    start.setMonth(start.getMonth() - months);
-  }
-  return { start_date: fmtDate(start), end_date: fmtDate(end) };
-}
 
 /**
  * 载荷 + 维度 → 视图行。两种维度在各行文案上的差异集中在这一处：
@@ -105,6 +68,55 @@ export function buildRows(
   }));
 }
 
+/**
+ * 折叠态每侧展示的条数。
+ *
+ * 取 10 沿用「前十大」既有心智（同 `ProductHoldingSection.PREVIEW_SIZE`），
+ * 不另设魔数；行数不超过它时**不出**「展开」按钮——那种按钮是纯噪声。
+ */
+export const PREVIEW_SIZE = 10;
+
+/** 归因分组：赚的 / 亏的 / 持平分开展示，用户不必在一条混排列表里自己找正负 */
+export type PnlGroupKey = "gain" | "loss" | "flat";
+
+export type PnlGroup = {
+  key: PnlGroupKey;
+  label: string;
+  rows: ViewRow[];
+};
+
+const GROUP_LABELS: Record<PnlGroupKey, string> = {
+  gain: "盈利",
+  loss: "亏损",
+  flat: "持平"
+};
+
+/** 组序固定：先赚后亏，「持平」永远垫底（它没有可看的信息量） */
+const GROUP_ORDER: readonly PnlGroupKey[] = ["gain", "loss", "flat"];
+
+/**
+ * 行 → 盈利 / 亏损 / 持平三组。
+ *
+ * ⚠️ 只做**稳定分组**（filter，不排序）：后端已按 |pnl| 降序给行，
+ * 「每组前 10」的语义完全依赖这个前提。谁要改排序，先回来读这一句。
+ * 空组不返回——页面不该给用户一条空列表 + 一个 0。
+ */
+export function splitByPnl(rows: ViewRow[]): PnlGroup[] {
+  const buckets: Record<PnlGroupKey, ViewRow[]> = {
+    gain: [],
+    loss: [],
+    flat: []
+  };
+  for (const r of rows) {
+    buckets[r.pnl > 0 ? "gain" : r.pnl < 0 ? "loss" : "flat"].push(r);
+  }
+  return GROUP_ORDER.filter(k => buckets[k].length > 0).map(k => ({
+    key: k,
+    label: GROUP_LABELS[k],
+    rows: buckets[k]
+  }));
+}
+
 /** 贡献条的分母：当前视图内最大 |pnl|（纯视觉，不影响数值展示） */
 export function computeMaxAbs(rows: ViewRow[]): number {
   return rows.reduce((m, r) => Math.max(m, Math.abs(r.pnl)), 0);
@@ -116,12 +128,19 @@ export function barWidthFor(pnl: number, maxAbs: number): string {
   return `${(Math.abs(pnl) / maxAbs) * 100}%`;
 }
 
-/** 标题旁的 ⓘ：把「这个数是哪一段」和「为什么不等于逐日相加」说清楚 */
+/**
+ * 标题旁的 ⓘ：把「这个数是哪一段」「为什么不等于逐日相加」「行内百分比是什么」说清楚。
+ *
+ * 末句专门交代占比口径：它挨着金额渲染，最容易被读成该品种的收益率（+¥104.68 −1.32%
+ * 曾被读成「赚了但收益率是负的」）。口径本身由后端算（分母取 |区间合计|、符号随 pnl），
+ * 这里只说清「它是什么」。
+ */
 export function sectionInfoFor(payload: PnlAttributionPayload | null): string {
   return (
     "选定区间内各持仓对总盈亏的贡献拆解" +
     (payload ? `（${payload.start_date} ~ ${payload.end_date}）` : "") +
-    "；逐品种贡献之和与区间合计一致，已实现盈亏含在对应品种内。"
+    "；逐品种贡献之和与区间合计一致，已实现盈亏含在对应品种内" +
+    "；行内百分比是占区间合计绝对值的比重、符号随盈亏方向，不是该品种收益率。"
   );
 }
 

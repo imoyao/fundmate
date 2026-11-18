@@ -24,6 +24,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import { ElMessage } from "element-plus";
 import {
   getEaccountReconciliation,
@@ -85,6 +86,8 @@ function handleIgnore(row: ReconciliationItem) {
   void runAttribution(row, "ignore");
 }
 
+/** 其它页面完成记账 / 导入后也要重拉，不能只在进页面时取一次 */
+usePageRefresh(() => void fetchData());
 onMounted(fetchData);
 </script>
 

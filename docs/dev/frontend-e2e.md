@@ -88,11 +88,20 @@ header.right=1027`），恢复修复后 2/2 通过。
 
 ## 6. CI 编排与成本边界
 
-- `.github/workflows/e2e.yml`：**`workflow_dispatch` + 每夜 19:00 UTC**（北京 03:00），
-  **不进 per-PR 门禁**（理由：Chromium ~130MB + 完整 dev server，per-PR 性价比低，
-  而 merge 门禁 `ci.yml` 的定位是快速红灯）；
-- 浏览器走 `actions/cache`（key 跟 `@playwright/test` 版本），命中后不再下载；
-- 若将来要把某类 PR 纳入，建议**按 label 触发**（如 `e2e`）而非全量开——改工作流时把理由写进注释。
+两条通道，按「全量」与「看得见」分工：
+
+| 通道 | 触发 | 跑什么 | 是否拦合并 |
+|---|---|---|---|
+| `.github/workflows/e2e.yml` | `workflow_dispatch` + 每夜 19:00 UTC | **全量** E2E | 否（不挂 PR） |
+| `ci.yml` 的 `nav_visibility` job | PR 改动命中 `frontend/src/{layout,style,router,store}/**`、`utils/{breadcrumb,tagCache}.ts`、`frontend/e2e/**` | 只跑 `e2e/nav-visibility.spec.ts` + `e2e/tag-active-contrast.spec.ts` | **是**（并入 `gate`，required check） |
+
+- 为什么不把全量 E2E 挂 PR：Chromium ~130MB + 完整 dev server，per-PR 性价比低，
+  而 `ci.yml` 的定位是快速红灯；
+- 为什么可见性巡检**必须**进 `ci.yml` 而不是给 `e2e.yml` 挂 `pull_request`：
+  后者只会在 PR 页上标红，**不是** required check，拦不住合并。真拦人只能并入 `gate`；
+- 成本控制：`changes` 用 `dorny/paths-filter` 算 `nav_visibility`，**命中才跑**（约 2–3 分钟），
+  不命中则 job `skipped`，而 `gate` 把 skipped 视为通过 ⇒ 不会卡住无关 PR；
+- 浏览器走 `actions/cache`（key 跟 `@playwright/test` 版本），两条通道共用同一份缓存。
 
 ## 7. 加新用例的约定
 
@@ -102,3 +111,24 @@ header.right=1027`），恢复修复后 2/2 通过。
 - 依赖后端数据的场景：要么用 `page.route` 打桩，要么把断言限定在不依赖数据的部分
   （本轮就是后者）；
 - 单条用例应能在 15s 内跑完；超时说明它在等外部依赖，先修依赖而不是加 timeout。
+
+## 8. 选择器不要钉在「一次性 UI 形状」上（2026-11-06 教训）
+
+夜间 E2E 红了两周（`agent-ask-entry` / `asset-entry` 两条常驻超时），根因**不是产品坏了**，
+而是断言盯在**已被删掉的 DOM 契约**上：
+
+| 用例 | 断言的旧契约 | 实际发生 |
+|:--|:--|:--|
+| `agent-ask-entry` | `button[aria-label="问这个"]`（常驻按钮） | 2026-11-02 操作列收敛（方案 B）：置顶 / 特别关注常驻，「加入分组 / 问这个 / 移除」收进行内 ··· 菜单 |
+| `asset-entry` | `.entry-card`（`<el-card>` 外壳） | 2026-11-03 视觉重做：卡片换成 `CardBlock`，类名整体消失 |
+
+两条的共同形态：**超时**（`element(s) not found`），日志里还混着大量 `/api/*` 的
+`ECONNREFUSED`（那是本仓 E2E 本来就不起后端，属噪音），容易让人往"环境坏了"排查。
+
+约定：
+
+- 优先钉**语义**：角色 / 可见文本 / 表单项标签（`formItem(page, "资产名称")`）、
+  当前 aria-label、请求载荷；少钉内部类名与按钮的具体形状。
+- 入口类断言钉**当前交互动线**（点 ··· → 选菜单项），不要为了少写两行就把交互写死成单按钮。
+- UI 重做 / 拆分 / 改名的 PR，收尾时 `grep` 一遍 `frontend/e2e` 里的选择器与文案，
+  改一行比让夜间红两周便宜。

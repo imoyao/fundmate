@@ -43,6 +43,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ChartInstance } from "@/types/chart";
 import { ref, computed, onMounted } from "vue";
 import VChart from "vue-echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
@@ -59,7 +60,7 @@ import { toScatterPoints, hasScatterPoints } from "./pbroeChartMetrics";
 defineOptions({ name: "IndustryPbroeScatter" });
 
 const loading = ref(false);
-const chartRef = ref<any>(null);
+const chartRef = ref<ChartInstance | null>(null);
 const data = ref<IndustryPbroeData | null>(null);
 const notice = ref("");
 

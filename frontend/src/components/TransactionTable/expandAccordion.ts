@@ -36,11 +36,11 @@ export interface ExpandableTable {
   /**
    * 展开 / 收起某一行。
    *
-   * `row` 故意用 `any`：element-plus 自己的签名是 `<T extends DefaultRow>`，
-   * 而 `DefaultRow = Record<PropertyKey, any>`——接口（而非 type alias）没有
-   * 隐式索引签名，`TransactionRow` 赋不过去，用 `any` 才与 el-table 的实例类型对得上。
+   * `row` 用 `unknown`：element-plus 的方法是 `<T extends DefaultRow>`，
+   * 而 `DefaultRow` 是带索引签名的宽类型，本仓 `TransactionRow`（接口）没有
+   * 隐式索引签名，两者不互认；本接口只描述「我们用到的那一个方法」，行按 unknown 收下。
    */
-  toggleRowExpansion: (row: any, expanded: boolean) => void;
+  toggleRowExpansion: (row: unknown, expanded: boolean) => void;
 }
 
 /** 手风琴的判定结果 */

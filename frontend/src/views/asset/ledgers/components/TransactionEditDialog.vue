@@ -61,7 +61,9 @@
         >
           <template #append>元/份</template>
         </el-input>
-        <!-- 股票：价格可编辑，2位小数 -->
+        <!-- 证券：单价可编辑，位数按品种最小报价单位（股票 2 位 / 可转债·ETF 3 位）。
+             写死 2 位时 el-input-number 边输边四舍五入，可转债 116.036 会变成
+             116.04、金额跟着错，且没有提示（issue #3120）。 -->
         <el-input-number
           v-else
           v-model="form.price"
@@ -69,13 +71,13 @@
           class="w-full"
           :controls="false"
           :min="0"
-          :precision="2"
-          :step="0.01"
-          placeholder="0.00"
+          :precision="priceInput.precision"
+          :step="priceInput.step"
+          :placeholder="`0.${'0'.repeat(priceInput.precision)}`"
         />
       </el-form-item>
 
-      <!-- 金额：自动计算 = 数量 * 单价 + 手续费，可手动覆盖 -->
+      <!-- 金额：自动计算 = 数量 × 单价（成交毛额，手续费单列），可手动覆盖 -->
       <el-form-item label="金额(元)">
         <el-input-number
           v-model="form.amount"
@@ -89,12 +91,14 @@
         />
         <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           <span v-if="isFund">金额为权威数据，份额自动反算，可手动修改</span>
-          <span v-else>自动计算：数量 × 单价 + 手续费，可手动修改</span>
+          <span v-else
+            >自动计算：数量 × 单价（成交毛额，手续费单列），可手动修改</span
+          >
         </div>
       </el-form-item>
 
-      <!-- 手续费：2 位小数 -->
-      <el-form-item label="手续费(元)">
+      <!-- 手续费：2 位小数（标签走全站唯一来源，单位进 placeholder） -->
+      <el-form-item :label="TRADE_FIELD_LABELS.fee">
         <el-input-number
           v-model="form.fee"
           style="width: 100%"
@@ -103,7 +107,7 @@
           :min="0"
           :precision="2"
           :step="0.01"
-          placeholder="0.00"
+          placeholder="0.00 元"
         />
       </el-form-item>
 
@@ -124,6 +128,13 @@
             />
           </div>
           <TradeSlotSwitch v-if="isFund" v-model="isAfter15" />
+        </div>
+        <div
+          v-if="dateSourceHint"
+          class="text-xs mt-1"
+          style="color: var(--text-tertiary-ink)"
+        >
+          {{ dateSourceHint }}
         </div>
         <div
           v-if="isFund"
@@ -160,13 +171,15 @@
 // 编辑交易弹窗。#980 拆分后本文件只剩「视图 + 接线」：
 // 联动与保存逻辑在 transactionEdit/useTransactionEditForm.ts，
 // 纯口径（反算 / 类型兜底 / 快照）在 transactionEdit/transactionEditModel.ts。
+import type { TxnRecordLike } from "./transactionEdit/transactionEditModel";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
+import { TRADE_FIELD_LABELS } from "@/constants";
 import { useTransactionEditForm } from "./transactionEdit/useTransactionEditForm";
 
 const props = defineProps<{
   modelValue: boolean;
-  transaction: any;
+  transaction: TxnRecordLike | null;
   assetType?: string;
   /** 基金代码（用于自动拉取净值，可从 positionData 或交易记录获取） */
   symbol?: string;
@@ -174,7 +187,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
-  saved: [data: any];
+  saved: [data: TxnRecordLike];
 }>();
 
 const {
@@ -186,8 +199,10 @@ const {
   navLoading,
   isManual,
   isFund,
+  dateSourceHint,
   quantityPrecision,
   quantityStep,
+  priceInput,
   disabledDate,
   rules,
   initForm,
@@ -196,10 +211,10 @@ const {
   requestClose,
   handleSave
 } = useTransactionEditForm({
-  transaction: () => props.transaction,
+  transaction: () => props.transaction ?? {},
   symbol: () => props.symbol,
   assetTypeOverride: () => props.assetType,
-  onSaved: data => emit("saved", data),
+  onSaved: data => emit("saved", data as TxnRecordLike),
   onClose: () => emit("update:modelValue", false)
 });
 </script>
@@ -222,13 +237,9 @@ const {
   --input-height: 40px;
 }
 
-/* el-input-number controls=false 后文字默认居中，强制左对齐。
-   用原生 input 元素匹配（而非 .el-input__inner），既避开 EP 同特异性的
-   `.el-input-number .el-input__inner{text-align:center}`，也避免本文件
-   再次命中「三个禁改选择器」。 */
-:deep(.el-input-number input) {
-  text-align: left;
-}
+/* 数字输入左对齐已由 element-plus.scss「数字输入对齐基线」全局接管
+   （.el-input-number.is-without-controls），此处不再重复 :deep 覆盖
+   （同一件事只允许一份实现，2026-11-12 收敛）。 */
 
 /* 日期选择器：强制 100% 宽度，与数字输入框等宽（高度由上面的高度令牌接管） */
 :deep(.el-date-editor.el-input) {

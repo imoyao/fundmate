@@ -7,7 +7,9 @@
 //
 // 页面骨架按 docs/design/transaction-flow-redesign.md §二 的三条横带：
 // 页头（我是谁）→ 汇总条（这段时间发生了什么）→ 列表卡（具体哪一笔）。
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, onMounted, ref, watch } from "vue";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import { useRoute, useRouter } from "vue-router";
 import { Download } from "@element-plus/icons-vue";
 import {
@@ -79,8 +81,8 @@ async function fetchData(isLoadMore = false) {
       : newData;
     total.value = res?.total ?? 0;
     hasMore.value = transactions.value.length < total.value;
-  } catch (e: any) {
-    ElMessage.error(e?.message || "加载流水失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "加载流水失败");
   } finally {
     loading.value = false;
     loadingMore.value = false;
@@ -154,13 +156,29 @@ function clearSymbolFilter() {
 }
 
 // 行内编辑
+/** 保存回写后用于就地刷新表格行的字段（来自编辑弹窗 saved 载荷） */
+interface SavedTxn {
+  id?: number;
+  asset_type?: string;
+  symbol?: string;
+  quantity?: number | null;
+  price?: number | null;
+  amount?: number | null;
+  fee?: number | null;
+  trade_date?: string | null;
+  confirm_date?: string | null;
+  notes?: string | null;
+  import_hash?: string | null;
+}
+
 const editDialogVisible = ref(false);
-const editingTxn = ref<any>(null);
-function openEdit(row: any) {
-  editingTxn.value = row;
+const editingTxn = ref<SavedTxn | null>(null);
+function openEdit(row: unknown) {
+  editingTxn.value = row as SavedTxn;
   editDialogVisible.value = true;
 }
-function handleSaved(data: any) {
+function handleSaved(raw: unknown) {
+  const data = raw as SavedTxn;
   const idx = transactions.value.findIndex(t => t.id === data?.id);
   if (idx !== -1) {
     Object.assign(transactions.value[idx], {
@@ -187,8 +205,8 @@ const handleExport = async () => {
   exporting.value = true;
   try {
     await exportTransactions();
-  } catch (e: any) {
-    ElMessage.error(e?.message || "导出失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "导出失败");
   } finally {
     exporting.value = false;
   }
@@ -204,6 +222,13 @@ const onSizeChange = (size: number) => {
   currentPage.value = 1;
   fetchData();
 };
+
+/** 任何页面记完账都要重拉列表与汇总：编辑交易只做本地 Object.assign 时，
+ *  分页 / 排序 / 总数仍是旧快照，被 keepAlive 复用后更不会自己更新。 */
+usePageRefresh(() => {
+  void fetchData();
+  fetchSummary();
+});
 
 onMounted(() => {
   // #2160：先按 query 定筛选再取数，否则会先用「无 symbol」的参数拉一次全量再改

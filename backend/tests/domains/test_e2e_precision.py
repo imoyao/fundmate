@@ -20,11 +20,11 @@ class TestE2EPrecision:
         db.commit()
 
         # 1. 通过 API 买入
-        # 视图会用真实行情校验价格区间（use_live_fallback=True），本测试只验证
+        # 写路径会用真实行情校验价格区间（use_live_fallback=True），本测试只验证
         # 单位换算链路、与真实行情无关 → mock 掉以隔离网络。否则测试结果会随
         # 行情漂移（1600 元未必落在 2026-06-15 的真实区间内，曾致 400 失败）。
         with patch(
-            'app.domains.positions.views.resolve_security_price_range',
+            'app.services.price_range_service.resolve_security_price_range',
             return_value=None,
         ):
             resp = client.post(

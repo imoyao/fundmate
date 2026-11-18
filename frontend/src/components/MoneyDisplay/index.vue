@@ -10,6 +10,17 @@
   - 可选货币符号显示
   - 零值统一显示为 ¥0.00
   - 支持尺寸层级：xs / sm / md / lg / xl / hero
+  - 隐私模式：跟随 `usePrivacyMode` 把金额换成 `••••`（见下方注释）
+
+  ## 为什么遮罩做在这里，而不是各页面自己判断
+
+  全仓 30+ 个页面都在用它显示金额。若要每处传一个 `masked` prop，漏一处就是
+  「藏了 95%、漏了 5%」——而漏掉的那处往往正是最大的那个数（总资产）。
+  故遮罩在**唯一出口**统一生效，需要永远显示真值的地方（表单回显、输入旁的单位）
+  显式传 `no-mask`。
+
+  ⚠️ 遮罩必须换文本，不能只改样式：`filter: blur()` 后 DOM 里仍是真数字，
+  屏幕共享 / 审查元素 / 读屏都能拿到（详见 `composables/usePrivacyMode.ts`）。
   ============================================================ -->
 
 <template>
@@ -17,15 +28,31 @@
     class="money-display"
     :class="[
       `size-${size}`,
-      !isEmpty && isRise && !hideColor && autoColor ? 'is-rise' : '',
-      !isEmpty && isFall && !hideColor && autoColor ? 'is-fall' : '',
-      !isEmpty && isZero && !hideColor && autoColor ? 'is-zero' : '',
-      hideColor ? 'no-color' : ''
+      isMasked ? 'is-masked' : '',
+      !isEmpty && !isMasked && isRise && !hideColor && autoColor
+        ? 'is-rise'
+        : '',
+      !isEmpty && !isMasked && isFall && !hideColor && autoColor
+        ? 'is-fall'
+        : '',
+      !isEmpty && !isMasked && isZero && !hideColor && autoColor
+        ? 'is-zero'
+        : '',
+      hideColor && !isMasked ? 'no-color' : ''
     ]"
-    :style="{ color: customColor }"
+    :style="{ color: isMasked ? undefined : customColor }"
   >
+    <!-- 隐私模式：固定四位圆点，**不带位数**（位数本身就是信息）。
+         货币符号保留（读起来是「这个金额被藏了」，而不是「这里没有数」）；
+         正负号不保留（方向已由旁边的百分比表达，`+••••` 只会让人以为能推断）。 -->
+    <template v-if="isMasked">
+      <span v-if="showCurrency" class="currency">{{ currencySymbol }}</span>
+      <span class="mask" aria-hidden="true">••••</span>
+      <span class="sr-only">金额已隐藏</span>
+    </template>
+
     <!-- 空值占位（value 为 null/undefined/空串）：仅显示占位文本，不套涨跌色 -->
-    <template v-if="isEmpty">
+    <template v-else-if="isEmpty">
       <span class="number">{{ emptyText }}</span>
     </template>
     <template v-else>
@@ -51,39 +78,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-
-export interface MoneyDisplayProps {
-  /** 金额数值，允许 null/undefined（无数据时渲染 emptyText 占位，不报 prop 校验告警） */
-  value?: number | string | null;
-
-  /** 货币符号，默认 ¥ */
-  currency?: string;
-
-  /** 是否显示正负号，默认 true */
-  showSign?: boolean;
-
-  /** 是否显示货币符号，默认 true */
-  showCurrency?: boolean;
-
-  /** 小数位数，默认 2 */
-  precision?: number;
-
-  /** 是否根据正负自动着色，默认 true */
-  autoColor?: boolean;
-
-  /** 自定义颜色（覆盖 autoColor） */
-  customColor?: string;
-
-  /** 后缀文本（如 "万"、"%"） */
-  suffix?: string;
-
-  /** 尺寸：xs | sm | md | lg | xl | hero */
-  size?: "xs" | "sm" | "md" | "lg" | "xl" | "hero";
-
-  /** 无数据时的占位文本，默认 -- */
-  emptyText?: string;
-}
+import { useMoneyDisplay } from "./useMoneyDisplay";
+import type { MoneyDisplayProps } from "./useMoneyDisplay";
 
 const props = withDefaults(defineProps<MoneyDisplayProps>(), {
   currency: "¥",
@@ -94,46 +90,21 @@ const props = withDefaults(defineProps<MoneyDisplayProps>(), {
   customColor: "",
   suffix: "",
   size: "md",
-  emptyText: "--"
+  emptyText: "--",
+  noMask: false
 });
 
-/** 是否为空（null / undefined / 空串）：渲染占位，不进入数值计算 */
-const isEmpty = computed(() => props.value == null || props.value === "");
-
-/** 数值转换为数字 */
-const numericValue = computed(() => {
-  if (isEmpty.value) return 0;
-  const val =
-    typeof props.value === "string" ? parseFloat(props.value) : props.value;
-  return isNaN(val) ? 0 : val;
-});
-
-/** 是否为正数（涨） */
-const isRise = computed(() => numericValue.value > 0);
-
-/** 是否为负数（跌） */
-const isFall = computed(() => numericValue.value < 0);
-
-/** 是否为零 */
-const isZero = computed(() => numericValue.value === 0);
-
-/** 是否隐藏颜色（自定义颜色时） */
-const hideColor = computed(() => !!props.customColor);
-
-/** 格式化金额（千分位 + 固定小数位） */
-const formattedValue = computed(() => {
-  const num = numericValue.value;
-  const abs = Math.abs(num);
-  const fixed = abs.toFixed(props.precision);
-  const parts = fixed.split(".");
-  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return props.precision > 0 ? `${intPart}.${parts[1]}` : intPart;
-});
-
-/** 货币符号（不带空格，通过 CSS 间距控制） */
-const currencySymbol = computed(() => {
-  return props.currency || "";
-});
+// 派生状态（是否为空 / 是否遮罩 / 正负 / 格式化）都在 composable 里，见文件头说明
+const {
+  isEmpty,
+  isMasked,
+  isRise,
+  isFall,
+  isZero,
+  hideColor,
+  formattedValue,
+  currencySymbol
+} = useMoneyDisplay(props);
 </script>
 
 <style scoped>
@@ -148,6 +119,23 @@ const currencySymbol = computed(() => {
 .money-display .number {
   font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
   font-weight: 500;
+}
+
+/* ===== 隐私遮罩 =====
+   圆点走 sans（mono 的句点间距过大，四个点会散成「. . . .」），并给固定
+   min-width：遮罩 / 揭开切换时宽度变化最小，整卡不至于跳一下。
+   颜色锁 --text-secondary：遮罩态**不参与涨跌着色**——红点或绿点会被读成方向，
+   而方向已经由旁边的百分比表达，两处同色反而像在强调「藏起来的这个数很重要」。 */
+.money-display.is-masked {
+  color: var(--text-secondary);
+}
+
+.money-display .mask {
+  display: inline-block;
+  min-width: 2.6em;
+  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
+  font-weight: 500;
+  letter-spacing: 0.12em;
 }
 
 /* ===== 货币符号 ===== */

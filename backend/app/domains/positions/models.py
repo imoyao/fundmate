@@ -4,6 +4,7 @@ from typing import Optional
 from loguru import logger
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -105,6 +106,10 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     confirm_date = Column(Date)
     notes = Column(Text)
     allocation = Column(String(20), default='longterm')
+    #: 配置目标来源（#3031 / G1）：default=系统默认 / import=导入派生 /
+    #: user=用户显式设置 / governance=治理回填。批量回填只碰 default，
+    #: 否则会抹掉用户手工配置（P0-7）。
+    allocation_source = Column(String(20), nullable=False, default='default', server_default='default')
 
     # ── 快照锚点（修复「份额被快照 + 流水重复累加」）──
     # 背景：quantity 曾同时承担两种语义——upsert_from_holding 用 SET 写快照绝对值，
@@ -246,6 +251,32 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         Index('idx_positions_symbol', 'symbol'),
         Index('idx_positions_account_name', 'account_name'),
         Index('idx_positions_ledger_asset_type', 'ledger_id', 'type'),
+        # ── 状态一致性 CHECK（#2875 切片 A）───────────────────────────────────
+        # 此前「清仓态零份额」只由 `domains/positions/state.py::mark_position_cleared`
+        # 单点维持：它先写 quantity=0 再改状态。任何新写路径（导入 / 重建 / 修复脚本）
+        # 只改其中一半，库就停在「cleared 但仍有份额」——读侧（总资产、市值）会静默
+        # 按错的那半算。库级 CHECK 是唯一会让错误**当场报错**而不是静默漂移的一道。
+        # 存量实测（2026-11-05，281 行持仓）0 违反，故加约束不动任何数据。
+        CheckConstraint(
+            "ownership_status <> 'cleared' OR quantity = 0",
+            name='ck_positions_cleared_zero_qty',
+        ),
+        # 注：`cleared_at IS NOT NULL` **刻意不加**：`migrate_positions_cleared_at` 把该列
+        # NULL 定义为「无已知清仓时间」，旧库允许该形态，加了会让这类库拒绝启动且无法
+        # 自动修复（2026-11-05，PR #2907 首轮 CI 已证伪一次）。
+        # 锚点方向式约束：**有份额就必须有日期**，反向不要求。
+        #    「有日期、无份额」是合法常态——`migrate_positions_snapshot_anchor` 只回填
+        #    snapshot_date + anchor_kind、份额列刻意保持 NULL（历史快照份额已丢失，盲猜
+        #    会把一半账户改坏）；`repair_snapshot_double_count.apply_freeze` 服务的正是
+        #    这类「有快照日、无锚点」的行。若要求对称，这两条路径都会被库层拒绝。
+        #    反之「有份额、无日期」必须禁：`_is_covered_by_anchor` 遇到 snapshot_date
+        #    为 None 会恒返回 False，锚点被静默忽略、重算退回全量流水口径，正是
+        #    #1968 / #2382 那类份额重复累加的复发形态。
+        #    `snapshot_avg_price` / `anchor_kind` 不进约束：迁移产物里它们也可能是 NULL。
+        CheckConstraint(
+            'snapshot_quantity IS NULL OR snapshot_date IS NOT NULL',
+            name='ck_positions_anchor_qty_needs_date',
+        ),
     )
 
 
@@ -493,6 +524,9 @@ class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
         Integer, nullable=True, comment='常用组内排序（小者在前），取中基协保有规模排名；非常用为 NULL'
     )
     pinyin_short = Column(String(100), nullable=True, comment='名称拼音首字母简拼（同步 job 派生，供前端检索过滤）')
+    pinyin_full = Column(
+        String(400), nullable=True, comment='名称+别名拼音全拼，空格分隔（同步 job 派生，供前端全拼检索 #2980）'
+    )
 
 
 # 注：`resolve_sales_institution_id` 已迁至 `app.services.institution_resolver`。

@@ -54,9 +54,14 @@ beforeEach(() => {
   vi.mocked(getWatchlistItems).mockImplementation(async params => {
     // 带 group_id 的调用 = 本组成员；不带 = 全量自选池
     if (params && "group_id" in params && params.group_id != null) {
-      return { data: [memberItem], total: 1 } as any;
+      return { data: [memberItem], total: 1 } as Awaited<
+        ReturnType<typeof getWatchlistItems>
+      >;
     }
-    return { data: [memberItem, otherItem, virtualItem], total: 3 } as any;
+    return {
+      data: [memberItem, otherItem, virtualItem],
+      total: 3
+    } as Awaited<ReturnType<typeof getWatchlistItems>>;
   });
 });
 
@@ -120,7 +125,9 @@ describe("useGroupItems：取数", () => {
 
 describe("useGroupItems：增删", () => {
   it("加入分组：调接口 + 乐观更新候选池 + 回调 onChanged", async () => {
-    vi.mocked(addItemToGroup).mockResolvedValue({} as any);
+    vi.mocked(addItemToGroup).mockResolvedValue(
+      {} as Awaited<ReturnType<typeof addItemToGroup>>
+    );
     const vm = mount();
     await vm.reload();
 
@@ -133,7 +140,9 @@ describe("useGroupItems：增删", () => {
   });
 
   it("同一产品重复加入不会在本组里出现两次", async () => {
-    vi.mocked(addItemToGroup).mockResolvedValue({} as any);
+    vi.mocked(addItemToGroup).mockResolvedValue(
+      {} as Awaited<ReturnType<typeof addItemToGroup>>
+    );
     const vm = mount();
     await vm.reload();
 
@@ -142,7 +151,9 @@ describe("useGroupItems：增删", () => {
   });
 
   it("移出分组：本组与候选池同步，并回调 onChanged", async () => {
-    vi.mocked(removeItemFromGroup).mockResolvedValue({} as any);
+    vi.mocked(removeItemFromGroup).mockResolvedValue(
+      {} as Awaited<ReturnType<typeof removeItemFromGroup>>
+    );
     const vm = mount();
     await vm.reload();
 

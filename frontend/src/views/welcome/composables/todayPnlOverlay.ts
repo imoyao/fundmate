@@ -27,6 +27,26 @@ import type {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+/**
+ * 占比（%，两位小数）——与后端 `summary_service.ratio_pct` **同一规则**。
+ *
+ * 为什么前端还要有一份：盘中替换改写了 `market_value`，若占比继续沿用后端
+ * 那一刻的值，就会出现「金额涨到 214,000，占比还写 51.2%（手算 51.7%）」。
+ * 占比是金额的派生展示，必须跟着金额一起动。
+ *
+ * 规则与后端逐条对齐（口径只能有一份，两份必然分叉）：
+ * 分母 `null` / `<= 0` ⇒ `null`（不是 0%），两位小数，百分比数值（51.83 = 51.83%）。
+ */
+const ratioPct = (
+  numerator: number | null,
+  denominator: number | null
+): number | null => {
+  if (numerator === null || denominator === null || denominator <= 0) {
+    return null;
+  }
+  return round2((numerator / denominator) * 100);
+};
+
 export interface OverlayResult {
   data: TodayPnlData;
   /** 是否真的替换了至少一笔价格（false ⇒ 调用方沿用后端原值，不做任何展示差异） */
@@ -44,6 +64,14 @@ export interface OverlayOptions {
   replaceBase?: boolean;
   /** 今日 ISO 日期（上海时区）：替换模式下把 `date` / `is_today` 改写为今天 */
   todayIso?: string;
+  /**
+   * 家庭总资产（元，来自 `/api/summary/` 的 `total_assets_cny`）——占比的分母。
+   *
+   * **不传**（undefined）= 调用方没有这个数，占比沿用后端原值（宁可用旧值，
+   * 也不要凭空把「12.1%」清成「--」）；**传 null** = 明确知道分母不可用
+   * （总资产为 0 或刚清空），占比一并变 null。
+   */
+  householdAssets?: number | null;
 }
 
 /** 大类分项在替换后的派生字段（盈亏 / 收益率 / 市值） */
@@ -130,10 +158,20 @@ export function applyPriceOverlay(
   const invested = round2(
     classes.reduce((sum, item) => sum + (item.market_value ?? 0), 0)
   );
+  // 分项占比跟着改写后的市值重算（分母就是上面的 invested，与卡面同一个数）
+  const classesWithShare = classes.map(item => ({
+    ...item,
+    share_of_invested: ratioPct(item.market_value, invested)
+  }));
   const baseInvested = data.invested_value ?? invested;
   // 替换模式下分母是「上一收盘市值」（= 当日市值），不是「昨日市值 − 昨日收益」
   const basePnl = replaceBase ? 0 : (data.total_pnl ?? 0);
   const prevTotal = baseInvested - basePnl;
+  // 分母未知时沿用后端值；明确传 null 才降级为 null（见 OverlayOptions 注释）
+  const investedRatio =
+    options.householdAssets === undefined
+      ? data.invested_ratio_of_assets
+      : ratioPct(invested, options.householdAssets);
 
   return {
     applied: true,
@@ -143,14 +181,20 @@ export function applyPriceOverlay(
       // 「最近交易日 11月2日」却显示今天的浮盈（标签与数字互相矛盾）
       date: replaceBase && options.todayIso ? options.todayIso : data.date,
       is_today: replaceBase ? true : data.is_today,
-      classes,
+      classes: classesWithShare,
       total_pnl: totalPnl,
       total_rate:
         prevTotal > 0 ? round2((totalPnl / prevTotal) * 100) : data.total_rate,
       invested_value: invested,
+      invested_ratio_of_assets: investedRatio,
       status: "estimated"
     }
   };
+}
+
+/** 无当日报价标的的口径注解（副标题各处共用，避免文案分叉） */
+export function unvaluedNote(count?: number): string {
+  return count ? `${count} 只暂无报价 · 市值按快照价计入` : "";
 }
 
 /**
@@ -167,18 +211,28 @@ export function todayPnlSubtitle(input: {
   isToday: boolean;
   date: string;
   updateTime?: string;
+  unvaluedCount?: number;
 }): string {
+  // 无当日报价的标的市值已照常计入（与 /funds /stocks 同源），只是没有当日收益。
+  // 这句话必须显式写出来：否则用户拿两张页的市值对得上、却看到收益偏小，
+  // 会以为又漏了一块。
+  const note = unvaluedNote(input.unvaluedCount);
+  const withNote = (text: string) =>
+    note ? (text ? `${text} · ${note}` : note) : text;
+
   if (input.status === "estimated") {
-    return input.updateTime
-      ? `盘中估值 · 更新于 ${input.updateTime}`
-      : "收盘估值 · 官方净值公布后自动确认";
+    return withNote(
+      input.updateTime
+        ? `盘中估值 · 更新于 ${input.updateTime}`
+        : "收盘估值 · 官方净值公布后自动确认"
+    );
   }
   if (!input.isToday) {
-    return `最近交易日 ${formatMonthDay(input.date)}`;
+    return withNote(`最近交易日 ${formatMonthDay(input.date)}`);
   }
-  if (input.status === "confirmed") return "官方净值已确认";
-  if (input.status === "partial") return "部分标的本日尚无报价";
-  return "";
+  if (input.status === "confirmed") return withNote("官方净值已确认");
+  if (input.status === "partial") return withNote("部分标的本日尚无报价");
+  return withNote("");
 }
 
 /** ISO 日期 → 「M月D日」（不引入时区换算：日期本身就是上海时区的交易日标签） */

@@ -6,27 +6,26 @@
 
 """Wind EDB 经济数据库适配器（#1502 步骤 1 · 行业日频换手率）。
 
-**为什么单开这一路**：温度计换手率维度此前唯一来源是东财 push2his（限流敏感，
-#1431 实测连续请求即封禁 5+ 分钟），fundfof 又是未授权源（#1502 待摘）。Wind EDB
-「换手率:申万行业指数:<行业名>」为日频、1999 年起的**授权源**（2026-10-25 真机实测：
-农林牧渔 J0510819，2026-10-23 收 3.0465），一次采样即可确认可用。
+**为什么单开这一路**：换手率此前唯一来源是东财 push2his（限流敏感，#1431 实测连续请求
+即封禁 5+ 分钟），fundfof 又是未授权源（#1502 待摘）。Wind EDB「换手率:申万行业指数:<行业名>」
+为日频、1999 年起的**授权源**（2026-11-16 真机复核可正常取数）。
 
-## 与 :mod:`app.services.adapters.wind_index` 的关系
+与 :mod:`app.services.adapters.wind_index` 同 provider / 同 ``market_call_tool`` 网关，
+差别只在能力名（``edb_query``）与返回形状（``metrics``），故解析落在本模块。
 
-同一 provider（:class:`~app.services.mcp.providers.wind.WindProvider`）、同一网关
-（数据工具经 ``market_call_tool`` 转发，provider._wire 已包好）、同一 ``post`` 工厂
-形状。差别只有两点：能力是 ``edb_query``，返回是 **``metrics`` 形状**（第三种，
-``provider.extract`` 的表格解析不适用），故解析落在本模块。
+## 为什么按「精确指标名」逐行业查
 
-## 为什么按「精确指标名」逐行业查，而不是一个问题取 31 行业
+实测（2026-10-25）：多行业问题**单次最多返回 10 条指标**，且混入中信口径、指标代码是
+不稳定的 Wind 内部码。精确名能保证目标指标**必在批次内**；但**不等于**上游只回一条
+（2026-11-16 复核：仍回 10 个同族行业、约 52 KB），靠 ``meta.name`` 精确匹配筛出，
+**别把过滤去掉**。宁要多 30 次请求换确定性，不猜。
 
-实测（2026-10-25）：多行业问题**单次最多返回 10 条指标**，且混入中信口径（
-``换手率:中信行业指数:钢铁`` 与申万并列返回）、指标代码是不稳定的 Wind 内部码
-（W1022768 这类，随问题措辞变化）。精确名查询则**稳定返回唯一指标**（首个样本
-``换手率:申万行业指数:农林牧渔`` 精确命中）。宁要多 30 次请求换确定性，不猜。
+上游契约（2026-11-16 经 ``market_search_tools`` 复核，**非 tools/list**）：工具
+``economic_query_indicator_series``，参数 ``question`` + ``startDate``/``endDate``（成对）
+**或** ``observation``（期数，互斥）。旧工具名 ``query_economic_indicator_data`` 与旧参数
+``beginDate`` 均已被上游废弃，且调用方按「上游故障回缓存」降级 ⇒ 长期静默返回空、无告警。
 
-请求纪律：增量优先（调用方传缓存最新日期之后的天窗）、行业间留间隔（调用方负责，
-与东财路径同规矩）。
+请求纪律：增量优先（传缓存最新日之后的天窗）、行业间留间隔（调用方负责，与东财同规矩）。
 """
 
 import json
@@ -120,7 +119,7 @@ def fetch_edb_series(indicator_question: str, begin: date, end: date) -> Dict[da
 
     args = {
         'question': indicator_question,
-        'beginDate': begin.isoformat(),
+        'startDate': begin.isoformat(),
         'endDate': end.isoformat(),
     }
     # 数据工具名直接传：WindProvider._wire 自动包一层 market_call_tool 网关

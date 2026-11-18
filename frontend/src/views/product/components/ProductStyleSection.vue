@@ -159,7 +159,7 @@ watch(() => props.symbol, load, { immediate: true });
       <!-- 历史走势：月度序列折线（≥2 点才画，单点无意义） -->
       <div v-if="showHistory" class="style-section__chart">
         <v-chart
-          :option="chartOption as any"
+          :option="chartOption as Record<string, unknown>"
           :autoresize="true"
           style="width: 100%; height: 280px"
         />

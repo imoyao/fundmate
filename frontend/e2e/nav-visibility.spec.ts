@@ -50,7 +50,10 @@ const AUDIT = () => {
     };
     return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
   };
-  const contrast = (a: any, b: any) => {
+  const contrast = (
+    a: Parameters<typeof lum>[0],
+    b: Parameters<typeof lum>[0]
+  ) => {
     const l1 = lum(a);
     const l2 = lum(b);
     return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);

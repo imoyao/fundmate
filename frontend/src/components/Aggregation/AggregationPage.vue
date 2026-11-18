@@ -48,7 +48,7 @@ const props = withDefaults(
     pageSize?: number;
     /** 是否展示「类型筛选」胶囊 Tab（基金有，证券按需求可关） */
     showTypeTab?: boolean;
-    /** 类型 Tab 的 aria 标签前缀（如「基金类型」「证券类型」） */
+    /** 类型 Tab 的 aria 标签前缀（如「基金类型」「股票类型」） */
     typeTabLabel?: string;
     /** 类型 Tab 的筛选字段：'fund_type'（基金，默认）/ 'asset_type'（证券：股票/ETF/可转债） */
     typeFilterField?: "fund_type" | "asset_type";

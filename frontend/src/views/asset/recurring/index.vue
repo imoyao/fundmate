@@ -233,6 +233,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Loading } from "@element-plus/icons-vue";
@@ -350,8 +351,8 @@ const handleStatus = async (
     else await endRecurringPlan(plan.id);
     ElMessage.success(`已${labels[action]}`);
     await fetchPlans();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || `${labels[action]}失败`);
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || `${labels[action]}失败`);
   }
 };
 

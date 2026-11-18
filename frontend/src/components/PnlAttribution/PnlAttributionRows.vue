@@ -2,8 +2,11 @@
   PnlAttributionRows · 归因明细列表（#980 从 `index.vue` 抽出，纯搬运）
 
   一行 = 一个品种（或一个大类）：左侧名称与副标题、中间贡献条、右侧金额与占比。
-  贡献条宽度按**当前视图内最大 |pnl|** 归一，纯视觉，不参与任何数值展示——
-  所以归一化放在组件内部算（`computeMaxAbs`），父级只给行数据。
+
+  贡献条宽度按**最大 |pnl|** 归一，纯视觉，不参与任何数值展示。
+  分母默认取本列表自身的最大 |pnl|；父级切了「盈利 / 亏损」两列后必须
+  通过 `maxAbs` 传**两列共用的分母**——否则每列各自满格，100 元盈利与
+  50 元亏损看起来一样长，正好把「谁赚得多」这个信息抹掉。
 
   为什么用 `aria-hidden` 的条：这个条是「相对大小」的视觉提示，占比数字就在右边，
   读屏把它读一遍只会变成噪音。
@@ -47,13 +50,14 @@ defineOptions({ name: "PnlAttributionRows" });
 const props = defineProps<{
   /** 当前维度的行（品种 / 大类），已按 |pnl| 降序由后端排好 */
   rows: ViewRow[];
+  /** 贡献条分母（可选）：多列表并排时由父级传共用值，缺省按本列表自身归一 */
+  maxAbs?: number;
 }>();
 
-/** 贡献条分母：本视图内最大 |pnl|，随维度切换自动跟着换 */
-const maxAbs = computed(() => computeMaxAbs(props.rows));
+const denominator = computed(() => props.maxAbs ?? computeMaxAbs(props.rows));
 
 function barWidth(row: ViewRow): string {
-  return barWidthFor(row.pnl, maxAbs.value);
+  return barWidthFor(row.pnl, denominator.value);
 }
 </script>
 

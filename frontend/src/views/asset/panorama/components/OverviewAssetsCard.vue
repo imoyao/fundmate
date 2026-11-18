@@ -90,8 +90,11 @@
         </div>
         <div class="summary-card__metric">
           <p class="summary-card__metric-label">净资产</p>
+          <!-- #119 / #2883：净资产一律取 /api/summary/ 的 net_assets_cny 直出，
+               不在页面层做「总资产 − 总负债」。两条路径当前数值相同，但口径一旦
+               纳入不可估值资产调整 / 汇率折算 / 取整策略，现算这条不会跟着变。 -->
           <MoneyDisplay
-            :value="totalAssets - totalLiabilities"
+            :value="netAssets"
             size="md"
             :show-sign="false"
             :show-currency="true"
@@ -119,6 +122,8 @@ defineOptions({ name: "OverviewAssetsCard" });
 defineProps<{
   totalAssets: number;
   totalLiabilities: number;
+  /** #119 / #2883：净资产由 /api/summary/ 的 net_assets_cny 直出，不由前两个 prop 现算 */
+  netAssets: number;
   totalPnl: number;
   /** 最近一期快照；null = 还没有快照，环比同比都降级为「——」+ 说明气泡 */
   latestSnapshot: AssetSnapshotItem | null;

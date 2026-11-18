@@ -56,13 +56,13 @@
   <SectionHeader id="nav-overview" title="账本概览" />
   <CardBlock class="mb-6">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-      <!-- 左栏：核心指标（总资产 + 持仓盈亏 / 持仓与余额） -->
+      <!-- 左栏：核心指标（总资产 + 持仓盈亏 / 累计盈亏 / 持仓与余额） -->
       <div
-        :class="p.isCompositionLedger ? 'lg:col-span-7' : 'lg:col-span-12'"
+        :class="showComposition ? 'lg:col-span-7' : 'lg:col-span-12'"
         class="flex flex-col gap-5"
       >
         <!-- 总资产 -->
-        <div>
+        <div class="overview-hero">
           <p
             class="text-sm mb-2"
             :style="{ color: 'var(--text-tertiary-ink)' }"
@@ -83,153 +83,57 @@
           </div>
         </div>
 
-        <!-- 持仓盈亏 + 持仓与余额 指标网格（分隔线对齐看板） -->
+        <!-- 指标格（2026-11-15 收敛）：原来 8 格是 8 段复制粘贴，其中常年有 3~4 格
+             是 `--`（近 90 天 / 基准同期 / 超额收益 / 资金余额），空占两行高度却什么
+             都没说。现在由 `metrics` 数组驱动：值为 null 的条目**整个不生成**，
+             说明性微文案改走 `title`（悬浮可见），不再占第二行版面。
+             每格带 `data-metric`，读屏、e2e 与 Agent 按语义定位，不依赖文案与位置。 -->
         <div
-          class="grid grid-cols-2 gap-x-4 gap-y-5 pt-5"
-          :style="{ borderTop: '1px solid var(--border-light)' }"
+          class="overview-metrics"
+          :style="{
+            borderTop: '1px solid var(--border-light)',
+            '--metrics-cols': metricColumns
+          }"
+          data-region="overview-metrics"
         >
-          <!-- 持仓盈亏（涨红跌绿） -->
-          <div class="flex flex-col">
+          <!-- 持仓盈亏固定第一格（最该被先看到）；累计盈亏 / 当日收益各自带
+               口径与「无此字段就不渲染」的逻辑，仍是独立组件。 -->
+          <div class="flex flex-col" data-metric="position-pnl">
             <span
               class="text-xs mb-1"
               :style="{ color: 'var(--text-tertiary-ink)' }"
               >持仓盈亏</span
             >
-            <MoneyDisplay :value="p.summaryData?.position_pnl || 0" size="lg" />
+            <MoneyDisplay :value="p.summaryData?.position_pnl || 0" size="md" />
           </div>
-          <!-- 持仓数量 -->
-          <div class="flex flex-col">
-            <span
-              class="text-xs mb-1"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              >持仓数量</span
-            >
-            <span
-              class="text-lg font-semibold"
-              :style="{ color: 'var(--text-primary)' }"
-              >{{ p.summaryData?.position_count || 0 }} 项</span
-            >
-          </div>
-          <!-- 资金余额（中性余额，不随涨跌着色） -->
-          <div class="flex flex-col">
-            <span
-              class="text-xs mb-1"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              >资金余额</span
-            >
-            <MoneyDisplay
-              v-if="p.summaryData?.cash_balance != null"
-              :value="p.summaryData.cash_balance"
-              size="md"
-              :show-sign="false"
-              :auto-color="false"
-            />
-            <span
-              v-else
-              class="text-sm"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              >--</span
-            >
-          </div>
-          <!-- 关联负债（仅银行账户且有负债时展示） -->
+          <LedgerCumulativePnlMetric :value="p.summaryData?.total_pnl" />
+          <LedgerTodayPnlMetric :data="p.todayPnlData" />
+
           <div
-            v-if="
-              p.summaryData?.ledger_type === 'bank' &&
-              p.summaryData?.linked_liability > 0
-            "
+            v-for="m in metrics"
+            :key="m.key"
             class="flex flex-col"
+            :data-metric="m.key"
           >
             <span
               class="text-xs mb-1"
               :style="{ color: 'var(--text-tertiary-ink)' }"
-              >关联负债</span
+              :title="m.hint || undefined"
+              >{{ m.label }}</span
             >
             <MoneyDisplay
-              :value="-p.summaryData.linked_liability"
+              v-if="m.kind === 'money'"
+              :value="m.value"
               size="md"
-              :auto-color="false"
-              custom-color="var(--color-danger)"
+              :show-sign="!!m.signed"
+              :auto-color="!!m.signed"
+              :custom-color="m.danger ? 'var(--color-danger)' : undefined"
             />
-          </div>
-          <!-- 货基收益（仅基金账户展示） -->
-          <div
-            v-if="p.summaryData?.ledger_type === 'fund'"
-            class="flex flex-col"
-          >
-            <span
-              class="text-xs mb-1"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              >货基今日收益</span
-            >
-            <MoneyDisplay
-              v-if="p.moneyFundData"
-              :value="p.moneyFundData.today_income"
-              size="md"
-            />
-            <span
-              v-else
-              class="text-sm"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              >--</span
-            >
-          </div>
-          <!-- #2134：近 90 天区间收益 vs 基准同期 vs 超额。
-               三值全部来自 /summary/benchmark-excess/，缺数据一律「--」（不造 0）；
-               区间由首格 label 点明，后两格与之同区间（同期口径见后端 docstring）。 -->
-          <div class="flex flex-col">
-            <span
-              class="text-xs mb-1"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              >近 90 天收益</span
-            >
-            <span
-              class="text-lg font-semibold"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              <RiseFallText
-                v-if="rangeRate != null"
-                :value="rangeRate"
-                size="lg"
-              />
-              <template v-else>--</template>
-            </span>
-          </div>
-          <div class="flex flex-col">
-            <span
-              class="text-xs mb-1"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              >基准同期</span
-            >
-            <span
-              class="text-lg font-semibold"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              <RiseFallText
-                v-if="benchReturn != null"
-                :value="benchReturn"
-                size="lg"
-              />
-              <template v-else>--</template>
-            </span>
-          </div>
-          <div class="flex flex-col">
-            <span
-              class="text-xs mb-1"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-              :title="excessHint || undefined"
-              >超额收益</span
-            >
-            <span
-              class="text-lg font-semibold"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              <RiseFallText
-                v-if="excessReturn != null"
-                :value="excessReturn"
-                size="lg"
-              />
-              <template v-else>--</template>
-            </span>
+            <!-- 这两个分支此前是 text-lg(18px) + font-semibold，而金额格是
+                 MoneyDisplay md(16px)：同一行三种字号，数字基线互相错开。
+                 2026-11-15 统一到 --text-body，只靠颜色区分涨跌。 -->
+            <RiseFallText v-else-if="m.kind === 'rate'" :value="m.value" />
+            <span v-else class="overview-metrics__value">{{ m.value }} 项</span>
           </div>
         </div>
       </div>
@@ -239,8 +143,9 @@
            自带 24px 内边距、且仅在 lg 及以上出现——原先内联 borderLeft 既贴文字，
            又在 lg 以下两栏堆叠时留一条孤零零的竖线。 -->
       <div
-        v-if="p.isCompositionLedger"
+        v-if="showComposition"
         class="lg:col-span-5 flex flex-col items-center justify-center h-full soft-col-divider"
+        data-region="composition"
       >
         <div class="w-full flex justify-between items-center mb-4">
           <span
@@ -250,7 +155,7 @@
           >
         </div>
         <AssetAllocationDonut
-          :data="p.compositionData"
+          :data="compositionSlices"
           :color-map="p.compositionColorMap"
           :show-legend="true"
         />
@@ -264,7 +169,12 @@
        （并进去会重演 #1606 的「投资资产 -63.2%」负数 bug，口径解耦见 D59）。
        #2739：anchor-id 让本块在有内容时挂上页内导航锚点（整块不渲染时
        锚点随之消失，导航项不留死链）。 -->
-  <LedgerCashLikeCard anchor-id="nav-cash-like" :summary="p.summaryData" />
+  <LedgerCashLikeCard
+    anchor-id="nav-cash-like"
+    :summary="p.summaryData"
+    :ledger-id="p.ledgerIdNum"
+    @saved="p.loadSummary"
+  />
 
   <!-- #1812：收益日历已落地（账户级，传 ledgerId 走该账户的 as-of 派生序列）。
        与 welcome 第三排 / panorama「资产大类 ⇄ 收益日历」原地切换是**同一组件的三处容器**，
@@ -303,10 +213,16 @@ import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
+import LedgerTodayPnlMetric from "./LedgerTodayPnlMetric.vue";
+import LedgerCumulativePnlMetric from "./LedgerCumulativePnlMetric.vue";
 import LedgerDepthAnalysis from "./LedgerDepthAnalysis.vue";
 import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
 import { excessDateRange, excessDegradHint } from "@/utils/benchmarkExcess";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
+import {
+  buildOverviewMetrics,
+  type MetricCell
+} from "../composables/overviewMetrics";
 
 defineOptions({ name: "LedgerDetailOverview" });
 
@@ -318,12 +234,62 @@ const p = reactive(props.page);
 /**
  * 是否展示账户深度分析（持仓结构 / 持仓穿透）。
  *
- * 未归置持仓页**不展示**：那个页面是「把散落资产关联到账户」的归置台，
- * 它没有数字账户 id，深度分析对它没有账户口径可言（传家庭级会展示别的
- * 账户的数据）。处置与同页的资金流动区块一致（`!isUnclassified && ledgerIdNum`）。
+ * 判据只有一条：**拿到有限数字的账户 id**（`ledgerIdNum`）。两个面板在
+ * `ledgerId` 缺失时会退化成「全家庭」档，那会让本页显示别的账户的数据，
+ * 而面板口径标签还写着「账户」。故 id 不可解析时整块不展示，与同页资金流动
+ * 区块同一处置（`v-if="ledgerIdNum"`）。
  */
-const showDepthAnalysis = computed(
-  () => !p.isUnclassified && p.ledgerIdNum != null
+const showDepthAnalysis = computed(() => p.ledgerIdNum != null);
+
+// ---------- 概览指标格（2026-11-15 数据驱动）----------
+/** 组装逻辑在 `../composables/overviewMetrics.ts`（页面规模门禁 400 行）。 */
+/**
+ * 指标格实际渲染的格数（用于决定列数）。
+ *
+ * 三个来源各自可能不渲染：持仓盈亏恒有、累计/当日看字段、`metrics` 已经在
+ * 组装时过滤过空值。格数是 3~7 之间浮动的，写死列数就会出现
+ * 「一行 4 格 + 第二行孤零零 1 格」（2026-11-15 截图实测：5 格 / 4 列）。
+ */
+const metricCellCount = computed(
+  () =>
+    1 +
+    (p.summaryData?.total_pnl != null ? 1 : 0) +
+    (p.todayPnlData?.total_pnl != null ? 1 : 0) +
+    metrics.value.length
+);
+
+/**
+ * 列数：够一行就一行，多了折成两行且两行等长（7 格 → 4 + 3，不是 5 + 2，
+ * 更不是 4 + 1）。上限 5 列——再宽每个格子都不到 170px，数字会挤。
+ */
+const metricColumns = computed(() => {
+  const n = metricCellCount.value;
+  return n <= 4 ? n : Math.min(5, Math.ceil(n / 2));
+});
+
+const metrics = computed<MetricCell[]>(() =>
+  buildOverviewMetrics({
+    summary: p.summaryData ?? null,
+    moneyFundIncome: p.moneyFundData?.today_income ?? null,
+    rangeRate: rangeRate.value,
+    benchmarkReturn: benchReturn.value,
+    excessReturn: excessReturn.value,
+    excessHint: excessHint.value
+  })
+);
+
+/**
+ * 资产构成是否有「可画」的分布。
+ *
+ * 单扇区（100% 一个分类）画出来就是一个满圈红环——它没说任何事，还占掉
+ * 5/12 宽、426px 高（实测账户 id=12/13 都是这种形态）。此时不画图，
+ * 让指标区占满整行。
+ */
+const compositionSlices = computed(() =>
+  (p.compositionData ?? []).filter(d => Number(d.value) > 0)
+);
+const showComposition = computed(
+  () => p.isCompositionLedger && compositionSlices.value.length > 1
 );
 
 // ---------- #2134：近 90 天区间收益 vs 基准（缺数据诚实降级 null → 模板「--」）----------
@@ -361,7 +327,48 @@ watch(
 );
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+@use "@/style/breakpoints" as bp;
+
+/* 概览指标格（2026-11-15）：格数随数据在 3~7 之间浮动（无值的指标不生成），
+   写死 4 列就会出现「第一行 4 格 + 第二行孤零零 1 格」的豁口。
+   `auto-fit` + `minmax` 让轨道数跟着格数走，且空轨道会塌缩——几格都能铺满一行。 */
+.overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(var(--metrics-cols, 4), minmax(0, 1fr));
+  gap: var(--space-5) var(--space-compact);
+  padding-top: var(--space-5);
+
+  /* 窄屏忽略动态列数：先把 5 列压成 3 列，手机再压成 2 列（与 Tailwind 断点同源）。 */
+  @include bp.below("lg") {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @include bp.below("sm") {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 「N 项」这类计数格：字号跟随金额格（--text-body），只有颜色是正文色。 */
+.overview-metrics__value {
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* 手机端总资产必须缩字（2026-11-15 实测）：hero 档 57px 下
+   「¥1,003,546.47」在 390px 视口里被卡片右缘裁掉最后两位——金额被切掉
+   比字号小更难接受。`.number` 自带 font-size，两处一起改才生效。
+   用 --text-display（32px）而不是裸 px：stylelint 只认令牌（同为 32px）。 */
+@include bp.below("sm") {
+  /* 覆盖令牌而不是写 font-size：`.money-display.size-hero .number` 自带
+     `font-size: var(--text-hero, 57px)`，从祖先改这个自定义属性，父子两处
+     一起缩，且不跟组件内的 scoped 规则拼优先级。 */
+  .overview-hero {
+    --text-hero: var(--text-display);
+  }
+}
+
 /* 温柔提醒 banner（#1133 §4）：中性信息色，非涨跌色 / 非危险红；轻量、不制造心理压力。
    #2730 起壳由 SoftBanner info 档承担，此处只留两级正文排版。
    已删除的本地壳：display/gap/align-items/padding/margin/background/border/border-radius

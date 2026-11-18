@@ -86,6 +86,16 @@ export interface AssetUpdateInput {
   end_date?: string | null;
   notes?: string | null;
   extra?: Record<string, unknown> | null;
+  /**
+   * 本次变动量（元，带符号；负数=还款/减少）。这是**独立业务事实**，
+   * 不能由「变动后绝对值 − 当前值」反推：当前值已含后续变动，补录更早
+   * 事件会平移后面整条曲线。详见 docs/design/asset-value-history-design.md §8。
+   */
+  delta?: number;
+  effective_date?: string;
+  change_note?: string;
+  client_token?: string;
+  change_kind?: "correction";
 }
 
 /** 资产大类汇总项（对齐后端 /summary/） */
@@ -123,5 +133,57 @@ export function getAssetsSummary() {
   return http.request<ApiResponse<AssetSummaryItem[]>>(
     "get",
     `${BASE_URL}summary/`
+  );
+}
+
+/** 单资产值变动事件（D99/D100；金额单位统一为元，存储层是整数分） */
+export interface AssetValueEvent {
+  id: number;
+  asset_id: number;
+  /** 业务发生日（用户显式提供，允许早于今天） */
+  effective_date: string;
+  /** 录入墙钟，只做审计，不参与时点查询 */
+  recorded_at: string | null;
+  /** 本次变动量（元，带符号） */
+  delta: number;
+  /** 该事件之后的余额/估值（元）：读时折叠派生，不落库 */
+  value_after: number;
+  kind: string;
+  notes: string | null;
+}
+
+export interface AssetValueEventsResponse {
+  data: AssetValueEvent[];
+  total: number;
+  page: number;
+  per_page: number;
+  message: string;
+}
+
+export interface AssetValueAtResult {
+  /** 元；valid=false 时恒为 null */
+  value: number | null;
+  /** start_date 未填写或查询日期早于可信下界时为 false */
+  valid: boolean;
+}
+
+/** 单资产值变动时间线（按 effective_date, id 升序） */
+export function getAssetValueEvents(
+  id: number,
+  params?: { page?: number; per_page?: number }
+) {
+  return http.request<AssetValueEventsResponse>(
+    "get",
+    `${BASE_URL}${id}/value-events/`,
+    { params }
+  );
+}
+
+/** 单资产时点值；缺起账日或早于下界时返回 valid=false / value=null */
+export function getAssetValueAt(id: number, day: string) {
+  return http.request<ApiResponse<AssetValueAtResult>>(
+    "get",
+    `${BASE_URL}${id}/value-at/`,
+    { params: { date: day } }
   );
 }

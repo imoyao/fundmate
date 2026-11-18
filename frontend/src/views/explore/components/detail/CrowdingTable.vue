@@ -208,6 +208,7 @@
 </template>
 
 <script setup lang="ts">
+import type { RankItem } from "../../types";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CrowdingMetricCell from "./CrowdingMetricCell.vue";
@@ -221,7 +222,7 @@ defineOptions({ name: "CrowdingTable" });
 withDefaults(
   defineProps<{
     /** 拥挤度条目列表（已过滤整组标灰占位，含 data.crowding_pct / amount_pct_rank / turnover_rank 等字段） */
-    items: any[];
+    items: RankItem[];
     /** 数据更新时间，空串显示「暂无」 */
     date?: string;
     /** 数据是否滞后（legulegu 数据源不可用） */

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { injectSupabaseSession } from "./support/session";
+import { fundProfileFixture } from "./fixtures/productDetail";
 
 /**
  * 产品详情页去重回归网（用户反馈：同一个产品名在一页里出现 4 次）。
@@ -60,45 +61,13 @@ async function stubProductApis(page: Page) {
   // #2029：此前本用例根本没给 fund-profile 打桩，请求落到上面的兜底 404 →
   // 基金资料区块走降级分支 → 又因为 detail.vue 漏 import 而完全不渲染，
   // 两处缺陷互相掩盖。补上打桩后，缺 import 会直接让新增断言变红。
+  // #2958：桩收口到 fixtures/productDetail.ts。此前这份是本仓唯一「接近完整」的
+  // 手写桩（18/21 字段，缺晨星三件套），另外 4 个 spec 只有 8 个字段——同一端点
+  // 五份手写桩必然各自漂移，端点加字段时无人同步。
   await page.route("**/api/products/fund-profile/**", route =>
     route.fulfill({
       status: 200,
-      json: {
-        data: {
-          fund_code: SYMBOL,
-          name: NAME,
-          full_name: "永赢北证50成份指数发起式证券投资基金",
-          fund_type: "指数型-股票",
-          fund_variety: "股票型",
-          company: "永赢基金管理有限公司",
-          unit_nav: 0.8234,
-          nav_date: "2026-10-09",
-          prev_unit_nav: 0.8201,
-          prev_nav_date: "2026-10-08",
-          change_pct: 0.402,
-          scale: 12.34,
-          create_time: "2022-03-15",
-          risk_level: null,
-          benchmark: "中证北证50成份指数收益率*95%+银行活期存款利率*5%",
-          managers: [
-            {
-              mgr_code: "MGR0001",
-              name: "测试经理",
-              company: "永赢基金管理有限公司",
-              appointment_date: "2022-03-15",
-              is_classic: true
-            }
-          ],
-          fee_rates: {
-            fund_code: SYMBOL,
-            currency: "CNY",
-            purchase: [{ start_quota: 0, end_quota: 1000000, rate: 0.012 }],
-            redeem: [{ start_day: 0, end_day: 7, rate: 0.015 }]
-          },
-          source: "天天基金"
-        },
-        message: "ok"
-      }
+      json: { data: fundProfileFixture(), message: "ok" }
     })
   );
   // #2029 卡 B：业绩与风险区块同样此前没打桩会落到兜底 404 → 走降级。

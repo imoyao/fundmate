@@ -22,6 +22,7 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
 from app.services import async_backfill
+from app.services.position_scope import active_holdings
 
 GROUP_COLORS = {
     'all': '#999',
@@ -127,10 +128,7 @@ def build_groups_data(db: Session, family_id: int) -> list[dict]:
     watchlist_symbols = {
         sym for (sym,) in db.query(WatchlistItem.symbol).filter(WatchlistItem.family_id == family_id).all()
     }
-    pos_q = db.query(Position.symbol).filter(
-        Position.family_id == family_id,
-        Position.ownership_status == 'active',
-    )
+    pos_q = active_holdings(db.query(Position.symbol)).filter(Position.family_id == family_id)
     if watchlist_symbols:
         pos_q = pos_q.filter(Position.symbol.notin_(watchlist_symbols))
     all_count = _item_base().count() + pos_q.distinct().count()
@@ -147,10 +145,7 @@ def build_groups_data(db: Session, family_id: int) -> list[dict]:
     # 2. 持仓（真实持仓口径：positions 表 active 持仓按 symbol 去重，
     # 不再依赖 watchlist.status 快照——自选页「持仓」分组 = 全部真实持仓）
     holding_count = (
-        db.query(Position.symbol)
-        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
-        .distinct()
-        .count()
+        active_holdings(db.query(Position.symbol)).filter(Position.family_id == family_id).distinct().count()
     )
     groups_data.append(
         {
@@ -635,7 +630,7 @@ def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optiona
     报 "closed transaction"。改由各调用方在自身事务内统一提交（视图端点显式
     commit）。
     """
-    active_q = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active')
+    active_q = active_holdings(db.query(Position)).filter(Position.family_id == family_id)
     if symbols is not None:
         active_q = active_q.filter(Position.symbol.in_(symbols))
     positions = active_q.all()
@@ -682,7 +677,7 @@ def reconcile_watchlist_status(db: Session, family_id: int, symbols: Optional[Li
     **不在此处提交事务**：同 ensure_watchlist_for_positions（见其 docstring），
     由调用方在自身事务内统一提交。
     """
-    active_q = db.query(Position.symbol).filter(Position.family_id == family_id, Position.ownership_status == 'active')
+    active_q = active_holdings(db.query(Position.symbol)).filter(Position.family_id == family_id)
     if symbols is not None:
         active_q = active_q.filter(Position.symbol.in_(symbols))
     active_symbols = {s for (s,) in active_q.distinct().all()}
@@ -717,8 +712,8 @@ def get_holding_gaps(db: Session, family_id: int) -> List[Dict[str, Any]]:
         sym for (sym,) in db.query(WatchlistItem.symbol).filter(WatchlistItem.family_id == family_id).all()
     }
     rows = (
-        db.query(Position.symbol, Position.name, Position.asset_type)
-        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        active_holdings(db.query(Position.symbol, Position.name, Position.asset_type))
+        .filter(Position.family_id == family_id)
         .distinct()
         .all()
     )
@@ -756,7 +751,9 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
     if len(result_items) < 5:
         needed = 5 - len(result_items)
         market_value_subq = (
-            db.query(Position.symbol, func.sum(Position.quantity * Position.current_price).label('market_value'))
+            active_holdings(
+                db.query(Position.symbol, func.sum(Position.quantity * Position.current_price).label('market_value'))
+            )
             .filter(Position.family_id == family_id)
             .group_by(Position.symbol)
             .subquery()
@@ -787,13 +784,18 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
         # 换算统一走 Money（禁止裸乘除 float）。
         # 注意与 positions 无关的标的（纯观察）返回 None 三个字段，前端按「无持仓」降级。
         stats = (
-            db.query(
-                func.sum(Position.quantity).label('qty_units'),
-                func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
-                func.sum(Position.quantity * Position.current_price).label('value_raw'),
-                func.avg(Position.current_price).label('avg_price_units'),
+            active_holdings(
+                db.query(
+                    func.sum(Position.quantity).label('qty_units'),
+                    func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
+                    func.sum(Position.quantity * Position.current_price).label('value_raw'),
+                    func.avg(Position.current_price).label('avg_price_units'),
+                )
             )
-            .filter(Position.symbol == item.symbol, Position.family_id == family_id)
+            .filter(
+                Position.symbol == item.symbol,
+                Position.family_id == family_id,
+            )
             .first()
         )
         qty_units = stats.qty_units if stats else None

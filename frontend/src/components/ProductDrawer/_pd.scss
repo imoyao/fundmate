@@ -277,3 +277,21 @@
     font-size: var(--text-label);
   }
 }
+
+/* ── 跳详情页用的「瞬时关闭」──
+   唯一写在 `.product-drawer` 命名空间**之外**的规则：这个类挂在 EP 的 overlay 上，
+   而 overlay 是 `.el-drawer` 的父节点，嵌套写法（后代选择器）根本命中不到。
+
+   为什么需要它：EP 的抽屉过渡是「可见性驱动」两层——overlay 的
+   `.el-drawer-fade-leave-active{transition:all .3s}`（遮罩淡出）+ 面板自身的
+   `.el-drawer{transition:all}`（`translate(100%)` 滑出）。调用方点「查看详情」时是
+   「先关抽屉、再 router.push」，于是 0.3s 滑出与路由的 `.fade-transform`（0.5s，
+   opacity 1→0 + translateX 0→30px）交叠，实测表现为整块右移淡出，读起来是两段动画抢帧。
+   两个过渡都按 0 处理后，Vue 的 Transition 读到 0 时长会立刻走 afterLeave，
+   只留路由那一层动画。
+
+   特异性：(0,2,0)/(0,2,1) > EP 的 (0,1,0)，不依赖加载顺序、也不需要 !important。 */
+.el-overlay.pd-instant-close,
+.el-overlay.pd-instant-close .el-drawer {
+  transition: none;
+}

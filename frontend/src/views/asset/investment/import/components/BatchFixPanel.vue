@@ -7,6 +7,7 @@
 import { computed, reactive, ref } from "vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { PreviewRow } from "../composables/previewRow";
 import BatchFixBatchSections from "./BatchFixBatchSections.vue";
 import BatchFixCard from "./BatchFixCard.vue";
 import BatchFixDialogs from "./BatchFixDialogs.vue";
@@ -30,6 +31,7 @@ const {
   canUndo,
   undoLastFix,
   applyManualFill,
+  restoreOriginalPrice,
   batchFillCode,
   batchFixAmount,
   skipCategory,
@@ -75,22 +77,22 @@ const errorRowCount = computed(() => fixSectionCounts.value.error);
 /** 逐条卡片的表单草稿：按 _rowKey 懒建，点「应用」才写回行数据 */
 const cardDrafts = reactive<Record<string, CardDraft>>({});
 
-function draftFor(row: any): CardDraft {
+function draftFor(row: PreviewRow): CardDraft {
   if (!cardDrafts[row._rowKey]) {
     cardDrafts[row._rowKey] = { quantity: "", price: "", code: "" };
   }
   return cardDrafts[row._rowKey];
 }
 
-function updateDraft(row: any, field: keyof CardDraft, value: string) {
+function updateDraft(row: PreviewRow, field: keyof CardDraft, value: string) {
   draftFor(row)[field] = value;
 }
 
-function applyCardCode(row: any) {
+function applyCardCode(row: PreviewRow) {
   batchFillCode([row], draftFor(row).code);
 }
 
-function applyCardFill(row: any) {
+function applyCardFill(row: PreviewRow) {
   const draft = draftFor(row);
   applyManualFill(row, { quantity: draft.quantity, price: draft.price });
 }
@@ -208,6 +210,7 @@ const showRepoDialog = ref(false);
       :filled-rows="filledRows"
       :reverse-repo-rows="reverseRepoRows"
       :detect-basis="repoDetectBasis"
+      @restore-original="restoreOriginalPrice"
     />
   </div>
 </template>

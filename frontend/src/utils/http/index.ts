@@ -1,7 +1,8 @@
 import Axios, {
   type AxiosInstance,
   type AxiosRequestConfig,
-  type CustomParamsSerializer
+  type CustomParamsSerializer,
+  type InternalAxiosRequestConfig
 } from "axios";
 import type {
   PureHttpError,
@@ -14,9 +15,16 @@ import { formatToken } from "@/utils/auth";
 import { supabase } from "@/utils/supabase";
 import { message } from "@/utils/message";
 import { PRO_NOT_ENTITLED_CODE } from "@/constants/errorCodes";
+import { emitter } from "@/utils/mitt";
 
 /** 5xx 的对外文案：与后端 `ErrorCode.INTERNAL_ERROR.msg` 同级，绝不拼接异常细节 */
 const SERVER_ERROR_TEXT = "服务暂时不可用，请稍后重试";
+
+/** 写请求（非 GET/HEAD/OPTIONS）视为可能改动了账本数据 */
+const LEDGER_WRITE_METHODS = new Set(["post", "put", "patch", "delete"]);
+function isLedgerWrite(method?: string): boolean {
+  return LEDGER_WRITE_METHODS.has((method ?? "get").toLowerCase());
+}
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
@@ -48,15 +56,17 @@ class PureHttp {
   /** 请求拦截 */
   private httpInterceptorsRequest(): void {
     PureHttp.axiosInstance.interceptors.request.use(
-      async (config: PureHttpRequestConfig): Promise<any> => {
+      async (
+        config: PureHttpRequestConfig
+      ): Promise<InternalAxiosRequestConfig> => {
         // 优先判断post/get等方法是否传入回调，否则执行初始化设置等回调
         if (typeof config.beforeRequestCallback === "function") {
           config.beforeRequestCallback(config);
-          return config;
+          return config as InternalAxiosRequestConfig;
         }
         if (PureHttp.initConfig.beforeRequestCallback) {
           PureHttp.initConfig.beforeRequestCallback(config);
-          return config;
+          return config as InternalAxiosRequestConfig;
         }
         // token 来源：Supabase 会话（后端以 Bearer 头验签，见 D2）。
         // 探市/健康等免登录接口不强求带 token，未登录请求也直接放行。
@@ -65,7 +75,7 @@ class PureHttp {
         if (accessToken) {
           config.headers["Authorization"] = formatToken(accessToken);
         }
-        return config;
+        return config as InternalAxiosRequestConfig;
       },
       error => {
         return Promise.reject(error);
@@ -79,6 +89,13 @@ class PureHttp {
     instance.interceptors.response.use(
       (response: PureHttpResponse) => {
         const $config = response.config;
+        // 写请求成功后统一广播「账本数据变了」。此前只有 2 个组件显式 emit，
+        // 导入 / 转换 / 编辑交易 / 补账 / 归因等十余条写路径都漏了，用户会以为
+        // 「记账没生效」。放在传输层是刻意的：逐个组件补 emit 已经漏过一次，
+        // 新增写路径也不会再漏；订阅方自带 300ms 防抖，重复 emit 会合并。
+        if (isLedgerWrite($config.method)) {
+          emitter.emit("refresh-ledger-data");
+        }
         // 优先判断post/get等方法是否传入回调，否则执行初始化设置等回调
         if (typeof $config.beforeResponseCallback === "function") {
           $config.beforeResponseCallback(response);

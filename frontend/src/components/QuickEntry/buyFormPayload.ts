@@ -62,9 +62,12 @@ export function buildBuyPayload(input: {
         : null
       : form.trade_date;
 
-  // 统一计算实际手续费，确保传给后端的是金额（元）
+  // 统一计算实际手续费，确保传给后端的是金额（元）。
+  // 只有基金有「费率」口径（股票/ETF 是 simple 输入，只填实收金额）。
+  // 若 feeMode 残留 rate（先在基金表单切到费率、再换标的成股票），照 rate
+  // 换算会把 5 元当成 5% —— 直接记错账，所以这里按品种收口。
   let fee = form.fee || 0;
-  if (input.feeMode === "rate") {
+  if (input.feeMode === "rate" && form.type === "fund") {
     fee = (form.buyAmount || 0) * (form.fee / 100);
   }
 

@@ -13,7 +13,8 @@ r"""交易场所（venue）的单一权威定义（#1662）。
 
 - `EXCHANGE` → `{MARKET}{CODE6}`，如 `SH600519` / `SZ159915` / `SH113050`；
 - `OTC`      → **裸 6 位码**，如 `004369` / `110001`（不加任何前缀）；
-- 无交易场所实体（经理 `MGR_*` / 投顾组合 / 指数 `CSI*`、`CNI*`）→ 空串 `''`。
+- 无交易场所实体（经理 `MGR_*` / 投顾组合 / 指数 `CSI*`、`CNI*`）→ 空串 `''`；
+- 非标的哨兵 `__CASH__` → 空串 `''`：有值但不是标的，恒不进任何场所归一（见 `venue_of_row`）。
 
 ## 为什么 OTC 必须是裸码，且禁止「猜」交易所
 
@@ -65,6 +66,8 @@ from __future__ import annotations
 
 import re
 
+from app.core.constants import CASH_SYMBOL
+
 # ── venue 取值（唯一权威字符串，禁止在业务代码里手写 'OTC' / 'EXCHANGE'）──
 EXCHANGE = 'EXCHANGE'
 OTC = 'OTC'
@@ -77,6 +80,10 @@ VENUE_LABELS: dict[str, str] = {
 }
 
 VENUE_VALUES: tuple[str, ...] = (EXCHANGE, OTC)
+
+# 非标的哨兵（#3042）：有值但不是证券代码，恒无交易场所。
+# 大小写 / 空白不敏感，避免 '__cash__' / ' __CASH__ ' 变体漏网。
+_CASH_SENTINEL = CASH_SYMBOL.strip().upper()
 
 # 场内货基（沪市现金管理）：`SH970164` 银河水星现金添利 —— asset_type 是货基、场所却是交易所。
 # 这是 `asset_type → venue` 唯一一处「缺省必然判错」的例外，故给一条**显式代码段规则**兜底
@@ -151,18 +158,26 @@ def asset_types_of_venue(venue: str | None) -> tuple[str, ...]:
 
 
 def venue_of_row(symbol: str | None, asset_type: str | None, declared_venue: str | None = None) -> str:
-    """**一行存量数据**的 venue：显式声明 > 场内货基特例 > asset_type 缺省推断（#1662 后续）。
+    """**一行存量数据**的 venue：非标的哨兵 > 显式声明 > 场内货基特例 > asset_type 推断。
 
     与 `resolve_venue`（写侧）的分工：`resolve_venue` 服务**新写入**，调用方明确知道场所；
     本函数服务**已在库里的行**（回填 / 审计 / 读侧反查），此时唯一的信号是行上已有的字段。
     两者共用同一张 `asset_type → venue` 表与同一条场内货基特例，口径不会分叉。
 
-    `declared_venue` 非空且合法时**优先**（watchlist 有 venue 列，写入侧早已携带）；
-    非法显式值不抛错而是**降级**到推断 —— 存量数据里可能有脏值，审计脚本要能把它们报出来，
-    而不是在审计途中直接崩掉。
+    **哨兵优先于一切场所信号**（#3042）：`__CASH__` 是账户级资金流水的占位符，有值但不是
+    标的。它曾与 `asset_type='stock'` 的孤儿现金分红同现，被按 asset_type 推成 EXCHANGE，
+    `normalize_by_venue` 推断失败 ⇒ 每次启动刷告警、`symbol_norm` 落成 `EXCHANGE:__CASH__`。
+    哨兵没有交易场所，显式 `declared_venue` 也改变不了这一点，故最先返回 `NO_VENUE`。
+    注意这里只管**存量行的身份判定**：写入侧若把哨兵当标的传进 `normalize_by_venue`，
+    那条告警仍保留作探针，暴露上游误用。
+
+    其余优先级：`declared_venue` 非空且合法时次之（watchlist 有 venue 列）；非法显式值
+    不抛错而是**降级**到推断 —— 存量数据里可能有脏值，审计脚本要能把它们报出来。
 
     判不出场所时返回空串 `NO_VENUE`（不猜）。
     """
+    if (symbol or '').strip().upper() == _CASH_SENTINEL:
+        return NO_VENUE
     if declared_venue:
         normalized = str(declared_venue).strip().upper()
         if normalized in VENUE_VALUES:

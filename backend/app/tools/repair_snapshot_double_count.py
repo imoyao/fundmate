@@ -73,6 +73,7 @@ from datetime import date
 
 from app.core.constants import AnchorKind
 from app.core.money import Money
+from app.domains.transactions.dates import order_by_effective_day
 from app.services.import_records import compute_position_hash
 from app.services.position_service import _txn_effective_date
 
@@ -108,12 +109,9 @@ def analyse_position(db, pos) -> dict:
     """单行分析：返回判定结果（不写库）。"""
     from app.domains.transactions.models import Transaction
 
-    txns = (
-        db.query(Transaction)
-        .filter(Transaction.position_id == pos.id)
-        .order_by(Transaction.trade_date, Transaction.id)
-        .all()
-    )
+    txns = order_by_effective_day(
+        db.query(Transaction).filter(Transaction.position_id == pos.id), descending=False
+    ).all()
     result = {
         'position_id': pos.id,
         'ledger_id': pos.ledger_id,
@@ -260,12 +258,9 @@ def apply_fix(db, pos, item: dict) -> None:
     from app.domains.transactions.models import Transaction
     from app.services.position_service import PositionService
 
-    txns = (
-        db.query(Transaction)
-        .filter(Transaction.position_id == pos.id)
-        .order_by(Transaction.trade_date, Transaction.id)
-        .all()
-    )
+    txns = order_by_effective_day(
+        db.query(Transaction).filter(Transaction.position_id == pos.id), descending=False
+    ).all()
     implied = int(item['implied_qty'])
     pos.snapshot_quantity = implied
     pos.snapshot_avg_price = _implied_avg_price(pos, txns, implied)

@@ -63,7 +63,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **222** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **265** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -77,6 +77,8 @@ title: 核心 API 端点清单（api）
 | POST | `/api/assets/` | `create_asset` |
 | DELETE | `/api/assets/<int:id>/` | `delete_asset` |
 | PATCH | `/api/assets/<int:id>/` | `update_asset` |
+| GET | `/api/assets/<int:id>/value-at/` | `get_asset_value_at` |
+| GET | `/api/assets/<int:id>/value-events/` | `list_asset_value_events` |
 | GET | `/api/assets/summary/` | `get_assets_summary` |
 | POST | `/api/auth/logout/` | `logout` |
 | GET | `/api/auth/me/` | `me` |
@@ -95,6 +97,8 @@ title: 核心 API 端点清单（api）
 | PATCH | `/api/families/members/profiles/<int:member_id>/` | `update_member_profile` |
 | GET | `/api/feedlog-token/` | `feedlog_token` |
 | POST | `/api/feedlog-token/` | `feedlog_token` |
+| GET | `/api/financial-plan/` | `get_financial_plan` |
+| PUT | `/api/financial-plan/` | `put_financial_plan` |
 | GET | `/api/funds/<string:fund_code>/fee-rates/` | `get_fund_fee_rates` |
 | POST | `/api/funds/<string:fund_code>/fee-sync/` | `sync_fund_fees` |
 | GET | `/api/funds/<string:fund_code>/nav/` | `get_fund_nav` |
@@ -125,6 +129,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/ledgers/<int:ledger_id>/` | `get_ledger` |
 | PATCH | `/api/ledgers/<int:ledger_id>/` | `update_ledger` |
 | POST | `/api/ledgers/<int:ledger_id>/archive/` | `archive_ledger` |
+| POST | `/api/ledgers/<int:ledger_id>/cash-like/reverse-repo/settle/` | `settle_reverse_repo_flow` |
 | POST | `/api/ledgers/<int:ledger_id>/migrations/commit/` | `commit_migration` |
 | POST | `/api/ledgers/<int:ledger_id>/migrations/preview/` | `preview_migration` |
 | GET | `/api/ledgers/<int:ledger_id>/pending-estimate/` | `get_ledger_pending_estimate` |
@@ -168,6 +173,7 @@ title: 核心 API 端点清单（api）
 | DELETE | `/api/positions/<int:id>/` | `delete_position` |
 | PATCH | `/api/positions/<int:id>/` | `update_position` |
 | GET | `/api/positions/<int:id>/advisor-context/` | `get_position_advisor_context` |
+| POST | `/api/positions/<int:id>/recompute/` | `recompute_position` |
 | GET | `/api/positions/<int:id>/transactions/` | `get_position_transactions` |
 | POST | `/api/positions/allocate-value/` | `allocate_position_value` |
 | POST | `/api/positions/conversion/` | `submit_conversion` |
@@ -195,9 +201,32 @@ title: 核心 API 端点清单（api）
 | GET | `/api/products/trade-timeline/` | `product_trade_timeline` |
 | GET | `/api/products/trend/` | `product_trend` |
 | POST | `/api/reconciliation/adjustments/` | `apply_adjustment` |
+| GET | `/api/reconciliation/dangling-refs/` | `list_dangling_refs` |
+| GET | `/api/reconciliation/dangling-refs/delete-preview/` | `preview_dangling_delete` |
+| POST | `/api/reconciliation/dangling-refs/delete-undo/` | `undo_dangling_delete` |
+| POST | `/api/reconciliation/dangling-refs/delete/` | `delete_dangling_refs` |
+| GET | `/api/reconciliation/dangling-refs/enrich-preview/` | `preview_dangling_enrichment` |
+| POST | `/api/reconciliation/dangling-refs/enrich-undo/` | `undo_dangling_enrichment` |
+| POST | `/api/reconciliation/dangling-refs/enrich/` | `enrich_dangling_refs` |
+| GET | `/api/reconciliation/dangling-refs/mislink-preview/` | `preview_dangling_mislink` |
+| POST | `/api/reconciliation/dangling-refs/mislink-undo/` | `undo_dangling_mislink` |
+| POST | `/api/reconciliation/dangling-refs/mislink/` | `fix_dangling_mislink` |
+| GET | `/api/reconciliation/dangling-refs/mislinked/` | `list_mislinked_refs` |
+| GET | `/api/reconciliation/dangling-refs/preview/` | `preview_dangling_reattach` |
+| POST | `/api/reconciliation/dangling-refs/reattach/` | `reattach_dangling_refs` |
+| GET | `/api/reconciliation/dangling-refs/rebuild-batch-preview/` | `preview_dangling_rebuild_batch` |
+| POST | `/api/reconciliation/dangling-refs/rebuild-batch-undo/` | `undo_dangling_rebuild_batch` |
+| POST | `/api/reconciliation/dangling-refs/rebuild-batch/` | `rebuild_dangling_position_batch` |
+| GET | `/api/reconciliation/dangling-refs/rebuild-preview/` | `preview_dangling_rebuild` |
+| POST | `/api/reconciliation/dangling-refs/rebuild-undo/` | `undo_dangling_rebuild` |
+| POST | `/api/reconciliation/dangling-refs/rebuild/` | `rebuild_dangling_position` |
+| POST | `/api/reconciliation/dangling-refs/undo/` | `undo_dangling_reattach` |
+| GET | `/api/reconciliation/dangling-refs/unowned/` | `list_unowned_flows` |
 | GET | `/api/reconciliation/discrepancies/` | `list_discrepancies` |
 | POST | `/api/reconciliation/discrepancies/<int:discrepancy_id>/ignore/` | `ignore_discrepancy` |
 | GET | `/api/reconciliation/dividend-tax/` | `list_dividend_tax_pending` |
+| POST | `/api/reconciliation/dividend-tax/ack/` | `dividend_tax_ack` |
+| POST | `/api/reconciliation/dividend-tax/ack/revoke/` | `dividend_tax_ack` |
 | POST | `/api/reconciliation/dividend-tax/record/` | `record_dividend_tax` |
 | GET | `/api/reconciliation/ghost-duplicates/` | `list_ghost_duplicates` |
 | DELETE | `/api/reconciliation/ghost-duplicates/<fingerprint>/ignore/` | `undo_ghost_duplicate_ignore_by_fingerprint` |
@@ -205,7 +234,13 @@ title: 核心 API 端点清单（api）
 | GET | `/api/reconciliation/ghost-duplicates/ignored/` | `list_ghost_duplicate_ignores` |
 | DELETE | `/api/reconciliation/ghost-duplicates/ignored/<int:ignore_id>/` | `undo_ghost_duplicate_ignore` |
 | GET | `/api/reconciliation/ledger-consistency/` | `ledger_consistency` |
+| POST | `/api/reconciliation/orphan-coverage/` | `cover_orphan_cash_flows` |
+| POST | `/api/reconciliation/orphan-coverage/undo/` | `undo_orphan_cash_flows` |
+| GET | `/api/reconciliation/orphan-ledger/` | `list_orphan_ledger` |
+| POST | `/api/reconciliation/orphan-ledger/backfill/` | `backfill_orphan_ledger` |
+| POST | `/api/reconciliation/orphan-ledger/undo/` | `undo_orphan_ledger_backfill` |
 | POST | `/api/reconciliation/run/` | `run_reconciliation` |
+| GET | `/api/reconciliation/share-integrity/` | `list_share_integrity` |
 | GET | `/api/recurring-plans/` | `list_plans` |
 | POST | `/api/recurring-plans/` | `create_plan` |
 | GET | `/api/recurring-plans/<int:plan_id>/` | `get_plan` |
@@ -216,6 +251,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/search/assets/` | `search_assets` |
 | GET | `/api/securities/<symbol>/price-range/` | `get_price_range` |
 | GET | `/api/securities/search/` | `search_securities` |
+| GET | `/api/stocks/valuation/` | `get_stock_valuation` |
 | GET | `/api/strategy/` | `list_tags` |
 | POST | `/api/strategy/` | `create_tag` |
 | DELETE | `/api/strategy/<int:tag_id>/` | `delete_tag` |
@@ -267,6 +303,11 @@ title: 核心 API 端点清单（api）
 | GET | `/api/utils/enums/` | `get_enums` |
 | GET | `/api/utils/fund-confirm-dates/` | `calc_fund_confirm_date` |
 | GET | `/api/utils/trading-days/<date>/` | `get_trading_day` |
+| GET | `/api/watchlist/alerts/` | `list_alerts` |
+| DELETE | `/api/watchlist/alerts/<int:alert_id>/` | `remove_alert` |
+| PATCH | `/api/watchlist/alerts/<int:alert_id>/` | `patch_alert` |
+| GET | `/api/watchlist/alerts/settings/` | `get_alert_settings` |
+| PUT | `/api/watchlist/alerts/settings/` | `put_alert_settings` |
 | GET | `/api/watchlist/favorites/` | `list_favorites` |
 | GET | `/api/watchlist/groups/` | `list_groups` |
 | POST | `/api/watchlist/groups/` | `create_group` |
@@ -278,6 +319,8 @@ title: 核心 API 端点清单（api）
 | POST | `/api/watchlist/items/` | `create_item` |
 | DELETE | `/api/watchlist/items/<int:item_id>/` | `delete_item` |
 | PATCH | `/api/watchlist/items/<int:item_id>/` | `update_item` |
+| GET | `/api/watchlist/items/<int:item_id>/alerts/` | `get_item_alerts` |
+| POST | `/api/watchlist/items/<int:item_id>/alerts/` | `create_item_alert` |
 | POST | `/api/watchlist/items/<int:item_id>/favorite/` | `toggle_favorite` |
 | DELETE | `/api/watchlist/items/<int:item_id>/groups/<int:group_id>/` | `remove_item_from_group` |
 | POST | `/api/watchlist/items/<int:item_id>/groups/<int:group_id>/` | `add_item_to_group` |

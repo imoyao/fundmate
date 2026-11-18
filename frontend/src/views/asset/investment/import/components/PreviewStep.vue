@@ -2,6 +2,7 @@
 import SummaryPanel from "./SummaryPanel.vue";
 import PreviewTable from "./PreviewTable.vue";
 import BatchFixPanel from "./BatchFixPanel.vue";
+import RowReconciliationBanner from "./RowReconciliationBanner.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
@@ -64,30 +65,13 @@ const {
       </div>
     </div>
 
-    <!-- #2854：源文件行数对账。未知操作名曾整行静默消失，预览 total 是丢过行的数，
-         用户连「少了几行」都不知道。这里把差额与未登记的操作名显式写出来。 -->
-    <SoftBanner
+    <!-- #2854：源文件行数对账。呈现见 RowReconciliationBanner，口径在 useImportWizard；
+         未知操作名曾整行静默消失，预览 total 是丢过行的数，用户连「少了几行」都不知道。 -->
+    <RowReconciliationBanner
       v-if="rowReconciliation"
-      class="row-reconciliation-banner"
-      variant="warning"
-      icon="ep:warning-filled"
-    >
-      <span class="banner-text">
-        文件共 {{ rowReconciliation.source }} 行 = 可导入
-        {{ rowReconciliation.imported }} 行 + 有意忽略
-        {{ rowReconciliation.ignored }} 行 + 未能识别
-        {{ rowReconciliation.failed }} 行
-        <template v-if="!rowReconciliation.balanced">
-          （对不平，请检查源文件是否有合并行或空行）
-        </template>
-      </span>
-      <p v-if="rowReconciliation.ops.length" class="text-xs mt-1">
-        未登记的操作类型：{{ rowReconciliation.ops.join("、") }}
-        <span v-if="parseErrors.length">
-          ，涉及行号 {{ parseErrors.map(e => e.line).join("、") }} </span
-        >。请在映射表登记后再导入，不要手工编造标的。
-      </p>
-    </SoftBanner>
+      :reconciliation="rowReconciliation"
+      :parse-errors="parseErrors"
+    />
 
     <!-- #2281 引导态：能力宣告 + 关联入口（未关联现金账户时；不可关闭，tooltip 指向此处）。
          #2724 起壳由 SoftBanner 承担，select 与跳转按钮走 #actions slot -->
@@ -103,13 +87,14 @@ const {
         }}」关联现金账户：
       </span>
       <template #actions>
+        <!-- @change 显式无参：el-select 会把新值当第一参塞进来，直接绑方法名会让 options 形参吃到 select 值 -->
         <el-select
           v-model="bannerCashLedgerId"
           class="banner-select"
           size="small"
           clearable
           placeholder="选择现金账户"
-          @change="linkCashAccount"
+          @change="() => linkCashAccount()"
         >
           <el-option
             v-for="c in cashLedgersForImport"
@@ -129,13 +114,13 @@ const {
       </template>
     </SoftBanner>
 
-    <!-- #2281 轻量提示态：已关联仍告知能力存在（默认不勾选，由用户决定），可关闭 -->
+    <!-- #2281 轻量提示态（可关闭）；2026-11-08 起文案改「已默认勾选+退出口」，与行级 tooltip、底栏计数同口径 -->
     <div v-else-if="showCashTransferHint" class="cash-transfer-hint">
       <IconifyIconOffline icon="ep:info-filled" class="hint-icon" />
       <span class="hint-text">
         已为「{{ selectedLedgerName }}」关联现金账户「{{
           linkedCashLedgerName
-        }}」。转账行可勾选导入（默认不勾选，由你决定），导入后现金账户自动生成反向流水。
+        }}」。转账行已默认勾选导入，导入后现金账户自动生成反向流水；不需要的行可取消勾选。
       </span>
       <el-button
         class="hint-close-btn"

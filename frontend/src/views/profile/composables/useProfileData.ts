@@ -1,3 +1,4 @@
+import { errorMessageOf, errorStatusOf } from "@/utils/errorMessage";
 import { reactive, ref, computed, onMounted, h } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
 import { ElMessage } from "element-plus";
@@ -274,11 +275,11 @@ export function useProfileData() {
         message: "用户名已保存",
         icon: CheckMark
       });
-    } catch (e: any) {
-      if (e?.response?.status === 409) {
+    } catch (e) {
+      if (errorStatusOf(e) === 409) {
         ElMessage.error("该用户名已被使用，请更换");
       } else {
-        ElMessage.error(e?.response?.data?.message || "保存失败，请重试");
+        ElMessage.error(errorMessageOf(e) || "保存失败，请重试");
       }
     } finally {
       usernameSaving.value = false;
@@ -313,8 +314,8 @@ export function useProfileData() {
       });
       emailDialogVisible.value = false;
       emailForm.email = "";
-    } catch (e: any) {
-      ElMessage.error(e.message || "发送失败，请重试");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "发送失败，请重试");
     } finally {
       emailSubmitting.value = false;
     }
@@ -362,8 +363,8 @@ export function useProfileData() {
       passwordDialogVisible.value = false;
       passwordForm.password = "";
       passwordForm.confirm = "";
-    } catch (e: any) {
-      ElMessage.error(e.message || "修改失败，请重试");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "修改失败，请重试");
     } finally {
       passwordSubmitting.value = false;
     }
@@ -397,8 +398,8 @@ export function useProfileData() {
       if (data.avatar) userStore.SET_AVATAR(data.avatar);
       captureAvatarSnapshot();
       initAvatar();
-    } catch (e: any) {
-      if (e?.response?.status !== 401) {
+    } catch (e) {
+      if (errorStatusOf(e) !== 401) {
         ElMessage.error("加载个人信息失败");
       }
     }

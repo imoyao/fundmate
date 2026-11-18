@@ -3,18 +3,20 @@
  *
  * #980 拆分：自 reconcile-workbench/index.vue 抽出为页面级常量（constants/），
  * #2151：新增域 D「跨账本重复交易」（幽灵重复），联合类型随之扩展。
+ * #2866：新增域 F「悬空引用」（流水指向已删除的持仓行），联合类型随之扩展。
+ * #2875：新增域 G「缺账本孤儿流水」（ledger_id 为空、不进任何账本视图），联合类型随之扩展。
  * 2026-10-28：域 C 接入真实差异列表，删掉 `status` / `statusLabel` / `placeholderHint`
  * 三个「工程内部状态」字段——它们曾让域 C 在功能已通的情况下对外自称
  * 「P1 规划 / 本期占位」，用户点进去发现能用，文案与事实自相矛盾。界面上不再出现
  * 「这个域做到第几期」这类只有开发者关心的话。
  *
- * ⚠️ 这里刻意**不导出** `WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E"` 之外的东西：
+ * ⚠️ 这里刻意**不导出** `WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E" | "F" | "G"` 之外的东西：
  * 域标识是「页面级」概念（与 `useReconDraft.ts` 的 `ReconDomain` 是两码事——
  * 后者是导入草稿的路由标签，只有 A/B/C，本次不动它）。
  */
 
-/** 域标识：A=E账户 / B=持仓快照 / C=对账单导入 / D=跨账本重复交易 / E=分红未记扣税 */
-export type WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E";
+/** 域标识：A=E账户 / B=持仓快照 / C=对账单导入 / D=跨账本重复交易 / E=分红未记扣税 / F=悬空引用 / G=缺账本孤儿流水 */
+export type WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E" | "F" | "G";
 
 export interface WorkbenchDomainEntryLink {
   to: string | { name: string };
@@ -57,7 +59,7 @@ export const domainTabs: WorkbenchDomainTab[] = [
     key: "C",
     label: "对账单导入",
     title: "对账单导入核对",
-    description: "导入交割单后自动比对孤儿持仓",
+    description: "导入交割单后自动找出缺流水的持仓",
     badgeType: "fund",
     entry: {
       title: "导入交割单后自动核对",
@@ -80,11 +82,31 @@ export const domainTabs: WorkbenchDomainTab[] = [
   },
   {
     key: "E",
-    label: "分红未扣税",
-    title: "分红未记扣税",
+    // 不再是「分红未扣税」：派息时暂不扣缴是法定状态（财税〔2015〕101 号），
+    // 只有**已卖出**且持股不足一年的分红才真该有这笔税，本域只列这些。
+    label: "红利税核对",
+    title: "红利税待核对",
     // 措辞注意：本域不做「替你算税」，只指出哪几笔对不上账。税率取决于买入批次持有期，
     // 本系统只有聚合持仓，反推出来的是会被券商否掉的猜测（见后端 dividend_tax_service）。
-    description: "有现金分红，该年账上却没有扣税流水",
+    description: "已卖出的分红，账上却没配上这笔红利税",
+    badgeType: "fund"
+  },
+  {
+    key: "F",
+    label: "数据缺失",
+    title: "有些交易记录信息不完整",
+    description:
+      "这些交易找不到对应的持仓记录，或缺少标的代码、交易日期，部分报表会漏算；可在这里补上关联",
+    badgeType: "fund"
+  },
+  {
+    key: "G",
+    label: "缺账本流水",
+    title: "流水没有归属账本",
+    // 措辞边界：归属由后端按 account_name 精确同名唯一判定，前端不猜；
+    // 不能写成「自动归档」，也不要暗示会重算份额（本域只改 ledger_id 一列）。
+    description:
+      "这些流水没有账本，不进任何账户视图；按账户名精确匹配后可逐条确认回填",
     badgeType: "fund"
   }
 ];

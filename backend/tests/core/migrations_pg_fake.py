@@ -44,6 +44,10 @@ _DROP_NOT_NULL_RE = re.compile(r'ALTER TABLE (\w+) ALTER COLUMN (\w+) DROP NOT N
 # 否则迁移末尾的「任期列必须已删」自校验永远假红。
 _DROP_COL_RE = re.compile(r'ALTER TABLE (\w+) DROP COLUMN (?:IF EXISTS )?(\w+)', re.IGNORECASE)
 _CREATE_INDEX_RE = re.compile(r'CREATE (UNIQUE )?INDEX (?:IF NOT EXISTS )?(\w+) ON (\w+)', re.IGNORECASE)
+#: 加 CHECK 约束（#2875）：PG 侧唯一形态 `ALTER TABLE x ADD CONSTRAINT n CHECK (...)`，
+#: 没有 `IF NOT EXISTS`，幂等全靠反射 —— 假引擎必须记住已加过的约束名，否则第二次
+#: 调用仍判「不存在」并把同一句 DDL 记两遍，「幂等」那条测试就变成假绿。
+_ADD_CHECK_RE = re.compile(r'ALTER TABLE (\w+) ADD CONSTRAINT (\w+) CHECK', re.IGNORECASE)
 # 建表：表名 + 列名列表（够 fake 维护「表在不在、哪些列」即可，不必真解析约束）
 _CREATE_TABLE_RE = re.compile(r'CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\((.*?)\)', re.IGNORECASE | re.DOTALL)
 _CREATE_TABLE_COL_RE = re.compile(r'^\s*(\w+)\s+[A-Z]', re.IGNORECASE | re.MULTILINE)
@@ -121,6 +125,10 @@ class _Inspector:
         uniques = self._fake.unique_indexes.get(table, [])
         return [{'name': n, 'unique': n in uniques} for n in self._fake.indexes.get(table, [])]
 
+    def get_check_constraints(self, table):
+        """PG 侧加 CHECK 前的幂等反射（#2875）：只回名字，迁移不用 SQL 文本判重。"""
+        return [{'name': n} for n in self._fake.check_constraints.get(table, [])]
+
 
 class PgFake:
     """PG 形态假引擎 + 假 inspect（见模块 docstring）。"""
@@ -138,6 +146,8 @@ class PgFake:
         #: 执行后要同步移除，否则「解除 NOT NULL」类迁移的收尾自校验永远假红。
         self.not_null: Dict[str, List[str]] = {t: list(c) for t, c in (not_null or {}).items()}
         self.indexes: Dict[str, List[str]] = {}
+        #: CHECK 约束（#2875）：名字即幂等键，`get_check_constraints()` 由此回。
+        self.check_constraints: Dict[str, List[str]] = {}
         #: 唯一索引单独记一份：`get_indexes()` 要能回 `unique: True`，否则迁移末尾
         #: 「按 unique 过滤后校验索引是否建成」的逻辑在假引擎上永远判失败（假红）。
         self.unique_indexes: Dict[str, List[str]] = {}
@@ -181,6 +191,13 @@ class PgFake:
                 self.unique_indexes.setdefault(table, [])
                 if name not in self.unique_indexes[table]:
                     self.unique_indexes[table].append(name)
+            return
+        m = _ADD_CHECK_RE.search(sql)
+        if m:
+            table, name = m.group(1), m.group(2)
+            names = self.check_constraints.setdefault(table, [])
+            if name not in names:
+                names.append(name)
             return
         # 建表（#1173）：把表登记进去，列名从 DDL 里逐行抽出来
         # （只取「列名 + 类型」形态的行，跳过 PRIMARY KEY / CONSTRAINT 之类的约束行）。

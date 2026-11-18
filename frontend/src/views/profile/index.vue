@@ -13,6 +13,9 @@
 
       <!-- ===== 区块二：账号安全 ===== -->
       <ProfileSecuritySection :page="profile" />
+
+      <!-- ===== 区块三：家庭财务规划（晴雨表自由度分母） ===== -->
+      <ProfileFinanceSection />
     </div>
 
     <!-- 改邮箱 / 改密码弹窗（页面级，位于外壳之后） -->
@@ -27,6 +30,7 @@ import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import ProfileBasicSection from "./components/ProfileBasicSection.vue";
 import ProfileSecuritySection from "./components/ProfileSecuritySection.vue";
+import ProfileFinanceSection from "./components/ProfileFinanceSection.vue";
 import ProfileAccountDialogs from "./components/ProfileAccountDialogs.vue";
 import { useProfileData } from "./composables/useProfileData";
 

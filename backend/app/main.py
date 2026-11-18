@@ -29,6 +29,7 @@ from app.domains.dividends.views import dividends_bp  # noqa: E402
 from app.domains.families.member_views import member_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
 from app.domains.feedlog.views import feedlog_bp  # noqa: E402
+from app.domains.financial_plan.views import financial_plan_bp  # noqa: E402
 from app.domains.funds.overlap_views import overlap_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
@@ -42,12 +43,15 @@ from app.domains.notification.views import notification_bp  # noqa: E402
 from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402
 from app.domains.portfolios.views import portfolios_bp  # noqa: E402
+from app.domains.positions.recompute_views import bp as positions_recompute_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
 from app.domains.products.views import bp as products_bp  # noqa: E402
+from app.domains.reconciliation.integrity_views import bp as reconciliation_integrity_bp  # noqa: E402
 from app.domains.reconciliation.views import bp as reconciliation_bp  # noqa: E402
 from app.domains.recurring.views import recurring_bp  # noqa: E402
 from app.domains.search.views import bp as search_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
+from app.domains.stocks.views import bp as stocks_bp  # noqa: E402
 from app.domains.strategy.allocation.views import allocation_bp  # noqa: E402
 from app.domains.strategy.engine.views import strategy_engine_bp  # noqa: E402
 from app.domains.strategy.views import strategy_bp  # noqa: E402
@@ -61,6 +65,7 @@ from app.domains.users.identity import UserIdentity  # noqa: E402
 from app.domains.users.seed import seed_default_identity  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
+from app.domains.watchlist.alert_views import watchlist_alert_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 from app.models.mcp_call_log import McpCallLog  # noqa: F401, E402  # 确保 mcp_call_logs 表随 init_db 建表
 from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
@@ -114,17 +119,22 @@ def create_app() -> APIFlask:
     # 注册蓝图
     app.register_blueprint(health_bp)
     app.register_blueprint(positions_bp)
+    # #3127「按流水重算份额」：单独蓝图，避免把手动重算入口塞回已顶满体量基线的 views.py
+    app.register_blueprint(positions_recompute_bp)
     app.register_blueprint(products_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(assets_bp)
     app.register_blueprint(transactions_bp)
     app.register_blueprint(summary_bp)
     app.register_blueprint(dividends_bp)
+    app.register_blueprint(financial_plan_bp)
     app.register_blueprint(securities_bp)
+    app.register_blueprint(stocks_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(funds_bp)
     app.register_blueprint(overlap_bp)
     app.register_blueprint(watchlist_bp)
+    app.register_blueprint(watchlist_alert_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
     app.register_blueprint(e_account_bp)
@@ -144,6 +154,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(member_bp)
     app.register_blueprint(feedlog_bp)
     app.register_blueprint(reconciliation_bp)
+    app.register_blueprint(reconciliation_integrity_bp)
     app.register_blueprint(recurring_bp)
     app.register_blueprint(agent_bp)
     app.register_blueprint(usage_bp)

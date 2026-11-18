@@ -1,3 +1,4 @@
+import type { PreviewRowLike } from "./previewRow";
 /**
  * 批量修正的纯逻辑层（#1792）。
  *
@@ -93,27 +94,34 @@ export interface FixUndoEntry {
 export const UNDO_STACK_LIMIT = 20;
 
 /** 变更前给行字段拍照（默认走 UNDO_FIELDS 清单） */
-export function snapshotRows(
-  rows: any[],
+export function snapshotRows<T extends object>(
+  raws: T[],
   fields: readonly string[] = UNDO_FIELDS
 ): RowSnapshot[] {
+  const rows = raws as PreviewRowLike[];
   return rows.map(row => {
     const before: Record<string, unknown> = {};
     fields.forEach(f => {
-      before[f] = row[f];
+      before[f] = (row as Record<string, unknown>)[f];
     });
-    return { key: row._rowKey, before };
+    return { key: row._rowKey as string, before };
   });
 }
 
 /** 把快照写回数据（按 _rowKey 定位；行已被移除则跳过） */
-export function restoreRows(data: any[], snapshots: RowSnapshot[]): void {
-  const byKey = new Map<any, any>(data.map(row => [row._rowKey, row]));
+export function restoreRows<T extends object>(
+  rawData: T[],
+  snapshots: RowSnapshot[]
+): void {
+  const data = rawData as PreviewRowLike[];
+  const byKey = new Map<string, PreviewRowLike>(
+    data.map(row => [row._rowKey as string, row])
+  );
   snapshots.forEach(snap => {
     const row = byKey.get(snap.key);
     if (!row) return;
     Object.entries(snap.before).forEach(([field, value]) => {
-      row[field] = value;
+      (row as Record<string, unknown>)[field] = value;
     });
   });
 }

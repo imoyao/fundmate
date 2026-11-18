@@ -78,6 +78,53 @@ def test_cash_flow_totals_and_monthly(db, make_position, make_transaction):
     assert monthly['2026-04']['net'] == -20000.0
 
 
+def test_投资以来区间覆盖全周期资金变化(db, make_position, make_transaction):
+    """`start_date=inception` ⇒ 从最早入金起，逐笔 / 月度覆盖全部年份。"""
+    ledger = _ledger(db, '全周期账户')
+    _seed_account(
+        db,
+        make_position,
+        make_transaction,
+        ledger,
+        [
+            ('deposit', 100000, dt.date(2020, 8, 1)),
+            ('buy', 80000, dt.date(2020, 8, 28)),
+            ('sell', 90000, dt.date(2024, 6, 20)),
+            ('withdraw', 20000, dt.date(2026, 3, 2)),
+        ],
+    )
+
+    data = build_ledger_cash_flow(db, 1, ledger.id, 'inception', '2026-11-09')
+
+    assert data['first_txn_date'] == '2020-08-01'
+    assert data['start_date'] == '2020-08-01'
+    months = {item['month'] for item in data['monthly']}
+    assert {'2020-08', '2024-06', '2026-03'} <= months
+    assert len(data['external_flows']) == 2, '全周期应含入金与出金两笔'
+
+
+def test_累计净投入阶梯线与自开户以来口径一致(db, make_position, make_transaction):
+    """窄窗时阶梯线不能从 0 起：区间前的累计净投入必须带上。"""
+    ledger = _ledger(db, '阶梯线账户')
+    _seed_account(
+        db,
+        make_position,
+        make_transaction,
+        ledger,
+        [
+            ('deposit', 100000, dt.date(2024, 1, 5)),
+            ('withdraw', 20000, dt.date(2026, 3, 2)),
+        ],
+    )
+
+    data = build_ledger_cash_flow(db, 1, ledger.id, '2026-03-01', '2026-04-30')
+    points = data['net_worth_series']
+    assert points, '缺价日也要保留阶梯线点位'
+    # 窗口前已累计 10 万，窗口内出金 2 万 ⇒ 末值 8 万 = totals.net_invested
+    assert abs(points[-1]['cum_net_invested'] - 80000.0) < 0.01
+    assert abs(points[-1]['cum_net_invested'] - data['totals']['net_invested']) < 0.01
+
+
 def test_amount_unit_is_yuan(db, make_position, make_transaction):
     """单位纪律：返回值量级必须与 `transactions.amount / 100` 一致（不是分）。"""
     ledger = _ledger(db, '单位账户')

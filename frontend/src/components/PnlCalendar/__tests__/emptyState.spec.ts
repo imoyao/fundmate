@@ -8,10 +8,12 @@
 import { describe, expect, it } from "vitest";
 import type { PnlCalendarSeries } from "@/api/summary";
 import {
+  EMPTY_CLEARED_SCOPE,
   EMPTY_NO_VALUATION,
   emptyDataGapHint,
   emptyHintFor,
   emptyScopeFor,
+  hasClearedHistory,
   isDataGap,
   isNotStartedYet,
   jumpButtonTextFor,
@@ -258,5 +260,57 @@ describe("emptyDataGapHint", () => {
       "投资以来还没有每日估值数据。最近一次估值：2026-09-30。" +
         "通常是每日快照任务未运行所致，并非账户异常。"
     );
+  });
+});
+
+describe("hasClearedHistory（已清仓账户）", () => {
+  const emptyCoverage = {
+    total_positions: 0,
+    priced_positions: 0,
+    unpriced_positions: 0
+  };
+
+  it("零持仓 + 有投资起点 ⇒ 已清仓历史账户", () => {
+    expect(
+      hasClearedHistory(
+        series({ coverage: emptyCoverage, first_txn_date: "2020-08-28" })
+      )
+    ).toBe(true);
+  });
+
+  it("零持仓但没有投资起点 ⇒ 不是（真·空账户）", () => {
+    expect(
+      hasClearedHistory(
+        series({ coverage: emptyCoverage, first_txn_date: null })
+      )
+    ).toBe(false);
+  });
+
+  it("有计价持仓 ⇒ 不是", () => {
+    expect(
+      hasClearedHistory(
+        series({
+          coverage: {
+            total_positions: 2,
+            priced_positions: 2,
+            unpriced_positions: 0
+          },
+          first_txn_date: "2020-08-28"
+        })
+      )
+    ).toBe(false);
+  });
+
+  it("空态不再把已清仓账户归因到快照任务", () => {
+    const s = series({
+      coverage: emptyCoverage,
+      first_txn_date: "2020-08-28",
+      latest_price_date: null,
+      has_any_price: false
+    });
+    // 年视图的「还没开始」判据恒为 false，不依赖运行当天是几号
+    const hint = emptyHintFor(s, "year", new Date(2026, 10, 9));
+    expect(hint).toBe(EMPTY_CLEARED_SCOPE);
+    expect(hint).not.toContain("快照任务");
   });
 });

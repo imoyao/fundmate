@@ -12,6 +12,7 @@ from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.exceptions import SBException, internal_error_message
 from app.domains.ledgers.models import Ledger
+from app.services.importer.import_entry import commit_import_rows
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.importer.orchestrator_parse import preview_response
 from app.services.importer.template_config import get_template_filepath, get_template_info
@@ -165,9 +166,8 @@ def confirm_import():
         abort(400, '请选择至少一条交易记录')
 
     try:
-        with get_db() as db:
-            orch = ImportOrchestrator(db, get_family_id())
-            result = orch.commit_from_preview(rows)
+        # 落库 + 名录补录的编排在 services 层（#1606）：补录须发生在收到请求的进程里
+        result = commit_import_rows(rows, get_family_id())
         return jsonify({'data': result, 'message': 'ok'})
     except Exception as e:
         logger.exception(f'导入确认失败: {e}')

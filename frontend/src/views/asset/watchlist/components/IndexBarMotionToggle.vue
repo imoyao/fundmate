@@ -13,14 +13,19 @@
         关闭后折叠态改为静态（可横向拖动）。系统「减弱动效」开启时不滚动。
       </span>
     </span>
-    <el-switch v-model="enabled" />
+    <el-switch :model-value="enabled" @update:model-value="onToggle" />
   </label>
 </template>
 
 <script setup lang="ts">
 import { useIndexBarMotionPref } from "@/views/asset/watchlist/composables/useIndexBarMotionPref";
 
-const { enabled } = useIndexBarMotionPref();
+const { enabled, setEnabled } = useIndexBarMotionPref();
+
+/** el-switch 的 value 是 boolean | string | number，这里只接受布尔并显式落盘 */
+function onToggle(next: string | number | boolean): void {
+  setEnabled(next === true);
+}
 </script>
 
 <style scoped lang="scss">

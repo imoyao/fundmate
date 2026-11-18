@@ -9,7 +9,6 @@
         <h1 class="text-[1.55rem] font-bold leading-tight tracking-[-0.01em]">
           看见你的<span class="coral">复利曲线</span>
         </h1>
-        <p class="login-sub mt-2 text-sm">一个让复利曲线清晰可见的投资账本</p>
       </div>
 
       <div class="login-logo flex justify-center">
@@ -60,13 +59,6 @@
           <span>使用 GitHub 登录</span>
         </span>
       </el-button>
-
-      <!-- 登录提示 -->
-      <div v-if="!p.isRegisterMode" class="login-hint mt-3">
-        <span class="text-xs" style="color: var(--text-tertiary-ink)">
-          使用邮箱或用户名登录
-        </span>
-      </div>
 
       <!-- 注册成功提示 -->
       <div
@@ -124,14 +116,10 @@ const p = reactive(props.page);
   color: var(--text-primary);
 }
 
-/* .coral / .login-sub：品牌叙事区与移动端 Slogan 共用类，拆分后本组件自持一份
+/* .coral：移动端 Slogan 的品牌强调色，拆分后本组件自持一份
    （原文件单点样式作用于两处；reset-password.vue 已有同款复制先例） */
 .coral {
   color: var(--brand-700);
-}
-
-.login-sub {
-  color: var(--text-secondary);
 }
 
 .dark .login-form {
@@ -150,10 +138,6 @@ const p = reactive(props.page);
 /* GitHub 登录按钮：消除相邻按钮默认 margin */
 .login-github {
   margin-left: 0;
-}
-
-.login-hint {
-  text-align: center;
 }
 
 .register-success {

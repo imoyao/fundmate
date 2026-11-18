@@ -71,7 +71,7 @@ class ParsingMixin:
                     code=ErrorCode.FILE_PARSE_ERROR.code,
                     message='文件内容与所选账户不匹配：多数记录为股票代码，请选择股票账户后重新上传。',
                 )
-        elif expected_source in ('standard_stock', 'ths_stock'):
+        elif expected_source in ('standard_stock', 'ths_stock', PositionSource.BROKER_CMS.value):
             if fund_count > total * 0.5:
                 raise SBException(
                     code=ErrorCode.FILE_PARSE_ERROR.code,

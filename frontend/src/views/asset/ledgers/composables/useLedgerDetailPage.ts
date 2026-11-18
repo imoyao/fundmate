@@ -6,24 +6,26 @@ import {
 } from "@/api/reconciliation";
 import { useLedgerDetail } from "@/composables/useLedgerDetail";
 import { useLedgerTransactions } from "@/composables/useLedgerTransactions";
-import { usePositionMigration } from "@/composables/usePositionMigration";
 import { usePositionValuation } from "@/composables/usePositionValuation";
 
 /**
  * 账户详情页状态单体（#980 P1-C 纯结构拆分）：
- * 组合既有三个领域 composable（useLedgerDetail / useLedgerTransactions /
- * usePositionMigration）与页面级「温柔提醒」持仓快照一致性状态（#1133 §4），
- * 平铺返回——detail（42 成员）与 txns（11 成员）键集不相交，展开无覆盖。
+ * 组合既有两个领域 composable（useLedgerDetail / useLedgerTransactions）
+ * 与页面级「温柔提醒」持仓快照一致性状态（#1133 §4），平铺返回——detail 与
+ * txns 键集不相交，展开无覆盖。
  * 页面壳 index.vue 与三个子组件经同一 page 实例共享状态。
+ *
+ * #2951：原 `usePositionMigration` 已随「未归置持仓」伪账户页删除——它只提供
+ * `handleAssign`（单条持仓归入账户），唯一使用点是该页的「归入账户」列，而那个
+ * 页面全仓无入口。批量迁移走 `MigrationResolvePanel`（两段式 preview / commit），
+ * 未归置数据的归入走账户管理页 banner 的明细弹窗，两者都不经过这里。
  */
 export function useLedgerDetailPage() {
   const router = useRouter();
 
   const detail = useLedgerDetail();
   const txns = useLedgerTransactions(detail);
-  const migration = usePositionMigration(detail);
   const { ledgerId } = detail;
-  const { handleAssign } = migration;
 
   // ── 温柔提醒（#1133 §4）：账户持仓快照一致性，中性、非阻断 ──
   const consistencyItems = ref<LedgerConsistencyItem[]>([]);
@@ -101,7 +103,6 @@ export function useLedgerDetailPage() {
   return {
     ...detail,
     ...txns,
-    handleAssign,
     visibleConsistencyItems,
     dismissAllConsistency,
     goReconcile,

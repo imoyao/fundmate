@@ -24,8 +24,9 @@
     <div v-if="hasValue" class="pnl-tip__values">
       <MoneyDisplay :value="pnl" size="sm" :show-currency="true" />
       <RiseFallText v-if="rate !== null" :value="rate" size="sm" />
-      <!-- 收益率不可算（缺前一日基准）：说清原因，不写 0.00% -->
-      <span v-else class="pnl-tip__none">收益率 —</span>
+      <!-- 收益率不可算（缺前一日净资产基准）：保留「—」并写清短因，绝不写 0.00%
+           ——0.00% 是「真没赚没赔」，与「算不出来」是两件事 -->
+      <span v-else class="pnl-tip__none">收益率 —（前一日无持仓）</span>
     </div>
     <div v-else class="pnl-tip__values">
       <span class="pnl-tip__tag">{{ stateTag(state) }}</span>

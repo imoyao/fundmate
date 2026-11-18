@@ -251,14 +251,20 @@ class TestLoadConfig:
         assert cfg.jobs[0].target_kind == 'fund'
 
     def test_new_jobs_have_no_target_kind(self):
-        """#1934 补进的四项目标池都不是「持仓+自选」，target_kind 必须为 None。
+        """#1934 补进的目标池都不是「持仓+自选」，target_kind 必须为 None。
 
         套成 'fund' / 'stock' 会拿到不相干的代码池：market_asset_daily 的对象是
-        「要落快照的大类资产」、industry_pbroe 是「全行业矩阵」、index_valuation 是固定指数清单、convertible_bond
-        按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
+        「要落快照的大类资产」、industry_pbroe 是「全行业矩阵」、index_valuation 是固定指数清单、
+        convertible_bond 按在库 symbol 全量 upsert。套错的结果是
         「每天记一条 success 但什么都没同步」的静默空跑。
         #2142 的 fund_valuation_reconcile 同理：目标池是「库里全部 estimated 行」，
         不是 fund/stock 代码池。
+
+        **`dividend_split` 已移出本清单（#3073）**：它的 `_fetch_data` 是
+        `for code in targets`，本来就按标的逐只抓分红/送转公告，fund + stock 正是它要的池。
+        此前把它归进「事件型数据、不需要目标池」，结果 27 次执行 27 次 `total=0`
+        ——**恰好是这条 docstring 想防的静默空跑，由分类本身制造出来**。
+        该 job 现在声明 `requires_targets`，判据见 `tests/services/sync/test_target_guard.py`。
         """
         cfg = ds.load_config({})
         for name in (
@@ -267,7 +273,6 @@ class TestLoadConfig:
             'industry_pbroe',
             'index_valuation',
             'convertible_bond',
-            'dividend_split',
             'fund_valuation_reconcile',
         ):
             spec = next(s for s in cfg.jobs if s.job_name == name)
@@ -786,3 +791,49 @@ class TestAssetSnapshotScheduled:
         spec = next(t for t in ds._JOB_TEMPLATES if t[0] == 'asset_snapshot')
         assert '账面值' in spec[5]
         assert 'D63' in spec[5] or '#2132' in spec[5]
+
+
+# ══════════════════════════════════════════════════════════════════
+# #3078：本地巡检进进程内调度（不是 SyncJob，走独立通道）
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestLocalCheckScheduling:
+    """`cold_set_bloat_guard` 必须真的被注册成定时任务。
+
+    卡的起因是「docstring 写着周报级、实际只有人手点才会跑」——判据因此不能只断言
+    「配置里有它」，必须断言 APScheduler 里真的多了一个 job，且走的是巡检通道。
+    """
+
+    def test_registered_in_scheduler(self, tmp_path):
+        from app.services import local_checks
+
+        check = local_checks.build_checks({})[0]
+        cfg = _config(lock_file=tmp_path / 's7.lock', checks=(check,))
+        holder = ds.DailyScheduler(cfg)
+        assert holder.start() is True
+        try:
+            job = holder._scheduler.get_job(check.job_name)
+            assert job is not None, '没注册进 APScheduler ⇒ 仍然是「没人让它跑」'
+            # 走 run_local_check 而不是 _run_job：后者的休市跳过对巡检不适用
+            # （休市日同样会有回填写入，而周频只有一次机会）。
+            assert job.func is local_checks.run_local_check
+        finally:
+            holder.shutdown()
+
+    def test_registered_job_is_not_a_sync_job(self):
+        """巡检不注入目标池：`DailyJobSpec` 那条通道会被要求 target_kind。"""
+        from app.services import local_checks
+
+        check = local_checks.build_checks({})[0]
+        assert not isinstance(check, ds.DailyJobSpec)
+        assert not hasattr(check, 'target_kind'), '巡检不吃目标池；有 target_kind 说明又被塞回 job 通道'
+
+    def test_check_ids_do_not_collide_with_scheduled_jobs(self, tmp_path):
+        """撞名时 APScheduler 的 replace_existing 会静默顶掉一个日跑 job。"""
+        from app.services import local_checks
+
+        cfg = ds.load_config({'SCHEDULER_COLD_SET_GUARD_ENABLED': '1'})
+        overlap = {c.job_name for c in cfg.checks} & {j.job_name for j in cfg.jobs}
+        assert not overlap
+        assert local_checks.build_checks({}), '缺省启用'

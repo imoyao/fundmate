@@ -38,6 +38,11 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __tablename__ = 'transactions'
 
     position_id = Column(Integer)
+    # #3089「归置」：这批账外类现金流水已由某个持仓体现，类现金口径据此排除它，
+    # 避免同一笔钱在「持仓市值」与「账外孤儿净额」里各算一遍。
+    # 与 position_id 一样不建 FK：持仓可能被删/合并，历史流水必须保留；
+    # NULL = 仍按孤儿净额计入类现金（存量默认态），清空即撤销归置。
+    covered_position_id = Column(Integer, nullable=True, comment='#3089 已由该持仓体现的孤儿流水（NULL=计入类现金）')
     symbol = Column(String(30), nullable=True, comment='资产代码快照')
     # ── 归一身份键（#1662 遗留：positions 做了，流水表当时被漏掉）──
     # symbol 是**快照原貌**（场内带前缀 / 场外裸码，见 core/venues），symbol_norm 是**身份**形态：

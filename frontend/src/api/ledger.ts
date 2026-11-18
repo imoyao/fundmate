@@ -40,6 +40,68 @@ export interface LedgerItem {
 }
 
 /**
+ * 账户**列表项**：账面字段 + 后端按 `ledger_type` 现算的摘要统计。
+ *
+ * 摘要字段全部可选，因为它们是 `LedgerService.attach_ledger_summary` 按类型**择一**
+ * 覆写的（`total_market_value` / `pnl` / `position_count` 是公共三项；`cash_balance`
+ * 仅 stock/bank/property；`linked_liability` / `money_fund_*` 仅 bank；
+ * `asset_count` 仅 property）。声明成「都有且必填」等于把「该类型没有这个口径」
+ * 谎报成「一定是 0」，页面会照常渲染一张 0 元卡。
+ */
+export interface LedgerListItem extends LedgerItem {
+  /** 该账户持仓 / 资产总市值（元） */
+  total_market_value?: number;
+  /** 持仓浮动盈亏（元） */
+  pnl?: number;
+  /** 持仓数量（property 类型下为资产条数） */
+  position_count?: number;
+  /** 现金余额（元）：仅 stock / bank / property 有口径 */
+  cash_balance?: number;
+  /** 实物资产条数：仅 property 有口径 */
+  asset_count?: number;
+  /** 关联负债（元）：仅 bank 有口径 */
+  linked_liability?: number;
+  /** 账户内货基市值（元）：仅 bank 有口径 */
+  money_fund_amount?: number;
+  /** 货基占账户总资产比例（0~1）：仅 bank 有口径 */
+  money_fund_ratio?: number;
+  /**
+   * 累计盈亏三段（2026-11-10）：`total = 已实现 + 持仓浮盈 − 买入费`。
+   *
+   * **仅 stock / fund / e_account 下发**，bank / property 没有这套口径（bank 的成本基数
+   * 取流水净投入，与卡片上的「市值 − 成本」不是一回事）。故三者都是可选的：
+   * 缺失代表「该账户没有这个口径」，页面必须**整项不渲染**，不能 `?? 0` 画成 0 元
+   * ——那会被读成「不赚不亏」。
+   */
+  realized_pnl?: number;
+  /** 买入侧手续费（元，正数）：卖出费已在 `realized_pnl` 里扣过，不重复计 */
+  buy_fee?: number;
+  /** 累计盈亏（元）= `pnl + realized_pnl − buy_fee`，与卡片上两个数字逐分可加 */
+  total_pnl?: number;
+}
+
+/**
+ * 账户资金全景的**分组**（`GET /api/ledgers/overview/`）：
+ * 按 `ledger_type` 聚合的一组，`count` 是**来源组数**而非账户个数
+ * （`deleted` 组见 `LedgerService.get_overview_stats` 的注释）。
+ */
+export interface LedgerOverviewGroup {
+  type: string;
+  label: string;
+  count: number;
+  total: number;
+}
+
+/** 账户资金全景（`GET /api/ledgers/overview/`） */
+export interface LedgerOverviewData {
+  groups: LedgerOverviewGroup[];
+  /** 负债总额（元，正数） */
+  liability_total: number;
+  /** 净资产（元）= 各组 total 之和 − 负债总额，由后端算好，前端不得现算 */
+  net_worth: number;
+}
+
+/**
  * 基金销售机构（AMAC 权威名录，账户可选关联）。
  * is_common/common_sort/display_name 由后端 AMAC job 幂等策展（#1081）；
  * org_type 为 AMAC 原始 11 类，前端映射为展示标签组（独立/银行/券商/保险/其他）。
@@ -57,6 +119,8 @@ export interface SalesInstitution {
   common_sort?: number | null;
   /** 名称拼音首字母简拼（后端 AMAC job 派生），供下拉检索（如 ht=华泰证券） */
   pinyin_short?: string | null;
+  /** 名称+别名拼音全拼（空格分隔，后端派生 #2980），供全拼检索（如 zhifubao=支付宝） */
+  pinyin_full?: string | null;
 }
 
 /**
@@ -74,7 +138,7 @@ export function getSalesInstitutions(params?: { org_types?: string }) {
 
 /** 获取用户的所有账户列表。includeArchived=true 时一并取回已归档账户。 */
 export function getLedgers(includeArchived: boolean = false) {
-  return http.request<ApiResponse<LedgerItem[]>>("get", "/api/ledgers/", {
+  return http.request<ApiResponse<LedgerListItem[]>>("get", "/api/ledgers/", {
     params: { include_archived: includeArchived }
   });
 }
@@ -150,7 +214,10 @@ export function reorderLedgers(ledgerType: string, orderedIds: number[]) {
 }
 
 export function getLedgersOverview() {
-  return http.request("get", "/api/ledgers/overview/");
+  return http.request<ApiResponse<LedgerOverviewData>>(
+    "get",
+    "/api/ledgers/overview/"
+  );
 }
 
 /** 删除账户，可选择同时删除持仓 */
@@ -690,5 +757,43 @@ export function getSecuritiesAggregation(params: AggregationQuery = {}) {
     "get",
     "/api/ledgers/securities-aggregation/",
     { params }
+  );
+}
+
+/**
+ * 逆回购到期回款（#3087 / D114）。
+ *
+ * 逆回购不建持仓、按孤儿流水记账，导入只带「买入」那一半；没有这条入口，
+ * 在途本金只增不减（真库 4 笔全 buy，202,000.84 元），总资产会把它连同
+ * 回到现金账户的那笔钱算两遍。
+ *
+ * 服务端口径：**整笔结清**（金额恒等于当前在途本金，不接受任意金额），
+ * 利息单独成一行收益流水；重复提交会被拒（没有在途本金）。
+ */
+export interface SettleReverseRepoPayload {
+  /** 标的代码（如 SH204001 / SZ131801），与「类现金」明细行一致 */
+  symbol: string;
+  /** 回款日 YYYY-MM-DD */
+  settle_date: string;
+  /** 利息（元，可选）。它是收益行，不是本金 */
+  interest?: number;
+}
+
+export interface SettleReverseRepoResult {
+  /** 结清的本金（元） */
+  settled_amount: number;
+  /** 登记的利息（元） */
+  interest_amount: number;
+  transaction_ids: number[];
+}
+
+export function settleReverseRepo(
+  ledgerId: number,
+  payload: SettleReverseRepoPayload
+) {
+  return http.request<ApiResponse<SettleReverseRepoResult>>(
+    "post",
+    `/api/ledgers/${ledgerId}/cash-like/reverse-repo/settle/`,
+    { data: payload }
   );
 }

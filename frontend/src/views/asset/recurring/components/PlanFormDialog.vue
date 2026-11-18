@@ -156,6 +156,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { RecurringPlan, RecurringPlanPayload } from "@/api/recurring";
@@ -249,8 +250,8 @@ const handleSave = async () => {
     }
     emit("update:modelValue", false);
     emit("saved");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存失败");
+  } catch (e) {
+    ElMessage.error(errorMessageOf(e) || "保存失败");
   } finally {
     saving.value = false;
   }

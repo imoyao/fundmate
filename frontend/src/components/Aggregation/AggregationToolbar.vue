@@ -30,7 +30,7 @@ const props = withDefaults(
     fundType: string;
     /** 是否展示「类型筛选」胶囊 Tab（基金有，证券按需求可关） */
     showTypeTab?: boolean;
-    /** 类型 Tab 的 aria 标签前缀（如「基金类型」「证券类型」） */
+    /** 类型 Tab 的 aria 标签前缀（如「基金类型」「股票类型」） */
     typeTabLabel?: string;
     /** 类型 Tab 选项（由页面按 result 派生，只列有产品的分类） */
     typeOptions?: { label: string; value: string }[];

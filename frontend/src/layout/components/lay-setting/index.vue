@@ -97,7 +97,7 @@ const weekChange = (value): void => {
 const tagsChange = () => {
   const showVal = settings.tabsVal;
   storageConfigureChange("hideTabs", showVal);
-  emitter.emit("tagViewsChange", showVal as unknown as string);
+  emitter.emit("tagViewsChange", showVal);
 };
 
 /** 隐藏页脚设置 */
@@ -115,9 +115,9 @@ const multiTagsCacheChange = () => {
 
 function onChange(option: OptionsType) {
   const { value } = option;
-  markValue.value = value;
-  storageConfigureChange("showModel", value);
-  emitter.emit("tagViewsShowModel", value);
+  markValue.value = String(value);
+  storageConfigureChange("showModel", String(value));
+  emitter.emit("tagViewsShowModel", String(value));
 }
 
 /** 侧边栏Logo */

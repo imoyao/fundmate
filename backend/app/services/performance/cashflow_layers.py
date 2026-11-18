@@ -46,6 +46,7 @@ from loguru import logger
 from app.core.money import Money
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
+from app.services.performance.fee_cash import FEE_SEPARATE_CASH_TYPES, fee_yuan
 
 #: 资金流水层标识（对外字符串，便于直接进 JSON 响应）
 L1_EXTERNAL = 'L1'  # 外部资金流：入金 / 出金（跨出本账户集合）
@@ -72,7 +73,7 @@ _TXN_LAYER = {
 _L1_SIGN = {BusinessType.DEPOSIT.code: -1.0, BusinessType.WITHDRAW.code: 1.0}
 
 #: 现金残差公式里「账户现金增加」的类型（+）与「账户现金减少」的类型（-）。
-#: 现金 ≈ 入金 − 出金 − 买入 + 卖出 + 现金分红 + 兑付 − 税费（#2615 提案，本卡落地）。
+#: 现金 ≈ 入金 − 出金 − 买入 + 卖出 + 现金分红 + 兑付 − 税费 − 买卖手续费（#2615 提案，本卡落地）。
 #: 注意方向是**账户现金**视角，不是投资者视角：入金让账户钱变多（+），出金变少（-）。
 _ACCOUNT_CASH_IN_TYPES = {
     BusinessType.DEPOSIT.code,
@@ -167,9 +168,12 @@ def collect_flows(
       与「组合收益不算现金管理工具」的既有约定一致；
     - 日期用 `confirm_date`（确认日），缺失的记录跳过（与现金流构造同口径）。
 
-    每条：`{index, date, layer, txn_type, amount, signed_amount, amount_cents,
+    每条：`{index, date, layer, txn_type, amount, signed_amount, fee, amount_cents,
     ledger_id, symbol, asset_type}`。`signed_amount` 是投资者视角符号（见 `_L1_SIGN`）：
     L1 入金为负、出金为正；L2 买入为负、卖出为正；L3 一律为正（钱进账户）。
+
+    `fee` 是该笔的手续费（元，与 `amount` 同单位），**不参与** `amount` /
+    `signed_amount`：`amount` 一律是成交额（买卖均为毛额）。含费口径见 `fee_cash`。
     """
     # 延迟导入：EXCLUDED_ASSET_TYPES 归 xirr_engine 所有（历史位置），避免循环导入
     from app.services.performance.xirr_engine import EXCLUDED_ASSET_TYPES
@@ -214,6 +218,7 @@ def collect_flows(
         if abs(amount) < 1e-8:
             continue
 
+        fee = fee_yuan(txn)
         txn_type = txn.txn_type
         layer = classify(txn_type)
         if layer == L1_EXTERNAL:
@@ -237,6 +242,7 @@ def collect_flows(
                 'txn_type': txn_type,
                 'amount': amount,
                 'signed_amount': signed,
+                'fee': fee,
                 'amount_cents': round(amount * 100),
                 'ledger_id': txn.ledger_id,
                 'symbol': getattr(txn, 'symbol', None),
@@ -271,6 +277,9 @@ def build_layers(
 
     `net_invested = 累计入金 − 累计出金`：这是**用户视角「我一共压进去多少」**。
     刻意不把已实现盈亏混进来——那是收益，不是投入（见 `docs/spec/cashflow-layers.md`）。
+
+    ⚠️ `totals['fees']` 只累加 `tax` 类型的税费流水，**不是**买卖手续费合计——后者记在
+    各流水的 `fee` 上并已单独计入 `cash_residual`（见 `fee_cash`），要合计请用 XIRR 的 `fees`。
 
     内部互转（#2681）：一次传入多个成员账本时，同日同额反向的两笔被配对并在 totals 中
     剔除（`internal_transfer=True`），但**仍留在 `l1` 桶里**便于诊断；消费方要展示逐笔
@@ -329,6 +338,10 @@ def build_layers(
             totals['cash_residual'] += amount
         elif txn_type in _ACCOUNT_CASH_OUT_TYPES:
             totals['cash_residual'] -= amount
+        # 手续费：买卖双边都是「毛额之外另付」的现金支出，方向相同（都让现金变少）。
+        # 不扣则现金残差偏高、总收益虚高，与 `pnl_service` 的「已扣买入费」对不上。
+        if txn_type in FEE_SEPARATE_CASH_TYPES:
+            totals['cash_residual'] -= flow['fee']
 
     totals['net_invested'] = round(totals['deposit'] - totals['withdraw'], 2)
     for key in ('deposit', 'withdraw', 'buy', 'sell', 'dividend_cash', 'fees', 'cash_residual'):

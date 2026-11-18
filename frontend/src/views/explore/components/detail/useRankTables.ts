@@ -5,6 +5,7 @@
  * 只有 `source` 与错误文案不同——原实现在组件里把同一段 18 行的 try/catch/finally
  * 抄了三遍。这里收成一个 `loadMultiItems`，状态用 ref 组合传入。
  */
+import type { RankItem } from "../../types";
 import { computed, ref, type Ref } from "vue";
 import { getMultiItems } from "@/api/temperature";
 import {
@@ -64,7 +65,7 @@ export const RANK_LEGEND = [
 ];
 
 interface TableState {
-  items: Ref<any[]>;
+  items: Ref<RankItem[]>;
   date: Ref<string>;
   stale: Ref<boolean>;
   loading: Ref<boolean>;
@@ -89,7 +90,7 @@ async function loadMultiItems(
       state.items.value = data.items;
       state.date.value = data.date || "";
       state.stale.value =
-        Boolean(data.stale) || (data.items || []).some((i: any) => i.stale);
+        Boolean(data.stale) || (data.items || []).some(i => i.stale);
     } else {
       state.items.value = [];
       state.stale.value = false;
@@ -106,19 +107,19 @@ async function loadMultiItems(
 
 export function useRankTables() {
   // 行业拥挤度（独立维度：行业 PB / 全A 中位 PB 历史百分位）
-  const crowdingItems = ref<any[]>([]);
+  const crowdingItems = ref<RankItem[]>([]);
   const crowdingDate = ref<string>("");
   const crowdingStale = ref(false);
   const crowdingLoading = ref(false);
 
   // 热门赛道拥挤度（外部临时源 category=track，18 条；该维度无行业乖离率）
-  const trackItems = ref<any[]>([]);
+  const trackItems = ref<RankItem[]>([]);
   const trackDate = ref<string>("");
   const trackStale = ref(false);
   const trackLoading = ref(false);
 
   // 行业乖离率（仅申万一级行业适用）
-  const biasItems = ref<any[]>([]);
+  const biasItems = ref<RankItem[]>([]);
   const biasDate = ref<string>("");
   const biasStale = ref(false);
   const biasLoading = ref(false);
@@ -182,12 +183,12 @@ export function useRankTables() {
 
   // 过滤整组标灰占位（item_code === '__NA__'），仅展示有效行业
   const crowdingValidItems = computed(() =>
-    (crowdingItems.value || []).filter((i: any) => i.item_code !== "__NA__")
+    (crowdingItems.value || []).filter(i => i.item_code !== "__NA__")
   );
 
   // 赛道同理（外部源关停时该 source 可能整组无数据）
   const trackValidItems = computed(() =>
-    (trackItems.value || []).filter((i: any) => i.item_code !== "__NA__")
+    (trackItems.value || []).filter(i => i.item_code !== "__NA__")
   );
 
   /** 当前分类下的拥挤度条目（行业 / 赛道共用同一张表） */

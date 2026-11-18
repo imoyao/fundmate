@@ -384,3 +384,8 @@
   gap: var(--space-1);
   align-items: flex-end;
 }
+
+/* ── 「当日盈亏」列的「估」徽章（2026-11-06）──
+   徽章现作为 MoneyWithRatio 的 prefix 插槽渲染在金额数字之前（与金额同行，不再独占一行），
+   仅估值态出现（已确认真实值 / 无值不挂）。徽章自身的几何/配色住在
+   ValuationSourceBadge（scoped）；MoneyWithRatio 的 .money-with-ratio__main 负责前缀同行布局。 */

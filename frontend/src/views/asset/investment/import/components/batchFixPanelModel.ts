@@ -8,6 +8,7 @@
  */
 import { ALLOCATION_OPTIONS } from "@/constants";
 import type { FixMode, FixSectionKey } from "../composables/batchFixLogic";
+import type { PreviewRow } from "../composables/previewRow";
 
 export const SECTION_LABELS: Record<FixSectionKey, string> = {
   error: "解析错误",
@@ -46,7 +47,7 @@ export function singleScopeLabelOf(scope: "all" | FixSectionKey): string {
  * 刻意保留 `Number()` 的 NaN 行为：字段缺失时原文案会显示 `NaN`，
  * 改成「—」属于新的展示决策，应单独立项，不混在拆分里。
  */
-export function mismatchDiffText(row: any): string {
+export function mismatchDiffText(row: PreviewRow): string {
   const qty = Number(row.quantity),
     prc = Number(row.price),
     amt = Number(row.amount);
@@ -64,11 +65,9 @@ export interface CardDraft {
 }
 
 /** 已填充字段的人话清单（`_autoFilled` 里存的是 quantity / price 这类键名） */ export function filledFieldsLabel(
-  row: any
+  row: PreviewRow
 ): string {
-  return (row._autoFilled || [])
-    .map((f: string) => AUTO_FIELD_LABELS[f] || f)
-    .join("、");
+  return (row._autoFilled || []).map(f => AUTO_FIELD_LABELS[f] || f).join("、");
 }
 
 /** 可程序化自动处理的条目：mismatch 金额重算 + 基金净值抓取 + 已推算确认 */
@@ -86,7 +85,7 @@ export function autoFixableCountOf(
 }
 
 /** 逆回购分区【撤销】的可撤目标：解析期自动置的「活钱」，手动设置过的不动 */
-export function repoRevertableOf(rows: any[]): any[] {
+export function repoRevertableOf(rows: PreviewRow[]): PreviewRow[] {
   return rows.filter(
     row => row.allocation === "liquid" && !row._allocationManual
   );

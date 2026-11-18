@@ -101,6 +101,7 @@
             :items="cashLikeItems"
             :total="cashLikeTotal"
             :loading="cashLikeLoading"
+            @settled="fetchData"
           />
         </section>
 
@@ -110,6 +111,7 @@
           <OtherInvestmentTable
             :assets="currentAssets"
             @edit="openEditAssetDialog"
+            @detail="openValueHistory"
             @remove="removeAsset"
           />
         </section>
@@ -133,6 +135,7 @@
           <CategoryAssetTable
             :assets="currentAssets"
             @edit="openEditAssetDialog"
+            @detail="openValueHistory"
             @remove="removeAsset"
           />
         </section>
@@ -144,6 +147,11 @@
       v-model="editDialogVisible"
       :asset="editingAsset"
       @saved="fetchData"
+    />
+    <!-- 单资产值变动时间线（只读）：数据来自 /value-events/，不写家庭快照 -->
+    <AssetValueHistoryDrawer
+      v-model="historyDrawerVisible"
+      :asset="historyAsset"
     />
   </div>
 </template>
@@ -159,7 +167,7 @@
  * - 数据读写、缓存与全局刷新 → `./useInventoryData.ts`
  * - 区块 UI → `./components/*`
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { AssetRecord } from "@/api/assets";
 import type { Position } from "@/api/types";
@@ -185,6 +193,7 @@ import OtherInvestmentTable from "./components/OtherInvestmentTable.vue";
 import CashLikeTable from "./components/CashLikeTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";
+import AssetValueHistoryDrawer from "./components/AssetValueHistoryDrawer.vue";
 import StrategyInsightSection from "./components/StrategyInsightSection.vue";
 
 // 与路由 `router/modules/home.ts` 的 name 保持一致，保证 keep-alive 命中
@@ -284,22 +293,29 @@ function openEditAssetDialog(row: AssetRecord) {
   editDialogVisible.value = true;
 }
 
-/**
- * 大类切到 URL（`?tab=`）：刷新 / 分享 / 前进后退都能回到同一视图。
- *
- * 此前 `activeCategory` 只是本地 ref，`?tab=` 仅在 onMounted 读一次、切 tab 不写回，
- * 于是"切到房产 → 刷新"会跳回投资理财。投资理财是默认档，不写进 URL 保持地址干净。
- */
-watch(activeCategory, key => {
-  const query = { ...route.query };
-  if (key === "investment") {
-    delete query.tab;
-  } else {
-    query.tab = key;
-  }
-  router.replace({ query });
-});
+const historyDrawerVisible = ref(false);
+const historyAsset = ref<AssetRecord | null>(null);
 
+function openValueHistory(row: AssetRecord) {
+  historyAsset.value = row;
+  historyDrawerVisible.value = true;
+}
+
+/**
+ * `?tab=` **只作入站寻址**（刷新 / 分享 / 首页·房产页「去盘点」带过来），
+ * 页内切大类**刻意不写回 URL**。
+ *
+ * 原因只有一个：布局层 `layout/components/lay-content/index.vue` 用 `route.fullPath`
+ * 作 `<component :key>`，**任何 query 改写都会让整页组件重挂载** —— 顶部 6 张大类卡重建、
+ * `onMounted` 里的 `fetchData()` 连同汇总 / 分布 / 持仓分页 / 分类资产全套请求重跑一遍。
+ * 用户看到的就是「点一下上面的卡片，整页闪一下」。同一根因已在
+ * `reconcile-workbench`（#2706，那里记的原话是「改写 query 会整页重建并重跑所有加载器」）
+ * 踩过并固化成「只读不写」，本页此前写成 `router.replace({ query })` 与那条结论相反。
+ *
+ * 代价：切完大类再刷新会回到默认的「投资理财」档（页内切换不再进地址栏）。
+ * 换来的是切档只重拉**下方那一块表格**（`watch(activeCategory)` → `loadCategoryAssets`）。
+ * ⚠️ 不要为了「刷新后停在当前档」把 `router.replace({ query })` 加回来 —— 那条路就是整页刷新。
+ */
 onMounted(() => {
   const tab = route.query.tab as string;
   // #1354：历史链接可能带已经取消的细分大类（?tab=bank_wealth），统一落到投资理财

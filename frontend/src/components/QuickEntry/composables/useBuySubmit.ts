@@ -8,6 +8,7 @@ import {
   type useSecurityPriceRange
 } from "@/composables/useSecurityPrice";
 import { buildBuyPayload } from "../buyFormPayload";
+import type { BuyQuantityMeta } from "../buyQuantityMeta";
 import {
   buildBuySnapshot,
   isSameAsLastSubmitted,
@@ -79,6 +80,8 @@ export function useBuySubmit(deps: {
   selectedSecurityOption: Ref<SecurityOption | null>;
   stockPriceRange: StockPriceRange;
   navMissing: Ref<boolean>;
+  /** 数量/金额的品种口径（标签、金额是否派生）——见 buyQuantityMeta */
+  quantityMeta: Ref<BuyQuantityMeta>;
   /** 账户名（提交时读取，账户可能在填单过程中被切换） */
   getAccountName: () => string;
   confirmDate: Ref<string>;
@@ -92,7 +95,28 @@ export function useBuySubmit(deps: {
     ledger_id: [{ required: true, message: "请选择账户", trigger: "change" }],
     symbol: [{ required: true, message: "请选择买入产品", trigger: "change" }],
     trade_date: [{ required: true, message: "请选择日期", trigger: "change" }],
-    buyAmount: [{ required: true, message: "请输入买入金额", trigger: "blur" }],
+    buyAmount: [
+      {
+        validator: (
+          _rule: unknown,
+          value: unknown,
+          callback: (err?: Error) => void
+        ) => {
+          // 股票/ETF/可转债：金额由「数量 × 价格 + 手续费」派生且输入框只读。
+          // 空值等于「还没填成交数量」，在金额上报错会误导（下方数量规则才给准话）。
+          if (deps.quantityMeta.value.amountDerived) {
+            callback();
+            return;
+          }
+          if (value === undefined || value === null || value === "") {
+            callback(new Error("请输入买入金额"));
+            return;
+          }
+          callback();
+        },
+        trigger: "blur"
+      }
+    ],
     shares: [
       {
         validator: (
@@ -101,7 +125,7 @@ export function useBuySubmit(deps: {
           callback: (err?: Error) => void
         ) => {
           // 投顾组合（D70）：没有份额概念，校验必须放行，否则用户永远提交不了
-          if (deps.form.type === "portfolio") {
+          if (deps.quantityMeta.value.mode === "none") {
             callback();
             return;
           }
@@ -114,7 +138,7 @@ export function useBuySubmit(deps: {
             return;
           }
           if (value === undefined || value === null || value === "") {
-            callback(new Error("确认份额不能为空"));
+            callback(new Error(`${deps.quantityMeta.value.label}不能为空`));
             return;
           }
           callback();
@@ -145,8 +169,21 @@ export function useBuySubmit(deps: {
     const quantity = form.shares ?? 0;
     // 投顾组合没有份额（D70 / #2740）：它的校验是「金额 > 0」，由 buildBuyPayload
     // 传 quantity=0 + valuation_mode='balance'，后端只校验 amount。
-    if (!navPending && form.type !== "portfolio" && quantity <= 0) {
-      ElMessage.error("确认份额必须大于0");
+    if (
+      !navPending &&
+      deps.quantityMeta.value.mode !== "none" &&
+      quantity <= 0
+    ) {
+      ElMessage.error(`${deps.quantityMeta.value.label}必须大于0`);
+      return;
+    }
+    // 非基金：金额由「数量 × 成交价 + 手续费」派生，价格缺失（ETF/可转债没有
+    // 收盘价回填）就算不出来。在金额上不可能给出提示（输入框只读），故在此点明。
+    if (
+      deps.quantityMeta.value.amountDerived &&
+      (form.buyAmount === undefined || form.buyAmount <= 0)
+    ) {
+      ElMessage.error("请先填成交价格，买入金额由成交数量 × 成交价格自动算出");
       return;
     }
 

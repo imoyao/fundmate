@@ -1,3 +1,4 @@
+import { errorMessageOf } from "@/utils/errorMessage";
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
@@ -241,8 +242,8 @@ export function useEaccountImport() {
       importMode.value = "ai";
       ElMessage.success(`识别成功，共 ${rows.length} 条持仓`);
       await fetchAiUsage();
-    } catch (e: any) {
-      ElMessage.error(e?.message || "AI 识别失败，请稍后重试");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "AI 识别失败，请稍后重试");
     } finally {
       aiRecognizing.value = false;
     }

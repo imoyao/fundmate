@@ -3,47 +3,46 @@
     class="account-detail p-4 md:p-6 min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 顶部操作栏 -->
-    <div class="mb-4 flex justify-between items-center">
-      <el-button text @click="goBack">
+    <!-- 顶部操作栏（2026-11-15 收敛）
+         原来平铺 6 个按钮 + 一个纯装饰的 `›`：主次不分，390px 宽实测溢出。
+         现在只留两个入口——「编辑」（高频、改了就得能立刻找到）与「更多」
+         （对账 / 批量迁移 / 归档 / 删除，低频或破坏性动作）。
+         每个入口带 `data-action`：读屏、e2e 与 Agent 都按语义定位，
+         不再靠按钮文案猜（文案一改，脚本全瞎）。 -->
+    <div class="detail-toolbar mb-4">
+      <el-button text data-action="back" @click="goBack">
         <IconifyIconOffline icon="ep:arrow-left" class="mr-1" /> 返回
       </el-button>
-      <div v-if="!isUnclassified && accountInfo" class="flex gap-2">
-        <el-button @click="router.push({ name: 'InvestmentReconcile' })">
-          <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 对账
-        </el-button>
-        <el-button @click="openEditDialog">
+      <div v-if="accountInfo" class="detail-toolbar__actions">
+        <el-button data-action="edit-account" @click="openEditDialog">
           <IconifyIconOffline icon="ep:edit" class="mr-1" /> 编辑
         </el-button>
-        <el-button v-if="accountInfo" @click="toggleArchiveDetail(accountInfo)">
-          <IconifyIconOffline
-            :icon="
-              accountInfo.is_active === false ? 'ep:refresh-left' : 'ep:box'
-            "
-            class="mr-1"
-          />
-          {{ accountInfo.is_active === false ? "激活" : "归档" }}
-        </el-button>
-        <el-button
-          v-if="!isUnclassified && holdingsTotal > 0"
-          @click="migrationPanelRef?.openBatchMigrateDialog()"
-        >
-          <IconifyIconOffline icon="ep:share" class="mr-1" /> 批量迁移
-        </el-button>
-        <div class="flex items-center gap-1">
-          <el-button
-            v-if="!isUnclassified && accountInfo"
-            type="danger"
-            text
-            @click="openDeleteDialog(accountInfo)"
-          >
-            <IconifyIconOffline icon="ep:delete" class="mr-1" /> 删除
+        <el-dropdown trigger="click" @command="onToolbarCommand">
+          <el-button data-action="more-actions" aria-label="更多账户操作">
+            更多
+            <IconifyIconOffline icon="ep:arrow-down" class="ml-1" />
           </el-button>
-          <IconifyIconOffline
-            icon="ep:arrow-right"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="reconcile" data-action="reconcile">
+                对账
+              </el-dropdown-item>
+              <el-dropdown-item
+                command="migrate"
+                data-action="batch-migrate"
+                :disabled="holdingsTotal <= 0"
+              >
+                批量迁移
+              </el-dropdown-item>
+              <el-dropdown-item command="archive" divided data-action="archive">
+                {{ accountInfo.is_active === false ? "激活账户" : "归档账户" }}
+              </el-dropdown-item>
+              <el-dropdown-item command="delete" divided data-action="delete">
+                <span class="detail-toolbar__danger">删除账户</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
 
@@ -60,8 +59,7 @@
       <template v-else>
         <!-- 页内导航（#2739）：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail
              （PageToc）接管。两级互斥，条目由 usePageNav 按 DOM 里真实渲染的
-             nav-* 锚点动态生成——整块不渲染的区块（类现金为 0、未归置持仓页）
-             自动不留死链。 -->
+             nav-* 锚点动态生成——整块不渲染的区块（如类现金为 0）自动不留死链。 -->
         <PageNav
           v-if="navItems.length > 1"
           :items="navItems"
@@ -72,11 +70,12 @@
         <div class="account-detail__body">
           <div ref="pageMain" class="account-detail__main">
             <LedgerDetailOverview :page="page" />
-            <!-- #2616 资金流动：入金/出金/净投入/期末资产（未分类账户没有真实归属，不展示）。
+            <!-- #2616 资金流动：入金/出金/净投入/期末资产（路由 id 非有限数字时没有账户
+                 口径可言，整块不展示）。
                  组件已上移 components/CashFlowPanel（#2681：账户级 / 组合级共享同一份口径）。
                  #2739：id 经 fallthrough 落在卡片根（单根元素）＝ 锚点即标题行顶边。 -->
             <CashFlowPanel
-              v-if="!isUnclassified && ledgerIdNum"
+              v-if="ledgerIdNum"
               id="nav-cash-flow"
               :ledger-id="ledgerIdNum"
               class="mt-4"
@@ -167,6 +166,7 @@
     <PositionTransactionsDrawer
       v-model:visible="drawerVisible"
       :position-data="selectedPosition"
+      @changed="refreshAfterPositionTxnChange"
     />
   </div>
 </template>
@@ -199,7 +199,6 @@ defineOptions({ name: "LedgerDetail" });
 const page = useLedgerDetailPage();
 const {
   router,
-  isUnclassified,
   accountInfo,
   openEditDialog,
   toggleArchiveDetail,
@@ -222,6 +221,7 @@ const {
   onAccountUpdated,
   sameTypeLedgers,
   loadHoldings,
+  refreshAfterPositionTxnChange,
   accountName,
   onMigrationCommitted,
   editTxnDialogVisible,
@@ -241,7 +241,7 @@ const {
 //
 // 标签与各区块的 SectionHeader 标题**逐字一致**（读屏与视觉同一套词汇）。
 // 锚点由 DOM 存在性过滤决定：整块不渲染的区块（类现金为 0 的普通基金账户、
-// 未归置持仓页的深度分析）自动不留死链。
+// 无有效账户 id 时的深度分析与资金流动）自动不留死链。
 //
 // 持仓明细 / 交易记录**不进目录**：它们是页面末端的 el-tabs（视图切换区），
 // 一个锚点指不到两个 tab 中的哪一个，硬挂一个必然指错；它们也是页面最后一屏，
@@ -284,9 +284,56 @@ function goBack() {
   }
   router.push({ name: "AssetLedgers" });
 }
+
+/**
+ * 「更多」菜单命令分发（2026-11-15）。
+ *
+ * 收进菜单的都是低频 / 破坏性动作，故**不做二次确认以外的额外拦截**：
+ * 删除自己走 `DeleteLedgerDialog`（有持仓时要求二次确认），归档是幂等开关。
+ * 判据只有一条：命令名与 `data-action` 一一对应，新增菜单项必须同时加分支，
+ * 否则点了没反应（默认分支显式抛错，避免静默无声）。
+ */
+function onToolbarCommand(command: string) {
+  switch (command) {
+    case "reconcile":
+      router.push({ name: "InvestmentReconcile" });
+      return;
+    case "migrate":
+      migrationPanelRef.value?.openBatchMigrateDialog();
+      return;
+    case "archive":
+      if (accountInfo.value) toggleArchiveDetail(accountInfo.value);
+      return;
+    case "delete":
+      if (accountInfo.value) openDeleteDialog(accountInfo.value);
+      return;
+    default:
+      throw new Error(`未知的账户操作：${command}`);
+  }
+}
 </script>
 
 <style scoped>
+/* 顶部操作栏：两个入口（编辑 / 更多），窄屏靠 flex-wrap 折行而不是横向溢出
+   （390px 实测过 6 按钮平铺会顶出容器）。 */
+.detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.detail-toolbar__actions {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.detail-toolbar__danger {
+  color: var(--color-danger);
+}
+
 /* 页内导航两级布局（components.md PageToc）：<xl 单列（胶囊在正文上方整条横跨）；
    xl+ 主列 + 160px 右目录 rail，列间距走 --space-5（与组合详情页同款宽度账）。 */
 .account-detail__body {

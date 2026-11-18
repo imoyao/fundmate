@@ -130,6 +130,7 @@
 </template>
 
 <script setup lang="ts">
+import type { RankItem } from "../../types";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
@@ -143,7 +144,7 @@ defineOptions({ name: "BiasTable" });
 withDefaults(
   defineProps<{
     /** 乖离率条目列表（含 data.bias / logbias / data.close 等字段） */
-    items: any[];
+    items: RankItem[];
     /** 数据更新时间，空串显示「暂无」 */
     date?: string;
     /** 数据是否滞后（行情源不可用：申万宏源官网 / 腾讯 / 东财兜底） */

@@ -1,3 +1,4 @@
+import { asErrorEnvelope, errorMessageOf } from "@/utils/errorMessage";
 import {
   ref,
   computed,
@@ -11,8 +12,6 @@ import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getLedgers,
-  getLedgerSummary,
-  getLedgerPositions,
   deleteLedgerPosition,
   archiveLedger,
   unarchiveLedger,
@@ -21,119 +20,26 @@ import {
   type SalesInstitution
 } from "@/api/ledger";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
-import { updatePosition } from "@/api/positions";
-import {
-  portfolioLabel,
-  resolvePortfolioOf,
-  type PortfolioAssignment,
-  type PortfolioLookup
-} from "@/views/asset/inventory/portfolioAssignModel";
-import {
-  getMoneyFundIncome,
-  type MoneyFundIncomeData
-} from "@/api/performance";
+import type { PortfolioAssignment } from "@/views/asset/inventory/portfolioAssignModel";
+import type { MoneyFundIncomeData } from "@/api/performance";
+import type { TodayPnlData } from "@/api/summary";
 import { getLedgerTypeLabel } from "@/constants";
 import { usePageRefresh } from "@/composables/usePageRefresh";
+import { useLedgerOverview } from "@/composables/ledger/useLedgerOverview";
+import { useLedgerHoldings } from "@/composables/ledger/useLedgerHoldings";
+import { useLedgerPositionPortfolio } from "@/composables/ledger/useLedgerPositionPortfolio";
 
-/** 账户概览（GET /api/ledgers/{id}/summary/） */
-export interface LedgerSummaryData {
-  ledger_id?: number;
-  ledger_name?: string;
-  ledger_type?: string;
-  portfolio_name?: string | null;
-  total_market_value?: number;
-  position_pnl?: number;
-  position_count?: number;
-  cash_balance?: number | null;
-  /** 类现金合计（#1137）：货基 + 逆回购 + 账户现金，口径同 XIRR EXCLUDED_ASSET_TYPES */
-  cash_like_amount?: number;
-  /** 中高风险投资资产 = 总市值 - **持仓内**类现金（#1137） */
-  investment_amount?: number;
-  /**
-   * **持仓内**类现金（货基/逆回购持仓市值），是 `total_market_value` 的子集。
-   *
-   * ⚠️ 它与 `cash_like_amount` 不同：后者还含「账外类现金」（孤儿货基/逆回购流水净额
-   * + 账户现金），那部分不建持仓、不在总市值内。环形图必须用本字段做「现金类资产」片，
-   * 否则两片之和 ≠ 左侧总资产，且「投资资产」会被算成负数
-   * （真机：账户 id=12 曾显示「投资资产 -63.2% / 现金类资产 163.2%」）。
-   */
-  cash_like_in_positions_amount?: number;
-  /** 类现金明细：货基市值 */
-  money_fund_amount?: number;
-  /** 类现金明细：账户现金 */
-  cash_amount?: number;
-  /**
-   * 账外类现金逐产品明细（#2155）：孤儿货基/逆回购流水按产品归组。
-   *
-   * ⚠️ 只给汇总数不构成解释——用户问「这笔钱是什么、为什么不在持仓里」时
-   * 需要能逐产品看到（真机账户 id=12 账外孤儿净额 476,951 元）。
-   */
-  cash_like_breakdown?: CashLikeBreakdownRow[];
-  /**
-   * 账外孤儿流水**本金净额**（不建持仓、不进总市值）。
-   * 真机形态：账户「同花顺——银河」此项 476,951 元，而持仓市值仅 296,042 元。
-   */
-  orphan_amount?: number;
-  /**
-   * 账外孤儿流水里的渠道**收益桶**（#863 D1）。同样不建持仓，但已计入家庭总资产。
-   * 它**不在** `cash_like_amount` 的加总里，单列是为了说清「账外对总资产的贡献」。
-   */
-  orphan_income_amount?: number;
-  /** 账户现金（`Asset.major_category='cash'`），账外项之一 */
-  account_cash_amount?: number;
-  linked_liability?: number;
-  type_distribution?: Record<string, number>;
-}
+import type { LedgerHoldingRow, LedgerSummaryData } from "./ledger/types";
 
-/** 账外类现金逐产品明细行（`cash_like_breakdown` 元素，#2155） */
-export interface CashLikeBreakdownRow {
-  name: string;
-  symbol?: string | null;
-  asset_type?: string | null;
-  asset_type_label?: string;
-  /** 本金净额（元）：buy/deposit − sell/withdraw，不含收益行 */
-  net_amount: number;
-  /** 渠道收益（元）：is_income=True 的发放行 */
-  income_amount: number;
-  /** 本金 + 收益，本行合计 */
-  total_amount: number;
-  txn_count: number;
-}
-
-/** 持仓行（GET /api/ledgers/{id}/positions/ 分页 items） */
-export interface LedgerHoldingRow {
-  id: number;
-  symbol?: string;
-  name?: string | null;
-  asset_type?: string;
-  type_label?: string;
-  market_value?: number;
-  pnl?: number;
-  pnl_rate?: number;
-  avg_price?: number;
-  /** 持有时长（天），基于本轮建仓确认日 confirm_date；清仓后重买重置；无确认日时为 null（#862） */
-  holding_days?: number | null;
-  current_price?: number;
-  /** 价格时点（#2140）：基金=实际采用的最新净值日；其他=快照回写日；缺失为 null */
-  price_date?: string | null;
-  /**
-   * 当日确认口径是否已定型（#2210）：true = 估值副行应隐藏；null / 缺省 = 不隐藏。
-   * **状态 = 后端字段契约**，前端禁止按日期自行推断。
-   */
-  settled_today?: boolean | null;
-  allocation?: string | null;
-  allocation_label?: string;
-  quantity?: number;
-  account_name?: string;
-  /**
-   * 所属组合（D20 持仓级组合）：后端 `GET /api/ledgers/<id>/positions/` 输出。
-   *
-   * - 具体数字 = 显式指派到该组合；
-   * - `null` = 未指派，归到**本账户默认组合**（本页的「随账户」）；
-   * - `undefined` = 响应里没有该字段 → 未知，**不得当 `null` 渲染成「随账户」**。
-   */
-  portfolio_id?: number | null;
-}
+/**
+ * 三个行 / 概览类型已迁到 `./ledger/types`（#2931，D87）：`ledger/` 两个子域与视图组件
+ * 直接引用该文件，不再反向依赖本 composable。此处 re-export 只为保持对外 import 路径不变。
+ */
+export type {
+  CashLikeBreakdownRow,
+  LedgerHoldingRow,
+  LedgerSummaryData
+} from "./ledger/types";
 
 /** 子组件命令式打开入口的结构类型（避免 composable 反向依赖视图组件） */
 interface MigrateDialogInstance {
@@ -157,13 +63,11 @@ interface LedgerTransactionsBinding {
 export interface LedgerDetailApi {
   ledgerId: ComputedRef<string>;
   ledgerIdNum: ComputedRef<number | undefined>;
-  isUnclassified: ComputedRef<boolean>;
   loading: Ref<boolean>;
   showSkeleton: Ref<boolean>;
   ledgers: Ref<LedgerItem[]>;
   portfolioList: Ref<PortfolioItem[]>;
   salesInstitutions: Ref<SalesInstitution[]>;
-  assignMap: Ref<Record<number, number>>;
   deleteDialogVisible: Ref<boolean>;
   deletingAccount: Ref<LedgerItem | null>;
   showEditDialog: Ref<boolean>;
@@ -171,6 +75,8 @@ export interface LedgerDetailApi {
   selectedPosition: Ref<LedgerHoldingRow | null>;
   summaryData: Ref<LedgerSummaryData | null>;
   moneyFundData: Ref<MoneyFundIncomeData | null>;
+  /** 账户级当日估值（D92，由 useLedgerOverview 透传） */
+  todayPnlData: Ref<TodayPnlData | null>;
   isCompositionLedger: ComputedRef<boolean>;
   compositionData: ComputedRef<{ name: string; value: number }[]>;
   compositionColorMap: Record<string, string>;
@@ -200,6 +106,15 @@ export interface LedgerDetailApi {
     portfolioId: number | null
   ) => Promise<void>;
   openPositionDrawer: (row: LedgerHoldingRow) => void;
+  /**
+   * 只重取账户概览（不含持仓 / 流水）。
+   *
+   * 供「账户概览以外的轻量写入」定点刷新用：账户现金（G5）写入后只有
+   * `account_cash_amount` / `cash_like_amount` 变了，重取整页数据属浪费。
+   */
+  loadSummary: () => Promise<void>;
+  /** 持仓抽屉内改/删交易后：概览 + 持仓行 + 交易记录 Tab 全部重取（后端已重算份额成本） */
+  refreshAfterPositionTxnChange: () => Promise<void>;
   openEditDialog: () => Promise<void>;
   toggleArchiveDetail: (ledger: LedgerItem) => Promise<void>;
   /** 打开删除持仓确认对话框（#1830：删除分支收进对话框，取消位归位） */
@@ -227,7 +142,7 @@ export interface LedgerDetailApi {
 /**
  * 账本详情页「详情与账户信息」相关状态与函数：详情加载、账户信息、销售机构候选、
  * 概览/货基/持仓 Tab 数据、搜索联动、归档/编辑/删除、全局刷新与首屏加载。
- * 交易流水 Tab 的状态与函数见 useLedgerTransactions；批量迁移残留逻辑见 usePositionMigration。
+ * 交易流水 Tab 的状态与函数见 useLedgerTransactions。
  * 共享状态（ledgers / accountInfo / salesInstitutions / ledgerId / accountName 等）统一在此持有，
  * 其余 composable 通过参数复用同一实例，避免重复声明导致状态分裂。
  */
@@ -235,20 +150,18 @@ export function useLedgerDetail(): LedgerDetailApi {
   const route = useRoute();
 
   const ledgerId = computed(() => route.params.id as string);
-  const isUnclassified = computed(
-    () => ledgerId.value === "unclassified" || !!route.query.name
-  );
   /**
    * 账户 id（数字口径）。
    *
-   * ⚠️ 不要用 `Number(ledgerId.value)` 顶替：「未归置持仓」伪账户的路由参数是
-   * `"unclassified"`，Number 之后是 **NaN**；NaN 会被 axios 序列化成
-   * `ledger_id=NaN`，后端 `request.args.get('ledger_id', type=int)` 解析失败
-   * 一律回 None（＝「不传」＝家庭级）——于是页面拿**全家庭**的数据当本页展示，
-   * 而面板的口径标签还写着「账户」。数据与标签同时错，比单错更坏。
+   * ⚠️ 不要用 `Number(ledgerId.value)` 顶替：路由参数是**字符串**，非数字取值
+   * （历史遗留的 `/asset/ledgers/<非数字>` 深链、空值）经 Number 之后是 **NaN**；
+   * NaN 会被 axios 序列化成 `ledger_id=NaN`，后端
+   * `request.args.get('ledger_id', type=int)` 解析失败一律回 None
+   * （＝「不传」＝家庭级）——于是页面拿**全家庭**的数据当本页展示，而面板的
+   * 口径标签还写着「账户」。数据与标签同时错，比单错更坏。
    *
-   * 故只认**有限数字**：非数字（未归置伪账户 / 空值）一律 undefined，
-   * 即「显式不传」，由各消费方自己落到家庭级或整块不展示。
+   * 故只认**有限数字**：非数字 / 空值一律 undefined，即「显式不传」，
+   * 由各消费方自己落到家庭级或整块不展示。
    */
   const ledgerIdNum = computed<number | undefined>(() => {
     const raw = ledgerId.value;
@@ -256,31 +169,14 @@ export function useLedgerDetail(): LedgerDetailApi {
     const n = Number(raw);
     return Number.isFinite(n) ? n : undefined;
   });
-  const targetAccountName = computed(
-    () => route.query.name as string | undefined
-  );
 
   const loading = ref(true);
   // 骨架屏阈值控制：请求 ≤200ms 返回时直接渲染内容、跳过骨架屏，避免"闪屏"（骨架刚出现就消失）
   const showSkeleton = ref(false);
   let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
   const ledgers = ref<LedgerItem[]>([]);
-  const portfolioList = ref<PortfolioItem[]>([]);
-  /**
-   * 「所属组合」列的上下文就绪位。
-   *
-   * 继承态（「随账户」）要成立，光有组合列表不够——还得知道**本账户的默认组合**
-   * （来自 `ledgers → accountInfo`）。两路数据任一未到时若按「查不到 ⇒ 没设默认组合」
-   * 直接判成 `none`，界面就会把「不知道」显示成「未归属」：用户看到自己的持仓
-   * 忽然不属于任何组合，只会以为数据丢了。
-   *
-   * 故未就绪时一律走 `unknown`（显示「—」），宁可少说，不可错说。
-   */
-  const portfoliosLoaded = ref(false);
-  const ledgersLoaded = ref(false);
   /** 基金销售机构候选（AMAC 名录，编辑账户可选关联） */
   const salesInstitutions = ref<SalesInstitution[]>([]);
-  const assignMap = ref<Record<number, number>>({});
   const deleteDialogVisible = ref(false);
   const deletingAccount = ref<LedgerItem | null>(null);
 
@@ -289,62 +185,29 @@ export function useLedgerDetail(): LedgerDetailApi {
   const drawerVisible = ref(false);
   const selectedPosition = ref<LedgerHoldingRow | null>(null);
 
-  // 概览数据
-  const summaryData = ref<LedgerSummaryData | null>(null);
+  // 概览 / 货基收益 / 资产构成（#2922 下沉到 useLedgerOverview：只依赖账户 id
+  // 一个只读输入，产出全是本页派生视图，不进 store）
+  const {
+    summaryData,
+    moneyFundData,
+    todayPnlData,
+    isCompositionLedger,
+    compositionData,
+    compositionColorMap,
+    loadSummary,
+    loadMoneyFundIncome
+  } = useLedgerOverview(ledgerId);
 
-  // 货币基金收益（仅基金账户拉取）
-  const moneyFundData = ref<MoneyFundIncomeData | null>(null);
-
-  // 是否展示资产构成（仅股票 / 基金 / 信用账户有投资资产与现金类资产之分）
-  const isCompositionLedger = computed(() =>
-    ["stock", "fund", "e_account"].includes(
-      summaryData.value?.ledger_type ?? ""
-    )
-  );
-
-  // 环形图数据：投资资产 vs 现金类资产。
-  //
-  // ⚠️ 两片必须是**持仓市值的一个划分**（合计 = 左侧「总资产」），否则占比会算出
-  // 负数或超过 100%：账外类现金（孤儿货基流水净额 / 账户现金）不在持仓市值内，
-  // 若拿它当「现金类资产」片，投资片 = 总市值 - 类现金 就会变负
-  // （真机：账户 id=12 曾显示「投资资产 -63.2% / 现金类资产 163.2%」）。
-  // 故现金片固定取 `cash_like_in_positions_amount`（持仓内类现金）。
-  const compositionData = computed(() => [
-    { name: "投资资产", value: summaryData.value?.investment_amount ?? 0 },
-    {
-      name: "现金类资产",
-      value: summaryData.value?.cash_like_in_positions_amount ?? 0
-    }
-  ]);
-
-  // 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex），对齐家庭资产看板饼图取色（chart-01 起）
-  const compositionColorMap = {
-    投资资产: "--chart-01",
-    现金类资产: "--chart-06"
-  };
-
-  async function loadMoneyFundIncome() {
-    if (isUnclassified.value) return;
-    moneyFundData.value = null;
-    try {
-      const res = await getMoneyFundIncome({
-        scope: "ledger",
-        ledger_id: Number(ledgerId.value)
-      });
-      moneyFundData.value = res.data;
-    } catch (e) {
-      // 禁止静默吞错：失败保留占位 "--"，仅记日志不打断页面
-      console.error("货基收益加载失败", e);
-    }
-  }
-
-  // 持仓 Tab 数据
-  const holdingsPage = ref(1);
-  const holdingsPageSize = 20;
-  const holdingsList = ref<LedgerHoldingRow[]>([]);
-  const holdingsTotal = ref(0);
-  // 名称/代码搜索（#982）：后端 LIKE 过滤，防抖后重置回第一页
-  const holdingsSearch = ref("");
+  // 持仓 Tab 数据（#2948，D89 下沉到 useLedgerHoldings：分页状态与取数属该域；
+  // 「何时取」（首屏 Promise.all 顺序 / 搜索防抖 / 刷新时机）仍留本文件，见 onMounted）
+  const {
+    holdingsPage,
+    holdingsPageSize,
+    holdingsList,
+    holdingsTotal,
+    holdingsSearch,
+    loadHoldings
+  } = useLedgerHoldings(ledgerId);
 
   const activeTab = ref("holdings");
 
@@ -388,16 +251,12 @@ export function useLedgerDetail(): LedgerDetailApi {
   const accountInfo = computed(
     () => ledgers.value.find(l => String(l.id) === ledgerId.value) || null
   );
-  const accountName = computed(() => {
-    if (targetAccountName.value) return targetAccountName.value;
-    if (isUnclassified.value) return "未归置持仓";
-    return (
+  const accountName = computed(
+    () =>
       accountInfo.value?.name || summaryData.value?.ledger_name || "账户详情"
-    );
-  });
+  );
 
   const subTitle = computed(() => {
-    if (isUnclassified.value) return "将以下资产关联到已有账户";
     const type =
       summaryData.value?.ledger_type || accountInfo.value?.ledger_type;
     return getLedgerTypeLabel(type) || "其他";
@@ -436,9 +295,7 @@ export function useLedgerDetail(): LedgerDetailApi {
 
   async function handleGlobalRefresh() {
     console.log("收到全局记账完成信号，刷新当前页面数据...");
-    if (!isUnclassified.value) {
-      await loadSummary();
-    }
+    await loadSummary();
     await loadHoldings();
     // 如果当前用户正在看的是交易记录 Tab，顺便刷新交易记录
     if (activeTab.value === "transactions") {
@@ -446,13 +303,30 @@ export function useLedgerDetail(): LedgerDetailApi {
     }
   }
 
-  async function loadSummary() {
-    try {
-      const res = await getLedgerSummary(Number(ledgerId.value));
-      summaryData.value = (res as { data?: LedgerSummaryData })?.data ?? {};
-    } catch {
-      ElMessage.error("概览加载失败");
+  /**
+   * 持仓抽屉里改/删交易后的定点刷新。
+   *
+   * 后端（`transactions.delete`）删完会按剩余流水回滚份额与成本，编辑同理，因此过期的
+   * 有三处：页头概览（市值/成本）、持仓 Tab 的该行份额、交易记录 Tab（同一批流水）。
+   * 抽屉头部绑的是 `holdingsList` 里的对象，而 `loadHoldings()` 会整表替换成新对象，
+   * 旧引用会停在旧份额上——必须按 id 重新绑定，否则抽屉里的份额与外面永远对不上。
+   * 持仓若被删除（只剩锚点/无流水），顺手关掉抽屉，避免停在一条不存在的持仓上。
+   */
+  async function refreshAfterPositionTxnChange() {
+    await Promise.all([loadSummary(), loadHoldings(holdingsPage.value)]);
+    const current = selectedPosition.value;
+    if (current) {
+      const fresh = holdingsList.value.find(
+        h => String(h.id) === String(current.id)
+      );
+      if (fresh) {
+        selectedPosition.value = fresh;
+      } else {
+        selectedPosition.value = null;
+        drawerVisible.value = false;
+      }
     }
+    await transactionsApi.value?.loadTransactions(1);
   }
 
   /** 销售机构候选加载：失败仅记日志，编辑弹窗下拉留空（可选字段不阻塞页面） */
@@ -465,125 +339,28 @@ export function useLedgerDetail(): LedgerDetailApi {
     }
   }
 
-  // 持仓加载
-  async function loadHoldings(page = 1) {
-    holdingsPage.value = page;
-    try {
-      const res = await getLedgerPositions(Number(ledgerId.value), {
-        page,
-        per_page: holdingsPageSize,
-        search: holdingsSearch.value.trim() || undefined
-      });
-      const result = (
-        res as { data?: { items?: LedgerHoldingRow[]; total?: number } }
-      )?.data;
-      holdingsList.value = result?.items ?? [];
-      holdingsTotal.value = result?.total ?? 0;
-    } catch {
-      ElMessage.error("持仓加载失败");
-    }
-  }
+  // 持仓加载已下沉到 useLedgerHoldings（#2948，D89），本文件只保留「何时调它」的编排
 
-  // ── 所属组合（D20 二期 UI）────────────────────────────────────────────
+  // ── 所属组合（D20 二期 UI，2026-11-05）──────────────────────────────
   //
   // 账户详情页此前只能改「配置目标」（五笔钱），组合归属得跑去「全面盘点」页改。
   // 而用户看账户时最想问的正是「这个账户里哪些持仓被我拆到了别的组合」——
   // 数据就在眼前，入口却在另一页。这一组把它补上。
-
-  /** 组合上下文是否可用于解析归属（两个来源都到齐，见 ref 处注释） */
-  const portfolioContextReady = computed(
-    () => portfoliosLoaded.value && ledgersLoaded.value
-  );
-
-  /** 供纯函数解析用的查询表：本页只有一个账户，故映射里只有一条 */
-  const portfolioLookup = computed<PortfolioLookup>(() => ({
-    portfolios: portfolioList.value,
-    ledgerPortfolioMap:
-      ledgerIdNum.value != null
-        ? { [ledgerIdNum.value]: accountInfo.value?.portfolio_id ?? null }
-        : {}
-  }));
-
-  /**
-   * 解析单条持仓的归属状态。
-   *
-   * 规则本身**不在这里写**：显式指派压过账户继承是服务端口径
-   * （`portfolio_service.portfolio_position_conditions`），抄第二份必然漂移，
-   * 故直接调盘点页那份纯函数。本函数只补两件本页特有的事：
-   * 1. 未就绪 → `unknown`（不猜）；
-   * 2. 补 `ledger_id`——账户持仓接口的行里**没有**该字段（items 是后端手工拼的
-   *    字典），而整页只有一个账户，用路由上的 id 补上比让后端多发一个冗余字段更省。
-   */
-  function resolveHoldingPortfolio(row: LedgerHoldingRow): PortfolioAssignment {
-    if (!portfolioContextReady.value) {
-      return { mode: "unknown", labelText: null };
-    }
-    return resolvePortfolioOf(
-      { ...row, ledger_id: ledgerIdNum.value ?? null },
-      portfolioLookup.value
-    );
-  }
-
-  /**
-   * 改派持仓所属组合。
-   *
-   * ⚠️ 必须走 `PATCH /api/positions/<id>/`，**不是**账户下的嵌套持仓 PATCH
-   * （`/api/ledgers/<lid>/positions/<pid>/`）。后者是「五笔钱」白名单，只接受
-   * allocation / current_price / notes，`portfolio_id` 会被静默丢弃——请求返回 200、
-   * 界面却纹丝不动，是最难排查的一类「失败」。`api/ledger.ts` 里该函数的注释
-   * 也明确写着「迁移持仓归属请改调 PATCH /api/positions/<id>/」。
-   *
-   * 成功后**局部替换该行**而不整页重取：改派不动任何金额，重取只会让表格闪一下，
-   * 还会把刚改的那行挤出当前页（后端按市值降序分页）。
-   */
-  async function reassignPosition(
-    row: LedgerHoldingRow,
-    portfolioId: number | null
-  ): Promise<void> {
-    try {
-      await updatePosition(row.id, { portfolio_id: portfolioId });
-    } catch (e) {
-      const err = e as {
-        message?: string;
-        response?: { data?: { message?: string; description?: string } };
-      };
-      ElMessage.error(
-        err?.response?.data?.message ||
-          err?.response?.data?.description ||
-          err?.message ||
-          "改派组合失败"
-      );
-      return;
-    }
-    const index = holdingsList.value.findIndex(item => item.id === row.id);
-    if (index >= 0) {
-      holdingsList.value[index] = {
-        ...holdingsList.value[index],
-        portfolio_id: portfolioId
-      };
-    }
-    const target =
-      portfolioId === null
-        ? "账户默认组合"
-        : portfolioLabel(portfolioList.value, portfolioId);
-    ElMessage.success(`已改派到「${target}」，相关组合年化将重算`);
-  }
-
-  /**
-   * 拉取组合列表（改派浮层的候选项）。
-   *
-   * 首屏就拉：此前只在「编辑账户」弹窗里才拉（下拉需要），于是打开页面时组合列
-   * 无从解析。失败不抛——组合列降级为「—」，持仓表其余列照常可用。
-   */
-  async function loadPortfolioContext() {
-    try {
-      const res = await getPortfolios();
-      portfolioList.value = (res as { data?: PortfolioItem[] })?.data ?? [];
-      portfoliosLoaded.value = true;
-    } catch (e) {
-      console.error("组合列表加载失败，「所属组合」列暂显示为「—」", e);
-    }
-  }
+  //
+  // #2922 起整块下沉到 useLedgerPositionPortfolio（读归属 / 改派 / 候选项与就绪位）；
+  // 同属单页派生，不进 store。
+  const {
+    portfolioList,
+    loadPortfolioContext,
+    adoptPortfolioList,
+    markLedgersLoaded,
+    resolveHoldingPortfolio,
+    reassignPosition
+  } = useLedgerPositionPortfolio({
+    ledgerIdNum,
+    accountInfo,
+    holdingsList
+  });
 
   function onTabChange(tabName: string) {
     if (tabName === "holdings" && holdingsList.value.length === 0) {
@@ -608,10 +385,10 @@ export function useLedgerDetail(): LedgerDetailApi {
         getPortfolios()
       ]);
       ledgers.value = ledgerRes.data ?? [];
-      portfolioList.value =
-        (portfolioRes as { data?: PortfolioItem[] })?.data ?? [];
       // 首屏那一次若失败，这里重试成功后同样要放行「所属组合」列的解析
-      portfoliosLoaded.value = true;
+      adoptPortfolioList(
+        (portfolioRes as { data?: PortfolioItem[] })?.data ?? []
+      );
     } catch {
       ElMessage.error("加载关联账户或组合列表失败");
       return; // 加载失败不打开弹窗
@@ -648,9 +425,9 @@ export function useLedgerDetail(): LedgerDetailApi {
       ledgers.value = res.data ?? [];
       await loadSummary();
       await loadHoldings();
-    } catch (e: any) {
-      if (e !== "cancel" && e?.action !== "cancel") {
-        ElMessage.error(e?.message || "操作失败");
+    } catch (e) {
+      if (e !== "cancel" && asErrorEnvelope(e).action !== "cancel") {
+        ElMessage.error(errorMessageOf(e) || "操作失败");
       }
     }
   }
@@ -748,35 +525,31 @@ export function useLedgerDetail(): LedgerDetailApi {
     try {
       // 销售机构候选：编辑弹窗下拉数据源（内部兜底，失败不打断主流程）
       await loadSalesInstitutions();
-      if (!isUnclassified.value) {
-        // 组合列表与概览/持仓并行：它是「所属组合」列的候选项与名称来源，
-        // 晚一步不影响主数据，故不必串行等待（见 loadPortfolioContext 注释）。
-        await Promise.all([
-          loadSummary(),
-          loadHoldings(),
-          loadPortfolioContext()
-        ]);
-        // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
-        if (summaryData.value?.ledger_type === "fund")
-          await loadMoneyFundIncome();
-        // 修复：首屏填充 ledgers，使 accountInfo 可解析，从而显示右上角操作栏
-        // （编辑/归档/删除/对账/批量迁移）。此前仅在点击这些按钮时才拉取，
-        // 而按钮本身又在 v-if="accountInfo" 内，形成死锁导致操作栏永不显示。
-        // 拉取失败仅影响操作栏可用性，不阻断概览/持仓等主流程，故单独兜底。
-        try {
-          const ledgerRes = await getLedgers(true);
-          ledgers.value = ledgerRes.data ?? [];
-          // 账本列表到位才算「继承态可判」：账户详情页的继承来源就是本账户的
-          // `portfolio_id`，拿不到它时不能退化成「未归属」（见 portfoliosLoaded 注释）
-          ledgersLoaded.value = true;
-        } catch (error) {
-          console.error(
-            "获取账本列表失败，操作栏暂不可用（其余详情正常）",
-            error
-          );
-        }
-      } else {
-        await loadHoldings();
+      // 组合列表与概览/持仓并行：它是「所属组合」列的候选项与名称来源，
+      // 晚一步不影响主数据，故不必串行等待（见 loadPortfolioContext 注释）。
+      await Promise.all([
+        loadSummary(),
+        loadHoldings(),
+        loadPortfolioContext()
+      ]);
+      // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
+      if (summaryData.value?.ledger_type === "fund")
+        await loadMoneyFundIncome();
+      // 修复：首屏填充 ledgers，使 accountInfo 可解析，从而显示右上角操作栏
+      // （编辑/归档/删除/对账/批量迁移）。此前仅在点击这些按钮时才拉取，
+      // 而按钮本身又在 v-if="accountInfo" 内，形成死锁导致操作栏永不显示。
+      // 拉取失败仅影响操作栏可用性，不阻断概览/持仓等主流程，故单独兜底。
+      try {
+        const ledgerRes = await getLedgers(true);
+        ledgers.value = ledgerRes.data ?? [];
+        // 账本列表到位才算「继承态可判」：账户详情页的继承来源就是本账户的
+        // `portfolio_id`，拿不到它时不能退化成「未归属」（见 useLedgerPositionPortfolio）
+        markLedgersLoaded();
+      } catch (error) {
+        console.error(
+          "获取账本列表失败，操作栏暂不可用（其余详情正常）",
+          error
+        );
       }
     } catch (e) {
       const err = e as { message?: string };
@@ -794,13 +567,11 @@ export function useLedgerDetail(): LedgerDetailApi {
   return {
     ledgerId,
     ledgerIdNum,
-    isUnclassified,
     loading,
     showSkeleton,
     ledgers,
     portfolioList,
     salesInstitutions,
-    assignMap,
     deleteDialogVisible,
     deletingAccount,
     showEditDialog,
@@ -808,6 +579,7 @@ export function useLedgerDetail(): LedgerDetailApi {
     selectedPosition,
     summaryData,
     moneyFundData,
+    todayPnlData,
     isCompositionLedger,
     compositionData,
     compositionColorMap,
@@ -828,6 +600,8 @@ export function useLedgerDetail(): LedgerDetailApi {
     resolveHoldingPortfolio,
     reassignPosition,
     openPositionDrawer,
+    loadSummary,
+    refreshAfterPositionTxnChange,
     openEditDialog,
     toggleArchiveDetail,
     openDeletePositionDialog,

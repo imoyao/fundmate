@@ -14,8 +14,10 @@
 <template>
   <header class="page-header">
     <div class="page-header__text">
-      <h1 class="page-header__title">{{ title }}</h1>
-      <p v-if="subtitle" class="page-header__subtitle">{{ subtitle }}</p>
+      <h1 class="page-header__title" :class="titleClass">{{ title }}</h1>
+      <p v-if="subtitle" class="page-header__subtitle" :class="subtitleClass">
+        {{ subtitle }}
+      </p>
     </div>
     <div class="page-header__aside">
       <div v-if="updatedAt" class="page-header__updated">
@@ -37,8 +39,22 @@ withDefaults(
     title?: string;
     subtitle?: string;
     updatedAt?: string;
+    /**
+     * 标题 / 副标题的附加类名。**只用于承接页面已有的 e2e 锚点或测试标识**，
+     * 不要拿来改排版——视觉一律由 `.page-header__title` / `__subtitle` 与令牌决定。
+     * 这样页面迁入统一页头时不必自建第二个标题层（design.md「一层页头」），
+     * 也不必为保留旧锚点而复制组件。
+     */
+    titleClass?: string;
+    subtitleClass?: string;
   }>(),
-  { title: "", subtitle: "", updatedAt: "" }
+  {
+    title: "",
+    subtitle: "",
+    updatedAt: "",
+    titleClass: "",
+    subtitleClass: ""
+  }
 );
 </script>
 

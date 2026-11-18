@@ -62,6 +62,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import type { FeeMergeRow } from "../composables/useSellFee";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -72,7 +73,7 @@ const props = defineProps<{
   /** 用户已输入的赎回份额（>0 才显示「卖出份额」列） */
   enteredShares: number;
   /** 全仓分布与本次份额分布的合并行 */
-  mergedFeeData: any[];
+  mergedFeeData: FeeMergeRow[];
   /** 有买入记录、可参与费率计算的份额合计 */
   totalCalculatedHold: number;
 }>();

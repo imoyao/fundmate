@@ -17,6 +17,24 @@ export const EMPTY_NO_VALUATION =
   "账户里的产品按日没有估值序列（银行理财、投顾组合、实物资产等），" +
   "因此没有每日收益。";
 
+/** 作用域内已无持仓、但有历史流水 —— 已清仓账户的当期空态，不是故障 */
+export const EMPTY_CLEARED_SCOPE =
+  "当前区间内已没有持仓，历史收益仍已入账。切到「年收益」查看投资以来各年，" +
+  "或到投资复盘页查看已落袋明细。";
+
+/**
+ * 是否「已清仓但有过投资」：作用域内零持仓，而 `first_txn_date` 有值。
+ *
+ * 与数据缺口的区别：`isDataGap` 说的是「该有价却没有」，指向同步任务；
+ * 已清仓账户当期本来就不该有价，混成一句会让用户去查一个不用跑的任务。
+ * 年视图靠 `first_txn_date` 展开到投资以来，故空载荷必须把这个字段带回来。
+ */
+export function hasClearedHistory(series: PnlCalendarSeries | null): boolean {
+  return (
+    series?.coverage?.total_positions === 0 && Boolean(series?.first_txn_date)
+  );
+}
+
 /** 该区间一条价格都没有——通常是每日快照任务没跑，说清「别处有」并给出去处 */
 export function emptyDataGapHint(lastDate: string, scope: string): string {
   return (
@@ -118,6 +136,7 @@ export function emptyHintFor(
 ): string {
   if (isNotStartedYet(granularity, cursor))
     return emptyNotStartedHint(granularity, cursor);
+  if (hasClearedHistory(series)) return EMPTY_CLEARED_SCOPE;
   if (!isDataGap(series)) return EMPTY_NO_VALUATION;
   return emptyDataGapHint(
     series?.latest_price_date ?? "—",

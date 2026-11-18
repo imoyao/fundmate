@@ -79,7 +79,9 @@ import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SoftBanner from "@/components/SoftBanner/index.vue";
 import { searchFunds } from "@/api/funds";
+import type { FundSearchItem } from "@/api/funds";
 import { navCache } from "@/composables/useNavCache";
+import type { PreviewRow } from "../composables/previewRow";
 
 interface MissingItem {
   name: string;
@@ -89,7 +91,7 @@ interface MissingItem {
 const props = defineProps<{
   visible: boolean;
   missingFundNames: MissingItem[];
-  previewData: any[];
+  previewData: PreviewRow[];
 }>();
 
 const emit = defineEmits<{
@@ -98,7 +100,7 @@ const emit = defineEmits<{
 }>();
 
 // 搜索状态
-const searchResults = reactive<Record<string, any[]>>({});
+const searchResults = reactive<Record<string, FundSearchItem[]>>({});
 const searchLoading = reactive<Record<string, boolean>>({});
 const searchInputs = reactive<Record<string, string>>({});
 
@@ -127,7 +129,7 @@ async function searchFund(keyword: string, fundName: string) {
   }
   searchLoading[fundName] = true;
   try {
-    const res: any = await searchFunds(keyword);
+    const res = await searchFunds(keyword);
     searchResults[fundName] = res?.data ?? [];
   } catch {
     searchResults[fundName] = [];
@@ -138,13 +140,11 @@ async function searchFund(keyword: string, fundName: string) {
 
 // 应用匹配
 async function applyMatch(fundName: string, code: string) {
-  const selected = (searchResults[fundName] || []).find(
-    (f: any) => f.code === code
-  );
+  const selected = (searchResults[fundName] || []).find(f => f.code === code);
   if (!selected) return;
 
   // 1. 批量更新 previewData 中同名的记录，并收集需要填充净值的行
-  const matchedRows: any[] = [];
+  const matchedRows: PreviewRow[] = [];
   props.previewData.forEach(row => {
     if (row.name === fundName && !row.symbol) {
       row.symbol = code;

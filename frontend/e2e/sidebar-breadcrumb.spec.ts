@@ -12,35 +12,39 @@ import { injectSupabaseSession } from "./support/session";
  *
  * 本轮实机盘查抓出的错链（修复前 → 修复后）：
  *
- *   /stocks                   资产概览 / 股票        → 资产管理 / 股票
- *   /funds                    资产概览 / 基金        → 资产管理 / 基金
- *   /investment/holding-import 资产概览 / 导入持仓    → 记账中心 / 导入持仓
- *   /investment/manual        资产概览 / 手动记账    → 记账中心 / 手动记账
- *   /investment/reconcile     资产概览 / E账户对账   → 记账中心 / E账户对账
- *   /asset/asset-entry        资产管理 / 录入资产    → 记账中心 / 录入资产（path 前缀骗了它）
- *   /fund/004369              资产概览 / 产品详情    → 产品详情
+ *   /stocks                   概览 / 股票        → 资产 / 股票
+ *   /funds                    概览 / 基金        → 资产 / 基金
+ *   /investment/holding-import 概览 / 导入持仓    → 记账 / 导入持仓
+ *   /investment/manual        概览 / 手动记账    → 记账 / 手动记账
+ *   /investment/reconcile     概览 / E账户对账   → 记账 / E账户对账
+ *   /asset/asset-entry        资产 / 录入资产    → 记账 / 录入资产（path 前缀骗了它）
+ *   /fund/004369              概览 / 产品详情    → 产品详情
+ *
+ * 2026-11-01 三次修订后五个顶级为「概览 / 资产 / 自选 / 记账 / 账本精灵」，业务顶级
+ * 下平铺（无分组目录）；`/asset/fund-ranking` 的路径前缀仍是 /asset，但归属「自选」。
  *
  * 判据口径：面包屑**末项**必须等于页面标题（`document.title` 的前半段，由路由守卫
  * 按 `to.matched` 写入），中间项逐个钉死。
  */
 
 const CASES: Array<{ path: string; crumbs: string[] }> = [
-  // 四顶级各自的正常页面
-  { path: "/welcome", crumbs: ["资产概览", "投资概览"] },
-  { path: "/watchlist", crumbs: ["资产管理", "我的关注", "我的自选"] },
-  { path: "/asset/precious", crumbs: ["资产管理", "实物资产", "贵金属"] },
-  { path: "/inventory", crumbs: ["记账中心", "全面盘点"] },
+  // 各顶级各自的正常页面
+  { path: "/welcome", crumbs: ["概览", "投资概览"] },
+  { path: "/asset/strategies", crumbs: ["资产", "策略分析"] },
+  { path: "/asset/precious", crumbs: ["资产", "贵金属"] },
+  { path: "/watchlist", crumbs: ["自选", "我的自选"] },
+  { path: "/inventory", crumbs: ["记账", "全面盘点"] },
   // 单页模块：路由两级、菜单与面包屑都只有一级
   { path: "/agent/chat", crumbs: ["账本精灵"] },
-  // showLink:false / hidden 的可达页面：父级必须来自路由结构，不能塌回「资产概览」
-  { path: "/stocks", crumbs: ["资产管理", "股票"] },
-  { path: "/funds", crumbs: ["资产管理", "基金"] },
-  { path: "/investment/holding-import", crumbs: ["记账中心", "导入持仓"] },
-  { path: "/investment/manual", crumbs: ["记账中心", "手动记账"] },
-  { path: "/investment/reconcile", crumbs: ["记账中心", "E账户对账"] },
+  // showLink:false / hidden 的可达页面：父级必须来自路由结构，不能塌回「概览」
+  { path: "/stocks", crumbs: ["资产", "股票"] },
+  { path: "/funds", crumbs: ["资产", "基金"] },
+  { path: "/investment/holding-import", crumbs: ["记账", "导入持仓"] },
+  { path: "/investment/manual", crumbs: ["记账", "手动记账"] },
+  { path: "/investment/reconcile", crumbs: ["记账", "E账户对账"] },
   {
     path: "/asset/asset-entry",
-    crumbs: ["记账中心", "录入资产"]
+    crumbs: ["记账", "录入资产"]
   },
   // 带参路由：不虚构父级
   { path: "/fund/004369", crumbs: ["产品详情"] }

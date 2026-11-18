@@ -19,9 +19,13 @@
  *
  * ## 样本（缺一不可）
  *
- * - 真实文件断言零命中（当前状态正确）；
- * - 把旧写法注回去必须报红（证明判据不是空转）；
+ * - 真实文件断言（结构图字段零命中 / distributions 请求确有消费链）；
+ * - 把旧写法、无消费方请求注回去必须报红（证明判据不是空转）；
  * - 放行样本不得误报（panorama 构成图 / 多维视图仍应合法消费这些字段）。
+ *
+ * #3115 D4 修订：welcome 重新请求 `distributions/`，但消费方换成了心理账户卡的
+ * `allocation_scope`，不是结构图回潮。相关判据由「禁止调用」改成「必须有消费方 +
+ * 结构图字段零命中」，见下方该条测试的说明。
  *
  * 依赖：零新依赖（Node 内置 `node:test` / `node:assert` + 文件读取）。
  */
@@ -137,13 +141,88 @@ test('#2034：panorama 构成图仍应合法消费这些字段（不得误报）
   );
 });
 
-test('#2034：welcome 不再请求 distributions（少一次无消费方的请求）', () => {
-  const data = readCode('frontend/src/views/welcome/composables/useWelcomeData.ts');
-  assert.ok(data, 'useWelcomeData.ts 应存在');
-  assert.ok(
-    !/getDistributions/.test(data),
-    'welcome 已无结构图消费方，不应再调 getDistributions（#2034）'
+/**
+ * #2034 原判据是「welcome 不得调 getDistributions」，钉的是「已删掉的资产构成
+ * 环形图不该再让首页白发一次请求」。#3115 D4 把这次请求请回来了，但**换了消费方**：
+ * 心理账户卡读 `allocation_scope.buckets`（全站唯一出口），不是结构图回潮。
+ * 故判据从「禁止调用」收窄为两件真正要防的事，两件都有真假两种结局：
+ *
+ *  ① 请求必须有消费链：`getDistributions → distributions → buildMentalAccountView
+ *     → mentalAccountView`，且页面真的把它传给卡片。只发请求没人用（原 #2034 形态）仍报红；
+ *  ② welcome 源码不得消费 `category_distribution` / `market_distribution`——
+ *     这两个字段才是被删掉的环形图的锚点，与「谁调了接口」无关。
+ *     `__tests__` 里的固定夹具只是构造完整响应，不构成回潮，故不纳入扫描。
+ */
+const WELCOME_DIR = 'frontend/src/views/welcome';
+const WELCOME_DATA = `${WELCOME_DIR}/composables/useWelcomeData.ts`;
+const WELCOME_PAGE = `${WELCOME_DIR}/index.vue`;
+
+/** 递归收集 welcome 下的 `.vue` / `.ts` 源码（剥注释、跳过测试夹具）。 */
+function collectWelcomeSources() {
+  const out = new Map();
+  const walk = dir => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) {
+        if (name === '__tests__') continue;
+        walk(full);
+      } else if (/\.(vue|ts)$/.test(name)) {
+        out.set(full, stripComments(readFileSync(full, 'utf8')));
+      }
+    }
+  };
+  walk(join(ROOT, WELCOME_DIR));
+  return out;
+}
+
+/** 请求是否真有下游消费（而非白发一次）。 */
+function hasDistributionConsumer(code) {
+  return (
+    /getDistributions/.test(code) &&
+    /buildMentalAccountView/.test(code) &&
+    /mentalAccountView/.test(code) &&
+    /fetchDistributions/.test(code)
   );
+}
+
+test('#2034/#3115：welcome 的 distributions 请求必须有消费方，且不是结构图回潮', () => {
+  const data = readCode(WELCOME_DATA);
+  assert.ok(data, `${WELCOME_DATA} 应存在`);
+  assert.ok(
+    hasDistributionConsumer(data),
+    'welcome 调了 getDistributions 就必须有 mentalAccountView 这条消费链（#2034 禁的是无消费方的请求）'
+  );
+
+  const page = readCode(WELCOME_PAGE);
+  assert.ok(page, `${WELCOME_PAGE} 应存在`);
+  assert.ok(
+    /:mental-account-view="mentalAccountView"/.test(page),
+    '心理账户卡必须真的接上 mentalAccountView，否则请求依旧白发'
+  );
+
+  for (const [file, code] of collectWelcomeSources()) {
+    assert.ok(
+      !violates(code),
+      `${file.replace(ROOT, '').replace(/\\/g, '/')} 又消费了结构图字段：` +
+        '该图与资产总览同字段同口径，结构拆解归资产总览（#2034）'
+    );
+  }
+});
+
+test('#2034/#3115：注回无消费方请求 / 结构图字段必须报红（判据非空转）', () => {
+  const real = readCode(WELCOME_DATA);
+  // 变异 1：请求还在、消费链断了（派生函数改名 = 模拟没人用）
+  assert.ok(
+    !hasDistributionConsumer(real.replace(/buildMentalAccountView/g, 'unusedHelper')),
+    '消费链断掉后判据必须命中，否则守门是装饰'
+  );
+  // 变异 2：结构图字段回潮，换个变量名也躲不掉（数据源才是锚点）
+  assert.ok(
+    violates('const d = res.data.category_distribution ?? []'),
+    '注回结构图字段后判据必须命中'
+  );
+  // 放行样本：当前实现应当通过
+  assert.ok(hasDistributionConsumer(real), '当前实现应有完整消费链');
 });
 
 test('#2034：随图失效的 distributionLogic 已删除', () => {

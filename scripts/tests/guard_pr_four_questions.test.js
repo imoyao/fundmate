@@ -237,3 +237,78 @@ test('hasEvidence / acceptanceItemsWithoutEvidence 单测（形状稳定）', ()
   assert.deepEqual(acceptanceItemsWithoutEvidence(null), []);
   assert.deepEqual(acceptanceItemsWithoutEvidence(['- [x] 有判据 `x`', '- [ ] 没判据']), ['没判据']);
 });
+
+// ─────────────────────────────────────────────────────────────
+// 第三层判据：HTML 注释不算「写过」（模板预填不得变成假绿）
+//
+// 背景：2026-11-18 加了 `.github/PULL_REQUEST_TEMPLATE.md`，模板里只能靠 HTML 注释
+// 写填写提示（渲染时不显示）。若注释被当成小节内容，一份**没人动过的模板**直接判绿
+// ——那不是省事，是把守卫关掉了还留着灯。
+// ─────────────────────────────────────────────────────────────
+
+test('小节只有 HTML 注释占位 → 判红（否则模板预填＝假绿）', () => {
+  const body = [
+    '## 解决谁的什么问题',
+    '<!-- 一句话：谁被卡住了 -->',
+    '## 验收标准',
+    '<!-- 每条带判据 -->',
+    '## 风险',
+    '<!-- 没有就写无风险 -->',
+    '## 替代方案',
+    '<!-- 为什么不用另一种做法 -->',
+  ].join('\n');
+  const v = checkFourQuestions({ body });
+  assert.equal(v.ok, false, '注释是占位，不是思考过的痕迹');
+  assert.deepEqual(v.missing.sort(), ['acceptance', 'alternative', 'problem', 'risk']);
+});
+
+test('跨行注释同样不算内容（模板顶部那段多行说明）', () => {
+  const body = ['## 风险', '<!--', '多行提示', '仍然只是提示', '-->'].join('\n');
+  assert.deepEqual(splitSections(body).risk, [], '标题在、但内容只剩注释 ⇒ 空');
+  assert.equal(checkFourQuestions({ body }).ok, false);
+});
+
+test('注释与真实内容混排 → 不影响判定（注释不该反过来误伤）', () => {
+  const body = [
+    '<!-- 顶部说明 -->',
+    '## 解决谁的什么问题',
+    '#3174 <!-- 关联卡 -->',
+    '## 验收标准',
+    '- [x] `node scripts/guard_pr_four_questions.mjs --body-file pr.md` 退出码 0 <!-- 命令 -->',
+    '## 风险',
+    '无风险 <!-- 已确认 -->',
+    '## 替代方案',
+    '不写模板，每次手抄',
+  ].join('\n');
+  assert.equal(checkFourQuestions({ body }).ok, true);
+});
+
+test('验收条目只剩注释占位 → 判红（在「缺判据」这一层拦住）', () => {
+  const body = evidence('- [x] 界面更清爽了 <!-- 待补判据 -->');
+  const v = checkFourQuestions({ body });
+  assert.equal(v.ok, false);
+  assert.equal(v.missing_evidence.length, 1);
+  assert.match(v.missing_evidence[0], /界面更清爽/);
+});
+
+test('真实模板文件本身必须判红（预填充 ≠ 思考过；模板被填成范文立刻红）', () => {
+  // 这条钉的是仓库里的那份文件，不是构造数据：有人往模板里塞示范正文/示范判据，
+  // 就等于给所有 PR 预置了通过样本，此处必须转红。
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const tpl = fs.readFileSync(path.join(__dirname, '..', '..', '.github', 'PULL_REQUEST_TEMPLATE.md'), 'utf8');
+  const v = checkFourQuestions({ body: tpl });
+  assert.equal(v.ok, false, '模板未填时必须判红：四个小节要么缺失、要么只有注释占位');
+});
+
+test('证伪探针：去掉注释剥离必须被抓出（同输入变绿）', () => {
+  // 对照 1：注释与真实内容混排时，剥离不该误伤。
+  const mixed = ['## 解决谁的什么问题', '#3174', '## 验收标准', '- [x] 走查：截图', '## 风险', '无风险', '## 替代方案', '手抄模板 <!-- 待补 -->'].join('\n');
+  assert.equal(checkFourQuestions({ body: mixed }).ok, true);
+  // 对照 2：四个小节全是占位注释 ⇒ 必须判红。
+  const onlyComments = ['## 解决谁的什么问题', '<!-- x -->', '## 验收标准', '<!-- y -->', '## 风险', '<!-- z -->', '## 替代方案', '<!-- w -->'].join('\n');
+  assert.equal(checkFourQuestions({ body: onlyComments }).ok, false, '真实现必须判红');
+  // 若不剥注释，同一份「全是占位」的正文会被判绿——说明剥离确实拦住了东西。
+  const naive = (b) => b.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith('#')).length >= 4;
+  assert.equal(naive(onlyComments), true, '不剥注释的版本恰好通过 ⇒ 守卫确实咬住了新形态');
+});

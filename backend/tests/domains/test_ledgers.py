@@ -11,6 +11,7 @@ from app.domains.assets.models import Asset
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
+from app.domains.transactions.models import Transaction
 
 
 class TestLedgerCRUD:
@@ -616,6 +617,63 @@ class TestLedgerLinkedCash:
         data = resp.get_json()['data']
         assert data['linked_cash_ledger_id'] == cash_id
 
+    def test_create_securities_by_channel_category_with_cash_ledger(self, client, db):
+        """创建账户的真实前端路径：只下发 channel_category，再关联现金账户。
+
+        2026-11-07 P0：``create_ledger`` 原先把 ``channel_category → ledger_type`` 的
+        派生放在现金账户校验**之后**，校验读到 ``data.get('ledger_type', 'bank')`` 的
+        缺省值，于是「选证券 + 关联现金账户」必报「只有证券账户或基金可以关联现金账户」
+        ——报错与用户所选自相矛盾。本类其余 linked_cash 用例都显式传 ledger_type，
+        走不到这条路径，CI 因此全绿，故单列一张回归网。
+        """
+        cash_resp = client.post('/api/ledgers/', json={'name': '微众银行', 'channel_category': 'bank'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '招商证券',
+                'channel_category': 'securities',
+                'linked_cash_ledger_id': cash_id,
+            },
+        )
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'stock'
+        assert data['channel_category'] == 'securities'
+        assert data['linked_cash_ledger_id'] == cash_id
+
+    def test_create_fund_platform_by_channel_category_with_cash_ledger(self, client, db):
+        """同源路径：基金平台分组同样由 channel_category 派生，不得被缺省 bank 误判。"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '活钱账户', 'channel_category': 'bank'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '天天基金',
+                'channel_category': 'fund_platform',
+                'linked_cash_ledger_id': cash_id,
+            },
+        )
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'fund'
+        assert data['linked_cash_ledger_id'] == cash_id
+
+    def test_create_bank_by_channel_category_cannot_link_cash(self, client, db):
+        """反向验证：派生提前不能把校验放水，银行分组仍必须拒绝关联现金账户。"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '现金账户A', 'channel_category': 'bank'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '现金账户B',
+                'channel_category': 'bank',
+                'linked_cash_ledger_id': cash_id,
+            },
+        )
+        assert resp.status_code == 400
+        assert '计算口径不支持' in resp.get_json()['message']
+
     def test_create_fund_with_valid_cash_ledger(self, client, db):
         """基金平台关联有效的现金账户"""
         cash_resp = client.post('/api/ledgers/', json={'name': '余额宝', 'ledger_type': 'bank'})
@@ -655,7 +713,7 @@ class TestLedgerLinkedCash:
             '/api/ledgers/', json={'name': '另一个现金', 'ledger_type': 'bank', 'linked_cash_ledger_id': cash_id}
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金' in resp.get_json()['message']
+        assert '计算口径不支持' in resp.get_json()['message']
 
     def test_update_ledger_link_cash(self, client, db):
         """更新账户关联现金账户"""
@@ -772,7 +830,7 @@ class TestLedgerMoneyFundBinding:
             json={'name': '招商银行', 'ledger_type': 'bank', 'linked_money_fund_code': fund.fund_code},
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金' in resp.get_json()['message']
+        assert '计算口径不支持' in resp.get_json()['message']
 
     def test_bind_nonexistent_fund_code(self, client, db):
         """绑定不存在的基金代码应拒绝"""
@@ -1588,7 +1646,9 @@ class TestLedgerSummary:
         assert data['total_market_value'] == 12000.0  # 1000份 × 12元
         assert data['position_count'] == 1
         assert data['cash_balance'] == 500.0  # 50000分 -> 500元
-        assert data['daily_pnl'] is None
+        # 当日盈亏统一由 /summary/today-pnl/ 提供（D92）：本概览端点不再返回
+        # 恒 None 的占位字段，避免后来者误以为该在这里另算一套。
+        assert 'daily_pnl' not in data
         assert 'cumulative_return' in data
         assert 'allocation_distribution' in data
         # type_distribution：后端按资产大类聚合（asset_type 默认 None → '其他'）
@@ -1756,6 +1816,13 @@ class TestLedgerTransactions:
         item = data['items'][0]
         assert item['txn_type'] == 'buy'
         assert isinstance(item['fee'], (int, float))
+        # 归属必须随行下发：/api/transactions 与前端 TransactionRow 都有这个键。
+        # 缺了它，对账抽屉会把「按账本查出的流水」判成未归属、编辑置灰，
+        # 而同一屏头部却显示着账本名（显示与可操作不一致）。
+        assert item['ledger_id'] == stock.id
+        # 账户名必须随行下发（2026-11-13）：缺了它，前端在「有 ledger_id、快照为空」时
+        # 兜「未知账户」——账户 ID 明明确定，表格却说不知道是哪个账户。
+        assert item['account_name'] == '测试证券'
 
     def test_trade_date_is_date_only_and_asset_type_backfilled(self, client, db, make_position):
         """#2712：日期不带 `T00:00:00`；`asset_type` 快照为空时按持仓回解析。
@@ -1801,6 +1868,39 @@ class TestLedgerTransactions:
         item = resp.get_json()['data']['items'][0]
         assert item['trade_date'] == '2026-06-03'
         assert item['asset_type'] == 'fund'
+
+    def test_account_name_backfilled_when_snapshot_missing(self, client, db):
+        """账户名快照为空时按 ledger_id 回解析，不得退化成「未知账户」。
+
+        前端 `TransactionAccountCell` 的兜底是「有 ledger_id 但名字为空 ⇒ 未知账户」；
+        本端点此前连 `account_name` 这个键都没有，于是**每一条**流水都落到那个兜底
+        （owner 2026-11-13 截图：账户 ID 确定、表格显示「未知账户」）。
+        """
+        from app.domains.transactions.models import Transaction
+
+        ledger = Ledger(name='同花顺（银河证券）', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+
+        db.add(
+            Transaction(
+                txn_type='buy',
+                symbol='600519',
+                position_name='贵州茅台',
+                account_name=None,  # 历史导入漏写快照
+                ledger_id=ledger.id,
+                quantity=100,
+                price=100000,
+                amount=10000000,
+                fee=0,
+            )
+        )
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/transactions/?page=1&per_page=10')
+        assert resp.status_code == 200
+        item = resp.get_json()['data']['items'][0]
+        assert item['account_name'] == '同花顺（银河证券）'
 
     def test_position_transactions_date_and_asset_type(self, client, db, make_position):
         """#2712：持仓抽屉接口同样要日期粒度 + 资产类型（它此前连 asset_type 都不返回）。"""
@@ -2361,6 +2461,7 @@ class TestSalesInstitutionsAPI:
                     is_common=True,
                     common_sort=33,
                     display_name='同花顺',
+                    pinyin_short='ZJTHSJJXSYXGS',
                 ),
                 SalesInstitution(
                     org_name='蚂蚁（杭州）基金销售有限公司',
@@ -2370,15 +2471,23 @@ class TestSalesInstitutionsAPI:
                     display_name='支付宝',
                     pinyin_short='MYHZZJJJXSYXGS',
                 ),
-                SalesInstitution(org_name='中信证券', org_type='证券公司'),
-                SalesInstitution(org_name='招商银行', org_type='全国性商业银行', is_common=True, common_sort=2),
-                SalesInstitution(org_name='某期货公司', org_type='期货公司'),
+                SalesInstitution(org_name='中信证券', org_type='证券公司', pinyin_short='ZXZQ'),
+                SalesInstitution(
+                    org_name='招商银行', org_type='全国性商业银行', is_common=True, common_sort=2, pinyin_short='ZSYX'
+                ),
+                SalesInstitution(org_name='某期货公司', org_type='期货公司', pinyin_short='MQHGS'),
             ]
         )
         db.commit()
 
-    def test_new_fields_and_common_first_ordering(self, client, db):
-        """响应携带新字段；常用机构按 common_sort 升序置顶，其余字典序殿后。"""
+    def test_new_fields_and_pinyin_ordering(self, client, db):
+        """响应携带新字段；默认按拼音首字母 A→Z，不再让常用机构置顶打乱顺序。
+
+        旧排序是 ``is_common desc, common_sort asc, org_name asc``：15 家常用机构按
+        人工保有规模序置顶，其余按汉字 Unicode 码点序（不等于拼音序），用户按
+        首字母找不到机构。改用 AMAC job 派生的 pinyin_short 作主键（真库 394/394
+        覆盖），org_name 兜底；常用标志仍在响应里，供前端「仅看常用」筛选。
+        """
         self._seed(db)
         resp = client.get('/api/ledgers/sales-institutions/')
         assert resp.status_code == 200
@@ -2393,14 +2502,15 @@ class TestSalesInstitutionsAPI:
             'common_sort',
             'pinyin_short',
         }
-        commons = [r for r in data if r['is_common']]
-        assert [r['common_sort'] for r in commons] == [1, 2, 33]
-        assert commons[0]['display_name'] == '支付宝'
-        assert commons[0]['pinyin_short'] == 'MYHZZJJJXSYXGS'
-        first_non_common = next(i for i, r in enumerate(data) if not r['is_common'])
-        assert all(r['is_common'] for r in data[:first_non_common])
-        # 非常用段字典序：中信证券 < 某期货公司
-        assert [r['org_name'] for r in data[first_non_common:]] == ['中信证券', '某期货公司']
+        assert [r['pinyin_short'] for r in data] == [
+            'MQHGS',
+            'MYHZZJJJXSYXGS',
+            'ZJTHSJJXSYXGS',
+            'ZSYX',
+            'ZXZQ',
+        ]
+        assert sum(1 for r in data if r['is_common']) == 3
+        assert data[1]['display_name'] == '支付宝'
 
     def test_org_types_filter_single(self, client, db):
         """org_types 过滤：证券账户场景只看券商（#1082）。"""
@@ -2430,10 +2540,11 @@ class TestSalesInstitutionsAPI:
         assert resp.status_code == 200
         assert resp.get_json()['message'] == 'ok'
         data = resp.get_json()['data']
+        # 过滤后仍按拼音 A→Z：MYHZZ < ZJTHS < ZSYX（不再按 common_sort 置顶）
         assert [r['org_name'] for r in data] == [
             '蚂蚁（杭州）基金销售有限公司',
-            '招商银行',
             '浙江同花顺基金销售有限公司',
+            '招商银行',
         ]
 
 
@@ -2579,6 +2690,70 @@ class TestLedgerTypeImmutability:
         assert updated.ledger_type == 'fund'  # 计算口径键不变
         assert updated.channel_category == 'fund_platform'
 
+    def test_update_rejects_channel_category_mismatch(self, client, db):
+        """#2975：改分组不得造出「标签写证券、计算按现金账户」的账户。"""
+        ledger = Ledger(name='现金账户', ledger_type='bank', channel_category='bank', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': 'securities'})
+        assert resp.status_code == 409
+        body = resp.get_json()
+        assert body['error_code'] == 1003
+        assert '计算口径' in body['message'] and '归档后新建' in body['message']
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().channel_category == 'bank'
+
+    def test_update_mismatched_category_with_cash_link_reports_mismatch(self, client, db):
+        """#2980：同时提交「改错配分组 + 关联现金账户」须报分组错配（409/1003）。
+
+        两条错误文案都含「计算口径」，只有按「不一致的分组 / 不支持关联现金账户」
+        才能区分——若守卫排在现金校验之后，这里会拿到 400 而非 409。
+        """
+        cash = Ledger(name='招行储蓄', ledger_type='bank', channel_category='bank', family_id=1)
+        target = Ledger(name='待改账户', ledger_type='bank', channel_category='bank', family_id=1)
+        db.add_all([cash, target])
+        db.commit()
+        resp = client.patch(
+            f'/api/ledgers/{target.id}/',
+            json={'channel_category': 'securities', 'linked_cash_ledger_id': cash.id},
+        )
+        assert resp.status_code == 409
+        body = resp.get_json()
+        assert body['error_code'] == 1003
+        assert '不一致的分组' in body['message']
+        assert '不支持关联现金账户' not in body['message']
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=target.id).first().channel_category == 'bank'
+
+    def test_update_unchanged_category_allows_legacy_inconsistency(self, client, db):
+        """守卫只在分组**变更**时生效：存量错配数据照常保存，不得被误拒。"""
+        ledger = Ledger(name='历史账户', ledger_type='stock', channel_category='other', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/',
+            json={'name': '历史账户2', 'channel_category': 'other'},
+        )
+        assert resp.status_code == 200
+
+    def test_update_allows_category_with_same_derived_type(self, client, db):
+        """securities / futures 都派生 stock，组内改归不作拒绝。"""
+        ledger = Ledger(name='证券', ledger_type='stock', channel_category='securities', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': 'futures'})
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().channel_category == 'futures'
+
+    def test_update_allows_special_ledger_type_and_clearing_category(self, client, db):
+        """e_account 等不在映射值域的特殊口径放行；清空分组也不拦。"""
+        ledger = Ledger(name='E账户汇总', ledger_type='e_account', channel_category='other', family_id=1)
+        db.add(ledger)
+        db.commit()
+        assert client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': 'bank'}).status_code == 200
+        assert client.patch(f'/api/ledgers/{ledger.id}/', json={'channel_category': None}).status_code == 200
+
     def test_update_omitting_ledger_type_keeps_it(self, client, db):
         ledger = Ledger(name='证券X', ledger_type='stock', family_id=1)
         db.add(ledger)
@@ -2652,3 +2827,76 @@ class TestSwapLinkedMoneyFund:
         assert len(a_sell) == 1 and a_sell[0].amount == 10000  # 赎回 A
         assert len(b_buy) == 1 and b_buy[0].amount == 10000  # 申购 B
         assert db.query(Ledger).filter_by(id=ledger.id).first().linked_money_fund_id == fund_b.id
+
+
+class TestCashLikeSettleApi:
+    """逆回购到期回款的 HTTP 契约（#3087 / D114）。
+
+    服务层判据不覆盖的两件事在这里钉住：① 路由真的挂在账户下面（带 ledger_id 归属校验，
+    跨账户写别人的流水是最坏的越权形态）；② 入参错误必须 400 而不是 500——前端拿到 500
+    只会显示「服务器错误」，用户不知道该填什么。
+    """
+
+    def _ledger(self, client) -> int:
+        return client.post('/api/ledgers/', json={'name': '券商'}).get_json()['data']['id']
+
+    def _buy(self, db, ledger_id: int, amount: int = 2100002) -> None:
+        db.add(
+            Transaction(
+                family_id=1,
+                ledger_id=ledger_id,
+                txn_type='buy',
+                asset_type='reverse_repo',
+                symbol='SH204001',
+                position_name='GC001',
+                amount=amount,
+                status='success',
+            )
+        )
+        db.commit()
+
+    def test_settle_returns_amounts(self, client, db):
+        ledger_id = self._ledger(client)
+        self._buy(db, ledger_id)
+
+        resp = client.post(
+            f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/',
+            json={'symbol': 'SH204001', 'settle_date': '2026-11-12', 'interest': 123.45},
+        )
+
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        data = resp.get_json()['data']
+        assert data['settled_amount'] == 21000.02
+        assert data['interest_amount'] == 123.45
+        assert len(data['transaction_ids']) == 2
+
+    def test_second_settle_returns_400(self, client, db):
+        ledger_id = self._ledger(client)
+        self._buy(db, ledger_id)
+        payload = {'symbol': 'SH204001', 'settle_date': '2026-11-12'}
+        assert client.post(f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/', json=payload).status_code == 200
+
+        resp = client.post(f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/', json=payload)
+
+        assert resp.status_code == 400
+        assert '没有在途本金' in resp.get_json()['message']
+
+    def test_bad_date_returns_400(self, client, db):
+        ledger_id = self._ledger(client)
+        self._buy(db, ledger_id)
+
+        resp = client.post(
+            f'/api/ledgers/{ledger_id}/cash-like/reverse-repo/settle/',
+            json={'symbol': 'SH204001', 'settle_date': '2026/11/12'},
+        )
+
+        assert resp.status_code == 400
+        assert 'YYYY-MM-DD' in resp.get_json()['message']
+
+    def test_missing_ledger_returns_404(self, client, db):
+        resp = client.post(
+            '/api/ledgers/99999/cash-like/reverse-repo/settle/',
+            json={'symbol': 'SH204001', 'settle_date': '2026-11-12'},
+        )
+
+        assert resp.status_code == 404

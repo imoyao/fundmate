@@ -47,8 +47,8 @@ defineOptions({ name: "LedgerDepthAnalysis" });
  * 账户 id。**必须显式传入**：
  * 两个面板在 ledgerId 为 undefined 时会退化成「全家庭」档（见组件头注释），
  * 那会让本页显示别的账户的数据。调用方（LedgerDetailOverview）负责传，
- * 且传的是**有限数字**（未归置持仓伪账户的路由参数是 "unclassified"，
- * Number 之后是 NaN，会被后端按「不传」处理 → 又变回全家庭档）。
+ * 且传的是**有限数字**（路由参数是字符串，非数字经 Number 之后是 NaN，
+ * 会被后端按「不传」处理 → 又变回全家庭档）。
  */
 defineProps<{ ledgerId?: number }>();
 </script>

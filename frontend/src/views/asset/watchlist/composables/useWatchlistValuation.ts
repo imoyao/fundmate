@@ -14,8 +14,10 @@ import {
 } from "@/utils/realtimeDataSources";
 import type { Holding, ValuationSummary } from "@/utils/valuationEngine";
 import {
-  resolveDayPnl,
-  resolveDayPnlInput,
+  resolveTodayEstimate,
+  resolveTodayEstimateInput,
+  resolveYesterdayPnl,
+  resolveYesterdayPnlInput,
   sumDayPnl,
   type DayPnlResult,
   type DayPnlRow,
@@ -159,20 +161,40 @@ export function useWatchlistValuation(data: WatchlistData) {
       }));
   };
 
+  /**
+   * 引擎静态回退分支的数据源（行情不可达时）。
+   *
+   * ⚠️ **不再返回 `prevClose`**（2026-11-05 拆列）：后端 `prev_close` 是 T-2，
+   * 而 `ValuationItem.prevClose` 的契约是 T-1 基准；把它传进去，引擎在实时源
+   * 缺基准时就会拿「今天的实时价 − 前天的价」当今日盈亏。今日估算缺基准时
+   * 由 `dayPnl.ts` 兜底 `row.current_price`（T-1），两者同源同日。
+   *
+   * 「昨日盈亏」不经过引擎：它直接读行的 T-1 / T-2 两根已确认价（见下方
+   * `yesterdayPnlOf`），与实时通道是否开启无关。
+   */
   const getStaticPrice = (symbol: string) => {
     const item = allItems.value.find(i => i.symbol === symbol);
     return item
       ? {
           currentPrice: item.current_price,
-          changePct: item.change_pct,
-          // 当日盈亏分母（#2640）：后端 compute_latest_quote 由最近两根历史价算得，
-          // 未持仓的自选行也有；缺值传 null，引擎会保持 null（不做顶替）
-          prevClose: item.prev_close ?? null
+          changePct: item.change_pct
         }
       : undefined;
   };
 
-  const realtime = useRealtimeQuotes(getHoldings, getStaticPrice);
+  /**
+   * 自选页首访默认开启实时估值（2026-11-05）。
+   *
+   * 「今日估算」这一列的存在意义就是**盘中动态变化**；沿用全站默认关闭会让它
+   * 长期停在 `—`，等于没有这一列。`defaultEnabled` 只在 localStorage 无记录时
+   * 生效（首页「最新收益」卡同款），用户显式关过仍照旧尊重，不引入第二套开关。
+   */
+  const realtime = useRealtimeQuotes(getHoldings, getStaticPrice, {
+    defaultEnabled: true,
+    // 盘后收盘快照：交易日 15:00 后取一次已确认价（收盘价 / 官方净值），
+    // 供「当日盈亏」列展示真实值；仍保持 status="closed"（刷新控件置灰、不轮询）。
+    fetchClosingSnapshot: true
+  });
   const realtimeEnabled = computed(() => realtime.enabled.value);
 
   // ✅ 1. 新增：一个专门控制按钮文字的 computed，解决文字不更新的脏数据问题
@@ -204,6 +226,10 @@ export function useWatchlistValuation(data: WatchlistData) {
       if (newItems && newItems.length > 0) {
         const hasValidPrice = newItems.some(item => item.currentPrice > 0);
         if (hasValidPrice) {
+          // 盘后收盘快照也走实时通道注入 items，但此时 status 已被 useRealtimeQuotes
+          // 置为 "closed"——不要把它刷成 "trading"，否则会错误点亮交易态、触发盘中分时重拉。
+          // 盘中正常取数时 status 在 fetchAndUpdate 里早已是 "trading"，此处赋值本就是幂等。
+          if (realtime.status.value === "closed") return;
           realtime.status.value = "trading";
           realtime.lastUpdateTime.value = formatDateTime(new Date());
         }
@@ -212,28 +238,54 @@ export function useWatchlistValuation(data: WatchlistData) {
     { deep: true }
   );
 
-  /**
-   * 行级当日盈亏（#2640）：「当日盈亏」列的唯一取数口。
-   *
-   * 实时价优先（且必须真拿到行情），昨收实时源缺失时回落后端 `prev_close`；
-   * 两者都缺 → `value`/`ratio` 均为 null（渲染 `—`），**不拿现价顶替**
-   * （顶替的后果是恒 ¥0.00，见 dayPnl.ts 头部）。
-   */
-  function dayPnlOf(row: DayPnlRow): DayPnlResult {
-    return resolveDayPnl(row, getValuationItem(row.symbol ?? ""));
+  // ── 两套盈亏口径（2026-11-05 拆列，2026-11-06 升级为「当日盈亏」）────
+  // 唯一取数口在 dayPnl.ts；表格列与顶部汇总条都走这里，避免两处各算一遍。
+  //
+  // 「当日盈亏」= (T 价 − T-1 已确认价) × 份额，真实值优先、估值兜底：
+  //  股票盘后=收盘价、基金净值公布后=官方净值（已确认，不挂「估」）；
+  //  未确认时仍用盘中估值价（股票实时价 / 基金估算净值 GSZ）填充并挂「估」。
+  //  只有实时通道真拿到行情才有值，拿不到就是 `—`，**绝不回落昨日数字**。
+  // 「昨日盈亏」= (T-1 确认价 − T-2 确认价) × 份额：已确认的真实值，
+  //  完全不读实时行情，开关 / 轮询 / 休市都不会让它变化。
+
+  /** 行级「当日盈亏」：当日盈亏列的唯一取数口 */
+  function todayEstimateOf(row: DayPnlRow): DayPnlResult {
+    return resolveTodayEstimate(row, getValuationItem(row.symbol ?? ""));
+  }
+
+  /** 行级「昨日盈亏」：昨日盈亏列的唯一取数口（不读实时行情） */
+  function yesterdayPnlOf(row: DayPnlRow): DayPnlResult {
+    return resolveYesterdayPnl(row);
   }
 
   /**
-   * 汇总条的当日盈亏（#2640）：与列共用 `dayPnl.ts`，比例按**昨日市值加权**。
+   * 汇总条的「当日盈亏」：与列共用 `dayPnl.ts`，比例按基准市值加权。
+   * 每行带各自的确认态 status，混入任一估值行 → 汇总挂「估」，全确认才隐藏徽章。
    *
    * 基于 `allItems`（全量过滤结果）而非当前页，与总市值/总成本/总盈亏同口径
    * ——否则翻页时汇总条会随当前页跳变（#1245 的老坑）。
    */
-  const daySummary = computed<DayPnlSummary>(() => {
-    const inputs = allItems.value
+  const todayEstimateSummary = computed<DayPnlSummary>(() => {
+    const entries = allItems.value
       .filter(item => Boolean(item.symbol))
-      .map(item => resolveDayPnlInput(item, getValuationItem(item.symbol)));
-    return sumDayPnl(inputs);
+      .map(item => {
+        const quote = getValuationItem(item.symbol);
+        const input = resolveTodayEstimateInput(item, quote);
+        const result = resolveTodayEstimate(item, quote);
+        return { input, status: result.status };
+      });
+    return sumDayPnl(entries);
+  });
+
+  /** 汇总条的「昨日盈亏」：静态真实值（恒为 confirmed），同样按基准市值加权 */
+  const yesterdayPnlSummary = computed<DayPnlSummary>(() => {
+    const entries = allItems.value
+      .filter(item => Boolean(item.symbol))
+      .map(item => ({
+        input: resolveYesterdayPnlInput(item),
+        status: "confirmed" as const
+      }));
+    return sumDayPnl(entries);
   });
 
   /** 手动刷新估值：旋转图标至请求完成 */
@@ -341,8 +393,10 @@ export function useWatchlistValuation(data: WatchlistData) {
     getValuationItem,
     addedReturnPct,
     addedReturnAmount,
-    dayPnlOf,
-    daySummary,
+    todayEstimateOf,
+    yesterdayPnlOf,
+    todayEstimateSummary,
+    yesterdayPnlSummary,
     staticSummary,
     marketValueRatio,
     toggleBtnText,

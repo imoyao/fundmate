@@ -22,6 +22,7 @@ from typing import Optional
 
 from app.core.database import get_db
 from app.core.symbol_utils import get_normalizer
+from app.core.venues import EXCHANGE, resolve_venue
 from app.domains.price_history.models import PriceHistory
 
 
@@ -153,3 +154,41 @@ def resolve_security_price_range(
     if tencent:
         return tencent
     return fetch_live_price_range(query_symbol, target)
+
+
+# 需要成交价区间校验的操作类型：买卖与存取。分红 / 拆分的价不是当日成交价，不适用。
+PRICE_RANGE_OP_TYPES = frozenset({'buy', 'sell', 'deposit', 'withdraw'})
+
+
+def validate_trade_price_within_range(data: dict) -> None:
+    """写路径成交价区间校验：价格须落在交易日 [low, high] 内（#948 续，前端校验外的最终防线）。
+
+    放在服务层而不是视图（#1606）：视图只做 HTTP 编排，「哪些品种适用区间校验」是业务规则。
+
+    **只对场内（EXCHANGE）生效**（2026-11-04 修）：场外基金 / 货基只有净值，没有当日最高
+    最低价，本就不该进这条链。此前不判场所，实测两处后果：
+      1. 录入场外基金 `011452` 时裸码被归一成 `SZ011452` 送去抓股票日线，新浪 404 后
+         akshare 内部抛 `KeyError('date')`，每次记账都留一条 ERROR 噪音（兜底失败会放行，
+         用户无感，但日志里看着像故障）；
+      2. 场外基金代码与深市股票**共用数字空间**（`000001` 华夏成长 vs 平安银行
+         `SZ000001`），不判场所时会拿股票的真实区间把净值 1.x 的申购拦成 400。
+    """
+    if data.get('op_type') not in PRICE_RANGE_OP_TYPES:
+        return
+    # 场所优先取显式入参，缺省按 asset_type 推断；场内 LOF / 场内货基须显式传 EXCHANGE
+    # （`asset_type → venue` 不是全函数，见 core/venues.py）。
+    if resolve_venue(data.get('venue'), data.get('asset_type')) != EXCHANGE:
+        return
+    symbol = data.get('symbol')
+    avg_price = data.get('avg_price')
+    trade_date = data.get('trade_date')
+    # nav_pending 占位价 / <=0 未知价不参与区间拦截（占位价不是真实成交价，
+    # 必填性由 process_buy_or_deposit 自校验；见其「净值缺失先记账」注释）
+    if not symbol or avg_price is None or not trade_date or avg_price <= 0 or data.get('nav_pending'):
+        return
+    rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=True)
+    if not rng:
+        return
+    low, high = rng['low'], rng['high']
+    if avg_price < low or avg_price > high:
+        raise ValueError(f'价格 {avg_price} 超出 {rng["date"]} 交易日区间（{low} ~ {high}），请核对后重新提交')

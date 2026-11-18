@@ -4,7 +4,7 @@
 
 覆盖：
 1. 真实仓库通过（守卫上线当天必须对现有代码绿）；
-2. **真实代码探针**：把仓库里真实的 ``position_service.py`` 去掉那段 ``portfolio``
+2. **真实代码探针**：把仓库里真实的 ``position_buy_command.py`` 去掉那段 ``portfolio``
    约束后喂守卫，必须转红——守卫绿 ≠ 守卫有效；
 3. 只删 ``and not is_balance``（保留分支与 raise）⇒ 红：约束退化成「凡组合就报错」或
    根本不看模式；
@@ -32,11 +32,11 @@ import unittest
 REPO = pathlib.Path(__file__).resolve().parents[2]
 GUARD = REPO / 'scripts' / 'guard_portfolio_balance_mode.py'
 
-SERVICE_REL = 'backend/app/services/position_service.py'
+SERVICE_REL = 'backend/app/services/position_buy_command.py'
 ASSET_TYPES_REL = 'backend/app/core/asset_types.py'
 DECISIONS_REL = 'docs/spec/decisions.md'
 
-FUNC = 'process_buy_or_deposit'
+FUNC = '_assert_balance_only_asset_type'
 STALE_LINE = '    # manager / portfolio：不进 positions，仅 watchlist 引用\n'
 
 
@@ -109,7 +109,7 @@ def _find_portfolio_if(source: str) -> ast.If:
         if not _negates_balance(node.test):
             continue
         return node
-    raise AssertionError('真实 position_service.py 里找不到 portfolio 的 If 分支（守卫判据需同步）')
+    raise AssertionError('真实 position_buy_command.py 里找不到 portfolio 的 If 分支（守卫判据需同步）')
 
 
 def _drop_lines(source: str, start: int, end: int) -> str:
@@ -173,7 +173,7 @@ class WriteGuardProbeTest(unittest.TestCase):
 
     def test_synthetic_balance_neq_spelling_passes(self):
         source = (
-            'def process_buy_or_deposit(db, data, force_create_position=False):\n'
+            'def _assert_balance_only_asset_type(asset_type, is_balance, symbol, same):\n'
             "    asset_type = data.get('asset_type')\n"
             "    mode = data.get('valuation_mode')\n"
             "    if asset_type == 'portfolio' and mode != ValuationMode.BALANCE.value:\n"
@@ -184,7 +184,7 @@ class WriteGuardProbeTest(unittest.TestCase):
 
     def test_synthetic_missing_raise_turns_red(self):
         source = (
-            'def process_buy_or_deposit(db, data, force_create_position=False):\n'
+            'def _assert_balance_only_asset_type(asset_type, is_balance, symbol, same):\n'
             "    asset_type = data.get('asset_type')\n"
             "    if asset_type == 'portfolio' and not is_balance:\n"
             "        logger.warning('组合应走 balance')\n"

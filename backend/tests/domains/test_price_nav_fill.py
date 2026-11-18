@@ -3,6 +3,8 @@
 
 from datetime import date, timedelta
 
+import pytest
+
 from app.domains.ledgers.models import Ledger
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -207,7 +209,7 @@ class TestBackendPriceRangeInterception:
         db.commit()
         # 模拟「本地无数据 + 实时兜底也不可达」的降级情形
         monkeypatch.setattr(
-            'app.domains.positions.views.resolve_security_price_range',
+            'app.services.price_range_service.resolve_security_price_range',
             lambda symbol, trade_date, use_live_fallback=False: None,
         )
         resp = client.post(
@@ -256,6 +258,109 @@ class TestBackendPriceRangeInterception:
         )
         assert resp.status_code == 400
         assert '超出' in resp.get_json()['message']
+
+
+class TestPriceRangeVenueScope:
+    """区间校验的场所边界（2026-11-04）：场外品种不进这条链。
+
+    场外基金只有净值、没有当日高低价，此前不判场所会被归一成场内代码去抓日线
+    （场外 `011452` → `SZ011452`，新浪 404 → akshare 抛 `KeyError('date')`），
+    更糟的是与深市股票同码时（`000001` 华夏成长 vs 平安银行）会拿股票区间误拦申购。
+    """
+
+    TRADE_DATE = '2026-06-15'
+
+    @staticmethod
+    def _spy(monkeypatch):
+        from app.services import price_range_service
+
+        calls = []
+        monkeypatch.setattr(
+            price_range_service, 'resolve_security_price_range', lambda *a, **k: calls.append(a) or None
+        )
+        return price_range_service, calls
+
+    def test_offsite_fund_skips_range_lookup(self, monkeypatch):
+        """OTC 基金：任何区间查询都不该发生（本地也没有它的净值行情）。"""
+        service, calls = self._spy(monkeypatch)
+        service.validate_trade_price_within_range(
+            {
+                'op_type': 'buy',
+                'symbol': '011452',
+                'asset_type': 'fund',
+                'avg_price': 1.2345,
+                'trade_date': self.TRADE_DATE,
+            }
+        )
+        assert calls == []
+
+    def test_no_venue_asset_skips_range_lookup(self, monkeypatch):
+        """无交易场所的品类（投顾组合 / 银行理财）同样跳过。"""
+        service, calls = self._spy(monkeypatch)
+        service.validate_trade_price_within_range(
+            {
+                'op_type': 'deposit',
+                'symbol': 'ZH000001',
+                'asset_type': 'portfolio',
+                'avg_price': 10000,
+                'trade_date': self.TRADE_DATE,
+            }
+        )
+        assert calls == []
+
+    def test_exchange_fund_still_checked(self, monkeypatch):
+        """场内 LOF（fund + 显式 EXCHANGE）仍要校验——不能一刀切按 asset_type 关掉。"""
+        from app.services import price_range_service
+
+        monkeypatch.setattr(
+            price_range_service,
+            'resolve_security_price_range',
+            lambda *a, **k: {'symbol': 'SH501000', 'date': self.TRADE_DATE, 'low': 1.0, 'high': 2.0, 'close': 1.5},
+        )
+        with pytest.raises(ValueError, match='超出'):
+            price_range_service.validate_trade_price_within_range(
+                {
+                    'op_type': 'buy',
+                    'symbol': '501000',
+                    'asset_type': 'fund',
+                    'venue': 'EXCHANGE',
+                    'avg_price': 9.9,
+                    'trade_date': self.TRADE_DATE,
+                }
+            )
+
+    def test_same_code_stock_history_does_not_block_fund_buy(self, client, db):
+        """端到端：场外基金 000001 与平安银行 SZ000001 同码，股票区间不得拦截申购。"""
+        sec = _seed_security(db, 'SZ000001')
+        db.add(
+            PriceHistory(
+                security_id=sec.id,
+                symbol='SZ000001',
+                trade_date=date.fromisoformat(self.TRADE_DATE),
+                low=10.0,
+                high=12.0,
+                close=11.0,
+            )
+        )
+        db.add(Ledger(name='测试基金账户', ledger_type='fund'))
+        db.commit()
+
+        resp = client.post(
+            '/api/positions/',
+            json={
+                'symbol': '000001',
+                'name': '华夏成长混合',
+                'type': 'fund',
+                'market': 'CN_A',
+                'account_name': '测试基金账户',
+                'quantity': 1000,
+                'avg_price': 1.5,  # 净值 1.5，落在股票区间 [10, 12] 之外
+                'currency': 'CNY',
+                'trade_date': self.TRADE_DATE,
+                'op_type': 'buy',
+            },
+        )
+        assert resp.status_code == 200, resp.get_json()
 
 
 class TestPriceRangeFallbackChain:

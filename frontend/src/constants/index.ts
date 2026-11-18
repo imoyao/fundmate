@@ -9,6 +9,7 @@ export const POSITION_SOURCE = {
   E_ACCOUNT: "e_account_holding",
   BROKER_TIANTIAN: "tiantian_fund",
   BROKER_THS: "ths_stock",
+  BROKER_CMS: "cms_stock",
   BROKER_STD_FUND: "standard_fund",
   BROKER_STD_STOCK: "standard_stock",
   BROKER_ALIPAY: "alipay_fund",
@@ -86,10 +87,11 @@ export const LEDGER_TYPE_SHORT: Record<string, string> = {
 
 /** 渠道类别单字缩写（用户可见的类型标签，对应后端 Ledger.channel_category）。
  *  与 LEDGER_TYPE_SHORT 值域不同：这里是「这个账户开在哪类渠道」，不是「账户装什么资产」。
- *  例：券商账户 channel_category=securities → 证；它装的是股票，但账户属于证券渠道。 */
+ *  例：券商账户 channel_category=securities → 股；用户日常按「装什么」认账户，
+ *  写「证」会被读成与首页「股票」不同的东西（2026-11-06 用户拍板，D91）。 */
 export const CHANNEL_CATEGORY_SHORT: Record<string, string> = {
   bank: "银",
-  securities: "证",
+  securities: "股",
   fund_platform: "基",
   insurance: "保",
   futures: "期",
@@ -162,26 +164,53 @@ export function majorCategoryLabel(key: string): string {
   return MAJOR_CATEGORY_LABELS[key] ?? key;
 }
 
-/** 交易类型标签（buy/sell/dividend/deposit/withdraw/split/dividend_reinvest）
+/** 交易类型标签（全站唯一来源，与后端 `core/constants.py:OP_TYPE_LABEL` 逐码对齐）
  *
  * `dividend_cash` 必须给中文：历史导入写 `dividend`、新链路写 `dividend_cash`，
  * 真机两码并存（开发库实测 69 + 33 笔）。`txnTypeLabel` 的兜底是**原值**，
  * 漏一个码就会在表格里看见英文 `dividend_cash`。
+ *
+ * 2026-11-07 补齐后端已有的 4 个码（`dividend_tax` / `bond_redeem` / `tax` / `other`）：
+ * 对账中心的「数据缺失」「缺账本流水」列表会把 `txn_type` 直出，此前页面上出现
+ * `dividend_tax`、`bond_redeem` 这类英文原值（见用户三张截图）。补齐在**此处**而不是
+ * 在对账组件里另建一份映射，避免同一枚举两套中文、各自漂移。
  */
 export const TXN_TYPE_LABELS: Record<string, string> = {
   buy: "买入",
   sell: "卖出",
   dividend: "分红",
   dividend_cash: "分红",
+  dividend_tax: "红利税扣款",
+  bond_redeem: "债券兑付",
+  tax: "扣税",
   deposit: "存入",
   withdraw: "取出",
   split: "送股/拆分",
-  dividend_reinvest: "红利再投资"
+  dividend_reinvest: "红利再投资",
+  other: "其他类型"
 };
 
 export function txnTypeLabel(type: string): string {
   return TXN_TYPE_LABELS[type] ?? type;
 }
+
+/** 买卖成交字段标签（全站唯一来源）：同一件事只允许一个叫法。
+ *
+ * 与 TXN_TYPE_LABELS 同一纪律——一处改、多处漂移的教训。此前同一字段
+ * 各页各写各的：份额叫过「这笔的份额 / 卖出份额 / 卖出数量」、价格叫过
+ * 「成交单价 / 买入价格 / 卖出价格」、费用叫过「卖出费用 / 手续费(元)」，
+ * 用户在对账补录、快速记账、编辑交易三个入口看到的叫法对不上。
+ *
+ * 边界：只覆盖「买卖成交」这一层语义。页面专属语境不受本表约束——
+ * 编辑弹窗的只读净值（净值(元)）、卖出预估金额、set 口径的成本单价
+ * 都不是成交字段，不得套用本表。 */
+export const TRADE_FIELD_LABELS = {
+  tradeDate: "交易日期",
+  quantity: "成交数量",
+  price: "成交价格",
+  fee: "手续费",
+  notes: "备注"
+} as const;
 
 /** 对账差异类型标签（quantity/cost/cash/orphan）
  *
@@ -193,20 +222,29 @@ export const DISCREPANCY_TYPE_LABELS: Record<string, string> = {
   quantity: "数量",
   cost: "成本",
   cash: "资金",
-  orphan: "孤儿"
+  orphan: "孤儿",
+  // #3125：持仓缺快照锚点时的差异。与 quantity 分开是因为它表达「口径缺前提」，
+  // 不是「数据错」——漏了这张表，界面会直接露出英文枚举。
+  no_anchor: "无基准"
 };
 
 export function discrepancyTypeLabel(type: string): string {
   return DISCREPANCY_TYPE_LABELS[type] ?? type;
 }
 
-// 建议放在 src/constants/index.ts 末尾
-export const ALLOCATION_COLORS: Record<string, string> = {
-  liquid: "#7A9AA8",
-  stable: "#9D81A9",
-  longterm: "#7A7FA8",
-  speculative: "#C83E66",
-  security: "#B88A8A"
+/**
+ * 五笔钱配置目标 → 颜色令牌（桑基图 / 分布图 / 首页「心理账户」共用，唯一来源）。
+ *
+ * 用 CSS 变量而不是 hex：暗色主题与「调整档位色」只需改 `style/colors.css` 一处。
+ * 本表取代了原先的 `ALLOCATION_COLORS`（hex 硬编码，全仓零消费方）——
+ * 两份取值表并存必然漂移，而漂移的表现是「同一个『长期增值』在两个页面是两个颜色」。
+ */
+export const ALLOCATION_COLOR_VARS: Record<string, string> = {
+  liquid: "var(--sankey-liquid)",
+  stable: "var(--sankey-stable)",
+  longterm: "var(--sankey-longterm)",
+  speculative: "var(--sankey-speculative)",
+  security: "var(--sankey-security)"
 };
 
 /** 工具函数 */

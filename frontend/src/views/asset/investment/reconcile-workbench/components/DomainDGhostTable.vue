@@ -11,12 +11,17 @@
       <article v-for="g in items" :key="g.fingerprint" class="ghost-group">
         <header class="ghost-group__head">
           <div class="ghost-group__title">
-            <span class="ghost-group__symbol">{{ g.symbol }}</span>
-            <span
-              v-if="g.symbol_identity !== g.symbol"
-              class="ghost-group__identity"
-            >
-              {{ g.symbol_identity }}
+            <!-- 标题一律 reconGroupTitle（名称优先）；代码降级为次要事实行，
+                 与队列 facts / 域 B 表的「名称 + 代码 X」结构保持一致 -->
+            <span class="ghost-group__symbol">{{
+              reconGroupTitle(g.symbol, g.display_name)
+            }}</span>
+            <span class="ghost-group__identity">
+              {{
+                specialSymbolLabel(g.symbol)
+                  ? CASH_SYMBOL_HINT
+                  : `代码 ${reconSymbolCode(g.symbol)}`
+              }}
             </span>
           </div>
           <el-button size="small" text @click="emit('ignore', g)">
@@ -69,7 +74,15 @@
             class="ghost-ignored__item"
           >
             <span class="ghost-ignored__label">
-              {{ it.symbol || "—" }}
+              {{ reconGroupTitle(it.symbol, it.display_name) }}
+              <template v-if="it.symbol">
+                ·
+                {{
+                  specialSymbolLabel(it.symbol)
+                    ? CASH_SYMBOL_HINT
+                    : `代码 ${reconSymbolCode(it.symbol)}`
+                }}
+              </template>
               <template v-if="it.amount_yuan != null">
                 · 金额 {{ it.amount_yuan.toLocaleString() }} 元
               </template>
@@ -100,6 +113,8 @@ import type {
   GhostDuplicateIgnore,
   GhostDuplicateTxn
 } from "@/api/reconciliation";
+import { reconGroupTitle, reconSymbolCode } from "../utils/reconDisplay";
+import { CASH_SYMBOL_HINT, specialSymbolLabel } from "../utils/reconLabels";
 
 /**
  * 域 D 跨账本重复交易表（#2151）。

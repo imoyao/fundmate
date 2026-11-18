@@ -360,9 +360,11 @@ job 名与 stage 名都要写（后者是查询锚点）。
 
 - **路由**：由 `src/router/modules/*.ts` **手工注册**（每页一个模块文件）；`src/router/utils.ts` 的 `import.meta.glob("/src/views/**/*")` 仅用于按路径反查组件，**不自动生成路由**（`handleAsyncRoutes([])`，glob 结果未注入，#1703 实证）。新建页面须保证 `defineOptions.name` 与路由 name 一致（否则 keep-alive 失效）。
 - **接口**：集中在 `src/api/`，按域划分，组件内**禁止**裸 axios。
+- **产品域 API 按子域拆分（#2878）**：`src/api/products.ts` 只做 barrel（9 条 `export *`），21 个端点与 77 个顶层声明落在 `src/api/products/*.ts`（resolve / fund / fundRisk / indices / stock / manager / trend / advisor / pro）。新增端点写进对应子域模块，**禁止把实现写回公共入口**——这类回潮不会让测试变红，只会让文件悄悄长回巨型客户端。判据 `scripts/guard_products_api.mjs`（并入 `ci.yml` 的 `frontend` job，拦 barrel 混入实现 / 断转发 / 孤儿模块 / 子模块超 500 行 / 反向 import），回归网 `scripts/tests/guard_products_api.test.js` 由 `scripts_test` 统一收；手动入口 `node scripts/guard_products_api.mjs --report`。
 - **登录**：Supabase Auth（`@supabase/supabase-js`），后端校验 JWT；登录/登出/路由守卫已配置。
 - **新增页面路由**：`src/views/` 下的组件**不会**自动成路由，须在 `src/router/modules/` 新建模块文件注册（参考 `modules/agent.ts`，含 `meta.requiresAuth` 等）。
 - **设计语言**：亮色 `frontend/design.md`，暗色 `design.dark.md`，**禁止硬编码 hex 色值**，必须使用 CSS 变量（`--color-rise`/`--color-fall` 等）。
+- **离线图标只能用已注册的图标集（#2937）**：`components/ReIcon/src/offlineIcon.ts` 只 `addCollection` 了 `ep`，故 `IconifyIconOffline` / `@iconify/vue/dist/offline` 通道**禁止**写 `lucide:` / `mdi:` / `ri:` 等未注册前缀——未注册名会被渲染成一个空注释节点 `<!---->`，**不抛异常、不警告、类型检查与构建全绿**，只有肉眼能发现。缺图时二选一：换 `ep:*` 等价图形，或按 `components/CloudUploadIcon/index.vue` 的范式内联 SVG（不引入新图标集，判据同 `views/welcome/components/BoardActionIcon.vue`）。判据 `scripts/guard_offline_icon_prefixes.mjs`（并入 `ci.yml` 的 `frontend` job，按 **import 来源**区分在线/离线通道，故 `Icon as IconifyIconOffline` 这类在线别名不误报），回归网 `scripts/tests/guard_offline_icon_prefixes.test.js` 由 `scripts_test` 统一收；手动入口 `node scripts/guard_offline_icon_prefixes.mjs --report`。⚠️ `main.ts:38-40` 的 `addCollection` import 自 `@iconify/vue`（在线构建），与 `dist/offline` 是两份互不可见的 storage，**不算注册**。
 - **强制复用组件**：清单在 `docs/design/components.md`（`SectionHeader` / `CardBlock` / `MetricCard` / `SegmentedControl` / `PageHeaderBar` 等），**禁止各页面重写同类结构**。其中**分段控制器只有 `SegmentedControl` 一个实现**：禁止页面再用 `el-segmented`（其选中滑块是 JS 绝对定位的独立子元素，几何与轨道各算各的，且带 `transition: all .3s`，每次点击都滑动/缩放一次——#1717 的根因），也禁止页面自写 `.xxx-segmented` 样式块。静态守卫 `scripts/guard_segmented.py`（并入 `layout_guard` job）拦截这两类回潮；其边界是**只拦 `-segmented` 命名**，`role="tablist"` 但另起名字的手写按钮组不在其内。
 
 ### 常用前端命令（`cd frontend`）
@@ -389,6 +391,7 @@ job 名与 stage 名都要写（后者是查询锚点）。
 - **禁止 `any` / `Record<string, any>`** 作为 API 入参/响应类型。
 - **列表增删改成功后**必须主动清空列表缓存。
 - 禁止 Emoji，涨红跌绿必须使用语义变量。
+- **文案与信息密度、单一入口**：口径见 `frontend/design.md` 的「先删，再重排：信息密度的默认动作」与「一个数据只有一个可用入口（漏斗）」两节——改任何区块前先按那两节的删除清单过一遍（标语 / 机制套话 / 重复标签先删，删完看不懂就重排布局，而不是把字加回来），并确认同一份数据在页面上只出现一次、只带一个动作。文案另见 Voice & Content 的「反 AI 味」小节（标题不塞句子、不对界面做旁白、通用版三段式不写、不自证清白）。同一次改动要同时不劣化用户体验、开发体验与 AI Agent 使用体验（判据集中、命名可 grep、单文件可读）。
 - **页面规模只减不增**（源 #980）：`.vue` 单文件超 400 行即登记进 `scripts/vue-size-baseline.json`
   作为存量基线，此后**只能降不能涨**——基线内文件涨一行、或新增一个超阈文件，`scripts/check_vue_size.mjs`
   在 `frontend` job 直接判红（`--mode fail`），基线只接受下调（`--update-baseline` 上调会被脚本拒绝）。
@@ -396,6 +399,17 @@ job 名与 stage 名都要写（后者是查询锚点）。
   （WatchlistFilterBar 332→497 / welcome 370→440 / reconcile-workbench 336→405 / watchlist/index 369→403），
   warn 模式只打印不拦截，等于没设。确实拆不动时，须在同一 PR 内腾出等量行数（净零也合规），
   不允许「先加功能、以后再拆」。
+- **services 层模块体量/复杂度只减不增**（防 #2873 类上帝模块复发）：`backend/app/services/**/*.py` 由 `scripts/guard_service_size.py`
+  在 CI 的 `backend` job 钉死——存量按 `BASELINE` 冻结、只能降不能涨，新增文件走 `NEW_FILE_LIMITS`
+  （lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20），超标即判红；存量文件涨一行（或复杂度升一档）也判红。
+  判据边界与回退探针见脚本 docstring 与 `scripts/tests/test_guard_service_size.py`。
+  为什么非设不可：#2873 把 `position_service.py`（当时 2468 行）拆成多个单一职责模块，根因是**没有机器化的体量闸门**，
+  业务规则持续堆进同一文件直到谁都不敢动；视图层已有 `scripts/check_view_thickness.py` 同款范式，services 层补上对称的一道。
+- **导入预览的「金额 ÷ 份额 补单价」只有一份实现**：判据在
+  `frontend/src/views/asset/investment/import/composables/smartFillPrice.ts`，由 AI/OCR 与文件上传两条通道
+  共用；禁止在调用点手抄计算式或另打 `smartFilled` 标记。判据 `scripts/guard_smart_fill_parity.mjs`
+  （并入 `ci.yml` 的 frontend job，阻断）——同一条规则曾两处各写一份，且文件通道把 `!isRowBlocked`
+  当门禁、方向正好写反（该补的普通成交行一个没补，不该补的税额 / 兑付 / 分红行全补了）。
 - **前端 Supabase 环境隔离**：`frontend/.env.development`（本地、不入库）与 `frontend/.env.production`（入库）
   **不得**指向同一个 Supabase 项目——开发期注册的测试账号会直接写进**生产** Auth 用户表，
   且当时没有任何报错。两条判据各管一半、互不重叠：
@@ -803,12 +817,19 @@ if code == 1:
 - 份额：最小单位（份×10000）。
 - 净值：`DECIMAL(18,6)`。
 - 换算必须走 `app/core/money.py` 的 `Money`（`yuan_to_cents`/`shares_to_min_unit`），业务代码禁止直接乘除 float。
-- **前端价格 / 净值展示的位数一律走 `@/utils/pricePrecision`**（基金 / ETF / 货币基金 4 位，其余 2 位）；组件用 `:precision="pricePrecision(assetType)"`，echarts 轴标签 / tooltip / 标注这类非组件出口用 `formatPrice(v, assetType)`。禁止在各处手写 `.toFixed(n)`——契约早在，但只有表格类组件遵守，走势图 y 轴就因此只剩 1 位（净值 4.8124 显示成 4.8）。判据：`scripts/guard_price_precision.mjs`（存量 13 处冻结为基线，只拦新增）。
+- **前端价格 / 净值的位数一律走 `@/utils/pricePrecision`**，展示与录入是两个轴，别互相顶替：展示侧（基金 / ETF / 货币基金 4 位、可转债 3 位、其余 2 位）组件用 `:precision="pricePrecision(assetType)"`，echarts 轴标签 / tooltip / 标注这类非组件出口用 `formatPrice(v, assetType)`；录入侧（股票 2 位、可转债·ETF 3 位、净值 4 位、未知 4 位）用 `priceInputMeta(assetType)` 的 `precision` + `step`。禁止各处手写 `.toFixed(n)`，也禁止给价格语义的 `el-input-number` 写死 `:precision`——展示侧曾因只有表格类组件遵守而让走势图 y 轴只剩 1 位（净值 4.8124 显示成 4.8）；录入侧写死 2 位则更贵，`el-input-number` 的 precision 是**边输边四舍五入**，可转债 116.036 一进框就变 116.04、金额跟着算错且没有提示（#3120）。判据：`scripts/guard_price_precision.mjs`（展示存量冻结为基线、录入零基线，两个出口都只拦新增）。
 
 ### 资产正负
 
 - 用户录入正数，后端按大类自动转换（资产正 / 负债负）。
 - 接口统一输出 `signed_amount` 为唯一计算字段，前端禁止二次运算正负。
+- **净资产一律取 `/api/summary/` 的 `net_assets_cny` 直出，页面层禁止现算**（#119 / #2883，判据 `scripts/guard_net_assets_source.py`）：不许写
+  `totalAssets - totalLiabilities` 这类「总资产 − 总负债」。后端 `net_worth` 当前就等于这个差，
+  两条路径现值相同，但口径一旦纳入不可估值资产调整 / 汇率折算 / 取整策略，页面层减法不经过任何
+  契约测试、也不会跟着变；同一指标两条来源，后人改口径必然只改一处。对照范式
+  `frontend/src/views/welcome/components/WelcomeAssetBoard.vue`（`props.summary?.net_assets_cny`）。
+  守卫扫 `frontend/src` 全量（R1 命名族 + R2 词根族）；注释举例与「两值分别作占比分母」放行，
+  回归网含真实文件回退探针。
 
 ### 持仓与资产
 
@@ -1886,8 +1907,11 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 
 ### CI 守卫（PR 四问格式）
 
-工作流 `.github/workflows/pr-four-questions-guard.yml`（`pull_request_target`，不检出 PR 代码）：
+**阻断那道在 `ci.yml` 的 `scripts_test`**（步骤名「PR 四问格式（阻断）」），经 `gate` 的 `质量门禁汇总` 生效；独立 workflow `.github/workflows/pr-four-questions-guard.yml`（`pull_request` + 显式 `ref: dev`，不检 PR 的代码，见 `#2803`）只做**秒级快速反馈**，不决定能否合。为什么必须搬进 gate：独立 workflow 不在 required check 里，`#3174` 正文全空、连红两次照样合入（2026-11-18 实测）。
 
+- ⚠️ **`ci.yml` 刻意不订阅 `pull_request.edited`**：订阅它会让 `cancel-in-progress: true` 取消正在跑的后端测试，而重跑里 `changes` 又把重活判跳过 ⇒ 可能「gate 绿、后端根本没跑」（假绿比红灯贵）。故改完正文要 `gh run rerun <run-id>` 或推一个提交；此时独立 workflow 会立刻刷新它自己的红绿，但那只是信号。
+- **正文有预填充模板**：`.github/PULL_REQUEST_TEMPLATE.md`（2026-11-18 加）。网页开 PR 自动带上；命令行要走 `gh pr create -T .github/PULL_REQUEST_TEMPLATE.md`（或按同一骨架写 `--body-file`）——**`--fill` 不读模板**，它只取提交信息。此前没有模板，于是每个 PR 都手抄四问，手抄漏一节就被守卫判红（`#3174` 正文全空即是此形态）。
+- 模板里的填写提示写成 HTML 注释，守卫**先剥注释再判定**（第三层判据）⇒ 一份没人动过的模板照样判红。**预填充省的是抄结构，不是省思考**：若让注释算内容，模板就等于给所有 PR 预置了通过样本，那是把闸门关掉还留着灯。
 - 判据脚本 `scripts/guard_pr_four_questions.mjs`：PR 描述须含四问小节——**谁的什么问题 / 验收标准 / 风险 / 替代方案**；
 - **验收标准每条须带判据引用**（`scripts/guard_pr_four_questions.mjs` 第二层判据）：反引号里的测试名 / 文件 / 命令，或 `测试：` / `判据：` / `走查：` / `验证：` 等冒号前缀标记；真机走查类验收没有测试名，写「走查：dev 环境点击截图」即合格。这拦的是「验收标准写成愿望清单」——条目既无测试名也无走查点，收口时只能靠回忆判断过没过（#2449）；
 - **只检查「有没有写」，不判断「写得对不对」**。这是有意的降级：「需求是否合理」是主观判断（写进文档就会被绕开），「有没有写这四行」是客观存在性（CI 拦得住）。守卫保证的是**判断发生过并留下痕迹**，四问内容是否成立仍由 owner 评审时判断；

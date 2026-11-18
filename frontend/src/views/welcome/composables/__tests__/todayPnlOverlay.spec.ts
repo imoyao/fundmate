@@ -24,6 +24,7 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
     total_pnl: 200,
     total_rate: 10,
     invested_value: 2200,
+    invested_ratio_of_assets: 55,
     other_value: 0,
     classes: [
       {
@@ -32,6 +33,7 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
         pnl: 100,
         rate: 10,
         market_value: 1100,
+        share_of_invested: 50,
         status: "confirmed"
       },
       {
@@ -40,6 +42,7 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
         pnl: 100,
         rate: 10,
         market_value: 1100,
+        share_of_invested: 50,
         status: "confirmed"
       }
     ],
@@ -47,6 +50,13 @@ function makeData(overrides: Partial<TodayPnlData> = {}): TodayPnlData {
       { symbol: "SH600519", class: "stock", quantity: 100, price: 11 },
       { symbol: "000001", class: "fund", quantity: 1000, price: 1.1 }
     ],
+    // D92 通用化后的契约字段：首页默认请求是 family / class、无未归属排除
+    scope: "family",
+    dimension: "class",
+    ledger_id: null,
+    portfolio_id: null,
+    excludes_unassigned: false,
+    groups: [],
     ...overrides
   };
 }
@@ -105,6 +115,7 @@ describe("applyPriceOverlay", () => {
           pnl: null,
           rate: null,
           market_value: 1100,
+          share_of_invested: 100,
           status: "partial"
         }
       ]
@@ -128,6 +139,7 @@ describe("applyPriceOverlay", () => {
           pnl: 100,
           rate: 10,
           market_value: 1100,
+          share_of_invested: 50,
           status: "confirmed"
         },
         {
@@ -136,6 +148,7 @@ describe("applyPriceOverlay", () => {
           pnl: 100,
           rate: 10,
           market_value: 1100,
+          share_of_invested: 50,
           status: "confirmed"
         }
       ]
@@ -197,7 +210,76 @@ describe("shanghaiTodayIso", () => {
   });
 });
 
+describe("盘中替换后的占比", () => {
+  it("传了家庭总资产 ⇒ 分项占比与投资占比一起重算（金额变了占比不能停在旧值）", () => {
+    const data = makeData();
+    // 股票 11 → 22：市值 1100 → 2200，投资类资产 3300（基金 1100 未动）
+    const result = applyPriceOverlay(data, new Map([["SH600519", 22]]), {
+      householdAssets: 4000
+    });
+
+    expect(result.applied).toBe(true);
+    const byKey = Object.fromEntries(
+      result.data.classes.map(item => [item.key, item])
+    );
+    expect(result.data.invested_value).toBe(3300);
+    expect(byKey.stock.share_of_invested).toBe(66.67);
+    expect(byKey.fund.share_of_invested).toBe(33.33);
+    // 3,300 ÷ 4,000 = 82.5%（分母来自 summary，不是前端另取）
+    expect(result.data.invested_ratio_of_assets).toBe(82.5);
+  });
+
+  it("没传家庭总资产 ⇒ 沿用后端算好的占比（宁可用旧值，也不清成 --）", () => {
+    const data = makeData();
+    const result = applyPriceOverlay(data, new Map([["SH600519", 22]]));
+
+    expect(result.applied).toBe(true);
+    expect(result.data.invested_ratio_of_assets).toBe(55);
+  });
+
+  it("分母明确不可用（null）⇒ 占比降级为 null，不显示 0%", () => {
+    const data = makeData();
+    const result = applyPriceOverlay(data, new Map([["SH600519", 22]]), {
+      householdAssets: null
+    });
+
+    expect(result.data.invested_ratio_of_assets).toBeNull();
+    // 分项占比仍然算得出来（分母是投资类资产，与家庭总资产无关）
+    expect(
+      result.data.classes.find(item => item.key === "stock")?.share_of_invested
+    ).toBe(66.67);
+  });
+});
+
 describe("todayPnlSubtitle / formatMonthDay", () => {
+  it("无当日报价标的 ⇒ 副标题说明「市值已按快照价计入」，不把缺失画成静默", () => {
+    expect(
+      todayPnlSubtitle({
+        status: "confirmed",
+        isToday: true,
+        date: "2026-11-03",
+        unvaluedCount: 13
+      })
+    ).toBe("官方净值已确认 · 13 只暂无报价 · 市值按快照价计入");
+    // 回退到上一交易日时也要带上，别让口径注解被日期标签吃掉
+    expect(
+      todayPnlSubtitle({
+        status: "partial",
+        isToday: false,
+        date: "2026-11-02",
+        unvaluedCount: 5
+      })
+    ).toBe("最近交易日 11月2日 · 5 只暂无报价 · 市值按快照价计入");
+    // 没有这类标的时保持原文案，不改既有展示
+    expect(
+      todayPnlSubtitle({
+        status: "partial",
+        isToday: true,
+        date: "2026-11-03"
+      })
+    ).toBe("部分标的本日尚无报价");
+  });
+
   it("盘中替换过 ⇒ 带上更新时间；收盘估值 ⇒ 说明会自动确认", () => {
     expect(
       todayPnlSubtitle({

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { WatchlistRow } from "../types";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessageBox } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -24,7 +25,7 @@ import { pricePrecision } from "@/utils/pricePrecision";
  * 本文件只留桌面表格与断点判定。
  */
 defineProps<{
-  rows: any[];
+  rows: WatchlistRow[];
   loading: boolean;
   totalCount: number;
   /** true = 未填成本份额的纯观察模式（隐藏盈亏列） */

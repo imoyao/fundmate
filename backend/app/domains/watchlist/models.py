@@ -129,15 +129,68 @@ class WatchlistItemTag(Base, PrimaryKeyMixin):
 
 
 class WatchlistAlert(Base, PrimaryKeyMixin, TimestampMixin):
-    """异动提醒表"""
+    """自选标的提醒规则（逐标的一行/类型）。
+
+    ## 数据准入四问（AGENTS.md「数据策略」）
+      1. 谁在用？—— 自选行「提醒」入口（`QuickViewAlertSection.vue`）与提醒扫描
+         （`services/alerts/service.refresh_alerts`）。
+      2. 什么场景用？—— 用户给某只自选设「涨到 / 跌到 X 元」「单日跌幅超过 N%」
+         「自近 N 日高点回撤超过 N%」，越线时落一条站内通知。
+      3. 缺了会怎样？—— 提醒只剩「事后看行情」，到价那一刻没人告诉用户；
+         无降级替代（人工盯盘不算产品能力）。
+      4. 成本多大？—— 每家庭行数 = 自选数 × 至多 4，读写都是本家庭范围；
+         扫描时行情批量取（两次 IN 查询），随自选数线性、不受通知量放大。
+
+    ## 语义
+    - `PRICE_UP` / `PRICE_DOWN`：到价提醒，**一次性**——触发后 `is_active` 置 False，
+      由用户重设（到价是事件，不是持续状态，常驻会天天重复）。
+    - `CHANGE_PCT`：单日跌幅监控，阈值取正数（5 表示跌 5%），常驻。
+    - `DRAWDOWN`：自窗口高点回撤监控，窗口天数在家庭设置里（`WatchlistAlertSettings`），常驻。
+    - 本行为「逐标的覆盖」：存在且启用 ⇒ 用它；存在但停用 ⇒ 该标的关掉这类提醒
+      （即使家庭默认开启）；不存在 ⇒ 回落到家庭默认配置。
+    """
 
     __tablename__ = 'watchlist_alerts'
 
     item_id = Column(Integer, ForeignKey('watchlist.id', ondelete='CASCADE'), nullable=False)
-    alert_type = Column(String(20), nullable=False, comment='PRICE_UP/PRICE_DOWN/CHANGE_PCT')
-    threshold_value = Column(Float)
-    is_active = Column(Boolean, default=True)
-    last_triggered_at = Column(DateTime)
+    alert_type = Column(String(20), nullable=False, comment='PRICE_UP/PRICE_DOWN/CHANGE_PCT/DRAWDOWN')
+    threshold_value = Column(Float, nullable=False, comment='阈值：到价为价格（元），幅度类为百分比正数')
+    is_active = Column(Boolean, default=True, comment='是否启用（到价触发后置 False）')
+    last_triggered_at = Column(DateTime, comment='最近一次触发时间（到价一次性语义的依据）')
+
+    __table_args__ = (
+        UniqueConstraint('item_id', 'alert_type', name='uq_watchlist_alert_item_type'),
+        Index('ix_watchlist_alerts_item', 'item_id'),
+    )
+
+
+class WatchlistAlertSettings(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
+    """家庭级提醒默认配置（逐类型一行）。
+
+    ## 为什么单独一张表而不是在 `watchlist_alerts` 上挂全局行
+    「某只标的的规则」与「这个家庭的默认口径」是两个生命周期：前者随标的增删，
+    后者与标的无关。混在一张表里会让「没有自选标的时无法配置默认值」，
+    也会让扫描逻辑分不清「这行是覆盖」还是「这行是默认」。
+
+    ## 为什么用「类型 + 列」而不是一个 JSON 大字段
+    阈值是会被 SQL/报表直接读的数（后续做「提醒效果复盘」时要按类型聚合），
+    JSON 字段在 SQLite/Postgres 两侧的可移植与可比性都差；按类型一行则新增
+    一种提醒只是多一行数据 + 一条默认值，**不需要改表结构**（低耦合）。
+
+    ## 默认值不在库里
+    表里只存「用户改过的口径」。读取时由 `services/alerts/rules.DEFAULT_SETTINGS`
+    补齐缺行——这样调整默认阈值不必迁移数据，也不会把开发默认值固化成
+    「用户配置」（用户没设过的东西不该显示成他设过）。
+    """
+
+    __tablename__ = 'watchlist_alert_settings'
+
+    alert_type = Column(String(20), nullable=False, comment='CHANGE_PCT/DRAWDOWN（到价类逐标的配置，不走本表）')
+    is_enabled = Column(Boolean, nullable=False, default=False, comment='该类型是否默认对全部自选生效')
+    threshold_value = Column(Float, nullable=False, comment='默认阈值（百分比正数）')
+    window_days = Column(Integer, comment='回看窗口天数（仅 DRAWDOWN；其余类型为 NULL）')
+
+    __table_args__ = (UniqueConstraint('family_id', 'alert_type', name='uq_watchlist_alert_settings_family_type'),)
 
 
 class ClearedPosition(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):

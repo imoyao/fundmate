@@ -35,7 +35,7 @@ from app.domains.funds.models import FundCompany
 from app.domains.positions.models import SalesInstitution
 from app.services.job_base import SyncJob
 from app.services.sync.company_resolver import build_fund_company_index, match_fund_company
-from app.services.sync.pinyin_utils import generate_pinyin_abbr
+from app.services.sync.institution_pinyin import derive_pinyin
 
 AMAC_AGENCY_URL = 'https://www.amac.org.cn//portal/front/infopublic/fsAgencyAnno/findFsAgencyAnnos'
 AMAC_HOUSE_URL = 'https://www.amac.org.cn/portal/front/mutualFund/findMutualFundHousePage'
@@ -182,15 +182,14 @@ class AmacInstitutionJob(SyncJob):
         org_name = item['orgName'].strip()
         self._seen_org_names.add(org_name)
         curated = CURATED_INSTITUTIONS.get(org_name)
-        # 拼音简拼为派生数据（源自 org_name），每次同步覆写，供前端检索过滤（#1081）
-        pinyin_short = generate_pinyin_abbr(org_name)
+        pinyin_short, pinyin_full = derive_pinyin(org_name, curated)  # 派生，每次覆写
         row = existing.get(org_name)
         if row:
             row.reg_addr = item.get('regAddr') or row.reg_addr
             row.org_type = item.get('orgType') or row.org_type
             row.check_time = item.get('checkTime') or row.check_time
             row.is_active = True  # 仍在公示名单 → 恢复/保持 active
-            row.pinyin_short = pinyin_short
+            row.pinyin_short, row.pinyin_full = pinyin_short, pinyin_full
             if curated:
                 # 策展行覆写三件套：代码即 source of truth，保证多环境收敛（见常量注释）
                 row.display_name, row.common_sort = curated
@@ -206,6 +205,7 @@ class AmacInstitutionJob(SyncJob):
                     is_common=bool(curated),
                     common_sort=curated[1] if curated else None,
                     pinyin_short=pinyin_short,
+                    pinyin_full=pinyin_full,
                     is_active=True,
                 )
             )

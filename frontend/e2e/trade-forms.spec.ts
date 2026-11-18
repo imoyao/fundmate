@@ -189,14 +189,15 @@ test.describe("记录交易表单（#980 拆分后的接线判据）", () => {
     await positionOption.click();
 
     // 持仓回填后：数量/价格/预估金额三件套（SellQuantityField 的 props 全链路）
+    // 标签已统一为全站唯一来源 TRADE_FIELD_LABELS（成交数量 / 成交价格）
     await expect(
-      drawer.locator(".el-form-item__label").filter({ hasText: "卖出数量" })
+      drawer.locator(".el-form-item__label").filter({ hasText: "成交数量" })
     ).toBeVisible();
-    await expect(formItem(drawer, "卖出价格")).toBeVisible();
+    await expect(formItem(drawer, "成交价格")).toBeVisible();
     await expect(formItem(drawer, "预估金额")).toBeVisible();
     // 价格默认取现价（useSellPositions 的 onPositionSelect 回填口径），precision=2 显示两位
     await expect(
-      formItem(drawer, "卖出价格").locator("input").first()
+      formItem(drawer, "成交价格").locator("input").first()
     ).toHaveValue("1500.00");
   });
 });

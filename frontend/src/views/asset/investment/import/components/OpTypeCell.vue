@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import type { PreviewRow } from "../composables/previewRow";
 import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
-defineProps<{ row: any }>();
+defineProps<{ row: PreviewRow }>();
 
 const { getTypeColor } = useImportWizardContext();
 </script>

@@ -488,6 +488,8 @@ class TestDividendReinvest:
 
     def test_process_orphan_split_increments_shares(self, db):
         """导入/手动送股：关联既有持仓，份额增加、均价被零成本份额稀释。"""
+        db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+        db.commit()
         pos = PositionService.process_buy_or_deposit(
             db,
             {
@@ -555,6 +557,8 @@ class TestDividendReinvest:
 
     def test_split_delete_recomputes_shares(self, db):
         """删除送股流水后重算，份额减回（与买入/卖出回滚同一口径）。"""
+        db.add(Ledger(id=1, name='测试账户', ledger_type='fund', family_id=1))
+        db.commit()
         pos = PositionService.process_buy_or_deposit(
             db,
             {

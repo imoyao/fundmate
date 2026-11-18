@@ -13,6 +13,7 @@
  */
 
 import { isAllEmpty, isEqual } from "@pureadmin/utils";
+import type { RouteConfigs } from "../../../types";
 
 /** 菜单项在 `tagsViews` 里的下标（与 hooks/useTag.ts 的初始化顺序一一对应） */
 export const MENU_INDEX = {
@@ -65,7 +66,7 @@ export function applyMenuBody(
  * `/asset/portfolio/123`）只能靠 params 区分，同路径不同 query 的标签只能靠 query 区分。
  */
 export function resolveMenuIndex(
-  multiTags: ReadonlyArray<any>,
+  multiTags: ReadonlyArray<RouteConfigs>,
   target: { path: string; query?: object; params?: object }
 ): number {
   const { path, query = {}, params = {} } = target;

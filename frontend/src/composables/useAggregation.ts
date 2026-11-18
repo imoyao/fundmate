@@ -1,3 +1,4 @@
+import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref } from "vue";
 import type {
   AggregationDimension,
@@ -13,9 +14,7 @@ import type {
  * 由调用方注入（场外基金 / 场内证券各传自己的 API 函数），
  * 使本 composable 与具体品类解耦。
  */
-export type AggregationFetcher = (
-  params: AggregationQuery
-) => Promise<{ data?: AggregationResult | null } | any>;
+export type AggregationFetcher = (params: AggregationQuery) => Promise<unknown>;
 
 export interface UseAggregationOptions {
   /** 默认每页条数 */
@@ -171,11 +170,12 @@ export function useAggregation(
       const res = await fetcher(query);
       // 旧请求的响应：丢弃，别覆盖新筛选的结果（#1833）
       if (token !== loadToken) return;
-      result.value = (res?.data as AggregationResult) ?? null;
-    } catch (e: any) {
+      result.value =
+        (res as { data?: AggregationResult | null } | null)?.data ?? null;
+    } catch (e) {
       if (token !== loadToken) return;
       // 技术错误映射为用户友好文案，不暴露原始信息
-      const msg = String(e?.message ?? e ?? "");
+      const msg = errorMessageOf(e) || String(e ?? "");
       if (/timeout/i.test(msg)) {
         errorMsg.value = "请求超时，请稍后重试";
       } else if (/network|fetch|abort/i.test(msg)) {

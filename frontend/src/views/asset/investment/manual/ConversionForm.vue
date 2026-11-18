@@ -124,6 +124,7 @@
  * 转出与转入是同一笔双腿操作，分两屏问会让用户来回翻页核对。
  * 「结果」步的索引是 3（走完全程），`currentStep` 负责夹回 2。
  */
+import type { LedgerListItem } from "@/api/ledger";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import ConversionOutLeg from "./conversion/components/ConversionOutLeg.vue";
 import ConversionInLeg from "./conversion/components/ConversionInLeg.vue";
@@ -136,7 +137,7 @@ import { useConversionEstimate } from "./conversion/useConversionEstimate";
 import { useConversionSubmit } from "./conversion/useConversionSubmit";
 
 const props = defineProps<{
-  ledgers: any[];
+  ledgers: LedgerListItem[];
   defaultLedgerId?: number | null;
 }>();
 const emit = defineEmits<{

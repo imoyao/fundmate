@@ -11,6 +11,8 @@ scheduler 提交写事务后，DELETE 升级写锁会立即 ``database is locked
 反向验证：去掉重试装饰器、或恢复 teardown 的裸 commit，下面用例必须转红。
 """
 
+import sqlite3
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -113,3 +115,42 @@ def test_teardown_still_raises_real_commit_failures(app, monkeypatch):
             session.commit = MagicMock(side_effect=OperationalError('COMMIT', {}, Exception('database is locked')))
         with pytest.raises(OperationalError, match='database is locked'):
             teardown_request_session(None)
+
+
+def test_lock_upgrade_fails_fast_when_peer_holds_reserved(tmp_path):
+    """「先读后写」撞上别人的未提交写 ⇒ 立即 BUSY，不等 busy_timeout。
+
+    这条钉住的是**排查时最容易被误读的一点**：``database is locked`` 不等于
+    「等了 5 秒超时」。两个连接都在事务里时，SQLite 的锁升级死锁预防让升级方
+    **立刻**拿到 ``SQLITE_BUSY``（否则双方互等：A 等 B 放 SHARED 去 commit，
+    B 等 A 放 RESERVED 去写）。真实触发见 2026-11-12 的导入 flaky——日志里
+    flush 失败距请求开始只有 6ms，按「5s 超时」的模型会误判成「跟锁无关」。
+
+    所以：**看到毫秒级的 locked，先怀疑两个连接各持一段事务**，别因为
+    「没等满超时」就排除并发写。若哪天 SQLite 行为变了（或测试库换 WAL），
+    本用例会红，提醒重写这段结论。
+    """
+    db_path = tmp_path / 'lock_upgrade.db'
+    seed = sqlite3.connect(db_path)
+    seed.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)')
+    seed.execute('INSERT INTO t VALUES (1, 0)')
+    seed.commit()
+    seed.close()
+
+    holder = sqlite3.connect(db_path, timeout=5, isolation_level=None)  # 后台线程：写过
+    waiter = sqlite3.connect(db_path, timeout=5, isolation_level=None)  # 请求：先读后写
+    try:
+        holder.execute('BEGIN')
+        holder.execute('UPDATE t SET v = 1 WHERE id = 1')  # holder 持 RESERVED
+
+        waiter.execute('BEGIN')
+        waiter.execute('SELECT * FROM t').fetchall()  # 请求先查了一次（持 SHARED）
+
+        started = time.perf_counter()
+        with pytest.raises(sqlite3.OperationalError, match='database is locked'):
+            waiter.execute('UPDATE t SET v = 2 WHERE id = 1')
+        elapsed = time.perf_counter() - started
+        assert elapsed < 1.0, f'timeout=5 却等了 {elapsed:.3f}s —— 立即 BUSY 的结论需重写'
+    finally:
+        holder.close()
+        waiter.close()

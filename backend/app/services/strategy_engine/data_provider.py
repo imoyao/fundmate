@@ -34,6 +34,7 @@ from app.domains.transactions.models import Transaction
 from app.services.strategy_engine.behavior_profile import TradeRecord
 from app.services.strategy_engine.contracts import SeriesPoint
 from app.services.symbol_scope import build_transaction_symbol_conditions
+from app.services.transaction_symbol_scope import build_transaction_scope
 
 #: 场内/场外都可能出现的前缀形态；取数字尾部 6 位作为基金裸码
 _FUND_CODE_RE = re.compile(r'\d+')
@@ -326,11 +327,10 @@ class DataProvider:
             Transaction.txn_type.in_(('buy', 'sell')),
         )
         if symbol:
-            # 身份键匹配（#1662 遗留项）：流水快照与调用方传的写法可能不同，
-            # FIFO 配对按字面量等值会漏掉整批买卖 → 持有天数/胜率凭空失真。
+            # 身份键匹配（#1662）：流水快照与调用方写法可能不同，字面量等值会漏掉整批买卖、失真行为画像。
             query = query.filter(or_(*build_transaction_symbol_conditions(symbol)))
         elif symbols:
-            query = query.filter(or_(*[cond for s in symbols for cond in build_transaction_symbol_conditions(s)]))
+            query = query.filter(build_transaction_scope(symbols))
 
         rows = query.order_by(Transaction.trade_date.asc(), Transaction.id.asc()).all()
         out: list[TradeRecord] = []
