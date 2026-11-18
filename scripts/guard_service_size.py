@@ -207,7 +207,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/ai_recognizer/cancellation.py": {'lines': 57, 'max_func': 12, 'max_cc': 4},
     "backend/app/services/ai_recognizer/catalog.py": {'lines': 161, 'max_func': 91, 'max_cc': 20},
     "backend/app/services/ai_recognizer/guards.py": {'lines': 213, 'max_func': 21, 'max_cc': 6},
-    "backend/app/services/ai_recognizer/llm.py": {'lines': 211, 'max_func': 109, 'max_cc': 13},
+    "backend/app/services/ai_recognizer/llm.py": {'lines': 195, 'max_func': 109, 'max_cc': 13},
     "backend/app/services/ai_recognizer/mcp_adapter.py": {'lines': 54, 'max_func': 20, 'max_cc': 4},
     "backend/app/services/ai_recognizer/mcp_server.py": {'lines': 82, 'max_func': 9, 'max_cc': 3},
     "backend/app/services/ai_recognizer/narrative_blocks.py": {'lines': 180, 'max_func': 60, 'max_cc': 24},

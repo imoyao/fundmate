@@ -27,11 +27,29 @@
     自动跳过，不影响别的候选）；在方舟「模型开通」页恢复开通后，无需改代码即可自动重新参与。
 """
 
+import importlib.util
 import json
 import os
+import pathlib
 import sys
 import urllib.error
 import urllib.request
+
+# 429 的分类判据是**单一真源**：与运行时重试判定（`llm._classify_failure`）共用 backend
+# 里那一份，避免「探针报额度耗尽、运行时还在白重试」这种自相矛盾。按文件加载而不
+# `import app.*`：`app/__init__` 会拉起 Flask / DB 依赖，而本脚本要能在没有后端依赖的
+# CI job 里独立跑（只用标准库 json）。
+_RETRY_POLICY_PATH = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / "backend"
+    / "app"
+    / "services"
+    / "ai_recognizer"
+    / "retry_policy.py"
+)
+_spec = importlib.util.spec_from_file_location("retry_policy", _RETRY_POLICY_PATH)
+retry_policy = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(retry_policy)  # 文件被移动/改名会在这里立刻炸，不静默降级
 
 # 各供应商的 chat/completions 端点
 API_URLS = {
@@ -76,33 +94,16 @@ def _classify_429(body: str):
     「额度到底够不够」无法从日志回答（2026-11-12 排查 #3056 时就被卡在这里）。
     方舟及 OpenAI 兼容端点的错误码都在 error.code / error.type / message 里，实测见过
     QuotaExceeded、SetLimitExceeded（单模型被安全体验模式限额）、RateLimitExceeded。
-    """
-    code = ""
-    try:
-        payload = json.loads(body or "{}")
-    except (TypeError, ValueError):
-        payload = None
-    if isinstance(payload, dict):
-        err = payload.get("error")
-        if isinstance(err, dict):
-            code = str(err.get("code") or err.get("type") or "")
-        elif isinstance(payload.get("code"), str):
-            code = str(payload["code"])
 
-    haystack = f"{code} {body or ''}".lower()
-    rate_words = (
-        "ratelimit",
-        "rate_limit",
-        "rate limit",
-        "rpm",
-        "tpm",
-        "qps",
-        "too_many_requests",
-        "too many requests",
-    )
-    if any(w in haystack for w in rate_words):
+    判据本身**不在这里**：词表与错误码提取共用 `backend` 里的 `retry_policy`（运行时
+    重试判定用同一份）。本函数只做「探针侧」的取舍：探针的代价是继续跑一整轮必然失败的
+    CI，因此 `unknown`（新错误码 / 响应体读不到）按额度类处理——宁可少跑一轮，也不拿
+    runner 分钟去赌；运行时则相反（宁可多试一次，也不白丢用户请求）。
+    """
+    label, code = retry_policy.classify_429(body)
+    if label == retry_policy.RATE_LIMIT:
         return ("rate_limit", f"429 限流（{code or '无错误码'}）")
-    if not code and not haystack.strip():
+    if not (body or "").strip():
         # 响应体读不到：保留历史标签，避免把「未知」伪装成「已知的限流」
         return ("quota", "429 限流/额度用尽（响应体不可读）")
     return ("quota", f"429 额度/模型限额（{code or '无错误码'}）")
