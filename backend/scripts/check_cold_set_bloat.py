@@ -28,6 +28,8 @@
 
 - `0`：未膨胀（或首次巡检，无基线）
 - `1`：膨胀（单次增量超阈值）——便于 cron / CI 直接拿退出码告警
+- `2`：热集口径不可用（user 域来源表缺失 / 连不上）——**不是**「没有冷集」，
+  先修库连接再看结论（#3091：这条以前是 `SystemExit` + traceback，看不出该去查哪个变量）
 
 ## 用法
 
@@ -59,6 +61,7 @@ from app.services.cold_set_check import (  # noqa: E402,F401
     run_check,
     run_check_and_record,
 )
+from app.services.hot_codes import HotCodesUnavailable  # noqa: E402
 
 W = 84
 
@@ -118,6 +121,16 @@ def main() -> int:
             )
         else:
             print('DRY-RUN：未落库。加 --record 才会写入基线。')
+    except HotCodesUnavailable as exc:
+        # 热集口径不可用**不是**「全库皆冷集」，也不是「没有膨胀」：先修库连接/变量再判。
+        # 库层改抛普通异常后，这里是把它转成可读提示 + 专属退出码的地方（#3091）。
+        print('热集口径不可用，本次不判定：')
+        for line in str(exc).splitlines():
+            print('  ' + line)
+        print('')
+        print('提示：热集三张表（positions / watchlist / transactions）属 user 域，')
+        print('      请确认 SUPABASE_DATABASE_URL（生产）或 DEV_USER_DATABASE_URL（本地双库模拟）指向正确的库。')
+        return 2
     finally:
         db.close()
 

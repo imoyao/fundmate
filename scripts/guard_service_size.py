@@ -258,7 +258,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 未变）。都是真实代码增长，非放宽阈值：`test_baseline_matches_current_metrics`
     # 要求基线与实测逐项相等，留余量同样判红。
     "backend/app/services/cash_flow_service.py": {'lines': 264, 'max_func': 133, 'max_cc': 24},
-    "backend/app/services/cold_set_guard.py": {'lines': 240, 'max_func': 52, 'max_cc': 8},
+    "backend/app/services/cold_set_guard.py": {'lines': 235, 'max_func': 52, 'max_cc': 8},
     "backend/app/services/cold_set_write_scope.py": {'lines': 140, 'max_func': 42, 'max_cc': 8},
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
