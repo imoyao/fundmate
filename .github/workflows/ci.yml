@@ -978,11 +978,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/guard_now_capacity.mjs
 
-      # PR 四问格式（被 pr-four-questions-guard.yml 调用）。此处在 CI 里**显式跑一遍自测**，
-      # 只为让「它属于哪条通道」在日志里看得见——真正的拦截发生在 PR 事件上。
-      # 判据边界（只校验有无、不判断好坏）见脚本 docstring。
-      - name: PR 四问格式守卫可用性（自检）
-        run: node scripts/guard_pr_four_questions.mjs --body-file .github/ISSUE_TEMPLATE/README.md || true
+      # PR 四问格式（**阻断**）：原先只有独立 workflow `pr-four-questions-guard.yml`，
+      # 而它不在 required check 里 —— `#3174` 正文全空、连红两次照样合入（2026-11-18 实测）。
+      # 本步骤把同一份判据挂进 `scripts_test` ⇒ 经 `gate` 的 `质量门禁汇总` 真正拦截，
+      # 且**不新增 job**（不新增就不必动 `gate.needs`）。独立 workflow 保留为秒级快速反馈，
+      # 但「能不能合」以这里为准。
+      #
+      # ⚠️ ci 不订阅 `pull_request.edited`：订阅它会让 `cancel-in-progress: true`
+      # 取消正在跑的后端测试，而 `changes` 在 edited 事件下又会把重活跳过 ⇒
+      # 可能出现「gate 绿、后端没跑」的假绿。故作者改完正文需重跑本 run
+      # （`gh run rerun <run-id>` 或随便推一个提交），这是有意取舍。
+      - name: PR 四问格式（阻断）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > /tmp/pr-body.md
+          # 作者 / draft 必须显式传入：豁免面在脚本里，不传就等于把 dependabot 判红。
+          # 注意 `${PR_DRAFT:+--draft}` 是错的：GitHub 传的是字符串 "false"，非空 ⇒ 永远带 --draft。
+          draft_flag=""
+          if [ "${PR_DRAFT}" = "true" ]; then draft_flag="--draft"; fi
+          node scripts/guard_pr_four_questions.mjs --body-file /tmp/pr-body.md \
+            --author "${PR_AUTHOR}" ${draft_flag}
 
       # 认领同步（源 2026-10-19 两个 agent 同时改 #2406 的撞车事故）。
       # 由 issue-claim-sync.yml 在 PR 事件上调用；此处显式跑一遍解析自检，
