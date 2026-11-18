@@ -133,6 +133,15 @@ v0.76.0 的 agent 模式在本仓环境下**必然失败**：
 第 2 轮的意义是绕开**单个**模型不可用，整池被同一把 key 挡住时再跑只白烧约 40 秒 runner
 和一批必然失败的请求。job summary 会写清是哪一种 429，`deep-review-verdict` 照旧 skipped。
 
+**判据单一真源（2026-11-18）**：词表与错误码提取已下沉到
+`backend/app/services/ai_recognizer/retry_policy.py`，探针按文件加载它（不 import `app.*`，
+保持无后端依赖），**与运行时重试判定共用一份**——此前两处各写一遍，症状就是「探针报额度
+耗尽、运行时还在白重试」。上表是**探针侧**口径：`unknown`（未知码 / 响应体读不到）按
+`quota` 处理，因为它的代价是再跑一整轮必然失败的 CI；**运行时相反**——`SetLimitExceeded`
+等额度类立即终止（`llm._classify_failure` → `retry_policy.retry_decision`），`unknown` 仍
+按可重试处理（漏判只多一次请求，误判终止则白丢一次用户请求），且额度类的对外话术不再是
+「请稍后重试」。
+
 ⚠️ 这条**不等于「审查恢复」**：它只解决「可诊断性」与「不浪费」，额度用尽时审查仍然不跑。
 
 回归用例：`scripts/tests/test_llm_health_probe.py`——含**接线证据**（把 429 分支退回

@@ -9,6 +9,8 @@
 - 超时/token 记账逻辑原样保留；重试升级为**分类退避**（#1121 S1-C）：
   429/5xx/超时/响应体异常才重试，其余 4xx（401 key 错、400 参数错、
   422 schema 错…）立即终止——重试不可能让坏请求变好，只白白拖长失败路径；
+  429 再分一层（2026-11-18）：额度/模型限额（`SetLimitExceeded`/`QuotaExceeded`）
+  同样立即终止，只有限流类才退避——判据与话术见 `retry_policy`；
 - 成功与失败都打 `[llm.call]` 结构化日志行，排障按 tag 过滤；
 - 技术决策见 explore-watchlist-enhancement-2026-08-12.md §6。
 """
@@ -22,6 +24,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from app.core.exceptions import ErrorCode, SBException
+from app.services.ai_recognizer import retry_policy
 from app.services.ai_recognizer.guards import _record_tokens
 
 load_dotenv()  # 独立脚本直接 import 时也能读到 .env（main.py 已 load 则幂等）
@@ -47,18 +50,17 @@ ARK_OCR_THINKING = os.getenv('ARK_OCR_THINKING', 'disabled').strip().lower()
 ARK_MODEL_AGENT = os.getenv('ARK_MODEL_AGENT', 'glm-5-2-260617')
 # LLM 单次请求超时（秒）：图片/长文本识别较慢，30s 在数据量大时易 ReadTimeout → 503
 ARK_TIMEOUT = int(os.getenv('ARK_TIMEOUT', '60'))
-# 可重试类失败（429/5xx/超时/响应体异常）的最大重试次数（0 = 不重试）
+# 可重试类失败（限流/未知类 429、5xx、超时、响应体异常）的最大重试次数（0 = 不重试）
+# 注意：额度类 429（SetLimitExceeded 等）不计入重试，见 retry_policy.retry_decision
 ARK_RETRIES = int(os.getenv('ARK_RETRIES', '1'))
-# 指数退避基数（秒）：第 n 次失败（n 从 0 计）后睡 base * 2**n → 1.5 / 3 / 6 …
-BACKOFF_BASE_SECONDS = 1.5
-# 429 的 Retry-After 头封顶（秒）：防服务端回超大值把工作线程挂死
-RETRY_AFTER_CAP_SECONDS = 30.0
 
 
 def _classify_failure(err: Exception) -> Tuple[bool, str]:
     """把失败分为「可重试」与「立即终止」，返回 (是否可重试, 原因标签)。
 
-    - 429 / 5xx / 超时 / 连接失败 / 响应体异常 → 可重试（瞬态，等一等可能变好）；
+    - 429 分两类（判定见 `retry_policy.retry_decision`）：额度/模型限额 → 立即终止，
+      限流与未知类 → 可重试；
+    - 5xx / 超时 / 连接失败 / 响应体异常 → 可重试（瞬态，等一等可能变好）；
     - 其余 4xx → 立即终止（客户端错误，重试不可能让坏请求变好）。
 
     顺序敏感：HTTPError 也是 RequestException，requests 的 JSONDecodeError 也是
@@ -68,7 +70,9 @@ def _classify_failure(err: Exception) -> Tuple[bool, str]:
         status = getattr(err.response, 'status_code', None)
         if status is None:
             return True, 'http-unknown'  # 理论上 raise_for_status 必带 response，兜底按瞬态处理
-        if status == 429 or status >= 500:
+        if status == 429:
+            return retry_policy.retry_decision(err.response)
+        if status >= 500:
             return True, f'http={status}'
         return False, f'http={status}'  # 其余 4xx/3xx：立即终止
     if isinstance(err, (requests.Timeout, requests.ConnectionError)):
@@ -78,26 +82,6 @@ def _classify_failure(err: Exception) -> Tuple[bool, str]:
     if isinstance(err, requests.RequestException):
         return True, 'network'
     return False, 'unexpected'
-
-
-def _backoff_seconds(attempt: int, resp: Optional[requests.Response] = None) -> float:
-    """第 attempt 次（从 0 计）失败后的睡眠秒数。
-
-    429 带合法**数值型** Retry-After 头时听服务端的（封顶 RETRY_AFTER_CAP_SECONDS），
-    否则回落指数退避 base * 2**attempt → 1.5 / 3 / 6 …。
-    HTTP-date 形式的 Retry-After 不解析（少见且解析依赖额外依赖），回落指数退避。
-    """
-    headers = getattr(resp, 'headers', None)
-    if headers:
-        raw = headers.get('Retry-After')
-        if raw not in (None, ''):
-            try:
-                seconds = float(raw)
-            except (TypeError, ValueError):
-                seconds = -1.0
-            if seconds >= 0:
-                return min(seconds, RETRY_AFTER_CAP_SECONDS)
-    return BACKOFF_BASE_SECONDS * (2**attempt)
 
 
 def call_llm(
@@ -118,21 +102,20 @@ def call_llm(
         temperature / timeout: 覆盖默认值；timeout 缺省用 ARK_TIMEOUT。
         response_format: OpenAI 兼容的响应格式约束（如 {'type': 'json_object'}），
             缺省不传——部分模型/端点不支持该参数，由调用方按需开启。
-        usage_sink: 可选 token 汇出槽（#1736 S4 trace）——传 dict 则每次成功调用
-            累加 {'tokens': int}，供调用方按轮汇总；缺省 None 零影响。
-            重试路径不累加（失败响应无 usage），与 _record_tokens 口径一致。
+        usage_sink: 可选 token 汇出槽（#1736 S4 trace）——传 dict 则每次成功调用累加
+            {'tokens': int}，供调用方按轮汇总；缺省 None 零影响，重试路径不累加（失败无 usage）。
         model: 覆盖默认档（缺省 ARK_MODEL）。**图片输入必须留在默认档**；
             账本精灵等纯文本对话传 ARK_MODEL_AGENT（见该常量注释）。
         thinking: 深度思考开关，仅取 'enabled' / 'disabled'（其余值不传）。缺省读 ARK_AGENT_THINKING，
-            空 = 不传（服务端默认）：agent 三条链路靠它 A/B——实测 glm 开思考会出现 37k token /
-            200s+ 的推理失控，关思考 5~17s；OCR 链路传 ARK_OCR_THINKING，见该常量注释。
+            空 = 不传（服务端默认）：实测 glm 开思考会推理失控（37k token / 200s+），关思考 5~17s；
+            OCR 链路传 ARK_OCR_THINKING，见该常量注释。
 
     兜底设计（用户反馈 503 直报问题）：
     - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
-    - 可重试失败按 _classify_failure 分类，指数退避重试 ARK_RETRIES 次
-      （429 认 Retry-After，见 _backoff_seconds）；其余 4xx 立即终止不重试；
-    - 重试耗尽 / 立即终止都抛 503（OCR_SERVICE_UNAVAILABLE），由 views 层返还配额；
-    - 每次成功打一行 [llm.call] ok …，失败打 retry / fail-fast / fail 行。
+    - 可重试失败按 _classify_failure 分类退避重试 ARK_RETRIES 次（Retry-After 见 retry_policy）；
+    - 其余 4xx 与 429 里的**额度/模型限额**立即终止（重试无解），只有限流才退避；
+    - 重试耗尽 / 立即终止都抛 503 由 views 返还配额，但话术分开：额度类说「额度已用尽」，
+      瞬态类才说「请稍后重试」；成功打一行 [llm.call] ok，失败打 retry / fail-fast / fail 行。
     """
     if not ARK_API_KEY:
         raise SBException(
@@ -158,6 +141,7 @@ def call_llm(
     attempts = ARK_RETRIES + 1
     last_err: Optional[Exception] = None
     made = 0  # 实际发出的请求数（fail-fast 时可能 < attempts，日志别报虚数）
+    fail_reason = ''  # 最近一次失败的原因标签：决定收尾话术（额度类不能说「稍后重试」）
     for attempt in range(attempts):
         resp: Optional[requests.Response] = None
         made = attempt + 1
@@ -188,17 +172,17 @@ def call_llm(
             return text
         except Exception as e:  # noqa: BLE001  收全再分类：分类表见 _classify_failure
             last_err = e
-            retryable, reason = _classify_failure(e)
+            retryable, fail_reason = _classify_failure(e)
             if not retryable:
-                logger.error('[llm.call] fail-fast attempt={} reason={} err={}', attempt + 1, reason, e)
+                logger.error('[llm.call] fail-fast attempt={} reason={} err={}', attempt + 1, fail_reason, e)
                 break
             if attempt < ARK_RETRIES:
-                delay = _backoff_seconds(attempt, resp)
+                delay = retry_policy.backoff_seconds(attempt, resp)
                 logger.warning(
                     '[llm.call] retry attempt={}/{} reason={} backoff={:.2f}s err={}',
                     attempt + 1,
                     ARK_RETRIES,
-                    reason,
+                    fail_reason,
                     delay,
                     e,
                 )
@@ -206,6 +190,6 @@ def call_llm(
     logger.error('[llm.call] fail attempts={} last_err={}', made, last_err)
     raise SBException(
         code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
-        message='AI 识别服务暂时不可用，请稍后重试',
+        message=retry_policy.failure_message(fail_reason),  # 额度类换话术，错误码不变
         status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
     )
