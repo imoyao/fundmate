@@ -748,7 +748,7 @@ def get_distributions(db: Session, family_id: int = 1, member_id: int | None = N
 
     return {
         'type_distribution': _to_list(type_map),
-        **allocation_payload(positions, assets, pos_value=_pos_mv, liabilities_total=totals['total_liabilities']),
+        **allocation_payload(positions, assets, _pos_mv, totals['total_liabilities'], cash_flow_yuan),
         'market_distribution': _to_list(market_map),
         'account_distribution': _to_list(account_map),
         'category_distribution': _to_list(category_map),
