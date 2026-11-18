@@ -20,9 +20,10 @@
 - 房产 / 应收 / 固定资产 / 车辆 / 贵金属 / custom 属「未纳入」，进
   ``allocation_scope.excluded``，**不进任何桶**；
 - 负债永不进分布（``conventions.md`` §2.9），只以 ``liabilities_total`` 单列；
-- **账外 222 笔类现金流水（¥465,178.56）按用户 2026-11-12 拍板本轮不纳入分母**，
-  故本模块**不读** transactions —— 将来放行时应在调用方把「已核实类现金」
-  作为一笔显式成员金额传入，而不是在这里偷读流水。
+- **账外类现金流水（当前 ¥445,596.05，222 笔）按用户 2026-11-12 拍板不纳入分母**，
+  故本模块**不读** transactions —— 金额由调用方算好经 ``offbook_cash_like`` 注入。
+  注入后它只以「账外类现金」一行进 ``excluded``（#3115 D3-b）：**不进任何桶、不进分母**。
+  不列出来就等于让这 44 万在「总资产 338 万 / 五笔钱只见 61 万」的差额里凭空消失。
 """
 
 from __future__ import annotations
@@ -45,6 +46,8 @@ from app.core.money import Money
 _LIABILITY_KEY = 'liability'
 _UNCLASSIFIED_ALLOC = '未分类'
 _UNKNOWN_TYPE = '其他'
+#: 「未纳入」里唯一不是资产行的那一条：账外类现金由流水推出，行名不能走大类标签。
+_OFFBOOK_CASH_LIKE_LABEL = '账外类现金'
 
 #: 这三个来源是「有人显式定过」，分布必须尊重存储值，不能被推导规则改写。
 #: 与 ``scripts/backfill_allocation.py`` 的回填判据（只放 ``default``）互为镜像。
@@ -87,15 +90,23 @@ def _category_label(major_category: str | None) -> str:
 def allocation_payload(
     positions: list[Any],
     assets: list[Any],
-    *,
     pos_value: Callable[[Any], float],
     liabilities_total: float,
+    offbook_cash_like: float = 0.0,
 ) -> dict[str, Any]:
     """五笔钱分布 + 成员边界说明（`/api/summary/distributions/` 的两个键）。
 
     ``pos_value`` 由调用方注入（持仓市值换算的唯一口径在
     ``position_valuation.market_value_cents``，本模块不许自己算第二个）。
     ``liabilities_total`` 同样来自 ``family_totals`` 这个唯一出口。
+
+    ``offbook_cash_like`` 是**调用方**算好的账外类现金净额（元，含收益桶）：
+    本模块不读 ``transactions``（见模块 docstring），故只能注入。``> 0`` 时它以
+    「账外类现金」一行进 ``excluded``，不进任何桶、不进分母——用户拍板不纳入，
+    但**必须可见**，否则 44 万会在「总资产 vs 五笔钱」的差额里无处认领（#3115 D3-b）。
+
+    四个位置参数刻意不写关键字：调用点 ``summary_service.get_distributions`` 受
+    ``guard_service_size`` 冻结基线约束，关键字形式会把那一行折成 6 行。
 
     **恒等关系**：``Σ allocation_distribution.value == allocation_scope.denominator``。
     两个值都由同一批已 round 到分位的输入相加得到，故可要求严格相等
@@ -120,6 +131,10 @@ def allocation_payload(
         else:
             # 「未纳入」必须显式可见：房产/应收 220 万若静默消失，用户会以为算错了
             excluded[_category_label(a.major_category)] += amount
+
+    if offbook_cash_like > 0:
+        # 流水推出、没有资产行的那一笔：同样必须显式可见（#3115 D3-b）
+        excluded[_OFFBOOK_CASH_LIKE_LABEL] += offbook_cash_like
 
     distribution = [
         {'name': k, 'value': round(v, 2)} for k, v in sorted(buckets.items(), key=lambda kv: -kv[1]) if round(v, 2) > 0

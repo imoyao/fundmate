@@ -138,6 +138,35 @@ class TestAllocationPayload:
         assert scope['excluded_total'] == 2250091.0
         assert {row['name'] for row in scope['excluded']} == {'房产', '应收款'}
 
+    def test_offbook_cash_like_is_excluded_not_bucketed(self, db):
+        """#3115 D3-b：账外类现金必须在 ``excluded`` 里看得见，且不进桶、不动分母。
+
+        反向验证锚点：删掉 ``allocation_payload`` 里那段注入，本用例必须红——
+        那正是「44 万在接口上完全没有出口」的原形（用户问「逆回购算哪笔钱」时答不出来）。
+        """
+        _make_pos(db)
+        _make_asset(db, name='房子', major_category='real_estate', amount=2200091)
+        db.commit()
+
+        data = allocation_payload(db.query(Position).all(), db.query(Asset).all(), _pos_value, 0.0, 445596.05)
+        scope = data['allocation_scope']
+        assert _find(scope['excluded'], '账外类现金') == 445596.05
+        # 不进桶：分布与分母都和「没有这笔钱」时逐分相等（用户拍板不纳入分母）
+        assert data['allocation_distribution'] == [{'name': '长期增值', 'value': 100000.0}]
+        assert scope['denominator'] == 100000.0
+        assert round(sum(b['value'] for b in scope['buckets']), 2) == scope['denominator']
+        # 「未纳入」要认得它：2200091 + 445596.05
+        assert scope['excluded_total'] == 2645687.05
+
+    def test_offbook_cash_like_absent_when_zero(self, db):
+        """无账外流水（默认 0）时不得凭空多出一行——空口径不该被注入污染。"""
+        _make_pos(db)
+        db.commit()
+
+        data = allocation_payload(db.query(Position).all(), db.query(Asset).all(), _pos_value, 0.0)
+        assert data['allocation_scope']['excluded'] == []
+        assert data['allocation_scope']['excluded_total'] == 0.0
+
     def test_buckets_sum_equals_scope_denominator(self, db):
         _make_pos(db, allocation='longterm')
         _make_pos(db, symbol='B', allocation='stable', quantity=10, price=100)
