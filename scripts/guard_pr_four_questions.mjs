@@ -308,10 +308,15 @@ export function skipReasonFor(body, authorLower, draft) {
 }
 
 function parseArgs(argv) {
-  const opts = { json: false, bodyFile: null };
+  const opts = { json: false, bodyFile: null, author: '', draft: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') opts.json = true;
     else if (argv[i] === '--body-file') opts.bodyFile = argv[++i];
+    // CLI 必须能传作者 / draft：否则 ci.yml 里那道「阻断」闸门会把
+    // dependabot 的 PR 判红——豁免面只在 checkFourQuestions 里生效，
+    // 不传进来等于把豁免关掉，第一天就会被误伤。
+    else if (argv[i] === '--author') opts.author = argv[++i] || '';
+    else if (argv[i] === '--draft') opts.draft = true;
   }
   return opts;
 }
@@ -325,7 +330,7 @@ async function readStdin() {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const body = opts.bodyFile ? (await import('node:fs')).readFileSync(opts.bodyFile, 'utf8') : await readStdin();
-  const verdict = checkFourQuestions({ body });
+  const verdict = checkFourQuestions({ body, author: opts.author, draft: opts.draft });
   if (opts.json) console.log(JSON.stringify(verdict));
   else if (verdict.ok) console.log(verdict.message);
   else console.error(verdict.message);

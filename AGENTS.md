@@ -1907,8 +1907,9 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 
 ### CI 守卫（PR 四问格式）
 
-工作流 `.github/workflows/pr-four-questions-guard.yml`（`pull_request` + 显式 `ref: dev`，不检 PR 的代码，见 `#2803`）：
+**阻断那道在 `ci.yml` 的 `scripts_test`**（步骤名「PR 四问格式（阻断）」），经 `gate` 的 `质量门禁汇总` 生效；独立 workflow `.github/workflows/pr-four-questions-guard.yml`（`pull_request` + 显式 `ref: dev`，不检 PR 的代码，见 `#2803`）只做**秒级快速反馈**，不决定能否合。为什么必须搬进 gate：独立 workflow 不在 required check 里，`#3174` 正文全空、连红两次照样合入（2026-11-18 实测）。
 
+- ⚠️ **`ci.yml` 刻意不订阅 `pull_request.edited`**：订阅它会让 `cancel-in-progress: true` 取消正在跑的后端测试，而重跑里 `changes` 又把重活判跳过 ⇒ 可能「gate 绿、后端根本没跑」（假绿比红灯贵）。故改完正文要 `gh run rerun <run-id>` 或推一个提交；此时独立 workflow 会立刻刷新它自己的红绿，但那只是信号。
 - **正文有预填充模板**：`.github/PULL_REQUEST_TEMPLATE.md`（2026-11-18 加）。网页开 PR 自动带上；命令行要走 `gh pr create -T .github/PULL_REQUEST_TEMPLATE.md`（或按同一骨架写 `--body-file`）——**`--fill` 不读模板**，它只取提交信息。此前没有模板，于是每个 PR 都手抄四问，手抄漏一节就被守卫判红（`#3174` 正文全空即是此形态）。
 - 模板里的填写提示写成 HTML 注释，守卫**先剥注释再判定**（第三层判据）⇒ 一份没人动过的模板照样判红。**预填充省的是抄结构，不是省思考**：若让注释算内容，模板就等于给所有 PR 预置了通过样本，那是把闸门关掉还留着灯。
 - 判据脚本 `scripts/guard_pr_four_questions.mjs`：PR 描述须含四问小节——**谁的什么问题 / 验收标准 / 风险 / 替代方案**；
