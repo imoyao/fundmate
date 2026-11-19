@@ -1,14 +1,6 @@
 <template>
-  <!--
-    抽屉 ③「处理动作」的聚焦版（owner 第三轮）。
-    抽屉是「为这一条待办」开的，所以这里只给这一条一个明确的动作，
-    不再把整个域的清单重新列一遍——那和外面队列重复，用户也找不到自己该点哪个
-    （owner 原话：「不是应该直接有一个按钮就够了吗？怎么又把所有的都列出来」）。
-
-    写路径零重写：
-    - 差异 / E账户 / 重复 / 孤儿 的弹窗在 index.vue 收口，这里只 emit 对应事件；
-    - 补记红利税、补全缺失信息 的弹窗是自包含的，就地打开，写完后 emit('refresh')。
-  -->
+  <!-- 抽屉「处理动作」聚焦版：只给这一条一个明确动作；差异/E账户/重复/孤儿的弹窗在
+       index.vue 收口（这里 emit），补记红利税/补全信息弹窗自包含就地打开。 -->
   <div class="recon-item-action">
     <p v-if="isDone" class="recon-item-action__done">{{ doneText }}</p>
 
@@ -34,12 +26,9 @@
       />
     </template>
 
-    <!-- 域 F 执行区（漏斗，2026-11-13）：按 payload.stage 给唯一主动作 + 删除。
-         删除是域 F 渲染树里唯一的 danger 入口；两个动作都先经各自的确认弹窗。
-         错挂组不给「删除」：后端的删除端点只认**悬空**流水（position_id 指向已不存在的
-         持仓行），这类流水挂着现存持仓，点了必然 400 —— 不给必然失败的动作。
-         无归属组（#3126）没有固定动作：判据在 decideDanglingAction，没有主动作时把原因
-         写出来，删除始终可用。 -->
+    <!-- 域 F 执行区（漏斗 2026-11-13）：按 payload.stage 给唯一主动作 + 删除。
+         错挂组不给「删除」（后端删除端点只认悬空流水，点了必 400）；
+         无归属组（#3126）判据在 decideDanglingAction，没主动作时写原因。 -->
     <template v-else-if="danglingPayload">
       <p class="recon-item-action__lead">{{ item.summary }}</p>
       <p v-if="action.unowned" class="recon-item-action__reason">
@@ -183,11 +172,7 @@ const taxRow = computed(
 const taxVisible = ref(false);
 const taxAcking = ref(false);
 
-/**
- * 确认「这笔确实没有税」——红利税在派息时法定暂不扣缴，只有「已卖出、持股不足
- * 一年、却仍没配上税」才会落到这里；用户看一眼交割单就能收尾。
- * 不记 0 元流水（0 元不是「交了 0 元税」，是「无需纳税」）。
- */
+/** 确认「这笔确实没有税」：红利税派息时法定暂不扣缴，只有「已卖出、持股不足一年、仍没配上税」才落到这里。不记 0 元流水（0 元是「无需纳税」不是「交了 0 元」）。 */
 async function ackTax(): Promise<void> {
   const row = taxRow.value;
   if (!row?.dividend_on) return;
@@ -209,14 +194,13 @@ async function ackTax(): Promise<void> {
   }
 }
 
-/** 域 F 阶段载荷（漏斗，2026-11-13）：阶段已在 payload.stage，组件不再重算判据 */
+/** 域 F 阶段载荷：阶段已在 payload.stage，组件不再重算判据 */
 const danglingPayload = computed(() =>
   kind.value === "danglingStage"
     ? (props.item.payload as DanglingStagePayload)
     : null
 );
 const stageGroup = computed(() => danglingPayload.value?.groups[0] ?? null);
-/** 挂错标的组：走自己的弹窗（既不是悬空、也不满足重建的前置） */
 const stageIsMislink = computed(
   () => danglingPayload.value?.stage === "mislink"
 );
@@ -239,12 +223,11 @@ function openRemediation(mode: "enrich" | "delete"): void {
   remediationVisible.value = true;
 }
 
-/** 主按钮按阶段分发：reattach 走既有 fix 弹窗、rebuild 走重建、fill 走补全、mislink 走改挂 */
+/** 主按钮按阶段分发：reattach/rebuild/fill/mislink 各走自己的弹窗或事件 */
 function runPrimary(): void {
   const payload = danglingPayload.value;
   if (!payload) return;
   if (payload.stage === "unowned") {
-    // 无归属组不许落进兜底的补全弹窗：字段已齐的组在那里没有可填的东西
     if (action.value.unowned?.outcome === "fill") openRemediation("enrich");
     else if (action.value.unowned?.outcome === "rebuild")
       rebuildVisible.value = true;
@@ -280,15 +263,12 @@ const eaccountRisk = computed(() =>
   kind.value === "eaccount" ? ACTION_RISK_HINTS.eaccountCover : ""
 );
 
-/** 除税 / 缺信息两类自包含弹窗外，其余域给出这一条应做的动作；
- *  用 emit 复用 index.vue 已收口的弹窗与端点，不新增写路径。 */
+/** 除税/缺信息两类自包含弹窗外，其余域给出这一条应做的动作；用 emit 复用 index.vue 收口的弹窗，不新增写路径。 */
 const actions = computed(() => {
   const item = props.item;
   switch (kind.value) {
     case "discrepancy": {
-      // 文案与事件都按差异类型选（判据在 utils/discAction.ts，有单测）：这里原先是
-      // 硬编码的「补充这笔」，于是从抽屉进来永远只有补录一条路——而 quantity 差异补录
-      // 后差额不变（#3134），用户在那儿点多少次都平不了账。
+      // 文案与事件按差异类型选（判据在 utils/discAction.ts）：原硬编码「补充这笔」，而 quantity 差异补录后差额不变（#3134），点多少次都平不了账。
       const row = discRow.value;
       const action = discAction.value;
       if (!row || !action) return [];

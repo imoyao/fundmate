@@ -31,7 +31,11 @@
       </div>
       <p v-if="judgeCount > 0" class="recon-action-hero__judge">
         还有 {{ judgeCount }} 件需要你判断，
-        <button type="button" class="recon-action-hero__judge-link" @click="emit('goJudge')">
+        <button
+          type="button"
+          class="recon-action-hero__judge-link"
+          @click="emit('goJudge')"
+        >
           去看要你判断
         </button>
       </p>
@@ -111,13 +115,13 @@ const emit = defineEmits<{
 }
 
 .recon-action-hero__text {
-  min-width: 0;
   flex: 1 1 320px;
+  min-width: 0;
 }
 
 .recon-action-hero__title {
   margin: 0;
-  font-size: var(--text-lg);
+  font-size: var(--text-heading);
   font-weight: 600;
   color: var(--text-primary);
 }
