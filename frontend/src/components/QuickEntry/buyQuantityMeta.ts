@@ -42,7 +42,7 @@ export interface BuyQuantityMeta {
 
 /**
  * 品种 → 口径。`money_fund` 走基金口径（按金额申购、份额 2 位）；
- * 投顾组合没有份额与价格（D70），返回 `none`（整块不渲染）。
+ * 投顾组合（D70）与银行理财（D121）没有份额与价格，返回 `none`（整块不渲染）。
  */
 export function buyQuantityMode(input: {
   /** 已选标的类型；未选标的时为空 */
@@ -50,7 +50,7 @@ export function buyQuantityMode(input: {
   /** 账户类型：未选标的时用它兜底（证券账户先按股票口径展示） */
   ledgerType?: string;
 }): BuyQuantityMode {
-  if (input.type === "portfolio") return "none";
+  if (input.type === "portfolio" || input.type === "bank_wealth") return "none";
   if (input.type) {
     return input.type === "fund" || input.type === "money_fund"
       ? "fund"

@@ -50,10 +50,11 @@ export function buildBuyPayload(input: {
   feeMode: FeeMode;
 }): BuyPositionPayload {
   const { form } = input;
-  // 投顾组合（D70 / #2740）：只记金额，没有份额与净值。
-  // 必须**显式**发 valuation_mode='balance' —— 后端对 portfolio + nav 直接报错，
+  // 记金额、但不记份额/净值的品类：投顾组合（D70 / #2740）与银行理财（D121 / #931）。
+  // 必须**显式**发 valuation_mode='balance' —— 后端对这两类 + nav 直接报错，
   // 那种形态不会失败在写入，而是失败在之后：市值恒 0、详情页照常渲染一张 0 元卡。
   const isPortfolio = form.type === "portfolio";
+  const isBalanceOnly = isPortfolio || form.type === "bank_wealth";
 
   const confirm_date =
     form.type === "fund"
@@ -75,12 +76,16 @@ export function buildBuyPayload(input: {
     symbol: form.symbol,
     name: form.name,
     op_type: "buy",
-    market: form.market || "CN_A",
+    // 银行理财无市场归属（core/venues 的 NO_VENUE），空串要原样传：
+    // 回退成 CN_A 会让它看起来像一只 A 股。portfolio 仍按既有行为回退 CN_A——
+    // 那是 #2740 已上线的写入形态，本 PR 不为「顺手的对称」改它。
+    market:
+      form.type === "bank_wealth" ? form.market || "" : form.market || "CN_A",
     type: form.type,
     ledger_id: form.ledger_id,
     account_name: input.accountName,
-    quantity: isPortfolio ? 0 : input.quantity,
-    avg_price: isPortfolio ? 0 : form.price || 0,
+    quantity: isBalanceOnly ? 0 : input.quantity,
+    avg_price: isBalanceOnly ? 0 : form.price || 0,
     amount: form.buyAmount || 0,
     currency: form.currency,
     trade_date: form.trade_date,
@@ -88,11 +93,13 @@ export function buildBuyPayload(input: {
     // 投顾组合的申购费不适用（收的是投顾服务费，且在组合侧扣），手续费一律 0：
     // 表单里手续费字段对组合是隐藏的，`applyFeePreset` 仍会按账户申购费率算出
     // 一个用户看不见的数字，若不在这里归零就会静默记进流水。
+    // 银行理财同理不展示手续费字段（无申购费），但这里不强制归零：
+    // 它没有「组合侧扣费」的语义，若将来支持申赎费，用户填多少就记多少。
     fee: isPortfolio ? 0 : fee,
     notes: form.notes,
     allocation: form.allocation,
     isAfter15: form.isAfter15,
-    ...(isPortfolio ? { valuation_mode: "balance" as const } : {}),
+    ...(isBalanceOnly ? { valuation_mode: "balance" as const } : {}),
     ...(input.navPending
       ? {
           nav_pending: true,
