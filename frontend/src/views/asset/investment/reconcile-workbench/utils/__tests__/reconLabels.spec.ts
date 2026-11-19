@@ -28,7 +28,7 @@ describe("差异类型：不再说「数量 / 孤儿」", () => {
     expect(discrepancyIssue("cost")).toBe("成本对不上");
     expect(discrepancyIssue("cash")).toBe("资金对不上");
     expect(discrepancyIssue("orphan")).toBe("有持仓、缺流水");
-    expect(discrepancyIssue("no_anchor")).toBe("缺基准，核对不了");
+    expect(discrepancyIssue("no_anchor")).toBe("没有可对照的流水，核对不了");
   });
 
   it("后端可能出现的每种类型都在这张表里（新增枚举不许漏翻）", () => {

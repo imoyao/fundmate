@@ -65,7 +65,7 @@ export const RECON_QUEUE_SEGMENTS: readonly {
   {
     value: "judge",
     label: "要你判断",
-    hint: "需要你对照凭证决定按哪边记，或补上缺的那一笔。"
+    hint: "对着交割单核一下，决定按哪边记，或补上缺的那一笔。"
   },
   {
     value: "done",

@@ -155,7 +155,7 @@ function discrepancyItem(row: DiscrepancyItem): ReconQueueItem {
       ? "这条差异已经处理过了。"
       : domain === "C"
         ? "账上有这笔持仓，却找不到对应的交易流水。"
-        : `${issue}，需要你对照流水决定按哪边记。`,
+        : `${issue}，对着券商对账单核一下，看按哪边记。`,
     facts: [
       isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
       row.expected_value !== null
@@ -170,7 +170,7 @@ function discrepancyItem(row: DiscrepancyItem): ReconQueueItem {
     ].filter(Boolean),
     count: 1,
     actionLabel: done ? "查看记录" : "核对并处理",
-    stateReason: done ? "已处理" : "需要你对照凭证决定",
+    stateReason: done ? "已处理" : "对着交割单核对一下，再决定按哪边记",
     batchId: null,
     payload: { kind: "discrepancy", row }
   });
@@ -189,7 +189,7 @@ function eaccountItem(row: ReconciliationItem): ReconQueueItem {
     title: name || reconGroupTitle(row.symbol),
     summary: done
       ? "这条 E账户记录已经核对过了。"
-      : "E账户官方快照与账本里的份额不一致，需要你决定以哪个为准。",
+      : "E账户官方快照与账本里的份额不一致，对着快照核一下，看以哪个为准。",
     facts: [
       reconGroupTitle(row.symbol) !== "标的代码未填"
         ? `代码 ${reconGroupTitle(row.symbol)}`
@@ -200,7 +200,7 @@ function eaccountItem(row: ReconciliationItem): ReconQueueItem {
     ].filter(Boolean),
     count: 1,
     actionLabel: done ? "查看记录" : "核对并归因",
-    stateReason: done ? "已处理" : "需要你决定以哪个为准",
+    stateReason: done ? "已处理" : "对着快照核一下，看以哪个为准",
     batchId: null,
     payload: { kind: "eaccount", row }
   });
@@ -217,7 +217,7 @@ function ghostItem(row: GhostDuplicateGroupItem): ReconQueueItem {
     state: "judge",
     sourceDomain: "D",
     title: reconGroupTitle(row.symbol, row.display_name),
-    summary: `同一笔${reconTxnType(row.txn_type)}疑似在 ${row.count} 个账本里各记了一次，需要你决定留哪一份。`,
+    summary: `同一笔${reconTxnType(row.txn_type)}疑似在 ${row.count} 个账本里各记了一次，对着流水核一下，看留哪一份。`,
     facts: [
       // 代码只作次要事实行：标题优先名称（reconGroupTitle 唯一口径）
       isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
@@ -227,7 +227,7 @@ function ghostItem(row: GhostDuplicateGroupItem): ReconQueueItem {
     ].filter(Boolean),
     count: row.count,
     actionLabel: "核对重复交易",
-    stateReason: "需要你决定留哪一份",
+    stateReason: "对着流水核一下，看留哪一份",
     batchId: null,
     payload: { kind: "ghost", row }
   });

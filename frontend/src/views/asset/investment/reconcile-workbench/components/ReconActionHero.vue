@@ -48,7 +48,7 @@
             有 {{ judgeCount }} 件需要你判断
           </h2>
           <p class="recon-action-hero__desc">
-            系统无法自动判定归属，需要你对照凭证逐条决定。
+            这几笔对不上，对着交割单逐条核一下再决定。
           </p>
         </div>
       </div>
