@@ -1,14 +1,13 @@
 /**
- * 待办队列页面状态的回归网（2026-11-13）。
+ * 待办队列页面状态的回归网（2026-11-19 场景化）。
  *
- * 钉两件事：
- * 1. `?domain=F` 入站**不设任务筛选**：域 F 的阶段聚合项跨 repair /
- *    rebuild 两个任务，若按 DOMAIN_TO_TASK 只筛 repair，rebuild 阶段的
- *    聚合项会被整个滤掉，用户从外链进来直接看不到那张卡；
- * 2. 其余域维持 `DOMAIN_TO_TASK` 的映射行为（回归保护，防放宽成全域）。
+ * 钉三件事：
+ * 1. `?domain=` 入站只重置任务维度，分段维度仍是默认「能一键处理」；
+ * 2. ready=0 且 judge>0 时自动落档到「要你判断」，且首屏加载态不误落档；
+ * 3. 一键处理范围 = 全量 ready 项（batchableItems），不再有勾选子集。
  */
 import { describe, expect, it } from "vitest";
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 
 import type {
   DanglingRefGroup,
@@ -64,13 +63,27 @@ function orphanGroup(over: Partial<OrphanLedgerGroup> = {}): OrphanLedgerGroup {
     block_reason: null,
     batch_id: 2,
     batch_label: "2026-11-02 14:24",
-    transactions: [],
+    transactions: [
+      {
+        id: 3029,
+        txn_type: "dividend_tax",
+        trade_date: null,
+        confirm_date: null,
+        symbol: null,
+        asset_type: null,
+        account_name: "同花顺（银河证券）",
+        amount: -17.5,
+        created_at: null,
+        resolved_ledger_id: 12,
+        block_reason: null
+      }
+    ],
     ...over
   };
 }
 
 describe("focusDomain：?domain= 入站的筛选口径", () => {
-  it("?domain=F 不设任务筛选：repair 与 rebuild 阶段的聚合项都可见", () => {
+  it("?domain=F 不设任务筛选，分段保持默认「能一键处理」", () => {
     const source = ref<ReconQueueSource>({
       ...emptySource(),
       dangling: {
@@ -81,7 +94,7 @@ describe("focusDomain：?domain= 入站的筛选口径", () => {
         null_trade_date: 0,
         fixable_count: 7,
         groups: [
-          danglingGroup(), // reattach → repair
+          danglingGroup(), // reattach → ready
           danglingGroup({
             key: "20|001983",
             symbol: "001983",
@@ -89,28 +102,27 @@ describe("focusDomain：?domain= 入站的筛选口径", () => {
             live_position: null,
             txn_count: 4,
             transactions: []
-          }) // rebuild → rebuild
+          }) // rebuild → judge
         ],
         batches: []
       } satisfies DanglingRefList
     });
-    const queue = useReconQueue(source);
+    const queue = useReconQueue(source, ref(false));
 
     const matchId = queue.focusDomain("F");
 
     expect(queue.filter.value.task).toBe("all");
-    // 入站只重置任务维度，状态维度仍是默认档「待处理」（不是「全部」——默认档含 done
-    // 会把已核对记录混进待办，见 reconQueue.ts 的 ReconQueueScope 注释）
-    expect(queue.filter.value.state).toBe("open");
-    // 定位到该域排序后的第一条（ready 最靠前）
+    expect(queue.filter.value.segment).toBe("ready");
     expect(matchId).toBe("dangling-reattach");
-    // 两个阶段的聚合项都在可见列表里，缺一不可
+    // ready 段可见 reattach；rebuild 已折入 repair，落在 judge 段
     const visibleIds = queue.visibleItems.value.map(i => i.id);
     expect(visibleIds).toContain("dangling-reattach");
-    expect(visibleIds).toContain("dangling-rebuild");
+    expect(queue.items.value.find(i => i.id === "dangling-rebuild")?.task).toBe(
+      "repair"
+    );
   });
 
-  it("?domain=G 仍按 DOMAIN_TO_TASK 落到 repair（其余域不受放宽影响）", () => {
+  it("?domain=G 仍按 DOMAIN_TO_TASK 落到 repair（其余域不受影响）", () => {
     const source = ref<ReconQueueSource>({
       ...emptySource(),
       orphan: {
@@ -122,11 +134,89 @@ describe("focusDomain：?domain= 入站的筛选口径", () => {
         batches: []
       } satisfies OrphanLedgerList
     });
-    const queue = useReconQueue(source);
+    const queue = useReconQueue(source, ref(false));
 
     const matchId = queue.focusDomain("G");
 
     expect(queue.filter.value.task).toBe("repair");
     expect(matchId).toBe("orphan-ledger:12");
+  });
+});
+
+describe("ready → judge 自动落档", () => {
+  it("ready=0 且 judge>0 时从 ready 落到 judge", async () => {
+    const source = ref<ReconQueueSource>({
+      ...emptySource(),
+      dangling: {
+        total: 4,
+        group_count: 1,
+        batch_count: 1,
+        null_symbol: 0,
+        null_trade_date: 0,
+        fixable_count: 0,
+        groups: [
+          danglingGroup({
+            key: "20|001983",
+            symbol: "001983",
+            fixable: false,
+            live_position: null,
+            txn_count: 4,
+            transactions: []
+          }) // rebuild → judge
+        ],
+        batches: []
+      } satisfies DanglingRefList
+    });
+    const queue = useReconQueue(source, ref(false));
+
+    await nextTick();
+
+    expect(queue.filter.value.segment).toBe("judge");
+  });
+
+  it("加载态 ready=0 不落档，等数据回来再判定", async () => {
+    const loading = ref(true);
+    const source = ref<ReconQueueSource>(emptySource());
+    const queue = useReconQueue(source, loading);
+
+    expect(queue.filter.value.segment).toBe("ready");
+
+    loading.value = false;
+    await nextTick();
+    // 全空：既没有 ready 也没有 judge，不落 judge（交给全清空态）
+    expect(queue.filter.value.segment).toBe("ready");
+  });
+});
+
+describe("一键处理范围 = 全量 ready 项", () => {
+  it("allReadyItems 只收 ready 的 orphan / danglingStage，不收勾选子集", () => {
+    const source = ref<ReconQueueSource>({
+      ...emptySource(),
+      dangling: {
+        total: 7,
+        group_count: 1,
+        batch_count: 1,
+        null_symbol: 0,
+        null_trade_date: 0,
+        fixable_count: 7,
+        groups: [danglingGroup()],
+        batches: []
+      } satisfies DanglingRefList,
+      orphan: {
+        total: 26,
+        fixable_count: 26,
+        blocked_count: 0,
+        batch_count: 1,
+        groups: [orphanGroup()],
+        batches: []
+      } satisfies OrphanLedgerList
+    });
+    const queue = useReconQueue(source, ref(false));
+
+    expect(queue.readyCount.value).toBe(2);
+    expect(queue.allReadyItems.value.map(i => i.id)).toEqual([
+      "dangling-reattach",
+      "orphan-ledger:12"
+    ]);
   });
 });

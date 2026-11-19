@@ -6,9 +6,6 @@
       :image-size="80"
     />
     <template v-else>
-      <!-- 列名改成用户语言，并当场解释三个数是怎么来的（owner 第二轮：
-           「类型列 / 数量 / 理论 / 实际 / 差异，我不知道系统在说什么」） -->
-      <p class="disc-caliber">{{ DISC_CALIBER_HINT }}</p>
       <div class="disc-table-wrap">
         <el-table :data="pagedItems" stripe size="small" class="disc-table">
           <el-table-column :label="DISC_COLUMN_LABELS.product" min-width="180">
@@ -124,7 +121,6 @@ import {
 } from "../utils/reconDisplay";
 import {
   CASH_SYMBOL_HINT,
-  DISC_CALIBER_HINT,
   DISC_COLUMN_LABELS,
   discrepancyIssue,
   specialSymbolLabel
@@ -186,13 +182,6 @@ watch(
 /* 域 B 差异表（样式随模板一并迁入，保持 scoped 作用域不变） */
 .domain-b-body {
   padding: 4px 0;
-}
-
-.disc-caliber {
-  margin: 0 0 10px;
-  font-size: var(--text-label);
-  line-height: 1.7;
-  color: var(--text-secondary);
 }
 
 .disc-table-wrap {

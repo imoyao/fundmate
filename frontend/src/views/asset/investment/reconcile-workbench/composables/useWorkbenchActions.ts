@@ -21,9 +21,9 @@ export function useWorkbenchActions(
   const router = useRouter();
   const route = useRoute();
 
-  /** 元素类型直接从 useReconQueue 的 selectedItems 取（那里 ReconQueueItem 解析正常），
+  /** 元素类型从 useReconQueue 的 items 取（那里 ReconQueueItem 解析正常），
    *  不走本文件直接 import —— 后者的 import.row 字面量在 vue-tsc 下偶发解析成 unknown。 */
-  type QueueItem = (typeof queue.selectedItems.value)[number];
+  type QueueItem = (typeof queue.items.value)[number];
 
   /** 既有域面板继续承载真实写路径与二次确认，这里只做只读快照的组装 */
   const detailContext = computed<ReconDetailContext>(() => ({
@@ -69,9 +69,8 @@ export function useWorkbenchActions(
   const danglingFixVisible = ref(false);
   const danglingFixGroup = ref<DanglingRefGroup | null>(null);
   const batchVisible = ref(false);
-  const batchBusy = ref(false);
-  /** 批量弹窗的数据源：批量勾选或单条孤儿都走 ReconBatchDialog，避免两套入口。
-   *  用 computed 暴露，与 useReconQueue 的 selectedItems 同形，vue-tsc 模板解包稳定。 */
+  /** 批量弹窗的数据源：一键处理全部 ready 项，或单条孤儿也走 ReconBatchDialog，
+   *  避免两套入口。用 computed 暴露，与 useReconQueue 的 allReadyItems 同形。 */
   const batchSource = ref<QueueItem[]>([]);
   const batchItems = computed<QueueItem[]>(() => batchSource.value);
 
@@ -129,27 +128,10 @@ export function useWorkbenchActions(
     activeStage.value = null;
   }
 
-  function focusBanner(): void {
-    const firstId = queue.focusFirstPending();
-    const first = firstId
-      ? (queue.items.value.find(i => i.id === firstId) ?? null)
-      : null;
-    // 聚合项不落单条执行区：多组聚合的载荷没有单条 row，硬选会把动作
-    // 限成只作用于 groups[0]。与 openItem 的分支保持同一判据。
-    if (first?.payload.kind === "danglingStage") {
-      openStage(first.payload.stage);
-      scrollTo(".recon-queue");
-      return;
-    }
-    activeDetailId.value = firstId;
-    activeDomain.value = first?.sourceDomain ?? null;
-    activeStage.value = null;
-    scrollTo(".recon-queue");
-  }
-
-  function openBatch(): void {
-    if (queue.selectedItems.value.length === 0) return;
-    batchSource.value = queue.selectedItems.value;
+  /** 一键处理：全量处理所有 ready 项（不勾选子集） */
+  function openBatchAll(): void {
+    if (queue.allReadyItems.value.length === 0) return;
+    batchSource.value = queue.allReadyItems.value;
     batchVisible.value = true;
   }
 
@@ -160,12 +142,10 @@ export function useWorkbenchActions(
   }
 
   async function onBatchSubmitted(): Promise<void> {
-    batchBusy.value = true;
     try {
       await Promise.all([domains.reload("dangling"), domains.reload("orphan")]);
-      queue.clearSelection();
     } finally {
-      batchBusy.value = false;
+      batchVisible.value = false;
     }
   }
 
@@ -232,7 +212,6 @@ export function useWorkbenchActions(
     danglingFixVisible,
     danglingFixGroup,
     batchVisible,
-    batchBusy,
     openSupplement,
     openDanglingFix,
     goTo,
@@ -240,8 +219,7 @@ export function useWorkbenchActions(
     openStage,
     closeDetail,
     scrollQueueTop,
-    focusBanner,
-    openBatch,
+    openBatchAll,
     onBatchSubmitted,
     openOrphanFix,
     batchItems

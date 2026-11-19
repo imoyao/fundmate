@@ -386,7 +386,7 @@ export function decideDanglingAction(
 export const DANGLING_ACTION_LABEL: Record<DanglingStage, string> = {
   fill: "补全信息",
   unowned: "逐组处理",
-  reattach: "回补关联",
+  reattach: "确认挂回",
   mislink: "改挂到正确标的",
   rebuild: "重建持仓"
 };

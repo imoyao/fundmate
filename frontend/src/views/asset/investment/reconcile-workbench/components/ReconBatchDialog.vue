@@ -6,13 +6,13 @@
   -->
   <el-dialog
     :model-value="modelValue"
-    title="批量回补可直接处理的记录"
+    title="一键处理可直接处理的记录"
     width="560px"
     @update:model-value="close"
   >
     <template v-if="!logs.length">
       <p class="batch-dialog__lead">
-        已选 {{ items.length }} 项、共
+        本次处理 {{ items.length }} 项、共
         {{ totalRecords }} 条记录。系统已判定归属，
         只改关联或账本一列，不改份额与金额。
       </p>
@@ -39,7 +39,7 @@
 
     <template v-else>
       <p class="batch-dialog__result">
-        本次回补 {{ totalUpdated }} 条记录，共 {{ logs.length }} 步。
+        本次处理 {{ totalUpdated }} 条记录，共 {{ logs.length }} 步。
       </p>
       <ul class="batch-dialog__logs">
         <li v-for="log in logs" :key="`${log.kind}-${log.logId}`">
@@ -63,7 +63,7 @@
         :disabled="steps.length === 0"
         @click="submit"
       >
-        确认批量回补
+        确认处理
       </el-button>
       <el-button
         v-else
@@ -72,7 +72,7 @@
         :loading="submitting"
         @click="undoAll"
       >
-        撤销本次回补
+        撤销本次处理
       </el-button>
     </template>
   </el-dialog>
@@ -220,7 +220,7 @@ async function submit(): Promise<void> {
       }
     }
     logs.value = done;
-    ElMessage.success(`已回补 ${totalUpdated.value} 条记录`);
+    ElMessage.success(`已处理 ${totalUpdated.value} 条记录`);
     emit("submitted");
   } catch (e: unknown) {
     // 部分成功也要把已完成的日志留给用户撤销，不能吞掉
@@ -228,7 +228,7 @@ async function submit(): Promise<void> {
     const err = e as { response?: { data?: { message?: string } } };
     error.value =
       err.response?.data?.message ||
-      "回补中断，已完成的步骤可以撤销，未完成的记录保持原样。";
+      "处理中断，已完成的步骤可以撤销，未完成的记录保持原样。";
     emit("submitted");
   } finally {
     submitting.value = false;
@@ -246,7 +246,7 @@ async function undoAll(): Promise<void> {
         await undoOrphanLedgerBackfill(log.logId);
       }
     }
-    ElMessage.success(`已撤销 ${logs.value.length} 步回补`);
+    ElMessage.success(`已撤销 ${logs.value.length} 步处理`);
     logs.value = [];
     emit("submitted");
   } catch (e: unknown) {

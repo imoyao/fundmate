@@ -39,6 +39,9 @@
             </el-button>
           </template>
         </SectionHeader>
+        <p v-if="seg.stage === 'rebuild'" class="recon-stage__scene">
+          {{ rebuildScene(seg.groups) }}
+        </p>
         <DomainFDanglingRefs
           :groups="seg.groups"
           :loading="loading"
@@ -66,6 +69,7 @@ import {
   groupUniqueKey
 } from "../utils/danglingRefEnrichScope";
 import { danglingStageHeading, danglingStageItem } from "../utils/reconQueue";
+import { discrepancySceneSentence } from "../utils/reconDisplay";
 import type { ReconQueueItem } from "../utils/reconQueue";
 import DomainFDanglingRefs from "./DomainFDanglingRefs.vue";
 import ReconItemAction from "./ReconItemAction.vue";
@@ -132,6 +136,12 @@ function clearFocus(): void {
   emit("update:focusItem", null);
 }
 
+/** rebuild 段顶部只露一次场景句：这批流水缺的是持仓行，账本现记为 0 */
+function rebuildScene(groups: DanglingRefGroup[]): string {
+  const total = groups.reduce((sum, g) => sum + g.net_units, 0);
+  return discrepancySceneSentence(total, 0, total);
+}
+
 /** 聚焦的组被处理掉（回补 / 删除后 buckets 刷新）就自动退回导航，不留死引用 */
 watch(segments, segs => {
   if (
@@ -152,5 +162,12 @@ watch(segments, segs => {
 
 .recon-stage__back {
   margin-bottom: var(--space-compact);
+}
+
+.recon-stage__scene {
+  margin: 0 0 var(--space-compact);
+  font-size: var(--text-small);
+  line-height: 1.7;
+  color: var(--text-secondary);
 }
 </style>

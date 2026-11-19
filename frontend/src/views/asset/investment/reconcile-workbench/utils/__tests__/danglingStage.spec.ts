@@ -81,7 +81,7 @@ describe("DANGLING_STAGES：固定顺序 fill → unowned → reattach → misli
     // unowned 是唯一「同一阶段里不同组做不同事」的阶段（补字段 / 重建 / 等夜间回填 /
     // 只能删除），动作名只能是导航名，不能预设动作——单组动作见 unownedOutcome。
     expect(DANGLING_ACTION_LABEL.unowned).toBe("逐组处理");
-    expect(DANGLING_ACTION_LABEL.reattach).toBe("回补关联");
+    expect(DANGLING_ACTION_LABEL.reattach).toBe("确认挂回");
     expect(DANGLING_ACTION_LABEL.mislink).toBe("改挂到正确标的");
     expect(DANGLING_ACTION_LABEL.rebuild).toBe("重建持仓");
   });

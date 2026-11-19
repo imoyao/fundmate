@@ -131,6 +131,21 @@ export function reconQuantity(value: number | null | undefined): string {
 }
 
 /**
+ * 差异场景句（场景化，2026-11-19）：把三列数字压成一句用户能直接读出来的话。
+ * 判据/文案唯一来源，组件只 import 不重写。
+ * 例：「券商流水应剩 100 份 · 账本现记 90 份 · 差 -10 份」。
+ */
+export function discrepancySceneSentence(
+  expected: number | null | undefined,
+  actual: number | null | undefined,
+  diff: number | null | undefined
+): string {
+  return `券商流水应剩 ${reconQuantity(expected)} · 账本现记 ${reconQuantity(
+    actual
+  )} · 差 ${reconQuantity(diff)}`;
+}
+
+/**
  * 分组主标题。`group.key` 形如 `20|001982` 是后端复合主键，**不展示**；
  * 只用 `symbol`，缺失时给可执行的说明而不是空白或英文 none。
  */

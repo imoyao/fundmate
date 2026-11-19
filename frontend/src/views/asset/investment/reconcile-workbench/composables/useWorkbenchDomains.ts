@@ -51,6 +51,7 @@ import {
   clearShareConfirmText,
   clearShareResultText
 } from "../utils/clearSharePayload";
+import { ACTION_RISK_HINTS } from "../utils/reconLabels";
 
 /**
  * 对账中心三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
@@ -643,7 +644,7 @@ export function useWorkbenchDomains() {
   async function handleGhostDeleteTxn(txn: GhostDuplicateTxn): Promise<void> {
     try {
       await ElMessageBox.confirm(
-        `确认删除「${txn.ledger_name}」中的这一笔？删除后会重算该账本持仓，无法撤销。`,
+        `确认删除「${txn.ledger_name}」中的这一笔？${ACTION_RISK_HINTS.ghostDelete}`,
         "删除重复交易",
         { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }
       );

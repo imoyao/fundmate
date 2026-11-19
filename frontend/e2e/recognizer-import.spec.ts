@@ -173,13 +173,21 @@ async function mockApis(
 
 async function openWorkbench(page: Page) {
   await page.goto("/#/investment/reconcile-workbench", { waitUntil: "commit" });
-  await expect(page.getByRole("button", { name: "AI 识别" })).toBeVisible({
+  await expect(page.locator(".workbench-head__title")).toBeVisible({
     timeout: 150_000
   });
 }
 
-/** 打开识别弹窗（工作台页头的入口按钮） */
+/**
+ * 打开识别弹窗。2026-11-19 起「AI 识别」不再放页头，回归到「导入交割单」队列项的
+ * 抽屉内（owner 拍板）：先切到「要你判断」分段（入口动作只落在该段），点「导入交割单」
+ * 打开抽屉，再点抽屉里的「AI 识别」。
+ */
 async function openDialog(page: Page) {
+  await page.getByRole("tab", { name: /要你判断/ }).click();
+  // 全空态下页头主行动区也会给一枚「导入交割单」直达按钮，故这里必须锁到队列项标题，
+  // 否则 getByRole("button", { name: "导入交割单" }) 会命中两枚按钮触发 strict mode。
+  await page.locator(".recon-queue__title", { hasText: "导入交割单" }).click();
   await page.getByRole("button", { name: "AI 识别" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
@@ -286,7 +294,11 @@ test.describe("AI 识别入库弹窗（#980 拆分后的接线判据）", () => 
     const parse = calls.filter(c => c.path === "/api/ocr/parse/").at(-1);
     expect(parse?.body?.scenario).toBe("holding_import");
 
-    // 工作台域 A（默认 tab）出现持仓候选面板
+    // 草稿折叠进「待入库草稿」摘要，展开后看到持仓候选面板
+    await expect(page.locator(".recon-draft-summary")).toContainText(
+      "有 3 条待入库草稿"
+    );
+    await page.locator(".recon-draft-summary__toggle").click();
     await expect(
       page.locator(".recognizer-candidate-panel__title")
     ).toContainText("AI 识别候选（持仓）· 3 条");
@@ -329,9 +341,11 @@ test.describe("AI 识别入库弹窗（#980 拆分后的接线判据）", () => 
     });
     await expect(dialog).toBeHidden();
 
-    // 识别草稿不再藏在某个域 tab 里：交易候选面板随草稿直接出现在工作台，
-    // 点队列里的「导入交割单」会展开对应的处理区（导入入口）。
-    await page.getByRole("button", { name: "导入交割单" }).click();
+    // 识别草稿折叠进「待入库草稿」摘要，展开后看到交易候选面板
+    await expect(page.locator(".recon-draft-summary")).toContainText(
+      "有 2 条待入库草稿"
+    );
+    await page.locator(".recon-draft-summary__toggle").click();
     await expect(
       page.locator(".recognizer-candidate-panel__title")
     ).toContainText("AI 识别候选（交易）· 2 条");
