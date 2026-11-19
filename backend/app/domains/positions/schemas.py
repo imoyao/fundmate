@@ -213,6 +213,11 @@ class PositionOut(BaseModel):
     # 声明在 Out Schema 是为了契约可见（与 price_date 成对消费）；None=无价格日期，前端不隐藏。
     settled_today: Optional[bool] = None
     valuation_mode: str = 'nav'
+    # 到期日（#931）：逆回购 = 时间建模真相源（到期即不再计入投资），银行理财 = 仅记录。
+    # 声明在 Out Schema 才有线格式；wire 值必须是 `YYYY-MM-DD`——`enrich_position_dict`
+    # 显式 `.isoformat()` 覆写，因为 Flask 默认 JSON 会把 date 转成 RFC 822
+    # （"Sun, 01 Mar 2027 00:00:00 GMT"），前端日期控件读不了。
+    maturity_date: Optional[date] = None
     market_value_override: Optional[float] = None
     value_override_at: Optional[datetime] = None
     confirm_date: Optional[date] = None

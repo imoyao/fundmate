@@ -9,9 +9,8 @@ from flask import abort, jsonify, request
 from sqlalchemy import func
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
+from app.core.constants import LEDGER_TYPE_LABELS
 from app.core.database import get_db
-from app.core.money import Money
 from app.core.retry import retry_on_db_locked
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
@@ -34,6 +33,7 @@ from app.services.position_aggregation import (
 from app.services.position_aggregation import (  # noqa: E402
     get_securities_aggregation as svc_get_securities_aggregation,
 )
+from app.services.position_edit_service import apply_position_edit
 from app.services.position_presenter import enrich_position_dict
 from app.services.transaction_service import transaction_edit_payload
 
@@ -476,7 +476,7 @@ def get_ledger_transactions(ledger_id: int):
 
 @ledgers_bp.patch('/<int:ledger_id>/positions/<int:position_id>/')
 def update_ledger_position(ledger_id: int, position_id: int):
-    """编辑账户内持仓（仅允许修改配置目标、现价、备注等）"""
+    """编辑账户内持仓（配置目标 / 现价 / 备注 / 到期日，字段口径在 position_edit_service）"""
     data = request.get_json() or {}
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
@@ -493,15 +493,10 @@ def update_ledger_position(ledger_id: int, position_id: int):
         if not pos:
             abort(404, '持仓不存在或不属于该账户')
 
-        if 'allocation' in data:
-            # 五笔钱白名单（#1123 P0）；None = 清空语义保留
-            if data['allocation'] is not None and data['allocation'] not in ALLOCATION_LABELS:
-                abort(400, '非法配置目标')
-            pos.allocation = data['allocation']
-        if 'current_price' in data:
-            pos.current_price = Money.yuan_to_price_units(data['current_price'])
-        if 'notes' in data:
-            pos.notes = data['notes']
+        try:
+            apply_position_edit(pos, data)
+        except ValueError as exc:
+            abort(400, str(exc))
         db.flush()
         db.refresh(pos)
         return jsonify({'data': enrich_position_dict(pos), 'message': 'ok'})

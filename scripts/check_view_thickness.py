@@ -267,8 +267,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # / `settle_message`），归属校验复用 `get_owned_or_404`，视图只剩 19 行
     # 「取参 → 调服务 → 组信封」。`orm_queries` 10 / `commits` 0 / `max_func` 42 三项实测不动
     # （与 #2481 / #2616 / #2685 同先例：新增纯编排端点只重取 lines）。
+    # 2026-11-19 收紧（#931，**加字段反而不涨**）：`PATCH /positions/<pid>/` 加到期日时
+    # 把「五笔钱白名单 / 金额换算 / 到期日解析」整块下沉到
+    # `services/position_edit_service.py`（`apply_position_edit`），端点只剩
+    # 「取参 → 调服务 → 组信封」，656 → 651。`orm_queries` 10 / `commits` 0 /
+    # `max_func` 42 三项不动。按 `--report` 实测收紧。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 656,
+        "lines": 651,
         "orm_queries": 10,
         "commits": 0,
         "max_func": 42,

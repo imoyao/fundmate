@@ -32,6 +32,13 @@
             :symbol="row.symbol"
             :type-label="row.type_label"
           />
+          <!-- 到期日（#931）：只有逆回购 / 银行理财有这个东西，做成产品名下的第三行而不是
+               新增一列——本表 10 列已吃满 1080/1082 的宽度预算（见「所属组合」列上的注释），
+               再加列会把「配置目标」推进 fixed 操作列底下。 -->
+          <PositionMaturityCell
+            :row="row as LedgerHoldingRow"
+            @edit="openMaturityDialog"
+          />
         </template>
       </el-table-column>
       <!-- 所属组合（D20 二期 UI）**紧跟产品信息**，而不是排到右侧数值列之后：
@@ -232,6 +239,18 @@
       @update:visible="p.closeDeletePositionDialog"
       @confirm="p.handleDeletePosition"
     />
+
+    <!-- 到期日编辑（#931 / D121）：逆回购 / 银行理财专属，其余品类的标签不渲染 -->
+    <PositionMaturityDialog
+      :visible="maturityDialog.visible"
+      :name="maturityDialog.row?.name"
+      :symbol="maturityDialog.row?.symbol"
+      :asset-type="maturityDialog.row?.asset_type"
+      :maturity-date="maturityDialog.row?.maturity_date"
+      :loading="maturityDialog.loading"
+      @update:visible="maturityDialog.visible = $event"
+      @submit="handleMaturitySubmit"
+    />
   </el-tab-pane>
 </template>
 
@@ -241,6 +260,8 @@ import { ElMessage } from "element-plus";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import DeletePositionDialog from "./DeletePositionDialog.vue";
+import PositionMaturityCell from "./PositionMaturityCell.vue";
+import PositionMaturityDialog from "./PositionMaturityDialog.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import PortfolioAssignCell from "@/views/asset/inventory/components/PortfolioAssignCell.vue";
@@ -275,6 +296,45 @@ async function handleAllocationChange(row: LedgerHoldingRow) {
     ElMessage.error(err?.response?.data?.message || "配置目标更新失败");
     // v-model 已乐观更新 row.allocation：失败后以服务端真值恢复
     p.loadHoldings();
+  }
+}
+
+/** 到期日弹窗状态（#931）：只在挂载时就地持有，不进 useLedgerDetailPage——
+ *  它没有跨页/跨 Tab 的生命周期，放进去只会让页面状态单体多一个只被一处用的字段。 */
+const maturityDialog = reactive<{
+  visible: boolean;
+  row: LedgerHoldingRow | null;
+  loading: boolean;
+}>({ visible: false, row: null, loading: false });
+
+function openMaturityDialog(row: LedgerHoldingRow) {
+  maturityDialog.row = row;
+  maturityDialog.visible = true;
+}
+
+/**
+ * 保存到期日：null = 清空（逆回购清空后回到「未到期、一直计入投资」）。
+ *
+ * 必须连 `loadSummary` 一起重取：到期日决定逆回购「是否计入投资」
+ * （后端 `effective_count_as_investment`），只刷持仓行会留下一个与表格自相矛盾的
+ * 总资产/饼图。概览不清空就无法验证「改了日期、钱真的从投资里移出去了」。
+ */
+async function handleMaturitySubmit(value: string | null) {
+  const row = maturityDialog.row;
+  if (!row) return;
+  maturityDialog.loading = true;
+  try {
+    await updateLedgerPosition(Number(p.ledgerId), row.id, {
+      maturity_date: value
+    });
+    ElMessage.success(value ? "到期日已更新" : "到期日已清空");
+    maturityDialog.visible = false;
+    await Promise.all([p.loadSummary(), p.loadHoldings()]);
+  } catch (e) {
+    const err = e as { response?: { data?: { message?: string } } };
+    ElMessage.error(err?.response?.data?.message || "到期日更新失败");
+  } finally {
+    maturityDialog.loading = false;
   }
 }
 </script>

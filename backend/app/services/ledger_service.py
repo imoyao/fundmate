@@ -639,7 +639,7 @@ class LedgerService:
                     'in_portfolio': not should_exclude_from_investment(p),
                     'position_ratio': ratio,  # 绝对为 float
                     'back_to_cost_rate': back,
-                    'fund_category': None,
+                    'maturity_date': iso_date_only(p.maturity_date),
                 }
             )
 
