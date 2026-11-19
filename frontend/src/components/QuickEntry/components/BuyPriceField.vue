@@ -49,10 +49,15 @@ const priceModel = computed({
 const priceInput = computed(() => priceInputMeta(props.securityType));
 
 // 可手填价格的品种：股票 / ETF / 可转债。基金的价格是净值（由 useBuyNavSync 回填，
-// 手填会与净值回填互相覆盖）；投顾组合没有份额与价格概念（D70）。
+// 手填会与净值回填互相覆盖）；投顾组合（D70）与银行理财（D121）没有份额与价格概念。
 // 未选标的不显示——与 showFeeField 同一模式，避免空表单多一个必填感字段。
 const visible = computed(() => {
   const type = props.securityType;
-  return Boolean(type) && type !== "fund" && type !== "portfolio";
+  return (
+    Boolean(type) &&
+    type !== "fund" &&
+    type !== "portfolio" &&
+    type !== "bank_wealth"
+  );
 });
 </script>

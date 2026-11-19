@@ -165,3 +165,60 @@ describe("useSecuritySearch 投顾组合并入（D70）", () => {
     expect(ElMessage.warning).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useSecuritySearch 银行理财手填（#931 / D121）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // bank 账户会同时查聚合搜索（组合候选），不设默认值会让每次用例都走 catch
+    mockAssets.mockResolvedValue({
+      data: [],
+      message: "",
+      error_code: 0
+    } as never);
+  });
+
+  it("bank 账户手填产品名：推银行理财，且不留市场归属", async () => {
+    mockFunds.mockResolvedValue([] as never);
+
+    const { securityOptions, remoteSearch } = useSecuritySearch(() => "bank");
+    await remoteSearch("朝朝宝");
+
+    expect(securityOptions.value).toHaveLength(1);
+    expect(securityOptions.value[0]).toMatchObject({
+      type: "bank_wealth",
+      symbol: "朝朝宝",
+      market: "",
+      is_manual: true
+    });
+  });
+
+  it("bank 账户手填登记编码：大写归一并原样作 symbol", async () => {
+    mockFunds.mockResolvedValue([] as never);
+
+    const { securityOptions, remoteSearch } = useSecuritySearch(() => "bank");
+    await remoteSearch("z7001234abcd");
+
+    expect(securityOptions.value[0]).toMatchObject({
+      type: "bank_wealth",
+      symbol: "Z7001234ABCD"
+    });
+  });
+
+  it("bank 账户手填 6 位代码仍是基金：银行代销的场外基金不能被迫记成理财", async () => {
+    mockFunds.mockResolvedValue([] as never);
+
+    const { securityOptions, remoteSearch } = useSecuritySearch(() => "bank");
+    await remoteSearch("110011");
+
+    expect(securityOptions.value[0].type).toBe("fund");
+  });
+
+  it("基金账户手填不受影响：名字仍是基金手填项", async () => {
+    mockFunds.mockResolvedValue([] as never);
+
+    const { securityOptions, remoteSearch } = useSecuritySearch(() => "fund");
+    await remoteSearch("朝朝宝");
+
+    expect(securityOptions.value[0].type).toBe("fund");
+  });
+});

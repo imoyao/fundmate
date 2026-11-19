@@ -28,6 +28,12 @@ describe("buyQuantityMode", () => {
     expect(buyQuantityMode({ type: "portfolio" })).toBe("none");
   });
 
+  it("银行理财同样没有份额与价格，整块不渲染（D121）", () => {
+    // 不拦住的话它会落到 trade 口径：显示「成交数量」并要求整手，用户被迫
+    // 给一笔没有份额的理财填一个「手数」。
+    expect(buyQuantityMode({ type: "bank_wealth" })).toBe("none");
+  });
+
   it("未选标的时按账户类型兜底：证券账户先按 trade，其余按 fund", () => {
     expect(buyQuantityMode({ ledgerType: "stock" })).toBe("trade");
     expect(buyQuantityMode({ ledgerType: "fund" })).toBe("fund");
@@ -85,5 +91,9 @@ describe("buyQuantityMeta", () => {
 
   it("投顾组合不产出可用字段（组件按 mode !== 'none' 整块隐藏）", () => {
     expect(buyQuantityMeta({ type: "portfolio" }).mode).toBe("none");
+  });
+
+  it("银行理财不产出可用字段（同上，D121）", () => {
+    expect(buyQuantityMeta({ type: "bank_wealth" }).mode).toBe("none");
   });
 });

@@ -31,7 +31,7 @@
   <BuyAmountField
     v-if="opTypeModel === 'buy'"
     v-model:amount="amountModel"
-    :is-portfolio="false"
+    :balance-kind="null"
     field-prop="buy_amount"
   />
   <el-form-item :label="TRADE_FIELD_LABELS.quantity" prop="quantity">
