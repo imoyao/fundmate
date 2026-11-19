@@ -14,6 +14,7 @@
             v-for="g in columnGroups"
             :key="g.label"
             class="th-group"
+            :class="{ 'th-group--active': g.keys.includes(metric) }"
             :colspan="g.keys.length"
             :aria-label="g.tip"
           >
@@ -30,7 +31,10 @@
             v-for="col in tableColumns"
             :key="col.key"
             class="col-sortable"
-            :class="{ 'col-active': col.key === metric }"
+            :class="{
+              'col-active': col.key === metric,
+              'col-group-start': groupFirstKeys.has(col.key)
+            }"
             :aria-sort="ariaSort(col.key)"
             @click="emit('sort', col.key)"
           >
@@ -129,6 +133,17 @@ const barRanges = computed(() =>
   buildBarRanges(props.rows, props.tableColumns)
 );
 
+/** 每组的首列 key 集合：用于在指标行给「组首列」画左侧分隔竖线，
+ *  与分组行的组间竖线上下贯穿——组边界在双层表头里一条线连到底，不再断裂。 */
+const groupFirstKeys = computed(
+  () =>
+    new Set(
+      props.columnGroups
+        .map(g => g.keys[0])
+        .filter((k): k is string => Boolean(k))
+    )
+);
+
 /** aria-sort：给屏幕阅读器说明当前列的排序状态（未参与排序的列 = none） */
 function ariaSort(key: string): "none" | "ascending" | "descending" {
   if (key !== props.metric) return "none";
@@ -186,9 +201,37 @@ function ariaSort(key: string): "none" | "ascending" | "descending" {
     top: 30px; /* = 分组行高度 */
   }
 
+  /* 组首列（指标行下半段竖线）：与分组行 .th-group 的 border-left 同一条线，
+     上下贯穿。首列「夏普」也命中（它是「风险调整收益」组首列），
+     该竖线同时承接「基金列 | 指标区」边界——不再有半截断线。 */
+  .th-metric-row th.col-group-start {
+    border-left: 1px solid var(--border-subtle, var(--border-light));
+  }
+
+  /* 分组表头（2026-11-19 表头对齐修复）：标题**左对齐**到该组第一列左缘，
+     不再对整段 colspan 居中——列宽不均时居中会让标题重心漂移（「风险」组
+     曾被读成只压在 UI 列上）。左缘与指标行 th 的左内边距（--space-4=16px）
+     对齐，归属关系与下方第一列一一对应。 */
   .th-group {
-    text-align: center;
+    padding-left: var(--space-4);
+    text-align: left;
     cursor: help;
+
+    /* 组间竖线：左侧分隔线同时充当「基金列 | 指标区」与「组 | 组」两条边界。
+       指标行用 .col-group-start 画同一条线的下半段，两段连起来一条贯穿到底。 */
+    border-left: 1px solid var(--border-subtle, var(--border-light));
+
+    &__label {
+      display: inline-block;
+      color: var(--text-secondary);
+    }
+
+    /* 当前排序列所属分组：与指标列的 brand 高亮呼应（2026-11-19 补）。
+       只加粗提色，不加底色——分组行底色是 --bg-muted，另起底色即语言分裂。 */
+    &--active .th-group__label {
+      font-weight: 600;
+      color: var(--brand-ink);
+    }
   }
 
   td {
@@ -239,6 +282,20 @@ function ariaSort(key: string): "none" | "ascending" | "descending" {
   .col-active {
     font-weight: 600;
     color: var(--text-primary);
+  }
+
+  /* 排序列贯穿高亮（2026-11-19 补）：数据区当前排序列加品牌浅底
+     （--brand-200 比数据条的 --brand-100 深一档，可感而不喧宾）。
+     表头不加底纹（表头本就是 --bg-muted 灰底，另起即语言分裂），
+     只数据区铺一条纵向暖色带——横向滚到中间指标列时余光可锁定。
+     行 hover 时排序列用 --brand-300 更深一档，仍压过 --bg-soft，
+     不因悬停而丢失「这是排序列」的辨识。 */
+  td.col-active {
+    background: var(--brand-200);
+  }
+
+  tbody tr:hover td.col-active {
+    background: var(--brand-300);
   }
 
   /* 收益列涨跌色（-ink 级：白底 AA 达标；符号同色，见 formatCell） */
