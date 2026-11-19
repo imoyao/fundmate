@@ -33,6 +33,7 @@ from loguru import logger
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from app.models.sync_log import insert_audit_row
 from app.services.hot_codes import has_table, read_hot_codes
 
 # 守卫的 job 名（写进 sync_logs，与真实同步 job 区分）
@@ -211,25 +212,13 @@ def last_guard_stats(db: Session) -> Optional[Dict[str, Any]]:
 def record(db: Session, report: GuardReport, commit: bool = True) -> None:
     """把本次巡检结果落进 sync_logs（作为下次的基线）。
     status 取 `bloated` / `ok`：前者让它在审计表里一眼可辨，不依赖任何额外通知渠道。
+    写入统一走 `sync_log.insert_audit_row`（时间参数由它格式化，见 #3182）。
     """
-    from app.core.time_utils import now_shanghai
-
-    now = now_shanghai()
-    db.execute(
-        text(
-            'INSERT INTO sync_logs '
-            '(job_name, status, full_sync, stats, data_source, started_at, finished_at) '
-            'VALUES (:job, :status, :full_sync, :stats, :src, :started, :finished)'
-        ),
-        {
-            'job': GUARD_JOB_NAME,
-            'status': 'bloated' if report.bloated else 'ok',
-            'full_sync': False,
-            'stats': json.dumps(report.to_stats(), ensure_ascii=False),
-            'src': 'local',
-            'started': now,
-            'finished': now,
-        },
+    insert_audit_row(
+        db,
+        job_name=GUARD_JOB_NAME,
+        status='bloated' if report.bloated else 'ok',
+        stats=report.to_stats(),
     )
     if commit:
         db.commit()
