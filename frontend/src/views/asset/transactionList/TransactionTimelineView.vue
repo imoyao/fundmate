@@ -8,9 +8,9 @@
 // 不必像原来那样在父层手动 addEventListener + watch(viewMode) 解绑重绑。
 import { computed, ref, watch } from "vue";
 import type { TransactionRecord } from "@/api/transactions";
-import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import TransactionTimelineRow from "./TransactionTimelineRow.vue";
+import TransactionEmptyState from "./TransactionEmptyState.vue";
 import {
   groupByMonth,
   resolveOpenMonths,
@@ -101,16 +101,7 @@ function onLoadMoreClick() {
     @scroll="onScroll"
   >
     <!-- 空状态 -->
-    <div
-      v-if="transactions.length === 0 && !loading"
-      class="txn-timeline__empty"
-    >
-      <IconifyIconOffline icon="ep:folder-opened" class="text-4xl mb-2" />
-      <p>没有符合条件的流水</p>
-      <p class="txn-timeline__empty-hint">
-        当前筛选下没有任何记录。放宽时间范围，或清空筛选重新看。
-      </p>
-    </div>
+    <TransactionEmptyState v-if="transactions.length === 0 && !loading" />
 
     <section v-for="group in groups" :key="group.month || 'unknown'">
       <!-- 月头：sticky，点整行折叠。用原生 button 而不是 div＋@click——可聚焦、可回车、
@@ -196,17 +187,6 @@ function onLoadMoreClick() {
   max-height: 75vh;
   padding: var(--space-1) 0 var(--space-3);
   overflow-y: auto;
-}
-
-.txn-timeline__empty {
-  padding: var(--space-section) 0;
-  color: var(--text-tertiary-ink);
-  text-align: center;
-}
-
-.txn-timeline__empty-hint {
-  margin-top: 4px;
-  font-size: var(--text-label);
 }
 
 .txn-timeline__more {

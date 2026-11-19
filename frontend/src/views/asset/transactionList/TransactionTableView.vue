@@ -13,8 +13,8 @@ import { errorMessageOf } from "@/utils/errorMessage";
 import { computed, ref } from "vue";
 import type { TransactionDetail, TransactionRecord } from "@/api/transactions";
 import { getTransactionDetail } from "@/api/transactions";
-import { IconifyIconOffline } from "@/components/ReIcon";
 import TransactionTable from "@/components/TransactionTable/index.vue";
+import TransactionEmptyState from "./TransactionEmptyState.vue";
 import type { TransactionRow } from "@/components/TransactionTable/model";
 import type { TransactionDetailState } from "@/components/TransactionTable/model";
 
@@ -142,32 +142,12 @@ function onEdit(row: TransactionRow) {
       />
     </div>
 
-    <div
-      v-if="!loading && transactions.length === 0"
-      class="txn-table-view__empty"
-    >
-      <IconifyIconOffline icon="ep:folder-opened" class="text-4xl mb-2" />
-      <p>没有符合条件的流水</p>
-      <p class="txn-table-view__empty-hint">
-        当前筛选下没有任何记录。放宽时间范围，或清空筛选重新看。
-      </p>
-    </div>
+    <TransactionEmptyState v-if="!loading && transactions.length === 0" />
   </div>
 </template>
 
 <style scoped>
 .txn-table-view {
   padding: var(--space-2) var(--space-compact) var(--space-compact);
-}
-
-.txn-table-view__empty {
-  padding: var(--space-section) 0;
-  color: var(--text-tertiary-ink);
-  text-align: center;
-}
-
-.txn-table-view__empty-hint {
-  margin-top: 4px;
-  font-size: var(--text-small);
 }
 </style>
