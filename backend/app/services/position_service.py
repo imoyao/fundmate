@@ -56,7 +56,6 @@ from app.services.position_bond_command import run_bond_redeem
 
 # issue #2873 安全首抽：读/展示簇已下沉到 position_display，此处仅 re-export 保 facade。
 from app.services.position_buy_command import (  # noqa: F401
-    _ALLOWED_POSITION_FIELDS,
     _BALANCE_ONLY_ASSET_TYPES,
     _get_default_notes,
     run_buy_or_deposit,
@@ -89,6 +88,7 @@ from app.services.position_snapshot_command import (
     upsert_import_meta,
 )
 from app.services.position_txn_read import list_position_transactions, query_transactions_by_identity  # noqa: F401
+from app.services.position_write_policy import ALLOWED_POSITION_FIELDS as _ALLOWED_POSITION_FIELDS  # noqa: F401
 
 # #2873 第二抽：写侧共用原语已下沉到 position_write_support，此处 re-export 保 facade，
 # 调用点与外部导入（conversion_service / repair_snapshot_double_count 等）一行不改。
