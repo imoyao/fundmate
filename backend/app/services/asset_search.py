@@ -22,6 +22,8 @@ from loguru import logger
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.services.bank_wealth_search import search_bank_wealth
+
 # 单源返回条数上限（避免单源刷屏淹没其他品种）
 _PER_PROVIDER_LIMIT = 10
 
@@ -205,63 +207,13 @@ def _search_managers(db: Session, q: str) -> List[Dict]:
     ]
 
 
-def _search_bank_wealth(db: Session, q: str) -> List[Dict]:
-    """银行理财（用户已录入的 `positions` 行，#931 / D121）。
-
-    ## 为什么源是 positions，而不是一张产品表
-
-    中国理财网无面向个人/第三方的公开 API（`docs/spec/importer-architecture.md` §5.1），
-    全市场产品目录不可得。所以这里给的是「**本地已知产品库**」——用户自己录过的产品，
-    用于加仓 / 跨账户录入时按产品名直接选中；**首次录入仍需手填登记编码与名称**。
-    这是刻意的边界，不是遗漏：不做全市场目录是为了避开无授权抓取与无 SLA 的爬虫。
-
-    ## code 取登记编码，不取产品名
-
-    `positions.symbol` 即理财登记编码（银登中心全市场唯一，见 D121）。产品名在
-    「同名不同期 / 不同渠道」的产品之间会撞，拿它当身份会让两笔钱合并成一条持仓。
-    大小写归一不需要在这里做——落库时 `_fill_position_symbol_norm` 的 `symbol_identity`
-    已按 `NO_VENUE:{大写编码}` 生成身份键。
-
-    ## 不过滤 ownership_status
-
-    清仓后持仓行保留（D117 不替用户删持仓），用户回购同一产品时仍应能搜到。
-    family 过滤与读侧一致，避免跨家庭搜到别人的产品名。
-    """
-    from app.core.auth import get_family_id
-    from app.domains.positions.models import Position
-
-    rows = (
-        db.query(Position.symbol, Position.name)
-        .filter(
-            Position.family_id == get_family_id(),
-            Position.asset_type == 'bank_wealth',
-            or_(Position.symbol.ilike(f'%{q}%'), Position.name.ilike(f'%{q}%')),
-        )
-        .distinct()
-        .limit(_PER_PROVIDER_LIMIT)
-        .all()
-    )
-    return [
-        {
-            'code': symbol,
-            'name': name or '',
-            'asset_type': 'bank_wealth',
-            # 银行理财在银行渠道销售、不在交易所撮合，无市场与场所归属（core/venues）
-            'market': '',
-            'venue': '',
-        }
-        for symbol, name in rows
-    ]
-
-
-# 除 funds 外的五类**本地**源（#2218）：全部是本地表查询、毫秒级，
-# 供基金外部兜底的有条件跳过判定复用（不含 _search_funds 自身，防自引用）。
+# 除 funds 外的六类**本地**源（#2218）：均为本地表查询，供外部兜底的有条件跳过判定复用
 _OTHER_LOCAL_PROVIDERS: List[Callable[[Session, str], List[Dict]]] = [
     _search_securities,
     _search_indices,
     _search_advisor_portfolios,
     _search_managers,
-    _search_bank_wealth,
+    search_bank_wealth,
 ]
 
 
@@ -269,12 +221,10 @@ def _other_local_providers_hit(db: Session, q: str) -> bool:
     """其它五类本地源是否已有命中（#2218「有条件跳过外部兜底」的判据）。
 
     直接复用 Provider 本体，而非另写一份等价快查：判据与实际返回若分两处实现必然漂移。
-    仅在本地 funds 零命中时才被求值（search_funds 的 external_gate 延迟求值），
-    命中即短路；每次最多 5 条带 limit 的本地查询，代价可忽略——对比它拦掉的
-    3MB / 14s akshare 全量拉取。
+    仅在本地 funds 零命中时才被求值（search_funds 的 external_gate 延迟求值），命中即短路；
+    每次最多 6 条带 limit 的本地查询，代价可忽略——对比它拦掉的 3MB / 14s akshare 全量拉取。
 
-    单源异常**按未命中处理**：预检失败宁可多打一次外部源，也不能把真正的基金名检索
-    拦在门外（外部兜底就是为它设计的）。
+    单源异常**按未命中处理**：预检失败宁可多打一次外部源，也不能把真正的基金名检索拦在门外。
     """
     for provider in _OTHER_LOCAL_PROVIDERS:
         try:
@@ -285,14 +235,13 @@ def _other_local_providers_hit(db: Session, q: str) -> bool:
     return False
 
 
-# Provider 注册表：新增品种在此追加一个 (db, q) -> list[dict] 函数即可
 SEARCH_PROVIDERS: List[Callable[[Session, str], List[Dict]]] = [
     _search_securities,
     _search_funds,
     _search_indices,
     _search_advisor_portfolios,
     _search_managers,
-    _search_bank_wealth,
+    search_bank_wealth,
 ]
 
 
