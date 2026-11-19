@@ -62,6 +62,11 @@ from app.domains.positions.state import is_covered_by_anchor, reactivate_cleared
 from app.services import async_backfill
 from app.services.import_records import compute_position_hash
 from app.services.position_orphan_flows import _create_cash_transfer_transaction, _reattach_orphan_flows
+from app.services.position_write_policy import (
+    ALLOWED_POSITION_FIELDS,
+    apply_maturity_date,
+    assert_maturity_date_allowed,
+)
 from app.services.position_write_support import (
     _fee_breakdown_kwargs,
     _find_existing_position,
@@ -73,39 +78,6 @@ from app.services.position_write_support import (
     _resolve_ledger_name_by_id,
 )
 from app.services.trading import TransactionService, validate_buy
-
-# 允许写入持仓模型的字段白名单（防止注入无效字段）
-_ALLOWED_POSITION_FIELDS = {
-    'symbol',
-    'name',
-    'market',
-    'asset_type',
-    'account_name',
-    'ledger_id',
-    'quantity',
-    'avg_price',
-    'currency',
-    'current_price',
-    'confirm_date',
-    'notes',
-    'allocation',
-    # issue #928: 去重与溯源字段，允许透传落库
-    'import_hash',
-    'source',
-    'source_import_id',
-    'source_broker',
-    # #1174 双态计价：balance 模式建仓需透传计价模式与可写市值
-    'valuation_mode',
-    'market_value_override',
-    # #931 到期日：逆回购（时间建模）与银行理财（仅记录）共用一列，
-    # 品类校验在 _validate_buy_inputs 里做，白名单只负责「允许落库」
-    'maturity_date',
-}
-
-# 有「到期日」语义的品类：逆回购到期资金回来、银行理财到期兑付。
-# 其余品类（基金/股票/ETF）没有到期日，传进来多半是上游把字段接错了——
-# 静默忽略比报错更难查，故 fail closed。
-_MATURITY_ASSET_TYPES: tuple[str, ...] = ('reverse_repo', 'bank_wealth')
 
 # 只允许 balance（直接余额）记账的品类：共同点是**系统拿不到公开净值**，落成 nav 模式
 # 不会报错，而是市值恒为 0（`position_price` job 不给它定价），用户看到一张「持仓 0 元」的卡。
@@ -407,10 +379,9 @@ def _validate_buy_inputs(
     is_balance: bool = False,
 ) -> None:
     """校验数量/价格/金额，以及买入的整手规则。"""
-    # 到期日只对「有到期日语义」的品类开放（#931 / D121）。放在 balance 早退之前，
-    # 否则银行理财（balance 品类）自身反而校验不到。
-    if data.get('maturity_date') and asset_type not in _MATURITY_ASSET_TYPES:
-        raise ValueError(f'到期日仅适用于逆回购与银行理财，当前类型 {asset_type}')
+    # 到期日品类校验。必须在下面 balance 早退**之前**——银行理财正是 balance 品类，
+    # 写在其后就轮不到它自己校验（判据与理由见 position_write_policy）。
+    assert_maturity_date_allowed(data, asset_type)
 
     if is_balance:
         # balance 模式没有份额/净值概念，只校验金额——市值即由金额累加而来
@@ -523,9 +494,8 @@ def _merge_into_existing(
         same.source = data['source']
     if 'source_broker' in data:
         same.source_broker = data['source_broker']
-    # 到期日（#931）：只在显式传入时覆盖——追加一笔买入不该把之前填的日期抹成空
-    if data.get('maturity_date') and intent.asset_type in _MATURITY_ASSET_TYPES:
-        same.maturity_date = data['maturity_date']
+    # 到期日（#931）：只在显式传入时覆盖，追加一笔买入不该把之前填的日期抹成空
+    apply_maturity_date(same, data, intent.asset_type)
     if not covered_by_anchor:
         same.import_hash = compute_position_hash(
             source=same.source,
@@ -540,7 +510,7 @@ def _create_position_row(
     db: Session, data: dict, intent: BuyIntent, covered_by_anchor: bool = False
 ) -> tuple[Position, bool]:
     """新建持仓行；撞 `uq_positions_import_hash` 时转 upsert。"""
-    position_data = {k: v for k, v in data.items() if k in _ALLOWED_POSITION_FIELDS}
+    position_data = {k: v for k, v in data.items() if k in ALLOWED_POSITION_FIELDS}
     position_data['asset_type'] = intent.asset_type
     position_data['avg_price'] = intent.price_units
     position_data['quantity'] = intent.qty_units

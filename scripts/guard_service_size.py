@@ -426,7 +426,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/pnl_snapshot_store.py": {'lines': 455, 'max_func': 61, 'max_cc': 22},
     "backend/app/services/portfolio_service.py": {'lines': 520, 'max_func': 118, 'max_cc': 19},
     "backend/app/services/position_aggregation.py": {'lines': 624, 'max_func': 163, 'max_cc': 47},
-    "backend/app/services/position_buy_command.py": {'lines': 698, 'max_func': 79, 'max_cc': 11},
+    "backend/app/services/position_buy_command.py": {'lines': 684, 'max_func': 79, 'max_cc': 11},
     "backend/app/services/position_display.py": {'lines': 248, 'max_func': 129, 'max_cc': 18},
     "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 60, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
