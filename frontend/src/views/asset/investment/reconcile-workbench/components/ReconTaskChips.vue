@@ -84,8 +84,8 @@ const emit = defineEmits<{ select: [key: ReconTaskKey] }>();
   min-width: 18px;
   padding: 0 5px;
   font-variant-numeric: tabular-nums;
-  text-align: center;
   color: var(--text-inverse);
+  text-align: center;
   background: var(--brand-solid);
   border-radius: var(--radius-pill);
 }
