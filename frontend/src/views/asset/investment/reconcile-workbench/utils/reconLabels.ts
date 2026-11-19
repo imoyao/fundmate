@@ -48,17 +48,19 @@ export function specialSymbolLabel(
 /** 这种标的不是一只产品，必须说明，避免用户去找一只叫 cash 的基金 */
 export const CASH_SYMBOL_HINT = "这不是一只产品，是账户里的现金余额";
 
-/** 差异表列名：一次改齐，不在组件里各写一份 */
+/** 差异表列名：一次改齐，不在组件里各写一份（场景化：说券商流水与账本各剩多少） */
 export const DISC_COLUMN_LABELS = {
   product: "产品",
   issue: "问题",
-  expected: "按流水算",
-  actual: "账上记的",
-  diff: "差多少",
+  expected: "券商流水应剩",
+  actual: "账本现记",
+  diff: "差",
   status: "状态",
   action: "操作"
 } as const;
 
-/** 表头上方的一句口径说明：解释「按流水算」不是凭空来的数 */
-export const DISC_CALIBER_HINT =
-  "按流水算 = 期初快照份额 + 之后的买卖；账上记的 = 当前持仓；差多少 = 两者相减，单位都是份。";
+/** 临门一脚的风险句：只在抽屉按钮旁或二次确认里出现，列表态不许带「不可撤销」 */
+export const ACTION_RISK_HINTS = {
+  eaccountCover: "归因覆盖会删除渠道原记录，不可撤销。",
+  ghostDelete: "删除其中一笔会重算持仓，无法撤销。"
+} as const;

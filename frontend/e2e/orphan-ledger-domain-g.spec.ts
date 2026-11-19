@@ -213,10 +213,8 @@ async function openDomainG(page: Page): Promise<void> {
   await expect(page.locator(".domain-g-body")).toBeVisible({
     timeout: 150_000
   });
-  // 新 IA：域 G 归入「修正数据」任务卡，来源名只作队列卡上的小标签
-  await expect(
-    page.locator(".workbench-tabs .recon-task-card.is-active")
-  ).toContainText("修正数据");
+  // 新 IA：域 G 归入「修正数据」任务，队列标题行据此加后缀，来源名只作队列卡上的小标签
+  await expect(page.locator(".section-header__title")).toContainText("修正数据");
 }
 
 test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）", () => {
@@ -386,9 +384,9 @@ test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）
         timeout: 150_000
       }
     );
-    await expect(
-      page.locator(".workbench-tabs .recon-task-card.is-active")
-    ).toContainText("修正数据");
+    await expect(page.locator(".section-header__title")).toContainText(
+      "修正数据"
+    );
     await expect(page.locator(".domain-g-body")).toContainText(LEDGER_NAME);
     await expect(page.locator(".recon-banner")).toHaveCount(0);
   });

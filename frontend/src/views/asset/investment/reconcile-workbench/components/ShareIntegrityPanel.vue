@@ -5,7 +5,22 @@
        2026-11-16 起不再提供「按流水重算份额」：净额 ≤ 0 时流水缺腿与真清仓无法区分，
        按流水清仓会把一条可能是对的持仓清零（用户定调「只把错的改对」）。 -->
   <section class="share-integrity" aria-label="份额与流水不自洽">
-    <header class="share-integrity__head">
+    <button
+      type="button"
+      class="share-integrity__toggle"
+      :aria-expanded="open"
+      @click="open = !open"
+    >
+      <span class="share-integrity__toggle-title">
+        还有 {{ items.length }} 只持仓份额与流水对不上
+      </span>
+      <span class="share-integrity__toggle-action">
+        {{ open ? "收起" : "去核对" }}
+      </span>
+    </button>
+
+    <template v-if="open">
+      <header class="share-integrity__head">
       <h3 class="share-integrity__title">
         份额与流水不自洽 · {{ items.length }} 条
       </h3>
@@ -97,10 +112,12 @@
         </div>
       </li>
     </ul>
+    </template>
   </section>
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import type { ShareIntegrityItem } from "@/api/reconciliation";
 import {
   reconGroupTitle,
@@ -119,6 +136,9 @@ const emit = defineEmits<{
   (e: "clear", item: ShareIntegrityItem): void;
 }>();
 
+/** 默认折叠成一行，展开后保留逐条「去核对流水」动作 */
+const open = ref(false);
+
 /** 补录流水只有买/卖两种来源（对账补录的现金类不走份额），其余原样显示代码。 */
 function txnTypeLabel(txnType: string): string {
   if (txnType === "sell") return "卖出";
@@ -135,6 +155,31 @@ function txnTypeLabel(txnType: string): string {
   border: 1px solid var(--border-default);
   border-left: 3px solid var(--color-warning);
   border-radius: var(--radius-card);
+}
+
+.share-integrity__toggle {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+.share-integrity__toggle-title {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.share-integrity__toggle-action {
+  flex: none;
+  font-size: var(--text-label);
+  color: var(--brand-ink);
 }
 
 .share-integrity__head {

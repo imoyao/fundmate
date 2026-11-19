@@ -111,6 +111,9 @@
       <p v-if="discAction" class="recon-item-action__hint">
         {{ DISC_ACTION_HINTS[discAction] }}
       </p>
+      <p v-if="eaccountRisk" class="recon-item-action__risk">
+        {{ eaccountRisk }}
+      </p>
     </template>
   </div>
 </template>
@@ -135,6 +138,7 @@ import {
   discActionOf
 } from "../utils/discAction";
 import { decideDanglingAction } from "../utils/danglingRefEnrichScope";
+import { ACTION_RISK_HINTS } from "../utils/reconLabels";
 import RecordTaxDialog from "./RecordTaxDialog.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
 import DanglingRefRebuildDialog from "./DanglingRefRebuildDialog.vue";
@@ -155,6 +159,7 @@ const emit = defineEmits<{
   ghostUndoIgnore: [item: GhostDuplicateIgnore];
   goTo: [to: string | { name: string }];
   fixOrphan: [item: ReconQueueItem];
+  recognize: [];
   refresh: [key: string];
 }>();
 
@@ -270,6 +275,11 @@ const discAction = computed(() =>
   discRow.value ? discActionOf(discRow.value) : null
 );
 
+/** E账户归因的风险句（临门一脚）：只在抽屉按钮旁露一次，列表态不出现 */
+const eaccountRisk = computed(() =>
+  kind.value === "eaccount" ? ACTION_RISK_HINTS.eaccountCover : ""
+);
+
 /** 除税 / 缺信息两类自包含弹窗外，其余域给出这一条应做的动作；
  *  用 emit 复用 index.vue 已收口的弹窗与端点，不新增写路径。 */
 const actions = computed(() => {
@@ -339,10 +349,14 @@ const actions = computed(() => {
       ];
     case "orphan":
       return item.state === "ready"
-        ? [{ label: "核对并归入账本", run: () => emit("fixOrphan", item) }]
+        ? [{ label: "确认归入账本", run: () => emit("fixOrphan", item) }]
         : [];
     case "import":
       return [
+        {
+          label: "AI 识别",
+          run: () => emit("recognize")
+        },
         {
           label: "前往交易导入",
           run: () => emit("goTo", "/inventory/investment/import")
@@ -387,6 +401,13 @@ const actions = computed(() => {
   font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
+}
+
+.recon-item-action__risk {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--color-warning-ink);
 }
 
 .recon-item-action__done {

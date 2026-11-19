@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  discrepancySceneSentence,
   reconAccountName,
   reconBatchLabel,
   reconCount,
@@ -108,6 +109,23 @@ describe("份额：保留 4 位精度，避免对账差异被四舍五入抹掉"
     expect(reconQuantity(-10)).toBe("-10 份");
     expect(reconQuantity(-1.0001)).toBe("-1.0001 份");
     expect(reconQuantity(null)).toBe("—");
+  });
+});
+
+describe("差异场景句：三列数字压成一句人话", () => {
+  it("按「券商流水应剩 · 账本现记 · 差」排序", () => {
+    expect(discrepancySceneSentence(100, 90, -10)).toBe(
+      "券商流水应剩 100 份 · 账本现记 90 份 · 差 -10 份"
+    );
+  });
+
+  it("空值给 —，不露 NaN / undefined", () => {
+    expect(discrepancySceneSentence(null, 90, -10)).toBe(
+      "券商流水应剩 — · 账本现记 90 份 · 差 -10 份"
+    );
+    expect(discrepancySceneSentence(100, null, null)).toBe(
+      "券商流水应剩 100 份 · 账本现记 — · 差 —"
+    );
   });
 });
 

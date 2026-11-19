@@ -19,15 +19,15 @@
         <dd>{{ ledgerName }}</dd>
       </div>
       <div v-if="hasNumbers" class="recon-context__cell">
-        <dt>按流水算</dt>
+        <dt>{{ DISC_COLUMN_LABELS.expected }}</dt>
         <dd>{{ reconQuantity(target.expected) }}</dd>
       </div>
       <div v-if="hasNumbers" class="recon-context__cell">
-        <dt>账上记的</dt>
+        <dt>{{ DISC_COLUMN_LABELS.actual }}</dt>
         <dd>{{ reconQuantity(target.actual) }}</dd>
       </div>
       <div v-if="hasNumbers" class="recon-context__cell">
-        <dt>差多少</dt>
+        <dt>{{ DISC_COLUMN_LABELS.diff }}</dt>
         <dd :class="{ 'is-diff': target.diff !== 0 }">
           {{ reconQuantity(target.diff) }}
         </dd>
@@ -51,7 +51,7 @@
 import { computed, onMounted } from "vue";
 import { formatDate } from "@/utils/date";
 import { useReconLedger } from "../composables/useReconLedger";
-import { discrepancyIssue } from "../utils/reconLabels";
+import { discrepancyIssue, DISC_COLUMN_LABELS } from "../utils/reconLabels";
 import { reconQuantity } from "../utils/reconDisplay";
 import type { ReconQueueItem } from "../utils/reconQueue";
 

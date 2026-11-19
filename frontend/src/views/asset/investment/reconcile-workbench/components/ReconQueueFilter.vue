@@ -1,16 +1,16 @@
 <template>
   <!--
-    队列筛选：待办状态走 SegmentedControl（design.md「多选一、选项少一律走此组件」）；
+    队列筛选：展示分段走 SegmentedControl（design.md「多选一、选项少一律走此组件」）；
     关键词与导入批次是二级筛选，平铺在同一行，不放左侧栏、不做横向滚动。
-    批量栏只在真的有可批量项时出现，避免常态占一行空白。
+    批量选择栏已删除：一键处理是全量动作，不再勾选子集。
   -->
   <div class="recon-filter">
     <div class="recon-filter__row">
       <SegmentedControl
-        :model-value="state"
+        :model-value="segment"
         :options="options"
-        aria-label="按待办状态筛选"
-        @update:model-value="emit('update:state', $event)"
+        aria-label="按展示分段筛选"
+        @update:model-value="emit('update:segment', $event)"
       />
       <el-input
         :model-value="keyword"
@@ -44,73 +44,42 @@
         清除筛选
       </el-button>
     </div>
-
-    <div v-if="selectableCount > 0" class="recon-filter__bulk">
-      <el-checkbox
-        :model-value="allSelected"
-        :indeterminate="selectedCount > 0 && !allSelected"
-        @change="emit('toggleAll')"
-      >
-        选中全部可直接处理的 {{ selectableCount }} 项
-      </el-checkbox>
-      <span class="recon-filter__bulk-count">
-        已选 {{ selectedCount }} 项 · 共 {{ selectedRecords }} 条记录
-      </span>
-      <el-button
-        size="small"
-        type="primary"
-        :disabled="selectedCount === 0"
-        :loading="busy"
-        @click="emit('batch')"
-      >
-        批量回补（{{ selectedCount }}）
-      </el-button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
-import {
-  DEFAULT_QUEUE_FILTER,
-  type ReconQueueScope
-} from "../utils/reconQueue";
+import { DEFAULT_QUEUE_FILTER } from "../utils/reconQueue";
+import type { ReconQueueSegment } from "../constants/reconTasks";
 
 defineOptions({ name: "ReconQueueFilter" });
 
 const props = defineProps<{
-  state: ReconQueueScope;
+  segment: ReconQueueSegment;
   options: readonly {
     label: string;
-    value: ReconQueueScope;
+    value: ReconQueueSegment;
     count: number;
   }[];
   keyword: string;
   batchId: number | "all";
   batchOptions: Array<{ id: number; label: string }>;
   resultCount: number;
-  selectableCount: number;
-  selectedCount: number;
-  selectedRecords: number;
-  allSelected: boolean;
-  busy: boolean;
 }>();
 
 const emit = defineEmits<{
-  "update:state": [value: ReconQueueScope];
+  "update:segment": [value: ReconQueueSegment];
   "update:keyword": [value: string];
   "update:batchId": [value: number | "all"];
-  toggleAll: [];
-  batch: [];
   reset: [];
 }>();
 
-/** 与默认筛选逐项比较：默认档是 `state: "open"`，写死 `!== "all"` 会让按钮常显。 */
+/** 与默认筛选逐项比较：默认档是 `segment: "ready"` */
 const dirty = computed(
   () =>
     props.keyword !== DEFAULT_QUEUE_FILTER.keyword ||
-    props.state !== DEFAULT_QUEUE_FILTER.state ||
+    props.segment !== DEFAULT_QUEUE_FILTER.segment ||
     props.batchId !== DEFAULT_QUEUE_FILTER.batchId
 );
 </script>
@@ -121,8 +90,7 @@ const dirty = computed(
 }
 
 .recon-filter__row,
-.recon-filter__meta,
-.recon-filter__bulk {
+.recon-filter__meta {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
@@ -145,19 +113,5 @@ const dirty = computed(
   min-height: 28px;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-}
-
-.recon-filter__bulk {
-  padding: 8px 12px;
-  margin-top: var(--space-2);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-}
-
-.recon-filter__bulk-count {
-  flex: 1 1 auto;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
 }
 </style>

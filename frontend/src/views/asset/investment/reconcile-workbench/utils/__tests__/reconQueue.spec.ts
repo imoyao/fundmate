@@ -24,12 +24,11 @@ import {
   DEFAULT_QUEUE_FILTER,
   batchableItems,
   buildReconQueue,
-  countByState,
-  countByTask,
-  countOpenItemsByTask,
-  countOpenScope,
+  countBySegment,
+  countJudgeItemsByTask,
   filterQueue,
   queueBatchOptions,
+  segmentOf,
   sortQueue,
   type ReconQueueSource
 } from "../reconQueue";
@@ -316,11 +315,11 @@ describe("状态只翻译后端判据，前端不自行推导", () => {
       i => i.payload.kind === "ghostIgnored"
     )!;
     expect(item.state).toBe("done");
-    expect(countByTask(buildReconQueue(source), "verify")).toBe(0);
+    expect(segmentOf(item)).toBe("done");
   });
 });
 
-describe("和式不变量：卡片条数与状态计数与队列同源", () => {
+describe("分段计数与队列同源", () => {
   function fullSource(): ReconQueueSource {
     const source = emptySource();
     source.discrepancies = [
@@ -361,27 +360,21 @@ describe("和式不变量：卡片条数与状态计数与队列同源", () => {
     return source;
   }
 
-  it("修正数据的卡上条数 = 7 + 26，不把分组数当记录数", () => {
+  it("分段计数 = 队列按 segmentOf 分组的件数，入口动作不计数", () => {
     const items = buildReconQueue(fullSource());
-    expect(countByTask(items, "repair")).toBe(33);
-    expect(items.filter(i => i.task === "repair")).toHaveLength(2);
+    const counts = countBySegment(items, "all");
+    expect(counts).toEqual({ ready: 2, judge: 2, done: 0 });
+    // 与「去掉入口动作后逐条数一遍」同源
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(
+      items.filter(i => i.count > 0).length
+    );
   });
 
-  it("分诊卡角标数「几件事」而不是「几条记录」，入口动作不算待办", () => {
+  it("judge 段内类型计数按任务归集，导入入口不算补记缺漏", () => {
     const items = buildReconQueue(fullSource());
-    expect(countByTask(items, "repair")).toBe(33); // 33 条流水
-    expect(countOpenItemsByTask(items, "repair")).toBe(2); // 2 组待办
-    // 导入入口是动作而非记录（count=0），不该给「补记缺漏」挂一个假的待办角标
-    expect(countOpenItemsByTask(items, "supplement")).toBe(1); // 只有那笔分红税
-  });
-
-  it("状态分段器计数 = 队列按状态分组的项数", () => {
-    const items = buildReconQueue(fullSource());
-    const counts = countByState(items, "all");
-    const sum = Object.values(counts).reduce((a, b) => a + b, 0);
-    expect(sum).toBe(items.length);
-    expect(counts.ready).toBe(2);
-    expect(counts.judge).toBe(3); // 差异 B + 分红税 + 导入入口
+    expect(countJudgeItemsByTask(items, "verify")).toBe(1); // 差异 B
+    expect(countJudgeItemsByTask(items, "supplement")).toBe(1); // 分红税
+    expect(countJudgeItemsByTask(items, "repair")).toBe(0);
   });
 
   it("筛选四个维度同时生效，互不覆盖", () => {
@@ -389,7 +382,7 @@ describe("和式不变量：卡片条数与状态计数与队列同源", () => {
     expect(
       filterQueue(items, {
         task: "repair",
-        state: "ready",
+        segment: "ready",
         keyword: "001982",
         batchId: 1
       })
@@ -397,16 +390,16 @@ describe("和式不变量：卡片条数与状态计数与队列同源", () => {
     expect(
       filterQueue(items, {
         task: "repair",
-        state: "ready",
+        segment: "ready",
         keyword: "不存在的标的",
         batchId: 1
       })
     ).toHaveLength(0);
   });
 
-  it("默认排序把「可直接处理」排在最前", () => {
+  it("默认排序把「能一键处理」排在最前", () => {
     const items = sortQueue(buildReconQueue(fullSource()));
-    expect(items[0].state).toBe("ready");
+    expect(segmentOf(items[0])).toBe("ready");
   });
 
   it("批次选项只列真实批次且去重", () => {
@@ -582,15 +575,15 @@ describe("队列里不再出现「只有代码」「裸 cash」「孤儿」", ()
     expect(items.find(i => i.id === "disc-1")?.title).toBe("SH688223");
   });
 
-  it("差异数字改用「按流水算 / 账上记的 / 差多少」，不再说理论实际", () => {
+  it("差异数字改用「券商流水应剩 / 账本现记 / 差」，不再说理论实际", () => {
     const row = buildReconQueue({
       ...emptySource(),
       discrepancies: [disc()]
     }).find(i => i.id === "disc-1");
     const facts = row?.facts.join(" ") ?? "";
-    expect(facts).toContain("按流水算");
-    expect(facts).toContain("账上记的");
-    expect(facts).toContain("差多少");
+    expect(facts).toContain("券商流水应剩 100 份");
+    expect(facts).toContain("账本现记 140 份");
+    expect(facts).toContain("差 40 份");
     expect(facts).not.toContain("理论");
     expect(facts).not.toContain("实际");
   });
@@ -746,8 +739,8 @@ describe("域 F 的下一步动作与判据同源", () => {
     ).find(i => i.sourceDomain === "F")!;
 
     expect(item.id).toBe("dangling-rebuild");
-    // rebuild 自成任务（待重建持仓），不再挂在「修正数据」下
-    expect(item.task).toBe("rebuild");
+    // rebuild 折入 repair（场景化），不再自成任务卡
+    expect(item.task).toBe("repair");
     expect(item.actionLabel).toBe("重建持仓");
     expect(item.state).toBe("incomplete");
     // 原因要说清「缺的是持仓行」，不是「缺字段」——后者会让人去填一张没有字段的表单
@@ -772,14 +765,14 @@ describe("域 F 的下一步动作与判据同源", () => {
     expect(item.stateReason).toBe("缺标的代码，补齐后才能判断归属");
   });
 
-  it("已找到现存持仓 → 动作是「回补关联」", () => {
+  it("已找到现存持仓 → 动作是「确认挂回」", () => {
     const item = buildReconQueue(danglingSource(danglingGroup())).find(
       i => i.sourceDomain === "F"
     )!;
 
     expect(item.id).toBe("dangling-reattach");
     expect(item.task).toBe("repair");
-    expect(item.actionLabel).toBe("回补关联");
+    expect(item.actionLabel).toBe("确认挂回");
     expect(item.state).toBe("ready");
   });
 });
@@ -882,7 +875,7 @@ describe("域 F 按阶段聚合：每阶段一条、条数求和、空阶段不�
     expect(items).toHaveLength(0);
   });
 
-  it("和式不变量：四张分诊卡 count 之和 = 全部队列项 count 之和", () => {
+  it("rebuild 折入 repair：所有阶段聚合项的 task 都是 repair", () => {
     const source = danglingSource([
       danglingGroup(), // reattach 7
       danglingGroup({
@@ -894,27 +887,10 @@ describe("域 F 按阶段聚合：每阶段一条、条数求和、空阶段不�
         transactions: []
       }) // rebuild 4
     ]);
-    source.orphan = {
-      total: 26,
-      fixable_count: 26,
-      blocked_count: 0,
-      batch_count: 1,
-      groups: [orphanGroup()],
-      batches: []
-    } satisfies OrphanLedgerList;
-    source.taxItems = [TAX_ROW];
 
-    const items = buildReconQueue(source);
-    const taskSum = (["verify", "supplement", "repair", "rebuild"] as const)
-      .map(task => countByTask(items, task))
-      .reduce((a, b) => a + b, 0);
-    const queueSum = items
-      .filter(i => i.state !== "done")
-      .reduce((sum, i) => sum + i.count, 0);
-    expect(taskSum).toBe(queueSum);
-    // 聚合前后域 F 的记录条数不变：reattach 7 归 repair，rebuild 4 归 rebuild
-    expect(countByTask(items, "repair")).toBe(7 + 26);
-    expect(countByTask(items, "rebuild")).toBe(4);
+    const items = buildReconQueue(source).filter(i => i.sourceDomain === "F");
+    expect(items.map(i => i.task)).toEqual(["repair", "repair"]);
+    expect(items.find(i => i.id === "dangling-rebuild")?.task).toBe("repair");
   });
 
   it("阶段内批次一致才带批次筛选；跨批次聚合不带（否则筛掉一部分组）", () => {
@@ -961,7 +937,7 @@ describe("畸形 200 响应不能把整页冻在加载态", () => {
   });
 });
 
-describe("默认只看待处理：已核对记录不与待办混排", () => {
+describe("默认只看能一键处理：已核对记录不与待办混排", () => {
   /** E账户影子记录：verified = 份额差 ≤0.001 份，本来就没东西可做 */
   function eaccountRow(
     recordId: number,
@@ -1006,39 +982,41 @@ describe("默认只看待处理：已核对记录不与待办混排", () => {
     return source;
   }
 
-  it("默认档是「待处理」，已核对项不进列表", () => {
-    expect(DEFAULT_QUEUE_FILTER.state).toBe("open");
-    const items = buildReconQueue(mixedSource());
-    const visible = filterQueue(items, { ...DEFAULT_QUEUE_FILTER });
-
-    expect(visible.map(i => i.id)).not.toContain("eacc-901");
-    // 未核对的 E账户项、持仓差异、导入入口（入口本身就是一件待办）都在
-    expect(visible.map(i => i.id)).toEqual(
-      expect.arrayContaining(["eacc-902", "disc-7"])
-    );
-    expect(visible).toHaveLength(3);
+  it("默认分段是「能一键处理」", () => {
+    expect(DEFAULT_QUEUE_FILTER.segment).toBe("ready");
   });
 
-  it("「全部」与「已处理」两档仍能回看已核对项（撤销入口没被藏掉）", () => {
+  it("segmentOf 把 done / ready / judge+incomplete 归到三档", () => {
     const items = buildReconQueue(mixedSource());
+    const done = items.find(i => i.id === "eacc-901")!;
+    const pending = items.find(i => i.id === "eacc-902")!;
+    const disc = items.find(i => i.id === "disc-7")!;
+    const entry = items.find(i => i.id === "import-entry")!;
+    expect(segmentOf(done)).toBe("done");
+    expect(segmentOf(pending)).toBe("judge");
+    expect(segmentOf(disc)).toBe("judge");
+    expect(segmentOf(entry)).toBe("judge");
+  });
 
+  it("「已处理」段能回看已核对项（撤销入口没被藏掉）", () => {
+    const items = buildReconQueue(mixedSource());
     expect(
-      filterQueue(items, { ...DEFAULT_QUEUE_FILTER, state: "all" })
-    ).toHaveLength(4);
-    expect(
-      filterQueue(items, { ...DEFAULT_QUEUE_FILTER, state: "done" }).map(
+      filterQueue(items, { ...DEFAULT_QUEUE_FILTER, segment: "done" }).map(
         i => i.id
       )
     ).toEqual(["eacc-901"]);
   });
 
-  it("「待处理」档的计数与点开后看到的行数同源", () => {
+  it("「要你判断」段收纳 judge 与 incomplete，入口动作不计数", () => {
     const items = buildReconQueue(mixedSource());
-    const visible = filterQueue(items, { ...DEFAULT_QUEUE_FILTER });
-
-    expect(countOpenScope(items, "all")).toBe(visible.length);
-    // 任务筛选联动：核对差异下 2 条待处理（E账户未核对 + 持仓差异）
-    expect(countOpenScope(items, "verify")).toBe(2);
-    expect(countByState(items, "all").done).toBe(1);
+    const visible = filterQueue(items, {
+      ...DEFAULT_QUEUE_FILTER,
+      segment: "judge"
+    });
+    expect(visible.map(i => i.id)).toEqual(
+      expect.arrayContaining(["eacc-902", "disc-7"])
+    );
+    // 导入入口 count=0，不计入分段件数
+    expect(countBySegment(items, "all").judge).toBe(2);
   });
 });

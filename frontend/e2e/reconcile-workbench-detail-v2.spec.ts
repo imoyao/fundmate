@@ -9,8 +9,10 @@ import { injectSupabaseSession } from "./support/session";
  * 钉的都是「读起来像不像给人用的」这类单测抓不到的事：
  *   ① 队列 12 条只渲染 10 条 + 分页器，翻页不重挂载、不写 URL；
  *   ② 点一条待办打开右侧抽屉，首屏能看见产品名 / 账本 / 差额 / 投资轨迹；
- *   ③ 差异表列名、口径说明、补录弹窗标题与上下文：不许再出现
+ *   ③ 差异表列名、补录弹窗标题与上下文：不许再出现
  *      「理论 / 实际 / 类型 / 孤儿 / 就地补充 / 设定持仓 / 裸 cash」。
+ *   ④ 2026-11-19 场景化：三列数字叫「券商流水应剩 / 账本现记 / 差」，
+ *      任务卡降级为 judge 段内的类型 chips（核对差异 / 补记缺漏 / 修正数据）。
  *
  * ⚠️ 桩注册顺序 = 后注册先匹配（与 reconcile-workbench-head.spec.ts 同一条坑）：
  * 最宽的 `/api/` 兜底必须最先注册，具体接口随后逐个覆盖。
@@ -22,14 +24,14 @@ const LEDGER_NAME = "主账本";
  * 返回类型直接标成后端契约 `DiscrepancyItem`，不另写一份 interface——
  * 契约加必填字段时本文件不改就类型报错，桩不会悄悄落后于真实出参。
  */
-/** 12 条 > 每页 10 条；第 1 条带产品名，第 3 条是 special symbol，第 4 条是 orphan */
+/** 12 条 > 每页 10 条；第 1 条是带产品名的 orphan（补录这笔），第 3 条是 special symbol */
 const ROWS: DiscrepancyItem[] = Array.from({ length: 12 }, (_, i) => ({
   id: i + 1,
   domain: "B",
   ledger_id: 1,
   symbol: i === 2 ? "cash" : `60${String(i + 1).padStart(4, "0")}`,
   display_name: i === 0 ? "贵州茅台" : "",
-  discrepancy_type: i === 3 ? "orphan" : "quantity",
+  discrepancy_type: i === 0 ? "orphan" : "quantity",
   expected_value: 100,
   actual_value: 98,
   diff: -2,
@@ -193,7 +195,7 @@ async function openWorkbench(page: Page, query = ""): Promise<void> {
   await expect(page.locator(".workbench-head__title")).toBeVisible({
     timeout: 150_000
   });
-  // 首屏七个 loader 全回来才渲染列表；冷启动（vite 现做依赖预构建）可能远慢于
+  // 首屏 loader 全回来才渲染列表；冷启动（vite 现做依赖预构建）可能远慢于
   // 默认 15s，给足时间，别把「构建慢」误记成「页面没渲染」。
   await expect(page.locator(".recon-queue__item").first()).toBeVisible({
     timeout: 60_000
@@ -275,12 +277,12 @@ test.describe("对账中心第二轮：抽屉 / 分页 / 用户语言", () => {
 
     const drawer = page.locator(".recon-detail-drawer");
     await expect(drawer).toBeVisible();
-    await expect(drawer.locator(".recon-context__title")).toContainText(
+    await expect(drawer.locator(".recon-detail__title")).toContainText(
       "贵州茅台"
     );
     await expect(drawer.locator(".recon-context")).toContainText(LEDGER_NAME);
-    await expect(drawer.locator(".recon-context")).toContainText("按流水算");
-    await expect(drawer.locator(".recon-context")).toContainText("差多少");
+    await expect(drawer.locator(".recon-context")).toContainText("券商流水应剩");
+    await expect(drawer.locator(".recon-context")).toContainText("账本现记");
 
     const trail = drawer.locator(".recon-trail");
     await expect(trail).toContainText("这个产品的投资轨迹");
@@ -303,10 +305,9 @@ test.describe("对账中心第二轮：抽屉 / 分页 / 用户语言", () => {
 
     const drawer = page.locator(".recon-detail-drawer");
     await expect(drawer).toBeVisible();
-    await expect(drawer.locator(".disc-caliber")).toContainText("按流水算");
 
     const header = drawer.locator(".disc-table .el-table__header");
-    for (const label of ["产品", "问题", "按流水算", "账上记的", "差多少"]) {
+    for (const label of ["产品", "问题", "券商流水应剩", "账本现记", "差"]) {
       await expect(header).toContainText(label);
     }
     await expect(header).not.toContainText("理论");
@@ -326,7 +327,7 @@ test.describe("对账中心第二轮：抽屉 / 分页 / 用户语言", () => {
       LEDGER_NAME
     );
     await expect(dialog.locator(".recon-supplement-context")).toContainText(
-      "按流水算"
+      "券商流水应剩"
     );
     await expect(dialog).toContainText("把持仓改成");
     await expect(dialog).not.toContainText("设定持仓");
@@ -411,32 +412,37 @@ test.describe("对账中心第二轮：抽屉 / 分页 / 用户语言", () => {
     // 选中具体一条：处理动作区给出聚焦单条动作的组件
     await expect(drawer.locator(".recon-item-action")).toBeVisible();
     await expect(drawer.locator(".recon-item-action")).toContainText(
-      "补充这笔"
+      "补录这笔"
     );
 
     // 不应再把整张差异表（域面板）重列一遍——那和外面队列重复
     await expect(drawer.locator(".disc-table")).toHaveCount(0);
   });
 
-  test("任务卡：角标保留，下方不再重复同一数字，改成可处理 / 需判断口径", async ({
+  test("judge 段类型 chips：核对差异带件数，点击只筛这一类", async ({
     page
   }) => {
     await stubApis(page);
     await openWorkbench(page);
 
-    // 带件数角标的那张卡（核对差异：12 条待办，全是「需判断」）
-    const card = page
-      .locator(".recon-task-card")
-      .filter({ has: page.locator(".domain-tab-count") })
-      .first();
+    // judge 段内出现三类财务动作 chips（核对差异 / 补记缺漏 / 修正数据）
+    const chips = page.locator(".recon-task-chip");
+    await expect(chips).toHaveCount(3);
 
-    // 角标（件数）仍在
-    await expect(card.locator(".domain-tab-count")).toBeVisible();
+    // 12 条差异全是「核对差异」，件数挂在 chip 上
+    await expect(
+      chips.filter({ hasText: "核对差异" }).locator(".recon-task-chip__count")
+    ).toHaveText("12");
+    // 补记缺漏 / 修正数据本桩里没有待判断项，不挂 0 角标
+    await expect(
+      chips.filter({ hasText: "补记缺漏" }).locator(".recon-task-chip__count")
+    ).toHaveCount(0);
 
-    // 旧版「N 项待办」大数字与角标重复——必须消失
-    await expect(card).not.toContainText("项待办");
-
-    // 新口径：拆成「可一键处理 / 需逐条判断」，让自动与人工分开说明
-    await expect(card).toContainText("需你逐条判断");
+    // 点击「核对差异」只筛 verify：导入交割单入口（supplement）被滤掉，13 → 12
+    await chips.filter({ hasText: "核对差异" }).click();
+    await expect(page.locator(".recon-task-chip.is-active")).toContainText(
+      "核对差异"
+    );
+    await expect(page.locator(".recon-pagination")).toContainText("共 12 条");
   });
 });

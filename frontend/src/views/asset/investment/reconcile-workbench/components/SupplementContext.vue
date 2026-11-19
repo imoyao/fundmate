@@ -18,15 +18,15 @@
         <dd>{{ ledgerName }}</dd>
       </div>
       <div>
-        <dt>按流水算</dt>
+        <dt>{{ DISC_COLUMN_LABELS.expected }}</dt>
         <dd>{{ reconQuantity(target.expected_value) }}</dd>
       </div>
       <div>
-        <dt>账上记的</dt>
+        <dt>{{ DISC_COLUMN_LABELS.actual }}</dt>
         <dd>{{ reconQuantity(target.actual_value) }}</dd>
       </div>
       <div>
-        <dt>差多少</dt>
+        <dt>{{ DISC_COLUMN_LABELS.diff }}</dt>
         <dd>{{ reconQuantity(target.diff) }}</dd>
       </div>
     </dl>
@@ -43,6 +43,7 @@ import { useReconLedger } from "../composables/useReconLedger";
 import { reconAssetHeading, reconQuantity } from "../utils/reconDisplay";
 import {
   CASH_SYMBOL_HINT,
+  DISC_COLUMN_LABELS,
   discrepancyIssue,
   specialSymbolLabel
 } from "../utils/reconLabels";

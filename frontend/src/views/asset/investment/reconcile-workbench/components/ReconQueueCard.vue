@@ -3,20 +3,14 @@
     一条待办 = 一件用户能动手处理的事。可见文本全部来自 utils/reconDisplay.ts 的
     翻译层：没有英文枚举、ISO 时间戳、复合主键和内部 ID。
     来源域只作右上角小标签，不再是导航维度。
+    卡片按展示分段（segmentOf）着色：ready 用绿色安全感信号。
   -->
   <li
     class="recon-queue__item"
-    :class="[`recon-queue__item--${item.state}`, { 'is-active': active }]"
+    :class="[`recon-queue__item--${segment}`, { 'is-active': active }]"
     :aria-current="active ? 'true' : undefined"
   >
     <div class="recon-queue__top">
-      <el-checkbox
-        v-if="selectable"
-        class="recon-queue__check"
-        :model-value="selected"
-        :aria-label="`选中「${item.title}」`"
-        @change="emit('toggle', item.id)"
-      />
       <div class="recon-queue__head">
         <button
           type="button"
@@ -26,7 +20,7 @@
           {{ item.title }}
         </button>
         <span class="recon-queue__source">{{ item.sourceLabel }}</span>
-        <span class="recon-queue__state" :class="`is-${item.state}`">
+        <span class="recon-queue__state" :class="`is-${segment}`">
           {{ stateLabel }}
         </span>
       </div>
@@ -52,27 +46,25 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { RECON_QUEUE_STATES } from "../constants/reconTasks";
-import type { ReconQueueItem } from "../utils/reconQueue";
+import { RECON_QUEUE_SEGMENTS } from "../constants/reconTasks";
+import { segmentOf, type ReconQueueItem } from "../utils/reconQueue";
 
 defineOptions({ name: "ReconQueueCard" });
 
 const props = defineProps<{
   item: ReconQueueItem;
   active: boolean;
-  /** 是否可进批量（后端判定可修且状态为「可直接处理」） */
-  selectable: boolean;
-  selected: boolean;
 }>();
 
 const emit = defineEmits<{
   open: [item: ReconQueueItem];
-  toggle: [id: string];
 }>();
+
+const segment = computed(() => segmentOf(props.item));
 
 const stateLabel = computed(
   () =>
-    RECON_QUEUE_STATES.find(s => s.value === props.item.state)?.label ?? "待办"
+    RECON_QUEUE_SEGMENTS.find(s => s.value === segment.value)?.label ?? "待办"
 );
 </script>
 
@@ -95,15 +87,16 @@ const stateLabel = computed(
   border-color: var(--brand-300);
 }
 
+/* ready：绿色安全感信号（能一键处理 = 系统已算清，只差确认） */
+.recon-queue__item--ready {
+  border-color: color-mix(in srgb, var(--color-success) 45%, var(--border-light));
+  border-left: 3px solid var(--color-success);
+}
+
 .recon-queue__top {
   display: flex;
   gap: var(--space-2);
   align-items: flex-start;
-}
-
-.recon-queue__check {
-  flex: none;
-  margin-top: 2px;
 }
 
 .recon-queue__head {
@@ -166,9 +159,9 @@ const stateLabel = computed(
   background: var(--brand-100);
 }
 
-.recon-queue__state.is-incomplete {
-  color: var(--color-warning-ink);
-  background: var(--color-warning-20);
+.recon-queue__state.is-done {
+  color: var(--text-tertiary-ink);
+  background: var(--bg-soft);
 }
 
 .recon-queue__count {

@@ -16,10 +16,6 @@
     :updated-at="updatedAt"
   >
     <template #action>
-      <el-button size="small" @click="emit('recognize')">
-        <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
-        AI 识别
-      </el-button>
       <el-button
         size="small"
         type="primary"
@@ -41,7 +37,7 @@ defineOptions({ name: "WorkbenchHead" });
 
 /**
  * 页头只持有展示态：`running` 是按钮进行中态，`updatedAt` 是数据日期胶囊。
- * 动作一律上抛，本组件不读 composable、不碰路由。
+ * 「AI 识别」已回归到「导入交割单」队列项的抽屉内，页头只留主行动。
  */
 withDefaults(
   defineProps<{
@@ -53,7 +49,6 @@ withDefaults(
 );
 
 const emit = defineEmits<{
-  (e: "recognize"): void;
   (e: "run"): void;
 }>();
 </script>
