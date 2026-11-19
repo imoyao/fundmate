@@ -28,6 +28,7 @@ from app.services.performance.xirr_engine import (
     generate_cashflows,
     generate_portfolio_cashflows,
 )
+from app.services.performance.xirr_outcome import xirr_fields
 from app.services.position_scope import exclude_shadow
 from app.services.symbol_scope import build_transaction_symbol_conditions, query_positions_by_symbol
 
@@ -262,14 +263,13 @@ def _calculate_xirr_for_cashflows(
             'cashflow_count': len(cashflows),
         }
 
-    xirr_val = calculate_xirr(cashflows)
-
     logger.info(
         f'XIRR计算详情: cashflows前5笔={cashflows[:5]}, total_invested={total_invested}, current_market_value={current_market_value}'
     )
     return {
         'method': 'xirr',
-        'xirr': round(xirr_val, 4),
+        # xirr=None 必须带 xirr_reason：前端 null 显「—」、0.0 显「0.00%」，混用即失真。
+        **xirr_fields(cashflows, calculate_xirr(cashflows)),
         'total_invested': round(total_invested, 2),
         'total_withdrawn': round(historical_withdrawn, 2),
         'net_invested': round(net_invested, 2),

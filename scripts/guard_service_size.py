@@ -502,7 +502,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/performance/cashflow_layers.py": {'lines': 381, 'max_func': 105, 'max_cc': 20},
     "backend/app/services/performance/fee_cash.py": {'lines': 100, 'max_func': 22, 'max_cc': 3},
     "backend/app/services/performance/twr.py": {'lines': 336, 'max_func': 76, 'max_cc': 15},
-    "backend/app/services/performance/xirr_engine.py": {'lines': 410, 'max_func': 109, 'max_cc': 15},
+    "backend/app/services/performance/xirr_engine.py": {'lines': 407, 'max_func': 109, 'max_cc': 13},
     # 2026-11-09 收益日历历史复盘（已清仓账户）按 --report 实测回写两项，理由留痕：
     # pnl_calendar.py 2166→2274（新增按区间纳入 cleared 持仓的 _positions 分支、
     # _first_txn_date 起点归集、_has_computable_days 判据、空载荷携带起点及
