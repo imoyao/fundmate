@@ -258,7 +258,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # 未变）。都是真实代码增长，非放宽阈值：`test_baseline_matches_current_metrics`
     # 要求基线与实测逐项相等，留余量同样判红。
     "backend/app/services/cash_flow_service.py": {'lines': 264, 'max_func': 133, 'max_cc': 24},
-    "backend/app/services/cold_set_guard.py": {'lines': 235, 'max_func': 52, 'max_cc': 8},
+    # 2026-11-19 #3182 收紧 cold_set_guard.py 235→224：审计写入下沉到
+    # `sync_log.insert_audit_row`（时间参数须先格式化，Turso libsql 拒收 datetime 对象），
+    # `record()` 因此少 11 行、max_func / max_cc 未变 ⇒ 基线只降不升。
+    "backend/app/services/cold_set_guard.py": {'lines': 224, 'max_func': 52, 'max_cc': 8},
     "backend/app/services/cold_set_write_scope.py": {'lines': 140, 'max_func': 42, 'max_cc': 8},
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},

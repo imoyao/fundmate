@@ -46,16 +46,15 @@
 有它时 ``remedy`` 改成「先核对/回滚补录再重算」，不再诱导一键清仓。
 """
 
-import json
 from collections import defaultdict
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.constants import PositionSource
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.models.sync_log import insert_audit_row
 from app.services.reconciliation_theory import flow_disproves_position, net_quantity
 
 SUMMARY_KEY = 'share_integrity'
@@ -243,34 +242,18 @@ def run_and_record(db: Session, *, commit: bool = True) -> dict:
 
     命中即 ``flagged``：`local_checks` 会按「非 success」打 warning，让它出现在日志与
     ``--status`` 里，而不是只在某个用户恰好点开对账时才被看见。
+    写入统一走 ``sync_log.insert_audit_row``（时间参数由它格式化，见 #3182）。
     """
-    from app.core.time_utils import now_shanghai
-
     found = scan_all_families(db)
-    now = now_shanghai()
+    status = STATUS_FLAGGED if found else STATUS_OK
     stats = {
         'hits': len(found),
         'position_ids': [row['position_id'] for row in found[:SUMMARY_IDS_LIMIT]],
     }
-    db.execute(
-        text(
-            'INSERT INTO sync_logs '
-            '(job_name, status, full_sync, stats, data_source, started_at, finished_at) '
-            'VALUES (:job, :status, :full_sync, :stats, :src, :started, :finished)'
-        ),
-        {
-            'job': JOB_NAME,
-            'status': STATUS_FLAGGED if found else STATUS_OK,
-            'full_sync': False,
-            'stats': json.dumps(stats, ensure_ascii=False),
-            'src': 'local',
-            'started': now,
-            'finished': now,
-        },
-    )
+    insert_audit_row(db, job_name=JOB_NAME, status=status, stats=stats)
     if commit:
         db.commit()
-    return {'status': STATUS_FLAGGED if found else STATUS_OK, 'stats': stats}
+    return {'status': status, 'stats': stats}
 
 
 def report_to_summary(db: Session, family_id: int, summary: dict) -> list[dict]:
