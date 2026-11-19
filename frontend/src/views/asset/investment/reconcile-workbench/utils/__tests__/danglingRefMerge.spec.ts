@@ -130,9 +130,9 @@ describe("mergeDanglingLists", () => {
 /**
  * 无归属流水（#3126）合并的回归网。钉住的事与错挂组同族：
  * 合并 groups 必须同步加 total / group_count；但 `fixable_count` **必须不涨** ——
- * 契约里无归属组的 fixable 恒 0（没有可挂回的持仓指针，reattach / rebuild /
- * mislink 一律 400），把组里带代码的行算进「可回补」会让分诊卡宣称能处理一个
- * 实际只有「补全标的或删除」两条路的阶段。
+ * 契约里无归属组的 fixable 恒 0（没有可挂回的持仓指针），而能做的事要按组判定
+ * （补字段 / 按流水重建 / 等夜间回填 / 只能删除，见 `unownedOutcome`）。把组里
+ * 带代码的行算进「可回补」会让分诊卡宣称能处理一个并不存在统一动作的阶段。
  */
 describe("mergeDanglingLists：无归属组（#3126）", () => {
   const unowned: UnownedRefList = {
