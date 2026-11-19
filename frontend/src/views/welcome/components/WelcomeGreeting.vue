@@ -70,7 +70,7 @@
         </div>
       </div>
 
-      <!-- 主数据行：加载中仅展示品牌定调语；数据态展示问候+天数 -->
+      <!-- 主数据行：数据态展示问候+天数 -->
       <div class="flex items-center gap-2">
         <template v-if="welcomeState === 'data'">
           <span
@@ -82,7 +82,7 @@
             }"
           >
             <span class="welcome-nickname">{{ userTitle }}</span>
-            👋 {{ greetingText }},你已记账
+            {{ greetingText }},你已记账
             <span
               class="font-bold"
               :style="{
@@ -94,13 +94,6 @@
             天
           </span>
         </template>
-        <span
-          v-else
-          class="font-medium"
-          :style="{ color: 'var(--text-secondary)', fontSize: '14px' }"
-        >
-          把涨跌交给市场，用复利丈量自己 🌊
-        </span>
       </div>
 
       <!-- 首页消息播报：真实数据派生，轮动展示 -->

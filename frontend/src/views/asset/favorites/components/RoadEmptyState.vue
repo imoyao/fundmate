@@ -2,14 +2,13 @@
   RoadEmptyState · 空状态
 
   design.md「空状态与加载态」硬规范：严禁干瘪的「暂无数据」，必须使用
-  珊瑚红单色细线鹦鹉螺插画 + 品牌收尾定调文案。
+  珊瑚红单色细线鹦鹉螺插画作为视觉锚点。
   插画复用仓库既有资产 assets/login/nautilus-light.svg（单色 #E34F38 线稿），
   不新增外部依赖，也不引入 emoji。
 -->
 <template>
   <div class="road-empty">
     <img class="road-empty__art" :src="nautilus" alt="" aria-hidden="true" />
-    <p class="road-empty__slogan">潮有涨落，壳有深浅。算得清，才无患。</p>
     <p class="road-empty__desc">
       {{
         filtered
@@ -90,13 +89,6 @@ defineEmits<{
   @media (prefers-reduced-motion: reduce) {
     animation: none;
   }
-}
-
-.road-empty__slogan {
-  font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
-  font-size: var(--text-body);
-  color: var(--text-primary);
-  letter-spacing: 0.02em;
 }
 
 .road-empty__desc {

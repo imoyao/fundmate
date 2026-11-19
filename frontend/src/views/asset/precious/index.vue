@@ -14,10 +14,7 @@
     class="precious-page min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <PageHeaderBar
-      title="贵金属"
-      subtitle="家庭持有的黄金等贵金属记录，金额来自通用资产录入"
-    >
+    <PageHeaderBar title="贵金属">
       <template #action>
         <el-button type="primary" @click="goAdd">
           <IconifyIconOffline icon="ep:plus" class="mr-1" /> 添加贵金属
