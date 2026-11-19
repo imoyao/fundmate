@@ -193,9 +193,7 @@ test.describe("对账工作台（页头主行动 + 首屏分段落档）", () =>
       head.getByRole("button", { name: "重新检查持仓差异" })
     ).toBeVisible();
     // owner 拍板：AI 识别不再放页头，回归「导入交割单」抽屉内
-    await expect(
-      head.getByRole("button", { name: "AI 识别" })
-    ).toHaveCount(0);
+    await expect(head.getByRole("button", { name: "AI 识别" })).toHaveCount(0);
 
     const before = calls.filter(c =>
       c.path.startsWith("/api/reconciliation/discrepancies")
@@ -244,9 +242,9 @@ test.describe("对账工作台（页头主行动 + 首屏分段落档）", () =>
     );
 
     // 分段器已落到「要你判断」，而不是卡在默认的「能一键处理」空档
-    await expect(page.locator(".segmented-control__item.is-active")).toContainText(
-      "要你判断"
-    );
+    await expect(
+      page.locator(".segmented-control__item.is-active")
+    ).toContainText("要你判断");
 
     // 列表可见该条待判断项（域 D 的跨账本重复组）
     await expect(page.locator(".recon-queue__item").first()).toContainText(

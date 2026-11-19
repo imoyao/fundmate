@@ -281,7 +281,9 @@ test.describe("对账中心第二轮：抽屉 / 分页 / 用户语言", () => {
       "贵州茅台"
     );
     await expect(drawer.locator(".recon-context")).toContainText(LEDGER_NAME);
-    await expect(drawer.locator(".recon-context")).toContainText("券商流水应剩");
+    await expect(drawer.locator(".recon-context")).toContainText(
+      "券商流水应剩"
+    );
     await expect(drawer.locator(".recon-context")).toContainText("账本现记");
 
     const trail = drawer.locator(".recon-trail");

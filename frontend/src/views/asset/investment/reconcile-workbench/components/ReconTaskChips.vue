@@ -3,7 +3,11 @@
     judge 段内的类型 chips：把「要你判断」再按三类财务动作细分。
     语义是筛选不是导航（与已删的 WorkbenchTaskCards 同一职责，降级为一行 chips）。
   -->
-  <div class="recon-task-chip-group" role="group" aria-label="按要判断的类型筛选">
+  <div
+    class="recon-task-chip-group"
+    role="group"
+    aria-label="按要判断的类型筛选"
+  >
     <button
       v-for="task in RECON_TASKS"
       :key="task.key"

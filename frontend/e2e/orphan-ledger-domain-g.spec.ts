@@ -214,7 +214,9 @@ async function openDomainG(page: Page): Promise<void> {
     timeout: 150_000
   });
   // 新 IA：域 G 归入「修正数据」任务，队列标题行据此加后缀，来源名只作队列卡上的小标签
-  await expect(page.locator(".section-header__title")).toContainText("修正数据");
+  await expect(page.locator(".section-header__title")).toContainText(
+    "修正数据"
+  );
 }
 
 test.describe("域 G 缺账本孤儿流水（#2875：暴露 + 回填 + 撤销）", () => {

@@ -89,7 +89,11 @@ const stateLabel = computed(
 
 /* ready：绿色安全感信号（能一键处理 = 系统已算清，只差确认） */
 .recon-queue__item--ready {
-  border-color: color-mix(in srgb, var(--color-success) 45%, var(--border-light));
+  border-color: color-mix(
+    in srgb,
+    var(--color-success) 45%,
+    var(--border-light)
+  );
   border-left: 3px solid var(--color-success);
 }
 

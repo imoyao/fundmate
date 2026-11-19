@@ -13,7 +13,9 @@
       <span class="recon-draft-summary__label">
         有 {{ total }} 条待入库草稿
       </span>
-      <span class="recon-draft-summary__hint">{{ open ? "收起" : "展开" }}</span>
+      <span class="recon-draft-summary__hint">{{
+        open ? "收起" : "展开"
+      }}</span>
     </button>
 
     <div v-if="open" class="recon-draft-summary__body">

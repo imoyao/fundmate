@@ -164,7 +164,9 @@ function discrepancyItem(row: DiscrepancyItem): ReconQueueItem {
       row.actual_value !== null
         ? `${DISC_COLUMN_LABELS.actual} ${reconQuantity(row.actual_value)}`
         : "",
-      row.diff !== null ? `${DISC_COLUMN_LABELS.diff} ${reconQuantity(row.diff)}` : ""
+      row.diff !== null
+        ? `${DISC_COLUMN_LABELS.diff} ${reconQuantity(row.diff)}`
+        : ""
     ].filter(Boolean),
     count: 1,
     actionLabel: done ? "查看记录" : "核对并处理",
