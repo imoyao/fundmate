@@ -961,11 +961,13 @@ export function undoMislinkedRefFix(
 
 // ── 域 F 第五类：无归属流水（#3126）──────────────────────────────────────────
 // 这些流水既没有标的代码归属、也没挂到任何持仓上：不进任何持仓视图，全库扫描
-// 之外一处都看不见。修法只有两条（其余端点对这类行一律 400 —— position_id 为空，
-// 没有指针可修、没有持仓可挂，reattach / rebuild / mislink 都不适用）：
-// 补全标的（enrich，后端已放开对这类行的校验）或显式删除。组形状与悬空组兼容，
-// 额外只有 unowned 标记；fixable 恒 false、live_position 为 null、candidates /
-// dangling_position_ids 均为空 —— 前端照抄，不二次推导。
+// 之外一处都看不见。修法按组判定（`unownedOutcome`，其余端点仍不适用）：
+// - 补全标的（enrich）；
+// - 按流水重建持仓（rebuild）——仅当字段齐、净额 > 0 且同账本无同标的持仓；
+// - 显式删除（净额 ≤ 0 或同账本有多条同标的持仓时只剩这一条）。
+// reattach / mislink 对这类行仍一律 400（position_id 为空，没有指针可修、没有持仓可挂）。
+// 组形状与悬空组兼容，额外只有 unowned 标记；fixable 恒 false、live_position 为 null、
+// candidates / dangling_position_ids 均为空 —— 前端照抄，不二次推导。
 
 /** 无归属分组（GET /api/reconciliation/dangling-refs/unowned/ 的 groups 元素） */
 export interface UnownedRefGroup extends DanglingRefGroup {

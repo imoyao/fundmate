@@ -839,10 +839,11 @@ def test_enrich_candidates_exclude_other_venue_same_code(db, ledger):
     assert other.id not in [c['id'] for c in data['candidate_positions']]
 
 
-# ── #3126：unowned 行（position_id 为空、无持仓承接）可走 enrich / delete ──────
+# ── #3126：unowned 行（position_id 为空、无持仓承接）可走 enrich / delete / rebuild ──
 # unowned 形状：position_id=None + 账本非空 + quantity≠0 + asset_type 为 NULL
-# （真库 10 条历史卖出的形状）。enrich / delete 是它仅有的两条写路径；
-# reattach / rebuild / mislink 必须继续拒绝（无悬空引用可挂回）。
+# （真库 10 条历史卖出的形状）。rebuild 自 2026-11-19 起按条件放开（净额 > 0 且同账本
+# 无同标的持仓，判定在 dangling_ref_rebuild_service.plan_rebuild）；reattach / mislink
+# 继续拒绝——它们需要一个可挂回的悬空引用，unowned 行两者都没有。
 
 
 def _mk_unowned_txn(db, ledger_id, *, symbol='', position_name='华夏成长混合', txn_type='sell', shares=100.0):
@@ -896,11 +897,13 @@ def test_unowned_row_can_delete_with_confirm_phrase(db, ledger):
     assert snapshot['position_id'] is None  # 完整快照含「未挂持仓」这一事实
 
 
-def test_unowned_row_rejected_by_reattach_and_rebuild(db, ledger):
-    """unowned 行打回补 / 重建必须拒绝（端点层 400）：无悬空引用可挂回，强行挂会制造错账。
+def test_unowned_row_rejected_by_reattach_but_rebuild_gated_by_front_gates(db, ledger):
+    """unowned 行：reattach 仍拒绝（端点层 400），rebuild 不再无条件拒绝而是走闸门。
 
-    **变异探针**：把 ``_load_dangling_by_ids`` 的默认 ``include_unowned=False`` 改成
-    True（或三处写路径随手传 True），本用例立即转红——默认值就是安全边界。
+    reattach 这条同时是**变异探针**：把 ``_load_dangling_by_ids`` 的默认
+    ``include_unowned=False`` 改成 True（或写路径随手传 True），本用例立即转红——
+    默认值就是安全边界。rebuild 传 True 是有意的，业务准入由 ``plan_rebuild`` 的
+    净额 / 成本 / 缺口闸门承担；本 helper 造的是「缺标的代码的卖出腿」，故先撞缺码闸门。
     """
     t = _mk_unowned_txn(db, ledger.id)
     any_target_id = 1
@@ -909,8 +912,10 @@ def test_unowned_row_rejected_by_reattach_and_rebuild(db, ledger):
         dangling_ref_svc.preview_reattach(db, _FAMILY, [t.id], any_target_id)
     with pytest.raises(ValueError, match='并非悬空'):
         dangling_ref_svc.reattach_transactions(db, _FAMILY, [t.id], any_target_id)
-    with pytest.raises(ValueError, match='并非悬空'):
-        rebuild_svc.preview_rebuild(db, _FAMILY, [t.id])
+
+    # 重建不再抛「并非悬空」：缺码优先于净额，给出可执行原因而不是异常
+    plan = rebuild_svc.preview_rebuild(db, _FAMILY, [t.id])
+    assert plan['rebuildable'] is False and '标的代码' in plan['block_reason']
 
     # 拒绝分支零写入：归属一字未动、无审计日志
     assert db.query(Transaction).filter_by(id=t.id).one().position_id is None

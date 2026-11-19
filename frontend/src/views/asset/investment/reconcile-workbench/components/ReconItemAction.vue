@@ -38,13 +38,21 @@
          删除是域 F 渲染树里唯一的 danger 入口；两个动作都先经各自的确认弹窗。
          错挂组不给「删除」：后端的删除端点只认**悬空**流水（position_id 指向已不存在的
          持仓行），这类流水挂着现存持仓，点了必然 400 —— 不给必然失败的动作。
-         无归属组（#3126）两个动作都在：主动作走补全弹窗、删除后端已放开校验；
-         主动作不经 runPrimary 特判，落进兜底 openRemediation("enrich")。 -->
+         无归属组（#3126）没有固定动作：判据在 decideDanglingAction，没有主动作时把原因
+         写出来，删除始终可用。 -->
     <template v-else-if="danglingPayload">
       <p class="recon-item-action__lead">{{ item.summary }}</p>
+      <p v-if="action.unowned" class="recon-item-action__reason">
+        {{ action.unowned.reason }}
+      </p>
       <div class="recon-item-action__buttons">
-        <el-button type="primary" plain @click="runPrimary">
-          {{ item.actionLabel }}
+        <el-button
+          v-if="action.primaryLabel"
+          type="primary"
+          plain
+          @click="runPrimary"
+        >
+          {{ action.primaryLabel }}
         </el-button>
         <el-button
           v-if="!stageIsMislink"
@@ -62,7 +70,7 @@
         @submitted="emit('refresh', 'dangling')"
       />
       <DanglingRefRebuildDialog
-        v-if="stageIsRebuild"
+        v-if="action.rebuildTarget"
         v-model="rebuildVisible"
         :group="stageGroup"
         @rebuilt="emit('refresh', 'rebuilt')"
@@ -126,6 +134,7 @@ import {
   discActionEvent,
   discActionOf
 } from "../utils/discAction";
+import { decideDanglingAction } from "../utils/danglingRefEnrichScope";
 import RecordTaxDialog from "./RecordTaxDialog.vue";
 import DanglingRefRemediationDialog from "./DanglingRefRemediationDialog.vue";
 import DanglingRefRebuildDialog from "./DanglingRefRebuildDialog.vue";
@@ -202,9 +211,6 @@ const danglingPayload = computed(() =>
     : null
 );
 const stageGroup = computed(() => danglingPayload.value?.groups[0] ?? null);
-const stageIsRebuild = computed(
-  () => danglingPayload.value?.stage === "rebuild"
-);
 /** 挂错标的组：走自己的弹窗（既不是悬空、也不满足重建的前置） */
 const stageIsMislink = computed(
   () => danglingPayload.value?.stage === "mislink"
@@ -213,6 +219,15 @@ const remediationVisible = ref(false);
 const remediationMode = ref<"enrich" | "delete">("enrich");
 const rebuildVisible = ref(false);
 const mislinkVisible = ref(false);
+
+/** 执行区决策（判据在 `danglingRefEnrichScope.decideDanglingAction`）：主动作文字 + 重建接线 */
+const action = computed(() =>
+  decideDanglingAction(
+    danglingPayload.value?.stage,
+    stageGroup.value,
+    props.item.actionLabel
+  )
+);
 
 function openRemediation(mode: "enrich" | "delete"): void {
   remediationMode.value = mode;
@@ -223,6 +238,13 @@ function openRemediation(mode: "enrich" | "delete"): void {
 function runPrimary(): void {
   const payload = danglingPayload.value;
   if (!payload) return;
+  if (payload.stage === "unowned") {
+    // 无归属组不许落进兜底的补全弹窗：字段已齐的组在那里没有可填的东西
+    if (action.value.unowned?.outcome === "fill") openRemediation("enrich");
+    else if (action.value.unowned?.outcome === "rebuild")
+      rebuildVisible.value = true;
+    return;
+  }
   if (payload.stage === "reattach") {
     emit("fixDangling", payload.groups[0]!);
     return;

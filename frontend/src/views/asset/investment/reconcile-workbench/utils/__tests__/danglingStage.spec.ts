@@ -78,7 +78,9 @@ describe("DANGLING_STAGES：固定顺序 fill → unowned → reattach → misli
       expect(DANGLING_ACTION_LABEL[stage]).toBeTruthy();
     }
     expect(DANGLING_ACTION_LABEL.fill).toBe("补全信息");
-    expect(DANGLING_ACTION_LABEL.unowned).toBe("补全标的");
+    // unowned 是唯一「同一阶段里不同组做不同事」的阶段（补字段 / 重建 / 等夜间回填 /
+    // 只能删除），动作名只能是导航名，不能预设动作——单组动作见 unownedOutcome。
+    expect(DANGLING_ACTION_LABEL.unowned).toBe("逐组处理");
     expect(DANGLING_ACTION_LABEL.reattach).toBe("回补关联");
     expect(DANGLING_ACTION_LABEL.mislink).toBe("改挂到正确标的");
     expect(DANGLING_ACTION_LABEL.rebuild).toBe("重建持仓");
@@ -130,10 +132,10 @@ describe("groupStage：组级判据走同一条派生链", () => {
 
   /**
    * 无归属组（#3126）**必须短路**，这条是它的核心回归：
-   * 组上没有任何持仓指针（fixable 恒 false、candidates 为空），三个写端点
-   * （reattach / rebuild / mislink）对这类行一律 400。若不短路，补上标的代码后
-   * 派生规则「代码齐 + fixable=false → rebuild」会把它派生成 rebuild ——
-   * 用户照界面提示点下去，后端必红。补全之后也必须仍落 unowned。
+   * 组上没有任何持仓指针（fixable 恒 false、candidates 为空），阶段只表示类别；
+   * 具体动作由 `unownedOutcome` 按组判定（补字段 / 重建 / 等夜间回填 / 只能删除）。
+   * 若不短路，派生规则「代码齐 + fixable=false → rebuild」会把净额 ≤ 0 的组也派生成
+   * rebuild——用户照界面提示点下去，后端必按「净额 ≤ 0 不能重建」拒绝。
    */
   it("无归属组归 unowned，补上 symbol 后仍落 unowned（不被派生成 rebuild）", () => {
     // 缺码形态：照 fill 的派生规则会落 fill，但 unowned 标记优先

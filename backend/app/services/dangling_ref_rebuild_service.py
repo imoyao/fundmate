@@ -39,6 +39,20 @@
   来源以审计日志为准，不去猜 ``PositionSource`` 的枚举值；
 - 净额 ≤ 0 的组**拒绝重建**（买卖已对冲，硬建只得到 0 份额空壳），这类组走「回补」或「删除」。
 
+## 无归属流水（#3126）也走这条
+
+`position_id` 为空的流水（没挂到任何持仓上，界面上任何持仓视图都看不到）同样能按流水
+重建——它们缺的正是「一条持仓行」。与悬空流水的差别只有三处，都写在这里防止后来人按
+域 F 的直觉改回去：
+
+- 目标校验用 `include_unowned=True`；但**业务准入不放松**：净额 ≤ 0 的组仍然拒绝
+  （卖得比买多，建了只是幽灵持仓），只能走「删除」；
+- 同账本已有同标的持仓行时**不重建**：交给夜间回填（`orphan_backfill_job` 按标的身份
+  唯一匹配挂回）。此处的 `block_reason` **刻意不指向「回补关联」**——那个端点对
+  `position_id` 为空的流水一律 400，指向它等于给用户一条点了就红的路；
+- 撤销把 `position_id` 还原成 `NULL`（回到无归属），不是还原成旧的悬空 id。
+  `before_json` 记的是原始值，`None` 自然还原成 `null`，不需要额外分支。
+
 ## 事务边界
 
 与同域其它服务同构：调用方传入 ``db``，只 ``flush()`` 不 ``commit()``；
@@ -111,13 +125,32 @@ def _identity_block(
     return None
 
 
-def _cost_block(db: Session, family_id: int, ordered: list[Transaction], plan: dict, symbol: str) -> str | None:
-    """成本类拒绝原因：缺成交价派生不出成本；已有同标的持仓行应走「回补关联」而不是重建。"""
+def _cost_block(
+    db: Session,
+    family_id: int,
+    ordered: list[Transaction],
+    plan: dict,
+    symbol: str,
+    *,
+    unowned_group: bool = False,
+) -> str | None:
+    """成本类拒绝原因：缺成交价派生不出成本；已有同标的持仓行应走「回补关联」而不是重建。
+
+    ``unowned_group`` 时**不能**指向「回补关联」：那个端点对 ``position_id`` 为空的流水
+    一律 400（``_load_dangling_by_ids`` 默认只认悬空）。这类流水的真实出路是夜间回填
+    （``orphan_backfill_job`` 按标的身份自动挂回，唯一匹配才挂），文案必须指向那条路。
+    """
     if any(t.price is None or t.quantity is None for t in ordered if t.txn_type in ('buy', 'deposit')):
         return '组内有买入流水缺成交价或份额，派生不出成本，重建会得到 0 成本持仓'
     existing = _find_existing_position(db, plan['ledger_id'], family_id, symbol, '')
     if existing is not None:
-        return f'同账本已有「{existing.name or symbol}」的持仓行（#{existing.id}），请用「回补关联」而不是重建'
+        name = existing.name or symbol
+        if unowned_group:
+            return (
+                f'同账本已有「{name}」的持仓行（#{existing.id}），重建会再造一条重复持仓；'
+                '无归属流水由夜间回填按标的挂回（唯一匹配才挂上）'
+            )
+        return f'同账本已有「{name}」的持仓行（#{existing.id}），请用「回补关联」而不是重建'
     return None
 
 
@@ -129,7 +162,10 @@ def plan_rebuild(db: Session, family_id: int, transaction_ids) -> dict:
     预览与真正写入不可能给出两套结论。
     """
     ids = _normalize_ids(transaction_ids)
-    loaded = _load_dangling_by_ids(db, family_id, ids)
+    # include_unowned=True：无归属流水（#3126，position_id 为空）也能按流水重建。
+    # 能建不能建由下面的净额 / 成本 / 缺口闸门判定——`_load_dangling_by_ids` 只回答
+    # 「这行确实可处置」，不负责业务准入。
+    loaded = _load_dangling_by_ids(db, family_id, ids, include_unowned=True)
     # 按生效日升序：重建行的 confirm_date / account_name 取**最早**那条（组内一致，取谁都不影响，
     # 但按日期排序后「最早」是确定的，不依赖调用方传参顺序）。
     ordered = order_by_effective_day(
@@ -162,9 +198,12 @@ def plan_rebuild(db: Session, family_id: int, transaction_ids) -> dict:
     # 索引只建一次：批量预览是 90 组 × 每组一次，重复建索引会把扫描放大成 N+1。
     name_index = name_symbol_index(db, family_id)
     identity = identity_count(ordered, name_index)
+    # 无归属组：组内每条都是 position_id 为空的流水（#3126）。混两类是调用方错误，
+    # 按「有悬空引用」处理——宁可给出「回补关联」的提示，也不能对悬空组说夜间回填。
+    unowned_group = all(t.position_id is None for t in ordered)
     reason = _identity_block(ordered, symbol, plan['ledger_id'], asset_types, identity)
     if reason is None:
-        reason = _cost_block(db, family_id, ordered, plan, symbol or '')
+        reason = _cost_block(db, family_id, ordered, plan, symbol or '', unowned_group=unowned_group)
     if reason is not None:
         return _block(plan, reason)
 

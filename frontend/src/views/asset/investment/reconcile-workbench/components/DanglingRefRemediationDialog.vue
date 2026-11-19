@@ -35,8 +35,9 @@
             表单只渲染「真正要补的字段」：分组键是 (ledger_id, symbol)，组内代码必然
             相同 ⇒ 对有代码的组，代码输入框永远补 0 条（owner 2026-11-12 截图里那个
             `SZ128021 → SZ128021`）。齐了的那一项改成只读一行，让人看见这组的键是什么。
-            漏斗重构后（2026-11-13）只有 `fill` 阶段的组会进本弹窗，`needsFill === false`
-            的分支不再渲染任何兜底块——`rebuild` / `reattach` 组各有自己的阶段面板与动作面。
+            漏斗重构后（2026-11-13）只有 `fill` 阶段的组会进本弹窗；`needsFill === false`
+            仍有兜底说明（见下方 `emptyFillReason`）——宁可说清为什么补不了，
+            也不能留一个空弹窗加禁用按钮（owner 2026-11-19 截图的死胡同）。
           -->
           <el-form v-if="needsFill" label-width="90px" size="default">
             <el-form-item v-if="needs.needSymbol > 0" label="标的代码">
@@ -88,6 +89,9 @@
               我已核对，确认补全
             </el-checkbox>
           </template>
+          <!-- 字段已齐还进到本弹窗（无归属组的兜底路径）：这里没有可填的东西，
+               必须把「为什么补不了、该走哪条路」写出来，而不是留一个空弹窗。 -->
+          <p v-else class="dr-intro__blocked">{{ emptyFillReason }}</p>
         </template>
         <template v-else>
           <DanglingRefRemediationPreview
@@ -114,10 +118,10 @@
       <el-button @click="close(false)">{{
         result ? "关闭" : "取消"
       }}</el-button>
-      <!-- 缺什么只在悬浮时说明，不再一打开就把报错挂在左下角；
-           「重建持仓」不再经由本弹窗（rebuild 组有自己的阶段，spec §3.5）。 -->
+      <!-- 没有可填字段时不给「确认补全」：能补的字段为 0，按钮只会永远是禁用态。
+           「重建持仓」也不经由本弹窗（rebuild 组有自己的阶段，spec §3.5）。 -->
       <el-tooltip
-        v-if="!result"
+        v-if="!result && (mode === 'delete' || needsFill)"
         :content="footerHint"
         :disabled="canSubmit"
         placement="top"
@@ -143,6 +147,7 @@ import type { DanglingRefGroup } from "@/api/reconciliation";
 import { useNestedDialog } from "../composables/useNestedDialog";
 import { useDanglingRefRemediation } from "../composables/useDanglingRefRemediation";
 import { reconGroupTitle } from "../utils/reconDisplay";
+import { unownedOutcome } from "../utils/danglingRefEnrichScope";
 import DanglingRefEnrichSteps from "./DanglingRefEnrichSteps.vue";
 import DanglingRefRemediationPreview from "./DanglingRefRemediationPreview.vue";
 
@@ -234,6 +239,22 @@ const dateStatic = computed(
   () => `组内 ${needs.value.txnCount} 条都已有交易日期`
 );
 
+/**
+ * 字段已齐时「为什么补不了」：无归属组要说出这一组真正的出口（夜间回填 / 重建 /
+ * 只能删除），普通悬空组退回 guard 的原因。空着比说错更糟——用户只会看到禁用按钮。
+ */
+const emptyFillReason = computed(() => {
+  const group = props.group;
+  if (group?.unowned) {
+    return unownedOutcome({
+      needs: needs.value,
+      netUnits: group.net_units,
+      flags: group.flags
+    }).reason;
+  }
+  return blockReason.value || "这组没有可补的字段";
+});
+
 function close(value: boolean): void {
   emit("update:modelValue", value);
 }
@@ -255,6 +276,14 @@ function close(value: boolean): void {
   font-weight: 600;
   line-height: 1.6;
   color: var(--text-primary);
+}
+
+/* 字段已齐的说明：这是「本弹窗做不了什么」的事实，用警告色而不是报错红 */
+.dr-intro__blocked {
+  margin: 8px 0 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--color-warning-ink);
 }
 
 .dr-done p {

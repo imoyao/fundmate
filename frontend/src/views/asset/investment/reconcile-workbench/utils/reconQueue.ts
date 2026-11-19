@@ -311,7 +311,7 @@ const DANGLING_STAGE_TITLE: Record<DanglingStage, string> = {
 const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
   fill: "这些交易挂在已删除的持仓上，而且没有标的代码，补上后才能判断归属。",
   unowned:
-    "这些交易没有挂到任何持仓上，任何持仓视图里都看不到；补上标的或删除后才能清掉。",
+    "这些交易没有挂到任何持仓上，任何持仓视图里都看不到；按组补上标的、按流水重建或删除。",
   reattach: "这些交易挂在已删除的持仓上，系统已找到现存持仓，可以挂回去。",
   mislink:
     "这些交易挂在了别的标的的持仓上：份额和成本被算进了那只标的，它们自己的持仓反而没有记录。",
@@ -322,7 +322,7 @@ const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
 /** 阶段 → 为什么不能立刻动手（stateReason） */
 const DANGLING_STAGE_REASON: Record<DanglingStage, string> = {
   fill: "缺标的代码，补齐后才能判断归属",
-  unowned: "没有持仓承接，需先补全标的或删除",
+  unowned: "没有持仓承接：按组的字段与净额补字段、重建或删除",
   reattach: "系统已找到可挂回的持仓",
   mislink: "改挂会改流水归属，需你确认目标",
   rebuild: "流水完整，缺的是它对应的持仓行"
