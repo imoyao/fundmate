@@ -80,6 +80,20 @@
           >
             {{ item.adjustment_txns.length ? "去核对补录流水" : "去核对流水" }}
           </el-button>
+          <!-- 文案说「按账单填 0」却没入口，用户只能手动改库 ⇒ 就地给清仓动作。
+               二次确认在 composable 里（判据/文案/载荷同源，见 clearSharePayload.ts）；
+               清仓是人的结论，只有账单确认已没有这只才点。 -->
+          <el-button
+            size="small"
+            type="danger"
+            plain
+            @click="emit('clear', item)"
+          >
+            按账单清仓
+          </el-button>
+          <span class="share-integrity__action-hint">
+            流水确认记全、账单确认已没有这只，才点清仓
+          </span>
         </div>
       </li>
     </ul>
@@ -102,6 +116,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: "go-transactions", item: ShareIntegrityItem): void;
+  (e: "clear", item: ShareIntegrityItem): void;
 }>();
 
 /** 补录流水只有买/卖两种来源（对账补录的现金类不走份额），其余原样显示代码。 */
@@ -209,7 +224,15 @@ function txnTypeLabel(txnType: string): string {
 
 .share-integrity__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
+  align-items: center;
   margin-top: var(--space-1);
+}
+
+.share-integrity__action-hint {
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--color-warning);
 }
 </style>

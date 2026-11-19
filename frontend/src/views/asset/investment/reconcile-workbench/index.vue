@@ -40,6 +40,7 @@
         v-if="shareItems.length > 0"
         :items="shareItems"
         @go-transactions="goShareTransactions"
+        @clear="clearShareByBill"
       />
 
       <WorkbenchTaskCards
@@ -215,6 +216,7 @@ const {
   danglingRefs,
   orphanLedgers,
   shareItems,
+  clearShareByBill,
   recognizerCandidates,
   committing,
   dataDateLabel,
