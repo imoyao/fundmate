@@ -476,7 +476,7 @@ def get_ledger_transactions(ledger_id: int):
 
 @ledgers_bp.patch('/<int:ledger_id>/positions/<int:position_id>/')
 def update_ledger_position(ledger_id: int, position_id: int):
-    """编辑账户内持仓（配置目标 / 现价 / 备注 / 到期日，字段口径在 position_edit_service）"""
+    """编辑账户内持仓（配置目标 / 现价 / 备注 / 到期日 / 手工标的名称与编码）"""
     data = request.get_json() or {}
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
@@ -494,7 +494,7 @@ def update_ledger_position(ledger_id: int, position_id: int):
             abort(404, '持仓不存在或不属于该账户')
 
         try:
-            apply_position_edit(pos, data)
+            apply_position_edit(db, pos, data)
         except ValueError as exc:
             abort(400, str(exc))
         db.flush()
