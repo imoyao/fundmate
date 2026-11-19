@@ -65,6 +65,23 @@ test.describe("说明文案收敛（第二轮）", () => {
     ).toBeVisible();
   });
 
+  test("登录页（宽屏）：品牌区只保留一句 slogan，副标与落款不叠", async ({
+    page
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/#/login");
+
+    const aside = page.locator(".login-brand");
+    await expect(aside).toBeVisible();
+    await expect(aside.getByRole("heading", { level: 1 })).toContainText(
+      "看见你的"
+    );
+
+    // 旧实现：slogan 下面还有一句同义副标（.login-sub）+ 底部一句品牌落款（.login-tagline）
+    await expect(aside.locator(".login-sub")).toHaveCount(0);
+    await expect(aside.locator(".login-tagline")).toHaveCount(0);
+  });
+
   test("个人中心：说明小字不常驻，五个字段与退出入口仍在", async ({
     context,
     baseURL,

@@ -7,7 +7,7 @@
   ⚠️ 与登录页 `LoginBrandAside.vue` 的**差异清单**（本批刻意没有合并成一个组件）：
   | 项 | 登录页 | 本页 |
   | 标题高亮 | 「看见你的**复利曲线**」 | 「**重置密码**」 |
-  | 副标题 | 一个让复利曲线清晰可见的投资账本 | 通过邮件链接安全地设置新密码 |
+  | 副标题 | 无（已收敛，只留 slogan） | 通过邮件链接安全地设置新密码 |
   | 高亮动画 | `.coral-curve`，`login-curve-bob`（含旋转） | `.coral`，`coral-bob`（只上下浮动） |
   | 鹦鹉螺透明度 | 0.08~0.12（暗色 0.12~0.16） | 0.12~0.18（暗色 0.16~0.22） |
   | 鹦鹉螺呼吸 | 8s，scale 1.03 / rotate 2deg | 7s，scale 1.06 / rotate 3deg |
@@ -45,10 +45,6 @@
         通过邮件链接安全地设置新密码
       </p>
     </div>
-
-    <p class="login-tagline relative z-10 text-sm">
-      潮有涨落，壳有深浅。算得清，才无患。
-    </p>
   </aside>
 </template>
 
@@ -127,11 +123,6 @@ defineOptions({ name: "ResetPasswordBrandAside" });
 
 .login-sub {
   color: var(--text-secondary);
-}
-
-.login-tagline {
-  color: var(--text-tertiary-ink);
-  letter-spacing: 0.04em;
 }
 
 /* ---------- 品牌视觉锚点（鹦鹉螺插画） ---------- */

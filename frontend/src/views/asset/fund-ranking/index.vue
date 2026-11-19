@@ -2,7 +2,7 @@
   <div class="fund-ranking-page min-h-full">
     <PageHeaderBar
       title="同类优选"
-      subtitle="基于你的持仓与自选的基金，在同一类型内按风险收益指标排序——风险比跨类别不可比，故不做全市场榜"
+      subtitle="基于你的持仓与自选，在同一类型内按风险收益指标排序"
     />
 
     <div class="ranking-shell">
