@@ -21,6 +21,7 @@
         @click="$emit('start-edit')"
       >
         <IconifyIconOffline icon="ep:edit-pen" />
+        <span>笔记</span>
       </button>
       <button
         type="button"
@@ -30,6 +31,7 @@
         @click="$emit('pin')"
       >
         <IconifyIconOffline :icon="pinned ? 'ep:star-filled' : 'ep:star'" />
+        <span>{{ pinned ? "已置顶" : "置顶" }}</span>
       </button>
       <button
         type="button"
@@ -37,7 +39,8 @@
         title="移出特别关注"
         @click="$emit('remove')"
       >
-        <IconifyIconOffline icon="ep:remove" />
+        <IconifyIconOffline icon="ep:delete" />
+        <span>移出</span>
       </button>
     </div>
   </footer>
@@ -87,18 +90,18 @@ defineEmits<{
 
 .road-ops {
   display: inline-flex;
-  gap: 2px;
+  gap: 4px;
 }
 
 .road-op {
-  display: flex;
+  display: inline-flex;
+  gap: 4px;
   align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  font-size: var(--text-small);
-  color: var(--text-tertiary-ink);
-  border-radius: 50%;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
   transition:
     color 0.15s ease,
     background-color 0.15s ease;

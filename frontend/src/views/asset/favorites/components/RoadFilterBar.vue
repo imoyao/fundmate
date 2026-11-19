@@ -135,10 +135,17 @@ function onEntityFilterChange(value: RoadEntityType | "all") {
 
 <style scoped>
 .road-filter {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 12px 0;
   margin-bottom: 20px;
+
+  /* 吸顶时盖住下方滚上来的卡片：给一层不透明底，避免卡片透过筛选栏缝隙露出来 */
+  background: var(--bg-page);
 }
 
 .road-filter__row {
