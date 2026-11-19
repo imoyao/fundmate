@@ -1,6 +1,9 @@
 <template>
   <div class="fund-ranking-page min-h-full">
-    <PageHeaderBar title="同类优选" subtitle="基于你的持仓与自选，在同一类型内按风险收益指标排序" />
+    <PageHeaderBar
+      title="同类优选"
+      subtitle="基于你的持仓与自选，在同一类型内按风险收益指标排序"
+    />
 
     <div class="ranking-shell">
       <PageSkeleton v-if="initialLoading" :cards="1" :table-rows="6" />

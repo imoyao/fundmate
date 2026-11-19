@@ -57,7 +57,9 @@ test.describe("重置密码页拆分后回归（#980 批 B7）", () => {
     await expect(aside).toContainText("重置密码");
     await expect(aside).toContainText("通过邮件链接安全地设置新密码");
     // 品牌标语只保留在登录页品牌区；重置密码页不再叠一句与语境无关的定调语
-    await expect(aside).not.toContainText("潮有涨落，壳有深浅。算得清，才无患。");
+    await expect(aside).not.toContainText(
+      "潮有涨落，壳有深浅。算得清，才无患。"
+    );
     // 鹦鹉螺插画是 v-html 注入的 SVG（不是图片资源）
     await expect(aside.locator(".login-brand-bg svg")).toHaveCount(1);
 
