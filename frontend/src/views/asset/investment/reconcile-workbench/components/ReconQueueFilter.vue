@@ -17,7 +17,8 @@
         class="recon-filter__search"
         size="small"
         clearable
-        placeholder="搜标的代码、账户名或说明"
+        :prefix-icon="Search"
+        placeholder="搜代码、账户名或说明"
         aria-label="搜索待办"
         @update:model-value="emit('update:keyword', String($event ?? ''))"
       />
@@ -49,6 +50,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { Search } from "@element-plus/icons-vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { DEFAULT_QUEUE_FILTER } from "../utils/reconQueue";
 import type { ReconQueueSegment } from "../constants/reconTasks";
@@ -101,12 +103,25 @@ const dirty = computed(
   margin-bottom: var(--space-2);
 }
 
+/* 与分段控制器对齐同一种「构件边界」语言：浅米底 + 描边 + 32px 高。
+   走输入基线令牌（design.md「输入框基线契约」），不 :deep 覆盖 wrapper。 */
 .recon-filter__search {
-  width: min(260px, 100%);
+  --input-bg: var(--bg-soft);
+  --input-height: 32px;
+
+  width: min(240px, 100%);
 }
 
 .recon-filter__batch {
-  width: min(240px, 100%);
+  --input-bg: var(--bg-soft);
+  --input-height: 32px;
+
+  width: min(200px, 100%);
+}
+
+/* 下拉框 placeholder 对比度偏低，像 disabled；抬到次级正文档 */
+.recon-filter__batch :deep(.el-select__placeholder) {
+  color: var(--text-secondary);
 }
 
 .recon-filter__meta {
