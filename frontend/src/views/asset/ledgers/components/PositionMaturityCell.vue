@@ -49,15 +49,15 @@ const emit = defineEmits<{ (e: "edit", row: LedgerHoldingRow): void }>();
   padding: 0;
   margin-top: 2px;
   overflow: hidden;
-  font-size: 12px;
+  text-overflow: ellipsis;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-tertiary-ink);
   text-align: left;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
   background: none;
   border: 0;
-  cursor: pointer;
 
   &:hover {
     color: var(--brand-ink);

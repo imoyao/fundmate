@@ -89,7 +89,7 @@ function submit() {
 
 .dialog-hint {
   margin: 12px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
