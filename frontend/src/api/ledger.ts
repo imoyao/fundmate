@@ -468,7 +468,7 @@ export function getOrphanDetail() {
 
 // ── 账户详情页专用 ──
 
-/** 持仓编辑入参：后端 PATCH /api/ledgers/<lid>/positions/<pid>/ 仅接受这三个字段，
+/** 持仓编辑入参：后端 PATCH /api/ledgers/<lid>/positions/<pid>/ 仅接受这四个字段，
  *  其余字段会被静默丢弃（迁移持仓归属请改调 PATCH /api/positions/<id>/ 传 ledger_id） */
 export interface LedgerPositionUpdateInput {
   /** 配置目标（原样存储，不做解析） */
@@ -476,6 +476,9 @@ export interface LedgerPositionUpdateInput {
   /** 现价（元），后端经 Money.yuan_to_price_units 换算入库 */
   current_price?: number;
   notes?: string | null;
+  /** 到期日 `YYYY-MM-DD`（#931）：仅逆回购 / 银行理财可设，其余品类后端 400；
+   *  `null` = 清空。清空逆回购的到期日等于「视为未到期、一直计入投资」 */
+  maturity_date?: string | null;
 }
 
 /** 交易编辑入参（PATCH /api/ledgers/<lid>/transactions/<tid>/，#1112）。

@@ -112,6 +112,11 @@ export interface LedgerHoldingRow {
   settled_today?: boolean | null;
   allocation?: string | null;
   allocation_label?: string;
+  /**
+   * 到期日 `YYYY-MM-DD`（#931）：逆回购 = 时间建模真相源（到期即不再计入投资），
+   * 银行理财 = 仅记录（到期仍计入）。其余品类恒为 null。
+   */
+  maturity_date?: string | null;
   quantity?: number;
   account_name?: string;
   /**
