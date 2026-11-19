@@ -190,6 +190,12 @@ function onCardClick() {
     border-color 0.22s ease;
 }
 
+/* 暗色下卡片表面与页面底（#242120 vs #1a1816）仅 8 个色阶，加一道
+   `--border-default`（暗色 8% 白）描边让卡片边界可辨，避免「糊成一片」。 */
+:root.dark .road-card {
+  border-color: var(--border-default);
+}
+
 /* Hover 态：轻微上浮 + 品牌描边（--brand-400 软强调，非涨跌语义） */
 .road-card:hover {
   border-color: var(--brand-400);

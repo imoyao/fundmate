@@ -49,18 +49,19 @@ defineProps<{
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-primary);
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
 .road-code {
-  margin-top: 2px;
+  margin-top: 4px;
   font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
 
 .road-meta {
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: var(--text-label);
   color: var(--text-secondary);
 }
