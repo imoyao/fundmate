@@ -30,8 +30,10 @@
     >
       <IconifyIconOffline v-if="selected" icon="ep:check" />
     </button>
+    <!-- 无走势的矮封面（64px）里，铅笔会叠到右上角状态胶囊上；
+         编辑入口退让，走底部常驻的「笔记」按钮（触屏/键盘同样可达）。 -->
     <button
-      v-else
+      v-else-if="hasTrend"
       type="button"
       class="road-edit-entry"
       aria-label="编辑这张卡片"
@@ -43,12 +45,13 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import RoadSparkline from "./RoadSparkline.vue";
 
 defineOptions({ name: "RoadCardCover" });
 
-defineProps<{
+const props = defineProps<{
   /** 收盘价序列（走势缩略图），不足两点时由 RoadSparkline 降级为占位文案 */
   series: number[];
   /** 实体主色（类型胶囊底 + 封面色层） */
@@ -64,6 +67,9 @@ defineProps<{
   manageMode: boolean;
   selected: boolean;
 }>();
+
+/** 与 RoadSparkline 的降级判据同源：不足两点 ⇒ 矮封面，编辑笔不参与布局 */
+const hasTrend = computed(() => (props.series ?? []).length >= 2);
 
 defineEmits<{
   (e: "toggle-select"): void;
