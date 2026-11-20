@@ -128,6 +128,8 @@ def test_existing_card_gets_comment_not_new_card(monkeypatch, tmp_path):
     def fake(path, *, method='GET', payload=None):
         calls.append((method, path))
         if method == 'GET':
+            if '/comments' in path:
+                return []  # 本卡尚无评论，无幂等键 ⇒ 该发一条
             return [{'number': 42, 'title': m.TITLE, 'state': 'open'}]
         return {'number': 42}
 
@@ -135,8 +137,28 @@ def test_existing_card_gets_comment_not_new_card(monkeypatch, tmp_path):
     monkeypatch.setenv('CNB_TOKEN', 'x')
     assert m.main(['--report', _write_report(tmp_path)]) == 0
     methods = [method for method, _ in calls]
-    assert methods == ['GET', 'POST'], f'应只查一次 + 评论一次，不建新卡：{calls}'
-    assert calls[1][1].endswith('/issues/42/comments'), f'评论要发到既有卡：{calls[1][1]}'
+    assert methods == ['GET', 'GET', 'POST'], f'应查卡 + 查评论 + 评论一次，不建新卡：{calls}'
+    assert calls[-1][1].endswith('/issues/42/comments'), f'评论要发到既有卡：{calls[-1][1]}'
+
+
+def test_existing_card_skips_duplicate_comment(monkeypatch, tmp_path):
+    """评论级幂等（源 CNB #6）：同现场已发过 ⇒ 不再 POST，避免每天刷屏。"""
+    body = m.build_comment([_write_report(tmp_path)])
+    key = m.DIVERGENCE_KEY_RE.search(body).group(1)
+    calls = []
+
+    def fake(path, *, method='GET', payload=None):
+        calls.append((method, path))
+        if method == 'GET':
+            if '/comments' in path:
+                return [{'body': f'<!-- divergence-report: {key} -->'}]
+            return [{'number': 42, 'title': m.TITLE, 'state': 'open'}]
+        raise AssertionError(f'幂等命中后不应再写：{method} {path}')
+
+    monkeypatch.setattr(m, 'cnb_api', fake)
+    monkeypatch.setenv('CNB_TOKEN', 'x')
+    assert m.main(['--report', _write_report(tmp_path)]) == 0
+    assert all(method == 'GET' for method, _ in calls), f'同现场不应重复发评论：{calls}'
 
 
 def test_dry_run_never_touches_network(monkeypatch, tmp_path):
