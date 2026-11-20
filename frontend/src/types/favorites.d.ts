@@ -42,7 +42,8 @@ export interface RoadItem {
   isDemo?: boolean;
 }
 
-export type RoadEntityType = "stock" | "fund" | "manager" | "portfolio" | "index";
+export type RoadEntityType =
+  "stock" | "fund" | "manager" | "portfolio" | "index";
 
 export type RoadHoldingState = "holding" | "watching" | "cleared";
 
