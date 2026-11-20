@@ -115,7 +115,21 @@ interface StubHandle {
   rankingQueries: URLSearchParams[];
 }
 
-async function stubApi(page: Page): Promise<StubHandle> {
+/** 造 n 行长榜单：吸顶 / 横滚用例需要页面真的能纵向滚动（3 行撑不出滚动容器） */
+function manyRows(n: number): typeof ROWS {
+  return Array.from({ length: n }, (_, i) => ({
+    ...ROWS[0],
+    fund_code: String(100000 + i),
+    fund_name: `样本基金 ${i + 1}`,
+    in_holdings: i === 0,
+    in_watchlist: i === 1
+  }));
+}
+
+async function stubApi(
+  page: Page,
+  rows: typeof ROWS = ROWS
+): Promise<StubHandle> {
   const rankingQueries: URLSearchParams[] = [];
 
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
@@ -138,7 +152,7 @@ async function stubApi(page: Page): Promise<StubHandle> {
             metric,
             order,
             caliber_version: 7,
-            rows: ROWS,
+            rows,
             // 剔除条数必须展示：否则「榜上只有 3 只」会被读成「同类只有 3 只」
             excluded_distorted: 5
           },
@@ -182,9 +196,11 @@ test.describe("同类优选（#980 拆分）", () => {
 
     // ② 双击表头：分组 colspan 之和必须等于指标列数（分组 keys 漏一个就错位）
     const groupColspans = await page
-      .locator(".th-group-row .th-group")
+      .locator(".el-table__header th.th-group")
       .evaluateAll(nodes => nodes.map(n => Number(n.getAttribute("colspan"))));
-    const metricHeads = await page.locator(".th-metric-row th").count();
+    const metricHeads = await page
+      .locator(".el-table__header th.th-metric")
+      .count();
     expect(groupColspans).toEqual([3, 2, 4]);
     expect(groupColspans.reduce((a, b) => a + b, 0)).toBe(metricHeads);
 
@@ -245,7 +261,7 @@ test.describe("同类优选（#980 拆分）", () => {
     await openPage(page);
 
     const headOf = (label: string) =>
-      page.locator(".th-metric-row th").filter({ hasText: label });
+      page.locator(".el-table__header th.th-metric").filter({ hasText: label });
 
     // ① UI 列 dir=low：首击必须 asc（越低越好），否则先把最煎熬的排前面
     await headOf("UI").click();
@@ -268,7 +284,10 @@ test.describe("同类优选（#980 拆分）", () => {
       .poll(() => stub.rankingQueries.at(-1)?.get("metric"))
       .toBe("sharpe");
     expect(stub.rankingQueries.at(-1)?.get("order")).toBe("desc");
-    await expect(headOf("UI")).toHaveAttribute("aria-sort", "none");
+    // 未参与排序的可排序列：el-table 写的是 aria-sort=""（空串即「未声明方向」，
+    // 与 "none" 等效——非法值会被读屏器忽略）。这里钉的是「旧列不再声称方向」，
+    // 不是某个字符串：若旧列仍挂着 descending，本断言即转红。
+    expect(await headOf("UI").getAttribute("aria-sort")).toBe("");
 
     // ④ 表头高亮列随之切换（col-active 是「当前排序列」的视觉锚点）
     await expect(headOf("夏普")).toHaveClass(/col-active/);
@@ -280,5 +299,154 @@ test.describe("同类优选（#980 拆分）", () => {
       "aria-label",
       /按「夏普」从优到劣/
     );
+  });
+});
+
+/** 页面级滚动：fixedHeader 模式下真正滚动的是 `.app-main .el-scrollbar__wrap` */
+async function scrollAppWrap(page: Page, top: number) {
+  await page.evaluate(y => {
+    const wrap = document.querySelector<HTMLElement>(
+      ".app-main .el-scrollbar__wrap"
+    );
+    if (wrap) {
+      wrap.scrollTop = y;
+      return;
+    }
+    window.scrollTo(0, y);
+  }, top);
+}
+
+/** 表头首行顶边相对滚动容器顶边的偏移：吸顶成功 ≈ 0；跟着滚走会变成负数 */
+async function headerOffset(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    // 用 thead th 而不是 .el-table__header：自建 table 与 el-table 都命中，
+    // 反向验证（回退实现）时量到的才是「表头真的滚走了」而不是「选择器找不到」
+    const th = document.querySelector<HTMLElement>(".ranking-table thead th");
+    const wrap = document.querySelector<HTMLElement>(
+      ".app-main .el-scrollbar__wrap"
+    );
+    if (!th) return Number.NaN;
+    const base = wrap ? wrap.getBoundingClientRect().top : 0;
+    return th.getBoundingClientRect().top - base;
+  });
+}
+
+/** 最右数值列左缘相对表格左缘的偏移：用来证明横滚真的滚动了内容 */
+async function lastNumLeft(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const tds = document.querySelectorAll<HTMLElement>(
+      ".ranking-table .el-table__body tr:first-child td.col-num"
+    );
+    const td = tds[tds.length - 1];
+    const root = document.querySelector<HTMLElement>(".ranking-table");
+    if (!td || !root) return Number.NaN;
+    return td.getBoundingClientRect().left - root.getBoundingClientRect().left;
+  });
+}
+
+/** 基金列左缘相对表格左缘的偏移：冻结成功时横滚前后不变 */
+async function fundLeftOffset(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const td = document.querySelector<HTMLElement>(
+      ".ranking-table .el-table__body td.col-fund"
+    );
+    const root = document.querySelector<HTMLElement>(".ranking-table");
+    if (!td || !root) return Number.NaN;
+    return td.getBoundingClientRect().left - root.getBoundingClientRect().left;
+  });
+}
+
+/**
+ * 表头吸顶 + 横向滚动（#3200）。
+ *
+ * 旧实现（自建 `<table>` + `.table-scroll{overflow-x:auto}`）的病根：横向 auto 让该
+ * 容器成为 sticky 的「最近滚动祖先」，纵向滚动时 thead 直接滚出视口（实测 top=494px）。
+ * 这里的判据只依赖几何量，与视觉细节解耦：
+ *
+ * 1. 滚过表头原位后，表头相对滚动容器顶边的偏移稳定在 0 附近（不随滚动线性增大/变负）；
+ * 2. 1366 屏列总宽超容器 → 表格内部横滚可用，且滚中间列时基金列不跟着跑。
+ *
+ * 反向验证：把 FundRankingTable 改回自建 table（裸 `overflow-x:auto`）→ 判据 1 转红。
+ */
+test.describe("同类优选表头吸顶与横向滚动（#3200）", () => {
+  // 最受约束的主流笔记本：列总宽 ≈1060px，内容区约 1010px → 必然内部横滚
+  test.use({ viewport: { width: 1366, height: 768 } });
+
+  // 会话必须逐个 describe 注入（beforeEach 不跨 describe 继承）：漏掉会停在登录页
+  test.beforeEach(async ({ context, baseURL }) => {
+    await injectSupabaseSession(context, baseURL!);
+  });
+
+  test("纵向滚动表头吸在容器顶部；横向滚动基金列恒冻", async ({ page }) => {
+    test.setTimeout(240_000);
+    // Vue 会吞掉子组件 render 错误（DOM 冻结在末次成功渲染、只留 warn），
+    // 所以除了断言内容，还要单独收 pageerror
+    const pageErrors: string[] = [];
+    page.on("pageerror", err => pageErrors.push(err.message));
+
+    await stubApi(page, manyRows(40));
+    await openPage(page);
+
+    // 桩生效：40 行都渲染出来了（不是空表 → 后面「表头在不在」的判据才有意义）
+    await expect(table(page).locator("tbody tr")).toHaveCount(40);
+
+    // ① 纵向：滚过表头原位后应吸住，且不同滚动位置下表头位置一致
+    const scrollable = await page.evaluate(() => {
+      const wrap = document.querySelector<HTMLElement>(
+        ".app-main .el-scrollbar__wrap"
+      );
+      return !!wrap && wrap.scrollHeight > wrap.clientHeight + 200;
+    });
+    expect(scrollable).toBe(true);
+
+    await scrollAppWrap(page, 600);
+    await expect.poll(() => headerOffset(page)).toBeLessThanOrEqual(2);
+    const at600 = await headerOffset(page);
+
+    await scrollAppWrap(page, 900);
+    await expect.poll(() => headerOffset(page)).toBeLessThanOrEqual(2);
+    const at900 = await headerOffset(page);
+
+    // 「吸住」= 滚动位置变了 300px、表头位置却没变；跟着滚走会差出这 300
+    expect(Math.abs(at600 - at900)).toBeLessThanOrEqual(2);
+    expect(at900).toBeGreaterThanOrEqual(-1);
+
+    // ② 横向：横滚必须发生在表格内部，页面级横向滚动条仍然禁止（#1341）
+    const bodyWrap = page.locator(
+      ".ranking-table .el-table__body-wrapper .el-scrollbar__wrap"
+    );
+    expect(
+      await bodyWrap.evaluate(el => el.scrollWidth > el.clientWidth + 20)
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth + 1
+      )
+    ).toBe(false);
+
+    // 1366 屏的溢出量就是「最后一列差多少」（列总宽 1060 vs 内容区约 1010）：
+    // 判据是「有溢出、滚得动」，不是某个固定像素数
+    const overflow = await bodyWrap.evaluate(
+      el => el.scrollWidth - el.clientWidth
+    );
+    expect(overflow).toBeGreaterThan(20);
+
+    const beforeFund = await fundLeftOffset(page);
+    const beforeLast = await lastNumLeft(page);
+    await bodyWrap.evaluate(el => {
+      el.scrollLeft = el.scrollWidth;
+    });
+    await expect
+      .poll(() => bodyWrap.evaluate(el => el.scrollLeft))
+      .toBeGreaterThan(10);
+    const afterFund = await fundLeftOffset(page);
+    const afterLast = await lastNumLeft(page);
+
+    // 内容确实滚了：最右一列左移了与 scrollLeft 同量级的距离
+    expect(beforeLast - afterLast).toBeGreaterThan(10);
+    // 冻结列：横滚前后左缘不变（不冻结会被推走同样距离）
+    expect(Math.abs(afterFund - beforeFund)).toBeLessThanOrEqual(2);
+
+    expect(pageErrors).toEqual([]);
   });
 });

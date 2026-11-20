@@ -122,19 +122,13 @@ export function useFundRanking(options: UseFundRankingOptions) {
     loadRanking();
   }
 
-  /** 表头点击排序：首次点击 = 该列「从优到劣」——方向由列语义（dir）决定：
-   *  high（数值大者好；含以负数存储的最大回撤，-8 优于 -25）⇒ desc；
-   *  low（UI：正数、越小越好）⇒ asc。
-   *  旧版一律 desc，点 UI 列会先把「最煎熬」的排前面——从劣到优，语义错。
-   *  后端 SORTABLE_METRICS 的默认方向同此规则（ulcer_index=False 升序）。 */
-  function onSort(key: string) {
-    if (key === metric.value) {
-      order.value = order.value === "desc" ? "asc" : "desc";
-    } else {
-      metric.value = key;
-      order.value =
-        tableColumns.find(c => c.key === key)?.dir === "low" ? "asc" : "desc";
-    }
+  /** 表头排序（#3200 迁 el-table 后方向由表格上抛）：
+   *  首击方向仍守「该列语义方向」（high ⇒ desc；low ⇒ asc），但决定权已交给
+   *  FundRankingTable 的 sort-orders——el-table 算好的档位就是唯一真相，这里再按
+   *  dir 推一遍必然与表格内部状态漂移（箭头与请求方向打架）。本函数只写回状态。 */
+  function onSort(payload: { key: string; order: "asc" | "desc" }) {
+    metric.value = payload.key;
+    order.value = payload.order;
     loadRanking();
   }
 
