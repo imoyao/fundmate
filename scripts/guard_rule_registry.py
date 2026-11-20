@@ -501,6 +501,7 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'ci',
         'tests': 'scripts/tests/test_dependabot_lockfile_regen.py',
         # 只查「通道会不会真的发生」（调用 / --apply / push / 不吞失败态 / 设闸）。
+        # #3205 起编排逻辑收进 scripts/dependabot_lockfile_regen.sh，判据改查该脚本本体。
         # 锁生成得对不对要 pnpm + 网络，属端到端验证，不在这里假装。
         'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
     },
