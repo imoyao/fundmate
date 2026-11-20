@@ -21,6 +21,7 @@ export const ENTITY_TABS: EntityTab[] = [
   { key: "all", label: "全部" },
   { key: "stock", label: "股票" },
   { key: "fund", label: "基金" },
+  { key: "portfolio", label: "组合" },
   { key: "manager", label: "经理" },
   { key: "index", label: "指数" }
 ];
@@ -47,6 +48,7 @@ export const ENTITY_COLOR: Record<RoadEntityType, string> = {
   stock: "var(--asset-cat-stock)",
   fund: "var(--asset-cat-fund)",
   index: "var(--asset-cat-index)",
+  portfolio: "var(--asset-cat-portfolio)",
   manager: "var(--asset-cat-manager)"
 };
 
@@ -54,6 +56,7 @@ export const ENTITY_LABEL: Record<RoadEntityType, string> = {
   stock: "股票",
   fund: "基金",
   index: "指数",
+  portfolio: "投顾组合",
   manager: "经理"
 };
 
@@ -70,7 +73,7 @@ export const VENUE_LABEL: Record<string, string> = {
 
 /**
  * 资产类型 → 一级胶囊归类（ETF/可转债归入股票，与其交易属性一致）。
- * 输入大小写归一为小写后再判断，与后端 asset_types 单一来源（stock/etf/fund/bond/index）保持一致（#1171）。
+ * 输入大小写归一为小写后再判断，与后端 asset_types 单一来源（stock/etf/fund/bond/index/portfolio/manager）保持一致（#1171）。
  * 注意：卡片上的中文标签不再在此手抄，统一走 useEnumLabels.assetTypeLabel（后端 /enums 单一来源，回退前端镜像）。
  */
 export function toEntityType(
@@ -81,6 +84,10 @@ export function toEntityType(
       return "fund";
     case "index":
       return "index";
+    case "portfolio":
+      return "portfolio";
+    case "manager":
+      return "manager";
     case "etf":
     case "cb":
     case "stock":

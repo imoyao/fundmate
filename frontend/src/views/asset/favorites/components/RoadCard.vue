@@ -46,7 +46,6 @@
         :symbol="item.symbol"
         :venue="venueLabel"
         :asset-type="assetTypeLabel"
-        :state-label="stateLabel"
         :favorite-days="favoriteDays"
         :favorite-at="item.favorite_at"
       />

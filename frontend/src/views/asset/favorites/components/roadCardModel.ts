@@ -51,13 +51,14 @@ export function venueLabelOf(venue: string | null | undefined): string {
  * `asset_type` 归一：返回空串表示「卡片不显示这一节」，否则返回小写键，
  * 由调用方交给 `useEnumLabels().assetTypeLabel` 翻成中文。
  *
- * `manager` 是域特有实体、不是通用 `asset_type`，在卡片上显示英文原键没有意义。
+ * `manager` / `portfolio` 是域特有实体、不是通用 `asset_type`，且封面类型胶囊
+ * 已用中文标明身份（经理 / 投顾组合），代码行再显示一遍是重复。
  */
 export function normalizeAssetType(
   assetType: string | null | undefined
 ): string {
   const at = assetType?.toLowerCase();
-  if (!at || at === "manager") return "";
+  if (!at || at === "manager" || at === "portfolio") return "";
   return at;
 }
 
@@ -127,10 +128,13 @@ export function favoriteDaysOf(favoriteAt: string | null): number | null {
 /**
  * 对比数据条为空时的说明句。
  *
- * 经理与其它实体的「没数据」是两件事：经理本来就没有价格类指标（生涯数据在
- * 另一套接口里，接入中），而股票 / 基金 / 指数是真的还没攒够历史。混成一句
- * 「行情数据积累中」会让用户以为经理也该有行情。
+ * 经理 / 投顾组合与其它实体的「没数据」是两件事：经理本来就没有价格类指标
+ * （生涯数据在另一套接口里，接入中），投顾组合的行情口径也在跟进；而
+ * 股票 / 基金 / 指数是真的还没攒够历史。混成一句「行情数据积累中」会让用户
+ * 以为组合也该有行情。
  */
 export function emptyMetricsText(entity: string): string {
-  return entity === "manager" ? "经理生涯数据接入中" : "行情数据积累中";
+  if (entity === "manager") return "经理生涯数据接入中";
+  if (entity === "portfolio") return "组合指标接入中";
+  return "行情数据积累中";
 }

@@ -93,6 +93,9 @@ defineEmits<{
   gap: 4px;
 }
 
+/* 28px 描边胶囊：与自选页 FilterGroupActions / WatchlistHeadPrimary 的
+   小尺寸胶囊按钮同一语言（--radius-pill + --border-default 描边），
+   无描边的裸文字形状读不出「按钮」，被反馈「不像胶囊、和其他页面不统一」。 */
 .road-op {
   display: inline-flex;
   gap: 4px;
@@ -101,15 +104,19 @@ defineEmits<{
   padding: 0 10px;
   font-size: var(--text-label);
   color: var(--text-secondary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
   transition:
     color 0.15s ease,
-    background-color 0.15s ease;
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .road-op:hover {
   color: var(--brand-700);
   background: var(--brand-100);
+  border-color: var(--brand-400);
 }
 
 .road-op.is-on {
@@ -119,5 +126,6 @@ defineEmits<{
 .road-op--danger:hover {
   color: var(--color-danger);
   background: var(--color-danger-20);
+  border-color: var(--color-danger-30);
 }
 </style>

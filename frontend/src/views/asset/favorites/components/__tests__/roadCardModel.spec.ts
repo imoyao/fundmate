@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WatchlistTag } from "@/api/watchlist";
+import { toEntityType } from "../../constants";
 import {
   DEFAULT_ENTITY_COLOR,
   DEFAULT_ENTITY_LABEL,
@@ -36,6 +37,9 @@ describe("entityColorOf / entityLabelOf", () => {
   it("已登记实体取令牌与中文名", () => {
     expect(entityColorOf("fund")).toBe("var(--asset-cat-fund)");
     expect(entityLabelOf("fund")).toBe("基金");
+    // 投顾组合曾是回归漏网之鱼：asset_type=portfolio 被默认分支吞成 stock（2026-11-20）
+    expect(entityColorOf("portfolio")).toBe("var(--asset-cat-portfolio)");
+    expect(entityLabelOf("portfolio")).toBe("投顾组合");
   });
 
   it("未登记实体回落默认色与「资产」，不留空胶囊", () => {
@@ -83,6 +87,11 @@ describe("normalizeAssetType", () => {
     expect(normalizeAssetType("MANAGER")).toBe("");
   });
 
+  it("portfolio 返回空串：封面胶囊已写「投顾组合」，代码行不再重复", () => {
+    expect(normalizeAssetType("portfolio")).toBe("");
+    expect(normalizeAssetType("Portfolio")).toBe("");
+  });
+
   it("空值返回空串", () => {
     expect(normalizeAssetType(null)).toBe("");
     expect(normalizeAssetType(undefined)).toBe("");
@@ -97,8 +106,9 @@ describe("metricKindLabelOf", () => {
     expect(metricKindLabelOf("stock")).toBe("价格");
   });
 
-  it("经理没有价格曲线，不标注", () => {
+  it("经理 / 投顾组合没有价格曲线口径，不标注", () => {
     expect(metricKindLabelOf("manager")).toBe("");
+    expect(metricKindLabelOf("portfolio")).toBe("");
     expect(metricKindLabelOf("crypto")).toBe("");
   });
 });
@@ -204,9 +214,30 @@ describe("favoriteDaysOf", () => {
   });
 });
 
+describe("toEntityType", () => {
+  // 回归：portfolio / manager 曾掉进 default 分支被归成 stock，
+  // 投顾组合卡片因此错挂「股票」胶囊 +「价格」口径（2026-11-20 用户截图实锤）
+  it("投顾组合归 portfolio，不再吞进股票", () => {
+    expect(toEntityType("portfolio")).toBe("portfolio");
+    expect(toEntityType("Portfolio")).toBe("portfolio");
+  });
+
+  it("基金经理归 manager，不再吞进股票", () => {
+    expect(toEntityType("manager")).toBe("manager");
+  });
+
+  it("ETF / 可转债归股票（交易属性一致），未登记类型保守归股票", () => {
+    expect(toEntityType("etf")).toBe("stock");
+    expect(toEntityType("cb")).toBe("stock");
+    expect(toEntityType("stock")).toBe("stock");
+    expect(toEntityType(null)).toBe("stock");
+  });
+});
+
 describe("emptyMetricsText", () => {
-  it("经理与其它实体的「没数据」不是一回事", () => {
+  it("经理 / 投顾组合与其它实体的「没数据」不是一回事", () => {
     expect(emptyMetricsText("manager")).toBe("经理生涯数据接入中");
+    expect(emptyMetricsText("portfolio")).toBe("组合指标接入中");
     expect(emptyMetricsText("fund")).toBe("行情数据积累中");
     expect(emptyMetricsText("stock")).toBe("行情数据积累中");
   });

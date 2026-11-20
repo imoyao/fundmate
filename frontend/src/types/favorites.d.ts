@@ -15,7 +15,7 @@ export interface RoadItem {
   display_name: string;
   asset_type: string | null;
   venue: string | null;
-  /** 一级胶囊归类（股票/基金/经理/指数） */
+  /** 一级胶囊归类（股票/基金/经理/投顾组合/指数） */
   entity: RoadEntityType;
   /** 持仓状态（持仓中 / 观察中 / 已清仓） */
   holdingState: RoadHoldingState;
@@ -42,7 +42,7 @@ export interface RoadItem {
   isDemo?: boolean;
 }
 
-export type RoadEntityType = "stock" | "fund" | "manager" | "index";
+export type RoadEntityType = "stock" | "fund" | "manager" | "portfolio" | "index";
 
 export type RoadHoldingState = "holding" | "watching" | "cleared";
 
