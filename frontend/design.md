@@ -757,6 +757,21 @@ sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开
 
 **横向滚动**：表格横向滚动支持浏览器原生 `Shift + 滚轮`（无需任何代码，Element Plus 表格默认支持），**禁止引入拖拽滚动库**（金融表格复制数字场景易误触）。行高统一 44px（`el-table.css` 基线，见上），页面禁止用 `size` / `:row-style` 单独覆盖。
 
+#### 表头吸顶（#3200，2026-11-20）
+
+`position: sticky` 相对**最近的 scrolling ancestor** 定位。而 `overflow-x: auto` 会让该容器成为 sticky 的截断点——**x 轴是 auto 就够了**，纵向写 `visible` / `clip` 都救不回来（实测 computed 变成 `{x:auto, y:clip}`，表头照样随页面滚走）。所以「自建 table 既要横向滚动、又要表头吸顶」是**结构性死冲突**，不是样式没写对。
+
+**只有两种合法写法**：
+
+| 形态 | 做法 | 现成先例 |
+|------|------|----------|
+| A（推荐）迁 `el-table` | header / body 是两层 DOM，横滚落在 body 内部；外框 `overflow: clip visible` + `.el-table__header-wrapper { position: sticky; top: 0 }` | `views/asset/watchlist/components/WatchlistTableSection.vue`、`views/asset/fund-ranking/components/FundRankingTable.vue` |
+| B 表格内部滚动 | 表格容器 `max-height` + `overflow-y: auto`，表头相对该容器吸顶（表只在卡片内滚） | `views/product/components/ProductHoldingSection.vue` |
+
+**禁止**：自建 `<table>` + 表头 `position: sticky` + 容器裸 `overflow-x: auto`（无内部纵向滚动容器）——这种表头一定吸不住，而页面看着「样式都写了」。
+
+判据机械化：`scripts/guard_sticky_table.py`（CI 的 `layout_guard` job，阻断；回归网 `scripts/tests/guard_sticky_table.test.js`）。既有例外只能在 `position: sticky` 同行标注 `sticky-table-allow` 并写明理由，不提供文件级豁免。行为侧的判据在 `frontend/e2e/fund-ranking.spec.ts` 的「表头吸顶与横向滚动」用例（滚动两档下表头偏移差 ≤2px）。
+
 #### 稠密阅读表（`.detail-table`，源 CNB #553）
 
 `el-table` 管的是**业务表**（44px 行高、可排序、冻结列）；产品详情页这类

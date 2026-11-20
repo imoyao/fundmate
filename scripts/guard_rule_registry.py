@@ -146,6 +146,19 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '只认 1280px / 1400px 两个历史值；新写的 1320px 不会命中',
     },
+    'scripts/guard_sticky_table.py': {
+        'rule': '自建 table 要表头吸顶时，必须迁 el-table 或加内部滚动容器（禁裸 overflow-x:auto）',
+        # 源 #3200：position:sticky 相对最近的 scrolling ancestor 定位，而 overflow-x:auto
+        # 已足够让该容器成为截断点——纵向写 visible / clip 都救不回来（实测表头 top=494px
+        # 跟着滚走）。同类优选迁 el-table 后 header/body 分层才修好；本守卫防下一处原样再踩。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_sticky_table.test.js',
+        'covered': (
+            '只做静态三件套判定（自建 <table> + thead/th sticky + 无内部纵向滚动容器）：'
+            '不校验 sticky 规则是否真作用于那张表、内滚容器是否真包住它（要 DOM / 运行时）；'
+            '跨文件拆分的写法（表在 .vue、样式在全局 .scss）判不出——本仓表格样式与组件同文件。'
+        ),
+    },
     'scripts/guard_breakpoints.py': {
         'rule': '禁止裸断点媒体查询（走 bp.below/above）',
         'runner': 'both',
