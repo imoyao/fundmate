@@ -3,8 +3,8 @@
    composable 实例 prop，经 computed get/set 桥接修改其内部 ref 属有意设计
    （与 WatchlistFilterBar 同模式） */
 import { computed } from "vue";
-import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import SearchInput from "@/components/SearchInput/index.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistToolbar } from "@/composables/useWatchlistToolbar";
 import type { useWatchlistData } from "@/composables/useWatchlistData";
@@ -99,13 +99,12 @@ const batchMoveGroupId = computed({
          (主 CTA 最右)」，图标组前不再加 divider（其左侧本就是行间留白）。 -->
     <template v-else>
       <div class="head-primary__search">
-        <el-input
-          v-model="searchKeyword"
+        <SearchInput
+          :model-value="searchKeyword"
+          size="md"
           aria-label="搜索自选"
           placeholder="按代码或名称过滤，如 000001、易方达"
-          clearable
-          :prefix-icon="Search"
-          class="watchlist-search"
+          @update:model-value="searchKeyword = $event"
           @input="data.debounceSearch"
         />
       </div>
@@ -220,11 +219,6 @@ const batchMoveGroupId = computed({
   gap: 8px;
   align-items: center;
   min-width: 0;
-}
-
-.watchlist-search {
-  width: 360px;
-  max-width: 100%;
 }
 
 /* 核心操作按钮组：次级（管理）32px + 主按钮（添加自选）36px，同一垂直基线居中。

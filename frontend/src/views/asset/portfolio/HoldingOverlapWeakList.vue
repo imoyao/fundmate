@@ -20,11 +20,9 @@
       <p class="overlap-panel__weak-hint">{{ hint }}</p>
 
       <div class="overlap-panel__weak-tools">
-        <el-input
+        <SearchInput
           v-model="keyword"
-          class="overlap-panel__weak-search"
-          size="small"
-          clearable
+          size="sm"
           placeholder="按基金代码或名称筛选"
           aria-label="筛选弱提醒中的基金"
         />
@@ -60,6 +58,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import SearchInput from "@/components/SearchInput/index.vue";
 import HoldingOverlapPairItem from "./HoldingOverlapPairItem.vue";
 import {
   describeWeakHint,
@@ -180,10 +179,6 @@ watch(
     gap: 8px;
     align-items: center;
     margin-bottom: var(--space-standard);
-  }
-
-  &__weak-search {
-    max-width: 260px;
   }
 
   &__more {

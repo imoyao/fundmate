@@ -93,13 +93,12 @@
                   <LedgerDetailTransactionsPane :page="page" />
                 </el-tabs>
                 <!-- 搜索框与 Tab 同行：按当前 Tab 绑定各自搜索词（#982） -->
-                <el-input
+                <SearchInput
                   v-model="activeSearch"
+                  size="sm"
+                  class="tab-search-input"
                   aria-label="搜索产品名称或代码"
                   placeholder="搜索产品名称 / 代码"
-                  clearable
-                  class="tab-search-input"
-                  :prefix-icon="Search"
                   @input="onSearchInput"
                 />
               </div>
@@ -173,8 +172,8 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { Search } from "@element-plus/icons-vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
+import SearchInput from "@/components/SearchInput/index.vue";
 import PageNav from "@/components/PageNav/index.vue";
 import PageToc from "@/components/PageToc/index.vue";
 import { usePageNav } from "@/composables/usePageNav";
@@ -347,7 +346,8 @@ function onToolbarCommand(command: string) {
 }
 
 /* Tab 工具栏（#982）：搜索框绝对定位到 Tab 头右侧，与标签同一行。
-   不能用 flex 横排——el-tabs 包含整个内容区，横排会把输入框挤到表格右侧 */
+   不能用 flex 横排——el-tabs 包含整个内容区，横排会把输入框挤到表格右侧。
+   宽度由 SearchInput 的 size="sm" 档位承担，这里只保留定位职责。 */
 .tabs-toolbar {
   position: relative;
 }
@@ -357,6 +357,5 @@ function onToolbarCommand(command: string) {
   top: 0;
   right: 0;
   z-index: 1;
-  width: 220px;
 }
 </style>

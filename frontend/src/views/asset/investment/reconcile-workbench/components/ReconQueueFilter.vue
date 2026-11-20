@@ -12,15 +12,13 @@
         aria-label="按展示分段筛选"
         @update:model-value="emit('update:segment', $event)"
       />
-      <el-input
+      <SearchInput
         :model-value="keyword"
-        class="recon-filter__search"
-        size="small"
-        clearable
-        :prefix-icon="Search"
+        size="sm"
+        soft
         placeholder="搜代码、账户名或说明"
         aria-label="搜索待办"
-        @update:model-value="emit('update:keyword', String($event ?? ''))"
+        @update:model-value="emit('update:keyword', String($event))"
       />
       <el-select
         :model-value="batchId"
@@ -50,8 +48,8 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { Search } from "@element-plus/icons-vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import SearchInput from "@/components/SearchInput/index.vue";
 import { DEFAULT_QUEUE_FILTER } from "../utils/reconQueue";
 import type { ReconQueueSegment } from "../constants/reconTasks";
 
@@ -101,15 +99,6 @@ const dirty = computed(
 
 .recon-filter__row {
   margin-bottom: var(--space-2);
-}
-
-/* 与分段控制器对齐同一种「构件边界」语言：浅米底 + 描边 + 32px 高。
-   走输入基线令牌（design.md「输入框基线契约」），不 :deep 覆盖 wrapper。 */
-.recon-filter__search {
-  --input-bg: var(--bg-soft);
-  --input-height: 32px;
-
-  width: min(240px, 100%);
 }
 
 .recon-filter__batch {

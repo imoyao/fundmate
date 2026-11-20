@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import SearchInput from "@/components/SearchInput/index.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
@@ -83,13 +84,11 @@ const showHelp = ref(false);
         size="small"
         aria-label="全部数据与只看问题数据"
       />
-      <el-input
+      <SearchInput
         v-model="tableFilterKeyword"
+        size="sm"
         aria-label="搜索代码或名称"
         placeholder="搜索代码或名称"
-        size="small"
-        style="width: 200px"
-        clearable
       />
       <el-select
         v-model="tableTypeFilter"
