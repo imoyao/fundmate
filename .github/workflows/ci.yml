@@ -360,6 +360,14 @@ jobs:
       - name: 扫描裸栏间分割线回潮（阻断）
         run: python scripts/guard_col_divider.py
 
+      # 表头吸顶守卫（#3200）：自建 <table> + 表头 position:sticky + 容器裸 overflow-x:auto
+      # 是结构性死冲突——x 轴 auto 已足够让该容器成为 sticky 的截断点，纵向写 visible / clip
+      # 都救不回来（实测表头 top=494px 跟着页面滚走，样式全「写对了」）。同类优选已迁 el-table，
+      # 本守卫防下一处原样再踩。同属「前端设计语言回潮」一类，故并入本 job（不新增 job 就不必改
+      # gate.needs）。判据边界与两种正解见脚本 docstring；回归网 scripts/tests/guard_sticky_table.test.js。
+      - name: 扫描表头吸顶死冲突（阻断）
+        run: python scripts/guard_sticky_table.py
+
       # 自绘提示条守卫（#2725，源 #2716 批次 3）：#2716 抽出了 SoftBanner 并迁了 5 处，
       # 但**没有任何机制拦住第 6 份手写**。本仓已有前车之鉴（视图层 .commit() 收敛过一拨，
       # 无守卫时又长回来，#1606/#1620）。判据：样式选择器含 banner + 同块内
