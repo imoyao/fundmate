@@ -178,6 +178,21 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '只扫 frontend/src 的 vue/css/scss；<style module> 里的内联写法同样命中',
     },
+    'scripts/guard_style_nesting.py': {
+        'rule': '非 SCSS 的样式块禁止 `&__x` / `&-x` 嵌套拼接（原生 CSS 会整条丢弃）',
+        # 源 #3213：`<style scoped>` 无 lang="scss" ⇒ 原生 CSS，`&__value` 是 SCSS 拼接，
+        # 在浏览器里非法 ⇒ 整条嵌套规则静默消失，构建与 stylelint 都不报错。
+        # 只挂 CI（不动 pre-commit）：它要扫全量目录才能证明「零存量」，
+        # 局部文件列表跑出来的绿没有「别处没有新长出来的」这层意思。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_style_nesting.py',
+        'covered': (
+            '只认 `&` 紧跟标识符字符（`&__x` / `&--x` / `&-x`）这一形态；'
+            'lang 为 scss/sass/less/postcss 的块整块跳过（由预处理器展开）；'
+            '其余 SCSS-only 语法（$var / @include / #{}）不判——它们在原生 CSS 里是编译期报错，'
+            '不会静默丢弃。注释与字符串已剔除，说明文字里的举例不会误红'
+        ),
+    },
     'scripts/guard_col_divider.py': {
         'rule': '栏间分割线唯一走 .soft-col-divider',
         'runner': 'both',

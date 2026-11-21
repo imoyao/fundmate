@@ -329,7 +329,7 @@ onMounted(() => {
 });
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 /* 页面底部留白：页头自带 --space-section 下边距，这里补一个对称的底部。 */
 .inventory-home {
   padding-bottom: var(--space-section);

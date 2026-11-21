@@ -337,7 +337,7 @@ onMounted(async () => {
 // 主题切换（暗色）重绘也由 composable 内置的 `watch(themeTick, render)` 覆盖。
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 /* 内容区与 PageHeaderBar 同宽同内边距（--layout-content-width / --space-standard），
    保证页头与内容左边缘严格对齐；与 dividends / inventory / profile 同值
    （#1501 / #1506）。**页头不在这个容器里**——它是 flex 列，会让 .page-header
