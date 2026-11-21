@@ -451,10 +451,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只扫 backend/app；脚本 / 测试里的硬编码路径不管',
     },
     'scripts/check_css_vars.mjs': {
-        'rule': 'CSS 令牌引用与定义一致（无幽灵令牌）',
+        'rule': (
+            '样式不得静默失效：无幽灵令牌（引用未定义）/ 无自引用令牌 / 无孤立样式表（从不被加载）'
+        ),
         'runner': 'ci',
         'tests': 'scripts/tests/check_css_vars.test.js',
-        'covered': '存量 12 处幽灵令牌冻结为基线，只拦新增',
+        'covered': (
+            '基线已清零（#1558），幽灵令牌与孤立样式表均为新增即拦；'
+            '判定前先剥注释，文档里的 `--x: ...` 示例不再被当成定义、`var(--x)` 也不再算引用。'
+            '孤立样式表按 import / @use / @forward / @import(url) / <style src> 做可达性闭包；'
+            '运行时才拼出来的加载路径（字符串拼接的 dynamic import、index.html 外链）判不到'
+        ),
     },
     'scripts/guard_price_precision.mjs': {
         'rule': (

@@ -264,7 +264,6 @@ showbuy
 │  │  ├─ 📄dark.scss
 │  │  ├─ 📄element-plus.scss
 │  │  ├─ 📄index.scss
-│  │  ├─ 📄login.css
 │  │  ├─ 📄reset.scss
 │  │  ├─ 📄sidebar.scss
 │  │  ├─ 📄tailwind.css

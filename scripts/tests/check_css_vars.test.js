@@ -9,24 +9,49 @@
  * 做法：临时目录造 `scripts/` + `frontend/src/`，把真脚本复制进去
  * （脚本以自身位置的上一级为 ROOT），子进程跑真入口，断言退出码与输出。
  * 零新依赖（只用 node:test / node:assert）。
+ *
+ * 后续扩展（#3213 同族）：③「孤立样式表」——文件存在却没有任何入口加载它，
+ * 规则一条都不生效。为了让 ①② 的既有夹具不被可达性判红，`makeRepo` 会给
+ * fixture 配一个 `main.ts` 入口；可达性本身由 反向⑤⑥ / 正向④ 单独验证。
  */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
 const { mkdtempSync, mkdirSync, writeFileSync, copyFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
-const { join } = require("node:path");
+const { join, dirname } = require("node:path");
 
 const REAL_SCRIPT = join(__dirname, "..", "check_css_vars.mjs");
 
-/** 造一个隔离仓：<tmp>/scripts/check_css_vars.mjs + <tmp>/frontend/src/style/ 下的夹具。 */
-function makeRepo(fixture) {
+/**
+ * 造一个隔离仓：`files` 的键是相对 `frontend/src` 的路径。
+ * 脚本以自身位置的上一级为 ROOT，所以必须放在 `<tmp>/scripts/`。
+ */
+function makeTree(files) {
   const root = mkdtempSync(join(tmpdir(), "cvars-"));
   mkdirSync(join(root, "scripts"), { recursive: true });
-  mkdirSync(join(root, "frontend", "src", "style"), { recursive: true });
+  mkdirSync(join(root, "frontend", "src"), { recursive: true });
   copyFileSync(REAL_SCRIPT, join(root, "scripts", "check_css_vars.mjs"));
-  writeFileSync(join(root, "frontend", "src", "style", "fixture.css"), fixture);
+  for (const [rel, content] of Object.entries(files)) {
+    const p = join(root, "frontend", "src", rel);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, content);
+  }
   return root;
+}
+
+/**
+ * 单文件夹具（历史形态）。
+ *
+ * 注意 `main.ts`：③「孤立样式表」判据会要求每个样式表都有加载方，而本组用例
+ * 验的是 ①②（令牌定义/引用），不该被可达性判红。所以默认给 fixture 配一个入口；
+ * 可达性本身由下面的专门用例验证。
+ */
+function makeRepo(fixture) {
+  return makeTree({
+    "style/fixture.css": fixture,
+    "main.ts": 'import "./style/fixture.css";\n'
+  });
 }
 
 /** 跑真脚本，返回 { code, out }（不抛异常）。 */
@@ -182,4 +207,80 @@ test("防过度抑制⑤：外部库前缀不被当作幽灵令牌", () => {
 `);
   const { code, out } = run(root);
   assert.equal(code, 0, `外部前缀应白名单，实际 exit=${code}\n${out}`);
+});
+
+/* ── 反向④：注释里的 `--x:` 示例不得当成定义（否则幽灵令牌永久失明）── */
+test("反向④：注释里的令牌示例不能掩盖真正的幽灵令牌", () => {
+  const root = makeRepo(`
+:root {
+  --known: #ffffff;
+}
+/* 历史写法（已废弃）：--ghost: #ff0000; 用在 .foo 上 */
+.foo {
+  color: var(--ghost);
+}
+`);
+  const { code, out } = run(root);
+  assert.equal(code, 1, `注释里的示例不算定义，--ghost 应判红，实际 exit=${code}\n${out}`);
+  assert.match(out, /--ghost/);
+});
+
+/* ── 正向③：注释里提到旧令牌名，不构成一次引用 ─────────────── */
+test("正向③：注释里出现的 var(--old) 不算引用，不得误报", () => {
+  const root = makeRepo(`
+:root {
+  --known: #ffffff;
+}
+/* 迁移说明：原 var(--legacy-token) 已改名 */
+.foo {
+  color: var(--known);
+}
+`);
+  const { code, out } = run(root);
+  assert.equal(code, 0, `注释不算引用，实际 exit=${code}\n${out}`);
+  assert.ok(!/legacy-token/.test(out), `不应报出注释里的名字：\n${out}`);
+});
+
+/* ── 反向⑤：从未被加载的样式表必须红灯 ─────────────────────── */
+test("反向⑤：孤立样式表（没有任何入口加载）必须报错", () => {
+  const root = makeTree({
+    "style/orphan.css": ".login-container {\n  width: 100vw;\n}\n",
+    "main.ts": "export {};\n"
+  });
+  const { code, out } = run(root);
+  assert.equal(code, 1, `孤立样式表应红灯，实际 exit=${code}\n${out}`);
+  assert.match(out, /style\/orphan\.css/);
+  assert.match(out, /从未被加载/);
+});
+
+/* ── 反向⑥：注释掉的 import 不算加载（不能掩盖孤立）────────────── */
+test("反向⑥：注释里的 import 写法不构成加载", () => {
+  const root = makeTree({
+    "style/x.css": ":root {\n  --x: #111111;\n}\n",
+    "main.ts": '// import "./style/x.css"; 早就删了\nexport {};\n'
+  });
+  const { code, out } = run(root);
+  assert.equal(code, 1, `注释里的 import 不算加载，实际 exit=${code}\n${out}`);
+  assert.match(out, /style\/x\.css/);
+});
+
+/* ── 正向④：五种真实加载写法都要算「已加载」────────────────── */
+test("正向④：import / @use 裸名 / @use partial / @import url() / <style src> 都算加载", () => {
+  const root = makeTree({
+    "main.ts": 'import "./style/a.css";\nimport "./style/index.scss";\n',
+    "style/a.css": ":root {\n  --a: #111111;\n}\n",
+    // 裸名 + partial：`@use "b"` → b.scss，`@use "e"` → _e.scss
+    "style/index.scss": '@use "b";\n@use "e";\n@import url("./d.css");\n@import "./f.css";\n',
+    "style/b.scss": ":root {\n  --b: #222222;\n}\n",
+    "style/_e.scss": ":root {\n  --e: #333333;\n}\n",
+    "style/d.css": ":root {\n  --d: #444444;\n}\n",
+    "style/f.css": ":root {\n  --f: #555555;\n}\n",
+    // SFC 的 <style src>
+    "components/C.vue":
+      '<template><div class="c" /></template>\n<style lang="scss" src="./c.scss"></style>\n',
+    "components/c.scss": ":root {\n  --c: #666666;\n}\n"
+  });
+  const { code, out } = run(root);
+  assert.equal(code, 0, `五种写法都应视为已加载，实际 exit=${code}\n${out}`);
+  assert.match(out, /孤立样式表 0 个/);
 });
