@@ -87,8 +87,12 @@
   width: 16px;
 }
 
-/* 当前排序指标高亮（对齐 el-table 基线）：加粗 + 文字提主色，箭头由 EP 自动着色。
-   不用红字——金融表里红字读作警告；只加粗提色，与表头底色同一套语言。 */
+/* 排序列的锚点只放在表头：加粗 + 文字提主色（箭头由 EP 自动着色）。
+   数据区曾经再铺一条纵向 --brand-200 暖色带，两处叠加出两个问题：
+   ① 一整列玫瑰色在金融表里读作「告警 / 选中块」，而数字本身是中性口径；
+   ② 夏普 / 卡玛的数据条是 --brand-100，比色带更浅 ⇒ 条在带上变成一个个
+   「白色缺口」，正好把「条越长越优」这层信息读反。
+   表头本来就吸顶常驻，纵向滚到哪一行都能看见排序列，色带没有额外交付。 */
 .ranking-table-wrap .el-table__header th.col-active {
   font-weight: 600;
   color: var(--text-primary);
@@ -119,16 +123,6 @@
 .ranking-table-wrap .num-text {
   position: relative;
   z-index: 1;
-}
-
-/* 排序列贯穿高亮：数据区铺一条纵向暖色带，横向滚到中间指标列时余光可锁定；
-   表头不加底纹（表头本就是 --bg-muted 灰底，另起即语言分裂）。 */
-.ranking-table-wrap .el-table__body td.col-active {
-  background-color: var(--brand-200);
-}
-
-.ranking-table-wrap .el-table__body tr:hover > td.col-active {
-  background-color: var(--brand-300);
 }
 
 /* 收益列涨跌色（-ink 级：白底 AA 达标；符号同色，见 rankingCells.formatCell）。
