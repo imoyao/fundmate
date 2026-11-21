@@ -45,6 +45,13 @@ _PROBES = [
     ('core/probe_src.py', 'from app.domains.users.models import User\n', 'R1'),
     ('core/probe_src.py', 'import app.models.sync_log\n', 'R1'),
     ('core/probe_src.py', "import importlib\nimportlib.import_module('app.domains.families.models')\n", 'R1'),
+    # ── R1（2026-11-21 增补）：core 在**导入期**反向依赖 services ──
+    # 源缺陷：core/entitlements.py 顶层 import services.entitlement_check，守卫 R1 只拦 domains/models ⇒ 全绿
+    ('core/probe_src.py', 'from app.services.entitlement_check import PRO_FEATURES\n', 'R1'),
+    ('core/probe_src.py', 'import app.services.alerts\n', 'R1'),
+    ('core/probe_src.py', "import importlib\nimportlib.import_module('app.services.alerts')\n", 'R1'),
+    # 类体同样在导入期执行，不得被当成「延迟导入」放行
+    ('core/probe_src.py', 'class Holder:\n    from app.services.alerts import x\n', 'R1'),
     # ── R2：services 依赖 domains.views ──
     (
         'services/probe_src.py',
@@ -77,6 +84,19 @@ _PROBES = [
     ('domains/positions/models.py', 'from app.core.database import Base\n', None),
     ('domains/assets/views.py', 'from app.domains.ledgers.models import Ledger\n', None),
     ('core/probe_src.py', 'from app.core.money import Money\n', None),
+    # R1 的延迟导入例外（反向保护）：函数体内的 core → services 不参与模块导入链，
+    # 属已登记的安全写法（app/core/migrations.py:1452,2047 就是这种形态），必须放行。
+    (
+        'core/probe_src.py',
+        'def backfill():\n    from app.services.fund_utils import normalize_fund_code\n'
+        '    return normalize_fund_code\n',
+        None,
+    ),
+    (
+        'core/probe_src.py',
+        "def backfill():\n    import importlib\n    return importlib.import_module('app.services.alerts')\n",
+        None,
+    ),
     # 家族包依赖共享件（正确方向）与同包内互引必须放行
     (
         'services/sync/company_resolver.py',
