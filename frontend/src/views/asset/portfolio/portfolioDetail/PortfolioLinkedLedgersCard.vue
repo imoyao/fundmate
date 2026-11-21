@@ -28,8 +28,8 @@ function goToLedger(id: number) {
   <CardBlock>
     <SectionHeader title="关联账户" />
     <el-table v-if="ledgers.length" :data="ledgers" stripe size="default">
-      <el-table-column prop="name" label="账户名称" min-width="150" />
-      <el-table-column label="账户类型" width="120">
+      <el-table-column prop="name" label="账户名称" min-width="240" />
+      <el-table-column label="账户类型" min-width="180">
         <template #default="{ row }">
           {{ ledgerTypeLabel(row.ledger_type) }}
         </template>

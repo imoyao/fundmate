@@ -8,7 +8,11 @@
       :header-cell-style="INVENTORY_TABLE_HEADER_STYLE"
       :cell-style="INVENTORY_TABLE_CELL_STYLE"
     >
-      <el-table-column label="产品信息" min-width="150" show-overflow-tooltip>
+      <!-- 列宽：非固定列一律 `min-width`（#1421 口径）。EP 只把「不带数字 width」的列
+           纳入容器余量分配，本表此前除产品信息外全是固定宽 ⇒ 宽屏下余量**全部**灌给
+           第一列（1440 视口实测 376/1036 = 36%，右侧大片空白），同时 120px 的「归属账户」
+           被挤到折行。改为全员 min-width 后余量按比例分摊，首列不再独吃。 -->
+      <el-table-column label="产品信息" min-width="240" show-overflow-tooltip>
         <template #default="{ row }">
           <ProductDisplay
             :name="row.name"
@@ -17,11 +21,11 @@
           />
         </template>
       </el-table-column>
-      <el-table-column prop="account_name" label="归属账户" width="120" />
+      <el-table-column prop="account_name" label="归属账户" min-width="140" />
       <!-- 所属组合（D20 二期 UI）：账户维度与组合维度是正交两轴，故与「归属账户」并列而非合并。
            单元格自带改派浮层，归属解析由页面数据层注入——表格不实现「显式压过继承」的推导，
            那是服务端口径（portfolio_service.portfolio_position_conditions）的投影。 -->
-      <el-table-column label="所属组合" width="180">
+      <el-table-column label="所属组合" min-width="180">
         <template #default="{ row }">
           <PortfolioAssignCell
             :row="row as Position"
@@ -34,7 +38,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="市值" width="130" align="right">
+      <el-table-column label="市值" min-width="130" align="right">
         <template #default="{ row }">
           <MoneyDisplay
             :value="marketValue(row as Position)"
@@ -45,7 +49,7 @@
       </el-table-column>
       <!-- 盈亏双线（#1104）：主行＝已确认（T-1 净值 / 收盘价口径，后端权威值），
            副行＝当日预估（前端实时链路，带「估」标记）。两行同显见 PnlDualLine 头注释。 -->
-      <el-table-column label="盈亏" width="170" align="right">
+      <el-table-column label="盈亏" min-width="170" align="right">
         <template #default="{ row }">
           <PnlDualLine
             :confirmed="confirmedPnl(row as Position)"
