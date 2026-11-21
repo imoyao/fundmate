@@ -8,7 +8,7 @@
 # 新增债务一律先登记到这里；只写进 tech-debt.md 正文等于没登记。
 
 schema = 1
-updated_at = "2026-11-10"
+updated_at = "2026-11-21"
 status_authority = "docs/spec/tech-debt-register.toml"
 stale_days = 90
 
@@ -225,8 +225,14 @@ status = "open"
 priority = "P1"
 doc_ref = "docs/working-notes/issue-triage/auto/2026-11-06.md:16"
 issue = 1502
-verified_at = "2026-11-10"
-criterion = { type = "command", run = "grep -rn 'fundfof' backend/app/services/industry_crowding.py; gh issue view 1502 --repo imoyao/fundmate --json state,body" }
+verified_at = "2026-11-21"
+# 2026-11-21 复核：#1502 于 11-19 被直接关闭（无评论、无关联 PR），但代码侧未动——
+# `fundfof_crowding.py:134` 仍是 `os.getenv('FUNDFOF_CROWDING_ENABLED', '1')`（默认开），
+# `thermometer/industry_crowding.py:1037` 取到即 return（仍是第一优先路径）。
+# 关单时验收第 3 条「关闭时 fundfof_crowding.py 及其引用一并删除」未满足 ⇒ 裁定为「提前关单」：
+# 台账保持 open，issue 已重开，待 Wind/iFinD 替换链路落地后再走关单流程。
+note = "2026-11-19 属提前关单（验收第 3 条未满足），2026-11-21 已重开 #1502 并保持 open"
+criterion = { type = "file", path = "backend/app/services/thermometer/fundfof_crowding.py", present = false }
 
 [[debt]]
 id = "TD-022"
@@ -270,19 +276,23 @@ criterion = { type = "command", run = "gh issue view 1785 --repo imoyao/fundmate
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C. 已实现但被外部条件卡住 / 已裁决不处理（不再用「暂缓」当垃圾桶）
+#    TD-025 的 blocked 条件（等发版）已于 2026-11-21 解除并转 done，仍留在本节保留闭环轨迹。
 # ─────────────────────────────────────────────────────────────────────────────
 
 [[debt]]
 id = "TD-025"
 title = "#2803 workflow 定义来源迁移：dev 侧已落地，等发版同步 main 后关单"
-status = "blocked"
+status = "done"
 priority = "P0"
 doc_ref = "docs/working-notes/auto-merge-attribution-and-events-2026-11-01.md:1"
 issue = 2803
-verified_at = "2026-11-10"
-blocker = "默认分支 main 上的旧版 workflow 定义需随 dev → main 发版才会被替换；issue 仍标 in-progress"
-next_action = "发版后核对 main 侧 workflow 定义与 dev 一致，关闭 #2803"
-evidence = "python scripts/guard_workflow_definition_source.py exit 0；真实 pull_request_target 触发器只剩 2 个依赖 bot 豁免（首轮按全文计数误报 8 个，6 个是注释）"
+verified_at = "2026-11-21"
+# 2026-11-21 复核：blocked 条件（等发版）已解除 —— #3177（dev→main）于 11-18 合入
+# 9a84755fe6，#2803 于 11-20 关闭；3ce830889f 已是 main 的祖先，main 侧同样有
+# scripts/guard_workflow_definition_source.py，两侧 .github/workflows 的真实 PRT 触发器
+# 都只剩 dependabot 那两个豁免（其余命中是注释）。dev 领先 87 个提交属正常发版滞后，
+# 不是本卡口径（本卡只问「定义来源是否还对某条路径不可见」）。
+evidence = "issue #2803 CLOSED 2026-11-20（COMPLETED）；发版 #3177 合入 9a84755fe6 且 3ce830889f 已入 main；main 侧 guard_workflow_definition_source.py 存在；dev 与 main 的真实 pull_request_target 触发器均为 2 个 bot 豁免（dependabot-auto-merge / dependabot-lockfile-regen），其余 6 处是注释"
 criterion = { type = "guard", script = "scripts/guard_workflow_definition_source.py" }
 
 [[debt]]
