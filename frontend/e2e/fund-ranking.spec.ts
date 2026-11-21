@@ -210,10 +210,23 @@ test.describe("同类优选（#980 拆分）", () => {
     await expect(rows.nth(0).locator(".fund-tag--holding")).toHaveText("持仓");
     await expect(rows.nth(1).locator(".fund-tag--watch")).toHaveText("自选");
     await expect(rows.nth(2).locator(".fund-tag")).toHaveCount(0);
+
+    // 类型标记与名称**分居两行**：列宽 232px，徽章挂在名称行会把长名称挤断、
+    // 且贴着名称末字读起来像名称的一部分（「…发起C 持仓」）。判据是结构：
+    // 名称行里没有徽章，徽章在代码行（.fund-link__meta）。
+    await expect(rows.nth(0).locator(".fund-link__name .fund-tag")).toHaveCount(
+      0
+    );
+    await expect(
+      rows.nth(0).locator(".fund-link__meta .fund-tag--holding")
+    ).toHaveText("持仓");
+
+    // 名称缺失时回退代码（名称行即代码），元信息行只剩徽章、不再重复一遍代码
     const secondName = rows.nth(1).locator(".fund-link__name");
-    // 名称缺失时回退代码；徽章与名称同在一个 span 内（所以用 contains 而非 exact）
-    await expect(secondName).toContainText("000001");
-    await expect(secondName.locator(".fund-tag--watch")).toHaveText("自选");
+    await expect(secondName).toHaveText("000001");
+    await expect(
+      rows.nth(1).locator(".fund-link__meta .fund-tag--watch")
+    ).toHaveText("自选");
     await expect(rows.nth(1).locator(".fund-link__code")).toHaveCount(0);
 
     // ④ 数据条：夏普列（第 1 个数值列）2.0 是榜内最大 → 满条；0.5 是最小 → 4%
@@ -292,6 +305,10 @@ test.describe("同类优选（#980 拆分）", () => {
     // ④ 表头高亮列随之切换（col-active 是「当前排序列」的视觉锚点）
     await expect(headOf("夏普")).toHaveClass(/col-active/);
     await expect(headOf("UI")).not.toHaveClass(/col-active/);
+
+    // ④b 数据区**不**再挂这个类：旧实现给整列铺 --brand-200 暖色带，与夏普 /
+    //     卡玛的数据条叠在一起（条比带浅，读成「带上的白色缺口」）。锚点只留表头。
+    await expect(table(page).locator("tbody td.col-active")).toHaveCount(0);
 
     // ⑤ 排序说明跟着变（composable 派生 + 表格 emit 的联合结果）。
     //    说明不进正文，挂在标题信息图标的 aria-label 上（也是读屏唯一能读到它的地方）。

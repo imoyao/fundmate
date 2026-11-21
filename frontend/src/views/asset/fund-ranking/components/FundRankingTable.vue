@@ -126,7 +126,7 @@ const props = defineProps<{
   rows: FundRiskRankingRow[];
   tableColumns: RankingColumn[];
   columnGroups: ColumnGroup[];
-  /** 当前排序指标键：高亮列 + 实心箭头 */
+  /** 当前排序指标键：表头高亮（th.col-active）+ 实心箭头 */
   metric: string;
   /** 当前排序方向 */
   order: "asc" | "desc";
@@ -202,8 +202,10 @@ function metricHeaderClass(col: RankingColumn): string {
     .join(" ");
 }
 
-/** 数据单元格类名：数值列统一 col-num（数据条定位锚点），排序列加高亮，
- *  收益列按涨跌染色（风险列不染色，见 rankingCells 的口径红线）。
+/** 数据单元格类名：数值列统一 col-num（数据条定位锚点），收益列按涨跌染色
+ *  （风险列不染色，见 rankingCells 的口径红线）。排序列**不加**数据区类名——
+ *  它的锚点在表头（th.col-active）：旧实现给整列铺暖色带，与夏普 / 卡玛的数据条
+ *  叠在一起（条比带浅，读成「带上的白色缺口」），见 fundRankingTable.css。
  *  「#」与「基金」两列 property 为空 → 空串，不参与上述任何一档。 */
 function cellClassName({
   row,
@@ -216,11 +218,7 @@ function cellClassName({
     ? columnByKey.value.get(column.property)
     : undefined;
   if (!col) return "";
-  return [
-    "col-num",
-    col.key === props.metric ? "col-active" : "",
-    col.kind === "return" ? numClass(row, col) : ""
-  ]
+  return ["col-num", col.kind === "return" ? numClass(row, col) : ""]
     .filter(Boolean)
     .join(" ");
 }
