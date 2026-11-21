@@ -1,60 +1,16 @@
 <template>
-  <!-- 顶部双卡：净资产卡 + 资产配置环形图（md 两列并排，等高） -->
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-    <!-- 净资产卡：左侧大数字锚点，右侧指标区竖排（总资产/负债/负债率） -->
-    <div class="overview-card net-worth-card">
-      <div class="flex justify-between gap-6 flex-1 items-center">
-        <div class="min-w-0">
-          <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
-            净资产
-          </p>
-          <p class="mt-1">
-            <MoneyDisplay :value="p.overviewData.net_worth" size="xl" />
-          </p>
-          <!-- 负债率偏高：警示态才用系统危险色（非涨跌色），放在大数字下方 -->
-          <div
-            v-if="p.showHighLiabilityWarning"
-            class="liability-warning-badge mt-3"
-          >
-            负债率偏高
-          </div>
-        </div>
-        <!-- 右侧指标区：三指标竖排，label 上数值下，--border-subtle 细分隔 -->
-        <div class="overview-metrics">
-          <div class="metric-item">
-            <span class="metric-label">总资产</span>
-            <MoneyDisplay
-              :value="p.totalAssets"
-              :show-sign="false"
-              :auto-color="false"
-              size="sm"
-            />
-          </div>
-          <!-- 负债为 0 时不渲染负债信息位，保持摘要干净；
-                   负债金额属中性财务信息，用 text-secondary，不用涨跌色误导 -->
-          <div v-if="p.overviewData.liability_total > 0" class="metric-item">
-            <span class="metric-label">负债</span>
-            <MoneyDisplay
-              :value="p.overviewData.liability_total"
-              :show-sign="false"
-              :auto-color="false"
-              size="sm"
-            />
-          </div>
-          <div class="metric-item">
-            <span class="metric-label">负债率</span>
-            <!-- 可计算时显示百分比，无负债或不可计算显示 --；浅灰胶囊弱化中性信息 -->
-            <span class="liability-rate-pill">{{ p.liabilityRate }}</span>
-          </div>
-        </div>
-      </div>
-      <!-- 更新时间：右上角 -->
-      <div class="hidden md:block text-right mt-4">
-        <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
-          更新于 {{ p.lastUpdate }}
-        </p>
-      </div>
-    </div>
+  <!-- 顶部：净资产卡 + 资产配置环形图卡。xl 起左右分栏（5:3），xl 以下单列堆叠：
+       768~1279 若继续两栏，hero 大数字会被压进 1/2 列宽——57px 的
+       「¥1,540,962.73」在 500px 内就要换行，宁可让环形图下移一层。 -->
+  <div class="overview-grid">
+    <NetWorthCard
+      :net-worth="p.overviewData.net_worth"
+      :total-assets="p.totalAssets"
+      :liability-total="p.overviewData.liability_total"
+      :liability-rate="p.liabilityRate"
+      :show-high-liability-warning="p.showHighLiabilityWarning"
+      :last-update="p.lastUpdate"
+    />
     <!-- 资产配置环形图卡（#984 拆分至 components/LedgerAllocationCard.vue） -->
     <LedgerAllocationCard
       :groups="p.overviewData?.groups ?? []"
@@ -62,123 +18,53 @@
     />
   </div>
 
-  <!-- 聚合汇总卡网格：基金 / 股票 两卡并排（窄屏单列堆叠），等高等高权重 -->
-  <div class="aggregation-cards-grid mb-6">
-    <!-- 基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
-    <div
-      class="overview-card fund-summary-card"
-      role="button"
-      tabindex="0"
-      @click="p.goToFundAggregation"
-      @keydown.enter="p.goToFundAggregation"
-    >
-      <div class="flex justify-between items-center gap-4 flex-wrap">
-        <div class="min-w-0">
-          <!-- 标题只写「基金」（2026-11-06 用户拍板，D91），集合边界移到下一行小字。
-               这两张卡是「品类全景」的唯一出口（全面盘点页原有的「投资分布」两张同名卡
-               已删除——它漏货基、漏 ETF，同名不同义）。小字必须写明含货币基金：
-               用户会拿这里的数去和首页「基金」列对，两边集合本就不同
-               （本卡 = fund + money_fund，首页 = fund），不写清就不知道差在哪。
-               金额口径：`fund/securities-aggregation` 取**库内最新净值 / 收盘价**；
-               总资产（`/summary/`）取 `positions.current_price` 的持仓快照价。
-               两者在同步滞后时会差一个净值日——这是既有口径差，不是本卡的 bug，
-               已在 tech-debt 登记；出现「卡片合计 ≠ 总资产里那一块」时先查同步时间。 -->
-          <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
-            基金
-          </p>
-          <p class="aggregation-hint">含货币基金、E 账户份额</p>
-          <div class="mt-1">
-            <MoneyDisplay
-              :value="p.fundTotalYuan"
-              size="lg"
-              :show-sign="false"
-              :auto-color="false"
-            />
-          </div>
-          <!-- 当日收益：与首页「最新收益」同源（dimension=class 分组）。
-               ⚠️ 本卡市值含货币基金，但货基没有统一当日估值口径 ⇒ 收益只来自
-               fund，必须标「不含货基」，否则用户拿两个不同集合的数对不上。 -->
-          <p class="aggregation-today-pnl">
-            <span>当日收益（不含货基）</span>
-            <template v-if="fundTodayPnl?.pnl != null">
-              <MoneyDisplay :value="fundTodayPnl.pnl" size="xs" />
-              <ValuationSourceBadge
-                v-if="fundTodayPnl.status === 'estimated'"
-                :status="fundTodayPnl.status"
-                size="sm"
-              />
-            </template>
-            <span v-else>—</span>
-          </p>
-        </div>
-        <el-button type="primary" plain @click.stop="p.goToFundAggregation">
-          <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
-        </el-button>
-      </div>
-    </div>
-
-    <!-- 股票（含 ETF、可转债）聚合汇总卡：整卡可点下钻至聚合视图 -->
-    <div
-      class="overview-card securities-summary-card"
-      role="button"
-      tabindex="0"
-      @click="p.goToSecuritiesAggregation"
-      @keydown.enter="p.goToSecuritiesAggregation"
-    >
-      <div class="flex justify-between items-center gap-4 flex-wrap">
-        <div class="min-w-0">
-          <!-- 见上方「基金」卡的注释：标题只写「股票」，集合边界移到下一行小字 -->
-          <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
-            股票
-          </p>
-          <p class="aggregation-hint">含 ETF、可转债</p>
-          <div class="mt-1">
-            <MoneyDisplay
-              :value="p.securitiesTotalYuan"
-              size="lg"
-              :show-sign="false"
-              :auto-color="false"
-            />
-          </div>
-          <!-- 股票侧集合边界与本卡一致（都含 ETF、可转债），无需额外括注 -->
-          <p class="aggregation-today-pnl">
-            <span>当日收益</span>
-            <template v-if="stockTodayPnl?.pnl != null">
-              <MoneyDisplay :value="stockTodayPnl.pnl" size="xs" />
-              <ValuationSourceBadge
-                v-if="stockTodayPnl.status === 'estimated'"
-                :status="stockTodayPnl.status"
-                size="sm"
-              />
-            </template>
-            <span v-else>—</span>
-          </p>
-        </div>
-        <el-button
-          type="primary"
-          plain
-          @click.stop="p.goToSecuritiesAggregation"
-        >
-          <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
-        </el-button>
-      </div>
-    </div>
+  <!-- 聚合汇总卡：基金 / 股票 两卡并排（窄屏单列堆叠）。整卡可点下钻。
+       口径注解（金额与首页「基金」列本就不同集合，别把差异当 bug）：
+       · 金额取 `fund/securities-aggregation`，用**库内最新净值 / 收盘价**；
+         总资产（`/summary/`）取 `positions.current_price` 的持仓快照价。
+         同步滞后时两者差一个净值日，属既有口径差（tech-debt 已登记）。
+       · 基金卡市值含货币基金与 E 账户份额，但货基没有统一当日估值口径
+         ⇒ 当日收益只来自 fund，标签必须写「不含货基」。 -->
+  <div class="aggregation-cards-grid">
+    <AggregationSummaryCard
+      title="基金"
+      hint="含货币基金、E 账户份额"
+      :amount="p.fundTotalYuan"
+      :pnl="fundTodayPnl"
+      pnl-label="当日收益（不含货基）"
+      :share="fundShare"
+      icon="ep:trend-charts"
+      accent="--asset-cat-fund"
+      @open="p.goToFundAggregation"
+    />
+    <AggregationSummaryCard
+      title="股票"
+      hint="含 ETF、可转债"
+      :amount="p.securitiesTotalYuan"
+      :pnl="stockTodayPnl"
+      pnl-label="当日收益"
+      :share="stockShare"
+      icon="ep:data-line"
+      accent="--asset-cat-stock"
+      @open="p.goToSecuritiesAggregation"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive } from "vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
+import NetWorthCard from "./NetWorthCard.vue";
 import LedgerAllocationCard from "./LedgerAllocationCard.vue";
+import AggregationSummaryCard from "./AggregationSummaryCard.vue";
+import { shareOfTotal } from "./overviewShare";
 import type { useLedgerList } from "../composables/useLedgerList";
 
 defineOptions({ name: "LedgerOverviewSection" });
 
 /**
  * 账户列表页顶部汇总区（#980 P1-C 结构拆分）：
- * 净资产卡（指标竖排/负债警示）+ 资产配置环形图 + 基金/股票聚合汇总卡。
+ * 净资产卡 + 资产配置环形图 + 基金/股票聚合汇总卡。
+ * 本文件只留栅格编排，卡片内容各自成组件。
  * page 为 index 注入的状态单体；p 用 reactive 解包，使模板表达式与拆分前逐字一致。
  */
 const props = defineProps<{ page: ReturnType<typeof useLedgerList> }>();
@@ -188,176 +74,49 @@ const p = reactive(props.page);
 // 没数（null / 没这个桶）保持 null，模板显示「—」而不是 0。
 const fundTodayPnl = computed(() => p.todayPnlByClass.get("fund") ?? null);
 const stockTodayPnl = computed(() => p.todayPnlByClass.get("stock") ?? null);
+
+// 品类占全部资产的比重：只做标注，不参与任何计算。不可算时为 null，整项不渲染。
+const fundShare = computed(() => shareOfTotal(p.fundTotalYuan, p.totalAssets));
+const stockShare = computed(() =>
+  shareOfTotal(p.securitiesTotalYuan, p.totalAssets)
+);
 </script>
 
-<style scoped>
-/* 尊重系统减弱动效偏好：本组件承载的卡片 hover 效果关闭
-   （自 index 原整块按选择器拆分，其余规则见各组件 scoped 块） */
-@media (prefers-reduced-motion: reduce) {
-  .overview-card {
-    transition: none;
-  }
+<style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
 
-  /* 聚合卡 hover 上浮同样尊重减弱动效偏好 */
-  .fund-summary-card:hover,
-  .securities-summary-card:hover {
-    transform: none;
-  }
+.overview-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-compact);
+  margin-bottom: var(--space-standard);
 }
 
-/* ===== 全局汇总卡片（--space-standard 间距，净资产大数字锚点） =====
-   卡片统一使用 --card-border 描边（design.md / design.dark.md 规范：卡片边框必须用 --card-border），
-   hover 用 translateY 浮起 + 浮起阴影（见下方聚合卡）。 */
-.overview-card {
-  padding: var(--space-standard);
-  background: var(--bg-card);
-  border: var(--card-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
-}
-
-/* 净资产卡：纵向布局，更新时间贴底，与右侧图表卡等高对齐 */
-.net-worth-card {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 基金（含 E 账户、货币基金）汇总卡：整卡可点下钻，复用 overview-card 视觉语言。
-   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
-.fund-summary-card {
-  cursor: pointer;
-  transition:
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-}
-
-.fund-summary-card:hover {
-  box-shadow: var(--shadow-float);
-  transform: translateY(-2px);
-}
-
-.fund-summary-card:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-/* 股票（含 ETF、可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言。
-   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
-.securities-summary-card {
-  cursor: pointer;
-  transition:
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-}
-
-.securities-summary-card:hover {
-  box-shadow: var(--shadow-float);
-  transform: translateY(-2px);
-}
-
-.securities-summary-card:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-/* 聚合汇总卡网格：基金 / 股票 两卡并排，等宽等高（grid 默认 align-items: stretch）；
-   minmax(0, 1fr) 防止金额等超长内容撑破列宽；窄屏（<768px，与 Tailwind md 断点对齐）回退单列堆叠 */
 .aggregation-cards-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: var(--space-compact);
+  margin-bottom: var(--space-loose);
 }
 
-/* 集合边界：一行小字、次级墨色，字号用既有令牌，不占标题层级 */
-.aggregation-hint {
-  margin: 2px 0 0;
-  font-size: var(--text-label);
-  line-height: 1.4;
-  color: var(--text-tertiary-ink);
-}
+/* lg（1024）起两栏等宽：再窄（768~1023）两栏会把 hero 压进 360px 以下，
+   而单列在 1024~1279 又会把净资产卡拉到 780px 宽、右侧空出 400px（实测）。
+   等宽 + hero 缩到 40px（见 NetWorthCard）是这一档的最优解。 */
+@include bp.above("lg") {
+  .overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
-/* 当日收益小字：与集合边界同色阶，数字只加字重 + 等宽，不抢上方主数字 */
-.aggregation-today-pnl {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  margin: 6px 0 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-.aggregation-today-pnl :deep(.number) {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-@media (width <= 767px) /* breakpoint-allow: 拆分随迁的存量写法，零变更不改输出 */ {
   .aggregation-cards-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-/* 负债率偏高警示：负债属中性信息，警示态才用系统危险色（非涨跌色） */
-.liability-warning-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  font-size: var(--text-label);
-  line-height: 18px;
-  color: var(--color-warning-ink);
-  background: var(--color-warning-20);
-  border-radius: var(--radius-pill);
-}
-
-/* ===== 净资产卡右侧指标区：三指标竖排，label 上数值下，--border-subtle 细分隔 ===== */
-.overview-metrics {
-  display: flex;
-  flex-direction: column;
-
-  /* 间距 12px -> 16px：--space-4 未定义（见 profile/index.vue 前车之鉴），用 --space-compact */
-  gap: var(--space-compact);
-  min-width: 160px;
-
-  /* 数字等宽对齐：消除金额宽度抖动 */
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.metric-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-
-  /* 子元素统一右对齐：label/数值/胶囊与整体 text-align 一致，消除「对齐奇怪」 */
-  align-items: flex-end;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
-}
-
-.metric-item:first-child {
-  padding-top: 0;
-  border-top: none;
-}
-
-/* 指标区 label：限定在 overview-metrics 内，避免与账户卡片的 .metric-label 混淆 */
-.overview-metrics .metric-label {
-  font-size: var(--text-label, 13px);
-  line-height: 18px;
-  color: var(--text-tertiary-ink);
-}
-
-/* 负债率胶囊：--bg-soft 底 + --radius-pill + --text-tertiary 字，弱化中性信息。
-   右对齐由 .metric-item 的 align-items: flex-end 统一提供，不再单独 align-self */
-.liability-rate-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 56px;
-  padding: 1px 10px;
-  font-size: var(--text-label, 13px);
-  line-height: 20px;
-  color: var(--text-tertiary-ink);
-  background: var(--bg-soft);
-  border-radius: var(--radius-pill);
+/* xl（1280）起净资产卡略宽（1.2 : 1）：此时内容区足够，hero 恢复 57px，
+   环形图也让得出一行图例的空间。 */
+@include bp.above("xl") {
+  .overview-grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr);
+  }
 }
 </style>
