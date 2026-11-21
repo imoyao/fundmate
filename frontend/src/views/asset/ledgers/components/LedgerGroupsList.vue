@@ -9,8 +9,8 @@
         'ledger-group--dragging': group.type === p.draggingGroupType
       }"
     >
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-1 min-w-0">
+      <div class="ledger-group__head">
+        <div class="ledger-group__title">
           <!-- 分组拖拽抓手：与卡片抓手视觉/作用域分离，hover/focus 显示，拖拽整个分组（分组顺序存 localStorage） -->
           <span
             class="group-drag-handle"
@@ -44,25 +44,23 @@
               <line x1="6" y1="18" x2="18" y2="18" />
             </svg>
           </span>
-          <h3
-            class="font-semibold text-base"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            {{ group.label }}
-            <span
-              class="text-sm font-normal ml-2"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            >
-              (
-              {{ group.count }} 个账户 ·
-              <MoneyDisplay
-                :value="group.total"
-                :show-sign="false"
-                :auto-color="false"
-                size="xs"
-              />)
-            </span>
-          </h3>
+          <h3 class="ledger-group__name">{{ group.label }}</h3>
+          <!-- 账户数做成胶囊而不是塞进括号：它与右侧金额是两种量纲，
+               原先「(4 个账户 · ¥103,911.90)」把计数与金额串成一句，
+               金额因此只能跟在括号里、字号被压到 13px 当注释。 -->
+          <span class="ledger-group__count">{{ group.count }} 个账户</span>
+        </div>
+        <div class="ledger-group__sum">
+          <MoneyDisplay
+            :value="group.total"
+            :show-sign="false"
+            :auto-color="false"
+            size="md"
+            custom-color="var(--text-primary)"
+          />
+          <span v-if="groupShare(group.total)" class="ledger-group__share">
+            占 {{ groupShare(group.total) }}
+          </span>
         </div>
       </div>
 
@@ -76,6 +74,7 @@
           :ledger="ledger"
           :index="Number(li)"
           :total="group.ledgers.length"
+          :style="{ '--card-index': Math.min(li, 6) }"
           :stale-count="p.staleCountByLedger[ledger.id] || 0"
           :today-pnl="p.todayPnlByLedger.get(String(ledger.id)) ?? null"
           @open="p.goToDetail"
@@ -110,6 +109,7 @@ import { reactive, ref } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import LedgerCard from "./LedgerCard.vue";
+import { shareOfTotal } from "./overviewShare";
 import type { useLedgerList } from "../composables/useLedgerList";
 
 defineOptions({ name: "LedgerGroupsList" });
@@ -161,9 +161,16 @@ async function onCardKey(payload: { ledger: LedgerLike; to: number }) {
 /* 分组容器 DOM ref：模板字符串 ref 命中本组件 setup 同名绑定即写入 .value，
    与 useLedgerList 内 groupsContainer 指向同一 Ref，分组拖拽初始化不受拆分影响 */
 const groupsContainer = props.page.groupsContainer;
+
+/** 本组金额占全部资产的比例；不可算时返回 null（模板整项不渲染，不写 0.0%） */
+function groupShare(total: number | null | undefined) {
+  return shareOfTotal(total, p.totalAssets);
+}
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 尊重系统减弱动效偏好：抓手/占位/账户卡片动效关闭
    （自 index 原整块按选择器拆分，LedgerCard 内部规则见其 scoped 块） */
 @media (prefers-reduced-motion: reduce) {
@@ -174,6 +181,67 @@ const groupsContainer = props.page.groupsContainer;
 
   .ledger-card:hover {
     transform: none;
+  }
+}
+
+/* ===== 分组头：名称 + 账户数胶囊（左），金额 + 占比（右） =====
+   分组原来只是一行 13px 灰字，读起来像分隔说明、不像一个区块的标题；
+   右侧金额与左侧名称同一行后，每组有了「标题 + 小结」的收口。 */
+.ledger-group__head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.ledger-group__title {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.ledger-group__name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.ledger-group__count {
+  flex: none;
+  padding: 0 8px;
+  font-size: var(--text-label);
+  line-height: 20px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  background: var(--bg-soft);
+  border-radius: var(--radius-pill);
+}
+
+.ledger-group__sum {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-group__share {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  white-space: nowrap;
+}
+
+/* 窄屏：分组名 + 计数已经占满一行，占比让位（金额本身还在，占比只是旁注） */
+@include bp.below("sm") {
+  .ledger-group__share {
+    display: none;
   }
 }
 
