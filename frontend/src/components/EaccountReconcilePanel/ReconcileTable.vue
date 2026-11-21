@@ -39,6 +39,7 @@ const emit = defineEmits<{
 
 <template>
   <!-- 类名 table-card 是 e2e 锚点（frontend/e2e/reconcile.spec.ts），改名须同步 spec -->
+  <!-- table-col-allow: 7 列含操作宽 1056 ≈ 实测容器 1100，余量 44px 归文本列（#3210） -->
   <el-table v-loading="loading" :data="items" stripe class="table-card">
     <!-- 产品信息复合列（SPEC 3.8）：名称 + 「# 代码」，与自选/持仓表同一语言。
          类型段刻意留空——本表全部是基金，重复写「基金」只占宽度不提供信息。 -->

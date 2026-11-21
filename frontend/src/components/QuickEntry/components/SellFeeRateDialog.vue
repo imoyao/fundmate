@@ -16,6 +16,7 @@
           ，拟赎回 {{ enteredShares.toFixed(4) }} 份
         </template>
       </div>
+      <!-- table-col-allow: 600px 弹窗内 4 列表，合计 400，余量归「持有天数」（#3210） -->
       <el-table :data="mergedFeeData" stripe style="width: 100%">
         <el-table-column prop="range" label="持有天数" min-width="100" />
         <el-table-column prop="rate" label="费率" align="right" width="80">

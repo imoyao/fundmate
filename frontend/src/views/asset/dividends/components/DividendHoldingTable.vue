@@ -17,6 +17,7 @@
       </template>
     </SectionHeader>
 
+    <!-- table-col-allow: 8 列合计 1030 ≈ 实测容器 1036，余量不足 10px（#3210） -->
     <el-table
       :data="holdings"
       size="small"

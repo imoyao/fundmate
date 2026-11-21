@@ -7,6 +7,7 @@
     />
     <template v-else>
       <div class="disc-table-wrap">
+        <!-- table-col-allow: 7 列合计 960（含操作 200），右栏放不下即横滚（#3210） -->
         <el-table :data="pagedItems" stripe size="small" class="disc-table">
           <el-table-column :label="DISC_COLUMN_LABELS.product" min-width="180">
             <template #default="{ row }">

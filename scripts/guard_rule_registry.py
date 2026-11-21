@@ -159,6 +159,18 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '跨文件拆分的写法（表在 .vue、样式在全局 .scss）判不出——本仓表格样式与组件同文件。'
         ),
     },
+    'scripts/guard_table_columns.py': {
+        'rule': 'el-table 列宽一律 min-width（禁单弹性列独吃容器余量）',
+        # 源 #3210（收口 #3208）：EP 只把「无数字 width」的列纳入容器余量分配，
+        # 只留一个弹性列 ⇒ 余量全灌给它（实测首列 36%~76%），窄列反被挤折行。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_table_columns.test.js',
+        'covered': (
+            '列宽由 columnDefs + v-for 驱动的表（自选页 / 基金排行）列在 *.ts 里，判不到；'
+            '「是否已横滚」不做运行时判定，存量 14 处靠 table-col-allow 登记；'
+            '不校验 min-width 取值是否合理，只数弹性列个数'
+        ),
+    },
     'scripts/guard_breakpoints.py': {
         'rule': '禁止裸断点媒体查询（走 bp.below/above）',
         'runner': 'both',

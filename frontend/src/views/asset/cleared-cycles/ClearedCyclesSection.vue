@@ -70,6 +70,7 @@
     <ClearedRankList :cycles="cycles" />
 
     <CardBlock>
+      <!-- table-col-allow: 8 列合计 932 > 实测表宽 856，已横滚，首列取自身 160（#3210） -->
       <el-table
         :data="cycles"
         size="small"

@@ -18,6 +18,7 @@
         @toggle="p.valuation.realtime.toggle"
       />
     </div>
+    <!-- table-col-allow: 9 列合计 1080 > 实测表宽 912，已横滚，首列取自身 150（#3210） -->
     <el-table
       :data="p.holdingsList"
       stripe

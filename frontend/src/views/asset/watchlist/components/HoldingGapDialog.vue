@@ -25,6 +25,7 @@
       「持仓即自选」：补齐后可像普通自选一样管理，卖出后也不会被删除。
     </p>
 
+    <!-- table-col-allow: 640px 弹窗内 3 列表，合计 446，余量给名称列（#3210） -->
     <el-table :data="gaps" :max-height="360" size="small" class="gap-table">
       <el-table-column label="品类" width="96">
         <template #default="{ row }">
