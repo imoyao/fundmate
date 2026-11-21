@@ -337,7 +337,10 @@ jobs:
 
       # 表格列宽表达守卫（#3210，收口 #3208）：EP 只把「不带数字 width」的列纳入容器余量分配，
       # 一张表只留一个弹性列时余量全灌给它（1440 视口实测首列 36%~76%），窄列反被挤折行。
-      # 判据只数「弹性列个数」（≥2 即通过），存量 14 处已横滚 / 弹窗小表按 table-col-allow 登记理由。
+      # 判据只数「弹性列个数」（≥2 即通过），存量 15 处已横滚 / 弹窗小表 / 单文本列表
+      # 按 table-col-allow 登记理由。收尾（2026-11-21）把两类原先「跳过」的表纳回判据：
+      # 字面量 width 的 v-for 由本守卫判；列宽写在 *.ts 的配置表必须登记 CONFIG_TABLE_JUDGE，
+      # 由 frontend/src/__tests__/tableColumnFlexInvariant.spec.ts 承接（未登记即红）。
       - name: 扫描表格列宽表达回潮
         run: python scripts/guard_table_columns.py
 
