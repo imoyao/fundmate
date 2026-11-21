@@ -72,9 +72,15 @@ describe("账户归属成员接线（#1173）", () => {
   });
 
   it("账户卡片展示归属成员徽章（仅在有归属时）", () => {
-    const src = view("asset/ledgers/components/LedgerCard.vue");
-    expect(src).toContain("ledger.owner_member_id");
-    expect(src).toContain("ledger.owner_member_name");
+    // 徽章随标题行一起拆到 `ledgerCard/LedgerCardHead.vue`（账户管理页视觉改造），
+    // 断言跟着接线走；但光指到新文件会漏掉「卡片还渲不渲染这个子组件」——
+    // 拆出去没人用等于徽章消失，故补一条父卡引用断言闭合链路。
+    const head = view("asset/ledgers/components/ledgerCard/LedgerCardHead.vue");
+    expect(head).toContain("ledger.owner_member_id");
+    expect(head).toContain("ledger.owner_member_name");
+
+    const card = view("asset/ledgers/components/LedgerCard.vue");
+    expect(card).toContain("<LedgerCardHead");
   });
 });
 
