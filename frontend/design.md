@@ -144,7 +144,10 @@
 > 文字一律走 `-ink`。守门判据：
 > `grep -rn "color: var(--color-warning)" frontend/src` 与
 > `grep -rn "color: var(--temp-" frontend/src` 均应为 **0 行**。
-> 另由 `scripts/check_css_vars.mjs` 守卫「引用但未定义」的幽灵令牌（#1545 T1.4）。
+> 另由 `scripts/check_css_vars.mjs` 守卫三类「不报错、不生效」的样式事故：
+> 幽灵令牌（`var(--x)` 而全仓无定义，#1545 T1.4）、自引用令牌（`--x: var(--x)`
+> 会覆盖真实定义，#1602）、孤立样式表（文件存在但没有任何入口加载它，
+> 92 行的 `login.css` 就这样静默躺了数月）。三者都是新增即拦，无基线。
 
 ### 边框与分割线
 
