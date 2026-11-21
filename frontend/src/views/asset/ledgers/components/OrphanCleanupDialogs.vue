@@ -300,7 +300,7 @@ async function handleOrphanCleanup() {
       <!-- 分区三：孤儿交易（持仓/类型/金额/日期） -->
       <section v-if="orphanDetail.transactions.length" class="orphan-section">
         <h4 class="orphan-section-title">交易</h4>
-        <!-- table-col-allow: 640px 弹窗内小表，3 列合计 370，余量给交易标的（#3210） -->
+        <!-- table-col-allow: 640px 弹窗内小表，4 列合计 460，余量给交易标的（#3210） -->
         <el-table :data="orphanDetail.transactions">
           <el-table-column label="交易标的" min-width="140">
             <template #default="{ row }">

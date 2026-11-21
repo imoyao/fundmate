@@ -70,7 +70,7 @@
     <ClearedRankList :cycles="cycles" />
 
     <CardBlock>
-      <!-- table-col-allow: 8 列合计 932 > 实测表宽 856，已横滚，首列取自身 160（#3210） -->
+      <!-- table-col-allow: 8 列合计 932；1440 视口超表宽 856 即横滚，宽视口余量也只落唯一文本列「产品」（#3210） -->
       <el-table
         :data="cycles"
         size="small"

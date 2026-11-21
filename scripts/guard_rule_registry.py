@@ -170,7 +170,9 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '这类必须登记进 CONFIG_TABLE_JUDGE，判据由 '
             'frontend/src/__tests__/tableColumnFlexInvariant.spec.ts 承接（import 配置本体）；'
             '字面量 width 的 v-for 可判（重复定宽列不改弹性列个数）；'
-            '「是否已横滚」不做运行时判定，存量 15 处靠 table-col-allow 登记；'
+            '「是否已横滚」不做运行时判定，存量 15 处靠 table-col-allow 登记，'
+            '且标记里写的「N 列 / 合计 M」必须等于代码算出的列数与数值宽合计'
+            '（含 v-for / 非字面量宽的表不校验）；'
             '不校验 min-width 取值是否合理，只数弹性列个数'
         ),
     },
