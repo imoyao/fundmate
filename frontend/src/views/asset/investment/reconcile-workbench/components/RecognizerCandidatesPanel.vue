@@ -33,7 +33,7 @@
     </el-table>
 
     <!-- 交易候选（→ 域 C，#1251） -->
-    <!-- table-col-allow: 6 列合计 560，代码/数量/金额为窄数字列，余量给名称列（#3210） -->
+    <!-- table-col-allow: 6 列合计 650，代码/数量/金额为窄数字列，余量给名称列（#3210） -->
     <el-table v-else :data="rows" size="small" stripe class="disc-table">
       <el-table-column label="代码" prop="symbol" width="110" />
       <el-table-column label="名称" prop="name" min-width="120" />

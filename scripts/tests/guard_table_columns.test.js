@@ -95,7 +95,7 @@ const PRE_FIX = `<template>
 test("命中：#3208 修复前的真实写法（行号指到 <el-table 那行）", () => {
   const { status, out } = guard([{ name: "pre-fix.vue", body: PRE_FIX }]);
   assert.equal(status, 1, `修复前的写法应判红：\n${out}`);
-  assert.match(out, /ERROR: 1 张表/, `命中数不对：\n${out}`);
+  assert.match(out, /ERROR: 1 处表格/, `命中数不对：\n${out}`);
   assert.match(out, /pre-fix\.vue:2\b/, `行号没指向 <el-table：\n${out}`);
   assert.match(out, /产品信息/, `没报出唯一弹性列的 label：\n${out}`);
 });
@@ -194,7 +194,7 @@ test("放行：带理由的 table-col-allow（本行或上一非空行）", () =
   const above = guard([
     {
       name: "allowed.vue",
-      body: body("<!-- table-col-allow: 8 列合计 932 > 实测表宽 856，已横滚 -->")
+      body: body("<!-- table-col-allow: 2 列合计 280 > 表宽 260，已横滚 -->")
     }
   ]);
   assert.equal(above.status, 0, `有理由的标记应放行：\n${above.out}`);
@@ -213,6 +213,95 @@ test("放行：带理由的 table-col-allow（本行或上一非空行）", () =
     }
   ]);
   assert.equal(blank_line.status, 0, `空行隔开也应认（上一个非空行）：\n${blank_line.out}`);
+});
+
+/* ── 放行理由里的数字必须与代码自洽（#3210 复核：15 处放行 3 处已飘）──────
+ * 注释是这条豁免的唯一证据：数字对不上，就等于没人能复核它是否还成立。
+ * 实测那 3 处全是「后来加了列 / 改了宽，没改注释」。
+ */
+test("命中：放行注释的合计与代码不符", () => {
+  const { status, out } = guard([
+    {
+      name: "stale-sum.vue",
+      body: `<template>
+  <!-- table-col-allow: 2 列合计 400 > 表宽 300，已横滚 -->
+  <el-table :data="rows">
+    <el-table-column prop="name" label="产品" min-width="160" />
+    <el-table-column prop="a" label="日期" width="120" />
+  </el-table>
+</template>`
+    }
+  ]);
+  assert.equal(status, 1, `注释合计与实际不符应判红：\n${out}`);
+  assert.match(out, /合计 注释 400 \/ 实际 280/, `要点明差在哪：\n${out}`);
+});
+
+test("命中：放行注释的列数与代码不符", () => {
+  const { status, out } = guard([
+    {
+      name: "stale-count.vue",
+      body: `<template>
+  <!-- table-col-allow: 5 列合计 280 > 表宽 260，已横滚 -->
+  <el-table :data="rows">
+    <el-table-column prop="name" label="产品" min-width="160" />
+    <el-table-column prop="a" label="日期" width="120" />
+  </el-table>
+</template>`
+    }
+  ]);
+  assert.equal(status, 1, `注释列数与实际不符应判红：\n${out}`);
+  assert.match(out, /列数 注释 5 \/ 实际 2/, `要点明差在哪：\n${out}`);
+});
+
+test("放行：操作列 / 序号列的宽也计入合计（对得上就不红）", () => {
+  const { status, out } = guard([
+    {
+      name: "action-counted.vue",
+      body: `<template>
+  <!-- table-col-allow: 3 列合计 296 > 表宽 280，已横滚 -->
+  <el-table :data="rows">
+    <el-table-column prop="name" label="产品" min-width="140" />
+    <el-table-column prop="a" label="日期" width="120" />
+    <el-table-column label="操作" width="36" />
+  </el-table>
+</template>`
+    }
+  ]);
+  assert.equal(status, 0, `操作列宽要算进「合计」，否则每张带操作的表都会假红：\n${out}`);
+});
+
+test("放行：含 v-for 的表不校验注释数字（列数随运行时常量变）", () => {
+  const { status, out } = guard([
+    {
+      name: "vfor-unchecked.vue",
+      body: `<template>
+  <!-- table-col-allow: 9 列合计 9999，数字故意写错 -->
+  <el-table :data="rows">
+    <el-table-column prop="name" label="行业" min-width="110" />
+    <el-table-column prop="a" label="拥挤度" width="140" />
+    <el-table-column v-for="n in WINDOWS" :key="n" :label="'乖离' + n" width="76" />
+  </el-table>
+</template>`
+    }
+  ]);
+  assert.equal(status, 0, `v-for 倍数静态未知，不许因此假红：\n${out}`);
+});
+
+test("放行：结构列没写宽时合计算不准，只校验列数（不误红）", () => {
+  const { status, out } = guard([
+    {
+      name: "struct-nowidth.vue",
+      body: `<template>
+  <!-- table-col-allow: 3 列合计 9999，序号列有 EP 默认宽 -->
+  <el-table :data="rows">
+    <el-table-column type="index" label="#" />
+    <el-table-column prop="name" label="产品" min-width="140" />
+    <el-table-column prop="a" label="日期" width="120" />
+  </el-table>
+</template>`
+    }
+  ]);
+  assert.equal(status, 0, `序号列默认宽算不出，合计不该硬校验：\n${out}`);
 });
 
 test("命中：字面量 width 的 v-for 是「重复定宽列」，照判（CrowdingTable 形态）", () => {
@@ -328,7 +417,7 @@ test("豁免不外溢：相邻两张表，标记只覆盖第一张", () => {
       name: "leak.vue",
       body: `<template>
   <div>
-    <!-- table-col-allow: 第一张表已横滚（8 列合计 932 > 856） -->
+    <!-- table-col-allow: 第一张表已横滚（2 列合计 220 > 200） -->
     <el-table :data="a"><el-table-column label="A" min-width="120" /><el-table-column label="B" width="100" /></el-table>
     <el-table :data="b"><el-table-column label="C" min-width="120" /><el-table-column label="D" width="100" /></el-table>
   </div>
@@ -362,6 +451,16 @@ test("反向探针 1：摘掉真实文件的 table-col-allow ⇒ 必须转红", 
   assert.notEqual(stripped, src, "样本里没找到 table-col-allow，探针失效");
   const { status, out } = guard([{ name: "stripped.vue", body: stripped }]);
   assert.equal(status, 1, `摘掉标记后应判红：\n${out}`);
+});
+
+test("反向探针 1b：把真实文件注释里的合计改错 ⇒ 必须转红", () => {
+  // 复核时实测：15 处放行里 3 处注释数字已飘（加列/改宽没同步注释），此前无任何判据。
+  const src = readFileSync(REAL_MARKED, "utf8");
+  const mutated = src.replace(/(table-col-allow:[^\n]*?合计 )(\d+)/, (all, head) => head + "980");
+  assert.notEqual(mutated, src, "样本标记里没找到「合计 N」，探针失效");
+  const { status, out } = guard([{ name: "stale-marker.vue", body: mutated }]);
+  assert.equal(status, 1, `注释数字与代码不符应判红：\n${out}`);
+  assert.match(out, /合计 注释 980/, `要点明注释写的是什么：\n${out}`);
 });
 
 test("反向探针 2：把修好表的 min-width 改回 width ⇒ 必须转红", () => {

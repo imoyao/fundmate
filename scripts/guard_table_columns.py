@@ -27,8 +27,9 @@ Element Plus 的 `updateColumnsWidth()` **只把「不带数字 `width`」的列
 
 - **结构列**：`type="selection|index|expand"`，不参与分配，忽略；
 - **操作列**：`label` 为「操作 / 操作列 / 行为 / Actions」，固定宽是常态，忽略；
-- **动态列**：带 `v-for`，或 `:width` / `:min-width` 绑非数字表达式——判不了，
-  整表跳过（宁可漏判，不误杀）；
+- **动态列**：`:width` / `:min-width` 绑非数字表达式，或 `v-for` 重复**弹性**列——判不了，
+  整表跳过（宁可漏判，不误杀）。`v-for` 重复**定宽**列仍可判：重复不改变弹性列个数
+  （`CrowdingTable` 的「乖离 6/20/60 日」三列即此形）；
 - **弹性列**：有数字 `min-width`，或两者都没写（EP 视作 flex）；
 - **固定列**：有数字 `width`。
 
@@ -46,6 +47,12 @@ Element Plus 的 `updateColumnsWidth()` **只把「不带数字 `width`」的列
 **理由必填**（6 字以上；裸标记不放行）。粒度刻意只到「这一张表」——文件级豁免会让
 同文件里新增的第二张表自动通过（同 `sticky-table-allow` 的取舍）。
 
+**理由里的数字会被对账。** 写了「N 列」或「合计 M / Σ=M / 含操作宽 M」就必须等于守卫
+从代码算出的列数与数值宽合计（操作列、序号列的宽一并计入；含 `v-for` 或非字面量宽的表
+不校验，报表里会注明）。原因：注释是这条豁免的**唯一证据**，数字一飘就没人能复核它是否
+还成立——2026-11-21 复核 15 处放行，3 处已飘（980→1070、560→650、3 列 370→4 列 460），
+全都是「加了列没改注释」。
+
 配置驱动的表（本守卫判不了，但**不许无声跳过**）
 ----------------------------------------------
 列宽写在 `*.ts`（`:width="def.width"` / `:min-width="col.minWidth"`）的表，本守卫静态解析
@@ -59,7 +66,9 @@ Element Plus 的 `updateColumnsWidth()` **只把「不带数字 `width`」的列
 
 其余不覆盖
 ----------
-- 不判「已横滚」：`Σ列宽 ≥ 容器` 的表靠放行标记说明，不靠判据猜（要运行时）。
+- 不判「已横滚」：`Σ列宽 ≥ 容器` 的表靠放行标记说明，不靠判据猜（要运行时）。标记里
+  **容器宽度本身**不校验（要看断点/目录轨/卡片 padding），只校验它与代码算出的
+  列数 / 合计是否自洽——所以「已横滚」也别写成绝对结论，它随视口变。
 - 不校验 `min-width` 的取值是否合理（240 还是 320）：只判「有几个弹性列」。
 - 只扫 `frontend/src/**/*.vue`；`<style>` 里的列宽样式与 `columns` 数组不在范围内。
 
@@ -88,6 +97,11 @@ ACTION_LABELS = {"操作", "操作列", "行为", "actions", "action"}
 
 SKIP_MARKER = "table-col-allow"
 MIN_REASON_CHARS = 6
+
+# 放行理由里的自证数字（`7 列` / `合计 1056` / `Σ=1296` / `含操作宽 1056`）。
+# 有数字就校验：豁免的正当性全靠这句话，数字飘了等于证据失效。
+CLAIM_COUNT_RE = re.compile(r"(\d+)\s*列")
+CLAIM_SUM_RE = re.compile(r"(?:合计|Σ\s*[=＝]|含操作宽)\s*(\d+)")
 
 # 列宽由配置驱动（`:width="def.width"` / `:min-width="col.minWidth"`）的表：静态判不了，
 # **必须在这里登记**，并到 vitest 判据里真正 import 那份配置做断言。
@@ -172,9 +186,20 @@ def _num(raw):
 
 
 def _columns(block: str):
-    """返回 ([(kind, label)], 是否含动态列)。kind ∈ struct/action/dynamic/flex/fixed。"""
+    """返回 ([(kind, label)], 是否含动态列, 宽度账面)。
+
+    宽度账面 ``{"count": 列数, "sum": Σ数值宽 | None, "vfor": 是否含 v-for}``，
+    用来校验放行理由里写的「N 列 / 合计 M」是否还对得上代码——注释是豁免的唯一证据，
+    数字一旦飘了，后来的人就没法验证这条豁免是否仍然成立（实测 15 处放行里已有 3 处飘）。
+    ``sum`` 为 None 表示静态算不准（结构列没写宽、宽度是表达式），此时不拿它校验。
+
+    kind ∈ struct/action/dynamic/flex/fixed。
+    """
     kinds: list[tuple[str, str]] = []
     dynamic = False
+    nums: list[int] = []
+    sum_known = True
+    vfor = False
     i = 0
     while True:
         m = COLUMN_OPEN_RE.search(block, i)
@@ -186,20 +211,31 @@ def _columns(block: str):
         attrs, i = tag
 
         ctype = _attr(attrs, "type")
-        if ctype and ctype[0] in STRUCT_TYPES:
-            kinds.append(("struct", ""))
-            continue
-
         label = _attr(attrs, "label")
         label_text = label[0] if label else ""
-        if label_text.lower() in ACTION_LABELS:
-            kinds.append(("action", label_text))
-            continue
-
         raw_width = _attr(attrs, "width")
         raw_min = _attr(attrs, "min-width")
         width = _num(raw_width)
         min_width = _num(raw_min)
+        if re.search(r"(?:^|\s)v-for\s*=", attrs):
+            vfor = True
+
+        # 数值宽先记账：操作列 / 序号列的宽度也算进放行理由里的「合计」
+        if width is not None:
+            nums.append(width)
+        elif min_width is not None:
+            nums.append(min_width)
+        elif ctype and ctype[0] in STRUCT_TYPES:
+            # 序号 / 选中列没写宽时 EP 有默认宽，静态算不出 ⇒ 合计不可信
+            sum_known = False
+
+        if ctype and ctype[0] in STRUCT_TYPES:
+            kinds.append(("struct", ""))
+            continue
+
+        if label_text.lower() in ACTION_LABELS:
+            kinds.append(("action", label_text))
+            continue
 
         if (raw_width is not None and width is None) or (
             raw_min is not None and min_width is None
@@ -222,7 +258,12 @@ def _columns(block: str):
         else:
             # 两者都没写：EP 把无 width 的列当 flex
             kinds.append(("flex", label_text))
-    return kinds, dynamic
+    book = {
+        "count": len(kinds),
+        "sum": None if (dynamic or not sum_known) else sum(nums),
+        "vfor": vfor,
+    }
+    return kinds, dynamic, book
 
 
 def _tables(text: str):
@@ -292,6 +333,16 @@ def _rel(path: Path) -> str:
         return str(path)
 
 
+def _claimed(reason: str):
+    """从放行理由里取 (声明的列数, 声明的合计)；没写则为 None。"""
+    mc = CLAIM_COUNT_RE.search(reason)
+    ms = CLAIM_SUM_RE.search(reason)
+    return (
+        int(mc.group(1)) if mc else None,
+        int(ms.group(1)) if ms else None,
+    )
+
+
 def _scan(path: Path, report: bool):
     """返回 (命中 [(行号, 说明)], 报表行)。"""
     try:
@@ -307,7 +358,7 @@ def _scan(path: Path, report: bool):
     hits: list[tuple[int, str]] = []
     rows: list[str] = []
     for lineno, block in _tables(code):
-        kinds, dynamic = _columns(block)
+        kinds, dynamic, book = _columns(block)
         flex = [lb for kind, lb in kinds if kind == "flex"]
         fixed = [lb for kind, lb in kinds if kind == "fixed"]
 
@@ -330,7 +381,27 @@ def _scan(path: Path, report: bool):
 
         ok, reason = _exempt(lines, lineno)
         if ok:
-            rows.append("%d: 放行（%s）" % (lineno, reason))
+            note = ""
+            if book["vfor"] or book["sum"] is None:
+                note = "；注释数字未校验（%s）" % (
+                    "含 v-for，列数与合计都随运行时常量变" if book["vfor"] else "宽度非字面量"
+                )
+            else:
+                claimed_n, claimed_sum = _claimed(reason)
+                bad = []
+                if claimed_n is not None and claimed_n != book["count"]:
+                    bad.append("列数 注释 %d / 实际 %d" % (claimed_n, book["count"]))
+                if claimed_sum is not None and claimed_sum != book["sum"]:
+                    bad.append("合计 注释 %d / 实际 %d" % (claimed_sum, book["sum"]))
+                if bad:
+                    detail = (
+                        "放行注释与代码不符（%s）——注释是这条豁免的唯一证据，"
+                        "数字对不上就等于没人能复核它是否还成立" % "；".join(bad)
+                    )
+                    rows.append("%d: 命中（%s）" % (lineno, detail))
+                    hits.append((lineno, detail))
+                    continue
+            rows.append("%d: 放行（%s）%s" % (lineno, reason, note))
             continue
         detail = "唯一弹性列 = 「%s」，其余 %d 列全固定宽（%s）%s" % (
             flex[0] or "无 label",
@@ -417,8 +488,8 @@ def main(argv: list[str]) -> int:
 
     total = sum(len(v) for v in violations.values())
     print(
-        "ERROR: %d 张表只有 1 个弹性列，其余全固定宽——"
-        "容器余量会全部灌给这一列（EP 只给「无数字 width」的列分余量）：" % total,
+        "ERROR: %d 处表格未通过列宽判据"
+        "（单弹性列未登记放行，或放行注释的数字与代码不符）：" % total,
         file=sys.stderr,
     )
     for rel in sorted(violations):
@@ -431,6 +502,8 @@ def main(argv: list[str]) -> int:
         "        并在 %s 里 import 那份配置做断言。\n"
         "      已横滚或弹窗内小表确需例外：在 `<el-table` 上方一行写\n"
         "        <!-- %s: 理由（8 列合计 932 > 表宽 856，已横滚） -->\n"
+        "        注释里的「N 列 / 合计 M」会被守卫对账——改了列就同步改注释，\n"
+        "        否则这条豁免等于失去证据（含 v-for 的表因列数随运行时常量变而不校验）。\n"
         "      规范：frontend/design.md「表格 · 列宽用 minWidth 表达」"
         % (_rel(SPEC_FILE), SKIP_MARKER),
         file=sys.stderr,

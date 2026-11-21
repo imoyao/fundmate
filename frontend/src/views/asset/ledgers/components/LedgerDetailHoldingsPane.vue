@@ -18,7 +18,7 @@
         @toggle="p.valuation.realtime.toggle"
       />
     </div>
-    <!-- table-col-allow: 9 列合计 1080 > 实测表宽 912，已横滚，首列取自身 150（#3210） -->
+    <!-- table-col-allow: 9 列合计 1080；1440 视口超表宽 912 即横滚，宽视口余量也只落唯一文本列「产品信息」（#3210） -->
     <el-table
       :data="p.holdingsList"
       stripe
