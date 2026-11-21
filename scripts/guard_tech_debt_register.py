@@ -52,8 +52,13 @@ TD-010 则指向了错误的符号（第三套裸算实现而非两套基准）�
 
     python scripts/guard_tech_debt_register.py                 # 0 通过 / 1 栅栏 / 2 输入不可信
     python scripts/guard_tech_debt_register.py --self-check    # 10 态变异自检
-    python scripts/guard_tech_debt_register.py --online        # 额外查 issue 状态（需 gh，不接 CI）
+    python scripts/guard_tech_debt_register.py --online        # 额外查 issue 状态（需 gh，不进 ci.yml）
     python scripts/guard_tech_debt_register.py --root <repo>   # 测试用
+
+``--online`` 不挂在 ``ci.yml``（要网络 + 凭据，还会拖慢每个 PR），但它照样得**有人负责**：
+``.github/workflows/tech-debt-drift.yml`` 每周一跑一次，红了由
+``scripts/notify_tech_debt_drift.py`` 建/更新固定跟踪卡，绿了自动关掉那张卡。
+起因是两次状态回流：2026-11-19 关 #1502、11-20 关 #2803，台账都没跟上，都是人工发现的。
 
 回归网：``scripts/tests/test_guard_tech_debt_register.py``。
 """

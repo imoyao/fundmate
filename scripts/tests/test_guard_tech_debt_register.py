@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import pathlib
+import re
 import shutil
 import tempfile
 import unittest
@@ -64,6 +65,13 @@ CLONE_FILES = (
     'docs/dev/auth-audit.md',
     'docs/spec/api.md',
     'backend/app/domains/auth/views.py',
+    # TD-021 的判据是 `file present=false`（fundfof 模块被删才算债消）。克隆里缺这个文件
+    # 会被读成「文件不存在 ⇒ 判据满足 ⇒ 僵尸 open」——假红，且方向正好相反。
+    'backend/app/services/thermometer/fundfof_crowding.py',
+    # TD-025 从 blocked 转 done 后，其 guard 判据开始被 check_criteria 真跑（blocked 态此前
+    # 被跳过）。守卫扫 `.github/workflows/`，空目录会判「结论不可信」⇒ 整目录随克隆搬过去。
+    'scripts/guard_workflow_definition_source.py',
+    '.github/workflows/',
 )
 
 
@@ -79,7 +87,12 @@ def _clone(root: pathlib.Path) -> pathlib.Path:
     for rel in CLONE_FILES:
         src, dst = REPO / rel, root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
+        if src.is_dir():
+            # 目录项（结尾带 /）：TD-025 的 done 判据要真跑 workflow 守卫，
+            # 而该守卫看到空目录会判「结论不可信」⇒ 必须整目录搬过去。
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
     return root
 
 
@@ -106,11 +119,13 @@ class GuardOnRealRepoTest(unittest.TestCase):
         debts = data['debt']
         self.assertGreaterEqual(len(debts), 20, '登记表被删掉一大半也能全绿？')
         statuses = {d['status'] for d in debts}
-        self.assertEqual(
-            statuses,
-            {'open', 'done', 'blocked', 'deferred', 'wontfix'},
-            '五态必须都有实例，否则状态机退化成摆设',
-        )
+        self.assertTrue(statuses <= set(self.guard.STATUSES), f'出现未知状态：{statuses}')
+        # 这里**不**要求五态都有实例（2026-11-21 修正）：`blocked` 是过渡态
+        # （代码已做、等发版），TD-025 闭环后实例数合法归零。若仍要求「必须有 blocked」，
+        # 为了变绿只能硬造一条假 blocked —— 那正是「改数据迎合判据」的反面教材。
+        # 真正要钉的是**状态机没被裁成两态**：五态定义仍在、且判据由守卫统一执行。
+        self.assertEqual(set(self.guard.STATUSES), {'open', 'done', 'blocked', 'deferred', 'wontfix'})
+        self.assertGreaterEqual(len(statuses), 3, '只剩两三个状态说明状态机退化了')
 
     def test_strip_comment_lines_ignores_code_comments(self) -> None:
         """#2453：判据文本只写在代码注释里时，不得算命中。"""
@@ -168,7 +183,11 @@ class MutationTest(unittest.TestCase):
         self.assertEqual(self._run(), 1)
 
     def test_stale_updated_at_is_red(self) -> None:
-        _mutate(self.root, 'updated_at = "2026-11-10"', 'updated_at = "2020-01-01"')
+        # 不硬编码日期：台账每次复核都会改 `updated_at`，写死一个旧值会让这条探针
+        # 在下一次复核时变成「变异锚点不存在」——那时绿的是探针自己，不是守卫。
+        current = re.search(r'updated_at = "(\d{4}-\d{2}-\d{2})"', (REPO / REGISTER_REL).read_text(encoding='utf-8'))
+        self.assertIsNotNone(current, '台账缺 updated_at，锚点无法推导')
+        _mutate(self.root, f'updated_at = "{current.group(1)}"', 'updated_at = "2020-01-01"')
         self.assertEqual(self._run(), 1)
 
     def test_authority_mark_removed_is_red(self) -> None:
