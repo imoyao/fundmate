@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""回归网：``scripts/guard_service_size.py``（services 层体量 / 复杂度软闸门）。
+"""回归网：``scripts/guard_service_size.py``（services / core 层体量 / 复杂度软闸门）。
 
 本守卫与 ``test_view_thickness_guard.py`` 同构，钉死三个容易静默失效的点：
 
@@ -76,7 +76,7 @@ class GuardServiceSizeTest(unittest.TestCase):
         会让守卫与回归网互相矛盾（#2944 实测踩到）。
         """
         guard = self.guard
-        services = guard._iter_services()
+        services = guard._iter_modules()
         self.assertTrue(services, "未扫描到任何服务文件，守卫的 rglob 可能失效")
         actual = {guard._rel(p) for p in services}
         # 冻结集由 BASELINE 派生，故两者键必须一致
@@ -95,6 +95,21 @@ class GuardServiceSizeTest(unittest.TestCase):
         # 反向：基线里的每个键都对应一个真实文件（防 stale 基线虚胖）
         stale = set(guard.BASELINE) - actual
         self.assertFalse(stale, f"基线里有已不存在的文件（stale）：{sorted(stale)}")
+
+    def test_core_layer_is_scanned_and_frozen(self) -> None:
+        """core 层必须真的被扫描并进基线（2026-11-21 扩容）。
+
+        为什么单独立一条：``_iter_modules`` 一旦退回只扫 services，core 就重新变成
+        「一个闸门都没有」的盲区，而最大的文件恰在那里（migrations 3014 行）——
+        这种退化不会让任何别的用例转红（services 全绿、基线照样贴合），只会静默放行。
+        """
+        guard = self.guard
+        rels = {guard._rel(p) for p in guard._iter_modules()}
+        core = {rel for rel in rels if rel.startswith("backend/app/core/")}
+        self.assertIn("backend/app/core/migrations.py", core, "core 层未被扫描")
+        self.assertGreaterEqual(len(core), 30, f"core 层只扫到 {len(core)} 个文件，疑似漏扫")
+        for rel in sorted(core):
+            self.assertIn(rel, guard.BASELINE, f"core 文件 {rel} 未进基线（漏登记 = 无人守）")
 
     def test_metrics_count_lines_and_complexity(self) -> None:
         """指标口径：`lines` / `max_func`（最长函数行数）/ `max_cc`（圈复杂度）必须正确。"""
@@ -118,7 +133,7 @@ class GuardServiceSizeTest(unittest.TestCase):
             "svc.py",
             "def thick():\n" + "\n".join(f"    x{i} = {i}" for i in range(20)) + "\n",
         )
-        with mock.patch.object(guard, "_iter_services", lambda: [thick]), \
+        with mock.patch.object(guard, "_iter_modules", lambda: [thick]), \
              mock.patch.object(guard, "_rel", lambda _p: "backend/app/services/x/svc.py"), \
              mock.patch.object(
                  guard, "BASELINE",
@@ -138,7 +153,7 @@ class GuardServiceSizeTest(unittest.TestCase):
             "svc.py",
             "def thick():\n" + "\n".join(f"    x{i} = {i}" for i in range(850)) + "\n",
         )
-        with mock.patch.object(guard, "_iter_services", lambda: [fresh]), \
+        with mock.patch.object(guard, "_iter_modules", lambda: [fresh]), \
              mock.patch.object(guard, "_rel", lambda _p: "backend/app/services/brandnew/svc.py"), \
              mock.patch.object(guard, "BASELINE", {}), \
              mock.patch.object(guard, "LEGACY_SERVICES", frozenset()):
@@ -154,7 +169,7 @@ class GuardServiceSizeTest(unittest.TestCase):
             "svc.py",
             "def thick():\n" + "\n".join(f"    x{i} = {i}" for i in range(850)) + "\n",
         )
-        with mock.patch.object(guard, "_iter_services", lambda: [fat]), \
+        with mock.patch.object(guard, "_iter_modules", lambda: [fat]), \
              mock.patch.object(guard, "_rel", lambda _p: "backend/app/services/brandnew/svc.py"), \
              mock.patch.object(guard, "LEGACY_SERVICES", frozenset()), \
              mock.patch.object(
@@ -170,7 +185,7 @@ class GuardServiceSizeTest(unittest.TestCase):
         """灵敏度（防过度抑制 / 正例）：压在 NEW_FILE_LIMITS 内的新文件必须放行。"""
         guard = self.guard
         ok = self._write("svc.py", "def thin():\n    return 1\n")
-        with mock.patch.object(guard, "_iter_services", lambda: [ok]), \
+        with mock.patch.object(guard, "_iter_modules", lambda: [ok]), \
              mock.patch.object(guard, "_rel", lambda _p: "backend/app/services/brandnew/svc.py"), \
              mock.patch.object(guard, "LEGACY_SERVICES", frozenset()), \
              mock.patch.object(guard, "BASELINE", {}):
@@ -182,7 +197,7 @@ class GuardServiceSizeTest(unittest.TestCase):
         """防基线虚胖：实测低于基线时必须提示回写，但**不报错**（正常收敛不该红掉校验）。"""
         guard = self.guard
         thin = self._write("svc.py", "def thin():\n    return 1\n")
-        with mock.patch.object(guard, "_iter_services", lambda: [thin]), \
+        with mock.patch.object(guard, "_iter_modules", lambda: [thin]), \
              mock.patch.object(guard, "_rel", lambda _p: "backend/app/services/x/svc.py"), \
              mock.patch.object(
                  guard, "BASELINE",
@@ -199,7 +214,7 @@ class GuardServiceSizeTest(unittest.TestCase):
         `python scripts/guard_service_size.py --report` 回写 BASELINE——基线**调大**仍会由本
         用例拦下（守卫生效的唯一方式）。"""
         guard = self.guard
-        measured = {guard._rel(p): guard.collect_metrics(p) for p in guard._iter_services()}
+        measured = {guard._rel(p): guard.collect_metrics(p) for p in guard._iter_modules()}
         for rel, m in measured.items():
             if rel not in guard.BASELINE:
                 continue  # 新文件不在基线内，已由 NEW_FILE_LIMITS 覆盖

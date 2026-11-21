@@ -272,7 +272,11 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'both',
         'stage': 'default',
         'tests': 'backend/tests/core/test_layer_direction.py',
-        'covered': '函数内延迟 import 同样被算作依赖边（刻意从严）',
+        'covered': (
+            '函数内延迟 import 同样算依赖边（刻意从严）；'
+            '例外：R1 的 core→services 只判导入期（函数体内延迟导入不参与导入链，故放行）；'
+            '不判包级双向依赖对（多由 views→services 与 services→models 两条合法边叠加）'
+        ),
     },
     'scripts/check_view_thickness.py': {
         'rule': '视图层只做 HTTP 编排（行数 / query / commit / 单函数只减不增）',
@@ -360,7 +364,7 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只判「登记 / 引擎 / 生命周期 / 预算」四件事；规则内容对不对仍要靠人',
     },
     'scripts/guard_service_size.py': {
-        'rule': 'services 层模块体量 / 复杂度软闸门（防 #2873 类上帝模块复发）',
+        'rule': 'services / core 层模块体量 / 复杂度软闸门（防 #2873 类上帝模块复发）',
         'runner': 'ci',
         'tests': 'scripts/tests/test_guard_service_size.py',
         'covered': (
