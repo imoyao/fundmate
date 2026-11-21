@@ -239,6 +239,7 @@ async function handleOrphanCleanup() {
       <!-- 分区一：孤儿持仓（名称/数量/市值/盈亏） -->
       <section v-if="orphanDetail.positions.length" class="orphan-section">
         <h4 class="orphan-section-title">持仓</h4>
+        <!-- table-col-allow: 640px 弹窗内小表，4 列合计 490，余量给名称列（#3210） -->
         <el-table :data="orphanDetail.positions">
           <el-table-column label="名称" min-width="140">
             <template #default="{ row }">
@@ -271,6 +272,7 @@ async function handleOrphanCleanup() {
       <!-- 分区二：孤儿资产（名称/类型/金额） -->
       <section v-if="orphanDetail.assets.length" class="orphan-section">
         <h4 class="orphan-section-title">资产</h4>
+        <!-- table-col-allow: 640px 弹窗内小表，3 列合计 360，余量给名称列（#3210） -->
         <el-table :data="orphanDetail.assets">
           <el-table-column label="名称" min-width="140">
             <template #default="{ row }">
@@ -298,6 +300,7 @@ async function handleOrphanCleanup() {
       <!-- 分区三：孤儿交易（持仓/类型/金额/日期） -->
       <section v-if="orphanDetail.transactions.length" class="orphan-section">
         <h4 class="orphan-section-title">交易</h4>
+        <!-- table-col-allow: 640px 弹窗内小表，3 列合计 370，余量给交易标的（#3210） -->
         <el-table :data="orphanDetail.transactions">
           <el-table-column label="交易标的" min-width="140">
             <template #default="{ row }">
