@@ -255,12 +255,18 @@ test.describe("同类优选（#980 拆分）", () => {
     expect(first[7]).toBe("-2.35"); // 近3月
     expect(first[3]).toBe("18.50"); // UI：中性、无符号
 
-    // ⑥ 派生读的是同一份数据：脚注的窗口 / 样本区间 / 口径版本 / 数据截至
+    // ⑥ 派生读的是同一份数据：脚注的窗口 / 样本区间 / 口径版本
     const footnote = page.locator(".footnote");
     await expect(footnote).toContainText("近3年");
     await expect(footnote).toContainText("700~730");
     await expect(footnote).toContainText("口径版本 7");
-    await expect(footnote).toContainText("2026-10-23");
+
+    // ⑥b 数据截至（#3215 上移到页头胶囊）：脚注不再重复同一个日期——
+    //     旧实现日期只在脚注里，长榜滚到底才看得见；现在两者互斥，任一出现都算回归。
+    await expect(page.locator(".page-header__updated")).toHaveText(
+      /数据截至\s*2026-10-23/
+    );
+    await expect(footnote).not.toContainText("2026-10-23");
 
     // ⑦ 剔除条数可见（诚实降级）
     await expect(page.locator(".excluded-tip")).toContainText("5 只被剔除");
@@ -316,6 +322,42 @@ test.describe("同类优选（#980 拆分）", () => {
       "aria-label",
       /按「夏普」从优到劣/
     );
+  });
+
+  test("类型筛选：带只数的分段控制器，一次点击即换类取榜", async ({ page }) => {
+    test.setTimeout(240_000);
+    const stub = await stubApi(page);
+    await openPage(page);
+
+    // ① 类型只有 5 类（一级主维度 2–6）⇒ 平铺分段控制器，不是下拉框。
+    //    旧的 240px 下拉框 + 叠在上面的「基金类型」微标签占两行 60px，
+    //    选完还看不到别的类型各有几只；#3215 换成平铺 + 计数。
+    await expect(page.locator("#fund-type")).toHaveCount(0);
+    const seg = page.locator(".segmented-control");
+    await expect(seg).toHaveCount(1);
+    const items = seg.locator(".segmented-control__item");
+    await expect(items).toHaveCount(2);
+
+    // ② 只数直接挂在选项上（「（共 42 只）」不再只活在下拉面板里）
+    await expect(items.nth(0)).toContainText("偏股混合型");
+    await expect(items.nth(0).locator(".segmented-control__count")).toHaveText(
+      "42"
+    );
+    await expect(items.nth(1).locator(".segmented-control__count")).toHaveText(
+      "8"
+    );
+
+    // ③ 默认选中只数最多的那一类（typeOptions 已按 count 降序）
+    await expect(items.nth(0)).toHaveClass(/is-active/);
+    await expect(items.nth(0)).toHaveAttribute("aria-selected", "true");
+
+    // ④ emit → 父层写值 → 重取：判据是请求参数，不是视觉
+    await items.nth(1).click();
+    await expect
+      .poll(() => stub.rankingQueries.at(-1)?.get("fund_type_id"))
+      .toBe("12");
+    await expect(items.nth(1)).toHaveClass(/is-active/);
+    await expect(items.nth(0)).not.toHaveClass(/is-active/);
   });
 });
 

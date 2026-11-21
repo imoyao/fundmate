@@ -37,14 +37,8 @@ export function useFundRanking(options: UseFundRankingOptions) {
   const caliberVersion = ref<number | null>(null);
   const metricGuideOpen = ref<string[]>([]);
 
-  const selectedTypeName = computed(
-    () =>
-      typeOptions.value.find(t => t.fund_type_id === selectedTypeId.value)
-        ?.name ?? ""
-  );
-  // 卡片标题只写当前类型（页头已是「同类优选」）——旧版「混合型 · 同类优选」
-  // 与页头、筛选器三处重复同一信息。
-  const rankingTitle = computed(() => selectedTypeName.value || "同类优选");
+  // 卡片标题不再承载「当前类型」：类型由筛选带上的分段控制器自述（选中项 + 只数），
+  // 旧标题「混合型 · 同类优选」于是成了同一句话的第三遍（#3215 撤掉）。
   const rankingInfo = computed(() => {
     const label =
       tableColumns.find(c => c.key === metric.value)?.label ?? metric.value;
@@ -159,7 +153,6 @@ export function useFundRanking(options: UseFundRankingOptions) {
     caliberVersion,
     metricGuideOpen,
     // 派生（文案与脚注）
-    rankingTitle,
     rankingInfo,
     excludedTip,
     noRowHint,
