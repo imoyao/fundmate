@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Flask 集成层：薄装饰器，迁移到 FastAPI 时换成 Dependency 即可，核心逻辑复用。"""
+"""权益的 Flask 集成层：薄装饰器，迁移到 FastAPI 时换成 Dependency 即可，核心逻辑复用。
+
+**为什么在 `services/` 而不是 `core/`**（2026-11-21 归位，#<issue>）：
+本模块是「HTTP 框架集成」而非「基础设施」——它 import `flask.g`、读请求级会话，
+依赖 `services.entitlement_check` 的业务判定，唯一消费方是 `domains/products/views.py`。
+放在 `core/` 会造出一条 `core → services` 的反向依赖（分层方向是
+`core ← domains.models ← services ← domains.views`，见 `architecture.md` §6 / D24），
+而 `core/` 的定位是**框架无关**的基础设施（同层 `core/cache.py` 明示「不 import flask」）。
+纯判定逻辑仍在 `services/entitlement_check.py`（零框架耦合，FastAPI 侧可直接复用）。
+"""
 
 from functools import wraps
 

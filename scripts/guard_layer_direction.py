@@ -11,6 +11,7 @@
 | 规则 | 非法边 | 为什么 |
 |---|---|---|
 | R1 | `app.core.*` → `app.domains.*` / `app.models.*` | 基础设施层反向依赖领域层（批次 1 已归零） |
+| R1 | `app.core.*` → `app.services.*`（**仅导入期**，2026-11-21 增补） | 基础设施层反向依赖服务层：`core` 的定位是框架无关的基础设施，服务层的业务能力应上移而非下灌。**函数体内的延迟 import 不在判据内**——它不参与模块导入链、不制造启动期耦合与环，属已登记的安全写法（见 `app/core/migrations.py:1452,2047` 的注释） |
 | R2 | `app.services.*` → `app.domains.<域>.views` | 服务层碰 HTTP 编排层 |
 | R3 | `app.domains.<域>.{models,schemas}` → `app.services.*` | 叶子层反向依赖服务层 |
 | R4 | `app.domains.A.views` → `app.domains.B.views`（A≠B） | 跨域引用对方视图（HTTP 细节外溢到另一域） |
@@ -131,14 +132,25 @@ def _is_views_module(module: str) -> bool:
     return tail.endswith('views')
 
 
-def _violation(module_name: str, target_module: str) -> str | None:
-    """按四条规则判定一条 import 边；命中返回规则号 + 说明，否则 None。"""
+def _violation(module_name: str, target_module: str, *, import_time: bool = True) -> str | None:
+    """按 R1~R7 判定一条 import 边；命中返回规则号 + 说明，否则 None。
+
+    ``import_time``：该 import 是否位于**导入期**代码路径（模块级 / 类体 / 条件块），
+    而不是函数体内的延迟导入。只有 R1 的 `core → services` 区分这一点——
+    延迟导入不参与模块导入链，是已登记的安全写法。
+    """
     if not module_name.startswith('app.'):
         return None
 
     if _is_core_module(module_name):
         if _split_domain(target_module)[0] or _is_top_level_models(target_module):
             return 'R1 core 不得依赖领域层（app.domains.* / app.models.*），需要的领域能力应由组合根注入'
+        if import_time and _is_services_module(target_module):
+            return (
+                'R1 core 不得在导入期依赖 services（基础设施层 → 服务层反向依赖；'
+                '放错层的模块应移到 services/，需要的业务能力由调用方注入。'
+                '函数体内的延迟 import 不在此判据内）'
+            )
         return None
 
     if _is_services_module(module_name):
@@ -179,6 +191,29 @@ def _violation(module_name: str, target_module: str) -> str | None:
     return None
 
 
+_DEFERRED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _import_time_nodes(tree: ast.AST) -> set[int]:
+    """收集「导入期必然执行」的节点 id（模块级 / 类体 / if·try·with 体）。
+
+    函数体（含嵌套 def / lambda）内的节点不进集合——那里的 import 是**延迟导入**，
+    调用时才执行，不参与模块导入链。收集的是**所有节点**而非只有 Import 节点，
+    因为动态导入（`importlib.import_module('app.services.x')`）是一条 `ast.Call`。
+    """
+    found: set[int] = set()
+
+    def walk(node: ast.AST) -> None:
+        if isinstance(node, _DEFERRED_SCOPES):
+            return
+        found.add(id(node))
+        for child in ast.iter_child_nodes(node):
+            walk(child)
+
+    walk(tree)
+    return found
+
+
 def scan_file(path: Path, app_dir: Path, violations: list[str]) -> None:
     """扫描单个文件，命中即追加违规描述（含规则号、行号与源码原文）。"""
     try:
@@ -193,9 +228,10 @@ def scan_file(path: Path, app_dir: Path, violations: list[str]) -> None:
 
     module_name = _module_name_of(path, app_dir)
     lines = source.splitlines()
+    import_time_ids = _import_time_nodes(tree)
 
-    def _report(lineno: int, target: str) -> None:
-        why = _violation(module_name, target)
+    def _report(lineno: int, target: str, node_id: int) -> None:
+        why = _violation(module_name, target, import_time=node_id in import_time_ids)
         if why is None:
             return
         snippet = lines[lineno - 1].strip() if 0 < lineno <= len(lines) else ''
@@ -205,18 +241,18 @@ def scan_file(path: Path, app_dir: Path, violations: list[str]) -> None:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 # `import app.domains.x` 与 `import app.domains.x as y` 都算这条边
-                _report(node.lineno, alias.name)
+                _report(node.lineno, alias.name, id(node))
         elif isinstance(node, ast.ImportFrom):
             if node.module:
-                _report(node.lineno, node.module)
+                _report(node.lineno, node.module, id(node))
                 # `from app.domains import users` 形态：把子名也当成一条边
                 for alias in node.names:
                     if node.module.count('.') <= 1:
-                        _report(node.lineno, f'{node.module}.{alias.name}')
+                        _report(node.lineno, f'{node.module}.{alias.name}', id(node))
         else:
             target = _dynamic_import_target(node)
             if target is not None:
-                _report(node.lineno, target)
+                _report(node.lineno, target, id(node))
 
 
 def _dynamic_import_target(node: ast.AST) -> str | None:
