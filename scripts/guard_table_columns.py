@@ -46,10 +46,19 @@ Element Plus 的 `updateColumnsWidth()` **只把「不带数字 `width`」的列
 **理由必填**（6 字以上；裸标记不放行）。粒度刻意只到「这一张表」——文件级豁免会让
 同文件里新增的第二张表自动通过（同 `sticky-table-allow` 的取舍）。
 
-已知不覆盖（如实登记）
---------------------
-- **列宽由配置驱动的表**（`columnDefs` + `v-for`，如自选页 `WatchlistTableSection`、
-  基金排行 `FundRankingTable`）：列在 `*.ts` 里，本守卫看不见，现无判据。
+配置驱动的表（本守卫判不了，但**不许无声跳过**）
+----------------------------------------------
+列宽写在 `*.ts`（`:width="def.width"` / `:min-width="col.minWidth"`）的表，本守卫静态解析
+不到。这类**必须**登记进 `CONFIG_TABLE_JUDGE`，由
+`frontend/src/__tests__/tableColumnFlexInvariant.spec.ts` 直接 import 那份配置做断言——
+比正则猜精确（能拿到 spread / 常量 / 计算属性之后的真值），且配置一改就跟着回归。
+未登记即红；登记了但判据本体不存在也红（跳过不许写成通过）。
+
+字面量 `width` 的 `v-for` **不**属于这一类：重复一个定宽列不改变弹性列个数，守卫自己判
+（`CrowdingTable` 的「乖离 6/20/60 日」三列）。
+
+其余不覆盖
+----------
 - 不判「已横滚」：`Σ列宽 ≥ 容器` 的表靠放行标记说明，不靠判据猜（要运行时）。
 - 不校验 `min-width` 的取值是否合理（240 还是 320）：只判「有几个弹性列」。
 - 只扫 `frontend/src/**/*.vue`；`<style>` 里的列宽样式与 `columns` 数组不在范围内。
@@ -79,6 +88,29 @@ ACTION_LABELS = {"操作", "操作列", "行为", "actions", "action"}
 
 SKIP_MARKER = "table-col-allow"
 MIN_REASON_CHARS = 6
+
+# 列宽由配置驱动（`:width="def.width"` / `:min-width="col.minWidth"`）的表：静态判不了，
+# **必须在这里登记**，并到 vitest 判据里真正 import 那份配置做断言。
+#
+# 登记不是走过场——它挡的是「新加一张配置驱动的表，静默回到无判据状态」：
+# 2026-11-21（#3210 收尾）之前，全仓 4 张 `v-for` 表都是「跳过」，其中 3 张的列宽
+# 完全在 *.ts 里，守卫连看都看不见。现在：
+#   · 字面量 `width` 的 `v-for` 已可判（重复定宽列不改弹性列个数），由守卫直接判；
+#   · 其余动态列 ⇒ 未登记即红，登记后由 SPEC_FILE 里的用例承接。
+CONFIG_TABLE_JUDGE: dict[str, str] = {
+    "frontend/src/views/asset/watchlist/components/WatchlistTableSection.vue": (
+        "columnDefs.getDefaultVisibleColumns()（冻结列 width / 其余 minWidth）"
+    ),
+    "frontend/src/views/asset/fund-ranking/components/FundRankingTable.vue": (
+        "rankingColumns.tableColumns（接口里根本没有 width，只有 minWidth）"
+    ),
+    "frontend/src/views/asset/investment/import/components/PreviewTable.vue": (
+        "importWizardData.columnsForMode()（基金 / 股票两套列全 minWidth）"
+    ),
+}
+# 登记项指向的判据本体。**内容不在这里校验**（全文 includes 会被注释喂假绿，见 #2453），
+# 只钉「文件存在」；用例侧用 `CASES.length` 钉住覆盖张数，删掉一条就红。
+SPEC_FILE = REPO_ROOT / "frontend/src/__tests__/tableColumnFlexInvariant.spec.ts"
 
 TABLE_OPEN_RE = re.compile(r"<el-table(?![\w-])")
 COLUMN_OPEN_RE = re.compile(r"<el-table-column(?![\w-])")
@@ -169,11 +201,20 @@ def _columns(block: str):
         width = _num(raw_width)
         min_width = _num(raw_min)
 
-        if re.search(r"(?:^|\s)v-for\s*=", attrs) or (
-            raw_width is not None and width is None
-        ) or (raw_min is not None and min_width is None):
+        if (raw_width is not None and width is None) or (
+            raw_min is not None and min_width is None
+        ):
             dynamic = True
             kinds.append(("dynamic", label_text))
+        elif re.search(r"(?:^|\s)v-for\s*=", attrs):
+            # `v-for` 只是**重复同一个列**：重复一个「定宽」列不改变弹性列个数（0 个还是 0 个），
+            # 故字面量 width 的 `v-for` 可判——`CrowdingTable` 的「乖离 6/20/60 日」三列正是此形。
+            # 重复一个「弹性」列则会改变个数（N 要读运行时常量，静态未知）⇒ 仍判不了。
+            if width is not None:
+                kinds.append(("fixed", label_text))
+            else:
+                dynamic = True
+                kinds.append(("dynamic", label_text))
         elif raw_min is not None:
             kinds.append(("flex", label_text))
         elif width is not None:
@@ -244,6 +285,13 @@ def _exempt(lines: list[str], lineno: int):
     return False, ""
 
 
+def _rel(path: Path) -> str:
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def _scan(path: Path, report: bool):
     """返回 (命中 [(行号, 说明)], 报表行)。"""
     try:
@@ -254,6 +302,7 @@ def _scan(path: Path, report: bool):
     if TABLE_OPEN_RE.search(code) is None:
         return [], []
 
+    rel = _rel(path)
     lines = raw.splitlines()
     hits: list[tuple[int, str]] = []
     rows: list[str] = []
@@ -263,7 +312,15 @@ def _scan(path: Path, report: bool):
         fixed = [lb for kind, lb in kinds if kind == "fixed"]
 
         if dynamic:
-            rows.append("%d: 跳过（含动态列，判不了）" % lineno)
+            judged_by = CONFIG_TABLE_JUDGE.get(rel)
+            if judged_by:
+                rows.append("%d: 跳过（列宽由配置驱动，判据见 vitest：%s）" % (lineno, judged_by))
+                continue
+            detail = (
+                "列宽由配置驱动（动态列），守卫静态判不了，且**未登记** CONFIG_TABLE_JUDGE"
+            )
+            rows.append("%d: 命中（%s）" % (lineno, detail))
+            hits.append((lineno, detail))
             continue
         if len(flex) != 1 or not fixed:
             rows.append(
@@ -285,10 +342,6 @@ def _scan(path: Path, report: bool):
         hits.append((lineno, detail))
 
     if report and rows:
-        try:
-            rel = path.relative_to(REPO_ROOT).as_posix()
-        except ValueError:
-            rel = str(path)
         for row in rows:
             print("  %s:%s" % (rel, row))
     return hits, rows
@@ -339,6 +392,14 @@ def main(argv: list[str]) -> int:
             "ERROR: 没有扫到任何 .vue 文件——判据等于没跑，不得视为通过", file=sys.stderr
         )
         return 2
+    if CONFIG_TABLE_JUDGE and not SPEC_FILE.exists():
+        print(
+            "ERROR: 登记了 %d 张「配置驱动」的表，但判据本体不存在：%s\n"
+            "      登记项必须有承接的用例，否则等于把跳过写成了通过。"
+            % (len(CONFIG_TABLE_JUDGE), _rel(SPEC_FILE)),
+            file=sys.stderr,
+        )
+        return 1
 
     violations: dict[str, list[tuple[int, str]]] = {}
     for path in files:
@@ -364,11 +425,14 @@ def main(argv: list[str]) -> int:
         for lineno, detail in violations[rel]:
             print("  %s:%d  %s" % (rel, lineno, detail), file=sys.stderr)
     print(
-        "\n      正解：非固定列一律 `min-width`（≥2 个弹性列即通过）；"
+        "\n      正解①（普通表）：非固定列一律 `min-width`（≥2 个弹性列即通过）；"
         "只有冻结列 / 选择列 / 操作列才用 `width`。\n"
+        "      正解②（列宽由配置驱动、守卫判不了）：把该文件登记进 CONFIG_TABLE_JUDGE，\n"
+        "        并在 %s 里 import 那份配置做断言。\n"
         "      已横滚或弹窗内小表确需例外：在 `<el-table` 上方一行写\n"
         "        <!-- %s: 理由（8 列合计 932 > 表宽 856，已横滚） -->\n"
-        "      规范：frontend/design.md「表格 · 列宽用 minWidth 表达」" % SKIP_MARKER,
+        "      规范：frontend/design.md「表格 · 列宽用 minWidth 表达」"
+        % (_rel(SPEC_FILE), SKIP_MARKER),
         file=sys.stderr,
     )
     return 1

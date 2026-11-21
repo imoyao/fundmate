@@ -166,8 +166,11 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'ci',
         'tests': 'scripts/tests/guard_table_columns.test.js',
         'covered': (
-            '列宽由 columnDefs + v-for 驱动的表（自选页 / 基金排行）列在 *.ts 里，判不到；'
-            '「是否已横滚」不做运行时判定，存量 14 处靠 table-col-allow 登记；'
+            '列宽由配置驱动（:width="def.width"）的表在 *.ts 里，本守卫解析不到——'
+            '这类必须登记进 CONFIG_TABLE_JUDGE，判据由 '
+            'frontend/src/__tests__/tableColumnFlexInvariant.spec.ts 承接（import 配置本体）；'
+            '字面量 width 的 v-for 可判（重复定宽列不改弹性列个数）；'
+            '「是否已横滚」不做运行时判定，存量 15 处靠 table-col-allow 登记；'
             '不校验 min-width 取值是否合理，只数弹性列个数'
         ),
     },
