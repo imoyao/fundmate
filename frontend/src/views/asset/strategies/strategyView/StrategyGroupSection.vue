@@ -79,8 +79,10 @@ const rows = computed(() =>
     </div>
 
     <el-table v-if="group.holdings.length" :data="rows" stripe size="default">
-      <!-- 产品信息：名称/代码 + 类型标签 -->
-      <el-table-column label="名称 / 代码" min-width="180">
+      <!-- 产品信息：名称/代码 + 类型标签。
+           列宽一律 min-width（#1421 口径）：此前除本列外全是固定宽，容器余量全灌给
+           第一列（1440 视口实测 444/1134 = 39%），「所属账户」反被 120px 挤到折行。 -->
+      <el-table-column label="名称 / 代码" min-width="240">
         <template #default="{ row }">
           <div class="product-cell">
             <span class="product-name">{{
@@ -103,7 +105,7 @@ const rows = computed(() =>
         </template>
       </el-table-column>
 
-      <el-table-column label="市值" width="130" align="right">
+      <el-table-column label="市值" min-width="130" align="right">
         <template #default="{ row }">
           <MoneyDisplay
             :value="row.marketValue || 0"
@@ -116,7 +118,7 @@ const rows = computed(() =>
 
       <!-- 盈亏双线（#1104）：主行＝已确认，副行＝当日预估。
            组级汇总（totalPnl）仍是静态确认口径，不含预估——预估只做逐行参考。 -->
-      <el-table-column label="盈亏" width="170" align="right">
+      <el-table-column label="盈亏" min-width="170" align="right">
         <template #default="{ row }">
           <PnlDualLine
             :confirmed="confirmedPnl(row as EnrichedHolding)"
@@ -128,7 +130,7 @@ const rows = computed(() =>
         </template>
       </el-table-column>
 
-      <el-table-column label="盈亏率" width="90" align="right">
+      <el-table-column label="盈亏率" min-width="90" align="right">
         <template #default="{ row }">
           <MoneyDisplay
             :value="row.pnlRate || 0"
@@ -139,12 +141,12 @@ const rows = computed(() =>
         </template>
       </el-table-column>
 
-      <el-table-column label="所属账户" width="120">
+      <el-table-column label="所属账户" min-width="140">
         <template #default="{ row }">{{ row.account_name }}</template>
       </el-table-column>
 
       <!-- 策略标签列：点击弹出多选，可增删 -->
-      <el-table-column label="策略标签" width="180">
+      <el-table-column label="策略标签" min-width="180">
         <template #default="{ row }">
           <StrategyTagCell
             :row="row as EnrichedHolding"
