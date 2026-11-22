@@ -524,3 +524,40 @@ class TestSymbolIdentity:
         """纯函数（只读 symbol + asset_type）：重复调用结果一致，`before_update` 重算才幂等。"""
         first = symbol_identity('SZ004369', 'fund')
         assert all(symbol_identity('SZ004369', 'fund') == first for _ in range(5))
+
+
+class TestDeriveSecurityTypeEtfSegments:
+    """`derive_security_type` 的沪市 ETF 号段覆盖（含扩容后的新段）。
+
+    背景：沪市 ETF 号段已从早期 51/56/58 扩容到 52（港股通/跨境）、53（上证宽基）、
+    55（科创债）。旧前缀表漏了这三段，导致 securities_type_backfill 把证券元数据里
+    **本就正确**的 ETF 反向回退成 stock（本地实证 81 只 SH52/53/55 段证券被误伤）。
+    """
+
+    @pytest.mark.parametrize(
+        'code',
+        [
+            '510050',  # 沪深300ETF（早期号段）
+            '512400',  # 有色ETF
+            '520500',  # 港股通 ETF（52 段）
+            '530300',  # 上证180ETF（53 段）
+            '551000',  # 科创债 ETF（55 段）
+            '562510',  # 旅游ETF（56 段）
+            '588000',  # 科创50ETF（58 段）
+        ],
+    )
+    def test_sh_etf_segments(self, code):
+        assert derive_security_type(code, 'SH') == 'etf'
+
+    @pytest.mark.parametrize(
+        'code',
+        ['159915', '159981', '161005'],
+    )
+    def test_sz_etf_segments(self, code):
+        assert derive_security_type(code, 'SZ') == 'etf'
+
+    def test_stock_and_bond_unchanged(self):
+        assert derive_security_type('600519', 'SH') == 'stock'
+        assert derive_security_type('000001', 'SZ') == 'stock'
+        assert derive_security_type('110067', 'SH') == 'bond'
+        assert derive_security_type('128063', 'SZ') == 'bond'

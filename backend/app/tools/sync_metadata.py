@@ -86,6 +86,18 @@ DB_POOL_JOBS = {
     'fund_style': ('fund', 'etf'),
 }
 
+# 显式目标透传 job：给了 --targets / --target-file 才透传，**没给就保持 targets=None**
+# 交给 job 自身语义（不跨域现取核心池）。
+#
+# 为什么单列、不并入 DB_POOL_JOBS：DB_POOL_JOBS 的语义是「targets 为空时从库内
+# **核心池**（持仓 + 自选）现取」——那要求 CLI 在 market 域会话里读 user 域持仓，
+# 是 `security_industry_map_job.py` docstring 明确拒绝的跨域读取。而
+# `security_industry_maps` 只需要「显式 targets 不被吞」，targets 为空时它本就有
+# 自己的 sw1 全量语义（`_fetch_data(full_sync, [])`），不该被塞进核心池路径。
+# 2026-11-22 实测 `--job security_industry_maps --targets 600519` 返回 targets=0，
+# 就是它没登记进任何一张表、else 分支把 --targets 静默丢成 None（与 #2628 同型）。
+EXPLICIT_TARGET_JOBS = ('security_industry_maps',)
+
 
 def _combine_pools(resolved: dict, keys) -> list:
     """把 resolve_targets() 返回的多个池合并成列表（去重）。"""
@@ -350,6 +362,10 @@ def main():
                         if not job_targets:
                             print(f'ℹ️ {args.job}: 库内核心池（持仓+自选）中没有可处理标的，跳过')
                             return
+                    elif args.job in EXPLICIT_TARGET_JOBS:
+                        # 显式目标透传 job：只透传 --targets/--target-file，不从库内核心池
+                        # 现取（那会跨域读 user 域持仓）。没给目标就保持 None，交 job 自身语义。
+                        job_targets = resolve_job_targets(orchestrator, args.job, args.targets, args.target_file)
                     result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=job_targets)
                     mark, detail, ok = render_job_result(result)
                     print(f'{mark} {result.get("job_name", args.job)}: {detail}')

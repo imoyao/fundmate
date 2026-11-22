@@ -96,7 +96,7 @@
       </p>
       <!-- 未穿透清单：逐条带 reason（「本质无股票敞口」与「待补真缺口」分开） -->
       <CardBlock class="mt-4">
-        <PenetrationGapTable :rows="data.unpenetrated" />
+        <PenetrationGapTable :rows="data.unpenetrated" @refreshed="load" />
       </CardBlock>
       <!-- 非主口径：单列且**明写它不是另一套等价分类**（实测 GICS 只标注港股）。
            2026-11-15 折叠：两块「非主口径」卡合计 542px，且都写着「不可并列或相加」

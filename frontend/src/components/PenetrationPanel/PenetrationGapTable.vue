@@ -14,10 +14,29 @@
   <div>
     <div class="gap-head">
       <h4 class="panel-subtitle">未穿透构成</h4>
-      <p v-if="rows.length" class="gap-head__meta">
-        {{ rows.length }} 项 · {{ formatAmount(total) }}
-      </p>
+      <div class="gap-head__right">
+        <p v-if="rows.length" class="gap-head__meta">
+          {{ rows.length }} 项 · {{ formatAmount(total) }}
+        </p>
+        <el-button
+          v-if="hasRealGap"
+          text
+          size="small"
+          class="gap-refresh"
+          :loading="refreshing"
+          @click="onRefresh"
+        >
+          {{ refreshing ? "补齐中…" : "补齐行业映射" }}
+        </el-button>
+      </div>
     </div>
+    <p
+      v-if="refreshMsg"
+      class="gap-refresh-msg"
+      :style="{ color: 'var(--text-secondary)' }"
+    >
+      {{ refreshMsg }}
+    </p>
     <p
       v-if="!rows.length"
       class="text-sm"
@@ -83,14 +102,26 @@
 import { computed, ref } from "vue";
 import { percent } from "./format";
 import { formatAmount } from "@/utils/currency";
+import { refreshIndustryMap } from "@/api/portfolio";
 import type { PenetrationUnpenetrated } from "@/api/summary";
 
 const props = defineProps<{ rows: PenetrationUnpenetrated[] }>();
+
+const emit = defineEmits<{ (e: "refreshed"): void }>();
 
 /** 折叠前显示的行数：够看清「大头是谁」，又不至于把整页撑长。 */
 const LIMIT = 5;
 
 const expanded = ref(false);
+
+const refreshing = ref(false);
+const refreshMsg = ref("");
+
+/** 是否还有「真缺口」（可补齐的未穿透）——现金等价物本质无敞口，不算缺口。
+ *  只认 industry_map_missing / fund_alloc_missing / etf_holding_missing 三类。 */
+const hasRealGap = computed(() =>
+  props.rows.some(row => row.reason !== "cash_equivalent")
+);
 
 const shownRows = computed(() =>
   expanded.value ? props.rows : props.rows.slice(0, LIMIT)
@@ -99,6 +130,30 @@ const shownRows = computed(() =>
 const total = computed(() =>
   props.rows.reduce((sum, row) => sum + (row.value_cny ?? 0), 0)
 );
+
+async function onRefresh() {
+  refreshing.value = true;
+  refreshMsg.value = "";
+  try {
+    const res = await refreshIndustryMap();
+    const data = res?.data;
+    if (data?.skipped) {
+      refreshMsg.value = "没有可补齐的股票/可转债持仓。";
+      return;
+    }
+    const inserted =
+      data?.stats?.csrc_wind_inserted ?? data?.stats?.csrc_inserted ?? 0;
+    refreshMsg.value =
+      inserted > 0
+        ? `已补齐 ${data.symbols.length} 只标的的行业映射。`
+        : "行业映射已是最新，无需补齐。";
+    emit("refreshed");
+  } catch {
+    refreshMsg.value = "补齐失败，请稍后重试。";
+  } finally {
+    refreshing.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -109,10 +164,25 @@ const total = computed(() =>
   justify-content: space-between;
 }
 
+.gap-head__right {
+  display: flex;
+  gap: var(--space-compact);
+  align-items: baseline;
+}
+
 .gap-head__meta {
   margin: 0;
   font-size: var(--text-label);
   color: var(--text-tertiary);
+}
+
+.gap-refresh {
+  padding: 0;
+}
+
+.gap-refresh-msg {
+  margin: var(--space-compact) 0 0;
+  font-size: var(--text-label);
 }
 
 .gap-toggle {
