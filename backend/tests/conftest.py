@@ -216,6 +216,11 @@ def _disable_async_backfill(monkeypatch):
     """
     monkeypatch.setattr('app.services.async_backfill.trigger_backfill', lambda *a, **k: None)
     monkeypatch.setattr('app.services.importer.import_entry.trigger_catalog_backfill_async', lambda *a, **k: None)
+    # 行业映射补录线程（2026-11-22）：函数定义在 `import_entry`（R6 分层约束），
+    # patch 线程主体 `_run_industry_map_backfill`（真正联网的部分）而非触发器——这样
+    # `commit_import_rows` 调触发器时只会起一个 no-op 线程、不联网；而
+    # `test_industry_map_refresh.py` 里测触发器语义的用例拿到的仍是原函数、不被覆盖。
+    monkeypatch.setattr('app.services.importer.import_entry._run_industry_map_backfill', lambda *a, **k: None)
 
 
 @pytest.fixture(autouse=True)
