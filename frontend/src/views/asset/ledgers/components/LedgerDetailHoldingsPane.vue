@@ -357,32 +357,16 @@ async function handleMaturitySubmit(payload: PositionEditPayload) {
   border-radius: 50%;
 }
 
-/* 「配置目标」在表格里是**行内文本控件**，不是表单输入框：一个带边框的下拉框
-   嵌在密集的只读数字中间，视觉上像「这格还没填」。统一走 design.md「输入框基线
-   契约」允许的页面侧手段——**在容器上覆盖令牌**，而不是再写一套 `:deep` 视觉覆盖
-   （那会分化出第二份输入框样式，正是该契约要禁止的）：
-   - 底色 / 边框三态设 transparent ⇒ 静息呈现为纯文本，与左侧「所属组合」同一语言；
-   - 焦点环保留（未覆盖 --input-focus-shadow）⇒ 展开下拉时仍能看出「在改这一格」；
-   - hover 底色画在本容器上（纯几何 + 背景），不碰输入框内部。 */
+/* 「配置目标」是行内可编辑下拉（#1123 P0）。曾按「行内文本控件」思路把底色 /
+   边框三态覆盖成 transparent 伪装成纯文本，与左侧「所属组合」同一语言——
+   实测用户找不到编辑入口（#3115 D2：能改成活钱的唯一途径不可发现）。可发现性
+   优先于静息态的文本感，恢复 design.md「输入框基线契约」的标准带边框形态：
+   边框三态与焦点环全部走基线默认值，页面侧不再做任何令牌覆盖。 */
 .alloc-cell {
-  --input-bg: transparent;
-  --input-border-color: transparent;
-  --input-hover-border-color: transparent;
-
   display: flex;
   gap: 4px;
   align-items: center;
   justify-content: flex-end;
-
-  /* 左右 2px 只为了 hover 底色比文本略宽一点；用负 margin 抵消，否则会从
-     select 的可用宽度里啃掉 4px，把「长期增值」挤成「长期...」（实测）。 */
-  padding: 0 2px;
-  margin: 0 -2px;
-  border-radius: var(--radius-sm);
-
-  &:hover {
-    background: var(--bg-hover);
-  }
 }
 
 .alloc-select {

@@ -272,11 +272,18 @@ BASELINE: dict[str, dict[str, int]] = {
     # `services/position_edit_service.py`（`apply_position_edit`），端点只剩
     # 「取参 → 调服务 → 组信封」，656 → 651。`orm_queries` 10 / `commits` 0 /
     # `max_func` 42 三项不动。按 `--report` 实测收紧。
+    # 2026-11-22 重取（#3115 D1，**修复分支接线**，非放宽）：`GET /ledgers/<id>/summary/`
+    # 的类现金统计 `get_cash_like_stats` 从 stock/fund/e_account 分支内提到分支外
+    # 对所有账户类型出数（bank 录入的账户现金在类现金卡上读不到，见视图内注释）；
+    # `split_cash_like_allocation` 随之移到统一接线之后（依赖 money_fund_amount，
+    # 顺序由回归网锁定）。净增 10 行 = 调用移位 + 口径注释；`orm_queries` 10 /
+    # `commits` 0 不动，`max_func` 42 → 46（get_ledger_summary 分支重构）。
+    # 按 `--report` 实测回写。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 651,
+        "lines": 661,
         "orm_queries": 10,
         "commits": 0,
-        "max_func": 42,
+        "max_func": 46,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
