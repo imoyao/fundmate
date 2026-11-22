@@ -20,8 +20,36 @@
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-raised);
   transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 入场：核心摘要卡首次出现时淡入 + 轻微上浮。两卡并排同屏，同时淡入
+     更整齐，不做错峰（只有两张，错峰反而像「第二张卡还没就位」）。
+     fill-mode 必须是 `backwards`（只覆盖延迟期）——不能用 `both/forwards`，
+     否则末帧的 transform 会永久留在元素上、把 :hover 的反馈压掉
+     （与账户管理页 LedgerCard 同一条纪律）。摘要卡是纯展示（不可点击），
+     故 hover 只加深阴影、不上浮，避免给出「可点」的物理暗示。 */
+  animation: summary-card-in 0.3s ease-out backwards;
 }
 
 .summary-card:hover {
   box-shadow: var(--shadow-float);
+}
+
+@keyframes summary-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 尊重系统「减少动态效果」偏好：关掉入场动画与 hover 过渡（无障碍） */
+@media (prefers-reduced-motion: reduce) {
+  .summary-card {
+    transition: none;
+    animation: none;
+  }
 }
