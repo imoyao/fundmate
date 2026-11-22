@@ -29,6 +29,7 @@ export type OverviewMetricInput = {
   /** 账户 summary（后端字段缺失一律视为「没有这个口径」） */
   summary: {
     position_count?: number | null;
+    asset_count?: number | null;
     cash_balance?: number | null;
     ledger_type?: string | null;
     linked_liability?: number | null;
@@ -46,12 +47,15 @@ export type OverviewMetricInput = {
 /** 组装概览指标格（顺序即版面顺序：持仓数量 → 资金 → 负债 → 货基 → 区间对比）。 */
 export function buildOverviewMetrics(input: OverviewMetricInput): MetricCell[] {
   const s = input.summary;
+  // 实物资产（property）没有「持仓」，只有「资产」——计数格读 asset_count，
+  // 标签改「资产数量」，否则恒显示「持仓数量 0 项」误导（#3222）。
+  const isProperty = s?.ledger_type === "property";
   const cells: Array<MetricCell | null> = [
     {
       key: "position-count",
-      label: "持仓数量",
+      label: isProperty ? "资产数量" : "持仓数量",
       kind: "count",
-      value: s?.position_count ?? 0
+      value: isProperty ? (s?.asset_count ?? 0) : (s?.position_count ?? 0)
     },
     // 资金余额：后端不下发就是「这个账户没有现金口径」，不画 `--`；
     // 为 0 也不画——「余额 ¥0.00」只说明满仓，而这句话类现金区块已经说了，

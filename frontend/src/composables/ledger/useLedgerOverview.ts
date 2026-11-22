@@ -24,6 +24,7 @@ import {
 } from "@/api/performance";
 import type { TodayPnlData } from "@/api/summary";
 import { useTodayPnlGroups } from "@/composables/useTodayPnlGroups";
+import { isInvestmentLedger } from "./ledgerDetailSections";
 import type { LedgerSummaryData } from "./types";
 
 export interface LedgerOverviewApi {
@@ -56,11 +57,10 @@ export function useLedgerOverview(
     ledger_id: Number(ledgerId.value)
   }));
 
-  // 是否展示资产构成（仅股票 / 基金 / 信用账户有投资资产与现金类资产之分）
+  // 是否展示资产构成（仅投资账户有投资资产与现金类资产之分）。
+  // 判据收口到 ledgerDetailSections（单一真相源），避免这里再手写一份类型名单。
   const isCompositionLedger = computed(() =>
-    ["stock", "fund", "e_account"].includes(
-      summaryData.value?.ledger_type ?? ""
-    )
+    isInvestmentLedger(summaryData.value?.ledger_type)
   );
 
   // 环形图数据：投资资产 vs 现金类资产。

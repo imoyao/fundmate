@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
 # Author : imoyao
 # Date : 2026/5/10 17:22
 # File : views.py
-# -*- coding: utf-8 -*-
 """通用资产 API."""
 
 from datetime import date
@@ -52,6 +50,8 @@ def list_assets():
     with get_db() as db:
         query = db.query(Asset).order_by(Asset.updated_at.desc())
         query = query.filter(Asset.family_id == get_family_id())
+        if (ledger_id := request.args.get('ledger_id', type=int)) is not None:
+            query = query.filter(Asset.ledger_id == ledger_id)
 
         # #1354：支持逗号分隔多值。盘点页「投资理财」需一次取回 investment 及其
         # 历史细分子类（bank_wealth/advisory/trust/private_fund/wealth_insurance）；
