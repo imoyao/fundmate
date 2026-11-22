@@ -35,6 +35,7 @@ from typing import Any
 
 from sqlalchemy import or_
 
+from app.core.allocation_rules import resolve_allocation_source
 from app.core.constants import ALLOCATION_LABELS
 from app.core.money import Money
 from app.core.symbol_utils import symbol_identity
@@ -56,6 +57,13 @@ def apply_position_edit(db: Any, pos: Any, data: dict) -> None:
         if data['allocation'] is not None and data['allocation'] not in ALLOCATION_LABELS:
             raise ValueError('非法配置目标')
         pos.allocation = data['allocation']
+        # 来源打标（#3115 D2）：本路径不走 AllocationSourceStampMixin（那是
+        # AssetCreate/AssetUpdate/PositionUpdate 的 model_dump 出口，本端点是裸
+        # dict 直入），不接的话用户行内改的配置目标落到 default——下一次 G3 回填
+        # （只放 default）就会把手动选择覆盖掉，正是 P0-7 要防的事。判据与 mixin
+        # 一致：「请求体显式带了 allocation」即显式；清空（None）也是用户的显式
+        # 动作，同样标 user 受保护。
+        pos.allocation_source = resolve_allocation_source(explicit=True, allocation=data['allocation'], path='form')
     if 'current_price' in data:
         pos.current_price = Money.yuan_to_price_units(data['current_price'])
     if 'notes' in data:
