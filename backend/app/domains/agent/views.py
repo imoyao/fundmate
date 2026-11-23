@@ -27,6 +27,7 @@ from app.core.auth import get_family_id
 from app.core.exceptions import SBException
 from app.core.validation import parse_body
 from app.domains.agent.schemas import AgentCancelRequest, AgentChatRequest
+from app.domains.ledgers.access import visible_ledger_id_set
 from app.services.ai_recognizer import cancellation, guards, session_store
 from app.services.ai_recognizer.agent_loop import run_agent
 
@@ -63,8 +64,11 @@ def agent_chat():
         out = run_agent(
             user_input=payload.message,
             session=session_row,
-            # P1：服务端权威上下文，工具参数中的 family_id 只认这里，候选值一律被覆盖
-            server_ctx={'family_id': get_family_id()},
+            # P1：服务端权威上下文，工具参数中的 family_id 只认这里，候选值一律被覆盖。
+            # visible_ledger_ids（#3246 / D127）：可见账户集合也由服务端给，带它之后
+            # 账户/持仓/汇总类工具才不再只按 family_id 全量取数（D125 已论证 family_id
+            # 在有 private 账户时会从「正确作用域」退化成「过宽作用域」）。
+            server_ctx={'family_id': get_family_id(), 'visible_ledger_ids': sorted(visible_ledger_id_set(db))},
         )
     return jsonify({'data': out, 'message': 'ok'})
 

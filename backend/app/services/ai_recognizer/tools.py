@@ -26,6 +26,7 @@ from sqlalchemy import func
 from app.core import database  # 模块级引用，禁止 from-import get_session（#1608 晚绑定守卫）
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
+from app.domains.ledgers.visibility import restrict_visible
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.ai_recognizer.tools_domain import install_domain_tools
@@ -52,8 +53,15 @@ def register_tool(name: str, func: Callable) -> None:
 
 
 # ── P1：服务端权威上下文 ────────────────────────────────────────────────────
+#: 服务端**内部**上下文键：不进任何工具的 schema（模型看不到、也传不进来），
+#: 由 ``apply_server_context`` 强制注入、校验时放行。
+#: 为什么不让它进 schema：``visible_ledger_ids`` 是授权结果，模型若能填就等于自己发牌。
+#: 为什么需要单独的键集合：``_validate_params`` 对未知键一律报错，注入的内置键会被判非法。
+_INTERNAL_CTX_KEYS = frozenset({'visible_ledger_ids'})
+
+
 def apply_server_context(tool_name: str, params: dict, server_ctx: dict) -> dict:
-    """把服务端权威值覆盖进候选参数（只覆盖该工具 schema 声明过的键）。
+    """把服务端权威值覆盖进候选参数（只覆盖该工具 schema 声明过的键 + 内部键）。
 
     候选参数 = 前端 collected_params + 模型 tool_params；权威值 = 鉴权上下文。
     返回新 dict，不原地修改入参。
@@ -66,7 +74,7 @@ def apply_server_context(tool_name: str, params: dict, server_ctx: dict) -> dict
     props = meta['parameters'].get('properties', {})
     merged = dict(params)
     for key, value in server_ctx.items():
-        if key in props:
+        if key in props or key in _INTERNAL_CTX_KEYS:
             merged[key] = value
     return merged
 
@@ -77,6 +85,26 @@ def _server_family_id(params: dict) -> int:
         return int(params.get('family_id') or 1)
     except (TypeError, ValueError):
         return 1
+
+
+def _server_visible_ids(params: dict):
+    """取注入后的可见账户集合；``None`` = 该路径没有身份上下文（不做可见性筛）.
+
+    ``None`` 与空集的语义**必须**分开：空集是「这个用户一个账户都看不见」（真有可能，
+    比如未登录且没有任何 shared 账户），此时应当什么都不返回；``None`` 是「判定不出主体」
+    （MCP stdio 本地单用户、离线脚本），此时与改造前逐字一致。
+
+    为什么缺键时选择「不筛」而不是「全部挡掉」：agent 的入口有两条，HTTP 路径必注入
+    （``domains/agent/views.py``），MCP 路径只有 ``family_id`` 环境变量、没有用户身份。
+    若把缺键读成空集，本地 MCP 的 agent 会突然什么数据都拿不到——那是故障不是安全。
+    """
+    value = params.get('visible_ledger_ids')
+    if value is None:
+        return None
+    try:
+        return {int(v) for v in value}
+    except (TypeError, ValueError):
+        return None
 
 
 def _jsonable(value: Any) -> Any:
@@ -94,7 +122,7 @@ def _jsonable(value: Any) -> Any:
 def _tool_get_assets_overview(params: dict) -> dict:
     """家庭资产总览：总资产 / 负债 / 净资产 / 已实现与未实现盈亏（元）。"""
     with database.get_session() as db:
-        return get_summary_data(db, family_id=_server_family_id(params))
+        return get_summary_data(db, family_id=_server_family_id(params), visible_ids=_server_visible_ids(params))
 
 
 def _tool_get_portfolio_performance(params: dict) -> dict:
@@ -119,7 +147,8 @@ def _tool_list_position_pnl(params: dict) -> dict:
       （聚合页对应显示 "--"，不参与排序、沉底）。
     """
     with database.get_session() as db:
-        positions = exclude_cleared(db.query(Position).filter(Position.family_id == _server_family_id(params))).all()
+        query = exclude_cleared(db.query(Position).filter(Position.family_id == _server_family_id(params)))
+        positions = restrict_visible(query, Position.ledger_id, _server_visible_ids(params)).all()
 
     items = []
     for p in positions:
@@ -596,6 +625,8 @@ def _validate_params(tool_name: str, params: Any) -> None:
         if r not in params:
             raise ValueError(f'缺少必填参数: {r}')
     for k, v in params.items():
+        if k in _INTERNAL_CTX_KEYS:
+            continue  # 服务端注入的内部键（如可见账户集合），不是模型给的参数
         if k not in props:
             raise ValueError(f'未知参数: {k}')
         _validate_value(k, v, props[k])

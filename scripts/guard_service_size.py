@@ -221,6 +221,17 @@ NEW_FILE_LIMITS = {
 # `build_transaction_detail` 改成先建 query 再 restrict（+1 行）、`build_transactions_csv`
 # 同样（+2 行），4 个函数签名各加一参同处不增行。`max_func` 69 / `max_cc` 10 未变——
 # 新增的是参数传递，不是分支或职责。
+# 2026-11-23 汇总双口径（#3246 第三段 / D127）按 `--report` 放宽两项、新增一项，理由留痕：
+# - `services/summary_service.py` 1420→1495 / max_cc 17→18：新增 `family_scope` 对照块
+#   （取数 + 组装）与 `get_summary_data` / `get_account_groups` / `get_distributions` 的
+#   `visible_ids` 入参；max_cc +1 来自 `_per_ledger_buckets` 里「孤儿流水跳过不可见账户」
+#   一处 `continue`——不跳过就是「持仓按可见算、孤儿现金按全家算」两种口径混在一个总资产里。
+#   真正吃行数的是「成员 ∩ 可见性」这套作用域判断，它被四个调用点共用，故整体下沉到新文件
+#   `services/summary_scope.py`（104/28/6，走 NEW_FILE_LIMITS 并登记基线），主文件只留
+#   `_load_user_assets` 的两行 `apply_scope(...)` 调用。
+# - `services/ai_recognizer/tools.py` 644→675：`_INTERNAL_CTX_KEYS`（可见账户集合不进工具
+#   schema、由服务端强制注入、校验放行）+ `_server_visible_ids` + 两个工具接上过滤。
+#   `max_func` 91 / `max_cc` 17 未变——新增的是「取注入值」，不是分支或新职责。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -278,7 +289,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 纯计算与取数已下沉到 services/analytics/rebalance_reference*.py（新文件走
     # NEW_FILE_LIMITS），max_func 91 / max_cc 17 不变——没有放大任何既有函数职责。
     # 理由与实施边界见 docs/spec/agent-rebalance-reference-tool.md §12.6。
-    "backend/app/services/ai_recognizer/tools.py": {'lines': 644, 'max_func': 91, 'max_cc': 17},
+    "backend/app/services/ai_recognizer/tools.py": {'lines': 675, 'max_func': 91, 'max_cc': 17},
     "backend/app/services/analytics/__init__.py": {'lines': 39, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/analytics/behavior.py": {'lines': 340, 'max_func': 194, 'max_cc': 62},
     "backend/app/services/analytics/benchmark_comparison.py": {'lines': 307, 'max_func': 108, 'max_cc': 23},
@@ -524,7 +535,8 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-12 #3031 G4：五笔钱成员边界与分桶下沉到 allocation_breakdown.py
     # （资产行纳入 + 「未纳入」出口），并删除随实现消失的死常量 _DEFAULT_ALLOC；
     # 1417 → 1415 为真实缩减，按 --report 回写（只减不增）。
-    "backend/app/services/summary_service.py": {'lines': 1420, 'max_func': 107, 'max_cc': 17},
+    "backend/app/services/summary_scope.py": {'lines': 104, 'max_func': 28, 'max_cc': 6},
+    "backend/app/services/summary_service.py": {'lines': 1495, 'max_func': 107, 'max_cc': 18},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},

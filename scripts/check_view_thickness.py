@@ -520,7 +520,11 @@ BASELINE: dict[str, dict[str, int]] = {
     # `orm_queries` / `commits` 仍为 **0**——没有任何查询或事务边界回到视图，
     # 没有可下沉的业务规则。按 --report 实测回写：334 → 346、max_func 31 → 43
     # （穿透端点自身 span 43 ≤ 硬上限 60）。同 #2134 / #2135 先例。
-    "backend/app/domains/summary/views.py": {
+        # 2026-11-23 账户可见性读路径（#3246 第三段 / D127）：443 → 445。`/summary/` 与
+    # `/summary/distributions/` 各补一个 `visible_ledger_id_set(db)` 实参（+1 import 行、
+    # +1 局部变量），聚合口径全在 `services/summary_service.py` 与 `services/summary_scope.py`，
+    # 视图仍零 ORM 查询、零事务（orm_queries / commits / max_func 三维实测不动）。
+"backend/app/domains/summary/views.py": {
         # #2617 新增 GET /summary/position-structure/（持仓结构）后 346 → 379：
         # 该端点只做入参解析 + 调 services，无 ORM 查询、无 commit；
         # 业务口径全部在 services/position_structure.py，故只重取 lines。
@@ -569,7 +573,7 @@ BASELINE: dict[str, dict[str, int]] = {
         # 视图零新增入参、零 ORM 查询、零事务，`orm_queries` / `commits` / `max_func`
         # 实测仍 0 / 0 / 43。口径实现全在 `services/cash_flow_service.py` 与
         # `services/pnl_calendar.py`。与 #2774 / #2681 同先例。
-        "lines": 443,
+        "lines": 445,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,
