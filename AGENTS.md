@@ -27,6 +27,7 @@
   - [优先级标签（Q1-RED）：登记零摩擦 + 容量记账](#优先级标签q1-red登记零摩擦--容量记账)
 - [双库架构 Issue 治理（里程碑 #14）](#双库架构-issue-治理里程碑-14)
 - [自动化工具](#自动化工具)
+- [Agent 操作套路（流程层）](#agent-操作套路流程层)
 - [协作规范](#协作规范)
 - [常用命令速查](#常用命令速查)
 
@@ -2046,6 +2047,24 @@ GitHub: - Required status check "质量门禁汇总" is expected.
   ```
 
 
+
+---
+
+## Agent 操作套路（流程层）
+
+本文件是**规范层**：必须遵守什么。**流程层**（遇到 X 时一步步怎么做、踩过哪些坑）独立维护在私有仓
+[`ddb-skills`](https://github.com/imoyao/ddb-skills)，索引只在**该仓 `README.md` 的一张表**里。
+
+- 覆盖场景：PR 冲突 / CI 飘红、发版判定、卡片进度核实、一次性数据清洗、后端结构审查开卡、接口慢、批跑失败、新数据源落库前打点、浏览器走查。
+- **只留指针，不复制正文，也不复制索引表** —— 两份索引必然漂移，读者会不知道该信哪份。
+- 本机安装（Windows 目录 junction，改仓库即刻生效，无需重新复制）：
+
+  ```bash
+  pwsh -File <ddb-skills>/scripts/link-skills.ps1 -Apply -Relink
+  ```
+
+- 新增 / 修改 skill 后跑该仓 pre-commit 守卫：索引集合相等 + 无本机路径残留（`scripts/check_index.py`、`scripts/desensitize.py --check`）。
+- 与 fundmate 无关的方法论（本地绿 / CI 红归因、worktree 脏改动定性、Actions 慢、批量 issue）也在该仓 `general/` 下。
 
 ---
 
