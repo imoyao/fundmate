@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 import {
   isSectionVisible,
   isInvestmentLedger,
+  isPropertyLedger,
   type LedgerDetailSection
 } from "../ledgerDetailSections";
 
@@ -99,5 +100,17 @@ describe("isInvestmentLedger（净值 + 盈亏口径）", () => {
     expect(isInvestmentLedger("property")).toBe(false);
     expect(isInvestmentLedger(null)).toBe(false);
     expect(isInvestmentLedger(undefined)).toBe(false);
+  });
+});
+
+describe("isPropertyLedger（实物资产口径）", () => {
+  it("仅 property 为实物资产账户", () => {
+    expect(isPropertyLedger("property")).toBe(true);
+    expect(isPropertyLedger("stock")).toBe(false);
+    expect(isPropertyLedger("fund")).toBe(false);
+    expect(isPropertyLedger("e_account")).toBe(false);
+    expect(isPropertyLedger("bank")).toBe(false);
+    expect(isPropertyLedger(null)).toBe(false);
+    expect(isPropertyLedger(undefined)).toBe(false);
   });
 });
