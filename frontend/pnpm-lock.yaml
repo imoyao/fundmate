@@ -5411,7 +5411,7 @@ snapshots:
       jiti: 2.7.0
       lightningcss: 1.33.0
       magic-string: 1.4.5
-      source-map-js: 1.2.4
+      source-map-js: 1.2.2
       tailwindcss: 4.3.5
 
   '@tailwindcss/oxide-android-arm64@4.3.5':
@@ -6295,7 +6295,7 @@ snapshots:
   css-tree@3.2.1:
     dependencies:
       mdn-data: 2.27.1
-      source-map-js: 1.2.4
+      source-map-js: 1.2.2
 
   css-what@6.2.2: {}
 
