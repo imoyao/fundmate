@@ -8,7 +8,7 @@
 """
 
 import datetime as dt
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 from sqlalchemy import func, or_
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 # 原 services/performance/constants.py 只是 12 行 re-export 转发层，已删除。
 from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
+from app.domains.ledgers.visibility import restrict_visible
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -412,23 +413,30 @@ def calculate_portfolio_xirr(
     family_id: int = 1,
     include_cash_equivalents: bool = False,
     method: str = 'xirr',
+    visible_ids: Optional[Set[int]] = None,
 ) -> Dict[str, Any]:
     """
     计算整个投资组合的年化收益率 (XIRR)。
     通过 asset_type 字段直接过滤，孤儿交易默认纳入计算（asset_type 为 NULL 不会被 NOT IN 排除）。
     include_cash_equivalents=True 时，货币基金/逆回购/现金也并入分母，得到账户总收益。
+
+    `visible_ids`（#3246）：传则只算这些账户构成的子组合。XIRR 是可定义在任意集合上的
+    统计——把可见账户当成一个组合，流水与市值同口径收窄，分子分母不会错配。不传
+    （None）保持家庭全量，与改造前逐字节一致；空集按 `restrict_visible` 只留无主流水。
     """
     # 直接通过 asset_type 过滤交易，无需 JOIN Position 表
     txn_filter = [Transaction.family_id == family_id]
     if not include_cash_equivalents:
         txn_filter.append(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
-    filtered_transactions = db.query(Transaction).filter(*txn_filter).all()
+    filtered_transactions = restrict_visible(
+        db.query(Transaction).filter(*txn_filter), Transaction.ledger_id, visible_ids
+    ).all()
 
-    # 获取所有非排除类型的持仓（家庭维度）
+    # 获取所有非排除类型的持仓（家庭维度；传 visible_ids 时收到可见账户）
     pos_filter = [Position.quantity > 0, Position.family_id == family_id]
     if not include_cash_equivalents:
         pos_filter.extend(_exclude_cash_equivalent_positions())
-    positions = db.query(Position).filter(*pos_filter).all()
+    positions = restrict_visible(db.query(Position).filter(*pos_filter), Position.ledger_id, visible_ids).all()
 
     # 批量计算持仓市值
     value_map = _batch_get_position_values(db, positions)
