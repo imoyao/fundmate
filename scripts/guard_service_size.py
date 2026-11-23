@@ -182,6 +182,11 @@ NEW_FILE_LIMITS = {
 # 整体下沉到新文件 `ai_recognizer/tool_budget.py`（157/14/5，走 NEW_FILE_LIMITS），
 # 主文件只留 `_decision_system_prompt` 一行委托；没有借此放大任何既有函数职责
 # （max_func 294 / max_cc 39 未变）。基线向下收紧，不是放宽阈值。
+# 2026-11-23 关键信息卡分层修复按 `--report` 收紧一项，理由留痕：`ai_recognizer/
+# agent_loop.py` 的 max_cc 39→38——压缩成功后不再有 `if facts:` 分支（空 dict /
+# 半空 dict 统一走 `merge_key_facts` 的「缺键保留、空值忽略、非空覆盖」），行数仍 726
+# （新增的 import 与每轮维护各 1 行，被同文件内的两处收敛抵消）。语义逻辑下沉到新文件
+# `ai_recognizer/key_facts.py`（走 NEW_FILE_LIMITS），未放大任何既有函数职责。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -212,7 +217,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/advisor_position.py": {'lines': 90, 'max_func': 45, 'max_cc': 7},
     "backend/app/services/advisor_profile.py": {'lines': 180, 'max_func': 59, 'max_cc': 6},
     "backend/app/services/ai_recognizer/__init__.py": {'lines': 34, 'max_func': 0, 'max_cc': 0},
-    "backend/app/services/ai_recognizer/agent_loop.py": {'lines': 726, 'max_func': 294, 'max_cc': 39},
+    "backend/app/services/ai_recognizer/agent_loop.py": {'lines': 726, 'max_func': 294, 'max_cc': 38},
     "backend/app/services/ai_recognizer/base.py": {'lines': 133, 'max_func': 20, 'max_cc': 10},
     "backend/app/services/ai_recognizer/cancellation.py": {'lines': 57, 'max_func': 12, 'max_cc': 4},
     "backend/app/services/ai_recognizer/catalog.py": {'lines': 161, 'max_func': 91, 'max_cc': 20},

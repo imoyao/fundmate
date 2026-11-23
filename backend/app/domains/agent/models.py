@@ -35,7 +35,9 @@ class AgentSession(Base, PrimaryKeyMixin, TimestampMixin):
         JSON, nullable=False, default=list, comment='最近原文轮次 [{user, assistant}]（分层 prompt 最近层，硬截断）'
     )
     summary = Column(String(3000), nullable=False, default='', comment='滚动摘要（压缩层，轮次过阈写入）')
-    key_facts = Column(JSON, nullable=False, default=dict, comment='关键信息卡（当前标的/账户/时间范围，永不压缩）')
+    key_facts = Column(
+        JSON, nullable=False, default=dict, comment='关键信息卡（当前标的/时间范围，永不压缩；账户不入卡见 D124）'
+    )
     turn_count = Column(Integer, nullable=False, default=0, comment='已用轮次（G4 轮次闸 + 压缩触发）')
 
 
