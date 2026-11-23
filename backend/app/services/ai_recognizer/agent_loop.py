@@ -58,6 +58,7 @@ from app.services.ai_recognizer import (
     session_store,
     tool_budget,
 )
+from app.services.ai_recognizer.key_facts import maintain_key_facts, merge_key_facts, normalize_key_facts
 from app.services.ai_recognizer.narrative_blocks import parse_narrative_blocks
 from app.services.ai_recognizer.tools import ToolExecutor
 
@@ -225,8 +226,7 @@ def _maybe_compress(session: AgentSession) -> None:
             return
         summary = (session.summary or '').strip()
         session.summary = _merge_summary(summary, digest)
-        if facts:
-            session.key_facts = facts  # 关键卡 = 当前焦点，整体替换（永不压进摘要）
+        session.key_facts = merge_key_facts(session.key_facts, facts)  # 缺键保留、空值忽略、非空覆盖
         session.messages = recent
         logger.info(
             '[agent.memory] 压缩完成：{} 条原文并入摘要，保留 {} 条，摘要 {} 字',
@@ -526,7 +526,8 @@ def _run_agent_impl(
     # 记忆写入：本轮原文先占位（assistant 收尾时回填），两侧硬截断
     session.messages = list(session.messages or []) + [{'user': _truncate(user_input, TURN_SIDE_CAP), 'assistant': ''}]
 
-    # 分层记忆：过阈把最旧轮次压进摘要层（失败自动降级截断，不中断对话）
+    # 分层记忆：焦点卡每轮按规则维护（不依赖压缩是否触发）；过阈把最旧轮次压进摘要层
+    maintain_key_facts(session)
     _maybe_compress(session)
 
     def build_prompt() -> str:
@@ -538,8 +539,7 @@ def _run_agent_impl(
             if goal
             else '当前分析目标：无（不要替用户假定目标，一切以用户最新一轮提问为准）'
         ]
-        key_facts = session.key_facts or {}
-        if key_facts:
+        if key_facts := normalize_key_facts(session.key_facts):
             lines.append(f'关键信息卡（当前焦点，永不压缩，优先遵守）：{_dumps(key_facts, KEY_FACTS_CAP)}')
         if session.summary:
             lines.append(f'会话滚动摘要（更早轮次已压缩于此）：{session.summary}')
