@@ -308,10 +308,6 @@ showbuy
 │  │  │  │  └─ 📄index.vue
 │  │  │  ├─ 📁funds
 │  │  │  │  └─ 📄index.vue
-│  │  │  ├─ 📁precious
-│  │  │  │  └─ 📄index.vue
-│  │  │  ├─ 📁realestate
-│  │  │  │  └─ 📄index.vue
 │  │  │  ├─ 📁stocks
 │  │  │  │  └─ 📄index.vue
 │  │  │  ├─ 📄AssetDetail.vue

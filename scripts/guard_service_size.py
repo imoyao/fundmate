@@ -560,7 +560,10 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/core/akshare_lazy.py": {'lines': 27, 'max_func': 15, 'max_cc': 3},
     "backend/app/core/allocation_rules.py": {'lines': 156, 'max_func': 39, 'max_cc': 5},
     "backend/app/core/allocation_source_stamp.py": {'lines': 62, 'max_func': 12, 'max_cc': 2},
-    "backend/app/core/asset_types.py": {'lines': 198, 'max_func': 12, 'max_cc': 3},
+    # 2026-11-23 重取（#3232 固定资产收敛，非放宽）：新增 FIXED_HISTORICAL_MAJOR_CATEGORIES /
+    # FIXED_CATEGORIES 常量、normalize 增 fixed 分支、expand_major_category() 展开 helper。
+    # lines 198→222、max_func 12→15、max_cc 3→7（两处父大类展开分支 + 去重推导是功能本身复杂度）。
+    "backend/app/core/asset_types.py": {'lines': 222, 'max_func': 15, 'max_cc': 7},
     "backend/app/core/auth.py": {'lines': 322, 'max_func': 47, 'max_cc': 10},
     "backend/app/core/cache.py": {'lines': 255, 'max_func': 22, 'max_cc': 8},
     "backend/app/core/config.py": {'lines': 20, 'max_func': 0, 'max_cc': 0},

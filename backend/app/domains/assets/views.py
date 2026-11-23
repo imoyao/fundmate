@@ -9,7 +9,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
 
-from app.core.asset_types import INVESTMENT_MINOR_CATEGORIES, normalize_major_category
+from app.core.asset_types import expand_major_category, normalize_major_category
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
 from app.core.database import get_db
@@ -53,13 +53,9 @@ def list_assets():
         if (ledger_id := request.args.get('ledger_id', type=int)) is not None:
             query = query.filter(Asset.ledger_id == ledger_id)
 
-        # #1354：支持逗号分隔多值。盘点页「投资理财」需一次取回 investment 及其
-        # 历史细分子类（bank_wealth/advisory/trust/private_fund/wealth_insurance）；
-        # 仅传 investment 时自动展开为全部子类键，统一「写入收敛 + 读取归一」口径
-        # （前端既可能传完整逗号列表，也可能只传 investment，两种都要能命中）。
-        major_list = _parse_csv_filter(major)
-        if 'investment' in major_list:
-            major_list = major_list + [k for k in INVESTMENT_MINOR_CATEGORIES if k not in major_list]
+        # #1354 / #3232：支持逗号分隔多值。传 investment / fixed 时自动展开其历史
+        # 细分子类，统一「写入收敛 + 读取归一」口径，只传父大类也能命中存量细分。
+        major_list = expand_major_category(_parse_csv_filter(major))
         if len(major_list) == 1:
             query = query.filter(Asset.major_category == major_list[0])
         elif major_list:
@@ -221,8 +217,7 @@ def get_assets_summary():
 
         # 定义一个明确的顺序（按业务逻辑排序，不再是乱序的键值对）
         category_order = ['investment', 'cash', 'fixed', 'liability', 'receivable', 'insurance']
-        # 顺序表之外仍有大类（如 real_estate/precious_metal/custom）时一并下发，
-        # 避免存量数据被静默丢弃
+        # 顺序表之外（如 custom）仍下发；real_estate/precious_metal 已归一 fixed（#3232）不会落到这
         rest_keys = [k for k in db_result_map if k not in category_order]
 
         summary_list = []

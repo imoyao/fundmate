@@ -31,7 +31,6 @@ const CASES: Array<{ path: string; crumbs: string[] }> = [
   // 各顶级各自的正常页面
   { path: "/welcome", crumbs: ["概览", "投资概览"] },
   { path: "/asset/strategies", crumbs: ["资产", "策略分析"] },
-  { path: "/asset/precious", crumbs: ["资产", "贵金属"] },
   { path: "/watchlist", crumbs: ["自选", "我的自选"] },
   { path: "/inventory", crumbs: ["记账", "全面盘点"] },
   // 单页模块：路由两级、菜单与面包屑都只有一级

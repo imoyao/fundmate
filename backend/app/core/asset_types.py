@@ -134,6 +134,15 @@ INVESTMENT_MINOR_CATEGORIES: dict[str, str] = {
 # 用 .keys() 显式展开字典键，可读性优于 *dict 解包（#1355 AI review）。
 INVESTMENT_CATEGORIES: frozenset[str] = frozenset(INVESTMENT_MINOR_CATEGORIES.keys()) | {'investment'}
 
+# ── 固定资产的线下资产历史大类收敛（#3232）──
+# real_estate / precious_metal 曾是「固定资产」的平级 major_category（#1798 残留），
+# 现行链路已收敛为 fixed + minor_category（house/car/gold）。normalize 把它们归一为
+# fixed，聚合 / 展示自动合并，存量零迁移；标签仍复用 ASSET_CATEGORY_LABELS 供明细回退。
+FIXED_HISTORICAL_MAJOR_CATEGORIES: tuple[str, ...] = ('real_estate', 'precious_metal')
+
+# 「固定资产」在盘点 / 汇总口径下包含的全部 major_category 取值（含历史线下资产大类）。
+FIXED_CATEGORIES: frozenset[str] = frozenset(FIXED_HISTORICAL_MAJOR_CATEGORIES) | {'fixed'}
+
 # ── 不参与投资收益 / 资产配置口径计算的资产类型 ──
 EXCLUDED_ASSET_TYPES: tuple[str, ...] = ('money_fund', 'reverse_repo', 'cash')
 
@@ -156,13 +165,19 @@ def get_asset_category_label(major_category: str | None) -> str:
 
 
 def normalize_major_category(major_category: str | None) -> str | None:
-    """把历史上的「投资理财细分大类」归一为 investment，其余原样返回。
+    """把历史上的细分大类归一为其父大类，其余原样返回。
+
+    - 投资理财的历史细分类（bank_wealth/advisory/trust/private_fund/wealth_insurance）
+      → investment（#1354）；
+    - 固定资产的历史线下资产大类（real_estate/precious_metal）→ fixed（#3232）。
 
     仅用于聚合 / 筛选口径（盘点页大类、资产分布、大类汇总）；明细展示仍用原始
     major_category，保证存量数据可追溯。
     """
     if major_category in INVESTMENT_MINOR_CATEGORIES:
         return 'investment'
+    if major_category in FIXED_HISTORICAL_MAJOR_CATEGORIES:
+        return 'fixed'
     return major_category
 
 
@@ -171,6 +186,15 @@ def get_investment_minor_label(minor_category: str | None) -> str:
     if not minor_category:
         return ''
     return INVESTMENT_MINOR_CATEGORIES.get(minor_category, minor_category)
+
+
+def expand_major_category(major_list: list[str]) -> list[str]:
+    """把父大类展开为含其历史细分类的完整键列表（盘点页大类筛选用，#1354/#3232）。"""
+    if 'investment' in major_list:
+        major_list = major_list + [k for k in INVESTMENT_MINOR_CATEGORIES if k not in major_list]
+    if 'fixed' in major_list:
+        major_list = major_list + [k for k in FIXED_HISTORICAL_MAJOR_CATEGORIES if k not in major_list]
+    return major_list
 
 
 def is_valid_asset_type(asset_type: str | None) -> bool:
