@@ -117,6 +117,19 @@
 - **坑 3 FamilyScopedMixin 全局混用**：当前 `FamilyScopedMixin` 给多个 user 域表加 `family_id` 隔离列，market 域表未使用（正确）。但代码层无强制约束阻止将来给 market 表加 `family_id`——护栏（规则 1）将补上这道闸。
 - **坑 4 init_db 单引擎建全表**：当前 `Base.metadata.create_all(bind=engine)` 会把 30 张表建到一个库，迁双库必须按域拆分（规则 2）。
 - **坑 5 跨域联合查询**：已用「应用层两步法 + 统一 service」规避（第 4 节）。
+- **坑 6 裸 `text()` 不按表路由（2026-11-18，#3091 实测红 6 天）**：`_RoutingSession` 靠
+  **语句里已登记的模型表**判域（`core/database.py::_domain_for_statement`），裸 `text("... FROM positions")`
+  一个表都认不出来 ⇒ **回落 app（market）域**。开发态单库（user 域默认与 market 同文件）看不出问题，
+  生产双库上必然报「表不存在」。
+  - 现场：`cold_set_guard._hot_codes` 用裸 SQL 读「持仓 ∪ 自选 ∪ 流水」，在生产连 red 6 天；
+    它当时抛的还是 `SystemExit`（`BaseException`），巡检的 `except Exception` 接不住 ⇒ 把**已经跑完**
+    的每日调度进程带走（退出码 1、摘要没写、告警卡把真因写成「可能崩在建连阶段」）。
+  - 规矩：**user 域的表必须经 user 域会话读**（`db_factory.user_session_factory()` / `user_session()`）；
+    库层表示「不可用」用普通异常，别用 `SystemExit`（收敛方式交给入口：巡检 → `error`、写入 → fail-open、
+    CLI → 退出码）。
+  - 静态扫不到：`scripts/check_cross_domain_query.py` 的「不覆盖」清单第 3 条即字符串形式的原始 SQL，
+    所以回归网是**动态**的双库用例 `backend/tests/services/test_hot_codes_dual_domain.py`
+    （market 引擎里删掉 user 表 + 真跑一遍巡检通道）。
 
 ## 7. Neon 灾备（延后，仅说明）
 
@@ -187,6 +200,9 @@ pdm run python -c "from app.core.database import init_db_split; init_db_split()"
 - `tests/core/test_db_data_domain.py`：注册表完整性、分组、孤儿判定、本地回退落到独立文件（`test_local_fallback_uses_separate_user_database`）、`init_db_split` 双引擎建表互不相交。
   - 孤儿判定（#1521）：`metadata.tables` 只含**本进程已 import** 的模型，故「已登记但不在 metadata」不等于模型已删除。现由 `DatabaseFactory.classify_registry_orphans()` 二次判定——源码（`app/domains/*/models.py`、`app/models/*.py`）里能找到定义 → 仅「本进程未 import」，记 info；源码里也找不到 → 才是孤儿，记 warning。CLI / 定时任务只导入所需模型属正常，不再误报。
 - `tests/core/test_cross_domain.py`：两内存 SQLite 验证 `enrich_by_rows` 两步法拼装。
+- `tests/services/test_hot_codes_dual_domain.py`（#3091）：**生产拓扑**下（market 引擎里没有 user 表）
+  验证热集取自 user 库、巡检通道不 error、`SystemExit` 被收敛成一行 `error`。conftest 的 `app` 夹具
+  两域共用同一个库，是这条盲区的成因，故该文件自己造两个引擎（见坑 6）。
 
 > 注意：CI / 测试默认 `APP_ENV` 若非 `development`，market 域会走 production 回退（`DATABASE_URL` 同库）。验证「双库物理分离」的测试需显式设 `APP_ENV=development` + 两个独立 dev URL。
 

@@ -17,7 +17,9 @@ from app.core.allocation_rules import (
     resolve_allocation_source,
 )
 from app.domains.assets.schemas import AssetCreate, AssetUpdate
+from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionUpdate
+from app.services.position_edit_service import apply_position_edit
 
 
 class TestResolveAllocationSource:
@@ -76,6 +78,35 @@ class TestWritePathStamping:
     def test_position_inline_edit_stamps_user(self):
         data = PositionUpdate(allocation='liquid').model_dump(exclude_unset=True)
         assert data['allocation_source'] == SOURCE_USER
+
+    def test_apply_position_edit_stamps_user(self):
+        """#3115 D2 回归：账户详情页的行内编辑走的是裸 dict 的
+        ``apply_position_edit``（PATCH /ledgers/<id>/positions/<pid>/），不经过
+        ``PositionUpdate`` schema——不接线时 allocation_source 保持 default，
+        下一次 G3 回填（只放 default）会覆盖用户手动改的配置目标。
+        真机锚点：positions #936 改 liquid 后实测 ('liquid','default')。"""
+        pos = Position(
+            symbol='000891',
+            name='博时现金宝货币B',
+            ledger_id=1,
+            allocation='longterm',
+            allocation_source=SOURCE_DEFAULT,
+        )
+        apply_position_edit(None, pos, {'allocation': 'liquid'})
+        assert pos.allocation == 'liquid'
+        assert pos.allocation_source == SOURCE_USER
+
+    def test_apply_position_edit_without_allocation_keeps_user(self):
+        """反向锚点：只改备注的 PATCH 不得冲掉既有 user 标（与 mixin 同判据）。"""
+        pos = Position(
+            symbol='000891',
+            name='博时现金宝货币B',
+            ledger_id=1,
+            allocation='liquid',
+            allocation_source=SOURCE_USER,
+        )
+        apply_position_edit(None, pos, {'notes': '只改备注'})
+        assert pos.allocation_source == SOURCE_USER
 
     def test_frontend_cannot_forge_source(self):
         forged = AssetUpdate.model_validate({'name': 'x', 'allocation_source': 'hack'})

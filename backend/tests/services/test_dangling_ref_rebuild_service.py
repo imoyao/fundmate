@@ -371,6 +371,60 @@ def test_rebuild_rejects_non_dangling_or_other_family(db, ledger):
         svc.preview_rebuild(db, _FAMILY, [other.id])
 
 
+# ── 无归属流水（#3126）：可重建，但准入不放松 ─────────────────────────────
+# 前端死胡同弹窗（owner 2026-11-19 截图）的另一半：字段齐全的无归属组既补不了字段
+# （字段已齐），又重建不了（`_load_dangling_by_ids` 默认只认悬空），只剩删除。放开重建
+# 后这三条用例各钉一半：能建的那一半、以及**不该建**的两条边界（同标的已有持仓 /
+# 净额 ≤ 0）——后者仍必须给出可执行原因，而不是让界面上的按钮点了就红。
+
+
+def test_unowned_group_rebuildable_when_net_positive(db, ledger):
+    """无归属买入（position_id 为空）→ 可重建；撤销后回到「无归属」（NULL）而非旧悬空 id。"""
+    buy = _mk_txn(db, ledger.id, position_id=None, shares=100, price_yuan=2.0)
+
+    data = svc.preview_rebuild(db, _FAMILY, [buy.id])
+    assert data['rebuildable'] is True and data['block_reason'] is None
+    assert data['net_units'] == 100
+    assert data['avg_price'] == 2.0
+
+    built = svc.rebuild_position(db, _FAMILY, [buy.id], confirm=True)
+    pos = db.query(Position).filter_by(id=built['position_id']).one()
+    assert pos.symbol == _SYMBOL and pos.quantity == Money.shares_to_min_unit(100)
+    assert db.query(Transaction).filter_by(id=buy.id).one().position_id == pos.id
+
+    svc.undo_rebuild(db, _FAMILY, built['log_id'])
+    assert db.query(Position).filter_by(id=pos.id).first() is None
+    # 关键：还原成 None（无归属），不是还原成任何「悬空」持仓 id
+    assert db.query(Transaction).filter_by(id=buy.id).one().position_id is None
+
+
+def test_unowned_rebuild_blocks_when_same_symbol_position_exists(db, ledger):
+    """同账本已有同标的持仓行 → 拒绝，且原因指向**夜间回填**而不是「回补关联」。
+
+    「回补关联」对无归属行一律 400（`_load_dangling_by_ids` 默认只认悬空），把这条
+    文案写给 unowned 用户等于给一条点了就红的路——故断言它不出现。
+    """
+    _mk_pos(db, ledger.id, _SYMBOL, 10)
+    buy = _mk_txn(db, ledger.id, position_id=None, shares=100)
+
+    data = svc.preview_rebuild(db, _FAMILY, [buy.id])
+    assert data['rebuildable'] is False
+    assert '夜间回填' in data['block_reason']
+    assert '回补关联' not in data['block_reason']
+
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [buy.id], confirm=True), '夜间回填')
+
+
+def test_unowned_rebuild_rejects_net_non_positive(db, ledger):
+    """无归属卖出（净额 ≤ 0）→ 拒绝：建出来只是 0 份额空壳，只能删除。"""
+    sell = _mk_txn(db, ledger.id, position_id=None, txn_type='sell', shares=100)
+
+    data = svc.preview_rebuild(db, _FAMILY, [sell.id])
+    assert data['rebuildable'] is False and '净额' in data['block_reason']
+
+    _assert_rejected(db, lambda: svc.rebuild_position(db, _FAMILY, [sell.id], confirm=True), '净额')
+
+
 # ── undo：可撤销 / 幂等留痕 / 期间被改过则跳过 ─────────────────────────────
 
 

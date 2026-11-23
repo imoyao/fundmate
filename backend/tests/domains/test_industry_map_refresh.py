@@ -118,3 +118,51 @@ def test_zero_quantity_position_not_collected(client, db, monkeypatch):
 
     assert resp.json['data']['skipped'] is True
     assert _StubOrchestrator.last_call is None
+
+
+# ── 导入后异步补录（trigger_industry_map_backfill_async，#1981 补强）──────
+
+
+def test_async_backfill_no_symbols_does_not_start_thread():
+    """空 symbol 清单不起线程（没有缺口可补），返回 False。"""
+    from app.services.importer.import_entry import trigger_industry_map_backfill_async
+
+    assert trigger_industry_map_backfill_async([]) is False
+    assert trigger_industry_map_backfill_async(None) is False
+
+
+def test_async_backfill_concurrency_gate(monkeypatch):
+    """并发闸门：已有一轮在跑时重复触发返回 False，不另起线程。"""
+    import app.services.importer.import_entry as ie
+
+    monkeypatch.setattr(ie, '_backfill_running', True)
+    try:
+        assert ie.trigger_industry_map_backfill_async(['600519']) is False
+    finally:
+        monkeypatch.setattr(ie, '_backfill_running', False)
+
+
+def test_async_backfill_starts_thread_and_resets_flag(monkeypatch):
+    """正常触发：起线程跑 `_run_industry_map_backfill`，结束后标志复位。"""
+    import time
+
+    import app.services.importer.import_entry as ie
+
+    done = []
+
+    def fake_run(symbols):
+        assert symbols == ['600519']
+        done.append(1)
+        with ie._backfill_lock:
+            ie._backfill_running = False
+
+    monkeypatch.setattr(ie, '_run_industry_map_backfill', fake_run)
+    monkeypatch.setattr(ie, '_backfill_running', False)
+
+    assert ie.trigger_industry_map_backfill_async(['600519']) is True
+    for _ in range(100):
+        if done:
+            break
+        time.sleep(0.01)
+    assert done == [1]
+    assert ie._backfill_running is False

@@ -128,7 +128,8 @@ export type AllocationBucket = { key: string; label: string; value: number };
  * 五笔钱成员边界说明（#3031 / G4）。
  *
  * - `denominator`：分母 = 持仓 + 非负债成员资产行（房产 / 应收 / 负债都不进）；
- * - `excluded`：未纳入项（房产、应收…），**必须显式可见**——静默消失就是「少算 220 万」；
+ * - `excluded`：未纳入项（房产、应收…，以及**账外类现金**——流水推出的钱，没有资产行），
+ *   **必须显式可见**——静默消失就是「少算 220 万」，或「44 万凭空不见」；
  * - `buckets`：全五档（含 0 值）。`allocation_distribution` 是图表契约，只列非零桶；
  *   卡片要回答「五笔钱各是多少」，空档本身是信息，故另开此键。
  *   恒等：`Σ buckets.value ≡ denominator ≡ Σ allocation_distribution.value`。

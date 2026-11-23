@@ -25,6 +25,12 @@ export interface RankingColumn {
   kind: "ratio" | "risk" | "return";
   /** 指标方向：越高 / 越低越好（进表头 tooltip 与底部说明） */
   dir: "high" | "low";
+  /** 列宽（px，#3200 迁 el-table 后由 min-width 承载）：
+   *  = 表头文字宽（13px 字号 × 汉字数）+ 排序三角 16 + 竖向内边距 24 + 余量。
+   *  4 字表头（最大回撤 / 年化收益）需要 96，其余 84。
+   *  合计 48（#）+ 232（基金）+ 9 列 = 1060px，压在 design.md 的 1132px 预算内；
+   *  1366 屏内容区约 1010px，超出的部分由 el-table 内部横滚承载（冻结列常驻）。 */
+  minWidth: number;
   /** 是否画数据条（夏普 / 卡玛：优中选优的核心指标） */
   bar?: boolean;
   /** 表头 tooltip 短解释（hover 即现，无常驻图标） */
@@ -33,12 +39,20 @@ export interface RankingColumn {
   desc: string;
 }
 
+/** 左冻结两列的宽度（el-table 固定列用 width，其余列用 min-width）：
+ *  「#」只放行号，48 足够；「基金」承载名称 / 代码 / 徽章三件信息，232 是
+ *  1366 屏与 1132px 列宽预算之间的平衡点（再宽就挤压数值列）。
+ *  预算判据见 __tests__/rankingColumns.spec.ts。 */
+export const RANK_COL_WIDTH = 48;
+export const FUND_COL_WIDTH = 232;
+
 export const tableColumns: RankingColumn[] = [
   {
     key: "sharpe",
     label: "夏普",
     kind: "ratio",
     dir: "high",
+    minWidth: 84,
     bar: true,
     hint: "每承担 1 份年化波动，获得多少超出无风险利率的回报。大于 1 尚可、大于 2 较好；越高越好，只在同类内可比",
     desc: "夏普 =（年化收益 − 无风险利率）÷ 年化波动率。衡量「每承担一份波动换来多少超额回报」，只在同一基金类型内可比。"
@@ -48,6 +62,7 @@ export const tableColumns: RankingColumn[] = [
     label: "卡玛",
     kind: "ratio",
     dir: "high",
+    minWidth: 84,
     bar: true,
     hint: "赚的钱抵不抵得过最深的亏损——年化收益 ÷ 最大回撤，数字越大越划算",
     desc: "卡玛 = 年化收益 ÷ |最大回撤|。衡量「盈利对最深亏损的覆盖能力」，越高越好。"
@@ -57,6 +72,7 @@ export const tableColumns: RankingColumn[] = [
     label: "波回比",
     kind: "ratio",
     dir: "high",
+    minWidth: 84,
     hint: "年化收益 ÷（波动率 × 最大回撤）：平时涨跌的幅度和最深一次亏损都算进分母，数字越大越好",
     desc: "波回比 = 年化收益 ÷（年化波动率 × 最大回撤）。同时惩罚「日常颠簸」与「最深亏损」，越高越好。"
   },
@@ -65,6 +81,7 @@ export const tableColumns: RankingColumn[] = [
     label: "UI",
     kind: "risk",
     dir: "low",
+    minWidth: 84,
     hint: "溃疡指数：回撤的深度与持续时间合成的值。数字越大，持有过程越煎熬",
     desc: "溃疡指数 UI = √(平均(每日回撤²))，可读作「长期平均回撤幅度」。UI = 18 意味着相当长时间里账户常比前高低约 18%。越低越好。"
   },
@@ -73,6 +90,7 @@ export const tableColumns: RankingColumn[] = [
     label: "最大回撤",
     kind: "risk",
     dir: "high",
+    minWidth: 96,
     hint: "区间内从高点到低点最多亏多少。负数存储，越浅（越接近 0）越好",
     desc: "最大回撤 = 区间内从历史高点到其后最低点的最大跌幅，以负数存储（-8 优于 -25）。只反映最深那一次亏损，不计时间。"
   },
@@ -81,6 +99,7 @@ export const tableColumns: RankingColumn[] = [
     label: "年化收益",
     kind: "return",
     dir: "high",
+    minWidth: 96,
     hint: "区间收益折算成的年平均值。正为盈、负为亏",
     desc: "年化收益 = 区间收益按年折算的平均值，反映该窗口内的盈利能力。"
   },
@@ -89,6 +108,7 @@ export const tableColumns: RankingColumn[] = [
     label: "近1月",
     kind: "return",
     dir: "high",
+    minWidth: 84,
     hint: "近 30 个自然日的净值涨跌幅（累计净值）；历史不足该窗口显示 —",
     desc: "近 30 个自然日的净值涨跌幅（累计净值口径）；起点取边界日当天或之后的第一个净值日，历史不足该窗口显示 —。"
   },
@@ -97,6 +117,7 @@ export const tableColumns: RankingColumn[] = [
     label: "近3月",
     kind: "return",
     dir: "high",
+    minWidth: 84,
     hint: "近 90 个自然日的净值涨跌幅（累计净值）；历史不足该窗口显示 —",
     desc: "近 90 个自然日的净值涨跌幅（累计净值口径）；起点取边界日当天或之后的第一个净值日，历史不足该窗口显示 —。"
   },
@@ -105,6 +126,7 @@ export const tableColumns: RankingColumn[] = [
     label: "近1年",
     kind: "return",
     dir: "high",
+    minWidth: 84,
     hint: "近 365 个自然日的净值涨跌幅（累计净值）；历史不足该窗口显示 —",
     desc: "近 365 个自然日的净值涨跌幅（累计净值口径）；起点取边界日当天或之后的第一个净值日，历史不足该窗口显示 —。"
   }

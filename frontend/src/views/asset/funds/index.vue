@@ -19,6 +19,6 @@ defineOptions({ name: "AssetFunds" });
     :show-type-tab="true"
     type-tab-label="基金类型"
     empty-title="还没有基金持仓"
-    empty-hint="导入基金账户对账单或手动记一笔后，这里会展示全部基金"
+    empty-hint="导入基金对账单或手动记一笔，数据会出现在这里"
   />
 </template>

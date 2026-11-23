@@ -7,7 +7,10 @@
       :header-cell-style="INVENTORY_TABLE_HEADER_STYLE"
       :cell-style="INVENTORY_TABLE_CELL_STYLE"
     >
-      <el-table-column label="产品信息" min-width="180" show-overflow-tooltip>
+      <!-- 列宽：非固定列一律 `min-width`（#1421 口径）。此前只有「产品信息」是弹性列、
+           其余全固定 ⇒ 容器余量全部灌给第一列（1440 视口实测 416/1036 = 40%），
+           改后余量按 min-width 比例分摊到各列。 -->
+      <el-table-column label="产品信息" min-width="240" show-overflow-tooltip>
         <template #default="{ row }">
           <ProductDisplay
             :name="row.name"
@@ -19,20 +22,20 @@
       <el-table-column
         prop="ledger_name"
         label="归属账户"
-        width="130"
+        min-width="130"
         show-overflow-tooltip
       />
-      <el-table-column label="本金" width="130" align="right">
+      <el-table-column label="本金" min-width="130" align="right">
         <template #default="{ row }">
           <MoneyDisplay :value="row.net_amount" :show-sign="false" size="sm" />
         </template>
       </el-table-column>
-      <el-table-column label="累计收益" width="120" align="right">
+      <el-table-column label="累计收益" min-width="120" align="right">
         <template #default="{ row }">
           <MoneyDisplay :value="row.income_amount" size="sm" />
         </template>
       </el-table-column>
-      <el-table-column label="合计" width="130" align="right">
+      <el-table-column label="合计" min-width="130" align="right">
         <template #default="{ row }">
           <MoneyDisplay
             :value="row.total_amount"

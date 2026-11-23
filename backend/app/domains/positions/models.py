@@ -224,13 +224,16 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         default=None,
         comment='#1354 纳入投资覆盖项: True=纳入投资 / False=当现金排除 / NULL=未覆盖走默认',
     )
-    # maturity_date：逆回购到期日，时间建模真相源（仅 reverse_repo 使用）。
-    #   读时 effective = override ?? (as_of > maturity_date ? 排除 : 纳入)；缺失则默认算投资。
-    #   导入层必须校验逆回购 maturity_date 必填（决策 #7，无兼容包袱）。
+    # maturity_date：到期日，时间建模真相源。两类使用（#1354 / D121）：
+    #   - reverse_repo 逆回购：读时 effective = override ?? (as_of > maturity_date ? 排除 : 纳入)；
+    #     缺失则默认算投资。导入层必须校验逆回购 maturity_date 必填（决策 #7，无兼容包袱）。
+    #   - bank_wealth 银行理财（#931）：**仅作记录与展示**，不参与投资口径判定——理财到期后
+    #     钱回到活期，若照逆回购那样「到期即不计入」，市值会凭空消失、用户看不到钱去哪了。
+    #     它到期后应走赎回操作或下调市值，自动化留给赎回链路，不在读侧猜。
     maturity_date = Column(
         Date,
         nullable=True,
-        comment='#1354 逆回购到期日(时间建模真相源); 仅 reverse_repo 使用, 导入必填',
+        comment='到期日: 逆回购(时间建模真相源, 导入必填) / 银行理财(仅记录); 其余品类不允许写入',
     )
 
     __table_args__ = (

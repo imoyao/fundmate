@@ -126,10 +126,10 @@ export function danglingNextStep(input: NextStepInput): DanglingNextStep {
  * 故它的阶段归属由组上的 `mislinked` 标记直接给出，见 `groupStage`。
  *
  * `unowned`（无归属，#3126）同理：组上**没有任何持仓指针**（`dangling_position_ids`
- * 与 `candidates` 均为空、`fixable` 恒 false），reattach / rebuild / mislink 三个
- * 端点对这类行一律 400。**必须短路**：否则补上标的代码后，派生规则
- * 「代码齐 + fixable=false → rebuild」会把它派生成 rebuild——后端必 400，
- * 等于给用户一条点了就红的路。它的归属由组上的 `unowned` 标记直接给出，
+ * 与 `candidates` 均为空、`fixable` 恒 false）。**必须短路**：阶段只表示「这一组是哪一类」，
+ * 具体能做什么由 `unownedOutcome` 按组判定（补字段 / 重建 / 等夜间回填 / 只能删除）；
+ * 若交给派生规则，「代码齐 + fixable=false → rebuild」会把一个净额 ≤ 0 的组也派生成
+ * rebuild，等于给用户一条点了就红的路。它的归属由组上的 `unowned` 标记直接给出，
  * 补全之后也永远停在 `unowned`（列表重拉后该组要么已挂回、要么仍无归属）。
  */
 export type DanglingStage =
@@ -179,10 +179,9 @@ export function groupStage(
   // 错挂组不参与「悬空流水下一步」的派生：它的 `fixable` 含义不同
   // （有同标的持仓可改挂），照派生规则会被判成 `reattach`，点进去却做「改挂」。
   if (group.mislinked) return "mislink";
-  // 无归属组同理**必须短路**：组上没有任何持仓指针，三个写端点（reattach /
-  // rebuild / mislink）对这类行一律 400。尤其补上标的代码后，派生规则
-  // 「代码齐 + fixable=false → rebuild」会把它派生成 rebuild——一条点了
-  // 就红的路。补全之后也停在 unowned（重拉后该组要么已挂回、要么仍无归属）。
+  // 无归属组同理**必须短路**：阶段只表示类别，动作由 `unownedOutcome` 按组判定
+  // （补字段 / 重建 / 等夜间回填 / 只能删除）。若交给派生规则，「代码齐 +
+  // fixable=false → rebuild」会把净额 ≤ 0 的组也派生成 rebuild——一条点了就红的路。
   if (group.unowned) return "unowned";
   return danglingStageOf({
     symbol: group.symbol,
@@ -228,13 +227,166 @@ export function bucketByStage<T extends DanglingStageGroupLike>(
 }
 
 /**
+ * 无归属组（`unowned`，#3126）**这一组**能做什么。
+ *
+ * 为什么需要它：无归属组的阶段判定只能回答「它属于哪一类」，不能回答「这一组
+ * 有哪个出口」。字段齐不齐、净额正不正、同账本有没有候选持仓，三者组合出四种
+ * 完全不同的下一步；此前界面把它们一律翻成「补全标的 → 补全信息弹窗」，字段
+ * 已齐的组就得到一个空弹窗 + 禁用按钮（owner 2026-11-19 截图：只剩一句「这些
+ * 交易没有挂到任何持仓上」）。死胡同不是文案问题，是**没有出口**。
+ *
+ * 四种出口（每一种都必须有按钮或一句原因）：
+ * - `fill`：组内还有缺字段 → 补全信息（仍是最轻的一步）
+ * - `rebuild`：字段齐、同账本无同标的持仓、净额为正 → 按流水重建持仓
+ * - `wait`：同账本已有唯一对应持仓 → 夜间回填会按标的自动挂回，不需要动作
+ * - `deleteOnly`：净额 ≤ 0（重建不出有效持仓）或候选持仓多于一条（系统不替你选）
+ *   → 只能删除
+ *
+ * `actionLabel` 为 `null` 表示「没有可点的主动作」，此时 `reason` 必须说清为什么
+ * ——删除按钮始终在，这是本阶段唯一的兜底出口，不是被藏起来的第二条路。
+ */
+export type UnownedOutcome =
+  "fill" | "rebuild" | "wait" | "deleteOnly" | "empty";
+
+export interface UnownedOutcomeInput {
+  /** 组内缺什么：调用方传 `inspectGroupNeeds(group.transactions)` 的结果 */
+  needs: GroupNeeds;
+  /** 组内净额（份，`DanglingRefGroup.net_units`，卖出为负） */
+  netUnits: number;
+  /** 后端组标签（`DanglingRefGroup.flags`） */
+  flags: readonly string[];
+}
+
+export interface UnownedDecision {
+  outcome: UnownedOutcome;
+  /** 主动作按钮文字；`null` = 没有可点的主动作（删除仍可用） */
+  actionLabel: string | null;
+  /** 一句人话原因：无动作时必须给，有动作时也要说清「为什么是它」 */
+  reason: string;
+}
+
+/**
+ * 净额的最小可重建单位（份）：与后端 `dangling_ref_rebuild_service.MIN_NET_MIN_UNITS = 1`
+ * （最小单位，1 份 = 10000）等价。不能用 `> 0` ——`net_units` 是 float，尾数会让
+ * 「前端说能建、后端说净额不足」分叉。
+ */
+const MIN_NET_UNITS = 0.0001;
+
+/** 缺字段的清单化说法（`fill` 的原因要具体到条数，不能只说「缺字段」） */
+function missingFieldsLabel(needs: GroupNeeds): string {
+  const parts: string[] = [];
+  if (needs.needSymbol > 0) parts.push(`${needs.needSymbol} 条缺标的代码`);
+  if (needs.needDate > 0) parts.push(`${needs.needDate} 条缺交易日期`);
+  return parts.join("、");
+}
+
+export function unownedOutcome(input: UnownedOutcomeInput): UnownedDecision {
+  const { needs, netUnits, flags } = input;
+  // 顺序有意义：先「有没有东西可处理」，再「能不能补」，最后才按后端事实分岔
+  if (needs.txnCount === 0) {
+    return {
+      outcome: "empty",
+      actionLabel: null,
+      reason: "该组没有可处理的交易"
+    };
+  }
+  if (!needs.complete) {
+    return {
+      outcome: "fill",
+      actionLabel: "补全信息",
+      reason: `组内 ${missingFieldsLabel(needs)}，补齐后才能判断归属`
+    };
+  }
+  if (flags.includes("auto_attach_after_enrich")) {
+    return {
+      outcome: "wait",
+      actionLabel: null,
+      reason:
+        "同账本已有唯一对应的持仓，系统会在夜间回填里按标的自动挂回；这里不用再补字段"
+    };
+  }
+  if (flags.includes("no_candidate")) {
+    if (netUnits >= MIN_NET_UNITS) {
+      return {
+        outcome: "rebuild",
+        actionLabel: "按流水重建持仓",
+        reason: "组内没有可挂回的持仓行，但流水净额为正，可按流水重建持仓"
+      };
+    }
+    return {
+      outcome: "deleteOnly",
+      actionLabel: null,
+      reason: "这批流水买卖已对冲（净额 ≤ 0），重建不出有效持仓；只能删除"
+    };
+  }
+  // 字段齐、也没有 `no_candidate` 标签：同账本有多条同标的持仓（后端只给单候选
+  // 打 `auto_attach_after_enrich`），夜间回填同样不会替你选。
+  return {
+    outcome: "deleteOnly",
+    actionLabel: null,
+    reason: "同账本有多条同标的持仓，系统不会替你选该挂哪一条；这些流水只能删除"
+  };
+}
+
+/**
+ * 单个队列项的**执行区决策**：主动作文字、要不要接重建弹窗、无归属组的单组出口。
+ *
+ * 为什么收在这里而不是 `.vue` 的 computed：`ReconItemAction.vue` 贴着 400 行门禁
+ * （`scripts/check_vue_size.mjs`，只减不增），而这段判断是纯函数——放在 SFC 里会让
+ * 「每个组都有出口」这条判据散在模板与脚本两处。写法上仍以 `unownedOutcome` 为唯一
+ * 真相源：本函数只做「无归属组 → 按组判定 / 其它阶段 → 沿用队列导航名」的分派。
+ */
+export interface DanglingActionDecision {
+  /** 无归属组的单组出口；其它阶段为 null */
+  unowned: UnownedDecision | null;
+  /** 主动作按钮文字；null = 这一组没有主动作（删除仍可用） */
+  primaryLabel: string | null;
+  /** 是否要给重建弹窗接线（重建阶段，或无归属组判定为 rebuild） */
+  rebuildTarget: boolean;
+}
+
+export function decideDanglingAction(
+  stage: DanglingStage | null | undefined,
+  group: {
+    transactions: readonly EnrichTxnLike[];
+    net_units: number;
+    flags: readonly string[];
+  } | null,
+  navLabel: string
+): DanglingActionDecision {
+  if (stage !== "unowned" || !group) {
+    // 其它阶段「导航名即动作名」：队列卡上的字样就是点下去会做的事
+    return {
+      unowned: null,
+      primaryLabel: navLabel,
+      rebuildTarget: stage === "rebuild"
+    };
+  }
+  const unowned = unownedOutcome({
+    needs: inspectGroupNeeds(group.transactions),
+    netUnits: group.net_units,
+    flags: group.flags
+  });
+  return {
+    unowned,
+    primaryLabel: unowned.actionLabel,
+    rebuildTarget: unowned.outcome === "rebuild"
+  };
+}
+
+/**
  * 阶段 → 队列卡动作名。与阶段键同文件，保证「写着什么动作」与「处在什么
  * 阶段」永远一起改。`empty` 不需要动作名（空组不产出队列项）。
+ *
+ * ⚠️ 这是**队列导航名**（队列卡 / 阶段小节标题），不是单组动作名：一个阶段
+ * 里不同组能做的事可以不同，导航名不能预设某一组能做什么。单组动作由
+ * `unownedOutcome` 按组给出（`unowned` 阶段尤其如此：补字段 / 重建 / 等回填 /
+ * 只能删除四种出口）。
  */
 export const DANGLING_ACTION_LABEL: Record<DanglingStage, string> = {
   fill: "补全信息",
-  unowned: "补全标的",
-  reattach: "回补关联",
+  unowned: "逐组处理",
+  reattach: "确认挂回",
   mislink: "改挂到正确标的",
   rebuild: "重建持仓"
 };

@@ -13,6 +13,7 @@ import {
   discrepancyIssue,
   DISCREPANCY_ISSUE_LABEL,
   DISC_COLUMN_LABELS,
+  ACTION_RISK_HINTS,
   specialSymbolLabel
 } from "../reconLabels";
 import {
@@ -27,7 +28,7 @@ describe("差异类型：不再说「数量 / 孤儿」", () => {
     expect(discrepancyIssue("cost")).toBe("成本对不上");
     expect(discrepancyIssue("cash")).toBe("资金对不上");
     expect(discrepancyIssue("orphan")).toBe("有持仓、缺流水");
-    expect(discrepancyIssue("no_anchor")).toBe("缺基准，核对不了");
+    expect(discrepancyIssue("no_anchor")).toBe("没有可对照的流水，核对不了");
   });
 
   it("后端可能出现的每种类型都在这张表里（新增枚举不许漏翻）", () => {
@@ -50,12 +51,18 @@ describe("差异类型：不再说「数量 / 孤儿」", () => {
     expect(Object.values(DISCREPANCY_ISSUE_LABEL)).not.toContain("数量");
   });
 
-  it("列名不再用后端字段名", () => {
-    expect(DISC_COLUMN_LABELS.expected).toBe("按流水算");
-    expect(DISC_COLUMN_LABELS.actual).toBe("账上记的");
-    expect(DISC_COLUMN_LABELS.diff).toBe("差多少");
+  it("列名场景化：说券商流水与账本各剩多少，不再说理论实际", () => {
+    expect(DISC_COLUMN_LABELS.expected).toBe("券商流水应剩");
+    expect(DISC_COLUMN_LABELS.actual).toBe("账本现记");
+    expect(DISC_COLUMN_LABELS.diff).toBe("差");
     expect(Object.values(DISC_COLUMN_LABELS)).not.toContain("理论");
     expect(Object.values(DISC_COLUMN_LABELS)).not.toContain("类型");
+    expect(Object.values(DISC_COLUMN_LABELS)).not.toContain("按流水算");
+  });
+
+  it("风险句只留临门一脚的唯一定义，列表态不再引用", () => {
+    expect(ACTION_RISK_HINTS.eaccountCover).toContain("不可撤销");
+    expect(ACTION_RISK_HINTS.ghostDelete).toContain("无法撤销");
   });
 });
 

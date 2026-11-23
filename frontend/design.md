@@ -144,7 +144,10 @@
 > 文字一律走 `-ink`。守门判据：
 > `grep -rn "color: var(--color-warning)" frontend/src` 与
 > `grep -rn "color: var(--temp-" frontend/src` 均应为 **0 行**。
-> 另由 `scripts/check_css_vars.mjs` 守卫「引用但未定义」的幽灵令牌（#1545 T1.4）。
+> 另由 `scripts/check_css_vars.mjs` 守卫三类「不报错、不生效」的样式事故：
+> 幽灵令牌（`var(--x)` 而全仓无定义，#1545 T1.4）、自引用令牌（`--x: var(--x)`
+> 会覆盖真实定义，#1602）、孤立样式表（文件存在但没有任何入口加载它，
+> 92 行的 `login.css` 就这样静默躺了数月）。三者都是新增即拦，无基线。
 
 ### 边框与分割线
 
@@ -757,6 +760,21 @@ sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开
 
 **横向滚动**：表格横向滚动支持浏览器原生 `Shift + 滚轮`（无需任何代码，Element Plus 表格默认支持），**禁止引入拖拽滚动库**（金融表格复制数字场景易误触）。行高统一 44px（`el-table.css` 基线，见上），页面禁止用 `size` / `:row-style` 单独覆盖。
 
+#### 表头吸顶（#3200，2026-11-20）
+
+`position: sticky` 相对**最近的 scrolling ancestor** 定位。而 `overflow-x: auto` 会让该容器成为 sticky 的截断点——**x 轴是 auto 就够了**，纵向写 `visible` / `clip` 都救不回来（实测 computed 变成 `{x:auto, y:clip}`，表头照样随页面滚走）。所以「自建 table 既要横向滚动、又要表头吸顶」是**结构性死冲突**，不是样式没写对。
+
+**只有两种合法写法**：
+
+| 形态 | 做法 | 现成先例 |
+|------|------|----------|
+| A（推荐）迁 `el-table` | header / body 是两层 DOM，横滚落在 body 内部；外框 `overflow: clip visible` + `.el-table__header-wrapper { position: sticky; top: 0 }` | `views/asset/watchlist/components/WatchlistTableSection.vue`、`views/asset/fund-ranking/components/FundRankingTable.vue` |
+| B 表格内部滚动 | 表格容器 `max-height` + `overflow-y: auto`，表头相对该容器吸顶（表只在卡片内滚） | `views/product/components/ProductHoldingSection.vue` |
+
+**禁止**：自建 `<table>` + 表头 `position: sticky` + 容器裸 `overflow-x: auto`（无内部纵向滚动容器）——这种表头一定吸不住，而页面看着「样式都写了」。
+
+判据机械化：`scripts/guard_sticky_table.py`（CI 的 `layout_guard` job，阻断；回归网 `scripts/tests/guard_sticky_table.test.js`）。既有例外只能在 `position: sticky` 同行标注 `sticky-table-allow` 并写明理由，不提供文件级豁免。行为侧的判据在 `frontend/e2e/fund-ranking.spec.ts` 的「表头吸顶与横向滚动」用例（滚动两档下表头偏移差 ≤2px）。
+
 #### 稠密阅读表（`.detail-table`，源 CNB #553）
 
 `el-table` 管的是**业务表**（44px 行高、可排序、冻结列）；产品详情页这类
@@ -821,7 +839,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 3. **滚动条 UI**：全局表格滚动条必须自定义统一风格，厚度 `6px-8px`，颜色使用 `--border-default`（`#E5DDD4`），悬停时稍亮。**必须支持 `Shift + 鼠标滚轮`**（浏览器原生、Element Plus 默认支持，禁用第三方拖拽滚动库）；滚动条 thumb 原生可点按拖拽，配合 `user-select: none` 防止误选中数字。
 4. **默认列预算与「表格内部滚动」（#1285 立；2026-09-11 #1421/#1422/#1425 修订；2026-10-26 放宽）**：
    - **默认可见列总宽 ≤ 1132px**（2026-10-26 由 1040 修订）。1040 是按最受约束的主流笔记本 1366×768（内容区 = 1366 − 侧栏 240 − 内边距）推出的「不横滚」值；实测**「走势」列（92px）是持仓场景的必看信息**，为守 1040 而把它藏起来反而更亏（#2650 的 `scope:"category"` 收法被 owner 否决）。**owner 拍板：1366 屏允许表格内部横向滚动**，两端冻结列常驻。上限仍守 1132px：**要加默认列，必须在 PR 里说明宽度来源并同步改本值与 `columnBudget.spec.ts`**，不允许静默加宽。
-   - **列宽一律用 `minWidth` 表达**，**只有固定列**（`product` 左冻结 / `_actions` 右冻结 / `_selection`）才用 `width`。理由：Element Plus 的 `updateColumnsWidth()` 只把「不带数字 `width`」的列纳入容器余量分配，**全列固定宽会让表格实体宽度恒等于列宽之和，容器再宽也铺不满、右侧留大片空白**（#1421 根因 2）；改用 `minWidth` 后宽屏按比例拉伸铺满、窄屏回到最小宽。
+   - **列宽一律用 `minWidth` 表达**，**只有固定列**（`product` 左冻结 / `_actions` 右冻结 / `_selection`）才用 `width`。理由：Element Plus 的 `updateColumnsWidth()` 只把「不带数字 `width`」的列纳入容器余量分配，**全列固定宽会让表格实体宽度恒等于列宽之和，容器再宽也铺不满、右侧留大片空白**（#1421 根因 2）；改用 `minWidth` 后宽屏按比例拉伸铺满、窄屏回到最小宽。**只留一个弹性列同样不行**：容器余量会**整条**灌给那一列（#3208 实测首列占 36%~76%，`width="120"` 的窄列反被挤成两行），故非固定列一律 `minWidth`、**至少两个弹性列**。判据机械化：`scripts/guard_table_columns.py`（CI 的 `layout_guard` job，阻断；回归网 `scripts/tests/guard_table_columns.test.js`）。存量 15 处已横滚 / 弹窗内小表 / 单文本列表在 `<el-table` 上方一行标注 `table-col-allow` 并写明理由（绑定 #3210），不提供文件级豁免；标记里的「N 列 / 合计 M」会被守卫对账（注释是豁免的唯一证据，加列/改宽必须同步改注释；含 `v-for` 的表不校验）。列宽写在配置（`*.ts`）里的表守卫看不见，须登记 `CONFIG_TABLE_JUDGE`，由 `frontend/src/__tests__/tableColumnFlexInvariant.spec.ts` 直接 import 配置本体判定（未登记即红）。
    - **横向滚动只发生在表格内部**：`.el-table` 外框宽 = 容器宽（**页面级横向滚动条禁止**，见第 1/2 款与 #1341）；列总宽超出容器时由 Element Plus 在表格内部滚动，且 **`product`（左冻结）与 `_actions`（右冻结）恒定不滚**——用户滚中间列时始终能看到「这是哪只标的」与「能对它做什么」。
    - 历史沿革（同一问题三次回归，改前先读）：#1285 立预算 → #1341 修**页面级**溢出 → #1421 定位「全列固定宽导致铺不满」→ #1422 一度把默认集扩到 ≈1338px、以内部滚动承载，**实测整表超出设计宽度** → #1425 收敛回 8 列 ≈1010px（列多但守预算）→ #2650 把走势列退到品类视图（1040 卡线）→ **2026-10-26 放宽到 1132、走势列恢复默认可见**（用户实测反馈：自选页默认落在「持仓」分组，看不到走势列等于丢了持仓的核心信息）。
 5. **混合视图 / 品类视图列集（#1285；列集于 #1421/#1425 修订）**：列定义带 `scope` —— `mixed`＝混合视图通用列，`category`（默认）＝品类专属列（仅品类视图显示；`appliesTo` 限定适用 `asset_type`；用户在列设置显式开启后任何视图都显示）。**混合视图显示通用列**；**品类视图**（类型筛选命中单一品类）显示该品类完整列组。
@@ -831,7 +849,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 
 #### [新增] 空状态与加载态（品牌隐喻共鸣）
 为呼应品牌文档 `brand-v1.7.md` 的品牌故事，需在工具端赋予情感。
-- **空状态（暂无持仓）**：严禁使用干瘪的文字提示（如"暂无数据"）。必须使用 **珊瑚红 `#E34F38` 单色细线的鹦鹉螺插画**（来自品牌海洋生态插画映射，见 `brand-v1.7.md` §9–§10），配合品牌收尾定调文案："**潮有涨落，壳有深浅。算得清，才无患。**"以此引导用户"添加自选"，完成从品牌营销页到工具端的使用闭环。
+- **空状态（暂无持仓）**：严禁使用干瘪的文字提示（如"暂无数据"）。使用 **珊瑚红 `#E34F38` 单色细线的鹦鹉螺插画**（来自品牌海洋生态插画映射，见 `brand-v1.7.md` §9–§10）作为视觉锚点，文字直接说明「为什么会空」与「下一步做什么」，不再叠加品牌标语（标语只保留在登录页品牌区）。
 - **加载状态**：使用珊瑚红 `#E34F38` 的鹦鹉螺单螺旋辅助图形，配合 6-8 秒 `scale(1) → scale(1.03)` 品牌呼吸动效。
 
 > **资产缺失提示**：上述鹦鹉螺单线插画与单螺旋辅助图形当前在 `brand-v1.7.md` §9–§10 标注为"待开工"，落地前需先在 `logos/` 或图标目录补齐对应 SVG 资产，避免空状态/加载态引用悬空。

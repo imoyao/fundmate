@@ -26,13 +26,12 @@
       />
 
       <div class="road-filter__tools">
-        <el-input
+        <SearchInput
           :model-value="keyword"
-          size="small"
-          clearable
+          size="sm"
           placeholder="搜名称或代码"
-          class="road-filter__search"
-          @update:model-value="$emit('update:keyword', String($event ?? ''))"
+          aria-label="搜索名称或代码"
+          @update:model-value="$emit('update:keyword', String($event))"
         />
         <el-select
           :model-value="sortBy"
@@ -89,6 +88,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import SearchInput from "@/components/SearchInput/index.vue";
 import { ENTITY_TABS, SORT_OPTIONS, STATUS_TABS } from "../constants";
 import type { RoadEntityType, RoadStatusFilter } from "@/types/favorites";
 
@@ -135,10 +135,17 @@ function onEntityFilterChange(value: RoadEntityType | "all") {
 
 <style scoped>
 .road-filter {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 12px 0;
   margin-bottom: 20px;
+
+  /* 吸顶时盖住下方滚上来的卡片：给一层不透明底，避免卡片透过筛选栏缝隙露出来 */
+  background: var(--bg-page);
 }
 
 .road-filter__row {
@@ -153,10 +160,6 @@ function onEntityFilterChange(value: RoadEntityType | "all") {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.road-filter__search {
-  width: 168px;
 }
 
 .road-filter__sort {

@@ -6,6 +6,8 @@
 错误必须指到真正的动作（补全上市代码）上。
 """
 
+from datetime import date
+
 import pytest
 
 from app.services.position_buy_command import _validate_buy_inputs
@@ -47,3 +49,41 @@ def test_bond_ten_lots_pass_validation():
         100.0,
         1000.0,
     )
+
+
+def test_maturity_date_allowed_for_reverse_repo_and_bank_wealth():
+    """到期日只对「有到期语义」的品类开放（#931 / D121）。
+
+    银行理财那条是重点：它是 balance 品类，而 `_validate_buy_inputs` 在 balance
+    分支里**提前 return** —— 校验若写在那之后，理财自己反而校验不到。
+    """
+    _validate_buy_inputs(
+        {'symbol': 'Z7001234ABCD', 'maturity_date': date(2027, 1, 15)},
+        'bank_wealth',
+        'Z7001234ABCD',
+        0,
+        0,
+        100000.0,
+        is_balance=True,
+    )
+    _validate_buy_inputs(
+        {'symbol': 'SH204001', 'market': 'SH', 'maturity_date': date(2026, 12, 1), 'skip_lot_check': True},
+        'reverse_repo',
+        'SH204001',
+        100,
+        100.0,
+        10000.0,
+    )
+
+
+def test_maturity_date_rejected_for_other_asset_types():
+    """基金/股票没有到期日：传进来是上游接错字段，fail closed 而不是静默丢弃。"""
+    with pytest.raises(ValueError, match='到期日仅适用于逆回购与银行理财'):
+        _validate_buy_inputs(
+            {'symbol': '110011', 'maturity_date': date(2027, 1, 1)},
+            'fund',
+            '110011',
+            100,
+            1.5,
+            150.0,
+        )

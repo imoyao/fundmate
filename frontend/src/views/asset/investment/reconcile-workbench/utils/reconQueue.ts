@@ -12,9 +12,8 @@
  *   前端不自行判断「能不能修」。归属判定一律以后端为准（`api/reconciliation.ts` 注释）。
  * - **payload 原样透传**：队列项只带展示字段 + 原始对象引用，点击动作由页面层分发到
  *   既有弹窗 / composable，本层绝不触发写操作。
- * - **条数口径**：`count` 是这一项涉及的**记录条数**，不是分组数；卡片上的待办总数由
- *   `countByTask` 汇总，与「可直接处理」等状态计数同源，不各数一遍（对齐 design.md:858
- *   「和式不变量」）。
+ * - **条数口径**：`count` 是这一项涉及的**记录条数**，不是分组数；分段计数
+ *   （`countBySegment`）与一键处理范围（`batchableItems`）同源，不各数一遍。
  */
 
 import type {
@@ -35,6 +34,7 @@ import {
   DOMAIN_SOURCE_LABEL,
   DOMAIN_TO_TASK,
   QUEUE_STATE_ORDER,
+  type ReconQueueSegment,
   type ReconQueueState,
   type ReconTaskKey
 } from "../constants/reconTasks";
@@ -54,6 +54,7 @@ import {
 } from "./reconDisplay";
 import {
   CASH_SYMBOL_HINT,
+  DISC_COLUMN_LABELS,
   discrepancyIssue,
   specialSymbolLabel
 } from "./reconLabels";
@@ -154,20 +155,22 @@ function discrepancyItem(row: DiscrepancyItem): ReconQueueItem {
       ? "这条差异已经处理过了。"
       : domain === "C"
         ? "账上有这笔持仓，却找不到对应的交易流水。"
-        : `${issue}，需要你对照流水决定按哪边记。`,
+        : `${issue}，对着券商对账单核一下，看按哪边记。`,
     facts: [
       isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
       row.expected_value !== null
-        ? `按流水算 ${reconQuantity(row.expected_value)}`
+        ? `${DISC_COLUMN_LABELS.expected} ${reconQuantity(row.expected_value)}`
         : "",
       row.actual_value !== null
-        ? `账上记的 ${reconQuantity(row.actual_value)}`
+        ? `${DISC_COLUMN_LABELS.actual} ${reconQuantity(row.actual_value)}`
         : "",
-      row.diff !== null ? `差多少 ${reconQuantity(row.diff)}` : ""
+      row.diff !== null
+        ? `${DISC_COLUMN_LABELS.diff} ${reconQuantity(row.diff)}`
+        : ""
     ].filter(Boolean),
     count: 1,
     actionLabel: done ? "查看记录" : "核对并处理",
-    stateReason: done ? "已处理" : "需要你对照凭证裁决",
+    stateReason: done ? "已处理" : "对着交割单核对一下，再决定按哪边记",
     batchId: null,
     payload: { kind: "discrepancy", row }
   });
@@ -186,7 +189,7 @@ function eaccountItem(row: ReconciliationItem): ReconQueueItem {
     title: name || reconGroupTitle(row.symbol),
     summary: done
       ? "这条 E账户记录已经核对过了。"
-      : "E账户官方快照与账本里的份额不一致，需要你决定以哪个为准。",
+      : "E账户官方快照与账本里的份额不一致，对着快照核一下，看以哪个为准。",
     facts: [
       reconGroupTitle(row.symbol) !== "标的代码未填"
         ? `代码 ${reconGroupTitle(row.symbol)}`
@@ -197,7 +200,7 @@ function eaccountItem(row: ReconciliationItem): ReconQueueItem {
     ].filter(Boolean),
     count: 1,
     actionLabel: done ? "查看记录" : "核对并归因",
-    stateReason: done ? "已处理" : "归因覆盖会删除渠道原记录，不可撤销",
+    stateReason: done ? "已处理" : "对着快照核一下，看以哪个为准",
     batchId: null,
     payload: { kind: "eaccount", row }
   });
@@ -214,7 +217,7 @@ function ghostItem(row: GhostDuplicateGroupItem): ReconQueueItem {
     state: "judge",
     sourceDomain: "D",
     title: reconGroupTitle(row.symbol, row.display_name),
-    summary: `同一笔${reconTxnType(row.txn_type)}疑似在 ${row.count} 个账本里各记了一次，需要你决定留哪一份。`,
+    summary: `同一笔${reconTxnType(row.txn_type)}疑似在 ${row.count} 个账本里各记了一次，对着流水核一下，看留哪一份。`,
     facts: [
       // 代码只作次要事实行：标题优先名称（reconGroupTitle 唯一口径）
       isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
@@ -224,7 +227,7 @@ function ghostItem(row: GhostDuplicateGroupItem): ReconQueueItem {
     ].filter(Boolean),
     count: row.count,
     actionLabel: "核对重复交易",
-    stateReason: "删除其中一笔会重算持仓，无法撤销",
+    stateReason: "对着流水核一下，看留哪一份",
     batchId: null,
     payload: { kind: "ghost", row }
   });
@@ -311,7 +314,7 @@ const DANGLING_STAGE_TITLE: Record<DanglingStage, string> = {
 const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
   fill: "这些交易挂在已删除的持仓上，而且没有标的代码，补上后才能判断归属。",
   unowned:
-    "这些交易没有挂到任何持仓上，任何持仓视图里都看不到；补上标的或删除后才能清掉。",
+    "这些交易没有挂到任何持仓上，任何持仓视图里都看不到；按组补上标的、按流水重建或删除。",
   reattach: "这些交易挂在已删除的持仓上，系统已找到现存持仓，可以挂回去。",
   mislink:
     "这些交易挂在了别的标的的持仓上：份额和成本被算进了那只标的，它们自己的持仓反而没有记录。",
@@ -322,7 +325,7 @@ const DANGLING_STAGE_SUMMARY: Record<DanglingStage, string> = {
 /** 阶段 → 为什么不能立刻动手（stateReason） */
 const DANGLING_STAGE_REASON: Record<DanglingStage, string> = {
   fill: "缺标的代码，补齐后才能判断归属",
-  unowned: "没有持仓承接，需先补全标的或删除",
+  unowned: "没有持仓承接：按组的字段与净额补字段、重建或删除",
   reattach: "系统已找到可挂回的持仓",
   mislink: "改挂会改流水归属，需你确认目标",
   rebuild: "流水完整，缺的是它对应的持仓行"
@@ -359,8 +362,9 @@ export function danglingStageItem(
       : `涉及标的 ${titles.slice(0, 3).join("、")} 等 ${titles.length} 个`;
   return finish({
     id: `dangling-${stage}`,
-    // rebuild 从「修正数据」里拆出去自成任务：它缺的不是字段，是整条持仓行
-    task: stage === "rebuild" ? "rebuild" : "repair",
+    // rebuild 折入 repair（2026-11-19 场景化）：不再自成任务卡，
+    // 进入 rebuild 阶段抽屉时才以场景句露一次
+    task: "repair",
     // 改挂会改流水归属（可能还会新建一条持仓），必须先让用户看清目标再点
     state:
       stage === "reattach"
@@ -438,7 +442,7 @@ function orphanItem(row: OrphanLedgerGroup): ReconQueueItem {
       reconBatchLabel(row.batch_label, row.txn_count)
     ],
     count: row.txn_count,
-    actionLabel: ready ? "核对并归入账本" : "查看无法归属的原因",
+    actionLabel: ready ? "确认归入账本" : "查看无法归属的原因",
     stateReason: ready
       ? "归属已唯一判定，只改账本一列"
       : "账户名与账本名不一致或有歧义",
@@ -516,35 +520,28 @@ export function sortQueue(items: ReconQueueItem[]): ReconQueueItem[] {
 }
 
 /**
- * 状态筛选的取值范围：三个单档 + 两个范围档。
- *
- * `"open"` = 待处理（ready / judge / incomplete），是**默认档**。
- * 为什么默认不再是 `"all"`：`"all"` 会把已处理项（done）混进待办列表——E账户影子
- * 记录按 `status !== 'pending'` 全算 done，真库 93 条里 85 条 attributed + 8 条
- * verified，于是「核对差异」角标是 0 件、列表却满屏「这条已经核对过了」。角标与
- * 列表两个口径必须同源，默认落在用户此刻能动手的那一档；已处理项仍在 `"all"` 与
- * `"done"` 档可回看 / 撤销，不是藏起来。
+ * 队列展示分段（场景化，2026-11-19）：`incomplete` 折叠进 judge 段。
+ * 判据唯一来源：组件一律 import segmentOf，不各自重写 state → segment 映射。
  */
-export type ReconQueueScope = ReconQueueState | "all" | "open";
+export function segmentOf(item: ReconQueueItem): ReconQueueSegment {
+  if (item.state === "done") return "done";
+  if (item.state === "ready") return "ready";
+  return "judge";
+}
 
 export interface ReconQueueFilter {
   task: ReconTaskKey | "all";
-  state: ReconQueueScope;
+  segment: ReconQueueSegment;
   keyword: string;
   batchId: number | "all";
 }
 
 export const DEFAULT_QUEUE_FILTER: ReconQueueFilter = {
   task: "all",
-  state: "open",
+  segment: "ready",
   keyword: "",
   batchId: "all"
 };
-
-/** 一条记录是否落在「待处理」范围内：只有 done 被排除，其余三档全算待处理 */
-function inOpenScope(item: ReconQueueItem): boolean {
-  return item.state !== "done";
-}
 
 /** 筛选：四个维度同时生效，全部走纯函数，页面只传值 */
 export function filterQueue(
@@ -554,11 +551,7 @@ export function filterQueue(
   const keyword = filter.keyword.trim().toLowerCase();
   return items.filter(item => {
     if (filter.task !== "all" && item.task !== filter.task) return false;
-    if (filter.state === "open") {
-      if (!inOpenScope(item)) return false;
-    } else if (filter.state !== "all" && item.state !== filter.state) {
-      return false;
-    }
+    if (segmentOf(item) !== filter.segment) return false;
     if (filter.batchId !== "all" && item.batchId !== filter.batchId)
       return false;
     if (keyword && !item.searchText.includes(keyword)) return false;
@@ -567,60 +560,33 @@ export function filterQueue(
 }
 
 /**
- * 分诊卡计数：卡上条数 = 该任务下待办记录条数之和，与状态筛选后的列表同源。
- * 「已处理」不计入待办数，但状态筛选里仍可查看。
+ * 分段计数（件数，非记录条数）。排除 count === 0 的入口动作（导入交割单），
+ * 否则「要你判断」段会凭空多一件「入口」。
  */
-export function countByTask(
-  items: ReconQueueItem[],
-  task: ReconTaskKey
-): number {
-  return items
-    .filter(i => i.task === task && i.state !== "done")
-    .reduce((sum, i) => sum + i.count, 0);
-}
-
-/**
- * 分诊卡角标：这一任务下还有几**件**待办。
- * 与 `countByTask` 的区别是口径：`countByTask` 数「涉及多少条记录」（如 663 条流水），
- * 角标数「要打开处理几次」（如 122 组）。用户点卡片时关心的是后者；
- * 记录条数放在任务说明里。入口动作（count=0）与已处理项都不算待办。
- */
-export function countOpenItemsByTask(
-  items: ReconQueueItem[],
-  task: ReconTaskKey
-): number {
-  return items.filter(i => i.task === task && i.state !== "done" && i.count > 0)
-    .length;
-}
-
-/** 状态分段器的计数：与筛选后列表同源，不另数一遍 */
-export function countByState(
+export function countBySegment(
   items: ReconQueueItem[],
   task: ReconTaskKey | "all"
-): Record<ReconQueueState, number> {
-  const counts: Record<ReconQueueState, number> = {
+): Record<ReconQueueSegment, number> {
+  const counts: Record<ReconQueueSegment, number> = {
     ready: 0,
     judge: 0,
-    incomplete: 0,
     done: 0
   };
   for (const item of items) {
+    if (item.count === 0) continue;
     if (task !== "all" && item.task !== task) continue;
-    counts[item.state] += 1;
+    counts[segmentOf(item)] += 1;
   }
   return counts;
 }
 
-/**
- * 「待处理」档的条数。判据与 {@link filterQueue} 的 `state === "open"` 同源
- * （同一个 `inOpenScope`），否则分段器上的数字会与点开后看到的行数对不上。
- */
-export function countOpenScope(
+/** judge 段内某类型待判断的件数（供 ReconTaskChips 计数；同样排除入口动作） */
+export function countJudgeItemsByTask(
   items: ReconQueueItem[],
-  task: ReconTaskKey | "all"
+  task: ReconTaskKey
 ): number {
   return items.filter(
-    i => (task === "all" || i.task === task) && inOpenScope(i)
+    i => i.task === task && i.count > 0 && segmentOf(i) === "judge"
   ).length;
 }
 

@@ -218,27 +218,14 @@ const BALANCE_TAB_OPTIONS = [
 const assetBalanceRows = computed(() => {
   const total = props.totalAssets;
   if (total === 0) return [];
-  const labelMap: Record<
-    string,
-    { color: string; categoryKey: string; detailRoute?: string }
-  > = {
+  // #3232：房产 / 贵金属不再是独立大类（后端已把 real_estate/precious_metal 收敛进
+  // fixed），category_distribution 只下发「固定资产」一行，点击去盘点页 fixed 页签。
+  const labelMap: Record<string, { color: string; categoryKey: string }> = {
     流动资金: { color: "var(--palette-mint-green)", categoryKey: "cash" },
     固定资产: { color: "var(--palette-warm-taupe)", categoryKey: "fixed" },
     投资理财: { color: "var(--palette-periwinkle)", categoryKey: "investment" },
     应收款: { color: "var(--palette-stone-gray)", categoryKey: "receivable" },
-    保险项目: { color: "var(--color-accent)", categoryKey: "insurance" },
-    // #1798：房产 / 贵金属是独立大类，盘点页没有对应 tab（原实现 categoryKey=中文名
-    // 会拼出不存在的 tab 参数），直跳各自的详情页
-    房产: {
-      color: "var(--chart-05)",
-      categoryKey: "fixed",
-      detailRoute: "/asset/realestate"
-    },
-    贵金属: {
-      color: "var(--chart-06)",
-      categoryKey: "fixed",
-      detailRoute: "/asset/precious"
-    }
+    保险项目: { color: "var(--color-accent)", categoryKey: "insurance" }
   };
   // 消费后端 category_distribution（后端唯一聚合出口，含汇率换算）
   const categoryMap: Record<
@@ -248,7 +235,6 @@ const assetBalanceRows = computed(() => {
       value?: number;
       color: string;
       categoryKey: string;
-      detailRoute?: string;
     }
   > = {};
   for (const item of props.distributions?.category_distribution ?? []) {
@@ -287,12 +273,8 @@ function goToInventory(categoryKey: string) {
   router.push(`/inventory?tab=${categoryKey}`);
 }
 
-/** 资产行点击：配置了详情路由的大类（房产/贵金属，#1798）直跳详情页，其余去盘点页 */
-function onAssetRowClick(item: { categoryKey: string; detailRoute?: string }) {
-  if (item.detailRoute) {
-    router.push(item.detailRoute);
-    return;
-  }
+/** 资产行点击：一律去盘点页对应大类页签（#3232 起房产/贵金属并入固定资产，无独立详情页） */
+function onAssetRowClick(item: { categoryKey: string }) {
   goToInventory(item.categoryKey);
 }
 </script>

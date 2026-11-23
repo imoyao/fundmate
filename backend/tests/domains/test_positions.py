@@ -1719,3 +1719,30 @@ class TestSymbolNormAutoFill:
         b = make_position(symbol='004369', name='前海开源聚财宝B', asset_type='fund', account_name='账户乙')
         assert a.symbol_norm == b.symbol_norm == 'OTC:004369'
         assert a.ledger_id != b.ledger_id
+
+
+class TestBankWealthMaturityDate:
+    """银行理财可带到期日（#931 / D121）：schema → service → 落库全链路。"""
+
+    def test_bank_wealth_position_accepts_maturity_date(self, client, db):
+        """理财走 balance 记账并落到期日；字段若不在写入白名单里会被静默过滤掉。"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': 'Z7001234ABCD',
+                'name': '朝朝宝',
+                'type': 'bank_wealth',
+                'market': '',
+                'account_name': '招商银行',
+                'amount': 50000,
+                'valuation_mode': 'balance',
+                'maturity_date': '2027-01-15',
+                'trade_date': '2026-11-19',
+                'op_type': 'buy',
+            },
+        )
+        assert resp.status_code == 200, resp.get_json()
+        pos = db.query(Position).filter_by(symbol='Z7001234ABCD').one()
+        assert pos.maturity_date == date(2027, 1, 15)
+        assert pos.valuation_mode == ValuationMode.BALANCE.value

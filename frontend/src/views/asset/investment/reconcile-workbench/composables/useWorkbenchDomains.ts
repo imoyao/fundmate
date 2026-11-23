@@ -46,6 +46,12 @@ import {
   recomputeResultMessage
 } from "../utils/adjustmentPayload";
 import { reconQuantity } from "../utils/reconDisplay";
+import {
+  buildClearSharePayload,
+  clearShareConfirmText,
+  clearShareResultText
+} from "../utils/clearSharePayload";
+import { ACTION_RISK_HINTS } from "../utils/reconLabels";
 
 /**
  * 对账中心三域数据与操作（#980 拆分自 index.vue 的 composables/ 步骤，零行为变更）
@@ -361,6 +367,41 @@ export function useWorkbenchDomains() {
     }
   }
 
+  /**
+   * 「份额与流水不自洽」面板的一键清仓（按账单把份额改成 0）。
+   *
+   * 写路径走 applyAdjustment(set, quantity=0) → 后端 `_clear_position_by_bill`：
+   * 行保留 + 锚点重置当日 0，净值回填不会复活。recompute 对本面板命中的持仓
+   * （净额 ≤ 0）会被后端硬拦，increment 差额恒定，只有 set 0 是合法清仓入口。
+   *
+   * 刷新走 `reload("rebuilt")` 而不是只重拉面板：set 0 改的是持仓行，域 B 的
+   * quantity 差异卡（#128 那类）是算出来落库的，必须先跑一次域 B 对账才会清，
+   * 否则面板消失、差异卡还在，用户又被提示一遍（与轨迹编辑同一刷新口径）。
+   */
+  async function clearShareByBill(item: ShareIntegrityItem): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        clearShareConfirmText(item),
+        `按账单清仓 · ${item.name || item.symbol}`,
+        {
+          type: "warning",
+          confirmButtonText: "确认已清仓",
+          cancelButtonText: "再核对一下",
+          confirmButtonClass: "el-button--danger"
+        }
+      );
+    } catch {
+      return; // 用户取消
+    }
+    try {
+      await applyAdjustment(buildClearSharePayload(item));
+      ElMessage.success(clearShareResultText());
+      await reload("rebuilt");
+    } catch (e) {
+      ElMessage.error(errorMessageOf(e) || "清仓失败，请稍后重试");
+    }
+  }
+
   /** 加载域 E：红利税核对（#541）。
    *
    * 返回的是**分诊结果**：`items` 只含真待办（已卖出、持股 ≤1 年、没配上税），
@@ -603,7 +644,7 @@ export function useWorkbenchDomains() {
   async function handleGhostDeleteTxn(txn: GhostDuplicateTxn): Promise<void> {
     try {
       await ElMessageBox.confirm(
-        `确认删除「${txn.ledger_name}」中的这一笔？删除后会重算该账本持仓，无法撤销。`,
+        `确认删除「${txn.ledger_name}」中的这一笔？${ACTION_RISK_HINTS.ghostDelete}`,
         "删除重复交易",
         { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }
       );
@@ -660,6 +701,7 @@ export function useWorkbenchDomains() {
     shareItems,
     shareLoading,
     loadShareIntegrity,
+    clearShareByBill,
     orphanLedgers,
     orphanLoading,
     loadOrphanLedgers,

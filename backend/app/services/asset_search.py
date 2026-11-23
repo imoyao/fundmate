@@ -2,8 +2,8 @@
 """资产统一聚合搜索（#1286）。
 
 设计要点（决策留档见 issue #1286 2026-09-08 评论）：
-- 前端全局搜索唯一后端入口 `GET /api/search/assets/`，五类源扇出：
-  场内证券 / 场外基金 / 指数名录 / 投顾组合 / 基金经理。
+- 前端全局搜索唯一后端入口 `GET /api/search/assets/`，六类源扇出：
+  场内证券 / 场外基金 / 指数名录 / 投顾组合 / 基金经理 / 银行理财（用户已录入产品，#931）。
 - Provider 注册表模式：新增品种 = 在 SEARCH_PROVIDERS 注册一个函数即可，
   响应信封与前端消费方零改动（未来「组合购买」记账录入复用同一端点）。
 - 单源失败不阻断整体（Partial failure 容忍，与 useAssetSearch 既有语义一致）。
@@ -21,6 +21,8 @@ from typing import Callable, Dict, List
 from loguru import logger
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
+
+from app.services.bank_wealth_search import search_bank_wealth
 
 # 单源返回条数上限（避免单源刷屏淹没其他品种）
 _PER_PROVIDER_LIMIT = 10
@@ -205,26 +207,24 @@ def _search_managers(db: Session, q: str) -> List[Dict]:
     ]
 
 
-# 除 funds 外的四类**本地**源（#2218）：全部是本地表查询、毫秒级，
-# 供基金外部兜底的有条件跳过判定复用（不含 _search_funds 自身，防自引用）。
+# 除 funds 外的六类**本地**源（#2218）：均为本地表查询，供外部兜底的有条件跳过判定复用
 _OTHER_LOCAL_PROVIDERS: List[Callable[[Session, str], List[Dict]]] = [
     _search_securities,
     _search_indices,
     _search_advisor_portfolios,
     _search_managers,
+    search_bank_wealth,
 ]
 
 
 def _other_local_providers_hit(db: Session, q: str) -> bool:
-    """其它四类本地源是否已有命中（#2218「有条件跳过外部兜底」的判据）。
+    """其它五类本地源是否已有命中（#2218「有条件跳过外部兜底」的判据）。
 
     直接复用 Provider 本体，而非另写一份等价快查：判据与实际返回若分两处实现必然漂移。
-    仅在本地 funds 零命中时才被求值（search_funds 的 external_gate 延迟求值），
-    命中即短路；每次最多 4 条带 limit 的本地查询，代价可忽略——对比它拦掉的
-    3MB / 14s akshare 全量拉取。
+    仅在本地 funds 零命中时才被求值（search_funds 的 external_gate 延迟求值），命中即短路；
+    每次最多 6 条带 limit 的本地查询，代价可忽略——对比它拦掉的 3MB / 14s akshare 全量拉取。
 
-    单源异常**按未命中处理**：预检失败宁可多打一次外部源，也不能把真正的基金名检索
-    拦在门外（外部兜底就是为它设计的）。
+    单源异常**按未命中处理**：预检失败宁可多打一次外部源，也不能把真正的基金名检索拦在门外。
     """
     for provider in _OTHER_LOCAL_PROVIDERS:
         try:
@@ -235,13 +235,13 @@ def _other_local_providers_hit(db: Session, q: str) -> bool:
     return False
 
 
-# Provider 注册表：新增品种在此追加一个 (db, q) -> list[dict] 函数即可
 SEARCH_PROVIDERS: List[Callable[[Session, str], List[Dict]]] = [
     _search_securities,
     _search_funds,
     _search_indices,
     _search_advisor_portfolios,
     _search_managers,
+    search_bank_wealth,
 ]
 
 

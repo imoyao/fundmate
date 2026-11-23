@@ -38,7 +38,8 @@ from typing import Any, Dict, Optional, Sequence, Set
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.services.cold_set_guard import RETENTION_DAYS, _hot_codes
+from app.services.cold_set_guard import RETENTION_DAYS
+from app.services.hot_codes import read_hot_codes
 
 # 单次写入允许的「冷集 + 保留窗口外」行数上限。
 #
@@ -50,16 +51,15 @@ from app.services.cold_set_guard import RETENTION_DAYS, _hot_codes
 MAX_COLD_ROWS_PER_WRITE = 20_000
 
 
-def load_hot_codes(db: Session) -> Optional[Set[str]]:
-    """热集代码集合；拿不到时返回 None（调用方 fail-open）。
+def load_hot_codes() -> Optional[Set[str]]:
+    """热集代码（**经 user 域会话读**，成因见 `hot_codes` 模块注释）；拿不到返回 None。
 
-    `cold_set_guard._hot_codes` 在来源表缺失时**故意**抛 `SystemExit`（宁可报错也不能
-    少算热集 —— 少算会把「仅自选、未持有」的基金误判成冷集）。写入路径不能继承这个
-    语义：那边是「删错了无法挽回」，这边是「不拦最多多写几行」。故在此把
-    `SystemExit` 一并接住，降级为「本次不判定」。
+    缺表 / 连不上时 `read_hot_codes` 抛 `HotCodesUnavailable`，这里按「本次不判定」降级：
+    写入路径拦不住最多多写几行，而误拦会把增量起点钉死（#1550 静默失败一个月）。
+    `SystemExit` 一并接住只为兼容旧形态（#3091）。
     """
     try:
-        return _hot_codes(db)
+        return read_hot_codes()
     except (Exception, SystemExit) as exc:  # noqa: BLE001 - 守卫故障不得阻断同步
         logger.warning(f'冷集写入守卫：热集口径不可用（{exc}），本次跳过上限校验')
         return None
@@ -97,7 +97,7 @@ def count_cold_out_of_window(
 
 
 def enforce_cold_write_cap(
-    db: Session,
+    db: Session,  # 调用方的 market 域会话；热集不从这里读（#3091）
     records: Sequence[Dict[str, Any]],
     *,
     job_name: str,
@@ -121,7 +121,7 @@ def enforce_cold_write_cap(
         ValueError: 溢出量 > `cap`。消息必须可操作 —— 运维看到的只有这一行日志。
     """
     limit = MAX_COLD_ROWS_PER_WRITE if cap is None else cap
-    hot = load_hot_codes(db)
+    hot = load_hot_codes()
     overflow = count_cold_out_of_window(records, hot, keep_days=keep_days, today=today)
     if stats is not None:
         stats['cold_set_overflow'] = stats.get('cold_set_overflow', 0) + overflow

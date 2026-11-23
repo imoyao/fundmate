@@ -87,7 +87,10 @@ const items = computed<SummaryItem[]>(() => {
     :aria-busy="loading ? 'true' : undefined"
     aria-label="交易汇总"
   >
-    <p class="txn-summary__range">{{ label }}</p>
+    <p class="txn-summary__range">
+      <span class="txn-summary__range-dot" aria-hidden="true" />
+      {{ label }}
+    </p>
     <ul class="txn-summary__cards">
       <li
         v-for="item in items"
@@ -120,9 +123,21 @@ const items = computed<SummaryItem[]>(() => {
 }
 
 .txn-summary__range {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
   margin: 0 0 var(--space-2);
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
+}
+
+/* 范围锚点：6px 品牌色圆点，让「这段时间是什么范围」这个元信息有视觉落点，
+   与空态鹦鹉螺插画的珊瑚红同源，弱化但不清除（口径说明仍需要被看见）。 */
+.txn-summary__range-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--brand-700);
+  border-radius: 50%;
 }
 
 /* 自适应卡片网格：宽屏一排 5 张，窄屏自动换行。gap 用 space-2 保持紧凑。 */

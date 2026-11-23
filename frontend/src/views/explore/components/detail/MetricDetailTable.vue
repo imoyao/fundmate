@@ -21,7 +21,7 @@
       max-height="520"
       :row-class-name="rowClassName"
     >
-      <el-table-column prop="name" label="指标" min-width="200">
+      <el-table-column prop="name" label="指标" min-width="240">
         <template #default="{ row }">
           <div class="metric-name-cell">
             <span class="metric-name-text">{{ row.name }}</span>
@@ -32,13 +32,13 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="来源" width="130">
+      <el-table-column label="来源" min-width="130">
         <template #default="{ row }">
           <span class="source-tag">{{ displaySource(row.source) }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="数值" width="120" align="right">
+      <el-table-column label="数值" min-width="120" align="right">
         <template #default="{ row }">
           <span
             class="metric-value"
@@ -51,7 +51,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="等级" width="150" align="right">
+      <el-table-column label="等级" min-width="150" align="right">
         <template #default="{ row }">
           <TemperatureLevelBadge :level="row.label" size="sm" />
         </template>

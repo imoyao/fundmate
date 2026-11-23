@@ -95,7 +95,7 @@ onMounted(() => {
       </template>
     </SectionHeader>
     <el-table v-if="unarchived.length > 0" :data="unarchived" border>
-      <el-table-column label="产品信息" min-width="180">
+      <el-table-column label="产品信息" min-width="240">
         <template #default="{ row }">
           <ProductDisplay
             :name="row.name || ''"
@@ -104,7 +104,7 @@ onMounted(() => {
           />
         </template>
       </el-table-column>
-      <el-table-column label="来源" width="110">
+      <el-table-column label="来源" min-width="120">
         <template #default="{ row }">
           <el-tag
             v-if="positionSourceLabel(row.source)"
@@ -116,7 +116,7 @@ onMounted(() => {
           <span v-else style="color: var(--text-tertiary-ink)">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="市值" width="130" align="right">
+      <el-table-column label="市值" min-width="130" align="right">
         <template #default="{ row }">
           <MoneyDisplay
             :value="row.market_value || 0"

@@ -70,6 +70,10 @@ class PositionCreate(BaseModel):
     interestRate: Optional[float] = Field(None, description='年化利率')
     amount: Optional[float] = Field(None, description='交易金额')
     valuation_mode: Optional[str] = Field('nav', description='计价模式: nav=份额×净值 / balance=直接余额(#1174)')
+    maturity_date: Optional[date] = Field(
+        None,
+        description='到期日：逆回购（必填）/ 银行理财（仅记录）。其余品类传入会被拒（#931）',
+    )
     market_value_override: Optional[float] = Field(
         None, description='人工录入市值(元)；非空时优先于派生计算（balance 模式必填）'
     )
@@ -209,6 +213,11 @@ class PositionOut(BaseModel):
     # 声明在 Out Schema 是为了契约可见（与 price_date 成对消费）；None=无价格日期，前端不隐藏。
     settled_today: Optional[bool] = None
     valuation_mode: str = 'nav'
+    # 到期日（#931）：逆回购 = 时间建模真相源（到期即不再计入投资），银行理财 = 仅记录。
+    # 声明在 Out Schema 才有线格式；wire 值必须是 `YYYY-MM-DD`——`enrich_position_dict`
+    # 显式 `.isoformat()` 覆写，因为 Flask 默认 JSON 会把 date 转成 RFC 822
+    # （"Sun, 01 Mar 2027 00:00:00 GMT"），前端日期控件读不了。
+    maturity_date: Optional[date] = None
     market_value_override: Optional[float] = None
     value_override_at: Optional[datetime] = None
     confirm_date: Optional[date] = None

@@ -128,7 +128,7 @@ const handlePaste = (e: ClipboardEvent) => {
 };
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 /* 呼吸感：边框在 --border-default 与 --brand-400 之间缓慢呼吸 */
 @keyframes upload-breathe {
   0%,

@@ -15,6 +15,7 @@
 
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.money import Money
+from app.core.utils import iso_date_only
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionOut
 from app.services.fund_utils import should_exclude_from_investment
@@ -57,12 +58,12 @@ def enrich_position_dict(p: Position) -> dict:
     )
 
     # ── 当日盈亏（#2007）──
-    # 口径：(现价 − 上一确认价) × 数量。与 `pnl` 同为**浮动**性质（不含已实现），
-    # 区别只在窗口是一天。基准价由 `sync/jobs/position_price_job` 与 `current_price`
-    # **同批**写入——同源同批这个前提不成立时，相减出来的是两段行情之差、不是当日涨跌，
-    # 所以这里只负责算，不负责凑。
+    # 口径：(现价 − 上一确认价) × 数量，与 `pnl` 同为**浮动**性质（不含已实现）、只是窗口是一天。
+    # 基准价由 `sync/jobs/position_price_job` 与 `current_price` **同批**写入——该前提不成立时
+    # 相减出来的是两段行情之差、不是当日涨跌，所以这里只负责算，不负责凑。
     d['prev_close'] = Money.price_units_to_yuan(p.prev_close) if p.prev_close is not None else None
     d['price_date'] = p.price_date.isoformat() if p.price_date else None
+    d['maturity_date'] = iso_date_only(p.maturity_date)
     # 当日已定型（#2210）：确认口径价格日期是否为今天 ⇒ true 时估值副行冗余，前端隐藏。
     # 判据是数据可用性（price_date 是否今天）而非时钟；比较收口 `pnl_settle`，此处不手写日期比较。
     d['settled_today'] = is_settled_today(p.price_date)
@@ -76,9 +77,8 @@ def enrich_position_dict(p: Position) -> dict:
         d['day_pnl'] = None
         d['day_pnl_rate'] = None
     # 是否计入组合（D20 二期开口项 4）：类现金资产（货基 / 逆回购 / cash）会被
-    # `should_exclude_from_investment` 从组合持仓里滤掉，但盘点页仍显示这些行，
-    # 于是「改派到某组合」成功了、组合页却永远看不到——静默无效比报错更难排查。
-    # 判据必须由后端下发（集合的单一真相源在 `core/asset_types`，前端硬编码等于抄
-    # 第二份真相源），前端据此把该格渲染成「不进组合」并禁用改派。
+    # `should_exclude_from_investment` 从组合持仓里滤掉，但盘点页仍显示这些行，于是
+    # 「改派到某组合」成功了、组合页却永远看不到——静默无效比报错更难排查。判据必须由
+    # 后端下发（集合真相源在 `core/asset_types`，前端硬编码等于抄第二份），前端据此禁改派。
     d['in_portfolio'] = not should_exclude_from_investment(p)
     return d

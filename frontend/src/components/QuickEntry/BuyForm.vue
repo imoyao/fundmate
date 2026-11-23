@@ -63,6 +63,11 @@
       :security-type="selectedSecurityOption?.type"
     />
 
+    <BuyBankWealthNameField
+      v-if="selectedSecurityOption?.is_manual && form.type === 'bank_wealth'"
+      v-model:name="form.name"
+    />
+
     <!-- 1a. 成交数量（股票/ETF/可转债）：先有成交数量与成交价，金额是派生量。
          与基金相反 —— 基金申购时净值未知，只能按金额算份额（见 3.） -->
     <BuyQuantityField
@@ -74,10 +79,10 @@
       :symbol="form.symbol"
     />
 
-    <!-- 1b. 买入金额（投顾组合的提示语文案在组件内部分叉；非基金为只读派生量） -->
+    <!-- 1b. 买入金额（只记金额的品类文案在组件内部分叉；非基金为只读派生量） -->
     <BuyAmountField
       v-model:amount="form.buyAmount"
-      :is-portfolio="form.type === 'portfolio'"
+      :balance-kind="balanceKind"
       :derived="quantityMeta.amountDerived"
     />
 
@@ -92,8 +97,7 @@
       @discount-change="onFundFeeDiscountChange"
     />
 
-    <!-- 3. 确认份额（基金：金额扣除手续费后按净值算份额，可手动微调）；
-         投顾组合无份额概念，整块隐藏（D70） -->
+    <!-- 3. 确认份额（基金按净值算份额，可微调）；投顾组合 / 银行理财无份额，整块隐藏（D70 / D121） -->
     <BuyQuantityField
       v-if="quantityMeta.mode === 'fund'"
       v-model:shares="form.shares"
@@ -105,9 +109,7 @@
 
     <!-- 4. 确认净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
     <TradeNavPriceRow
-      v-if="
-        selectedSecurityOption?.type === 'fund' && form.type !== 'portfolio'
-      "
+      v-if="selectedSecurityOption?.type === 'fund' && balanceKind === null"
       :price="form.price"
       :nav-date="actualNavDate"
       :fallback-date="form.trade_date"
@@ -137,6 +139,7 @@ import { TRADE_FIELD_LABELS } from "@/constants";
 import { disabledTradeDate } from "@/utils/date";
 import BuyAccountField from "./components/BuyAccountField.vue";
 import BuyAmountField from "./components/BuyAmountField.vue";
+import BuyBankWealthNameField from "./components/BuyBankWealthNameField.vue";
 import BuySecuritySearchField from "./components/BuySecuritySearchField.vue";
 import BuyExtraFields from "./components/BuyExtraFields.vue";
 import BuyFeeField from "./components/BuyFeeField.vue";
@@ -195,11 +198,15 @@ const quantityMeta = computed(() =>
     symbol: form.symbol
   })
 );
-// 投顾组合不收申购费（服务费在组合侧扣，载荷里恒 0），不显示输入框
-const showFeeField = computed(() => {
-  const type = selectedSecurityOption.value?.type;
-  return Boolean(type) && type !== "portfolio";
-});
+// 投顾组合 / 银行理财：只记金额（balance），没有份额、净值与价格（D70 / D121）。
+// 传取值而不是布尔，因为金额提示语两者不同（见 BuyAmountField.hint）。
+const balanceKind = computed<"portfolio" | "bank_wealth" | null>(() =>
+  form.type === "portfolio" || form.type === "bank_wealth" ? form.type : null
+);
+// 两类都不收申购费，不显示输入框；未选标的也不显示（与价格行同一模式）
+const showFeeField = computed(
+  () => Boolean(selectedSecurityOption.value?.type) && !balanceKind.value
+);
 // 买入价格可手填的品种判定已随表单项下沉到 BuyPriceField（含口径说明）
 const showIsAfter15 = computed(() => {
   const type = currentLedger.value?.ledger_type;

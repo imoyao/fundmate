@@ -399,7 +399,7 @@ job 名与 stage 名都要写（后者是查询锚点）。
   （WatchlistFilterBar 332→497 / welcome 370→440 / reconcile-workbench 336→405 / watchlist/index 369→403），
   warn 模式只打印不拦截，等于没设。确实拆不动时，须在同一 PR 内腾出等量行数（净零也合规），
   不允许「先加功能、以后再拆」。
-- **services 层模块体量/复杂度只减不增**（防 #2873 类上帝模块复发）：`backend/app/services/**/*.py` 由 `scripts/guard_service_size.py`
+- **services / core 层模块体量/复杂度只减不增**（防 #2873 类上帝模块复发）：`backend/app/services/**/*.py` 与 `backend/app/core/**/*.py` 由 `scripts/guard_service_size.py`
   在 CI 的 `backend` job 钉死——存量按 `BASELINE` 冻结、只能降不能涨，新增文件走 `NEW_FILE_LIMITS`
   （lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20），超标即判红；存量文件涨一行（或复杂度升一档）也判红。
   判据边界与回退探针见脚本 docstring 与 `scripts/tests/test_guard_service_size.py`。

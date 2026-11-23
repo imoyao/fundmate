@@ -93,6 +93,36 @@ class TestAssetCRUD:
             # 验证负债的 type_label
             assert a.get('type_label') is not None
 
+    def test_filter_assets_by_ledger_id(self, client):
+        """按账户过滤资产（#3222 实物资产账户详情页「资产明细」区块）"""
+        # 两个账户各挂一笔资产
+        prop_resp = client.post('/api/ledgers/', json={'name': '家庭房产', 'ledger_type': 'property'})
+        prop_id = prop_resp.get_json()['data']['id']
+        other_resp = client.post('/api/ledgers/', json={'name': '另一账户', 'ledger_type': 'property'})
+        other_id = other_resp.get_json()['data']['id']
+
+        client.post(
+            '/api/assets/',
+            json={'major_category': 'real_estate', 'name': '自住房', 'amount': 2200000, 'ledger_id': prop_id},
+        )
+        client.post(
+            '/api/assets/',
+            json={'major_category': 'real_estate', 'name': '另一套', 'amount': 1000000, 'ledger_id': other_id},
+        )
+
+        # 按账户过滤：只返回该账户的资产
+        resp = client.get(f'/api/assets/?ledger_id={prop_id}')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert len(data) >= 1
+        assert all(a['ledger_id'] == prop_id for a in data)
+
+        # 非法 ledger_id（type=int 解析失败 → None → 不按账户过滤，返回全部）
+        resp_all = client.get('/api/assets/?ledger_id=abc')
+        assert resp_all.status_code == 200
+        data_all = resp_all.get_json()['data']
+        assert len(data_all) >= len(data)
+
 
 class TestAssetUpdate:
     """更新操作测试"""

@@ -25,7 +25,8 @@ WHY
 
 存量的三类成因（2026-10-06 核实，#1893）
 --------------------------------------------
-``BASELINE`` 里的 29 条并非同质，逐个读代码后确认分三类，**只有第 3 类可迁**：
+``BASELINE`` 里的存量条目并非同质，逐个读代码后确认分三类，**只有第 3 类可迁**
+（条数随迁移递减，不在此处钉死，以免文案与基线各说一套）：
 
 1. **双向区间**（``150–420px`` / ``760–940px`` / ``>=420px``）——``bp`` mixin 只有
    ``below($name)`` / ``above($name)`` 两个**单点**比较，**无法表达「下限 AND 上限」**。
@@ -33,7 +34,8 @@ WHY
 2. **值不在断点表**（``470`` / ``960`` / ``1180`` / ``968``）——断点表只有
    ``sm 640 / md 768 / lg 1024 / xl 1280 / 2xl 1536``（对齐 Tailwind v4，见 #1571 决策）。
    映射到最近档位会**改变断点行为**（``520→640`` 使 420–640px 区间突变）= 功能回归。
-   另 ``login.css`` 是纯 ``.css`` 后缀，``bp`` 属 SCSS 语法、结构上就用不了。
+   另：纯 ``.css`` 后缀的文件结构上就用不了 ``bp``（``@include`` 是 SCSS 语法），
+   这类文件只可能是 CSS 原生 ``@media``。
 3. **恰好对齐档位**（``480`` / ``520`` / ``640`` / ``768``，共 6 条）——理论上可迁，
    但这批文件多为 ``<style scoped>`` **纯 CSS 块**，要加 ``lang="scss"`` 改整块编译方式，
    且 ``@include`` 编译出的 ``@media`` 不改变特异性，``stylelint --fix`` 曾把它挪到基础
@@ -87,8 +89,6 @@ BASELINE: dict[str, int] = {
     "frontend/src/style/element-plus.scss::"
     "screen and (width > 760px) and (width <= 940px)": 1,
     "frontend/src/style/index.scss::(width <= 960px)": 1,
-    "frontend/src/style/login.css::screen and (max-width: 1180px)": 1,
-    "frontend/src/style/login.css::screen and (max-width: 968px)": 1,
     "frontend/src/style/sidebar.scss::screen and (width >= 150px) and (width <= 420px)": 1,
     "frontend/src/style/sidebar.scss::screen and (width >= 420px)": 1,
     "frontend/src/views/asset/ledgers/index.vue::(width <= 767px)": 1,

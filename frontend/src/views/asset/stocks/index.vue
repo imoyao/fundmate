@@ -22,6 +22,6 @@ defineOptions({ name: "AssetStocks" });
     type-tab-label="股票类型"
     :type-filter-field="'asset_type'"
     empty-title="还没有股票持仓"
-    empty-hint="导入券商对账单或手动记一笔后，这里会展示全部股票、ETF 与可转债"
+    empty-hint="导入券商对账单或手动记一笔，数据会出现在这里"
   />
 </template>

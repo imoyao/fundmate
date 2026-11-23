@@ -146,12 +146,57 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '只认 1280px / 1400px 两个历史值；新写的 1320px 不会命中',
     },
+    'scripts/guard_sticky_table.py': {
+        'rule': '自建 table 要表头吸顶时，必须迁 el-table 或加内部滚动容器（禁裸 overflow-x:auto）',
+        # 源 #3200：position:sticky 相对最近的 scrolling ancestor 定位，而 overflow-x:auto
+        # 已足够让该容器成为截断点——纵向写 visible / clip 都救不回来（实测表头 top=494px
+        # 跟着滚走）。同类优选迁 el-table 后 header/body 分层才修好；本守卫防下一处原样再踩。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_sticky_table.test.js',
+        'covered': (
+            '只做静态三件套判定（自建 <table> + thead/th sticky + 无内部纵向滚动容器）：'
+            '不校验 sticky 规则是否真作用于那张表、内滚容器是否真包住它（要 DOM / 运行时）；'
+            '跨文件拆分的写法（表在 .vue、样式在全局 .scss）判不出——本仓表格样式与组件同文件。'
+        ),
+    },
+    'scripts/guard_table_columns.py': {
+        'rule': 'el-table 列宽一律 min-width（禁单弹性列独吃容器余量）',
+        # 源 #3210（收口 #3208）：EP 只把「无数字 width」的列纳入容器余量分配，
+        # 只留一个弹性列 ⇒ 余量全灌给它（实测首列 36%~76%），窄列反被挤折行。
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_table_columns.test.js',
+        'covered': (
+            '列宽由配置驱动（:width="def.width"）的表在 *.ts 里，本守卫解析不到——'
+            '这类必须登记进 CONFIG_TABLE_JUDGE，判据由 '
+            'frontend/src/__tests__/tableColumnFlexInvariant.spec.ts 承接（import 配置本体）；'
+            '字面量 width 的 v-for 可判（重复定宽列不改弹性列个数）；'
+            '「是否已横滚」不做运行时判定，存量 15 处靠 table-col-allow 登记，'
+            '且标记里写的「N 列 / 合计 M」必须等于代码算出的列数与数值宽合计'
+            '（含 v-for / 非字面量宽的表不校验）；'
+            '不校验 min-width 取值是否合理，只数弹性列个数'
+        ),
+    },
     'scripts/guard_breakpoints.py': {
         'rule': '禁止裸断点媒体查询（走 bp.below/above）',
         'runner': 'both',
         'stage': 'default',
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '只扫 frontend/src 的 vue/css/scss；<style module> 里的内联写法同样命中',
+    },
+    'scripts/guard_style_nesting.py': {
+        'rule': '非 SCSS 的样式块禁止 `&__x` / `&-x` 嵌套拼接（原生 CSS 会整条丢弃）',
+        # 源 #3213：`<style scoped>` 无 lang="scss" ⇒ 原生 CSS，`&__value` 是 SCSS 拼接，
+        # 在浏览器里非法 ⇒ 整条嵌套规则静默消失，构建与 stylelint 都不报错。
+        # 只挂 CI（不动 pre-commit）：它要扫全量目录才能证明「零存量」，
+        # 局部文件列表跑出来的绿没有「别处没有新长出来的」这层意思。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_style_nesting.py',
+        'covered': (
+            '只认 `&` 紧跟标识符字符（`&__x` / `&--x` / `&-x`）这一形态；'
+            'lang 为 scss/sass/less/postcss 的块整块跳过（由预处理器展开）；'
+            '其余 SCSS-only 语法（$var / @include / #{}）不判——它们在原生 CSS 里是编译期报错，'
+            '不会静默丢弃。注释与字符串已剔除，说明文字里的举例不会误红'
+        ),
     },
     'scripts/guard_col_divider.py': {
         'rule': '栏间分割线唯一走 .soft-col-divider',
@@ -227,7 +272,11 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'both',
         'stage': 'default',
         'tests': 'backend/tests/core/test_layer_direction.py',
-        'covered': '函数内延迟 import 同样被算作依赖边（刻意从严）',
+        'covered': (
+            '函数内延迟 import 同样算依赖边（刻意从严）；'
+            '例外：R1 的 core→services 只判导入期（函数体内延迟导入不参与导入链，故放行）；'
+            '不判包级双向依赖对（多由 views→services 与 services→models 两条合法边叠加）'
+        ),
     },
     'scripts/check_view_thickness.py': {
         'rule': '视图层只做 HTTP 编排（行数 / query / commit / 单函数只减不增）',
@@ -315,7 +364,7 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只判「登记 / 引擎 / 生命周期 / 预算」四件事；规则内容对不对仍要靠人',
     },
     'scripts/guard_service_size.py': {
-        'rule': 'services 层模块体量 / 复杂度软闸门（防 #2873 类上帝模块复发）',
+        'rule': 'services / core 层模块体量 / 复杂度软闸门（防 #2873 类上帝模块复发）',
         'runner': 'ci',
         'tests': 'scripts/tests/test_guard_service_size.py',
         'covered': (
@@ -411,10 +460,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只扫 backend/app；脚本 / 测试里的硬编码路径不管',
     },
     'scripts/check_css_vars.mjs': {
-        'rule': 'CSS 令牌引用与定义一致（无幽灵令牌）',
+        'rule': (
+            '样式不得静默失效：无幽灵令牌（引用未定义）/ 无自引用令牌 / 无孤立样式表（从不被加载）'
+        ),
         'runner': 'ci',
         'tests': 'scripts/tests/check_css_vars.test.js',
-        'covered': '存量 12 处幽灵令牌冻结为基线，只拦新增',
+        'covered': (
+            '基线已清零（#1558），幽灵令牌与孤立样式表均为新增即拦；'
+            '判定前先剥注释，文档里的 `--x: ...` 示例不再被当成定义、`var(--x)` 也不再算引用。'
+            '孤立样式表按 import / @use / @forward / @import(url) / <style src> 做可达性闭包；'
+            '运行时才拼出来的加载路径（字符串拼接的 dynamic import、index.html 外链）判不到'
+        ),
     },
     'scripts/guard_price_precision.mjs': {
         'rule': (
@@ -488,6 +544,7 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'ci',
         'tests': 'scripts/tests/test_dependabot_lockfile_regen.py',
         # 只查「通道会不会真的发生」（调用 / --apply / push / 不吞失败态 / 设闸）。
+        # #3205 起编排逻辑收进 scripts/dependabot_lockfile_regen.sh，判据改查该脚本本体。
         # 锁生成得对不对要 pnpm + 网络，属端到端验证，不在这里假装。
         'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
     },

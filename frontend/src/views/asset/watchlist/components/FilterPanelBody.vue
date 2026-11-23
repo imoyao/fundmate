@@ -49,13 +49,11 @@
         </template>
         <template v-else>
           <section class="filter-panel__section filter-panel__section--tags">
-            <el-input
+            <SearchInput
               v-model="tagSearch"
-              size="small"
-              clearable
+              size="block"
               aria-label="搜索标签"
               placeholder="搜索标签"
-              class="filter-panel__search"
             />
             <div class="filter-panel__chips">
               <!-- 标签胶囊：未选中显示标签色点，选中态色点与背景融为一体（实色底 + 白字） -->
@@ -98,6 +96,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import SearchInput from "@/components/SearchInput/index.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistTag } from "@/api/watchlist";
@@ -293,6 +292,7 @@ function chipStyle(tag: WatchlistTag) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 8px;
 }
 
 /* 筛选胶囊：默认中性描边；选中态类型走品牌软底，标签走标签色实底（chipStyle 注入） */
@@ -347,11 +347,6 @@ function chipStyle(tag: WatchlistTag) {
   margin: 4px 0;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-}
-
-.filter-panel__search {
-  width: 100%;
-  margin-bottom: 8px;
 }
 
 .filter-panel__hint {

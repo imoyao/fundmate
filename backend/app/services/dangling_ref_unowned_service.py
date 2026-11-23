@@ -21,11 +21,12 @@
 
 ## 写路径边界（与域 F 的区别，必须守住）
 
-本模块**只有只读扫描**。unowned 行可走的写路径只有两条：``enrich``（补全标的）
-与 ``delete``（显式删除，``_load_dangling_by_ids(..., include_unowned=True)``）。
-``reattach`` / ``rebuild`` / ``mislink`` 的目标校验仍用默认口径（只认悬空），
-对 unowned 行继续拒绝——它们没有悬空的持仓引用可挂回，强行挂只会制造新的错账。
-组的 ``fixable`` 恒为 ``False``：本类没有回补动作，语义必须与域 F 区分。
+本模块**只有只读扫描**。unowned 行可走的写路径有三条：``enrich``（补全标的）、
+``delete``（显式删除）与 ``rebuild``（按流水重建持仓）——后两者都靠
+``_load_dangling_by_ids(..., include_unowned=True)`` 放行。``rebuild`` 的业务准入在
+``dangling_ref_rebuild_service.plan_rebuild``：净额 > 0 且同账本无同标的持仓才成立
+（净额 ≤ 0 只能删除，有同标的持仓行走夜间回填）。``reattach`` / ``mislink`` 仍按默认
+口径（只认悬空）拒绝；``fixable`` 恒为 ``False``——``rebuild`` 可用不等于 ``fixable``。
 
 ## 事务边界
 
@@ -56,10 +57,9 @@ from app.services.dangling_ref_service import (
     _txn_brief,
 )
 
-#: 本类没有回补 / 重建动作：block_reason 说清「为什么其余修法都不适用」。
-#: 「补全后会自动挂回」这条事实由 flag ``auto_attach_after_enrich`` 表达（且只在
-#: 同账本存在唯一同身份持仓时成立），不写进这句——否则对没有候选持仓的组是假承诺。
-_UNOWNED_BLOCK_REASON = '没有挂到任何持仓上：补全标的或删除，其余修法都不适用'
+#: 组级说明不预设单一修法：写死「只能补全标的或删除」在 rebuild 放开后就是假话；
+#: 「补全后自动挂回」由 flag ``auto_attach_after_enrich`` 表达（仅同账本唯一持仓时成立）。
+_UNOWNED_BLOCK_REASON = '没有挂到任何持仓上：按组补全标的、按流水重建持仓或删除'
 
 
 def _unowned_flags(symbol: str, cands: list[Position]) -> list[str]:

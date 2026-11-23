@@ -51,8 +51,29 @@ export function resolveFundAssetType(
     : "fund";
 }
 
-/** 搜不到结果 / 搜索服务挂掉时的兜底项：允许用户按代码手填 */
+/** 手填输入是否像「有代码的品种」：6 位数字，可带交易所前缀 */
+function looksLikeCode(q: string): boolean {
+  return /^(?:SH|SZ|BJ)?\d{6}$/i.test(q.trim());
+}
+
+/** 搜不到结果 / 搜索服务挂掉时的兜底项：允许用户按代码或名称手填 */
 function buildManualOption(query: string, ledgerType: string): SecurityOption {
+  const q = query.trim();
+  // bank 账户里「不像代码」的输入按银行理财处理（#931 / D121）：用户手边有的是
+  // 产品名与登记编码（字母+数字，如 Z7001234ABCD），而原来一律推成 fund，
+  // 记进去就成了「一只场外基金」——品类错，收益分层也跟着错。
+  // 仍像代码的输入保留基金口径：银行渠道代销的场外基金要照常能记。
+  if (ledgerType === "bank" && !looksLikeCode(q)) {
+    return {
+      // symbol 落登记编码（D121 的身份键）；空 market 对应 NO_VENUE，不能填 CN_A
+      symbol: q.toUpperCase(),
+      name: q,
+      market: "",
+      type: "bank_wealth",
+      type_label: "银行理财（手填）",
+      is_manual: true
+    };
+  }
   const isFundLedger = ledgerType === "fund" || ledgerType === "bank";
   const manualType = isFundLedger
     ? resolveFundAssetType(query.trim())

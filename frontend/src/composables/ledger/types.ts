@@ -25,6 +25,8 @@ export interface LedgerSummaryData {
   total_market_value?: number;
   position_pnl?: number;
   position_count?: number;
+  /** 实物资产数量（property 账户专用，后端 get_property_stats 下发）。 */
+  asset_count?: number;
   cash_balance?: number | null;
   /** 类现金合计（#1137）：货基 + 逆回购 + 账户现金，口径同 XIRR EXCLUDED_ASSET_TYPES */
   cash_like_amount?: number;
@@ -112,6 +114,11 @@ export interface LedgerHoldingRow {
   settled_today?: boolean | null;
   allocation?: string | null;
   allocation_label?: string;
+  /**
+   * 到期日 `YYYY-MM-DD`（#931）：逆回购 = 时间建模真相源（到期即不再计入投资），
+   * 银行理财 = 仅记录（到期仍计入）。其余品类恒为 null。
+   */
+  maturity_date?: string | null;
   quantity?: number;
   account_name?: string;
   /**

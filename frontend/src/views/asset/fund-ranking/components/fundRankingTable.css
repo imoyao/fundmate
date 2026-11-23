@@ -1,0 +1,136 @@
+/**
+ * 同类优选表格样式（2026-11-20，#3200 由自建 table 迁 el-table 后抽出）。
+ *
+ * 为什么单独成文件：规则绝大多数要打到 el-table 的 th / td / .cell 上，写在
+ * FundRankingTable.vue 里会顶过 400 行页面规模门禁（scripts/check_vue_size.mjs）。
+ * 由该组件以 style src 方式引入。
+ *
+ * 为什么不 scoped + :deep：scoped 的 :deep 不是标准 CSS，stylelint 单独检查本文件
+ * 会按语法错误判红。这里改用**类前缀作用域** `.ranking-table-wrap`（只出现在本页），
+ * 等价于只作用于本页，同时对标准 CSS 检查友好。
+ *
+ * 视觉基线不在这里：边框 / 表头底色 / 行 hover / 行高统一在 src/style/el-table.css，
+ * 本文件只保留「同类优选表」专属形态——吸顶链、双层表头、数据条、排序列高亮、涨跌色。
+ */
+
+/* ── 吸顶链（#3200 根因修复）─────────────────────────────────────────────
+   旧实现自建 table + `.table-scroll{overflow-x:auto}`：只要某一轴是
+   auto / scroll / hidden，该元素就成为 sticky 的「最近滚动祖先」，thead 的
+   position:sticky 被锁在容器内，滚出视口就不见了（实测 top=494px）。
+   el-table 的 header-wrapper 与 body-wrapper 是两层 DOM，横滚发生在 body 内部的
+   el-scrollbar 上，所以外框可以把纵向放开：`overflow: clip visible` 让
+   header-wrapper 的 sticky 上溯到页面滚动容器（.el-scrollbar__wrap），
+   横向仍 clip 住、不把页面顶出横向滚动条。与自选页同一套已验证组合
+   （WatchlistTableSection.vue 的 .watchlist-table-wrap :deep(.el-table)）。
+   ⚠️ 纵向不要改成 hidden / auto：那会把滚动祖先锁回表格自身，吸顶当场失效。
+   ⚠️ 横向不要改成 visible：列总宽超出容器时整表会溢出卡片（#1341 修过的形态）。 */
+.ranking-table-wrap .el-table {
+  min-width: 0;
+  overflow: clip visible;
+}
+
+.ranking-table-wrap .el-table__header-wrapper {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  /* 遮住下方滚动的行；与表头底色同值，滚动时不会露出透缝白条 */
+  background: var(--bg-muted);
+}
+
+/* ── 双层表头 ─────────────────────────────────────────────────────────────
+   分组行（30px）+ 指标行一起吸顶：纵向滚到长列表底部时，指标名与所属组都在场。
+   两个 th 的 label-class-name 由 FundRankingTable.vue 分发（th-group / th-metric）。 */
+.ranking-table-wrap .el-table__header th .cell {
+  font-size: var(--text-label);
+  white-space: nowrap;
+}
+
+.ranking-table-wrap .el-table__header th.th-group {
+  height: 30px;
+  padding: 3px 0;
+}
+
+.ranking-table-wrap .th-group__label {
+  display: inline-block;
+  color: var(--text-secondary);
+}
+
+/* 当前排序列所属分组：与指标列的 brand 高亮呼应。只加粗提色，不加底色——
+   分组行底色是 --bg-muted，另起一层底色即语言分裂。 */
+.ranking-table-wrap .el-table__header th.th-group--active .th-group__label {
+  font-weight: 600;
+  color: var(--brand-ink);
+}
+
+/* 组间竖线：分组行与指标行的「组首列」各画半段，上下接成一条贯穿到底的边界；
+   首组那条同时充当「基金列 | 指标区」的分界。 */
+.ranking-table-wrap .el-table__header th.th-group,
+.ranking-table-wrap .el-table__header th.col-group-start {
+  border-left: 1px solid var(--border-subtle, var(--border-light));
+}
+
+/* 指标名：文字带虚线暗示「有说明」，排序三角（el-table 原生 .caret-wrapper）
+   与文字同一行右对齐，三角收窄到 16px 以免挤出列宽预算 */
+.ranking-table-wrap .el-table__header th.th-metric .cell {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ranking-table-wrap .th-label {
+  border-bottom: 1px dashed var(--border-default);
+}
+
+.ranking-table-wrap .el-table__header .caret-wrapper {
+  flex: none;
+  width: 16px;
+}
+
+/* 排序列的锚点只放在表头：加粗 + 文字提主色（箭头由 EP 自动着色）。
+   数据区曾经再铺一条纵向 --brand-200 暖色带，两处叠加出两个问题：
+   ① 一整列玫瑰色在金融表里读作「告警 / 选中块」，而数字本身是中性口径；
+   ② 夏普 / 卡玛的数据条是 --brand-100，比色带更浅 ⇒ 条在带上变成一个个
+   「白色缺口」，正好把「条越长越优」这层信息读反。
+   表头本来就吸顶常驻，纵向滚到哪一行都能看见排序列，色带没有额外交付。 */
+.ranking-table-wrap .el-table__header th.col-active {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ── 数据区 ─────────────────────────────────────────────────────────────── */
+.ranking-table-wrap .el-table__body td {
+  font-variant-numeric: tabular-nums; /* 小数点纵向绝对对齐（design.md） */
+}
+
+/* 数据条（夏普 / 卡玛）：极浅品牌色底条衬在数字背后，长度 = 当前榜单内相对位置；
+   纯装饰，读屏隐藏。右缘与单元格文字右缘对齐（EP 默认 cell 内边距 12px）。 */
+.ranking-table-wrap .el-table__body td.col-num {
+  position: relative;
+}
+
+.ranking-table-wrap .data-bar {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  height: 22px;
+  pointer-events: none;
+  background: var(--brand-100);
+  border-radius: var(--radius-xs);
+  transform: translateY(-50%);
+}
+
+.ranking-table-wrap .num-text {
+  position: relative;
+  z-index: 1;
+}
+
+/* 收益列涨跌色（-ink 级：白底 AA 达标；符号同色，见 rankingCells.formatCell）。
+   风险列不染色——给 UI 加涨跌色会被读成「越低越是利好」。 */
+.ranking-table-wrap .el-table__body td.num--rise {
+  color: var(--color-rise-ink);
+}
+
+.ranking-table-wrap .el-table__body td.num--fall {
+  color: var(--color-fall-ink);
+}

@@ -18,20 +18,29 @@
 
 ## 判据（任一不满足即红，并入 ci.yml 的 scripts_test，阻断）
 
-1. `.github/workflows/dependabot-lockfile-regen.yml` 存在；
+判据分两层：workflow 层守「通道会不会被触发」，编排脚本层守「脚本会不会真的做那些事」。
+（#3205 起，编排逻辑从 workflow 的 `run:` 抽到 `scripts/dependabot_lockfile_regen.sh`：
+该 workflow 因依赖 bot 触发保留 `pull_request_target` ⇒ 定义锁死在 main，把逻辑收进脚本、
+经 `git show origin/dev:` 取 dev 上那一版，才能让「怎么修锁」改一次即生效、不必等发版。
+故原来的判据 4-9 改为查脚本本体。）
+
+workflow 层（`.github/workflows/dependabot-lockfile-regen.yml`）：
+1. 文件存在；
 2. 触发方式是 `pull_request_target`（**不得**用 `pull_request`：dependabot 下 token 只读），
    且 types 覆盖 `opened` / `synchronize`；
 3. job 的 `if` 同时含 `dependabot[bot]` 与 `base.ref == 'dev'`（否则要么对所有人跑、
    要么对 CNB 分支跑）；
-4. 某个 `run:` 真的调用 `scripts/regen_pnpm_lockfile.mjs`；
-5. 该调用带 `--apply`；
-6. workflow 里有 `git push`（重生成必须推回去）；
-7. 调用脚本的那一行不得带 `|| true`（失败态不许吞）；
-8. **撞锁第二阶段**（#2646 / #2648 实测）：真的调用 `scripts/rebuild_dependabot_branch.py`
-   且带 `--apply` —— 只重生成锁修不了「分支落后 dev ⇒ CONFLICTING」；
-9. 重建推送必须 `--force-with-lease`（并发时宁可失败，不许覆盖别人的提交）；
-10. 必须有 `push: branches: [dev]` 的重扫触发 —— 同批第二个 PR 是在**第一个合入之后**
-    才变冲突的，那时没有任何 pull_request 事件可依赖（冲突下它压根不触发）。
+4. 某个 `run:` 真的调用 `scripts/dependabot_lockfile_regen.sh`（防「脚本在但没人调用」的 #564 形态）；
+5. 必须有 `push: branches: [dev]` 的重扫触发 —— 同批第二个 PR 是在**第一个合入之后**
+   才变冲突的，那时没有任何 pull_request 事件可依赖（冲突下它压根不触发）。
+
+编排脚本层（`scripts/dependabot_lockfile_regen.sh`）：
+6. 脚本文件存在；
+7. 真的执行 `scripts/regen_pnpm_lockfile.mjs`（`node` + `--apply`，且无 `|| true`）；
+8. 有 `git push`（重生成必须推回去）；
+9. **撞锁第二阶段**（#2646 / #2648 实测）：真的执行 `scripts/rebuild_dependabot_branch.py`
+   且带 `--apply`（且无 `|| true`）——只重生成锁修不了「分支落后 dev ⇒ CONFLICTING」；
+10. 重建推送必须 `--force-with-lease`（并发时宁可失败，不许覆盖别人的提交）。
 
 ## 边界（刻意不查）
 
@@ -57,6 +66,7 @@ from typing import Any, Dict, List
 WORKFLOW_REL = '.github/workflows/dependabot-lockfile-regen.yml'
 SCRIPT_REL = 'scripts/regen_pnpm_lockfile.mjs'
 REBUILD_REL = 'scripts/rebuild_dependabot_branch.py'
+ORCH_SCRIPT_REL = 'scripts/dependabot_lockfile_regen.sh'
 
 
 def _logical_lines(text: str) -> List[str]:
@@ -141,9 +151,31 @@ def check(repo: Path) -> List[str]:
     if "base.ref == 'dev'" not in conds and 'base.ref == "dev"' not in conds:
         problems.append('job 的 if 未限定 base=dev（本仓只有 dev 是集成分支）')
 
-    runs = _run_texts(doc)
-    code = [line for text in runs for line in _code_lines(text)]
-    # 只认**执行**行：`git show origin/dev:scripts/regen_pnpm_lockfile.mjs > /tmp/x`
+    # ── workflow 层：重扫触发（#2646 / #2648 的撞锁补位）──
+    push_trig = trig.get('push') if isinstance(trig, dict) else None
+    branches = push_trig.get('branches') if isinstance(push_trig, dict) else None
+    branches = branches if isinstance(branches, list) else [branches] if branches else []
+    if 'dev' not in branches:
+        problems.append(
+            '缺少 `push: branches: [dev]` 的重扫触发——同批第二个 PR 是在第一个**合入之后**才'
+            '变冲突的，那时冲突状态下 pull_request 事件不触发，没有别的时机能补'
+        )
+
+    # ── 编排脚本层（#3205：编排逻辑从 workflow 的 run 收进 scripts/dependabot_lockfile_regen.sh）──
+    orch_path = repo / ORCH_SCRIPT_REL
+    if not orch_path.is_file():
+        problems.append(f'{ORCH_SCRIPT_REL} 不存在——编排逻辑没有载体（#3205 起逻辑从 workflow 抽到这里）')
+        return problems
+
+    # workflow 的 run 必须真的调用编排脚本（防「脚本在但没人调用」的 #564 形态）。
+    wf_code = [line for text in _run_texts(doc) for line in _code_lines(text)]
+    if not any('dependabot_lockfile_regen.sh' in line for line in wf_code):
+        problems.append(
+            'workflow 未调用 scripts/dependabot_lockfile_regen.sh——编排脚本存在但没人执行等于从没跑过（#564）'
+        )
+
+    code = _code_lines(orch_path.read_text(encoding='utf-8'))
+    # 只认**执行**行：脚本里 `git show origin/dev:scripts/regen_pnpm_lockfile.mjs > /tmp/x`
     # 也含脚本名，但那是「取一份副本」，删掉后面的 `node` 调用它照样命中——
     # 若按「文本里出现脚本名」判，守卫会被自己的备份行骗过去（本文件首版即如此）。
     invocations = [
@@ -153,7 +185,7 @@ def check(repo: Path) -> List[str]:
     ]
     if not invocations:
         problems.append(
-            'workflow 未执行 scripts/regen_pnpm_lockfile.mjs——脚本存在但没人调用等于从没跑过（#564）'
+            '编排脚本未执行 scripts/regen_pnpm_lockfile.mjs——脚本存在但没人调用等于从没跑过（#564）'
         )
     else:
         if not any('--apply' in line for line in invocations):
@@ -162,7 +194,7 @@ def check(repo: Path) -> List[str]:
             if '|| true' in line:
                 problems.append('调用行带 `|| true`：失败态被吞成绿灯（#171）')
     if not any('git push' in line for line in code):
-        problems.append('workflow 里没有 git push：重生成写了却不推回，PR 的锁仍然是坏的')
+        problems.append('编排脚本里没有 git push：重生成写了却不推回，PR 的锁仍然是坏的')
 
     # ---- 第二阶段：撞锁（#2646 / #2648 实测：锁已修好、分支仍 CONFLICTING）----
     if not (repo / REBUILD_REL).is_file():
@@ -171,7 +203,7 @@ def check(repo: Path) -> List[str]:
     rebuild_calls = [line for line in code if 'rebuild_dependabot_branch.py' in line and 'python3 ' in line]
     if not rebuild_calls:
         problems.append(
-            'workflow 未执行 scripts/rebuild_dependabot_branch.py——只重生成锁修不了'
+            '编排脚本未执行 scripts/rebuild_dependabot_branch.py——只重生成锁修不了'
             '「分支落后 dev ⇒ CONFLICTING」（#2646 / #2648 的形态）'
         )
     else:
@@ -183,15 +215,6 @@ def check(repo: Path) -> List[str]:
 
     if not any('--force-with-lease' in line for line in code):
         problems.append('重建推送未用 --force-with-lease：并发推送会静默覆盖别人的提交')
-
-    push_trig = trig.get('push') if isinstance(trig, dict) else None
-    branches = push_trig.get('branches') if isinstance(push_trig, dict) else None
-    branches = branches if isinstance(branches, list) else [branches] if branches else []
-    if 'dev' not in branches:
-        problems.append(
-            '缺少 `push: branches: [dev]` 的重扫触发——同批第二个 PR 是在第一个**合入之后**才'
-            '变冲突的，那时冲突状态下 pull_request 事件不触发，没有别的时机能补'
-        )
 
     return problems
 

@@ -15,6 +15,7 @@ defineProps<{
       识别到 {{ rows.length }} 条，核对无误后「确认进草稿」
     </div>
     <div class="preview-scroll">
+      <!-- table-col-allow: 10 列合计 1070 > 720 弹窗，已横滚，名称列只取自身 min-width 120（#3210） -->
       <el-table :data="rows" size="small" stripe class="preview-table">
         <el-table-column label="代码" prop="symbol" width="110" />
         <el-table-column label="名称" prop="name" min-width="120" />

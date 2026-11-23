@@ -141,7 +141,7 @@ export function useWelcomeData() {
       msgs.push(temperatureConclusion.value);
     }
     if (recordDays.value > 0) {
-      msgs.push(`你已连续记账 ${recordDays.value} 天，坚持就是复利`);
+      msgs.push(`你已连续记账 ${recordDays.value} 天`);
     }
     homeMessages.value = msgs;
     tickerIndex.value = 0;

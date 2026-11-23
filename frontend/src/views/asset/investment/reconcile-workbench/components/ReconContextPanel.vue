@@ -4,7 +4,7 @@
     信息归属（owner 截图去重，2026-11-12）：产品标识由抽屉头部说一次
     （reconAssetHeading，唯一契约），本卡只留它独有的东西——差异类型胶囊、
     数字格（账本 / 按流水算 / 账上记的 / 差多少 / 发现时间）、未归账本警告、
-    接下来；差异类待办的「需要你对照…」判断句由头部副标题承载，卡内不再复述。
+    接下来；差异类待办的判断句（「对着交割单核一下…」）由头部副标题承载，卡内不再复述。
   -->
   <section v-if="target" class="recon-context">
     <div class="recon-context__head">
@@ -19,15 +19,15 @@
         <dd>{{ ledgerName }}</dd>
       </div>
       <div v-if="hasNumbers" class="recon-context__cell">
-        <dt>按流水算</dt>
+        <dt>{{ DISC_COLUMN_LABELS.expected }}</dt>
         <dd>{{ reconQuantity(target.expected) }}</dd>
       </div>
       <div v-if="hasNumbers" class="recon-context__cell">
-        <dt>账上记的</dt>
+        <dt>{{ DISC_COLUMN_LABELS.actual }}</dt>
         <dd>{{ reconQuantity(target.actual) }}</dd>
       </div>
       <div v-if="hasNumbers" class="recon-context__cell">
-        <dt>差多少</dt>
+        <dt>{{ DISC_COLUMN_LABELS.diff }}</dt>
         <dd :class="{ 'is-diff': target.diff !== 0 }">
           {{ reconQuantity(target.diff) }}
         </dd>
@@ -51,7 +51,7 @@
 import { computed, onMounted } from "vue";
 import { formatDate } from "@/utils/date";
 import { useReconLedger } from "../composables/useReconLedger";
-import { discrepancyIssue } from "../utils/reconLabels";
+import { discrepancyIssue, DISC_COLUMN_LABELS } from "../utils/reconLabels";
 import { reconQuantity } from "../utils/reconDisplay";
 import type { ReconQueueItem } from "../utils/reconQueue";
 

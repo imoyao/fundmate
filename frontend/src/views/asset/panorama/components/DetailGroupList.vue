@@ -196,7 +196,6 @@ function getTypeRoute(typeName: string): string {
     基金: "AssetFunds",
     可转债: "AssetStocks",
     ETF: "AssetStocks",
-    虚拟货币: "AssetPrecious",
     银行存款: "AssetFunds"
   };
   return routes[typeName] || "AssetStocks";

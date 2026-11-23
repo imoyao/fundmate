@@ -29,6 +29,14 @@
         <el-button :loading="loading" @click="fetchData">
           <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
         </el-button>
+        <!-- #1016：持仓全景长图海报，数据取自本页已加载的 summary/distributions -->
+        <SharePosterDialog
+          :total-assets="totalAssets"
+          :total-liabilities="totalLiabilities"
+          :net-assets="netAssets"
+          :total-pnl="totalPnl"
+          :distributions="distributions"
+        />
       </div>
     </div>
 
@@ -128,6 +136,7 @@ import OverviewSummaryCard from "./components/OverviewSummaryCard.vue";
 import CategoryBalanceTable from "./components/CategoryBalanceTable.vue";
 import DetailGroupList from "./components/DetailGroupList.vue";
 import StyleDistributionCard from "./components/StyleDistributionCard.vue";
+import SharePosterDialog from "./components/SharePosterDialog.vue";
 import {
   getSummary,
   getSankeyData,

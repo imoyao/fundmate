@@ -287,7 +287,12 @@ def run_local_check(spec: LocalCheckSpec) -> Dict[str, Any]:
     logger.info(f'[本地巡检] 开始 {spec.job_name}（{spec.description}）')
     try:
         result = spec.runner()
-    except Exception as exc:  # noqa: BLE001 - 调度线程必须兜住一切
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - 巡检线程必须兜住一切
+        # `SystemExit` 必须显式列出：它是 `BaseException`，`except Exception` 接不住。
+        # #3091 实测代价——`cold_set_guard` 当时用 `raise SystemExit` 表达「来源表缺失」，
+        # 一条只读巡检把**已经跑完**的每日调度进程带走：退出码 1、`last_run_summary.json`
+        # 没写、告警卡正文退化成「可能崩在建连或初始化阶段」（真因指向了完全相反的地方）。
+        # 巡检是旁路，任何异常都只能变成它自己这一行 `error`，不许影响同步结论。
         logger.exception(f'[本地巡检] {spec.job_name} 执行异常：{exc}')
         return {'job_name': spec.job_name, 'status': 'error', 'error': str(exc)}
 

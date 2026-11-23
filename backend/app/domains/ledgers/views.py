@@ -9,9 +9,8 @@ from flask import abort, jsonify, request
 from sqlalchemy import func
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
+from app.core.constants import LEDGER_TYPE_LABELS
 from app.core.database import get_db
-from app.core.money import Money
 from app.core.retry import retry_on_db_locked
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
@@ -34,6 +33,7 @@ from app.services.position_aggregation import (
 from app.services.position_aggregation import (  # noqa: E402
     get_securities_aggregation as svc_get_securities_aggregation,
 )
+from app.services.position_edit_service import apply_position_edit
 from app.services.position_presenter import enrich_position_dict
 from app.services.transaction_service import transaction_edit_payload
 
@@ -409,17 +409,27 @@ def get_ledger_summary(ledger_id: int):
                 money_fund = LedgerService.get_money_fund_stats(db, ledger.id)
                 data.update(money_fund)
 
-            # 类现金统计（#1137）：货基 + 逆回购 + 账户现金，口径与 XIRR 的
-            # EXCLUDED_ASSET_TYPES 一致；「投资 / 持仓内类现金」两片划分见
-            # `LedgerService.split_cash_like_allocation`（#1606 业务规则下沉 services）。
-            data.update(LedgerService.get_cash_like_stats(db, ledger.id, get_family_id()))
-            LedgerService.split_cash_like_allocation(data)
-
         elif ledger.ledger_type == 'bank':
             data.update(LedgerService.get_bank_stats(db, ledger.id))
 
         elif ledger.ledger_type == 'property':
             data.update(LedgerService.get_property_stats(db, ledger.id))
+
+        # 类现金统计（#1137 → #3115 D1）：货基 + 逆回购 + 账户现金，口径与 XIRR 的
+        # EXCLUDED_ASSET_TYPES 一致。原先只挂在 stock/fund/e_account 分支，而 G5 的
+        # 「录入账户现金」入口对所有账户开放——bank 账户录完现金后 summary 响应里
+        # account_cash_amount 等字段缺失，前端类现金卡读到的全是 undefined → 0 →
+        # 恒判空态（真机：微众银行 id=3 录 6000 元后仍显示「本账户还没有类现金记录」）。
+        # 提到分支外对所有账户类型统一出数。
+        data.update(LedgerService.get_cash_like_stats(db, ledger.id, get_family_id()))
+
+        # 「投资 / 持仓内类现金」两片划分见
+        # `LedgerService.split_cash_like_allocation`（#1606 业务规则下沉 services）。
+        # ⚠️ 依赖上一行写入的 money_fund_amount，必须在其**之后**执行
+        # （回归网 test_in_positions_field_is_subset_of_total_market_value 抓过反序）；
+        # 且只有投资分支有这张环形图口径（total_market_value 来自 get_portfolio_stats）。
+        if ledger.ledger_type in ('stock', 'fund', 'e_account'):
+            LedgerService.split_cash_like_allocation(data)
 
         return jsonify({'data': data, 'message': 'ok'})
 
@@ -476,7 +486,7 @@ def get_ledger_transactions(ledger_id: int):
 
 @ledgers_bp.patch('/<int:ledger_id>/positions/<int:position_id>/')
 def update_ledger_position(ledger_id: int, position_id: int):
-    """编辑账户内持仓（仅允许修改配置目标、现价、备注等）"""
+    """编辑账户内持仓（配置目标 / 现价 / 备注 / 到期日 / 手工标的名称与编码）"""
     data = request.get_json() or {}
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
@@ -493,15 +503,10 @@ def update_ledger_position(ledger_id: int, position_id: int):
         if not pos:
             abort(404, '持仓不存在或不属于该账户')
 
-        if 'allocation' in data:
-            # 五笔钱白名单（#1123 P0）；None = 清空语义保留
-            if data['allocation'] is not None and data['allocation'] not in ALLOCATION_LABELS:
-                abort(400, '非法配置目标')
-            pos.allocation = data['allocation']
-        if 'current_price' in data:
-            pos.current_price = Money.yuan_to_price_units(data['current_price'])
-        if 'notes' in data:
-            pos.notes = data['notes']
+        try:
+            apply_position_edit(db, pos, data)
+        except ValueError as exc:
+            abort(400, str(exc))
         db.flush()
         db.refresh(pos)
         return jsonify({'data': enrich_position_dict(pos), 'message': 'ok'})

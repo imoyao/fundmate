@@ -75,14 +75,23 @@ class TestEnforceColdWriteCap:
         assert '--targets' in message and '自选' in message
 
     def test_hot_set_unavailable_does_not_raise(self, db, monkeypatch):
-        """热集查询抛 SystemExit / 异常都不得冒泡（守卫故障 ≠ 同步失败）。"""
-        monkeypatch.setattr(scope, '_hot_codes', lambda _db: (_ for _ in ()).throw(SystemExit('来源表缺失')))
+        """热集查询抛 SystemExit / 异常都不得冒泡（守卫故障 ≠ 同步失败）。
+
+        `SystemExit` 这一支保留：库层已改抛 `HotCodesUnavailable`（#3091），但写入
+        路径的 fail-open 不该依赖「库层永远不用 BaseException」这种约定。
+        """
+        monkeypatch.setattr(scope, 'read_hot_codes', lambda: (_ for _ in ()).throw(SystemExit('来源表缺失')))
         records = [_rec('000002', OLD) for _ in range(10)]
         assert enforce_cold_write_cap(db, records, job_name='fund_nav', cap=1, today=TODAY) == 0
 
     def test_load_hot_codes_returns_none_when_source_missing(self, db, monkeypatch):
-        monkeypatch.setattr(scope, '_hot_codes', lambda _db: (_ for _ in ()).throw(SystemExit('来源表缺失')))
-        assert load_hot_codes(db) is None
+        monkeypatch.setattr(scope, 'read_hot_codes', lambda: (_ for _ in ()).throw(SystemExit('来源表缺失')))
+        assert load_hot_codes() is None
+
+    def test_load_hot_codes_returns_none_when_user_db_unreachable(self, db, monkeypatch):
+        """user 库连不上（驱动缺失 / 网络）同样 fail-open —— 这条路径不能只剩 SystemExit 一支。"""
+        monkeypatch.setattr(scope, 'read_hot_codes', lambda: (_ for _ in ()).throw(RuntimeError('connection refused')))
+        assert load_hot_codes() is None
 
 
 class TestFundNavJobWriteCap:
@@ -120,7 +129,7 @@ class TestFundNavJobWriteCap:
         """热集标的不受限：这是「补 5 只自选基金全历史」的正常用法。"""
         self._ensure_fund(db, '000001')
         monkeypatch.setattr(scope, 'MAX_COLD_ROWS_PER_WRITE', 1)
-        monkeypatch.setattr(scope, 'load_hot_codes', lambda _db: {'000001'})
+        monkeypatch.setattr(scope, 'load_hot_codes', lambda: {'000001'})
 
         job._save_data([_rec('000001', OLD - timedelta(days=i)) for i in range(5)])
         assert db.query(DailyWorth).count() == 5

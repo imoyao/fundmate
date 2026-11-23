@@ -6,6 +6,7 @@
 
 from app.domains.funds.models import AdvisorPortfolio, Fund, FundCompany, Manager
 from app.domains.indices.models import IndexCatalog
+from app.domains.positions.models import Position
 from app.domains.securities.models import Security
 
 
@@ -167,3 +168,63 @@ class TestSearchAssets:
             assert any(i['code'] == '110011' for i in resp.get_json()['data'])
         finally:
             mod.SEARCH_PROVIDERS[0] = original
+
+
+class TestBankWealthSearch:
+    """银行理财搜索（#931 / D121）：code=理财登记编码，产品名可搜。"""
+
+    def _seed(self, db, *, family_id: int = 1):
+        db.add(
+            Position(
+                symbol='Z7001234ABCD',
+                name='朝朝宝',
+                asset_type='bank_wealth',
+                valuation_mode='balance',
+                family_id=family_id,
+            )
+        )
+        # 同名不同期：编码不同 ⇒ 两条持仓（D121 明确不做名称合并）
+        db.add(
+            Position(
+                symbol='Z7005678WXYZ',
+                name='朝朝宝',
+                asset_type='bank_wealth',
+                valuation_mode='balance',
+                family_id=family_id,
+            )
+        )
+        # 干扰项：非银行理财持仓，名字里带同样的字
+        db.add(Fund(fund_code='110011', name='朝朝宝增强混合'))
+        db.commit()
+
+    @staticmethod
+    def _hits(client, q):
+        resp = client.get('/api/search/assets/', query_string={'q': q})
+        return [i for i in resp.get_json()['data'] if i['asset_type'] == 'bank_wealth']
+
+    def test_hit_by_product_name(self, client, db):
+        """按产品名搜到，返回的 code 是登记编码而不是产品名。"""
+        self._seed(db)
+        hits = self._hits(client, '朝朝宝')
+        assert {h['code'] for h in hits} == {'Z7001234ABCD', 'Z7005678WXYZ'}
+        assert all(h['name'] == '朝朝宝' for h in hits)
+        # 无市场实体：market/venue 空串（NO_VENUE 约定）
+        assert all(h['market'] == '' and h['venue'] == '' for h in hits)
+
+    def test_hit_by_registration_code_segment(self, client, db):
+        """粘贴登记编码片段也要命中——用户手上有的就是这个码。"""
+        self._seed(db)
+        hits = self._hits(client, 'Z7001234')
+        assert [h['code'] for h in hits] == ['Z7001234ABCD']
+
+    def test_does_not_rewrite_other_sources(self, client, db):
+        """新源不得改写别的源的结果：同名基金仍以 fund 身份返回。"""
+        self._seed(db)
+        data = client.get('/api/search/assets/', query_string={'q': '朝朝宝'}).get_json()['data']
+        fund_hit = next(i for i in data if i['code'] == '110011')
+        assert fund_hit['asset_type'] == 'fund'
+
+    def test_family_scope(self, client, db):
+        """别的家庭录的产品不出现在自己的搜索结果里。"""
+        self._seed(db, family_id=2)
+        assert self._hits(client, '朝朝宝') == []

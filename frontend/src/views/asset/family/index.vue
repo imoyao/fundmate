@@ -55,7 +55,7 @@
 
     <!-- 成员列表 -->
     <el-table v-else :data="members" size="small" empty-text="暂无家庭成员">
-      <el-table-column label="称谓" min-width="160">
+      <el-table-column label="称谓" min-width="240">
         <template #default="{ row }">
           <div class="flex items-center gap-2">
             <span class="font-medium" :style="{ color: 'var(--text-primary)' }">
@@ -68,13 +68,13 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="身份" width="120">
+      <el-table-column label="身份" min-width="130">
         <template #default="{ row }">
           <el-tag size="small" effect="plain">{{ row.role_label }}</el-tag>
         </template>
       </el-table-column>
 
-      <el-table-column label="名下账户" width="110" align="right">
+      <el-table-column label="名下账户" min-width="120" align="right">
         <template #default="{ row }">
           <span :style="{ color: 'var(--text-secondary)' }">
             {{ row.ledger_count }}

@@ -1,0 +1,81 @@
+# 技术债台账漂移巡检（每周一 09:00 北京时间）
+#
+# ## 为什么需要它（2026-11-21，源 TD-021 / TD-025 两次状态回流）
+#
+# `docs/spec/tech-debt-register.toml` 是技术债状态的唯一权威，判据由
+# `scripts/guard_tech_debt_register.py` 复核。但 `--online`（额外核对 issue 是否已 CLOSED、
+# 是否有带 tech-debt 标签的卡没登记）需要 gh 凭据 + 网络，`ci.yml` 里只跑离线模式，
+# 于是出现两次「issue 关了、台账没改」，都是人工核对才发现的：
+#
+#   - #1502 于 11-19 被直接关闭，台账仍 open（且代码仍默认依赖 fundfof，属提前关单）；
+#   - #2803 于 11-20 随发版关闭，台账仍 blocked（blocked 态按设计不做满足性判定，CI 抓不到）。
+#
+# 光把 `--online` 塞进定时任务还不够：定时任务红了没人盯（与镜像断链同一形态，
+# 见 `scripts/bridge/notify_mirror_divergence.py` 的 WHY）。所以这里落成「漂移即建卡、
+# 恢复即关单」——卡的标题是幂等键，同一份报告只评论一次。
+#
+# ## 设计决策
+#
+# 1. **只报告不裁决**：漂移怎么处理（重开 issue / 改 done / 改 wontfix）属 owner 口径，
+#    脚本只把事实摆上卡面，不替人改台账、不自动关别人的 issue。
+# 2. **checkout 显式取 dev**（`SCAN_REF`）：`schedule` 只读默认分支上的 workflow 定义，
+#    而台账与判据都在 dev 上，不显式检出就会拿 main 的旧版本判今天的账
+#    （同 daily-snapshot.yml #1434 / issue-health-scan.yml 的处理）。
+# 3. **红/绿都走同一条出口**：恢复时关掉跟踪卡，否则「红的卡永远红」，
+#    下一个人会以为问题还在。
+
+name: 技术债台账漂移巡检
+
+on:
+  schedule:
+    # 每周一 UTC 01:00（北京时间 09:00）
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  # 实际执行代码的分支（main 只承载 workflow 定义）
+  SCAN_REF: dev
+
+concurrency:
+  group: tech-debt-drift
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: 台账 ↔ issue 状态对账
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码（ref=dev）
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCAN_REF }}
+
+      - name: 运行联网判据
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          python scripts/guard_tech_debt_register.py --online > drift-report.txt 2>&1
+          rc=$?
+          set -e
+          cat drift-report.txt
+          if [ "$rc" -eq 0 ]; then
+            echo "STATUS=ok" >> "$GITHUB_ENV"
+          else
+            echo "STATUS=drift" >> "$GITHUB_ENV"
+          fi
+          echo "guard rc=$rc"
+
+      - name: 漂移建卡 / 恢复关单
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/notify_tech_debt_drift.py \
+            --report drift-report.txt \
+            --status "$STATUS" \
+            --repo "$GITHUB_REPOSITORY"

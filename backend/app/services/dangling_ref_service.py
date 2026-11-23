@@ -131,10 +131,10 @@ def _load_dangling_by_ids(
 
     默认 ``include_unowned=False`` 只认「悬空」（``dangling_condition``：position_id
     指向已删除持仓）——**这个默认值就是安全边界，新增写路径不要随手传 True**：
-    reattach / rebuild / mislink 的目标校验都走它，而 unowned 行（#3126，
-    ``position_id`` 为空、无持仓承接）没有「挂回现存持仓」的合法目标，强行挂只会
-    制造新的错账。目前只有 enrich 与 delete 显式传 True——补全 / 删除对无持仓承接
-    的行同样成立，且它们不碰持仓份额。
+    reattach / mislink 的目标校验都走它，而 unowned 行（#3126，``position_id`` 为空、
+    无持仓承接）没有「挂回现存持仓」的合法目标，强行挂只会制造新的错账。
+    enrich / delete 显式传 True；rebuild 也传 True，但业务准入由 ``plan_rebuild`` 的
+    净额 / 成本 / 缺口闸门承担——本函数只回答「这行确实可处置」，不判定「这组能不能重建」。
 
     这是硬约束 2 的落点：防止把已修好（position_id 已指向现存持仓）的 id 再动一次。
     任一 id 不在检出集合里 → 整体抛 ValueError，不写任何东西。

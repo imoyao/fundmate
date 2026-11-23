@@ -54,6 +54,7 @@ const styleBadges = computed(() =>
         </li>
       </ul>
     </div>
+    <!-- table-col-allow: 3 列表，#/占净值比是窄数字列，余量给唯一文本列（#3210） -->
     <el-table :data="holdings.rows" size="small" class="mgr-section__table">
       <el-table-column label="#" width="48">
         <template #default="{ row }">{{ row.rank }}</template>

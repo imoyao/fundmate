@@ -21,6 +21,7 @@
         @click="$emit('start-edit')"
       >
         <IconifyIconOffline icon="ep:edit-pen" />
+        <span>笔记</span>
       </button>
       <button
         type="button"
@@ -30,6 +31,7 @@
         @click="$emit('pin')"
       >
         <IconifyIconOffline :icon="pinned ? 'ep:star-filled' : 'ep:star'" />
+        <span>{{ pinned ? "已置顶" : "置顶" }}</span>
       </button>
       <button
         type="button"
@@ -37,7 +39,8 @@
         title="移出特别关注"
         @click="$emit('remove')"
       >
-        <IconifyIconOffline icon="ep:remove" />
+        <IconifyIconOffline icon="ep:delete" />
+        <span>移出</span>
       </button>
     </div>
   </footer>
@@ -87,26 +90,33 @@ defineEmits<{
 
 .road-ops {
   display: inline-flex;
-  gap: 2px;
+  gap: 4px;
 }
 
+/* 28px 描边胶囊：与自选页 FilterGroupActions / WatchlistHeadPrimary 的
+   小尺寸胶囊按钮同一语言（--radius-pill + --border-default 描边），
+   无描边的裸文字形状读不出「按钮」，被反馈「不像胶囊、和其他页面不统一」。 */
 .road-op {
-  display: flex;
+  display: inline-flex;
+  gap: 4px;
   align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  font-size: var(--text-small);
-  color: var(--text-tertiary-ink);
-  border-radius: 50%;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
   transition:
     color 0.15s ease,
-    background-color 0.15s ease;
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .road-op:hover {
   color: var(--brand-700);
   background: var(--brand-100);
+  border-color: var(--brand-400);
 }
 
 .road-op.is-on {
@@ -116,5 +126,6 @@ defineEmits<{
 .road-op--danger:hover {
   color: var(--color-danger);
   background: var(--color-danger-20);
+  border-color: var(--color-danger-30);
 }
 </style>

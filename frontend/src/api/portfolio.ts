@@ -129,3 +129,21 @@ export function getPortfolioHoldings(id: number) {
     `/api/portfolios/${id}/holdings/`
   );
 }
+
+/** 补齐行业映射的返回（对齐后端 refresh_industry_map 端点） */
+export interface IndustryMapRefreshResult {
+  /** 无股票/转债持仓时跳过，symbols 为空 */
+  skipped: boolean;
+  reason?: string;
+  symbols: string[];
+  status?: string;
+  stats?: Record<string, number>;
+}
+
+/** 补齐本家庭股票/可转债的「个股→行业」映射（同步执行，逐只补缺口）。 */
+export function refreshIndustryMap() {
+  return http.request<ApiResponse<IndustryMapRefreshResult>>(
+    "post",
+    "/api/portfolios/industry-map/refresh/"
+  );
+}

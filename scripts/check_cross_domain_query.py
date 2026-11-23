@@ -40,7 +40,10 @@ WHY
 
 - 经辅助函数的间接构造——链根是 `_item_base()` 这类**非 query/select 的函数调用**时，该链无法归属；
 - 跨函数 / 跨模块传递后再拼装的语句（变量追踪止于函数体）；
-- 字符串形式的原始 SQL（`text(...)` / `execute("... JOIN ...")`）；
+- 字符串形式的原始 SQL（`text(...)` / `execute("... JOIN ...")`）——而且这一面的坑不只是「扫不到」：
+  裸 `text()` 连**单表**都会回落 app（market）域（`_domain_for_statement` 认不出表 ⇒ 无域可判），
+  于是「以为在读 user 库」的语句静默跑在 market 库上（#3091 实测：冷集巡检读 positions 连续红 6 天）。
+  动态回归网在 `backend/tests/services/test_hot_codes_dual_domain.py`（真摆双库拓扑），不在本脚本；
 - 以**字符串表名**做 `secondary=` 的跨域多对多（两侧类同域、中间表跨域）——本脚本只比两端的域。
 
 用法

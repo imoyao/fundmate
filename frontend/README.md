@@ -264,7 +264,6 @@ showbuy
 │  │  ├─ 📄dark.scss
 │  │  ├─ 📄element-plus.scss
 │  │  ├─ 📄index.scss
-│  │  ├─ 📄login.css
 │  │  ├─ 📄reset.scss
 │  │  ├─ 📄sidebar.scss
 │  │  ├─ 📄tailwind.css
@@ -308,10 +307,6 @@ showbuy
 │  │  │  ├─ 📁bank
 │  │  │  │  └─ 📄index.vue
 │  │  │  ├─ 📁funds
-│  │  │  │  └─ 📄index.vue
-│  │  │  ├─ 📁precious
-│  │  │  │  └─ 📄index.vue
-│  │  │  ├─ 📁realestate
 │  │  │  │  └─ 📄index.vue
 │  │  │  ├─ 📁stocks
 │  │  │  │  └─ 📄index.vue

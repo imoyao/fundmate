@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""守卫：services 层模块体量 / 复杂度软闸门（源 issue：用户要求「防 #2873 类上帝模块复发」）。
+"""守卫：services / core 层模块体量 / 复杂度软闸门（源 issue：用户要求「防 #2873 类上帝模块复发」）。
 
 WHY
 ---
@@ -8,6 +8,11 @@ WHY
 的体量闸门**：业务规则持续堆进同一个服务文件，直到它成为谁都不敢动的「上帝模块」。
 `check_view_thickness.py`（#1606，视图层）已证明「冻结基线 + 只减不增 + 新增严上限」
 这条路能堵住新增、又能按批次收敛存量，本守卫把同一套范式迁到 services 层。
+
+**覆盖范围（2026-11-21 扩容）**：`backend/app/services/**` + `backend/app/core/**`。
+扩到 `core/` 的原因是它当时**一个体量闸门都没有**——视图层守卫只扫 `domains/*/views.py`，
+而全仓最大的三个文件恰在 `core/`（`migrations.py` 3014 / `db_factory.py` 1076 /
+`database.py` 897）。基础设施层的大文件与「上帝服务」是同一种债务：没人敢改。
 
 判据（AST 静态，纯标准库，零依赖）：
 
@@ -55,6 +60,11 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "backend" / "app" / "services"
+# 2026-11-21 扩到 core：`core/` 原本一个体量闸门都没有（视图层守卫只扫 domains/*/views.py），
+# 而全仓最大的文件恰在这里（migrations.py 3014 / db_factory.py 1076 / database.py 897）。
+# core 是基础设施层，体量膨胀的代价是「谁都不敢改」，与 services 同源，故并入同一套判据。
+CORE_DIR = REPO_ROOT / "backend" / "app" / "core"
+SCAN_DIRS = (SERVICES_DIR, CORE_DIR)
 
 # 新增 / 改名服务文件的上限（判据本体）。要写更大的模块？先拆——这正是闸门的意义。
 NEW_FILE_LIMITS = {
@@ -258,7 +268,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # 未变）。都是真实代码增长，非放宽阈值：`test_baseline_matches_current_metrics`
     # 要求基线与实测逐项相等，留余量同样判红。
     "backend/app/services/cash_flow_service.py": {'lines': 264, 'max_func': 133, 'max_cc': 24},
-    "backend/app/services/cold_set_guard.py": {'lines': 240, 'max_func': 52, 'max_cc': 8},
+    # 2026-11-19 #3182 收紧 cold_set_guard.py 235→224：审计写入下沉到
+    # `sync_log.insert_audit_row`（时间参数须先格式化，Turso libsql 拒收 datetime 对象），
+    # `record()` 因此少 11 行、max_func / max_cc 未变 ⇒ 基线只降不升。
+    "backend/app/services/cold_set_guard.py": {'lines': 224, 'max_func': 52, 'max_cc': 8},
     "backend/app/services/cold_set_write_scope.py": {'lines': 140, 'max_func': 42, 'max_cc': 8},
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
@@ -423,9 +436,9 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/pnl_snapshot_store.py": {'lines': 455, 'max_func': 61, 'max_cc': 22},
     "backend/app/services/portfolio_service.py": {'lines': 520, 'max_func': 118, 'max_cc': 19},
     "backend/app/services/position_aggregation.py": {'lines': 624, 'max_func': 163, 'max_cc': 47},
-    "backend/app/services/position_buy_command.py": {'lines': 698, 'max_func': 79, 'max_cc': 11},
+    "backend/app/services/position_buy_command.py": {'lines': 684, 'max_func': 79, 'max_cc': 11},
     "backend/app/services/position_display.py": {'lines': 248, 'max_func': 129, 'max_cc': 18},
-    "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 60, 'max_cc': 9},
+    "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 59, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
     "backend/app/services/position_orphan_flows.py": {'lines': 425, 'max_func': 81, 'max_cc': 14},
     "backend/app/services/position_sell_command.py": {'lines': 362, 'max_func': 96, 'max_cc': 17},
@@ -538,6 +551,52 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/user_profile.py": {'lines': 88, 'max_func': 49, 'max_cc': 9},
     "backend/app/services/watchlist_display.py": {'lines': 1772, 'max_func': 239, 'max_cc': 68},
     "backend/app/services/watchlist_service.py": {'lines': 999, 'max_func': 124, 'max_cc': 28},
+    # ── core 层（2026-11-21 并入，全部按首次实测冻结；见 CORE_DIR 注释）─────────────
+    # 为什么整层进基线而不是只挑超标的三个：判据要覆盖**全体**（新增 core 文件同样受
+    # NEW_FILE_LIMITS 约束），零星登记会让「新建一个 900 行的 core 模块」漏判。
+    # 超标存量（max_func > 120 或 lines > 800）：migrations 3014/131/24、
+    # db_factory 1076/63/15、database 897/156/14 —— 冻结在此，按批次收敛，只减不增。
+    "backend/app/core/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
+    "backend/app/core/akshare_lazy.py": {'lines': 27, 'max_func': 15, 'max_cc': 3},
+    "backend/app/core/allocation_rules.py": {'lines': 156, 'max_func': 39, 'max_cc': 5},
+    "backend/app/core/allocation_source_stamp.py": {'lines': 62, 'max_func': 12, 'max_cc': 2},
+    # 2026-11-23 重取（#3232 固定资产收敛，非放宽）：新增 FIXED_HISTORICAL_MAJOR_CATEGORIES /
+    # FIXED_CATEGORIES 常量、normalize 增 fixed 分支、expand_major_category() 展开 helper。
+    # lines 198→222、max_func 12→15、max_cc 3→7（两处父大类展开分支 + 去重推导是功能本身复杂度）。
+    "backend/app/core/asset_types.py": {'lines': 222, 'max_func': 15, 'max_cc': 7},
+    "backend/app/core/auth.py": {'lines': 322, 'max_func': 47, 'max_cc': 10},
+    "backend/app/core/cache.py": {'lines': 255, 'max_func': 22, 'max_cc': 8},
+    "backend/app/core/config.py": {'lines': 20, 'max_func': 0, 'max_cc': 0},
+    "backend/app/core/constants.py": {'lines': 331, 'max_func': 0, 'max_cc': 0},
+    "backend/app/core/data_sources.py": {'lines': 73, 'max_func': 10, 'max_cc': 3},
+    "backend/app/core/database.py": {'lines': 897, 'max_func': 156, 'max_cc': 14},
+    "backend/app/core/db_factory.py": {'lines': 1076, 'max_func': 63, 'max_cc': 15},
+    "backend/app/core/db_utils.py": {'lines': 169, 'max_func': 53, 'max_cc': 8},
+    "backend/app/core/decorators.py": {'lines': 39, 'max_func': 29, 'max_cc': 2},
+    "backend/app/core/exceptions.py": {'lines': 135, 'max_func': 22, 'max_cc': 3},
+    "backend/app/core/file_lock.py": {'lines': 63, 'max_func': 26, 'max_cc': 4},
+    "backend/app/core/instance_guard.py": {'lines': 259, 'max_func': 50, 'max_cc': 8},
+    "backend/app/core/investment_tiers.py": {'lines': 154, 'max_func': 13, 'max_cc': 3},
+    "backend/app/core/jitter.py": {'lines': 90, 'max_func': 15, 'max_cc': 4},
+    "backend/app/core/logging_config.py": {'lines': 227, 'max_func': 55, 'max_cc': 8},
+    "backend/app/core/markets.py": {'lines': 79, 'max_func': 11, 'max_cc': 4},
+    "backend/app/core/migrations.py": {'lines': 3014, 'max_func': 131, 'max_cc': 24},
+    "backend/app/core/money.py": {'lines': 182, 'max_func': 16, 'max_cc': 4},
+    "backend/app/core/ratelimit.py": {'lines': 51, 'max_func': 21, 'max_cc': 7},
+    "backend/app/core/request_context.py": {'lines': 32, 'max_func': 17, 'max_cc': 5},
+    "backend/app/core/request_memo.py": {'lines': 57, 'max_func': 12, 'max_cc': 3},
+    "backend/app/core/requests_patch.py": {'lines': 174, 'max_func': 33, 'max_cc': 6},
+    "backend/app/core/retry.py": {'lines': 51, 'max_func': 26, 'max_cc': 5},
+    "backend/app/core/schema_drift.py": {'lines': 167, 'max_func': 38, 'max_cc': 14},
+    "backend/app/core/sensitive_word_guard.py": {'lines': 150, 'max_func': 26, 'max_cc': 9},
+    "backend/app/core/supabase_admin.py": {'lines': 110, 'max_func': 32, 'max_cc': 6},
+    "backend/app/core/symbol_utils.py": {'lines': 478, 'max_func': 82, 'max_cc': 23},
+    "backend/app/core/time_utils.py": {'lines': 43, 'max_func': 19, 'max_cc': 3},
+    "backend/app/core/trading_calendar.py": {'lines': 170, 'max_func': 34, 'max_cc': 5},
+    "backend/app/core/utils.py": {'lines': 289, 'max_func': 24, 'max_cc': 7},
+    "backend/app/core/v8_guard.py": {'lines': 339, 'max_func': 48, 'max_cc': 7},
+    "backend/app/core/validation.py": {'lines': 52, 'max_func': 14, 'max_cc': 4},
+    "backend/app/core/venues.py": {'lines': 195, 'max_func': 28, 'max_cc': 7},
 }
 
 # 冻结的 legacy 服务文件集（与 BASELINE 键完全一致，由 BASELINE 派生，见上方说明）。
@@ -593,10 +652,13 @@ def collect_metrics(path: Path) -> dict[str, int]:
     }
 
 
-def _iter_services() -> list[Path]:
-    if not SERVICES_DIR.is_dir():
-        return []
-    return sorted(SERVICES_DIR.rglob("*.py"))
+def _iter_modules() -> list[Path]:
+    """扫描清单 = services/** + core/**（core 于 2026-11-21 并入，见 CORE_DIR 注释）。"""
+    files: list[Path] = []
+    for root in SCAN_DIRS:
+        if root.is_dir():
+            files.extend(root.rglob("*.py"))
+    return sorted(files)
 
 
 def _fmt(metrics: dict[str, int]) -> str:
@@ -613,7 +675,7 @@ def _report(services: list[Path]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="services 层体量 / 复杂度软闸门")
+    parser = argparse.ArgumentParser(description="services / core 层体量 / 复杂度软闸门")
     parser.add_argument(
         "--report", action="store_true", help="打印当前指标与可直接粘贴的基线"
     )
@@ -622,9 +684,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    services = _iter_services()
+    services = _iter_modules()
     if not services:
-        print(f"❌ 拿不到输入：未找到 {SERVICES_DIR} —— 本轮结论不可信，不得当成通过")
+        print(
+            f"❌ 拿不到输入：未找到 {[d.name for d in SCAN_DIRS]} —— 本轮结论不可信，不得当成通过"
+        )
         return 2
 
     if args.report:
@@ -682,7 +746,7 @@ def main(argv: list[str] | None = None) -> int:
             "max_cc": max((m["max_cc"] for m in BASELINE.values()), default=0),
         }
         print(
-            "OK: services 层体量 / 复杂度无新增（基线存量："
+            "OK: services / core 层体量 / 复杂度无新增（基线存量："
             f"{len(BASELINE) - len(stale)} 个文件 / {remaining['lines']} 行；"
             f"最长函数 ≤ {remaining['max_func']} 行 / 最高圈复杂度 ≤ {remaining['max_cc']}；只减不增）"
         )
@@ -699,9 +763,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print(
-        "ERROR: services 层变厚 / 变复杂了——请把职责下沉或拆出子模块（视图/其它层复用 services 是合法边）\n"
-        "       判据：services 层体量 / 复杂度软闸门（防 #2873 类上帝模块复发）\n"
-        "       上限：新增服务文件 lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20",
+        "ERROR: services / core 层变厚 / 变复杂了——请把职责下沉或拆出子模块（视图/其它层复用 services 是合法边）\n"
+        "       判据：services / core 层体量 / 复杂度软闸门（防 #2873 类上帝模块复发）\n"
+        "       上限：新增文件 lines ≤ 800 / 最长函数 ≤ 120 / 圈复杂度 ≤ 20",
         file=sys.stderr,
     )
     for rel, metric, current, limit, is_baseline in violations:

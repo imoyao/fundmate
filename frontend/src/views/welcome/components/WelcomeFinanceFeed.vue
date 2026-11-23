@@ -49,10 +49,15 @@
     <!-- 心理账户（与财务晴雨表同宽右栏 4 列，外层已统一白底卡片容器）
          数据源：`/api/summary/distributions/` 的 allocation_scope（#3115 D4）。
          此前是四条写死的假数（¥120,000 / ¥300,000 / ¥520,000 / ¥45,000）——
-         那不是空态，是四个编造的数字，用户会当成自己的钱读。 -->
-    <div class="lg:col-span-4 flex flex-col gap-3 h-full">
+         那不是空态，是四个编造的数字，用户会当成自己的钱读。
+
+         高度按内容走：不要用 h-full / flex-1 把它拉满左栏。五档只有 5 行时，
+         拉满会让图例与脚注之间出现约 325px 空白（1440 宽实测：卡片 657×357，
+         内容仅约 330），卡片成一块半空的竖长板——留白放在页面底部，
+         比塞进卡片边框里更像「这里没有内容」，而不是「内容加载坏了」。 -->
+    <div class="lg:col-span-4 flex flex-col gap-3">
       <SectionHeader title="心理账户" :info="SCOPE_INFO" />
-      <CardBlock class="flex-1 h-full flex flex-col card-hover card-enter">
+      <CardBlock class="card-hover card-enter">
         <!-- 加载：骨架行，不显示任何数字（宁可空着，也不摆占位金额） -->
         <div v-if="loading" class="flex flex-col gap-3" aria-busy="true">
           <div
@@ -66,7 +71,7 @@
         <!-- 失败：明说失败并可重试，不回落成假数 -->
         <div
           v-else-if="error"
-          class="flex flex-1 flex-col items-center justify-center gap-2 text-center"
+          class="flex flex-col items-center justify-center gap-2 py-4 text-center"
         >
           <span class="text-sm" :style="{ color: 'var(--text-secondary)' }"
             >五笔钱分布加载失败</span
@@ -84,7 +89,7 @@
         <!-- 空：真的没有可投资资产（分母为 0），说清楚「什么钱才算进来」 -->
         <div
           v-else-if="!view || view.denominator <= 0"
-          class="flex flex-1 flex-col items-center justify-center gap-2 text-center"
+          class="flex flex-col items-center justify-center gap-2 py-4 text-center"
         >
           <span
             class="text-sm font-medium"
@@ -99,8 +104,10 @@
           </span>
         </div>
 
-        <!-- 数据：一条占比条 + 五档图例（空档保留，弱化但不隐藏） -->
-        <div v-else class="flex flex-1 flex-col justify-between gap-4">
+        <!-- 数据：一条占比条 + 五档图例（空档保留，弱化但不隐藏）
+             卡片高度由内容决定，图例与脚注紧挨着排（此前 justify-between
+             把两段顶到卡片上下两端，中间留出一大块空白）。 -->
+        <div v-else class="flex flex-col gap-4">
           <div>
             <div class="mental-account__bar" aria-hidden="true">
               <span

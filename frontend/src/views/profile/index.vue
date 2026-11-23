@@ -4,7 +4,7 @@
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <div class="profile-head">
-      <PageHeaderBar title="个人中心" subtitle="管理账户与安全" />
+      <PageHeaderBar title="个人中心" />
     </div>
 
     <div class="profile-shell">

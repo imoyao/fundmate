@@ -33,6 +33,9 @@ from loguru import logger
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from app.models.sync_log import insert_audit_row
+from app.services.hot_codes import has_table, read_hot_codes
+
 # 守卫的 job 名（写进 sync_logs，与真实同步 job 区分）
 GUARD_JOB_NAME = 'cold_set_bloat_guard'
 # 默认保留窗口（与清理脚本同口径）
@@ -91,27 +94,18 @@ class GuardReport:
 
 
 def _table_exists(db: Session, table: str) -> bool:
-    row = db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"), {'n': table}).fetchone()
-    return row is not None
+    """market 域表是否存在（反射判定，不依赖 `sqlite_master` —— Turso/PG 都通）。"""
+    return has_table(db, table)
 
 
-def _hot_codes(db: Session) -> set:
+def _hot_codes() -> set:
     """热集口径：持仓 ∪ 自选 ∪ 流水的 6 位数字代码。
 
-    与清理脚本同口径（`watchlist` 而非 `watchlist_items`——后者是 #2145 事故里的错表名）；
-    缺表直接报错：少算任一来源都会把「仅自选」的基金误判为冷集。用原生 SQL 而非 ORM：
-    只需三张表的 `symbol` 列，为它把所有域模型拉进 mapper 会触发 `Ledger→Fund` 的关系
-    解析顺序问题（实测 `InvalidRequestError`）。
+    **必须经 user 域会话读**（`hot_codes.read_hot_codes`）：三张来源表都在 user 域，
+    裸 `text()` 认不出表 ⇒ 被路由到 market 库 ⇒ 生产上必然「表缺失」（#3091 实测把每日
+    调度连红 6 天）。缺表时抛 `HotCodesUnavailable`（普通异常），由各入口决定收敛方式。
     """
-    parts = []
-    for table in ('positions', 'watchlist', 'transactions'):
-        if not _table_exists(db, table):
-            raise SystemExit(
-                '热集来源表缺失: %s\n热集口径 = 持仓 ∪ 自选 ∪ 流水，少算任一来源都会把'
-                '「仅自选、未持有」的基金误判为冷集。若表名变更请同步修正。' % table
-            )
-        parts.append("SELECT DISTINCT symbol FROM %s WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'" % table)
-    return {r[0] for r in db.execute(text(' UNION '.join(parts))).fetchall()}
+    return read_hot_codes()
 
 
 def measure(db: Session, keep_days: int = RETENTION_DAYS) -> GuardReport:
@@ -122,7 +116,7 @@ def measure(db: Session, keep_days: int = RETENTION_DAYS) -> GuardReport:
     """
     today = date.today()
     cutoff = (today - timedelta(days=keep_days)).isoformat()
-    hot = _hot_codes(db)
+    hot = _hot_codes()
     report = GuardReport(cutoff=cutoff)
     codes = tuple(hot)
 
@@ -198,7 +192,9 @@ def compare_with_last(
 def last_guard_stats(db: Session) -> Optional[Dict[str, Any]]:
     """读最近一次守卫巡检落库的 stats（解析失败按没有处理）。
 
-    同样用原生 SQL（`SyncLog` 走 ORM 会触发与 `_hot_codes` 相同的 mapper 解析顺序问题）。
+    同样用原生 SQL：`SyncLog` 走 ORM 会触发 mapper 全量解析，为一行审计把 `Ledger→Fund`
+    这类跨域关系拉进来没有必要（实测过 `InvalidRequestError`）。`sync_logs` 属 market 域，
+    裸 SQL 在这里落点是对的——不像热集那三张表（见 `hot_codes` 的模块注释）。
     """
     row = db.execute(
         text('SELECT stats FROM sync_logs WHERE job_name = :n ORDER BY started_at DESC LIMIT 1'),
@@ -216,25 +212,13 @@ def last_guard_stats(db: Session) -> Optional[Dict[str, Any]]:
 def record(db: Session, report: GuardReport, commit: bool = True) -> None:
     """把本次巡检结果落进 sync_logs（作为下次的基线）。
     status 取 `bloated` / `ok`：前者让它在审计表里一眼可辨，不依赖任何额外通知渠道。
+    写入统一走 `sync_log.insert_audit_row`（时间参数由它格式化，见 #3182）。
     """
-    from app.core.time_utils import now_shanghai
-
-    now = now_shanghai()
-    db.execute(
-        text(
-            'INSERT INTO sync_logs '
-            '(job_name, status, full_sync, stats, data_source, started_at, finished_at) '
-            'VALUES (:job, :status, :full_sync, :stats, :src, :started, :finished)'
-        ),
-        {
-            'job': GUARD_JOB_NAME,
-            'status': 'bloated' if report.bloated else 'ok',
-            'full_sync': False,
-            'stats': json.dumps(report.to_stats(), ensure_ascii=False),
-            'src': 'local',
-            'started': now,
-            'finished': now,
-        },
+    insert_audit_row(
+        db,
+        job_name=GUARD_JOB_NAME,
+        status='bloated' if report.bloated else 'ok',
+        stats=report.to_stats(),
     )
     if commit:
         db.commit()

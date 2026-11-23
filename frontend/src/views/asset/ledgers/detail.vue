@@ -75,13 +75,16 @@
                  组件已上移 components/CashFlowPanel（#2681：账户级 / 组合级共享同一份口径）。
                  #2739：id 经 fallthrough 落在卡片根（单根元素）＝ 锚点即标题行顶边。 -->
             <CashFlowPanel
-              v-if="ledgerIdNum"
+              v-if="ledgerIdNum && !isProperty"
               id="nav-cash-flow"
               :ledger-id="ledgerIdNum"
               class="mt-4"
             />
-            <!-- Tab 切换 + 搜索同行（#982）：左 Tab 右搜索，共用一个输入框按当前 Tab 绑定 -->
-            <el-card shadow="never">
+            <!-- Tab 切换 + 搜索同行（#982）：左 Tab 右搜索，共用一个输入框按当前 Tab 绑定。
+                 property 账户（实物资产）不渲染持仓明细 / 交易记录两个 Tab——
+                 实物只进 assets 表、不进 positions/transactions，两个 Tab 对它
+                 是结构性的空面板（#3222 方案 1），整块收起。 -->
+            <el-card v-if="!isProperty" shadow="never">
               <div class="tabs-toolbar">
                 <el-tabs
                   v-model="activeTab"
@@ -93,13 +96,12 @@
                   <LedgerDetailTransactionsPane :page="page" />
                 </el-tabs>
                 <!-- 搜索框与 Tab 同行：按当前 Tab 绑定各自搜索词（#982） -->
-                <el-input
+                <SearchInput
                   v-model="activeSearch"
+                  size="sm"
+                  class="tab-search-input"
                   aria-label="搜索产品名称或代码"
                   placeholder="搜索产品名称 / 代码"
-                  clearable
-                  class="tab-search-input"
-                  :prefix-icon="Search"
                   @input="onSearchInput"
                 />
               </div>
@@ -172,9 +174,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
-import { Search } from "@element-plus/icons-vue";
+import { ref, computed } from "vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
+import SearchInput from "@/components/SearchInput/index.vue";
 import PageNav from "@/components/PageNav/index.vue";
 import PageToc from "@/components/PageToc/index.vue";
 import { usePageNav } from "@/composables/usePageNav";
@@ -189,6 +191,7 @@ import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
 import LedgerDetailHoldingsPane from "./components/LedgerDetailHoldingsPane.vue";
 import LedgerDetailTransactionsPane from "./components/LedgerDetailTransactionsPane.vue";
 import { useLedgerDetailPage } from "./composables/useLedgerDetailPage";
+import { isPropertyLedger } from "@/composables/ledger/ledgerDetailSections";
 
 defineOptions({ name: "LedgerDetail" });
 
@@ -231,8 +234,16 @@ const {
   deletingAccount,
   drawerVisible,
   selectedPosition,
-  migrateDialogRef
+  migrateDialogRef,
+  summaryData
 } = page;
+
+// 实物资产账户（property）：骨架层三个区块（资金流动 / 持仓明细 / 交易记录）
+// 对它是结构性空面板或语义错位，整块收起（#3222 方案 1「纯盘点」）。与概览区
+// 的区块清单同源，见 ledgerDetailSections.isPropertyLedger。
+const isProperty = computed(() =>
+  isPropertyLedger(summaryData.value?.ledger_type)
+);
 
 // ---------- 页内导航（#2739）----------
 // 纵向分析区块 7 个、页面明显超过一屏，符合 components.md「长页面页内导航」
@@ -249,6 +260,7 @@ const {
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "账本概览",
+  "nav-asset-list": "资产明细",
   "nav-cash-like": "类现金",
   "nav-calendar": "收益日历",
   "nav-attribution": "收益归因",
@@ -347,7 +359,8 @@ function onToolbarCommand(command: string) {
 }
 
 /* Tab 工具栏（#982）：搜索框绝对定位到 Tab 头右侧，与标签同一行。
-   不能用 flex 横排——el-tabs 包含整个内容区，横排会把输入框挤到表格右侧 */
+   不能用 flex 横排——el-tabs 包含整个内容区，横排会把输入框挤到表格右侧。
+   宽度由 SearchInput 的 size="sm" 档位承担，这里只保留定位职责。 */
 .tabs-toolbar {
   position: relative;
 }
@@ -357,6 +370,5 @@ function onToolbarCommand(command: string) {
   top: 0;
   right: 0;
   z-index: 1;
-  width: 220px;
 }
 </style>

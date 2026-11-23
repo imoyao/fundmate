@@ -160,3 +160,29 @@ AND (asset_type IS NULL OR asset_type NOT IN ('money_fund','reverse_repo'))
 
 **§5 第一条与 §6 的「第四个写路径」继续有效**：本节没有新增写路径，只是把既有 `enrich` / `delete` 的目标校验放宽到这一类行。
 
+### 7.1 追加（2026-11-19）：`rebuild` 按条件放开，本篇「一律 400」已过期
+
+上面那句「`reattach` / `rebuild` / `mislink` 三处写端点对这些行一律 400」现在只剩两个成立：
+`reattach` / `mislink` 继续拒绝（没有悬空引用可挂回），**`rebuild` 放开了**。
+
+起因是 owner 2026-11-19 的死胡同截图：字段齐全（`symbol` + `trade_date` 都有）的无归属组，
+界面上只有「补全标的」，点进去弹窗里表单 / 步骤 / 预览 / 勾选全被 `needsFill === false` 隐藏，
+只剩一个永远禁用的提交按钮——**一个既补不了、也重建不了、也没说为什么的弹窗**。
+
+- **后端**：`plan_rebuild` 传 `include_unowned=True`，业务准入一条没松——净额 ≤ 0 仍拒绝
+  （卖得比买多，建出来是 0 份额幽灵持仓），同账本已有同标的持仓行仍拒绝（改指向夜间回填
+  `orphan_backfill_job`，**不再提「回补关联」**：那个端点对 `position_id` 为空的流水一律 400）。
+  撤销把 `position_id` 还原成 `NULL`（回到无归属），不是还原成旧悬空 id。
+- **前端**：阶段名仍是「属于哪一类」，动作改由 `danglingRefEnrichScope.unownedOutcome` 按组判定，
+  出口四种 + 空组兜底：`fill`（还有缺字段）/ `rebuild`（字段齐·净额 > 0·无候选持仓）/
+  `wait`（同账本唯一持仓，等夜间回填）/ `deleteOnly`（净额 ≤ 0 或多候选持仓）/ `empty`。
+  **没有主动作时必须给原因**——`unownedOutcome` 的返回值里 `actionLabel === null` 则 `reason`
+  非空，由真值表单测（`utils/__tests__/unownedOutcome.spec.ts`）钉住。
+  净额门槛用 `MIN_NET_UNITS = 0.0001`（= 后端 `MIN_NET_MIN_UNITS = 1` 最小单位），
+  不用 `> 0` ——`net_units` 是 float，尾数会让「前端说能建、后端说净额不足」分叉。
+- **存量零产出**：真库 2026-11-19 快照里 19 条 unowned 流水 / 17 组，`types` 全为
+  `sell` / `bond_redeem`、净额全为负 ⇒ 按新规则全部落在 `deleteOnly`。本次修复对存量数据的
+  实际价值是**前端把话说清楚**（含「为什么重建不了」），重建放开只对未来的买入类无归属流水生效。
+- 判据分工：`groupStage` 里 `if (group.unowned) return "unowned"` 的短路**继续保留**——
+  它保证阶段不错派；「这一组能做哪件事」放在 `unownedOutcome`，两者不要合并。
+

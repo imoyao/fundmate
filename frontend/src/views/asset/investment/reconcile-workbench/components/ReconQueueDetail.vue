@@ -64,6 +64,7 @@
         @ghost-undo-ignore="emit('ghostUndoIgnore', $event)"
         @go-to="emit('goTo', $event)"
         @fix-orphan="emit('fixOrphan', $event)"
+        @recognize="emit('recognize')"
         @refresh="emit('refresh', $event)"
       />
 
@@ -226,6 +227,7 @@ const emit = defineEmits<{
   ghostDeleteTxn: [txn: GhostDuplicateTxn];
   goTo: [to: string | { name: string }];
   fixOrphan: [item: ReconQueueItem];
+  recognize: [];
 }>();
 
 const detailDomain = computed(

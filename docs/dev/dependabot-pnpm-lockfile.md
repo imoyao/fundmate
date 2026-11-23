@@ -43,6 +43,12 @@ dependabot **不运行 pnpm**，它用自家的解析器**文本级重写** `pnp
 （`opened` / `synchronize` / `reopened`）+ **`push: branches: [dev]`**（后者见 §4），
 **只处理 `dependabot[bot]` 作者 + base=dev**。
 
+> **#3205 脚本化瘦身**：编排逻辑（取脚本、重建/重生成分发、commit-msg、推回、批准）已从
+> workflow 的 `run:` 收进 `scripts/dependabot_lockfile_regen.sh`，workflow 定义退化成
+> 「取脚本 + 一行 `bash` 调用」。原因：本 workflow 因依赖 bot 触发保留 `pull_request_target`，
+> 其定义锁死在默认分支 main（#2803），把逻辑收进脚本、经 `git show origin/dev:` 取 dev 上
+> 那一版执行，才能让「怎么修锁」改一次即生效、不必等 `dev → main` 发版。
+
 它做四件事：
 
 1. 检出 PR 分支，跑 **dev 上那一版** `scripts/regen_pnpm_lockfile.mjs`

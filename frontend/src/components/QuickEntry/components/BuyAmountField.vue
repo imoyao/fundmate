@@ -34,6 +34,9 @@ const NAV_AMOUNT_HINT = "买入金额将包含手续费，系统自动计算份�
 /** 投顾组合：只记金额（balance 模式，D70 / #2740）——它没有份额与净值，别让用户找输入框 */
 const PORTFOLIO_AMOUNT_HINT =
   "投顾组合按「直接余额」记账：只记金额，没有份额与净值";
+/** 银行理财：同为 balance 模式（D121 / #931）——登记编码即标的名，金额即市值 */
+const BANK_WEALTH_AMOUNT_HINT =
+  "银行理财按「直接余额」记账：只记金额，没有份额与净值";
 /** 股票 / ETF / 可转债：金额是派生量（成交数量 × 成交价格 + 手续费） */
 const DERIVED_AMOUNT_HINT =
   "金额 = 成交数量 × 成交价格 + 手续费，由数量自动算出";
@@ -41,8 +44,12 @@ const DERIVED_AMOUNT_HINT =
 const props = withDefaults(
   defineProps<{
     amount: number | undefined;
-    /** 选中标的是否为投顾组合（type === 'portfolio'） */
-    isPortfolio: boolean;
+    /**
+     * 「只记金额」的品类。两者文案不同，故传取值而不是布尔：
+     * - `portfolio` 投顾组合（D70）
+     * - `bank_wealth` 银行理财（D121）
+     */
+    balanceKind?: "portfolio" | "bank_wealth" | null;
     /**
      * el-form-item 的 `prop`（校验字段名）。默认 `buyAmount` 对记忆一笔的表单；
      * 对账补录弹窗的字段名是 `buy_amount`（与 `/adjustments/` 载荷同一套命名），
@@ -52,7 +59,7 @@ const props = withDefaults(
     /** 金额由数量派生（非基金）：输入框只读，改由数量驱动 */
     derived?: boolean;
   }>(),
-  { fieldProp: "buyAmount", derived: false }
+  { fieldProp: "buyAmount", derived: false, balanceKind: null }
 );
 const emit = defineEmits<{
   "update:amount": [value: number | undefined];
@@ -65,6 +72,8 @@ const amountModel = computed({
 
 const hint = computed(() => {
   if (props.derived) return DERIVED_AMOUNT_HINT;
-  return props.isPortfolio ? PORTFOLIO_AMOUNT_HINT : NAV_AMOUNT_HINT;
+  if (props.balanceKind === "portfolio") return PORTFOLIO_AMOUNT_HINT;
+  if (props.balanceKind === "bank_wealth") return BANK_WEALTH_AMOUNT_HINT;
+  return NAV_AMOUNT_HINT;
 });
 </script>

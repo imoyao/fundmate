@@ -3,20 +3,18 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 import { injectSupabaseSession } from "./support/session";
 
 /**
- * 对账工作台页头 / Tab 角标 / 横幅选域回归网（#980 批 B3 拆分 `reconcile-workbench/index.vue`）。
+ * 对账工作台页头 / 首屏分段回归网（#980 批 B3 拆分 `reconcile-workbench/index.vue`；
+ * 2026-11-19 UI/UX 深度重构后收紧）。
  *
- * 405 → 337：页头搬进 `WorkbenchHead.vue`、Tab 角标搬进 `DomainTabLabel.vue`、
- * 横幅选域顺序收口到 `utils/domainFocus.ts`。纯函数有单测（`domainFocus.spec.ts`，6 例），
- * 这里钉的是**拆分最容易断的那几条线**：
+ * 本轮删掉了旧页头的「AI 识别」按钮、横幅选域（WorkbenchBanner）与任务卡
+ * （WorkbenchTaskCards）。这里钉的是重构后**最容易断的两条线**：
  *
- *   ① `WorkbenchHead` 的两个 emit（`recognize` / `run`）——断掉的症状是「点了没反应」，
- *      没有请求也没有报错，单测（不渲染组件）抓不到。
- *   ② `DomainTabLabel` 走 `<template #label>` 插槽：漏了插槽绑定，角标就永远不出现；
- *      而 `count > 0` 才渲染的判据若被改成「恒渲染」，每个 tab 尾巴上会挂个 0。
- *   ③ 横幅点击选域：顺序取自 `pickFirstPendingDomain`，断掉的表现是「点了横幅，
- *      tab 不动」或「跳到 B 而不是真正有待办的 D」。
+ *   ① `WorkbenchHead` 只剩一个 `run` emit——断掉的表现是「点了重新检查持仓差异没反应」，
+ *      没有请求也没有报错，单测（不渲染组件）抓不到。同时锁死「AI 识别」已移出页头，
+ *      回归到「导入交割单」队列项的抽屉内（owner 拍板）。
+ *   ② 首屏默认展示「能一键处理(ready)」，ready=0 时自动落到「要你判断(judge)」。
+ *      这是 `useReconQueue` 的 watch 落档，断掉的表现是「首屏一片空 / 卡在 ready 空档」。
  */
-
 type Call = { method: string; path: string; body: unknown };
 
 const GHOST_GROUP = {
@@ -57,16 +55,10 @@ const GHOST_GROUP = {
  *   `api/reconciliation.ts` 曾漏写 `/api`，请求打到 vite 的 SPA 回退拿到 HTML
  *   （HTTP 200），前端把 HTML 当数据 → 整页显示 0 条且不报错（#2866 实测）。
  * - `api/eaccount.ts` 写死 `/api/e-account/reconciliation/`。
- * 初版只 match `/api/`，结果「运行对账」的 POST 与幽灵重复列表全落到 vite 代理上
- * （一个请求都没被记录），页面侧表现为「点了没反应」「横幅不出现」——**不报错**。
  *
  * ⚠️ 注册顺序 = 匹配优先级（**后注册先匹配**）：
  * 兜底最宽，必须最先注册；`ghost-duplicates/ignored/` 比 `ghost-duplicates/` 更具体，
- * 必须最后注册。曾把兜底放最后，结果它吃掉了所有具体桩，页面静默变成全空。
- *
- * ⚠️ 具体桩会**抢走**兜底的记账：兜底里那句 `calls.push(...)` 对命中具体桩的请求
- * 不生效。所以每个具体桩都必须先 `record(route)` 再 fulfill——初版漏了这一步，
- * 「运行对账」明明发出去了，`calls` 里却一条没有（断言「没发请求」，实际是没记账）。
+ * 必须最后注册。
  */
 async function mockApis(
   page: Page,
@@ -177,59 +169,31 @@ async function openWorkbench(page: Page) {
   });
 }
 
-/**
- * 切域后等页面「该动的东西都动完」再断言。
- *
- * 为什么必须有这个等待：本页断言的是**不重挂载**（一个「没发生」的事实）。
- * 重挂载要经过 `router.replace` → 路由状态更新 → `transitionMain` 的 out-in
- * 离场动画（约 300–500ms）→ 新实例 mount。早于这个窗口断言，必然抢在
- * 重挂载之前通过——初版就是这么假绿的（用 `networkidle` 也不够，因为它
- * 只看网络、不看离场动画）。1000ms 已远大于该窗口。
- */
-async function settleAfterSwitch(page: Page) {
-  await page.waitForTimeout(1000);
-}
-
-/**
- * 重挂载探针：在页面组件内部的一枚元素上打标记。
- * 组件被销毁重建时该元素是新节点、不带标记——比"看起来没闪"更硬的判据。
- */
-async function probeSurvivesRemount(page: Page) {
-  await page
-    .locator(".workbench-head")
-    .evaluate(el => el.setAttribute("data-mount-probe", "kept"));
-}
-
-async function expectMountProbeKept(page: Page) {
-  await expect(
-    page.locator('.workbench-head[data-mount-probe="kept"]')
-  ).toHaveCount(1);
-}
-
-test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () => {
+test.describe("对账工作台（页头主行动 + 首屏分段落档）", () => {
   test.setTimeout(240_000);
 
   test.beforeEach(async ({ context, baseURL }) => {
     await injectSupabaseSession(context, baseURL!);
   });
 
-  test("页头两枚按钮的 emit 都接通：重新检查持仓差异发 POST domain=B 并刷新差异", async ({
+  test("页头只留「重新检查持仓差异」：发 POST domain=B 并刷新差异；AI 识别已移出页头", async ({
     page
   }) => {
     const calls = await mockApis(page);
     await openWorkbench(page);
 
-    // 标题 / 副标题随组件搬迁仍在页头
+    // 标题 / 副标题仍由统一页头承接
     await expect(page.locator(".workbench-head__title")).toHaveText("对账中心");
     await expect(page.locator(".workbench-head__subtitle")).toContainText(
       "统一处理 E账户对账"
     );
 
     const head = page.locator(".workbench-head");
-    await expect(head.getByRole("button", { name: "AI 识别" })).toBeVisible();
     await expect(
       head.getByRole("button", { name: "重新检查持仓差异" })
     ).toBeVisible();
+    // owner 拍板：AI 识别不再放页头，回归「导入交割单」抽屉内
+    await expect(head.getByRole("button", { name: "AI 识别" })).toHaveCount(0);
 
     const before = calls.filter(c =>
       c.path.startsWith("/api/reconciliation/discrepancies")
@@ -251,8 +215,6 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
     expect(run.body).toEqual({ domain: "B" });
 
     // 成功提示 + 差异列表被重新拉取（handleRun 里 Promise.all 的一个分支）。
-    // ⚠️ 不能用裸 `.el-message` 断言：页面上同时还挂着别的提示（如会话相关的 info），
-    // 多元素命中会触发 strict mode violation。按文案过滤成唯一一条。
     await expect(
       page.locator(".el-message", { hasText: "对账完成" })
     ).toBeVisible();
@@ -267,87 +229,26 @@ test.describe("对账工作台（#980 批 B3 拆分后的接线判据）", () =>
       .toBeGreaterThan(before);
   });
 
-  test("AI 识别按钮打开识别弹窗（emit('recognize') 接线）", async ({
+  test("首屏 ready=0 自动落到「要你判断」分段，主行动引导给出判断件数", async ({
     page
   }) => {
-    await mockApis(page);
-    await openWorkbench(page);
-
-    await page
-      .locator(".workbench-head")
-      .getByRole("button", { name: "AI 识别" })
-      .click();
-    await expect(page.locator(".el-dialog__title")).toContainText(
-      "AI 识别入库"
-    );
-  });
-
-  test("任务卡角标只在有待办时出现；点横幅落到第一个有待办的任务", async ({
-    page
-  }) => {
-    // B / C / A / E 全空，只有 D 有 1 组 → pickFirstPendingDomain 必须越过 B 落到 D
+    // 只有域 D 有 1 组待判断，其余全空 → ready=0、judge=1，必须自动落 judge
     await mockApis(page, { ghostGroups: 1 });
     await openWorkbench(page);
 
-    // 横幅：总数 = 域 D 的组数
-    const banner = page.locator(".workbench-banner");
-    await expect(banner).toContainText("有 1 项差异待处理");
-
-    // 角标：只有「核对差异」这张卡挂角标，其余卡不许挂 0。
-    // 域 D 的重复交易归入「核对差异」，来源标签仍在队列卡上，但不再是一级导航。
-    const badges = page.locator(".workbench-tabs .domain-tab-count");
-    await expect(badges).toHaveCount(1);
-    await expect(badges.first()).toHaveText("1");
-    await expect(
-      page.locator(".workbench-tabs .recon-task-card", {
-        hasText: "核对差异"
-      })
-    ).toContainText("1");
-
-    // 点击横幅 → 落到有待办的第一个任务并展开对应待办。这是**页内**切换，
-    // 只该换队列区，不得重挂载整个页面组件，更不得把域写进 URL（#2706）。
-    await probeSurvivesRemount(page);
-    await banner.click();
-    await expect(
-      page.locator(".workbench-tabs .recon-task-card.is-active")
-    ).toContainText("核对差异");
-    await expect(page.locator(".recon-queue__item.is-active")).toContainText(
-      "跨账本重复"
+    // 主行动引导：没有 ready，只有 judge
+    await expect(page.locator(".recon-action-hero")).toContainText(
+      "有 1 件需要你判断"
     );
-    // ⚠️ 必须先等过渡结束：Vue 的重渲染在 nextTick，out-in 离场动画还要再占几百毫秒，
-    // 点击后立刻断言"标记还在"会抢在重挂载之前通过——那是竞态，不是判据（初版即栽在这里）。
-    await settleAfterSwitch(page);
-    await expectMountProbeKept(page);
-    // 不写回 URL：布局层以 route.fullPath 作 router-view 的 key，
-    // query 一动就整页重建（onMounted 五个加载器全跑 = 用户看到的「整页刷新」）。
-    expect(new URL(page.url()).hash).not.toContain("domain=");
-  });
 
-  test("点任务卡不重挂载页面：URL 不变、首屏加载器不重跑（#2706）", async ({
-    page
-  }) => {
-    const calls = await mockApis(page, { ghostGroups: 1 });
-    await openWorkbench(page);
-    // 等首屏请求收敛再取基线。不锁具体次数：布局层横幅与本页各拉一次差异，
-    // 写死次数等于把"谁发的"冻结进断言，改动无关代码就会误报。
-    await page.waitForLoadState("networkidle");
-    await probeSurvivesRemount(page);
-    const before = calls.length;
-
-    // ⚠️ 默认筛选是「全部任务」，点任意一张卡都会真正改变筛选状态；
-    // 选「补记缺漏」是因为它在本桩里没有待办，能顺带验证空态不会触发补拉数据。
-    await page
-      .locator(".workbench-tabs .recon-task-card", { hasText: "补记缺漏" })
-      .click();
-
+    // 分段器已落到「要你判断」，而不是卡在默认的「能一键处理」空档
     await expect(
-      page.locator(".workbench-tabs .recon-task-card.is-active")
-    ).toContainText("补记缺漏");
-    // 等过渡结束再看：重挂载 ⇒ onMounted 跑五个加载器 ⇒ 请求数必然增长
-    await settleAfterSwitch(page);
-    // 组件实例没被销毁（重挂载会连 `.workbench-head` 一起重建，标记随之消失）
-    await expectMountProbeKept(page);
-    expect(calls.length).toBe(before);
-    expect(new URL(page.url()).hash).not.toContain("domain=");
+      page.locator(".segmented-control__item.is-active")
+    ).toContainText("要你判断");
+
+    // 列表可见该条待判断项（域 D 的跨账本重复组）
+    await expect(page.locator(".recon-queue__item").first()).toContainText(
+      "600519"
+    );
   });
 });

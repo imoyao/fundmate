@@ -17,7 +17,6 @@ from flask import abort, g, jsonify, request
 from app.core import db_factory as db_f  # 短别名：`db_factory.` 会把双会话 with 行顶过 120 → 拆行顶穿视图基线
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.core.entitlements import get_pro_status_for_family, require_pro_feature
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
     AdvisorProfileRequest,
@@ -36,6 +35,7 @@ from app.domains.products.schemas import (
     StockProfileRequest,
 )
 from app.services.advisor_profile import build_advisor_profile
+from app.services.entitlements_flask import get_pro_status_for_family, require_pro_feature
 from app.services.etf_compare import build_etf_compare
 from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance

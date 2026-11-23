@@ -43,7 +43,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
+import re
 import sys
 import urllib.parse
 from pathlib import Path
@@ -54,6 +56,13 @@ from github_cnb_issues import _cnb_repo, cnb_api  # noqa: E402
 
 TITLE = '[镜像断链] GitHub→CNB 代码镜像已停摆（需人工救援）'
 MAX_ISSUE_BODY = 6000
+
+# 断链**评论**的幂等键（写在评论正文末尾的 HTML 注释里，读者看不见、脚本看得见）。
+# 键 = 正文内容 sha1 前 12 位：同一断链现场（报告内容相同）⇒ 同一条评论 ⇒ 只发一次；
+# 现场变了（新增独有提交）⇒ 正文不同 ⇒ 补一条新评论，而不是淹没旧事实。
+# 与 `mirror_state_sync.py` 的 `状态键：` 同一套路——键随**内容**走，不随**次数**走。
+DIVERGENCE_KEY_RE = re.compile(r'<!-- divergence-report: ([0-9a-f]{12}) -->')
+DIVERGENCE_KEY_LINE = '<!-- divergence-report: {} -->'
 
 # 断链提醒卡正文的固定骨架 —— 与单测共享，改这里等于改契约。
 BODY_TEMPLATE = """## 发生了什么
@@ -111,10 +120,45 @@ def build_comment(report_paths: list[str]) -> str:
     """
     body = build_body(report_paths)
     if '## 现场' not in body:
-        return '## 又检测到一次断链\n\n' + body
-    after = body.split('## 现场', 1)[1]
-    section = after.split('\n## ', 1)[0].strip()
-    return '## 又检测到一次断链\n\n' + section + '\n'
+        text = '## 又检测到一次断链\n\n' + body
+    else:
+        after = body.split('## 现场', 1)[1]
+        section = after.split('\n## ', 1)[0].strip()
+        text = '## 又检测到一次断链\n\n' + section + '\n'
+    return text + DIVERGENCE_KEY_LINE.format(_comment_key(text))
+
+
+def _comment_key(body: str) -> str:
+    """评论幂等键 = 正文内容 sha1 前 12 位（源 CNB #6：重复断链不刷屏）。"""
+    return hashlib.sha1(body.encode('utf-8')).hexdigest()[:12]
+
+
+def list_issue_comments(number: int, *, repo: str | None = None) -> list[dict]:
+    """分页拉全一张断链卡的评论（幂等键写在评论正文里，逐条收集）。"""
+    repo = repo or _cnb_repo()
+    out: list[dict] = []
+    page = 1
+    while True:
+        qs = urllib.parse.urlencode({'page': page, 'page_size': 100})
+        batch = cnb_api(f'/{repo}/-/issues/{number}/comments?{qs}') or []
+        if not batch:
+            break
+        out.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return out
+
+
+def existing_divergence_keys(comments: list[dict]) -> set[str]:
+    """从已有评论里收集断链评论的幂等键。"""
+    out: set[str] = set()
+    for c in comments:
+        if not isinstance(c, dict):
+            continue
+        for m in DIVERGENCE_KEY_RE.finditer(str(c.get('body') or '')):
+            out.add(m.group(1))
+    return out
 
 
 def find_open_alert() -> tuple[int, str] | None:
@@ -171,12 +215,21 @@ def main(argv: list[str] | None = None) -> int:
         repo = _cnb_repo()
         if existing:
             number, _ = existing
-            cnb_api(
-                f'/{repo}/-/issues/{number}/comments',
-                method='POST',
-                payload={'body': build_comment(args.report)},
-            )
-            print(f'[ok] 已在本卡 #{number} 追加断链评论（不重复建卡）')
+            comment = build_comment(args.report)
+            key_m = DIVERGENCE_KEY_RE.search(comment)
+            key = key_m.group(1) if key_m else None
+            # 评论级幂等（源 CNB #6）：同一断链现场**只发一次**。发之前先扫本卡
+            # 已有评论收集幂等键，命中就跳过——否则分叉/缺分支持续存在时，
+            # 每天都会往这张卡追加一条「又检测到一次断链」，把提醒卡刷成噪音。
+            if key and key in existing_divergence_keys(list_issue_comments(number, repo=repo)):
+                print(f'[ok] 本卡 #{number} 已发过同现场断链评论（幂等键命中），跳过')
+            else:
+                cnb_api(
+                    f'/{repo}/-/issues/{number}/comments',
+                    method='POST',
+                    payload={'body': comment},
+                )
+                print(f'[ok] 已在本卡 #{number} 追加断链评论（不重复建卡）')
         else:
             created = cnb_api(f'/{repo}/-/issues', method='POST', payload={'title': TITLE, 'body': body})
             number = (created or {}).get('number', '?')

@@ -176,12 +176,16 @@ NEW_FILE_LIMITS = {
 # `services/asset_value_event_service.py::apply_patch_value_change`，视图只剩
 # 「解析 + 归属校验 + 调服务 + 信封」；`orm_queries` 4 / `commits` 0 /
 # `max_func` 44 三维实测**均不动**，仅 lines 208 → 244（两个 GET + 口径注释）。
+# 2026-11-23 收紧（#3232 大类收敛）：把「传父大类展开历史细分类」的展开逻辑下沉为
+# `core/asset_types.expand_major_category()`，视图侧 list_assets 反而更短（展开 inline
+# 逻辑 3 行 → 单次调用 1 行），get_assets_summary 注释同步精简。lines 244 → 239、
+# max_func 44 → 43（orm_queries 4 / commits 0 不动）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {
-        "lines": 244,
+        "lines": 239,
         "orm_queries": 4,
         "commits": 0,
-        "max_func": 44,
+        "max_func": 43,
     },
     "backend/app/domains/auth/views.py": {
         "lines": 102,
@@ -267,11 +271,23 @@ BASELINE: dict[str, dict[str, int]] = {
     # / `settle_message`），归属校验复用 `get_owned_or_404`，视图只剩 19 行
     # 「取参 → 调服务 → 组信封」。`orm_queries` 10 / `commits` 0 / `max_func` 42 三项实测不动
     # （与 #2481 / #2616 / #2685 同先例：新增纯编排端点只重取 lines）。
+    # 2026-11-19 收紧（#931，**加字段反而不涨**）：`PATCH /positions/<pid>/` 加到期日时
+    # 把「五笔钱白名单 / 金额换算 / 到期日解析」整块下沉到
+    # `services/position_edit_service.py`（`apply_position_edit`），端点只剩
+    # 「取参 → 调服务 → 组信封」，656 → 651。`orm_queries` 10 / `commits` 0 /
+    # `max_func` 42 三项不动。按 `--report` 实测收紧。
+    # 2026-11-22 重取（#3115 D1，**修复分支接线**，非放宽）：`GET /ledgers/<id>/summary/`
+    # 的类现金统计 `get_cash_like_stats` 从 stock/fund/e_account 分支内提到分支外
+    # 对所有账户类型出数（bank 录入的账户现金在类现金卡上读不到，见视图内注释）；
+    # `split_cash_like_allocation` 随之移到统一接线之后（依赖 money_fund_amount，
+    # 顺序由回归网锁定）。净增 10 行 = 调用移位 + 口径注释；`orm_queries` 10 /
+    # `commits` 0 不动，`max_func` 42 → 46（get_ledger_summary 分支重构）。
+    # 按 `--report` 实测回写。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 656,
+        "lines": 661,
         "orm_queries": 10,
         "commits": 0,
-        "max_func": 42,
+        "max_func": 46,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——

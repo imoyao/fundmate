@@ -24,14 +24,7 @@
       >
         看见你的<span class="coral">复利曲线</span>
       </h1>
-      <p class="login-sub max-w-[30ch] text-base leading-relaxed">
-        一个让复利曲线清晰可见的投资账本
-      </p>
     </div>
-
-    <p class="login-tagline relative z-10 text-sm">
-      潮有涨落，壳有深浅。算得清，才无患。
-    </p>
   </aside>
 </template>
 
@@ -122,15 +115,6 @@ defineOptions({ name: "LoginBrandAside" });
   display: inline-block;
   transform-origin: 50% 85%;
   animation: login-curve-bob 3.4s ease-in-out infinite;
-}
-
-.login-sub {
-  color: var(--text-secondary);
-}
-
-.login-tagline {
-  color: var(--text-tertiary-ink);
-  letter-spacing: 0.04em;
 }
 
 /* ---------- 品牌视觉锚点（鹦鹉螺插画：全幅半透明背景装饰层） ---------- */

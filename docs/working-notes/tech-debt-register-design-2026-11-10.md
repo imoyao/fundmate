@@ -158,7 +158,39 @@ python scripts/check_design_doc_index.py             # 不受影响
 
 ## 10. 已知不覆盖边界（如实登记）
 
-- `command` 类判据不自动执行，靠 90 天新鲜度闸门；`--online` 的 issue 覆盖度不接 CI（避免网络抖动制造假红），由治理动作手动跑。
+- `command` 类判据不自动执行，靠 90 天新鲜度闸门；`--online` 也不进 `ci.yml`（网络/凭据会制造假红），
+  但改为**每周例行**：`.github/workflows/tech-debt-drift.yml` 跑 `--online`，红了由
+  `scripts/notify_tech_debt_drift.py` 建/更新固定跟踪卡，绿了自动关卡（2026-11-21 补，见 §11）。
 - `doc_ref` 行号会随文档编辑漂移，守卫只校验文件存在、不校验行号内容。
 - 守卫不判断「这条债是否值得做」，只判断「状态是否与可复核的事实一致」；价值排序仍由人拍板。
 - 登记表只收本次盘点覆盖的条目；历史 ✅ 条目未逐条迁移，故「登记表条目数」不能当作全仓技术债总数。
+
+## 11. 2026-11-21 补：把 `--online` 变成定期例行（两次状态回流的教训）
+
+### 发生了什么
+
+台账「状态与事实对不上」又出现两次，且都不是判据写错，而是**没人跑**：
+
+| 条目 | 事实 | 台账当时写的 | 为什么 CI 没红 |
+|---|---|---|---|
+| TD-021（#1502） | issue 11-19 被直接关闭（无评论、无关联 PR），但代码仍默认走 fundfof，验收第 3 条「删除模块及引用」未满足 | `open` | `--online` 不在 CI；离线判据一律绿 |
+| TD-025（#2803） | issue 11-20 随发版关闭，`blocked` 条件（等发版）已解除 | `blocked` | `blocked` 态按设计**不做**满足性判定 ⇒ 结构上看不见 |
+
+### 处置
+
+1. **TD-021**：裁定为「提前关单」。台账保持 `open`，判据从 `command`（不自动执行）换成
+   `file present=false`（`fundfof_crowding.py` 被删才算债消），issue 已重开。
+   —— 选 `file` 而不是 `grep`：验收要求就是「模块消失」，用文件存在性最贴近判据本身。
+2. **TD-025**：`blocked → done`，evidence 记发版提交 + main 侧守卫存在 + 两侧真实 PRT 触发器同为 2 个 bot 豁免。
+3. **机制**：新增 `.github/workflows/tech-debt-drift.yml`（每周一 09:00）+ `scripts/notify_tech_debt_drift.py`。
+   - `schedule` 只读默认分支上的定义 ⇒ 必须 `ref: dev` 检出（同 #1434 / issue-health-scan）；
+   - 漂移建卡、恢复关卡，评论带报告 sha1 标记 ⇒ 同一份报告只发一次；
+   - 卡标题含「固定跟踪卡」⇒ `issue_health_scan.py` 不会按交付信号把它自动关掉。
+
+### 反向验证（必须做，否则「守卫会红」只是愿望）
+
+- 台账把 TD-021 判据改回「当时满足态」⇒ 报「僵尸 open」（已实测：`present=true` 版本当场转红）；
+- 克隆基线用例加进 `fundfof_crowding.py` / `guard_workflow_definition_source.py` / `.github/workflows/`
+  —— 缺任一份，最小克隆里要么假红（文件不存在被读成「债已消」），要么 exit 2（守卫脚本缺失）；
+- `test_register_has_expected_scale` 不再要求「五态都有实例」：`blocked` 是过渡态，
+  闭环后实例数合法归零；为了变绿去造一条假 `blocked` 才是真正该防的事。

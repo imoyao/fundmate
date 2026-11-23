@@ -1715,6 +1715,26 @@ class TestLedgerSummary:
         # 根据实现，可能还有 fund_value 字段，可选检查
         assert 'position_count' in data or True  # 视实现而定
 
+    def test_summary_bank_account_includes_cash_like_fields(self, client, db, make_asset):
+        """#3115 D1 回归：bank 账户的 summary 也必须返回类现金字段。
+
+        「录入账户现金」入口对所有账户开放（G5），但 ``get_cash_like_stats`` 原先
+        只挂在 stock/fund/e_account 分支——bank 录完现金后响应缺 ``account_cash_amount``
+        等字段，前端类现金卡读到 undefined → 0 → 恒判空态
+        （真机锚点：微众银行 id=3 录 6000 元后仍显示「本账户还没有类现金记录」）。
+        """
+        bank = Ledger(name='微众银行', ledger_type='bank')
+        db.add(bank)
+        db.commit()
+        make_asset(major_category='cash', name='账户现金', amount=6000, ledger_id=bank.id, account_name='微众银行')
+
+        resp = client.get(f'/api/ledgers/{bank.id}/summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['account_cash_amount'] == 6000.0
+        assert data['cash_like_amount'] == 6000.0
+        assert data['cash_like_breakdown'] == []
+
     def test_summary_property_account(self, client, db, make_asset):
         """实物资产返回总估值和数量"""
         prop = Ledger(name='房产', ledger_type='property')

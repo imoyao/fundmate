@@ -115,7 +115,7 @@ onMounted(() => void ensureEnums());
       :default-sort="{ prop: 'market_value', order: 'descending' }"
       @sort-change="handleSortChange"
     >
-      <el-table-column label="产品信息" min-width="180">
+      <el-table-column label="产品信息" min-width="230">
         <template #default="{ row }">
           <ProductDisplay
             :name="row.name || ''"
@@ -127,7 +127,7 @@ onMounted(() => void ensureEnums());
 
       <el-table-column
         label="市值"
-        width="130"
+        min-width="130"
         align="right"
         sortable
         prop="market_value"
@@ -144,7 +144,7 @@ onMounted(() => void ensureEnums());
            排序仍按后端 `pnl`（与已确认同一公式）——资产行无份额 / 现价，两行都显示 `--`。 -->
       <el-table-column
         label="盈亏"
-        width="170"
+        min-width="170"
         align="right"
         sortable
         prop="pnl"
@@ -161,7 +161,7 @@ onMounted(() => void ensureEnums());
       </el-table-column>
       <el-table-column
         label="盈亏率"
-        width="90"
+        min-width="90"
         align="right"
         sortable
         prop="pnl_rate"
@@ -170,7 +170,7 @@ onMounted(() => void ensureEnums());
           <RiseFallText :value="row.pnl_rate || 0" />
         </template>
       </el-table-column>
-      <el-table-column label="来源" width="110">
+      <el-table-column label="来源" min-width="110">
         <template #default="{ row }">
           <el-tag
             v-if="positionSourceLabel(row.source)"

@@ -253,3 +253,51 @@ describe("buildBuyPayload 打新中签（D95：买入价格可手填）", () => 
     expect(body.confirm_date).toBe("2026-10-23");
   });
 });
+
+describe("buildBuyPayload 银行理财（#931 / D121）", () => {
+  const bankWealthForm = (overrides: Partial<BuyPayloadForm> = {}) =>
+    mkForm({
+      type: "bank_wealth",
+      symbol: "Z7001234ABCD",
+      name: "朝朝宝",
+      market: "",
+      price: undefined,
+      ...overrides
+    });
+
+  it("必须显式带 valuation_mode='balance'", () => {
+    // 不传就是后端默认的 nav：写入不报错，市值恒 0，详情页照常渲染一张 0 元卡
+    const body = buildBuyPayload({
+      ...base,
+      form: bankWealthForm(),
+      quantity: 0
+    });
+    expect(body.valuation_mode).toBe("balance");
+  });
+
+  it("份额与均价恒为 0：理财没有份额、也没有单价", () => {
+    const body = buildBuyPayload({
+      ...base,
+      form: bankWealthForm(),
+      quantity: 1000
+    });
+    expect(body.quantity).toBe(0);
+    expect(body.avg_price).toBe(0);
+  });
+
+  it("market 空串原样保留：理财无市场归属，不能变成 CN_A", () => {
+    const body = buildBuyPayload({
+      ...base,
+      form: bankWealthForm({ market: "" })
+    });
+    expect(body.market).toBe("");
+  });
+
+  it("手续费不强制归零：它没有「组合侧扣费」的语义，用户填多少记多少", () => {
+    const body = buildBuyPayload({
+      ...base,
+      form: bankWealthForm({ fee: 12.5 })
+    });
+    expect(body.fee).toBe(12.5);
+  });
+});

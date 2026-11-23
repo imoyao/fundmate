@@ -3,18 +3,11 @@
     <WorkbenchHead
       :running="running"
       :updated-at="updatedAt"
-      @recognize="recognizerVisible = true"
       @run="handleRun"
     />
 
     <!-- 内容列与 PageHeaderBar 同宽同内边距，保证左边缘严格对齐（design.md 页头规范） -->
     <div class="recon-shell">
-      <WorkbenchBanner
-        v-if="openTotal > 0"
-        :total="openTotal"
-        @go="focusBanner"
-      />
-
       <!-- 部分 loader 失败不能伪装成「没有待办」：明确报出来并给重试入口 -->
       <SoftBanner
         v-if="errorCount > 0"
@@ -28,81 +21,65 @@
         </template>
       </SoftBanner>
 
-      <ReconStatBar
-        :open-items="openTotal"
-        :ready-items="readyTotal"
-        :open-records="openRecords"
+      <!-- ① 主行动引导：能一键处理 → 一键 CTA；否则引导去判断；全空给清空态 -->
+      <ReconActionHero
+        :ready-count="readyCount"
+        :judge-count="judgeCount"
+        :loading="isLoading"
+        @batch="openBatchAll"
+        @go-judge="setSegment('judge')"
+        @go-import="goTo('/inventory/investment/import')"
       />
 
-      <!-- #3135：差异卡只说「理论 0 / 实际 1000」，说不出这 1000 从哪来。
-           这一块把成因（含对账补录流水）与可执行动作随页面一起摆出来。 -->
+      <!-- 待入库草稿：折叠成一行，展开包两个候选面板 -->
+      <ReconDraftSummary
+        :candidates="recognizerCandidates"
+        :committing="committing"
+        @discard="discardCandidates"
+        @commit="commitCandidates"
+      />
+
       <ShareIntegrityPanel
         v-if="shareItems.length > 0"
         :items="shareItems"
         @go-transactions="goShareTransactions"
+        @clear="clearShareByBill"
       />
 
-      <WorkbenchTaskCards
-        :active="filter.task"
-        :counts="taskCounts"
-        @select="selectTask"
-      />
-
-      <!-- 「全部待办」不给说明条：待办总数、可直接处理数、三张任务卡已经在上面说清了 -->
-      <ReconTaskBrief
-        v-if="filter.task !== 'all'"
-        :task="filter.task"
-        :count="activeRecordCount"
-        @clear="clearTask"
-        @go-import="goTo('/inventory/investment/import')"
-      />
-
-      <!-- 识别草稿是「要确认入库的事」，不是域 tab；两类草稿各自只在有内容时渲染 -->
-      <RecognizerCandidatesPanel
-        kind="holding"
-        :candidates="recognizerCandidates"
-        :committing="committing"
-        @discard="discardCandidates"
-        @commit="commitCandidates"
-      />
-      <RecognizerCandidatesPanel
-        kind="txn"
-        :candidates="recognizerCandidates"
-        :committing="committing"
-        @discard="discardCandidates"
-        @commit="commitCandidates"
-      />
-
+      <!-- ② 状态分段 + ③ 列表 -->
       <section class="recon-queue">
         <SectionHeader
           :title="taskLabel ? `待办队列 · ${taskLabel}` : '待办队列'"
         />
 
         <ReconQueueFilter
-          :state="filter.state"
-          :options="stateOptions"
+          :segment="filter.segment"
+          :options="segmentOptions"
           :keyword="filter.keyword"
           :batch-id="filter.batchId"
           :batch-options="batchOptions"
           :result-count="visibleItems.length"
-          :selectable-count="selectableItems.length"
-          :selected-count="selectedItems.length"
-          :selected-records="selectedRecords"
-          :all-selected="allSelected"
-          :busy="batchBusy"
-          @update:state="setState"
+          @update:segment="setSegment"
           @update:keyword="setKeyword"
           @update:batch-id="setBatch"
-          @toggle-all="toggleAll"
-          @batch="openBatch"
           @reset="resetFilter"
         />
+
+        <!-- judge 段内类型 chips：把要你判断再按三类财务动作细分 -->
+        <ReconTaskChips
+          v-if="filter.segment === 'judge'"
+          :active="filter.task"
+          :counts="chipCounts"
+          @select="selectTask"
+        />
+
+        <ReconTaskBrief v-if="filter.task !== 'all'" :task="filter.task" />
 
         <ReconStatusState
           :loading="isLoading"
           :empty="visibleItems.length === 0"
           empty-title="这个筛选下没有待办"
-          empty-hint="换一个状态或清除关键词，也可以点上方任务卡查看其它类别。"
+          empty-hint="换一个分段或清除关键词，也可以点分段器查看已处理记录。"
         >
           <ul class="recon-queue__list">
             <ReconQueueCard
@@ -110,10 +87,7 @@
               :key="item.id"
               :item="item"
               :active="activeDetailId === item.id"
-              :selectable="selectableIds.has(item.id)"
-              :selected="selectedIds.includes(item.id)"
               @open="openItem"
-              @toggle="toggleSelection"
             />
           </ul>
         </ReconStatusState>
@@ -147,6 +121,7 @@
         @ghost-delete-txn="handleGhostDeleteTxn"
         @go-to="goTo"
         @fix-orphan="openOrphanFix"
+        @recognize="recognizerVisible = true"
       />
 
       <SupplementDialog
@@ -180,11 +155,10 @@ import SoftBanner from "@/components/SoftBanner/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import RecognizerImportModal from "@/components/QuickEntry/RecognizerImportModal.vue";
 import WorkbenchHead from "./components/WorkbenchHead.vue";
-import WorkbenchBanner from "./components/WorkbenchBanner.vue";
-import ReconStatBar from "./components/ReconStatBar.vue";
-import WorkbenchTaskCards from "./components/WorkbenchTaskCards.vue";
+import ReconActionHero from "./components/ReconActionHero.vue";
+import ReconDraftSummary from "./components/ReconDraftSummary.vue";
 import ReconTaskBrief from "./components/ReconTaskBrief.vue";
-import RecognizerCandidatesPanel from "./components/RecognizerCandidatesPanel.vue";
+import ReconTaskChips from "./components/ReconTaskChips.vue";
 import ReconQueueFilter from "./components/ReconQueueFilter.vue";
 import ReconStatusState from "./components/ReconStatusState.vue";
 import ReconQueueCard from "./components/ReconQueueCard.vue";
@@ -215,6 +189,7 @@ const {
   danglingRefs,
   orphanLedgers,
   shareItems,
+  clearShareByBill,
   recognizerCandidates,
   committing,
   dataDateLabel,
@@ -248,7 +223,18 @@ const queueSource = computed<ReconQueueSource>(() => ({
   orphan: orphanLedgers.value
 }));
 
-const queue = useReconQueue(queueSource);
+/** 首屏加载态：数据未回时 ready=0 是假象，必须压住自动落档 */
+const isLoading = computed(
+  () =>
+    domains.loading.value ||
+    domains.eLoading.value ||
+    domains.ghostLoading.value ||
+    domains.taxLoading.value ||
+    domains.danglingLoading.value ||
+    domains.orphanLoading.value
+);
+
+const queue = useReconQueue(queueSource, isLoading);
 const {
   filter,
   visibleItems,
@@ -257,24 +243,16 @@ const {
   pagedItems,
   setPage,
   setPageSize,
-  taskCounts,
-  recordCounts,
-  readyCounts,
-  openTotal,
-  stateOptions,
+  segmentOptions,
+  chipCounts,
+  readyCount,
+  judgeCount,
   batchOptions,
-  selectableItems,
-  selectedIds,
-  selectedItems,
-  allSelected,
   selectTask,
-  clearTask,
-  setState,
+  setSegment,
   setKeyword,
   setBatch,
-  resetFilter,
-  toggleSelection,
-  toggleAll
+  resetFilter
 } = queue;
 
 const {
@@ -290,55 +268,27 @@ const {
   danglingFixVisible,
   danglingFixGroup,
   batchVisible,
-  batchBusy,
   openSupplement,
   openDanglingFix,
   goTo,
   openItem,
   closeDetail,
   scrollQueueTop,
-  focusBanner,
-  openBatch,
+  openBatchAll,
   onBatchSubmitted,
   openOrphanFix,
   batchItems
 } = useWorkbenchActions(domains, queue);
 
-/** 「去核对补录流水」：交易流水页支持 `?symbol=` 预置筛选（TransactionList 的既有能力），
- *  按标的带过去比按持仓 id 更贴近那一页的筛选口径。 */
+/** 「去核对补录流水」：交易流水页支持 `?symbol=` 预置筛选（TransactionList 的既有能力） */
 function goShareTransactions(item: ShareIntegrityItem): void {
   goTo(`/transactions?symbol=${encodeURIComponent(item.symbol)}`);
 }
 
-const selectableIds = computed(
-  () => new Set(selectableItems.value.map(i => i.id))
-);
-const readyTotal = computed(() =>
-  Object.values(readyCounts.value).reduce((sum, n) => sum + n, 0)
-);
-const openRecords = computed(() =>
-  Object.values(recordCounts.value).reduce((sum, n) => sum + n, 0)
-);
-const activeRecordCount = computed(() =>
-  filter.value.task === "all"
-    ? openRecords.value
-    : recordCounts.value[filter.value.task]
-);
-const taskLabel = computed(() =>
-  filter.value.task === "all" ? null : taskMeta(filter.value.task).label
-);
-const selectedRecords = computed(() =>
-  selectedItems.value.reduce((sum, i) => sum + i.count, 0)
-);
-const isLoading = computed(
-  () =>
-    domains.loading.value ||
-    domains.eLoading.value ||
-    domains.ghostLoading.value ||
-    domains.taxLoading.value ||
-    domains.danglingLoading.value ||
-    domains.orphanLoading.value
-);
+const taskLabel = computed(() => {
+  const task = filter.value.task;
+  return task === "all" ? null : taskMeta(task).label;
+});
 const errorCount = computed(() => Object.keys(loadErrors.value).length);
 const updatedAt = computed(() =>
   dataDateLabel.value === "—" ? "" : `${dataDateLabel.value} 数据`

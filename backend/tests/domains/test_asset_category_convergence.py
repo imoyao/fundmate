@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""#1354：投资理财大类收敛。
+"""#1354：投资理财大类收敛；#3232：固定资产线下资产大类收敛。
 
-银行理财 / 投顾 / 信托 / 私募 / 理财型保险 不再作为平级大类：
-- 盘点页标签栏只保留 6 个主类；
-- 新增记录写入 minor_category（细分），major_category 统一 investment；
-- 读取 / 聚合口径把历史 5 个大类归一为 investment，存量数据零迁移但不丢。
+投资理财侧：银行理财 / 投顾 / 信托 / 私募 / 理财型保险 不再作为平级大类；
+固定资产侧：房产（real_estate）/ 贵金属（precious_metal）不再作为平级大类。
+两侧统一口径：
+- 新增记录写入 minor_category（细分），major_category 统一 investment / fixed；
+- 读取 / 聚合口径把历史大类归一为父大类，存量数据零迁移但不丢。
 """
 
 from app.core.asset_types import (
+    FIXED_CATEGORIES,
+    FIXED_HISTORICAL_MAJOR_CATEGORIES,
     INVESTMENT_CATEGORIES,
     INVESTMENT_MINOR_CATEGORIES,
     get_investment_minor_label,
@@ -16,6 +19,7 @@ from app.core.asset_types import (
 
 # 由常量生成，避免与 INVESTMENT_CATEGORIES 手工重复维护（#1355 AI review）
 ALL_INVESTMENT_KEYS = ','.join(INVESTMENT_CATEGORIES)
+ALL_FIXED_KEYS = ','.join(FIXED_CATEGORIES)
 
 
 class TestNormalizeMajorCategory:
@@ -23,14 +27,24 @@ class TestNormalizeMajorCategory:
         for key in INVESTMENT_MINOR_CATEGORIES:
             assert normalize_major_category(key) == 'investment'
 
+    def test_historical_offline_assets_normalized_to_fixed(self):
+        # #3232：房产 / 贵金属两个历史线下资产大类归一到固定资产
+        for key in FIXED_HISTORICAL_MAJOR_CATEGORIES:
+            assert normalize_major_category(key) == 'fixed'
+
     def test_other_categories_unchanged(self):
         assert normalize_major_category('cash') == 'cash'
         assert normalize_major_category('liability') == 'liability'
         assert normalize_major_category('insurance') == 'insurance'
+        assert normalize_major_category('fixed') == 'fixed'
         assert normalize_major_category(None) is None
 
     def test_investment_categories_set(self):
         assert INVESTMENT_CATEGORIES == {'investment', *INVESTMENT_MINOR_CATEGORIES}
+
+    def test_fixed_categories_set(self):
+        # #3232：固定资产口径 = fixed + 历史线下资产大类
+        assert FIXED_CATEGORIES == {'fixed', *FIXED_HISTORICAL_MAJOR_CATEGORIES}
 
     def test_investment_minor_label(self):
         assert get_investment_minor_label('bank_wealth') == '银行理财'
@@ -152,3 +166,31 @@ class TestDistributionsMergesInvestment:
         labels = {item['type_label'] for g in groups for item in g['items']}
         assert '投资理财' in labels
         assert '投顾' not in labels
+
+
+class TestDistributionsMergesFixed:
+    """#3232：房产 / 贵金属两个历史线下资产大类在聚合口径并入「固定资产」。"""
+
+    def test_historical_offline_assets_merged_into_fixed(self, client, make_asset):
+        make_asset(major_category='real_estate', name='自住房', amount=2200000)
+        make_asset(major_category='precious_metal', name='金条', amount=50000)
+
+        resp = client.get('/api/summary/distributions/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        categories = {item['name']: item['value'] for item in data['category_distribution']}
+        assert categories.get('固定资产') == 2250000.0
+        assert '房产' not in categories
+        assert '贵金属' not in categories
+
+    def test_fixed_tab_filter_expands_historical_offline_assets(self, client):
+        # list_assets 传 major_category=fixed 时应自动展开历史线下资产大类
+        client.post(
+            '/api/assets/', json={'major_category': 'fixed', 'minor_category': 'house', 'name': '新房', 'amount': 100}
+        )
+        client.post('/api/assets/', json={'major_category': 'real_estate', 'name': '存量房', 'amount': 200})
+
+        resp = client.get('/api/assets/', query_string={'major_category': 'fixed'})
+        assert resp.status_code == 200
+        names = {a['name'] for a in resp.get_json()['data']}
+        assert names == {'新房', '存量房'}

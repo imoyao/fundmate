@@ -316,6 +316,15 @@ jobs:
       - name: 扫描裸断点媒体查询
         run: python scripts/guard_breakpoints.py
 
+      # 原生 CSS 嵌套守卫（#3213）：`<style scoped>` 没写 lang="scss" 时走原生 CSS，
+      # 块里的 `&__value` / `&-line` 是 SCSS 拼接语法、在浏览器里是非法选择器 ⇒
+      # 整条嵌套规则被静默丢弃（构建/stylelint 都不报错）。存量 3 文件 8 条规则
+      # 就处在这种「写了但不生效」状态，其中上传器的预览缩略图连 72×48 都没有。
+      # 判据边界与两种正解见脚本 docstring；回归网 scripts/tests/test_guard_style_nesting.py
+      # （含真实组件摘掉 lang="scss" 的回退探针）。同属本 job 的「前端回潮」范畴。
+      - name: 扫描原生 CSS 里的嵌套拼接
+        run: python scripts/guard_style_nesting.py
+
       # 分段控制器守卫（#1717）：禁止再挂 el-segmented / 页面自写 .xxx-segmented 样式块。
       # 与上两条同属「前端设计语言回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
       - name: 扫描分段控制器回潮
@@ -325,6 +334,17 @@ jobs:
       # 那会让一个聚焦输入框叠出三层描边（用户反馈的「描边好几层」）。同属本 job 的「回潮」范畴。
       - name: 扫描输入焦点回潮
         run: python scripts/guard_input_focus.py
+
+      # 表格列宽表达守卫（#3210，收口 #3208）：EP 只把「不带数字 width」的列纳入容器余量分配，
+      # 一张表只留一个弹性列时余量全灌给它（1440 视口实测首列 36%~76%），窄列反被挤折行。
+      # 判据只数「弹性列个数」（≥2 即通过），存量 15 处已横滚 / 弹窗小表 / 单文本列表
+      # 按 table-col-allow 登记理由。收尾（2026-11-21）把两类原先「跳过」的表纳回判据：
+      # 字面量 width 的 v-for 由本守卫判；列宽写在 *.ts 的配置表必须登记 CONFIG_TABLE_JUDGE，
+      # 由 frontend/src/__tests__/tableColumnFlexInvariant.spec.ts 承接（未登记即红）。
+      # 放行标记里的「N 列 / 合计 M」还会对账（2026-11-21 复核发现 15 处里 3 处已飘）——
+      # 注释是豁免的唯一证据，加列/改宽必须同步改注释。
+      - name: 扫描表格列宽表达回潮
+        run: python scripts/guard_table_columns.py
 
       # job 调度覆盖守门（#1934）：编排器注册的 job 必须出现在「每日调度」或
       # 「明确不调度」两张表之一。加 job 的人只改 orchestrator 而忘了调度表时，
@@ -359,6 +379,14 @@ jobs:
       # 同属「前端设计语言回潮」一类，故并入本 job（不新增 job 就不必改 gate.needs）。
       - name: 扫描裸栏间分割线回潮（阻断）
         run: python scripts/guard_col_divider.py
+
+      # 表头吸顶守卫（#3200）：自建 <table> + 表头 position:sticky + 容器裸 overflow-x:auto
+      # 是结构性死冲突——x 轴 auto 已足够让该容器成为 sticky 的截断点，纵向写 visible / clip
+      # 都救不回来（实测表头 top=494px 跟着页面滚走，样式全「写对了」）。同类优选已迁 el-table，
+      # 本守卫防下一处原样再踩。同属「前端设计语言回潮」一类，故并入本 job（不新增 job 就不必改
+      # gate.needs）。判据边界与两种正解见脚本 docstring；回归网 scripts/tests/guard_sticky_table.test.js。
+      - name: 扫描表头吸顶死冲突（阻断）
+        run: python scripts/guard_sticky_table.py
 
       # 自绘提示条守卫（#2725，源 #2716 批次 3）：#2716 抽出了 SoftBanner 并迁了 5 处，
       # 但**没有任何机制拦住第 6 份手写**。本仓已有前车之鉴（视图层 .commit() 收敛过一拨，
@@ -796,13 +824,16 @@ jobs:
       - name: 校验无未经路由的硬编码缓存目录
         run: python scripts/guard_cache_dir.py
 
-  # CSS 令牌守卫（#1545 T1.4）：把「被 var() 引用、源码里却没定义」的幽灵令牌
-  # 变成显式红灯。背景：--bg-subtle 曾被 6 处引用却全仓零定义，导致
-  # `color-mix(..., var(--bg-subtle))` 整条声明静默失效（市场机会卡只剩左边框有颜色），
-  # 而构建 / 类型检查 / lint 全绿——没有任何机制能发现。本守卫冻结存量基线、拦截新增。
+  # 样式静默失效守卫（#1545 T1.4 / #1602 / #3213 同族）：
+  # ① 幽灵令牌：`--bg-subtle` 曾被 6 处引用却全仓零定义，导致
+  #    `color-mix(..., var(--bg-subtle))` 整条声明静默失效（市场机会卡只剩左边框有颜色）；
+  # ② 自引用：`--x: var(--x)` 是循环引用，会把同元素上的真实定义覆盖成无效值（#1602 的 14 个令牌）；
+  # ③ 孤立样式表：`style/login.css` 从未被任何入口加载，92 行规则一条都没生效，
+  #    期间断点守卫还在替它维护 2 条豁免。
+  # 三者共同点都是「不报错、不报红、浏览器里什么都不发生」，构建 / 类型检查 / lint 全绿。
   # 纯 Node 静态扫描 frontend/src，零依赖、秒级，故轻到可常开。
   css_token_guard:
-    name: 守卫:CSS 令牌引用定义一致
+    name: 守卫:样式静默失效（令牌/自引用/孤立样式表）
     if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
@@ -813,7 +844,7 @@ jobs:
         with:
           node-version: "22.x"
 
-      - name: 校验无幽灵令牌（引用但未定义）
+      - name: 校验样式静默失效（幽灵令牌 / 自引用 / 孤立样式表）
         run: node scripts/check_css_vars.mjs
 
   # 守卫脚本单测（#1584）：`scripts/ai_review_verify_guard.js` 被 ai-review workflow **直接驱动**，

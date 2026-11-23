@@ -2,7 +2,6 @@
 /**
  * 表格空状态（迁移自 reconcile/reconcileView/ReconcileEmpty.vue）。
  *
- * 鹦鹉螺插画资产未入库前先用文案版 + 品牌收尾文案（与 watchlist 空状态同一策略）。
  * 文案分「全量无记录」与「当前筛选无记录」两种——后者要多给一句出路，
  * 否则用户只会以为数据没了。
  */
@@ -18,7 +17,6 @@ defineProps<{ statusFilter: string }>();
     <p class="reconcile-empty__title">
       {{ statusFilter === STATUS_ALL ? "暂无对账记录" : "当前筛选下没有记录" }}
     </p>
-    <p class="reconcile-empty__copy">潮有涨落，壳有深浅。算得清，才无患。</p>
     <p v-if="statusFilter !== STATUS_ALL" class="reconcile-empty__hint">
       试试切换其他状态，或点右上角刷新
     </p>
@@ -46,12 +44,6 @@ defineProps<{ statusFilter: string }>();
   margin: 0;
   font-size: var(--text-small);
   color: var(--text-secondary);
-}
-
-.reconcile-empty__copy {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
 }
 
 .reconcile-empty__hint {

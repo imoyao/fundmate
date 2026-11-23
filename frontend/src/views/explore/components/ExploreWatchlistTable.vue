@@ -111,7 +111,7 @@ function onMqChange(e: MediaQueryListEvent) {
       style="width: 100%"
       empty-text="暂无观察资产，添加你关注的标的开始研究"
     >
-      <el-table-column label="产品" min-width="180">
+      <el-table-column label="产品" min-width="240">
         <template #default="{ row }">
           <ProductDisplay
             :name="row.name"
@@ -121,7 +121,7 @@ function onMqChange(e: MediaQueryListEvent) {
         </template>
       </el-table-column>
 
-      <el-table-column label="最新价" width="120" align="right">
+      <el-table-column label="最新价" min-width="120" align="right">
         <template #default="{ row }"
           ><MoneyDisplay
             :value="row.price"
@@ -130,7 +130,7 @@ function onMqChange(e: MediaQueryListEvent) {
         /></template>
       </el-table-column>
 
-      <el-table-column label="涨跌幅" width="110" align="right">
+      <el-table-column label="涨跌幅" min-width="110" align="right">
         <template #default="{ row }"
           ><RiseFallText :value="row.changePct"
         /></template>
@@ -139,7 +139,7 @@ function onMqChange(e: MediaQueryListEvent) {
       <el-table-column
         v-if="!isPureObservationMode"
         label="当日盈亏"
-        width="130"
+        min-width="130"
         align="right"
       >
         <template #default="{ row }"
@@ -150,7 +150,7 @@ function onMqChange(e: MediaQueryListEvent) {
       <el-table-column
         v-if="!isPureObservationMode"
         label="持仓收益"
-        width="130"
+        min-width="130"
         align="right"
       >
         <template #default="{ row }"

@@ -70,6 +70,7 @@
     <ClearedRankList :cycles="cycles" />
 
     <CardBlock>
+      <!-- table-col-allow: 8 列合计 932；1440 视口超表宽 856 即横滚，宽视口余量也只落唯一文本列「产品」（#3210） -->
       <el-table
         :data="cycles"
         size="small"
