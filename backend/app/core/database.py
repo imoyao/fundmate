@@ -69,6 +69,7 @@ from app.core.migrations import (
     migrate_watchlist_venue_not_null,
 )
 from app.core.migrations_agent import migrate_agent_session_title
+from app.core.migrations_ledgers import migrate_ledger_visibility
 
 # 保留历史符号：部分模块（如 sync/orchestrator 备份路径）仍引用，
 # 指向当前应用运行库的 URL，供文件库路径推断使用。
@@ -638,6 +639,9 @@ def init_db():
     migrate_sales_institution_pinyin_full(user_eng)
     # agent_session.title 会话标题列（#1719 历史栏检索）：同上须先于结构校验
     migrate_agent_session_title(user_eng)
+    # ledgers 可见性两列（#3246 / D125）：存量回填 shared（默认 private 会让 4 个同家庭
+    # 账号升级后彼此看不见账户）；同上须先于结构校验，否则模型有列、库没列会拒绝启动
+    migrate_ledger_visibility(user_eng)
     # assets/positions 配置目标来源标记（#3031 / G1）：create_all 不替存量表加列，
     # 须先于下面 _validate_schema，否则「模型有列、库没列」直接拒绝启动。
     migrate_allocation_source_columns(user_eng)
@@ -800,6 +804,8 @@ def init_db_split():
         migrate_sales_institution_pinyin_full(user_eng)
         # agent_session.title 会话标题列（#1719 历史栏检索）：同上须先于结构校验
         migrate_agent_session_title(user_eng)
+        # ledgers 可见性两列（#3246 / D125）：同上，须先于结构校验
+        migrate_ledger_visibility(user_eng)
         # assets/positions 配置目标来源标记（#3031 / G1）：同上，须先于结构校验
         migrate_allocation_source_columns(user_eng)
         # watchlist.name 名称快照列（#1508）：同上，须先于结构校验

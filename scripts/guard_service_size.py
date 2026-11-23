@@ -197,6 +197,13 @@ NEW_FILE_LIMITS = {
 #   +2 行注释），`init_db` 因此长 2 行。迁移本体不在 `core/migrations.py`（已 3014 行、
 #   同受本闸门约束），而在新文件 `core/migrations_agent.py`（89/26/9，同样进基线）。
 #   这是真实代码增长，不是放宽阈值。
+# 2026-11-23 账户可见性（#3246 / D125）按 `--report` 放宽 `core/database.py` 一项，
+# 理由留痕：902→908 / max_func 158→161。`ledgers` 新增 `visibility` / `owner_user_id`
+# 两列，而 `create_all` 不替存量表加列、`_validate_schema` 缺列即拒绝启动，故 `init_db`
+# 与 `init_db_split` **两处** user 域都得登记同一迁移（+1 import、+2×(2 行注释 + 1 行调用)），
+# `init_db` 单函数因此长 3 行。迁移本体不在 `core/migrations.py`（3014 行、同受本闸门约束），
+# 而在新文件 `core/migrations_ledgers.py`（55/11/4，走 NEW_FILE_LIMITS 并登记基线）。
+# 这是真实代码增长，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -585,8 +592,9 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/core/config.py": {'lines': 20, 'max_func': 0, 'max_cc': 0},
     "backend/app/core/constants.py": {'lines': 331, 'max_func': 0, 'max_cc': 0},
     "backend/app/core/data_sources.py": {'lines': 73, 'max_func': 10, 'max_cc': 3},
-    "backend/app/core/database.py": {'lines': 902, 'max_func': 158, 'max_cc': 14},
+    "backend/app/core/database.py": {'lines': 908, 'max_func': 161, 'max_cc': 14},
     "backend/app/core/migrations_agent.py": {'lines': 89, 'max_func': 26, 'max_cc': 9},
+    "backend/app/core/migrations_ledgers.py": {'lines': 55, 'max_func': 11, 'max_cc': 4},
     "backend/app/core/db_factory.py": {'lines': 1076, 'max_func': 63, 'max_cc': 15},
     "backend/app/core/db_utils.py": {'lines': 169, 'max_func': 53, 'max_cc': 8},
     "backend/app/core/decorators.py": {'lines': 39, 'max_func': 29, 'max_cc': 2},
