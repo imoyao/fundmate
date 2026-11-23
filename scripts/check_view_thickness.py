@@ -176,12 +176,16 @@ NEW_FILE_LIMITS = {
 # `services/asset_value_event_service.py::apply_patch_value_change`，视图只剩
 # 「解析 + 归属校验 + 调服务 + 信封」；`orm_queries` 4 / `commits` 0 /
 # `max_func` 44 三维实测**均不动**，仅 lines 208 → 244（两个 GET + 口径注释）。
+# 2026-11-23 收紧（#3232 大类收敛）：把「传父大类展开历史细分类」的展开逻辑下沉为
+# `core/asset_types.expand_major_category()`，视图侧 list_assets 反而更短（展开 inline
+# 逻辑 3 行 → 单次调用 1 行），get_assets_summary 注释同步精简。lines 244 → 239、
+# max_func 44 → 43（orm_queries 4 / commits 0 不动）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {
-        "lines": 244,
+        "lines": 239,
         "orm_queries": 4,
         "commits": 0,
-        "max_func": 44,
+        "max_func": 43,
     },
     "backend/app/domains/auth/views.py": {
         "lines": 102,

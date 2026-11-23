@@ -27,8 +27,6 @@ const PAGES = [
   "/asset/position-analysis",
   "/analysis",
   "/asset/strategies",
-  "/asset/precious",
-  "/asset/realestate",
   "/asset/fund-ranking",
   "/asset/portfolios",
   "/inventory",

@@ -50,7 +50,9 @@ const createAssetRoutes = (routeConfig: RouteConfigWithChildren) => {
 // 顺序即语义相近度，成对相邻（不靠目录层也读得出分组）：
 //   投资组合 · 策略分析 · 定投计划  —— 一篮子的做法
 //   账户管理 · 家庭成员            —— 钱放在哪、算谁的
-//   贵金属 · 房产                  —— 要手动登记、手动估值的线下资产
+// （#3232：原「贵金属 · 房产」两个线下资产汇总页已删除——它们本质是固定资产的子类，
+//   应收敛进固定资产，而非作为「资产」顶级平级页面。线下资产经「账户管理 → 实物资产
+//   账户」进入详情页，或经「全面盘点」的固定资产页签管理。）
 //
 // ⚠️ 只放**配置与档案**。凡是「把事实录进来」的页面（全面盘点 / 各类导入 /
 // 对账单）一律归 record.ts；纯净的读页面（复盘 / 持仓分析）归 home.ts。
@@ -104,23 +106,6 @@ const AssetRouteConfig = {
       name: "AssetFamilyMembers",
       component: () => import("@/views/asset/family/index.vue"),
       meta: { title: "家庭成员", icon: "ep:user", rank: 5 }
-    },
-    {
-      // 路径带 /asset 前缀，与同层兄弟一致。
-      // 原为 "/precious"：vue-router 4 里子路由 path 以 / 开头即**绝对路径**、
-      // 不拼父级前缀（#1849 路径统一）。
-      // #1798 入口：侧边栏 + 全景页「资产构成」贵金属行直跳（CategoryBalanceTable）
-      path: "/asset/precious",
-      name: "AssetPrecious",
-      component: () => import("@/views/asset/precious/index.vue"),
-      meta: { title: "贵金属", icon: "ep:medal", rank: 6, showLink: true }
-    },
-    {
-      // #1798 入口：侧边栏 + 全景页「资产构成」房产行直跳
-      path: "/asset/realestate",
-      name: "AssetRealEstate",
-      component: () => import("@/views/asset/realestate/index.vue"),
-      meta: { title: "房产", icon: "ep:house", rank: 7, showLink: true }
     },
     // ── 隐藏下钻页（不进菜单，但保留在 /asset 直接子级以维持面包屑锚点）──
     {

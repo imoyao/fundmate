@@ -136,7 +136,8 @@ class TestAllocationPayload:
         scope = data['allocation_scope']
         assert scope['denominator'] == 100000.0
         assert scope['excluded_total'] == 2250091.0
-        assert {row['name'] for row in scope['excluded']} == {'房产', '应收款'}
+        # #3232：real_estate 收敛为 fixed，未纳入列表里显示大类「固定资产」而非「房产」
+        assert {row['name'] for row in scope['excluded']} == {'固定资产', '应收款'}
 
     def test_offbook_cash_like_is_excluded_not_bucketed(self, db):
         """#3115 D3-b：账外类现金必须在 ``excluded`` 里看得见，且不进桶、不动分母。

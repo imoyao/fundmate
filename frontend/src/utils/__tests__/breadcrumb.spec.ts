@@ -56,16 +56,6 @@ const menus: BreadcrumbNode[] = [
         meta: { title: "家庭成员" }
       },
       {
-        path: "/asset/precious",
-        name: "AssetPrecious",
-        meta: { title: "贵金属" }
-      },
-      {
-        path: "/asset/realestate",
-        name: "AssetRealEstate",
-        meta: { title: "房产" }
-      },
-      {
         path: "/asset/ledgers/:id",
         name: "LedgerDetail",
         meta: { title: "账户详情", hidden: true }

@@ -859,8 +859,6 @@
     "views/asset/position-analysis/__tests__/scope.spec.ts": 0,
     "views/asset/position-analysis/index.vue": 0,
     "views/asset/position-analysis/scope.ts": 0,
-    "views/asset/precious/index.vue": 0,
-    "views/asset/realestate/index.vue": 0,
     "views/asset/recurring/components/PlanFormDialog.vue": 0,
     "views/asset/recurring/index.vue": 0,
     "views/asset/recurring/recurringModel.ts": 0,

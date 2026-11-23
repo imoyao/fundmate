@@ -54,17 +54,6 @@ test.describe("交互修复的运行时行为", () => {
     expect(failures).toEqual([]);
   });
 
-  test("#1839/#1798 贵金属页已接真实数据，页面上不再有硬编码假金额", async ({
-    page
-  }) => {
-    // 该页原为纯模板假数据（¥58,000 / 「Au99.99 · 100克」全部硬编码、按钮无事件），
-    // #1839 先降级为空态，#1798 再接入真实接口。此处断言的是**不变式**而非某个版本的文案：
-    // 无论它将来是空态还是真实数据页，页面上都不该出现那组写死的示例金额。
-    await page.goto("/#/precious");
-    await expect(page.getByText("¥58,000")).toHaveCount(0);
-    await expect(page.getByText("Au99.99 · 100克")).toHaveCount(0);
-  });
-
   test("#1834 导入模式卡是真实 button，纯键盘可聚焦", async ({ page }) => {
     await page.goto("/#/inventory/investment/import");
     const card = page.locator("button.mode-card").first();
