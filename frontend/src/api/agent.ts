@@ -106,7 +106,9 @@ export function agentCancel(sessionId: string) {
 /** 历史栏列表项：**不含 messages**，preview 为末条用户输入截断（60 字），行体积与会话长度无关 */
 export type AgentSessionItem = {
   session_id: string;
-  /** 会话标题（后端缺省值统一为默认目标，故前端以 preview 辨认会话） */
+  /** 会话标题 = 首条用户输入（创建时固化，不随压缩裁剪漂移）；存量行可能为空 */
+  title: string;
+  /** 分析目标（服务端缺省值统一为默认目标，故不再当标题用） */
   goal: string;
   preview: string;
   turn_count: number;
@@ -126,6 +128,7 @@ export type AgentSessionListResponse = {
 /** 单会话详情：messages 为原文轮次 [{user, assistant}]，供历史栏点击后回放 */
 export type AgentSessionDetail = {
   session_id: string;
+  title: string;
   goal: string;
   turn_count: number;
   created_at: string | null;
@@ -138,10 +141,12 @@ export type AgentSessionDetailResponse = {
   message: string;
 };
 
-/** 本人历史会话列表（按更新时间倒序；他人会话在服务端即不可见） */
+/** 本人历史会话列表（按更新时间倒序；他人会话在服务端即不可见）。
+ * q 为标题关键词（服务端只匹配 title，空串等于不过滤；转义与长度上限在服务端收口） */
 export function listAgentSessions(params?: {
   page?: number;
   per_page?: number;
+  q?: string;
 }) {
   return http.request<AgentSessionListResponse>("get", "/api/agent/sessions/", {
     params

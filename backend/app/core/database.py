@@ -68,6 +68,7 @@ from app.core.migrations import (
     migrate_watchlist_user_domain_columns,
     migrate_watchlist_venue_not_null,
 )
+from app.core.migrations_agent import migrate_agent_session_title
 
 # 保留历史符号：部分模块（如 sync/orchestrator 备份路径）仍引用，
 # 指向当前应用运行库的 URL，供文件库路径推断使用。
@@ -635,6 +636,8 @@ def init_db():
     # 存量 'current' 行否则仍是隐形行（钱在库里、页面读不到）。只改数据不改结构、幂等。
     migrate_asset_major_category_current_to_cash(user_eng)
     migrate_sales_institution_pinyin_full(user_eng)
+    # agent_session.title 会话标题列（#1719 历史栏检索）：同上须先于结构校验
+    migrate_agent_session_title(user_eng)
     # assets/positions 配置目标来源标记（#3031 / G1）：create_all 不替存量表加列，
     # 须先于下面 _validate_schema，否则「模型有列、库没列」直接拒绝启动。
     migrate_allocation_source_columns(user_eng)
@@ -795,6 +798,8 @@ def init_db_split():
         # assets.major_category 归一 current→cash（#2136）：只改数据、幂等，同上须先于结构校验
         migrate_asset_major_category_current_to_cash(user_eng)
         migrate_sales_institution_pinyin_full(user_eng)
+        # agent_session.title 会话标题列（#1719 历史栏检索）：同上须先于结构校验
+        migrate_agent_session_title(user_eng)
         # assets/positions 配置目标来源标记（#3031 / G1）：同上，须先于结构校验
         migrate_allocation_source_columns(user_eng)
         # watchlist.name 名称快照列（#1508）：同上，须先于结构校验

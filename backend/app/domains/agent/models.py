@@ -28,6 +28,12 @@ class AgentSession(Base, PrimaryKeyMixin, TimestampMixin):
     )
     user_id = Column(Integer, nullable=False, index=True, comment='归属用户（越权校验唯一依据）')
     goal = Column(String(100), nullable=False, default='分析账户收益', comment='分析目标（prompt 组装 + 历史栏标题）')
+    title = Column(
+        String(60),
+        nullable=False,
+        default='',
+        comment='会话标题（首条用户输入，创建时固化；不随压缩裁剪漂移——见 session_list 注释）',
+    )
     state = Column(
         JSON, nullable=False, default=dict, comment='追问工作内存 {missing_params, collected_params}（G3 白名单校验）'
     )
