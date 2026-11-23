@@ -12,11 +12,14 @@ import { injectSupabaseSession } from "./support/session";
  * 端点真实行为由 backend/tests/domains/test_agent_sessions.py 覆盖。
  */
 
-/** 列表信封：分页家规 {data,total,page,per_page}；preview 故意避开示例问题文案，避免定位歧义 */
+/** 列表信封：分页家规 {data,total,page,per_page}；preview 故意避开示例问题文案，避免定位歧义。
+ * title（2026-11-23 起）= 首条用户输入；与 preview 不同源的条目会渲染成「标题 + 结尾」两行，
+ * 相同则只渲染一行——两种形态都要有用例数据，否则模板里的 v-if 永远不会被检出。 */
 const listEnvelope = {
   data: [
     {
       session_id: "sess-hist-1",
+      title: "核对白酒持仓成本",
       goal: "分析账户收益",
       preview: "核对白酒持仓成本与浮亏",
       turn_count: 2,
@@ -25,6 +28,7 @@ const listEnvelope = {
     },
     {
       session_id: "sess-hist-2",
+      title: "9 月定投扣款是否到账",
       goal: "分析账户收益",
       preview: "9 月定投扣款是否到账",
       turn_count: 1,
@@ -42,6 +46,7 @@ const listEnvelope = {
 const detailEnvelope = {
   data: {
     session_id: "sess-hist-1",
+    title: "核对白酒持仓成本",
     goal: "分析账户收益",
     turn_count: 2,
     created_at: "2026-09-26T10:00:00+08:00",
@@ -159,5 +164,44 @@ test.describe("历史会话（常驻左栏 / 窄屏抽屉）", () => {
       page.getByText("持仓成本 15200.00 元，当前浮亏 8.4%。")
     ).toBeVisible();
     await expect(page.getByText("历史会话", { exact: true })).toHaveCount(0);
+  });
+
+  test("桌面：搜索框只把关键词作为 q 下发，清空即回全量", async ({
+    page,
+    context,
+    baseURL
+  }) => {
+    await injectSupabaseSession(context, baseURL!);
+
+    // 记下每次列表请求的 q（未带 = 空串），用来断言「防抖后只发一次」与「参数名是 q」
+    const queries: string[] = [];
+    await page.route(/\/api\/agent\/sessions\/?(?:\?.*)?$/, async route => {
+      const q = new URL(route.request().url()).searchParams.get("q") ?? "";
+      queries.push(q);
+      await route.fulfill({
+        json: q
+          ? { ...listEnvelope, data: listEnvelope.data.slice(0, 1), total: 1 }
+          : listEnvelope
+      });
+    });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/#/agent/chat");
+    await expect(page.getByText("2 条")).toBeVisible();
+
+    await page.getByLabel("搜索历史会话").fill("白酒");
+    await expect(page.getByText("1 条")).toBeVisible();
+    // 命中项留下、未命中项消失（过滤发生在服务端，前端不再自己筛）
+    await expect(page.getByText("核对白酒持仓成本与浮亏")).toBeVisible();
+    await expect(page.getByText("9 月定投扣款是否到账")).toHaveCount(0);
+    // 防抖生效：连打字不会一个字一发（fill 一次 = 一次输入事件，故只应出现一次带 q 的请求）
+    expect(queries.filter(Boolean)).toEqual(["白酒"]);
+
+    await page.getByLabel("搜索历史会话").fill("");
+    await expect(page.getByText("2 条")).toBeVisible();
+
+    await page.screenshot({
+      path: "test-results/agent-history-search.png"
+    });
   });
 });

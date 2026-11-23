@@ -18,11 +18,22 @@ from app.services.ai_recognizer import llm as llm_module
 _BASE = datetime(2026, 9, 26, 12, 0, 0, tzinfo=ZoneInfo('Asia/Shanghai'))
 
 
-def _seed(db, session_id, *, user_id=1, goal='分析账户收益', messages=None, turn_count=0, updated_at=None):
+def _seed(
+    db,
+    session_id,
+    *,
+    user_id=1,
+    goal='分析账户收益',
+    title='',
+    messages=None,
+    turn_count=0,
+    updated_at=None,
+):
     row = AgentSession(
         session_id=session_id,
         user_id=user_id,
         goal=goal,
+        title=title,
         messages=messages if messages is not None else [],
         turn_count=turn_count,
         state={},
@@ -42,6 +53,7 @@ def test_list_returns_own_sessions_only_with_expected_fields(client, db):
         db,
         'mine-1',
         goal='看温度',
+        title='现在市场温度是多少？',
         messages=[{'user': '现在市场温度是多少？', 'assistant': '综合温度 29.6'}],
         turn_count=2,
     )
@@ -57,7 +69,9 @@ def test_list_returns_own_sessions_only_with_expected_fields(client, db):
 
     item = next(it for it in payload['data'] if it['session_id'] == 'mine-1')
     # 列表项字段 = 渲染历史栏所需最小集，且绝不能整列回传 messages
-    assert set(item) == {'session_id', 'goal', 'preview', 'turn_count', 'created_at', 'updated_at'}
+    # title 为 2026-11-23 起的检索键（首条用户输入固化），见 session_list 模块注释
+    assert set(item) == {'session_id', 'title', 'goal', 'preview', 'turn_count', 'created_at', 'updated_at'}
+    assert item['title'] == '现在市场温度是多少？'
     assert item['goal'] == '看温度'
     assert item['preview'] == '现在市场温度是多少？'
     assert item['turn_count'] == 2
@@ -111,6 +125,56 @@ def test_list_preview_skips_empty_turns(client, db):
     assert payload['data'][0]['preview'] == '有内容的问题'
 
 
+# ── 检索（q，2026-11-23 历史栏可检索） ──
+def test_search_matches_title(client, db):
+    """中文关键词命中标题；total 同步收敛——过滤发生在分页之前，不是「先取一页再筛」."""
+    _seed(db, 'temp', title='现在市场温度是多少？', updated_at=_BASE + timedelta(minutes=1))
+    _seed(db, 'tax', title='红利税怎么算？', updated_at=_BASE)
+
+    payload = client.get('/api/agent/sessions/?q=温度').get_json()
+    assert [it['session_id'] for it in payload['data']] == ['temp']
+    assert payload['total'] == 1
+
+
+def test_search_does_not_match_message_body(client, db):
+    """v1 口径：只搜标题。正文在 JSON 列里是 \\uXXXX 转义形态，LIKE '%中文%' 永不命中——
+    与其实现一个永远 0 命中的「正文搜索」，不如明确只搜标题（见 session_list 注释）."""
+    _seed(
+        db,
+        'body-only',
+        title='红利税怎么算？',
+        messages=[{'user': '问的是红利税', 'assistant': '温度不在标题里'}],
+    )
+
+    payload = client.get('/api/agent/sessions/?q=温度').get_json()
+    assert payload['data'] == []
+    assert payload['total'] == 0
+
+
+def test_search_escapes_like_wildcards(client, db):
+    """`q='%'` 不能把整张表捞出来：未转义时 LIKE '%%%' 命中全部."""
+    _seed(db, 'a', title='总资产')
+    _seed(db, 'b', title='总负债')
+
+    assert client.get('/api/agent/sessions/?q=%25').get_json()['total'] == 0  # %25 = '%'
+    assert client.get('/api/agent/sessions/?q=_').get_json()['total'] == 0
+
+
+def test_search_never_crosses_users(client, db):
+    _seed(db, 'mine', title='市场温度')
+    _seed(db, 'others', user_id=999, title='市场温度')
+
+    payload = client.get('/api/agent/sessions/?q=市场温度').get_json()
+    assert [it['session_id'] for it in payload['data']] == ['mine']
+
+
+def test_search_blank_keyword_is_no_filter(client, db):
+    _seed(db, 'x', title='甲')
+    _seed(db, 'y', title='乙')
+
+    assert client.get('/api/agent/sessions/?q=%20%20').get_json()['total'] == 2  # 两个空格
+
+
 # ── 详情 ──
 def test_detail_returns_messages(client, db):
     msgs = [{'user': '温度多少', 'assistant': '29.6'}, {'user': '贪恐呢', 'assistant': '21'}]
@@ -154,3 +218,21 @@ def test_chat_then_list_shows_new_session(client, monkeypatch):
     payload = client.get('/api/agent/sessions/').get_json()
     item = next(it for it in payload['data'] if it['session_id'] == created['session_id'])
     assert item['preview'] == '现在市场温度是多少？'
+    # 标题在**新建时**固化 = 首条用户输入，历史栏据此可辨认、可搜索
+    assert item['title'] == '现在市场温度是多少？'
+
+
+def test_chat_second_turn_does_not_rewrite_title(client, monkeypatch):
+    """续聊不得改标题：标题是「首条输入」，用当前轮覆盖等于每轮换一个标题."""
+
+    def fake(content, system_prompt, **kwargs):
+        return '{"action":"ask_clarification","missing_params":[],"content":"好的"}'
+
+    monkeypatch.setattr(llm_module, 'call_llm', fake)
+    first = client.post('/api/agent/chat/', json={'message': '第一句'}).get_json()['data']
+    client.post('/api/agent/chat/', json={'message': '第二句', 'session_id': first['session_id']})
+
+    items = client.get('/api/agent/sessions/').get_json()['data']
+    item = next(it for it in items if it['session_id'] == first['session_id'])
+    assert item['title'] == '第一句'
+    assert item['preview'] == '第二句'  # 预览跟末条走，标题不跟

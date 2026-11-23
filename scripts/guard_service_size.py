@@ -187,6 +187,16 @@ NEW_FILE_LIMITS = {
 # 半空 dict 统一走 `merge_key_facts` 的「缺键保留、空值忽略、非空覆盖」），行数仍 726
 # （新增的 import 与每轮维护各 1 行，被同文件内的两处收敛抵消）。语义逻辑下沉到新文件
 # `ai_recognizer/key_facts.py`（走 NEW_FILE_LIMITS），未放大任何既有函数职责。
+# 2026-11-23 历史栏可检索（#1719 后续）按 `--report` 一收一放，两边理由都留痕：
+# - **收紧** `ai_recognizer/session_store.py` 125→89 / max_func 23→21 / max_cc 6→3：
+#   「列表 / 搜索 / 标题派生」属读路径，整体下沉到新文件 `ai_recognizer/session_list.py`
+#   （124/20/6），store 只留写入与归属校验并 re-export。
+# - **放宽** `core/database.py` 897→902 / max_func 156→158：`agent_session.title` 是新列，
+#   而 `create_all` 不替存量表加列、`_validate_schema` 会在缺列时拒绝启动，
+#   故 `init_db` 与 `init_db_split` **两处** user 域都得登记迁移（+2 行调用 +1 行 import
+#   +2 行注释），`init_db` 因此长 2 行。迁移本体不在 `core/migrations.py`（已 3014 行、
+#   同受本闸门约束），而在新文件 `core/migrations_agent.py`（89/26/9，同样进基线）。
+#   这是真实代码增长，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -236,7 +246,8 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/ai_recognizer/safety/output_filter.py": {'lines': 217, 'max_func': 42, 'max_cc': 14},
     "backend/app/services/ai_recognizer/safety/repeat_tracker.py": {'lines': 114, 'max_func': 18, 'max_cc': 7},
     "backend/app/services/ai_recognizer/schemas.py": {'lines': 104, 'max_func': 0, 'max_cc': 0},
-    "backend/app/services/ai_recognizer/session_store.py": {'lines': 125, 'max_func': 23, 'max_cc': 6},
+    "backend/app/services/ai_recognizer/session_list.py": {'lines': 124, 'max_func': 20, 'max_cc': 6},
+    "backend/app/services/ai_recognizer/session_store.py": {'lines': 89, 'max_func': 21, 'max_cc': 3},
     "backend/app/services/ai_recognizer/tool_budget.py": {'lines': 157, 'max_func': 14, 'max_cc': 5},
     # 2026-11-11 Q3 再平衡参考工具（#3049/#3050）按 --report 实测回写一项：
     # tools.py 619→644（import / TOOLS_METADATA 一项 / register 一行，共 25 行必要接线）。
@@ -574,7 +585,8 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/core/config.py": {'lines': 20, 'max_func': 0, 'max_cc': 0},
     "backend/app/core/constants.py": {'lines': 331, 'max_func': 0, 'max_cc': 0},
     "backend/app/core/data_sources.py": {'lines': 73, 'max_func': 10, 'max_cc': 3},
-    "backend/app/core/database.py": {'lines': 897, 'max_func': 156, 'max_cc': 14},
+    "backend/app/core/database.py": {'lines': 902, 'max_func': 158, 'max_cc': 14},
+    "backend/app/core/migrations_agent.py": {'lines': 89, 'max_func': 26, 'max_cc': 9},
     "backend/app/core/db_factory.py": {'lines': 1076, 'max_func': 63, 'max_cc': 15},
     "backend/app/core/db_utils.py": {'lines': 169, 'max_func': 53, 'max_cc': 8},
     "backend/app/core/decorators.py": {'lines': 39, 'max_func': 29, 'max_cc': 2},

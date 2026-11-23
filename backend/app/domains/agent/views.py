@@ -57,6 +57,8 @@ def agent_chat():
             session_id=payload.session_id,
             user_id=user_id,
             goal=payload.goal,
+            # 首条输入即历史栏标题（只在新建会话时生效，见 session_store 注释）
+            first_message=payload.message,
         )
         out = run_agent(
             user_input=payload.message,
@@ -93,14 +95,18 @@ def agent_sessions():
 
     读路径纪律：按 user_id 索引过滤 + 分页，请求路径禁止无条件全表扫描；
     列表项不含 messages（只给 preview），行体积与会话长度无关。
+
+    检索（2026-11-23）：可选 ``q``，只匹配会话标题 title。空 / 纯空白视为不过滤；
+    长度与通配符转义都在 ``ai_recognizer/session_list.py`` 收口（口径与边界见其模块注释）。
     """
     user_id = _current_user_id()
     page = request.args.get('page', 1, type=int) or 1
     per_page = request.args.get('per_page', 20, type=int) or 20
     page = max(page, 1)
     per_page = max(1, min(per_page, 100))
+    keyword = request.args.get('q', '')
     with database.user_session() as db:
-        items, total = session_store.list_sessions(db, user_id=user_id, page=page, per_page=per_page)
+        items, total = session_store.list_sessions(db, user_id=user_id, keyword=keyword, page=page, per_page=per_page)
     return jsonify({'data': items, 'total': total, 'page': page, 'per_page': per_page, 'message': 'ok'})
 
 
