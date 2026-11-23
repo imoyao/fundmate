@@ -203,7 +203,12 @@ NEW_FILE_LIMITS = {
 # 与 `init_db_split` **两处** user 域都得登记同一迁移（+1 import、+2×(2 行注释 + 1 行调用)），
 # `init_db` 单函数因此长 3 行。迁移本体不在 `core/migrations.py`（3014 行、同受本闸门约束），
 # 而在新文件 `core/migrations_ledgers.py`（55/11/4，走 NEW_FILE_LIMITS 并登记基线）。
-# 这是真实代码增长，不是放宽阈值。
+# 2026-11-23 账户可见性接入（#3246 第二段）按 `--report` 放宽一项，理由留痕：
+# `services/ledger_write_service.py` 586→598。`create_ledger` 新增 `visibility` /
+# `owner_user_id` 两个入参（签名折三行 + 解包进 Ledger 构造），docstring 写明「scope 由
+# 调用方解析、本函数不重复解析」——规则只留一份（domains/ledgers/visibility.py），
+# 避免两处各写一遍必然漂移。`max_func` 152 / `max_cc` 48 均未变（`create_ledger` 仍 105 行，
+# 最大值仍是 `update_ledger`）。这是真实接口增长，不是放宽阈值。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -391,7 +396,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 一致性守卫」抽到 services/ledger_category_guard.py（新文件走 NEW_FILE_LIMITS），
     # update_ledger 由 4 行分支收成 1 行调用 ⇒ 664→663 / 154→152 / 49→48。
     # 按 `--report` 实测回写，三个维度都只减不增。
-    "backend/app/services/ledger_write_service.py": {'lines': 586, 'max_func': 152, 'max_cc': 48},
+    "backend/app/services/ledger_write_service.py": {'lines': 598, 'max_func': 152, 'max_cc': 48},
     "backend/app/services/login_identifier.py": {'lines': 62, 'max_func': 38, 'max_cc': 10},
     "backend/app/services/manager_code.py": {'lines': 68, 'max_func': 15, 'max_cc': 3},
     "backend/app/services/manager_holdings.py": {'lines': 362, 'max_func': 98, 'max_cc': 30},

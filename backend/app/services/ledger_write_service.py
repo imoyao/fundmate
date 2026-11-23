@@ -31,6 +31,7 @@ from app.domains.ledgers.constants import (
     map_org_type_to_channel_category,
 )
 from app.domains.ledgers.models import Ledger
+from app.domains.ledgers.visibility import VISIBILITY_PRIVATE
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services import ledger_category_guard as guard
@@ -149,8 +150,17 @@ def sync_account_name_snapshots(db, ledger_id: int, account_name: str, family_id
     }
 
 
-def create_ledger(db, family_id: int, data: dict) -> Ledger:
+def create_ledger(
+    db,
+    family_id: int,
+    data: dict,
+    visibility: str = VISIBILITY_PRIVATE,
+    owner_user_id: int | None = None,
+) -> Ledger:
     """创建新账户的业务规则（与下沉前视图层行为逐字一致）。
+
+    ``visibility`` / ``owner_user_id`` 由调用方解析后传入，本函数不重复解析（规则只有一份）。
+    非 HTTP 调用（脚本/测试）要显式给 scope，否则 private + 无 owner ⇒ 对所有人不可见。
 
     ``data`` 为已 json 解析的请求体字典。返回新建的 Ledger 实例（已 flush/refresh）。
     校验失败抛 :class:`LedgerWriteError`（视图转信封）。
@@ -235,6 +245,8 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         sales_institution_id=sales_institution_id,
         owner_member_id=owner_member_id,
         family_id=family_id,
+        visibility=visibility,
+        owner_user_id=owner_user_id,
     )
 
     # 处理 fee_config JSON 字段
