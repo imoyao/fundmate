@@ -14,17 +14,24 @@
 
 设计边界（刻意的取舍，不是待办）：
 
-- 规则只抽「可枚举、可判定」的硬槽（标的代码 / 时间范围）。账户名要查库核对
-  归属，规则不碰，留给压缩轮的模型；规则宁缺勿错——错的焦点比空的焦点更坏。
+- 规则只抽「可枚举、可判定」的硬槽（标的代码 / 时间范围）。规则宁缺勿错——
+  错的焦点比空的焦点更坏。
+- **账户不进卡**（D124）：卡是「模型可写 + 每轮回灌 + 优先遵守」的持久状态，
+  放标识符等于开一条持久化注入通道；而当前 10 个工具**没有一个接受账户参数**，
+  这个槽零执行收益。账户信息由工具输出瞬时承担（`get_return_attribution` 的
+  `dimension=account` 已返回 `ledger_id + account_name`，且名称解析带 family 过滤）。
+  将来若真要「按账户聚焦」，只能存**服务端在 family 作用域内解析后注入**的
+  `account_id`，模型写入的该键一律丢弃，渲染时再由服务端 id→name。
 - 规则不产出「清除」：卡只增不减，过期靠被新值覆盖 + 会话结束淘汰。显式清除
   要求模型稳定区分「未知」与「清空」，当前做不到，故不做（宁可留旧不误删）。
-- 卡只进 prompt 的聚焦段，不参与执行；参数预填由 `state.collected_params` 负责。
+- 卡只进 prompt 的聚焦段，永不作为工具参数；参数预填只走
+  `state.collected_params` + 工具 schema 校验 + `apply_server_context` 覆盖。
 """
 
 import re
 
 # 白名单：与压缩 prompt 的约定、模型注释、前端预期三处保持一致
-KEY_FACT_KEYS = ('标的', '账户', '时间范围')
+KEY_FACT_KEYS = ('标的', '时间范围')
 FACT_VALUE_CAP = 120
 
 # 标的代码：6 位数字，可带交易所前缀（venue 真相源见 core/venues.py）
@@ -110,7 +117,7 @@ def _extract_period(text: str) -> str:
 
 
 def extract_key_facts(text) -> dict:
-    """从单条用户输入抽硬槽（标的 / 时间范围）；账户名需查库，故不抽。"""
+    """从单条用户输入抽硬槽（标的 / 时间范围）；账户不入卡，见模块 docstring。"""
     if not isinstance(text, str) or not text.strip():
         return {}
     found = {'标的': _extract_symbol(text), '时间范围': _extract_period(text)}

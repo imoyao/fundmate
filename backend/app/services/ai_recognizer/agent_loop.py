@@ -164,7 +164,7 @@ def _summarize(old_turns: list, goal: Optional[str]) -> tuple:
         f'需要压缩的更早对话轮次：{payload}\n'
         '只输出单个 JSON 对象（不要解释文字、不要 markdown 围栏）：'
         '{"digest": "不超过 200 字的摘要，保留标的 / 账户 / 时间范围 / 关键结论", '
-        '"key_facts": {"标的": "", "账户": "", "时间范围": ""}}'
+        '"key_facts": {"标的": "", "时间范围": ""}}'
     )
     raw = llm.call_llm(
         content=[{'type': 'text', 'text': prompt}],
