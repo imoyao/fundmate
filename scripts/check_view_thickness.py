@@ -381,8 +381,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # 「视图只做 HTTP 编排」）。同批修复场外品种误入区间校验的缺陷：此前不判场所，
     # 场外基金裸码会被归一成场内代码去抓日线，且与深市股票同码时（000001 华夏成长 vs
     # 平安银行）会拿股票区间拦截基金申购。orm_queries / commits / max_func 三项不动。
+    # 2026-11-23 账户可见性读路径（#3246 第三段）：281 → 298。**不是新增业务规则**，
+    # 而是给列表端点传 `visible_ledger_id_set(db)`（9 参 facade 被 ruff 拆成一行一参 = +8）
+    # 并给两个单行端点补 `assert_ledger_visible`（+2）。判定与过滤全在
+    # `domains/ledgers/visibility` 与 `services/position_display`，视图仍是纯编排；
+    # orm_queries / commits / max_func 三维实测不动（1 / 0 / 57）。
     "backend/app/domains/positions/views.py": {
-        "lines": 281,
+        "lines": 298,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 57,
@@ -595,8 +600,12 @@ BASELINE: dict[str, dict[str, int]] = {
     # ⚠️ 这已是同一文件两次因「再加一个只读端点」而回写基线。**下次再加端点前先拆模块**
     # （如 `transactions/read_views.py`），别再让 100 变成 110——基线只减不增的前提是
     # 「厚度来自业务规则」，而连续加薄端点会让它变成「视图像个收纳箱」。
+    # 2026-11-23 账户可见性读路径（#3246 第三段）：100 → 105。同样**不是加端点**（上条告诫
+    # 的正是「别再加薄端点」）：4 个既有端点在原调用里补 `visible_ledger_id_set(db)` 实参，
+    # 过滤在 `transaction_service` 的 `_filtered_transaction_query` 单点收口，视图只多一行
+    # import。orm_queries / commits / max_func 三维实测不动（1 / 0 / 25）。
     "backend/app/domains/transactions/views.py": {
-        "lines": 100,
+        "lines": 105,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 25,

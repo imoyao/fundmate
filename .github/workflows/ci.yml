@@ -67,6 +67,10 @@ jobs:
               # 否则「只改脚本 / 只改 workflow」的 PR 会让那份回归网静默不跑。
               - 'scripts/bridge/**'
               - 'scripts/guard_no_duplicate_pie.py'
+              # 账户可见性判定单点守卫（#3246 第三段）跑在 backend job 里，脚本与回归网
+              # 都在 scripts/ 下：不登记则「只改守卫」的 PR 不会唤起 backend job，守卫静默不跑。
+              - 'scripts/guard_ledger_visibility.py'
+              - 'scripts/tests/test_guard_ledger_visibility.py'
               - '.github/workflows/cnb-github-backfill.yml'
               - '.github/workflows/ci.yml'
             frontend:
@@ -213,6 +217,14 @@ jobs:
       # 少动一次少一次「合并冲突把 needs 弄丢」的风险。
       - name: 守卫:分层依赖方向
         run: python ../scripts/guard_layer_direction.py
+
+      # 守卫：账户可见性判定单点（#3246 第三段）。视图层不许读账户的 visibility 列、
+      # 不许拿它跟取值字面量比较——散落的判定就是未来的越权入口，且它不报错不崩，
+      # 只让某人的账户出现在别人屏幕上。用 AST 而非行正则：docstring 里举例说明
+      # 判定入口（positions/views.py 的列表端点注释即如此）不该误报。
+      # 回归网：scripts/tests/test_guard_ledger_visibility.py
+      - name: 守卫:账户可见性判定单点
+        run: python ../scripts/guard_ledger_visibility.py
 
       # 守卫：视图层厚度（#1606：视图只做 HTTP 编排，业务规则与事务下沉 services）。
       # 同样并入本 job 而不新增 job——不新增 job 就不必改 gate.needs。
@@ -953,6 +965,15 @@ jobs:
       - name: 净资产单一出口守卫回归网
         if: ${{ always() }}
         run: python -m unittest scripts.tests.test_guard_net_assets_source -v
+        working-directory: ${{ github.workspace }}
+
+      # 账户可见性判定单点守卫回归网（#3246 第三段）：10 条 unittest，含合成命中
+      # （读列 / 比较 / 取值字面量）/ 放行（resolve_ledger_scope、docstring 举例、
+      # 单点入口）/ 真实文件回退探针 / 失败态 exit 2。本 job 无条件跑，
+      # 是守卫本体的第二道执行点——只改守卫脚本的 PR 即使 backend job 被路径过滤跳过，这里也拦。
+      - name: 账户可见性判定单点守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_guard_ledger_visibility -v
         working-directory: ${{ github.workspace }}
 
       # 跨仓引用守卫（源 CNB 卡）：CNB 的正文/评论里裸 `#N` 会被解析成**本仓**编号，

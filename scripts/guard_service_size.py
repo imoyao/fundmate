@@ -209,6 +209,18 @@ NEW_FILE_LIMITS = {
 # 调用方解析、本函数不重复解析」——规则只留一份（domains/ledgers/visibility.py），
 # 避免两处各写一遍必然漂移。`max_func` 152 / `max_cc` 48 均未变（`create_ledger` 仍 105 行，
 # 最大值仍是 `update_ledger`）。这是真实接口增长，不是放宽阈值。
+# 2026-11-23 账户可见性读路径（#3246 第三段）按 `--report` 放宽一项，理由留痕：
+# `services/position_service.py` 638→639。`PositionService.build_position_list` 这个
+# **facade 转发壳**新增 `visible_ids` 入参（签名 +1 行），实现全在
+# `position_display.build_position_list_impl` 与 `domains/ledgers/visibility.restrict_visible`
+# 里；`max_func` 61 / `max_cc` 13 未变。`position_display.py` 仍 248（删掉与
+# `position_scope.active_holdings` 重复的 shadow 考据段，抵掉新增参数与调用），
+# 属等量交换，未放宽阈值。
+# `services/transaction_service.py` 501→509：`_filtered_transaction_query` 多一个
+# `visible_ids` 入参并挂一次 `restrict_visible`（列表与汇总共用出口，改一处两边同时生效），
+# `build_transaction_detail` 改成先建 query 再 restrict（+1 行）、`build_transactions_csv`
+# 同样（+2 行），4 个函数签名各加一参同处不增行。`max_func` 69 / `max_cc` 10 未变——
+# 新增的是参数传递，不是分支或职责。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -465,14 +477,14 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/portfolio_service.py": {'lines': 520, 'max_func': 118, 'max_cc': 19},
     "backend/app/services/position_aggregation.py": {'lines': 624, 'max_func': 163, 'max_cc': 47},
     "backend/app/services/position_buy_command.py": {'lines': 684, 'max_func': 79, 'max_cc': 11},
-    "backend/app/services/position_display.py": {'lines': 248, 'max_func': 129, 'max_cc': 18},
+    "backend/app/services/position_display.py": {'lines': 247, 'max_func': 127, 'max_cc': 18},
     "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 59, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
     "backend/app/services/position_orphan_flows.py": {'lines': 425, 'max_func': 81, 'max_cc': 14},
     "backend/app/services/position_sell_command.py": {'lines': 362, 'max_func': 96, 'max_cc': 17},
     "backend/app/services/position_bond_command.py": {'lines': 269, 'max_func': 69, 'max_cc': 16},
     "backend/app/services/position_recompute.py": {'lines': 200, 'max_func': 44, 'max_cc': 9},
-    "backend/app/services/position_service.py": {'lines': 638, 'max_func': 61, 'max_cc': 13},
+    "backend/app/services/position_service.py": {'lines': 639, 'max_func': 61, 'max_cc': 13},
     "backend/app/services/position_snapshot_command.py": {'lines': 322, 'max_func': 63, 'max_cc': 14},
     "backend/app/services/position_write_support.py": {'lines': 365, 'max_func': 67, 'max_cc': 13},
     "backend/app/services/position_structure.py": {'lines': 259, 'max_func': 152, 'max_cc': 23},
@@ -574,7 +586,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/today_pnl.py": {'lines': 553, 'max_func': 182, 'max_cc': 37},
     "backend/app/services/trade_timeline.py": {'lines': 497, 'max_func': 235, 'max_cc': 35},
     "backend/app/services/trading.py": {'lines': 140, 'max_func': 28, 'max_cc': 10},
-    "backend/app/services/transaction_service.py": {'lines': 501, 'max_func': 69, 'max_cc': 10},
+    "backend/app/services/transaction_service.py": {'lines': 509, 'max_func': 69, 'max_cc': 10},
     "backend/app/services/txn_name_resolver.py": {'lines': 258, 'max_func': 64, 'max_cc': 31},
     "backend/app/services/user_profile.py": {'lines': 88, 'max_func': 49, 'max_cc': 9},
     "backend/app/services/watchlist_display.py": {'lines': 1772, 'max_func': 239, 'max_cc': 68},
