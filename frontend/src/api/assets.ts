@@ -42,6 +42,8 @@ export interface AssetListParams {
   minor_category?: string;
   /** 排除的大类，逗号分隔多值 */
   exclude?: string;
+  /** 账户维度过滤（#3222）：仅返回关联该账户的资产行 */
+  ledger_id?: number;
 }
 
 /** 资产分页响应（对齐后端信封 { data, total, page, per_page, message }） */

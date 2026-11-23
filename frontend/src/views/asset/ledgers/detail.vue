@@ -248,6 +248,7 @@ const {
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "账本概览",
+  "nav-asset-list": "资产明细",
   "nav-cash-like": "类现金",
   "nav-calendar": "收益日历",
   "nav-attribution": "收益归因",

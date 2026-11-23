@@ -25,6 +25,8 @@ export interface LedgerSummaryData {
   total_market_value?: number;
   position_pnl?: number;
   position_count?: number;
+  /** 实物资产数量（property 账户专用，后端 get_property_stats 下发）。 */
+  asset_count?: number;
   cash_balance?: number | null;
   /** 类现金合计（#1137）：货基 + 逆回购 + 账户现金，口径同 XIRR EXCLUDED_ASSET_TYPES */
   cash_like_amount?: number;

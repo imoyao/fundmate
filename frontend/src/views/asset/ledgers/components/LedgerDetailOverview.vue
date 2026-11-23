@@ -97,8 +97,14 @@
           data-region="overview-metrics"
         >
           <!-- 持仓盈亏固定第一格（最该被先看到）；累计盈亏 / 当日收益各自带
-               口径与「无此字段就不渲染」的逻辑，仍是独立组件。 -->
-          <div class="flex flex-col" data-metric="position-pnl">
+               口径与「无此字段就不渲染」的逻辑，仍是独立组件。
+               #3222：三者都是净值型指标，实物资产（property）账户没有盈亏口径，
+               整组不渲染（isInvestment）。 -->
+          <div
+            v-if="isInvestment"
+            class="flex flex-col"
+            data-metric="position-pnl"
+          >
             <span
               class="text-xs mb-1"
               :style="{ color: 'var(--text-tertiary-ink)' }"
@@ -106,8 +112,11 @@
             >
             <MoneyDisplay :value="p.summaryData?.position_pnl || 0" size="md" />
           </div>
-          <LedgerCumulativePnlMetric :value="p.summaryData?.total_pnl" />
-          <LedgerTodayPnlMetric :data="p.todayPnlData" />
+          <LedgerCumulativePnlMetric
+            v-if="isInvestment"
+            :value="p.summaryData?.total_pnl"
+          />
+          <LedgerTodayPnlMetric v-if="isInvestment" :data="p.todayPnlData" />
 
           <div
             v-for="m in metrics"
@@ -167,28 +176,41 @@
        它必须**独立成块、并列展示**，不能并进上面的环形图：环形图两片是
        「持仓市值的划分」（合计 = 总资产），账外类现金不建持仓、不在其中
        （并进去会重演 #1606 的「投资资产 -63.2%」负数 bug，口径解耦见 D59）。
+       #3222：区块可见性收口到 ledgerDetailSections——property（实物资产）没有
+       「类现金」概念，整块不渲染（showCashLike）。
        #2739：anchor-id 让本块在有内容时挂上页内导航锚点（整块不渲染时
        锚点随之消失，导航项不留死链）。 -->
   <LedgerCashLikeCard
+    v-if="showCashLike"
     anchor-id="nav-cash-like"
     :summary="p.summaryData"
     :ledger-id="p.ledgerIdNum"
     @saved="p.loadSummary"
   />
 
+  <!-- #3222：实物资产明细（property 专属）。实物不进 positions、只进 assets，
+       详情页必须有地方看到「这套房产值多少钱、有几套」。 -->
+  <LedgerAssetList
+    v-if="showAssetList"
+    anchor-id="nav-asset-list"
+    :ledger-id="p.ledgerIdNum"
+  />
+
   <!-- #1812：收益日历已落地（账户级，传 ledgerId 走该账户的 as-of 派生序列）。
        与 welcome 第三排 / panorama「资产大类 ⇄ 收益日历」原地切换是**同一组件的三处容器**，
        口径唯一；#1925 起三处都带日 / 月 / 年粒度切换。
+       #3222：净值型投资账户专属，property / bank 整块不渲染。
        #2739：id 经 fallthrough 落在面板根（单根元素）＝ 锚点即标题行顶边。 -->
-  <div class="mb-6">
+  <div v-if="showPnlSections" class="mb-6">
     <PnlCalendar id="nav-calendar" :ledger-id="p.ledgerIdNum" />
   </div>
 
   <!-- #2135：收益归因（区间逐品种 / 大类贡献）——复用 pnl 引擎唯一盈亏口径，
        Σ品种 ≡ 同窗收益日历月合计由后端构造保证，前端只展示。
+       #3222：净值型投资账户专属。
        #2739：PnlAttribution 是多根组件（吃不到父级 fallthrough），故由调用方
        包一层 div 承接锚点（与组合详情页同一手法）。 -->
-  <div id="nav-attribution">
+  <div v-if="showPnlSections" id="nav-attribution">
     <PnlAttribution :ledger-id="p.ledgerIdNum" />
   </div>
 
@@ -203,7 +225,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, toRef } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
@@ -216,9 +238,11 @@ import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
 import LedgerTodayPnlMetric from "./LedgerTodayPnlMetric.vue";
 import LedgerCumulativePnlMetric from "./LedgerCumulativePnlMetric.vue";
 import LedgerDepthAnalysis from "./LedgerDepthAnalysis.vue";
-import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
-import { excessDateRange, excessDegradHint } from "@/utils/benchmarkExcess";
+import LedgerAssetList from "./LedgerAssetList.vue";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
+import { useLedgerSections } from "../composables/useLedgerSections";
+import { useBenchmarkExcess } from "../composables/useBenchmarkExcess";
+import { isSectionVisible } from "@/composables/ledger/ledgerDetailSections";
 import {
   buildOverviewMetrics,
   type MetricCell
@@ -231,30 +255,35 @@ defineOptions({ name: "LedgerDetailOverview" });
 const props = defineProps<{ page: ReturnType<typeof useLedgerDetailPage> }>();
 const p = reactive(props.page);
 
-/**
- * 是否展示账户深度分析（持仓结构 / 持仓穿透）。
- *
- * 判据只有一条：**拿到有限数字的账户 id**（`ledgerIdNum`）。两个面板在
- * `ledgerId` 缺失时会退化成「全家庭」档，那会让本页显示别的账户的数据，
- * 而面板口径标签还写着「账户」。故 id 不可解析时整块不展示，与同页资金流动
- * 区块同一处置（`v-if="ledgerIdNum"`）。
- */
-const showDepthAnalysis = computed(() => p.ledgerIdNum != null);
+// 区块可见性（#3222）：从 ledgerDetailSections 清单派生，见 useLedgerSections。
+// `p` 是 reactive 代理，`p.summaryData` / `p.ledgerIdNum` 已被解包成值，
+// 用 toRef 取回 Ref 再传（composable 需要响应式源，不是一次性快照）。
+const { isInvestment, showAssetList, showCashLike, showPnlSections } =
+  useLedgerSections(toRef(p, "summaryData"));
+
+// 深度分析（#2739）：口径必须本账户——`ledgerIdNum` 解不出来时整块不渲染，
+// 否则面板退化成「全家庭」档却写着「账户」口径。这条前提是页面特有，故留在
+// 本组件（守卫 ledgerDepthAnalysisGuard 钉住它不许下沉/丢失）。
+const showDepthAnalysis = computed(
+  () =>
+    p.ledgerIdNum != null &&
+    isSectionVisible("depthAnalysis", p.summaryData?.ledger_type)
+);
 
 // ---------- 概览指标格（2026-11-15 数据驱动）----------
 /** 组装逻辑在 `../composables/overviewMetrics.ts`（页面规模门禁 400 行）。 */
 /**
  * 指标格实际渲染的格数（用于决定列数）。
  *
- * 三个来源各自可能不渲染：持仓盈亏恒有、累计/当日看字段、`metrics` 已经在
- * 组装时过滤过空值。格数是 3~7 之间浮动的，写死列数就会出现
+ * 三个来源各自可能不渲染：持仓盈亏 / 累计 / 当日只在投资账户（isInvestment）
+ * 时出现、`metrics` 已经在组装时过滤过空值。格数浮动，写死列数就会出现
  * 「一行 4 格 + 第二行孤零零 1 格」（2026-11-15 截图实测：5 格 / 4 列）。
  */
 const metricCellCount = computed(
   () =>
-    1 +
-    (p.summaryData?.total_pnl != null ? 1 : 0) +
-    (p.todayPnlData?.total_pnl != null ? 1 : 0) +
+    (isInvestment.value ? 1 : 0) +
+    (isInvestment.value && p.summaryData?.total_pnl != null ? 1 : 0) +
+    (isInvestment.value && p.todayPnlData?.total_pnl != null ? 1 : 0) +
     metrics.value.length
 );
 
@@ -293,37 +322,10 @@ const showComposition = computed(
 );
 
 // ---------- #2134：近 90 天区间收益 vs 基准（缺数据诚实降级 null → 模板「--」）----------
-const excess = ref<BenchmarkExcessResult | null>(null);
-const rangeRate = computed(() => excess.value?.range_rate ?? null);
-const benchReturn = computed(
-  () => excess.value?.benchmark?.range_return ?? null
-);
-const excessReturn = computed(() => excess.value?.excess_return ?? null);
-const excessHint = computed(() => excessDegradHint(excess.value));
-
-async function fetchExcess() {
-  const ledgerId = p.ledgerIdNum;
-  if (!ledgerId) {
-    excess.value = null;
-    return;
-  }
-  try {
-    const res = await getBenchmarkExcess({
-      ...excessDateRange(),
-      ledger_id: ledgerId
-    });
-    excess.value = res.data;
-  } catch {
-    // 拿不到就整组降级「--」：概览区不因超额计算失败而打断
-    excess.value = null;
-  }
-}
-
-// ledgerId 随路由注入，切换账户时重取（与页内 PnlCalendar 同一数据源）
-watch(
-  () => p.ledgerId,
-  () => void fetchExcess(),
-  { immediate: true }
+// 取数 + 派生下沉到 useBenchmarkExcess（页面规模门禁），页面只消费四个降级字段。
+const { rangeRate, benchReturn, excessReturn, excessHint } = useBenchmarkExcess(
+  toRef(p, "ledgerIdNum"),
+  toRef(p, "ledgerId")
 );
 </script>
 

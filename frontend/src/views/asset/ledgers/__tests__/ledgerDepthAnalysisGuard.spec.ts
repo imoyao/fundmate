@@ -35,7 +35,8 @@ const PAGE_FILES = [
   "../detail.vue",
   "../components/LedgerDetailOverview.vue",
   "../components/LedgerDepthAnalysis.vue",
-  "../components/LedgerCashLikeCard.vue"
+  "../components/LedgerCashLikeCard.vue",
+  "../components/LedgerAssetList.vue"
 ];
 
 /** 区块标题所在处（含共享面板）——标签必须与这里的 SectionHeader 标题逐字一致。 */
