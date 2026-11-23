@@ -190,3 +190,27 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         comment='归属家庭成员 ID（family_members.id，可空=未归属/家庭共有）。'
         '无外键约束：SQLite 存量表无法 ALTER 加 FK，由应用层校验同家庭归属',
     )
+
+    # ── 可见性（#3246 / D125）──
+    # 第三个轴：`users.role` 管「能做什么」、`owner_member_id` 管「这笔钱是谁的」、
+    # 本字段管「谁能看见」——三者正交，**不得互相推导**。
+    # 不能复用 owner_member_id：它 NULL 的既定语义是「未归属/家庭共有」＝人人可见，
+    # 而本字段默认 private 要求「未设置＝只有本人可见」，默认值方向相反；
+    # 且它可指向无登录账号的成员档案（family_members.user_id 可空），不能充当授权主体。
+    # 存量行由 core/migrations_ledgers.py 显式回填 shared——升级前后行为必须一致
+    # （本机 16 个账户 / 4 个同家庭账号，若默认 private 会让用户以为数据丢了）。
+    visibility = Column(
+        String(10),
+        nullable=False,
+        default='private',
+        comment='可见性: private(仅 owner_user_id 本人可见) / shared(全家可见)。默认 private；存量行由迁移回填 shared',
+    )
+    # private 的判定主体：指向 users.id（登录身份）。D125 已定「授权只认 user_id」，
+    # 不能用 owner_member_id（报表维度、可无登录账号）。创建账户时由服务端写入当前用户，
+    # 不接受客户端传入；shared 时该列忽略；private 且为空 ⇒ 视为不可见（失败关闭）。
+    # 同样不声明 ForeignKey：存量表 ALTER 加不了 FK，一致性由应用层校验。
+    owner_user_id = Column(
+        Integer,
+        nullable=True,
+        comment='私有账户判定主体（users.id），由服务端创建时写入；shared 时忽略。无外键约束',
+    )
