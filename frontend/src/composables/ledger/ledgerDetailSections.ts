@@ -79,3 +79,18 @@ export function isInvestmentLedger(
 ): boolean {
   return !!ledgerType && ["stock", "fund", "e_account"].includes(ledgerType);
 }
+
+/**
+ * 是否「实物资产账户」（property）。
+ *
+ * 骨架层（`detail.vue` 直接硬编码、不在 `LedgerDetailOverview` 内的区块）
+ * 靠它判断：持仓明细 / 交易记录两个 Tab 读的是 `positions` / `transactions`
+ * 表，而实物资产只进 `assets` 表（详情页盘点走 `assetList` 区块），资金流动
+ * 是「资金账户」的入金/出金心智，三者对实物账户都是结构性的空面板或语义错位，
+ * 故整块收起（#3222 方案 1「纯盘点」）。
+ */
+export function isPropertyLedger(
+  ledgerType: string | undefined | null
+): boolean {
+  return ledgerType === "property";
+}
