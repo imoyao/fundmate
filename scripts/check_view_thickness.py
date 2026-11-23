@@ -180,6 +180,12 @@ NEW_FILE_LIMITS = {
 # `core/asset_types.expand_major_category()`，视图侧 list_assets 反而更短（展开 inline
 # 逻辑 3 行 → 单次调用 1 行），get_assets_summary 注释同步精简。lines 244 → 239、
 # max_func 44 → 43（orm_queries 4 / commits 0 不动）。
+# 2026-11-23 再取（#3246 账户可见性接入，**真实增长**非放宽）：`ledgers/views.py`
+# 661→682 / max_func 46 不动。增长全是编排：① import 可见性三件（access 层）；
+# ② create_ledger 解析 scope 后传给服务（3 行调用 + 1 行 400 分支）；
+# ③ list_ledgers 与 reorder_ledgers 各叠一条 `Ledger.id.in_(visible_ledger_id_set(db))`。
+# 判定逻辑不在视图里（`visibility.py` 纯函数 + `access.py` 单点入口），
+# 视图仍只是「取当前用户 → 交给服务 → 组响应」。`orm_queries` 10 / `commits` 0 未变。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {
         "lines": 239,
@@ -284,7 +290,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # `commits` 0 不动，`max_func` 42 → 46（get_ledger_summary 分支重构）。
     # 按 `--report` 实测回写。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 661,
+        "lines": 682,
         "orm_queries": 10,
         "commits": 0,
         "max_func": 46,

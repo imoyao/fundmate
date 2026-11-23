@@ -8,10 +8,16 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
 
-from app.core.auth import get_family_id, get_owned_or_404
+from app.core.auth import get_family_id
 from app.core.constants import LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.retry import retry_on_db_locked
+from app.domains.ledgers.access import (
+    current_user_id,
+    get_visible_ledger_or_404,
+    resolve_ledger_scope,
+    visible_ledger_id_set,
+)
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 from app.domains.transactions.models import Transaction
@@ -142,12 +148,21 @@ def list_sales_institutions():
 
 @ledgers_bp.post('/')
 def create_ledger():
-    """创建新账户（业务规则下沉至 ledger_write_service，#1642 A 块）"""
+    """创建新账户（业务规则下沉至 ledger_write_service，#1642 A 块）.
+
+    可见性由服务端决定（#3246）：缺省 private + 当前 user 为判定主体，客户端只能显式
+    请求 shared；取值非法一律 400，不静默降级。
+    """
     data = request.get_json() or {}
     family_id = get_family_id()
+    visibility, owner_user_id, scope_error = resolve_ledger_scope(data, current_user_id())
+    if scope_error:
+        abort(400, scope_error)
     with get_db() as db:
         try:
-            ledger = ledger_write_svc.create_ledger(db, family_id, data)
+            ledger = ledger_write_svc.create_ledger(
+                db, family_id, data, visibility=visibility, owner_user_id=owner_user_id
+            )
         except ledger_write_svc.LedgerWriteError as e:
             if e.error_code is None:
                 abort(e.status_code, e.message)
@@ -165,7 +180,11 @@ def list_ledgers():
     """
     include_archived = request.args.get('include_archived', 'false').lower() == 'true'
     with get_db() as db:
-        query = db.query(Ledger).filter(Ledger.family_id == get_family_id())
+        # 可见性收口（#3246）：family 内再按 visible_ledger_ids 二次收敛，判定只经 access。
+        query = db.query(Ledger).filter(
+            Ledger.family_id == get_family_id(),
+            Ledger.id.in_(visible_ledger_id_set(db)),
+        )
         if not include_archived:
             query = query.filter(Ledger.is_active.is_(True))
         # 隐藏聚合/系统账本（如基金E账户），不出现在用户账户列表（#1101）
@@ -214,6 +233,8 @@ def reorder_ledgers():
                 Ledger.family_id == fam,
                 Ledger.ledger_type == ledger_type,
                 Ledger.id.in_(ordered_ids),
+                # 可见性（#3246）：批量重排是可写路径，不可见账户不能被他人改，静默忽略（不 404）
+                Ledger.id.in_(visible_ledger_id_set(db)),
             )
             .all()
         )
@@ -230,7 +251,7 @@ def reorder_ledgers():
 def get_ledger(ledger_id: int):
     """获取单个账户详情"""
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         return jsonify({'data': ledger_to_dict(ledger), 'message': 'ok'})
@@ -242,7 +263,7 @@ def update_ledger(ledger_id: int):
     data = request.get_json() or {}
     family_id = get_family_id()
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         try:
@@ -260,7 +281,7 @@ def delete_ledger(ledger_id: int):
     delete_positions = request.args.get('delete_positions', 'false').lower() == 'true'
 
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         try:
@@ -278,7 +299,7 @@ def archive_ledger(ledger_id: int):
     有数据的账户不可删除，只能归档。无"当前账本"全局指针，归档不影响其他状态。
     """
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         ledger.is_active = False
@@ -291,7 +312,7 @@ def archive_ledger(ledger_id: int):
 def unarchive_ledger(ledger_id: int):
     """激活账户：is_active=True，重新出现在日常视图。"""
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         ledger.is_active = True
@@ -317,7 +338,7 @@ def preview_migration(ledger_id: int):
         return jsonify({'data': None, 'message': '缺少 target_ledger_id', 'error_code': 1001}), 400
 
     with get_db() as db:
-        source = get_owned_or_404(db, Ledger, ledger_id)
+        source = get_visible_ledger_or_404(db, ledger_id)
         target = db.query(Ledger).get(target_id)
         if not source or not target:
             return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
@@ -342,7 +363,7 @@ def commit_migration(ledger_id: int):
         return jsonify({'data': None, 'message': '缺少 target_ledger_id', 'error_code': 1001}), 400
 
     with get_db() as db:
-        source = get_owned_or_404(db, Ledger, ledger_id)
+        source = get_visible_ledger_or_404(db, ledger_id)
         target = db.query(Ledger).get(target_id)
         if not source or not target:
             return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
@@ -380,7 +401,7 @@ def get_ledger_pending_estimate(ledger_id: int):
     二期 B1 在途状态机上线后数据源切 pending 表，路径/字段不变。
     """
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, get_family_id())
     return jsonify({'data': data, 'message': 'ok', 'error_code': 0})
 
@@ -389,7 +410,7 @@ def get_ledger_pending_estimate(ledger_id: int):
 def get_ledger_summary(ledger_id: int):
     """获取单账户概览卡片数据，根据账户类型返回不同指标（当日盈亏见 today-pnl，D92）"""
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
 
@@ -442,7 +463,7 @@ def get_ledger_positions(ledger_id: int):
     search = request.args.get('search') or None
 
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
         items, total = LedgerService.get_positions_paginated(db, ledger.id, page, per_page, search=search)
@@ -467,7 +488,7 @@ def get_ledger_transactions(ledger_id: int):
     search = request.args.get('search') or None
 
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
         items, total = LedgerService.get_transactions_paginated(db, ledger.id, page, per_page, search=search)
@@ -489,7 +510,7 @@ def update_ledger_position(ledger_id: int, position_id: int):
     """编辑账户内持仓（配置目标 / 现价 / 备注 / 到期日 / 手工标的名称与编码）"""
     data = request.get_json() or {}
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         pos = (
@@ -518,7 +539,7 @@ def delete_ledger_position(ledger_id: int, position_id: int):
     """删除账户内持仓"""
     delete_txns = request.args.get('delete_transactions', 'false').lower() == 'true'
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         pos = (
@@ -559,7 +580,7 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
         abort(400, f'禁止修改字段: {", ".join(sorted(bad))}')
 
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         txn = (
@@ -608,7 +629,7 @@ def migrate_orphan_data():
         return jsonify({'data': None, 'message': '缺少 target_ledger_id', 'error_code': 1001}), 400
 
     with get_db() as db:
-        target = get_owned_or_404(db, Ledger, target_id)
+        target = get_visible_ledger_or_404(db, target_id)
         try:
             counts = migration_svc.migrate_orphan_data(db, target, get_family_id())
         except migration_svc.MigrationError as e:
@@ -653,7 +674,7 @@ def settle_reverse_repo_flow(ledger_id: int):
         return jsonify({'data': None, 'message': e.message, 'error_code': 1001}), e.status_code
 
     with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        ledger = get_visible_ledger_or_404(db, ledger_id)
         try:
             result = cash_like_svc.settle_reverse_repo(db, family_id=get_family_id(), ledger_id=ledger.id, **payload)
         except cash_like_svc.SettleError as e:

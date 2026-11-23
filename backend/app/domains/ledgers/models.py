@@ -199,11 +199,18 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     # 且它可指向无登录账号的成员档案（family_members.user_id 可空），不能充当授权主体。
     # 存量行由 core/migrations_ledgers.py 显式回填 shared——升级前后行为必须一致
     # （本机 16 个账户 / 4 个同家庭账号，若默认 private 会让用户以为数据丢了）。
+    #
+    # **存储兜底必须是 shared，不能是 private**：本仓除 ``ledger_write_service.create_ledger``
+    # 外还有 3 处直接构造（导入器按机构/资金账号查建账），它们是「家庭账单」语义、应当
+    # 全家可见；若此处 default private，这些账户建完就对所有人（含创建者）不可见——
+    # 那是数据丢失，不是安全。**产品默认 private 由创建路径显式写入**（access 层解析），
+    # 私有永远是一次显式声明，而不是靠存储默认猜。
     visibility = Column(
         String(10),
         nullable=False,
-        default='private',
-        comment='可见性: private(仅 owner_user_id 本人可见) / shared(全家可见)。默认 private；存量行由迁移回填 shared',
+        default='shared',
+        comment='可见性: private(仅 owner_user_id 本人可见) / shared(全家可见)。'
+        '存储兜底 shared（导入/脚本建账不得静默消失）；用户新建账户由创建路径显式写 private',
     )
     # private 的判定主体：指向 users.id（登录身份）。D125 已定「授权只认 user_id」，
     # 不能用 owner_member_id（报表维度、可无登录账号）。创建账户时由服务端写入当前用户，
