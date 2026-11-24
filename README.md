@@ -46,6 +46,10 @@
 
 ![pnHcVBQ.png (1696×1454)](https://s41.ax1x.com/2026/11/18/pnHcVBQ.png)
 
+### 记忆系统
+
+![记忆分层](https://s41.ax1x.com/2026/11/23/pnLhdld.png)
+
 ## 技术栈
 
 | 层 | 技术 |

@@ -419,3 +419,6 @@ backend/logs/
 # uv 生成的可复现锁文件：仓库从不跟踪（`git ls-files` 无 uv.lock），
 # 每次 `uv run` 都会重新生成，留着只会污染工作区状态
 uv.lock
+
+# IDE（PyCharm / IntelliJ 本地工程配置）
+.openidea/
