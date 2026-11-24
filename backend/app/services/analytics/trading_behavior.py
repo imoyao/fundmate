@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
+from app.domains.ledgers.visibility import restrict_visible
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
@@ -77,13 +78,15 @@ def _resolve_window(db: Session, family_id: int, start_date: Optional[str], end_
     return start, end
 
 
-def _position_market_value_cents(db: Session, family_id: int, symbol: Optional[str]) -> int:
+def _position_market_value_cents(
+    db: Session, family_id: int, symbol: Optional[str], visible_ids: Optional[Set[int]] = None
+) -> int:
     """当前持仓市值（分）：排除已清仓与类现金资产，与行为画像/XIRR 同一套过滤。"""
     query = exclude_cleared(db.query(Position)).filter(Position.family_id == family_id)
     if symbol:
         query = query.filter(Position.symbol == symbol)
     total = 0
-    for pos in query.all():
+    for pos in restrict_visible(query, Position.ledger_id, visible_ids).all():
         if (getattr(pos, 'asset_type', None) or '') in EXCLUDED_ASSET_TYPES:
             continue
         total += market_value_cents(pos)
@@ -163,6 +166,7 @@ def build_trading_behavior(
     end_date: Optional[str] = None,
     symbol: Optional[str] = None,
     include_cash_equivalents: bool = False,
+    visible_ids: Optional[Set[int]] = None,
 ) -> Dict[str, Any]:
     """交易行为画像（#2619）。
 
@@ -170,6 +174,8 @@ def build_trading_behavior(
         start_date / end_date: 统计窗口（缺省全期）；只筛计样本，不裁 FIFO 配对。
         symbol: 限定标的（缺省全部持仓与流水）。
         include_cash_equivalents: 是否纳入货基/逆回购等类现金资产（默认排除）。
+        visible_ids: 限定可见账户集合（#3246）。流水与持仓市值**同集合**收窄，换手率
+            的分子分母才不会错配；None 保持家庭全量，与改造前一致。
 
     Returns:
         持有期分布 / 交易结构 / 换手 / 买点分位 + `caveats`。算不出的字段为 None，
@@ -186,7 +192,7 @@ def build_trading_behavior(
         txn_query = txn_query.filter(
             Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES)
         )
-    transactions = txn_query.all()
+    transactions = restrict_visible(txn_query, Transaction.ledger_id, visible_ids).all()
 
     stats = compute_behavior_stats(transactions, start_date, end_date)
 
@@ -206,7 +212,7 @@ def build_trading_behavior(
             if price_units > 0 and buy_date is not None:
                 buys.append((getattr(txn, 'symbol', None) or '', buy_date, Money.price_units_to_yuan(price_units)))
 
-    mv_cents = _position_market_value_cents(db, family_id, symbol)
+    mv_cents = _position_market_value_cents(db, family_id, symbol, visible_ids)
     turnover_pct = round(traded_cents / 2 / mv_cents * 100, 2) if mv_cents > 0 else None
 
     buy_count = stats['buy_count']
