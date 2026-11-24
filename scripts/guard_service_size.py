@@ -246,6 +246,12 @@ NEW_FILE_LIMITS = {
 # - `services/analytics/trading_behavior.py` 257→263 / max_func 96→99：`build_trading_behavior`
 #   接 `visible_ids`，流水与持仓市值**同集合**收窄（换手率分子分母不能错配）；+3 行是
 #   docstring 里那段为什么要同集合的说明。
+# - `services/ai_recognizer/guards.py` 213→193（**收紧**，#3253）：全站 token 预算从模块内存
+#   计数改为落库，实现整体下沉到新文件 `services/ai_recognizer/token_budget.py`（150/21/6，
+#   走 NEW_FILE_LIMITS）；guards 只留一行转发 + 三处 `date.today()` → `today_shanghai()`。
+#   删掉的是 `_token_used_today` / `_TOKEN_LOCK` / `_check_token_budget` / `_record_tokens`
+#   四个模块级实现。留下的 `ARK_DAILY_TOKEN_BUDGET` 只为 `ocr_service.__all__` 的 re-export
+#   （不参与判定）。净 213→194，max_func 与 max_cc 未变。
 # - `services/watchlist_service.py` 999→1024：`build_home_summary` 接 `visible_ids`。两处持仓
 #   聚合各自下沉为 `_market_value_subq` / `_symbol_holding_stats`（max_func 124 未变，仍低于
 #   上限）——先把新参数塞进 140 行的原函数会把它顶到 138 行，那是「函数变长」而不是「职责
@@ -284,7 +290,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/ai_recognizer/base.py": {'lines': 133, 'max_func': 20, 'max_cc': 10},
     "backend/app/services/ai_recognizer/cancellation.py": {'lines': 57, 'max_func': 12, 'max_cc': 4},
     "backend/app/services/ai_recognizer/catalog.py": {'lines': 161, 'max_func': 91, 'max_cc': 20},
-    "backend/app/services/ai_recognizer/guards.py": {'lines': 213, 'max_func': 21, 'max_cc': 6},
+    "backend/app/services/ai_recognizer/guards.py": {'lines': 194, 'max_func': 21, 'max_cc': 6},
     "backend/app/services/ai_recognizer/llm.py": {'lines': 195, 'max_func': 109, 'max_cc': 13},
     "backend/app/services/ai_recognizer/mcp_adapter.py": {'lines': 54, 'max_func': 20, 'max_cc': 4},
     "backend/app/services/ai_recognizer/mcp_server.py": {'lines': 82, 'max_func': 9, 'max_cc': 3},

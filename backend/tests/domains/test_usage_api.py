@@ -8,8 +8,9 @@
 不依赖真实火山方舟 Key；用量数据走 guards.check_usage（DB 落地）。
 """
 
-from datetime import date, timedelta
+from datetime import timedelta
 
+from app.core.time_utils import today_shanghai
 from app.services.ai_recognizer import guards as ai_guards
 
 
@@ -24,8 +25,8 @@ class TestUsageApi:
         assert data['used'] == 0
         assert data['quota'] == quota
         assert data['remaining'] == quota
-        assert data['period_date'] == date.today().isoformat()
-        assert data['reset_at'] == (date.today() + timedelta(days=1)).isoformat()
+        assert data['period_date'] == today_shanghai().isoformat()
+        assert data['reset_at'] == (today_shanghai() + timedelta(days=1)).isoformat()
 
     def test_features_independent(self, client, db):
         """不同 feature 的用量互不影响（各自计数行）。"""

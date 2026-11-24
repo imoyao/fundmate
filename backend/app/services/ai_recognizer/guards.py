@@ -3,7 +3,8 @@
 
 从旧 `ocr_service.py` 原样迁出（P1 抽象，见 ai-recognizer-architecture-2026-08-13.md）：
 - 用量：按 (user_id, feature, period_date) 限次，feature 区分场景（ocr_import / txn_import）；
-- 三层防滥用防护均为单实例内存实现，多实例部署后迁移到 Redis/用量表。
+- 限流与连续失败熔断是单实例内存实现（单实例是硬约束，见 #1294 结论）；
+- 全站 token 预算**已落库**（#3253），实现见 `token_budget.py`，本模块只做转发。
 
 调用方（recognizer / API views）只依赖本模块公开函数，不直接碰全局状态。
 """
@@ -19,7 +20,10 @@ from loguru import logger
 
 from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.exceptions import ErrorCode, SBException
+from app.core.time_utils import today_shanghai
 from app.domains.usage.models import UserUsage
+from app.services.ai_recognizer.token_budget import check_token_budget, daily_budget
+from app.services.ai_recognizer.token_budget import record_tokens as _record_tokens  # noqa: F401  llm.py 经本模块取用
 
 load_dotenv()  # 独立脚本直接 import 时也能读到 .env（main.py 已 load 则幂等）
 
@@ -33,9 +37,8 @@ OCR_RATE_LIMIT_MAX = int(os.getenv('OCR_RATE_LIMIT_MAX', '3'))
 # ② 连续失败熔断：连续失败 N 次后冷却 OCR_MELTDOWN_COOLDOWN 秒（防「失败返还→无限重试→token 空耗」）
 OCR_MELTDOWN_THRESHOLD = int(os.getenv('OCR_MELTDOWN_THRESHOLD', '5'))
 OCR_MELTDOWN_COOLDOWN = int(os.getenv('OCR_MELTDOWN_COOLDOWN', '1800'))
-# ③ 全站 token 预算（费用护栏，issue #823）：当日全站累计 token 上限，超限全站熔断
-#    单次识别约 1~2k token，300k token/日 ≈ 数百次调用，测试期够用；正式上线按预算调整
-ARK_DAILY_TOKEN_BUDGET = int(os.getenv('ARK_DAILY_TOKEN_BUDGET', '300000'))
+# ③ 全站 token 预算：判定已落库（token_budget.py，#3253）；此常量仅供 ocr_service re-export
+ARK_DAILY_TOKEN_BUDGET = daily_budget()
 # ④ 多轮收敛上限（G4，账本精灵 AgentLoop）：S2 起计数落库（agent_session.turn_count，
 #    重启不丢、多实例一致），本处只保留上限配置；工具失败重试不额外计（见 agent_loop.py 设计）。
 AGENT_MAX_TURNS = int(os.getenv('AGENT_MAX_TURNS', '10'))
@@ -44,8 +47,6 @@ _RATE_LIMIT_BUCKETS: dict = {}  # {(user_id, 分钟桶): 窗口内调用次数}
 _RATE_LIMIT_LOCK = threading.Lock()
 _MELTDOWN_STATE: dict = {}  # {user_id: {'fail_count': int, 'meltdown_until': float}}
 _MELTDOWN_LOCK = threading.Lock()
-_token_used_today = 0
-_TOKEN_LOCK = threading.Lock()
 
 
 # ── 用量（user_usage）──
@@ -66,7 +67,7 @@ def _get_usage(db, user_id: int, feature: str, period: date) -> UserUsage:
 
 def check_usage(user_id: int, feature: str = 'ocr_import', period: Optional[date] = None) -> dict:
     """查询某用户某功能当日用量，返回 {used, quota, remaining, period_date}。"""
-    period = period or date.today()
+    period = period or today_shanghai()
     with database.get_session() as db:
         row = _get_usage(db, user_id, feature, period)
         return {
@@ -79,7 +80,7 @@ def check_usage(user_id: int, feature: str = 'ocr_import', period: Optional[date
 
 def consume_usage(user_id: int, feature: str = 'ocr_import', period: Optional[date] = None) -> dict:
     """消费一次用量；超限抛 SBException（429 语义，错误码 3004）。"""
-    period = period or date.today()
+    period = period or today_shanghai()
     with database.get_session() as db:
         row = _get_usage(db, user_id, feature, period)
         if row.count >= row.quota:
@@ -107,7 +108,7 @@ def refund_usage(user_id: int, feature: str = 'ocr_import', period: Optional[dat
     注意：返还只解决「次数感知」——每次真实调用（无论成败）火山方舟都已按 token 计费，
     防止 token 空耗由限流/连续失败熔断/全站预算三层防护承担（见 guards 设计）。
     """
-    period = period or date.today()
+    period = period or today_shanghai()
     with database.get_session() as db:
         row = _get_usage(db, user_id, feature, period)
         if row.count > 0:
@@ -176,26 +177,6 @@ def record_success(user_id: int) -> None:
         _MELTDOWN_STATE.pop(user_id, None)
 
 
-def _check_token_budget() -> None:
-    """全站 token 预算检查：当日累计超限则熔断（费用护栏，issue #823）。"""
-    with _TOKEN_LOCK:
-        if _token_used_today >= ARK_DAILY_TOKEN_BUDGET:
-            raise SBException(
-                code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
-                message='今日 AI 识别费用额度已耗尽，请明日再试',
-                status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
-            )
-
-
-def _record_tokens(used: int) -> None:
-    """记录本次调用的 token 消耗（从响应 usage 累计，仅成功调用）。"""
-    global _token_used_today
-    if used <= 0:
-        return
-    with _TOKEN_LOCK:
-        _token_used_today += used
-
-
 def assert_available(user_id: int) -> None:
     """发起真实调用前的统一防护闸：限流 → 熔断 → token 预算。
 
@@ -203,7 +184,7 @@ def assert_available(user_id: int) -> None:
     """
     _check_rate_limit(user_id)
     _check_meltdown(user_id)
-    _check_token_budget()
+    check_token_budget()
 
 
 # ── 多轮收敛上限（G4，账本精灵 AgentLoop）──

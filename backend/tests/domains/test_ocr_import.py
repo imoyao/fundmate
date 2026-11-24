@@ -29,11 +29,9 @@ def _reset_ocr_guards(monkeypatch):
     monkeypatch.setattr(ai_guards, 'OCR_MELTDOWN_THRESHOLD', 1000)
     ai_guards._RATE_LIMIT_BUCKETS.clear()
     ai_guards._MELTDOWN_STATE.clear()
-    ai_guards._token_used_today = 0
     yield
     ai_guards._RATE_LIMIT_BUCKETS.clear()
     ai_guards._MELTDOWN_STATE.clear()
-    ai_guards._token_used_today = 0
 
 
 def _post(client, url, data):
@@ -339,12 +337,20 @@ class TestMeltdown:
 
 
 class TestTokenBudget:
-    """全站 token 预算熔断（费用护栏，issue #823）。"""
+    """全站 token 预算熔断（费用护栏，#823；计数落库见 #3253）。"""
 
-    def test_budget_exceeded_rejects_calls(self, client, db, monkeypatch):
-        """当日累计 token 超预算 → 503，不发起真实调用。"""
-        monkeypatch.setattr(ai_guards, 'ARK_DAILY_TOKEN_BUDGET', 1000)
-        ai_guards._token_used_today = 1000
+    def test_budget_exceeded_rejects_calls(self, client, db):
+        """当日累计 token 超预算 → 503，不发起真实调用。
+
+        落库后不再 patch 模块常量：判定读的是当日 `user_usage` 行的
+        `count >= quota`，直接写一行「已用满」即可——这条顺带证明实测值取自库，
+        而不是进程内存里的模块变量。
+        """
+        from app.core.time_utils import today_shanghai
+        from app.domains.usage.models import UserUsage
+
+        db.add(UserUsage(user_id=0, feature='ark_tokens', period_date=today_shanghai(), count=1000, quota=1000))
+        db.commit()
         resp = client.post('/api/ocr/parse', json={'text': '110011'})
         assert resp.status_code == 503
         assert '费用额度' in resp.get_json()['message']
