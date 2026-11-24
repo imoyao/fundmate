@@ -6,7 +6,8 @@
 
 结构：
     base.py        BaseRecognizer 抽象基类（模板方法：正则层 → LLM 层 → validate → enrich）
-    guards.py      用量（user_usage）+ 限流/连续失败熔断/token 预算
+    guards.py      用量（user_usage）+ 限流/连续失败熔断（token 预算转发）
+    token_budget.py 全站 token 费用护栏（落 user_usage、按业务日归零，#3253）
     llm.py         火山方舟调用（便宜模型 + 超时/重试/token 记账）
     catalog.py     类型/名称反查（证券/基金表消歧）
     registry.py    识别器注册表（按 scenario 取用）

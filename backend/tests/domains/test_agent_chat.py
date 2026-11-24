@@ -23,11 +23,9 @@ def _reset_agent_guards(monkeypatch):
     monkeypatch.setattr(ai_guards, 'OCR_MELTDOWN_THRESHOLD', 1000)
     for state in (ai_guards._RATE_LIMIT_BUCKETS, ai_guards._MELTDOWN_STATE):
         state.clear()
-    ai_guards._token_used_today = 0
     yield
     for state in (ai_guards._RATE_LIMIT_BUCKETS, ai_guards._MELTDOWN_STATE):
         state.clear()
-    ai_guards._token_used_today = 0
 
 
 def _post(client, message, session_id=None):

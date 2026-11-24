@@ -31,11 +31,9 @@ def _reset_guards(monkeypatch):
     monkeypatch.setattr(guards, 'OCR_MELTDOWN_THRESHOLD', 1000)
     guards._RATE_LIMIT_BUCKETS.clear()
     guards._MELTDOWN_STATE.clear()
-    guards._token_used_today = 0
     yield
     guards._RATE_LIMIT_BUCKETS.clear()
     guards._MELTDOWN_STATE.clear()
-    guards._token_used_today = 0
 
 
 class TestRegistry:
