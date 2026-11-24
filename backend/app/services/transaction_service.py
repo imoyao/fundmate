@@ -22,6 +22,7 @@ from app.core.constants import DIVIDEND_TXN_TYPES
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
 from app.core.utils import iso_date_only, paginate
+from app.domains.ledgers.visibility import restrict_visible
 from app.domains.positions.models import Position
 from app.domains.transactions.dates import (
     filter_by_effective_range,
@@ -122,9 +123,15 @@ def filters_from_args(args) -> dict:
     }
 
 
-def _filtered_transaction_query(db, family_id: int, filters: dict):
-    """按筛选条件构造流水查询（列表 / 汇总 / 后续任何读路径共用同一套 WHERE）。"""
+def _filtered_transaction_query(db, family_id: int, filters: dict, visible_ids=None):
+    """按筛选条件构造流水查询（列表 / 汇总 / 后续任何读路径共用同一套 WHERE）。
+
+    ``visible_ids``（#3246 第三段）：可见账户 id 集合，``None`` = 不按可见性筛。放在这个
+    唯一出口而不是各端点自筛——列表与汇总条必须减掉同一批行，否则「列表 3 条、汇总按
+    全量算」不会报错，只会对不上账。
+    """
     query = db.query(Transaction).filter(Transaction.family_id == family_id)
+    query = restrict_visible(query, Transaction.ledger_id, visible_ids)
 
     op_type = filters.get('op_type')
     if op_type:
@@ -174,7 +181,7 @@ def _filtered_transaction_query(db, family_id: int, filters: dict):
     return query
 
 
-def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
+def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict, visible_ids=None) -> dict:
     """交易流水列表：多维筛选 + 分页 + 行组装（#1642 B 块，从视图层下沉）。
 
     与下沉前逐字段一致：type→txn_type；time_range(1m/3m/6m/1y) 与 custom(start_date/end_date)
@@ -183,7 +190,7 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     经 positions 表关联（position_id.in_(...)）过滤。返回原 jsonify 的内层 data 字典
     （视图负责补 message）。筛选条件本身在 `_filtered_transaction_query`，与汇总条共用。
     """
-    query = _filtered_transaction_query(db, family_id, filters)
+    query = _filtered_transaction_query(db, family_id, filters, visible_ids)
 
     # 排序与分页：有效交易日倒序（口径与 WHY 全在 `order_by_effective_day`，三处共用）
     query = order_by_effective_day(query)
@@ -223,7 +230,7 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     return {'data': results, 'total': total, 'page': page, 'per_page': per_page}
 
 
-def build_transaction_summary(db, family_id: int, filters: dict) -> dict:
+def build_transaction_summary(db, family_id: int, filters: dict, visible_ids=None) -> dict:
     """汇总条数据（跟随筛选；口径见 docs/design/transaction-flow-redesign.md §四）。
 
     ## 公式（文档与实现必须逐字一致，前端不做二次求和）
@@ -256,7 +263,7 @@ def build_transaction_summary(db, family_id: int, filters: dict) -> dict:
         （负数＝净取出），前端必须显示正负号。
     """
     rows = (
-        _filtered_transaction_query(db, family_id, filters)
+        _filtered_transaction_query(db, family_id, filters, visible_ids)
         .with_entities(
             Transaction.txn_type,
             func.count(Transaction.id),
@@ -357,7 +364,7 @@ def transaction_row(
     }
 
 
-def build_transaction_detail(db, family_id: int, transaction_id: int):
+def build_transaction_detail(db, family_id: int, transaction_id: int, visible_ids=None):
     """单条流水详情（行展开详情按需取用，见 docs/design/transaction-flow-redesign.md §十二 第 4 条）。
 
     WHY 单独一个端点，而不是把字段全塞进列表：展开详情要的是「费用拆分 / 导入溯源 /
@@ -367,7 +374,8 @@ def build_transaction_detail(db, family_id: int, transaction_id: int):
     返回 ``None`` 表示不存在或不属于本家庭，由视图转 404（不在这里 abort，服务层
     不依赖 HTTP 栈）。
     """
-    t = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.family_id == family_id).first()
+    query = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.family_id == family_id)
+    t = restrict_visible(query, Transaction.ledger_id, visible_ids).first()
     if not t:
         return None
 
@@ -464,7 +472,7 @@ def _csv_money(cents) -> str:
     return f'{Money.cents_to_yuan(cents or 0):.2f}'
 
 
-def build_transactions_csv(db, family_id: int) -> str:
+def build_transactions_csv(db, family_id: int, visible_ids=None) -> str:
     """家庭全部交易流水的 CSV 文本（#2720 从 `transactions/views.py` 下沉）。
 
     视图只留「取会话 → 调本函数 → 包 Response」，取数/排序/逐行换算都在这里，
@@ -472,10 +480,10 @@ def build_transactions_csv(db, family_id: int) -> str:
     导出按时间正序读，且与列表页共用同一份「有效交易日」口径——两边各写一份
     `coalesce` 必然漂（#2720 初版即如此，且顺手把兜底写回 trade_date 单列）。
     """
-    items = order_by_effective_day(
-        db.query(Transaction).filter(Transaction.family_id == family_id),
-        descending=False,
-    ).all()
+    query = restrict_visible(
+        db.query(Transaction).filter(Transaction.family_id == family_id), Transaction.ledger_id, visible_ids
+    )
+    items = order_by_effective_day(query, descending=False).all()
 
     output = io.StringIO()
     writer = csv.writer(output)

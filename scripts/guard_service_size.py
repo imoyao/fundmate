@@ -209,6 +209,47 @@ NEW_FILE_LIMITS = {
 # 调用方解析、本函数不重复解析」——规则只留一份（domains/ledgers/visibility.py），
 # 避免两处各写一遍必然漂移。`max_func` 152 / `max_cc` 48 均未变（`create_ledger` 仍 105 行，
 # 最大值仍是 `update_ledger`）。这是真实接口增长，不是放宽阈值。
+# 2026-11-23 账户可见性读路径（#3246 第三段）按 `--report` 放宽一项，理由留痕：
+# `services/position_service.py` 638→639。`PositionService.build_position_list` 这个
+# **facade 转发壳**新增 `visible_ids` 入参（签名 +1 行），实现全在
+# `position_display.build_position_list_impl` 与 `domains/ledgers/visibility.restrict_visible`
+# 里；`max_func` 61 / `max_cc` 13 未变。`position_display.py` 仍 248（删掉与
+# `position_scope.active_holdings` 重复的 shadow 考据段，抵掉新增参数与调用），
+# 属等量交换，未放宽阈值。
+# `services/transaction_service.py` 501→509：`_filtered_transaction_query` 多一个
+# `visible_ids` 入参并挂一次 `restrict_visible`（列表与汇总共用出口，改一处两边同时生效），
+# `build_transaction_detail` 改成先建 query 再 restrict（+1 行）、`build_transactions_csv`
+# 同样（+2 行），4 个函数签名各加一参同处不增行。`max_func` 69 / `max_cc` 10 未变——
+# 新增的是参数传递，不是分支或职责。
+# 2026-11-23 汇总双口径（#3246 第三段 / D127）按 `--report` 放宽两项、新增一项，理由留痕：
+# - `services/summary_service.py` 1420→1495 / max_cc 17→18：新增 `family_scope` 对照块
+#   （取数 + 组装）与 `get_summary_data` / `get_account_groups` / `get_distributions` 的
+#   `visible_ids` 入参；max_cc +1 来自 `_per_ledger_buckets` 里「孤儿流水跳过不可见账户」
+#   一处 `continue`——不跳过就是「持仓按可见算、孤儿现金按全家算」两种口径混在一个总资产里。
+#   真正吃行数的是「成员 ∩ 可见性」这套作用域判断，它被四个调用点共用，故整体下沉到新文件
+#   `services/summary_scope.py`（104/28/6，走 NEW_FILE_LIMITS 并登记基线），主文件只留
+#   `_load_user_assets` 的两行 `apply_scope(...)` 调用。
+# - `services/ai_recognizer/tools.py` 644→675：`_INTERNAL_CTX_KEYS`（可见账户集合不进工具
+#   schema、由服务端强制注入、校验放行）+ `_server_visible_ids` + 两个工具接上过滤。
+#   `max_func` 91 / `max_cc` 17 未变——新增的是「取注入值」，不是分支或新职责。
+# - `services/ai_recognizer/tools.py` 675→723 / max_func 91→99 / max_cc 17→18（#3246 后半）：
+#   其余 6 个涉及账户的工具接上可见性，分两类——集合型（XIRR / 交易行为 / 自选）传
+#   `visible_ids` 各 +1 行；作用域绑死 family 的（基准对比 / 收益归因 / 调仓参考）进门控，
+#   各 +2 行（`if blocked: return`）。max_cc +1 来自归因工具新增的那一个 `if`；max_func +8
+#   是归因工具的口径说明（为什么不能在工具层过滤 items 再重算合计）。另有 8 行是 5 个工具
+#   的 `description`——模型据此决定「说你的还是说全家的」「available=False 时怎么转述」，
+#   去掉它等于把口径判断留给叙事轮去猜。判断逻辑本身下沉到新文件
+#   `services/ai_recognizer/visibility_gate.py`（73/26/4，走 NEW_FILE_LIMITS）。
+# - `services/performance/calculators.py` 577→585：`calculate_portfolio_xirr` 接 `visible_ids`，
+#   流水与持仓两条 query 各包一层 `restrict_visible`（三行式，压缩后每处 +2）。max_cc 未变
+#   ——三态判定在 helper 里。
+# - `services/analytics/trading_behavior.py` 257→263 / max_func 96→99：`build_trading_behavior`
+#   接 `visible_ids`，流水与持仓市值**同集合**收窄（换手率分子分母不能错配）；+3 行是
+#   docstring 里那段为什么要同集合的说明。
+# - `services/watchlist_service.py` 999→1024：`build_home_summary` 接 `visible_ids`。两处持仓
+#   聚合各自下沉为 `_market_value_subq` / `_symbol_holding_stats`（max_func 124 未变，仍低于
+#   上限）——先把新参数塞进 140 行的原函数会把它顶到 138 行，那是「函数变长」而不是「职责
+#   变多」，拆开才对得上基线只减不增的语义。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -266,7 +307,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 纯计算与取数已下沉到 services/analytics/rebalance_reference*.py（新文件走
     # NEW_FILE_LIMITS），max_func 91 / max_cc 17 不变——没有放大任何既有函数职责。
     # 理由与实施边界见 docs/spec/agent-rebalance-reference-tool.md §12.6。
-    "backend/app/services/ai_recognizer/tools.py": {'lines': 644, 'max_func': 91, 'max_cc': 17},
+    "backend/app/services/ai_recognizer/tools.py": {'lines': 723, 'max_func': 99, 'max_cc': 18},
     "backend/app/services/analytics/__init__.py": {'lines': 39, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/analytics/behavior.py": {'lines': 340, 'max_func': 194, 'max_cc': 62},
     "backend/app/services/analytics/benchmark_comparison.py": {'lines': 307, 'max_func': 108, 'max_cc': 23},
@@ -275,7 +316,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/analytics/benchmark_excess.py": {'lines': 407, 'max_func': 128, 'max_cc': 28},
     "backend/app/services/analytics/cleared_cycles.py": {'lines': 747, 'max_func': 155, 'max_cc': 47},
     "backend/app/services/analytics/correlation.py": {'lines': 119, 'max_func': 44, 'max_cc': 9},
-    "backend/app/services/analytics/trading_behavior.py": {'lines': 257, 'max_func': 96, 'max_cc': 21},
+    "backend/app/services/analytics/trading_behavior.py": {'lines': 263, 'max_func': 99, 'max_cc': 21},
     "backend/app/services/analytics/var.py": {'lines': 138, 'max_func': 35, 'max_cc': 9},
     "backend/app/services/asset_class.py": {'lines': 63, 'max_func': 3, 'max_cc': 2},
     "backend/app/services/asset_search.py": {'lines': 256, 'max_func': 66, 'max_cc': 9},
@@ -432,7 +473,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/orphan_ledger_service.py": {'lines': 465, 'max_func': 48, 'max_cc': 9},
     "backend/app/services/penetration.py": {'lines': 729, 'max_func': 404, 'max_cc': 96},
     "backend/app/services/performance/__init__.py": {'lines': 83, 'max_func': 50, 'max_cc': 3},
-    "backend/app/services/performance/calculators.py": {'lines': 577, 'max_func': 70, 'max_cc': 24},
+    "backend/app/services/performance/calculators.py": {'lines': 585, 'max_func': 70, 'max_cc': 24},
     "backend/app/services/performance/cashflow_layers.py": {'lines': 381, 'max_func': 105, 'max_cc': 20},
     "backend/app/services/performance/fee_cash.py": {'lines': 100, 'max_func': 22, 'max_cc': 3},
     "backend/app/services/performance/twr.py": {'lines': 336, 'max_func': 76, 'max_cc': 15},
@@ -465,14 +506,14 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/portfolio_service.py": {'lines': 520, 'max_func': 118, 'max_cc': 19},
     "backend/app/services/position_aggregation.py": {'lines': 624, 'max_func': 163, 'max_cc': 47},
     "backend/app/services/position_buy_command.py": {'lines': 684, 'max_func': 79, 'max_cc': 11},
-    "backend/app/services/position_display.py": {'lines': 248, 'max_func': 129, 'max_cc': 18},
+    "backend/app/services/position_display.py": {'lines': 247, 'max_func': 127, 'max_cc': 18},
     "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 59, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
     "backend/app/services/position_orphan_flows.py": {'lines': 425, 'max_func': 81, 'max_cc': 14},
     "backend/app/services/position_sell_command.py": {'lines': 362, 'max_func': 96, 'max_cc': 17},
     "backend/app/services/position_bond_command.py": {'lines': 269, 'max_func': 69, 'max_cc': 16},
     "backend/app/services/position_recompute.py": {'lines': 200, 'max_func': 44, 'max_cc': 9},
-    "backend/app/services/position_service.py": {'lines': 638, 'max_func': 61, 'max_cc': 13},
+    "backend/app/services/position_service.py": {'lines': 639, 'max_func': 61, 'max_cc': 13},
     "backend/app/services/position_snapshot_command.py": {'lines': 322, 'max_func': 63, 'max_cc': 14},
     "backend/app/services/position_write_support.py": {'lines': 365, 'max_func': 67, 'max_cc': 13},
     "backend/app/services/position_structure.py": {'lines': 259, 'max_func': 152, 'max_cc': 23},
@@ -512,7 +553,8 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-12 #3031 G4：五笔钱成员边界与分桶下沉到 allocation_breakdown.py
     # （资产行纳入 + 「未纳入」出口），并删除随实现消失的死常量 _DEFAULT_ALLOC；
     # 1417 → 1415 为真实缩减，按 --report 回写（只减不增）。
-    "backend/app/services/summary_service.py": {'lines': 1420, 'max_func': 107, 'max_cc': 17},
+    "backend/app/services/summary_scope.py": {'lines': 104, 'max_func': 28, 'max_cc': 6},
+    "backend/app/services/summary_service.py": {'lines': 1495, 'max_func': 107, 'max_cc': 18},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},
@@ -574,11 +616,11 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/today_pnl.py": {'lines': 553, 'max_func': 182, 'max_cc': 37},
     "backend/app/services/trade_timeline.py": {'lines': 497, 'max_func': 235, 'max_cc': 35},
     "backend/app/services/trading.py": {'lines': 140, 'max_func': 28, 'max_cc': 10},
-    "backend/app/services/transaction_service.py": {'lines': 501, 'max_func': 69, 'max_cc': 10},
+    "backend/app/services/transaction_service.py": {'lines': 509, 'max_func': 69, 'max_cc': 10},
     "backend/app/services/txn_name_resolver.py": {'lines': 258, 'max_func': 64, 'max_cc': 31},
     "backend/app/services/user_profile.py": {'lines': 88, 'max_func': 49, 'max_cc': 9},
     "backend/app/services/watchlist_display.py": {'lines': 1772, 'max_func': 239, 'max_cc': 68},
-    "backend/app/services/watchlist_service.py": {'lines': 999, 'max_func': 124, 'max_cc': 28},
+    "backend/app/services/watchlist_service.py": {'lines': 1024, 'max_func': 124, 'max_cc': 28},
     # ── core 层（2026-11-21 并入，全部按首次实测冻结；见 CORE_DIR 注释）─────────────
     # 为什么整层进基线而不是只挑超标的三个：判据要覆盖**全体**（新增 core 文件同样受
     # NEW_FILE_LIMITS 约束），零星登记会让「新建一个 900 行的 core 模块」漏判。

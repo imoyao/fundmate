@@ -381,8 +381,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # 「视图只做 HTTP 编排」）。同批修复场外品种误入区间校验的缺陷：此前不判场所，
     # 场外基金裸码会被归一成场内代码去抓日线，且与深市股票同码时（000001 华夏成长 vs
     # 平安银行）会拿股票区间拦截基金申购。orm_queries / commits / max_func 三项不动。
+    # 2026-11-23 账户可见性读路径（#3246 第三段）：281 → 298。**不是新增业务规则**，
+    # 而是给列表端点传 `visible_ledger_id_set(db)`（9 参 facade 被 ruff 拆成一行一参 = +8）
+    # 并给两个单行端点补 `assert_ledger_visible`（+2）。判定与过滤全在
+    # `domains/ledgers/visibility` 与 `services/position_display`，视图仍是纯编排；
+    # orm_queries / commits / max_func 三维实测不动（1 / 0 / 57）。
     "backend/app/domains/positions/views.py": {
-        "lines": 281,
+        "lines": 298,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 57,
@@ -515,7 +520,11 @@ BASELINE: dict[str, dict[str, int]] = {
     # `orm_queries` / `commits` 仍为 **0**——没有任何查询或事务边界回到视图，
     # 没有可下沉的业务规则。按 --report 实测回写：334 → 346、max_func 31 → 43
     # （穿透端点自身 span 43 ≤ 硬上限 60）。同 #2134 / #2135 先例。
-    "backend/app/domains/summary/views.py": {
+        # 2026-11-23 账户可见性读路径（#3246 第三段 / D127）：443 → 445。`/summary/` 与
+    # `/summary/distributions/` 各补一个 `visible_ledger_id_set(db)` 实参（+1 import 行、
+    # +1 局部变量），聚合口径全在 `services/summary_service.py` 与 `services/summary_scope.py`，
+    # 视图仍零 ORM 查询、零事务（orm_queries / commits / max_func 三维实测不动）。
+"backend/app/domains/summary/views.py": {
         # #2617 新增 GET /summary/position-structure/（持仓结构）后 346 → 379：
         # 该端点只做入参解析 + 调 services，无 ORM 查询、无 commit；
         # 业务口径全部在 services/position_structure.py，故只重取 lines。
@@ -564,7 +573,7 @@ BASELINE: dict[str, dict[str, int]] = {
         # 视图零新增入参、零 ORM 查询、零事务，`orm_queries` / `commits` / `max_func`
         # 实测仍 0 / 0 / 43。口径实现全在 `services/cash_flow_service.py` 与
         # `services/pnl_calendar.py`。与 #2774 / #2681 同先例。
-        "lines": 443,
+        "lines": 445,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,
@@ -595,8 +604,12 @@ BASELINE: dict[str, dict[str, int]] = {
     # ⚠️ 这已是同一文件两次因「再加一个只读端点」而回写基线。**下次再加端点前先拆模块**
     # （如 `transactions/read_views.py`），别再让 100 变成 110——基线只减不增的前提是
     # 「厚度来自业务规则」，而连续加薄端点会让它变成「视图像个收纳箱」。
+    # 2026-11-23 账户可见性读路径（#3246 第三段）：100 → 105。同样**不是加端点**（上条告诫
+    # 的正是「别再加薄端点」）：4 个既有端点在原调用里补 `visible_ledger_id_set(db)` 实参，
+    # 过滤在 `transaction_service` 的 `_filtered_transaction_query` 单点收口，视图只多一行
+    # import。orm_queries / commits / max_func 三维实测不动（1 / 0 / 25）。
     "backend/app/domains/transactions/views.py": {
-        "lines": 100,
+        "lines": 105,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 25,

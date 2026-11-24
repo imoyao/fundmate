@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.core.exceptions import internal_error_payload
 from app.core.time_utils import today_shanghai
 from app.core.validation import parse_query
+from app.domains.ledgers.access import visible_ledger_id_set
 from app.domains.summary.schemas import MemberSliceQuery, TodayPnlQuery
 from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
@@ -50,8 +51,9 @@ def summary():
     try:
         with get_db() as db:
             family_id = get_family_id()
-            data = get_summary_data(db, family_id, member_id)
-            account_groups = get_account_groups(db, family_id, member_id)
+            visible_ids = visible_ledger_id_set(db)
+            data = get_summary_data(db, family_id, member_id, visible_ids)
+            account_groups = get_account_groups(db, family_id, member_id, visible_ids)
             data['account_groups'] = account_groups
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
@@ -91,7 +93,7 @@ def distributions():
     member_id = parse_query(MemberSliceQuery).member_id
     try:
         with get_db() as db:
-            data = get_distributions(db, get_family_id(), member_id)
+            data = get_distributions(db, get_family_id(), member_id, visible_ledger_id_set(db))
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify(internal_error_payload(e, 'distributions', {})), 500

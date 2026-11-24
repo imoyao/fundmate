@@ -24,6 +24,7 @@ from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.core.utils import iso_date_only, paginate
 from app.domains.ledgers.models import Ledger
+from app.domains.ledgers.visibility import restrict_visible
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
@@ -127,6 +128,7 @@ def build_position_list_impl(
     symbol: str = '',
     market: str = '',
     member_id_raw: str = '',
+    visible_ids: Optional[set] = None,
 ) -> dict:
     """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
@@ -144,17 +146,14 @@ def build_position_list_impl(
     成员名下」的矛盾账。过滤同样**下推 SQL**（``ledger_id IN (子查询)``）。
     注意：未绑定账户的持仓（``ledger_id IS NULL``）不属于任何成员，不会被命中。
 
-    ``ownership_status``：只要 ``active``。``shadow`` 是 E账户导入写下的**对账镜像行**
-    （``ledger_id`` 恒为 NULL、``account_name`` 恒为「基金E账户」），它表示「E账户说有这笔、
-    系统还没认领」，不是用户持有的账户，也不是可买卖的账户。放进这里会以「基金E账户」
-    的名义凭空多出一组持仓：本地库实测 021180 因此显示两个渠道（基金E账户 3,421.96 份 +
-    微众银行 3,421.9622 份），市值翻倍。镜像行的归宿只有对账工作台
-    （``get_reconciliation``），那边直接查 ``ownership_status='shadow'``，不依赖本接口。
+    ``ownership_status``：只要 ``active``。``shadow`` / ``cleared`` 为何一并排掉、
+    以及「基金E账户凭空多一组、市值翻倍」的实测证据，见 ``position_scope.active_holdings``
+    与 ``active_holdings`` 的模块注释——那里是唯一真相，此处不重复（重复的注释迟早分叉）。
+
+    ``visible_ids``（#3246 第三段）：可见账户 id 集合，``None`` = 不按可见性筛（仅离线调用）。
     """
     query = db.query(Position).filter(Position.family_id == family_id)
-    # 只要真实持仓：同时排掉 `cleared`（已清仓，行保留作锚点）与 `shadow`
-    # （E账户对账镜像行）。见 services/position_scope.py。
-    query = active_holdings(query)
+    query = restrict_visible(active_holdings(query), Position.ledger_id, visible_ids)
     # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
     if ledger_id_raw == 'null':
         query = query.filter(Position.ledger_id.is_(None))

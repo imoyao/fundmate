@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.retry import retry_on_db_locked
 from app.core.validation import parse_body, parse_query
+from app.domains.ledgers.access import assert_ledger_visible, visible_ledger_id_set
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import (
     ConversionEstimate,
@@ -46,12 +47,24 @@ def list_positions():
     """获取所有持仓记录，支持分页和按账户分组.
 
     过滤参数见 `PositionListRequest`（#1966 起改由 schema 统一声明，视图只做编排）。
+    可见性（#3246 第三段）：除 family 隔离外还要按**当前用户可见账户**收敛——持仓经
+    `ledger_id` 归属账户，不可见账户的持仓必须连行数都不出现（判定收口在
+    `position_scope`/`visibility.restrict_visible`，视图只负责把集合取出来传下去）。
     """
     q: PositionListRequest = parse_query(PositionListRequest)
 
     with get_db() as db:
         payload = PositionService.build_position_list(
-            db, get_family_id(), q.group_by, q.page, q.per_page, q.ledger_id, q.symbol, q.market, q.member_id
+            db,
+            get_family_id(),
+            q.group_by,
+            q.page,
+            q.per_page,
+            q.ledger_id,
+            q.symbol,
+            q.market,
+            q.member_id,
+            visible_ledger_id_set(db),
         )
         return jsonify({**payload, 'message': 'ok'})
 
@@ -67,6 +80,7 @@ def get_position_transactions(id: int):
         position = get_owned_or_404(db, Position, id)
         if not position:
             abort(404, '持仓不存在')
+        assert_ledger_visible(db, position.ledger_id)
         data = [serialize_position_transaction(t, position) for t in list_position_transactions(db, position)]
         return jsonify({'data': data, 'message': 'ok'})
 
@@ -84,6 +98,9 @@ def get_position_advisor_context(id: int):
     """
     with get_db() as db:
         position = get_owned_or_404(db, Position, id)  # 越权与不存在统一 404
+        if not position:
+            abort(404, '持仓不存在')
+        assert_ledger_visible(db, position.ledger_id)
         if position.asset_type != 'portfolio':
             abort(400, '该持仓不是投顾组合，没有主理人调仓信息')
         data = build_advisor_context(db, position, parse_adjust_limit(request.args.get('limit')))

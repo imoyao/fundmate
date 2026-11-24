@@ -6,7 +6,7 @@
 """自选模块服务层：分组数据构建"""
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 from sqlalchemy import distinct, func, or_, select
@@ -17,6 +17,7 @@ from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import AdvisorPortfolio, DailyWorth, Fund, Manager
 from app.domains.indices.models import IndexCatalog
+from app.domains.ledgers.visibility import restrict_visible
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import ConvertibleBondTerm, Security
@@ -736,8 +737,53 @@ def get_holding_gaps(db: Session, family_id: int) -> List[Dict[str, Any]]:
     return gaps
 
 
-def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
-    """构建首页自选摘要数据"""
+def _market_value_subq(db: Session, family_id: int, visible_ids: Optional[Set[int]]):
+    """按标的汇总活跃持仓市值（首页排序用的子查询）。可见性口径见 `build_home_summary`。"""
+    return (
+        restrict_visible(
+            active_holdings(
+                db.query(
+                    Position.symbol,
+                    func.sum(Position.quantity * Position.current_price).label('market_value'),
+                )
+            ),
+            Position.ledger_id,
+            visible_ids,
+        )
+        .filter(Position.family_id == family_id)
+        .group_by(Position.symbol)
+        .subquery()
+    )
+
+
+def _symbol_holding_stats(db: Session, family_id: int, symbol: str, visible_ids: Optional[Set[int]]):
+    """单标的持仓聚合（份额 / 成本 / 市值 / 均价），与自选列表 `_compute_holding_stats` 同口径。"""
+    return (
+        restrict_visible(
+            active_holdings(
+                db.query(
+                    func.sum(Position.quantity).label('qty_units'),
+                    func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
+                    func.sum(Position.quantity * Position.current_price).label('value_raw'),
+                    func.avg(Position.current_price).label('avg_price_units'),
+                )
+            ),
+            Position.ledger_id,
+            visible_ids,
+        )
+        .filter(Position.symbol == symbol, Position.family_id == family_id)
+        .first()
+    )
+
+
+def build_home_summary(db: Session, family_id: int, visible_ids: Optional[Set[int]] = None) -> List[Dict[str, Any]]:
+    """构建首页自选摘要数据。
+
+    `visible_ids`（#3246）：自选表是家庭共享的（无 owner / ledger 列），但**持仓市值是钱**
+    ——同一只票的合计市值会含别人账户的份额。传集合则两处持仓聚合都收到可见账户；标的行
+    本身不筛（「这只票在自选里」不是资产信息）。`/watchlist` 页面走 `_compute_holding_stats`，
+    不在本参数覆盖内。
+    """
     pinned = (
         db.query(WatchlistItem)
         .filter(WatchlistItem.is_pinned, WatchlistItem.family_id == family_id)
@@ -750,14 +796,7 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
 
     if len(result_items) < 5:
         needed = 5 - len(result_items)
-        market_value_subq = (
-            active_holdings(
-                db.query(Position.symbol, func.sum(Position.quantity * Position.current_price).label('market_value'))
-            )
-            .filter(Position.family_id == family_id)
-            .group_by(Position.symbol)
-            .subquery()
-        )
+        market_value_subq = _market_value_subq(db, family_id, visible_ids)
         holding_items = (
             db.query(WatchlistItem, market_value_subq.c.market_value)
             .filter(
@@ -783,21 +822,7 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
         # quantity 存最小单位(0.0001 份)、avg_price/current_price 存 0.0001元，
         # 换算统一走 Money（禁止裸乘除 float）。
         # 注意与 positions 无关的标的（纯观察）返回 None 三个字段，前端按「无持仓」降级。
-        stats = (
-            active_holdings(
-                db.query(
-                    func.sum(Position.quantity).label('qty_units'),
-                    func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
-                    func.sum(Position.quantity * Position.current_price).label('value_raw'),
-                    func.avg(Position.current_price).label('avg_price_units'),
-                )
-            )
-            .filter(
-                Position.symbol == item.symbol,
-                Position.family_id == family_id,
-            )
-            .first()
-        )
+        stats = _symbol_holding_stats(db, family_id, item.symbol, visible_ids)
         qty_units = stats.qty_units if stats else None
         if qty_units:
             # quantity(×10000) × price(×10000) = ×1e8，multiply_price_quantity ÷1e6 得 分，cents_to_yuan ÷100 得 元

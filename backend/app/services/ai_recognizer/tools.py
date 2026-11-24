@@ -26,9 +26,11 @@ from sqlalchemy import func
 from app.core import database  # 模块级引用，禁止 from-import get_session（#1608 晚绑定守卫）
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
+from app.domains.ledgers.visibility import restrict_visible
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.ai_recognizer.tools_domain import install_domain_tools
+from app.services.ai_recognizer.visibility_gate import partial_visibility_payload
 from app.services.analytics.benchmark_comparison import build_benchmark_comparison
 from app.services.analytics.rebalance_reference import BROAD_INDEX_TARGETS, build_rebalance_reference
 from app.services.analytics.trading_behavior import build_trading_behavior
@@ -52,8 +54,15 @@ def register_tool(name: str, func: Callable) -> None:
 
 
 # ── P1：服务端权威上下文 ────────────────────────────────────────────────────
+#: 服务端**内部**上下文键：不进任何工具的 schema（模型看不到、也传不进来），
+#: 由 ``apply_server_context`` 强制注入、校验时放行。
+#: 为什么不让它进 schema：``visible_ledger_ids`` 是授权结果，模型若能填就等于自己发牌。
+#: 为什么需要单独的键集合：``_validate_params`` 对未知键一律报错，注入的内置键会被判非法。
+_INTERNAL_CTX_KEYS = frozenset({'visible_ledger_ids'})
+
+
 def apply_server_context(tool_name: str, params: dict, server_ctx: dict) -> dict:
-    """把服务端权威值覆盖进候选参数（只覆盖该工具 schema 声明过的键）。
+    """把服务端权威值覆盖进候选参数（只覆盖该工具 schema 声明过的键 + 内部键）。
 
     候选参数 = 前端 collected_params + 模型 tool_params；权威值 = 鉴权上下文。
     返回新 dict，不原地修改入参。
@@ -66,7 +75,7 @@ def apply_server_context(tool_name: str, params: dict, server_ctx: dict) -> dict
     props = meta['parameters'].get('properties', {})
     merged = dict(params)
     for key, value in server_ctx.items():
-        if key in props:
+        if key in props or key in _INTERNAL_CTX_KEYS:
             merged[key] = value
     return merged
 
@@ -77,6 +86,26 @@ def _server_family_id(params: dict) -> int:
         return int(params.get('family_id') or 1)
     except (TypeError, ValueError):
         return 1
+
+
+def _server_visible_ids(params: dict):
+    """取注入后的可见账户集合；``None`` = 该路径没有身份上下文（不做可见性筛）.
+
+    ``None`` 与空集的语义**必须**分开：空集是「这个用户一个账户都看不见」（真有可能，
+    比如未登录且没有任何 shared 账户），此时应当什么都不返回；``None`` 是「判定不出主体」
+    （MCP stdio 本地单用户、离线脚本），此时与改造前逐字一致。
+
+    为什么缺键时选择「不筛」而不是「全部挡掉」：agent 的入口有两条，HTTP 路径必注入
+    （``domains/agent/views.py``），MCP 路径只有 ``family_id`` 环境变量、没有用户身份。
+    若把缺键读成空集，本地 MCP 的 agent 会突然什么数据都拿不到——那是故障不是安全。
+    """
+    value = params.get('visible_ledger_ids')
+    if value is None:
+        return None
+    try:
+        return {int(v) for v in value}
+    except (TypeError, ValueError):
+        return None
 
 
 def _jsonable(value: Any) -> Any:
@@ -94,16 +123,22 @@ def _jsonable(value: Any) -> Any:
 def _tool_get_assets_overview(params: dict) -> dict:
     """家庭资产总览：总资产 / 负债 / 净资产 / 已实现与未实现盈亏（元）。"""
     with database.get_session() as db:
-        return get_summary_data(db, family_id=_server_family_id(params))
+        return get_summary_data(db, family_id=_server_family_id(params), visible_ids=_server_visible_ids(params))
 
 
 def _tool_get_portfolio_performance(params: dict) -> dict:
-    """组合年化收益 XIRR：投入 / 市值 / 总收益（元，family 维度）。"""
+    """组合年化收益 XIRR：投入 / 市值 / 总收益（元，可见账户口径）。
+
+    传 `visible_ids` 后是「可见账户构成的子组合」的 XIRR：流水与市值同集合收窄，
+    分子分母不错配。它**不是**双口径指标——不附带家庭对照，因为部分可见下两套
+    现金流分期不可比（D127）。
+    """
     with database.get_session() as db:
         return calculate_portfolio_xirr(
             db,
             family_id=_server_family_id(params),
             include_cash_equivalents=bool(params.get('include_cash_equivalents', False)),
+            visible_ids=_server_visible_ids(params),
         )
 
 
@@ -119,7 +154,8 @@ def _tool_list_position_pnl(params: dict) -> dict:
       （聚合页对应显示 "--"，不参与排序、沉底）。
     """
     with database.get_session() as db:
-        positions = exclude_cleared(db.query(Position).filter(Position.family_id == _server_family_id(params))).all()
+        query = exclude_cleared(db.query(Position).filter(Position.family_id == _server_family_id(params)))
+        positions = restrict_visible(query, Position.ledger_id, _server_visible_ids(params)).all()
 
     items = []
     for p in positions:
@@ -167,6 +203,7 @@ def _tool_get_trading_behavior(params: dict) -> dict:
             start_date=params.get('start_date'),
             end_date=params.get('end_date'),
             symbol=params.get('symbol'),
+            visible_ids=_server_visible_ids(params),
         )
 
 
@@ -184,8 +221,14 @@ def _tool_get_portfolio_vs_benchmark(params: dict) -> dict:
     - 相关系数按**对齐后的日收益**算，样本数一并返回（< 3 或零波动回 None）；
     - `available=False` 时**不许**用近似值补：读 `unavailable_reason` 与
       `coverage_gaps`（基准缺哪段）如实告知用户。
+    - `unavailable_reason='partial_visibility'`：当前只看得见部分账户。区间收益是
+      「全家庭组合」的收益、超额是它减基准，引擎只接受 family 或单个 ledger，
+      没有账户集合这一档（D127）。给部分口径数会比基准更误导，所以不给数。
     """
     with database.get_session() as db:
+        blocked = partial_visibility_payload(db, _server_family_id(params), _server_visible_ids(params))
+        if blocked:
+            return blocked
         return build_benchmark_comparison(
             db,
             family_id=_server_family_id(params),
@@ -223,10 +266,18 @@ def _tool_get_return_attribution(params: dict) -> dict:
 
     dimension=instrument 按持仓（多账户同一标的各自成行，便于定位账户）；
     dimension=account 先按 ledger 聚合金额再算占比（聚合只做整数分相加）。
+
+    **部分可见时不可用**（`unavailable_reason='partial_visibility'`）：每行
+    `contribution_pct` 的分母是区间合计，`Σ items ≡ 区间合计` 由引擎同一次遍历
+    构造保证（#2135）。过滤掉不可见账户的 items 再重算合计，等于另起一套算账；
+    原样返回则占比里混着看不见的钱。故进门控，不给数。
     """
     dimension = params.get('dimension') or 'instrument'
     with database.get_session() as db:
         family_id = _server_family_id(params)
+        blocked = partial_visibility_payload(db, family_id, _server_visible_ids(params))
+        if blocked:
+            return blocked
         start_date = params.get('start_date') or _earliest_confirm_date(db, family_id)
         attr = compute_range_attribution(
             db,
@@ -326,10 +377,28 @@ def _tool_get_market_temperature(params: dict) -> dict:
 
 
 def _tool_get_watchlist_overview(params: dict) -> dict:
-    """自选首页摘要：置顶与持仓标的最新价 / 涨跌幅 / 持仓市值（最多 5 条）。"""
+    """自选首页摘要：置顶与持仓标的最新价 / 涨跌幅 / 持仓市值（最多 5 条）。
+
+    标的行是家庭共享的（自选表无 owner / ledger），但**持仓市值是钱**：同一只票的
+    合计市值会含别人账户的份额，故按可见账户收窄（#3246）。
+    """
     with database.get_session() as db:
-        items = build_home_summary(db, family_id=_server_family_id(params))
+        items = build_home_summary(db, _server_family_id(params), _server_visible_ids(params))
     return {'items': _jsonable(items)}
+
+
+def _tool_get_rebalance_reference(params: dict) -> dict:
+    """调仓参考：目标配置偏离 + 行业穿透 + 历史占比均值 + 个基估值分位。
+
+    **部分可见时不可用**（`unavailable_reason='partial_visibility'`）：偏离度是
+    「全家庭持仓」相对目标配置算的，行业穿透走 `build_penetration(db, family_id)`，
+    都绑死家庭全量。基于不完整持仓给出的调仓方向会指向错误的地方，比不给更糟。
+    """
+    with database.get_session() as db:
+        blocked = partial_visibility_payload(db, _server_family_id(params), _server_visible_ids(params))
+    if blocked:
+        return blocked
+    return build_rebalance_reference(params)
 
 
 register_tool('get_assets_overview', _tool_get_assets_overview)
@@ -341,7 +410,7 @@ register_tool('get_return_attribution', _tool_get_return_attribution)
 register_tool('get_fund_nav', _tool_get_fund_nav)
 register_tool('get_market_temperature', _tool_get_market_temperature)
 register_tool('get_watchlist_overview', _tool_get_watchlist_overview)
-register_tool('get_rebalance_reference', build_rebalance_reference)
+register_tool('get_rebalance_reference', _tool_get_rebalance_reference)
 
 
 # 工具元信息：模型据此选工具，代码据此校验参数。
@@ -369,7 +438,8 @@ TOOLS_METADATA = [
         'description': '计算整个投资组合的年化收益率 XIRR：总投入/当前市值/总收益（单位：元）。'
         '当用户问「赚了多少钱」「收益率多少」「年化多少」「总共赚了多少」时使用——'
         '凡问法里带「赚 / 收益 / 收益率」的，优先本工具；'
-        '问「我有多少资产 / 净资产 / 负债」用 get_assets_overview（那是资产存量总览，不是收益口径）',
+        '问「我有多少资产 / 净资产 / 负债」用 get_assets_overview（那是资产存量总览，不是收益口径）。'
+        '统计范围是**当前账号有权查看的账户**（私有账户不计入），叙述时说「你的」而不是「全家的」',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -391,7 +461,8 @@ TOOLS_METADATA = [
         '「今年比大盘好还是差」「收益是本事还是市场给的」时使用。'
         '返回 available=false 时必须如实告知口径不可用及缺口区间，不得用近似值代替；'
         'unavailable_reason=no_baseline 表示区间起点时账户还没有资产（收益率无分母），'
-        '此时应建议用户指定一个更晚的起始日期',
+        '此时应建议用户指定一个更晚的起始日期；unavailable_reason=partial_visibility 表示'
+        '当前只能看见部分账户（区间收益是全家庭的），按 hint 如实告知，不要拿可见部分比基准',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -438,7 +509,8 @@ TOOLS_METADATA = [
         'description': '交易行为画像：平均持有天数与 25/50/75 分位、区间买卖笔数与买卖比、'
         '换手率、连续加仓次数、割肉后回补次数、买入时点价格分位均值。'
         '当用户问「我平均一只基金拿多久」「我是不是爱加仓/爱割肉回补」「我换手高不高」'
-        '「我是不是跌了才买」等操作习惯问题时使用。只给客观统计，不做好坏评价',
+        '「我是不是跌了才买」等操作习惯问题时使用。只给客观统计，不做好坏评价。'
+        '统计范围是当前账号有权查看的账户（流水与持仓市值同范围）',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -469,7 +541,9 @@ TOOLS_METADATA = [
         '收益额（元）与对区间总收益的贡献占比（%，各行相加≈100），按贡献绝对值降序。'
         '当用户问「我这些年赚的钱主要是哪几只赚的」「亏损里最大一块是哪个」「收益都来自'
         '哪个账户」等需要占比（而非逐行绝对盈亏）的问题时使用；只看单只赚亏多少用 '
-        'list_position_pnl。缺省区间为全期',
+        'list_position_pnl。缺省区间为全期。'
+        '若返回 available=False（unavailable_reason=partial_visibility），说明当前账号只能看见'
+        '部分账户、占比的分母是全家的，按 hint 如实告知用户，不要拿可见部分自己凑合计',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -520,7 +594,8 @@ TOOLS_METADATA = [
     },
     {
         'name': 'get_watchlist_overview',
-        'description': '获取自选列表首页摘要：置顶与持仓标的的最新价/涨跌幅/持仓市值（最多 5 条）',
+        'description': '获取自选列表首页摘要：置顶与持仓标的的最新价/涨跌幅/持仓市值（最多 5 条）。'
+        '标的本身是家庭共享的，但持仓市值只统计当前账号有权查看的账户',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -538,7 +613,9 @@ TOOLS_METADATA = [
         '当用户问「我的持仓集中度怎么样」「有没有需要关注的再平衡信号」「持仓是不是太集中」'
         '这类**客观统计**问题时使用；问「我该不该卖」「推荐一只基金」属方向性投资建议，'
         '不归本工具。全部数值由代码算出，顶部固定「客观参考，非投资建议」，'
-        '叙事轮只转述 signals 与 missing_signals，不得补算、不得发挥、不得给操作方向',
+        '叙事轮只转述 signals 与 missing_signals，不得补算、不得发挥、不得给操作方向。'
+        '若返回 available=False（unavailable_reason=partial_visibility），说明只能看见部分账户、'
+        '偏离度是按全家持仓算的，按 hint 如实告知，不要用可见部分推算方向',
         'parameters': {
             'type': 'object',
             'properties': {
@@ -596,6 +673,8 @@ def _validate_params(tool_name: str, params: Any) -> None:
         if r not in params:
             raise ValueError(f'缺少必填参数: {r}')
     for k, v in params.items():
+        if k in _INTERNAL_CTX_KEYS:
+            continue  # 服务端注入的内部键（如可见账户集合），不是模型给的参数
         if k not in props:
             raise ValueError(f'未知参数: {k}')
         _validate_value(k, v, props[k])
