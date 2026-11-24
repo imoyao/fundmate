@@ -12,10 +12,14 @@
 
 安全：先备份受影响行到 data/backups，再删除；物化缓存纯可重建。
 """
+
 import datetime as dt
 import os
 import sqlite3
 import sys
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 sys.path.insert(0, r'd:\codes\fundmate\backend')
 sys.stdout.reconfigure(encoding='utf-8')
@@ -41,7 +45,7 @@ with open(backup_path, 'w', encoding='utf-8') as f:
     for r in rows:
         cols = ','.join(r.keys())
         vals = ','.join("'" + str(v).replace("'", "''") + "'" if v is not None else 'NULL' for v in r)
-        f.write(f"INSERT INTO daily_worth ({cols}) VALUES ({vals});\n")
+        f.write(f'INSERT INTO daily_worth ({cols}) VALUES ({vals});\n')
 print('已备份到:', backup_path)
 
 # 2) 删除脏数据
@@ -61,11 +65,8 @@ print('删除后 004369 daily_worth 行数:', left)
 con.close()
 
 # 5) 引擎验证：微众银行账本（ledger_id=3）11 月现算，11-02/03/04 应为 updown
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-
 eng = create_engine(f'sqlite:///{DB}', connect_args={'check_same_thread': False})
-from app.services import pnl_calendar as P
+from app.services import pnl_calendar as P  # noqa: E402  必须先改 sys.path 才能 import app
 
 with Session(eng) as db:
     start, end = P._resolve_range('2026-11-01', None)
@@ -75,8 +76,17 @@ with Session(eng) as db:
     no_price_ids, _ = P._price_presence(db, decision_positions, start, end)
     shares, txns = P._as_of_shares(db, 1, end)
     computed = P._compute_days(
-        db, 1, positions, decision_positions, start, end, 3,
-        loop_start=start, no_price_ids=no_price_ids, shares=shares, txns=txns,
+        db,
+        1,
+        positions,
+        decision_positions,
+        start,
+        end,
+        3,
+        loop_start=start,
+        no_price_ids=no_price_ids,
+        shares=shares,
+        txns=txns,
     )
     for m in computed:
         if m['date'] in ('2026-11-02', '2026-11-03', '2026-11-04', '2026-11-20'):
