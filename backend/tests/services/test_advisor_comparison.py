@@ -44,51 +44,57 @@ def _seed_fund(market_db, code, type_name):
     return row
 
 
-def _seed_advisor(code, name='测试投顾组合', platform='QIEMAN', **fields):
-    with closing(market_session_factory()()) as db:
-        row = db.query(AdvisorPortfolio).filter(AdvisorPortfolio.code == code).first()
-        if row is None:
-            row = AdvisorPortfolio(code=code, name=name, platform=platform, **fields)
-            db.add(row)
-        else:
-            row.name = name
-            row.platform = platform
-            for key, value in fields.items():
-                setattr(row, key, value)
-        db.commit()
-        return code
+def _seed_advisor(db, code, name='测试投顾组合', platform='QIEMAN', **fields):
+    """建/取投顾组合（market 域，走 `db` 路由会话，与 service 的读一致）。"""
+    row = db.query(AdvisorPortfolio).filter(AdvisorPortfolio.code == code).first()
+    if row is None:
+        row = AdvisorPortfolio(code=code, name=name, platform=platform, **fields)
+        db.add(row)
+    else:
+        row.name = name
+        row.platform = platform
+        for key, value in fields.items():
+            setattr(row, key, value)
+    db.flush()
+    return row
 
 
-def _seed_advisor_holding(code, fund_code, as_of_date=date(2026, 1, 5), **fields):
-    with closing(market_session_factory()()) as db:
-        pid = db.query(AdvisorPortfolio.id).filter(AdvisorPortfolio.code == code).scalar()
-        exists = (
-            db.query(AdvisorHolding)
-            .filter(
-                AdvisorHolding.portfolio_id == pid,
-                AdvisorHolding.fund_code == fund_code,
-                AdvisorHolding.as_of_date == as_of_date,
-            )
-            .first()
+def _seed_advisor_holding(db, code, fund_code, as_of_date=date(2026, 1, 5), **fields):
+    """造一条投顾持仓（market 域，走 `db` 路由会话，与 service 的读一致）。"""
+    pid = db.query(AdvisorPortfolio.id).filter(AdvisorPortfolio.code == code).scalar()
+    exists = (
+        db.query(AdvisorHolding)
+        .filter(
+            AdvisorHolding.portfolio_id == pid,
+            AdvisorHolding.fund_code == fund_code,
+            AdvisorHolding.as_of_date == as_of_date,
         )
-        if exists is None:
-            db.add(
-                AdvisorHolding(
-                    portfolio_id=pid,
-                    fund_code=fund_code,
-                    as_of_date=as_of_date,
-                    source='qieman',
-                    **fields,
-                )
+        .first()
+    )
+    if exists is None:
+        db.add(
+            AdvisorHolding(
+                portfolio_id=pid,
+                fund_code=fund_code,
+                as_of_date=as_of_date,
+                source='qieman',
+                **fields,
             )
-            db.commit()
+        )
+        db.flush()
 
 
 def _seed_my_position(db, symbol, asset_type, name=None, **fields):
     """造一条我的持仓（user 域，走 `db` 路由会话）。"""
     from app.domains.positions.models import Position
 
-    kwargs = dict(family_id=1, symbol=symbol, type=asset_type, name=name or symbol, ownership_status='active')
+    kwargs = dict(
+        family_id=1,
+        symbol=symbol,
+        asset_type=asset_type,
+        name=name or symbol,
+        ownership_status='active',
+    )
     kwargs.update(fields)
     pos = Position(**kwargs)
     db.add(pos)
@@ -107,10 +113,10 @@ def test_three_way_overlap(db):
         _seed_fund(mdb, '000003', '货币型')  # 货基 → 投顾侧剔除
         mdb.commit()
 
-    _seed_advisor('ZH990001')
-    _seed_advisor_holding('ZH990001', '000001', after_ratio=50.0)  # 股票型，保留
-    _seed_advisor_holding('ZH990001', '000002', after_ratio=30.0)  # 债券型，剔除
-    _seed_advisor_holding('ZH990001', '000003', after_ratio=20.0)  # 货币型，剔除
+    _seed_advisor(db, 'ZH990001')
+    _seed_advisor_holding(db, 'ZH990001', '000001', after_ratio=50.0)  # 股票型，保留
+    _seed_advisor_holding(db, 'ZH990001', '000002', after_ratio=30.0)  # 债券型，剔除
+    _seed_advisor_holding(db, 'ZH990001', '000003', after_ratio=20.0)  # 货币型，剔除
 
     _seed_my_position(db, '000001', 'fund')  # 权益，交集命中
     _seed_my_position(db, '000004', 'fund')  # 权益，我独有
@@ -137,8 +143,8 @@ def test_mixed_type_is_not_excluded(db):
         _seed_fund(mdb, '110001', '混合型')
         mdb.commit()
 
-    _seed_advisor('ZH990002')
-    _seed_advisor_holding('ZH990002', '110001', after_ratio=80.0)
+    _seed_advisor(db, 'ZH990002')
+    _seed_advisor_holding(db, 'ZH990002', '110001', after_ratio=80.0)
     _seed_my_position(db, '110001', 'fund')
     db.commit()
 
@@ -170,7 +176,7 @@ def test_raises_on_empty_code(db):
 
 def test_empty_holdings_return_empty_three_way(db):
     """无持仓快照 → 三集合全空，不 500、不拿 0 冒充。"""
-    _seed_advisor('ZH990003')
+    _seed_advisor(db, 'ZH990003')
 
     result = build_advisor_comparison(db, 'ZH990003', 1)
 
@@ -186,7 +192,7 @@ def test_empty_holdings_return_empty_three_way(db):
 
 def test_metrics_transparent_as_float_or_none(db):
     """指标有值 → float；无值 → 保留 key 值为 None（固定契约，前端据此降级「—」）。"""
-    _seed_advisor('ZH990004', max_drawdown=-15.6, sharpe_ratio=0.85, volatility=18.2)
+    _seed_advisor(db, 'ZH990004', max_drawdown=-15.6, sharpe_ratio=0.85, volatility=18.2)
 
     result = build_advisor_comparison(db, 'ZH990004', 1)
     adv = result['advisor']
@@ -203,8 +209,9 @@ def test_metrics_transparent_as_float_or_none(db):
 # ── 端点级 ────────────────────────────────────────────────────────────────
 
 
-def test_endpoint_returns_envelope(client):
-    _seed_advisor('ZH990005', name='端点组合')
+def test_endpoint_returns_envelope(db, client):
+    _seed_advisor(db, 'ZH990005', name='端点组合')
+    db.commit()
     resp = client.get('/api/funds/advisors/ZH990005/compare/')
 
     assert resp.status_code == 200
