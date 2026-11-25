@@ -32,9 +32,7 @@ const props = defineProps<{
 const COLLAPSE_ROWS = 12;
 
 /** 行数下发给 CSS；`--collapse-rows` 只在这一处绑定，SCSS 侧无第二份魔数 */
-const listStyle: CSSProperties = {
-  "--collapse-rows": String(COLLAPSE_ROWS),
-};
+const listStyle: CSSProperties = { "--collapse-rows": String(COLLAPSE_ROWS) };
 
 /**
  * 列数与 SCSS 同源断点（`_breakpoints.scss`：md=48rem / lg=64rem）。

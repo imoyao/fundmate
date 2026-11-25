@@ -14,7 +14,9 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
 function canMatch(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function";
+  return (
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+  );
 }
 
 export function useMediaQuery(query: string) {
