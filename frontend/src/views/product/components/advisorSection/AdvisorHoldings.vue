@@ -198,10 +198,14 @@ function ratioText(item: AdvisorHoldingItem): string {
   border-radius: var(--radius-xs);
 }
 
+/* 占比是这一块的核心数据，用主文本色。**不要**降回 `--text-tertiary-ink`：
+   它在卡片底（`--bg-soft` #f5f0eb）上只有 4.72:1，数字笔画细，宽页面下要横跨
+   两三百像素去认；`--text-primary` 是 12.63:1。也不要用 `--text-secondary`
+   （#6b655c，5.09:1）——它和 tertiary-ink（#716a60）几乎同色，改了等于没改。 */
 .advisor-section__holding-ratio {
   font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary-ink);
+  color: var(--text-primary);
   white-space: nowrap;
 }
 

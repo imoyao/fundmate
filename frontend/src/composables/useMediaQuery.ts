@@ -13,23 +13,33 @@
 
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
+function canMatch(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function";
+}
+
 export function useMediaQuery(query: string) {
-  const matches = ref(false);
-  let mql: MediaQueryList | null = null;
+  /* 首帧就取真实值，**不**用 `ref(false)` 占位：初始 false 等于「先按窄屏渲染」，
+     mounted 后才纠正 ⇒ 宽屏会闪一次错位。两个真实受害者：
+     ① 账本精灵左栏 `v-if="isWide"`（宽屏首帧缺栏、mounted 后闪入，与「不白拉
+        会话列表」的初衷相反地多了一次渲染）；
+     ② 成分基金折叠（初始按 1 列算行数 ⇒ 13 只首帧误判溢出，闪一下
+        「展开全部」再消失）。 */
+  const mql = canMatch() ? window.matchMedia(query) : null;
+  const matches = ref(mql?.matches ?? false);
 
   const apply = (e: MediaQueryList | MediaQueryListEvent) => {
     matches.value = e.matches;
   };
 
   onMounted(() => {
-    mql = window.matchMedia(query);
+    if (!mql) return;
+    /* 首帧已同步取值；这里补订阅，顺便纠正 setup→mounted 之间跨断点的情况 */
     apply(mql);
     mql.addEventListener("change", apply);
   });
 
   onBeforeUnmount(() => {
     mql?.removeEventListener("change", apply);
-    mql = null;
   });
 
   return matches;
