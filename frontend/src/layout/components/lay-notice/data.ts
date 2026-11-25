@@ -35,6 +35,10 @@ export interface ListItem {
   /** 级别色标配色 */
   status: NoticeTagType;
   isRead: boolean;
+  /** 后端归类：调仓类通知点击需深链（其余类仅标记已读） */
+  category: NotificationCategory;
+  /** 来源业务键（调仓类为逗号分隔的组合 code，聚合多组合） */
+  sourceKey: string | null;
 }
 
 /** 消息盒 Tab：一个 Tab 承接后端一种通知归类 */
@@ -69,6 +73,12 @@ export const noticeTabs: TabItem[] = [
     name: "订阅",
     category: "watchlist",
     emptyText: "暂无自选动态"
+  },
+  {
+    key: "4",
+    name: "调仓",
+    category: "rebalance",
+    emptyText: "暂无调仓提醒"
   }
 ];
 
@@ -101,6 +111,8 @@ export function toListItem(item: NotificationItem): ListItem {
     datetime: formatDateTime(item.created_at ?? ""),
     extra: meta.extra,
     status: meta.status,
-    isRead: item.is_read
+    isRead: item.is_read,
+    category: item.category,
+    sourceKey: item.source_key
   };
 }
