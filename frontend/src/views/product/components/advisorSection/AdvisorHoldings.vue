@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, type CSSProperties } from "vue";
 import type { AdvisorHoldingItem, AdvisorHoldingsResult } from "@/api/funds";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { productRoute } from "@/utils/productIdentity";
@@ -25,9 +25,16 @@ const props = defineProps<{
   holdings: AdvisorHoldingsResult;
 }>();
 
-/** 限高内层滚动对应「12 行」（12 × 32px = 384px）。按**行**而不是按只数：
-    列数变了，同一个只数占的行数就变了（3 列时 36 只才够 12 行）。 */
+/** 限高内层滚动对应「12 行」。按**行**而不是按只数：列数变了，同一个只数占的
+    行数就变了（3 列时 36 只才够 12 行）。
+    这是行数的**唯一真源**——SCSS 不再自己写一个 12，而是吃下面下发的
+    `--collapse-rows`（`calc(行高令牌 × 行数)`），改这里就够。 */
 const COLLAPSE_ROWS = 12;
+
+/** 行数下发给 CSS；`--collapse-rows` 只在这一处绑定，SCSS 侧无第二份魔数 */
+const listStyle: CSSProperties = {
+  "--collapse-rows": String(COLLAPSE_ROWS),
+};
 
 /**
  * 列数与 SCSS 同源断点（`_breakpoints.scss`：md=48rem / lg=64rem）。
@@ -77,6 +84,7 @@ function ratioText(item: AdvisorHoldingItem): string {
       :class="{
         'advisor-section__holdings--scroll': collapsible && !expanded
       }"
+      :style="listStyle"
     >
       <li v-for="h in rows" :key="h.fund_code" class="advisor-section__holding">
         <span class="advisor-section__holding-cell">
@@ -139,10 +147,11 @@ function ratioText(item: AdvisorHoldingItem): string {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  /* 超过 12 行：限高内层滚动，「展开全部」后解除 */
+  /* 超过 COLLAPSE_ROWS 行：限高内层滚动，「展开全部」后解除。
+     行数由模板上的 `--collapse-rows` 下发（真源在 TS 的 COLLAPSE_ROWS），
+     这里只做「行高令牌 × 行数」——**不要再写一个 12**。 */
   &--scroll {
-    /* 12 × 32px 行高 = 384px（用行高令牌算，别写第二个月亮数字） */
-    max-height: calc(var(--space-loose) * 12);
+    max-height: calc(var(--space-loose) * var(--collapse-rows));
     overflow-y: auto;
   }
 }
