@@ -152,6 +152,8 @@ function formatTime(iso: string | null): string {
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/scrollbar" as sb;
+
 .session-history {
   display: flex;
   flex: 1;
@@ -191,6 +193,8 @@ function formatTime(iso: string | null): string {
   margin: 0;
   overflow-y: auto;
   list-style: none;
+
+  @include sb.thin;
 }
 
 .session-history__item {

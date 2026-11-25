@@ -410,6 +410,19 @@
      min-height: calc(100vh - 86px) 同源；那边是 JS 内联字符串、暂未引用本令牌，
      收敛属独立小改，不在本次范围。 */
   --layout-topbar-height: 85px;
+  /* 全站页脚（AppFooter / SiteLegalBar）的高度：**唯一来源**。
+     页脚在 el-scrollbar 的内容流里，整屏高的页面若只减顶栏高度，
+     就会多出这一截 → 外层长出第二条滚动条（agent 对话页实测：scrollHeight 比
+     clientHeight 多 40px）。整屏高页面必须写成
+     calc(100dvh - var(--layout-topbar-height) - var(--layout-footer-height))。
+     lay-footer 的 min-height 引用本令牌，两边不会漂。 */
+  --layout-footer-height: 40px;
+  /* 内容区「表面色」：页面里需要与底层同色的贴底 / 浮层元素（对话页输入 dock）用它。
+     浅色下内容区由 .main-container 涂 --bg-warm（实测像素 #faf6f0），
+     暗色下由 dark.scss 的 .app-main 涂 #020409 —— 两者不同源，
+     直接写 --bg-page 必然在一个主题里切出色带（2026-11 实测：浅色 #fdfbf7 vs #faf6f0，
+     暗色 #1f1d1a vs #020409，两块矩形边界肉眼可见）。 */
+  --bg-surface: var(--bg-warm);
   /* 右下角「记一笔」FAB 的安全区宽度（#1714 复核新增）：FAB 固定为
      `bottom-24 right-8`（距底 96px、距右 32px）+ 48px 直径 ⇒ 占据右侧 [32, 80]px。
      贴底 / 固定在右下角的操作区（如对话页输入行）必须用本令牌预留横向空间，

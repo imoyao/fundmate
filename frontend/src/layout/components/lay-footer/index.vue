@@ -30,8 +30,10 @@ withDefaults(
 <style lang="scss" scoped>
 .app-footer {
   /* 高度与左侧边栏折叠区（left-collapse 40px）同高——底部视觉一条水平线；
-     用 min-height 而非固定 height 防止内部内容（长链接/换行）溢出 */
-  min-height: 40px;
+     用 min-height 而非固定 height 防止内部内容（长链接/换行）溢出。
+     数值走 --layout-footer-height：整屏高页面（agent）用它扣减视口高，
+     写死两处必然漂。 */
+  min-height: var(--layout-footer-height);
   color: var(--text-tertiary-ink);
   background: var(--bg-page);
   border-top: 1px solid var(--border-light);
