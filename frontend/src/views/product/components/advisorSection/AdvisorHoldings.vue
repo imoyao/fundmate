@@ -18,8 +18,8 @@ import { DASH } from "./advisorModel";
  *
  * 列数按容器所属版面分档：<768 单列 / ≥768 两列 / ≥1024 三列。这份规格原本只写到
  * 720px 抽屉（两列时每列 324px，名称与数字相邻）；同一组件挂到全宽详情页后，
- * 两列时每列 400~630px，名称贴左、数字钉右，中间上百像素全是空白。三列把每列
- * 拉回 270~420px，与抽屉同密度。
+ * 两列时每列 414~637px，名称贴左、数字钉右，中间两百到四百多像素全是空白。
+ * 三列把每列拉回 267~415px，与抽屉同密度。
  */
 const props = defineProps<{
   holdings: AdvisorHoldingsResult;
@@ -133,8 +133,8 @@ function ratioText(item: AdvisorHoldingItem): string {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* ≥1024 三列：全宽详情页内容区 856~1302px，两列时每列 400~630px，
-     名称与占比之间会空出一大段；三列拉回 270~420px，与抽屉同密度。 */
+  /* ≥1024 三列：全宽详情页内容区 856~1302px，两列时每列 414~637px，
+     名称与占比之间会空出一大段；三列拉回 267~415px，与抽屉同密度。 */
   @include bp.above("lg") {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
