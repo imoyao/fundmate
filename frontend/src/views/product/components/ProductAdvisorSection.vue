@@ -9,6 +9,7 @@ import AdvisorFacts from "./advisorSection/AdvisorFacts.vue";
 import AdvisorAdjusts from "./advisorSection/AdvisorAdjusts.vue";
 import AdvisorFootnote from "./advisorSection/AdvisorFootnote.vue";
 import AdvisorHoldings from "./advisorSection/AdvisorHoldings.vue";
+import AdvisorComparison from "./advisorSection/AdvisorComparison.vue";
 import AdvisorMetrics from "./advisorSection/AdvisorMetrics.vue";
 import {
   buildReturnMetrics,
@@ -136,6 +137,9 @@ watch(() => props.code, load, { immediate: true });
         v-if="holdings && holdings.holdings.length"
         :holdings="holdings"
       />
+
+      <!-- 跨组合对比：我的账户集 vs 本组合（三集合 + 指标对照 + 口径声明） -->
+      <AdvisorComparison :code="code" />
 
       <!-- 主理人调仓：渲染与持仓页同一份（AdvisorAdjustList），此处只补口径说明 -->
       <AdvisorAdjusts :code="code" :platform="profile.platform" />

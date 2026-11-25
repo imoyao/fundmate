@@ -203,6 +203,71 @@ export function getAdvisorAdjusts(code: string, limit = 3) {
   );
 }
 
+// ── 跨组合对比只读接口（调仓解读付费功能 · L3）──
+// 我的「账户集」（全部权益持仓打包）vs 指定投顾组合，基金代码级三集合对比。
+// 家庭作用域（需登录）；投顾侧属 market 域公开参照，我侧属 user 域持仓。
+
+/** 对比里的单只基金（三集合项通用） */
+export interface AdvisorComparisonFund {
+  fund_code: string;
+  fund_name: string;
+  /** 投顾组合里的占比(%)；投顾独有 / 共同持有才有值 */
+  advisor_ratio: number | null;
+  /** 我持仓的市值（分）；我独有 / 共同持有才有值 */
+  my_market_value_cents: number | null;
+}
+
+/** 投顾组合侧（对比的一方） */
+export interface AdvisorComparisonAdvisor {
+  code: string;
+  name: string;
+  platform: string;
+  product_type: string | null;
+  /** 持仓快照日（YYYY-MM-DD）；无快照为 null */
+  as_of_date: string | null;
+  /** 剔除货基/债基后的成分基金 */
+  holdings: AdvisorComparisonFund[];
+  max_drawdown: number | null;
+  sharpe_ratio: number | null;
+  volatility: number | null;
+  annual_return: number | null;
+  return_since_incep: number | null;
+  return_1y: number | null;
+  degraded: boolean;
+}
+
+/** 我的账户集侧（对比的另一方） */
+export interface AdvisorComparisonMine {
+  /** 权益持仓（已剔除货基/债基，按 6 位码归一合并） */
+  holdings: AdvisorComparisonFund[];
+  /** 权益持仓总市值（分） */
+  total_market_value_cents: number;
+  degraded: boolean;
+}
+
+/** 三集合结果 */
+export interface AdvisorComparisonOverlap {
+  common: AdvisorComparisonFund[];
+  advisor_only: AdvisorComparisonFund[];
+  mine_only: AdvisorComparisonFund[];
+}
+
+export interface AdvisorComparisonResult {
+  advisor: AdvisorComparisonAdvisor;
+  mine: AdvisorComparisonMine;
+  overlap: AdvisorComparisonOverlap;
+  /** 口径声明（货基/债基已剔除、混合型未细分、快照滞后、非投资建议） */
+  caveats: string[];
+}
+
+/** 我的账户集 vs 指定投顾组合的基金代码级重合对比（家庭作用域） */
+export function getAdvisorComparison(code: string) {
+  return http.request<ApiResponse<AdvisorComparisonResult>>(
+    "get",
+    `/api/funds/advisors/${code}/compare/`
+  );
+}
+
 // ── 相似基金只读接口（#2480）──
 // 韭圈儿相似度名单（免登录，按需取 + 后端 6h 两级缓存）。
 // 降级契约（与后端 issue 验收第 3 条对应）：degraded=true 时 items 为空、error
