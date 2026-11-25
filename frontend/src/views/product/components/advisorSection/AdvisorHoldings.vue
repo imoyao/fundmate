@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { AdvisorHoldingItem, AdvisorHoldingsResult } from "@/api/funds";
+import { useMediaQuery } from "@/composables/useMediaQuery";
 import { productRoute } from "@/utils/productIdentity";
 import { DASH } from "./advisorModel";
 
@@ -14,13 +15,28 @@ import { DASH } from "./advisorModel";
  * 原实现列数随容器阶跃、百分比对齐的是各列自身右缘、长名 `overflow-wrap:anywhere`
  * 会把行高撑歪——三者叠加必然参差。行栈固定行高 32、百分比固定 72 右对齐后，
  * 任意两项的百分比右缘差 ≤1px。
+ *
+ * 列数按容器所属版面分档：<768 单列 / ≥768 两列 / ≥1024 三列。这份规格原本只写到
+ * 720px 抽屉（两列时每列 324px，名称与数字相邻）；同一组件挂到全宽详情页后，
+ * 两列时每列 400~630px，名称贴左、数字钉右，中间上百像素全是空白。三列把每列
+ * 拉回 270~420px，与抽屉同密度。
  */
 const props = defineProps<{
   holdings: AdvisorHoldingsResult;
 }>();
 
-/** 超过这个只数就限高内层滚动（12 × 32px = 384px） */
-const COLLAPSE_THRESHOLD = 12;
+/** 限高内层滚动对应「12 行」（12 × 32px = 384px）。按**行**而不是按只数：
+    列数变了，同一个只数占的行数就变了（3 列时 36 只才够 12 行）。 */
+const COLLAPSE_ROWS = 12;
+
+/**
+ * 列数与 SCSS 同源断点（`_breakpoints.scss`：md=48rem / lg=64rem）。
+ * 折叠判据要用列数算行数，CSS 算不出来——`useMediaQuery` 只订阅、不渲染，
+ * 少一列或多一列都在同一帧内跟着 `grid-template-columns` 一起变。
+ */
+const mdUp = useMediaQuery("(width >= 48rem)");
+const lgUp = useMediaQuery("(width >= 64rem)");
+const columns = computed(() => (lgUp.value ? 3 : mdUp.value ? 2 : 1));
 
 const expanded = ref(false);
 
@@ -34,7 +50,9 @@ const rows = computed<AdvisorHoldingItem[]>(() =>
   })
 );
 
-const collapsible = computed(() => rows.value.length > COLLAPSE_THRESHOLD);
+const collapsible = computed(
+  () => Math.ceil(rows.value.length / columns.value) > COLLAPSE_ROWS
+);
 
 function nameOf(item: AdvisorHoldingItem): string {
   return item.fund_name || item.fund_code;
@@ -115,7 +133,13 @@ function ratioText(item: AdvisorHoldingItem): string {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* >12 只：限高内层滚动，「展开全部」后解除 */
+  /* ≥1024 三列：全宽详情页内容区 856~1302px，两列时每列 400~630px，
+     名称与占比之间会空出一大段；三列拉回 270~420px，与抽屉同密度。 */
+  @include bp.above("lg") {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* 超过 12 行：限高内层滚动，「展开全部」后解除 */
   &--scroll {
     /* 12 × 32px 行高 = 384px（用行高令牌算，别写第二个月亮数字） */
     max-height: calc(var(--space-loose) * 12);

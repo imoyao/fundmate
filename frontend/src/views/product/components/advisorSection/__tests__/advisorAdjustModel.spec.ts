@@ -69,7 +69,7 @@ describe("adjustEmptyHint：空态要说清「为什么没有」", () => {
 });
 
 describe("ADJUST_LIMIT", () => {
-  it("与自选速览抽屉同档（3 组）——改它等于改两处的信息密度", () => {
-    expect(ADJUST_LIMIT).toBe(3);
+  it("详情页取 10 组——抽屉 3 组是提示位，两者刻意不同档", () => {
+    expect(ADJUST_LIMIT).toBe(10);
   });
 });
