@@ -48,6 +48,7 @@ title: 设计哲学与决策记录 (ADR)
 | 主站实现（`landing.html` / `about.html` / `story.html`） | 按 brand-v1.7 落地的静态营销三页：落地页含 eco 无缝横幅；about 章节结构与 `docs/about.md` 对齐（文案可润色）；story 为深海叙事页。共享令牌源 `site/style.css`（镜像 frontend `colors.css`）。构建：`scripts/build-landing.mjs` + `landing.content.yml` | ✅ 已落地（2026-08-05，about-us 页已删除，footer 含意见反馈/隐私政策链接） |
 | `asset-value-history-design.md` | 资产值变动记录（房贷 / 欠款余额、房产估值）：D99 双时间戳补录边界、D100 锚点业务日期；两笔账共用事件表且只存 `delta`，锚点由 `amount − Σdelta` 派生，纠错追加冲销；含数据准入四问与 A1–A12 验收 | 设计定稿，待实现 |
 | `allocation-governance.md` | 配置目标数据治理（#3031）：五笔钱成员边界只算可投资资产端、分母两阶段、现金归活钱、来源标记 `allocation_source`、归置规则单一真相源、G0→G6 批次与 dry-run/回滚纪律；含 222 笔账外类现金流水对账核实结论（跨账本重复 0 组，真问题是 162 行来源不可追溯） | 方案冻结（2026-11-10，[#3031](https://github.com/imoyao/fundmate/issues/3031)） |
+| `rebalance-interpretation-paid-feature.md` | 调仓解读付费功能：L1 聚合提醒 → L3 跨组合对比 → L4 LLM 深度解读（「说的 vs 做的」分歧识别）；对比口径=基金代码级重合（非股票穿透）、权益边界按 fund_type 剔货基/债基、合规只陈述客观事实；§7.1 L3 设计已对齐 | L3 已实施（PR #3257），L1/L4 待实现 |
 
 ### 设计文档 ↔ issue 反链（2026-08-08 triage）
 
