@@ -94,7 +94,9 @@ function nameOf(item: AdvisorComparisonFund): string {
 }
 
 function ratioText(item: AdvisorComparisonFund): string {
-  return item.advisor_ratio != null ? `${item.advisor_ratio.toFixed(2)}%` : DASH;
+  return item.advisor_ratio != null
+    ? `${item.advisor_ratio.toFixed(2)}%`
+    : DASH;
 }
 
 function marketValueText(cents: number | null): string {
@@ -115,10 +117,7 @@ function marketValueText(cents: number | null): string {
   >
     <h4 class="advisor-section__metrics-title">
       与我的持仓对比
-      <span
-        v-if="result.advisor.as_of_date"
-        class="advisor-section__sub"
-      >
+      <span v-if="result.advisor.as_of_date" class="advisor-section__sub">
         快照 {{ result.advisor.as_of_date }}
       </span>
     </h4>
@@ -139,11 +138,10 @@ function marketValueText(cents: number | null): string {
     </ul>
 
     <!-- 三集合：共同持有 / 投顾独有 / 我独有 -->
-    <div
-      v-if="common.length"
-      class="advisor-comparison__set"
-    >
-      <p class="advisor-comparison__set-title">共同持有（{{ common.length }}）</p>
+    <div v-if="common.length" class="advisor-comparison__set">
+      <p class="advisor-comparison__set-title">
+        共同持有（{{ common.length }}）
+      </p>
       <ul class="advisor-comparison__rows">
         <li
           v-for="item in common"
@@ -167,10 +165,7 @@ function marketValueText(cents: number | null): string {
       </ul>
     </div>
 
-    <div
-      v-if="advisorOnly.length"
-      class="advisor-comparison__set"
-    >
+    <div v-if="advisorOnly.length" class="advisor-comparison__set">
       <p class="advisor-comparison__set-title">
         投顾持有 · 我没有（{{ advisorOnly.length }}）
       </p>
@@ -190,17 +185,16 @@ function marketValueText(cents: number | null): string {
             </RouterLink>
           </span>
           <span class="advisor-comparison__ratio">{{ ratioText(item) }}</span>
-          <span class="advisor-comparison__value advisor-comparison__value--muted">
+          <span
+            class="advisor-comparison__value advisor-comparison__value--muted"
+          >
             —
           </span>
         </li>
       </ul>
     </div>
 
-    <div
-      v-if="mineOnly.length"
-      class="advisor-comparison__set"
-    >
+    <div v-if="mineOnly.length" class="advisor-comparison__set">
       <p class="advisor-comparison__set-title">
         我持有 · 投顾没有（{{ mineOnly.length }}）
       </p>
@@ -219,7 +213,9 @@ function marketValueText(cents: number | null): string {
               {{ nameOf(item) }}
             </RouterLink>
           </span>
-          <span class="advisor-comparison__ratio advisor-comparison__ratio--muted">
+          <span
+            class="advisor-comparison__ratio advisor-comparison__ratio--muted"
+          >
             —
           </span>
           <span class="advisor-comparison__value">
