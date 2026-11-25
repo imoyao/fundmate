@@ -1,6 +1,6 @@
 # 账本精灵回归评估集（#1736 S4，学习计划 §S4；#2621 扩至 45 条；#3049 增 chain/advice 基线 2 条 → 47；
 # D112 增 advice v2 两条 → 49；#3111 增 fund 基金级 4 条 → 53；
-# #1502 步骤 2 增 macro 宏观 2 条 → 55）
+# #1502 步骤 2 增 macro 宏观 2 条 → 55；#3259 L4 增 advisor 投顾调仓解读 1 条 → 56）
 #
 # 用法：pdm run python scripts/agent_eval.py [--tag <tag>] [--limit N] [--delay 秒] [--keep]
 # 判据基于 agent_trace 最后一轮：status ∈ result|clarify|error|blocked，
@@ -13,8 +13,8 @@
 # 单问用例只有一组 cover，此时 metric 是必填——单问的锚点天然是泛词（问「净资产」
 # 答「净资产」），不钉值就只剩一个恒真判据。哪些用例故意不挂见各条注释。
 #
-# 55 条分组（#2621 的 45 条 + #3049 增 chain/advice 基线 2 条 + D112 增 advice v2 2 条
-# + #3111 增 fund 4 条 + #1502 增 macro 2 条）：
+# 56 条分组（#2621 的 45 条 + #3049 增 chain/advice 基线 2 条 + D112 增 advice v2 2 条
+# + #3111 增 fund 4 条 + #1502 增 macro 2 条 + #3259 L4 增 advisor 1 条）：
 #   basic 20        原六工具覆盖（资产 / 收益 / 持仓 / 净值 / 温度计 / 自选）
 #   multi 2         追问收敛（只按最后一轮判定）
 #   attr 4          收益贡献归因（#2618）：占比视角 ≠ 绝对盈亏
@@ -31,6 +31,11 @@
 #   macro 2         宏观指标（#1502 步骤 2）：问 GDP / PMI 必须走 query_macro_indicator，
 #                   只钉路由不挂值——宏观数值按期发布且数据源可能未配置，钉死数字会把
 #                   「如实说查不到」判成回避。这一组防的是问宏观却调市场温度计/基金业绩
+#   advisor 1       投顾调仓解读只读工具（#3259 L4）：问「组合最近调仓做了什么」必须走
+#                   get_advisor_rebalance，只钉路由不挂值——成分占比与分歧三态随报告期
+#                   更新，reason 模板话术会令分歧回 unknown。防的是错调 L3 的
+#                   get_advisor_comparison（持仓重合对照）或 get_rebalance_reference
+#                   （自己的再平衡信号）
 # 越界 4 条的输入取自护栏 B1~B4 确定性句式（tests 恒绿），不赌模型发挥——
 # 这 4 条断言的是「输入侧零模型调用拦截」这一确定性链路。
 # 注意：多轮用例只按最后一轮判定；首轮行为（如应先追问）可按 trace 时间轴人工复核。
@@ -638,3 +643,14 @@ cases:
     turns: ['制造业 PMI 上个月是多少']
     tags: [macro, result]
     expect: { status: result, tool: query_macro_indicator }
+
+  # ── advisor：投顾调仓解读只读工具（1，tag: advisor，#3259 L4 新增工具后补） ──
+  # 为什么不挂 narrative/metric：调仓解读的数值（成分前后占比、分歧三态）随每次调仓
+  # 报告期更新而变，且组合可能无调仓记录（has_rebalance=false）、reason 模板话术会
+  # 令分歧回 unknown——钉死数字/文案会把「如实说没有/无法判定」判成回避。这一组要
+  # 防的是**选了邻近工具**（问「调仓做了什么」却调 L3 的 get_advisor_comparison 去
+  # 做持仓重合对照、或调 get_rebalance_reference 去看自己的再平衡信号）。
+  - id: advisor-01
+    turns: ['且慢 ZH012926 最近一次调仓了是什么意思，它加仓了什么']
+    tags: [advisor, result]
+    expect: { status: result, tool: get_advisor_rebalance }
