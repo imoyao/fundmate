@@ -33,7 +33,7 @@ import {
  * 组件后再复用」。那句注释一直没被兑现，用户看到的结果就是「调仓历史拿不到」。
  *
  * 现在渲染已提取为 `advisorSection/AdvisorAdjustList.vue`（详情页与持仓页同一份），
- * 取数走已上线的 `getAdvisorAdjusts`（最近 3 组）。两处差别只在**口径说明**：
+ * 取数走已上线的 `getAdvisorAdjusts`（最近 10 组，见 `ADJUST_LIMIT`）。两处差别只在**口径说明**：
  * 持仓页强调「不是你自己的买卖」，详情页强调「这条记录来自官方接口还是快照推导」。
  * 因此本区块只挂子组件 `AdvisorAdjusts`，不在这里写渲染与状态文案。
  *
