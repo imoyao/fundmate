@@ -52,6 +52,7 @@ from app.services.adapters.advisor_source import (
 )
 from app.services.job_base import JobStatus, SyncJob
 from app.services.mcp.errors import McpError, McpTokenMissing
+from app.services.rebalance_alert import adjust_dates, emit_for_watched_families
 
 #: 数据来源标识（落 advisor_holdings / advisor_adjust_histories / advisor_industry_allocs 的 source 列）。
 #: 自动抓取统一取 ``platform.lower()``——tiantian / qieman，与 #1167/#1468 起已落库的数据同口径；
@@ -583,11 +584,13 @@ class AdvisorPortfolioSyncJob(SyncJob):
         **官方数据一旦覆盖该组合，同组合的推导行就地清掉**——否则同一时段存在两套真相，
         而这正是本次换源要消灭的形态（存量数据也必须被新口径收编，不能只改代码）。
         """
+        new_adjusts: List[dict] = []
         for p in new_data:
             platform = p.get('platform') or DEFAULT_ADVISOR_PLATFORM
             base_source = platform.lower()
             official_source = p.get('official_rebalance_source') or base_source
             portfolio = self._get_or_create_portfolio(p['code'], platform)
+            before_dates = adjust_dates(self.db, portfolio.id)
             n_ov = self._apply_overview(portfolio, p.get('overview') or {}, base_source)
 
             holdings = p.get('holdings') or {}
@@ -605,11 +608,16 @@ class AdvisorPortfolioSyncJob(SyncJob):
                 else 0
             )
             self.db.commit()
+            new_adjusts.extend(
+                {'code': p['code'], 'adjust_date': d}
+                for d in sorted(adjust_dates(self.db, portfolio.id) - before_dates)
+            )
             self.logger.info(
                 f'投顾组合 {p["code"]}({platform}) 落库: 概览 {n_ov} 字段, 持仓 {n_hold} 条(as_of={as_of}), '
                 f'行业 {n_ind} 条, 官方调仓 {n_hist} 条, 推导调仓 {n_derived} 条'
                 + (f', 清理推导行 {n_purged} 条' if n_purged else '')
             )
+        emit_for_watched_families(self.db, new_adjusts)
 
     def _purge_derived_adjusts(self, portfolio: AdvisorPortfolio, derive_source: str, official_source: str) -> int:
         """官方覆盖该组合后，删掉它历史遗留的快照推导行；返回删除行数。

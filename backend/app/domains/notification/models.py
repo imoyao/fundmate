@@ -40,7 +40,7 @@ class Notification(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         String(20),
         nullable=False,
         default='system',
-        comment='strategy 策略 / watchlist 自选 / system 系统',
+        comment='strategy 策略 / watchlist 自选 / system 系统 / rebalance 调仓',
     )
     title = Column(String(120), nullable=False, comment='消息标题（客观陈述，不含投资建议措辞）')
     body = Column(String(500), nullable=True, comment='消息正文（客观陈述）')

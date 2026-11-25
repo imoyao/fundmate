@@ -13,7 +13,7 @@ class NotificationOut(BaseModel):
 
     id: int
     level: str = Field(..., description='P0 强 / P1 中 / P2 弱')
-    category: str = Field(..., description='strategy 策略 / watchlist 自选 / system 系统')
+    category: str = Field(..., description='strategy 策略 / watchlist 自选 / system 系统 / rebalance 调仓')
     title: str = Field(..., description='消息标题（客观陈述，不含投资建议措辞）')
     body: Optional[str] = Field(None, description='消息正文')
     source_type: str = Field(..., description='产生来源，如 allocation_deviation')
