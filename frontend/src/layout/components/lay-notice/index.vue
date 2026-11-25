@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import {
   getNotifications,
@@ -13,6 +14,8 @@ import NoticeList from "./components/NoticeList.vue";
 import BellIcon from "~icons/ep/bell";
 
 defineOptions({ name: "LayNotice" });
+
+const router = useRouter();
 
 // 下拉浮层不套 CardBlock / SectionHeader：那两个是页面区块容器（自带 padding、
 // radius-lg 与 shadow-raised），塞进 popper 等于在浮层里再画一张卡。浮层的描边与
@@ -82,7 +85,20 @@ const onVisibleChange = (visible: boolean) => {
   if (visible) void fetchList();
 };
 
-/** 点击单条 → 乐观置为已读，失败回滚并提示 */
+/** 调仓类通知点击后的深链目标：单组合 → 组合详情页；多组合聚合 → 自选页。 */
+function rebalanceTarget(item: ListItem): string | null {
+  if (item.category !== "rebalance") return null;
+  const codes = (item.sourceKey ?? "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (codes.length === 1) {
+    return `/portfolio/${encodeURIComponent(codes[0])}`;
+  }
+  return "/watchlist";
+}
+
+/** 点击单条 → 乐观置为已读，失败回滚并提示；调仓类同时深链到组合/自选页 */
 const onRead = async (item: ListItem) => {
   const target = items.value.find(row => row.id === item.id);
   if (!target || target.is_read) return;
@@ -95,7 +111,10 @@ const onRead = async (item: ListItem) => {
     unreadCount.value += 1;
     console.debug("[lay-notice] 标记已读失败，已回滚", e);
     ElMessage.warning("标记已读失败，请稍后重试");
+    return;
   }
+  const path = rebalanceTarget(item);
+  if (path) void router.push(path);
 };
 
 /** 全部已读 → 同样先本地生效，失败整批还原 */

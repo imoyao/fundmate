@@ -256,6 +256,13 @@ NEW_FILE_LIMITS = {
 #   聚合各自下沉为 `_market_value_subq` / `_symbol_holding_stats`（max_func 124 未变，仍低于
 #   上限）——先把新参数塞进 140 行的原函数会把它顶到 138 行，那是「函数变长」而不是「职责
 #   变多」，拆开才对得上基线只减不增的语义。
+# 2026-11-25 调仓聚合提醒（#3258 · L1）按 `--report` 放宽一项，理由留痕：
+# `services/sync/jobs/advisor_portfolio_job.py` 669→677 / max_func 95 / max_cc 23 均未变。
+# `_save_data` 落库后 diff「本轮新增调仓」并交给通知层——`before_dates` 快照必须在落库前
+# 取（覆盖式落库会先删后插，事后无从区分「新增」与「更新」），这是落库方的固有职责、
+# 无法下沉。聚合 / 通知 / watchlist 分组 / 日期集合查询全部下沉到新文件
+# `services/rebalance_alert.py`（走 NEW_FILE_LIMITS），job 只留 8 行接线（1 import +
+# before 快照 + after diff + 一行分发）。max_func/max_cc 未变 = 纯接线增量，非职责膨胀。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/adapters/__init__.py": {'lines': 14, 'max_func': 0, 'max_cc': 0},
@@ -567,7 +574,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/sync/company_resolver.py": {'lines': 457, 'max_func': 69, 'max_cc': 13},
     "backend/app/services/sync/fund_type_resolution.py": {'lines': 126, 'max_func': 23, 'max_cc': 9},
     "backend/app/services/sync/jobs/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
-    "backend/app/services/sync/jobs/advisor_portfolio_job.py": {'lines': 669, 'max_func': 95, 'max_cc': 23},
+    "backend/app/services/sync/jobs/advisor_portfolio_job.py": {'lines': 677, 'max_func': 95, 'max_cc': 23},
     "backend/app/services/sync/jobs/advisor_portfolio_nav_job.py": {'lines': 190, 'max_func': 51, 'max_cc': 14},
     "backend/app/services/sync/jobs/amac_institution_job.py": {'lines': 275, 'max_func': 37, 'max_cc': 8},
     "backend/app/services/sync/jobs/asset_snapshot_job.py": {'lines': 84, 'max_func': 31, 'max_cc': 4},

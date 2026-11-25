@@ -1059,3 +1059,75 @@ def test_failing_platform_does_not_abort_other_platforms_in_same_batch(db):
     assert result['status'] == 'success'
     assert result['stats']['success'] == 1
     assert result['stats']['failed'] == 1
+
+
+# ── L1 调仓聚合提醒挂钩（#3258） ───────────────────────────────────────────
+
+
+def test_rebalance_alert_emitted_for_watched_portfolio(db):
+    """job 落库官方调仓后，自选关注的组合产生 category=rebalance 通知（L1 端到端）。"""
+    from app.domains.notification.models import Notification
+    from app.domains.watchlist.models import WatchlistItem
+
+    # 用户自选关注了该投顾组合（asset_type=portfolio）
+    db.add(WatchlistItem(family_id=1, symbol='XCOVSEX', name='越海', asset_type='portfolio', market='', venue=''))
+    db.commit()
+
+    job = _make_job(
+        db,
+        TIANTIAN=_FakeSource(
+            'TIANTIAN',
+            overview=TIANTIAN_OVERVIEW,
+            holdings=TIANTIAN_HOLDINGS,
+            rebalances=TIANTIAN_REBALANCES,
+        ),
+    )
+    result = job.run(full_sync=True, targets=['XCOVSEX'])
+    assert result['status'] == 'success'
+
+    rows = db.query(Notification).filter(Notification.family_id == 1).all()
+    assert len(rows) == 1
+    assert rows[0].category == 'rebalance'
+    assert '越海' in rows[0].title
+
+
+def test_rebalance_alert_not_emitted_for_unwatched_portfolio(db):
+    """无人关注的组合调仓：不产生通知（通知是增强项，不刷无关家庭）。"""
+    from app.domains.notification.models import Notification
+
+    job = _make_job(
+        db,
+        TIANTIAN=_FakeSource(
+            'TIANTIAN',
+            overview=TIANTIAN_OVERVIEW,
+            holdings=TIANTIAN_HOLDINGS,
+            rebalances=TIANTIAN_REBALANCES,
+        ),
+    )
+    result = job.run(full_sync=True, targets=['XCOVSEX'])
+    assert result['status'] == 'success'
+
+    assert db.query(Notification).filter(Notification.family_id == 1).count() == 0
+
+
+def test_rebalance_alert_no_new_adjust_no_notification(db):
+    """重复同步（无新增调仓日期）：不重复产生通知（dedup + 无新日期双保险）。"""
+    from app.domains.notification.models import Notification
+    from app.domains.watchlist.models import WatchlistItem
+
+    db.add(WatchlistItem(family_id=1, symbol='XCOVSEX', name='越海', asset_type='portfolio', market='', venue=''))
+    db.commit()
+
+    src = _FakeSource(
+        'TIANTIAN',
+        overview=TIANTIAN_OVERVIEW,
+        holdings=TIANTIAN_HOLDINGS,
+        rebalances=TIANTIAN_REBALANCES,
+    )
+    # 第一次：产生 1 条通知
+    _make_job(db, TIANTIAN=src).run(full_sync=True, targets=['XCOVSEX'])
+    assert db.query(Notification).filter(Notification.family_id == 1).count() == 1
+
+    # 第二次：同数据重复同步，无新增 adjust_date → 不再新增通知
+    _make_job(db, TIANTIAN=src).run(full_sync=True, targets=['XCOVSEX'])
+    assert db.query(Notification).filter(Notification.family_id == 1).count() == 1
