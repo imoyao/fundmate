@@ -35,7 +35,6 @@ _CORE_TOOLS: Tuple[str, ...] = (
 
 #: 域 → 该域工具。域内工具只在命中该域时装载。
 _DOMAIN_TOOLS: Dict[str, Tuple[str, ...]] = {
-    # 基金个体维度（「这只基金」而不是「我的账户」）
     'fund': (
         'get_fund_nav',
         'get_fund_profile',
@@ -51,6 +50,7 @@ _DOMAIN_TOOLS: Dict[str, Tuple[str, ...]] = {
         'get_return_attribution',
         'get_watchlist_overview',
         'get_rebalance_reference',
+        'get_advisor_rebalance',
     ),
     # 市场环境维度
     'market': ('get_market_temperature',),

@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 from loguru import logger
 
 from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
+from app.services.rebalance_interpretation import REBALANCE_NARRATIVE_GUIDE
 
 MAX_STEPS = 4
 _REF_KEY = '$from_step'
@@ -190,12 +191,18 @@ def describe(result: dict, tool_name: Optional[str]) -> str:
 
 
 def source_line(result: dict, tool_name: Optional[str], data_json: str) -> str:
-    """叙事 prompt 的数据来源行：单工具与原 f-string 逐字等价。"""
+    """叙事 prompt 的数据来源行：单工具与原 f-string 逐字等价。
+
+    场景级措辞指南（#3259 · L4）挂在这里而非 agent_loop：``source_line`` 已接收
+    ``tool_name``，判断「是不是调仓解读工具」不新增 agent_loop 叙事组装处的分支——
+    agent_loop 是 ``guard_service_size`` 冻结基线（max_cc 38）的重灾区，多一个三元就红。
+    """
+    guide = REBALANCE_NARRATIVE_GUIDE if tool_name == 'get_advisor_rebalance' else ''
     tools = (result.get('_plan') or {}).get('tools')
     if not tools:
-        return f'基于以下分析数据（来自工具 {tool_name}）：{data_json}\n'
+        return f'{guide}基于以下分析数据（来自工具 {tool_name}）：{data_json}\n'
     return (
-        f'基于以下按步骤分组的分析数据（来自 {len(tools)} 个工具，'
+        f'{guide}基于以下按步骤分组的分析数据（来自 {len(tools)} 个工具，'
         f'steps 数组按执行顺序给出每步的 tool 与 data）：{data_json}\n'
         '必须逐个覆盖用户提问中能被对应步骤数据回答的每个子问，'
         '不要遗漏任何一步，也不要把某一步的数据说成另一步的。\n'

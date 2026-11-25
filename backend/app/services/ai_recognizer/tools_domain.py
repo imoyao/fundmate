@@ -14,11 +14,12 @@
 
 from typing import Callable, List
 
+from app.services.ai_recognizer.tools_advisor import install_advisor_tools
 from app.services.ai_recognizer.tools_fund import install_fund_tools
 from app.services.ai_recognizer.tools_macro import install_macro_tools
 
 #: 装配顺序：账户级工具由 tools.py 自带，这里只排「域」工具
-_DOMAIN_INSTALLERS: tuple = (install_fund_tools, install_macro_tools)
+_DOMAIN_INSTALLERS: tuple = (install_fund_tools, install_macro_tools, install_advisor_tools)
 
 
 def install_domain_tools(register: Callable[[str, Callable], None], metadata: List[dict]) -> None:
