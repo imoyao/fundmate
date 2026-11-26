@@ -855,6 +855,55 @@ test.describe("详情页页内导航（#1968）", () => {
     await expect(activeLabel(page)).toHaveText(labels[0]);
   });
 
+  test("渐进滚动：页头钻到吸顶栏下面那一刻，入口已经钉住了", async ({
+    page
+  }) => {
+    // 上面那条「滚到深处」一次跳 2000px，**抓不到**这个洞：一次穿越到很深的位置，
+    // 穿越瞬间 `boundingClientRect.bottom` 已经是很负的数，旧判据碰巧成立。
+    //
+    // 旧实现用 IntersectionObserver + `!isIntersecting && bottom < 0`。但页头是被
+    // **滚动容器**（上沿 = 吸顶工具栏下沿 81px）裁掉的，不是被视口裁掉的，而
+    // `boundingClientRect` 给的是视口坐标：实测滚 200px 时 isIntersecting 已经是
+    // false 而 bottom 还是 **+43**，判据不成立；此后 isIntersecting 不再变化，
+    // 没有新回调 ⇒ floating 永久 false。于是按钮先钻进吸顶栏、再滚出视口，
+    // **整段都点不到**——用户真实的一档一档滚轮操作必现。
+    //
+    // 这一条按 20px 一档滚过盲区，每档做一次命中测试（elementFromPoint）。
+    // 反向验证：判据改回 `bottom < 0` → 约第 6 档起命中吸顶栏，本用例红。
+    await page.goto(`/#/fund/${SYMBOL}`);
+    await expect(page.locator(".holding-section")).toBeVisible({
+      timeout: 60_000
+    });
+
+    const misses: Array<{ step: number; y: number; hit: string }> = [];
+    for (let step = 1; step <= 15; step++) {
+      // 注意 `scrollBy` 是**绝对**赋值（`wrap.scrollTop = y`），不是增量——
+      // 传固定值会让页面停在原地、按钮一直可点，整条用例变成假绿（踩过一次）。
+      await scrollBy(page, step * 20);
+      await page.waitForTimeout(120);
+      const probe = await page.evaluate(() => {
+        const btn = document.querySelector<HTMLElement>(".toc-menu__btn");
+        if (!btn) return { ok: false, y: -999, hit: "no-button" };
+        const r = btn.getBoundingClientRect();
+        const el = document.elementFromPoint(
+          Math.round(r.left + r.width / 2),
+          Math.round(r.top + r.height / 2)
+        );
+        return {
+          ok: !!el && (el === btn || btn.contains(el)),
+          y: Math.round(r.top),
+          hit: el
+            ? `${el.tagName}.${(el.className || "").toString().slice(0, 24)}`
+            : "null"
+        };
+      });
+      if (!probe.ok) misses.push({ step, y: probe.y, hit: probe.hit });
+    }
+
+    // 逐档报告：红的时候要能直接看出「第几档、按钮在哪、被谁挡住」
+    expect(misses).toEqual([]);
+  });
+
   test("响应式：页头下拉在各宽度都可用，条目一致且不撑破视口", async ({
     page
   }) => {

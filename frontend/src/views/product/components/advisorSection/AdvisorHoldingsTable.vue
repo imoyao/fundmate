@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type { AdvisorHoldingItem, AdvisorHoldingsResult } from "@/api/funds";
 import { productRoute } from "@/utils/productIdentity";
 import { centsToYuan, formatAmount } from "@/utils/currency";
-import { DASH, type HeldPosition } from "./advisorModel";
+import { DASH, heldPctText, type HeldPosition } from "./advisorModel";
 
 /**
  * 投顾组合 · 成分基金（重设计 §03，行栈改真表格）。
@@ -120,10 +121,16 @@ function heldAmountTitle(item: AdvisorHoldingItem): string {
   return pos ? `¥${formatAmount(centsToYuan(pos.cents), 2)}` : "";
 }
 
-/** 占我权益仓位的比例；分母非正时没有比例，只显示金额 */
+/**
+ * 占我权益仓位的比例。
+ *
+ * 两个坑都在文案上：
+ * - 「占我 0.0%」不成句 —— 中文里要落在「仓位」这个名词上，否则读作「占我（这个人）」；
+ * - 四舍五入到 0.0% 更糟：明明持有 126 元，界面却说占了 0%，读起来像数据错了。
+ *   不足 0.1% 一律写「<0.1%」——那是「很小」，不是「没有」。
+ */
 function heldPct(item: AdvisorHoldingItem): string {
-  const pct = heldOf(item)?.pct;
-  return pct == null ? "" : `占我 ${pct.toFixed(1)}%`;
+  return heldPctText(heldOf(item)?.pct);
 }
 </script>
 
@@ -171,24 +178,33 @@ function heldPct(item: AdvisorHoldingItem): string {
         <tbody>
           <tr v-for="item in rows" :key="item.fund_code">
             <td>
-              <span class="fund">
-                <RouterLink
-                  v-if="item.in_local_db"
-                  :to="
-                    productRoute({ assetType: 'fund', symbol: item.fund_code })
-                  "
-                  class="fund__name fund__name--link"
-                  :title="nameOf(item)"
-                >
-                  {{ nameOf(item) }}
-                </RouterLink>
-                <span v-else class="fund__name" :title="nameOf(item)">
-                  {{ nameOf(item) }}
-                </span>
-                <span class="fund__code">{{ item.fund_code }}</span>
-                <!-- 未收录本地名录时给灰标：点进去是 404，不如不给链接 -->
-                <span v-if="!item.in_local_db" class="fund__flag">未收录</span>
-              </span>
+              <!-- 标的标识走 ProductDisplay（与自选 / 交易流水同一套「名称 + # 代码」结构），
+                   不在这里另写一份 —— 那份手写版漏了行高、截断规则与代码前缀约定，
+                   两侧迟早会漂移。未收录本地名录的只在 meta 行补一个灰标：
+                   点进去是 404，不如不给链接。 -->
+              <RouterLink
+                v-if="item.in_local_db"
+                :to="
+                  productRoute({ assetType: 'fund', symbol: item.fund_code })
+                "
+                class="advisor-holdings__link"
+              >
+                <ProductDisplay
+                  compact
+                  :name="nameOf(item)"
+                  :symbol="item.fund_code"
+                />
+              </RouterLink>
+              <ProductDisplay
+                v-else
+                compact
+                :name="nameOf(item)"
+                :symbol="item.fund_code"
+              >
+                <template #meta>
+                  <span class="advisor-holdings__flag">未收录</span>
+                </template>
+              </ProductDisplay>
             </td>
             <td class="detail-table__num">
               <span class="weight">
@@ -268,8 +284,9 @@ function heldPct(item: AdvisorHoldingItem): string {
 }
 
 .advisor-holdings__col-held {
-  /* 两行（金额 + 占比）需要比单个「已持有」标签更宽；窄屏靠外层 wrap 横滚兜底 */
-  width: 116px;
+  /* 两行（金额 + 「占我仓位 x%」）比单个「已持有」标签宽得多；
+     实测「占我仓位 <0.1%」在 132px 内不折行，窄屏靠外层 wrap 横滚兜底 */
+  width: 132px;
 }
 
 /* 行高对齐 design.md 的 43px（表头单独收窄，避免首行过高） */
@@ -287,25 +304,11 @@ function heldPct(item: AdvisorHoldingItem): string {
   clip-path: inset(50%);
 }
 
-.fund {
-  display: flex;
-  gap: var(--space-2);
-  align-items: baseline;
-  min-width: 0;
-}
-
-/* 名称允许收缩 + 省略：长基金名在固定列宽下必须先让位给代码与标记 */
-.fund__name {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: var(--text-label);
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-.fund__name--link {
+/* 整格可点（名称与代码同属一个链接），但不要链接的下划线：
+   表格里每行都带下划线会变成一列干扰线，hover 时再给 */
+.advisor-holdings__link {
+  display: block;
+  color: inherit;
   text-decoration: none;
 
   &:hover {
@@ -313,17 +316,12 @@ function heldPct(item: AdvisorHoldingItem): string {
   }
 }
 
-.fund__code {
-  flex: 0 0 auto;
-  font-family: var(--font-number);
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-.fund__flag {
+/* 「未收录」跟在 # 代码后面（ProductDisplay 的 meta 行），弱化成备注而不是标签 */
+.advisor-holdings__flag {
   flex: 0 0 auto;
   padding: 0 var(--space-1);
   font-size: var(--text-label);
+  line-height: 20px;
   color: var(--text-tertiary-ink);
   background: var(--bg-soft);
   border-radius: var(--radius-xs);

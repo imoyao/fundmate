@@ -11,23 +11,27 @@ import { fetchAdvisorProfile } from "./advisorProfileCache";
 /**
  * 投顾组合 · 概览（重设计 §01）。
  *
- * ## 为什么把净值与指标提到这里
+ * ## 这一块只回答「它是什么、现在什么价」
  *
- * 旧版 `AdvisorFacts` 八格里混着三类信息：身份（平台 / 机构）、属性（风险等级 /
- * 产品类型 / 成立日期）、行情（最新净值 / 日涨跌）。用户要在同一张网格里找
- * 「它现在怎么样」，而那一格排在第 7、8 位、字号与「平台」一样大。
+ * 2026-11-26 用户实测：「最大年化、回撤这些数据同一个页面出现一次就够了。」
+ * 此前这里还排着四个 KPI（成立以来 / 近一年 / 最大回撤 / 夏普比率），而 §02
+ * 「收益与风险」逐个都有 —— 同一屏里每个数字出现两次，读者反而不确定该信哪个。
  *
- * 现在分三处：身份压成一行 meta、属性下沉到「组合档案」、行情与四个关键指标
- * 成为首屏主数字（净值）+ KPI 网格。一句话：**概览答「它是什么、现在怎么样、
- * 代价多大」，其余细节各有归处**。
+ * 现在按**指标唯一归属**划分：
+ *
+ * | 内容 | 归属 |
+ * |---|---|
+ * | 净值 / 当日涨跌 / 净值日 | 这里（「现在什么价」只有一处） |
+ * | 区间收益、回撤、波动率、夏普、成立以来、年化 | §02 收益与风险 |
+ * | 平台 / 机构 / 主理人 / 风险等级 / 产品类型 / 成立日期 | §06 组合档案 |
+ *
+ * 保留的身份行只做「一行读人」的摘要——完整属性在档案里，两处措辞刻意不同
+ * （这里不写成立日期，因为它是档案属性，不是行情）。
  *
  * ## 口径
  *
- * - 只渲染有值的项（105 个组合实测：`return_ytd` 2.9%、`running_days` 0%），
- *   一排「—」是「没数据」的另一种噪声；
- * - 收益走文字级涨跌色 + ↑↓ 双编码（颜色不是唯一载体）；回撤与夏普是中性量，
- *   套涨跌色会把「回撤大」读成「涨得多」；
- * - 净值保留 4 位（与库内 `advisor_portfolio_navs.nav` 精度一致），百分比 2 位。
+ * - 净值保留 4 位（与库内 `advisor_portfolio_navs.nav` 精度一致）；
+ * - 日涨跌走文字级涨跌色 + ↑↓ 双编码（颜色不是唯一载体）。
  */
 const props = defineProps<{
   /** 平台组合码（`advisor_portfolios.code`） */
@@ -62,7 +66,8 @@ const platformLabel = computed(() =>
   profile.value ? getAdvisorPlatformLabel(profile.value.platform) : ""
 );
 
-/** 身份行：缺项跳过（不写「—」占位——一行里连着的破折号比信息还长） */
+/** 身份行：缺项跳过（不写「—」占位——一行里连着的破折号比信息还长）。
+ *  **不写成立日期**：它是档案属性（§06 有），概览只回答「谁在管、什么风险」。 */
 const metaLine = computed(() => {
   const p = profile.value;
   if (!p) return [];
@@ -71,60 +76,8 @@ const metaLine = computed(() => {
     p.org_name,
     p.host ? `主理人 ${p.host}` : null,
     p.risk_level,
-    p.product_type,
-    p.estab_date ? `成立 ${p.estab_date}` : null
+    p.product_type
   ].filter((item): item is string => Boolean(item));
-});
-
-interface Kpi {
-  label: string;
-  text: string;
-  class: string;
-  sub: string;
-}
-
-/** 主数字下的 KPI：收益类带涨跌色，回撤 / 夏普为中性（见文件头口径） */
-const kpis = computed<Kpi[]>(() => {
-  const p = profile.value;
-  if (!p) return [];
-  const items: Kpi[] = [];
-
-  if (p.return_since_incep != null) {
-    items.push({
-      label: "成立以来",
-      text: fmtPct(p.return_since_incep),
-      class: riseFallClass(p.return_since_incep),
-      sub: p.estab_date ? `${p.estab_date} 起` : ""
-    });
-  }
-  if (p.return_1y != null) {
-    items.push({
-      label: "近一年",
-      text: fmtPct(p.return_1y),
-      class: riseFallClass(p.return_1y),
-      // 只写月日：完整日期在主数字下方与页头右侧各有一次，KPI 格里再写全年份
-      // 会在窄屏（两列网格 138px 宽）被折成「截至 2026-11-」+「17」两行
-      sub: p.nav_date ? `截至 ${p.nav_date.slice(5)}` : ""
-    });
-  }
-  if (p.max_drawdown != null) {
-    items.push({
-      label: "最大回撤",
-      // 回撤是「峰值到谷底的跌幅」，用绝对值 + 百分号，符号由标签表达
-      text: `${Math.abs(p.max_drawdown).toFixed(2)}%`,
-      class: "",
-      sub: "历史峰值到谷底"
-    });
-  }
-  if (p.sharpe_ratio != null) {
-    items.push({
-      label: "夏普比率",
-      text: p.sharpe_ratio.toFixed(3),
-      class: "",
-      sub: "每单位波动的超额"
-    });
-  }
-  return items;
 });
 
 const strategy = computed(() => strategyText(profile.value));
@@ -142,13 +95,7 @@ const dayChange = computed(() => {
 
 <template>
   <CardBlock class="advisor-overview">
-    <SectionHeader title="概览">
-      <template #action>
-        <span v-if="profile?.nav_date" class="advisor-overview__stamp">
-          净值日 {{ profile.nav_date }}
-        </span>
-      </template>
-    </SectionHeader>
+    <SectionHeader title="概览" />
 
     <p v-if="loading" class="advisor-overview__hint">正在读取投顾组合资料…</p>
     <p v-else-if="failed || !profile" class="advisor-overview__hint">
@@ -160,28 +107,19 @@ const dayChange = computed(() => {
         {{ metaLine.join(" · ") }}
       </p>
 
-      <div class="advisor-overview__grid">
-        <div class="navnow">
-          <p class="navnow__label">最新净值</p>
-          <p class="navnow__value">
-            {{ formatPrice(profile.nav, "fund") }}
-          </p>
-          <p v-if="dayChange" class="navnow__delta" :class="dayChange.class">
-            {{ dayChange.text }}
-            <span class="navnow__delta-note">较前一交易日</span>
-          </p>
-          <p class="navnow__date">
-            {{ profile.nav_date ? `净值日期 ${profile.nav_date}` : "" }}
-          </p>
-        </div>
-
-        <dl v-if="kpis.length" class="kpis">
-          <div v-for="k in kpis" :key="k.label" class="kpi">
-            <dt class="kpi__label">{{ k.label }}</dt>
-            <dd class="kpi__value" :class="k.class">{{ k.text }}</dd>
-            <dd class="kpi__sub">{{ k.sub }}</dd>
-          </div>
-        </dl>
+      <!-- 净值块：净值日紧贴数字（全页只在这里出现一次） -->
+      <div class="navnow">
+        <p class="navnow__label">最新净值</p>
+        <p class="navnow__value">
+          {{ formatPrice(profile.nav, "fund") }}
+        </p>
+        <p v-if="dayChange" class="navnow__delta" :class="dayChange.class">
+          {{ dayChange.text }}
+          <span class="navnow__delta-note">较前一交易日</span>
+        </p>
+        <p class="navnow__date">
+          {{ profile.nav_date ? `净值日期 ${profile.nav_date}` : "" }}
+        </p>
       </div>
 
       <div v-if="strategy" class="strategy" :data-open="strategyOpen">
@@ -200,22 +138,13 @@ const dayChange = computed(() => {
 </template>
 
 <style lang="scss" scoped>
-@use "@/style/breakpoints" as bp;
-
 .advisor-overview__hint {
   margin: 0;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
-/* 页头右侧的状态戳：日期是事实，不抢标题 */
-.advisor-overview__stamp {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-  white-space: nowrap;
-}
-
-/* 身份行：一行读完「谁在管、什么风险、什么时候成立」。
+/* 身份行：一行读完「谁在管、什么风险」。
    用 --text-secondary 而不是 tertiary-ink——它是事实信息，不是注释。 */
 .advisor-overview__meta {
   margin: var(--space-2) 0 0;
@@ -224,19 +153,12 @@ const dayChange = computed(() => {
   color: var(--text-secondary);
 }
 
-.advisor-overview__grid {
-  display: grid;
-  grid-template-columns: minmax(180px, 248px) minmax(0, 1fr);
-  gap: var(--space-5);
-  align-items: end;
+/* 净值块：与身份行之间一条细线分开。全宽左对齐——右侧不再放 KPI（那些指标
+   归 §02，见文件头「指标唯一归属」），所以不需要网格分栏 */
+.navnow {
   padding-top: var(--space-4);
   margin-top: var(--space-4);
   border-top: 1px solid var(--border-light);
-
-  @include bp.below("md") {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-4);
-  }
 }
 
 .navnow__label {
@@ -287,54 +209,6 @@ const dayChange = computed(() => {
 }
 
 /* KPI：1px 分隔用网格背景露出来（比给每格加边框少一圈重叠的 2px） */
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  background: var(--border-light);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-
-  @include bp.below("lg") {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.kpi {
-  padding: var(--space-3) var(--space-compact);
-  background: var(--bg-card);
-}
-
-.kpi__label {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-.kpi__value {
-  margin: 2px 0 0;
-  font-family: var(--font-number);
-  font-size: var(--text-num-strong);
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-
-  &.is-rise {
-    color: var(--color-rise-ink);
-  }
-
-  &.is-fall {
-    color: var(--color-fall-ink);
-  }
-}
-
-.kpi__sub {
-  margin: 1px 0 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
 
 /* 策略说明：两行截断，避免长文把首屏推下去 */
 .strategy {

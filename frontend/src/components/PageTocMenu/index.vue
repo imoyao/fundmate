@@ -73,7 +73,7 @@ watch(
 );
 
 /**
- * 页头滚出视口后，按钮转为**视口右上角悬浮**。
+ * 页头被吸顶工具栏「吃掉」之后，按钮转为**视口右上角悬浮**。
  *
  * ## 为什么必须这样（2026-11-26 实测）
  *
@@ -82,14 +82,22 @@ watch(
  * 用户既看不到也点不到。
  *
  * 而页内导航的**唯一使用场景**恰恰是「已经滚到深处，想跳回/跳到别处」——
- * 入口在顶部可用、其余 99% 的滚动位置不可用，等于没有导航。这是把导航
- * 收进页头换来的空间收益所必须偿还的成本，不是可选项。
+ * 入口只在顶部可用、其余 99% 的滚动位置不可用，等于没有导航。
  *
- * ## 为什么观察页头而不是观察自己
+ * ## 为什么不用 IntersectionObserver（曾经的实现，有洞）
  *
- * 观察自身会形成振荡：一旦自身改为 fixed 就落回视口内 → 观察器判定可见 →
- * 取消 fixed → 又滚出视口 → 再 fixed……页头本身不动，用它做判据是单调的。
- * 只在页头**整体位于视口上方**（bottom < 0）时悬浮；首屏阶段不动。
+ * 旧判据是 `!entry.isIntersecting && entry.boundingClientRect.bottom < 0`。
+ * 但页头是被**滚动容器**裁掉的（容器上沿 = 吸顶工具栏下沿 81px），不是被视口
+ * 裁掉的；而 `boundingClientRect` 给的是**视口坐标**。实测滚到 200px 时
+ * `isIntersecting` 已经是 false 而 `bottom` 还是 **+43**，判据不成立；此后
+ * `isIntersecting` 不再变化，**不会再有新回调** ⇒ `floating` 永久为 false。
+ *
+ * 后果是渐进滚动（用户真实操作）下按钮先钻进吸顶栏、再滚出视口，全程点不到；
+ * 只有「一次跳过整屏」才会在穿越瞬间拿到足够负的 bottom 而碰巧生效——
+ * 这也是之前 e2e 全绿却没发现的原因（用例一次跳 400~1400px）。
+ *
+ * 改为监听滚动、每帧重量一次：判据是「页头顶沿是否越过滚动区上沿」，
+ * 连续且与裁剪方向一致，不存在「只在穿越时判一次」的窗口。
  */
 const floating = ref(false);
 /**
@@ -103,48 +111,54 @@ const floating = ref(false);
  */
 const floatTop = ref("12px");
 
+function scrollerOf(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".app-main .el-scrollbar__wrap");
+}
+
 function measureFloatTop() {
-  const wrap = document.querySelector<HTMLElement>(
-    ".app-main .el-scrollbar__wrap"
-  );
+  const wrap = scrollerOf();
   const top = wrap ? Math.max(wrap.getBoundingClientRect().top, 0) : 0;
   floatTop.value = `${Math.round(top) + 12}px`;
 }
 
-let headerObserver: IntersectionObserver | null = null;
+let raf = 0;
+
+function evaluate() {
+  raf = 0;
+  // 每次重新取节点：路由内重渲染会把页头换掉，缓存引用会让判据停在挂载那一刻
+  const header = root.value?.closest<HTMLElement>(".page-header");
+  if (!header) return;
+  const wrap = scrollerOf();
+  // 没有独立滚动容器时（整页 window 滚动）等价于视口上沿
+  const boundary = wrap ? wrap.getBoundingClientRect().top : 0;
+  const next = header.getBoundingClientRect().top <= boundary;
+  if (next !== floating.value) floating.value = next;
+  // 顶栏高度随布局/缩放变化，浮起来时每帧对一次，代价是两次 rect
+  if (next) measureFloatTop();
+}
+
+function schedule() {
+  if (raf) return;
+  raf = requestAnimationFrame(evaluate);
+}
 
 onMounted(() => {
   document.addEventListener("mousedown", onDocumentPointerDown, true);
   document.addEventListener("keydown", onKeydown);
-
-  // 页头随内容滚动，不在滚动宿主上做阈值判断——IntersectionObserver 用视口
-  // 作 root 即可，滚动容器变化时会自然重算，不必知道页面把滚动放在哪一层
-  const header = root.value?.closest(".page-header");
-  if (!header) return;
-  headerObserver = new IntersectionObserver(
-    entries => {
-      const entry = entries[0];
-      floating.value =
-        !entry.isIntersecting && entry.boundingClientRect.bottom < 0;
-    },
-    { threshold: 0 }
-  );
-  headerObserver.observe(header);
-
+  // scroll 不冒泡，但捕获阶段会经过 window —— 这样不必知道页面把滚动放在哪一层
+  window.addEventListener("scroll", schedule, { passive: true, capture: true });
+  window.addEventListener("resize", schedule);
   // 首屏就可能在深处（刷新后恢复滚动位置 / 从锚点链接进来）
-  measureFloatTop();
-});
-
-// 浮起来之前先量一次：等真的浮动再量会让按钮有一帧压在顶栏上
-watch(floating, value => {
-  if (value) measureFloatTop();
+  evaluate();
 });
 
 onBeforeUnmount(() => {
-  headerObserver?.disconnect();
-  headerObserver = null;
+  if (raf) cancelAnimationFrame(raf);
+  raf = 0;
   document.removeEventListener("mousedown", onDocumentPointerDown, true);
   document.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("scroll", schedule, { capture: true });
+  window.removeEventListener("resize", schedule);
 });
 </script>
 
