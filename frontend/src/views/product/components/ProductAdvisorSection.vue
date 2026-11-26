@@ -15,6 +15,7 @@ import AdvisorTimeline from "./advisorSection/AdvisorTimeline.vue";
 import AdvisorDirectionCompare from "./advisorSection/AdvisorDirectionCompare.vue";
 import AdvisorArchive from "./advisorSection/AdvisorArchive.vue";
 import { fetchAdvisorProfile } from "./advisorSection/advisorProfileCache";
+import type { HeldPosition } from "./advisorSection/advisorModel";
 
 /**
  * 详情页「投顾组合」区块 —— 下部五块（收益与风险 / 成分基金 / 调仓 / 账户对照 / 档案）。
@@ -56,12 +57,30 @@ const platformLabel = computed(() =>
 );
 
 /**
- * 「已持有」列的真相源：对比端点的共同持有集合。
+ * 「我的持仓」列的真相源：对比端点的共同持有集合，**连同我的市值与占比**。
+ *
+ * 只给「已持有」这个布尔状态是不够的（2026-11-26 用户实测）：「假如买的是观察仓，
+ * 有什么价值呢，所以要一眼看到」——同一只基金，我买了 500 元还是 5 万元，
+ * 结论完全不同（前者只是建了个观察位，后者才是真仓位）。
+ *
+ * 占比分母是**我的权益仓位总市值**（`mine.total_market_value_cents`，已剔除货基 /
+ * 债基，与组合侧同口径）。分母非正时占比为 null，界面只显示金额——不拿 0 做分母
+ * 编出一个 0%。
+ *
  * `null` 表示**未知**（对比取不到 / 未登录），与「都没持有」是两件事。
  */
-const heldCodes = computed<string[] | null>(() => {
+const heldByCode = computed<Record<string, HeldPosition> | null>(() => {
   if (!comparison.value) return null;
-  return comparison.value.overlap.common.map(item => item.fund_code);
+  const total = comparison.value.mine.total_market_value_cents;
+  const map: Record<string, HeldPosition> = {};
+  for (const item of comparison.value.overlap.common) {
+    const cents = item.my_market_value_cents ?? 0;
+    map[item.fund_code] = {
+      cents,
+      pct: total > 0 ? (cents / total) * 100 : null
+    };
+  }
+  return map;
 });
 
 async function load() {
@@ -121,7 +140,7 @@ watch(() => props.code, load, { immediate: true });
     <AdvisorHoldingsTable
       id="nav-advisor-holdings"
       :holdings="holdings"
-      :held-codes="heldCodes"
+      :held-by-code="heldByCode"
     />
 
     <AdvisorTimeline

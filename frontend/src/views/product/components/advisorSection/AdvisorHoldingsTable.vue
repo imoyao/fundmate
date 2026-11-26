@@ -4,7 +4,8 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type { AdvisorHoldingItem, AdvisorHoldingsResult } from "@/api/funds";
 import { productRoute } from "@/utils/productIdentity";
-import { DASH } from "./advisorModel";
+import { centsToYuan, formatAmount } from "@/utils/currency";
+import { DASH, type HeldPosition } from "./advisorModel";
 
 /**
  * 投顾组合 · 成分基金（重设计 §03，行栈改真表格）。
@@ -16,22 +17,29 @@ import { DASH } from "./advisorModel";
  * 自己相加。改成表格后权重列带条内条、默认按占比降序、表头直接给「前三大合计」——
  * 「这只组合有多集中」一眼可得。
  *
- * ## 「已持有」列为什么可能是「—」
+ * ## 「我的持仓」列为什么给金额和占比，而不是一个「已持有」标签
  *
- * 该列数据来自**对比端点**（`overlap.common` 的基金代码）。未登录 / 对比取不到时，
+ * 2026-11-26 用户实测：「只是已持有这个状态肯定不够，假如买的观察仓，有什么价值呢，
+ * 所以要一眼看到。」同一只基金，我买了 500 元还是 5 万元，对「要不要跟这个组合」
+ * 是不同的答案 —— 状态是二元的，仓位才是可判断的。
+ *
+ * 该列数据来自**对比端点**（`overlap.common`，带我的市值）。未登录 / 对比取不到时，
  * 这一列是**未知**而不是「都没持有」——两者对用户是天差地别的结论（后者会让人以为
- * 自己与该组合零重合）。故入参用 `string[] | null`：null 渲染「—」，不渲染「未持有」。
+ * 自己与该组合零重合）。故入参用 `Record | null`：null 渲染「—」，不渲染「未持有」。
  */
 const props = defineProps<{
   holdings: AdvisorHoldingsResult | null;
-  /** 我持有的基金代码（来自对比端点）；null = 未知，不写成「未持有」 */
-  heldCodes: string[] | null;
+  /**
+   * 我持有的成分基金 → **我的市值 + 占我权益仓位比例**（来自对比端点）；
+   * null = 未知，不写成「未持有」。
+   */
+  heldByCode: Record<string, HeldPosition> | null;
 }>();
 
 const sortDesc = ref(true);
 
-const heldSet = computed(() =>
-  props.heldCodes ? new Set(props.heldCodes) : null
+const heldMap = computed(() =>
+  props.heldByCode ? new Map(Object.entries(props.heldByCode)) : null
 );
 
 /** 占比缺失的排最后（不参与比较，避免 NaN 排序把行序打乱） */
@@ -87,8 +95,35 @@ function barWidth(item: AdvisorHoldingItem): string {
 
 /** 已持有 / 未持有 / 未知（null）三态 */
 function heldState(item: AdvisorHoldingItem): "yes" | "no" | "unknown" {
-  if (!heldSet.value) return "unknown";
-  return heldSet.value.has(item.fund_code) ? "yes" : "no";
+  if (!heldMap.value) return "unknown";
+  return heldMap.value.has(item.fund_code) ? "yes" : "no";
+}
+
+function heldOf(item: AdvisorHoldingItem): HeldPosition | null {
+  return heldMap.value?.get(item.fund_code) ?? null;
+}
+
+/**
+ * 我的持仓金额（整数元 + 千分位）。
+ *
+ * 取整而不是两位小数：这一列要回答「是观察仓还是真仓位」，元位足够区分量级，
+ * 角分只会在窄列里把数字挤成折行。需要精确值时可看 title 全精度。
+ */
+function heldAmount(item: AdvisorHoldingItem): string {
+  const pos = heldOf(item);
+  return pos ? `¥${formatAmount(centsToYuan(pos.cents), 0)}` : "";
+}
+
+/** 全精度金额，挂 title（鼠标悬停可核对到分） */
+function heldAmountTitle(item: AdvisorHoldingItem): string {
+  const pos = heldOf(item);
+  return pos ? `¥${formatAmount(centsToYuan(pos.cents), 2)}` : "";
+}
+
+/** 占我权益仓位的比例；分母非正时没有比例，只显示金额 */
+function heldPct(item: AdvisorHoldingItem): string {
+  const pct = heldOf(item)?.pct;
+  return pct == null ? "" : `占我 ${pct.toFixed(1)}%`;
 }
 </script>
 
@@ -167,7 +202,14 @@ function heldState(item: AdvisorHoldingItem): "yes" | "no" | "unknown" {
               </span>
             </td>
             <td>
-              <span v-if="heldState(item) === 'yes'" class="held">已持有</span>
+              <span v-if="heldState(item) === 'yes'" class="held">
+                <span class="held__amount" :title="heldAmountTitle(item)">{{
+                  heldAmount(item)
+                }}</span>
+                <span v-if="heldPct(item)" class="held__pct">
+                  {{ heldPct(item) }}
+                </span>
+              </span>
               <span v-else-if="heldState(item) === 'no'" class="held-none">
                 未持有
               </span>
@@ -226,7 +268,8 @@ function heldState(item: AdvisorHoldingItem): "yes" | "no" | "unknown" {
 }
 
 .advisor-holdings__col-held {
-  width: 96px;
+  /* 两行（金额 + 占比）需要比单个「已持有」标签更宽；窄屏靠外层 wrap 横滚兜底 */
+  width: 116px;
 }
 
 /* 行高对齐 design.md 的 43px（表头单独收窄，避免首行过高） */
@@ -317,25 +360,26 @@ function heldState(item: AdvisorHoldingItem): "yes" | "no" | "unknown" {
   white-space: nowrap;
 }
 
-/* 已持有用主色系，**不用**成功绿：绿色在本仓是「跌」，绿点会被读成在跌 */
+/* 已持有：金额为主（等宽数字）、占比为辅，两行。
+   用主色系而**不用**成功绿：绿色在本仓是「跌」，绿字会被读成在跌。 */
 .held {
-  display: inline-flex;
-  gap: var(--space-1);
-  align-items: center;
-  padding: 1px 7px;
-  font-size: var(--text-label);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.3;
+}
+
+.held__amount {
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
   color: var(--color-primary-ink);
   white-space: nowrap;
-  background: var(--color-primary-10);
-  border-radius: var(--radius-pill);
+}
 
-  &::before {
-    width: 4px;
-    height: 4px;
-    content: "";
-    background: currentColor;
-    border-radius: 50%;
-  }
+.held__pct {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  white-space: nowrap;
 }
 
 .held-none {

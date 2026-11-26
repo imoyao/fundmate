@@ -10,6 +10,22 @@ import type { AdvisorProfileResult } from "@/api/products";
 
 export const DASH = "—";
 
+/**
+ * 我持有某只成分基金的**仓位事实**。
+ *
+ * - `cents`：我的市值（整数分，后端 `*_cents` 口径，展示经 `centsToYuan`）；
+ * - `pct`：占我**权益仓位总市值**的比例（%）；分母非正时为 null，界面只显示金额。
+ *
+ * 为什么不只传一个布尔「已持有」（2026-11-26 用户实测）：「假如买的是观察仓，
+ * 有什么价值呢」——500 元的观察位和 5 万元的真仓位，对「要不要跟这个组合」
+ * 是完全不同的答案，必须一眼看到量级。
+ */
+export interface HeldPosition {
+  cents: number;
+  /** 占我权益市值的百分比；分母 ≤ 0（空仓 / 取不到）时为 null */
+  pct: number | null;
+}
+
 /** 收益类指标：只保留有值的项（后端 0% 填充字段恒为 null，不占版面） */
 export interface ReturnMetric {
   label: string;
