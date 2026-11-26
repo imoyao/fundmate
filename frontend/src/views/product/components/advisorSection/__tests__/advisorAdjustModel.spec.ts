@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   ADJUST_LIMIT,
   adjustEmptyHint,
-  derivedFromSnapshots
+  derivedFromSnapshots,
+  countByTone,
+  sourceLabelOf
 } from "../advisorAdjustModel";
 
 describe("derivedFromSnapshots：什么时候必须挂「快照推导」声明", () => {
@@ -71,5 +73,55 @@ describe("adjustEmptyHint：空态要说清「为什么没有」", () => {
 describe("ADJUST_LIMIT", () => {
   it("详情页取 10 组——抽屉 3 组是提示位，两者刻意不同档", () => {
     expect(ADJUST_LIMIT).toBe(10);
+  });
+});
+
+describe("countByTone：加 / 减计数要把两套用词都收进来", () => {
+  const group = (ops: (string | null)[]) => ({
+    adjust_date: "2026-10-28",
+    reason: null,
+    source: "qieman",
+    items: ops.map((op_name, i) => ({
+      fund_code: `00000${i}`,
+      fund_name: null,
+      op_name,
+      pre_ratio: 10,
+      after_ratio: 12
+    }))
+  });
+
+  it("天天 / 快照那套用词（加仓、减仓）", () => {
+    expect(countByTone(group(["加仓", "减仓", "加仓"]))).toEqual({
+      add: 2,
+      cut: 1
+    });
+  });
+
+  it("且慢官方那套用词（调入、调增 / 调出、调减）同样计入", () => {
+    // 漏掉官方用词的后果不是报错，而是整片计数变 0 —— 用户会以为调仓记录坏了
+    expect(countByTone(group(["调入", "调增", "调出", "调减"]))).toEqual({
+      add: 2,
+      cut: 2
+    });
+  });
+
+  it("持平 / 未知动作 / 缺失不计入两侧（它们不是方向）", () => {
+    expect(countByTone(group(["持平", null, "申购"]))).toEqual({
+      add: 0,
+      cut: 0
+    });
+  });
+});
+
+describe("sourceLabelOf：来源标注要一眼看出「不是官方披露」", () => {
+  it("四个已知来源各有中文标注", () => {
+    expect(sourceLabelOf("qieman_official")).toBe("官方披露");
+    expect(sourceLabelOf("qieman")).toBe("快照推导");
+    expect(sourceLabelOf("tiantian")).toBe("天天官方");
+    expect(sourceLabelOf("qieman_manual")).toBe("手动导入");
+  });
+
+  it("未知来源原样透出，不伪装成已知来源", () => {
+    expect(sourceLabelOf("howbuy")).toBe("howbuy");
   });
 });

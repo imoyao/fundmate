@@ -1,0 +1,33 @@
+/**
+ * 「查看更早 / 调仓理由」这类文字按钮的通用样式（局部 partial）。
+ *
+ * 为什么单独一层：`AdvisorTimeline` 与它的子件 `AdvisorAdjustEntry` 里各有一处
+ * `.link-more`（宿主是「查看更早的调仓」，子件是「调仓理由」），而 scoped 样式
+ * 不跨组件继承——两边各写一份必然漂移（字号 / 颜色 / 箭头旋转不同步）。
+ * 抽成 partial 后 `@use` 各编译一次，类名完全相同。
+ */
+.link-more {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: 0;
+  margin-top: var(--space-2);
+  font-size: var(--text-label);
+  color: var(--color-primary-ink);
+  cursor: pointer;
+  background: none;
+  border: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.link-more__chev {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.link-more[aria-expanded="true"] .link-more__chev {
+  transform: rotate(90deg);
+}

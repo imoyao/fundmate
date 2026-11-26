@@ -50,13 +50,31 @@ export function findScroller(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/**
+ * 探针元素：从谁往上找滚动容器。
+ *
+ * 首选吸顶导航 `.page-nav`（它一定紧贴滚动区顶部，祖先链最短）；但页内导航
+ * 的形态是投影可换的（2026-11 产品详情页改成页头右上角下拉 `PageTocMenu`，
+ * 页面里**根本没有** `.page-nav`）——只认它会让 `currentScroller()` 在那种页面
+ * 上恒为 null，进而 `spyLine()` 退化成视口顶 + 8：吸顶区被算掉一整个页头高度，
+ * scroll-spy 提前一格跳、goTo 把区块顶边停到页头下面被裁掉。
+ * 故兜底用任一 `nav-*` 锚点（所有接了页内导航的页面都有），语义完全等价：
+ * 锚点与导航同在滚动内容里，往上找得到的就是同一个滚动宿主。
+ */
+function scrollerProbe(): HTMLElement | null {
+  return (
+    document.querySelector<HTMLElement>(".page-nav") ??
+    document.querySelector<HTMLElement>('[id^="nav-"]')
+  );
+}
+
 /** 吸顶后的滚动容器（fixedHeader 模式下是 `.el-scrollbar__wrap`，非 fixed 模式
  *  整页滚动返回 null）。缓存 + resize 失效：滚动容器不随滚动变，但随视口变
  *  （布局模式 / 侧边栏折叠都可能切换滚动宿主）。**null 不缓存**，见文件头。 */
 export function currentScroller(): HTMLElement | null {
   if (cachedScroller) return cachedScroller;
-  const nav = document.querySelector<HTMLElement>(".page-nav");
-  const found = nav ? findScroller(nav) : null;
+  const probe = scrollerProbe();
+  const found = probe ? findScroller(probe) : null;
   if (found) cachedScroller = found;
   return found;
 }
@@ -64,7 +82,8 @@ export function currentScroller(): HTMLElement | null {
 /** 吸顶定位线（视口坐标）：滚动容器顶沿 + 胶囊高 + 8px 呼吸位。
  *  **不能取胶囊当前 rect**：页面在顶部时胶囊尚未吸顶、rect 偏下，点击跳转会
  *  少滚一截（实测差约 130px，落点悬在胶囊下方）。取容器顶沿即吸顶后的位置。
- *  xl+ 胶囊 display:none（offsetHeight 0），线退到容器顶沿 + 8。 */
+ *  xl+ 胶囊 display:none（offsetHeight 0），线退到容器顶沿 + 8。
+ *  没有胶囊的形态（页头下拉 `PageTocMenu`）增量同为 0，同上。 */
 export function spyLine(): number {
   const nav = document.querySelector<HTMLElement>(".page-nav");
   const base = currentScroller()?.getBoundingClientRect().top ?? 0;

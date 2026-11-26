@@ -268,6 +268,64 @@ export function getAdvisorComparison(code: string) {
   );
 }
 
+// ── 投顾方向对照（详情页 §05）──
+// 两边都折成五方向（大盘/中盘/小盘/港股/固收）的占比，用来回答「我们差在哪」。
+// 组合按披露权重加权、我按市值加权；覆盖率是结论的一部分（缺箱体的权重不进加权、
+// 但会把覆盖率拉低），前端必须显示，不能按 100% 呈现。
+
+/** 单个方向：value 为百分比（0-100） */
+export interface AdvisorStyleDirection {
+  key: string;
+  value: number;
+}
+
+export interface AdvisorStyleCompareAdvisorSide {
+  as_of_date: string | null;
+  /** false = 组合没有任何持仓快照 → directions 为空（不是五个 0） */
+  has_snapshot: boolean;
+  directions: AdvisorStyleDirection[];
+  /** 进入加权的基金数 */
+  fund_count: number;
+  /** 有箱体的披露权重合计(%) */
+  covered_weight_pct: number | null;
+  coverage_pct: number | null;
+  /** 有权重但拿不到箱体的基金（覆盖率不为 100 时说明差在哪） */
+  missing: {
+    fund_code: string;
+    fund_name: string | null;
+    weight_pct: number;
+  }[];
+  degraded: boolean;
+}
+
+export interface AdvisorStyleCompareMineSide {
+  directions: AdvisorStyleDirection[];
+  total_market_value_cents: number;
+  coverage_pct: number | null;
+  fund_count: number;
+  /** 风格箱时点（各基金各自最新，取最大日） */
+  period_to: string | null;
+  degraded: boolean;
+}
+
+export interface AdvisorStyleCompareResult {
+  code: string;
+  name: string;
+  platform: string;
+  advisor: AdvisorStyleCompareAdvisorSide;
+  mine: AdvisorStyleCompareMineSide;
+  /** 口径声明（风格来源、加权方式、非投资建议） */
+  caveats: string[];
+}
+
+/** 指定投顾组合 vs 我的账户：五方向风格暴露对照（家庭作用域） */
+export function getAdvisorStyleCompare(code: string) {
+  return http.request<ApiResponse<AdvisorStyleCompareResult>>(
+    "get",
+    `/api/funds/advisors/${code}/style-compare/`
+  );
+}
+
 // ── 相似基金只读接口（#2480）──
 // 韭圈儿相似度名单（免登录，按需取 + 后端 6h 两级缓存）。
 // 降级契约（与后端 issue 验收第 3 条对应）：degraded=true 时 items 为空、error

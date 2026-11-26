@@ -27,7 +27,14 @@ const NAV_LABELS: Record<string, string> = {
   "nav-style": "投资风格",
   "nav-index": "指数资料",
   "nav-manager": "基金经理",
-  "nav-advisor": "投顾组合",
+  // 投顾组合（2026-11 重设计）：从「一张卡」拆成六块，各自可跳。
+  // 标签与各区块 SectionHeader 标题**逐字一致**（读屏与视觉同一套词汇）。
+  "nav-advisor": "概览",
+  "nav-advisor-returns": "收益与风险",
+  "nav-advisor-holdings": "成分基金",
+  "nav-advisor-adjusts": "主理人调仓",
+  "nav-advisor-compare": "与我账户的对照",
+  "nav-advisor-archive": "组合档案",
   "nav-bond": "深度分析",
   "nav-related": "关联标的",
   "nav-external": "更多数据",

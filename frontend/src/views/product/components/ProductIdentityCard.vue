@@ -18,13 +18,13 @@
   （scripts/check_vue_size.mjs），识别卡是纯展示、无取数，是最直接的拆出单元。
 -->
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 import type { ProductResolveResult } from "@/api/products";
 import { showsCodeItem } from "./productIdentityFacts";
 
-defineProps<{
+const props = defineProps<{
   product: ProductResolveResult;
 }>();
 
@@ -36,10 +36,28 @@ const { ensure: ensureEnums, marketLabel, venueLabel } = useEnumLabels();
 onMounted(() => {
   void ensureEnums();
 });
+
+/**
+ * 有没有任何一项要展示。
+ *
+ * 组合 / 经理类**不展示代码**（设计 §2.6），它们也没有市场 / 场所；若用户既没自选
+ * 也没持有，这一卡就是**一张只剩内边距的空白卡**——在投顾组合页上它正好挡在概览
+ * 前面（实测 1440 视口下一块 30px 高的空壳），看起来像页面加载坏了。
+ * 故本卡按「有内容才渲染」处理：`in_watchlist` / `has_position` 是 null（未知）时
+ * 不算内容，异步变为 true 时卡片会自动出现。
+ */
+const hasAnyFact = computed(
+  () =>
+    showsCodeItem(props.product.asset_type) ||
+    Boolean(props.product.market) ||
+    Boolean(props.product.venue) ||
+    props.product.in_watchlist === true ||
+    props.product.has_position === true
+);
 </script>
 
 <template>
-  <CardBlock class="product-detail__hero">
+  <CardBlock v-if="hasAnyFact" class="product-detail__hero">
     <dl class="product-detail__facts">
       <!-- 代码项按品类隐藏（#2216 / #2228 · 设计 §2.6）：组合 / 经理类的 symbol 是
            **内部编码**（`MGR_98CE0328FFF1` 经 resolve 大写化、投顾组合的平台原生码），

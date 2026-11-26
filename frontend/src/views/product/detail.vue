@@ -9,8 +9,7 @@ import { assetTypeLabel, useEnumLabels } from "@/composables/useEnumLabels";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
 import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
-import PageNav from "@/components/PageNav/index.vue";
-import PageToc from "@/components/PageToc/index.vue";
+import PageTocMenu from "@/components/PageTocMenu/index.vue";
 import ProductDetailSections from "./components/ProductDetailSections.vue";
 import { useProductPageNav } from "./composables/useProductPageNav";
 import { useSkeletonThreshold } from "@/composables/useSkeletonThreshold";
@@ -33,7 +32,7 @@ const product = ref<ProductResolveResult | null>(null);
 /** 区块容器（锚点扫描与 MutationObserver 的挂载点，见 useProductPageNav） */
 const pageMain = ref<HTMLElement>();
 
-// 页内导航（#1968 子卡）：<xl 顶部锚点胶囊 + xl+ 右侧目录 rail。
+// 页内导航（#1968 子卡，2026-11 形态变更）：页头右上角下拉（PageTocMenu）。
 // state / scroll-spy 全在 composable 里，本文件只接线——detail.vue 已近 400 行
 // 门禁线（scripts/check_vue_size.mjs），不再往里塞监听逻辑。
 const {
@@ -127,6 +126,16 @@ watch(productRef, loadProduct, { immediate: true });
   <div class="product-detail" :style="{ backgroundColor: 'var(--bg-page)' }">
     <PageHeaderBar :title="headerTitle" :subtitle="headerSubtitle">
       <template #action>
+        <!-- 页内导航（2026-11 形态变更）：从「顶部胶囊 + 右侧 rail」收到**页头右上角下拉**。
+             理由见 components/PageTocMenu 头注释：组合详情页六区块的胶囊会挤成两行，
+             而右侧 rail 固定吃掉 160px 内容宽——「方向对照」的五列网格靠宽度才能读。
+             状态仍来自同一个 useProductPageNav，形态只是投影。 -->
+        <PageTocMenu
+          v-if="navItems.length > 1"
+          :items="navItems"
+          :active-id="navActiveId"
+          @navigate="goToNavSection"
+        />
         <RealtimeEstimateToggle
           v-if="showRealtime"
           :enabled="realtimeEnabled"
@@ -156,16 +165,6 @@ watch(productRef, loadProduct, { immediate: true });
     </CardBlock>
 
     <template v-else-if="product">
-      <!-- 页内导航（#1968 子卡）：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail
-           接管（见 .product-detail__body 内的 PageToc）。两级互斥，
-           导航项由 composable 按 DOM 里真实渲染的锚点动态生成，不留死链。 -->
-      <PageNav
-        v-if="navItems.length > 1"
-        :items="navItems"
-        :active-id="navActiveId"
-        @navigate="goToNavSection"
-      />
-
       <div class="product-detail__body">
         <div ref="pageMain" class="product-detail__main">
           <!-- 正文区块栈：识别卡 → 持仓 → 走势 → 交易 → 各品类区块 → 关联标的 → 外链。
@@ -175,16 +174,6 @@ watch(productRef, loadProduct, { immediate: true });
             <template #sections><slot name="sections" /></template>
           </ProductDetailSections>
         </div>
-
-        <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（父级 composable 下发）。
-             宽度账：xl（1280）视口下侧边栏展开 240px，内容区约 1040px，让出 160+20
-             后卡片仍有约 860px——图表与内部横向滚动表格都够用（调研 §5.3 的取舍）。 -->
-        <PageToc
-          v-if="navItems.length > 1"
-          :items="navItems"
-          :active-id="navActiveId"
-          @navigate="goToNavSection"
-        />
       </div>
     </template>
   </div>
@@ -198,8 +187,8 @@ watch(productRef, loadProduct, { immediate: true });
   font-variant-numeric: tabular-nums;
 }
 
-/* 页内导航两级布局（#1968 子卡）：<xl 单列（胶囊在正文上方整条横跨）；
-   xl+ 主列 + 160px 右目录 rail，列间距 20px。 */
+/* 正文单列（2026-11）：目录 rail 移到页头右上角后不再占宽，
+   主列直接吃满内容区；保留这层 flex 是为了 `min-width: 0` 与后续侧栏扩展位。 */
 .product-detail__body {
   display: flex;
   gap: var(--space-5);
