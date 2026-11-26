@@ -8,9 +8,12 @@ import { injectSupabaseSession } from "./support/session";
  * （页脚 / 对账横幅都在它的内容流里）多出一条滚动条，页面上同时出现三条。
  * 现在回到 design.md 的单一滚动：页面自己滚，输入区 sticky 贴底。
  *
- * 判据只认机器可验的两条，避免「看着像」：
+ * 判据只认机器可验的三条，避免「看着像」：
  * 1. 消息列**不是**滚动容器（overflow-y 为 visible）；
- * 2. 长会话滚到顶时，dock 的底边仍等于视口底（sticky 生效，没被顶到折线以下）。
+ * 2. 长会话滚到顶时，dock 的底边仍等于视口底（sticky 生效，没被顶到折线以下）；
+ * 3. **输入胶囊的位置不随内容量变化**（2026-11-26 反馈「输入框随时漂移」：
+ *    `.chat-list` 少一个 flex-grow 就会让 dock 紧跟内容、下方留白，实测空态 781px、
+ *    发一条后 433px，上移 348px）。
  */
 
 const items = Array.from({ length: 7 }, (_, i) => ({
@@ -113,4 +116,53 @@ test("长会话：滚到顶后 dock 仍贴视口底", async ({ page, context, ba
   // dock 完整落在视口内，且底边贴住视口底（±1px 容差给亚像素）
   expect(Math.abs(box.dockBottom - box.viewportBottom)).toBeLessThanOrEqual(1);
   expect(box.dockTop).toBeLessThan(box.viewportBottom);
+});
+
+test("输入框不随内容量漂移：空态与单轮会话的胶囊位置相同", async ({
+  page,
+  context,
+  baseURL
+}) => {
+  await injectSupabaseSession(context, baseURL!);
+
+  // 一轮的短会话：内容远不足一屏——正是「dock 紧跟内容、下方留白」的复现条件
+  await page.route(
+    /\/api\/agent\/sessions\/sess-scroll-1\/?(?:\?.*)?$/,
+    route =>
+      route.fulfill({
+        json: {
+          data: {
+            session_id: "sess-scroll-1",
+            title: "滚动契约会话 2",
+            goal: "分析账户收益",
+            turn_count: 1,
+            created_at: "2026-11-20T10:00:00+08:00",
+            updated_at: "2026-11-20T10:05:00+08:00",
+            messages: [{ user: "问一句", assistant: "答一句" }]
+          }
+        }
+      })
+  );
+  await page.route(/\/api\/agent\/sessions\/?(?:\?.*)?$/, route =>
+    route.fulfill({
+      json: { data: items, total: items.length, page: 1, per_page: 50 }
+    })
+  );
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#/agent/chat");
+  await expect(page.getByText("7 条")).toBeVisible();
+
+  // 量「胶囊」而不是 dock 容器：状态行出现时 dock 会向上长，但胶囊不该动
+  const pillTop = () =>
+    page
+      .locator(".chat-input-pill")
+      .evaluate(el => Math.round(el.getBoundingClientRect().top));
+
+  const emptyTop = await pillTop();
+  await page.locator(".session-history__item").nth(1).click();
+  await expect(page.getByText("答一句")).toBeVisible();
+  const shortTop = await pillTop();
+
+  expect(Math.abs(shortTop - emptyTop)).toBeLessThanOrEqual(1);
 });

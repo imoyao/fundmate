@@ -43,7 +43,7 @@
       还没有历史会话，发出第一条消息后会出现在这里。
     </p>
     <ul v-else class="session-history__list">
-      <li v-for="it in items" :key="it.session_id">
+      <li v-for="it in items" :key="it.session_id" class="session-history__row">
         <button
           type="button"
           class="session-history__item"
@@ -51,6 +51,7 @@
             'session-history__item--active': it.session_id === activeSessionId
           }"
           :title="it.preview || it.title"
+          :aria-current="it.session_id === activeSessionId ? 'true' : undefined"
           @click="emit('select', it.session_id)"
         >
           <span class="session-history__item-title">
@@ -66,6 +67,26 @@
             {{ formatTime(it.updated_at) }} · {{ it.turn_count }} 轮
           </span>
         </button>
+        <!-- 删除入口（2026-11 用户反馈「历史记录无法删除」）：
+             放在条目右上角、hover / 键盘聚焦时才显现——常显会在每行都挂一个红色
+             图标，把「浏览列表」这件事压成「一排删除按钮」。
+             不可见时同时 pointer-events:none，避免误点；用 Tab 聚焦时 :focus-visible
+             会把它显出来，键盘用户依然可达。
+             触摸端没有 hover（@media (hover: none)）故常显。 -->
+        <button
+          type="button"
+          class="session-history__del"
+          :aria-label="`删除会话：${it.title || '未命名会话'}`"
+          :title="
+            busy
+              ? '分析进行中，结束后可删除'
+              : `删除会话：${it.title || '未命名会话'}`
+          "
+          :disabled="busy || deletingId === it.session_id"
+          @click.stop="onDelete(it)"
+        >
+          <el-icon><Delete /></el-icon>
+        </button>
       </li>
     </ul>
   </div>
@@ -73,8 +94,9 @@
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
-import { Search } from "@element-plus/icons-vue";
-import { listAgentSessions } from "@/api/agent";
+import { Delete, Search } from "@element-plus/icons-vue";
+import { ElMessageBox } from "element-plus";
+import { deleteAgentSession, listAgentSessions } from "@/api/agent";
 import type { AgentSessionItem } from "@/api/agent";
 
 defineOptions({ name: "SessionHistory" });
@@ -84,10 +106,14 @@ const props = defineProps<{
   activeSessionId: string | null;
   /** 父组件每完成一轮对话 / 新对话就 +1，触发本组件重拉列表 */
   refreshToken: number;
+  /** 有一轮分析在跑：此时禁止删除（删掉进行中的会话，服务端那轮的收尾会写回已删行） */
+  busy?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "select", sessionId: string): void;
+  /** 已成功删除某会话：父级据此在「删的是当前会话」时回落新对话 */
+  (e: "deleted", sessionId: string): void;
 }>();
 
 /** 输入防抖：每敲一个字都请求会打满后端（它还要 count 一次做分页） */
@@ -138,6 +164,44 @@ watch(keyword, () => {
     void load();
   }, SEARCH_DEBOUNCE_MS);
 });
+
+/** 正在删除的会话 id（禁用重复点击；同一时刻只允许一个删除在飞） */
+const deletingId = ref<string | null>(null);
+
+/**
+ * 删除一条会话（2026-11 用户反馈「历史记录无法删除」）。
+ *
+ * 二次确认要说清代价（不可恢复），而不是泛泛的「确定删除？」——会话里存的是
+ * 用户自己写的追问原文，误删的损失是「一整段对话没了」。取消走 ElMessageBox 的
+ * reject，catch 后静默返回。
+ *
+ * 成功只做**本地移除**、不整表重拉：重拉会让刚删的那条闪一下再消失。
+ * 失败（404 / 网络）才重拉——那是「列表与库可能不一致」的唯一信号。
+ */
+async function onDelete(it: AgentSessionItem): Promise<void> {
+  const name = it.title || "未命名会话";
+  try {
+    await ElMessageBox.confirm(
+      `「${name}」的对话记录将永久删除，无法恢复。`,
+      "删除会话",
+      { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }
+    );
+  } catch {
+    return; // 用户取消
+  }
+  deletingId.value = it.session_id;
+  try {
+    await deleteAgentSession(it.session_id);
+    items.value = items.value.filter(x => x.session_id !== it.session_id);
+    total.value = Math.max(0, total.value - 1);
+    emit("deleted", it.session_id);
+  } catch {
+    // 404 / 网络失败由全局拦截器提示；重拉一次，避免列表与库不一致
+    void load();
+  } finally {
+    deletingId.value = null;
+  }
+}
 
 /** ISO（东八区）→ 本地 "MM-DD HH:mm"；解析失败返回空串，不抛错 */
 function formatTime(iso: string | null): string {
@@ -197,12 +261,19 @@ function formatTime(iso: string | null): string {
   @include sb.thin;
 }
 
+.session-history__row {
+  position: relative;
+}
+
 .session-history__item {
   display: flex;
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 8px var(--space-2);
+
+  /* 右侧让出 30px 给删除按钮：不给的话，末行的「MM-DD HH:mm · n 轮」
+     会被按钮压住——meta 是最先被吃掉的文字 */
+  padding: 8px 30px 8px var(--space-2);
   margin-bottom: 2px;
   font-family: inherit;
   text-align: left;
@@ -220,6 +291,60 @@ function formatTime(iso: string | null): string {
     outline: none;
     box-shadow: var(--focus-ring);
   }
+}
+
+/* 删除按钮：平时隐形（每个条目常挂一个危险图标，会把「浏览列表」读成一排删除键），
+   指向本行或键盘聚焦时才显形；隐形时 pointer-events:none，避免盲点。
+   触摸端没有 hover 语义，@media (hover: none) 下常显。 */
+.session-history__del {
+  position: absolute;
+  top: 5px;
+  right: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+
+  @media (hover: none) {
+    pointer-events: auto;
+    opacity: 1;
+  }
+
+  &:hover:not(:disabled) {
+    color: var(--color-danger);
+    background-color: var(--bg-soft);
+  }
+
+  /* 键盘聚焦必须显形，否则 Tab 到一个看不见的按钮 */
+  &:focus-visible {
+    pointer-events: auto;
+    outline: none;
+    box-shadow: var(--focus-ring);
+    opacity: 1;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+}
+
+.session-history__row:hover .session-history__del,
+.session-history__row:focus-within .session-history__del {
+  pointer-events: auto;
+  opacity: 1;
 }
 
 .session-history__item--active {

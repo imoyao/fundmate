@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.exceptions import ErrorCode
-from app.domains.agent.models import AgentSession
+from app.domains.agent.models import AgentSession, AgentTrace
 from app.services.ai_recognizer import llm as llm_module
 
 _BASE = datetime(2026, 9, 26, 12, 0, 0, tzinfo=ZoneInfo('Asia/Shanghai'))
@@ -236,3 +236,54 @@ def test_chat_second_turn_does_not_rewrite_title(client, monkeypatch):
     item = next(it for it in items if it['session_id'] == first['session_id'])
     assert item['title'] == '第一句'
     assert item['preview'] == '第二句'  # 预览跟末条走，标题不跟
+
+
+# ── 删除（2026-11 用户反馈「历史记录无法删除」）──
+def test_delete_removes_session_and_its_traces(client, db):
+    """删除会话要把该 session_id 的决策 trace 一起清掉，且不误伤别的会话.
+
+    trace 是按 session_id 冗余关联（无 SQL FK），只删 agent_session 会留下
+    无法归属的孤儿行——那既不是用户要的「删掉记录」，也让后续按 session 回放
+    的脚本（agent_replay / agent_eval）读到半条链路。
+    """
+    _seed(db, 'del-1', title='要删掉的会话', messages=[{'user': 'a', 'assistant': 'b'}])
+    db.add(AgentTrace(session_id='del-1', turn=1, tool_name='portfolio_summary'))
+    db.add(AgentTrace(session_id='keep-1', turn=1, tool_name='market_temperature'))
+    db.commit()
+
+    resp = client.delete('/api/agent/sessions/del-1/')
+    assert resp.status_code == 200
+    assert resp.get_json()['data'] == {'session_id': 'del-1', 'deleted': True}
+
+    assert client.get('/api/agent/sessions/del-1/').status_code == 404
+    ids = [it['session_id'] for it in client.get('/api/agent/sessions/').get_json()['data']]
+    assert 'del-1' not in ids
+
+    db.expire_all()  # 请求走的是另一条 session，本地 identity map 已过期
+    assert {r.session_id for r in db.query(AgentTrace).all()} == {'keep-1'}
+
+
+def test_delete_other_user_session_404(client, db):
+    """他人 session_id 一律 404，且**不得真的删掉**（越权探测不能有副作用）."""
+    _seed(db, 'others-del', user_id=999)
+
+    resp = client.delete('/api/agent/sessions/others-del/')
+    assert resp.status_code == 404
+    assert resp.get_json()['error_code'] == ErrorCode.RESOURCE_NOT_FOUND.code
+
+    db.expire_all()
+    assert db.query(AgentSession).filter(AgentSession.session_id == 'others-del').first() is not None
+
+
+def test_delete_unknown_session_404(client):
+    resp = client.delete('/api/agent/sessions/never-existed/')
+    assert resp.status_code == 404
+    assert resp.get_json()['error_code'] == ErrorCode.RESOURCE_NOT_FOUND.code
+
+
+def test_delete_twice_second_is_404(client, db):
+    """重复删除：第二次 404（语义 = 本次请求没删掉任何东西），前端据此不再提示成功."""
+    _seed(db, 'del-twice')
+
+    assert client.delete('/api/agent/sessions/del-twice/').status_code == 200
+    assert client.delete('/api/agent/sessions/del-twice/').status_code == 404

@@ -33,23 +33,17 @@
       subtitle="查表现、看持仓、问温度"
     >
       <template #action>
-        <!-- 一个按钮承担两种入口（不新增第二处）：
-             ≥lg 切换常驻左栏的收/展（disclosure），窄屏开抽屉。
-             aria-expanded 跟着**当前形态**走，读屏才知道按下去是展开还是收起。 -->
-        <el-button
-          text
-          size="small"
-          :aria-expanded="isWide ? String(!railCollapsed) : String(historyOpen)"
-          @click="onHistoryToggle"
-        >
-          <el-icon><Clock /></el-icon>
-          历史
-        </el-button>
-        <!-- 左栏收起后它自带的那枚「新对话」就没了，页头必须补位；
-             窄屏本来就没有左栏，同样靠这里。两个条件合并成一个 computed。 -->
-        <el-button v-if="showHeaderNew" text size="small" @click="resetSession">
-          新对话
-        </el-button>
+        <!-- 页头两个动作已下沉到 AgentHeaderActions（会话记录 + 新对话）：
+             「会话记录」一个按钮两种语义（宽屏收/展左栏、窄屏开抽屉），
+             可发现性设计与 aria 说明都在该组件头注释里。 -->
+        <AgentHeaderActions
+          :is-wide="isWide"
+          :rail-collapsed="railCollapsed"
+          :history-open="historyOpen"
+          :show-new="showHeaderNew"
+          @toggle-history="onHistoryToggle"
+          @new-session="resetSession"
+        />
       </template>
     </PageHeaderBar>
 
@@ -60,6 +54,7 @@
            写法会把一串按钮留在键盘可达范围内，是更糟的可用性）。 -->
       <aside
         v-if="isWide && !railCollapsed"
+        id="agent-session-panel"
         class="agent-rail"
         aria-label="会话导航"
       >
@@ -76,7 +71,9 @@
           <SessionHistory
             :active-session-id="sessionId"
             :refresh-token="historyRefreshToken"
+            :busy="pending"
             @select="switchSession"
+            @deleted="onSessionDeleted"
           />
         </div>
       </aside>
@@ -127,7 +124,9 @@
         v-if="historyOpen"
         :active-session-id="sessionId"
         :refresh-token="historyRefreshToken"
+        :busy="pending"
         @select="onDrawerSelect"
+        @deleted="onSessionDeleted"
       />
     </el-drawer>
   </div>
@@ -136,9 +135,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { Clock, Plus } from "@element-plus/icons-vue";
+import { Plus } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
+import AgentHeaderActions from "./components/AgentHeaderActions.vue";
 import SessionHistory from "./components/SessionHistory.vue";
 import AgentComposer from "./components/AgentComposer.vue";
 import AgentHero from "./components/AgentHero.vue";
@@ -235,6 +235,21 @@ async function onAsk(text: string): Promise<void> {
 async function onDrawerSelect(id: string): Promise<void> {
   await switchSession(id);
   historyOpen.value = false;
+}
+
+/**
+ * 删除会话后的回落（2026-11）：删掉的正是**当前正在聊的**那一条时，必须把
+ * 消息与 sessionId 一起清掉——否则输入框还挂在一条已不存在的会话上，
+ * 下一句会先 404、再落回新会话（多一次往返 + 一个错误气泡）。
+ *
+ * 复用 resetSession 而不是手写清空：它还负责 stopped 提示与历史栏刷新计数。
+ * 唯一要保住的是抽屉的开合——用户常常是「连删几条」，删完被弹回对话页很烦。
+ */
+function onSessionDeleted(id: string): void {
+  if (id !== sessionId.value) return;
+  const keepDrawerOpen = historyOpen.value;
+  resetSession();
+  historyOpen.value = keepDrawerOpen;
 }
 
 /**
@@ -339,8 +354,15 @@ onMounted(() => {
 /* 消息列：**不滚动**（滚动交给外层唯一那条）。
    历史版本在此处 overflow-y:auto，与外层 el-scrollbar 叠加成双滚动条
    （用户反馈「下拉滚动条太多」的直接来源之一）。滚动定位由 useAgentChat 的
-   scrollChat() 负责，它滚的是 bottomRef（让浏览器自己找滚动祖先）。 */
+   scrollChat() 负责，它滚的是 bottomRef（让浏览器自己找滚动祖先）。
+
+   ⚠️ `flex: 1 0 auto` 不是可选优化（2026-11-26 用户反馈「输入框位置随时漂移」）：
+   去掉 grow 后本块高度严格等于消息内容高，dock 紧跟其后、下方留出整片空白——
+   空态（hero 高 518px）时 dock 顶在 781px，发出一条后内容只剩 170px、dock 跳到 433px，
+   实测上移 348px，输入框直接跑到屏幕中间。grow 吃掉剩余空间后 dock 才恒定贴底。
+   shrink 必须为 0：内容超出一屏时本块要正常长高（页面滚动），不能被压回视口内。 */
 .chat-list {
+  flex: 1 0 auto;
   padding: var(--space-compact) 0 0;
 }
 
