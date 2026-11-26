@@ -1,12 +1,14 @@
 <!--
   ProductIdentityCard · 详情页识别卡（#1964 · 设计 §4）
 
-  只放事实项（代码 / 市场 / 场所 / 自选 / 持仓）。**名称与品类不在这里**——
+  只放事实项（代码 / 市场 / 场所 / 持仓）。**名称与品类不在这里**——
   它们由 PageHeaderBar 页头承担（标题=产品名、副标题=品类）；卡内再排一次
   h2 名称 + 类型徽章是纯重复（用户实测「同一名称出现 4 次」，#2107 起删掉）。
 
-  未登录时 in_watchlist / has_position 为 null（resolve 是「可选登录」端点），
-  此时不渲染徽标——「未知」不是「没有」，不能显示成「未自选」。
+  **「自选」也不在这里**（2026-11-26）：那是状态而非身份，且必须可操作
+  （取消自选、看分组标签）——已移入页头控件 `ProductWatchToggle`，本卡只陈述
+  「已持有」这类不可操作的持仓事实。未登录时 `has_position` 为 null
+  （resolve 是「可选登录」端点），此时不渲染徽标——「未知」不是「没有」。
 
   **「代码」项按品类隐藏**（#2216 / #2228 · 设计 §2.6）：组合 / 经理类的 `symbol` 是
   内部编码（`MGR_98CE0328FFF1`、投顾组合的平台原生码），对使用者没有任何意义 ——
@@ -82,12 +84,10 @@ const hasIdentity = computed(() => hasIdentityFacts(props.product));
           {{ venueLabel(product.venue) }}
         </dd>
       </div>
-      <!-- 未登录时这两项为 null（端点为可选登录），此时不渲染徽标，
-           不能当成「未自选 / 未持有」——那是「未知」不是「没有」 -->
-      <div v-if="product.in_watchlist === true" class="product-detail__fact">
-        <dt class="product-detail__fact-label">自选</dt>
-        <dd class="product-detail__fact-value">已关注</dd>
-      </div>
+      <!-- 「自选」一项 2026-11-26 移入页头控件（`ProductWatchToggle`）：
+           它是个**状态**，而且必须可操作（取消 / 看分组标签），识别卡只能陈述不能操作；
+           两处并存还会互相打脸——页头取消自选后，这里的「已关注」不会消失。
+           自选状态的唯一真相源是页头。 -->
       <div v-if="product.has_position === true" class="product-detail__fact">
         <dt class="product-detail__fact-label">持仓</dt>
         <dd class="product-detail__fact-value">已持有</dd>

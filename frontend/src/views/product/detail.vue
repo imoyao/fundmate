@@ -11,6 +11,7 @@ import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
 import PageTocMenu from "@/components/PageTocMenu/index.vue";
 import ProductDetailSections from "./components/ProductDetailSections.vue";
+import ProductWatchToggle from "./components/ProductWatchToggle.vue";
 import { useProductPageNav } from "./composables/useProductPageNav";
 import { useSkeletonThreshold } from "@/composables/useSkeletonThreshold";
 
@@ -126,6 +127,18 @@ watch(productRef, loadProduct, { immediate: true });
   <div class="product-detail" :style="{ backgroundColor: 'var(--bg-page)' }">
     <PageHeaderBar :title="headerTitle" :subtitle="headerSubtitle">
       <template #action>
+        <!-- 自选状态的唯一落点（2026-11-26 用户实测：识别卡里那行「已关注」既不能点
+             取消、也不说分组标签 ⇒ 改成页头可操作控件）。未登录时 in_watchlist 为
+             null，控件自身不渲染。 -->
+        <ProductWatchToggle
+          v-if="product"
+          :symbol="product.symbol"
+          :display-name="product.display_name"
+          :market="product.market"
+          :asset-type="product.asset_type"
+          :venue="product.venue"
+          :in-watchlist="product.in_watchlist"
+        />
         <!-- 页内导航（2026-11 形态变更）：从「顶部胶囊 + 右侧 rail」收到**页头右上角下拉**。
              理由见 components/PageTocMenu 头注释：组合详情页六区块的胶囊会挤成两行，
              而右侧 rail 固定吃掉 160px 内容宽——「方向对照」的五列网格靠宽度才能读。

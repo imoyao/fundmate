@@ -267,8 +267,11 @@ test.describe("产品详情页去重（页头承担识别信息）", () => {
     const hero = page.locator(".product-detail__hero");
     await expect(hero).toBeVisible({ timeout: 60_000 });
     await expect(hero.getByText(SYMBOL)).toBeVisible();
-    await expect(hero.getByText("已关注")).toBeVisible();
     await expect(hero.getByText("已持有")).toBeVisible();
+    // 「已关注」2026-11-26 从卡里移到页头控件（那里能取消自选、能看分组标签）：
+    // 这是**移动**不是删除——卡里不再复述，页头必须看得见。
+    expect(await countVisibleIn(hero, "已关注")).toBe(0);
+    await expect(page.locator(".watch-toggle__btn")).toContainText("已关注");
   });
 
   test("整页产品名只出现 1 次，持仓表头整块只出 1 次", async ({ page }) => {

@@ -44,7 +44,13 @@
 <script setup lang="ts">
 // 搜索框（关键字输入 → 远程搜索 → 下拉里按「名称 | 次要锚点 | 类型」三列展示）。
 // #980 拆分自 AddToWatchlistModal.vue；行取值在 ./assetOptionColumns.ts。
-import { computed, nextTick, ref, type ComponentPublicInstance } from "vue";
+import {
+  computed,
+  nextTick,
+  ref,
+  watch,
+  type ComponentPublicInstance
+} from "vue";
 import { useAssetSearch } from "@/composables/useAssetSearch";
 import { rowColumns, type SearchAssetOption } from "./assetOptionColumns";
 
@@ -129,6 +135,21 @@ function onSearchBlur() {
 const onChange = (option: SearchAssetOption | null) => {
   emit("change", option);
 };
+
+// 外部回填（2026-11-26）：`modelValue` 可能有值而 `searchResults` 仍是空的——
+// 产品详情页「自选」按钮带着已确定的标的一次性打开弹窗，此时根本没人搜过。
+// el-select 找不到匹配的 option 时标签会渲染成空白（用户看到「选了东西但看不见是什么」）。
+// 把回填项补进候选即可：既让标签有名字，也让下拉首项就是它，便于用户核对。
+// 只在缺项时补，不覆盖用户搜索出来的列表顺序。
+watch(
+  () => props.modelValue,
+  value => {
+    if (!value) return;
+    if (searchResults.value.some(item => item.symbol === value.symbol)) return;
+    searchResults.value = [value, ...searchResults.value];
+  },
+  { immediate: true }
+);
 
 /** 关闭后清空内部状态（父层 resetForm 调用；弹窗 destroy-on-close 时本就不存在，故可选） */
 function reset() {
