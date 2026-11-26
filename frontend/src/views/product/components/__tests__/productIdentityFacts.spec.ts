@@ -85,7 +85,11 @@ describe("hasIdentityFacts：身份事实才成卡（状态不算）", () => {
     // 注意：`asset_type` 缺失**不算全空**——按既有口径「不知道品类就展示代码」，
     // 那种情况本来就成卡（见上一条）。这里必须是「明确是组合 + 无市场 / 场所」。
     expect(
-      hasIdentityFacts({ asset_type: "portfolio", market: "", venue: undefined })
+      hasIdentityFacts({
+        asset_type: "portfolio",
+        market: "",
+        venue: undefined
+      })
     ).toBe(false);
     expect(
       hasIdentityFacts({ asset_type: "manager", market: null, venue: null })
