@@ -33,23 +33,17 @@
       subtitle="查表现、看持仓、问温度"
     >
       <template #action>
-        <!-- 一个按钮承担两种入口（不新增第二处）：
-             ≥lg 切换常驻左栏的收/展（disclosure），窄屏开抽屉。
-             aria-expanded 跟着**当前形态**走，读屏才知道按下去是展开还是收起。 -->
-        <el-button
-          text
-          size="small"
-          :aria-expanded="isWide ? String(!railCollapsed) : String(historyOpen)"
-          @click="onHistoryToggle"
-        >
-          <el-icon><Clock /></el-icon>
-          历史
-        </el-button>
-        <!-- 左栏收起后它自带的那枚「新对话」就没了，页头必须补位；
-             窄屏本来就没有左栏，同样靠这里。两个条件合并成一个 computed。 -->
-        <el-button v-if="showHeaderNew" text size="small" @click="resetSession">
-          新对话
-        </el-button>
+        <!-- 页头两个动作已下沉到 AgentHeaderActions（会话记录 + 新对话）：
+             「会话记录」一个按钮两种语义（宽屏收/展左栏、窄屏开抽屉），
+             可发现性设计与 aria 说明都在该组件头注释里。 -->
+        <AgentHeaderActions
+          :is-wide="isWide"
+          :rail-collapsed="railCollapsed"
+          :history-open="historyOpen"
+          :show-new="showHeaderNew"
+          @toggle-history="onHistoryToggle"
+          @new-session="resetSession"
+        />
       </template>
     </PageHeaderBar>
 
@@ -60,6 +54,7 @@
            写法会把一串按钮留在键盘可达范围内，是更糟的可用性）。 -->
       <aside
         v-if="isWide && !railCollapsed"
+        id="agent-session-panel"
         class="agent-rail"
         aria-label="会话导航"
       >
@@ -76,7 +71,9 @@
           <SessionHistory
             :active-session-id="sessionId"
             :refresh-token="historyRefreshToken"
+            :busy="pending"
             @select="switchSession"
+            @deleted="onSessionDeleted"
           />
         </div>
       </aside>
@@ -127,24 +124,28 @@
         v-if="historyOpen"
         :active-session-id="sessionId"
         :refresh-token="historyRefreshToken"
+        :busy="pending"
         @select="onDrawerSelect"
+        @deleted="onSessionDeleted"
       />
     </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Clock, Plus } from "@element-plus/icons-vue";
+import { Plus } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
+import AgentHeaderActions from "./components/AgentHeaderActions.vue";
 import SessionHistory from "./components/SessionHistory.vue";
 import AgentComposer from "./components/AgentComposer.vue";
 import AgentHero from "./components/AgentHero.vue";
 import AgentMessageItem from "./components/AgentMessageItem.vue";
 import { AGENT_CAPABILITIES } from "./agentQuickActions";
 import { useAgentChat } from "./useAgentChat";
+import { useAgentRail } from "./useAgentRail";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import {
   agentAskHint,
@@ -176,32 +177,8 @@ const composerRef = ref<InstanceType<typeof AgentComposer> | null>(null);
 /** ≥lg 才有常驻左栏（与 _breakpoints.scss 的 lg 同值 64rem） */
 const isWide = useMediaQuery("(min-width: 64rem)");
 
-/**
- * 左栏收/展（2026-11 反馈：常驻栏吃掉 232px，用户要能收起来）。
- *
- * 默认展开——保持既有「≥lg 常驻」的信息架构，不改默认契约；
- * 收起一次即记住（localStorage），下次进来就是他要的形态。
- * 不落 store / cookie：这是纯本机展示偏好，跨端同步没有意义。
- */
-const RAIL_COLLAPSED_KEY = "fm.agent.railCollapsed";
-
-function readRailCollapsed(): boolean {
-  try {
-    return localStorage.getItem(RAIL_COLLAPSED_KEY) === "1";
-  } catch {
-    return false; // 隐私模式 / 禁用存储：退回默认展开，不抛错
-  }
-}
-
-const railCollapsed = ref(readRailCollapsed());
-
-watch(railCollapsed, collapsed => {
-  try {
-    localStorage.setItem(RAIL_COLLAPSED_KEY, collapsed ? "1" : "0");
-  } catch {
-    // 写失败只影响「下次进来」的形态，不影响本次会话
-  }
-});
+/** 左栏收/展偏好（默认展开、收起即记住）：实现与理由见 useAgentRail */
+const { railCollapsed, toggle: toggleRail } = useAgentRail();
 
 /** 页头「新对话」：有内容可清，且左栏没有自带入口（收起 / 窄屏）时才补位 */
 const showHeaderNew = computed(
@@ -213,7 +190,7 @@ const showHeaderNew = computed(
 /** 页头「历史」：宽屏 = 收/展左栏；窄屏 = 开抽屉 */
 function onHistoryToggle(): void {
   if (isWide.value) {
-    railCollapsed.value = !railCollapsed.value;
+    toggleRail();
     return;
   }
   historyOpen.value = true;
@@ -235,6 +212,21 @@ async function onAsk(text: string): Promise<void> {
 async function onDrawerSelect(id: string): Promise<void> {
   await switchSession(id);
   historyOpen.value = false;
+}
+
+/**
+ * 删除会话后的回落（2026-11）：删掉的正是**当前正在聊的**那一条时，必须把
+ * 消息与 sessionId 一起清掉——否则输入框还挂在一条已不存在的会话上，
+ * 下一句会先 404、再落回新会话（多一次往返 + 一个错误气泡）。
+ *
+ * 复用 resetSession 而不是手写清空：它还负责 stopped 提示与历史栏刷新计数。
+ * 唯一要保住的是抽屉的开合——用户常常是「连删几条」，删完被弹回对话页很烦。
+ */
+function onSessionDeleted(id: string): void {
+  if (id !== sessionId.value) return;
+  const keepDrawerOpen = historyOpen.value;
+  resetSession();
+  historyOpen.value = keepDrawerOpen;
 }
 
 /**
@@ -260,10 +252,6 @@ onMounted(() => {
 @use "@/style/breakpoints" as bp;
 
 .agent-page {
-  display: flex;
-  flex-direction: column;
-  max-width: var(--layout-content-width);
-
   /* 整屏高，但**让页面自己滚**（design.md「整屏高的页面用单一滚动 + sticky 贴底」）。
      ⚠️ 不能写 height —— 钉死视口高等于把「滚动」私有化给 `.chat-list`，外层 el-scrollbar
      若还有任何内容流里的兄弟（对账横幅、页脚、地址栏收起时的 dvh 差），就立刻多出一条
@@ -271,10 +259,22 @@ onMounted(() => {
      min-height 只保证「内容少也占满一屏」，多则交给外层唯一那条滚动条；
      dock 用 sticky 贴底（见 AgentComposer），所以消息再长输入框也不会滚走。
 
-     两个减数都走令牌：页脚在 el-scrollbar 的内容流里，不减就会多出 41px 的溢出。 */
-  min-height: calc(
+     三个减数：页脚与横幅都在 el-scrollbar 的**内容流**里，不在视口高预算内。
+     - 页脚走 `--layout-footer-height` 静态令牌（lay-footer 同源）；
+     - 横幅走 `--app-banner-height`：它由 lay-content 用 ResizeObserver 实测后挂上来，
+       横幅不出现时是 0px。漏减它就是「横幅一出现、外层又多一条滚动条」——
+       2026-11 实测横幅 59px、外层溢出 56px，输入区被顶到折线以下。
+
+     先算出「视口内可用高度」再减横幅：两段 calc 各自都在一行内，
+     不必让 prettier 把 var() 折成跨行。 */
+  --agent-h: calc(
     100dvh - var(--layout-topbar-height) - var(--layout-footer-height)
   );
+
+  display: flex;
+  flex-direction: column;
+  max-width: var(--layout-content-width);
+  min-height: calc(var(--agent-h) - var(--app-banner-height, 0px));
   padding: 0 0 var(--space-standard);
   margin: 0 auto;
 }
@@ -318,10 +318,9 @@ onMounted(() => {
   gap: var(--space-3);
   width: 100%;
 
-  /* 120px = 「新对话」按钮 + 上下留白（不参与视口计算的那部分） */
-  max-height: calc(
-    100dvh - var(--layout-topbar-height) - var(--layout-footer-height) - 120px
-  );
+  /* 120px = 「新对话」按钮 + 上下留白（不参与视口计算的那部分）；
+     横幅（--agent-h 里已算进预算）与它一起决定左栏上限 */
+  max-height: calc(var(--agent-h) - var(--app-banner-height, 0px) - 120px);
 }
 
 .agent-rail__new {
@@ -339,8 +338,15 @@ onMounted(() => {
 /* 消息列：**不滚动**（滚动交给外层唯一那条）。
    历史版本在此处 overflow-y:auto，与外层 el-scrollbar 叠加成双滚动条
    （用户反馈「下拉滚动条太多」的直接来源之一）。滚动定位由 useAgentChat 的
-   scrollChat() 负责，它滚的是 bottomRef（让浏览器自己找滚动祖先）。 */
+   scrollChat() 负责，它滚的是 bottomRef（让浏览器自己找滚动祖先）。
+
+   ⚠️ `flex: 1 0 auto` 不是可选优化（2026-11-26 用户反馈「输入框位置随时漂移」）：
+   去掉 grow 后本块高度严格等于消息内容高，dock 紧跟其后、下方留出整片空白——
+   空态（hero 高 518px）时 dock 顶在 781px，发出一条后内容只剩 170px、dock 跳到 433px，
+   实测上移 348px，输入框直接跑到屏幕中间。grow 吃掉剩余空间后 dock 才恒定贴底。
+   shrink 必须为 0：内容超出一屏时本块要正常长高（页面滚动），不能被压回视口内。 */
 .chat-list {
+  flex: 1 0 auto;
   padding: var(--space-compact) 0 0;
 }
 
@@ -359,9 +365,11 @@ onMounted(() => {
 
 @include bp.below("md") {
   /* 窄屏页脚会折成两行（免责文案长），不参与高度预算 —— 与宽屏同一套
-     「min-height + 页面自己滚」，所以这里只补一个不含页脚的下限即可。 */
+     「min-height + 页面自己滚」，所以这里只补一个不含页脚的下限即可。
+     横幅要减：窄屏文案更容易折行（实测 55 → 80+），减漏了就是多一条滚动条。 */
   .agent-page {
-    min-height: calc(100dvh - var(--layout-topbar-height));
+    /* 窄屏页脚折成两行，不进预算 ⇒ 只减顶栏，再减横幅 */
+    --agent-h: calc(100dvh - var(--layout-topbar-height));
   }
 
   .agent-body {

@@ -63,7 +63,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **266** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **267** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -72,6 +72,7 @@ title: 核心 API 端点清单（api）
 | POST | `/api/agent/chat/` | `agent_chat` |
 | POST | `/api/agent/chat/cancel/` | `agent_chat_cancel` |
 | GET | `/api/agent/sessions/` | `agent_sessions` |
+| DELETE | `/api/agent/sessions/<session_id>/` | `agent_session_delete` |
 | GET | `/api/agent/sessions/<session_id>/` | `agent_session_detail` |
 | GET | `/api/assets/` | `list_assets` |
 | POST | `/api/assets/` | `create_asset` |

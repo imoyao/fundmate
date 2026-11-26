@@ -160,3 +160,15 @@ export function getAgentSession(sessionId: string) {
     `/api/agent/sessions/${sessionId}/`
   );
 }
+
+/** 删除本人历史会话（2026-11 用户反馈「历史记录无法删除」）。
+ *
+ * 服务端语义：连同该会话的决策 trace 一并删除；不存在 / 他人会话一律 404
+ * （404 表示「本次请求没删掉任何东西」，调用方不必区分已删过与从不存在）。
+ * 前端只在 2xx 时从列表移除条目，故 404 走统一的错误提示即可。 */
+export function deleteAgentSession(sessionId: string) {
+  return http.request<{
+    data: { session_id: string; deleted: boolean };
+    message: string;
+  }>("delete", `/api/agent/sessions/${sessionId}/`);
+}

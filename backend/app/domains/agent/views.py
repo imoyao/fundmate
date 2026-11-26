@@ -6,6 +6,7 @@
 
 路由：POST /api/agent/chat/（尾斜杠；不在 check_api_conventions 例外清单内）
       GET  /api/agent/sessions/、GET /api/agent/sessions/{session_id}/（#1719 历史栏读路径）
+      DELETE /api/agent/sessions/{session_id}/（2026-11 用户反馈「历史记录无法删除」）
 三态响应：data = {type: clarify|result|error, content, data?, missing_params?, session_id}
 
 S2 契约演化（#1121 步骤卡 #4 文档化，同 PR 已同步前端 / 测试）：
@@ -28,7 +29,7 @@ from app.core.exceptions import SBException
 from app.core.validation import parse_body
 from app.domains.agent.schemas import AgentCancelRequest, AgentChatRequest
 from app.domains.ledgers.access import visible_ledger_id_set
-from app.services.ai_recognizer import cancellation, guards, session_store
+from app.services.ai_recognizer import cancellation, guards, session_purge, session_store
 from app.services.ai_recognizer.agent_loop import run_agent
 
 agent_bp = APIBlueprint('agent', __name__, url_prefix='/api/agent')
@@ -125,3 +126,17 @@ def agent_session_detail(session_id: str):
         row = session_store.get_owned(db, session_id=session_id, user_id=user_id)
         payload = session_store.to_detail(row)
     return jsonify({'data': payload, 'message': 'ok'})
+
+
+@agent_bp.delete('/sessions/<session_id>/', strict_slashes=False)
+def agent_session_delete(session_id: str):
+    """删除单会话（2026-11 用户反馈「历史记录无法删除」）：连同决策 trace 一并删除.
+
+    归属校验与读路径同口径（``session_store.get_owned``，404 不泄露存在性）；
+    重复删除同一 id 第二次得到 404 —— 语义是「本次请求没有删掉任何东西」，
+    前端只在 2xx 时移除列表条目，因此不需要区分「已删过」与「从不存在」。
+    """
+    user_id = _current_user_id()
+    with database.user_session() as db:
+        session_purge.delete_owned(db, session_id=session_id, user_id=user_id)
+    return jsonify({'data': {'session_id': session_id, 'deleted': True}, 'message': 'ok'})

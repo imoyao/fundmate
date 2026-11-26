@@ -153,7 +153,7 @@ test.describe("历史会话（常驻左栏 / 窄屏抽屉）", () => {
 
     // 抽屉打开才挂载 → 此时才发一次列表请求
     // exact 必写：能力目录里「自选与净值」的 hint 含「基金历史净值」，模糊匹配会命中两个按钮
-    await page.getByRole("button", { name: "历史", exact: true }).click();
+    await page.getByRole("button", { name: "会话记录", exact: true }).click();
     await expect(page.getByText("历史会话", { exact: true })).toBeVisible();
     await expect(page.getByText("核对白酒持仓成本与浮亏")).toBeVisible();
     expect(listCalls).toBe(1);
@@ -226,7 +226,10 @@ test.describe("历史会话（常驻左栏 / 窄屏抽屉）", () => {
     await page.goto("/#/agent/chat");
 
     const rail = page.locator(".agent-rail");
-    const toggle = page.getByRole("button", { name: "历史", exact: true });
+    const toggle = page.getByRole("button", {
+      name: "会话记录",
+      exact: true
+    });
 
     // 默认展开（不改既有默认契约）：列表在、按钮报 true
     await expect(rail).toBeVisible();
@@ -241,5 +244,80 @@ test.describe("历史会话（常驻左栏 / 窄屏抽屉）", () => {
     await toggle.click();
     await expect(rail).toBeVisible();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  /**
+   * 删除会话（2026-11 用户反馈「历史记录无法删除」）。
+   *
+   * 判据三层：
+   * 1. 条目上有删除入口，且二次确认说清「不可恢复」；
+   * 2. 确认后条目消失、计数减 1（列表以服务端为准，这里让 mock 也跟着删）；
+   * 3. **删的正是当前会话**时回落空态——否则输入框还挂在一条已不存在的会话上。
+   */
+  test("删除会话：二次确认 → 条目消失 → 删当前会话则回落空态", async ({
+    page,
+    context,
+    baseURL
+  }) => {
+    await injectSupabaseSession(context, baseURL!);
+
+    // mock 的列表要跟着删除走：删除成功后父级会 +refreshToken 重拉，
+    // 若 mock 恒定返回两条，刚删的条目会被重新拉回来（真实后端不会）
+    let current = [...listEnvelope.data];
+    const deleted: string[] = [];
+
+    await page.route(
+      /\/api\/agent\/sessions\/sess-hist-1\/?(?:\?.*)?$/,
+      async route => {
+        if (route.request().method() === "DELETE") {
+          deleted.push("sess-hist-1");
+          current = current.filter(it => it.session_id !== "sess-hist-1");
+          await route.fulfill({
+            json: {
+              data: { session_id: "sess-hist-1", deleted: true },
+              message: "ok"
+            }
+          });
+          return;
+        }
+        await route.fulfill({ json: detailEnvelope });
+      }
+    );
+    await page.route(/\/api\/agent\/sessions\/?(?:\?.*)?$/, async route => {
+      await route.fulfill({
+        json: { ...listEnvelope, data: current, total: current.length }
+      });
+    });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/#/agent/chat");
+
+    const rail = page.locator(".agent-rail");
+    await expect(rail.getByText("核对白酒持仓成本与浮亏")).toBeVisible();
+
+    // 先回放这一条，让它成为「当前会话」——只有删当前会话才走回落分支
+    await page.getByTitle("核对白酒持仓成本与浮亏").click();
+    await expect(
+      page.getByText("持仓成本 15200.00 元，当前浮亏 8.4%。")
+    ).toBeVisible();
+
+    const row = rail
+      .locator(".session-history__row")
+      .filter({ hasText: "核对白酒持仓成本" });
+    await row.hover();
+    await row.getByRole("button", { name: /^删除会话：/ }).click();
+
+    await expect(
+      page.getByText("「核对白酒持仓成本」的对话记录将永久删除，无法恢复。")
+    ).toBeVisible();
+    await page.getByRole("button", { name: "删除", exact: true }).click();
+
+    await expect(row).toHaveCount(0);
+    await expect(rail.getByText("1 条")).toBeVisible();
+    // 回落空态：能力目录回来了，说明消息与会话 id 一起清掉了
+    await expect(
+      page.locator('[data-region="agent-capabilities"]')
+    ).toBeVisible();
+    expect(deleted).toEqual(["sess-hist-1"]);
   });
 });

@@ -4,7 +4,16 @@ import LayFooter from "../lay-footer/index.vue";
 import { useTags } from "@/layout/hooks/useTag";
 import { useGlobal, isNumber } from "@pureadmin/utils";
 import BackTopIcon from "@/assets/svg/back_top.svg?component";
-import { h, computed, Transition, defineComponent } from "vue";
+import {
+  h,
+  computed,
+  Transition,
+  defineComponent,
+  ref,
+  watch,
+  onMounted,
+  onBeforeUnmount
+} from "vue";
 import { useRoute } from "vue-router";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 import DiscrepancyBanner from "@/components/DiscrepancyBanner/index.vue";
@@ -57,6 +66,44 @@ const getMainWidth = computed(() => {
       : "100%";
 });
 
+/**
+ * 内容流顶部的全局提示条（DiscrepancyBanner）会在**页面之外**占掉一段高度。
+ *
+ * 为什么必须量：整屏高页面（目前只有账本精灵）按 viewport 算 `min-height`，
+ * 把它们之外的内容流高度漏算，就会比可用高度多出横幅那几十像素 —— 外层 el-scrollbar
+ * 立刻多一条滚动条，贴底输入区被顶到折线以下（2026-11 实测：横幅 59px、溢出 56px）。
+ * 死写一个 px 不行：横幅在窄屏会折行（55 → 80+），高度由文案长度决定。
+ *
+ * 挂成运行时变量 `--app-banner-height`（放在 .app-main 上，向下继承给页面），
+ * 与静态布局令牌区分：`--layout-*` 是设计常量，这个值是实时量出来的。
+ */
+const bannerSlot = ref<HTMLElement | null>(null);
+const bannerHeight = ref(0);
+let bannerObserver: ResizeObserver | null = null;
+
+function measureBanner(): void {
+  bannerHeight.value = bannerSlot.value?.offsetHeight ?? 0;
+}
+
+onMounted(() => {
+  bannerObserver = new ResizeObserver(measureBanner);
+  if (bannerSlot.value) bannerObserver.observe(bannerSlot.value);
+  measureBanner();
+});
+
+// 两条布局分支（fixedHeader / 非 fixedHeader）互斥，但固定页头开关切换时元素会换人，
+// 换人瞬间必须改观察目标，否则后续折行不再更新。
+watch(bannerSlot, el => {
+  if (!bannerObserver) return; // 首帧：setup 先于 mounted
+  if (el) bannerObserver.observe(el);
+  measureBanner();
+});
+
+onBeforeUnmount(() => {
+  bannerObserver?.disconnect();
+  bannerObserver = null;
+});
+
 const getSectionStyle = computed(() => {
   return [
     hideTabs.value && layout ? "padding-top: 48px;" : "",
@@ -77,7 +124,9 @@ const getSectionStyle = computed(() => {
           hideTabs.value
             ? "min-height: calc(100vh - 48px);"
             : "min-height: calc(100vh - 86px);"
-        }`
+        }`,
+    // 见上方 bannerSlot 注释：整屏高页面靠它把横幅高度从自己的高度预算里减掉
+    { "--app-banner-height": `${bannerHeight.value}px` }
   ];
 });
 
@@ -176,8 +225,12 @@ const transitionMain = defineComponent({
               </el-backtop>
               <!-- 对账差异提醒（#2438）：域 B 的 pending 差异若只待在工作台里，
                    用户就永远看不到（017074 那条挂了 7 周无人察觉即此）。横幅挂在
-                   布局层 ⇒ 除工作台自身外的所有页面都能看见。 -->
-              <DiscrepancyBanner />
+                   布局层 ⇒ 除工作台自身外的所有页面都能看见。
+                   外套一层 flow-root：子元素的 margin-bottom 被包进来，量到的才是
+                   它真正吃掉的高度（margin 不塌出去，否则每次少算 4px）。 -->
+              <div ref="bannerSlot" class="app-banner-slot">
+                <DiscrepancyBanner />
+              </div>
               <div class="grow">
                 <transitionMain :route="route">
                   <keep-alive
@@ -204,7 +257,9 @@ const transitionMain = defineComponent({
             </el-scrollbar>
             <div v-else class="grow">
               <!-- 同上：非 fixedHeader 分支也要有提醒位（两条分支互斥，只有一处会渲染） -->
-              <DiscrepancyBanner />
+              <div ref="bannerSlot" class="app-banner-slot">
+                <DiscrepancyBanner />
+              </div>
               <transitionMain :route="route">
                 <keep-alive
                   v-if="isKeepAlive"
@@ -257,5 +312,12 @@ const transitionMain = defineComponent({
 .grow {
   flex: 1;
   min-height: 0;
+}
+
+/* 提示条的外套：flow-root 让子元素的 margin-bottom 算进自身高度（量高度用），
+   flex:none 保证它不参与主内容区的空间分配。 */
+.app-banner-slot {
+  display: flow-root;
+  flex: none;
 }
 </style>
