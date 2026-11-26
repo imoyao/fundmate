@@ -204,4 +204,42 @@ test.describe("历史会话（常驻左栏 / 窄屏抽屉）", () => {
       path: "test-results/agent-history-search.png"
     });
   });
+
+  /**
+   * 左栏可收起（2026-11 反馈：常驻栏吃掉 232px，用户要能收起来）。
+   *
+   * 判据是「节点消失」而不是「宽度归零」：宽度为 0 的栏里那串 button 仍在 Tab 序里，
+   * 键盘用户会掉进一个看不见的区域——所以用 v-if，不是 CSS 折叠。
+   */
+  test("桌面：左栏可收起 → aria-expanded 跟随 → 再点恢复", async ({
+    page,
+    context,
+    baseURL
+  }) => {
+    await injectSupabaseSession(context, baseURL!);
+
+    await page.route(/\/api\/agent\/sessions\/?(?:\?.*)?$/, async route => {
+      await route.fulfill({ json: listEnvelope });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/#/agent/chat");
+
+    const rail = page.locator(".agent-rail");
+    const toggle = page.getByRole("button", { name: "历史", exact: true });
+
+    // 默认展开（不改既有默认契约）：列表在、按钮报 true
+    await expect(rail).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    // 收起：节点移除 + 按钮报 false
+    await toggle.click();
+    await expect(rail).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // 再点恢复（状态是一次切换，不是单向关闭）
+    await toggle.click();
+    await expect(rail).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
 });

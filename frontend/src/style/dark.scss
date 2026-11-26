@@ -27,7 +27,9 @@ html.dark {
 
   .app-main,
   .app-main-nofixed-header {
-    background: #020409 !important;
+    /* 走令牌而不是字面值：页面里贴底的元素（对话页输入 dock）必须与它同色，
+       字面值散两处就会在某一主题下切出色带（--bg-surface，见 colors.css） */
+    background: var(--bg-surface) !important;
   }
 
   /* 标签页 */
@@ -208,6 +210,9 @@ html.dark {
   --bg-page: #1a1816;
   --bg-card: #242120;
   --bg-warm: #1f1d1a;
+
+  /* 内容区表面色（暗）：与下方 .app-main 的底色一致，见下方同名规则 */
+  --bg-surface: #020409;
   --bg-soft: #2c2926;
   --bg-hover: #33302c;
   --bg-muted: #2c2926;

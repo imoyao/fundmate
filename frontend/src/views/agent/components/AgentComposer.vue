@@ -118,19 +118,26 @@ defineExpose({ focus });
 </script>
 
 <style lang="scss" scoped>
-/* 输入 dock：列底的一根横条，**不再 sticky**——消息区改成内部滚动后（见 index.vue），
-   它本来就永远停在列底，sticky 已无意义；而叠加的底色反而在暗色下露出色差
-   （实测：页面实测底色 != --bg-page，dock 涂 --bg-page 会在列底切出一条亮带）。
-   border-top 只画分隔线，底色交给页面。
+/* 输入 dock：贴底常驻。
+   2026-11 回到「页面级单一滚动」后重新 sticky（此前页面不滚、dock 自然停在列底，
+   sticky 无意义）。⚠️ 现在消息会从 dock 下方穿过，底色**必须不透明**，否则字从
+   输入框底下透出来。用 --bg-surface：它就是内容区当前主题下的表面色
+   （浅色 #faf6f0 = .main-container 的 --bg-warm，暗色 #020409 = .app-main），
+   写 --bg-page 或 --bg-warm 都只在一半主题下对（2026-11 双主题实测各切出一条带）。
+   只保留 border-top 做分隔，不加阴影（页面上唯一浮层是 FAB）。
 
    ⚠️ 本页在 FAB 隐藏清单内（constants/fab.ts 的 /agent），故不预留 --layout-fab-safe。
    若将来把它从清单摘掉，必须同时恢复 `padding-right: var(--layout-fab-safe)`，
    否则发送按钮会被 FAB 压住（#1773 实测）。 */
 .chat-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   padding: var(--space-3) 0 var(--space-standard);
+  background-color: var(--bg-surface);
   border-top: 1px solid var(--border-subtle);
 }
 
