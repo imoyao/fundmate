@@ -15,12 +15,12 @@ import { injectSupabaseSession } from "./support/session";
  *
  * | 区块 | 不变式 | 反向验证（把实现改回去就红在哪） |
  * |---|---|---|
- * | 概览 | 只渲染有值的 KPI；净值 4 位；收益带涨跌色 | 把 `kpis` 的 `!= null` 判断去掉 → 「成立以来」多出一格「—」 |
+ * | 概览 | 只答「是什么、什么价」：身份行 + 净值 + 净值日，**业绩/风险指标一律不在此**（§02 是唯一归属） | 把 KPI 网格加回来 → `.kpi` 计数与「不含最大回撤/夏普/成立以来」几条同时红 |
  * | 收益与风险 | 近端四档落同一 ±20% 刻度、缺档不留空行；风险项**中性色** | 给 `.risk__value` 套涨跌色 → 颜色判据红 |
- * | 成分基金 | 权重降序 + 前三大合计；「我的持仓」三态（持有 / 未持有 / 未知） | 把 `heldCodes` 的 null 当空数组 → 「未知」被写成「未持有」 |
+ * | 成分基金 | 权重降序 + 前三大合计；「我的持仓」三态（持有 / 未持有 / 未知）；标的走 `ProductDisplay` | 把 `heldCodes` 的 null 当空数组 → 「未知」被写成「未持有」；换回手写 span → `.product-cell--compact` 断言红 |
  * | 主理人调仓 | 日期倒序、加/减计数、来源标注；**有推导就挂声明** | 官方来源也挂声明 → 「不冒充」用例红 |
  * | 与我账户的对照 | 五方向同一刻度、差值 ≥5pp 才点色、提示条只点两档、覆盖率必须显示 | 按 100% 呈现覆盖率 / 三档全点色 → 对应用例红 |
- * | 组合档案 | 8 行属性齐（缺项「—」）+ 来源行强弱分层 + 外链可感知 | 无 `source_url` 仍渲染 `<a>` → 死链用例红 |
+ * | 组合档案 | 6 行属性齐（两列整 3 行、缺项「—」）**且不含最新净值/运作天数** + 来源行强弱分层 + 外链可感知 | 加回「最新净值」行 → 行数与标签数组同时红；无 `source_url` 仍渲染 `<a>` → 死链用例红 |
  *
  * 接口全部 `page.route` 打桩，不依赖后端（`docs/dev/frontend-e2e.md` §7）。
  */
@@ -64,7 +64,7 @@ function profile(over: Record<string, unknown> = {}) {
     return_6m: 5.8,
     return_1y: 13.2,
     return_ytd: null,
-    // 成立以来故意缺：概览 KPI 与收益大数字两处都不能出现「—」占位
+    // 成立以来故意缺：收益大数字（§02）不能出现「—」占位；概览已不再展示该项
     return_since_incep: null,
     // 回撤也是百分数且为正（「跌了多少」由标签表达，不靠符号）
     max_drawdown: 18.42,
@@ -479,7 +479,7 @@ test.describe("§01 概览", () => {
     await stubApis(page);
   });
 
-  test("身份行 + 净值 + 只渲染有值的 KPI", async ({ page }) => {
+  test("身份行 + 净值；业绩指标不在这里（全页唯一归属）", async ({ page }) => {
     await gotoPortfolio(page);
     const card = page.locator(".advisor-overview");
     await expect(card).toBeVisible();
@@ -490,40 +490,28 @@ test.describe("§01 概览", () => {
     // 横幅（用户 2026-11-26 实测报的就是它：不可取消、无 tag、无意义）。
     await expect(page.locator(".product-detail__hero")).toHaveCount(0);
 
-    // 身份一行读完「谁在管、什么风险、什么时候成立」；主理人缺失则整项跳过
+    // 身份一行读完「谁在管、什么风险」；主理人缺失则整项跳过。
+    // 不含成立日期——它是档案属性（§06 有），概览不重复。
     await expect(card.locator(".advisor-overview__meta")).toHaveText(
-      "且慢 · 盈米基金 · 中风险 · 基金组合 · 成立 2017-07-24"
+      "且慢 · 盈米基金 · 中风险 · 基金组合"
     );
 
     // 净值保留 4 位（与库内 nav 精度一致），日涨跌带方向箭头（颜色不是唯一载体）
     await expect(card.locator(".navnow__value")).toHaveText("2.4137");
     await expect(card.locator(".navnow__delta")).toContainText("+0.31%");
     await expect(card.locator(".navnow__delta")).toContainText("↑");
+    // 净值日全页只出现一次（此前页头戳 + 净值下方各写一遍）
     await expect(card.locator(".navnow__date")).toHaveText(
       "净值日期 2026-10-30"
     );
 
-    // return_since_incep 为 null ⇒ 不出「成立以来」格（一排「—」是另一种噪声）
-    await expect(card.locator(".kpi")).toHaveCount(3);
-    await expect(card.locator(".kpi__label")).toHaveText([
-      "近一年",
-      "最大回撤",
-      "夏普比率"
-    ]);
-    // 近一年副标题只留月日：完整日期已有两处，格内再写会在窄屏折成两行
-    await expect(card.locator(".kpi").first().locator(".kpi__sub")).toHaveText(
-      "截至 10-30"
-    );
-    // 收益带涨跌色、回撤与夏普中性（回撤套「跌」的绿会被读成「亏得少」）
-    await expect(
-      card.locator(".kpi").first().locator(".kpi__value")
-    ).toHaveClass(/is-rise/);
-    await expect(
-      card.locator(".kpi", { hasText: "最大回撤" }).locator(".kpi__value")
-    ).toHaveText("18.42%");
-    await expect(
-      card.locator(".kpi", { hasText: "最大回撤" }).locator(".kpi__value")
-    ).not.toHaveClass(/is-rise|is-fall/);
+    // 业绩/风险指标**不在这块**——它们在 §02。同一屏里每个数字出现两次，
+    // 读者反而不确定该信哪个（用户 2026-11-26：「同一个页面出现一次就够了」）。
+    // 反向验证：把 KPI 网格加回来 → 下面几条立刻红。
+    await expect(card.locator(".kpi")).toHaveCount(0);
+    await expect(card).not.toContainText("最大回撤");
+    await expect(card).not.toContainText("夏普比率");
+    await expect(card).not.toContainText("成立以来");
 
     // 策略说明默认两行截断，按钮真能展开（aria-expanded 是唯一可断言的状态位）
     const toggle = card.locator(".strategy__toggle");
@@ -635,13 +623,25 @@ test.describe("§03 成分基金", () => {
     // my_market_value_cents 当 0 → 金额变 ¥0、占比变 0.0%，本用例红。
     const held = card.locator("tbody tr").first().locator(".held");
     await expect(held.locator(".held__amount")).toHaveText("¥2,500");
-    await expect(held.locator(".held__pct")).toHaveText("占我 25.0%");
+    // 文案落在「仓位」这个名词上；不足 0.1% 走「<0.1%」由单测钉（见 advisorModel.spec）
+    await expect(held.locator(".held__pct")).toHaveText("占我仓位 25.0%");
     await expect(
       card.locator("tbody tr").nth(1).locator(".held-none")
     ).toHaveText("未持有");
 
+    // 标的标识必须走仓库统一的 ProductDisplay（名称一行 + `# 代码` 一行），
+    // 而不是本卡片自写一份「名称 + 代码」——那份会漏掉行高、截断与代码前缀约定。
+    // 反向验证：换回手写 span（去掉 ProductDisplay）→ 这两条立刻红。
+    const firstFund = card.locator("tbody tr").first();
+    await expect(firstFund.locator(".product-cell--compact")).toHaveCount(1);
+    await expect(firstFund.locator(".product-code-compact")).toHaveText(
+      "# 110011"
+    );
+
     // 未收录本地名录的基金不给链接（点进去是 404），但给灰标说明
-    await expect(card.locator(".fund__flag")).toHaveText(["未收录"]);
+    await expect(card.locator(".advisor-holdings__flag")).toHaveText([
+      "未收录"
+    ]);
     await expect(card.locator("tbody tr").nth(2).locator("a")).toHaveCount(0);
   });
 
@@ -914,7 +914,7 @@ test.describe("§05 与我账户的对照", () => {
 test.describe("§06 组合档案与来源", () => {
   test.setTimeout(120_000);
 
-  test("8 行属性齐（缺项「—」）+ 来源行强弱分层 + 外链可感知", async ({
+  test("6 行属性齐（缺项「—」）+ 来源行强弱分层 + 外链可感知", async ({
     context,
     baseURL,
     page
@@ -924,17 +924,20 @@ test.describe("§06 组合档案与来源", () => {
     await gotoPortfolio(page);
 
     const card = page.locator("#nav-advisor-archive");
-    await expect(card.locator(".archive > div")).toHaveCount(8);
+    // 6 行 = 两列网格的整 3 行（少一行就空出一格灰底，像表格少画了一块）。
+    // 不含「最新净值」（净值只在 §01 出现一处）、不含「运作天数」
+    // （派生量 + 实测常为 null）。
+    // 反向验证：把「最新净值」行加回来 → 行数与标签数组同时红。
+    await expect(card.locator(".archive > div")).toHaveCount(6);
     await expect(card.locator(".archive__label")).toHaveText([
       "平台",
       "机构",
       "主理人",
       "风险等级",
       "产品类型",
-      "成立日期",
-      "最新净值",
-      "运作天数"
+      "成立日期"
     ]);
+    await expect(card).not.toContainText("最新净值");
 
     // 缺项一律「—」（与后端「取不到就 null」的契约对称），不隐藏行——隐藏会让
     // 「平台没披露」与「这一项我们不关心」看起来一样
@@ -943,12 +946,6 @@ test.describe("§06 组合档案与来源", () => {
         .locator(".archive > div", { hasText: "主理人" })
         .locator(".archive__value")
     ).toHaveText("—");
-    // 净值带日期：单给 2.4137 无法判断是哪天的
-    await expect(
-      card
-        .locator(".archive > div", { hasText: "最新净值" })
-        .locator(".archive__value")
-    ).toHaveText("2.4137（2026-10-30）");
 
     // 来源行：弱标签「数据来源」+ 强值「且慢」
     await expect(card.locator(".src__label")).toHaveText("数据来源");

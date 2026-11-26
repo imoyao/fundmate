@@ -98,7 +98,7 @@ const degradedHint = computed(() =>
   <CardBlock class="advisor-compare">
     <SectionHeader
       title="与我账户的对照"
-      info="方向按基金最近一期风格暴露（八分类聚为五组），组合按披露权重加权、你的持仓按市值加权；只做客观对照，不构成「该换哪只」的建议。"
+      info="按基金最近一期的风格暴露归类；组合按披露权重、我的持仓按市值加权。"
     />
 
     <p v-if="loading" class="advisor-compare__hint">正在读取方向对照…</p>

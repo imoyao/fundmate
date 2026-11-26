@@ -96,3 +96,19 @@ export function riseFallClass(value: number | null): string {
   if (value == null || value === 0) return "";
   return value > 0 ? "is-rise" : "is-fall";
 }
+
+/**
+ * 「占我仓位」的文案（成分基金表的副行）。
+ *
+ * 两个坑都是实测出来的（2026-11-26 用户截图）：
+ * - 「占我 0.0%」不成句 —— 中文里要落在「仓位」这个名词上，否则读作「占我（这个人）」；
+ * - 四舍五入到 `0.0%` 更糟：明明持有 126 元，界面却说占了 0%，像数据错了。
+ *   不足 0.1% 一律写 `<0.1%` —— 那是「很小」，不是「没有」。
+ *
+ * 分母非正时上游给 `null`（不是 0）：此时**没有比例可言**，返回空串由调用方
+ * 只显示金额，不去编一个 0%。
+ */
+export function heldPctText(pct: number | null | undefined): string {
+  if (pct == null) return "";
+  return `占我仓位 ${pct < 0.1 ? "<0.1" : pct.toFixed(1)}%`;
+}

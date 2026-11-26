@@ -91,11 +91,11 @@ const longTerm = computed(() => {
 
 const risks = computed(() => buildRiskMetrics(props.profile));
 
-/** 风险项的解释：指标名对新手不自明，一句话说清「越大越好还是越小越好」 */
+/** 风险项的一句话口径：只留最短的判读方向，不写教科书定义 */
 const RISK_HINTS: Record<string, string> = {
-  最大回撤: "历史峰值到谷底的最大跌幅",
-  年化波动率: "日收益标准差年化，越低越平稳",
-  夏普比率: "每承担 1 单位波动换来的超额收益"
+  最大回撤: "峰值到谷底",
+  年化波动率: "越低越平稳",
+  夏普比率: "每单位波动的超额收益"
 };
 
 function hintOf(label: string): string {
@@ -107,7 +107,7 @@ function hintOf(label: string): string {
   <CardBlock class="advisor-returns">
     <SectionHeader
       title="收益与风险"
-      info="收益按平台披露的区间口径；回撤、波动率、夏普为区间统计，不随走势区间切换。"
+      info="数据来自平台披露的区间收益与风险指标。"
     />
 
     <p v-if="!profile" class="advisor-returns__hint">
@@ -116,10 +116,7 @@ function hintOf(label: string): string {
 
     <div v-else class="advisor-returns__grid">
       <section class="panel" aria-label="区间收益">
-        <h3 class="panel__h">
-          区间收益
-          <small>近端四档同一刻度 ±{{ SCALE }}%</small>
-        </h3>
+        <h3 class="panel__h">区间收益</h3>
 
         <div v-if="nearRows.length" class="ret">
           <div v-for="row in nearRows" :key="row.label" class="ret__row">
@@ -147,10 +144,7 @@ function hintOf(label: string): string {
       </section>
 
       <section class="panel" aria-label="风险指标">
-        <h3 class="panel__h">
-          风险
-          <small>中性色，不套涨跌色</small>
-        </h3>
+        <h3 class="panel__h">风险</h3>
 
         <div v-if="risks.length" class="risklist">
           <div v-for="item in risks" :key="item.label" class="risk">
@@ -165,9 +159,7 @@ function hintOf(label: string): string {
         </div>
         <p v-else class="panel__empty">平台未披露风险指标</p>
 
-        <p class="panel__note">
-          回撤与波动率越低越好，夏普越高越好；三项均为区间统计，与走势切换的区间无关。
-        </p>
+        <p class="panel__note">回撤与波动率越低越好，夏普越高越好。</p>
       </section>
     </div>
   </CardBlock>
@@ -200,20 +192,10 @@ function hintOf(label: string): string {
 }
 
 .panel__h {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: baseline;
   margin: 0 0 var(--space-3);
   font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-secondary);
-}
-
-.panel__h small {
-  font-size: var(--text-label);
-  font-weight: 400;
-  color: var(--text-tertiary-ink);
 }
 
 .panel__empty {
@@ -300,19 +282,19 @@ function hintOf(label: string): string {
   }
 }
 
+/* 与上方的区间条同处一块灰底：不再套一层白卡。
+   卡中卡会把「四行区间」和「两个长期大字」切成两个视觉层级，
+   读者得先判断哪块是主体——而它们本来就是同一件事的两个尺度。 */
 .longterm {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  margin-top: var(--space-4);
-  overflow: hidden;
-  background: var(--border-light);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-light);
 
   > div {
-    padding: var(--space-3) var(--space-compact);
-    background: var(--bg-card);
+    min-width: 0;
   }
 }
 

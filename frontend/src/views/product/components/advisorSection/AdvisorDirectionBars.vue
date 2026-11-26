@@ -60,7 +60,7 @@ function widthOf(value: number): string {
       <template v-if="coveragePct != null">
         · 覆盖 {{ coveragePct.toFixed(1) }}%
       </template>
-      · 差值单位 pp，正数表示我更高
+      · 差 = 我 − 组合
     </span>
   </div>
 
@@ -176,14 +176,15 @@ function widthOf(value: number): string {
 }
 
 /* 五列：方向 / 双条 / 组合值 / 我值 / 差值。
-   max-width 限制行宽——拉到整页宽后两条数字臂相隔 800px，对照关系反而不成立。 */
+   行铺满卡片宽度：此前写死 max-width: 880px，而卡片实测 1174px，
+   右侧 290px 变成一块没有分隔线的空白 —— 看起来像「表格少画了一截」。
+   数字列本来就紧跟在条形右端（不是被 1fr 推到天边），拉满不会破坏对照关系。 */
 .dir__head,
 .dir {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 56px 56px 56px;
+  grid-template-columns: 64px minmax(0, 1fr) 60px 60px 60px;
   gap: var(--space-3);
   align-items: center;
-  max-width: 880px;
 
   @include bp.below("md") {
     grid-template-columns: 48px minmax(0, 1fr) 48px 48px 44px;

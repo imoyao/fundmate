@@ -5,6 +5,7 @@ import {
   buildReturnMetrics,
   buildRiskMetrics,
   fmtPct,
+  heldPctText,
   riseFallClass,
   strategyText
 } from "../advisorModel";
@@ -103,5 +104,25 @@ describe("fmtPct / riseFallClass", () => {
   it("正负分档走文字级色 class", () => {
     expect(riseFallClass(0.01)).toBe("is-rise");
     expect(riseFallClass(-0.01)).toBe("is-fall");
+  });
+});
+
+describe("heldPctText：「占我仓位」的文案", () => {
+  it("落地在「仓位」这个名词上（不是「占我 25.0%」）", () => {
+    expect(heldPctText(25)).toBe("占我仓位 25.0%");
+    expect(heldPctText(0.4)).toBe("占我仓位 0.4%");
+  });
+
+  it("不足 0.1% 写「<0.1%」，不四舍五入成 0.0%", () => {
+    // 明明持有 126 元却写「占了 0%」，用户会以为数据错了
+    expect(heldPctText(0.02)).toBe("占我仓位 <0.1%");
+    expect(heldPctText(0.099)).toBe("占我仓位 <0.1%");
+    // 0.1 恰好是边界：不能再写成「<0.1%」
+    expect(heldPctText(0.1)).toBe("占我仓位 0.1%");
+  });
+
+  it("null（分母非正）= 没有比例可言，返回空串由调用方只显示金额", () => {
+    expect(heldPctText(null)).toBe("");
+    expect(heldPctText(undefined)).toBe("");
   });
 });

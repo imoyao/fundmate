@@ -4,7 +4,6 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type { AdvisorProfileResult } from "@/api/products";
-import { formatPrice } from "@/utils/pricePrecision";
 import { DASH } from "./advisorModel";
 
 /**
@@ -39,22 +38,17 @@ interface ArchiveRow {
 const rows = computed<ArchiveRow[]>(() => {
   const p = props.profile;
   if (!p) return [];
-  const navText =
-    p.nav != null
-      ? `${formatPrice(p.nav, "fund")}${p.nav_date ? `（${p.nav_date}）` : ""}`
-      : DASH;
+  // 6 行 = 两列网格的整 3 行。少一行会空出一格灰底（容器背景露出来），
+  // 看着像表格少画了一块——所以「运作天数」不单列：它是「今天 − 成立日期」
+  // 的派生量，且实测 105 个组合里常为 null（显示「—」）。
+  // 也不含「最新净值」：净值与净值日只在 §01 出现一处。
   return [
     { label: "平台", value: props.platformLabel || p.platform || DASH },
     { label: "机构", value: p.org_name || DASH },
     { label: "主理人", value: p.host || DASH },
     { label: "风险等级", value: p.risk_level || DASH },
     { label: "产品类型", value: p.product_type || DASH },
-    { label: "成立日期", value: p.estab_date || DASH },
-    { label: "最新净值", value: navText },
-    {
-      label: "运作天数",
-      value: p.running_days != null ? `${p.running_days} 天` : DASH
-    }
+    { label: "成立日期", value: p.estab_date || DASH }
   ];
 });
 </script>
@@ -90,9 +84,6 @@ const rows = computed<ArchiveRow[]>(() => {
             查看官方组合页面
             <IconifyIconOffline icon="ep:top-right" class="src__icon" />
           </a>
-        </span>
-        <span v-if="profile.nav_date" class="src__item">
-          净值截至 {{ profile.nav_date }}
         </span>
         <span v-if="holdingsAsOf" class="src__item">
           持仓快照 {{ holdingsAsOf }}
