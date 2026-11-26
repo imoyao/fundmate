@@ -72,19 +72,89 @@ watch(
   () => close()
 );
 
+/**
+ * 页头滚出视口后，按钮转为**视口右上角悬浮**。
+ *
+ * ## 为什么必须这样（2026-11-26 实测）
+ *
+ * 页头（`PageHeaderBar`）不是 sticky。把目录放进页头后，滚到 §05 时按钮的
+ * `getBoundingClientRect().top` 实测是 **−2988**（视口上方 3000px 外）：
+ * 用户既看不到也点不到。
+ *
+ * 而页内导航的**唯一使用场景**恰恰是「已经滚到深处，想跳回/跳到别处」——
+ * 入口在顶部可用、其余 99% 的滚动位置不可用，等于没有导航。这是把导航
+ * 收进页头换来的空间收益所必须偿还的成本，不是可选项。
+ *
+ * ## 为什么观察页头而不是观察自己
+ *
+ * 观察自身会形成振荡：一旦自身改为 fixed 就落回视口内 → 观察器判定可见 →
+ * 取消 fixed → 又滚出视口 → 再 fixed……页头本身不动，用它做判据是单调的。
+ * 只在页头**整体位于视口上方**（bottom < 0）时悬浮；首屏阶段不动。
+ */
+const floating = ref(false);
+/**
+ * 悬浮态顶边。
+ *
+ * 不能写死 `top: 12px`：本仓 `fixedHeader` 模式下顶部栏（面包屑 + 工具按钮）是
+ * **吸顶**的，写死 12px 会让悬浮按钮正压在它下面 —— 实测 `elementFromPoint`
+ * 命中的是顶栏按钮而不是目录按钮，Playwright 真实点击 5s 超时（人点也一样点不到）。
+ * `.app-main` 的滚动区上沿就是顶栏下沿，据此让开即可；非 fixedHeader 模式下
+ * 滚动区从 0 起，退化为 12px，行为等价。
+ */
+const floatTop = ref("12px");
+
+function measureFloatTop() {
+  const wrap = document.querySelector<HTMLElement>(
+    ".app-main .el-scrollbar__wrap"
+  );
+  const top = wrap ? Math.max(wrap.getBoundingClientRect().top, 0) : 0;
+  floatTop.value = `${Math.round(top) + 12}px`;
+}
+
+let headerObserver: IntersectionObserver | null = null;
+
 onMounted(() => {
   document.addEventListener("mousedown", onDocumentPointerDown, true);
   document.addEventListener("keydown", onKeydown);
+
+  // 页头随内容滚动，不在滚动宿主上做阈值判断——IntersectionObserver 用视口
+  // 作 root 即可，滚动容器变化时会自然重算，不必知道页面把滚动放在哪一层
+  const header = root.value?.closest(".page-header");
+  if (!header) return;
+  headerObserver = new IntersectionObserver(
+    entries => {
+      const entry = entries[0];
+      floating.value =
+        !entry.isIntersecting && entry.boundingClientRect.bottom < 0;
+    },
+    { threshold: 0 }
+  );
+  headerObserver.observe(header);
+
+  // 首屏就可能在深处（刷新后恢复滚动位置 / 从锚点链接进来）
+  measureFloatTop();
+});
+
+// 浮起来之前先量一次：等真的浮动再量会让按钮有一帧压在顶栏上
+watch(floating, value => {
+  if (value) measureFloatTop();
 });
 
 onBeforeUnmount(() => {
+  headerObserver?.disconnect();
+  headerObserver = null;
   document.removeEventListener("mousedown", onDocumentPointerDown, true);
   document.removeEventListener("keydown", onKeydown);
 });
 </script>
 
 <template>
-  <div ref="root" class="toc-menu">
+  <div
+    ref="root"
+    class="toc-menu"
+    :class="{ 'is-floating': floating }"
+    :style="floating ? { '--toc-float-top': floatTop } : undefined"
+  >
     <button
       ref="trigger"
       type="button"
@@ -150,6 +220,26 @@ onBeforeUnmount(() => {
 <style scoped lang="scss">
 .toc-menu {
   position: relative;
+}
+
+/* 页头滚出视口后：钉在右上角，与内容区右边缘对齐（宽屏取留白中点、窄屏贴边）。
+   不占文档流，页头处不留空；滚回顶部时类名移除，自动归位。 */
+.toc-menu.is-floating {
+  position: fixed;
+
+  /* 顶边由 `measureFloatTop()` 现算（避开吸顶工具栏），见脚本注释 */
+  top: var(--toc-float-top, 12px);
+  right: max(
+    var(--space-3),
+    calc((100vw - var(--layout-content-width)) / 2 + var(--space-standard))
+  );
+  z-index: 60;
+
+  /* 脱离页头后下方是正文，透明底会与内容糊在一起 ⇒ 给实底 + 浮起阴影 */
+  .toc-menu__btn {
+    background: var(--bg-card);
+    box-shadow: var(--shadow-float);
+  }
 }
 
 .toc-menu__btn {

@@ -274,10 +274,14 @@ async function stubApis(page: Page, opts: StubOpts = {}) {
         data: {
           symbol: CODE,
           asset_type: "portfolio",
-          market: "CN_A",
+          // 组合类没有市场 / 场所（与真实库一致）；这里若写成 "CN_A"，识别卡
+          // 会因为有「市场」这项身份事实而成卡，下面「整卡不渲染」的断言就失去意义
+          market: null,
           venue: null,
           display_name: "远足",
-          in_watchlist: false,
+          // **故意设为已关注**：这正是旧判据（「有任何一项就成卡」）会造出
+          // 「只有『自选 / 已关注』的死横幅」的那组输入，否则断言会碰巧绿
+          in_watchlist: true,
           // 不持有：持仓 / 交易 / 走势叠加三个区块不渲染，本用例只关心投顾区块
           has_position: false,
           source: "catalog"
@@ -480,6 +484,12 @@ test.describe("§01 概览", () => {
     const card = page.locator(".advisor-overview");
     await expect(card).toBeVisible();
 
+    // 识别卡整卡不渲染：组合类不展示代码（设计 §2.6）也没有市场 / 场所，
+    // 身份事实为空 ⇒ 不成卡。反向验证：把 `hasIdentityFacts` 退回旧的
+    // 「有任何一项就成卡」→ 这里会多出一张横贯整行、只写「自选 / 已关注」的
+    // 横幅（用户 2026-11-26 实测报的就是它：不可取消、无 tag、无意义）。
+    await expect(page.locator(".product-detail__hero")).toHaveCount(0);
+
     // 身份一行读完「谁在管、什么风险、什么时候成立」；主理人缺失则整项跳过
     await expect(card.locator(".advisor-overview__meta")).toHaveText(
       "且慢 · 盈米基金 · 中风险 · 基金组合 · 成立 2017-07-24"
@@ -620,10 +630,12 @@ test.describe("§03 成分基金", () => {
       /width: 100(\.0+)?%/
     );
 
-    // 「已持有」来自对比端点的共同持有集合（主色系，不是成功绿）
-    await expect(card.locator("tbody tr").first().locator(".held")).toHaveText(
-      "已持有"
-    );
+    // 「我的持仓」给的是**仓位**不只是状态：金额（¥2,500 = 250_000 分）+ 占我
+    // 权益市值的比例（÷ 1_000_000 分 = 25.0%）。反向验证：把 heldByCode 里的
+    // my_market_value_cents 当 0 → 金额变 ¥0、占比变 0.0%，本用例红。
+    const held = card.locator("tbody tr").first().locator(".held");
+    await expect(held.locator(".held__amount")).toHaveText("¥2,500");
+    await expect(held.locator(".held__pct")).toHaveText("占我 25.0%");
     await expect(
       card.locator("tbody tr").nth(1).locator(".held-none")
     ).toHaveText("未持有");

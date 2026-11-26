@@ -122,6 +122,13 @@ import { useWatchlistAddCatalog } from "./composables/useWatchlistAddCatalog";
 const props = defineProps<{
   modelValue: boolean;
   initialGroupId?: number;
+  /**
+   * 预填资产（2026-11-26）。给「标的已经确定」的入口用——产品详情页页头的
+   * 「自选」按钮点进来时，用户已经在看这只基金，再让他搜一遍自己的标的
+   * 是纯浪费。传了就直接跳到最后一步（选分组 / 打标签 / 写理由），
+   * 搜索框仍可用（换成别的标的）。
+   */
+  initialAsset?: SearchAssetOption | null;
 }>();
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
@@ -184,6 +191,21 @@ const checkAssetExists = async (symbol: string, seq: number) => {
     return false;
   }
 };
+
+// 打开时预填资产：`immediate` 兼顾「v-if 挂载即打开」的调用形态（挂载时 watch
+// 已不会因「false → true」触发）。**只在打开那一刻填**，不跟 props 变化——
+// 否则用户在弹窗里另选了标的、父层 props 恰好重算，会把他的选择顶掉。
+// 查重跳过：调用方（产品详情页）已由 resolve 的 `in_watchlist === false` 确认过。
+watch(
+  () => props.modelValue,
+  open => {
+    if (!open || !props.initialAsset) return;
+    selectedAsset.value = props.initialAsset;
+    assetAlreadyExists.value = false;
+    applyInitialSelection();
+  },
+  { immediate: true }
+);
 
 const onAssetSelected = async (option: SearchAssetOption | null) => {
   if (!option) return;

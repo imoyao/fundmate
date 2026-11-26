@@ -1,12 +1,14 @@
 <!--
   ProductIdentityCard · 详情页识别卡（#1964 · 设计 §4）
 
-  只放事实项（代码 / 市场 / 场所 / 自选 / 持仓）。**名称与品类不在这里**——
+  只放事实项（代码 / 市场 / 场所 / 持仓）。**名称与品类不在这里**——
   它们由 PageHeaderBar 页头承担（标题=产品名、副标题=品类）；卡内再排一次
   h2 名称 + 类型徽章是纯重复（用户实测「同一名称出现 4 次」，#2107 起删掉）。
 
-  未登录时 in_watchlist / has_position 为 null（resolve 是「可选登录」端点），
-  此时不渲染徽标——「未知」不是「没有」，不能显示成「未自选」。
+  **「自选」也不在这里**（2026-11-26）：那是状态而非身份，且必须可操作
+  （取消自选、看分组标签）——已移入页头控件 `ProductWatchToggle`，本卡只陈述
+  「已持有」这类不可操作的持仓事实。未登录时 `has_position` 为 null
+  （resolve 是「可选登录」端点），此时不渲染徽标——「未知」不是「没有」。
 
   **「代码」项按品类隐藏**（#2216 / #2228 · 设计 §2.6）：组合 / 经理类的 `symbol` 是
   内部编码（`MGR_98CE0328FFF1`、投顾组合的平台原生码），对使用者没有任何意义 ——
@@ -22,7 +24,7 @@ import { computed, onMounted } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 import type { ProductResolveResult } from "@/api/products";
-import { showsCodeItem } from "./productIdentityFacts";
+import { hasIdentityFacts, showsCodeItem } from "./productIdentityFacts";
 
 const props = defineProps<{
   product: ProductResolveResult;
@@ -38,26 +40,21 @@ onMounted(() => {
 });
 
 /**
- * 有没有任何一项要展示。
+ * 有没有**身份事实**可放（代码 / 市场 / 场所）。
  *
- * 组合 / 经理类**不展示代码**（设计 §2.6），它们也没有市场 / 场所；若用户既没自选
- * 也没持有，这一卡就是**一张只剩内边距的空白卡**——在投顾组合页上它正好挡在概览
- * 前面（实测 1440 视口下一块 30px 高的空壳），看起来像页面加载坏了。
- * 故本卡按「有内容才渲染」处理：`in_watchlist` / `has_position` 是 null（未知）时
- * 不算内容，异步变为 true 时卡片会自动出现。
+ * 组合 / 经理类不展示代码（设计 §2.6），它们也没有市场 / 场所；若按「有任何一项
+ * 就成卡」判，用户一旦自选了该组合，这一卡就变成**一张横贯整行、只写「自选 /
+ * 已关注」的横幅**：不可操作（点不了取消自选）、也不携带可使用的事实。
+ * 2026-11-26 用户实测：「这个自选直接一个横幅卡片……我不知道它的意义是什么。」
+ *
+ * 故判据收窄到身份事实（`hasIdentityFacts`，含单测）：状态徽标只能在卡片**已经
+ * 因为身份事实而存在**时作为附加信息出现，不能自己撑起一张卡。
  */
-const hasAnyFact = computed(
-  () =>
-    showsCodeItem(props.product.asset_type) ||
-    Boolean(props.product.market) ||
-    Boolean(props.product.venue) ||
-    props.product.in_watchlist === true ||
-    props.product.has_position === true
-);
+const hasIdentity = computed(() => hasIdentityFacts(props.product));
 </script>
 
 <template>
-  <CardBlock v-if="hasAnyFact" class="product-detail__hero">
+  <CardBlock v-if="hasIdentity" class="product-detail__hero">
     <dl class="product-detail__facts">
       <!-- 代码项按品类隐藏（#2216 / #2228 · 设计 §2.6）：组合 / 经理类的 symbol 是
            **内部编码**（`MGR_98CE0328FFF1` 经 resolve 大写化、投顾组合的平台原生码），
@@ -87,12 +84,10 @@ const hasAnyFact = computed(
           {{ venueLabel(product.venue) }}
         </dd>
       </div>
-      <!-- 未登录时这两项为 null（端点为可选登录），此时不渲染徽标，
-           不能当成「未自选 / 未持有」——那是「未知」不是「没有」 -->
-      <div v-if="product.in_watchlist === true" class="product-detail__fact">
-        <dt class="product-detail__fact-label">自选</dt>
-        <dd class="product-detail__fact-value">已关注</dd>
-      </div>
+      <!-- 「自选」一项 2026-11-26 移入页头控件（`ProductWatchToggle`）：
+           它是个**状态**，而且必须可操作（取消 / 看分组标签），识别卡只能陈述不能操作；
+           两处并存还会互相打脸——页头取消自选后，这里的「已关注」不会消失。
+           自选状态的唯一真相源是页头。 -->
       <div v-if="product.has_position === true" class="product-detail__fact">
         <dt class="product-detail__fact-label">持仓</dt>
         <dd class="product-detail__fact-value">已持有</dd>

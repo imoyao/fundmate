@@ -153,11 +153,13 @@ async function navLabels(page: Page, real = false): Promise<string[]> {
  * 点目录项跳转（下拉形态的代价：每次都得先展开浮层）。
  *
  * `real = false` 时用 `dispatchEvent("click")` 而不是 `.click()`——**这是判据的一部分**：
- * Playwright 的真实点击会先把目标滚进可视区，而触发按钮在页头里（随内容滚走）。
- * 页面已经滚到底时点按钮，浏览器会把 `scrollTop` 归零，于是「从底部往上跳」被测成
+ * Playwright 的真实点击会先把目标滚进可视区。页面还在顶部时触发按钮位于页头里，
+ * 浏览器为了点它可能调整滚动，把 `scrollTop` 归零，于是「从底部往上跳」被测成
  * 「从顶部往下跳」、scroll-spy 测到的当前项也退回第一项（实测：滚到底后 label
  * 已是「更多数据」，一点按钮就变回「我的持仓」）。
- * 真实点击的可达性由「目录开合」与「点击目录项滚动」两条用例用 `.click()` 单独覆盖。
+ * 滚到深处后按钮转为 fixed（`.is-floating`），真实点击不再引发滚动——那条路径由
+ * 「滚到页面深处」用例用 `.click()` 单独覆盖；页头态的真实可达性由「目录开合」
+ * 与「点击目录项滚动」两条用例覆盖。
  */
 async function goTo(page: Page, label: string, real = false) {
   await openMenu(page, real);
@@ -801,6 +803,56 @@ test.describe("详情页页内导航（#1968）", () => {
       };
     });
     expect(state.atLine || state.atBottom).toBe(true);
+  });
+
+  test("滚到页面深处：目录入口仍在视口内，点开能跳回首个区块", async ({
+    page
+  }) => {
+    // 页头不是 sticky。把导航收进页头后，滚到 §05 时按钮实测 `top = −2988`
+    // （视口上方 3000px 外）——用户既看不到也点不到，而「滚到深处想跳回去」
+    // 恰恰是页内导航唯一的使用场景。判据是「悬浮 + 真的能跳」，不是「有个按钮」。
+    //
+    // 反向验证：去掉 `.toc-menu.is-floating` 的 `position: fixed` → 下面的
+    // y ≥ 0 断言红（实测 y = −2988）。
+    await page.goto(`/#/fund/${SYMBOL}`);
+    await expect(page.locator(".holding-section")).toBeVisible({
+      timeout: 60_000
+    });
+
+    const vp = page.viewportSize()!;
+    const btn = page.locator(".toc-menu__btn");
+
+    // 顶部：正常排在一行里，不浮动（避免首屏就多一个悬浮物）
+    await expect(btn).toBeVisible();
+    await expect(page.locator(".toc-menu.is-floating")).toHaveCount(0);
+
+    await scrollBy(page, 2000);
+    await page.waitForTimeout(500);
+
+    const box = await btn.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(vp.height);
+    await expect(page.locator(".toc-menu.is-floating")).toHaveCount(1);
+
+    // 悬浮态下用**真实点击**：fixed 元素永远在视口内，浏览器不会为了点它去滚页面，
+    // 所以这里不再有「点击把 scrollTop 归零」的问题（页头态下的那个坑见 goTo 注释）。
+    const scrollTop = () =>
+      page.evaluate(
+        () =>
+          document.querySelector<HTMLElement>(".app-main .el-scrollbar__wrap")
+            ?.scrollTop ?? 0
+      );
+    const before = await scrollTop();
+    expect(before).toBeGreaterThan(500);
+
+    const labels = await navLabels(page);
+    await goTo(page, labels[0], true);
+    await waitScrollSettle(page);
+
+    // 真的跳上去了，且当前项跟着变——不是「面板关掉了就算过」
+    expect(await scrollTop()).toBeLessThan(before - 200);
+    await expect(activeLabel(page)).toHaveText(labels[0]);
   });
 
   test("响应式：页头下拉在各宽度都可用，条目一致且不撑破视口", async ({
