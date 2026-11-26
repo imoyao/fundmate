@@ -31,6 +31,7 @@ from app.domains.families.views import families_bp  # noqa: E402
 from app.domains.feedlog.views import feedlog_bp  # noqa: E402
 from app.domains.financial_plan.views import financial_plan_bp  # noqa: E402
 from app.domains.funds.advisor_comparison_views import advisor_comparison_bp  # noqa: E402
+from app.domains.funds.advisor_style_views import advisor_style_bp  # noqa: E402
 from app.domains.funds.overlap_views import overlap_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
@@ -135,6 +136,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(funds_bp)
     app.register_blueprint(overlap_bp)
     app.register_blueprint(advisor_comparison_bp)
+    app.register_blueprint(advisor_style_bp)
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(watchlist_alert_bp)
     app.register_blueprint(ocr_bp)
