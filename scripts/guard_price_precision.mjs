@@ -45,7 +45,7 @@
 //
 // ## 基线只减不增
 //
-// 展示侧存量 8 处冻结在 BASELINE（值目前都是对的，逐个改会牵动 e2e 文案断言，
+// 展示侧存量 7 处冻结在 BASELINE（值目前都是对的，逐个改会牵动 e2e 文案断言，
 // 单独立项收敛）。修掉一处就从 BASELINE 移除一处；脚本对「已消失却仍留在基线」
 // 的项打印提示（不阻断）。录入侧**零基线**——上线时一次改完，没有存量。
 
@@ -77,17 +77,18 @@ const MULT_AMOUNT_RE = /\*\s*(form\.)?price\b|price\s*\*|\*\s*nav\b/i;
 const CONTRACT_FILE = "utils/pricePrecision.ts";
 
 const BASELINE = new Set([
-  // 存量 8 处（2026-10-20 冻结，之后随 #980 拆分逐步下修）：值目前正确，改它会牵动 e2e 文案断言，
+  // 存量 7 处（2026-10-20 冻结，之后随 #980 拆分逐步下修）：值目前正确，改它会牵动 e2e 文案断言，
   // 单独立项收敛。修一处 → 从这里删一处。
   // 2026-10-24：转换表单三处净值（estimate.out / estimate.in / result.out）在拆
   // `ConversionForm.vue` 时改走 `formatPrice(v, "fund")`，已从基线移除（12 → 9）。
   // 2026-10-27：业绩区块拆 `perfSection/PerfMoneyBlock.vue` 时，万份收益改走
   // `formatPrice(v, "money_fund")`（同为 4 位，文案不变），再移除一处（9 → 8）。
+  // 2026-11-26：投顾组合详情页重设计，概览的净值改走 `formatPrice(v, "fund")`
+  // （同为 4 位，文案不变），移除一处（8 → 7）。
   'nav != null ? nav.toFixed(4) : "--"',
   'p.toNumber(row.price) != null ? Number(row.price).toFixed(4) : "--"',
   "? Number(form.price).toFixed(4)",
   "return d ? `${nav.toFixed(4)}（截至 ${d}）` : nav.toFixed(4);",
-  "{{ profile.nav.toFixed(4) }}",
   "return row.nav == null ? DASH : row.nav.toFixed(4);",
   "{{ profile.unit_nav != null ? profile.unit_nav.toFixed(4) : DASH }}",
   '净值 {{ bias.close != null ? bias.close.toFixed(4) : DASH }} ·'

@@ -4,7 +4,8 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type { AdvisorProfileResult } from "@/api/products";
 import { getAdvisorPlatformLabel } from "@/constants/advisorPlatform";
-import { DASH, fmtPct, riseFallClass, strategyText } from "./advisorModel";
+import { formatPrice } from "@/utils/pricePrecision";
+import { fmtPct, riseFallClass, strategyText } from "./advisorModel";
 import { fetchAdvisorProfile } from "./advisorProfileCache";
 
 /**
@@ -163,7 +164,7 @@ const dayChange = computed(() => {
         <div class="navnow">
           <p class="navnow__label">最新净值</p>
           <p class="navnow__value">
-            {{ profile.nav != null ? profile.nav.toFixed(4) : DASH }}
+            {{ formatPrice(profile.nav, "fund") }}
           </p>
           <p v-if="dayChange" class="navnow__delta" :class="dayChange.class">
             {{ dayChange.text }}

@@ -4,6 +4,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type { AdvisorProfileResult } from "@/api/products";
+import { formatPrice } from "@/utils/pricePrecision";
 import { DASH } from "./advisorModel";
 
 /**
@@ -40,7 +41,7 @@ const rows = computed<ArchiveRow[]>(() => {
   if (!p) return [];
   const navText =
     p.nav != null
-      ? `${p.nav.toFixed(4)}${p.nav_date ? `（${p.nav_date}）` : ""}`
+      ? `${formatPrice(p.nav, "fund")}${p.nav_date ? `（${p.nav_date}）` : ""}`
       : DASH;
   return [
     { label: "平台", value: props.platformLabel || p.platform || DASH },
