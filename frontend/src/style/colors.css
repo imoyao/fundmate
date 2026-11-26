@@ -415,7 +415,13 @@
      就会多出这一截 → 外层长出第二条滚动条（agent 对话页实测：scrollHeight 比
      clientHeight 多 40px）。整屏高页面必须写成
      calc(100dvh - var(--layout-topbar-height) - var(--layout-footer-height))。
-     lay-footer 的 min-height 引用本令牌，两边不会漂。 */
+     lay-footer 的 min-height 引用本令牌，两边不会漂。
+
+     ⚠️ 内容流里还有**运行时**高度：全局对账横幅（DiscrepancyBanner）。
+     它不是静态令牌 —— 文案换行会变高（宽屏 55px / 窄屏 80+），
+     由 lay-content 用 ResizeObserver 实测后写成 `--app-banner-height`（不显示时 0px）。
+     整屏高页面要一并减掉：... - var(--layout-footer-height) - var(--app-banner-height, 0px)，
+     漏减 ⇒ 横幅一出现外层立刻多一条滚动条、贴底输入区被顶到折线以下（2026-11 实测溢出 56px）。 */
   --layout-footer-height: 40px;
   /* 内容区「表面色」：页面里需要与底层同色的贴底 / 浮层元素（对话页输入 dock）用它。
      浅色下内容区由 .main-container 涂 --bg-warm（实测像素 #faf6f0），
