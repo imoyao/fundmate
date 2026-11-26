@@ -33,3 +33,36 @@ export function showsCodeItem(assetType?: string | null): boolean {
   if (!normalized) return true;
   return !(NO_CODE_ASSET_TYPES as readonly string[]).includes(normalized);
 }
+
+/**
+ * 识别卡是否有**身份事实**可放（代码 / 市场 / 场所）。
+ *
+ * ## 身份 vs 状态
+ *
+ * 识别卡回答的是「**这是什么标的**」——代码、市场、场所都能独立回答它。
+ * 「自选 / 已持有」回答的是「**我和它什么关系**」，是**状态**，不是身份；
+ * 它只能在卡片**已经因为身份事实而存在**时，作为附加徽标出现。
+ *
+ * ## 为什么不能「有任何一项就成卡」（2026-11-26 用户实测）
+ *
+ * 组合 / 经理类不展示代码（`showsCodeItem` 为 false），也没有市场 / 场所。
+ * 一旦用户恰好自选了该组合，旧判据 `hasAnyFact` 就会造出一张**横贯整行、
+ * 只写「自选 / 已关注」两行字**的卡片：它不可操作（点不了取消自选），
+ * 也不携带任何能被使用的事实。用户原话：「这个自选直接一个横幅卡片，
+ * 而且似乎也没有什么意义」。
+ *
+ * 根因是判据把状态算成了内容 —— 于是**没有身份的页面上，卡片为一行状态而存在**。
+ * 换成「有身份事实才成卡」后：基金 / 股票 / ETF 照旧（有代码），
+ * 组合 / 经理类整卡不渲染；自选状态改由页头承担（可操作），不靠一张死卡片背书。
+ */
+export function hasIdentityFacts(product: {
+  asset_type?: string | null;
+  market?: string | null;
+  venue?: string | null;
+}): boolean {
+  return (
+    showsCodeItem(product.asset_type) ||
+    Boolean(product.market) ||
+    Boolean(product.venue)
+  );
+}

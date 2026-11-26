@@ -22,7 +22,7 @@ import { computed, onMounted } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 import type { ProductResolveResult } from "@/api/products";
-import { showsCodeItem } from "./productIdentityFacts";
+import { hasIdentityFacts, showsCodeItem } from "./productIdentityFacts";
 
 const props = defineProps<{
   product: ProductResolveResult;
@@ -38,26 +38,21 @@ onMounted(() => {
 });
 
 /**
- * 有没有任何一项要展示。
+ * 有没有**身份事实**可放（代码 / 市场 / 场所）。
  *
- * 组合 / 经理类**不展示代码**（设计 §2.6），它们也没有市场 / 场所；若用户既没自选
- * 也没持有，这一卡就是**一张只剩内边距的空白卡**——在投顾组合页上它正好挡在概览
- * 前面（实测 1440 视口下一块 30px 高的空壳），看起来像页面加载坏了。
- * 故本卡按「有内容才渲染」处理：`in_watchlist` / `has_position` 是 null（未知）时
- * 不算内容，异步变为 true 时卡片会自动出现。
+ * 组合 / 经理类不展示代码（设计 §2.6），它们也没有市场 / 场所；若按「有任何一项
+ * 就成卡」判，用户一旦自选了该组合，这一卡就变成**一张横贯整行、只写「自选 /
+ * 已关注」的横幅**：不可操作（点不了取消自选）、也不携带可使用的事实。
+ * 2026-11-26 用户实测：「这个自选直接一个横幅卡片……我不知道它的意义是什么。」
+ *
+ * 故判据收窄到身份事实（`hasIdentityFacts`，含单测）：状态徽标只能在卡片**已经
+ * 因为身份事实而存在**时作为附加信息出现，不能自己撑起一张卡。
  */
-const hasAnyFact = computed(
-  () =>
-    showsCodeItem(props.product.asset_type) ||
-    Boolean(props.product.market) ||
-    Boolean(props.product.venue) ||
-    props.product.in_watchlist === true ||
-    props.product.has_position === true
-);
+const hasIdentity = computed(() => hasIdentityFacts(props.product));
 </script>
 
 <template>
-  <CardBlock v-if="hasAnyFact" class="product-detail__hero">
+  <CardBlock v-if="hasIdentity" class="product-detail__hero">
     <dl class="product-detail__facts">
       <!-- 代码项按品类隐藏（#2216 / #2228 · 设计 §2.6）：组合 / 经理类的 symbol 是
            **内部编码**（`MGR_98CE0328FFF1` 经 resolve 大写化、投顾组合的平台原生码），
