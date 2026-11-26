@@ -1,67 +1,47 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import SectionHeader from "@/components/SectionHeader/index.vue";
-import { getAdvisorProfile, type AdvisorProfileResult } from "@/api/products";
-import { getAdvisorHoldings, type AdvisorHoldingsResult } from "@/api/funds";
-import { getAdvisorPlatformLabel } from "@/constants/advisorPlatform";
-import AdvisorFacts from "./advisorSection/AdvisorFacts.vue";
-import AdvisorAdjusts from "./advisorSection/AdvisorAdjusts.vue";
-import AdvisorFootnote from "./advisorSection/AdvisorFootnote.vue";
-import AdvisorHoldings from "./advisorSection/AdvisorHoldings.vue";
-import AdvisorComparison from "./advisorSection/AdvisorComparison.vue";
-import AdvisorMetrics from "./advisorSection/AdvisorMetrics.vue";
+import type { AdvisorProfileResult } from "@/api/products";
 import {
-  buildReturnMetrics,
-  buildRiskMetrics,
-  strategyText
-} from "./advisorSection/advisorModel";
+  getAdvisorComparison,
+  getAdvisorHoldings,
+  type AdvisorComparisonResult,
+  type AdvisorHoldingsResult
+} from "@/api/funds";
+import { getAdvisorPlatformLabel } from "@/constants/advisorPlatform";
+import AdvisorReturns from "./advisorSection/AdvisorReturns.vue";
+import AdvisorHoldingsTable from "./advisorSection/AdvisorHoldingsTable.vue";
+import AdvisorTimeline from "./advisorSection/AdvisorTimeline.vue";
+import AdvisorDirectionCompare from "./advisorSection/AdvisorDirectionCompare.vue";
+import AdvisorArchive from "./advisorSection/AdvisorArchive.vue";
+import { fetchAdvisorProfile } from "./advisorSection/advisorProfileCache";
 
 /**
- * 详情页「投顾组合」区块（#1975 · 设计 §6 三期货品）。
+ * 详情页「投顾组合」区块 —— 下部五块（收益与风险 / 成分基金 / 调仓 / 账户对照 / 档案）。
+ *
+ * ## 为什么拆成六个区块
+ *
+ * 旧版是**一张卡**里塞六个子块：身份网格、收益数字、风险数字、成分清单、调仓平铺、
+ * 脚注。用户要在一张卡片里滚 5000px，页内导航只能给一个「投顾组合」入口。
+ * 重设计（2026-11-25 原型）按「结论 → 归因 → 细节」拆成六块、各有锚点，
+ * 页内导航才真正可用。
+ *
+ * 概览（§01）**不在这里**：它要提到走势之前（结论先行），单独挂在
+ * `ProductAdvisorOverview.vue`；两处共用 `advisorProfileCache`，同一次浏览只发一次档案请求。
  *
  * ## 取数
  *
- * - `GET /api/products/advisor-profile/`（本卡新增）：组合档案 + 可得指标。
- *   此前 `advisor_portfolios` 的档案字段**没有任何端点返回** —— funds 域只有
- *   `advisors/<code>/holdings/` 与 `/adjusts/`，它们回答「持什么、调过什么」，
- *   回答不了「这是个什么组合」，而详情页首屏要的正是后者；
- * - 成分基金复用**已上线**的 `getAdvisorHoldings`，不重写取数链路。
+ * - `advisor-profile`：经缓存取（概览已取过一次，这里命中缓存）；
+ * - `advisor-holdings`：仅当后端报 `holding_count > 0` 才发——空组合不该白发请求；
+ * - `advisor-compare`：三集合 +「已持有」列的数据源，失败只影响对照块。
  *
- * ## 调仓记录（本次补上）
+ * ## 降级（设计 §6 诚实降级）
  *
- * 此前本区块**刻意不渲染调仓**，理由写在旧注释里：「待把速览抽屉那段渲染提取成共用
- * 组件后再复用」。那句注释一直没被兑现，用户看到的结果就是「调仓历史拿不到」。
- *
- * 现在渲染已提取为 `advisorSection/AdvisorAdjustList.vue`（详情页与持仓页同一份），
- * 取数走已上线的 `getAdvisorAdjusts`（最近 10 组，见 `ADJUST_LIMIT`）。两处差别只在**口径说明**：
- * 持仓页强调「不是你自己的买卖」，详情页强调「这条记录来自官方接口还是快照推导」。
- * 因此本区块只挂子组件 `AdvisorAdjusts`，不在这里写渲染与状态文案。
- *
- * ## 降级（设计 §6 诚实降级，不用 mock）
- *
- * 本机真实库 105 个组合实测：`org_name` / `risk_level` / 区间收益 / 回撤 / 波动率 /
- * 夏普填充率 91~100%，这些是区块主体；而 `strategy_type` / `cum_return` /
- * `running_days` / `benchmark` / `excess_return` 为 **0%**、`host` **1.9%**、
- * `return_ytd` **2.9%** —— 一律显示「—」；指标区**只渲染有值的项**，不让一排
- * 「—」占满版面（那是「没数据」的另一种噪声）。
- *
- * ## 不展示代码（设计 §2.6）
- *
- * 组合类标的靠「名称 + 平台 + 机构」识别。⚠️ 注意：设计要求写的是「平台/主理人」，
- * 但主理人实测填充率只有 1.9%，故实际锚点落在**机构**（100%）上 —— 不为凑条文编造。
- *
- * ## 结构（#980 拆分）
- *
- * - `advisorSection/advisorModel.ts` —— 指标筛选、涨跌色、策略文案（纯函数）
- * - `advisorSection/AdvisorFacts.vue` —— 识别信息（名称 / 平台 / 机构 / 净值…）
- * - `advisorSection/AdvisorMetrics.vue` —— 收益表现 + 风险指标
- * - `advisorSection/AdvisorHoldings.vue` —— 成分基金
- * - `advisorSection/AdvisorAdjusts.vue` —— 主理人调仓（取数 + 口径说明）
- * - `advisorSection/AdvisorFootnote.vue` —— 来源与外链、披露声明
+ * 档案取不到 → 整块一个空态卡（不能拆成五张各报一次错）；成分 / 对比取不到 →
+ * 只影响各自那一块，其余照常。
  */
 const props = defineProps<{
-  /** 平台组合码（`advisor_portfolios.code`，如 ZH012926 / XCOVSEX） */
+  /** 平台组合码（`advisor_portfolios.code`） */
   code: string;
 }>();
 
@@ -69,42 +49,55 @@ const loading = ref(false);
 const failed = ref(false);
 const profile = ref<AdvisorProfileResult | null>(null);
 const holdings = ref<AdvisorHoldingsResult | null>(null);
+const comparison = ref<AdvisorComparisonResult | null>(null);
 
 const platformLabel = computed(() =>
   profile.value ? getAdvisorPlatformLabel(profile.value.platform) : ""
 );
 
-const returnMetrics = computed(() => buildReturnMetrics(profile.value));
-const riskMetrics = computed(() => buildRiskMetrics(profile.value));
-const strategy = computed(() => strategyText(profile.value));
+/**
+ * 「已持有」列的真相源：对比端点的共同持有集合。
+ * `null` 表示**未知**（对比取不到 / 未登录），与「都没持有」是两件事。
+ */
+const heldCodes = computed<string[] | null>(() => {
+  if (!comparison.value) return null;
+  return comparison.value.overlap.common.map(item => item.fund_code);
+});
 
 async function load() {
-  if (!props.code) return;
+  const code = props.code;
+  if (!code) return;
   loading.value = true;
   failed.value = false;
   profile.value = null;
   holdings.value = null;
+  comparison.value = null;
+
   try {
-    const res = await getAdvisorProfile({ code: props.code });
-    profile.value = res.data;
+    profile.value = await fetchAdvisorProfile(code);
   } catch {
-    // 未收录 / 网络异常：整块降级为空态，不影响详情页其余区块
-    profile.value = null;
     failed.value = true;
     loading.value = false;
     return;
   }
 
-  // 成分基金只在后端报了条数时才取：多数组合有持仓（103/105），但空组合不该白发请求
-  if (profile.value && profile.value.holding_count > 0) {
+  // 以下两块互不影响：任一失败只降级自己
+  if (profile.value.holding_count > 0) {
     try {
-      const res = await getAdvisorHoldings(props.code);
+      const res = await getAdvisorHoldings(code);
       holdings.value = res.data;
     } catch {
-      // 成分取不到只影响这一块，上面的档案照常展示
       holdings.value = null;
     }
   }
+
+  try {
+    const res = await getAdvisorComparison(code);
+    comparison.value = res.data;
+  } catch {
+    comparison.value = null;
+  }
+
   loading.value = false;
 }
 
@@ -112,50 +105,50 @@ watch(() => props.code, load, { immediate: true });
 </script>
 
 <template>
-  <CardBlock class="advisor-section">
-    <SectionHeader title="投顾组合" />
-
-    <p v-if="loading" class="section-footnote">正在读取投顾组合资料…</p>
-
-    <p v-else-if="failed || !profile" class="section-footnote">
-      暂无可展示的投顾组合资料
-    </p>
-
-    <template v-else>
-      <!-- 识别信息：不展示代码（设计 §2.6），靠名称 + 平台 + 机构 -->
-      <AdvisorFacts :profile="profile" :platform-label="platformLabel" />
-
-      <!-- 指标区只渲染有值的项：一排「—」是「没数据」的另一种噪声 -->
-      <AdvisorMetrics :returns="returnMetrics" :risks="riskMetrics" />
-
-      <p v-if="strategy" class="advisor-section__desc">
-        {{ strategy }}
-      </p>
-
-      <!-- 成分基金：复用已上线的 holdings 端点；已收录本地名录的才给跳转 -->
-      <AdvisorHoldings
-        v-if="holdings && holdings.holdings.length"
-        :holdings="holdings"
-      />
-
-      <!-- 跨组合对比：我的账户集 vs 本组合（三集合 + 指标对照 + 口径声明） -->
-      <AdvisorComparison :code="code" />
-
-      <!-- 主理人调仓：渲染与持仓页同一份（AdvisorAdjustList），此处只补口径说明 -->
-      <AdvisorAdjusts :code="code" :platform="profile.platform" />
-
-      <!-- 脚注：来源给平台名（用户看得懂），并附官方页面外链（新窗口打开） -->
-      <AdvisorFootnote :profile="profile" :platform-label="platformLabel" />
-    </template>
+  <CardBlock v-if="loading" class="advisor-section-state">
+    <p class="advisor-section-state__text">正在读取投顾组合资料…</p>
   </CardBlock>
+
+  <CardBlock v-else-if="failed || !profile" class="advisor-section-state">
+    <p class="advisor-section-state__text">暂无可展示的投顾组合资料</p>
+  </CardBlock>
+
+  <template v-else>
+    <!-- 五块各自挂锚点：子件单根（CardBlock），id 经 attribute fallthrough 落到 section 上。
+         本组件是多根，**不要**给本组件本身传 id —— Vue 会报 extraneous attribute。 -->
+    <AdvisorReturns id="nav-advisor-returns" :profile="profile" />
+
+    <AdvisorHoldingsTable
+      id="nav-advisor-holdings"
+      :holdings="holdings"
+      :held-codes="heldCodes"
+    />
+
+    <AdvisorTimeline
+      id="nav-advisor-adjusts"
+      :code="code"
+      :platform="profile.platform"
+    />
+
+    <AdvisorDirectionCompare
+      id="nav-advisor-compare"
+      :code="code"
+      :comparison="comparison"
+    />
+
+    <AdvisorArchive
+      id="nav-advisor-archive"
+      :profile="profile"
+      :platform-label="platformLabel"
+      :holdings-as-of="holdings?.as_of_date ?? null"
+    />
+  </template>
 </template>
 
 <style scoped>
-/* 策略说明：唯一留在父页的 advisor-section 样式，其余随子件走 */
-.advisor-section__desc {
-  margin: var(--space-3) 0 0;
+.advisor-section-state__text {
+  margin: 0;
   font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-secondary);
+  color: var(--text-tertiary-ink);
 }
 </style>

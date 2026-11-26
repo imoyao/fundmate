@@ -15,7 +15,7 @@ import { injectSupabaseSession } from "./support/session";
  *
  * 另外钉住页内导航：`useProductPageNav` 是靠 MutationObserver 扫 `pageMain` 里的
  * `[id^="nav-"]` 生成锚点的。若区块被塞进一个不渲染实际 DOM 的壳里（或 id 被吞掉），
- * 顶部胶囊与右侧目录会**静默消失**。
+ * 页头右上角的目录下拉（`PageTocMenu`）会**静默消失**。
  */
 
 const SYMBOL = "000961";
@@ -131,8 +131,8 @@ test.describe("产品详情页区块栈拆分后回归（#980 批 B11）", () =>
     const anchors = await page.locator('[id^="nav-"]').count();
     expect(anchors).toBeGreaterThanOrEqual(2);
 
-    // 顶部胶囊或右侧目录至少有一个接管（两者都靠 navItems.length > 1）
-    const navChips = await page.locator(".page-nav, .page-toc").count();
-    expect(navChips).toBeGreaterThanOrEqual(1);
+    // 页头右上角目录下拉接管（旧「顶部胶囊 / 右侧 rail」两形态已统一收进
+    // `components/PageTocMenu`，判据同样是 navItems.length > 1）
+    await expect(page.locator(".toc-menu__btn")).toBeVisible();
   });
 });

@@ -139,10 +139,14 @@ test.describe("高级洞察 Pro 介绍卡两态（#2523）", () => {
     const introName = pro.locator(".pro-section__intro-name");
     await expect(introName).toBeVisible();
     await expect(introName).toHaveText("高级洞察 Pro");
-    const pill = page
-      .locator(".page-nav")
-      .locator(".page-nav__pill", { hasText: "高级洞察" });
-    await expect(pill).toHaveText("高级洞察 Pro");
+    // 页内导航已从「顶部胶囊 / 右侧 rail」收进页头右上角下拉（PageTocMenu）：
+    // 条目要展开面板才在 DOM 里，这里点开再断言文字，判据仍是「与锚点名逐字相同」。
+    const tocBtn = page.locator(".toc-menu__btn");
+    await expect(tocBtn).toBeVisible();
+    await tocBtn.dispatchEvent("click");
+    await expect(
+      page.locator(".toc-menu__item", { hasText: "高级洞察" })
+    ).toHaveText("高级洞察 Pro");
   });
 
   test("已开通：介绍卡整组隐藏（模块内容态，不向付费用户推销）", async ({

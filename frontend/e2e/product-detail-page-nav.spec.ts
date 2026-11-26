@@ -3,35 +3,44 @@ import { injectSupabaseSession } from "./support/session";
 import { fundProfileFixture, withoutFields } from "./fixtures/productDetail";
 
 /**
- * 详情页页内导航回归网（#1968 子卡：顶部锚点胶囊 + xl 右目录 rail）。
+ * 详情页页内导航回归网（#1968 子卡；2026-11-25 形态变更为**页头右上角下拉**）。
  *
- * 钉七条不变式：
+ * ## 形态为什么又变了
+ *
+ * 上一版是两级投影：`<xl` 顶部锚点胶囊、`xl+` 右侧目录 rail。投顾组合页把区块拆成
+ * 六个之后两个投影都出了问题——胶囊占掉正文上方一整行且会挤成两行横滑；rail 固定
+ * 吃掉 160px 内容宽，而「方向对照」的五列网格 + 双条形完全靠宽度才能读。
+ * 现在收进页头右上角（`components/PageTocMenu`），正文拿回完整内容宽；
+ * 「现在在哪一节」由按钮上的当前项名称持续回答，不需要一整列常驻。
+ *
+ * **状态与滚动机制一行没改**（仍是 `usePageNav`：DOM 扫描出条目、scroll-spy、
+ * 自绘 rAF 跳转），变的只是投影——所以下面这些不变式照旧成立，判据从
+ * `.page-nav__pill` 迁到 `.toc-menu__btn` / `.toc-menu__item`：
+ *
  * 1. **无死链**：导航项只列 DOM 里真实渲染的区块——走势对 manager 整卡不渲染、
- *    交易记录对非可交易品类不渲染，这些都不能出现在胶囊里（点了原地不动即为死链）；
- * 2. 点击胶囊平滑滚动到目标区块，active 态随动；
- * 3. scroll-spy：滚动时 active 跟随当前区块；**触底时当前项 = 最后一项**
- *    （maxScroll 截断下最后一项永远到不了定位线，老判据会把高亮永久停在倒数第二项；
- *    点胶囊路径由 goTo 的 pinnedId 意图保证，不走兜底）；
- * 4. 逐项点击（正序 + 逆序）：停稳后 active 必须是点击项——钉住「定位线零容差
- *    导致的亚像素回跳」（实测约一半概率中招，用户看到「胶囊来回弹跳」），
- *    也钉住 maxScroll 截断：点倒数第二项滚到底后高亮必须留在点击项，
- *    不能被触底兜底改写成最后一项；
- * 5. 数据在飞时点击下方区块：布局突变（走势卡长高 300+px）后落点不漂移
- *    （原生 smooth 的终点只算一次，实测过冲 800+px）；
- * 6. 响应式两级：<xl 胶囊可见 + rail 隐藏；xl+ 反之；
- * 7. xl+ 右 rail 与胶囊列同一批条目（两级是同一状态的两个投影）。
+ *    交易记录对非可交易品类不渲染，这些都不能出现在目录里（点了原地不动即为死链）；
+ * 2. 点击目录项平滑滚动到目标区块，**按钮上的当前项名称**随动；
+ * 3. scroll-spy：滚动时当前项跟随当前区块；**触底时当前项 = 最后一项**
+ *    （maxScroll 截断下最后一项永远到不了定位线，老判据会把高亮永久停在倒数第二项）；
+ * 4. 逐项点击（正序 + 逆序）：停稳后当前项必须是点击项——钉住「定位线零容差
+ *    导致的亚像素回跳」，也钉住 maxScroll 截断；
+ * 5. 数据在飞时点击下方区块：布局突变（走势卡长高 300+px）后落点不漂移；
+ * 6. **面板几何**：绝对定位的浮层不许撑破视口（窄屏尤其），且各宽度都可用；
+ * 7. **开合语义**：aria-expanded / aria-haspopup、`aria-current="location"`、
+ *    Esc 关闭并回焦、点外部关闭——浮层的可访问性只能在真浏览器里验。
  *
  * 接口全部 page.route 打桩，不依赖后端（docs/dev/frontend-e2e.md §7）。
  *
- * 反向验证：删掉 detail.vue 里 <ProductPageNav> 挂载 → 本文件全红；
- * 把 useProductPageNav 的 items 过滤改成静态清单 → 经理页用例红（死链回归）；
- * 去掉 <ProductTransactionSection> 的 has_position 条件 → 「无持仓」用例红
- * （空卡 + 无用请求 + 胶囊死重量三样回归）；
- * updateActive 的 EPSILON 改回 0 → 逐项点击用例红（亚像素回跳回归）；
- * 去掉触底兜底 → scroll-spy 用例的触底断言红（点胶囊路径已由 pinnedId 兜住）；
- * goTo 不设 pinnedId（停稳后按位置终算一次）→ 逐项点击逆序列红
- * （点「关联标的」滚到底后高亮被兜底改写成「更多数据」）；
- * goTo 换回原生 scrollTo({behavior:'smooth'}) → 数据在飞机用例红（过期目标回归）。
+ * 反向验证：
+ * - 删掉 detail.vue 里 `<PageTocMenu>` 挂载 → 本文件全红（按钮不存在）；
+ * - 把 useProductPageNav 的 items 过滤改成静态清单 → 经理页用例红（死链回归）；
+ * - 去掉 `<ProductTransactionSection>` 的 has_position 条件 → 「无持仓」用例红；
+ * - `updateActive` 的 EPSILON 改回 0 → 逐项点击用例红（亚像素回跳回归）；
+ * - 去掉触底兜底 → scroll-spy 用例的触底断言红；
+ * - `goTo` 不设 pinnedId → 逐项点击逆序列红；
+ * - `goTo` 换回原生 `scrollTo({behavior:'smooth'})` → 数据在飞机用例红；
+ * - `scrollGeometry.scrollerProbe` 退回只认 `.page-nav` → 「落点压在定位线」断言红
+ *   （实测残差 −81px：整条定位线少算一个页头高度，区块顶边被塞到页头下面）。
  */
 
 const NAME = "永赢北证50成份指数发起C";
@@ -52,7 +61,14 @@ async function scrollBy(page: Page, top: number) {
   }, top);
 }
 
-/** 把目标区块顶边送到定位线（胶囊底边）附近，返回滚动后的 scrollTop */
+/**
+ * 定位线（视口坐标）＝滚动容器顶沿 + 8px，与 `usePageNav` 的 `spyLine()` 同源。
+ *
+ * **没有胶囊后增量为 0**：旧形态下胶囊吸顶、占掉自己那一行高度；现在导航在页头里，
+ * 随内容一起滚走，滚动区顶沿就是定位线。三处判据（送线上 / 落点残差 / 触底几何）
+ * 都各自在浏览器里现算这两行——不抽成字符串常量（那要靠 eval 才用得上），
+ * 也不抽成外部函数（`page.evaluate` 的回调是序列化执行的，拿不到模块作用域）。
+ */
 async function scrollSectionUnderLine(page: Page, id: string) {
   const top = await page.evaluate(anchorId => {
     const el = document.getElementById(anchorId);
@@ -62,11 +78,7 @@ async function scrollSectionUnderLine(page: Page, id: string) {
     );
     const scroller =
       wrap && wrap.scrollHeight > wrap.clientHeight + 1 ? wrap : null;
-    // 与 useProductPageNav.spyLine 同源：吸顶胶囊底边 + 8px
-    const nav = document.querySelector<HTMLElement>(".page-nav");
-    const navH = nav && nav.offsetHeight > 0 ? nav.offsetHeight : 0;
-    const base = scroller ? scroller.getBoundingClientRect().top : 0;
-    const line = base + navH + 8;
+    const line = (wrap ? wrap.getBoundingClientRect().top : 0) + 8;
     const target = el.getBoundingClientRect().top - line;
     const next = (scroller ? scroller.scrollTop : window.scrollY) + target;
     if (scroller) scroller.scrollTop = next;
@@ -109,6 +121,63 @@ async function waitScrollSettle(page: Page) {
     null,
     { timeout: 15_000 }
   );
+}
+
+/** 触发按钮上的当前项名称 = 「现在在哪一节」（旧形态是 `pill.is-active`） */
+function activeLabel(page: Page) {
+  return page.locator(".toc-menu__btn .toc-menu__label");
+}
+
+async function openMenu(page: Page, real = false) {
+  const btn = page.locator(".toc-menu__btn");
+  await expect(btn).toBeVisible();
+  if ((await btn.getAttribute("aria-expanded")) !== "true") {
+    if (real) await btn.click();
+    else await btn.dispatchEvent("click");
+  }
+  await expect(page.locator(".toc-menu__panel")).toBeVisible();
+}
+
+/** 读目录条目（开 → 读 → 关，不在页面上留浮层） */
+async function navLabels(page: Page, real = false): Promise<string[]> {
+  await openMenu(page, real);
+  const labels = await page
+    .locator(".toc-menu__item")
+    .evaluateAll(els => els.map(el => el.textContent?.trim() ?? ""));
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".toc-menu__panel")).toHaveCount(0);
+  return labels;
+}
+
+/**
+ * 点目录项跳转（下拉形态的代价：每次都得先展开浮层）。
+ *
+ * `real = false` 时用 `dispatchEvent("click")` 而不是 `.click()`——**这是判据的一部分**：
+ * Playwright 的真实点击会先把目标滚进可视区，而触发按钮在页头里（随内容滚走）。
+ * 页面已经滚到底时点按钮，浏览器会把 `scrollTop` 归零，于是「从底部往上跳」被测成
+ * 「从顶部往下跳」、scroll-spy 测到的当前项也退回第一项（实测：滚到底后 label
+ * 已是「更多数据」，一点按钮就变回「我的持仓」）。
+ * 真实点击的可达性由「目录开合」与「点击目录项滚动」两条用例用 `.click()` 单独覆盖。
+ */
+async function goTo(page: Page, label: string, real = false) {
+  await openMenu(page, real);
+  const item = page.locator(".toc-menu__item", { hasText: label }).first();
+  if (real) await item.click();
+  else await item.dispatchEvent("click");
+  await expect(page.locator(".toc-menu__panel")).toHaveCount(0);
+}
+
+/** 目标区块顶边相对定位线的残差（px）；负数 = 落点偏上（被容器顶沿裁掉） */
+async function lineResidual(page: Page, id: string) {
+  return page.evaluate(anchorId => {
+    const el = document.getElementById(anchorId);
+    if (!el) return Number.NaN;
+    const wrap = document.querySelector<HTMLElement>(
+      ".app-main .el-scrollbar__wrap"
+    );
+    const line = (wrap ? wrap.getBoundingClientRect().top : 0) + 8;
+    return el.getBoundingClientRect().top - line;
+  }, id);
 }
 
 async function stubProductApis(page: Page, opts?: { hasPosition?: boolean }) {
@@ -216,21 +285,19 @@ test.describe("详情页页内导航（#1968）", () => {
   test.beforeEach(async ({ context, baseURL, page }) => {
     await injectSupabaseSession(context, baseURL!);
     await stubProductApis(page);
-    // 胶囊形态的用例统一用 <xl 视口：xl（1280）起让位给右目录 rail，
-    // 默认 1280 会正好踩在断点上（ pills 被 display:none）。
+    // 不再有断点两级：页头下拉在任何宽度都是同一个形态（见 §响应式用例）
     await page.setViewportSize({ width: 1100, height: 900 });
   });
 
-  test("基金页：胶囊只列真实渲染的区块（无死链）", async ({ page }) => {
+  test("基金页：目录只列真实渲染的区块（无死链）", async ({ page }) => {
     await page.goto(`/#/fund/${SYMBOL}`);
     // 等持仓明细到位（异步取数后才出现的锚点）
     await expect(page.locator(".holding-section")).toBeVisible({
       timeout: 60_000
     });
 
-    const nav = page.locator(".page-nav");
-    await expect(nav).toBeVisible();
-    await expect(nav.locator(".page-nav__pill")).toHaveText([
+    const labels = await navLabels(page);
+    expect(labels).toEqual([
       "我的持仓",
       "走势",
       "交易记录",
@@ -247,14 +314,52 @@ test.describe("详情页页内导航（#1968）", () => {
       "更多数据"
     ]);
 
-    // 每个胶囊都必须有对应锚点——死链是这条不变式的反面
-    // （items 由 DOM 扫描生成，数量必然相等；静态清单回归会让它不相等）
-    const counts = await page.evaluate(() => ({
-      pills: document.querySelectorAll(".page-nav__pill").length,
-      anchors: document.querySelectorAll('.product-detail__main [id^="nav-"]')
-        .length
-    }));
-    expect(counts.pills).toBe(counts.anchors);
+    // 每个条目都必须有对应锚点——死链是这条不变式的反面
+    // （items 由 DOM 扫描生成，数量必然相等；静态清单回归会让它不相等）。
+    // 条目数取浮层里读到的列表长度：`navLabels` 读完就 Esc 收起，DOM 里已没有 item。
+    const anchors = await page.evaluate(
+      () =>
+        document.querySelectorAll('.product-detail__main [id^="nav-"]').length
+    );
+    expect(labels.length).toBe(anchors);
+  });
+
+  test("目录开合：aria 状态、当前项 aria-current、Esc 回焦、点外部关闭", async ({
+    page
+  }) => {
+    // 浮层的可访问性只能在真浏览器里验：焦点回还、aria-current 的取值、
+    // 点击面板外部（页面别处）是否收敛，都是 DOM 行为而非纯样式。
+    await page.goto(`/#/fund/${SYMBOL}`);
+    await expect(page.locator(".toc-menu__btn")).toBeVisible({
+      timeout: 60_000
+    });
+
+    const btn = page.locator(".toc-menu__btn");
+    await expect(btn).toHaveAttribute("aria-haspopup", "true");
+    await expect(btn).toHaveAttribute("aria-expanded", "false");
+    // 未展开时按钮已显示当前所在区块（不需要展开才知道自己在哪）
+    await expect(activeLabel(page)).toHaveText("我的持仓");
+
+    await btn.click();
+    await expect(btn).toHaveAttribute("aria-expanded", "true");
+    // 当前项用 aria-current="location"（读屏读到「当前所在位置」，不是「选中」）
+    await expect(
+      page.locator('.toc-menu__item[aria-current="location"]')
+    ).toHaveText("我的持仓");
+    await expect(
+      page.locator(".toc-menu__item", { hasText: "我的持仓" })
+    ).toHaveClass(/is-active/);
+
+    // Esc 关闭并把焦点还给触发按钮（否则焦点落到 body，键盘用户丢失位置）
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".toc-menu__panel")).toHaveCount(0);
+    await expect(btn).toBeFocused();
+
+    // 点面板外部关闭
+    await btn.click();
+    await expect(page.locator(".toc-menu__panel")).toBeVisible();
+    await page.locator(".page-header__title").click();
+    await expect(page.locator(".toc-menu__panel")).toHaveCount(0);
   });
 
   test("高级洞察 Pro 占位：区块渲染 + 徽标来自状态位（#2272）", async ({
@@ -264,12 +369,9 @@ test.describe("详情页页内导航（#1968）", () => {
     // ① 区块真的渲染了——#2029 同款静默消失防线：detail.vue 的 import 被删时
     //    Vue 只发 warning，父级透传的 id 静默丢弃，页面无可见报错；
     // ② 徽标（Phase N 建设中）来自后端状态位而非前端硬编码（不编造"已上线"）；
-    // ③ 导航胶囊收录该区块（与锚点同在，无死链）。
-    // 反向验证：删 detail.vue 的 import → ①红；把徽标文案改成前端常量 →
-    // ②红（本用例改打桩值即红）。
+    // ③ 目录收录该区块（与锚点同在，无死链）。
     // 注：付费墙遮罩的 e2e 断言已随 #994 Phase 2 移除——playwright.config 显式
-    // VITE_PRO_PAYWALL_ENABLED=false（CI 无 .env.local），遮罩是纯 CSS 视觉件，
-    // 由 #2272 当时的验收覆盖；内容渲染断言不该挂在遮罩开关上。
+    // VITE_PRO_PAYWALL_ENABLED=false（CI 无 .env.local），遮罩是纯 CSS 视觉件。
     const pageErrors: string[] = [];
     page.on("pageerror", e => pageErrors.push(e.message));
 
@@ -284,8 +386,6 @@ test.describe("详情页页内导航（#1968）", () => {
             asset_type: "fund",
             pro_enabled: true,
             // 未开通态（#2523 两态拆分）：介绍卡只有未开通家庭看得到。
-            // 原 stub 是 false（已开通）——拆分后已开通整组隐藏，徽标断言
-            // 属引导态，故改 true；遮罩本体仍由 env 显式关闭，与此无关。
             paywall_required: true,
             modules: {
               performance: { available: false, phase: 2 },
@@ -293,8 +393,6 @@ test.describe("详情页页内导航（#1968）", () => {
               // ⚠️ 本用例测的就是「未上线 ⇒ 徽标渲染 Phase N 建设中」这条占位路径，
               // 故四个模块**全部** false——不要跟着后端状态位去同步成 true，
               // 那会把本用例的唯一测试意图（徽标来自 status.phase）抹掉。
-              // 已上线的形态由 product-detail-pro-insight / pro-risk / pro-allocation
-              // 三张专项 spec 覆盖。
               allocation: { available: false, phase: 3 },
               report: { available: false, phase: 4 }
             }
@@ -318,22 +416,15 @@ test.describe("详情页页内导航（#1968）", () => {
       "Phase 4 建设中"
     ]);
 
-    // 付费墙遮罩在 e2e 中显式关闭（VITE_PRO_PAYWALL_ENABLED=false，见
-    // playwright.config webServer env 与文件头注释），此处不断言遮罩本体。
-
-    // 导航胶囊收录该区块（与锚点同在，无死链）
-    await expect(
-      page.locator(".page-nav").getByRole("button", { name: "高级洞察 Pro" })
-    ).toHaveCount(1);
-
+    // 目录收录该区块（与锚点同在，无死链）
+    expect(await navLabels(page)).toContain("高级洞察 Pro");
     expect(pageErrors).toEqual([]);
   });
 
-  test("无持仓：交易记录不渲染、不进导航、不发请求", async ({ page }) => {
+  test("无持仓：交易记录不渲染、不进目录、不发请求", async ({ page }) => {
     // #2104 行为修正：交易流水是用户自己的账本数据，与「我的持仓」同条件——
     // 仅当前持有时渲染。未持有用户不该看到一张「暂无交易记录」空卡，
-    // 也不该为它打一次无用请求，导航胶囊更不该多一项死重量。
-    // 反向验证：把 detail.vue 的 v-if 去掉 → 本用例红（空卡 + 死链回归）。
+    // 也不该为它打一次无用请求，目录更不该多一项死重量。
     const txnRequests: string[] = [];
     page.on("request", req => {
       // 只认真 API：dev server 下前端模块 src/api/transactions.ts 的路径
@@ -346,22 +437,12 @@ test.describe("详情页页内导航（#1968）", () => {
     await stubProductApis(page, { hasPosition: false });
 
     await page.goto(`/#/fund/${SYMBOL}`);
-    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".toc-menu__btn")).toBeVisible({
+      timeout: 60_000
+    });
 
-    // 胶囊里没有「交易记录」，锚点也不存在
-    await expect(page.locator(".page-nav__pill")).not.toHaveText([
-      "我的持仓",
-      "走势",
-      "交易记录",
-      "基金资料",
-      "业绩与风险",
-      "行业与持仓",
-      "关联标的",
-      "更多数据"
-    ]);
-    expect(
-      await page.locator(".page-nav__pill", { hasText: "交易记录" }).count()
-    ).toBe(0);
+    const labels = await navLabels(page);
+    expect(labels).not.toContain("交易记录");
     expect(await page.locator("#nav-transactions").count()).toBe(0);
 
     // 持仓区块同样不渲染（has_position=false），与交易记录同源
@@ -378,8 +459,6 @@ test.describe("详情页页内导航（#1968）", () => {
     // components/TransactionTable（同一组件、同一口径）。本用例钉 compact 模式
     // （详情页）的渲染契约：列集、日期口径（trade_date 优先）、
     // 「共 N 条」文案、零 pageerror。
-    // 反向验证：TransactionTable 列定义回归（如漏账户列、日期改认
-    // confirm_date）→ 本用例红。
     const pageErrors: string[] = [];
     page.on("pageerror", e => pageErrors.push(e.message));
 
@@ -463,7 +542,6 @@ test.describe("详情页页内导航（#1968）", () => {
   }) => {
     // #2958：本文件 12 个用例此前共用一份只有 8 个字段的 fund-profile 桩，基金资料
     // 区块全程是「—」——经理、费率、晨星三条渲染分支在 e2e 里从未见过真实数据。
-    // 本用例先钉住「完整响应下页面到底长什么样」，字段被误删或格式化函数改坏都会红。
     const pageErrors: string[] = [];
     page.on("pageerror", e => pageErrors.push(e.message));
 
@@ -491,7 +569,7 @@ test.describe("详情页页内导航（#1968）", () => {
     await expect(fund).toContainText("中证北证50");
 
     // 晨星（#1440）：口径在纯函数里有单测，但「组件有没有把算好的值渲染进 DOM」
-    // 这一环在 e2e 里此前是零覆盖（`grep morningstar e2e/` 曾 0 命中）
+    // 这一环在 e2e 里此前是零覆盖
     await expect(cell("晨星评级")).toContainText("4 星（3年期）");
     await expect(cell("晨星评级")).toContainText("较上期 升1星");
 
@@ -514,10 +592,7 @@ test.describe("详情页页内导航（#1968）", () => {
     // #2191：模板曾裸取 profile.managers.length，缺该字段时渲染抛 TypeError。Vue 把
     // 渲染错误吞进子组件（父级透传的 #nav-fund 锚点可能还在），整块基金资料渲染成
     // 空、页面无可见报错——本用例钉两条：
-    // ① 基金经理行降级为「—」（与基金类型/规模等字段同一契约，见
-    //    FundProfileResult「字段缺失一律为 null，前端据此降级」）；
-    // ② 加载全程零 pageerror。
-    // 反向验证：把模板改回 profile.managers.length → 本用例红。
+    // ① 基金经理行降级为「—」；② 加载全程零 pageerror。
     const pageErrors: string[] = [];
     page.on("pageerror", e => pageErrors.push(e.message));
 
@@ -533,11 +608,11 @@ test.describe("详情页页内导航（#1968）", () => {
     );
 
     await page.goto(`/#/fund/${SYMBOL}`);
-    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".toc-menu__btn")).toBeVisible({
+      timeout: 60_000
+    });
 
     // 先证明桩接上了、且缺的**只是 managers**：与它无关的字段必须照常有值。
-    // （此前这里断言 `.fund-section__hint` 计数为 0 —— 该类名在 src 里根本不存在，
-    //  是恒真空断言；换成「同区块其它字段有值」，取数失败时才不会假绿。）
     const fund = page.locator("#nav-fund");
     await expect(fund).toBeVisible();
     await expect(fund.locator(".fund-section__nav")).toBeVisible();
@@ -556,100 +631,82 @@ test.describe("详情页页内导航（#1968）", () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test("点击胶囊滚动到目标区块且 active 随动", async ({ page }) => {
+  test("点击目录项滚动到目标区块且当前项随动", async ({ page }) => {
     await page.goto(`/#/fund/${SYMBOL}`);
-    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
-    await expect(page.locator(".page-nav__pill.is-active")).toHaveText(
-      "我的持仓"
-    );
+    await expect(page.locator(".toc-menu__btn")).toBeVisible({
+      timeout: 60_000
+    });
+    await expect(activeLabel(page)).toHaveText("我的持仓");
 
-    await page.getByRole("button", { name: "业绩与风险" }).click();
-    // 平滑滚动到位：目标区块顶边应落在定位线（滚动容器顶沿 + 胶囊高 + 8）附近。
-    // 用 waitForFunction 等滚动停稳，不用固定 sleep——平滑滚动时长随距离变。
+    await goTo(page, "业绩与风险", true);
+    // 平滑滚动结束后残差必须落在定位线上（±8px）。这里不做固定 sleep——
+    // 平滑滚动时长随距离变，用 waitForFunction 等收敛。
     await page.waitForFunction(
       () => {
         const el = document.getElementById("nav-performance");
         if (!el) return false;
-        const nav = document.querySelector<HTMLElement>(".page-nav");
         const wrap = document.querySelector<HTMLElement>(
           ".app-main .el-scrollbar__wrap"
         );
-        const base = wrap ? wrap.getBoundingClientRect().top : 0;
-        const line = base + (nav?.offsetHeight ?? 0) + 8;
-        return Math.abs(el.getBoundingClientRect().top - line) < 80;
+        const line = (wrap ? wrap.getBoundingClientRect().top : 0) + 8;
+        return Math.abs(el.getBoundingClientRect().top - line) < 8;
       },
       null,
       { timeout: 10_000 }
     );
-    await expect(page.locator(".page-nav__pill.is-active")).toHaveText(
-      "业绩与风险"
-    );
+    await expect(activeLabel(page)).toHaveText("业绩与风险");
   });
 
-  test("scroll-spy：滚动时 active 跟随当前区块", async ({ page }) => {
+  test("scroll-spy：滚动时当前项跟随当前区块", async ({ page }) => {
     await page.goto(`/#/fund/${SYMBOL}`);
     await expect(page.locator(".holding-section")).toBeVisible({
       timeout: 60_000
     });
-    await expect(page.locator(".page-nav__pill.is-active")).toHaveText(
-      "我的持仓"
-    );
+    await expect(activeLabel(page)).toHaveText("我的持仓");
+    // 条目在**滚动之前**读：滚到底后再开浮层，浮层在页头里、点它会把页面滚回顶部
+    const labels = await navLabels(page);
 
-    // 滚到「业绩与风险」：它的顶边刚到定位线下方 → active 必须是它
+    // 滚到「业绩与风险」：它的顶边刚到定位线下方 → 当前项必须是它
     await scrollSectionUnderLine(page, "nav-performance");
-    await expect(page.locator(".page-nav__pill.is-active")).toHaveText(
-      "业绩与风险",
-      {
-        timeout: 5_000
-      }
-    );
+    await expect(activeLabel(page)).toHaveText("业绩与风险", {
+      timeout: 5_000
+    });
 
-    // 滚到最底部：active 必须是最后一项。最后一项下方没有更多内容把它推过
+    // 滚到最底部：当前项必须是最后一项。最后一项下方没有更多内容把它推过
     // 定位线（maxScroll 截断，实测差 400-600px），按「越过线」判据它永远
     // 选不上——触底时用户看的就是最后一项（主流目录同款行为）。
-    // 老判据（最后一个越过定位线的区块）在这里会把高亮永久停在倒数第二项，
-    // 那正是用户报的「点最右侧胶囊，高亮不动」。
     await scrollBy(page, 999_999);
-    const lastLabel = await page
-      .locator(".page-nav__pill")
-      .last()
-      .textContent();
-    await expect(page.locator(".page-nav__pill.is-active")).toHaveText(
-      lastLabel!.trim()
-    );
+    await expect(activeLabel(page)).toHaveText(labels[labels.length - 1]);
   });
 
-  test("逐项点击：停稳后 active 必须是点击项（正序 + 逆序）", async ({
+  test("逐项点击：停稳后当前项必须是点击项（正序 + 逆序）", async ({
     page
   }) => {
-    // 不变式：点击任意胶囊，滚动停稳后高亮必须落在点击项上。
+    // 不变式：点任意目录项，滚动停稳后当前项必须落在点击项上。
     // 老实现有两个缺陷都会让它红：
     // 1. 定位线零容差 + 落点正好压在线上 → ±0.5px 亚像素抖动让高亮退回
-    //    前一项（实测约一半概率中招，用户看到「胶囊来回弹跳、概率性跳对」）；
+    //    前一项（实测约一半概率中招，用户看到「概率性跳对」）；
     // 2. 触底时 maxScroll 截断 → 点最后一项，高亮永远停在倒数第二项。
-    // 反向验证：updateActive 的 EPSILON 改回 0 / 去掉触底兜底 → 本用例红。
     await page.goto(`/#/fund/${SYMBOL}`);
     await expect(page.locator(".holding-section")).toBeVisible({
       timeout: 60_000
     });
-    const labels = await page
-      .locator(".page-nav__pill")
-      .evaluateAll(els => els.map(el => el.textContent?.trim() ?? ""));
+    const labels = await navLabels(page);
     expect(labels.length).toBeGreaterThan(2);
 
     // 正序：从顶部出发逐项往下点（下行跳转 + 触底截断）
     for (const label of labels) {
       await scrollBy(page, 0);
-      await page.getByRole("button", { name: label }).click();
+      await goTo(page, label);
       await waitScrollSettle(page);
-      await expect(page.locator(".page-nav__pill.is-active")).toHaveText(label);
+      await expect(activeLabel(page)).toHaveText(label);
     }
     // 逆序：从底部出发逐项往上点（上行跳转；首项回顶部后应落在第一项）
     for (const label of [...labels].reverse()) {
       await scrollBy(page, 999_999);
-      await page.getByRole("button", { name: label }).click();
+      await goTo(page, label);
       await waitScrollSettle(page);
-      await expect(page.locator(".page-nav__pill.is-active")).toHaveText(label);
+      await expect(activeLabel(page)).toHaveText(label);
     }
   });
 
@@ -657,8 +714,6 @@ test.describe("详情页页内导航（#1968）", () => {
     // 老缺陷（过期目标）：点击时走势卡还是「正在读取…」的矮态，数据到位后
     // 长成 300px 图表，下方区块整体下移——原生 scrollTo({behavior:'smooth'})
     // 的终点只算一次，按旧布局算的目标整体失效，实测过冲 800+px。
-    // 不变式：动画每帧重读目标位置，布局突变后仍收敛到定位线。
-    // 反向验证：goTo 换回原生 smooth → 本用例红。
     const trendDates: string[] = [];
     const trendValues: number[] = [];
     for (let i = 30; i > 0; i--) {
@@ -690,12 +745,14 @@ test.describe("详情页页内导航（#1968）", () => {
     });
 
     await page.goto(`/#/fund/${SYMBOL}`);
-    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".toc-menu__btn")).toBeVisible({
+      timeout: 60_000
+    });
     // 走势卡还在加载态（矮）——此刻它下方的区块都还没被推下去
     await expect(page.locator(".trend-section__hint")).toBeVisible();
 
     // 点走势卡下方的区块：按旧布局算的目标在数据到位后必然过期
-    await page.getByRole("button", { name: "基金资料" }).click();
+    await goTo(page, "基金资料", true);
 
     // 数据到位：卡片长高（v-chart 300px），布局突变发生
     await expect(page.locator(".trend-section__chart")).toBeVisible({
@@ -705,103 +762,80 @@ test.describe("详情页页内导航（#1968）", () => {
     await page.waitForTimeout(400);
     await waitScrollSettle(page);
 
-    const residual = await page.evaluate(() => {
-      const el = document.getElementById("nav-fund");
-      if (!el) return Number.NaN;
-      const nav = document.querySelector<HTMLElement>(".page-nav");
-      const wrap = document.querySelector<HTMLElement>(
-        ".app-main .el-scrollbar__wrap"
-      );
-      const base = wrap ? wrap.getBoundingClientRect().top : 0;
-      const line = base + (nav?.offsetHeight ?? 0) + 8;
-      return el.getBoundingClientRect().top - line;
-    });
-    expect(Math.abs(residual)).toBeLessThan(8);
-    await expect(page.locator(".page-nav__pill.is-active")).toHaveText(
-      "基金资料"
-    );
+    expect(Math.abs(await lineResidual(page, "nav-fund"))).toBeLessThan(8);
+    await expect(activeLabel(page)).toHaveText("基金资料");
   });
 
-  test("触底：点最后一项，高亮与滚动都到底（maxScroll 截断兜底）", async ({
+  test("触底：点最后一项，当前项与滚动都到位（maxScroll 截断兜底）", async ({
     page
   }) => {
     // 老缺陷：最后一项下方没有内容把它推过定位线（maxScroll 截断，实测差
-    // 400-600px），按「越过线」判据它永远选不上——点最右侧胶囊滚到底，
-    // 高亮却停在倒数第二项。不变式：滚到底时当前项就是最后一项，
-    // 且滚动确实到了底（不是「差一截但高亮对了」）。
-    // 2026-10-14 修正断言几何：e2e mock 数据下页面比真实环境高，最后一项
-    // **够得着**定位线——把它送到线上（不到底）才是正确行为。故不变式是
-    // 「二选一」：送到定位线，或触底（页面太矮、maxScroll 截断）。
+    // 400-600px），按「越过线」判据它永远选不上——点最后一项滚到底，
+    // 高亮却停在倒数第二项。不变式：「送到定位线」或「触底」二选一，
+    // 两者都不满足才是漂移（e2e mock 数据下页面够高时能送到线）。
     await page.goto(`/#/fund/${SYMBOL}`);
     await expect(page.locator(".holding-section")).toBeVisible({
       timeout: 60_000
     });
-    const lastLabel = (await page
-      .locator(".page-nav__pill")
-      .last()
-      .textContent())!.trim();
+    const labels = await navLabels(page);
+    const lastLabel = labels[labels.length - 1];
 
-    await page.getByRole("button", { name: lastLabel }).click();
+    await goTo(page, lastLabel);
     await waitScrollSettle(page);
 
-    await expect(page.locator(".page-nav__pill.is-active")).toHaveText(
-      lastLabel
-    );
+    await expect(activeLabel(page)).toHaveText(lastLabel);
     const state = await page.evaluate(() => {
       const wrap = document.querySelector<HTMLElement>(
         ".app-main .el-scrollbar__wrap"
       );
-      // 与 useProductPageNav.scan 同源：容器内真实渲染的 nav-* 锚点，
-      // 最后一项 = DOM 序最后一个（即最后那颗胶囊）
+      // 与 usePageNav.scan 同源：容器内真实渲染的 nav-* 锚点，
+      // 最后一项 = DOM 序最后一个
       const main = document.querySelector<HTMLElement>(".product-detail__main");
-      const last = main?.querySelectorAll<HTMLElement>('[id^="nav-"]');
-      const lastEl = last && last.length > 0 ? last[last.length - 1] : null;
+      const list = main?.querySelectorAll<HTMLElement>('[id^="nav-"]');
+      const lastEl = list && list.length > 0 ? list[list.length - 1] : null;
       if (!wrap || !lastEl) return { atLine: false, atBottom: false };
-      const nav = document.querySelector<HTMLElement>(".page-nav");
-      const line =
-        wrap.getBoundingClientRect().top + (nav?.offsetHeight ?? 0) + 8;
+      const line = wrap.getBoundingClientRect().top + 8;
       return {
         atLine: Math.abs(lastEl.getBoundingClientRect().top - line) < 8,
         atBottom: wrap.scrollTop >= wrap.scrollHeight - wrap.clientHeight - 1
       };
     });
-    // 「送到定位线」与「触底」二选一即兑现点击意图；两者都不满足才是漂移
     expect(state.atLine || state.atBottom).toBe(true);
   });
 
-  test("响应式两级：<xl 胶囊 / xl+ 右 rail，条目一致", async ({ page }) => {
+  test("响应式：页头下拉在各宽度都可用，条目一致且不撑破视口", async ({
+    page
+  }) => {
+    // 旧形态是「<xl 胶囊 / xl+ rail」两级互斥。收到页头后**不再有断点分支**：
+    // 三种宽度下都是同一个按钮。要钉的是两件事——条目集合与宽度无关（状态同源，
+    // 只是投影不变），以及绝对定位浮层不产生横向溢出（窄屏最容易踩）。
     await page.goto(`/#/fund/${SYMBOL}`);
-    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
-    await expect(page.locator(".page-toc")).toBeHidden();
-    // 等异步区块（持仓明细）到位，条目才齐——否则两个断点抓到的快照条目数不同
     await expect(page.locator(".holding-section")).toBeVisible({
       timeout: 60_000
     });
 
-    const pillTexts = await page
-      .locator(".page-nav__pill")
-      .evaluateAll(els => els.map(el => el.textContent?.trim() ?? ""));
+    const baseline = await navLabels(page);
+    await expect(page.locator(".toc-menu__btn")).toBeVisible();
 
-    await page.setViewportSize({ width: 1400, height: 900 });
-    await expect(page.locator(".page-nav")).toBeHidden();
-    const toc = page.locator(".page-toc");
-    await expect(toc).toBeVisible();
-    // 无视觉标题，但必须有可访问名称（aria-label）——读屏用户靠它认出这个
-    // aside 是什么；视觉标题与 aria-label 并存会让读屏听到两次「本页目录」
-    await expect(toc).toHaveAttribute("aria-label", "本页目录");
-    await expect(toc.locator(".page-toc__link")).toHaveText(pillTexts);
-
-    // rail 是 sticky 的：滚过两个不同深度时位置不变（都进入吸顶态后比对）
-    await scrollBy(page, 1500);
-    await page.waitForTimeout(300);
-    const stuck1 = await toc.boundingBox();
-    await scrollBy(page, 2600);
-    await page.waitForTimeout(300);
-    const stuck2 = await toc.boundingBox();
-    expect(Math.abs((stuck2?.y ?? 0) - (stuck1?.y ?? 0))).toBeLessThan(5);
+    for (const width of [1400, 768, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(page.locator(".toc-menu__btn")).toBeVisible();
+      await openMenu(page);
+      const labels = await page
+        .locator(".toc-menu__item")
+        .evaluateAll(els => els.map(el => el.textContent?.trim() ?? ""));
+      expect(labels).toEqual(baseline);
+      // 浮层是 absolute + right:0 —— 宽度固定 240px，窄屏下若定位错了会顶破视口
+      const overflow = await page.evaluate(() => {
+        const doc = document.documentElement;
+        return doc.scrollWidth - doc.clientWidth;
+      });
+      expect(overflow, `${width}px 视口出现横向溢出`).toBe(0);
+      await page.keyboard.press("Escape");
+    }
   });
 
-  test("经理页：不渲染的区块不进导航（无死链）", async ({ page }) => {
+  test("经理页：不渲染的区块不进目录（无死链）", async ({ page }) => {
     // 组件渲染空（v-if 全不中）时父级仍传 id，Vue 的 attribute fallthrough 会
     // 静默丢弃——这条监听钉住「不刷 (id) 相关告警」。只认 (id)：devtools 的
     // data-insp-path 对多根组件同样会告警，那是全应用既有噪声，与本需求无关。
@@ -846,14 +880,8 @@ test.describe("详情页页内导航（#1968）", () => {
     await page.waitForTimeout(1500);
     await expect(page.locator(".trend-section")).toHaveCount(0);
 
-    const nav = page.locator(".page-nav");
     // 走势（无序列）/ 交易记录（不可交易）/ 基金三张卡（非基金品类）都不该出现
-    await expect(nav.locator(".page-nav__pill")).toHaveText([
-      "基金经理",
-      "关联标的"
-    ]);
-    await expect(nav.getByRole("button", { name: "走势" })).toHaveCount(0);
-    await expect(nav.getByRole("button", { name: "交易记录" })).toHaveCount(0);
+    expect(await navLabels(page)).toEqual(["基金经理", "关联标的"]);
     expect(attrWarnings).toHaveLength(0);
   });
 });

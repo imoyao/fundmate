@@ -6,6 +6,7 @@
  * 判断。抽出来之后它们是纯字符串 / 布尔，可以直接断言。
  */
 import type { AdvisorAdjustGroup } from "@/api/funds";
+import { advisorOpTone } from "@/utils/advisorAdjust";
 
 /**
  * 详情页展示的调仓组数（一组 = 一个调仓日）。
@@ -49,4 +50,44 @@ export function adjustEmptyHint(platform: string | null | undefined): string {
   return platform === "QIEMAN"
     ? "暂无调仓记录（且慢官方接口未收录该组合，改由持仓快照推导，需累积 ≥2 次快照）"
     : "暂无调仓记录";
+}
+
+/**
+ * 来源码 → 中文标注（写在时间轴每一节上）。
+ *
+ * 「快照推导」四个字是判据的一部分：它让用户一眼看出这条记录不是平台官方披露的，
+ * 与卡片底部的免责声明互为表里（`derivedFromSnapshots` 决定要不要挂那段声明）。
+ * 未知来源原样透出，不吞掉——新来源接入时宁可显示英文码，也不要伪装成已知来源。
+ */
+const SOURCE_LABEL: Record<string, string> = {
+  qieman_official: "官方披露",
+  qieman: "快照推导",
+  tiantian: "天天官方",
+  qieman_manual: "手动导入"
+};
+
+export function sourceLabelOf(source: string): string {
+  return SOURCE_LABEL[source] ?? source;
+}
+
+/**
+ * 一次调仓里的加 / 减仓计数。
+ *
+ * 两套用词都归到同一档（`advisorOpTone` 里已收口）：天天基金 / 快照推导说
+ * 「加仓、减仓」，且慢官方说「调入、调增、调出、调减」。漏掉任一套的后果不是报错，
+ * 而是整片计数变成 0——用户看到「加仓 0、减仓 0」会以为调仓记录坏了。
+ * 「持平」与未知动作不计入两侧（它们不是方向）。
+ */
+export function countByTone(group: AdvisorAdjustGroup): {
+  add: number;
+  cut: number;
+} {
+  let add = 0;
+  let cut = 0;
+  for (const item of group.items) {
+    const tone = advisorOpTone(item.op_name);
+    if (tone === "add") add += 1;
+    else if (tone === "cut") cut += 1;
+  }
+  return { add, cut };
 }

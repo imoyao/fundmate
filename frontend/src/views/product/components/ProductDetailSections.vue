@@ -23,6 +23,18 @@
        名称与品类由 PageHeaderBar 承担。独立组件见 ProductIdentityCard。 -->
   <ProductIdentityCard :product="product" />
 
+  <!-- 投顾组合·概览（2026-11 重设计 §01）：**紧跟识别卡**，首屏先给结论——
+       最新净值 + 四个关键指标 + 策略。此前净值与回撤埋在 `AdvisorFacts` 八格的
+       第 7、8 位、字号与「平台」一样大；现在它们是首屏主数字。
+       概览必须排在走势之前：走势答「曲线长什么样」，概览答「现在怎么样、代价多大」，
+       结论先行（design.md）。同一份档案由 advisorProfileCache 与下部区块共用，
+       不会因两处挂载而发两次请求。 -->
+  <AdvisorOverview
+    v-if="product.asset_type === 'portfolio'"
+    id="nav-advisor"
+    :code="product.symbol"
+  />
+
   <!-- 我的持仓（#1966）：仅在该家庭确实持有时才拉取。
        未登录时 has_position 为 null（resolve 是「可选登录」端点），此时不渲染——
        否则等于拉一个 401 再显示成「暂无持仓」，把「未知」说成「没有」。 -->
@@ -151,13 +163,11 @@
        （advisor_portfolios.code，如 ZH012926）——路由 `/portfolio/<symbol>`
        传下来的就是它。组合类标的**不展示代码**（设计 §2.6），靠「名称 + 平台 +
        机构」识别（设计要求写的「主理人」实测填充率只有 1.9%，故锚点落在机构上）。
-       调仓记录**在本区块内渲染**（feat/advisor-detail-adjust）：渲染已提取为
-       共用组件 `advisorSection/AdvisorAdjustList`，与持仓页同一份，两处只差口径
-       说明。此前的注释写着「速览抽屉已有，复用需先提取共用组件」——那句已兑现，
-       别再据此以为调仓还没做。 -->
+       2026-11 重设计：**概览已上移到识别卡之后**（见上方 AdvisorOverview），
+       这里只剩另外五块（收益与风险 / 成分基金 / 调仓 / 账户对照 / 档案），
+       各自带锚点、各自降级。 -->
   <ProductAdvisorSection
     v-if="product.asset_type === 'portfolio'"
-    id="nav-advisor"
     :code="product.symbol"
   />
 
@@ -192,6 +202,7 @@
 <script setup lang="ts">
 import BondExternalLinkCard from "@/components/BondExternalLinkCard/index.vue";
 import type { ProductResolveResult } from "@/api/products";
+import AdvisorOverview from "./advisorSection/AdvisorOverview.vue";
 import ProductAdvisorSection from "./ProductAdvisorSection.vue";
 import ProductExternalLinksSection from "./ProductExternalLinksSection.vue";
 // #2029：detail.vue 曾用了本组件却漏掉 import，Vue 只发「Failed to resolve component」

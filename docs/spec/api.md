@@ -111,6 +111,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/funds/advisors/<string:code>/holdings-history/` | `get_advisor_holdings_history` |
 | GET | `/api/funds/advisors/<string:code>/holdings/` | `get_advisor_holdings` |
 | GET | `/api/funds/advisors/<string:code>/industries/` | `get_advisor_industries` |
+| GET | `/api/funds/advisors/<string:code>/style-compare/` | `get_advisor_style_compare` |
 | GET | `/api/funds/managers/search/` | `search_managers` |
 | POST | `/api/funds/nav/` | `get_fund_nav_by_date` |
 | GET | `/api/funds/overlap/` | `get_holding_overlap` |
