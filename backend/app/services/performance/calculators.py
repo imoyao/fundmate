@@ -3,9 +3,7 @@
 # Date : 2026/6/12 19:27
 # File : calculators.py
 # app/services/performance/calculators.py
-"""
-业务层：单持仓与组合年化收益率计算器。
-"""
+"""业务层：单持仓与组合年化收益率计算器。"""
 
 import datetime as dt
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -30,6 +28,7 @@ from app.services.performance.xirr_engine import (
     generate_cashflows,
     generate_portfolio_cashflows,
 )
+from app.services.position_scope import exclude_shadow
 from app.services.symbol_scope import build_transaction_symbol_conditions, query_positions_by_symbol
 
 
@@ -424,7 +423,6 @@ def calculate_portfolio_xirr(
     统计——把可见账户当成一个组合，流水与市值同口径收窄，分子分母不会错配。不传
     （None）保持家庭全量，与改造前逐字节一致；空集按 `restrict_visible` 只留无主流水。
     """
-    # 直接通过 asset_type 过滤交易，无需 JOIN Position 表
     txn_filter = [Transaction.family_id == family_id]
     if not include_cash_equivalents:
         txn_filter.append(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
@@ -432,13 +430,15 @@ def calculate_portfolio_xirr(
         db.query(Transaction).filter(*txn_filter), Transaction.ledger_id, visible_ids
     ).all()
 
-    # 获取所有非排除类型的持仓（家庭维度；传 visible_ids 时收到可见账户）
+    # 持仓（家庭维度；传 visible_ids 时收到可见账户）。`exclude_shadow`：E账户镜像行
+    # （ledger_id NULL、零流水）不是持仓，留在市值侧＝把对账快照当期末资产，真库实测
+    # 93 行 / 21.49 万被算成纯收益（累计收益 42.5 → 21.0 万）；收益日历早已按 active 排除。
     pos_filter = [Position.quantity > 0, Position.family_id == family_id]
     if not include_cash_equivalents:
         pos_filter.extend(_exclude_cash_equivalent_positions())
-    positions = restrict_visible(db.query(Position).filter(*pos_filter), Position.ledger_id, visible_ids).all()
+    q = restrict_visible(db.query(Position).filter(*pos_filter), Position.ledger_id, visible_ids)
+    positions = exclude_shadow(q).all()
 
-    # 批量计算持仓市值
     value_map = _batch_get_position_values(db, positions)
     total_value = sum(value_map.values())
 
