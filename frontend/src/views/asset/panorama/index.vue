@@ -135,7 +135,7 @@ import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import OverviewSummaryCard from "./components/OverviewSummaryCard.vue";
 import CategoryBalanceTable from "./components/CategoryBalanceTable.vue";
 import DetailGroupList from "./components/DetailGroupList.vue";
-import StyleDistributionCard from "./components/StyleDistributionCard.vue";
+import StyleDistributionCard from "@/components/StyleDistributionCard/index.vue";
 import SharePosterDialog from "./components/SharePosterDialog.vue";
 import {
   getSummary,

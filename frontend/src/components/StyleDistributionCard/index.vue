@@ -1,3 +1,11 @@
+<!--
+  基金风格分布（#2628）：家庭级、按持仓市值加权；无箱体的持仓进「未覆盖」，不补 0。
+
+  2026-11-27 从 `views/asset/panorama/components/` 上提到 `components/`：
+  复盘页（`/analysis`）结构区也要用同一张卡，跨页引用私有目录会立刻长出第二份
+  实现。**它自含取数**（`getPortfolioStyle`，不传作用域 = 家庭级），宿主页不必传参，
+  也就不存在「两个页面各算一遍」的口径漂移。
+-->
 <template>
   <div
     class="style-dist rounded-2xl p-6 mb-4"
