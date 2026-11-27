@@ -1,0 +1,2339 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>投顾组合详情 · 桌面端重设计（2026-11-25）</title>
+<style>
+  /* ============================================================
+     令牌：取自 frontend/src/style/colors.css + dark.scss + design-tokens.css
+     本文件不引入任何新色值；两套主题同源，组件只消费语义令牌。
+     ============================================================ */
+  :root,
+  [data-theme="dark"] {
+    --bg-page: #1a1816;
+    --bg-card: #242120;
+    --bg-soft: #2a2724;
+    --bg-muted: #2c2926;
+    --bg-hover: #33302c;
+
+    --text-primary: rgb(237 234 229 / 92%);
+    --text-secondary: rgb(237 234 229 / 65%);
+    --text-tertiary: rgb(237 234 229 / 40%);      /* 图形 / 描边级，作正文不达标 */
+    --text-tertiary-ink: rgb(237 234 229 / 58%);  /* color: 专用（暗卡 5.40:1） */
+    --brand-700: #e34f38;
+
+    --border-default: rgb(255 255 255 / 8%);
+    --border-strong: rgb(255 255 255 / 16%);
+    --divider: rgb(255 255 255 / 5%);
+
+    --rise: #d45a44;
+    --rise-ink: #ef8a78;
+    --fall: #5daf85;
+    --fall-ink: #8fd4ad;
+
+    --primary: #8d92b8;
+    --primary-ink: #b6bad6;
+    --primary-soft: rgb(141 146 184 / 16%);
+    --color-primary: var(--primary);
+    --chart-04: #c9a286;
+
+    --shadow-raised: 0 2px 16px rgb(0 0 0 / 22%);
+    --shadow-float: 0 12px 40px rgb(0 0 0 / 38%);
+    --focus-ring-gap: #000;
+    --focus-ring: 0 0 0 2px var(--focus-ring-gap), 0 0 0 4px var(--brand-700);
+  }
+
+  [data-theme="light"] {
+    --bg-page: #fdfbf7;
+    --bg-card: #ffffff;
+    --bg-soft: #faf6f0;
+    --bg-muted: #f5f0eb;
+    --bg-hover: #f2ede8;
+
+    --text-primary: #2d2a24;
+    --text-secondary: #6b655c;
+    --text-tertiary: #8c8478;      /* 图形 / 描边级（白底 3.69:1，禁作正文） */
+    --text-tertiary-ink: #716a60;  /* color: 专用（白底 5.34:1） */
+    --brand-700: #e34f38;
+
+    --border-default: #e5ddd4;
+    --border-strong: #d8cec2;
+    --divider: #f0ebe4;
+
+    --rise: #e34f38;
+    --rise-ink: #c0341f;
+    --fall: #7bc49a;
+    --fall-ink: #1f6b43;
+
+    --primary: #7a7fa8;
+    --primary-ink: #5b5f85;
+    --primary-soft: rgb(122 127 168 / 12%);
+    --color-primary: var(--primary);
+    --chart-04: #d4a68a;
+
+    --shadow-raised: 0 2px 16px rgba(180, 150, 130, .06);
+    --shadow-float: 0 12px 40px rgba(180, 150, 130, .14);
+    --focus-ring-gap: var(--bg-card);
+    --focus-ring: 0 0 0 2px var(--focus-ring-gap), 0 0 0 4px var(--brand-700);
+  }
+
+  :root {
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-pill: 9999px;
+
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 20px;
+    --sp-6: 24px;
+    --sp-7: 32px;
+    --sp-8: 48px;
+
+    --text-label: 13px;
+    --text-small: 14px;
+    --text-body: 16px;
+    --text-heading: 20px;
+    --text-title: 24px;
+    --text-display: 32px;
+    --text-num-hero: 24px;
+    --text-num-strong: 18px;
+
+    --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC",
+      "WenQuanYi Micro Hei", system-ui, sans-serif;
+    --font-number: "SF Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular",
+      Consolas, var(--font-ui);
+
+    --w-page: 1400px;  /* = --layout-content-width */
+  }
+
+  * { box-sizing: border-box; }
+
+  html { background: var(--bg-page); }
+
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-ui);
+    font-size: var(--text-small);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: var(--bg-page);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection { background: var(--primary-soft); }
+
+  a { color: inherit; text-decoration: none; }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+    border-radius: var(--radius-sm);
+  }
+
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ============ 页头 ============ */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .topbar__in {
+    display: flex;
+    gap: var(--sp-4);
+    align-items: center;
+    width: 100%;
+    max-width: var(--w-page);
+    margin: 0 auto;
+    padding: var(--sp-3) var(--sp-7);
+  }
+
+  .crumb {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  .crumb__sep { color: var(--text-tertiary); }
+
+  .crumb__now { color: var(--text-secondary); }
+
+  .topbar__spacer { flex: 1; }
+
+  .icon-btn {
+    display: inline-flex;
+    white-space: nowrap;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: var(--text-label);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-pill);
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+  }
+
+  .icon-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+  }
+
+  .icon-btn[aria-pressed="true"] {
+    color: var(--primary-ink);
+    background: var(--primary-soft);
+    border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+
+  /* ============ 布局 ============ */
+  .page {
+    width: 100%;
+    max-width: var(--w-page);
+    margin: 0 auto;
+    padding: var(--sp-6) var(--sp-7) var(--sp-8);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 264px;
+    gap: var(--sp-7);
+    align-items: start;
+  }
+
+  .main { display: flex; flex-direction: column; gap: var(--sp-7); min-width: 0; }
+
+  /* 锚点跳转必须让开吸顶栏，否则标题被压在 topbar 底下 */
+  section[id] { scroll-margin-top: 76px; }
+
+  .card {
+    padding: var(--sp-6);
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-raised);
+  }
+
+  /* ============ 区块头 ============ */
+  .sec__head {
+    display: flex;
+    gap: var(--sp-3);
+    align-items: baseline;
+    padding: 0 0 var(--sp-3);
+    margin-bottom: var(--sp-4);
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .sec__num {
+    font-family: var(--font-number);
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text-tertiary-ink);
+    letter-spacing: .08em;
+    transform: translateY(-1px);
+  }
+
+  .sec__h {
+    margin: 0;
+    font-size: var(--text-heading);
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  .sec__note {
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  .sec__act { margin-left: auto; }
+
+  /* ============ §01 概览 ============ */
+  .hero { padding: var(--sp-6) var(--sp-6) var(--sp-3); }
+
+  .hero__id { display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: flex-start; }
+
+  .hero__idtext { flex: 1 1 160px; min-width: 0; }
+
+  .hero__mark {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    font-size: var(--text-heading);
+    font-weight: 600;
+    color: var(--primary-ink);
+    background: var(--primary-soft);
+    border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+    border-radius: var(--radius-md);
+  }
+
+  .hero__name {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    align-items: center;
+    margin: 0 0 2px;
+    font-size: var(--text-title);
+    font-weight: 600;
+    letter-spacing: -.015em;
+  }
+
+  .tag {
+    padding: 1px 8px;
+    font-size: var(--text-label);
+    font-weight: 500;
+    line-height: 18px;
+    color: var(--text-secondary);
+    background: var(--bg-muted);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-pill);
+  }
+
+  .tag--risk { color: var(--color-risk-ink, inherit); }
+
+  .hero__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px var(--sp-3);
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  .dotsep { color: var(--text-tertiary); }
+
+  .hero__acts { display: flex; gap: var(--sp-2); margin-left: auto; }
+
+  .btn {
+    display: inline-flex;
+    white-space: nowrap;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    padding: 0 16px;
+    font-size: var(--text-label);
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
+  }
+
+  .btn--primary {
+    color: var(--bg-card);
+    background: var(--primary);
+  }
+  [data-theme="dark"] .btn--primary { color: #16130f; }
+
+  .btn--primary:hover { filter: brightness(1.06); }
+
+  .btn--ghost {
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+  }
+
+  .btn--ghost:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+  /* 概览栅格：净值 + KPI */
+  .hero__grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 268px) minmax(0, 1fr);
+    gap: var(--sp-6);
+    align-items: end;
+    padding: var(--sp-5) 0 var(--sp-5);
+    margin-top: var(--sp-4);
+    border-top: 1px solid var(--divider);
+  }
+
+  .navnow__label {
+    font-size: var(--text-label);
+    color: var(--text-tertiary-ink);
+  }
+
+  .navnow__value {
+    margin-top: 2px;
+    font-family: var(--font-number);
+    font-size: var(--text-display);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+  }
+
+  .navnow__delta {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: var(--sp-2);
+    font-size: var(--text-small);
+    font-weight: 600;
+  }
+
+  .navnow__date {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+  }
+
+  .up { color: var(--rise-ink); }
+  .down { color: var(--fall-ink); }
+  .flat { color: var(--text-secondary); }
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--divider);
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .kpi {
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--bg-card);
+  }
+
+  .kpi__label {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+  }
+
+  .kpi__value {
+    margin-top: 2px;
+    font-family: var(--font-number);
+    font-size: var(--text-num-strong);
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  .kpi__sub {
+    margin-top: 1px;
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+  }
+
+  .hero__strategy {
+    display: flex;
+    gap: var(--sp-3);
+    align-items: flex-start;
+    padding: var(--sp-3) 0 var(--sp-4);
+    font-size: var(--text-label);
+    line-height: 1.75;
+    color: var(--text-secondary);
+  }
+
+  .hero__strategy p {
+    display: -webkit-box;
+    margin: 0;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .hero__strategy[data-open="true"] p { -webkit-line-clamp: unset; }
+
+  .link-btn {
+    flex: 0 0 auto;
+    font-size: var(--text-label);
+    color: var(--primary-ink);
+    white-space: nowrap;
+  }
+
+  .link-btn:hover { text-decoration: underline; }
+
+  /* ============ 走势 ============ */
+  .trend {
+    padding: var(--sp-4) var(--sp-6) var(--sp-5);
+    border-top: 1px solid var(--divider);
+  }
+
+  .trend__bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-3) var(--sp-4);
+    align-items: center;
+    margin-bottom: var(--sp-3);
+  }
+
+  .seg {
+    display: inline-flex;
+    max-width: 100%;
+    padding: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--bg-muted);
+    border-radius: var(--radius-sm);
+  }
+
+  .seg button {
+    height: 26px;
+    padding: 0 10px;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+    border-radius: 4px;
+    transition: background .15s ease, color .15s ease;
+  }
+
+  .seg button:hover { color: var(--text-primary); }
+
+  .seg button[aria-pressed="true"] {
+    color: var(--text-primary);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .trend__read {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--sp-4);
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+  }
+
+  .trend__read b {
+    font-family: var(--font-number);
+    font-weight: 600;
+  }
+
+  .chart { position: relative; }
+
+  .chart svg { display: block; width: 100%; height: 244px; }
+
+  .chart__tip {
+    position: absolute;
+    top: 8px;
+    left: 0;
+    z-index: 2;
+    padding: 6px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: nowrap;
+    pointer-events: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-float);
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+
+  .chart__tip[data-on="true"] { opacity: 1; }
+
+  .chart__tip .t-date { color: var(--text-tertiary-ink); }
+
+  .chart__tip .t-nav {
+    font-family: var(--font-number);
+    font-weight: 600;
+  }
+
+  /* ============ §02 收益与风险 ============ */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+    gap: var(--sp-4);
+  }
+
+  .panel { padding: var(--sp-6); }
+
+  .panel__h {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: baseline;
+    margin: 0 0 var(--sp-4);
+    font-size: var(--text-small);
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .panel__h small {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-tertiary-ink);
+  }
+
+  .ret { display: flex; flex-direction: column; gap: 2px; }
+
+  .ret__row {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) 76px;
+    gap: var(--sp-3);
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .ret__row:last-child { border-bottom: none; }
+
+  .ret__label { font-size: var(--text-label); color: var(--text-secondary); }
+
+  .ret__track { position: relative; height: 6px; }
+
+  .ret__axis {
+    position: absolute;
+    top: -8px;
+    bottom: -8px;
+    left: 50%;
+    width: 1px;
+    background: var(--border-strong);
+  }
+
+  .ret__bar {
+    position: absolute;
+    top: 0;
+    height: 6px;
+    border-radius: 2px;
+  }
+
+  .ret__val {
+    font-family: var(--font-number);
+    font-size: var(--text-small);
+    font-weight: 600;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .longterm {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin-top: var(--sp-4);
+    overflow: hidden;
+    background: var(--divider);
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-sm);
+  }
+
+  .longterm > div { padding: var(--sp-3) var(--sp-4); background: var(--bg-card); }
+
+  .longterm__label { font-size: 12px; color: var(--text-tertiary-ink); }
+
+  .longterm__value {
+    margin-top: 2px;
+    font-family: var(--font-number);
+    font-size: var(--text-num-hero);
+    font-weight: 600;
+    letter-spacing: -.02em;
+  }
+
+  .longterm__sub {
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+  }
+
+  .risklist { display: flex; flex-direction: column; }
+
+  .risk {
+    display: flex;
+    gap: var(--sp-3);
+    align-items: baseline;
+    justify-content: space-between;
+    padding: var(--sp-3) 0;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .risk:last-of-type { border-bottom: none; }
+
+  .risk__label { font-size: var(--text-label); color: var(--text-secondary); }
+
+  .risk__hint { display: block; font-size: 12px; color: var(--text-tertiary-ink); }
+
+  .risk__value {
+    font-family: var(--font-number);
+    font-size: var(--text-num-strong);
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  /* ============ 通用表格 ============ */
+  .tbl { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+  .tbl th {
+    padding: 0 var(--sp-3) var(--sp-2);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary-ink);
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .tbl td {
+    padding: 9px var(--sp-3);
+    font-size: var(--text-label);
+    border-top: 1px solid var(--divider);
+  }
+
+  .tbl tbody tr:hover td { background: var(--bg-soft); }
+
+  .tblwrap { overflow-x: auto; }
+
+  .col-w { width: 230px; }
+  .col-held { width: 92px; }
+  .col-act { width: 40px; }
+
+  .tbl .r { text-align: right; }
+
+  .tbl th.r { text-align: right; }
+
+  .fund { display: flex; gap: var(--sp-2); align-items: baseline; min-width: 0; }
+
+  .fund__name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .fund__code {
+    font-family: var(--font-number);
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+  }
+
+  .weight {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 56px;
+    gap: var(--sp-2);
+    align-items: center;
+    max-width: 200px;
+  }
+
+  .weight__bar {
+    height: 6px;
+    background: var(--bg-muted);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .weight__fill {
+    height: 100%;
+    background: color-mix(in srgb, var(--primary) 78%, transparent);
+    border-radius: 2px;
+  }
+
+  .weight__num {
+    font-family: var(--font-number);
+    font-size: var(--text-label);
+    font-weight: 600;
+    text-align: right;
+  }
+
+  .held {
+    display: inline-flex;
+    white-space: nowrap;
+    gap: 4px;
+    align-items: center;
+    padding: 1px 7px;
+    font-size: 12px;
+    color: var(--primary-ink);
+    background: var(--primary-soft);
+    border-radius: var(--radius-pill);
+  }
+
+  .held::before {
+    width: 4px;
+    height: 4px;
+    content: "";
+    background: currentColor;
+    border-radius: 50%;
+  }
+
+  .muted { color: var(--text-tertiary-ink); }
+
+  .ext {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-tertiary-ink);
+    transition: color .15s ease;
+  }
+
+  .ext:hover { color: var(--primary-ink); }
+
+  /* ============ §04 调仓时间轴 ============ */
+  .tl { position: relative; padding-left: 104px; }
+
+  .tl::before {
+    position: absolute;
+    top: 6px;
+    bottom: 10px;
+    left: 84px;
+    width: 1px;
+    content: "";
+    background: var(--border-default);
+  }
+
+  .tl__item { position: relative; padding-bottom: var(--sp-6); }
+
+  .tl__item:last-child { padding-bottom: 0; }
+
+  .tl__item::before {
+    position: absolute;
+    top: 7px;
+    left: -24px;
+    width: 9px;
+    height: 9px;
+    content: "";
+    background: var(--bg-card);
+    border: 2px solid var(--border-strong);
+    border-radius: 50%;
+  }
+
+  .tl__item[data-latest="true"]::before {
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+
+  .tl__date {
+    position: absolute;
+    top: 5px;
+    left: -104px;
+    width: 76px;
+    font-family: var(--font-number);
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: right;
+  }
+
+  .tl__date small { display: block; color: var(--text-tertiary-ink); }
+
+  .tl__body { min-width: 0; }
+
+  .tl__sum {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: var(--sp-2);
+  }
+
+  .chip {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    padding: 0 7px;
+    font-size: 12px;
+    line-height: 18px;
+    border-radius: var(--radius-pill);
+  }
+
+  .chip--in {
+    color: var(--rise-ink);
+    background: color-mix(in srgb, var(--rise) 13%, transparent);
+  }
+
+  .chip--out {
+    color: var(--fall-ink);
+    background: color-mix(in srgb, var(--fall) 14%, transparent);
+  }
+
+  .chip b { font-family: var(--font-number); font-weight: 600; }
+
+  .chg {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--sp-6);
+  }
+
+  .chg__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--sp-3);
+    align-items: center;
+    padding: 5px 0;
+    font-size: var(--text-label);
+    border-bottom: 1px dashed var(--divider);
+  }
+
+  .chg__name {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+    min-width: 0;
+  }
+
+  .chg__name span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chg__ratio {
+    font-family: var(--font-number);
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+    white-space: nowrap;
+  }
+
+  .chg__ratio em {
+    font-style: normal;
+    color: var(--text-tertiary-ink);
+  }
+
+  .reason {
+    margin: var(--sp-3) 0 0;
+    font-size: var(--text-label);
+    line-height: 1.75;
+    color: var(--text-tertiary-ink);
+  }
+
+  .reason[data-clamp="true"] {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .more {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    margin-top: var(--sp-4);
+    font-size: 12px;
+    color: var(--primary-ink);
+  }
+
+  .more:hover { text-decoration: underline; }
+
+  .chevron { transition: transform .2s ease; }
+
+  .more[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+
+  /* ============ §05 方向对照 ============ */
+  .dir__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-4);
+    align-items: center;
+    margin-bottom: var(--sp-3);
+    font-size: var(--text-label);
+    color: var(--text-secondary);
+  }
+
+  .legend__item { display: inline-flex; gap: 6px; align-items: center; }
+
+  .legend__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  .legend__dot--adv { background: var(--color-primary); }
+
+  .legend__dot--mine { background: var(--chart-04); }
+
+  .dir__note { margin-left: auto; font-size: 12px; color: var(--text-tertiary-ink); }
+
+  .dir__head {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) 50px 50px 52px;
+    max-width: 880px;
+    gap: var(--sp-3);
+    padding-bottom: 6px;
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .dir__head span:nth-child(n + 3) { text-align: right; }
+
+  .dir {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) 50px 50px 52px;
+    max-width: 880px;
+    gap: var(--sp-3);
+    align-items: center;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .dir:last-child { border-bottom: none; }
+
+  .dir__k { font-size: var(--text-label); color: var(--text-secondary); }
+
+  .dir__bars { display: grid; gap: 3px; min-width: 0; }
+
+  .dir__track {
+    height: 6px;
+    overflow: hidden;
+    background: var(--bg-soft);
+    border-radius: var(--radius-pill);
+  }
+
+  .dir__fill {
+    height: 100%;
+    background: var(--color-primary);
+    border-radius: inherit;
+  }
+
+  .dir__fill--mine { background: var(--chart-04); }
+
+  .dir__v {
+    font-family: var(--font-number);
+    font-size: var(--text-label);
+    color: var(--text-secondary);
+    text-align: right;
+  }
+
+  .dir__d {
+    font-family: var(--font-number);
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+    text-align: right;
+  }
+
+  /* 差值 ≥5pp 才点红：颜色是「这两档方向不一样」的唯一提示，不是排名 */
+  .dir__d--big { font-weight: 600; color: var(--color-warning-ink); }
+
+  .callout {
+    display: flex;
+    gap: var(--sp-3);
+    align-items: flex-start;
+    padding: var(--sp-3) var(--sp-4);
+    margin-top: var(--sp-4);
+    font-size: var(--text-label);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--color-warning) 12%, var(--bg-card));
+    border-left: 3px solid var(--color-warning-fill);
+    border-radius: var(--radius-sm);
+  }
+
+  [data-theme="dark"] .callout {
+    background: color-mix(in srgb, var(--color-warning) 18%, var(--bg-card));
+  }
+
+  .callout svg { flex: 0 0 auto; margin-top: 2px; color: var(--color-warning-ink); }
+
+  .callout p { margin: 0; }
+
+  .callout b { font-weight: 600; color: var(--color-warning-ink); }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    margin-top: var(--sp-4);
+  }
+
+  .chip {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-soft);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-pill);
+  }
+
+  .chip b {
+    font-family: var(--font-number);
+    font-size: var(--text-label);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .outside {
+    display: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--sp-6);
+    max-height: 320px;
+    padding: 0 var(--sp-1) 0 0;
+    margin: var(--sp-3) 0 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    list-style: none;
+  }
+
+  .outside[data-open="true"] { display: grid; }
+
+  .outside li {
+    display: flex;
+    gap: var(--sp-3);
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 7px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .outside li span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .outside li b {
+    flex: 0 0 auto;
+    font-family: var(--font-number);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  /* ============ §06 档案 ============ */
+  .archive {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    background: var(--divider);
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-sm);
+  }
+
+  .archive > div {
+    display: flex;
+    gap: var(--sp-3);
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 10px var(--sp-4);
+    background: var(--bg-card);
+  }
+
+  .archive dt { font-size: 12px; color: var(--text-tertiary-ink); }
+
+  .archive dd {
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--text-primary);
+    text-align: right;
+  }
+
+  .src {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--sp-4);
+    padding-top: var(--sp-4);
+    margin-top: var(--sp-4);
+    font-size: 12px;
+    color: var(--text-tertiary-ink);
+    border-top: 1px solid var(--divider);
+  }
+
+  .src a { color: var(--text-tertiary-ink); text-decoration: underline; text-underline-offset: 2px; }
+
+  .src a:hover { color: var(--primary-ink); }
+
+  /* ============ 侧栏 ============ */
+  .aside {
+    position: sticky;
+    top: 72px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+  }
+
+  .aside__h {
+    margin: 0 0 var(--sp-2);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary-ink);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  /* 页内锚点：常驻页头右上角，点开是下拉目录（不再占侧栏，也不再占一行工具条） */
+  .toc-wrap { position: relative; }
+
+  .toc-btn svg { flex: 0 0 auto; opacity: .72; }
+
+  .toc-btn[aria-expanded="true"] {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+  }
+
+  .toc-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 40;
+    width: 236px;
+    padding: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-float);
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity .15s ease, transform .15s ease, visibility .15s;
+  }
+
+  .toc-panel[data-open="true"] {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+  }
+
+  .toc-panel ol { padding: 0; margin: 0; list-style: none; }
+
+  .toc-panel a {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: var(--sp-2);
+    align-items: baseline;
+    padding: 7px 8px 7px 10px;
+    font-size: var(--text-label);
+    color: var(--text-secondary);
+    border-left: 2px solid transparent;
+    border-radius: var(--radius-sm);
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+  }
+
+  .toc-panel a:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+  .toc-panel a[aria-current="true"] {
+    color: var(--text-primary);
+    font-weight: 600;
+    background: var(--bg-hover);
+    border-left-color: var(--color-primary);
+  }
+
+  .toc-panel a i {
+    font-family: var(--font-number);
+    font-size: 12px;
+    font-style: normal;
+    color: var(--text-tertiary-ink);
+  }
+
+  .quick { padding: var(--sp-4); }
+
+  .quick__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: var(--text-label);
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .quick__row:last-child { border-bottom: none; }
+
+  .quick__row span { color: var(--text-tertiary-ink); font-size: 12px; }
+
+  .quick__row b {
+    font-family: var(--font-number);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============ 移动端锚点条 ============ */
+
+  /* ============ 改动说明抽屉 ============ */
+  /* 浮层裁剪层：抽屉用 transform 移到屏幕右侧之外，若不加一层
+     overflow:hidden 的定位容器，Chrome 会把它算进 document.scrollWidth，
+     窄屏上凭空多出一条横向滚动条 */
+  .layer {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .sheet {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    width: min(420px, 92vw);
+    background: var(--bg-card);
+    border-left: 1px solid var(--border-default);
+    box-shadow: var(--shadow-float);
+    transform: translateX(102%);
+    /* 关闭态必须彻底不可见 + 不可聚焦：只靠 transform 移出屏幕，
+       里面的按钮仍留在 Tab 序列里，也会把页面撑出横向滚动条 */
+    visibility: hidden;
+    transition: transform .25s cubic-bezier(.22, .61, .36, 1), visibility .25s step-end;
+  }
+
+  .sheet[data-open="true"] {
+    pointer-events: auto;
+    visibility: visible;
+    transform: translateX(0);
+    transition: transform .25s cubic-bezier(.22, .61, .36, 1), visibility 0s;
+  }
+
+  .sheet__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .sheet__head h2 { margin: 0; font-size: var(--text-small); font-weight: 600; }
+
+  .sheet__body {
+    flex: 1;
+    padding: var(--sp-4) var(--sp-5) var(--sp-7);
+    overflow-y: auto;
+    font-size: var(--text-label);
+    line-height: 1.8;
+    color: var(--text-secondary);
+  }
+
+  .sheet__body h3 {
+    margin: var(--sp-5) 0 4px;
+    font-size: var(--text-label);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .sheet__body h3:first-child { margin-top: 0; }
+
+  .sheet__body p { margin: 0 0 var(--sp-2); }
+
+  .sheet__body code {
+    padding: 1px 5px;
+    font-family: var(--font-number);
+    font-size: 12px;
+    color: var(--primary-ink);
+    background: var(--primary-soft);
+    border-radius: 4px;
+  }
+
+  .scrim {
+    position: absolute;
+    inset: 0;
+    background: rgb(0 0 0 / 42%);
+    opacity: 0;
+    transition: opacity .25s ease;
+    pointer-events: none;
+  }
+
+  .scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ============ 响应式 ============ */
+  @media (max-width: 1080px) {
+    section[id] { scroll-margin-top: 112px; }
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .aside { display: none; }
+  }
+
+  @media (max-width: 860px) {
+    .page { padding: var(--sp-5) var(--sp-4) var(--sp-7); }
+    .topbar__in { gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); }
+    .crumb { display: none; }          /* 窄屏页头顶不住面包屑，标题在正文里已有 */
+    .topbar__sheet { display: none; }  /* 原型说明不是产品功能 */
+    .hero { padding: var(--sp-5) var(--sp-4) var(--sp-2); }
+    .dotsep { display: none; }
+    .hero__meta { row-gap: 2px; }
+    .sec__head { flex-wrap: wrap; row-gap: 2px; }
+    .sec__h { white-space: nowrap; }
+    .sec__note { flex: 1 1 100%; }
+    /* 六个区间在 390 下放不下，换行比横滑更稳（「成立以来」不许藏在遮罩后面） */
+    .seg {
+      flex-wrap: wrap;
+      row-gap: 2px;
+      overflow-x: visible;
+      -webkit-mask-image: none;
+      mask-image: none;
+    }
+    .hero__strategy { flex-wrap: wrap; }
+    .hero__strategy p { flex: 1 1 100%; }
+    .trend { padding: var(--sp-4); }
+    .panel { padding: var(--sp-4); }
+    .hero__grid { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: minmax(0, 1fr); }
+    .chg { grid-template-columns: minmax(0, 1fr); }
+    .archive { grid-template-columns: minmax(0, 1fr); }
+    .tl { padding-left: 0; }
+    .tl::before { display: none; }
+    .tl__item::before { display: none; }
+    .tl__date {
+      position: static;
+      width: auto;
+      margin-bottom: 4px;
+      text-align: left;
+    }
+    .tl__date small { display: inline; margin-left: 6px; }
+    .hero__acts { flex-wrap: wrap; width: 100%; margin-left: 0; }
+    .dir__head, .dir { grid-template-columns: 64px minmax(0, 1fr) 44px 44px 46px; gap: var(--sp-2); max-width: none; }
+    .dir__note { flex: 1 1 100%; margin-left: 0; }
+    .outside { grid-template-columns: minmax(0, 1fr); }
+    .trend__read { margin-left: 0; }
+    .col-w { width: 84px; }
+    .col-held { width: 76px; }
+    .col-act { width: 20px; }
+    .tbl td, .tbl th { padding-right: 8px; padding-left: 8px; }
+    .weight { grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; }
+    /* 窄屏先让名称可读：代码是次要信息，腾出 50px 给名称 */
+    .fund__code { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+    html { scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar__in">
+    <nav class="crumb" aria-label="面包屑">
+      <a href="#">探市</a>
+      <span class="crumb__sep" aria-hidden="true">/</span>
+      <span class="crumb__now">投顾组合</span>
+    </nav>
+    <div class="topbar__spacer"></div>
+    <div class="toc-wrap">
+      <button class="icon-btn toc-btn" id="btn-toc" type="button" aria-expanded="false" aria-controls="toc-panel">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span id="toc-current">概览</span>
+      </button>
+      <div class="toc-panel" id="toc-panel" data-open="false">
+        <ol id="toc-list"></ol>
+      </div>
+    </div>
+    <button class="icon-btn" id="btn-theme" type="button" aria-pressed="false">
+      <span id="theme-text">暗色</span>
+    </button>
+    <button class="icon-btn topbar__sheet" id="btn-sheet" type="button" aria-expanded="false" aria-controls="sheet">
+      改动说明
+    </button>
+  </div>
+</div>
+
+<div class="page">
+  <div class="layout">
+    <main class="main">
+
+      <!-- ================= §01 概览 ================= -->
+      <section id="s1" aria-labelledby="s1-h">
+        <div class="card hero">
+          <div class="hero__id">
+            <div class="hero__mark" aria-hidden="true">远</div>
+            <div class="hero__idtext">
+              <h1 class="hero__name" id="s1-h">
+                远足
+                <span class="tag">投顾组合</span>
+                <span class="tag">中高风险</span>
+              </h1>
+              <p class="hero__meta">
+                <span>且慢</span><span class="dotsep">·</span>
+                <span>盈米基金</span><span class="dotsep">·</span>
+                <span>主理人 基民柠檬</span><span class="dotsep">·</span>
+                <span>权益（偏股）</span><span class="dotsep">·</span>
+                <span>成立 2017-07-24</span>
+              </p>
+            </div>
+            <div class="hero__acts">
+              <button class="btn btn--ghost" type="button">加入自选</button>
+              <a class="btn btn--primary" href="https://qieman.com/alfa/portfolio/ZH012926" target="_blank" rel="noopener noreferrer">
+                在且慢查看
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M3.5 2h6.5v6.5M10 2 2 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                </svg>
+              </a>
+            </div>
+          </div>
+
+          <div class="hero__grid">
+            <div>
+              <div class="navnow__label">最新净值</div>
+              <div class="navnow__value num" id="hero-nav">—</div>
+              <div class="navnow__delta" id="hero-delta"></div>
+              <div class="navnow__date" id="hero-date"></div>
+            </div>
+            <div class="kpis" id="hero-kpis"></div>
+          </div>
+
+          <div class="hero__strategy" id="strategy">
+            <p id="strategy-text"></p>
+            <button class="link-btn" type="button" id="strategy-toggle" aria-expanded="false">展开</button>
+          </div>
+
+          <div class="trend">
+            <div class="trend__bar">
+              <div class="seg" id="range-seg" role="group" aria-label="走势区间"></div>
+              <div class="trend__read" id="trend-read"></div>
+            </div>
+            <div class="chart">
+              <svg id="chart" role="img" aria-label="组合净值走势图"></svg>
+              <div class="chart__tip" id="chart-tip"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= §02 收益与风险 ================= -->
+      <section id="s2" aria-labelledby="s2-h">
+        <div class="sec__head">
+          <span class="sec__num">02</span>
+          <h2 class="sec__h" id="s2-h">收益与风险</h2>
+          <p class="sec__note">全部按净值序列现算，与平台披露口径可能有小幅差异</p>
+        </div>
+        <div class="grid-2">
+          <div class="card panel">
+            <h3 class="panel__h">区间收益 <small>近端四档同一刻度 ±20%</small></h3>
+            <div class="ret" id="ret-rows"></div>
+            <div class="longterm" id="ret-long"></div>
+          </div>
+          <div class="card panel">
+            <h3 class="panel__h">风险 <small>中性色，不套涨跌色</small></h3>
+            <div class="risklist">
+              <div class="risk">
+                <span class="risk__label">最大回撤<span class="risk__hint">历史峰值到谷底的最大跌幅</span></span>
+                <span class="risk__value num">32.96%</span>
+              </div>
+              <div class="risk">
+                <span class="risk__label">年化波动率<span class="risk__hint">日收益标准差年化，越低越平稳</span></span>
+                <span class="risk__value num">18.07%</span>
+              </div>
+              <div class="risk">
+                <span class="risk__label">夏普比率<span class="risk__hint">每承担 1 单位波动换来的超额收益</span></span>
+                <span class="risk__value num">0.553</span>
+              </div>
+            </div>
+            <p class="src" style="margin-top:var(--sp-3);border-top:1px solid var(--divider)">
+              <span id="risk-note">—</span>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= §03 成分基金 ================= -->
+      <section id="s3" aria-labelledby="s3-h">
+        <div class="sec__head">
+          <span class="sec__num">03</span>
+          <h2 class="sec__h" id="s3-h">成分基金</h2>
+          <p class="sec__note" id="holdings-note"></p>
+          <div class="sec__act">
+            <button class="icon-btn" type="button" id="btn-sort">占比降序</button>
+          </div>
+        </div>
+        <div class="card" style="padding:var(--sp-4) var(--sp-4) var(--sp-2)">
+          <div class="tblwrap">
+          <table class="tbl">
+            <caption class="sr-only">组合成分基金及其权重，含是否已持有</caption>
+            <thead>
+              <tr>
+                <th scope="col">基金</th>
+                <th scope="col" class="col-w">权重</th>
+                <th scope="col" class="col-held">我的持仓</th>
+                <th scope="col" class="r col-act"><span class="sr-only">详情</span></th>
+              </tr>
+            </thead>
+            <tbody id="holdings-body"></tbody>
+          </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= §04 调仓记录 ================= -->
+      <section id="s4" aria-labelledby="s4-h">
+        <div class="sec__head">
+          <span class="sec__num">04</span>
+          <h2 class="sec__h" id="s4-h">主理人调仓</h2>
+          <p class="sec__note" id="adjust-note"></p>
+        </div>
+        <div class="card" style="padding:var(--sp-5) var(--sp-5) var(--sp-5)">
+          <div class="tl" id="timeline"></div>
+          <button class="more" type="button" id="btn-more-tl" aria-expanded="false" style="margin-left:104px">
+            查看更早的调仓
+            <svg class="chevron" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- ================= §05 与我的账户对照 ================= -->
+      <section id="s5" aria-labelledby="s5-h">
+        <div class="sec__head">
+          <span class="sec__num">05</span>
+          <h2 class="sec__h" id="s5-h">与我账户的对照</h2>
+          <p class="sec__note">方向按风格暴露，比例按持仓市值</p>
+        </div>
+        <div class="card panel">
+          <div class="dir__legend">
+            <span class="legend__item"><i class="legend__dot legend__dot--adv" aria-hidden="true"></i>组合</span>
+            <span class="legend__item"><i class="legend__dot legend__dot--mine" aria-hidden="true"></i>我的持仓</span>
+            <span class="dir__note">风格口径 <span id="dir-asof"></span> · 按市值加权 · 差值单位 pp，正数表示我更高</span>
+          </div>
+          <div class="dir__head" aria-hidden="true">
+            <span>方向</span><span>占比</span><span>组合</span><span>我</span><span>差</span>
+          </div>
+          <div id="dir-rows"></div>
+          <div class="callout" id="dir-callout"></div>
+          <div class="chips" id="compare-chips"></div>
+          <button class="more" id="btn-outside" type="button" aria-expanded="false" aria-controls="outside-list">
+            <span>展开组合外持仓（109 只）</span>
+            <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M3 1.5 6.5 5 3 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <ul class="outside" id="outside-list" data-open="false"></ul>
+          <p class="src">
+            <span>方向取自基金最近一期风格暴露，按你的持仓市值加权；组合按披露权重加权。</span>
+            <span>只做客观对照，不构成「该换哪只」的建议。</span>
+          </p>
+        </div>
+      </section>
+
+      <!-- ================= §06 档案与来源 ================= -->
+      <section id="s6" aria-labelledby="s6-h">
+        <div class="sec__head">
+          <span class="sec__num">06</span>
+          <h2 class="sec__h" id="s6-h">组合档案</h2>
+        </div>
+        <div class="card panel">
+          <dl class="archive" id="archive"></dl>
+          <div class="src">
+            <span>数据来源：且慢（qieman.com）</span>
+            <span id="src-nav"></span>
+            <span id="src-hold"></span>
+            <span>组合构成与收益以平台官方披露为准，本页不构成投资建议。</span>
+            <a href="https://qieman.com/alfa/portfolio/ZH012926" target="_blank" rel="noopener noreferrer">查看官方组合页面</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= 侧栏 ================= -->
+    <aside class="aside" aria-label="页内导航与速览">
+      <div class="card quick">
+        <h2 class="aside__h">速览</h2>
+        <div id="quick-rows"></div>
+      </div>
+    </aside>
+  </div>
+
+</div>
+
+<div class="layer" id="layer">
+<div class="scrim" id="scrim"></div>
+<aside class="sheet" id="sheet" aria-labelledby="sheet-h" aria-hidden="true">
+  <div class="sheet__head">
+    <h2 id="sheet-h">这次重设计了什么</h2>
+    <button class="icon-btn" type="button" id="btn-sheet-close">关闭</button>
+  </div>
+  <div class="sheet__body">
+    <p>数据全部取自本地真实库（远足 / ZH012926，净值 2263 个交易日）。版式只消费 <code>colors.css</code> 与 <code>dark.scss</code> 的语义令牌，明暗双主题同源。</p>
+
+    <h3>01 结论先上首屏</h3>
+    <p>原来「净值 / 日涨跌」是资料网格里第 7、8 格，收益与回撤要到下一张卡才出现。新首屏把它们收进一条主数字 + 四格 KPI：净值 2.7550、近一年 +1.99%、成立以来 +175.50%、最大回撤 32.96%、夏普 0.553，一屏答完「它是什么、现在怎么样、代价多大」。</p>
+
+    <h3>02 身份与行情分家</h3>
+    <p>原 <code>AdvisorFacts</code> 八格里混着身份（平台 / 机构）、属性（风险 / 类型 / 成立）与行情（最新净值 / 日涨跌）。行情提到首屏，属性下沉到 §06 档案，身份压成一行 meta。</p>
+
+    <h3>03 收益改成可比条形</h3>
+    <p>六个区间原来只是六个同权重数字。近端四档（1M/3M/6M/1Y）放进同一 ±20% 刻度做双向条形，零轴在中间；成立以来与近三年单独做大数字，不再与「近 1 月 −7.67%」挤在一行抢注意力。</p>
+
+    <h3>04 成分基金回归表格</h3>
+    <p>十二只成分原来是三列行栈（名称贴左、数字钉右），扫不出集中度。现在是真表格：权重列带条内条、按占比排序、已持有的加圆点标记，表头直接给「前三大 45.59%」。</p>
+
+    <h3>05 账户对照改成方向对比</h3>
+    <p>原来「我持有 · 组合里没有」只给了一个 115 只的清单——数量本身不说明问题。现在按基金风格暴露（大盘 / 中盘 / 小盘 / 港股 / 固收）把两边都折成占比，同一刻度上画成对条，差值 ≥5pp 才点红；提示条只点最不一致的两档。组合外持仓明细折叠在下面，要查具体哪只再展开。</p>
+
+    <h3>06 调仓改成时间轴</h3>
+    <p>原来每次调仓的行与 100+ 字理由平铺，二十次调仓把页面拉到七千像素。现在按日聚合成时间轴：日期轴点 + 调入/调出计数 chip + 两栏「前 → 后」明细，理由合并成一段、默认两行截断，更早的十六次收进「查看更早」。</p>
+
+    <h3>07 数据可信度收口</h3>
+    <p>来源与口径原来散在每张卡脚注、各写各的。现在只在 §06 出现一次；缺值统一「—」+ 弱色，不再与 0 混淆。</p>
+
+    <h3>规格摘要</h3>
+    <p>栅格：主列 + 264px 侧栏（只放速览，&lt;1080 收起）；页内锚点在页头右上角，点开是六项下拉，滚动时高亮当前区块。内容宽 1400px，区块间距 32px，卡内 24px，表格行 43px。字阶走令牌（24 / 20 / 16 / 14 / 13 / 12），数字 <code>tabular-nums</code>。红涨绿跌 + ↑↓ 双编码，颜色不是唯一载体。</p>
+  </div>
+</aside>
+</div>
+
+<script>
+/* ============================================================
+   真实数据（backend/invest.db · advisor_portfolios id=4）
+   ============================================================ */
+const DATA = {"nav":[["2017-07-24",1],["2017-07-25",0.994644],["2017-07-26",0.99401],["2017-07-27",0.993717],["2017-07-28",0.997194],["2017-07-31",1.008171],["2017-08-01",1.008767],["2017-08-02",1.006531],["2017-08-03",1.005526],["2017-08-04",1.00454],["2017-08-07",1.015292],["2017-08-08",1.016412],["2017-08-09",1.021285],["2017-08-10",1.013513],["2017-08-11",0.988259],["2017-08-14",0.999335],["2017-08-15",1.001669],["2017-08-16",1.002913],["2017-08-17",1.0077],["2017-08-18",1.007315],["2017-08-21",1.013286],["2017-08-22",1.012433],["2017-08-23",1.007693],["2017-08-24",1.003986],["2017-08-25",1.017094],["2017-08-28",1.02168],["2017-08-29",1.020442],["2017-08-30",1.027364],["2017-08-31",1.028507],["2017-09-01",1.034313],["2017-09-04",1.03347],["2017-09-05",1.035083],["2017-09-06",1.035398],["2017-09-07",1.030589],["2017-09-08",1.032295],["2017-09-11",1.037757],["2017-09-12",1.042012],["2017-09-13",1.047131],["2017-09-14",1.045913],["2017-09-15",1.04185],["2017-09-18",1.049901],["2017-09-19",1.048019],["2017-09-20",1.056051],["2017-09-21",1.049286],["2017-09-22",1.044114],["2017-09-25",1.027918],["2017-09-26",1.029661],["2017-09-27",1.038367],["2017-09-28",1.035377],["2017-09-29",1.042618],["2017-10-09",1.058036],["2017-10-10",1.061642],["2017-10-11",1.056838],["2017-10-12",1.055667],["2017-10-13",1.0592],["2017-10-16",1.053238],["2017-10-17",1.053261],["2017-10-18",1.054243],["2017-10-19",1.046206],["2017-10-20",1.052635],["2017-10-23",1.058677],["2017-10-24",1.058959],["2017-10-25",1.067179],["2017-10-26",1.069873],["2017-10-27",1.067638],["2017-10-30",1.060545],["2017-10-31",1.064429],["2017-11-01",1.063177],["2017-11-02",1.05743],["2017-11-03",1.051646],["2017-11-06",1.062382],["2017-11-07",1.066684],["2017-11-08",1.067818],["2017-11-09",1.075787],["2017-11-10",1.08347],["2017-11-13",1.086822],["2017-11-14",1.080982],["2017-11-15",1.071276],["2017-11-16",1.07855],["2017-11-17",1.066987],["2017-11-20",1.072452],["2017-11-21",1.081938],["2017-11-22",1.081515],["2017-11-23",1.055472],["2017-11-24",1.056126],["2017-11-27",1.045278],["2017-11-28",1.052197],["2017-11-29",1.058962],["2017-11-30",1.047819],["2017-12-01",1.050188],["2017-12-04",1.049626],["2017-12-05",1.039392],["2017-12-06",1.033874],["2017-12-07",1.026853],["2017-12-08",1.036655],["2017-12-11",1.049352],["2017-12-12",1.039054],["2017-12-13",1.046818],["2017-12-14",1.045259],["2017-12-15",1.033736],["2017-12-18",1.032034],["2017-12-19",1.042966],["2017-12-20",1.040195],["2017-12-21",1.048979],["2017-12-22",1.050859],["2017-12-25",1.046746],["2017-12-26",1.049809],["2017-12-27",1.04084],["2017-12-28",1.04831],["2017-12-29",1.054706],["2018-01-02",1.072302],["2018-01-03",1.078701],["2018-01-04",1.083866],["2018-01-05",1.087855],["2018-01-08",1.097079],["2018-01-09",1.099421],["2018-01-10",1.100223],["2018-01-11",1.097786],["2018-01-12",1.099773],["2018-01-15",1.086162],["2018-01-16",1.101362],["2018-01-17",1.096607],["2018-01-18",1.102029],["2018-01-19",1.099952],["2018-01-22",1.109165],["2018-01-23",1.115866],["2018-01-24",1.116065],["2018-01-25",1.110799],["2018-01-26",1.112891],["2018-01-29",1.095992],["2018-01-30",1.091241],["2018-01-31",1.09238],["2018-02-01",1.074816],["2018-02-02",1.079937],["2018-02-05",1.07879],["2018-02-06",1.041847],["2018-02-07",1.027288],["2018-02-08",1.031795],["2018-02-09",0.995983],["2018-02-12",1.020702],["2018-02-13",1.028548],["2018-02-14",1.032986],["2018-02-22",1.053883],["2018-02-23",1.053922],["2018-02-26",1.07241],["2018-02-27",1.064972],["2018-02-28",1.065241],["2018-03-01",1.075255],["2018-03-02",1.0674],["2018-03-05",1.072491],["2018-03-06",1.088015],["2018-03-07",1.080391],["2018-03-08",1.091914],["2018-03-09",1.103184],["2018-03-12",1.110987],["2018-03-13",1.100582],["2018-03-14",1.09262],["2018-03-15",1.094719],["2018-03-16",1.086137],["2018-03-19",1.094052],["2018-03-20",1.101848],["2018-03-21",1.094214],["2018-03-22",1.083617],["2018-03-23",1.05026],["2018-03-26",1.062214],["2018-03-27",1.078256],["2018-03-28",1.065209],["2018-03-29",1.072234],["2018-03-30",1.085643],["2018-04-02",1.083633],["2018-04-03",1.077373],["2018-04-04",1.072938],["2018-04-09",1.071483],["2018-04-10",1.081994],["2018-04-11",1.087463],["2018-04-12",1.083324],["2018-04-13",1.07564],["2018-04-16",1.072092],["2018-04-17",1.050598],["2018-04-18",1.059831],["2018-04-19",1.066077],["2018-04-20",1.050266],["2018-04-23",1.041624],["2018-04-24",1.062698],["2018-04-25",1.067155],["2018-04-26",1.051701],["2018-04-27",1.057636],["2018-05-02",1.063767],["2018-05-03",1.070057],["2018-05-04",1.074335],["2018-05-07",1.094022],["2018-05-08",1.099522],["2018-05-09",1.100536],["2018-05-10",1.109453],["2018-05-11",1.095348],["2018-05-14",1.100024],["2018-05-15",1.111787],["2018-05-16",1.111854],["2018-05-17",1.100671],["2018-05-18",1.108444],["2018-05-21",1.115828],["2018-05-22",1.120415],["2018-05-23",1.112634],["2018-05-24",1.107782],["2018-05-25",1.107705],["2018-05-28",1.111969],["2018-05-29",1.096158],["2018-05-30",1.078416],["2018-05-31",1.099537],["2018-06-01",1.080467],["2018-06-04",1.082366],["2018-06-05",1.100964],["2018-06-06",1.103967],["2018-06-07",1.09954],["2018-06-08",1.091099],["2018-06-11",1.083412],["2018-06-12",1.099186],["2018-06-13",1.087207],["2018-06-14",1.081046],["2018-06-15",1.071155],["2018-06-19",1.029395],["2018-06-20",1.043936],["2018-06-21",1.030082],["2018-06-22",1.04043],["2018-06-25",1.030737],["2018-06-26",1.028121],["2018-06-27",1.010262],["2018-06-28",1.000365],["2018-06-29",1.032633],["2018-07-02",1.015],["2018-07-03",1.016319],["2018-07-04",0.996872],["2018-07-05",0.98019],["2018-07-06",0.984408],["2018-07-09",1.012191],["2018-07-10",1.017954],["2018-07-11",1.003917],["2018-07-12",1.027862],["2018-07-13",1.035891],["2018-07-16",1.035217],["2018-07-17",1.032794],["2018-07-18",1.027873],["2018-07-19",1.021925],["2018-07-20",1.03492],["2018-07-23",1.030728],["2018-07-24",1.045386],["2018-07-25",1.04903],["2018-07-26",1.035566],["2018-07-27",1.035033],["2018-07-30",1.022132],["2018-07-31",1.020787],["2018-08-01",1.007099],["2018-08-02",0.988387],["2018-08-03",0.969281],["2018-08-06",0.951263],["2018-08-07",0.97809],["2018-08-08",0.965558],["2018-08-09",0.990181],["2018-08-10",0.996019],["2018-08-13",0.995367],["2018-08-14",0.986654],["2018-08-15",0.964466],["2018-08-16",0.958066],["2018-08-17",0.943846],["2018-08-20",0.950264],["2018-08-21",0.970073],["2018-08-22",0.964121],["2018-08-23",0.96987],["2018-08-24",0.969698],["2018-08-27",0.993821],["2018-08-28",0.994337],["2018-08-29",0.992391],["2018-08-30",0.980778],["2018-08-31",0.974617],["2018-09-03",0.973723],["2018-09-04",0.98525],["2018-09-05",0.968452],["2018-09-06",0.958023],["2018-09-07",0.960935],["2018-09-10",0.945734],["2018-09-11",0.943201],["2018-09-12",0.935187],["2018-09-13",0.941558],["2018-09-14",0.936729],["2018-09-17",0.926116],["2018-09-18",0.941362],["2018-09-19",0.956837],["2018-09-20",0.955608],["2018-09-21",0.973853],["2018-09-25",0.96639],["2018-09-26",0.974204],["2018-09-27",0.967577],["2018-09-28",0.975224],["2018-10-08",0.934531],["2018-10-09",0.931895],["2018-10-10",0.928602],["2018-10-11",0.881197],["2018-10-12",0.893334],["2018-10-15",0.879986],["2018-10-16",0.865788],["2018-10-17",0.870483],["2018-10-18",0.854184],["2018-10-19",0.879912],["2018-10-22",0.917899],["2018-10-23",0.895924],["2018-10-24",0.891749],["2018-10-25",0.891086],["2018-10-26",0.88445],["2018-10-29",0.866907],["2018-10-30",0.876672],["2018-10-31",0.891547],["2018-11-01",0.899882],["2018-11-02",0.930247],["2018-11-05",0.923231],["2018-11-06",0.924243],["2018-11-07",0.92303],["2018-11-08",0.917937],["2018-11-09",0.913634],["2018-11-12",0.928564],["2018-11-13",0.939005],["2018-11-14",0.934219],["2018-11-15",0.9438],["2018-11-16",0.947448],["2018-11-19",0.951909],["2018-11-20",0.932547],["2018-11-21",0.936361],["2018-11-22",0.934894],["2018-11-23",0.913204],["2018-11-26",0.913172],["2018-11-27",0.914077],["2018-11-28",0.925349],["2018-11-29",0.914705],["2018-11-30",0.921497],["2018-12-03",0.944268],["2018-12-04",0.946565],["2018-12-05",0.943578],["2018-12-06",0.923472],["2018-12-07",0.919238],["2018-12-10",0.90888],["2018-12-11",0.916591],["2018-12-12",0.919314],["2018-12-13",0.932609],["2018-12-14",0.91453],["2018-12-17",0.908057],["2018-12-18",0.899948],["2018-12-19",0.887571],["2018-12-20",0.885381],["2018-12-21",0.877675],["2018-12-24",0.884264],["2018-12-25",0.88174],["2018-12-26",0.878767],["2018-12-27",0.873087],["2018-12-28",0.876882],["2019-01-02",0.863504],["2019-01-03",0.856477],["2019-01-04",0.873085],["2019-01-07",0.884312],["2019-01-08",0.882629],["2019-01-09",0.88781],["2019-01-10",0.88883],["2019-01-11",0.89115],["2019-01-14",0.883856],["2019-01-15",0.897899],["2019-01-16",0.901694],["2019-01-17",0.895533],["2019-01-18",0.90837],["2019-01-21",0.915365],["2019-01-22",0.906241],["2019-01-23",0.909034],["2019-01-24",0.914622],["2019-01-25",0.922492],["2019-01-28",0.921181],["2019-01-29",0.917825],["2019-01-30",0.909721],["2019-01-31",0.908611],["2019-02-01",0.927123],["2019-02-11",0.946625],["2019-02-12",0.952684],["2019-02-13",0.96606],["2019-02-14",0.968971],["2019-02-15",0.957451],["2019-02-18",0.988166],["2019-02-19",0.984402],["2019-02-20",0.984516],["2019-02-21",0.983823],["2019-02-22",1.003077],["2019-02-25",1.047004],["2019-02-26",1.039427],["2019-02-27",1.030588],["2019-02-28",1.037256],["2019-03-01",1.045665],["2019-03-04",1.062788],["2019-03-05",1.079924],["2019-03-06",1.085661],["2019-03-07",1.08071],["2019-03-08",1.053754],["2019-03-11",1.088246],["2019-03-12",1.108854],["2019-03-13",1.089506],["2019-03-14",1.073678],["2019-03-15",1.089703],["2019-03-18",1.118354],["2019-03-19",1.117564],["2019-03-20",1.113515],["2019-03-21",1.118591],["2019-03-22",1.120144],["2019-03-25",1.103819],["2019-03-26",1.086444],["2019-03-27",1.098372],["2019-03-28",1.089217],["2019-03-29",1.121315],["2019-04-01",1.152952],["2019-04-02",1.150727],["2019-04-03",1.157027],["2019-04-04",1.159692],["2019-04-08",1.147894],["2019-04-09",1.154088],["2019-04-10",1.156929],["2019-04-11",1.134614],["2019-04-12",1.1276],["2019-04-15",1.117309],["2019-04-16",1.134166],["2019-04-17",1.140199],["2019-04-18",1.135798],["2019-04-19",1.14237],["2019-04-22",1.124872],["2019-04-23",1.118145],["2019-04-24",1.125839],["2019-04-25",1.098885],["2019-04-26",1.091984],["2019-04-29",1.087392],["2019-04-30",1.090895],["2019-05-06",1.029111],["2019-05-07",1.045231],["2019-05-08",1.03427],["2019-05-09",1.021214],["2019-05-10",1.056858],["2019-05-13",1.047097],["2019-05-14",1.040803],["2019-05-15",1.061807],["2019-05-16",1.06793],["2019-05-17",1.039177],["2019-05-20",1.026536],["2019-05-21",1.0403],["2019-05-22",1.038529],["2019-05-23",1.017368],["2019-05-24",1.016384],["2019-05-27",1.033665],["2019-05-28",1.039538],["2019-05-29",1.036848],["2019-05-30",1.030977],["2019-05-31",1.031757],["2019-06-03",1.025742],["2019-06-04",1.017241],["2019-06-05",1.019453],["2019-06-06",1.005406],["2019-06-10",1.017495],["2019-06-11",1.046677],["2019-06-12",1.041101],["2019-06-13",1.039911],["2019-06-14",1.030207],["2019-06-17",1.025113],["2019-06-18",1.028235],["2019-06-19",1.041245],["2019-06-20",1.064936],["2019-06-21",1.074281],["2019-06-24",1.077741],["2019-06-25",1.070318],["2019-06-26",1.076214],["2019-06-27",1.089644],["2019-06-28",1.083935],["2019-07-01",1.112909],["2019-07-02",1.114084],["2019-07-03",1.104666],["2019-07-04",1.093729],["2019-07-05",1.099103],["2019-07-08",1.074108],["2019-07-09",1.07447],["2019-07-10",1.07214],["2019-07-11",1.07268],["2019-07-12",1.076223],["2019-07-15",1.085464],["2019-07-16",1.082954],["2019-07-17",1.081877],["2019-07-18",1.067077],["2019-07-19",1.077867],["2019-07-22",1.06862],["2019-07-23",1.0742],["2019-07-24",1.085452],["2019-07-25",1.090732],["2019-07-26",1.094726],["2019-07-29",1.094946],["2019-07-30",1.099625],["2019-07-31",1.090315],["2019-08-01",1.081829],["2019-08-02",1.073076],["2019-08-05",1.056699],["2019-08-06",1.050617],["2019-08-07",1.052312],["2019-08-08",1.067096],["2019-08-09",1.058215],["2019-08-12",1.076],["2019-08-13",1.069118],["2019-08-14",1.072617],["2019-08-15",1.07927],["2019-08-16",1.086201],["2019-08-19",1.108818],["2019-08-20",1.111195],["2019-08-21",1.110734],["2019-08-22",1.110153],["2019-08-23",1.119572],["2019-08-26",1.109769],["2019-08-27",1.121785],["2019-08-28",1.118558],["2019-08-29",1.116954],["2019-08-30",1.114141],["2019-09-02",1.127865],["2019-09-03",1.126879],["2019-09-04",1.133951],["2019-09-05",1.14053],["2019-09-06",1.144387],["2019-09-09",1.157079],["2019-09-10",1.153257],["2019-09-11",1.144708],["2019-09-12",1.154973],["2019-09-16",1.156406],["2019-09-17",1.141111],["2019-09-18",1.149759],["2019-09-19",1.157918],["2019-09-20",1.161933],["2019-09-23",1.149556],["2019-09-24",1.154664],["2019-09-25",1.144847],["2019-09-26",1.132679],["2019-09-27",1.137058],["2019-09-30",1.130769],["2019-10-08",1.135491],["2019-10-09",1.141967],["2019-10-10",1.157648],["2019-10-11",1.164433],["2019-10-14",1.175301],["2019-10-15",1.167419],["2019-10-16",1.169049],["2019-10-17",1.172011],["2019-10-18",1.163296],["2019-10-21",1.161636],["2019-10-22",1.168879],["2019-10-23",1.158379],["2019-10-24",1.156352],["2019-10-25",1.165621],["2019-10-28",1.173971],["2019-10-29",1.173918],["2019-10-30",1.16844],["2019-10-31",1.168219],["2019-11-01",1.18519],["2019-11-04",1.196419],["2019-11-05",1.203328],["2019-11-06",1.196659],["2019-11-07",1.20383],["2019-11-08",1.201648],["2019-11-11",1.179584],["2019-11-12",1.179678],["2019-11-13",1.18371],["2019-11-14",1.188849],["2019-11-15",1.183514],["2019-11-18",1.194159],["2019-11-19",1.212652],["2019-11-20",1.20348],["2019-11-21",1.196657],["2019-11-22",1.183547],["2019-11-25",1.184705],["2019-11-26",1.186394],["2019-11-27",1.183187],["2019-11-28",1.177731],["2019-11-29",1.168635],["2019-12-02",1.173],["2019-12-03",1.176576],["2019-12-04",1.175272],["2019-12-05",1.187659],["2019-12-06",1.195884],["2019-12-09",1.198518],["2019-12-10",1.204637],["2019-12-11",1.204639],["2019-12-12",1.203163],["2019-12-13",1.222897],["2019-12-16",1.233516],["2019-12-17",1.246387],["2019-12-18",1.243871],["2019-12-19",1.240583],["2019-12-20",1.23717],["2019-12-23",1.225744],["2019-12-24",1.238848],["2019-12-25",1.242171],["2019-12-26",1.251472],["2019-12-27",1.250064],["2019-12-30",1.260605],["2019-12-31",1.266517],["2020-01-02",1.289455],["2020-01-03",1.28703],["2020-01-06",1.287412],["2020-01-07",1.2991],["2020-01-08",1.28912],["2020-01-09",1.309261],["2020-01-10",1.307173],["2020-01-13",1.320536],["2020-01-14",1.316808],["2020-01-15",1.312308],["2020-01-16",1.314758],["2020-01-17",1.314281],["2020-01-20",1.32015],["2020-01-21",1.298223],["2020-01-22",1.313714],["2020-01-23",1.273911],["2020-02-03",1.181497],["2020-02-04",1.227341],["2020-02-05",1.24479],["2020-02-06",1.271761],["2020-02-07",1.273126],["2020-02-10",1.291102],["2020-02-11",1.298011],["2020-02-12",1.323865],["2020-02-13",1.324753],["2020-02-14",1.328285],["2020-02-17",1.358831],["2020-02-18",1.359442],["2020-02-19",1.344967],["2020-02-20",1.368394],["2020-02-21",1.374548],["2020-02-24",1.372214],["2020-02-25",1.381253],["2020-02-26",1.348258],["2020-02-27",1.361859],["2020-02-28",1.315063],["2020-03-02",1.356249],["2020-03-03",1.365422],["2020-03-04",1.371927],["2020-03-05",1.385815],["2020-03-06",1.370109],["2020-03-09",1.310798],["2020-03-10",1.336449],["2020-03-11",1.324413],["2020-03-12",1.295095],["2020-03-13",1.282165],["2020-03-16",1.218177],["2020-03-17",1.213945],["2020-03-18",1.194751],["2020-03-19",1.182901],["2020-03-20",1.208319],["2020-03-23",1.159286],["2020-03-24",1.18787],["2020-03-25",1.225244],["2020-03-26",1.221388],["2020-03-27",1.221464],["2020-03-30",1.203644],["2020-03-31",1.215987],["2020-04-01",1.209693],["2020-04-02",1.230411],["2020-04-03",1.224455],["2020-04-07",1.258824],["2020-04-08",1.252176],["2020-04-09",1.260656],["2020-04-10",1.248229],["2020-04-13",1.24385],["2020-04-14",1.272012],["2020-04-15",1.262742],["2020-04-16",1.270247],["2020-04-17",1.275395],["2020-04-20",1.288206],["2020-04-21",1.275142],["2020-04-22",1.289835],["2020-04-23",1.285852],["2020-04-24",1.275434],["2020-04-27",1.280829],["2020-04-28",1.292161],["2020-04-29",1.293937],["2020-04-30",1.306561],["2020-05-06",1.313173],["2020-05-07",1.317448],["2020-05-08",1.331834],["2020-05-11",1.329774],["2020-05-12",1.338786],["2020-05-13",1.349896],["2020-05-14",1.336028],["2020-05-15",1.336363],["2020-05-18",1.340222],["2020-05-19",1.35731],["2020-05-20",1.348392],["2020-05-21",1.339069],["2020-05-22",1.309226],["2020-05-25",1.319394],["2020-05-26",1.347148],["2020-05-27",1.33737],["2020-05-28",1.338207],["2020-05-29",1.355974],["2020-06-01",1.388046],["2020-06-02",1.380747],["2020-06-03",1.385655],["2020-06-04",1.394935],["2020-06-05",1.398137],["2020-06-08",1.394607],["2020-06-09",1.402603],["2020-06-10",1.414939],["2020-06-11",1.404463],["2020-06-12",1.407649],["2020-06-15",1.390472],["2020-06-16",1.420854],["2020-06-17",1.423502],["2020-06-18",1.430147],["2020-06-19",1.45096],["2020-06-22",1.447685],["2020-06-23",1.463615],["2020-06-24",1.465286],["2020-06-29",1.463281],["2020-06-30",1.484323],["2020-07-01",1.500275],["2020-07-02",1.516158],["2020-07-03",1.528034],["2020-07-06",1.576378],["2020-07-07",1.603372],["2020-07-08",1.626284],["2020-07-09",1.658829],["2020-07-10",1.643317],["2020-07-13",1.692798],["2020-07-14",1.666229],["2020-07-15",1.663005],["2020-07-16",1.602745],["2020-07-17",1.624777],["2020-07-20",1.662381],["2020-07-21",1.684147],["2020-07-22",1.6917],["2020-07-23",1.701369],["2020-07-24",1.623671],["2020-07-27",1.629649],["2020-07-28",1.650296],["2020-07-29",1.686228],["2020-07-30",1.684413],["2020-07-31",1.700887],["2020-08-03",1.731599],["2020-08-04",1.726411],["2020-08-05",1.74751],["2020-08-06",1.74649],["2020-08-07",1.738687],["2020-08-10",1.741017],["2020-08-11",1.719809],["2020-08-12",1.702337],["2020-08-13",1.700695],["2020-08-14",1.72388],["2020-08-17",1.757884],["2020-08-18",1.768953],["2020-08-19",1.748418],["2020-08-20",1.729986],["2020-08-21",1.7429],["2020-08-24",1.7639],["2020-08-25",1.761599],["2020-08-26",1.735561],["2020-08-27",1.747849],["2020-08-28",1.781124],["2020-08-31",1.780308],["2020-09-01",1.793089],["2020-09-02",1.799282],["2020-09-03",1.784796],["2020-09-04",1.767328],["2020-09-07",1.730509],["2020-09-08",1.722532],["2020-09-09",1.676007],["2020-09-10",1.674962],["2020-09-11",1.69622],["2020-09-14",1.705278],["2020-09-15",1.721931],["2020-09-16",1.713993],["2020-09-17",1.710094],["2020-09-18",1.740081],["2020-09-21",1.726938],["2020-09-22",1.703999],["2020-09-23",1.711403],["2020-09-24",1.675444],["2020-09-25",1.668713],["2020-09-28",1.668559],["2020-09-29",1.681358],["2020-09-30",1.683578],["2020-10-09",1.728034],["2020-10-12",1.764063],["2020-10-13",1.773198],["2020-10-14",1.770717],["2020-10-15",1.760731],["2020-10-16",1.74806],["2020-10-19",1.730506],["2020-10-20",1.751142],["2020-10-21",1.737611],["2020-10-22",1.728237],["2020-10-23",1.704318],["2020-10-26",1.706422],["2020-10-27",1.716008],["2020-10-28",1.727746],["2020-10-29",1.737507],["2020-10-30",1.711998],["2020-11-02",1.728098],["2020-11-03",1.742927],["2020-11-04",1.750958],["2020-11-05",1.78649],["2020-11-06",1.777423],["2020-11-09",1.802855],["2020-11-10",1.799862],["2020-11-11",1.778719],["2020-11-12",1.789355],["2020-11-13",1.780042],["2020-11-16",1.804292],["2020-11-17",1.80168],["2020-11-18",1.80033],["2020-11-19",1.8091],["2020-11-20",1.824856],["2020-11-23",1.839072],["2020-11-24",1.832204],["2020-11-25",1.801631],["2020-11-26",1.796038],["2020-11-27",1.805759],["2020-11-30",1.790335],["2020-12-01",1.818464],["2020-12-02",1.811787],["2020-12-03",1.805988],["2020-12-04",1.814723],["2020-12-07",1.811074],["2020-12-08",1.812983],["2020-12-09",1.793216],["2020-12-10",1.798824],["2020-12-11",1.781041],["2020-12-14",1.799949],["2020-12-15",1.804434],["2020-12-16",1.810099],["2020-12-17",1.824024],["2020-12-18",1.823557],["2020-12-21",1.851015],["2020-12-22",1.825581],["2020-12-23",1.845016],["2020-12-24",1.83682],["2020-12-25",1.85929],["2020-12-28",1.861464],["2020-12-29",1.84324],["2020-12-30",1.871996],["2020-12-31",1.901335],["2021-01-04",1.942304],["2021-01-05",1.968364],["2021-01-06",1.978989],["2021-01-07",2.006117],["2021-01-08",1.993029],["2021-01-11",1.971902],["2021-01-12",2.010733],["2021-01-13",1.998337],["2021-01-14",1.977358],["2021-01-15",1.979701],["2021-01-18",2.008635],["2021-01-19",1.990513],["2021-01-20",2.023955],["2021-01-21",2.052871],["2021-01-22",2.064659],["2021-01-25",2.07421],["2021-01-26",2.038428],["2021-01-27",2.040329],["2021-01-28",1.993163],["2021-01-29",1.980686],["2021-02-01",2.027563],["2021-02-02",2.063069],["2021-02-03",2.064262],["2021-02-04",2.055351],["2021-02-05",2.037874],["2021-02-08",2.071332],["2021-02-09",2.112306],["2021-02-10",2.148212],["2021-02-18",2.154994],["2021-02-19",2.15048],["2021-02-22",2.109135],["2021-02-23",2.098064],["2021-02-24",2.036471],["2021-02-25",2.044154],["2021-02-26",1.993074],["2021-03-01",2.043073],["2021-03-02",2.018775],["2021-03-03",2.047963],["2021-03-04",1.986835],["2021-03-05",1.97992],["2021-03-08",1.928962],["2021-03-09",1.893418],["2021-03-10",1.899153],["2021-03-11",1.946194],["2021-03-12",1.946922],["2021-03-15",1.921965],["2021-03-16",1.941128],["2021-03-17",1.956036],["2021-03-18",1.98141],["2021-03-19",1.939093],["2021-03-22",1.954963],["2021-03-23",1.915829],["2021-03-24",1.874136],["2021-03-25",1.885499],["2021-03-26",1.919232],["2021-03-29",1.935097],["2021-03-30",1.950537],["2021-03-31",1.941194],["2021-04-01",1.961312],["2021-04-02",1.966603],["2021-04-06",1.965198],["2021-04-07",1.963495],["2021-04-08",1.968268],["2021-04-09",1.946538],["2021-04-12",1.900625],["2021-04-13",1.897528],["2021-04-14",1.917551],["2021-04-15",1.91711],["2021-04-16",1.932032],["2021-04-19",1.963736],["2021-04-20",1.966645],["2021-04-21",1.963109],["2021-04-22",1.975897],["2021-04-23",1.985103],["2021-04-26",1.985345],["2021-04-27",1.982249],["2021-04-28",1.99378],["2021-04-29",1.992443],["2021-04-30",1.98313],["2021-05-06",1.989057],["2021-05-07",1.975702],["2021-05-10",1.982529],["2021-05-11",1.964373],["2021-05-12",1.975025],["2021-05-13",1.946138],["2021-05-14",1.966176],["2021-05-17",1.99063],["2021-05-18",2.003999],["2021-05-19",1.997087],["2021-05-20",1.987537],["2021-05-21",1.981745],["2021-05-24",1.992799],["2021-05-25",2.027169],["2021-05-26",2.031814],["2021-05-27",2.047459],["2021-05-28",2.033264],["2021-05-31",2.050728],["2021-06-01",2.070297],["2021-06-02",2.060856],["2021-06-03",2.049147],["2021-06-04",2.05365],["2021-06-07",2.065769],["2021-06-08",2.051077],["2021-06-09",2.064431],["2021-06-10",2.076064],["2021-06-11",2.064685],["2021-06-15",2.051215],["2021-06-16",2.013224],["2021-06-17",2.027222],["2021-06-18",2.035613],["2021-06-21",2.038191],["2021-06-22",2.050213],["2021-06-23",2.065473],["2021-06-24",2.064693],["2021-06-25",2.088596],["2021-06-28",2.097427],["2021-06-29",2.088833],["2021-06-30",2.098923],["2021-07-01",2.08022],["2021-07-02",2.055923],["2021-07-05",2.068704],["2021-07-06",2.072646],["2021-07-07",2.097183],["2021-07-08",2.071386],["2021-07-09",2.087732],["2021-07-12",2.119233],["2021-07-13",2.134386],["2021-07-14",2.132635],["2021-07-15",2.142915],["2021-07-16",2.151411],["2021-07-19",2.141469],["2021-07-20",2.131942],["2021-07-21",2.155246],["2021-07-22",2.177045],["2021-07-23",2.14991],["2021-07-26",2.098154],["2021-07-27",2.034179],["2021-07-28",2.023033],["2021-07-29",2.100011],["2021-07-30",2.1041],["2021-08-02",2.139694],["2021-08-03",2.105909],["2021-08-04",2.158331],["2021-08-05",2.158647],["2021-08-06",2.157094],["2021-08-09",2.160668],["2021-08-10",2.16819],["2021-08-11",2.192032],["2021-08-12",2.193673],["2021-08-13",2.187622],["2021-08-16",2.173734],["2021-08-17",2.133144],["2021-08-18",2.144076],["2021-08-19",2.159643],["2021-08-20",2.164081],["2021-08-23",2.212118],["2021-08-24",2.245396],["2021-08-25",2.257705],["2021-08-26",2.245171],["2021-08-27",2.271944],["2021-08-30",2.298444],["2021-08-31",2.296314],["2021-09-01",2.254618],["2021-09-02",2.285619],["2021-09-03",2.268694],["2021-09-06",2.288353],["2021-09-07",2.32353],["2021-09-08",2.310149],["2021-09-09",2.307085],["2021-09-10",2.320273],["2021-09-13",2.318104],["2021-09-14",2.308076],["2021-09-15",2.313052],["2021-09-16",2.262382],["2021-09-17",2.265373],["2021-09-22",2.261636],["2021-09-23",2.265853],["2021-09-24",2.244883],["2021-09-27",2.201403],["2021-09-28",2.201389],["2021-09-29",2.148626],["2021-09-30",2.195522],["2021-10-08",2.179974],["2021-10-11",2.180107],["2021-10-12",2.14634],["2021-10-13",2.183706],["2021-10-14",2.199098],["2021-10-15",2.221077],["2021-10-18",2.2404],["2021-10-19",2.252907],["2021-10-20",2.266256],["2021-10-21",2.252039],["2021-10-22",2.239057],["2021-10-25",2.270273],["2021-10-26",2.266786],["2021-10-27",2.269666],["2021-10-28",2.248845],["2021-10-29",2.272337],["2021-11-01",2.275305],["2021-11-02",2.257644],["2021-11-03",2.249713],["2021-11-04",2.274231],["2021-11-05",2.244661],["2021-11-08",2.253615],["2021-11-09",2.268025],["2021-11-10",2.260156],["2021-11-11",2.282657],["2021-11-12",2.29621],["2021-11-15",2.2769],["2021-11-16",2.265423],["2021-11-17",2.287698],["2021-11-18",2.275809],["2021-11-19",2.30206],["2021-11-22",2.33056],["2021-11-23",2.317463],["2021-11-24",2.30806],["2021-11-25",2.292703],["2021-11-26",2.289132],["2021-11-29",2.297341],["2021-11-30",2.298332],["2021-12-01",2.298913],["2021-12-02",2.286251],["2021-12-03",2.30594],["2021-12-06",2.279023],["2021-12-07",2.278268],["2021-12-08",2.30564],["2021-12-09",2.320582],["2021-12-10",2.324882],["2021-12-13",2.337311],["2021-12-14",2.319711],["2021-12-15",2.312569],["2021-12-16",2.32131],["2021-12-17",2.295355],["2021-12-20",2.259922],["2021-12-21",2.281762],["2021-12-22",2.288237],["2021-12-23",2.309031],["2021-12-24",2.288556],["2021-12-27",2.288796],["2021-12-28",2.296016],["2021-12-29",2.277447],["2021-12-30",2.289642],["2021-12-31",2.309266],["2022-01-04",2.293542],["2022-01-05",2.256308],["2022-01-06",2.263985],["2022-01-07",2.253909],["2022-01-10",2.267568],["2022-01-11",2.251565],["2022-01-12",2.272871],["2022-01-13",2.23943],["2022-01-14",2.232567],["2022-01-17",2.249632],["2022-01-18",2.267598],["2022-01-19",2.254815],["2022-01-20",2.252945],["2022-01-21",2.237185],["2022-01-24",2.242514],["2022-01-25",2.191686],["2022-01-26",2.206911],["2022-01-27",2.164804],["2022-01-28",2.146404],["2022-02-07",2.174722],["2022-02-08",2.175345],["2022-02-09",2.1997],["2022-02-10",2.209134],["2022-02-11",2.179711],["2022-02-14",2.147045],["2022-02-15",2.162065],["2022-02-16",2.170307],["2022-02-17",2.17095],["2022-02-18",2.183429],["2022-02-21",2.184062],["2022-02-22",2.163603],["2022-02-23",2.184688],["2022-02-24",2.156796],["2022-02-25",2.169786],["2022-02-28",2.172355],["2022-03-01",2.182828],["2022-03-02",2.174616],["2022-03-03",2.171898],["2022-03-04",2.153917],["2022-03-07",2.108174],["2022-03-08",2.049623],["2022-03-09",2.028233],["2022-03-10",2.048401],["2022-03-11",2.054514],["2022-03-14",1.997255],["2022-03-15",1.903726],["2022-03-16",1.97111],["2022-03-17",2.014633],["2022-03-18",2.033087],["2022-03-21",2.043494],["2022-03-22",2.047275],["2022-03-23",2.059428],["2022-03-24",2.047769],["2022-03-25",2.022826],["2022-03-28",2.017445],["2022-03-29",2.013446],["2022-03-30",2.056546],["2022-03-31",2.038635],["2022-04-01",2.05891],["2022-04-06",2.056137],["2022-04-07",2.020817],["2022-04-08",2.032668],["2022-04-11",1.991932],["2022-04-12",1.99939],["2022-04-13",1.990541],["2022-04-14",2.018901],["2022-04-15",2.013379],["2022-04-18",2.019337],["2022-04-19",2.018692],["2022-04-20",1.985743],["2022-04-21",1.93934],["2022-04-22",1.948996],["2022-04-25",1.857656],["2022-04-26",1.844347],["2022-04-27",1.893809],["2022-04-28",1.910802],["2022-04-29",1.966916],["2022-05-05",1.977893],["2022-05-06",1.927717],["2022-05-09",1.930737],["2022-05-10",1.954995],["2022-05-11",1.964489],["2022-05-12",1.958111],["2022-05-13",1.980135],["2022-05-16",1.985168],["2022-05-17",2.002536],["2022-05-18",1.99339],["2022-05-19",2.001364],["2022-05-20",2.022452],["2022-05-23",2.008023],["2022-05-24",1.954458],["2022-05-25",1.974641],["2022-05-26",1.988139],["2022-05-27",1.984727],["2022-05-30",1.99561],["2022-05-31",2.021932],["2022-06-01",2.020055],["2022-06-02",2.028753],["2022-06-06",2.054986],["2022-06-07",2.054567],["2022-06-08",2.060033],["2022-06-09",2.045807],["2022-06-10",2.070742],["2022-06-13",2.047785],["2022-06-14",2.048359],["2022-06-15",2.057425],["2022-06-16",2.061671],["2022-06-17",2.077998],["2022-06-20",2.099057],["2022-06-21",2.089461],["2022-06-22",2.063281],["2022-06-23",2.102852],["2022-06-24",2.127368],["2022-06-27",2.149885],["2022-06-28",2.169437],["2022-06-29",2.140415],["2022-06-30",2.166097],["2022-07-01",2.155014],["2022-07-04",2.175361],["2022-07-05",2.162103],["2022-07-06",2.131701],["2022-07-07",2.15239],["2022-07-08",2.142919],["2022-07-11",2.115308],["2022-07-12",2.100307],["2022-07-13",2.10108],["2022-07-14",2.104767],["2022-07-15",2.08398],["2022-07-18",2.107473],["2022-07-19",2.098591],["2022-07-20",2.117562],["2022-07-21",2.09262],["2022-07-22",2.085393],["2022-07-25",2.072213],["2022-07-26",2.097772],["2022-07-27",2.101458],["2022-07-28",2.102592],["2022-07-29",2.075104],["2022-08-01",2.076548],["2022-08-02",2.045509],["2022-08-03",2.034939],["2022-08-04",2.03891],["2022-08-05",2.072262],["2022-08-08",2.085225],["2022-08-09",2.101529],["2022-08-10",2.094067],["2022-08-11",2.12096],["2022-08-12",2.112287],["2022-08-15",2.114152],["2022-08-16",2.118282],["2022-08-17",2.127124],["2022-08-18",2.115458],["2022-08-19",2.097697],["2022-08-22",2.117274],["2022-08-23",2.115562],["2022-08-24",2.070874],["2022-08-25",2.08299],["2022-08-26",2.083194],["2022-08-29",2.087218],["2022-08-30",2.076615],["2022-08-31",2.050597],["2022-09-01",2.047874],["2022-09-02",2.049522],["2022-09-05",2.058871],["2022-09-06",2.0872],["2022-09-07",2.097972],["2022-09-08",2.089382],["2022-09-09",2.105099],["2022-09-13",2.109905],["2022-09-14",2.095604],["2022-09-15",2.066886],["2022-09-16",2.041173],["2022-09-19",2.031085],["2022-09-20",2.032523],["2022-09-21",2.026213],["2022-09-22",2.018684],["2022-09-23",2.000526],["2022-09-26",1.988954],["2022-09-27",2.023447],["2022-09-28",1.9851],["2022-09-29",1.981053],["2022-09-30",1.968629],["2022-10-10",1.935553],["2022-10-11",1.933699],["2022-10-12",1.970098],["2022-10-13",1.96851],["2022-10-14",1.998546],["2022-10-17",2.009841],["2022-10-18",2.004699],["2022-10-19",1.984414],["2022-10-20",1.980362],["2022-10-21",1.979764],["2022-10-24",1.951312],["2022-10-25",1.946558],["2022-10-26",1.966126],["2022-10-27",1.962474],["2022-10-28",1.919723],["2022-10-31",1.91078],["2022-11-01",1.942384],["2022-11-02",1.957629],["2022-11-03",1.956546],["2022-11-04",1.993729],["2022-11-07",1.994917],["2022-11-08",1.986571],["2022-11-09",1.975816],["2022-11-10",1.964364],["2022-11-11",2.001535],["2022-11-14",1.999217],["2022-11-15",2.026265],["2022-11-16",2.009333],["2022-11-17",2.007947],["2022-11-18",1.998253],["2022-11-21",1.99336],["2022-11-22",1.981635],["2022-11-23",1.980481],["2022-11-24",1.978175],["2022-11-25",1.981493],["2022-11-28",1.970538],["2022-11-29",2.017249],["2022-11-30",2.017506],["2022-12-01",2.033783],["2022-12-02",2.024977],["2022-12-05",2.048449],["2022-12-06",2.056146],["2022-12-07",2.048576],["2022-12-08",2.045143],["2022-12-09",2.055808],["2022-12-12",2.04523],["2022-12-13",2.039558],["2022-12-14",2.041977],["2022-12-15",2.034416],["2022-12-16",2.032417],["2022-12-19",1.999565],["2022-12-20",1.97258],["2022-12-21",1.969256],["2022-12-22",1.963546],["2022-12-23",1.954248],["2022-12-26",1.969899],["2022-12-27",1.997109],["2022-12-28",1.983975],["2022-12-29",1.977974],["2022-12-30",1.986237],["2023-01-03",2.004521],["2023-01-04",2.013667],["2023-01-05",2.031308],["2023-01-06",2.023855],["2023-01-09",2.03227],["2023-01-10",2.035732],["2023-01-11",2.031777],["2023-01-12",2.027436],["2023-01-13",2.042322],["2023-01-16",2.058308],["2023-01-17",2.058687],["2023-01-18",2.060488],["2023-01-19",2.075517],["2023-01-20",2.086832],["2023-01-30",2.088239],["2023-01-31",2.092653],["2023-02-01",2.114949],["2023-02-02",2.115909],["2023-02-03",2.122381],["2023-02-06",2.111045],["2023-02-07",2.120204],["2023-02-08",2.105411],["2023-02-09",2.131465],["2023-02-10",2.120857],["2023-02-13",2.132973],["2023-02-14",2.126006],["2023-02-15",2.128554],["2023-02-16",2.098098],["2023-02-17",2.080866],["2023-02-20",2.109899],["2023-02-21",2.117422],["2023-02-22",2.117423],["2023-02-23",2.115492],["2023-02-24",2.112113],["2023-02-27",2.101067],["2023-02-28",2.113833],["2023-03-01",2.131817],["2023-03-02",2.127543],["2023-03-03",2.129558],["2023-03-06",2.129479],["2023-03-07",2.095313],["2023-03-08",2.100285],["2023-03-09",2.096872],["2023-03-10",2.080642],["2023-03-13",2.103215],["2023-03-14",2.084813],["2023-03-15",2.091123],["2023-03-16",2.06796],["2023-03-17",2.080771],["2023-03-20",2.068317],["2023-03-21",2.090174],["2023-03-22",2.100203],["2023-03-23",2.116782],["2023-03-24",2.112584],["2023-03-27",2.10982],["2023-03-28",2.095309],["2023-03-29",2.091917],["2023-03-30",2.096561],["2023-03-31",2.106719],["2023-04-03",2.128539],["2023-04-04",2.126711],["2023-04-06",2.128528],["2023-04-07",2.150982],["2023-04-10",2.131695],["2023-04-11",2.133951],["2023-04-12",2.144792],["2023-04-13",2.117403],["2023-04-14",2.130719],["2023-04-17",2.145871],["2023-04-18",2.142065],["2023-04-19",2.131129],["2023-04-20",2.142449],["2023-04-21",2.094982],["2023-04-24",2.082347],["2023-04-25",2.075699],["2023-04-26",2.070005],["2023-04-27",2.064214],["2023-04-28",2.084218],["2023-05-04",2.078662],["2023-05-05",2.05596],["2023-05-08",2.06641],["2023-05-09",2.046754],["2023-05-10",2.042696],["2023-05-11",2.03911],["2023-05-12",2.020666],["2023-05-15",2.039483],["2023-05-16",2.027616],["2023-05-17",2.033506],["2023-05-18",2.042564],["2023-05-19",2.046633],["2023-05-22",2.051622],["2023-05-23",2.029681],["2023-05-24",2.017602],["2023-05-25",2.016916],["2023-05-26",2.029314],["2023-05-29",2.028493],["2023-05-30",2.041837],["2023-05-31",2.037511],["2023-06-01",2.03965],["2023-06-02",2.055692],["2023-06-05",2.053375],["2023-06-06",2.019469],["2023-06-07",2.019002],["2023-06-08",2.017055],["2023-06-09",2.033927],["2023-06-12",2.040478],["2023-06-13",2.054199],["2023-06-14",2.06077],["2023-06-15",2.070035],["2023-06-16",2.094874],["2023-06-19",2.10627],["2023-06-20",2.119461],["2023-06-21",2.079352],["2023-06-26",2.041014],["2023-06-27",2.069127],["2023-06-28",2.060967],["2023-06-29",2.067221],["2023-06-30",2.088206],["2023-07-03",2.085982],["2023-07-04",2.089366],["2023-07-05",2.076377],["2023-07-06",2.073225],["2023-07-07",2.061265],["2023-07-10",2.063434],["2023-07-11",2.077499],["2023-07-12",2.057047],["2023-07-13",2.073572],["2023-07-14",2.081504],["2023-07-17",2.073465],["2023-07-18",2.066736],["2023-07-19",2.061551],["2023-07-20",2.035263],["2023-07-21",2.02588],["2023-07-24",2.022616],["2023-07-25",2.055395],["2023-07-26",2.043019],["2023-07-27",2.030203],["2023-07-28",2.047992],["2023-07-31",2.066287],["2023-08-01",2.059379],["2023-08-02",2.053487],["2023-08-03",2.05418],["2023-08-04",2.064164],["2023-08-07",2.057356],["2023-08-08",2.046365],["2023-08-09",2.030961],["2023-08-10",2.034394],["2023-08-11",1.998184],["2023-08-14",2.002196],["2023-08-15",1.98741],["2023-08-16",1.966475],["2023-08-17",1.982679],["2023-08-18",1.956916],["2023-08-21",1.935559],["2023-08-22",1.951202],["2023-08-23",1.915142],["2023-08-24",1.921702],["2023-08-25",1.899107],["2023-08-28",1.909712],["2023-08-29",1.952209],["2023-08-30",1.968407],["2023-08-31",1.960057],["2023-09-01",1.960163],["2023-09-04",1.973384],["2023-09-05",1.959763],["2023-09-06",1.965031],["2023-09-07",1.934514],["2023-09-08",1.935341],["2023-09-11",1.945157],["2023-09-12",1.941787],["2023-09-13",1.921713],["2023-09-14",1.912433],["2023-09-15",1.902738],["2023-09-18",1.903588],["2023-09-19",1.893463],["2023-09-20",1.885696],["2023-09-21",1.873518],["2023-09-22",1.908439],["2023-09-25",1.896142],["2023-09-26",1.896042],["2023-09-27",1.903258],["2023-09-28",1.908464],["2023-10-09",1.90017],["2023-10-10",1.888216],["2023-10-11",1.889853],["2023-10-12",1.893776],["2023-10-13",1.875935],["2023-10-16",1.861293],["2023-10-17",1.86073],["2023-10-18",1.848245],["2023-10-19",1.834953],["2023-10-20",1.813865],["2023-10-23",1.77774],["2023-10-24",1.788397],["2023-10-25",1.800194],["2023-10-26",1.803561],["2023-10-27",1.822812],["2023-10-30",1.844822],["2023-10-31",1.834899],["2023-11-01",1.827206],["2023-11-02",1.813456],["2023-11-03",1.836043],["2023-11-06",1.867149],["2023-11-07",1.872309],["2023-11-08",1.874604],["2023-11-09",1.871345],["2023-11-10",1.866964],["2023-11-13",1.873001],["2023-11-14",1.88176],["2023-11-15",1.886057],["2023-11-16",1.870899],["2023-11-17",1.877808],["2023-11-20",1.890137],["2023-11-21",1.880111],["2023-11-22",1.86095],["2023-11-23",1.871784],["2023-11-24",1.852711],["2023-11-27",1.855637],["2023-11-28",1.862398],["2023-11-29",1.851675],["2023-11-30",1.84845],["2023-12-01",1.853351],["2023-12-04",1.850053],["2023-12-05",1.824278],["2023-12-06",1.834119],["2023-12-07",1.836571],["2023-12-08",1.84711],["2023-12-11",1.863716],["2023-12-12",1.861267],["2023-12-13",1.838884],["2023-12-14",1.833012],["2023-12-15",1.824042],["2023-12-18",1.810878],["2023-12-19",1.811937],["2023-12-20",1.793641],["2023-12-21",1.809506],["2023-12-22",1.797395],["2023-12-25",1.796714],["2023-12-26",1.778578],["2023-12-27",1.788704],["2023-12-28",1.816842],["2023-12-29",1.834997],["2024-01-02",1.821644],["2024-01-03",1.80854],["2024-01-04",1.802174],["2024-01-05",1.782713],["2024-01-08",1.754341],["2024-01-09",1.757821],["2024-01-10",1.751425],["2024-01-11",1.76944],["2024-01-12",1.761457],["2024-01-15",1.762862],["2024-01-16",1.762724],["2024-01-17",1.725565],["2024-01-18",1.741496],["2024-01-19",1.72792],["2024-01-22",1.675647],["2024-01-23",1.690608],["2024-01-24",1.704826],["2024-01-25",1.744867],["2024-01-26",1.725243],["2024-01-29",1.69537],["2024-01-30",1.661586],["2024-01-31",1.626635],["2024-02-01",1.630556],["2024-02-02",1.597677],["2024-02-05",1.566859],["2024-02-06",1.637227],["2024-02-07",1.654972],["2024-02-08",1.702415],["2024-02-19",1.743048],["2024-02-20",1.743872],["2024-02-21",1.748417],["2024-02-22",1.767778],["2024-02-23",1.77729],["2024-02-26",1.784788],["2024-02-27",1.824151],["2024-02-28",1.774477],["2024-02-29",1.823137],["2024-03-01",1.844491],["2024-03-04",1.853004],["2024-03-05",1.84588],["2024-03-06",1.843518],["2024-03-07",1.830324],["2024-03-08",1.850104],["2024-03-11",1.869491],["2024-03-12",1.868635],["2024-03-13",1.863504],["2024-03-14",1.856954],["2024-03-15",1.87524],["2024-03-18",1.899943],["2024-03-19",1.887054],["2024-03-20",1.891119],["2024-03-21",1.887512],["2024-03-22",1.873318],["2024-03-25",1.855101],["2024-03-26",1.852278],["2024-03-27",1.828417],["2024-03-28",1.844639],["2024-03-29",1.867512],["2024-04-01",1.892488],["2024-04-02",1.887199],["2024-04-03",1.8835],["2024-04-08",1.862738],["2024-04-09",1.869074],["2024-04-10",1.855664],["2024-04-11",1.860936],["2024-04-12",1.856444],["2024-04-15",1.858135],["2024-04-16",1.818545],["2024-04-17",1.860395],["2024-04-18",1.864756],["2024-04-19",1.865752],["2024-04-22",1.861029],["2024-04-23",1.851971],["2024-04-24",1.870573],["2024-04-25",1.870757],["2024-04-26",1.889541],["2024-04-29",1.918588],["2024-04-30",1.910432],["2024-05-06",1.940525],["2024-05-07",1.94591],["2024-05-08",1.934186],["2024-05-09",1.959543],["2024-05-10",1.958582],["2024-05-13",1.951583],["2024-05-14",1.950518],["2024-05-15",1.942903],["2024-05-16",1.949778],["2024-05-17",1.967891],["2024-05-20",1.975309],["2024-05-21",1.961401],["2024-05-22",1.962159],["2024-05-23",1.942988],["2024-05-24",1.926576],["2024-05-27",1.942061],["2024-05-28",1.931995],["2024-05-29",1.927376],["2024-05-30",1.925713],["2024-05-31",1.925845],["2024-06-03",1.929622],["2024-06-04",1.936104],["2024-06-05",1.916376],["2024-06-06",1.90528],["2024-06-07",1.901419],["2024-06-11",1.905661],["2024-06-12",1.909794],["2024-06-13",1.915435],["2024-06-14",1.923139],["2024-06-17",1.927099],["2024-06-18",1.937173],["2024-06-19",1.925057],["2024-06-20",1.918571],["2024-06-21",1.917504],["2024-06-24",1.880612],["2024-06-25",1.86627],["2024-06-26",1.886134],["2024-06-27",1.8599],["2024-06-28",1.873393],["2024-07-01",1.882721],["2024-07-02",1.867993],["2024-07-03",1.859384],["2024-07-04",1.846621],["2024-07-05",1.850289],["2024-07-08",1.825528],["2024-07-09",1.848756],["2024-07-10",1.841773],["2024-07-11",1.866252],["2024-07-12",1.862168],["2024-07-15",1.851016],["2024-07-16",1.850303],["2024-07-17",1.831999],["2024-07-18",1.839076],["2024-07-19",1.839977],["2024-07-22",1.839548],["2024-07-23",1.802642],["2024-07-24",1.787501],["2024-07-25",1.776145],["2024-07-26",1.795471],["2024-07-29",1.788516],["2024-07-30",1.782906],["2024-07-31",1.826022],["2024-08-01",1.815616],["2024-08-02",1.78723],["2024-08-05",1.749681],["2024-08-06",1.765743],["2024-08-07",1.773791],["2024-08-08",1.774159],["2024-08-09",1.772173],["2024-08-12",1.766142],["2024-08-13",1.772646],["2024-08-14",1.754169],["2024-08-15",1.759914],["2024-08-16",1.760322],["2024-08-19",1.76377],["2024-08-20",1.743526],["2024-08-21",1.739678],["2024-08-22",1.732518],["2024-08-23",1.731681],["2024-08-26",1.728235],["2024-08-27",1.718376],["2024-08-28",1.718363],["2024-08-29",1.72907],["2024-08-30",1.747853],["2024-09-02",1.71768],["2024-09-03",1.726266],["2024-09-04",1.7151],["2024-09-05",1.71707],["2024-09-06",1.691805],["2024-09-09",1.676456],["2024-09-10",1.682115],["2024-09-11",1.684079],["2024-09-12",1.680787],["2024-09-13",1.673161],["2024-09-18",1.67874],["2024-09-19",1.687078],["2024-09-20",1.680145],["2024-09-23",1.682079],["2024-09-24",1.740403],["2024-09-25",1.749201],["2024-09-26",1.805736],["2024-09-27",1.87024],["2024-09-30",2.011452],["2024-10-08",2.110225],["2024-10-09",1.979386],["2024-10-10",1.995404],["2024-10-11",1.949068],["2024-10-14",1.99412],["2024-10-15",1.954126],["2024-10-16",1.953611],["2024-10-17",1.938368],["2024-10-18",1.993536],["2024-10-21",2.005048],["2024-10-22",2.015171],["2024-10-23",2.019447],["2024-10-24",2.001238],["2024-10-25",2.018961],["2024-10-28",2.025767],["2024-10-29",1.999792],["2024-10-30",1.996959],["2024-10-31",1.99764],["2024-11-01",1.997771],["2024-11-04",2.032648],["2024-11-05",2.066305],["2024-11-06",2.060735],["2024-11-07",2.089207],["2024-11-08",2.085863],["2024-11-11",2.106772],["2024-11-12",2.07724],["2024-11-13",2.084048],["2024-11-14",2.038235],["2024-11-15",2.012328],["2024-11-18",1.995609],["2024-11-19",2.021048],["2024-11-20",2.042703],["2024-11-21",2.038752],["2024-11-22",1.982152],["2024-11-25",1.975277],["2024-11-26",1.966122],["2024-11-27",1.999965],["2024-11-28",1.980433],["2024-11-29",2.010092],["2024-12-02",2.041109],["2024-12-03",2.037174],["2024-12-04",2.028275],["2024-12-05",2.039855],["2024-12-06",2.059818],["2024-12-09",2.058586],["2024-12-10",2.075762],["2024-12-11",2.090235],["2024-12-12",2.103145],["2024-12-13",2.074701],["2024-12-16",2.06058],["2024-12-17",2.036677],["2024-12-18",2.044277],["2024-12-19",2.045317],["2024-12-20",2.054767],["2024-12-23",2.032232],["2024-12-24",2.052595],["2024-12-25",2.042257],["2024-12-26",2.063624],["2024-12-27",2.062953],["2024-12-30",2.054773],["2024-12-31",2.026322],["2025-01-02",1.986993],["2025-01-03",1.952165],["2025-01-06",1.952152],["2025-01-07",1.977901],["2025-01-08",1.980655],["2025-01-09",1.984599],["2025-01-10",1.951719],["2025-01-13",1.949084],["2025-01-14",2.002152],["2025-01-15",1.990038],["2025-01-16",1.993599],["2025-01-17",2.005734],["2025-01-20",2.019524],["2025-01-21",2.031524],["2025-01-22",2.029731],["2025-01-23",2.030827],["2025-01-24",2.043824],["2025-01-27",2.029515],["2025-02-05",2.00644],["2025-02-06",2.032273],["2025-02-07",2.05236],["2025-02-10",2.069323],["2025-02-11",2.067702],["2025-02-12",2.08273],["2025-02-13",2.068729],["2025-02-14",2.078678],["2025-02-17",2.087677],["2025-02-18",2.064776],["2025-02-19",2.07903],["2025-02-20",2.085217],["2025-02-21",2.092925],["2025-02-24",2.093813],["2025-02-25",2.074521],["2025-02-26",2.094774],["2025-02-27",2.090773],["2025-02-28",2.049641],["2025-03-03",2.055214],["2025-03-04",2.066362],["2025-03-05",2.07609],["2025-03-06",2.091756],["2025-03-07",2.090819],["2025-03-10",2.099632],["2025-03-11",2.110785],["2025-03-12",2.107537],["2025-03-13",2.100788],["2025-03-14",2.135054],["2025-03-17",2.14269],["2025-03-18",2.150702],["2025-03-19",2.14266],["2025-03-20",2.126304],["2025-03-21",2.107519],["2025-03-24",2.113975],["2025-03-25",2.113713],["2025-03-26",2.113718],["2025-03-27",2.113842],["2025-03-28",2.09673],["2025-03-31",2.085833],["2025-04-01",2.097854],["2025-04-02",2.109179],["2025-04-03",2.088023],["2025-04-07",1.930395],["2025-04-08",1.970955],["2025-04-09",2.004757],["2025-04-10",2.035026],["2025-04-11",2.038669],["2025-04-14",2.052223],["2025-04-15",2.052404],["2025-04-16",2.045825],["2025-04-17",2.054894],["2025-04-18",2.053067],["2025-04-21",2.077374],["2025-04-22",2.08042],["2025-04-23",2.081192],["2025-04-24",2.078386],["2025-04-25",2.080671],["2025-04-28",2.065779],["2025-04-29",2.065179],["2025-04-30",2.063357],["2025-05-06",2.093963],["2025-05-07",2.106387],["2025-05-08",2.114356],["2025-05-09",2.101853],["2025-05-12",2.125089],["2025-05-13",2.124874],["2025-05-14",2.127743],["2025-05-15",2.108925],["2025-05-16",2.104484],["2025-05-19",2.105209],["2025-05-20",2.118774],["2025-05-21",2.123397],["2025-05-22",2.113167],["2025-05-23",2.103097],["2025-05-26",2.110566],["2025-05-27",2.098923],["2025-05-28",2.104118],["2025-05-29",2.119643],["2025-05-30",2.117853],["2025-06-03",2.12792],["2025-06-04",2.14111],["2025-06-05",2.154753],["2025-06-06",2.159609],["2025-06-09",2.165842],["2025-06-10",2.165141],["2025-06-11",2.179541],["2025-06-12",2.179895],["2025-06-13",2.168024],["2025-06-16",2.173803],["2025-06-17",2.171912],["2025-06-18",2.177744],["2025-06-19",2.160426],["2025-06-20",2.156707],["2025-06-23",2.15664],["2025-06-24",2.177048],["2025-06-25",2.197658],["2025-06-26",2.201868],["2025-06-27",2.215241],["2025-06-30",2.233885],["2025-07-01",2.244449],["2025-07-02",2.242321],["2025-07-03",2.266457],["2025-07-04",2.260447],["2025-07-07",2.259849],["2025-07-08",2.285194],["2025-07-09",2.275222],["2025-07-10",2.282432],["2025-07-11",2.286129],["2025-07-14",2.288431],["2025-07-15",2.307297],["2025-07-16",2.303198],["2025-07-17",2.33205],["2025-07-18",2.337191],["2025-07-21",2.363729],["2025-07-22",2.386684],["2025-07-23",2.381165],["2025-07-24",2.398618],["2025-07-25",2.399561],["2025-07-28",2.414378],["2025-07-29",2.436995],["2025-07-30",2.43202],["2025-07-31",2.404511],["2025-08-01",2.397718],["2025-08-04",2.418481],["2025-08-05",2.43055],["2025-08-06",2.446209],["2025-08-07",2.446493],["2025-08-08",2.443217],["2025-08-11",2.461414],["2025-08-12",2.480113],["2025-08-13",2.518941],["2025-08-14",2.498842],["2025-08-15",2.532682],["2025-08-18",2.558593],["2025-08-19",2.560016],["2025-08-20",2.57288],["2025-08-21",2.565157],["2025-08-22",2.599128],["2025-08-25",2.639908],["2025-08-26",2.639153],["2025-08-27",2.602105],["2025-08-28",2.649636],["2025-08-29",2.664977],["2025-09-01",2.693455],["2025-09-02",2.643389],["2025-09-03",2.631076],["2025-09-04",2.568756],["2025-09-05",2.629666],["2025-09-08",2.637017],["2025-09-09",2.625541],["2025-09-10",2.628092],["2025-09-11",2.676665],["2025-09-12",2.669867],["2025-09-15",2.66565],["2025-09-16",2.668592],["2025-09-17",2.683028],["2025-09-18",2.662285],["2025-09-19",2.673544],["2025-09-22",2.680494],["2025-09-23",2.679482],["2025-09-24",2.707878],["2025-09-25",2.710943],["2025-09-26",2.6876],["2025-09-29",2.710084],["2025-09-30",2.735414],["2025-10-09",2.759824],["2025-10-10",2.730619],["2025-10-13",2.729735],["2025-10-14",2.688212],["2025-10-15",2.730651],["2025-10-16",2.720536],["2025-10-17",2.658514],["2025-10-20",2.672459],["2025-10-21",2.704613],["2025-10-22",2.687942],["2025-10-23",2.688632],["2025-10-24",2.733516],["2025-10-27",2.776492],["2025-10-28",2.763858],["2025-10-29",2.787453],["2025-10-30",2.771255],["2025-10-31",2.743091],["2025-11-03",2.750737],["2025-11-04",2.722633],["2025-11-05",2.731863],["2025-11-06",2.761272],["2025-11-07",2.758159],["2025-11-10",2.772688],["2025-11-11",2.757146],["2025-11-12",2.754645],["2025-11-13",2.771288],["2025-11-14",2.733903],["2025-11-17",2.724768],["2025-11-18",2.701311],["2025-11-19",2.705391],["2025-11-20",2.694837],["2025-11-21",2.634738],["2025-11-24",2.649583],["2025-11-25",2.6708],["2025-11-26",2.678819],["2025-11-27",2.678567],["2025-11-28",2.696018],["2025-12-01",2.712406],["2025-12-02",2.703492],["2025-12-03",2.700443],["2025-12-04",2.707053],["2025-12-05",2.730538],["2025-12-08",2.748279],["2025-12-09",2.732801],["2025-12-10",2.740803],["2025-12-11",2.721331],["2025-12-12",2.746618],["2025-12-15",2.736404],["2025-12-16",2.710569],["2025-12-17",2.749658],["2025-12-18",2.742117],["2025-12-19",2.748766],["2025-12-22",2.770653],["2025-12-23",2.769362],["2025-12-24",2.791038],["2025-12-25",2.803122],["2025-12-26",2.802591],["2025-12-29",2.797765],["2025-12-30",2.801248],["2025-12-31",2.790361],["2026-01-05",2.840472],["2026-01-06",2.880103],["2026-01-07",2.900706],["2026-01-08",2.907191],["2026-01-09",2.931378],["2026-01-12",2.96257],["2026-01-13",2.932652],["2026-01-14",2.950416],["2026-01-15",2.960395],["2026-01-16",2.965032],["2026-01-19",2.975731],["2026-01-20",2.969898],["2026-01-21",2.989286],["2026-01-22",3.002749],["2026-01-23",3.031584],["2026-01-26",3.010405],["2026-01-27",3.048776],["2026-01-28",3.058175],["2026-01-29",3.033088],["2026-01-30",3.030935],["2026-02-02",2.947873],["2026-02-03",3.017576],["2026-02-04",3.027132],["2026-02-05",3.003071],["2026-02-06",2.990314],["2026-02-09",3.047037],["2026-02-10",3.048227],["2026-02-11",3.036302],["2026-02-12",3.045347],["2026-02-13",3.0133],["2026-02-24",3.036795],["2026-02-25",3.06915],["2026-02-26",3.079988],["2026-02-27",3.080125],["2026-03-02",3.070128],["2026-03-03",2.989982],["2026-03-04",2.974426],["2026-03-05",2.983922],["2026-03-06",3.0052],["2026-03-09",2.967836],["2026-03-10",3.022834],["2026-03-11",3.025005],["2026-03-12",3.012698],["2026-03-13",2.993316],["2026-03-16",2.988776],["2026-03-17",2.941794],["2026-03-18",2.965619],["2026-03-19",2.916845],["2026-03-20",2.912773],["2026-03-23",2.818288],["2026-03-24",2.866029],["2026-03-25",2.924168],["2026-03-26",2.884769],["2026-03-27",2.896629],["2026-03-30",2.907418],["2026-03-31",2.862307],["2026-04-01",2.915149],["2026-04-02",2.888027],["2026-04-03",2.884164],["2026-04-07",2.899065],["2026-04-08",2.994146],["2026-04-09",2.993912],["2026-04-10",3.024318],["2026-04-13",3.022168],["2026-04-14",3.045205],["2026-04-15",3.0393],["2026-04-16",3.075908],["2026-04-17",3.096447],["2026-04-20",3.099873],["2026-04-21",3.116765],["2026-04-22",3.153331],["2026-04-23",3.12637],["2026-04-24",3.115717],["2026-04-27",3.134142],["2026-04-28",3.12255],["2026-04-29",3.160988],["2026-04-30",3.17438],["2026-05-06",3.202152],["2026-05-07",3.250143],["2026-05-08",3.236948],["2026-05-11",3.274213],["2026-05-12",3.282848],["2026-05-13",3.304855],["2026-05-14",3.249105],["2026-05-15",3.220338],["2026-05-18",3.219256],["2026-05-19",3.240759],["2026-05-20",3.265602],["2026-05-21",3.180091],["2026-05-22",3.23401],["2026-05-25",3.281478],["2026-05-26",3.27088],["2026-05-27",3.240835],["2026-05-28",3.26697],["2026-05-29",3.235255],["2026-06-01",3.190692],["2026-06-02",3.240533],["2026-06-03",3.278333],["2026-06-04",3.274758],["2026-06-05",3.217555],["2026-06-08",3.157053],["2026-06-09",3.231615],["2026-06-10",3.207705],["2026-06-11",3.210008],["2026-06-12",3.227083],["2026-06-15",3.32303],["2026-06-16",3.353723],["2026-06-17",3.388292],["2026-06-18",3.409819],["2026-06-22",3.446438],["2026-06-23",3.379207],["2026-06-24",3.409961],["2026-06-25",3.446947],["2026-06-26",3.383152],["2026-06-29",3.39048],["2026-06-30",3.435891],["2026-07-01",3.409999],["2026-07-02",3.323747],["2026-07-03",3.349446],["2026-07-06",3.338142],["2026-07-07",3.303416],["2026-07-08",3.291288],["2026-07-09",3.352497],["2026-07-10",3.300467],["2026-07-13",3.228339],["2026-07-14",3.311529],["2026-07-15",3.298628],["2026-07-16",3.257025],["2026-07-17",3.132739],["2026-07-20",3.112265],["2026-07-21",3.211796],["2026-07-22",3.195074],["2026-07-23",3.194584],["2026-07-24",3.145781],["2026-07-27",3.201625],["2026-07-28",3.103061],["2026-07-29",3.121704],["2026-07-30",3.057699],["2026-07-31",3.095967],["2026-08-03",3.06767],["2026-08-04",3.128439],["2026-08-05",3.176333],["2026-08-06",3.197016],["2026-08-07",3.24169],["2026-08-10",3.245256],["2026-08-11",3.225117],["2026-08-12",3.257656],["2026-08-13",3.241583],["2026-08-14",3.252616],["2026-08-17",3.314105],["2026-08-18",3.306762],["2026-08-19",3.204708],["2026-08-20",3.23411],["2026-08-21",3.246778],["2026-08-24",3.199438],["2026-08-25",3.197137],["2026-08-26",3.214668],["2026-08-27",3.254668],["2026-08-28",3.243668],["2026-08-31",3.25956],["2026-09-01",3.232873],["2026-09-02",3.202202],["2026-09-03",3.212161],["2026-09-04",3.194927],["2026-09-07",3.234936],["2026-09-08",3.243235],["2026-09-09",3.262028],["2026-09-10",3.242736],["2026-09-11",3.220621],["2026-09-14",3.215096],["2026-09-15",3.205793],["2026-09-16",3.234859],["2026-09-17",3.231236],["2026-09-18",3.268402],["2026-09-21",3.292404],["2026-09-22",3.273917],["2026-09-23",3.27145],["2026-09-24",3.22143],["2026-09-28",3.145175],["2026-09-29",3.150255],["2026-09-30",3.151288],["2026-10-08",3.116671],["2026-10-09",3.109903],["2026-10-12",3.063433],["2026-10-13",3.073614],["2026-10-14",3.043162],["2026-10-15",2.978432],["2026-10-16",2.985537],["2026-10-19",2.990615],["2026-10-20",2.980896],["2026-10-21",2.974923],["2026-10-22",2.89816],["2026-10-23",2.936863],["2026-10-26",2.907295],["2026-10-27",2.867309],["2026-10-28",2.902544],["2026-10-29",2.853115],["2026-10-30",2.810571],["2026-11-02",2.826887],["2026-11-03",2.789386],["2026-11-04",2.874844],["2026-11-05",2.88489],["2026-11-06",2.842534],["2026-11-09",2.846842],["2026-11-10",2.850703],["2026-11-11",2.878426],["2026-11-12",2.857163],["2026-11-13",2.810881],["2026-11-16",2.767605],["2026-11-17",2.756409],["2026-11-18",2.755013]],"holdings":[{"fund_code":"010994","fund_name":"博时创新经济混合A","after_ratio":15.98},{"fund_code":"014330","fund_name":"国联优势产业混合C","after_ratio":15.5},{"fund_code":"017999","fund_name":"中欧融恒平衡混合C","after_ratio":14.11},{"fund_code":"006567","fund_name":"中泰星元灵活配置混合A","after_ratio":12.58},{"fund_code":"016234","fund_name":"财通景气行业混合C","after_ratio":8.74},{"fund_code":"017936","fund_name":"国泰海通远见价值混合C","after_ratio":8.28},{"fund_code":"024020","fund_name":"华商创新成长灵活配置C","after_ratio":6.49},{"fund_code":"023915","fund_name":"永赢价值发现慧选混合发起A","after_ratio":6.16},{"fund_code":"022368","fund_name":"永赢睿恒混合C","after_ratio":4.96},{"fund_code":"016352","fund_name":"建信高端医疗股票C","after_ratio":4.02},{"fund_code":"007049","fund_name":"平安鑫安混合E","after_ratio":1.72},{"fund_code":"000509","fund_name":"广发钱袋子A","after_ratio":1.46}],"held":["010994","014330","017999","006567","016234","024020","023915","022368","016352","007049","000509"],"asOf":"2026-11-24","strategy":"主动权益基金组合,与优秀基金经理同行。精选不同风格主动权益基金，均衡配置，争取获得长期稳定的超额收益。倾向于低换手，少择时，与优秀基金经理同行，发现投资之美。","adjusts":{"2026-08-12":[{"fund_name":"建信高端医疗股票C","pre_ratio":0.0,"after_ratio":4.0,"op_name":"调入","reason":"市场的结构分化和调整，给市场带来了很大的变化，我们也希望在其中觅得机会。结合近期行情走势，重新考量组合整体配置和投资性价比，做出此次调整：适当增加价值风格持仓，同时继续分散科技成长风格持仓集中度，让组合更加均衡。希望更分散均衡的组合，能够接得住更多更大的困难。","source":"qieman_official"},{"fund_name":"平安鑫安混合E","pre_ratio":0.0,"after_ratio":2.0,"op_name":"调入","reason":"市场的结构分化和调整，给市场带来了很大的变化，我们也希望在其中觅得机会。结合近期行情走势，重新考量组合整体配置和投资性价比，做出此次调整：适当增加价值风格持仓，同时继续分散科技成长风格持仓集中度，让组合更加均衡。希望更分散均衡的组合，能够接得住更多更大的困难。","source":"qieman_official"},{"fund_name":"国泰海通远见价值混合C","pre_ratio":5.65,"after_ratio":6.84,"op_name":"调增","reason":"市场的结构分化和调整，给市场带来了很大的变化，我们也希望在其中觅得机会。结合近期行情走势，重新考量组合整体配置和投资性价比，做出此次调整：适当增加价值风格持仓，同时继续分散科技成长风格持仓集中度，让组合更加均衡。希望更分散均衡的组合，能够接得住更多更大的困难。","source":"qieman_official"},{"fund_name":"永赢睿恒混合C","pre_ratio":8.02,"after_ratio":6.0,"op_name":"调减","reason":"市场的结构分化和调整，给市场带来了很大的变化，我们也希望在其中觅得机会。结合近期行情走势，重新考量组合整体配置和投资性价比，做出此次调整：适当增加价值风格持仓，同时继续分散科技成长风格持仓集中度，让组合更加均衡。希望更分散均衡的组合，能够接得住更多更大的困难。","source":"qieman_official"},{"fund_name":"景顺长城新兴产业混合C","pre_ratio":4.12,"after_ratio":0.0,"op_name":"调出","reason":"市场的结构分化和调整，给市场带来了很大的变化，我们也希望在其中觅得机会。结合近期行情走势，重新考量组合整体配置和投资性价比，做出此次调整：适当增加价值风格持仓，同时继续分散科技成长风格持仓集中度，让组合更加均衡。希望更分散均衡的组合，能够接得住更多更大的困难。","source":"qieman_official"},{"fund_name":"工银优质发展混合C","pre_ratio":1.05,"after_ratio":0.0,"op_name":"调出","reason":"市场的结构分化和调整，给市场带来了很大的变化，我们也希望在其中觅得机会。结合近期行情走势，重新考量组合整体配置和投资性价比，做出此次调整：适当增加价值风格持仓，同时继续分散科技成长风格持仓集中度，让组合更加均衡。希望更分散均衡的组合，能够接得住更多更大的困难。","source":"qieman_official"}],"2026-06-22":[{"fund_name":"永赢价值发现慧选混合发起A","pre_ratio":0.0,"after_ratio":6.0,"op_name":"调入","reason":"组合内个别产品涨幅巨大，导致仓位占比被动提升超过单一产品占比上限，需调整。这种被动调整可以说是“幸福的烦恼”。本次调整，更多从配置和结构角度出发，因为行情的结构分化非常厉害，对于组合的影响也很大，在兼顾平衡性的同时，也需要尊重市场。结合近期行情走势，重新考量组合整体配置和投资性价比，适当增加价值风格持仓，同时分散成长风格持仓的集中度，后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"国泰海通远见价值混合C","pre_ratio":0.0,"after_ratio":5.0,"op_name":"调入","reason":"组合内个别产品涨幅巨大，导致仓位占比被动提升超过单一产品占比上限，需调整。这种被动调整可以说是“幸福的烦恼”。本次调整，更多从配置和结构角度出发，因为行情的结构分化非常厉害，对于组合的影响也很大，在兼顾平衡性的同时，也需要尊重市场。结合近期行情走势，重新考量组合整体配置和投资性价比，适当增加价值风格持仓，同时分散成长风格持仓的集中度，后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"广发钱袋子A","pre_ratio":0.86,"after_ratio":1.13,"op_name":"调增","reason":"组合内个别产品涨幅巨大，导致仓位占比被动提升超过单一产品占比上限，需调整。这种被动调整可以说是“幸福的烦恼”。本次调整，更多从配置和结构角度出发，因为行情的结构分化非常厉害，对于组合的影响也很大，在兼顾平衡性的同时，也需要尊重市场。结合近期行情走势，重新考量组合整体配置和投资性价比，适当增加价值风格持仓，同时分散成长风格持仓的集中度，后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"财通景气行业混合C","pre_ratio":25.18,"after_ratio":18.0,"op_name":"调减","reason":"组合内个别产品涨幅巨大，导致仓位占比被动提升超过单一产品占比上限，需调整。这种被动调整可以说是“幸福的烦恼”。本次调整，更多从配置和结构角度出发，因为行情的结构分化非常厉害，对于组合的影响也很大，在兼顾平衡性的同时，也需要尊重市场。结合近期行情走势，重新考量组合整体配置和投资性价比，适当增加价值风格持仓，同时分散成长风格持仓的集中度，后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"工银优质发展混合C","pre_ratio":5.09,"after_ratio":1.0,"op_name":"调减","reason":"组合内个别产品涨幅巨大，导致仓位占比被动提升超过单一产品占比上限，需调整。这种被动调整可以说是“幸福的烦恼”。本次调整，更多从配置和结构角度出发，因为行情的结构分化非常厉害，对于组合的影响也很大，在兼顾平衡性的同时，也需要尊重市场。结合近期行情走势，重新考量组合整体配置和投资性价比，适当增加价值风格持仓，同时分散成长风格持仓的集中度，后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"}],"2025-09-04":[{"fund_name":"中欧融恒平衡混合C","pre_ratio":13.52,"after_ratio":16.0,"op_name":"调增","reason":"上次调仓调入的产品为组合贡献较多，组合有意选取了操作比较灵活的科技成长基金经理，并且做了一定的分散，各位基金经理都展现出很好的状态。不过随着行情结构化较为突出，组合的平衡性受到持仓基金涨跌差异带来的仓位被动变化影响，整体偏科技成长，本次调整做再平衡。","source":"qieman_official"},{"fund_name":"广发钱袋子A","pre_ratio":0.97,"after_ratio":1.13,"op_name":"调增","reason":"上次调仓调入的产品为组合贡献较多，组合有意选取了操作比较灵活的科技成长基金经理，并且做了一定的分散，各位基金经理都展现出很好的状态。不过随着行情结构化较为突出，组合的平衡性受到持仓基金涨跌差异带来的仓位被动变化影响，整体偏科技成长，本次调整做再平衡。","source":"qieman_official"},{"fund_name":"永赢睿恒混合C","pre_ratio":8.64,"after_ratio":6.0,"op_name":"调减","reason":"上次调仓调入的产品为组合贡献较多，组合有意选取了操作比较灵活的科技成长基金经理，并且做了一定的分散，各位基金经理都展现出很好的状态。不过随着行情结构化较为突出，组合的平衡性受到持仓基金涨跌差异带来的仓位被动变化影响，整体偏科技成长，本次调整做再平衡。","source":"qieman_official"}],"2025-06-23":[{"fund_name":"华商创新成长灵活配置C","pre_ratio":0.0,"after_ratio":6.0,"op_name":"调入","reason":"组合内持仓产品变更基金经理，故调仓。基金经理变更时点和时点下行情走势并不在预期之内，所以在选择替代产品时，结合近期行情走势，重新考量组合整体配置和投资性价比，在保持关注的基金经理在管产品中筛选更适合组合的产品，并结合相关产品的情况，适当调整组合原有持仓基金的仓位。后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"永赢睿恒混合C","pre_ratio":0.0,"after_ratio":6.0,"op_name":"调入","reason":"组合内持仓产品变更基金经理，故调仓。基金经理变更时点和时点下行情走势并不在预期之内，所以在选择替代产品时，结合近期行情走势，重新考量组合整体配置和投资性价比，在保持关注的基金经理在管产品中筛选更适合组合的产品，并结合相关产品的情况，适当调整组合原有持仓基金的仓位。后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"景顺长城新兴产业混合C","pre_ratio":0.0,"after_ratio":3.0,"op_name":"调入","reason":"组合内持仓产品变更基金经理，故调仓。基金经理变更时点和时点下行情走势并不在预期之内，所以在选择替代产品时，结合近期行情走势，重新考量组合整体配置和投资性价比，在保持关注的基金经理在管产品中筛选更适合组合的产品，并结合相关产品的情况，适当调整组合原有持仓基金的仓位。后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"财通景气行业混合C","pre_ratio":16.27,"after_ratio":13.61,"op_name":"调减","reason":"组合内持仓产品变更基金经理，故调仓。基金经理变更时点和时点下行情走势并不在预期之内，所以在选择替代产品时，结合近期行情走势，重新考量组合整体配置和投资性价比，在保持关注的基金经理在管产品中筛选更适合组合的产品，并结合相关产品的情况，适当调整组合原有持仓基金的仓位。后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"},{"fund_name":"中金新锐股票C","pre_ratio":12.34,"after_ratio":0.0,"op_name":"调出","reason":"组合内持仓产品变更基金经理，故调仓。基金经理变更时点和时点下行情走势并不在预期之内，所以在选择替代产品时，结合近期行情走势，重新考量组合整体配置和投资性价比，在保持关注的基金经理在管产品中筛选更适合组合的产品，并结合相关产品的情况，适当调整组合原有持仓基金的仓位。后续会结合二季报数据等信息继续考量组合。","source":"qieman_official"}],"2025-02-07":[{"fund_name":"工银优质发展混合C","pre_ratio":0.0,"after_ratio":7.0,"op_name":"调入","reason":"考虑到市场环境出现较大变化，本组合不再坚持定期调仓，转变为不定期调仓。本次调整，主要是基于投资性价比，优化现有的投资组合。调出的基金，一是表现低于预期的产品，二是出于再平衡和统筹调入及加仓基金持仓和投向的考量。调入及加仓基金的选择，主要是延续原投资方向，选择状态更稳定的基金经理。考虑到今年市场波动或许较大，今年调仓可能会更加积极主动。","source":"qieman_official"},{"fund_name":"中欧融恒平衡混合C","pre_ratio":9.35,"after_ratio":14.0,"op_name":"调增","reason":"考虑到市场环境出现较大变化，本组合不再坚持定期调仓，转变为不定期调仓。本次调整，主要是基于投资性价比，优化现有的投资组合。调出的基金，一是表现低于预期的产品，二是出于再平衡和统筹调入及加仓基金持仓和投向的考量。调入及加仓基金的选择，主要是延续原投资方向，选择状态更稳定的基金经理。考虑到今年市场波动或许较大，今年调仓可能会更加积极主动。","source":"qieman_official"},{"fund_name":"广发钱袋子A","pre_ratio":0.94,"after_ratio":1.23,"op_name":"调增","reason":"考虑到市场环境出现较大变化，本组合不再坚持定期调仓，转变为不定期调仓。本次调整，主要是基于投资性价比，优化现有的投资组合。调出的基金，一是表现低于预期的产品，二是出于再平衡和统筹调入及加仓基金持仓和投向的考量。调入及加仓基金的选择，主要是延续原投资方向，选择状态更稳定的基金经理。考虑到今年市场波动或许较大，今年调仓可能会更加积极主动。","source":"qieman_official"},{"fund_name":"博时战略新材料主题混合C","pre_ratio":8.26,"after_ratio":0.0,"op_name":"调出","reason":"考虑到市场环境出现较大变化，本组合不再坚持定期调仓，转变为不定期调仓。本次调整，主要是基于投资性价比，优化现有的投资组合。调出的基金，一是表现低于预期的产品，二是出于再平衡和统筹调入及加仓基金持仓和投向的考量。调入及加仓基金的选择，主要是延续原投资方向，选择状态更稳定的基金经理。考虑到今年市场波动或许较大，今年调仓可能会更加积极主动。","source":"qieman_official"},{"fund_name":"中泰玉衡价值优选混合A","pre_ratio":3.68,"after_ratio":0.0,"op_name":"调出","reason":"考虑到市场环境出现较大变化，本组合不再坚持定期调仓，转变为不定期调仓。本次调整，主要是基于投资性价比，优化现有的投资组合。调出的基金，一是表现低于预期的产品，二是出于再平衡和统筹调入及加仓基金持仓和投向的考量。调入及加仓基金的选择，主要是延续原投资方向，选择状态更稳定的基金经理。考虑到今年市场波动或许较大，今年调仓可能会更加积极主动。","source":"qieman_official"}],"2024-03-20":[{"fund_name":"财通景气行业混合C","pre_ratio":0.0,"after_ratio":15.0,"op_name":"调入","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"},{"fund_name":"中欧融恒平衡混合C","pre_ratio":0.0,"after_ratio":9.0,"op_name":"调入","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"},{"fund_name":"博时战略新材料主题混合C","pre_ratio":0.0,"after_ratio":9.0,"op_name":"调入","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"},{"fund_name":"博时创新经济混合A","pre_ratio":15.17,"after_ratio":16.5,"op_name":"调增","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"},{"fund_name":"广发钱袋子A","pre_ratio":1.13,"after_ratio":1.0,"op_name":"调减","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"},{"fund_name":"万家新兴蓝筹灵活配置混合A","pre_ratio":5.65,"after_ratio":0.0,"op_name":"调出","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"},{"fund_name":"宏利精选混合C","pre_ratio":15.44,"after_ratio":0.0,"op_name":"调出","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"},{"fund_name":"万家臻选混合A","pre_ratio":13.11,"after_ratio":0.0,"op_name":"调出","reason":"上次调仓经综合考量后选择0调仓，本次定期调仓因市场波动又延迟近2个月，不过此期间原配置为组合创下较好收益，为全年开好头，同时给组合留下更多调整空间，当下我们拥有先手优势。市场逐渐平稳，结构和格局愈发明晰。调整基于投资性价比。调出基金是前期涨幅较大和表现钝化的产品，调入基金的选择同时兼顾均衡，“2+1”的组合，在保持较高集中度的同时避免持仓超限，出于调整有延迟的考虑均选择C类。同时在细微处做再平衡。","source":"qieman_official"}],"2023-01-30":[{"fund_name":"中金新锐股票C","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"国联优势产业混合C","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"博时创新经济混合A","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"宏利精选混合C","pre_ratio":15.69,"after_ratio":16.5,"op_name":"调增","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"中泰星元灵活配置混合A","pre_ratio":16.74,"after_ratio":13.94,"op_name":"调减","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"中银主题策略混合C","pre_ratio":14.56,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"财通资管价值发现混合A","pre_ratio":15.74,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"博时新收益C","pre_ratio":15.71,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，经历了调整幅度较大的一年，当下这个时点至少不宜很悲观，不妨积极一些，打点提前量，可能会因此增加波动，但是这样的波动是完全可以接受的，过往积累的好业绩是当下积极的重要底气。与以往大多数的调仓不同，本次调仓的出发点不是调出某些基金，而且调入某些基金，这是与转向积极相匹配的操作。本次调入3只或有较大潜力的基金，并由此出发，继续保持组合的均衡配置。在细微处做再平衡，尽量减少调仓交易的摩擦成本。","source":"qieman_official"}],"2022-08-01":[{"fund_name":"宏利精选混合C","pre_ratio":0.0,"after_ratio":15.89,"op_name":"调入","reason":"定期调仓，调出表现偏离预期的成分基金，调入基金优化组合的结构，继续保持组合的均衡配置。在细微处做再平衡，并且保留微量的货币基金，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"中银主题策略混合C","pre_ratio":0.0,"after_ratio":15.89,"op_name":"调入","reason":"定期调仓，调出表现偏离预期的成分基金，调入基金优化组合的结构，继续保持组合的均衡配置。在细微处做再平衡，并且保留微量的货币基金，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"广发钱袋子A","pre_ratio":0.0,"after_ratio":1.0,"op_name":"调入","reason":"定期调仓，调出表现偏离预期的成分基金，调入基金优化组合的结构，继续保持组合的均衡配置。在细微处做再平衡，并且保留微量的货币基金，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"博时新收益C","pre_ratio":16.59,"after_ratio":16.0,"op_name":"调减","reason":"定期调仓，调出表现偏离预期的成分基金，调入基金优化组合的结构，继续保持组合的均衡配置。在细微处做再平衡，并且保留微量的货币基金，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"万家新兴蓝筹灵活配置混合A","pre_ratio":6.12,"after_ratio":5.0,"op_name":"调减","reason":"定期调仓，调出表现偏离预期的成分基金，调入基金优化组合的结构，继续保持组合的均衡配置。在细微处做再平衡，并且保留微量的货币基金，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"兴全多维价值混合A","pre_ratio":16.78,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，调出表现偏离预期的成分基金，调入基金优化组合的结构，继续保持组合的均衡配置。在细微处做再平衡，并且保留微量的货币基金，尽量减少调仓交易的摩擦成本。","source":"qieman_official"},{"fund_name":"国富估值优势混合A","pre_ratio":14.29,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，调出表现偏离预期的成分基金，调入基金优化组合的结构，继续保持组合的均衡配置。在细微处做再平衡，并且保留微量的货币基金，尽量减少调仓交易的摩擦成本。","source":"qieman_official"}],"2022-02-07":[{"fund_name":"兴全多维价值混合A","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"万家臻选混合A","pre_ratio":0.0,"after_ratio":12.0,"op_name":"调入","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"万家新兴蓝筹灵活配置混合A","pre_ratio":0.0,"after_ratio":6.0,"op_name":"调入","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"中泰玉衡价值优选混合A","pre_ratio":0.0,"after_ratio":3.0,"op_name":"调入","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"财通资管价值发现混合A","pre_ratio":14.12,"after_ratio":16.0,"op_name":"调增","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"国富估值优势混合A","pre_ratio":14.29,"after_ratio":16.0,"op_name":"调增","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"博时新收益C","pre_ratio":17.4,"after_ratio":16.0,"op_name":"调减","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"中泰星元灵活配置混合A","pre_ratio":18.36,"after_ratio":15.0,"op_name":"调减","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"交银趋势混合A","pre_ratio":17.18,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"交银趋势混合C","pre_ratio":5.77,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"},{"fund_name":"华安研究精选混合A","pre_ratio":12.88,"after_ratio":0.0,"op_name":"调出","reason":"定期调仓，继续保持均衡配置并做再平衡。同时根据新规要求，适度降低单只基金占比，避免超限。","source":"qieman_official"}],"2021-12-22":[{"fund_name":"交银趋势混合C","pre_ratio":0.0,"after_ratio":5.72,"op_name":"调入","reason":"本次组合临时调仓是为了适应新规要求，便利组合升级为投顾。为了避免原跟投者浪费手续费，建议不要跟调。详情可参见12月21日推送文章。","source":"qieman_official"},{"fund_name":"交银趋势混合A","pre_ratio":22.72,"after_ratio":17.0,"op_name":"调减","reason":"本次组合临时调仓是为了适应新规要求，便利组合升级为投顾。为了避免原跟投者浪费手续费，建议不要跟调。详情可参见12月21日推送文章。","source":"qieman_official"}],"2021-07-26":[{"fund_name":"博时新收益C","pre_ratio":0.0,"after_ratio":18.0,"op_name":"调入","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"国富估值优势混合A","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"财通资管价值发现混合A","pre_ratio":0.0,"after_ratio":15.0,"op_name":"调入","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"华安研究精选混合A","pre_ratio":0.0,"after_ratio":15.0,"op_name":"调入","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"中泰星元灵活配置混合A","pre_ratio":15.19,"after_ratio":16.0,"op_name":"调增","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"交银趋势混合A","pre_ratio":21.0,"after_ratio":20.0,"op_name":"调减","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"交银新成长混合","pre_ratio":16.23,"after_ratio":0.0,"op_name":"调出","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"富国沪港深业绩驱动混合A","pre_ratio":13.76,"after_ratio":0.0,"op_name":"调出","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"易方达供给改革混合","pre_ratio":17.54,"after_ratio":0.0,"op_name":"调出","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"},{"fund_name":"国富沪港深成长精选股票A","pre_ratio":16.28,"after_ratio":0.0,"op_name":"调出","reason":"更换新一季的基金，并且在比例方面进行再平衡，避免失去平衡","source":"qieman_official"}],"2021-02-24":[{"fund_name":"中泰星元灵活配置混合A","pre_ratio":0.0,"after_ratio":15.56,"op_name":"调入","reason":"由于安信盈利增长基金经理有变动，基金投向有较大漂移，故在上次调仓满30日后更换相近价值风格的基金作为替代","source":"qieman_official"},{"fund_name":"安信盈利驱动股票C","pre_ratio":15.56,"after_ratio":0.0,"op_name":"调出","reason":"由于安信盈利增长基金经理有变动，基金投向有较大漂移，故在上次调仓满30日后更换相近价值风格的基金作为替代","source":"qieman_official"}],"2021-01-25":[{"fund_name":"安信盈利驱动股票C","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"富国沪港深业绩驱动混合A","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"易方达供给改革混合","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"交银趋势混合A","pre_ratio":14.0,"after_ratio":16.0,"op_name":"调增","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"交银新成长混合","pre_ratio":18.52,"after_ratio":18.0,"op_name":"调减","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"国富沪港深成长精选股票A","pre_ratio":19.59,"after_ratio":18.0,"op_name":"调减","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"博时新兴消费主题混合A","pre_ratio":15.7,"after_ratio":0.0,"op_name":"调出","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"中欧潜力价值灵活配置混合A","pre_ratio":13.24,"after_ratio":0.0,"op_name":"调出","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"},{"fund_name":"平安智慧中国混合","pre_ratio":18.95,"after_ratio":0.0,"op_name":"调出","reason":"定期调整，并且做价值成长的再平衡","source":"qieman_official"}],"2020-07-27":[{"fund_name":"交银趋势混合A","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"定期调整！并且做一定的成长价值再平衡","source":"qieman_official"},{"fund_name":"中欧潜力价值灵活配置混合A","pre_ratio":13.25,"after_ratio":15.5,"op_name":"调增","reason":"定期调整！并且做一定的成长价值再平衡","source":"qieman_official"},{"fund_name":"交银新成长混合","pre_ratio":18.64,"after_ratio":17.5,"op_name":"调减","reason":"定期调整！并且做一定的成长价值再平衡","source":"qieman_official"},{"fund_name":"中欧时代智慧混合A","pre_ratio":17.11,"after_ratio":0.0,"op_name":"调出","reason":"定期调整！并且做一定的成长价值再平衡","source":"qieman_official"}],"2020-02-03":[{"fund_name":"博时新兴消费主题混合A","pre_ratio":0.0,"after_ratio":16.83,"op_name":"调入","reason":"定期调整，详细介绍可以参见我的公众号文章。中欧明睿新常态限额过低，为保证跟投交易，由中欧时代智慧替代，原持有投资者可以不调整。平安智慧中国申购起点较高，导致跟投起点较高，正在沟通调整，受疫情影响，需要时间解决。","source":"qieman_official"},{"fund_name":"中欧时代智慧混合A","pre_ratio":0.0,"after_ratio":16.5,"op_name":"调入","reason":"定期调整，详细介绍可以参见我的公众号文章。中欧明睿新常态限额过低，为保证跟投交易，由中欧时代智慧替代，原持有投资者可以不调整。平安智慧中国申购起点较高，导致跟投起点较高，正在沟通调整，受疫情影响，需要时间解决。","source":"qieman_official"},{"fund_name":"平安智慧中国混合","pre_ratio":0.0,"after_ratio":16.5,"op_name":"调入","reason":"定期调整，详细介绍可以参见我的公众号文章。中欧明睿新常态限额过低，为保证跟投交易，由中欧时代智慧替代，原持有投资者可以不调整。平安智慧中国申购起点较高，导致跟投起点较高，正在沟通调整，受疫情影响，需要时间解决。","source":"qieman_official"},{"fund_name":"国富沪港深成长精选股票A","pre_ratio":15.74,"after_ratio":17.0,"op_name":"调增","reason":"定期调整，详细介绍可以参见我的公众号文章。中欧明睿新常态限额过低，为保证跟投交易，由中欧时代智慧替代，原持有投资者可以不调整。平安智慧中国申购起点较高，导致跟投起点较高，正在沟通调整，受疫情影响，需要时间解决。","source":"qieman_official"},{"fund_name":"广发优企精选混合A","pre_ratio":16.58,"after_ratio":0.0,"op_name":"调出","reason":"定期调整，详细介绍可以参见我的公众号文章。中欧明睿新常态限额过低，为保证跟投交易，由中欧时代智慧替代，原持有投资者可以不调整。平安智慧中国申购起点较高，导致跟投起点较高，正在沟通调整，受疫情影响，需要时间解决。","source":"qieman_official"},{"fund_name":"中欧明睿新常态混合A","pre_ratio":20.26,"after_ratio":0.0,"op_name":"调出","reason":"定期调整，详细介绍可以参见我的公众号文章。中欧明睿新常态限额过低，为保证跟投交易，由中欧时代智慧替代，原持有投资者可以不调整。平安智慧中国申购起点较高，导致跟投起点较高，正在沟通调整，受疫情影响，需要时间解决。","source":"qieman_official"},{"fund_name":"大成高鑫股票A","pre_ratio":14.25,"after_ratio":0.0,"op_name":"调出","reason":"定期调整，详细介绍可以参见我的公众号文章。中欧明睿新常态限额过低，为保证跟投交易，由中欧时代智慧替代，原持有投资者可以不调整。平安智慧中国申购起点较高，导致跟投起点较高，正在沟通调整，受疫情影响，需要时间解决。","source":"qieman_official"}],"2019-07-22":[{"fund_name":"国富沪港深成长精选股票A","pre_ratio":0.0,"after_ratio":15.59,"op_name":"调入","reason":"定期调整 补充进新的产品","source":"qieman_official"},{"fund_name":"大成高鑫股票A","pre_ratio":0.0,"after_ratio":15.5,"op_name":"调入","reason":"定期调整 补充进新的产品","source":"qieman_official"},{"fund_name":"中欧明睿新常态混合A","pre_ratio":18.5,"after_ratio":18.0,"op_name":"调减","reason":"定期调整 补充进新的产品","source":"qieman_official"},{"fund_name":"创金合信中证500指数增强C","pre_ratio":15.08,"after_ratio":0.0,"op_name":"调出","reason":"定期调整 补充进新的产品","source":"qieman_official"},{"fund_name":"华夏经济转型股票","pre_ratio":15.51,"after_ratio":0.0,"op_name":"调出","reason":"定期调整 补充进新的产品","source":"qieman_official"}],"2019-01-28":[{"fund_name":"华夏经济转型股票","pre_ratio":0.0,"after_ratio":16.24,"op_name":"调入","reason":"新一季推荐更新","source":"qieman_official"},{"fund_name":"华宝标普香港上市中国中小盘指数(LOF)A","pre_ratio":16.24,"after_ratio":0.0,"op_name":"调出","reason":"新一季推荐更新","source":"qieman_official"}],"2018-07-23":[{"fund_name":"华宝标普香港上市中国中小盘指数(LOF)A","pre_ratio":0.0,"after_ratio":16.65,"op_name":"调入","reason":"新一季推荐更新！","source":"qieman_official"},{"fund_name":"广发优企精选混合A","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"新一季推荐更新！","source":"qieman_official"},{"fund_name":"创金合信中证500指数增强C","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"新一季推荐更新！","source":"qieman_official"},{"fund_name":"华宝标普中国A股红利机会ETF联接(LOF)A","pre_ratio":14.83,"after_ratio":0.0,"op_name":"调出","reason":"新一季推荐更新！","source":"qieman_official"},{"fund_name":"大成竞争优势混合A","pre_ratio":15.59,"after_ratio":0.0,"op_name":"调出","reason":"新一季推荐更新！","source":"qieman_official"},{"fund_name":"华安中证细分医药ETF联接C","pre_ratio":18.23,"after_ratio":0.0,"op_name":"调出","reason":"新一季推荐更新！","source":"qieman_official"}],"2018-01-22":[{"fund_name":"交银新成长混合","pre_ratio":0.0,"after_ratio":16.6,"op_name":"调入","reason":"新一季推荐出炉，调整随之而来","source":"qieman_official"},{"fund_name":"大成竞争优势混合A","pre_ratio":0.0,"after_ratio":16.6,"op_name":"调入","reason":"新一季推荐出炉，调整随之而来","source":"qieman_official"},{"fund_name":"华安中证细分医药ETF联接C","pre_ratio":0.0,"after_ratio":16.5,"op_name":"调入","reason":"新一季推荐出炉，调整随之而来","source":"qieman_official"},{"fund_name":"华宝标普香港上市中国中小盘指数(LOF)A","pre_ratio":18.12,"after_ratio":0.0,"op_name":"调出","reason":"新一季推荐出炉，调整随之而来","source":"qieman_official"},{"fund_name":"景顺长城量化精选股票A","pre_ratio":15.52,"after_ratio":0.0,"op_name":"调出","reason":"新一季推荐出炉，调整随之而来","source":"qieman_official"},{"fund_name":"华泰柏瑞量化优选混合","pre_ratio":16.06,"after_ratio":0.0,"op_name":"调出","reason":"新一季推荐出炉，调整随之而来","source":"qieman_official"}],"2017-07-24":[{"fund_name":"华宝标普中国A股红利机会ETF联接(LOF)A","pre_ratio":0.0,"after_ratio":17.0,"op_name":"调入","reason":"平均分配","source":"qieman_official"},{"fund_name":"华宝标普香港上市中国中小盘指数(LOF)A","pre_ratio":0.0,"after_ratio":17.0,"op_name":"调入","reason":"平均分配","source":"qieman_official"},{"fund_name":"中欧明睿新常态混合A","pre_ratio":0.0,"after_ratio":17.0,"op_name":"调入","reason":"平均分配","source":"qieman_official"},{"fund_name":"中欧潜力价值灵活配置混合A","pre_ratio":0.0,"after_ratio":17.0,"op_name":"调入","reason":"平均分配","source":"qieman_official"},{"fund_name":"景顺长城量化精选股票A","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"平均分配","source":"qieman_official"},{"fund_name":"华泰柏瑞量化优选混合","pre_ratio":0.0,"after_ratio":16.0,"op_name":"调入","reason":"平均分配","source":"qieman_official"}]},"overlap":11,"overlapList":[["010994","博时创新经济混合A",15.98],["014330","国联优势产业混合C",15.5],["017999","中欧融恒平衡混合C",14.11],["006567","中泰星元灵活配置混合A",12.58],["016234","财通景气行业混合C",8.74],["024020","华商创新成长灵活配置C",6.49],["023915","永赢价值发现慧选混合发起A",6.16],["022368","永赢睿恒混合C",4.96],["016352","建信高端医疗股票C",4.02],["007049","平安鑫安混合E",1.72],["000509","广发钱袋子A",1.46]],"onlyTheirs":1,"onlyTheirsList":[["017936","国泰海通远见价值混合C",8.28]],"dir":[{"k":"大盘","adv":18.5,"mine":18.4},{"k":"中盘","adv":34.0,"mine":16.8},{"k":"小盘","adv":31.4,"mine":27.9},{"k":"港股","adv":7.2,"mine":4.5},{"k":"固收","adv":8.8,"mine":32.3}],"outsideShare":99.8,"outsideCount":109,"outsideTop":[["023887","永赢北证50成份指数发起C",11.1],["026029","银河水星现金添利货币市场基金",8.1],["160222","国泰国证食品饮料行业指数证券投资基金A类",7.9],["012414","招商中证白酒C",7.2],["011452","华泰柏瑞质量成长C",4.5]],"outsideAll":[["023887","永赢北证50成份指数发起C",11.1],["026029","银河水星现金添利货币市场基金",8.1],["160222","国泰国证食品饮料行业指数证券投资基金A类",7.9],["012414","招商中证白酒C",7.2],["011452","华泰柏瑞质量成长C",4.5],["002340","富国价值优势混合A",4.3],["004011","华泰柏瑞鼎利C",3.6],["018737","景顺长城景颐裕利债券型证券投资基金C",3.5],["006650","招商安庆债券A",3.4],["008928","宏利中证主要消费红利指数型证券投资基金A",3.4],["021180","易方达产业机遇混合C",3.2],["008924","建信医疗健康行业股票C",3.1],["010710","安信医药健康主题股票C",3.1],["022365","永赢科技智选混合C",3.0],["012708","东方红中证东方红红利低波动指数A",2.8],["005827","易方达蓝筹精选混合型证券投资基金",2.4],["001414","国联鑫起点混合C",2.3],["018550","金鹰研究驱动混合C",2.1],["519771","交银优择回报灵活配置混合C",2.0],["010658","海富通欣睿混合C",1.8],["014901","兴全兴裕混合C",1.8],["025152","华富安康三个月持有期债券型证券投资基金A",1.8],["009637","招商信用添利债券C",1.7],["008847","大成民稳增长混合C",1.7],["014847","博时恒乐债券型证券投资基金",1.7],["020219","万家锦利债券发起式C",1.7],["003625","创金合信资源主题精选股票C",1.4],["016780","国投瑞银锐意改革混合C",1.0],["020106","兴业成长动力灵活配置混合C",0.8],["025162","国泰大宗商品配置基金D类",0.6],["014340","长江智能制造混合型发起式C",0.4],["006242","宝盈盈润纯债债券A",0.4],["003806","华安新恒利混合C",0.4],["018596","华商利欣回报债券型证券投资基金C",0.3],["019053","华商元亨灵活配置混合型证券投资基金C",0.3],["002863","金信深圳成长灵活配置混合型发起式证券投资基金",0.1],["019243","汇丰晋信大盘股票型证券投资基金C类",0.1],["017772","大成景阳领先混合型证券投资基金C",0.1],["002096","博时新收益灵活配置混合型证券投资基金",0.1],["012153","博时研究慧选混合型证券投资基金",0.0],["016600","万家品质生活混合C",0.0],["022714","万家新兴蓝筹灵活配置混合型证券投资基金C类",0.0],["024414","中欧核心价值混合型发起式证券投资基金C",0.0],["025476","银华瑞和混合C",0.0],["013430","交银施罗德趋势优先混合型证券投资基金",0.0],["001982","富国收益宝交易型货币B",0.0],["020124","银华沪深股通精选混合C",0.0],["003956","南方产业智选股票A",0.0],["001010","易方达增金宝货币市场基金A类",0.0],["018963","国泰海通量化选股混合发起D",0.0],["002036","安信优势增长混合C",0.0],["015309","国投瑞银境煊混合E",0.0],["040003","华安现金富利货币A",0.0],["001167","金鹰科技创新股票A",0.0],["014046","交银施罗德医药创新股票型证券投资基金",0.0],["019894","天弘通利混合C",0.0],["008481","永赢股息优选C",0.0],["005763","中欧电子信息产业沪港深股票型证券投资基金C",0.0],["014842","东方阿尔法医疗健康混合发起C",0.0],["017750","国投瑞银景气驱动混合C",0.0],["007751","景顺长城中证沪港深红利成长低波动指数型证券投资基金A",0.0],["014061","浦银安盛战略新兴产业混合型证券投资基金C类",0.0],["020594","华夏软件龙头混合型发起式证券投资基金",0.0],["017518","招商北证50成份指数发起式C",0.0],["018104","易方达中证港股通消费主题ETF发起式联接基金C类",0.0],["017787","万家宏观择时多策略灵活配置混合型证券投资基金C类",0.0],["090013","大成竞争优势混合A",0.0],["018409","中欧价值回报混合型证券投资基金A",0.0],["673110","西部利得新润混合A",0.0],["007343","嘉实科技创新混合",0.0],["012349","天弘恒生科技ETF联接C",0.0],["008318","博道久航混合A",0.0],["015053","东方红医疗升级股票发起C",0.0],["016840","博道惠泰优选混合A",0.0],["003535","浦银安盛日日丰货币B",0.0],["000850","汇丰晋信双核策略混合型证券投资基金C类",0.0],["377240","摩根新兴动力A",0.0],["011690","招商品质发现混合A",0.0],["004369","前海开源聚财宝B",0.0],["022165","西部利得央企优选C",0.0],["025962","永赢优选增强债券A",0.0],["000891","博时现金宝货币B",0.0],["013566","华夏军工安全灵活配置混合型证券投资基金",0.0],["161115","易方达岁丰添利债券型证券投资基金A类基金份额",0.0],["019983","泓德智选启元混合C",0.0],["017513","广发北证50成份指数C",0.0],["003003","华夏现金增利证券投资基金",0.0],["002963","易方达黄金交易型开放式证券投资基金联接基金C类",0.0],["018868","兴全品质甄选混合A",0.0],["008920","永赢科技驱动C",0.0],["014667","工银优质发展混合C",0.0],["121011","国投瑞银货币A",0.0],["006527","富国优质发展混合A",0.0],["023633","景顺长城新兴产业混合型证券投资基金C",0.0],["005562","创金合信中证红利低波动指数C",0.0],["015916","永赢医药创新智选混合C",0.0],["009052","易方达中证红利交易型开放式指数证券投资基金发起式联接基金C类",0.0],["007866","创金合信货币C",0.0],["002165","汇添富达欣混合C",0.0],["000379","平安日增利货币市场基金A",0.0],["001937","兴银现金增利",0.0],["003834","华夏能源革新股票型证券投资基金",0.0],["011103","天弘中证光伏C",0.0],["161725","招商中证白酒指数证券投资基金A",0.0],["001821","兴全天添益B级",0.0],["000602","富国安益货币A",0.0],["004253","国泰黄金ETF联接C",0.0],["000620","易方达现金增利货币市场基金A类",0.0],["001101","银华惠添益货币A",0.0]],"overlapMv":0.2,"asOfStyle":"2026-10-30"};
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  var D = DATA;
+  var nav = D.nav;                 // [[date, nav], ...]
+  var last = nav[nav.length - 1];
+  var first = nav[0];
+
+  /* ---------- 工具 ---------- */
+  function pct(v) {
+    if (v == null || !isFinite(v)) return "—";
+    return (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+  }
+  function cls(v) {
+    if (v == null || v === 0 || !isFinite(v)) return "flat";
+    return v > 0 ? "up" : "down";
+  }
+  function arrow(v) {
+    if (v == null || v === 0 || !isFinite(v)) return "";
+    return v > 0 ? "↑" : "↓";
+  }
+  function fmtNav(v) { return v.toFixed(4); }
+  function dayDiff(a, b) {
+    return Math.round((new Date(b) - new Date(a)) / 86400000);
+  }
+  function shiftDate(iso, days) {
+    var d = new Date(iso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - days);
+    return d.toISOString().slice(0, 10);
+  }
+  /** 取 <= 指定日期的最后一个净值 */
+  function navAt(iso) {
+    var lo = 0, hi = nav.length - 1, ans = nav[0][1];
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (nav[mid][0] <= iso) { ans = nav[mid][1]; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    return ans;
+  }
+  function slice(days) {
+    var start = shiftDate(last[0], days);
+    var out = nav.filter(function (p) { return p[0] >= start; });
+    if (!out.length) out = nav.slice(-2);
+    return out;
+  }
+  function rangeStat(points) {
+    var a = points[0][1], b = points[points.length - 1][1];
+    var peak = -Infinity, mdd = 0;
+    for (var i = 0; i < points.length; i++) {
+      peak = Math.max(peak, points[i][1]);
+      mdd = Math.min(mdd, points[i][1] / peak - 1);
+    }
+    var hi = Math.max.apply(null, points.map(function (p) { return p[1]; }));
+    return {
+      change: (b / a - 1) * 100,
+      mdd: mdd * 100,
+      fromPeak: (b / hi - 1) * 100,
+      a: a, b: b,
+      startDate: points[0][0], endDate: points[points.length - 1][0]
+    };
+  }
+
+  /* ---------- 首屏 ---------- */
+  var d1 = ((last[1] / navAt(shiftDate(last[0], 1))) - 1) * 100;
+  document.getElementById("hero-nav").textContent = fmtNav(last[1]);
+  document.getElementById("hero-date").textContent = "净值日期 " + last[0];
+
+  var delta = document.getElementById("hero-delta");
+  delta.className = "navnow__delta " + cls(d1);
+  delta.innerHTML = '<b>' + pct(d1) + (arrow(d1) ? " " + arrow(d1) : "") + "</b>" +
+    '<span class="muted" style="font-weight:400">较前一交易日</span>';
+
+  var sinceIncep = (last[1] / first[1] - 1) * 100;
+  var years = dayDiff(first[0], last[0]) / 365.25;
+  var annual = (Math.pow(last[1] / first[1], 1 / years) - 1) * 100;
+  var y1 = (last[1] / navAt(shiftDate(last[0], 365)) - 1) * 100;
+
+  var kpis = [
+    { label: "成立以来", value: sinceIncep, sub: "2017-07-24 起", tone: true },
+    { label: "近一年", value: y1, sub: "截至 " + last[0], tone: true },
+    { label: "最大回撤", value: -32.96, sub: "历史峰值到谷底", tone: false, abs: true },
+    { label: "夏普比率", value: 0.553, sub: "每单位波动的超额", tone: false, plain: true }
+  ];
+
+  document.getElementById("hero-kpis").innerHTML = kpis.map(function (k) {
+    var text, klass = "";
+    if (k.plain) { text = k.value.toFixed(3); }
+    else if (k.abs) { text = Math.abs(k.value).toFixed(2) + "%"; }
+    else { text = pct(k.value); klass = cls(k.value); }
+    return '<div class="kpi">' +
+      '<div class="kpi__label">' + k.label + "</div>" +
+      '<div class="kpi__value num ' + klass + '">' + text + "</div>" +
+      '<div class="kpi__sub">' + k.sub + "</div>" +
+      "</div>";
+  }).join("");
+
+  /* 策略说明 */
+  var st = document.getElementById("strategy-text");
+  st.textContent = D.strategy;
+  document.getElementById("strategy-toggle").addEventListener("click", function () {
+    var box = document.getElementById("strategy");
+    var open = box.getAttribute("data-open") === "true";
+    box.setAttribute("data-open", String(!open));
+    this.textContent = open ? "展开" : "收起";
+    this.setAttribute("aria-expanded", String(!open));
+  });
+
+  /* ---------- 走势图 ---------- */
+  var RANGES = [
+    { key: "1m", label: "近 1 月", days: 30 },
+    { key: "3m", label: "近 3 月", days: 91 },
+    { key: "6m", label: "近 6 月", days: 182 },
+    { key: "1y", label: "近 1 年", days: 365 },
+    { key: "3y", label: "近 3 年", days: 1095 },
+    { key: "all", label: "成立以来", days: null }
+  ];
+  var current = "1y";
+  var curPoints = [];
+  var geom = null;
+
+  document.getElementById("range-seg").innerHTML = RANGES.map(function (r) {
+    return '<button type="button" data-key="' + r.key + '" aria-pressed="' +
+      (r.key === current) + '">' + r.label + "</button>";
+  }).join("");
+
+  function pointsFor(key) {
+    var r = RANGES.filter(function (x) { return x.key === key; })[0];
+    if (!r || r.days == null) {
+      // 全历史：降采样到 ~700 点，保证曲线形状不丢
+      var step = Math.max(1, Math.ceil(nav.length / 700));
+      var out = [];
+      for (var i = 0; i < nav.length; i += step) out.push(nav[i]);
+      if (out[out.length - 1] !== nav[nav.length - 1]) out.push(nav[nav.length - 1]);
+      return out;
+    }
+    return slice(r.days);
+  }
+
+  function renderChart() {
+    if (!curPoints || !curPoints.length) return; // 首帧：区间未算完，等等再画
+    var svg = document.getElementById("chart");
+    var box = svg.parentNode.getBoundingClientRect();
+    var W = Math.max(320, Math.floor(box.width));
+    var H = 244;
+    var padL = 44, padR = 8, padT = 14, padB = 22;
+    var iw = W - padL - padR, ih = H - padT - padB;
+
+    var pts = curPoints;
+    var vals = pts.map(function (p) { return p[1]; });
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    var pad = (max - min) * 0.12 || max * 0.05;
+    var lo = min - pad, hi = max + pad;
+
+    var X = function (i) { return padL + (iw * i) / (pts.length - 1); };
+    var Y = function (v) { return padT + ih - ((v - lo) / (hi - lo)) * ih; };
+
+    geom = { X: X, Y: Y, padL: padL, W: W, H: H, iw: iw, n: pts.length };
+
+    var st = rangeStat(pts);
+    var rising = st.change >= 0;
+    var color = rising ? "var(--rise)" : "var(--fall)";
+
+    var line = "";
+    for (var i = 0; i < pts.length; i++) {
+      line += (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(pts[i][1]).toFixed(1);
+    }
+    var area = line + "L" + X(pts.length - 1).toFixed(1) + " " + (padT + ih) +
+      "L" + X(0).toFixed(1) + " " + (padT + ih) + "Z";
+
+    var grid = "";
+    var ticks = 3;
+    for (var g = 0; g <= ticks; g++) {
+      var v = lo + ((hi - lo) * g) / ticks;
+      var y = Y(v);
+      grid += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) +
+        '" y2="' + y.toFixed(1) + '" stroke="var(--divider)" stroke-width="1"/>';
+      grid += '<text x="' + (padL - 8) + '" y="' + (y + 3.5).toFixed(1) +
+        '" text-anchor="end" font-size="11" fill="var(--text-tertiary-ink)" font-family="var(--font-number)">' +
+        v.toFixed(2) + "</text>";
+    }
+
+    // 起点基准虚线
+    var baseY = Y(pts[0][1]);
+    grid += '<line x1="' + padL + '" y1="' + baseY.toFixed(1) + '" x2="' + (W - padR) +
+      '" y2="' + baseY.toFixed(1) + '" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="3 4"/>';
+
+    // 区间高低点
+    var iMax = vals.indexOf(max), iMin = vals.indexOf(min);
+    var marks =
+      '<circle cx="' + X(iMax).toFixed(1) + '" cy="' + Y(max).toFixed(1) + '" r="2.6" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="1.4"/>' +
+      '<circle cx="' + X(iMin).toFixed(1) + '" cy="' + Y(min).toFixed(1) + '" r="2.6" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="1.4"/>';
+
+    var lastX = X(pts.length - 1), lastY = Y(pts[pts.length - 1][1]);
+    var endDot = '<circle cx="' + lastX.toFixed(1) + '" cy="' + lastY.toFixed(1) +
+      '" r="3.6" fill="' + color + '"/>';
+
+    var xLabels =
+      '<text x="' + padL + '" y="' + (H - 4) + '" font-size="11" fill="var(--text-tertiary-ink)" font-family="var(--font-number)">' + pts[0][0] + "</text>" +
+      '<text x="' + (W - padR) + '" y="' + (H - 4) + '" text-anchor="end" font-size="11" fill="var(--text-tertiary-ink)" font-family="var(--font-number)">' + pts[pts.length - 1][0] + "</text>";
+
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", H);
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.innerHTML =
+      '<defs><linearGradient id="g-area" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.20"/>' +
+      '<stop offset="100%" stop-color="' + color + '" stop-opacity="0"/>' +
+      "</linearGradient></defs>" +
+      grid +
+      '<path d="' + area + '" fill="url(#g-area)"/>' +
+      '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+      marks + endDot + xLabels +
+      '<line id="xh-line" x1="0" y1="' + padT + '" x2="0" y2="' + (padT + ih) + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>' +
+      '<circle id="xh-dot" r="3.4" fill="' + color + '" opacity="0"/>' +
+      '<rect id="xh-zone" x="' + padL + '" y="' + padT + '" width="' + iw + '" height="' + ih + '" fill="transparent"/>';
+
+    // 读数
+    var read = document.getElementById("trend-read");
+    read.innerHTML =
+      '<span>区间涨跌 <b class="' + cls(st.change) + '">' + pct(st.change) + "</b></span>" +
+      '<span>区间最高 <b>' + fmtNav(Math.max.apply(null, vals)) + "</b></span>" +
+      '<span>区间最低 <b>' + fmtNav(Math.min.apply(null, vals)) + "</b></span>" +
+      '<span>区间最大回撤 <b>' + st.mdd.toFixed(2) + "%</b></span>";
+
+    bindHover(svg, pts, X, Y, padT, ih);
+  }
+
+  function bindHover(svg, pts, X, Y, padT, ih) {
+    var zone = svg.querySelector("#xh-zone");
+    var lineEl = svg.querySelector("#xh-line");
+    var dotEl = svg.querySelector("#xh-dot");
+    var tip = document.getElementById("chart-tip");
+
+    function move(ev) {
+      var rect = svg.getBoundingClientRect();
+      var x = ev.clientX - rect.left;
+      var ratio = (x - geom.padL) / geom.iw;
+      var i = Math.round(Math.max(0, Math.min(1, ratio)) * (pts.length - 1));
+      var px = X(i), py = Y(pts[i][1]);
+      lineEl.setAttribute("x1", px); lineEl.setAttribute("x2", px); lineEl.setAttribute("opacity", "1");
+      dotEl.setAttribute("cx", px); dotEl.setAttribute("cy", py); dotEl.setAttribute("opacity", "1");
+      tip.setAttribute("data-on", "true");
+      tip.innerHTML = '<span class="t-date">' + pts[i][0] + '</span> · <span class="t-nav">' + fmtNav(pts[i][1]) + "</span>";
+      var tw = tip.offsetWidth;
+      var left = Math.min(Math.max(px - tw / 2, 0), geom.W - tw);
+      tip.style.left = left + "px";
+    }
+
+    zone.addEventListener("pointermove", move);
+    zone.addEventListener("pointerleave", function () {
+      lineEl.setAttribute("opacity", "0");
+      dotEl.setAttribute("opacity", "0");
+      tip.setAttribute("data-on", "false");
+    });
+  }
+
+  function setRange(key) {
+    current = key;
+    var btns = document.querySelectorAll("#range-seg button");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute("aria-pressed", String(btns[i].getAttribute("data-key") === key));
+    }
+    curPoints = pointsFor(key);
+    renderChart();
+  }
+
+  document.getElementById("range-seg").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button");
+    if (b) setRange(b.getAttribute("data-key"));
+  });
+
+  /* ---------- §02 区间收益 ---------- */
+  var near = [
+    { label: "近 1 月", days: 30 },
+    { label: "近 3 月", days: 91 },
+    { label: "近 6 月", days: 182 },
+    { label: "近 1 年", days: 365 }
+  ];
+  var SCALE = 20; // ±20% 固定刻度
+
+  document.getElementById("ret-rows").innerHTML = near.map(function (r) {
+    var start = navAt(shiftDate(last[0], r.days));
+    var v = (last[1] / start - 1) * 100;
+    var w = Math.min(Math.abs(v) / SCALE, 1) * 50;
+    var style = v >= 0
+      ? "left:50%;width:" + w + "%;background:var(--rise)"
+      : "left:" + (50 - w) + "%;width:" + w + "%;background:var(--fall)";
+    return '<div class="ret__row">' +
+      '<span class="ret__label">' + r.label + "</span>" +
+      '<span class="ret__track"><span class="ret__axis"></span><span class="ret__bar" style="' + style + '"></span></span>' +
+      '<span class="ret__val ' + cls(v) + '">' + pct(v) + "</span>" +
+      "</div>";
+  }).join("");
+
+  var y3 = (last[1] / navAt(shiftDate(last[0], 1095)) - 1) * 100;
+  document.getElementById("ret-long").innerHTML =
+    '<div><div class="longterm__label">成立以来</div>' +
+    '<div class="longterm__value ' + cls(sinceIncep) + '">' + pct(sinceIncep) + "</div>" +
+    '<div class="longterm__sub">年化 <span class="' + cls(annual) + '">' + pct(annual) + "</span> · 运作 " + Math.round(dayDiff("2017-07-24", last[0])) + " 天</div></div>" +
+    '<div><div class="longterm__label">近 3 年</div>' +
+    '<div class="longterm__value ' + cls(y3) + '">' + pct(y3) + "</div>" +
+    '<div class="longterm__sub">距历史高点 <span>' + (function () {
+      var hi = Math.max.apply(null, nav.map(function (p) { return p[1]; }));
+      return ((last[1] / hi - 1) * 100).toFixed(2) + "%";
+    })() + "</span></div></div>";
+
+  document.getElementById("risk-note").innerHTML =
+    "回撤与波动率越低越好，夏普越高越好；三项均为区间统计，不随上面切换的走势区间变化。";
+
+  /* ---------- §03 成分基金 ---------- */
+  var held = D.held;
+  var holdings = D.holdings.slice();
+  var sortDesc = true;
+
+  function renderHoldings() {
+    holdings.sort(function (a, b) {
+      return sortDesc ? b.after_ratio - a.after_ratio : a.after_ratio - b.after_ratio;
+    });
+    var maxW = holdings[0].after_ratio || 1;
+    document.getElementById("holdings-body").innerHTML = holdings.map(function (h) {
+      var isHeld = held.indexOf(h.fund_code) > -1;
+      return "<tr>" +
+        '<td><span class="fund"><span class="fund__name" title="' + h.fund_name + '">' + h.fund_name +
+        '</span><span class="fund__code">' + h.fund_code + "</span></span></td>" +
+        '<td><span class="weight"><span class="weight__bar"><span class="weight__fill" style="display:block;width:' +
+        ((h.after_ratio / maxW) * 100).toFixed(1) + '%"></span></span>' +
+        '<span class="weight__num">' + h.after_ratio.toFixed(2) + "%</span></span></td>" +
+        "<td>" + (isHeld ? '<span class="held">已持有</span>' : '<span class="muted">未持有</span>') + "</td>" +
+        '<td class="r"><a class="ext" href="#" aria-label="查看 ' + h.fund_name + ' 详情">' +
+        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">' +
+        '<path d="M4 2.5 8 6l-4 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a></td>' +
+        "</tr>";
+    }).join("");
+  }
+
+  var top3 = holdings.slice(0, 3).reduce(function (s, h) { return s + h.after_ratio; }, 0);
+  document.getElementById("holdings-note").textContent =
+    holdings.length + " 只 · 前三大合计 " + top3.toFixed(2) + "% · 快照 " + D.asOf;
+
+  document.getElementById("btn-sort").addEventListener("click", function () {
+    sortDesc = !sortDesc;
+    this.textContent = sortDesc ? "占比降序" : "占比升序";
+    renderHoldings();
+  });
+
+  /* ---------- §04 调仓时间轴 ---------- */
+  var dates = Object.keys(D.adjusts).sort().reverse();
+  var opMap = { "调入": "in", "调增": "in", "调出": "out", "调减": "out" };
+
+  function renderAdjustList(limit) {
+    var shown = dates.slice(0, limit);
+    document.getElementById("timeline").innerHTML = shown.map(function (d, idx) {
+      var rows = D.adjusts[d];
+      var nIn = rows.filter(function (r) { return opMap[r.op_name] === "in"; }).length;
+      var nOut = rows.length - nIn;
+      var reason = rows[0].reason || "";
+
+      var changes = rows.map(function (r) {
+        var pre = r.pre_ratio == null ? 0 : r.pre_ratio;
+        var after = r.after_ratio == null ? 0 : r.after_ratio;
+        return '<div class="chg__row">' +
+          '<span class="chg__name"><span class="chip chip--' + opMap[r.op_name] + '">' + r.op_name + "</span>" +
+          '<span title="' + r.fund_name + '">' + r.fund_name + "</span></span>" +
+          '<span class="chg__ratio">' + pre.toFixed(2) + '<em> → </em>' + after.toFixed(2) + "%</span>" +
+          "</div>";
+      }).join("");
+
+      return '<article class="tl__item" data-latest="' + (idx === 0) + '">' +
+        '<div class="tl__date">' + d + "<small>" + rows.length + " 笔</small></div>" +
+        '<div class="tl__body">' +
+        '<div class="tl__sum">' +
+        '<span class="chip chip--in">加仓 <b>' + nIn + "</b></span>" +
+        '<span class="chip chip--out">减仓 <b>' + nOut + "</b></span>" +
+        (rows[0].source === "qieman_official"
+          ? '<span class="muted" style="font-size:11px">官方披露</span>'
+          : '<span class="muted" style="font-size:11px">快照推导</span>') +
+        "</div>" +
+        '<div class="chg">' + changes + "</div>" +
+        (reason ? '<p class="reason" data-clamp="true">' + reason + "</p>" +
+          '<button class="more" type="button" data-reason aria-expanded="false">调仓理由<svg class="chevron" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
+          : "") +
+        "</div></article>";
+    }).join("");
+  }
+
+  var TL_LIMIT = 4;
+  var tlLimit = TL_LIMIT;
+
+  // 截断态量一次：content 没被裁掉就不该出现「调仓理由」按钮（否则点了没反应）
+  function syncReasonButtons() {
+    var all = document.querySelectorAll(".reason");
+    for (var i = 0; i < all.length; i++) {
+      var p = all[i];
+      var b = p.nextElementSibling;
+      if (!b || !b.hasAttribute("data-reason")) continue;
+      var clamped = p.getAttribute("data-clamp") === "true";
+      b.style.display = clamped && p.scrollHeight <= p.clientHeight + 1 ? "none" : "";
+    }
+  }
+
+  renderAdjustList(tlLimit);
+  syncReasonButtons();
+  window.addEventListener("resize", syncReasonButtons);
+
+  document.getElementById("adjust-note").textContent =
+    dates.length + " 次调仓 · 最近 " + dates[0] + " · 更早的记录已折叠";
+
+  document.getElementById("btn-more-tl").addEventListener("click", function () {
+    var expanded = this.getAttribute("aria-expanded") === "true";
+    if (expanded) {
+      tlLimit = TL_LIMIT;
+      this.setAttribute("aria-expanded", "false");
+      this.firstChild.nodeValue = "查看更早的调仓";
+    } else {
+      tlLimit = dates.length;
+      this.setAttribute("aria-expanded", "true");
+      this.firstChild.nodeValue = "收起更早的调仓";
+    }
+    renderAdjustList(tlLimit);
+  });
+
+  document.getElementById("timeline").addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-reason]");
+    if (!b) return;
+    var p = b.previousElementSibling;
+    var open = b.getAttribute("aria-expanded") === "true";
+    p.setAttribute("data-clamp", String(open));
+    b.setAttribute("aria-expanded", String(!open));
+  });
+
+  /* ---------- §05 方向对照 ---------- */
+  var dirs = D.dir || [];
+  document.getElementById("dir-asof").textContent = D.asOfStyle || "—";
+
+  document.getElementById("dir-rows").innerHTML = dirs.map(function (r) {
+    var d = Math.round((r.mine - r.adv) * 10) / 10;
+    var big = Math.abs(d) >= 5;
+    return '<div class="dir">' +
+      '<span class="dir__k">' + r.k + "</span>" +
+      '<div class="dir__bars" role="img" aria-label="' + r.k + "：组合 " + r.adv.toFixed(1) + "%，我 " + r.mine.toFixed(1) + '%">' +
+        '<div class="dir__track"><div class="dir__fill" style="width:' + r.adv + '%"></div></div>' +
+        '<div class="dir__track"><div class="dir__fill dir__fill--mine" style="width:' + r.mine + '%"></div></div>' +
+      "</div>" +
+      '<span class="dir__v">' + r.adv.toFixed(2) + "</span>" +
+      '<span class="dir__v">' + r.mine.toFixed(2) + "</span>" +
+      '<span class="dir__d' + (big ? " dir__d--big" : "") + '">' + (d > 0 ? "+" : "") + d.toFixed(1) + "</span>" +
+    "</div>";
+  }).join("");
+
+  // 只点最不一致的两档：三档以上会变成一句废话
+  var top2 = dirs.slice().sort(function (a, b) {
+    return Math.abs(b.mine - b.adv) - Math.abs(a.mine - a.adv);
+  }).slice(0, 2);
+  document.getElementById("dir-callout").innerHTML =
+    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+      '<path d="M8 1.6 15 14H1L8 1.6Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>' +
+      '<path d="M8 6v3.4M8 11.5v.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+    "</svg><p>方向不一致：" + top2.map(function (r) {
+      var hi = r.mine > r.adv
+        ? "我 " + r.mine.toFixed(2) + "% · 组合 " + r.adv.toFixed(2) + "%"
+        : "组合 " + r.adv.toFixed(2) + "% · 我 " + r.mine.toFixed(2) + "%";
+      return "<b>" + r.k + "</b> " + hi;
+    }).join("；") + "</p>";
+
+  var theirsW = D.onlyTheirsList && D.onlyTheirsList.length ? D.onlyTheirsList[0][2] : null;
+  var chips = [
+    ["组合里有 · 我也持有", D.overlap + " 只", D.overlapMv.toFixed(2) + "% 市值"],
+    ["组合里有 · 我没有", D.onlyTheirs + " 只", theirsW != null ? "权重 " + theirsW.toFixed(2) + "%" : ""],
+    ["我持有 · 组合里没有", D.outsideCount + " 只", D.outsideShare.toFixed(2) + "% 市值"]
+  ];
+  document.getElementById("compare-chips").innerHTML = chips.map(function (c) {
+    return '<span class="chip">' + c[0] + " <b>" + c[1] + "</b>" + (c[2] ? " · " + c[2] : "") + "</span>";
+  }).join("");
+
+  var outsideList = document.getElementById("outside-list");
+  var btnOutside = document.getElementById("btn-outside");
+  var btnOutsideLabel = btnOutside.querySelector("span");
+  function renderOutside(open) {
+    var arr = open ? D.outsideAll : D.outsideTop;
+    outsideList.innerHTML = (arr || []).map(function (x) {
+      return "<li><span title=\"" + x[0] + "\">" + x[1] + "</span><b>" + x[2].toFixed(1) + "%</b></li>";
+    }).join("");
+    outsideList.setAttribute("data-open", String(open));
+    btnOutside.setAttribute("aria-expanded", String(open));
+    btnOutsideLabel.textContent = open ? "收起组合外持仓" : "展开组合外持仓（" + D.outsideCount + " 只）";
+  }
+  renderOutside(false);
+  btnOutside.addEventListener("click", function () {
+    renderOutside(btnOutside.getAttribute("aria-expanded") !== "true");
+  });
+
+  /* ---------- §06 档案 ---------- */
+  var archive = [
+    ["平台", "且慢"],
+    ["机构", "盈米基金"],
+    ["主理人", "基民柠檬"],
+    ["风险等级", "中高风险"],
+    ["产品类型", "权益（偏股）"],
+    ["成立日期", "2017-07-24"],
+    ["最新净值", fmtNav(last[1]) + "（" + last[0] + "）"],
+    ["运作天数", Math.round(dayDiff("2017-07-24", last[0])) + " 天"]
+  ];
+  document.getElementById("archive").innerHTML = archive.map(function (r) {
+    return "<div><dt>" + r[0] + "</dt><dd>" + r[1] + "</dd></div>";
+  }).join("");
+
+  document.getElementById("src-nav").textContent = "净值截至 " + last[0];
+  document.getElementById("src-hold").textContent = "持仓快照 " + D.asOf;
+
+  /* ---------- 侧栏速览 / 目录 ---------- */
+  var quick = [
+    ["最新净值", fmtNav(last[1])],
+    ["日涨跌", pct(d1)],
+    ["近一年", pct(y1)],
+    ["成立以来", pct(sinceIncep)],
+    ["最大回撤", "32.96%"],
+    ["成分基金", holdings.length + " 只"]
+  ];
+  document.getElementById("quick-rows").innerHTML = quick.map(function (q, i) {
+    var klass = (i === 1 || i === 2 || i === 3) ? cls(parseFloat(String(q[1]).replace("%", ""))) : "";
+    return '<div class="quick__row"><span>' + q[0] + '</span><b class="' + klass + '">' + q[1] + "</b></div>";
+  }).join("");
+
+  var SECS = [
+    ["s1", "01", "概览"],
+    ["s2", "02", "收益与风险"],
+    ["s3", "03", "成分基金"],
+    ["s4", "04", "调仓记录"],
+    ["s5", "05", "账户对照"],
+    ["s6", "06", "组合档案"]
+  ];
+
+  document.getElementById("toc-list").innerHTML = SECS.map(function (s) {
+    return '<li><a href="#' + s[0] + '" data-target="' + s[0] + '"><i>' + s[1] + "</i><span>" + s[2] + "</span></a></li>";
+  }).join("");
+
+  var tocBtn = document.getElementById("btn-toc");
+  var tocPanel = document.getElementById("toc-panel");
+  var tocCurrent = document.getElementById("toc-current");
+  function openToc(open) {
+    tocPanel.setAttribute("data-open", String(open));
+    tocBtn.setAttribute("aria-expanded", String(open));
+  }
+  tocBtn.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    openToc(tocPanel.getAttribute("data-open") !== "true");
+  });
+  tocPanel.addEventListener("click", function (ev) {
+    if (ev.target.closest("a")) openToc(false);
+  });
+  document.addEventListener("click", function (ev) {
+    if (!ev.target.closest(".toc-wrap")) openToc(false);
+  });
+
+  var links = document.querySelectorAll("[data-target]");
+  function setActive(id) {
+    for (var i = 0; i < links.length; i++) {
+      links[i].setAttribute("aria-current", links[i].getAttribute("data-target") === id ? "true" : "false");
+    }
+    for (var j = 0; j < SECS.length; j++) {
+      if (SECS[j][0] === id) tocCurrent.textContent = SECS[j][2];
+    }
+  }
+
+  if ("IntersectionObserver" in window) {
+    var seen = {};
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { seen[e.target.id] = e.isIntersecting; });
+      for (var i = SECS.length - 1; i >= 0; i--) {
+        if (seen[SECS[i][0]]) { setActive(SECS[i][0]); break; }
+      }
+    }, { rootMargin: "-96px 0px -70% 0px", threshold: 0 });
+    SECS.forEach(function (s) {
+      var el = document.getElementById(s[0]);
+      if (el) io.observe(el);
+    });
+    setActive("s1");
+  }
+
+  // 最后一块够不着吸顶线（文档到底了），只能靠触底把高亮交出去
+  window.addEventListener("scroll", function () {
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+      setActive(SECS[SECS.length - 1][0]);
+    }
+  }, { passive: true });
+
+  /* ---------- 主题 ---------- */
+  var btnTheme = document.getElementById("btn-theme");
+  var themeText = document.getElementById("theme-text");
+  function applyTheme(t) {
+    document.documentElement.setAttribute("data-theme", t);
+    btnTheme.setAttribute("aria-pressed", String(t === "light"));
+    themeText.textContent = t === "light" ? "亮色" : "暗色";
+    try { localStorage.setItem("proto-theme", t); } catch (e) {}
+    renderChart();
+  }
+  var saved = "dark";
+  try { saved = localStorage.getItem("proto-theme") || "dark"; } catch (e) {}
+  applyTheme(saved);
+  btnTheme.addEventListener("click", function () {
+    applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark");
+  });
+
+  /* ---------- 改动说明抽屉 ---------- */
+  var sheet = document.getElementById("sheet");
+  var scrim = document.getElementById("scrim");
+  var btnSheet = document.getElementById("btn-sheet");
+  function openSheet(open) {
+    sheet.setAttribute("data-open", String(open));
+    sheet.setAttribute("aria-hidden", String(!open));
+    scrim.setAttribute("data-open", String(open));
+    btnSheet.setAttribute("aria-expanded", String(open));
+  }
+  btnSheet.addEventListener("click", function () {
+    openSheet(sheet.getAttribute("data-open") !== "true");
+  });
+  document.getElementById("btn-sheet-close").addEventListener("click", function () { openSheet(false); });
+  scrim.addEventListener("click", function () { openSheet(false); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    openSheet(false);
+    openToc(false);
+  });
+
+  /* ---------- 启动 ---------- */
+  renderHoldings();
+  setRange(current);
+
+  var rt;
+  window.addEventListener("resize", function () {
+    clearTimeout(rt);
+    rt = setTimeout(renderChart, 120);
+  });
+})();
+</script>
+</body>
+</html>
