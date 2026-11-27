@@ -51,6 +51,7 @@ const cycle = (over: Partial<ClearedCycle> = {}): ClearedCycle => ({
   pnl_pct: 5,
   avg_holding_days: 31,
   dividend_total: null,
+  ledger_names: ["账户A"],
   pnl_known: true,
   caveats: [],
   ...over

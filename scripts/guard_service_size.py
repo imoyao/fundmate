@@ -327,7 +327,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # #3107 收紧（409/130/29 → 407/128/28）：组合成员规范化下沉到
     # analytics/excess_members.py，`build_scope_excess` 的成员循环缩成一次调用。
     "backend/app/services/analytics/benchmark_excess.py": {'lines': 407, 'max_func': 128, 'max_cc': 28},
-    "backend/app/services/analytics/cleared_cycles.py": {'lines': 747, 'max_func': 155, 'max_cc': 47},
+    "backend/app/services/analytics/cleared_cycles.py": {'lines': 747, 'max_func': 153, 'max_cc': 47},
     "backend/app/services/analytics/correlation.py": {'lines': 119, 'max_func': 44, 'max_cc': 9},
     "backend/app/services/analytics/trading_behavior.py": {'lines': 263, 'max_func': 99, 'max_cc': 21},
     "backend/app/services/analytics/var.py": {'lines': 138, 'max_func': 35, 'max_cc': 9},

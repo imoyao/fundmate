@@ -59,6 +59,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from loguru import logger
 
 from app.core.symbol_utils import strip_exchange_prefix, symbol_identity
+from app.services.analytics.cleared_cycle_ledgers import attach_ledger_names
 
 # 入队的份额增加类型（deposit 不进队：现金类无份额概念，与 behavior 同口径）
 _BUY_LOT_TYPES = frozenset({'buy', 'dividend_reinvest'})
@@ -187,11 +188,10 @@ def compute_cleared_cycles(transactions: Sequence[Any]) -> List[Dict[str, Any]]:
             cycle['buy_count'] += 1
             cycle['trade_count'] += 1
             cycle['total_buy_cents'] += amount
-            # 展示名/名称取最近一次写（流水快照可能比开周期时更完整）
-            if getattr(txn, 'position_name', None):
-                cycle['name'] = txn.position_name
-            if getattr(txn, 'symbol', None):
-                cycle['symbol'] = txn.symbol
+            # 展示名取最近一次非空写（流水快照可能比开周期时更完整）
+            cycle['name'] = getattr(txn, 'position_name', None) or cycle['name']
+            cycle['symbol'] = getattr(txn, 'symbol', None) or cycle['symbol']
+            cycle.setdefault('ledger_ids', set()).add(getattr(txn, 'ledger_id', None))
             queues.setdefault(key, []).append({'date': d, 'shares': shares, 'cost': amount})
             continue
 
@@ -200,8 +200,7 @@ def compute_cleared_cycles(transactions: Sequence[Any]) -> List[Dict[str, Any]]:
 
         sell_shares = abs(int(getattr(txn, 'quantity', None) or 0))
         if sell_shares == 0:
-            # 场外转出等无份额卖出：不可配对、不关周期，也不污染周期盈亏样本
-            # （与 behavior 同口径：只进 unmatched 计数）
+            # 场外转出等无份额卖出：不可配对、不关周期，也不污染周期盈亏样本（与 behavior 同口径：只进 unmatched 计数）
             unmatched_sells += 1
             continue
 
@@ -213,10 +212,9 @@ def compute_cleared_cycles(transactions: Sequence[Any]) -> List[Dict[str, Any]]:
         cycle['sell_count'] += 1
         cycle['trade_count'] += 1
         cycle['total_sell_cents'] += int(getattr(txn, 'amount', None) or 0)
-        if getattr(txn, 'position_name', None):
-            cycle['name'] = txn.position_name
-        if getattr(txn, 'symbol', None):
-            cycle['symbol'] = txn.symbol
+        cycle['name'] = getattr(txn, 'position_name', None) or cycle['name']
+        cycle['symbol'] = getattr(txn, 'symbol', None) or cycle['symbol']
+        cycle.setdefault('ledger_ids', set()).add(getattr(txn, 'ledger_id', None))
 
         queue = queues.setdefault(key, [])
         matched = 0
@@ -283,6 +281,7 @@ def compute_cleared_cycles(transactions: Sequence[Any]) -> List[Dict[str, Any]]:
                         round(c['weighted_days'] / c['matched_shares'], 1) if c['matched_shares'] > 0 else None
                     ),
                     'dividend_total': _yuan(c['dividend_cents']) if c['dividend_cents'] else None,
+                    'ledger_ids': sorted(filter(None, c.get('ledger_ids', ()))),  # 中间字段，见 cleared_cycle_ledgers
                     'pnl_known': c['realized_pnl_cents'] is not None,
                     'caveats': list(_CAVEATS),
                 }
@@ -740,6 +739,7 @@ def build_cleared_cycles(
     if include_post_clear:
         # 只对**裁剪后**的周期取数：窗口外的不必查净值，省掉无谓查询
         _attach_post_clear(db, cycles)
+    attach_ledger_names(db, cycles, family_id)
     # 浮亏标的数与窗口无关（当前持仓是点位事实），故不受 lo/hi 影响，恒算
     unrealized_count = count_unrealized_losses(
         db, family_id, ledger_id=ledger_id, include_cash_equivalents=include_cash_equivalents

@@ -1096,6 +1096,14 @@ export type ClearedCycle = {
   pnl_pct: number | null;
   /** 份额加权平均持有天数；null = 无有效配对 */
   avg_holding_days: number | null;
+  /**
+   * 周期涉及的账户名（去重、按账户 id 升序）。**空数组 = 流水没有 ledger_id**
+   * （存量迁移 / 未归档持仓），不是「查不到」——表格显示 `--`。
+   *
+   * 周期不按账户拆分：同一只产品在多个账户买入仍是一轮，这里给出全部账户，
+   * 表格只展示首个 + 其余数量（悬浮看全）。
+   */
+  ledger_names: string[];
   /** 周期内现金分红合计（元）；无分红为 null，不进盈亏样本 */
   dividend_total: number | null;
   /** false = 部分配对，不进汇总胜率/盈亏比样本 */

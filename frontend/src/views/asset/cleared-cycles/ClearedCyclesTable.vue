@@ -7,12 +7,13 @@
   两件事都在**前端**做（口径见 clearedCyclesTable.ts 文件头）：
   分页只决定「看到哪几行」，排序只决定「按哪一列」，都不改任何汇总数字。
 
-  列序按「先看赚了多少，再看是什么时候买的」排 —— 收益 / 收益率紧跟产品，
-  日期退到后面：首买日 / 末卖日 是解释项，不是结论。
+  列序按「先看赚了多少，再看是在哪买的、什么时候买的」排 —— 收益 / 收益率紧接着产品，
+  账户随后（同一只产品可能在多个账户买过，周期不拆），日期收成一列「持有区间」：
+  首买日 / 末卖日 是解释项，不是结论。
 -->
 <template>
   <CardBlock>
-    <!-- table-col-allow: 8 列合计 848，1280 视口下表宽仅 742 ⇒ 窄屏必横滚；金额与百分比列固定宽才好竖着比大小（#3210） -->
+    <!-- table-col-allow: 7 列合计 804（产品 168 为弹性下限），1280 视口下表宽仅 692 ⇒ 窄屏必横滚；金额与百分比列固定宽才好竖着比大小（#3210） -->
     <el-table
       :data="pageRows"
       size="small"
@@ -79,6 +80,61 @@
         </template>
       </el-table-column>
 
+      <!-- 账户：周期不按账户拆分（同一只产品多账户买入仍是一轮），故这里可能多个。
+           展示首个 + 其余数量，悬浮看全名——列里塞全名会把日期列挤出去。
+           120px 是实测下限：再窄「同花顺（银河证券）」只剩两个字 + 省略号。 -->
+      <el-table-column
+        prop="ledger_names"
+        label="账户"
+        width="120"
+        sortable="custom"
+      >
+        <template #default="{ row }">
+          <span
+            v-if="row.ledger_names?.length"
+            class="cleared-table__ledger"
+            :title="ledgerTitle(row)"
+          >
+            <span class="cleared-table__ledger-name">
+              {{ row.ledger_names[0] }}
+            </span>
+            <span
+              v-if="row.ledger_names.length > 1"
+              class="cleared-table__ledger-more"
+            >
+              +{{ row.ledger_names.length - 1 }}
+            </span>
+          </span>
+          <span v-else class="cleared-table__na">--</span>
+        </template>
+      </el-table-column>
+
+      <!-- 首买日 / 末卖日 合并成一列「持有区间」：两列各 104px 只为了读一个时间段，
+           而用户要的是「赚了多少」不是「哪天买的」（#第 5 条）。合并后腾出的宽度
+           正好给账户列。
+           日期**分两行**而不是 `起 → 止` 一行：实测单行 23 字符要 206px，而 1440
+           视口表宽只有 852，给了 206 就得再砍别的列；两行各 10 字符 120px 就够，
+           且起止上下对齐、比一行中间夹个箭头更好扫。 -->
+      <el-table-column
+        prop="first_buy_date"
+        label="持有区间"
+        width="120"
+        sortable="custom"
+      >
+        <template #default="{ row }">
+          <div
+            v-if="row.first_buy_date || row.last_sell_date"
+            class="cleared-table__range"
+          >
+            <span>{{ row.first_buy_date || "--" }}</span>
+            <span class="cleared-table__range-end">
+              → {{ row.last_sell_date || "--" }}
+            </span>
+          </div>
+          <span v-else class="cleared-table__na">--</span>
+        </template>
+      </el-table-column>
+
       <el-table-column
         prop="avg_holding_days"
         label="持有天数"
@@ -88,36 +144,6 @@
       >
         <template #default="{ row }">
           {{ fmtHoldingDays(row.avg_holding_days) }}
-        </template>
-      </el-table-column>
-
-      <el-table-column
-        prop="trade_count"
-        label="交易次数"
-        width="76"
-        align="right"
-        sortable="custom"
-      />
-
-      <el-table-column
-        prop="first_buy_date"
-        label="首买日"
-        width="104"
-        sortable="custom"
-      >
-        <template #default="{ row }">
-          {{ row.first_buy_date || "--" }}
-        </template>
-      </el-table-column>
-
-      <el-table-column
-        prop="last_sell_date"
-        label="末卖日"
-        width="104"
-        sortable="custom"
-      >
-        <template #default="{ row }">
-          {{ row.last_sell_date || "--" }}
         </template>
       </el-table-column>
 
@@ -257,6 +283,10 @@ const openProduct = async (row: ClearedCycle) => {
  * 放宽成 any —— 放宽等于放弃「字段名写错能报错」。
  */
 const asCycle = (row: unknown) => row as ClearedCycle;
+
+/** 账户列的悬浮全文：多账户时列里只显示首个 + 数量，全名在这里给 */
+const ledgerTitle = (row: unknown) =>
+  (asCycle(row).ledger_names || []).join("、");
 </script>
 
 <style scoped lang="scss">
@@ -287,6 +317,42 @@ const asCycle = (row: unknown) => row as ClearedCycle;
 }
 
 .cleared-table__na {
+  color: var(--text-tertiary-ink);
+}
+
+/* 账户列：首个名字可以省略（账户名长度无上限），"+N" 必须完整显示 */
+.cleared-table__ledger {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+  max-width: 100%;
+  font-size: var(--el-font-size-small);
+  color: var(--text-secondary);
+}
+
+.cleared-table__ledger-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cleared-table__ledger-more {
+  flex: none;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+/* 持有区间：起止分两行，日期定宽（tabular-nums）才上下对齐、能竖着扫 */
+.cleared-table__range {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.cleared-table__range-end {
   color: var(--text-tertiary-ink);
 }
 

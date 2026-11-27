@@ -25,6 +25,7 @@ const cycle = (over: Partial<ClearedCycle> = {}): ClearedCycle => ({
   pnl_pct: 5,
   avg_holding_days: 31,
   dividend_total: null,
+  ledger_names: ["账户A"],
   pnl_known: true,
   caveats: [],
   ...over
@@ -56,14 +57,28 @@ describe("sortCycles", () => {
 
   it("稳定排序：同值时保持原始顺序", () => {
     const rows = [
-      cycle({ name: "第一", trade_count: 2 }),
-      cycle({ name: "第二", trade_count: 2 }),
-      cycle({ name: "第三", trade_count: 2 })
+      cycle({ name: "第一", realized_pnl: 50 }),
+      cycle({ name: "第二", realized_pnl: 50 }),
+      cycle({ name: "第三", realized_pnl: 50 })
     ];
-    expect(names(sortCycles(rows, "trade_count", "desc"))).toEqual([
+    expect(names(sortCycles(rows, "realized_pnl", "desc"))).toEqual([
       "第一",
       "第二",
       "第三"
+    ]);
+  });
+
+  it("账户按首个名字排序：多账户只比第一个，空账户落末尾", () => {
+    // 用 ASCII 名字：与运行环境的 ICU 中文排序规则无关，断言只验证「取首个」
+    const rows = [
+      cycle({ name: "无账户", ledger_names: [] }),
+      cycle({ name: "B", ledger_names: ["B-account"] }),
+      cycle({ name: "A", ledger_names: ["A-account", "C-account"] })
+    ];
+    expect(names(sortCycles(rows, "ledger_names", "asc"))).toEqual([
+      "A",
+      "B",
+      "无账户"
     ]);
   });
 
