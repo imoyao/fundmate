@@ -90,7 +90,12 @@ import type {
   PnlCalendarState
 } from "@/api/summary";
 import PnlCalendarUnitTip from "./PnlCalendarUnitTip.vue";
-import { maxAbsPnl, valueIn, type PnlCalendarValueMode } from "./helpers";
+import {
+  isMonthKey,
+  maxAbsPnl,
+  valueIn,
+  type PnlCalendarValueMode
+} from "./helpers";
 
 defineOptions({ name: "PnlCalendarBars" });
 
@@ -137,9 +142,10 @@ const items = computed<Normalized[]>(() => {
   if (props.periods?.length) {
     return props.periods.map(p => ({
       key: p.period,
-      // 键长即粒度：`2026-09` → 9（月），`2026` → 2026（年）
-      label:
-        p.period.length === 7 ? String(Number(p.period.slice(5))) : p.period,
+      // 月键 `2026-09` → 9（月），年键 `2026` → 2026（年）；精确匹配，非「长度==7」
+      label: isMonthKey(p.period)
+        ? String(Number(p.period.slice(5)))
+        : p.period,
       name: p.period,
       state: p.state,
       pnl: p.pnl,

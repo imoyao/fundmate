@@ -42,13 +42,18 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from loguru import logger
 
+from app.core.notification_categories import (
+    NotificationCategory,
+    NotificationSourceType,
+)
 from app.services import notification_service
 
 #: 通知 category：消息箱第 4 个 Tab「调仓」（前端 lay-notice 的 noticeTabs 与之对齐）。
-CATEGORY_REBALANCE = 'rebalance'
+#: 真相源：app/core/notification_categories.py（category 收敛，#875）。
+CATEGORY_REBALANCE = NotificationCategory.REBALANCE.value
 
-#: 通知 source_type：调仓提醒（区别于已有的 allocation_deviation / trend_signal）。
-SOURCE_TYPE_REBALANCE = 'advisor_rebalance'
+#: 通知 source_type：调仓提醒（区别于已有的 allocation_deviation）。
+SOURCE_TYPE_REBALANCE = NotificationSourceType.ADVISOR_REBALANCE.value
 
 #: 通知级别：P1（消息盒，不抢首页横栏）。
 LEVEL_REBALANCE = 'P1'

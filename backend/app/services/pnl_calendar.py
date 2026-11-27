@@ -194,12 +194,21 @@ _STALE_TRADING_DAYS = 5
 # T + _STALE_CARRY_DAYS，窗比传播半径短一天就会漏掉尾巴。
 PRICE_FRESH_DAYS = _STALE_CARRY_DAYS + 1
 
-# 聚合粒度（#1925 三视图）：day=逐日明细回 `days`；month/year=期间聚合回 `periods`。
+# 聚合粒度（#1925 三视图 → #875 周期报告扩为五粒度）：day=逐日明细回 `days`；
+# week/month/quarter/year=期间聚合回 `periods`。
 # 口径唯一出口仍是后端——前端只做呈现，禁止二次盈亏计算（见本文件顶部口径说明）。
 GRANULARITY_DAY = 'day'
+GRANULARITY_WEEK = 'week'
 GRANULARITY_MONTH = 'month'
+GRANULARITY_QUARTER = 'quarter'
 GRANULARITY_YEAR = 'year'
-GRANULARITIES = (GRANULARITY_DAY, GRANULARITY_MONTH, GRANULARITY_YEAR)
+GRANULARITIES = (
+    GRANULARITY_DAY,
+    GRANULARITY_WEEK,
+    GRANULARITY_MONTH,
+    GRANULARITY_QUARTER,
+    GRANULARITY_YEAR,
+)
 
 
 def _to_price_units(value) -> int:
@@ -1872,13 +1881,24 @@ def _compute_days(
 
 
 def _period_key(date_iso: str, granularity: str) -> str:
-    """期间键：`month` → `YYYY-MM`，`year` → `YYYY`。
+    r"""期间键：`week` → `YYYY-Www`（ISO 周序），`month` → `YYYY-MM`，
+    `quarter` → `YYYY-Qn`，`year` → `YYYY`。
 
-    **键长即粒度**（7=月，4=年），前端据此决定柱标签，不必再传一个可能与数据
-    不一致的展示字段。
+    键格式约定（前端据此决定柱标签，不必再传一个可能与数据不一致的展示字段）：
+    - 月键 `YYYY-MM`（7 字符，`\d{4}-\d{2}`）与季键 `YYYY-Qn`（7 字符，`-Q` 前缀）
+      **同长但可正则区分**——前端必须按「是否匹配 `\d{4}-\d{2}`」判月键，不得再靠
+      「长度 == 7」（#875 扩粒度后两者长度撞车，`length === 7` 会把季键误读成月键）。
+    - 周键用**严格 ISO 周序**（owner 拍板）：`date.isocalendar()` 的 (ISO 年, 周序)，
+      跨年周归给「包含更多天数的那一年」，与自然周直觉不同但标准可复现。
     """
+    if granularity == GRANULARITY_WEEK:
+        iso = dt.date.fromisoformat(date_iso).isocalendar()
+        return f'{iso.year}-W{iso.week:02d}'
     if granularity == GRANULARITY_MONTH:
         return date_iso[:7]
+    if granularity == GRANULARITY_QUARTER:
+        month = int(date_iso[5:7])
+        return f'{date_iso[:4]}-Q{(month - 1) // 3 + 1}'
     if granularity == GRANULARITY_YEAR:
         return date_iso[:4]
     return date_iso
@@ -1889,7 +1909,7 @@ def _aggregate_periods(
     granularity: str,
     baseline_net_worth: Optional[float] = None,
 ) -> List[dict]:
-    """把逐日序列聚合成期间序列（月收益 / 年收益视图的唯一数据出口，#1925）。
+    """把逐日序列聚合成期间序列（周 / 月 / 季 / 年收益视图的唯一数据出口，#1925 → #875）。
 
     汇总规则：
 
@@ -1974,18 +1994,19 @@ def build_pnl_series(
     ledger_id: Optional[int] = None,
     granularity: str = GRANULARITY_DAY,
 ) -> dict:
-    """按粒度取收益序列 —— 日 / 月 / 年三视图的唯一出口（#1925）。
+    """按粒度取收益序列 —— 日 / 周 / 月 / 季 / 年五视图的唯一出口（#1925 → #875）。
 
     Args:
-        granularity: `day` 逐日明细回 `days`；`month` / `year` 期间聚合回 `periods`。
-            非法值抛 `ValueError`，视图层据此回 400（error_code 1001）。
+        granularity: `day` 逐日明细回 `days`；`week` / `month` / `quarter` / `year`
+            期间聚合回 `periods`。非法值抛 `ValueError`，视图层据此回 400
+            （error_code 1001）。
 
-    **为什么月 / 年视图也要走 `build_daily_pnl_series`**：口径唯一。另起一条
-    「按月算」的算法就等于两条口径并存，迟早对不上；正确做法是同一条日序列、
-    两种切法（见 `_aggregate_periods`）。性能靠 `_collect_fund_nav` 按持有代码过滤
+    **为什么周 / 月 / 季 / 年视图也要走 `build_daily_pnl_series`**：口径唯一。另起一条
+    「按周期算」的算法就等于两条口径并存，迟早对不上；正确做法是同一条日序列、
+    多种切法（见 `_aggregate_periods`）。性能靠 `_collect_fund_nav` 按持有代码过滤
     与**聚合下推**（年视图只回 5 行期间数据，不回 1800+ 条日明细）解决。
 
-    月 / 年粒度会把起点**再往前挪一天**，只为给首个期间算出收益率分母；
+    周 / 月 / 季 / 年粒度会把起点**再往前挪一天**，只为给首个期间算出收益率分母；
     该日不计入 `days` / `month_total`，与日粒度 `scan_start` 的处理完全一致。
     """
     if granularity not in GRANULARITIES:

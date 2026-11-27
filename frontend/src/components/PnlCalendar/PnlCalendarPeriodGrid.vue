@@ -80,6 +80,7 @@ import PnlCalendarTile from "./PnlCalendarTile.vue";
 import PnlCalendarUnitTip from "./PnlCalendarUnitTip.vue";
 import {
   intensity,
+  isMonthKey,
   maxAbsPnl,
   stateDescription,
   valueIn,
@@ -116,13 +117,13 @@ interface Tile {
 }
 
 /**
- * 格内小标签：键长即粒度（后端 `_period_key` 的契约）。
+ * 格内小标签：月键精确匹配 `YYYY-MM`（非「键长即粒度」）。
  *
  * 月格说「9 月」而不是「2026-09」——年份已经写在区间导航上，
  * 12 个格子重复四位数只会挤压金额的位置；年格直接说「2026」。
  */
 function labelOf(period: string): string {
-  return period.length === 7 ? `${Number(period.slice(5))} 月` : period;
+  return isMonthKey(period) ? `${Number(period.slice(5))} 月` : period;
 }
 
 const tiles = computed<Tile[]>(() => {

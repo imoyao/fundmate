@@ -79,6 +79,12 @@ export const noticeTabs: TabItem[] = [
     name: "调仓",
     category: "rebalance",
     emptyText: "暂无调仓提醒"
+  },
+  {
+    key: "5",
+    name: "报告",
+    category: "report",
+    emptyText: "暂无周期报告"
   }
 ];
 

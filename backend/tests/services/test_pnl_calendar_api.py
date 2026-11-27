@@ -127,7 +127,7 @@ def test_收益日历接口_月粒度聚合下推(client, db, make_position, mak
 
 
 def test_收益日历接口_非法粒度返回400(client):
-    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&granularity=week')
+    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&granularity=hour')
 
     assert resp.status_code == 400
     payload = resp.get_json()

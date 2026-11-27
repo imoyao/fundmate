@@ -28,6 +28,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Optional
 
+from app.core.notification_categories import NotificationCategory
+
 # ── 类型 ──
 ALERT_PRICE_UP = 'PRICE_UP'
 ALERT_PRICE_DOWN = 'PRICE_DOWN'
@@ -40,7 +42,8 @@ ALL_TYPES = PRICE_TYPES + MAGNITUDE_TYPES
 
 # 通知类别取前端消息盒已预留的「订阅」页签（lay-notice/data.ts），
 # 新增提醒类型不需要改前端通知组件。
-NOTIFICATION_CATEGORY = 'watchlist'
+# 真相源：app/core/notification_categories.py（category 收敛，#875）。
+NOTIFICATION_CATEGORY = NotificationCategory.WATCHLIST.value
 
 # ── 默认值（表里只存用户改过的口径，缺行由此补齐）──
 DEFAULT_SETTINGS: dict[str, dict] = {

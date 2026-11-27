@@ -28,6 +28,10 @@ from typing import Any, Optional, Sequence
 from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
+from app.core.notification_categories import (
+    NotificationCategory,
+    NotificationSourceType,
+)
 from app.domains.positions.models import Position
 from app.domains.strategy.models import TargetAllocation
 from app.services.nav_service import NavService
@@ -39,7 +43,7 @@ from app.services.position_valuation import market_value_cents
 # 5 个百分点是再平衡实践里最常见的容忍带，保守到不至于天天提醒。
 DEFAULT_THRESHOLD_PCT = 5.0
 
-SOURCE_TYPE = 'allocation_deviation'
+SOURCE_TYPE = NotificationSourceType.ALLOCATION_DEVIATION.value
 # 提醒级别：P1（消息盒）。再平衡不是紧急事项，占首页横栏（P0）会挤掉真正紧急的。
 REMINDER_LEVEL = 'P1'
 
@@ -204,7 +208,7 @@ def collect_reminders(
         candidates.append(
             {
                 'level': REMINDER_LEVEL,
-                'category': 'strategy',
+                'category': NotificationCategory.STRATEGY.value,
                 'title': f'配比偏离：{item["name"]} 当前 {item["weight_pct"]:.2f}%，目标 {item["target_pct"]:.2f}%',
                 'body': (
                     f'{direction}目标 {abs(deviation):.2f} 个百分点'
