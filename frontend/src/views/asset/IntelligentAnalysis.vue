@@ -93,9 +93,10 @@
       />
 
       <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
-         为「收益概览 / 资产净值走势 / 清仓周期复盘 / 货币基金收益」四段
-         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配）。
-         顺序 = 信息重要性：数字 → 数字的形状 → 单笔已实现结果 → 口径补充项。 -->
+         为「收益概览 / 资产净值走势 / 清仓复盘 / 浮亏回本 / 货币基金收益」五段
+         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配；
+         浮亏回本无浮亏时整块不渲染，骨架屏不随它增减）。
+         顺序 = 信息重要性：数字 → 数字的形状 → 单笔已实现结果 → 未实现的风险 → 口径补充项。 -->
       <PageSkeleton
         v-if="initialLoading"
         :cards="3"
@@ -152,6 +153,11 @@
              自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与净值走势。 -->
           <ClearedCyclesSection id="nav-cycles" />
 
+          <!-- 浮亏回本（2026-11-27）：上面三块都是已实现 / 时间维度，这块回答
+               「现在亏着的还要涨多少才回本」——收益率答不了（−20% 要涨 25%）。
+               放清仓复盘之后：已实现与未实现上下对照，同一屏看完「赚到的」与「欠着的」。 -->
+          <BreakEvenSection ref="breakEven" />
+
           <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
                总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
                取数自含（拆出 MoneyFundIncomeSection），父页只经 ref 联动刷新。 -->
@@ -184,6 +190,7 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
 import ReturnOverviewSection from "./ReturnOverviewSection.vue";
 import MoneyFundIncomeSection from "./MoneyFundIncomeSection.vue";
+import BreakEvenSection from "./BreakEvenSection.vue";
 import { useNetWorthTrend } from "./composables/useNetWorthTrend";
 import { usePageNav } from "@/composables/usePageNav";
 import { formatAmount } from "@/utils/currency";
@@ -231,15 +238,17 @@ const updatedAtLabel = computed(() =>
   latestSnapshot.value ? `${latestSnapshot.value.snapshot_date} 更新` : ""
 );
 
-// 页内导航（2026-10-25）：纵向 4 个独立区块（收益概览 / 资产净值走势 / 清仓复盘 /
-// 货基收益），符合 components.md 的 PageToc 接入判据；条目顺序由 DOM 实序决定
-// （usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader 标题逐字一致。
+// 页内导航（2026-10-25）：纵向 5 个独立区块（收益概览 / 资产净值走势 / 清仓复盘 /
+// 浮亏回本 / 货基收益），符合 components.md 的 PageToc 接入判据；条目顺序由 DOM 实序
+// 决定（usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader 标题逐字一致。
+// 「浮亏回本」无浮亏时整块不渲染，标签随之隐没（缺锚点即不出现，不需要占位）。
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "收益概览",
   "nav-money-fund": "货币基金收益",
   "nav-cycles": "清仓复盘",
-  "nav-net-worth": "资产净值走势"
+  "nav-net-worth": "资产净值走势",
+  "nav-break-even": "浮亏回本"
 };
 const {
   items: navItems,
@@ -253,6 +262,7 @@ const returnOverview = ref<InstanceType<typeof ReturnOverviewSection> | null>(
   null
 );
 const moneyFund = ref<InstanceType<typeof MoneyFundIncomeSection> | null>(null);
+const breakEven = ref<InstanceType<typeof BreakEvenSection> | null>(null);
 
 const loadAll = () => loadProfitTrend();
 
@@ -263,7 +273,8 @@ const reloadAll = async () => {
     await Promise.all([
       loadAll(),
       returnOverview.value?.refresh(),
-      moneyFund.value?.refresh()
+      moneyFund.value?.refresh(),
+      breakEven.value?.refresh()
     ]);
     await nextTick();
     initCharts();
