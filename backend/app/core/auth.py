@@ -25,11 +25,10 @@ from loguru import logger
 
 # 免登录前缀（_is_public 用 startswith 匹配，故前缀须精确到「子路由」层级，
 # 不能只到 /api/funds 这种蓝图级，否则会误放行同蓝图下的写接口，如 /api/funds/nav）。
-# - /api/health、/api/temperature：探市市场温度（D4 免登录）
-# - /api/securities/search、/api/funds/search：探市页「添加资产」的免登录搜索框依赖，
-#   前端 useAssetSearch 据此拉取候选标的。二者均为 GET 只读公开数据（基金/证券名录），
-#   无写操作，加白名单不影响数据安全。修复 #821 P0-1：原白名单缺失该两项，导致生产
-#   AUTH_ENABLED=true 时匿名访客搜索必 401，且被前端 Promise.allSettled+catch 静默吞掉，
+# - /api/health、/api/temperature：探市市场温度（D4 免登录）；基金/证券搜索同为 GET 只读公开数据。
+# - /api/securities/search、/api/funds/search：探市页 useAssetSearch 的候选标的来源；
+#   无写操作，加白名单不影响数据安全。修复 #821 P0-1：原白名单缺失两项，
+#   生产匿名访客搜索必 401 且被前端 Promise.allSettled+catch 静默吞掉，
 #   核心交互（添加资产）实际不可用。
 # - /api/utils/config：平台级实时估值总闸（issue #826）。探市页 /explore 免登录也使用
 #   实时估值（useRealtimeQuotes），匿名访客必须能读到平台级开关，否则生产
@@ -68,6 +67,7 @@ OPTIONAL_AUTH_PREFIXES = ('/api/products/resolve', '/api/feedlog-token')
 PUBLIC_EXACT = (
     '/api/auth/logout',
     '/api/auth/resolve',
+    '/api/mcp/oauth/callback/',  # 浏览器回调无 JWT；一次性 state 负责归属校验
 )
 
 _WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')

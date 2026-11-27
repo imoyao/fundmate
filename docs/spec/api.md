@@ -17,6 +17,11 @@ title: 核心 API 端点清单（api）
 
 |方法|接口路径|功能说明|
 |---|---|---|
+|GET|/api/mcp/connections/|当前登录用户已连接的 MCP 服务（只含可展示字段，无 token）|
+|POST|/api/mcp/connections/static/|保存用户自带 API Key（静态凭据型 MCP），按 user_id 隔离|
+|DELETE|/api/mcp/connections/{provider}/|断开连接并尝试通知上游撤销|
+|POST|/api/mcp/oauth/begin/|发起浏览器授权，返回授权 URL 与一次性 state|
+|GET|/api/mcp/oauth/callback/|OAuth 回调（免登录），凭一次性 state 认领用户并落库|
 |POST|/api/funds/redeem-fee/estimate/|预估基金赎回费用及费率分布，支持全仓与指定份额模式|
 |POST|/api/funds/{fund_code}/fee-sync/|同步单只基金的申购/赎回费率信息|
 |GET/POST|/api/positions/|持仓列表查询、新增持仓|
@@ -63,7 +68,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **268** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **273** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -155,6 +160,11 @@ title: 核心 API 端点清单（api）
 | GET | `/api/market/industry-emotion/` | `get_industry_emotion` |
 | GET | `/api/market/industry-pbroe/` | `get_industry_pbroe` |
 | GET | `/api/market/overview/` | `get_market_overview` |
+| GET | `/api/mcp/connections/` | `list_mcp_connections` |
+| DELETE | `/api/mcp/connections/<provider>/` | `disconnect` |
+| POST | `/api/mcp/connections/static/` | `connect_static_token` |
+| POST | `/api/mcp/oauth/begin/` | `begin_oauth` |
+| GET | `/api/mcp/oauth/callback/` | `oauth_callback` |
 | GET | `/api/notifications/` | `list_notifications` |
 | PATCH | `/api/notifications/<int:notification_id>/read/` | `mark_notification_read` |
 | POST | `/api/notifications/read-all/` | `mark_all_read` |
