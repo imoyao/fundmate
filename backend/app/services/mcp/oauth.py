@@ -1,0 +1,312 @@
+# -*- coding: utf-8 -*-
+"""MCP 浏览器授权编排（S5b）：DCR / PKCE / state / 回调 / 刷新 / 撤销。
+
+设计文档 ``docs/dev/mcp-connection-management.md`` §3。本模块只负责**拿 token**，
+拿到之后交给 ``user_credentials.save_oauth_token`` 加密落库；它不感知 API Key 型
+连接，也不碰传输层。
+
+三条安全约束：
+
+1. **回调不携带 JWT**：``state`` 是唯一能证明"这次回调属于哪个用户"的凭据，
+   因此必须随机、绑定 user_id、5 分钟过期、一次性消费（落库，非内存）；
+2. **PKCE verifier 加密存库**：只在 token 交换时解密，绝不进日志；
+3. **不回显上游报文**：token 端点可能把 token 塞进错误体，这里只记 HTTP 状态，
+   异常文案固定为中文人话（沿用 ``McpError`` 的脱敏纪律）。
+
+provider 地址是**代码常量**，不接受调用方传 URL（SSRF 红线）。DCR 的 client_id
+按 provider 缓存：重启后重新注册即可，已签发的 token 不依赖本进程缓存。
+"""
+
+import os
+import secrets
+import threading
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, Iterator, Optional, Tuple
+
+import requests
+from loguru import logger
+from sqlalchemy import and_
+
+from app.core.database import user_session
+from app.core.time_utils import now_shanghai
+from app.models.mcp_oauth_state import McpOAuthState
+from app.services.mcp.errors import McpAuthError, McpUserTokenMissing
+from app.services.mcp.user_credentials import (
+    DEFAULT_STATE_TTL,
+    decrypt_payload,
+    delete_credential,
+    encrypt_payload,
+    load_credential,
+    pkce_pair,
+    save_oauth_token,
+    validate_token_endpoint,
+)
+
+
+#: 浏览器跳转型 provider 的固定登记（无 url 入参，防 SSRF）。
+#: 新增一家服务必须在这里补一段常量，不接受用户在界面上填地址。
+@dataclass(frozen=True)
+class OAuthProviderConfig:
+    name: str
+    authorization_endpoint: str
+    token_endpoint: str
+    registration_endpoint: str
+    revocation_endpoint: Optional[str]
+    scope: str = 'tools.read'
+
+    def redirect_uri(self) -> str:
+        """回调地址来自环境配置（部署域名不同），默认本地开发地址。"""
+        return (os.getenv('MCP_OAUTH_REDIRECT_URI') or 'http://127.0.0.1:5000/api/mcp/oauth/callback/').strip()
+
+
+PROVIDERS: Dict[str, OAuthProviderConfig] = {
+    'tzzb': OAuthProviderConfig(
+        name='tzzb',
+        authorization_endpoint='https://tzzb.10jqka.com.cn/oauth2/authorize',
+        token_endpoint='https://tzzb.10jqka.com.cn/oauth2/token',
+        registration_endpoint='https://tzzb.10jqka.com.cn/oauth2/register',
+        revocation_endpoint='https://tzzb.10jqka.com.cn/oauth2/revoke',
+    ),
+}
+
+
+def supported_providers() -> Tuple[str, ...]:
+    """可由浏览器授权连接的 provider（管理页只列这些）。"""
+    return tuple(sorted(PROVIDERS))
+
+
+def provider_config(provider: str) -> OAuthProviderConfig:
+    """取 provider 配置；未登记直接抛错，不猜地址。"""
+    try:
+        return PROVIDERS[provider]
+    except KeyError:
+        raise ValueError(f'provider {provider!r} 不支持浏览器授权') from None
+
+
+# DCR client_id 缓存（进程内即可；重启重新注册不影响已签发 token）
+_CLIENT_IDS: Dict[str, str] = {}
+_CLIENT_LOCK = threading.Lock()
+
+
+def _http_post(url: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """唯一的上游 POST 出口（测试在这里打桩，不 mock requests 全局）。
+
+    所有 endpoint 都先经 :func:`validate_token_endpoint` 校验过白名单域名。
+    """
+    response = requests.post(url, data=data, timeout=15)
+    if response.status_code >= 400:
+        # 只记状态码，绝不记 response.text：上游错误体可能含 token。
+        logger.warning(f'MCP OAuth 上游返回 {response.status_code}（{url.rsplit("/", 1)[-1]}）')
+        raise McpAuthError('授权服务拒绝了本次请求，请重新连接', provider='oauth')
+    try:
+        payload = response.json()
+    except ValueError:
+        raise McpAuthError('授权服务返回格式异常，请重新连接', provider='oauth') from None
+    if not isinstance(payload, dict):
+        raise McpAuthError('授权服务返回格式异常，请重新连接', provider='oauth')
+    return payload
+
+
+def client_id_for(config: OAuthProviderConfig) -> str:
+    """DCR 动态注册；同 provider 只注册一次，env 可预置 client_id 跳过注册。"""
+    preset = (os.getenv(f'MCP_{config.name.upper()}_CLIENT_ID') or '').strip()
+    if preset:
+        return preset
+    with _CLIENT_LOCK:
+        cached = _CLIENT_IDS.get(config.name)
+        if cached:
+            return cached
+        payload = _http_post(
+            config.registration_endpoint,
+            {
+                'redirect_uris': [config.redirect_uri()],
+                'client_name': 'Fund Mate',
+                'grant_types': ['authorization_code', 'refresh_token'],
+                'response_types': ['code'],
+                'token_endpoint_auth_method': 'none',
+            },
+        )
+        client_id = payload.get('client_id')
+        if not isinstance(client_id, str) or not client_id:
+            raise McpAuthError('授权服务未完成注册，请稍后重试', provider='oauth')
+        _CLIENT_IDS[config.name] = client_id
+        return client_id
+
+
+@contextmanager
+def _write_session() -> Iterator[Any]:
+    """请求内复用 user_session；非请求上下文（测试 / CLI）显式提交。"""
+    with user_session() as db:
+        try:
+            yield db
+            try:
+                from flask import has_request_context
+            except ImportError:  # pragma: no cover
+                has_request_context = lambda: False  # noqa: E731
+            if not has_request_context():
+                db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+
+def _now_naive() -> datetime:
+    return now_shanghai().replace(tzinfo=None)
+
+
+def begin(provider: str, user_id: int) -> Dict[str, Any]:
+    """发起授权：DCR → PKCE → 落 state → 返回浏览器授权 URL。
+
+    ``state`` 与 verifier 分离保存：URL 里只有 state，verifier 加密落库，
+    回调时再取出来换 token（PKCE 的关键就是 verifier 只在本机出现过）。
+    """
+    config = provider_config(provider)
+    validate_token_endpoint(config.token_endpoint, provider)
+    client_id = client_id_for(config)
+    verifier, challenge = pkce_pair()
+    state = secrets.token_urlsafe(32)
+    expires_at = _now_naive() + DEFAULT_STATE_TTL
+
+    with _write_session() as db:
+        db.add(
+            McpOAuthState(
+                state=state,
+                user_id=user_id,
+                provider=provider,
+                verifier_cipher=encrypt_payload({'verifier': verifier}, current_version()),
+                key_version=current_version(),
+                expires_at=expires_at,
+            )
+        )
+        db.flush()
+
+    from urllib.parse import urlencode
+
+    query = urlencode(
+        {
+            'response_type': 'code',
+            'client_id': client_id,
+            'redirect_uri': config.redirect_uri(),
+            'scope': config.scope,
+            'state': state,
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+        }
+    )
+    return {
+        'authorization_url': f'{config.authorization_endpoint}?{query}',
+        'state': state,
+        'expires_in': int(DEFAULT_STATE_TTL.total_seconds()),
+    }
+
+
+def current_version() -> int:
+    """复用凭据模块的密钥版本（state 与凭据共用一套密钥，少一处配置）。"""
+    from app.services.mcp.user_credentials import current_key_version
+
+    return current_key_version()
+
+
+def _consume_state(provider: str, state: str) -> Tuple[int, str]:
+    """原子消费 state：条件 UPDATE 保证并发下只有一个请求能成功。"""
+    if not state or len(state) > 100:
+        raise McpAuthError('授权请求无效，请重新发起连接', provider='oauth')
+    with _write_session() as db:
+        updated = (
+            db.query(McpOAuthState)
+            .filter(
+                and_(
+                    McpOAuthState.state == state,
+                    McpOAuthState.provider == provider,
+                    McpOAuthState.used_at.is_(None),
+                )
+            )
+            .update({'used_at': _now_naive()}, synchronize_session=False)
+        )
+        if not updated:
+            raise McpAuthError('授权请求无效或已使用，请重新发起连接', provider='oauth')
+        row = db.query(McpOAuthState).filter_by(state=state).one()
+        if row.expires_at <= _now_naive():
+            raise McpAuthError('授权请求已超时，请重新发起连接', provider='oauth')
+        verifier = decrypt_payload(row.verifier_cipher, row.key_version).get('verifier')
+        if not verifier:
+            raise McpAuthError('授权请求数据损坏，请重新发起连接', provider='oauth')
+        return row.user_id, verifier
+
+
+def callback(provider: str, state: str, code: str) -> int:
+    """授权回调：校验 state → code 换 token → 加密入库；返回所属 user_id。"""
+    config = provider_config(provider)
+    if not code:
+        raise McpAuthError('授权未携带有效凭证，请重新发起连接', provider='oauth')
+    user_id, verifier = _consume_state(provider, state)
+    payload = _http_post(
+        config.token_endpoint,
+        {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': config.redirect_uri(),
+            'client_id': client_id_for(config),
+            'code_verifier': verifier,
+        },
+    )
+    access_token = payload.get('access_token')
+    if not isinstance(access_token, str) or not access_token:
+        raise McpAuthError('授权服务未返回可用凭证，请重新发起连接', provider='oauth')
+    save_oauth_token(
+        user_id,
+        provider,
+        access_token=access_token,
+        refresh_token=payload.get('refresh_token'),
+        expires_in=payload.get('expires_in'),
+        token_endpoint=config.token_endpoint,
+    )
+    return user_id
+
+
+def refresh(provider: str, user_id: int) -> None:
+    """用 refresh_token 换新 access_token；没有 refresh_token 时要求重连。"""
+    config = provider_config(provider)
+    cred = load_credential(user_id, provider)
+    if cred is None:
+        raise McpUserTokenMissing('用户尚未连接该服务', provider=provider)
+    if not cred.refresh_token:
+        raise McpAuthError('授权已失效，请重新连接', provider=provider)
+    payload = _http_post(
+        config.token_endpoint,
+        {
+            'grant_type': 'refresh_token',
+            'refresh_token': cred.refresh_token,
+            'client_id': client_id_for(config),
+        },
+    )
+    access_token = payload.get('access_token')
+    if not isinstance(access_token, str) or not access_token:
+        raise McpAuthError('授权服务未返回可用凭证，请重新连接', provider='oauth')
+    save_oauth_token(
+        user_id,
+        provider,
+        access_token=access_token,
+        refresh_token=payload.get('refresh_token') or cred.refresh_token,
+        expires_in=payload.get('expires_in'),
+        token_endpoint=config.token_endpoint,
+    )
+
+
+def revoke(provider: str, user_id: int) -> None:
+    """断开连接：先通知上游撤销（失败不阻断本地删除），再删本地凭据。"""
+    config = provider_config(provider)
+    cred = load_credential(user_id, provider)
+    if cred is None:
+        return
+    if config.revocation_endpoint:
+        try:
+            _http_post(
+                config.revocation_endpoint,
+                {'token': cred.token, 'token_type_hint': 'access_token', 'client_id': client_id_for(config)},
+            )
+        except McpAuthError:
+            logger.warning('MCP 授权撤销失败，仍删除本地凭据')
+    delete_credential(user_id, provider)

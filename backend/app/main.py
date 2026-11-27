@@ -41,6 +41,7 @@ from app.domains.indices import models  # noqa: F401, E402  # 确保 index_const
 from app.domains.insight.views import insight_bp  # noqa: E402
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
 from app.domains.market.views import market_bp  # noqa: E402
+from app.domains.mcp.views import mcp_bp  # noqa: E402
 from app.domains.notification.views import notification_bp  # noqa: E402
 from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402
@@ -70,6 +71,7 @@ from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.alert_views import watchlist_alert_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 from app.models.mcp_call_log import McpCallLog  # noqa: F401, E402  # 确保 mcp_call_logs 表随 init_db 建表
+from app.models.mcp_oauth_state import McpOAuthState  # noqa: F401, E402  # OAuth 一次性 state 随 init_db 建表
 from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
 from app.models.user_mcp_credential import UserMcpCredential  # noqa: F401, E402  # 用户 MCP 凭据（S5）随 init_db 建表
 from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
@@ -163,6 +165,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(recurring_bp)
     app.register_blueprint(agent_bp)
     app.register_blueprint(usage_bp)
+    app.register_blueprint(mcp_bp)
 
     # 依赖注入（#1607）：core 不 import 领域层，用户身份读写（查用户 / JIT 建号 / 邮箱回写）
     # 实现在 domains.users.identity，由本组合根注入；漏注入时鉴权中间件会显式报错而非静默放行。
