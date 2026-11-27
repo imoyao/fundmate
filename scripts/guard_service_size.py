@@ -349,7 +349,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # first_investment_date，供资金流动、收益归因共用全周期起点；max_func 40 / max_cc 11
     # 未变）。都是真实代码增长，非放宽阈值：`test_baseline_matches_current_metrics`
     # 要求基线与实测逐项相等，留余量同样判红。
-    "backend/app/services/cash_flow_service.py": {'lines': 264, 'max_func': 133, 'max_cc': 24},
+    # 2026-11-27 资金流动加家庭级：cash_flow_service.py 264→259 / max_func 133→129 /
+    # max_cc 24→15 —— 三级作用域解析（scope 与 id 的自洽校验、家庭成员集合、日序列
+    # 来源分叉）与「期末资产按作用域分档」整体下沉到新文件 `cash_flow_scope.py`
+    # （165 / 25 / 16，走 NEW_FILE_LIMITS），本文件只留聚合，故三项同时**下降**。
+    # scope.py 167→178 是新增公共 `family_ledger_ids`（家庭级成员集合的唯一出口，
+    # 避免调用方各自手写查询漏掉 family 过滤）；max_func 40 / max_cc 11 未变。
+    "backend/app/services/cash_flow_service.py": {'lines': 259, 'max_func': 129, 'max_cc': 15},
     # 2026-11-19 #3182 收紧 cold_set_guard.py 235→224：审计写入下沉到
     # `sync_log.insert_audit_row`（时间参数须先格式化，Turso libsql 拒收 datetime 对象），
     # `record()` 因此少 11 行、max_func / max_cc 未变 ⇒ 基线只降不升。
@@ -558,7 +564,9 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/related_symbols.py": {'lines': 141, 'max_func': 57, 'max_cc': 7},
     # 2026-11-09 全周期复盘 +44 行（INCEPTION 哨兵 + first_investment_date 及口径注释），
     # 增长理由见 cash_flow_service.py 上方的本轮回写说明。
-    "backend/app/services/scope.py": {'lines': 167, 'max_func': 40, 'max_cc': 11},
+    # 2026-11-27 再 +11 行：`family_ledger_ids`（家庭级作用域的成员集合出口），
+    # 理由同上；max_func / max_cc 未变。
+    "backend/app/services/scope.py": {'lines': 178, 'max_func': 40, 'max_cc': 11},
     "backend/app/services/securities_type_backfill.py": {'lines': 121, 'max_func': 59, 'max_cc': 12},
     "backend/app/services/security_industry_map_service.py": {'lines': 310, 'max_func': 51, 'max_cc': 12},
     "backend/app/services/similar_fund_service.py": {'lines': 80, 'max_func': 37, 'max_cc': 6},

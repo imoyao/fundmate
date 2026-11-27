@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""账户级资金流动（#2616）：把 L1 分层落成「账户页能直接画」的数据。
+"""资金流动：账户级 #2616 / 组合级 #2681 / 家庭级 2026-11-27（作用域解析见 `cash_flow_scope`）。
 
 ## 这个模块解决什么
 
@@ -32,10 +32,9 @@ from collections import OrderedDict
 from typing import Optional
 
 from app.core.time_utils import today_shanghai
-from app.domains.ledgers.models import Ledger
+from app.services.cash_flow_scope import daily_series, derive_asset_totals, latest_market_value, resolve_scope
 from app.services.performance import cashflow_layers
-from app.services.pnl_calendar import build_daily_pnl_series
-from app.services.scope import ERR_MUTEX, INCEPTION, first_investment_date, member_ledger_ids
+from app.services.scope import INCEPTION, first_investment_date
 
 #: 缺省区间长度（天）：与 pnl-calendar 的缺省口径保持一致的量级（近一年）
 DEFAULT_RANGE_DAYS = 365
@@ -124,22 +123,25 @@ def build_cash_flow(
     *,
     ledger_id: Optional[int] = None,
     portfolio_id: Optional[int] = None,
+    scope: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> dict:
-    """资金流动汇总（账户级 / 组合级，口径见 `docs/spec/cashflow-layers.md`）。
+    """资金流动汇总（家庭级 / 账户级 / 组合级，口径见 `docs/spec/cashflow-layers.md`）。
 
     Args:
         ledger_id: 账户级口径；必须属于当前家庭（跨家庭 `ValueError`，不泄漏存在性）。
         portfolio_id: 组合级口径（#2681）；成员账本集合的唯一出口
             `services/scope.member_ledger_ids`（含组合存在性 / 归属校验）。
+        scope: 显式作用域 `ledger` / `family` / `portfolio`（2026-11-27 加家庭级；家庭级只能
+            这样请求，缺省时按传入的 id 推断以兼容旧调用点）。自洽校验在 `cash_flow_scope`。
         start_date / end_date: 区间视图（逐笔流水 / 月度柱状 / 净值曲线）；累计指标不受影响。
             缺省 end = 今日（上海），start = end − 365 天。
             `start_date='inception'` ⇒ 起点为作用域内最早一笔资金流水（含入金），
             即「投资以来」全周期；无流水时回落到缺省 365 天。
 
-    `ledger_id` 与 `portfolio_id` **二选一**：同传抛 `ValueError`（与穿透 / 归因同款
-    文案），都不传也抛（不再有「默认取谁」的隐式语义）。
+    作用域三选一（三级对照表见 `cash_flow_scope` 模块 docstring）：同传 `ledger_id` 与
+    `portfolio_id` 抛 `ValueError`；两个都不传且没给 `scope=family` 也抛——**不设隐式默认**。
 
     ## 组合级为什么要一次传入全部成员账本
 
@@ -155,27 +157,17 @@ def build_cash_flow(
 
     返回（金额均为元）::
 
-        {'scope': 'ledger'|'portfolio', 'ledger_id', 'portfolio_id', 'start_date', 'end_date',
+        {'scope': 'ledger'|'family'|'portfolio', 'ledger_id', 'portfolio_id', 'start_date',
+         'end_date', 'first_txn_date',
          'totals': {'deposit','withdraw','net_invested','cash_residual',
                     'market_value','end_asset','total_return','has_deposit_record'},
          'external_flows': [{'date','direction','amount','asset_type','symbol'}],
          'monthly': [{'month','deposit','withdraw','net'}],
          'net_worth_series': [{'date','net_worth','cum_net_invested','state'}]}
     """
-    if ledger_id is not None and portfolio_id is not None:
-        raise ValueError(ERR_MUTEX)
-    if ledger_id is None and portfolio_id is None:
-        raise ValueError('ledger_id 或 portfolio_id 必填')
-
-    if ledger_id is not None:
-        ledger = db.query(Ledger).filter(Ledger.id == ledger_id, Ledger.family_id == family_id).first()
-        if ledger is None:
-            raise ValueError('账户不存在')
-        member_ids = [ledger_id]
-        scope = 'ledger'
-    else:
-        member_ids = sorted(member_ledger_ids(db, family_id, portfolio_id))
-        scope = 'portfolio'
+    # 三级作用域解析（含 id 自洽校验 / 账户归属 / 组合成员集合）全部在 cash_flow_scope，
+    # 本函数只消费结果：`member_ids` 是流水聚合的集合口径。
+    scope_name, member_ids = resolve_scope(db, family_id, ledger_id=ledger_id, portfolio_id=portfolio_id, scope=scope)
 
     end = _parse_date(end_date) or today_shanghai()
     # 「投资以来」起点按作用域解析一次，既用于区间左界也回带给前端：
@@ -190,10 +182,15 @@ def build_cash_flow(
     if start > end:
         raise ValueError('start_date 不能晚于 end_date')
 
-    # 累计口径：自开户以来（只截到 end，避免把未来的流水算进来）
-    inception = cashflow_layers.build_layers(db, member_ids, family_id=family_id, end_date=end)
+    # 累计口径：自开户以来（只截到 end）。`include_cash_equivalents=True`：L1 是**外部
+    # 资金流**，入金不该因为记在「现金 / 货基」账户上被丢掉（默认 False 是给 XIRR 的）。
+    inception = cashflow_layers.build_layers(
+        db, member_ids, family_id=family_id, end_date=end, include_cash_equivalents=True
+    )
     # 区间口径：列表与月度柱状
-    ranged = cashflow_layers.build_layers(db, member_ids, family_id=family_id, start_date=start, end_date=end)
+    ranged = cashflow_layers.build_layers(
+        db, member_ids, family_id=family_id, start_date=start, end_date=end, include_cash_equivalents=True
+    )
 
     totals_raw = inception['totals']
     # 内部互转（组合级才会命中）：totals 已经剔除，逐笔 / 月度 / 曲线也必须同样剔除，
@@ -202,27 +199,25 @@ def build_cash_flow(
     ranged_l1 = [flow for flow in ranged['l1'] if not flow.get('internal_transfer')]
     has_deposit = any(flow['txn_type'] == 'deposit' for flow in inception_l1)
 
-    if ledger_id is not None:
-        series = build_daily_pnl_series(db, family_id, start.isoformat(), end.isoformat(), ledger_id)
-    else:
-        # 局部导入：performance 包在导入期会拉一堆计算模块，放模块顶端容易引入环
-        from app.services.performance.twr import build_portfolio_daily_pnl_series
-
-        series = build_portfolio_daily_pnl_series(db, family_id, portfolio_id, start.isoformat(), end.isoformat())
+    # 家庭级 / 账户级同走 pnl_calendar（家庭级就是 ledger_id=None），组合级 Σ 成员
+    series = daily_series(
+        db,
+        family_id,
+        scope_name,
+        ledger_id=ledger_id,
+        portfolio_id=portfolio_id,
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+    )
 
     days = series.get('days') or []
-    market_value = 0.0
-    for day in reversed(days):
-        if day.get('net_worth') is not None:
-            market_value = float(day['net_worth'])
-            break
+    market_value = latest_market_value(days)
 
-    cash_residual = float(totals_raw['cash_residual'])
-    net_invested = float(totals_raw['net_invested'])
-    end_asset = round(market_value + cash_residual, 2)
+    # 现金残差 / 期末资产 / 累计收益按作用域分档（家庭级不推导现金残差，见 cash_flow_scope）
+    derived = derive_asset_totals(scope_name, totals_raw, market_value)
 
     return {
-        'scope': scope,
+        'scope': scope_name,
         'ledger_id': ledger_id,
         'portfolio_id': portfolio_id,
         'start_date': start.isoformat(),
@@ -231,12 +226,12 @@ def build_cash_flow(
         'totals': {
             'deposit': float(totals_raw['deposit']),
             'withdraw': float(totals_raw['withdraw']),
-            'net_invested': net_invested,
-            # 推导值：缺流水会偏，页面须注明「推导」
-            'cash_residual': cash_residual,
+            'net_invested': derived['net_invested'],
+            # 推导值：缺流水会偏，页面须注明「推导」；家庭级为 null（不推导）
+            'cash_residual': derived['cash_residual'],
             'market_value': round(market_value, 2),
-            'end_asset': end_asset,
-            'total_return': round(end_asset - net_invested, 2),
+            'end_asset': derived['end_asset'],
+            'total_return': derived['total_return'],
             # 没有入金流水 ⇒ 净投入恒 0，页面不能把「0」当成「没赚钱」，要提示补录
             'has_deposit_record': has_deposit,
         },
@@ -248,7 +243,7 @@ def build_cash_flow(
             'days': len(days),
             'missing_nav_days': sum(1 for day in days if day.get('net_worth') is None),
             'amount_unit': 'yuan',
-            'cash_residual_is_derived': True,
+            'cash_residual_is_derived': scope_name != 'family',
         },
     }
 

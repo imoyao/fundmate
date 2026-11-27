@@ -165,3 +165,14 @@ def first_investment_date(
 
     value = query.scalar()
     return str(value)[:10] if value else None
+
+
+def family_ledger_ids(db: Session, family_id: int) -> Set[int]:
+    """家庭全部账本 id 集合（家庭级作用域的成员集合，与组合级 `member_ledger_ids` 同构）。
+
+    单独立成函数，是为了让「家庭」成为与 ledger / portfolio 并列的**第三种作用域**，
+    而不是让每个调用方各自 `query(Ledger.id).filter(...)`——那种写法少写一次
+    `family_id` 过滤就是跨家庭取数（`ai_recognizer/visibility_gate` 有过同型事故）。
+    返回集合而非列表：调用方只做 `in_` 过滤，顺序无意义；需要确定性顺序请自行 `sorted`。
+    """
+    return {row[0] for row in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()}

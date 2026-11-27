@@ -27,6 +27,14 @@ describe("cashFlowParams", () => {
     });
   });
 
+  it("家庭级只带 scope，不带任何 id（两者互斥，同传后端 400）", () => {
+    // 调用方即使误把 id 一起传进来，也以 family 为准、不把矛盾参数发出去
+    expect(cashFlowParams("1y", { family: true, ledgerId: 26 }, NOW)).toEqual({
+      start_date: "2025-11-09",
+      scope: "family"
+    });
+  });
+
   it("档位口径同源：起点恒等于统一表 `chartRangeParams`（不许本模块自带天数）", () => {
     for (const key of ["1m", "3m", "6m", "1y", "2y", "ytd"] as const) {
       expect(cashFlowParams(key, {}, NOW).start_date).toBe(

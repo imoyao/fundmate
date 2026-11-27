@@ -273,13 +273,12 @@ def today_pnl():
 def cash_flow():
     """#2616 / #2681 资金流动（入金/出金/净投入/期末资产 + 净值与累计净投入双线）。
 
-    `ledger_id` 与 `portfolio_id` 二选一（同传 400、都不传也 400，不设隐式默认）。
-    组合级 = 成员账本集合一次聚合（`services/scope.member_ledger_ids`），组合内互转由
-    `cashflow_layers.pair_internal_transfers` 配对抵消为 0，与「Σ 账户 ≡ 家庭」同一条可加性。
-    累计指标恒为「自开户以来」，`start_date`/`end_date` 只影响逐笔流水、月度柱状与曲线。
-    `start_date=inception` 表示「投资以来」：起点由后端按作用域解析最早资金流水，
-    响应另带 `first_txn_date`（无流水为 null）——前端无需先取起点再发第二次请求。
-    口径与现金残差推导见 `docs/spec/cashflow-layers.md`。
+    `ledger_id` 与 `portfolio_id` 二选一（同传 400、都不传也 400）；家庭级（2026-11-27）只能显式
+    `scope=family`（无 id 可推断，漏传静默变全家比报错更坏）。组合级 / 家庭级都是一次聚合
+    （`scope.member_ledger_ids` / `family_ledger_ids`），内部互转由 `pair_internal_transfers`
+    抵消为 0，与「Σ 账户 ≡ 家庭」同一条可加性。累计指标恒为「自开户以来」，区间只影响逐笔
+    流水 / 月度柱状 / 曲线；`start_date=inception` 表示「投资以来」（起点由后端按作用域解析，
+    响应带 `first_txn_date`）。口径与现金残差推导见 `docs/spec/cashflow-layers.md`。
     """
     try:
         with get_db() as db:
@@ -288,6 +287,7 @@ def cash_flow():
                 get_family_id(),
                 ledger_id=request.args.get('ledger_id', type=int),
                 portfolio_id=request.args.get('portfolio_id', type=int),
+                scope=request.args.get('scope'),
                 start_date=request.args.get('start_date'),
                 end_date=request.args.get('end_date'),
             )

@@ -110,12 +110,12 @@
         @navigate="goToNavSection"
       />
 
-      <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
-         为「收益概览 / 资产净值走势 / 清仓复盘 / 浮亏回本 / 持仓结构 / 货币基金收益」
-         六段（#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配；
-         浮亏回本无浮亏时整块不渲染、结构区三块各有空态，骨架屏不随它们增减）。
-         顺序 = 信息重要性：数字 → 数字的形状 → 单笔已实现结果 → 未实现的风险 →
-         风险来自哪（结构）→ 口径补充项。 -->
+      <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块为
+         「收益概览 / 资产净值走势 / 资金流动 / 清仓复盘 / 浮亏回本 / 持仓结构 / 货基收益」
+         七段（#2131 清仓周期复盘含表格，故 table-rows=5 与真实行数匹配；浮亏回本无浮亏时
+         整块不渲染、结构区三块各有空态，骨架屏不随它们增减）。
+         顺序 = 信息重要性：数字 → 数字的形状 → 钱的进出（曲线的台阶） → 单笔已实现结果 →
+         未实现的风险 → 风险来自哪（结构）→ 口径补充项。 -->
       <PageSkeleton
         v-if="initialLoading"
         :cards="3"
@@ -168,6 +168,12 @@
             </CardBlock>
           </section>
 
+          <!-- 资金流动（2026-11-27）：紧跟净值走势——曲线的台阶就是入金 / 出金，放下面
+               才对得上「这天为什么抬了一截」。`family` = 家庭级（同页统一口径）。
+               ⚠️ 本块「净投入」是出入金口径（L1），与上方收益概览那张卡（买入 − 卖出，
+               L2）不是同一个数，面板 ⓘ 已写明，别在这里再解释一遍。 -->
+          <CashFlowPanel id="nav-cash-flow" ref="cashFlow" family />
+
           <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
              自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与净值走势。 -->
           <ClearedCyclesSection id="nav-cycles" />
@@ -177,20 +183,9 @@
                放清仓复盘之后：已实现与未实现上下对照，同一屏看完「赚到的」与「欠着的」。 -->
           <BreakEvenSection ref="breakEven" />
 
-          <!-- 持仓结构（2026-11-27，用户第 9 条）：上面几块报「赚了多少 / 欠多少」，
-               这一块报「这些数字是由什么构成的」——由粗到细：品种与集中度（钱压在谁
-               身上）→ 行业（压在哪个行当）→ 基金风格（走的哪一路 beta）。三块都
-               **不传作用域 props**（= 家庭级，与 XIRR / 清仓周期同口径），各自取数、
-               各自降级。与资产总览的边界见文件头「结构问题归谁」表。 -->
-          <section id="nav-structure">
-            <div class="mb-6">
-              <PositionStructurePanel />
-            </div>
-            <div class="mb-6">
-              <PenetrationPanel />
-            </div>
-            <StyleDistributionCard />
-          </section>
+          <!-- 持仓结构（2026-11-27，用户第 9 条）：报「收益由什么构成」，三块面板与
+               内部间距收在 AnalysisStructureSection 里，父页只管它在页内的位置。 -->
+          <AnalysisStructureSection />
 
           <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
                总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
@@ -221,10 +216,9 @@ import PageToc from "@/components/PageToc/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
-import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
-import StyleDistributionCard from "@/components/StyleDistributionCard/index.vue";
+import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
+import AnalysisStructureSection from "./AnalysisStructureSection.vue";
 import ReturnOverviewSection from "./ReturnOverviewSection.vue";
 import MoneyFundIncomeSection from "./MoneyFundIncomeSection.vue";
 import BreakEvenSection from "./BreakEvenSection.vue";
@@ -275,7 +269,7 @@ const updatedAtLabel = computed(() =>
   latestSnapshot.value ? `${latestSnapshot.value.snapshot_date} 更新` : ""
 );
 
-// 页内导航（2026-10-25）：纵向独立区块（收益概览 / 资产净值走势 / 清仓复盘 /
+// 页内导航（2026-10-25）：纵向独立区块（收益概览 / 资产净值走势 / 资金流动 / 清仓复盘 /
 // 浮亏回本 / 持仓结构 / 货基收益），符合 components.md 的 PageToc 接入判据；条目顺序
 // 由 DOM 实序决定（usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader
 // 标题逐字一致。「浮亏回本」无浮亏时整块不渲染，标签随之隐没（缺锚点即不出现，不需要占位）。
@@ -285,6 +279,7 @@ const NAV_LABELS: Record<string, string> = {
   "nav-money-fund": "货币基金收益",
   "nav-cycles": "清仓复盘",
   "nav-net-worth": "资产净值走势",
+  "nav-cash-flow": "资金流动",
   "nav-break-even": "浮亏回本",
   "nav-structure": "持仓结构"
 };
@@ -301,6 +296,7 @@ const returnOverview = ref<InstanceType<typeof ReturnOverviewSection> | null>(
 );
 const moneyFund = ref<InstanceType<typeof MoneyFundIncomeSection> | null>(null);
 const breakEven = ref<InstanceType<typeof BreakEvenSection> | null>(null);
+const cashFlow = ref<InstanceType<typeof CashFlowPanel> | null>(null);
 
 const loadAll = () => loadProfitTrend();
 
@@ -312,7 +308,8 @@ const reloadAll = async () => {
       loadAll(),
       returnOverview.value?.refresh(),
       moneyFund.value?.refresh(),
-      breakEven.value?.refresh()
+      breakEven.value?.refresh(),
+      cashFlow.value?.refresh()
     ]);
     await nextTick();
     initCharts();
@@ -355,8 +352,14 @@ onMounted(async () => {
   gap: var(--space-standard);
 }
 
+/* 主列 = 纵向块栈，块间距与 shell 同级（--space-section）。2026-11-27 实测修：
+   此前没有 gap，各区块间距实测 0 / −1px，只剩 SectionHeader 自带的 12px 撑着，
+   七段挤成一片（同站其它资产页的 shell 都是 flex column + 该令牌，本页漏了这一层）。 */
 .analysis-main {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: var(--space-section);
   min-width: 0;
 }
 

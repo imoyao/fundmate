@@ -41,7 +41,9 @@ export function useCashFlow(scope: CashFlowScope) {
   }
 
   async function fetchCashFlow() {
-    if (scope.ledgerId == null && scope.portfolioId == null) return;
+    // 三级作用域：家庭级没有 id，故「三样都没有」才算没指定作用域
+    if (!scope.family && scope.ledgerId == null && scope.portfolioId == null)
+      return;
     const params = cashFlowParams(range.value, scope);
     loadError.value = "";
     try {
@@ -56,7 +58,10 @@ export function useCashFlow(scope: CashFlowScope) {
   }
 
   onMounted(fetchCashFlow);
-  watch(() => [scope.ledgerId, scope.portfolioId, range.value], fetchCashFlow);
+  watch(
+    () => [scope.family, scope.ledgerId, scope.portfolioId, range.value],
+    fetchCashFlow
+  );
 
   return {
     range,
@@ -65,6 +70,7 @@ export function useCashFlow(scope: CashFlowScope) {
     totals,
     missingDays,
     inceptionLabel,
-    money
+    money,
+    refresh: fetchCashFlow
   };
 }
