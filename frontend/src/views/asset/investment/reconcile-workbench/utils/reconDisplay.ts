@@ -173,16 +173,23 @@ export function discrepancySceneSentence(
 /**
  * 分组主标题。`group.key` 形如 `20|001982` 是后端复合主键，**不展示**；
  * 只用 `symbol`，缺失时给可执行的说明而不是空白或英文 none。
+ *
+ * `withCode=true` 给「名称 · 代码」同标题（卡片用）：代码仍是标题的一部分，
+ * 不是没头没尾的 tag；特殊码（cash）不是产品，只给中文说明，绝不把裸码带上屏。
+ * 模板里所有标题必须调用本函数（guard_recon_symbol_display 的硬契约）。
  */
 export function reconGroupTitle(
   symbol: string | null | undefined,
-  displayName?: string | null
+  displayName?: string | null,
+  withCode = false
 ): string {
   const name = displayName?.trim();
-  if (name) return name;
   const code = symbol?.trim();
-  if (!code) return "标的代码未填";
-  return specialSymbolLabel(code) ?? code;
+  if (!code) return name || "标的代码未填";
+  const special = specialSymbolLabel(code);
+  if (special) return special;
+  if (name) return withCode ? `${name} · ${code}` : name;
+  return code;
 }
 
 /** 原样代码，只用于「代码」这类技术行；展示标题一律走 reconGroupTitle */
@@ -212,14 +219,13 @@ export function reconAssetHeading(
  * 队列标题：名称 + 代码写在同一个标题里（用户反馈：代码当 tag 摆着看不懂）。
  * 现金特殊码不是产品，只给中文标签，不把裸 `cash` 带上屏——`reconAssetHeading`
  * 给抽屉用（那里需要代码可追溯），队列这里守「零裸码」的既有口径。
+ * 与域 D 模板共用 reconGroupTitle 的 withCode 分支，避免两处口径漂移。
  */
 export function reconQueueTitle(
   symbol: string | null | undefined,
   displayName?: string | null
 ): string {
-  const special = specialSymbolLabel(symbol);
-  if (special) return special;
-  return reconAssetHeading(symbol, displayName);
+  return reconGroupTitle(symbol, displayName, true);
 }
 
 /** 标的副标题：有名称就补名称，没有就退到「标的代码」，不臆造产品名。 */

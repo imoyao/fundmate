@@ -20,6 +20,7 @@ import {
   reconAssetHeading,
   reconGhostTxnDetail,
   reconGroupTitle,
+  reconQueueTitle,
   reconSymbolCode
 } from "../reconDisplay";
 
@@ -103,6 +104,18 @@ describe("产品名：用户得知道自己在改哪个产品", () => {
   it("没有名称时退到代码，绝不臆造产品名", () => {
     expect(reconAssetHeading("SH688223")).toBe("SH688223");
     expect(reconAssetHeading(null)).toBe("标的代码未填");
+  });
+
+  it("卡片标题「名称 · 代码」与队列口径一致，现金特殊码不漏裸码", () => {
+    expect(reconGroupTitle("007049", "华夏沪深300ETF联接A", true)).toBe(
+      "华夏沪深300ETF联接A · 007049"
+    );
+    expect(reconQueueTitle("007049", "华夏沪深300ETF联接A")).toBe(
+      "华夏沪深300ETF联接A · 007049"
+    );
+    expect(reconGroupTitle("cash", null, true)).toBe("现金");
+    expect(reconQueueTitle("cash")).toBe("现金");
+    expect(reconGroupTitle(null, "只有名称", true)).toBe("只有名称");
   });
 });
 

@@ -14,14 +14,8 @@
             <!-- 名称 · 代码写在一个标题里（与队列卡片同一口径）：代码当 tag 摆着
                  用户看不出它和名称的关系。现金不是产品，只给中文说明。 -->
             <span class="ghost-group__symbol">{{
-              reconAssetHeading(g.symbol, g.display_name)
+              reconGroupTitle(g.symbol, g.display_name, true)
             }}</span>
-            <span
-              v-if="specialSymbolLabel(g.symbol)"
-              class="ghost-group__identity"
-            >
-              {{ CASH_SYMBOL_HINT }}
-            </span>
           </div>
           <el-button size="small" text @click="emit('ignore', g)">
             忽略此组
@@ -77,10 +71,7 @@
             class="ghost-ignored__item"
           >
             <span class="ghost-ignored__label">
-              {{ reconAssetHeading(it.symbol, it.display_name) }}
-              <template v-if="specialSymbolLabel(it.symbol)">
-                · {{ CASH_SYMBOL_HINT }}
-              </template>
+              {{ reconGroupTitle(it.symbol, it.display_name, true) }}
               <template v-if="it.amount_yuan != null">
                 · 金额 {{ it.amount_yuan.toLocaleString() }} 元
               </template>
@@ -112,15 +103,11 @@ import type {
   GhostDuplicateTxn
 } from "@/api/reconciliation";
 import {
-  reconAssetHeading,
   reconGhostTxnDetail,
+  reconGroupTitle,
   reconMoney
 } from "../utils/reconDisplay";
-import {
-  ACTION_RISK_HINTS,
-  CASH_SYMBOL_HINT,
-  specialSymbolLabel
-} from "../utils/reconLabels";
+import { ACTION_RISK_HINTS } from "../utils/reconLabels";
 
 /**
  * 域 D 跨账本重复交易表（#2151）。
@@ -183,11 +170,6 @@ const emit = defineEmits<{
   font-size: var(--text-body, 14px);
   font-weight: 600;
   color: var(--text-primary);
-}
-
-.ghost-group__identity {
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
 }
 
 .ghost-group__meta {
