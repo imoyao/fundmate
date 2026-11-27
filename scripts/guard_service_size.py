@@ -581,7 +581,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # （资产行纳入 + 「未纳入」出口），并删除随实现消失的死常量 _DEFAULT_ALLOC；
     # 1417 → 1415 为真实缩减，按 --report 回写（只减不增）。
     "backend/app/services/summary_scope.py": {'lines': 104, 'max_func': 28, 'max_cc': 6},
-    "backend/app/services/summary_service.py": {'lines': 1495, 'max_func': 107, 'max_cc': 18},
+    "backend/app/services/summary_service.py": {'lines': 1488, 'max_func': 102, 'max_cc': 18},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},

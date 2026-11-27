@@ -14,6 +14,7 @@
       />
       <SearchInput
         :model-value="keyword"
+        class="recon-filter__search"
         size="sm"
         soft
         placeholder="搜代码、账户名或说明"
@@ -101,11 +102,13 @@ const dirty = computed(
   margin-bottom: var(--space-2);
 }
 
+/* 搜索框与批次下拉同宽：二级筛选是并列关系，宽窄不一会被读成重要性不同。 */
+.recon-filter__search,
 .recon-filter__batch {
   --input-bg: var(--bg-soft);
   --input-height: 32px;
 
-  width: min(200px, 100%);
+  width: min(220px, 100%);
 }
 
 /* 下拉框 placeholder 对比度偏低，像 disabled；抬到次级正文档 */

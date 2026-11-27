@@ -11,17 +11,16 @@
       <article v-for="g in items" :key="g.fingerprint" class="ghost-group">
         <header class="ghost-group__head">
           <div class="ghost-group__title">
-            <!-- 标题一律 reconGroupTitle（名称优先）；代码降级为次要事实行，
-                 与队列 facts / 域 B 表的「名称 + 代码 X」结构保持一致 -->
+            <!-- 名称 · 代码写在一个标题里（与队列卡片同一口径）：代码当 tag 摆着
+                 用户看不出它和名称的关系。现金不是产品，只给中文说明。 -->
             <span class="ghost-group__symbol">{{
-              reconGroupTitle(g.symbol, g.display_name)
+              reconAssetHeading(g.symbol, g.display_name)
             }}</span>
-            <span class="ghost-group__identity">
-              {{
-                specialSymbolLabel(g.symbol)
-                  ? CASH_SYMBOL_HINT
-                  : `代码 ${reconSymbolCode(g.symbol)}`
-              }}
+            <span
+              v-if="specialSymbolLabel(g.symbol)"
+              class="ghost-group__identity"
+            >
+              {{ CASH_SYMBOL_HINT }}
             </span>
           </div>
           <el-button size="small" text @click="emit('ignore', g)">
@@ -39,15 +38,18 @@
         </p>
 
         <!-- 组内明细：每一笔就是「删一份」的候选。顺序由后端固定为 (ledger_id, id) 升序，
-             前端不再排序，避免两处口径漂移。 -->
+             前端不再排序，避免两处口径漂移。分红流水无买卖份额/成交单价，按类型叙事。 -->
+        <p class="ghost-txns__lead">
+          组内 {{ g.transactions.length }} 笔 · 核对后保留一笔
+        </p>
         <ul class="ghost-txns">
           <li v-for="t in g.transactions" :key="t.id" class="ghost-txn">
             <span class="ghost-txn__ledger">{{ t.ledger_name }}</span>
-            <span class="ghost-txn__num">
-              {{ formatQty(t.quantity) }} 份 @ {{ t.price }}
+            <span class="ghost-txn__detail">
+              {{ reconGhostTxnDetail(g.txn_type, t.quantity, t.price) }}
             </span>
             <span class="ghost-txn__amount">
-              {{ t.amount_yuan.toLocaleString() }} 元
+              {{ reconMoney(t.amount_yuan) }}
             </span>
             <el-button
               size="small"
@@ -56,10 +58,11 @@
               :loading="deletingId === t.id"
               @click="emit('delete-txn', t)"
             >
-              删除这条
+              删除这笔
             </el-button>
           </li>
         </ul>
+        <p class="ghost-txns__risk">{{ ACTION_RISK_HINTS.ghostDelete }}</p>
       </article>
 
       <!-- 已忽略组：不静默吞掉，给撤销入口（后端 ignore 幂等，撤销不存在也不报错） -->
@@ -74,14 +77,9 @@
             class="ghost-ignored__item"
           >
             <span class="ghost-ignored__label">
-              {{ reconGroupTitle(it.symbol, it.display_name) }}
-              <template v-if="it.symbol">
-                ·
-                {{
-                  specialSymbolLabel(it.symbol)
-                    ? CASH_SYMBOL_HINT
-                    : `代码 ${reconSymbolCode(it.symbol)}`
-                }}
+              {{ reconAssetHeading(it.symbol, it.display_name) }}
+              <template v-if="specialSymbolLabel(it.symbol)">
+                · {{ CASH_SYMBOL_HINT }}
               </template>
               <template v-if="it.amount_yuan != null">
                 · 金额 {{ it.amount_yuan.toLocaleString() }} 元
@@ -113,8 +111,16 @@ import type {
   GhostDuplicateIgnore,
   GhostDuplicateTxn
 } from "@/api/reconciliation";
-import { reconGroupTitle, reconSymbolCode } from "../utils/reconDisplay";
-import { CASH_SYMBOL_HINT, specialSymbolLabel } from "../utils/reconLabels";
+import {
+  reconAssetHeading,
+  reconGhostTxnDetail,
+  reconMoney
+} from "../utils/reconDisplay";
+import {
+  ACTION_RISK_HINTS,
+  CASH_SYMBOL_HINT,
+  specialSymbolLabel
+} from "../utils/reconLabels";
 
 /**
  * 域 D 跨账本重复交易表（#2151）。
@@ -140,13 +146,6 @@ const emit = defineEmits<{
   "undo-ignore": [item: GhostDuplicateIgnore];
   "delete-txn": [txn: GhostDuplicateTxn];
 }>();
-
-/** 份额格式：后端已转成可读份额（4 位小数），这里只去掉尾随 0 */
-function formatQty(q: number): string {
-  return Number.isInteger(q)
-    ? String(q)
-    : q.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-}
 </script>
 
 <style scoped>
@@ -206,6 +205,12 @@ function formatQty(q: number): string {
   list-style: none;
 }
 
+.ghost-txns__lead {
+  margin: 0 0 4px;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+}
+
 .ghost-txn {
   display: flex;
   flex-wrap: wrap;
@@ -223,9 +228,15 @@ function formatQty(q: number): string {
   color: var(--text-primary);
 }
 
-.ghost-txn__num,
+.ghost-txn__detail,
 .ghost-txn__amount {
   color: var(--text-tertiary-ink);
+}
+
+.ghost-txns__risk {
+  margin: 6px 0 0;
+  font-size: var(--text-label);
+  color: var(--color-warning-ink);
 }
 
 .ghost-ignored {

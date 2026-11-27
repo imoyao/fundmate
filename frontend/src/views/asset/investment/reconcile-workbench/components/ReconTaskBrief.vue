@@ -3,14 +3,11 @@
     单类任务的场景句：用户选了哪一类，就只给一句「这类问题要我做什么」。
     三段式（什么情况 / 不处理会怎样 / 处理之后）已精简掉——首屏不再摊开解释。
   -->
-  <CardBlock class="recon-brief">
-    <p class="recon-brief__scene">{{ meta.what }}</p>
-  </CardBlock>
+  <p class="recon-brief">{{ meta.what }}</p>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import CardBlock from "@/components/CardBlock/index.vue";
 import { taskMeta, type ReconTaskKey } from "../constants/reconTasks";
 
 defineOptions({ name: "ReconTaskBrief" });
@@ -23,14 +20,14 @@ const meta = computed(() => taskMeta(props.task));
 </script>
 
 <style scoped>
+/* 一句话说明与 chips 同属「筛选语境」，用行内注释承载即可；
+   原先套 CardBlock 让一句话独占一张卡，把真正的待办列表顶出了首屏。 */
 .recon-brief {
-  margin-bottom: var(--space-compact);
-}
-
-.recon-brief__scene {
-  margin: 0;
-  font-size: var(--text-small);
-  line-height: 1.7;
-  color: var(--text-secondary);
+  padding-left: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-label);
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
+  border-left: 2px solid var(--border-default);
 }
 </style>

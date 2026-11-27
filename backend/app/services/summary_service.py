@@ -43,6 +43,7 @@ from app.services.family_member_service import ledger_ids_for_member
 
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
+from app.services.ghost_display_name import first_display_name, ghost_display_names
 from app.services.ledger_cumulative_pnl import buy_fee_by_ledger, realized_pnl_by_ledger
 
 # 🔄 市值口径收口（#1174）：仪表盘市值统一委托唯一口径，override / balance / nav 一并覆盖
@@ -1337,23 +1338,14 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
     - `transactions`：组内明细（id / ledger_id / quantity / price / 日期），供对账工作台域 D 直接展示「删掉多余那一份」。
 
     返回：每组 {fingerprint, symbol, symbol_identity, display_name, confirm_date, txn_type,
-              amount_yuan, ledger_ids, ledger_names, count, transactions}；display_name 组内任一行 position_name 非空即取
+              amount_yuan, ledger_ids, ledger_names, count, transactions}；display_name 取 positions.name 优先
     """
     ledger_name_map = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
 
-    # #2151：身份归一必须发生在分组**之前**，故这里从「SQL 聚合」退回「Python 分组」。
-    # 为什么非退不可：`GROUP BY symbol` 按**字面量**分组，`600519` 与 `SH600519` 会各成
-    # 一组、各自只有 1 个账本，被 `HAVING >= 2` 滤掉 —— 同一笔跨账本重复就这么**静默消失**。
-    # 而归一函数（`symbol_identity` 走 venue 推断）在 SQL 里表达不了。
-    #
-    # ⚠️ 这**部分回退了 B4 的优化**（B4 原话：「用 SQL 聚合直接出重复组，避免把 family 级
-    # 全量交易拉进内存再分组（数据量大时全表 .all() 会 OOM/慢）」）。取舍是自觉的：
-    # 拉进内存的集合已被 `family_id + ledger_id 非空 + status='success'` 收敛到
-    # 「本家庭自己的交易流水」，与同文件 `get_account_groups` 等已有口径同阶；
-    # 相比「漏报一整类重复」，「多一次内存分组」是更轻的代价。
-    # 若将来该集合真成为瓶颈，正解是给 `transactions` 加一列**持久化的身份键**
-    # （`positions.symbol_norm` 已有先例，#1662），在写入侧落库、SQL 里直接 group by，
-    # 而不是回到按字面量分组。
+    # #2151：身份归一须在分组前，故从 SQL 聚合退回 Python 分组——`GROUP BY symbol`
+    # 按字面量会把 600519 / SH600519 拆成两组、各自不足 2 账本而被静默滤掉。
+    # 集合已被 family + 非空 ledger + success 收敛；将来若成瓶颈，正解是持久化身份键
+    # （positions.symbol_norm 先例 #1662），而非回到字面量分组。
     rows = (
         db.query(
             Transaction.id,
@@ -1386,6 +1378,7 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
             )
         ].append(row)
 
+    display_names = ghost_display_names(db, family_id, grouped.values())
     result: list[dict] = []
     for (confirm_date, identity, txn_type, amount), txns in grouped.items():
         ledger_ids = sorted({int(t.ledger_id) for t in txns})
@@ -1396,7 +1389,7 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
             {
                 'fingerprint': build_ghost_fingerprint(confirm_date, identity, txn_type, amount, ledger_ids),
                 'symbol': symbol,
-                'display_name': next((t.position_name for t in txns if t.position_name), None),
+                'display_name': first_display_name(txns, display_names),
                 'symbol_identity': identity,
                 'confirm_date': confirm_date.isoformat() if confirm_date else None,
                 'txn_type': txn_type,

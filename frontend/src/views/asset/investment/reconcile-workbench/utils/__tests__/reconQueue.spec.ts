@@ -429,24 +429,24 @@ describe("D/F/G 条目标题取 display_name，代码降级为事实行", () => 
     };
   }
 
-  it("域 D：display_name 存在时标题是名称，事实行含「代码 X」", () => {
+  it("域 D：代码跟在名称后作为标题后缀，事实行不再出现「代码 X」tag", () => {
     const items = buildReconQueue({
       ...emptySource(),
       ghostGroups: [ghostGroup({ display_name: "中证 500ETF 联接" })]
     });
     const row = items.find(i => i.payload.kind === "ghost")!;
-    expect(row.title).toBe("中证 500ETF 联接");
-    expect(row.facts.join(" ")).toContain("代码 SH515250");
+    expect(row.title).toBe("中证 500ETF 联接 · SH515250");
+    expect(row.facts.join(" ")).not.toContain("代码");
   });
 
-  it("域 D：display_name 为 null 时标题回落代码", () => {
+  it("域 D：display_name 为 null 时标题回落代码，事实行不重复代码", () => {
     const items = buildReconQueue({
       ...emptySource(),
       ghostGroups: [ghostGroup({ display_name: null })]
     });
     const row = items.find(i => i.payload.kind === "ghost")!;
     expect(row.title).toBe("SH515250");
-    expect(row.facts.join(" ")).toContain("代码 SH515250");
+    expect(row.facts.join(" ")).not.toContain("代码");
   });
 
   it("域 D 已忽略条目同样走名称口径，不再裸插值 symbol", () => {
@@ -468,8 +468,8 @@ describe("D/F/G 条目标题取 display_name，代码降级为事实行", () => 
       ]
     });
     const row = items.find(i => i.payload.kind === "ghostIgnored")!;
-    expect(row.title).toBe("中证 500ETF 联接");
-    expect(row.facts.join(" ")).toContain("代码 SH515250");
+    expect(row.title).toBe("中证 500ETF 联接 · SH515250");
+    expect(row.facts.join(" ")).not.toContain("代码");
   });
 
   it("域 D 已忽略条目 symbol 快照为 null 时标题给可执行提示而非空白", () => {
@@ -556,14 +556,14 @@ describe("队列里不再出现「只有代码」「裸 cash」「孤儿」", ()
       .join(" ");
   }
 
-  it("后端给了 display_name 时标题用名称，代码仍留在事实行", () => {
+  it("后端给了 display_name 时标题是「名称 · 代码」，事实行不重复代码", () => {
     const items = buildReconQueue({
       ...emptySource(),
       discrepancies: [disc({ display_name: "××科创板基金" })]
     });
     const row = items.find(i => i.id === "disc-1");
-    expect(row?.title).toBe("××科创板基金");
-    expect(row?.facts.join(" ")).toContain("SH688223");
+    expect(row?.title).toBe("××科创板基金 · SH688223");
+    expect(row?.facts.join(" ")).not.toContain("代码");
     expect(row?.summary).toContain("份额对不上");
   });
 
