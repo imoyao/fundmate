@@ -8,7 +8,16 @@
   AI 配置建议 / 事件预警）一律不上屏**：账本软件只算已发生的账，不编未来的数。
 
   ── #2150：一句话定位 ──────────────────────────────────────────────
-  **只看「时间维度上的表现」，不看资产结构。**
+  **以「时间维度上的表现」为骨架，结构区只放解释表现的那几面。**
+
+  2026-11-27 修订（用户第 9 条）：原定位「不看资产结构」的本意是**不重复 panorama
+  的拆解口径**，不是结构一概不许出现——边界按「回答的是不是同一个问题」划：
+
+  | 结构问题 | 归谁 | 判据 |
+  |---|---|---|
+  | 钱按**资产大类**怎么铺开（现金/股票/基金…） | panorama 构成图 + 明细表 | #2150：`category_distribution` 全站只画一次 |
+  | 钱按**账户 / 产品类型**怎么分组 | panorama 多维视图 | #2150：`getPositionGroups` 不在本页 |
+  | 钱压在**哪些品种**、**哪些行业**、**什么风格** | **本页结构区**（解释「表现从哪来」） | 与上面两行不同字段、不同端点、不同算法 |
 
   与同批两页的分工（沿用 `docs/working-notes/page-split-welcome-vs-panorama-2026-08-13.md`
   已确立的「拆解（composition）归资产总览，表现 + 目标归投资概览」口径）：
@@ -17,7 +26,7 @@
   |---|---|---|
   | 投资概览（welcome） | 我有多少钱？离目标多远？ | 结论（净值快照 + XIRR + 温度 + 日历） |
   | 资产总览（panorama） | 钱是**怎么铺开**的？结构健不健康？ | 拆解（构成图 + 桑基 + 多维视图） |
-  | **本页（复盘）** | 我的钱**经历了什么**？表现从哪来？ | **时间序列**（净值走势 + 收益/现金流） |
+  | **本页（复盘）** | 我的钱**经历了什么**？表现从哪来？ | **时间序列**（净值走势 + 收益/现金流）+ **结构归因** |
 
   ── #2150：删掉了什么，为什么 ──────────────────────────────────────
   本页曾有一整块与 panorama **同字段、同接口、同算法**的内容。panorama 自己
@@ -31,6 +40,12 @@
   4. 「近期持仓表现」表（`getPositionGroups("type")`）← panorama `DetailGroupList`。
 
   「风险热力图」空态卡更早已随 #2156 整卡下线。
+
+  2026-11-27 新增的结构区（持仓结构 / 行业分布 / 基金风格）**不复活上面任何一块**：
+  它消费的是 `position-structure`、`penetration`、`fund-style` 三个端点，与大类构成
+  不是同一份数据；四条 #2150 判据（`scripts/tests/welcome_structure_dedup.test.js`）
+  仍然全绿，改这一块时**不要**顺手把 `category_distribution` 或 `getPositionGroups`
+  引进来——那才是「同一口径画两遍」。
 
   ── 保留的独占项（本页存在的理由）──────────────────────────────────
   - **资产净值走势**：welcome 已明确让出（`WelcomeAssetBoard.vue:131-138`
@@ -77,10 +92,13 @@
         class="analysis-crosslink"
         :style="{ color: 'var(--text-tertiary-ink)' }"
       >
-        本页只看时间维度的表现。想看资产结构（大类占比、产品类型、账户拆解），
-        去<el-button text size="small" @click="router.push('/panorama')"
+        大类构成与账户拆解仍在<el-button
+          text
+          size="small"
+          @click="router.push('/panorama')"
           >资产总览</el-button
-        >。
+        >；下方的结构区只放与「表现从哪来」直接相关的那几面（钱压在哪些品种 /
+        哪些行业 / 什么风格）。
       </p>
 
       <!-- 页内导航：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail（PageToc）接管。
@@ -93,10 +111,11 @@
       />
 
       <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
-         为「收益概览 / 资产净值走势 / 清仓复盘 / 浮亏回本 / 货币基金收益」五段
-         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配；
-         浮亏回本无浮亏时整块不渲染，骨架屏不随它增减）。
-         顺序 = 信息重要性：数字 → 数字的形状 → 单笔已实现结果 → 未实现的风险 → 口径补充项。 -->
+         为「收益概览 / 资产净值走势 / 清仓复盘 / 浮亏回本 / 持仓结构 / 货币基金收益」
+         六段（#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配；
+         浮亏回本无浮亏时整块不渲染、结构区三块各有空态，骨架屏不随它们增减）。
+         顺序 = 信息重要性：数字 → 数字的形状 → 单笔已实现结果 → 未实现的风险 →
+         风险来自哪（结构）→ 口径补充项。 -->
       <PageSkeleton
         v-if="initialLoading"
         :cards="3"
@@ -158,6 +177,21 @@
                放清仓复盘之后：已实现与未实现上下对照，同一屏看完「赚到的」与「欠着的」。 -->
           <BreakEvenSection ref="breakEven" />
 
+          <!-- 持仓结构（2026-11-27，用户第 9 条）：上面几块报「赚了多少 / 欠多少」，
+               这一块报「这些数字是由什么构成的」——由粗到细：品种与集中度（钱压在谁
+               身上）→ 行业（压在哪个行当）→ 基金风格（走的哪一路 beta）。三块都
+               **不传作用域 props**（= 家庭级，与 XIRR / 清仓周期同口径），各自取数、
+               各自降级。与资产总览的边界见文件头「结构问题归谁」表。 -->
+          <section id="nav-structure">
+            <div class="mb-6">
+              <PositionStructurePanel />
+            </div>
+            <div class="mb-6">
+              <PenetrationPanel />
+            </div>
+            <StyleDistributionCard />
+          </section>
+
           <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
                总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
                取数自含（拆出 MoneyFundIncomeSection），父页只经 ref 联动刷新。 -->
@@ -187,6 +221,9 @@ import PageToc from "@/components/PageToc/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
+import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
+import StyleDistributionCard from "@/components/StyleDistributionCard/index.vue";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
 import ReturnOverviewSection from "./ReturnOverviewSection.vue";
 import MoneyFundIncomeSection from "./MoneyFundIncomeSection.vue";
@@ -238,17 +275,18 @@ const updatedAtLabel = computed(() =>
   latestSnapshot.value ? `${latestSnapshot.value.snapshot_date} 更新` : ""
 );
 
-// 页内导航（2026-10-25）：纵向 5 个独立区块（收益概览 / 资产净值走势 / 清仓复盘 /
-// 浮亏回本 / 货基收益），符合 components.md 的 PageToc 接入判据；条目顺序由 DOM 实序
-// 决定（usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader 标题逐字一致。
-// 「浮亏回本」无浮亏时整块不渲染，标签随之隐没（缺锚点即不出现，不需要占位）。
+// 页内导航（2026-10-25）：纵向独立区块（收益概览 / 资产净值走势 / 清仓复盘 /
+// 浮亏回本 / 持仓结构 / 货基收益），符合 components.md 的 PageToc 接入判据；条目顺序
+// 由 DOM 实序决定（usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader
+// 标题逐字一致。「浮亏回本」无浮亏时整块不渲染，标签随之隐没（缺锚点即不出现，不需要占位）。
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "收益概览",
   "nav-money-fund": "货币基金收益",
   "nav-cycles": "清仓复盘",
   "nav-net-worth": "资产净值走势",
-  "nav-break-even": "浮亏回本"
+  "nav-break-even": "浮亏回本",
+  "nav-structure": "持仓结构"
 };
 const {
   items: navItems,

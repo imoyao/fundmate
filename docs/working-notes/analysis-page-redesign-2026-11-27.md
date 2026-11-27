@@ -53,7 +53,7 @@
 | 6 | 回本涨幅缺失 | **已确认口径 = 当前持仓「回本需涨 %」**（成本/市值−1），可由 `pnl-attribution` 的 `pct` 派生 `−pct/(100+pct)`，不需新端点 | P2（结构区） |
 | 7 | 表头要能排序 | 8 列全客户端排序；缺值恒末尾、稳定、数值按数值比（与 `watchlist/clientSort.ts` 同三条规则）；三态清空时回默认序 | ✅ 本 PR |
 | 8 | 净值走势该在最上面 | 与收益概览合并为「收益与净值」，图紧跟指标卡 | P0（见 §4） |
-| 9 | 结构 / 风格 / 行业 / 资金流动要画图 | **已确认：接受与「资产总览」重复，一页看完**。资金分布 → `RankBarList`；风格 → `StyleDistributionCard`；行业 → `PenetrationPanel`（家庭级）；资金流动 → 需新组件 + 家庭级作用域 | P2 |
+| 9 | 结构 / 风格 / 行业 / 资金流动要画图 | 复用既有家庭级面板，不新写图：持仓结构 `PositionStructurePanel`（含 Top5 与集中度）/ 行业 `PenetrationPanel` / 风格 `StyleDistributionCard`（P2a 已上）；资金流动 `CashFlowPanel` 需补家庭级作用域（P2b） | P2a ✅ / P2b 待做 |
 
 ## 3. 数据缺口（后端）
 
@@ -69,7 +69,26 @@
 |---|---|---|
 | **P0**（本 PR） | 清仓表分页 / 排序 / 列序 / 点进详情 / 标题收敛 | 无（品类走后端 resolve） |
 | P1 | IA 重排（收益与净值合并、净值图上车）、rail 间距、`ledger_names` 账户列 | 后端 1 个字段 |
-| P2 | 结构区 5 块 + `CashFlowTree` + `cash-flow` 家庭级 | 后端 1 个作用域 + 1 个 breakdown |
+| P2a | 结构区三块（持仓结构 / 行业分布 / 基金风格）——零后端，复用既有家庭级面板 | 无 |
+| P2b | 资金流动进结构区：`cash-flow` 补家庭级作用域 + `CashFlowPanel` family 档（组件已在账户页 / 组合页复用，缺的只是家庭档） | 后端 1 个作用域 |
+
+### 4.1 P2a 落地记录（2026-11-27）
+
+- **不新画图，接三块既有面板**：`PositionStructurePanel` / `PenetrationPanel` /
+  `StyleDistributionCard` 都**不传作用域 props = 家庭级**，与复盘页 XIRR、清仓周期的
+  家庭合并口径一致；三块各自取数、各自降级，一块挂了不带走另两块。
+- **`StyleDistributionCard` 从 `views/asset/panorama/components/` 上提到 `components/`**
+  （连同 `styleDistributionModel.ts` 与单测）：跨页引用别人的私有目录，下一步一定是
+  复制第二份。上提后 panorama 只改了一行 import。
+- **与 panorama 的边界按「回答的是不是同一个问题」划**，不是按「有没有图」：
+  大类构成（`category_distribution`）与账户/产品类型分组（`getPositionGroups`）仍归
+  panorama，#2150 四条判据全绿；本页只放「钱压在哪些品种 / 哪些行业 / 什么风格」。
+- **实测（真库，Edge headless，1440）**：结构区高 2449px（持仓结构 8 张卡 + Top5 条、
+  穿透覆盖率 90.6% / 未穿透 9.4%、行业分布、风格分布），`pageerror` 0；
+  整页由上版 19 268px 收到约 5 700px。1280 下指标卡转 2×2，无横向溢出。
+- **代价**：结构区占整页 43%，是当前最长的一块。要压缩只有两条路——两列布局（1440
+  单列宽 902px，两列各 430 会把 Top5 条与覆盖率卡挤坏）或默认折叠（站内无折叠区块先例）。
+  本期都不做，等用户看到实物再定。
 
 ## 5. 是否与「持仓分析」合并（评估）
 
@@ -111,5 +130,5 @@
 ## 6. 待办
 
 1. P1：IA 重排 + 净值图上车 + rail 间距 + 账户列（后端 `ledger_names`）
-2. P2：结构区 5 块 + `CashFlowTree` + 家庭级 `cash-flow`
+2. P2a ✅：结构区三块（持仓结构 / 行业 / 风格）已接入；P2b：资金流动家庭级（`cash-flow` scope + `CashFlowPanel` family 档）
 3. P3：与持仓分析合并（按 §5 三步走，先定口径切换器的覆盖范围）
