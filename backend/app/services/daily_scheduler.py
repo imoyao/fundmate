@@ -504,8 +504,7 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         # 定期复盘报告（#875）：target_kind=None —— 目标池是**家庭表**（user 域），
         # 不是 fund/stock 代码池，套 resolve_targets() 只会拿到不相干的代码。
         # 纯本地计算（复用 pnl 引擎区间超额 + 品种归因）、零外部请求。
-        # 就绪判定在 job 内：上一自然周期（周/月/季/年）最后交易日净值已落库才生成。
-        # 只读净值/流水、不写账面值 ⇒ 必须排在资产快照（23:45，拍当日最终账面值）之前。
+        # 就绪判定在 job 内：上一自然周期最后交易日净值已落库才生成；只读不写账面值，故排在资产快照（23:45 拍当日最终账面值）之前。
         'periodic_review',
         ENV_PERIODIC_REVIEW_ENABLED,
         ENV_PERIODIC_REVIEW_CRON,
