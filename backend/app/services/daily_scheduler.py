@@ -501,6 +501,19 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         '孤儿交易回填（position_id IS NULL → 按 symbol 身份挂回持仓；不联网、幂等；#950）',
     ),
     (
+        # 定期复盘报告（#875）：target_kind=None —— 目标池是**家庭表**（user 域），
+        # 不是 fund/stock 代码池，套 resolve_targets() 只会拿到不相干的代码。
+        # 纯本地计算（复用 pnl 引擎区间超额 + 品种归因）、零外部请求。
+        # 就绪判定在 job 内：上一自然周期（周/月/季/年）最后交易日净值已落库才生成。
+        # 只读净值/流水、不写账面值 ⇒ 必须排在资产快照（23:45，拍当日最终账面值）之前。
+        'periodic_review',
+        ENV_PERIODIC_REVIEW_ENABLED,
+        ENV_PERIODIC_REVIEW_CRON,
+        DEFAULT_PERIODIC_REVIEW_CRON,
+        None,
+        '定期复盘报告生成（周/月/季/年，区间绩效+基准超额+品种归因；就绪才落库；#875）',
+    ),
+    (
         # 资产快照落账（#2132 / D63）：target_kind=None —— 与目标池无关，纯本地计算
         # （家庭/账户两级当日账面值 + 当日货基收益），零外部请求。
         # 纳回本机每日调度的理由（实测，2026-10-21）：此前 D21 把它排除在外、
@@ -514,18 +527,6 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         DEFAULT_ASSET_SNAPSHOT_CRON,
         None,
         '家庭/账户每日资产快照（当日账面值；幂等 upsert、零外部请求；#2132 / D63）',
-    ),
-    (
-        # 定期复盘报告（#875）：target_kind=None —— 目标池是**家庭表**（user 域），
-        # 不是 fund/stock 代码池，套 resolve_targets() 只会拿到不相干的代码。
-        # 纯本地计算（复用 pnl 引擎区间超额 + 品种归因）、零外部请求。
-        # 就绪判定在 job 内：上一自然周期（周/月/季/年）最后交易日净值已落库才生成。
-        'periodic_review',
-        ENV_PERIODIC_REVIEW_ENABLED,
-        ENV_PERIODIC_REVIEW_CRON,
-        DEFAULT_PERIODIC_REVIEW_CRON,
-        None,
-        '定期复盘报告生成（周/月/季/年，区间绩效+基准超额+品种归因；就绪才落库；#875）',
     ),
 )
 
