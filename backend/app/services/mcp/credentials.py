@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-"""MCP 凭据路由（S2）：取谁的 Token 由 ``data_scope()`` 决定，不由调用点 if/else 决定。
+"""MCP 凭据路由（S2/S5）：取谁的 Token 由 ``data_scope()`` 决定，不由调用点 if/else 决定。
 
-设计文档 ``docs/dev/mcp-integration.md`` §5.1。S2 只落地**系统凭据**（env）这一侧；
-用户私有凭据表 ``user_mcp_credentials`` 在 S5，但**分支现在就写死**，因为它的价值不是
-"能取到值"，而是「用户没配 Token 时**不可能**悄悄用系统 Token 代取」——
-这条必须是类型级保证（抛 ``McpUserTokenMissing``），不能是注释级约定，否则 S5 接表时
-任何一处漏判都会把系统额度记到用户私有请求上，且数据归属错乱（别人的账户数据算到系统头上）。
+设计文档 ``docs/dev/mcp-integration.md`` §5.1。系统凭据（env）在本模块；用户私有分支
+**必须**抛 ``McpUserTokenMissing`` 而不是回退系统 Token（类型级保证，否则系统额度被用户私有请求消耗）。
+
+S5 后该分支下沉到 ``services/mcp/user_credentials``（Fernet / 过期 / user_id 隔离；
+浏览器 OAuth2 与用户粘贴 API Key 由 auth_type 区分），本文件只做路由，不 import 模型与 DB。
 
 三条硬约束：
 
 1. **本模块绝不记录 token**（含异常文案、日志、行号上下文）；
-2. **未知 provider 抛错**，不按 ``{NAME}_MCP_TOKEN`` 猜：新增一家服务时补一行映射，
-   "猜"会让「没配」与「配错变量名」在故障现场无法区分；
+2. **未知 provider 抛错**，不按 ``{NAME}_MCP_TOKEN`` 猜；
 3. ``is_configured()`` 只回答有没有，不返回值 —— ``/api/health`` 是免登录端点。
 """
 
@@ -19,7 +18,8 @@ import os
 from enum import StrEnum
 from typing import Optional
 
-from app.services.mcp.errors import McpTokenMissing, McpUserTokenMissing
+from app.services.mcp.errors import McpTokenMissing
+from app.services.mcp.user_credentials import user_token
 
 
 class DataScope(StrEnum):
@@ -98,7 +98,7 @@ def resolve_token(provider: str, scope: 'DataScope | str', user_id: Optional[str
     """
     normalized = DataScope(scope)
     if normalized is DataScope.USER_PRIVATE:
-        # S5 才接 user_mcp_credentials；在那之前**任何**用户私有能力都不可用，
-        # 且必须抛错而不是回退 —— 回退是这条红线唯一真正的失效方式。
-        raise McpUserTokenMissing('用户凭据表尚未接入（S5）', provider=provider)
+        # 红线：取不到就抛错，绝不回退系统 Token。
+        # 解密 / 过期 / 按 user_id 隔离都在 user_credentials，路由层不感知凭据形状。
+        return user_token(user_id, provider)
     return system_token(provider)
