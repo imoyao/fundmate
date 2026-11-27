@@ -453,8 +453,7 @@ def _needs_sqlite_pragmas(url: str) -> bool:
 # 归属判定见 AGENTS.md「多引擎数据域约束」决策树。
 #
 # 边界先例（已固化，勿凭"公开=Turso"一刀切）：
-#  - sales_institutions：公开名录，但被 user 域表 (ledgers) 外键引用 → 随 user 域，
-#    避反向跨域 FK。
+#  - sales_institutions：公开名录但被 user 域 ledgers 外键引用 → 随 user 域，避反向跨域 FK。
 #  - fund_companies：公司主数据，被 market 域表 (funds/managers) 外键引用 →
 #    随 market 域。AMAC 基金管理人公示信息 enrich 进本表（2026-09-10 合并），
 #    曾有独立的 fund_management_companies（user 域）——实测零读者/零外键/零接口，
@@ -516,6 +515,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── user 域（Supabase）：含 family_id/user_id 的用户私有数据 ──
     'families': DOMAIN_USER,
     'users': DOMAIN_USER,
+    'user_mcp_credentials': DOMAIN_USER,  # 用户 MCP 凭据（S5）：含 user_id + 密文，绝不落市场库
     'family_members': DOMAIN_USER,  # 家庭成员档案（#1173，含 family_id；与 users 登录账号解耦）
     'user_preferences': DOMAIN_USER,  # 用户私有偏好键值（#1337，按 user_id，非 family）
     'auth_audit': DOMAIN_USER,  # 身份类事件审计台账（D76 / #2780；Supabase 侧 auth.users 触发器同库写入）

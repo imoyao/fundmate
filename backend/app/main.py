@@ -71,6 +71,7 @@ from app.domains.watchlist.alert_views import watchlist_alert_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 from app.models.mcp_call_log import McpCallLog  # noqa: F401, E402  # 确保 mcp_call_logs 表随 init_db 建表
 from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
+from app.models.user_mcp_credential import UserMcpCredential  # noqa: F401, E402  # 用户 MCP 凭据（S5）随 init_db 建表
 from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
 
 # —— 关掉 werkzeug 开发服务器的地址复用（#1816，配合 #1809 单实例守门）——

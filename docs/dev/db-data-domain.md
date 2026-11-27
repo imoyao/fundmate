@@ -59,6 +59,7 @@
 | `families` | 家庭 | 几十~几千行 |
 | `users`（含 `supabase_id`） | 用户 / auth 边界 | 几十~几千行 |
 | `user_preferences`（含 `watchlist-column-settings` 等键） | 用户私有偏好键值（按 `user_id`，非 family；#1337） | 每用户每键一行 |
+| `user_mcp_credentials`（S5） | 用户私有 MCP 凭据：按 `user_id` 隔离，Fernet 密文 + `key_version`，同时承载 OAuth2 授权码与用户粘贴的 API Key 两种连接方式；无 `url` 列（防 SSRF） | 每用户每 provider 一行（唯一约束） |
 | `ledgers` | 账户（FK → portfolios / sales_institutions） | 增长慢 |
 | `portfolios` | 组合 | 增长慢 |
 | `positions` | 持仓（存 `symbol`/`fund_code` 字符串冗余键，**非** FK） | 增长慢 |

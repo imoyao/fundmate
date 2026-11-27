@@ -8,6 +8,9 @@ authors = [
 dependencies = [
     "apiflask>=3.1.0",
     "sqlalchemy>=2.0.49",
+    # S5 用户 MCP 凭据加密（Fernet）。此前只是 mcp 包的传递依赖，
+    # 传递依赖可随上游变动消失，必须显式声明才能 import。
+    "cryptography>=46.0.3",
     "pydantic>=2.13.4",
     "PyJWT>=2.15.0",
     "uv>=0.11.11",
