@@ -114,6 +114,30 @@ export default [
       }
     ]
   },
+  // 数据连接（MCP 连接管理）—— 与 /profile 同族的 hidden 路由：挂在 Layout 下但不进侧边栏，
+  // 由导航栏头像菜单进入。路径不可改：后端 OAuth 回调成功后的默认回跳地址就是
+  // `/settings/mcp-connections`（services/mcp/views.py::_success_redirect）。
+  {
+    path: "/settings/mcp-connections",
+    name: "McpConnectionsParent",
+    component: Layout,
+    redirect: "/settings/mcp-connections",
+    meta: {
+      title: "数据连接",
+      hidden: true
+    },
+    children: [
+      {
+        path: "/settings/mcp-connections",
+        name: "McpConnections",
+        component: () => import("@/views/mcp-connections/index.vue"),
+        meta: {
+          title: "数据连接",
+          hidden: true
+        }
+      }
+    ]
+  },
   {
     path: "/redirect",
     component: Layout,

@@ -47,10 +47,17 @@ def _known_provider(provider: str) -> None:
 
 
 def _success_redirect(params: dict):
-    """授权完成后的前端回跳；只允许站内相对路径，杜绝开放重定向。"""
-    target = (os.getenv('MCP_OAUTH_SUCCESS_REDIRECT') or '/settings/mcp-connections').strip()
+    """授权完成后的前端回跳；只允许站内相对路径，杜绝开放重定向。
+
+    默认路径必须带 ``/#/`` 前缀：本项目路由是 hash 模式（``VITE_ROUTER_HISTORY=hash``），
+    普通路径 ``/settings/mcp-connections?...`` 会让 SPA 加载后 hash 为空 → 守卫重定向到
+    登录页，用户授权成功却看不到结果。query 放在 hash 段之后，前端 ``useRoute().query``
+    才读得到（history 模式部署可用 env 覆盖本默认值）。
+    """
+    default = '/#/settings/mcp-connections'
+    target = (os.getenv('MCP_OAUTH_SUCCESS_REDIRECT') or default).strip()
     if not target.startswith('/') or target.startswith('//'):
-        target = '/settings/mcp-connections'
+        target = default
     return redirect(f'{target}?{urlencode(params)}')
 
 
