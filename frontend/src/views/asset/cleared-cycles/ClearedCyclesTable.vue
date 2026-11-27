@@ -12,6 +12,7 @@
 -->
 <template>
   <CardBlock>
+    <!-- table-col-allow: 8 列合计 848，1280 视口下表宽仅 742 ⇒ 窄屏必横滚；金额与百分比列固定宽才好竖着比大小（#3210） -->
     <el-table
       :data="pageRows"
       size="small"
