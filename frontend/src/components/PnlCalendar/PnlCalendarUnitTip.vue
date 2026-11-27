@@ -52,7 +52,7 @@ defineOptions({ name: "PnlCalendarUnitTip" });
 
 const props = withDefaults(
   defineProps<{
-    /** 单元键：日 `YYYY-MM-DD` / 月 `YYYY-MM` / 年 `YYYY`（键长即粒度） */
+    /** 单元键：日 `YYYY-MM-DD` / 月 `YYYY-MM` / 年 `YYYY`（月键精确匹配，非键长） */
     name: string;
     state: PnlCalendarState;
     pnl: number | null;

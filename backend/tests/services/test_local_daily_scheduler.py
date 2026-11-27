@@ -77,7 +77,9 @@ class TestLoadConfig:
             'convertible_bond',
             'dividend_split',
             'orphan_backfill',
-            # #2132 / D63：资产快照纳回本机每日调度（此前只靠用户行为触发）
+            # #875：定期复盘报告（周/月/季/年）——只读净值、不写账面值，排在快照之前
+            'periodic_review',
+            # #2132 / D63：资产快照纳回本机每日调度（此前只靠用户行为触发），排最后
             'asset_snapshot',
         ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
@@ -203,6 +205,8 @@ class TestLoadConfig:
             'convertible_bond',
             'dividend_split',
             'orphan_backfill',
+            # #875：独立 job，关掉 advisor_portfolio 不影响它
+            'periodic_review',
             'asset_snapshot',
         ]
 
@@ -244,6 +248,7 @@ class TestLoadConfig:
             'convertible_bond',
             'dividend_split',
             'orphan_backfill',
+            'periodic_review',
             'asset_snapshot',
         ]
         assert cfg.jobs[0].cron == '5 22 * * 1-5'
@@ -464,6 +469,8 @@ class TestCatchUpTargets:
                 # #2132 / D63：资产快照休市日照跑——它补的是**日历**不是缺口
                 # （用途是「日历连续的当日账面值」），周末不做就多两个断点。
                 'asset_snapshot',
+                # #875：休市日照跑——周期结束点常恰逢休市，正是「该生成」的判定时点
+                'periodic_review',
             }
         )
         assert ds.runs_on_rest_day('price_history') is True

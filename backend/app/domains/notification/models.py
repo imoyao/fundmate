@@ -18,6 +18,7 @@
 from sqlalchemy import Boolean, Column, DateTime, Index, String, UniqueConstraint
 
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
+from app.core.notification_categories import NotificationCategory
 
 
 class Notification(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
@@ -39,8 +40,8 @@ class Notification(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     category = Column(
         String(20),
         nullable=False,
-        default='system',
-        comment='strategy 策略 / watchlist 自选 / system 系统 / rebalance 调仓',
+        default=NotificationCategory.SYSTEM.value,
+        comment='strategy 策略 / watchlist 自选 / system 系统 / rebalance 调仓 / report 周期报告',
     )
     title = Column(String(120), nullable=False, comment='消息标题（客观陈述，不含投资建议措辞）')
     body = Column(String(500), nullable=True, comment='消息正文（客观陈述）')

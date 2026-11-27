@@ -358,7 +358,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/conversion_service.py": {'lines': 795, 'max_func': 283, 'max_cc': 32},
     "backend/app/services/convertible_bond_ytm.py": {'lines': 219, 'max_func': 50, 'max_cc': 15},
     "backend/app/services/cross_domain.py": {'lines': 221, 'max_func': 54, 'max_cc': 15},
-    "backend/app/services/daily_scheduler.py": {'lines': 1136, 'max_func': 39, 'max_cc': 10},
+    "backend/app/services/daily_scheduler.py": {'lines': 1160, 'max_func': 39, 'max_cc': 10},
     # 2026-11-15 无归属卖出流水检出（GitHub #3126，CNB 侧镜像卡同主题）按 --report
     # 实测回写两项，理由留痕：
     # dangling_ref_remediation_service.py 539→563（enrich / delete 两条写路径放开
@@ -381,7 +381,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-08：货基免税判定（#1661）曾把服务推到 662 行 / cc 34，触发本守卫。
     #   纯规则拆到 `services/dividend_tax_rules.py`（`is_dividend_income` /
     #   `position_asset_types` / `resolve_asset_type`），实测回写 634→592、32→31。
-    "backend/app/services/dividend_tax_service.py": {'lines': 525, 'max_func': 90, 'max_cc': 13},
+    "backend/app/services/dividend_tax_service.py": {'lines': 527, 'max_func': 90, 'max_cc': 13},
     "backend/app/services/entitlement_check.py": {'lines': 108, 'max_func': 45, 'max_cc': 7},
     "backend/app/services/enums_service.py": {'lines': 62, 'max_func': 32, 'max_cc': 1},
     "backend/app/services/etf_compare.py": {'lines': 352, 'max_func': 99, 'max_cc': 27},
@@ -510,7 +510,21 @@ BASELINE: dict[str, dict[str, int]] = {
     # （CALIBER_VERSION 8→9 的换版理由注释）。均为真实代码增长，非放宽阈值
     # （test_baseline_matches_current_metrics 要求逐项相等，留余量同样判红）。
     # pnl_calendar.py 继续变厚仍属 #2873 存量上帝模块拆分债务，不在本卡拆。
-    "backend/app/services/pnl_calendar.py": {'lines': 2294, 'max_func': 688, 'max_cc': 106},
+    #
+    # 2026-11-27 #875 周期报告（周/月/季/年报）第一步「粒度扩展 + category 枚举收敛」按
+    # --report 实测回写 6 个存量文件，理由留痕（全部真实功能增长，非放宽阈值）：
+    # - pnl_calendar.py 2294→2315（+21：_period_key 加 week/quarter 分支 + 5 个正向测试
+    #   配套的 docstring 口径说明；max_func 688 / max_cc 106 未变）；
+    # - daily_scheduler.py 1136→1160（+24：挂 periodic_review job 的 cron + REST_DAY_JOB_NAMES
+    #   条目及注释；max_func 39 / max_cc 10 未变）；
+    # - db_factory.py 1076→1077（+1：periodic_review_reports 登记到 user 域）；
+    # - dividend_tax_service.py 525→527（+2：category/source_type 枚举收敛）；
+    # - strategy_engine/allocation.py 237→241（+4：同上枚举收敛）；
+    # - sync/orchestrator.py 821→827 / max_func 115→120（+6：注册 periodic_review job）。
+    # 新增文件 periodic_review_service.py（179）、periodic_review_notify.py（142）、
+    # analytics/period_key.py 与 sync/jobs/periodic_review_job.py（148）均走 NEW_FILE_LIMITS，
+    # 未放大任何存量函数职责。
+    "backend/app/services/pnl_calendar.py": {'lines': 2315, 'max_func': 688, 'max_cc': 106},
     "backend/app/services/pnl_cleared_residual.py": {'lines': 113, 'max_func': 18, 'max_cc': 5},
     "backend/app/services/pnl_fees.py": {'lines': 97, 'max_func': 17, 'max_cc': 6},
     "backend/app/services/pnl_service.py": {'lines': 211, 'max_func': 36, 'max_cc': 7},
@@ -550,7 +564,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/similar_fund_service.py": {'lines': 80, 'max_func': 37, 'max_cc': 6},
     "backend/app/services/stock_profile.py": {'lines': 200, 'max_func': 106, 'max_cc': 28},
     "backend/app/services/strategy_engine/__init__.py": {'lines': 15, 'max_func': 0, 'max_cc': 0},
-    "backend/app/services/strategy_engine/allocation.py": {'lines': 237, 'max_func': 49, 'max_cc': 13},
+    "backend/app/services/strategy_engine/allocation.py": {'lines': 241, 'max_func': 49, 'max_cc': 13},
     "backend/app/services/strategy_engine/behavior_profile.py": {'lines': 453, 'max_func': 103, 'max_cc': 36},
     "backend/app/services/strategy_engine/contracts.py": {'lines': 175, 'max_func': 12, 'max_cc': 5},
     "backend/app/services/strategy_engine/data_provider.py": {'lines': 360, 'max_func': 75, 'max_cc': 16},
@@ -613,7 +627,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/sync/jobs/security_industry_map_job.py": {'lines': 237, 'max_func': 40, 'max_cc': 11},
     "backend/app/services/sync/jobs/stock_list_job.py": {'lines': 104, 'max_func': 41, 'max_cc': 14},
     "backend/app/services/sync/name_match.py": {'lines': 351, 'max_func': 32, 'max_cc': 9},
-    "backend/app/services/sync/orchestrator.py": {'lines': 821, 'max_func': 115, 'max_cc': 8},
+    "backend/app/services/sync/orchestrator.py": {'lines': 827, 'max_func': 120, 'max_cc': 8},
     "backend/app/services/sync/pinyin_utils.py": {'lines': 28, 'max_func': 16, 'max_cc': 5},
     "backend/app/services/sync/snapshot.py": {'lines': 340, 'max_func': 83, 'max_cc': 16},
     "backend/app/services/tenure_display.py": {'lines': 167, 'max_func': 42, 'max_cc': 5},
@@ -655,7 +669,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/core/database.py": {'lines': 908, 'max_func': 161, 'max_cc': 14},
     "backend/app/core/migrations_agent.py": {'lines': 89, 'max_func': 26, 'max_cc': 9},
     "backend/app/core/migrations_ledgers.py": {'lines': 55, 'max_func': 11, 'max_cc': 4},
-    "backend/app/core/db_factory.py": {'lines': 1076, 'max_func': 63, 'max_cc': 15},
+    "backend/app/core/db_factory.py": {'lines': 1077, 'max_func': 63, 'max_cc': 15},
     "backend/app/core/db_utils.py": {'lines': 169, 'max_func': 53, 'max_cc': 8},
     "backend/app/core/decorators.py": {'lines': 39, 'max_func': 29, 'max_cc': 2},
     "backend/app/core/exceptions.py": {'lines': 135, 'max_func': 22, 'max_cc': 3},
@@ -667,6 +681,8 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/core/markets.py": {'lines': 79, 'max_func': 11, 'max_cc': 4},
     "backend/app/core/migrations.py": {'lines': 3014, 'max_func': 131, 'max_cc': 24},
     "backend/app/core/money.py": {'lines': 182, 'max_func': 16, 'max_cc': 4},
+    # #875 周期报告：站内通知 category/source_type 收敛成枚举的真相源（新文件，core 层须冻结）。
+    "backend/app/core/notification_categories.py": {'lines': 72, 'max_func': 6, 'max_cc': 3},
     "backend/app/core/ratelimit.py": {'lines': 51, 'max_func': 21, 'max_cc': 7},
     "backend/app/core/request_context.py": {'lines': 32, 'max_func': 17, 'max_cc': 5},
     "backend/app/core/request_memo.py": {'lines': 57, 'max_func': 12, 'max_cc': 3},

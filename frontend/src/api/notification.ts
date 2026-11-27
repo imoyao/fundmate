@@ -9,9 +9,9 @@ const BASE_URL = "/api/notifications/";
 /** 通知级别（后端 `Notification.level` 注释口径）：P0 强 / P1 中 / P2 弱 */
 export type NotificationLevel = "P0" | "P1" | "P2";
 
-/** 通知归类（后端 `Notification.category` 注释口径）：策略 / 自选 / 系统 / 调仓 */
+/** 通知归类（后端 `app/core/notification_categories.py` 的 NotificationCategory 枚举口径）：策略 / 自选 / 系统 / 调仓 / 报告 */
 export type NotificationCategory =
-  "strategy" | "watchlist" | "system" | "rebalance";
+  "strategy" | "watchlist" | "system" | "rebalance" | "report";
 
 /**
  * 单条站内通知，逐字段对齐后端 `notification_service.to_dict`。

@@ -88,6 +88,7 @@ from typing import Iterable, Optional
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
+from app.core.notification_categories import NotificationCategory, NotificationSourceType
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import DividendTaxAck
 from app.domains.transactions.ledger_guard import dividend_tax_source_fields
@@ -127,8 +128,9 @@ __all__ = [
 ]
 
 # 通知来源标识（写入 notifications.source_type）
-SOURCE_TYPE = 'dividend_tax_pending'  # 有一笔分红还没记扣税
-SOURCE_TYPE_SUSPECT = 'dividend_tax_suspect'  # 已记扣税，但金额占分红比例异常
+# 真相源：app/core/notification_categories.py（category 收敛，#875）。
+SOURCE_TYPE = NotificationSourceType.DIVIDEND_TAX_PENDING.value  # 有一笔分红还没记扣税
+SOURCE_TYPE_SUSPECT = NotificationSourceType.DIVIDEND_TAX_SUSPECT.value  # 已记扣税，但金额占分红比例异常
 
 # 级别：P1（消息盒 + 首页未读计数）。钱的事值得看见，但不至于占首页横栏挤掉紧急项。
 REMINDER_LEVEL = 'P1'
@@ -176,7 +178,7 @@ def build_notification_candidates(
             candidates.append(
                 {
                     'level': REMINDER_LEVEL,
-                    'category': 'system',
+                    'category': NotificationCategory.SYSTEM.value,
                     'title': f'扣税金额待核对：{label} {item.dividend_on or ""}'.strip(),
                     'body': (
                         f'{label}{account} 在 {_short(item.dividend_on)} 的现金分红 '
@@ -194,7 +196,7 @@ def build_notification_candidates(
         candidates.append(
             {
                 'level': REMINDER_LEVEL,
-                'category': 'system',
+                'category': NotificationCategory.SYSTEM.value,
                 'title': (f'分红未记扣税：{label} {_short(item.dividend_on)} 红利 {item.dividend_cents / 100:.2f} 元'),
                 'body': (
                     f'{label}{account} 在 {item.dividend_on.isoformat() if item.dividend_on else "—"} '

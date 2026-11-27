@@ -4,7 +4,7 @@
 # File : models.py
 """资产快照模型：每日记录家庭总资产/负债/净资产，支撑同比计算（历史积累期）。"""
 
-from sqlalchemy import Column, Date, Index, Integer, String, text
+from sqlalchemy import Column, Date, Index, Integer, String, Text, text
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
@@ -205,4 +205,73 @@ class PnlDailySnapshot(Base, PrimaryKeyMixin, TimestampMixin):
         default=1,
         server_default=text('1'),
         comment='口径版本号；与 pnl_snapshot_store.CALIBER_VERSION 不符即作废',
+    )
+
+
+class PeriodicReviewReport(Base, PrimaryKeyMixin, TimestampMixin):
+    """定期复盘报告快照（#875 页面形态第一期）：周/月/季/年报的**落库快照**。
+
+    为什么落库（owner 拍板，见 §0）：「定时生成」的语义 = 把**那一刻的账定格**。
+    若消息只作提醒、页面每次现算，用户点开看到的数字会随其后改持仓而变化，
+    与「生成时提醒你的是那一期」对不上。故生成时落库，读侧读快照、缺则现算兜底。
+
+    对齐 :class:`PnlDailySnapshot` 的三道范式（本表是最小可用子集）：
+
+    1. **口径版本号** ``caliber_version``：报告口径（归因/超额算法）一改，旧快照
+       即作废——读侧按版本过滤，不符则重算覆盖。真相源 ``periodic_review_service.CALIBER_VERSION``。
+    2. **幂等 upsert**：作用域 ``(family_id, COALESCE(ledger_id, -1), period_kind, period_key)``
+       ——同家庭同账户同期同粒度唯一，重复生成只覆盖不新增。
+    3. **读者明确**：读侧 = 复盘页（`/analysis` 区间绩效主区块）与消息深链；
+       ``payload`` 单列 JSON（报告结论是展示层数据，非查询维度，不拆强类型列）。
+
+    粒度：``family``（ledger_id IS NULL）/ ``ledger``（ledger_id = N）两级，
+    与 ``asset_snapshots`` 同范式（NULL 在唯一约束互不冲突，故用 COALESCE 落哨兵 -1）。
+    """
+
+    __tablename__ = 'periodic_review_reports'
+    __table_args__ = (
+        Index(
+            'uq_periodic_review_scope',
+            'family_id',
+            text('COALESCE(ledger_id, -1)'),
+            'period_kind',
+            'period_key',
+            unique=True,
+        ),
+        # 口径版本变更后的全表清扫（`WHERE caliber_version != 当前`）走它。
+        Index('ix_periodic_review_caliber', 'caliber_version'),
+        # 翻页导航：同粒度按期间键倒序取最近几期。
+        Index('ix_periodic_review_kind_key', 'period_kind', 'period_key'),
+    )
+
+    family_id = Column(Integer, nullable=False, default=1, comment='归属家庭（家庭共享层隔离键）')
+    ledger_id = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment='账户ID；NULL=家庭级报告，非 NULL=该账户级报告。刻意不加外键',
+    )
+    period_kind = Column(
+        String(10),
+        nullable=False,
+        comment='期间类型：week/month/quarter/year（合法值见 period_key.PERIOD_KINDS）',
+    )
+    period_key = Column(
+        String(16),
+        nullable=False,
+        comment='期间键：YYYY-Www / YYYY-MM / YYYY-Qn / YYYY（见 period_key）',
+    )
+    start_date = Column(Date, nullable=False, comment='期间起日（含）')
+    end_date = Column(Date, nullable=False, comment='期间止日（含）')
+    payload = Column(
+        Text,
+        nullable=False,
+        comment='报告结论（单列 JSON，展示层数据非查询维度）：区间收益/超额/归因/曲线等',
+    )
+    caliber_version = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text('1'),
+        comment='报告口径版本号；与 periodic_review_service.CALIBER_VERSION 不符即作废重算',
     )

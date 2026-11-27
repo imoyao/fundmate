@@ -78,6 +78,7 @@ from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
 from app.services.sync.jobs.nav_backfill_job import NavBackfillJob
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
+from app.services.sync.jobs.periodic_review_job import PeriodicReviewJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.securities_backfill_job import SecuritiesBackfillJob
@@ -396,6 +397,11 @@ class DataSyncOrchestrator:
         # 只读库内已有净值、不联网，故 NullAdapter 占位；目标池自持仓表（user 域），
         # 不吃 resolve_targets() 的 fund/stock 池，故入参 targets 被忽略。
         self.jobs['position_price'] = PositionPriceSyncJob(self.db)
+        # #875：定期复盘报告（周/月/季/年）生成落账。纯本地计算（复用 pnl 引擎
+        # 区间超额 + 品种归因）、零外部请求，NullAdapter 占位；目标池自家庭表，
+        # 不吃 resolve_targets()，入参 targets 被忽略。就绪判定在 job 内（最后交易日
+        # 净值已落库才生成），挂在 fund_nav（21:30）之后的 cron 见 daily_scheduler。
+        self.jobs['periodic_review'] = PeriodicReviewJob(self.db)
 
     # ── 目标代码解析 ──
 

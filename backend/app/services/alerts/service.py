@@ -32,6 +32,7 @@ from typing import Any, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
+from app.core.notification_categories import NotificationSourceType
 from app.domains.watchlist.models import WatchlistAlert, WatchlistAlertSettings, WatchlistItem
 from app.services import notification_service
 from app.services.alerts import quotes as prices
@@ -391,7 +392,9 @@ def _candidate(title: str, body: str, level: str, symbol: str, suffix: str, anch
         'category': rules.NOTIFICATION_CATEGORY,
         'title': title,
         'body': body,
-        'dedup_key': notification_service.build_dedup_key('watchlist_alert', f'{symbol}:{suffix}', anchor),
-        'source_type': 'watchlist_alert',
+        'dedup_key': notification_service.build_dedup_key(
+            NotificationSourceType.WATCHLIST_ALERT.value, f'{symbol}:{suffix}', anchor
+        ),
+        'source_type': NotificationSourceType.WATCHLIST_ALERT.value,
         'source_key': symbol,
     }

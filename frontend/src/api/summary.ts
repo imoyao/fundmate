@@ -332,8 +332,9 @@ export type PnlCalendarGranularity = "day" | "month" | "year";
 /**
  * 收益日历期间（月 / 年粒度）
  *
- * `period` 的**键长即粒度**：`YYYY-MM`（月）/ `YYYY`（年），
- * 柱状标签据此推导，不必另传一个可能与数据对不上的展示字段。
+ * `period` 键格式：`YYYY-MM`（月）/ `YYYY`（年）。月键判定用**精确匹配
+ * `YYYY-MM` 形状**，不是「键长即粒度」——#875 扩粒度后季键 `YYYY-Qn` 同为
+ * 7 字符，靠长度会把季键误读成月键。柱状标签据此推导，不必另传展示字段。
  */
 export type PnlCalendarPeriod = {
   period: string;

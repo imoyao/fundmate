@@ -137,6 +137,10 @@ ENV_NAV_BACKFILL_CRON = 'SCHEDULER_NAV_BACKFILL_CRON'
 # （`sync_logs` 里零运行记录），于是「资产走势」= 用户哪天打开过那个页面。
 ENV_ASSET_SNAPSHOT_ENABLED = 'SCHEDULER_ASSET_SNAPSHOT_ENABLED'
 ENV_ASSET_SNAPSHOT_CRON = 'SCHEDULER_ASSET_SNAPSHOT_CRON'
+# #875：定期复盘报告（周/月/季/年）生成。纯本地计算、零外部请求，但要**晚于净值落库**
+# （fund_nav 21:30）才判「最后交易日净值已就绪」；就绪判定在 job 内，cron 只负责触发检查。
+ENV_PERIODIC_REVIEW_ENABLED = 'SCHEDULER_PERIODIC_REVIEW_ENABLED'
+ENV_PERIODIC_REVIEW_CRON = 'SCHEDULER_PERIODIC_REVIEW_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
@@ -169,6 +173,10 @@ DEFAULT_NAV_BACKFILL_CRON = '35 8,22 * * *'
 # 「当刻状态」错位（那正是 D62 禁止的「标签非时点」）。
 # 故取 23:45——排在当日最后一个落库类 job 之后，且不跨日。
 DEFAULT_ASSET_SNAPSHOT_CRON = '45 23 * * *'
+# 定期复盘报告（#875）：纯本地计算，但「就绪判定」要看最后交易日净值是否已落库
+# （fund_nav 21:30），故排在净值落库之后 15 分钟。job 内幂等（已生成的期间跳过），
+# 每日触发一次检查即可——周期结束（周末/月末/季末/年末）的那几天自然会命中就绪。
+DEFAULT_PERIODIC_REVIEW_CRON = '45 21 * * *'
 # 场内日线（#1104）：A 股 15:00 收盘，日线数据盘后发布（ETF 两源当日 K 线常要次日才齐，
 # 由缺口回补在下一次运行时补齐）。**必须早于持仓现价回写**——后者读的就是这里落库的收盘价。
 DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
@@ -493,6 +501,18 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         '孤儿交易回填（position_id IS NULL → 按 symbol 身份挂回持仓；不联网、幂等；#950）',
     ),
     (
+        # 定期复盘报告（#875）：target_kind=None —— 目标池是**家庭表**（user 域），
+        # 不是 fund/stock 代码池，套 resolve_targets() 只会拿到不相干的代码。
+        # 纯本地计算（复用 pnl 引擎区间超额 + 品种归因）、零外部请求。
+        # 就绪判定在 job 内：上一自然周期最后交易日净值已落库才生成；只读不写账面值，故排在资产快照（23:45 拍当日最终账面值）之前。
+        'periodic_review',
+        ENV_PERIODIC_REVIEW_ENABLED,
+        ENV_PERIODIC_REVIEW_CRON,
+        DEFAULT_PERIODIC_REVIEW_CRON,
+        None,
+        '定期复盘报告生成（周/月/季/年，区间绩效+基准超额+品种归因；就绪才落库；#875）',
+    ),
+    (
         # 资产快照落账（#2132 / D63）：target_kind=None —— 与目标池无关，纯本地计算
         # （家庭/账户两级当日账面值 + 当日货基收益），零外部请求。
         # 纳回本机每日调度的理由（实测，2026-10-21）：此前 D21 把它排除在外、
@@ -755,6 +775,10 @@ REST_DAY_JOB_NAMES: frozenset = frozenset(
         # 当日账面值」，周末不做就多两个断点；且休市日账面值只差「净值没变」，
         # 落一行零成本、零外部请求。与其它「回补型」不同：它不是补缺口，是补日历。
         'asset_snapshot',
+        # 定期复盘报告（#875）：休市日照跑——周期结束点（周末/月末恰逢休市）往往就是
+        # 「上一周期该生成」的判定时点；job 内已幂等（未就绪或已生成都会跳过），
+        # 休市日空跑零成本、零外部请求。
+        'periodic_review',
     }
 )
 

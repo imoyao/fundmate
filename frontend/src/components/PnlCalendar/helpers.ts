@@ -181,13 +181,24 @@ export function hasValueState(state: PnlCalendarState): boolean {
 }
 
 /**
+ * 是否「月键」（`YYYY-MM`）。
+ *
+ * **不能靠 `length === 7` 判**（#875 扩粒度后）：季键 `YYYY-Qn` 也是 7 字符，
+ * 靠长度会把季键误读成月键。正确判据是「精确匹配 `YYYY-MM` 形状」——
+ * 四位数年份 + 连字符 + 两位数字月份。
+ */
+export function isMonthKey(name: string): boolean {
+  return /^\d{4}-\d{2}$/.test(name);
+}
+
+/**
  * 单元的可读名：日粒度传 `2026-01-05`，月粒度传 `2026-01`，年粒度传 `2026`。
  *
- * **键长即粒度**是后端定下的契约（见 `services/pnl_calendar._period_key`），
- * 前端据此说人话，不需要后端再传一个可能对不上的展示字段。
+ * 月键的判定用 `isMonthKey`（精确匹配 `YYYY-MM`），**不是**「键长即粒度」——
+ * #875 加了季键 `YYYY-Qn`（同为 7 字符）后，「长度 == 7」不再唯一对应月键。
  */
 export function readableName(name: string): string {
-  if (name.length === 7)
+  if (isMonthKey(name))
     return `${name.slice(0, 4)} 年 ${Number(name.slice(5))} 月`;
   if (name.length === 4) return `${name} 年`;
   return name;

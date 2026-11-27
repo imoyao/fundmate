@@ -548,6 +548,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'target_allocations': DOMAIN_USER,  # 目标配比（#2237）：含 family_id，用户自定的目标占比
     'asset_snapshots': DOMAIN_USER,
     'pnl_daily_snapshots': DOMAIN_USER,  # 收益日历逐日物化快照（#1926）：含 family_id
+    'periodic_review_reports': DOMAIN_USER,  # 定期复盘报告快照（#875）：含 family_id，家庭/账户级
     'user_usage': DOMAIN_USER,
     'agent_session': DOMAIN_USER,  # 账本精灵会话（#1121 S2：状态/原文/轮次，含 user_id）
     'agent_trace': DOMAIN_USER,  # 账本精灵单轮决策 trace（#1736 S4：回放/评估，经 session_id 同族）

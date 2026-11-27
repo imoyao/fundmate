@@ -85,8 +85,9 @@ const onVisibleChange = (visible: boolean) => {
   if (visible) void fetchList();
 };
 
-/** 调仓类通知点击后的深链目标：单组合 → 组合详情页；多组合聚合 → 自选页。 */
-function rebalanceTarget(item: ListItem): string | null {
+/** 点击单条 → 深链目标：调仓类 → 组合详情/自选页；报告类 → 投资复盘页；其余仅已读。 */
+function deeplinkTarget(item: ListItem): string | null {
+  if (item.category === "report") return "/analysis";
   if (item.category !== "rebalance") return null;
   const codes = (item.sourceKey ?? "")
     .split(",")
@@ -98,7 +99,7 @@ function rebalanceTarget(item: ListItem): string | null {
   return "/watchlist";
 }
 
-/** 点击单条 → 乐观置为已读，失败回滚并提示；调仓类同时深链到组合/自选页 */
+/** 点击单条 → 乐观置为已读，失败回滚并提示；调仓/报告类同时深链 */
 const onRead = async (item: ListItem) => {
   const target = items.value.find(row => row.id === item.id);
   if (!target || target.is_read) return;
@@ -113,7 +114,7 @@ const onRead = async (item: ListItem) => {
     ElMessage.warning("标记已读失败，请稍后重试");
     return;
   }
-  const path = rebalanceTarget(item);
+  const path = deeplinkTarget(item);
   if (path) void router.push(path);
 };
 

@@ -17,6 +17,8 @@ from app.domains.funds.models import DailyWorth
 from app.services.pnl_calendar import (
     GRANULARITY_DAY,
     GRANULARITY_MONTH,
+    GRANULARITY_QUARTER,
+    GRANULARITY_WEEK,
     GRANULARITY_YEAR,
     STATE_CLOSED,
     STATE_NO_DATA,
@@ -26,6 +28,7 @@ from app.services.pnl_calendar import (
     STATE_UPDOWN,
     STATE_ZERO,
     _collect_fund_nav,
+    _period_key,
     build_daily_pnl_series,
     build_pnl_series,
 )
@@ -932,6 +935,65 @@ def test_年粒度等于其各月期间之和(db, make_position, make_transactio
     assert year['periods'][0]['pnl'] == pytest.approx(jan['periods'][0]['pnl'] + feb['periods'][0]['pnl'], abs=0.01)
 
 
+# ── 周期粒度（week / quarter，#875 周期报告）─────────────────────────────────
+
+
+def test_期间键_周粒度用ISO周序_跨年周归ISO年():
+    """周键 = `YYYY-Www`（严格 ISO 周序，#875 owner 拍板）。
+
+    跨年周（2026-12-28 周一 ~ 2027-01-03 周日）按 ISO 8601 归给「天数更多的
+    那一年」——这里 4 天在 2026 ⇒ 归 2026-W53；而 2027-01-04（周一）才轮到
+    2027-W01。这是标准，与「周一所在年」的直觉不同，故单独钉死。
+    """
+    assert _period_key('2026-11-23', GRANULARITY_WEEK) == '2026-W48'  # 11-23 是周一
+    assert _period_key('2026-11-29', GRANULARITY_WEEK) == '2026-W48'  # 周日仍同周
+    assert _period_key('2026-12-31', GRANULARITY_WEEK) == '2026-W53'  # 跨年周归 2026
+    assert _period_key('2027-01-01', GRANULARITY_WEEK) == '2026-W53'  # 仍属上一 ISO 年
+    assert _period_key('2027-01-04', GRANULARITY_WEEK) == '2027-W01'  # 新 ISO 周
+
+
+def test_期间键_季度粒度用自然季度():
+    """季键 = `YYYY-Qn`（自然季度 Q1~Q4）。"""
+    assert _period_key('2026-01-15', GRANULARITY_QUARTER) == '2026-Q1'
+    assert _period_key('2026-03-31', GRANULARITY_QUARTER) == '2026-Q1'
+    assert _period_key('2026-04-01', GRANULARITY_QUARTER) == '2026-Q2'
+    assert _period_key('2026-07-01', GRANULARITY_QUARTER) == '2026-Q3'
+    assert _period_key('2026-10-01', GRANULARITY_QUARTER) == '2026-Q4'
+    assert _period_key('2026-12-31', GRANULARITY_QUARTER) == '2026-Q4'
+
+
+def test_季键与月键同长但可正则区分():
+    """季键 `2026-Q1` 与月键 `2026-01` 都是 7 字符——前端必须按
+    `\\d{4}-\\d{2}` 判月键，绝不能靠「长度 == 7」（#875 扩粒度的撞车点）。"""
+    assert len(_period_key('2026-01-01', GRANULARITY_MONTH)) == 7
+    assert len(_period_key('2026-01-01', GRANULARITY_QUARTER)) == 7
+    assert _period_key('2026-01-01', GRANULARITY_MONTH) != _period_key('2026-01-01', GRANULARITY_QUARTER)
+
+
+def test_周季粒度是同一条日序列的切法_区间合计恒等(db, make_position, make_transaction):
+    """周/季视图不得另起算法：其期间值必须与日视图同区间合计完全相等。"""
+    _seed_跨月收益(db, make_position, make_transaction)
+    day = build_daily_pnl_series(db, 1, '2026-01-28', '2026-02-03')
+    week = build_pnl_series(db, 1, '2026-01-28', '2026-02-03', granularity=GRANULARITY_WEEK)
+    quarter = build_pnl_series(db, 1, '2026-01-28', '2026-02-03', granularity=GRANULARITY_QUARTER)
+
+    # 1/28~2/3 横跨 2026-W05 与 2026-W06 两周（1/28 周三、2/2 周一）
+    week_keys = [p['period'] for p in week['periods']]
+    assert week_keys == ['2026-W05', '2026-W06']
+    # 周期间合计 == 区间合计（口径唯一）
+    week_total = sum(p['pnl'] for p in week['periods'])
+    assert week_total == pytest.approx(day['month_total'], abs=0.01)
+
+    # 1/28~2/3 全落在 2026-Q1
+    assert [p['period'] for p in quarter['periods']] == ['2026-Q1']
+    assert quarter['periods'][0]['pnl'] == pytest.approx(day['month_total'], abs=0.01)
+
+    # 聚合下推：期间视图不回日明细
+    assert week['days'] == [] and quarter['days'] == []
+    assert week['granularity'] == GRANULARITY_WEEK
+    assert quarter['granularity'] == GRANULARITY_QUARTER
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 建仓日口径（2026-11-04，D77）
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1051,7 +1113,7 @@ def test_日粒度不产出期间列表(db, make_position, make_transaction):
 
 def test_非法粒度抛值错误(db):
     with pytest.raises(ValueError):
-        build_pnl_series(db, 1, '2026-01-01', '2026-01-31', granularity='week')
+        build_pnl_series(db, 1, '2026-01-01', '2026-01-31', granularity='hour')
 
 
 # ── 净值查询必须按持有代码过滤（#1925 性能根因的防回潮锚点）─────────────────
