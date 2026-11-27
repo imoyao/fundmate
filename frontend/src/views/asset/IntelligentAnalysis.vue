@@ -93,8 +93,9 @@
       />
 
       <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
-         为「收益概览 / 货币基金收益 / 清仓周期复盘 / 资产净值走势」四段
-         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配）。 -->
+         为「收益概览 / 资产净值走势 / 清仓周期复盘 / 货币基金收益」四段
+         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配）。
+         顺序 = 信息重要性：数字 → 数字的形状 → 单笔已实现结果 → 口径补充项。 -->
       <PageSkeleton
         v-if="initialLoading"
         :cards="3"
@@ -108,36 +109,11 @@
               自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
           <ReturnOverviewSection id="nav-overview" ref="returnOverview" />
 
-          <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
-          <section v-if="moneyFundIncome" id="nav-money-fund">
-            <SectionHeader
-              title="货币基金收益"
-              info="按「万份收益 × 持有份额」估算，与上方 XIRR 口径不同（XIRR 衡量交易现金流的时间价值），两者不可相加；本项已计入总资产"
-            />
-            <MetricGrid>
-              <MetricCard
-                title="今日收益"
-                :value="mfTodayLabel"
-                value-color="var(--brand-ink)"
-                :caption="mfTodayCaption"
-                featured
-              />
-              <MetricCard
-                title="累计收益"
-                :value="mfTotalLabel"
-                value-color="var(--brand-ink)"
-                caption="持有期累计（万份收益 × 份额）"
-              />
-            </MetricGrid>
-          </section>
-
-          <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
-             自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与下方净值走势。 -->
-          <ClearedCyclesSection id="nav-cycles" />
-
-          <!-- 资产净值走势：本页的**独占项**（welcome 让出、panorama 只取快照做环比同比）。
-             原先与「资产分布」环形图并排成两列，环形图删掉后满宽 —— 时间序列本来就
-             该宽（横轴是日期），挤在半屏里读不出趋势。 -->
+          <!-- 资产净值走势：**紧跟收益数字卡**（#8）。原先排在整页最末，被 334 行
+             清仓表压到第 20 屏——曲线是那 5 张卡片的「形状」，把结论与结论的形状
+             隔开 17 000px，等于让用户用滚动条自己做关联。
+             本页的独占项（welcome 让出、panorama 只取快照做环比同比）；时间序列
+             本来就该满宽（横轴是日期），挤在半屏里读不出趋势。 -->
           <section id="nav-net-worth">
             <SectionHeader
               title="资产净值走势"
@@ -171,6 +147,15 @@
               </div>
             </CardBlock>
           </section>
+
+          <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
+             自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与净值走势。 -->
+          <ClearedCyclesSection id="nav-cycles" />
+
+          <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
+               总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
+               取数自含（拆出 MoneyFundIncomeSection），父页只经 ref 联动刷新。 -->
+          <MoneyFundIncomeSection ref="moneyFund" />
         </div>
 
         <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
@@ -196,15 +181,10 @@ import PageToc from "@/components/PageToc/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import MetricGrid from "@/components/MetricGrid/index.vue";
-import MetricCard from "@/components/MetricCard/index.vue";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
 import ReturnOverviewSection from "./ReturnOverviewSection.vue";
+import MoneyFundIncomeSection from "./MoneyFundIncomeSection.vue";
 import { useNetWorthTrend } from "./composables/useNetWorthTrend";
-import {
-  getMoneyFundIncome,
-  type MoneyFundIncomeData
-} from "@/api/performance";
 import { usePageNav } from "@/composables/usePageNav";
 import { formatAmount } from "@/utils/currency";
 
@@ -244,8 +224,6 @@ const rangeTip = computed(() => {
   const sign = r.abs >= 0 ? "+" : "-";
   return `${r.from} → ${r.to}，净资产 ${sign}¥${formatAmount(Math.abs(r.abs), 0)}`;
 });
-const moneyFundIncome = ref<MoneyFundIncomeData | null>(null);
-
 const initialLoading = ref(true);
 const loading = ref(false);
 
@@ -253,35 +231,9 @@ const updatedAtLabel = computed(() =>
   latestSnapshot.value ? `${latestSnapshot.value.snapshot_date} 更新` : ""
 );
 
-// #871：收益率口径切换与四张收益指标卡已拆为 ReturnOverviewSection（#980），
-// 口径状态 / 取数 / 降级规则随子组件自含；本页只经 ref 联动「刷新数据」。
-
-const formatYuan = (n: number, p = 0) => `¥${formatAmount(n || 0, p)}`;
-const formatSignedYuan = (n: number) =>
-  `${n >= 0 ? "+" : "-"}${formatYuan(Math.abs(n || 0))}`;
-
-// ── 货币基金收益（#947）────────────────────────────
-// 口径：万份收益 nav_per_10k × 持有份额，整数分算完后转元，由后端算好；
-// 前端只做展示，**不做二次运算**（正负号也用后端给的 today_income 语义）。
-// 无货基时接口返回 null → 不渲染该 section，而不是显示「¥0」误导成「没赚到钱」。
-const mfTodayLabel = computed(() => {
-  const d = moneyFundIncome.value;
-  return d ? formatSignedYuan(d.today_income) : null;
-});
-const mfTotalLabel = computed(() => {
-  const d = moneyFundIncome.value;
-  return d ? formatSignedYuan(d.total_income) : null;
-});
-const mfTodayCaption = computed(() => {
-  const d = moneyFundIncome.value;
-  if (!d) return "";
-  const days = d.daily_series?.length ?? 0;
-  return days > 0 ? `近${days}天有收益记录` : "暂无收益记录";
-});
-
-// ---------- 页内导航（2026-10-25）----------
-// 纵向区块 4 个（收益概览 / 货基 / 清仓周期 / 净值走势），符合 components.md
-// 的 PageToc 接入判据；标签与各 SectionHeader 标题逐字一致。
+// 页内导航（2026-10-25）：纵向 4 个独立区块（收益概览 / 资产净值走势 / 清仓复盘 /
+// 货基收益），符合 components.md 的 PageToc 接入判据；条目顺序由 DOM 实序决定
+// （usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader 标题逐字一致。
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "收益概览",
@@ -295,30 +247,24 @@ const {
   goTo: goToNavSection
 } = usePageNav(pageMain, { labels: NAV_LABELS });
 
-/** 货币基金收益（#947）：接口异常时置 null，页面隐藏该区块而不是显示 0 */
-const loadMoneyFundIncome = async () => {
-  try {
-    const res = await getMoneyFundIncome({ scope: "family" });
-    moneyFundIncome.value = res?.data ?? null;
-  } catch {
-    moneyFundIncome.value = null;
-  }
-};
-
-// #871：收益概览自带取数与装载（ReturnOverviewSection）；loadAll 不再含它，
-// 页头「刷新数据」经 ref 显式联动，避免「本页刷新了、收益卡还是旧数」。
+// #871 / #947：收益概览与货基收益都已拆为自含取数的子组件；本页只管净值走势，
+// 「刷新数据」经 ref 逐个显式联动（避免「本页刷新了、卡片还是旧数」）。
 const returnOverview = ref<InstanceType<typeof ReturnOverviewSection> | null>(
   null
 );
+const moneyFund = ref<InstanceType<typeof MoneyFundIncomeSection> | null>(null);
 
-const loadAll = () => Promise.all([loadProfitTrend(), loadMoneyFundIncome()]);
+const loadAll = () => loadProfitTrend();
 
 /** 页头「刷新数据」：真刷新，不摆样子 */
 const reloadAll = async () => {
   loading.value = true;
   try {
-    await loadAll();
-    await returnOverview.value?.refresh();
+    await Promise.all([
+      loadAll(),
+      returnOverview.value?.refresh(),
+      moneyFund.value?.refresh()
+    ]);
     await nextTick();
     initCharts();
   } finally {
@@ -352,10 +298,12 @@ onMounted(async () => {
 }
 
 /* 页内导航两级布局（components.md PageToc）：<xl 单列（胶囊在正文上方）；
-   xl+ 主列 + 160px 右目录 rail，列间距 20px（产品详情页同款宽度账）。 */
+   xl+ 主列 + 160px 右目录 rail。列间距先前沿用 --space-5（20px），比 shell 的
+   区块纵向间距（48px）小一档，视觉上 rail 像贴在正文右边缘；改 --space-standard
+   （24px）与页头 / 内容区的横向内边距同值——「同一层级的留白用同一个令牌」。 */
 .analysis-body {
   display: flex;
-  gap: var(--space-5);
+  gap: var(--space-standard);
 }
 
 .analysis-main {
