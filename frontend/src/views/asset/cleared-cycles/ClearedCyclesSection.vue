@@ -13,7 +13,9 @@
 -->
 <template>
   <section>
-    <SectionHeader title="清仓周期复盘" :info="sectionInfo">
+    <!-- 标题收到 4 字（与侧边栏「菜单标题统一 4 字」同口径）：原标题 + 右侧计数
+         + ⓘ 挤在一行，读起来像一句长句；计数降到徽标位 -->
+    <SectionHeader title="清仓复盘" :info="sectionInfo">
       <template #action>
         <!-- 空态不写「0 只 · 0 个周期」：表里已经写了「暂无已清仓周期」，
              页头再报一次 0 只是噪音；而窗口筛到 0 时，页头那个 0 还会被误读成
@@ -69,91 +71,17 @@
     <!-- 盈亏排行（#2774）：拆到 ClearedRankList —— 页面曾因它越过 400 行门槛 -->
     <ClearedRankList :cycles="cycles" />
 
-    <CardBlock>
-      <!-- table-col-allow: 8 列合计 932；1440 视口超表宽 856 即横滚，宽视口余量也只落唯一文本列「产品」（#3210） -->
-      <el-table
-        :data="cycles"
-        size="small"
-        empty-text="暂无已清仓周期（标的卖出且份额归零后自动归档）"
-      >
-        <el-table-column label="产品" min-width="160">
-          <template #default="{ row }">
-            <ProductDisplay
-              compact
-              :name="row.name || row.symbol || '--'"
-              :symbol="row.symbol || ''"
-            />
-          </template>
-        </el-table-column>
-
-        <el-table-column label="首买日" width="120">
-          <template #default="{ row }">
-            {{ row.first_buy_date || "--" }}
-          </template>
-        </el-table-column>
-
-        <el-table-column label="末卖日" width="120">
-          <template #default="{ row }">
-            {{ row.last_sell_date || "--" }}
-          </template>
-        </el-table-column>
-
-        <el-table-column label="持有天数" width="100" align="right">
-          <template #default="{ row }">
-            {{ fmtHoldingDays(row.avg_holding_days) }}
-          </template>
-        </el-table-column>
-
-        <el-table-column label="交易次数" width="90" align="right">
-          <template #default="{ row }">
-            {{ row.trade_count }}
-          </template>
-        </el-table-column>
-
-        <el-table-column label="已实现盈亏" width="130" align="right">
-          <template #default="{ row }">
-            <MoneyDisplay
-              :value="row.realized_pnl"
-              show-sign
-              auto-color
-              size="sm"
-            />
-          </template>
-        </el-table-column>
-
-        <el-table-column label="盈亏率" width="100" align="right">
-          <template #default="{ row }">
-            <RiseFallText
-              v-if="row.pnl_pct !== null"
-              :value="row.pnl_pct"
-              size="sm"
-            />
-            <span v-else class="cleared-cycles__na">--</span>
-          </template>
-        </el-table-column>
-
-        <!-- 清仓后（#2773）：回答「这笔卖得对不对」。算不出时给 -- + title 说明原因，
-             绝不回 0——0 的含义是「卖掉之后不涨不跌」 -->
-        <el-table-column label="清仓后" width="112" align="right">
-          <template #default="{ row }">
-            <ClearedPostClearCell :cycle="asCycle(row)" />
-          </template>
-        </el-table-column>
-      </el-table>
-    </CardBlock>
+    <!-- 明细表（含分页 / 排序 / 点产品进详情）：334 行不再一次性铺开 -->
+    <ClearedCyclesTable :rows="cycles" />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import ProductDisplay from "@/components/ProductDisplay/index.vue";
-import RiseFallText from "@/components/RiseFallText/index.vue";
 import { formatAmount } from "@/utils/currency";
 import {
   getClearedCycles,
@@ -162,7 +90,6 @@ import {
 } from "@/api/summary";
 import {
   CLEARED_RANGE_OPTIONS,
-  fmtHoldingDays,
   fmtHoldingDaysValue,
   fmtRatio,
   pnlTotalCaption,
@@ -171,7 +98,7 @@ import {
   type ClearedRangeKey
 } from "./helpers";
 import ClearedRankList from "./ClearedRankList.vue";
-import ClearedPostClearCell from "./ClearedPostClearCell.vue";
+import ClearedCyclesTable from "./ClearedCyclesTable.vue";
 
 defineOptions({ name: "ClearedCyclesSection" });
 
@@ -227,13 +154,6 @@ const load = async () => {
 
 onMounted(load);
 
-/**
- * el-table 的插槽 `row` 只被标注成 `DefaultRow`（`Record<string, any>`），
- * 传给类型化子组件时 tsc 会报「缺 15 个属性」。这里做一次显式断言，
- * 而不是把子组件的 props 放宽成 any —— 放宽等于放弃「字段名写错能报错」。
- */
-const asCycle = (row: unknown) => row as ClearedCycle;
-
 const formatYuan = (n: number) => `¥${formatAmount(n || 0)}`;
 const formatSignedYuan = (n: number) =>
   `${n >= 0 ? "+" : "-"}${formatYuan(Math.abs(n || 0))}`;
@@ -266,10 +186,6 @@ const sectionInfo = computed(() => {
 <style scoped>
 .cleared-cycles__count {
   font-size: var(--el-font-size-small);
-  color: var(--text-tertiary-ink);
-}
-
-.cleared-cycles__na {
   color: var(--text-tertiary-ink);
 }
 

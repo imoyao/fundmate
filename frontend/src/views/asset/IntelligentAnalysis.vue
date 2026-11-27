@@ -286,7 +286,7 @@ const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "收益概览",
   "nav-money-fund": "货币基金收益",
-  "nav-cycles": "清仓周期复盘",
+  "nav-cycles": "清仓复盘",
   "nav-net-worth": "资产净值走势"
 };
 const {
