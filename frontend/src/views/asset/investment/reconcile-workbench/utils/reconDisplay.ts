@@ -131,6 +131,31 @@ export function reconQuantity(value: number | null | undefined): string {
 }
 
 /**
+ * 域 D 组内流水的叙事（2026-11-27）：按交易类型选说法，不套用买卖范式。
+ * 现金分红流水 quantity/price 恒为 0（导入器写死），硬套「N 份 @ 价」会得到
+ * 「0 份 @ 0」——分红既无买卖份额也无成交单价，这句话在业务上就不成立。
+ * 这里只翻译后端已给出的 txn_type，不新增业务判据。
+ */
+const DIVIDEND_TYPES = new Set([
+  "dividend",
+  "dividend_cash",
+  "dividend_reinvest"
+]);
+
+export function reconGhostTxnDetail(
+  txnType: string | null | undefined,
+  quantity: number | null | undefined,
+  price: number | null | undefined
+): string {
+  if (txnType && DIVIDEND_TYPES.has(txnType)) return "分红入账";
+  const unit =
+    price === null || price === undefined || !Number.isFinite(price)
+      ? "均价未填"
+      : `均价 ¥${formatAmount(price, 4)}`;
+  return `${reconQuantity(quantity)} · ${unit}`;
+}
+
+/**
  * 差异场景句（场景化，2026-11-19）：把三列数字压成一句用户能直接读出来的话。
  * 判据/文案唯一来源，组件只 import 不重写。
  * 例：「券商流水应剩 100 份 · 账本现记 90 份 · 差 -10 份」。
@@ -148,16 +173,23 @@ export function discrepancySceneSentence(
 /**
  * 分组主标题。`group.key` 形如 `20|001982` 是后端复合主键，**不展示**；
  * 只用 `symbol`，缺失时给可执行的说明而不是空白或英文 none。
+ *
+ * `withCode=true` 给「名称 · 代码」同标题（卡片用）：代码仍是标题的一部分，
+ * 不是没头没尾的 tag；特殊码（cash）不是产品，只给中文说明，绝不把裸码带上屏。
+ * 模板里所有标题必须调用本函数（guard_recon_symbol_display 的硬契约）。
  */
 export function reconGroupTitle(
   symbol: string | null | undefined,
-  displayName?: string | null
+  displayName?: string | null,
+  withCode = false
 ): string {
   const name = displayName?.trim();
-  if (name) return name;
   const code = symbol?.trim();
-  if (!code) return "标的代码未填";
-  return specialSymbolLabel(code) ?? code;
+  if (!code) return name || "标的代码未填";
+  const special = specialSymbolLabel(code);
+  if (special) return special;
+  if (name) return withCode ? `${name} · ${code}` : name;
+  return code;
 }
 
 /** 原样代码，只用于「代码」这类技术行；展示标题一律走 reconGroupTitle */
@@ -181,6 +213,19 @@ export function reconAssetHeading(
   return specialSymbolLabel(code)
     ? `${specialSymbolLabel(code)} · ${code}`
     : code;
+}
+
+/**
+ * 队列标题：名称 + 代码写在同一个标题里（用户反馈：代码当 tag 摆着看不懂）。
+ * 现金特殊码不是产品，只给中文标签，不把裸 `cash` 带上屏——`reconAssetHeading`
+ * 给抽屉用（那里需要代码可追溯），队列这里守「零裸码」的既有口径。
+ * 与域 D 模板共用 reconGroupTitle 的 withCode 分支，避免两处口径漂移。
+ */
+export function reconQueueTitle(
+  symbol: string | null | undefined,
+  displayName?: string | null
+): string {
+  return reconGroupTitle(symbol, displayName, true);
 }
 
 /** 标的副标题：有名称就补名称，没有就退到「标的代码」，不臆造产品名。 */

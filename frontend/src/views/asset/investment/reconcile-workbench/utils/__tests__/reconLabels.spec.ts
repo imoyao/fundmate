@@ -18,7 +18,9 @@ import {
 } from "../reconLabels";
 import {
   reconAssetHeading,
+  reconGhostTxnDetail,
   reconGroupTitle,
+  reconQueueTitle,
   reconSymbolCode
 } from "../reconDisplay";
 
@@ -102,5 +104,35 @@ describe("产品名：用户得知道自己在改哪个产品", () => {
   it("没有名称时退到代码，绝不臆造产品名", () => {
     expect(reconAssetHeading("SH688223")).toBe("SH688223");
     expect(reconAssetHeading(null)).toBe("标的代码未填");
+  });
+
+  it("卡片标题「名称 · 代码」与队列口径一致，现金特殊码不漏裸码", () => {
+    expect(reconGroupTitle("007049", "华夏沪深300ETF联接A", true)).toBe(
+      "华夏沪深300ETF联接A · 007049"
+    );
+    expect(reconQueueTitle("007049", "华夏沪深300ETF联接A")).toBe(
+      "华夏沪深300ETF联接A · 007049"
+    );
+    expect(reconGroupTitle("cash", null, true)).toBe("现金");
+    expect(reconQueueTitle("cash")).toBe("现金");
+    expect(reconGroupTitle(null, "只有名称", true)).toBe("只有名称");
+  });
+});
+
+describe("域 D 明细：分红不是买卖，不许显示「0 份 @ 0」", () => {
+  it("分红类流水只说「分红入账」，份额与单价为 0 也不上屏", () => {
+    for (const type of ["dividend", "dividend_cash", "dividend_reinvest"]) {
+      expect(reconGhostTxnDetail(type, 0, 0)).toBe("分红入账");
+    }
+  });
+
+  it("买卖类流水仍给出份额与均价，精度不丢", () => {
+    expect(reconGhostTxnDetail("buy", 100, 1.2345)).toContain("100 份");
+    expect(reconGhostTxnDetail("buy", 100, 1.2345)).toContain("¥1.2345");
+  });
+
+  it("未知类型不套错误范式也不露英文码", () => {
+    expect(reconGhostTxnDetail(null, 0, 0)).not.toContain("@");
+    expect(reconGhostTxnDetail("other", 1, 2)).not.toContain("other");
   });
 });

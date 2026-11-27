@@ -10,69 +10,55 @@
       正在检查账上记录…
     </div>
 
-    <template v-else-if="readyCount > 0">
-      <div class="recon-action-hero__main">
-        <div class="recon-action-hero__text">
-          <h2 class="recon-action-hero__title">
-            有 {{ readyCount }} 件能一键处理
-          </h2>
-          <p class="recon-action-hero__desc">
-            系统已把归属算清楚，确认一次即可全部处理。
-          </p>
-        </div>
-        <el-button
-          class="recon-action-hero__cta"
-          type="primary"
-          size="large"
-          @click="emit('batch')"
+    <div v-else class="recon-action-hero__main">
+      <h2 class="recon-action-hero__title">
+        <template v-if="readyCount > 0"
+          >有 {{ readyCount }} 件能一键处理</template
         >
-          一键处理 {{ readyCount }} 件
-        </el-button>
-      </div>
-      <p v-if="judgeCount > 0" class="recon-action-hero__judge">
-        还有 {{ judgeCount }} 件需要你判断，
-        <button
-          type="button"
-          class="recon-action-hero__judge-link"
-          @click="emit('goJudge')"
+        <template v-else-if="judgeCount > 0">
+          有 {{ judgeCount }} 件需要你判断
+        </template>
+        <template v-else>对账中心已清空</template>
+      </h2>
+      <p class="recon-action-hero__desc">
+        <template v-if="readyCount > 0"
+          >系统已把归属算清楚，确认一次即可全部处理。</template
         >
-          去看要你判断
-        </button>
+        <template v-else-if="judgeCount > 0">
+          这几笔对不上，对着交割单逐条核一下再决定。
+        </template>
+        <template v-else>当前没有需要处理的待办，可以稍后再来。</template>
       </p>
-    </template>
-
-    <template v-else-if="judgeCount > 0">
-      <div class="recon-action-hero__main">
-        <div class="recon-action-hero__text">
-          <h2 class="recon-action-hero__title">
-            有 {{ judgeCount }} 件需要你判断
-          </h2>
-          <p class="recon-action-hero__desc">
-            这几笔对不上，对着交割单逐条核一下再决定。
-          </p>
-        </div>
-      </div>
-    </template>
-
-    <template v-else>
-      <div class="recon-action-hero__main">
-        <div class="recon-action-hero__text">
-          <h2 class="recon-action-hero__title">对账中心已清空</h2>
-          <p class="recon-action-hero__desc">
-            当前没有需要处理的待办，可以稍后再来。
-          </p>
-        </div>
-        <!-- 全空态兜底入口：所有域都无待办时，「导入交割单」藏在 judge 段（count=0）
-             且 ready→judge 落档要求 judge>0，入口会不可达；这里给一个直达导入页的次按钮。 -->
-        <el-button
-          class="recon-action-hero__cta"
-          size="large"
-          @click="emit('goImport')"
-        >
-          导入交割单
-        </el-button>
-      </div>
-    </template>
+      <el-button
+        v-if="readyCount > 0"
+        class="recon-action-hero__cta"
+        type="primary"
+        @click="emit('batch')"
+      >
+        一键处理 {{ readyCount }} 件
+      </el-button>
+      <!-- 全空态兜底入口：ready/judge 均为 0 时 judge 段入口不可达，这里给直达导入页 -->
+      <el-button
+        v-else-if="judgeCount === 0"
+        class="recon-action-hero__cta"
+        @click="emit('goImport')"
+      >
+        导入交割单
+      </el-button>
+    </div>
+    <p
+      v-if="!loading && readyCount > 0 && judgeCount > 0"
+      class="recon-action-hero__judge"
+    >
+      还有 {{ judgeCount }} 件需要你判断，
+      <button
+        type="button"
+        class="recon-action-hero__judge-link"
+        @click="emit('goJudge')"
+      >
+        去看要你判断
+      </button>
+    </p>
   </section>
 </template>
 
@@ -99,46 +85,46 @@ const emit = defineEmits<{
 
 <style scoped>
 .recon-action-hero {
-  padding: var(--space-standard);
-  margin-bottom: var(--space-standard);
+  padding: var(--space-compact) var(--space-standard);
+  margin-bottom: var(--space-compact);
   background: var(--bg-subtle);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-card);
 }
 
+/* 一句主结论 + 一句解释 + 一个动作：同一行读完，不独占一屏版面。
+   文案本来就是「有 N 件要判断」，不是需要大标题唱主角的营销页。 */
 .recon-action-hero__main {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-standard);
-  align-items: center;
-  justify-content: space-between;
-}
-
-.recon-action-hero__text {
-  flex: 1 1 320px;
-  min-width: 0;
+  gap: var(--space-3);
+  align-items: baseline;
 }
 
 .recon-action-hero__title {
+  flex: none;
   margin: 0;
-  font-size: var(--text-heading);
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .recon-action-hero__desc {
-  margin: 6px 0 0;
-  font-size: var(--text-small);
-  line-height: 1.7;
+  flex: 1 1 240px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: 1.6;
   color: var(--text-secondary);
 }
 
 .recon-action-hero__cta {
   flex: none;
+  align-self: center;
 }
 
 .recon-action-hero__judge {
-  margin: var(--space-3) 0 0;
+  margin: var(--space-2) 0 0;
   font-size: var(--text-label);
   color: var(--text-secondary);
 }

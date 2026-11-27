@@ -354,3 +354,58 @@ def test_ghost_endpoints_use_standard_envelope(client, db):
     body = resp.get_json()
     assert 'code' not in body
     assert 'error_code' in body
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-27 产品名口径：后端返回 positions.name；分红方案文本不得冒充产品名
+# ---------------------------------------------------------------------------
+
+
+def test_display_name_comes_from_positions_name(db):
+    """产品名由后端返回：positions.name 优先于流水快照 position_name。"""
+    from app.domains.positions.models import Position
+
+    a, b = _mk_ledgers(db)
+    _mk_txn(db, a.id, 1, symbol='007049', position_name='每10份派现金2.5970元')
+    _mk_txn(db, b.id, 1, symbol='007049', position_name='每10份派现金2.5970元')
+    db.add(Position(family_id=1, ledger_id=a.id, symbol='007049', name='华夏沪深300ETF联接A'))
+    db.commit()
+
+    grp = scan_cross_ledger_duplicates(db, 1)[0]
+    assert grp['display_name'] == '华夏沪深300ETF联接A'
+
+
+def test_display_name_rejects_dividend_plan_text(db):
+    """分红方案文本是交易事实，不是产品名：无持仓档案时必须返回 None。"""
+    a, b = _mk_ledgers(db)
+    _mk_txn(db, a.id, 1, symbol='007049', txn_type='dividend_cash', amount=1510, position_name='每10份派现金2.5970元')
+    _mk_txn(db, b.id, 1, symbol='007049', txn_type='dividend_cash', amount=1510, position_name='每10份派现金2.5970元')
+    db.commit()
+
+    assert scan_cross_ledger_duplicates(db, 1)[0]['display_name'] is None
+
+
+def test_display_name_falls_back_to_plain_snapshot(db):
+    """持仓档案缺失时，非方案文本的流水快照名仍作降级（既有行为保留）。"""
+    a, b = _mk_ledgers(db)
+    _mk_txn(db, a.id, 1, position_name='贵州茅台')
+    _mk_txn(db, b.id, 1, position_name='贵州茅台')
+    db.commit()
+
+    assert scan_cross_ledger_duplicates(db, 1)[0]['display_name'] == '贵州茅台'
+
+
+def test_display_name_is_family_scoped(db):
+    """家庭隔离：别家的持仓名不得回填到本家庭的重复组。"""
+    from app.domains.positions.models import Position
+
+    a, b = _mk_ledgers(db)
+    _mk_txn(db, a.id, 1, symbol='007049')
+    _mk_txn(db, b.id, 1, symbol='007049')
+    other = Ledger(name='别家账本', ledger_type='stock', family_id=2)
+    db.add(other)
+    db.flush()
+    db.add(Position(family_id=2, ledger_id=other.id, symbol='007049', name='别家的产品'))
+    db.commit()
+
+    assert scan_cross_ledger_duplicates(db, 1)[0]['display_name'] is None

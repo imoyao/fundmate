@@ -40,6 +40,7 @@ import {
 } from "../constants/reconTasks";
 import {
   reconAccountName,
+  reconQueueTitle,
   reconBatchLabel,
   reconCount,
   reconGroupTitle,
@@ -48,7 +49,6 @@ import {
   reconMoneyPhrase,
   reconQuantity,
   reconRecordRef,
-  reconSymbolCode,
   reconTradeDate,
   reconTxnType
 } from "./reconDisplay";
@@ -150,14 +150,14 @@ function discrepancyItem(row: DiscrepancyItem): ReconQueueItem {
     task: DOMAIN_TO_TASK[domain],
     state: done ? "done" : "judge",
     sourceDomain: domain,
-    title: reconGroupTitle(row.symbol, row.display_name),
+    title: reconQueueTitle(row.symbol, row.display_name),
     summary: done
       ? "这条差异已经处理过了。"
       : domain === "C"
         ? "账上有这笔持仓，却找不到对应的交易流水。"
         : `${issue}，对着券商对账单核一下，看按哪边记。`,
     facts: [
-      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
+      isCash ? CASH_SYMBOL_HINT : "",
       row.expected_value !== null
         ? `${DISC_COLUMN_LABELS.expected} ${reconQuantity(row.expected_value)}`
         : "",
@@ -186,14 +186,11 @@ function eaccountItem(row: ReconciliationItem): ReconQueueItem {
     task: "verify",
     state: done ? "done" : "judge",
     sourceDomain: "A",
-    title: name || reconGroupTitle(row.symbol),
+    title: reconQueueTitle(row.symbol, name),
     summary: done
       ? "这条 E账户记录已经核对过了。"
       : "E账户官方快照与账本里的份额不一致，对着快照核一下，看以哪个为准。",
     facts: [
-      reconGroupTitle(row.symbol) !== "标的代码未填"
-        ? `代码 ${reconGroupTitle(row.symbol)}`
-        : "",
       `E账户 ${reconQuantity(row.eaccount_quantity)}`,
       `账本 ${reconQuantity(row.system_quantity)}`,
       `差额 ${reconQuantity(row.diff)}`
@@ -216,11 +213,10 @@ function ghostItem(row: GhostDuplicateGroupItem): ReconQueueItem {
     task: "verify",
     state: "judge",
     sourceDomain: "D",
-    title: reconGroupTitle(row.symbol, row.display_name),
+    title: reconQueueTitle(row.symbol, row.display_name),
     summary: `同一笔${reconTxnType(row.txn_type)}疑似在 ${row.count} 个账本里各记了一次，对着流水核一下，看留哪一份。`,
     facts: [
-      // 代码只作次要事实行：标题优先名称（reconGroupTitle 唯一口径）
-      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
+      isCash ? CASH_SYMBOL_HINT : "",
       reconTradeDate(row.confirm_date),
       reconMoneyPhrase(row.amount_yuan),
       names ? `涉及账本 ${names}` : ""
@@ -240,15 +236,11 @@ function ghostIgnoredItem(row: GhostDuplicateIgnore): ReconQueueItem {
     task: "verify",
     state: "done",
     sourceDomain: "D",
-    // 忽略快照可能 symbol 为 null：reconGroupTitle 统一给出可执行的降级文案
-    title: reconGroupTitle(row.symbol, row.display_name),
+    // 忽略快照可能 symbol 为 null：reconQueueTitle 统一给出可执行的降级文案
+    title: reconQueueTitle(row.symbol, row.display_name),
     summary: "这组重复交易已被忽略，可以撤销后重新核对。",
     facts: [
-      isCash
-        ? CASH_SYMBOL_HINT
-        : row.symbol
-          ? `代码 ${reconSymbolCode(row.symbol)}`
-          : "",
+      isCash ? CASH_SYMBOL_HINT : "",
       row.confirm_date ? reconTradeDate(row.confirm_date) : "",
       row.amount_yuan !== null ? reconMoneyPhrase(row.amount_yuan) : ""
     ].filter(Boolean),
@@ -271,12 +263,12 @@ function taxItem(row: DividendTaxPendingItem): ReconQueueItem {
     // 税额取决于买入批次的持股期，后端不推算，一律需要用户对照交割单判断
     state: "judge",
     sourceDomain: "E",
-    title: reconGroupTitle(row.symbol, row.name),
+    title: reconQueueTitle(row.symbol, row.name),
     summary: needRecord
       ? "已卖出但账里没配上这笔红利税，对照交割单确认有没有这笔扣款。"
       : "已记的扣税金额超过红利税上限，可能记错了品种，需要核对。",
     facts: [
-      isCash ? CASH_SYMBOL_HINT : `代码 ${reconSymbolCode(row.symbol)}`,
+      isCash ? CASH_SYMBOL_HINT : "",
       reconTradeDate(row.dividend_on),
       `税前分红 ${reconMoney(centsToYuan(row.dividend_cents))}`,
       row.tax_cents > 0
