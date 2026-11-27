@@ -36,11 +36,13 @@ def _txn(
     position_name=None,
     trade_date=None,
     asset_type='stock',
+    ledger_id=None,
 ):
     """合成一条流水（字段形态对齐 Transaction；金额已是分）。
 
     `asset_type` 默认 'stock'：分组键走 `symbol_identity(symbol, asset_type)`
     （#1662），与真实写入一致（流水快照带 asset_type）。
+    `ledger_id` 默认 None：存量迁移 / 未归档持仓的流水确实没有账户归属。
     """
     return SimpleNamespace(
         txn_type=txn_type,
@@ -52,6 +54,7 @@ def _txn(
         symbol=symbol,
         position_name=position_name,
         asset_type=asset_type,
+        ledger_id=ledger_id,
     )
 
 
@@ -177,6 +180,20 @@ class TestMultiCycleAndSymbols:
         )
         cycles = compute_cleared_cycles(txns)
         assert [c['last_sell_date'] for c in cycles] == ['2026-04-01', '2026-02-01']
+
+    def test_cycle_collects_distinct_ledger_ids(self):
+        """周期收集涉及账户 id：去重、丢弃 NULL（未归档持仓的流水没有账户）。"""
+        txns = [
+            _txn('buy', quantity=5000, amount=50000, confirm_date=date(2026, 1, 1), ledger_id=7),
+            _txn('buy', quantity=5000, amount=50000, confirm_date=date(2026, 1, 10), ledger_id=7),
+            _txn('buy', quantity=5000, amount=50000, confirm_date=date(2026, 1, 15), ledger_id=3),
+            _txn('buy', quantity=5000, amount=50000, confirm_date=date(2026, 1, 20)),  # ledger_id=None
+            _txn('sell', quantity=20000, amount=210000, confirm_date=date(2026, 2, 1), ledger_id=7),
+        ]
+        cycles = compute_cleared_cycles(txns)
+        assert len(cycles) == 1
+        # 升序（id 序）而不是出现序：同 id 集合在任意输入顺序下稳定
+        assert cycles[0]['ledger_ids'] == [3, 7]
 
 
 class TestDegradation:
@@ -356,6 +373,82 @@ class TestBuildClearedCycles:
         assert c['realized_pnl'] == 50.0
         assert c['avg_holding_days'] == 31.0
         assert data['summary']['win_rate'] == 100.0
+
+    def test_ledger_names_attached(self, db, make_position, make_transaction):
+        """回填涉及账户名（第 4 条）：多账户买同一只产品仍是一轮，名字按账户 id 序。
+
+        这条是「周期不按账户拆分」的守门：拆开会把产品数、胜率分母一起改掉，
+        与账户管理页的口径打架。表格只展示「首个账户 + 其余数量」。
+        """
+        pos_a = make_position(
+            symbol='110022',
+            name='易方达消费行业',
+            account_name='账户A',
+            asset_type='bond',
+            quantity=1000,
+            current_price=1.2,
+        )
+        pos_b = make_position(
+            symbol='110022',
+            name='易方达消费行业',
+            account_name='账户B',
+            asset_type='bond',
+            quantity=1000,
+            current_price=1.2,
+        )
+        for pos, day in ((pos_a, date(2026, 1, 1)), (pos_b, date(2026, 1, 10))):
+            make_transaction(
+                pos.id,
+                pos.ledger_id,
+                txn_type='buy',
+                quantity=1000,
+                price=1.0,
+                amount=1000.0,
+                confirm_date=day,
+                symbol='110022',
+            )
+        make_transaction(
+            pos_a.id,
+            pos_a.ledger_id,
+            txn_type='sell',
+            quantity=2000,
+            price=1.05,
+            amount=2100.0,
+            confirm_date=date(2026, 2, 1),
+            symbol='110022',
+        )
+        data = build_cleared_cycles(db, family_id=1)
+        assert len(data['cycles']) == 1
+        c = data['cycles'][0]
+        assert c['ledger_names'] == ['账户A', '账户B']
+        # 内部 id 不进 API 出参：前端只消费名字（排序也按名）
+        assert 'ledger_ids' not in c
+
+    def test_ledger_names_empty_without_ledger_id(self, db, make_transaction):
+        """流水没有 ledger_id（存量迁移 / 未归档持仓）→ 空列表，不是「未知」也不是省略字段。"""
+        make_transaction(
+            None,
+            None,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            amount=1000.0,
+            confirm_date=date(2026, 1, 1),
+            symbol='110022',
+        )
+        make_transaction(
+            None,
+            None,
+            txn_type='sell',
+            quantity=1000,
+            price=1.05,
+            amount=1050.0,
+            confirm_date=date(2026, 2, 1),
+            symbol='110022',
+        )
+        data = build_cleared_cycles(db, family_id=1)
+        assert len(data['cycles']) == 1
+        assert data['cycles'][0]['ledger_names'] == []
 
     def test_cash_equivalents_excluded_by_default(self, db, make_position, make_transaction):
         """类现金资产（货基）默认排除；include_cash_equivalents=True 才纳入。

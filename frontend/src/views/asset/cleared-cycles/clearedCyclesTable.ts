@@ -18,14 +18,20 @@
 
 import type { ClearedCycle } from "@/api/summary";
 
-/** 可排序列 —— 与表头 `prop` 逐字一致，漏登记的表头点了不会有反应 */
+/**
+ * 可排序列 —— 表头的 `prop` 必须在其中，漏登记的表头点了不会有反应。
+ *
+ * `last_sell_date` 不在表头（末卖日已并进「持有区间」列），仍保留在联合类型里：
+ * `DEFAULT_SORT_KEY` 用它表达「与后端出参同序」（末卖日降序），这是清掉排序后的
+ * 回退序，不是某一列。
+ */
 export type ClearedSortKey =
   | "name"
   | "realized_pnl"
   | "pnl_pct"
-  | "avg_holding_days"
-  | "trade_count"
+  | "ledger_names"
   | "first_buy_date"
+  | "avg_holding_days"
   | "last_sell_date"
   | "post_clear_pct";
 
@@ -46,9 +52,13 @@ function sortValue(
   key: ClearedSortKey
 ): number | string | null {
   const raw = (row as unknown as Record<string, unknown>)[key];
-  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
-  if (typeof raw === "string") {
-    const text = raw.trim();
+  // 账户是多值（同一只产品可能在多个账户买入）：排序与展示同口径，只比首个账户名
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
     return text === "" ? null : text;
   }
   return null;
