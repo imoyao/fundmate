@@ -4,9 +4,10 @@
   回答的是收益率回答不了的那个问题：「这个账户 / 组合我一共投进去多少、取出来多少、
   现在值多少、到底赚了多少」。收益率高不代表投入规模合适，只有资金流动能回答。
 
-  三级作用域：不传 props = 不取数（本面板没有家庭级用法）；`ledger-id` = 账户级；
-  `portfolio-id` = 组合级（成员账本 Σ，组合内互转由后端抵消为 0）。两者互斥，
-  父页自行保证（后端同传回 400）。
+  三级作用域：不传 props = 不取数；`ledger-id` = 账户级；`portfolio-id` = 组合级
+  （成员账本 Σ，组合内互转由后端抵消为 0）；`family` 布尔 = 家庭级（2026-11-27，
+  全家庭合并，与复盘页的 XIRR / 清仓周期同口径）。三者互斥，父页自行保证
+  （后端同传回 400）。
 
   口径纪律（docs/spec/cashflow-layers.md，禁止在本组件里改口径）：
   - 入金/出金（L1）才是资金进出；买入/卖出是账户内换形态（L2），不计入这两个数；
@@ -28,13 +29,22 @@
         </p>
         <p>净投入 = 累计入金 − 累计出金，自开户以来统计，不随时间区间变化。</p>
         <p>
+          这里的净投入是<strong>出入金</strong>口径；收益概览里那张「净投入」卡是
+          累计买入 − 累计卖出 / 分红（本金口径），两者不是同一个数，不能相减。
+        </p>
+        <p v-if="!family">
           净值线为<strong>持仓市值</strong>；现金残差
           <strong>{{ money(totals?.cash_residual) }}</strong>
           由流水推导（缺流水会偏），未计入曲线。
         </p>
-        <p>
+        <p v-if="!family">
           期末资产 = 持仓市值 + 现金残差（推导值）；累计收益 = 期末资产 −
           净投入。
+        </p>
+        <p v-else>
+          家庭级只报<strong>持仓市值</strong>：现金残差是账户级推导值（靠「这个集合的
+          入金都记全了」才成立），家庭合并后缺一笔入金就会把资产算成负数，故不展示
+          期末资产 / 累计收益——要看账户余额请到账户页。
         </p>
         <p>柱状图为每月入金 / 出金，正负分色；月份缺数据时不留空柱。</p>
       </template>
@@ -60,8 +70,14 @@
           <span class="metric__value">{{ money(totals?.net_invested) }}</span>
         </div>
         <div class="metric metric--key">
-          <span class="metric__label">期末资产</span>
-          <span class="metric__value">{{ money(totals?.end_asset) }}</span>
+          <!-- 家庭级不给「期末资产」（= 市值 + 不可信的现金残差），改报市值本体：
+               两个数都在净值线末点上，读者能对上 -->
+          <span class="metric__label">{{
+            family ? "持仓市值" : "期末资产"
+          }}</span>
+          <span class="metric__value">
+            {{ money(family ? totals?.market_value : totals?.end_asset) }}
+          </span>
         </div>
       </div>
 
@@ -117,19 +133,33 @@ import { useCashFlow } from "./useCashFlow";
 defineOptions({ name: "CashFlowPanel" });
 
 const props = defineProps<{
-  /** 账户级口径；与 portfolioId 互斥 */
+  /** 账户级口径；与 portfolioId / family 互斥 */
   ledgerId?: number;
-  /** 组合级口径；与 ledgerId 互斥 */
+  /** 组合级口径；与 ledgerId / family 互斥 */
   portfolioId?: number;
+  /** 家庭级口径（全家庭合并）；没有 id，靠这个布尔表达 */
+  family?: boolean;
 }>();
 
-/** 文案口径词：账户页说「本账户」，组合页说「本组合」（同一条口径，两种说法） */
-const scopeWord = computed(() =>
-  props.portfolioId != null ? "本组合" : "本账户"
-);
+/** 文案口径词：账户页说「本账户」、组合页说「本组合」、复盘页说「本家庭」 */
+const scopeWord = computed(() => {
+  if (props.family) return "本家庭";
+  return props.portfolioId != null ? "本组合" : "本账户";
+});
 
-const { range, data, loadError, totals, missingDays, inceptionLabel, money } =
-  useCashFlow(props);
+const {
+  range,
+  data,
+  loadError,
+  totals,
+  missingDays,
+  inceptionLabel,
+  money,
+  refresh
+} = useCashFlow(props);
+
+/** 父页「刷新数据」用：本面板与其它自含取数区块同一契约（defineExpose.refresh） */
+defineExpose({ refresh });
 
 const themeTick = useThemeTick();
 

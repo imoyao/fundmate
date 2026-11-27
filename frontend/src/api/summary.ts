@@ -36,13 +36,14 @@ export type CashFlowTotals = {
   deposit: number;
   withdraw: number;
   net_invested: number;
-  cash_residual: number;
+  /** 现金残差（推导值）。**家庭级为 null**——合并后缺一笔入金就会变成大额负数 */
+  cash_residual: number | null;
   /** 期末持仓市值（净值线末值，持仓市值口径） */
   market_value: number;
-  /** 期末资产 = 期末市值 + 现金残差 */
-  end_asset: number;
-  /** 累计收益 = 期末资产 − 净投入 */
-  total_return: number;
+  /** 期末资产 = 期末市值 + 现金残差；家庭级为 null（不推导现金残差） */
+  end_asset: number | null;
+  /** 累计收益 = 期末资产 − 净投入；家庭级为 null（同上） */
+  total_return: number | null;
   has_deposit_record: boolean;
 };
 
@@ -69,12 +70,12 @@ export type CashFlowMonth = {
   net: number;
 };
 
-/** 资金流动汇总（账户级 / 组合级同一份结构，用 `scope` 区分） */
+/** 资金流动汇总（家庭级 / 账户级 / 组合级同一份结构，用 `scope` 区分） */
 export type CashFlow = {
-  scope: "ledger" | "portfolio";
-  /** 组合级为 null */
+  scope: "ledger" | "family" | "portfolio";
+  /** 家庭级 / 组合级为 null */
   ledger_id: number | null;
-  /** 账户级为 null */
+  /** 家庭级 / 账户级为 null */
   portfolio_id: number | null;
   start_date: string;
   end_date: string;
@@ -94,14 +95,16 @@ export type CashFlow = {
 };
 
 /**
- * 查询资金流动（账户级 / 组合级）。
+ * 查询资金流动（家庭级 / 账户级 / 组合级）。
  *
  * `ledger_id` 与 `portfolio_id` **二选一**（同传后端 400、都不传也 400）；
+ * 家庭级没有 id 可推断，必须显式传 `scope: "family"`（与任何 id 互斥）。
  * 区间只影响逐笔 / 月度 / 曲线，累计指标恒为「自开户以来」。
  */
 export function getCashFlow(params: {
   ledger_id?: number;
   portfolio_id?: number;
+  scope?: "family";
   start_date?: string;
   end_date?: string;
 }) {

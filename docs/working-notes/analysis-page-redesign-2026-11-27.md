@@ -53,14 +53,14 @@
 | 6 | 回本涨幅缺失 | **已确认口径 = 当前持仓「回本需涨 %」**（成本/市值−1），可由 `pnl-attribution` 的 `pct` 派生 `−pct/(100+pct)`，不需新端点 | P2（结构区） |
 | 7 | 表头要能排序 | 8 列全客户端排序；缺值恒末尾、稳定、数值按数值比（与 `watchlist/clientSort.ts` 同三条规则）；三态清空时回默认序 | ✅ 本 PR |
 | 8 | 净值走势该在最上面 | 与收益概览合并为「收益与净值」，图紧跟指标卡 | P0（见 §4） |
-| 9 | 结构 / 风格 / 行业 / 资金流动要画图 | 复用既有家庭级面板，不新写图：持仓结构 `PositionStructurePanel`（含 Top5 与集中度）/ 行业 `PenetrationPanel` / 风格 `StyleDistributionCard`（P2a 已上）；资金流动 `CashFlowPanel` 需补家庭级作用域（P2b） | P2a ✅ / P2b 待做 |
+| 9 | 结构 / 风格 / 行业 / 资金流动要画图 | 复用既有家庭级面板，不新写图：持仓结构 `PositionStructurePanel` / 行业 `PenetrationPanel` / 风格 `StyleDistributionCard`（P2a）；资金流动 `CashFlowPanel` 补家庭级作用域（P2b） | ✅ P2a + P2b |
 
 ## 3. 数据缺口（后端）
 
 | 需要 | 现状 | 代价 |
 |---|---|---|
 | 清仓周期所属账户 | `compute_cleared_cycles` 按 `identity` 聚合，无账户字段 | `cleared_cycles.py` 已冻结在 747 行（只减不增）⇒ 加字段必须**行数中性**（腾掉等量注释或恒 null 的占位键），或下沉到新的 enrich 模块 |
-| 家庭级资金流动 | `/summary/cash-flow/` 的 `ledger_id` / `portfolio_id` 二选一，都不传回 400 | 需新增 `scope=family` + `breakdown{begin_asset,deposit,withdraw,dividend,pnl,end_asset}`；`cash_flow_service.py` 同样受体量闸门约束 |
+| 家庭级资金流动 | ✅ 已补 `scope=family`（P2b）：成员账本 = 全家、日序列走 `pnl_calendar(ledger_id=None)`、家庭级不推导现金残差 | 解析下沉新模块 `cash_flow_scope.py`（体量闸门要求）；`breakdown` 树形仍未做 |
 | 资金流动树形 | 现有 `CashFlowPanel` 是「净值双线 + 月度柱」（时间序列），不是期末结构树 | 新组件 `CashFlowTree`（纯展示、无 echarts），账户/组合/家庭三级复用 |
 
 ## 4. 分期
@@ -70,7 +70,7 @@
 | **P0**（本 PR） | 清仓表分页 / 排序 / 列序 / 点进详情 / 标题收敛 | 无（品类走后端 resolve） |
 | P1 | IA 重排（收益与净值合并、净值图上车）、rail 间距、`ledger_names` 账户列 | 后端 1 个字段 |
 | P2a | 结构区三块（持仓结构 / 行业分布 / 基金风格）——零后端，复用既有家庭级面板 | 无 |
-| P2b | 资金流动进结构区：`cash-flow` 补家庭级作用域 + `CashFlowPanel` family 档（组件已在账户页 / 组合页复用，缺的只是家庭档） | 后端 1 个作用域 |
+| P2b ✅ | 资金流动家庭级：`cash-flow` 补 `scope=family` + `CashFlowPanel` 的 `family` 档，作为**独立区块**接入（`nav-cash-flow`，紧跟净值走势） | 后端 1 个作用域 |
 
 ### 4.1 P2a 落地记录（2026-11-27）
 
@@ -89,6 +89,34 @@
 - **代价**：结构区占整页 43%，是当前最长的一块。要压缩只有两条路——两列布局（1440
   单列宽 902px，两列各 430 会把 Top5 条与覆盖率卡挤坏）或默认折叠（站内无折叠区块先例）。
   本期都不做，等用户看到实物再定。
+
+### 4.2 P2b 落地记录（2026-11-27，资金流动家庭级）
+
+- **`scope=family` 显式才能进**：两个 id 都不传仍是 400。原因不是洁癖——「漏传参数就
+  静默变成全家数据」比报错更坏（用户会以为自己筛过了）。`scope` 与 id 自洽校验也在
+  后端（`scope=family&ledger_id=` 回 400）。
+- **家庭级日序列不自己合并**：直接吃 `build_daily_pnl_series(ledger_id=None)`，与家庭级
+  XIRR / 收益日历同源。组合级必须 Σ 成员（成员是显式选择的集合），家庭级照抄会多出
+  「任一成员缺数据当天整体置缺」，与日历对不上。
+- **顺带修掉一个存量 bug**：`build_layers` 默认 `include_cash_equivalents=False`（XIRR 的
+  口径），资金流动误用了它 ⇒ `asset_type ∈ {cash, money_fund, reverse_repo}` 的流水被
+  整条丢掉。真库实测「微众银行」25.8 万入金 / 14.4 万出金**全部消失**，账户页显示
+  「还没有入金记录、净投入按 0」；家庭级更离谱（入金 104 元）。修正后该账户入金 25.85 万 /
+  净投入 11.37 万 / 现金残差 +7.1 万（与其实际现金余额对得上）。
+- **家庭级不推导现金残差**：残差的前提是「集合里每个账户的入金都记全了」。账户级能靠
+  余额自证；家庭合并后同一份真库数据残差 −34.2 万 ⇒ 期末资产 −8.2 万。故家庭级
+  `cash_residual / end_asset / total_return` 一律 `null`，卡面第 4 张改报**持仓市值**
+  （与净值线末点同源），要看余额去账户页。
+- **页面位置**：独立区块放在净值走势之后——曲线的台阶就是入金/出金，放下面才对得上
+  「这天为什么抬了一截」。rail 变 7 项。
+- **顺带修掉纵向节奏**：`.analysis-main` 此前没有 `gap`，区块间距实测 **0 / −1px**
+  （只剩 SectionHeader 自带的 12px），七段挤成一片；补 `flex column + --space-section`
+  后统一 48px（与同站其它资产页的 shell 同一条令牌）。结构区三块之间 24px（同一问题的
+  三个切面），收进 `AnalysisStructureSection.vue`，页面因此回到 399 行。
+- **实测（真库，Edge headless）**：1440/1280 两档 4 张卡与两张图正常、`pageerror` 0、
+  `scope=family` 单次请求；家庭级 入金 258 898.60 / 出金 150 163.56 / 净投入 108 735.04 /
+  持仓市值 566 749.51。⚠️ 与「收益概览」的当前市值 790 431 相差约 22 万（XIRR 与
+  `pnl_calendar` 两个引擎的市值口径差），属既有问题，本 PR 不碰，记在这里待查。
 
 ## 5. 是否与「持仓分析」合并（评估）
 
@@ -130,5 +158,5 @@
 ## 6. 待办
 
 1. P1：IA 重排 + 净值图上车 + rail 间距 + 账户列（后端 `ledger_names`）
-2. P2a ✅：结构区三块（持仓结构 / 行业 / 风格）已接入；P2b：资金流动家庭级（`cash-flow` scope + `CashFlowPanel` family 档）
+2. P2a ✅ 结构区三块；P2b ✅ 资金流动家庭级（见 §4.2）
 3. P3：与持仓分析合并（按 §5 三步走，先定口径切换器的覆盖范围）

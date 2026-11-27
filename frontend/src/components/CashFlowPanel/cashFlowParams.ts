@@ -22,10 +22,17 @@ export type CashFlowRange = ChartRangeKey;
 export type CashFlowScope = {
   ledgerId?: number;
   portfolioId?: number;
+  /**
+   * 家庭级（2026-11-27）：没有 id 可推断，须显式标识。
+   * 后端把「两个 id 都不传」当参数错误而不是「默认全家」——漏传就退回全家数据
+   * 是比报错更坏的结果，故这里也必须显式。
+   */
+  family?: boolean;
 };
 
 export type CashFlowParams = {
   start_date: string;
+  scope?: "family";
   ledger_id?: number;
   portfolio_id?: number;
 };
@@ -42,6 +49,11 @@ export function cashFlowParams(
   const params: CashFlowParams = {
     start_date: chartRangeParams(range, today).start_date
   };
+  if (scope.family) {
+    // 家庭级与 id 互斥（后端同传 400）：只要标了 family 就不带 id
+    params.scope = "family";
+    return params;
+  }
   if (scope.ledgerId != null) params.ledger_id = scope.ledgerId;
   if (scope.portfolioId != null) params.portfolio_id = scope.portfolioId;
   return params;
