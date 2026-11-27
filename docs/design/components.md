@@ -50,6 +50,7 @@ title: 组件使用规范（设计语言实现层）
     四组挤在同一 `gap-2` 里时，用户分不清「切换维度」和「翻时间段」是两类操作。
     窄屏（`bp.below("sm")`）两组纵向堆叠并左对齐——继续右对齐会把导航推到无意义的空白旁。
 
+- `ScopeBar` — 分析类页面的**页级口径切换条**（全家庭 / 单账户 / 组合），状态收口在 `useAnalysisScope`；档位选项走 `SegmentedControl`，**禁各页再手写 `el-radio-group` + `el-select` 组合**。#2595 的事故形态（面板漏传 scope、安静显示家庭级数据）由「`isReady` 未满足不取数」这条硬约束堵死，接线判据见「分析页口径」章节
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
@@ -158,6 +159,43 @@ title: 组件使用规范（设计语言实现层）
 
 > **分水岭一句话**：**选项多到需要横向滚动 ⇒ 胶囊栏（#2 / #3）；能平铺 ⇒ 分段控制器（#1）。**
 > 语义上 #1 / #2 / #3 都是「切换看什么」，#4 是「填写是什么」。
+
+## 分析页口径 · ScopeBar + useAnalysisScope（#3287）
+
+「用哪个范围看这份分析」（全家庭 / 单账户 / 组合）是**页级主控**，不是某个区块的局部开关。
+组件 `ScopeBar`，状态 `composables/analysisScope`（`kind` / `id` / `epoch` / `isReady` /
+`scopeProps` / `scopeQuery`）。两条入口翻译函数在同一文件里，**禁止各页再写三元**：
+
+| 出口 | 产出 | 谁用 |
+|---|---|---|
+| `toScopeProps(kind, id)` | `{ ledgerId?, portfolioId? }` | 面板型组件（`PositionStructurePanel` / `PenetrationPanel` / `PnlAttribution` …） |
+| `toScopeQuery(kind, id)` | `{ scope, ledger_id?, portfolio_id? }` | 直接调 API 的区块 |
+
+### 四条硬约束
+
+1. **档位只能在「整页每一块都算得出来」时才摆出来。**
+   `useAnalysisScope({ kinds })` 收窄可选项。摆出组合档而页面上有 4 块返回「不支持」，
+   用户读到的是半成品；反过来让那几块偷偷退回家庭级，就是下面第 2 条。
+2. **不支持的档位不渲染数字，绝不退回家庭级。**
+   `toScopeProps` 在「未选对象」时返回 `{}`，而 `{}` 在面板里**就是家庭级**——所以
+   取数前必须先问 `isReady`，`false` 时清空数据并显示「选择账户后取数」。
+   这是 #2595 事故（面板漏传 scope、安静显示家庭数据）的正面堵法。
+3. **切换器吸顶，不塞 `PageHeaderBar` 的 action 槽。**
+   页头会滚走；口径错了整页都错，它必须一直在视野里。吸顶容器底色**只能用
+   `--bg-surface`**——内容区底两主题不同源（浅 `--bg-warm` / 暗 `#020409`），
+   写 `--bg-page` 必在一侧切出矩形色带。
+4. **异步回写要比对 `epoch`。**
+   切档时 N 块并发重取、返回顺序不保证。区块记 `const e = epoch.value`，
+   回写前 `if (e !== epoch.value) return;`。单块自己防抖解决不了跨块的顺序错乱
+   （会出现「XIRR 已是账户级、曲线还是家庭级」的中间态，而两者都看着正常）。
+
+### 视觉
+
+- 档位走 `SegmentedControl`（`size="default"`）。**不用 `el-radio-group`**：实心品牌底
+  本仓实测 3.02:1 不达 AA，且与同页真实主按钮撞脸（裁决见 `SegmentedControl` 文件头）。
+- 右侧一行 `--text-label` 小字说明**实际取到了什么**（「16 个账户合计」「该账户快照 68 天」），
+  与档位按钮（说明**意图**）分工：意图 ≠ 事实，两者不等时以事实为准。
+- 窄屏整行折行、不横向滚动（三档 + 一个下拉不会溢出；硬塞滚动会让最后一项点不到）。
 
 ## Superellipse · 品牌超椭圆容器（D15，强制复用）
 
