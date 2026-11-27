@@ -7,13 +7,19 @@
   两件事都在**前端**做（口径见 clearedCyclesTable.ts 文件头）：
   分页只决定「看到哪几行」，排序只决定「按哪一列」，都不改任何汇总数字。
 
-  列序按「先看赚了多少，再看是在哪买的、什么时候买的」排 —— 收益 / 收益率紧接着产品，
-  账户随后（同一只产品可能在多个账户买过，周期不拆），日期收成一列「持有区间」：
-  首买日 / 末卖日 是解释项，不是结论。
+  列序按「先看赚了多少，再看是在哪买的、拿了多久」排 —— 收益 / 收益率紧接着产品，
+  账户随后（同一只产品可能在多个账户买过，周期不拆）。
+
+  首买日 / 末卖日 **不进表**（2026-11-27 用户拍板）：两个日期是解释项，不是结论，
+  「拿了多少天」才是能拿来比的那个数；为读一个时间段再让日期占掉两列（单行需 206px），
+  挤掉的是收益列的可比性。
 -->
 <template>
   <CardBlock>
-    <!-- table-col-allow: 7 列合计 804（产品 168 为弹性下限），1280 视口下表宽仅 692 ⇒ 窄屏必横滚；金额与百分比列固定宽才好竖着比大小（#3210） -->
+    <!-- 列宽分配（#3210 口径，无需放行标记）：产品 168 / 账户 120 两列都是 `min-width`
+         弹性列，宽屏余量按 168:120 分摊——1440 视口实测 266 / 190 / 124 / 88 / 88 / 96
+         = 852，账户名整串显示；1280 视口压缩到 173 / 123，合计 692 仍装得下、表内不横滚。
+         金额与百分比列保持固定宽，才好竖着比大小。 -->
     <el-table
       :data="pageRows"
       size="small"
@@ -28,21 +34,22 @@
         sortable="custom"
       >
         <template #default="{ row }">
-          <div class="cleared-table__product">
-            <!-- 产品名是按钮而不是 div + @click：键盘可达、读屏可聚焦，
-                 跳转目标由后端 resolve 判定品类（前端不按代码形态猜） -->
-            <el-button
-              link
-              class="cleared-table__name"
-              :loading="openingSymbol === row.symbol"
-              @click="openProduct(asCycle(row))"
-            >
-              {{ row.name || row.symbol || "--" }}
-            </el-button>
-            <span v-if="row.symbol" class="cleared-table__code">
-              # {{ row.symbol }}
-            </span>
-          </div>
+          <!-- 复用 ProductDisplay（compact = 名称 / # 代码 两行），与自选、持仓明细、
+               账本明细同构——此前手写的「按钮 + 代码」是第四套写法。
+               点击挂在 el-button link 上而不是 div + @click：键盘可达、读屏可聚焦，
+               跳转目标由后端 resolve 判定品类（前端不按代码形态猜）。 -->
+          <el-button
+            link
+            class="cleared-table__product"
+            :loading="openingSymbol === row.symbol"
+            @click="openProduct(asCycle(row))"
+          >
+            <ProductDisplay
+              compact
+              :name="row.name || ''"
+              :symbol="row.symbol || ''"
+            />
+          </el-button>
         </template>
       </el-table-column>
 
@@ -82,11 +89,13 @@
 
       <!-- 账户：周期不按账户拆分（同一只产品多账户买入仍是一轮），故这里可能多个。
            展示首个 + 其余数量，悬浮看全名——列里塞全名会把日期列挤出去。
-           120px 是实测下限：再窄「同花顺（银河证券）」只剩两个字 + 省略号。 -->
+           120px 是实测下限：再窄「同花顺（银河证券）」只剩两个字 + 省略号。
+           用 `min-width` 而不是死宽：让本列与产品列一起分摊宽屏余量（按 168:120），
+           而不是整条余量全灌给产品列、账户停在 120 被截（#3210）。 -->
       <el-table-column
         prop="ledger_names"
         label="账户"
-        width="120"
+        min-width="120"
         sortable="custom"
       >
         <template #default="{ row }">
@@ -109,32 +118,8 @@
         </template>
       </el-table-column>
 
-      <!-- 首买日 / 末卖日 合并成一列「持有区间」：两列各 104px 只为了读一个时间段，
-           而用户要的是「赚了多少」不是「哪天买的」（#第 5 条）。合并后腾出的宽度
-           正好给账户列。
-           日期**分两行**而不是 `起 → 止` 一行：实测单行 23 字符要 206px，而 1440
-           视口表宽只有 852，给了 206 就得再砍别的列；两行各 10 字符 120px 就够，
-           且起止上下对齐、比一行中间夹个箭头更好扫。 -->
-      <el-table-column
-        prop="first_buy_date"
-        label="持有区间"
-        width="120"
-        sortable="custom"
-      >
-        <template #default="{ row }">
-          <div
-            v-if="row.first_buy_date || row.last_sell_date"
-            class="cleared-table__range"
-          >
-            <span>{{ row.first_buy_date || "--" }}</span>
-            <span class="cleared-table__range-end">
-              → {{ row.last_sell_date || "--" }}
-            </span>
-          </div>
-          <span v-else class="cleared-table__na">--</span>
-        </template>
-      </el-table-column>
-
+      <!-- 持有天数（份额加权）：首买日 / 末卖日不进表，见文件头。缺值给 --，
+           不补 0（0 天是「当天买当天清」，与「算不出」不是一回事） -->
       <el-table-column
         prop="avg_holding_days"
         label="持有天数"
@@ -184,6 +169,7 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { resolveDetailPath } from "@/utils/productDetailNav";
 import type { ClearedCycle } from "@/api/summary";
@@ -290,30 +276,27 @@ const ledgerTitle = (row: unknown) =>
 </script>
 
 <style scoped lang="scss">
+/* 产品单元格：整块（名称 + 代码）都可点，于是把 el-button 从「文字按钮」重置成
+   撑满列宽的容器。下划线只落在名称上——ProductDisplay 是子组件，其内部类必须
+   走 :deep()；不给整块加下划线，否则代码行也被划线，看起来像链接串。
+   颜色不改：el-button link 的 hover 色会被 ProductDisplay 自己的 color 覆盖，
+   下划线才是这里唯一的 hover 反馈。 */
 .cleared-table__product {
   display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-width: 0;
-}
-
-.cleared-table__name {
+  justify-content: flex-start;
+  width: 100%;
   height: auto;
   padding: 0;
-  font-size: var(--el-font-size-base);
-  font-weight: 500;
-  color: var(--text-primary);
+  text-align: left;
 
-  &:hover {
-    color: var(--brand-ink);
+  :deep(.product-cell) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &:hover :deep(.product-name) {
     text-decoration: underline;
   }
-}
-
-.cleared-table__code {
-  font-family: var(--font-mono);
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
 }
 
 .cleared-table__na {
@@ -339,20 +322,6 @@ const ledgerTitle = (row: unknown) =>
 .cleared-table__ledger-more {
   flex: none;
   font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
-}
-
-/* 持有区间：起止分两行，日期定宽（tabular-nums）才上下对齐、能竖着扫 */
-.cleared-table__range {
-  display: flex;
-  flex-direction: column;
-  font-size: var(--text-label);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-.cleared-table__range-end {
   color: var(--text-tertiary-ink);
 }
 

@@ -21,16 +21,15 @@ import type { ClearedCycle } from "@/api/summary";
 /**
  * 可排序列 —— 表头的 `prop` 必须在其中，漏登记的表头点了不会有反应。
  *
- * `last_sell_date` 不在表头（末卖日已并进「持有区间」列），仍保留在联合类型里：
- * `DEFAULT_SORT_KEY` 用它表达「与后端出参同序」（末卖日降序），这是清掉排序后的
- * 回退序，不是某一列。
+ * `last_sell_date` 不在表头（首买日 / 末卖日已按 2026-11-27 拍板移出表格，只留
+ * 「持有天数」），仍保留在联合类型里：`DEFAULT_SORT_KEY` 用它表达「与后端出参同序」
+ * （末卖日降序），这是清掉排序后的回退序，不是某一列。
  */
 export type ClearedSortKey =
   | "name"
   | "realized_pnl"
   | "pnl_pct"
   | "ledger_names"
-  | "first_buy_date"
   | "avg_holding_days"
   | "last_sell_date"
   | "post_clear_pct";
