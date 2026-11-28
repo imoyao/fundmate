@@ -18,14 +18,15 @@
         :data-mapped="tool.capabilities.length > 0"
       >
         <div class="mcp-tool-list__line">
-          <code class="mcp-tool-list__name">{{ tool.name }}</code>
+          <!-- 原始工具标识符只在悬停提示里：用户读中文标签，排障时仍能拿到真名 -->
+          <span class="mcp-tool-list__name" :title="tool.name">
+            {{ metaOf(tool).label }}
+          </span>
           <span v-if="tool.capabilities.length" class="mcp-tool-list__cap">
             {{ toolCapLabel(tool.capabilities) }}
           </span>
         </div>
-        <p v-if="tool.description" class="mcp-tool-list__desc">
-          {{ tool.description }}
-        </p>
+        <p class="mcp-tool-list__desc">{{ metaOf(tool).summary }}</p>
       </li>
     </ul>
   </div>
@@ -34,11 +35,16 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { McpToolInfo } from "@/api/mcp";
-import { toolCapLabel, toolsToggleLabel } from "../mcpServices";
+import {
+  toolCapLabel,
+  toolDisplayMeta,
+  toolsToggleLabel
+} from "../mcpServices";
 
 defineOptions({ name: "McpToolList" });
 
 const props = defineProps<{
+  provider: string;
   tools: McpToolInfo[];
 }>();
 
@@ -46,6 +52,10 @@ const open = ref(false);
 const toggleLabel = computed(() =>
   toolsToggleLabel(open.value, props.tools.length)
 );
+
+function metaOf(tool: McpToolInfo) {
+  return toolDisplayMeta(props.provider, tool);
+}
 </script>
 
 <style scoped>
@@ -94,8 +104,8 @@ const toggleLabel = computed(() =>
 }
 
 .mcp-tool-list__name {
-  font-family: var(--font-mono);
   font-size: var(--text-label);
+  font-weight: 500;
   color: var(--text-primary);
 }
 

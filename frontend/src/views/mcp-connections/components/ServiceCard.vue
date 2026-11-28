@@ -110,8 +110,8 @@
       {{ verify.text || "正在验证连接…" }}
     </p>
 
-    <!-- 能力清单（S5g）：已采样到的上游工具 + Fund Mate 能力标注（子组件持有折叠态） -->
-    <ToolList v-if="tools.length" :tools="tools" />
+    <!-- 数据清单（S5g）：上游可查的数据 + Fund Mate 能力标注（子组件持有折叠态） -->
+    <ToolList v-if="tools.length" :provider="service.provider" :tools="tools" />
 
     <p class="mcp-card__tip">{{ service.connectHint }}</p>
   </article>

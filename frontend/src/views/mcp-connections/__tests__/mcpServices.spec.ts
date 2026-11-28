@@ -14,6 +14,7 @@ import {
   isExpiringSoon,
   serviceName,
   toolCapLabel,
+  toolDisplayMeta,
   toolsToggleLabel
 } from "../mcpServices";
 
@@ -151,10 +152,10 @@ describe("expiryHint", () => {
   });
 });
 
-describe("能力清单文案（S5g）", () => {
+describe("数据清单文案（S5g）", () => {
   it("折叠钮：收起态带计数，展开态换字", () => {
-    expect(toolsToggleLabel(false, 15)).toBe("能力清单（15）");
-    expect(toolsToggleLabel(true, 15)).toBe("收起能力清单");
+    expect(toolsToggleLabel(false, 15)).toBe("可查询的数据（15 项）");
+    expect(toolsToggleLabel(true, 15)).toBe("收起数据清单");
   });
 
   it("能力徽章：命中时列内部能力，未命中为空串不渲染徽章", () => {
@@ -163,5 +164,43 @@ describe("能力清单文案（S5g）", () => {
       "已对上：账户管理、每日收益"
     );
     expect(toolCapLabel([])).toBe("");
+  });
+});
+
+describe("toolDisplayMeta（工具名给人读，#3303 走查反馈）", () => {
+  it("已登记的 tzzb 工具返回中文标签与用户向摘要", () => {
+    expect(
+      toolDisplayMeta("tzzb", {
+        name: "queryStockPosition",
+        description: "上游原文"
+      })
+    ).toEqual({
+      label: "股票持仓",
+      summary: "股票账户的持仓明细与总资产"
+    });
+    expect(
+      toolDisplayMeta("tzzb", {
+        name: "promptAccountSelection",
+        description: "上游原文"
+      }).label
+    ).toBe("选择同步账户");
+  });
+
+  it("未登记的工具回落原始 name + description，宁可露英文也不猜", () => {
+    expect(
+      toolDisplayMeta("tzzb", {
+        name: "queryNewThing",
+        description: "上游描述原文"
+      })
+    ).toEqual({ label: "queryNewThing", summary: "上游描述原文" });
+  });
+
+  it("其他 provider 不吃 tzzb 的映射", () => {
+    expect(
+      toolDisplayMeta("qieman", {
+        name: "queryStockPosition",
+        description: "上游描述原文"
+      }).label
+    ).toBe("queryStockPosition");
   });
 });
