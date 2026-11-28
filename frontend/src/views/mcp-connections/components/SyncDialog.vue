@@ -134,6 +134,7 @@ import {
   type McpSyncAccount,
   type McpSyncResult
 } from "@/api/mcp";
+import { isMcpAuthError } from "../mcpServices";
 
 defineOptions({ name: "McpSyncDialog" });
 
@@ -146,6 +147,8 @@ const emit = defineEmits<{
   "update:visible": [value: boolean];
   /** 用户确认导入（含强制）：父层可据此刷新提示 */
   imported: [provider: string];
+  /** McpAuthError：父层把该卡片翻到「重新授权」态（#3303） */
+  "auth-error": [provider: string];
 }>();
 
 const ALLOWED_GROUPS: Record<string, string[]> = {
@@ -197,6 +200,7 @@ async function loadAccounts(): Promise<void> {
     const response = await fetchMcpAccounts(props.provider);
     groups.value = response.data?.groups ?? [];
   } catch (error) {
+    if (isMcpAuthError(error)) emit("auth-error", props.provider);
     ElMessage.error(errorMessage(error, "账户清单获取失败，请稍后重试"));
     close();
   } finally {
@@ -236,6 +240,7 @@ async function startSync(force: boolean): Promise<void> {
     step.value = "result";
     if (response.data?.imported) emit("imported", props.provider);
   } catch (error) {
+    if (isMcpAuthError(error)) emit("auth-error", props.provider);
     ElMessage.error(errorMessage(error, "同步失败，请稍后重试"));
   } finally {
     syncing.value = false;

@@ -39,6 +39,7 @@
             :verify="verifyState(item.provider)"
             :tools="toolsOf(item.provider)"
             :now-ms="nowMs"
+            :auth-expired="isAuthExpired(item.provider)"
             @connect-oauth="connectOAuth"
             @connect-static="onConnectStatic"
             @disconnect="disconnect"
@@ -57,6 +58,7 @@
     <SyncDialog
       v-model:visible="syncVisible"
       :provider="syncProvider"
+      @auth-error="onAuthError"
       @imported="onSyncImported"
     />
   </div>
@@ -102,6 +104,8 @@ const {
   verify,
   verifyState,
   toolsOf,
+  isAuthExpired,
+  setAuthExpired,
   clearNotice
 } = useMcpConnections();
 
@@ -120,6 +124,11 @@ const syncProvider = ref("");
 function onSync(provider: string): void {
   syncProvider.value = provider;
   syncVisible.value = true;
+}
+
+/** 数据调用收到 McpAuthError：卡片翻到「重新授权」，不必回列表刷新 */
+function onAuthError(provider: string): void {
+  setAuthExpired(provider, true);
 }
 
 function onSyncImported(provider: string): void {

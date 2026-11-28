@@ -40,7 +40,7 @@ export const MCP_SERVICES: readonly McpService[] = [
     authType: "oauth2",
     authLabel: "浏览器授权",
     connectHint:
-      "在弹窗中完成授权后自动回到本页，无需离开当前页面；凭证过期后点「重新连接」即可一键静默续期。",
+      "在弹窗中完成授权后自动回到本页，无需离开当前页面；凭证过期后点「重新授权」即可一键静默续期。",
     supportsSync: true
   },
   {
@@ -165,19 +165,23 @@ export function toolDisplayMeta(
 
 /** 连接状态 → 展示文案与徽标语义（未知状态一律按「未连接」处理，不猜）
  *
- * 两参形态：库里 status 位只在断开/撤销时翻（token 过期 status 仍是 active，
+ * 库里 status 位只在断开/撤销时翻（token 过期 status 仍是 active，
  * oauthPopup.ts 头注释同款事实），徽章若只看 status 会「已连接」与
  * 「授权已于 X 过期」同屏矛盾。expires_at 已过 ⇒ 展示为 problem——这是
  * **展示态**判定，不回写库（上游 5 分钟寿命的 token 到点换新属常态）。
+ * authExpired 是 verify / 同步调用收到 McpAuthError 时的兜底：上游可能提前
+ * 撤销凭据，expires_at 还没到点也要把卡片切到 problem（#3303）。
  */
 export function connectionState(
   status?: string | null,
   expiresAt?: string | null,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  authExpired = false
 ): {
   label: string;
   tone: "connected" | "problem" | "idle";
 } {
+  if (authExpired) return { label: "授权已过期", tone: "problem" };
   if (status === "active") {
     if (isExpired(expiresAt, nowMs)) {
       return { label: "授权已过期", tone: "problem" };
@@ -188,6 +192,32 @@ export function connectionState(
     return { label: "需要重新连接", tone: "problem" };
   }
   return { label: "未连接", tone: "idle" };
+}
+
+/**
+ * 后端 McpAuthError 的 4xx 响应 → 该把卡片切到「重新授权」。
+ * 只认 4xx + 后端稳定文案（授权已过期 / 授权已失效 / 请更新 Token），
+ * 不把「验证失败，请稍后重试」这类通用文案或 5xx 误判成过期。
+ * 映射契约见 backend/app/domains/mcp/views.py 的 McpAuthError → 400 分支。
+ */
+export function isMcpAuthError(error: unknown): boolean {
+  const payload = (
+    error as {
+      response?: { status?: number; data?: { message?: string } };
+    }
+  )?.response;
+  if (!payload || ![400, 401, 403].includes(payload.status ?? 0)) return false;
+  const message = payload.data?.message ?? "";
+  return /授权已(过期|失效)|请更新\s*Token/.test(message);
+}
+
+/** 主按钮文案：OAuth 过期态点名「重新授权」，API Key 态仍是「重新连接」 */
+export function connectButtonLabel(
+  tone: "connected" | "problem" | "idle",
+  authType: McpAuthType
+): string {
+  if (tone !== "problem") return "连接";
+  return authType === "oauth2" ? "重新授权" : "重新连接";
 }
 
 /** expires_at 是否已过；空值 / 不可解析一律视为未过期（API Key 无过期概念）。
@@ -243,12 +273,15 @@ export function toolCapLabel(capabilities: string[]): string {
 /**
  * 过期时间 → 卡片上的辅助说明；没有过期时间（API Key）返回空串。
  * 已过期明确说「已过期」——上游凭证寿命短（同花顺约 5 分钟），到点换新属常态，
- * 文案要与「点重新连接即可静默续期」的预期对齐，不制造「坏掉了」的恐慌。
+ * 文案要与「点重新授权即可静默续期」的预期对齐，不制造「坏掉了」的恐慌。
  */
 export function expiryHint(
   expiresAt?: string | null,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  authExpired = false
 ): string {
+  // verify / 数据调用报授权失效但 expires_at 尚未到点：文案与主按钮同指一个动作
+  if (authExpired) return "授权已过期，点「重新授权」即可恢复连接";
   if (!expiresAt) return "";
   const date = new Date(expiresAt);
   if (Number.isNaN(date.getTime())) return "";
@@ -262,7 +295,7 @@ export function expiryHint(
     return `授权已于 ${at} 过期，可一键静默续期`;
   }
   if (isExpiringSoon(expiresAt, nowMs)) {
-    return `授权将于 ${at} 过期，点「立即续期」保持连接`;
+    return `即将过期，授权将于 ${at} 过期，点「立即续期」保持连接`;
   }
   return `授权有效期至 ${at}`;
 }

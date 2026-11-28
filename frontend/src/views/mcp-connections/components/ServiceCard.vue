@@ -68,7 +68,7 @@
           {{ verifyLabel }}
         </el-button>
         <!-- 即将过期（60 秒内）：预警阶段就给一键续期，不等翻成过期态；
-             与过期态的「重新连接」同一动作（connectOAuth 弹窗静默续期） -->
+             与过期态的「重新授权」同一动作（connectOAuth 弹窗静默续期） -->
         <el-button
           v-if="expiringSoon"
           type="primary"
@@ -86,7 +86,7 @@
         </el-button>
       </template>
       <el-button v-else type="primary" :loading="pending" @click="onConnect">
-        {{ state.tone === "problem" ? "重新连接" : "连接" }}
+        {{ connectLabel }}
       </el-button>
       <!-- 双通道服务（且慢）：OAuth 为主，API Key 作显式次入口，不与主按钮并列抢焦点 -->
       <el-button
@@ -128,6 +128,7 @@ import type { McpConnection, McpToolInfo } from "@/api/mcp";
 import ApiKeyField from "./ApiKeyField.vue";
 import ToolList from "./ToolList.vue";
 import {
+  connectButtonLabel,
   connectionState,
   expiryHint,
   isExpiringSoon,
@@ -147,6 +148,8 @@ const props = defineProps<{
   tools: McpToolInfo[];
   /** 页面心跳钟（毫秒）：过期/临期判定跟着它走，token 到点徽章自动翻面 */
   nowMs: number;
+  /** verify / 同步调用收到授权错误：expires_at 未到点也要翻成 problem 态 */
+  authExpired: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -166,11 +169,15 @@ const state = computed(() =>
   connectionState(
     props.connection?.status,
     props.connection?.expires_at,
-    props.nowMs
+    props.nowMs,
+    props.authExpired
   )
 );
 const expiry = computed(() =>
-  expiryHint(props.connection?.expires_at, props.nowMs)
+  expiryHint(props.connection?.expires_at, props.nowMs, props.authExpired)
+);
+const connectLabel = computed(() =>
+  connectButtonLabel(state.value.tone, props.service.authType)
 );
 const expiringSoon = computed(
   () =>
