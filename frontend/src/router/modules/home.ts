@@ -38,7 +38,7 @@ const createHomeRoutes = (routeConfig: RouteConfigWithChildren) => {
 //
 // ⚠️ 这里只放**纯读**的页面。凡是「把事实录进来」的（全面盘点 / 流水 / 对账）
 // 一律归 record.ts，不要因为「首页顺手放一下」再搬回来——那正是上一轮的病因。
-const HomeRouteConfig = {
+const HomeRouteConfig: RouteConfigWithChildren = {
   path: "/",
   name: "Home",
   component: Layout,
@@ -79,22 +79,31 @@ const HomeRouteConfig = {
         keepAlive: true
       }
     },
-    // 持仓分析（#2595）：全家庭 / 单账户 / 组合三级口径。
-    // 归「看结果」而不是「投资」——它不下任何配置，只回答「表现、超额、穿透」。
+    // 持仓分析（#2595）已于 2026-11-28 并入复盘页（P3-C）：区间表现 / 收益日历 /
+    // 收益归因三块迁入 `/analysis`，结构区**只留复盘页那一份**（两页此前各有一份
+    // 同源同组件，属页面对半时的过渡态）。旧 path 保留为重定向而不是删掉——
+    // 它是外部书签可达的 URL，且常带 `?scope=ledger&scope_id=3` 这类口径参数，
+    // 必须原样带到新地址，否则用户回来看到的是家庭级数据（静默错口径）。
     {
       path: "/asset/position-analysis",
+      // router-orphan-allow: 纯重定向历史别名，站内零入链是设计使然 —— 它存在的
+      // 唯一目的是承接外部书签与已分享链接（内容已于 2026-11-28 并入 /analysis）。
       name: "PositionAnalysis",
-      component: () => import("@/views/asset/position-analysis/index.vue"),
+      // 函数式 redirect：口径参数（`?scope=ledger&scope_id=3`）必须原样带走。
+      // 用函数式必须给 `HomeRouteConfig` 显式标注类型（见下方常量声明）——否则整棵
+      // children 的推断会把父级判成 RouteRecordRedirect，报 component 不可赋给 never。
+      redirect: to => ({ path: "/analysis", query: to.query }),
       meta: {
         title: "持仓分析",
         icon: "ep:pie-chart",
         rank: 3,
-        showLink: true
+        // 侧栏不再给入口：内容已在「投资复盘」，两项并列只会让人以为有两个分析页
+        showLink: false
       }
     },
     // 复盘（#2150 由「智能分析」改名）：时间维度的表现。
-    // 与持仓分析的分工：本页回答「净值怎么走、收益从哪来」，持仓分析回答
-    // 「三级口径下的持仓表现与结构」。两者都是读，故同在这一顶级。
+    // 2026-11-28 起它同时是原「持仓分析」的落点（P3-C）：净值怎么走、收益从哪来、
+    // 区间超额与归因，都在这一页按口径切换看。
     // ⚠️ 路由 path 保持 `/analysis` 不动——它是外部可达 URL 与既有书签的锚点。
     {
       path: "/analysis",

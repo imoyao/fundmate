@@ -214,13 +214,10 @@ describe("路由 rank 守卫（#2152）", () => {
   });
 
   it("概览与记账：可见项逐个钉住", () => {
-    // 概览 = 纯读（复盘 / 持仓分析都是"看结果"，不下配置、不录事实）
-    expect(visibleTitlesOf(home)).toEqual([
-      "投资概览",
-      "资产总览",
-      "持仓分析",
-      "投资复盘"
-    ]);
+    // 概览 = 纯读（复盘是"看结果"，不下配置、不录事实）
+    // 2026-11-28：原「持仓分析」并入「投资复盘」，侧栏由 4 项减到 3 项
+    // （旧 path 保留为重定向，`showLink: false` 故不出现在菜单里）。
+    expect(visibleTitlesOf(home)).toEqual(["投资概览", "资产总览", "投资复盘"]);
     // 记账 = 录入 → 流水 → 核对，顺序即实际动线
     expect(visibleTitlesOf(record)).toEqual([
       "全面盘点",

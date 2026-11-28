@@ -18,11 +18,11 @@
 
   口径纪律：集中度有「前 5 占组合 / 组内前 5」两档，穿透有「证监会门类 /
   GICS」两档。一律沿用面板自带的切换控件，**不额外包装、不隐藏**——
-  与组合详情页（nav-structure / nav-penetration）、持仓分析页完全同源同口径。
+  与组合详情页（nav-structure / nav-penetration）、复盘页结构区完全同源同口径。
 
-  与聚合页（/asset/position-analysis）的关系：同源组件 ≠ 功能冗余。聚合页是
-  「可切换口径」的分析入口，本页是「当前账户深读」的分析入口，口径一致、
-  不会打架。详见 docs/spec/account-detail-depth-analysis.md §3。
+  与复盘页（/analysis）的关系：同源组件 ≠ 功能冗余。复盘页是「可切换口径」的
+  分析入口，本页是「当前账户深读」的分析入口，口径一致、不会打架。原「持仓分析」
+  聚合页已于 2026-11-28 并入复盘页。详见 docs/spec/account-detail-depth-analysis.md §3。
 -->
 <template>
   <!-- 两个面板的根节点都是**单根元素** ⇒ 锚点 id 经 attribute fallthrough

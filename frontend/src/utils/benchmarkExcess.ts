@@ -68,7 +68,7 @@ export function excessDegradHint(data: BenchmarkExcessResult | null): string {
 
 /* ── #2595：超额五段派生的唯一出口（自 portfolioDetailModel 上移）────────────
  * 这些函数只依赖 BenchmarkExcessResult，与「组合详情页」没有必然关系——
- * 持仓分析聚合页（三级口径）同样要消费。实现挪到这里，原模块 re-export 兼容。
+ * 复盘页的「区间表现」（三级口径）同样要消费。实现挪到这里，原模块 re-export 兼容。
  */
 
 /** 基准名：优先后端归一后的宽基名；未加载 / 未识别时回落容器自设原文 */

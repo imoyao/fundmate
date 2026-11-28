@@ -1,61 +1,25 @@
 <!--
-  复盘（时间维度的表现）—— 原「智能分析」，#2150 重新定义定位
+  复盘（时间维度的表现）—— 原「智能分析」，#2150 重新定义定位。
 
-  前身是「AI 驱动的资产健康度诊断」假数据页：匹配度 75%、配置建议比例、
-  收益预测曲线、风险预警条目全部是模板硬编码，全仓零入口。
-  2026-10 与原 AssetOverview.vue（#1195 已完成真实数据改造但无路由的死文件）合体，
-  页面只展示能从账本真实计算的数据。**无数据源的推测性面板（收益预测 /
-  AI 配置建议 / 事件预警）一律不上屏**：账本软件只算已发生的账，不编未来的数。
+  一句话定位：**以「时间维度上的表现」为骨架，结构区只放解释表现的那几面。**
+  无数据源的推测性面板（收益预测 / AI 配置建议 / 事件预警）一律不上屏——
+  账本软件只算已发生的账，不编未来的数。
 
-  ── #2150：一句话定位 ──────────────────────────────────────────────
-  **以「时间维度上的表现」为骨架，结构区只放解释表现的那几面。**
+  ── 完整定位、与 welcome / panorama 的分工表、#2150 删掉了哪四块、以及
+     「结构问题归谁」的三行判据，全部在
+     `docs/working-notes/analysis-page-redesign-2026-11-27.md` §5.3。
+     改这一页之前请先读那一节：本页的四条去重判据由
+     `scripts/tests/welcome_structure_dedup.test.js` 钉住，别顺手把
+     `category_distribution` 或 `getPositionGroups` 引回来。─────────────
 
-  2026-11-27 修订（用户第 9 条）：原定位「不看资产结构」的本意是**不重复 panorama
-  的拆解口径**，不是结构一概不许出现——边界按「回答的是不是同一个问题」划：
+  ── 独占项（本页存在的理由）──────────────────────────────────────
+  **资产净值走势**：welcome 已明确让出（`WelcomeAssetBoard.vue:131-138`），
+  panorama 只用 snapshots 取最新环比/同比、**不画曲线**。全站唯一。
 
-  | 结构问题 | 归谁 | 判据 |
-  |---|---|---|
-  | 钱按**资产大类**怎么铺开（现金/股票/基金…） | panorama 构成图 + 明细表 | #2150：`category_distribution` 全站只画一次 |
-  | 钱按**账户 / 产品类型**怎么分组 | panorama 多维视图 | #2150：`getPositionGroups` 不在本页 |
-  | 钱压在**哪些品种**、**哪些行业**、**什么风格** | **本页结构区**（解释「表现从哪来」） | 与上面两行不同字段、不同端点、不同算法 |
-
-  与同批两页的分工（沿用 `docs/working-notes/page-split-welcome-vs-panorama-2026-08-13.md`
-  已确立的「拆解（composition）归资产总览，表现 + 目标归投资概览」口径）：
-
-  | 页面 | 回答的问题 | 形态 |
-  |---|---|---|
-  | 投资概览（welcome） | 我有多少钱？离目标多远？ | 结论（净值快照 + XIRR + 温度 + 日历） |
-  | 资产总览（panorama） | 钱是**怎么铺开**的？结构健不健康？ | 拆解（构成图 + 桑基 + 多维视图） |
-  | **本页（复盘）** | 我的钱**经历了什么**？表现从哪来？ | **时间序列**（净值走势 + 收益/现金流）+ **结构归因** |
-
-  ── #2150：删掉了什么，为什么 ──────────────────────────────────────
-  本页曾有一整块与 panorama **同字段、同接口、同算法**的内容。panorama 自己
-  已为同一形态做过裁决（`panorama/index.vue:66-72` 删 `AssetInsightPanel`：
-  「同一份数据在首屏重复第二遍」），**那条裁决同样适用于本页**——这是本卡
-  最该被纠正的不一致。已整块删除：
-
-  1. 「家庭资产汇总」总资产 + 环比/同比  ← panorama `OverviewSummaryCard` 首卡；
-  2. 大类占比卡片网格（`(d.value/total)*100`）← panorama `CategoryBalanceTable:258` 逐字同公式；
-  3. `category_distribution` 环形图 ← panorama 构成图 + 明细表（该字段全站**只画一次**）；
-  4. 「近期持仓表现」表（`getPositionGroups("type")`）← panorama `DetailGroupList`。
-
-  「风险热力图」空态卡更早已随 #2156 整卡下线。
-
-  2026-11-27 新增的结构区（持仓结构 / 行业分布 / 基金风格）**不复活上面任何一块**：
-  它消费的是 `position-structure`、`penetration`、`fund-style` 三个端点，与大类构成
-  不是同一份数据；四条 #2150 判据（`scripts/tests/welcome_structure_dedup.test.js`）
-  仍然全绿，改这一块时**不要**顺手把 `category_distribution` 或 `getPositionGroups`
-  引进来——那才是「同一口径画两遍」。
-
-  ── 保留的独占项（本页存在的理由）──────────────────────────────────
-  - **资产净值走势**：welcome 已明确让出（`WelcomeAssetBoard.vue:131-138`
-    「净值曲线归复盘页规划」），panorama 只用 snapshots 取最新环比/同比、
-    **不画曲线**。全站唯一。
-
-  ── 已迁出 / 待迁出 ──────────────────────────────────────────────
-  - 幽灵重复告警（`GhostDuplicateBanner`）本质属**对账**范畴（后端注释自带定性：
-    `summary_service.py:1045-1066`），待对账中心开出「跨账本重复交易」域后迁走
-    （#2151）。在域 D 存在之前留在本页，是「异常要看得见」的权宜。
+  ── 2026-11-28 页面合并（P3-C）────────────────────────────────────
+  原「持仓分析」页（`/asset/position-analysis`）的区间表现 / 收益日历 / 收益归因
+  三块迁入本页，旧路由保留为重定向；结构区**只留本页这一份**（两页此前各有一份
+  同源同组件）。档位仍只开家庭 / 账户两档——组合档的四个后端空洞留到三期。
 -->
 <template>
   <div
@@ -161,6 +125,10 @@
             :ledger-id="scopeProps.ledgerId"
           />
 
+          <!-- 区间表现 vs 基准（#2134，2026-11-28 自持仓分析页迁入）：与收益概览同为
+               「赚了多少」的数字，紧跟其后；四卡数据全由后端算，前端只做文案与配色。 -->
+          <ExcessSection ref="excess" :ledger-id="scopeProps.ledgerId" />
+
           <!-- 资产净值走势：**紧跟收益数字卡**（#8）。原先排在整页最末，被 334 行
              清仓表压到第 20 屏——曲线是那 5 张卡片的「形状」，把结论与结论的形状
              隔开 17 000px，等于让用户用滚动条自己做关联。
@@ -184,13 +152,19 @@
             :family="scopeKind === 'family'"
           />
 
+          <!-- 收益日历（2026-11-28 自持仓分析页迁入）：日/月/年三视图的盈亏热力图，
+               紧接「资金流动」——两者都是「钱按时间怎么分布」，一个看进出、一个看盈亏。
+               面板自带 SectionHeader 与口径 ⓘ，此处只挂锚点，不再套一层标题。 -->
+          <section id="nav-calendar">
+            <PnlCalendar :ledger-id="scopeProps.ledgerId" />
+          </section>
+
           <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
              自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与净值走势。 -->
           <ClearedCyclesSection
             id="nav-cycles"
             :ledger-id="scopeProps.ledgerId"
           />
-
           <!-- 浮亏回本（2026-11-27）：上面三块都是已实现 / 时间维度，这块回答
                「现在亏着的还要涨多少才回本」——收益率答不了（−20% 要涨 25%）。
                放清仓复盘之后：已实现与未实现上下对照，同一屏看完「赚到的」与「欠着的」。 -->
@@ -199,6 +173,13 @@
           <!-- 持仓结构（2026-11-27，用户第 9 条）：报「收益由什么构成」，三块面板与
                内部间距收在 AnalysisStructureSection 里，父页只管它在页内的位置。 -->
           <AnalysisStructureSection :ledger-id="scopeProps.ledgerId" />
+
+          <!-- 收益归因（#2135，2026-11-28 自持仓分析页迁入）：结构区回答「钱压在哪」，
+               归因回答「这些钱各贡献了多少」——同一屏内「分布 → 贡献」，故紧随结构区。
+               面板自带 SectionHeader，此处只挂锚点。 -->
+          <section id="nav-attribution">
+            <PnlAttribution :ledger-id="scopeProps.ledgerId" />
+          </section>
 
           <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
                总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
@@ -234,6 +215,8 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
 import ScopeBar from "@/components/ScopeBar/index.vue";
+import PnlCalendar from "@/components/PnlCalendar/index.vue";
+import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import { useAnalysisPageScope } from "./composables/useAnalysisPageScope";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
 import AnalysisStructureSection from "./AnalysisStructureSection.vue";
@@ -241,14 +224,16 @@ import NetWorthTrendSection from "./NetWorthTrendSection.vue";
 import ReturnOverviewSection from "./ReturnOverviewSection.vue";
 import MoneyFundIncomeSection from "./MoneyFundIncomeSection.vue";
 import BreakEvenSection from "./BreakEvenSection.vue";
+import ExcessSection from "./ExcessSection.vue";
 import { usePageNav } from "@/composables/usePageNav";
 
 defineOptions({ name: "AssetAnalysis" });
 
 const router = useRouter();
 
-// 真实数据源：本页只剩「账户列表」（供口径切换器的下拉）；其余 7 个区块全部自含取数
-// （净值 / 收益 / 资金流动 / 清仓 / 浮亏 / 结构 / 货基），父页只持 ref 做刷新联动。
+// 真实数据源：本页只剩「账户列表」（供口径切换器的下拉）；其余 10 个区块全部自含取数
+// （收益 / 区间 / 净值 / 资金流 / 日历 / 清仓 / 浮亏 / 结构 / 归因 / 货基），
+// 父页只持 ref 做刷新联动。
 // 口径主控（档位 / 账户下拉 / 一行说明）收在 composable 里：本页已顶在 400 行闸门上，
 // 而这段与页面结构无关（详见 useAnalysisPageScope 文件头）。
 const {
@@ -274,8 +259,9 @@ const updatedAtLabel = computed(() =>
   latestSnapshotDate.value ? `${latestSnapshotDate.value} 更新` : ""
 );
 
-// 页内导航（2026-10-25）：纵向独立区块（收益概览 / 资产净值走势 / 资金流动 / 清仓复盘 /
-// 浮亏回本 / 持仓结构 / 货基收益），符合 components.md 的 PageToc 接入判据；条目顺序
+// 页内导航（2026-10-25）：纵向独立区块（收益概览 / 区间表现 / 资产净值走势 / 资金流动 /
+// 收益日历 / 清仓复盘 / 浮亏回本 / 持仓结构 / 收益归因 / 货基收益），符合 components.md
+// 的 PageToc 接入判据（10 项已超过「>6 就需要目录」的判据）；条目顺序
 // 由 DOM 实序决定（usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader
 // 标题逐字一致。「浮亏回本」无浮亏时整块不渲染，标签随之隐没（缺锚点即不出现，不需要占位）。
 const pageMain = ref<HTMLElement>();
@@ -286,7 +272,10 @@ const NAV_LABELS: Record<string, string> = {
   "nav-net-worth": "资产净值走势",
   "nav-cash-flow": "资金流动",
   "nav-break-even": "浮亏回本",
-  "nav-structure": "持仓结构"
+  "nav-structure": "持仓结构",
+  "nav-excess": "区间表现",
+  "nav-calendar": "收益日历",
+  "nav-attribution": "收益归因"
 };
 const {
   items: navItems,
@@ -303,6 +292,7 @@ const returnOverview = ref<InstanceType<typeof ReturnOverviewSection> | null>(
 const moneyFund = ref<InstanceType<typeof MoneyFundIncomeSection> | null>(null);
 const breakEven = ref<InstanceType<typeof BreakEvenSection> | null>(null);
 const cashFlow = ref<InstanceType<typeof CashFlowPanel> | null>(null);
+const excess = ref<InstanceType<typeof ExcessSection> | null>(null);
 
 /** 页头「刷新数据」：真刷新，不摆样子 */
 const reloadAll = async () => {
@@ -313,7 +303,8 @@ const reloadAll = async () => {
       returnOverview.value?.refresh(),
       moneyFund.value?.refresh(),
       breakEven.value?.refresh(),
-      cashFlow.value?.refresh()
+      cashFlow.value?.refresh(),
+      excess.value?.refresh()
     ]);
   } finally {
     loading.value = false;
