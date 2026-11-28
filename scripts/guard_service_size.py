@@ -126,7 +126,7 @@ NEW_FILE_LIMITS = {
 # 前者新增 `requires_targets` 声明（3 行），但校验体下沉到新文件
 # `sync/target_guard.py`（48 行，走 NEW_FILE_LIMITS），并压掉既有等价的注释行，
 # 净减 2 行；后者加一行 `require_targets(...)` 调用、压掉两行注释，净减 1 行。
-# 三个维度都只减不增；`dividend_split_job.py` 554 行与基线一致，无需改动。
+# 三个维度都只减不增；`dividend_split_job.py` 554 行与基线一致，max_func/max_cc 已下调（155/28 → 126/15）。
 # ⚠️ 守住「贴合」不是多余：只把代码改瘦、不回写基线，`test_baseline_matches_current_metrics`
 # 会判红（本 PR 首轮 CI 即因 `407 != 409` 失败），而该维度的「只减不增」也会静默失效。
 #
@@ -606,7 +606,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/sync/jobs/bond_adjust_log_job.py": {'lines': 224, 'max_func': 49, 'max_cc': 14},
     "backend/app/services/sync/jobs/channel_link_job.py": {'lines': 213, 'max_func': 42, 'max_cc': 9},
     "backend/app/services/sync/jobs/convertible_bond_job.py": {'lines': 219, 'max_func': 46, 'max_cc': 14},
-    "backend/app/services/sync/jobs/dividend_split_job.py": {'lines': 554, 'max_func': 155, 'max_cc': 28},
+    "backend/app/services/sync/jobs/dividend_split_job.py": {'lines': 554, 'max_func': 126, 'max_cc': 15},
     "backend/app/services/sync/jobs/fund_company_backfill_job.py": {'lines': 153, 'max_func': 40, 'max_cc': 6},
     "backend/app/services/sync/jobs/fund_detail_enrich_job.py": {'lines': 275, 'max_func': 113, 'max_cc': 24},
     "backend/app/services/sync/jobs/fund_list_job.py": {'lines': 115, 'max_func': 52, 'max_cc': 12},
