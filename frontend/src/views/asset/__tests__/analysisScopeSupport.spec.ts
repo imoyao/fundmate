@@ -98,3 +98,103 @@ describe("接线守卫：10 个区块都必须收 :ledger-id", () => {
     expect(page).toContain(":family=\"scopeKind === 'family'\"");
   });
 });
+
+/**
+ * 懒加载接线守卫（2026-11-28，C2）。
+ *
+ * ## 被守的是什么
+ *
+ * `usePageNav` 的导航项来自**扫 DOM 里真实存在的 `nav-` 锚点**。`LazySection`
+ * 的做法是「锚点 section 常驻、内容懒挂」——只要有人图省事把锚点也挪进懒挂的
+ * 内容里，未挂载的区块就没有锚点，右侧目录直接少几项、scroll-spy 也认不出它们。
+ * 这个退化在类型检查、lint、单测里全都不报，只有滚动到那里才看得见。
+ *
+ * ## 三条判据
+ *
+ * 1. **锚点集合 == 导航标签集合**：锚点写在哪都行（页面 tag 上 / 子组件根上 /
+ *    `anchor-id`），但一个都不能少、也不能多。
+ * 2. **同一个 id 只出现一次**：`LazySection` 的 anchor-id 与子组件里写死的 id
+ *    同时存在时，`querySelectorAll` 会扫到两次 ⇒ 导航里这一项出现两遍。
+ * 3. **懒加载区块必须给 min-height**：占位高度是「下方锚点位置」的唯一依据，
+ *    缺省成 0 会让整页塌缩、rail 高亮错位到所有区块被激活为止。
+ *
+ * 判据一律先剥 HTML 注释：注释里提到某个 id 不该算作声明（本仓有过「注释喂
+ * 假绿 / 假红」的教训）。
+ */
+describe("懒加载接线：锚点常驻，内容懒挂", () => {
+  /** 剥 HTML 注释后再断言：注释里提到 id 不算声明 */
+  const stripComments = (src: string) => src.replace(/<!--[\s\S]*?-->/g, "");
+
+  /** `id="nav-x"` 与 `anchor-id="nav-x"` 都会被这个正则命中（后者尾部含 `id="`） */
+  const navIdsOf = (src: string) =>
+    [...stripComments(src).matchAll(/id="(nav-[^"]+)"/g)].map(m => m[1]);
+
+  const pageIds = navIdsOf(page);
+
+  /** 页面模板**不传** id、锚点由区块自己声明在根元素上的三块 */
+  const ANCHOR_OWNED_SECTIONS = [
+    "../ExcessSection.vue",
+    "../BreakEvenSection.vue",
+    "../MoneyFundIncomeSection.vue"
+  ];
+  const childIds = ANCHOR_OWNED_SECTIONS.flatMap(f => navIdsOf(read(f)));
+
+  /** 被 LazySection 包住的区块：锚点必须在包裹层，不能同时留在它们根上 */
+  const LAZY_CHILDREN = [
+    "../AnalysisStructureSection.vue",
+    "../cleared-cycles/ClearedCyclesSection.vue",
+    "../../../components/CashFlowPanel/index.vue",
+    "../../../components/PnlCalendar/index.vue",
+    "../../../components/PnlAttribution/index.vue"
+  ];
+
+  const lazyAnchors = [
+    ...stripComments(page).matchAll(/<LazySection[^>]*\banchor-id="([^"]+)"/g)
+  ].map(m => m[1]);
+
+  it("锚点集合与导航标签集合严格相等（少一个 = 导航缺项，多一个 = 死链）", () => {
+    const navBlock = page.match(/const NAV_LABELS[\s\S]*?\n\};/);
+    expect(navBlock, "页面未找到 NAV_LABELS").not.toBeNull();
+    const labelIds = [
+      ...(navBlock?.[0].matchAll(/"(nav-[\w-]+)":/g) ?? [])
+    ].map(m => m[1]);
+
+    expect([...pageIds, ...childIds].sort()).toEqual([...labelIds].sort());
+  });
+
+  it("同一个锚点 id 只声明一次（重复 ⇒ 导航里这一项出现两遍）", () => {
+    // 只在**各自集合内**去重：页面传 `id` + 组件根也写 `id` 是合法的——Vue 的
+    // attribute fallthrough 把它们合到同一个元素上，DOM 里只有一个 id
+    //（`NetWorthTrendSection` 就是这种写法）。真正会渲染成两层节点的重复，
+    // 由下面「被懒挂的区块不再自带同名锚点」那条钉死。
+    for (const [label, ids] of [
+      ["页面模板", pageIds],
+      ["子组件根", childIds]
+    ] as const) {
+      const dup = ids.filter((id, i) => ids.indexOf(id) !== i);
+      expect(dup, `${label}里重复声明的锚点：${dup.join(", ")}`).toEqual([]);
+    }
+  });
+
+  it("每个 LazySection 都带 :min-height（占位塌陷会让 rail 高亮错位）", () => {
+    const tags = page.match(/<LazySection\b[^>]*>/g) ?? [];
+    expect(tags.length, "页面里没有 LazySection").toBeGreaterThan(0);
+    for (const tag of tags) {
+      const anchor = tag.match(/anchor-id="([^"]+)"/)?.[1] ?? tag;
+      expect(tag, `${anchor} 缺 :min-height`).toMatch(/:min-height="\d+"/);
+    }
+  });
+
+  it("被懒挂的区块不再自带同名锚点（锚点归包裹层唯一所有）", () => {
+    const childSrc = stripComments(LAZY_CHILDREN.map(f => read(f)).join("\n"));
+    for (const anchor of lazyAnchors) {
+      expect(childSrc, `子组件里不该再有 id="${anchor}"`).not.toContain(
+        `id="${anchor}"`
+      );
+    }
+    // 反向：LazySection 的锚点必须真的出现在页面锚点集合里
+    for (const anchor of lazyAnchors) {
+      expect(pageIds).toContain(anchor);
+    }
+  });
+});
