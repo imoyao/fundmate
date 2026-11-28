@@ -84,11 +84,19 @@ const props = defineProps<{
    * `scope=portfolio` 不传 id 的处理是「退化为家庭」，照传就静默回了全家数。
    */
   ledgerId?: number;
+  /**
+   * 组合级口径（D135）：与 `ledgerId` 互斥。
+   *
+   * 组合档走 `scope="portfolio"` + `portfolio_id`——注意这与「家庭档」是同一个
+   * scope 值，区别只在**有没有 id**：后端 `calculate_xirr_by_scope` 里
+   * `scope == 'portfolio' and portfolio_id` 才进组合分支，否则退化为家庭。
+   */
+  portfolioId?: number;
 }>();
 
 /**
  * 智能分析页「收益概览」区块（#871 从 IntelligentAnalysis.vue 拆出，#980）：
- * 自含取数（家庭 / 账户两档）+ 口径切换 + 五张指标卡；
+ * 自含取数（家庭 / 账户 / 组合三档）+ 口径切换 + 五张指标卡；
  * 父页经 defineExpose 的 refresh() 在「刷新数据」时一并刷新。
  *
  * 口径状态与降级规则（切换后旧数据未回来不显示、TWR 部分持仓无价格诚实提示）
@@ -184,10 +192,11 @@ let xirrReqSeq = 0;
 const loadXirr = async () => {
   const seq = ++xirrReqSeq;
   try {
-    // 第 5 个位置参数是 ledgerId；只在账户档传，家庭档保持 scope="portfolio" 不带 id
+    // 第 2 / 5 个位置参数分别是 portfolioId / ledgerId：只在对应档位传 id，
+    // 家庭档保持 scope="portfolio" 且两个 id 都不传（后端退化为家庭整体）。
     const res = await getPortfolioXirr(
       props.ledgerId == null ? "portfolio" : "ledger",
-      undefined,
+      props.portfolioId,
       includeCashEquivalents.value,
       returnMethod.value,
       props.ledgerId
@@ -206,7 +215,7 @@ onMounted(() => {
 // 切档：先清旧口径的数字再取。留着上一条口径的 XIRR 配新标签，是本次改造要消灭的
 // 「静默错口径」——`--` 只难看几百毫秒，错数会让人做错判断。
 watch(
-  () => props.ledgerId,
+  () => [props.ledgerId, props.portfolioId],
   () => {
     xirr.value = null;
     void loadXirr();

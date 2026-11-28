@@ -119,6 +119,11 @@ export interface PositionListParams {
   /** 按关联账户ID精确过滤；传字符串 'null' 表示仅查未归档持仓（对齐后端 views.py） */
   ledger_id?: string | number;
   /**
+   * 按**组合**过滤（D135，与 `ledger_id` 互斥，同传后端 400）。
+   * 归属按持仓判定：显式 `positions.portfolio_id` 覆盖账户继承——不能按成员账本过滤。
+   */
+  portfolio_id?: number;
+  /**
    * 按家庭成员过滤（#1173）：持仓经账户间接归属
    * （`Position.ledger_id → Ledger.owner_member_id`），后端下推到 SQL。
    * 未绑定账户的持仓不命中。

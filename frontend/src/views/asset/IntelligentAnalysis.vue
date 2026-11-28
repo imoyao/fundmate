@@ -19,7 +19,11 @@
   ── 2026-11-28 页面合并（P3-C）────────────────────────────────────
   原「持仓分析」页（`/asset/position-analysis`）的区间表现 / 收益日历 / 收益归因
   三块迁入本页，旧路由保留为重定向；结构区**只留本页这一份**（两页此前各有一份
-  同源同组件）。档位仍只开家庭 / 账户两档——组合档的四个后端空洞留到三期。
+  同源同组件）。
+
+  档位：**家庭 / 账户 / 组合三档**（D134 + D135 补齐后端后，能力表交集自然放开）。
+  口径经 `v-bind="scopeProps"` 一次性下发给十个区块——不再逐块写 `:ledger-id`，
+  那样每加一档就是十处改动，漏一处就是「组合标签下摆着全家庭的钱」（#2595 形态）。
 -->
 <template>
   <div
@@ -58,7 +62,8 @@
           :kind="scopeKind"
           :kinds="scopeKinds"
           :ledgers="ledgerOptions"
-          :loading="ledgerLoading"
+          :portfolios="portfolioOptions"
+          :loading="optionsLoading"
           :hint="scopeHint"
           @update:kind="setScopeKind"
           @update:id="setScopeId"
@@ -109,10 +114,10 @@
 
       <!-- 切到账户档但还没选账户：**一个区块都不渲染**。
            给面板传 `undefined` 等于家庭级（`{}` 在面板里就是「家庭」），于是「单账户」
-           标签下会摆着全家庭的钱——本次改造要消灭的正是这种静默错口径。
+           /「组合」标签下会摆着全家庭的钱——本次改造要消灭的正是这种静默错口径。
            宁可让人对着一句话，也不要让人对着错数。 -->
       <p v-else-if="!scopeReady" class="analysis-scope-empty">
-        在上方选择一个账户后开始分析
+        在上方选择一个账户或组合后开始分析
       </p>
 
       <div v-else class="analysis-body">
@@ -122,12 +127,12 @@
           <ReturnOverviewSection
             id="nav-overview"
             ref="returnOverview"
-            :ledger-id="scopeProps.ledgerId"
+            v-bind="scopeProps"
           />
 
           <!-- 区间表现 vs 基准（#2134，2026-11-28 自持仓分析页迁入）：与收益概览同为
                「赚了多少」的数字，紧跟其后；四卡数据全由后端算，前端只做文案与配色。 -->
-          <ExcessSection ref="excess" :ledger-id="scopeProps.ledgerId" />
+          <ExcessSection ref="excess" v-bind="scopeProps" />
 
           <!-- 资产净值走势：**紧跟收益数字卡**（#8）。原先排在整页最末，被 334 行
              清仓表压到第 20 屏——曲线是那 5 张卡片的「形状」，把结论与结论的形状
@@ -137,7 +142,7 @@
           <NetWorthTrendSection
             id="nav-net-worth"
             ref="netWorth"
-            :ledger-id="scopeProps.ledgerId"
+            v-bind="scopeProps"
             @latest-date="latestSnapshotDate = $event"
           />
 
@@ -148,7 +153,7 @@
           <LazySection anchor-id="nav-cash-flow" :min-height="720">
             <CashFlowPanel
               ref="cashFlow"
-              :ledger-id="scopeProps.ledgerId"
+              v-bind="scopeProps"
               :family="scopeKind === 'family'"
             />
           </LazySection>
@@ -157,39 +162,36 @@
                紧接「资金流动」——两者都是「钱按时间怎么分布」，一个看进出、一个看盈亏。
                面板自带 SectionHeader 与口径 ⓘ，此处只挂锚点，不再套一层标题。 -->
           <LazySection anchor-id="nav-calendar" :min-height="400">
-            <PnlCalendar :ledger-id="scopeProps.ledgerId" />
+            <PnlCalendar v-bind="scopeProps" />
           </LazySection>
 
           <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
              自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与净值走势。 -->
           <LazySection anchor-id="nav-cycles" :min-height="1850">
-            <ClearedCyclesSection :ledger-id="scopeProps.ledgerId" />
+            <ClearedCyclesSection v-bind="scopeProps" />
           </LazySection>
           <!-- 浮亏回本（2026-11-27）：上面三块都是已实现 / 时间维度，这块回答
                「现在亏着的还要涨多少才回本」——收益率答不了（−20% 要涨 25%）。
                放清仓复盘之后：已实现与未实现上下对照，同一屏看完「赚到的」与「欠着的」。 -->
-          <BreakEvenSection ref="breakEven" :ledger-id="scopeProps.ledgerId" />
+          <BreakEvenSection ref="breakEven" v-bind="scopeProps" />
 
           <!-- 持仓结构（2026-11-27，用户第 9 条）：报「收益由什么构成」，三块面板与
                内部间距收在 AnalysisStructureSection 里，父页只管它在页内的位置。 -->
           <LazySection anchor-id="nav-structure" :min-height="2460">
-            <AnalysisStructureSection :ledger-id="scopeProps.ledgerId" />
+            <AnalysisStructureSection v-bind="scopeProps" />
           </LazySection>
 
           <!-- 收益归因（#2135，2026-11-28 自持仓分析页迁入）：结构区回答「钱压在哪」，
                归因回答「这些钱各贡献了多少」——同一屏内「分布 → 贡献」，故紧随结构区。
                面板自带 SectionHeader，此处只挂锚点。 -->
           <LazySection anchor-id="nav-attribution" :min-height="780">
-            <PnlAttribution :ledger-id="scopeProps.ledgerId" />
+            <PnlAttribution v-bind="scopeProps" />
           </LazySection>
 
           <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
                总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
                取数自含（拆出 MoneyFundIncomeSection），父页只经 ref 联动刷新。 -->
-          <MoneyFundIncomeSection
-            ref="moneyFund"
-            :ledger-id="scopeProps.ledgerId"
-          />
+          <MoneyFundIncomeSection ref="moneyFund" v-bind="scopeProps" />
         </div>
 
         <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
@@ -235,10 +237,10 @@ defineOptions({ name: "AssetAnalysis" });
 
 const router = useRouter();
 
-// 真实数据源：本页只剩「账户列表」（供口径切换器的下拉）；其余 10 个区块全部自含取数
+// 真实数据源：本页只剩「账户 / 组合两份清单」（供口径切换器的下拉）；其余 10 个区块全部自含取数
 // （收益 / 区间 / 净值 / 资金流 / 日历 / 清仓 / 浮亏 / 结构 / 归因 / 货基），
 // 父页只持 ref 做刷新联动。
-// 口径主控（档位 / 账户下拉 / 一行说明）收在 composable 里：本页已顶在 400 行闸门上，
+// 口径主控（档位 / 下拉 / 一行说明）收在 composable 里：本页已顶在 400 行闸门上，
 // 而这段与页面结构无关（详见 useAnalysisPageScope 文件头）。
 const {
   scopeKinds,
@@ -249,9 +251,10 @@ const {
   setScopeKind,
   setScopeId,
   ledgerOptions,
-  ledgerLoading,
+  portfolioOptions,
+  optionsLoading,
   scopeHint,
-  loadLedgers
+  loadScopeOptions
 } = useAnalysisPageScope();
 
 const initialLoading = ref(true);
@@ -263,16 +266,12 @@ const updatedAtLabel = computed(() =>
   latestSnapshotDate.value ? `${latestSnapshotDate.value} 更新` : ""
 );
 
-// 页内导航（2026-10-25）：纵向独立区块（收益概览 / 区间表现 / 资产净值走势 / 资金流动 /
-// 收益日历 / 清仓复盘 / 浮亏回本 / 持仓结构 / 收益归因 / 货基收益），符合 components.md
-// 的 PageToc 接入判据（10 项已超过「>6 就需要目录」的判据）；条目顺序
-// 由 DOM 实序决定（usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader
-// 标题逐字一致。「浮亏回本」无浮亏时整块不渲染，标签随之隐没（缺锚点即不出现，不需要占位）。
-//
+// 页内导航（2026-10-25）：10 个纵向区块，符合 components.md 的 PageToc 接入判据
+// （>6 就需要目录）。条目顺序由 DOM 实序决定（usePageNav 扫 nav-* 锚点），本表只管
+// id→标签且与各 SectionHeader 逐字一致；「浮亏回本」无浮亏时整块不渲染，标签随之隐没。
 // 2026-11-28 起下半页 5 块包了 LazySection（锚点常驻、内容懒挂，见该组件文件头）：
-// 锚点仍在 DOM 里 ⇒ 导航项完整、goTo 有落点；`useLazyNav` 在跳转前先把目标块激活，
-// 免得跳过去对着一块空白等内容自己长出来。min-height 取家庭档实测高度
-// （1440×1000 走查：717 / 399 / 1846 / 2465 / 776），占位偏矮会让下方锚点整体上移。
+// `useLazyNav` 在跳转前先把目标块激活，免得跳过去对着一块空白。min-height 取家庭档
+// 实测高度（1440×1000 走查：717 / 399 / 1846 / 2465 / 776），偏矮会让下方锚点上移。
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "收益概览",
@@ -320,14 +319,14 @@ const reloadAll = async () => {
 };
 
 /**
- * 首屏骨架的关闭时机 = 账户列表返回。
+ * 首屏骨架的关闭时机 = 账户 + 组合两份清单返回。
  *
  * **不能等区块的「加载完成」事件**：骨架与内容在模板里是 `v-if / v-else` 互斥的，
  * 骨架显示期间区块没挂载、永远发不出事件（2026-11-28 走查实测卡在骨架屏的死锁）。
- * 账户列表是父页唯一自发的请求，用它当信号；各区块随后各自取数并自管 loading 态。
+ * 这两份清单是父页唯一自发的请求，用它当信号；各区块随后各自取数并自管 loading 态。
  */
 onMounted(async () => {
-  await loadLedgers();
+  await loadScopeOptions();
   initialLoading.value = false;
 });
 

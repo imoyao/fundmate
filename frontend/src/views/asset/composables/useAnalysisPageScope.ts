@@ -7,6 +7,15 @@
  * 而这段与页面结构无关——它是「页级口径」这一件事的完整实现。搬进来后页面只剩
  * 一行解构 + 模板里的绑定。
  *
+ * ## 为什么账户与组合的选项要分开取
+ *
+ * 切换器的下拉内容是**档位的函数**：账户档列账户、组合档列组合。合成一份
+ * 「id → 名字」的清单会撞 id（账户 3 与组合 3 是两个东西），所以按档位取，
+ * 且两个列表都**一次性预热**（切换器要能立刻展开，不能点一下等一次接口）。
+ *
+ * 取不到只是「这一档暂时没东西可选」，不弹错、不阻塞家庭级首屏——组合接口失败
+ * 不该让整页打不开（它只影响组合档的选择）。
+ *
  * ## 为什么档位是算出来的
  *
  * `commonAnalysisKinds()` 取所有区块支持档位的**交集**。硬编码 `["family","ledger"]`
@@ -18,6 +27,7 @@
 import { computed, ref } from "vue";
 import { useAnalysisScope } from "@/composables/analysisScope";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
+import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { commonAnalysisKinds } from "../analysisScopeSupport";
 
 export function useAnalysisPageScope() {
@@ -32,10 +42,27 @@ export function useAnalysisPageScope() {
   } = useAnalysisScope({ kinds: scopeKinds });
 
   const ledgers = ref<LedgerItem[]>([]);
-  const ledgerLoading = ref(false);
-  /** 下拉选项：只取 id + 名称，账户对象其余字段这里用不到 */
-  const ledgerOptions = computed(() =>
-    ledgers.value.map(l => ({ id: l.id, name: l.name }))
+  const portfolios = ref<PortfolioItem[]>([]);
+  const optionsLoading = ref(false);
+
+  /**
+   * 下拉选项：**只取 id + 名称**（账户 / 组合对象其余字段这里用不到）。
+   *
+   * 两份**分开给**，不做「按档位合成一份」：`ScopeBar` 的 `ledgers` / `portfolios`
+   * 是两条独立入参，由它自己按档位挑；合成一份再喂给 `ledgers` 会让组合档读到
+   * 空的 `portfolios`——切换器照常显示「组合」按钮与「暂无组合」提示，看起来像
+   * 「这个家庭还没有组合」，实际是接线错了。两份 id 空间本来就互不相干。
+   */
+  const toOptions = (list: Array<{ id: number; name: string }>) =>
+    list.map(o => ({ id: o.id, name: o.name }));
+  const ledgerOptions = computed(() => toOptions(ledgers.value));
+  const portfolioOptions = computed(() => toOptions(portfolios.value));
+
+  /** 当前档位对应的那一份（只供本文件的 hint 查名字用，不往模板下传） */
+  const scopeOptions = computed(() =>
+    scopeKind.value === "portfolio"
+      ? portfolioOptions.value
+      : ledgerOptions.value
   );
 
   /**
@@ -49,21 +76,31 @@ export function useAnalysisPageScope() {
         ? `全家庭 · ${ledgers.value.length} 个账户`
         : "";
     }
-    if (scopeId.value == null) return "选择账户后取数";
-    const hit = ledgers.value.find(l => l.id === scopeId.value);
-    return hit ? `只看 ${hit.name}` : `账户 #${scopeId.value}`;
+    const noun = scopeKind.value === "portfolio" ? "组合" : "账户";
+    if (scopeId.value == null) return `选择${noun}后取数`;
+    const hit = scopeOptions.value.find(o => o.id === scopeId.value);
+    return hit ? `只看 ${hit.name}` : `${noun} #${scopeId.value}`;
   });
 
-  const loadLedgers = async () => {
-    ledgerLoading.value = true;
+  /**
+   * 预热两份清单。用 `allSettled` 而不是 `all`：组合接口挂了不该连带把账户列表
+   * 一起丢掉（反之亦然），两档各自降级成「暂无可选项」即可。
+   */
+  const loadScopeOptions = async () => {
+    optionsLoading.value = true;
     try {
-      const res = await getLedgers();
-      ledgers.value = res.data ?? [];
-    } catch {
-      // 账户列表拿不到只影响切换器的下拉，不影响家庭级首屏——不弹错、不阻塞
-      ledgers.value = [];
+      const [ledgerRes, portfolioRes] = await Promise.allSettled([
+        getLedgers(),
+        getPortfolios()
+      ]);
+      ledgers.value =
+        ledgerRes.status === "fulfilled" ? (ledgerRes.value.data ?? []) : [];
+      portfolios.value =
+        portfolioRes.status === "fulfilled"
+          ? (portfolioRes.value.data ?? [])
+          : [];
     } finally {
-      ledgerLoading.value = false;
+      optionsLoading.value = false;
     }
   };
 
@@ -76,8 +113,9 @@ export function useAnalysisPageScope() {
     setScopeKind,
     setScopeId,
     ledgerOptions,
-    ledgerLoading,
+    portfolioOptions,
+    optionsLoading,
     scopeHint,
-    loadLedgers
+    loadScopeOptions
   };
 }

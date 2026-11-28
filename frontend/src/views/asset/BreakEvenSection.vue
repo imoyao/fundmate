@@ -99,9 +99,10 @@ import type { Position } from "@/api/types";
 import { formatAmount } from "@/utils/currency";
 import { buildBreakEven } from "./breakEven";
 
-/** 账户级口径（2026-11-28，复盘页口径切换器）：不传 = 家庭级 */
+/** 账户 / 组合级口径（2026-11-28，复盘页口径切换器）：都不传 = 家庭级 */
 const props = defineProps<{
   ledgerId?: number;
+  portfolioId?: number;
 }>();
 
 /** 列表首屏行数：够看出「最该先处理的是哪几个」，又不把区块顶成一屏半 */
@@ -152,7 +153,8 @@ const load = async () => {
     const first = await getPositions({
       page: 1,
       per_page: PAGE_SIZE,
-      ledger_id: props.ledgerId
+      ledger_id: props.ledgerId,
+      portfolio_id: props.portfolioId
     });
     let all = first?.data ?? [];
     const total = first?.total ?? all.length;
@@ -160,7 +162,8 @@ const load = async () => {
       const next = await getPositions({
         page,
         per_page: PAGE_SIZE,
-        ledger_id: props.ledgerId
+        ledger_id: props.ledgerId,
+        portfolio_id: props.portfolioId
       });
       const rows = next?.data ?? [];
       if (rows.length === 0) break;
@@ -176,7 +179,7 @@ onMounted(load);
 
 // 切档：清空再取（失败时的空数组同理——留着旧口径的浮亏列表等于报错数）
 watch(
-  () => props.ledgerId,
+  () => [props.ledgerId, props.portfolioId],
   () => {
     positions.value = [];
     expanded.value = false;

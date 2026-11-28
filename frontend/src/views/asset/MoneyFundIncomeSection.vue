@@ -50,9 +50,10 @@ import {
 } from "@/api/performance";
 import { formatAmount } from "@/utils/currency";
 
-/** 账户级口径（2026-11-28，复盘页口径切换器）：不传 = 家庭级 */
+/** 账户 / 组合级口径（2026-11-28，复盘页口径切换器）：都不传 = 家庭级 */
 const props = defineProps<{
   ledgerId?: number;
+  portfolioId?: number;
 }>();
 
 const income = ref<MoneyFundIncomeData | null>(null);
@@ -77,10 +78,13 @@ const todayCaption = computed(() => {
 /** 接口异常时置 null ⇒ 隐藏整块，而不是显示 0（口径见文件头） */
 const load = async () => {
   try {
+    // 三档一一对应后端的 scope 枚举，不靠「没传 id 就当家庭」的推断
     const res = await getMoneyFundIncome(
-      props.ledgerId == null
-        ? { scope: "family" }
-        : { scope: "ledger", ledger_id: props.ledgerId }
+      props.portfolioId != null
+        ? { scope: "portfolio", portfolio_id: props.portfolioId }
+        : props.ledgerId == null
+          ? { scope: "family" }
+          : { scope: "ledger", ledger_id: props.ledgerId }
     );
     income.value = res?.data ?? null;
   } catch {
@@ -92,7 +96,7 @@ onMounted(load);
 
 // 切档：清空再取——留着家庭级的收益配「本账户」标签，是静默错口径
 watch(
-  () => props.ledgerId,
+  () => [props.ledgerId, props.portfolioId],
   () => {
     income.value = null;
     void load();

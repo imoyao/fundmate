@@ -5,9 +5,12 @@
   （拆前 399）。此前这段与 `useNetWorthTrend` 强内聚，搬进来后父页只管「它在第几位」
   与锚点，区块自含取数、绘图、切档重取。
 
-  口径：`ledgerId` 不传 = 家庭级（存量行为）；传了 = 该账户的快照序列（#1181）。
-  ⚠️ 账户档的快照天数**短于**家庭级（真库 82 天 vs 单账户 68 天），曲线会变短。
-  这不是丢数据，卡头 info 已写明「未打卡则无曲线」，切档时也会短暂显示空态。
+  口径：`ledgerId` / `portfolioId` 都不传 = 家庭级（存量行为）；传了 = 该账户（#1181）
+  / 该组合（D135）的快照序列，两者互斥。
+  ⚠️ 账户档的快照天数**短于**家庭级（真库 82 天 vs 单账户 68 天），组合档更短——
+  组合维度 2026-11-28 才落库，且 D62 禁止回填，故**只能从启用日起累积**。
+  这不是丢数据（卡头 info 已写明「未打卡则无曲线」），但一个点是画不出走势的，
+  所以组合档点数不足时在图上写一句，别让用户以为是曲线坏了。
 -->
 <template>
   <section id="nav-net-worth">
@@ -40,6 +43,15 @@
         >
           暂无资产快照数据
         </p>
+        <!-- 组合档的历史是「从启用日起长出来」的（D62 禁止回填）：只有一个点时
+             图上就是一颗点，画不出走势也不算坏数据。写明比留白诚实。 -->
+        <p
+          v-else-if="portfolioId != null && series.length < 2"
+          class="net-accumulating"
+        >
+          组合快照自启用日起每日累积，目前仅
+          {{ series.length }} 条，暂不足以画出走势
+        </p>
       </div>
     </CardBlock>
   </section>
@@ -55,8 +67,10 @@ import { useNetWorthTrend } from "./composables/useNetWorthTrend";
 defineOptions({ name: "NetWorthTrendSection" });
 
 const props = defineProps<{
-  /** 账户级口径（复盘页口径切换器）；不传 = 家庭级 */
+  /** 账户级口径（复盘页口径切换器）；与 `portfolioId` 互斥，都不传 = 家庭级 */
   ledgerId?: number;
+  /** 组合级口径（D135）；组合行只含持仓市值，历史从启用日起累积 */
+  portfolioId?: number;
 }>();
 
 /** 页头「更新时间」：拆走后父页拿不到 latestSnapshot，改用事件上报 */
@@ -70,7 +84,10 @@ const {
   rangeChange,
   load,
   renderChart
-} = useNetWorthTrend(() => props.ledgerId);
+} = useNetWorthTrend(() => ({
+  ledgerId: props.ledgerId,
+  portfolioId: props.portfolioId
+}));
 
 /** 区间涨跌幅（首末快照之差）。涨红跌绿沿用中国市场惯例，文字用 -ink 档达 AA */
 const rangeLabel = computed(() => {
@@ -106,7 +123,7 @@ onMounted(reload);
 
 // 切档：清空后重取重绘。留着上一条口径的曲线配新标题，是本次改造要消灭的静默错口径
 watch(
-  () => props.ledgerId,
+  () => [props.ledgerId, props.portfolioId],
   async () => {
     series.value = [];
     latestSnapshot.value = null;
@@ -119,6 +136,18 @@ defineExpose({ refresh: reload });
 </script>
 
 <style scoped lang="scss">
+/* 组合档的累积提示：贴在图上而不是塞进卡头——卡头 info 是常驻口径说明，
+   而这句只在「点数不足」时出现，两件事不该抢同一个位置。 */
+.net-accumulating {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  max-width: 80%;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  text-align: right;
+}
+
 /* 区间胶囊：6px 内间隙是「标签 / 数值」的语义间距，不是布局栅格，故不走 space 令牌 */
 .net-range {
   display: inline-flex;

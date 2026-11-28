@@ -170,6 +170,8 @@ const props = withDefaults(
   defineProps<{
     /** 账户ID：不传=家庭级，传=该账户级（账户维度天然支持，见设计文档 §3） */
     ledgerId?: number;
+    /** 组合ID（D135）：与 `ledgerId` 互斥；组合档不读物化行，整段现算 */
+    portfolioId?: number;
     /**
      * 宿主是否自带标题行（#2050）。
      *
@@ -197,7 +199,7 @@ const props = withDefaults(
      */
     granularities?: readonly PnlCalendarGranularity[];
   }>(),
-  { ledgerId: undefined, hostHeader: false }
+  { ledgerId: undefined, portfolioId: undefined, hostHeader: false }
 );
 
 const emit = defineEmits<{
@@ -209,6 +211,7 @@ void emit; // 预留的「点某天看明细」事件，当前尚无消费方；
 // 传 getter 而不是传值，才能在宿主改 `ledgerId` / `granularities` 时触发重取。
 const cal = usePnlCalendarData({
   ledgerId: () => props.ledgerId,
+  portfolioId: () => props.portfolioId,
   granularities: () => props.granularities
 });
 

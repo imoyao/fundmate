@@ -36,6 +36,8 @@ import {
 export function usePnlCalendarData(opts: {
   /** 账户 ID：不传 = 家庭级（`undefined` 会让 axios 丢掉该参数） */
   ledgerId: () => number | undefined;
+  /** 组合 ID（D135）：与 `ledgerId` 互斥，后端同传 400 */
+  portfolioId?: () => number | undefined;
   /** 宿主允许的粒度档位；不传 / 空数组 = 三档全开（#2033） */
   granularities: () => readonly PnlCalendarGranularity[] | undefined;
 }) {
@@ -177,6 +179,7 @@ export function usePnlCalendarData(opts: {
         start_date: start,
         end_date: end,
         ledger_id: opts.ledgerId(),
+        portfolio_id: opts.portfolioId?.(),
         granularity: granularity.value
       });
       series.value = data;
@@ -212,7 +215,10 @@ export function usePnlCalendarData(opts: {
 
   // 三条触发源合并成一个数组式 watch：下钻要同时改「游标 + 粒度」，
   // 若拆成多条 watcher 会在同一 tick 里连发两次相同区间（由 `selectPeriod` 造成）。
-  watch([opts.ledgerId, cursor, granularity], load);
+  watch(
+    [opts.ledgerId, opts.portfolioId ?? (() => undefined), cursor, granularity],
+    load
+  );
 
   // 宿主中途收窄粒度集合时（宿主很少会动态改，但组件不该假设它不变）：
   // 当前粒度若已不在集合内，落到默认档，绝不停留在「控件里选不到」的那一档。
