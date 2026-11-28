@@ -210,3 +210,25 @@ def test_expired_credential_can_still_refresh(keys, fake_upstream, two_users):
     cred = load_credential(user_id, 'tzzb')
     assert cred is not None
     assert cred.token == 'fresh-access-token'
+
+
+def test_expired_credential_can_still_revoke(keys, fake_upstream, two_users):
+    """断开回归：授权过期的连接必须能断开（真机 500 复现）。
+
+    revoke 的意图是「上游撤销失败不阻断本地删除」，但 load_credential 默认
+    对过期凭据抛 McpAuthError，发生在撤销 try 块之外 ⇒ 断开按钮 500。
+    过期恰恰是最需要断开的时刻（先断开才能重连），与刷新编排同款理由。
+    """
+    user_id, _ = two_users
+    result = oauth.begin('tzzb', user_id)
+    oauth.callback('tzzb', result['state'], 'auth-code')
+
+    with user_session() as session:
+        row = session.query(UserMcpCredential).filter_by(user_id=user_id, provider='tzzb').one()
+        row.expires_at = oauth._now_naive() - timedelta(seconds=1)
+        session.commit()
+
+    oauth.revoke('tzzb', user_id)  # 修复前：此处抛 McpAuthError
+
+    assert load_credential(user_id, 'tzzb', allow_expired=True) is None
+    assert any(url.endswith('/revoke') for url, _data, _as_json in fake_upstream)
