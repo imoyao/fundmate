@@ -64,14 +64,25 @@ def test_sync_requires_provider():
 
 
 def test_tzzb_capabilities_only_sampled_names():
-    # 纪律：没真机采过样的名字不进映射（2026-11-28 verify 采到的 6 个）
+    # 纪律：没真机采过样的名字不进映射。2026-11-28 17:20 全链路 tools/list
+    # 实测采到全部 15 个（verify 先采到 6 个，17:20 补齐），这里钉全集：
+    # 登记超出本集合 = 登记了没采过的名字；少了 = 采样丢了没回填。
     sampled = {
         'promptAccountSelection',
-        'queryAssetChangeSummary',
-        'queryClearedPosition',
-        'queryDayCalendarSummary',
-        'queryDayProfitSummary',
         'queryFundAccount',
+        'queryStockPosition',
+        'queryClearedPosition',
+        'queryFundHoldingReturns',
+        'queryPnlSummary',
+        'queryDayProfitSummary',
+        'queryDayCalendarSummary',
+        'queryMonthCalendarSummary',
+        'queryMoneyHistory',
+        'queryFundSummaryHistory',
+        'queryAssetChangeSummary',
+        'queryFundFeeRate',
+        'queryFundConfirmNav',
+        'queryStockMarketRemark',
     }
-    assert set(TOOL_CAPABILITIES) <= sampled
+    assert set(TOOL_CAPABILITIES) == sampled
     assert TOOL_CAPABILITIES['queryAssetChangeSummary'] == '交易对账'

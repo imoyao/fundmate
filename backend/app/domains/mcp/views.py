@@ -17,7 +17,7 @@ from flask import abort, current_app, g, jsonify, redirect, request
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.validation import parse_body
-from app.domains.mcp.schemas import OAuthBeginIn, StaticTokenIn
+from app.domains.mcp.schemas import OAuthBeginIn, StaticTokenIn, SyncIn
 from app.services.mcp.connection_check import check_connection
 from app.services.mcp.errors import McpAuthError, McpError, McpUserTokenMissing
 from app.services.mcp.oauth import (
@@ -30,6 +30,7 @@ from app.services.mcp.oauth import (
     supported_providers,
 )
 from app.services.mcp.registry import get_provider, provider_names
+from app.services.mcp.sync_flow import fetch_accounts, run_sync
 from app.services.mcp.tools_catalog import list_tools, sync_tools
 from app.services.mcp.user_credentials import delete_credential, list_connections, save_static_token
 
@@ -144,6 +145,53 @@ def list_provider_tools(provider: str):
         for tool in list_tools(provider)
     ]
     return jsonify({'data': {'provider': provider, 'tools': tools}, 'message': 'ok'})
+
+
+def _sync_error_status(exc: McpError) -> int:
+    """同步链路的 McpError → HTTP 状态码（与 verify 同一语义：4xx 是用户可自救的）。"""
+    if isinstance(exc, McpUserTokenMissing):
+        return 422
+    if isinstance(exc, McpAuthError):
+        return 400
+    return 502
+
+
+@mcp_bp.post('/connections/<provider>/accounts/')
+def list_sync_accounts(provider: str):
+    """同步向导第一步：拉上游账户清单（promptAccountSelection，按五组归一化）。"""
+    _known_provider(provider)
+    try:
+        result = fetch_accounts(provider, _user_id())
+    except ValueError as exc:
+        # 选择类错误（不支持账户选择）是客户端可自救的
+        abort(422, description=str(exc))
+    except McpError as exc:
+        abort(_sync_error_status(exc), description=exc.user_message)
+    return jsonify({'data': result, 'message': 'ok'})
+
+
+@mcp_bp.post('/connections/<provider>/sync/')
+def sync_provider_data(provider: str):
+    """发起数据同步（#3304）：调上游工具 → 置信度判定 → 审计留痕。
+
+    低置信默认不导入（响应里带 reasons 供前端展示差异摘要），
+    用户确认后带 ``force=true`` 重发，审计记强制标志。
+    """
+    _known_provider(provider)
+    data = parse_body(SyncIn)
+    try:
+        result = run_sync(
+            provider,
+            _user_id(),
+            data.tool,
+            [item.model_dump() for item in data.accounts],
+            force=data.force,
+        )
+    except ValueError as exc:
+        abort(422, description=str(exc))
+    except McpError as exc:
+        abort(_sync_error_status(exc), description=exc.user_message)
+    return jsonify({'data': result, 'message': 'ok'})
 
 
 @mcp_bp.post('/oauth/begin/')

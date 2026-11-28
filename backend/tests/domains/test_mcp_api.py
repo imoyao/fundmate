@@ -226,3 +226,98 @@ def test_tools_endpoint_annotates_capabilities(client, db, monkeypatch):
 
 def test_tools_endpoint_rejects_unknown_provider(client):
     assert client.get('/api/mcp/connections/nope/tools/').status_code == 422
+
+
+# ── 数据同步路由（#3304）──
+
+
+@pytest.fixture
+def tzzb_sync_key(db):
+    save_static_token(1, 'tzzb', 'user-key-1')
+
+
+def _stub_sync_upstream(monkeypatch, responses):
+    """把同步流的 HTTP 打成桩：tools/call 按工具名返回配置载荷。"""
+    from types import SimpleNamespace
+
+    from app.services.mcp import sync_flow
+
+    def factory(provider, token, route=None):
+        def post(payload, sid):
+            method = payload.get('method')
+            if method == 'initialize':
+                return SimpleNamespace(status_code=200, headers={}, text='{}', json=lambda: {'result': {}})
+            if method == 'notifications/initialized':
+                return SimpleNamespace(status_code=200, headers={}, text='', json=lambda: {})
+            if method == 'tools/call':
+                name = payload['params']['name']
+                text = responses[name]
+                return SimpleNamespace(
+                    status_code=200,
+                    headers={'content-type': 'application/json'},
+                    text=json.dumps({'result': {'isError': False, 'content': [{'type': 'text', 'text': text}]}}),
+                    json=lambda: {'result': {'isError': False, 'content': [{'type': 'text', 'text': text}]}},
+                )
+            raise AssertionError(f'意外的 MCP 方法：{method}')
+
+        return post
+
+    monkeypatch.setattr(sync_flow, '_post_factory', factory)
+
+
+def test_accounts_requires_connection(client, monkeypatch):
+    """没连过就拉账户清单 = 422，文案可读。"""
+    resp = client.post('/api/mcp/connections/tzzb/accounts/')
+    assert resp.status_code == 422
+    assert 'Token' in resp.get_json()['message']
+
+
+def test_sync_rejects_empty_selection(client, tzzb_sync_key):
+    """双层校验的 API 侧：不选账户连请求体校验都过不了（pydantic min_length）。"""
+    resp = client.post('/api/mcp/connections/tzzb/sync/', json={'tool': 'queryStockPosition', 'accounts': []})
+    assert resp.status_code == 422
+
+
+def test_sync_rejects_unknown_provider(client):
+    resp = client.post(
+        '/api/mcp/connections/nope/sync/',
+        json={'tool': 'queryStockPosition', 'accounts': [{'group': 'fund_key', 'id': '1'}]},
+    )
+    assert resp.status_code == 422
+
+
+def test_sync_happy_path_returns_assessment(client, tzzb_sync_key, monkeypatch):
+    """选了账户 + 上游返回结构健康 = high，imported=True；响应带预览条目。"""
+    from app.core.database import user_session
+    from app.models.mcp_sync_audit import McpSyncAudit
+
+    _stub_sync_upstream(
+        monkeypatch,
+        {
+            'queryStockPosition': json.dumps(
+                {
+                    'totalAsset': '1000',
+                    'totalMarketValue': '900',
+                    'holdings': [
+                        {'stockCode': '159316', 'stockName': '创新药E', 'marketValue': '900', 'holdQuantity': '900'}
+                    ],
+                }
+            )
+        },
+    )
+    resp = client.post(
+        '/api/mcp/connections/tzzb/sync/',
+        json={
+            'tool': 'queryStockPosition',
+            'accounts': [{'group': 'fund_key', 'id': '80381665'}],
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['confidence'] == 'low'  # 本地无持仓 ⇒ 零重合判 low（诚实判定）
+    assert data['imported'] is False
+    assert data['items'][0]['code'] == '159316'
+    with user_session() as session:
+        row = session.query(McpSyncAudit).order_by(McpSyncAudit.id.desc()).first()
+    assert row is not None
+    assert row.tool == 'queryStockPosition'

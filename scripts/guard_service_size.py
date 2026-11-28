@@ -530,6 +530,8 @@ BASELINE: dict[str, dict[str, int]] = {
     # - daily_scheduler.py 1136→1160（+24：挂 periodic_review job 的 cron + REST_DAY_JOB_NAMES
     #   条目及注释；max_func 39 / max_cc 10 未变）；
     # - db_factory.py 1076→1077（+1：periodic_review_reports 登记到 user 域）；
+    # - db_factory.py 1077→1078（+1：mcp_provider_tools 登记到 user 域，S5g）；
+    # - db_factory.py 1078→1079（+1：mcp_sync_audits 登记到 user 域，#3304 同步审计）；
     # - dividend_tax_service.py 525→527（+2：category/source_type 枚举收敛）；
     # - strategy_engine/allocation.py 237→241（+4：同上枚举收敛）；
     # - sync/orchestrator.py 821→827 / max_func 115→120（+6：注册 periodic_review job）。
@@ -704,7 +706,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # migrations.py（后者 3000+ 行冻结），与 migrations_ledgers / migrations_agent 同范式。
     "backend/app/core/migrations_snapshots.py": {'lines': 87, 'max_func': 35, 'max_cc': 9},
     "backend/app/core/migrations_ledgers.py": {'lines': 55, 'max_func': 11, 'max_cc': 4},
-    "backend/app/core/db_factory.py": {'lines': 1078, 'max_func': 63, 'max_cc': 15},
+    "backend/app/core/db_factory.py": {'lines': 1079, 'max_func': 63, 'max_cc': 15},
     "backend/app/core/db_utils.py": {'lines': 169, 'max_func': 53, 'max_cc': 8},
     "backend/app/core/decorators.py": {'lines': 39, 'max_func': 29, 'max_cc': 2},
     "backend/app/core/exceptions.py": {'lines': 135, 'max_func': 22, 'max_cc': 3},
