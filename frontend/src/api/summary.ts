@@ -254,12 +254,14 @@ export function postSnapshot(snapshot_date?: string) {
 /**
  * 查询资产快照列表（升序，含同比；可选 start_date/end_date 闭区间）
  *
- * #1181：传 ledger_id 返回该账户的账户级序列；不传返回家庭级序列（既有行为）。
+ * #1181 / D135：`ledger_id` / `portfolio_id` 互斥（同传后端 400）；都不传 = 家庭级。
+ * 组合行只含持仓市值，且**历史从启用日起累积**（D62 禁止回填）——曲线短不是丢数据。
  */
 export function getSnapshots(params?: {
   start_date?: string;
   end_date?: string;
   ledger_id?: number;
+  portfolio_id?: number;
 }) {
   return http.request<ApiResponse<AssetSnapshotItem[]>>(
     "get",
@@ -420,6 +422,8 @@ export function getPnlCalendar(params?: {
   start_date?: string;
   end_date?: string;
   ledger_id?: number;
+  /** 组合档（D135）；与 `ledger_id` 互斥。组合档不读物化行，整段现算 */
+  portfolio_id?: number;
   granularity?: PnlCalendarGranularity;
 }) {
   return http.request<ApiResponse<PnlCalendarSeries>>(
@@ -1177,6 +1181,8 @@ export type ClearedCyclesData = {
  */
 export function getClearedCycles(params?: {
   ledger_id?: number;
+  /** 组合档（D135）；与 `ledger_id` 互斥。流水归属按**持仓**判定 */
+  portfolio_id?: number;
   symbol?: string;
   include_cash_equivalents?: boolean;
   /** YYYY-MM-DD；缺省不限制下界 */

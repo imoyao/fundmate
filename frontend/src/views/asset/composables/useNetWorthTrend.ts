@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 import echarts from "@/plugins/echarts";
 import { getSnapshots, type AssetSnapshotItem } from "@/api/summary";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
+import type { ScopeProps } from "@/composables/analysisScope/toScopeProps";
 import { buildNetWorthOption } from "./netWorthChartOption";
 
 /**
@@ -17,13 +18,13 @@ import { buildNetWorthOption } from "./netWorthChartOption";
  * resize 统一交给 useEchartsLifecycle；`reuse: true` 保留「刷新复用实例」
  * 语义——否则每次刷新都重建实例，动画状态丢失且肉眼可见地闪一下。
  *
- * 2026-11-28（复盘页口径切换器）：可选 `getLedgerId` 取账户级序列（#1181），
- * 不传 = 家庭级（存量行为）。**用 getter 而不是值**：`props.ledgerId` 在
+ * 2026-11-28（复盘页口径切换器）：可选 `getScope` 取账户级（#1181）/ 组合级（D135）
+ * 序列，不传 = 家庭级（存量行为）。**用 getter 而不是值**：`props.ledgerId` 在
  * setup 时可能还是 `undefined`，传值会在切档时读到快照时刻的旧参数。
  * 切档重取由调用方（`NetWorthTrendSection`）在 watch 里触发——这里只负责
  * 「按当前口径取一次」，不持有口径状态。
  */
-export function useNetWorthTrend(getLedgerId?: () => number | undefined) {
+export function useNetWorthTrend(getScope?: () => ScopeProps) {
   const chartRef = ref<HTMLElement | null>(null);
   const series = ref<Array<{ date: string; net: number }>>([]);
   /** 首次/切档取数中：区块据此区分「还没回来」与「确实没有快照」（后者才报空态） */
@@ -62,11 +63,13 @@ export function useNetWorthTrend(getLedgerId?: () => number | undefined) {
   );
 
   const load = async () => {
-    const ledgerId = getLedgerId?.();
+    const { ledgerId, portfolioId } = getScope?.() ?? {};
     loading.value = true;
     try {
       const res = await getSnapshots(
-        ledgerId == null ? undefined : { ledger_id: ledgerId }
+        ledgerId == null && portfolioId == null
+          ? undefined
+          : { ledger_id: ledgerId, portfolio_id: portfolioId }
       );
       const list = res?.data ?? [];
       series.value = list.map(i => ({

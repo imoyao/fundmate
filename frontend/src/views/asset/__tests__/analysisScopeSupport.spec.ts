@@ -1,17 +1,19 @@
 /**
  * 复盘页口径能力表与接线守卫（#3287 B）。
  *
- * 三类失败模式，各自一条判据：
+ * 四类失败模式，前三类各一条判据、第四类见文末「消费守卫」：
  *
  * 1. **档位开放超过实际能力** ⇒ 不支持的区块拿 `undefined` 当 props，面板侧把 `{}`
  *    读成家庭级 ⇒ 「组合」标签下摆着全家庭的钱。判据：`commonAnalysisKinds` 只回交集。
  * 2. **新增区块忘了登记** ⇒ 它的能力不进交集，档位照旧全开。判据：表内 label 集合
  *    必须与页面 `NAV_LABELS` 的值集合相等（加区块必然先加导航项）。
- * 3. **新增区块忘了传 `:ledger-id`** ⇒ 切到账户档，它自己还是家庭级数。
- *    判据：页面里 10 个区块的开标签逐个含 `:ledger-id`。
+ * 3. **新增区块忘了接口径** ⇒ 切到账户 / 组合档，它自己还是家庭级数。
+ *    判据：页面里 10 个区块的开标签逐个含 `v-bind="scopeProps"`（2026-11-28 起
+ *    口径一次性下发；此前是逐个 `:ledger-id`，每加一档都是十处改动，漏一处
+ *    就退回「静默错口径」）。
  *
  * 判据纪律（AGENTS「正则/字符串类判据」）：断言的是**完整子串**而非裸标识符，
- * 避免「文件里别处出现 ledger-id 就算过」的假阳性。
+ * 避免「文件里别处出现 scopeProps 就算过」的假阳性。
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -28,8 +30,10 @@ const read = (rel: string) =>
 const page = read("../IntelligentAnalysis.vue");
 
 describe("口径能力表（analysisScopeSupport）", () => {
-  it("当前只开家庭 / 账户两档（组合档有 4 个后端空洞，按 D1 留到三期）", () => {
-    expect(commonAnalysisKinds()).toEqual(["family", "ledger"]);
+  it("三档全开：十块都支持组合档（D134 补 /positions/ 等 3 处、D135 补净值曲线）", () => {
+    // 这条断言就是「档位 = 能力表交集」的最后一道确认：任何一块退回两档，
+    // 交集立刻掉成 ["family", "ledger"]，组合档在页面上消失。
+    expect(commonAnalysisKinds()).toEqual(["family", "ledger", "portfolio"]);
   });
 
   it("交集是逐档判定的：任一块不支持就不开该档", () => {
@@ -73,7 +77,7 @@ describe("口径能力表（analysisScopeSupport）", () => {
   });
 });
 
-describe("接线守卫：10 个区块都必须收 :ledger-id", () => {
+describe("接线守卫：10 个区块都必须收口径", () => {
   // 收益日历与收益归因是面板直连（面板自带 SectionHeader，页面只挂锚点），
   // 故这里匹配的是面板标签而不是包裹元素——匹配 `<section id="nav-…">` 会漏掉
   // 真正的取数入参。
@@ -85,17 +89,147 @@ describe("接线守卫：10 个区块都必须收 :ledger-id", () => {
     expect(tags.length).toBe(Object.keys(ANALYSIS_SECTION_SCOPE).length);
   });
 
-  it("每个区块的开标签都带 :ledger-id（漏一个就是静默错口径）", () => {
+  it("每个区块的开标签都 v-bind scopeProps（漏一个就是静默错口径）", () => {
     const tags = page.match(SECTION_TAGS) ?? [];
     for (const tag of tags) {
       const name = tag.match(/^<(\w+)/)?.[1] ?? tag;
-      expect(tag, `${name} 漏传 :ledger-id`).toContain(":ledger-id");
+      expect(tag, `${name} 漏传 v-bind="scopeProps"`).toContain(
+        'v-bind="scopeProps"'
+      );
+    }
+  });
+
+  it("页面不再逐块写 :ledger-id（组合档下会把组合 id 当账户 id 发出去）", () => {
+    // 半迁移态最危险：`v-bind` 都加了，某块又留着 `:ledger-id="scopeId"`。
+    // 切到组合档时它会把**组合 id** 当账户 id 发下去，后端要么 400、要么
+    // 命中另一个账户 —— 数字错得毫无痕迹。故整页禁止出现逐块绑定。
+    const tags = page.match(SECTION_TAGS) ?? [];
+    for (const tag of tags) {
+      const name = tag.match(/^<(\w+)/)?.[1] ?? tag;
+      expect(tag, `${name} 还留着逐块 :ledger-id`).not.toContain(":ledger-id");
     }
   });
 
   it("资金流动的 family 必须跟着口径走，不能写死", () => {
     // 写死 `family` 会让账户档也报「本家庭」，卡面 4 张卡全错
     expect(page).toContain(":family=\"scopeKind === 'family'\"");
+  });
+
+  it("切换器两份清单分开喂（合成一份喂给 :ledgers ⇒ 组合档下拉恒空）", () => {
+    // `ScopeBar` 内部按档位在 `ledgers` / `portfolios` 之间挑。若宿主把「按档位
+    // 切过一遍」的单份清单喂进 `:ledgers`，组合档读到的是没被赋值的 `portfolios`
+    // ⇒ 下拉永远是空的，并显示「暂无组合」——看起来像没有数据，实际是接线错。
+    const bar = page.match(/<ScopeBar\b[\s\S]*?\/>/);
+    expect(bar, "页面未渲染 ScopeBar").not.toBeNull();
+    const tag = bar?.[0] ?? "";
+    expect(tag).toContain(':ledgers="ledgerOptions"');
+    expect(tag).toContain(':portfolios="portfolioOptions"');
+  });
+});
+
+/**
+ * 「声明了 prop」≠「真的按它取数」（第 4 类失败模式）。
+ *
+ * `v-bind="scopeProps"` 只保证 `portfolioId` **落到**十个区块上。若某块在
+ * `defineProps` 里写了这个字段、却没把它拼进请求参数，页面照常渲染、`vue-tsc`
+ * 照常通过、上面两条守卫也照常通过——唯一的现象是「组合标签下摆着更宽口径的钱」。
+ * 这正是 #2595 的形态，也正是本次改造要消灭的东西，所以补一条「真消费」判据。
+ *
+ * 判据：**剥掉注释后**，区块源及其数据层（composable / 子面板）里必须出现
+ * `portfolio_id`（接口参数名）。两处刻意设计：
+ *
+ * - 要的是 snake_case 的**接口参数**，不是 camelCase 的 prop 名：只有 prop 声明
+ *   时这个字符串根本不出现，正好防住「声明了不用」。
+ * - 必须先剥注释：说明文字里写一句 `portfolioId` 就能喂出假绿，本仓有过教训。
+ *
+ * 唯一例外是收益概览：`getPortfolioXirr` 的位置参数签名（`portfolioId` 是第 2 个
+ * 位置参数），请求参数不是对象字面量，故那个区块的凭据是 `props.portfolioId`
+ * 作为实参出现——同样是「值真的进了请求」，只是编码方式不同。
+ *
+ * 表里每个 key 必须与能力表一一对应（下面第一条断言钉住），新增区块忘了登记时
+ * 会直接红在「缺消费证据」上，而不是等用户看见错数。
+ */
+interface ScopeEvidence {
+  /** 该区块口径真正变成请求参数的地方（区块自身 + 它的数据层） */
+  files: string[];
+  /** 剥注释后必须出现的凭据 */
+  evidence: string;
+}
+
+const SECTION_SOURCES: Record<string, ScopeEvidence> = {
+  overview: {
+    files: ["../ReturnOverviewSection.vue"],
+    // 位置参数调用，没有 portfolio_id 字样
+    evidence: "props.portfolioId"
+  },
+  excess: { files: ["../ExcessSection.vue"], evidence: "portfolio_id" },
+  // 净值：区块只管渲染，参数在 composable 里拼
+  netWorth: {
+    files: [
+      "../NetWorthTrendSection.vue",
+      "../composables/useNetWorthTrend.ts"
+    ],
+    evidence: "portfolio_id"
+  },
+  // 资金流动：参数构造已下沉成纯函数 `cashFlowParams`（有独立单测）
+  cashFlow: {
+    files: [
+      "../../../components/CashFlowPanel/index.vue",
+      "../../../components/CashFlowPanel/cashFlowParams.ts"
+    ],
+    evidence: "portfolio_id"
+  },
+  calendar: {
+    files: [
+      "../../../components/PnlCalendar/index.vue",
+      "../../../components/PnlCalendar/usePnlCalendarData.ts"
+    ],
+    evidence: "portfolio_id"
+  },
+  cycles: {
+    files: ["../cleared-cycles/ClearedCyclesSection.vue"],
+    evidence: "portfolio_id"
+  },
+  breakEven: { files: ["../BreakEvenSection.vue"], evidence: "portfolio_id" },
+  // 结构区：三块面板各自取数，区块只做口径透传
+  structure: {
+    files: [
+      "../AnalysisStructureSection.vue",
+      "../../../components/PositionStructurePanel/index.vue",
+      "../../../components/PenetrationPanel/index.vue",
+      "../../../components/StyleDistributionCard/index.vue"
+    ],
+    evidence: "portfolio_id"
+  },
+  attribution: {
+    files: ["../../../components/PnlAttribution/index.vue"],
+    evidence: "portfolio_id"
+  },
+  moneyFund: {
+    files: ["../MoneyFundIncomeSection.vue"],
+    evidence: "portfolio_id"
+  }
+};
+
+describe("消费守卫：每个区块真的按 portfolioId 取数", () => {
+  /** 剥 HTML 注释 / 块注释 / 整行 `//`，注释里提一句不算消费 */
+  const stripComments = (src: string) =>
+    src
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+  it("登记表覆盖能力表的每一个区块（新增区块必须同时给出消费证据）", () => {
+    expect(Object.keys(SECTION_SOURCES).sort()).toEqual(
+      Object.keys(ANALYSIS_SECTION_SCOPE).sort()
+    );
+  });
+
+  it("每个区块的链路里都带着组合 id（只有 prop 声明 = 静默错口径）", () => {
+    for (const [key, { files, evidence }] of Object.entries(SECTION_SOURCES)) {
+      const src = stripComments(files.map(f => read(f)).join("\n"));
+      expect(src, `${key} 没把 portfolioId 拼进请求参数`).toContain(evidence);
+    }
   });
 });
 

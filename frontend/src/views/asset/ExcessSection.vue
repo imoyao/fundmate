@@ -51,9 +51,10 @@ import {
 } from "@/utils/benchmarkExcess";
 import { formatAmount } from "@/utils/currency";
 
-/** 账户级口径；不传 = 家庭级（与同页其余区块一致） */
+/** 账户 / 组合级口径；都不传 = 家庭级（与同页其余区块一致） */
 const props = defineProps<{
   ledgerId?: number;
+  portfolioId?: number;
 }>();
 
 defineOptions({ name: "AnalysisExcessSection" });
@@ -68,9 +69,14 @@ const excess = ref<BenchmarkExcessResult | null>(null);
 
 const load = async () => {
   try {
-    const params: { start_date: string; end_date: string; ledger_id?: number } =
-      { ...excessDateRange() };
+    const params: {
+      start_date: string;
+      end_date: string;
+      ledger_id?: number;
+      portfolio_id?: number;
+    } = { ...excessDateRange() };
     if (props.ledgerId != null) params.ledger_id = props.ledgerId;
+    if (props.portfolioId != null) params.portfolio_id = props.portfolioId;
     const res = await getBenchmarkExcess(params);
     excess.value = res.data;
   } catch {
@@ -83,7 +89,7 @@ onMounted(load);
 
 // 切档：先清空再取。留着家庭级的四张卡配「只看某账户」的标签，是静默错口径
 watch(
-  () => props.ledgerId,
+  () => [props.ledgerId, props.portfolioId],
   () => {
     excess.value = null;
     void load();

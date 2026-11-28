@@ -119,9 +119,10 @@ const emptySummary = (): ClearedCyclesSummary => ({
   caveats: []
 });
 
-/** 账户级口径（2026-11-28，复盘页口径切换器）：不传 = 家庭级 */
+/** 账户 / 组合级口径（2026-11-28，复盘页口径切换器）：都不传 = 家庭级 */
 const props = defineProps<{
   ledgerId?: number;
+  portfolioId?: number;
 }>();
 
 const cycles = ref<ClearedCycle[]>([]);
@@ -140,6 +141,7 @@ const load = async () => {
   try {
     const res = await getClearedCycles({
       ledger_id: props.ledgerId,
+      portfolio_id: props.portfolioId,
       start_date: rangeStartDate(range.value) ?? undefined,
       // 清仓后涨跌幅要额外查净值（锚点 + 最新），复盘页要看这列故显式开启（#2773）
       include_post_clear: true
@@ -162,7 +164,7 @@ onMounted(load);
 
 // 切档：清空再取（同 load 的 catch 分支理由——旧口径的数字配新标签比空态更坏）
 watch(
-  () => props.ledgerId,
+  () => [props.ledgerId, props.portfolioId],
   () => {
     cycles.value = [];
     summary.value = emptySummary();

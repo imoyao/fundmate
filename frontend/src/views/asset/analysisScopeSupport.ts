@@ -11,16 +11,21 @@
  * 所以档位不是硬编码，而是这张表的交集。将来某块补上组合档，改这里一行即可扩档；
  * 想给某块「临时凑合」必须改表，改表就会被评审看见。
  *
- * ## 当前结论（2026-11-28）
+ * ## 当前结论（2026-11-28，三档全开）
  *
- * **只有家庭 / 账户两档。** 区间表现 / 收益归因 / 持仓结构 / 资金流动 / 货基
- * 五块本身支持组合档（`kinds` 如实写三档），其余四块的后端空洞按 D1 的取舍留到三期。
+ * **十块全部支持家庭 / 账户 / 组合三档**，故交集是三档。补齐顺序（每一格都是一次
+ * 「后端先能算、表才算数」）：
  *
- * 三期 D 已补三处（D134）：清仓复盘 `cleared-cycles` / 浮亏回本 `/positions/` /
- * 收益日历 `pnl-calendar` 都接了 `portfolio_id`，**后端能算组合档了**，但本表仍写两档——
- * 净值曲线（`snapshots`）要等 `asset_snapshots` 长出组合维度，而**档位取交集**，
- * 少一块就整页不开；前端接线（组合下拉 + 逐块传 `portfolioId`）与表内扩档放在一起做，
- * 那才是本表应当变动的地方。
+ * - 区间表现 / 收益归因 / 持仓结构 / 资金流动 / 货基：本来就支持组合（`kinds` 如实写）；
+ * - 清仓复盘 `cleared-cycles` / 浮亏回本 `/positions/` / 收益日历 `pnl-calendar`：
+ *   三期 D 第一版补（D134）；
+ * - **净值曲线 `snapshots`**：`asset_snapshots` 长出 `portfolio_id` 后才成立（D135）。
+ *   它的组合行只含持仓市值，且**历史从启用日起累积**（D62 禁止回填）——口径差写在
+ *   `services/snapshot_scope.py` 的模块注释里，前端在区块上写一句说明。
+ *
+ * ⚠️ 组合档能开的前提是**每一块都真的传了** `portfolioId`：`toScopeProps` 返回 `{}`
+ * 时面板读到的是家庭级（#2595 的形态），所以「表里写了 portfolio」与「区块真收到了」
+ * 必须同时成立——两者分别由本表与 `IntelligentAnalysis` 的 `v-bind="scopeProps"` 保证。
  *
  * ## 维护约定
  *
@@ -41,13 +46,13 @@ export interface SectionScope {
 const KIND_ORDER: readonly ScopeKind[] = ["family", "ledger", "portfolio"];
 
 export const ANALYSIS_SECTION_SCOPE: Record<string, SectionScope> = {
-  overview: { label: "收益概览", kinds: ["family", "ledger"] },
+  overview: { label: "收益概览", kinds: ["family", "ledger", "portfolio"] },
   excess: { label: "区间表现", kinds: ["family", "ledger", "portfolio"] },
-  netWorth: { label: "资产净值走势", kinds: ["family", "ledger"] },
+  netWorth: { label: "资产净值走势", kinds: ["family", "ledger", "portfolio"] },
   cashFlow: { label: "资金流动", kinds: ["family", "ledger", "portfolio"] },
-  calendar: { label: "收益日历", kinds: ["family", "ledger"] },
-  cycles: { label: "清仓复盘", kinds: ["family", "ledger"] },
-  breakEven: { label: "浮亏回本", kinds: ["family", "ledger"] },
+  calendar: { label: "收益日历", kinds: ["family", "ledger", "portfolio"] },
+  cycles: { label: "清仓复盘", kinds: ["family", "ledger", "portfolio"] },
+  breakEven: { label: "浮亏回本", kinds: ["family", "ledger", "portfolio"] },
   structure: { label: "持仓结构", kinds: ["family", "ledger", "portfolio"] },
   attribution: { label: "收益归因", kinds: ["family", "ledger", "portfolio"] },
   moneyFund: { label: "货币基金收益", kinds: ["family", "ledger", "portfolio"] }
