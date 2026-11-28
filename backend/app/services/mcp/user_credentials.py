@@ -272,12 +272,14 @@ def save_static_token(user_id: int, provider: str, api_key: str) -> UserMcpCrede
     return save_credential(user_id, provider, auth_type='static_token', token=api_key)
 
 
-def load_credential(user_id: Any, provider: str) -> Optional[UserCredential]:
+def load_credential(user_id: Any, provider: str, allow_expired: bool = False) -> Optional[UserCredential]:
     """按 ``(user_id, provider)`` 读凭据；不存在返回 ``None``。
 
     过期判定在这里做，但**不自动刷新**——刷新涉及网络调用与 state/锁，
     属于授权编排层（S5b）的职责。这里只把过期事实抛成 ``McpAuthError``，
     让上层决定是刷新还是提示用户重连。
+    ``allow_expired=True`` 仅供刷新编排读取 refresh_token：access_token 过期后
+    refresh_token 仍然有效，若过期即抛错，刷新链路自己就取不到凭据（死锁）。
     """
     uid = _coerce_user_id(user_id)
     if uid is None or not provider:
@@ -305,7 +307,7 @@ def load_credential(user_id: Any, provider: str) -> Optional[UserCredential]:
             refresh_data = decrypt_payload(row.refresh_cipher, row.key_version)
             refresh = refresh_data.get('refresh_token')
 
-        if row.expires_at and row.expires_at <= _naive_now():
+        if row.expires_at and row.expires_at <= _naive_now() and not allow_expired:
             raise McpAuthError('授权已过期，请重新连接', provider=provider)
 
         return UserCredential(

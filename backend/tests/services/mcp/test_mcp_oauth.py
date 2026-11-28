@@ -18,6 +18,7 @@ from cryptography.fernet import Fernet
 from app.core.database import user_session
 from app.domains.users.models import User
 from app.models.mcp_oauth_state import McpOAuthState
+from app.models.user_mcp_credential import UserMcpCredential
 from app.services.mcp import oauth
 from app.services.mcp.errors import McpAuthError
 from app.services.mcp.user_credentials import decrypt_payload, load_credential
@@ -187,3 +188,29 @@ def test_unknown_provider_never_builds_url(keys, fake_upstream, two_users):
     with pytest.raises(ValueError):
         oauth.begin('evil.example.com', two_users[0])
     assert fake_upstream == []
+
+
+def test_expired_credential_can_still_refresh(keys, fake_upstream, two_users):
+    """死锁回归：access_token 过期后 refresh_token 仍可读、可刷新。
+
+    load_credential 默认对过期凭据抛错（resolve_token 链路的拦截口径），
+    但 refresh 编排必须以 allow_expired=True 读取——否则过期凭据永远
+    拿不到 refresh_token，只能重连（实测同花顺 access_token 仅 5 分钟寿命，
+    过期是常态而非例外）。
+    """
+    user_id, _ = two_users
+    result = oauth.begin('tzzb', user_id)
+    oauth.callback('tzzb', result['state'], 'auth-code')
+
+    with user_session() as session:
+        row = session.query(UserMcpCredential).filter_by(user_id=user_id, provider='tzzb').one()
+        row.expires_at = oauth._now_naive() - timedelta(seconds=1)
+        session.commit()
+
+    with pytest.raises(McpAuthError):
+        load_credential(user_id, 'tzzb')  # 默认口径维持拦截
+
+    oauth.refresh('tzzb', user_id)
+    cred = load_credential(user_id, 'tzzb')
+    assert cred is not None
+    assert cred.token == 'fresh-access-token'
