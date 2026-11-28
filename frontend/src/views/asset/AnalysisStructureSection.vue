@@ -13,9 +13,13 @@
   为什么单独拆成组件（而不是继续写在页面里）：这个区块是「同一个问题的三个切面」，
   切面集合归它自己管，父页只负责排列顺序与锚点；父页也因此在 400 行闸门内留出了余量
   （拆之前 396 行，加资金流动就顶破）。
+
+  ⚠️ 锚点 `id="nav-structure"` **不在这里**（2026-11-28 起）：本块被 `LazySection` 包住，
+  锚点必须挂在外层 section 上。两处都挂 = 同一个 id 出现两次，`usePageNav` 扫锚点时
+  这一项会在导航里出现两遍，点第二个跳到同一个位置。
 -->
 <template>
-  <section id="nav-structure" class="structure-section">
+  <section class="structure-section">
     <PositionStructurePanel :ledger-id="ledgerId" :portfolio-id="portfolioId" />
     <PenetrationPanel :ledger-id="ledgerId" :portfolio-id="portfolioId" />
     <StyleDistributionCard :ledger-id="ledgerId" :portfolio-id="portfolioId" />

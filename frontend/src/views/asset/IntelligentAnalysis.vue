@@ -145,26 +145,26 @@
                才对得上「这天为什么抬了一截」。`family` = 家庭级（同页统一口径）。
                ⚠️ 本块「净投入」是出入金口径（L1），与上方收益概览那张卡（买入 − 卖出，
                L2）不是同一个数，面板 ⓘ 已写明，别在这里再解释一遍。 -->
-          <CashFlowPanel
-            id="nav-cash-flow"
-            ref="cashFlow"
-            :ledger-id="scopeProps.ledgerId"
-            :family="scopeKind === 'family'"
-          />
+          <LazySection anchor-id="nav-cash-flow" :min-height="720">
+            <CashFlowPanel
+              ref="cashFlow"
+              :ledger-id="scopeProps.ledgerId"
+              :family="scopeKind === 'family'"
+            />
+          </LazySection>
 
           <!-- 收益日历（2026-11-28 自持仓分析页迁入）：日/月/年三视图的盈亏热力图，
                紧接「资金流动」——两者都是「钱按时间怎么分布」，一个看进出、一个看盈亏。
                面板自带 SectionHeader 与口径 ⓘ，此处只挂锚点，不再套一层标题。 -->
-          <section id="nav-calendar">
+          <LazySection anchor-id="nav-calendar" :min-height="400">
             <PnlCalendar :ledger-id="scopeProps.ledgerId" />
-          </section>
+          </LazySection>
 
           <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
              自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与净值走势。 -->
-          <ClearedCyclesSection
-            id="nav-cycles"
-            :ledger-id="scopeProps.ledgerId"
-          />
+          <LazySection anchor-id="nav-cycles" :min-height="1850">
+            <ClearedCyclesSection :ledger-id="scopeProps.ledgerId" />
+          </LazySection>
           <!-- 浮亏回本（2026-11-27）：上面三块都是已实现 / 时间维度，这块回答
                「现在亏着的还要涨多少才回本」——收益率答不了（−20% 要涨 25%）。
                放清仓复盘之后：已实现与未实现上下对照，同一屏看完「赚到的」与「欠着的」。 -->
@@ -172,14 +172,16 @@
 
           <!-- 持仓结构（2026-11-27，用户第 9 条）：报「收益由什么构成」，三块面板与
                内部间距收在 AnalysisStructureSection 里，父页只管它在页内的位置。 -->
-          <AnalysisStructureSection :ledger-id="scopeProps.ledgerId" />
+          <LazySection anchor-id="nav-structure" :min-height="2460">
+            <AnalysisStructureSection :ledger-id="scopeProps.ledgerId" />
+          </LazySection>
 
           <!-- 收益归因（#2135，2026-11-28 自持仓分析页迁入）：结构区回答「钱压在哪」，
                归因回答「这些钱各贡献了多少」——同一屏内「分布 → 贡献」，故紧随结构区。
                面板自带 SectionHeader，此处只挂锚点。 -->
-          <section id="nav-attribution">
+          <LazySection anchor-id="nav-attribution" :min-height="780">
             <PnlAttribution :ledger-id="scopeProps.ledgerId" />
-          </section>
+          </LazySection>
 
           <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
                总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
@@ -214,6 +216,7 @@ import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
+import LazySection from "@/components/LazySection/index.vue";
 import ScopeBar from "@/components/ScopeBar/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
@@ -226,6 +229,7 @@ import MoneyFundIncomeSection from "./MoneyFundIncomeSection.vue";
 import BreakEvenSection from "./BreakEvenSection.vue";
 import ExcessSection from "./ExcessSection.vue";
 import { usePageNav } from "@/composables/usePageNav";
+import { useLazyNav } from "@/composables/useLazyNav";
 
 defineOptions({ name: "AssetAnalysis" });
 
@@ -264,6 +268,11 @@ const updatedAtLabel = computed(() =>
 // 的 PageToc 接入判据（10 项已超过「>6 就需要目录」的判据）；条目顺序
 // 由 DOM 实序决定（usePageNav 扫描 nav-* 锚点），本表只管 id→标签，且与各 SectionHeader
 // 标题逐字一致。「浮亏回本」无浮亏时整块不渲染，标签随之隐没（缺锚点即不出现，不需要占位）。
+//
+// 2026-11-28 起下半页 5 块包了 LazySection（锚点常驻、内容懒挂，见该组件文件头）：
+// 锚点仍在 DOM 里 ⇒ 导航项完整、goTo 有落点；`useLazyNav` 在跳转前先把目标块激活，
+// 免得跳过去对着一块空白等内容自己长出来。min-height 取家庭档实测高度
+// （1440×1000 走查：717 / 399 / 1846 / 2465 / 776），占位偏矮会让下方锚点整体上移。
 const pageMain = ref<HTMLElement>();
 const NAV_LABELS: Record<string, string> = {
   "nav-overview": "收益概览",
@@ -277,11 +286,10 @@ const NAV_LABELS: Record<string, string> = {
   "nav-calendar": "收益日历",
   "nav-attribution": "收益归因"
 };
-const {
-  items: navItems,
-  activeId: navActiveId,
-  goTo: goToNavSection
-} = usePageNav(pageMain, { labels: NAV_LABELS });
+const nav = usePageNav(pageMain, { labels: NAV_LABELS });
+const { items: navItems, activeId: navActiveId } = nav;
+/** 跳转要先激活懒加载区块（`LazySection` 未挂载时导航只有占位可落） */
+const goToNavSection = useLazyNav(nav);
 
 // #871 / #947：收益概览、货基、净值、清仓均已自含取数；本页只持 ref，
 // 「刷新数据」逐个显式联动（避免「本页刷新了、卡片还是旧数」）。
