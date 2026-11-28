@@ -14,6 +14,7 @@ import { useTheme } from "@/utils/theme";
 
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
 import Palette from "~icons/ri/palette-line";
+import PlugLine from "~icons/ri/plug-line";
 import UserLine from "~icons/ri/user-3-line";
 
 const {
@@ -84,6 +85,10 @@ const router = useRouter();
             <el-dropdown-item @click="router.push('/profile')">
               <IconifyIconOffline :icon="UserLine" style="margin: 5px" />
               个人中心
+            </el-dropdown-item>
+            <el-dropdown-item @click="router.push('/settings/mcp-connections')">
+              <IconifyIconOffline :icon="PlugLine" style="margin: 5px" />
+              数据连接
             </el-dropdown-item>
             <el-dropdown-item divided @click="logout">
               <IconifyIconOffline

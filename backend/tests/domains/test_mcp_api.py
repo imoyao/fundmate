@@ -105,6 +105,43 @@ def test_oauth_begin_callback_and_replay(client, fake_upstream):
     assert replay.status_code == 400
 
 
+def test_oauth_callback_redirect_uses_hash_route(client, fake_upstream):
+    """回跳必须落 hash 路由：本项目 VITE_ROUTER_HISTORY=hash。
+
+    普通路径 ``/settings/mcp-connections?...`` 会让 SPA 加载后 hash 为空 →
+    路由守卫重定向到登录页，用户授权成功却看不到结果。query 必须在 hash 段内，
+    Vue Router 的 ``useRoute().query`` 才读得到（页面据此弹一次性成功提示）。
+    """
+    begin_resp = client.post('/api/mcp/oauth/begin/', json={'provider': 'tzzb'})
+    state = parse_qs(urlparse(begin_resp.get_json()['data']['authorization_url']).query)['state'][0]
+    callback_resp = client.get(f'/api/mcp/oauth/callback/?state={state}&code=auth-code')
+    assert callback_resp.status_code == 302
+
+    location = callback_resp.headers['Location']
+    path, separator, raw_query = urlparse(location).fragment.partition('?')
+    assert path == '/settings/mcp-connections', location
+    assert separator == '?', location
+    assert parse_qs(raw_query) == {
+        'mcp_connected': ['1'],
+        'provider': ['tzzb'],
+    }
+
+
+def test_oauth_callback_redirect_honors_env_override(client, fake_upstream, monkeypatch):
+    """history 模式部署可用 env 覆盖默认 hash 路径，但仍拒绝外链。"""
+    monkeypatch.setenv('MCP_OAUTH_SUCCESS_REDIRECT', '/custom/landing')
+    begin_resp = client.post('/api/mcp/oauth/begin/', json={'provider': 'tzzb'})
+    state = parse_qs(urlparse(begin_resp.get_json()['data']['authorization_url']).query)['state'][0]
+    resp = client.get(f'/api/mcp/oauth/callback/?state={state}&code=auth-code')
+    assert resp.headers['Location'].startswith('/custom/landing?')
+
+    monkeypatch.setenv('MCP_OAUTH_SUCCESS_REDIRECT', 'https://evil.example/')
+    begin_resp = client.post('/api/mcp/oauth/begin/', json={'provider': 'tzzb'})
+    state = parse_qs(urlparse(begin_resp.get_json()['data']['authorization_url']).query)['state'][0]
+    resp = client.get(f'/api/mcp/oauth/callback/?state={state}&code=auth-code')
+    assert resp.headers['Location'].startswith('/#/settings/mcp-connections?')
+
+
 def test_oauth_begin_rejects_non_oauth_provider(client):
     resp = client.post('/api/mcp/oauth/begin/', json={'provider': 'qieman'})
     assert resp.status_code == 422
