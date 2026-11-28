@@ -14,7 +14,7 @@ import {
   snapshotOf,
   type ConnectionSnapshot
 } from "./oauthPopup";
-import { MCP_SERVICES, serviceName } from "./mcpServices";
+import { isExpired, MCP_SERVICES, serviceName } from "./mcpServices";
 
 export type McpNotice = { type: "success" | "error"; text: string };
 
