@@ -50,6 +50,16 @@
       class="mcp-card__actions"
     >
       <template v-if="state.tone === 'connected'">
+        <!-- 数据同步入口（#3304）：只在已接入同步流的服务上出现 -->
+        <el-button
+          v-if="syncAvailable"
+          type="primary"
+          plain
+          :disabled="pending"
+          @click="emit('sync', service.provider)"
+        >
+          同步数据
+        </el-button>
         <el-button
           :loading="verifyLoading"
           :disabled="pending"
@@ -122,6 +132,7 @@ import {
   expiryHint,
   isExpiringSoon,
   type McpService,
+  syncSupported,
   verifyButtonLabel
 } from "../mcpServices";
 import type { McpVerifyState } from "../useMcpConnections";
@@ -143,10 +154,13 @@ const emit = defineEmits<{
   "connect-static": [payload: { provider: string; apiKey: string }];
   disconnect: [provider: string];
   verify: [provider: string];
+  sync: [provider: string];
 }>();
 
 const showKeyInput = ref(false);
 const tools = computed(() => props.tools);
+/** 已接入同步流的服务（tzzb）连接后出「同步数据」入口 */
+const syncAvailable = computed(() => syncSupported(props.service.provider));
 
 const state = computed(() =>
   connectionState(
