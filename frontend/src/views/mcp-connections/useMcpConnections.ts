@@ -7,6 +7,12 @@ import {
   listMcpConnections,
   type McpConnection
 } from "@/api/mcp";
+import {
+  notifyOpenerAndClose,
+  reauthorizeViaPopup,
+  snapshotOf,
+  type ConnectionSnapshot
+} from "./oauthPopup";
 import { MCP_SERVICES } from "./mcpServices";
 
 export type McpNotice = { type: "success" | "error"; text: string };
@@ -61,6 +67,9 @@ export function useMcpConnections() {
   function consumeRedirectNotice(): void {
     if (route.query.mcp_connected !== "1") return;
     const provider = String(route.query.provider ?? "");
+    // 弹窗通道：本页是在授权弹窗里落地 —— 通知主窗口授权完成后自关，
+    // 提示由主窗口负责，这里不走整页 notice（关窗前闪一下反而误导）
+    if (notifyOpenerAndClose(provider)) return;
     const name =
       MCP_SERVICES.find(service => service.provider === provider)?.name ??
       "该服务";
@@ -78,8 +87,22 @@ export function useMcpConnections() {
       : pending.value.filter(item => item !== provider);
   }
 
-  /** 浏览器授权：整页跳到后端返回的授权 URL，回调后由后端跳回本页 */
+  /**
+   * 浏览器授权：弹窗完成，不离开本页（静默重授权）。
+   *
+   * 弹窗里还留着上游会话时授权页自动跳回，用户无感；这是续期的主路径 ——
+   * 上游 access_token 寿命短、refresh_token 不可用（见 oauthPopup.ts 头注释）。
+   * 弹窗被拦截器挡掉时降级为整页跳转（旧行为，回调照旧落回本页）。
+   */
   async function connectOAuth(provider: string): Promise<void> {
+    const name =
+      MCP_SERVICES.find(service => service.provider === provider)?.name ??
+      "该服务";
+    // 发起前抓快照：轮询靠「凭据相比发起前有变化」区分新授权与旧凭据
+    const previous = byProvider.value.get(provider);
+    const baseline: ConnectionSnapshot | null = previous
+      ? snapshotOf(previous)
+      : null;
     track(provider, true);
     try {
       const response = await beginMcpOAuth(provider);
@@ -88,7 +111,26 @@ export function useMcpConnections() {
         fail("授权地址获取失败，请稍后重试");
         return;
       }
-      window.location.assign(url);
+      const result = await reauthorizeViaPopup(url, provider, baseline);
+      if (result.ok) {
+        notice.value = {
+          type: "success",
+          text: previous ? `${name}授权已静默恢复` : `${name}已授权连接`
+        };
+        await load();
+        return;
+      }
+      if (result.reason === "blocked") {
+        // 弹窗被拦截：降级为整页跳转，回调后仍会落回本页并提示
+        window.location.assign(url);
+        return;
+      }
+      fail(
+        result.reason === "timeout"
+          ? `${name}授权等待超时，请重试`
+          : `${name}授权未完成，若浏览器拦截了弹窗请允许弹出后重试`
+      );
+      await load();
     } catch {
       fail("发起授权失败，请稍后重试");
     } finally {
