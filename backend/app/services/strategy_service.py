@@ -18,18 +18,20 @@ from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 from app.domains.strategy.models import PositionStrategyTag, StrategyTag
 from app.services.pnl_settle import is_settled_today
+from app.services.position_scope import exclude_shadow
 
 
 def build_strategy_overview(db, family_id: int) -> dict:
     """策略视图全部数据：持仓、资产、标签、关联（#1642 B 块，从视图层下沉）。
 
-    与下沉前逐字段一致：持仓（quantity>0）与资产（非负债、amount>0）合并为 holdings
-    （资产 id+100000 偏移）；标签按创建时间升序；关联映射 {position_id: [tag_name]}。
+    与下沉前逐字段一致：持仓（排除 E账户镜像行、quantity>0）与资产（非负债、amount>0）
+    合并为 holdings（资产 id+100000 偏移）；标签按创建时间升序；关联映射 {position_id: [tag_name]}。
+    镜像行 `quantity > 0` 但 `ledger_id` 恒 NULL，不排就会多出「基金E账户」渠道（D128）；已清仓行份额为 0 由 `quantity > 0` 排掉。
     """
     # 1. 所有持仓（只取必要列），按家庭隔离
-    # price_date 必须查出来（#2210）：行级 price_date/settled_today 依赖它——
-    # 这是列裁剪式 select，不补列则 ORM 行上根本没这个属性。
-    positions = (
+    # price_date 必须查出来（#2210）：行级 price_date/settled_today 依赖它——列裁剪式 select 不补列则
+    # ORM 行上根本没这个属性。
+    positions = exclude_shadow(
         db.query(
             Position.id,
             Position.symbol,
@@ -40,10 +42,8 @@ def build_strategy_overview(db, family_id: int) -> dict:
             Position.avg_price,
             Position.account_name,
             Position.price_date,
-        )
-        .filter(Position.family_id == family_id, Position.quantity > 0)
-        .all()
-    )
+        ).filter(Position.family_id == family_id, Position.quantity > 0)
+    ).all()
 
     # 2. 所有资产（排除负债）
     assets = (

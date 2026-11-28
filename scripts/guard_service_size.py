@@ -584,7 +584,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/strategy_engine/registry.py": {'lines': 56, 'max_func': 6, 'max_cc': 3},
     "backend/app/services/strategy_engine/strategies/__init__.py": {'lines': 13, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/strategy_engine/strategies/trend.py": {'lines': 107, 'max_func': 61, 'max_cc': 9},
-    "backend/app/services/strategy_service.py": {'lines': 123, 'max_func': 101, 'max_cc': 12},
+    "backend/app/services/strategy_service.py": {'lines': 123, 'max_func': 100, 'max_cc': 12},
     # 2026-11-10 D94 桑基图收敛：get_sankey_data 及其 helper 下沉到 services/sankey_service.py
     # （新文件走 NEW_FILE_LIMITS，实测 {286, 56, 13}）；本文件顺带删除随函数一并消失的
     # 桑基节点常量（K_TOTAL/K_NET/K_LIABILITY 等），并加体量闸门约束注释，只减不增回写：1628→1417 / 221→107 / 53→17。

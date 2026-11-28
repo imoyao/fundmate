@@ -31,6 +31,7 @@ from app.domains.funds.models import DailyWorth, Fund
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
+from app.services.position_scope import exclude_shadow
 from app.services.strategy_engine.behavior_profile import TradeRecord
 from app.services.strategy_engine.contracts import SeriesPoint
 from app.services.symbol_scope import build_transaction_symbol_conditions
@@ -296,10 +297,9 @@ class DataProvider:
     # ── 持仓 / 流水 ──
 
     def holdings(self, family_id: int) -> list[HoldingRow]:
-        """当前有份额的持仓（单位已换算）。"""
+        """当前有份额的持仓（单位已换算），排除镜像行（D128：影子行 quantity>0 但 ledger_id 恒 NULL）。"""
         rows = (
-            self.db.query(Position)
-            .filter(Position.family_id == family_id, Position.quantity > 0)
+            exclude_shadow(self.db.query(Position).filter(Position.family_id == family_id, Position.quantity > 0))
             .order_by(Position.id.asc())
             .all()
         )
