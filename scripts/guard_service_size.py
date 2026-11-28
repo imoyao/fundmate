@@ -491,7 +491,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # 而不是靠上限留 800 行的余量给未来堆职责。
     "backend/app/services/orphan_ledger_service.py": {'lines': 465, 'max_func': 48, 'max_cc': 9},
     "backend/app/services/penetration.py": {'lines': 729, 'max_func': 404, 'max_cc': 96},
-    "backend/app/services/performance/__init__.py": {'lines': 83, 'max_func': 50, 'max_cc': 3},
+    # `#3287 B0`：门面两支共用的作用域参数收成 `**common` 字典（原先逐个写两遍，
+    # 于是「新增 scope 维度」= 两处改动，漏一处就是静默错口径——`scope=ledger` 正是
+    # 这样永远回家庭级的）。行数与最长函数都随之回落，按 --report 收紧。
+    "backend/app/services/performance/__init__.py": {'lines': 80, 'max_func': 47, 'max_cc': 3},
     "backend/app/services/performance/calculators.py": {'lines': 585, 'max_func': 70, 'max_cc': 24},
     "backend/app/services/performance/cashflow_layers.py": {'lines': 381, 'max_func': 105, 'max_cc': 20},
     "backend/app/services/performance/fee_cash.py": {'lines': 100, 'max_func': 22, 'max_cc': 3},

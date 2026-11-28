@@ -534,28 +534,28 @@ def calculate_xirr_by_scope(
     position_id: int | None = None,
     portfolio_id: int | None = None,
     symbol: str | None = None,
+    ledger_id: int | None = None,
     include_cash_equivalents: bool = False,
     method: str = 'xirr',
 ) -> Dict[str, Any]:
-    """按 scope 分派年化收益率计算（#1929 / #1972：视图只做 HTTP 编排，分派逻辑在 service）。
+    """按 scope 分派年化收益率计算（#1929 / #1972：视图只做 HTTP 编排，分派在 service）。
 
-    为什么分派与参数校验也要放 service：视图里 `abort(400)` 抛的 `BadRequest` 是
-    `Exception` 子类，落进视图兜底的 `except Exception` 会被转成 **500**（存量 bug：
-    `scope=position` 缺 `position_id` 一直返回 500 而不是代码里写明的 400）。本函数把
-    「参数缺失」显式抛 `XirrScopeParameterError`，由视图映射 400，语义才对得上。
+    分派与参数校验放 service 的理由：视图里 `abort(400)` 抛的 `BadRequest` 是 `Exception`
+    子类，会落进视图兜底的 `except Exception` 变成 **500**（存量 bug：`scope=position` 缺
+    `position_id` 一直回 500 而非代码写明 400）。本函数显式抛 `XirrScopeParameterError`。
 
-    scope 取值：
-    - ``position``：单持仓行的年化（须传 ``position_id``）；
-    - ``portfolio``：指定组合（须传 ``portfolio_id``）；不传组合 id 时退化为**家庭整体**；
-    - ``symbol``：产品级持有年化，跨账户按 symbol 汇总现金流（须传 ``symbol``，#1972）。
+    scope：``position``（须 ``position_id``）/ ``portfolio``（须 ``portfolio_id``，不传则
+    退化为**家庭整体**）/ ``symbol``（须 ``symbol``，#1972）/ ``ledger``（须 ``ledger_id``，
+    实现见 `xirr_ledger.py`）。
 
-    method 取值（#871）：
-    - ``xirr``（默认）：年化资金加权；
-    - ``dietz``：Modified Dietz 区间收益（不年化）；
-    - ``twr``：时间加权——不在此函数内（走 `pnl_calendar` 日因子连乘引擎），
-      由包门面 `calculate_return_by_scope` 转派 `twr.calculate_twr_by_scope`；
-      scope=symbol / position 明确 400 不支持（无每日净资产序列）。
+    method（#871）：``xirr`` 年化资金加权（默认）/ ``dietz`` Modified Dietz 区间收益
+    （不年化）/ ``twr`` 时间加权——不在本函数，由包门面转派 `twr.calculate_twr_by_scope`，
+    ``symbol`` / ``position`` 明确 400（无每日净资产序列）。
     """
+    if scope == 'ledger':
+        from app.services.performance.xirr_ledger import ledger_scope_xirr
+
+        return ledger_scope_xirr(db, ledger_id, family_id, include_cash_equivalents, method)
     if scope == 'position':
         if not position_id:
             raise XirrScopeParameterError('缺少 position_id 参数')

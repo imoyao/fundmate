@@ -175,6 +175,38 @@ docstring 早就点名了 XIRR 场景，只是这里没接线）；收益日历�
 不建议现在直接合并：合并的最大成本不在搬代码，而在「口径切换器要贯穿全页」和
 「9 块内容的首屏取舍」，这两件事没有结论就动手，只会做出一个更长的页面。
 
+### 5.1 P3 分期与落地记录（2026-11-28）
+
+按「先做切换器、后搬内容」拆成四步，前两步必须先于主题搬迁：
+
+| # | 内容 | 状态 |
+|---|---|---|
+| **A** | 口径契约层：`useAnalysisScope`（页级 state + URL 同步 + epoch）、`ScopeBar`、`toScopeProps`/`toScopeQuery` + 单测 | ✅ PR #3282 |
+| **B0** | XIRR 补账户档（后端）——B 的前置阻塞 | ✅ 见下 |
+| B | 复盘页接切换器（家庭 / 账户两档）、7 区块接 scope、降级条、拆 `NetWorthTrendSection` | 待做 |
+| C | 搬内容：持仓分析 5 块迁入、分区 + 懒加载、旧路由重定向 | 待做 |
+
+**B0 的由来（动手时才发现，不是计划内的）**：准备给「收益概览」接账户档时核对端点，
+发现 `GET /api/performance/xirr/?scope=ledger&ledger_id=3` **返回 200 + 全家庭数据**。
+`calculate_xirr_by_scope` 只分派 position / portfolio / symbol，其余落到末尾
+`calculate_portfolio_xirr(family_id=...)`；包门面根本没接 `ledger_id`。
+
+最隐蔽的是：**同端点的 `method=twr` 早就有账户档**（`calculate_twr_by_scope` 收
+`ledger_id`，文档还明写「与 xirr 的 scope 语义对齐」）——换个 method 行为就变，
+而默认 method 恰好是 xirr。一直没暴露是因为前端没有账户档入口：复盘页写死家庭级，
+持仓分析页的档位只喂 `benchmark-excess`，不喂 xirr。
+
+修法见决策 D129。两条判据值得记：
+
+1. **归属校验不能靠 `restrict_visible` 兜底**——它对 `ledger_id IS NULL` 是**放行**的
+   （无主行按家庭共有），传外家庭 id 不报错，而是返回「无主行 + 空集」的半截数据。
+   必须查 `family_ledger_ids`，不属于则 `ValueError` → 404。
+2. **可加性是最强的验收**：真库 Σ16 个账户市值 = 家庭市值 = 586,850.69，差 **0.00**。
+   如果账户档还混着家庭数据，这个和不可能闭合。
+
+后续 B 的 7 个区块里，XIRR 现在真的支持账户档了；仍有 4 个组合档空洞
+（净值曲线、清仓复盘、浮亏回本、收益日历），按 D1 的取舍留到三期。
+
 ## 6. 待办
 
 1. P1：IA 重排 + 净值图上车 + rail 间距 + 账户列（后端 `ledger_names`）
