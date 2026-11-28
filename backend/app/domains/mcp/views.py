@@ -18,7 +18,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.validation import parse_body
 from app.domains.mcp.schemas import OAuthBeginIn, StaticTokenIn
-from app.services.mcp.errors import McpError
+from app.services.mcp.connection_check import check_connection
+from app.services.mcp.errors import McpAuthError, McpError, McpUserTokenMissing
 from app.services.mcp.oauth import begin, callback, client_id_for, provider_config, revoke, supported_providers
 from app.services.mcp.registry import provider_names
 from app.services.mcp.user_credentials import delete_credential, list_connections, save_static_token
@@ -89,6 +90,27 @@ def disconnect(provider: str):
     else:
         delete_credential(user_id, provider)
     return jsonify({'data': {'provider': provider, 'connected': False}, 'message': 'ok'})
+
+
+@mcp_bp.post('/connections/<provider>/verify/')
+def verify_connection(provider: str):
+    """校验当前用户与该服务的连接：向上游握手并拉工具清单。
+
+    连接的价值是能调通上游，不是表里有一行凭据 —— 校验把「授权过期」「Key 失效」
+    变成用户点一下就看到的明确文案，并把上游工具清单直接展示给用户。
+    """
+    _known_provider(provider)
+    try:
+        return jsonify({'data': check_connection(provider, _user_id()), 'message': 'ok'})
+    except McpUserTokenMissing as exc:
+        abort(422, description=exc.user_message)
+    except McpAuthError as exc:
+        # 凭据过期 / 上游拒绝：4xx 保留后端文案（拦截器只覆盖 5xx 的 message），
+        # 「授权已过期，请重新连接」是可操作指引，不能被通用文案吃掉。
+        abort(400, description=exc.user_message)
+    except McpError as exc:
+        # 其余上游失败不是客户端的错：502 保留「这不是你填错了」的语义
+        abort(502, description=exc.user_message)
 
 
 @mcp_bp.post('/oauth/begin/')

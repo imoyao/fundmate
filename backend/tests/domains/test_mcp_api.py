@@ -8,6 +8,7 @@
 - 未登记的 provider 不接受写库。
 """
 
+import json
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -143,3 +144,52 @@ def test_oauth_callback_redirect_honors_env_override(client, fake_upstream, monk
 def test_oauth_begin_rejects_non_oauth_provider(client):
     resp = client.post('/api/mcp/oauth/begin/', json={'provider': 'qieman'})
     assert resp.status_code == 422
+
+
+def _stub_upstream_tools(monkeypatch):
+    """把连接校验的 HTTP 细节打桩：只认 MCP 协议形状，不出网。"""
+    from types import SimpleNamespace
+
+    from app.services.mcp import connection_check
+
+    def factory(provider, token):
+        def post(payload, sid):
+            method = payload.get('method')
+            if method == 'tools/list':
+                body = json.dumps({'result': {'tools': [{'name': 'list_accounts', 'description': '发现上游账户'}]}})
+                payload = json.loads(body)
+                return SimpleNamespace(status_code=200, headers={'content-type': 'application/json'}, text=body, json=lambda: payload)
+            if method == 'initialize':
+                return SimpleNamespace(status_code=200, headers={}, text='{}', json=lambda: {'result': {}})
+            return SimpleNamespace(status_code=200, headers={}, text='', json=lambda: {})
+
+        return post
+
+    monkeypatch.setattr(connection_check, '_post_factory', factory)
+
+
+def test_verify_requires_connection(client, monkeypatch):
+    """没连过的服务校验必须 422，文案直接可读（不是 500 或空响应）。"""
+    _stub_upstream_tools(monkeypatch)
+    resp = client.post('/api/mcp/connections/tzzb/verify/')
+    assert resp.status_code == 422
+    message = resp.get_json()['message']
+    assert 'Token' in message  # 文案直接可读：指出需要用户本人的 Token
+    assert 'tzzb' in message
+
+
+def test_verify_returns_upstream_tools(client, db, monkeypatch):
+    """连接后校验返回上游工具清单 —— 「连接之后能干什么」的直接回答。"""
+    _stub_upstream_tools(monkeypatch)
+    save_static_token(1, 'qieman', 'user-key-1')
+    resp = client.post('/api/mcp/connections/qieman/verify/')
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['tool_count'] == 1
+    assert data['tools'][0]['name'] == 'list_accounts'
+    assert 'description' in data['tools'][0]
+
+
+def test_verify_rejects_unknown_provider(client):
+    assert client.post('/api/mcp/connections/nope/verify/').status_code == 422
+
