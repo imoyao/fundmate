@@ -36,36 +36,21 @@
       subtitle="全家庭 / 单账户 / 组合三级口径：表现、超额与穿透，一处看全"
     />
 
-    <!-- 口径切换器：档位（家庭/账户/组合）+ 具体对象 -->
+    <!-- 口径切换器（#3287 收敛到 ScopeBar + useAnalysisScope）：
+         档位与对象的选择、脏 id 清理、URL 同步都在 composable 里；本页**只 watch**
+         口径变化后重取，不接 `change` 事件——两者都接会对同一操作发两次请求。 -->
     <CardBlock class="mb-6">
-      <div class="scope-bar">
-        <el-radio-group v-model="scopeKind" size="default">
-          <el-radio-button value="family">全家庭</el-radio-button>
-          <el-radio-button value="ledger">单账户</el-radio-button>
-          <el-radio-button value="portfolio">组合</el-radio-button>
-        </el-radio-group>
-        <el-select
-          v-if="scopeKind !== 'family'"
-          v-model="scopeId"
-          class="scope-select"
-          :placeholder="scopeKind === 'ledger' ? '选择账户' : '选择组合'"
-          filterable
-        >
-          <el-option
-            v-for="opt in scopeOptions"
-            :key="opt.id"
-            :label="opt.name"
-            :value="opt.id"
-          />
-        </el-select>
-        <span
-          v-if="scopeKind !== 'family' && scopeOptions.length === 0"
-          class="scope-empty"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-        >
-          {{ scopeKind === "ledger" ? "暂无账户" : "暂无组合" }}
-        </span>
-      </div>
+      <ScopeBar
+        :id="id"
+        :kind="kind"
+        :kinds="SCOPE_KINDS"
+        :ledgers="ledgers"
+        :portfolios="portfolios"
+        :loading="optionsLoading"
+        :hint="scopeHint"
+        @update:kind="setKind"
+        @update:id="setId"
+      />
     </CardBlock>
 
     <!-- 区间表现 vs 基准（#2134）：四卡口径全部来自后端，前端不二次计算 -->
@@ -99,7 +84,7 @@
     </MetricGrid>
 
     <!-- 收益日历：后端仅支持家庭 / 账户级（设计文档 §3），组合档隐藏不造假口径 -->
-    <div v-if="scopeKind !== 'portfolio'" class="mb-6">
+    <div v-if="kind !== 'portfolio'" class="mb-6">
       <PnlCalendar :ledger-id="scopeProps.ledgerId" />
     </div>
     <SoftBanner v-else class="mb-6" variant="info" icon="ep:info-filled">
@@ -128,11 +113,14 @@ import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
+import ScopeBar from "@/components/ScopeBar/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import PositionStructurePanel from "@/components/PositionStructurePanel/index.vue";
 import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
 import SoftBanner from "@/components/SoftBanner/index.vue";
+import { useAnalysisScope } from "@/composables/analysisScope";
+import type { ScopeKind } from "@/composables/analysisScope/toScopeProps";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
 import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
@@ -145,73 +133,84 @@ import {
   EXCESS_RANGE_DAYS
 } from "@/utils/benchmarkExcess";
 import { formatAmount } from "@/utils/currency";
-import { toScopeProps, type ScopeKind } from "./scope";
 
 defineOptions({ name: "PositionAnalysis" });
 
 /** 超额/区间展示口径与组合详情页保持一致（同一 util 出口） */
 const RANGE_LABEL = `近 ${EXCESS_RANGE_DAYS} 天`;
 
-const scopeKind = ref<ScopeKind>("family");
-const scopeId = ref<number | null>(null);
+/** 本页三档全开：组合档只差收益日历（其余四块同源同口径，见下方 SoftBanner） */
+const SCOPE_KINDS: readonly ScopeKind[] = ["family", "ledger", "portfolio"];
 
 /**
- * 口径 → 面板 props 的唯一出口（`./scope.ts`）。
+ * 口径状态与「面板 props」翻译的唯一出口（`composables/analysisScope`）。
  *
- * 不在这里各写一遍三元表达式：#2595 的事故就是「组合详情页复用面板时漏传 scope」，
- * 而漏传不报错、不红，只会安静显示家庭级数据。收敛成一处后，四个面板共用同一个
- * 计算结果，漏传只能漏在 `toScopeProps` 里（有单测钉住）。
+ * 不再在本页写 `toScopeProps(scopeKind, scopeId)`：四个面板共用同一个计算结果，
+ * 漏传只能漏在 composable 里（有单测钉住）。#2595 的事故形态就是「组合详情页复用
+ * 面板时漏传 scope，安静显示家庭级数据」。
  */
-const scopeProps = computed(() => toScopeProps(scopeKind.value, scopeId.value));
+const { kind, id, epoch, isReady, scopeProps, scopeQuery, setKind, setId } =
+  useAnalysisScope({ kinds: SCOPE_KINDS });
 
 const ledgers = ref<LedgerItem[]>([]);
 const portfolios = ref<{ id: number; name: string }[]>([]);
+const optionsLoading = ref(false);
 
-const scopeOptions = computed(() =>
-  scopeKind.value === "ledger"
-    ? ledgers.value.map(l => ({ id: l.id, name: l.name }))
-    : portfolios.value
-);
-
-// 切档位时清对象选择，避免「组合档残留账户 id」这类脏口径
-watch(scopeKind, kind => {
-  scopeId.value = null;
-  if (kind !== "family") {
-    void excessReload();
+/**
+ * 右侧「当前口径」提示。它回答的是**为什么下面没有数**：
+ * 切到账户档但还没选账户时，四张卡是 `—`，如果没有这句话，用户会以为是接口挂了。
+ * 选中对象后不再重复账户名——下拉里已经写着。
+ */
+const scopeHint = computed(() => {
+  if (kind.value === "family") {
+    return ledgers.value.length ? `${ledgers.value.length} 个账户合计` : "";
   }
+  if (id.value != null) return "";
+  return kind.value === "ledger" ? "选择账户后取数" : "选择组合后取数";
 });
-
-// 选了具体对象才拉超额；切档或换对象都重取
-watch(
-  () => [scopeKind.value, scopeId.value] as const,
-  ([kind, id]) => {
-    if (kind === "family" || id != null) void excessReload();
-  }
-);
 
 // ── #2134 区间表现 vs 基准（family / ledger / portfolio 三级全支持）─────────
 const excess = ref<BenchmarkExcessResult | null>(null);
 
 async function excessReload() {
-  const params = { ...excessDateRange() } as {
+  const q = scopeQuery.value;
+  const params: {
     start_date: string;
     end_date: string;
     ledger_id?: number;
     portfolio_id?: number;
-  };
-  if (scopeKind.value === "ledger" && scopeId.value != null) {
-    params.ledger_id = scopeId.value;
-  } else if (scopeKind.value === "portfolio" && scopeId.value != null) {
-    params.portfolio_id = scopeId.value;
-  }
+  } = { ...excessDateRange() };
+  if (q.ledger_id != null) params.ledger_id = q.ledger_id;
+  if (q.portfolio_id != null) params.portfolio_id = q.portfolio_id;
+  // 纪元快照：快速连续切档时，先发的请求可能后到。不比对就会用旧口径的响应
+  // 覆盖新口径的界面——数字与档位标签对不上，而两者看上去都「正常」。
+  const mark = epoch.value;
   try {
     const res = await getBenchmarkExcess(params);
+    if (mark !== epoch.value) return;
     excess.value = res.data;
   } catch {
+    if (mark !== epoch.value) return;
     // 诚实降级：整组「--」，不打断页面主体（与组合详情页同款约定）
     excess.value = null;
   }
 }
+
+/**
+ * 口径变化 → 重取。
+ *
+ * `isReady === false`（切到账户/组合档但未选对象）时**必须清空而不是取数**：
+ * 不传 id 的请求会拿到家庭级数据，界面却写着「单账户」——静默错口径。
+ * 原实现在切档那一刻就 `excessReload()` 了一次，正好命中这个坑（四张卡瞬间
+ * 显示家庭数、档位已是「单账户」、选择框还空着）。
+ */
+watch([kind, id], () => {
+  if (!isReady.value) {
+    excess.value = null;
+    return;
+  }
+  void excessReload();
+});
 
 const rangeRateText = computed(() =>
   excess.value?.range_rate == null ? null : excess.value.range_rate.toFixed(2)
@@ -240,23 +239,28 @@ const excessColor = computed(() => excessColorOf(excess.value));
 
 // ── 切换器数据源 ─────────────────────────────────────────────────────────
 async function loadScopeOptions() {
+  optionsLoading.value = true;
   try {
-    const res = await getLedgers();
-    ledgers.value = res.data ?? [];
-  } catch {
-    ledgers.value = [];
-  }
-  try {
-    const res = await getPortfolios();
-    portfolios.value = res.data ?? [];
-  } catch {
-    portfolios.value = [];
+    const [ledgerRes, portfolioRes] = await Promise.allSettled([
+      getLedgers(),
+      getPortfolios()
+    ]);
+    ledgers.value =
+      ledgerRes.status === "fulfilled" ? (ledgerRes.value.data ?? []) : [];
+    portfolios.value =
+      portfolioRes.status === "fulfilled"
+        ? (portfolioRes.value.data ?? [])
+        : [];
+  } finally {
+    optionsLoading.value = false;
   }
 }
 
 onMounted(() => {
   void loadScopeOptions();
-  void excessReload(); // 家庭级首屏
+  // 必须先判 `isReady`：深链只带 `?scope=ledger` 不带 `scope_id` 时（或用户清空了选择），
+  // 此时取数会不带 id ⇒ 拿回家庭级数据，而界面标着「单账户」。
+  if (isReady.value) void excessReload();
 });
 </script>
 
@@ -264,20 +268,5 @@ onMounted(() => {
 .position-analysis {
   font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
-}
-
-.scope-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-compact);
-  align-items: center;
-}
-
-.scope-select {
-  min-width: 200px;
-}
-
-.scope-empty {
-  font-size: var(--text-small);
 }
 </style>
