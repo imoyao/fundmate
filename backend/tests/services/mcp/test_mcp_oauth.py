@@ -43,8 +43,8 @@ def fake_upstream(monkeypatch):
     """上游 POST 打桩：DCR / token / revoke 分开计数。"""
     calls = []
 
-    def fake_post(url, data):
-        calls.append((url, dict(data)))
+    def fake_post(url, data, as_json=False):
+        calls.append((url, dict(data), as_json))
         if url.endswith('/register'):
             return {'client_id': 'dcr-client-123'}
         if url.endswith('/token'):
@@ -103,11 +103,13 @@ def test_callback_consumes_state_once_and_sends_pkce_verifier(keys, fake_upstrea
 
     assert oauth.callback('tzzb', result['state'], 'auth-code-1') == user_id
 
-    token_calls = [data for url, data in fake_upstream if url.endswith('/token')]
+    token_calls = [(data, as_json) for url, data, as_json in fake_upstream if url.endswith('/token')]
     assert len(token_calls) == 1
-    assert token_calls[0]['grant_type'] == 'authorization_code'
-    assert token_calls[0]['code_verifier'] == verifier
-    assert token_calls[0]['code'] == 'auth-code-1'
+    # token 端点按 RFC 6749 必须 form 编码，与 DCR 的 JSON 相反。
+    assert token_calls[0][1] is False
+    assert token_calls[0][0]['grant_type'] == 'authorization_code'
+    assert token_calls[0][0]['code_verifier'] == verifier
+    assert token_calls[0][0]['code'] == 'auth-code-1'
 
     cred = load_credential(user_id, 'tzzb')
     assert cred.token == 'fresh-access-token'
@@ -147,9 +149,11 @@ def test_dcr_registers_once(keys, fake_upstream, two_users):
     oauth.begin('tzzb', user_id)
     oauth.begin('tzzb', user_id)
 
-    registrations = [data for url, data in fake_upstream if url.endswith('/register')]
+    registrations = [(data, as_json) for url, data, as_json in fake_upstream if url.endswith('/register')]
     assert len(registrations) == 1
-    assert registrations[0]['token_endpoint_auth_method'] == 'none'
+    # DCR 按 RFC 7591 必须发 JSON body（真机实证：form 编码被同花顺 400）。
+    assert registrations[0][1] is True
+    assert registrations[0][0]['token_endpoint_auth_method'] == 'none'
 
 
 def test_refresh_replaces_access_token(keys, fake_upstream, two_users):
@@ -159,7 +163,9 @@ def test_refresh_replaces_access_token(keys, fake_upstream, two_users):
 
     oauth.refresh('tzzb', user_id)
     refresh_calls = [
-        data for url, data in fake_upstream if url.endswith('/token') and data['grant_type'] == 'refresh_token'
+        data
+        for url, data, _as_json in fake_upstream
+        if url.endswith('/token') and data['grant_type'] == 'refresh_token'
     ]
     assert len(refresh_calls) == 1
     assert refresh_calls[0]['refresh_token'] == 'fresh-refresh-token'
@@ -174,7 +180,7 @@ def test_revoke_deletes_local_credential(keys, fake_upstream, two_users):
     oauth.revoke('tzzb', user_id)
 
     assert load_credential(user_id, 'tzzb') is None
-    assert any(url.endswith('/revoke') for url, _ in fake_upstream)
+    assert any(url.endswith('/revoke') for url, _data, _as_json in fake_upstream)
 
 
 def test_unknown_provider_never_builds_url(keys, fake_upstream, two_users):
