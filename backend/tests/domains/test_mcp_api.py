@@ -158,7 +158,9 @@ def _stub_upstream_tools(monkeypatch):
             if method == 'tools/list':
                 body = json.dumps({'result': {'tools': [{'name': 'list_accounts', 'description': '发现上游账户'}]}})
                 payload = json.loads(body)
-                return SimpleNamespace(status_code=200, headers={'content-type': 'application/json'}, text=body, json=lambda: payload)
+                return SimpleNamespace(
+                    status_code=200, headers={'content-type': 'application/json'}, text=body, json=lambda: payload
+                )
             if method == 'initialize':
                 return SimpleNamespace(status_code=200, headers={}, text='{}', json=lambda: {'result': {}})
             return SimpleNamespace(status_code=200, headers={}, text='', json=lambda: {})
@@ -192,4 +194,3 @@ def test_verify_returns_upstream_tools(client, db, monkeypatch):
 
 def test_verify_rejects_unknown_provider(client):
     assert client.post('/api/mcp/connections/nope/verify/').status_code == 422
-

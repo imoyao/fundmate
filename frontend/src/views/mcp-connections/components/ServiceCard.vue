@@ -259,13 +259,13 @@ function onCancelKey(): void {
 }
 
 .mcp-card__verify {
-  margin: 0;
   padding: var(--space-2) var(--space-3);
+  margin: 0;
   font-size: var(--text-label);
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
   background-color: var(--bg-subtle);
   border-radius: 10px;
-  overflow-wrap: anywhere;
 }
 
 .mcp-card__verify--fail {
