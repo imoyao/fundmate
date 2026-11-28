@@ -14,12 +14,12 @@
    异常文案固定为中文人话（沿用 ``McpError`` 的脱敏纪律）。
 
 provider 地址是**代码常量**，不接受调用方传 URL（SSRF 红线）。DCR 的 client_id
-按 provider 缓存：重启后重新注册即可，已签发的 token 不依赖本进程缓存。
+落库持久化（``mcp_oauth_clients``）：refresh_token 绑定注册时的 client_id，
+重启后必须复用同一 id，否则存量用户的刷新全部失效。
 """
 
 import os
 import secrets
-import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,6 +33,7 @@ from app.core.database import user_session
 from app.core.time_utils import now_shanghai
 from app.models.mcp_oauth_state import McpOAuthState
 from app.services.mcp.errors import McpAuthError, McpUserTokenMissing
+from app.services.mcp.oauth_client_store import read_client_id, save_client_id
 from app.services.mcp.user_credentials import (
     DEFAULT_STATE_TTL,
     decrypt_payload,
@@ -85,11 +86,6 @@ def provider_config(provider: str) -> OAuthProviderConfig:
         raise ValueError(f'provider {provider!r} 不支持浏览器授权') from None
 
 
-# DCR client_id 缓存（进程内即可；重启重新注册不影响已签发 token）
-_CLIENT_IDS: Dict[str, str] = {}
-_CLIENT_LOCK = threading.Lock()
-
-
 def _http_post(url: str, data: Dict[str, Any], as_json: bool = False) -> Dict[str, Any]:
     """唯一的上游 POST 出口（测试在这里打桩，不 mock requests 全局）。
 
@@ -113,30 +109,34 @@ def _http_post(url: str, data: Dict[str, Any], as_json: bool = False) -> Dict[st
 
 
 def client_id_for(config: OAuthProviderConfig) -> str:
-    """DCR 动态注册；同 provider 只注册一次，env 可预置 client_id 跳过注册。"""
+    """client_id 的真相源：env 预置 > 库（上次注册结果）> DCR 注册并落库。
+
+    为什么必须持久化：``refresh_token`` 绑定注册时的 client_id（``none``
+    客户端刷新必须携带原 id）——重启后换新 id 会让存量 refresh_token
+    全部失效，等价于每次发版强制全体用户重连。存取细节在
+    :mod:`app.services.mcp.oauth_client_store`（唯一约束兜并发注册）。
+    """
     preset = (os.getenv(f'MCP_{config.name.upper()}_CLIENT_ID') or '').strip()
     if preset:
         return preset
-    with _CLIENT_LOCK:
-        cached = _CLIENT_IDS.get(config.name)
-        if cached:
-            return cached
-        payload = _http_post(
-            config.registration_endpoint,
-            {
-                'redirect_uris': [config.redirect_uri()],
-                'client_name': 'Fund Mate',
-                'grant_types': ['authorization_code', 'refresh_token'],
-                'response_types': ['code'],
-                'token_endpoint_auth_method': 'none',
-            },
-            as_json=True,
-        )
-        client_id = payload.get('client_id')
-        if not isinstance(client_id, str) or not client_id:
-            raise McpAuthError('授权服务未完成注册，请稍后重试', provider='oauth')
-        _CLIENT_IDS[config.name] = client_id
-        return client_id
+    stored = read_client_id(config.name)
+    if stored:
+        return stored
+    payload = _http_post(
+        config.registration_endpoint,
+        {
+            'redirect_uris': [config.redirect_uri()],
+            'client_name': 'Fund Mate',
+            'grant_types': ['authorization_code', 'refresh_token'],
+            'response_types': ['code'],
+            'token_endpoint_auth_method': 'none',
+        },
+        as_json=True,
+    )
+    client_id = payload.get('client_id')
+    if not isinstance(client_id, str) or not client_id:
+        raise McpAuthError('授权服务未完成注册，请稍后重试', provider='oauth')
+    return save_client_id(config.name, client_id)
 
 
 @contextmanager
