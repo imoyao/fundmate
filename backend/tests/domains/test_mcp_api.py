@@ -274,14 +274,14 @@ def test_accounts_requires_connection(client, monkeypatch):
 
 def test_sync_rejects_empty_selection(client, tzzb_sync_key):
     """双层校验的 API 侧：不选账户连请求体校验都过不了（pydantic min_length）。"""
-    resp = client.post('/api/mcp/connections/tzzb/sync/', json={'tool': 'queryStockPosition', 'accounts': []})
+    resp = client.post('/api/mcp/connections/tzzb/sync/', json={'accounts': []})
     assert resp.status_code == 422
 
 
 def test_sync_rejects_unknown_provider(client):
     resp = client.post(
         '/api/mcp/connections/nope/sync/',
-        json={'tool': 'queryStockPosition', 'accounts': [{'group': 'fund_key', 'id': '1'}]},
+        json={'accounts': [{'group': 'fund_key', 'id': '1'}]},
     )
     assert resp.status_code == 422
 
@@ -308,7 +308,6 @@ def test_sync_happy_path_returns_assessment(client, tzzb_sync_key, monkeypatch):
     resp = client.post(
         '/api/mcp/connections/tzzb/sync/',
         json={
-            'tool': 'queryStockPosition',
             'accounts': [{'group': 'fund_key', 'id': '80381665'}],
         },
     )

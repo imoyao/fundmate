@@ -137,10 +137,11 @@ export type McpSyncResult = {
   forced: boolean;
 };
 
-/** 发起数据同步（#3304）：后端调上游工具 → 置信度判定 → 审计留痕 */
+/** 发起数据同步（#3304）：后端调上游工具 → 置信度判定 → 审计留痕。
+ *  工具名由后端按所选账户的组推导，前端不传——工具是实现细节，不该进请求体。 */
 export function syncMcpData(
   provider: string,
-  data: { tool: string; accounts: McpSyncAccount[]; force?: boolean }
+  data: { accounts: McpSyncAccount[]; force?: boolean }
 ) {
   return http.request<McpEnvelope<McpSyncResult>>(
     "post",

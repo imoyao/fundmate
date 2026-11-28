@@ -1,7 +1,11 @@
 <!--
-  数据同步向导（#3304）：选账户 → 拉取 → 置信度判定 → 用户决定。
+  数据同步向导（#3304）：选账户类型 → 选账户 → 拉取 → 置信度判定 → 用户决定。
 
-  铁律：不信任用户的单次选择。上游返回先过置信度判定（后端），低置信时
+  交互按「导入」惯例两级级联，全部单选：先选账户类型（组），再选该组下的账户，
+  然后拉取。工具名（queryStockPosition 等）由后端按组推导，前端不出现——
+  那是实现细节，暴露给用户只会制造「同步内容」和「账户类型」两套概念的混乱。
+
+  铁律不变：不信任用户的单次选择。上游返回先过置信度判定（后端），低置信时
   本弹窗只展示差异摘要、默认不导入；「仍要导入」必须二次确认，审计在后端留痕。
   账户清单由后端 promptAccountSelection 下发（组名 / 中文标签 / 参数名都来自后端），
   前端不维护一份账户类型映射，避免两处真相漂移。
@@ -14,50 +18,61 @@
     @update:model-value="onVisibleChange"
   >
     <template v-if="step === 'select'">
-      <p class="sync-hint">
-        同步前先选择要使用的账户。所选账户类型必须与同步内容匹配，选错会被校验拦下。
-      </p>
-
-      <div class="sync-tool">
-        <span class="sync-tool__label">同步内容</span>
-        <el-radio-group v-model="tool" @change="onToolChange">
-          <el-radio-button value="queryStockPosition">证券持仓</el-radio-button>
-          <el-radio-button value="queryFundAccount">基金账户</el-radio-button>
-        </el-radio-group>
-      </div>
-
-      <div v-loading="loading" class="sync-groups">
-        <div
-          v-for="group in allowedGroups"
-          :key="group.group"
-          class="sync-group"
-        >
-          <h4 class="sync-group__title">{{ group.label }}</h4>
-          <p v-if="!group.accounts.length" class="sync-group__empty">
-            无此类型账户
-          </p>
-          <el-checkbox-group v-else v-model="selected" class="sync-group__list">
-            <el-checkbox
-              v-for="account in group.accounts"
-              :key="account.id"
-              :value="`${group.group}:${account.id}`"
+      <div v-loading="loading" class="sync-steps">
+        <section class="sync-section">
+          <h4 class="sync-section__title">1. 选择账户类型</h4>
+          <el-radio-group v-model="selectedGroup" class="sync-types">
+            <el-radio
+              v-for="group in groups"
+              :key="group.group"
+              :value="group.group"
+              :disabled="!group.accounts.length"
+              class="sync-type"
             >
-              <span class="sync-group__name">
+              <span class="sync-type__name">{{ group.label }}</span>
+              <span class="sync-type__count">
+                {{
+                  group.accounts.length
+                    ? `${group.accounts.length} 个账户`
+                    : "（无账户）"
+                }}
+              </span>
+            </el-radio>
+          </el-radio-group>
+        </section>
+
+        <section class="sync-section" :class="{ 'is-idle': !selectedGroup }">
+          <h4 class="sync-section__title">2. 选择账户</h4>
+          <p v-if="!selectedGroup" class="sync-section__hint">
+            先在上面选择账户类型
+          </p>
+          <el-radio-group
+            v-else
+            v-model="selectedAccount"
+            class="sync-accounts"
+          >
+            <el-radio
+              v-for="account in selectedGroupData?.accounts ?? []"
+              :key="account.id"
+              :value="account.id"
+              class="sync-account"
+            >
+              <span class="sync-account__name">
                 {{ account.name || account.id }}
               </span>
-              <span v-if="account.lastSyncTime" class="sync-group__synced">
+              <span v-if="account.lastSyncTime" class="sync-account__synced">
                 上游同步于 {{ account.lastSyncTime }}
               </span>
-            </el-checkbox>
-          </el-checkbox-group>
-        </div>
+            </el-radio>
+          </el-radio-group>
+        </section>
       </div>
 
       <div class="sync-footer">
         <el-button @click="close">取消</el-button>
         <el-button
           type="primary"
-          :disabled="!selected.length"
+          :disabled="!selectedAccount"
           :loading="syncing"
           @click="startSync(false)"
         >
@@ -131,7 +146,6 @@ import {
   fetchMcpAccounts,
   syncMcpData,
   type McpAccountGroup,
-  type McpSyncAccount,
   type McpSyncResult
 } from "@/api/mcp";
 
@@ -148,23 +162,17 @@ const emit = defineEmits<{
   imported: [provider: string];
 }>();
 
-const ALLOWED_GROUPS: Record<string, string[]> = {
-  queryStockPosition: ["fund_key", "rzrq_fund_key", "manual_id"],
-  queryFundAccount: ["fund_id", "cust_id"]
-};
-
 const step = ref<"select" | "result">("select");
 const loading = ref(false);
 const syncing = ref(false);
-const tool = ref("queryStockPosition");
 const groups = ref<McpAccountGroup[]>([]);
-const selected = ref<string[]>([]);
+const selectedGroup = ref<string>("");
+const selectedAccount = ref<string>("");
 const result = ref<McpSyncResult | null>(null);
 
-const allowedGroups = computed(() =>
-  groups.value.filter(group =>
-    (ALLOWED_GROUPS[tool.value] ?? []).includes(group.group)
-  )
+/** 所选类型的组数据（含该组账户列表） */
+const selectedGroupData = computed(() =>
+  groups.value.find(group => group.group === selectedGroup.value)
 );
 
 const totalAssetText = computed(() => {
@@ -186,16 +194,25 @@ watch(
     if (!visible) return;
     step.value = "select";
     result.value = null;
-    selected.value = [];
+    selectedGroup.value = "";
+    selectedAccount.value = "";
     void loadAccounts();
   }
 );
+
+/** 换账户类型后清空已选账户：跨类型的选中项会被后端拒绝 */
+watch(selectedGroup, () => {
+  selectedAccount.value = "";
+});
 
 async function loadAccounts(): Promise<void> {
   loading.value = true;
   try {
     const response = await fetchMcpAccounts(props.provider);
     groups.value = response.data?.groups ?? [];
+    // 只有一个类型有账户时（最常见：单券商单账户）直接预选，少一次点击
+    const usable = groups.value.filter(group => group.accounts.length);
+    if (usable.length === 1) selectedGroup.value = usable[0].group;
   } catch (error) {
     ElMessage.error(errorMessage(error, "账户清单获取失败，请稍后重试"));
     close();
@@ -212,24 +229,12 @@ function close(): void {
   emit("update:visible", false);
 }
 
-/** 换同步内容后清空已选：跨类型的选中项会被后端 422 拒绝，前端先拦住 */
-function onToolChange(): void {
-  selected.value = [];
-}
-
-function selectedAccounts(): McpSyncAccount[] {
-  return selected.value.map(entry => {
-    const [group, ...rest] = entry.split(":");
-    return { group, id: rest.join(":") };
-  });
-}
-
 async function startSync(force: boolean): Promise<void> {
+  if (!selectedGroup.value || !selectedAccount.value) return;
   syncing.value = true;
   try {
     const response = await syncMcpData(props.provider, {
-      tool: tool.value,
-      accounts: selectedAccounts(),
+      accounts: [{ group: selectedGroup.value, id: selectedAccount.value }],
       force
     });
     result.value = response.data ?? null;
@@ -274,55 +279,53 @@ function errorMessage(error: unknown, fallback: string): string {
 </script>
 
 <style scoped>
-.sync-hint {
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
+.sync-steps {
+  min-height: 160px;
 }
 
-.sync-tool {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  margin-bottom: var(--space-3);
+.sync-section {
+  margin-bottom: var(--space-4);
 }
 
-.sync-tool__label {
-  font-size: var(--text-label);
-  color: var(--text-secondary);
+/* 未选类型时第二段整体压暗，视觉上表达「先做第一步」的顺序 */
+.sync-section.is-idle {
+  opacity: 0.55;
 }
 
-.sync-groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-height: 80px;
-}
-
-.sync-group__title {
-  margin: 0 0 var(--space-1);
+.sync-section__title {
+  margin: 0 0 var(--space-2);
   font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-secondary);
 }
 
-.sync-group__empty {
+.sync-section__hint {
   margin: 0;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
-.sync-group__list {
+.sync-types,
+.sync-accounts {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  align-items: stretch;
 }
 
-.sync-group__name {
-  color: var(--text-primary);
+.sync-type,
+.sync-account {
+  height: auto;
+  margin-right: 0;
 }
 
-.sync-group__synced {
+.sync-type__count {
+  margin-left: var(--space-2);
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+.sync-account__synced {
   margin-left: var(--space-2);
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
