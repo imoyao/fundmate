@@ -75,6 +75,7 @@ WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-reso
 
 GET /.well-known/oauth-protected-resource/mcp/v2/oauth/qieman
 → authorization_servers: ["https://stargate-partner.yingmi.com"]
+  resource: "https://stargate-partner.yingmi.com/mcp/v2/oauth/qieman"
   scopes_supported: ["oapqieman:level1", "oapqieman:level2", "oapqieman:level3"]
 
 GET /.well-known/openid-configuration
@@ -87,6 +88,10 @@ POST /oauth/register  (RFC 7591 JSON，scope=oapqieman:level1 offline_access)
 → 200 {"client_id": "dcr_...", "token_endpoint_auth_method": "none",
        "dpop_bound_access_tokens": false, "require_pushed_authorization_requests": false}
 ```
+
+**资源指示（RFC 9728 发现 → RFC 8707 携带）**：上游强制 authorize 带 `resource`，
+缺失直接 `invalid_target`；值取上面元数据声明的 `resource`，authorize、code 换
+token、refresh 三处一致，DCR 不带（RFC 8707 未登记该参数位置）。
 
 **取最小权限**：scope 只取 `oapqieman:level1`（保护资源声明的三档中最低档）+
 `offline_access`（换 refresh_token）。**未验证**：①level1 是否够用（不够则重授权
