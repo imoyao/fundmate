@@ -242,7 +242,7 @@ def test_holding_query_failure_skips_event_instead_of_zero_amount(db):
     job = DividendSplitSyncJob(_FakeAdapter(), db)
     job.db = _Boom()
     job.stats = {'errors': []}
-    assert job._holding_shares('SH600000') is None
+    assert job._position_rows('SH600000') is None  # #holding query failure ⇒ None
     assert any(e.get('stage') == 'holding_query' for e in job.stats['errors'])
     assert job._events_to_records({'symbol': 'SH600000', 'ex_date': RECENT, 'cash_ratio': 2.0}) == []
 
@@ -354,6 +354,114 @@ def test_no_holding_yields_no_records_and_no_error(db):
     records = job._events_to_records({'symbol': 'SH600000', 'ex_date': RECENT, 'cash_ratio': 2.0})
     assert records == []
     assert job.stats.get('errors', []) == []
+
+
+# ── ⑩ 未归属账户不得产生分红（2026-11-28 幻影重复流水回归） ────────────────
+#
+# 用户判断：没有绑定账户时不应产生分红信息。账本是分红归属的唯一权威键；
+# `ledger_id IS NULL` 意味着这笔钱还没被认领到任何账户，此时补一个默认账本
+# 就是替用户做归属决策，会把同一笔分红记进不相干的账本（018737 实测重复 5 组）。
+
+
+def test_shadow_row_yields_no_records(db, make_position):
+    """E 账户对账镜像行（ownership_status='shadow'、ledger_id 恒 NULL）不是账户。
+
+    它是「E 账户说有这笔、系统还没认领」的待核对项，不是用户开的户；
+    把它当成持仓，分红会按它再算一遍，再被下游猜一个账本落下去。
+    """
+    make_position(
+        symbol='018737',
+        name='景顺长城景颐裕利债券C',
+        account_name='基金E账户',
+        ledger_id=None,
+        asset_type='fund',
+        quantity=8809.02,
+        avg_price=1.0,
+        current_price=1.0,
+        ownership_status='shadow',
+    )
+    job = DividendSplitSyncJob(_FakeAdapter(), db)
+    job.stats = {}
+    assert job._position_rows('018737') == []  # shadow 行在查询层就被排掉
+    recs = job._events_to_records({'symbol': '018737', 'ex_date': RECENT, 'per_share': 0.0372})
+    assert recs == []
+
+
+def test_active_plus_shadow_same_event_only_one_record(db, make_position):
+    """同一标的 active + shadow 各有一行、同一分红事件 ⇒ 只出一条（来自 active 行）。
+
+    修复前两行都算，shadow 那条的 ledger_id=None 又被补进另一个账本——
+    同一笔分红落进两个账本。
+    """
+    active = make_position(
+        symbol='018737',
+        name='景顺长城景颐裕利债券C',
+        account_name='天天基金',
+        asset_type='fund',
+        quantity=8809.02,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    make_position(
+        symbol='018737',
+        name='景顺长城景颐裕利债券C',
+        account_name='基金E账户',
+        ledger_id=None,
+        asset_type='fund',
+        quantity=8809.02,
+        avg_price=1.0,
+        current_price=1.0,
+        ownership_status='shadow',
+    )
+    db.commit()
+    job = DividendSplitSyncJob(_FakeAdapter(), db)
+    job.stats = {}
+    recs = job._events_to_records({'symbol': '018737', 'ex_date': RECENT, 'per_share': 0.0372})
+    assert len(recs) == 1
+    assert recs[0].ledger_id == active.ledger_id
+    assert recs[0].account_name == '天天基金'
+    assert recs[0].amount == Decimal('327.70')  # 8809.02 × 0.0372
+
+
+def test_active_position_without_ledger_yields_no_records(db, make_position):
+    """没有绑定账户（active 但 ledger_id NULL）⇒ 不产生记录，并计入 skipped_unassigned。
+
+    与 shadow 行同一个判据：无归属决策就没有可记的账本，
+    宁可这轮不记，等用户在对账工作台归属后再跑。
+    """
+    make_position(
+        symbol='018737',
+        name='景顺长城景颐裕利债券C',
+        account_name='未归档',
+        ledger_id=None,
+        asset_type='fund',
+        quantity=8809.02,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    job = DividendSplitSyncJob(_FakeAdapter(), db)
+    job.stats = {}
+    recs = job._events_to_records({'symbol': '018737', 'ex_date': RECENT, 'per_share': 0.0372})
+    assert recs == []
+    assert job.stats['skipped_unassigned'] == 1
+
+
+def test_cleared_position_yields_no_records(db, make_position):
+    """已清仓行（ownership_status='cleared'、份额归零）不产生分红，也不能被拿来补账本。"""
+    make_position(
+        symbol='018737',
+        name='景顺长城景颐裕利债券C',
+        account_name='支付宝',
+        asset_type='fund',
+        quantity=0,
+        avg_price=1.0,
+        current_price=1.0,
+        ownership_status='cleared',
+    )
+    job = DividendSplitSyncJob(_FakeAdapter(), db)
+    job.stats = {}
+    recs = job._events_to_records({'symbol': '018737', 'ex_date': RECENT, 'per_share': 0.0372})
+    assert recs == []
 
 
 # ── ⑨ 失败语义：「空」与「没拿到」必须分开（#1179 收尾） ──────────────────

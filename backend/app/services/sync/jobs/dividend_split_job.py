@@ -30,7 +30,7 @@
 
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
@@ -40,6 +40,7 @@ from app.domains.transactions.models import Transaction
 from app.services.import_records import StandardTransactionRecord, compute_record_hash
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.job_base import SyncJob
+from app.services.position_scope import active_holdings
 
 # 事件回看窗口：全 history 抓取，但只有最近的事件才可能有对应持仓变动；400 天覆盖年报 + 中期。
 EVENT_LOOKBACK_DAYS = 400
@@ -70,46 +71,24 @@ class DividendSplitSyncJob(SyncJob):
         """
         return getattr(self, 'family_id', 1)
 
-    def _position_context(self, symbol: str) -> Optional[dict]:
-        """该标的的持仓上下文：持有份额 + 归属账户。
-
-        **必须带上 account_name**：下游 `process_orphan_dividend/split` 按
-        `(symbol, account_name, family_id)` 找持仓，account_name 为空串就一条也匹配不上，
-        于是每笔分红都被记成「孤儿」——账上看得见流水、却挂不到持仓，也不会重算成本与份额
-        （#541 实测：`imported=1, orphan=1` 正是这个形态）。
-
-        持仓跨多账户时取份额最大的那个账户：分红按账户结算，混记会让单账户口径失真。
-        """
-        rows = self._position_rows(symbol)
-        if rows is None:
-            return None
-        if not rows:
-            return {'shares': Decimal('0'), 'account_name': '', 'ledger_id': None}
-        total = sum(Money.min_unit_to_shares(r.quantity) for r in rows)
-        primary = max(rows, key=lambda r: r.quantity or 0)
-        return {
-            'shares': Decimal(str(total)),
-            'account_name': primary.account_name or '',
-            'ledger_id': primary.ledger_id,
-        }
-
     def _position_rows(self, symbol: str) -> Optional[List[Position]]:
-        """该标的的全部持仓行；**查询失败返回 None**（#1833）。
+        """该标的的**当前真实持仓行**；**查询失败返回 None**（#1833）。
+
+        只取 `active`（`position_scope.active_holdings`）：`shadow` 是 E 账户对账镜像行
+        （`ledger_id` 恒 NULL，非用户账户，无归属决策），`cleared` 份额已归零算不出分红；
+        留着只会让分红按非真实持仓再算一遍、再被下游猜一个账本落下去（2026-11-28 实测重复 5 组）。
 
         早先这里 `except Exception: return Decimal('0')`，于是持仓查询一失败就被当成
         「持有 0 股」，直接把 amount=0 的分红流水写进库——而幂等去重之后会把这条
         脏记录当重复跳过，**永久不可自愈**。「查不到」与「确实是 0」必须区分。
         """
         try:
-            return self.db.query(Position).filter_by(symbol=symbol, family_id=self._family_id()).all()
+            query = active_holdings(self.db.query(Position))
+            return query.filter_by(symbol=symbol, family_id=self._family_id()).all()
         except Exception as e:
             self.logger.warning(f'{symbol} 持仓查询失败，跳过其分红/送转事件：{e}')
             self.stats.setdefault('errors', []).append({'symbol': symbol, 'stage': 'holding_query', 'error': str(e)})
             return None
-
-    def _holding_shares(self, symbol: str) -> Optional[Decimal]:
-        ctx = self._position_context(symbol)
-        return None if ctx is None else ctx['shares']
 
     def _is_reinvest(self, symbol: str) -> bool:
         """该标的的默认分红方式是否「红利再投」。
@@ -322,6 +301,11 @@ class DividendSplitSyncJob(SyncJob):
         ``ledger_id`` / ``account_name``——账户 ID 才是归属权威键；份额/金额按
         **该行自己的持仓**测算（家庭汇总口径会把 A 账户的分红记到 B 账户头上）。
         0 份额持仓行跳过（不写 0 金额流水）。
+
+        **没有归属账本的持仓行不产生记录**（2026-11-28）：账本是分红归属的唯一权威，
+        `ledger_id IS NULL` 意味着这笔钱还没被认领到任何账户。此时补一个「默认账本」
+        等于替用户做归属决策，会把同一笔分红记进不相干的账户。跳过并计入
+        `stats['skipped_unassigned']`，等用户在对账工作台归属后再跑——漏记可补，记错账户要人工清理。
         """
         symbol = ev.get('symbol')
         ex_date = ev.get('ex_date') or ev.get('ann_date')
@@ -346,8 +330,12 @@ class DividendSplitSyncJob(SyncJob):
         name = ev.get('desc') or ev.get('title') or ''
         reinvest = self._is_reinvest(symbol)
 
+        # 无归属账本 = 没有归属决策，不产生记录；账本是分红归属的唯一权威键
+        # （2026-11-28：补一个默认账本等于替用户记账，会把同一笔分红记进不相干账本）。
+        assigned, unassigned = _split_assigned(positions)
+
         records: List[StandardTransactionRecord] = []
-        for p in positions:
+        for p in assigned:
             # Decimal(str(...)) 包装不能丢：``min_unit_to_shares`` 返回 float，
             # float × Decimal 直接 TypeError（旧 _holding_shares 正是这样包的，
             # 逐行化时曾漏掉——回归测试用真实持仓行抓到，#2372）。
@@ -355,117 +343,151 @@ class DividendSplitSyncJob(SyncJob):
             if held <= 0:
                 continue  # 0 份额持仓行：不写 0 金额流水
             acct = {'account_name': p.account_name or '', 'ledger_id': p.ledger_id}
-
-            # ① 配股：缴款 + 股份增加，两条流水挂在同一个事件键上
-            if ev.get('rights_ratio'):
-                ratio = self._num(ev.get('rights_ratio'))
-                price = self._num(ev.get('rights_price'))
-                if ratio > 0 and price > 0:
-                    sub_shares = (held * ratio / Decimal('10')).quantize(Decimal('0.0001'))
-                    amount = (sub_shares * price).quantize(Decimal('0.01'))
-                    pay_date = ev.get('pay_end') or ev.get('pay_start') or ex_date
-                    ratio_key = f'10配{ratio}@{price}'
-                    rec = self._build_record(
-                        symbol=symbol,
-                        asset_type=asset_type,
-                        ex_date=pay_date,
-                        kind='buy',  # 配股缴款 = 按配股价买入，抬高成本、增加份额
-                        ratio_key=ratio_key,
-                        name=name,
-                        amount=amount,
-                        shares=sub_shares,
-                        nav=price,
-                        notes=f'配股缴款 {sub_shares} 股 × {price} 元（{ratio_key}）',
-                        source='akshare_rights',
-                        **acct,
-                    )
-                    rec.raw_op_type = '配股缴款'
-                    records.append(rec)
-                continue
-
-            # ② 基金拆分：每 1 份 → ratio 份，零成本份额增加
-            if ev.get('split_ratio'):
-                ratio = self._num(ev.get('split_ratio'))
-                if ratio > 0:
-                    add = (held * (ratio - 1)).quantize(Decimal('0.0001'))
-                    if add > 0:
-                        records.append(
-                            self._build_record(
-                                symbol=symbol,
-                                asset_type='fund',
-                                ex_date=ex_date,
-                                kind='split',
-                                ratio_key=f'1:{ratio}',
-                                name=name,
-                                shares=add,
-                                notes=f'基金拆分 1:{ratio}，份额增加 {add}',
-                                source='akshare_fund_split',
-                                **acct,
-                            )
-                        )
-                continue
-
-            # 上游缺失值用 NaN 表达（pandas），`str(nan)` 会让 Decimal 直接抛 InvalidOperation，
-            # 故一律经 _num 收口：非有限值 → 0（「没有这一项」，而非「这一项是 0」）。
-            cash_ratio = self._num(ev.get('cash_ratio'))  # 股票：每 10 股派息元
-            per_share = self._num(ev.get('per_share'))  # 基金：每 1 份分红元
-
-            # ③ 基金分红：现金分红 / 红利再投
-            if per_share > 0:
-                amount = (held * per_share).quantize(Decimal('0.01'))
-                kind = 'dividend_reinvest' if reinvest else 'dividend_cash'
-                records.append(
-                    self._build_record(
-                        symbol=symbol,
-                        asset_type='fund',
-                        ex_date=ex_date,
-                        kind=kind,
-                        ratio_key=f'每份{per_share}',
-                        name=name,
-                        amount=amount,
-                        notes=f'基金分红 每份 {per_share} 元 × {held} 份',
-                        source='akshare_fund_fh',
-                        **acct,
-                    )
+            records.extend(
+                self._position_records(
+                    ev,
+                    symbol=symbol,
+                    asset_type=asset_type,
+                    ex_date=ex_date,
+                    name=name,
+                    reinvest=reinvest,
+                    held=held,
+                    acct=acct,
                 )
-                continue
+            )
+        self._note_unassigned(unassigned)
+        return records
 
-            # ④ 股票现金分红：每 10 股派息
-            if cash_ratio > 0:
-                amount = (held * cash_ratio / Decimal('10')).quantize(Decimal('0.01'))
-                records.append(
-                    self._build_record(
-                        symbol=symbol,
-                        asset_type=asset_type,
-                        ex_date=ex_date,
-                        kind='dividend_cash',
-                        ratio_key=f'10派{cash_ratio}',
-                        name=name,
-                        amount=amount,
-                        notes=f'现金分红 10派{cash_ratio}元 × 持有{held}股',
-                        **acct,
-                    )
+    def _note_unassigned(self, count: int) -> None:
+        """计入 `stats['skipped_unassigned']`：跳过了多少个无归属账本的持仓行。"""
+        if count:
+            self.stats['skipped_unassigned'] = self.stats.get('skipped_unassigned', 0) + count
+
+    def _position_records(
+        self,
+        ev: dict,
+        *,
+        symbol: str,
+        asset_type: str,
+        ex_date: date,
+        name: str,
+        reinvest: bool,
+        held: Decimal,
+        acct: dict,
+    ) -> List[StandardTransactionRecord]:
+        """单个持仓行 × 单个事件 → 0~N 条流水（① 配股 / ② 拆分 / ③ 基金分红 / ④ 现金分红 / ⑤ 送转）。"""
+        records: List[StandardTransactionRecord] = []
+
+        # ① 配股：缴款 + 股份增加，两条流水挂在同一个事件键上
+        if ev.get('rights_ratio'):
+            ratio = self._num(ev.get('rights_ratio'))
+            price = self._num(ev.get('rights_price'))
+            if ratio > 0 and price > 0:
+                sub_shares = (held * ratio / Decimal('10')).quantize(Decimal('0.0001'))
+                amount = (sub_shares * price).quantize(Decimal('0.01'))
+                pay_date = ev.get('pay_end') or ev.get('pay_start') or ex_date
+                ratio_key = f'10配{ratio}@{price}'
+                rec = self._build_record(
+                    symbol=symbol,
+                    asset_type=asset_type,
+                    ex_date=pay_date,
+                    kind='buy',  # 配股缴款 = 按配股价买入，抬高成本、增加份额
+                    ratio_key=ratio_key,
+                    name=name,
+                    amount=amount,
+                    shares=sub_shares,
+                    nav=price,
+                    notes=f'配股缴款 {sub_shares} 股 × {price} 元（{ratio_key}）',
+                    source='akshare_rights',
+                    **acct,
                 )
+                rec.raw_op_type = '配股缴款'
+                records.append(rec)
+            return records
 
-            # ⑤ 股票送股 / 转增：零成本份额增加（均价自动稀释）
-            bonus = self._num(ev.get('bonus_ratio'))
-            transfer = self._num(ev.get('transfer_ratio'))
-            if bonus > 0 or transfer > 0:
-                add = (held * (bonus + transfer) / Decimal('10')).quantize(Decimal('0.0001'))
+        # ② 基金拆分：每 1 份 → ratio 份，零成本份额增加
+        if ev.get('split_ratio'):
+            ratio = self._num(ev.get('split_ratio'))
+            if ratio > 0:
+                add = (held * (ratio - 1)).quantize(Decimal('0.0001'))
                 if add > 0:
                     records.append(
                         self._build_record(
                             symbol=symbol,
-                            asset_type=asset_type,
+                            asset_type='fund',
                             ex_date=ex_date,
                             kind='split',
-                            ratio_key=f'送{bonus}转{transfer}',
+                            ratio_key=f'1:{ratio}',
                             name=name,
                             shares=add,
-                            notes=f'送转股 10送{bonus}转{transfer} × 持有{held}股，份额增加 {add}',
+                            notes=f'基金拆分 1:{ratio}，份额增加 {add}',
+                            source='akshare_fund_split',
                             **acct,
                         )
                     )
+            return records
+
+        # 上游缺失值用 NaN 表达（pandas），`str(nan)` 会让 Decimal 直接抛 InvalidOperation，
+        # 故一律经 _num 收口：非有限值 → 0（「没有这一项」，而非「这一项是 0」）。
+        cash_ratio = self._num(ev.get('cash_ratio'))  # 股票：每 10 股派息元
+        per_share = self._num(ev.get('per_share'))  # 基金：每 1 份分红元
+
+        # ③ 基金分红：现金分红 / 红利再投
+        if per_share > 0:
+            amount = (held * per_share).quantize(Decimal('0.01'))
+            kind = 'dividend_reinvest' if reinvest else 'dividend_cash'
+            records.append(
+                self._build_record(
+                    symbol=symbol,
+                    asset_type='fund',
+                    ex_date=ex_date,
+                    kind=kind,
+                    ratio_key=f'每份{per_share}',
+                    name=name,
+                    amount=amount,
+                    notes=f'基金分红 每份 {per_share} 元 × {held} 份',
+                    source='akshare_fund_fh',
+                    **acct,
+                )
+            )
+            return records
+
+        # ④ 股票现金分红：每 10 股派息
+        if cash_ratio > 0:
+            amount = (held * cash_ratio / Decimal('10')).quantize(Decimal('0.01'))
+            records.append(
+                self._build_record(
+                    symbol=symbol,
+                    asset_type=asset_type,
+                    ex_date=ex_date,
+                    kind='dividend_cash',
+                    ratio_key=f'10派{cash_ratio}',
+                    name=name,
+                    amount=amount,
+                    notes=f'现金分红 10派{cash_ratio}元 × 持有{held}股',
+                    **acct,
+                )
+            )
+
+        # ⑤ 股票送股 / 转增：零成本份额增加（均价自动稀释）
+        bonus = self._num(ev.get('bonus_ratio'))
+        transfer = self._num(ev.get('transfer_ratio'))
+        if bonus > 0 or transfer > 0:
+            add = (held * (bonus + transfer) / Decimal('10')).quantize(Decimal('0.0001'))
+            if add > 0:
+                records.append(
+                    self._build_record(
+                        symbol=symbol,
+                        asset_type=asset_type,
+                        ex_date=ex_date,
+                        kind='split',
+                        ratio_key=f'送{bonus}转{transfer}',
+                        name=name,
+                        shares=add,
+                        notes=f'送转股 10送{bonus}转{transfer} × 持有{held}股，份额增加 {add}',
+                        **acct,
+                    )
+                )
         return records
 
     # ── 校验 ──
@@ -515,7 +537,9 @@ class DividendSplitSyncJob(SyncJob):
     def _save_data(self, new_data: List[StandardTransactionRecord]) -> None:
         if not new_data:
             return
-        _ensure_ledger_id(self.db, self._family_id(), new_data)
+        # 记录必然来自 `active` 持仓行且 `ledger_id` 非空，不得再「补默认账本」——
+        # 曾经的 `_ensure_ledger_id` 用 `Position.first()` 猜一个账本，
+        # 正是同一笔分红落进两个账本的来源（2026-11-28 实测）。
         orch = ImportOrchestrator(self.db, family_id=self._family_id())
         result = orch.commit(new_data)
         self.logger.info(f'分红/送转/配股落库: imported={result.get("imported")} orphan={result.get("orphan_count")}')
@@ -524,31 +548,7 @@ class DividendSplitSyncJob(SyncJob):
         )
 
 
-def _ensure_ledger_id(db, family_id: int, records: List[StandardTransactionRecord]) -> None:
-    """给「无账本」的记录补上该家庭的默认账本。
-
-    `import_hash` 幂等键是 `(ledger_id, import_hash)` 唯一索引 + `COALESCE(ledger_id,-1)`；
-    全部用 NULL 时所有自动抓取的分红会挤在同一个 `-1` 哨兵桶里，跨账本也不会重导，
-    但读侧按 ledger 过滤就看不见。故能定到账本就定到账本：
-
-    - 有持仓：用持仓所在账本（分红本就属于那个账户）；
-    - 没有持仓：孤儿流水落到该家庭最早的账本（与手动记账默认账本同口径）。
-    """
-    from app.domains.ledgers.models import Ledger
-
-    if all(r.ledger_id is not None for r in records):
-        return
-    default_ledger = db.query(Ledger).filter_by(family_id=family_id).order_by(Ledger.id.asc()).first()
-    pos_ledger: Dict[str, int] = {}
-    for rec in records:
-        if rec.ledger_id is not None:
-            continue
-        if rec.symbol not in pos_ledger:
-            row = db.query(Position).filter_by(symbol=rec.symbol, family_id=family_id).first()
-            if row and row.ledger_id:
-                pos_ledger[rec.symbol] = row.ledger_id
-            elif default_ledger:
-                pos_ledger[rec.symbol] = default_ledger.id
-        if rec.symbol in pos_ledger:
-            rec.ledger_id = pos_ledger[rec.symbol]
-            rec.import_hash = compute_record_hash(rec.source, rec)
+def _split_assigned(positions: List[Position]) -> 'tuple[List[Position], int]':
+    """持仓行拆成「已归属账本」与「无归属」两拨。`ledger_id IS NULL` 不参与分红记账。"""
+    assigned = [p for p in positions if p.ledger_id is not None]
+    return assigned, len(positions) - len(assigned)
