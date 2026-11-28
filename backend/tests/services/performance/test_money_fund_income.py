@@ -276,6 +276,71 @@ class TestDailyIncome:
         assert result['today_income'] == 0.04
 
 
+class TestShadowPositionExcluded:
+    """E账户镜像行不算货基存量（D132 第三处）。
+
+    镜像行（`ownership_status='shadow'`，`ledger_id` 恒 NULL）没有买入流水，
+    它的市值一旦进了「存量基线」，就会在**每一天**乘上万份收益变成伪收益——
+    不是市值虚高，是凭空长出来的收益。真库实测 93 条镜像行里有 8 条货基
+    （合计约 320 元），量级小但口径与 D128 同型。
+    """
+
+    def test_shadow_money_fund_position_excluded(self, db):
+        """只算 active 那条：100000 分 × 0.40 / 10000 = 4 分，混入镜像行会变 6 分。"""
+        ledger = _make_ledger(db)
+        _make_fund(db, '511990')
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, '511990', day, 0.40)
+        _make_money_fund_position(db, ledger, '511990', quantity=1000, current_price_yuan=1.0)  # 100000 分
+        shadow = Position(
+            ledger_id=None,
+            symbol='511990',
+            name='E账户镜像(货基)',
+            asset_type='money_fund',
+            quantity=Money.shares_to_min_unit(500),  # 50000 分
+            current_price=Money.yuan_to_price_units(1.0),
+            ownership_status='shadow',
+            family_id=1,
+        )
+        db.add(shadow)
+        db.flush()
+
+        result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
+        assert result['today_income'] == 0.04
+
+        # 反向：只改状态、数量不动 ⇒ 基线立刻多 50000 分（6 分/日）
+        shadow.ownership_status = 'active'
+        db.flush()
+        after = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
+        assert after['today_income'] == 0.06
+
+    def test_ledger_scope_still_excludes_shadow(self, db):
+        """scope=ledger 走 ledger_id 过滤，镜像行的 ledger_id 是 NULL —— 两条口子都要没漏。"""
+        ledger = _make_ledger(db)
+        _make_fund(db, '511991')
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, '511991', day, 0.40)
+        _make_money_fund_position(db, ledger, '511991', quantity=1000, current_price_yuan=1.0)
+        db.add(
+            Position(
+                ledger_id=None,
+                symbol='511991',
+                name='E账户镜像(货基)',
+                asset_type='money_fund',
+                quantity=Money.shares_to_min_unit(500),
+                current_price=Money.yuan_to_price_units(1.0),
+                ownership_status='shadow',
+                family_id=1,
+            )
+        )
+        db.flush()
+
+        result = calculate_money_fund_income(
+            db, start_date=day, end_date=day, scope='ledger', ledger_id=ledger.id, family_id=1
+        )
+        assert result['today_income'] == 0.04
+
+
 # -------------------- 服务层：scope 过滤与参数校验 --------------------
 
 

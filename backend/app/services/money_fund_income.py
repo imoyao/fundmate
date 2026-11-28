@@ -11,9 +11,8 @@
 持有金额口径（合并）：
 - 孤儿流水净额：`asset_type IN ('money_fund', 'reverse_repo')` 且 `position_id IS NULL`，
   buy/deposit 为正、sell/withdraw 为负，按确认日累计；
-- positions 货基市值：`asset_type='money_fund'` 的持仓，current_price × quantity
-  （走 Money.multiply_price_quantity），作为迁移前兼容的恒定基线。
-  迁移完成后仅剩孤儿流水，但本服务兼容迁移前数据。
+- positions 货基市值：`asset_type='money_fund'` 持仓，current_price × quantity（Money.multiply_price_quantity），
+  迁移前兼容的恒定基线；**排除 `shadow` 影子行**（无流水 ⇒ 只抬高存量并逐日产出伪收益，D132）。
 
 计算式（全程整数分，禁止裸 float）：
     每日收益（分）= 持有金额（分）× nav_per_10k（元）÷ 10000，round half-up 到分。
@@ -41,6 +40,7 @@ from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
+from app.services.position_scope import exclude_shadow
 
 # 万份收益换算因子：持有金额(分) × 万份收益(元) ÷ 10000 → 当日收益(分)
 # （nav_per_10k 存储单位是元，见模块 docstring 单位说明）
@@ -118,7 +118,7 @@ def _collect_position_market_value(db: Session, family_id: int, ledger_ids: Opti
 
     ledger_ids 非空时按账户 ID 集合过滤（统一用 ID，避免 account_name 同名串味）。
     """
-    query = db.query(Position).filter(
+    query = exclude_shadow(db.query(Position)).filter(
         Position.family_id == family_id,
         Position.quantity > 0,
         or_(Position.asset_type == 'money_fund', Position.is_money_fund.is_(True)),
