@@ -5,6 +5,7 @@ import {
   connectMcpStaticToken,
   disconnectMcp,
   listMcpConnections,
+  verifyMcpConnection,
   type McpConnection
 } from "@/api/mcp";
 import {
@@ -16,6 +17,12 @@ import {
 import { MCP_SERVICES } from "./mcpServices";
 
 export type McpNotice = { type: "success" | "error"; text: string };
+
+/** 每张卡片的连接校验状态：null = 没验证过 */
+export type McpVerifyState = {
+  status: "loading" | "ok" | "fail";
+  text: string;
+};
 
 /**
  * 连接管理页的状态层。
@@ -34,6 +41,7 @@ export function useMcpConnections() {
   const loading = ref(false);
   const pending = ref<string[]>([]);
   const notice = ref<McpNotice | null>(null);
+  const verifyStates = ref<Record<string, McpVerifyState | undefined>>({});
 
   const byProvider = computed(
     () => new Map(connections.value.map(item => [item.provider, item]))
@@ -168,6 +176,43 @@ export function useMcpConnections() {
     }
   }
 
+  /**
+   * 连接校验：向上游握手并拉工具清单 —— 「连接之后能干什么」的直接回答。
+   * 过期 / Key 失效在这一步变成明确文案（后端 4xx message 可读，拦截器只覆盖 5xx）。
+   */
+  async function verify(provider: string): Promise<void> {
+    setVerifyState(provider, { status: "loading", text: "" });
+    try {
+      const response = await verifyMcpConnection(provider);
+      const data = response.data;
+      const names = data.tools
+        .slice(0, 6)
+        .map(tool => tool.name)
+        .join("、");
+      const more = data.tool_count > 6 ? ` 等 ${data.tool_count} 个` : "";
+      setVerifyState(provider, {
+        status: "ok",
+        text: `连接可用，上游提供 ${data.tool_count} 个工具：${names}${more}`
+      });
+    } catch (error) {
+      const message =
+        (
+          error as {
+            response?: { data?: { message?: string } };
+          }
+        )?.response?.data?.message || "验证失败，请稍后重试";
+      setVerifyState(provider, { status: "fail", text: message });
+    }
+  }
+
+  function setVerifyState(provider: string, state: McpVerifyState): void {
+    verifyStates.value = { ...verifyStates.value, [provider]: state };
+  }
+
+  function verifyState(provider: string): McpVerifyState | null {
+    return verifyStates.value[provider] ?? null;
+  }
+
   return {
     services,
     loading,
@@ -178,6 +223,8 @@ export function useMcpConnections() {
     connectOAuth,
     connectStatic,
     disconnect,
+    verify,
+    verifyState,
     clearNotice: () => {
       notice.value = null;
     }

@@ -55,3 +55,18 @@ export function beginMcpOAuth(provider: string) {
     { data: { provider } }
   );
 }
+
+/** 上游工具清单（连接校验返回）：连接之后能干什么的直接回答 */
+export type McpVerifyResult = {
+  provider: string;
+  tool_count: number;
+  tools: { name: string; description: string }[];
+};
+
+/** 校验连接：向上游握手并拉工具清单（过期 / 失效在这一步暴露成明确文案） */
+export function verifyMcpConnection(provider: string) {
+  return http.request<McpEnvelope<McpVerifyResult>>(
+    "post",
+    `/api/mcp/connections/${encodeURIComponent(provider)}/verify/`
+  );
+}
