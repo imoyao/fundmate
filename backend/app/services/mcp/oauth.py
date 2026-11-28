@@ -271,9 +271,13 @@ def callback(provider: str, state: str, code: str) -> int:
 
 
 def refresh(provider: str, user_id: int) -> None:
-    """用 refresh_token 换新 access_token；没有 refresh_token 时要求重连。"""
+    """用 refresh_token 换新 access_token；没有 refresh_token 时要求重连。
+
+    必须以 ``allow_expired=True`` 读凭据：access_token 过期后 refresh_token
+    仍然有效，若按默认口径读，过期凭据自己就取不出 refresh_token（死锁）。
+    """
     config = provider_config(provider)
-    cred = load_credential(user_id, provider)
+    cred = load_credential(user_id, provider, allow_expired=True)
     if cred is None:
         raise McpUserTokenMissing('用户尚未连接该服务', provider=provider)
     if not cred.refresh_token:
