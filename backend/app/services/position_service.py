@@ -602,9 +602,20 @@ class PositionService:
         market: str = '',
         member_id_raw: str = '',
         visible_ids: Optional[set] = None,
+        portfolio_id_raw: str = '',
     ) -> dict:
         return build_position_list_impl(
-            db, family_id, group_by, page, per_page, ledger_id_raw, symbol, market, member_id_raw, visible_ids
+            db,
+            family_id,
+            group_by,
+            page,
+            per_page,
+            ledger_id_raw,
+            symbol,
+            market,
+            member_id_raw,
+            visible_ids,
+            portfolio_id_raw,
         )
 
     @staticmethod

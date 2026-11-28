@@ -29,8 +29,10 @@ from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.family_member_service import ledger_ids_for_member
+from app.services.portfolio_service import portfolio_position_conditions
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_scope import active_holdings
+from app.services.scope import member_ledger_ids as portfolio_member_ledger_ids
 from app.services.symbol_scope import (
     build_position_symbol_conditions,
 )
@@ -129,6 +131,7 @@ def build_position_list_impl(
     market: str = '',
     member_id_raw: str = '',
     visible_ids: Optional[set] = None,
+    portfolio_id_raw: str = '',
 ) -> dict:
     """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
@@ -151,6 +154,8 @@ def build_position_list_impl(
     与 ``active_holdings`` 的模块注释——那里是唯一真相，此处不重复（重复的注释迟早分叉）。
 
     ``visible_ids``（#3246 第三段）：可见账户 id 集合，``None`` = 不按可见性筛（仅离线调用）。
+    ``portfolio_id_raw``（组合档）：按组合归属筛（显式覆盖继承），与 ``ledger_id`` 同时传
+    则取交集——正常调用方只传一个。
     """
     query = db.query(Position).filter(Position.family_id == family_id)
     query = restrict_visible(active_holdings(query), Position.ledger_id, visible_ids)
@@ -159,6 +164,11 @@ def build_position_list_impl(
         query = query.filter(Position.ledger_id.is_(None))
     elif ledger_id_raw:
         query = query.filter(Position.ledger_id == int(ledger_id_raw))
+    if portfolio_id_raw:
+        # 组合档：显式归属优先于账户继承（与组合详情 / 收益日历同一口径）；组合
+        # 不存在 / 非本家庭由 `member_ledger_ids` 抛 ValueError，视图转 400。
+        member_ids = portfolio_member_ledger_ids(db, family_id, int(portfolio_id_raw))
+        query = query.filter(or_(*portfolio_position_conditions(int(portfolio_id_raw), sorted(member_ids))))
     if member_id_raw:
         # 成员 → 账户 → 持仓：下推过滤，避免取全表后内存筛。
         # 账户集合口径收口在 `family_member_service.ledger_ids_for_member`

@@ -598,6 +598,7 @@ def count_unrealized_losses(
     family_id: int = 1,
     *,
     ledger_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
     include_cash_equivalents: bool = False,
 ) -> int:
     """当前持仓中**仍在浮亏**的标的数（#2773：胜率的样本选择偏差对冲）。
@@ -626,18 +627,20 @@ def count_unrealized_losses(
     from app.domains.positions.models import Position
     from app.services.nav_service import NavService
     from app.services.pnl_service import position_pnl_cents
+    from app.services.scope import filter_positions_by_scope
 
     query = db.query(Position).filter(
         Position.family_id == family_id,
         Position.ownership_status == 'active',
         Position.quantity > 0,
     )
-    if ledger_id is not None:
-        query = query.filter(Position.ledger_id == ledger_id)
     if not include_cash_equivalents:
         # NULL 的 asset_type 视为投资类（与 build_cleared_cycles 同口径）
         query = query.filter(Position.asset_type.is_(None) | Position.asset_type.not_in(EXCLUDED_ASSET_TYPES))
-    positions = [p for p in query.all() if (getattr(p, 'valuation_mode', None) or 'nav') == 'nav']
+    # 账户 / 组合两档都收敛到 `scope.filter_positions_by_scope`（持仓侧唯一出口，
+    # 组合档＝显式归属覆盖继承）；缓存已取出的持仓再做内存过滤，不必重查。
+    scoped = filter_positions_by_scope(db, family_id, query.all(), ledger_id=ledger_id, portfolio_id=portfolio_id)
+    positions = [p for p in scoped if (getattr(p, 'valuation_mode', None) or 'nav') == 'nav']
     if not positions:
         return 0
 
@@ -671,6 +674,7 @@ def build_cleared_cycles(
     family_id: int = 1,
     *,
     ledger_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
     symbol: Optional[str] = None,
     include_cash_equivalents: bool = False,
     start_date: Optional[str] = None,
@@ -683,6 +687,8 @@ def build_cleared_cycles(
         db: 会话（transactions/positions 同库）。
         family_id: 家庭作用域（视图层经 ``get_family_id()`` 注入）。
         ledger_id: 可选，限定单账户；不传 = 家庭全部账户合并（产品级口径）。
+        portfolio_id: 可选，限定单组合（与 ``ledger_id`` 互斥；归属按持仓判定，见
+            ``services/transaction_scope.py``）。
         symbol: 可选，单标的过滤。按**归一身份键**匹配（与周期分组口径一致）：
             查询 ``00700.HK`` 可命中存成 ``HK00700`` 的流水，反之亦然。
             在 Python 侧过滤而非 SQL——``transactions`` 只有字面量 symbol、
@@ -702,6 +708,7 @@ def build_cleared_cycles(
     """
     from app.core.asset_types import EXCLUDED_ASSET_TYPES
     from app.domains.transactions.models import Transaction
+    from app.services.transaction_scope import filter_transactions_by_scope
 
     # 入参校验先做：格式错在查库前就 400，不白跑一次全量流水
     lo = _parse_iso_date(start_date, 'start_date')
@@ -709,14 +716,14 @@ def build_cleared_cycles(
     if lo and hi and lo > hi:
         raise ValueError(f'start_date 不能晚于 end_date（{lo} > {hi}）')
 
+    # 流水与浮亏计数必须是同一 scope：各写一遍迟早漂移，故在这里收成一份 kwargs
+    pos_scope = {'ledger_id': ledger_id, 'portfolio_id': portfolio_id}
     query = db.query(Transaction).filter(Transaction.family_id == family_id)
-    if ledger_id is not None:
-        query = query.filter(Transaction.ledger_id == ledger_id)
     if not include_cash_equivalents:
         # NULL 的 asset_type 默认视为投资类资产，纳入计算（与 behavior 同口径）
         query = query.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
 
-    transactions = query.all()
+    transactions = filter_transactions_by_scope(db, family_id, query.all(), **pos_scope)
     if symbol:
         # 双轨匹配：身份键相等（同场所同代码，如 HK00700 ↔ 00700.HK），
         # 或剥前缀字面量相等（查询侧没有 asset_type、定不了场所，如 600519 ↔ SH600519）。
@@ -742,6 +749,6 @@ def build_cleared_cycles(
     attach_ledger_names(db, cycles, family_id)
     # 浮亏标的数与窗口无关（当前持仓是点位事实），故不受 lo/hi 影响，恒算
     unrealized_count = count_unrealized_losses(
-        db, family_id, ledger_id=ledger_id, include_cash_equivalents=include_cash_equivalents
+        db, family_id, **pos_scope, include_cash_equivalents=include_cash_equivalents
     )
     return {'cycles': cycles, 'summary': summarize_cycles(cycles, unrealized_count=unrealized_count)}

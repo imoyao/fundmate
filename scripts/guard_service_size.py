@@ -327,7 +327,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # #3107 收紧（409/130/29 → 407/128/28）：组合成员规范化下沉到
     # analytics/excess_members.py，`build_scope_excess` 的成员循环缩成一次调用。
     "backend/app/services/analytics/benchmark_excess.py": {'lines': 407, 'max_func': 128, 'max_cc': 28},
-    "backend/app/services/analytics/cleared_cycles.py": {'lines': 747, 'max_func': 153, 'max_cc': 47},
+    # 三期 D（组合档）：清仓周期 + 浮亏计数接 `portfolio_id`；流水归属收口到
+    # services/transaction_scope.py（新文件，走 NEW_FILE_LIMITS），本文件 747→754
+    # 只是参数、作用域 kwargs 与两处调用；max_func / max_cc 不动。
+    "backend/app/services/analytics/cleared_cycles.py": {'lines': 754, 'max_func': 153, 'max_cc': 47},
     "backend/app/services/analytics/correlation.py": {'lines': 119, 'max_func': 44, 'max_cc': 9},
     "backend/app/services/analytics/trading_behavior.py": {'lines': 263, 'max_func': 99, 'max_cc': 21},
     "backend/app/services/analytics/var.py": {'lines': 138, 'max_func': 35, 'max_cc': 9},
@@ -533,7 +536,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # 新增文件 periodic_review_service.py（179）、periodic_review_notify.py（142）、
     # analytics/period_key.py 与 sync/jobs/periodic_review_job.py（148）均走 NEW_FILE_LIMITS，
     # 未放大任何存量函数职责。
-    "backend/app/services/pnl_calendar.py": {'lines': 2315, 'max_func': 688, 'max_cc': 106},
+    # 三期 D（组合档）：2315→2325（+10）。`portfolio_id` 贯穿 build_pnl_series /
+    # build_daily_pnl_series / _positions / _first_txn_date / _empty_payload，物化旁路 1 行；
+    # max_func 688→687 是真收敛（顶部算出的 inception 复用，少一次重复取数）。
+    "backend/app/services/pnl_calendar.py": {'lines': 2325, 'max_func': 687, 'max_cc': 106},
     "backend/app/services/pnl_cleared_residual.py": {'lines': 113, 'max_func': 18, 'max_cc': 5},
     "backend/app/services/pnl_fees.py": {'lines': 97, 'max_func': 17, 'max_cc': 6},
     "backend/app/services/pnl_service.py": {'lines': 211, 'max_func': 36, 'max_cc': 7},
@@ -542,14 +548,18 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/portfolio_service.py": {'lines': 520, 'max_func': 118, 'max_cc': 19},
     "backend/app/services/position_aggregation.py": {'lines': 624, 'max_func': 163, 'max_cc': 47},
     "backend/app/services/position_buy_command.py": {'lines': 684, 'max_func': 79, 'max_cc': 11},
-    "backend/app/services/position_display.py": {'lines': 247, 'max_func': 127, 'max_cc': 18},
+    # 三期 D：/positions/ 接 `portfolio_id`（显式覆盖继承），247→257、max_func 127→135、
+    # max_cc 18→19（+1 个 if）。归属条件仍只来自 portfolio_service.portfolio_position_conditions，
+    # 没有新写第二条归属规则。
+    "backend/app/services/position_display.py": {'lines': 257, 'max_func': 135, 'max_cc': 19},
     "backend/app/services/position_presenter.py": {'lines': 84, 'max_func': 59, 'max_cc': 9},
     "backend/app/services/position_scope.py": {'lines': 103, 'max_func': 22, 'max_cc': 1},
     "backend/app/services/position_orphan_flows.py": {'lines': 425, 'max_func': 81, 'max_cc': 14},
     "backend/app/services/position_sell_command.py": {'lines': 362, 'max_func': 96, 'max_cc': 17},
     "backend/app/services/position_bond_command.py": {'lines': 269, 'max_func': 69, 'max_cc': 16},
     "backend/app/services/position_recompute.py": {'lines': 200, 'max_func': 44, 'max_cc': 9},
-    "backend/app/services/position_service.py": {'lines': 639, 'max_func': 61, 'max_cc': 13},
+    # 三期 D：build_position_list 透传 portfolio_id，639→650（+11：11 个入参只能一参一行）
+    "backend/app/services/position_service.py": {'lines': 650, 'max_func': 61, 'max_cc': 13},
     "backend/app/services/position_snapshot_command.py": {'lines': 322, 'max_func': 63, 'max_cc': 14},
     "backend/app/services/position_write_support.py": {'lines': 365, 'max_func': 67, 'max_cc': 13},
     "backend/app/services/position_structure.py": {'lines': 259, 'max_func': 152, 'max_cc': 23},
