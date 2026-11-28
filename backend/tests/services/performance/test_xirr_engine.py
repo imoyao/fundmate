@@ -93,21 +93,21 @@ class TestXirr:
         assert abs(result - 0.1) < 0.01
 
     def test_empty_cashflows(self):
-        assert calculate_xirr([]) == 0.0
+        assert calculate_xirr([]) is None
 
     def test_all_positive(self):
         cf = [
             (dt.date(2024, 1, 1), 1000.0),
             (dt.date(2024, 2, 1), 1000.0),
         ]
-        assert calculate_xirr(cf) == 0.0
+        assert calculate_xirr(cf) is None
 
     def test_all_negative(self):
         cf = [
             (dt.date(2024, 1, 1), -1000.0),
             (dt.date(2024, 2, 1), -1000.0),
         ]
-        assert calculate_xirr(cf) == 0.0
+        assert calculate_xirr(cf) is None
 
     def test_zero_amount_filtered(self):
         cf = [
@@ -140,19 +140,19 @@ class TestSpec83Cases:
     本类覆盖剩余：2、3、5、6、9、10、11。
     """
 
-    # --- 用例 2：只有一笔买入 → 返回 0 ---
-    def test_case2_only_one_buy_returns_zero(self):
+    # --- 用例 2：只有一笔买入 → 不可计算（None，不是 0）---
+    def test_case2_only_one_buy_returns_none(self):
         txn = [MockTransaction(dt.date(2024, 1, 1), BusinessType.BUY.code, 100000)]
         cf = generate_cashflows(txn, current_value=0)
         assert len(cf) == 1  # 只有一笔流出，无法求解
-        assert calculate_xirr(cf) == 0.0
+        assert calculate_xirr(cf) is None
 
-    # --- 用例 3：只有一笔卖出 → 返回 0 ---
-    def test_case3_only_one_sell_returns_zero(self):
+    # --- 用例 3：只有一笔卖出 → 不可计算（None，不是 0）---
+    def test_case3_only_one_sell_returns_none(self):
         txn = [MockTransaction(dt.date(2024, 6, 1), BusinessType.SELL.code, 120000)]
         cf = generate_cashflows(txn, current_value=0)
         assert len(cf) == 1
-        assert calculate_xirr(cf) == 0.0
+        assert calculate_xirr(cf) is None
 
     # --- 用例 5：定投多笔后全部卖出 → 与 Excel 一致 ---
     def test_case5_dca_then_full_redeem(self):
@@ -331,13 +331,18 @@ class TestSpec83Cases:
         assert abs(result - (-0.7)) < 0.005
         assert_solves_xirr(result, cf)
 
-    def test_case10_out_of_range_returns_zero(self):
-        """超出 [-1, 10] 的异常值按决策文档归零，避免前端展示 99999%。"""
+    def test_case10_out_of_range_returns_none(self):
+        """超出 [-1, 10] 的异常值返回 None（不可采信），**不再伪装成 0%**。
+
+        原决策（#871 时期）的目标是「避免前端展示 99999%」——目标保留；
+        变的是表达方式：由「归零」改为「未计算 + no_solution」，
+        因为 0% 会被用户读成「一分没赚」，而真相是「这个数不可信」。
+        """
         cf = [
             (dt.date(2023, 1, 1), -1.0),
             (dt.date(2024, 1, 1), 10000.0),  # 年化约 9999 倍
         ]
-        assert calculate_xirr(cf) == 0.0
+        assert calculate_xirr(cf) is None
 
     # --- 用例 11：包含货币基金交易 → 自动排除 ---
     def test_case11_money_fund_excluded(self):

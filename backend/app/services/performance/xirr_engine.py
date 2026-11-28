@@ -39,6 +39,11 @@ from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
 from app.services.performance import cashflow_layers
 from app.services.performance.fee_cash import Cashflows, fee_yuan, flow_fee_yuan, signed_cash
+from app.services.performance.xirr_outcome import (
+    normalize_cashflows,
+    normalize_result,
+    precheck_reason,
+)
 
 #: 组合口径（持仓）的「投入 / 回收」类型：买入与红利再投都是掏钱，卖出是回款。
 #: 与 `generate_cashflows` 的 `outflow_types` / `inflow_types` 同口径，只是不含入金/出金。
@@ -46,11 +51,11 @@ _PORTFOLIO_OUT_TYPES = (BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.co
 _PORTFOLIO_IN_TYPES = (BusinessType.SELL.code,)
 
 
-def _safe_return(value: float) -> float:
-    """统一的范围校验，确保返回值在 [-1.0, 10.0] 内，极小值归零"""
-    if -1.0 < value < 10.0:
-        return value if abs(value) > 1e-8 else 0.0
-    return 0.0
+def _safe_return(value: Optional[float]) -> Optional[float]:
+    """范围校验（语义见 `xirr_outcome.normalize_result`）：不可采信返回 None，不伪装成 0。"""
+    if normalize_result(value) is None:
+        logger.warning(f'XIRR 结果 {value!r} 不可采信（超出 [-1, 10] 或非有限值），按未计算处理')
+    return normalize_result(value)
 
 
 def _try_newton(
@@ -93,7 +98,7 @@ def _try_newton(
     return None
 
 
-def _pure_python_xirr(cashflows: List[Tuple[dt.date, float]], initial_guess: float = 0.01) -> float:
+def _pure_python_xirr(cashflows: List[Tuple[dt.date, float]], initial_guess: float = 0.01) -> Optional[float]:
     """
     xalpha 纯 Python XIRR 实现，作为兜底。
 
@@ -101,7 +106,7 @@ def _pure_python_xirr(cashflows: List[Tuple[dt.date, float]], initial_guess: flo
     入参 cashflows 必须已按日期升序排列、无零值、至少2笔且正负现金流同时存在。
     """
     if not cashflows:
-        return 0.0
+        return None
 
     first_date = cashflows[0][0]
 
@@ -116,10 +121,10 @@ def _pure_python_xirr(cashflows: List[Tuple[dt.date, float]], initial_guess: flo
         if result is not None:
             return _safe_return(result)
 
-    return 0.0
+    return None
 
 
-def calculate_xirr(cashflows: List[Tuple[dt.date, float]]) -> float:
+def calculate_xirr(cashflows: List[Tuple[dt.date, float]]) -> Optional[float]:
     """
     计算 XIRR 年化收益率，优先使用 pyxirr，失败时降级为纯 Python 实现。
 
@@ -127,28 +132,20 @@ def calculate_xirr(cashflows: List[Tuple[dt.date, float]]) -> float:
         cashflows: [(日期, 金额), ...]，支出为负，收入为正
 
     Returns:
-        年化收益率，如 0.12 表示 12%。异常情况返回 0.0。
+        年化收益率，如 0.12 表示 12%。**不可计算时返回 None**——
+        调用方必须区分「None = 算不出来」与「0.0 = 收益率确实为零」，
+        否则前端会把「没算出来」画成 0%（见 `xirr_outcome` 模块文档）。
+        原因码由 `xirr_outcome.precheck_reason` 判定。
     """
-    if not cashflows or len(cashflows) < 2:
-        return 0.0
-
-    # 过滤零值现金流
-    cf = [(d, a) for d, a in cashflows if abs(a) > 1e-8]
-    if len(cf) < 2:
-        return 0.0
-
-    # 检查现金流方向（必须有正有负）
-    has_positive = any(a > 0 for _, a in cf)
-    has_negative = any(a < 0 for _, a in cf)
-    if not (has_positive and has_negative):
-        return 0.0
+    cf = normalize_cashflows(cashflows)
+    if precheck_reason(cf) is not None:
+        return None
 
     if PYXIRR_AVAILABLE:
         try:
             dates = [d for d, _ in cf]
             amounts = [a for _, a in cf]
-            result = pyxirr_xirr(dates, amounts)
-            return _safe_return(result)
+            return _safe_return(pyxirr_xirr(dates, amounts))
         except Exception as e:
             logger.warning(f'pyxirr 计算失败（现金流数量 {len(cf)}），异常: {e}，降级为纯 Python 实现')
 
@@ -157,7 +154,7 @@ def calculate_xirr(cashflows: List[Tuple[dt.date, float]]) -> float:
         return _pure_python_xirr(cf)
     except Exception as e:
         logger.warning(f'纯 Python XIRR 计算失败: {e}')
-        return 0.0
+        return None
 
 
 def calculate_modified_dietz(cashflows: List[Tuple[dt.date, float]]) -> float:

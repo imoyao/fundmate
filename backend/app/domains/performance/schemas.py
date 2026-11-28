@@ -70,6 +70,15 @@ class XirrResponse(BaseModel):
 
     method: str = Field('xirr', description='实际使用的收益率方法')
     xirr: Optional[float] = Field(None, description='年化收益率，如 0.1234 表示 12.34%（method=xirr）')
+    xirr_reason: Optional[str] = Field(
+        None,
+        description=(
+            'xirr 为 None 时的原因码（只在 method=xirr 且不可计算时出现）：'
+            '`insufficient_cashflows` 有效现金流不足 2 笔；`single_direction` 现金流同号'
+            '（全买未卖 / 全卖未买）；`no_solution` 求解不收敛或结果超出合理区间不可采信。'
+            '**为 None 时 xirr 是真实值（含真实的 0.0）**。'
+        ),
+    )
     dietz: Optional[float] = Field(None, description='区间收益率，不年化（method=dietz）')
     twr: Optional[float] = Field(None, description='时间加权区间收益率（method=twr；无数据时为 None）')
     twr_annualized: Optional[float] = Field(None, description='时间加权年化收益率（method=twr）')
