@@ -14,7 +14,7 @@ import {
   snapshotOf,
   type ConnectionSnapshot
 } from "./oauthPopup";
-import { MCP_SERVICES } from "./mcpServices";
+import { MCP_SERVICES, serviceName } from "./mcpServices";
 
 export type McpNotice = { type: "success" | "error"; text: string };
 
@@ -78,9 +78,7 @@ export function useMcpConnections() {
     // 弹窗通道：本页是在授权弹窗里落地 —— 通知主窗口授权完成后自关，
     // 提示由主窗口负责，这里不走整页 notice（关窗前闪一下反而误导）
     if (notifyOpenerAndClose(provider)) return;
-    const name =
-      MCP_SERVICES.find(service => service.provider === provider)?.name ??
-      "该服务";
+    const name = serviceName(provider);
     notice.value = { type: "success", text: `${name}已授权连接` };
 
     const rest = { ...route.query };
@@ -103,9 +101,7 @@ export function useMcpConnections() {
    * 弹窗被拦截器挡掉时降级为整页跳转（旧行为，回调照旧落回本页）。
    */
   async function connectOAuth(provider: string): Promise<void> {
-    const name =
-      MCP_SERVICES.find(service => service.provider === provider)?.name ??
-      "该服务";
+    const name = serviceName(provider);
     // 发起前抓快照：轮询靠「凭据相比发起前有变化」区分新授权与旧凭据
     const previous = byProvider.value.get(provider);
     const baseline: ConnectionSnapshot | null = previous
@@ -195,13 +191,21 @@ export function useMcpConnections() {
         text: `连接可用，上游提供 ${data.tool_count} 个工具：${names}${more}`
       });
     } catch (error) {
-      const message =
+      const backendMessage =
         (
           error as {
             response?: { data?: { message?: string } };
           }
         )?.response?.data?.message || "验证失败，请稍后重试";
-      setVerifyState(provider, { status: "fail", text: message });
+      // 后端对「凭据过期」的模板文案是「…请更新 Token」——对 API Key 型成立，
+      // 但对浏览器授权型是死胡同：用户手里没有 Token 可更新，正确动作是
+      // 点「重新连接」弹窗静默续期。本地已过期（expires_at 可判）时改写文案，
+      // 把下一步动作指对；没过期时照原样透传（真失效 / 被撤销仍由后端文案描述）。
+      const connection = byProvider.value.get(provider);
+      const text = isExpired(connection?.expires_at)
+        ? `${serviceName(provider)}授权已过期，点「重新连接」即可静默续期`
+        : backendMessage;
+      setVerifyState(provider, { status: "fail", text });
     }
   }
 

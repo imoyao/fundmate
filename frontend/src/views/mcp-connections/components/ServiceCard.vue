@@ -74,6 +74,15 @@
       <el-button v-else type="primary" :loading="pending" @click="onConnect">
         {{ state.tone === "problem" ? "重新连接" : "连接" }}
       </el-button>
+      <!-- 曾连接过（现过期/异常）时保留断开入口：#3296 的语义——过期恰恰是
+           最需要断开的时刻，换连接方式必须先断开，不能只给「重新连接」一条路 -->
+      <el-button
+        v-if="state.tone === 'problem' && connection"
+        :loading="pending"
+        @click="emit('disconnect', service.provider)"
+      >
+        断开连接
+      </el-button>
     </div>
 
     <p
@@ -118,7 +127,9 @@ const emit = defineEmits<{
 const apiKey = ref("");
 const showKeyInput = ref(false);
 
-const state = computed(() => connectionState(props.connection?.status));
+const state = computed(() =>
+  connectionState(props.connection?.status, props.connection?.expires_at)
+);
 const expiry = computed(() => expiryHint(props.connection?.expires_at));
 const verifyLoading = computed(() => props.verify?.status === "loading");
 const verifyLabel = computed(() => verifyButtonLabel(props.verify));
