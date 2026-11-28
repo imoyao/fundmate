@@ -304,9 +304,13 @@ def refresh(provider: str, user_id: int) -> None:
 
 
 def revoke(provider: str, user_id: int) -> None:
-    """断开连接：先通知上游撤销（失败不阻断本地删除），再删本地凭据。"""
+    """断开连接：先通知上游撤销（失败不阻断本地删除），再删本地凭据。
+
+    ``allow_expired=True``：过期恰恰是最需要断开的时刻（用户得先断开才能重连），
+    读凭据不能被 access_token 过期短路——与刷新编排同款理由。
+    """
     config = provider_config(provider)
-    cred = load_credential(user_id, provider)
+    cred = load_credential(user_id, provider, allow_expired=True)
     if cred is None:
         return
     if config.revocation_endpoint:
