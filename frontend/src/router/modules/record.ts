@@ -30,7 +30,7 @@ const createRecordRoutes = (routeConfig: RouteConfigWithChildren) => {
 // 本顶级只收三种东西，顺序即记账的实际动线：
 //   录入（全面盘点 → 各导入入口）→ 流水（交易 / 分红）→ 核对（对账中心）
 //
-// ⚠️ 反向约束：凡是**读**（复盘 / 持仓分析）或**配置**（组合 / 账户 / 策略）的页面
+// ⚠️ 反向约束：凡是**读**（复盘）或**配置**（组合 / 账户 / 策略）的页面
 // 都不许放进来，否则又回到「两个顶级各装一半」的老问题。
 const RecordRouteConfig = {
   path: "/record",

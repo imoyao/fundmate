@@ -8,7 +8,7 @@
  * 2. **新增区块忘了登记** ⇒ 它的能力不进交集，档位照旧全开。判据：表内 label 集合
  *    必须与页面 `NAV_LABELS` 的值集合相等（加区块必然先加导航项）。
  * 3. **新增区块忘了传 `:ledger-id`** ⇒ 切到账户档，它自己还是家庭级数。
- *    判据：页面里 7 个区块的开标签逐个含 `:ledger-id`。
+ *    判据：页面里 10 个区块的开标签逐个含 `:ledger-id`。
  *
  * 判据纪律（AGENTS「正则/字符串类判据」）：断言的是**完整子串**而非裸标识符，
  * 避免「文件里别处出现 ledger-id 就算过」的假阳性。
@@ -73,11 +73,14 @@ describe("口径能力表（analysisScopeSupport）", () => {
   });
 });
 
-describe("接线守卫：7 个区块都必须收 :ledger-id", () => {
+describe("接线守卫：10 个区块都必须收 :ledger-id", () => {
+  // 收益日历与收益归因是面板直连（面板自带 SectionHeader，页面只挂锚点），
+  // 故这里匹配的是面板标签而不是包裹元素——匹配 `<section id="nav-…">` 会漏掉
+  // 真正的取数入参。
   const SECTION_TAGS =
-    /<(ReturnOverviewSection|NetWorthTrendSection|CashFlowPanel|ClearedCyclesSection|BreakEvenSection|AnalysisStructureSection|MoneyFundIncomeSection)\b[^>]*>/g;
+    /<(ReturnOverviewSection|ExcessSection|NetWorthTrendSection|CashFlowPanel|PnlCalendar|ClearedCyclesSection|BreakEvenSection|AnalysisStructureSection|PnlAttribution|MoneyFundIncomeSection)\b[^>]*>/g;
 
-  it("页面恰好渲染 7 个区块（与能力表条目数一致）", () => {
+  it("页面恰好渲染 10 个区块（与能力表条目数一致）", () => {
     const tags = page.match(SECTION_TAGS) ?? [];
     expect(tags.length).toBe(Object.keys(ANALYSIS_SECTION_SCOPE).length);
   });

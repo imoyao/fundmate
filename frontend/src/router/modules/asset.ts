@@ -55,7 +55,7 @@ const createAssetRoutes = (routeConfig: RouteConfigWithChildren) => {
 //   账户」进入详情页，或经「全面盘点」的固定资产页签管理。）
 //
 // ⚠️ 只放**配置与档案**。凡是「把事实录进来」的页面（全面盘点 / 各类导入 /
-// 对账单）一律归 record.ts；纯净的读页面（复盘 / 持仓分析）归 home.ts。
+// 对账单）一律归 record.ts；纯净的读页面（复盘）归 home.ts。
 const AssetRouteConfig = {
   path: "/asset",
   name: "Asset",

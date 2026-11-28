@@ -13,7 +13,8 @@
  *
  * ## 当前结论（2026-11-28）
  *
- * **只有家庭 / 账户两档。** 组合档的四个空洞（净值曲线 `snapshots` 无
+ * **只有家庭 / 账户两档。** 区间表现 / 收益归因 / 持仓结构 / 资金流动 / 货基
+ * 五块本身支持组合档（`kinds` 如实写三档），但组合档的四个空洞（净值曲线 `snapshots` 无
  * `portfolio_id`、清仓复盘 `cleared-cycles` 只认 `ledger_id`、浮亏回本走
  * `/positions/` 同理、收益日历不在本页）都属后端能力缺口，按 D1 的取舍留到三期。
  *
@@ -37,11 +38,14 @@ const KIND_ORDER: readonly ScopeKind[] = ["family", "ledger", "portfolio"];
 
 export const ANALYSIS_SECTION_SCOPE: Record<string, SectionScope> = {
   overview: { label: "收益概览", kinds: ["family", "ledger"] },
+  excess: { label: "区间表现", kinds: ["family", "ledger", "portfolio"] },
   netWorth: { label: "资产净值走势", kinds: ["family", "ledger"] },
   cashFlow: { label: "资金流动", kinds: ["family", "ledger", "portfolio"] },
+  calendar: { label: "收益日历", kinds: ["family", "ledger"] },
   cycles: { label: "清仓复盘", kinds: ["family", "ledger"] },
   breakEven: { label: "浮亏回本", kinds: ["family", "ledger"] },
   structure: { label: "持仓结构", kinds: ["family", "ledger", "portfolio"] },
+  attribution: { label: "收益归因", kinds: ["family", "ledger", "portfolio"] },
   moneyFund: { label: "货币基金收益", kinds: ["family", "ledger", "portfolio"] }
 };
 
