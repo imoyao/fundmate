@@ -90,12 +90,15 @@ _CLIENT_IDS: Dict[str, str] = {}
 _CLIENT_LOCK = threading.Lock()
 
 
-def _http_post(url: str, data: Dict[str, Any]) -> Dict[str, Any]:
+def _http_post(url: str, data: Dict[str, Any], as_json: bool = False) -> Dict[str, Any]:
     """唯一的上游 POST 出口（测试在这里打桩，不 mock requests 全局）。
 
     所有 endpoint 都先经 :func:`validate_token_endpoint` 校验过白名单域名。
+    编码由端点协议决定，不能一刀切：DCR 按 RFC 7591 要求 **JSON body**，
+    token 端点按 RFC 6749 §4.1.3 必须 **form 编码**——用错编码上游就 400。
     """
-    response = requests.post(url, data=data, timeout=15)
+    body = {'json': data} if as_json else {'data': data}
+    response = requests.post(url, timeout=15, **body)
     if response.status_code >= 400:
         # 只记状态码，绝不记 response.text：上游错误体可能含 token。
         logger.warning(f'MCP OAuth 上游返回 {response.status_code}（{url.rsplit("/", 1)[-1]}）')
@@ -127,6 +130,7 @@ def client_id_for(config: OAuthProviderConfig) -> str:
                 'response_types': ['code'],
                 'token_endpoint_auth_method': 'none',
             },
+            as_json=True,
         )
         client_id = payload.get('client_id')
         if not isinstance(client_id, str) or not client_id:

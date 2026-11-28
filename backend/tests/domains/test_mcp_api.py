@@ -32,7 +32,7 @@ def credential_key(monkeypatch):
 
 @pytest.fixture
 def fake_upstream(monkeypatch):
-    def fake_post(url, data):
+    def fake_post(url, data, as_json=False):
         if url.endswith('/register'):
             return {'client_id': 'api-client-1'}
         if url.endswith('/token'):
