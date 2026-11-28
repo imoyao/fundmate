@@ -57,6 +57,97 @@ export function serviceName(provider: string): string {
   );
 }
 
+/**
+ * 已登记服务的工具展示元数据：**给普通用户读的中文标签 + 一句话说明**。
+ *
+ * 上游的 name（`queryStockPosition`）与 description（含 fundKey→fundKey 这类
+ * 调用方参数说明）是喂给 AI / 程序员的，直接上页面等于把接口文档甩给用户
+ * （#3303 页面走查反馈）。这里按工具名单点收口人话版；**未登记的工具回落
+ * 原始 name + description**——宁可露英文也不猜错，新工具上线等这里补登记。
+ */
+const TOOL_LABELS: Record<
+  string,
+  Record<string, { label: string; summary: string }>
+> = {
+  tzzb: {
+    promptAccountSelection: {
+      label: "选择同步账户",
+      summary: "拉取你在同花顺的账户清单，数据同步前先在这里选账户"
+    },
+    queryStockPosition: {
+      label: "股票持仓",
+      summary: "股票账户的持仓明细与总资产"
+    },
+    queryClearedPosition: {
+      label: "已清仓记录",
+      summary: "股票账户的历史清仓记录"
+    },
+    queryAssetChangeSummary: {
+      label: "资金变动",
+      summary: "某段时间内股票、基金账户的资金进出汇总"
+    },
+    queryMoneyHistory: {
+      label: "资金流水",
+      summary: "股票账户的资金交易流水明细"
+    },
+    queryDayProfitSummary: {
+      label: "当日盈亏明细",
+      summary: "某个交易日里每只股票、基金的盈亏"
+    },
+    queryPnlSummary: {
+      label: "盈亏汇总",
+      summary: "一段时间内的资产变化、总盈亏和收益率，可对比大盘"
+    },
+    queryDayCalendarSummary: {
+      label: "每日盈亏日历",
+      summary: "按月查看每天的盈亏走势和品种明细"
+    },
+    queryMonthCalendarSummary: {
+      label: "月度盈亏日历",
+      summary: "按年查看每个月的盈亏走势和品种明细"
+    },
+    queryFundAccount: {
+      label: "基金账户持仓",
+      summary: "基金账户的汇总资产与持仓明细"
+    },
+    queryFundHoldingReturns: {
+      label: "基金持有收益",
+      summary: "基金持仓的日、周、月、年与累计收益"
+    },
+    queryFundSummaryHistory: {
+      label: "基金交易流水",
+      summary: "基金账户的历史交易流水"
+    },
+    queryFundConfirmNav: {
+      label: "基金确认净值",
+      summary: "申购、赎回确认日的基金单位净值"
+    },
+    queryFundFeeRate: {
+      label: "基金费率",
+      summary: "基金申购、赎回的费率查询"
+    },
+    queryStockMarketRemark: {
+      label: "行情备注",
+      summary: "你在同花顺里记录的股票行情备注"
+    }
+  }
+};
+
+export type McpToolDisplayMeta = { label: string; summary: string };
+
+/** 工具 → 页面展示用的标签与说明；未登记回落原始 name + description（不猜） */
+export function toolDisplayMeta(
+  provider: string,
+  tool: { name: string; description: string }
+): McpToolDisplayMeta {
+  return (
+    TOOL_LABELS[provider]?.[tool.name] ?? {
+      label: tool.name,
+      summary: tool.description
+    }
+  );
+}
+
 /** 连接状态 → 展示文案与徽标语义（未知状态一律按「未连接」处理，不猜）
  *
  * 两参形态：库里 status 位只在断开/撤销时翻（token 过期 status 仍是 active，
@@ -66,13 +157,14 @@ export function serviceName(provider: string): string {
  */
 export function connectionState(
   status?: string | null,
-  expiresAt?: string | null
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
 ): {
   label: string;
   tone: "connected" | "problem" | "idle";
 } {
   if (status === "active") {
-    if (isExpired(expiresAt)) {
+    if (isExpired(expiresAt, nowMs)) {
       return { label: "授权已过期", tone: "problem" };
     }
     return { label: "已连接", tone: "connected" };
@@ -83,11 +175,32 @@ export function connectionState(
   return { label: "未连接", tone: "idle" };
 }
 
-/** expires_at 是否已过；空值 / 不可解析一律视为未过期（API Key 无过期概念） */
-export function isExpired(expiresAt?: string | null): boolean {
+/** expires_at 是否已过；空值 / 不可解析一律视为未过期（API Key 无过期概念）。
+ *
+ * ``nowMs`` 可选注入当前时间：过期徽章由页面的心跳钟驱动（useMcpConnections
+ * 的 nowMs），否则 computed 只在 connection 变化时算一次——5 分钟寿命的 token
+ * 到点后卡片会一直挂着「已连接」，直到用户手动刷新页面才翻面。
+ */
+export function isExpired(
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
+): boolean {
   if (!expiresAt) return false;
   const time = new Date(expiresAt).getTime();
-  return !Number.isNaN(time) && time <= Date.now();
+  return !Number.isNaN(time) && time <= nowMs;
+}
+
+/** 是否即将过期（60 秒内）：给「已连接」卡片一个黄色弱化预警 + 立即续期入口，
+ * 别等翻成 problem 用户才反应过来。已过期 / 空值 / 远未到期都是 false。 */
+export function isExpiringSoon(
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
+): boolean {
+  if (!expiresAt) return false;
+  const time = new Date(expiresAt).getTime();
+  if (Number.isNaN(time)) return false;
+  const remaining = time - nowMs;
+  return remaining > 0 && remaining <= 60_000;
 }
 
 /** 验证按钮文案：随校验状态换字，让「正在验证 / 再验一次」一眼可辨 */
@@ -99,9 +212,9 @@ export function verifyButtonLabel(
   return verify.status === "ok" ? "再验一次" : "重新验证";
 }
 
-/** 能力清单折叠钮文案：展开 / 收起两态，计数让「有多少工具」不点开也知道 */
+/** 数据清单折叠钮文案：展开 / 收起两态，计数让「有多少数据可查」不点开也知道 */
 export function toolsToggleLabel(open: boolean, count: number): string {
-  return open ? "收起能力清单" : `能力清单（${count}）`;
+  return open ? "收起数据清单" : `可查询的数据（${count} 项）`;
 }
 
 /**
@@ -117,7 +230,10 @@ export function toolCapLabel(capabilities: string[]): string {
  * 已过期明确说「已过期」——上游凭证寿命短（同花顺约 5 分钟），到点换新属常态，
  * 文案要与「点重新连接即可静默续期」的预期对齐，不制造「坏掉了」的恐慌。
  */
-export function expiryHint(expiresAt?: string | null): string {
+export function expiryHint(
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
+): string {
   if (!expiresAt) return "";
   const date = new Date(expiresAt);
   if (Number.isNaN(date.getTime())) return "";
@@ -127,7 +243,11 @@ export function expiryHint(expiresAt?: string | null): string {
     hour: "2-digit",
     minute: "2-digit"
   });
-  return date.getTime() <= Date.now()
-    ? `授权已于 ${at} 过期，可一键静默续期`
-    : `授权有效期至 ${at}`;
+  if (date.getTime() <= nowMs) {
+    return `授权已于 ${at} 过期，可一键静默续期`;
+  }
+  if (isExpiringSoon(expiresAt, nowMs)) {
+    return `授权将于 ${at} 过期，点「立即续期」保持连接`;
+  }
+  return `授权有效期至 ${at}`;
 }

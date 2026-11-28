@@ -23,7 +23,13 @@
     </div>
 
     <p class="mcp-card__desc">{{ service.description }}</p>
-    <p v-if="expiry" class="mcp-card__hint">{{ expiry }}</p>
+    <p
+      v-if="expiry"
+      class="mcp-card__hint"
+      :class="{ 'mcp-card__hint--warn': expiringSoon }"
+    >
+      {{ expiry }}
+    </p>
     <p
       v-if="connection?.last_error_kind"
       class="mcp-card__hint mcp-card__hint--warn"
@@ -64,6 +70,17 @@
         >
           {{ verifyLabel }}
         </el-button>
+        <!-- 即将过期（60 秒内）：预警阶段就给一键续期，不等翻成过期态；
+             与过期态的「重新连接」同一动作（connectOAuth 弹窗静默续期） -->
+        <el-button
+          v-if="expiringSoon"
+          type="primary"
+          plain
+          :loading="pending"
+          @click="emit('connect-oauth', service.provider)"
+        >
+          立即续期
+        </el-button>
         <el-button
           :loading="pending"
           @click="emit('disconnect', service.provider)"
@@ -93,35 +110,8 @@
       {{ verify.text || "正在验证连接…" }}
     </p>
 
-    <!-- 能力清单（S5g）：已采样到的上游工具 + Fund Mate 能力标注。命中的
-         工具高亮「已对上内部能力」徽章 —— 语义是能力映射，不是对账已完成 -->
-    <div v-if="tools.length" class="mcp-card__tools">
-      <button
-        type="button"
-        class="mcp-card__tools-toggle"
-        @click="toolsOpen = !toolsOpen"
-      >
-        {{ toggleLabel }}
-      </button>
-      <ul v-if="toolsOpen" class="mcp-card__tool-list">
-        <li
-          v-for="tool in tools"
-          :key="tool.name"
-          class="mcp-card__tool"
-          :data-mapped="tool.capabilities.length > 0"
-        >
-          <div class="mcp-card__tool-line">
-            <code class="mcp-card__tool-name">{{ tool.name }}</code>
-            <span v-if="tool.capabilities.length" class="mcp-card__tool-cap">
-              {{ toolCapLabel(tool.capabilities) }}
-            </span>
-          </div>
-          <p v-if="tool.description" class="mcp-card__tool-desc">
-            {{ tool.description }}
-          </p>
-        </li>
-      </ul>
-    </div>
+    <!-- 数据清单（S5g）：上游可查的数据 + Fund Mate 能力标注（子组件持有折叠态） -->
+    <ToolList v-if="tools.length" :provider="service.provider" :tools="tools" />
 
     <p class="mcp-card__tip">{{ service.connectHint }}</p>
   </article>
@@ -130,11 +120,11 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { McpConnection, McpToolInfo } from "@/api/mcp";
+import ToolList from "./ToolList.vue";
 import {
   connectionState,
   expiryHint,
-  toolCapLabel,
-  toolsToggleLabel,
+  isExpiringSoon,
   type McpService,
   verifyButtonLabel
 } from "../mcpServices";
@@ -148,6 +138,8 @@ const props = defineProps<{
   pending: boolean;
   verify: McpVerifyState | null;
   tools: McpToolInfo[];
+  /** 页面心跳钟（毫秒）：过期/临期判定跟着它走，token 到点徽章自动翻面 */
+  nowMs: number;
 }>();
 
 const emit = defineEmits<{
@@ -159,16 +151,23 @@ const emit = defineEmits<{
 
 const apiKey = ref("");
 const showKeyInput = ref(false);
-const toolsOpen = ref(false);
 const tools = computed(() => props.tools);
-const toggleLabel = computed(() =>
-  toolsToggleLabel(toolsOpen.value, tools.value.length)
-);
 
 const state = computed(() =>
-  connectionState(props.connection?.status, props.connection?.expires_at)
+  connectionState(
+    props.connection?.status,
+    props.connection?.expires_at,
+    props.nowMs
+  )
 );
-const expiry = computed(() => expiryHint(props.connection?.expires_at));
+const expiry = computed(() =>
+  expiryHint(props.connection?.expires_at, props.nowMs)
+);
+const expiringSoon = computed(
+  () =>
+    state.value.tone === "connected" &&
+    isExpiringSoon(props.connection?.expires_at, props.nowMs)
+);
 const verifyLoading = computed(() => props.verify?.status === "loading");
 const verifyLabel = computed(() => verifyButtonLabel(props.verify));
 
@@ -324,74 +323,5 @@ function onCancelKey(): void {
     var(--el-color-warning) 10%,
     transparent
   );
-}
-
-.mcp-card__tools {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.mcp-card__tools-toggle {
-  align-self: flex-start;
-  padding: 0;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-.mcp-card__tools-toggle:hover {
-  color: var(--el-color-primary);
-}
-
-.mcp-card__tool-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  margin: 0;
-  list-style: none;
-  background-color: var(--bg-subtle);
-  border-radius: 10px;
-}
-
-.mcp-card__tool {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.mcp-card__tool-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.mcp-card__tool-name {
-  font-family: var(--font-mono);
-  font-size: var(--text-label);
-  color: var(--text-primary);
-}
-
-.mcp-card__tool-cap {
-  padding: 1px 8px;
-  font-size: var(--text-label);
-  color: var(--el-color-primary);
-  background-color: color-mix(
-    in srgb,
-    var(--el-color-primary) 10%,
-    transparent
-  );
-  border: 1px solid var(--el-color-primary);
-  border-radius: 10px;
-}
-
-.mcp-card__tool-desc {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--text-tertiary-ink);
 }
 </style>

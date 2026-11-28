@@ -38,6 +38,7 @@
             :pending="pending.includes(item.provider)"
             :verify="verifyState(item.provider)"
             :tools="toolsOf(item.provider)"
+            :now-ms="nowMs"
             @connect-oauth="connectOAuth"
             @connect-static="onConnectStatic"
             @disconnect="disconnect"
@@ -82,6 +83,7 @@ const {
   loading,
   pending,
   notice,
+  nowMs,
   load,
   consumeRedirectNotice,
   connectOAuth,

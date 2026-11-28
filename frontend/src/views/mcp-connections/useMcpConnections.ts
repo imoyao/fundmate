@@ -1,4 +1,4 @@
-import { computed, ref } from "vue";
+import { computed, onScopeDispose, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   beginMcpOAuth,
@@ -46,6 +46,19 @@ export function useMcpConnections() {
   const verifyStates = ref<Record<string, McpVerifyState | undefined>>({});
   /** 工具目录（S5g）：provider → 已采样工具（后端带能力标注），verify 成功后刷新 */
   const toolCatalogs = ref<Record<string, McpToolInfo[]>>({});
+
+  /**
+   * 页面心跳钟（毫秒）：每秒推进，喂给卡片的过期/临期判定。
+   *
+   * WHY：expires_at 是「绝对时刻」，徽章却是 computed——不喂当前时间的话，
+   * computed 只在 connection 对象变化时重算，5 分钟寿命的 token 到点后
+   * 卡片会一直挂着「已连接」，直到用户手动刷新页面才翻面（#3303）。
+   */
+  const nowMs = ref(Date.now());
+  const heartbeat = window.setInterval(() => {
+    nowMs.value = Date.now();
+  }, 1000);
+  onScopeDispose(() => window.clearInterval(heartbeat));
 
   const byProvider = computed(
     () => new Map(connections.value.map(item => [item.provider, item]))
@@ -252,6 +265,7 @@ export function useMcpConnections() {
     loading,
     pending,
     notice,
+    nowMs,
     load,
     consumeRedirectNotice,
     connectOAuth,

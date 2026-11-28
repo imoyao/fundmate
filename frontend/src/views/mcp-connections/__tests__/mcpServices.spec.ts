@@ -11,8 +11,10 @@ import {
   connectionState,
   expiryHint,
   isExpired,
+  isExpiringSoon,
   serviceName,
   toolCapLabel,
+  toolDisplayMeta,
   toolsToggleLabel
 } from "../mcpServices";
 
@@ -35,6 +37,36 @@ describe("isExpired", () => {
     expect(isExpired(iso(5))).toBe(false);
     expect(isExpired(new Date().toISOString())).toBe(true);
   });
+
+  it("nowMs 注入：同一 expires_at 随心跳钟翻面（token 5 分钟寿命的核心体验）", () => {
+    const expiresAt = new Date(1_000_000).toISOString();
+    // 心跳钟还没走到 → 未过期；走过同一时刻 → 过期（不依赖真实 Date.now）
+    expect(isExpired(expiresAt, 999_999)).toBe(false);
+    expect(isExpired(expiresAt, 1_000_000)).toBe(true);
+    expect(isExpired(expiresAt, 1_000_001)).toBe(true);
+  });
+});
+
+describe("isExpiringSoon（#3303 临期预警）", () => {
+  it("空值与不可解析一律 false", () => {
+    expect(isExpiringSoon(null)).toBe(false);
+    expect(isExpiringSoon(undefined)).toBe(false);
+    expect(isExpiringSoon("not-a-date")).toBe(false);
+  });
+
+  it("已过期 / 30 秒内到期 / 恰好 60 秒 / 61 秒外的边界", () => {
+    const now = 5_000_000;
+    expect(isExpiringSoon(iso(-5), now)).toBe(false); // 已过期走 problem 态
+    expect(isExpiringSoon(new Date(now + 30_000).toISOString(), now)).toBe(
+      true
+    );
+    expect(isExpiringSoon(new Date(now + 60_000).toISOString(), now)).toBe(
+      true
+    );
+    expect(isExpiringSoon(new Date(now + 60_001).toISOString(), now)).toBe(
+      false
+    );
+  });
 });
 
 describe("connectionState", () => {
@@ -50,6 +82,16 @@ describe("connectionState", () => {
       label: "授权已过期",
       tone: "problem"
     });
+  });
+
+  it("active + nowMs 注入：token 到点徽章自动翻面，不刷新页面也生效", () => {
+    const expiresAt = new Date(2_000_000).toISOString();
+    expect(connectionState("active", expiresAt, 1_999_999).tone).toBe(
+      "connected"
+    );
+    expect(connectionState("active", expiresAt, 2_000_000).tone).toBe(
+      "problem"
+    );
   });
 
   it("active 且无过期时间（API Key）→ 已连接", () => {
@@ -97,12 +139,23 @@ describe("expiryHint", () => {
   it("无过期时间返回空串（API Key 卡片不显示该行）", () => {
     expect(expiryHint(null)).toBe("");
   });
+
+  it("临期（60 秒内）提示立即续期，指向「立即续期」按钮（#3303）", () => {
+    const now = 5_000_000;
+    const hint = expiryHint(new Date(now + 30_000).toISOString(), now);
+    expect(hint).toContain("过期");
+    expect(hint).toContain("立即续期");
+    // 远未到期仍是普通有效期文案，不制造紧迫感
+    expect(expiryHint(new Date(now + 5 * 60_000).toISOString(), now)).toContain(
+      "有效期至"
+    );
+  });
 });
 
-describe("能力清单文案（S5g）", () => {
+describe("数据清单文案（S5g）", () => {
   it("折叠钮：收起态带计数，展开态换字", () => {
-    expect(toolsToggleLabel(false, 15)).toBe("能力清单（15）");
-    expect(toolsToggleLabel(true, 15)).toBe("收起能力清单");
+    expect(toolsToggleLabel(false, 15)).toBe("可查询的数据（15 项）");
+    expect(toolsToggleLabel(true, 15)).toBe("收起数据清单");
   });
 
   it("能力徽章：命中时列内部能力，未命中为空串不渲染徽章", () => {
@@ -111,5 +164,43 @@ describe("能力清单文案（S5g）", () => {
       "已对上：账户管理、每日收益"
     );
     expect(toolCapLabel([])).toBe("");
+  });
+});
+
+describe("toolDisplayMeta（工具名给人读，#3303 走查反馈）", () => {
+  it("已登记的 tzzb 工具返回中文标签与用户向摘要", () => {
+    expect(
+      toolDisplayMeta("tzzb", {
+        name: "queryStockPosition",
+        description: "上游原文"
+      })
+    ).toEqual({
+      label: "股票持仓",
+      summary: "股票账户的持仓明细与总资产"
+    });
+    expect(
+      toolDisplayMeta("tzzb", {
+        name: "promptAccountSelection",
+        description: "上游原文"
+      }).label
+    ).toBe("选择同步账户");
+  });
+
+  it("未登记的工具回落原始 name + description，宁可露英文也不猜", () => {
+    expect(
+      toolDisplayMeta("tzzb", {
+        name: "queryNewThing",
+        description: "上游描述原文"
+      })
+    ).toEqual({ label: "queryNewThing", summary: "上游描述原文" });
+  });
+
+  it("其他 provider 不吃 tzzb 的映射", () => {
+    expect(
+      toolDisplayMeta("qieman", {
+        name: "queryStockPosition",
+        description: "上游描述原文"
+      }).label
+    ).toBe("queryStockPosition");
   });
 });
