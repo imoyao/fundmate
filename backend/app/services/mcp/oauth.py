@@ -253,6 +253,29 @@ def _consume_state(provider: str, state: str) -> Tuple[int, str]:
         return row.user_id, verifier
 
 
+def provider_for_state(state: str) -> Optional[str]:
+    """回调反查 provider：上游只回 state/code，provider 在发起时绑进了 state 行。
+
+    为什么不能猜（``supported_providers()[0]``）：排序随登记顺序漂移，两家以上
+    OAuth provider 后必然拿别的服务的 state 来消费——这是双 provider 化（#3304）
+    时在测试网里现形的存量缺陷，修法就是「provider 只信 state 行」。
+    """
+    if not state or len(state) > 100:
+        return None
+    with _write_session() as db:
+        row = (
+            db.query(McpOAuthState.provider)
+            .filter(
+                and_(
+                    McpOAuthState.state == state,
+                    McpOAuthState.used_at.is_(None),
+                )
+            )
+            .first()
+        )
+        return row[0] if row else None
+
+
 def callback(provider: str, state: str, code: str) -> int:
     """授权回调：校验 state → code 换 token → 加密入库；返回所属 user_id。"""
     config = provider_config(provider)
