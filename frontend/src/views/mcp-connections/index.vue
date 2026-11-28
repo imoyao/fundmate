@@ -37,6 +37,7 @@
             :connection="item.connection"
             :pending="pending.includes(item.provider)"
             :verify="verifyState(item.provider)"
+            :tools="toolsOf(item.provider)"
             @connect-oauth="connectOAuth"
             @connect-static="onConnectStatic"
             @disconnect="disconnect"
@@ -88,6 +89,7 @@ const {
   disconnect,
   verify,
   verifyState,
+  toolsOf,
   clearNotice
 } = useMcpConnections();
 

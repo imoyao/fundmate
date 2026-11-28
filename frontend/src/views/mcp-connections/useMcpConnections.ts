@@ -4,9 +4,11 @@ import {
   beginMcpOAuth,
   connectMcpStaticToken,
   disconnectMcp,
+  fetchMcpTools,
   listMcpConnections,
   verifyMcpConnection,
-  type McpConnection
+  type McpConnection,
+  type McpToolInfo
 } from "@/api/mcp";
 import {
   notifyOpenerAndClose,
@@ -42,6 +44,8 @@ export function useMcpConnections() {
   const pending = ref<string[]>([]);
   const notice = ref<McpNotice | null>(null);
   const verifyStates = ref<Record<string, McpVerifyState | undefined>>({});
+  /** 工具目录（S5g）：provider → 已采样工具（后端带能力标注），verify 成功后刷新 */
+  const toolCatalogs = ref<Record<string, McpToolInfo[]>>({});
 
   const byProvider = computed(
     () => new Map(connections.value.map(item => [item.provider, item]))
@@ -64,11 +68,35 @@ export function useMcpConnections() {
     try {
       const response = await listMcpConnections();
       connections.value = response.data ?? [];
+      // 已连接的服务顺手拉一次目录（缓存读，不发上游请求）：页面刷新后
+      // 能力清单仍在，不必等用户再点一次「校验连接」
+      void Promise.all(
+        connections.value
+          .filter(item => item.status === "connected")
+          .map(item => loadTools(item.provider))
+      );
     } catch {
       fail("连接列表加载失败，请稍后重试");
     } finally {
       loading.value = false;
     }
+  }
+
+  /** 拉工具目录并按 provider 缓存；目录是展示性旁路，失败静默（卡片仍有基础信息） */
+  async function loadTools(provider: string): Promise<void> {
+    try {
+      const response = await fetchMcpTools(provider);
+      toolCatalogs.value = {
+        ...toolCatalogs.value,
+        [provider]: response.data?.tools ?? []
+      };
+    } catch {
+      // 目录读失败不阻断任何主流程：保持旧值（可能为空），下次 verify 再刷
+    }
+  }
+
+  function toolsOf(provider: string): McpToolInfo[] {
+    return toolCatalogs.value[provider] ?? [];
   }
 
   /** OAuth 回调回跳后的一次性成功提示；读完即清 query，刷新不再重复弹 */
@@ -190,6 +218,8 @@ export function useMcpConnections() {
         status: "ok",
         text: `连接可用，上游提供 ${data.tool_count} 个工具：${names}${more}`
       });
+      // verify 顺手刷新目录（后端此刻刚对齐过库）：能力清单立刻可看
+      await loadTools(provider);
     } catch (error) {
       const backendMessage =
         (
@@ -229,6 +259,7 @@ export function useMcpConnections() {
     disconnect,
     verify,
     verifyState,
+    toolsOf,
     clearNotice: () => {
       notice.value = null;
     }

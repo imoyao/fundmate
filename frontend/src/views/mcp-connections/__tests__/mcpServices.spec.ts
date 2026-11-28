@@ -11,7 +11,9 @@ import {
   connectionState,
   expiryHint,
   isExpired,
-  serviceName
+  serviceName,
+  toolCapLabel,
+  toolsToggleLabel
 } from "../mcpServices";
 
 const MINUTE_MS = 60_000;
@@ -94,5 +96,20 @@ describe("expiryHint", () => {
 
   it("无过期时间返回空串（API Key 卡片不显示该行）", () => {
     expect(expiryHint(null)).toBe("");
+  });
+});
+
+describe("能力清单文案（S5g）", () => {
+  it("折叠钮：收起态带计数，展开态换字", () => {
+    expect(toolsToggleLabel(false, 15)).toBe("能力清单（15）");
+    expect(toolsToggleLabel(true, 15)).toBe("收起能力清单");
+  });
+
+  it("能力徽章：命中时列内部能力，未命中为空串不渲染徽章", () => {
+    expect(toolCapLabel(["交易对账"])).toBe("已对上：交易对账");
+    expect(toolCapLabel(["账户管理", "每日收益"])).toBe(
+      "已对上：账户管理、每日收益"
+    );
+    expect(toolCapLabel([])).toBe("");
   });
 });

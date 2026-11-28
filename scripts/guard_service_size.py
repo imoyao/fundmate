@@ -539,6 +539,8 @@ BASELINE: dict[str, dict[str, int]] = {
     # 三期 D（组合档）：2315→2325（+10）。`portfolio_id` 贯穿 build_pnl_series /
     # build_daily_pnl_series / _positions / _first_txn_date / _empty_payload，物化旁路 1 行；
     # max_func 688→687 是真收敛（顶部算出的 inception 复用，少一次重复取数）。
+    # 2026-11-28 S5g 工具目录：db_factory.py 1077→1078（+1：mcp_provider_tools
+    # 登记到 user 域 —— 新表的必要接线，与 #875 periodic_review_reports 同款理由）。
     "backend/app/services/pnl_calendar.py": {'lines': 2325, 'max_func': 687, 'max_cc': 106},
     "backend/app/services/pnl_cleared_residual.py": {'lines': 113, 'max_func': 18, 'max_cc': 5},
     "backend/app/services/pnl_fees.py": {'lines': 97, 'max_func': 17, 'max_cc': 6},
@@ -702,7 +704,7 @@ BASELINE: dict[str, dict[str, int]] = {
     # migrations.py（后者 3000+ 行冻结），与 migrations_ledgers / migrations_agent 同范式。
     "backend/app/core/migrations_snapshots.py": {'lines': 87, 'max_func': 35, 'max_cc': 9},
     "backend/app/core/migrations_ledgers.py": {'lines': 55, 'max_func': 11, 'max_cc': 4},
-    "backend/app/core/db_factory.py": {'lines': 1077, 'max_func': 63, 'max_cc': 15},
+    "backend/app/core/db_factory.py": {'lines': 1078, 'max_func': 63, 'max_cc': 15},
     "backend/app/core/db_utils.py": {'lines': 169, 'max_func': 53, 'max_cc': 8},
     "backend/app/core/decorators.py": {'lines': 39, 'max_func': 29, 'max_cc': 2},
     "backend/app/core/exceptions.py": {'lines': 135, 'max_func': 22, 'max_cc': 3},
