@@ -49,16 +49,45 @@ export const MCP_SERVICES: readonly McpService[] = [
   }
 ];
 
-/** 连接状态 → 展示文案与徽标语义（未知状态一律按「未连接」处理，不猜） */
-export function connectionState(status?: string | null): {
+/** provider → 中文名；未登记的返回「该服务」兜底（不猜具体名） */
+export function serviceName(provider: string): string {
+  return (
+    MCP_SERVICES.find(service => service.provider === provider)?.name ??
+    "该服务"
+  );
+}
+
+/** 连接状态 → 展示文案与徽标语义（未知状态一律按「未连接」处理，不猜）
+ *
+ * 两参形态：库里 status 位只在断开/撤销时翻（token 过期 status 仍是 active，
+ * oauthPopup.ts 头注释同款事实），徽章若只看 status 会「已连接」与
+ * 「授权已于 X 过期」同屏矛盾。expires_at 已过 ⇒ 展示为 problem——这是
+ * **展示态**判定，不回写库（上游 5 分钟寿命的 token 到点换新属常态）。
+ */
+export function connectionState(
+  status?: string | null,
+  expiresAt?: string | null
+): {
   label: string;
   tone: "connected" | "problem" | "idle";
 } {
-  if (status === "active") return { label: "已连接", tone: "connected" };
+  if (status === "active") {
+    if (isExpired(expiresAt)) {
+      return { label: "授权已过期", tone: "problem" };
+    }
+    return { label: "已连接", tone: "connected" };
+  }
   if (status === "expired" || status === "revoked" || status === "error") {
     return { label: "需要重新连接", tone: "problem" };
   }
   return { label: "未连接", tone: "idle" };
+}
+
+/** expires_at 是否已过；空值 / 不可解析一律视为未过期（API Key 无过期概念） */
+export function isExpired(expiresAt?: string | null): boolean {
+  if (!expiresAt) return false;
+  const time = new Date(expiresAt).getTime();
+  return !Number.isNaN(time) && time <= Date.now();
 }
 
 /** 验证按钮文案：随校验状态换字，让「正在验证 / 再验一次」一眼可辨 */
