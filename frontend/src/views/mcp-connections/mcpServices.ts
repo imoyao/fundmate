@@ -66,13 +66,14 @@ export function serviceName(provider: string): string {
  */
 export function connectionState(
   status?: string | null,
-  expiresAt?: string | null
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
 ): {
   label: string;
   tone: "connected" | "problem" | "idle";
 } {
   if (status === "active") {
-    if (isExpired(expiresAt)) {
+    if (isExpired(expiresAt, nowMs)) {
       return { label: "授权已过期", tone: "problem" };
     }
     return { label: "已连接", tone: "connected" };
@@ -83,11 +84,32 @@ export function connectionState(
   return { label: "未连接", tone: "idle" };
 }
 
-/** expires_at 是否已过；空值 / 不可解析一律视为未过期（API Key 无过期概念） */
-export function isExpired(expiresAt?: string | null): boolean {
+/** expires_at 是否已过；空值 / 不可解析一律视为未过期（API Key 无过期概念）。
+ *
+ * ``nowMs`` 可选注入当前时间：过期徽章由页面的心跳钟驱动（useMcpConnections
+ * 的 nowMs），否则 computed 只在 connection 变化时算一次——5 分钟寿命的 token
+ * 到点后卡片会一直挂着「已连接」，直到用户手动刷新页面才翻面。
+ */
+export function isExpired(
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
+): boolean {
   if (!expiresAt) return false;
   const time = new Date(expiresAt).getTime();
-  return !Number.isNaN(time) && time <= Date.now();
+  return !Number.isNaN(time) && time <= nowMs;
+}
+
+/** 是否即将过期（60 秒内）：给「已连接」卡片一个黄色弱化预警 + 立即续期入口，
+ * 别等翻成 problem 用户才反应过来。已过期 / 空值 / 远未到期都是 false。 */
+export function isExpiringSoon(
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
+): boolean {
+  if (!expiresAt) return false;
+  const time = new Date(expiresAt).getTime();
+  if (Number.isNaN(time)) return false;
+  const remaining = time - nowMs;
+  return remaining > 0 && remaining <= 60_000;
 }
 
 /** 验证按钮文案：随校验状态换字，让「正在验证 / 再验一次」一眼可辨 */
@@ -117,7 +139,10 @@ export function toolCapLabel(capabilities: string[]): string {
  * 已过期明确说「已过期」——上游凭证寿命短（同花顺约 5 分钟），到点换新属常态，
  * 文案要与「点重新连接即可静默续期」的预期对齐，不制造「坏掉了」的恐慌。
  */
-export function expiryHint(expiresAt?: string | null): string {
+export function expiryHint(
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
+): string {
   if (!expiresAt) return "";
   const date = new Date(expiresAt);
   if (Number.isNaN(date.getTime())) return "";
@@ -127,7 +152,11 @@ export function expiryHint(expiresAt?: string | null): string {
     hour: "2-digit",
     minute: "2-digit"
   });
-  return date.getTime() <= Date.now()
-    ? `授权已于 ${at} 过期，可一键静默续期`
-    : `授权有效期至 ${at}`;
+  if (date.getTime() <= nowMs) {
+    return `授权已于 ${at} 过期，可一键静默续期`;
+  }
+  if (isExpiringSoon(expiresAt, nowMs)) {
+    return `授权将于 ${at} 过期，点「立即续期」保持连接`;
+  }
+  return `授权有效期至 ${at}`;
 }

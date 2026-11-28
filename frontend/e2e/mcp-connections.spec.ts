@@ -209,4 +209,71 @@ test.describe("数据连接页", () => {
     expect(calls.deletePaths[0]).toBe("/api/mcp/connections/qieman/");
     await expect(page.getByText("已断开连接")).toBeVisible();
   });
+
+  // #3303：token 5 分钟寿命是常态，过期卡片必须把「重新连接」摆成主按钮，
+  // 且断开入口仍在（#3296 语义：过期恰恰是最需要断开的时刻）
+  test("授权已过期的卡片：problem 徽章 + 一键重连调 begin，断开入口保留", async ({
+    context,
+    page
+  }) => {
+    const baseURL = test.info().project.use.baseURL as string;
+    await injectSupabaseSession(context, baseURL);
+    const calls = await stubMcpApi(page, baseURL, {
+      connections: [
+        {
+          provider: "tzzb",
+          auth_type: "oauth2",
+          status: "active",
+          expires_at: new Date(Date.now() - 60_000).toISOString(),
+          updated_at: "2026-11-28T17:00:00",
+          last_error_kind: null,
+          key_version: 1
+        }
+      ]
+    });
+
+    await page.goto("/#/settings/mcp-connections");
+    const card = page.locator('[data-provider="tzzb"]');
+    await expect(card.locator('[data-state="problem"]')).toBeVisible();
+    await expect(card.getByText("授权已过期")).toBeVisible();
+    // hint 行与卡片底部 tip 都含「静默续期」字样，锚定 hint 行避免严格模式双命中
+    await expect(
+      card.locator(".mcp-card__hint").getByText(/可一键静默续期/)
+    ).toBeVisible();
+
+    await card.getByRole("button", { name: "重新连接" }).click();
+    await expect.poll(() => calls.beginCalls.length).toBe(1);
+    await expect(card.getByRole("button", { name: "断开连接" })).toBeVisible();
+  });
+
+  // #3303：临期（60 秒内）在「已连接」卡片上就给续期入口，不等翻成过期态
+  test("临期卡片：connected 徽章旁出现「立即续期」，点击调 begin", async ({
+    context,
+    page
+  }) => {
+    const baseURL = test.info().project.use.baseURL as string;
+    await injectSupabaseSession(context, baseURL);
+    const calls = await stubMcpApi(page, baseURL, {
+      connections: [
+        {
+          provider: "tzzb",
+          auth_type: "oauth2",
+          status: "active",
+          expires_at: new Date(Date.now() + 30_000).toISOString(),
+          updated_at: "2026-11-28T17:00:00",
+          last_error_kind: null,
+          key_version: 1
+        }
+      ]
+    });
+
+    await page.goto("/#/settings/mcp-connections");
+    const card = page.locator('[data-provider="tzzb"]');
+    await expect(card.locator('[data-state="connected"]')).toBeVisible();
+    await expect(card.getByText(/点「立即续期」保持连接/)).toBeVisible();
+    await expect(card.getByText("授权有效期至")).toBeHidden();
+
+    await card.getByRole("button", { name: "立即续期" }).click();
+    await expect.poll(() => calls.beginCalls.length).toBe(1);
+  });
 });

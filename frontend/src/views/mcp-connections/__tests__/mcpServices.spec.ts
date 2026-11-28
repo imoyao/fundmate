@@ -11,6 +11,7 @@ import {
   connectionState,
   expiryHint,
   isExpired,
+  isExpiringSoon,
   serviceName,
   toolCapLabel,
   toolsToggleLabel
@@ -35,6 +36,36 @@ describe("isExpired", () => {
     expect(isExpired(iso(5))).toBe(false);
     expect(isExpired(new Date().toISOString())).toBe(true);
   });
+
+  it("nowMs 注入：同一 expires_at 随心跳钟翻面（token 5 分钟寿命的核心体验）", () => {
+    const expiresAt = new Date(1_000_000).toISOString();
+    // 心跳钟还没走到 → 未过期；走过同一时刻 → 过期（不依赖真实 Date.now）
+    expect(isExpired(expiresAt, 999_999)).toBe(false);
+    expect(isExpired(expiresAt, 1_000_000)).toBe(true);
+    expect(isExpired(expiresAt, 1_000_001)).toBe(true);
+  });
+});
+
+describe("isExpiringSoon（#3303 临期预警）", () => {
+  it("空值与不可解析一律 false", () => {
+    expect(isExpiringSoon(null)).toBe(false);
+    expect(isExpiringSoon(undefined)).toBe(false);
+    expect(isExpiringSoon("not-a-date")).toBe(false);
+  });
+
+  it("已过期 / 30 秒内到期 / 恰好 60 秒 / 61 秒外的边界", () => {
+    const now = 5_000_000;
+    expect(isExpiringSoon(iso(-5), now)).toBe(false); // 已过期走 problem 态
+    expect(isExpiringSoon(new Date(now + 30_000).toISOString(), now)).toBe(
+      true
+    );
+    expect(isExpiringSoon(new Date(now + 60_000).toISOString(), now)).toBe(
+      true
+    );
+    expect(isExpiringSoon(new Date(now + 60_001).toISOString(), now)).toBe(
+      false
+    );
+  });
 });
 
 describe("connectionState", () => {
@@ -50,6 +81,16 @@ describe("connectionState", () => {
       label: "授权已过期",
       tone: "problem"
     });
+  });
+
+  it("active + nowMs 注入：token 到点徽章自动翻面，不刷新页面也生效", () => {
+    const expiresAt = new Date(2_000_000).toISOString();
+    expect(connectionState("active", expiresAt, 1_999_999).tone).toBe(
+      "connected"
+    );
+    expect(connectionState("active", expiresAt, 2_000_000).tone).toBe(
+      "problem"
+    );
   });
 
   it("active 且无过期时间（API Key）→ 已连接", () => {
@@ -96,6 +137,17 @@ describe("expiryHint", () => {
 
   it("无过期时间返回空串（API Key 卡片不显示该行）", () => {
     expect(expiryHint(null)).toBe("");
+  });
+
+  it("临期（60 秒内）提示立即续期，指向「立即续期」按钮（#3303）", () => {
+    const now = 5_000_000;
+    const hint = expiryHint(new Date(now + 30_000).toISOString(), now);
+    expect(hint).toContain("过期");
+    expect(hint).toContain("立即续期");
+    // 远未到期仍是普通有效期文案，不制造紧迫感
+    expect(expiryHint(new Date(now + 5 * 60_000).toISOString(), now)).toContain(
+      "有效期至"
+    );
   });
 });
 
