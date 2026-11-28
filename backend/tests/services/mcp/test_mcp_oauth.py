@@ -6,7 +6,7 @@
 - state 一次性：第二次回调必须拒绝（否则授权码可被重放）；
 - PKCE verifier 必须真的送进 token 交换，且库里只存密文；
 - state 绑定发起用户，回调落库归属不能被回调方指定；
-- DCR 只注册一次，client_id 可缓存。
+- DCR 的 client_id 落库持久化：重启（新进程/新缓存）后读库复用同一 id。
 """
 
 from datetime import timedelta
@@ -21,6 +21,7 @@ from app.models.mcp_oauth_state import McpOAuthState
 from app.models.user_mcp_credential import UserMcpCredential
 from app.services.mcp import oauth
 from app.services.mcp.errors import McpAuthError
+from app.services.mcp.oauth_client_store import read_client_id
 from app.services.mcp.user_credentials import decrypt_payload, load_credential
 
 
@@ -30,13 +31,6 @@ def keys(monkeypatch):
     monkeypatch.setenv('MCP_CREDENTIAL_KEY_VERSION', '1')
     monkeypatch.delenv('MCP_TZZB_CLIENT_ID', raising=False)
     monkeypatch.setenv('MCP_OAUTH_REDIRECT_URI', 'http://127.0.0.1:5000/api/mcp/oauth/callback/')
-
-
-@pytest.fixture(autouse=True)
-def clear_dcr_cache():
-    oauth._CLIENT_IDS.clear()
-    yield
-    oauth._CLIENT_IDS.clear()
 
 
 @pytest.fixture
@@ -155,6 +149,8 @@ def test_dcr_registers_once(keys, fake_upstream, two_users):
     # DCR 按 RFC 7591 必须发 JSON body（真机实证：form 编码被同花顺 400）。
     assert registrations[0][1] is True
     assert registrations[0][0]['token_endpoint_auth_method'] == 'none'
+    # 注册结果落库（持久化）：重启后同一 provider 不再注册（红线见 oauth_client_store 测试）。
+    assert read_client_id('tzzb') == 'dcr-client-123'
 
 
 def test_refresh_replaces_access_token(keys, fake_upstream, two_users):
