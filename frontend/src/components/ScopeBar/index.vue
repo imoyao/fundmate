@@ -165,8 +165,12 @@ function onSelect(value: unknown) {
   align-items: stretch;
 }
 
+/* el-select 的默认宽度是 100%（EP 2.4+ 的 `--el-select-width`），在 flex 行里会把
+   整行吃掉、把档位与说明挤到上下两行（2026-11-28 走查实测切换条变成 3 行、高 105px）。
+   固定 200px 并禁止伸缩：档位按钮的宽度由文案决定，账户名超出就靠下拉展开看全。 */
 .scope-bar__select {
-  min-width: 200px;
+  flex: 0 0 auto;
+  width: 200px;
 }
 
 .scope-bar__empty {

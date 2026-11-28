@@ -88,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
@@ -98,6 +98,11 @@ import { getPositions } from "@/api/positions";
 import type { Position } from "@/api/types";
 import { formatAmount } from "@/utils/currency";
 import { buildBreakEven } from "./breakEven";
+
+/** 账户级口径（2026-11-28，复盘页口径切换器）：不传 = 家庭级 */
+const props = defineProps<{
+  ledgerId?: number;
+}>();
 
 /** 列表首屏行数：够看出「最该先处理的是哪几个」，又不把区块顶成一屏半 */
 const PREVIEW_SIZE = 6;
@@ -144,11 +149,19 @@ const overallCaption = computed(() =>
 const PAGE_SIZE = 500;
 const load = async () => {
   try {
-    const first = await getPositions({ page: 1, per_page: PAGE_SIZE });
+    const first = await getPositions({
+      page: 1,
+      per_page: PAGE_SIZE,
+      ledger_id: props.ledgerId
+    });
     let all = first?.data ?? [];
     const total = first?.total ?? all.length;
     for (let page = 2; all.length < total; page += 1) {
-      const next = await getPositions({ page, per_page: PAGE_SIZE });
+      const next = await getPositions({
+        page,
+        per_page: PAGE_SIZE,
+        ledger_id: props.ledgerId
+      });
       const rows = next?.data ?? [];
       if (rows.length === 0) break;
       all = all.concat(rows);
@@ -160,6 +173,16 @@ const load = async () => {
 };
 
 onMounted(load);
+
+// 切档：清空再取（失败时的空数组同理——留着旧口径的浮亏列表等于报错数）
+watch(
+  () => props.ledgerId,
+  () => {
+    positions.value = [];
+    expanded.value = false;
+    void load();
+  }
+);
 
 /** 父页「刷新数据」：真刷新，不摆样子 */
 defineExpose({ refresh: load });

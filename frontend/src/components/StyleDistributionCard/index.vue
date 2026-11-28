@@ -3,8 +3,8 @@
 
   2026-11-27 从 `views/asset/panorama/components/` 上提到 `components/`：
   复盘页（`/analysis`）结构区也要用同一张卡，跨页引用私有目录会立刻长出第二份
-  实现。**它自含取数**（`getPortfolioStyle`，不传作用域 = 家庭级），宿主页不必传参，
-  也就不存在「两个页面各算一遍」的口径漂移。
+  实现。**它自含取数**，宿主页只需在需要收窄口径时传 `ledgerId` / `portfolioId`
+  （都不传 = 家庭级，与资产总览的用法一致），不会出现「两个页面各算一遍」的漂移。
 -->
 <template>
   <div
@@ -128,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { getPortfolioStyle } from "@/api/funds";
 import type { PortfolioStyleExposure } from "@/api/funds";
 import { formatAmount } from "@/utils/currency";
@@ -151,6 +151,26 @@ import {
  * 自取数据而非由父页传入：资产总览的 `fetchData` 已经串了 4 个请求，
  * 风格数据是**可选增强**（失败只影响本卡），塞进去会让首屏一起被它拖慢。
  */
+/**
+ * 作用域（2026-11-28，复盘页口径切换器）：三个字段互斥，都不传 = 家庭级。
+ * 资产总览不传（它没有口径切换器），复盘页按当前档位传——同一个组件两处用法
+ * 的区别只有这一行，不存在第二份实现。
+ */
+const props = defineProps<{
+  /** 账户级口径；与 portfolioId 互斥 */
+  ledgerId?: number;
+  /** 组合级口径；与 ledgerId 互斥 */
+  portfolioId?: number;
+}>();
+
+const scopeQuery = computed<{ ledger_id?: number; portfolio_id?: number }>(
+  () => {
+    if (props.ledgerId != null) return { ledger_id: props.ledgerId };
+    if (props.portfolioId != null) return { portfolio_id: props.portfolioId };
+    return {};
+  }
+);
+
 const data = ref<PortfolioStyleExposure | null>(null);
 const loading = ref(true);
 const expanded = ref(false);
@@ -218,17 +238,23 @@ const sourceText = computed(
 
 const errorText = ref("");
 
-onMounted(async () => {
+async function load() {
+  loading.value = true;
+  errorText.value = "";
   try {
-    const res = await getPortfolioStyle();
+    const res = await getPortfolioStyle(scopeQuery.value);
     data.value = res.data ?? DEFAULT_DATA;
   } catch (e) {
-    // 风格分布是增强信息：失败不打断资产总览，只把本卡降级成一句说明
+    // 风格分布是增强信息：失败不打断宿主页，只把本卡降级成一句说明
     data.value = DEFAULT_DATA;
     errorText.value = "风格数据暂不可用";
     console.warn("[style-distribution] 加载失败:", e);
   } finally {
     loading.value = false;
   }
-});
+}
+
+onMounted(load);
+// 切档即重取：留着旧口径的箱体配新口径的标题，就是静默错口径
+watch(scopeQuery, load);
 </script>
