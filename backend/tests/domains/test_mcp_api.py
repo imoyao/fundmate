@@ -25,9 +25,7 @@ def credential_key(monkeypatch):
     monkeypatch.setenv('MCP_CREDENTIAL_KEY_VERSION', '1')
     monkeypatch.delenv('MCP_TZZB_CLIENT_ID', raising=False)
     monkeypatch.setenv('MCP_OAUTH_REDIRECT_URI', 'http://127.0.0.1:5000/api/mcp/oauth/callback/')
-    oauth._CLIENT_IDS.clear()
     yield
-    oauth._CLIENT_IDS.clear()
 
 
 @pytest.fixture
