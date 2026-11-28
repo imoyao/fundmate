@@ -27,6 +27,8 @@ export type McpService = {
   connectHint: string;
   /** OAuth 为主、API Key 兜底：卡片出「改用 API Key」次入口（且慢双通道，#3304） */
   staticFallback?: boolean;
+  /** 已接入数据同步流（#3304）：连接后卡片出「同步数据」入口 */
+  supportsSync?: boolean;
 };
 
 export const MCP_SERVICES: readonly McpService[] = [
@@ -38,7 +40,8 @@ export const MCP_SERVICES: readonly McpService[] = [
     authType: "oauth2",
     authLabel: "浏览器授权",
     connectHint:
-      "在弹窗中完成授权后自动回到本页，无需离开当前页面；凭证过期后点「重新连接」即可一键静默续期。"
+      "在弹窗中完成授权后自动回到本页，无需离开当前页面；凭证过期后点「重新连接」即可一键静默续期。",
+    supportsSync: true
   },
   {
     provider: "qieman",
@@ -58,6 +61,14 @@ export function serviceName(provider: string): string {
   return (
     MCP_SERVICES.find(service => service.provider === provider)?.name ??
     "该服务"
+  );
+}
+
+/** 该服务是否已接入数据同步流（#3304）：只有登记了的才出「同步数据」入口 */
+export function syncSupported(provider: string): boolean {
+  return (
+    MCP_SERVICES.find(service => service.provider === provider)
+      ?.supportsSync === true
   );
 }
 

@@ -13,6 +13,7 @@ import {
   isExpired,
   isExpiringSoon,
   MCP_SERVICES,
+  syncSupported,
   serviceName,
   toolCapLabel,
   toolDisplayMeta,
@@ -141,6 +142,20 @@ describe("MCP_SERVICES 登记（前后端同步的契约）", () => {
     const tzzb = MCP_SERVICES.find(item => item.provider === "tzzb");
     expect(tzzb?.authType).toBe("oauth2");
     expect(tzzb?.staticFallback).toBeUndefined();
+  });
+});
+
+describe("syncSupported（#3304 同步入口按服务开关）", () => {
+  it("tzzb 已接入同步流", () => {
+    expect(syncSupported("tzzb")).toBe(true);
+  });
+
+  it("qieman 未接入：不出「同步数据」入口，不猜", () => {
+    expect(syncSupported("qieman")).toBe(false);
+  });
+
+  it("未登记 provider 返回 false", () => {
+    expect(syncSupported("nope")).toBe(false);
   });
 });
 

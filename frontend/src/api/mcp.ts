@@ -86,3 +86,65 @@ export function fetchMcpTools(provider: string) {
     `/api/mcp/connections/${encodeURIComponent(provider)}/tools/`
   );
 }
+
+/** 同步向导第一步：上游账户清单的一个条目（id/name 来自账户发现真实返回） */
+export type McpAccountEntry = {
+  id: string;
+  name: string;
+  /** 上游 PC 端最后同步时间（证券账户才有；null = 未同步过） */
+  lastSyncTime: string | null;
+};
+
+/** 按账户类型分好组（label/param 由后端下发，前端不再维护一份映射） */
+export type McpAccountGroup = {
+  group: string;
+  label: string;
+  param: string;
+  accounts: McpAccountEntry[];
+};
+
+/** 拉上游账户清单（同步前必经步骤：不选账户不允许发起同步） */
+export function fetchMcpAccounts(provider: string) {
+  return http.request<
+    McpEnvelope<{ provider: string; groups: McpAccountGroup[] }>
+  >("post", `/api/mcp/connections/${encodeURIComponent(provider)}/accounts/`);
+}
+
+/** 同步所选账户：组键 + 账户 id */
+export type McpSyncAccount = { group: string; id: string };
+
+/** 同步返回的持仓预览条目（字段缺失为 null，不猜） */
+export type McpSyncItem = {
+  code: string | null;
+  name: string | null;
+  marketValue: string | null;
+  quantity: string | null;
+};
+
+/** 同步结果：置信度判定 + 差异摘要 + 预览（低置信默认不导入） */
+export type McpSyncResult = {
+  tool: string;
+  confidence: "high" | "low";
+  reasons: string[];
+  summary: {
+    count: number;
+    overlap: number;
+    totalAsset: number | null;
+    [key: string]: unknown;
+  };
+  items: McpSyncItem[];
+  imported: boolean;
+  forced: boolean;
+};
+
+/** 发起数据同步（#3304）：后端调上游工具 → 置信度判定 → 审计留痕 */
+export function syncMcpData(
+  provider: string,
+  data: { tool: string; accounts: McpSyncAccount[]; force?: boolean }
+) {
+  return http.request<McpEnvelope<McpSyncResult>>(
+    "post",
+    `/api/mcp/connections/${encodeURIComponent(provider)}/sync/`,
+    { data }
+  );
+}

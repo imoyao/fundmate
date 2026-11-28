@@ -43,6 +43,7 @@
             @connect-static="onConnectStatic"
             @disconnect="disconnect"
             @verify="onVerify"
+            @sync="onSync"
           />
         </div>
       </section>
@@ -51,16 +52,25 @@
         凭据按用户隔离、加密保存；可以在任何时候断开。断开不会删除你在第三方服务里的账户。
       </p>
     </div>
+
+    <!-- 数据同步向导（#3304）：选账户 → 置信度判定 → 用户决定 -->
+    <SyncDialog
+      v-model:visible="syncVisible"
+      :provider="syncProvider"
+      @imported="onSyncImported"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onActivated, onMounted } from "vue";
+import { onActivated, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import ServiceCard from "./components/ServiceCard.vue";
+import SyncDialog from "./components/SyncDialog.vue";
+import { serviceName } from "./mcpServices";
 import { useMcpConnections } from "./useMcpConnections";
 
 defineOptions({ name: "McpConnections" });
@@ -101,6 +111,23 @@ function onConnectStatic(payload: { provider: string; apiKey: string }): void {
 
 function onVerify(provider: string): void {
   void verify(provider);
+}
+
+/** 同步向导（#3304）：卡片点「同步数据」打开弹窗 */
+const syncVisible = ref(false);
+const syncProvider = ref("");
+
+function onSync(provider: string): void {
+  syncProvider.value = provider;
+  syncVisible.value = true;
+}
+
+function onSyncImported(provider: string): void {
+  // 导入只写同步审计（不写账本），本页无状态要刷新；提示让「确实导入了」有回声
+  notice.value = {
+    type: "success",
+    text: `${serviceName(provider)}同步数据已确认导入，决策已留痕可追溯`
+  };
 }
 
 onMounted(() => {
