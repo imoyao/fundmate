@@ -33,6 +33,8 @@ type StubOptions = {
   connections?: Connection[];
   /** OAuth begin 返回的授权地址；默认回跳本页并带成功 query */
   authorizationUrl?: string;
+  /** begin 被调用时改写连接快照，模拟回调落库后的新凭据 */
+  onBegin?: () => void;
 };
 
 async function stubMcpApi(
@@ -95,6 +97,7 @@ async function stubMcpApi(
     url => new URL(url).pathname === "/api/mcp/oauth/begin/",
     route => {
       beginCalls.push(JSON.parse(route.request().postData() ?? "{}"));
+      options.onBegin?.();
       return route.fulfill({
         json: {
           data: {
@@ -210,39 +213,60 @@ test.describe("数据连接页", () => {
     await expect(page.getByText("已断开连接")).toBeVisible();
   });
 
-  // #3303：token 5 分钟寿命是常态，过期卡片必须把「重新连接」摆成主按钮，
-  // 且断开入口仍在（#3296 语义：过期恰恰是最需要断开的时刻）
-  test("授权已过期的卡片：problem 徽章 + 一键重连调 begin，断开入口保留", async ({
+  // #3303：token 5 分钟寿命是常态，过期卡片把「重新授权」摆成主按钮，
+  // 弹窗完成授权后原位翻回已连接；断开入口始终保留（#3296 语义）
+  test("授权已过期的卡片：一键弹窗重授权，3 秒内翻回已连接且断开入口保留", async ({
     context,
     page
   }) => {
     const baseURL = test.info().project.use.baseURL as string;
     await injectSupabaseSession(context, baseURL);
+    const connections: Connection[] = [
+      {
+        provider: "tzzb",
+        auth_type: "oauth2",
+        status: "active",
+        expires_at: new Date(Date.now() - 60_000).toISOString(),
+        updated_at: "2026-11-28T17:00:00",
+        last_error_kind: null,
+        key_version: 1
+      }
+    ];
     const calls = await stubMcpApi(page, baseURL, {
-      connections: [
-        {
-          provider: "tzzb",
-          auth_type: "oauth2",
-          status: "active",
-          expires_at: new Date(Date.now() - 60_000).toISOString(),
-          updated_at: "2026-11-28T17:00:00",
-          last_error_kind: null,
-          key_version: 1
-        }
-      ]
+      connections,
+      onBegin: () => {
+        connections[0] = {
+          ...connections[0],
+          expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+          updated_at: new Date().toISOString()
+        };
+      }
     });
 
     await page.goto("/#/settings/mcp-connections");
     const card = page.locator('[data-provider="tzzb"]');
     await expect(card.locator('[data-state="problem"]')).toBeVisible();
-    await expect(card.getByText("授权已过期")).toBeVisible();
-    // hint 行与卡片底部 tip 都含「静默续期」字样，锚定 hint 行避免严格模式双命中
     await expect(
-      card.locator(".mcp-card__hint").getByText(/可一键静默续期/)
+      card.locator(".mcp-card__hint").getByText(/授权已于/)
     ).toBeVisible();
+    await expect(card.getByRole("button", { name: "重新授权" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "断开连接" })).toBeVisible();
 
-    await card.getByRole("button", { name: "重新连接" }).click();
+    const urlBefore = page.url();
+    await card.getByRole("button", { name: "重新授权" }).click();
     await expect.poll(() => calls.beginCalls.length).toBe(1);
+
+    await expect(card.locator('[data-state="connected"]')).toBeVisible({
+      timeout: 3000
+    });
+    await expect(
+      card.locator(".mcp-card__hint").getByText(/授权有效期至/)
+    ).toBeVisible();
+    await expect(
+      card.locator(".mcp-card__hint").getByText(/授权已于/)
+    ).toHaveCount(0);
+    await expect(page.getByText("同花顺投资账本授权已静默恢复")).toBeVisible();
+    expect(page.url()).toBe(urlBefore);
     await expect(card.getByRole("button", { name: "断开连接" })).toBeVisible();
   });
 

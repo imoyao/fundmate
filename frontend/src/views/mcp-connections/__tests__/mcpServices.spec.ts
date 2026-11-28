@@ -8,10 +8,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  connectButtonLabel,
   connectionState,
   expiryHint,
   isExpired,
   isExpiringSoon,
+  isMcpAuthError,
   MCP_SERVICES,
   syncSupported,
   serviceName,
@@ -109,6 +111,16 @@ describe("connectionState", () => {
     }
   });
 
+  it("授权错误兜底：expires_at 未到点也翻成 problem（上游提前撤销）", () => {
+    expect(connectionState("active", iso(5), Date.now(), true)).toEqual({
+      label: "授权已过期",
+      tone: "problem"
+    });
+    expect(connectionState("active", null, Date.now(), true).tone).toBe(
+      "problem"
+    );
+  });
+
   it("未知状态一律按未连接处理，不猜", () => {
     expect(connectionState(undefined)).toEqual({
       label: "未连接",
@@ -168,6 +180,11 @@ describe("expiryHint", () => {
 
   it("无过期时间返回空串（API Key 卡片不显示该行）", () => {
     expect(expiryHint(null)).toBe("");
+  });
+
+  it("授权错误兜底：expires_at 未到点也指向「重新授权」", () => {
+    expect(expiryHint(iso(5), Date.now(), true)).toContain("重新授权");
+    expect(expiryHint(null, Date.now(), true)).toContain("重新授权");
   });
 
   it("临期（60 秒内）提示立即续期，指向「立即续期」按钮（#3303）", () => {
@@ -232,5 +249,52 @@ describe("toolDisplayMeta（工具名给人读，#3303 走查反馈）", () => {
         description: "上游描述原文"
       }).label
     ).toBe("queryStockPosition");
+  });
+});
+
+describe("connectButtonLabel（#3303 过期主按钮）", () => {
+  it("OAuth 过期态明确「重新授权」，非过期态仍是「连接」", () => {
+    expect(connectButtonLabel("problem", "oauth2")).toBe("重新授权");
+    expect(connectButtonLabel("connected", "oauth2")).toBe("连接");
+    expect(connectButtonLabel("idle", "oauth2")).toBe("连接");
+  });
+
+  it("API Key 型没有弹窗通道，过期态仍是「重新连接」", () => {
+    expect(connectButtonLabel("problem", "static_token")).toBe("重新连接");
+  });
+});
+
+describe("isMcpAuthError（verify / 同步兜底，#3303）", () => {
+  it("4xx + 授权过期/失效文案 → true", () => {
+    expect(
+      isMcpAuthError({
+        response: { status: 400, data: { message: "授权已过期，请重新连接" } }
+      })
+    ).toBe(true);
+    expect(
+      isMcpAuthError({
+        response: {
+          status: 401,
+          data: { message: "同花顺投资账本 授权已失效，请更新 Token" }
+        }
+      })
+    ).toBe(true);
+  });
+
+  it("5xx / 非授权文案 / 空响应 → false（不误伤普通失败）", () => {
+    expect(
+      isMcpAuthError({
+        response: {
+          status: 502,
+          data: { message: "授权已失效，请更新 Token" }
+        }
+      })
+    ).toBe(false);
+    expect(
+      isMcpAuthError({
+        response: { status: 400, data: { message: "参数错误" } }
+      })
+    ).toBe(false);
+    expect(isMcpAuthError(new Error("验证失败，请稍后重试"))).toBe(false);
   });
 });

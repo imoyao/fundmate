@@ -16,7 +16,12 @@ import {
   snapshotOf,
   type ConnectionSnapshot
 } from "./oauthPopup";
-import { isExpired, MCP_SERVICES, serviceName } from "./mcpServices";
+import {
+  isExpired,
+  isMcpAuthError,
+  MCP_SERVICES,
+  serviceName
+} from "./mcpServices";
 
 export type McpNotice = { type: "success" | "error"; text: string };
 
@@ -46,6 +51,19 @@ export function useMcpConnections() {
   const verifyStates = ref<Record<string, McpVerifyState | undefined>>({});
   /** 工具目录（S5g）：provider → 已采样工具（后端带能力标注），verify 成功后刷新 */
   const toolCatalogs = ref<Record<string, McpToolInfo[]>>({});
+  /**
+   * verify / 数据调用报 McpAuthError 的兜底标记（#3303）。
+   * 上游可能提前撤销凭据而 expires_at 尚未到点，只靠时间判不出来；
+   * 由错误响应把卡片切到 problem 态，重连 / 断开 / 校验成功即清。
+   */
+  const authExpired = ref<Record<string, boolean>>({});
+  function isAuthExpired(provider: string): boolean {
+    return authExpired.value[provider] === true;
+  }
+  function setAuthExpired(provider: string, expired: boolean): void {
+    if (isAuthExpired(provider) === expired) return;
+    authExpired.value = { ...authExpired.value, [provider]: expired };
+  }
 
   /**
    * 页面心跳钟（毫秒）：每秒推进，喂给卡片的过期/临期判定。
@@ -158,6 +176,7 @@ export function useMcpConnections() {
       }
       const result = await reauthorizeViaPopup(url, provider, baseline);
       if (result.ok) {
+        setAuthExpired(provider, false);
         notice.value = {
           type: "success",
           text: previous ? `${name}授权已静默恢复` : `${name}已授权连接`
@@ -191,6 +210,7 @@ export function useMcpConnections() {
     track(provider, true);
     try {
       await connectMcpStaticToken({ provider, api_key: apiKey });
+      setAuthExpired(provider, false);
       notice.value = { type: "success", text: "API Key 已保存" };
       await load();
     } catch {
@@ -204,6 +224,7 @@ export function useMcpConnections() {
     track(provider, true);
     try {
       await disconnectMcp(provider);
+      setAuthExpired(provider, false);
       notice.value = { type: "success", text: "已断开连接" };
       await load();
     } catch {
@@ -227,6 +248,7 @@ export function useMcpConnections() {
         .map(tool => tool.name)
         .join("、");
       const more = data.tool_count > 6 ? ` 等 ${data.tool_count} 个` : "";
+      setAuthExpired(provider, false);
       setVerifyState(provider, {
         status: "ok",
         text: `连接可用，上游提供 ${data.tool_count} 个工具：${names}${more}`
@@ -242,12 +264,16 @@ export function useMcpConnections() {
         )?.response?.data?.message || "验证失败，请稍后重试";
       // 后端对「凭据过期」的模板文案是「…请更新 Token」——对 API Key 型成立，
       // 但对浏览器授权型是死胡同：用户手里没有 Token 可更新，正确动作是
-      // 点「重新连接」弹窗静默续期。本地已过期（expires_at 可判）时改写文案，
-      // 把下一步动作指对；没过期时照原样透传（真失效 / 被撤销仍由后端文案描述）。
+      // 点「重新授权」弹窗静默续期。4xx 授权错误（含上游提前撤销、expires_at
+      // 尚未到点）与本地 expires_at 已过都切到同一卡片态与文案。
       const connection = byProvider.value.get(provider);
-      const text = isExpired(connection?.expires_at)
-        ? `${serviceName(provider)}授权已过期，点「重新连接」即可静默续期`
-        : backendMessage;
+      const oauthConnection = connection?.auth_type === "oauth2";
+      const authFailure = oauthConnection && isMcpAuthError(error);
+      if (authFailure) setAuthExpired(provider, true);
+      const text =
+        authFailure || (oauthConnection && isExpired(connection?.expires_at))
+          ? `${serviceName(provider)}授权已过期，点「重新授权」即可恢复连接`
+          : backendMessage;
       setVerifyState(provider, { status: "fail", text });
     }
   }
@@ -274,6 +300,8 @@ export function useMcpConnections() {
     verify,
     verifyState,
     toolsOf,
+    isAuthExpired,
+    setAuthExpired,
     clearNotice: () => {
       notice.value = null;
     }
