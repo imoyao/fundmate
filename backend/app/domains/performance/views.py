@@ -20,13 +20,12 @@ bp = APIBlueprint('performance', __name__, url_prefix='/api/performance')
 
 @bp.get('/xirr/')
 def get_xirr():
-    """查询收益率（scope=position / portfolio / symbol；method=xirr / twr / dietz，#871）"""
+    """查询收益率（scope=position / portfolio / symbol / ledger；method=xirr / twr / dietz）"""
     query_data: XirrRequest = parse_query(XirrRequest)
 
     with get_db() as db:
-        # scope / method 校验 / 分派 / 归属校验全部下沉 services（#1929 / #1972）：
-        # XirrScopeParameterError 必须排在 ValueError 之前捕获（它是其子类），
-        # 否则「参数缺失」会被归属校验的 404 分支吃掉。
+        # scope 校验 / 分派 / 归属校验全部下沉 services（#1929 / #1972）。
+        # XirrScopeParameterError 是 ValueError 子类，必须排在它前面捕获（否则参数缺失会被 404 吃掉）。
         try:
             result = calculate_return_by_scope(
                 db,
@@ -35,6 +34,7 @@ def get_xirr():
                 position_id=query_data.position_id,
                 portfolio_id=query_data.portfolio_id,
                 symbol=query_data.symbol,
+                ledger_id=query_data.ledger_id,
                 family_id=get_family_id(),
                 include_cash_equivalents=query_data.include_cash_equivalents,
             )

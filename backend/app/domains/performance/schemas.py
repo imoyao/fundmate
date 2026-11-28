@@ -12,9 +12,10 @@ from pydantic import BaseModel, Field
 class XirrRequest(BaseModel):
     """年化收益率查询参数"""
 
-    scope: str = Field(..., description='查询范围: position / portfolio / symbol')
+    scope: str = Field(..., description='查询范围: position / portfolio / symbol / ledger')
     position_id: Optional[int] = Field(None, description='持仓ID（scope=position时必填）')
     portfolio_id: Optional[int] = Field(None, description='投资组合ID（scope=portfolio时用于指定组合）')
+    ledger_id: Optional[int] = Field(None, description='账户ID（scope=ledger 时必填；只算该账户的流水与市值）')
     symbol: Optional[str] = Field(
         None, description='产品代码（scope=symbol 时必填；跨账户按 symbol 汇总现金流，算产品级持有年化）'
     )
