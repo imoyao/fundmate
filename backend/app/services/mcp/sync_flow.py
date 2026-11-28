@@ -60,6 +60,10 @@ SYNC_TOOLS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     'queryFundAccount': ('fund', ('fund_id', 'cust_id')),
 }
 
+#: 账户分组 → 同步工具（从 SYNC_TOOLS 反推，唯一真相）。交互层只让用户选
+#: 「账户类型（组）→ 账户」，用哪个工具是本模块的实现细节，前端不传工具名。
+GROUP_TOOL: Dict[str, str] = {group: tool for tool, (_, allowed) in SYNC_TOOLS.items() for group in allowed}
+
 
 class SyncSelectionError(ValueError):
     """账户选择不合法（未选账户 / 类型与工具错位）。视图层转 422。"""
@@ -125,6 +129,25 @@ def fetch_accounts(provider: str, user_id: int) -> Dict[str, Any]:
 
 
 # ── 参数装配 ──
+def tool_for_accounts(accounts: List[Dict[str, Any]]) -> str:
+    """所选账户 → 同步工具：组的工具归属必须一致（混族 = 前端漏拦，这里兜底）。
+
+    组键未知同样拒绝——组清单是账户发现下发的，前端不存映射，出现未知组
+    说明请求被伪造或版本错位。
+    """
+    tools = set()
+    for acc in accounts:
+        group = str(acc.get('group') or '')
+        tool = GROUP_TOOL.get(group)
+        if tool is None:
+            label = ACCOUNT_GROUPS.get(group, (group, ''))[0]
+            raise SyncSelectionError(f'未知的账户类型（{label}），请重新拉取账户清单')
+        tools.add(tool)
+    if len(tools) > 1:
+        raise SyncSelectionError('所选账户类型不属于同一类数据，请分开同步')
+    return tools.pop()
+
+
 def build_tool_args(tool: str, accounts: List[Dict[str, Any]]) -> Dict[str, str]:
     """所选账户 → 工具参数：同组多个 id 逗号拼接，未选组传**空串**（上游契约）。
 
@@ -309,27 +332,27 @@ def _write_audit(
 def run_sync(
     provider: str,
     user_id: int,
-    tool: str,
     accounts: List[Dict[str, Any]],
     force: bool = False,
 ) -> Dict[str, Any]:
-    """执行一次同步：装配参数 → 调上游 → 置信度判定 → 审计 → 返回判定结果。
+    """执行一次同步：推导工具 → 装配参数 → 调上游 → 置信度判定 → 审计 → 返回。
 
+    工具由所选账户的组推导（:func:`tool_for_accounts`）——交互层只暴露
+    「账户类型 → 账户名称」两级选择，工具名不进请求体。
     高置信自动导入；低置信默认不导入（``imported=False``），前端展示差异摘要后
     由用户决定「仍要导入」（``force=True`` 重发，审计记强制标志）或换账户重试。
     上游异常（McpError 家族）：审计记 ``error`` 后原样上抛，视图层透出上游文案。
 
     Raises:
-        SyncSelectionError: 未选账户 / 工具未登记 / 账户类型与工具错位。
+        SyncSelectionError: 未选账户 / 组未知 / 混族选择。
         McpError: 凭据缺失 / 上游失败（``isError``、非 JSON 等）。
     """
-    if tool not in SYNC_TOOLS:
-        raise SyncSelectionError('不支持的同步工具')
+    if not accounts:
+        raise SyncSelectionError('请先选择要同步的账户')
+    tool = tool_for_accounts(accounts)
     capabilities = getattr(get_provider(provider), 'tool_capabilities', None) or {}
     if tool not in capabilities:
         raise SyncSelectionError('该服务没有这个同步工具')
-    if not accounts:
-        raise SyncSelectionError('请先选择要同步的账户')
     args = build_tool_args(tool, accounts)
     transport, token = _transport_for(provider, user_id)
     try:

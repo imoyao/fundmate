@@ -42,8 +42,8 @@ class SyncAccountIn(BaseModel):
 
 class SyncIn(BaseModel):
     """发起数据同步（#3304）。``accounts`` 非空由 pydantic 强制——不选账户在
-    请求体校验层就被拒，这是「双层校验」的 API 侧第一层；工具契约错位在服务层拦。"""
+    请求体校验层就被拒，这是「双层校验」的 API 侧第一层；工具由所选账户的组
+    在服务层推导（``sync_flow.tool_for_accounts``），前端不传工具名。"""
 
-    tool: str = Field(..., min_length=1, max_length=100)
     accounts: List[SyncAccountIn] = Field(..., min_length=1)
     force: bool = False

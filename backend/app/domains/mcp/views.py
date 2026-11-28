@@ -183,7 +183,6 @@ def sync_provider_data(provider: str):
         result = run_sync(
             provider,
             _user_id(),
-            data.tool,
             [item.model_dump() for item in data.accounts],
             force=data.force,
         )

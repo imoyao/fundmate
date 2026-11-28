@@ -165,7 +165,6 @@ def test_run_sync_high_confidence_matches_local(fake_upstream, tzzb_key, monkeyp
     result = run_sync(
         'tzzb',
         1,
-        'queryStockPosition',
         [{'group': 'fund_key', 'id': '80381665'}, {'group': 'manual_id', 'id': '406776'}],
     )
 
@@ -190,7 +189,7 @@ def test_run_sync_empty_positions_is_low_confidence(fake_upstream, tzzb_key, mon
     }
     monkeypatch.setattr(sync_flow, '_local_position_codes', lambda user_id: set())
 
-    result = run_sync('tzzb', 1, 'queryStockPosition', [{'group': 'fund_key', 'id': '80381665'}])
+    result = run_sync('tzzb', 1, [{'group': 'fund_key', 'id': '80381665'}])
 
     assert result['confidence'] == 'low'
     assert result['imported'] is False  # 默认不落库
@@ -204,7 +203,7 @@ def test_run_sync_zero_overlap_is_suspicious(fake_upstream, tzzb_key, monkeypatc
     fake_upstream['box']['responses'] = {'queryStockPosition': _call_result(json.dumps(_STOCK_POSITIONS))}
     monkeypatch.setattr(sync_flow, '_local_position_codes', lambda user_id: {'999999'})
 
-    result = run_sync('tzzb', 1, 'queryStockPosition', [{'group': 'fund_key', 'id': '80381665'}])
+    result = run_sync('tzzb', 1, [{'group': 'fund_key', 'id': '80381665'}])
 
     assert result['confidence'] == 'low'
     assert any('重合' in reason for reason in result['reasons'])
@@ -215,7 +214,7 @@ def test_run_sync_structure_mismatch_is_low(fake_upstream, tzzb_key, monkeypatch
     fake_upstream['box']['responses'] = {'queryFundAccount': _call_result(json.dumps({'account': {}}))}
     monkeypatch.setattr(sync_flow, '_local_position_codes', lambda user_id: set())
 
-    result = run_sync('tzzb', 1, 'queryFundAccount', [{'group': 'fund_id', 'id': '27789642'}])
+    result = run_sync('tzzb', 1, [{'group': 'fund_id', 'id': '27789642'}])
 
     assert result['confidence'] == 'low'
     assert any('funds' in reason for reason in result['reasons'])
@@ -227,7 +226,7 @@ def test_run_sync_force_imports_and_audits(fake_upstream, tzzb_key, monkeypatch)
     }
     monkeypatch.setattr(sync_flow, '_local_position_codes', lambda user_id: set())
 
-    result = run_sync('tzzb', 1, 'queryStockPosition', [{'group': 'fund_key', 'id': '80381665'}], force=True)
+    result = run_sync('tzzb', 1, [{'group': 'fund_key', 'id': '80381665'}], force=True)
 
     assert result['confidence'] == 'low'
     assert result['imported'] is True
@@ -241,7 +240,7 @@ def test_run_sync_force_imports_and_audits(fake_upstream, tzzb_key, monkeypatch)
 def test_run_sync_iserror_raises_but_audits(fake_upstream, tzzb_key):
     fake_upstream['box']['responses'] = {'queryStockPosition': _call_result('账户不存在', is_error=True)}
     with pytest.raises(McpBadResponse):
-        run_sync('tzzb', 1, 'queryStockPosition', [{'group': 'fund_key', 'id': '80381665'}])
+        run_sync('tzzb', 1, [{'group': 'fund_key', 'id': '80381665'}])
 
     row = _last_audit()
     assert row is not None
@@ -253,10 +252,20 @@ def test_run_sync_iserror_raises_but_audits(fake_upstream, tzzb_key):
 def test_run_sync_rejects_empty_selection(fake_upstream, tzzb_key):
     # 双层校验的服务层兜底：就算绕过 pydantic 直达这里，空选也进不来
     with pytest.raises(ValueError, match='选择'):
-        run_sync('tzzb', 1, 'queryStockPosition', [])
+        run_sync('tzzb', 1, [])
 
 
-def test_run_sync_rejects_unregistered_tool(fake_upstream, tzzb_key):
-    # 工具没在 SYNC_TOOLS 登记（对账类工具另开卡）⇒ 拒绝，不静默放行
-    with pytest.raises(ValueError, match='不支持的同步工具'):
-        run_sync('tzzb', 1, 'queryPnlSummary', [{'group': 'fund_key', 'id': '80381665'}])
+def test_run_sync_rejects_unknown_group(fake_upstream, tzzb_key):
+    # 组清单由账户发现下发，未知组 = 请求伪造或版本错位 ⇒ 拒绝
+    with pytest.raises(ValueError, match='未知的账户类型'):
+        run_sync('tzzb', 1, [{'group': 'nope', 'id': '1'}])
+
+
+def test_run_sync_rejects_mixed_family_selection(fake_upstream, tzzb_key):
+    # 证券账户和基金账户混选 = 不是同一类数据，兜底拒绝（UI 层只允许单选）
+    with pytest.raises(ValueError, match='同一类数据'):
+        run_sync(
+            'tzzb',
+            1,
+            [{'group': 'fund_key', 'id': '80381665'}, {'group': 'fund_id', 'id': '27789642'}],
+        )
