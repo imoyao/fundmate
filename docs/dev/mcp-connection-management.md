@@ -62,6 +62,37 @@ GET /oauth2/authorize?...&scope=tools.read
 拿 `access_token` 直接 `POST /mcp`，看是 200 还是 401/证书错误。
 若强制绑定，退路是用 DPoP（元数据也声明支持）或要求用户证书，需另开卡评估。
 
+### 1.1b 且慢（盈米 partner 网关）实测证据（2026-11-28，#3304）
+
+且慢原有 API Key 通道打 `stargate.yingmi.com/mcp/v2`（平台公开数据，x-api-key）；
+用户账户级数据走 **partner OAuth 网关**，两条通道端点、语义都不同，按凭据
+`auth_type` 路由（`oauth_connection_routes.py`）。
+
+```
+POST https://stargate-partner.yingmi.com/mcp/v2/oauth/qieman  (initialize)
+→ 401
+WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp/v2/oauth/qieman"
+
+GET /.well-known/oauth-protected-resource/mcp/v2/oauth/qieman
+→ authorization_servers: ["https://stargate-partner.yingmi.com"]
+  scopes_supported: ["oapqieman:level1", "oapqieman:level2", "oapqieman:level3"]
+
+GET /.well-known/openid-configuration
+→ authorization_endpoint /oauth/authorize, token_endpoint /oauth/token,
+  registration_endpoint /oauth/register, revocation_endpoint /oauth/revoke
+  code_challenge_methods_supported: ["S256"]
+  token_endpoint_auth_methods: none, client_secret_*, private_key_jwt
+
+POST /oauth/register  (RFC 7591 JSON，scope=oapqieman:level1 offline_access)
+→ 200 {"client_id": "dcr_...", "token_endpoint_auth_method": "none",
+       "dpop_bound_access_tokens": false, "require_pushed_authorization_requests": false}
+```
+
+**取最小权限**：scope 只取 `oapqieman:level1`（保护资源声明的三档中最低档）+
+`offline_access`（换 refresh_token）。**未验证**：①level1 是否够用（不够则重授权
+升档）；②refresh_token 是否可用——tzzb 实测 invalid_grant（#3286），不能想当然；
+③partner 网关的工具清单（首次 verify 采样后登记 `toolDisplayMeta` 人话版）。
+
 ### 1.2 天天基金 ttskill 实测证据（官方文档原文要点）
 
 安装指南 `https://skills.tiantianfunds.com/ttfund-skills/ttfund-skill-cli-install.md` 明确：

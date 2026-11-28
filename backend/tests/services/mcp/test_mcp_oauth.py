@@ -69,6 +69,20 @@ def two_users(db):
     return rows
 
 
+def test_begin_qieman_uses_partner_gateway_and_minimal_scope(keys, fake_upstream, two_users):
+    """且慢 OAuth：端点与 scope 来自实测元数据（#3304）——partner 域 + 最小权限。"""
+    user_id, _ = two_users
+    result = oauth.begin('qieman', user_id)
+    parsed = urlparse(result['authorization_url'])
+
+    assert parsed.netloc == 'stargate-partner.yingmi.com'
+    assert parsed.path == '/oauth/authorize'
+    params = parse_qs(parsed.query)
+    assert params['scope'] == ['oapqieman:level1 offline_access']
+    assert params['client_id'] == ['dcr-client-123']
+    assert params['code_challenge_method'] == ['S256']
+
+
 def test_begin_builds_s256_url_and_stores_encrypted_verifier(keys, fake_upstream, two_users):
     user_id, _ = two_users
     result = oauth.begin('tzzb', user_id)

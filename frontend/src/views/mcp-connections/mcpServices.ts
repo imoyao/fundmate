@@ -25,6 +25,8 @@ export type McpService = {
   authLabel: string;
   /** 点击连接前的提示（OAuth 会跳浏览器，API Key 只在本站填） */
   connectHint: string;
+  /** OAuth 为主、API Key 兜底：卡片出「改用 API Key」次入口（且慢双通道，#3304） */
+  staticFallback?: boolean;
 };
 
 export const MCP_SERVICES: readonly McpService[] = [
@@ -42,10 +44,12 @@ export const MCP_SERVICES: readonly McpService[] = [
     provider: "qieman",
     name: "且慢",
     description:
-      "填入且慢的 API Key 后，可验证连接并查看上游提供的数据工具（市场温度、组合持仓与净值等）。",
-    authType: "static_token",
-    authLabel: "API Key",
-    connectHint: "API Key 加密保存，仅用于代表你调用且慢的数据。"
+      "授权且慢账号后，可验证连接并查看你账户的数据工具；也可以改用 API Key，只看市场温度等平台公开数据。",
+    authType: "oauth2",
+    authLabel: "浏览器授权",
+    connectHint:
+      "在弹窗中登录且慢账号并确认授权后自动回到本页；没有弹窗登录条件时，可改用 API Key 连接。",
+    staticFallback: true
   }
 ];
 

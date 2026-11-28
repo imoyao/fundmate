@@ -20,7 +20,7 @@ from app.services.mcp import connection_check
 from app.services.mcp.connection_check import check_connection
 from app.services.mcp.errors import McpError, McpUserTokenMissing
 from app.services.mcp.providers.tzzb import TzzbProvider
-from app.services.mcp.user_credentials import save_static_token
+from app.services.mcp.user_credentials import save_oauth_token, save_static_token
 
 
 @pytest.fixture(autouse=True)
@@ -55,9 +55,9 @@ def fake_upstream_tools(monkeypatch):
     """把传输层的 HTTP 打成桩：只认 MCP 协议形状（不 import requests、不出网）。"""
     calls = []
 
-    def fake_post_factory(provider, token):
+    def fake_post_factory(provider, token, route=None):
         def post(payload, sid):
-            calls.append({'payload': payload, 'sid': sid, 'token': token})
+            calls.append({'payload': payload, 'sid': sid, 'token': token, 'route': route})
             method = payload.get('method')
             if method == 'initialize':
                 return SimpleNamespace(status_code=200, headers={}, text='{}', json=lambda: {'result': {}})
@@ -95,7 +95,7 @@ def test_check_requires_user_credential(fake_upstream_tools):
 
 
 def test_check_upstream_reject_is_typed(fake_upstream_tools, qieman_key, monkeypatch):
-    def broken_factory(provider, token):
+    def broken_factory(provider, token, route=None):
         def post(payload, sid):
             return _fake_response({'error': 'denied'}, status=401)
 
@@ -108,7 +108,7 @@ def test_check_upstream_reject_is_typed(fake_upstream_tools, qieman_key, monkeyp
 
 
 def test_check_parses_sse_frame(fake_upstream_tools, qieman_key, monkeypatch):
-    def sse_factory(provider, token):
+    def sse_factory(provider, token, route=None):
         def post(payload, sid):
             if payload.get('method') == 'tools/list':
                 return _fake_response({'result': {'tools': _TOOLS}}, sse=True)
@@ -134,3 +134,40 @@ def test_tzzb_tool_for_refuses_unsampled_tools():
     provider = TzzbProvider()
     with pytest.raises(KeyError):
         provider.tool_for('list_accounts')
+
+
+def test_qieman_oauth_credential_routes_to_partner_gateway(fake_upstream_tools, db):
+    """OAuth 凭据的 verify 必须打 partner 网关 + Bearer，不能拿去平台端点（#3304）。"""
+    save_oauth_token(
+        1, 'qieman', access_token='oauth-token-1', token_endpoint='https://stargate-partner.yingmi.com/oauth/token'
+    )
+
+    check_connection('qieman', 1)
+
+    # 桩收到 route = (partner 端点, Bearer 头)；Origin/Referer 齐全（WAF 判来源）
+    route = fake_upstream_tools[0]['route']
+    assert route is not None
+    url, headers = route
+    assert url == 'https://stargate-partner.yingmi.com/mcp/v2/oauth/qieman'
+    assert headers['Authorization'] == 'Bearer oauth-token-1'
+    assert headers['Origin'] == url
+    assert headers['Referer'] == url + '/'
+
+    # 同一 token 不能再带 x-api-key 形状（两种凭据语义不同，混用即假连接）
+    assert 'x-api-key' not in headers
+
+
+def test_qieman_static_credential_keeps_platform_endpoint(fake_upstream_tools, qieman_key):
+    """static_token 凭据走 provider 默认端点（route=None），平台数据面行为不变。"""
+    check_connection('qieman', 1)
+    assert fake_upstream_tools[0]['route'] is None
+
+
+def test_tzzb_oauth_credential_falls_back_to_default_endpoint(fake_upstream_tools, db):
+    """未登记路由的 OAuth provider（tzzb）回落默认端点——其 OAuth 与数据面同主机。"""
+    save_oauth_token(1, 'tzzb', access_token='tzzb-token-1', token_endpoint='https://tzzb.10jqka.com.cn/oauth2/token')
+
+    check_connection('tzzb', 1)
+
+    assert fake_upstream_tools[0]['route'] is None
+    assert fake_upstream_tools[0]['token'] == 'tzzb-token-1'

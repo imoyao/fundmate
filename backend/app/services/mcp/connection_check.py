@@ -12,35 +12,46 @@
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT
 from app.services.mcp.credentials import DataScope, resolve_token
 from app.services.mcp.errors import McpBadResponse, classify_http, classify_payload
+from app.services.mcp.oauth_connection_routes import resolve_connection_route
 from app.services.mcp.registry import get_provider
 from app.services.mcp.transport import McpTransport
+from app.services.mcp.user_credentials import credential_auth_type
 
 #: 校验用的能力名：不在任何 provider 的映射里，``scope_of`` 落基类默认 ``USER_PRIVATE``
 #: ⇒ ``resolve_token`` 走用户分支 —— 校验的语义就是「**用户自己的**凭据能不能调通」。
 _CHECK_CAPABILITY = 'connection_check'
 
 
-def _post_factory(provider: Any, token: str):
-    """构造传输层的 ``post`` 回调（HTTP 细节；与 wind 系适配器同形状）。"""
+def _post_factory(provider: Any, token: str, route: Optional[Tuple[str, Dict[str, str]]] = None):
+    """构造传输层的 ``post`` 回调（HTTP 细节；与 wind 系适配器同形状）。
+
+    ``route`` 是 OAuth 凭据的专用端点与鉴权头（:mod:`oauth_connection_routes`）；
+    ``None`` = provider 默认端点 + 默认鉴权头（API Key / 未登记 OAuth 路由）。
+    """
     session = requests.Session()
+    if route is None:
+        url = provider.base_url()
+        auth_headers = provider.auth_headers(token)
+    else:
+        url, auth_headers = route
 
     def post(payload: dict, sid: Optional[str]) -> requests.Response:
         headers: Dict[str, str] = {
-            **provider.auth_headers(token),
+            **auth_headers,
             'Accept': 'application/json, text/event-stream',
             'Content-Type': 'application/json',
             'User-Agent': USER_AGENT,
         }
         if sid:
             headers['Mcp-Session-Id'] = sid
-        return session.post(provider.base_url(), json=payload, headers=headers, timeout=DEFAULT_REQUEST_TIMEOUT)
+        return session.post(url, json=payload, headers=headers, timeout=DEFAULT_REQUEST_TIMEOUT)
 
     return post
 
@@ -88,7 +99,9 @@ def check_connection(provider: str, user_id: Any) -> Dict[str, Any]:
     """
     provider_obj = get_provider(provider)
     token = resolve_token(provider, DataScope.USER_PRIVATE, user_id=user_id)
-    transport: McpTransport = provider_obj.build_transport(_post_factory(provider_obj, token))
+    # OAuth 凭据与 API Key 凭据指向不同网关（#3304）：按认证方式选路
+    route = resolve_connection_route(provider, credential_auth_type(user_id, provider), token)
+    transport: McpTransport = provider_obj.build_transport(_post_factory(provider_obj, token, route))
     # 同包受控复用（见模块 docstring）：握手与请求都走传输层的既有实现
     sid = transport._ensure_session(token)
     resp = transport._post({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/list'}, sid)
