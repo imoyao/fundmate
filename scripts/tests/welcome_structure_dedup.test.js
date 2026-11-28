@@ -456,14 +456,19 @@ test('#2150：页面标题与入口文案一致（投资复盘），且路由声
     .map(n => stripComments(readFileSync(join(modulesDir, n), 'utf8')));
   const routerAll = modules.join('\n');
 
-  const declCount = (routerAll.match(/path:\s*"\/analysis"/g) || []).length;
+  // 只数**行首的** `path:` ——2026-11-28 合并后 `/asset/position-analysis` 有了
+  // `redirect: to => ({ path: "/analysis", query: to.query })`，那是重定向的**目标**
+  // 对象，不是第二份路由声明。原来 `/path:\s*"\/analysis"/` 全文匹配会把它算进去，
+  // 报「实际 2 份」的假红。收紧到行首后仍咬得住真重复（复制一份记录必然多一行
+  // 行首声明，已变异验证）。
+  const declCount = (routerAll.match(/^\s*path:\s*"\/analysis"/gm) || []).length;
   assert.strictEqual(
     declCount,
     1,
     `/analysis 路由声明必须恰好一份（重复声明会渲染两遍），实际 ${declCount} 份`
   );
   const decl = routerAll.match(
-    /path:\s*"\/analysis"[\s\S]{0,600}?title:\s*"([^"]+)"/
+    /^\s*path:\s*"\/analysis"[\s\S]{0,600}?title:\s*"([^"]+)"/m
   );
   assert.ok(decl, '/analysis 路由必须声明 title');
   const routeTitle = decl[1];
