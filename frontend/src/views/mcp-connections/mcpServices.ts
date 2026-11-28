@@ -34,7 +34,8 @@ export const MCP_SERVICES: readonly McpService[] = [
     description: "授权后可在账本精灵里直接查询投资账本的持仓与收益。",
     authType: "oauth2",
     authLabel: "浏览器授权",
-    connectHint: "将跳转到同花顺授权页，完成后自动回到本页。"
+    connectHint:
+      "在弹窗中完成授权后自动回到本页，无需离开当前页面；凭证过期后点「重新连接」即可一键静默续期。"
   },
   {
     provider: "qieman",
@@ -58,10 +59,22 @@ export function connectionState(status?: string | null): {
   return { label: "未连接", tone: "idle" };
 }
 
-/** 过期时间 → 卡片上的辅助说明；没有过期时间（API Key）返回空串 */
+/**
+ * 过期时间 → 卡片上的辅助说明；没有过期时间（API Key）返回空串。
+ * 已过期明确说「已过期」——上游凭证寿命短（同花顺约 5 分钟），到点换新属常态，
+ * 文案要与「点重新连接即可静默续期」的预期对齐，不制造「坏掉了」的恐慌。
+ */
 export function expiryHint(expiresAt?: string | null): string {
   if (!expiresAt) return "";
   const date = new Date(expiresAt);
   if (Number.isNaN(date.getTime())) return "";
-  return `授权有效期至 ${date.toLocaleDateString("zh-CN")}`;
+  const at = date.toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  return date.getTime() <= Date.now()
+    ? `授权已于 ${at} 过期，可一键静默续期`
+    : `授权有效期至 ${at}`;
 }
