@@ -413,16 +413,17 @@
 |------|------|-----------|
 | `SectionHeader` | `components/SectionHeader` | 区块统一标题行（标题 + 信息图标 + 右侧操作槽） |
 | `MetricCard` | `components/MetricCard` | 单指标卡（标题 → 大数字 + 单位 + 等级标签 → 副文案） |
-| `MetricGrid` | `components/MetricGrid` | 指标网格容器（flex 自均分，禁止右侧大片空白） |
+| `MetricGrid` | `components/MetricGrid` | 指标网格容器（auto-fit 栅格等宽分列，末行留空不拉伸） |
 | `TemperatureGaugeCard` | `components/TemperatureGaugeCard` | 温度环形卡（探市 / 温度计 / 达报三页复用，纯 SVG） |
 | `TemperatureContextCard` | `components/TemperatureContextCard` | 温度上下文解读卡（等级 + 恐惧贪婪 + 短中长期） |
 | `PageHeaderBar` | `components/PageHeaderBar` | 页面统一页头（标题 / 副标题 / 更新时间胶囊 + 可选右侧操作槽 `#action`） |
 | `PageFooter` / `MarketFooter` | `components/PageFooter` / `components/MarketFooter` | 探市 / 温度计页脚（复盘引导 + 公众号） |
 | `AppFooter`（全站页脚） | `layout/components/lay-footer` | 三栏品牌/导航/公众号 + 风险免责 + 版权 |
 
-**`MetricGrid` 响应式语义（2026-09-18 起真正生效，#1576）**：卡片最小宽度由 `--metric-basis` 控制，
+**`MetricGrid` 响应式语义（2026-09-18 起真正生效，#1576；2026-11-28 栅格化，#3272）**：卡片最小宽度由 `--metric-basis` 控制，
 三档为 `<1024px → 240px`（`bp.below("lg")`）、`<640px → 100%`（`bp.below("sm")`，每行一张卡）、
-其余 `200px`。**这三条覆盖必须写在基础声明之后**——媒体查询不改变特异性，写在前面会被
+其余 `200px`。每列等宽，featured 跨 2 列（手机档、或容器窄于 `496px` 时收回跨 1 列）；末行条目不足时留空列，不再拉伸（#3272）。
+**这三条覆盖必须写在基础声明之后**——媒体查询不改变特异性，写在前面会被
 `.metric-grid { --metric-basis: 200px }` 压掉（2026-09-17 之前正是这样静默失效的，全档实测恒为
 `200px`，详见 #1576）。同族先例见 #1557（暗色令牌被 `:root` 压掉）：**源序即语义**。
 
