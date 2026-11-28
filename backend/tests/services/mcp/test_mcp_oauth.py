@@ -30,6 +30,7 @@ def keys(monkeypatch):
     monkeypatch.setenv('MCP_CREDENTIAL_KEY', Fernet.generate_key().decode('ascii'))
     monkeypatch.setenv('MCP_CREDENTIAL_KEY_VERSION', '1')
     monkeypatch.delenv('MCP_TZZB_CLIENT_ID', raising=False)
+    monkeypatch.delenv('MCP_QIEMAN_CLIENT_ID', raising=False)
     monkeypatch.setenv('MCP_OAUTH_REDIRECT_URI', 'http://127.0.0.1:5000/api/mcp/oauth/callback/')
 
 
@@ -81,6 +82,29 @@ def test_begin_qieman_uses_partner_gateway_and_minimal_scope(keys, fake_upstream
     assert params['scope'] == ['oapqieman:level1 offline_access']
     assert params['client_id'] == ['dcr-client-123']
     assert params['code_challenge_method'] == ['S256']
+    assert params['resource'] == ['https://stargate-partner.yingmi.com/mcp/v2/oauth/qieman']
+
+
+def test_qieman_token_requests_carry_same_resource_indicator(keys, fake_upstream, two_users):
+    """RFC 8707 回归：且慢 authorize / code 换 token / refresh 必须指向同一资源。
+
+    上游强制要求 authorize 携带 resource（缺则 invalid_target），token 端点
+    同 RFC 也按资源限定 audience；只修 authorize 会在换 token 时再次失败。
+    """
+    user_id, _ = two_users
+    resource = 'https://stargate-partner.yingmi.com/mcp/v2/oauth/qieman'
+
+    result = oauth.begin('qieman', user_id)
+    assert parse_qs(urlparse(result['authorization_url']).query)['resource'] == [resource]
+    oauth.callback('qieman', result['state'], 'auth-code')
+    oauth.refresh('qieman', user_id)
+
+    token_calls = [data for url, data, _as_json in fake_upstream if url.endswith('/token')]
+    assert len(token_calls) == 2
+    assert all(data['resource'] == resource for data in token_calls)
+    # DCR 不属于 RFC 8707 登记的参数位置，注册请求不能凭空多出 resource。
+    registrations = [data for url, data, _as_json in fake_upstream if url.endswith('/register')]
+    assert all('resource' not in data for data in registrations)
 
 
 def test_begin_builds_s256_url_and_stores_encrypted_verifier(keys, fake_upstream, two_users):

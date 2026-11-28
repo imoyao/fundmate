@@ -56,6 +56,9 @@ class OAuthProviderConfig:
     registration_endpoint: str
     revocation_endpoint: Optional[str]
     scope: str = 'tools.read'
+    #: RFC 9728 发现的受保护资源标识符（RFC 8707 的 resource 参数值）。
+    #: 为空表示上游不强制资源指示，请求里就不带该参数。
+    resource: Optional[str] = None
 
     def redirect_uri(self) -> str:
         """回调地址来自环境配置（部署域名不同），默认本地开发地址。"""
@@ -75,6 +78,9 @@ PROVIDERS: Dict[str, OAuthProviderConfig] = {
     # scope 取保护资源元数据声明的 oapqieman:level1（最小权限），offline_access
     # 换取 refresh_token——上游 refresh 是否可用待真实授权后验证（tzzb 是
     # invalid_grant，不能想当然）。
+    # RFC 9728 资源发现：GET /.well-known/oauth-protected-resource/mcp/v2/oauth/qieman
+    # → {"resource": "https://stargate-partner.yingmi.com/mcp/v2/oauth/qieman"}。
+    # 该网关强制 RFC 8707：authorize 不带 resource 直接 invalid_target。
     'qieman': OAuthProviderConfig(
         name='qieman',
         authorization_endpoint='https://stargate-partner.yingmi.com/oauth/authorize',
@@ -82,6 +88,7 @@ PROVIDERS: Dict[str, OAuthProviderConfig] = {
         registration_endpoint='https://stargate-partner.yingmi.com/oauth/register',
         revocation_endpoint='https://stargate-partner.yingmi.com/oauth/revoke',
         scope='oapqieman:level1 offline_access',
+        resource='https://stargate-partner.yingmi.com/mcp/v2/oauth/qieman',
     ),
 }
 
@@ -97,6 +104,15 @@ def provider_config(provider: str) -> OAuthProviderConfig:
         return PROVIDERS[provider]
     except KeyError:
         raise ValueError(f'provider {provider!r} 不支持浏览器授权') from None
+
+
+def _resource_param(config: OAuthProviderConfig) -> Dict[str, str]:
+    """RFC 8707 资源指示：authorize 与 token 请求必须指向同一资源。
+
+    值来自上面的 RFC 9728 发现结果，不接受调用方传参（防 SSRF / 越权指定
+    audience）。DCR 不属于 RFC 8707 登记的参数位置，注册请求不带。
+    """
+    return {'resource': config.resource} if config.resource else {}
 
 
 def _http_post(url: str, data: Dict[str, Any], as_json: bool = False) -> Dict[str, Any]:
@@ -210,6 +226,7 @@ def begin(provider: str, user_id: int) -> Dict[str, Any]:
             'state': state,
             'code_challenge': challenge,
             'code_challenge_method': 'S256',
+            **_resource_param(config),
         }
     )
     return {
@@ -290,6 +307,7 @@ def callback(provider: str, state: str, code: str) -> int:
             'redirect_uri': config.redirect_uri(),
             'client_id': client_id_for(config),
             'code_verifier': verifier,
+            **_resource_param(config),
         },
     )
     access_token = payload.get('access_token')
@@ -324,6 +342,7 @@ def refresh(provider: str, user_id: int) -> None:
             'grant_type': 'refresh_token',
             'refresh_token': cred.refresh_token,
             'client_id': client_id_for(config),
+            **_resource_param(config),
         },
     )
     access_token = payload.get('access_token')
