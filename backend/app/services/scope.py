@@ -45,7 +45,7 @@ def _member_ledger_ids(db: Session, family_id: int, portfolio_id: int) -> Set[in
     }
 
 
-def _ensure_portfolio(db: Session, family_id: int, portfolio_id: int) -> None:
+def ensure_portfolio(db: Session, family_id: int, portfolio_id: int) -> None:
     """组合必须存在、未删除且属于本家庭，否则抛 `ValueError`（视图转 400）。"""
     portfolio = (
         db.query(Portfolio)
@@ -68,7 +68,7 @@ def member_ledger_ids(db: Session, family_id: int, portfolio_id: int) -> Set[int
     实体**（交易流水等，表里没有 portfolio_id 字段）只有继承这一个维度，
     组合级就是本集合。别把持仓那套语义硬套到资金流上。
     """
-    _ensure_portfolio(db, family_id, portfolio_id)
+    ensure_portfolio(db, family_id, portfolio_id)
     return _member_ledger_ids(db, family_id, portfolio_id)
 
 

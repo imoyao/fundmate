@@ -63,6 +63,10 @@ class _Result:
     def fetchall(self):
         return self._rows
 
+    def first(self):
+        """`SELECT ... .first()`（读索引定义 / 取单行）：无行返回 None。"""
+        return self._rows[0] if self._rows else None
+
     def scalar(self):
         if not self._rows:
             return 0

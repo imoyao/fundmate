@@ -601,8 +601,14 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-11-12 #3031 G4：五笔钱成员边界与分桶下沉到 allocation_breakdown.py
     # （资产行纳入 + 「未纳入」出口），并删除随实现消失的死常量 _DEFAULT_ALLOC；
     # 1417 → 1415 为真实缩减，按 --report 回写（只减不增）。
+    # D135：快照三级口径（读写两侧唯一出口）+ 组合市值聚合。summary_service 调用它，
+    # 不再自己实现 scope 过滤与 upsert。
+    "backend/app/services/snapshot_scope.py": {'lines': 130, 'max_func': 31, 'max_cc': 11},
     "backend/app/services/summary_scope.py": {'lines': 104, 'max_func': 28, 'max_cc': 6},
-    "backend/app/services/summary_service.py": {'lines': 1488, 'max_func': 102, 'max_cc': 18},
+    # 三期 D 第二版（D135）：净值快照长出组合维度。新逻辑下沉 `snapshot_scope.py`
+    # （新文件，走 NEW_FILE_LIMITS），本文件只留调用 ⇒ 1488→1473、max_func 102→99
+    # 为真实收敛（`_upsert_snapshot` 一并下沉 + 压掉并发写说明里可查的细节），按 --report 回写。
+    "backend/app/services/summary_service.py": {'lines': 1473, 'max_func': 99, 'max_cc': 18},
     "backend/app/services/symbol_scope.py": {'lines': 130, 'max_func': 36, 'max_cc': 4},
     "backend/app/services/sync/__init__.py": {'lines': 4, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/sync/bulk_ops.py": {'lines': 302, 'max_func': 86, 'max_cc': 11},
@@ -687,8 +693,14 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/core/config.py": {'lines': 20, 'max_func': 0, 'max_cc': 0},
     "backend/app/core/constants.py": {'lines': 331, 'max_func': 0, 'max_cc': 0},
     "backend/app/core/data_sources.py": {'lines': 73, 'max_func': 10, 'max_cc': 3},
-    "backend/app/core/database.py": {'lines': 908, 'max_func': 161, 'max_cc': 14},
+    # D135 唯一一处「因接线而增」：`init_db` 的单库 / 双库两条路径各多一行迁移调用
+    # （+ 按字母序的 import）。迁移本体在 `core/migrations_snapshots.py`（新文件）——
+    # 不能再往 `migrations.py` 里塞（它已 3000+ 行冻结在基线）。908→913 / 161→163。
+    "backend/app/core/database.py": {'lines': 913, 'max_func': 163, 'max_cc': 14},
     "backend/app/core/migrations_agent.py": {'lines': 89, 'max_func': 26, 'max_cc': 9},
+    # D135：asset_snapshots 组合维度（加列 + 重建唯一键）。独立成模块而不是塞进
+    # migrations.py（后者 3000+ 行冻结），与 migrations_ledgers / migrations_agent 同范式。
+    "backend/app/core/migrations_snapshots.py": {'lines': 87, 'max_func': 35, 'max_cc': 9},
     "backend/app/core/migrations_ledgers.py": {'lines': 55, 'max_func': 11, 'max_cc': 4},
     "backend/app/core/db_factory.py": {'lines': 1077, 'max_func': 63, 'max_cc': 15},
     "backend/app/core/db_utils.py": {'lines': 169, 'max_func': 53, 'max_cc': 8},

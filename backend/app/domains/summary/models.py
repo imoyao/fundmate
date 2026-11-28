@@ -14,18 +14,19 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
 
     与 D1 家庭共享层一致按 `family_id`（而非 user_id）隔离；金额一律整数分（×100）。
 
-    两级快照共存于同一张表，靠 `ledger_id` 是否为 NULL 区分：
+    三级快照共存于同一张表，靠 `ledger_id` / `portfolio_id` 是否为 NULL 区分：
 
-    - `ledger_id IS NULL`：**家庭级**快照（既有行为，支撑总资产走势）
-    - `ledger_id = N`：**账户级**快照（本卡新增，支撑账户维度走势）
+    - 两者皆 NULL：**家庭级**快照（既有行为，支撑总资产走势）
+    - `ledger_id = N`：**账户级**快照（#1181，支撑账户维度走势）
+    - `portfolio_id = N`：**组合级**快照（D135，只含该组合的持仓市值）
 
     WHY 不新建一张账户快照表：账户走势与盈亏序列最终要在同一调度器、同一时间轴取数，
     拆成两张表必然出现「某日某账户的账面值」两套口径分叉（D1 反复强调要杜绝的），
-    且 #1183 的盈亏时间序列（#1220）要复用本表基建。
+    且 #1183 的盈亏时间序列（#1220）要复用本表基建。组合级同理（D135）。
 
-    幂等 upsert 作用域 `(family_id, COALESCE(ledger_id, -1), snapshot_date)`：
-    NULL 在唯一约束中互不冲突，故用 COALESCE 落哨兵 -1，让家庭级行也参与去重
-    （与 `transactions.uq_txn_import_hash` 同范式）。
+    幂等 upsert 作用域 `(family_id, COALESCE(ledger_id,-1), COALESCE(portfolio_id,-1),
+    snapshot_date)`：NULL 在唯一约束中互不冲突，故用 COALESCE 落哨兵 -1，让家庭级行
+    也参与去重（与 `transactions.uq_txn_import_hash` 同范式）。
 
     ── 正式定位（#2132 裁决，append-only 记入 docs/spec/decisions.md D62）──
     本表记的是「**落库那一刻**的当前状态」，``snapshot_date`` 只是**一个标签**
@@ -53,10 +54,12 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
             'uq_asset_snapshots_scope',
             'family_id',
             text('COALESCE(ledger_id, -1)'),
+            text('COALESCE(portfolio_id, -1)'),
             'snapshot_date',
             unique=True,
         ),
         Index('idx_asset_snapshots_ledger_date', 'ledger_id', 'snapshot_date'),
+        Index('idx_asset_snapshots_portfolio_date', 'portfolio_id', 'snapshot_date'),
     )
 
     family_id = Column(Integer, default=1, index=True, comment='归属家庭 ID（家庭共享层隔离键）')
@@ -65,6 +68,13 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
         nullable=True,
         comment='账户ID；NULL=家庭级快照，非 NULL=该账户的账户级快照（#1181）。'
         '刻意不加外键：账户被删除时不应被历史快照阻断（与 transactions.position_id 同处理）',
+    )
+    portfolio_id = Column(
+        Integer,
+        nullable=True,
+        comment='组合ID；NULL=家庭/账户级快照，非 NULL=该组合的持仓市值快照（D135）。'
+        '只含该组合的持仓市值：通用资产与孤儿货基流水只挂账户、没有组合归属，'
+        '故 Σ组合 ≤ Σ账户 ≤ 家庭总资产（差额不是漏算）',
     )
     snapshot_date = Column(Date, nullable=False, comment='快照日期（上海时区本地日期）')
     total_assets = Column(Integer, nullable=False, comment='总资产（分）')

@@ -213,20 +213,18 @@ def create_snapshot():
 
 @bp.get('/summary/snapshots/')
 def list_snapshots():
-    """返回资产快照列表（升序），附 monthly_change_pct / yearly_change_pct 同比。
+    """返回资产快照列表（升序），附同比（基准=基准日当天或之前最近一条，积累期回 null）。
 
-    支持 `start_date` / `end_date`（含）筛选。同比基准取基准日当天或之前最近
-    一条快照；积累期无历史返回 null（前端降级展示）。分页为纯数据列表，量极小。
-
-    #1181：支持 `ledger_id` 筛选——传入返回该账户的**账户级**快照序列，
-    不传返回**家庭级**序列（既有行为不变）。
+    支持 `start_date` / `end_date`（含）。档位：`ledger_id`（#1181）/ `portfolio_id`
+    （D135）互斥、同传 400；都不传=家庭级。组合行只含持仓市值（通用资产无组合归属）。
     """
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         ledger_id = request.args.get('ledger_id', type=int)
+        portfolio_id = request.args.get('portfolio_id', type=int)
         with get_db() as db:
-            data = get_snapshots(db, get_family_id(), start_date, end_date, ledger_id)
+            data = get_snapshots(db, get_family_id(), start_date, end_date, ledger_id, portfolio_id)
         return jsonify({'data': data, 'message': 'ok'})
     except ValueError as e:
         return jsonify({'data': [], 'message': str(e), 'error_code': 1001}), 400
