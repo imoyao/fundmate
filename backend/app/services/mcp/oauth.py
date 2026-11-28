@@ -70,6 +70,19 @@ PROVIDERS: Dict[str, OAuthProviderConfig] = {
         registration_endpoint='https://tzzb.10jqka.com.cn/oauth2/register',
         revocation_endpoint='https://tzzb.10jqka.com.cn/oauth2/revoke',
     ),
+    # 盈米 partner 网关（#3304）：四端点实测自 /.well-known/openid-configuration，
+    # DCR 实测可注册（token_endpoint_auth_method=none），DPoP/PAR 均 False。
+    # scope 取保护资源元数据声明的 oapqieman:level1（最小权限），offline_access
+    # 换取 refresh_token——上游 refresh 是否可用待真实授权后验证（tzzb 是
+    # invalid_grant，不能想当然）。
+    'qieman': OAuthProviderConfig(
+        name='qieman',
+        authorization_endpoint='https://stargate-partner.yingmi.com/oauth/authorize',
+        token_endpoint='https://stargate-partner.yingmi.com/oauth/token',
+        registration_endpoint='https://stargate-partner.yingmi.com/oauth/register',
+        revocation_endpoint='https://stargate-partner.yingmi.com/oauth/revoke',
+        scope='oapqieman:level1 offline_access',
+    ),
 }
 
 
@@ -238,6 +251,29 @@ def _consume_state(provider: str, state: str) -> Tuple[int, str]:
         if not verifier:
             raise McpAuthError('授权请求数据损坏，请重新发起连接', provider='oauth')
         return row.user_id, verifier
+
+
+def provider_for_state(state: str) -> Optional[str]:
+    """回调反查 provider：上游只回 state/code，provider 在发起时绑进了 state 行。
+
+    为什么不能猜（``supported_providers()[0]``）：排序随登记顺序漂移，两家以上
+    OAuth provider 后必然拿别的服务的 state 来消费——这是双 provider 化（#3304）
+    时在测试网里现形的存量缺陷，修法就是「provider 只信 state 行」。
+    """
+    if not state or len(state) > 100:
+        return None
+    with _write_session() as db:
+        row = (
+            db.query(McpOAuthState.provider)
+            .filter(
+                and_(
+                    McpOAuthState.state == state,
+                    McpOAuthState.used_at.is_(None),
+                )
+            )
+            .first()
+        )
+        return row[0] if row else None
 
 
 def callback(provider: str, state: str, code: str) -> int:

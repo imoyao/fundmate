@@ -20,7 +20,15 @@ from app.core.validation import parse_body
 from app.domains.mcp.schemas import OAuthBeginIn, StaticTokenIn
 from app.services.mcp.connection_check import check_connection
 from app.services.mcp.errors import McpAuthError, McpError, McpUserTokenMissing
-from app.services.mcp.oauth import begin, callback, client_id_for, provider_config, revoke, supported_providers
+from app.services.mcp.oauth import (
+    begin,
+    callback,
+    client_id_for,
+    provider_config,
+    provider_for_state,
+    revoke,
+    supported_providers,
+)
 from app.services.mcp.registry import get_provider, provider_names
 from app.services.mcp.tools_catalog import list_tools, sync_tools
 from app.services.mcp.user_credentials import delete_credential, list_connections, save_static_token
@@ -157,8 +165,12 @@ def oauth_callback():
     except ValidationError:
         abort(400, description='授权回调参数不完整')
 
-    # provider 只从 state 记录里读，不信查询参数（回调 URL 是用户可控的）。
-    provider = request.args.get('provider') or supported_providers()[0]
+    # provider 只从 state 记录里读，不信查询参数（回调 URL 是用户可控的）；
+    # 上游回调只带 state/code，所以 provider 从发起时绑定的 state 行反查——
+    # 不能按登记顺序猜（#3304 起 OAuth provider 有两家，排序即事故）。
+    provider = request.args.get('provider') or provider_for_state(query.state)
+    if not provider:
+        abort(400, description='授权回调参数不完整')
     try:
         provider_config(provider)
         callback(provider, query.state, query.code)

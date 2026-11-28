@@ -142,7 +142,8 @@ def test_oauth_callback_redirect_honors_env_override(client, fake_upstream, monk
 
 
 def test_oauth_begin_rejects_non_oauth_provider(client):
-    resp = client.post('/api/mcp/oauth/begin/', json={'provider': 'qieman'})
+    # qieman 已升级为 OAuth provider（#3304）；「只读数据面」的 wind 仍应被拒
+    resp = client.post('/api/mcp/oauth/begin/', json={'provider': 'wind'})
     assert resp.status_code == 422
 
 
@@ -152,7 +153,7 @@ def _stub_upstream_tools(monkeypatch):
 
     from app.services.mcp import connection_check
 
-    def factory(provider, token):
+    def factory(provider, token, route=None):
         def post(payload, sid):
             method = payload.get('method')
             if method == 'tools/list':

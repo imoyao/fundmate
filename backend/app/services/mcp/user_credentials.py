@@ -51,6 +51,8 @@ AUTH_TYPES = ('oauth2', 'static_token')
 #: 新增服务必须在这里显式登记 https 域名，不接受用户自带 URL。
 _TOKEN_ENDPOINT_HOSTS: Dict[str, str] = {
     'tzzb': 'tzzb.10jqka.com.cn',
+    # 盈米 partner 网关（#3304）：且慢 OAuth 授权/刷新/撤销都打这台
+    'qieman': 'stargate-partner.yingmi.com',
 }
 
 #: state / PKCE 的一次性参数有效期（授权编排层复用）。
@@ -270,6 +272,30 @@ def save_oauth_token(
 def save_static_token(user_id: int, provider: str, api_key: str) -> UserMcpCredential:
     """用户在连接管理页粘贴 API Key 的写入口（无过期、无刷新、无 URL）。"""
     return save_credential(user_id, provider, auth_type='static_token', token=api_key)
+
+
+def credential_auth_type(user_id: Any, provider: str) -> Optional[str]:
+    """读凭据的认证方式（纯列值，不解密、不看过期）。
+
+    verify 路由用（#3304）：同一 provider 的 oauth2 与 static_token 凭据指向
+    **不同网关**（用户私有 partner 端点 vs 平台端点），按认证方式选路。
+    无凭据返回 ``None``——调用方据此回落 provider 默认端点。
+    """
+    uid = _coerce_user_id(user_id)
+    if uid is None or not provider:
+        return None
+    with user_session() as db:
+        row = (
+            db.query(UserMcpCredential.auth_type)
+            .filter(
+                and_(
+                    UserMcpCredential.user_id == uid,
+                    UserMcpCredential.provider == provider,
+                )
+            )
+            .first()
+        )
+        return row[0] if row else None
 
 
 def load_credential(user_id: Any, provider: str, allow_expired: bool = False) -> Optional[UserCredential]:

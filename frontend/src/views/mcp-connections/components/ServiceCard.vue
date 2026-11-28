@@ -37,26 +37,13 @@
       上次连接异常，建议重新连接
     </p>
 
-    <div
+    <ApiKeyField
       v-if="showKeyInput && state.tone !== 'connected'"
       class="mcp-card__key"
-    >
-      <el-input
-        v-model="apiKey"
-        type="password"
-        show-password
-        clearable
-        autocomplete="off"
-        placeholder="粘贴 API Key"
-        @keyup.enter="onSaveKey"
-      />
-      <div class="mcp-card__key-actions">
-        <el-button type="primary" :loading="pending" @click="onSaveKey">
-          保存
-        </el-button>
-        <el-button :disabled="pending" @click="onCancelKey">取消</el-button>
-      </div>
-    </div>
+      :pending="pending"
+      @save="onSaveKey"
+      @cancel="showKeyInput = false"
+    />
 
     <div
       v-if="state.tone === 'connected' || !showKeyInput"
@@ -91,6 +78,14 @@
       <el-button v-else type="primary" :loading="pending" @click="onConnect">
         {{ state.tone === "problem" ? "重新连接" : "连接" }}
       </el-button>
+      <!-- 双通道服务（且慢）：OAuth 为主，API Key 作显式次入口，不与主按钮并列抢焦点 -->
+      <el-button
+        v-if="service.staticFallback && !showKeyInput"
+        :disabled="pending"
+        @click="showKeyInput = true"
+      >
+        改用 API Key
+      </el-button>
       <!-- 曾连接过（现过期/异常）时保留断开入口：#3296 的语义——过期恰恰是
            最需要断开的时刻，换连接方式必须先断开，不能只给「重新连接」一条路 -->
       <el-button
@@ -120,6 +115,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { McpConnection, McpToolInfo } from "@/api/mcp";
+import ApiKeyField from "./ApiKeyField.vue";
 import ToolList from "./ToolList.vue";
 import {
   connectionState,
@@ -149,7 +145,6 @@ const emit = defineEmits<{
   verify: [provider: string];
 }>();
 
-const apiKey = ref("");
 const showKeyInput = ref(false);
 const tools = computed(() => props.tools);
 
@@ -179,16 +174,8 @@ function onConnect(): void {
   showKeyInput.value = true;
 }
 
-function onSaveKey(): void {
-  const key = apiKey.value.trim();
-  if (!key) return;
+function onSaveKey(key: string): void {
   emit("connect-static", { provider: props.service.provider, apiKey: key });
-  apiKey.value = "";
-  showKeyInput.value = false;
-}
-
-function onCancelKey(): void {
-  apiKey.value = "";
   showKeyInput.value = false;
 }
 </script>
@@ -281,18 +268,6 @@ function onCancelKey(): void {
 
 .mcp-card__hint--warn {
   color: var(--el-color-warning);
-}
-
-.mcp-card__key {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.mcp-card__key-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
 }
 
 .mcp-card__actions {

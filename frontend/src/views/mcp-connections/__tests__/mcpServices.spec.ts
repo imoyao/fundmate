@@ -12,6 +12,7 @@ import {
   expiryHint,
   isExpired,
   isExpiringSoon,
+  MCP_SERVICES,
   serviceName,
   toolCapLabel,
   toolDisplayMeta,
@@ -126,6 +127,20 @@ describe("serviceName", () => {
 
   it("未登记 provider 返回兜底名，不猜", () => {
     expect(serviceName("nope")).toBe("该服务");
+  });
+});
+
+describe("MCP_SERVICES 登记（前后端同步的契约）", () => {
+  it("qieman 双通道：OAuth 为主，API Key 显式兜底（#3304）", () => {
+    const qieman = MCP_SERVICES.find(item => item.provider === "qieman");
+    expect(qieman?.authType).toBe("oauth2");
+    expect(qieman?.staticFallback).toBe(true);
+  });
+
+  it("tzzb 单通道 OAuth，不出 API Key 兜底（上游没有 Key 体系）", () => {
+    const tzzb = MCP_SERVICES.find(item => item.provider === "tzzb");
+    expect(tzzb?.authType).toBe("oauth2");
+    expect(tzzb?.staticFallback).toBeUndefined();
   });
 });
 
