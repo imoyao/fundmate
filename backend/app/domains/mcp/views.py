@@ -13,7 +13,7 @@ import os
 from urllib.parse import urlencode
 
 from apiflask import APIBlueprint
-from flask import abort, g, jsonify, redirect, request
+from flask import abort, current_app, g, jsonify, redirect, request
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.validation import parse_body
@@ -21,7 +21,8 @@ from app.domains.mcp.schemas import OAuthBeginIn, StaticTokenIn
 from app.services.mcp.connection_check import check_connection
 from app.services.mcp.errors import McpAuthError, McpError, McpUserTokenMissing
 from app.services.mcp.oauth import begin, callback, client_id_for, provider_config, revoke, supported_providers
-from app.services.mcp.registry import provider_names
+from app.services.mcp.registry import get_provider, provider_names
+from app.services.mcp.tools_catalog import list_tools, sync_tools
 from app.services.mcp.user_credentials import delete_credential, list_connections, save_static_token
 
 mcp_bp = APIBlueprint('mcp', __name__, url_prefix='/api/mcp')
@@ -101,7 +102,7 @@ def verify_connection(provider: str):
     """
     _known_provider(provider)
     try:
-        return jsonify({'data': check_connection(provider, _user_id()), 'message': 'ok'})
+        result = check_connection(provider, _user_id())
     except McpUserTokenMissing as exc:
         abort(422, description=exc.user_message)
     except McpAuthError as exc:
@@ -111,6 +112,30 @@ def verify_connection(provider: str):
     except McpError as exc:
         # 其余上游失败不是客户端的错：502 保留「这不是你填错了」的语义
         abort(502, description=exc.user_message)
+    # 校验成功顺手全量对齐工具目录（S5g）：目录落库失败不该让校验白跑，
+    # 但也不能吞掉无声丢数据 —— 记日志、verify 结果照常返回。
+    try:
+        sync_tools(provider, result['tools'])
+    except Exception:  # noqa: BLE001  # 目录是旁路缓存，任何库异常都不阻断校验响应
+        current_app.logger.exception(f'工具目录落库失败 provider={provider}')
+    return jsonify({'data': result, 'message': 'ok'})
+
+
+@mcp_bp.get('/connections/<provider>/tools/')
+def list_provider_tools(provider: str):
+    """返回该服务已采样的工具目录（附 Fund Mate 能力标注，S5g）。
+
+    目录是 provider 级共享缓存：未采样过返回空列表（前端显示「尚未采样」），
+    不触发上游调用 —— 采样的唯一入口是 verify。
+    """
+    _known_provider(provider)
+    provider_obj = get_provider(provider)
+    capabilities = getattr(provider_obj, 'tool_capabilities', {})
+    tools = [
+        {**tool, 'capabilities': [capabilities[tool['name']]] if tool['name'] in capabilities else []}
+        for tool in list_tools(provider)
+    ]
+    return jsonify({'data': {'provider': provider, 'tools': tools}, 'message': 'ok'})
 
 
 @mcp_bp.post('/oauth/begin/')

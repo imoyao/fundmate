@@ -99,6 +99,19 @@ export function verifyButtonLabel(
   return verify.status === "ok" ? "再验一次" : "重新验证";
 }
 
+/** 能力清单折叠钮文案：展开 / 收起两态，计数让「有多少工具」不点开也知道 */
+export function toolsToggleLabel(open: boolean, count: number): string {
+  return open ? "收起能力清单" : `能力清单（${count}）`;
+}
+
+/**
+ * 工具的能力徽章文案：命中 Fund Mate 内部能力时「已对上：交易对账」样式。
+ * 语义是**能力映射命中**（上游工具对得上我们的某个内部能力），不是对账已完成。
+ */
+export function toolCapLabel(capabilities: string[]): string {
+  return capabilities.length ? `已对上：${capabilities.join("、")}` : "";
+}
+
 /**
  * 过期时间 → 卡片上的辅助说明；没有过期时间（API Key）返回空串。
  * 已过期明确说「已过期」——上游凭证寿命短（同花顺约 5 分钟），到点换新属常态，

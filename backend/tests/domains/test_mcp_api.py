@@ -194,3 +194,34 @@ def test_verify_returns_upstream_tools(client, db, monkeypatch):
 
 def test_verify_rejects_unknown_provider(client):
     assert client.post('/api/mcp/connections/nope/verify/').status_code == 422
+
+
+def test_verify_persists_tool_catalog(client, db, monkeypatch):
+    """verify 成功后工具目录落库（S5g）——断网/未在线也能从库里读回。"""
+    from app.services.mcp.tools_catalog import list_tools
+
+    _stub_upstream_tools(monkeypatch)
+    save_static_token(1, 'qieman', 'user-key-1')
+    assert client.post('/api/mcp/connections/qieman/verify/').status_code == 200
+    assert [tool['name'] for tool in list_tools('qieman')] == ['list_accounts']
+
+
+def test_tools_endpoint_annotates_capabilities(client, db, monkeypatch):
+    """目录端点：库里工具附能力标注；未命中的工具 capabilities 为空数组。"""
+    from app.services.mcp.tools_catalog import sync_tools
+
+    # tzzb 真机采样过的名字 queryFundAccount → 账户管理；未登记名字无标注
+    sync_tools(
+        'tzzb',
+        [{'name': 'queryFundAccount', 'description': '查询账户'}, {'name': 'unknown_tool', 'description': '未登记'}],
+    )
+    resp = client.get('/api/mcp/connections/tzzb/tools/')
+    assert resp.status_code == 200
+    tools = resp.get_json()['data']['tools']
+    by_name = {tool['name']: tool for tool in tools}
+    assert by_name['queryFundAccount']['capabilities'] == ['账户管理']
+    assert by_name['unknown_tool']['capabilities'] == []
+
+
+def test_tools_endpoint_rejects_unknown_provider(client):
+    assert client.get('/api/mcp/connections/nope/tools/').status_code == 422

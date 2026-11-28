@@ -206,6 +206,40 @@ login_status, last_checked_at)` 记录状态，供管理页显示。
 **权限**：所有端点按 `g.current_user.id` 取用户，禁止接受 body 里的 `user_id`
 （否则水平越权）。这是多用户隔离的落点。
 
+### 5.1 工具目录落库与能力标注（S5g，新增）
+
+连接校验（S5f）拿到的 `tools/list` 只活在响应里，页面一刷新就没了；
+上游 15 个工具的名字和描述必须持久化，才能支撑「能力高亮」与后续对账。
+
+**表：`mcp_provider_tools`**（provider 级共享缓存，服务级一行一工具）
+
+| 列 | 说明 |
+|---|---|
+| provider | 服务名（tzzb / ttskill…） |
+| tool_name | 工具名（如 `queryAssetChangeSummary`） |
+| description | 上游给的描述原文 |
+| fetched_at | 最近一次采样的 UTC 时间 |
+
+约束：`(provider, tool_name)` 唯一。**无 user_id** —— 工具清单是服务的属性，
+不是用户数据（与 `mcp_oauth_clients` 同理），任何用户 verify 成功都会刷新这份缓存。
+
+**写入时机**：`POST /connections/<provider>/verify/` 成功后 upsert 全量工具
+（新增的插入、描述变化的更新、上游已下线的删除 —— 以当次响应为准做全量对齐）。
+
+**能力标注**：provider 模块登记 `TOOL_CAPABILITIES`（工具名 → Fund Mate 内部能力标签），
+沿用「没有真机采过样的工具名不进映射」纪律（tzzb §注释）。典型登记：
+
+- `queryAssetChangeSummary` → 交易对账（与内部流水逐笔核对，对账落地的候选工具）
+- `queryDayProfitSummary` → 每日收益
+- `queryDayCalendarSummary` → 收益日历
+- `queryClearedPosition` → 清仓周期
+- `queryFundAccount` / `promptAccountSelection` → 账户管理
+
+**读取端点**：`GET /api/mcp/connections/<provider>/tools/` 返回库里的工具清单，
+每项附 `capabilities`（命中的内部能力标签数组）。前端在连接卡片上展开展示：
+未命中的工具正常列出，命中的高亮「Fund Mate 已支持」徽章 —— 高亮语义是
+**「这个上游工具对得上我们的某个内部能力」**，不是已经完成了对账。
+
 ## 6. 已知边界与必须先拍板的事
 
 1. **CLI 扫码的宿主限制**：`ttskill login` 需要打开本机浏览器并等待扫码。
@@ -228,6 +262,7 @@ login_status, last_checked_at)` 记录状态，供管理页显示。
 | S5c | 连接管理 API + 前端设置页 | A 用户看不到 B 用户的连接；断开后再调用抛 `McpUserTokenMissing` |
 | S5d | 天天基金 CLI 连接层 | `ttskill login` 可拉起；`cli_login_required` 能被探测并提示 |
 | S5e | 付费门禁（若决定做） | 无 Pro 时连接页提示升级，凭据表不写明文 |
+| S5g | `mcp_provider_tools` 落库 + `GET tools/` 端点 + 前端能力高亮 | verify 后表里有全量工具；断网后端点仍能从库里返回上次采样 |
 
 ## 8. 与现有文档的关系
 

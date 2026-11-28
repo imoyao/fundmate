@@ -516,6 +516,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'user_mcp_credentials': DOMAIN_USER,  # 用户 MCP 凭据（S5）：含 user_id + 密文，绝不落市场库
     'mcp_oauth_states': DOMAIN_USER,  # OAuth 一次性 state（S5b）：含 user_id + 加密 verifier
     'mcp_oauth_clients': DOMAIN_USER,  # DCR 注册结果（服务级，provider 唯一；重启复用）
+    'mcp_provider_tools': DOMAIN_USER,  # 工具目录采样缓存（服务级，S5g；与 OAuth 编排同域）
     'family_members': DOMAIN_USER,  # 家庭成员档案（#1173，含 family_id；与 users 登录账号解耦）
     'user_preferences': DOMAIN_USER,  # 用户私有偏好键值（#1337，按 user_id，非 family）
     'auth_audit': DOMAIN_USER,  # 身份类事件审计台账（D76 / #2780；Supabase 侧 auth.users 触发器同库写入）

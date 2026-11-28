@@ -70,3 +70,19 @@ export function verifyMcpConnection(provider: string) {
     `/api/mcp/connections/${encodeURIComponent(provider)}/verify/`
   );
 }
+
+/** 工具目录条目（GET tools/）：capabilities = 命中的 Fund Mate 内部能力标签（能力高亮） */
+export type McpToolInfo = {
+  name: string;
+  description: string;
+  fetched_at: string;
+  capabilities: string[];
+};
+
+/** 读工具目录（provider 级共享缓存）：不触发上游调用，未采样过为空数组 */
+export function fetchMcpTools(provider: string) {
+  return http.request<McpEnvelope<{ provider: string; tools: McpToolInfo[] }>>(
+    "get",
+    `/api/mcp/connections/${encodeURIComponent(provider)}/tools/`
+  );
+}
