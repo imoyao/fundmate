@@ -10,7 +10,7 @@
   <div class="mcp-page">
     <PageHeaderBar
       title="数据连接"
-      subtitle="连接第三方投资服务后，账本精灵就能直接查询这些账户的数据。"
+      subtitle="连接第三方投资服务后，可在这里验证连接并查看它能提供的数据能力。"
     />
 
     <div class="mcp-shell">
@@ -36,9 +36,11 @@
             :service="item"
             :connection="item.connection"
             :pending="pending.includes(item.provider)"
+            :verify="verifyState(item.provider)"
             @connect-oauth="connectOAuth"
             @connect-static="onConnectStatic"
             @disconnect="disconnect"
+            @verify="onVerify"
           />
         </div>
       </section>
@@ -84,11 +86,17 @@ const {
   connectOAuth,
   connectStatic,
   disconnect,
+  verify,
+  verifyState,
   clearNotice
 } = useMcpConnections();
 
 function onConnectStatic(payload: { provider: string; apiKey: string }): void {
   void connectStatic(payload.provider, payload.apiKey);
+}
+
+function onVerify(provider: string): void {
+  void verify(provider);
 }
 
 onMounted(() => {

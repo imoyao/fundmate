@@ -3,6 +3,8 @@
 
   两条连接方式的差异只在这里出现一次：OAuth 点「连接」直接发事件由父层跳浏览器；
   API Key 先展开输入框、保存后清空（不回显、不落 localStorage），再交给父层入库。
+  展开输入框期间隐藏「连接」主按钮 —— 保存 / 取消就是这一步的全部动作，
+  两个主按钮同屏会让「下一步是哪个」无法判断（实测截图反馈）。
 -->
 <template>
   <article class="mcp-card" :data-provider="service.provider">
@@ -50,18 +52,37 @@
       </div>
     </div>
 
-    <div class="mcp-card__actions">
-      <el-button
-        v-if="state.tone === 'connected'"
-        :loading="pending"
-        @click="emit('disconnect', service.provider)"
-      >
-        断开连接
-      </el-button>
+    <div
+      v-if="state.tone === 'connected' || !showKeyInput"
+      class="mcp-card__actions"
+    >
+      <template v-if="state.tone === 'connected'">
+        <el-button
+          :loading="verifyLoading"
+          :disabled="pending"
+          @click="emit('verify', service.provider)"
+        >
+          {{ verifyLabel }}
+        </el-button>
+        <el-button
+          :loading="pending"
+          @click="emit('disconnect', service.provider)"
+        >
+          断开连接
+        </el-button>
+      </template>
       <el-button v-else type="primary" :loading="pending" @click="onConnect">
         {{ state.tone === "problem" ? "重新连接" : "连接" }}
       </el-button>
     </div>
+
+    <p
+      v-if="verify"
+      class="mcp-card__verify"
+      :class="{ 'mcp-card__verify--fail': verify.status === 'fail' }"
+    >
+      {{ verify.text || "正在验证连接…" }}
+    </p>
 
     <p class="mcp-card__tip">{{ service.connectHint }}</p>
   </article>
@@ -70,7 +91,13 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { McpConnection } from "@/api/mcp";
-import { connectionState, expiryHint, type McpService } from "../mcpServices";
+import {
+  connectionState,
+  expiryHint,
+  type McpService,
+  verifyButtonLabel
+} from "../mcpServices";
+import type { McpVerifyState } from "../useMcpConnections";
 
 defineOptions({ name: "McpServiceCard" });
 
@@ -78,12 +105,14 @@ const props = defineProps<{
   service: McpService;
   connection: McpConnection | null;
   pending: boolean;
+  verify: McpVerifyState | null;
 }>();
 
 const emit = defineEmits<{
   "connect-oauth": [provider: string];
   "connect-static": [payload: { provider: string; apiKey: string }];
   disconnect: [provider: string];
+  verify: [provider: string];
 }>();
 
 const apiKey = ref("");
@@ -91,6 +120,8 @@ const showKeyInput = ref(false);
 
 const state = computed(() => connectionState(props.connection?.status));
 const expiry = computed(() => expiryHint(props.connection?.expires_at));
+const verifyLoading = computed(() => props.verify?.status === "loading");
+const verifyLabel = computed(() => verifyButtonLabel(props.verify));
 
 function onConnect(): void {
   if (props.service.authType === "oauth2") {
@@ -225,5 +256,24 @@ function onCancelKey(): void {
   margin: 0;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
+}
+
+.mcp-card__verify {
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  background-color: var(--bg-subtle);
+  border-radius: 10px;
+}
+
+.mcp-card__verify--fail {
+  color: var(--el-color-warning);
+  background-color: color-mix(
+    in srgb,
+    var(--el-color-warning) 10%,
+    transparent
+  );
 }
 </style>

@@ -31,7 +31,8 @@ export const MCP_SERVICES: readonly McpService[] = [
   {
     provider: "tzzb",
     name: "同花顺投资账本",
-    description: "授权后可在账本精灵里直接查询投资账本的持仓与收益。",
+    description:
+      "授权同花顺投资账本后，可验证连接并查看上游提供的全部数据工具（账户、持仓、盈亏、流水等）。",
     authType: "oauth2",
     authLabel: "浏览器授权",
     connectHint:
@@ -40,7 +41,8 @@ export const MCP_SERVICES: readonly McpService[] = [
   {
     provider: "qieman",
     name: "且慢",
-    description: "填入且慢的 API Key，即可在账本精灵里查询你的且慢账户。",
+    description:
+      "填入且慢的 API Key 后，可验证连接并查看上游提供的数据工具（市场温度、组合持仓与净值等）。",
     authType: "static_token",
     authLabel: "API Key",
     connectHint: "API Key 加密保存，仅用于代表你调用且慢的数据。"
@@ -57,6 +59,15 @@ export function connectionState(status?: string | null): {
     return { label: "需要重新连接", tone: "problem" };
   }
   return { label: "未连接", tone: "idle" };
+}
+
+/** 验证按钮文案：随校验状态换字，让「正在验证 / 再验一次」一眼可辨 */
+export function verifyButtonLabel(
+  verify: { status: "loading" | "ok" | "fail" } | null
+): string {
+  if (!verify) return "验证连接";
+  if (verify.status === "loading") return "验证中…";
+  return verify.status === "ok" ? "再验一次" : "重新验证";
 }
 
 /**

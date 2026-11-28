@@ -21,13 +21,17 @@ const apiPaths = Array.from(
 );
 
 describe("MCP 接口路径前缀", () => {
-  it("覆盖 4 个前端调用的端点（callback 由后端 302，前端不调用）", () => {
+  it("覆盖 4 个字面量端点 + verify 模板路径（callback 由后端 302，前端不调用）", () => {
     expect(apiPaths).toEqual(
       expect.arrayContaining([
         "/api/mcp/connections/",
         "/api/mcp/connections/static/",
         "/api/mcp/oauth/begin/"
       ])
+    );
+    // verify 的 provider 走 encodeURIComponent 模板串，正则抓不到引号字面量，单独断言
+    expect(source).toContain(
+      "`/api/mcp/connections/${encodeURIComponent(provider)}/verify/`"
     );
   });
 

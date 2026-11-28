@@ -126,7 +126,7 @@ def client_id_for(config: OAuthProviderConfig) -> str:
         config.registration_endpoint,
         {
             'redirect_uris': [config.redirect_uri()],
-            'client_name': 'Fund Mate',
+            'client_name': '多多贝投资账本',
             'grant_types': ['authorization_code', 'refresh_token'],
             'response_types': ['code'],
             'token_endpoint_auth_method': 'none',

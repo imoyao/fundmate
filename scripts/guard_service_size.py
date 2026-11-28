@@ -479,7 +479,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/services/mcp/providers/wind_fund_data.py": {'lines': 56, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/mcp/providers/wind_index_data.py": {'lines': 65, 'max_func': 0, 'max_cc': 0},
     "backend/app/services/mcp/providers/wind_stock_data.py": {'lines': 61, 'max_func': 0, 'max_cc': 0},
-    "backend/app/services/mcp/registry.py": {'lines': 64, 'max_func': 15, 'max_cc': 3},
+    "backend/app/services/mcp/registry.py": {'lines': 63, 'max_func': 15, 'max_cc': 3},
     "backend/app/services/mcp/transport.py": {'lines': 369, 'max_func': 35, 'max_cc': 10},
     "backend/app/services/money_fund_income.py": {'lines': 303, 'max_func': 63, 'max_cc': 13},
     "backend/app/services/money_fund_yield.py": {'lines': 195, 'max_func': 84, 'max_cc': 19},

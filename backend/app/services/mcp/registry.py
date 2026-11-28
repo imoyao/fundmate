@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """MCP provider 注册表（Ports & Adapters 的 registry 侧）。
 
-范本对齐 ``app/services/adapters/advisor_source.py`` 的
-``register_advisor_source`` / ``get_advisor_source``（`:173-189`）：注册用装饰器、
+范本对齐 ``app/services/adapters/advisor_source.py`` 的 ``register_advisor_source`` / ``get_advisor_source``（`:173-189`）：注册用装饰器、
 未知名字抛明确的异常（不返回 ``None`` —— 让调用点在栈上就暴露，而不是在业务层变成空数据）。
 
 **内置 provider 惰性加载**：注册表本身不 import ``providers`` 下任何模块，
@@ -52,9 +51,9 @@ def _load_builtins() -> None:
     global _BUILTINS_LOADED
     if _BUILTINS_LOADED:
         return
-    # 局部 import：注册表不持有对 provider 的模块级依赖（见模块 docstring）
-    from app.services.mcp.providers import (  # noqa: F401  # 导入即注册
+    from app.services.mcp.providers import (  # noqa: F401  # 导入即注册；局部 import：不持有 provider 模块级依赖
         qieman,
+        tzzb,
         wind,
         wind_fund_data,
         wind_index_data,
