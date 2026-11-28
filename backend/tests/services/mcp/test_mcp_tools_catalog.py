@@ -17,14 +17,25 @@ from app.services.mcp.tools_catalog import list_tools, sync_tools
 
 
 def _rows(db, provider):
-    return {row.tool_name: row.description for row in db.query(McpProviderTool).filter(McpProviderTool.provider == provider)}
+    return {
+        row.tool_name: row.description for row in db.query(McpProviderTool).filter(McpProviderTool.provider == provider)
+    }
 
 
 def test_sync_inserts_updates_and_prunes(db):
-    sync_tools('tzzb', [{'name': 'queryFundAccount', 'description': '查询账户'}, {'name': 'old_tool', 'description': '将被下线'}])
+    sync_tools(
+        'tzzb',
+        [{'name': 'queryFundAccount', 'description': '查询账户'}, {'name': 'old_tool', 'description': '将被下线'}],
+    )
 
     # 第二次：改描述、加新工具、去掉 old_tool（模拟上游下线）
-    sync_tools('tzzb', [{'name': 'queryFundAccount', 'description': '查询账户（改版）'}, {'name': 'new_tool', 'description': '新工具'}])
+    sync_tools(
+        'tzzb',
+        [
+            {'name': 'queryFundAccount', 'description': '查询账户（改版）'},
+            {'name': 'new_tool', 'description': '新工具'},
+        ],
+    )
 
     rows = _rows(db, 'tzzb')
     assert rows == {'queryFundAccount': '查询账户（改版）', 'new_tool': '新工具'}
@@ -40,7 +51,10 @@ def test_list_tools_sorted_and_empty(db):
 
 
 def test_sync_ignores_blank_entries(db):
-    sync_tools('qieman', [{'name': '', 'description': '无名'}, {'description': '缺 name'}, {'name': 'valid', 'description': ''}])
+    sync_tools(
+        'qieman',
+        [{'name': '', 'description': '无名'}, {'description': '缺 name'}, {'name': 'valid', 'description': ''}],
+    )
     assert list(_rows(db, 'qieman')) == ['valid']
 
 

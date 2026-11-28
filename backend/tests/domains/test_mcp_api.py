@@ -211,7 +211,10 @@ def test_tools_endpoint_annotates_capabilities(client, db, monkeypatch):
     from app.services.mcp.tools_catalog import sync_tools
 
     # tzzb 真机采样过的名字 queryFundAccount → 账户管理；未登记名字无标注
-    sync_tools('tzzb', [{'name': 'queryFundAccount', 'description': '查询账户'}, {'name': 'unknown_tool', 'description': '未登记'}])
+    sync_tools(
+        'tzzb',
+        [{'name': 'queryFundAccount', 'description': '查询账户'}, {'name': 'unknown_tool', 'description': '未登记'}],
+    )
     resp = client.get('/api/mcp/connections/tzzb/tools/')
     assert resp.status_code == 200
     tools = resp.get_json()['data']['tools']
