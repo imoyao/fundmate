@@ -70,6 +70,7 @@ from app.core.migrations import (
 )
 from app.core.migrations_agent import migrate_agent_session_title
 from app.core.migrations_ledgers import migrate_ledger_visibility
+from app.core.migrations_snapshots import migrate_asset_snapshots_portfolio_scope
 
 # 保留历史符号：部分模块（如 sync/orchestrator 备份路径）仍引用，
 # 指向当前应用运行库的 URL，供文件库路径推断使用。
@@ -700,6 +701,8 @@ def init_db():
     # 取不到价的日子要能记 NULL，与「真归零」分开。SQLite 走整表重建、PG 走
     # ALTER COLUMN，两侧都在迁移函数里，幂等。
     migrate_pnl_snapshot_net_worth_nullable(user_eng)
+    # asset_snapshots 组合维度（D135）：加列 + 重建唯一键（旧键下同日两个组合行会撞）
+    migrate_asset_snapshots_portfolio_scope(user_eng)
     # 组合名唯一（2026-10-30）：portfolios 建表以来无唯一约束，同家庭可有同名组合，
     # 而列表卡片标题就是组合名。建**部分**唯一索引（只约束未删除行，软删除后可复用名字），
     # 存量重名按「保留最早一条、其余加（2）（3）」去冲突并打 WARNING 留痕。
@@ -843,6 +846,8 @@ def init_db_split():
         migrate_family_members_ownership(user_eng)
         # net_worth_cents 解除 NOT NULL（#2733 C）：与单库模式同口径，双库模式也必须改
         migrate_pnl_snapshot_net_worth_nullable(user_eng)
+        # asset_snapshots 组合维度（D135）：与单库模式同口径（PG 侧唯一键只能由迁移重建）
+        migrate_asset_snapshots_portfolio_scope(user_eng)
         # 登录标识唯一（#2764）：与单库模式同口径。双库模式下 user 引擎可能真是
         # Supabase PG，索引由本迁移补（create_all 只给新表建索引，不给存量表补）。
         migrate_users_username_unique_lower(user_eng)

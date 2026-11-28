@@ -528,6 +528,8 @@ BASELINE: dict[str, dict[str, int]] = {
     # +1 局部变量），聚合口径全在 `services/summary_service.py` 与 `services/summary_scope.py`，
     # 视图仍零 ORM 查询、零事务（orm_queries / commits / max_func 三维实测不动）。
 "backend/app/domains/summary/views.py": {
+        # 2026-11-28 重取（D135 组合快照，`/summary/snapshots/` 多一个可选 `portfolio_id`：
+        # 解析 +1 行、实参同一行；docstring 压缩抵掉 ⇒ 450 → 448，真实收敛）。
         # 2026-11-28 重取（三期 D，**给既有端点补作用域**，非放宽）：445 → 450。
         # `pnl-calendar` / `cleared-cycles` 各多一个可选 `portfolio_id`（+2 行解析、+1 行实参、
         # docstring 互斥说明 +2）；成员 / 归属解析全在 services，视图仍零查询、零事务。
@@ -579,7 +581,7 @@ BASELINE: dict[str, dict[str, int]] = {
         # 视图零新增入参、零 ORM 查询、零事务，`orm_queries` / `commits` / `max_func`
         # 实测仍 0 / 0 / 43。口径实现全在 `services/cash_flow_service.py` 与
         # `services/pnl_calendar.py`。与 #2774 / #2681 同先例。
-        "lines": 450,
+        "lines": 448,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,

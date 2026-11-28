@@ -56,6 +56,8 @@ from app.services.pnl_service import (
     realized_pnl_by_position,
 )
 from app.services.position_valuation import market_value_cents
+from app.services.scope import ensure_portfolio
+from app.services.snapshot_scope import apply_snapshot_scope, portfolio_totals, upsert_snapshot
 from app.services.summary_scope import apply_scope, effective_scope, family_scope_payload, ledger_visible
 
 # ---------------------------------------------------------------------------
@@ -978,28 +980,6 @@ def _shift_months(d: date, months: int) -> date:
     return date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
 
 
-def _upsert_snapshot(db: Session, *, family_id: int, ledger_id: int | None, snapshot_date: date) -> AssetSnapshot:
-    """按 (family_id, ledger_id, snapshot_date) 幂等 upsert 一条快照（#1181）。
-
-    家庭级行 ledger_id 为 NULL。唯一约束用 `COALESCE(ledger_id, -1)`，
-    故 NULL 也参与去重——同一天重复写入是覆盖而非新增。
-    """
-    q = db.query(AssetSnapshot).filter(
-        AssetSnapshot.family_id == family_id,
-        AssetSnapshot.snapshot_date == snapshot_date,
-    )
-    if ledger_id is None:
-        q = q.filter(AssetSnapshot.ledger_id.is_(None))
-    else:
-        q = q.filter(AssetSnapshot.ledger_id == ledger_id)
-
-    row = q.first()
-    if row is None:
-        row = AssetSnapshot(family_id=family_id, ledger_id=ledger_id, snapshot_date=snapshot_date)
-        db.add(row)
-    return row
-
-
 def family_pnl_cents(db: Session, family_id: int = 1, member_id: int | None = None) -> dict[str, int]:
     """家庭级三段盈亏（分），口径与 pnl_service 一致，供家庭级快照落库（#1220）。
 
@@ -1136,21 +1116,11 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
       与前端「已落袋表现」用的 **FIFO 配对自算**口径**并存但不等价**，
       故这四列暂不得直接展示给用户（见 docs/spec/tech-debt.md）。
 
-    并发写同一天会撞唯一索引 ``uq_asset_snapshots_scope``（family + COALESCE(ledger,-1) + date）。
-    两个写入者都可能同时存在：
-
-    - CI 的每日通道（``.github/workflows/daily-snapshot.yml``）；
-    - 前端进全景页时的兜底补写（``frontend/src/views/asset/panorama/index.vue``，
-      按本地日去重——**两台设备各去重一次，仍会同时打**）；
-    - 用户手动点「记录快照」。
-
-    撞上时后提交的一方 INSERT 违反唯一约束 ⇒ ``IntegrityError``，旧实现直接抛给调用方
-    ⇒ 手动 API 返回 500、job 计 failed（#2132 修）。
-
-    修法：**回滚后重试一次**。重试时先前的写入者多半已提交，upsert 走 UPDATE 覆盖，
-    幂等语义不变；再失败则照旧抛出——不吞问题、不假装成功。
-    回滚而非 SAVEPOINT：SQLite 的读事务在回滚前看不到对方已提交的行，
-    整段回滚才能让重试读到新事实（且本函数本就自己 commit，事务归它所有）。
+    并发写同一天会撞唯一索引 ``uq_asset_snapshots_scope``：写入者有三个（CI 每日通道
+    ``daily-snapshot.yml``、前端进全景页的兜底补写、用户手动点「记录快照」），后到者
+    INSERT 违反唯一约束 ⇒ 旧实现直接抛 500 / job failed（#2132）。修法：**回滚后重试
+    一次**——那时先到者多半已提交，upsert 走 UPDATE 覆盖；再失败照旧抛出，不假装成功。
+    回滚而非 SAVEPOINT：SQLite 的读事务在回滚前看不到对方已提交的行。
     """
     from app.core.time_utils import now_shanghai
 
@@ -1172,7 +1142,7 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
     def _write_rows() -> AssetSnapshot:
         """写入家庭级 + 账户级快照行（不 commit，由调用方决定事务边界）。"""
         # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势 + 盈亏序列
-        family_row = _upsert_snapshot(db, family_id=family_id, ledger_id=None, snapshot_date=target)
+        family_row = upsert_snapshot(db, family_id=family_id, snapshot_date=target)
         family_row.total_assets = Money.yuan_to_cents(dist['total_assets'])
         family_row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
         family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
@@ -1193,7 +1163,7 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
                 # 哨兵键 0 = 无账户归属（游离资产/持仓）。0 不是合法账户 id，落行会
                 # 污染账户维度序列；这部分金额已计入家庭级快照，故跳过不单独立行。
                 continue
-            row = _upsert_snapshot(db, family_id=family_id, ledger_id=ledger_id, snapshot_date=target)
+            row = upsert_snapshot(db, family_id=family_id, ledger_id=ledger_id, snapshot_date=target)
             row.total_assets = Money.yuan_to_cents(totals['total_assets'])
             row.total_liabilities = Money.yuan_to_cents(totals['total_liabilities'])
             row.net_worth = Money.yuan_to_cents(totals['net_worth'])
@@ -1205,6 +1175,13 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
             row.unrealized_pnl_cents = lp['unrealized_pnl_cents']
             row.total_pnl_cents = lp['total_pnl_cents']
             row.money_fund_income_cents = mf_income_by_ledger.get(ledger_id)
+
+        # 组合级快照（D135）：只含持仓市值——通用资产 / 孤儿流水没有组合归属，
+        # 故组合行 total_liabilities 恒 0，且 Σ组合 ≤ Σ账户 ≤ 家庭（差额不是漏算）。
+        for portfolio_id, cents in portfolio_totals(db, family_id).items():
+            row = upsert_snapshot(db, family_id=family_id, portfolio_id=portfolio_id, snapshot_date=target)
+            row.total_assets = row.net_worth = cents
+            row.total_liabilities = 0  # 持仓没有负债语义，通用资产也不归组合 ⇒ 恒 0
         return family_row
 
     for attempt in (1, 2):
@@ -1224,6 +1201,7 @@ def _snapshot_payload(s: AssetSnapshot) -> dict[str, Any]:
     return {
         'id': s.id,
         'ledger_id': s.ledger_id,
+        'portfolio_id': s.portfolio_id,
         'snapshot_date': s.snapshot_date.isoformat(),
         'total_assets': round(Money.cents_to_yuan(s.total_assets), 2),
         'total_liabilities': round(Money.cents_to_yuan(s.total_liabilities), 2),
@@ -1251,12 +1229,14 @@ def get_snapshots(
     start_date: str | None = None,
     end_date: str | None = None,
     ledger_id: int | None = None,
+    portfolio_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """查询资产快照列表（按日期升序），并计算每条相对上月同期 / 去年同期的同比。
 
-    ledger_id（#1181）：
-    - 传入 → 返回该**账户级**快照序列（`ledger_id = X`）
-    - 不传 → 返回**家庭级**快照序列（`ledger_id IS NULL`），保持既有行为不变
+    档位（`ledger_id` #1181 / `portfolio_id` D135，互斥、同传抛 `ValueError`）：
+    - 传 `ledger_id` → 该**账户级**序列；传 `portfolio_id` → 该**组合级**序列
+    - 都不传 → **家庭级**序列（两个维度皆 NULL），保持既有行为不变
+    - 组合行只含持仓市值（通用资产 / 孤儿流水没有组合归属，见 `services/snapshot_scope.py`）
 
     基准取「对应基准日当天或之前最近一条」快照，找不到则为 None：
     - monthly_change_pct：以上月同日为基准
@@ -1274,13 +1254,14 @@ def get_snapshots(
       与前端「已落袋表现」的 FIFO 自算口径**不等价**，故前端至今未消费这四列
       （见 docs/spec/tech-debt.md）。
     """
-    q = db.query(AssetSnapshot).filter(AssetSnapshot.family_id == family_id)
-    # 家庭级与账户级快照共存一张表，靠 ledger_id 是否为 NULL 区分。
-    # 不传时只取家庭级，否则同一天的账户行会与家庭行混进同一个走势被重复计算。
-    if ledger_id is None:
-        q = q.filter(AssetSnapshot.ledger_id.is_(None))
-    else:
-        q = q.filter(AssetSnapshot.ledger_id == ledger_id)
+    if portfolio_id is not None:
+        # 非法 / 已删除的组合必须 400（与穿透 / 归因同口径），不能安静返回空序列：
+        # 空曲线看起来是「还没记录」，而真因是「这个 id 不存在」。
+        ensure_portfolio(db, family_id, portfolio_id)
+    # 三级行共存一张表：过滤口径（含「不传时只取家庭级」）收在 snapshot_scope。
+    q = apply_snapshot_scope(
+        db.query(AssetSnapshot).filter(AssetSnapshot.family_id == family_id), ledger_id, portfolio_id
+    )
     if start_date:
         q = q.filter(AssetSnapshot.snapshot_date >= datetime.strptime(start_date, '%Y-%m-%d').date())
     if end_date:
@@ -1289,8 +1270,10 @@ def get_snapshots(
 
     results: list[dict[str, Any]] = []
     for row in rows:
-        monthly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -1), ledger_id)
-        yearly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -12), ledger_id)
+        month = _shift_months(row.snapshot_date, -1)
+        year = _shift_months(row.snapshot_date, -12)
+        monthly_base = _nearest_before(db, family_id, month, ledger_id, portfolio_id)
+        yearly_base = _nearest_before(db, family_id, year, ledger_id, portfolio_id)
         payload = _snapshot_payload(row)
         payload['monthly_change_pct'] = _pct_change(payload['net_worth'], _net_of(monthly_base))
         payload['yearly_change_pct'] = _pct_change(payload['net_worth'], _net_of(yearly_base))
@@ -1298,18 +1281,20 @@ def get_snapshots(
     return results
 
 
-def _nearest_before(db: Session, family_id: int, boundary: date, ledger_id: int | None = None) -> Any | None:
+def _nearest_before(
+    db: Session,
+    family_id: int,
+    boundary: date,
+    ledger_id: int | None = None,
+    portfolio_id: int | None = None,
+) -> Any | None:
     """取指定日期当天或之前最近的一条快照，作为同比基准。
 
-    同比基准必须与当前序列**同一作用域**（家庭级 vs 账户级），否则会拿家庭总额
-    去比账户走势，同比数字没有意义（#1181）。ledger_id 为 None 表示家庭级作用域。
+    同比基准必须与当前序列**同一档位**（家庭 / 账户 / 组合），否则会拿家庭总额
+    去比账户走势，同比数字没有意义（#1181）。两个参数皆 None = 家庭级作用域。
     """
     q = db.query(AssetSnapshot).filter(AssetSnapshot.family_id == family_id, AssetSnapshot.snapshot_date <= boundary)
-    if ledger_id is None:
-        q = q.filter(AssetSnapshot.ledger_id.is_(None))
-    else:
-        q = q.filter(AssetSnapshot.ledger_id == ledger_id)
-    return q.order_by(AssetSnapshot.snapshot_date.desc()).first()
+    return apply_snapshot_scope(q, ledger_id, portfolio_id).order_by(AssetSnapshot.snapshot_date.desc()).first()
 
 
 def _net_of(row: Any | None) -> float | None:
