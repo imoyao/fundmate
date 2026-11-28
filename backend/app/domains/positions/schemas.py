@@ -27,6 +27,7 @@ class PositionListRequest(BaseModel):
     page: int = Field(1, description='页码（1 起）')
     per_page: int = Field(20, description='每页条数')
     ledger_id: str = Field('', description="账户 ID；'null' 表示仅未归档持仓")
+    portfolio_id: str = Field('', description='组合 ID（组合档；与 ledger_id 同传取交集）')
     symbol: str = Field('', description='产品代码过滤（#1966）')
     market: str = Field('', description='市场过滤（#1966），与 symbol 组合消歧')
     member_id: str = Field('', description='家庭成员 ID 过滤（#1173），经账户间接归属')

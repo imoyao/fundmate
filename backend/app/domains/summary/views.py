@@ -240,14 +240,16 @@ def pnl_calendar():
     与 snapshots 的区别：快照记的是落库当时的状态，改持仓后历史不更新、回填还会把今天
     的值贴到历史日期上；本接口现算。`ledger_id` 同 snapshots（不传=家庭级）；#1925 加
     `granularity`（day 缺省回 `days`，month/year 回 `periods`，聚合下推），非法值回 400。
+    `portfolio_id`（组合档）与 `ledger_id` 互斥，同传 400；组合档不读物化行（见 service）。
     """
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         ledger_id = request.args.get('ledger_id', type=int)
+        portfolio_id = request.args.get('portfolio_id', type=int)
         granularity = request.args.get('granularity', GRANULARITY_DAY)
         with get_db() as db:
-            data = build_pnl_series(db, get_family_id(), start_date, end_date, ledger_id, granularity)
+            data = build_pnl_series(db, get_family_id(), start_date, end_date, ledger_id, granularity, portfolio_id)
         return jsonify({'data': data, 'message': 'ok'})
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
@@ -334,9 +336,11 @@ def cleared_cycles():
     而不是静默当成「不过滤」——静默降级会让用户以为筛选生效了。
 
     `include_post_clear`（#2773）口径与四个状态码见 services/analytics/cleared_cycles.py。
+    `portfolio_id`（组合档）与 `ledger_id` 互斥，同传 400。
     """
     try:
         ledger_id = request.args.get('ledger_id', type=int)
+        portfolio_id = request.args.get('portfolio_id', type=int)
         symbol = (request.args.get('symbol') or '').strip() or None
         include_cash = str(request.args.get('include_cash_equivalents') or '').lower() in ('1', 'true', 'yes')
         include_post_clear = str(request.args.get('include_post_clear') or '').lower() in ('1', 'true', 'yes')
@@ -345,6 +349,7 @@ def cleared_cycles():
                 db,
                 get_family_id(),
                 ledger_id=ledger_id,
+                portfolio_id=portfolio_id,
                 symbol=symbol,
                 include_cash_equivalents=include_cash,
                 start_date=request.args.get('start_date'),

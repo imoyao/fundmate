@@ -54,18 +54,23 @@ def list_positions():
     q: PositionListRequest = parse_query(PositionListRequest)
 
     with get_db() as db:
-        payload = PositionService.build_position_list(
-            db,
-            get_family_id(),
-            q.group_by,
-            q.page,
-            q.per_page,
-            q.ledger_id,
-            q.symbol,
-            q.market,
-            q.member_id,
-            visible_ledger_id_set(db),
-        )
+        try:
+            payload = PositionService.build_position_list(
+                db,
+                get_family_id(),
+                q.group_by,
+                q.page,
+                q.per_page,
+                q.ledger_id,
+                q.symbol,
+                q.market,
+                q.member_id,
+                visible_ledger_id_set(db),
+                q.portfolio_id,
+            )
+        except ValueError as e:
+            # 组合不存在 / 非本家庭 / 与 ledger_id 互斥 —— 入参问题，不是服务故障
+            abort(400, str(e))
         return jsonify({**payload, 'message': 'ok'})
 
 

@@ -100,7 +100,7 @@ from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
 )
-from app.services.scope import INCEPTION, filter_positions_by_scope, first_investment_date
+from app.services.scope import INCEPTION, filter_positions_by_scope, first_investment_date, resolve_scope_label
 
 # 终点锚校准量的注入日（D80）：它不是流水，只是把 `positions.quantity` 与
 # 流水净额之间的差额折进起始份额的技术手段。`first_txn_date`（「投资以来」起点）
@@ -644,10 +644,12 @@ def _positions(
     family_id: int,
     ledger_id: Optional[int],
     start: Optional[dt.date] = None,
+    portfolio_id: Optional[int] = None,
 ) -> List[Position]:
-    """目标持仓：family 下 active；ledger_id 传则限定该账户（账户级），不传=家庭级全量。
+    """目标持仓：family 下 active；ledger_id / portfolio_id 传则限定该作用域，都不传=家庭级全量。
 
-    与 `summary_service._load_user_assets` 的 active 过滤口径一致。
+    与 `summary_service._load_user_assets` 的 active 过滤口径一致；组合档的归属语义
+    （显式 `positions.portfolio_id` 覆盖账户继承）由 `services/scope` 统一解析。
 
     ## 历史复盘：`start` 非空时纳入「区间内曾持有」的已清仓持仓
 
@@ -687,12 +689,12 @@ def _positions(
         .all()
     }
     if not live_ids:
-        return active
+        return filter_positions_by_scope(db, family_id, active, ledger_id=ledger_id, portfolio_id=portfolio_id)
     cleared = query.filter(
         Position.ownership_status == 'cleared',
         Position.id.in_(live_ids),
     ).all()
-    return active + cleared
+    return filter_positions_by_scope(db, family_id, active + cleared, ledger_id=ledger_id, portfolio_id=portfolio_id)
 
 
 def _has_usable_cost(pos) -> bool:
@@ -984,12 +986,15 @@ def build_daily_pnl_series(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     ledger_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
 ) -> dict:
-    """逐日盈亏日历序列（家庭级 / 账户级共用同一路径）。
+    """逐日盈亏日历序列（家庭级 / 账户级 / 组合级共用同一路径）。
 
      Args:
          start_date / end_date: YYYY-MM-DD（含）。end 缺省取上海时区当日。
          ledger_id: 传则返回该账户级序列，不传返回家庭级（与 `get_snapshots` 语义一致）。
+         portfolio_id: 传则返回该组合级序列（与 `ledger_id` 互斥）。组合档**不读写物化行**：
+             `pnl_daily_snapshots` 只有 (family, ledger) 维度，按家庭键读会串味，故整段现算。
 
      Returns:
          {'ledger_id': int|None, 'scope': 'family'|'ledger', 'start_date': ..., 'end_date': ...,
@@ -1038,12 +1043,13 @@ def build_daily_pnl_series(
     # #2793：未来日不进计算。放在**所有派生之前**——下面的 coverage / 物化取行 /
     # as-of 份额 / 逐日循环全部按这个 end 办事，截断一次即可，不必逐处加日期上限。
     end = _clamp_to_today(end)
+    inception = _first_txn_date(db, family_id, ledger_id, portfolio_id)
     if start > end:
-        return _empty_payload(ledger_id, start, end, _first_txn_date(db, family_id, ledger_id))
+        return _empty_payload(ledger_id, start, end, inception, portfolio_id)
 
-    positions = _positions(db, family_id, ledger_id, start)
+    positions = _positions(db, family_id, ledger_id, start, portfolio_id)
     if not positions:
-        return _empty_payload(ledger_id, start, end, _first_txn_date(db, family_id, ledger_id))
+        return _empty_payload(ledger_id, start, end, inception, portfolio_id)
 
     # ── 状态判定集恒为家庭级全量（#1916）──
     # 丢天判定（覆盖不全 / 全无价 / 无持仓）若按账户各自计算，家庭级与各账户丢的
@@ -1059,7 +1065,8 @@ def build_daily_pnl_series(
     # 又会让当下视图被无行情老标的拖成满屏 partial。故保持与值集同源。
     # 已知限制：state 徽标随请求区间略有差异（真库副本实测年视图 243 天全 partial、单月现算 43 天 updown），
     # 但 daily_pnl 数字一致；`has_any_price` 已改判「有可算日」，不受该差异影响。
-    decision_positions = positions if ledger_id is None else _positions(db, family_id, None, start)
+    family_scope = ledger_id is None and portfolio_id is None
+    decision_positions = positions if family_scope else _positions(db, family_id, None, start)
     # 覆盖率诊断按**原始窗口**算（见 `_price_presence`）；`memoized` 只在 `request_memo()` 里生效，其余直算。
     pk = ('presence', family_id, start, end)
     no_price_ids, latest_dt = memoized(db, pk, lambda: _price_presence(db, decision_positions, start, end))
@@ -1069,7 +1076,7 @@ def build_daily_pnl_series(
 
     # ── 取物化行（含 `start - 1`：`range_rate` 的分母要区间前一天的净资产）──
     baseline_day = start - dt.timedelta(days=1)
-    cached = pnl_snapshot_store.load_days(db, family_id, ledger_id, baseline_day, end)
+    cached = {} if portfolio_id else pnl_snapshot_store.load_days(db, family_id, ledger_id, baseline_day, end)
     fresh_start = _fresh_window_start()
     for d in [d for d in cached if d >= fresh_start]:
         cached.pop(d)  # 新鲜窗内的行即使存量里有也当作没有（读时恒现算）
@@ -1105,13 +1112,14 @@ def build_daily_pnl_series(
             shares,
             txns,
         )
-        pnl_snapshot_store.save_days(
-            db,
-            family_id,
-            ledger_id,
-            computed,
-            max_date=fresh_start - dt.timedelta(days=1),
-        )
+        if not portfolio_id:
+            pnl_snapshot_store.save_days(
+                db,
+                family_id,
+                ledger_id,
+                computed,
+                max_date=fresh_start - dt.timedelta(days=1),
+            )
         computed_by_date = {dt.date.fromisoformat(m['date']): m for m in computed}
         metas = {d: _row_meta(cached[d]) for d in _date_range(baseline_day, loop_start) if d in cached}
         recomputed = len(computed)
@@ -1151,11 +1159,9 @@ def build_daily_pnl_series(
     # 历史复盘让 `positions` 随 `start` 裁剪 ⇒ 同一账户当月返回 2021-06-01、
     # 年视图返回 2020-08-28（真库副本实测），前端按当月那个展开年视图会丢掉
     # 2020 年。年视图是「投资以来」，起点必须是作用域级的唯一事实。
-    first_txn_date = _first_txn_date(db, family_id, ledger_id)
-
     logger.info(
         '收益日历派生完成 scope={} 区间={}~{} 天数={} 合计={} 物化补算={}',
-        'ledger' if ledger_id is not None else 'family',
+        resolve_scope_label(ledger_id, portfolio_id),
         start,
         end,
         len(days),
@@ -1165,7 +1171,7 @@ def build_daily_pnl_series(
 
     return {
         'ledger_id': ledger_id,
-        'scope': 'ledger' if ledger_id is not None else 'family',
+        'scope': resolve_scope_label(ledger_id, portfolio_id),
         'start_date': start.isoformat(),
         'end_date': end.isoformat(),
         'month_total': round(Money.cents_to_yuan(total_cents), 2),
@@ -1185,7 +1191,7 @@ def build_daily_pnl_series(
         'coverage': _coverage(positions, no_price_ids),
         'latest_price_date': latest_price_date,
         # 「投资以来」起点：最早一笔改变份额的流水生效日；无持仓 / 无流水时 None
-        'first_txn_date': first_txn_date,
+        'first_txn_date': inception,
         'days': days,
     }
 
@@ -1342,10 +1348,9 @@ def _compute_days(
     # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
     decision_per_pos = _build_per_pos(decision_positions, shares, txns, scan_start)
     # 值集与决策集是否**同一对象**（而非按 `ledger_id` 判）：#2135 组合级归因传入
-    # 「成员账户持仓子集 + 家庭级决策集」且 `ledger_id` 为 None，按参数判会把
-    # 决策集误当值集。家庭级调用两列表本就是同一对象（`build_daily_pnl_series`
-    # 内 `decision_positions = positions if ledger_id is None else ...`），
-    # 按身份判对既有路径逐位等价。
+    # 「成员账户持仓子集 + 家庭级决策集」，`ledger_id` 为 None；#2595 组合档日历同理
+    # （`family_scope` 为假）。按参数判会把决策集误当值集。家庭级调用两列表本就是
+    # 同一对象，按身份判对既有路径逐位等价。
     value_per_pos = (
         decision_per_pos if positions is decision_positions else _build_per_pos(positions, shares, txns, scan_start)
     )
@@ -1993,6 +1998,7 @@ def build_pnl_series(
     end_date: Optional[str] = None,
     ledger_id: Optional[int] = None,
     granularity: str = GRANULARITY_DAY,
+    portfolio_id: Optional[int] = None,
 ) -> dict:
     """按粒度取收益序列 —— 日 / 周 / 月 / 季 / 年五视图的唯一出口（#1925 → #875）。
 
@@ -2013,7 +2019,7 @@ def build_pnl_series(
         raise ValueError(f'不支持的粒度: {granularity}')
 
     if granularity == GRANULARITY_DAY:
-        payload = build_daily_pnl_series(db, family_id, start_date, end_date, ledger_id)
+        payload = build_daily_pnl_series(db, family_id, start_date, end_date, ledger_id, portfolio_id)
         payload['granularity'] = GRANULARITY_DAY
         payload['periods'] = []
         return payload
@@ -2030,6 +2036,7 @@ def build_pnl_series(
         scan_start.isoformat(),
         base_end.isoformat(),
         ledger_id,
+        portfolio_id,
     )
 
     # 基线日的净资产 = 首个期间的收益率分母（该日不在输出区间内，先取出再过滤）
@@ -2077,7 +2084,9 @@ def _has_computable_days(days: List[dict]) -> bool:
     return any(d.get('daily_pnl') is not None for d in days)
 
 
-def _first_txn_date(db: Session, family_id: int, ledger_id: Optional[int]) -> Optional[str]:
+def _first_txn_date(
+    db: Session, family_id: int, ledger_id: Optional[int], portfolio_id: Optional[int] = None
+) -> Optional[str]:
     """作用域内最早一笔**改变份额**的流水生效日（按持仓归集，与 #1916 同源）。
 
     不按 `Transaction.ledger_id` 过滤：历史遗留里存在「持仓在 A 账户、流水记在
@@ -2085,10 +2094,10 @@ def _first_txn_date(db: Session, family_id: int, ledger_id: Optional[int]) -> Op
     （含 cleared）的 id 归集，才是该账户真正的投资起点。分批 in_ 防 SQLite
     变量上限（家庭级持仓可达数百）。
     """
-    pq = db.query(Position.id).filter(Position.family_id == family_id)
+    pq = db.query(Position.id, Position.portfolio_id, Position.ledger_id).filter(Position.family_id == family_id)
     if ledger_id is not None:
         pq = pq.filter(Position.ledger_id == ledger_id)
-    pids = [r[0] for r in pq.all()]
+    pids = [r[0] for r in filter_positions_by_scope(db, family_id, pq.all(), portfolio_id=portfolio_id)]
     if not pids:
         return None
     types = tuple(_INVEST_TXN_TYPES) + tuple(_DIVEST_TXN_TYPES)
@@ -2114,6 +2123,7 @@ def _empty_payload(
     start: dt.date,
     end: dt.date,
     first_txn_date: Optional[str] = None,
+    portfolio_id: Optional[int] = None,
 ) -> dict:
     """空载荷也要带「投资以来」起点。
 
@@ -2124,7 +2134,7 @@ def _empty_payload(
     """
     return {
         'ledger_id': ledger_id,
-        'scope': 'ledger' if ledger_id is not None else 'family',
+        'scope': resolve_scope_label(ledger_id, portfolio_id),
         'start_date': start.isoformat(),
         'end_date': end.isoformat(),
         'month_total': 0.0,

@@ -386,8 +386,11 @@ BASELINE: dict[str, dict[str, int]] = {
     # 并给两个单行端点补 `assert_ledger_visible`（+2）。判定与过滤全在
     # `domains/ledgers/visibility` 与 `services/position_display`，视图仍是纯编排；
     # orm_queries / commits / max_func 三维实测不动（1 / 0 / 57）。
+    # 三期 D（给既有端点补作用域，非放宽）：298 → 303。列表端点多传一个 `q.portfolio_id`
+    # 实参（+1），并把 `ValueError`（组合不存在 / 与 ledger_id 互斥）映射成 400（+4）——
+    # 归属解析在 portfolio_service / position_display，视图仍零业务规则。
     "backend/app/domains/positions/views.py": {
-        "lines": 298,
+        "lines": 303,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 57,
@@ -525,6 +528,9 @@ BASELINE: dict[str, dict[str, int]] = {
     # +1 局部变量），聚合口径全在 `services/summary_service.py` 与 `services/summary_scope.py`，
     # 视图仍零 ORM 查询、零事务（orm_queries / commits / max_func 三维实测不动）。
 "backend/app/domains/summary/views.py": {
+        # 2026-11-28 重取（三期 D，**给既有端点补作用域**，非放宽）：445 → 450。
+        # `pnl-calendar` / `cleared-cycles` 各多一个可选 `portfolio_id`（+2 行解析、+1 行实参、
+        # docstring 互斥说明 +2）；成员 / 归属解析全在 services，视图仍零查询、零事务。
         # #2617 新增 GET /summary/position-structure/（持仓结构）后 346 → 379：
         # 该端点只做入参解析 + 调 services，无 ORM 查询、无 commit；
         # 业务口径全部在 services/position_structure.py，故只重取 lines。
@@ -573,7 +579,7 @@ BASELINE: dict[str, dict[str, int]] = {
         # 视图零新增入参、零 ORM 查询、零事务，`orm_queries` / `commits` / `max_func`
         # 实测仍 0 / 0 / 43。口径实现全在 `services/cash_flow_service.py` 与
         # `services/pnl_calendar.py`。与 #2774 / #2681 同先例。
-        "lines": 445,
+        "lines": 450,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 43,
