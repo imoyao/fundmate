@@ -6,8 +6,9 @@
   → 压在**哪个行当**（PenetrationPanel：行业穿透）
   → 走的是**哪一路 beta**（StyleDistributionCard：基金风格箱体）。
 
-  三块都**不传作用域 props**（= 家庭级，与 XIRR / 清仓周期同口径），各自取数、各自降级：
-  其中一块接口失败不会带走另外两块。与资产总览的边界见页头「结构问题归谁」表。
+  三块共用同一份作用域（`ledgerId` / `portfolioId`，都不传 = 家庭级），由本区块统一
+  透传：三块各写一遍 `:ledger-id` 就是三次漏传机会，而漏传不报错、只安静显示家庭数据
+  （#2595 的形态）。各自取数、各自降级，其中一块接口失败不会带走另外两块。
 
   为什么单独拆成组件（而不是继续写在页面里）：这个区块是「同一个问题的三个切面」，
   切面集合归它自己管，父页只负责排列顺序与锚点；父页也因此在 400 行闸门内留出了余量
@@ -15,9 +16,9 @@
 -->
 <template>
   <section id="nav-structure" class="structure-section">
-    <PositionStructurePanel />
-    <PenetrationPanel />
-    <StyleDistributionCard />
+    <PositionStructurePanel :ledger-id="ledgerId" :portfolio-id="portfolioId" />
+    <PenetrationPanel :ledger-id="ledgerId" :portfolio-id="portfolioId" />
+    <StyleDistributionCard :ledger-id="ledgerId" :portfolio-id="portfolioId" />
   </section>
 </template>
 
@@ -27,6 +28,13 @@ import PositionStructurePanel from "@/components/PositionStructurePanel/index.vu
 import StyleDistributionCard from "@/components/StyleDistributionCard/index.vue";
 
 defineOptions({ name: "AnalysisStructureSection" });
+
+defineProps<{
+  /** 账户级口径；与 portfolioId 互斥（都不传 = 家庭级） */
+  ledgerId?: number;
+  /** 组合级口径；与 ledgerId 互斥 */
+  portfolioId?: number;
+}>();
 </script>
 
 <style scoped>

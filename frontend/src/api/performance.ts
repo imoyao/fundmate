@@ -57,19 +57,30 @@ export interface XirrData {
   days_skipped?: number;
 }
 
-/** 获取收益率（scope 传 portfolio；portfolioId 省略时按家庭整体计算）
- *  @param includeCashEquivalents 是否将货币基金/逆回购/现金纳入年化收益分母；默认 false=仅算主动投资
- *  @param method 收益率方法（#871）；不传走后端默认 xirr，与历史行为一致 */
+/** 获取收益率
+ *
+ * `scope` 取值与后端 `calculate_xirr_by_scope` 的分派一一对应：
+ * - `"portfolio"` 且不传 id ⇒ **家庭整体**（历史默认，存量调用方都是这个）；
+ * - `"portfolio"` + `portfolioId` ⇒ 组合级；
+ * - `"ledger"` + `ledgerId` ⇒ **账户级**（2026-11-28；此前后端不认这个档，
+ *   传了也回家庭数，见决策 D129）。
+ *
+ * 位置参数已到 5 个，新增维度请改成 options 对象，别再往后加。
+ * @param includeCashEquivalents 是否将货币基金/逆回购/现金纳入年化收益分母；默认 false=仅算主动投资
+ * @param method 收益率方法（#871）；不传走后端默认 xirr，与历史行为一致
+ * @param ledgerId `scope="ledger"` 时的账户 id */
 export function getPortfolioXirr(
   scope: string,
   portfolioId?: number,
   includeCashEquivalents?: boolean,
-  method?: ReturnMethod
+  method?: ReturnMethod,
+  ledgerId?: number
 ) {
   const params: Record<string, string | number | boolean> = {
     scope,
     portfolio_id: portfolioId
   };
+  if (ledgerId != null) params.ledger_id = ledgerId;
   if (includeCashEquivalents != null)
     params.include_cash_equivalents = includeCashEquivalents;
   if (method != null) params.method = method;

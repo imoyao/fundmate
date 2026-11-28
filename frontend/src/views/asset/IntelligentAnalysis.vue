@@ -81,6 +81,26 @@
     </PageHeaderBar>
 
     <div class="analysis-shell">
+      <!-- 口径切换：**页级**主控（#3287），不是某个区块的控件——它决定整页 7 段
+           数据的作用域，切一次全页重取。
+           为什么吸附：滚到第 5 段时用户已经不记得选的是哪个账户，而口径错了整页
+           都是错的。「页头 action 槽」放不下这个要求——页头一滚就没了。
+           为什么是 shell 的第一个子元素：shell 用 `gap` 排子元素，gap **不作用于
+           第一个子元素的上方**；若放在中间，`top: 0` 停住时上方会留一条 48px 的
+           缝，页面内容从缝里穿过去（实测很显眼）。 -->
+      <div v-if="scopeKinds.length > 1" class="analysis-scope">
+        <ScopeBar
+          :id="scopeId"
+          :kind="scopeKind"
+          :kinds="scopeKinds"
+          :ledgers="ledgerOptions"
+          :loading="ledgerLoading"
+          :hint="scopeHint"
+          @update:kind="setScopeKind"
+          @update:id="setScopeId"
+        />
+      </div>
+
       <!-- 幽灵重复告警：属对账范畴（#2151 迁往对账中心「跨账本重复交易」域）。
            域 D 存在之前留在本页，因为「异常要看得见」优先于「归属洁癖」。 -->
       <GhostDuplicateBanner />
@@ -123,74 +143,70 @@
         :table-rows="5"
       />
 
+      <!-- 切到账户档但还没选账户：**一个区块都不渲染**。
+           给面板传 `undefined` 等于家庭级（`{}` 在面板里就是「家庭」），于是「单账户」
+           标签下会摆着全家庭的钱——本次改造要消灭的正是这种静默错口径。
+           宁可让人对着一句话，也不要让人对着错数。 -->
+      <p v-else-if="!scopeReady" class="analysis-scope-empty">
+        在上方选择一个账户后开始分析
+      </p>
+
       <div v-else class="analysis-body">
         <div ref="pageMain" class="analysis-main">
           <!-- 收益概览（真实 XIRR，无预测）#871：拆为 ReturnOverviewSection，
               自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
-          <ReturnOverviewSection id="nav-overview" ref="returnOverview" />
+          <ReturnOverviewSection
+            id="nav-overview"
+            ref="returnOverview"
+            :ledger-id="scopeProps.ledgerId"
+          />
 
           <!-- 资产净值走势：**紧跟收益数字卡**（#8）。原先排在整页最末，被 334 行
              清仓表压到第 20 屏——曲线是那 5 张卡片的「形状」，把结论与结论的形状
              隔开 17 000px，等于让用户用滚动条自己做关联。
-             本页的独占项（welcome 让出、panorama 只取快照做环比同比）；时间序列
-             本来就该满宽（横轴是日期），挤在半屏里读不出趋势。 -->
-          <section id="nav-net-worth">
-            <SectionHeader
-              title="资产净值走势"
-              info="来自每日资产快照记录，未打卡则无曲线"
-            >
-              <!-- 区间涨跌贴着标题走（#badge 槽）：它是这张图的「结论」，
-                 不该塞进右侧操作槽和控件抢位置。悬停补齐起止日期与绝对额——
-                 只报百分比时用户没法判断「涨了 3% 是多少钱」。 -->
-              <template #badge>
-                <span v-if="netWorthRange" class="net-range" :title="rangeTip">
-                  <span>区间</span>
-                  <span class="net-range__value" :style="{ color: rangeColor }">
-                    {{ rangeLabel }}
-                  </span>
-                </span>
-              </template>
-            </SectionHeader>
-            <CardBlock>
-              <div class="relative h-72">
-                <!-- 容器必须是**普通 div**：echarts.init 读的是 el.clientWidth/clientHeight，
-                   `<canvas>` 未设 CSS 尺寸时按 HTML 默认 300×150 报尺寸 ⇒ 图被画成左上角
-                   一小块（2026-11-02 复盘页实测）。宽高交给外层 h-72 + 满宽。 -->
-                <div ref="netWorthChartRef" class="h-full w-full" />
-                <p
-                  v-if="!netWorthSeries.length"
-                  class="absolute inset-0 flex items-center justify-center text-sm"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                >
-                  暂无资产快照数据
-                </p>
-              </div>
-            </CardBlock>
-          </section>
+             2026-11-28 拆为 NetWorthTrendSection：口径切换器要进页面，父页已顶在
+             400 行闸门上；拆走后曲线自己管取数 / 绘图 / 切档重取，父页只管位置。 -->
+          <NetWorthTrendSection
+            id="nav-net-worth"
+            ref="netWorth"
+            :ledger-id="scopeProps.ledgerId"
+            @latest-date="latestSnapshotDate = $event"
+          />
 
           <!-- 资金流动（2026-11-27）：紧跟净值走势——曲线的台阶就是入金 / 出金，放下面
                才对得上「这天为什么抬了一截」。`family` = 家庭级（同页统一口径）。
                ⚠️ 本块「净投入」是出入金口径（L1），与上方收益概览那张卡（买入 − 卖出，
                L2）不是同一个数，面板 ⓘ 已写明，别在这里再解释一遍。 -->
-          <CashFlowPanel id="nav-cash-flow" ref="cashFlow" family />
+          <CashFlowPanel
+            id="nav-cash-flow"
+            ref="cashFlow"
+            :ledger-id="scopeProps.ledgerId"
+            :family="scopeKind === 'family'"
+          />
 
           <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
              自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与净值走势。 -->
-          <ClearedCyclesSection id="nav-cycles" />
+          <ClearedCyclesSection
+            id="nav-cycles"
+            :ledger-id="scopeProps.ledgerId"
+          />
 
           <!-- 浮亏回本（2026-11-27）：上面三块都是已实现 / 时间维度，这块回答
                「现在亏着的还要涨多少才回本」——收益率答不了（−20% 要涨 25%）。
                放清仓复盘之后：已实现与未实现上下对照，同一屏看完「赚到的」与「欠着的」。 -->
-          <BreakEvenSection ref="breakEven" />
+          <BreakEvenSection ref="breakEven" :ledger-id="scopeProps.ledgerId" />
 
           <!-- 持仓结构（2026-11-27，用户第 9 条）：报「收益由什么构成」，三块面板与
                内部间距收在 AnalysisStructureSection 里，父页只管它在页内的位置。 -->
-          <AnalysisStructureSection />
+          <AnalysisStructureSection :ledger-id="scopeProps.ledgerId" />
 
           <!-- 货币基金收益（#947）：排最后——口径自成一套（万份收益 × 份额）且已计入
                总资产，属「补充解释」，不该占住首屏与 XIRR 抢注意力。
                取数自含（拆出 MoneyFundIncomeSection），父页只经 ref 联动刷新。 -->
-          <MoneyFundIncomeSection ref="moneyFund" />
+          <MoneyFundIncomeSection
+            ref="moneyFund"
+            :ledger-id="scopeProps.ledgerId"
+          />
         </div>
 
         <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（usePageNav 下发） -->
@@ -206,7 +222,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import GhostDuplicateBanner from "@/components/GhostDuplicateBanner/index.vue";
@@ -217,56 +233,45 @@ import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import CashFlowPanel from "@/components/CashFlowPanel/index.vue";
+import ScopeBar from "@/components/ScopeBar/index.vue";
+import { useAnalysisPageScope } from "./composables/useAnalysisPageScope";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
 import AnalysisStructureSection from "./AnalysisStructureSection.vue";
+import NetWorthTrendSection from "./NetWorthTrendSection.vue";
 import ReturnOverviewSection from "./ReturnOverviewSection.vue";
 import MoneyFundIncomeSection from "./MoneyFundIncomeSection.vue";
 import BreakEvenSection from "./BreakEvenSection.vue";
-import { useNetWorthTrend } from "./composables/useNetWorthTrend";
 import { usePageNav } from "@/composables/usePageNav";
-import { formatAmount } from "@/utils/currency";
 
 defineOptions({ name: "AssetAnalysis" });
 
 const router = useRouter();
 
-// 真实数据源：#2150 删掉 distribution / positions 两条链路后，本页只读两处 ——
-// 净值走势 /summary/snapshots/、货基 /performance/money-fund-income/；
-// 收益 /performance/xirr/ 改由 #871 拆出的 ReturnOverviewSection 自含读取（#980）。
-// 净值走势的取数 / 绘图 / 图表生命周期已收口进 useNetWorthTrend（2026-10-25，
-// 本页接页内导航后逼近 400 行门禁，拆 composable 让文件净减少）。
+// 真实数据源：本页只剩「账户列表」（供口径切换器的下拉）；其余 7 个区块全部自含取数
+// （净值 / 收益 / 资金流动 / 清仓 / 浮亏 / 结构 / 货基），父页只持 ref 做刷新联动。
+// 口径主控（档位 / 账户下拉 / 一行说明）收在 composable 里：本页已顶在 400 行闸门上，
+// 而这段与页面结构无关（详见 useAnalysisPageScope 文件头）。
 const {
-  chartRef: netWorthChartRef,
-  series: netWorthSeries,
-  latestSnapshot,
-  rangeChange: netWorthRange,
-  load: loadProfitTrend,
-  renderChart: initCharts
-} = useNetWorthTrend();
+  scopeKinds,
+  scopeKind,
+  scopeId,
+  scopeReady,
+  scopeProps,
+  setScopeKind,
+  setScopeId,
+  ledgerOptions,
+  ledgerLoading,
+  scopeHint,
+  loadLedgers
+} = useAnalysisPageScope();
 
-/** 区间涨跌幅（首末快照之差）。涨红跌绿沿用中国市场惯例，文字用 -ink 档达 AA */
-const rangeLabel = computed(() => {
-  const r = netWorthRange.value;
-  if (!r || r.pct == null) return "";
-  return `${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%`;
-});
-const rangeColor = computed(() =>
-  netWorthRange.value && netWorthRange.value.abs < 0
-    ? "var(--color-fall-ink)"
-    : "var(--color-rise-ink)"
-);
-/** 百分比之外补绝对额与起止日期：只说「涨 3%」，用户没法判断那是多少钱 */
-const rangeTip = computed(() => {
-  const r = netWorthRange.value;
-  if (!r) return "";
-  const sign = r.abs >= 0 ? "+" : "-";
-  return `${r.from} → ${r.to}，净资产 ${sign}¥${formatAmount(Math.abs(r.abs), 0)}`;
-});
 const initialLoading = ref(true);
 const loading = ref(false);
 
+/** 页头「更新时间」：净值区块拆走后由它上报（`@latest-date`），本页不再持有快照对象 */
+const latestSnapshotDate = ref("");
 const updatedAtLabel = computed(() =>
-  latestSnapshot.value ? `${latestSnapshot.value.snapshot_date} 更新` : ""
+  latestSnapshotDate.value ? `${latestSnapshotDate.value} 更新` : ""
 );
 
 // 页内导航（2026-10-25）：纵向独立区块（收益概览 / 资产净值走势 / 资金流动 / 清仓复盘 /
@@ -289,8 +294,9 @@ const {
   goTo: goToNavSection
 } = usePageNav(pageMain, { labels: NAV_LABELS });
 
-// #871 / #947：收益概览与货基收益都已拆为自含取数的子组件；本页只管净值走势，
-// 「刷新数据」经 ref 逐个显式联动（避免「本页刷新了、卡片还是旧数」）。
+// #871 / #947：收益概览、货基、净值、清仓均已自含取数；本页只持 ref，
+// 「刷新数据」逐个显式联动（避免「本页刷新了、卡片还是旧数」）。
+const netWorth = ref<InstanceType<typeof NetWorthTrendSection> | null>(null);
 const returnOverview = ref<InstanceType<typeof ReturnOverviewSection> | null>(
   null
 );
@@ -298,31 +304,32 @@ const moneyFund = ref<InstanceType<typeof MoneyFundIncomeSection> | null>(null);
 const breakEven = ref<InstanceType<typeof BreakEvenSection> | null>(null);
 const cashFlow = ref<InstanceType<typeof CashFlowPanel> | null>(null);
 
-const loadAll = () => loadProfitTrend();
-
 /** 页头「刷新数据」：真刷新，不摆样子 */
 const reloadAll = async () => {
   loading.value = true;
   try {
     await Promise.all([
-      loadAll(),
+      netWorth.value?.refresh(),
       returnOverview.value?.refresh(),
       moneyFund.value?.refresh(),
       breakEven.value?.refresh(),
       cashFlow.value?.refresh()
     ]);
-    await nextTick();
-    initCharts();
   } finally {
     loading.value = false;
   }
 };
 
+/**
+ * 首屏骨架的关闭时机 = 账户列表返回。
+ *
+ * **不能等区块的「加载完成」事件**：骨架与内容在模板里是 `v-if / v-else` 互斥的，
+ * 骨架显示期间区块没挂载、永远发不出事件（2026-11-28 走查实测卡在骨架屏的死锁）。
+ * 账户列表是父页唯一自发的请求，用它当信号；各区块随后各自取数并自管 loading 态。
+ */
 onMounted(async () => {
-  await loadAll();
+  await loadLedgers();
   initialLoading.value = false;
-  await nextTick();
-  initCharts();
 });
 
 // window resize 监听与 onBeforeUnmount 的三路 dispose 均已移交 composable（#2164）。
@@ -343,6 +350,24 @@ onMounted(async () => {
   margin: 0 auto;
 }
 
+/* 口径切换条：吸附在视口顶部（页头滚走后口径仍在视野里）。它是 shell 的**第一个**
+   子元素，gap 不作用于首个子元素上方，`top: 0` 停住时不会有 48px 缝露出内容。
+   ⚠️ 底色只能用 `--bg-surface`：内容区底两主题不同源（浅 --bg-warm / 暗 #020409）。 */
+.analysis-scope {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-block: var(--space-compact);
+  background: var(--bg-surface);
+}
+
+.analysis-scope-empty {
+  padding: var(--space-section) 0;
+  font-size: var(--el-font-size-small);
+  color: var(--text-tertiary-ink);
+  text-align: center;
+}
+
 /* 页内导航两级布局（components.md PageToc）：<xl 单列（胶囊在正文上方）；
    xl+ 主列 + 160px 右目录 rail。列间距先前沿用 --space-5（20px），比 shell 的
    区块纵向间距（48px）小一档，视觉上 rail 像贴在正文右边缘；改 --space-standard
@@ -352,9 +377,8 @@ onMounted(async () => {
   gap: var(--space-standard);
 }
 
-/* 主列 = 纵向块栈，块间距与 shell 同级（--space-section）。2026-11-27 实测修：
-   此前没有 gap，各区块间距实测 0 / −1px，只剩 SectionHeader 自带的 12px 撑着，
-   七段挤成一片（同站其它资产页的 shell 都是 flex column + 该令牌，本页漏了这一层）。 */
+/* 主列 = 纵向块栈，块间距与 shell 同级（--space-section）。2026-11-27 实测修：此前
+   没有 gap，各区块间距 0 / −1px，只剩 SectionHeader 自带的 12px 撑着，七段挤成一片。 */
 .analysis-main {
   display: flex;
   flex: 1;
@@ -363,8 +387,7 @@ onMounted(async () => {
   min-width: 0;
 }
 
-/* 跨页指路条：与区块同宽、不抢视线，靠 el-button text 承接跳转。
-   负 margin 抵消 shell 的 section 间距，让它贴在页头下方而不是自成一段。 */
+/* 跨页指路条：与区块同宽、不抢视线；负 margin 抵消 shell 间距，贴在页头下方。 */
 .analysis-crosslink {
   display: flex;
   flex-wrap: wrap;
@@ -372,28 +395,5 @@ onMounted(async () => {
   align-items: center;
   margin-top: calc(var(--space-section) * -1 + 8px);
   font-size: var(--el-font-size-small);
-}
-
-/* 区间涨跌胶囊（区块标题右侧）：中性底 + 语义色数字。
-   只让**数字**带涨跌色，前缀「区间」保持中性——整枚胶囊染色会让标题行
-   出现第二个视觉焦点，与主图的品牌色打架。 */
-.net-range {
-  display: inline-flex;
-  gap: 6px;
-  align-items: baseline;
-  padding: 2px 8px;
-  font-size: var(--text-label);
-  line-height: 1.6;
-  color: var(--text-tertiary-ink);
-  white-space: nowrap;
-  cursor: help;
-  background: var(--bg-soft);
-  border-radius: 999px;
-
-  &__value {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
 }
 </style>

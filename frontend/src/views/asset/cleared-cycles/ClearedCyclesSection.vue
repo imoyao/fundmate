@@ -77,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
@@ -119,6 +119,11 @@ const emptySummary = (): ClearedCyclesSummary => ({
   caveats: []
 });
 
+/** 账户级口径（2026-11-28，复盘页口径切换器）：不传 = 家庭级 */
+const props = defineProps<{
+  ledgerId?: number;
+}>();
+
 const cycles = ref<ClearedCycle[]>([]);
 const range = ref<ClearedRangeKey>("all");
 const summary = ref<ClearedCyclesSummary>(emptySummary());
@@ -134,6 +139,7 @@ const load = async () => {
   const seq = ++reqSeq;
   try {
     const res = await getClearedCycles({
+      ledger_id: props.ledgerId,
       start_date: rangeStartDate(range.value) ?? undefined,
       // 清仓后涨跌幅要额外查净值（锚点 + 最新），复盘页要看这列故显式开启（#2773）
       include_post_clear: true
@@ -153,6 +159,16 @@ const load = async () => {
 };
 
 onMounted(load);
+
+// 切档：清空再取（同 load 的 catch 分支理由——旧口径的数字配新标签比空态更坏）
+watch(
+  () => props.ledgerId,
+  () => {
+    cycles.value = [];
+    summary.value = emptySummary();
+    void load();
+  }
+);
 
 const formatYuan = (n: number) => `¥${formatAmount(n || 0)}`;
 const formatSignedYuan = (n: number) =>

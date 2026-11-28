@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
@@ -49,6 +49,11 @@ import {
   type MoneyFundIncomeData
 } from "@/api/performance";
 import { formatAmount } from "@/utils/currency";
+
+/** 账户级口径（2026-11-28，复盘页口径切换器）：不传 = 家庭级 */
+const props = defineProps<{
+  ledgerId?: number;
+}>();
 
 const income = ref<MoneyFundIncomeData | null>(null);
 
@@ -72,7 +77,11 @@ const todayCaption = computed(() => {
 /** 接口异常时置 null ⇒ 隐藏整块，而不是显示 0（口径见文件头） */
 const load = async () => {
   try {
-    const res = await getMoneyFundIncome({ scope: "family" });
+    const res = await getMoneyFundIncome(
+      props.ledgerId == null
+        ? { scope: "family" }
+        : { scope: "ledger", ledger_id: props.ledgerId }
+    );
     income.value = res?.data ?? null;
   } catch {
     income.value = null;
@@ -80,6 +89,15 @@ const load = async () => {
 };
 
 onMounted(load);
+
+// 切档：清空再取——留着家庭级的收益配「本账户」标签，是静默错口径
+watch(
+  () => props.ledgerId,
+  () => {
+    income.value = null;
+    void load();
+  }
+);
 
 /** 父页「刷新数据」：真刷新，不摆样子 */
 defineExpose({ refresh: load });
