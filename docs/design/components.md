@@ -264,10 +264,10 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 ## MetricGrid · 指标网格
 
-- `display: flex; flex-wrap: wrap; gap: var(--space-compact)`。
-- 子项默认 `flex: 1 1 200px`，featured 子项 `flex: 2 1 400px`。
-- 行内剩余空间由 flex 自动均分，避免出现右侧大片空白。
-- 响应式：≤960px → 最小宽度 160px；≤520px → 1 列。
+- `display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--metric-basis), 100%), 1fr))`，`gap: var(--space-compact)`。
+- 普通子项占 1 列，`.metric-card--featured` / `.gauge-card--featured` 跨 2 列。
+- 每列等宽；末行条目不足时右侧留空列，**不再由 flex-grow 把剩余卡拉成上一行的 2 倍宽**（#3272）。
+- `--metric-basis` 三档：默认 `200px`、`<1024px` → `240px`、`<640px` → `100%`（每行一张卡）。featured 在手机档、或容器窄于 `496px`（放不下两列）时收回为跨 1 列；响应式块必须写在基础声明之后（#1576）。
 
 ## PnlDualLine · 盈亏双线（#1104）
 
